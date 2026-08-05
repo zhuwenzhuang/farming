@@ -605,8 +605,8 @@ async function run() {
     await noCloseRuntime.prompt('no-close-agent-1', 'first prompt');
     await noCloseRuntime.prompt('no-close-agent-1', 'second prompt');
     assert.deepStrictEqual(noClosePrompts[0].prompt, [
-      { type: 'text', text: 'local-resource-name:no-close-agent-1' },
       { type: 'text', text: 'first prompt' },
+      { type: 'text', text: 'local-resource-name:no-close-agent-1' },
     ]);
     assert.deepStrictEqual(noClosePrompts[1].prompt, [{ type: 'text', text: 'second prompt' }]);
     assert.strictEqual(
@@ -1001,6 +1001,27 @@ async function run() {
     'steered-root',
     'a steer message must not consume the full-transcript turn limit',
   );
+  const optimisticPromptState = new AcpSessionState({
+    provider: 'codex', sessionId: 'optimistic-prompt-steer', cwd: '/tmp',
+  });
+  optimisticPromptState.beginPrompt('Root prompt');
+  optimisticPromptState.apply({ sessionId: 'optimistic-prompt-steer', update: {
+    sessionUpdate: 'user_message_chunk',
+    messageId: 'provider-steer',
+    content: { type: 'text', text: 'Steering follow-up' },
+    _meta: { codex: { steer: true, turnId: 'provider-turn' } },
+  } });
+  assert.deepStrictEqual(
+    optimisticPromptState.entries.map(entry => ({
+      text: (entry.content || []).map(content => content.text || '').join(''),
+      steer: entry._meta?.codex?.steer === true,
+    })),
+    [
+      { text: 'Root prompt', steer: false },
+      { text: 'Steering follow-up', steer: true },
+    ],
+    'a provider Steer echo must never merge into the optimistic root Prompt',
+  );
   const acceptedSteerInsertionIndex = steeredDeltaState.entries.length;
   assert.strictEqual(steeredDeltaState.recordAcceptedSteer(
     [{ type: 'text', text: 'Accepted without provider echo' }],
@@ -1057,6 +1078,46 @@ async function run() {
     },
   } });
   assert.strictEqual(sanitizedState.snapshot().entries[1].content[0].text, 'answer');
+  const entryScopedContextState = new AcpSessionState({
+    provider: 'codex', sessionId: 'entry-scoped-context', cwd: '/tmp',
+  });
+  entryScopedContextState.apply({ sessionId: 'entry-scoped-context', update: {
+    sessionUpdate: 'user_message_chunk',
+    messageId: 'visible-question',
+    content: { type: 'text', text: 'visible question' },
+  } });
+  entryScopedContextState.apply({ sessionId: 'entry-scoped-context', update: {
+    sessionUpdate: 'user_message_chunk',
+    messageId: 'private-agent-context',
+    content: {
+      type: 'text',
+      text: '<farming-agent-context>private routing state</farming-agent-context>',
+    },
+    _meta: { codex: { steer: true, turnId: 'provider-turn' } },
+  } });
+  entryScopedContextState.apply({ sessionId: 'entry-scoped-context', update: {
+    sessionUpdate: 'agent_message_chunk',
+    messageId: 'visible-answer',
+    content: { type: 'text', text: 'visible answer' },
+    _meta: { codex: { phase: 'final_answer' } },
+  } });
+  const entryScopedContextEntries = entryScopedContextState.transcriptSlice({ maxTurns: 1 }).entries;
+  assert.deepStrictEqual(
+    entryScopedContextEntries.map(entry => ({
+      role: entry.role || '',
+      internal: entry.internal === true,
+      scope: entry.internalScope || '',
+      text: (entry.content || []).map(content => content.text || '').join(''),
+    })),
+    [
+      { role: 'user', internal: false, scope: '', text: 'visible question' },
+      { role: 'user', internal: true, scope: 'entry', text: '' },
+      { role: 'assistant', internal: false, scope: '', text: 'visible answer' },
+    ],
+    'private Session context must hide only its own entry without changing the visible Turn',
+  );
+  assert.strictEqual(entryScopedContextState.isInternalEntry(entryScopedContextState.entries[1]), true);
+  assert.strictEqual(entryScopedContextState.isInternalEntry(entryScopedContextState.entries[2]), false);
   const historyImageData = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=';
   const historyImageState = new AcpSessionState({ provider: 'codex', sessionId: 'history-image', cwd: '/tmp' });
   historyImageState.apply({ sessionId: 'history-image', update: {

@@ -733,9 +733,9 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
   }
   for (const value of sessionEntries) {
     const entry = record(value)
+    if (entry.internalScope === 'entry') continue
     if (entry.type === 'message' && entry.role === 'user') {
-      if (isCodexSteerEntry(entry)) {
-        if (!current) current = emptyTurn(`acp-segment-${++sequence}`, false)
+      if (isCodexSteerEntry(entry) && current) {
         const entryId = stringValue(entry.id) || String(++sequence)
         if (current.finalMessage) {
           current.processItems.push({

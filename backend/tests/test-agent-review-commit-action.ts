@@ -38,9 +38,7 @@ const englishCopy = codeCopyForLanguage('en');
 const chineseCopy = codeCopyForLanguage('zh');
 assert.strictEqual(englishCopy.agentTranscriptReviewAndCommit, 'Commit');
 assert.strictEqual(chineseCopy.agentTranscriptReviewAndCommit, 'Commit');
-assert.match(englishCopy.agentTranscriptReviewAndCommitPrompt, /Review/);
-assert.match(englishCopy.agentTranscriptReviewAndCommitPrompt, /Commit/);
-assert.match(chineseCopy.agentTranscriptReviewAndCommitPrompt, /审查/);
-assert.match(chineseCopy.agentTranscriptReviewAndCommitPrompt, /提交/);
+assert.strictEqual(englishCopy.agentTranscriptReviewAndCommitPrompt, 'commit');
+assert.strictEqual(chineseCopy.agentTranscriptReviewAndCommitPrompt, 'commit');
 
 console.log('test-agent-review-commit-action passed');

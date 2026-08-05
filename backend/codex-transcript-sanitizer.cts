@@ -37,7 +37,7 @@ function escapeRegExp(value: unknown): string {
 
 function stripXmlishBlock(text: string, tagName: string): string {
   const escapedTag = escapeRegExp(tagName);
-  return text.replace(new RegExp(`(^|\\n)\\s*<${escapedTag}(?:\\s+[^>]*)?>[\\s\\S]*?<\\/${escapedTag}>\\s*(?=\\n|$)`, 'gi'), '$1');
+  return text.replace(new RegExp(`\\s*<${escapedTag}(?:\\s+[^>]*)?>[\\s\\S]*?<\\/${escapedTag}>\\s*`, 'gi'), '\n');
 }
 
 function xmlishTagValue(text: unknown, tagName: string): string {
@@ -230,6 +230,7 @@ function stripCodexInternalContextBlocks(value: unknown): string {
     'codex_internal_context',
     'goal_context',
     'environment_context',
+    'farming-agent-context',
     'app_specific_instructions',
     'app-context',
     'collaboration_mode',

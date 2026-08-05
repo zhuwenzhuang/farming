@@ -4,6 +4,7 @@ const {
   crtRuntimeView,
   canSwitchCrtAgentRuntime,
   isCrtRuntimeSwitchShortcut,
+  isCrtRuntimeSwitchTargetReady,
   hasCrtStructuredLocalEscapeAction,
   resolveCrtSessionKeyboardCommand,
   getCrtAgentRemovalFallback,
@@ -17,6 +18,9 @@ assert.strictEqual(formatCrtCompactTotalValue(10_000), '10K');
 
 assert.strictEqual(crtRuntimeView({ runtimeBinding: { kind: 'acp' } }), 'chat');
 assert.strictEqual(crtRuntimeView({ runtimeBinding: { kind: 'terminal' } }), 'terminal');
+assert.strictEqual(isCrtRuntimeSwitchTargetReady({ runtimeBinding: { kind: 'acp' } }, 'terminal'), false);
+assert.strictEqual(isCrtRuntimeSwitchTargetReady({ runtimeBinding: { kind: 'terminal' } }, 'terminal'), true);
+assert.strictEqual(isCrtRuntimeSwitchTargetReady({ runtimeBinding: { kind: 'acp' } }, 'chat'), true);
 
 assert.strictEqual(canSwitchCrtAgentRuntime({
   providerSessionProvider: 'codex',

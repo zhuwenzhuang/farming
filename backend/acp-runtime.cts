@@ -2917,7 +2917,7 @@ class AcpRuntime extends EventEmitter {
       binding.initializeResponse?.agentCapabilities || {},
     );
     const providerContent = binding.agentContextPending
-      ? [{ type: 'text', text: binding.agentContext }, ...content]
+      ? [...content, { type: 'text', text: binding.agentContext }]
       : content;
     const turn = this.beginTurn(binding);
     try {

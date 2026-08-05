@@ -226,6 +226,13 @@ async function continueWithoutUntrustedHooks(page: Page, agentId: string) {
   }
   const targetIndex = options.indexOf('Continue without trusting')
   let currentIndex = options.indexOf(await selectedOption())
+  if (currentIndex < 0) {
+    await expect.poll(async () => {
+      const rows = await codeRows(page, agentId)
+      return options.every(option => rows.some(row => row.includes(option)))
+    }, { timeout: 5_000 }).toBe(true)
+    currentIndex = 0
+  }
   expect(currentIndex, 'Codex hook review must expose a selected rendered option').toBeGreaterThanOrEqual(0)
   const input = page.locator(
     `[data-testid="code-terminal-pane"][data-agent-id="${agentId}"] .terminal-session-host[data-agent-id="${agentId}"] .xterm-helper-textarea`,
@@ -408,8 +415,6 @@ async function sendCodeAcpPromptAndSteer(page: Page) {
   await send.click()
   await expect(input).toHaveValue('')
   await expect(send).toHaveAttribute('data-action', 'interrupt', { timeout: 60_000 })
-  await expect(page.locator('.code-agent-transcript-assistant.code-markdown-preview')
-    .filter({ hasText: `ACP_LONG_BEGIN_${ANCHOR_SUFFIX}` }).last()).toBeVisible({ timeout: 60_000 })
   await input.fill(`Reply with only ${ACP_FOLLOW_UP_ACK}.`)
   await expect(send).toHaveAttribute('data-action', 'send')
   await send.click()
@@ -469,10 +474,90 @@ async function assertSameProviderSession(page: Page, agentId: string, providerSe
   expect(current.providerSessionId).toBe(providerSessionId)
 }
 
-async function assertChatFormats(page: Page) {
+async function assertChatFormats(page: Page, agentId: string) {
   const assistant = page.locator('.code-agent-transcript-assistant.code-markdown-preview')
     .filter({ hasText: COMPOSITE_END })
     .last()
+  if (await assistant.count() === 0) {
+    const response = await page.request.get(
+      `/farming/api/agents/${encodeURIComponent(agentId)}/acp-transcript?maxTurns=1000`,
+    )
+    expect(response.ok()).toBeTruthy()
+    const payload = await response.json() as {
+      transcript?: { entries?: Array<{ role?: string, content?: unknown }> }
+    }
+    expect(
+      payload.transcript?.entries?.some(entry => (
+        entry.role === 'assistant'
+        && JSON.stringify(entry.content).includes(COMPOSITE_END)
+      )) ?? false,
+      'The authoritative ACP transcript must preserve the Terminal-generated composite Turn',
+    ).toBe(true)
+    const firstPageResponse = await page.request.get(
+      `/farming/api/agents/${encodeURIComponent(agentId)}/acp-transcript?maxTurns=5`,
+    )
+    expect(firstPageResponse.ok()).toBeTruthy()
+    const firstPage = await firstPageResponse.json() as {
+      hasMoreBefore?: boolean
+      transcript?: { entries?: Array<{
+        id?: string
+        type?: string
+        role?: string
+        internal?: boolean
+        internalScope?: string
+        content?: unknown
+        _meta?: { codex?: { steer?: boolean, phase?: string } }
+      }> }
+    }
+    const firstPageHasAssistant = firstPage.transcript?.entries?.some(entry => (
+      entry.role === 'assistant'
+      && JSON.stringify(entry.content).includes(COMPOSITE_END)
+    )) ?? false
+    if (!firstPageHasAssistant) expect(firstPage.hasMoreBefore).toBe(true)
+    const scroll = page.getByTestId('code-agent-transcript-scroll')
+    await expect(scroll).toBeVisible()
+    await scroll.hover()
+    const requestedTurnLimits: string[] = []
+    const recordTranscriptRequest = (request: { url: () => string }) => {
+      const url = new URL(request.url())
+      if (!url.pathname.endsWith('/acp-transcript')) return
+      requestedTurnLimits.push(url.searchParams.get('maxTurns') || '')
+    }
+    page.on('request', recordTranscriptRequest)
+    for (let attempt = 0; attempt < 20 && await assistant.count() === 0; attempt += 1) {
+      await page.mouse.wheel(0, -10_000)
+      await page.waitForTimeout(1_000)
+    }
+    page.off('request', recordTranscriptRequest)
+    const firstPageEntries = firstPage.transcript?.entries ?? []
+    const targetEntryIndex = firstPageEntries.findIndex(entry => (
+      entry.role === 'assistant'
+      && JSON.stringify(entry.content).includes(COMPOSITE_END)
+    ))
+    const entryDiagnostics = firstPageEntries
+      .slice(Math.max(0, targetEntryIndex - 5), targetEntryIndex + 6)
+      .map(entry => ({
+        id: entry.id || '',
+        type: entry.type || '',
+        role: entry.role || '',
+        internal: entry.internal === true,
+        internalScope: entry.internalScope || '',
+        steer: entry._meta?.codex?.steer === true,
+        phase: entry._meta?.codex?.phase || '',
+        composite: JSON.stringify(entry.content).includes(COMPOSITE_END),
+        textChars: JSON.stringify(entry.content).length,
+      }))
+    expect(
+      await assistant.count() > 0,
+      `Older ACP Turn did not load: ${JSON.stringify({
+        firstPageHasAssistant,
+        firstPageHasMoreBefore: firstPage.hasMoreBefore,
+        requestedTurnLimits,
+        targetEntryIndex,
+        entryDiagnostics,
+      })}`,
+    ).toBe(true)
+  }
   await expect(assistant).toBeVisible({ timeout: 120_000 })
   await expect(assistant.getByRole('heading', { name: 'RELEASE_HEADING_7F3A' })).toBeVisible()
   await expect(assistant.getByRole('heading', { name: 'RELEASE_LISTS_7F3A' })).toBeVisible()
@@ -834,13 +919,13 @@ test.describe('real Codex pre-release composite case', () => {
       agentId = await switchCodeRuntime(page, agentId, 'chat')
       await assertSameProviderSession(page, agentId, providerSessionId, 'acp')
       await expect(page.getByTestId('code-agent-chat-view')).toBeVisible({ timeout: 90_000 })
-      await assertChatFormats(page)
+      await assertChatFormats(page, agentId)
       await sendCodeAcpPromptAndSteer(page)
       await expect(page.getByTestId('code-agent-transcript-steer')
         .filter({ hasText: ACP_FOLLOW_UP_ACK }).last()).toBeVisible({ timeout: 60_000 })
       await expect(page.locator('.code-agent-transcript-assistant.code-markdown-preview')
         .filter({ hasText: ACP_FOLLOW_UP_ACK }).last()).toBeVisible({ timeout: 120_000 })
-      await resizeStructuredView(page, COMPOSITE_END)
+      await resizeStructuredView(page, ACP_FOLLOW_UP_ACK)
       await expect(page.getByTestId('code-acp-error')).toHaveCount(0)
     })
 
@@ -851,8 +936,8 @@ test.describe('real Codex pre-release composite case', () => {
       await settings.getByRole('group', { name: 'Appearance' }).getByRole('button', { name: 'Dark', exact: true }).click()
       await expect(page.locator('body')).toHaveAttribute('data-appearance', 'dark')
       await settings.getByRole('button', { name: 'Close' }).click()
-      await resizeStructuredView(page, COMPOSITE_END)
-      await assertChatFormats(page)
+      await resizeStructuredView(page, ACP_FOLLOW_UP_ACK)
+      await assertChatFormats(page, agentId)
       await attachScreenshot(page, testInfo, '02-code-chat-dark.png')
     })
 

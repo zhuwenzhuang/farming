@@ -405,11 +405,6 @@ interface CodeWorkspaceProps {
   onUpdateUiPreferences: (patch: Partial<UiPreferences>) => void
 }
 
-interface TerminalFollowState {
-  following: boolean
-  hasUnreadOutput: boolean
-}
-
 interface AgentSessionPage {
   sessions: AgentSessionHistoryItem[]
   nextCursor: string
@@ -655,7 +650,6 @@ export function CodeWorkspace({
   // authoritative, but the first prompt must not leave a click-sized window
   // in which a second prompt is sent before its `working` update arrives.
   const acpPromptStartFencesRef = useRef<Record<string, number>>({})
-  const [, setTerminalFollowStates] = useState<Record<string, TerminalFollowState>>({})
   const [activeBrowserId, setActiveBrowserId] = useState<string | null>(initialBrowserResourceId)
   const [browserReturnAgentId, setBrowserReturnAgentId] = useState<string | null>(null)
   const [activeComputerId, setActiveComputerId] = useState<string | null>(initialComputerResourceId)
@@ -1116,17 +1110,21 @@ export function CodeWorkspace({
     () => openAgents.find(agent => agent.id === activeTerminalId) ?? openAgents[0] ?? null,
     [activeTerminalId, openAgents]
   )
-  const activeOpenAgent = useAgentWithLiveRuntimeState(structuralActiveOpenAgent)
-  const mountedOpenAgents = useMemo(
-    () => openAgents.map(agent => agent.id === activeOpenAgent?.id ? activeOpenAgent : agent),
-    [activeOpenAgent, openAgents]
-  )
   const structuralActiveAgent = useMemo(
     () => activeAgents.find(agent => agent.id === activeTerminalId)
       ?? (hiddenMainAgent?.id === activeTerminalId ? hiddenMainAgent : null),
     [activeAgents, activeTerminalId, hiddenMainAgent]
   )
   const activeAgent = useAgentWithLiveRuntimeState(structuralActiveAgent)
+  const distinctStructuralActiveOpenAgent = structuralActiveOpenAgent?.id === structuralActiveAgent?.id
+    ? null
+    : structuralActiveOpenAgent
+  const distinctActiveOpenAgent = useAgentWithLiveRuntimeState(distinctStructuralActiveOpenAgent)
+  const activeOpenAgent = distinctStructuralActiveOpenAgent ? distinctActiveOpenAgent : activeAgent
+  const mountedOpenAgents = useMemo(
+    () => openAgents.map(agent => agent.id === activeOpenAgent?.id ? activeOpenAgent : agent),
+    [activeOpenAgent, openAgents]
+  )
   const activeProviderHomeId = activeAgent?.providerHomeId || 'default'
   const activeAcpRuntime = isAcpRuntime(activeAgent) ? activeAgent.runtimeBinding : null
   const activeAgentPermissionSwitching = Boolean(
@@ -2114,14 +2112,6 @@ export function CodeWorkspace({
     if (!activeAgent?.unread || manuallyUnreadActiveAgentIdRef.current === activeTerminalId) return
     markAgentReadIfNeeded(activeTerminalId, true)
   }, [activeAgents, activeTerminalId, activeView, mainPaneMode, markAgentReadIfNeeded])
-
-  const handleTerminalFollowOutputChange = useCallback((agentId: string, state: TerminalFollowState) => {
-    setTerminalFollowStates(current => {
-      const previous = current[agentId]
-      if (previous?.following === state.following && previous?.hasUnreadOutput === state.hasUnreadOutput) return current
-      return { ...current, [agentId]: state }
-    })
-  }, [])
 
   const handleDraftChange = useCallback((value: string) => {
     updateActiveComposerState(state => ({
@@ -6004,7 +5994,6 @@ export function CodeWorkspace({
         onOpenTerminalPath={openTerminalPathTarget}
         onResolveTerminalPath={resolveTerminalPathTarget}
         onSearchTerminalWord={searchTerminalWord}
-        onTerminalFollowOutputChange={handleTerminalFollowOutputChange}
         onAgentReadLatest={markAgentReadLatest}
         onRuntimeModeChange={updateAgentRuntimeMode}
         onForkAgent={onForkAgent}

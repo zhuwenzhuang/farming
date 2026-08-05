@@ -291,7 +291,7 @@ interface CodeMainAreaProps {
   onOpenTerminalPath: (agentId: string, target: TerminalPathOpenTarget) => void
   onResolveTerminalPath: (agentId: string, target: TerminalPathOpenTarget) => Promise<TerminalPathOpenTarget | null> | TerminalPathOpenTarget | null
   onSearchTerminalWord: (agentId: string, query: string) => void
-  onTerminalFollowOutputChange: (agentId: string, state: TerminalFollowState) => void
+  onTerminalFollowOutputChange?: (agentId: string, state: TerminalFollowState) => void
   onAgentReadLatest: (
     agentId: string,
     readCut?: { runtimeEpoch: string; outputSeq: number } | null,

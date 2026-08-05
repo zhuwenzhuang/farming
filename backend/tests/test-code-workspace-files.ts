@@ -881,7 +881,9 @@ function run() {
 	      workspaceSource.includes('const readCutAdvanced = Boolean(readCut && (') &&
 	      workspaceSource.includes('readOutputEpoch: readCut.runtimeEpoch') &&
 	      workspaceSource.includes('readOutputSeq: readCut.outputSeq') &&
-	      workspaceSource.includes('const handleTerminalFollowOutputChange = useCallback') &&
+	      !workspaceSource.includes('handleTerminalFollowOutputChange') &&
+	      codeMainAreaSource.includes('onTerminalFollowOutputChange?:') &&
+	      agentWorkPaneSource.includes('onFollowOutputChange?:') &&
 	      terminalPaneSource.includes('const [followOutputState, setFollowOutputState] = useState({') &&
 	      terminalPaneSource.includes('!followOutputState.following') &&
 	      terminalPaneSource.includes('followOutputState.hasUnreadOutput') &&
@@ -889,7 +891,7 @@ function run() {
 	      terminalPaneSource.includes('onReadLatest?.(agent.id, readCut)') &&
 	      workspaceSource.includes('const handleDraftChange = useCallback') &&
       workspaceSource.includes('onDraftChange: handleDraftChange') &&
-	      workspaceSource.includes('onTerminalFollowOutputChange={handleTerminalFollowOutputChange}') &&
+	      !workspaceSource.includes('onTerminalFollowOutputChange=') &&
 	      workspaceSource.includes('onAgentReadLatest={markAgentReadLatest}') &&
 	      workspaceSource.includes('if (agentWithCurrentLiveState(agent).unread) markAgentReadIfNeeded(agent.id, true)') &&
       (workspaceSource.match(/markAgentReadIfNeeded\(/g) || []).length === 3 &&

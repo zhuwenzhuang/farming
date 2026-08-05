@@ -363,6 +363,7 @@ let structuredComposerCompositionEndAt = 0;
 let structuredComposerRestoreFocusAfterInterrupt = false;
 let runtimeSwitchPending = false;
 let pendingRuntimeSwitchAgentId = '';
+let pendingRuntimeSwitchMode = '';
 let runtimeSwitchRequestSequence = 0;
 let crtTerminalReplication: CrtTerminalReplication | null = null;
 const globalSettingsSaveRevisions = new Map<string, number>();
@@ -6136,11 +6137,11 @@ function connect(): void {
   socket.onopen = () => {
     if (ws !== socket) return;
     console.log('Connected to server');
-    const activeAgentId = isCrtSessionOpen()
+    const activeAgentId = pendingRuntimeSwitchAgentId || (isCrtSessionOpen()
       ? focusedAgentId
       : (!didApplyAgentDeeplink && !crtAgentDeeplinkFallbackPending
         ? requestedCrtAgentId()
-        : null);
+        : null));
     socket.send(JSON.stringify({
       type: 'protocol-hello',
       protocolVersion: CRT_PROTOCOL_VERSION,
@@ -6240,8 +6241,10 @@ function connect(): void {
       const agent = update && state && state.agents.find(candidate => candidate.id === update.agentId);
       if (agent && update.patch && typeof update.patch === 'object') {
         Object.assign(agent, update.patch);
-        renderCrtDashboardIfNeeded();
-        if (agent.id === focusedAgentId) updateCrtRuntimeSwitchControl(agent);
+        if (!openPendingRuntimeSwitchAgentIfReady()) {
+          renderCrtDashboardIfNeeded();
+          if (agent.id === focusedAgentId) updateCrtRuntimeSwitchControl(agent);
+        }
       }
     } else if (data.type === 'agent-read') {
       const read = data.read;
@@ -6965,13 +6968,26 @@ function resetCrtRuntimeSwitchState(cancelRequest = true) {
   if (cancelRequest) runtimeSwitchRequestSequence += 1;
   runtimeSwitchPending = false;
   pendingRuntimeSwitchAgentId = '';
+  pendingRuntimeSwitchMode = '';
   setCrtRuntimeSwitchStatus('');
+}
+
+function isCrtRuntimeSwitchTargetReady(agent: CrtAgent|undefined, mode: string) {
+  return Boolean(
+    agent
+    && (mode === 'chat' || mode === 'terminal')
+    && crtRuntimeView(agent) === mode
+  );
 }
 
 function openPendingRuntimeSwitchAgentIfReady() {
   if (!pendingRuntimeSwitchAgentId || !state) return false;
   const agent = state.agents.find((candidate) => candidate.id === pendingRuntimeSwitchAgentId);
-  if (!agent || agent.archived === true) return false;
+  if (
+    !agent
+    || agent.archived === true
+    || !isCrtRuntimeSwitchTargetReady(agent, pendingRuntimeSwitchMode)
+  ) return false;
   const agentId = pendingRuntimeSwitchAgentId;
   resetCrtRuntimeSwitchState(false);
   openSession(agentId);
@@ -7001,12 +7017,21 @@ async function switchCrtSessionRuntimeMode(mode: string) {
       throw new Error(data && data.error ? data.error : `Failed to switch Agent runtime (${response.status})`);
     }
     pendingRuntimeSwitchAgentId = data.restartedAgentId || agent.id;
+    pendingRuntimeSwitchMode = targetMode;
     setCrtRuntimeSwitchStatus('RESTORING SESSION...');
+    getSessionClient()?.focusAgent(pendingRuntimeSwitchAgentId, {
+      activityScope: 'focused',
+      stateScope: 'focused',
+      streamScope: 'focused',
+      previewScope: 'none',
+      refreshState: true,
+    });
     openPendingRuntimeSwitchAgentIfReady();
   } catch (error) {
     if (requestSequence !== runtimeSwitchRequestSequence) return;
     runtimeSwitchPending = false;
     pendingRuntimeSwitchAgentId = '';
+    pendingRuntimeSwitchMode = '';
     updateCrtRuntimeSwitchControl(state.agents.find((candidate) => candidate.id === focusedAgentId));
     setCrtRuntimeSwitchStatus(error instanceof Error && error.message ? error.message : 'Failed to switch Agent runtime', true);
   }
@@ -9527,6 +9552,7 @@ if (typeof module !== 'undefined' && module.exports) {
     crtRuntimeView,
     canSwitchCrtAgentRuntime,
     isCrtRuntimeSwitchShortcut,
+    isCrtRuntimeSwitchTargetReady,
     hasCrtStructuredLocalEscapeAction,
     resolveCrtSessionKeyboardCommand,
     structuredComposerAction,

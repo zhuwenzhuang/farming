@@ -399,6 +399,58 @@ assert.strictEqual(internalTranscript.turns[0].processItems.length, 0);
 assert.strictEqual(internalTranscript.turns[1].userMessage, 'Status?');
 assert.strictEqual(internalTranscript.turns[1].processItems.length, 1);
 
+const entryScopedContextTranscript = acpSessionTranscript({
+  sessionId: 'session-entry-scoped-context',
+  entries: [
+    { id: 'visible-user', type: 'message', role: 'user', content: [{ type: 'text', text: 'Visible question' }] },
+    {
+      id: 'private-context',
+      type: 'message',
+      role: 'user',
+      internal: true,
+      internalScope: 'entry',
+      content: [{ type: 'text', text: '' }],
+      _meta: { codex: { steer: true, turnId: 'provider-turn' } },
+    },
+    {
+      id: 'visible-answer',
+      type: 'message',
+      role: 'assistant',
+      content: [{ type: 'text', text: 'Visible answer' }],
+      _meta: { codex: { phase: 'final_answer' } },
+    },
+  ],
+});
+assert.strictEqual(entryScopedContextTranscript.turns.length, 1);
+assert.strictEqual(entryScopedContextTranscript.turns[0].userMessage, 'Visible question');
+assert.strictEqual(entryScopedContextTranscript.turns[0].finalMessage, 'Visible answer');
+assert.strictEqual(entryScopedContextTranscript.turns[0].processItems.length, 0);
+
+const prefixedEntryScopedContextTranscript = acpSessionTranscript({
+  sessionId: 'session-prefixed-entry-scoped-context',
+  entries: [
+    {
+      id: 'prefixed-private-context',
+      type: 'message',
+      role: 'user',
+      internal: true,
+      internalScope: 'entry',
+      content: [{ type: 'text', text: '' }],
+    },
+    {
+      id: 'prefixed-visible-user',
+      type: 'message',
+      role: 'user',
+      content: [{ type: 'text', text: 'Visible after context' }],
+      _meta: { codex: { steer: true, turnId: 'provider-turn' } },
+    },
+    { id: 'prefixed-visible-answer', type: 'message', role: 'assistant', content: [{ type: 'text', text: 'Still visible' }] },
+  ],
+});
+assert.strictEqual(prefixedEntryScopedContextTranscript.turns.length, 1);
+assert.strictEqual(prefixedEntryScopedContextTranscript.turns[0].userMessage, 'Visible after context');
+assert.strictEqual(prefixedEntryScopedContextTranscript.turns[0].finalMessage, 'Still visible');
+
 const paged = acpSessionTranscript({
   sessionId: 'session-paged',
   entries: Array.from({ length: 25 }, (_, index) => ([

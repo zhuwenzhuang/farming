@@ -78,6 +78,7 @@ function meaningfulSessionTitle(
 ) {
   const title = typeof sessionTitle === 'string' ? sessionTitle.trim() : ''
   if (!title) return ''
+  if (title.toLowerCase().startsWith('<farming-agent-context>')) return ''
 
   const normalizedTitle = titleComparisonKey(title)
   const program = commandProgram(agent.command).toLowerCase()

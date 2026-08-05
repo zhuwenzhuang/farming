@@ -219,6 +219,17 @@ function run() {
   assert(crtApp.includes("Number('__FARMING_BROWSER_PROTOCOL_VERSION__')"), 'CRT source should receive its protocol version from the classic runtime build');
   assert(generatedCrtApp.includes(`CRT_PROTOCOL_VERSION = ${browserProtocolVersion}`), 'Built CRT should negotiate the shared Farming browser protocol version');
   assert(crtApp.includes("data.type === 'agent-read'") && crtApp.includes('Object.assign(agent, readState)'), 'CRT should apply shared Agent read-state deltas');
+  assert(
+    crtApp.includes("data.type === 'agent-update'")
+      && crtApp.includes('Object.assign(agent, update.patch);\n        if (!openPendingRuntimeSwitchAgentIfReady()) {'),
+    'CRT should advance a pending runtime switch only after an authoritative Agent update reaches the target mode',
+  );
+  assert(
+    crtApp.includes('const activeAgentId = pendingRuntimeSwitchAgentId || (isCrtSessionOpen()')
+      && crtApp.includes("getSessionClient()?.focusAgent(pendingRuntimeSwitchAgentId, {\n      activityScope: 'focused',")
+      && crtApp.includes("previewScope: 'none',\n      refreshState: true,"),
+    'CRT runtime replacement should transfer focused state ownership to the replacement Agent and reconcile it authoritatively',
+  );
   assert(crtApp.includes('event.code === 4001 || event.code === 4002') && crtApp.includes('if (!terminalClose &&'), 'CRT should not loop forever after authentication or protocol rejection');
   assert(crtApp.includes('showCrtProtocolMismatchNotice') && crtApp.includes('Update and restart the Farming backend, then reload this page.'), 'CRT should surface an actionable upgrade notice when the protocol handshake fails');
   assert(crtApp.includes('resumeCrtPageConnection') && crtApp.includes('refreshSessionView(true'), 'CRT should reconnect and fetch an authoritative terminal checkpoint when visible again');

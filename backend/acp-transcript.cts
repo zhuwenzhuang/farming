@@ -598,6 +598,7 @@ function acpTranscriptToolEntry(entry: DataRecord, options: TranscriptOptions = 
     generatedMedia: generatedMediaTool(entry),
     explicitOutputMedia: explicitOutputMediaTool(entry),
     internal: entry.internal === true,
+    ...(entry.internalScope === 'turn' ? { internalScope: 'turn' } : {}),
   };
 }
 

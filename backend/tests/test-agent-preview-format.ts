@@ -46,6 +46,11 @@ const { importTsModule } = require('./helpers/import-ts-module');
     'OpenCode',
     'OpenCode generic titles should stay friendly'
   );
+  assert.strictEqual(
+    agentTitle({ command: 'codex', sessionTitle: '<farming-agent-context> 当前 Farming Agent 名字是 agent-title-source' }),
+    'Codex',
+    'internal Farming session context must never render as an Agent title'
+  );
 
   assert.strictEqual(
     agentTitle({ command: 'claude', source: 'claude-history:8d8f', task: '带读一下精读 AbstractOptimizer.optimize', sessionTitle: '＊ Claude Code' }),

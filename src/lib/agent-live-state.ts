@@ -66,6 +66,12 @@ const projectListenersByWorkspace = new Map<string, Set<Listener>>()
 const dirtyProjectWorkspaces = new Set<string>()
 const agentReadListeners = new Set<AgentReadListener>()
 const agentRuntimeBindingListeners = new Set<AgentRuntimeBindingListener>()
+// One terminal action emits nearby update and activity frames. Keep their
+// synchronous state writes, but publish one bounded external-store change.
+const LIVE_NOTIFICATION_BATCH_MS = 32
+const pendingAgentNotifications = new Map<string, boolean>()
+const pendingProjectNotifications = new Set<string>()
+let liveNotificationScheduled = false
 let projectSummaryBatchDepth = 0
 const RUNTIME_FIELDS = new Set<keyof AgentLiveState>([
   'adaptiveTitle',
@@ -205,8 +211,35 @@ function projectMaximumAttention(aggregate: ProjectAggregate) {
   return 0
 }
 
+function flushLiveNotifications() {
+  liveNotificationScheduled = false
+  const projectWorkspaces = [...pendingProjectNotifications]
+  const agentNotifications = [...pendingAgentNotifications]
+  pendingProjectNotifications.clear()
+  pendingAgentNotifications.clear()
+  projectWorkspaces.forEach(workspace => {
+    projectListenersByWorkspace.get(workspace)?.forEach(listener => listener())
+  })
+  agentNotifications.forEach(([agentId, includeRuntime]) => {
+    const listeners = listenersByAgentId.get(agentId)
+    listeners?.all.forEach(listener => listener())
+    if (includeRuntime) listeners?.runtime.forEach(listener => listener())
+  })
+}
+
+function scheduleLiveNotifications() {
+  if (liveNotificationScheduled) return
+  liveNotificationScheduled = true
+  if (typeof window !== 'undefined') {
+    window.setTimeout(flushLiveNotifications, LIVE_NOTIFICATION_BATCH_MS)
+    return
+  }
+  queueMicrotask(flushLiveNotifications)
+}
+
 function notifyProjectSummary(workspace: string) {
-  projectListenersByWorkspace.get(workspace)?.forEach(listener => listener())
+  pendingProjectNotifications.add(workspace)
+  scheduleLiveNotifications()
 }
 
 function flushProjectSummaries() {
@@ -326,9 +359,11 @@ function removeAgentProjectState(agentId: string) {
 }
 
 function notify(agentId: string, includeRuntime: boolean) {
-  const listeners = listenersByAgentId.get(agentId)
-  listeners?.all.forEach(listener => listener())
-  if (includeRuntime) listeners?.runtime.forEach(listener => listener())
+  pendingAgentNotifications.set(
+    agentId,
+    includeRuntime || pendingAgentNotifications.get(agentId) === true,
+  )
+  scheduleLiveNotifications()
 }
 
 function replaceAgentLiveState(agentId: string, value: AgentLiveState) {

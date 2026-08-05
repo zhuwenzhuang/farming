@@ -138,6 +138,7 @@ Farming Backend
 - `tests/e2e/`：Browser、Interaction 与 Visual 测试。
 - `scripts/`：Build、Packaging、Release、Smoke 与测试编排。
 - `docs/`：用户、产品、开发、运维与验证文档。
+- `docs-site/`：拥有独立依赖的公开文档站项目。
 - `release-notes/`：按版本保存的公开 Release Notes。
 
 `dist/`、`dist-release/`、`.tmp/`、`reference/`、`node_modules/` 等生成或本地专用

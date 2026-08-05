@@ -159,6 +159,7 @@ Execution environment
 - `tests/e2e/`: browser, interaction, and visual tests.
 - `scripts/`: build, packaging, release, smoke, and test orchestration.
 - `docs/`: user, product, development, operations, and verification documents.
+- `docs-site/`: standalone public documentation site with its own dependencies.
 - `release-notes/`: versioned public release notes.
 
 Generated and local-only paths such as `dist/`, `dist-release/`, `.tmp/`,

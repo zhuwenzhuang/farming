@@ -22,6 +22,7 @@ the [documentation home](../README.md).
 
 ## Product Architecture
 
+- [Public documentation site](documentation-site.md)
 - [Farming Desktop MVP](../products/code/desktop-app.md)
 - [Extension and Resource model](../products/code/extension-model.md)
 - [Language Server](../products/code/language-server.md)

@@ -4,7 +4,7 @@ const MAX_CODEX_SUBAGENTS = 128;
 const MAX_CODEX_SUBAGENT_ID_CHARS = 160;
 const MAX_CODEX_SUBAGENT_NAME_CHARS = 120;
 import { visibleUserMessageText } from './codex-transcript.cjs';
-import { isCodexContextCompactionMessage, isCodexInjectedContextMessage, stripCodexInternalContextBlocks } from './codex-transcript-sanitizer.cjs';
+import { isCodexContextCompactionMessage, isCodexInjectedContextMessage, parseHeartbeatEnvelope, stripCodexInternalContextBlocks } from './codex-transcript-sanitizer.cjs';
 
 type DataRecord = Record<string, unknown>;
 
@@ -48,6 +48,7 @@ export interface AcpEntry extends DataRecord {
   rawOutput?: unknown;
   plan?: unknown;
   internal?: boolean;
+  internalScope?: 'entry' | 'turn';
 }
 
 export interface AcpUpdate extends DataRecord {
@@ -259,6 +260,22 @@ function isCodexSteerMessage(entry: AcpEntry | null | undefined): boolean {
     && entry?._meta?.codex?.steer === true;
 }
 
+function codexInternalUserScope(entry: AcpEntry | null | undefined): 'entry' | 'turn' | null {
+  if (entry?.type !== 'message' || entry.role !== 'user') return null;
+  const hasAttachment = (entry.content || []).some(content => content.type !== 'text');
+  if (hasAttachment) return null;
+  const text = contentText(entry.content);
+  if (!isCodexInjectedContextMessage(text)) return null;
+  return parseHeartbeatEnvelope(text) ? 'turn' : 'entry';
+}
+
+function isTranscriptTurnStart(entry: AcpEntry | null | undefined): boolean {
+  return entry?.type === 'message'
+    && entry.role === 'user'
+    && !isCodexSteerMessage(entry)
+    && codexInternalUserScope(entry) !== 'entry';
+}
+
 function isContextCompactionText(content: unknown): boolean {
   return isCodexContextCompactionMessage(contentText(content));
 }
@@ -275,6 +292,14 @@ function canMergeMessageChunks(
   existing: AcpEntry | null | undefined,
   update: AcpUpdate,
 ): boolean {
+  const existingId = String(existing?.messageId || '');
+  const incomingId = String(update?.messageId || '');
+  // A user Prompt and a later Steer are separate mutations even when the
+  // optimistic Prompt has not received a provider id yet. The exact-content
+  // reconciliation above owns that one missing-id case; adjacency must not.
+  if (existing?.role === 'user') {
+    return Boolean(existingId && incomingId && existingId === incomingId);
+  }
   if (!canMergeMessageIds(existing?.messageId, String(update?.messageId || ''))) return false;
   // Codex ACP history can omit message ids while still preserving the original
   // commentary/final-answer boundary in metadata. Never merge across that
@@ -761,11 +786,7 @@ class AcpSessionState {
       if (startIndex < this.entries.length) {
         while (startIndex > 0) {
           const entry = this.entries[startIndex];
-          if (
-            entry?.type === 'message'
-            && entry.role === 'user'
-            && !isCodexSteerMessage(entry)
-          ) break;
+          if (isTranscriptTurnStart(entry)) break;
           startIndex -= 1;
         }
       }
@@ -775,11 +796,7 @@ class AcpSessionState {
       while (startIndex > 0) {
         startIndex -= 1;
         const entry = this.entries[startIndex];
-        if (
-          entry?.type === 'message'
-          && entry.role === 'user'
-          && !isCodexSteerMessage(entry)
-        ) {
+        if (isTranscriptTurnStart(entry)) {
           remaining -= 1;
           if (remaining <= 0) break;
         }
@@ -817,20 +834,26 @@ class AcpSessionState {
     }
     if (this.provider !== 'codex') return entries;
 
-    let internalSegment = false;
+    let internalTurn = false;
     for (let index = 0; index < safeStart; index += 1) {
       const entry = this.entries[index];
       if (entry?.type !== 'message' || entry.role !== 'user') continue;
-      const hasAttachment = (entry.content || []).some(content => content.type !== 'text');
-      internalSegment = !hasAttachment && isCodexInjectedContextMessage(contentText(entry.content));
+      const scope = codexInternalUserScope(entry);
+      if (scope === 'turn') internalTurn = true;
+      else if (scope === null) internalTurn = false;
     }
     for (const entry of entries) {
+      delete entry.internalScope;
       if (entry.type === 'message' && entry.role === 'user') {
-        const hasAttachment = (entry.content || []).some(content => content.type !== 'text');
-        const rawText = contentText(entry.content);
-        internalSegment = !hasAttachment && isCodexInjectedContextMessage(rawText);
+        const scope = codexInternalUserScope(entry);
+        if (scope === 'turn') internalTurn = true;
+        else if (scope === null) internalTurn = false;
+        entry.internal = scope === 'entry' || internalTurn;
+        if (scope) entry.internalScope = scope;
+      } else {
+        entry.internal = internalTurn;
+        if (internalTurn) entry.internalScope = 'turn';
       }
-      entry.internal = internalSegment;
       if (!['message', 'thought'].includes(entry.type as string)) continue;
       const renderedAttachmentKinds = [];
       if (
@@ -852,13 +875,15 @@ class AcpSessionState {
 
   isInternalEntry(targetEntry: AcpEntry | null | undefined): boolean {
     if (this.provider !== 'codex' || !targetEntry) return false;
-    let internalSegment = false;
+    let internalTurn = false;
     for (const entry of this.entries) {
       if (entry.type === 'message' && entry.role === 'user') {
-        const hasAttachment = (entry.content || []).some(content => content.type !== 'text');
-        internalSegment = !hasAttachment && isCodexInjectedContextMessage(contentText(entry.content));
+        const scope = codexInternalUserScope(entry);
+        if (scope === 'turn') internalTurn = true;
+        else if (scope === null) internalTurn = false;
+        if (entry === targetEntry) return scope === 'entry' || internalTurn;
       }
-      if (entry === targetEntry) return internalSegment;
+      if (entry === targetEntry) return internalTurn;
     }
     return false;
   }

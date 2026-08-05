@@ -21,6 +21,7 @@
 
 ## 产品架构
 
+- [公开文档站](documentation-site.zh_cn.md)
 - [Farming Desktop MVP](../products/code/desktop-app.zh_cn.md)
 - [Extension 与 Resource Model](../products/code/extension-model.zh_cn.md)
 - [Project Files Design](../products/code/project-files-section-design.zh_cn.md)
