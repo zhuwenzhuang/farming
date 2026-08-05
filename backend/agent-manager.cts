@@ -113,6 +113,7 @@ import type {
 
 const PREPARED_ACP_TRANSCRIPT_TURN_LIMIT = 5;
 const PREPARED_ACP_TRANSCRIPT_QUIET_MS = 60;
+const AGENT_WORKTREE_REFRESH_CONCURRENCY = 4;
 
 const { execFile } = require('child_process');
 const crypto = require('crypto');
@@ -175,6 +176,7 @@ import { AgentOrderAllocator, finiteOrder, reorderedPinnedAgentOrders, reordered
 import { commitAgentOrderTransaction } from './agent-order-transaction.cjs';
 import { buildInteractiveAgentBaseEnv, normalizeInteractiveTerminalEnv, resolveUserShellEnvSync } from './agent-env.cjs';
 import { inspectGitWorktree } from './git-worktree-info.cjs';
+import { AgentWorktreeRefreshQueue } from './agent-worktree-refresh-queue.cjs';
 import { deserializeTerminalState } from './terminal-state-serialization.cjs';
 import type { TranscriptBuildOptions } from './codex-transcript.cjs';
 import { compareNativePtyRuntimeEpochs } from './native-pty-controller-generation.cjs';
@@ -1523,6 +1525,7 @@ class AgentManager extends EventEmitter {
   declare codexTerminalStartQueues: Map<string, Promise<unknown>>;
   declare codexTerminalStartOutput: Map<AgentId, string>;
   declare agentWorktreeResolveGeneration: Map<AgentId, number>;
+  declare agentWorktreeRefreshQueue: AgentWorktreeRefreshQueue;
   declare agentLifecycleOperations: Map<AgentId, AgentLifecycleEntry<unknown>>;
   declare agentStartAdmissions: Map<symbol, AgentStartAdmission>;
   declare createRequestAdmissions: Map<string, CreateRequestAdmission>;
@@ -1575,7 +1578,11 @@ class AgentManager extends EventEmitter {
   deleteAgentRecord(agentId: AgentId): boolean {
     const agent = this.agents.get(agentId);
     const deleted = this.agents.delete(agentId);
-    if (deleted) this.agentOrderAllocator.remove(agent);
+    if (deleted) {
+      this.agentOrderAllocator.remove(agent);
+      this.agentWorktreeResolveGeneration.delete(agentId);
+      this.agentWorktreeRefreshQueue.cancelPending(agentId);
+    }
     return deleted;
   }
 
@@ -1621,6 +1628,9 @@ class AgentManager extends EventEmitter {
     this.codexTerminalStartQueues = new Map();
     this.codexTerminalStartOutput = new Map();
     this.agentWorktreeResolveGeneration = new Map();
+    this.agentWorktreeRefreshQueue = new AgentWorktreeRefreshQueue(
+      AGENT_WORKTREE_REFRESH_CONCURRENCY,
+    );
     this.agentLifecycleOperations = new Map();
     this.agentStartAdmissions = new Map();
     this.createRequestAdmissions = new Map();
@@ -4478,25 +4488,32 @@ class AgentManager extends EventEmitter {
     const generation = (this.agentWorktreeResolveGeneration.get(agentId) || 0) + 1;
     this.agentWorktreeResolveGeneration.set(agentId, generation);
     const baseWorkspace = normalizePathValue(agent.projectWorkspace || agent.cwd);
-    const [info, baseInfo] = await Promise.all([
-      inspectGitWorktree(candidate),
-      inspectGitWorktree(baseWorkspace),
-    ]);
-    if (this.agentWorktreeResolveGeneration.get(agentId) !== generation) return false;
+    return this.agentWorktreeRefreshQueue.enqueue(agentId, async () => {
+      if (this.disposing || this.disposed) return false;
+      const [info, baseInfo] = await Promise.all([
+        inspectGitWorktree(candidate),
+        inspectGitWorktree(baseWorkspace),
+      ]);
+      if (
+        this.disposing
+        || this.disposed
+        || this.agentWorktreeResolveGeneration.get(agentId) !== generation
+      ) return false;
 
-    const current = this.agents.get(agentId);
-    if (!current) return false;
-    const nextWorktree = info
-      && baseInfo
-      && info.commonDir === baseInfo.commonDir
-      ? info
-      : null;
-    const previousProjection = JSON.stringify(publicAgentGitWorktree(current));
-    current.gitWorktree = nextWorktree;
-    const nextProjection = JSON.stringify(publicAgentGitWorktree(current));
-    if (previousProjection === nextProjection) return false;
-    this.emitStateChange({ agentIds: [agentId] });
-    return true;
+      const current = this.agents.get(agentId);
+      if (!current || current !== agent) return false;
+      const nextWorktree = info
+        && baseInfo
+        && info.commonDir === baseInfo.commonDir
+        ? info
+        : null;
+      const previousProjection = JSON.stringify(publicAgentGitWorktree(current));
+      current.gitWorktree = nextWorktree;
+      const nextProjection = JSON.stringify(publicAgentGitWorktree(current));
+      if (previousProjection === nextProjection) return false;
+      this.emitStateChange({ agentIds: [agentId] });
+      return true;
+    });
   }
 
   getAgentActivityPayload(sessionId: string, now = Date.now()) {
@@ -4866,6 +4883,7 @@ class AgentManager extends EventEmitter {
     if (this.disposePromise) return this.disposePromise;
 
     this.disposing = true;
+    this.agentWorktreeRefreshQueue.cancelAllPending();
     const disposePromise = this.performDispose(options);
     this.disposePromise = disposePromise;
     void disposePromise.finally(() => {

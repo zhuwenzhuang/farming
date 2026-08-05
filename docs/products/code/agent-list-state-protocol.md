@@ -147,6 +147,15 @@ and replace any possibly missed mutation with current authoritative state. The
 first page includes the Main Agent so client startup cannot mistake a later
 page for a missing Main runtime.
 
+An Agent row does not wait for optional Git Worktree decoration. Worktree
+refreshes run through a bounded background queue, and requests that have not
+started yet are replaceable by the newest request for the same exact Agent.
+Deletion cancels that Agent's pending refresh; an in-flight result must still
+match the same Agent record and refresh generation before it can publish a
+list update. Git command timeouts or inspection failure leave the authoritative
+Agent lifecycle intact and only omit or clear the optional decoration. This
+resource boundary limits background process bursts, not the number of Agents.
+
 Every snapshot and delta identifies the backend generation and an increasing
 sequence. A client applies only the next sequence in its current generation.
 After a restart, sequence gap, or uncertain delivery, it requests a fresh
