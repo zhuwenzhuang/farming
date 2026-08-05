@@ -6,7 +6,7 @@ description: 在 Farming Code 中浏览、搜索、编辑和检查项目文件�
 
 Files 让你在 Farming 工作区中浏览、搜索和轻量编辑 Project 文件。它适合快速核对 Agent 提到的代码、配置和测试证据。
 
-<ThemeImage light="/cn/assets/files.png" dark="/cn/assets/files-dark.png" alt="文件编辑与 Blame" />
+<ThemeImage light="/cn/assets/files-relational-operators-20260806.png" dark="/cn/assets/files-relational-operators-20260806-dark.png" alt="Files 中的关系算子 Markdown 预览" />
 
 ## 浏览文件
 

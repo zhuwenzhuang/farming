@@ -29,7 +29,7 @@ const publicCodeScreenshotSpecs = new Map<string, PublicScreenshotSpec>([
   ['00-code-welcome.png', { fileName: 'welcome.png' }],
   ['01-code-workspace.png', { fileName: 'workspace.png' }],
   ['02-start-agent-picker.png', { fileName: 'start-agent.png' }],
-  ['04-files-markdown-preview.png', { fileName: 'files.png' }],
+  ['04-files-markdown-preview.png', { fileName: 'files-relational-operators-20260806.png' }],
   ['05-mobile-agent-chat.png', { fileName: 'mobile-chat.png' }],
   ['07-live-model-controls.png', { fileName: 'model-controls.png', clip: { x: 300, y: 0, width: 1140, height: 810 } }],
   ['08-history-search.png', { fileName: 'history.png', clip: { x: 300, y: 0, width: 1140, height: 810 } }],
@@ -190,27 +190,59 @@ function prepareRuntimeDirectories() {
       'Current gate: exact checkpoint recovery, contiguous live output, and native PTY cleanup.',
       '',
     ].join('\n'));
-    fs.writeFileSync(path.join(workspaceDir, 'docs', 'relational-algebra.md'), [
-      '# 关系代数与逻辑优化规则',
+    fs.writeFileSync(path.join(workspaceDir, 'docs', 'relational-operators.md'), [
+      '# Relational Algebra and Logical Optimization Rules',
       '',
-      '作者：zhuwenzhuang · 2024.05.08',
+      'Logical optimization rewrites a query into an equivalent, lower-cost form. Relational algebra gives these rewrites a compact language that is independent of a particular optimizer implementation.',
       '',
-      '数据库优化器的 **查询优化（Query Optimization）**，是在查询等价的前提下，将代价更高的查询转化为代价更低的查询。逻辑优化规则关注关系代数表示层上的等价变换。',
+      '## Foundations',
       '',
-      '## 关系算子定义',
+      'The definitions below use bag semantics. A relation is a bag of tuples, $\\mathcal{A}(e)$ is the attribute set of expression $e$, and $\\mathfrak{m}$ is tuple multiplicity.',
       '',
-      '| 关系算子 | 符号 | 定义 |',
-      '| --- | --- | --- |',
-      '| Filter | $\\sigma_p(e)$ | 保留关系中满足谓词 $p$ 的元组 |',
-      '| Project | $\\Pi_A(e)$ | 选择属性集合 $A$，构造新的关系 |',
-      '| Map | $\\chi_F(e)$ | 计算属性赋值向量 $F$ 并追加结果 |',
-      '| Distinct | $\\Pi^D(e)$ | 将每个元组的多重度归一为 1 |',
-      '| Union All | $e_1 \\cup_b e_2$ | 合并两个包，并保留重复元组 |',
-      '| Inner Join | $e_1 \\bowtie_p e_2$ | 按谓词 $p$ 连接两个关系 |',
-      '| Semi Join | $e_1 \\ltimes_p e_2$ | 保留左侧存在匹配项的元组 |',
-      '| Anti Join | $e_1 \\vartriangleright_p e_2$ | 保留左侧不存在匹配项的元组 |',
+      'Logical operators describe changes to data. Hash Join, Sort Merge Join, and other physical implementations may change execution cost without changing the logical result.',
       '',
-      '> 逻辑算子只关注数据在包语义下的变化；Hash Join、Sort Merge Join 等物理实现不会改变逻辑结果。',
+      '## Relational Operator Definition Summary',
+      '',
+      '$$',
+      '\\begin{aligned}',
+      '\\sigma_p(e) :=& \\{x \\mid x \\in e,\\ p(x)\\}_b \\\\',
+      '\\Pi_A(e) :=& \\{[a_1:x.a_1, \\ldots, a_n:x.a_n] \\mid x \\in e\\}_b \\\\',
+      '\\Pi^D(e) :=& {}_{\\mathfrak m=1}(e) \\\\',
+      '\\chi_{a:f}(e) :=& \\{x \\circ [a:f(x)] \\mid x \\in e\\}_b \\\\',
+      '\\chi_F(e) :=& \\{x \\circ [a_1:f_1(x), \\ldots, a_n:f_n(x)] \\mid x \\in e\\}_b',
+      '\\end{aligned}',
+      '$$',
+      '',
+      '$$',
+      '\\begin{aligned}',
+      '\\Gamma_{G;g:f}(e) :=& \\{y \\circ [g:x] \\mid y \\in \\Pi_G^D(e),\\ x=f(\\{z \\mid z \\in e,\\ z.G \\dot= y.G\\})\\}_b \\\\',
+      '\\nu_{G;g}(e) :=& \\Gamma_{G;g:\\Pi_{\\overline G}}(e) \\\\',
+      '\\mu_g(e) :=& \\{y.[\\mathcal{A}(e)/g] \\circ x \\mid y \\in e,\\ x \\in y.g\\}_b \\\\',
+      'e_1 \\cup_b e_2 :=& {}_{\\mathfrak m=m_1+m_2}(e_1,e_2)',
+      '\\end{aligned}',
+      '$$',
+      '',
+      '$$',
+      '\\begin{aligned}',
+      'e_1 \\times e_2 :=& \\{y \\circ x \\mid y \\in e_1,\\ x \\in e_2\\}_b \\\\',
+      'e_1 \\bowtie_p e_2 :=& \\{y \\circ x \\mid y \\in e_1,\\ x \\in e_2,\\ p(y,x)\\}_b \\\\',
+      'e_1 \\ltimes_p e_2 :=& \\{y \\mid y \\in e_1,\\ \\exists x \\in e_2,\\ p(y,x)\\}_b \\\\',
+      'e_1 \\vartriangleright_p e_2 :=& \\{y \\mid y \\in e_1,\\ \\nexists x \\in e_2,\\ p(y,x)\\}_b',
+      '\\end{aligned}',
+      '$$',
+      '',
+      '> These definitions summarize the logical behavior of the operators; execution strategies remain a separate physical-planning concern.',
+      '',
+      '## Core Properties of Logical Operators',
+      '',
+      'The next stage of analysis classifies each operator by linearity, row and column cardinality, ordering requirements, and the way free variables are bound.',
+      '',
+      '- **Linearity** determines whether an operator can be distributed across bag union.',
+      '- **Schema effects** describe which attributes an operator consumes, preserves, or produces.',
+      '- **Cardinality effects** describe whether rows can be filtered, duplicated, grouped, or expanded.',
+      '- **Reordering constraints** identify when adjacent operators can safely exchange positions.',
+      '',
+      'These properties provide the guards for equivalence rules such as predicate pushdown, projection pruning, and join reordering.',
       '',
     ].join('\n'));
     fs.writeFileSync(path.join(workspaceDir, 'src', 'components', 'Dashboard.tsx'), [
@@ -1291,17 +1323,24 @@ async function main() {
     const docsDirectory = filesSection.locator('[data-testid="code-file-row"][data-file-path="docs"]');
     await docsDirectory.waitFor({ state: 'visible', timeout: 20_000 });
     if (await docsDirectory.getAttribute('aria-expanded') === 'false') await docsDirectory.click();
-    const relationalAlgebraFile = filesSection.locator('[data-testid="code-file-row"][data-file-path="docs/relational-algebra.md"]');
-    await relationalAlgebraFile.waitFor({ state: 'visible', timeout: 20_000 });
-    await relationalAlgebraFile.click();
+    const relationalOperatorsFile = filesSection.locator('[data-testid="code-file-row"][data-file-path="docs/relational-operators.md"]');
+    await relationalOperatorsFile.waitFor({ state: 'visible', timeout: 20_000 });
+    await relationalOperatorsFile.click();
     const markdownPreview = page.getByTestId('code-file-markdown-preview');
     await page.getByTestId('code-file-editor').waitFor({ state: 'visible', timeout: 20_000 });
     if (!await markdownPreview.isVisible()) {
       await page.getByTestId('code-file-editor').locator('.code-file-editor-action.source-preview').click();
     }
     await markdownPreview.waitFor({ state: 'visible', timeout: 20_000 });
-    await markdownPreview.getByRole('heading', { name: '关系代数与逻辑优化规则' }).waitFor({ state: 'visible', timeout: 20_000 });
-    await markdownPreview.getByRole('table').waitFor({ state: 'visible', timeout: 20_000 });
+    const operatorSummaryHeading = markdownPreview.getByRole('heading', { name: 'Relational Operator Definition Summary' });
+    await operatorSummaryHeading.waitFor({ state: 'visible', timeout: 20_000 });
+    await markdownPreview.locator('.katex-display').first().waitFor({ state: 'visible', timeout: 20_000 });
+    await markdownPreview.evaluate(panel => {
+      const heading = Array.from(panel.querySelectorAll('h2')).find(element => (
+        element.textContent?.includes('Relational Operator Definition Summary')
+      ));
+      if (heading instanceof HTMLElement) panel.scrollTop = Math.max(0, heading.offsetTop - 24);
+    });
     await Promise.all([
       codexAgentId,
       terminalAgentId,

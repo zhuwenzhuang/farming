@@ -27,8 +27,6 @@ const enNav = [
   { text: 'GitHub', link: 'https://github.com/zhuwenzhuang/farming' },
 ]
 
-const rootNav = [...zhNav, { text: 'English', link: '/en/' }]
-
 const zhSidebar = [
   { text: '开始使用', items: [
     { text: '快速开始', link: '/cn/get-started/quickstart' },
@@ -212,9 +210,10 @@ export default defineConfig({
   cleanUrls: true,
   lastUpdated: true,
   locales: {
-    root: {
+    cn: {
       label: '简体中文',
       lang: 'zh-CN',
+      link: '/cn/',
       title: 'Farming 文档',
       description: 'Farming Code 与 Farming CRT 的中文使用文档',
       themeConfig: zhTheme,
@@ -254,7 +253,6 @@ export default defineConfig({
   ],
   themeConfig: {
     ...zhTheme,
-    nav: rootNav,
-    i18nRouting: false,
+    i18nRouting: true,
   },
 })

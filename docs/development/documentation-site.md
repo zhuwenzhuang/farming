@@ -17,9 +17,10 @@ experimental notice.
 
 The site publishes mirrored Chinese and English user documentation. Chinese
 pages live under `docs-site/cn/`, English pages under `docs-site/en/`, and the
-locale switch remains available in both languages. A user-facing content
-change updates both versions in the same commit unless it is explicitly
-language-specific.
+locale switch remains available in both languages. Switching locale keeps the
+current page path when the translated counterpart exists. A user-facing
+content change updates both versions in the same commit unless it is
+explicitly language-specific.
 
 ## Presentation Contract
 

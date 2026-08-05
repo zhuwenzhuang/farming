@@ -6,7 +6,7 @@ description: Browse, search, edit, and inspect project files and Git changes in 
 
 Files lets you browse, search, and lightly edit Project files. Use it to verify code, configuration, and test evidence mentioned by an Agent.
 
-<ThemeImage light="/cn/assets/files.png" dark="/cn/assets/files-dark.png" alt="Files and Markdown preview" />
+<ThemeImage light="/cn/assets/files-relational-operators-20260806.png" dark="/cn/assets/files-relational-operators-20260806-dark.png" alt="Relational operator Markdown preview in Files" />
 
 ## Browse files
 
