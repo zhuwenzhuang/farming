@@ -41,7 +41,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: docs-site
-        run: npm ci --registry=https://registry.npmjs.org/
+        run: npm ci --ignore-scripts --no-audit --no-fund --registry=https://registry.npmjs.org/
 
       - name: Configure Pages
         if: github.event_name != 'pull_request'
