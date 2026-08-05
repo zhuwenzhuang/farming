@@ -39,6 +39,12 @@ sections, customer-proof patterns, or repeated feature inventories. Screenshots
 should explain a specific workflow or interface; they are evidence, not a
 substitute for documentation.
 
+Theme-specific sharing uses the `?theme=dark` and `?theme=light` query
+parameters. A valid parameter is applied before the page renders. Once a URL
+contains a theme parameter, theme switches and in-site navigation keep the URL
+aligned with the active appearance. Plain URLs remain unchanged until the user
+switches appearance.
+
 ## Local Commands
 
 ```bash

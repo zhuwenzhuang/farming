@@ -2,6 +2,12 @@ import { defineConfig } from 'vitepress'
 
 const base = process.env.FARMING_DOCS_BASE || '/farming/'
 const siteOrigin = process.env.FARMING_DOCS_ORIGIN || 'https://zhuwenzhuang.github.io'
+const themeFromUrlScript = `;(() => {
+  const theme = new URLSearchParams(location.search).get('theme')
+  if (theme !== 'dark' && theme !== 'light') return
+  localStorage.setItem('vitepress-theme-appearance', theme)
+  document.documentElement.classList.toggle('dark', theme === 'dark')
+})()`
 
 const zhNav = [
   { text: 'Farming Code', link: '/cn/code/overview' },
@@ -242,6 +248,7 @@ export default defineConfig({
     ]
   },
   head: [
+    ['script', {}, themeFromUrlScript],
     ['meta', { name: 'theme-color', content: '#f7f4ec' }],
     ['link', { rel: 'icon', href: `${base}farming-icon.png` }],
   ],
