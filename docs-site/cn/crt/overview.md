@@ -26,7 +26,7 @@ Terminal 连接同一个原生 PTY Session，适合查看完整输出并使用 C
 
 ## Token 使用
 
-![Farming CRT Token 使用界面](/cn/assets/crt-usage.png)
+![Farming CRT Token 使用界面](/cn/assets/crt-usage-20260806.png)
 
 Token 使用界面汇总当前 Provider 活动和历史用量，帮助判断活跃时段、使用趋势和异常峰值。
 

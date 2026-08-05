@@ -48,7 +48,7 @@ const publicCrtScreenshotSpecs = new Map<string, PublicScreenshotSpec>([
   ['01-crt-dashboard.png', { fileName: 'crt-dashboard.png' }],
   ['02-crt-structured-chat.png', { fileName: 'crt-chat.png' }],
   ['03-crt-terminal.png', { fileName: 'crt-terminal.png' }],
-  ['06-crt-billing-days.png', { fileName: 'crt-usage.png' }],
+  ['06-crt-billing-days.png', { fileName: 'crt-usage-20260806.png' }],
 ]);
 const screenshotAppearance = process.env.FARMING_SCREENSHOT_APPEARANCE === 'dark' ? 'dark' : 'light';
 const nativeDarkCodeScreenshots = new Set([
