@@ -6,7 +6,7 @@ description: 调整 Farming Code 的界面、Agent 行为、搜索、Farming Pet
 
 Settings 集中管理界面、Agent 行为、搜索、Farming Pet 和更新。设置项只在当前安装和运行环境支持时显示。
 
-<ThemeImage light="../assets/settings.png" dark="../assets/settings-dark.png" alt="Farming 设置" />
+<ThemeImage light="/cn/assets/settings.png" dark="/cn/assets/settings-dark.png" alt="Farming 设置" />
 
 > 文档截图使用英文界面，以便自动生成结果保持稳定。可以在 Settings 顶部随时切换中文或英文。
 
@@ -44,14 +44,14 @@ Farming Pet 是可选的番茄钟式休息提醒。可以设置提醒间隔，�
 ### 柔光
 
 <ThemeImage
-  light="../assets/pet-soft-glow.png"
-  dark="../assets/pet-soft-glow-dark.png"
+  light="/cn/assets/pet-soft-glow.png"
+  dark="/cn/assets/pet-soft-glow-dark.png"
   alt="Farming Pet 柔光休息界面"
 />
 
 ### 黑洞
 
-![Farming Pet 黑洞休息界面](../assets/pet-black-hole.png)
+![Farming Pet 黑洞休息界面](/cn/assets/pet-black-hole.png)
 
 ## Updates
 

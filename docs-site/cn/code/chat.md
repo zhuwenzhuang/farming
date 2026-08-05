@@ -2,7 +2,7 @@
 
 Chat 把 Coding Agent 的消息、过程和工具活动整理成可阅读的时间线。它适合跟进任务、检查证据，并在不离开上下文的情况下继续追问。
 
-<ThemeImage light="../assets/chat.png" dark="../assets/chat-dark.png" alt="结构化 Chat" />
+<ThemeImage light="/cn/assets/chat.png" dark="/cn/assets/chat-dark.png" alt="结构化 Chat" />
 
 ## 阅读 Agent 过程
 
@@ -31,7 +31,7 @@ Chat 把 Coding Agent 的消息、过程和工具活动整理成可阅读的时�
 
 不同 Provider 会暴露不同的模型、推理强度、服务层级与权限控制。Farming 只显示当前 Provider 和 Session 实际支持的选项。
 
-<ThemeImage light="../assets/model-controls.png" dark="../assets/model-controls-dark.png" alt="模型与运行控制" />
+<ThemeImage light="/cn/assets/model-controls.png" dark="/cn/assets/model-controls-dark.png" alt="模型与运行控制" />
 
 放宽权限会减少确认步骤，也会扩大 Agent 能执行的操作范围。只在可信仓库和明确任务中使用，并优先采用能够满足任务的最小权限。
 
