@@ -6965,25 +6965,27 @@ body.code-mode .code-instance-name {
 }
 
 .code-agent-transcript-live-activity > span:not(.code-agent-transcript-live-activity-icon) {
+  --code-agent-transcript-live-activity-sweep-band-width: 56px;
+  --code-agent-transcript-live-activity-sweep-duration: 2.8s;
   display: block;
   min-width: 0;
   overflow: hidden;
   color: transparent;
-  background: linear-gradient(
-    90deg,
-    var(--code-agent-transcript-live-activity-text) 0%,
-    var(--code-agent-transcript-live-activity-text) 38%,
-    var(--code-agent-transcript-live-activity-highlight) 50%,
-    var(--code-agent-transcript-live-activity-text) 62%,
-    var(--code-agent-transcript-live-activity-text) 100%
-  );
-  background-position: 100% 0;
-  background-size: 220% 100%;
+  background-image:
+    linear-gradient(90deg, transparent, var(--code-agent-transcript-live-activity-highlight), transparent),
+    linear-gradient(var(--code-agent-transcript-live-activity-text), var(--code-agent-transcript-live-activity-text));
+  background-position:
+    calc(0% - var(--code-agent-transcript-live-activity-sweep-band-width)) 0,
+    0 0;
+  background-repeat: no-repeat;
+  background-size:
+    var(--code-agent-transcript-live-activity-sweep-band-width) 100%,
+    100% 100%;
   background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   text-overflow: ellipsis;
-  animation: code-agent-transcript-latest-activity-sweep 2.8s linear infinite;
+  animation: code-agent-transcript-latest-activity-sweep var(--code-agent-transcript-live-activity-sweep-duration) linear infinite;
 }
 
 .code-agent-transcript-live-activity-icon {
@@ -7014,11 +7016,15 @@ body.code-mode .code-instance-name {
 
 @keyframes code-agent-transcript-latest-activity-sweep {
   from {
-    background-position: 100% 0;
+    background-position:
+      calc(0% - var(--code-agent-transcript-live-activity-sweep-band-width)) 0,
+      0 0;
   }
 
   to {
-    background-position: -100% 0;
+    background-position:
+      calc(100% + var(--code-agent-transcript-live-activity-sweep-band-width)) 0,
+      0 0;
   }
 }
 

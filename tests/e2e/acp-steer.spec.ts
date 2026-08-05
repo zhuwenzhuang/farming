@@ -244,14 +244,32 @@ test('queues a follow-up and explicitly sends negotiated Codex ACP steer', async
     getComputedStyle(element).animationName
   ))).toBe('code-agent-transcript-latest-activity-sweep')
   await expect.poll(() => liveActivityText.evaluate(element => (
-    getComputedStyle(element).animationDuration
-  ))).toBe('2.8s')
-  await expect.poll(() => liveActivityText.evaluate(element => (
     getComputedStyle(element).animationTimingFunction
   ))).toBe('linear')
   await expect.poll(() => liveActivityText.evaluate(element => (
     getComputedStyle(element).webkitBackgroundClip
-  ))).toBe('text')
+  ))).toBe('text, text')
+  await expect.poll(() => liveActivityText.evaluate(element => (
+    getComputedStyle(element).backgroundRepeat
+  ))).toBe('no-repeat, no-repeat')
+  const readSweepMetrics = () => liveActivityText.evaluate(element => {
+    const style = getComputedStyle(element)
+    return {
+      bandWidth: Number.parseFloat(style.getPropertyValue('--code-agent-transcript-live-activity-sweep-band-width')),
+      durationSeconds: Number.parseFloat(style.animationDuration),
+      width: element.getBoundingClientRect().width,
+    }
+  })
+  const initialSweepMetrics = await readSweepMetrics()
+  expect(initialSweepMetrics.durationSeconds).toBeCloseTo(
+    (initialSweepMetrics.width + initialSweepMetrics.bandWidth * 2) / 130,
+    2,
+  )
+  await liveActivityText.evaluate(element => {
+    element.style.flex = '0 0 400px'
+    element.style.width = '400px'
+  })
+  await expect.poll(async () => (await readSweepMetrics()).durationSeconds).toBeCloseTo((400 + 56 * 2) / 130, 2)
   await expect.poll(() => liveActivity.evaluate(element => (
     getComputedStyle(element, '::after').content
   ))).toBe('none')

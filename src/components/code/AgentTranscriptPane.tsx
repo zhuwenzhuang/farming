@@ -221,6 +221,7 @@ const ACP_TRANSCRIPT_FETCH_RETRY_DELAYS_MS = [250, 1000] as const
 const ACP_TRANSCRIPT_REFRESH_COALESCE_MS = 80
 const INITIAL_TRANSCRIPT_REVEAL_QUIET_MS = 120
 const INITIAL_TRANSCRIPT_REVEAL_MAX_MS = 400
+const LIVE_ACTIVITY_SWEEP_SPEED_PX_PER_SECOND = 130
 
 function initialTranscriptTurnLimit(source: AgentTranscriptPaneProps['source']) {
   return source === 'acp'
@@ -2725,6 +2726,7 @@ function AgentTranscriptTurnView({
     ? 'liveTranscriptTurn'
     : 'completedTranscriptTurn')
   const turnRef = useRef<HTMLElement | null>(null)
+  const liveActivityTextRef = useRef<HTMLSpanElement | null>(null)
   const [loadedProcessDetails, setLoadedProcessDetails] = useState<Record<string, AgentTranscriptProcessPresentation>>({})
   const loadingProcessDetailsRef = useRef<Set<string>>(new Set())
   const resolvedProcessItems = useMemo(() => turn.processItems.map(item => (
@@ -2824,6 +2826,22 @@ function AgentTranscriptTurnView({
   const liveActivityLabel = liveToolActivity?.label || planLabel || thoughtLabel || workingLabel
   const liveActivityKind = liveToolActivity?.kind
     || (planLabel ? 'plan' : thoughtLabel ? 'thinking' : acpActivityKind(activityTurn.processItems))
+  useLayoutEffect(() => {
+    const element = liveActivityTextRef.current
+    if (!showLiveActivity || liveActivityKind === 'processing' || !element) return undefined
+    const syncDuration = () => {
+      const width = element.getBoundingClientRect().width
+      const bandWidth = Number.parseFloat(getComputedStyle(element).getPropertyValue('--code-agent-transcript-live-activity-sweep-band-width'))
+      if (!(width > 0) || !(bandWidth > 0)) return
+      const durationSeconds = (width + bandWidth * 2) / LIVE_ACTIVITY_SWEEP_SPEED_PX_PER_SECOND
+      element.style.setProperty('--code-agent-transcript-live-activity-sweep-duration', `${durationSeconds.toFixed(3)}s`)
+    }
+    syncDuration()
+    if (typeof ResizeObserver === 'undefined') return undefined
+    const observer = new ResizeObserver(syncDuration)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [liveActivityKind, liveActivityLabel, showLiveActivity])
   const loadFullProcessDetail = useCallback(async (item: AgentTranscriptProcessItem, force = false) => {
     if ((!item.detailTruncated && !item.terminalIds?.length && !item.subagentSessionId) || !onLoadProcessItemDetail) {
       return { detail: item.detail || '', terminals: item.terminals, subagentTranscript: item.subagentTranscript }
@@ -3361,7 +3379,7 @@ function AgentTranscriptTurnView({
           aria-live="polite"
         >
           <AgentTranscriptLiveActivityIcon kind={liveActivityKind} />
-          <span>{liveActivityLabel}</span>
+          <span ref={liveActivityTextRef}>{liveActivityLabel}</span>
         </div>
       ) : null}
     </article>
