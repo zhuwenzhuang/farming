@@ -7,7 +7,21 @@ const {
   reorderedProjectAgentOrders,
 } = require('../agent-order.cjs');
 
-function agent(id, projectOrder, overrides = {}) {
+interface TestAgentOrderRecord {
+  cwd: string;
+  id: string;
+  pinned: boolean;
+  pinnedOrder?: number;
+  projectOrder?: number;
+  projectWorkspace: string;
+  startedAt: number;
+}
+
+function agent(
+  id: string,
+  projectOrder: number | undefined,
+  overrides: Partial<TestAgentOrderRecord> = {},
+): TestAgentOrderRecord {
   return {
     id,
     cwd: '/repo',

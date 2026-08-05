@@ -39,14 +39,25 @@ therefore be shown alongside rows from the previously completed inventory until
 the replacement inventory completes; this bounded mixed view preserves
 supervision coverage without treating stale rows as the new snapshot.
 The Server yields after the first page and pauses later pages while that
-client's transport buffer is above the state threshold. List mutations during
-delivery are held in a bounded per-client sequence and drain after the final
-page. Overflow falls back to one fresh authoritative snapshot instead of
-allowing unbounded memory growth or sequence gaps. Later list changes carry
-complete summaries only for changed Agents, removed Agent IDs, and changed
-list-level metadata.
-Terminal output, Chat transcript changes, previews, and activity updates remain
-on their Agent-scoped streams.
+client's transport buffer is above the state threshold. From the snapshot cut
+until its final page, list deltas and Agent-scoped messages whose projections
+can be replaced by snapshot reconciliation share one bounded per-client
+post-snapshot queue. This includes `state-delta`, `agent-update`, `agent-read`,
+and ACP Session revision messages. The queue drains in original send order
+after the final page, and each scoped message rechecks the browser's current
+interest before it is sent. Replaceable Activity and Preview updates do not
+consume that queue: snapshot completion recovers their latest absolute
+checkpoints for the then-current independent scopes. Changing state scope while
+pages are in flight abandons the obsolete partial snapshot and starts a new
+authoritative snapshot in the requested scope. Queue overflow also abandons the
+partial result and sends one compatible single-page authoritative checkpoint,
+providing a bounded completion path instead of allowing unbounded memory
+growth, repeated progressive restarts, sequence gaps, or a newer hot projection
+to be overwritten by an older final page. Later list changes carry complete
+summaries only for changed Agents, removed Agent IDs, and changed list-level
+metadata. Terminal output and Chat transcript changes remain on their
+independent Agent-scoped streams because Agent-list snapshot reconciliation
+does not replace those stream reducers.
 
 Browser views declare whether Agent activity is relevant for all Agents, only
 the focused Agent, or none. Farming Code keeps all activity while the Projects

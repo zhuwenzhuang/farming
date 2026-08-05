@@ -6,6 +6,16 @@ const path = require('path');
 const { ConfigManager } = require('../config-manager.cjs');
 const { FarmingSessionStore } = require('../farming-session-store.cjs');
 
+interface AgentStateTestRecord extends Record<string, unknown> {
+  acpFinalizedTurnHandle: string;
+  agentRecordId?: string;
+  attentionSeq: number;
+  id: string;
+  persistentSessionId?: string;
+  providerSessionKey: string;
+  readAttentionSeq: number;
+}
+
 function assertCommitted(
   result: {
     status: string;
@@ -26,7 +36,7 @@ async function run() {
   try {
     const store = new FarmingSessionStore(root);
     store.init();
-    const agent = {
+    const agent: AgentStateTestRecord = {
       id: 'runtime-agent-state-async',
       command: 'codex',
       cwd: root,

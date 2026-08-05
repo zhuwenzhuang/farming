@@ -150,9 +150,10 @@ interface WebSocketClient {
   resourceSnapshotPending?: boolean;
   initialStateSnapshotSent?: boolean;
   initialStateSnapshotTimer?: ReturnType<typeof setTimeout> | null;
-  stateSnapshotDeltaBytes?: number;
-  stateSnapshotDeltas?: string[];
+  stateSnapshotMessageBytes?: number;
+  stateSnapshotMessages?: DeferredAgentStateMessage[];
   stateSnapshotInProgress?: boolean;
+  stateSnapshotOverflowed?: boolean;
   stateSnapshotPending?: boolean;
   stateSnapshotRetryTimer?: ReturnType<typeof setTimeout> | null;
   stateScope?: 'all' | 'focused';
@@ -292,6 +293,11 @@ import {
   normalizeAgentStateScope,
   type AgentStatePayload,
 } from './agent-state-broadcast-protocol.cjs';
+import {
+  deferAgentStateMessageDuringSnapshot,
+  deliverDeferredAgentStateMessage,
+  type DeferredAgentStateMessage,
+} from './agent-state-snapshot-delivery.cjs';
 import {
   coalesceResourceBroadcast,
   drainResourceBroadcasts,
@@ -3128,11 +3134,12 @@ wss.on('connection', (ws, req) => {
     cancelSessionPreviewHydration(ws);
     if (ws.initialStateSnapshotTimer) clearTimeout(ws.initialStateSnapshotTimer);
     if (ws.stateSnapshotRetryTimer) clearTimeout(ws.stateSnapshotRetryTimer);
-    ws.stateSnapshotDeltaBytes = 0;
-    ws.stateSnapshotDeltas = [];
+    ws.stateSnapshotMessageBytes = 0;
+    ws.stateSnapshotMessages = [];
     ws.stateSnapshotRetryTimer = null;
     ws.initialStateSnapshotTimer = null;
     ws.stateSnapshotInProgress = false;
+    ws.stateSnapshotOverflowed = false;
     console.log('Client disconnected', JSON.stringify({
       connectionId: ws.connectionId,
       remoteAddress,
@@ -3542,10 +3549,16 @@ function handleMessage(ws: WebSocketClient, data: ServerClientMessage) {
       if (data.streamScope === 'focused' || data.streamScope === 'all') {
         ws.streamScope = data.streamScope;
       }
-      const stateSnapshotRequired = data.refreshState === true || stateScopeTransition.snapshotRequired;
+      const stateSnapshotRequired = data.refreshState === true
+        || stateScopeTransition.snapshotRequired
+        || (
+          ws.stateSnapshotInProgress === true
+          && previousStateScope !== stateScopeTransition.scope
+        );
       if (stateSnapshotRequired) {
-        // A full Agent snapshot is also the authoritative checkpoint for
-        // Activity, previews, and Agent-scoped patches skipped while focused.
+        // The requested Agent snapshot checkpoints the projections represented
+        // by its state scope. Independently scoped Activity recovers separately
+        // when that snapshot cannot cover its current interest.
         sendState(ws);
       } else {
         if (activitySnapshotRequired) sendAgentActivitySnapshot(ws);
@@ -3741,9 +3754,10 @@ function sendState(ws: WebSocketClient) {
   }
   cancelSessionPreviewHydration(ws);
   broadcastState(ws, true);
+  const stateScope = normalizeAgentStateScope(ws.stateScope);
   const state = agentStateBroadcastSnapshotForScope(
     stateBroadcastTracker,
-    normalizeAgentStateScope(ws.stateScope),
+    stateScope,
     ws.focusedAgentId,
   );
   const summaries = agentStateBroadcastProjectSummaries(stateBroadcastTracker);
@@ -3756,22 +3770,34 @@ function sendState(ws: WebSocketClient) {
     return;
   }
   const snapshotId = `${SERVER_EPOCH}:${stateBroadcastTracker.sequence}:${++stateSnapshotSerial}`;
+  const forceSinglePage = ws.stateSnapshotOverflowed === true;
+  ws.stateSnapshotOverflowed = false;
   const frames = agentStateSnapshotFrames(
     {
       ...state,
       projectAgentSummaries: summaries,
     },
     snapshotId,
-    INITIAL_AGENT_STATE_SNAPSHOT_PAGE_SIZE,
-    AGENT_STATE_SNAPSHOT_PAGE_SIZE,
+    forceSinglePage ? Math.max(1, state.agents.length) : INITIAL_AGENT_STATE_SNAPSHOT_PAGE_SIZE,
+    forceSinglePage ? Math.max(1, state.agents.length) : AGENT_STATE_SNAPSHOT_PAGE_SIZE,
   )[Symbol.iterator]();
   const sequence = stateBroadcastTracker.sequence;
   ws.stateSnapshotInProgress = true;
   ws.stateSnapshotPending = false;
-  ws.stateSnapshotDeltaBytes = 0;
-  ws.stateSnapshotDeltas = [];
-  ws.agentActivityAllCheckpointPending = false;
-  ws.agentActivityResyncPending = false;
+  ws.stateSnapshotMessageBytes = 0;
+  ws.stateSnapshotMessages = [];
+  const activityScope = normalizeAgentActivityScope(ws.activityScope);
+  const agentSnapshotCoversActivity = activityScope === 'none'
+    || stateScope === 'all'
+    || (activityScope === 'focused' && Boolean(ws.focusedAgentId));
+  if (agentSnapshotCoversActivity) {
+    ws.agentActivityAllCheckpointPending = false;
+    ws.agentActivityCheckpointPending = false;
+    ws.agentActivityResyncPending = false;
+  } else if (ws.agentActivityResyncPending) {
+    if (activityScope === 'all') ws.agentActivityAllCheckpointPending = true;
+    else if (activityScope === 'focused') ws.agentActivityCheckpointPending = true;
+  }
 
   const queueNextPage = (delayMs: number, callback: () => void = deliverNextPage) => {
     if (ws.stateSnapshotRetryTimer) clearTimeout(ws.stateSnapshotRetryTimer);
@@ -3781,6 +3807,8 @@ function sendState(ws: WebSocketClient) {
   const finishSnapshotDelivery = () => {
     ws.stateSnapshotInProgress = false;
     ws.stateSnapshotRetryTimer = null;
+    recoverAgentActivityIfReady(ws);
+    recoverAcpSessionRevisionIfReady(ws);
     queueSessionPreviewHydration(
       ws,
       PREVIEW_SCOPE_DECLARATION_WINDOW_MS,
@@ -3789,35 +3817,56 @@ function sendState(ws: WebSocketClient) {
       },
     );
   };
+  const restartPendingSnapshot = () => {
+    if (!ws.stateSnapshotPending) return false;
+    ws.stateSnapshotMessages?.forEach(queued => queued.onDiscard?.());
+    ws.stateSnapshotMessageBytes = 0;
+    ws.stateSnapshotMessages = [];
+    ws.stateSnapshotInProgress = false;
+    sendState(ws);
+    return true;
+  };
   const drainSnapshotDeltas = () => {
     ws.stateSnapshotRetryTimer = null;
     if (ws.readyState !== WebSocket.OPEN) {
       ws.stateSnapshotInProgress = false;
       return;
     }
-    if (ws.stateSnapshotPending) {
-      ws.stateSnapshotDeltaBytes = 0;
-      ws.stateSnapshotDeltas = [];
-      ws.stateSnapshotInProgress = false;
-      sendState(ws);
-      return;
-    }
+    if (restartPendingSnapshot()) return;
     if (ws.bufferedAmount > MAX_STATE_CLIENT_BUFFERED_AMOUNT) {
       queueNextPage(AGENT_STATE_SNAPSHOT_BACKPRESSURE_RETRY_MS, drainSnapshotDeltas);
       return;
     }
-    const queued = ws.stateSnapshotDeltas?.shift();
+    const queued = ws.stateSnapshotMessages?.[0];
     if (!queued) {
-      ws.stateSnapshotDeltaBytes = 0;
+      ws.stateSnapshotMessageBytes = 0;
       finishSnapshotDelivery();
       return;
     }
-    ws.stateSnapshotDeltaBytes = Math.max(0, (ws.stateSnapshotDeltaBytes || 0) - Buffer.byteLength(queued));
-    ws.send(queued);
+    if (
+      Number.isFinite(queued.maxBufferedAmount)
+      && ws.bufferedAmount > Number(queued.maxBufferedAmount)
+    ) {
+      queueNextPage(AGENT_STATE_SNAPSHOT_BACKPRESSURE_RETRY_MS, drainSnapshotDeltas);
+      return;
+    }
+    ws.stateSnapshotMessages?.shift();
+    ws.stateSnapshotMessageBytes = Math.max(
+      0,
+      (ws.stateSnapshotMessageBytes || 0) - Buffer.byteLength(queued.message),
+    );
+    deliverDeferredAgentStateMessage(queued, message => ws.send(message));
     queueNextPage(0, drainSnapshotDeltas);
   };
   const completeSnapshot = () => {
     ws.stateSnapshotRetryTimer = null;
+    if (forceSinglePage) {
+      // The overflow fallback is emitted synchronously as one complete frame,
+      // so no post-cut message can exist yet. Release the barrier immediately;
+      // later sends remain ordered behind that frame by the WebSocket transport.
+      finishSnapshotDelivery();
+      return;
+    }
     drainSnapshotDeltas();
   };
   let sentPages = 0;
@@ -3827,6 +3876,7 @@ function sendState(ws: WebSocketClient) {
       ws.stateSnapshotInProgress = false;
       return;
     }
+    if (restartPendingSnapshot()) return;
     if (sentPages > 0 && ws.bufferedAmount > MAX_STATE_CLIENT_BUFFERED_AMOUNT) {
       queueNextPage(AGENT_STATE_SNAPSHOT_BACKPRESSURE_RETRY_MS);
       return;
@@ -3903,6 +3953,11 @@ function sendPreviewIfInScope(ws: WebSocketClient, preview: ServerRecord) {
     && (ws.stateSnapshotInProgress || ws.previewHydrationPending === true)
   ) return false;
   if (!sessionPreviewScopeIncludesAgent(ws.previewScope, ws.focusedAgentId, previewAgentId)) return false;
+  if (ws.stateSnapshotInProgress) {
+    // Preview is an absolute replaceable projection. Snapshot completion
+    // hydrates the latest value for the then-current Preview scope.
+    return true;
+  }
   ws.send(JSON.stringify({
     type: 'session-preview',
     preview: previewForClient(preview, ws),
@@ -3930,8 +3985,12 @@ const AGENT_STATE_SNAPSHOT_PAGE_SIZE = 128;
 const INITIAL_AGENT_STATE_SNAPSHOT_FOLLOWUP_DELAY_MS = 200;
 const INITIAL_STATE_SCOPE_DECLARATION_WINDOW_MS = 100;
 const AGENT_STATE_SNAPSHOT_BACKPRESSURE_RETRY_MS = 25;
-const MAX_AGENT_STATE_SNAPSHOT_DELTA_COUNT = 256;
-const MAX_AGENT_STATE_SNAPSHOT_DELTA_BYTES = 1024 * 1024;
+const MAX_AGENT_STATE_SNAPSHOT_MESSAGE_COUNT = 256;
+const MAX_AGENT_STATE_SNAPSHOT_MESSAGE_BYTES = 1024 * 1024;
+const AGENT_STATE_SNAPSHOT_MESSAGE_LIMITS = {
+  maxBytes: MAX_AGENT_STATE_SNAPSHOT_MESSAGE_BYTES,
+  maxCount: MAX_AGENT_STATE_SNAPSHOT_MESSAGE_COUNT,
+};
 const PREVIEW_BROADCAST_INTERVAL_MS = 500;
 const PREVIEW_SCOPE_DECLARATION_WINDOW_MS = 100;
 const SESSION_STREAM_BROADCAST_INTERVAL_MS = 33;
@@ -3958,7 +4017,15 @@ function sendAgentActivitySnapshot(client: WebSocketClient) {
     client.readyState !== WebSocket.OPEN
     || client.protocolVersion !== PROTOCOL_VERSION
     || client.activityScopeDeclared !== true
+    || normalizeAgentActivityScope(client.activityScope) !== 'all'
   ) return;
+  if (client.stateSnapshotInProgress) {
+    // Agent-state and Activity scopes are independent. Defer the absolute
+    // Activity checkpoint until the progressive Agent snapshot is complete.
+    client.agentActivityAllCheckpointPending = true;
+    queueAgentActivityRecovery(client);
+    return;
+  }
   if (client.bufferedAmount > MAX_AGENT_ACTIVITY_CLIENT_BUFFERED_AMOUNT) {
     client.agentActivityAllCheckpointPending = true;
     queueAgentActivityRecovery(client);
@@ -3970,13 +4037,33 @@ function sendAgentActivitySnapshot(client: WebSocketClient) {
   client.agentActivityResyncPending = false;
 }
 
+function sendCompatibleAgentActivityCheckpoint(client: WebSocketClient) {
+  if (client.readyState !== WebSocket.OPEN) return;
+  agentManager.getAgentActivityPayloads(Date.now()).forEach((activity: AgentScopedServerEvent) => {
+    client.send(JSON.stringify({ type: 'agent-activity', activity }));
+  });
+  client.agentActivityAllCheckpointPending = false;
+  client.agentActivityResyncPending = false;
+}
+
 function deliverAgentActivity(
   client: WebSocketClient,
   activity: AgentScopedServerEvent,
   message = JSON.stringify({ type: 'agent-activity', activity }),
 ) {
   if (client.readyState !== WebSocket.OPEN) return;
+  const activityIsRelevant = () => {
+    if (client.activityScopeDeclared !== true) return true;
+    const currentScope = normalizeAgentActivityScope(client.activityScope);
+    return currentScope !== 'none'
+      && (currentScope !== 'focused' || client.focusedAgentId === activity.agentId);
+  };
   if (client.activityScopeDeclared !== true) {
+    if (client.stateSnapshotInProgress) {
+      client.agentActivityAllCheckpointPending = true;
+      queueAgentActivityRecovery(client);
+      return;
+    }
     client.send(message);
     return;
   }
@@ -3985,6 +4072,16 @@ function deliverAgentActivity(
     return;
   }
   const scope = normalizeAgentActivityScope(client.activityScope);
+  if (!activityIsRelevant()) {
+    client.agentActivityResyncPending = true;
+    return;
+  }
+  if (client.stateSnapshotInProgress) {
+    if (scope === 'all') client.agentActivityAllCheckpointPending = true;
+    else client.agentActivityCheckpointPending = true;
+    queueAgentActivityRecovery(client);
+    return;
+  }
   const delivery = agentActivityClientDelivery(
     scope,
     client.focusedAgentId,
@@ -3993,10 +4090,7 @@ function deliverAgentActivity(
     MAX_AGENT_ACTIVITY_CLIENT_BUFFERED_AMOUNT,
     activity.agentId,
   );
-  if (delivery === 'skip') {
-    client.agentActivityResyncPending = true;
-    return;
-  }
+  if (delivery === 'skip') return;
   if (delivery === 'defer') {
     if (scope === 'all') client.agentActivityAllCheckpointPending = true;
     else client.agentActivityCheckpointPending = true;
@@ -4008,10 +4102,17 @@ function deliverAgentActivity(
 }
 
 function recoverAgentActivityIfReady(client: WebSocketClient) {
+  if (client.stateSnapshotInProgress) {
+    if (client.agentActivityAllCheckpointPending || client.agentActivityCheckpointPending) {
+      queueAgentActivityRecovery(client);
+    }
+    return;
+  }
   const scope = normalizeAgentActivityScope(client.activityScope);
   if (client.agentActivityAllCheckpointPending === true) {
     if (scope === 'all' && client.bufferedAmount <= MAX_AGENT_ACTIVITY_CLIENT_BUFFERED_AMOUNT) {
-      sendAgentActivitySnapshot(client);
+      if (client.activityScopeDeclared === true) sendAgentActivitySnapshot(client);
+      else sendCompatibleAgentActivityCheckpoint(client);
     } else if (scope !== 'all') {
       client.agentActivityAllCheckpointPending = false;
       client.agentActivityResyncPending = true;
@@ -4054,10 +4155,14 @@ function currentAcpSessionRevision(agentId: string) {
 
 function deliverAcpSessionRevision(client: WebSocketClient, session: AgentScopedServerEvent) {
   if (client.readyState !== WebSocket.OPEN || client.protocolVersion !== PROTOCOL_VERSION) return;
+  const sessionIsRelevant = () => Boolean(
+    client.focusedAgentId
+    && client.focusedAgentId === session.agentId
+  );
   const delivery = acpRevisionClientDelivery(
     client.focusedAgentId,
     client.acpRevisionSentRevision,
-    client.bufferedAmount,
+    client.stateSnapshotInProgress ? 0 : client.bufferedAmount,
     MAX_ACP_REVISION_CLIENT_BUFFERED_AMOUNT,
     { agentId: session.agentId, revision: Number(session.revision) },
   );
@@ -4066,9 +4171,24 @@ function deliverAcpSessionRevision(client: WebSocketClient, session: AgentScoped
     client.acpRevisionCheckpointPending = true;
     return;
   }
-  client.send(JSON.stringify({ type: 'acp-session-revision', session }));
-  client.acpRevisionSentRevision = Number(session.revision);
-  client.acpRevisionCheckpointPending = false;
+  const message = JSON.stringify({ type: 'acp-session-revision', session });
+  const markSent = () => {
+    client.acpRevisionSentRevision = Number(session.revision);
+    client.acpRevisionCheckpointPending = false;
+  };
+  const markDiscarded = () => {
+    if (sessionIsRelevant()) client.acpRevisionCheckpointPending = true;
+  };
+  if (deferUntilAgentStateSnapshotCompletes(
+    client,
+    message,
+    sessionIsRelevant,
+    markSent,
+    markDiscarded,
+    MAX_ACP_REVISION_CLIENT_BUFFERED_AMOUNT,
+  )) return;
+  client.send(message);
+  markSent();
 }
 
 function recoverAcpSessionRevisionIfReady(client: WebSocketClient) {
@@ -4181,26 +4301,29 @@ browserResourceManager.on('deleted', (deletion: unknown) => scheduleResourceDele
 computerResourceManager.on('resource', (resource: unknown) => scheduleResourceUpdate('computer', resource));
 computerResourceManager.on('deleted', (deletion: unknown) => scheduleResourceDeletion('computer', deletion));
 
+function deferUntilAgentStateSnapshotCompletes(
+  client: WebSocketClient,
+  message: string,
+  isRelevant?: () => boolean,
+  onSent?: () => void,
+  onDiscard?: () => void,
+  maxBufferedAmount?: number,
+) {
+  return deferAgentStateMessageDuringSnapshot(
+    client,
+    {
+      message,
+      ...(isRelevant ? { isRelevant } : {}),
+      ...(onSent ? { onSent } : {}),
+      ...(onDiscard ? { onDiscard } : {}),
+      ...(Number.isFinite(maxBufferedAmount) ? { maxBufferedAmount } : {}),
+    },
+    AGENT_STATE_SNAPSHOT_MESSAGE_LIMITS,
+  );
+}
+
 function deliverStateDelta(client: WebSocketClient, message: string) {
-  if (client.stateSnapshotInProgress) {
-    if (client.stateSnapshotPending) return;
-    const messageBytes = Buffer.byteLength(message);
-    const queuedDeltas = client.stateSnapshotDeltas || [];
-    const queuedBytes = client.stateSnapshotDeltaBytes || 0;
-    if (
-      queuedDeltas.length >= MAX_AGENT_STATE_SNAPSHOT_DELTA_COUNT
-      || queuedBytes + messageBytes > MAX_AGENT_STATE_SNAPSHOT_DELTA_BYTES
-    ) {
-      client.stateSnapshotPending = true;
-      client.stateSnapshotDeltaBytes = 0;
-      client.stateSnapshotDeltas = [];
-      return;
-    }
-    queuedDeltas.push(message);
-    client.stateSnapshotDeltas = queuedDeltas;
-    client.stateSnapshotDeltaBytes = queuedBytes + messageBytes;
-    return;
-  }
+  if (deferUntilAgentStateSnapshotCompletes(client, message)) return;
   const delivery = agentStateClientDelivery(
     client.bufferedAmount,
     client.stateSnapshotPending === true,
@@ -4456,7 +4579,16 @@ function scheduleAgentUpdate(update: unknown) {
             client.focusedAgentId,
             update.agentId,
           )
-        ) client.send(message);
+        ) {
+          const stillRelevant = () => agentStateScopeIncludesAgent(
+            normalizeAgentStateScope(client.stateScope),
+            client.focusedAgentId,
+            update.agentId,
+          );
+          if (!deferUntilAgentStateSnapshotCompletes(client, message, stillRelevant)) {
+            client.send(message);
+          }
+        }
       });
     }, AGENT_ACTIVITY_BROADCAST_DELAY_MS),
   };
@@ -4506,7 +4638,14 @@ function broadcastAgentRead(read: unknown) {
         read.agentId,
       )
     ) {
-      client.send(message);
+      const stillRelevant = () => agentStateScopeIncludesAgent(
+        normalizeAgentStateScope(client.stateScope),
+        client.focusedAgentId,
+        read.agentId,
+      );
+      if (!deferUntilAgentStateSnapshotCompletes(client, message, stillRelevant)) {
+        client.send(message);
+      }
     }
   });
 }

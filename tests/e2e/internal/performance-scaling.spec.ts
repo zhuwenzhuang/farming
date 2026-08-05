@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { CDPSession, Page, WebSocket } from '@playwright/test'
 import { expect, openFarming, test } from '../fixtures'
+import { PROTOCOL_VERSION } from '../../../shared/browser-protocol'
 
 function scaleAgentCounts() {
   const configured = String(process.env.FARMING_SCALE_AGENT_COUNTS || '').trim()
@@ -42,6 +43,7 @@ type WireFrame = {
     terminalInputReceived?: boolean
     unread?: boolean
   }>
+  updateTerminalInputReceived: boolean
   projectAgentSummaries: Array<{
     activeCount: number
     agentCount: number
@@ -116,7 +118,7 @@ function trackWireFrames(page: Page) {
         snapshot?: { complete?: boolean; id?: string; offset?: number }
         upserts?: Array<{ id?: string; isMain?: boolean }>
         removedAgentIds?: string[]
-        update?: { agentId?: string }
+        update?: { agentId?: string; patch?: { terminalInputReceived?: boolean } }
         read?: { agentId?: string }
         preview?: { agentId?: string }
         activity?: { agentId?: string }
@@ -162,6 +164,7 @@ function trackWireFrames(page: Page) {
         stateAgents: message.type === 'state'
           ? message.state?.agents?.flatMap(agent => agent.id ? [{ ...agent, id: agent.id }] : []) ?? []
           : [],
+        updateTerminalInputReceived: message.update?.patch?.terminalInputReceived === true,
         projectAgentSummaries: message.type === 'state'
           ? message.state?.projectAgentSummaries ?? []
           : [],
@@ -187,6 +190,7 @@ function trackWireFrames(page: Page) {
         statePageAgentCount: 0,
         stateAgentIds: [],
         stateAgents: [],
+        updateTerminalInputReceived: false,
         projectAgentSummaries: [],
         upsertAgentIds: [],
         upsertCount: 0,
@@ -562,6 +566,8 @@ test('restores a large Agent inventory through progressive authoritative pages',
       firstRowAt: number
       mutationRequested: boolean
       mutationRequestedAt: number
+      hotInputRequested: boolean
+      hotInputRequestedAt: number
       summaryProjectAgentCount: number
       summaryProjectAt: number
       socket: WebSocket | null
@@ -573,6 +579,8 @@ test('restores a large Agent inventory through progressive authoritative pages',
       firstRowAt: 0,
       mutationRequested: false,
       mutationRequestedAt: 0,
+      hotInputRequested: false,
+      hotInputRequestedAt: 0,
       summaryProjectAgentCount: -1,
       summaryProjectAt: 0,
       socket: null,
@@ -600,6 +608,15 @@ test('restores a large Agent inventory through progressive authoritative pages',
                 body: JSON.stringify({ customTitle: 'Progressive snapshot mutation' }),
               }).then(response => {
                 if (!response.ok) throw new Error(`Mutation failed with ${response.status}`)
+              })
+              probe.hotInputRequested = true
+              probe.hotInputRequestedAt = performance.now()
+              void fetch(`/farming/api/control/agents/${encodeURIComponent(mutationAgentId)}/input`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ input: 'true\r' }),
+              }).then(response => {
+                if (!response.ok) throw new Error(`Input failed with ${response.status}`)
               })
             }
             if (message.snapshot.complete === true && probe.completeMessageAt === 0) {
@@ -683,6 +700,8 @@ test('restores a large Agent inventory through progressive authoritative pages',
       firstRowAt: number
       mutationRequested: boolean
       mutationRequestedAt: number
+      hotInputRequested: boolean
+      hotInputRequestedAt: number
       summaryProjectAgentCount: number
       summaryProjectAt: number
     } }).__farmingSnapshotProbe
@@ -696,6 +715,9 @@ test('restores a large Agent inventory through progressive authoritative pages',
   expect(paintProbe?.mutationRequested).toBe(true)
   expect(paintProbe?.mutationRequestedAt).toBeGreaterThanOrEqual(paintProbe?.firstMessageAt ?? 0)
   expect(paintProbe?.mutationRequestedAt).toBeLessThan(paintProbe?.completeMessageAt ?? 0)
+  expect(paintProbe?.hotInputRequested).toBe(true)
+  expect(paintProbe?.hotInputRequestedAt).toBeGreaterThanOrEqual(paintProbe?.firstMessageAt ?? 0)
+  expect(paintProbe?.hotInputRequestedAt).toBeLessThan(paintProbe?.completeMessageAt ?? 0)
   await expect.poll(() => frames.findLast(frame => (
     frame.type === 'state-delta'
     && frame.agentCount === targetCount
@@ -706,6 +728,25 @@ test('restores a large Agent inventory through progressive authoritative pages',
   ))
   expect(mutationDelta?.at).toBeGreaterThan(snapshotFrames.at(-1)?.at ?? 0)
   expect(mutationDelta?.upsertCount).toBeLessThan(first?.statePageAgentCount ?? 32)
+  const hotInputUpdate = frames.find(frame => (
+    frame.type === 'agent-update'
+    && frame.agentId === mutatedAgentId
+    && frame.updateTerminalInputReceived
+  ))
+  expect(hotInputUpdate).toBeTruthy()
+  expect(hotInputUpdate?.at).toBeGreaterThan(snapshotFrames.at(-1)?.at ?? 0)
+  const snapshottedHotInputAgent = snapshotFrames
+    .flatMap(frame => frame.stateAgents)
+    .find(agent => agent.id === mutatedAgentId)
+  expect(snapshottedHotInputAgent?.terminalInputReceived).toBe(false)
+  await expect.poll(async () => {
+    const response = await page.request.get('/farming/api/control/agents')
+    if (!response.ok()) return false
+    const payload = await response.json() as {
+      agents?: Array<{ id?: string; terminalInputReceived?: boolean }>
+    }
+    return payload.agents?.find(agent => agent.id === mutatedAgentId)?.terminalInputReceived === true
+  }, { timeout: 30_000 }).toBe(true)
   const secondaryProjectGroup = page.locator(
     `[data-testid="code-project-title"][data-project-id="${secondaryWorkspace}"]`,
   ).locator('xpath=ancestor::*[@data-testid="code-project-group"]')
@@ -757,6 +798,85 @@ test('restores a large Agent inventory through progressive authoritative pages',
     `[data-testid="code-terminal-pane"][data-agent-id="${mutatedAgentId}"]`,
   )).toBeVisible()
   expect(new Set(frames.filter(frame => frame.type === 'state').map(frame => frame.snapshotId)).size).toBe(1)
+
+  const scopePage = await page.context().newPage()
+  await scopePage.goto('/farming/api/control/agents', { waitUntil: 'domcontentloaded' })
+  const scopeTransition = await scopePage.evaluate(async ({ agentId, protocolVersion }) => {
+    return new Promise<{
+      focusedAgentIds: string[]
+      focusedSnapshotId: string
+      initialSnapshotFrames: number
+      initialSnapshotId: string
+    }>((resolve, reject) => {
+      const wsUrl = new URL('/farming/ws', location.href)
+      wsUrl.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
+      const socket = new WebSocket(wsUrl)
+      let initialSnapshotId = ''
+      let initialSnapshotFrames = 0
+      const timeout = window.setTimeout(() => {
+        socket.close()
+        reject(new Error('Progressive Snapshot scope transition timed out'))
+      }, 10_000)
+      socket.addEventListener('open', () => {
+        socket.send(JSON.stringify({
+          type: 'protocol-hello',
+          protocolVersion,
+          initialStateScope: 'all',
+        }))
+      })
+      socket.addEventListener('message', event => {
+        const message = JSON.parse(String(event.data)) as {
+          type?: string
+          snapshot?: { complete?: boolean; id?: string; offset?: number }
+          state?: { agentInventoryScope?: string; agents?: Array<{ id?: string }> }
+        }
+        if (message.type !== 'state' || !message.snapshot?.id) return
+        if (!initialSnapshotId) {
+          initialSnapshotId = message.snapshot.id
+          initialSnapshotFrames = 1
+          socket.send(JSON.stringify({
+            type: 'focus-agent',
+            agentId,
+            activityScope: 'focused',
+            previewScope: 'none',
+            stateScope: 'focused',
+            streamScope: 'focused',
+          }))
+          return
+        }
+        if (message.snapshot.id === initialSnapshotId) {
+          initialSnapshotFrames += 1
+          return
+        }
+        if (
+          message.snapshot.complete === true
+          && message.state?.agentInventoryScope === 'focused'
+        ) {
+          window.clearTimeout(timeout)
+          socket.close()
+          resolve({
+            focusedAgentIds: message.state.agents?.flatMap(agent => agent.id ? [agent.id] : []) ?? [],
+            focusedSnapshotId: message.snapshot.id,
+            initialSnapshotFrames,
+            initialSnapshotId,
+          })
+        }
+      })
+      socket.addEventListener('error', () => {
+        window.clearTimeout(timeout)
+        socket.close()
+        reject(new Error('Progressive Snapshot scope transition WebSocket failed'))
+      }, { once: true })
+    })
+  }, { agentId: mutatedAgentId, protocolVersion: PROTOCOL_VERSION })
+  await scopePage.close()
+  expect(scopeTransition.initialSnapshotId).not.toBe('')
+  expect(scopeTransition.initialSnapshotFrames).toBe(1)
+  expect(scopeTransition.focusedSnapshotId).not.toBe(scopeTransition.initialSnapshotId)
+  expect(scopeTransition.focusedAgentIds).toContain(mutatedAgentId)
+  expect(scopeTransition.focusedAgentIds.some(agentId => (
+    agentId !== mutatedAgentId && initialAgentIds.includes(agentId)
+  ))).toBe(false)
 
   const codePreviewSeedStart = frames.length
   const codePreviewSeed = await page.request.post(
