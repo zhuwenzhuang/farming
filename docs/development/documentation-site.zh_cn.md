@@ -11,7 +11,9 @@
 已经实现但缺少代表性真实案例的能力，只能放入实验性功能分组，并在页面首屏显示明确的
 实验性标识。
 
-第一轮只准备中文内容。等中文信息架构和正文经过 Review 并稳定后，再增加英文公开页面。
+公开站同步发布中文与英文用户文档。中文页面位于 `docs-site/cn/`，英文页面位于
+`docs-site/en/`，两种语言都保留语言切换入口。面向用户的内容变更应在同一个提交中同步
+更新中英文版本，除非该页面明确只适用于一种语言。
 
 ## 展示契约
 
@@ -35,7 +37,7 @@ npm run preview
 ```
 
 `npm run build` 是链接和静态构建的权威检查。公开站使用的产品截图放在
-`docs-site/cn/assets/`，必须使用匿名工作区，不得包含私有 Host、Token 或草稿界面。
+`docs-site/public/cn/assets/`，必须使用匿名工作区，不得包含私有 Host、Token 或草稿界面。
 
 在仓库根目录重新生成产品截图：
 
@@ -53,7 +55,7 @@ npm run docs:product:screenshots
 
 该命令使用匿名、确定性的工作区和 Agent Fixture，对构建后的真实 Farming UI 进行
 截图；它会更新产品文档的权威截图，并把公开站所需图片同步到
-`docs-site/cn/assets/`。不要用手工拼接的效果图替代这些真实截图。
+`docs-site/public/cn/assets/`。不要用手工拼接的效果图替代这些真实截图。
 深色截图使用 `-dark` 文件名后缀；Usage activity、Farming CRT 等原生深色界面继续使用
 权威文件名，不生成无意义的重复副本。
 

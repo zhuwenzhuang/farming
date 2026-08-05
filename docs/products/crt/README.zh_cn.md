@@ -2,28 +2,11 @@
 
 > English version: [README.md](./README.md)
 
-Farming CRT 是键盘优先的控制室界面，用来监控和控制多个 Agent。
+持续维护的使用说明、真实截图、常用按键与 Token 界面位于
+[Farming CRT 在线文档](https://zhuwenzhuang.github.io/farming/cn/crt/overview)。
 
-![Farming CRT 控制台](assets/01-crt-dashboard.png)
+Farming CRT 是连接同一批后端 Agent 和 Session 的键盘优先第二界面。切换 Code 与 CRT
+不会复制 Agent。
 
-当 Terminal Output 和进行中的工作是主要信号时使用 CRT。Files、编辑、Review 和手机访问请使用 [Farming Code](../code/README.zh_cn.md)。两套界面打开的是同一批 Agent 和 Session。
-
-## 开始
-
-在 Farming Code 中打开 **Settings → Interface**，选择 **Farming CRT**。在 CRT 中按 `S` 可以返回界面设置。
-
-CRT 设置中的 **Content Text Size** 会调整 Chat、输入框、Markdown 与 Terminal 正文，
-但不会改变导航、状态字段和操作控件；它与 Farming Code 的正文字号分别保存。
-
-## 常用按键
-
-| 按键 | 操作 |
-| --- | --- |
-| 方向键 / `Enter` | 选择并打开 Agent |
-| `N` | 启动 Agent |
-| `F` / `H` | Search / History |
-| `Ctrl+Escape` | 关闭当前 Chat 或 Terminal |
-| `Ctrl+K` | 归档当前 Agent（CRT 界面仍显示 `KILL`） |
-| `Alt+M` | 在支持的 Agent 上切换 Chat 与 Terminal |
-
-CRT 当前只支持桌面端。
+维护者应以 [Farming CRT 基础布局](base_layout.zh_cn.md)作为长期布局、交互和视觉契约。
+历史清理说明仍保留在 [Agent Cleanup History](agent-cleanup-history.zh_cn.md)。

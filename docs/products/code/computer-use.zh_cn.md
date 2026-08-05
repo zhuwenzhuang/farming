@@ -2,6 +2,9 @@
 
 > English version: [computer-use.md](./computer-use.md)
 
+用户指南：[Computer Use（实验性）](https://zhuwenzhuang.github.io/farming/cn/experimental/computer-use)。
+本文继续作为生命周期、所有权、隔离和验收契约。
+
 Computer Use 是可选的完整 Desktop 能力，包括 Application、Native Dialog、Mouse、Keyboard、
 Screenshot 与 Accessibility Information。Browser 继续负责结构化网页与 DOM。
 

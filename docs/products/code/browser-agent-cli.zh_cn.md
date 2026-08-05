@@ -2,6 +2,10 @@
 
 > English version: [browser-agent-cli.md](./browser-agent-cli.md)
 
+用户指南：[Farming Browser](https://zhuwenzhuang.github.io/farming/cn/browser/overview)
+与 [Agent 使用流程](https://zhuwenzhuang.github.io/farming/cn/browser/agent-workflow)。
+本文继续作为所有权、安全和失败语义的长期契约。
+
 Farming Browser 让 Agent 操作自己拥有的 Browser，同时用户可以在 Farming 中查看并操作同一个页面。
 
 ## 启用 Browser

@@ -15,8 +15,11 @@ Implemented capabilities that still lack representative real-world cases may
 be documented only in the experimental section and must carry a visible
 experimental notice.
 
-The first review cycle is Chinese-only. English public pages should be added
-after the Chinese information architecture and content have stabilized.
+The site publishes mirrored Chinese and English user documentation. Chinese
+pages live under `docs-site/cn/`, English pages under `docs-site/en/`, and the
+locale switch remains available in both languages. A user-facing content
+change updates both versions in the same commit unless it is explicitly
+language-specific.
 
 ## Presentation Contract
 
@@ -47,7 +50,7 @@ npm run preview
 ```
 
 `npm run build` is the authoritative link and static-build check. Product
-screenshots used by the public site live under `docs-site/cn/assets/`; keep
+screenshots shared by both locales live under `docs-site/public/cn/assets/`; keep
 them anonymous and free of private hosts, tokens, and draft-only UI.
 
 Regenerate product screenshots from the repository root:
@@ -66,7 +69,7 @@ npm run docs:product:screenshots
 
 This command captures the real built Farming UI with anonymous, deterministic
 workspaces and Agent fixtures. It updates the canonical product screenshots and
-synchronizes the public-site selections into `docs-site/cn/assets/`. Do not
+synchronizes the public-site selections into `docs-site/public/cn/assets/`. Do not
 replace these captures with manually composed mockups. Dark captures use a
 `-dark` filename suffix; screenshots whose product surface is already natively
 dark, such as Usage activity and Farming CRT, keep their canonical filename.

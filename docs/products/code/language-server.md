@@ -2,6 +2,9 @@
 
 > Chinese version: [language-server.zh_cn.md](./language-server.zh_cn.md)
 
+User guide: [Language Server (experimental)](https://zhuwenzhuang.github.io/farming/en/experimental/language-server).
+This document remains the authoritative backend, lifecycle, and acceptance contract.
+
 Status: managed, viewing-oriented capability.
 
 ## Product Boundary

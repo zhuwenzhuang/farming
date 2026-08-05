@@ -2,6 +2,9 @@
 
 > English version: [desktop-app.md](./desktop-app.md)
 
+用户指南：[Farming Desktop（实验性）](https://zhuwenzhuang.github.io/farming/cn/experimental/desktop)。
+本文继续作为架构、凭证、生命周期和恢复契约。
+
 Farming Desktop 使用 Electron 打包现有 Farming Code 界面。它默认启动本机 Farming Backend，
 也可以通过 OpenSSH 把同一套界面连接到已保存的远端 Farming Backend。
 

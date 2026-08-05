@@ -2,6 +2,9 @@
 
 > Chinese version: [desktop-app.zh_cn.md](./desktop-app.zh_cn.md)
 
+User guide: [Farming Desktop (experimental)](https://zhuwenzhuang.github.io/farming/en/experimental/desktop).
+This document remains the architecture, credential, lifecycle, and recovery contract.
+
 Farming Desktop packages the existing Farming Code interface in Electron. It
 starts a local Farming backend by default and can connect the same interface to
 saved remote Farming backends over OpenSSH.

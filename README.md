@@ -11,6 +11,7 @@
 <p align="center"><a href="./README.zh_cn.md">简体中文</a></p>
 
 <p align="center">
+  <a href="https://zhuwenzhuang.github.io/farming/en/">Documentation</a> ·
   <a href="https://github.com/zhuwenzhuang/farming/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/zhuwenzhuang/farming/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://github.com/zhuwenzhuang/farming/releases"><img alt="Release" src="https://img.shields.io/github/v/release/zhuwenzhuang/farming?label=release"></a>
   <a href="https://www.npmjs.com/package/farming-code"><img alt="npm" src="https://img.shields.io/npm/v/farming-code?label=npm"></a>
@@ -104,9 +105,8 @@ See [SECURITY.md](./SECURITY.md) for deployment and reporting guidance.
 
 ## Documentation
 
-- [Documentation home](./docs/README.md)
-- [Getting started](./docs/getting-started.md)
-- [Operations](./docs/operations/README.md)
+- [English user documentation](https://zhuwenzhuang.github.io/farming/en/)
+- [Repository architecture and development documentation](./docs/README.md)
 - [Release history](https://github.com/zhuwenzhuang/farming/releases)
 - [Contributing](./CONTRIBUTING.md)
 

@@ -2,11 +2,12 @@
 
 > English version: [README.md](./README.md)
 
-Farming 为同一批 Agent 和 Session 提供多种界面。请按当前任务选择：
+产品使用说明请阅读在线文档：
 
-- [Farming Code](code/README.zh_cn.md)：聚焦任务、Files、Review 与介入。
-- [Farming CRT](crt/README.zh_cn.md)：键盘优先的监控与控制。
+- [Farming Code](https://zhuwenzhuang.github.io/farming/cn/code/overview)
+- [Farming CRT](https://zhuwenzhuang.github.io/farming/cn/crt/overview)
+- [插件与实验性功能](https://zhuwenzhuang.github.io/farming/cn/plugins/overview)
 
-在 Code 与 CRT 之间切换不会创建第二个 Agent。
-
-安装和运行说明见[文档首页](../README.zh_cn.md)。
+本目录继续保存长期产品架构和验收契约。可以从
+[Farming Code 架构](code/README.zh_cn.md)、[Farming CRT 架构](crt/README.zh_cn.md)
+或 [Farming Net](net/README.zh_cn.md) 开始。

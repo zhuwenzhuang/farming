@@ -46,7 +46,8 @@ npm run docs:product:screenshots
 Update the canonical document for the affected reader:
 
 - product entry point: `README.md` and `README.zh_cn.md`
-- user documentation: the task and product pages linked from `docs/README.md`
+- user documentation: mirrored Chinese and English pages under `docs-site/`
+- repository documentation index: `docs/README.md` and `docs/README.zh_cn.md`
 - product landing pages: `docs/products/*/README.md`
 - durable architecture and verification: `docs/development/`
 - Agent engineering rules: `AGENTS.md` and `AGENTS.zh_cn.md`

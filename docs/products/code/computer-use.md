@@ -2,6 +2,9 @@
 
 > Chinese version: [computer-use.zh_cn.md](./computer-use.zh_cn.md)
 
+User guide: [Computer Use (experimental)](https://zhuwenzhuang.github.io/farming/en/experimental/computer-use).
+This document remains the lifecycle, ownership, isolation, and acceptance contract.
+
 Computer Use is an optional capability for seeing and operating a full desktop:
 applications, native dialogs, mouse, keyboard, screenshots, and accessibility
 information. Browser remains the structured webpage and DOM capability.

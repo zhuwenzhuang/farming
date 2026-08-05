@@ -2,16 +2,16 @@
 
 > English version: [README.md](./README.md)
 
-在线中文版：[zhuwenzhuang.github.io/farming](https://zhuwenzhuang.github.io/farming/)
+安装、产品使用、常见工作流和故障排查统一发布在支持中英切换的在线文档站：
 
-从你要完成的事情开始。
+- [中文用户文档](https://zhuwenzhuang.github.io/farming/)
 
-## 从这里开始
+仓库继续保存与代码共同演进的长期工程材料：
 
-- [快速开始](getting-started.zh_cn.md)：安装 Farming 并启动第一个 Agent。
-- [Farming Code](products/code/README.zh_cn.md)：使用 Chat、Terminal、Files 与 Review。
-- [Farming CRT](products/crt/README.zh_cn.md)：用键盘监控多个 Agent。
-- [Browser 插件](products/code/browser-agent-cli.zh_cn.md)：让用户与 Agent 使用同一个浏览器。
-- [运行与排障](operations/README.zh_cn.md)：服务命令、远程访问和问题报告。
+- [开发文档](development/README.zh_cn.md)
+- [产品架构](products/README.zh_cn.md)
+- [运行契约](operations/README.zh_cn.md)
+- [参与贡献](../CONTRIBUTING.zh_cn.md)
 
-参与开发请继续阅读[开发文档](development/README.zh_cn.md)。
+架构边界、状态转换、失败与恢复语义、验收契约和版本历史以仓库文档为权威来源。
+普通用户说明已经由在线站点承载时，不再在仓库中维护第二份完整正文。

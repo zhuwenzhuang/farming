@@ -46,7 +46,8 @@ npm run docs:product:screenshots
 请按受影响的读者更新权威文档：
 
 - 产品入口：`README.md` 和 `README.zh_cn.md`
-- 用户文档：`docs/README.md` 直接链接的任务页与产品页
+- 用户文档：`docs-site/` 下对应的中英文页面
+- 仓库文档入口：`docs/README.md` 与 `docs/README.zh_cn.md`
 - 产品入口页：`docs/products/*/README.md`
 - 长期架构与验证契约：`docs/development/`
 - Agent 工程规则：`AGENTS.md` 和 `AGENTS.zh_cn.md`

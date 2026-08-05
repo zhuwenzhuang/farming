@@ -2,16 +2,19 @@
 
 > Chinese version: [README.zh_cn.md](./README.zh_cn.md)
 
-Start with what you want to do.
+User-facing installation, product, workflow, and troubleshooting documentation
+is published on the bilingual documentation site:
 
-## Start Here
+- [English user documentation](https://zhuwenzhuang.github.io/farming/en/)
 
-- [Getting started](getting-started.md) — install Farming and run the first Agent.
-- [Farming Code](products/code/README.md) — use Chat, Terminal, files, and Review.
-- [Farming CRT](products/crt/README.md) — monitor several Agents from the keyboard.
-- [Browser plugin](products/code/browser-agent-cli.md) — let a person and Agent
-  use the same browser.
-- [Run and troubleshoot](operations/README.md) — service commands, remote access,
-  and problem reporting.
+The repository keeps durable engineering material close to the code:
 
-Contributors can continue to [Development](development/README.md).
+- [Development documentation](development/README.md)
+- [Product architecture](products/README.md)
+- [Operations contracts](operations/README.md)
+- [Contributing](../CONTRIBUTING.md)
+
+Repository documents own architecture boundaries, state transitions, failure
+and recovery semantics, verification contracts, and release-specific history.
+Do not duplicate ordinary user instructions here when the public site already
+owns them.

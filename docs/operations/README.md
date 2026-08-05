@@ -2,37 +2,19 @@
 
 > Chinese version: [README.zh_cn.md](./README.zh_cn.md)
 
-Operations documentation is for running and maintaining Farming after the first
-task works.
+Ordinary service commands and troubleshooting are maintained on the public site:
 
-## Common Operations
+- [Service management](https://zhuwenzhuang.github.io/farming/en/cli/service-management)
+- [Troubleshooting](https://zhuwenzhuang.github.io/farming/en/help/troubleshooting)
+- [Mobile and remote use](https://zhuwenzhuang.github.io/farming/en/code/mobile-and-remote)
 
-| Command | Purpose |
-| --- | --- |
-| `farming daemon` | Start Farming in the background. |
-| `farming status` | Show whether Farming is running. |
-| `farming url` | Print the current local URL. |
-| `farming logs` | Read service logs. |
-| `farming stop` | Stop Farming. |
-
-Run `farming --help` for the installed version's complete command list.
-Browser commands are disclosed gradually through `farming browser --help`.
-
-## Deployment And Access
+Repository documents continue to own operational and security contracts:
 
 - [Security and trusted-network guidance](../../SECURITY.md)
 - [Runtime dependency versions and update bindings](runtime-dependencies.md)
 - [Connect an external CDP browser](../products/code/external-cdp-browser.md)
+- [Config instance isolation](../development/config-instance-isolation.md)
 
-Use a VPN, SSH tunnel, HTTPS reverse proxy, or equivalent access control when a
-remote connection crosses an untrusted network.
-
-## Troubleshooting
-
-Start with `farming status` and `farming logs`. If the service is stopped, run
-`farming daemon`. If an Agent or Browser is unavailable, read the capability
-message shown in Farming before changing settings.
-
-When reporting a problem in [GitHub Issues](https://github.com/zhuwenzhuang/farming/issues),
-include the Farming version, host platform, relevant log excerpt, and exact
-user-visible error. Never include tokens or private repository content.
+The common lifecycle remains `farming daemon`, `farming status`, `farming logs`,
+`farming url`, and `farming stop`. Run `farming --help` for the installed
+version's authoritative command list.

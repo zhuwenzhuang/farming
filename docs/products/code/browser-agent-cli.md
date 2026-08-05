@@ -2,6 +2,10 @@
 
 > Chinese version: [browser-agent-cli.zh_cn.md](./browser-agent-cli.zh_cn.md)
 
+User guide: [Farming Browser](https://zhuwenzhuang.github.io/farming/en/browser/overview)
+and [Agent Browser workflow](https://zhuwenzhuang.github.io/farming/en/browser/agent-workflow).
+This repository document remains the durable ownership, safety, and failure contract.
+
 Farming Browser lets an Agent operate a browser it owns while the user watches
 and interacts with the same page in Farming.
 

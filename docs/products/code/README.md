@@ -2,83 +2,29 @@
 
 > Chinese version: [README.zh_cn.md](./README.zh_cn.md)
 
-Farming Code is the default desktop and mobile workspace for following one or
-more coding Agents, reading their work, and intervening when needed.
+Farming Code is the default browser workspace. User guidance is maintained on
+the public documentation site:
 
-![Farming Code workspace](assets/01-code-workspace.png)
+- [Overview](https://zhuwenzhuang.github.io/farming/en/code/overview)
+- [Projects and Agents](https://zhuwenzhuang.github.io/farming/en/code/projects-and-agents)
+- [Chat](https://zhuwenzhuang.github.io/farming/en/code/chat)
+- [Terminal](https://zhuwenzhuang.github.io/farming/en/code/terminal)
+- [Files](https://zhuwenzhuang.github.io/farming/en/code/files)
+- [Search and History](https://zhuwenzhuang.github.io/farming/en/code/search-and-history)
+- [Mobile and remote use](https://zhuwenzhuang.github.io/farming/en/code/mobile-and-remote)
 
-## Start
+Maintainer contracts remain in this directory. Important entry points include:
 
-Install Farming, open its authenticated URL, and choose **New Agent**. See
-[Getting started](../../getting-started.md) for the first-run flow.
+- [ACP runtime](acp-runtime.md)
+- [Codex runtime](codex-runtime.md)
+- [Agent list state protocol](agent-list-state-protocol.md)
+- [Terminal state protocol](terminal-state-protocol.md)
+- [Extension and Resource model](extension-model.md)
+- [Project Files design](project-files-section-design.md)
+- [Review foundation](review-foundation.md)
+- [Farming Desktop](desktop-app.md)
+- [Language Server](language-server.md)
+- [Acceptance and dogfood plan](test/acceptance-dogfood-plan.md)
 
-## Main Workflows
-
-### Desktop And Remote Backends
-
-The Electron MVP reuses Farming Code as a local desktop interface and connects
-it to saved local or SSH-reached Farming backends. See
-[Farming Desktop MVP](desktop-app.md).
-
-### Agents, Chat, And Terminal
-
-Read structured Agent results in Chat or work directly with the CLI in Terminal.
-
-### Files And Review
-
-Browse project files, inspect changes, make a focused edit, and open Review
-without leaving the task.
-
-The same editor can start managed language servers on the Project host for
-navigation, symbols, call/type hierarchy, and diagnostics. See [Language Server](language-server.md).
-
-### Search And History
-
-Find live work or resume a supported earlier Agent session.
-
-### Browser
-
-People and Agents can use the same project Browser. See
-[Farming Browser](browser-agent-cli.md).
-
-### Computer
-
-An Agent can operate an isolated Linux desktop while the user watches or
-explicitly takes control in Farming. See [Farming Computer](computer-use.md).
-
-### Phone
-
-Open the authenticated Farming URL on your phone. Use the drawer to switch
-Projects and Agents; Chat, Terminal, and Files each use the full screen. Phone
-access is best for checking progress and sending short follow-ups.
-
-### Content Text Size
-
-**Settings → Interface → Content text size** changes the readable content in
-Chat and its composer, Terminal, Markdown previews, and the file editor and
-diff. Navigation, buttons, status labels, and other system UI keep their fixed
-size. Farming Code and Farming CRT store this preference separately.
-
-### Farming Pet
-
-Farming Pet is an optional break reminder based on foreground use of the
-current Farming tab. It supports configurable work intervals, postponement,
-and several rest styles without interrupting first use.
-
-### Agent Notifications
-
-**Settings → Agent → Allow message notifications** enables browser-local
-completion notifications while Farming is in the background. Permission is
-requested only after this explicit choice, older events are not replayed after
-reload or reconnect, and selecting a notification returns to the matching
-Agent. Browser notification support normally requires HTTPS or localhost.
-
-Qwen Code can emit Terminal-native notifications while local subagents are still
-running, and its busy signal can briefly become idle within the same parent turn.
-Farming waits for the parent Terminal turn to remain idle before creating unread
-attention, so transient idle edges do not mark an active Agent unread.
-
-## More
-
-- [Farming CRT](../crt/README.md)
-- [Documentation home](../../README.md)
+These documents describe ownership, state transitions, failure, recovery, and
+acceptance criteria. They are not a second user manual.
