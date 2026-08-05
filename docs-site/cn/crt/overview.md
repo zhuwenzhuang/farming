@@ -6,7 +6,7 @@ description: Farming 的键盘优先界面，用于巡视 Agent、使用 Chat �
 
 Farming CRT 是键盘优先的第二界面，用来快速巡视 Agent、Chat、Terminal、Search 与 History。它和 Farming Code 连接同一个后端，不会创建第二套 Session。
 
-![Farming CRT 控制室](../assets/crt-dashboard.png)
+![Farming CRT 控制室](/cn/assets/crt-dashboard.png)
 
 ## 主控制屏
 
@@ -14,19 +14,19 @@ Farming CRT 是键盘优先的第二界面，用来快速巡视 Agent、Chat、T
 
 ## Chat
 
-![Farming CRT 结构化 Chat](../assets/crt-chat.png)
+![Farming CRT 结构化 Chat](/cn/assets/crt-chat.png)
 
 支持结构化 Chat 的 Agent 会显示消息、过程和 Composer，同时保留 CRT 的键盘优先导航。
 
 ## Terminal
 
-![Farming CRT Terminal](../assets/crt-terminal.png)
+![Farming CRT Terminal](/cn/assets/crt-terminal.png)
 
 Terminal 连接同一个原生 PTY Session，适合查看完整输出并使用 Coding CLI 自己的交互方式。
 
 ## Token 使用
 
-![Farming CRT Token 使用界面](../assets/crt-usage.png)
+![Farming CRT Token 使用界面](/cn/assets/crt-usage.png)
 
 Token 使用界面汇总当前 Provider 活动和历史用量，帮助判断活跃时段、使用趋势和异常峰值。
 

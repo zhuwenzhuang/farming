@@ -39,7 +39,7 @@ History 搜索在输入第二个关键词后偶尔保留上一次结果。
 - 真正写入错误状态的位置；
 - 负责并发、取消或恢复的边界。
 
-<ThemeImage light="../assets/files.png" dark="../assets/files-dark.png" alt="在 Files 中检查实现" />
+<ThemeImage light="/cn/assets/files.png" dark="/cn/assets/files-dark.png" alt="在 Files 中检查实现" />
 
 ## 实施最小修复
 

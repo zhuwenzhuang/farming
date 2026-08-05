@@ -18,7 +18,7 @@ Farming Browser 让 Agent 操作自己拥有的浏览器资源，同时用户可
 
 打开 **插件 → 浏览器**（英文界面为 **Plugins → Browser**），查看 Farming 当前检测到的 **浏览器来源 / Browser source**。
 
-![在插件中选择 Browser Source](../assets/browser-plugin.png)
+![在插件中选择 Browser Source](/cn/assets/browser-plugin.png)
 
 - **本机浏览器**：下拉框会显示实际检测到的名称，例如 **Google Chrome**。适合普通网页任务。
 - **隔离浏览器 / Isolated Browser**：需要显式准备相关依赖，适合希望使用独立 Browser Profile 的任务。
@@ -29,7 +29,7 @@ Farming 不会在普通安装或启动时静默下载大型浏览器依赖。能
 
 每个 Browser Resource 有明确的 Agent 和 Project Owner。用户打开 Viewer 后，看到的是 Agent 正在使用的同一个页面，而不是复制出来的第二个浏览器。
 
-![用户与 Agent 查看同一个 Browser 页面](../assets/browser-viewer.png)
+![用户与 Agent 查看同一个 Browser 页面](/cn/assets/browser-viewer.png)
 
 用户可以检查页面并在需要时介入。Agent 再次操作前，应基于最新页面状态继续，而不是依赖接管前的陈旧 Snapshot。
 

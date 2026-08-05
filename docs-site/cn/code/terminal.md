@@ -2,7 +2,7 @@
 
 Terminal 连接 Farming Host 上的真实 PTY。它不是网页中的模拟命令框，而是 Coding CLI、Shell 和开发工具实际运行的地方。
 
-<ThemeImage light="../assets/terminal.png" dark="../assets/terminal-dark.png" alt="Terminal Session" />
+<ThemeImage light="/cn/assets/terminal.png" dark="/cn/assets/terminal-dark.png" alt="Terminal Session" />
 
 ## 适合 Terminal 的任务
 

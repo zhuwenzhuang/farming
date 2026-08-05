@@ -7,8 +7,8 @@ description: 查看 Farming 中各 Provider 和 Agent 的 Token 活动与历史�
 Farming Code 的 Usage 面板汇总本机能够读取到的 Provider Token 活动。它适合观察当前使用速度、每日趋势和异常峰值，不用于替代 Provider 自己的账单页面。
 
 <ThemeImage
-  light="../assets/usage-activity.png"
-  dark="../assets/usage-activity-dark.png"
+  light="/cn/assets/usage-activity.png"
+  dark="/cn/assets/usage-activity-dark.png"
   alt="Farming Code Token 使用详情"
 />
 
