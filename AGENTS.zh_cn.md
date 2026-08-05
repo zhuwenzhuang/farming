@@ -116,6 +116,10 @@ Farming Backend
   除非协议明确证明可安全重放，否则不得自动重试 Mutation。
 - 每个非平凡功能在实现前都要写出最小状态迁移模型：权威 Owner、Trigger、Guard、
   Effect、终止失败、Retry、Cancellation、Concurrency 与 Recovery。
+- 发现竞态时，必须先解释架构或代码为何允许它发生：是状态机不完整、Owner 或时序
+  不清晰，还是使用了不严谨的 Fallback。应在该不变量的权威边界修正根因；不得用
+  Retry、Fallback Value、额外 Flag 或补偿分支掩盖未知状态，导致状态机在未证明
+  正确性的情况下继续复杂化。
 - 同时建立 Safety 与 Liveness：非法状态必须被拒绝；每个瞬态都必须有一条有界
   路径到达 Success、Failure、Cancellation、Timeout 或 Recovery。
 - 优先维护一条持续测试的产品路径。只有达到与主路径相同验收标准的 Fallback 才

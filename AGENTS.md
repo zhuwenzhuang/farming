@@ -133,6 +133,11 @@ Execution environment
 - For every non-trivial feature, write down the minimal state-transition model
   before implementation: authoritative owner, triggers, guards, effects,
   terminal failures, retry and cancellation, concurrency, and recovery.
+- When a race is found, first identify why the architecture or code allowed it:
+  an incomplete state machine, unclear ownership or ordering, or an imprecise
+  fallback. Fix the violated invariant at its owning boundary. Do not conceal
+  uncertain state with retries, fallback values, extra flags, or compensating
+  branches that make the state machine more complex without proving correctness.
 - Establish both safety and liveness. Illegal states must be rejected, and each
   transient state must have a bounded path to success, failure, cancellation,
   timeout, or recovery.
