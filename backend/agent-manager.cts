@@ -170,7 +170,7 @@ import {
   isCodexTerminalComposerPreview,
   resolveCodexTerminalSessionId,
 } from './codex-terminal-profile.cjs';
-import { ensureAgentOrders, finiteOrder, nextPinnedOrder, reorderedPinnedAgentOrders, reorderedProjectAgentOrders } from './agent-order.cjs';
+import { AgentOrderAllocator, finiteOrder, reorderedPinnedAgentOrders, reorderedProjectAgentOrders } from './agent-order.cjs';
 import { commitAgentOrderTransaction } from './agent-order-transaction.cjs';
 import { buildInteractiveAgentBaseEnv, normalizeInteractiveTerminalEnv, resolveUserShellEnvSync } from './agent-env.cjs';
 import { inspectGitWorktree } from './git-worktree-info.cjs';
@@ -1499,6 +1499,7 @@ class AgentManager extends EventEmitter {
   declare agentShellEnvCache: Map<string, AgentShellEnvCacheEntry>;
   declare agentShellEnvCacheMs: number;
   declare agents: Map<AgentId, TypedAgentRecord>;
+  declare agentOrderAllocator: AgentOrderAllocator;
   declare mainAgentId: AgentId | null;
   declare mainAgentStartReservation: AgentStartReservation | null;
   declare lastActivity: Map<AgentId, number>;
@@ -1562,6 +1563,20 @@ class AgentManager extends EventEmitter {
   declare taskHistory: UnknownRecord[];
   declare lastZombieSweepAt: number;
 
+  registerAgentRecord(agentId: AgentId, agent: TypedAgentRecord): void {
+    const previous = this.agents.get(agentId);
+    if (previous && previous !== agent) this.agentOrderAllocator.remove(previous);
+    this.agentOrderAllocator.ensure(agent);
+    this.agents.set(agentId, agent);
+  }
+
+  deleteAgentRecord(agentId: AgentId): boolean {
+    const agent = this.agents.get(agentId);
+    const deleted = this.agents.delete(agentId);
+    if (deleted) this.agentOrderAllocator.remove(agent);
+    return deleted;
+  }
+
   constructor(
     configManager: AgentManagerConfigContract | null | undefined,
     options: AgentManagerOptions = {},
@@ -1584,6 +1599,7 @@ class AgentManager extends EventEmitter {
       60 * 60 * 1000
     );
     this.agents = new RuntimeAgentMap();
+    this.agentOrderAllocator = new AgentOrderAllocator();
     this.mainAgentId = null;
     this.mainAgentStartReservation = null;
     this.lastActivity = new Map();
@@ -2353,7 +2369,7 @@ class AgentManager extends EventEmitter {
         if (!agent.validated) {
           const removedMainAgent = this.mainAgentId === sessionId;
           this.providerSessionService.stop(sessionId);
-          this.agents.delete(sessionId);
+          this.deleteAgentRecord(sessionId);
           this.lastActivity.delete(sessionId);
           this.lastActivityUpdate.delete(sessionId);
           this.outputActivityBuckets.delete(sessionId);
@@ -2498,9 +2514,8 @@ class AgentManager extends EventEmitter {
       if (!agentId || this.agents.has(agentId)) continue;
 
       const agentRecord = this.recoveredAgentRecord(agentId, entry.engineName || metadata.engineName || 'native', metadata, state);
-      ensureAgentOrders(agentRecord, Array.from(this.agents.values()));
       agentRecord.lastObservedTurnActive = this.isAgentAttentionTurnActive(agentRecord);
-      this.agents.set(agentId, agentRecord);
+      this.registerAgentRecord(agentId, agentRecord);
       const recoveredLifecycleOperation = activeLifecycleOperation(agentRecord);
       if (
         recoveredLifecycleOperation?.type === 'create'
@@ -3015,7 +3030,6 @@ class AgentManager extends EventEmitter {
       const agent = this.agents.get(agentId);
       if (!agent) {
         const recoveredAgent = this.recoveredAgentRecord(agentId, record.engine || 'native', record, { status: 'running' });
-        ensureAgentOrders(recoveredAgent, Array.from(this.agents.values()));
         setAgentRecordId(recoveredAgent, record.id || '');
         recoveredAgent.engineStarted = false;
         if (blockedOperation) {
@@ -3036,7 +3050,7 @@ class AgentManager extends EventEmitter {
           );
           runtime.state = 'connecting';
         }
-        this.agents.set(agentId, recoveredAgent);
+        this.registerAgentRecord(agentId, recoveredAgent);
         void this.refreshAgentWorktree(agentId);
         this.lastActivity.set(agentId, Date.now());
       }
@@ -3787,6 +3801,9 @@ class AgentManager extends EventEmitter {
         agent.unread = agentAttentionUnread(agent);
       }
     }
+    const liveAgent = this.agents.get(agent.id);
+    if (liveAgent === agent) this.agentOrderAllocator.observe(agent);
+    else if (liveAgent) this.agentOrderAllocator.reserve(agent);
     return agentRecordId;
   }
 
@@ -5933,8 +5950,7 @@ class AgentManager extends EventEmitter {
     let structuredRuntimeRegistered = false;
 
     try {
-      ensureAgentOrders(agentRecord, Array.from(this.agents.values()));
-      this.agents.set(agentId, agentRecord);
+      this.registerAgentRecord(agentId, agentRecord);
       void this.refreshAgentWorktree(agentId);
       this.lastActivity.set(agentId, Date.now());
       this.emitStateChange({ agentIds: [agentId] });
@@ -6301,7 +6317,7 @@ class AgentManager extends EventEmitter {
         if (callback) callback(agentId, message);
         return null;
       }
-      this.agents.delete(agentId);
+      this.deleteAgentRecord(agentId);
       this.acpFinalizedTurns.delete(agentId);
       this.acpTurnFinalizationTails.delete(agentId);
       this.lastActivity.delete(agentId);
@@ -7792,7 +7808,7 @@ class AgentManager extends EventEmitter {
       structuralUpdateChanged = structuralUpdateChanged || wasPinned !== staged.pinned;
       updates.pinned = staged.pinned;
       if (!wasPinned && staged.pinned) {
-        staged.pinnedOrder = nextPinnedOrder(Array.from(this.agents.values()));
+        staged.pinnedOrder = this.agentOrderAllocator.nextPinnedOrder();
       }
       updates.pinnedOrder = finiteOrder(staged.pinnedOrder);
     }
@@ -7901,6 +7917,7 @@ class AgentManager extends EventEmitter {
       };
     }
     Object.assign(agent, staged);
+    this.agentOrderAllocator.observe(agent);
     if (structuralUpdateChanged || readUpdateChanged) {
       this.updateEngineProviderSessionMetadata(agent);
     }
@@ -7952,7 +7969,7 @@ class AgentManager extends EventEmitter {
     field: AgentOrderField,
   ) {
     const updatedAgentIds = [...orderUpdates.keys()];
-    return commitAgentOrderTransaction({
+    const result = commitAgentOrderTransaction({
       agents: this.agents,
       lifecycleOperations: this.agentLifecycleOperations,
       persistAgent: (agent: TypedAgentRecord) => this.ensurePersistentAgentSession(agent),
@@ -7961,6 +7978,17 @@ class AgentManager extends EventEmitter {
       setAgentRecordId,
       finiteOrder,
     }, agentId, orderUpdates, field);
+    if (!result.error) {
+      updatedAgentIds.forEach(updatedAgentId => {
+        this.agentOrderAllocator.observe(this.agents.get(updatedAgentId));
+      });
+    } else {
+      orderUpdates.forEach((order, updatedAgentId) => {
+        const agent = this.agents.get(updatedAgentId);
+        if (agent) this.agentOrderAllocator.reserve({ ...agent, [field]: order });
+      });
+    }
+    return result;
   }
 
   reorderAgent(agentId: AgentId, neighbors: AgentOrderNeighbors = {}) {
@@ -10624,7 +10652,7 @@ class AgentManager extends EventEmitter {
 
   forgetStoppedAgentRecord(agentId: AgentId, options: KillAgentOptions = {}) {
     this.acpPreparedTranscriptCache.deleteAgent(agentId);
-    this.agents.delete(agentId);
+    this.deleteAgentRecord(agentId);
     this.acpFinalizedTurns.delete(agentId);
     this.acpTurnFinalizationTails.delete(agentId);
     this.verifiedStoppedAgentIds.delete(agentId);

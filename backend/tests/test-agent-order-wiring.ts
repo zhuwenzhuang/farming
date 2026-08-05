@@ -16,8 +16,19 @@ function run() {
   const model = read('src/components/code/model.ts');
   const styles = read('src/styles/main.css');
 
-  assert(manager.includes('ensureAgentOrders(agentRecord, Array.from(this.agents.values()))'));
-  assert(manager.includes('staged.pinnedOrder = nextPinnedOrder(Array.from(this.agents.values()))'));
+  assert.strictEqual(
+    (manager.match(/this\.registerAgentRecord\(/g) || []).length,
+    3,
+    'every Agent insertion path should use the indexed registration gate',
+  );
+  assert.strictEqual((manager.match(/this\.agents\.set\(/g) || []).length, 1);
+  assert.strictEqual((manager.match(/this\.agents\.delete\(/g) || []).length, 1);
+  assert.strictEqual((manager.match(/this\.deleteAgentRecord\(/g) || []).length, 3);
+  assert(manager.includes('this.agentOrderAllocator.observe(agent)'));
+  assert(manager.includes('this.agentOrderAllocator.observe(this.agents.get(updatedAgentId))'));
+  assert(manager.includes('staged.pinnedOrder = this.agentOrderAllocator.nextPinnedOrder()'));
+  assert(!manager.includes('ensureAgentOrders(agentRecord, Array.from(this.agents.values()))'));
+  assert(!manager.includes('nextPinnedOrder(Array.from(this.agents.values()))'));
   assert(manager.includes('reorderProjectAgent(agentId'));
   assert(manager.includes('reorderPinnedAgent(agentId'));
   assert(manager.includes('reorderAgent(agentId'));

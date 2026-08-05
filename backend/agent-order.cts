@@ -12,6 +12,94 @@ interface AgentOrderRecord {
   startedAt?: number | string | null;
 }
 
+class AgentOrderAllocator {
+  private readonly projectHighWater = new Map<string, number>();
+  private readonly projectAgentCounts = new Map<string, number>();
+  private readonly observations = new WeakMap<AgentOrderRecord, { pinned: boolean; workspace: string }>();
+  private pinnedAgentCount = 0;
+  private pinnedHighWater = 0;
+
+  private releaseObservation(observation: { pinned: boolean; workspace: string }): void {
+    const projectAgentCount = (this.projectAgentCounts.get(observation.workspace) || 0) - 1;
+    if (projectAgentCount > 0) {
+      this.projectAgentCounts.set(observation.workspace, projectAgentCount);
+    } else {
+      this.projectAgentCounts.delete(observation.workspace);
+      this.projectHighWater.delete(observation.workspace);
+    }
+    if (observation.pinned) {
+      this.pinnedAgentCount = Math.max(0, this.pinnedAgentCount - 1);
+      if (this.pinnedAgentCount === 0) this.pinnedHighWater = 0;
+    }
+  }
+
+  reserve(agent: AgentOrderRecord | null | undefined): void {
+    if (!agent) return;
+    const currentProjectOrder = finiteOrder(agent.projectOrder);
+    const workspace = agentWorkspace(agent);
+    if (currentProjectOrder !== null && (this.projectAgentCounts.get(workspace) || 0) > 0) {
+      this.projectHighWater.set(
+        workspace,
+        Math.max(this.projectHighWater.get(workspace) || 0, currentProjectOrder),
+      );
+    }
+    const currentPinnedOrder = agent.pinned === true
+      ? finiteOrder(agent.pinnedOrder)
+      : null;
+    if (currentPinnedOrder !== null && this.pinnedAgentCount > 0) {
+      this.pinnedHighWater = Math.max(this.pinnedHighWater, currentPinnedOrder);
+    }
+  }
+
+  observe(agent: AgentOrderRecord | null | undefined): void {
+    if (!agent) return;
+    const nextObservation = {
+      pinned: agent.pinned === true,
+      workspace: agentWorkspace(agent),
+    };
+    const previousObservation = this.observations.get(agent);
+    const changed = !previousObservation
+      || previousObservation.pinned !== nextObservation.pinned
+      || previousObservation.workspace !== nextObservation.workspace;
+    if (previousObservation && changed) {
+      this.releaseObservation(previousObservation);
+    }
+    if (changed) {
+      this.projectAgentCounts.set(
+        nextObservation.workspace,
+        (this.projectAgentCounts.get(nextObservation.workspace) || 0) + 1,
+      );
+      if (nextObservation.pinned) this.pinnedAgentCount += 1;
+      this.observations.set(agent, nextObservation);
+    }
+    this.reserve(agent);
+  }
+
+  ensure(agent: AgentOrderRecord): AgentOrderRecord {
+    if (finiteOrder(agent.projectOrder) === null) {
+      const workspace = agentWorkspace(agent);
+      agent.projectOrder = (this.projectHighWater.get(workspace) || 0) + AGENT_ORDER_STEP;
+    }
+    if (agent.pinned === true && finiteOrder(agent.pinnedOrder) === null) {
+      agent.pinnedOrder = this.nextPinnedOrder();
+    }
+    this.observe(agent);
+    return agent;
+  }
+
+  remove(agent: AgentOrderRecord | null | undefined): void {
+    if (!agent) return;
+    const observation = this.observations.get(agent);
+    if (!observation) return;
+    this.releaseObservation(observation);
+    this.observations.delete(agent);
+  }
+
+  nextPinnedOrder(): number {
+    return this.pinnedHighWater + AGENT_ORDER_STEP;
+  }
+}
+
 type AgentOrderResult =
   | { error: string; updates?: never }
   | { updates: Map<string, number>; error?: never };
@@ -42,26 +130,6 @@ function comparePinnedAgents(left: AgentOrderRecord, right: AgentOrderRecord): n
   return pinnedOrder(left) - pinnedOrder(right)
     || (Number(left && left.startedAt) || 0) - (Number(right && right.startedAt) || 0)
     || String(left && left.id || '').localeCompare(String(right && right.id || ''));
-}
-
-function nextProjectOrder(agents: AgentOrderRecord[], workspace: string): number {
-  return Math.max(0, ...agents
-    .filter(agent => agentWorkspace(agent) === workspace)
-    .map(projectOrder)) + AGENT_ORDER_STEP;
-}
-
-function nextPinnedOrder(agents: AgentOrderRecord[]): number {
-  return Math.max(0, ...agents.filter(agent => agent && agent.pinned === true).map(pinnedOrder)) + AGENT_ORDER_STEP;
-}
-
-function ensureAgentOrders(agent: AgentOrderRecord, agents: AgentOrderRecord[]): AgentOrderRecord {
-  if (finiteOrder(agent.projectOrder) === null) {
-    agent.projectOrder = nextProjectOrder(agents, agentWorkspace(agent));
-  }
-  if (agent.pinned === true && finiteOrder(agent.pinnedOrder) === null) {
-    agent.pinnedOrder = nextPinnedOrder(agents);
-  }
-  return agent;
 }
 
 function projectAgents(
@@ -185,12 +253,10 @@ function reorderedPinnedAgentOrders(
 
 export {
   AGENT_ORDER_STEP,
+  AgentOrderAllocator,
   comparePinnedAgents,
   compareProjectAgents,
-  ensureAgentOrders,
   finiteOrder,
-  nextPinnedOrder,
-  nextProjectOrder,
   reorderedPinnedAgentOrders,
   reorderedProjectAgentOrders,
 };
