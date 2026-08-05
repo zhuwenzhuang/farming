@@ -7,6 +7,7 @@ const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
 const { chromium } = require('@playwright/test');
+const tsxCliPath = require.resolve('tsx/cli');
 
 const repoRoot = path.resolve(__dirname, '..');
 const packageVersion = require(path.join(repoRoot, 'package.json')).version;
@@ -19,6 +20,41 @@ const customWorkspace = Boolean(process.env.FARMING_SCREENSHOT_WORKSPACE);
 const workspaceDir = path.resolve(process.env.FARMING_SCREENSHOT_WORKSPACE || path.join(homeDir, 'Projects', 'atlas-control-plane'));
 const screenshotDir = path.join(repoRoot, 'docs', 'products', 'code', 'assets');
 const crtScreenshotDir = path.join(repoRoot, 'docs', 'products', 'crt', 'assets');
+const publicScreenshotDir = path.join(repoRoot, 'docs-site', 'cn', 'assets');
+type PublicScreenshotSpec = {
+  fileName: string;
+  clip?: { x: number; y: number; width: number; height: number };
+};
+const publicCodeScreenshotSpecs = new Map<string, PublicScreenshotSpec>([
+  ['00-code-welcome.png', { fileName: 'welcome.png' }],
+  ['01-code-workspace.png', { fileName: 'workspace.png' }],
+  ['02-start-agent-picker.png', { fileName: 'start-agent.png' }],
+  ['04-files-markdown-preview.png', { fileName: 'files.png' }],
+  ['05-mobile-agent-chat.png', { fileName: 'mobile-chat.png' }],
+  ['07-live-model-controls.png', { fileName: 'model-controls.png', clip: { x: 300, y: 0, width: 1140, height: 810 } }],
+  ['08-history-search.png', { fileName: 'history.png', clip: { x: 300, y: 0, width: 1140, height: 810 } }],
+  ['09-dark-workspace.png', { fileName: 'workspace-dark.png' }],
+  ['11-code-agent-process.png', { fileName: 'chat.png', clip: { x: 300, y: 0, width: 1140, height: 810 } }],
+  ['12-code-terminal-session.png', { fileName: 'terminal.png', clip: { x: 300, y: 0, width: 1140, height: 810 } }],
+  ['13-code-search.png', { fileName: 'search.png', clip: { x: 300, y: 0, width: 1140, height: 810 } }],
+  ['14-code-settings.png', { fileName: 'settings.png', clip: { x: 920, y: 0, width: 520, height: 430 } }],
+  ['15-code-usage-activity.png', { fileName: 'usage-activity.png' }],
+  ['16-code-pet-soft-glow.png', { fileName: 'pet-soft-glow.png' }],
+  ['17-code-pet-black-hole.png', { fileName: 'pet-black-hole.png' }],
+  ['18-code-desktop-connections.png', { fileName: 'desktop-connections.png' }],
+  ['19-code-agent-homes.png', { fileName: 'agent-homes.png' }],
+]);
+const publicCrtScreenshotSpecs = new Map<string, PublicScreenshotSpec>([
+  ['01-crt-dashboard.png', { fileName: 'crt-dashboard.png' }],
+  ['02-crt-structured-chat.png', { fileName: 'crt-chat.png' }],
+  ['03-crt-terminal.png', { fileName: 'crt-terminal.png' }],
+  ['06-crt-billing-days.png', { fileName: 'crt-usage.png' }],
+]);
+const screenshotAppearance = process.env.FARMING_SCREENSHOT_APPEARANCE === 'dark' ? 'dark' : 'light';
+const nativeDarkCodeScreenshots = new Set([
+  '09-dark-workspace.png',
+  '17-code-pet-black-hole.png',
+]);
 const requestedScreenshotFiles = new Set(
   String(process.env.FARMING_SCREENSHOT_FILES || '')
     .split(',')
@@ -44,6 +80,25 @@ const matrixCatalog = ['sol', 'terra', 'luna'].map(variant => ({
   ],
   source: 'fixture',
 }));
+const defaultAgentHomeSettings = {
+  codex: [{ id: 'default', path: '~/.codex', order: 0, newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' } }],
+  claude: [{ id: 'default', path: '~/.claude', order: 1000, newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' } }],
+  opencode: [{ id: 'default', path: '~/.opencode', order: 2000, newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' } }],
+  qoder: [{ id: 'default', path: '~/.qoder', order: 3000, newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' } }],
+  qwen: [{ id: 'default', path: '~/.qwen', order: 4000, newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' } }],
+};
+const multipleAgentHomeSettings = {
+  ...defaultAgentHomeSettings,
+  codex: [
+    defaultAgentHomeSettings.codex[0],
+    { id: 'work', path: '~/.codex-work', order: 1, newAgentDefaults: { model: 'inherit', reasoning: 'high', fast: 'on' } },
+    { id: 'personal', path: '~/.codex-personal', order: 2, newAgentDefaults: { model: 'inherit', reasoning: 'medium', fast: 'inherit' } },
+  ],
+  claude: [
+    defaultAgentHomeSettings.claude[0],
+    { id: 'team', path: '~/.claude-team', order: 1001, newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' } },
+  ],
+};
 
 interface RunOptions {
   cwd?: string;
@@ -96,15 +151,40 @@ function prepareRuntimeDirectories() {
   fs.mkdirSync(homeDir, { recursive: true });
   fs.mkdirSync(screenshotDir, { recursive: true });
   fs.mkdirSync(crtScreenshotDir, { recursive: true });
+  fs.mkdirSync(publicScreenshotDir, { recursive: true });
   if (!customWorkspace) {
     fs.mkdirSync(path.join(workspaceDir, 'src', 'components'), { recursive: true });
     fs.mkdirSync(path.join(workspaceDir, 'tests'), { recursive: true });
+    fs.mkdirSync(path.join(workspaceDir, 'docs'), { recursive: true });
     fs.writeFileSync(path.join(workspaceDir, 'README.md'), [
       '# Atlas Control Plane',
       '',
       'Release workspace for the terminal recovery protocol and cross-skin verification.',
       '',
       'Current gate: exact checkpoint recovery, contiguous live output, and native PTY cleanup.',
+      '',
+    ].join('\n'));
+    fs.writeFileSync(path.join(workspaceDir, 'docs', 'relational-algebra.md'), [
+      '# 关系代数与逻辑优化规则',
+      '',
+      '作者：zhuwenzhuang · 2024.05.08',
+      '',
+      '数据库优化器的 **查询优化（Query Optimization）**，是在查询等价的前提下，将代价更高的查询转化为代价更低的查询。逻辑优化规则关注关系代数表示层上的等价变换。',
+      '',
+      '## 关系算子定义',
+      '',
+      '| 关系算子 | 符号 | 定义 |',
+      '| --- | --- | --- |',
+      '| Filter | $\\sigma_p(e)$ | 保留关系中满足谓词 $p$ 的元组 |',
+      '| Project | $\\Pi_A(e)$ | 选择属性集合 $A$，构造新的关系 |',
+      '| Map | $\\chi_F(e)$ | 计算属性赋值向量 $F$ 并追加结果 |',
+      '| Distinct | $\\Pi^D(e)$ | 将每个元组的多重度归一为 1 |',
+      '| Union All | $e_1 \\cup_b e_2$ | 合并两个包，并保留重复元组 |',
+      '| Inner Join | $e_1 \\bowtie_p e_2$ | 按谓词 $p$ 连接两个关系 |',
+      '| Semi Join | $e_1 \\ltimes_p e_2$ | 保留左侧存在匹配项的元组 |',
+      '| Anti Join | $e_1 \\vartriangleright_p e_2$ | 保留左侧不存在匹配项的元组 |',
+      '',
+      '> 逻辑算子只关注数据在包语义下的变化；Hash Join、Sort Merge Join 等物理实现不会改变逻辑结果。',
       '',
     ].join('\n'));
     fs.writeFileSync(path.join(workspaceDir, 'src', 'components', 'Dashboard.tsx'), [
@@ -257,24 +337,42 @@ function prepareRuntimeDirectories() {
   }
   for (const directory of [screenshotDir, crtScreenshotDir]) {
     for (const entry of fs.readdirSync(directory)) {
+      const requestedEntry = screenshotAppearance === 'dark' && directory === screenshotDir
+        ? entry.replace(/-dark(?=\.(?:png|jpg|jpeg)$)/i, '')
+        : entry;
+      const isSelectedAppearance = screenshotAppearance === 'dark'
+        ? directory !== screenshotDir || /-dark\.(?:png|jpg|jpeg)$/i.test(entry) || nativeDarkCodeScreenshots.has(entry)
+        : !/-dark\.(?:png|jpg|jpeg)$/i.test(entry);
       if (/^\d{2}-.*\.(?:png|jpg|jpeg)$/i.test(entry)
-        && (requestedScreenshotFiles.size === 0 || requestedScreenshotFiles.has(entry))) {
+        && isSelectedAppearance
+        && (requestedScreenshotFiles.size === 0 || requestedScreenshotFiles.has(requestedEntry))) {
         fs.rmSync(path.join(directory, entry), { force: true });
       }
     }
   }
 }
 
-async function ensureApp(page) {
+function themedScreenshotFileName(fileName: string, directory: string) {
+  if (screenshotAppearance !== 'dark'
+    || directory !== screenshotDir
+    || nativeDarkCodeScreenshots.has(fileName)) {
+    return fileName;
+  }
+  return fileName.replace(/(\.[^.]+)$/, '-dark$1');
+}
+
+async function ensureApp(page, { hideUsagePanel = true } = {}) {
   await page.goto(`${basePath}/`, { waitUntil: 'domcontentloaded' });
   await page.getByTestId('app-shell').waitFor({ state: 'visible', timeout: 30_000 });
-  await page.addStyleTag({
-    content: `
-      [data-testid="code-usage-panel"] {
-        display: none !important;
-      }
-    `,
-  });
+  if (hideUsagePanel) {
+    await page.addStyleTag({
+      content: `
+        [data-testid="code-usage-panel"] {
+          display: none !important;
+        }
+      `,
+    });
+  }
 }
 
 async function setDemoSettings(page, baseUrl) {
@@ -284,7 +382,7 @@ async function setDemoSettings(page, baseUrl) {
       workspaceHistory: [workspaceDir],
       projectNames: { [workspaceDir]: 'Northstar API' },
       instanceName: 'Farming Demo',
-      appearance: 'light',
+      appearance: screenshotAppearance,
       language: 'en',
       defaultLaunchAgent: 'bash',
       codexApprovalMode: 'approve',
@@ -306,6 +404,7 @@ async function setDemoSettings(page, baseUrl) {
           effort: 'config',
         },
       },
+      agentHomes: defaultAgentHomeSettings,
     },
   });
 }
@@ -478,10 +577,34 @@ async function screenshot(page, fileName, directory = screenshotDir) {
       }
     });
   }
+  const outputFileName = themedScreenshotFileName(fileName, directory);
+  const screenshotPath = path.join(directory, outputFileName);
   await page.screenshot({
-    path: path.join(directory, fileName),
+    path: screenshotPath,
     fullPage: false,
   });
+  const publicSpec = directory === screenshotDir
+    ? publicCodeScreenshotSpecs.get(fileName)
+    : directory === crtScreenshotDir
+      ? publicCrtScreenshotSpecs.get(fileName)
+      : undefined;
+  if (publicSpec) {
+    const publicFileName = screenshotAppearance === 'dark'
+      && directory === screenshotDir
+      && !nativeDarkCodeScreenshots.has(fileName)
+      ? publicSpec.fileName.replace(/(\.[^.]+)$/, '-dark$1')
+      : publicSpec.fileName;
+    const publicPath = path.join(publicScreenshotDir, publicFileName);
+    if (publicSpec.clip) {
+      await page.screenshot({
+        path: publicPath,
+        fullPage: false,
+        clip: publicSpec.clip,
+      });
+    } else {
+      fs.copyFileSync(screenshotPath, publicPath);
+    }
+  }
   capturedScreenshotFiles.add(fileName);
 }
 
@@ -491,136 +614,20 @@ function requestedScreenshotsComplete() {
 }
 
 function createUsageFixture() {
-  const now = Date.parse('2026-07-14T01:00:00.000Z');
-  const bucketMs = 2 * 60 * 1000;
-  const timelinePoints = Array.from({ length: 30 }, (_, index) => {
-    const totalTokens = index % 7 === 0 ? 24_000 + index * 800 : index % 3 === 0 ? 4_000 + index * 120 : 0;
-    return {
-      startedAt: now - 60 * 60 * 1000 + index * bucketMs,
-      endedAt: now - 60 * 60 * 1000 + (index + 1) * bucketMs,
-      totalTokens,
-      tokensPerMinute: totalTokens / 2,
-      providers: { codex: Math.round(totalTokens * 0.72), claude: Math.round(totalTokens * 0.2), opencode: Math.round(totalTokens * 0.08) },
-    };
-  });
-  const dailyCursor = new Date(now);
-  dailyCursor.setHours(12, 0, 0, 0);
-  dailyCursor.setDate(dailyCursor.getDate() - 52 * 7 + 1);
-  const dailyPoints = Array.from({ length: 52 * 7 }, (_, index) => {
-    const date = [dailyCursor.getFullYear(), String(dailyCursor.getMonth() + 1).padStart(2, '0'), String(dailyCursor.getDate()).padStart(2, '0')].join('-');
-    const totalTokens = index === 52 * 7 - 1
-      ? 486_000
-      : index === 302
-        ? 4_200_000
-        : index % 9 === 0 ? 180_000 + index * 1_600 : index % 17 === 0 ? 86_000 : 0;
-    dailyCursor.setDate(dailyCursor.getDate() + 1);
-    return {
-      date,
-      totalTokens,
-      inputTokens: Math.round(totalTokens * 0.35),
-      outputTokens: Math.round(totalTokens * 0.15),
-      cacheReadTokens: Math.round(totalTokens * 0.45),
-      cacheWriteTokens: Math.round(totalTokens * 0.05),
-      unattributedTokens: 0,
-      providers: {
-        codex: { totalTokens: Math.round(totalTokens * 0.72) },
-        claude: { totalTokens: Math.round(totalTokens * 0.2) },
-        opencode: { totalTokens: Math.round(totalTokens * 0.08) },
-      },
-    };
-  });
-  const sumDays = count => dailyPoints.slice(-count).reduce((sum, point) => sum + point.totalTokens, 0);
-  const peakDay = dailyPoints.reduce((peak, point) => point.totalTokens > peak.totalTokens ? point : peak, dailyPoints[0]);
-  const timelineTotal = timelinePoints.reduce((sum, point) => sum + point.totalTokens, 0);
-  return {
-    now,
-    dailyPoints,
-    usage: {
-      sampledAt: now,
-      windowMs: 5 * 60 * 1000,
-      timeline: {
-        source: 'local provider token events',
-        sampledAt: now,
-        startAt: now - 60 * 60 * 1000,
-        endAt: now,
-        windowMs: 60 * 60 * 1000,
-        bucketMs,
-        bucketCount: timelinePoints.length,
-        totalTokens: timelineTotal,
-        averageTokensPerMinute: timelineTotal / 60,
-        peakTokensPerMinute: Math.max(...timelinePoints.map(point => point.tokensPerMinute)),
-        activeBucketCount: timelinePoints.filter(point => point.totalTokens > 0).length,
-        points: timelinePoints,
-      },
-      daily: {
-        source: 'local provider token events',
-        sampledAt: now,
-        timeZone: 'Asia/Shanghai',
-        days: dailyPoints.length,
-        startDate: dailyPoints[0]!.date,
-        endDate: dailyPoints.at(-1)!.date,
-        partial: false,
-        coverage: [
-          { provider: 'codex', providerName: 'Codex', available: true, homeCount: 2 },
-          { provider: 'claude', providerName: 'Claude', available: true, homeCount: 1 },
-          { provider: 'opencode', providerName: 'OpenCode', available: true, homeCount: 1 },
-          { provider: 'qoder', providerName: 'Qoder', available: false, homeCount: 1, reason: 'Token history unavailable.' },
-        ],
-        summary: {
-          todayTokens: sumDays(1),
-          sevenDayTokens: sumDays(7),
-          thirtyDayTokens: sumDays(30),
-          periodTokens: sumDays(dailyPoints.length),
-          peakDate: peakDay.date,
-          peakTokens: peakDay.totalTokens,
-        },
-        points: dailyPoints,
-      },
-      providers: [
-        {
-          provider: 'codex',
-          providerName: 'Codex',
-          auth: { available: true, status: 'Connected', source: 'Codex session' },
-          quota: {
-            available: true,
-            source: 'Codex usage events',
-            primary: { usedPercent: 38, windowMinutes: 300, resetsAt: now + 90 * 60 * 1000 },
-            secondary: { usedPercent: 71, windowMinutes: 10080, resetsAt: now + 3 * 24 * 60 * 60 * 1000 },
-          },
-          tokenUsage: { totalTokens: 46_000, tokensPerMinute: 9_200, windowMs: 300_000, eventCount: 4, sampledAt: now, source: 'Codex usage events' },
-        },
-        {
-          provider: 'claude',
-          providerName: 'Claude',
-          auth: { available: true, status: 'Connected', source: 'Claude session' },
-          quota: { available: false, source: 'Claude session', reason: 'Quota unavailable' },
-          tokenUsage: { totalTokens: 7_000, tokensPerMinute: 1_400, windowMs: 300_000, eventCount: 2, sampledAt: now, source: 'Claude local usage' },
-        },
-        {
-          provider: 'opencode',
-          providerName: 'OpenCode',
-          auth: { available: true, status: 'Connected', source: 'OpenCode session' },
-          quota: { available: false, source: 'OpenCode session', reason: 'Quota unavailable' },
-          tokenUsage: { totalTokens: 2_800, tokensPerMinute: 560, windowMs: 300_000, eventCount: 2, sampledAt: now, source: 'OpenCode session export' },
-        },
-        {
-          provider: 'qoder',
-          providerName: 'Qoder',
-          auth: { available: true, status: 'Local sessions', source: 'Qoder sessions' },
-          quota: { available: false, source: 'Qoder sessions', reason: 'Quota unavailable' },
-          tokenUsage: { available: false, totalTokens: null, tokensPerMinute: null, windowMs: 300_000, eventCount: 0, sampledAt: now, source: 'Qoder sessions', reason: 'Token usage unavailable' },
-        },
-      ],
-      agentUsage: null,
-      systemStats: null,
-    },
-  };
+  return JSON.parse(fs.readFileSync(
+    path.join(repoRoot, 'scripts', 'fixtures', 'documentation-usage-snapshot.json'),
+    'utf8',
+  ));
 }
 
 async function installUsageRoutes(page, fixture) {
   await page.route(/\/api\/usage(?:\/day)?(?:\?|$)/, async route => {
     const requestUrl = new URL(route.request().url());
     if (requestUrl.pathname.endsWith('/api/usage/day')) {
+      if (fixture.detail) {
+        await route.fulfill({ json: { detail: fixture.detail } });
+        return;
+      }
       const date = requestUrl.searchParams.get('date') || fixture.dailyPoints.at(-1).date;
       const point = fixture.dailyPoints.find(candidate => candidate.date === date) || fixture.dailyPoints.at(-1);
       const hourlyWeights = new Map([[3, 0.08], [8, 0.17], [10, 0.25], [14, 0.12], [18, 0.28], [22, 0.10]]);
@@ -685,6 +692,117 @@ async function installUsageRoutes(page, fixture) {
   });
 }
 
+async function captureDesktopConnections(browser, baseUrl) {
+  const context = await browser.newContext({
+    baseURL: baseUrl,
+    viewport: { width: 1440, height: 810 },
+    deviceScaleFactor: 1,
+  });
+  try {
+    const page = await context.newPage();
+    await page.addInitScript({ content: `
+      (() => {
+        const state = {
+        activeBackendId: 'local',
+        profiles: [{
+          id: 'local',
+          kind: 'local',
+          name: 'This Mac',
+          transport: 'direct',
+          sshHost: '',
+          remoteHost: '127.0.0.1',
+          remotePort: 0,
+          basePath: '/farming',
+          directUrl: 'http://127.0.0.1:43121',
+          farmingHome: '/tmp/farming-desktop',
+          hasToken: true,
+        }, {
+          id: 'remote-a',
+          kind: 'remote',
+          name: 'Build host',
+          transport: 'ssh',
+          sshHost: 'build-host',
+          remoteHost: '127.0.0.1',
+          remotePort: 0,
+          basePath: '/farming',
+          directUrl: '',
+          farmingHome: '~/.farming-desktop',
+          hasToken: false,
+        }, {
+          id: 'remote-b',
+          kind: 'remote',
+          name: 'GPU host',
+          transport: 'ssh',
+          sshHost: 'gpu-host',
+          remoteHost: '127.0.0.1',
+          remotePort: 0,
+          basePath: '/farming',
+          directUrl: '',
+          farmingHome: '~/.farming-desktop',
+          hasToken: false,
+        }],
+        connections: [{
+          backendId: 'local',
+          generation: 1,
+          status: 'ready',
+          error: '',
+          message: 'Connected',
+          server: null,
+        }, {
+          backendId: 'remote-a',
+          generation: 1,
+          status: 'ready',
+          error: '',
+          message: 'Connected',
+          server: {
+            version: '0.4.0',
+            platform: 'linux',
+            arch: 'x64',
+            runtime: 'node 22',
+          },
+        }, {
+          backendId: 'remote-b',
+          generation: 0,
+          status: 'disconnected',
+          error: '',
+          message: 'Disconnected',
+          server: null,
+        }],
+        };
+        Object.defineProperty(window, 'farmingDesktop', {
+          configurable: true,
+          value: {
+            getState: async () => state,
+            saveAndActivateBackend: async () => state,
+            removeBackend: async () => state,
+            connectBackend: async () => state,
+            disconnectBackend: async () => state,
+            activateBackend: async () => state,
+            showNotification: async () => {},
+            onStateChanged: () => () => {},
+          },
+        });
+      })();
+    ` });
+    await page.request.post(`${baseUrl}${basePath}/api/settings`, {
+      data: {
+        appearance: screenshotAppearance,
+        instanceName: 'Farming Desktop',
+        language: 'en',
+      },
+    });
+    await ensureApp(page);
+    const desktopBridgeAvailable = await page.evaluate(() => Boolean(window.farmingDesktop));
+    if (!desktopBridgeAvailable) throw new Error('desktop screenshot bridge was not installed');
+    await page.getByTestId('code-nav-plugins').click();
+    await page.getByTestId('desktop-connections-panel').waitFor({ state: 'visible', timeout: 20_000 });
+    await page.getByTestId('desktop-connections-panel').getByText('Build host', { exact: true }).waitFor({ state: 'visible', timeout: 20_000 });
+    await screenshot(page, '18-code-desktop-connections.png');
+  } finally {
+    await context.close();
+  }
+}
+
 async function installSessionSearchRoute(page) {
   const sessions = [
     {
@@ -733,13 +851,6 @@ async function installSessionSearchRoute(page) {
       },
     });
   });
-}
-
-async function showBlameFromEditorGutter(page) {
-  const gutterLine = page.locator('.monaco-editor .margin-view-overlays .line-numbers').first();
-  await gutterLine.waitFor({ state: 'visible', timeout: 20_000 });
-  await gutterLine.click({ button: 'right', force: true });
-  await page.getByRole('menuitem', { name: 'Annotate with Blame' }).click();
 }
 
 async function openNewAgentDialog(page) {
@@ -875,7 +986,7 @@ async function main() {
 
   const port = await getFreePort();
   const baseUrl = `http://127.0.0.1:${port}`;
-  const serverProcess = spawn(process.execPath, [path.join(repoRoot, 'scripts', 'start-playwright-server.js')], {
+  const serverProcess = spawn(process.execPath, [tsxCliPath, path.join(repoRoot, 'scripts', 'start-playwright-server.ts')], {
     cwd: repoRoot,
     env: {
       ...process.env,
@@ -905,6 +1016,13 @@ async function main() {
       executablePath,
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--proxy-server=direct://', '--proxy-bypass-list=*'],
     });
+    if (
+      requestedScreenshotFiles.size === 1
+      && requestedScreenshotFiles.has('18-code-desktop-connections.png')
+    ) {
+      await captureDesktopConnections(browser, baseUrl);
+      return;
+    }
     const context = await browser.newContext({
       baseURL: baseUrl,
       viewport: { width: 1440, height: 810 },
@@ -914,14 +1032,62 @@ async function main() {
       window.__FARMING_E2E__ = true;
     });
     const page = await context.newPage();
+    const usageFixture = createUsageFixture();
 
     await page.route(`**${basePath}/api/codex/models`, route => route.fulfill({
       json: { catalog: matrixCatalog, source: 'fixture' },
     }));
     await installSessionSearchRoute(page);
+    await installUsageRoutes(page, usageFixture);
     await ensureApp(page);
     await setDemoSettings(page, baseUrl);
     await ensureApp(page);
+
+    if (
+      requestedScreenshotFiles.size === 1
+      && requestedScreenshotFiles.has('15-code-usage-activity.png')
+    ) {
+      await startDemoAgent(page, baseUrl);
+      await ensureApp(page, { hideUsagePanel: false });
+      await page.waitForTimeout(2500);
+      const usageToggle = page.getByTestId('code-usage-toggle');
+      if (await usageToggle.getAttribute('aria-expanded') !== 'true') {
+        await usageToggle.evaluate(element => element.click());
+      }
+      const usagePanel = page.getByTestId('code-usage-panel');
+      await usagePanel.getByTestId('code-usage-daily-heatmap').waitFor({ state: 'attached', timeout: 20_000 });
+      await usagePanel.getByTestId('code-usage-open-year').evaluate(element => element.click());
+      const usageDialog = page.getByTestId('code-usage-detail-dialog');
+      await usageDialog.waitFor({ state: 'visible', timeout: 20_000 });
+      await usageDialog.getByTestId('code-usage-day-histogram').waitFor({ state: 'visible', timeout: 20_000 });
+      await page.setViewportSize({ width: 1440, height: 960 });
+      await page.addStyleTag({
+        content: `
+          [data-testid='code-usage-detail-dialog'] {
+            max-height: calc(100vh - 48px) !important;
+          }
+        `,
+      });
+      await screenshot(page, '15-code-usage-activity.png');
+      return;
+    }
+
+    await screenshot(page, '00-code-welcome.png');
+    if (requestedScreenshotsComplete()) return;
+
+    if (requestedScreenshotFiles.size === 0 || requestedScreenshotFiles.has('19-code-agent-homes.png')) {
+      await page.request.post(`${baseUrl}${basePath}/api/settings`, {
+        data: { agentHomes: multipleAgentHomeSettings },
+      });
+      await page.getByTestId('code-nav-plugins').click();
+      await page.getByTestId('code-plugins-panel').waitFor({ state: 'visible', timeout: 20_000 });
+      await page.getByTestId('code-plugin-tab-homes').click();
+      await page.getByTestId('code-plugin-agent-sections').waitFor({ state: 'visible', timeout: 20_000 });
+      await screenshot(page, '19-code-agent-homes.png');
+      if (requestedScreenshotsComplete()) return;
+      await setDemoSettings(page, baseUrl);
+      await page.getByTestId('code-plugins-panel').getByRole('button', { name: 'Back to workspace' }).click();
+    }
 
     const codexAgentId = await startAgent(page, baseUrl, {
       command: 'codex',
@@ -1059,6 +1225,17 @@ async function main() {
       element.scrollTop = 0;
     });
     await waitForStableUi(page, 500);
+    const mobileResultCard = page.getByTestId('code-agent-transcript-result-card').last();
+    const mobileResultGeometry = await mobileResultCard.evaluate(element => {
+      const summary = element.querySelector('.code-agent-transcript-result-summary')?.getBoundingClientRect();
+      const actions = element.querySelector('.code-agent-transcript-result-actions')?.getBoundingClientRect();
+      return summary && actions
+        ? { summaryRight: summary.right, actionsLeft: actions.left }
+        : null;
+    });
+    if (mobileResultGeometry && mobileResultGeometry.summaryRight > mobileResultGeometry.actionsLeft + 1) {
+      throw new Error('mobile result summary overlaps its actions');
+    }
     await screenshot(page, '05-mobile-agent-chat.png');
     if (requestedScreenshotsComplete()) return;
     await page.setViewportSize({ width: 1440, height: 810 });
@@ -1077,11 +1254,23 @@ async function main() {
       updateAgent(page, baseUrl, claudeAgentId, { unread: false }),
       updateAgent(page, baseUrl, shellAgentId, { unread: false }),
     ]);
-    await openFile(page, 'src/pagination.ts:1');
-    await waitForEditorReady(page, 'mergePage');
-    await showBlameFromEditorGutter(page);
-    await page.locator('.code-file-inline-blame').first().waitFor({ state: 'visible', timeout: 20_000 });
-    await projectNorthstarChat(page);
+    const filesSection = page.getByTestId('code-files-section').first();
+    const filesToggle = filesSection.getByRole('button', { name: /^Files$/ });
+    if (await filesToggle.getAttribute('aria-expanded') === 'false') await filesToggle.click();
+    const docsDirectory = filesSection.locator('[data-testid="code-file-row"][data-file-path="docs"]');
+    await docsDirectory.waitFor({ state: 'visible', timeout: 20_000 });
+    if (await docsDirectory.getAttribute('aria-expanded') === 'false') await docsDirectory.click();
+    const relationalAlgebraFile = filesSection.locator('[data-testid="code-file-row"][data-file-path="docs/relational-algebra.md"]');
+    await relationalAlgebraFile.waitFor({ state: 'visible', timeout: 20_000 });
+    await relationalAlgebraFile.click();
+    const markdownPreview = page.getByTestId('code-file-markdown-preview');
+    await page.getByTestId('code-file-editor').waitFor({ state: 'visible', timeout: 20_000 });
+    if (!await markdownPreview.isVisible()) {
+      await page.getByTestId('code-file-editor').locator('.code-file-editor-action.source-preview').click();
+    }
+    await markdownPreview.waitFor({ state: 'visible', timeout: 20_000 });
+    await markdownPreview.getByRole('heading', { name: '关系代数与逻辑优化规则' }).waitFor({ state: 'visible', timeout: 20_000 });
+    await markdownPreview.getByRole('table').waitFor({ state: 'visible', timeout: 20_000 });
     await Promise.all([
       codexAgentId,
       terminalAgentId,
@@ -1089,16 +1278,30 @@ async function main() {
       shellAgentId,
     ].map(agentId => updateAgent(page, baseUrl, agentId, { unread: false })));
     await page.waitForFunction(() => !document.querySelector('.code-agent-unread, .code-project-agent-compact-unread'));
-    await page.getByText('users-api.ts', { exact: true }).waitFor({ state: 'visible', timeout: 20_000 });
-    const legacyRecoveryFiles = await page.getByText('recovery.js', { exact: true }).count();
-    if (legacyRecoveryFiles !== 0) throw new Error('legacy recovery.js remained in Files tree');
-    const diagnosticCount = await page.locator('.squiggly-error, .squiggly-warning').count();
-    if (diagnosticCount !== 0) throw new Error(`Files screenshot has ${diagnosticCount} visible diagnostics`);
     await waitForStableUi(page, 1000);
-    await screenshot(page, '04-files-editor-blame.png');
+    await screenshot(page, '04-files-markdown-preview.png');
     if (requestedScreenshotsComplete()) return;
 
     await openAgent(page, terminalAgentId);
+    await writeTerminalFixture(page, terminalAgentId, [
+      '\u001b[2J\u001b[H\u001b[1;36mCodex terminal · release verification\u001b[0m',
+      '',
+      '$ npm run check',
+      '✓ backend tests passed',
+      '✓ typecheck passed',
+      '✓ lint passed',
+      '',
+      '$ npm run build',
+      '✓ production bundle ready',
+      '✓ Chat ↔ Terminal session preserved',
+      '',
+      '$ git status --short',
+      ' M src/pagination.ts',
+      ' M tests/pagination.spec.ts',
+      '?? notes/release-check.md',
+      '',
+      '$',
+    ].join('\r\n'));
     await page.getByTestId('code-composer-model-picker').click();
     await page.getByTestId('code-model-matrix-picker').waitFor({ state: 'visible', timeout: 20_000 });
     await screenshot(page, '07-live-model-controls.png');
@@ -1191,40 +1394,88 @@ async function main() {
     await page.getByTestId('code-settings-panel').waitFor({ state: 'visible', timeout: 20_000 });
     await page.getByTestId('code-settings-update-card').getByText(latestScreenshotVersion, { exact: true }).waitFor({ state: 'visible', timeout: 20_000 });
     await screenshot(page, '14-code-settings.png');
+
+    const shouldCapturePet = requestedScreenshotFiles.size === 0
+      || requestedScreenshotFiles.has('16-code-pet-soft-glow.png')
+      || requestedScreenshotFiles.has('17-code-pet-black-hole.png');
+    if (shouldCapturePet) {
+      if (requestedScreenshotFiles.size === 0 || requestedScreenshotFiles.has('16-code-pet-soft-glow.png')) {
+        await page.getByRole('button', { name: 'Preview soft glow' }).click();
+        const softGlowScene = page.getByTestId('pet-rest-scene');
+        await softGlowScene.waitFor({ state: 'visible', timeout: 20_000 });
+        await screenshot(page, '16-code-pet-soft-glow.png');
+        if (requestedScreenshotsComplete()) return;
+        await softGlowScene.getByRole('button', { name: 'End break' }).click();
+        await page.getByTestId('code-settings-panel').waitFor({ state: 'visible', timeout: 20_000 });
+      }
+      if (requestedScreenshotFiles.size === 0 || requestedScreenshotFiles.has('17-code-pet-black-hole.png')) {
+        await page.evaluate(() => {
+          const testWindow = window as Window & {
+            __farmingBlackHoleEvolutionSeed?: number;
+            __farmingBlackHoleElapsedSeconds?: number;
+          };
+          testWindow.__farmingBlackHoleEvolutionSeed = 1;
+          testWindow.__farmingBlackHoleElapsedSeconds = 82.55;
+        });
+        await page.getByRole('button', { name: 'Preview black hole' }).click();
+        const blackHoleScene = page.getByTestId('pet-rest-scene');
+        await blackHoleScene.waitFor({ state: 'visible', timeout: 20_000 });
+        await blackHoleScene.locator('.code-pet-black-hole-canvas').waitFor({ state: 'visible', timeout: 20_000 });
+        await page.waitForFunction(() => typeof (window as Window & {
+          __farmingBlackHoleRenderFrames?: (count?: number) => Promise<void>;
+        }).__farmingBlackHoleRenderFrames === 'function');
+        await page.evaluate(async () => (window as Window & {
+          __farmingBlackHoleRenderFrames?: (count?: number) => Promise<void>;
+        }).__farmingBlackHoleRenderFrames?.(4));
+        await screenshot(page, '17-code-pet-black-hole.png');
+        if (requestedScreenshotsComplete()) return;
+        await ensureApp(page);
+      }
+    }
     await page.keyboard.press('Escape');
+
+    const shouldCaptureDesktop = requestedScreenshotFiles.size === 0
+      || requestedScreenshotFiles.has('18-code-desktop-connections.png');
+    if (shouldCaptureDesktop) {
+      await captureDesktopConnections(browser, baseUrl);
+      if (requestedScreenshotsComplete()) return;
+    }
 
     await page.request.post(`${baseUrl}${basePath}/api/settings`, { data: { appearance: 'dark' } });
     await ensureApp(page);
     await openAgent(page, codexAgentId);
     await screenshot(page, '09-dark-workspace.png');
 
-    const usageFixture = createUsageFixture();
-    await installUsageRoutes(page, usageFixture);
-    await ensureApp(page);
-    await openAgent(page, codexAgentId);
-    const usageToggle = page.getByTestId('code-usage-toggle');
-    if (await usageToggle.getAttribute('aria-expanded') !== 'true') {
-      await usageToggle.evaluate(element => element.click());
+    const shouldCaptureUsage = requestedScreenshotFiles.size === 0
+      || requestedScreenshotFiles.has('15-code-usage-activity.png');
+    if (shouldCaptureUsage) {
+      await page.request.post(`${baseUrl}${basePath}/api/settings`, { data: { appearance: screenshotAppearance } });
+      await ensureApp(page, { hideUsagePanel: false });
+      await page.waitForTimeout(2500);
+      const usageToggle = page.getByTestId('code-usage-toggle');
+      if (await usageToggle.getAttribute('aria-expanded') !== 'true') {
+        await usageToggle.evaluate(element => element.click());
+      }
+      const usagePanel = page.getByTestId('code-usage-panel');
+      await usagePanel.getByTestId('code-usage-daily-heatmap').waitFor({ state: 'attached', timeout: 20_000 });
+      await usagePanel.getByTestId('code-usage-open-year').evaluate(element => element.click());
+      const usageDialog = page.getByTestId('code-usage-detail-dialog');
+      await usageDialog.waitFor({ state: 'visible', timeout: 20_000 });
+      await usageDialog.getByTestId('code-usage-day-histogram').waitFor({ state: 'visible', timeout: 20_000 });
+      await page.setViewportSize({ width: 1440, height: 960 });
+      const usageScreenshotStyle = await page.addStyleTag({
+        content: `
+          [data-testid='code-usage-detail-dialog'] {
+            max-height: calc(100vh - 48px) !important;
+          }
+        `,
+      });
+      await screenshot(page, '15-code-usage-activity.png');
+      if (requestedScreenshotsComplete()) return;
+      await usageScreenshotStyle.evaluate(element => element.remove());
+      await page.setViewportSize({ width: 1440, height: 810 });
+      await page.keyboard.press('Escape');
     }
-    const usagePanel = page.getByTestId('code-usage-panel');
-    await usagePanel.getByTestId('code-usage-daily-heatmap').waitFor({ state: 'attached', timeout: 20_000 });
-    await usagePanel.getByTestId('code-usage-open-year').evaluate(element => element.click());
-    const usageDialog = page.getByTestId('code-usage-detail-dialog');
-    await usageDialog.waitFor({ state: 'visible', timeout: 20_000 });
-    await usageDialog.getByTestId('code-usage-day-histogram').waitFor({ state: 'visible', timeout: 20_000 });
-    await page.setViewportSize({ width: 1440, height: 960 });
-    const usageScreenshotStyle = await page.addStyleTag({
-      content: `
-        [data-testid='code-usage-detail-dialog'] {
-          max-height: calc(100vh - 48px) !important;
-        }
-      `,
-    });
-    await screenshot(page, '15-code-usage-activity.png');
-    if (requestedScreenshotsComplete()) return;
-    await usageScreenshotStyle.evaluate(element => element.remove());
-    await page.setViewportSize({ width: 1440, height: 810 });
-    await page.keyboard.press('Escape');
 
     const releaseOpsWorkspace = path.join(homeDir, 'Projects', 'release-ops');
     fs.mkdirSync(releaseOpsWorkspace, { recursive: true });
@@ -1319,9 +1570,10 @@ async function main() {
     await page.locator('#billing-day-insight-state').filter({ hasText: '24 HOURLY BINS READY' }).waitFor({ state: 'visible', timeout: 30_000 });
     await page.setViewportSize({ width: 1440, height: 960 });
     await screenshot(page, '06-crt-billing-days.png', crtScreenshotDir);
+    if (requestedScreenshotsComplete()) return;
     await page.setViewportSize({ width: 1440, height: 810 });
     await page.getByRole('tab', { name: '[L] LIVE', exact: true }).click();
-    await page.locator('#billing-status').filter({ hasText: 'SIGNAL LOCKED' }).waitFor({ state: 'visible', timeout: 30_000 });
+    await page.locator('#billing-window-label').filter({ hasText: 'TOKENS · 1H' }).waitFor({ state: 'visible', timeout: 30_000 });
     await screenshot(page, '07-crt-billing-live.png', crtScreenshotDir);
 
     await page.keyboard.press('Escape');
