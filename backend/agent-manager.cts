@@ -175,7 +175,7 @@ import {
 import { AgentOrderAllocator, finiteOrder, reorderedPinnedAgentOrders, reorderedProjectAgentOrders } from './agent-order.cjs';
 import { commitAgentOrderTransaction } from './agent-order-transaction.cjs';
 import { buildInteractiveAgentBaseEnv, normalizeInteractiveTerminalEnv, resolveUserShellEnvSync } from './agent-env.cjs';
-import { inspectGitWorktree } from './git-worktree-info.cjs';
+import { inspectGitWorktree, invalidateGitWorktreeInfoCache } from './git-worktree-info.cjs';
 import { AgentWorktreeRefreshQueue } from './agent-worktree-refresh-queue.cjs';
 import { deserializeTerminalState } from './terminal-state-serialization.cjs';
 import type { TranscriptBuildOptions } from './codex-transcript.cjs';
@@ -3335,6 +3335,7 @@ class AgentManager extends EventEmitter {
           executable,
           env: launchEnv,
           cwd: agent.cwd,
+          projectWorkspace: effectiveAgentWorkspaceRoot(agent),
           sessionId,
           historyMode: 'checkpoint',
           providerHomeId: agent.providerHomeId || record.providerHomeId || 'default',
@@ -5974,6 +5975,7 @@ class AgentManager extends EventEmitter {
           executable: spawnProgram,
           env: identityEnv,
           cwd: identityWorkspace,
+          projectWorkspace: effectiveAgentWorkspaceRoot(agentRecord),
           providerHomeId: agentRecord.providerHomeId || 'default',
           providerHomePath: agentRecord.providerHomePath || '',
           approvalMode: agentRecord.launchPermissionMode || 'approve',
@@ -6167,6 +6169,7 @@ class AgentManager extends EventEmitter {
           executable: spawnProgram,
           env: acpEnv,
           cwd: workspace,
+          projectWorkspace: effectiveAgentWorkspaceRoot(agentRecord),
           sessionId: options.acpStartFresh === true || agentRecord.providerSessionTemporary || acpGeneratedFreshSession
             ? ''
             : (typeof agentRecord.providerSessionId === 'string' ? agentRecord.providerSessionId : ''),
@@ -8887,6 +8890,8 @@ class AgentManager extends EventEmitter {
       const error = caughtError as ErrorRecord;
       const message = error && error.stderr ? String(error.stderr).trim() : '';
       throw new Error(message || 'Failed to create git worktree', { cause: caughtError });
+    } finally {
+      invalidateGitWorktreeInfoCache();
     }
 
     return target;
@@ -9059,6 +9064,8 @@ class AgentManager extends EventEmitter {
         this.commitPersistentProjectOperation(operation, state, null, detail);
       }
       throw new Error(detail, { cause: caughtError });
+    } finally {
+      invalidateGitWorktreeInfoCache();
     }
 
     const postcondition = await this.inspectGitWorktreePostcondition(root, target, branch);
@@ -9091,6 +9098,8 @@ class AgentManager extends EventEmitter {
       const error = caughtError as ErrorRecord;
       const message = error && error.stderr ? String(error.stderr).trim() : '';
       errors.push(message || 'Failed to remove the created worktree');
+    } finally {
+      invalidateGitWorktreeInfoCache();
     }
     if (created.branch) {
       try {
@@ -9439,6 +9448,8 @@ class AgentManager extends EventEmitter {
         archivedAgentIds,
         removedMainPageSessionKeys: Array.from(new Set(removedMainPageSessionKeys)),
       };
+    } finally {
+      invalidateGitWorktreeInfoCache();
     }
 
     const postcondition = await this.inspectGitWorktreePostcondition(

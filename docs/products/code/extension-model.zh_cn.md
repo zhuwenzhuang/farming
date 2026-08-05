@@ -33,10 +33,11 @@ Keyboard 与 Empty State Contract。Extension-specific Style 只用于 Browser �
 Viewer Access 必须经过同一个已授权 Resource Identity。Preview 或 Streaming Path 不能形成
 独立的 File、Browser 或 Desktop Authority。
 
-当同一 Agent 拥有多个同类 Active Resource 时，紧凑 Preview 可以重叠展示，但每个可见
-Preview 都必须标识并打开其精确 Resource。
-只有最前面的重叠 Preview 维持 Live Viewer Stream；被覆盖的 Preview 保留最后一帧，并在
-重新成为前景卡时恢复连接。
+Current Plan、Browser Preview 等 Live Agent Activity 共享一个由 Core 拥有的右侧 Dock。
+每项 Activity 始终保留可识别的紧凑 Header，但同一时刻最多只展开一个 Activity Body；
+选择另一项时折叠前一项，而不是把两块 Surface 横向推到 Transcript 上。只有已展开的
+Browser Preview 维持 Live Viewer Stream；折叠的 Preview 保留最后一帧，并在再次展开时
+恢复连接。
 Agent 详情 Preview 使用紧凑图标按类型汇总其拥有的 Resource 数量，让用户无需展开各个
 Resource Section 也能判断资源使用规模。
 

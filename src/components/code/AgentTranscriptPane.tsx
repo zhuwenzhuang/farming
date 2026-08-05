@@ -42,6 +42,7 @@ import {
   LoadingGlyph,
   PencilGlyph,
   SearchGlyph,
+  SparkleGlyph,
   TerminalSquareGlyph,
   ThinkingGlyph,
   ToolsGlyph,
@@ -53,6 +54,7 @@ import {
   createWorkspaceHtmlPreview,
   deleteWorkspaceHtmlPreview,
   fetchWorkspaceFile,
+  rawWorkspaceFileUrl,
   workspaceHtmlPreviewUrl,
 } from '@/lib/workspace-files'
 import { appPath } from '@/lib/base-path'
@@ -76,6 +78,7 @@ import { isPageActive } from '@/hooks/usePageVisibility'
 import { loadAcpReviewPreview, loadReviewComparisonSources } from '@/lib/review/api'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-open-files'
 import type { CodeCopy } from './copy'
+import { planDetailItems } from './agent-plan'
 import { acpActivityKind, acpCompactPlanLabel, acpLiveToolActivity, acpPlanProgress, acpThoughtActivityLabel, type AcpActivityKind } from './acp/acp-activity-label'
 import {
   acpCollaborationAgentsForTurn,
@@ -151,6 +154,7 @@ export interface AgentTranscriptPaneProps {
   onReadLatest?: () => void
   onForkLatest?: () => Promise<void> | void
   onReviewAndCommit?: () => void
+  onActivePlanChange?: (plan: AgentTranscriptProcessItem | undefined) => void
   groupProcessActions?: boolean
   copy: CodeCopy
 }
@@ -218,6 +222,8 @@ const INITIAL_ACP_TRANSCRIPT_TURN_LIMIT = 5
 const ACP_TRANSCRIPT_TURN_PAGE_SIZE = 10
 const MAX_TRANSCRIPT_TURN_LIMIT = 1000
 const ACP_TRANSCRIPT_FETCH_RETRY_DELAYS_MS = [250, 1000] as const
+const ACP_TRANSCRIPT_UNSETTLED_RETRY_DELAYS_MS = [100, 250, 500, 1000, 2000, 3000, 5000, 5000, 5000, 5000] as const
+const ACP_TRANSCRIPT_UNSETTLED_SLOW_RETRY_MS = 15_000
 const ACP_TRANSCRIPT_REFRESH_COALESCE_MS = 80
 const INITIAL_TRANSCRIPT_REVEAL_QUIET_MS = 120
 const INITIAL_TRANSCRIPT_REVEAL_MAX_MS = 400
@@ -593,6 +599,10 @@ function transcriptFileTargetFromText(text: string, workspaceRoot?: string) {
   }
 }
 
+function transcriptImageFilePath(filePath: string) {
+  return /\.(?:gif|jpe?g|png|webp)$/i.test(filePath)
+}
+
 function hasQualifiedTranscriptFileReference(text: string) {
   const trimmed = text.trim()
   if (!trimmed) return false
@@ -725,6 +735,54 @@ function AgentTranscriptImages({
 
 function AgentTranscriptUserImages({ images }: { images: AgentTranscriptUserImage[] }) {
   return <AgentTranscriptImages images={images} className="code-agent-transcript-user-images" testId="code-agent-transcript-user-images" fallbackAlt="Attached image" />
+}
+
+function AgentTranscriptMarkdownImage({ url, label }: { url: string; label: string }) {
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    if (!open) return undefined
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [open])
+  return (
+    <>
+      <button
+        type="button"
+        className="code-agent-transcript-markdown-image-link"
+        aria-label={`Open ${label}`}
+        onClick={() => setOpen(true)}
+      >
+        <img src={url} alt={label} loading="lazy" decoding="async" />
+      </button>
+      {open ? createPortal(
+        <div
+          className="code-agent-transcript-image-overlay"
+          data-testid="code-agent-transcript-image-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label={label}
+          onClick={() => setOpen(false)}
+        >
+          <button
+            type="button"
+            className="code-agent-transcript-image-close"
+            aria-label="Close image preview"
+            onClick={event => {
+              event.stopPropagation()
+              setOpen(false)
+            }}
+          >
+            <CloseGlyph />
+          </button>
+          <img src={url} alt={label} onClick={event => event.stopPropagation()} />
+        </div>,
+        document.body,
+      ) : null}
+    </>
+  )
 }
 
 function userFileMeta(file: AgentTranscriptUserFile) {
@@ -1319,21 +1377,6 @@ function hasTextSelectionWithin(element: HTMLElement) {
     (selection.anchorNode && element.contains(selection.anchorNode))
     || (selection.focusNode && element.contains(selection.focusNode)),
   )
-}
-
-function planDetailItems(detail: string) {
-  const lines = detail.split('\n').map(line => line.trim()).filter(Boolean)
-  const parsed = lines.map(line => {
-    const match = line.match(/^\[(x|>| )\]\s+(.+)$/i)
-    if (!match) return null
-    const marker = (match[1] || '').toLowerCase()
-    return {
-      status: marker === 'x' ? 'completed' : marker === '>' ? 'running' : 'pending',
-      text: match[2] || '',
-    }
-  })
-  if (parsed.some(item => item === null)) return null
-  return parsed as Array<{ status: 'completed' | 'running' | 'pending'; text: string }>
 }
 
 function shouldRenderDetailAsProse(item: AgentTranscriptProcessItem) {
@@ -2345,49 +2388,6 @@ function AgentTranscriptProgressUpdate({
   )
 }
 
-function AgentTranscriptPlanDriver({ plan }: { plan: AgentTranscriptProcessItem }) {
-  const [open, setOpen] = useState(true)
-  const items = planDetailItems(String(plan.detail || ''))
-  const progress = plan.totalSteps
-    ? `${plan.completedSteps || 0}/${plan.totalSteps}`
-    : ''
-  return (
-    <aside
-      className={`code-agent-transcript-plan-driver ${open ? 'expanded' : ''}`}
-      data-testid="code-agent-transcript-plan-driver"
-      aria-label="Current plan"
-    >
-      <button
-        type="button"
-        className="code-agent-transcript-plan-driver-summary"
-        aria-expanded={open}
-        onClick={() => setOpen(current => !current)}
-      >
-        <span>Plan</span>
-        {progress ? <small>{progress}</small> : null}
-        <ChevronRightGlyph className="code-agent-transcript-plan-driver-chevron" />
-      </button>
-      {open ? (
-        items ? (
-          <ol className="code-agent-transcript-plan-list">
-            {items.map((item, index) => (
-              <li
-                key={`${index}:${item.text}`}
-                className={item.status}
-                aria-current={item.status === 'running' ? 'step' : undefined}
-              >
-                <span>{item.text}</span>
-              </li>
-            ))}
-          </ol>
-        ) : (
-          <div className="code-agent-transcript-plan-driver-detail">{plan.detail}</div>
-        )
-      ) : null}
-    </aside>
-  )
-}
-
 function AgentTranscriptProcessGroupView({
   groupId,
   items,
@@ -2601,6 +2601,10 @@ function AgentTranscriptPatchResultCard({
                 onClick={onReviewAndCommit}
               >
                 <span>{copy.agentTranscriptReviewAndCommit}</span>
+                <SparkleGlyph
+                  className="code-agent-transcript-review-and-commit-sparkle"
+                  data-testid="code-agent-transcript-review-and-commit-sparkle"
+                />
               </button>
             ) : null}
           </div>
@@ -2725,6 +2729,7 @@ function AgentTranscriptTurnView({
   recordPerformanceTestRender(turn.status === 'inProgress'
     ? 'liveTranscriptTurn'
     : 'completedTranscriptTurn')
+  const { agentId } = useContext(TranscriptFileOpenContext)
   const turnRef = useRef<HTMLElement | null>(null)
   const liveActivityTextRef = useRef<HTMLSpanElement | null>(null)
   const [loadedProcessDetails, setLoadedProcessDetails] = useState<Record<string, AgentTranscriptProcessPresentation>>({})
@@ -3005,6 +3010,12 @@ function AgentTranscriptTurnView({
   const markdownComponents = useMemo<Components>(() => ({
     a: ({ href, children, onClick, ...props }) => {
       const target = href ? transcriptFileTargetFromText(href, workspaceRoot) : null
+      const imageUrl = target
+        && agentId
+        && target.target.globalRoot !== true
+        && transcriptImageFilePath(target.filePath)
+        ? rawWorkspaceFileUrl(agentId, target.filePath)
+        : ''
       const external = href ? isExternalTranscriptHref(href) : false
       const normalizedHref = href ? normalizeTranscriptHref(href) : href
       const browserUrl = external && normalizedHref && /^https?:/i.test(normalizedHref)
@@ -3018,6 +3029,10 @@ function AgentTranscriptTurnView({
           onOpenFile(target.filePath, target.target)
           return
         }
+      }
+      if (target && imageUrl) {
+        const label = markdownTextContent(children).trim() || fileReferenceDisplayText(target.filePath)
+        return <AgentTranscriptMarkdownImage url={imageUrl} label={label} />
       }
       return (
         <a
@@ -3104,7 +3119,7 @@ function AgentTranscriptTurnView({
       }
       return <pre {...props}>{children}</pre>
     },
-  }), [copy, onOpenFile, turn.id, workspaceRoot])
+  }), [agentId, copy, onOpenFile, turn.id, workspaceRoot])
 
   return (
     <article ref={turnRef} className={`code-agent-transcript-turn ${turn.status === 'inProgress' ? 'running' : ''}`} data-turn-id={turn.id}>
@@ -3416,6 +3431,7 @@ export function AgentTranscriptPane({
   onReadLatest,
   onForkLatest,
   onReviewAndCommit,
+  onActivePlanChange,
   groupProcessActions = true,
   copy,
 }: AgentTranscriptPaneProps) {
@@ -3663,6 +3679,7 @@ export function AgentTranscriptPane({
     let retryTimer: number | null = null
     let refreshTimer: number | null = null
     let retryAttempt = 0
+    let unsettledRetryAttempt = 0
     let controller: AbortController | null = null
     let needsReconnectReload = false
     let requestGeneration = 0
@@ -3732,18 +3749,45 @@ export function AgentTranscriptPane({
             return
           }
           if (nextTranscript?.envelopeVersion === 1 && !nextTranscript.settled) {
+            const merged = mergeResult.transcript
+            const hasAuthoritativeTurns = Boolean(merged?.available && merged.turns.length > 0)
+            if (hasAuthoritativeTurns) {
+              transcriptRef.current = merged
+              setTranscript(merged)
+              scheduleInitialTranscriptReveal()
+            }
             setError('')
-            setLoading(true)
+            setLoading(!hasAuthoritativeTurns)
             setLoadingOlder(false)
+            const retryDelay = ACP_TRANSCRIPT_UNSETTLED_RETRY_DELAYS_MS[unsettledRetryAttempt]
+              ?? (hasAuthoritativeTurns ? ACP_TRANSCRIPT_UNSETTLED_SLOW_RETRY_MS : undefined)
+            if (retryDelay !== undefined) {
+              unsettledRetryAttempt = Math.min(
+                unsettledRetryAttempt + 1,
+                ACP_TRANSCRIPT_UNSETTLED_RETRY_DELAYS_MS.length,
+              )
+              retryTimer = window.setTimeout(load, retryDelay)
+              return
+            }
+            unsettledRetryAttempt = 0
+            if (hasAuthoritativeTurns) {
+              setLoading(false)
+            } else {
+              setError(copy.agentTranscriptUnavailable)
+              revealInitialTranscript()
+              setLoading(false)
+            }
             return
           }
+          unsettledRetryAttempt = 0
           const merged = mergeResult.transcript
           transcriptRef.current = merged
           setTranscript(merged)
-          if (merged?.available && merged.turns.length > 0) {
-            if (merged.envelopeVersion === 1 && merged.settled) revealInitialTranscript()
-            else if (merged.envelopeVersion !== 1) scheduleInitialTranscriptReveal()
-          } else if (!expectHistory) {
+          if (merged?.envelopeVersion === 1 && merged.settled) {
+            revealInitialTranscript()
+          } else if (merged?.available && merged.turns.length > 0) {
+            scheduleInitialTranscriptReveal()
+          } else if (merged?.envelopeVersion !== 1 || !expectHistory) {
             revealInitialTranscript()
           }
           setError('')
@@ -3869,7 +3913,10 @@ export function AgentTranscriptPane({
   const awaitingAcpHistory = source === 'acp'
     && !error
     && turns.length === 0
-    && (runtimeState === 'connecting' || expectHistory)
+    && (
+      runtimeState === 'connecting'
+      || (expectHistory && transcript?.envelopeVersion === 1 && transcript.settled !== true)
+    )
   const showFreshAcpEmpty = source === 'acp'
     && !expectHistory
     && !error
@@ -4168,10 +4215,17 @@ export function AgentTranscriptPane({
     textSelectionGestureRef.current = true
   }, [markUserScrollGesture])
   const sessionPlan = source === 'acp' ? transcript?.plan : undefined
-  const activePlan = turns[turns.length - 1]?.status === 'inProgress'
+  const activePlan = active
+    && turns[turns.length - 1]?.status === 'inProgress'
     && sessionPlan?.status !== 'completed'
     ? sessionPlan
     : undefined
+  useEffect(() => {
+    onActivePlanChange?.(activePlan)
+  }, [activePlan, onActivePlanChange])
+  useEffect(() => () => {
+    onActivePlanChange?.(undefined)
+  }, [onActivePlanChange])
   const turnsRef = useRef(turns)
   useLayoutEffect(() => {
     turnsRef.current = turns
@@ -4211,12 +4265,9 @@ export function AgentTranscriptPane({
   return (
     <TranscriptFileOpenContext.Provider value={transcriptFileOpenContext}>
       <div
-        className={`code-agent-transcript ${activePlan ? 'has-plan-driver' : ''}`}
+        className="code-agent-transcript"
         data-testid="code-agent-transcript"
       >
-      {activePlan ? (
-        <AgentTranscriptPlanDriver plan={activePlan} />
-      ) : null}
       {showFreshAcpEmpty ? (
         <div className="code-agent-transcript-blank" role="status">{copy.agentTranscriptEmpty}</div>
       ) : loading || awaitingAcpHistory || awaitingInitialReveal ? (

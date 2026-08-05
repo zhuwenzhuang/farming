@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Agent } from '@/types/agent'
+import { existingComposerStateUpdateKey } from './agent-composer-state-key'
 import {
   composerStateAliasKeysForAgent,
   composerStateKeyForAgent,
@@ -240,13 +241,14 @@ export function useAgentComposerState({
     setComposerByAgentKey(current => {
       const canonicalKey = resolveComposerStateKey(composerKey)
       if (!canonicalKey) return current
-      const previous = current[canonicalKey]
+      const updateKey = existingComposerStateUpdateKey(current, canonicalKey, composerKey)
+      const previous = current[updateKey]
       if (!previous) return current
       const nextState = updater(previous)
       if (nextState === previous) return current
-      composerStateUpdatedAtRef.current.set(canonicalKey, nextCheckpointTimestamp(canonicalKey))
-      composerStateDeletedAtRef.current.delete(canonicalKey)
-      return { ...current, [canonicalKey]: nextState }
+      composerStateUpdatedAtRef.current.set(updateKey, nextCheckpointTimestamp(updateKey))
+      composerStateDeletedAtRef.current.delete(updateKey)
+      return { ...current, [updateKey]: nextState }
     })
   }, [nextCheckpointTimestamp, resolveComposerStateKey])
 

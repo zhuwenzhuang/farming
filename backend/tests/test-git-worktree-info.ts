@@ -89,6 +89,19 @@ function listCallCount(calls: string[][]): number {
 }
 
 async function assertRepositoryWorktreeListCache() {
+  const invalidationCache = createGitWorktreeListCache();
+  let invalidationLoads = 0;
+  const loadAfterInvalidation = async () => {
+    invalidationLoads += 1;
+    return [];
+  };
+  await invalidationCache.get('invalidation-fixture', 3_000, loadAfterInvalidation);
+  await invalidationCache.get('invalidation-fixture', 3_000, loadAfterInvalidation);
+  assert.strictEqual(invalidationLoads, 1);
+  invalidationCache.clear();
+  await invalidationCache.get('invalidation-fixture', 3_000, loadAfterInvalidation);
+  assert.strictEqual(invalidationLoads, 2, 'Topology mutations must be able to invalidate repository list results');
+
   const fakeRoot = path.join(path.parse(process.cwd()).root, 'virtual');
   const repositoryA = {
     commonDir: path.join(fakeRoot, 'repo-a', '.git'),

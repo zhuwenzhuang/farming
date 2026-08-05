@@ -279,20 +279,15 @@
 }
 
 .farming-browser-activity-preview-stack {
-  position: absolute;
-  top: 54px;
-  right: 22px;
-  z-index: 18;
-  width: 240px;
-  height: calc(166px + var(--browser-preview-offset));
+  width: 100%;
+  display: grid;
+  gap: 6px;
 }
 
 .farming-browser-activity-preview {
-  position: absolute;
-  top: calc(var(--browser-preview-index) * 30px);
-  left: 0;
-  z-index: calc(var(--browser-preview-index) + 1);
-  width: 240px;
+  position: relative;
+  width: 100%;
+  box-sizing: border-box;
   overflow: hidden;
   border: 1px solid #d8dcd4;
   border-radius: 10px;
@@ -331,6 +326,10 @@
   border-radius: 3px;
   outline: 2px solid rgba(47, 111, 214, 0.45);
   outline-offset: 2px;
+}
+
+.farming-browser-activity-title[aria-expanded='true'] {
+  color: #252a25;
 }
 
 .farming-browser-activity-close {
@@ -457,6 +456,10 @@ body.code-mode[data-appearance='dark'] .farming-browser-placeholder button {
 
 .code-mode[data-appearance='dark'] .farming-browser-activity-preview > header {
   color: #d7dcd5;
+}
+
+.code-mode[data-appearance='dark'] .farming-browser-activity-title[aria-expanded='true'] {
+  color: #f0f2ef;
 }
 
 .code-mode[data-appearance='dark'] .farming-browser-activity-close {

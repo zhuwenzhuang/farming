@@ -1094,11 +1094,12 @@ assert(
   'only read-only ACP transcript network failures should receive bounded retries and localized final errors'
 );
 assert(
-  transcriptPaneSource.includes("const activePlan = turns[turns.length - 1]?.status === 'inProgress'")
+  transcriptPaneSource.includes("const activePlan = active")
+    && transcriptPaneSource.includes("&& turns[turns.length - 1]?.status === 'inProgress'")
     && transcriptPaneSource.includes("&& sessionPlan?.status !== 'completed'")
-    && transcriptPaneSource.includes("className={`code-agent-transcript ${activePlan ? 'has-plan-driver' : ''}`}")
-    && transcriptPaneSource.includes('<AgentTranscriptPlanDriver plan={activePlan} />'),
-  'the view-attached plan driver should reserve space only while the authoritative plan is incomplete and the latest turn is active'
+    && transcriptPaneSource.includes('onActivePlanChange?.(activePlan)')
+    && transcriptPaneSource.includes('onActivePlanChange?.(undefined)'),
+  'the transcript should publish only the authoritative incomplete plan from the latest active turn to the shared activity dock'
 );
 assert(
   darkStylesSource.includes("body.code-mode[data-appearance='dark'] .code-agent-transcript-plan-driver {")

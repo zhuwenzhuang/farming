@@ -6494,15 +6494,27 @@ body.code-mode .code-instance-name {
   -webkit-user-select: text;
 }
 
-.code-agent-transcript-plan-driver {
+.code-agent-activity-dock {
   position: absolute;
-  top: 56px;
-  right: clamp(18px, 2.6vw, 36px);
-  z-index: 4;
-  width: min(286px, calc(100% - 36px));
-  max-height: min(42vh, 360px);
+  top: 54px;
+  right: 22px;
+  z-index: 18;
+  width: min(286px, calc(100% - 44px));
+  max-height: min(54vh, 480px);
   box-sizing: border-box;
-  overflow: auto;
+  display: grid;
+  gap: 6px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(87, 96, 106, 0.16) transparent;
+}
+
+.code-agent-transcript-plan-driver {
+  position: relative;
+  width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
   padding: 9px 11px 10px;
   border: 1px solid rgba(31, 35, 40, 0.09);
   border-radius: 13px;
@@ -6510,12 +6522,6 @@ body.code-mode .code-instance-name {
   box-shadow: 0 8px 28px rgba(31, 35, 40, 0.08);
   backdrop-filter: blur(14px) saturate(1.08);
   -webkit-backdrop-filter: blur(14px) saturate(1.08);
-}
-
-@media (min-width: 701px) {
-  .code-main:has(.farming-browser-activity-preview-stack) .code-agent-transcript-plan-driver {
-    right: 274px;
-  }
 }
 
 .code-agent-transcript-plan-driver-summary {
@@ -6540,9 +6546,19 @@ body.code-mode .code-instance-name {
 }
 
 .code-agent-transcript-plan-driver-summary > small {
-  margin-left: auto;
   color: #8c959f;
   font-size: 11px;
+}
+
+.code-agent-transcript-plan-driver-summary > em {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  color: #6e7781;
+  font-size: 12px;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .code-agent-transcript-plan-driver-summary:focus-visible {
@@ -8370,6 +8386,37 @@ body.code-mode .code-instance-name {
   margin-left: 5px;
 }
 
+.code-agent-transcript-markdown-image-link {
+  appearance: none;
+  display: inline-block;
+  max-width: min(520px, 100%);
+  margin: 8px 0 12px;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  cursor: pointer;
+  vertical-align: top;
+}
+
+.code-agent-transcript-markdown-image-link img,
+.code-agent-transcript-assistant.code-markdown-preview .code-agent-transcript-markdown-image-link img {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  max-height: 320px;
+  margin: 0;
+  border: 1px solid rgba(31, 35, 40, 0.12);
+  border-radius: 9px;
+  object-fit: contain;
+  background: #ffffff;
+}
+
+.code-agent-transcript-markdown-image-link:focus-visible {
+  outline: 2px solid rgba(9, 105, 218, 0.38);
+  outline-offset: 2px;
+}
+
 .code-agent-transcript-file-icon {
   width: 0.86em;
   height: 0.86em;
@@ -9013,38 +9060,21 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-age
 }
 
 .code-agent-transcript-result-review.agent-review-commit {
-  position: relative;
   display: inline-flex;
   align-items: center;
-  margin-right: 8px;
+  gap: 4px;
 }
 
-.code-agent-transcript-result-review.agent-review-commit::before,
-.code-agent-transcript-result-review.agent-review-commit::after {
-  content: '';
-  position: absolute;
-  clip-path: polygon(0 0, 100% 50%, 0 100%);
+.code-agent-transcript-review-and-commit-sparkle {
+  width: 11px;
+  height: 11px;
+  flex: 0 0 auto;
+  opacity: 0.44;
   pointer-events: none;
 }
 
-.code-agent-transcript-result-review.agent-review-commit::before {
-  right: -8px;
-  bottom: 3px;
-  width: 12px;
-  height: 12px;
-  background: rgba(31, 35, 40, 0.14);
-}
-
-.code-agent-transcript-result-review.agent-review-commit::after {
-  right: -6px;
-  bottom: 4px;
-  width: 10px;
-  height: 10px;
-  background: #ffffff;
-}
-
-.code-agent-transcript-result-review.agent-review-commit:is(:hover, :focus-visible)::after {
-  background: #f6f8fa;
+.code-agent-transcript-result-review.agent-review-commit:is(:hover, :focus-visible) .code-agent-transcript-review-and-commit-sparkle {
+  opacity: 0.76;
 }
 
 .code-agent-transcript-progress {
@@ -16366,9 +16396,8 @@ body.code-mode .code-composer textarea::placeholder {
 
 .code-composer-attachment.image {
   width: 118px;
-  height: 112px;
-  display: grid;
-  grid-template-rows: 78px 1fr;
+  height: 82px;
+  display: block;
   align-items: stretch;
   gap: 0;
   padding: 0;
@@ -16390,12 +16419,19 @@ body.code-mode .code-composer textarea::placeholder {
   background: #fff;
 }
 
+.code-composer-attachment.image .code-composer-attachment-preview {
+  width: 100%;
+  height: 100%;
+  border-bottom: 0;
+  border-radius: 11px;
+}
+
 .code-composer-attachment.image img {
   width: 100%;
   height: 100%;
   display: block;
   object-fit: cover;
-  border-radius: 11px 11px 0 0;
+  border-radius: 11px;
 }
 
 .code-composer-attachment-fallback {
@@ -16426,14 +16462,6 @@ body.code-mode .code-composer textarea::placeholder {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.code-composer-attachment.image .code-composer-attachment-name {
-  display: block;
-  align-self: center;
-  padding: 0 9px;
-  color: #4f5650;
-  line-height: 32px;
 }
 
 .code-composer-attachment-status {
@@ -19591,12 +19619,15 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
     -webkit-overflow-scrolling: touch;
   }
 
-  body.code-mode.code-compact-layout .code-agent-transcript-plan-driver {
+  body.code-mode.code-compact-layout .code-agent-activity-dock {
     top: 7px;
     right: 7px;
     left: 7px;
     width: auto;
     max-height: 112px;
+  }
+
+  body.code-mode.code-compact-layout .code-agent-transcript-plan-driver {
     padding: 7px 10px 8px;
     border-radius: 11px;
   }

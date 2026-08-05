@@ -116,7 +116,8 @@ function run() {
     foregroundHttpPrioritySource.includes('requestForegroundHttpPriority')
       && foregroundHttpPrioritySource.includes('FOREGROUND_HTTP_HOLD_MS = 5_000')
       && appSource.includes('requestForegroundHttpPriority()')
-      && appSource.includes('if (foregroundHttpPriorityActive()) return')
+      && appSource.includes('if (foregroundHttpPriorityActive()) {')
+      && appSource.includes('deferredLoadTimer = window.setTimeout')
       && appSource.includes("fetch(appPath('/api/usage'), { signal: controller.signal })")
       && workspaceSource.includes('subscribeForegroundHttpPriority')
       && workspaceSource.includes('agentSessionsLoadAbortRef.current?.abort()')
@@ -891,7 +892,7 @@ function run() {
 	      workspaceSource.includes('onTerminalFollowOutputChange={handleTerminalFollowOutputChange}') &&
 	      workspaceSource.includes('onAgentReadLatest={markAgentReadLatest}') &&
 	      workspaceSource.includes('if (agentWithCurrentLiveState(agent).unread) markAgentReadIfNeeded(agent.id, true)') &&
-	      (workspaceSource.match(/markAgentReadIfNeeded\(/g) || []).length === 2 &&
+      (workspaceSource.match(/markAgentReadIfNeeded\(/g) || []).length === 3 &&
 		      terminalPaneSource.includes('!active') &&
 	      workspaceSource.includes("mainPaneMode === 'terminal'") &&
       workspaceSource.includes('data-testid="code-session-search-result"') &&
@@ -955,7 +956,7 @@ function run() {
       workspaceSource.includes('function isCodexAgentWorking(agent: Agent | null | undefined)') &&
       workspaceSource.includes('function isAgentTurnActive(agent: Agent | null | undefined)') &&
       workspaceSource.includes('export function inferAgentTerminalState(agent: Agent | null | undefined)') &&
-      workspaceSource.includes('const phase = agent.runtimeObservation.phase') &&
+      workspaceSource.includes('const turnActive = agentTurnActiveFromState(agent)') &&
       workspaceSource.includes('const inferredKind = inferAgentTerminalState(agent).kind') &&
       workspaceSource.includes("providerCapabilities?.terminalProfile === true") &&
       workspaceSource.includes("? 'codex'") &&
@@ -1281,7 +1282,7 @@ function run() {
 	      agentWorkPaneSource.includes('const readLatestChat = useCallback') &&
 	      agentWorkPaneSource.includes('onReadLatest={readLatestChat}') &&
       agentWorkPaneSource.includes("runtimeState={acpRuntime?.state || ''}") &&
-      agentWorkPaneSource.includes("expectHistory={(agent.source || '').startsWith('codex-history:')}") &&
+      agentWorkPaneSource.includes("expectHistory={(agent.source || '').startsWith('codex-history:') || Number(acpRuntime?.sessionRevision || 0) > 0}") &&
       agentWorkPaneSource.includes('AgentTerminalPane') &&
       !agentWorkPaneSource.includes('resizeAgent') &&
 	      !agentWorkPaneSource.includes('isCodexAppServerAgent') &&
@@ -1303,8 +1304,9 @@ function run() {
       transcriptPaneSource.includes('if (seconds <= 0) return') &&
       transcriptPaneSource.includes('role="status">{error}</div>') &&
       transcriptPaneSource.includes('&& !error') &&
-      transcriptPaneSource.includes("runtimeState === 'connecting' || expectHistory") &&
+      transcriptPaneSource.includes("expectHistory && transcript?.envelopeVersion === 1 && transcript.settled !== true") &&
       transcriptPaneSource.includes("const showFreshAcpEmpty = source === 'acp'") &&
+      transcriptPaneSource.includes("const showFreshAcpEmpty = source === 'acp'\n    && !expectHistory\n    && !error\n    && turns.length === 0") &&
       transcriptPaneSource.includes('showFreshAcpEmpty ? (') &&
       transcriptPaneSource.includes('loading || awaitingAcpHistory') &&
       workspaceSource.includes('无法加载此会话的 Chat 历史。') &&

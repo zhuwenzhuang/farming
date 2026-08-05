@@ -37,10 +37,12 @@ Viewer access must pass through the same authorized Resource identity. Preview
 or streaming paths must not create an independent file, browser, or desktop
 authority.
 
-When one Agent owns several active Resources of the same kind, compact previews
-may overlap, but every visible preview must identify and open its exact Resource.
-Only the foremost overlapping preview maintains a live Viewer stream; covered
-previews retain their latest frame and reconnect when promoted to the front.
+Live Agent activity such as the current Plan and Browser previews shares one
+core-owned right-side dock. Every activity keeps a compact identifiable header,
+while at most one activity body is expanded. Selecting another activity folds
+the previous body instead of moving both surfaces across the transcript. Only
+the expanded Browser preview maintains a live Viewer stream; collapsed previews
+retain their latest frame and reconnect when expanded again.
 Agent detail previews summarize owned Resource counts by kind with compact icons
 so users can estimate Resource usage without expanding each Resource section.
 

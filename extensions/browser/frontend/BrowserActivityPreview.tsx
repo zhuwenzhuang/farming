@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from 'react'
+import { useEffect, useState } from 'react'
 import { appPath } from '@/lib/base-path'
 import type { UiPreferences } from '@/lib/ui-preferences'
 import type { BrowserResource } from './types'
@@ -21,11 +21,15 @@ function previewCopy(language: UiPreferences['language']) {
 export function BrowserActivityPreview({
   resources,
   language,
+  expandedResourceId,
+  onToggle,
   onOpen,
   onDismiss,
 }: {
   resources: BrowserResource[]
   language: UiPreferences['language']
+  expandedResourceId: string | null
+  onToggle: (resource: BrowserResource) => void
   onOpen: (resource: BrowserResource) => void
   onDismiss: (resource: BrowserResource) => void
 }) {
@@ -35,15 +39,15 @@ export function BrowserActivityPreview({
     <section
       className="farming-browser-activity-preview-stack"
       data-testid="farming-browser-activity-preview"
-      style={{ '--browser-preview-offset': `${Math.max(0, resources.length - 1) * 30}px` } as CSSProperties}
     >
-      {resources.map((resource, index) => (
+      {resources.map(resource => (
         <BrowserActivityPreviewCard
           key={`${resource.id}:${resource.generation}`}
           resource={resource}
           copy={copy}
-          index={index}
-          streaming={index === resources.length - 1}
+          expanded={expandedResourceId === resource.id}
+          streaming={expandedResourceId === resource.id}
+          onToggle={() => onToggle(resource)}
           onOpen={() => onOpen(resource)}
           onDismiss={() => onDismiss(resource)}
         />
@@ -55,15 +59,17 @@ export function BrowserActivityPreview({
 function BrowserActivityPreviewCard({
   resource,
   copy,
-  index,
+  expanded,
   streaming,
+  onToggle,
   onOpen,
   onDismiss,
 }: {
   resource: BrowserResource
   copy: ReturnType<typeof previewCopy>
-  index: number
+  expanded: boolean
   streaming: boolean
+  onToggle: () => void
   onOpen: () => void
   onDismiss: () => void
 }) {
@@ -108,16 +114,15 @@ function BrowserActivityPreviewCard({
       data-testid="farming-browser-activity-preview-card"
       data-browser-resource-id={resource.id}
       aria-label={title}
-      style={{ '--browser-preview-index': index } as CSSProperties}
     >
       <header>
         <span className="farming-browser-activity-dot" aria-hidden="true" />
         <button
           type="button"
           className="farming-browser-activity-title"
-          aria-label={`${copy.open}: ${title}`}
-          title={`${copy.open}: ${title}`}
-          onClick={onOpen}
+          aria-expanded={expanded}
+          title={title}
+          onClick={onToggle}
         >
           {title}
         </button>
@@ -131,15 +136,17 @@ function BrowserActivityPreviewCard({
           ×
         </button>
       </header>
-      <button
-        type="button"
-        className="farming-browser-activity-frame"
-        aria-label={copy.open}
-        title={copy.open}
-        onClick={onOpen}
-      >
-        {frame ? <img src={frame} alt="" draggable={false} /> : <span>{copy.waiting}</span>}
-      </button>
+      {expanded ? (
+        <button
+          type="button"
+          className="farming-browser-activity-frame"
+          aria-label={copy.open}
+          title={copy.open}
+          onClick={onOpen}
+        >
+          {frame ? <img src={frame} alt="" draggable={false} /> : <span>{copy.waiting}</span>}
+        </button>
+      ) : null}
     </aside>
   )
 }

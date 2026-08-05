@@ -77,6 +77,7 @@ interface GitWorktreeListCacheOptions {
 }
 
 interface GitWorktreeListCache {
+  clear(): void;
   get(
     commonDir: string,
     maxAgeMs: number,
@@ -130,6 +131,9 @@ function createGitWorktreeListCache(
   };
 
   return {
+    clear() {
+      entries.clear();
+    },
     get(commonDir, maxAgeMs, load) {
       const existing = entries.get(commonDir);
       if (
@@ -169,6 +173,11 @@ function createGitWorktreeListCache(
 }
 
 const worktreeListCache = createGitWorktreeListCache();
+
+function invalidateGitWorktreeInfoCache() {
+  cache.clear();
+  worktreeListCache.clear();
+}
 
 function parseGitWorktreeList(output: unknown): GitWorktreeRecord[] {
   const records: GitWorktreeRecord[] = [];
@@ -355,6 +364,7 @@ async function isLinkedWorktreeOf(
 export {
   createGitWorktreeListCache,
   inspectGitWorktree,
+  invalidateGitWorktreeInfoCache,
   isLinkedWorktreeOf,
   parseGitWorktreeList,
 };

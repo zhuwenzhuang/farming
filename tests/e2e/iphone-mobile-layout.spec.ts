@@ -153,6 +153,7 @@ test.describe('iPhone mobile layout', () => {
     await expect(composer).toHaveClass(/has-attachments/)
     await expect(attachment).toHaveClass(/image/)
     await expect(attachment).toHaveClass(/ready/, { timeout: 15_000 })
+    await expect(attachment).not.toContainText('attachment.png')
 
     const geometry = await page.evaluate(() => {
       const composer = document.querySelector<HTMLElement>('[data-testid="code-acp-composer"]')?.getBoundingClientRect()

@@ -90,6 +90,14 @@ export function ArrowUpGlyph(props: IconGlyphProps) {
   )
 }
 
+export function SparkleGlyph(props: IconGlyphProps) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>
+      <path d="M8 0c.3 4.4 3.6 7.7 8 8-4.4.3-7.7 3.6-8 8-.3-4.4-3.6-7.7-8-8 4.4-.3 7.7-3.6 8-8Z" />
+    </svg>
+  )
+}
+
 export function CloseGlyph(props: IconGlyphProps) {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>

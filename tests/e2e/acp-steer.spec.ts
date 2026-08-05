@@ -85,7 +85,32 @@ test('sends the first Codex Chat message as a Prompt while the Session is connec
   await expect(page.getByText('No active Codex turn to steer', { exact: true })).toHaveCount(0)
   const commitPrompt = page.getByTestId('code-agent-transcript-review-and-commit')
   await expect(commitPrompt).toHaveText('Commit')
-  await expect(commitPrompt.locator('svg')).toHaveCount(0)
+  const sparkle = commitPrompt.getByTestId('code-agent-transcript-review-and-commit-sparkle')
+  await expect(sparkle).toBeVisible()
+  await expect(sparkle.locator('path')).toHaveAttribute('d', 'M8 0c.3 4.4 3.6 7.7 8 8-4.4.3-7.7 3.6-8 8-.3-4.4-3.6-7.7-8-8 4.4-.3 7.7-3.6 8-8Z')
+  await expect(sparkle).toHaveCSS('opacity', '0.44')
+  const reviewPrompt = commitPrompt.locator('xpath=preceding-sibling::button[1]')
+  const [commitBox, reviewBox, sparkleBox] = await Promise.all([
+    commitPrompt.boundingBox(),
+    reviewPrompt.boundingBox(),
+    sparkle.boundingBox(),
+  ])
+  expect(commitBox).not.toBeNull()
+  expect(reviewBox).not.toBeNull()
+  expect(sparkleBox).not.toBeNull()
+  expect(Math.abs((commitBox?.y || 0) + (commitBox?.height || 0) - ((reviewBox?.y || 0) + (reviewBox?.height || 0)))).toBeLessThanOrEqual(1)
+  expect((sparkleBox?.x || 0)).toBeGreaterThan((commitBox?.x || 0) + 30)
+  const commitSubmittedAt = Date.now()
+  await commitPrompt.click()
+  await expect(input).toHaveValue('')
+  await expect(page.locator('.code-agent-transcript-user').getByText('Commit', { exact: true })).toBeVisible({ timeout: 15_000 })
+  const commitConfirmationMs = Date.now() - commitSubmittedAt
+  console.log(`performance-commit-send confirmation-ms=${commitConfirmationMs}`)
+  test.info().annotations.push({
+    type: 'performance-budget',
+    description: `Commit send confirmed in ${commitConfirmationMs}ms`,
+  })
+  expect(commitConfirmationMs).toBeLessThan(15_000)
 })
 
 test('blocks ACP submission when an image upload fails', async ({ page, workspaceRoot }) => {

@@ -1151,9 +1151,22 @@ export function App() {
     let cancelled = false
     let timer: number | undefined
     let firstLoadTimer: number | undefined
+    let deferredLoadTimer: number | undefined
 
     const loadUsage = () => {
-      if (foregroundHttpPriorityActive()) return
+      if (foregroundHttpPriorityActive()) {
+        if (deferredLoadTimer === undefined) {
+          deferredLoadTimer = window.setTimeout(() => {
+            deferredLoadTimer = undefined
+            loadUsage()
+          }, 1000)
+        }
+        return
+      }
+      if (deferredLoadTimer !== undefined) {
+        window.clearTimeout(deferredLoadTimer)
+        deferredLoadTimer = undefined
+      }
       usageRequestRef.current?.abort()
       const controller = new AbortController()
       usageRequestRef.current = controller
@@ -1178,6 +1191,7 @@ export function App() {
       usageRequestRef.current?.abort()
       usageRequestRef.current = null
       if (firstLoadTimer !== undefined) window.clearTimeout(firstLoadTimer)
+      if (deferredLoadTimer !== undefined) window.clearTimeout(deferredLoadTimer)
       if (timer !== undefined) window.clearInterval(timer)
     }
   }, [pageVisible])

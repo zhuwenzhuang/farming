@@ -197,6 +197,7 @@ async function run() {
   const sharedClosedSessions = [];
   const sharedForkRequests = [];
   const sharedDeleteRequests = [];
+  const sharedLoadRequests = [];
   const sharedHandlerSets = [];
   const sharedFileReads = [];
   const sharedFastValues = new Map();
@@ -263,6 +264,10 @@ async function run() {
             }],
           };
         },
+        async loadSession(params) {
+          sharedLoadRequests.push(params);
+          return { sessionId: params.sessionId };
+        },
         async closeSession({ sessionId }) {
           sharedClosedSessions.push(sessionId);
           return {};
@@ -308,8 +313,11 @@ async function run() {
     },
   });
   const sharedHomeAlias = `${sharedHome}-alias`;
+  const sharedProjectAlias = `${sharedHome}-project-alias`;
+  const differentProject = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-acp-different-project-'));
   const differentSharedHome = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-acp-different-home-'));
   fs.symlinkSync(sharedHome, sharedHomeAlias, process.platform === 'win32' ? 'junction' : 'dir');
+  fs.symlinkSync(process.cwd(), sharedProjectAlias, process.platform === 'win32' ? 'junction' : 'dir');
   try {
     const sharedAgents = Array.from({ length: 100 }, (_, index) => `shared-agent-${index + 1}`);
     const preparedShared = await Promise.all(sharedAgents.map((agentId, index) => sharedRuntime.prepareAgent({
@@ -318,6 +326,7 @@ async function run() {
       providerHomeId: 'shared',
       providerHomePath: index === sharedAgents.length - 1 ? sharedHomeAlias : sharedHome,
       cwd: process.cwd(),
+      projectWorkspace: index === sharedAgents.length - 1 ? sharedProjectAlias : process.cwd(),
       env: {
         ...process.env,
         CODEX_HOME: sharedHome,
@@ -331,21 +340,19 @@ async function run() {
         sharedProcessIdentities.push(identity);
       },
     })));
-    assert.strictEqual(sharedChildren.length, 1, '100 Sessions in one Agent Home should spawn one ACP adapter');
-    assert.strictEqual(sharedConnectionCount, 1, '100 Sessions in one Agent Home should share one ACP connection');
+    assert.strictEqual(sharedChildren.length, 1, '100 Sessions in one canonical Project and Agent Home should spawn one ACP adapter');
+    assert.strictEqual(sharedConnectionCount, 1, '100 Sessions in one canonical Project and Agent Home should share one ACP connection');
     assert.strictEqual(new Set(preparedShared.map(item => item.sessionId)).size, 100);
     assert.strictEqual(sharedProcessIdentities.length, 100, 'each Agent must persist the shared process identity');
     assert.strictEqual(new Set(sharedProcessIdentities.map(identity => identity.pid)).size, 1);
     assert.strictEqual(sharedChildren[0].options.env.FARMING_AGENT_ID, undefined);
     assert.strictEqual(sharedChildren[0].options.env.FARMING_BROWSER_TOKEN, undefined);
     assert.strictEqual(sharedSessionRequests.length, 100);
-    for (let index = 0; index < sharedAgents.length; index += 1) {
-      assert.strictEqual(
-        sharedSessionRequests[index]._meta.farming.env.FARMING_AGENT_ID,
-        sharedAgents[index],
-        'Agent identity must be carried by the exact Session rather than the shared process',
-      );
-    }
+    assert.deepStrictEqual(
+      new Set(sharedSessionRequests.map(request => request._meta.farming.env.FARMING_AGENT_ID)),
+      new Set(sharedAgents),
+      'Agent identity must be carried by the exact Session rather than the shared process',
+    );
     await sharedRuntime.prompt(sharedAgents[0], 'first-agent-answer');
     await sharedRuntime.prompt(sharedAgents.at(-1), 'last-agent-answer');
     assert.strictEqual(
@@ -418,24 +425,83 @@ async function run() {
       null,
       'a failed Session attach must not stop a shared runtime with live peers',
     );
+    const differentProjectAgent = await sharedRuntime.prepareAgent({
+      agentId: 'different-project-agent',
+      provider: 'codex',
+      providerHomeId: 'shared',
+      providerHomePath: sharedHome,
+      cwd: differentProject,
+      projectWorkspace: differentProject,
+      env: {
+        ...process.env,
+        CODEX_HOME: sharedHome,
+        FARMING_AGENT_ID: 'different-project-agent',
+        FARMING_PROJECT_WORKSPACE: differentProject,
+      },
+    });
+    assert.strictEqual(sharedChildren.length, 2, 'different canonical Projects must not share an ACP adapter');
+    assert.strictEqual(sharedConnectionCount, 2, 'different canonical Projects must use distinct ACP connections');
+    await assert.rejects(
+      sharedRuntime.prepareAgent({
+        agentId: 'duplicate-cross-project-session',
+        provider: 'codex',
+        providerHomeId: 'shared',
+        providerHomePath: sharedHome,
+        cwd: differentProject,
+        projectWorkspace: differentProject,
+        sessionId: preparedShared[1].sessionId,
+        env: {
+          ...process.env,
+          CODEX_HOME: sharedHome,
+          FARMING_AGENT_ID: 'duplicate-cross-project-session',
+          FARMING_PROJECT_WORKSPACE: differentProject,
+        },
+      }),
+      /already active in another Agent/,
+    );
+    assert.deepStrictEqual(sharedLoadRequests, [], 'an already-owned Session must be rejected before provider load');
     await sharedRuntime.prepareAgent({
       agentId: 'different-home-agent',
       provider: 'codex',
       providerHomeId: 'different',
       providerHomePath: differentSharedHome,
       cwd: process.cwd(),
+      projectWorkspace: process.cwd(),
       env: {
         ...process.env,
         CODEX_HOME: differentSharedHome,
         FARMING_AGENT_ID: 'different-home-agent',
       },
     });
-    assert.strictEqual(sharedChildren.length, 2, 'different canonical Agent Homes must not share an ACP adapter');
-    assert.strictEqual(sharedConnectionCount, 2, 'different canonical Agent Homes must use distinct ACP connections');
+    assert.strictEqual(sharedChildren.length, 3, 'different canonical Agent Homes must not share an ACP adapter');
+    assert.strictEqual(sharedConnectionCount, 3, 'different canonical Agent Homes must use distinct ACP connections');
     await sharedRuntime.unregisterAgentAndWait('different-home-agent');
+    await sharedRuntime.unregisterAgentAndWait('different-project-agent');
+    assert.strictEqual(differentProjectAgent.sessionId.startsWith('shared-session-'), true);
     await sharedRuntime.unregisterAgentAndWait(sharedAgents[0]);
     assert.deepStrictEqual(sharedClosedSessions, [preparedShared[0].sessionId]);
     assert.strictEqual(sharedChildren[0].child.exitCode, null, 'releasing one Session must keep the shared runtime alive');
+    const reclaimedSession = await sharedRuntime.prepareAgent({
+      agentId: 'reclaimed-cross-project-session',
+      provider: 'codex',
+      providerHomeId: 'shared',
+      providerHomePath: sharedHome,
+      cwd: differentProject,
+      projectWorkspace: differentProject,
+      sessionId: preparedShared[0].sessionId,
+      env: {
+        ...process.env,
+        CODEX_HOME: sharedHome,
+        FARMING_AGENT_ID: 'reclaimed-cross-project-session',
+        FARMING_PROJECT_WORKSPACE: differentProject,
+      },
+    });
+    assert.strictEqual(reclaimedSession.sessionId, preparedShared[0].sessionId);
+    assert.deepStrictEqual(
+      sharedLoadRequests.map(request => request.sessionId),
+      [preparedShared[0].sessionId],
+      'releasing the exact owner must allow a different Project to reclaim the Provider Session',
+    );
     const peerEntriesBeforeLateUpdate = sharedRuntime.getSession(sharedAgents[1]).entries.length;
     await sharedHandlerSets[0].sessionUpdate({
       sessionId: preparedShared[0].sessionId,
@@ -455,10 +521,13 @@ async function run() {
       sharedRuntime.getSession(sharedAgents[1]).entries.at(-1).content[0].text,
       'still-alive',
     );
+    await sharedRuntime.unregisterAgentAndWait('reclaimed-cross-project-session');
   } finally {
     await sharedRuntime.dispose();
     fs.rmSync(sharedHomeAlias, { force: true });
+    fs.rmSync(sharedProjectAlias, { force: true });
     fs.rmSync(sharedHome, { recursive: true, force: true });
+    fs.rmSync(differentProject, { recursive: true, force: true });
     fs.rmSync(differentSharedHome, { recursive: true, force: true });
   }
   assert(

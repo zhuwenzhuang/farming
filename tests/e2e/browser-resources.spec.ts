@@ -376,7 +376,7 @@ test('mounts Agent-owned Browsers behind nested resource controls without layout
   await expect(agentDetailResources.getByTestId('code-agent-hover-preview-desktop-count')).toHaveCount(0)
 })
 
-test('stacks active-Agent Browser previews and opens the selected Viewer on demand', async ({
+test('folds active-Agent Browser previews into the shared activity dock and opens the selected Viewer on demand', async ({
   page,
   workspaceRoot,
 }, testInfo) => {
@@ -445,54 +445,53 @@ test('stacks active-Agent Browser previews and opens the selected Viewer on dema
   await expect(preview).toBeVisible({ timeout: 30_000 })
   const previewCards = preview.getByTestId('farming-browser-activity-preview-card')
   await expect(previewCards).toHaveCount(2)
-  await expect(previewCards.last().locator('img')).toBeVisible({ timeout: 30_000 })
+  await expect(previewCards.locator('.farming-browser-activity-frame')).toHaveCount(0)
+  await expect.poll(activePreviewResourceIds).toEqual([])
   const firstBrowserCard = preview.locator(`[data-browser-resource-id="${createdBrowser.id}"]`)
   const secondBrowserCard = preview.locator(`[data-browser-resource-id="${secondBrowserId}"]`)
   await expect(firstBrowserCard).toHaveCount(1)
   await expect(secondBrowserCard).toHaveCount(1)
+  await firstBrowserCard.locator('.farming-browser-activity-title').click()
+  await expect(firstBrowserCard.locator('img')).toBeVisible({ timeout: 30_000 })
   await expect(firstBrowserCard.locator('.farming-browser-activity-title')).toHaveText('Browser Interaction Lab')
+  await expect(secondBrowserCard.locator('.farming-browser-activity-frame')).toHaveCount(0)
+  await expect.poll(activePreviewResourceIds).toEqual([createdBrowser.id])
+  await secondBrowserCard.locator('.farming-browser-activity-title').click()
+  await expect(secondBrowserCard.locator('img')).toBeVisible({ timeout: 30_000 })
   await expect(secondBrowserCard.locator('.farming-browser-activity-title')).toHaveText('Popup destination')
-  const frontBrowserId = await previewCards.last().getAttribute('data-browser-resource-id')
-  if (!frontBrowserId) throw new Error('Front Browser preview must expose its Resource identity')
-  await expect.poll(activePreviewResourceIds).toEqual([frontBrowserId])
+  await expect(firstBrowserCard.locator('.farming-browser-activity-frame')).toHaveCount(0)
+  await expect.poll(activePreviewResourceIds).toEqual([secondBrowserId])
+  await firstBrowserCard.locator('.farming-browser-activity-title').click()
+  await expect(firstBrowserCard.locator('img')).toBeVisible({ timeout: 30_000 })
+  await expect.poll(activePreviewResourceIds).toEqual([createdBrowser.id])
   const previewBox = await preview.boundingBox()
-  expect(previewBox?.width).toBeGreaterThanOrEqual(230)
-  expect(previewBox?.width).toBeLessThanOrEqual(250)
+  expect(previewBox?.width).toBeGreaterThanOrEqual(270)
+  expect(previewBox?.width).toBeLessThanOrEqual(290)
   expect(previewBox?.height).toBeGreaterThan(190)
-  expect(previewBox?.height).toBeLessThan(230)
-  await page.getByTestId('code-main').evaluate(element => {
-    const plan = document.createElement('aside')
-    plan.className = 'code-agent-transcript-plan-driver'
-    plan.dataset.testid = 'synthetic-plan-driver'
-    plan.textContent = 'Plan'
-    element.append(plan)
-  })
-  const plan = page.getByTestId('synthetic-plan-driver')
-  const planBox = await plan.boundingBox()
-  if (!previewBox || !planBox) throw new Error('Browser preview and Plan must have measurable bounds')
-  expect(planBox.x + planBox.width).toBeLessThanOrEqual(previewBox.x - 10)
+  expect(previewBox?.height).toBeLessThan(250)
   const previewScreenshot = testInfo.outputPath('agent-browser-activity-preview.png')
   await page.getByTestId('code-main').screenshot({ path: previewScreenshot })
   await testInfo.attach('agent-browser-activity-preview', {
     path: previewScreenshot,
     contentType: 'image/png',
   })
-  await plan.evaluate(element => element.remove())
+  await firstBrowserCard.locator('.farming-browser-activity-title').press('Escape')
+  await expect(previewCards.locator('.farming-browser-activity-frame')).toHaveCount(0)
+  await expect.poll(activePreviewResourceIds).toEqual([])
 
   await firstBrowserCard.locator('.farming-browser-activity-title').click()
+  await firstBrowserCard.locator('.farming-browser-activity-frame').click()
   const viewer = page.getByTestId('farming-browser-viewer')
   await expect(viewer).toBeVisible()
   await expect(viewer.getByRole('textbox', { name: 'Browser address' })).toHaveValue(targetUrl)
   await viewer.getByRole('button', { name: 'Back to Agent' }).click()
   await expect(preview).toBeVisible()
-  const currentFrontBrowserId = await previewCards.last().getAttribute('data-browser-resource-id')
-  if (!currentFrontBrowserId) throw new Error('Front Browser preview must retain its Resource identity')
-  await expect.poll(activePreviewResourceIds).toEqual([currentFrontBrowserId])
-  const frontBrowserCard = preview.locator(`[data-browser-resource-id="${currentFrontBrowserId}"]`)
-  await frontBrowserCard.getByRole('button', { name: 'Hide browser preview' }).click()
+  await expect.poll(activePreviewResourceIds).toEqual([createdBrowser.id])
+  await firstBrowserCard.getByRole('button', { name: 'Hide browser preview' }).click()
   await expect(previewCards).toHaveCount(1)
   const remainingBrowserId = await previewCards.getAttribute('data-browser-resource-id')
   if (!remainingBrowserId) throw new Error('Remaining Browser preview must expose its Resource identity')
+  await previewCards.locator('.farming-browser-activity-title').click()
   await expect.poll(activePreviewResourceIds).toEqual([remainingBrowserId])
   await previewCards.getByRole('button', { name: 'Hide browser preview' }).click()
   await expect(preview).toHaveCount(0)
@@ -1091,11 +1090,11 @@ test('matches the focused Viewer viewport and restores the previous Viewer on cl
   page,
   workspaceRoot,
 }, testInfo) => {
-  const workspace = path.join(workspaceRoot, 'browser-project')
+  const workspace = path.join(workspaceRoot, 'release-dashboard')
   fs.mkdirSync(workspace, { recursive: true })
   await testInfo.attach('target-url', { body: targetUrl, contentType: 'text/plain' })
   const enableResponse = await page.request.post('/farming/api/settings', {
-    data: { browserExtensionEnabled: true },
+    data: { browserExtensionEnabled: true, instanceName: 'Farming Demo' },
   })
   expect(enableResponse.ok()).toBeTruthy()
   await page.request.post('/farming/api/projects/mount', { data: { workspace } })
@@ -1187,11 +1186,11 @@ test('matches the focused Viewer viewport and restores the previous Viewer on cl
   const desktopFrameSize = await readDesktopFrameSize()
 
   await clickBrowserPoint(desktopCanvas, 330, 207)
-  await page.keyboard.type('ssh-human-e2e')
+  await page.keyboard.type('release-readiness')
   await clickBrowserPoint(desktopCanvas, 620, 207)
-  await expect.poll(async () => (await browserSnapshot(page, browserId!)).title).toBe('Done ssh-human-e2e')
+  await expect.poll(async () => (await browserSnapshot(page, browserId!)).title).toBe('Done release-readiness')
   await expect.poll(async () => (await browserSnapshot(page, browserId!)).accessibilityTree)
-    .toContain('COMPLETED: ssh-human-e2e')
+    .toContain('COMPLETED: release-readiness')
   await expect.poll(
     () => completionResultPixels(desktopCanvas),
     { message: 'Browser Viewer should paint the completed page before screenshot capture' },
@@ -1205,8 +1204,8 @@ test('matches the focused Viewer viewport and restores the previous Viewer on cl
     title: string
     accessibilityTree: string
   }>(['snapshot', browserId!])
-  expect(cliSnapshot.title).toBe('Done ssh-human-e2e')
-  expect(cliSnapshot.accessibilityTree).toContain('COMPLETED: ssh-human-e2e')
+  expect(cliSnapshot.title).toBe('Done release-readiness')
+  expect(cliSnapshot.accessibilityTree).toContain('COMPLETED: release-readiness')
   await runBrowserCli(['fill', browserId!, 'css=#name', 'ssh-agent-cli'])
   await runBrowserCli(['click', browserId!, 'css=#complete'])
   await expect.poll(async () => (await browserSnapshot(page, browserId!)).title).toBe('Done ssh-agent-cli')

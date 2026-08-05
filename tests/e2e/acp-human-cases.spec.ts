@@ -55,6 +55,31 @@ test.describe('ACP human-like browser matrix', () => {
     await expect(page.getByText('farming-inline.html', { exact: true })).toHaveCount(0)
   })
 
+  test('renders a local image link as a bounded inline preview', async ({ page, workspaceRoot }) => {
+    const workspace = path.join(workspaceRoot, 'acp-local-image-link')
+    fs.mkdirSync(workspace, { recursive: true })
+    const imagePath = path.join(workspace, 'screenshot.png')
+    fs.writeFileSync(imagePath, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=', 'base64'))
+
+    const agentId = await createCodexAcpAgent(page, workspace)
+    await openFarming(page)
+    await agentRow(page, agentId).click()
+    await expect(page.getByTestId('code-acp-composer-input')).toBeEditable({ timeout: 20_000 })
+    await sendAcpMessage(page, `local image link ${imagePath}`)
+
+    const preview = page.locator('.code-agent-transcript-markdown-image-link img')
+    await expect(preview).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByText('screenshot.png', { exact: true })).toHaveCount(0)
+    const box = await preview.boundingBox()
+    expect(box?.width ?? 0).toBeLessThanOrEqual(520)
+    expect(box?.height ?? 0).toBeLessThanOrEqual(320)
+    await preview.click()
+    await expect(page.getByTestId('code-agent-transcript-image-overlay')).toBeVisible()
+    await expect(page.getByTestId('code-file-editor')).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('code-agent-transcript-image-overlay')).toHaveCount(0)
+  })
+
   test('opens connecting Chat without waiting for ordered workspace-history saves', async ({ page }) => {
     const firstWorkspace = path.resolve('tests')
     const secondWorkspace = path.resolve('docs')
@@ -364,8 +389,11 @@ test.describe('ACP human-like browser matrix', () => {
     const plan = page.getByTestId('code-agent-transcript-plan-driver')
     await expect(plan).toBeVisible()
     await expect(plan).toContainText('1/3')
-    await expect(plan).toHaveCSS('position', 'absolute')
+    await expect(page.getByTestId('code-agent-activity-dock')).toHaveCSS('position', 'absolute')
+    await expect(plan).toHaveCSS('position', 'relative')
     await expect(plan.locator('.code-agent-transcript-plan-driver-summary > span')).toHaveCSS('font-weight', '400')
+    await expect(plan.locator('.code-agent-transcript-plan-driver-summary')).toHaveAttribute('aria-expanded', 'false')
+    await plan.locator('.code-agent-transcript-plan-driver-summary').click()
     const runningPlanStep = plan.locator('.code-agent-transcript-plan-list li.running')
     await expect(runningPlanStep).toHaveCSS('font-weight', '400')
     expect(await runningPlanStep.evaluate(element => getComputedStyle(element, '::marker').fontWeight)).toBe('400')
@@ -991,7 +1019,7 @@ test.describe('ACP human-like browser matrix', () => {
       fs.writeFileSync(imagePath, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=', 'base64'))
       await page.getByTestId('code-acp-composer-file-input').setInputFiles(imagePath)
       const attachment = page.getByTestId('code-composer-attachment')
-      await expect(attachment).toContainText('attachment.png')
+      await expect(attachment).not.toContainText('attachment.png')
       await expect(attachment).toHaveClass(/ready/, { timeout: 15_000 })
     })
     await test.step('29c send native ACP image content and retain it in the user turn', async () => {

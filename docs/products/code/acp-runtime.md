@@ -45,12 +45,14 @@ protection must come from bounded queues, payloads, caches, and backpressure,
 not from an arbitrary limit on how many Agents may exist.
 
 Provider runtimes may be shared only when the provider supports independent
-multi-Session operation. A shared pool is keyed by Provider and canonical Agent
-Home. Every Session still owns its own workspace, provider Session id,
-configuration, permissions, identity, MCP scope, active Turn, and recovery
-state. Closing or deleting one Session must not stop unrelated Sessions in the
-same pool. A pooled runtime failure reconciles every affected Session and never
-replays an uncertain Prompt.
+multi-Session operation. Following the External Agent connection boundary used
+by Zed, a shared pool is scoped to one canonical Project and keyed by Provider,
+canonical Agent Home, and adapter launch identity. Every Session still owns its
+own workspace, provider Session id, configuration, permissions, identity, MCP
+scope, active Turn, and recovery state. Within one Runtime Host, a Provider
+Session has at most one live owner across all Project pools. Closing or deleting
+one Session must not stop unrelated Sessions in the same pool. A pooled runtime
+failure reconciles every affected Session and never replays an uncertain Prompt.
 
 Browser and Computer capabilities use the instance-exact Farming CLI and
 shared backend services rather than one capability subprocess per Agent.
@@ -178,6 +180,12 @@ replace the empty state with transient startup copy. Explicit history restores
 may show bounded synchronization feedback until their first authoritative
 transcript settles.
 
+An unsettled authoritative transcript that already contains Turns is admitted
+immediately while bounded fast settlement retries continue in the background,
+followed by a slower recovery cadence until an authoritative settled response
+arrives. Only an expected history response that is still empty blocks the
+transcript surface behind synchronization feedback.
+
 Live transcript revisions coalesce behind an in-flight read instead of
 repeatedly cancelling it, so sustained update streams make visible progress
 without waiting for a quiet period. Rapid revision-only refreshes also share a
@@ -194,6 +202,9 @@ Agent remains active, later prefix-extending revisions drain only their new
 suffix at a bounded reading cadence. Navigation, an inactive pane, completion,
 recovery, reduced motion, a hidden page, or a non-prefix correction immediately
 publishes the current authoritative result instead of replaying buffered text.
+
+The bottom Live Activity uses one motion cue at a time: processing keeps its
+spinner without a sweep, while non-spinning activity uses a slower linear sweep.
 
 The Composer preserves drafts, IME behavior, attachments, queue/steer controls,
 permissions, and negotiated configuration. Reload may restore an unresolved

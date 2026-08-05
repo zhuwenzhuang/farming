@@ -34,11 +34,13 @@ Authentication、Elicitation、Terminal、Media、Plan 与 Fork 能力。Provide
 ACP 不设置固定 Agent、Session、Process、Thread 或并发数量上限。资源保护来自有界 Queue、
 Payload、Cache 与 Backpressure，不能用任意 Live Agent 限制代替真实性能治理。
 
-只有 Provider 支持独立 Multi-Session 时才能共享 Provider Runtime。共享 Pool 以 Provider
-与 Canonical Agent Home 为 Key；每个 Session 仍独立拥有 Workspace、Provider Session ID、
-配置、权限、身份、MCP Scope、Active Turn 与 Recovery State。关闭或删除一个 Session 不能
-停止同 Pool 的无关 Session。共享 Runtime 失败时必须对账全部受影响 Session，且绝不重放
-结果不明确的 Prompt。
+只有 Provider 支持独立 Multi-Session 时才能共享 Provider Runtime。参考 Zed 的 External
+Agent 连接边界，共享 Pool 限定在一个 Canonical Project 内，并以 Provider、Canonical Agent
+Home 与 Adapter Launch Identity 为 Key。每个 Session 仍独立拥有 Workspace、Provider
+Session ID、配置、权限、身份、MCP Scope、Active Turn 与 Recovery State；在一个 Runtime
+Host 内，一个 Provider Session 在全部 Project Pool 中最多只有一个 Live Owner。关闭或删除
+一个 Session 不能停止同 Pool 的无关 Session。共享 Runtime 失败时必须对账全部受影响
+Session，且绝不重放结果不明确的 Prompt。
 
 Browser 与 Computer 使用实例精确的 Farming CLI 和共享 Backend Service，不再为每个 Agent
 启动一份 Capability 子进程。两类能力使用独立且不可猜测的 Credential，绑定精确 Agent、
@@ -136,6 +138,10 @@ Reasoning 与 Tool Detail 不应在默认阅读面上形成重叠摘要。Disclo
 不得启用 Steer，也不应使用短暂的启动文案替换空状态。显式 History Restore 可以在首份权威
 Transcript 稳定前显示有界的同步反馈。
 
+尚未 Settled 但已包含 Turn 的权威 Transcript 必须立即进入显示，同时先在后台执行有界的快速
+稳定重试，之后以更慢的恢复节奏继续对账，直到获得权威 Settled Response。只有“预期存在历史
+但权威响应仍为空”时，Transcript 区域才继续显示同步反馈。
+
 Live Transcript Revision 在已有读取进行中时进入合并队列，而不是反复取消该读取，因此持续
 更新也能不断落屏，不必等待静默窗口。快速且仅推进 Revision 的刷新还会共享一段短促、有界的
 读取节奏；最新 Revision 必须最终执行，而重连与 Runtime State 转换仍立即处理。已完成 Turn
@@ -146,6 +152,9 @@ Reasoning 展开内容不再重复已经作为折叠标题的首行。
 最新 Live Answer 的首份权威正文直接完整挂载。仅当用户仍停留在该 Agent 时，后续保持前缀
 关系的 Revision 才按有界阅读节奏释放新增后缀。Navigation、Pane 非活动、Turn 完成、
 Recovery、Reduced Motion、页面隐藏或非前缀修正都立即显示当前权威全文，不重播缓冲正文。
+
+底部 Live Activity 同一时刻只使用一种动态提示：Processing 保留旋转圆圈且不显示扫光，
+非旋转活动则使用速度较慢的匀速扫光。
 
 Composer 保留 Draft、IME、Attachment、Queue/Steer、Permission 与协商配置。Reload 可以把
 未完成 Submission 恢复成需要对账的可见条目，但绝不能自动再次提交。

@@ -947,6 +947,9 @@ function run() {
 		      fileSectionOverlaysSource.includes('<FileOperationDialog') &&
 		      fileOperationDialogSource.includes("fileOperation.kind === 'delete' ? 'code-file-operation-shell delete-confirm' : 'code-file-operation-shell'") &&
 		      fileOperationDialogSource.includes('data-testid="code-file-operation-dialog"') &&
+		      fileOperationDialogSource.includes("fileOperation.kind === 'delete' ? (") &&
+		      fileOperationDialogSource.includes('<h2 id="code-file-operation-title">') &&
+		      fileOperationDialogSource.includes('<label id="code-file-operation-title" htmlFor="code-file-operation-input">') &&
 		      fileOperationDialogSource.includes('code-file-operation-text') &&
 	      !fileSectionSource.includes("fileOperation.kind === 'delete' ? 'code-file-operation-shell delete-confirm' : 'code-file-operation-shell'") &&
 		      !fileSectionSource.includes('data-testid="code-file-operation-dialog"') &&

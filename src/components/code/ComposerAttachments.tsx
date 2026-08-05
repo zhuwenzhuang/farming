@@ -40,7 +40,9 @@ export function ComposerAttachments({ attachments, onRemove }: ComposerAttachmen
             ) : (
               <span className="code-composer-attachment-fallback" aria-hidden="true"><SquareGlyph /></span>
             )}
-            <span className="code-composer-attachment-name" title={attachment.name}>{attachment.name}</span>
+            {!hasImagePreview ? (
+              <span className="code-composer-attachment-name" title={attachment.name}>{attachment.name}</span>
+            ) : null}
             {attachment.status !== 'ready' && (
               <span
                 className="code-composer-attachment-status"

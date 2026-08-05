@@ -124,7 +124,8 @@ interface SubagentControl {
   cancelPromise?: Promise<unknown> | null; [key: string]: unknown;
 }
 interface AcpBinding {
-  agentId: string; provider: string; providerHomeId: string; providerHomePath: string; cwd: string;
+  agentId: string; provider: string; providerHomeId: string; providerHomePath: string;
+  providerHomeIdentity: string; projectPath: string; cwd: string;
   capabilityRuntimeEpoch: string;
   sessionRequestOptions: AcpSessionRequestOptions; env: NodeJS.ProcessEnv; launch: AcpLaunch;
   restartOptions: PrepareAgentOptions; approvalMode: string; ownsProcessGroup: boolean;
@@ -138,6 +139,7 @@ interface AcpBinding {
   pendingElicitations: Map<string, ElicitationRequest>; elicitationResolvers: Map<string, (value: unknown) => void>;
   activeElicitations: Map<string, ElicitationRequest>; subagentStates: Map<string, AcpSessionState>;
   subagentControls: Map<string, SubagentControl>; nextSubagentGeneration: number;
+  ownedSessionKeys: Map<string, string>;
   interactionOrigins: Map<string, string>; activeTurn: AcpTurn | null; nextTurnId: number;
   supportsSteer: boolean; historyReplayActive: boolean; sessionState: AcpSessionState;
   transcriptProjectionRevision: number;
@@ -160,6 +162,7 @@ interface AcpRuntimeProcess extends AcpProcessOwner {
   shared: boolean;
   provider: string;
   providerHomePath: string;
+  projectPath: string;
   launch: AcpLaunch;
   env: NodeJS.ProcessEnv;
   connection: AcpConnection;
@@ -210,7 +213,8 @@ interface AcpRuntimeOptions extends PrepareAgentOptions {
   terminalSpawn?: typeof spawn;
 }
 interface PrepareAgentOptions extends UnknownRecord {
-  agentId?: string; provider?: string; providerHomeId?: string; providerHomePath?: string; cwd?: string; sessionId?: string;
+  agentId?: string; provider?: string; providerHomeId?: string; providerHomePath?: string;
+  projectWorkspace?: string; cwd?: string; sessionId?: string;
   capabilityRuntimeEpoch?: string;
   forkSourceSessionId?: string; forkSourceCheckpoint?: UnknownRecord | null; revisionBase?: number;
   approvalMode?: string; historyMode?: string; model?: string; reasoningEffort?: string;
@@ -622,6 +626,19 @@ function canonicalAcpHomePath(provider: string, options: PrepareAgentOptions, en
     canonical = fs.realpathSync.native(resolved);
   } catch {
     // A configured Agent Home may be created lazily by its provider.
+  }
+  return process.platform === 'win32' ? canonical.toLowerCase() : canonical;
+}
+
+async function canonicalAcpProjectPath(options: PrepareAgentOptions, cwd: string) {
+  const configured = String(options.projectWorkspace || cwd || '').trim();
+  const resolved = path.resolve(configured || process.cwd());
+  let canonical = resolved;
+  try {
+    canonical = await fs.promises.realpath(resolved);
+  } catch {
+    // The owning Project workspace is validated by Agent Manager. Preserve a
+    // stable resolved identity for direct runtime callers and recovery races.
   }
   return process.platform === 'win32' ? canonical.toLowerCase() : canonical;
 }
@@ -1116,6 +1133,7 @@ class AcpRuntime extends EventEmitter {
   declare bindings: Map<string, AcpBinding>;
   declare runtimeProcesses: Map<string, AcpRuntimeProcess>;
   declare runtimeStarts: Map<string, Promise<AcpRuntimeProcess>>;
+  declare activeSessionOwners: Map<string, AcpBinding>;
   declare spawn: typeof spawn;
   declare createConnection: NonNullable<AcpRuntimeOptions['createConnection']> | null;
   declare resolveLaunch: NonNullable<AcpRuntimeOptions['resolveLaunch']>;
@@ -1174,6 +1192,7 @@ class AcpRuntime extends EventEmitter {
     this.bindings = new Map<string, AcpBinding>();
     this.runtimeProcesses = new Map();
     this.runtimeStarts = new Map();
+    this.activeSessionOwners = new Map();
     this.reconnectOperations = new Map();
     this.disposing = false;
     this.disposePromise = null;
@@ -1188,7 +1207,15 @@ class AcpRuntime extends EventEmitter {
     return {
       key: JSON.stringify([
         binding.provider,
-        shared ? binding.providerHomePath : `agent:${binding.agentId}`,
+        ...(shared
+          ? [
+              binding.providerHomePath,
+              binding.projectPath,
+              binding.launch.command,
+              binding.launch.args,
+              binding.launch.version || '',
+            ]
+          : [`agent:${binding.agentId}`]),
       ]),
       shared,
     };
@@ -1226,6 +1253,7 @@ class AcpRuntime extends EventEmitter {
       shared,
       provider: binding.provider,
       providerHomePath: binding.providerHomePath,
+      projectPath: binding.projectPath,
       launch: binding.launch,
       env: shared
         ? sharedAcpProcessEnvironment(binding.provider, options)
@@ -1378,18 +1406,42 @@ class AcpRuntime extends EventEmitter {
     const runtime = binding.runtime;
     const id = String(sessionId || '').trim();
     if (!runtime || !id) return;
+    const ownershipKey = this.sessionOwnershipKey(binding, id);
+    const activeOwner = this.activeSessionOwners.get(ownershipKey);
+    if (activeOwner && activeOwner !== binding && this.isOpenBinding(activeOwner)) {
+      throw new Error(`ACP session ${id} is already active in another Agent`);
+    }
     const owner = runtime.sessionOwners.get(id);
     if (owner && owner !== binding && this.isOpenBinding(owner)) {
       throw new Error(`ACP session ${id} is already active in another Agent`);
     }
+    this.activeSessionOwners.set(ownershipKey, binding);
+    binding.ownedSessionKeys.set(id, ownershipKey);
     runtime.sessionOwners.set(id, binding);
   }
 
+  sessionOwnershipKey(binding: AcpBinding, sessionId: string) {
+    return JSON.stringify([
+      binding.provider,
+      binding.providerHomeIdentity
+        ? `home:${binding.providerHomeIdentity}`
+        : `runtime:${binding.runtime?.key || binding.agentId}`,
+      sessionId,
+    ]);
+  }
+
   releaseRuntimeSessions(binding: AcpBinding) {
+    for (const [sessionId, ownershipKey] of binding.ownedSessionKeys) {
+      if (this.activeSessionOwners.get(ownershipKey) === binding) {
+        this.activeSessionOwners.delete(ownershipKey);
+      }
+      binding.ownedSessionKeys.delete(sessionId);
+    }
     const runtime = binding.runtime;
     if (!runtime) return;
     for (const [sessionId, owner] of runtime.sessionOwners) {
-      if (owner === binding) runtime.sessionOwners.delete(sessionId);
+      if (owner !== binding) continue;
+      runtime.sessionOwners.delete(sessionId);
     }
     if (runtime.openingBinding === binding) runtime.openingBinding = null;
   }
@@ -1423,8 +1475,12 @@ class AcpRuntime extends EventEmitter {
     if (!isSafeProviderSessionId(id)) {
       throw new Error(`ACP ${action} requires a safe exact session id`);
     }
-    const owner = binding.runtime?.sessionOwners.get(id);
-    if (owner && owner !== binding && this.isOpenBinding(owner)) {
+    const activeOwner = this.activeSessionOwners.get(this.sessionOwnershipKey(binding, id));
+    const runtimeOwner = binding.runtime?.sessionOwners.get(id);
+    if (
+      (activeOwner && activeOwner !== binding && this.isOpenBinding(activeOwner))
+      || (runtimeOwner && runtimeOwner !== binding && this.isOpenBinding(runtimeOwner))
+    ) {
       throw new Error(`ACP Agent does not own session ${id}`);
     }
     return id;
@@ -1478,6 +1534,7 @@ class AcpRuntime extends EventEmitter {
     }
     const launch = this.resolveLaunch(provider, options);
     const cwd = path.resolve(options.cwd || process.cwd());
+    const projectPath = path.resolve(String(options.projectWorkspace || cwd).trim() || cwd);
     const requestedSessionId = String(options.sessionId || '').trim();
     const forkSourceSessionId = String(options.forkSourceSessionId || '').trim();
     const forkSourceCheckpoint = options.forkSourceCheckpoint || null;
@@ -1524,9 +1581,10 @@ class AcpRuntime extends EventEmitter {
     // an isolated connection so it cannot collide with an already-live source
     // in the shared Home runtime. The resulting child Session joins the shared
     // pool on its next reconnect.
+    const providerHomeIdentity = canonicalAcpHomePath(provider, options, bindingEnv);
     const providerHomePath = forkSourceSessionId
       ? ''
-      : canonicalAcpHomePath(provider, options, bindingEnv);
+      : providerHomeIdentity;
     const sessionRequestOptions = acpSessionRequestOptions({
       ...options,
       provider,
@@ -1549,6 +1607,8 @@ class AcpRuntime extends EventEmitter {
       provider,
       providerHomeId: String(options.providerHomeId || 'default'),
       providerHomePath,
+      providerHomeIdentity,
+      projectPath,
       cwd,
       sessionRequestOptions,
       env: bindingEnv,
@@ -1576,6 +1636,7 @@ class AcpRuntime extends EventEmitter {
       subagentStates: new Map(),
       subagentControls: new Map(),
       nextSubagentGeneration: 1,
+      ownedSessionKeys: new Map(),
       interactionOrigins: new Map(),
       // One binding owns at most one Turn. All Turn controls and its terminal
       // commit are fenced by this object before they may mutate shared state.
@@ -1611,6 +1672,8 @@ class AcpRuntime extends EventEmitter {
     this.emitRuntime(binding);
 
     try {
+      binding.projectPath = await canonicalAcpProjectPath(options, cwd);
+      this.requireOpenBinding(binding);
       const runtime = await this.acquireRuntimeProcess(binding, options);
       this.requireOpenBinding(binding);
       binding.initializeResponse = runtime.initializeResponse;

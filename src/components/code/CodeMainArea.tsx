@@ -20,6 +20,8 @@ import { ComputerViewer } from '../../../extensions/computer/frontend/ComputerVi
 import type { ComputerResource } from '../../../extensions/computer/frontend/types'
 import type { ComputerResourcesController } from '../../../extensions/computer/frontend/useComputerResources'
 import { AgentWorkPane } from './AgentWorkPane'
+import { AgentPlanActivityPreview } from './AgentActivityDock'
+import type { AgentTranscriptProcessItem } from './acp/acp-entry-projection'
 import { CodeComposer } from './CodeComposer'
 import { AcpComposer } from './acp/AcpComposer'
 import { HistoryPanel } from './HistoryPanel'
@@ -614,6 +616,11 @@ export function CodeMainArea({
   const [chatComposerCollapseRequested, setChatComposerCollapseRequested] = useState(false)
   const [runtimeSwitchExpandedAgentId, setRuntimeSwitchExpandedAgentId] = useState<string | null>(null)
   const [dismissedBrowserPreviewKeys, setDismissedBrowserPreviewKeys] = useState<Set<string>>(() => new Set())
+  const [activePlanPreview, setActivePlanPreview] = useState<{
+    agentId: string
+    plan: AgentTranscriptProcessItem
+  } | null>(null)
+  const [expandedAgentActivity, setExpandedAgentActivity] = useState<string | null>(null)
   const previousActiveRuntimeRef = useRef<{ agentId: string | null; kind: 'acp' | 'terminal' | null }>({
     agentId: null,
     kind: null,
@@ -667,6 +674,14 @@ export function CodeMainArea({
       .filter(resource => !dismissedBrowserPreviewKeys.has(`${resource.id}:${resource.generation}`))
       .sort((left, right) => left.updatedAt - right.updatedAt)
     : []
+  const visibleActivePlan = activePlanPreview && activePlanPreview.agentId === activeAgent?.id
+    ? activePlanPreview.plan
+    : null
+  const expandedBrowserResourceId = expandedAgentActivity?.startsWith('browser:')
+    ? expandedAgentActivity.slice('browser:'.length)
+    : null
+  const expandedBrowserAvailable = expandedBrowserResourceId === null
+    || activeBrowserPreviews.some(resource => resource.id === expandedBrowserResourceId)
   const browserOwnerAgent = activeBrowserResource?.ownerType === 'agent'
     ? openAgents.find(agent => agent.id === activeBrowserResource.ownerAgentId) || null
     : null
@@ -700,6 +715,33 @@ export function CodeMainArea({
     }
     previousActiveRuntimeRef.current = { agentId: activeId, kind: currentKind }
   }, [acpComposerActive, activeAgent?.id, terminalComposerActive])
+
+  useEffect(() => {
+    setExpandedAgentActivity(null)
+  }, [activeAgent?.id])
+
+  useEffect(() => {
+    if (expandedAgentActivity === 'plan' && !visibleActivePlan) {
+      setExpandedAgentActivity(null)
+      return
+    }
+    if (expandedBrowserResourceId && !expandedBrowserAvailable) {
+      setExpandedAgentActivity(null)
+    }
+  }, [expandedAgentActivity, expandedBrowserAvailable, expandedBrowserResourceId, visibleActivePlan])
+
+  const publishActivePlan = useCallback((agentId: string, plan: AgentTranscriptProcessItem | undefined) => {
+    setActivePlanPreview(current => {
+      if (!plan) return current?.agentId === agentId ? null : current
+      return current?.agentId === agentId
+        && current.plan.detail === plan.detail
+        && current.plan.completedSteps === plan.completedSteps
+        && current.plan.totalSteps === plan.totalSteps
+        && current.plan.currentStep === plan.currentStep
+        ? current
+        : { agentId, plan }
+    })
+  }, [])
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(hover: hover) and (pointer: fine)')
@@ -947,6 +989,7 @@ export function CodeMainArea({
               onRuntimeModeChange={onRuntimeModeChange}
               onForkAgent={onForkAgent}
               onReviewAndCommit={onReviewAndCommit}
+              onActivePlanChange={publishActivePlan}
               onSessionOutput={onSessionOutput}
               focusSignal={terminalFocusRequest?.agentId === agent.id ? terminalFocusRequest.nonce : 0}
               copy={copy}
@@ -955,19 +998,43 @@ export function CodeMainArea({
         )}
       </div>
 
-      {agentWorkspaceVisible
-        && activeBrowserPreviews.length > 0 ? (
-          <BrowserActivityPreview
-            resources={activeBrowserPreviews}
-            language={language}
-            onOpen={onOpenBrowserResource}
-            onDismiss={resource => setDismissedBrowserPreviewKeys(current => {
-              const next = new Set(current)
-              next.add(`${resource.id}:${resource.generation}`)
-              return next
-            })}
-          />
-        ) : null}
+      {agentWorkspaceVisible && (visibleActivePlan || activeBrowserPreviews.length > 0) ? (
+        <section
+          className="code-agent-activity-dock"
+          data-testid="code-agent-activity-dock"
+          aria-label="Agent activity"
+          onKeyDown={event => {
+            if (event.key !== 'Escape' || expandedAgentActivity === null) return
+            event.stopPropagation()
+            setExpandedAgentActivity(null)
+          }}
+        >
+          {visibleActivePlan ? (
+            <AgentPlanActivityPreview
+              plan={visibleActivePlan}
+              expanded={expandedAgentActivity === 'plan'}
+              onToggle={() => setExpandedAgentActivity(current => current === 'plan' ? null : 'plan')}
+            />
+          ) : null}
+          {activeBrowserPreviews.length > 0 ? (
+            <BrowserActivityPreview
+              resources={activeBrowserPreviews}
+              language={language}
+              expandedResourceId={expandedBrowserResourceId}
+              onToggle={resource => setExpandedAgentActivity(current => {
+                const key = `browser:${resource.id}`
+                return current === key ? null : key
+              })}
+              onOpen={onOpenBrowserResource}
+              onDismiss={resource => setDismissedBrowserPreviewKeys(current => {
+                const next = new Set(current)
+                next.add(`${resource.id}:${resource.generation}`)
+                return next
+              })}
+            />
+          ) : null}
+        </section>
+      ) : null}
 
       {agentWorkspaceVisible ? (
         composerCollapsed ? (

@@ -19,18 +19,19 @@ assert(
     && transcriptPaneSource.includes('<span>{copy.agentTranscriptReviewAndCommit}</span>')
     && !transcriptPaneSource.includes('<ChatBubblesGlyph />')
     && transcriptPaneSource.includes('copy.agentTranscriptReviewAndCommit')
-    && agentWorkPaneSource.includes('onReviewAndCommit={onReviewAndCommit ? () => onReviewAndCommit(agent.id) : undefined}')
+    && agentWorkPaneSource.includes('onReviewAndCommit={onReviewAndCommit ? reviewAndCommitChat : undefined}')
     && codeMainAreaSource.includes('onReviewAndCommit={onReviewAndCommit}')
     && workspaceSource.includes('const requestAgentReviewAndCommit = useCallback')
     && workspaceSource.includes('mountedOpenAgents.find(candidate => candidate.id === agentId)')
     && workspaceSource.includes('if (!agent || !isStructuredRuntime(agent)) return')
     && workspaceSource.includes('copy.agentTranscriptReviewAndCommitPrompt')
     && workspaceSource.includes('sendComposerMessageToAgent(')
+    && transcriptPaneSource.includes('<SparkleGlyph')
+    && transcriptPaneSource.includes('code-agent-transcript-review-and-commit-sparkle')
     && stylesSource.includes('.code-agent-transcript-result-review.agent-review-commit')
-    && stylesSource.includes('display: inline-flex;')
-    && stylesSource.includes('.code-agent-transcript-result-review.agent-review-commit::before')
-    && stylesSource.includes('.code-agent-transcript-result-review.agent-review-commit::after'),
-  'ACP change cards should render Commit itself as a right-pointing Prompt bubble',
+    && stylesSource.includes('.code-agent-transcript-review-and-commit-sparkle')
+    && stylesSource.includes('opacity: 0.44;'),
+  'ACP change cards should mark Commit as an intelligent action with a subtle sparkle',
 );
 
 const englishCopy = codeCopyForLanguage('en');

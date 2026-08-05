@@ -19,6 +19,7 @@ async function run() {
       providerHomeId: 'shared-test',
       providerHomePath: codexHome,
       cwd: root,
+      projectWorkspace: root,
       env: {
         ...process.env,
         CODEX_HOME: codexHome,

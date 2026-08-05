@@ -7,6 +7,7 @@ import type { WorkspaceFileOpenTarget } from '@/lib/workspace-open-files'
 import { AgentTerminalPane } from '../AgentTerminalPane'
 import { ChatBubblesGlyph, TerminalSquareGlyph } from '../IconGlyphs'
 import { AcpTranscriptPane } from './acp/AcpTranscriptPane'
+import type { AgentTranscriptProcessItem } from './acp/acp-entry-projection'
 import { canForkAgentConversation, canSwitchAgentRuntime } from './capabilities'
 import { isAgentTurnActive } from './agent-working-state'
 import type { CodeCopy } from './copy'
@@ -39,6 +40,7 @@ interface AgentWorkPaneProps {
     options?: { targetRuntime?: 'chat'; expectedRevision?: number }
   ) => Promise<void> | void
   onReviewAndCommit?: (agentId: string) => void
+  onActivePlanChange?: (agentId: string, plan: AgentTranscriptProcessItem | undefined) => void
   copy: CodeCopy
 }
 
@@ -65,6 +67,7 @@ export function AgentWorkPane({
   onRuntimeModeChange,
   onForkAgent,
   onReviewAndCommit,
+  onActivePlanChange,
   copy,
 }: AgentWorkPaneProps) {
   const acpRuntime = isAcpRuntime(agent) ? agent.runtimeBinding : null
@@ -95,6 +98,9 @@ export function AgentWorkPane({
   const reviewAndCommitChat = useCallback(() => {
     reviewAndCommitRef.current?.(agent.id)
   }, [agent.id])
+  const publishActivePlan = useCallback((plan: AgentTranscriptProcessItem | undefined) => {
+    onActivePlanChange?.(agent.id, plan)
+  }, [agent.id, onActivePlanChange])
 
   const activateChatView = useCallback((event: ReactPointerEvent) => {
     if (event.button !== 0) return
@@ -150,7 +156,7 @@ export function AgentWorkPane({
           aria-hidden={false}
           onPointerDown={activateChatView}
         >
-          <AcpTranscriptPane agentId={agent.id} readingIdentity={agentWorkPaneModeStorageIdentity(agent)} workspaceRoot={agent.projectWorkspace || agent.cwd} active={active} viewportLayoutKey={viewportLayoutKey} runtimeState={acpRuntime?.state || ''} expectHistory={(agent.source || '').startsWith('codex-history:')} forkedFromAgent={Boolean(agent.parentAgentId && agent.forkedFromProviderSessionId)} refreshSignal={acpRuntime?.sessionRevision || (acpRuntime?.sessionUpdatedAt ? Date.parse(acpRuntime.sessionUpdatedAt) : 0)} onOpenWorkspaceFilePath={onOpenWorkspaceFilePath} onOpenUrlInFarming={onOpenUrlInFarming ? openChatUrlInFarming : undefined} onReadLatest={readLatestChat} onForkLatest={canForkConversation ? forkLatestChat : undefined} onReviewAndCommit={onReviewAndCommit ? reviewAndCommitChat : undefined} copy={copy} />
+          <AcpTranscriptPane agentId={agent.id} readingIdentity={agentWorkPaneModeStorageIdentity(agent)} workspaceRoot={agent.projectWorkspace || agent.cwd} active={active} viewportLayoutKey={viewportLayoutKey} runtimeState={acpRuntime?.state || ''} expectHistory={(agent.source || '').startsWith('codex-history:') || Number(acpRuntime?.sessionRevision || 0) > 0} forkedFromAgent={Boolean(agent.parentAgentId && agent.forkedFromProviderSessionId)} refreshSignal={acpRuntime?.sessionRevision || (acpRuntime?.sessionUpdatedAt ? Date.parse(acpRuntime.sessionUpdatedAt) : 0)} onOpenWorkspaceFilePath={onOpenWorkspaceFilePath} onOpenUrlInFarming={onOpenUrlInFarming ? openChatUrlInFarming : undefined} onReadLatest={readLatestChat} onForkLatest={canForkConversation ? forkLatestChat : undefined} onReviewAndCommit={onReviewAndCommit ? reviewAndCommitChat : undefined} onActivePlanChange={publishActivePlan} copy={copy} />
         </div>
       ) : null}
       {switching ? (

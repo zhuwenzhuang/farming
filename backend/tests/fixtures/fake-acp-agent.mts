@@ -672,6 +672,18 @@ class FakeAgent implements Agent {
       });
       return { stopReason: 'end_turn' };
     }
+    if (promptText.startsWith('local image link ')) {
+      const imagePath = promptText.slice('local image link '.length).trim();
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'local-image-link-answer',
+          content: { type: 'text', text: `Screenshot:\n\n- [screenshot.png](${imagePath})` },
+        },
+      });
+      return { stopReason: 'end_turn' };
+    }
     if (promptText.includes('live collaboration demo')) {
       const activity = async (id, threadId, agentPath, activityKind = 'interacted') => client.sessionUpdate({
         sessionId: params.sessionId,
