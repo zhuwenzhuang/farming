@@ -1119,6 +1119,20 @@ async function runTests() {
   }
 
   {
+    const output = execFileSync(process.execPath, ['backend/farming-app-cli.cjs', 'spawn', '--help'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        FARMING_CONTROL_URL: 'http://127.0.0.1:1',
+        FARMING_DISABLE_AUTH: '1',
+      },
+    });
+    assert(output.includes('farming spawn'));
+    assert(!output.includes('Started '));
+  }
+
+  {
     const result = spawnSync(process.execPath, ['backend/farming-app-cli.cjs', 'title'], {
       cwd: process.cwd(),
       encoding: 'utf8',

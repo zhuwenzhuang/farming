@@ -101,6 +101,17 @@ type ParsedArgs =
   | { command: 'title'; options: { title: string } }
   | { command: 'kill'; options: { agentId: string } };
 
+const CONTROL_COMMANDS = new Set([
+  'skills',
+  'capabilities',
+  'list',
+  'spawn',
+  'output',
+  'send',
+  'title',
+  'kill',
+]);
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -172,6 +183,14 @@ function parseArgs(argv: string[]): ParsedArgs {
 
   if (!command || command === 'help' || command === '--help' || command === '-h') {
     return { command: 'help' };
+  }
+
+  if (CONTROL_COMMANDS.has(command)) {
+    const separatorIndex = rest.indexOf('--');
+    const optionArgs = separatorIndex === -1 ? rest : rest.slice(0, separatorIndex);
+    if (optionArgs.includes('--help') || optionArgs.includes('-h')) {
+      return { command: 'help' };
+    }
   }
 
   if (command === 'skills') {

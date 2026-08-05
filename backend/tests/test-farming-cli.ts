@@ -42,6 +42,16 @@ async function test() {
   assert.strictEqual(spawn.options.parent, 'agent-main');
   assert.strictEqual(spawn.options.childCommand, 'claude --model sonnet');
 
+  assert.deepStrictEqual(parseArgs(['spawn', '--help']), { command: 'help' });
+  assert.deepStrictEqual(parseArgs(['spawn', '-h']), { command: 'help' });
+  assert.deepStrictEqual(
+    parseArgs(['spawn', '--workspace', '/repo', '--help']),
+    { command: 'help' },
+  );
+  const spawnChildHelp = parseArgs(['spawn', '--', 'qodercli', '--help']);
+  assert.strictEqual(spawnChildHelp.command, 'spawn');
+  assert.strictEqual(spawnChildHelp.options.childCommand, 'qodercli --help');
+
   // Arguments that carry whitespace or quotes survive the CLI → API →
   // parseCommand round trip with their boundaries intact.
   const { parseCommand } = require('../cli-agents.cjs');
@@ -106,6 +116,9 @@ async function test() {
     command: 'capabilities',
     options: { json: true },
   });
+  for (const command of ['skills', 'capabilities', 'list', 'output', 'send', 'title', 'kill']) {
+    assert.deepStrictEqual(parseArgs([command, '--help']), { command: 'help' });
+  }
   const browserCapabilities = farmingCapabilities({
     enabled: true,
     available: true,
@@ -115,6 +128,7 @@ async function test() {
   assert.match(formattedBrowserCapabilities, /Default browser path/);
   assert.match(formattedBrowserCapabilities, /farming browser help workflow/);
   assert.throws(() => parseArgs(['memory', 'report']), /Unknown command: memory/);
+  assert.throws(() => parseArgs(['memory', '--help']), /Unknown command: memory/);
 
   const send = parseArgs(['send', 'agent-child', 'run', 'tests']);
   assert.deepStrictEqual(send, {
