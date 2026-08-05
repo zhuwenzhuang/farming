@@ -1337,6 +1337,10 @@ function titleComparisonKey(title: string) {
     .toLowerCase();
 }
 
+function isFarmingAgentSessionContext(title: string): boolean {
+  return String(title || '').trim().toLowerCase().startsWith('<farming-agent-context>');
+}
+
 function agentWorkspaceTitleKeys(agent: TypedAgentRecord): string[] {
   return [agent && agent.cwd, agent && agent.projectWorkspace]
     .filter((value: unknown) => typeof value === 'string' && value.trim().length > 0)
@@ -1346,6 +1350,7 @@ function agentWorkspaceTitleKeys(agent: TypedAgentRecord): string[] {
 }
 
 function isGenericSessionTitle(agent: TypedAgentRecord, title: string): boolean {
+  if (isFarmingAgentSessionContext(title)) return true;
   const normalizedTitle = titleComparisonKey(title);
   if (!normalizedTitle) return true;
 
@@ -2618,6 +2623,7 @@ class AgentManager extends EventEmitter {
           ? persisted.providerSessionTemporary === true
           : engineMetadata.providerSessionTemporary,
         providerSessionSource: persisted.providerSessionSource || engineMetadata.providerSessionSource,
+        providerSessionMaterialized: persisted.providerSessionMaterialized !== false,
         providerSessionResolvedAt: persisted.providerSessionResolvedAt || engineMetadata.providerSessionResolvedAt,
         providerSessionTitle: persisted.providerSessionTitle || engineMetadata.providerSessionTitle,
         providerSessionWorkspace: persisted.providerSessionWorkspace || engineMetadata.providerSessionWorkspace,
@@ -3027,6 +3033,7 @@ class AgentManager extends EventEmitter {
         providerHomeId: record.providerHomeId || '',
         providerHomePath: record.providerHomePath || '',
         providerSessionTitle: record.providerSessionTitle || '',
+        providerSessionMaterialized: record.providerSessionMaterialized !== false,
         restartedFromAgentId: record.restartedFromAgentId || '',
         restartedFromAgentIds: Array.isArray(record.restartedFromAgentIds)
           ? record.restartedFromAgentIds
@@ -3750,6 +3757,7 @@ class AgentManager extends EventEmitter {
       ),
       providerSessionTemporary: metadata.providerSessionTemporary === true || isTemporaryProviderSessionId(providerSessionId),
       providerSessionSource: metadata.providerSessionSource || '',
+      providerSessionMaterialized: metadata.providerSessionMaterialized !== false,
       providerSessionResolvedAt: metadata.providerSessionResolvedAt || null,
       providerSessionTitle: metadata.providerSessionTitle || '',
       providerSessionWorkspace: metadata.providerSessionWorkspace || '',
@@ -4548,6 +4556,13 @@ class AgentManager extends EventEmitter {
 
   updateAgentSessionTitle(agent: TypedAgentRecord, title: string) {
     const sessionTitle = String(title || '').trim().slice(0, 160);
+    if (isFarmingAgentSessionContext(sessionTitle)) {
+      if (isFarmingAgentSessionContext(agent.sessionTitle || '')) {
+        agent.sessionTitle = '';
+        return true;
+      }
+      return false;
+    }
     if ((agent.task || resumedSessionFromSource(agent.source || '')) && isGenericSessionTitle(agent, sessionTitle)) {
       if (agent.sessionTitle && isGenericSessionTitle(agent, agent.sessionTitle)) {
         agent.sessionTitle = '';
@@ -5707,6 +5722,9 @@ class AgentManager extends EventEmitter {
         ),
       providerSessionTemporary: acpGeneratedFreshSession || providerSessionPlan.temporary === true,
       providerSessionSource: providerSessionPlan.source || '',
+      providerSessionMaterialized: options.providerSessionMaterialized === false
+        ? false
+        : (!acpGeneratedFreshSession && providerSessionPlan.temporary !== true),
       providerSessionResolvedAt: acpGeneratedFreshSession || providerSessionPlan.temporary === true
         ? null
         : Date.now(),
@@ -7047,6 +7065,9 @@ class AgentManager extends EventEmitter {
           this.recordAgentAttentionEvent(agent, 'turn-complete');
         }
       }
+      // ACP assigns a Codex session id before it writes an archivable
+      // conversation. A submitted message is the materialization boundary.
+      agent.providerSessionMaterialized = true;
       this.ensurePersistentAgentSession(agent);
       if (result.steered !== true && this.acpRuntime.turnCompletionEvents !== true) {
         this.providerSessionService.observe(agentId, { force: true });
@@ -8355,6 +8376,7 @@ class AgentManager extends EventEmitter {
       projectOrder: preserved.projectOrder,
       pinnedOrder: preserved.pinnedOrder,
       composerCommands: normalizedComposerCommands(agent.composerCommands),
+      providerSessionMaterialized: agent.providerSessionMaterialized !== false,
       agentRuntimeMode: nextMode,
       acpStartFresh: startsFreshChatSession && nextRuntimeKind === 'acp',
       codexApprovalMode: agent.launchPermissionMode || undefined,
@@ -8591,6 +8613,7 @@ class AgentManager extends EventEmitter {
       projectOrder: finiteOrder(agent.projectOrder),
       pinnedOrder: finiteOrder(agent.pinnedOrder),
       composerCommands: normalizedComposerCommands(agent.composerCommands),
+      providerSessionMaterialized: agent.providerSessionMaterialized !== false,
       lifecycleToken,
       ...acpSessionOptions,
       acpConfigOverrides,
@@ -10291,6 +10314,7 @@ class AgentManager extends EventEmitter {
       || agent.providerSessionProvider !== 'codex'
       || !agent.providerSessionId
       || agent.providerSessionTemporary === true
+      || (agent.providerSessionMaterialized === false && agent.terminalInputReceived !== true)
     ) {
       return null;
     }

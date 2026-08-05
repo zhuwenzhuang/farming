@@ -363,6 +363,7 @@ export interface AgentRecoveryRecord extends Record<string, unknown> {
   providerSessionKey?: string;
   providerHomeId?: string;
   providerHomePath?: string;
+  providerSessionMaterialized?: boolean;
   providerSessionTemporary?: boolean;
   terminalInputReceived?: boolean;
   structuredRuntimeProcess?: PersistedAcpProcessIdentity | null;
@@ -627,6 +628,7 @@ export interface ProviderStartOptions extends Record<string, unknown> {
   providerHomePath?: string;
   providerSessionId?: string;
   providerSessionProvider?: string;
+  providerSessionMaterialized?: boolean;
   providerSessionTitle?: string;
   requiredCliVersion?: string;
   restoreRuntimeAgentIdOnFailure?: string;

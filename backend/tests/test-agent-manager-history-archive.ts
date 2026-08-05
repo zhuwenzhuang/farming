@@ -196,6 +196,33 @@ async function run() {
     assert.strictEqual(manager.taskHistory[0].projectWorkspace, '/repo');
     assert.strictEqual(manager.taskHistory[0].title, 'Named archive run');
     assert.strictEqual(manager.taskHistory[0].customTitle, 'Named archive run');
+
+    const providerArchiveCallsBeforeFreshArchive = codexArchiveCalls.length;
+    manager.agents.set('fresh-codex-acp', {
+      id: 'fresh-codex-acp',
+      command: 'codex',
+      cwd: '/repo',
+      projectWorkspace: '/repo',
+      output: '',
+      status: 'running',
+      engineName: 'local',
+      source: 'ui',
+      providerSessionProvider: 'codex',
+      providerSessionId: '019f0000-0000-7000-8000-000000000010',
+      providerSessionKey: 'agent-session:codex:019f0000-0000-7000-8000-000000000010',
+      providerSessionMaterialized: false,
+      providerSessionTemporary: false,
+      task: 'fresh Codex ACP session',
+    });
+    const freshArchive = await manager.archiveAgent('fresh-codex-acp', { recordHistory: false });
+    assert.strictEqual(freshArchive.error, undefined);
+    assert.strictEqual(freshArchive.archived, true);
+    assert.strictEqual(
+      codexArchiveCalls.length,
+      providerArchiveCallsBeforeFreshArchive,
+      'a fresh Codex ACP session without a submitted message must not invoke codex archive',
+    );
+
     const archiveCodexSession = manager.archiveCodexSession;
     manager.archiveCodexSession = async () => ({ error: 'simulated provider archive failure' });
     manager.agents.set('provider-archive-retry', {

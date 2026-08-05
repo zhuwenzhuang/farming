@@ -729,6 +729,7 @@ class FarmingSessionStore {
       providerSessionKey,
       providerSessionTemporary: agent.providerSessionTemporary === true,
       providerSessionSource: typeof agent.providerSessionSource === 'string' ? agent.providerSessionSource : '',
+      providerSessionMaterialized: agent.providerSessionMaterialized !== false,
       providerSessionResolvedAt: typeof agent.providerSessionResolvedAt === 'number' ? agent.providerSessionResolvedAt : null,
       providerSessionTitle: typeof agent.providerSessionTitle === 'string' ? agent.providerSessionTitle : '',
       providerSessionWorkspace: typeof agent.providerSessionWorkspace === 'string' ? agent.providerSessionWorkspace : '',

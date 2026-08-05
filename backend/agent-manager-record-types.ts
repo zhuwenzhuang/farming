@@ -190,6 +190,7 @@ export interface AgentRecord extends Record<string, unknown>, AgentDisplayState,
   providerSessionProvider?: string;
   providerSessionResolvedAt?: number | null;
   providerSessionSource?: string;
+  providerSessionMaterialized?: boolean;
   providerSessionTemporary?: boolean;
   providerSessionTitle?: string;
   providerSessionWorkspace?: string;
@@ -242,6 +243,7 @@ export interface PersistedAgentPrivateMetadata extends Record<string, unknown>, 
   providerSessionProvider?: string;
   providerSessionResolvedAt?: number | null;
   providerSessionSource?: string;
+  providerSessionMaterialized?: boolean;
   providerSessionTemporary?: boolean;
   providerSessionTitle?: string;
   providerSessionWorkspace?: string;

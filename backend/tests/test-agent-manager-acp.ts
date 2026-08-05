@@ -76,6 +76,7 @@ async function run() {
     assert.strictEqual(live.engineStarted, false);
     assert.strictEqual(live.providerSessionId, 'acp-new-session');
     assert.strictEqual(live.providerSessionSource, 'acp-new');
+    assert.strictEqual(live.providerSessionMaterialized, false);
     let genericUpdateCount = 0;
     const sessionRevisions = [];
     manager.onUpdate(() => {
@@ -134,6 +135,19 @@ async function run() {
       scopedAgentUpdates.at(-1),
       { agentId, patch: { sessionTitle: 'Investigate phase-aware Mermaid' } },
       'an ACP title change should publish one Agent-scoped title patch',
+    );
+    binding.sessionState.apply({
+      sessionId: binding.sessionId,
+      update: {
+        sessionUpdate: 'session_info_update',
+        title: '<farming-agent-context> 当前 Farming Agent 名字是 agent-title-source',
+      },
+    });
+    runtime.emitSession(binding);
+    assert.strictEqual(
+      live.sessionTitle,
+      'Investigate phase-aware Mermaid',
+      'internal Farming session context must never replace the Agent title',
     );
     runtime.emit('session', {
       agentId,
@@ -198,6 +212,7 @@ async function run() {
     const result = await manager.sendComposerMessage(agentId, 'phase-aware mermaid');
     assert.strictEqual(result.kind, 'acp');
     assert.strictEqual(result.stopReason, 'end_turn');
+    assert.strictEqual(live.providerSessionMaterialized, true);
     assert.strictEqual(live.attentionSeq, 1, 'an ACP end_turn response should create one attention event');
     assert.strictEqual(live.attentionReason, 'turn-complete');
     assert.match(live.attentionSummary, /^Phase-aware rich answer\./);
