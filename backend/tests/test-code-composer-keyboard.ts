@@ -2,6 +2,7 @@ const assert = require('assert');
 const {
   composerDraftForSubmit,
   isComposerImeCompositionEvent,
+  shouldAcceptComposerSuggestion,
   shouldSubmitComposerEnter,
   shouldSuppressComposerEnterAfterComposition,
 } = require('../../src/components/code/composer-keyboard.ts');
@@ -89,6 +90,62 @@ function run() {
     composerDraftForSubmit('当前输入', '测试'),
     '当前输入',
     'the live textarea value should win when it is available at submit time'
+  );
+
+  assert.strictEqual(
+    shouldAcceptComposerSuggestion(keyEvent({ key: 'Tab' }), {
+      compositionActive: false,
+      draft: '',
+      suggestion: 'Run the focused tests',
+      commandMenuOpen: false,
+      active: true,
+    }),
+    true,
+    'Tab should accept a visible suggestion into an empty active composer',
+  );
+  assert.strictEqual(
+    shouldAcceptComposerSuggestion(keyEvent({ key: 'Tab', shiftKey: true }), {
+      compositionActive: false,
+      draft: '',
+      suggestion: 'Run the focused tests',
+      commandMenuOpen: false,
+      active: true,
+    }),
+    false,
+    'Shift+Tab must preserve reverse focus navigation',
+  );
+  assert.strictEqual(
+    shouldAcceptComposerSuggestion(keyEvent({ key: 'Tab' }), {
+      compositionActive: false,
+      draft: '/te',
+      suggestion: 'Run the focused tests',
+      commandMenuOpen: true,
+      active: true,
+    }),
+    false,
+    'slash command completion must keep Tab priority over suggestions',
+  );
+  assert.strictEqual(
+    shouldAcceptComposerSuggestion(keyEvent({ key: 'Tab' }), {
+      compositionActive: true,
+      draft: '',
+      suggestion: 'Run the focused tests',
+      commandMenuOpen: false,
+      active: true,
+    }),
+    false,
+    'IME composition must not accept a suggestion',
+  );
+  assert.strictEqual(
+    shouldAcceptComposerSuggestion(keyEvent({ key: 'Tab' }), {
+      compositionActive: false,
+      draft: 'my edit',
+      suggestion: 'Run the focused tests',
+      commandMenuOpen: false,
+      active: true,
+    }),
+    false,
+    'suggestions must not overwrite an edited draft',
   );
 
   let history = createDefaultComposerHistoryState();

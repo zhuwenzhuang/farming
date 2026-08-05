@@ -3,6 +3,7 @@ const {
   getProviderAdapter,
   isFreshAcpSessionSource,
   listProviderAdapters,
+  normalizeProviderAcpExtensionNotification,
   providerCapabilities,
   providerConversationForkCapability,
   providerForProgram,
@@ -26,6 +27,52 @@ function run() {
     assert(adapter.acp, `${adapter.id} must declare its ACP launch contract`);
     assert(adapter.acp.version);
   }
+
+  assert.deepStrictEqual(
+    normalizeProviderAcpExtensionNotification(
+      'qwen',
+      'qwen/notify/session/prompt-suggestion',
+      {
+        v: 1,
+        sessionId: 'qwen-session',
+        suggestion: 'Run the focused regression tests',
+        promptId: 'qwen-session########3',
+      },
+    ),
+    {
+      kind: 'prompt-suggestion',
+      sessionId: 'qwen-session',
+      text: 'Run the focused regression tests',
+      promptId: 'qwen-session########3',
+    },
+  );
+  assert.strictEqual(
+    normalizeProviderAcpExtensionNotification(
+      'qwen',
+      'qwen/notify/session/prompt-suggestion',
+      { v: 2, sessionId: 'qwen-session', suggestion: 'future', promptId: 'future' },
+    ),
+    null,
+    'unknown Qwen extension versions must be rejected',
+  );
+  assert.strictEqual(
+    normalizeProviderAcpExtensionNotification(
+      'qwen',
+      'qwen/notify/session/prompt-suggestion',
+      { v: 1, sessionId: 'qwen-session', suggestion: 'x'.repeat(501), promptId: 'large' },
+    ),
+    null,
+    'oversized Qwen suggestions must be rejected at the adapter boundary',
+  );
+  assert.strictEqual(
+    normalizeProviderAcpExtensionNotification(
+      'codex',
+      'qwen/notify/session/prompt-suggestion',
+      { v: 1, sessionId: 'codex-session', suggestion: 'wrong provider', promptId: 'wrong' },
+    ),
+    null,
+    'provider extensions must not leak across adapters',
+  );
 
   assert.deepStrictEqual(
     getProviderAdapter('opencode').acp.launch({ executable: '/bin/opencode', cwd: '/tmp/project' }),

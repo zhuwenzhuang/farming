@@ -7,6 +7,7 @@ import type { ComposerHistoryDirection, ComposerHistoryNavigationInput } from '.
 import {
   composerDraftForSubmit,
   isComposerImeCompositionEvent,
+  shouldAcceptComposerSuggestion,
   shouldSuppressComposerEnterAfterComposition,
   shouldSubmitComposerEnter,
 } from '../composer-keyboard'
@@ -158,6 +159,7 @@ export function AcpComposer({
   const [activeCommandIndex, setActiveCommandIndex] = useState(0)
   const [openMenu, setOpenMenu] = useState<AcpComposerMenu>(null)
   const [modelPane, setModelPane] = useState<'model' | 'speed' | null>(null)
+  const [dismissedPromptSuggestionId, setDismissedPromptSuggestionId] = useState('')
   const { session, error: sessionError, updatingId, authenticatingId, loggingOut, configDeferred, configOptionsDeferred, modeDeferred, setMode, setConfigOption, setConfigOptions, authenticate, logout } = useAcpSession(
     agentId,
     active,
@@ -187,8 +189,22 @@ export function AcpComposer({
   }, [commandTrigger, session?.availableCommands])
   const showCommands = active && focused && filteredCommands.length > 0
   const selectedCommand = filteredCommands[activeCommandIndex] || filteredCommands[0] || null
+  const promptSuggestion = session?.promptSuggestion
+  const visiblePromptSuggestion = active
+    && runtimeState === 'idle'
+    && composerMode === 'default'
+    && !draft
+    && !pendingFollowUp
+    && submissions.length === 0
+    && permissions.length === 0
+    && elicitations.length === 0
+    && activeElicitations.length === 0
+    && promptSuggestion?.promptId !== dismissedPromptSuggestionId
+    ? promptSuggestion
+    : null
 
   useEffect(() => setActiveCommandIndex(0), [commandTrigger?.query, commandTrigger?.trigger, filteredCommands.length])
+  useEffect(() => setDismissedPromptSuggestionId(''), [agentId])
 
   useEffect(() => {
     if (!openMenu) return undefined
@@ -255,6 +271,29 @@ export function AcpComposer({
       event.preventDefault()
       event.stopPropagation()
       insertCommand(selectedCommand.name)
+      return
+    }
+    if (shouldAcceptComposerSuggestion(event, {
+      compositionActive: compositionActiveRef.current,
+      draft: event.currentTarget.value,
+      suggestion: visiblePromptSuggestion?.text || '',
+      commandMenuOpen: showCommands,
+      active,
+    })) {
+      event.preventDefault()
+      event.stopPropagation()
+      const suggestion = visiblePromptSuggestion
+      if (!suggestion) return
+      latestDraftRef.current = suggestion.text
+      setDismissedPromptSuggestionId(suggestion.promptId)
+      onDraftChange(suggestion.text)
+      window.requestAnimationFrame(() => {
+        const textarea = textareaRef.current
+        if (!textarea) return
+        textarea.focus({ preventScroll: true })
+        textarea.setSelectionRange(suggestion.text.length, suggestion.text.length)
+        setSelectionStart(suggestion.text.length)
+      })
       return
     }
     if (
@@ -496,7 +535,13 @@ export function AcpComposer({
           spellCheck={false}
           value={draft}
           placeholder={active
-            ? (composerMode === 'goal' ? copy.describeAgentGoal : composerMode === 'plan' ? copy.describePlanFirst : copy.askFollowUpChanges)
+            ? (
+              composerMode === 'goal'
+                ? copy.describeAgentGoal
+                : composerMode === 'plan'
+                  ? copy.describePlanFirst
+                  : visiblePromptSuggestion?.text || copy.askFollowUpChanges
+            )
             : copy.openAgentTerminalFirst}
           disabled={!active}
           onFocus={event => {
@@ -510,9 +555,13 @@ export function AcpComposer({
           onKeyUp={event => setSelectionStart(event.currentTarget.selectionStart)}
           onSelect={event => setSelectionStart(event.currentTarget.selectionStart)}
           onChange={event => {
-            latestDraftRef.current = event.currentTarget.value
+            const nextDraft = event.currentTarget.value
+            latestDraftRef.current = nextDraft
             setSelectionStart(event.currentTarget.selectionStart)
-            onDraftChange(event.currentTarget.value)
+            if (nextDraft && visiblePromptSuggestion) {
+              setDismissedPromptSuggestionId(visiblePromptSuggestion.promptId)
+            }
+            onDraftChange(nextDraft)
           }}
           onPaste={onPasteAttachment}
           onCompositionStart={() => { compositionActiveRef.current = true }}

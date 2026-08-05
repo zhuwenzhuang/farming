@@ -22,7 +22,11 @@ import { PACKAGED_CODEX_ACP_ARG } from './acp/packaged-codex-acp.cjs';
 import { PACKAGED_CLAUDE_ACP_ARG } from './acp/packaged-claude-acp.cjs';
 import { permissionSecurityWarnings } from './acp/permission-security.cjs';
 import { patchBlock, rejectPatch } from './acp/patch-decisions.cjs';
-import { getProviderAdapter, listProviderAdapters } from './provider-adapters.cjs';
+import {
+  getProviderAdapter,
+  listProviderAdapters,
+  normalizeProviderAcpExtensionNotification,
+} from './provider-adapters.cjs';
 import { isSafeProviderSessionId } from './provider-session-id.cjs';
 import { configInstanceFingerprint as fingerprintConfigInstance } from './config-instance.cjs';
 import {
@@ -44,7 +48,11 @@ interface ErrorLike {
   runtimeCleanupVerified?: boolean;
 }
 type AcpSdk = typeof import('@agentclientprotocol/sdk');
-interface AcpClientHandlers { [key: string]: (request: UnknownRecord) => unknown }
+type AcpSingleRequestHandler = (request: UnknownRecord) => unknown;
+type AcpExtensionNotificationHandler = (method: string, params: UnknownRecord) => unknown;
+interface AcpClientHandlers {
+  [key: string]: AcpSingleRequestHandler | AcpExtensionNotificationHandler;
+}
 
 interface PermissionOption { optionId: string; kind?: string }
 interface PermissionRequest extends UnknownRecord { options: PermissionOption[]; sessionId?: string; toolCall?: UnknownRecord }
@@ -2252,6 +2260,23 @@ class AcpRuntime extends EventEmitter {
         return normalizeCodexHostMessageUpdate(binding, notification).then(normalized => {
           for (const item of normalized) applyNotification(item);
         });
+      },
+      extNotification: (method: string, params: UnknownRecord) => {
+        if (!this.isOpenBinding(binding) || binding.state === 'closed') return;
+        const event = normalizeProviderAcpExtensionNotification(binding.provider, method, params);
+        if (
+          !event
+          || event.kind !== 'prompt-suggestion'
+          || event.sessionId !== binding.sessionId
+          || !binding.sessionState?.setPromptSuggestion({
+            text: event.text,
+            promptId: event.promptId,
+          })
+        ) {
+          return;
+        }
+        binding.updatedAt = new Date().toISOString();
+        this.emitSession(binding);
       },
       requestPermission: (request: UnknownRecord) => this.requestPermission(binding, request),
       readTextFile: openClientRequest((request: UnknownRecord) => this.clientFileSystem.readTextFile(binding, request)),
