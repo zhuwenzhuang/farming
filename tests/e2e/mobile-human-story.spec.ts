@@ -473,6 +473,8 @@ test.describe('mobile Farming Code user story', () => {
         innerWidth: window.innerWidth,
         documentScrollWidth: document.documentElement.scrollWidth,
         bodyScrollWidth: document.body.scrollWidth,
+        transcriptPaddingLeft: scroller ? Number.parseFloat(getComputedStyle(scroller).paddingLeft) : 0,
+        transcriptPaddingRight: scroller ? Number.parseFloat(getComputedStyle(scroller).paddingRight) : 0,
         composerHeight: Math.round(composer?.getBoundingClientRect().height ?? 0),
         inputHeight: Math.round(input?.getBoundingClientRect().height ?? 0),
         inputAutocomplete: input?.getAttribute('autocomplete'),
@@ -497,6 +499,8 @@ test.describe('mobile Farming Code user story', () => {
     })
     expect(metrics.documentScrollWidth).toBe(metrics.innerWidth)
     expect(metrics.bodyScrollWidth).toBe(metrics.innerWidth)
+    expect(metrics.transcriptPaddingLeft).toBeGreaterThanOrEqual(10)
+    expect(metrics.transcriptPaddingRight).toBeGreaterThanOrEqual(10)
     expect(metrics.composerHeight).toBeLessThanOrEqual(118)
     expect(metrics.inputHeight).toBeGreaterThanOrEqual(34)
     expect(metrics.inputHeight).toBeLessThanOrEqual(52)

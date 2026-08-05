@@ -19607,7 +19607,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
   }
 
   body.code-mode.code-compact-layout .code-agent-transcript-scroll {
-    padding: 5px 3px 3px;
+    padding: 8px 12px 6px;
     /* The parent terminal grid already reserves space for the composer. Do
        not reserve it a second time here or short transcripts end in a large
        blank band above the input. */
