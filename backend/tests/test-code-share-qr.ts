@@ -31,7 +31,8 @@ function run() {
   assert(shareButtonSource.includes('const target = workspaceShareTargetWithCurrentReadingAnchor(shareTarget)'));
   assert(shareButtonSource.includes('JSON.stringify(target ? { target } : {})'));
   assert(shareButtonSource.includes("method: 'DELETE'"));
-  assert(shareButtonSource.includes('writeClipboardText(current.longUrl)'));
+  assert(shareButtonSource.includes('writeClipboardText(nextTicket.longUrl)'));
+  assert(shareButtonSource.includes('void createAndCopyTicket(force)'));
   assert(shareButtonSource.includes('ticket.shortUrl'), 'QR matrix should encode the short URL');
   assert(shareButtonSource.includes('className="code-share-qr-canvas"'));
   assert(shareButtonSource.includes("appPath('/farming-2/app-icon-v2-180.png')"), 'QR center should use the production-safe Farming icon');
@@ -50,7 +51,7 @@ function run() {
   assert(shareButtonSource.includes('<FarmingQrCode value={ticket.shortUrl} badgeUrl={badgeUrl} qrCodeFactory={qrCodeFactory} />'));
 
   assert(sidebarSource.includes("import { ShareQrButton } from './ShareQrButton'"));
-  assert(shareButtonSource.includes("import { ShareGlyph } from '@/components/IconGlyphs'"));
+  assert(shareButtonSource.includes("import { CheckGlyph, ShareGlyph } from '@/components/IconGlyphs'"));
   assert(shareButtonSource.includes('<ShareGlyph className="code-share-icon" />'));
   assert(sidebarSource.includes('shareTarget: WorkspaceShareTarget | null'));
   assert(
@@ -62,9 +63,10 @@ function run() {
   assert(shareButtonSource.includes('openRequest = 0'));
   assert(shareButtonSource.includes('handledOpenRequestRef.current === openRequest'));
   assert(shareButtonSource.includes('openPopover(true, true)'));
-  assert(copySource.includes('copyFullShareLink:'));
   assert(copySource.includes("sharePage: '分享当前页面'"));
-  assert(copySource.includes("copyFullShareLink: '复制当前页面链接'"));
+  assert(!copySource.includes("shareTokenLabel: '俳句口令'"));
+  assert(!copySource.includes("shareShortLinkLabel: '分享短链'"));
+  assert(copySource.includes("copiedShareLink: '公开链接已复制到剪贴板'"));
 
   assert(stylesSource.includes('.code-share-popover'));
   assert(stylesSource.includes('width: 264px;'));
@@ -72,7 +74,19 @@ function run() {
   assert(stylesSource.includes('.code-share-qr-canvas'));
   assert(stylesSource.includes('.code-share-countdown'));
   assert(!stylesSource.includes('.code-share-meta'));
-  assert(stylesSource.includes('.code-share-copy-token'));
+  assert(shareButtonSource.includes('data-testid="code-share-token-display"'));
+  assert(!shareButtonSource.includes('data-testid="code-share-copy-link"'), 'the poetic token should be display-only');
+  assert(shareButtonSource.includes('data-testid="code-share-copy-status"'));
+  assert(!shareButtonSource.includes('data-testid="code-share-copied-toast"'));
+  assert(
+    shareButtonSource.indexOf('className="code-share-qr-frame"') <
+      shareButtonSource.indexOf('data-testid="code-share-copy-status"') &&
+      shareButtonSource.indexOf('data-testid="code-share-copy-status"') <
+        shareButtonSource.indexOf('data-testid="code-share-token-display"'),
+    'copy confirmation should sit between the QR code and the display-only token'
+  );
+  assert(stylesSource.includes('.code-share-token-card'));
+  assert(stylesSource.includes('.code-share-copy-status'));
   assert(stylesSource.includes('.code-share-token'));
   assert(stylesSource.includes('.code-share-token.single-line'));
   assert(stylesSource.includes('.code-share-token-measure'));
@@ -81,7 +95,8 @@ function run() {
   assert(darkStylesSource.includes('.code-share-popover'));
   assert(darkStylesSource.includes('.code-share-countdown'));
   assert(!darkStylesSource.includes('.code-share-meta'));
-  assert(darkStylesSource.includes('.code-share-copy-token'));
+  assert(darkStylesSource.includes('.code-share-token-card'));
+  assert(darkStylesSource.includes('.code-share-copy-status'));
 
   assert(!mobileShareSource.includes('MobileSharePlatform'));
   assert(!mobileShareSource.includes('navigator.userAgent'));

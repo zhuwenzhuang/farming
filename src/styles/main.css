@@ -837,7 +837,7 @@ body.code-resizing-sidebar {
   background: #ffffff;
 }
 
-.code-share-copy-token {
+.code-share-token-card {
   width: 100%;
   min-height: 40px;
   margin-top: 8px;
@@ -845,29 +845,9 @@ body.code-resizing-sidebar {
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.72);
   color: #263327;
-  cursor: pointer;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
+  display: block;
   padding: 7px 10px;
   text-align: left;
-}
-
-.code-share-copy-token:hover,
-.code-share-copy-token:focus-visible {
-  border-color: rgba(70, 91, 68, 0.26);
-  background: #ffffff;
-}
-
-.code-share-copy-token:focus-visible {
-  outline: 2px solid #9aa597;
-  outline-offset: 2px;
-}
-
-.code-share-copy-token:disabled {
-  cursor: progress;
-  opacity: 0.72;
 }
 
 .code-share-token {
@@ -898,11 +878,51 @@ body.code-resizing-sidebar {
   min-width: 0;
 }
 
-.code-share-copy-action {
+.code-share-copy-status {
+  width: 100%;
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: start;
+  gap: 9px;
+  padding: 8px 9px;
+  border: 1px solid rgba(93, 116, 88, 0.18);
+  border-radius: 8px;
+  background: rgba(109, 138, 99, 0.08);
+  color: #263327;
+}
+
+.code-share-copy-status-icon {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border: 1.25px solid currentColor;
+  border-radius: 999px;
+  color: #5d7458;
+}
+
+.code-share-copy-status-icon svg {
+  width: 12px;
+  height: 12px;
+}
+
+.code-share-copy-status-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.35;
+}
+
+.code-share-copy-status-copy strong {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.code-share-copy-status-copy > span {
   color: #6d736b;
   font-size: 11px;
-  font-weight: 600;
-  white-space: nowrap;
 }
 
 .code-share-error {

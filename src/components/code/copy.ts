@@ -142,8 +142,8 @@ export interface CodeCopy {
   copyFailed: string
   sharePage: string
   scanToOpenOnPhone: string
-  copyFullShareLink: string
   copiedShareLink: string
+  shareLinkVisibility: string
   shareLinkFailed: string
   sharedLocationUnavailable: (path: string) => string
   shareLinkExpired: string
@@ -661,8 +661,8 @@ const EN_COPY: CodeCopy = {
   copyFailed: 'Copy failed',
   sharePage: 'Share current page',
   scanToOpenOnPhone: 'Scan to open on phone',
-  copyFullShareLink: 'Copy current page link',
-  copiedShareLink: 'Current page link copied',
+  copiedShareLink: 'Public link copied to clipboard',
+  shareLinkVisibility: 'Anyone with this link can open the shared page.',
   shareLinkFailed: 'Share link unavailable',
   sharedLocationUnavailable: path => `Unable to locate shared path: ${path}`,
   shareLinkExpired: 'Expired',
@@ -1206,8 +1206,8 @@ const ZH_COPY: CodeCopy = {
   copyFailed: '复制失败',
   sharePage: '分享当前页面',
   scanToOpenOnPhone: '手机扫码打开',
-  copyFullShareLink: '复制当前页面链接',
-  copiedShareLink: '已复制当前页面链接',
+  copiedShareLink: '公开链接已复制到剪贴板',
+  shareLinkVisibility: '任何拥有此链接的人都可以打开此页面。',
   shareLinkFailed: '分享链接不可用',
   sharedLocationUnavailable: path => `无法定位分享路径：${path}`,
   shareLinkExpired: '已过期',

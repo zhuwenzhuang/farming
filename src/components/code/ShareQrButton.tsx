@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type qrcode from 'qrcode-generator'
 import { appPath } from '@/lib/base-path'
-import { ShareGlyph } from '@/components/IconGlyphs'
+import { CheckGlyph, ShareGlyph } from '@/components/IconGlyphs'
 import { writeClipboardText } from '@/lib/clipboard'
 import {
   workspaceShareTargetKey,
@@ -12,7 +12,7 @@ import type { CodeCopy } from './copy'
 
 const CLOSE_DWELL_MS = 140
 const POPOVER_WIDTH = 264
-const POPOVER_HEIGHT = 340
+const POPOVER_HEIGHT = 396
 const QR_QUIET_ZONE = 4
 
 type ShareTicket = {
@@ -197,7 +197,6 @@ export function ShareQrButton({
   const closeTimerRef = useRef<number | null>(null)
   const requestSeqRef = useRef(0)
   const ticketRef = useRef<ShareTicket | null>(null)
-  const copiedTimerRef = useRef<number | null>(null)
   const handledOpenRequestRef = useRef(0)
   const [singleLineTokenFits, setSingleLineTokenFits] = useState(true)
   const [qrCodeFactory, setQrCodeFactory] = useState<QrCodeFactory | null>(null)
@@ -279,6 +278,20 @@ export function ShareQrButton({
     }
   }, [copy.shareLinkFailed, shareTarget])
 
+  const copyShareTicket = useCallback(async (nextTicket: ShareTicket) => {
+    const ok = await writeClipboardText(nextTicket.longUrl)
+    if (!ok) {
+      setError(copy.copyFailed)
+      return
+    }
+    setCopied(true)
+  }, [copy.copyFailed])
+
+  const createAndCopyTicket = useCallback(async (force = false) => {
+    const nextTicket = await createTicket(force)
+    if (nextTicket) await copyShareTicket(nextTicket)
+  }, [copyShareTicket, createTicket])
+
   const closePopover = useCallback(() => {
     clearCloseTimer()
     requestSeqRef.current += 1
@@ -299,8 +312,8 @@ export function ShareQrButton({
     setOpen(true)
     setPinned(nextPinned)
     preloadQrRenderer()
-    void createTicket(force)
-  }, [clearCloseTimer, createTicket, preloadQrRenderer, updatePlacement])
+    void createAndCopyTicket(force)
+  }, [clearCloseTimer, createAndCopyTicket, preloadQrRenderer, updatePlacement])
 
   useEffect(() => {
     if (!openRequest || handledOpenRequestRef.current === openRequest) return
@@ -324,26 +337,6 @@ export function ShareQrButton({
     }
     openPopover(true, true)
   }, [closePopover, open, openPopover, pinned])
-
-  const handleCopy = useCallback(async () => {
-    const current = shareTicketIsFresh(ticketRef.current, Date.now())
-      ? ticketRef.current
-      : await createTicket(true)
-    if (!current) return
-    const ok = await writeClipboardText(current.longUrl)
-    if (!ok) {
-      setError(copy.copyFailed)
-      return
-    }
-    setCopied(true)
-    if (copiedTimerRef.current !== null) {
-      window.clearTimeout(copiedTimerRef.current)
-    }
-    copiedTimerRef.current = window.setTimeout(() => {
-      setCopied(false)
-      copiedTimerRef.current = null
-    }, 1800)
-  }, [copy.copyFailed, createTicket])
 
   useLayoutEffect(() => {
     if (!open) return undefined
@@ -413,16 +406,13 @@ export function ShareQrButton({
 
   useEffect(() => () => {
     clearCloseTimer()
-    if (copiedTimerRef.current !== null) {
-      window.clearTimeout(copiedTimerRef.current)
-    }
     requestSeqRef.current += 1
     void revokeShareTicket(ticketRef.current)
   }, [clearCloseTimer])
 
   const expired = Boolean(ticket && ticket.expiresAt <= now)
   const countdown = ticket ? formatCountdown(ticket.expiresAt - now) : ''
-  const tokenLabel = ticket?.tokenLabel || ticket?.shortPath || copy.copyFullShareLink
+  const tokenLabel = ticket?.tokenLabel || ticket?.shortPath || copy.loading
   const tokenParts = tokenDisplayLines(tokenLabel)
   const tokenLines = singleLineTokenFits || tokenParts.length <= 1 ? [tokenLabel] : tokenParts
 
@@ -487,18 +477,26 @@ export function ShareQrButton({
               </div>
             )}
             {expired && (
-              <button type="button" className="code-share-refresh" onClick={() => void createTicket(true)}>
+              <button type="button" className="code-share-refresh" onClick={() => void createAndCopyTicket(true)}>
                 {copy.refreshShareLink}
               </button>
             )}
           </div>
-          <button
-            type="button"
-            className="code-share-copy-token"
-            data-testid="code-share-copy-link"
-            disabled={!ticket && loading}
-            onClick={() => void handleCopy()}
-          >
+          {copied && (
+            <div
+              className="code-share-copy-status"
+              data-testid="code-share-copy-status"
+              role="status"
+              aria-live="polite"
+            >
+              <span className="code-share-copy-status-icon" aria-hidden="true"><CheckGlyph /></span>
+              <span className="code-share-copy-status-copy">
+                <strong>{copy.copiedShareLink}</strong>
+                <span>{copy.shareLinkVisibility}</span>
+              </span>
+            </div>
+          )}
+          <div className="code-share-token-card" data-testid="code-share-token-display">
             <span
               ref={tokenDisplayRef}
               className={`code-share-token ${singleLineTokenFits ? 'single-line' : ''}`}
@@ -509,8 +507,7 @@ export function ShareQrButton({
                 <span key={`${index}-${line}`} className="code-share-token-line">{line}</span>
               ))}
             </span>
-            <span className="code-share-copy-action">{copied ? copy.copiedShareLink : copy.copyFullShareLink}</span>
-          </button>
+          </div>
           {error && <div className="code-share-error" role="status">{error}</div>}
         </div>
       )}
