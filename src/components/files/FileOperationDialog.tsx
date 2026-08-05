@@ -58,9 +58,15 @@ export function FileOperationDialog({
           onSubmit()
         }}
       >
-        <label id="code-file-operation-title" htmlFor="code-file-operation-input">
-          {workspaceFileOperationTitle(fileOperation, copy)}
-        </label>
+        {fileOperation.kind === 'delete' ? (
+          <h2 id="code-file-operation-title">
+            {workspaceFileOperationTitle(fileOperation, copy)}
+          </h2>
+        ) : (
+          <label id="code-file-operation-title" htmlFor="code-file-operation-input">
+            {workspaceFileOperationTitle(fileOperation, copy)}
+          </label>
+        )}
         {fileOperation.kind === 'delete' ? (
           <p className="code-file-operation-text">
             {fileOperation.item?.type === 'directory'

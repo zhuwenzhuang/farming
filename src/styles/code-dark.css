@@ -3337,6 +3337,7 @@ body.code-mode[data-appearance='dark'] .agent-item-name,
 body.code-mode[data-appearance='dark'] .main-agent-resume-title,
 body.code-mode[data-appearance='dark'] .code-rename-dialog label,
 body.code-mode[data-appearance='dark'] .code-kill-dialog h2,
+body.code-mode[data-appearance='dark'] .code-file-operation-shell.delete-confirm .code-file-operation-dialog h2,
 body.code-mode[data-appearance='dark'] .code-file-save-confirm-dialog h2 {
   color: var(--code-dark-text);
 }
@@ -3347,6 +3348,7 @@ body.code-mode[data-appearance='dark'] .workspace-history-header .hint,
 body.code-mode[data-appearance='dark'] .workspace-history-index,
 body.code-mode[data-appearance='dark'] .workspace-path-suggestion-path,
 body.code-mode[data-appearance='dark'] .code-kill-dialog p,
+body.code-mode[data-appearance='dark'] .code-file-operation-shell.delete-confirm .code-file-operation-text,
 body.code-mode[data-appearance='dark'] .code-file-save-confirm-dialog p {
   color: var(--code-dark-text-muted);
 }

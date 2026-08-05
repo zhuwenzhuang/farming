@@ -4239,6 +4239,21 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   padding: 12px;
   background: rgba(255, 255, 255, 0.92);
   box-shadow: 0 14px 32px rgba(31, 35, 40, 0.16);
+  color: #24292f;
+}
+
+.code-file-operation-shell.delete-confirm .code-file-operation-dialog h2 {
+  margin: 0;
+  color: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.code-file-operation-shell.delete-confirm .code-file-operation-text {
+  color: #6d736b;
+  font-size: 13px;
+  line-height: 1.35;
 }
 
 .code-file-operation-dialog label {
