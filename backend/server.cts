@@ -3342,6 +3342,16 @@ function handleMessage(ws: WebSocketClient, data: ServerClientMessage) {
   switch (data.type) {
     case 'protocol-hello':
       if (!protocolCompatible(data.protocolVersion)) {
+        // Released clients render protocol-error messages, so deliver the
+        // upgrade guidance before the terminal 4002 close reaches them.
+        ws.send(JSON.stringify({
+          type: 'protocol-error',
+          protocolVersion: PROTOCOL_VERSION,
+          requestId: '',
+          message: Number(data.protocolVersion) < MIN_PROTOCOL_VERSION
+            ? `This Farming page uses protocol ${data.protocolVersion}, but the backend requires ${MIN_PROTOCOL_VERSION}. Refresh this page or update the Farming client.`
+            : `This Farming page uses protocol ${data.protocolVersion}, but the backend only supports ${PROTOCOL_VERSION}. Update and restart the Farming backend.`,
+        }));
         ws.close(4002, `Unsupported Farming protocol version ${data.protocolVersion}`);
         return;
       }

@@ -140,6 +140,28 @@
     color: #b98282;
 }
 
+#farming-crt .crt-protocol-notice {
+    position: fixed;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 200;
+    display: grid;
+    gap: 6px;
+    max-width: min(560px, calc(100vw - 32px));
+    padding: 14px 20px;
+    border: 1px solid #ff4d4d;
+    background: rgba(5, 5, 5, 0.94);
+    color: #ff6b6b;
+    text-align: center;
+    pointer-events: none;
+}
+
+#farming-crt .crt-protocol-notice strong,
+#farming-crt .crt-protocol-notice span {
+    display: block;
+}
+
 @media (prefers-reduced-motion: reduce) {
     #farming-crt .crt-scan-beam {
         display: none;

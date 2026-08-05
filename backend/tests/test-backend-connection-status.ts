@@ -44,6 +44,8 @@ function run() {
       webSocketSource.includes('Farming token expired or is invalid') &&
       webSocketSource.includes('event.code === 4002') &&
       webSocketSource.includes('Farming frontend and backend versions differ. Refresh this page.') &&
+      webSocketSource.includes('protocolMismatchNotice') &&
+      webSocketSource.includes('Update and restart the Farming backend.') &&
       webSocketSource.includes('if (!terminalError)') &&
       webSocketSource.includes('reconnectTimer = setTimeout(connect, 1000)'),
     'The isolated backend status store should track transport and business-protocol health independently'

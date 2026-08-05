@@ -124,7 +124,7 @@ export function probeDesktopBackendWebSocket(options: DesktopBackendWebSocketPro
               || message.protocolVersion < MIN_PROTOCOL_VERSION
             ) {
               settle(fatalReadinessError(
-                `Farming backend protocol version ${message.protocolVersion} is incompatible with Desktop protocol ${PROTOCOL_VERSION}.`,
+                `Farming backend protocol version ${message.protocolVersion} is incompatible with Desktop protocol ${PROTOCOL_VERSION}. Update the older of Farming Desktop or the Farming backend.`,
               ))
               return
             }

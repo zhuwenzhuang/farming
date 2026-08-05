@@ -220,6 +220,7 @@ function run() {
   assert(generatedCrtApp.includes(`CRT_PROTOCOL_VERSION = ${browserProtocolVersion}`), 'Built CRT should negotiate the shared Farming browser protocol version');
   assert(crtApp.includes("data.type === 'agent-read'") && crtApp.includes('Object.assign(agent, readState)'), 'CRT should apply shared Agent read-state deltas');
   assert(crtApp.includes('event.code === 4001 || event.code === 4002') && crtApp.includes('if (!terminalClose &&'), 'CRT should not loop forever after authentication or protocol rejection');
+  assert(crtApp.includes('showCrtProtocolMismatchNotice') && crtApp.includes('Update and restart the Farming backend, then reload this page.'), 'CRT should surface an actionable upgrade notice when the protocol handshake fails');
   assert(crtApp.includes('resumeCrtPageConnection') && crtApp.includes('refreshSessionView(true'), 'CRT should reconnect and fetch an authoritative terminal checkpoint when visible again');
   assert(!effectsCss.includes('repeating-linear-gradient(\n            to right'), 'Monochrome Green should not use an RGB aperture mask');
   assert(indexHtml.includes('id="farming-crt"'), 'CRT effects should be scoped to the CRT skin root');

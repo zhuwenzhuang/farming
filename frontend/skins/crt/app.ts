@@ -1286,6 +1286,22 @@ function showCrtWebglFailure(error: unknown) {
   );
 }
 
+function showCrtProtocolMismatchNotice(titleText: string, messageText: string) {
+  const existingPanel = document.getElementById('crt-protocol-notice');
+  const panel = existingPanel || document.createElement('div');
+  if (!existingPanel) {
+    panel.id = 'crt-protocol-notice';
+    panel.className = 'crt-protocol-notice';
+    document.body.appendChild(panel);
+  }
+  panel.replaceChildren();
+  const title = document.createElement('strong');
+  title.textContent = titleText;
+  const message = document.createElement('span');
+  message.textContent = messageText;
+  panel.append(title, message);
+}
+
 function shouldUseLiveSessionText(agent: CrtAgent) {
   return Boolean(agent && agent.sessionSource === 'live-text');
 }
@@ -6160,6 +6176,17 @@ function connect(): void {
     if (getSessionClient()?.handleServerMessage(data)) return;
     if (data.type === 'protocol-hello') {
       if (data.protocolVersion !== CRT_PROTOCOL_VERSION) {
+        if (data.protocolVersion > CRT_PROTOCOL_VERSION) {
+          showCrtProtocolMismatchNotice(
+            'FARMING CRT PAGE OUT OF DATE',
+            'Reload this page to load the updated Farming CRT interface.'
+          );
+        } else {
+          showCrtProtocolMismatchNotice(
+            'FARMING BACKEND OUT OF DATE',
+            'Update and restart the Farming backend, then reload this page.'
+          );
+        }
         socket.close(4002, `Unsupported Farming protocol version ${data.protocolVersion}`);
       }
       return;

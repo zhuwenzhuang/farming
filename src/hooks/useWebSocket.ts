@@ -28,6 +28,7 @@ import {
   type AgentStateSnapshotCursor,
 } from '@/lib/agent-state-delta'
 import {
+  MIN_PROTOCOL_VERSION,
   PROTOCOL_VERSION,
   protocolCompatible,
   validateServerMessage,
@@ -540,6 +541,9 @@ export function useWebSocket() {
       const ws = new WebSocket(wsUrl)
       activeSocket = ws
       wsRef.current = ws
+      // Actionable upgrade guidance shown when this connection ends with a
+      // protocol-mismatch close instead of the generic refresh hint.
+      let protocolMismatchNotice = ''
 
       ws.onopen = () => {
         if (disposed || wsRef.current !== ws) return
@@ -585,10 +589,14 @@ export function useWebSocket() {
           switch (msg.type) {
             case 'protocol-hello':
               if (!protocolCompatible(msg.protocolVersion)) {
+                protocolMismatchNotice = msg.protocolVersion < MIN_PROTOCOL_VERSION
+                  ? `This page requires a newer Farming backend (protocol ${MIN_PROTOCOL_VERSION}, backend has ${msg.protocolVersion}). Update and restart the Farming backend.`
+                  : 'The Farming backend is newer than this page. Refresh this page to load the updated interface.'
                 ws.close(4002, `Unsupported Farming protocol version ${msg.protocolVersion}`)
               }
               break
             case 'protocol-error':
+              protocolMismatchNotice = msg.message
               setState(prev => ({
                 ...prev,
                 error: msg.message,
@@ -991,7 +999,7 @@ export function useWebSocket() {
         const terminalError = event.code === 4001
           ? 'Farming token expired or is invalid'
           : event.code === 4002
-            ? 'Farming frontend and backend versions differ. Refresh this page.'
+            ? (protocolMismatchNotice || 'Farming frontend and backend versions differ. Refresh this page.')
             : null
         resetBusinessProbeObservation()
         clearAgentStateSnapshotDeadline()
