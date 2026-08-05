@@ -20,7 +20,7 @@ const customWorkspace = Boolean(process.env.FARMING_SCREENSHOT_WORKSPACE);
 const workspaceDir = path.resolve(process.env.FARMING_SCREENSHOT_WORKSPACE || path.join(homeDir, 'Projects', 'atlas-control-plane'));
 const screenshotDir = path.join(repoRoot, 'docs', 'products', 'code', 'assets');
 const crtScreenshotDir = path.join(repoRoot, 'docs', 'products', 'crt', 'assets');
-const publicScreenshotDir = path.join(repoRoot, 'docs-site', 'cn', 'assets');
+const publicScreenshotDir = path.join(repoRoot, 'docs-site', 'public', 'cn', 'assets');
 type PublicScreenshotSpec = {
   fileName: string;
   clip?: { x: number; y: number; width: number; height: number };
@@ -568,7 +568,7 @@ async function screenshot(page, fileName, directory = screenshotDir) {
         'system-ip': 'demo.lan',
         'cpu-usage': '24',
         'mem-percentage': '38',
-        'system-time': '2026-07-14 09:00:00',
+        'system-time': '2026-08-06 09:00:00',
         uptime: '12m 34s',
       };
       for (const [id, value] of Object.entries(replacements)) {
