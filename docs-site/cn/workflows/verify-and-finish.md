@@ -27,7 +27,7 @@ Agent 说“完成”只是一个需要核对的结论。收尾阶段要确认�
 
 在 Chat 的活动记录或 Terminal 中确认精确命令和退出结果。
 
-<ThemeImage light="/cn/assets/terminal.png" dark="/cn/assets/terminal-dark.png" alt="在 Terminal 中检查验证结果" />
+<ThemeImage light="/cn/assets/terminal-20260806.png" dark="/cn/assets/terminal-20260806-dark.png" alt="在 Terminal 中检查验证结果" />
 
 验证范围应与风险匹配：
 

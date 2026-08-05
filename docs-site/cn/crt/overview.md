@@ -20,7 +20,7 @@ Farming CRT 是键盘优先的第二界面，用来快速巡视 Agent、Chat、T
 
 ## Terminal
 
-![Farming CRT Terminal](/cn/assets/crt-terminal.png)
+![Farming CRT Terminal](/cn/assets/crt-terminal-20260806.png)
 
 Terminal 连接同一个原生 PTY Session，适合查看完整输出并使用 Coding CLI 自己的交互方式。
 

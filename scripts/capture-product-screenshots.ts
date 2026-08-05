@@ -35,7 +35,7 @@ const publicCodeScreenshotSpecs = new Map<string, PublicScreenshotSpec>([
   ['08-history-search.png', { fileName: 'history.png', clip: { x: 300, y: 0, width: 1140, height: 810 } }],
   ['09-dark-workspace.png', { fileName: 'workspace-dark.png' }],
   ['11-code-agent-process.png', { fileName: 'chat.png', clip: { x: 300, y: 0, width: 1140, height: 810 } }],
-  ['12-code-terminal-session.png', { fileName: 'terminal.png', clip: { x: 300, y: 0, width: 1140, height: 810 } }],
+  ['12-code-terminal-session.png', { fileName: 'terminal-20260806.png', clip: { x: 300, y: 0, width: 1140, height: 810 } }],
   ['13-code-search.png', { fileName: 'search.png', clip: { x: 300, y: 0, width: 1140, height: 810 } }],
   ['14-code-settings.png', { fileName: 'settings.png', clip: { x: 920, y: 0, width: 520, height: 430 } }],
   ['15-code-usage-activity.png', { fileName: 'usage-activity.png' }],
@@ -47,7 +47,7 @@ const publicCodeScreenshotSpecs = new Map<string, PublicScreenshotSpec>([
 const publicCrtScreenshotSpecs = new Map<string, PublicScreenshotSpec>([
   ['01-crt-dashboard.png', { fileName: 'crt-dashboard.png' }],
   ['02-crt-structured-chat.png', { fileName: 'crt-chat.png' }],
-  ['03-crt-terminal.png', { fileName: 'crt-terminal.png' }],
+  ['03-crt-terminal.png', { fileName: 'crt-terminal-20260806.png' }],
   ['06-crt-billing-days.png', { fileName: 'crt-usage-20260806.png' }],
 ]);
 const screenshotAppearance = process.env.FARMING_SCREENSHOT_APPEARANCE === 'dark' ? 'dark' : 'light';
@@ -112,6 +112,32 @@ function run(command: string, args: string[], options: RunOptions = {}): void {
     env: options.env || process.env,
     stdio: options.stdio || 'ignore',
   });
+}
+
+function commandOutput(command: string, args: string[], cwd = workspaceDir): string {
+  return execFileSync(command, args, {
+    cwd,
+    env: process.env,
+    encoding: 'utf8',
+  }).trimEnd();
+}
+
+function createWorkspaceTerminalTranscript(): string {
+  return [
+    '$ git log --oneline -3',
+    commandOutput('git', ['log', '--oneline', '-3']),
+    '',
+    '$ git diff --stat',
+    commandOutput('git', ['diff', '--stat']),
+    '',
+    '$ git diff --check',
+    'no whitespace errors',
+    '',
+    '$ git status --short',
+    commandOutput('git', ['status', '--short']),
+    '',
+    '$',
+  ].join('\r\n');
 }
 
 function getFreePort() {
@@ -1111,7 +1137,7 @@ async function main() {
     await updateAgent(page, baseUrl, codexAgentId, { pinned: true });
     await updateAgent(page, baseUrl, terminalAgentId, { customTitle: 'Pagination regression' });
     await updateAgent(page, baseUrl, claudeAgentId, { customTitle: 'Settings UI check' });
-    await updateAgent(page, baseUrl, shellAgentId, { customTitle: 'API request logs' });
+    await updateAgent(page, baseUrl, shellAgentId, { customTitle: 'Inspect pagination changes' });
 
     await ensureApp(page);
     await openAgent(page, terminalAgentId);
@@ -1164,12 +1190,17 @@ async function main() {
     await sendAgentInput(page, baseUrl, shellAgentId, 'clear\r');
     await page.waitForTimeout(150);
     await sendAgentInput(page, baseUrl, shellAgentId, [
-      `printf '\\033[1;36mFarming v${packageVersion} release console\\033[0m\\n'`,
-      "printf '\\nSOURCE GATES\\n  backend: 184 passed\\n  typecheck: passed\\n  lint: passed\\n\\nARTIFACT MATRIX\\n  macOS arm64 / x64: verified\\n  Linux arm64 / x64: verified\\n  legacy glibc 2.28: verified\\n  checksums + manifest: verified\\n\\nRUNTIME PROOF\\n  terminal recovery: passed\\n  cross-skin identity: passed\\n  input p95: 58 ms / 250 ms\\n\\nproduction build: ready\\n\\nWORKTREE\\n'",
+      "printf '$ git log --oneline -3\\n'",
+      'git log --oneline -3',
+      "printf '\\n$ git diff --stat\\n'",
+      'git diff --stat',
+      "printf '\\n$ git diff --check\\n'",
+      "git diff --check && printf 'no whitespace errors\\n'",
+      "printf '\\n$ git status --short\\n'",
       'git status --short',
       'stty echo',
     ].join('; ') + '\r');
-    await waitForAgentOutput(page, baseUrl, shellAgentId, 'production build: ready');
+    await waitForAgentOutput(page, baseUrl, shellAgentId, 'no whitespace errors');
     await openAgent(page, codexAgentId);
     const acpProfileResponse = await page.request.patch(`${baseUrl}${basePath}/api/agents/${encodeURIComponent(codexAgentId)}/acp-session`, {
       data: {
@@ -1283,30 +1314,15 @@ async function main() {
     if (requestedScreenshotsComplete()) return;
 
     await openAgent(page, terminalAgentId);
-    await writeTerminalFixture(page, terminalAgentId, [
-      '\u001b[2J\u001b[H\u001b[1;36mCodex terminal · release verification\u001b[0m',
-      '',
-      '$ npm run check',
-      '✓ backend tests passed',
-      '✓ typecheck passed',
-      '✓ lint passed',
-      '',
-      '$ npm run build',
-      '✓ production bundle ready',
-      '✓ Chat ↔ Terminal session preserved',
-      '',
-      '$ git status --short',
-      ' M src/pagination.ts',
-      ' M tests/pagination.spec.ts',
-      '?? notes/release-check.md',
-      '',
-      '$',
-    ].join('\r\n'));
+    await writeTerminalFixture(page, terminalAgentId, `\u001b[2J\u001b[H${createWorkspaceTerminalTranscript()}`);
     await page.getByTestId('code-composer-model-picker').click();
     await page.getByTestId('code-model-matrix-picker').waitFor({ state: 'visible', timeout: 20_000 });
     await screenshot(page, '07-live-model-controls.png');
     await page.keyboard.press('Escape');
     await page.getByTestId('code-model-matrix-picker').waitFor({ state: 'hidden', timeout: 20_000 });
+    const composerCollapse = page.getByTestId('code-composer-collapse');
+    if (await composerCollapse.isVisible()) await composerCollapse.evaluate(element => element.click());
+    await page.getByTestId('code-composer-restore-bar').waitFor({ state: 'visible', timeout: 20_000 });
     await screenshot(page, '12-code-terminal-session.png');
 
     await page.getByTestId('code-nav-search').click();
@@ -1514,7 +1530,7 @@ async function main() {
     });
     await updateAgent(page, baseUrl, crtChatAgentId, { customTitle: 'Audit Chat rendering' });
     await updateAgent(page, baseUrl, crtChatAgentId, { unread: false });
-    await updateAgent(page, baseUrl, shellAgentId, { customTitle: 'Release verification' });
+    await updateAgent(page, baseUrl, shellAgentId, { customTitle: 'Inspect pagination changes' });
     await updateAgent(page, baseUrl, claudeAgentId, { archived: true });
 
     await page.goto(`${basePath}/crt/`, { waitUntil: 'networkidle' });
@@ -1548,7 +1564,7 @@ async function main() {
     await page.goto(`${basePath}/crt/?agent=${encodeURIComponent(shellAgentId)}`, { waitUntil: 'networkidle' });
     await page.locator('#session-modal.active').waitFor({ state: 'visible', timeout: 30_000 });
     await page.locator('#terminal-output .xterm').waitFor({ state: 'visible', timeout: 30_000 });
-    await page.getByText('production build: ready', { exact: false }).waitFor({ state: 'visible', timeout: 30_000 });
+    await page.getByText('no whitespace errors', { exact: false }).waitFor({ state: 'visible', timeout: 30_000 });
     await screenshot(page, '03-crt-terminal.png', crtScreenshotDir);
     await page.getByRole('button', { name: 'Close session, Ctrl+Escape', exact: true }).click();
 

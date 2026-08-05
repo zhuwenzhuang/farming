@@ -51,6 +51,10 @@ jobs:
           FARMING_DOCS_BASE: ${{ vars.FARMING_DOCS_BASE || '/farming/' }}
           FARMING_DOCS_ORIGIN: ${{ vars.FARMING_DOCS_ORIGIN || 'https://zhuwenzhuang.github.io' }}
 
+      - name: Verify documentation images
+        working-directory: docs-site
+        run: npm run verify:images
+
       - name: Upload Pages artifact
         if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3
