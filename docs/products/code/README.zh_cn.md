@@ -63,6 +63,10 @@ Farming Pet 是一项可选休息提醒，按当前 Farming 标签页的前台�
 只会在用户显式开启后请求权限，刷新或重连不会补发旧事件；点击通知会返回对应 Agent。
 浏览器通知通常要求带鉴权地址运行在 HTTPS 或 localhost 环境中。
 
+Qwen Code 可能在本地子 Agent 仍运行时发送 Terminal 原生通知，其 busy 信号也可能在同一父回合内
+短暂变为空闲。Farming 只会在父 Terminal 回合持续稳定空闲后创建未读提醒，短暂的空闲边沿不会
+提前把仍在工作的 Agent 标记为未读。
+
 ## 更多
 
 - [Farming CRT](../crt/README.zh_cn.md)

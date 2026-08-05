@@ -581,6 +581,7 @@ const WORKTREE_DELETE_START_DRAIN_TIMEOUT_MS = 30_000;
 const CODEX_TERMINAL_START_READY_POLL_MS = 50;
 const CODEX_TERMINAL_START_OUTPUT_LIMIT = 64 * 1024;
 const TERMINAL_NOTIFICATION_COMPLETION_SUPPRESS_MS = 10_000;
+const QWEN_TERMINAL_IDLE_STABILITY_MS = 3_000;
 const ACP_ATTENTION_STOP_REASONS = new Set([
   'end_turn',
   'max_tokens',
@@ -1392,6 +1393,7 @@ class AgentManager extends EventEmitter {
   declare adaptiveTitlePersistenceDrain: Promise<void> | null;
   declare acpFinalizedTurns: Map<string, string>;
   declare acpTurnFinalizationTails: Map<string, Promise<void>>;
+  declare qwenTerminalIdleCandidates: Map<AgentId, ReturnType<typeof setTimeout>>;
   declare acpSessionOptionsByKey: Map<string, AcpSessionOptionsRecord>;
   declare acpPreparedTranscriptCache: AcpPreparedTranscriptCache;
   declare transcriptMediaPathPrefix: (agentId: string) => string;
@@ -1468,6 +1470,7 @@ class AgentManager extends EventEmitter {
     this.adaptiveTitlePersistenceDrain = null;
     this.acpFinalizedTurns = new Map();
     this.acpTurnFinalizationTails = new Map();
+    this.qwenTerminalIdleCandidates = new Map();
     // Standard ACP session inputs may contain MCP credentials. Keep the live
     // copy outside browser-facing Agent records; crash recovery persists it
     // only through the private Farming session store.
@@ -2132,7 +2135,20 @@ class AgentManager extends EventEmitter {
     }: TerminalSessionNotificationEvent) => {
       const agent = this.agents.get(sessionId);
       if (!agent || !terminalRuntimeEventMatches(agent, runtimeEpoch)) return;
-      agent.attentionSummary = agentNotificationSummary(message || title);
+      const summary = agentNotificationSummary(message || title);
+      const provider = agent.providerSessionProvider
+        || agentHomeProviderForProgram(agent.forkCommand || agent.command || '');
+      if (
+        provider === 'qwen'
+        && (
+          this.isAgentAttentionTurnActive(agent)
+          || this.qwenTerminalIdleCandidates.has(agent.id)
+        )
+      ) {
+        agent.pendingTerminalNotificationSummary = summary;
+        return;
+      }
+      agent.attentionSummary = summary;
       if (this.isAgentAttentionTurnActive(agent)) {
         agent.terminalNotificationAttentionUntil = Date.now() + TERMINAL_NOTIFICATION_COMPLETION_SUPPRESS_MS;
       }
@@ -2169,6 +2185,7 @@ class AgentManager extends EventEmitter {
 
         if (!agent.validated) {
           this.providerSessionService.stop(sessionId);
+          this.cancelQwenTerminalIdleCandidate(sessionId);
           this.agents.delete(sessionId);
           this.lastActivity.delete(sessionId);
           this.lastActivityUpdate.delete(sessionId);
@@ -3891,6 +3908,74 @@ class AgentManager extends EventEmitter {
     return terminalStatus.activity === 'busy';
   }
 
+  agentAttentionProvider(agent: TypedAgentRecord) {
+    return agent.providerSessionProvider
+      || agentHomeProviderForProgram(agent.forkCommand || agent.command || '');
+  }
+
+  cancelQwenTerminalIdleCandidate(agentId: AgentId) {
+    const candidate = this.qwenTerminalIdleCandidates.get(agentId);
+    if (!candidate) return false;
+    clearTimeout(candidate);
+    this.qwenTerminalIdleCandidates.delete(agentId);
+    return true;
+  }
+
+  scheduleQwenTerminalIdleCandidate(agent: TypedAgentRecord) {
+    if (this.qwenTerminalIdleCandidates.has(agent.id)) return;
+    const runtimeEpoch = agent.runtimeEpoch;
+    const candidate = setTimeout(() => {
+      if (this.qwenTerminalIdleCandidates.get(agent.id) !== candidate) return;
+      this.qwenTerminalIdleCandidates.delete(agent.id);
+      const current = this.agents.get(agent.id);
+      if (
+        this.disposed
+        || current !== agent
+        || current.runtimeEpoch !== runtimeEpoch
+        || this.agentAttentionProvider(current) !== 'qwen'
+        || current.lastObservedTurnActive === true
+        || this.isAgentAttentionTurnActive(current)
+      ) {
+        return;
+      }
+      this.completeAgentAttentionTransition(current);
+    }, QWEN_TERMINAL_IDLE_STABILITY_MS);
+    candidate.unref?.();
+    this.qwenTerminalIdleCandidates.set(agent.id, candidate);
+  }
+
+  completeAgentAttentionTransition(agent: TypedAgentRecord) {
+    const pendingTerminalNotificationSummary = agent.pendingTerminalNotificationSummary;
+    delete agent.pendingTerminalNotificationSummary;
+    if (typeof pendingTerminalNotificationSummary === 'string') {
+      if (!hasAgentOutputAfterAttentionBaseline(agent)) {
+        return false;
+      }
+      agent.attentionRequiresNewOutput = false;
+      agent.attentionSummary = pendingTerminalNotificationSummary;
+      this.recordAgentAttentionEvent(agent, 'terminal-notification');
+      return true;
+    }
+    const terminalNotificationUntil = finiteNumberOrNull(agent.terminalNotificationAttentionUntil);
+    delete agent.terminalNotificationAttentionUntil;
+    if (terminalNotificationUntil !== null && terminalNotificationUntil >= Date.now()) {
+      agent.attentionRequiresNewOutput = false;
+      return false;
+    }
+    if (!hasAgentOutputAfterAttentionBaseline(agent)) {
+      return false;
+    }
+    agent.attentionRequiresNewOutput = false;
+    if (isEphemeralShellAgent(agent)) {
+      return false;
+    }
+    const reason = agent.status === 'stopped' || agent.status === 'dead'
+      ? 'process-exit'
+      : 'turn-complete';
+    this.recordAgentAttentionEvent(agent, reason);
+    return true;
+  }
+
   observeAgentAttentionState(agentId: AgentId) {
     const agent = this.agents.get(agentId);
     if (!agent) return false;
@@ -3915,28 +4000,18 @@ class AgentManager extends EventEmitter {
 
     const wasTurnActive = agent.lastObservedTurnActive === true;
     agent.lastObservedTurnActive = turnActive;
+    const provider = this.agentAttentionProvider(agent);
+
+    if (turnActive && provider === 'qwen') {
+      this.cancelQwenTerminalIdleCandidate(agent.id);
+    }
 
     if (wasTurnActive && !turnActive) {
-      const terminalNotificationUntil = finiteNumberOrNull(agent.terminalNotificationAttentionUntil);
-      delete agent.terminalNotificationAttentionUntil;
-      if (terminalNotificationUntil !== null && terminalNotificationUntil >= Date.now()) {
-        agent.attentionRequiresNewOutput = false;
+      if (provider === 'qwen' && agent.status === 'running') {
+        this.scheduleQwenTerminalIdleCandidate(agent);
         return false;
       }
-      if (!hasAgentOutputAfterAttentionBaseline(agent)) {
-        return false;
-      }
-      agent.attentionRequiresNewOutput = false;
-      // Interactive shells report a busy/idle pair for every entered command.
-      // That is terminal state, not an Agent turn that needs sidebar attention.
-      if (isEphemeralShellAgent(agent)) {
-        return false;
-      }
-      const reason = agent.status === 'stopped' || agent.status === 'dead'
-        ? 'process-exit'
-        : 'turn-complete';
-      this.recordAgentAttentionEvent(agent, reason);
-      return true;
+      return this.completeAgentAttentionTransition(agent);
     }
 
     return false;
@@ -4598,6 +4673,8 @@ class AgentManager extends EventEmitter {
     this.codexTerminalStartOutput.clear();
     this.adaptiveTitlePersistenceEntries.clear();
     this.acpSessionOptionsByKey.clear();
+    for (const candidate of this.qwenTerminalIdleCandidates.values()) clearTimeout(candidate);
+    this.qwenTerminalIdleCandidates.clear();
     this.disposed = true;
   }
 
@@ -6041,6 +6118,7 @@ class AgentManager extends EventEmitter {
         if (callback) callback(agentId, message);
         return null;
       }
+      this.cancelQwenTerminalIdleCandidate(agentId);
       this.agents.delete(agentId);
       this.acpFinalizedTurns.delete(agentId);
       this.acpTurnFinalizationTails.delete(agentId);
@@ -10311,6 +10389,7 @@ class AgentManager extends EventEmitter {
 
   forgetStoppedAgentRecord(agentId: AgentId, options: KillAgentOptions = {}) {
     this.acpPreparedTranscriptCache.deleteAgent(agentId);
+    this.cancelQwenTerminalIdleCandidate(agentId);
     this.agents.delete(agentId);
     this.acpFinalizedTurns.delete(agentId);
     this.acpTurnFinalizationTails.delete(agentId);

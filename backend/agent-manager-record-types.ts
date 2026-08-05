@@ -216,6 +216,7 @@ export interface AgentRecord extends Record<string, unknown>, AgentDisplayState,
   attentionRequiresNewOutput?: boolean;
   attentionSuppressUntil?: number;
   attentionTrackingReady?: boolean;
+  pendingTerminalNotificationSummary?: string;
   validated?: boolean;
   wantsMain?: boolean;
 }
