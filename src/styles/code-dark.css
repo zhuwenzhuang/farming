@@ -1213,7 +1213,8 @@ body.code-mode[data-appearance='dark'] .code-usage-provider {
 }
 
 body.code-mode[data-appearance='dark'] .code-files-title,
-body.code-mode[data-appearance='dark'] .code-open-editors-title {
+body.code-mode[data-appearance='dark'] .code-open-editors-title,
+body.code-mode[data-appearance='dark'] .code-git-history-title {
   color: var(--code-dark-text-soft);
 }
 
