@@ -148,6 +148,35 @@ The second pass therefore applies these concrete changes together:
   reports only on failure;
 - npm publication uses an explicit relative tarball path.
 
+## v2.2.43 Timed Result And Third-Pass Changes
+
+The v2.2.43 campaign completed successfully from exact candidate acceptance to
+npm verification in 12 minutes 41 seconds. Release artifact preparation was no
+longer the critical path: every platform and npm artifact was verified within
+4 minutes 52 seconds. Exact-SHA CI and the publication tail remained.
+
+| Remaining work | Observed duration or delay |
+| --- | ---: |
+| All reversible release artifact preparation | 4 min 52 sec |
+| Exact-SHA CI | 8 min 38 sec |
+| Chromium shard 3 queue delay at the measured 20-job account ceiling | 2 min 5 sec |
+| Slowest Chromium test execution | 6 min 15 sec |
+| Stage GitHub Release | 1 min 23 sec |
+| npm publication and `gitHead` visibility | 1 min 15 sec |
+
+The next pass fits the workflow to the measured remote capacity instead of
+creating more queued jobs:
+
+- nine Chromium jobs use test-level sharding with one worker each, distributing
+  344 tests as 39/39/38/38/38/38/38/38/38;
+- the dedicated CI-wait job is removed, freeing one hosted runner slot;
+- release staging downloads and hashes already verified assets while CI
+  finishes, then checks exact-SHA CI immediately before tag/draft creation;
+- verified app `RELEASE.json` sidecars replace re-reading four large compressed
+  archives during manifest generation;
+- npm publication suppresses the 20,000-file notice listing and avoids an
+  unnecessary global npm upgrade in the publication job.
+
 ## Confirmed Sources Of Waste
 
 ### Agent investigation
@@ -313,14 +342,14 @@ without reducing coverage.
 - Remove the old frontend build from `Check` so normal CI does not perform the
   build twice.
 
-### B2. Balance browser shards without changing test isolation
+### B2. Balance browser shards without adding in-job concurrency
 
-- Increase file-level Chromium sharding from ten to twelve so the previous
-  terminal-heavy shard no longer also owns the cross-skin and link groups.
-- Preserve one-worker and file-level isolation; do not enable unproven
-  fully-parallel execution inside stateful scenario files.
-- Split oversized scenario files along lifecycle boundaries if measured shard
-  imbalance remains after dependency-install waste is removed.
+- Use nine test-level Chromium shards to match the measured 20-job remote
+  concurrency ceiling when release preparation is also active.
+- Keep exactly one worker per job. Test-level sharding balances assignment
+  across runners without running tests concurrently against one backend.
+- Local and focused runs retain file-level ordering unless they opt in to the
+  CI sharding mode explicitly.
 
 ### B3. Produce a failure bundle immediately
 

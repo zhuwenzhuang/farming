@@ -1227,7 +1227,7 @@ async function runTests() {
       'utf8',
     );
     assert(releaseWorkflowSource.includes('node --import tsx scripts/verify-release-bundle.ts'));
-    assert(releaseWorkflowSource.includes('function readBundleRelease(file)'));
+    assert(releaseWorkflowSource.includes('release-metadata-${file.slice'));
     assert(releaseWorkflowSource.includes('bundledGlibcRuntime'));
     assert(releaseWorkflowSource.includes("(-legacy-glibc228)?\\.tar\\.gz"));
     assert(releaseWorkflowSource.includes('compatibilityProfile: bundle.compatibilityProfile'));
@@ -1264,7 +1264,7 @@ async function runTests() {
     );
     assert(npmPrepareJob.includes('npm run release:npm:pack -- "${package_dir}"'));
     assert(npmPrepareJob.includes('npm run release:npm:smoke -- "${package_tarball}"'));
-    assert(stagedReleaseJob.includes('      - ci-gate'));
+    assert(stagedReleaseJob.includes('Require successful CI for candidate revision'));
     assert(stagedReleaseJob.includes('      - build-linux'));
     assert(stagedReleaseJob.includes('      - build-macos'));
     assert(stagedReleaseJob.includes('      - prepare-npm'));
@@ -1301,7 +1301,8 @@ async function runTests() {
       !releaseWorkflow.jobs['stage-release'].steps.some(step => step.name === 'Install dependencies'),
       'release staging must not install the repository dependency tree',
     );
-    const releaseCiGate = releaseWorkflow.jobs['ci-gate'].steps.find(
+    assert.strictEqual(releaseWorkflow.jobs['ci-gate'], undefined);
+    const releaseCiGate = releaseWorkflow.jobs['stage-release'].steps.find(
       step => step.name === 'Require successful CI for candidate revision',
     );
     assert(releaseCiGate, 'release preflight must require CI for the exact candidate revision');
@@ -1313,13 +1314,12 @@ async function runTests() {
         && releaseCiGate.run.includes('--exit-status'),
       'release preflight must find and fail closed on the candidate revision CI run',
     );
-    assert.strictEqual(releaseWorkflow.jobs['ci-gate'].needs, 'preflight');
     assert.strictEqual(releaseWorkflow.jobs['build-linux'].needs, 'preflight');
     assert.strictEqual(releaseWorkflow.jobs['build-macos'].needs, 'preflight');
     assert.strictEqual(releaseWorkflow.jobs['prepare-npm'].needs, 'preflight');
     assert.deepStrictEqual(
       releaseWorkflow.jobs['stage-release'].needs,
-      ['ci-gate', 'build-linux', 'build-macos', 'prepare-npm'],
+      ['build-linux', 'build-macos', 'prepare-npm'],
     );
     assert.deepStrictEqual(releaseWorkflow.jobs['publish-github-release'].needs, ['stage-release']);
     assert.deepStrictEqual(releaseWorkflow.jobs['verify-github-release'].needs, ['publish-github-release']);

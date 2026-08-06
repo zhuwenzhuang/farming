@@ -8,6 +8,8 @@ const NODE_22_FLOOR = '^22.13.0';
 const NODE_24_COMPATIBILITY_FLOOR = '>=24.0.0';
 
 interface WorkflowStep {
+  env?: Record<string, unknown>;
+  name?: string;
   uses?: string;
   run?: string;
   with?: Record<string, unknown>;
@@ -38,10 +40,14 @@ function run() {
   assert.strictEqual(workflow.env.FARMING_SKIP_INSTALL_RUNTIME_PREPARE, '1');
   assert.strictEqual(workflow.env.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD, '1');
   assert.strictEqual(workflow.env.PUPPETEER_SKIP_DOWNLOAD, '1');
-  assert.strictEqual(workflow.jobs.browser.strategy.matrix.shard.length, 12);
+  assert.strictEqual(workflow.jobs.browser.strategy.matrix.shard.length, 9);
+  const browserRunStep = workflow.jobs.browser.steps.find(
+    step => step.name === 'Run Chromium browser checks',
+  );
   assert(
-    runScriptsOf(workflow.jobs.browser).includes('--shard=${{ matrix.shard }}/12'),
-    'Chromium must use all twelve bounded file-level shards',
+    browserRunStep?.run?.includes('--shard=${{ matrix.shard }}/9')
+      && browserRunStep?.env?.FARMING_PLAYWRIGHT_FULLY_PARALLEL_SHARDS === '1',
+    'Chromium must use nine test-balanced single-worker shards',
   );
   assert(
     workflow.jobs.browser.steps.some(step => step.uses === 'actions/upload-artifact@v4'),

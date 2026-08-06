@@ -121,6 +121,29 @@ Farming 面向正式安装的 Postinstall，向一次性工作区下载 Claude C
 - Chromium 使用 12 个文件级 Shard，只在失败时上传 Trace、Screenshot 和 Report；
 - npm Publish 使用明确的相对 Tarball 路径。
 
+## v2.2.43 计时结果与第三轮改造
+
+v2.2.43 从接受精确候选到 npm 验证成功共 12 分 41 秒。Release Artifact Preparation 已不再是
+关键路径：全部平台与 npm 制品在 4 分 52 秒内完成验证；剩余时间主要在 Exact-SHA CI 和发布尾段。
+
+| 剩余工作 | 实测耗时或延迟 |
+| --- | ---: |
+| 全部可逆 Release Artifact Preparation | 4 分 52 秒 |
+| Exact-SHA CI | 8 分 38 秒 |
+| 实测账号 20 Job 上限导致 Chromium Shard 3 排队 | 2 分 5 秒 |
+| 最慢 Chromium 测试执行 | 6 分 15 秒 |
+| Stage GitHub Release | 1 分 23 秒 |
+| npm Publish 与 `gitHead` 可见 | 1 分 15 秒 |
+
+下一轮不再继续制造排队 Job，而是按实测远端容量配平：
+
+- 9 个 Chromium Job 使用测试级 Sharding，每个仍为单 Worker；344 个测试分配为
+  39/39/38/38/38/38/38/38/38；
+- 删除专门占用 Hosted Runner 等待 CI 的 Job；
+- Release Stage 在 CI 尾段同时下载并 Hash 已验证资产，只在创建 Tag/Draft 前检查 Exact-SHA CI；
+- App Job 携带已验证的 `RELEASE.json` Sidecar，Manifest 不再重新读取四个大型压缩包；
+- npm Publish 关闭 2 万文件 Notice 清单，并删除 Publication Job 中无必要的 npm 全局升级。
+
 ## 已确认的浪费来源
 
 ### Agent 调查
@@ -260,12 +283,11 @@ Changed Files + Failure Signatures
 - Browser 和 Mobile Job 只依赖 Frontend Artifact Job。
 - 从原 `Check` 删除 Frontend Build，保证日常 CI 不会重复 Build。
 
-### B2. 在不改变测试隔离的前提下均衡 Browser Shard
+### B2. 在不增加 Job 内并发的前提下均衡 Browser Shard
 
-- Chromium 文件级 Shard 从 10 增加到 12，使原来最慢的 Terminal Shard 不再同时承担 Cross-skin
-  和 Link Test Group。
-- 保留单 Worker 和文件级隔离，不对有状态 Scenario File 启用尚未证明安全的 Fully Parallel。
-- 消除依赖安装浪费后如果仍有明显不均衡，再按 Lifecycle Boundary 拆分大型 Scenario File。
+- Chromium 使用 9 个测试级 Shard，与 Release Preparation 同时运行时刚好适配实测 20 Job 远端并发上限。
+- 每个 Job 仍然严格单 Worker；测试级 Sharding 只均衡跨 Runner 分配，不在同一个 Backend 上并发跑测试。
+- Local 与 Focused Run 默认继续保持文件级顺序，只有 CI Sharding 显式启用测试级分配。
 
 ### B3. 第一次失败立即生成诊断包
 
