@@ -55,9 +55,20 @@ const BUSINESS_HEALTH_INTERVAL_MS = 10_000
 const BUSINESS_HEALTH_DEADLINE_MS = 8_000
 const BUSINESS_HEALTH_RETRY_MS = 2_000
 const AGENT_STATE_SNAPSHOT_PAGE_DEADLINE_MS = 30_000
+const READ_ONLY_CLIENT_MESSAGE_TYPES = new Set<ClientMessage['type']>([
+  'business-health-probe',
+  'focus-agent',
+  'protocol-hello',
+  'state-resync',
+  'unwatch-workspace-files',
+  'watch-workspace-files',
+])
+const READ_ONLY_SILENT_MESSAGE_TYPES = new Set<ClientMessage['type']>(['resize-agent'])
+
+type WebSocketAccessMode = 'unknown' | 'owner' | 'read-only'
 
 export interface WebSocketState {
-  accessMode: 'owner' | 'read-only'
+  accessMode: WebSocketAccessMode
   agents: Agent[]
   agentInventoryComplete: boolean
   taskHistory: TaskHistoryEntry[]
@@ -102,6 +113,8 @@ function normalizeStateAgent(agent: Agent, mainAgentId: string | null, previous?
 
 export function useWebSocket() {
   const wsRef = useRef<WebSocket | null>(null)
+  const accessModeRef = useRef<WebSocketAccessMode>('unknown')
+  const pendingAccessMessagesRef = useRef<ClientMessage[]>([])
   const focusedAgentIdRef = useRef<string | null>(null)
   const agentActivityScopeRef = useRef<'all' | 'focused' | 'none'>('all')
   const agentPreviewScopeRef = useRef<'all' | 'focused' | 'none'>('none')
@@ -120,7 +133,7 @@ export function useWebSocket() {
   const composerRequestKeysRef = useRef(new Map<string, string>())
   const composerAcceptedRequestsRef = useRef(new Set<string>())
   const [state, setState] = useState<WebSocketState>({
-    accessMode: 'owner',
+    accessMode: 'unknown',
     agents: [],
     agentInventoryComplete: false,
     taskHistory: [],
@@ -190,6 +203,14 @@ export function useWebSocket() {
   const sendMessage = useCallback((msg: ClientMessage) => {
     const ws = wsRef.current
     if (ws && ws.readyState === WebSocket.OPEN) {
+      if (accessModeRef.current === 'unknown') {
+        pendingAccessMessagesRef.current.push(msg)
+        return true
+      }
+      if (
+        accessModeRef.current === 'read-only'
+        && READ_ONLY_SILENT_MESSAGE_TYPES.has(msg.type)
+      ) return true
       ws.send(JSON.stringify(msg))
       return true
     }
@@ -532,6 +553,9 @@ export function useWebSocket() {
       // Keep it alive in hidden tabs so Chat keeps progressing and returning
       // to the page does not manufacture a disconnected/reconnecting state.
       if (disposed) return
+      accessModeRef.current = 'unknown'
+      pendingAccessMessagesRef.current = []
+      setState(prev => prev.accessMode === 'unknown' ? prev : { ...prev, accessMode: 'unknown' })
       let wsUrl = appWsUrl()
       const queryToken = new URLSearchParams(location.search).get('token')
       // Attach token from cookie for mobile WS compatibility
@@ -589,18 +613,29 @@ export function useWebSocket() {
           if (!validation.ok) throw new Error(validation.error)
           const msg = parsed as ServerMessage
           switch (msg.type) {
-            case 'protocol-hello':
+            case 'protocol-hello': {
+              const accessMode = msg.accessMode === 'read-only' ? 'read-only' : 'owner'
+              accessModeRef.current = accessMode
               setState(prev => ({
                 ...prev,
-                accessMode: msg.accessMode === 'read-only' ? 'read-only' : 'owner',
+                accessMode,
               }))
               if (!protocolCompatible(msg.protocolVersion)) {
                 protocolMismatchNotice = msg.protocolVersion < MIN_PROTOCOL_VERSION
                   ? `This page requires a newer Farming backend (protocol ${MIN_PROTOCOL_VERSION}, backend has ${msg.protocolVersion}). Update and restart the Farming backend.`
                   : 'The Farming backend is newer than this page. Refresh this page to load the updated interface.'
                 ws.close(4002, `Unsupported Farming protocol version ${msg.protocolVersion}`)
+              } else {
+                const pendingMessages = pendingAccessMessagesRef.current
+                pendingAccessMessagesRef.current = []
+                pendingMessages.forEach(message => {
+                  if (accessMode === 'owner' || READ_ONLY_CLIENT_MESSAGE_TYPES.has(message.type)) {
+                    ws.send(JSON.stringify(message))
+                  }
+                })
               }
               break
+            }
             case 'protocol-error':
               protocolMismatchNotice = msg.message
               setState(prev => ({
@@ -1009,6 +1044,8 @@ export function useWebSocket() {
             : null
         resetBusinessProbeObservation()
         clearAgentStateSnapshotDeadline()
+        accessModeRef.current = 'unknown'
+        pendingAccessMessagesRef.current = []
         wsRef.current = null
         agentStateCursorRef.current = null
         agentStateSnapshotAgentsRef.current = []
@@ -1054,6 +1091,8 @@ export function useWebSocket() {
       if (wsRef.current === activeSocket) {
         wsRef.current = null
       }
+      accessModeRef.current = 'unknown'
+      pendingAccessMessagesRef.current = []
       markBackendDisconnected()
       activeSocket?.close()
     }

@@ -870,6 +870,7 @@ body.code-resizing-sidebar {
 }
 
 .code-share-token-card {
+  appearance: none;
   width: 100%;
   min-height: 40px;
   margin-top: 8px;
@@ -877,9 +878,29 @@ body.code-resizing-sidebar {
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.72);
   color: #263327;
+  cursor: pointer;
   display: block;
+  font: inherit;
   padding: 7px 10px;
   text-align: left;
+}
+
+.code-share-token-card:hover,
+.code-share-token-card:focus-visible {
+  border-color: rgba(70, 91, 68, 0.26);
+  background: #ffffff;
+}
+
+.code-share-token-card:focus-visible {
+  outline: 2px solid #9aa597;
+  outline-offset: 2px;
+}
+
+.code-share-token-card-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
 }
 
 .code-share-token {
@@ -908,6 +929,13 @@ body.code-resizing-sidebar {
 
 .code-share-token-line {
   min-width: 0;
+}
+
+.code-share-copy-action {
+  color: #6d736b;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .code-share-passphrase-warning {

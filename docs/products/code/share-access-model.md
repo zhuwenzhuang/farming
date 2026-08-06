@@ -15,10 +15,12 @@ The share popover exposes different capabilities deliberately:
 | Read-only visitor | Read-only | Read-only | Not disclosed |
 
 The UI must state the QR permission and expiry directly below the QR code in muted
-text. The copy confirmation must say that the copied link is read-only, cannot
-modify the workspace, and expires with the countdown. An owner passphrase must
-carry a separate warning that it grants full control until the instance credential
-changes; it does not inherit the QR countdown.
+text. The copy confirmation must say that the current-page link is read-only,
+cannot modify the workspace, and expires with the countdown. The owner passphrase
+area is a clickable button that copies a full-control URL while preserving the
+segmented passphrase line wrapping. It must carry a separate warning that it grants
+full control until the instance credential changes; it does not inherit the QR
+countdown.
 
 Sharing requires token authentication. If authentication is disabled, Farming
 must refuse to present a share result because a recipient could bypass any
@@ -84,6 +86,12 @@ The primary WebSocket admits only protocol negotiation, health/state refresh,
 view focus, and file-watch subscription messages. Agent start, terminal or Chat
 input, permission responses, interruption, resize, clear, archive, and restart
 messages are rejected before reaching lifecycle or session owners.
+
+The frontend queues ordinary client messages until the WebSocket handshake confirms
+the access mode. It flushes them for an owner and only flushes view-safe messages for
+a read-only visitor. Automatic Terminal `resize-agent` messages are silently skipped
+on read-only pages so the initial layout does not surface a non-user permission error;
+the backend continues to reject that message as the security boundary.
 
 Browser Viewer connections may receive frames but their input and resize messages
 are ignored. Computer Viewer connections are rejected because its bidirectional

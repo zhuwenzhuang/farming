@@ -34,6 +34,7 @@ function run() {
   assert(shareButtonSource.includes('JSON.stringify(target ? { target } : {})'));
   assert(shareButtonSource.includes("method: 'DELETE'"));
   assert(shareButtonSource.includes('writeClipboardText(nextTicket.longUrl)'));
+  assert(shareButtonSource.includes('writeClipboardText(fullAccessUrl)'));
   assert(shareButtonSource.includes('void createAndCopyTicket(force)'));
   assert(shareButtonSource.includes('ticket.shortUrl'), 'QR matrix should encode the short URL');
   assert(shareButtonSource.includes('className="code-share-qr-canvas"'));
@@ -41,10 +42,14 @@ function run() {
   assert(shareButtonSource.includes('className="code-share-countdown"'));
   assert(!shareButtonSource.includes('ticket?.code ||'), 'short ticket codes should stay out of the visible QR popover');
   assert(shareButtonSource.includes('ticket?.tokenLabel'), 'the writable passphrase should remain visible');
+  assert(shareButtonSource.includes('ticket.fullAccessUrl'), 'the owner passphrase button should require a writable URL');
   assert(shareButtonSource.includes("ticket.shortUrlAccessMode === 'owner'"), 'QR messaging should follow the issued permission');
   assert(shareButtonSource.includes('copy.shareQrFullAccessWarning'));
   assert(shareButtonSource.includes('copy.shareQrReadOnlyWarning'));
-  assert(shareButtonSource.includes('ticket?.tokenLabel && ('), 'read-only re-shares must hide the owner passphrase');
+  assert(
+    shareButtonSource.includes('ticket?.tokenLabel && ticket.fullAccessUrl && ('),
+    'read-only re-shares must hide the owner passphrase and writable URL button'
+  );
   assert(shareButtonSource.includes('copy.sharePassphraseFullAccessWarning'));
   assert(shareButtonSource.includes('function tokenDisplayLines'));
   assert(shareButtonSource.includes(".split('-')"));
@@ -73,8 +78,10 @@ function run() {
   assert(copySource.includes("sharePage: '分享当前页面'"));
   assert(!copySource.includes("shareTokenLabel: '俳句口令'"));
   assert(!copySource.includes("shareShortLinkLabel: '分享短链'"));
-  assert(copySource.includes("copiedShareLink: '只读链接已复制'"));
+  assert(copySource.includes("copiedShareLink: '当前页面只读链接已复制'"));
   assert(copySource.includes("shareLinkVisibility: '只能查看，不能修改；链接会随倒计时过期。'"));
+  assert(copySource.includes("copyFullAccessShareLink: '复制完整控制链接'"));
+  assert(copySource.includes("copiedFullAccessShareLink: '完整控制链接已复制'"));
   assert(copySource.includes("sharePassphraseFullAccessWarning: '授予完整控制权限，直到实例口令变更。'"));
   assert(copySource.includes("shareQrFullAccessWarning: '授予完整控制权限；二维码会随倒计时过期。'"));
   assert(copySource.includes("shareQrReadOnlyWarning: '只能查看，不能修改；二维码会随倒计时过期。'"));
@@ -87,18 +94,19 @@ function run() {
   assert(stylesSource.includes('.code-share-qr-access-note'));
   assert(appSource.includes('data-testid="code-read-only-share-banner"'));
   assert(appSource.includes('只读分享 · 只能查看，不能修改'));
-  assert(webSocketSource.includes("accessMode: msg.accessMode === 'read-only' ? 'read-only' : 'owner'"));
+  assert(webSocketSource.includes("const accessMode = msg.accessMode === 'read-only' ? 'read-only' : 'owner'"));
   assert(!stylesSource.includes('.code-share-meta'));
-  assert(shareButtonSource.includes('data-testid="code-share-token-display"'));
-  assert(!shareButtonSource.includes('data-testid="code-share-copy-link"'), 'the poetic token should be display-only');
+  assert(shareButtonSource.includes('data-testid="code-share-copy-link"'), 'the poetic passphrase should copy the writable URL');
+  assert(shareButtonSource.includes('className="code-share-token-card-main"'));
+  assert(shareButtonSource.includes('className="code-share-copy-action"'));
   assert(shareButtonSource.includes('data-testid="code-share-copy-status"'));
   assert(!shareButtonSource.includes('data-testid="code-share-copied-toast"'));
   assert(
     shareButtonSource.indexOf('className="code-share-qr-frame"') <
       shareButtonSource.indexOf('data-testid="code-share-copy-status"') &&
       shareButtonSource.indexOf('data-testid="code-share-copy-status"') <
-        shareButtonSource.indexOf('data-testid="code-share-token-display"'),
-    'copy confirmation should sit between the QR code and the display-only token'
+        shareButtonSource.indexOf('data-testid="code-share-copy-link"'),
+    'read-only copy confirmation should sit between the QR code and the full-control copy button'
   );
   assert(stylesSource.includes('.code-share-token-card'));
   assert(stylesSource.includes('.code-share-copy-status'));

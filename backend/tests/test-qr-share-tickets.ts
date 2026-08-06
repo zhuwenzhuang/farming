@@ -75,6 +75,8 @@ function run() {
   assert(serverSource.includes('shortUrlAccessMode: requesterAccessMode'));
   assert(serverSource.includes("longUrlAccessMode: 'read-only'"));
   assert(serverSource.includes("tokenLabel: requesterAccessMode === 'owner' ? tokenAuth.getToken() : ''"));
+  assert(serverSource.includes("const fullAccessPath = requesterAccessMode === 'owner'"));
+  assert(serverSource.includes("...(fullAccessPath ? { fullAccessUrl: absoluteClientUrl(req, fullAccessPath) } : {})"));
   assert(serverSource.includes("const qrToken = requesterAccessMode === 'owner' ? tokenAuth.getToken() : readOnlyToken"));
   assert(serverSource.includes('requesterExpiresAt || Number.POSITIVE_INFINITY'));
   assert(serverSource.includes('accessMode,'), 'the WebSocket hello should disclose the authoritative access mode');

@@ -916,6 +916,9 @@ app.post(routePath(BASE_PATH, '/api/share/qr-ticket'), express.json({ limit: '8k
     const ticket = qrShareTickets.create(qrToken, { expiresAt: shareExpiresAt, now, targetQuery });
     const shortPath = routePath(BASE_PATH, `/j/${ticket.code}`);
     const longPath = entryPathWithToken(ticket.targetQuery, readOnlyToken);
+    const fullAccessPath = requesterAccessMode === 'owner'
+      ? entryPathWithToken(ticket.targetQuery, qrToken)
+      : '';
     res.json({
       code: ticket.code,
       expiresAt: ticket.expiresAt,
@@ -926,6 +929,7 @@ app.post(routePath(BASE_PATH, '/api/share/qr-ticket'), express.json({ limit: '8k
       shortUrlAccessMode: requesterAccessMode,
       longUrlAccessMode: 'read-only',
       tokenLabel: requesterAccessMode === 'owner' ? tokenAuth.getToken() : '',
+      ...(fullAccessPath ? { fullAccessUrl: absoluteClientUrl(req, fullAccessPath) } : {}),
     });
   } catch (caught) {
     const error = caughtError(caught);

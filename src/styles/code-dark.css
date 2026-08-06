@@ -1572,8 +1572,17 @@ body.code-mode[data-appearance='dark'] .code-share-token-card {
   color: var(--code-dark-text);
 }
 
+body.code-mode[data-appearance='dark'] .code-share-token-card:hover,
+body.code-mode[data-appearance='dark'] .code-share-token-card:focus-visible {
+  background: var(--code-dark-bg-hover);
+}
+
 body.code-mode[data-appearance='dark'] .code-share-token {
   color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-share-copy-action {
+  color: var(--code-dark-text-muted);
 }
 
 body.code-mode[data-appearance='dark'] .code-share-qr-access-note {

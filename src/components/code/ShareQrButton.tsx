@@ -22,6 +22,7 @@ type ShareTicket = {
   shortPath: string
   shortUrl: string
   longUrl: string
+  fullAccessUrl?: string
   shortUrlAccessMode: 'owner' | 'read-only'
   longUrlAccessMode: 'read-only'
   tokenLabel: string
@@ -190,6 +191,7 @@ export function ShareQrButton({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
+  const [fullAccessCopied, setFullAccessCopied] = useState(false)
   const [now, setNow] = useState(() => Date.now())
   const [placement, setPlacement] = useState({ x: 0, y: 0 })
   const rootRef = useRef<HTMLDivElement | null>(null)
@@ -267,6 +269,7 @@ export function ShareQrButton({
       setTicket(body)
       setNow(Date.now())
       setCopied(false)
+      setFullAccessCopied(false)
       return body
     } catch (caught) {
       if (requestSeq === requestSeqRef.current) {
@@ -294,6 +297,18 @@ export function ShareQrButton({
     if (nextTicket) await copyShareTicket(nextTicket)
   }, [copyShareTicket, createTicket])
 
+  const copyFullAccessLink = useCallback(async () => {
+    const fullAccessUrl = ticketRef.current?.fullAccessUrl
+    if (!fullAccessUrl) return
+    const ok = await writeClipboardText(fullAccessUrl)
+    if (!ok) {
+      setError(copy.copyFailed)
+      return
+    }
+    setError('')
+    setFullAccessCopied(true)
+  }, [copy.copyFailed])
+
   const closePopover = useCallback(() => {
     clearCloseTimer()
     requestSeqRef.current += 1
@@ -301,6 +316,7 @@ export function ShareQrButton({
     setPinned(false)
     setError('')
     setCopied(false)
+    setFullAccessCopied(false)
     setLoading(false)
     const current = ticketRef.current
     ticketRef.current = null
@@ -359,6 +375,7 @@ export function ShareQrButton({
     ticketRef.current = null
     setTicket(null)
     setCopied(false)
+    setFullAccessCopied(false)
     void revokeShareTicket(current)
   }, [shareTargetSignature])
 
@@ -508,20 +525,30 @@ export function ShareQrButton({
               </span>
             </div>
           )}
-          {ticket?.tokenLabel && (
-            <div className="code-share-token-card" data-testid="code-share-token-display">
-              <span
-                ref={tokenDisplayRef}
-                className={`code-share-token ${singleLineTokenFits ? 'single-line' : ''}`}
-                aria-label={tokenLabel}
-              >
-                <span ref={tokenMeasureRef} className="code-share-token-measure" aria-hidden="true">{tokenLabel}</span>
-                {tokenLines.map((line, index) => (
-                  <span key={`${index}-${line}`} className="code-share-token-line">{line}</span>
-                ))}
+          {ticket?.tokenLabel && ticket.fullAccessUrl && (
+            <button
+              type="button"
+              className="code-share-token-card"
+              data-testid="code-share-copy-link"
+              onClick={() => void copyFullAccessLink()}
+            >
+              <span className="code-share-token-card-main">
+                <span
+                  ref={tokenDisplayRef}
+                  className={`code-share-token ${singleLineTokenFits ? 'single-line' : ''}`}
+                  aria-label={tokenLabel}
+                >
+                  <span ref={tokenMeasureRef} className="code-share-token-measure" aria-hidden="true">{tokenLabel}</span>
+                  {tokenLines.map((line, index) => (
+                    <span key={`${index}-${line}`} className="code-share-token-line">{line}</span>
+                  ))}
+                </span>
+                <span className="code-share-copy-action">
+                  {fullAccessCopied ? copy.copiedFullAccessShareLink : copy.copyFullAccessShareLink}
+                </span>
               </span>
               <span className="code-share-passphrase-warning">{copy.sharePassphraseFullAccessWarning}</span>
-            </div>
+            </button>
           )}
           {error && <div className="code-share-error" role="status">{error}</div>}
         </div>

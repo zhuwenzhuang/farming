@@ -144,6 +144,8 @@ export interface CodeCopy {
   scanToOpenOnPhone: string
   copiedShareLink: string
   shareLinkVisibility: string
+  copyFullAccessShareLink: string
+  copiedFullAccessShareLink: string
   sharePassphraseFullAccessWarning: string
   shareQrFullAccessWarning: string
   shareQrReadOnlyWarning: string
@@ -664,8 +666,10 @@ const EN_COPY: CodeCopy = {
   copyFailed: 'Copy failed',
   sharePage: 'Share current page',
   scanToOpenOnPhone: 'Scan to open on phone',
-  copiedShareLink: 'Read-only link copied',
+  copiedShareLink: 'Current page read-only link copied',
   shareLinkVisibility: 'View only, no changes. It expires with the countdown.',
+  copyFullAccessShareLink: 'Copy full-control link',
+  copiedFullAccessShareLink: 'Full-control link copied',
   sharePassphraseFullAccessWarning: 'Full control until the instance passphrase changes.',
   shareQrFullAccessWarning: 'Full control. This QR code expires with the countdown.',
   shareQrReadOnlyWarning: 'View only, no changes. This QR code expires with the countdown.',
@@ -1212,8 +1216,10 @@ const ZH_COPY: CodeCopy = {
   copyFailed: '复制失败',
   sharePage: '分享当前页面',
   scanToOpenOnPhone: '手机扫码打开',
-  copiedShareLink: '只读链接已复制',
+  copiedShareLink: '当前页面只读链接已复制',
   shareLinkVisibility: '只能查看，不能修改；链接会随倒计时过期。',
+  copyFullAccessShareLink: '复制完整控制链接',
+  copiedFullAccessShareLink: '完整控制链接已复制',
   sharePassphraseFullAccessWarning: '授予完整控制权限，直到实例口令变更。',
   shareQrFullAccessWarning: '授予完整控制权限；二维码会随倒计时过期。',
   shareQrReadOnlyWarning: '只能查看，不能修改；二维码会随倒计时过期。',
