@@ -3,17 +3,24 @@ import { useEffect, useRef } from 'react'
 import type { RefObject } from 'react'
 import { appPath } from '@/lib/base-path'
 import { useEscapeKey } from '@/hooks/useKeyboard'
+import type { UiLanguage } from '@/lib/ui-preferences'
 import type { CodeCopy } from './copy'
 
 const FARMING_GITHUB_URL = 'https://github.com/zhuwenzhuang/farming'
+const FARMING_DOCS_URL: Record<UiLanguage, string> = {
+  en: 'https://zhuwenzhuang.github.io/farming/en/',
+  zh: 'https://zhuwenzhuang.github.io/farming/cn/',
+}
 
 export function BrandAboutDialog({
   copy,
+  language,
   version,
   onClose,
   returnFocusRef,
 }: {
   copy: CodeCopy
+  language: UiLanguage
   version: string
   onClose: () => void
   returnFocusRef: RefObject<HTMLElement | null>
@@ -51,7 +58,13 @@ export function BrandAboutDialog({
           <p>{copy.brandStoryOrigin}</p>
           <p>{copy.brandStoryPurpose}</p>
         </div>
-        <a className="code-brand-github" href={FARMING_GITHUB_URL} target="_blank" rel="noreferrer">{copy.brandGithub}</a>
+        <div className="code-brand-links">
+          <a className="code-brand-github" href={FARMING_DOCS_URL[language]} target="_blank" rel="noreferrer">
+            {language === 'zh' ? '文档' : 'Documentation'}
+          </a>
+          <span aria-hidden="true"> · </span>
+          <a className="code-brand-github" href={FARMING_GITHUB_URL} target="_blank" rel="noreferrer">{copy.brandGithub}</a>
+        </div>
       </section>
     </div>,
     document.body,

@@ -865,6 +865,7 @@ export function CodeSidebar({
       {brandDialogOpen && (
         <BrandAboutDialog
           copy={copy}
+          language={language}
           version={currentVersionLabel}
           onClose={closeBrandDialog}
           returnFocusRef={productMarkRef}
