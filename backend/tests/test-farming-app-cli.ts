@@ -1243,23 +1243,45 @@ async function runTests() {
     assert(releaseWorkflowSource.includes('--title "Farming ${RELEASE_VERSION} · ${RELEASE_CODENAME}"'));
     assert(releaseWorkflowSource.includes('workflow_dispatch:'));
     assert(!releaseWorkflowSource.includes("push:\n    tags:\n      - 'v*'"));
-    const npmPublishJob = releaseWorkflowSource.slice(
-      releaseWorkflowSource.indexOf('  publish-npm:'),
-      releaseWorkflowSource.indexOf('  publish-github-release:'),
+    const npmPrepareJob = releaseWorkflowSource.slice(
+      releaseWorkflowSource.indexOf('  prepare-npm:'),
+      releaseWorkflowSource.indexOf('  stage-release:'),
     );
     const stagedReleaseJob = releaseWorkflowSource.slice(
       releaseWorkflowSource.indexOf('  stage-release:'),
+      releaseWorkflowSource.indexOf('  publish-github-release:'),
+    );
+    const githubPublishJob = releaseWorkflowSource.slice(
+      releaseWorkflowSource.indexOf('  publish-github-release:'),
+      releaseWorkflowSource.indexOf('  verify-github-release:'),
+    );
+    const githubVerifyJob = releaseWorkflowSource.slice(
+      releaseWorkflowSource.indexOf('  verify-github-release:'),
       releaseWorkflowSource.indexOf('  publish-npm:'),
     );
-    assert(npmPublishJob.includes('      - build-linux'));
-    assert(npmPublishJob.includes('      - build-macos'));
-    assert(stagedReleaseJob.includes('      - publish-npm'));
+    const npmPublishJob = releaseWorkflowSource.slice(
+      releaseWorkflowSource.indexOf('  publish-npm:'),
+    );
+    assert(npmPrepareJob.includes('npm run release:npm:pack -- "${package_dir}"'));
+    assert(npmPrepareJob.includes('npm run release:npm:smoke -- "${package_tarball}"'));
+    assert(stagedReleaseJob.includes('      - ci-gate'));
+    assert(stagedReleaseJob.includes('      - build-linux'));
+    assert(stagedReleaseJob.includes('      - build-macos'));
+    assert(stagedReleaseJob.includes('      - prepare-npm'));
     assert(stagedReleaseJob.includes('--draft'));
     assert(stagedReleaseJob.includes('git push origin "refs/tags/${RELEASE_TAG}"'));
-    assert(releaseWorkflowSource.includes('gh release edit "${tag}" --repo "${GITHUB_REPOSITORY}" --draft=false'));
+    assert(githubPublishJob.includes('gh release edit "${tag}" --repo "${GITHUB_REPOSITORY}" --draft=false'));
+    assert(githubVerifyJob.includes('https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${tag}'));
+    assert(githubVerifyJob.includes('GitHub Release is missing assets'));
+    assert(githubVerifyJob.includes('Public release asset checksum mismatch'));
+    assert(npmPublishJob.includes('name: Publish npm package last'));
+    assert(npmPublishJob.includes('      - verify-github-release'));
+    assert(npmPublishJob.includes('sha256sum --check'));
+    assert(npmPublishJob.includes('npm publish "${package_tarball}"'));
+    assert(!releaseWorkflowSource.includes('run: npm run check'));
     const releaseWorkflow = YAML.parse(releaseWorkflowSource);
     assert.deepStrictEqual(releaseWorkflow.permissions, { actions: 'read', contents: 'write' });
-    const releaseCiGate = releaseWorkflow.jobs.preflight.steps.find(
+    const releaseCiGate = releaseWorkflow.jobs['ci-gate'].steps.find(
       step => step.name === 'Require successful CI for candidate revision',
     );
     assert(releaseCiGate, 'release preflight must require CI for the exact candidate revision');
@@ -1271,9 +1293,20 @@ async function runTests() {
         && releaseCiGate.run.includes('--exit-status'),
       'release preflight must find and fail closed on the candidate revision CI run',
     );
-    assert.deepStrictEqual(releaseWorkflow.jobs['publish-npm'].needs, ['build-linux', 'build-macos']);
-    assert.deepStrictEqual(releaseWorkflow.jobs['stage-release'].needs, ['publish-npm']);
+    assert.strictEqual(releaseWorkflow.jobs['ci-gate'].needs, 'preflight');
+    assert.strictEqual(releaseWorkflow.jobs['build-linux'].needs, 'preflight');
+    assert.strictEqual(releaseWorkflow.jobs['build-macos'].needs, 'preflight');
+    assert.strictEqual(releaseWorkflow.jobs['prepare-npm'].needs, 'preflight');
+    assert.deepStrictEqual(
+      releaseWorkflow.jobs['stage-release'].needs,
+      ['ci-gate', 'build-linux', 'build-macos', 'prepare-npm'],
+    );
     assert.deepStrictEqual(releaseWorkflow.jobs['publish-github-release'].needs, ['stage-release']);
+    assert.deepStrictEqual(releaseWorkflow.jobs['verify-github-release'].needs, ['publish-github-release']);
+    assert.deepStrictEqual(
+      releaseWorkflow.jobs['publish-npm'].needs,
+      ['verify-github-release', 'prepare-npm'],
+    );
   }
 
   {

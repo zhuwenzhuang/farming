@@ -52,8 +52,16 @@ function run() {
   assert(
     authoritativeScripts.includes('npm run check')
       && authoritativeScripts.includes('npm audit --omit=dev')
-      && authoritativeScripts.includes('npm run build'),
-    `Node ${AUTHORITATIVE_NODE_MAJOR} must stay authoritative for lint, the dependency audit, and the frontend build`,
+      && !authoritativeScripts.includes('npm run build'),
+    `Node ${AUTHORITATIVE_NODE_MAJOR} must stay authoritative for lint and the dependency audit without blocking browser startup on the frontend build`,
+  );
+  const frontendScripts = runScriptsOf(workflow.jobs.frontend);
+  assert.deepStrictEqual(nodeMajorsOf(workflow.jobs.frontend), [AUTHORITATIVE_NODE_MAJOR]);
+  assert(
+    frontendScripts.includes('npm ci')
+      && frontendScripts.includes('FARMING_BASE_PATH=/farming npm run build')
+      && !frontendScripts.includes('npm run check'),
+    'the frontend artifact job must build once without duplicating the repository check',
   );
   assert.deepStrictEqual(
     nodeMajorsOf(workflow.jobs.browser),

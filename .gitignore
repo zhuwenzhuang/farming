@@ -42,7 +42,11 @@ playwright-report/
 # Gas City
 .gc/
 .beads/
-.codex/
+.codex/*
+!.codex/skills/
+.codex/skills/*
+!.codex/skills/farming-release/
+!.codex/skills/farming-release/**
 .claude/
 .dolt-backup/
 fa-*/
@@ -51,6 +55,8 @@ city.toml
 pack.toml
 packs.lock
 agents/
+!.codex/skills/farming-release/agents/
+!.codex/skills/farming-release/agents/openai.yaml
 
 # Beads / Dolt files (added by bd init)
 .dolt/

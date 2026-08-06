@@ -40,15 +40,29 @@ jobs:
       - name: Audit production dependencies
         run: npm audit --omit=dev
 
+  # Browser feedback must not wait behind typecheck, lint, unit tests, and the
+  # dependency audit. Build the shared frontend bundle independently while the
+  # authoritative Check and Node 24 jobs run in parallel.
+  frontend:
+    name: Frontend artifact
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: npm ci --registry=https://registry.npmjs.org/
+
       - name: Build frontend
         run: FARMING_BASE_PATH=/farming npm run build
 
-      # The browser jobs serve this exact bundle, so the expensive half of the
-      # build (vite plus the CRT markdown bundles, both dominated by Monaco)
-      # happens once instead of once per shard. Everything the browser jobs need
-      # from `npm run build` lands in dist/: vite output, build:crt-markdown, and
-      # the ACP vendor copies from prepare:acp-vendor. Products that land next to
-      # their sources are rebuilt inside each browser job instead.
       - name: Upload frontend build
         uses: actions/upload-artifact@v4
         with:
@@ -58,7 +72,7 @@ jobs:
           retention-days: 1
 
   # Node 22 stays the authoritative gate and keeps sole ownership of lint, the
-  # dependency audit, the frontend build, and the Chromium shards. This job only
+  # dependency audit, and the Chromium shards. This job only
   # proves the >=24 compatibility floor still typechecks and passes the test
   # suite, so it costs one extra parallel job instead of a full matrix.
   node24:
@@ -86,12 +100,12 @@ jobs:
 
   browser:
     name: Chromium (${{ matrix.shard }})
-    needs: check
+    needs: frontend
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        shard: ['1/6', '2/6', '3/6', '4/6', '5/6', '6/6']
+        shard: ['1/10', '2/10', '3/10', '4/10', '5/10', '6/10', '7/10', '8/10', '9/10', '10/10']
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -159,7 +173,7 @@ jobs:
   # screenshot baselines, so it runs unsharded next to the Chromium matrix.
   mobile:
     name: iPhone WebKit
-    needs: check
+    needs: frontend
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

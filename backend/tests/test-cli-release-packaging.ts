@@ -143,16 +143,21 @@ function run() {
     'npm packaging must stage the locked production tree, retain reviewed development overrides, and rewrite production override edges before bundling',
   );
   assert(
-    npmSmokeScript.includes('scripts/package-npm-release.sh')
-      && releaseWorkflow.includes('npm run release:npm:pack')
-      && releaseWorkflow.includes('npm publish "${package_tarball}"'),
+    npmSmokeScript.includes('PACKAGE_TARBALL="${1:-}"')
+      && npmSmokeScript.includes('scripts/package-npm-release.sh')
+      && npmSmokeScript.includes('npm release tarball not found')
+      && releaseWorkflow.match(/npm run release:npm:pack/g)?.length === 1
+      && releaseWorkflow.includes('npm run release:npm:smoke -- "${package_tarball}"')
+      && releaseWorkflow.includes('name: farming-npm-${{ inputs.release_version }}')
+      && releaseWorkflow.includes('npm publish "${package_tarball}"')
+      && releaseWorkflow.includes('sha256sum --check'),
     'npm smoke and publication must consume the same staged tarball',
   );
   assert(
     npmSourceVerificationScript.includes('attempt <= MAX_ATTEMPTS')
       && npmSourceVerificationScript.includes('if [[ -n "${published_sha}" ]]')
       && npmSourceVerificationScript.includes('sleep "${RETRY_DELAY_SECONDS}"')
-      && releaseWorkflow.match(/bash scripts\/verify-npm-release-source\.sh/g)?.length === 4,
+      && releaseWorkflow.match(/bash scripts\/verify-npm-release-source\.sh/g)?.length === 3,
     'release source verification must retry missing npm gitHead metadata and reject a conflicting revision',
   );
   assert(

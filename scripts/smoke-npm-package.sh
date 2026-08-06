@@ -12,6 +12,7 @@ NPM_PACK_CACHE="${TMP_ROOT}/npm-pack-cache"
 NPM_REGISTRY="${FARMING_NPM_SMOKE_REGISTRY:-https://registry.npmjs.org/}"
 INSTALL_LOG="${TMP_ROOT}/npm-install.log"
 NPM_MAJOR="$(npm --version | cut -d. -f1)"
+PACKAGE_TARBALL="${1:-}"
 SERVER_PID=""
 NATIVE_HOST_PID=""
 MAIN_BASH_PID=""
@@ -70,12 +71,14 @@ trap cleanup EXIT
 
 mkdir -p "${PREFIX}" "${CONFIG_DIR}" "${WORKSPACE_DIR}" "${NPM_CACHE}" "${NPM_PACK_CACHE}"
 cd "${PROJECT_ROOT}"
-PACKAGE_TARBALL="$(
-  NPM_CONFIG_CACHE="${NPM_PACK_CACHE}" FARMING_NPM_PACK_REGISTRY="${NPM_REGISTRY}" \
-    "${PROJECT_ROOT}/scripts/package-npm-release.sh" "${TMP_ROOT}"
-)"
 if [ -z "${PACKAGE_TARBALL}" ]; then
-  echo "npm release pack did not create a farming-code tarball" >&2
+  PACKAGE_TARBALL="$(
+    NPM_CONFIG_CACHE="${NPM_PACK_CACHE}" FARMING_NPM_PACK_REGISTRY="${NPM_REGISTRY}" \
+      "${PROJECT_ROOT}/scripts/package-npm-release.sh" "${TMP_ROOT}"
+  )"
+fi
+if [ ! -f "${PACKAGE_TARBALL}" ]; then
+  echo "npm release tarball not found: ${PACKAGE_TARBALL:-missing}" >&2
   exit 1
 fi
 

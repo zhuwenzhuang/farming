@@ -69,6 +69,11 @@ jobs:
             bash scripts/verify-npm-release-source.sh "farming-code@${RELEASE_VERSION}" "${candidate_sha}"
           fi
 
+  ci-gate:
+    name: Require exact-SHA CI
+    runs-on: ubuntu-latest
+    needs: preflight
+    steps:
       - name: Require successful CI for candidate revision
         env:
           GH_TOKEN: ${{ github.token }}
@@ -141,9 +146,6 @@ jobs:
 
       - name: Install dependencies
         run: npm ci --registry=https://registry.npmjs.org/
-
-      - name: Run checks
-        run: npm run check
 
       - name: Build Linux CLI
         env:
@@ -322,11 +324,70 @@ jobs:
           path: release-upload/*
           if-no-files-found: error
 
+  prepare-npm:
+    name: Prepare and smoke npm package
+    runs-on: ubuntu-latest
+    needs: preflight
+    permissions:
+      contents: read
+    env:
+      FARMING_RELEASE_VERSION: ${{ inputs.release_version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install current npm CLI
+        run: npm install --global npm@latest
+
+      - name: Install dependencies
+        run: npm ci --registry=https://registry.npmjs.org/
+
+      - name: Build and smoke one npm tarball
+        env:
+          RELEASE_VERSION: ${{ inputs.release_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_version="$(node -p "require('./package.json').version")"
+          if [[ "${RELEASE_VERSION}" != "${package_version}" ]]; then
+            echo "release_version and npm package versions must match: requested=${RELEASE_VERSION}, package=${package_version}" >&2
+            exit 1
+          fi
+          package_dir="${RUNNER_TEMP}/farming-npm-package"
+          npm run release:npm:pack -- "${package_dir}"
+          package_tarball="${package_dir}/farming-code-${RELEASE_VERSION}.tgz"
+          npm run release:npm:smoke -- "${package_tarball}"
+          mkdir -p npm-upload
+          cp "${package_tarball}" npm-upload/
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "${package_tarball}" | sed 's#  .*/#  #' > "npm-upload/farming-code-${RELEASE_VERSION}.tgz.sha256"
+          else
+            shasum -a 256 "${package_tarball}" | sed 's#  .*/#  #' > "npm-upload/farming-code-${RELEASE_VERSION}.tgz.sha256"
+          fi
+
+      - name: Upload verified npm tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: farming-npm-${{ inputs.release_version }}
+          path: npm-upload/*
+          if-no-files-found: error
+          compression-level: 0
+
   stage-release:
     name: Stage GitHub Release
     runs-on: ubuntu-latest
     needs:
-      - publish-npm
+      - ci-gate
+      - build-linux
+      - build-macos
+      - prepare-npm
     env:
       FARMING_RELEASE_VERSION: ${{ inputs.release_version }}
       GH_TOKEN: ${{ github.token }}
@@ -383,9 +444,16 @@ jobs:
           echo "file=${body_file}" >> "${GITHUB_OUTPUT}"
           echo "codename=${codename}" >> "${GITHUB_OUTPUT}"
 
-      - name: Download release assets
+      - name: Download Linux release assets
         uses: actions/download-artifact@v4
         with:
+          name: farming-linux-${{ steps.version.outputs.value }}
+          path: release-assets
+
+      - name: Download macOS release assets
+        uses: actions/download-artifact@v4
+        with:
+          pattern: farming-macos-${{ steps.version.outputs.value }}-*
           path: release-assets
           merge-multiple: true
 
@@ -493,7 +561,6 @@ jobs:
           if [[ -n "${release_json}" ]]; then
             is_draft="$(RELEASE_JSON="${release_json}" node -p "JSON.parse(process.env.RELEASE_JSON).isDraft")"
             if [[ "${is_draft}" != "true" ]]; then
-              bash scripts/verify-npm-release-source.sh "farming-code@${RELEASE_VERSION}" "${candidate_sha}"
               exit 0
             fi
             gh release upload "${RELEASE_TAG}" release-assets/* --clobber "${release_args[@]}"
@@ -514,79 +581,6 @@ jobs:
             release_created=1
           fi
 
-  publish-npm:
-    name: Publish npm package
-    runs-on: ubuntu-latest
-    needs:
-      - build-linux
-      - build-macos
-    permissions:
-      contents: read
-      id-token: write
-    outputs:
-      published: ${{ steps.publish.outputs.published }}
-    env:
-      FARMING_RELEASE_VERSION: ${{ inputs.release_version }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-
-      - name: Install current npm CLI
-        run: npm install --global npm@latest
-
-      - name: Install dependencies
-        run: npm ci --registry=https://registry.npmjs.org/
-
-      - name: Verify package version
-        env:
-          RELEASE_VERSION: ${{ inputs.release_version }}
-        run: |
-          version="${RELEASE_VERSION}"
-          package_version="$(node -p "require('./package.json').version")"
-          if [ "${version}" != "${package_version}" ]; then
-            echo "release_version and npm package versions must match: requested=${version}, package=${package_version}" >&2
-            exit 1
-          fi
-
-      - name: Run checks
-        run: npm run check
-
-      - name: Smoke-test packed npm package
-        run: npm run release:npm:smoke
-
-      - name: Publish npm package with provenance
-        id: publish
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          set -euo pipefail
-          if [ -n "${NPM_TOKEN}" ]; then
-            printf '//registry.npmjs.org/:_authToken=%s\n' "${NPM_TOKEN}" > "${HOME}/.npmrc"
-          fi
-          version="$(node -p "require('./package.json').version")"
-          candidate_sha="${GITHUB_SHA}"
-          if npm view "farming-code@${version}" version >/dev/null 2>&1; then
-            bash scripts/verify-npm-release-source.sh "farming-code@${version}" "${candidate_sha}"
-            echo "published=true" >> "${GITHUB_OUTPUT}"
-            exit 0
-          fi
-          dist_tag="latest"
-          if [[ "${version}" == *-* ]]; then
-            dist_tag="next"
-          fi
-          package_dir="${RUNNER_TEMP}/farming-npm-package"
-          npm run release:npm:pack -- "${package_dir}"
-          package_tarball="${package_dir}/farming-code-${version}.tgz"
-          npm publish "${package_tarball}" --access public --provenance --tag "${dist_tag}"
-          bash scripts/verify-npm-release-source.sh "farming-code@${version}" "${candidate_sha}"
-          echo "published=true" >> "${GITHUB_OUTPUT}"
-
   publish-github-release:
     name: Publish GitHub Release
     runs-on: ubuntu-latest
@@ -606,7 +600,7 @@ jobs:
           candidate_sha="${GITHUB_SHA}"
           remote_tag_sha="$(git ls-remote "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "refs/tags/${tag}^{}" | awk '{print $1}')"
           if [[ "${remote_tag_sha}" != "${candidate_sha}" ]]; then
-            echo "Release tag ${tag} does not identify the published npm candidate: tag=${remote_tag_sha:-missing}, candidate=${candidate_sha}" >&2
+            echo "Release tag ${tag} does not identify this candidate: tag=${remote_tag_sha:-missing}, candidate=${candidate_sha}" >&2
             exit 1
           fi
           release_json="$(gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" --json isDraft)"
@@ -614,3 +608,143 @@ jobs:
           if [[ "${is_draft}" == "true" ]]; then
             gh release edit "${tag}" --repo "${GITHUB_REPOSITORY}" --draft=false
           fi
+
+  verify-github-release:
+    name: Verify public GitHub Release
+    runs-on: ubuntu-latest
+    needs:
+      - publish-github-release
+    permissions:
+      contents: read
+    env:
+      RELEASE_VERSION: ${{ inputs.release_version }}
+    steps:
+      - name: Verify public tag, assets, and manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="v${RELEASE_VERSION}"
+          candidate_sha="${GITHUB_SHA}"
+          remote_tag_sha="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" "refs/tags/${tag}^{}" | awk '{print $1}')"
+          if [[ "${remote_tag_sha}" != "${candidate_sha}" ]]; then
+            echo "Public tag ${tag} does not identify this candidate: tag=${remote_tag_sha:-missing}, candidate=${candidate_sha}" >&2
+            exit 1
+          fi
+
+          release_json="$(curl --fail --silent --show-error --location \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'User-Agent: farming-release-verifier' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${tag}")"
+          release_dir="${RUNNER_TEMP}/public-release"
+          mkdir -p "${release_dir}"
+          RELEASE_JSON="${release_json}" RELEASE_VERSION="${RELEASE_VERSION}" node - "${candidate_sha}" "${release_dir}" <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+          const [candidateSha, releaseDir] = process.argv.slice(2);
+          const version = process.env.RELEASE_VERSION;
+          const release = JSON.parse(process.env.RELEASE_JSON);
+          if (release.draft) throw new Error(`GitHub Release v${version} is still a draft`);
+          const required = [
+            `farming_${version}_linux_amd64`,
+            `farming_${version}_linux_arm64`,
+            `farming_${version}_darwin_amd64`,
+            `farming_${version}_darwin_arm64`,
+            `farming-${version}-linux-x64.tar.gz`,
+            `farming-${version}-linux-x64-legacy-glibc228.tar.gz`,
+            `farming-${version}-darwin-x64.tar.gz`,
+            `farming-${version}-darwin-arm64.tar.gz`,
+            `farming_${version}_checksums.txt`,
+            'manifest.json',
+          ];
+          const assets = new Map((release.assets || []).map(asset => [asset.name, asset.browser_download_url]));
+          const missing = required.filter(name => !assets.has(name));
+          if (missing.length) throw new Error(`GitHub Release is missing assets: ${missing.join(', ')}`);
+          fs.writeFileSync(path.join(releaseDir, 'manifest.url'), assets.get('manifest.json'));
+          fs.writeFileSync(path.join(releaseDir, 'checksums.url'), assets.get(`farming_${version}_checksums.txt`));
+          fs.writeFileSync(path.join(releaseDir, 'probe.url'), assets.get(`farming_${version}_linux_amd64`));
+          fs.writeFileSync(path.join(releaseDir, 'candidate.sha'), candidateSha);
+          NODE
+          curl --fail --silent --show-error --location \
+            "$(cat "${release_dir}/manifest.url")" --output "${release_dir}/manifest.json"
+          curl --fail --silent --show-error --location \
+            "$(cat "${release_dir}/checksums.url")" --output "${release_dir}/checksums.txt"
+          probe_name="farming_${RELEASE_VERSION}_linux_amd64"
+          curl --fail --silent --show-error --location \
+            "$(cat "${release_dir}/probe.url")" --output "${release_dir}/${probe_name}"
+          node - "${release_dir}/manifest.json" "${candidate_sha}" "${RELEASE_VERSION}" <<'NODE'
+          const fs = require('fs');
+          const [manifestPath, candidateSha, version] = process.argv.slice(2);
+          const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+          if (manifest.gitSha !== candidateSha || manifest.releaseVersion !== version) {
+            throw new Error(`Public manifest mismatch: sha=${manifest.gitSha}, version=${manifest.releaseVersion}`);
+          }
+          NODE
+          expected_probe_sha="$(awk -v file="${probe_name}" '$2 == file {print $1}' "${release_dir}/checksums.txt")"
+          actual_probe_sha="$(sha256sum "${release_dir}/${probe_name}" | awk '{print $1}')"
+          if [[ -z "${expected_probe_sha}" || "${actual_probe_sha}" != "${expected_probe_sha}" ]]; then
+            echo "Public release asset checksum mismatch for ${probe_name}" >&2
+            exit 1
+          fi
+
+  publish-npm:
+    name: Publish npm package last
+    runs-on: ubuntu-latest
+    needs:
+      - verify-github-release
+      - prepare-npm
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      FARMING_RELEASE_VERSION: ${{ inputs.release_version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: https://registry.npmjs.org
+
+      - name: Install current npm CLI
+        run: npm install --global npm@latest
+
+      - name: Download verified npm tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: farming-npm-${{ inputs.release_version }}
+          path: npm-package
+
+      - name: Verify and publish npm package with provenance
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${NPM_TOKEN}" ]]; then
+            printf '//registry.npmjs.org/:_authToken=%s\n' "${NPM_TOKEN}" > "${HOME}/.npmrc"
+          fi
+          version="${FARMING_RELEASE_VERSION}"
+          candidate_sha="${GITHUB_SHA}"
+          package_tarball="npm-package/farming-code-${version}.tgz"
+          digest_file="${package_tarball}.sha256"
+          test -f "${package_tarball}"
+          test -f "${digest_file}"
+          if command -v sha256sum >/dev/null 2>&1; then
+            (cd npm-package && sha256sum --check "$(basename "${digest_file}")")
+          else
+            expected="$(awk '{print $1}' "${digest_file}")"
+            actual="$(shasum -a 256 "${package_tarball}" | awk '{print $1}')"
+            [[ "${actual}" == "${expected}" ]]
+          fi
+          if npm view "farming-code@${version}" version >/dev/null 2>&1; then
+            bash scripts/verify-npm-release-source.sh "farming-code@${version}" "${candidate_sha}"
+            exit 0
+          fi
+          dist_tag="latest"
+          if [[ "${version}" == *-* ]]; then
+            dist_tag="next"
+          fi
+          npm publish "${package_tarball}" --access public --provenance --tag "${dist_tag}"
+          bash scripts/verify-npm-release-source.sh "farming-code@${version}" "${candidate_sha}"
