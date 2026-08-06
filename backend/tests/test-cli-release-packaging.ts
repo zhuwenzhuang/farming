@@ -37,6 +37,7 @@ function run() {
     assert(config.pkg.scripts.includes('backend/farming-app-cli.pkg.js'));
     assert(config.pkg.scripts.includes('backend/terminal-screen-worker-thread.pkg.js'));
     assert(config.pkg.scripts.includes('backend/usage-history-worker.pkg.js'));
+    assert(config.pkg.assets.includes('backend/cua-tools.json'));
     assert(config.pkg.assets.includes('node_modules/node-pty/lib/**/*.js'));
     assert.strictEqual(config.pkg.fallbackToSource, false);
   } finally {
@@ -100,6 +101,7 @@ function run() {
   );
   assert(
     packageScript.includes('smoke-capability-cli-process.ts')
+      && packageScript.includes('cp "${SOURCE_COMPUTER_TOOLS}" "${BUNDLE_COMPUTER_TOOLS}"')
       && npmSmokeScript.includes('smoke-capability-cli-process.ts')
       && !packageScript.includes('smoke-browser-mcp-process.ts')
       && !npmSmokeScript.includes('smoke-browser-mcp-process.ts')
