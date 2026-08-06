@@ -1338,6 +1338,13 @@ export function App() {
 
   return (
     <div className="app-container code-app-shell" data-testid="app-shell">
+      {ws.accessMode === 'read-only' && (
+        <div className="code-read-only-share-banner" data-testid="code-read-only-share-banner" role="status">
+          {uiPreferences.language === 'zh'
+            ? '只读分享 · 只能查看，不能修改'
+            : 'Read-only share · View only, no changes'}
+        </div>
+      )}
       <CodeWorkspace
         agents={displayedAgents}
         agentInventoryComplete={ws.agentInventoryComplete}

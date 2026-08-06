@@ -645,6 +645,30 @@ async function testBrowserResourceManager() {
     runtimes[0].emit('frame', frame);
     assert.deepStrictEqual(viewer.messages.at(-1), frame);
 
+    const readOnlyViewer = new FakeViewer();
+    const actionCountBeforeReadOnlyInput = runtimes[0].actionCalls.length;
+    const resizeCountBeforeReadOnlyInput = runtimes[0].resizeCalls;
+    manager.attachViewer(created.id, readOnlyViewer, { readOnly: true });
+    readOnlyViewer.emit('message', Buffer.from(JSON.stringify({
+      type: 'pointer',
+      generation: running.generation,
+      action: 'down',
+      x: 10,
+      y: 10,
+    })));
+    readOnlyViewer.emit('message', Buffer.from(JSON.stringify({
+      type: 'resize',
+      generation: running.generation,
+      width: 640,
+      height: 480,
+    })));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.strictEqual(runtimes[0].actionCalls.length, actionCountBeforeReadOnlyInput);
+    assert.strictEqual(runtimes[0].resizeCalls, resizeCountBeforeReadOnlyInput);
+    const readOnlyFrame = { type: 'browser-frame', generation: 1, data: 'read-only-frame' };
+    runtimes[0].emit('frame', readOnlyFrame);
+    assert.deepStrictEqual(readOnlyViewer.messages.at(-1), readOnlyFrame);
+
     runtimes[0].tabs[0].active = false;
     runtimes[0].tabs.push({
       active: true,
@@ -791,6 +815,7 @@ async function testBrowserResourceManager() {
       'The previous Viewer must regain ownership with its latest geometry when the owner disconnects',
     );
     viewer.emit('close');
+    readOnlyViewer.emit('close');
 
     let releaseViewerBlocker;
     runtimes[0].click = () => new Promise(resolve => {

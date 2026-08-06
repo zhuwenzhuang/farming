@@ -28,6 +28,7 @@ interface ShareTicket {
 }
 
 interface ShareTicketOperationOptions {
+  expiresAt?: number;
   now?: number;
   targetQuery?: string;
 }
@@ -63,6 +64,10 @@ class QrShareTicketStore {
 
   create(token: unknown, options: ShareTicketOperationOptions = {}): ShareTicket {
     const now = Number(options.now) || Date.now();
+    const requestedExpiresAt = Number(options.expiresAt);
+    const expiresAt = Number.isFinite(requestedExpiresAt) && requestedExpiresAt > now
+      ? Math.min(requestedExpiresAt, now + this.ttlMs)
+      : now + this.ttlMs;
     const targetQuery = typeof options.targetQuery === 'string' ? options.targetQuery : '';
     this.cleanup(now);
     this.trim(now);
@@ -82,7 +87,7 @@ class QrShareTicketStore {
       token: String(token || ''),
       targetQuery,
       createdAt: now,
-      expiresAt: now + this.ttlMs,
+      expiresAt,
     };
     this.tickets.set(code, ticket);
     return { ...ticket };

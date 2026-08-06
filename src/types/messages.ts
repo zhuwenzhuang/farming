@@ -152,6 +152,7 @@ export interface ProtocolServerHelloMessage {
   type: 'protocol-hello'
   protocolVersion: number
   minProtocolVersion: number
+  accessMode?: 'owner' | 'read-only'
 }
 
 export interface ProtocolErrorMessage {

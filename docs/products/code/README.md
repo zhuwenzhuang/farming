@@ -21,6 +21,7 @@ Maintainer contracts remain in this directory. Important entry points include:
 - [Terminal state protocol](terminal-state-protocol.md)
 - [Extension and Resource model](extension-model.md)
 - [Project Files design](project-files-section-design.md)
+- [Share access model](share-access-model.md)
 - [Review foundation](review-foundation.md)
 - [Farming Desktop](desktop-app.md)
 - [Language Server](language-server.md)

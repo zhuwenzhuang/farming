@@ -63,6 +63,113 @@ function run() {
     assert.strictEqual(auth.verify(`${token}-wrong`), false);
     assert.strictEqual(auth.getTokenInfo().style, 'zh-classic-haiku');
 
+    const readOnlyExpiresAt = Date.now() + 60_000;
+    const readOnlyToken = auth.createReadOnlyToken({ expiresAt: readOnlyExpiresAt });
+    assert.strictEqual(auth.verify(readOnlyToken), false, 'a share token must not become an owner token');
+    assert.strictEqual(auth.verifyReadOnlyToken(readOnlyToken, readOnlyExpiresAt - 1), true);
+    assert.strictEqual(auth.verifyReadOnlyToken(readOnlyToken, readOnlyExpiresAt), false);
+    assert.strictEqual(auth.readOnlyTokenExpiresAt(readOnlyToken), readOnlyExpiresAt);
+    assert.strictEqual(auth.accessForToken(token), 'owner');
+    assert.strictEqual(auth.accessForToken(readOnlyToken), 'read-only');
+    assert.strictEqual(auth.accessForToken(`${readOnlyToken}x`), 'none');
+    assert.strictEqual(
+      auth.webSocketAccess({
+        url: `/farming/ws?token=${encodeURIComponent(readOnlyToken)}`,
+        headers: {},
+      }),
+      'read-only',
+    );
+
+    let readOnlyRedirectStatus = 0;
+    let readOnlyRedirectHeaders: Record<string, string | string[]> = {};
+    auth.middleware()({
+      headers: { host: 'localhost' },
+      method: 'GET',
+      url: `/farming/?agent=agent-1&token=${encodeURIComponent(readOnlyToken)}`,
+    }, {
+      end() {},
+      setHeader(name, value) {
+        readOnlyRedirectHeaders[name] = value;
+      },
+      writeHead(status, headers = {}) {
+        readOnlyRedirectStatus = status;
+        readOnlyRedirectHeaders = { ...readOnlyRedirectHeaders, ...headers };
+      },
+    }, () => {
+      assert.fail('a read-only query credential should redirect after setting its cookie');
+    });
+    assert.strictEqual(readOnlyRedirectStatus, 302);
+    assert.strictEqual(readOnlyRedirectHeaders.Location, '/farming/?agent=agent-1');
+    assert.match(
+      readOnlyRedirectHeaders['Set-Cookie'],
+      new RegExp(`^${instanceCookieName}=${encodeCookieToken(readOnlyToken)}; Path=/farming;`),
+    );
+
+    let readOnlyGetNextCalled = false;
+    auth.middleware()({
+      headers: { cookie: `${instanceCookieName}=${encodeCookieToken(readOnlyToken)}`, host: 'localhost' },
+      method: 'GET',
+      url: '/farming/api/settings',
+    }, {
+      end() {
+        assert.fail('a read-only GET should not end the response');
+      },
+      setHeader() {},
+      writeHead() {
+        assert.fail('a read-only GET should not write an error response');
+      },
+    }, () => {
+      readOnlyGetNextCalled = true;
+    });
+    assert.strictEqual(readOnlyGetNextCalled, true);
+
+    let readOnlyPostStatus = 0;
+    let readOnlyPostBody = '';
+    let readOnlyPostNextCalled = false;
+    auth.middleware()({
+      headers: { cookie: `${instanceCookieName}=${encodeCookieToken(readOnlyToken)}`, host: 'localhost' },
+      method: 'POST',
+      url: '/farming/api/settings',
+    }, {
+      end(body) {
+        readOnlyPostBody = body || '';
+      },
+      setHeader() {},
+      writeHead(status) {
+        readOnlyPostStatus = status;
+      },
+    }, () => {
+      readOnlyPostNextCalled = true;
+    });
+    assert.strictEqual(readOnlyPostStatus, 403);
+    assert.match(readOnlyPostBody, /read-only/);
+    assert.strictEqual(readOnlyPostNextCalled, false);
+
+    const readOnlyReshareRequest: {
+      authAccessMode?: 'read-only';
+      headers: { cookie: string; host: string };
+      method: string;
+      url: string;
+    } = {
+      headers: { cookie: `${instanceCookieName}=${encodeCookieToken(readOnlyToken)}`, host: 'localhost' },
+      method: 'POST',
+      url: '/farming/api/share/qr-ticket',
+    };
+    let readOnlyReshareNextCalled = false;
+    auth.middleware()(readOnlyReshareRequest, {
+      end() {
+        assert.fail('read-only re-sharing should not end the response');
+      },
+      setHeader() {},
+      writeHead() {
+        assert.fail('read-only re-sharing should not write an error response');
+      },
+    }, () => {
+      readOnlyReshareNextCalled = true;
+    });
+    assert.strictEqual(readOnlyReshareNextCalled, true);
+    assert.strictEqual(readOnlyReshareRequest.authAccessMode, 'read-only');
+
     let bearerNextCalled = false;
     auth.middleware()({
       headers: { authorization: bearerAuthorizationHeader(token), host: 'localhost' },

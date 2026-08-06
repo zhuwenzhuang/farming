@@ -1,5 +1,6 @@
 import type { ClientMessage } from '../shared/browser-protocol.js';
 import type { Dirent } from 'fs';
+import type { AuthAccessMode } from './auth.cjs';
 import type { AgentSession } from './agent-session-history.cjs';
 import type { AgentSessionInventoryMetadata } from './agent-session-inventory.cjs';
 import type { ForkMode, KillAgentResult } from './agent-manager-lifecycle-types.js';
@@ -77,6 +78,7 @@ function isForkMode(value: string): value is ForkMode {
 }
 
 interface HttpRequest {
+  authAccessMode?: AuthAccessMode;
   body: ServerRecord;
   headers: Record<string, string | string[] | undefined>;
   originalUrl: string;
@@ -129,6 +131,7 @@ interface ExpressFactory {
 }
 
 interface WebSocketClient {
+  accessMode?: AuthAccessMode;
   agentId?: string;
   agentActivityAllCheckpointPending?: boolean;
   agentActivityCheckpointPending?: boolean;
@@ -239,6 +242,7 @@ import { isAgentRuntimeModeRequest, runtimeKind } from './agent-runtime-binding.
 import { ConfigManager } from './config-manager.cjs';
 import { ThemeManager } from './theme-manager.cjs';
 import { TokenAuth } from './auth.cjs';
+import { readOnlyClientMessageAllowed } from './read-only-access.cjs';
 import { getLocalIPs, getPrimaryLocalIP } from './network.cjs';
 import { listAvailableAgents, resolveTerminalCodexExecutable } from './executable-discovery.cjs';
 import { readClaudeSettingsSummary } from './claude-settings.cjs';
@@ -779,13 +783,14 @@ app.get(routePath(BASE_PATH, '/j/:code'), (req, res) => {
   }
 
   const ticket = qrShareTickets.consume(req.params.code);
-  if (!ticket || (authEnabled && !tokenAuth.verify(ticket.token))) {
+  const ticketAccessMode = ticket ? tokenAuth.accessForToken(ticket.token) : 'none';
+  if (!ticket || (authEnabled && ticketAccessMode === 'none')) {
     res.status(410).send('Farming share link expired.');
     return;
   }
 
   if (authEnabled) {
-    tokenAuth.setAuthenticatedCookie(res);
+    tokenAuth.setAccessCookie(res, ticket.token);
   }
   res.redirect(302, entryPathWithQuery(ticket.targetQuery));
 });
@@ -795,7 +800,10 @@ app.use(tokenAuth.middleware());
 
 // Auth status endpoint (allowed without authentication via middleware)
 app.get(routePath(BASE_PATH, '/api/auth/status'), (req, res) => {
-  res.json({ authRequired: authEnabled });
+  res.json({
+    authRequired: authEnabled,
+    accessMode: tokenAuth.accessForToken(tokenAuth.extractToken(req)),
+  });
 });
 
 function absoluteClientUrl(req: HttpRequest, urlPath: string) {
@@ -864,26 +872,50 @@ function shareTargetQueryFromBody(body: ServerRecord) {
   return params.toString();
 }
 
-function entryPathWithQuery(query = '', options: { includeToken?: boolean } = {}) {
+function entryPathWithQuery(query = '', options: { token?: string } = {}) {
   const entryPath = BASE_PATH || '/';
   const params = new URLSearchParams(query || '');
-  if (options.includeToken && authEnabled) {
-    params.set('token', tokenAuth.getToken());
+  if (options.token && authEnabled) {
+    params.set('token', options.token);
   }
   const queryString = params.toString();
   return queryString ? `${entryPath}?${queryString}` : entryPath;
 }
 
-function entryPathWithToken(targetQuery = '') {
-  return entryPathWithQuery(targetQuery, { includeToken: true });
+function entryPathWithToken(targetQuery = '', token = '') {
+  return entryPathWithQuery(targetQuery, { token });
 }
 
 app.post(routePath(BASE_PATH, '/api/share/qr-ticket'), express.json({ limit: '8kb' }), (req, res) => {
   try {
+    if (!authEnabled) {
+      res.status(409).json({ error: 'Read-only sharing requires token authentication.' });
+      return;
+    }
+    const now = Date.now();
+    const requesterAccessMode = req.authAccessMode === 'read-only' ? 'read-only' : 'owner';
+    const requesterToken = tokenAuth.extractToken(req);
+    const requesterExpiresAt = requesterAccessMode === 'read-only'
+      ? tokenAuth.readOnlyTokenExpiresAt(requesterToken)
+      : null;
+    if (requesterAccessMode === 'read-only' && !requesterExpiresAt) {
+      res.status(401).json({ error: 'Read-only share credential expired.' });
+      return;
+    }
+    const shareExpiresAt = Math.min(
+      now + SHARE_TICKET_TTL_MS,
+      requesterExpiresAt || Number.POSITIVE_INFINITY,
+    );
+    if (shareExpiresAt <= now + 1000) {
+      res.status(410).json({ error: 'Read-only share credential is too close to expiry.' });
+      return;
+    }
     const targetQuery = shareTargetQueryFromBody(req.body);
-    const ticket = qrShareTickets.create(authEnabled ? tokenAuth.getToken() : '', { targetQuery });
+    const readOnlyToken = tokenAuth.createReadOnlyToken({ expiresAt: shareExpiresAt });
+    const qrToken = requesterAccessMode === 'owner' ? tokenAuth.getToken() : readOnlyToken;
+    const ticket = qrShareTickets.create(qrToken, { expiresAt: shareExpiresAt, now, targetQuery });
     const shortPath = routePath(BASE_PATH, `/j/${ticket.code}`);
-    const longPath = entryPathWithToken(ticket.targetQuery);
+    const longPath = entryPathWithToken(ticket.targetQuery, readOnlyToken);
     res.json({
       code: ticket.code,
       expiresAt: ticket.expiresAt,
@@ -891,7 +923,9 @@ app.post(routePath(BASE_PATH, '/api/share/qr-ticket'), express.json({ limit: '8k
       shortPath,
       shortUrl: absoluteClientUrl(req, shortPath),
       longUrl: absoluteClientUrl(req, longPath),
-      tokenLabel: authEnabled ? tokenAuth.getToken() : '',
+      shortUrlAccessMode: requesterAccessMode,
+      longUrlAccessMode: 'read-only',
+      tokenLabel: requesterAccessMode === 'owner' ? tokenAuth.getToken() : '',
     });
   } catch (caught) {
     const error = caughtError(caught);
@@ -3047,10 +3081,15 @@ app.get(routePath(BASE_PATH, '/api/themes/:themeId'), (req, res) => {
 wss.on('connection', (ws, req) => {
   initializeWebSocketLiveness(ws);
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+  const accessMode = tokenAuth.webSocketAccess(req);
   const computerViewerPrefix = routePath(BASE_PATH, '/api/computers/');
   if (url.pathname.startsWith(computerViewerPrefix) && url.pathname.endsWith('/viewer-websocket')) {
-    if (authEnabled && !tokenAuth.verifyWebSocket(req)) {
+    if (accessMode === 'none') {
       ws.close(4001, 'Authentication required');
+      return;
+    }
+    if (accessMode === 'read-only') {
+      ws.close(4003, 'Computer Viewer is unavailable in read-only shares');
       return;
     }
     const encodedId = url.pathname.slice(
@@ -3067,13 +3106,15 @@ wss.on('connection', (ws, req) => {
   }
   const viewerPrefix = routePath(BASE_PATH, '/api/browsers/');
   if (url.pathname.startsWith(viewerPrefix) && url.pathname.endsWith('/viewer')) {
-    if (authEnabled && !tokenAuth.verifyWebSocket(req)) {
+    if (accessMode === 'none') {
       ws.close(4001, 'Authentication required');
       return;
     }
     const encodedId = url.pathname.slice(viewerPrefix.length, -'/viewer'.length);
     try {
-      browserResourceManager.attachViewer(decodeURIComponent(encodedId), ws);
+      browserResourceManager.attachViewer(decodeURIComponent(encodedId), ws, {
+        readOnly: accessMode === 'read-only',
+      });
     } catch (caught) {
     const error = caughtError(caught);
       ws.close(4004, error?.message || 'Browser resource not found');
@@ -3086,11 +3127,12 @@ wss.on('connection', (ws, req) => {
   }
 
   // Verify token for WebSocket connections when auth is enabled.
-  if (authEnabled && !tokenAuth.verifyWebSocket(req)) {
+  if (accessMode === 'none') {
     ws.close(4001, 'Authentication required');
     return;
   }
 
+  ws.accessMode = accessMode;
   ws.connectionId = crypto.randomUUID();
   const connectedAt = Date.now();
   const remoteAddress = String(req.socket?.remoteAddress || 'unknown');
@@ -3117,6 +3159,7 @@ wss.on('connection', (ws, req) => {
         }));
         return;
       }
+      if (rejectReadOnlyClientMutation(ws, validation.value as ServerClientMessage)) return;
       handleMessage(ws, validation.value as ServerClientMessage);
     } catch (e) {
       console.error('Failed to parse message:', e);
@@ -3154,9 +3197,19 @@ wss.on('connection', (ws, req) => {
     type: 'protocol-hello',
     protocolVersion: PROTOCOL_VERSION,
     minProtocolVersion: MIN_PROTOCOL_VERSION,
+    accessMode,
   }));
   queueInitialStateSnapshot(ws);
 });
+
+function rejectReadOnlyClientMutation(ws: WebSocketClient, data: ServerClientMessage) {
+  if (ws.accessMode !== 'read-only' || readOnlyClientMessageAllowed(data.type)) return false;
+  ws.send(JSON.stringify({
+    type: 'error',
+    message: 'This Farming share is read-only.',
+  }));
+  return true;
+}
 
 const MAIN_AGENT_RESTART_COMMANDS = new Set(['codex', 'claude', 'opencode', 'qoder', 'qwen', 'bash', 'zsh']);
 

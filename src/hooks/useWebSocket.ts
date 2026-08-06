@@ -57,6 +57,7 @@ const BUSINESS_HEALTH_RETRY_MS = 2_000
 const AGENT_STATE_SNAPSHOT_PAGE_DEADLINE_MS = 30_000
 
 export interface WebSocketState {
+  accessMode: 'owner' | 'read-only'
   agents: Agent[]
   agentInventoryComplete: boolean
   taskHistory: TaskHistoryEntry[]
@@ -119,6 +120,7 @@ export function useWebSocket() {
   const composerRequestKeysRef = useRef(new Map<string, string>())
   const composerAcceptedRequestsRef = useRef(new Set<string>())
   const [state, setState] = useState<WebSocketState>({
+    accessMode: 'owner',
     agents: [],
     agentInventoryComplete: false,
     taskHistory: [],
@@ -588,6 +590,10 @@ export function useWebSocket() {
           const msg = parsed as ServerMessage
           switch (msg.type) {
             case 'protocol-hello':
+              setState(prev => ({
+                ...prev,
+                accessMode: msg.accessMode === 'read-only' ? 'read-only' : 'owner',
+              }))
               if (!protocolCompatible(msg.protocolVersion)) {
                 protocolMismatchNotice = msg.protocolVersion < MIN_PROTOCOL_VERSION
                   ? `This page requires a newer Farming backend (protocol ${MIN_PROTOCOL_VERSION}, backend has ${msg.protocolVersion}). Update and restart the Farming backend.`

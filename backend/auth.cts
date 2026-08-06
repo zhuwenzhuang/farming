@@ -37,6 +37,7 @@ interface TokenAuthOptions {
 }
 
 interface AuthRequest {
+  authAccessMode?: AuthAccessMode;
   headers: {
     authorization?: string | string[];
     cookie?: string;
@@ -45,6 +46,8 @@ interface AuthRequest {
   method?: string;
   url?: string;
 }
+
+type AuthAccessMode = 'none' | 'owner' | 'read-only';
 
 interface AuthResponse {
   end(body?: string): void;
@@ -56,6 +59,8 @@ type AuthNext = () => unknown;
 type AuthMiddleware = (req: AuthRequest, res: AuthResponse, next: AuthNext) => unknown;
 
 const LEGACY_COOKIE_NAME = 'farming_token';
+const READ_ONLY_TOKEN_PREFIX = 'farming-ro-v1';
+const SAFE_READ_ONLY_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 function normalizeBasePath(basePath: unknown): string {
   const normalized = String(basePath || '');
@@ -233,6 +238,53 @@ class TokenAuth {
     }
   }
 
+  createReadOnlyToken(options: { expiresAt: number }): string {
+    if (this.disabled || !this.token) {
+      throw new Error('Read-only sharing requires token authentication');
+    }
+    const expiresAt = Math.floor(Number(options.expiresAt));
+    if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+      throw new Error('Read-only share expiry must be in the future');
+    }
+    const payload = [
+      READ_ONLY_TOKEN_PREFIX,
+      expiresAt.toString(36),
+      crypto.randomBytes(18).toString('base64url'),
+    ].join('.');
+    const signature = crypto.createHmac('sha256', this.token).update(payload).digest('base64url');
+    return `${payload}.${signature}`;
+  }
+
+  verifyReadOnlyToken(token: unknown, now = Date.now()): boolean {
+    if (this.disabled || !this.token || typeof token !== 'string') return false;
+    const parts = token.split('.');
+    if (parts.length !== 4 || parts[0] !== READ_ONLY_TOKEN_PREFIX) return false;
+    const expiresAt = Number.parseInt(parts[1], 36);
+    if (!Number.isFinite(expiresAt) || expiresAt <= now) return false;
+    const payload = parts.slice(0, 3).join('.');
+    const expected = crypto.createHmac('sha256', this.token).update(payload).digest();
+    let actual: Buffer;
+    try {
+      actual = Buffer.from(parts[3], 'base64url');
+    } catch {
+      return false;
+    }
+    return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+  }
+
+  readOnlyTokenExpiresAt(token: unknown): number | null {
+    if (!this.verifyReadOnlyToken(token)) return null;
+    const expiresAt = Number.parseInt(String(token).split('.')[1], 36);
+    return Number.isFinite(expiresAt) ? expiresAt : null;
+  }
+
+  accessForToken(token: unknown): AuthAccessMode {
+    if (this.disabled) return 'owner';
+    if (this.verify(token)) return 'owner';
+    if (this.verifyReadOnlyToken(token)) return 'read-only';
+    return 'none';
+  }
+
   extractToken(req: AuthRequest): string | null {
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
     const queryToken = url.searchParams.get('token');
@@ -253,9 +305,9 @@ class TokenAuth {
     const match = authorization.match(/^\s*Bearer\s+([^\s]+)\s*$/i);
     if (!match) return '';
     const credential = match[1];
-    if (this.verify(credential)) return credential;
+    if (this.accessForToken(credential) !== 'none') return credential;
     const decoded = decodeBearerTokenFromTransport(credential);
-    return decoded && this.verify(decoded) ? decoded : credential;
+    return decoded && this.accessForToken(decoded) !== 'none' ? decoded : credential;
   }
 
   extractCookieToken(req: AuthRequest): string | null {
@@ -271,9 +323,13 @@ class TokenAuth {
     return null;
   }
 
-  setAuthenticatedCookie(res: Pick<AuthResponse, 'setHeader'>): void {
+  setAccessCookie(res: Pick<AuthResponse, 'setHeader'>, token: unknown): void {
     res.setHeader('Set-Cookie',
-      `${this.cookieName}=${encodeCookieToken(this.token)}; Path=${this.cookiePath}; HttpOnly; SameSite=Lax`);
+      `${this.cookieName}=${encodeCookieToken(token)}; Path=${this.cookiePath}; HttpOnly; SameSite=Lax`);
+  }
+
+  setAuthenticatedCookie(res: Pick<AuthResponse, 'setHeader'>): void {
+    this.setAccessCookie(res, this.token);
   }
 
   redirectWithoutQueryParameter(res: AuthResponse, url: URL, parameter: string): void {
@@ -316,22 +372,48 @@ class TokenAuth {
       }
 
       const token = this.extractToken(req);
+      const authorize = (accessMode: AuthAccessMode) => {
+        const shareTicketPath = this.basePath
+          ? `${this.basePath}/api/share/qr-ticket`
+          : '/api/share/qr-ticket';
+        const readOnlyShareMutation = (
+          method === 'POST' && url.pathname === shareTicketPath
+        ) || (
+          method === 'DELETE' && url.pathname.startsWith(`${shareTicketPath}/`)
+        );
+        if (
+          accessMode === 'read-only'
+          && !SAFE_READ_ONLY_METHODS.has(method)
+          && !readOnlyShareMutation
+        ) {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'This Farming share is read-only.' }));
+          return;
+        }
+        req.authAccessMode = accessMode;
+        return next();
+      };
 
       // URL has token query param -> validate, set cookie, redirect
       if (url.searchParams.has('token')) {
-        if (token && this.verify(token)) {
-          this.setAuthenticatedCookie(res);
-          if (this.redirectQueryToken && ['GET', 'HEAD'].includes(method)) {
+        const accessMode = this.accessForToken(token);
+        if (token && accessMode !== 'none') {
+          this.setAccessCookie(res, token);
+          if (
+            ['GET', 'HEAD'].includes(method)
+            && (this.redirectQueryToken || accessMode === 'read-only')
+          ) {
             this.redirectWithoutQueryParameter(res, url, 'token');
             return;
           }
-          return next();
+          return authorize(accessMode);
         }
       }
 
       // Cookie-based verification
-      if (token && this.verify(token)) {
-        return next();
+      const accessMode = this.accessForToken(token);
+      if (accessMode !== 'none') {
+        return authorize(accessMode);
       }
 
       // Unauthorized
@@ -341,9 +423,12 @@ class TokenAuth {
   }
 
   verifyWebSocket(req: AuthRequest): boolean {
-    if (this.disabled) return true;
-    const token = this.extractToken(req);
-    return token !== null && this.verify(token);
+    return this.webSocketAccess(req) !== 'none';
+  }
+
+  webSocketAccess(req: AuthRequest): AuthAccessMode {
+    if (this.disabled) return 'owner';
+    return this.accessForToken(this.extractToken(req));
   }
 
   cleanup(options: { removeTokenFile?: boolean } = {}): void {
@@ -357,6 +442,7 @@ class TokenAuth {
 }
 
 export {
+  type AuthAccessMode,
   TokenAuth,
   bearerAuthorizationHeader,
   decodeCookieToken,

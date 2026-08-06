@@ -1532,6 +1532,13 @@ body.code-mode[data-appearance='dark'] .code-share-button {
   color: var(--code-dark-text-muted);
 }
 
+body.code-mode[data-appearance='dark'] .code-read-only-share-banner {
+  border-color: var(--code-dark-border);
+  background: rgba(28, 33, 41, 0.94);
+  box-shadow: 0 4px 16px var(--code-dark-shadow);
+  color: #a7c0a0;
+}
+
 body.code-mode[data-appearance='dark'] .code-share-button:hover,
 body.code-mode[data-appearance='dark'] .code-share-button:focus-visible,
 body.code-mode[data-appearance='dark'] .code-share-root:has(.code-share-popover) .code-share-button {
@@ -1567,6 +1574,15 @@ body.code-mode[data-appearance='dark'] .code-share-token-card {
 
 body.code-mode[data-appearance='dark'] .code-share-token {
   color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-share-qr-access-note {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-share-qr-access-note[data-access-mode='owner'],
+body.code-mode[data-appearance='dark'] .code-share-passphrase-warning {
+  color: #d39a6a;
 }
 
 body.code-mode[data-appearance='dark'] .code-share-qr-loading {

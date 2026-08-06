@@ -113,6 +113,7 @@ export interface ProtocolServerHelloMessage extends ExtensibleMessage {
   type: 'protocol-hello'
   protocolVersion: number
   minProtocolVersion: number
+  accessMode?: 'owner' | 'read-only'
 }
 
 export interface BusinessHealthResultMessage extends ExtensibleMessage {

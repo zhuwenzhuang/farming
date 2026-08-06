@@ -11,6 +11,8 @@ function run() {
   const mobileShareSource = read('src/components/code/MobileShareSheet.tsx');
   const sidebarSource = read('src/components/code/CodeSidebar.tsx');
   const copySource = read('src/components/code/copy.ts');
+  const appSource = read('src/App.tsx');
+  const webSocketSource = read('src/hooks/useWebSocket.ts');
   const stylesSource = read('src/styles/main.css');
   const darkStylesSource = read('src/styles/code-dark.css');
   const packageSource = read('package.json');
@@ -38,7 +40,12 @@ function run() {
   assert(shareButtonSource.includes("appPath('/farming-2/app-icon-v2-180.png')"), 'QR center should use the production-safe Farming icon');
   assert(shareButtonSource.includes('className="code-share-countdown"'));
   assert(!shareButtonSource.includes('ticket?.code ||'), 'short ticket codes should stay out of the visible QR popover');
-  assert(shareButtonSource.includes('ticket?.tokenLabel'), 'visible copy label should prefer the poetic token');
+  assert(shareButtonSource.includes('ticket?.tokenLabel'), 'the writable passphrase should remain visible');
+  assert(shareButtonSource.includes("ticket.shortUrlAccessMode === 'owner'"), 'QR messaging should follow the issued permission');
+  assert(shareButtonSource.includes('copy.shareQrFullAccessWarning'));
+  assert(shareButtonSource.includes('copy.shareQrReadOnlyWarning'));
+  assert(shareButtonSource.includes('ticket?.tokenLabel && ('), 'read-only re-shares must hide the owner passphrase');
+  assert(shareButtonSource.includes('copy.sharePassphraseFullAccessWarning'));
   assert(shareButtonSource.includes('function tokenDisplayLines'));
   assert(shareButtonSource.includes(".split('-')"));
   assert(shareButtonSource.includes('singleLineTokenFits'));
@@ -66,13 +73,21 @@ function run() {
   assert(copySource.includes("sharePage: '分享当前页面'"));
   assert(!copySource.includes("shareTokenLabel: '俳句口令'"));
   assert(!copySource.includes("shareShortLinkLabel: '分享短链'"));
-  assert(copySource.includes("copiedShareLink: '公开链接已复制到剪贴板'"));
+  assert(copySource.includes("copiedShareLink: '只读链接已复制'"));
+  assert(copySource.includes("shareLinkVisibility: '只能查看，不能修改；链接会随倒计时过期。'"));
+  assert(copySource.includes("sharePassphraseFullAccessWarning: '授予完整控制权限，直到实例口令变更。'"));
+  assert(copySource.includes("shareQrFullAccessWarning: '授予完整控制权限；二维码会随倒计时过期。'"));
+  assert(copySource.includes("shareQrReadOnlyWarning: '只能查看，不能修改；二维码会随倒计时过期。'"));
 
   assert(stylesSource.includes('.code-share-popover'));
   assert(stylesSource.includes('width: 264px;'));
   assert(stylesSource.includes('.code-share-qr-frame'));
   assert(stylesSource.includes('.code-share-qr-canvas'));
   assert(stylesSource.includes('.code-share-countdown'));
+  assert(stylesSource.includes('.code-share-qr-access-note'));
+  assert(appSource.includes('data-testid="code-read-only-share-banner"'));
+  assert(appSource.includes('只读分享 · 只能查看，不能修改'));
+  assert(webSocketSource.includes("accessMode: msg.accessMode === 'read-only' ? 'read-only' : 'owner'"));
   assert(!stylesSource.includes('.code-share-meta'));
   assert(shareButtonSource.includes('data-testid="code-share-token-display"'));
   assert(!shareButtonSource.includes('data-testid="code-share-copy-link"'), 'the poetic token should be display-only');

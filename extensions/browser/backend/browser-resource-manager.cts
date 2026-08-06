@@ -105,6 +105,9 @@ interface BrowserViewer {
   off(event: string, listener: (value: Buffer | string) => void): this;
   once(event: string, listener: () => void): this;
 }
+interface BrowserViewerOptions {
+  readOnly?: boolean;
+}
 interface BrowserRuntime {
   activeTabId: string;
   externalCdpUrl?: string;
@@ -1307,7 +1310,7 @@ class BrowserResourceManager extends EventEmitter {
     throw browserError(`Unsupported Browser action: ${kind || '(missing)'}`);
   }
 
-  attachViewer(id: string, ws: BrowserViewer): () => void {
+  attachViewer(id: string, ws: BrowserViewer, options: BrowserViewerOptions = {}): () => void {
     this.requireEnabled();
     const resource = this.requireStored(id);
     const binding = this.runtimes.get(id);
@@ -1339,12 +1342,13 @@ class BrowserResourceManager extends EventEmitter {
         }
       });
     };
-    ws.on('message', onMessage);
+    if (options.readOnly !== true) ws.on('message', onMessage);
     const detach = () => {
       binding.viewers.delete(ws);
       binding.viewerGeometries.delete(ws);
       if (binding.viewerViewportOwner === ws) {
-        binding.viewerViewportOwner = binding.viewers.values().next().value || null;
+        binding.viewerViewportOwner = Array.from(binding.viewers)
+          .find(viewer => binding.viewerGeometries.has(viewer)) || null;
         if (binding.viewerViewportOwner) {
           const geometry = binding.viewerGeometries.get(binding.viewerViewportOwner);
           if (geometry) {
@@ -1354,7 +1358,7 @@ class BrowserResourceManager extends EventEmitter {
           this.clearViewerResize(binding);
         }
       }
-      ws.off('message', onMessage);
+      if (options.readOnly !== true) ws.off('message', onMessage);
     };
     ws.once('close', detach);
     return detach;

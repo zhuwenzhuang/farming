@@ -754,6 +754,26 @@ body.code-resizing-sidebar {
   outline-offset: 2px;
 }
 
+.code-read-only-share-banner {
+  position: fixed;
+  top: 8px;
+  left: 50%;
+  z-index: 10004;
+  transform: translateX(-50%);
+  max-width: calc(100vw - 24px);
+  border: 1px solid rgba(109, 138, 99, 0.22);
+  border-radius: 999px;
+  background: rgba(247, 250, 245, 0.94);
+  box-shadow: 0 4px 16px rgba(31, 35, 40, 0.08);
+  color: #53644f;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1;
+  padding: 6px 10px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
 .code-share-icon {
   width: 15px;
   height: 15px;
@@ -817,6 +837,18 @@ body.code-resizing-sidebar {
   line-height: 1;
 }
 
+.code-share-qr-access-note {
+  margin-top: 5px;
+  color: #777d75;
+  font-size: 10px;
+  line-height: 1.3;
+  text-align: center;
+}
+
+.code-share-qr-access-note[data-access-mode='owner'] {
+  color: #9b5f35;
+}
+
 .code-share-refresh {
   position: absolute;
   left: 50%;
@@ -876,6 +908,14 @@ body.code-resizing-sidebar {
 
 .code-share-token-line {
   min-width: 0;
+}
+
+.code-share-passphrase-warning {
+  display: block;
+  margin-top: 5px;
+  color: #9b5f35;
+  font-size: 10px;
+  line-height: 1.3;
 }
 
 .code-share-copy-status {

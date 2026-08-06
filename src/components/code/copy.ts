@@ -144,6 +144,9 @@ export interface CodeCopy {
   scanToOpenOnPhone: string
   copiedShareLink: string
   shareLinkVisibility: string
+  sharePassphraseFullAccessWarning: string
+  shareQrFullAccessWarning: string
+  shareQrReadOnlyWarning: string
   shareLinkFailed: string
   sharedLocationUnavailable: (path: string) => string
   shareLinkExpired: string
@@ -661,8 +664,11 @@ const EN_COPY: CodeCopy = {
   copyFailed: 'Copy failed',
   sharePage: 'Share current page',
   scanToOpenOnPhone: 'Scan to open on phone',
-  copiedShareLink: 'Public link copied to clipboard',
-  shareLinkVisibility: 'Anyone with this link can open the shared page.',
+  copiedShareLink: 'Read-only link copied',
+  shareLinkVisibility: 'View only, no changes. It expires with the countdown.',
+  sharePassphraseFullAccessWarning: 'Full control until the instance passphrase changes.',
+  shareQrFullAccessWarning: 'Full control. This QR code expires with the countdown.',
+  shareQrReadOnlyWarning: 'View only, no changes. This QR code expires with the countdown.',
   shareLinkFailed: 'Share link unavailable',
   sharedLocationUnavailable: path => `Unable to locate shared path: ${path}`,
   shareLinkExpired: 'Expired',
@@ -1206,8 +1212,11 @@ const ZH_COPY: CodeCopy = {
   copyFailed: '复制失败',
   sharePage: '分享当前页面',
   scanToOpenOnPhone: '手机扫码打开',
-  copiedShareLink: '公开链接已复制到剪贴板',
-  shareLinkVisibility: '任何拥有此链接的人都可以打开此页面。',
+  copiedShareLink: '只读链接已复制',
+  shareLinkVisibility: '只能查看，不能修改；链接会随倒计时过期。',
+  sharePassphraseFullAccessWarning: '授予完整控制权限，直到实例口令变更。',
+  shareQrFullAccessWarning: '授予完整控制权限；二维码会随倒计时过期。',
+  shareQrReadOnlyWarning: '只能查看，不能修改；二维码会随倒计时过期。',
   shareLinkFailed: '分享链接不可用',
   sharedLocationUnavailable: path => `无法定位分享路径：${path}`,
   shareLinkExpired: '已过期',

@@ -48,6 +48,10 @@ function run() {
   const expired = store.create('expired-token', { now: 2000 });
   assert.strictEqual(store.consume(expired.code, { now: 2000 + SHARE_TICKET_TTL_MS }), null);
 
+  const delegated = store.create('delegated-token', { now: 2500, expiresAt: 3500 });
+  assert.strictEqual(delegated.expiresAt, 3500, 'delegated shares must not outlive their parent capability');
+  assert.strictEqual(store.consume(delegated.code, { now: 3500 }), null);
+
   const revoked = store.create('revoked-token', { now: 3000 });
   assert.strictEqual(store.revoke(revoked.code), true);
   assert.strictEqual(store.consume(revoked.code, { now: 3001 }), null);
@@ -65,8 +69,18 @@ function run() {
   assert(serverSource.includes("targetRecord.kind === 'folder'"));
   assert(serverSource.includes("params.set('folder', folderPath)"));
   assert(serverSource.includes("res.redirect(302, entryPathWithQuery(ticket.targetQuery))"));
-  assert(serverSource.includes('tokenLabel: authEnabled ? tokenAuth.getToken() :'));
-  assert(serverSource.includes('const longPath = entryPathWithToken(ticket.targetQuery)'));
+  assert(serverSource.includes('tokenAuth.createReadOnlyToken'));
+  assert(serverSource.includes('tokenAuth.accessForToken(ticket.token)'));
+  assert(serverSource.includes('tokenAuth.setAccessCookie(res, ticket.token)'));
+  assert(serverSource.includes('shortUrlAccessMode: requesterAccessMode'));
+  assert(serverSource.includes("longUrlAccessMode: 'read-only'"));
+  assert(serverSource.includes("tokenLabel: requesterAccessMode === 'owner' ? tokenAuth.getToken() : ''"));
+  assert(serverSource.includes("const qrToken = requesterAccessMode === 'owner' ? tokenAuth.getToken() : readOnlyToken"));
+  assert(serverSource.includes('requesterExpiresAt || Number.POSITIVE_INFINITY'));
+  assert(serverSource.includes('accessMode,'), 'the WebSocket hello should disclose the authoritative access mode');
+  assert(serverSource.includes('const longPath = entryPathWithToken(ticket.targetQuery, readOnlyToken)'));
+  assert(serverSource.includes('rejectReadOnlyClientMutation'));
+  assert(serverSource.includes('Computer Viewer is unavailable in read-only shares'));
   assert(serverSource.includes('longUrl: absoluteClientUrl(req, longPath)'));
   assert(serverSource.includes('shortUrl: absoluteClientUrl(req, shortPath)'));
 

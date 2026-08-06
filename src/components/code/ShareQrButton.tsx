@@ -12,7 +12,7 @@ import type { CodeCopy } from './copy'
 
 const CLOSE_DWELL_MS = 140
 const POPOVER_WIDTH = 264
-const POPOVER_HEIGHT = 396
+const POPOVER_HEIGHT = 430
 const QR_QUIET_ZONE = 4
 
 type ShareTicket = {
@@ -22,6 +22,8 @@ type ShareTicket = {
   shortPath: string
   shortUrl: string
   longUrl: string
+  shortUrlAccessMode: 'owner' | 'read-only'
+  longUrlAccessMode: 'read-only'
   tokenLabel: string
 }
 
@@ -412,7 +414,7 @@ export function ShareQrButton({
 
   const expired = Boolean(ticket && ticket.expiresAt <= now)
   const countdown = ticket ? formatCountdown(ticket.expiresAt - now) : ''
-  const tokenLabel = ticket?.tokenLabel || ticket?.shortPath || copy.loading
+  const tokenLabel = ticket?.tokenLabel || copy.loading
   const tokenParts = tokenDisplayLines(tokenLabel)
   const tokenLines = singleLineTokenFits || tokenParts.length <= 1 ? [tokenLabel] : tokenParts
 
@@ -476,6 +478,16 @@ export function ShareQrButton({
                 {expired ? copy.shareLinkExpired : countdown}
               </div>
             )}
+            {ticket && (
+              <div
+                className="code-share-qr-access-note"
+                data-access-mode={ticket.shortUrlAccessMode}
+              >
+                {ticket.shortUrlAccessMode === 'owner'
+                  ? copy.shareQrFullAccessWarning
+                  : copy.shareQrReadOnlyWarning}
+              </div>
+            )}
             {expired && (
               <button type="button" className="code-share-refresh" onClick={() => void createAndCopyTicket(true)}>
                 {copy.refreshShareLink}
@@ -496,18 +508,21 @@ export function ShareQrButton({
               </span>
             </div>
           )}
-          <div className="code-share-token-card" data-testid="code-share-token-display">
-            <span
-              ref={tokenDisplayRef}
-              className={`code-share-token ${singleLineTokenFits ? 'single-line' : ''}`}
-              aria-label={tokenLabel}
-            >
-              <span ref={tokenMeasureRef} className="code-share-token-measure" aria-hidden="true">{tokenLabel}</span>
-              {tokenLines.map((line, index) => (
-                <span key={`${index}-${line}`} className="code-share-token-line">{line}</span>
-              ))}
-            </span>
-          </div>
+          {ticket?.tokenLabel && (
+            <div className="code-share-token-card" data-testid="code-share-token-display">
+              <span
+                ref={tokenDisplayRef}
+                className={`code-share-token ${singleLineTokenFits ? 'single-line' : ''}`}
+                aria-label={tokenLabel}
+              >
+                <span ref={tokenMeasureRef} className="code-share-token-measure" aria-hidden="true">{tokenLabel}</span>
+                {tokenLines.map((line, index) => (
+                  <span key={`${index}-${line}`} className="code-share-token-line">{line}</span>
+                ))}
+              </span>
+              <span className="code-share-passphrase-warning">{copy.sharePassphraseFullAccessWarning}</span>
+            </div>
+          )}
           {error && <div className="code-share-error" role="status">{error}</div>}
         </div>
       )}
