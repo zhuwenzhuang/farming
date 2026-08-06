@@ -2,7 +2,7 @@
 
 > English version: [release-pipeline-acceleration-plan.md](./release-pipeline-acceleration-plan.md)
 
-状态：提案
+状态：实施与计时验证中
 
 本方案改造的是一条完整链路：维护者下令发布一个版本，系统检查精确候选，发现阻塞后定位并修复，
 验证所有正式制品，确认 GitHub Release 已经公开可用，最后才发布 npm Package。
@@ -90,6 +90,36 @@ npm 验证完成，剩余发布必须在 10 分钟内完成。
 | npm Job | 6 分 59 秒 |
 | 准备 GitHub Release | 1 分 42 秒 |
 | 公开 GitHub Release | 5 秒 |
+
+## v2.2.42 计时结果与第二轮发现
+
+第一轮加速候选 SHA 为 `e4afb2fd261746cdf5baed3207911a4aab467ca6`。Exact-SHA CI 用时
+9 分 17 秒；GitHub Release 在 16 分 8 秒时公开。最后 npm Job 失败并保持未发布，安全顺序生效。
+
+| 关键路径 | 实测耗时 | 直接原因 |
+| --- | ---: | --- |
+| CI | 9 分 17 秒 | Chromium Shard 9 的测试执行 6 分 3 秒；iPhone WebKit 的 `npm ci` 用了 3 分 54 秒 |
+| Linux 制品 | 10 分 21 秒 | CLI、标准 App 和 Legacy App 的 Build/Smoke 串行 |
+| macOS x64 制品 | 7 分 12 秒 | CLI 与 App 串行 |
+| macOS arm64 制品 | 13 分 55 秒 | `npm ci` 5 分 23 秒，App 解压与 Smoke 4 分 6 秒 |
+| Stage GitHub Release | 1 分 37 秒 | 安装依赖 30 秒，Manifest 对大型资产重复 Hash |
+| npm 发布 | 13 秒后失败 | npm 12 把缺少 `./` 的 Tarball 路径误判为 GitHub Package Specifier（`EALLOWGIT`） |
+
+macOS arm64 日志证明主要问题不是 Runner 排队，而是安装阶段的无效工作：仓库 `npm ci` 执行了
+Farming 面向正式安装的 Postinstall，向一次性工作区下载 Claude Code 和 agent-browser，生成约
+846MB Runtime Seed；慢 Mirror 失败后又回退到公共 npm Registry。源码 CI 和 Release Build Checkout
+不会消费这份 Seed。
+
+因此第二轮将下列改造一次完成：
+
+- 源码 CI 与 Release Preparation 跳过正式安装形态的 Runtime Seed 准备；
+- Linux CLI、标准 App、Legacy App 拆成三个并行 Job；
+- 每个 macOS 架构的 CLI 与 App 拆成两个并行 Job；
+- App Smoke 直接测试精确保留的 Assembly Directory，不再刚压缩完又完整解压后测试；
+- 已压缩制品使用 Artifact Compression Level 0；
+- Manifest 复用已生成 Checksum，不再把全部大型资产 Hash 两遍；
+- Chromium 使用 12 个文件级 Shard，只在失败时上传 Trace、Screenshot 和 Report；
+- npm Publish 使用明确的相对 Tarball 路径。
 
 ## 已确认的浪费来源
 
@@ -192,12 +222,21 @@ Changed Files + Failure Signatures
 
 按 2.2.41 实测，这一项直接从 Release 关键路径删除 7 分 21 秒，测试要求不降低。
 
-### A3. Build 一次，从 Staged Output 打多个包
+### A3. 并行独立 Package，并保留精确 Assembly Output
 
-- 每个 Runner 先执行一次明确的 Preparation，生成 Frontend、Backend、ACP Vendor、CRT 和
-  Runtime Manifest。
-- CLI、App Bundle 和 Legacy Packaging 消费同一份 Staged Output，不得再次执行完整 Build。
-- 如果复用 Build 后仍无法满足时间预算，再把相互独立的 Package 拆成并行 Job。
+- Linux CLI、标准 App Bundle、Legacy App Bundle 在同一 Metadata Gate 后作为三个并行 Job。
+- 每个 macOS Architecture 的 Native CLI 与 App Bundle 作为两个并行 Job。
+- 保留精确 App Assembly Directory 直到 Smoke 完成；Archive 继续完整 Verify，但 Smoke 不再先解压
+  刚生成的大型 Archive。
+- Exact-SHA CI 和全部 Package-specific Gate 变绿前，所有 Job 都保持可逆，不执行公开 Mutation。
+
+### A6. 分开源码安装与正式产品安装
+
+- Source CI 和 Release Build Checkout 设置 `FARMING_SKIP_INSTALL_RUNTIME_PREPARE=1`；它们直接
+  Build/Test 源码，不得生成 Package Installation Runtime Seed。
+- npm Package Smoke 和 App Bundle Construction 继续保留各自安装形态的 Runtime 要求；该优化
+  不降低正式制品的安装契约。
+- Browser 下载继续由 Workflow 明确执行，依赖安装阶段不再静默下载第二份 Browser。
 
 ### A4. Smoke 和发布同一个 npm Tarball
 
@@ -221,11 +260,12 @@ Changed Files + Failure Signatures
 - Browser 和 Mobile Job 只依赖 Frontend Artifact Job。
 - 从原 `Check` 删除 Frontend Build，保证日常 CI 不会重复 Build。
 
-### B2. 均衡现有 Browser Shard
+### B2. 在不改变测试隔离的前提下均衡 Browser Shard
 
-- 先按生命周期边界拆分大型场景文件，从 `background-chat-continuity.spec.ts` 开始。
-- 保留场景内部单 Worker 隔离。
-- 保持现有测试和 Retry Policy；先让现有 Shard 均衡，再考虑增加 Shard 数量。
+- Chromium 文件级 Shard 从 10 增加到 12，使原来最慢的 Terminal Shard 不再同时承担 Cross-skin
+  和 Link Test Group。
+- 保留单 Worker 和文件级隔离，不对有状态 Scenario File 启用尚未证明安全的 Fully Parallel。
+- 消除依赖安装浪费后如果仍有明显不均衡，再按 Lifecycle Boundary 拆分大型 Scenario File。
 
 ### B3. 第一次失败立即生成诊断包
 

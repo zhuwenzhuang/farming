@@ -35,6 +35,19 @@ function run() {
   const workflow = YAML.parse(fs.readFileSync(path.join(root, '.github/workflows/ci.yml'), 'utf8'));
   const jobs: [string, WorkflowJob][] = Object.entries(workflow.jobs);
 
+  assert.strictEqual(workflow.env.FARMING_SKIP_INSTALL_RUNTIME_PREPARE, '1');
+  assert.strictEqual(workflow.env.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD, '1');
+  assert.strictEqual(workflow.env.PUPPETEER_SKIP_DOWNLOAD, '1');
+  assert.strictEqual(workflow.jobs.browser.strategy.matrix.shard.length, 12);
+  assert(
+    runScriptsOf(workflow.jobs.browser).includes('--shard=${{ matrix.shard }}/12'),
+    'Chromium must use all twelve bounded file-level shards',
+  );
+  assert(
+    workflow.jobs.browser.steps.some(step => step.uses === 'actions/upload-artifact@v4'),
+    'Chromium failures must retain Playwright evidence',
+  );
+
   // `engines` is a range, not an enumeration: `>=24.0.0` also admits Node majors that do not
   // exist yet, so this gate asserts the two declared floors instead of a finite major list.
   const engines = String(packageJson.engines.node);

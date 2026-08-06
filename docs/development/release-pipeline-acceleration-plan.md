@@ -2,7 +2,7 @@
 
 > Chinese version: [release-pipeline-acceleration-plan.zh_cn.md](./release-pipeline-acceleration-plan.zh_cn.md)
 
-Status: Proposed
+Status: Implementing and measuring
 
 This plan improves one end-to-end path: a maintainer asks to release a version,
 the exact candidate is checked, any blocker is diagnosed and fixed, publishable
@@ -111,6 +111,42 @@ The final successful Release workflow took 18 minutes 39 seconds:
 | npm job | 6 min 59 sec |
 | Stage GitHub Release | 1 min 42 sec |
 | Publish GitHub Release | 5 sec |
+
+## v2.2.42 Timed Result And Second-Pass Findings
+
+The first accelerated candidate used SHA
+`e4afb2fd261746cdf5baed3207911a4aab467ca6`. Exact-SHA CI completed in
+9 minutes 17 seconds. The GitHub Release became public after 16 minutes 8
+seconds; npm remained unpublished because its final job failed closed.
+
+| Critical path | Observed duration | Direct cause |
+| --- | ---: | --- |
+| CI | 9 min 17 sec | Chromium shard 9 ran tests for 6 min 3 sec; iPhone WebKit spent 3 min 54 sec in `npm ci` |
+| Linux artifacts | 10 min 21 sec | CLI, standard app, and legacy app build and smoke were serialized |
+| macOS x64 artifacts | 7 min 12 sec | CLI and app work were serialized |
+| macOS arm64 artifacts | 13 min 55 sec | `npm ci` took 5 min 23 sec and app extraction plus smoke took 4 min 6 sec |
+| Stage GitHub Release | 1 min 37 sec | dependency installation took 30 sec and manifest generation hashed large assets twice |
+| npm publication | failed in 13 sec | npm 12 interpreted a tarball path without `./` as a GitHub package specifier (`EALLOWGIT`) |
+
+The macOS arm64 install log identified the main installation waste rather than
+runner queueing: repository `npm ci` invoked Farming's installed-package
+postinstall, downloaded Claude Code and agent-browser into an approximately
+846 MB throwaway runtime seed, and retried a slow mirror before the public npm
+registry. Source CI and release build checkouts do not consume that seed.
+
+The second pass therefore applies these concrete changes together:
+
+- source CI and release preparation skip installed-package runtime seeding;
+- Linux CLI, standard app, and legacy app are independent parallel jobs;
+- macOS CLI and app packaging are independent jobs for each architecture;
+- app smoke runs against the exact retained assembly directory, avoiding a
+  compress-then-extract cycle before testing;
+- already compressed release assets use artifact compression level zero;
+- manifest generation reuses the generated checksums instead of hashing every
+  large asset twice;
+- Chromium uses twelve file-level shards and uploads traces, screenshots, and
+  reports only on failure;
+- npm publication uses an explicit relative tarball path.
 
 ## Confirmed Sources Of Waste
 
@@ -230,14 +266,27 @@ acceptance contract may have changed.
 This removes 7 minutes 21 seconds from the current Release critical path
 without reducing coverage.
 
-### A3. Build once and package from staged output
+### A3. Parallelize independent packages and retain exact assembly output
 
-- Add an explicit preparation step per runner that produces frontend, backend,
-  ACP vendor, CRT, and runtime-manifest output once.
-- CLI, app-bundle, and legacy packaging consume that staged output and must not
-  invoke another full build.
-- Separate independent artifact packages into parallel jobs when staging alone
-  does not meet the time budget.
+- Run Linux CLI, standard app-bundle, and legacy app-bundle as three parallel
+  jobs after one metadata gate.
+- Run native CLI and app-bundle as two parallel jobs for each macOS architecture.
+- Retain the exact app assembly directory until smoke completes. Verify the
+  archive and smoke the retained directory instead of extracting the large
+  archive immediately after creating it.
+- Keep all jobs reversible until exact-SHA CI and every package-specific gate
+  are green.
+
+### A6. Separate source installation from product installation
+
+- Source CI and release build checkouts set
+  `FARMING_SKIP_INSTALL_RUNTIME_PREPARE=1`; they build and test source directly
+  and must not create a package-installation runtime seed.
+- npm package smoke and app-bundle construction retain their installation-form
+  runtime requirements. This optimization does not weaken the published
+  installation contract.
+- Browser downloads remain explicit workflow steps, so dependency installation
+  does not silently download a second browser copy.
 
 ### A4. Smoke and publish one npm tarball
 
@@ -264,13 +313,14 @@ without reducing coverage.
 - Remove the old frontend build from `Check` so normal CI does not perform the
   build twice.
 
-### B2. Balance existing browser shards
+### B2. Balance browser shards without changing test isolation
 
-- Split oversized scenario files, beginning with
-  `background-chat-continuity.spec.ts`, along lifecycle boundaries.
-- Preserve one-worker isolation inside each scenario.
-- Keep the existing test cases and retry policy; rebalance files across the
-  existing shards before adding more shards.
+- Increase file-level Chromium sharding from ten to twelve so the previous
+  terminal-heavy shard no longer also owns the cross-skin and link groups.
+- Preserve one-worker and file-level isolation; do not enable unproven
+  fully-parallel execution inside stateful scenario files.
+- Split oversized scenario files along lifecycle boundaries if measured shard
+  imbalance remains after dependency-install waste is removed.
 
 ### B3. Produce a failure bundle immediately
 

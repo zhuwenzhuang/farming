@@ -39,7 +39,22 @@ if [ -n "${GIT_STATUS}" ]; then
   GIT_DIRTY=true
 fi
 RELEASE_NAME="${FARMING_RELEASE_NAME:-${DEFAULT_RELEASE_NAME}}"
-TMP_ROOT="$(mktemp -d /tmp/farming-release.XXXXXX)"
+PRESERVE_STAGE_ROOT=false
+if [ -n "${FARMING_RELEASE_STAGE_ROOT:-}" ]; then
+  case "${FARMING_RELEASE_STAGE_ROOT}" in
+    /*) ;;
+    *) echo "FARMING_RELEASE_STAGE_ROOT must be an absolute path." >&2; exit 1 ;;
+  esac
+  if [ -e "${FARMING_RELEASE_STAGE_ROOT}" ]; then
+    echo "FARMING_RELEASE_STAGE_ROOT must not already exist: ${FARMING_RELEASE_STAGE_ROOT}" >&2
+    exit 1
+  fi
+  TMP_ROOT="${FARMING_RELEASE_STAGE_ROOT}"
+  mkdir -p "${TMP_ROOT}"
+  PRESERVE_STAGE_ROOT=true
+else
+  TMP_ROOT="$(mktemp -d /tmp/farming-release.XXXXXX)"
+fi
 
 log() {
   echo "==> $*" >&2
@@ -64,7 +79,9 @@ checksum_value() {
 }
 
 cleanup() {
-  rm -rf "${TMP_ROOT}"
+  if [ "${PRESERVE_STAGE_ROOT}" != "true" ]; then
+    rm -rf "${TMP_ROOT}"
+  fi
 }
 trap cleanup EXIT
 

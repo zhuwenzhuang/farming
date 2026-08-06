@@ -108,9 +108,13 @@ jobs:
             --interval 10
 
   build-linux:
-    name: Build Linux artifacts
+    name: Build Linux ${{ matrix.kind }} artifacts
     runs-on: ubuntu-latest
     needs: preflight
+    strategy:
+      fail-fast: false
+      matrix:
+        kind: [cli, app, legacy]
     env:
       FARMING_BASE_PATH: /farming
       FARMING_RELEASE_VERSION: ${{ inputs.release_version }}
@@ -145,89 +149,116 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
-        run: npm ci --registry=https://registry.npmjs.org/
+        run: FARMING_SKIP_INSTALL_RUNTIME_PREPARE=1 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 PUPPETEER_SKIP_DOWNLOAD=1 npm ci --registry=https://registry.npmjs.org/ --no-audit --no-fund
 
       - name: Build Linux CLI
+        if: matrix.kind == 'cli'
         env:
           FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
           FARMING_CLI_TARGETS: node22-linux-x64,node22-linux-arm64
         run: npm run release:cli
 
       - name: Smoke-test Linux CLI server
+        if: matrix.kind == 'cli'
         env:
           FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
           FARMING_SMOKE_AGENT: "0"
         run: npm run release:cli:smoke -- "releases/${FARMING_RELEASE_VERSION}/farming_${FARMING_RELEASE_VERSION}_linux_amd64"
 
       - name: Build Linux app bundle
+        if: matrix.kind == 'app'
         env:
           FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
+          FARMING_RELEASE_STAGE_ROOT: ${{ runner.temp }}/farming-release-stage-app
         run: npm run release:app
 
       - name: Verify Linux app bundle
+        if: matrix.kind == 'app'
         env:
           FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
         run: node --import tsx scripts/verify-release-bundle.ts "releases/${FARMING_RELEASE_VERSION}/farming-${FARMING_RELEASE_VERSION}-linux-x64.tar.gz"
 
       - name: Smoke-test Linux app bundle
+        if: matrix.kind == 'app'
         env:
           FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
           FARMING_SMOKE_PORT: "6695"
         shell: bash
         run: |
-          tmp="$(mktemp -d)"
-          tar -xzf "releases/${FARMING_RELEASE_VERSION}/farming-${FARMING_RELEASE_VERSION}-linux-x64.tar.gz" -C "${tmp}"
-          npm run release:cli:smoke -- "${tmp}/farming-${FARMING_RELEASE_VERSION}-linux-x64/farming"
+          npm run release:cli:smoke -- "${RUNNER_TEMP}/farming-release-stage-app/farming-${FARMING_RELEASE_VERSION}-linux-x64/farming"
 
       - name: Build legacy Linux app bundle
+        if: matrix.kind == 'legacy'
         env:
           FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
+          FARMING_RELEASE_STAGE_ROOT: ${{ runner.temp }}/farming-release-stage-legacy
         run: npm run release:app:legacy-linux
 
       - name: Verify legacy Linux app bundle
+        if: matrix.kind == 'legacy'
         env:
           FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
         run: node --import tsx scripts/verify-linux-legacy-release.ts "releases/${FARMING_RELEASE_VERSION}/farming-${FARMING_RELEASE_VERSION}-linux-x64-legacy-glibc228.tar.gz"
 
       - name: Smoke-test legacy Linux npm bootstrap and native PTY
+        if: matrix.kind == 'legacy'
         env:
           FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
           FARMING_SMOKE_PORT: "6696"
         shell: bash
         run: |
-          tmp="$(mktemp -d)"
-          tar -xzf "releases/${FARMING_RELEASE_VERSION}/farming-${FARMING_RELEASE_VERSION}-linux-x64-legacy-glibc228.tar.gz" -C "${tmp}"
-          FARMING_USE_GLIBC_RUNTIME=1 npm run release:cli:smoke -- "${tmp}/farming-${FARMING_RELEASE_VERSION}-linux-x64-legacy-glibc228/farming"
+          FARMING_USE_GLIBC_RUNTIME=1 npm run release:cli:smoke -- "${RUNNER_TEMP}/farming-release-stage-legacy/farming-${FARMING_RELEASE_VERSION}-linux-x64-legacy-glibc228/farming"
 
       - name: Collect Linux release assets
         env:
           FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
         run: |
           mkdir -p release-upload
-          cp "releases/${FARMING_RELEASE_VERSION}/farming_${FARMING_RELEASE_VERSION}_linux_amd64" release-upload/
-          cp "releases/${FARMING_RELEASE_VERSION}/farming_${FARMING_RELEASE_VERSION}_linux_arm64" release-upload/
-          cp "releases/${FARMING_RELEASE_VERSION}/farming-${FARMING_RELEASE_VERSION}-linux-x64.tar.gz" release-upload/
-          cp "releases/${FARMING_RELEASE_VERSION}/farming-${FARMING_RELEASE_VERSION}-linux-x64-legacy-glibc228.tar.gz" release-upload/
+          case "${{ matrix.kind }}" in
+            cli)
+              cp "releases/${FARMING_RELEASE_VERSION}/farming_${FARMING_RELEASE_VERSION}_linux_amd64" release-upload/
+              cp "releases/${FARMING_RELEASE_VERSION}/farming_${FARMING_RELEASE_VERSION}_linux_arm64" release-upload/
+              ;;
+            app)
+              cp "releases/${FARMING_RELEASE_VERSION}/farming-${FARMING_RELEASE_VERSION}-linux-x64.tar.gz" release-upload/
+              ;;
+            legacy)
+              cp "releases/${FARMING_RELEASE_VERSION}/farming-${FARMING_RELEASE_VERSION}-linux-x64-legacy-glibc228.tar.gz" release-upload/
+              ;;
+          esac
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: farming-linux-${{ steps.version.outputs.value }}
+          name: farming-linux-${{ steps.version.outputs.value }}-${{ matrix.kind }}
           path: release-upload/*
           if-no-files-found: error
+          compression-level: 0
 
   build-macos:
-    name: Build macOS ${{ matrix.arch }} artifacts
+    name: Build macOS ${{ matrix.arch }} ${{ matrix.kind }} artifacts
     strategy:
       fail-fast: false
       matrix:
         include:
           - runner: macos-15-intel
             arch: x64
+            kind: cli
+            cliTarget: node22-macos-x64
+            cliAsset: darwin_amd64
+          - runner: macos-15-intel
+            arch: x64
+            kind: app
             cliTarget: node22-macos-x64
             cliAsset: darwin_amd64
           - runner: macos-15
             arch: arm64
+            kind: cli
+            cliTarget: node22-macos-arm64
+            cliAsset: darwin_arm64
+          - runner: macos-15
+            arch: arm64
+            kind: app
             cliTarget: node22-macos-arm64
             cliAsset: darwin_arm64
     runs-on: ${{ matrix.runner }}
@@ -274,55 +305,62 @@ jobs:
           esac
 
       - name: Install dependencies
-        run: npm ci --registry=https://registry.npmjs.org/
+        run: FARMING_SKIP_INSTALL_RUNTIME_PREPARE=1 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 PUPPETEER_SKIP_DOWNLOAD=1 npm ci --registry=https://registry.npmjs.org/ --no-audit --no-fund
 
       - name: Build native macOS CLI
+        if: matrix.kind == 'cli'
         env:
           FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
           FARMING_CLI_TARGETS: ${{ matrix.cliTarget }}
         run: npm run release:cli
 
       - name: Smoke-test native macOS CLI
+        if: matrix.kind == 'cli'
         env:
           FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
         run: npm run release:cli:smoke -- "releases/${FARMING_RELEASE_VERSION}/farming_${FARMING_RELEASE_VERSION}_${{ matrix.cliAsset }}"
 
       - name: Build macOS app bundle
+        if: matrix.kind == 'app'
         env:
           FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
           FARMING_RELEASE_PLATFORM: darwin
           FARMING_RELEASE_ARCH: ${{ matrix.arch }}
+          FARMING_RELEASE_STAGE_ROOT: ${{ runner.temp }}/farming-release-stage-app
         run: npm run release:app
 
       - name: Verify macOS app bundle
+        if: matrix.kind == 'app'
         env:
           FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
         run: node --import tsx scripts/verify-release-bundle.ts "releases/${FARMING_RELEASE_VERSION}/farming-${FARMING_RELEASE_VERSION}-darwin-${{ matrix.arch }}.tar.gz"
 
       - name: Smoke-test macOS app bundle
+        if: matrix.kind == 'app'
         env:
           FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
         shell: bash
         run: |
-          tmp="$(mktemp -d)"
-          trap 'rm -rf "${tmp}"' EXIT
-          tar -xzf "releases/${FARMING_RELEASE_VERSION}/farming-${FARMING_RELEASE_VERSION}-darwin-${{ matrix.arch }}.tar.gz" -C "${tmp}"
-          npm run release:cli:smoke -- "${tmp}/farming-${FARMING_RELEASE_VERSION}-darwin-${{ matrix.arch }}/farming"
+          npm run release:cli:smoke -- "${RUNNER_TEMP}/farming-release-stage-app/farming-${FARMING_RELEASE_VERSION}-darwin-${{ matrix.arch }}/farming"
 
       - name: Collect macOS release assets
         env:
           FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
         run: |
           mkdir -p release-upload
-          cp "releases/${FARMING_RELEASE_VERSION}/farming_${FARMING_RELEASE_VERSION}_${{ matrix.cliAsset }}" release-upload/
-          cp "releases/${FARMING_RELEASE_VERSION}/farming-${FARMING_RELEASE_VERSION}-darwin-${{ matrix.arch }}.tar.gz" release-upload/
+          if [[ "${{ matrix.kind }}" == "cli" ]]; then
+            cp "releases/${FARMING_RELEASE_VERSION}/farming_${FARMING_RELEASE_VERSION}_${{ matrix.cliAsset }}" release-upload/
+          else
+            cp "releases/${FARMING_RELEASE_VERSION}/farming-${FARMING_RELEASE_VERSION}-darwin-${{ matrix.arch }}.tar.gz" release-upload/
+          fi
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: farming-macos-${{ steps.version.outputs.value }}-${{ matrix.arch }}
+          name: farming-macos-${{ steps.version.outputs.value }}-${{ matrix.arch }}-${{ matrix.kind }}
           path: release-upload/*
           if-no-files-found: error
+          compression-level: 0
 
   prepare-npm:
     name: Prepare and smoke npm package
@@ -347,7 +385,7 @@ jobs:
         run: npm install --global npm@latest
 
       - name: Install dependencies
-        run: npm ci --registry=https://registry.npmjs.org/
+        run: FARMING_SKIP_INSTALL_RUNTIME_PREPARE=1 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 PUPPETEER_SKIP_DOWNLOAD=1 npm ci --registry=https://registry.npmjs.org/ --no-audit --no-fund
 
       - name: Build and smoke one npm tarball
         env:
@@ -407,11 +445,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: npm
-          registry-url: https://registry.npmjs.org
-
-      - name: Install dependencies
-        run: npm ci --registry=https://registry.npmjs.org/
 
       - name: Verify release notes
         id: notes
@@ -447,8 +480,9 @@ jobs:
       - name: Download Linux release assets
         uses: actions/download-artifact@v4
         with:
-          name: farming-linux-${{ steps.version.outputs.value }}
+          pattern: farming-linux-${{ steps.version.outputs.value }}-*
           path: release-assets
+          merge-multiple: true
 
       - name: Download macOS release assets
         uses: actions/download-artifact@v4
@@ -468,11 +502,35 @@ jobs:
           else
             shasum -a 256 farming* > "farming_${FARMING_RELEASE_VERSION}_checksums.txt"
           fi
-          node --import tsx <<'NODE'
-          const crypto = require('crypto');
+          node <<'NODE'
+          const childProcess = require('child_process');
           const fs = require('fs');
-          const { readBundleRelease } = require('../scripts/verify-release-bundle.ts');
           const version = process.env.FARMING_RELEASE_VERSION;
+          const checksumLines = fs.readFileSync(`farming_${version}_checksums.txt`, 'utf8')
+            .split(/\r?\n/)
+            .filter(Boolean);
+          const checksums = new Map(checksumLines.map((line) => {
+            const match = line.match(/^([a-f0-9]{64})\s+\*?(.+)$/i);
+            if (!match) throw new Error(`Invalid checksum entry: ${line}`);
+            return [match[2], match[1].toLowerCase()];
+          }));
+          function checksumFor(file) {
+            const value = checksums.get(file);
+            if (!value) throw new Error(`Missing generated checksum for ${file}`);
+            return value;
+          }
+          function readBundleRelease(file) {
+            const entries = childProcess.execFileSync('tar', ['-tzf', file], {
+              encoding: 'utf8',
+              maxBuffer: 20 * 1024 * 1024,
+            }).split(/\r?\n/).filter(Boolean);
+            const releaseEntry = entries.find((entry) => entry.endsWith('/RELEASE.json'));
+            if (!releaseEntry) throw new Error(`Release archive is missing RELEASE.json: ${file}`);
+            return JSON.parse(childProcess.execFileSync('tar', ['-xOf', file, releaseEntry], {
+              encoding: 'utf8',
+              maxBuffer: 1024 * 1024,
+            }));
+          }
           const files = fs.readdirSync('.')
             .filter((file) => file.startsWith('farming'))
             .filter((file) => !file.endsWith('_checksums.txt'))
@@ -483,7 +541,7 @@ jobs:
               return {
                 type: 'cli',
                 file,
-                sha256: crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'),
+                sha256: checksumFor(file),
                 releaseVersion: cliMatch[1],
                 platform: cliMatch[2],
                 arch: cliMatch[3],
@@ -495,15 +553,15 @@ jobs:
               return {
                 type: 'app-bundle',
                 file,
-                sha256: crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'),
+                sha256: checksumFor(file),
                 releaseVersion: bundleMatch[1],
-                packageVersion: bundle.release.packageVersion || '',
-                gitSha: bundle.release.gitSha || '',
-                platform: bundle.release.platform || bundleMatch[2],
-                arch: bundle.release.arch || bundleMatch[3],
-                compatibilityProfile: bundle.release.compatibilityProfile || (bundleMatch[4] ? 'linux-x64-legacy-glibc228' : ''),
-                bundledNodeModules: bundle.release.bundledNodeModules === true,
-                bundledGlibcRuntime: bundle.release.bundledGlibcRuntime === true,
+                packageVersion: bundle.packageVersion || '',
+                gitSha: bundle.gitSha || '',
+                platform: bundle.platform || bundleMatch[2],
+                arch: bundle.arch || bundleMatch[3],
+                compatibilityProfile: bundle.compatibilityProfile || (bundleMatch[4] ? 'linux-x64-legacy-glibc228' : ''),
+                bundledNodeModules: bundle.bundledNodeModules === true,
+                bundledGlibcRuntime: bundle.bundledGlibcRuntime === true,
               };
             }
             return { type: 'unknown', file };
@@ -746,5 +804,5 @@ jobs:
           if [[ "${version}" == *-* ]]; then
             dist_tag="next"
           fi
-          npm publish "${package_tarball}" --access public --provenance --tag "${dist_tag}"
+          npm publish "./${package_tarball}" --access public --provenance --tag "${dist_tag}"
           bash scripts/verify-npm-release-source.sh "farming-code@${version}" "${candidate_sha}"

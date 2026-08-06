@@ -1227,10 +1227,10 @@ async function runTests() {
       'utf8',
     );
     assert(releaseWorkflowSource.includes('node --import tsx scripts/verify-release-bundle.ts'));
-    assert(releaseWorkflowSource.includes("const { readBundleRelease } = require('../scripts/verify-release-bundle.ts');"));
+    assert(releaseWorkflowSource.includes('function readBundleRelease(file)'));
     assert(releaseWorkflowSource.includes('bundledGlibcRuntime'));
     assert(releaseWorkflowSource.includes("(-legacy-glibc228)?\\.tar\\.gz"));
-    assert(releaseWorkflowSource.includes("compatibilityProfile: bundle.release.compatibilityProfile"));
+    assert(releaseWorkflowSource.includes('compatibilityProfile: bundle.compatibilityProfile'));
     assert(releaseWorkflowSource.includes('runner: macos-15-intel'));
     assert(releaseWorkflowSource.includes('runner: macos-15'));
     assert(releaseWorkflowSource.includes('Verify native runner architecture'));
@@ -1277,10 +1277,30 @@ async function runTests() {
     assert(npmPublishJob.includes('name: Publish npm package last'));
     assert(npmPublishJob.includes('      - verify-github-release'));
     assert(npmPublishJob.includes('sha256sum --check'));
-    assert(npmPublishJob.includes('npm publish "${package_tarball}"'));
+    assert(npmPublishJob.includes('npm publish "./${package_tarball}"'));
     assert(!releaseWorkflowSource.includes('run: npm run check'));
     const releaseWorkflow = YAML.parse(releaseWorkflowSource);
     assert.deepStrictEqual(releaseWorkflow.permissions, { actions: 'read', contents: 'write' });
+    assert.deepStrictEqual(
+      releaseWorkflow.jobs['build-linux'].strategy.matrix.kind,
+      ['cli', 'app', 'legacy'],
+    );
+    assert.deepStrictEqual(
+      releaseWorkflow.jobs['build-macos'].strategy.matrix.include
+        .map(entry => `${entry.arch}:${entry.kind}`),
+      ['x64:cli', 'x64:app', 'arm64:cli', 'arm64:app'],
+    );
+    assert(
+      releaseWorkflow.jobs['build-linux'].steps.some(
+        step => step.name === 'Smoke-test Linux app bundle'
+          && step.run.includes('farming-release-stage-app'),
+      ),
+      'Linux app smoke must consume the retained exact assembly directory',
+    );
+    assert(
+      !releaseWorkflow.jobs['stage-release'].steps.some(step => step.name === 'Install dependencies'),
+      'release staging must not install the repository dependency tree',
+    );
     const releaseCiGate = releaseWorkflow.jobs['ci-gate'].steps.find(
       step => step.name === 'Require successful CI for candidate revision',
     );

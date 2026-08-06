@@ -86,6 +86,11 @@ function run() {
     'standard App packaging must include the generated TypeScript usage scanner',
   );
   assert(
+    appPackageScript.includes('FARMING_RELEASE_STAGE_ROOT must be an absolute path.')
+      && appPackageScript.includes('PRESERVE_STAGE_ROOT=true'),
+    'release packaging must support a retained exact assembly directory for smoke testing without re-extraction',
+  );
+  assert(
     appPackageScript.includes('runtime_path="${source_path%.cts}.cjs"')
       && appPackageScript.includes('Generated backend runtime is missing: ${runtime_path}')
       && appPackageScript.includes('"${PROJECT_ROOT}/extensions/browser/backend"')
@@ -149,7 +154,7 @@ function run() {
       && releaseWorkflow.match(/npm run release:npm:pack/g)?.length === 1
       && releaseWorkflow.includes('npm run release:npm:smoke -- "${package_tarball}"')
       && releaseWorkflow.includes('name: farming-npm-${{ inputs.release_version }}')
-      && releaseWorkflow.includes('npm publish "${package_tarball}"')
+      && releaseWorkflow.includes('npm publish "./${package_tarball}"')
       && releaseWorkflow.includes('sha256sum --check'),
     'npm smoke and publication must consume the same staged tarball',
   );
