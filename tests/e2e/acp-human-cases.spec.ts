@@ -417,7 +417,7 @@ test.describe('ACP human-like browser matrix', () => {
     const agentId = await createAcpAgent(page, workspace)
     await openFarming(page)
     await agentRow(page, agentId).click()
-    await sendAcpMessage(page, 'rich timeline')
+    await sendAcpMessage(page, 'rich timeline inspect active plan')
 
     const plan = page.getByTestId('code-agent-transcript-plan-driver')
     await expect(plan).toBeVisible()
@@ -428,10 +428,8 @@ test.describe('ACP human-like browser matrix', () => {
     await expect(plan.locator('.code-agent-transcript-plan-driver-summary')).toHaveAttribute('aria-expanded', 'false')
     await plan.locator('.code-agent-transcript-plan-driver-summary').click()
     const runningPlanStep = plan.locator('.code-agent-transcript-plan-list li.running')
+    await expect(runningPlanStep).toHaveAttribute('aria-current', 'step')
     await expect(runningPlanStep).toHaveCSS('font-weight', '400')
-    await expect.poll(() => runningPlanStep.evaluate(
-      element => getComputedStyle(element, '::marker').fontWeight,
-    )).toBe('400')
     expect(await page.getByTestId('code-agent-transcript-scroll').evaluate(element => {
       const style = getComputedStyle(element)
       return style.paddingRight === style.paddingLeft

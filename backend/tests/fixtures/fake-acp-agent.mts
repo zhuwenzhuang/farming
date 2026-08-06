@@ -1167,7 +1167,10 @@ class FakeAgent implements Agent {
           ],
         },
       });
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise(resolve => setTimeout(
+        resolve,
+        promptText.includes('inspect active plan') ? 5_000 : 500,
+      ));
       await client.sessionUpdate({
         sessionId: params.sessionId,
         update: {

@@ -3552,14 +3552,16 @@ export function AgentTranscriptPane({
     const element = scrollRef.current
     if (!active || !element) return undefined
     return () => {
+      if (pendingReadingAnchorRestoreRef.current || pendingPrependAnchorRef.current) return
       scheduleReadingAnchorSave(readingAnchorAgentId, element)
     }
   }, [active, initialRevealReady, readingAnchorAgentId, scheduleReadingAnchorSave])
 
   useEffect(() => {
     const handlePageHide = () => {
+      if (!active) return
       const element = scrollRef.current
-      if (element) {
+      if (element && !pendingReadingAnchorRestoreRef.current && !pendingPrependAnchorRef.current) {
         const anchor = captureTranscriptReadingAnchor(readingAnchorAgentId, element)
         if (anchor !== undefined) persistTranscriptReadingAnchor(readingAnchorAgentId, anchor)
       }
@@ -3567,7 +3569,7 @@ export function AgentTranscriptPane({
     }
     window.addEventListener('pagehide', handlePageHide)
     return () => window.removeEventListener('pagehide', handlePageHide)
-  }, [flushPendingReadingAnchor, readingAnchorAgentId])
+  }, [active, flushPendingReadingAnchor, readingAnchorAgentId])
 
   useEffect(() => {
     if (!active) return undefined
@@ -3874,10 +3876,6 @@ export function AgentTranscriptPane({
     if (loading || !initialRevealReady || !transcript?.available || turns.length === 0) return
     const element = scrollRef.current
     if (!element) return
-    if (!followBottomRef.current && stationaryScrollTopRef.current !== null) {
-      element.scrollTop = stationaryScrollTopRef.current
-    }
-    if (userScrollGestureRef.current) return
     const hasTextSelection = hasTextSelectionWithin(element)
     if (textSelectionGestureRef.current || hasTextSelection) {
       if (hasTextSelection) {
@@ -3889,14 +3887,13 @@ export function AgentTranscriptPane({
     const pendingAnchor = pendingPrependAnchorRef.current
     if (pendingAnchor) {
       pendingPrependAnchorRef.current = null
-      window.requestAnimationFrame(() => {
-        if (textSelectionGestureRef.current || hasTextSelectionWithin(element)) return
-        const nextTop = element.scrollHeight - pendingAnchor.scrollHeight + pendingAnchor.scrollTop
-        element.scrollTop = Math.max(0, nextTop)
-        scheduleReadingAnchorSave(readingAnchorAgentId, element)
-      })
+      const nextTop = element.scrollHeight - pendingAnchor.scrollHeight + pendingAnchor.scrollTop
+      element.scrollTop = Math.max(0, nextTop)
+      if (!followBottomRef.current) stationaryScrollTopRef.current = element.scrollTop
+      scheduleReadingAnchorSave(readingAnchorAgentId, element)
       return
     }
+    if (userScrollGestureRef.current) return
     if (followBottomRef.current) {
       stationaryScrollTopRef.current = null
       pendingReadingAnchorRestoreRef.current = false
@@ -3917,36 +3914,39 @@ export function AgentTranscriptPane({
       })
       return
     }
-    if (!pendingReadingAnchorRestoreRef.current) return
-    window.requestAnimationFrame(() => {
-      if (textSelectionGestureRef.current || hasTextSelectionWithin(element)) return
-      const restored = restoreTranscriptReadingAnchor(readingAnchorAgentId, element)
-      if (restored === 'restored') {
-        pendingReadingAnchorRestoreRef.current = false
-        setShowJumpToBottom(true)
-        return
+    if (!pendingReadingAnchorRestoreRef.current) {
+      if (stationaryScrollTopRef.current !== null) {
+        element.scrollTop = stationaryScrollTopRef.current
       }
-      if (
-        restored === 'missing'
-        && transcript.hasMoreBefore
-        && turnLimit < MAX_TRANSCRIPT_TURN_LIMIT
-      ) {
-        if (!loadingOlder) {
-          setLoadingOlder(true)
-          setTurnLimit(current => Math.min(
-            MAX_TRANSCRIPT_TURN_LIMIT,
-            current + (source === 'acp' ? ACP_TRANSCRIPT_TURN_PAGE_SIZE : TRANSCRIPT_TURN_PAGE_SIZE),
-          ))
-        }
-        return
-      }
+      return
+    }
+    const restored = restoreTranscriptReadingAnchor(readingAnchorAgentId, element)
+    if (restored === 'restored') {
       pendingReadingAnchorRestoreRef.current = false
-      clearReadingAnchor(readingAnchorAgentKey(readingAnchorAgentId, 'chat'))
-      followBottomRef.current = true
-      element.scrollTop = element.scrollHeight
-      setShowJumpToBottom(false)
-      if (active && isPageActive()) onReadLatest?.()
-    })
+      stationaryScrollTopRef.current = element.scrollTop
+      setShowJumpToBottom(true)
+      return
+    }
+    if (
+      restored === 'missing'
+      && transcript.hasMoreBefore
+      && turnLimit < MAX_TRANSCRIPT_TURN_LIMIT
+    ) {
+      if (!loadingOlder) {
+        setLoadingOlder(true)
+        setTurnLimit(current => Math.min(
+          MAX_TRANSCRIPT_TURN_LIMIT,
+          current + (source === 'acp' ? ACP_TRANSCRIPT_TURN_PAGE_SIZE : TRANSCRIPT_TURN_PAGE_SIZE),
+        ))
+      }
+      return
+    }
+    pendingReadingAnchorRestoreRef.current = false
+    clearReadingAnchor(readingAnchorAgentKey(readingAnchorAgentId, 'chat'))
+    followBottomRef.current = true
+    element.scrollTop = element.scrollHeight
+    setShowJumpToBottom(false)
+    if (active && isPageActive()) onReadLatest?.()
   }, [active, initialRevealReady, loading, loadingOlder, onReadLatest, readingAnchorAgentId, scheduleReadingAnchorSave, source, transcript?.available, transcript?.hasMoreBefore, transcript?.revision, transcript?.updatedAt, turnLimit, turns.length])
 
   useLayoutEffect(() => {
@@ -3970,12 +3970,15 @@ export function AgentTranscriptPane({
     return () => observer.disconnect()
   }, [active, readingAnchorAgentId, transcript?.available, turns])
 
-  useEffect(() => () => {
+  useEffect(() => {
     const element = scrollRef.current
-    if (!element) return
-    const anchor = captureTranscriptReadingAnchor(readingAnchorAgentId, element)
-    if (anchor !== undefined) persistTranscriptReadingAnchor(readingAnchorAgentId, anchor)
-  }, [readingAnchorAgentId])
+    if (!active || !element) return undefined
+    return () => {
+      if (pendingReadingAnchorRestoreRef.current || pendingPrependAnchorRef.current) return
+      const anchor = captureTranscriptReadingAnchor(readingAnchorAgentId, element)
+      if (anchor !== undefined) persistTranscriptReadingAnchor(readingAnchorAgentId, anchor)
+    }
+  }, [active, readingAnchorAgentId])
 
   useEffect(() => {
     onAvailabilityChange?.({
@@ -4111,6 +4114,9 @@ export function AgentTranscriptPane({
     const element = scrollRef.current
     if (!element) return
     const hasTextSelection = textSelectionGestureRef.current || hasTextSelectionWithin(element)
+    if (pendingPrependAnchorRef.current && !userScrollGestureRef.current && !hasTextSelection) {
+      return
+    }
     if (pendingReadingAnchorRestoreRef.current && !userScrollGestureRef.current && !hasTextSelection) {
       return
     }
