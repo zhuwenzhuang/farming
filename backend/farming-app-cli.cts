@@ -1505,7 +1505,7 @@ async function runServerInCurrentProcess(): Promise<void> {
   const env = canonicalizeServerConfigDir(buildServerEnv());
   process.env = env;
   const activePackageRoot = String(env.FARMING_ACTIVE_PACKAGE_ROOT || '').trim();
-  verifyServerPackageRootReady(activePackageRoot || path.join(__dirname, '..'));
+  if (activePackageRoot) verifyServerPackageRootReady(activePackageRoot);
   const processIdentity = acquireServerConfigOwner(env.FARMING_CONFIG_DIR);
   const packageInstallation = activePackageRoot
     ? resolvePackageInstallationContext(activePackageRoot, env)
