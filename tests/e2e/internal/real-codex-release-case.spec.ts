@@ -14,6 +14,8 @@ const CLI_BEGIN = 'CLI_FLOW_BEGIN_7F3A'
 const CLI_END = 'CLI_FLOW_END_7F3A'
 const COMPOSITE_BEGIN = 'COMPOSITE_BEGIN_7F3A'
 const COMPOSITE_END = 'COMPOSITE_END_7F3A'
+const RELEASE_SMOKE_REQUEST = 'RELEASE_SMOKE_REQUEST_7F3A'
+const RELEASE_SMOKE_END = 'RELEASE_SMOKE_END_7F3A'
 const CRT_TERMINAL_ACK = 'CRT_TERMINAL_ACK_7F3A'
 const CRT_MSG_ACK = 'CRT_MSG_ACK_7F3A'
 const ACP_FOLLOW_UP_ACK = 'ACP_FOLLOW_UP_ACK_7F3A'
@@ -810,7 +812,80 @@ test.describe('real Codex pre-release composite case', () => {
     fs.rmSync(REAL_CODEX_WORKSPACE, { recursive: true, force: true })
   })
 
-  test('preserves one real Codex session across Code ACP Chat, dark appearance, CRT, Terminal, and resize', async ({ page }, testInfo) => {
+  test('completes one visible turn through a real Codex Terminal', { tag: '@release-smoke' }, async ({ page }, testInfo) => {
+    test.setTimeout(2 * 60_000)
+    await page.setViewportSize(NORMAL_VIEWPORT)
+
+    const catalogResponse = await page.request.get('/farming/api/codex/models?homeId=default')
+    expect(catalogResponse.ok()).toBeTruthy()
+    const catalogBody = await catalogResponse.json() as { catalog?: CodexCatalogModel[] }
+    const primaryModel = (catalogBody.catalog ?? []).find(model => model.value === PRIMARY_MODEL)
+    expect(primaryModel, `${PRIMARY_MODEL} must be present in the live Codex catalog`).toBeTruthy()
+    expect(primaryModel?.reasoningLevels?.some(level => level.value === PRIMARY_EFFORT)).toBe(true)
+
+    const settingsResponse = await page.request.post('/farming/api/settings', {
+      data: {
+        codexModel: PRIMARY_MODEL,
+        codexReasoningEffort: PRIMARY_EFFORT,
+        codexServiceTier: 'default',
+        codexModelPreset: `${PRIMARY_MODEL}:${PRIMARY_EFFORT}`,
+        agentLaunchProfiles: {
+          codex: {
+            approvalMode: 'approve',
+            model: PRIMARY_MODEL,
+            reasoningEffort: PRIMARY_EFFORT,
+            serviceTier: 'default',
+            modelPreset: `${PRIMARY_MODEL}:${PRIMARY_EFFORT}`,
+          },
+        },
+      },
+    })
+    expect(settingsResponse.ok()).toBeTruthy()
+
+    await openFarming(page)
+    const createResponse = await page.request.post('/farming/api/control/agents', {
+      data: { command: 'codex', workspace: REAL_CODEX_WORKSPACE, agentRuntimeMode: 'terminal' },
+    })
+    const createBody = await createResponse.json() as { agentId?: string, error?: string }
+    expect(createResponse.ok(), createBody.error || 'Failed to create real Codex Agent').toBeTruthy()
+    const agentId = createBody.agentId as string
+    expect(agentId).toBeTruthy()
+
+    const row = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
+    await expect(row).toBeVisible({ timeout: 30_000 })
+    await row.click()
+    await waitForCodeTerminal(page, agentId)
+    await continueWithoutUntrustedHooks(page, agentId)
+    await sendCodeTerminalInput(
+      page,
+      agentId,
+      `${RELEASE_SMOKE_REQUEST}. Do not use tools. Reply with only the concatenation of RELEASE_SMOKE_END_ and ${ANCHOR_SUFFIX}, with no separator.`,
+      RELEASE_SMOKE_REQUEST,
+    )
+    await waitForCompletedTerminalTurn(page, agentId, RELEASE_SMOKE_END, 60_000)
+    await assertCodeTerminalHealthy(page, agentId)
+    const liveAgent = await waitForAgent(page, agentId, current => (
+      current.status === 'running'
+      && current.providerSessionTemporary !== true
+      && Boolean(current.providerSessionId)
+    ), 30_000)
+
+    await testInfo.attach('release-smoke-evidence.json', {
+      body: Buffer.from(JSON.stringify({
+        agentId,
+        providerSessionId: liveAgent.providerSessionId,
+        model: PRIMARY_MODEL,
+        effort: PRIMARY_EFFORT,
+        anchor: RELEASE_SMOKE_END,
+      }, null, 2)),
+      contentType: 'application/json',
+    })
+    // Dispose the Terminal renderer before fixture cleanup archives the real
+    // Codex Agent, so a late resize cannot target an already removed PTY.
+    await page.goto('about:blank')
+  })
+
+  test('preserves one real Codex session across Code ACP Chat, dark appearance, CRT, Terminal, and resize', { tag: '@release-composite' }, async ({ page }, testInfo) => {
     test.setTimeout(15 * 60_000)
     await page.setViewportSize(NORMAL_VIEWPORT)
     const terminalErrors: string[] = []

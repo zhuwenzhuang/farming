@@ -1,6 +1,6 @@
 ---
 name: farming-release
-description: Prepare, diagnose, and complete Farming releases with exact-SHA evidence, bounded investigation, parallel domain convergence, GitHub-before-npm publication, and measured 10/15-minute targets. Use when asked to prepare, validate, troubleshoot, publish, resume, or review a Farming version release, release candidate, CI gate, package artifact, GitHub Release, or npm publication.
+description: Prepare, test, diagnose, and complete Farming releases with exact-SHA evidence, automated and parallel Computer Use preparation gates, bounded investigation, parallel domain convergence, GitHub-before-npm publication, and measured 10/15-minute targets. Use when asked to prepare, validate, troubleshoot, publish, resume, or review a Farming version release, release candidate, CI gate, human acceptance scenario, package artifact, GitHub Release, or npm publication.
 ---
 
 # Farming Release
@@ -15,6 +15,7 @@ Before acting, read:
 - `../../../.github/workflows/ci.yml`
 - `../../../.github/workflows/release.yml`
 - the release scripts and package scripts invoked by those workflows
+- `../../../docs/products/code/computer-use.md` when Computer Use is selected
 
 Preserve unrelated worktree changes. Bind every decision to an exact version,
 commit SHA, workflow run, and artifact digest.
@@ -26,12 +27,23 @@ commit SHA, workflow run, and artifact digest.
    state with repeated `git status`, `gh run list`, or `npm view` calls.
 3. Reject ambiguous version, SHA, branch, notes, tag, npm ownership, or dirty
    release inputs before any public mutation.
-4. Create a domain ledger with these rows:
+4. Inspect changed behavior, owning state contracts, tests, and recent failure
+   signatures. Create one release-preparation plan before running broad gates.
+5. Verify the selected remote branch identifies the same exact candidate SHA;
+   push the intentional candidate commit before starting remote preparation.
+6. Create a short unique campaign ID. Run
+   `scripts/set-release-acceptance-status.sh pending VERSION CAMPAIGN_ID SHA`
+   and pass its `acceptance_context` output when dispatching `release.yml`.
+   This lets artifact preparation start immediately while preventing publication
+   before automated and Computer Use acceptance succeeds.
+7. Create a domain ledger with these rows:
 
 | Domain | Required evidence |
 | --- | --- |
 | repository | exact-SHA check and Node compatibility |
-| browser | Chromium and mobile interaction gates |
+| browser | Chromium, mobile, and selected focused interaction gates |
+| provider | live real-provider baseline or required cross-runtime composite |
+| computer-use | selected scenario lanes, Agent/Desktop identities, evidence, and invalidation status |
 | linux | CLI, app bundle, legacy bundle, verify, and smoke |
 | macos | native x64/arm64 CLI and app-bundle verify and smoke |
 | npm | one tarball, digest, offline install, ACP/capability/server/PTY smoke |
@@ -40,13 +52,140 @@ commit SHA, workflow run, and artifact digest.
 Track each domain as `unknown`, `running`, `green`, `blocked`, or `stale`, plus
 the tested SHA and failure signature.
 
+## Treat Testing As The Release Preparation Gate
+
+Testing is part of the release campaign, not optional work before the campaign.
+Do not create a tag, public GitHub Release, or npm version until the mandatory
+release-preparation ledger is green.
+
+Start all reversible preparation together:
+
+- exact-SHA CI and focused deterministic tests;
+- Linux and macOS artifact build, verify, and smoke;
+- construction and smoke of the one npm tarball that may later be published;
+- automated real-provider and production-shaped browser gates;
+- selected Computer Use lanes on isolated Desktops;
+- reversible manifest, checksum, and release-note assembly.
+
+Budget the complete parallel preparation fan-out at seven minutes so the serial
+GitHub and npm publication tail can finish inside the ten-minute campaign.
+
+## Separate Automation From Computer Use
+
+Do not call Playwright a Computer Use test. Use both surfaces deliberately.
+
+### Automated interaction gates
+
+Record selected and omitted scenarios with reasons. Select by changed behavior
+and owning contracts rather than filenames alone.
+
+Use these levels:
+
+| Level | When | Gate |
+| --- | --- | --- |
+| live baseline | every release | `npm run test:pre-release:codex-ui:smoke`; one real Codex Terminal, one visible turn, authoritative live session evidence; target 90 seconds |
+| focused automation | behavior or UI changed | the smallest owning Playwright or product smoke that proves the affected state boundary; target 2-4 minutes per domain |
+| real-provider composite | lifecycle, provider adapter/pin, shared protocol, Code/CRT switching, Terminal transcript/resize, or multiple interacting runtime domains changed | `npm run test:pre-release:codex-ui`; target no more than 7 minutes on the release critical path |
+
+Run independent automated gates in parallel with CI, artifacts, and Computer
+Use. The real-provider composite subsumes the live baseline; never run both.
+
+### Parallel Computer Use lanes
+
+Use `ssh4` as the environment label for the remote Linux host that provides
+parallel Docker Isolated Desktops. Resolve `ssh4` through the operator's private
+local environment mapping. Never commit or print its resolved hostname, user,
+port, credentials, or private configuration.
+
+Before the timed fan-out, verify that `ssh4` can provide the required capacity,
+Docker is healthy, and the exact pinned Computer image is already present. A
+cold image pull is an infrastructure miss, not acceptable release critical-path
+work.
+
+Create one Farming Agent and one owned Computer Resource per selected lane.
+Every lane must have its own Desktop container, browser profile, workspace or
+fixture identity, and evidence directory. Load the same exact candidate SHA in
+every lane. Actions inside a lane are sequential; independent lanes run in
+parallel.
+
+Select Computer Use lanes at three levels:
+
+| Level | Required use | Expected lane |
+| --- | --- | --- |
+| sanity | every product-behavior release unless a stronger lane subsumes it | open the exact candidate and complete one normal user-visible action |
+| focused domain | each changed user behavior | complete the shortest end-to-end user journey through the changed UI, backend owner, and terminal success or rejection |
+| continuity composite | shared lifecycle/protocol, session identity, runtime switching, or interacting domains changed | keep one Session coherent through all affected transitions in one Desktop |
+
+Use separate focused lanes for independent domains such as sharing/access,
+Chat/ACP, Terminal, CRT, Browser/Computer, and responsive appearance. Native
+macOS Desktop/LSP acceptance cannot be replaced by Linux containers; schedule a
+Mac lane when that contract changes.
+
+For each lane record candidate SHA, scenario, Agent ID, Computer Resource ID,
+container/image identity, start/end time, screenshots, Computer action trace,
+backend/provider evidence, result, and stable failure signature. Clean up exact
+successful resources. Preserve a failed Desktop only while its bounded
+investigation uses it, then remove that exact resource.
+
+When every required automated and Computer Use lane is green, run
+`scripts/set-release-acceptance-status.sh success VERSION CAMPAIGN_ID SHA`.
+Post `failure` or `error` for a terminal acceptance outcome. Never post success
+while a required lane is unknown, running, blocked, or stale. The Release
+workflow must wait for this exact context before creating a tag or Release.
+
+### Behavior-to-scenario mapping
+
+Apply the same mapping to automated gates and Computer Use lanes:
+
+- Chat/ACP, queue, steer, resume, or transcript changes select a Chat story.
+- PTY, input, output, reconnect, renderer, or resize changes select a Terminal story.
+- CRT or skin changes select the affected CRT story.
+- runtime switching, provider session identity, shared lifecycle, or provider
+  adapter/pin changes select the cross-domain composite.
+- sharing, authentication, read-only, or WebSocket access changes select an
+  owner-to-guest story including reconnect and a rejected mutation.
+- Browser, Computer, Desktop, LSP, package installation, or update changes
+  select their own focused installed/product-surface story.
+- appearance or responsive-layout changes select the affected story at the
+  changed theme and viewport; they do not select unrelated runtime stories.
+
+Do not run a composite merely because it exists. Do not omit one when a listed
+cross-domain trigger applies.
+
+## Converge A Failed Preparation Lane
+
+One failure does not authorize rerunning every automated or Computer Use gate.
+
+1. Freeze the failed lane and retain its first trace, screenshots,
+   provider/backend logs, exact user action, and authoritative state transition.
+   Do not rerun a broad gate on the same SHA merely to see the error again.
+2. Reduce the failure to the exact story, mode, viewport, provider, and state
+   boundary. Identify the changed file or commit that introduced it when the
+   evidence permits.
+3. Within three minutes, name the authoritative owner and violated invariant.
+   For lifecycle failures, write the minimal owner, trigger, guard, effect,
+   terminal failure, retry/cancellation, concurrency, and recovery model before
+   editing.
+4. Fix the invariant at its owning architectural boundary. Do not hide uncertain
+   state with retries, longer timeouts, fallback values, or UI-only compensation.
+5. Run the focused scenario once after the fix. Use up to three repetitions only
+   for an explicit nondeterminism hypothesis.
+6. Keep independent lanes running and retain their results. Mark only lanes
+   whose inputs, shared contracts, or user journey changed as `stale`.
+7. Rerun exact-SHA CI, artifacts, npm tarball smoke, and the live provider
+   baseline for the final candidate. Rerun only stale Computer Use lanes.
+   Unaffected Computer Use evidence may be carried forward only with an explicit
+   diff-based invalidation proof; record its original SHA and never describe it
+   as exact-SHA artifact evidence.
+
 ## Select One Operating Scenario
 
 ### Standard
 
-Use when there is no known blocker. Run full CI, platform artifact preparation,
-and npm tarball preparation in parallel. Finish GitHub publication, public asset
-verification, npm publication, and npm verification within 10 minutes total.
+Use when there is no known blocker. Run the complete release-preparation gate,
+including selected automated and Computer Use lanes, in parallel. Finish GitHub
+publication, public asset verification, npm publication, and npm verification
+within 10 minutes total.
 
 ### Quick fix
 
@@ -72,7 +211,8 @@ architecture change. Decide this escalation within 3 minutes.
 - Do not let the blocked domain turn unrelated domains back into `unknown`.
 - Mark domains `stale` when the blocker fix changes their inputs or contracts.
 - Record the full design-resolution time.
-- After the blocked domain is resolved, run the complete final exact-SHA pipeline.
+- After the blocked domain is resolved, run the complete final exact-SHA machine
+  pipeline plus every stale Computer Use lane.
 - Finish the remaining release within 10 minutes after resolution.
 
 Earlier domain results remove unknowns and warm deterministic caches. They never
@@ -101,8 +241,15 @@ typecheck, lint, build, full tests, and remote CI after every small edit.
 
 ## Run And Monitor Automation
 
-- Start reversible CI, platform builds, and npm tarball preparation in parallel.
+- Start reversible CI, platform builds, npm tarball preparation, automated
+  interaction gates, and remote Computer Use lanes in parallel.
 - Do not serialize artifact preparation behind the CI wait.
+- Use one coordinator ledger for `ssh4` Computer Use lanes. Do not make the user
+  inspect several Agent conversations to learn whether preparation is complete.
+- Dispatch `release.yml` with both `release_version` and the exact
+  `acceptance_context` created for this campaign.
+- Fail fast per lane, not per campaign. Let independent lanes converge while the
+  failed lane produces actionable evidence.
 - Use `scripts/watch-run.sh RUN_ID` for a GitHub Actions run. Do not manually poll
   it from the model.
 - On failure, use the script's failure bundle and begin diagnosis immediately;
@@ -113,7 +260,10 @@ typecheck, lint, build, full tests, and remote CI after every small edit.
 
 Before dispatching or resuming publication, verify the workflow contract:
 
-- exact-SHA full CI and every required artifact smoke gate publication;
+- the mandatory release-preparation ledger is green or has an explicitly
+  accepted carried-forward Computer Use result with invalidation proof;
+- exact-SHA full CI and every required artifact smoke gate completed before
+  publication;
 - ordinary repository checks are not repeated in Release jobs;
 - the npm tarball is built once and the same digest is smoked and published;
 - GitHub Release is public and required assets are verified before npm starts;
@@ -132,7 +282,9 @@ blindly.
 
 Verify, in order:
 
-1. final exact-SHA CI and every domain gate succeeded;
+1. mandatory preparation completed: final exact-SHA CI, artifacts, package and
+   provider gates succeeded, and every selected Computer Use lane is green or
+   validly carried forward;
 2. GitHub tag targets the final SHA;
 3. GitHub Release is public and required assets can be downloaded and verified;
 4. npm version exists only after step 3;
@@ -140,5 +292,6 @@ Verify, in order:
    smoke-accepted digest.
 
 Report the total elapsed time, selected scenario, time spent in diagnosis,
-number of candidate cycles, domain ledger result, workflow critical path, and
-any missed objective. Do not exclude bug-fixing time from the total.
+number of candidate cycles, selected/omitted Computer Use lanes, `ssh4` lane
+wall time and capacity, domain ledger result, workflow critical path, and any
+missed objective. Do not exclude bug-fixing time from the total.

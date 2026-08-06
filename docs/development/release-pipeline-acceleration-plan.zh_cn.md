@@ -57,6 +57,110 @@ Campaign 继续记录完整的设计问题解决时间；同时维护一份 Doma
 用于提前消除未知问题和预热确定性缓存，绝不能替代最终 Exact-SHA Evidence。从设计问题解决到
 npm 验证完成，剩余发布必须在 10 分钟内完成。
 
+## 强制发布准备门禁
+
+测试属于计时中的完整 Release Campaign，不是发布计时开始前的可选活动。在所有必需准备证据收敛
+之前，不得创建 Tag、公开 GitHub Release 或 npm Version。
+
+锁定 Version、SHA、行为变化和选中场景后，所有可逆工作同时启动：
+
+```text
+Exact-SHA CI       平台制品            唯一 npm Tarball
+自动化交互测试      真实 Provider 门禁   Computer Use Lanes
+        \                 |                 /
+         +------- Preparation Ledger ------+
+                         |
+                  公开 GitHub Release
+                         |
+                     公开验证
+                         |
+                     发布 npm
+```
+
+中间 Fan-out 的墙钟预算为 7 分钟。GitHub 公开、公开验证和 npm 发布保持串行，使用剩余预算。
+
+### 自动化交互与 Computer Use 分开
+
+Playwright Human Story 和真实 Provider Browser Composite 属于自动化交互门禁。Computer Use 表示
+Agent 通过 Computer Tool 操作真实 Desktop。二者的证据和调度不能混为一谈。
+
+自动化门禁包括：
+
+- 普通产品发布运行不超过 90 秒的真实 Codex 基线；
+- 每个发生行为变化的领域运行 Owning Playwright 或 Product Smoke；
+- 只有 Shared Lifecycle、Protocol、Provider、Session Identity 或 Cross-runtime 变化时，才运行
+  真实 Provider Code/CRT/Terminal Composite。
+
+Computer Use 使用远端 Linux 的 Isolated Docker Desktop 池。Release Coordinator 为每个独立场景
+创建一个 Agent 和一个归其所有的 Computer Resource。每条 Lane 拥有隔离的 Desktop、Profile、
+Workspace/Fixture 和 Evidence Directory。同一 Lane 内的操作串行，不同 Lane 并发。
+
+Campaign 开始时，Coordinator 为 Candidate 创建唯一的 Commit Status Context，并将自动化/Computer
+Use Acceptance 标记为 `pending`。`release.yml` 接收这个精确 Context，因此 Artifact Job 可以立即
+执行，但 Publication Job 不能创建 Tag 或 Release。只有所有必需 Interaction Lane 都 Green 后，
+Coordinator 才标记 `success`；`failure`、`error`、缺失和 Timeout 全部 Fail Closed。
+
+Computer Use 分三层选择：
+
+| 层级 | 使用方式 |
+| --- | --- |
+| Sanity | 在精确 Candidate 上完成一个普通可见操作；产品行为发布必须执行，除非更强场景已经覆盖 |
+| Focused Domain | 每个变化行为执行从用户操作到最终状态的最短完整旅程 |
+| Continuity Composite | Shared Lifecycle 或多个领域相互作用变化时，同一个 Session 连续经过所有受影响表面和状态转换 |
+
+分享/权限、Chat/ACP、Terminal、CRT、Browser/Computer 和响应式外观可以拆成独立并发 Lane。
+原生 macOS Desktop/LSP 行为必须使用 Mac Lane，不能由 Linux Container 替代。
+
+每条 Lane 记录 Candidate SHA、Scenario、Agent 与 Computer Resource Identity、Container/Image
+Identity、时间、Screenshot、Computer Action Trace、Backend/Provider Evidence、结果和 Failure
+Signature。成功资源按精确 Identity 删除；失败 Desktop 只在有边界的调查期间保留。
+
+### 失败收敛与失效规则
+
+一条 Lane 失败不会重启整个 Fan-out。独立的 CI、Packaging、Automation 和 Computer Use Lane
+继续执行。修复前必须保留首次证据，并把失败缩小到一个用户操作、权威状态 Owner、被破坏的不变量
+和引入改动。
+
+提交 Fix 后，最终 Exact-SHA CI、Artifact、npm Tarball Smoke 和真实 Provider Baseline 必须重跑，
+因为其身份已经变化。只有 Journey、Input 或 Shared Contract 被修改的 Computer Use Lane 才变为
+`stale`。未受影响 Lane 只能在记录原 SHA 和明确的 Diff-based Invalidation Proof 后沿用，绝不能
+表示为 Exact-SHA Artifact Evidence。
+
+### 2026-08-06 分层门禁组件计时验证
+
+下一个精确版本发布前，分别实测了各层门禁：
+
+| 组件 | 实测墙钟时间 |
+| --- | ---: |
+| 最终本地 `npm run check`，303/303 Tests Green | 1 分 51.03 秒 |
+| Focused Sharing Playwright，包含本地 Build/Start | 15.20 秒 |
+| 真实 Codex Baseline，包含本地 Build/Start | 15.43 秒 |
+| 完整真实 Provider Code/CRT/Terminal Composite | 2 分 11.42 秒 |
+| 4 个 Isolated Linux Desktop 并行启动到 Healthy | 12.809 秒 |
+
+远端 Desktop 测量期间，已有 5 个 Computer Container 保持 Healthy；4 个计时 Container 随后均按
+精确 Identity 删除。这个结果证明 Desktop Pool 的启动速度和并发容量，不代表多个 Agent 完成
+Computer Use Journey 的时间。完整 Lane 时间必须在下一个 Exact Candidate Deployment 上实测，
+并计入 Release Campaign。
+
+### 2026-08-06 当前端到端现状
+
+当前正常发布估算公式是：
+
+```text
+约 20 秒 Candidate 选择与调度
++ max(Exact-SHA CI、Artifact、自动化交互、Computer Use)
++ 约 2 分钟串行 GitHub 验证与 npm 发布
+```
+
+最近一次完整端到端发布 v2.2.45 用时 10 分 4 秒，其中 Exact-SHA CI 为 7 分 47 秒，全部 Artifact
+在 4 分 26 秒内就绪。新自动化交互门禁低于这条关键路径：当前最重 Composite 实测为 2 分
+11.42 秒。
+
+如果最慢的并行 Computer Use Lane 能在 7 分钟内完成，正常发布预计仍为约 9 分 30 秒到 10 分钟。
+这是当前运行估算，还不是新的完整端到端证明。必须在下一个 Exact Candidate 上实测完整的多 Agent
+Computer Use Fan-out 与 Publication Path，才能认为 10 分钟目标已经得到验证。
+
 ## v2.2.41 基线
 
 下午发布 Session 从 13:22 持续到 17:20。六次 CI 合计 90 分钟，两次 Release 合计 23 分钟，
@@ -408,7 +512,8 @@ Chat Position：
 7. 从 `Check` 中拆出 Frontend Artifact，并均衡大型 Playwright Spec。
 8. 实现三分钟诊断命令；流程确认后再固化为仓库 Release Skill。
 9. 将 Domain Ledger、Affected-domain Invalidation 和三种运行模式加入仓库 Release Skill。
-10. 使用下一个 Patch Version 做真实计时发布测试。
+10. 将强制 Preparation Ledger 和并行 Isolated Desktop Computer Use 调度加入仓库 Release Skill。
+11. 使用下一个 Patch Version 做真实计时发布测试。
 
 ## 验收标准
 
@@ -418,6 +523,9 @@ Chat Position：
 - 遇到较大设计问题时，其他独立领域继续收敛；阻塞领域解决后 10 分钟内完成发布。
 - 注入简单 Packaging、Test Oracle 或 Metadata 失败后，3 分钟内得到正确分类和 Focused Reproduction。
 - 日常 CI 墙钟时间不回退，并更早提供 Browser Failure。
+- 每个产品行为发布在任何公开 Mutation 前完成选中的自动化与 Computer Use Preparation Gate。
+- 独立 Computer Use 场景运行在分别归属的 Isolated Desktop 上；一条 Lane 失败时保留其证据，
+  不重启无关 Lane。
 - Release 不再重复普通仓库门禁。
 - 所有正式资产和 npm `gitHead` 都指向精确 Candidate SHA。
 - GitHub Release 和必需资产公开并验证之前，npm Version 不存在。

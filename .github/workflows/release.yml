@@ -7,10 +7,15 @@ on:
         description: 'Package version to publish (for example, 2.2.33)'
         required: true
         type: string
+      acceptance_context:
+        description: 'Exact commit-status context created by the release acceptance coordinator'
+        required: true
+        type: string
 
 permissions:
   actions: read
   contents: write
+  statuses: read
 
 jobs:
   preflight:
@@ -37,6 +42,23 @@ jobs:
             exit 1
           fi
           echo "value=${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Verify release acceptance context
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.value }}
+          ACCEPTANCE_CONTEXT: ${{ inputs.acceptance_context }}
+        shell: bash
+        run: |
+          expected_prefix="farming/release-acceptance/${RELEASE_VERSION}/"
+          if [[ "${ACCEPTANCE_CONTEXT}" != "${expected_prefix}"* ]]; then
+            echo "acceptance_context must start with ${expected_prefix}" >&2
+            exit 1
+          fi
+          campaign_id="${ACCEPTANCE_CONTEXT#${expected_prefix}}"
+          if [[ ! "${campaign_id}" =~ ^[0-9A-Za-z][0-9A-Za-z._-]{0,47}$ ]]; then
+            echo "acceptance_context has an invalid campaign identifier." >&2
+            exit 1
+          fi
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -403,6 +425,7 @@ jobs:
       actions: read
       contents: write
       id-token: write
+      statuses: read
     steps:
       - name: Normalize release version
         id: version
@@ -590,6 +613,43 @@ jobs:
             --repo "${GITHUB_REPOSITORY}" \
             --exit-status \
             --interval 5
+
+      - name: Require successful automated and Computer Use acceptance
+        env:
+          ACCEPTANCE_CONTEXT: ${{ inputs.acceptance_context }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          for attempt in {1..120}; do
+            commit_status="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/status")"
+            acceptance_state="$(
+              STATUS_JSON="${commit_status}" CONTEXT="${ACCEPTANCE_CONTEXT}" node <<'NODE'
+          const payload = JSON.parse(process.env.STATUS_JSON);
+          const match = (payload.statuses || []).find(status => status.context === process.env.CONTEXT);
+          process.stdout.write(match?.state || 'missing');
+          NODE
+            )"
+            case "${acceptance_state}" in
+              success)
+                echo "Release acceptance succeeded for ${GITHUB_SHA}: ${ACCEPTANCE_CONTEXT}"
+                exit 0
+                ;;
+              failure|error)
+                echo "Release acceptance ended in ${acceptance_state}: ${ACCEPTANCE_CONTEXT}" >&2
+                exit 1
+                ;;
+              pending|missing) ;;
+              *)
+                echo "Unexpected release acceptance state: ${acceptance_state}" >&2
+                exit 1
+                ;;
+            esac
+            if [[ "${attempt}" -eq 120 ]]; then
+              echo "Timed out waiting for release acceptance: ${ACCEPTANCE_CONTEXT}" >&2
+              exit 1
+            fi
+            sleep 5
+          done
 
       - name: Create or refresh draft release
         env:

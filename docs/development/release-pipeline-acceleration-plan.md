@@ -77,6 +77,129 @@ used to remove unknowns and warm deterministic caches, but never replace final
 exact-SHA evidence. From design resolution to npm verification, the remaining
 release must finish within 10 minutes.
 
+## Mandatory Release Preparation Gate
+
+Testing is part of the measured release campaign. It is not an optional activity
+that happens before the release clock starts. No tag, public GitHub Release, or
+npm version may be created until the required preparation evidence converges.
+
+After version, SHA, changed behavior, and selected scenarios are fixed, all
+reversible work starts together:
+
+```text
+exact-SHA CI       platform artifacts       one npm tarball
+automated UX       live-provider gates      Computer Use lanes
+        \                 |                 /
+         +------ preparation ledger -------+
+                         |
+               public GitHub Release
+                         |
+                 public verification
+                         |
+                  npm publication
+```
+
+The middle fan-out has a seven-minute wall-time budget. GitHub publication,
+public verification, and npm publication remain serial and consume the remaining
+budget.
+
+### Automated interaction and Computer Use are separate
+
+Playwright human-story tests and real-provider browser composites are automated
+interaction gates. Computer Use means an Agent operating a real Desktop through
+Computer tools. Their evidence and scheduling must not be conflated.
+
+Automated gates include:
+
+- a live real-Codex baseline of at most 90 seconds for a normal product release;
+- focused owning Playwright or product smoke for every changed behavior;
+- the real-provider Code/CRT/Terminal composite only for shared lifecycle,
+  protocol, provider, session-identity, or cross-runtime changes.
+
+Computer Use uses a remote Linux pool of isolated Docker Desktops. The release
+coordinator creates one Agent and one owned Computer Resource per independent
+scenario. Each lane has an isolated Desktop, profile, workspace/fixture, and
+evidence directory. Actions within one lane are sequential; independent lanes
+run concurrently.
+
+At campaign start the coordinator creates a unique commit-status context for the
+candidate and marks automated/Computer Use acceptance pending. `release.yml`
+receives that exact context, so its artifact jobs can run immediately but its
+publication job cannot create a tag or Release. The coordinator marks the
+context successful only after every required interaction lane is green; failure,
+error, missing, and timeout all fail closed.
+
+Computer Use selection has three levels:
+
+| Level | Use |
+| --- | --- |
+| sanity | one normal visible action on the exact candidate; required for product-behavior releases unless a stronger lane subsumes it |
+| focused domain | the shortest owner-to-terminal-state user journey for each changed behavior |
+| continuity composite | one Session crosses every affected surface and state transition when shared lifecycle or interacting domains changed |
+
+Sharing/access, Chat/ACP, Terminal, CRT, Browser/Computer, and responsive
+appearance can use separate parallel lanes. Native macOS Desktop/LSP behavior
+requires a Mac lane and cannot be replaced by a Linux container.
+
+Every lane records candidate SHA, scenario, Agent and Computer Resource
+identities, container/image identity, timestamps, screenshots, Computer action
+trace, backend/provider evidence, result, and failure signature. Successful
+resources are removed by exact identity. A failed Desktop is retained only for
+its bounded investigation.
+
+### Failure convergence and invalidation
+
+One failed lane does not restart the fan-out. Independent CI, packaging,
+automation, and Computer Use lanes continue. The first evidence is retained and
+the failure is reduced to one user action, state owner, violated invariant, and
+introducing change before a fix is attempted.
+
+After a fix, final exact-SHA CI, artifacts, npm tarball smoke, and live-provider
+baseline rerun because their identity changed. Only Computer Use lanes whose
+journey, inputs, or shared contracts changed become stale. An unaffected lane
+may be carried forward only with explicit diff-based invalidation proof and its
+original SHA; it is never represented as exact-SHA artifact evidence.
+
+### Component timing validation on 2026-08-06
+
+The layered gates were exercised independently before the next exact release:
+
+| Component | Measured wall time |
+| --- | ---: |
+| Final local `npm run check`, 303/303 tests green | 1 min 51.03 sec |
+| Focused sharing Playwright, including local build/start | 15.20 sec |
+| Real-Codex live baseline, including local build/start | 15.43 sec |
+| Full real-provider Code/CRT/Terminal composite | 2 min 11.42 sec |
+| Four isolated Linux Desktops started in parallel to healthy | 12.809 sec |
+
+The remote Desktop measurement ran while five existing Computer containers
+remained healthy, and every timing container was removed afterward by exact
+identity. It proves pool startup and parallel capacity, not the duration of a
+multi-Agent Computer Use journey. That end-to-end lane time must be measured on
+the next exact candidate deployment and included in the release campaign.
+
+### Current end-to-end status on 2026-08-06
+
+The current normal-release estimate is:
+
+```text
+about 20 sec candidate selection and dispatch
++ max(exact-SHA CI, artifacts, automated interaction, Computer Use)
++ about 2 min serial GitHub verification and npm publication
+```
+
+The latest complete end-to-end release, v2.2.45, took 10 minutes 4 seconds with
+exact-SHA CI at 7 minutes 47 seconds and all artifacts ready at 4 minutes 26
+seconds. The new automated interaction gates are below that critical path: the
+heaviest measured composite is 2 minutes 11.42 seconds.
+
+If the slowest parallel Computer Use lane finishes within seven minutes, the
+expected normal release remains approximately 9 minutes 30 seconds to 10
+minutes. This is the current operating estimate, not yet a proven new
+end-to-end result. The next exact candidate must measure the complete multi-Agent
+Computer Use fan-out and publication path before the ten-minute objective is
+considered demonstrated.
+
 ## v2.2.41 Baseline
 
 The afternoon release session ran from 13:22 to 17:20. Six CI runs consumed 90
@@ -500,7 +623,9 @@ reduces avoidable investigation time; it does not reset the release timer.
    process in a repository Release Skill.
 9. Add the domain ledger, affected-domain invalidation, and the three operating
    modes to the repository Release Skill.
-10. Use the next patch version as a production-shaped timed release test.
+10. Add the mandatory preparation ledger and parallel isolated-Desktop Computer
+    Use coordination to the repository Release Skill.
+11. Use the next patch version as a production-shaped timed release test.
 
 ## Acceptance Criteria
 
@@ -513,6 +638,10 @@ reduces avoidable investigation time; it does not reset the release timer.
 - A simple injected packaging, test-oracle, or metadata failure produces a
   correct classification and focused reproduction within 3 minutes.
 - Ordinary CI wall time does not regress; browser feedback becomes earlier.
+- Every product-behavior release completes the selected automated and Computer
+  Use preparation gate before any public mutation.
+- Independent Computer Use scenarios run on separately owned isolated Desktops;
+  one failure preserves its evidence without restarting unrelated lanes.
 - Release contains no duplicate ordinary repository gate.
 - Every published asset and npm `gitHead` identifies the exact candidate SHA.
 - npm is absent until the GitHub Release and required assets are public and

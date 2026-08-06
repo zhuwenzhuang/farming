@@ -1266,21 +1266,30 @@ async function runTests() {
     assert(stagedReleaseJob.includes('sha256sum --check'));
     assert(stagedReleaseJob.includes('npm publish "./${package_tarball}"'));
     const ciGateOffset = stagedReleaseJob.indexOf('Require successful CI for candidate revision');
+    const acceptanceGateOffset = stagedReleaseJob.indexOf('Require successful automated and Computer Use acceptance');
     const draftOffset = stagedReleaseJob.indexOf('Create or refresh draft release');
     const githubPublishOffset = stagedReleaseJob.indexOf('Publish the matching draft release');
     const githubVerifyOffset = stagedReleaseJob.indexOf('Verify public tag, assets, and manifest');
     const npmPublishOffset = stagedReleaseJob.indexOf('Verify and publish npm package with provenance');
     assert(
       ciGateOffset >= 0
-        && ciGateOffset < draftOffset
+        && ciGateOffset < acceptanceGateOffset
+        && acceptanceGateOffset < draftOffset
         && draftOffset < githubPublishOffset
         && githubPublishOffset < githubVerifyOffset
         && githubVerifyOffset < npmPublishOffset,
-      'the merged publication job must keep CI, GitHub publication, public verification, and npm publication in safe order',
+      'the merged publication job must keep CI, release acceptance, GitHub publication, public verification, and npm publication in safe order',
     );
     assert(!releaseWorkflowSource.includes('run: npm run check'));
     const releaseWorkflow = YAML.parse(releaseWorkflowSource);
-    assert.deepStrictEqual(releaseWorkflow.permissions, { actions: 'read', contents: 'write' });
+    assert.deepStrictEqual(
+      releaseWorkflow.permissions,
+      { actions: 'read', contents: 'write', statuses: 'read' },
+    );
+    assert.strictEqual(
+      releaseWorkflow.on.workflow_dispatch.inputs.acceptance_context.required,
+      true,
+    );
     assert.deepStrictEqual(
       releaseWorkflow.jobs['build-linux'].strategy.matrix.kind,
       ['cli', 'app', 'legacy'],
@@ -1323,7 +1332,7 @@ async function runTests() {
     );
     assert.deepStrictEqual(
       releaseWorkflow.jobs['stage-release'].permissions,
-      { actions: 'read', contents: 'write', 'id-token': 'write' },
+      { actions: 'read', contents: 'write', 'id-token': 'write', statuses: 'read' },
     );
     assert.strictEqual(releaseWorkflow.jobs['publish-github-release'], undefined);
     assert.strictEqual(releaseWorkflow.jobs['verify-github-release'], undefined);

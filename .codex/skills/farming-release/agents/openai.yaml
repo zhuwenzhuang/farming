@@ -1,4 +1,4 @@
 interface:
   display_name: "Farming Release"
-  short_description: "Run fast, evidence-bound Farming releases"
-  default_prompt: "Use $farming-release to prepare, diagnose, and complete the next Farming patch release."
+  short_description: "Prepare, parallel-test, and publish Farming releases"
+  default_prompt: "Use $farming-release to prepare, parallel-test, diagnose, and complete the next Farming patch release."
