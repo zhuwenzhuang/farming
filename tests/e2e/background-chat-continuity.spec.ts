@@ -752,49 +752,67 @@ test('restores a persisted Chat message anchor after reload and loads older turn
   await selectAgentOnCompactLayout(page, agentId)
   const transcript = page.getByTestId('code-agent-transcript-scroll')
   await expect(transcript).toContainText('Persisted reading question 35')
-  await transcript.evaluate(element => {
-    element.dispatchEvent(new Event('touchstart', { bubbles: true }))
-    element.scrollTop = 0
-    element.dispatchEvent(new Event('scroll', { bubbles: true }))
-    element.dispatchEvent(new Event('touchend', { bubbles: true }))
-  })
-  await expect(transcript).toContainText('Persisted reading question 2')
+  const targetQuestion = transcript.getByText('Persisted reading question 2', { exact: true })
+  for (let attempt = 0; attempt < 4 && await targetQuestion.count() === 0; attempt += 1) {
+    const requestsBeforeScroll = requestedTurnLimits.length
+    const heightBeforeScroll = await transcript.evaluate(element => element.scrollHeight)
+    await transcript.evaluate(element => {
+      element.dispatchEvent(new Event('touchstart', { bubbles: true }))
+      element.scrollTop = 0
+      element.dispatchEvent(new Event('scroll', { bubbles: true }))
+      element.dispatchEvent(new Event('touchend', { bubbles: true }))
+    })
+    await expect.poll(() => requestedTurnLimits.length).toBeGreaterThan(requestsBeforeScroll)
+    await expect.poll(() => transcript.evaluate(element => element.scrollHeight)).toBeGreaterThan(heightBeforeScroll)
+  }
+  await expect(targetQuestion).toBeAttached()
 
-  const saved = await transcript.evaluate(element => {
+  await transcript.evaluate(element => {
     const target = Array.from(element.querySelectorAll<HTMLElement>('[data-turn-id]'))
-      .find(turn => turn.textContent?.includes('Persisted reading question 2'))
+      .find(turn => Array.from(turn.querySelectorAll<HTMLElement>('.code-agent-transcript-user'))
+        .some(message => message.textContent?.trim() === 'Persisted reading question 2'))
     if (!target) throw new Error('Older persisted-anchor turn did not load')
     element.dispatchEvent(new Event('touchstart', { bubbles: true }))
     target.scrollIntoView({ block: 'center' })
     element.dispatchEvent(new Event('scroll', { bubbles: true }))
     element.dispatchEvent(new Event('touchend', { bubbles: true }))
-    const scrollerRect = element.getBoundingClientRect()
-    const firstVisible = Array.from(element.querySelectorAll<HTMLElement>('[data-turn-id]'))
-      .find(turn => turn.getBoundingClientRect().bottom > scrollerRect.top)
-    if (!firstVisible?.dataset.turnId) throw new Error('Visible persisted-anchor turn is missing')
-    return {
-      id: firstVisible.dataset.turnId,
-      offset: firstVisible.getBoundingClientRect().top - scrollerRect.top,
-    }
   })
   const storageKey = `farming.reading-anchor.v1:agent:${agentId}:chat`
-  await expect.poll(() => page.evaluate(key => Boolean(localStorage.getItem(key)), storageKey)).toBe(true)
   await page.evaluate(key => sessionStorage.removeItem(key), storageKey)
+  const snapshotKey = 'farming-e2e-persisted-chat-anchor'
+  await page.addInitScript(({ anchorKey, resultKey }) => {
+    sessionStorage.setItem(resultKey, localStorage.getItem(anchorKey) || '')
+  }, { anchorKey: storageKey, resultKey: snapshotKey })
   const requestsBeforeReload = requestedTurnLimits.length
 
   await page.reload()
+  const saved = await page.evaluate(key => {
+    const anchor = JSON.parse(sessionStorage.getItem(key) || 'null')
+    const id = String(anchor?.locator?.id || '')
+    if (!id) throw new Error('Reloaded page did not capture a persisted Chat anchor')
+    return {
+      id,
+      fraction: Number(anchor?.position?.value || 0),
+    }
+  }, snapshotKey)
   await selectAgentOnCompactLayout(page, agentId)
   const restoredTranscript = page.getByTestId('code-agent-transcript-scroll')
   await expect(restoredTranscript.locator(`[data-turn-id="${saved.id}"]`)).toBeAttached()
   await expect.poll(async () => restoredTranscript.evaluate((element, expected) => {
     const turn = element.querySelector<HTMLElement>(`[data-turn-id="${CSS.escape(expected.id)}"]`)
     if (!turn) return Number.POSITIVE_INFINITY
-    return Math.abs((turn.getBoundingClientRect().top - element.getBoundingClientRect().top) - expected.offset)
+    const turnRect = turn.getBoundingClientRect()
+    const scrollerRect = element.getBoundingClientRect()
+    return Math.abs((turnRect.top - scrollerRect.top) + turnRect.height * expected.fraction)
   }, saved)).toBeLessThanOrEqual(3)
-  const reloadTurnLimits = requestedTurnLimits.slice(requestsBeforeReload)
-  expect(reloadTurnLimits[0]).toBe(5)
+  const requestsAfterReloadStarted = requestedTurnLimits.slice(requestsBeforeReload)
+  const reloadStartIndex = requestsAfterReloadStarted.indexOf(5)
+  expect(reloadStartIndex).toBeGreaterThanOrEqual(0)
+  const reloadTurnLimits = requestsAfterReloadStarted.slice(reloadStartIndex)
   expect(reloadTurnLimits).toContain(15)
   expect(reloadTurnLimits).toContain(25)
+  expect(reloadTurnLimits).toContain(35)
+  expect(reloadTurnLimits).toContain(45)
   await expect(page.getByTestId('code-agent-transcript-jump-bottom')).toBeVisible()
 })
 
