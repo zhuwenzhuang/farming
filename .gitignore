@@ -48,6 +48,7 @@ playwright-report/
 !.codex/skills/farming-release/
 !.codex/skills/farming-release/**
 .claude/
+.qwen/
 .dolt-backup/
 fa-*/
 hooks/
