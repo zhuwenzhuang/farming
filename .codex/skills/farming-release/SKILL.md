@@ -131,6 +131,28 @@ fixture identity, and evidence directory. Load the same exact candidate SHA in
 every lane. Actions inside a lane are sequential; independent lanes run in
 parallel.
 
+Use a cost-efficient vision-capable model with enough reasoning quality for
+routine Computer Use test Agents. Select by capability and measured reliability,
+not by one hard-coded model name: suitable choices may include Luna Max or a
+qualified Qwen Max/open-source vision model. The selected model must reliably
+interpret screenshots, follow bounded UI scenarios, distinguish uncertain
+actions from confirmed state, and return structured evidence. Record the model
+and configuration in the lane evidence. Reserve the release coordinator's
+stronger or more expensive model for orchestration, case-design review, and
+centralized failure diagnosis.
+
+A lane Agent must execute a bounded scenario, capture evidence, and stop; it
+must not perform open-ended investigation, redesign the product, or repeat broad
+tests. On failure, return the first stable signature and retained evidence to
+the coordinator. Escalate from the economical vision model only when it cannot
+reliably perceive or execute the scenario, or when the scenario explicitly
+verifies another model or provider; record the reason in the domain ledger.
+
+Keep token use bounded: do not create more Agent lanes than selected scenarios,
+do not ask several Agents to diagnose the same failure, and do not duplicate an
+automated assertion in Computer Use unless the real Desktop interaction is the
+contract being verified.
+
 Select Computer Use lanes at three levels:
 
 | Level | Required use | Expected lane |
