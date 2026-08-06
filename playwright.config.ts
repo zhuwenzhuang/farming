@@ -8,7 +8,6 @@ const port = Number(process.env.FARMING_PLAYWRIGHT_PORT || 4173)
 const baseURL = `http://127.0.0.1:${port}`
 const includeInternalTests = process.env.FARMING_PLAYWRIGHT_INTERNAL === '1'
 const useRealCodex = process.env.FARMING_E2E_REAL_CODEX === '1'
-const fullyParallelShards = process.env.FARMING_PLAYWRIGHT_FULLY_PARALLEL_SHARDS === '1'
 // CI builds the frontend once in the Check job and hands dist/ to every browser
 // shard, so the shards set this to skip a rebuild they would only repeat. Local
 // runs leave it unset and keep building their own bundle first.
@@ -69,10 +68,7 @@ export default defineConfig({
   testDir: './tests/e2e',
   testIgnore: includeInternalTests ? [] : ['**/internal/**'],
   globalTeardown: './tests/e2e/global-teardown.ts',
-  // CI keeps one worker per job, but test-level sharding prevents a few large
-  // spec files from owning the critical path. Local and focused runs retain
-  // file-level ordering unless they opt in explicitly.
-  fullyParallel: fullyParallelShards,
+  fullyParallel: false,
   workers: 1,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,

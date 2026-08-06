@@ -137,12 +137,27 @@ v2.2.43 从接受精确候选到 npm 验证成功共 12 分 41 秒。Release Art
 
 下一轮不再继续制造排队 Job，而是按实测远端容量配平：
 
-- 9 个 Chromium Job 使用测试级 Sharding，每个仍为单 Worker；344 个测试分配为
+- 9 个 Chromium Job 使用均衡单 Worker 分配；344 个测试分配为
   39/39/38/38/38/38/38/38/38；
 - 删除专门占用 Hosted Runner 等待 CI 的 Job；
 - Release Stage 在 CI 尾段同时下载并 Hash 已验证资产，只在创建 Tag/Draft 前检查 Exact-SHA CI；
 - App Job 携带已验证的 `RELEASE.json` Sidecar，Manifest 不再重新读取四个大型压缩包；
 - npm Publish 关闭 2 万文件 Notice 清单，并删除 Publication Job 中无必要的 npm 全局升级。
+
+## v2.2.44 计时结果与第四轮改造
+
+v2.2.44 在 9 分 48 秒时完成 GitHub Release 公开与验证，但 npm 在第 11 分 6 秒失败并保持未发布；
+CI 仍用时 8 分 30 秒。
+
+剩余原因已经精确定位：
+
+- Playwright 内置 Fully-parallel Sharding 按测试列表的连续区间均衡数量。Shard 6 连续拿到 20 个
+  Pet 慢测试，成为 6 分 50 秒 Job，而其他 Shard 提前完成。
+- 删除 npm CLI 升级后使用了 Runner 自带 npm 10；它无法完成仓库当前 OIDC Trusted Publishing
+  路径，50 秒后 Registry PUT 返回 404。因此 npm 12 是发布依赖，不是可以删除的准备浪费。
+
+第四轮恢复 npm 12，并使用仓库脚本发现精确测试位置，把相邻 Location Group 条纹分散到 9 个
+Shard。每个 Shard 仍然是单 Worker；共享同一源码位置的 Generated Test 保持原子分组。
 
 ## 已确认的浪费来源
 
@@ -285,9 +300,11 @@ Changed Files + Failure Signatures
 
 ### B2. 在不增加 Job 内并发的前提下均衡 Browser Shard
 
-- Chromium 使用 9 个测试级 Shard，与 Release Preparation 同时运行时刚好适配实测 20 Job 远端并发上限。
-- 每个 Job 仍然严格单 Worker；测试级 Sharding 只均衡跨 Runner 分配，不在同一个 Backend 上并发跑测试。
-- Local 与 Focused Run 默认继续保持文件级顺序，只有 CI Sharding 显式启用测试级分配。
+- Chromium 使用 9 个 Shard，与 Release Preparation 同时运行时刚好适配实测 20 Job 远端并发上限。
+- 每个 Job 先发现精确 Test Location，再把相邻 Location Group 条纹分散，避免一个领域的慢测试
+  Cluster 独占连续 Shard。
+- 每个 Job 仍然严格单 Worker；共享同一源码位置的 Generated Test 保持原子分组，同一 Backend
+  不并发执行测试。
 
 ### B3. 第一次失败立即生成诊断包
 

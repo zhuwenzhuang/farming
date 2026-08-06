@@ -172,10 +172,9 @@ jobs:
         run: npx playwright install chromium
 
       - name: Run Chromium browser checks
-        run: npx playwright test --project=chromium --shard=${{ matrix.shard }}/9
+        run: node scripts/run-playwright-balanced-shard.mjs --project chromium --shard ${{ matrix.shard }}/9
         env:
           FARMING_PLAYWRIGHT_SKIP_BUILD: '1'
-          FARMING_PLAYWRIGHT_FULLY_PARALLEL_SHARDS: '1'
 
       - name: Upload Chromium failure evidence
         if: failure()

@@ -37,6 +37,8 @@ function run() {
   const workflow = YAML.parse(fs.readFileSync(path.join(root, '.github/workflows/ci.yml'), 'utf8'));
   const jobs: [string, WorkflowJob][] = Object.entries(workflow.jobs);
 
+  assert(fs.existsSync(path.join(root, 'scripts', 'run-playwright-balanced-shard.mjs')));
+
   assert.strictEqual(workflow.env.FARMING_SKIP_INSTALL_RUNTIME_PREPARE, '1');
   assert.strictEqual(workflow.env.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD, '1');
   assert.strictEqual(workflow.env.PUPPETEER_SKIP_DOWNLOAD, '1');
@@ -45,8 +47,8 @@ function run() {
     step => step.name === 'Run Chromium browser checks',
   );
   assert(
-    browserRunStep?.run?.includes('--shard=${{ matrix.shard }}/9')
-      && browserRunStep?.env?.FARMING_PLAYWRIGHT_FULLY_PARALLEL_SHARDS === '1',
+    browserRunStep?.run?.includes('scripts/run-playwright-balanced-shard.mjs')
+      && browserRunStep?.run?.includes('--shard ${{ matrix.shard }}/9'),
     'Chromium must use nine test-balanced single-worker shards',
   );
   assert(

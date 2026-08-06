@@ -167,8 +167,8 @@ longer the critical path: every platform and npm artifact was verified within
 The next pass fits the workflow to the measured remote capacity instead of
 creating more queued jobs:
 
-- nine Chromium jobs use test-level sharding with one worker each, distributing
-  344 tests as 39/39/38/38/38/38/38/38/38;
+- nine Chromium jobs use balanced single-worker assignment, distributing 344
+  tests as 39/39/38/38/38/38/38/38/38;
 - the dedicated CI-wait job is removed, freeing one hosted runner slot;
 - release staging downloads and hashes already verified assets while CI
   finishes, then checks exact-SHA CI immediately before tag/draft creation;
@@ -176,6 +176,27 @@ creating more queued jobs:
   archives during manifest generation;
 - npm publication suppresses the 20,000-file notice listing and avoids an
   unnecessary global npm upgrade in the publication job.
+
+## v2.2.44 Timed Result And Fourth-Pass Changes
+
+The v2.2.44 campaign made the GitHub Release publicly usable and verified in
+9 minutes 48 seconds, but npm publication failed closed at 11 minutes 6
+seconds. CI still took 8 minutes 30 seconds.
+
+Two exact causes remained:
+
+- Playwright's built-in fully-parallel sharding balances test count by
+  contiguous list ranges. Shard 6 received 20 adjacent Pet tests and became the
+  6 minute 50 second job, while other shards finished much earlier.
+- Removing the npm CLI upgrade exposed runner npm 10, which cannot complete the
+  repository's current OIDC Trusted Publishing path and returned a registry PUT
+  404 after 50 seconds. npm 12 is therefore a required publication dependency,
+  not removable setup waste.
+
+The fourth pass restores npm 12 and replaces contiguous Playwright sharding
+with a repository script that discovers exact test locations and stripes
+adjacent location groups across nine shards. Each shard remains one worker;
+generated tests sharing one source location remain atomic.
 
 ## Confirmed Sources Of Waste
 
@@ -344,12 +365,13 @@ without reducing coverage.
 
 ### B2. Balance browser shards without adding in-job concurrency
 
-- Use nine test-level Chromium shards to match the measured 20-job remote
-  concurrency ceiling when release preparation is also active.
-- Keep exactly one worker per job. Test-level sharding balances assignment
-  across runners without running tests concurrently against one backend.
-- Local and focused runs retain file-level ordering unless they opt in to the
-  CI sharding mode explicitly.
+- Use nine Chromium shards to match the measured 20-job remote concurrency
+  ceiling when release preparation is also active.
+- Discover exact test locations once per job and stripe adjacent location
+  groups across shards, preventing one domain's long test cluster from owning a
+  contiguous shard.
+- Keep exactly one worker per job. Generated tests sharing one source location
+  remain atomic, and no backend receives concurrent tests.
 
 ### B3. Produce a failure bundle immediately
 

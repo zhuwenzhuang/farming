@@ -1276,6 +1276,7 @@ async function runTests() {
     assert(githubVerifyJob.includes('Public release asset checksum mismatch'));
     assert(npmPublishJob.includes('name: Publish npm package last'));
     assert(npmPublishJob.includes('      - verify-github-release'));
+    assert(npmPublishJob.includes('npm install --global npm@latest'));
     assert(npmPublishJob.includes('sha256sum --check'));
     assert(npmPublishJob.includes('npm publish "./${package_tarball}"'));
     assert(!releaseWorkflowSource.includes('run: npm run check'));
