@@ -1,6 +1,11 @@
+---
+pageClass: quickstart-page
+description: Install Farming, start a coding Agent, and complete a verifiable first task in five steps.
+---
+
 # Quick start
 
-This page takes you from installation to your first running coding Agent.
+Follow these five steps to install Farming, start a coding Agent, and complete a verifiable first task.
 
 ## Prepare the host
 
@@ -12,7 +17,11 @@ You need:
 
 Farming does not replace provider authentication. Sign in to the corresponding CLI on the development machine and confirm that it can start independently.
 
-## Install and start
+::: tip Checkpoint
+On the same development machine, the target coding Agent CLI starts without waiting for sign-in or initial setup.
+:::
+
+## Install and open Farming
 
 ```bash
 npm install --global farming-code@latest
@@ -25,19 +34,26 @@ farming daemon
 The Token in an authenticated URL grants access to Farming. Do not put it in public logs, screenshots, issues, or chat messages.
 :::
 
+::: tip Checkpoint
+The browser shows Farming Code with **New Agent** in the upper-left corner.
+:::
+
 ## Start your first Agent
 
-1. Open Farming Code.
-2. Choose **New Agent** in the upper-left corner.
-3. Select a coding Agent.
-4. Select the Workspace that contains your repository.
-5. Choose Chat or Terminal, then send a task.
+1. Choose **New Agent** in the upper-left corner.
+2. Select a coding Agent.
+3. Select the Workspace that contains your repository.
+4. Choose Chat or Terminal, then create the Agent.
 
 <ThemeImage light="/cn/assets/start-agent.png" dark="/cn/assets/start-agent-dark.png" alt="Select a coding Agent" />
 
 Chat is best for reading structured progress and results. Terminal is best for direct interaction with the native CLI. Both run on the Farming Host, not in the browser.
 
-## Complete a first task
+::: tip Checkpoint
+The new Agent page shows the intended Workspace and either the Chat or Terminal interface.
+:::
+
+## Complete a read-only task
 
 Start with something small and verifiable:
 
@@ -55,7 +71,9 @@ Then follow the work:
 4. If evidence is missing, ask for it explicitly—for example, “Run the test you mentioned and report the exact command and result.”
 5. When the result is verified, give the Agent a searchable title and archive completed work.
 
-The goal of the first task is not maximum change. It is proving that you can see the process, inspect evidence, and intervene clearly.
+::: tip Checkpoint
+The result includes file paths, test locations, and command output that you can verify independently.
+:::
 
 ## Try a small change
 
@@ -75,6 +93,10 @@ Check whether the Agent:
 - clearly separated verified and unverified results.
 
 See [Verify and finish](../workflows/verify-and-finish) for the full workflow.
+
+::: tip Checkpoint
+You inspected the actual file changes and can distinguish what the Agent verified from what remains unverified.
+:::
 
 ## What happens when the browser closes?
 

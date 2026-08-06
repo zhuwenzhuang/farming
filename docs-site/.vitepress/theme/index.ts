@@ -3,7 +3,9 @@ import '@fontsource-variable/fraunces/soft.css'
 import '@fontsource-variable/noto-serif-sc'
 import { h } from 'vue'
 import HomeHeroVisual from './HomeHeroVisual.vue'
+import ImageViewer from './ImageViewer.vue'
 import IntegrationIcons from './IntegrationIcons.vue'
+import PageActions from './PageActions.vue'
 import ProviderIcons from './ProviderIcons.vue'
 import ThemeImage from './ThemeImage.vue'
 import './custom.css'
@@ -12,6 +14,9 @@ export default {
   extends: DefaultTheme,
   Layout: () => h(DefaultTheme.Layout, null, {
     'home-hero-image': () => h(HomeHeroVisual),
+    'aside-outline-after': () => h(PageActions, { variant: 'aside' }),
+    'doc-footer-before': () => h(PageActions, { variant: 'footer' }),
+    'layout-bottom': () => h(ImageViewer),
   }),
   enhanceApp({ app, router }) {
     app.component('IntegrationIcons', IntegrationIcons)

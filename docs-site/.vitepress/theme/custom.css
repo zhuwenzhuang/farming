@@ -817,6 +817,193 @@
   box-shadow: 0 16px 42px rgba(22, 35, 27, 0.08);
 }
 
+.VPDoc .vp-doc img[data-image-viewer] {
+  cursor: zoom-in;
+}
+
+.VPDoc .vp-doc img[data-image-viewer]:focus-visible {
+  outline: 3px solid var(--vp-c-brand-1);
+  outline-offset: 4px;
+}
+
+.image-viewer-overlay {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 48px;
+  background: rgba(5, 8, 6, 0.88);
+  backdrop-filter: blur(12px);
+  cursor: zoom-out;
+}
+
+.image-viewer-close {
+  position: fixed;
+  z-index: 1;
+  top: max(16px, env(safe-area-inset-top));
+  right: max(16px, env(safe-area-inset-right));
+  display: grid;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  color: #fff;
+  font: 32px/1 var(--vp-font-family-base);
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 999px;
+  background: rgba(10, 14, 11, 0.72);
+  cursor: pointer;
+}
+
+.image-viewer-close:hover,
+.image-viewer-close:focus-visible {
+  border-color: rgba(255, 255, 255, 0.8);
+  background: rgba(28, 36, 30, 0.92);
+}
+
+.image-viewer-close:focus-visible {
+  outline: 3px solid #8bf5b8;
+  outline-offset: 3px;
+}
+
+.image-viewer-figure {
+  display: grid;
+  gap: 12px;
+  max-width: 100%;
+  max-height: 100%;
+  margin: 0;
+  place-items: center;
+  cursor: default;
+}
+
+.image-viewer-figure img {
+  display: block;
+  max-width: min(92vw, 1800px);
+  max-height: calc(100vh - 120px);
+  border-radius: 8px;
+  object-fit: contain;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.46);
+}
+
+.image-viewer-figure figcaption {
+  max-width: min(80vw, 920px);
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.image-viewer-enter-active,
+.image-viewer-leave-active {
+  transition: opacity 160ms ease;
+}
+
+.image-viewer-enter-from,
+.image-viewer-leave-to {
+  opacity: 0;
+}
+
+.docs-page-actions {
+  gap: 6px;
+}
+
+.docs-page-actions--aside {
+  display: grid;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--vp-c-divider);
+}
+
+.docs-page-actions--footer {
+  display: flex;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.docs-page-actions button,
+.docs-page-actions a {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 6px 8px;
+  color: var(--vp-c-text-2);
+  font-family: var(--vp-font-family-base);
+  font-size: 13px;
+  line-height: 1.35;
+  text-align: left;
+  text-decoration: none;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.docs-page-actions button:hover,
+.docs-page-actions button:focus-visible,
+.docs-page-actions a:hover,
+.docs-page-actions a:focus-visible {
+  color: var(--vp-c-brand-1);
+  background: var(--vp-c-brand-soft);
+}
+
+.docs-page-actions button:focus-visible,
+.docs-page-actions a:focus-visible {
+  outline: 2px solid var(--vp-c-brand-1);
+  outline-offset: 2px;
+}
+
+.docs-page-actions svg {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.7;
+}
+
+.quickstart-page .vp-doc {
+  counter-reset: quickstart-step;
+}
+
+.quickstart-page .vp-doc h2:nth-of-type(-n + 5) {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-top: 28px;
+}
+
+.quickstart-page .vp-doc h2:nth-of-type(-n + 5)::before {
+  display: inline-grid;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  color: var(--vp-c-brand-1);
+  font-family: var(--vp-font-family-mono);
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1;
+  place-items: center;
+  border: 1px solid var(--vp-c-brand-1);
+  border-radius: 999px;
+  background: var(--vp-c-brand-soft);
+  content: counter(quickstart-step);
+  counter-increment: quickstart-step;
+}
+
+.quickstart-page .vp-doc h2:nth-of-type(-n + 5) .header-anchor {
+  top: 28px;
+}
+
+@media (min-width: 1280px) {
+  .docs-page-actions--footer {
+    display: none;
+  }
+}
+
 .theme-image {
   display: block;
 }
@@ -960,6 +1147,15 @@
 }
 
 @media (max-width: 520px) {
+  .image-viewer-overlay {
+    padding: 56px 12px 24px;
+  }
+
+  .image-viewer-figure img {
+    max-width: calc(100vw - 24px);
+    max-height: calc(100vh - 112px);
+  }
+
   .dark .farming-home-crt-streams {
     right: -32px;
     grid-template-columns: repeat(3, minmax(68px, 1fr));
@@ -1005,6 +1201,11 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .image-viewer-enter-active,
+  .image-viewer-leave-active {
+    transition: none;
+  }
+
   .dark .farming-home-crt,
   .dark .farming-home-crt::after,
   .dark .farming-home-crt-bootline,

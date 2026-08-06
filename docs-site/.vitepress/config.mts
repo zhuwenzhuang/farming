@@ -1,7 +1,14 @@
 import { defineConfig } from 'vitepress'
 
-const base = process.env.FARMING_DOCS_BASE || '/farming/'
-const siteOrigin = process.env.FARMING_DOCS_ORIGIN || 'https://zhuwenzhuang.github.io'
+const configuredBase = process.env.FARMING_DOCS_BASE || '/farming/'
+const base = configuredBase === '/'
+  ? '/'
+  : `/${configuredBase.replace(/^\/+|\/+$/g, '')}/`
+const siteOrigin = (process.env.FARMING_DOCS_ORIGIN || 'https://zhuwenzhuang.github.io').replace(/\/+$/, '')
+const absoluteDocsUrl = (path = '') => `${siteOrigin}${base}${path.replace(/^\/+/, '')}`
+const routeFromRelativePath = (relativePath: string) => relativePath
+  .replace(/index\.md$/, '')
+  .replace(/\.md$/, '')
 const themeFromUrlScript = `;(() => {
   const theme = new URLSearchParams(location.search).get('theme')
   if (theme !== 'dark' && theme !== 'light') return
@@ -227,23 +234,45 @@ export default defineConfig({
       themeConfig: enTheme,
     },
   },
-  sitemap: { hostname: `${siteOrigin}${base}` },
+  sitemap: { hostname: absoluteDocsUrl() },
   transformHead({ pageData }) {
-    const relativePath = pageData.relativePath
-      .replace(/index\.md$/, '')
-      .replace(/\.md$/, '')
-    const canonical = `${siteOrigin}${base}${relativePath}`
+    if (pageData.relativePath === '404.md' || pageData.relativePath.startsWith('public/')) {
+      return [['meta', { name: 'robots', content: 'noindex, nofollow' }]]
+    }
+
+    const relativePath = routeFromRelativePath(pageData.relativePath)
+    const canonical = absoluteDocsUrl(relativePath)
     const english = pageData.relativePath.startsWith('en/')
+    const localizedPath = pageData.relativePath.replace(/^(cn|en)\//, '')
+    const chineseUrl = absoluteDocsUrl(routeFromRelativePath(`cn/${localizedPath}`))
+    const englishUrl = absoluteDocsUrl(routeFromRelativePath(`en/${localizedPath}`))
     const defaultTitle = english ? 'Farming Documentation' : 'Farming 文档'
     const defaultDescription = english
       ? 'User documentation for Farming Code and Farming CRT'
       : 'Farming Code 与 Farming CRT 的中文使用文档'
+    const title = pageData.title || defaultTitle
+    const description = pageData.description || defaultDescription
+    const image = absoluteDocsUrl('farming-hero.png')
     return [
       ['link', { rel: 'canonical', href: canonical }],
-      ['meta', { property: 'og:title', content: pageData.title || defaultTitle }],
-      ['meta', { property: 'og:description', content: pageData.description || defaultDescription }],
-      ['meta', { property: 'og:type', content: 'website' }],
+      ['link', { rel: 'alternate', hreflang: 'zh-CN', href: chineseUrl }],
+      ['link', { rel: 'alternate', hreflang: 'en-US', href: englishUrl }],
+      ['link', { rel: 'alternate', hreflang: 'x-default', href: absoluteDocsUrl() }],
+      ['meta', { property: 'og:title', content: title }],
+      ['meta', { property: 'og:description', content: description }],
+      ['meta', { property: 'og:type', content: pageData.relativePath === 'index.md' ? 'website' : 'article' }],
       ['meta', { property: 'og:url', content: canonical }],
+      ['meta', { property: 'og:site_name', content: 'Farming Documentation' }],
+      ['meta', { property: 'og:locale', content: english ? 'en_US' : 'zh_CN' }],
+      ['meta', { property: 'og:locale:alternate', content: english ? 'zh_CN' : 'en_US' }],
+      ['meta', { property: 'og:image', content: image }],
+      ['meta', { property: 'og:image:width', content: '1254' }],
+      ['meta', { property: 'og:image:height', content: '1254' }],
+      ['meta', { property: 'og:image:alt', content: english ? 'Farming documentation' : 'Farming 文档' }],
+      ['meta', { name: 'twitter:card', content: 'summary' }],
+      ['meta', { name: 'twitter:title', content: title }],
+      ['meta', { name: 'twitter:description', content: description }],
+      ['meta', { name: 'twitter:image', content: image }],
     ]
   },
   head: [

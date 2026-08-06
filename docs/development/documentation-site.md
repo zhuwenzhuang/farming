@@ -40,6 +40,17 @@ sections, customer-proof patterns, or repeated feature inventories. Screenshots
 should explain a specific workflow or interface; they are evidence, not a
 substitute for documentation.
 
+Screenshots in documentation articles open in an enlarged viewer. The viewer
+must support pointer and keyboard activation, an explicit close control,
+`Escape`, backdrop dismissal, focus restoration, and bounded display on mobile.
+Images that already act as links keep their original navigation behavior.
+
+The quick start is an executable, numbered task flow rather than a feature
+inventory. Each major step states an observable checkpoint, while prerequisites,
+authenticated URL handling, Session persistence, and verification remain
+explicit. Article pages expose actions to copy the exact source Markdown and to
+open a documentation issue prefilled with the public page and source location.
+
 Theme-specific sharing uses the `?theme=dark` and `?theme=light` query
 parameters. A valid parameter is applied before the page renders. Once a URL
 contains a theme parameter, theme switches and in-site navigation keep the URL
@@ -97,3 +108,8 @@ Actions. The default project-site base path is `/farming/`; a future custom
 domain can override it through `FARMING_DOCS_BASE`.
 The canonical origin and sitemap host can be changed through
 `FARMING_DOCS_ORIGIN`.
+
+Published pages emit a canonical URL, corresponding `zh-CN` and `en-US`
+alternate URLs, an `x-default` entry, and localized Open Graph and Twitter
+metadata. Social metadata uses a public Farming image and must not reference
+local, private, or draft-only assets.
