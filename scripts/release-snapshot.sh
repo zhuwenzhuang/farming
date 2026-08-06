@@ -34,6 +34,15 @@ printf 'tag_sha=%s\n' "${TAG_SHA}"
 printf 'github_release=%s\n' "${GITHUB_RELEASE}"
 printf 'npm_version=%s\n' "${NPM_VERSION}"
 printf 'npm_git_head=%s\n' "${NPM_GIT_HEAD}"
+printf 'candidate_push_workflows_begin\n'
+gh run list \
+  --repo "${REPOSITORY}" \
+  --commit "${CANDIDATE_SHA}" \
+  --event push \
+  --limit 100 \
+  --json databaseId,workflowName,status,conclusion,createdAt,updatedAt,url \
+  --jq '.[]' 2>/dev/null || true
+printf 'candidate_push_workflows_end\n'
 printf 'worktree_status_begin\n'
 git status --short
 printf 'worktree_status_end\n'

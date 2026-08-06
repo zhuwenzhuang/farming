@@ -581,38 +581,20 @@ jobs:
           NODE
           rm release-metadata-*.json
 
-      - name: Require successful CI for candidate revision
+      - name: Require successful candidate push workflows
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
-        run: |
-          ci_run_id=""
-          for attempt in {1..60}; do
-            ci_run_id="$(
-              gh run list \
-                --repo "${GITHUB_REPOSITORY}" \
-                --workflow ci.yml \
-                --commit "${GITHUB_SHA}" \
-                --event push \
-                --limit 1 \
-                --json databaseId \
-                --jq '.[0].databaseId // empty'
-            )"
-            if [[ -n "${ci_run_id}" ]]; then
-              break
-            fi
-            if [[ "${attempt}" -eq 60 ]]; then
-              echo "No push CI run found for release candidate ${GITHUB_SHA}." >&2
-              exit 1
-            fi
-            sleep 5
-          done
+        run: scripts/watch-candidate-workflows.sh "${GITHUB_SHA}" "${GITHUB_REPOSITORY}" 480
 
-          echo "Release candidate is gated by CI run ${ci_run_id} for ${GITHUB_SHA}."
-          gh run watch "${ci_run_id}" \
-            --repo "${GITHUB_REPOSITORY}" \
-            --exit-status \
-            --interval 5
+      - name: Upload candidate workflow failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: candidate-workflow-failure-${{ github.sha }}
+          path: .tmp/release-watch/candidate-${{ github.sha }}
+          if-no-files-found: ignore
+          retention-days: 3
 
       - name: Require successful automated and Computer Use acceptance
         env:

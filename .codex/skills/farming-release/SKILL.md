@@ -44,6 +44,7 @@ commit SHA, workflow run, and artifact digest.
 | browser | Chromium, mobile, and selected focused interaction gates |
 | provider | live real-provider baseline or required cross-runtime composite |
 | computer-use | selected scenario lanes, Agent/Desktop identities, evidence, and invalidation status |
+| candidate workflows | every push-triggered workflow for the exact SHA, including Documentation when selected by its path filter |
 | linux | CLI, app bundle, legacy bundle, verify, and smoke |
 | macos | native x64/arm64 CLI and app-bundle verify and smoke |
 | npm | one tarball, digest, offline install, ACP/capability/server/PTY smoke |
@@ -66,9 +67,31 @@ Start all reversible preparation together:
 - automated real-provider and production-shaped browser gates;
 - selected Computer Use lanes on isolated Desktops;
 - reversible manifest, checksum, and release-note assembly.
+- monitoring of every workflow triggered by the candidate push, not only CI and Release.
 
 Budget the complete parallel preparation fan-out at seven minutes so the serial
 GitHub and npm publication tail can finish inside the ten-minute campaign.
+
+### Monitor Every Candidate Workflow
+
+After pushing the exact candidate, immediately run
+`scripts/watch-candidate-workflows.sh SHA` beside the other preparation lanes.
+It discovers every `push` workflow for that SHA and fails on any non-successful
+terminal result. Do not make the user discover a red workflow or deployment in
+the repository UI after the release session.
+
+Candidate-triggered workflows are required by default. A workflow may be
+non-blocking only when the coordinator records an explicit domain proof that
+its triggering change is outside the release scope. A historical failure from
+another SHA must be reported but does not block the candidate.
+
+When a candidate push triggers `Documentation`, its Pages deployment is part of
+the required documentation domain. Keep release acceptance pending and do not
+publish npm until it succeeds. The workflow bounds a Pages queue wait at three
+minutes, so a stuck `deployment_queued` state becomes actionable during the
+campaign. Classify it as an external provider failure, retain the first log and
+deployment state, and continue independent lanes. Do not hide it by increasing
+the timeout or repeatedly rebuilding the same documentation artifact.
 
 ## Separate Automation From Computer Use
 
@@ -246,6 +269,8 @@ typecheck, lint, build, full tests, and remote CI after every small edit.
 - Do not serialize artifact preparation behind the CI wait.
 - Use one coordinator ledger for `ssh4` Computer Use lanes. Do not make the user
   inspect several Agent conversations to learn whether preparation is complete.
+- Use `scripts/watch-candidate-workflows.sh SHA` to monitor all workflows from
+  the candidate push. Do not infer repository health from CI alone.
 - Dispatch `release.yml` with both `release_version` and the exact
   `acceptance_context` created for this campaign.
 - Fail fast per lane, not per campaign. Let independent lanes converge while the
@@ -283,8 +308,9 @@ blindly.
 Verify, in order:
 
 1. mandatory preparation completed: final exact-SHA CI, artifacts, package and
-   provider gates succeeded, and every selected Computer Use lane is green or
-   validly carried forward;
+   provider gates succeeded, every required candidate-triggered workflow is
+   green, and every selected Computer Use lane is green or validly carried
+   forward;
 2. GitHub tag targets the final SHA;
 3. GitHub Release is public and required assets can be downloaded and verified;
 4. npm version exists only after step 3;

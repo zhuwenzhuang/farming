@@ -1252,7 +1252,7 @@ async function runTests() {
     );
     assert(npmPrepareJob.includes('npm run release:npm:pack -- "${package_dir}"'));
     assert(npmPrepareJob.includes('npm run release:npm:smoke -- "${package_tarball}"'));
-    assert(stagedReleaseJob.includes('Require successful CI for candidate revision'));
+    assert(stagedReleaseJob.includes('Require successful candidate push workflows'));
     assert(stagedReleaseJob.includes('      - build-linux'));
     assert(stagedReleaseJob.includes('      - build-macos'));
     assert(stagedReleaseJob.includes('      - prepare-npm'));
@@ -1265,20 +1265,20 @@ async function runTests() {
     assert(stagedReleaseJob.includes('npm install --global npm@latest'));
     assert(stagedReleaseJob.includes('sha256sum --check'));
     assert(stagedReleaseJob.includes('npm publish "./${package_tarball}"'));
-    const ciGateOffset = stagedReleaseJob.indexOf('Require successful CI for candidate revision');
+    const candidateWorkflowGateOffset = stagedReleaseJob.indexOf('Require successful candidate push workflows');
     const acceptanceGateOffset = stagedReleaseJob.indexOf('Require successful automated and Computer Use acceptance');
     const draftOffset = stagedReleaseJob.indexOf('Create or refresh draft release');
     const githubPublishOffset = stagedReleaseJob.indexOf('Publish the matching draft release');
     const githubVerifyOffset = stagedReleaseJob.indexOf('Verify public tag, assets, and manifest');
     const npmPublishOffset = stagedReleaseJob.indexOf('Verify and publish npm package with provenance');
     assert(
-      ciGateOffset >= 0
-        && ciGateOffset < acceptanceGateOffset
+      candidateWorkflowGateOffset >= 0
+        && candidateWorkflowGateOffset < acceptanceGateOffset
         && acceptanceGateOffset < draftOffset
         && draftOffset < githubPublishOffset
         && githubPublishOffset < githubVerifyOffset
         && githubVerifyOffset < npmPublishOffset,
-      'the merged publication job must keep CI, release acceptance, GitHub publication, public verification, and npm publication in safe order',
+      'the merged publication job must keep candidate workflows, release acceptance, GitHub publication, public verification, and npm publication in safe order',
     );
     assert(!releaseWorkflowSource.includes('run: npm run check'));
     const releaseWorkflow = YAML.parse(releaseWorkflowSource);
@@ -1311,17 +1311,16 @@ async function runTests() {
       'release staging must not install the repository dependency tree',
     );
     assert.strictEqual(releaseWorkflow.jobs['ci-gate'], undefined);
-    const releaseCiGate = releaseWorkflow.jobs['stage-release'].steps.find(
-      step => step.name === 'Require successful CI for candidate revision',
+    const candidateWorkflowGate = releaseWorkflow.jobs['stage-release'].steps.find(
+      step => step.name === 'Require successful candidate push workflows',
     );
-    assert(releaseCiGate, 'release preflight must require CI for the exact candidate revision');
-    assert.strictEqual(releaseCiGate.env.GH_TOKEN, '${{ github.token }}');
+    assert(candidateWorkflowGate, 'release publication must require every workflow from the exact candidate push');
+    assert.strictEqual(candidateWorkflowGate.env.GH_TOKEN, '${{ github.token }}');
     assert(
-      releaseCiGate.run.includes('--workflow ci.yml')
-        && releaseCiGate.run.includes('--commit "${GITHUB_SHA}"')
-        && releaseCiGate.run.includes('gh run watch "${ci_run_id}"')
-        && releaseCiGate.run.includes('--exit-status'),
-      'release preflight must find and fail closed on the candidate revision CI run',
+      candidateWorkflowGate.run.includes('scripts/watch-candidate-workflows.sh')
+        && candidateWorkflowGate.run.includes('"${GITHUB_SHA}"')
+        && candidateWorkflowGate.run.includes('"${GITHUB_REPOSITORY}"'),
+      'release publication must fail closed on CI, Documentation, and every other candidate push workflow',
     );
     assert.strictEqual(releaseWorkflow.jobs['build-linux'].needs, 'preflight');
     assert.strictEqual(releaseWorkflow.jobs['build-macos'].needs, 'preflight');
@@ -1340,9 +1339,9 @@ async function runTests() {
     const stageSteps = releaseWorkflow.jobs['stage-release'].steps;
     const stageStepIndex = (name: string) => stageSteps.findIndex(step => step.name === name);
     assert(
-      stageStepIndex('Install current npm CLI') < stageStepIndex('Require successful CI for candidate revision')
-        && stageStepIndex('Download verified npm tarball') < stageStepIndex('Require successful CI for candidate revision'),
-      'npm setup and verified tarball download must overlap the exact-SHA CI wait',
+      stageStepIndex('Install current npm CLI') < stageStepIndex('Require successful candidate push workflows')
+        && stageStepIndex('Download verified npm tarball') < stageStepIndex('Require successful candidate push workflows'),
+      'npm setup and verified tarball download must overlap the candidate workflow wait',
     );
   }
 

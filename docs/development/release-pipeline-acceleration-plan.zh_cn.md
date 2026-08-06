@@ -79,6 +79,27 @@ Exact-SHA CI       平台制品            唯一 npm Tarball
 
 中间 Fan-out 的墙钟预算为 7 分钟。GitHub 公开、公开验证和 npm 发布保持串行，使用剩余预算。
 
+### 候选提交触发的 Workflow 全覆盖
+
+Release Coordinator 必须监控 Exact Candidate Push 创建的每个 Workflow，不能只盯 `CI` 和
+`Release`。`scripts/watch-candidate-workflows.sh SHA` 负责发现这些 Push Run、记录状态，并在任一
+Run 非成功结束时生成有边界的 Failure Bundle。
+
+Candidate 触发的 Workflow 默认属于必需门禁，因为它的 Path Filter 已经证明本次 Push 修改了对应
+领域。特别是 Candidate 触发 `Documentation` 时，GitHub Pages Deployment 必须成功，Release
+Acceptance 才能变成成功，npm 才允许发布。其他 SHA 的历史失败必须作为仓库健康信息报告，但不能
+误阻塞当前 Candidate。
+
+GitHub Pages 正常会在数秒内离开 `deployment_queued`。Documentation Workflow 将该等待限制为
+3 分钟，并使用当前 Node 24 版本的 `deploy-pages` Action。超时归类为 External Provider Failure，
+完整计入发布耗时；不能通过重复执行完整文档构建或延长隐藏等待来掩盖。其他独立准备 Lane 继续
+运行，Documentation Domain 保持 Blocked。
+
+该规则来自 2026-08-06 的 Documentation `#18`：文档 Build 与 Artifact Upload 在 28 秒内完成，
+但 Pages 在 `deployment_queued` 停满 Action 默认的 10 分钟。只重试 Deploy，以及重新执行一次
+23 秒的新 Build，都复现了相同队列卡住。现在由 Candidate Workflow 总监控自动发现该领域，并由
+Workflow 在 3 分钟内把外部故障变成明确的终态。
+
 ### 自动化交互与 Computer Use 分开
 
 Playwright Human Story 和真实 Provider Browser Composite 属于自动化交互门禁。Computer Use 表示

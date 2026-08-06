@@ -71,4 +71,9 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
+        with:
+          # Pages normally leaves deployment_queued within seconds. Bound an
+          # external queue incident so the release coordinator sees it within
+          # the three-minute diagnosis budget instead of waiting ten minutes.
+          timeout: 180000

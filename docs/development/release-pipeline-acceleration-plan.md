@@ -103,6 +103,34 @@ The middle fan-out has a seven-minute wall-time budget. GitHub publication,
 public verification, and npm publication remain serial and consume the remaining
 budget.
 
+### Candidate-triggered workflow coverage
+
+The release coordinator monitors every workflow created by the exact candidate
+push, not only `CI` and `Release`. `scripts/watch-candidate-workflows.sh SHA`
+discovers the push runs, records their state, and produces a bounded failure
+bundle for any non-successful result.
+
+A triggered workflow is required by default because its path filter proves that
+the pushed candidate changed its domain. In particular, when `Documentation`
+runs for the candidate, the GitHub Pages deployment must succeed before release
+acceptance can become successful and before npm publication. A workflow from a
+different SHA is reported as repository health context but does not block the
+candidate.
+
+GitHub Pages normally advances from `deployment_queued` within seconds. The
+Documentation workflow limits this state to three minutes and uses the current
+Node 24 `deploy-pages` action. A timeout is classified as an external provider
+failure and counts in total release time. It does not authorize repeated full
+documentation builds or a longer hidden wait; independent preparation lanes
+continue while the documentation domain remains blocked.
+
+This rule was added after Documentation run `#18` on 2026-08-06 built and
+uploaded its artifact in 28 seconds but remained `deployment_queued` for the
+full ten-minute action timeout. A deploy-only retry and a fresh 23-second build
+both reproduced the queue stall. The candidate-wide monitor now discovers this
+domain automatically, while the workflow makes the external failure terminal
+within three minutes.
+
 ### Automated interaction and Computer Use are separate
 
 Playwright human-story tests and real-provider browser composites are automated

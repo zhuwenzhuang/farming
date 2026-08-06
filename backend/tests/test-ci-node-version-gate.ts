@@ -40,6 +40,17 @@ function run() {
   assert(fs.existsSync(path.join(root, 'scripts', 'run-playwright-balanced-shard.mjs')));
   assert(fs.existsSync(path.join(root, 'scripts', 'release-snapshot.sh')));
   assert(fs.existsSync(path.join(root, 'scripts', 'watch-run.sh')));
+  assert(fs.existsSync(path.join(root, 'scripts', 'watch-candidate-workflows.sh')));
+  const candidateWorkflowWatchSource = fs.readFileSync(
+    path.join(root, 'scripts', 'watch-candidate-workflows.sh'),
+    'utf8',
+  );
+  assert(
+    candidateWorkflowWatchSource.includes('--commit "${CANDIDATE_SHA}"')
+      && candidateWorkflowWatchSource.includes('--event push')
+      && candidateWorkflowWatchSource.includes('--log-failed'),
+    'release monitoring must discover and retain failures from every candidate push workflow',
+  );
   const browserShardSource = fs.readFileSync(
     path.join(root, 'scripts', 'run-playwright-balanced-shard.mjs'),
     'utf8',
@@ -130,6 +141,19 @@ function run() {
   );
 
   assert.deepStrictEqual(workflow.permissions, { contents: 'read' });
+
+  const documentationWorkflow = YAML.parse(
+    fs.readFileSync(path.join(root, '.github/workflows/docs.yml'), 'utf8'),
+  );
+  const pagesDeployStep = documentationWorkflow.jobs.deploy.steps.find(
+    step => step.name === 'Deploy to GitHub Pages',
+  );
+  assert.strictEqual(pagesDeployStep.uses, 'actions/deploy-pages@v5');
+  assert.strictEqual(
+    pagesDeployStep.with.timeout,
+    180000,
+    'Pages queue incidents must become visible within the three-minute diagnosis budget',
+  );
 
   console.log(
     `✓ CI keeps Node ${AUTHORITATIVE_NODE_MAJOR} authoritative with one bounded Node 24 compatibility gate`,
