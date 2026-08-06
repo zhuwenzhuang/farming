@@ -38,6 +38,18 @@ function run() {
   const jobs: [string, WorkflowJob][] = Object.entries(workflow.jobs);
 
   assert(fs.existsSync(path.join(root, 'scripts', 'run-playwright-balanced-shard.mjs')));
+  assert(fs.existsSync(path.join(root, 'scripts', 'release-snapshot.sh')));
+  assert(fs.existsSync(path.join(root, 'scripts', 'watch-run.sh')));
+  const browserShardSource = fs.readFileSync(
+    path.join(root, 'scripts', 'run-playwright-balanced-shard.mjs'),
+    'utf8',
+  );
+  assert(
+    browserShardSource.includes('DEFAULT_TEST_WEIGHT_MS')
+      && browserShardSource.includes('estimatedDurationMs')
+      && browserShardSource.includes('locationWeightMs'),
+    'Chromium shard assignment must use measured duration weights instead of test counts alone',
+  );
 
   assert.strictEqual(workflow.env.FARMING_SKIP_INSTALL_RUNTIME_PREPARE, '1');
   assert.strictEqual(workflow.env.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD, '1');
@@ -49,7 +61,7 @@ function run() {
   assert(
     browserRunStep?.run?.includes('scripts/run-playwright-balanced-shard.mjs')
       && browserRunStep?.run?.includes('--shard ${{ matrix.shard }}/9'),
-    'Chromium must use nine test-balanced single-worker shards',
+    'Chromium must use nine duration-balanced single-worker shards',
   );
   assert(
     workflow.jobs.browser.steps.some(step => step.uses === 'actions/upload-artifact@v4'),

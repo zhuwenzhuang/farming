@@ -390,7 +390,7 @@ jobs:
           compression-level: 0
 
   stage-release:
-    name: Stage GitHub Release
+    name: Publish verified release
     runs-on: ubuntu-latest
     needs:
       - build-linux
@@ -399,6 +399,10 @@ jobs:
     env:
       FARMING_RELEASE_VERSION: ${{ inputs.release_version }}
       GH_TOKEN: ${{ github.token }}
+    permissions:
+      actions: read
+      contents: write
+      id-token: write
     steps:
       - name: Normalize release version
         id: version
@@ -415,6 +419,16 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+          registry-url: https://registry.npmjs.org
+
+      - name: Install current npm CLI
+        run: npm install --global npm@latest
+
+      - name: Download verified npm tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: farming-npm-${{ inputs.release_version }}
+          path: npm-package
 
       - name: Verify release notes
         id: notes
@@ -637,18 +651,9 @@ jobs:
             release_created=1
           fi
 
-  publish-github-release:
-    name: Publish GitHub Release
-    runs-on: ubuntu-latest
-    needs:
-      - stage-release
-    permissions:
-      contents: write
-    env:
-      RELEASE_VERSION: ${{ inputs.release_version }}
-      GH_TOKEN: ${{ github.token }}
-    steps:
       - name: Publish the matching draft release
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.value }}
         shell: bash
         run: |
           set -euo pipefail
@@ -665,17 +670,9 @@ jobs:
             gh release edit "${tag}" --repo "${GITHUB_REPOSITORY}" --draft=false
           fi
 
-  verify-github-release:
-    name: Verify public GitHub Release
-    runs-on: ubuntu-latest
-    needs:
-      - publish-github-release
-    permissions:
-      contents: read
-    env:
-      RELEASE_VERSION: ${{ inputs.release_version }}
-    steps:
       - name: Verify public tag, assets, and manifest
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.value }}
         shell: bash
         run: |
           set -euo pipefail
@@ -742,38 +739,9 @@ jobs:
             exit 1
           fi
 
-  publish-npm:
-    name: Publish npm package last
-    runs-on: ubuntu-latest
-    needs:
-      - verify-github-release
-      - prepare-npm
-    permissions:
-      contents: read
-      id-token: write
-    env:
-      FARMING_RELEASE_VERSION: ${{ inputs.release_version }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          registry-url: https://registry.npmjs.org
-
-      - name: Install current npm CLI
-        run: npm install --global npm@latest
-
-      - name: Download verified npm tarball
-        uses: actions/download-artifact@v4
-        with:
-          name: farming-npm-${{ inputs.release_version }}
-          path: npm-package
-
       - name: Verify and publish npm package with provenance
         env:
+          FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         shell: bash
         run: |

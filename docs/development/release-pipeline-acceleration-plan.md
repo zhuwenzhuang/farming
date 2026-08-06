@@ -198,6 +198,36 @@ with a repository script that discovers exact test locations and stripes
 adjacent location groups across nine shards. Each shard remains one worker;
 generated tests sharing one source location remain atomic.
 
+## v2.2.45 Timed Result And Fifth-Pass Changes
+
+The corrected v2.2.45 candidate completed exact-SHA CI in 7 minutes 47
+seconds and the complete GitHub-plus-npm release in 10 minutes 4 seconds. All
+release artifacts were ready in 4 minutes 26 seconds, so platform packaging was
+not the critical path. The quick-fix campaign, including the first failed
+candidate, took 15 minutes 24 seconds.
+
+The remaining four-second miss came from two concrete tails:
+
+- Chromium shard 4 ran for 6 minutes 10 seconds even though every shard had 38
+  or 39 tests. A measured run showed one test at about 75 seconds and several
+  at 12 to 21 seconds, proving that test-count balance was not duration balance.
+- CI completion was followed by three separately scheduled Jobs for GitHub
+  publication, public verification, and npm publication. Their repeated runner
+  setup and scheduling added avoidable latency after all reversible work was
+  already complete.
+
+The fifth pass uses measured location-duration weights and longest-processing-
+time assignment across the existing nine single-worker Chromium Jobs. The
+predicted shard loads are now 266 to 273 seconds without adding CI work or
+remote concurrency. It also keeps staging, GitHub publication, public asset
+verification, and npm publication in one Job. npm setup and tarball download
+occur while exact-SHA CI is still running; npm publication remains the final
+step after public GitHub verification.
+
+The repository now provides `scripts/release-snapshot.sh` for one initial
+candidate snapshot and `scripts/watch-run.sh` for script-owned monitoring and a
+bounded failure bundle. This removes the need for repeated Agent polling.
+
 ## Confirmed Sources Of Waste
 
 ### Agent investigation
@@ -367,9 +397,10 @@ without reducing coverage.
 
 - Use nine Chromium shards to match the measured 20-job remote concurrency
   ceiling when release preparation is also active.
-- Discover exact test locations once per job and stripe adjacent location
-  groups across shards, preventing one domain's long test cluster from owning a
-  contiguous shard.
+- Discover exact test locations once per job and assign atomic location groups
+  by measured duration, using a bounded default when a location has no timing
+  sample. Rebalance slow locations across the existing Jobs instead of adding
+  workers or more remote Jobs.
 - Keep exactly one worker per job. Generated tests sharing one source location
   remain atomic, and no backend receives concurrent tests.
 

@@ -13,6 +13,25 @@ const playwrightEnvironment = {
     .join(path.delimiter),
 }
 
+const DEFAULT_TEST_WEIGHT_MS = 7_000
+const locationWeightMs = new Map(Object.entries({
+  'tests/e2e/pet-rest-reminder.spec.ts:1397': 75_144,
+  'tests/e2e/acp-human-cases.spec.ts:721': 20_972,
+  'tests/e2e/terminal-cross-skin-recovery.spec.ts:596': 19_374,
+  'tests/e2e/skin-switching.spec.ts:897': 17_176,
+  'tests/e2e/acp-progressive-answer.spec.ts:108': 16_854,
+  'tests/e2e/acp-steer.spec.ts:157': 15_074,
+  'tests/e2e/acp-human-cases.spec.ts:1671': 15_070,
+  'tests/e2e/browser-resources.spec.ts:855': 14_230,
+  'tests/e2e/pet-rest-reminder.spec.ts:1055': 13_593,
+  'tests/e2e/acp-human-cases.spec.ts:116': 12_322,
+  'tests/e2e/background-chat-continuity.spec.ts:1029': 11_893,
+  'tests/e2e/skin-switching.spec.ts:15': 11_375,
+  'tests/e2e/agent-ordering.spec.ts:389': 9_957,
+  'tests/e2e/agent-completion-notifications.spec.ts:136': 9_015,
+  'tests/e2e/update-settings.spec.ts:165': 8_304,
+}))
+
 function parseArguments(argv) {
   let project = ''
   let shard = ''
@@ -67,7 +86,7 @@ function listTestLocationGroups(project) {
     const location = `${match[1]}:${match[2]}`
     let group = byLocation.get(location)
     if (!group) {
-      group = { location, testCount: 0 }
+      group = { location, testCount: 0, discoveryOrder: groups.length }
       byLocation.set(location, group)
       groups.push(group)
     }
@@ -81,14 +100,33 @@ function assignLocationGroups(groups, shardTotal) {
   const assignments = Array.from({ length: shardTotal }, () => ({
     locations: [],
     testCount: 0,
+    estimatedDurationMs: 0,
   }))
+  const weightedGroups = groups
+    .map(group => ({
+      ...group,
+      estimatedDurationMs: locationWeightMs.get(group.location) ?? group.testCount * DEFAULT_TEST_WEIGHT_MS,
+    }))
+    .sort((left, right) => (
+      right.estimatedDurationMs - left.estimatedDurationMs
+      || right.testCount - left.testCount
+      || left.discoveryOrder - right.discoveryOrder
+    ))
   let cursor = 0
-  for (const group of groups) {
-    const minimum = Math.min(...assignments.map(assignment => assignment.testCount))
+  for (const group of weightedGroups) {
+    const minimumDuration = Math.min(...assignments.map(assignment => assignment.estimatedDurationMs))
+    const minimumTestCount = Math.min(
+      ...assignments
+        .filter(assignment => assignment.estimatedDurationMs === minimumDuration)
+        .map(assignment => assignment.testCount),
+    )
     let selected = -1
     for (let offset = 0; offset < shardTotal; offset += 1) {
       const candidate = (cursor + offset) % shardTotal
-      if (assignments[candidate].testCount === minimum) {
+      if (
+        assignments[candidate].estimatedDurationMs === minimumDuration
+        && assignments[candidate].testCount === minimumTestCount
+      ) {
         selected = candidate
         break
       }
@@ -96,6 +134,7 @@ function assignLocationGroups(groups, shardTotal) {
     if (selected < 0) throw new Error('Unable to select a balanced Playwright shard')
     assignments[selected].locations.push(group.location)
     assignments[selected].testCount += group.testCount
+    assignments[selected].estimatedDurationMs += group.estimatedDurationMs
     cursor = (selected + 1) % shardTotal
   }
   return assignments
@@ -108,7 +147,7 @@ function run() {
   const assignment = assignments[shardIndex - 1]
   const totalTests = assignments.reduce((sum, entry) => sum + entry.testCount, 0)
   process.stdout.write(
-    `Balanced Playwright shard ${shardIndex}/${shardTotal}: ${assignment.testCount}/${totalTests} tests across ${assignment.locations.length} locations\n`,
+    `Balanced Playwright shard ${shardIndex}/${shardTotal}: ${assignment.testCount}/${totalTests} tests across ${assignment.locations.length} locations, estimated ${Math.round(assignment.estimatedDurationMs / 1000)}s\n`,
   )
   if (listSelected) {
     assignment.locations.forEach(location => process.stdout.write(`${location}\n`))

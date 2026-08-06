@@ -159,6 +159,28 @@ CI 仍用时 8 分 30 秒。
 第四轮恢复 npm 12，并使用仓库脚本发现精确测试位置，把相邻 Location Group 条纹分散到 9 个
 Shard。每个 Shard 仍然是单 Worker；共享同一源码位置的 Generated Test 保持原子分组。
 
+## v2.2.45 计时结果与第五轮改造
+
+修正后的 v2.2.45 Candidate 在 7 分 47 秒完成 Exact-SHA CI，GitHub 与 npm 全部发布完成用时
+10 分 4 秒。所有发布制品在 4 分 26 秒内就绪，因此平台 Packaging 已经不是关键路径。包含第一
+个失败 Candidate 的 Quick-fix Campaign 总耗时 15 分 24 秒。
+
+最后超出的 4 秒来自两个明确尾部：
+
+- Chromium Shard 4 虽然同样只有 38 个测试，仍执行了 6 分 10 秒。逐测试实测显示其中一个测试
+  约 75 秒，另有多个测试耗时 12 到 21 秒，说明“数量均衡”不等于“时长均衡”。
+- CI 结束后，GitHub 发布、公开验证和 npm 发布分别调度三个 Job。所有可逆工作已经结束后，仍
+  重复承担 Runner 排队、Checkout 和 Setup 延迟。
+
+第五轮按实测 Location Duration 使用 Longest-processing-time 分配，仍然只用现有 9 个单 Worker
+Chromium Job，不增加 CI 工作量和远端并行度；预测每个 Shard 为 266 到 273 秒。同时把 Staging、
+GitHub 发布、公开资产验证和 npm 发布合并到一个 Job。npm Setup 和已验证 Tarball 下载在等待
+Exact-SHA CI 时完成；npm 仍严格位于 GitHub 公开验证之后，作为最后一步。
+
+仓库新增 `scripts/release-snapshot.sh`，一次采集初始 Candidate 状态；新增
+`scripts/watch-run.sh`，由脚本持续监控并在失败时生成有边界的 Failure Bundle，Agent 不再反复
+手工轮询。
+
 ## 已确认的浪费来源
 
 ### Agent 调查
@@ -301,8 +323,8 @@ Changed Files + Failure Signatures
 ### B2. 在不增加 Job 内并发的前提下均衡 Browser Shard
 
 - Chromium 使用 9 个 Shard，与 Release Preparation 同时运行时刚好适配实测 20 Job 远端并发上限。
-- 每个 Job 先发现精确 Test Location，再把相邻 Location Group 条纹分散，避免一个领域的慢测试
-  Cluster 独占连续 Shard。
+- 每个 Job 先发现精确 Test Location，再按实测 Duration 分配原子 Location Group；没有 Timing
+  Sample 的位置使用有界默认值。通过重分配现有 Job 均衡慢测试，不增加 Worker 或远端 Job。
 - 每个 Job 仍然严格单 Worker；共享同一源码位置的 Generated Test 保持原子分组，同一 Backend
   不并发执行测试。
 

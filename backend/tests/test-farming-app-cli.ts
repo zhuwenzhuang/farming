@@ -1249,18 +1249,6 @@ async function runTests() {
     );
     const stagedReleaseJob = releaseWorkflowSource.slice(
       releaseWorkflowSource.indexOf('  stage-release:'),
-      releaseWorkflowSource.indexOf('  publish-github-release:'),
-    );
-    const githubPublishJob = releaseWorkflowSource.slice(
-      releaseWorkflowSource.indexOf('  publish-github-release:'),
-      releaseWorkflowSource.indexOf('  verify-github-release:'),
-    );
-    const githubVerifyJob = releaseWorkflowSource.slice(
-      releaseWorkflowSource.indexOf('  verify-github-release:'),
-      releaseWorkflowSource.indexOf('  publish-npm:'),
-    );
-    const npmPublishJob = releaseWorkflowSource.slice(
-      releaseWorkflowSource.indexOf('  publish-npm:'),
     );
     assert(npmPrepareJob.includes('npm run release:npm:pack -- "${package_dir}"'));
     assert(npmPrepareJob.includes('npm run release:npm:smoke -- "${package_tarball}"'));
@@ -1270,15 +1258,26 @@ async function runTests() {
     assert(stagedReleaseJob.includes('      - prepare-npm'));
     assert(stagedReleaseJob.includes('--draft'));
     assert(stagedReleaseJob.includes('git push origin "refs/tags/${RELEASE_TAG}"'));
-    assert(githubPublishJob.includes('gh release edit "${tag}" --repo "${GITHUB_REPOSITORY}" --draft=false'));
-    assert(githubVerifyJob.includes('https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${tag}'));
-    assert(githubVerifyJob.includes('GitHub Release is missing assets'));
-    assert(githubVerifyJob.includes('Public release asset checksum mismatch'));
-    assert(npmPublishJob.includes('name: Publish npm package last'));
-    assert(npmPublishJob.includes('      - verify-github-release'));
-    assert(npmPublishJob.includes('npm install --global npm@latest'));
-    assert(npmPublishJob.includes('sha256sum --check'));
-    assert(npmPublishJob.includes('npm publish "./${package_tarball}"'));
+    assert(stagedReleaseJob.includes('gh release edit "${tag}" --repo "${GITHUB_REPOSITORY}" --draft=false'));
+    assert(stagedReleaseJob.includes('https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${tag}'));
+    assert(stagedReleaseJob.includes('GitHub Release is missing assets'));
+    assert(stagedReleaseJob.includes('Public release asset checksum mismatch'));
+    assert(stagedReleaseJob.includes('npm install --global npm@latest'));
+    assert(stagedReleaseJob.includes('sha256sum --check'));
+    assert(stagedReleaseJob.includes('npm publish "./${package_tarball}"'));
+    const ciGateOffset = stagedReleaseJob.indexOf('Require successful CI for candidate revision');
+    const draftOffset = stagedReleaseJob.indexOf('Create or refresh draft release');
+    const githubPublishOffset = stagedReleaseJob.indexOf('Publish the matching draft release');
+    const githubVerifyOffset = stagedReleaseJob.indexOf('Verify public tag, assets, and manifest');
+    const npmPublishOffset = stagedReleaseJob.indexOf('Verify and publish npm package with provenance');
+    assert(
+      ciGateOffset >= 0
+        && ciGateOffset < draftOffset
+        && draftOffset < githubPublishOffset
+        && githubPublishOffset < githubVerifyOffset
+        && githubVerifyOffset < npmPublishOffset,
+      'the merged publication job must keep CI, GitHub publication, public verification, and npm publication in safe order',
+    );
     assert(!releaseWorkflowSource.includes('run: npm run check'));
     const releaseWorkflow = YAML.parse(releaseWorkflowSource);
     assert.deepStrictEqual(releaseWorkflow.permissions, { actions: 'read', contents: 'write' });
@@ -1322,11 +1321,19 @@ async function runTests() {
       releaseWorkflow.jobs['stage-release'].needs,
       ['build-linux', 'build-macos', 'prepare-npm'],
     );
-    assert.deepStrictEqual(releaseWorkflow.jobs['publish-github-release'].needs, ['stage-release']);
-    assert.deepStrictEqual(releaseWorkflow.jobs['verify-github-release'].needs, ['publish-github-release']);
     assert.deepStrictEqual(
-      releaseWorkflow.jobs['publish-npm'].needs,
-      ['verify-github-release', 'prepare-npm'],
+      releaseWorkflow.jobs['stage-release'].permissions,
+      { actions: 'read', contents: 'write', 'id-token': 'write' },
+    );
+    assert.strictEqual(releaseWorkflow.jobs['publish-github-release'], undefined);
+    assert.strictEqual(releaseWorkflow.jobs['verify-github-release'], undefined);
+    assert.strictEqual(releaseWorkflow.jobs['publish-npm'], undefined);
+    const stageSteps = releaseWorkflow.jobs['stage-release'].steps;
+    const stageStepIndex = (name: string) => stageSteps.findIndex(step => step.name === name);
+    assert(
+      stageStepIndex('Install current npm CLI') < stageStepIndex('Require successful CI for candidate revision')
+        && stageStepIndex('Download verified npm tarball') < stageStepIndex('Require successful CI for candidate revision'),
+      'npm setup and verified tarball download must overlap the exact-SHA CI wait',
     );
   }
 
