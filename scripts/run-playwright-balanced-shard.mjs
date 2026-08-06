@@ -6,6 +6,12 @@ import { fileURLToPath } from 'node:url'
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const playwrightCli = path.join(projectRoot, 'node_modules', '@playwright', 'test', 'cli.js')
+const playwrightEnvironment = {
+  ...process.env,
+  PATH: [path.join(projectRoot, 'node_modules', '.bin'), process.env.PATH || '']
+    .filter(Boolean)
+    .join(path.delimiter),
+}
 
 function parseArguments(argv) {
   let project = ''
@@ -44,7 +50,7 @@ function listTestLocationGroups(project) {
   ], {
     cwd: projectRoot,
     encoding: 'utf8',
-    env: process.env,
+    env: playwrightEnvironment,
     maxBuffer: 20 * 1024 * 1024,
   })
   if (result.status !== 0) {
@@ -116,7 +122,7 @@ function run() {
     ...assignment.locations,
   ], {
     cwd: projectRoot,
-    env: process.env,
+    env: playwrightEnvironment,
     stdio: 'inherit',
   })
   if (result.error) throw result.error
