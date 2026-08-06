@@ -563,6 +563,93 @@ test.describe('iPhone mobile layout', () => {
     await captureIphoneAudit(page, `${testInfo.project.name}-390px-compact-parity.png`)
   })
 
+  test('settles the standalone composer at its product-defined viewport gap', async ({ page, workspaceRoot }, testInfo) => {
+    test.skip(testInfo.project.name !== 'iphone-webkit', 'Runs only in the iPhone WebKit project')
+    const projectDir = path.join(workspaceRoot, 'iphone-standalone-composer')
+    fs.mkdirSync(projectDir, { recursive: true })
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'maxTouchPoints', { value: 5, configurable: true })
+    })
+    await openFarming(page)
+
+    const agentId = await createControlAgent(page, 'bash', projectDir)
+    await page.getByTestId('code-mobile-menu').click()
+    await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+    const composer = page.getByTestId('code-composer')
+    await expect(composer).toBeVisible({ timeout: 30_000 })
+
+    const readGap = () => composer.evaluate(element => {
+      const main = element.closest('.code-main') as HTMLElement | null
+      if (!main) throw new Error('Mobile main surface is missing')
+      return main.getBoundingClientRect().bottom - (element as HTMLElement).getBoundingClientRect().bottom
+    })
+    const waitForStableGap = async () => {
+      let previous: number | null = null
+      let stableSamples = 0
+      await expect.poll(async () => {
+        const gap = await readGap()
+        if (previous !== null && Math.abs(gap - previous) <= 0.1) stableSamples += 1
+        else stableSamples = 0
+        previous = gap
+        return stableSamples
+      }, { message: 'composer should finish its bottom-position transition' }).toBeGreaterThanOrEqual(2)
+      return readGap()
+    }
+
+    const restingGap = await waitForStableGap()
+    await page.evaluate(() => {
+      Object.defineProperty(navigator, 'standalone', { value: true, configurable: true })
+      window.dispatchEvent(new Event('resize'))
+    })
+    await expect(page.locator('body')).toHaveClass(/code-mobile-standalone/)
+    const standaloneGap = await waitForStableGap()
+
+    expect(restingGap).toBeGreaterThanOrEqual(4)
+    expect(standaloneGap).toBeGreaterThanOrEqual(4)
+    expect(standaloneGap).toBeLessThanOrEqual(restingGap)
+  })
+
+  test('opens the mobile share sheet from a successful authenticated ticket response', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'iphone-webkit', 'Runs only in the iPhone WebKit project')
+    const readOnlyUrl = 'https://share.example.test/farming?token=read-only'
+    await page.route('**/api/share/qr-ticket', route => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ longUrl: readOnlyUrl }),
+    }))
+    await openFarming(page)
+
+    await page.getByTestId('code-mobile-more').click()
+    const optionsMenu = page.getByTestId('code-options-menu')
+    await expect(optionsMenu).toBeVisible()
+    await page.evaluate(() => document.body.setAttribute('data-appearance', 'dark'))
+    const shareMenuItem = optionsMenu.getByRole('menuitem', { name: /Share current page|分享当前页面/ })
+    await expect(shareMenuItem).toHaveCSS('color', 'rgb(255, 255, 255)')
+    const ticketResponsePromise = page.waitForResponse(response => (
+      response.request().method() === 'POST' && response.url().includes('/api/share/qr-ticket')
+    ))
+    await shareMenuItem.click()
+    expect((await ticketResponsePromise).status()).toBe(200)
+
+    const mobileShareSheet = page.getByTestId('code-mobile-share-sheet')
+    await expect(mobileShareSheet).toBeVisible()
+    await expect(mobileShareSheet.getByRole('heading', { name: /Share page|分享页面/ })).toBeVisible()
+    await expect(mobileShareSheet.getByRole('heading', { name: /Send this page|转发当前页面/ })).toBeVisible()
+    await expect(mobileShareSheet.locator('.code-mobile-share-link')).toHaveText(readOnlyUrl)
+    const copyShareAction = mobileShareSheet.getByTestId('code-mobile-share-copy-action')
+    await expect(copyShareAction).toBeVisible()
+    await copyShareAction.click()
+    await expect(copyShareAction).toHaveText(/Copied|已复制/)
+    await expect(mobileShareSheet.getByRole('heading', { name: /Add to Home Screen|添加到主屏幕/ })).toBeVisible()
+    await expect(mobileShareSheet.getByText(/system browser or Chrome|系统浏览器或 Chrome/)).toBeVisible()
+    await expect(mobileShareSheet.getByText(/tap •••|点 •••/i)).toBeVisible()
+    await expect(mobileShareSheet.locator('.code-mobile-install-step')).toHaveCount(2)
+    await expect(mobileShareSheet.getByTestId('code-mobile-share-system-action')).toHaveCount(0)
+    await expect(mobileShareSheet.locator('.code-mobile-share-sheet')).toHaveCSS('color', 'rgb(255, 255, 255)')
+    await page.keyboard.press('Escape')
+    await expect(mobileShareSheet).toHaveCount(0)
+  })
+
   test('keeps composer, mic, and terminal surfaces usable under iPhone WebKit emulation', async ({ page, workspaceRoot }, testInfo) => {
     test.skip(testInfo.project.name !== 'iphone-webkit', 'Runs only in the iPhone WebKit project')
 
@@ -770,17 +857,6 @@ test.describe('iPhone mobile layout', () => {
     expect(Math.abs(restingComposerMetrics.leftGap - restingComposerMetrics.rightGap)).toBeLessThanOrEqual(2)
     expect(restingComposerMetrics.overflowRight).toBeLessThanOrEqual(0)
 
-    const standaloneComposerGap = await composer.evaluate(element => {
-      document.body.classList.add('code-mobile-standalone')
-      const composerRect = (element as HTMLElement).getBoundingClientRect()
-      const main = document.querySelector('[data-testid="code-main"]') as HTMLElement | null
-      if (!main) throw new Error('Mobile main surface is missing')
-      const gap = Math.round(main.getBoundingClientRect().bottom - composerRect.bottom)
-      document.body.classList.remove('code-mobile-standalone')
-      return gap
-    })
-    expect(standaloneComposerGap).toBeLessThanOrEqual(restingComposerMetrics.bottomGap)
-
     const mic = page.getByTestId('code-composer-mic')
     await expect(mic).toHaveCount(0)
     await expect(page.getByTestId('code-composer-dictation-hint')).toHaveCount(0)
@@ -829,31 +905,6 @@ test.describe('iPhone mobile layout', () => {
       pointerType: 'touch',
       isPrimary: true,
     })
-
-    await page.getByTestId('code-mobile-more').click()
-    const optionsMenu = page.getByTestId('code-options-menu')
-    await expect(optionsMenu).toBeVisible()
-    await page.evaluate(() => document.body.setAttribute('data-appearance', 'dark'))
-    const shareMenuItem = optionsMenu.getByRole('menuitem', { name: /Share current page|分享当前页面/ })
-    await expect(shareMenuItem).toHaveCSS('color', 'rgb(255, 255, 255)')
-    await shareMenuItem.click()
-    const mobileShareSheet = page.getByTestId('code-mobile-share-sheet')
-    await expect(mobileShareSheet).toBeVisible()
-    await expect(mobileShareSheet.getByRole('heading', { name: /Share page|分享页面/ })).toBeVisible()
-    await expect(mobileShareSheet.getByRole('heading', { name: /Send this page|转发当前页面/ })).toBeVisible()
-    const copyShareAction = mobileShareSheet.getByTestId('code-mobile-share-copy-action')
-    await expect(copyShareAction).toBeVisible()
-    await copyShareAction.click()
-    await expect(copyShareAction).toHaveText(/Copied|已复制/)
-    await expect(mobileShareSheet.getByRole('heading', { name: /Add to Home Screen|添加到主屏幕/ })).toBeVisible()
-    await expect(mobileShareSheet.getByText(/system browser or Chrome|系统浏览器或 Chrome/)).toBeVisible()
-    await expect(mobileShareSheet.getByText(/tap •••|点 •••/i)).toBeVisible()
-    await expect(mobileShareSheet.locator('.code-mobile-install-step')).toHaveCount(2)
-    await expect(mobileShareSheet.getByTestId('code-mobile-share-system-action')).toHaveCount(0)
-    await expect(mobileShareSheet.locator('.code-mobile-share-sheet')).toHaveCSS('color', 'rgb(255, 255, 255)')
-    await page.keyboard.press('Escape')
-    await expect(mobileShareSheet).toHaveCount(0)
-    await page.evaluate(() => document.body.setAttribute('data-appearance', 'light'))
 
     await page.getByTestId('code-mobile-menu').click()
     const filesSection = page.getByTestId('code-files-section').first()

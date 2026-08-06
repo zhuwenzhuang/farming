@@ -182,20 +182,33 @@ One failure does not authorize rerunning every automated or Computer Use gate.
 1. Freeze the failed lane and retain its first trace, screenshots,
    provider/backend logs, exact user action, and authoritative state transition.
    Do not rerun a broad gate on the same SHA merely to see the error again.
-2. Reduce the failure to the exact story, mode, viewport, provider, and state
+2. Audit the failed case before calling it flaky or blaming product code. Verify
+   that it proves one coherent product contract, its environment and fixtures
+   satisfy the contract's prerequisites, it reaches state through the real
+   product path unless an isolated fixture is intentional, it waits for the
+   authoritative network/state/animation boundary, and it does not chain
+   unrelated domains whose earlier state can pollute later assertions. A case
+   that violates these rules is a test-design defect: repair or split the case
+   before using it as release evidence. A passing retry does not make an
+   unreasonable case green.
+3. Reduce the failure to the exact story, mode, viewport, provider, and state
    boundary. Identify the changed file or commit that introduced it when the
    evidence permits.
-3. Within three minutes, name the authoritative owner and violated invariant.
+4. Within three minutes, name the authoritative owner and violated invariant.
    For lifecycle failures, write the minimal owner, trigger, guard, effect,
    terminal failure, retry/cancellation, concurrency, and recovery model before
    editing.
-4. Fix the invariant at its owning architectural boundary. Do not hide uncertain
+5. Fix the invariant at its owning architectural boundary. If the product
+   contract is correct and the case is not, fix the case design rather than
+   weakening the product or assertion. Do not hide uncertain
    state with retries, longer timeouts, fallback values, or UI-only compensation.
-5. Run the focused scenario once after the fix. Use up to three repetitions only
-   for an explicit nondeterminism hypothesis.
-6. Keep independent lanes running and retain their results. Mark only lanes
+6. Run the focused scenario once after the fix. Use up to three repetitions only
+   for an explicit nondeterminism hypothesis that names the suspected varying
+   state and the evidence each repetition will collect. Never use retries as the
+   first diagnostic action.
+7. Keep independent lanes running and retain their results. Mark only lanes
    whose inputs, shared contracts, or user journey changed as `stale`.
-7. Rerun exact-SHA CI, artifacts, npm tarball smoke, and the live provider
+8. Rerun exact-SHA CI, artifacts, npm tarball smoke, and the live provider
    baseline for the final candidate. Rerun only stale Computer Use lanes.
    Unaffected Computer Use evidence may be carried forward only with an explicit
    diff-based invalidation proof; record its original SHA and never describe it
@@ -246,12 +259,17 @@ replace final exact-SHA gates or justify publishing old-SHA artifacts.
 For the first required failure:
 
 1. In 30 seconds, identify the exact failed job, step, test, first error, changed
-   files, owner boundary, and recurring failure signature.
-2. By 90 seconds, run one smallest focused reproduction or inspect the retained
-   trace and logs.
+   files, owner boundary, case contract, prerequisites, and failure signature.
+2. By 90 seconds, inspect the retained trace, network response, state transition,
+   and case setup. Decide whether the case itself mixes independent stories,
+   bypasses the product state path, samples a transition, or assumes an invalid
+   environment. Run one smallest focused reproduction only when evidence is
+   still missing.
 3. By 180 seconds, state the violated invariant and classify the failure as
-   product logic, test oracle/lifecycle, packaging manifest, workflow dependency,
-   environment/provider, or known recurrence.
+   product logic, test design/oracle/lifecycle, packaging manifest, workflow
+   dependency, environment/provider, or known recurrence. Do not classify a
+   test as unstable merely because retries fail at different lines; that pattern
+   often proves the case contains multiple invalid or unsynchronized assertions.
 4. Fix a simple defect minimally. Escalate a design defect to `Domain blocked`.
 
 Run a focused test once. Repeat at most three times only when the explicit
