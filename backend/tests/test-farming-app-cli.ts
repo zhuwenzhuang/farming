@@ -21,6 +21,7 @@ const {
   resolveReviewTarget,
   reviewUrl,
   serverReadinessPath,
+  verifyServerPackageRootReady,
   serverStartTimeoutMs,
   serverStartStabilityMs,
   serverStopTimeoutMs,
@@ -148,6 +149,38 @@ function spawnRawServer(configDir, port) {
 }
 
 async function runTests() {
+  const completeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-complete-server-image.'));
+  try {
+    for (const relativePath of [
+      'backend/server.cjs',
+      'dist/index.html',
+      'node_modules/express/package.json',
+      'node_modules/iconv-lite/encodings/index.js',
+      'node_modules/@xterm/xterm/css/xterm.css',
+      'node_modules/@xterm/xterm/lib/xterm.js',
+      'node_modules/@xterm/addon-fit/lib/addon-fit.js',
+      'node_modules/@xterm/addon-webgl/lib/addon-webgl.js',
+    ]) {
+      const filePath = path.join(completeRoot, relativePath);
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.writeFileSync(filePath, 'fixture');
+    }
+    assert.doesNotThrow(() => verifyServerPackageRootReady(completeRoot));
+  } finally {
+    fs.rmSync(completeRoot, { recursive: true, force: true });
+  }
+  {
+    const incompleteRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-incomplete-server-image.'));
+    try {
+      assert.throws(
+        () => verifyServerPackageRootReady(incompleteRoot),
+        /package image is incomplete: missing backend\/server\.cjs/,
+      );
+    } finally {
+      fs.rmSync(incompleteRoot, { recursive: true, force: true });
+    }
+  }
+
   assert.strictEqual(
     serverReadinessPath({ FARMING_BASE_PATH: '/farming' }, true),
     '/farming/api/auth/status',
@@ -383,6 +416,18 @@ async function runTests() {
     assert.strictEqual(parsed.env.FARMING_BASE_PATH, '/farm');
     assert.strictEqual(parsed.env.FARMING_CONFIG_DIR, '/tmp/farming-cli-test');
     assert.strictEqual(parsed.env.FARMING_DISABLE_AUTH, '1');
+  }
+
+  {
+    const parsed = parseServerArgs([
+      'daemon',
+      '--server-log-max-size-bytes',
+      '4194304',
+      '--server-log-retain',
+      '12',
+    ]);
+    assert.strictEqual(parsed.env.FARMING_SERVER_LOG_MAX_BYTES, '4194304');
+    assert.strictEqual(parsed.env.FARMING_SERVER_LOG_MAX_FILES, '12');
   }
 
   {

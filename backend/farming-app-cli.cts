@@ -53,6 +53,8 @@ interface ServerEnv extends NodeJS.ProcessEnv {
   FARMING_CONFIG_DIR: string;
   FARMING_NODE_BIN: string;
   PORT: string;
+  FARMING_SERVER_LOG_MAX_BYTES: string;
+  FARMING_SERVER_LOG_MAX_FILES: string;
 }
 
 interface ParsedServerArgs {
@@ -153,10 +155,22 @@ const DEFAULT_BASE_PATH = '/farming';
 const DEFAULT_SERVER_START_TIMEOUT_MS = 30_000;
 const DEFAULT_SERVER_START_STABILITY_MS = 1_500;
 const DEFAULT_SERVER_STOP_TIMEOUT_MS = 30_000;
+const DEFAULT_SERVER_LOG_MAX_BYTES = 256 * 1024 * 1024;
+const DEFAULT_SERVER_LOG_MAX_FILES = 20;
 const SERVER_STOP_POLL_MS = 100;
 const SERVER_COMMANDS = new Set(['start', 'serve', 'daemon', 'stop', 'status', 'logs', 'url', 'help']);
 const CONTROL_COMMANDS = new Set(['skills', 'capabilities', 'list', 'spawn', 'output', 'send', 'title', 'kill']);
 const SERVER_BACKED_CONTROL_COMMANDS = new Set(['capabilities', 'list', 'spawn', 'output', 'send', 'title', 'kill']);
+const SERVER_PACKAGE_REQUIRED_FILES = [
+  'backend/server.cjs',
+  'dist/index.html',
+  'node_modules/express/package.json',
+  'node_modules/iconv-lite/encodings/index.js',
+  'node_modules/@xterm/xterm/css/xterm.css',
+  'node_modules/@xterm/xterm/lib/xterm.js',
+  'node_modules/@xterm/addon-fit/lib/addon-fit.js',
+  'node_modules/@xterm/addon-webgl/lib/addon-webgl.js',
+] as const;
 
 function defaultConfigDir(env: NodeJS.ProcessEnv = process.env): string {
   return storageLayout.farmingConfigDir(env);
@@ -166,6 +180,36 @@ function normalizeBasePath(basePath: unknown): string {
   const value = String(basePath || '');
   if (!value || value === '/') return '';
   return value.endsWith('/') ? value.slice(0, -1) : value;
+}
+
+function pathIsInside(parent: string, candidate: string): boolean {
+  const relative = path.relative(parent, candidate);
+  return relative === '' || (
+    relative !== '..'
+    && !relative.startsWith(`..${path.sep}`)
+    && !path.isAbsolute(relative)
+  );
+}
+
+function verifyServerPackageRootReady(packageRoot: string): void {
+  const canonicalRoot = fs.realpathSync(packageRoot);
+  for (const relativePath of SERVER_PACKAGE_REQUIRED_FILES) {
+    const candidate = path.join(canonicalRoot, relativePath);
+    let canonicalCandidate: string;
+    try {
+      canonicalCandidate = fs.realpathSync(candidate);
+    } catch (error: unknown) {
+      throw new Error(
+        `Farming Server package image is incomplete: missing ${relativePath}`,
+        { cause: error },
+      );
+    }
+    if (!pathIsInside(canonicalRoot, canonicalCandidate)) {
+      throw new Error(
+        `Farming Server package image is incomplete: ${relativePath} resolves outside its package root`,
+      );
+    }
+  }
 }
 
 function routePath(basePath: unknown, suffix = ''): string {
@@ -268,6 +312,8 @@ function buildServerEnv(
   }
   env.FARMING_NODE_BIN = env.FARMING_NODE_BIN || process.execPath;
   env.FARMING_CLI_BIN_DIR = env.FARMING_CLI_BIN_DIR || cliBinDir;
+  env.FARMING_SERVER_LOG_MAX_BYTES = String(parseServerLogMaxBytes(env.FARMING_SERVER_LOG_MAX_BYTES));
+  env.FARMING_SERVER_LOG_MAX_FILES = String(parseServerLogMaxFiles(env.FARMING_SERVER_LOG_MAX_FILES));
 
   const heapSetting = env.FARMING_NODE_MAX_OLD_SPACE_SIZE || 'auto';
   const hasHeapOption = /(?:^|\s)--max-old-space-size(?:=|\s|$)/.test(env.NODE_OPTIONS || '');
@@ -319,6 +365,14 @@ function parseServerArgs(argv: string[]): ParsedServerArgs {
       options.env.HOME = arg.slice('--home='.length);
     } else if (arg === '--no-auth') {
       options.env.FARMING_DISABLE_AUTH = '1';
+    } else if (arg === '--server-log-max-size-bytes') {
+      options.env.FARMING_SERVER_LOG_MAX_BYTES = readValue(arg);
+    } else if (arg.startsWith('--server-log-max-size-bytes=')) {
+      options.env.FARMING_SERVER_LOG_MAX_BYTES = arg.slice('--server-log-max-size-bytes='.length);
+    } else if (arg === '--server-log-retain') {
+      options.env.FARMING_SERVER_LOG_MAX_FILES = readValue(arg);
+    } else if (arg.startsWith('--server-log-retain=')) {
+      options.env.FARMING_SERVER_LOG_MAX_FILES = arg.slice('--server-log-retain='.length);
     } else if (arg === '--help' || arg === '-h') {
       options.command = 'help';
     } else {
@@ -646,6 +700,45 @@ function serverStateFile(configDir: string): string {
 
 function logFile(configDir: string): string {
   return storageLayout.serverLogFile(configDir);
+}
+
+function parseServerLogMaxBytes(raw: unknown): number {
+  if (raw === undefined || raw === null || raw === '') return DEFAULT_SERVER_LOG_MAX_BYTES;
+  const value = String(raw).trim();
+  const match = /^(\d+(?:\.\d+)?)([a-zA-Z]{0,2})$/.exec(value);
+  if (!match) throw new Error(`Invalid FARMING_SERVER_LOG_MAX_BYTES value: ${String(raw)}`);
+  const number = Number(match[1]);
+  if (!Number.isFinite(number) || number <= 0) throw new Error(`Invalid FARMING_SERVER_LOG_MAX_BYTES value: ${String(raw)}`);
+  const unit = String(match[2]).toLowerCase();
+  const scale = unit.startsWith('g') ? 1024 ** 3 : unit.startsWith('m') ? 1024 ** 2 : unit.startsWith('k') ? 1024 : 1;
+  return Math.floor(number * scale);
+}
+
+function parseServerLogMaxFiles(raw: unknown): number {
+  if (raw === undefined || raw === null || raw === '') return DEFAULT_SERVER_LOG_MAX_FILES;
+  const value = Number(String(raw).trim());
+  if (!Number.isInteger(value) || value < 1) throw new Error(`Invalid FARMING_SERVER_LOG_MAX_FILES value: ${String(raw)}`);
+  return value;
+}
+
+function rotateServerLog(logPath: string, maxBytes: number, maxFiles: number): void {
+  if (maxBytes <= 0 || maxFiles <= 0) return;
+  let size = 0;
+  try {
+    size = fs.statSync(logPath).size;
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+    throw error;
+  }
+  if (size <= maxBytes) return;
+
+  for (let index = maxFiles; index >= 1; index--) {
+    const source = index === 1 ? logPath : `${logPath}.${index - 1}`;
+    const destination = `${logPath}.${index}`;
+    if (!fs.existsSync(source)) continue;
+    fs.rmSync(destination, { force: true });
+    fs.renameSync(source, destination);
+  }
 }
 
 function readServerState(configDir: string): ServerState {
@@ -1411,8 +1504,9 @@ function waitForServer(
 async function runServerInCurrentProcess(): Promise<void> {
   const env = canonicalizeServerConfigDir(buildServerEnv());
   process.env = env;
-  const processIdentity = acquireServerConfigOwner(env.FARMING_CONFIG_DIR);
   const activePackageRoot = String(env.FARMING_ACTIVE_PACKAGE_ROOT || '').trim();
+  verifyServerPackageRootReady(activePackageRoot || path.join(__dirname, '..'));
+  const processIdentity = acquireServerConfigOwner(env.FARMING_CONFIG_DIR);
   const packageInstallation = activePackageRoot
     ? resolvePackageInstallationContext(activePackageRoot, env)
     : null;
@@ -1570,7 +1664,13 @@ async function startDaemon(parsed: ParsedServerOperation): Promise<number> {
   }
 
   await prepareStartupDependencies(env);
-  const out = fs.openSync(logFile(configDir), 'a');
+  const serverLogFile = logFile(configDir);
+  rotateServerLog(
+    serverLogFile,
+    Number(env.FARMING_SERVER_LOG_MAX_BYTES || DEFAULT_SERVER_LOG_MAX_BYTES),
+    Number(env.FARMING_SERVER_LOG_MAX_FILES || DEFAULT_SERVER_LOG_MAX_FILES),
+  );
+  const out = fs.openSync(serverLogFile, 'a');
   const invocation = childInvocation(env);
   if (env.FARMING_DEBUG_CLI === '1') {
     fs.appendFileSync(logFile(configDir), [
@@ -1723,7 +1823,7 @@ function showUrl(parsed: ParsedServerOperation): number {
 function usage(): string {
   return `Usage:
   farming [start] [--port 6694] [--base-path /farming] [--config-dir ~/.farming]
-  farming daemon [--port 6694] [--base-path /farming] [--config-dir ~/.farming]
+  farming daemon [--port 6694] [--base-path /farming] [--config-dir ~/.farming] [--server-log-max-size-bytes 268435456] [--server-log-retain 20]
   farming status
   farming stop
   farming logs
@@ -1873,6 +1973,7 @@ export {
   readServerProcessIdentity,
   releaseServerConfigOwner,
   serverReadinessPath,
+  verifyServerPackageRootReady,
   serverStartTimeoutMs,
   serverStartStabilityMs,
   serverStopTimeoutMs,
