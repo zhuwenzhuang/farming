@@ -154,6 +154,14 @@ Use a minimal prompt or a tiny isolated file change. Confirm login and runtime
 availability before starting. Preserve the exact Provider Session identity when
 testing resume or Chat/Terminal switching. Record cost-sensitive model choices.
 
+A real-provider gate declares one fixed low-cost model and reasoning level, and
+no turn may be billed to anything else. A model it only selects to prove a live
+switch must never receive a prompt. Because a launched or resumed provider
+session inherits its own configuration, each surface must confirm the declared
+model from provider truth, and switch it back through the product path, before
+it sends the first prompt. A gate must not depend on the operator's personal
+provider configuration for that guarantee.
+
 A missing login or capability may produce a clear blocked result; it must not
 fall back to a different Agent, model, permission mode, or runtime without an
 explicit product contract.

@@ -5,7 +5,7 @@ import type {
   RefObject,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   BrowserGlyph,
   ChatBubblesGlyph,
@@ -379,9 +379,7 @@ export function CodeSidebar({
       const branch = cachedBranch && cachedBranch.expiresAt > Date.now() ? cachedBranch.branch : ''
       previewBrowsingRef.current = true
       setProjectPreview(null)
-      const agentId = target.key.startsWith('agent:') ? target.key.slice('agent:'.length) : ''
-      const resourceCounts = agentId ? resourceCountsByAgentId.get(agentId) : undefined
-      setAgentPreview({ ...target, ...resourceCounts, x, y, width, branch })
+      setAgentPreview({ ...target, x, y, width, branch })
       if (!target.workspaceRootId || branch) return
       fetch(appPath(`/api/files/branch?rootId=${encodeURIComponent(target.workspaceRootId)}`))
         .then(response => response.ok ? response.json() : null)
@@ -394,7 +392,20 @@ export function CodeSidebar({
           branchCacheRef.current.set(target.workspaceRootId!, { branch: '', expiresAt: Date.now() + 30_000 })
         })
     }, delay)
-  }, [clearPreviewTimer, hoverPreviewsPaused, resourceCountsByAgentId])
+  }, [clearPreviewTimer, hoverPreviewsPaused])
+
+  const visibleAgentPreview = useMemo(() => {
+    if (!agentPreview) return null
+    const agentId = agentPreview.key.startsWith('agent:')
+      ? agentPreview.key.slice('agent:'.length)
+      : ''
+    const resourceCounts = agentId ? resourceCountsByAgentId.get(agentId) : undefined
+    return {
+      ...agentPreview,
+      browserCount: resourceCounts?.browserCount ?? 0,
+      desktopCount: resourceCounts?.desktopCount ?? 0,
+    }
+  }, [agentPreview, resourceCountsByAgentId])
 
   const showProjectPreview = useCallback((event: AgentPreviewAnchorEvent, target: ProjectPreviewTarget) => {
     if (hoverPreviewsPaused) return
@@ -842,9 +853,9 @@ export function CodeSidebar({
           />
         )}
       </div>
-      {agentPreview && (
+      {visibleAgentPreview && (
         <AgentHoverPreview
-          preview={agentPreview}
+          preview={visibleAgentPreview}
           now={now}
         />
       )}
@@ -1587,6 +1598,7 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
   ))
   const [projectAgentVisibleLimit, setProjectAgentVisibleLimit] = useState(PROJECT_AGENT_INITIAL_VISIBLE_LIMIT)
   const [projectAgentsCollapsed, setProjectAgentsCollapsed] = useState(false)
+  const [paginationExcludedAgentIds, setPaginationExcludedAgentIds] = useState<Set<string>>(() => new Set())
   const [projectFilesExpanded, setProjectFilesExpanded] = useState(false)
   const [projectSourceAgentId, setProjectSourceAgentId] = useState<string | null>(() => (
     stableProjectSourceAgentId(null, project.agents)
@@ -1625,16 +1637,19 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
     projectOpenWorkspaceFiles.filter(file => file.externalChanged).map(file => file.file.path)
   )
   const sortedAgents = project.agents.filter(agent => !agent.pinned)
+  const lastProjectAgentId = sortedAgents[sortedAgents.length - 1]?.id ?? ''
   const visibleAgentSessions = project.agentSessions.filter(session => !session.pinned)
   const showAgentsSection = sortedAgents.length > 0 || visibleAgentSessions.length > 0 || (project.hiddenAgentSessionCount ?? 0) > 0
   const filesCompressAgents = projectFilesExpanded && isCompactViewport() && sortedAgents.length > 1
   const compactProjectAgents = (compactAgents || filesCompressAgents) && sortedAgents.length > 0
   const visibleProjectAgents = compactProjectAgents
     ? sortedAgents
-    : visibleAgentsWithForcedRows(sortedAgents, projectAgentVisibleLimit, [
-      activeTerminalId,
-      selectedSearchAgentId,
-    ])
+    : visibleAgentsWithForcedRows(
+      sortedAgents,
+      projectAgentVisibleLimit,
+      [activeTerminalId, selectedSearchAgentId],
+      paginationExcludedAgentIds,
+    )
   const hiddenProjectAgentCount = Math.max(0, sortedAgents.length - visibleProjectAgents.length)
   const projectAgentRevealCount = Math.min(
     hiddenProjectAgentCount,
@@ -1686,12 +1701,18 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
     agentDrag,
     beginAgentDrag,
     dropAgent,
-    dropAgentAtEnd: dropAgentAtProjectEnd,
+    dropAgentAtEnd,
     droppingAtEnd: droppingAtProjectEnd,
     finishAgentDrag,
     updateAgentDropTarget,
     updateAgentEndDropTarget: updateProjectEndDropTarget,
   } = useAgentReorder(sortedAgents, onReorderAgent, onHideAgentPreview)
+  const dropAgentAtProjectEnd = useCallback((event: ReactDragEvent<HTMLElement>) => {
+    const droppedAgentId = agentDrag?.agentId
+    dropAgentAtEnd(event)
+    if (!droppedAgentId) return
+    setPaginationExcludedAgentIds(current => new Set([...current, droppedAgentId]))
+  }, [agentDrag?.agentId, dropAgentAtEnd])
 
   useEffect(() => {
     setProjectAgentVisibleLimit(current => {
@@ -1699,6 +1720,16 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
       return next === current ? current : next
     })
   }, [sortedAgents.length])
+
+  useEffect(() => {
+    if (!lastProjectAgentId) return
+    setPaginationExcludedAgentIds(current => {
+      if (!current.has(lastProjectAgentId)) return current
+      const next = new Set(current)
+      next.delete(lastProjectAgentId)
+      return next
+    })
+  }, [lastProjectAgentId])
 
   useLayoutEffect(() => {
     const projectGroup = projectGroupRef.current
@@ -2174,20 +2205,17 @@ function visibleAgentsWithForcedRows(
   agents: Agent[],
   limit: number,
   forcedIds: Array<string | null | undefined>,
+  excludedIds: ReadonlySet<string>,
 ) {
   if (agents.length <= limit) return agents
   const visible = agents.slice(0, limit)
   const visibleIds = new Set(visible.map(agent => agent.id))
   const forced = new Set(forcedIds.filter((id): id is string => Boolean(id)))
   for (const agent of agents) {
-    if (!forced.has(agent.id) || visibleIds.has(agent.id)) continue
-    if (visible.length >= limit && visible.length > 0) {
-      const removed = visible[visible.length - 1]!
-      visibleIds.delete(removed.id)
-      visible[visible.length - 1] = agent
-    } else {
-      visible.push(agent)
-    }
+    if (excludedIds.has(agent.id) || !forced.has(agent.id) || visibleIds.has(agent.id)) continue
+    const removed = visible[visible.length - 1]!
+    visibleIds.delete(removed.id)
+    visible[visible.length - 1] = agent
     visibleIds.add(agent.id)
   }
   return visible

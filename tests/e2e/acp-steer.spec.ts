@@ -103,7 +103,7 @@ test('sends the first Codex Chat message as a Prompt while the Session is connec
   const commitSubmittedAt = Date.now()
   await commitPrompt.click()
   await expect(input).toHaveValue('')
-  await expect(page.locator('.code-agent-transcript-user').getByText('Commit', { exact: true })).toBeVisible({ timeout: 15_000 })
+  await expect(page.locator('.code-agent-transcript-user').getByText('commit', { exact: true })).toBeVisible({ timeout: 15_000 })
   const commitConfirmationMs = Date.now() - commitSubmittedAt
   console.log(`performance-commit-send confirmation-ms=${commitConfirmationMs}`)
   test.info().annotations.push({

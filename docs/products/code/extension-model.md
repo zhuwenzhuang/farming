@@ -36,6 +36,8 @@ such as a Browser or Desktop Viewer.
 Viewer access must pass through the same authorized Resource identity. Preview
 or streaming paths must not create an independent file, browser, or desktop
 authority.
+Opening an Agent-owned Resource Viewer reveals that Agent's Resource rows in the
+sidebar and expands the selected Resource section so ownership stays visible.
 
 Live Agent activity such as the current Plan and Browser previews shares one
 core-owned right-side dock. Every activity keeps a compact identifiable header,

@@ -1526,7 +1526,7 @@ function run() {
       transcriptPaneSource.includes('const ACP_TRANSCRIPT_TURN_PAGE_SIZE = 10') &&
       agentWorkPaneSource.includes('onOpenUrlInFarming={onOpenUrlInFarming ? openChatUrlInFarming : undefined}') &&
       agentWorkPaneSource.includes('onForkLatest={canForkConversation ? forkLatestChat : undefined}') &&
-      agentWorkPaneSource.includes('onReviewAndCommit={onReviewAndCommit ? reviewAndCommitChat : undefined}') &&
+      agentWorkPaneSource.includes('onReviewAndCommit={onReviewAndCommit && !isAgentTurnActive(agent) ? reviewAndCommitChat : undefined}') &&
       transcriptPaneSource.includes("document.addEventListener('selectionchange', updateSelectionState)") &&
       transcriptPaneSource.includes('onPointerDown={handleTranscriptPointerDown}') &&
       transcriptPaneSource.includes("source === 'acp'") &&
@@ -1541,7 +1541,8 @@ function run() {
     transcriptPaneSource.includes('data-testid="code-acp-progress-update"') &&
       transcriptPaneSource.includes("turn.status === 'inProgress'") &&
       !transcriptPaneSource.includes('latestLiveProgressItem') &&
-      transcriptPaneSource.includes('openLiveProcessTurnIds') &&
+      !transcriptPaneSource.includes('openLiveProcessTurnIds') &&
+      transcriptPaneSource.includes('const processOpen = openProcessTurnIds.has(turn.id)') &&
       !transcriptPaneSource.includes('closedLiveProcessTurnIds') &&
       transcriptPaneSource.includes('function compactProcessEntries(') &&
       transcriptPaneSource.includes('selectedIndexes.add(index)\n    break') &&

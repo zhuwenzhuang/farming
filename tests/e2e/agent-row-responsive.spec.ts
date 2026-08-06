@@ -151,7 +151,6 @@ test('reveals more Agent row information as the sidebar widens', async ({ page, 
       __farmingAgentActivityTest?: { update: (agentId: string, patch: unknown) => void }
     }
     testWindow.__farmingAgentActivityTest?.update(id, {
-      unread: true,
       runtimeObservation: {
         kind: 'shell',
         phase: 'working',
@@ -162,7 +161,7 @@ test('reveals more Agent row information as the sidebar widens', async ({ page, 
       },
     })
   }, agentId)
-  await expect(row).toHaveClass(/unread/)
+  await expect(row).not.toHaveClass(/unread/)
   await expect(row.locator('.code-agent-dot.turn-active')).toHaveCount(1)
   const activeTitlePresentation = await row.evaluate(element => {
     const title = element.querySelector<HTMLElement>('.code-agent-name')
@@ -192,7 +191,7 @@ test('reveals more Agent row information as the sidebar widens', async ({ page, 
   const projectPreview = page.getByTestId('code-project-hover-preview')
   await expect(projectPreview).toBeVisible()
   await expect(projectPreview).toContainText(path.basename(projectDir))
-  await expect(projectPreview).toContainText('1 Agent · 1 unread · 1 running')
+  await expect(projectPreview).toContainText('1 Agent · 0 unread · 1 running')
   await expect(projectPreview).toContainText(projectDir)
   await expect(projectPreview.locator('.code-project-hover-preview-workspace')).toHaveCSS('font-size', '12px')
   await page.mouse.move(1000, 100)

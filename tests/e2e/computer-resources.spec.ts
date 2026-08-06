@@ -168,7 +168,7 @@ test('shows an Agent-owned Desktop only when present and switches Viewer control
   await agentRow.click({ button: 'right' })
   const createDesktopMenuItem = page.getByRole('menuitem', { name: 'Create Isolated Desktop' })
   await expect(createDesktopMenuItem).toBeVisible()
-  await expect(createDesktopMenuItem.locator('.code-context-menu-icon.trailing')).toHaveCount(1)
+  await expect(createDesktopMenuItem.locator('.code-context-menu-icon:not(.trailing) > svg')).toHaveCount(1)
   const desktopMenuScreenshot = testInfo.outputPath('agent-desktop-menu.png')
   await page.locator('.code-context-menu').screenshot({ path: desktopMenuScreenshot })
   await testInfo.attach('agent-desktop-menu', {

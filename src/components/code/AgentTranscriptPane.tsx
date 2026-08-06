@@ -236,101 +236,30 @@ function initialTranscriptTurnLimit(source: AgentTranscriptPaneProps['source']) 
 }
 const TRANSCRIPT_LOAD_MORE_THRESHOLD = 72
 const TRANSCRIPT_BOTTOM_FOLLOW_THRESHOLD = 96
-const TRANSCRIPT_ANSWER_REVEAL_INTERVAL_MS = 50
 
-function transcriptAnswerRevealBatchSize(backlog: number) {
-  if (backlog > 480) return 6
-  if (backlog > 160) return 4
-  if (backlog > 48) return 3
-  return 2
-}
-
-function useProgressiveTranscriptText(targetText: string, revealProgressively: boolean) {
-  const initialText = targetText
-  const [visibleText, setVisibleText] = useState(initialText)
-  const visibleTextRef = useRef(initialText)
-  const targetTextRef = useRef(targetText)
-  const reducedMotionRef = useRef(false)
-  const timerRef = useRef<number | null>(null)
-
-  const stopPump = useCallback(() => {
-    if (timerRef.current === null) return
-    window.clearInterval(timerRef.current)
-    timerRef.current = null
-  }, [])
-
-  const setVisible = useCallback((text: string) => {
-    visibleTextRef.current = text
-    setVisibleText(text)
-  }, [])
-
-  const snapToTarget = useCallback(() => {
-    stopPump()
-    setVisible(targetTextRef.current)
-  }, [setVisible, stopPump])
-
-  const startPump = useCallback(() => {
-    if (timerRef.current !== null) return
-    timerRef.current = window.setInterval(() => {
-      const target = targetTextRef.current
-      const visible = visibleTextRef.current
-      if (target === visible) {
-        stopPump()
-        return
-      }
-      if (
-        reducedMotionRef.current
-        || document.visibilityState === 'hidden'
-        || !target.startsWith(visible)
-      ) {
-        snapToTarget()
-        return
-      }
-      const pending = Array.from(target.slice(visible.length))
-      const batchSize = transcriptAnswerRevealBatchSize(pending.length)
-      const next = visible + pending.slice(0, batchSize).join('')
-      setVisible(next)
-      if (next === target) {
-        stopPump()
-      }
-    }, TRANSCRIPT_ANSWER_REVEAL_INTERVAL_MS)
-  }, [setVisible, snapToTarget, stopPump])
+function useLiveTranscriptSnapshot(targetText: string, holdGrowingSnapshot: boolean) {
+  const [visibleText, setVisibleText] = useState(targetText)
+  const visibleTextRef = useRef(targetText)
+  const [reducedMotion, setReducedMotion] = useState(false)
 
   useEffect(() => {
-    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
-    const reconcileMotion = () => {
-      reducedMotionRef.current = reducedMotion.matches
-      if (reducedMotion.matches || document.visibilityState === 'hidden') snapToTarget()
-    }
-    reconcileMotion()
-    reducedMotion.addEventListener('change', reconcileMotion)
-    document.addEventListener('visibilitychange', reconcileMotion)
-    return () => {
-      reducedMotion.removeEventListener('change', reconcileMotion)
-      document.removeEventListener('visibilitychange', reconcileMotion)
-    }
-  }, [snapToTarget])
+    const preference = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const reconcile = () => setReducedMotion(preference.matches)
+    reconcile()
+    preference.addEventListener('change', reconcile)
+    return () => preference.removeEventListener('change', reconcile)
+  }, [])
 
   useEffect(() => {
-    targetTextRef.current = targetText
     const visible = visibleTextRef.current
-    if (targetText === visible) {
-      return
-    }
-    if (
-      reducedMotionRef.current
-      || document.visibilityState === 'hidden'
+    const shouldPublish = reducedMotion
+      || !holdGrowingSnapshot
       || !visible
       || !targetText.startsWith(visible)
-      || !revealProgressively
-    ) {
-      snapToTarget()
-      return
-    }
-    startPump()
-  }, [revealProgressively, snapToTarget, startPump, targetText])
-
-  useEffect(() => () => stopPump(), [stopPump])
+    if (!shouldPublish || targetText === visible) return
+    visibleTextRef.current = targetText
+    setVisibleText(targetText)
+  }, [holdGrowingSnapshot, reducedMotion, targetText])
 
   return visibleText
 }
@@ -2697,7 +2626,7 @@ function AgentTranscriptTurnView({
   setOpenCollaborationActivityIds,
   onFork,
   showLiveActivity,
-  progressivelyRevealAnswer,
+  holdGrowingAnswerSnapshot,
 }: {
   turn: AgentTranscriptTurn
   copy: CodeCopy
@@ -2724,7 +2653,7 @@ function AgentTranscriptTurnView({
   setOpenCollaborationActivityIds: Dispatch<SetStateAction<Set<string>>>
   onFork?: () => Promise<void> | void
   showLiveActivity: boolean
-  progressivelyRevealAnswer: boolean
+  holdGrowingAnswerSnapshot: boolean
 }) {
   recordPerformanceTestRender(turn.status === 'inProgress'
     ? 'liveTranscriptTurn'
@@ -2801,7 +2730,11 @@ function AgentTranscriptTurnView({
     : undefined
   const compactViewport = isCompactViewport()
   const answerMessage = useMemo(() => stripRawMemoryCitation(turn.finalMessage), [turn.finalMessage])
-  const visibleAnswerMessage = useProgressiveTranscriptText(answerMessage, progressivelyRevealAnswer)
+  // Transcript revisions own the authoritative text. Keep the first growing
+  // prefix stable while the user reads the active live turn, then publish the
+  // final snapshot once the turn settles. Inactive panes reconcile immediately
+  // so returning to one never replays already received text.
+  const visibleAnswerMessage = useLiveTranscriptSnapshot(answerMessage, holdGrowingAnswerSnapshot)
   const shouldShowWaiting = turn.status === 'inProgress'
     && !answerMessage
     && compactProcess.items.length === 0
@@ -3442,7 +3375,6 @@ export function AgentTranscriptPane({
   const [initialRevealReady, setInitialRevealReady] = useState(false)
   const [error, setError] = useState('')
   const [openProcessTurnIds, setOpenProcessTurnIds] = useState<Set<string>>(() => new Set())
-  const [openLiveProcessTurnIds, setOpenLiveProcessTurnIds] = useState<Set<string>>(() => new Set())
   const [openCollaborationAgentIds, setOpenCollaborationAgentIds] = useState<Set<string>>(() => new Set())
   const [openCollaborationActivityIds, setOpenCollaborationActivityIds] = useState<Set<string>>(() => new Set())
   const [turnLimit, setTurnLimit] = useState(() => initialTranscriptTurnLimit(source))
@@ -3455,6 +3387,7 @@ export function AgentTranscriptPane({
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const pendingPrependAnchorRef = useRef<{ scrollTop: number; scrollHeight: number } | null>(null)
   const followBottomRef = useRef(true)
+  const stationaryScrollTopRef = useRef<number | null>(null)
   const previousViewportLayoutKeyRef = useRef(viewportLayoutKey)
   // A saved semantic anchor is for returning to an Agent, not for tracking
   // every live transcript mutation. Reapplying its fractional position while
@@ -3477,9 +3410,12 @@ export function AgentTranscriptPane({
   const textSelectionGestureRef = useRef(false)
   const textSelectionHadRangeRef = useRef(false)
   const transcriptRefreshRef = useRef<(() => void) | null>(null)
+  const previousTurnStatusesRef = useRef(new Map<string, AgentTranscriptTurn['status']>())
   const handledRefreshSignalRef = useRef(refreshSignal)
   const latestRefreshSignalRef = useRef(refreshSignal)
   latestRefreshSignalRef.current = refreshSignal
+  const expectHistoryRef = useRef(expectHistory)
+  expectHistoryRef.current = expectHistory
   const openWorkspaceFilePathRef = useRef(onOpenWorkspaceFilePath)
   const revealInitialTranscript = useCallback(() => {
     if (initialRevealTimerRef.current !== null) {
@@ -3586,12 +3522,13 @@ export function AgentTranscriptPane({
     setLoadingOlder(false)
     setTurnLimit(initialTranscriptTurnLimit(source))
     setOpenProcessTurnIds(new Set())
-    setOpenLiveProcessTurnIds(new Set())
+    previousTurnStatusesRef.current = new Map()
     setOpenCollaborationAgentIds(new Set())
     setOpenCollaborationActivityIds(new Set())
     setShowJumpToBottom(false)
     const hasReadingAnchor = Boolean(readReadingAnchor(readingAnchorAgentKey(readingAnchorAgentId, 'chat')))
     followBottomRef.current = !hasReadingAnchor
+    stationaryScrollTopRef.current = null
     pendingReadingAnchorRestoreRef.current = hasReadingAnchor
     textSelectionGestureRef.current = false
     textSelectionHadRangeRef.current = false
@@ -3787,7 +3724,7 @@ export function AgentTranscriptPane({
             revealInitialTranscript()
           } else if (merged?.available && merged.turns.length > 0) {
             scheduleInitialTranscriptReveal()
-          } else if (merged?.envelopeVersion !== 1 || !expectHistory) {
+          } else if (merged?.envelopeVersion !== 1 || !expectHistoryRef.current) {
             revealInitialTranscript()
           }
           setError('')
@@ -3888,7 +3825,7 @@ export function AgentTranscriptPane({
       if (refreshTimer !== null) window.clearTimeout(refreshTimer)
       if (pollTimer !== null) window.clearInterval(pollTimer)
     }
-  }, [active, agentId, copy.agentTranscriptUnavailable, expectHistory, revealInitialTranscript, runtimeState, scheduleInitialTranscriptReveal, source, turnLimit])
+  }, [active, agentId, copy.agentTranscriptUnavailable, revealInitialTranscript, scheduleInitialTranscriptReveal, source, turnLimit])
 
   useEffect(() => {
     if (!active || handledRefreshSignalRef.current === refreshSignal) return
@@ -3937,6 +3874,9 @@ export function AgentTranscriptPane({
     if (loading || !initialRevealReady || !transcript?.available || turns.length === 0) return
     const element = scrollRef.current
     if (!element) return
+    if (!followBottomRef.current && stationaryScrollTopRef.current !== null) {
+      element.scrollTop = stationaryScrollTopRef.current
+    }
     if (userScrollGestureRef.current) return
     const hasTextSelection = hasTextSelectionWithin(element)
     if (textSelectionGestureRef.current || hasTextSelection) {
@@ -3958,6 +3898,7 @@ export function AgentTranscriptPane({
       return
     }
     if (followBottomRef.current) {
+      stationaryScrollTopRef.current = null
       pendingReadingAnchorRestoreRef.current = false
       element.scrollTop = element.scrollHeight
       clearReadingAnchor(readingAnchorAgentKey(readingAnchorAgentId, 'chat'))
@@ -4006,7 +3947,7 @@ export function AgentTranscriptPane({
       setShowJumpToBottom(false)
       if (active && isPageActive()) onReadLatest?.()
     })
-  }, [active, initialRevealReady, loading, loadingOlder, onReadLatest, readingAnchorAgentId, scheduleReadingAnchorSave, source, transcript?.available, transcript?.hasMoreBefore, transcript?.updatedAt, turnLimit, turns.length])
+  }, [active, initialRevealReady, loading, loadingOlder, onReadLatest, readingAnchorAgentId, scheduleReadingAnchorSave, source, transcript?.available, transcript?.hasMoreBefore, transcript?.revision, transcript?.updatedAt, turnLimit, turns.length])
 
   useLayoutEffect(() => {
     if (!active || !transcript?.available || turns.length === 0 || typeof ResizeObserver === 'undefined') {
@@ -4181,8 +4122,13 @@ export function AgentTranscriptPane({
       return
     }
     const nearBottom = isTranscriptNearBottom(element)
-    if (nearBottom) followBottomRef.current = true
-    else if (userScrollGestureRef.current) followBottomRef.current = false
+    if (nearBottom) {
+      followBottomRef.current = true
+      stationaryScrollTopRef.current = null
+    } else if (userScrollGestureRef.current) {
+      followBottomRef.current = false
+      stationaryScrollTopRef.current = element.scrollTop
+    }
     if (followBottomRef.current) clearReadingAnchor(readingAnchorAgentKey(readingAnchorAgentId, 'chat'))
     else scheduleReadingAnchorSave(readingAnchorAgentId, element)
     setShowJumpToBottom(
@@ -4226,32 +4172,36 @@ export function AgentTranscriptPane({
   useEffect(() => () => {
     onActivePlanChange?.(undefined)
   }, [onActivePlanChange])
-  const turnsRef = useRef(turns)
   useLayoutEffect(() => {
-    turnsRef.current = turns
+    const previousStatuses = previousTurnStatusesRef.current
+    const completedTurnIds = turns
+      .filter(turn => (
+        turn.status !== 'inProgress'
+        && previousStatuses.get(turn.id) === 'inProgress'
+      ))
+      .map(turn => turn.id)
+    previousTurnStatusesRef.current = new Map(turns.map(turn => [turn.id, turn.status]))
+    if (completedTurnIds.length === 0) return
+    setOpenProcessTurnIds(current => {
+      if (!completedTurnIds.some(turnId => current.has(turnId))) return current
+      const next = new Set(current)
+      completedTurnIds.forEach(turnId => next.delete(turnId))
+      return next
+    })
   }, [turns])
   const handleToggleProcess = useCallback((turnId: string) => {
-    const turn = turnsRef.current.find(candidate => candidate.id === turnId)
-    if (source === 'acp' && turn?.status === 'inProgress') {
-      setOpenLiveProcessTurnIds(current => {
-        const next = new Set(current)
-        if (next.has(turnId)) next.delete(turnId)
-        else next.add(turnId)
-        return next
-      })
-      return
-    }
     setOpenProcessTurnIds(current => {
       const next = new Set(current)
       if (next.has(turnId)) next.delete(turnId)
       else next.add(turnId)
       return next
     })
-  }, [source])
+  }, [])
   const handleJumpToBottom = useCallback(() => {
     const element = scrollRef.current
     if (!element) return
     followBottomRef.current = true
+    stationaryScrollTopRef.current = null
     textSelectionHadRangeRef.current = false
     // This control is an explicit catch-up action. A smooth animation can be
     // interrupted by a transcript refresh and leave the reader above the
@@ -4310,11 +4260,7 @@ export function AgentTranscriptPane({
             </div>
           ) : null}
           {turns.map((turn, index) => {
-            const processOpen = source === 'acp'
-              ? turn.status === 'inProgress'
-                ? openLiveProcessTurnIds.has(turn.id)
-                : openProcessTurnIds.has(turn.id)
-              : openProcessTurnIds.has(turn.id)
+            const processOpen = openProcessTurnIds.has(turn.id)
             return (
               <LocalErrorBoundary
                 key={turn.id}
@@ -4361,7 +4307,7 @@ export function AgentTranscriptPane({
                       && turn.status === 'inProgress'
                       && transcript?.state === 'working'
                     }
-                    progressivelyRevealAnswer={
+                    holdGrowingAnswerSnapshot={
                       source === 'acp'
                       && active
                       && index === turns.length - 1

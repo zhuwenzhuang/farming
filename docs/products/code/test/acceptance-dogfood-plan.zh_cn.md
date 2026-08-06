@@ -134,6 +134,11 @@ Reconnect。缺失 Telemetry 应省略或解释，不能虚构。
 只使用极短 Prompt 或隔离 Workspace 中的极小文件修改。启动前确认 Login 与 Runtime。验证
 Resume 或 Chat/Terminal Switch 时保留精确 Provider Session Identity，并记录成本敏感 Model。
 
+真实 Provider Gate 只声明一个固定低成本 Model 与 Reasoning Level，任何 Turn 都不得计费到
+其他 Model；仅为验证在线切换而被选中的 Model 不得收到任何 Prompt。由于新启动或 Resume 的
+Provider Session 会继承自身配置，每个 Surface 必须先从 Provider Truth 确认声明的 Model，
+必要时通过产品路径切回，再发送第一个 Prompt。该保证不得依赖执行者本机的 Provider 配置。
+
 Login 或 Capability 缺失可以产生明确 Blocked Result；除非产品契约显式允许，不能自动切换到
 另一个 Agent、Model、Permission Mode 或 Runtime。
 

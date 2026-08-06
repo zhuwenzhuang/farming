@@ -230,7 +230,7 @@ test('mounts Agent-owned Browsers behind nested resource controls without layout
   await agentRow.click({ button: 'right' })
   const createBrowserMenuItem = page.getByRole('menuitem', { name: 'Create Browser' })
   await expect(createBrowserMenuItem).toBeVisible()
-  await expect(createBrowserMenuItem.locator('.code-context-menu-icon.trailing')).toHaveCount(1)
+  await expect(createBrowserMenuItem.locator('.code-context-menu-icon:not(.trailing) > svg')).toHaveCount(1)
   const menuScreenshot = testInfo.outputPath('agent-resource-menu.png')
   await page.locator('.code-context-menu').screenshot({ path: menuScreenshot })
   await testInfo.attach('agent-resource-menu', {
@@ -447,6 +447,8 @@ test('folds active-Agent Browser previews into the shared activity dock and open
   await expect(previewCards).toHaveCount(2)
   await expect(previewCards.locator('.farming-browser-activity-frame')).toHaveCount(0)
   await expect.poll(activePreviewResourceIds).toEqual([])
+  const resourcesToggle = agentRow.getByTestId('code-agent-resources-toggle')
+  await expect(resourcesToggle).toHaveAttribute('aria-expanded', 'false')
   const firstBrowserCard = preview.locator(`[data-browser-resource-id="${createdBrowser.id}"]`)
   const secondBrowserCard = preview.locator(`[data-browser-resource-id="${secondBrowserId}"]`)
   await expect(firstBrowserCard).toHaveCount(1)
@@ -483,6 +485,15 @@ test('folds active-Agent Browser previews into the shared activity dock and open
   await firstBrowserCard.locator('.farming-browser-activity-frame').click()
   const viewer = page.getByTestId('farming-browser-viewer')
   await expect(viewer).toBeVisible()
+  await expect(resourcesToggle).toHaveAttribute('aria-expanded', 'true')
+  const browserSection = page.locator(
+    `[data-testid="code-agent-resource-slot"][data-agent-id="${agentId}"]`,
+  ).getByTestId('farming-browser-section')
+  await expect(browserSection.locator('.farming-browser-section-toggle'))
+    .toHaveAttribute('aria-expanded', 'true')
+  await expect(browserSection.locator(
+    `[data-testid="farming-browser-row"][data-browser-id="${createdBrowser.id}"]`,
+  )).toBeVisible()
   await expect(viewer.getByRole('textbox', { name: 'Browser address' })).toHaveValue(targetUrl)
   await viewer.getByRole('button', { name: 'Back to Agent' }).click()
   await expect(preview).toBeVisible()

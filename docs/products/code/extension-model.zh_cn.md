@@ -32,6 +32,8 @@ Keyboard 与 Empty State Contract。Extension-specific Style 只用于 Browser �
 
 Viewer Access 必须经过同一个已授权 Resource Identity。Preview 或 Streaming Path 不能形成
 独立的 File、Browser 或 Desktop Authority。
+打开 Agent 所拥有的 Resource Viewer 时，Sidebar 必须显示该 Agent 的 Resource Row，
+并展开所选 Resource Section，使 Ownership 保持可见。
 
 Current Plan、Browser Preview 等 Live Agent Activity 共享一个由 Core 拥有的右侧 Dock。
 每项 Activity 始终保留可识别的紧凑 Header，但同一时刻最多只展开一个 Activity Body；

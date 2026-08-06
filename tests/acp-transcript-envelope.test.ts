@@ -12,6 +12,8 @@ function response(options: {
   toRevision: number
   replace: boolean
   settled?: boolean
+  empty?: boolean
+  hasMoreBefore?: boolean
   label: string
 }) {
   const agentId = options.agentId || 'agent-a'
@@ -25,12 +27,12 @@ function response(options: {
     toRevision: options.toRevision,
     replace: options.replace,
     settled: options.settled ?? true,
-    hasMoreBefore: false,
+    hasMoreBefore: options.hasMoreBefore ?? false,
     transcript: {
       sessionId: 'session-a',
       state: 'idle',
       revision: options.toRevision,
-      entries: [
+      entries: options.empty ? [] : [
         {
           id: `${options.label}-user`,
           type: 'message',
@@ -79,6 +81,45 @@ test('accepts only a continuous ACP checkpoint and delta chain', () => {
   assert.equal(rejectedGap.accepted, false)
   assert.equal(rejectedGap.needsCheckpoint, true)
   assert.equal(rejectedGap.transcript?.revision, 11)
+})
+
+test('appends the first Turn on an exact delta from an empty checkpoint', () => {
+  const checkpoint = projectAcpTranscriptResponse(response({
+    toRevision: 0,
+    replace: true,
+    empty: true,
+    label: 'empty',
+  }), 'agent-a')
+  const installed = mergeAcpTranscript(null, checkpoint)
+  assert.equal(installed.accepted, true)
+  assert.equal(installed.transcript?.turns.length, 0)
+
+  const firstTurn = projectAcpTranscriptResponse(response({
+    fromRevision: 0,
+    toRevision: 2,
+    replace: false,
+    label: 'first',
+  }), 'agent-a')
+  const advanced = mergeAcpTranscript(installed.transcript, firstTurn)
+  assert.equal(advanced.accepted, true)
+  assert.equal(advanced.needsCheckpoint, false)
+  assert.equal(advanced.transcript?.revision, 2)
+  assert.equal(advanced.transcript?.turns.length, 1)
+  assert.equal(advanced.transcript?.turns[0]?.finalMessage, 'first answer')
+
+  const emptyDelta = projectAcpTranscriptResponse(response({
+    fromRevision: 2,
+    toRevision: 2,
+    replace: false,
+    empty: true,
+    hasMoreBefore: true,
+    label: 'empty-delta',
+  }), 'agent-a')
+  const stable = mergeAcpTranscript(advanced.transcript, emptyDelta)
+  assert.equal(stable.accepted, true)
+  assert.equal(stable.needsCheckpoint, false)
+  assert.equal(stable.transcript?.turns.length, 1)
+  assert.equal(stable.transcript?.turns[0]?.finalMessage, 'first answer')
 })
 
 test('rejects stale epochs and wrong-Agent transcript responses', () => {

@@ -344,6 +344,20 @@ async function run() {
     '2.2.5',
     'runtime preparation failure must leave the running package untouched',
   );
+  const failedRuntimeContext = resolvePackageInstallationContext(
+    failedRuntimePayload.activePackageRoot,
+    {
+      FARMING_PACKAGE_INSTALLATION_ID: failedRuntimePayload.installationId,
+      FARMING_PACKAGE_INSTALLATION_ROOT: failedRuntimePayload.installationRoot,
+      FARMING_BOOTSTRAP_PACKAGE_ROOT: failedRuntimePayload.bootstrapPackageRoot,
+    },
+  );
+  assert(failedRuntimeContext);
+  assert.strictEqual(
+    fs.readdirSync(failedRuntimeContext.versionsDir).length,
+    1,
+    'a target must not become a published package image before runtime preparation succeeds',
+  );
 
   const fallbackRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-helper-fallback.'));
   const fallbackPrepared = await prepareFixture(fallbackRoot, { requireFallback: true });

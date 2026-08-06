@@ -46,6 +46,7 @@ class FakeBrowserRuntime extends EventEmitter {
     this.activeTabId = '';
     this.streamTabId = '';
     this.ownedTabIds = new Set();
+    this.emitStaleTabsBeforeCreate = false;
   }
 
   async start(url) {
@@ -75,6 +76,12 @@ class FakeBrowserRuntime extends EventEmitter {
   }
 
   async createTab(url) {
+    if (this.emitStaleTabsBeforeCreate) {
+      this.emit('tabs', {
+        tabs: this.tabs.map(tab => ({ ...tab })),
+        newTabIds: [],
+      });
+    }
     this.tabs.forEach(tab => { tab.active = false; });
     const tab = {
       active: true,
@@ -691,8 +698,20 @@ async function testBrowserResourceManager() {
       name: 'Manual tab',
       url: 'https://manual.example/',
     });
+    runtimes[0].emitStaleTabsBeforeCreate = true;
     const runningManualTab = await manager.start(manualTab.id);
+    await manager.sessions.values().next().value.actionChain;
     assert.strictEqual(runningManualTab.status, 'running');
+    assert.strictEqual(
+      manager.list().find(resource => resource.id === manualTab.id)?.status,
+      'running',
+      'A tabs snapshot observed before explicit tab ownership commits must not stop the new Resource',
+    );
+    assert.strictEqual(
+      manager.list().filter(resource => resource.url === 'https://manual.example/').length,
+      1,
+      'A manager-created tab must not be admitted again as a popup Resource',
+    );
     assert.strictEqual(runtimes.length, 1, 'Starting another tab must reuse the shared Browser process');
     await manager.action(created.id, { kind: 'snapshot' });
     assert.strictEqual(runtimes[0].activeTabId, 't1');
@@ -1154,10 +1173,20 @@ async function testAgentOwnedBrowserIsolationAndLifecycle() {
     ]);
     assert.throws(() => manager.get(first.id), /not found/);
     assert.throws(() => manager.get(second.id), /not found/);
+    assert.strictEqual(
+      runtimes[0].closed,
+      true,
+      'Reclaiming an Agent must close its shared Browser runtime after deleting every owned Resource',
+    );
     assert.strictEqual(manager.get(isolated.id).status, 'running');
 
     await manager.reconcileAgentLifecycle([{ id: 'agent_a', status: 'running' }]);
     assert.throws(() => manager.get(isolated.id), /not found/);
+    assert.strictEqual(
+      runtimes[1].closed,
+      true,
+      'A Browser owned by an Agent missing from authoritative state must be closed and deleted',
+    );
   } finally {
     await manager.dispose();
     fs.rmSync(configDir, { recursive: true, force: true });
@@ -1538,8 +1567,16 @@ function testBrowserUiAndPackagingWiring() {
   assert(sidebarSource.includes("if (resource.status === 'failed') return copy.stopped"));
   assert(serverSource.includes("createBrowserRouter("));
   assert(serverSource.includes("browserResourceManager,"));
+  assert(serverSource.includes("agentManager.on('update', reconcileAgentResourceLifecycle)"));
+  assert(serverSource.includes('await browserResourceManager.reconcileAgentLifecycle'));
   assert(sidebarSource.includes('code-agent-resources-toggle'));
   assert(sidebarSource.includes('controller.byAgentId'));
+  assert(
+    sidebarSource.includes('if (!activeBrowserId || !activeBrowserOwnerAgentId) return')
+      && sidebarSource.includes('next.add(activeBrowserOwnerAgentId)')
+      && sidebarSource.includes('next.delete(sectionId)'),
+    'Opening an Agent-owned Browser Viewer must reveal its Resource row and expand its Browser section',
+  );
   assert(
     sidebarResourceCss.includes('margin: 2px 4px 2px 14px;'),
     'Agent Desktop and Browser sections must share the same core-owned resource hierarchy alignment',

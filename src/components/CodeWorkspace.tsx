@@ -2259,6 +2259,9 @@ export function CodeWorkspace({
     const submitted = sendComposerMessageToAgent(
       agent,
       copy.agentTranscriptReviewAndCommitPrompt,
+      [],
+      undefined,
+      'prompt',
     )
     if (typeof submitted !== 'boolean') void submitted.catch(() => undefined)
   }, [copy.agentTranscriptReviewAndCommitPrompt, mountedOpenAgents, sendComposerMessageToAgent])

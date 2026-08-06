@@ -35,12 +35,14 @@ class FakeRuntime extends EventEmitter {
   }
 
   getSessionForRead(agentId) {
-    return {
+    const session = {
       ...this.getSession(agentId),
       entries: [{ content: 'large transcript must not enter the facade mirror' }],
       transcriptTail: { entries: [] },
       updates: [{ large: true }],
     };
+    delete session.bindingEpoch;
+    return session;
   }
 
   async prepareAgent(options) {
@@ -278,6 +280,11 @@ async function main() {
     assert.strictEqual(third.getSession('agent-1').entries.length, 0);
     assert.strictEqual(third.sessions.get('agent-1').transcriptTail, undefined);
     assert.strictEqual(third.sessions.get('agent-1').updates, undefined);
+    assert.strictEqual(
+      third.sessions.get('agent-1').bindingEpoch,
+      'binding-3',
+      'read-only Session projection must not replace the Controller binding identity',
+    );
     const forkResult = await third.runWithForkReservation(
       'agent-1',
       { expectedRevision: 1, requireLoad: true },

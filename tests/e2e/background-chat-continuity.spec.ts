@@ -692,13 +692,14 @@ test('keeps long ACP Chat stable when the Composer is collapsed and restored', a
   await expect(page.getByTestId('code-acp-composer')).toBeVisible()
   await expect.poll(bottomDistance).toBeLessThanOrEqual(2)
 
-  const readingTop = await transcriptScroll.evaluate(element => {
-    element.dispatchEvent(new Event('touchstart', { bubbles: true }))
-    element.scrollTop = Math.max(0, element.scrollHeight - element.clientHeight - 500)
-    element.dispatchEvent(new Event('scroll', { bubbles: true }))
-    element.dispatchEvent(new Event('touchend', { bubbles: true }))
-    return element.scrollTop
-  })
+  const bottomTop = await transcriptScroll.evaluate(element => element.scrollTop)
+  await transcriptScroll.hover()
+  await page.mouse.wheel(0, -200)
+  await expect.poll(async () => {
+    const scrollTop = await transcriptScroll.evaluate(element => element.scrollTop)
+    return scrollTop > 0 && scrollTop < bottomTop
+  }).toBe(true)
+  const readingTop = await transcriptScroll.evaluate(element => element.scrollTop)
   expect(readingTop).toBeGreaterThan(0)
 
   await page.locator('.code-composer-collapse-zone').hover()

@@ -421,6 +421,31 @@ export function BrowserSidebarPortals({
     })
   }
 
+  const activeBrowserOwnerAgentId = activeBrowserId
+    ? controller.resources.find(resource => (
+      resource.id === activeBrowserId && resource.ownerType === 'agent'
+    ))?.ownerAgentId ?? ''
+    : ''
+
+  useEffect(() => {
+    if (!activeBrowserId || !activeBrowserOwnerAgentId) return
+    setExpandedResources(current => {
+      if (current.has(activeBrowserOwnerAgentId)) return current
+      const next = new Set(current)
+      next.add(activeBrowserOwnerAgentId)
+      writeExpandedResources(next)
+      return next
+    })
+    setCollapsed(current => {
+      const sectionId = `agent:${activeBrowserOwnerAgentId}`
+      if (!current.has(sectionId)) return current
+      const next = new Set(current)
+      next.delete(sectionId)
+      writeCollapsed(next)
+      return next
+    })
+  }, [activeBrowserId, activeBrowserOwnerAgentId])
+
   if (!available) return null
 
   return (

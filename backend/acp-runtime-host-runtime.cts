@@ -357,7 +357,10 @@ class AcpRuntimeHostRuntime extends EventEmitter implements AcpRuntimeContract {
     delete summary.entries;
     delete summary.transcriptTail;
     delete summary.updates;
-    this.sessions.set(agentId, summary);
+    this.sessions.set(agentId, {
+      ...this.sessions.get(agentId),
+      ...summary,
+    });
     return session;
   }
 

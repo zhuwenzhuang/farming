@@ -3,8 +3,13 @@ import path from 'node:path'
 import type { Page, TestInfo } from '@playwright/test'
 import { expect, openFarming, test } from '../fixtures'
 
+// This gate runs against a real Codex account, so every billed turn must stay
+// on one fixed low-cost model. LAUNCH_MODEL is only selected to prove a live
+// model switch; the switch below completes before the first prompt is sent, and
+// each surface re-checks provider truth before it spends anything.
 const PRIMARY_MODEL = 'gpt-5.6-luna'
-const PRIMARY_EFFORT = 'medium'
+const PRIMARY_EFFORT = 'low'
+const LAUNCH_MODEL = 'gpt-5.6-terra'
 const CLI_BEGIN = 'CLI_FLOW_BEGIN_7F3A'
 const CLI_END = 'CLI_FLOW_END_7F3A'
 const COMPOSITE_BEGIN = 'COMPOSITE_BEGIN_7F3A'
@@ -35,6 +40,14 @@ type CodexCatalogModel = {
   description?: string
   defaultEffort?: string
   reasoningLevels?: Array<{ value: string, label?: string }>
+}
+
+type AcpSessionConfigOption = {
+  id?: string
+  name?: string
+  category?: string
+  type?: string
+  currentValue?: unknown
 }
 
 type CodeTerminalDiagnostics = {
@@ -721,6 +734,62 @@ async function sendCrtMessage(page: Page, message: string) {
   await expect(input).toHaveValue('')
 }
 
+const primaryModelStatus = new RegExp(`${PRIMARY_MODEL}\\s+${PRIMARY_EFFORT}`)
+
+// Provider truth, not composer state: refuse to prompt a real Codex Terminal
+// until its own status line reports the fixed low-cost model.
+async function expectTerminalRunsPrimaryModel(page: Page, agentId: string) {
+  await expect.poll(async () => (await codeRows(page, agentId)).join('\n').toLowerCase(), { timeout: 90_000 })
+    .toMatch(primaryModelStatus)
+}
+
+async function expectCrtTerminalRunsPrimaryModel(page: Page) {
+  await expect.poll(async () => (await crtRows(page)).join('\n').toLowerCase(), { timeout: 90_000 })
+    .toMatch(primaryModelStatus)
+}
+
+function acpSessionOptionValue(options: AcpSessionConfigOption[], category: string, pattern: RegExp) {
+  const option = options.find(candidate => (
+    candidate.type === 'select'
+    && (candidate.category === category || pattern.test(`${candidate.id || ''} ${candidate.name || ''}`))
+  ))
+  return { id: String(option?.id || ''), value: String(option?.currentValue ?? '') }
+}
+
+// An ACP session inherits the model of the Codex session it resumed. Assert that
+// inheritance and, when the provider reports anything else, switch it back
+// through the product path before the session is allowed to spend a turn.
+async function pinAcpSessionToPrimaryModel(page: Page, agentId: string) {
+  const sessionUrl = `/farming/api/agents/${encodeURIComponent(agentId)}/acp-session?includeEntries=0`
+  const readOptions = async () => {
+    const response = await page.request.get(sessionUrl)
+    if (!response.ok()) return []
+    const body = await response.json() as { session?: { configOptions?: AcpSessionConfigOption[] } }
+    return body.session?.configOptions ?? []
+  }
+  await expect.poll(async () => acpSessionOptionValue(await readOptions(), 'model', /(^|[\s_-])model([\s_-]|$)/i).id, {
+    timeout: 90_000,
+  }).not.toBe('')
+
+  const options = await readOptions()
+  const model = acpSessionOptionValue(options, 'model', /(^|[\s_-])model([\s_-]|$)/i)
+  const reasoning = acpSessionOptionValue(options, 'thought_level', /(reasoning|thought|effort)/i)
+  const changes = [
+    ...(model.value === PRIMARY_MODEL ? [] : [{ configId: model.id, value: PRIMARY_MODEL }]),
+    ...(reasoning.id && reasoning.value !== PRIMARY_EFFORT ? [{ configId: reasoning.id, value: PRIMARY_EFFORT }] : []),
+  ]
+  if (changes.length > 0) {
+    const response = await page.request.patch(`/farming/api/agents/${encodeURIComponent(agentId)}/acp-session`, {
+      data: { configOptions: changes },
+    })
+    const body = await response.json() as { error?: string }
+    expect(response.ok(), body.error || `Failed to pin the ACP session to ${PRIMARY_MODEL}`).toBeTruthy()
+  }
+  await expect.poll(async () => acpSessionOptionValue(await readOptions(), 'model', /(^|[\s_-])model([\s_-]|$)/i).value, {
+    timeout: 90_000,
+  }).toBe(PRIMARY_MODEL)
+}
+
 test.describe('real Codex pre-release composite case', () => {
   test.beforeAll(() => {
     if (process.env.FARMING_REAL_CODEX_RELEASE_CASE !== '1') {
@@ -766,11 +835,15 @@ test.describe('real Codex pre-release composite case', () => {
     expect(`${primaryModel?.displayName} ${primaryModel?.description}`).toMatch(/affordable|cost-efficient/i)
     expect(primaryModel?.reasoningLevels?.some(level => level.value === PRIMARY_EFFORT)).toBe(true)
     const primaryFamily = PRIMARY_MODEL.replace(/-(sol|terra|luna)$/i, '')
-    const launchModel = catalog.find(model => (
+    const isPrimarySibling = (model: CodexCatalogModel) => (
       model.value !== PRIMARY_MODEL
       && model.value.startsWith(`${primaryFamily}-`)
-      && model.reasoningLevels?.some(level => level.value === PRIMARY_EFFORT)
-    ))
+      && supportsPrimaryEffort(model)
+    )
+    // Pin the sibling instead of taking whatever the catalog lists first, so the
+    // model this gate touches never depends on catalog ordering.
+    const launchModel = catalog.find(model => model.value === LAUNCH_MODEL && isPrimarySibling(model))
+      ?? catalog.find(isPrimarySibling)
     expect(launchModel, `A ${PRIMARY_MODEL} sibling is required to prove a live model switch`).toBeTruthy()
 
     const settingsResponse = await page.request.post('/farming/api/settings', {
@@ -851,6 +924,7 @@ test.describe('real Codex pre-release composite case', () => {
       await target.press('Enter')
       await expect(picker).toHaveAttribute('data-agent-model-preset', `${PRIMARY_MODEL}:${PRIMARY_EFFORT}`, { timeout: 60_000 })
       await page.keyboard.press('Escape')
+      await expectTerminalRunsPrimaryModel(page, agentId)
     })
 
     await test.step('Multi-page Composer output stays at the visible bottom during a running Code to CRT switch', async () => {
@@ -920,6 +994,7 @@ test.describe('real Codex pre-release composite case', () => {
       await assertSameProviderSession(page, agentId, providerSessionId, 'acp')
       await expect(page.getByTestId('code-agent-chat-view')).toBeVisible({ timeout: 90_000 })
       await assertChatFormats(page, agentId)
+      await pinAcpSessionToPrimaryModel(page, agentId)
       await sendCodeAcpPromptAndSteer(page)
       await expect(page.getByTestId('code-agent-transcript-steer')
         .filter({ hasText: ACP_FOLLOW_UP_ACK }).last()).toBeVisible({ timeout: 60_000 })
@@ -970,6 +1045,7 @@ test.describe('real Codex pre-release composite case', () => {
       // narrow reflow; assert the newest preserved turn stays continuously
       // visible instead of pinning the viewport to historical content.
       await resizeCrtTerminal(page, ACP_FOLLOW_UP_ACK)
+      await expectCrtTerminalRunsPrimaryModel(page)
       await sendCrtTerminalInput(page, oneLine(`Do not use tools. Reply with only the concatenation of CRT_TERMINAL_ACK_ and ${ANCHOR_SUFFIX}, with no separator.`))
       await waitForCrtAnchor(page, CRT_TERMINAL_ACK)
       await waitForCrtTerminalIdle(page, agentId)
@@ -983,6 +1059,7 @@ test.describe('real Codex pre-release composite case', () => {
       await assertSameProviderSession(page, agentId, providerSessionId, 'acp')
       await expect(page.locator('#crt-structured-input')).toBeVisible({ timeout: 60_000 })
       await expect(page.locator('.crt-structured-message.assistant').filter({ hasText: CRT_TERMINAL_ACK }).last()).toBeVisible({ timeout: 120_000 })
+      await pinAcpSessionToPrimaryModel(page, agentId)
       await sendCrtMessage(page, `Do not use tools. Reply with only the concatenation of CRT_MSG_ACK_ and ${ANCHOR_SUFFIX}, with no separator.`)
       await expect(page.locator('.crt-structured-message.assistant').filter({ hasText: CRT_MSG_ACK }).last()).toBeVisible({ timeout: 120_000 })
       await resizeStructuredView(page, CRT_MSG_ACK)
@@ -999,7 +1076,7 @@ test.describe('real Codex pre-release composite case', () => {
       await waitForCrtAnchor(page, CRT_MSG_ACK, 180_000)
       await waitForCrtTerminalIdle(page, agentId)
       await expect.poll(async () => (await crtRows(page)).join('\n').toLowerCase(), { timeout: 90_000 })
-        .toMatch(new RegExp(`${PRIMARY_MODEL}\\s+medium`))
+        .toMatch(primaryModelStatus)
       await resizeCrtTerminal(page, CRT_MSG_ACK)
       await page.setViewportSize(NORMAL_VIEWPORT)
       await attachScreenshot(page, testInfo, '05-crt-terminal-final.png')
@@ -1010,6 +1087,7 @@ test.describe('real Codex pre-release composite case', () => {
       body: Buffer.from(JSON.stringify({
         providerSessionId,
         primaryModel: PRIMARY_MODEL,
+        primaryEffort: PRIMARY_EFFORT,
         chatRuntime: 'acp',
         resumedTerminalModel: PRIMARY_MODEL,
         finalAgentId: agentId,

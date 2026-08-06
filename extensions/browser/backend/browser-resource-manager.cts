@@ -150,6 +150,7 @@ interface BrowserRuntime {
   once<Value>(event: string, listener: (value: Value) => void): this;
 }
 type BrowserBinding = {
+  admittedTabsRevision: number;
   generation: number;
   id: string;
   latestFrame: BrowserMessage | null;
@@ -177,6 +178,7 @@ type BrowserSession = {
   pendingViewerInputs: PendingViewerInput[];
   reconcilingTabs: Promise<unknown>;
   runtime: BrowserRuntime;
+  tabsRevision: number;
   viewerInputDrainScheduled: boolean;
 };
 interface BrowserResourceStoreLike {
@@ -961,6 +963,7 @@ class BrowserResourceManager extends EventEmitter {
         initializing: true,
         isolatedLeaseKey,
         closing: false,
+        tabsRevision: 0,
         viewerInputDrainScheduled: false,
       };
       const binding = this.createBinding(session, starting);
@@ -1693,6 +1696,7 @@ class BrowserResourceManager extends EventEmitter {
 
   createBinding(session: BrowserSession, resource: BrowserResource): BrowserBinding {
     return {
+      admittedTabsRevision: session.tabsRevision,
       id: resource.id,
       generation: resource.generation,
       session,
@@ -1789,9 +1793,11 @@ class BrowserResourceManager extends EventEmitter {
     });
     runtime.on('tabs', (event: BrowserTabsEvent) => {
       if (session.initializing || session.closing) return;
+      const observedTabsRevision = session.tabsRevision + 1;
+      session.tabsRevision = observedTabsRevision;
       const next = (session.actionChain || Promise.resolve())
         .catch(() => {})
-        .then(() => this.reconcileTabs(session, event));
+        .then(() => this.reconcileTabs(session, event, observedTabsRevision));
       session.actionChain = next;
     });
     runtime.on('error', (error: unknown) => {
@@ -1808,7 +1814,11 @@ class BrowserResourceManager extends EventEmitter {
     });
   }
 
-  async reconcileTabs(session: BrowserSession, event: BrowserTabsEvent): Promise<void> {
+  async reconcileTabs(
+    session: BrowserSession,
+    event: BrowserTabsEvent,
+    observedTabsRevision = session.tabsRevision,
+  ): Promise<void> {
     if (this.sessions.get(session.id) !== session || session.closing) return;
     const tabs = Array.isArray(event?.tabs) ? event.tabs.filter(tab => tab.type === 'page') : [];
     const newlyObservedTabIds = new Set(
@@ -1864,6 +1874,7 @@ class BrowserResourceManager extends EventEmitter {
     const liveTabIds = new Set(tabs.map(tab => tab.tabId));
     for (const binding of [...session.bindings.values()]) {
       if (liveTabIds.has(binding.tabId)) continue;
+      if (observedTabsRevision <= binding.admittedTabsRevision) continue;
       const current = this.store.get(binding.id);
       if (!current || current.status === 'stopping') continue;
       session.bindings.delete(binding.id);

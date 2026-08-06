@@ -328,6 +328,17 @@ test('keeps persistent project and pinned Agent order', async ({ page, workspace
   await expect(project.getByTestId('code-agent-row')).toHaveCount(5)
   await expect(project.getByTestId('code-agent-show-more')).toBeVisible()
   await expect(sourceRow).toHaveCount(0)
+
+  const movedAgentTitle = 'Moved pagination Agent'
+  const renameResponse = await page.request.patch(`/farming/api/agents/${firstAgentId}`, {
+    data: { customTitle: movedAgentTitle },
+  })
+  expect(renameResponse.ok()).toBeTruthy()
+  await page.getByTestId('code-nav-search').click()
+  await page.getByTestId('code-search-box').locator('input').fill(movedAgentTitle)
+  await expect(project.locator(`[data-testid="code-agent-row"][data-agent-id="${firstAgentId}"]`)).toBeVisible()
+  await page.keyboard.press('Escape')
+
   await project.getByTestId('code-agent-show-more').click()
   await expect(project.getByTestId('code-agent-row')).toHaveCount(6)
   const expandedIds = await projectAgentIds(project)

@@ -24,11 +24,17 @@ test('entry pages preserve cached capabilities and History while refreshing curr
   let browserCapabilityRequests = 0
   let computerCapabilityRequests = 0
   let agentExtensionRequests = 0
+  let cachedHistoryResponses = 0
   let failCurrentRequests = false
   let blockCurrentCapabilityRefresh = false
+  let blockCurrentHistoryRefresh = false
   let releaseCapabilityRefresh: (() => void) | null = null
+  let releaseHistoryRefresh: (() => void) | null = null
   const capabilityRefreshBlocked = new Promise<void>(resolve => {
     releaseCapabilityRefresh = resolve
+  })
+  const historyRefreshBlocked = new Promise<void>(resolve => {
+    releaseHistoryRefresh = resolve
   })
 
   await page.route('**/api/browsers/capability', async route => {
@@ -55,7 +61,7 @@ test('entry pages preserve cached capabilities and History while refreshing curr
   })
   await page.route('**/api/agent-sessions?**', async route => {
     const current = new URL(route.request().url()).searchParams.get('fresh') === '1'
-    if (current) await new Promise(resolve => setTimeout(resolve, 300))
+    if (current && blockCurrentHistoryRefresh) await historyRefreshBlocked
     if (current && failCurrentRequests) {
       await route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"scan failed"}' })
       return
@@ -67,11 +73,13 @@ test('entry pages preserve cached capabilities and History while refreshing curr
       contentType: 'application/json',
       body: JSON.stringify({ sessions, nextCursor: '', hasMore: false, total: sessions.length }),
     })
+    if (!current) cachedHistoryResponses += 1
   })
 
   await openFarming(page)
   await expect.poll(() => browserCapabilityRequests).toBeGreaterThan(0)
   await expect.poll(() => computerCapabilityRequests).toBeGreaterThan(0)
+  await expect.poll(() => cachedHistoryResponses).toBeGreaterThan(0)
   const browserRequestsBeforePlugins = browserCapabilityRequests
   const computerRequestsBeforePlugins = computerCapabilityRequests
   const extensionRequestsBeforePlugins = agentExtensionRequests
@@ -94,10 +102,12 @@ test('entry pages preserve cached capabilities and History while refreshing curr
   await expect.poll(() => computerCapabilityRequests).toBeGreaterThan(computerRequestsBeforeBlockedRefresh)
   releaseCapabilityRefresh?.()
   await page.getByTestId('code-plugins-panel').getByRole('button', { name: 'Back to workspace' }).click()
+  blockCurrentHistoryRefresh = true
   await page.getByTestId('code-nav-history').click()
   const history = page.getByTestId('code-history-panel')
   await expect(history.getByTestId('code-history-loading')).toBeHidden()
   await expect(history).toContainText('Old provider session')
+  releaseHistoryRefresh?.()
   await expect(history).toContainText('Current provider session')
   await expect(history).not.toContainText('Old provider session')
 

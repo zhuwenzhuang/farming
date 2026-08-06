@@ -1190,7 +1190,7 @@ class FakeAgent implements Agent {
             type: 'text',
             text: releaseStory
               ? 'A reconnect is safe only when one exact checkpoint is installed before contiguous later transitions resume.'
-              : 'The ordered stream must stay reversible.',
+              : 'The ordered stream must stay reversible.\nReviewing tool ordering and evidence boundaries.',
           },
         },
       });
@@ -1364,6 +1364,7 @@ class FakeAgent implements Agent {
           rawOutput: { stdout: 'grouped stream verified\n', stderr: '', exitCode: 0 },
         },
       });
+      await new Promise(resolve => setTimeout(resolve, 250));
       await client.sessionUpdate({
         sessionId: params.sessionId,
         update: {
@@ -1381,7 +1382,10 @@ class FakeAgent implements Agent {
           update: {
             sessionUpdate: 'agent_thought_chunk',
             messageId: `dense-thought-${index}`,
-            content: { type: 'text', text: `Reasoning checkpoint ${index}` },
+            content: {
+              type: 'text',
+              text: `Reasoning checkpoint ${index}\nChecking verification evidence ${index}.`,
+            },
           },
         });
         await client.sessionUpdate({

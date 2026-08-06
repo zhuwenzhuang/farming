@@ -421,17 +421,10 @@ async function prepareNpmUpdate(payload: NpmUpdatePayload): Promise<void> {
     fs.mkdirSync(String(payload.stagingPrefix), { recursive: true });
     await installPackage(payload, payload.targetVersion);
     verifyInstalledVersion(payload, payload.targetVersion, String(payload.stagingPackageRoot));
-    const targetImage = publishPreparedPackageImage(
-      context,
-      String(payload.stagingPackageRoot),
-      payload.targetVersion,
-      payload.targetIntegrity,
-    );
-    fs.rmSync(String(payload.stagingPrefix), { recursive: true, force: true });
     writeOperationState(payload, 'preparing-runtimes');
     appendLog(payload.logPath, `Preparing Farming ${payload.targetVersion} startup dependencies`);
     await runCommand(payload.nodePath, [
-      path.join(targetImage.packageRoot, 'bin', 'farming'),
+      path.join(String(payload.stagingPackageRoot), 'bin', 'farming'),
       'runtime',
       'prepare',
       '--config-dir',
@@ -442,6 +435,13 @@ async function prepareNpmUpdate(payload: NpmUpdatePayload): Promise<void> {
       env: commandEnvironment(),
       logPath: payload.logPath,
     });
+    const targetImage = publishPreparedPackageImage(
+      context,
+      String(payload.stagingPackageRoot),
+      payload.targetVersion,
+      payload.targetIntegrity,
+    );
+    fs.rmSync(String(payload.stagingPrefix), { recursive: true, force: true });
     const preparedAt = new Date().toISOString();
     writeOperationState(payload, 'ready-to-restart', {
       preparedAt,

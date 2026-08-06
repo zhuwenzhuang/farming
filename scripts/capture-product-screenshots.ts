@@ -1335,8 +1335,8 @@ async function main() {
     const operatorSummaryHeading = markdownPreview.getByRole('heading', { name: 'Relational Operator Definition Summary' });
     await operatorSummaryHeading.waitFor({ state: 'visible', timeout: 20_000 });
     await markdownPreview.locator('.katex-display').first().waitFor({ state: 'visible', timeout: 20_000 });
-    await markdownPreview.evaluate(panel => {
-      const heading = Array.from(panel.querySelectorAll('h2')).find(element => (
+    await markdownPreview.evaluate((panel: HTMLElement) => {
+      const heading = Array.from(panel.querySelectorAll<HTMLElement>('h2')).find(element => (
         element.textContent?.includes('Relational Operator Definition Summary')
       ));
       if (heading instanceof HTMLElement) panel.scrollTop = Math.max(0, heading.offsetTop - 24);

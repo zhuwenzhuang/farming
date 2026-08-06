@@ -203,7 +203,7 @@ export function mergeAcpTranscript(
     return { transcript: current, accepted: false, needsCheckpoint: true }
   }
 
-  if (!next.replaceFromTurnId || next.turns.length === 0) {
+  if (next.turns.length === 0) {
     return {
       transcript: {
         ...current,
@@ -217,9 +217,27 @@ export function mergeAcpTranscript(
     }
   }
 
-  const replaceIndex = current.turns.findIndex(turn => turn.id === next.replaceFromTurnId)
+  const replaceFromTurnId = next.replaceFromTurnId || next.turns[0]?.id || ''
+  const replaceIndex = current.turns.findIndex(turn => turn.id === replaceFromTurnId)
   if (replaceIndex < 0) {
-    return { transcript: current, accepted: false, needsCheckpoint: true }
+    const currentTurnIds = new Set(current.turns.map(turn => turn.id))
+    if (next.turns.some(turn => currentTurnIds.has(turn.id))) {
+      return { transcript: current, accepted: false, needsCheckpoint: true }
+    }
+    const mergedTurns = [...current.turns, ...next.turns]
+    const boundedTurns = current.turnLimit && mergedTurns.length > current.turnLimit
+      ? mergedTurns.slice(-current.turnLimit)
+      : mergedTurns
+    return {
+      transcript: preserveCompletedTranscriptTurns(current, {
+        ...next,
+        available: current.available || next.available,
+        hasMoreBefore: current.hasMoreBefore || next.hasMoreBefore || boundedTurns.length < mergedTurns.length,
+        turns: boundedTurns,
+      }),
+      accepted: true,
+      needsCheckpoint: false,
+    }
   }
   return {
     transcript: preserveCompletedTranscriptTurns(current, {
