@@ -8,10 +8,12 @@
   Farming Code 是一个开源、自托管的浏览器工作区，用于启动和管理 Codex、Claude Code、OpenCode 及其他 AI Coding Agent。
 </p>
 
-<p align="center"><a href="./README.md">English</a></p>
-
 <p align="center">
   <a href="https://zhuwenzhuang.github.io/farming/cn/">在线文档</a> ·
+  <a href="./README.md">English</a>
+</p>
+
+<p align="center">
   <a href="https://github.com/zhuwenzhuang/farming/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/zhuwenzhuang/farming/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://github.com/zhuwenzhuang/farming/releases"><img alt="Release" src="https://img.shields.io/github/v/release/zhuwenzhuang/farming?label=release"></a>
   <a href="https://www.npmjs.com/package/farming-code"><img alt="npm" src="https://img.shields.io/npm/v/farming-code?label=npm"></a>

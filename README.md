@@ -8,10 +8,12 @@
   Farming Code is an open-source, self-hosted browser workspace for running and supervising Codex, Claude Code, OpenCode, and other AI coding agents.
 </p>
 
-<p align="center"><a href="./README.zh_cn.md">简体中文</a></p>
-
 <p align="center">
   <a href="https://zhuwenzhuang.github.io/farming/en/">Documentation</a> ·
+  <a href="./README.zh_cn.md">简体中文</a>
+</p>
+
+<p align="center">
   <a href="https://github.com/zhuwenzhuang/farming/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/zhuwenzhuang/farming/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://github.com/zhuwenzhuang/farming/releases"><img alt="Release" src="https://img.shields.io/github/v/release/zhuwenzhuang/farming?label=release"></a>
   <a href="https://www.npmjs.com/package/farming-code"><img alt="npm" src="https://img.shields.io/npm/v/farming-code?label=npm"></a>
