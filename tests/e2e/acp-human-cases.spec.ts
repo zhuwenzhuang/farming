@@ -429,7 +429,9 @@ test.describe('ACP human-like browser matrix', () => {
     await plan.locator('.code-agent-transcript-plan-driver-summary').click()
     const runningPlanStep = plan.locator('.code-agent-transcript-plan-list li.running')
     await expect(runningPlanStep).toHaveCSS('font-weight', '400')
-    expect(await runningPlanStep.evaluate(element => getComputedStyle(element, '::marker').fontWeight)).toBe('400')
+    await expect.poll(() => runningPlanStep.evaluate(
+      element => getComputedStyle(element, '::marker').fontWeight,
+    )).toBe('400')
     expect(await page.getByTestId('code-agent-transcript-scroll').evaluate(element => {
       const style = getComputedStyle(element)
       return style.paddingRight === style.paddingLeft
@@ -949,6 +951,9 @@ test.describe('ACP human-like browser matrix', () => {
       await expect(chevron).toHaveCSS('opacity', '0.9')
       await page.mouse.move(0, 0)
       await toggle.focus()
+      await page.keyboard.press('Tab')
+      await page.keyboard.press('Shift+Tab')
+      await expect(toggle).toBeFocused()
       await expect(chevron).toHaveCSS('opacity', '0.9')
     })
     const readItem = richTurn.getByTestId('code-agent-transcript-process-item').filter({ hasText: 'Read ACP display fixtures' })
@@ -1520,6 +1525,9 @@ test.describe('ACP human-like browser matrix', () => {
     await expect(thoughtChevron).toHaveCSS('opacity', '0.9')
     await page.mouse.move(0, 0)
     await thoughtToggle.focus()
+    await page.keyboard.press('Tab')
+    await page.keyboard.press('Shift+Tab')
+    await expect(thoughtToggle).toBeFocused()
     await expect(thoughtChevron).toHaveCSS('opacity', '0.9')
     await thoughtToggle.click()
     await expect(thought.locator('.code-agent-transcript-process-detail')).toContainText(
