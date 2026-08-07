@@ -954,6 +954,37 @@ async function run() {
       assert.strictEqual(changeByPath.get('src/Renamed.ts')?.gitStatusLabel, 'R');
       assert.strictEqual(changeByPath.get('src/Renamed.ts')?.previousPath, 'src/RenameMe.ts');
 
+      const boundedChangesService = new WorkspaceFileService({
+        commandRunner: {
+          run: async (command, args, options) => {
+            assert.strictEqual(command, 'git');
+            assert(args.includes('--untracked-files=all'));
+            assert.strictEqual(args.some(arg => arg.startsWith(':(exclude)')), false);
+            assert.strictEqual(options.maxBuffer, 8 * 1024 * 1024);
+            return {
+              stdout: [
+                '?? z-last.txt',
+                '?? .tmp/hidden.txt',
+                ' M src/App.tsx',
+                '?? a-first.txt',
+                '',
+              ].join('\0'),
+              stderr: '',
+            };
+          },
+        },
+      });
+      try {
+        const boundedChanges = await boundedChangesService.changes(workspace, { limit: 2 });
+        assert.strictEqual(boundedChanges.truncated, true);
+        assert.deepStrictEqual(
+          boundedChanges.items.map(item => item.path),
+          ['src/App.tsx', 'a-first.txt'],
+        );
+      } finally {
+        await boundedChangesService.dispose();
+      }
+
       const originalChangesExecFile = service.execFile.bind(service);
       service.execFile = async (command, args, options) => {
         if (command === service.gitPath && args.includes('status') && args.includes('--untracked-files=all')) {

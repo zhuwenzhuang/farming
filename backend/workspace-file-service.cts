@@ -12,6 +12,7 @@ const DEFAULT_MAX_WRITE_SIZE = 2 * 1024 * 1024;
 const DEFAULT_MAX_PREVIEW_FILE_SIZE = 8 * 1024 * 1024;
 const DEFAULT_SEARCH_LIMIT = 100;
 const DEFAULT_GIT_CHANGES_LIMIT = 500;
+const DEFAULT_GIT_CHANGES_MAX_BUFFER = 8 * 1024 * 1024;
 const DEFAULT_GIT_STATUS_CACHE_TTL_MS = 30000;
 const DEFAULT_GIT_STATUS_INLINE_TIMEOUT_MS = 80;
 const DEFAULT_GIT_STATUS_TIMEOUT_MS = 15000;
@@ -2070,6 +2071,9 @@ class WorkspaceFileService {
 
   async loadGitStatusByPath(root: string, options: Record<string, unknown> = {}): Promise<GitStatusMap> {
     const untrackedFiles = options.untrackedFiles || 'normal';
+    const pathspecArgs = options.excludeHidden === false
+      ? ['--', '.']
+      : gitStatusExcludePathspecArgs();
     try {
       const { stdout } = await this.execFile(this.gitPath, [
         'status',
@@ -2077,8 +2081,12 @@ class WorkspaceFileService {
         '-z',
         `--untracked-files=${untrackedFiles}`,
         '--ignored=no',
-        ...gitStatusExcludePathspecArgs(),
-      ], { cwd: root, timeout: Number(options.timeoutMs) || this.gitStatusTimeoutMs });
+        ...pathspecArgs,
+      ], {
+        cwd: root,
+        timeout: Number(options.timeoutMs) || this.gitStatusTimeoutMs,
+        ...(Number(options.maxBuffer) > 0 ? { maxBuffer: Number(options.maxBuffer) } : {}),
+      });
       return parseGitStatus(stdout);
     } catch (caught: unknown) {
       const error = processError(caught);
@@ -2395,11 +2403,20 @@ class WorkspaceFileService {
     const limit = Math.max(1, Math.min(2000, Number(options.limit) || DEFAULT_GIT_CHANGES_LIMIT));
     const gitStatusByPath = await this.loadGitStatusByPath(root, {
       allowPartial: true,
+      excludeHidden: false,
+      maxBuffer: DEFAULT_GIT_CHANGES_MAX_BUFFER,
       throwOnError: true,
       untrackedFiles: 'all',
     });
     this.invalidateGitStatus(root);
-    const allItems = await Promise.all(Array.from(gitStatusByPath.entries())
+    const visibleEntries = Array.from(gitStatusByPath.entries())
+      .filter(([filePath]) => !shouldHidePath(filePath))
+      .sort((left, right) => (
+        gitStatusReviewRank(left[1].kind) - gitStatusReviewRank(right[1].kind)
+        || left[0].localeCompare(right[0])
+      ));
+    const allItems = await Promise.all(visibleEntries
+      .slice(0, limit)
       .map(async ([filePath, status]) => ({
         path: filePath,
         name: path.posix.basename(filePath),
@@ -2407,17 +2424,12 @@ class WorkspaceFileService {
         gitStatus: status.kind,
         gitStatusLabel: status.label,
         ...(status.previousPath ? { previousPath: status.previousPath } : {}),
-      })))
-    allItems
-      .sort((left, right) => (
-        gitStatusReviewRank(left.gitStatus) - gitStatusReviewRank(right.gitStatus)
-        || left.path.localeCompare(right.path)
-      ));
+      })));
 
     const typedGitStatusByPath = gitStatusByPath;
     return {
-      items: allItems.slice(0, limit),
-      truncated: typedGitStatusByPath.truncated === true || allItems.length > limit,
+      items: allItems,
+      truncated: typedGitStatusByPath.truncated === true || visibleEntries.length > limit,
     };
   }
 
