@@ -1009,7 +1009,7 @@ test.describe('display-backed agent flows', () => {
     await expect(trackedDirectory).toBeVisible()
     expect(await trackedDirectory.evaluate(element => (
       getComputedStyle(element).getPropertyValue('--change-indent').trim()
-    ))).toBe('6px')
+    ))).toBe('18px')
     await trackedDirectory.click()
     const nestedChangeRow = trackedGroup.locator(
       '[data-testid="code-file-change-row"][data-file-path="tracked/deep/no-reveal.txt"]',
@@ -1017,7 +1017,7 @@ test.describe('display-backed agent flows', () => {
     await expect(nestedChangeRow).toBeVisible()
     expect(await nestedChangeRow.evaluate(element => (
       getComputedStyle(element).getPropertyValue('--change-indent').trim()
-    ))).toBe('18px')
+    ))).toBe('30px')
     const filesTreeRootDirectory = filesSection.locator(
       '[data-testid="code-file-row"][data-file-path="tracked"]',
     )
@@ -1096,6 +1096,9 @@ test.describe('display-backed agent flows', () => {
     await expect(untrackedGroup.getByTestId('code-file-change-row').filter({ hasText: 'playback_json' })).toHaveCount(0)
     const scratchDirectory = untrackedGroup.getByTestId('code-file-change-directory-row').filter({ hasText: 'scratch' })
     await expect(scratchDirectory).toBeVisible()
+    expect(await scratchDirectory.evaluate(element => (
+      getComputedStyle(element).getPropertyValue('--change-indent').trim()
+    ))).toBe('18px')
     await expect(changesSection.getByTestId('code-file-change-row').filter({ hasText: 'scratch.log' })).toHaveCount(0)
     await scratchDirectory.click()
     const untrackedRow = untrackedGroup.getByTestId('code-file-change-row').filter({ hasText: 'scratch.log' })

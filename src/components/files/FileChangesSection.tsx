@@ -42,10 +42,13 @@ type FileChangeTreeNode =
     change: WorkspaceFileChange
   }
 
+const CHANGE_TREE_ROOT_INDENT = 18
+const CHANGE_TREE_INDENT_STEP = 12
+
 function changeTreeDepthStyle(depth: number) {
   return {
-    '--change-indent': `${6 + depth * 12}px`,
-    '--change-guide-width': `${depth * 12}px`,
+    '--change-indent': `${CHANGE_TREE_ROOT_INDENT + depth * CHANGE_TREE_INDENT_STEP}px`,
+    '--change-guide-width': `${depth * CHANGE_TREE_INDENT_STEP}px`,
   } as CSSProperties
 }
 

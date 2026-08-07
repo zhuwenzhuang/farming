@@ -3504,7 +3504,7 @@ body.code-mode .code-file-change-group-toggle {
 }
 
 .code-file-change-row {
-  --change-indent: 6px;
+  --change-indent: 18px;
   --change-guide-width: 0px;
   min-width: 0;
   border-radius: 4px;
