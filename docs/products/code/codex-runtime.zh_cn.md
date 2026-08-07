@@ -18,6 +18,10 @@ Terminal 与 ACP 是相互独立的 Executable Ownership Boundary：
   Farming 自有 Executable。
 - ACP 独立使用 Farming 自有、版本锁定的 Adapter 与 Runtime Artifact，不继承 Terminal 选择。
 
+Plugins 按精确 Codex Agent Home 配置 ACP。默认 Managed 选择使用版本锁定的 Codex
+Executable；显式 Custom 选择把一个精确 Executable Path 记录为独立 Runtime Identity。
+它只影响该 Home 新建的 Chat Session，不改变 Terminal Discovery 或已有 Session Binding。
+
 这两个策略分离后，Native CLI 体验和确定性的 ACP 行为可以独立演进，不会互相静默改变。
 
 ## Provider Adapter 边界

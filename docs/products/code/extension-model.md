@@ -99,6 +99,12 @@ which Homes accept new Agents and their display order. Existing Agent records
 retain an immutable binding to the exact Provider Home used for their Session;
 removing or reordering a configuration must not relabel existing Sessions.
 
+The same identity owns ACP runtime selection. Plugins presents the adapter's
+managed default and an explicit custom provider executable where supported.
+Saving validates the exact executable boundary. The selection applies to new
+Chat Sessions only; existing Sessions retain their persisted launch identity,
+and Terminal executable discovery remains independent.
+
 Extension catalogs are scoped to one exact Home. Provider-owned configuration
 remains authoritative for enabled/configured state and defaults; Farming does
 not create a parallel enablement database or merge several Homes into one

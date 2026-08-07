@@ -614,6 +614,7 @@ interface KillAgentAdmission {
 interface AgentManagerConfigContract extends AgentManagerConfig {
   appendTaskHistory?(entry: UnknownRecord): void;
   getAgentHome(provider: string, homeId?: string): AgentHome | null;
+  getAgentSessionRecordForProviderSessionKey(sessionKey: string): PersistedAgentPrivateMetadata | null;
   getAgentLaunchProfileForHome(provider: string, homeId?: string): UnknownRecord;
   getAgentLaunchProfiles(): UnknownRecord;
   getCodexApprovalMode(): string;
@@ -707,6 +708,8 @@ const CREATE_ROLLBACK_FIELDS: string[] = [
   'mainWorkspace',
   'source',
   'providerHomePath',
+  'acpRuntimeMode',
+  'acpRuntimeExecutable',
   'providerSessionTemporary',
   'providerSessionSource',
   'providerSessionResolvedAt',
@@ -3134,7 +3137,42 @@ class AgentManager extends EventEmitter {
     if (!this.acpRuntime || !this.configManager || typeof this.configManager.listAgentSessionRecords !== 'function') return;
     let persistedRecords = this.configManager.listAgentSessionRecords();
     if (!persistedRecords.some((record: PersistedAgentPrivateMetadata) => runtimeKind(record) === 'acp')) return;
-    await this.acpRuntime.initialize?.();
+    try {
+      await this.acpRuntime.initialize?.();
+    } catch (caughtError: unknown) {
+      const error = caughtError as ErrorRecord;
+      const mainPageSessionKeys = new Set(this.getMainPageSessionKeys());
+      const affectedAgentIds: string[] = [];
+      for (const record of persistedRecords) {
+        if (
+          runtimeKind(record) !== 'acp'
+          || (
+            !shouldRestoreAgentFromMetadata(record, mainPageSessionKeys)
+            && !lifecycleOperationBlocksRuntimeStart(record)
+          )
+        ) continue;
+        const agentId = String(record.runtimeAgentId || '').trim();
+        if (!agentId) continue;
+        const agent = this.agents.get(agentId)
+          || this.recoveredAgentRecord(agentId, record.engine || 'native', record, { status: 'running' });
+        if (!this.agents.has(agentId)) {
+          setAgentRecordId(agent, record.id || '');
+          this.registerAgentRecord(agentId, agent);
+        }
+        const runtime = replaceRuntimeBinding(agent, 'acp', runtimeBindingOf(agent, 'acp'));
+        runtime.state = 'error';
+        runtime.error = `ACP runtime Host unavailable: ${error.message || error}`;
+        agent.status = 'stopped';
+        agent.engineStatus = 'stopped';
+        agent.engineStarted = false;
+        agent.exitedAt = Date.now();
+        this.ensurePersistentAgentSession(agent);
+        affectedAgentIds.push(agentId);
+      }
+      if (affectedAgentIds.length > 0) this.emitStateChange({ agentIds: affectedAgentIds });
+      console.warn('ACP runtime Host recovery is unavailable:', error.message || error);
+      return;
+    }
     const liveHostBindingIds = new Set([...this.acpRuntime.bindings.keys()]);
     await this.reconcilePersistedAcpLifecycleOperations(
       persistedRecords,
@@ -3325,12 +3363,30 @@ class AgentManager extends EventEmitter {
         const providerAdapter = getProviderAdapter(provider);
         if (!providerAdapter) throw new Error(`Unsupported Agent provider: ${provider}`);
         const executableName = providerAdapter.executable;
-        const executable = ['codex', 'claude'].includes(provider)
-          ? resolveFarmingOwnedExecutable(provider)
-          : (resolveAgentExecutable(executableName) || executableName);
-        if (['codex', 'claude'].includes(provider) && !executable) {
+        const acpRuntimeMode = record.acpRuntimeMode === 'custom' ? 'custom' : 'managed';
+        const configuredExecutable = acpRuntimeMode === 'custom'
+          ? String(record.acpRuntimeExecutable || '').trim()
+          : '';
+        const executable = configuredExecutable || (
+          providerAdapter.acp.executablePolicy === 'managed'
+            ? resolveFarmingOwnedExecutable(provider)
+            : (resolveAgentExecutable(executableName) || executableName)
+        );
+        if (acpRuntimeMode === 'custom') {
+          if (!path.isAbsolute(executable)) {
+            throw new Error(`${provider} custom ACP executable must be an absolute path`);
+          }
+          try {
+            fs.accessSync(executable, fs.constants.X_OK);
+          } catch {
+            throw new Error(`${provider} custom ACP executable is not executable: ${executable}`);
+          }
+        }
+        if (providerAdapter.acp.executablePolicy === 'managed' && acpRuntimeMode === 'managed' && !executable) {
           throw new Error(`${provider} ACP requires a Farming-owned executable, but none is available`);
         }
+        agent.acpRuntimeMode = acpRuntimeMode;
+        agent.acpRuntimeExecutable = executable;
         const approvalMode = agent.launchPermissionMode || (
           provider === 'codex' && this.configManager.getCodexApprovalMode
             ? this.configManager.getCodexApprovalMode()
@@ -3766,6 +3822,10 @@ class AgentManager extends EventEmitter {
       providerSessionProvider,
       providerHomeId: metadata.providerHomeId || '',
       providerHomePath: metadata.providerHomePath || '',
+      acpRuntimeMode: metadata.acpRuntimeMode === 'custom' ? 'custom' : 'managed',
+      acpRuntimeExecutable: typeof metadata.acpRuntimeExecutable === 'string'
+        ? metadata.acpRuntimeExecutable
+        : '',
       providerSessionId,
       providerSessionKey: metadata.providerSessionKey || (
         providerSessionProvider && providerSessionId
@@ -5096,6 +5156,8 @@ class AgentManager extends EventEmitter {
       providerSessionProvider: agent.providerSessionProvider,
       providerHomeId: agent.providerHomeId || '',
       providerHomePath: agent.providerHomePath || '',
+      acpRuntimeMode: agent.acpRuntimeMode === 'custom' ? 'custom' : 'managed',
+      acpRuntimeExecutable: agent.acpRuntimeExecutable || '',
       providerSessionId: agent.providerSessionId,
       providerSessionKey: agent.providerSessionKey,
       providerSessionTemporary: agent.providerSessionTemporary,
@@ -5641,7 +5703,7 @@ class AgentManager extends EventEmitter {
     const providerHomeId = typeof options.providerHomeId === 'string' && options.providerHomeId.trim()
       ? options.providerHomeId.trim()
       : (providerSessionPlan.providerHomeId || '');
-    const providerHome = homeProvider && providerHomeId && this.configManager && this.configManager.getAgentHome
+    let providerHome = homeProvider && providerHomeId && this.configManager && this.configManager.getAgentHome
       ? this.configManager.getAgentHome(homeProvider, providerHomeId)
       : null;
     if (
@@ -5667,6 +5729,7 @@ class AgentManager extends EventEmitter {
     ) {
       const defaultCodexHome = this.configManager.getAgentHome('codex', 'default');
       if (defaultCodexHome) {
+        providerHome = defaultCodexHome;
         providerHomePath = defaultCodexHome.path;
         resolvedProviderHomeId = defaultCodexHome.id || 'default';
       }
@@ -5702,16 +5765,56 @@ class AgentManager extends EventEmitter {
         process.env.FARMING_E2E_FAKE_EXECUTABLES !== '1'
         || process.env.FARMING_E2E_FAKE_ACP_AGENT === '1'
       );
-    const usesFarmingOwnedAcpExecutable = useAcp
-      && ['codex', 'claude'].includes(structuredRuntimeProvider);
-    if (!usesFarmingOwnedAcpExecutable) {
+    const structuredRuntimeAdapter = getProviderAdapter(structuredRuntimeProvider);
+    const existingProviderSessionKey = useAcp
+      && providerSessionPlan.id
+      && providerSessionPlan.temporary !== true
+      ? mainPageAgentSessionKey(
+          structuredRuntimeProvider,
+          providerSessionPlan.id,
+          resolvedProviderHomeId || 'default',
+        )
+      : '';
+    const existingProviderSessionRecord = existingProviderSessionKey
+      && typeof this.configManager?.getAgentSessionRecordForProviderSessionKey === 'function'
+      ? this.configManager.getAgentSessionRecordForProviderSessionKey(existingProviderSessionKey)
+      : null;
+    const configuredAcpRuntime = existingProviderSessionRecord
+      ? {
+          mode: existingProviderSessionRecord.acpRuntimeMode === 'custom' ? 'custom' : 'managed',
+          executable: typeof existingProviderSessionRecord.acpRuntimeExecutable === 'string'
+            ? existingProviderSessionRecord.acpRuntimeExecutable
+            : '',
+        }
+      : {
+          mode: providerHome?.acpRuntime?.mode === 'custom' ? 'custom' : 'managed',
+          executable: providerHome?.acpRuntime?.mode === 'custom'
+            ? String(providerHome.acpRuntime.executable || '').trim()
+            : '',
+        };
+    const usesManagedAcpExecutable = useAcp
+      && configuredAcpRuntime.mode === 'managed'
+      && structuredRuntimeAdapter?.acp.executablePolicy === 'managed';
+    if (!usesManagedAcpExecutable && configuredAcpRuntime.mode !== 'custom') {
       const userShellEnv = this.resolveAgentShellEnv('', { maxAgeMs: AGENT_DISCOVERY_CACHE_MAX_AGE_MS });
       launchPathEnv = typeof userShellEnv?.PATH === 'string' && userShellEnv.PATH.trim()
         ? userShellEnv.PATH
         : launchPathEnv;
     }
     let resolvedExecutable = '';
-    if (usesFarmingOwnedAcpExecutable) {
+    if (useAcp && configuredAcpRuntime.mode === 'custom') {
+      resolvedExecutable = this.expandWorkspacePath(configuredAcpRuntime.executable);
+      if (!path.isAbsolute(resolvedExecutable)) {
+        if (callback) callback(null, `${structuredRuntimeProvider} custom ACP executable must be an absolute path.`);
+        return null;
+      }
+      try {
+        fs.accessSync(resolvedExecutable, fs.constants.X_OK);
+      } catch {
+        if (callback) callback(null, `${structuredRuntimeProvider} custom ACP executable is not executable: ${resolvedExecutable}`);
+        return null;
+      }
+    } else if (usesManagedAcpExecutable) {
       resolvedExecutable = resolveFarmingOwnedExecutable(structuredRuntimeProvider);
     } else if (!useAcp && path.basename(program) === 'codex') {
       if (
@@ -5735,7 +5838,8 @@ class AgentManager extends EventEmitter {
     const spawnProgram = resolvedExecutable || program;
     if (
       useAcp
-      && ['codex', 'claude'].includes(structuredRuntimeProvider)
+      && structuredRuntimeAdapter?.acp.executablePolicy === 'managed'
+      && configuredAcpRuntime.mode === 'managed'
       && !resolvedExecutable
     ) {
       if (callback) {
@@ -5789,6 +5893,8 @@ class AgentManager extends EventEmitter {
       providerSessionProvider: useAcp ? structuredRuntimeProvider : (providerSessionPlan.provider || ''),
       providerHomeId: resolvedProviderHomeId,
       providerHomePath,
+      acpRuntimeMode: useAcp ? configuredAcpRuntime.mode : 'managed',
+      acpRuntimeExecutable: useAcp ? resolvedExecutable : '',
       providerSessionId: acpGeneratedFreshSession ? '' : (providerSessionPlan.id || ''),
       providerSessionKey: acpGeneratedFreshSession
         ? ''
@@ -8440,6 +8546,8 @@ class AgentManager extends EventEmitter {
         : resumedAgentSource(provider, sessionId, agent.providerHomeId || ''),
       providerHomeId: agent.providerHomeId || '',
       providerHomePath: agent.providerHomePath || '',
+      acpRuntimeMode: agent.acpRuntimeMode === 'custom' ? 'custom' : 'managed',
+      acpRuntimeExecutable: agent.acpRuntimeExecutable || '',
       providerSessionTitle: agent.providerSessionTitle || '',
       adaptiveTitle: agent.adaptiveTitle || '',
       agentRecordId: agent.agentRecordId || agent.persistentSessionId || '',

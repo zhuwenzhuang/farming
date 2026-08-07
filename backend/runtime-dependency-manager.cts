@@ -238,11 +238,13 @@ const DEPENDENCIES: readonly RuntimeDependencyDefinition[] = Object.freeze([
     id: 'codex',
     envKeys: ['FARMING_CODEX_BIN', 'CODEX_PATH'],
     commands: ['codex'],
+    allowSystem: false,
   },
   {
     id: 'claude',
     envKeys: ['FARMING_CLAUDE_BIN', 'CLAUDE_CODE_EXECUTABLE'],
     commands: ['claude'],
+    allowSystem: false,
   },
   {
     id: 'agentBrowser',

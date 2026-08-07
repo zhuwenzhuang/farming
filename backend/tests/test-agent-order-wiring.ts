@@ -18,7 +18,7 @@ function run() {
 
   assert.strictEqual(
     (manager.match(/this\.registerAgentRecord\(/g) || []).length,
-    3,
+    4,
     'every Agent insertion path should use the indexed registration gate',
   );
   assert.strictEqual((manager.match(/this\.agents\.set\(/g) || []).length, 1);

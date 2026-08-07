@@ -302,14 +302,21 @@ async function run() {
     FARMING_CLAUDE_BIN: writeVersionExecutable(binDir, 'claude', '2.1.0'),
     FARMING_AGENT_BROWSER_BIN: writeVersionExecutable(binDir, 'agent-browser', '0.33.2'),
   };
+  const managedCodex = writeVersionExecutable(binDir, 'managed-codex', '0.146.0');
+  const managedClaude = writeVersionExecutable(binDir, 'managed-claude', '2.1.0');
   const managedAgentBrowser = writeVersionExecutable(binDir, 'managed-agent-browser', '0.33.2');
   const installRuntime = async (_configDir, definition) => {
-    assert.strictEqual(definition.id, 'agentBrowser');
+    const executablePath = {
+      codex: managedCodex,
+      claude: managedClaude,
+      agentBrowser: managedAgentBrowser,
+    }[definition.id];
+    assert(executablePath, `unexpected runtime dependency ${definition.id}`);
     return {
-      id: 'agentBrowser',
-      version: MANIFEST.dependencies.agentBrowser.version,
+      id: definition.id,
+      version: MANIFEST.dependencies[definition.id].version,
       source: 'managed',
-      executablePath: managedAgentBrowser,
+      executablePath,
     };
   };
   const dependencyProgress = [];
@@ -322,18 +329,20 @@ async function run() {
   assert.strictEqual(result.dependencies.length, 3);
   assert.deepStrictEqual(
     result.dependencies.map(item => item.source),
-    ['system', 'system', 'managed'],
+    ['managed', 'managed', 'managed'],
   );
-  assert.strictEqual(env.CODEX_PATH, env.FARMING_CODEX_BIN);
-  assert.strictEqual(env.CLAUDE_CODE_EXECUTABLE, env.FARMING_CLAUDE_BIN);
+  assert.strictEqual(env.FARMING_CODEX_BIN, managedCodex);
+  assert.strictEqual(env.CODEX_PATH, managedCodex);
+  assert.strictEqual(env.FARMING_CLAUDE_BIN, managedClaude);
+  assert.strictEqual(env.CLAUDE_CODE_EXECUTABLE, managedClaude);
   assert.strictEqual(env.FARMING_AGENT_BROWSER_EXECUTABLE, env.FARMING_AGENT_BROWSER_BIN);
   assert.strictEqual(env.FARMING_AGENT_BROWSER_BIN, managedAgentBrowser);
   assert.strictEqual(env.FARMING_RUNTIME_MANIFEST_ID, MANIFEST.manifestId);
   assert.deepStrictEqual(
     dependencyProgress.map(progress => [progress.dependencyId, progress.phase, progress.source]),
     [
-      ['codex', 'ready', 'system'],
-      ['claude', 'ready', 'system'],
+      ['codex', 'ready', 'managed'],
+      ['claude', 'ready', 'managed'],
       ['agentBrowser', 'ready', 'managed'],
     ],
   );
@@ -369,6 +378,7 @@ async function run() {
     configDir: partialRoot,
     dependencyIds: ['codex'],
     env: partialEnv,
+    installRuntime,
   });
   assert.deepStrictEqual(partialCodex.dependencies.map(item => item.id), ['codex']);
   assert.deepStrictEqual(
@@ -416,7 +426,7 @@ async function run() {
     platform: 'linux',
     arch: 'x64',
     installRuntime: async (_configDir, definition, selectedPlatformKey) => {
-      assert.strictEqual(definition.id, 'agentBrowser');
+      if (definition.id !== 'agentBrowser') return installRuntime(_configDir, definition);
       selectedAgentBrowserPlatform = selectedPlatformKey;
       return {
         id: 'agentBrowser',
@@ -548,10 +558,10 @@ async function run() {
   });
   assert.deepStrictEqual(
     refreshed.dependencies.map(item => item.source),
-    ['system', 'system', 'managed'],
+    ['managed', 'managed', 'managed'],
   );
-  assert.strictEqual(staleInjectedEnv.FARMING_CODEX_BIN, env.FARMING_CODEX_BIN);
-  assert.strictEqual(staleInjectedEnv.FARMING_CLAUDE_BIN, env.FARMING_CLAUDE_BIN);
+  assert.strictEqual(staleInjectedEnv.FARMING_CODEX_BIN, managedCodex);
+  assert.strictEqual(staleInjectedEnv.FARMING_CLAUDE_BIN, managedClaude);
   assert.strictEqual(
     staleInjectedEnv.FARMING_AGENT_BROWSER_BIN,
     env.FARMING_AGENT_BROWSER_BIN,
@@ -559,16 +569,19 @@ async function run() {
 
   const invalid = writeVersionExecutable(binDir, 'wrong-codex', '0.1.0');
   assert.strictEqual((await verifyExecutable(invalid, '0.146.0')).valid, false);
-  await assert.rejects(
-    prepareRuntimeDependencies({
-      configDir: path.join(root, 'wrong'),
-      env: {
-        ...env,
-        FARMING_CODEX_BIN: invalid,
-        FARMING_RUNTIME_MANIFEST_ID: '',
-      },
-    }),
-    /FARMING_CODEX_BIN must provide codex 0\.146\.0/,
+  const ignoredSystemOverride = await prepareRuntimeDependencies({
+    configDir: path.join(root, 'wrong'),
+    env: {
+      ...env,
+      FARMING_CODEX_BIN: invalid,
+      FARMING_RUNTIME_MANIFEST_ID: '',
+    },
+    installRuntime,
+  });
+  assert.strictEqual(
+    ignoredSystemOverride.dependencies.find(item => item.id === 'codex').executablePath,
+    managedCodex,
+    'managed ACP preparation must not accept a system Codex override',
   );
 
   console.log('✓ startup dependencies publish retained multi-version bindings and activate atomically');

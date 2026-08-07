@@ -47,10 +47,15 @@ type AgentExtensionGroup = {
   description: string
   available: boolean
   discoverySupported: boolean
+  acpExecutablePolicy: 'managed' | 'system'
   homes: Array<{
     id: string
     path: string
     order: number
+    acpRuntime: {
+      mode: 'managed' | 'custom'
+      executable: string
+    }
     newAgentDefaults: NewAgentDefaults
     configuration: {
       exists: boolean
@@ -70,6 +75,8 @@ type AgentHomeDraft = {
   id: string
   path: string
 }
+
+type AgentAcpRuntimeDraft = AgentExtensionGroup['homes'][number]['acpRuntime']
 
 type AgentConfiguration = {
   provider: AgentExtensionGroup
@@ -147,6 +154,16 @@ function pluginCopy(language: UiLanguage) {
     sandbox: zh ? '沙箱' : 'Sandbox',
     permission: zh ? '权限' : 'Permission',
     homeConfiguration: zh ? 'Home 配置' : 'Home configuration',
+    acpRuntime: 'ACP Runtime',
+    managedAcpRuntime: zh ? 'Farming 管理' : 'Farming managed',
+    providerAcpRuntime: zh ? 'Provider 默认' : 'Provider default',
+    customAcpRuntime: zh ? '自定义 executable' : 'Custom executable',
+    customAcpExecutable: zh ? 'Executable 路径' : 'Executable path',
+    customAcpExecutablePlaceholder: '/opt/codex/bin/codex',
+    acpRuntimeHint: zh
+      ? '仅影响这个 Home 新建的 Chat；Terminal 继续使用独立的系统 CLI 解析策略。'
+      : 'Affects only new Chat sessions in this Home; Terminal keeps its independent system CLI policy.',
+    applyAcpRuntime: zh ? '应用 Runtime' : 'Apply runtime',
     inheritConfiguration: (filePath: string) => zh
       ? `继承 ${filePath}`
       : `Inherited from ${filePath}`,
@@ -159,6 +176,7 @@ function pluginCopy(language: UiLanguage) {
     homeNamePlaceholder: zh ? '例如 work' : 'e.g. work',
     homePathPlaceholder: '~/.codex-work',
     invalidHome: zh ? '请输入有效且不重复的 Home 名称和路径。' : 'Enter a valid, unique Home name and path.',
+    invalidAcpExecutable: zh ? '请输入自定义 ACP executable 的绝对路径。' : 'Enter an absolute path for the custom ACP executable.',
     saveAgentFailed: zh ? 'Agent 设置保存失败' : 'Failed to save Agent settings',
     confirmRemoveAgent: (name: string) => zh ? `删除 ${name}？` : `Remove ${name}?`,
     loadingAgentExtensions: zh ? '正在读取 Agent 扩展…' : 'Loading Agent extensions…',
@@ -397,10 +415,17 @@ function normalizeAgentExtensionGroups(rawGroups: AgentExtensionGroup[]): AgentE
   return rawGroups.map(provider => ({
     ...provider,
     available: provider.available !== false,
+    acpExecutablePolicy: provider.acpExecutablePolicy === 'managed' ? 'managed' : 'system',
     homes: (provider.homes || []).map(home => ({
       ...home,
       path: String(home.path || ''),
       order: Number.isFinite(Number(home.order)) ? Number(home.order) : fallbackOrder++,
+      acpRuntime: {
+        mode: home.acpRuntime?.mode === 'custom' ? 'custom' : 'managed',
+        executable: home.acpRuntime?.mode === 'custom'
+          ? String(home.acpRuntime.executable || '')
+          : '',
+      },
       newAgentDefaults: {
         model: 'inherit',
         reasoning: 'inherit',
@@ -439,9 +464,20 @@ function settingsHomes(groups: AgentExtensionGroup[]) {
       id: home.id,
       path: home.path,
       order: home.order,
+      acpRuntime: {
+        mode: home.acpRuntime.mode,
+        executable: home.acpRuntime.mode === 'custom' ? home.acpRuntime.executable : '',
+      },
       newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
     })),
   ]))
+}
+
+function acpRuntimeDrafts(groups: AgentExtensionGroup[]) {
+  return Object.fromEntries(groups.flatMap(provider => provider.homes.map(home => [
+    agentConfigurationKey(provider.id, home.id),
+    { ...home.acpRuntime },
+  ])))
 }
 
 function homeIdForPath(homePath: string) {
@@ -503,6 +539,7 @@ export function PluginsPanel({
   const [agentGroupsError, setAgentGroupsError] = useState('')
   const [agentSaving, setAgentSaving] = useState(false)
   const [agentDraft, setAgentDraft] = useState<AgentHomeDraft | null>(null)
+  const [agentAcpRuntimeDrafts, setAgentAcpRuntimeDrafts] = useState<Record<string, AgentAcpRuntimeDraft>>({})
   const [draggingAgentKey, setDraggingAgentKey] = useState('')
   const [selectedExtension, setSelectedExtension] = useState<SelectedAgentExtension | null>(null)
   const selectedExtensionTriggerRef = useRef<HTMLButtonElement | null>(null)
@@ -575,7 +612,9 @@ export function PluginsPanel({
         || agentSaveRequestRef.current
       ) return
       retryOnReconnectRef.current = false
-      setAgentGroups(normalizeAgentExtensionGroups(Array.isArray(data.agents) ? data.agents : []))
+      const nextGroups = normalizeAgentExtensionGroups(Array.isArray(data.agents) ? data.agents : [])
+      setAgentGroups(nextGroups)
+      setAgentAcpRuntimeDrafts(acpRuntimeDrafts(nextGroups))
     } catch (loadError) {
       if (
         agentGroupsRequestRef.current !== requestId
@@ -694,6 +733,7 @@ export function PluginsPanel({
             id: homeId,
             path: homePath,
             order: nextOrder,
+            acpRuntime: { mode: 'managed', executable: '' } satisfies AgentAcpRuntimeDraft,
             newAgentDefaults: {
               model: 'inherit',
               reasoning: 'inherit',
@@ -723,6 +763,45 @@ export function PluginsPanel({
       : provider)
     void saveAgentGroups(nextGroups)
   }, [agentGroups, agentSaving, copy, saveAgentGroups])
+
+  const updateAgentAcpRuntimeDraft = useCallback((
+    key: string,
+    patch: Partial<AgentAcpRuntimeDraft>,
+  ) => {
+    setAgentAcpRuntimeDrafts(current => ({
+      ...current,
+      [key]: {
+        mode: current[key]?.mode === 'custom' ? 'custom' : 'managed',
+        executable: current[key]?.executable || '',
+        ...patch,
+      },
+    }))
+  }, [])
+
+  const applyAgentAcpRuntime = useCallback((providerId: string, homeId: string) => {
+    if (agentSaving) return
+    const key = agentConfigurationKey(providerId, homeId)
+    const draft = agentAcpRuntimeDrafts[key] || { mode: 'managed', executable: '' }
+    if (draft.mode === 'custom' && !draft.executable.trim()) {
+      setAgentGroupsError(copy.invalidAcpExecutable)
+      return
+    }
+    const nextGroups = agentGroups.map(provider => provider.id === providerId
+      ? {
+          ...provider,
+          homes: provider.homes.map(home => home.id === homeId
+            ? {
+                ...home,
+                acpRuntime: {
+                  mode: draft.mode,
+                  executable: draft.mode === 'custom' ? draft.executable.trim() : '',
+                },
+              }
+            : home),
+        }
+      : provider)
+    void saveAgentGroups(nextGroups)
+  }, [agentAcpRuntimeDrafts, agentGroups, agentSaving, copy.invalidAcpExecutable, saveAgentGroups])
 
   const reorderAgentConfigurations = useCallback((sourceKey: string, targetKey: string) => {
     if (!sourceKey || sourceKey === targetKey || agentSaving) return
@@ -1459,6 +1538,7 @@ export function PluginsPanel({
         ) : agentConfigurations.map(configuration => {
           const { provider, home } = configuration
           const key = agentConfigurationKey(provider.id, home.id)
+          const acpRuntimeDraft = agentAcpRuntimeDrafts[key] || home.acpRuntime
           const extensionCount = home.extensions.length
           const configurationSummary = home.configuration.summary.length > 0
             ? home.configuration.summary.map(entry => (
@@ -1539,6 +1619,49 @@ export function PluginsPanel({
               <div className="code-plugin-agent-configuration">
                 <strong>{copy.homeConfiguration}</strong>
                 <span>{configurationSummary}</span>
+              </div>
+
+              <div className="code-plugin-agent-runtime">
+                <CodeSelect
+                  className="code-plugin-select"
+                  label={copy.acpRuntime}
+                  value={acpRuntimeDraft.mode}
+                  disabled={agentSaving}
+                  options={[
+                    {
+                      value: 'managed',
+                      label: provider.acpExecutablePolicy === 'managed'
+                        ? copy.managedAcpRuntime
+                        : copy.providerAcpRuntime,
+                    },
+                    { value: 'custom', label: copy.customAcpRuntime },
+                  ]}
+                  onChange={value => updateAgentAcpRuntimeDraft(key, {
+                    mode: value === 'custom' ? 'custom' : 'managed',
+                  })}
+                />
+                {acpRuntimeDraft.mode === 'custom' ? (
+                  <label>
+                    <span>{copy.customAcpExecutable}</span>
+                    <input
+                      type="text"
+                      value={acpRuntimeDraft.executable}
+                      placeholder={copy.customAcpExecutablePlaceholder}
+                      disabled={agentSaving}
+                      onChange={event => updateAgentAcpRuntimeDraft(key, {
+                        executable: event.target.value,
+                      })}
+                    />
+                  </label>
+                ) : null}
+                <p>{copy.acpRuntimeHint}</p>
+                <button
+                  type="button"
+                  disabled={agentSaving}
+                  onClick={() => applyAgentAcpRuntime(provider.id, home.id)}
+                >
+                  {copy.applyAcpRuntime}
+                </button>
               </div>
 
               {!provider.discoverySupported ? (

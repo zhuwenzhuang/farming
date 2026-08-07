@@ -725,6 +725,10 @@ class FarmingSessionStore {
       provider: parsed ? parsed.provider : (typeof agent.providerSessionProvider === 'string' ? agent.providerSessionProvider : ''),
       providerHomeId: parsed ? parsed.providerHomeId : (typeof agent.providerHomeId === 'string' ? agent.providerHomeId : ''),
       providerHomePath: typeof agent.providerHomePath === 'string' ? agent.providerHomePath : '',
+      acpRuntimeMode: agent.acpRuntimeMode === 'custom' ? 'custom' : 'managed',
+      acpRuntimeExecutable: typeof agent.acpRuntimeExecutable === 'string'
+        ? agent.acpRuntimeExecutable
+        : '',
       providerSessionId: parsed ? parsed.sessionId : (typeof agent.providerSessionId === 'string' ? agent.providerSessionId : ''),
       providerSessionKey,
       providerSessionTemporary: agent.providerSessionTemporary === true,

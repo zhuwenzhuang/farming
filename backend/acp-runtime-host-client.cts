@@ -14,6 +14,7 @@ import {
   normalizeAcpRuntimeHostIdentity,
 } from './acp-runtime-host-identity.cjs';
 import { acpRuntimeHostSocketPath } from './acp-runtime-host-path.cjs';
+import { runtimeExecutableInvocation } from './runtime-executable-invocation.cjs';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -78,6 +79,26 @@ function mutationMethod(method: string): boolean {
   ].includes(method);
 }
 
+function acpRuntimeHostSpawnCommand(
+  hostScript: string,
+  env: NodeJS.ProcessEnv,
+  packaged = Boolean((process as NodeJS.Process & { pkg?: unknown }).pkg),
+  platform: NodeJS.Platform | string = process.platform,
+): { command: string; args: string[] } {
+  const sourceHostScript = hostScript.endsWith('.cjs')
+    ? hostScript.slice(0, -4) + '.cts'
+    : '';
+  const args = packaged
+    ? ['--acp-runtime-host']
+    : (!fs.existsSync(hostScript) && sourceHostScript && fs.existsSync(sourceHostScript)
+      ? ['--import', require.resolve('tsx'), sourceHostScript]
+      : [hostScript]);
+  const executable = packaged
+    ? process.execPath
+    : (env.FARMING_NODE_BIN || process.execPath);
+  return runtimeExecutableInvocation(executable, args, env, platform);
+}
+
 class AcpRuntimeHostClient extends EventEmitter {
   readonly configDir: string;
   readonly socketPath: string;
@@ -140,22 +161,15 @@ class AcpRuntimeHostClient extends EventEmitter {
 
   spawnHost(): void {
     if (this.spawnHostOverride) return this.spawnHostOverride();
-    const sourceHostScript = this.hostScript.endsWith('.cjs')
-      ? this.hostScript.slice(0, -4) + '.cts'
-      : '';
-    const packaged = Boolean((process as NodeJS.Process & { pkg?: unknown }).pkg);
-    const args = packaged
-      ? ['--acp-runtime-host']
-      : (!fs.existsSync(this.hostScript) && sourceHostScript && fs.existsSync(sourceHostScript)
-        ? ['--import', require.resolve('tsx'), sourceHostScript]
-        : [this.hostScript]);
-    const child = spawn(process.execPath, args, {
+    const env = {
+      ...process.env,
+      FARMING_CONFIG_DIR: this.configDir,
+      FARMING_ACP_RUNTIME_HOST_BUILD_ID: acpRuntimeHostIdentity().buildId,
+    };
+    const spawnCommand = acpRuntimeHostSpawnCommand(this.hostScript, env);
+    const child = spawn(spawnCommand.command, spawnCommand.args, {
       detached: true,
-      env: {
-        ...process.env,
-        FARMING_CONFIG_DIR: this.configDir,
-        FARMING_ACP_RUNTIME_HOST_BUILD_ID: acpRuntimeHostIdentity().buildId,
-      },
+      env,
       stdio: 'ignore',
       windowsHide: true,
     });
@@ -607,4 +621,4 @@ class AcpRuntimeHostClient extends EventEmitter {
   }
 }
 
-export { AcpRuntimeHostClient };
+export { AcpRuntimeHostClient, acpRuntimeHostSpawnCommand };

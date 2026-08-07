@@ -43,6 +43,10 @@ export type CodeModelPickerPane = 'model' | 'speed' | null
 
 export interface AgentHomeSetting {
   id: string
+  acpRuntime?: {
+    mode: 'managed' | 'custom'
+    executable: string
+  }
   newAgentDefaults?: {
     model: string
     reasoning: string

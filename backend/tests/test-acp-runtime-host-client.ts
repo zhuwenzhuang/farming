@@ -4,7 +4,7 @@ const os = require('os');
 const path = require('path');
 const { EventEmitter } = require('events');
 
-const { AcpRuntimeHostClient } = require('../acp-runtime-host-client.cts');
+const { AcpRuntimeHostClient, acpRuntimeHostSpawnCommand } = require('../acp-runtime-host-client.cts');
 const { AcpRuntimeHostProcess } = require('../acp-runtime-host-process.cts');
 const { promptContentHash } = require('../acp-runtime-host-service.cts');
 
@@ -67,6 +67,23 @@ async function waitFor(predicate, message) {
 }
 
 async function main() {
+  assert.deepStrictEqual(
+    acpRuntimeHostSpawnCommand('/opt/farming/backend/acp-runtime-host.cjs', {
+      FARMING_NODE_BIN: '/opt/farming/node',
+      FARMING_NODE_LD: '/opt/glibc/lib/ld-linux-x86-64.so.2',
+      FARMING_NODE_LIBRARY_PATH: '/opt/glibc/lib',
+    }, false, 'linux'),
+    {
+      command: '/opt/glibc/lib/ld-linux-x86-64.so.2',
+      args: [
+        '--library-path',
+        '/opt/glibc/lib',
+        '/opt/farming/node',
+        '/opt/farming/backend/acp-runtime-host.cjs',
+      ],
+    },
+    'ACP Host must inherit the same loader-aware Node invocation as the Server and PTY Host',
+  );
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-acp-runtime-host-client-'));
   const socketPath = path.join(configDir, 'host.sock');
   const runtime = new FakeRuntime();

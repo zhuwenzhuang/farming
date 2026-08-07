@@ -27,7 +27,11 @@ function run() {
     assert.strictEqual(typeof adapter.planSession, 'function');
     assert(adapter.acp, `${adapter.id} must declare its ACP launch contract`);
     assert(adapter.acp.version);
+    assert(['managed', 'system'].includes(adapter.acp.executablePolicy));
   }
+  assert.strictEqual(getProviderAdapter('codex').acp.executablePolicy, 'managed');
+  assert.strictEqual(getProviderAdapter('claude').acp.executablePolicy, 'managed');
+  assert.strictEqual(getProviderAdapter('opencode').acp.executablePolicy, 'system');
   for (const provider of ['codex', 'claude', 'opencode', 'qoder', 'qwen']) {
     assert.strictEqual(providerSupportsSharedAcpRuntime(provider), true);
   }

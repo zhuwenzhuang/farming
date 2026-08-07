@@ -105,6 +105,7 @@ function run() {
       id: 'default',
       path: '~/.codex',
       order: 0,
+      acpRuntime: { mode: 'managed', executable: '' },
       newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
     });
     assert.strictEqual(settings.codexRuntimeMode, undefined);
@@ -383,6 +384,7 @@ function run() {
             id: 'work',
             path: '~/.codex-work',
             order: 1,
+            acpRuntime: { mode: 'custom', executable: '~/bin/codex-work' },
             newAgentDefaults: { model: 'gpt-5.6-sol', reasoning: 'high', fast: 'on' },
           },
         ],
@@ -403,6 +405,18 @@ function run() {
       modelPreset: 'config',
     });
     assert.strictEqual(manager.getSettings().agentHomes.codex[1].order, 1);
+    assert.deepStrictEqual(manager.getAgentHome('codex', 'work').acpRuntime, {
+      mode: 'custom',
+      executable: '~/bin/codex-work',
+    });
+    assert.throws(() => manager.updateSettings({
+      agentHomes: {
+        ...manager.getSettings().agentHomes,
+        codex: manager.getSettings().agentHomes.codex.map(home => home.id === 'work'
+          ? { ...home, acpRuntime: { mode: 'custom', executable: '' } }
+          : home),
+      },
+    }), /custom ACP runtime requires an executable/i);
     assert.throws(() => manager.updateSettings({
       agentHomes: {
         ...manager.getSettings().agentHomes,
@@ -471,6 +485,7 @@ function run() {
             id: 'work',
             path: '~/.codex-work',
             order: 1,
+            acpRuntime: { mode: 'custom', executable: '~/bin/codex-work' },
             newAgentDefaults: { model: 'gpt-5.6-sol', reasoning: 'high', fast: 'on' },
           },
         ],

@@ -248,7 +248,7 @@ import { listAvailableAgents, resolveTerminalCodexExecutable } from './executabl
 import { readClaudeSettingsSummary } from './claude-settings.cjs';
 import { listCodexModelOptions } from './codex-models.cjs';
 import { readProviderHomeConfiguration } from './provider-home-configuration.cjs';
-import { applyProviderHomeEnvironment, providerCapabilities, providerConversationForkCapability } from './provider-adapters.cjs';
+import { applyProviderHomeEnvironment, getProviderAdapter, providerCapabilities, providerConversationForkCapability } from './provider-adapters.cjs';
 import { listCodexSessions } from './codex-session-history.cjs';
 import { buildAgentSessionResumeCommand, findAgentSession, isSafeSessionId, normalizeProvider, paginateAgentSessions, resolveCodexResumeModelProvider, searchAgentSessions } from './agent-session-history.cjs';
 import { findActiveAgentClaimingSession, mainPageAgentSessionKey, mainPageAgentSessionFromKey, mainPageAgentSessionsToAutoResume, resumedAgentSource } from './main-page-session.cjs';
@@ -1130,6 +1130,7 @@ app.get(routePath(BASE_PATH, '/api/agent-extensions'), async (_req, res) => {
             id: 'default',
             path: '',
             order: Number.MAX_SAFE_INTEGER,
+            acpRuntime: { mode: 'managed' as const, executable: '' },
             newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' as const },
           }];
       return {
@@ -1138,6 +1139,7 @@ app.get(routePath(BASE_PATH, '/api/agent-extensions'), async (_req, res) => {
         description: agent?.description || '',
         available: Boolean(agent),
         discoverySupported: true,
+        acpExecutablePolicy: getProviderAdapter(provider)?.acp.executablePolicy || 'system',
         homes: await Promise.all(homes.map(async home => {
           if (home.path) retainedHomes.push({ provider, path: home.path });
           const inventory = await agentExtensionInventory.get(provider, home.path);
@@ -1145,6 +1147,7 @@ app.get(routePath(BASE_PATH, '/api/agent-extensions'), async (_req, res) => {
             id: home.id,
             path: home.path,
             order: home.order,
+            acpRuntime: home.acpRuntime,
             newAgentDefaults: home.newAgentDefaults,
             configuration: {
               rootId: rootIdForPath(home.path),
@@ -2892,6 +2895,41 @@ app.post(routePath(BASE_PATH, '/api/settings'), express.json(), async (req, res)
     settingsPatch.computerExtensionEnabled = true;
   }
   const changesAgentHomes = Object.prototype.hasOwnProperty.call(settingsPatch, 'agentHomes');
+  if (changesAgentHomes) {
+    try {
+      const normalizedHomes = configManager.normalizeAgentHomes(settingsPatch.agentHomes);
+      for (const [provider, homes] of Object.entries(normalizedHomes)) {
+        for (const home of homes) {
+          if (home.acpRuntime.mode !== 'custom') continue;
+          const executable = configManager.expandWorkspacePath(home.acpRuntime.executable);
+          if (!path.isAbsolute(executable)) {
+            const error = new Error(`${provider} Agent Home "${home.id}" custom ACP executable must be an absolute path`) as Error & { code?: string; status?: number };
+            error.code = 'AGENT_HOME_ACP_RUNTIME_INVALID';
+            error.status = 400;
+            throw error;
+          }
+          try {
+            await fs.promises.access(executable, fs.constants.X_OK);
+          } catch (cause) {
+            const error = new Error(
+              `${provider} Agent Home "${home.id}" custom ACP executable is not executable: ${executable}`,
+              { cause },
+            ) as Error & { code?: string; status?: number };
+            error.code = 'AGENT_HOME_ACP_RUNTIME_INVALID';
+            error.status = 400;
+            throw error;
+          }
+        }
+      }
+    } catch (caught) {
+      const error = caughtError(caught);
+      res.status(Number(error.status) || 400).json({
+        error: error.message || 'Agent Home ACP runtime configuration is invalid',
+        code: error.code || 'AGENT_HOME_ACP_RUNTIME_INVALID',
+      });
+      return;
+    }
+  }
   const changesBrowserExtension = Object.prototype.hasOwnProperty.call(settingsPatch, 'browserExtensionEnabled');
   const changesBrowserConfiguration = browserConfigurationKeys.some(key =>
     Object.prototype.hasOwnProperty.call(settingsPatch, key)

@@ -33,6 +33,7 @@ declare global {
       }
     }
     __farmingTerminalTest?: {
+      prefetchCheckpoint: (agentId: string) => Promise<void>
       getCellCenter: (agentId: string, col: number, row: number) => { x: number; y: number } | null
       getRows: (agentId: string, rowCount?: number) => string[]
       getViewport: (agentId: string) => {

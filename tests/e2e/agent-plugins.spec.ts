@@ -94,15 +94,18 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
 
   const openCode = panel.getByTestId('code-plugin-section-agent-opencode-default')
   await expect(openCode.getByText(/Inherited from|was not found/)).toBeVisible()
-  await expect(openCode.getByRole('combobox')).toHaveCount(0)
+  await expect(openCode.getByRole('combobox', { name: 'ACP Runtime' })).toBeVisible()
+  await expect(openCode.getByRole('combobox')).toHaveCount(1)
   await expect(panel.locator('.code-plugin-extension')).toHaveCount(0)
 
   const claudePrimary = panel.getByTestId('code-plugin-section-agent-claude-primary')
   const claudeWork = panel.getByTestId('code-plugin-section-agent-claude-work')
   await expect(claudePrimary.locator('.code-plugin-agent-configuration')).toContainText('Model: claude-primary-only')
   await expect(claudeWork.locator('.code-plugin-agent-configuration')).toContainText('Model: claude-work-only')
-  await expect(claudePrimary.getByRole('combobox')).toHaveCount(0)
-  await expect(claudeWork.getByRole('combobox')).toHaveCount(0)
+  await expect(claudePrimary.getByRole('combobox', { name: 'ACP Runtime' })).toBeVisible()
+  await expect(claudeWork.getByRole('combobox', { name: 'ACP Runtime' })).toBeVisible()
+  await expect(claudePrimary.getByRole('combobox')).toHaveCount(1)
+  await expect(claudeWork.getByRole('combobox')).toHaveCount(1)
 
   const work = panel.getByTestId('code-plugin-section-agent-codex-work')
   await expect(work.getByText('work', { exact: true })).toBeVisible()
@@ -169,6 +172,67 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
   page.once('dialog', dialog => dialog.accept())
   await review.getByRole('button', { name: 'Remove', exact: true }).click()
   await expect(review).toHaveCount(0)
+})
+
+test('Plugins validates and persists the ACP runtime for one exact Agent Home', async ({ page, workspaceRoot }) => {
+  const customExecutable = path.join(workspaceRoot, 'custom-codex')
+  fs.writeFileSync(customExecutable, '#!/usr/bin/env bash\nexit 0\n', { mode: 0o755 })
+
+  await openFarming(page)
+  await page.getByTestId('code-nav-plugins').click()
+  const panel = page.getByTestId('code-plugins-panel')
+  await panel.getByTestId('code-plugin-tab-homes').click()
+  const codexHome = panel.getByTestId('code-plugin-section-agent-codex-default')
+  const runtimeSelect = codexHome.getByRole('combobox', { name: 'ACP Runtime' })
+  await expect(runtimeSelect).toHaveAttribute('data-value', 'managed')
+
+  await selectCodeOption(runtimeSelect, 'custom')
+  await codexHome.getByLabel('Executable path').fill('relative/custom-codex')
+  const invalidResponse = page.waitForResponse(response => (
+    response.url().endsWith('/farming/api/settings')
+    && response.request().method() === 'POST'
+  ))
+  await codexHome.getByRole('button', { name: 'Apply runtime', exact: true }).click()
+  expect((await invalidResponse).status()).toBe(400)
+  await expect(panel.getByRole('alert')).toContainText('must be an absolute path')
+
+  await selectCodeOption(runtimeSelect, 'custom')
+  await codexHome.getByLabel('Executable path').fill(customExecutable)
+  let authoritativeReads = 0
+  await page.route('**/farming/api/agent-extensions', async route => {
+    authoritativeReads += 1
+    await route.continue()
+  })
+  const savedResponse = page.waitForResponse(response => (
+    response.url().endsWith('/farming/api/settings')
+    && response.request().method() === 'POST'
+  ))
+  await codexHome.getByRole('button', { name: 'Apply runtime', exact: true }).click()
+  expect((await savedResponse).ok()).toBeTruthy()
+  await expect.poll(() => authoritativeReads).toBeGreaterThan(0)
+  await expect(runtimeSelect).toHaveAttribute('data-value', 'custom')
+  await expect(codexHome.getByLabel('Executable path')).toHaveValue(customExecutable)
+
+  await page.reload()
+  await page.getByTestId('code-nav-plugins').click()
+  await panel.getByTestId('code-plugin-tab-homes').click()
+  const reloadedCodexHome = panel.getByTestId('code-plugin-section-agent-codex-default')
+  const reloadedRuntimeSelect = reloadedCodexHome.getByRole('combobox', { name: 'ACP Runtime' })
+  await expect(reloadedRuntimeSelect).toHaveAttribute('data-value', 'custom')
+  await expect(reloadedCodexHome.getByLabel('Executable path')).toHaveValue(customExecutable)
+
+  await selectCodeOption(reloadedRuntimeSelect, 'managed')
+  await reloadedCodexHome.getByRole('button', { name: 'Apply runtime', exact: true }).click()
+  await expect(reloadedRuntimeSelect).toHaveAttribute('data-value', 'managed')
+  const settingsResponse = await page.request.get('/farming/api/settings')
+  expect(settingsResponse.ok()).toBeTruthy()
+  const settings = await settingsResponse.json() as {
+    settings?: { agentHomes?: Record<string, Array<{ id: string; acpRuntime?: { mode?: string; executable?: string } }>> }
+  }
+  expect(settings.settings?.agentHomes?.codex?.find(home => home.id === 'default')?.acpRuntime).toEqual({
+    mode: 'managed',
+    executable: '',
+  })
 })
 
 test('Plugins keeps cached Agent Home configurations visible while refreshing', async ({ page }) => {

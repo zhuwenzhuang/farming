@@ -84,6 +84,7 @@ interface ProviderAcpPromptSuggestion {
 type ProviderAcpExtensionEvent = ProviderAcpPromptSuggestion;
 
 interface ProviderAcpContract {
+  executablePolicy: 'managed' | 'system';
   packageName?: string;
   version: string;
   sharedRuntime?: boolean;
@@ -409,6 +410,7 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
     planSession: codexSessionPlan,
     terminalResumeArgs: (args, sessionId) => ['resume', sessionId, ...args],
     acp: {
+      executablePolicy: 'managed',
       packageName: '@agentclientprotocol/codex-acp',
       version: '1.1.4',
       sharedRuntime: true,
@@ -440,6 +442,7 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
     supportedRuntimes: ['terminal', 'acp'],
     planSession: (rawArgs, launchArgs) => explicitSessionPlan('claude', rawArgs, launchArgs),
     acp: {
+      executablePolicy: 'managed',
       packageName: '@agentclientprotocol/claude-agent-acp',
       version: '0.59.0',
       sharedRuntime: true,
@@ -481,6 +484,7 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
       ];
     },
     acp: {
+      executablePolicy: 'system',
       version: 'native',
       sharedRuntime: true,
       launch: options => ({
@@ -514,6 +518,7 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
     supportedRuntimes: ['terminal', 'acp'],
     planSession: (rawArgs, launchArgs) => explicitSessionPlan('qoder', rawArgs, launchArgs),
     acp: {
+      executablePolicy: 'system',
       version: 'native',
       sharedRuntime: true,
       launch: options => ({
@@ -562,6 +567,7 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
       ];
     },
     acp: {
+      executablePolicy: 'system',
       version: 'native',
       sharedRuntime: true,
       launch: options => ({

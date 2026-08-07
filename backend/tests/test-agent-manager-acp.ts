@@ -330,6 +330,46 @@ async function run() {
     await manager.dispose();
   }
 
+  let customLaunchExecutable = '';
+  let persistedCustomAgent = null;
+  const customRuntime = new AcpRuntime({
+    ...TEST_PROCESS_IDENTITY,
+    resolveLaunch: (_provider, options) => {
+      customLaunchExecutable = options.executable;
+      return { command: process.execPath, args: ['--import', require.resolve('tsx'), fixture], version: 'test' };
+    },
+  });
+  const customManager = new AgentManager(config({
+    getAgentHome: () => ({
+      id: 'default',
+      path: path.join(process.env.HOME, '.codex'),
+      acpRuntime: { mode: 'custom', executable: process.execPath },
+    }),
+    ensureAgentSessionRecord: agent => {
+      persistedCustomAgent = { ...agent };
+      return 'fsess-custom-runtime';
+    },
+  }), {
+    acpRuntime: customRuntime,
+    skipExecutablePreflight: true,
+  });
+  try {
+    const customAgentId = await new Promise(resolve => {
+      customManager.startAgent('codex', process.cwd(), (id, error) => {
+        assert.ifError(error);
+        resolve(id);
+      }, { agentRuntimeMode: 'chat', wantsMain: false });
+    });
+    const customAgent = customManager.agents.get(customAgentId);
+    assert.strictEqual(customLaunchExecutable, process.execPath);
+    assert.strictEqual(customAgent.acpRuntimeMode, 'custom');
+    assert.strictEqual(customAgent.acpRuntimeExecutable, process.execPath);
+    assert.strictEqual(persistedCustomAgent.acpRuntimeMode, 'custom');
+    assert.strictEqual(persistedCustomAgent.acpRuntimeExecutable, process.execPath);
+  } finally {
+    await customManager.dispose();
+  }
+
   const sharedProofRuntime = new AcpRuntime();
   sharedProofRuntime.unregisterAgentAndWait = async () => false;
   const persistedStopAttempts = [];
@@ -774,6 +814,43 @@ async function run() {
   } finally {
     await providerManager.dispose();
     fs.rmSync(providerFarmingDir, { recursive: true, force: true });
+  }
+
+  const unavailableHostSessionKey = 'agent-session:codex:aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+  const unavailableHostRuntime = {
+    bindings: new Map(),
+    initialize: async () => {
+      throw new Error('host socket missing');
+    },
+    on: () => {},
+    dispose: async () => {},
+  };
+  const unavailableHostManager = new AgentManager(config({
+    getMainPageSessionKeys: () => [unavailableHostSessionKey],
+    listAgentSessionRecords: () => [{
+      id: 'fsess-unavailable-host',
+      runtimeAgentId: 'agent-unavailable-host',
+      agentRuntimeMode: 'acp',
+      providerSessionProvider: 'codex',
+      providerSessionId: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+      providerSessionKey: unavailableHostSessionKey,
+      cwd: process.cwd(),
+      archived: false,
+    }],
+    ensureAgentSessionRecord: () => 'fsess-unavailable-host',
+  }), {
+    acpRuntime: unavailableHostRuntime,
+    skipExecutablePreflight: true,
+  });
+  try {
+    await unavailableHostManager.recoverAcpSessions();
+    const unavailableAgent = unavailableHostManager.agents.get('agent-unavailable-host');
+    assert(unavailableAgent, 'ACP Host failure should retain the affected Chat row');
+    assert.strictEqual(unavailableAgent.runtimeBinding.state, 'error');
+    assert.match(unavailableAgent.runtimeBinding.error, /host socket missing/);
+    await unavailableHostManager.whenRecovered();
+  } finally {
+    await unavailableHostManager.dispose();
   }
 
   const blockedRecoverySessionKey = 'agent-session:codex:11111111-2222-4333-8444-555555555555';

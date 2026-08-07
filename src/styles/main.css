@@ -12377,7 +12377,8 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
 .code-plugin-agent-add,
 .code-plugin-agent-actions button,
 .code-plugin-agent-path-edit button,
-.code-plugin-agent-form-actions button {
+.code-plugin-agent-form-actions button,
+.code-plugin-agent-runtime button {
   min-height: 30px;
   padding: 0 11px;
   border: 1px solid #d9ddd6;
@@ -12424,7 +12425,9 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
 .code-plugin-agent-path-edit button:hover:not(:disabled),
 .code-plugin-agent-path-edit button:focus-visible:not(:disabled),
 .code-plugin-agent-form-actions button:hover:not(:disabled),
-.code-plugin-agent-form-actions button:focus-visible:not(:disabled) {
+.code-plugin-agent-form-actions button:focus-visible:not(:disabled),
+.code-plugin-agent-runtime button:hover:not(:disabled),
+.code-plugin-agent-runtime button:focus-visible:not(:disabled) {
   border-color: #bfc6bb;
   background: #f5f7f3;
   outline: 0;
@@ -12439,7 +12442,8 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
 .code-plugin-agent-add:disabled,
 .code-plugin-agent-actions button:disabled,
 .code-plugin-agent-path-edit button:disabled,
-.code-plugin-agent-form-actions button:disabled {
+.code-plugin-agent-form-actions button:disabled,
+.code-plugin-agent-runtime button:disabled {
   cursor: default;
   opacity: 0.48;
 }
@@ -12629,6 +12633,50 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.code-plugin-agent-runtime {
+  margin: 0 24px 4px 50px;
+  display: grid;
+  grid-template-columns: minmax(170px, 0.7fr) minmax(240px, 1.3fr) auto;
+  align-items: end;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #e8ebe6;
+  border-radius: 10px;
+  background: #fafbf9;
+}
+
+.code-plugin-agent-runtime label {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.code-plugin-agent-runtime label > span {
+  color: #6f796f;
+  font-size: 13px;
+}
+
+.code-plugin-agent-runtime input {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid #d9ddd6;
+  border-radius: 8px;
+  background: #fff;
+  color: #2f3831;
+  font: inherit;
+  font-size: 14px;
+}
+
+.code-plugin-agent-runtime p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #7a847a;
+  font-size: 12px;
+  line-height: 17px;
 }
 
 .code-plugin-agent-defaults {
@@ -13082,8 +13130,13 @@ body.code-mode.code-compact-layout .code-empty-workspace-compact {
 
 @media (max-width: 720px) {
   .code-plugin-agent-form,
-  .code-plugin-agent-defaults {
+  .code-plugin-agent-defaults,
+  .code-plugin-agent-runtime {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .code-plugin-agent-runtime {
+    margin-right: 12px;
   }
 
   .code-plugin-agent-header {

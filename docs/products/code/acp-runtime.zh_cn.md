@@ -21,6 +21,12 @@ ACP 与 Native Terminal 使用相互独立的 Executable Policy。ACP 使用 Far
 锁定的 Runtime Artifact；Terminal 遵循 Native Terminal Policy。更新 ACP Pin 必须验证
 Protocol、Integrity、Recovery 与 Chat/Terminal Compatibility。
 
+默认 ACP Launch 是不可变的 Farming-managed Image，统一绑定 Adapter 版本、Provider CLI
+版本、Protocol/Build Identity、Patch，以及 Node 或兼容 Loader 的启动方式。Provider 加
+Agent Home 可以在 Plugins 中显式选择自定义 Provider Executable；Custom 是独立 Launch
+Identity，绝不静默回退 Managed Image 或 Terminal Executable。已有 Session 保留创建时的
+精确选择。环境变量只作为兼容输入，不是普通用户配置的 Authority。
+
 只有 Live Agent 明确声明时，Farming 才启用标准 ACP Session、Prompt、Cancel、Config、
 Authentication、Elicitation、Terminal、Media、Plan 与 Fork 能力。Provider Extension 必须
 带版本、可协商，并留在 Adapter 边界。
@@ -127,6 +133,10 @@ Recoverable Error 与 Terminal Failure。Idle 是普通 Live State；Session 会
 Adapter 或 Host 异常退出必须进入明确恢复或失败。恢复需要证明旧进程 Ownership，恢复同一
 Provider Session 与私有 Scope，重新加载权威 History，并保留显式 Config Override。断线时
 正在执行的 Turn 结束为失败或不确定，绝不能静默重放。
+
+ACP Runtime Host 无法启动或重连时，只把受影响 Chat Session 标记为不可用，不得阻塞
+Server Ready、Native Terminal Recovery、Files 或 Plugins。一个 Runtime Family 的恢复不能
+成为无关 Runtime Family 的全局 Lifecycle Barrier。
 
 Chat/Terminal 切换是真实 Runtime Replacement；只有证明可恢复时才保留同一 Provider
 Conversation。Turn 活跃时拒绝切换。目标 Runtime 启动失败时，Farming 恢复原 Runtime 并

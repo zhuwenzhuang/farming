@@ -28,6 +28,10 @@ interface ConfigManagerOptions {
 
 export interface AgentHome {
   id: string;
+  acpRuntime: {
+    mode: 'managed' | 'custom';
+    executable: string;
+  };
   newAgentDefaults: {
     model: string;
     reasoning: string;
@@ -235,30 +239,35 @@ const DEFAULT_AGENT_HOMES: AgentHomes = {
     id: 'default',
     path: '~/.codex',
     order: 0,
+    acpRuntime: { mode: 'managed', executable: '' },
     newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
   }],
   claude: [{
     id: 'default',
     path: '~/.claude',
     order: 1,
+    acpRuntime: { mode: 'managed', executable: '' },
     newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
   }],
   opencode: [{
     id: 'default',
     path: '~/.opencode',
     order: 2,
+    acpRuntime: { mode: 'managed', executable: '' },
     newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
   }],
   qoder: [{
     id: 'default',
     path: '~/.qoder',
     order: 3,
+    acpRuntime: { mode: 'managed', executable: '' },
     newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
   }],
   qwen: [{
     id: 'default',
     path: '~/.qwen',
     order: 4,
+    acpRuntime: { mode: 'managed', executable: '' },
     newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
   }],
 };
@@ -328,6 +337,7 @@ function cloneAgentHomes(agentHomes: AgentHomes): AgentHomes {
     cloned[provider] = Array.isArray(homes)
       ? homes.map(home => ({
           ...home,
+          acpRuntime: { ...home.acpRuntime },
           newAgentDefaults: { ...home.newAgentDefaults },
         }))
       : [];
@@ -869,6 +879,24 @@ class ConfigManager {
         }
         seenPaths.set(canonicalPath, id);
         const rawDefaults = objectRecord(record.newAgentDefaults) || {};
+        const rawAcpRuntime = objectRecord(record.acpRuntime) || {};
+        const acpRuntimeMode = rawAcpRuntime.mode === 'custom' ? 'custom' : 'managed';
+        const acpRuntimeExecutable = String(rawAcpRuntime.executable || '').trim();
+        if (
+          acpRuntimeMode === 'custom'
+          && (
+            !acpRuntimeExecutable
+            || acpRuntimeExecutable.length > 4096
+            || /[\r\n\0]/.test(acpRuntimeExecutable)
+          )
+        ) {
+          const error = new Error(
+            `${provider} Agent Home "${id}" custom ACP runtime requires an executable path`,
+          ) as Error & { code?: string; status?: number };
+          error.code = 'AGENT_HOME_ACP_RUNTIME_INVALID';
+          error.status = 400;
+          throw error;
+        }
         const model = String(rawDefaults.model || 'inherit').trim();
         const reasoning = String(rawDefaults.reasoning || 'inherit').trim();
         const fast = String(rawDefaults.fast || 'inherit').trim();
@@ -880,6 +908,10 @@ class ConfigManager {
           order: Number.isFinite(requestedOrder) && requestedOrder >= 0
             ? requestedOrder
             : (providerRank * 1000) + homeIndex,
+          acpRuntime: {
+            mode: acpRuntimeMode,
+            executable: acpRuntimeMode === 'custom' ? acpRuntimeExecutable : '',
+          },
           newAgentDefaults: {
             model: model && model.length <= 200 && !/[\r\n\0]/.test(model) ? model : 'inherit',
             reasoning: /^[A-Za-z0-9._-]{1,80}$/.test(reasoning) ? reasoning : 'inherit',
@@ -894,7 +926,11 @@ class ConfigManager {
       const defaultHome = homes[0];
       const providerHomes = normalized[provider] || [];
       if (!providerHomes.some(home => String(home.id || '').toLowerCase() === 'default')) {
-        normalized[provider] = [{ ...defaultHome }, ...providerHomes];
+        normalized[provider] = [{
+          ...defaultHome,
+          acpRuntime: { ...defaultHome.acpRuntime },
+          newAgentDefaults: { ...defaultHome.newAgentDefaults },
+        }, ...providerHomes];
       }
     }
 
@@ -1228,6 +1264,7 @@ class ConfigManager {
       : [];
     return homes.map(home => ({
       ...home,
+      acpRuntime: { ...home.acpRuntime },
       newAgentDefaults: { ...home.newAgentDefaults },
       path: this.expandWorkspacePath(home.path),
     }));
@@ -1254,6 +1291,7 @@ class ConfigManager {
         id: binding.providerHomeId,
         path: binding.providerHomePath,
         order: Number.MAX_SAFE_INTEGER,
+        acpRuntime: { mode: 'managed', executable: '' },
         newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
       });
     }

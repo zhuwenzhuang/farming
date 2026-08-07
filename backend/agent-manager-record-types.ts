@@ -153,6 +153,8 @@ export interface ComposerCommandRecord {
 
 export interface AgentRecord extends Record<string, unknown>, AgentDisplayState, AgentAttentionState, AgentShellState {
   acpFinalizedTurnHandle?: string;
+  acpRuntimeExecutable?: string;
+  acpRuntimeMode?: 'managed' | 'custom';
   agentRecordId?: string;
   capabilityRuntimeEpoch?: string;
   category?: string;
@@ -220,6 +222,8 @@ export interface AgentRecord extends Record<string, unknown>, AgentDisplayState,
 
 export interface PersistedAgentPrivateMetadata extends Record<string, unknown>, PersistedAcpSessionOptions, AgentDisplayState, AgentAttentionState {
   acpFinalizedTurnHandle?: string;
+  acpRuntimeExecutable?: string;
+  acpRuntimeMode?: 'managed' | 'custom';
   agentRecordId?: string;
   agentRecordVersion?: number;
   capabilityRuntimeEpoch?: string;
@@ -341,6 +345,10 @@ export interface DeleteProjectWorktreeOptions {
 
 export interface AgentHome {
   id: string;
+  acpRuntime: {
+    mode: 'managed' | 'custom';
+    executable: string;
+  };
   newAgentDefaults: {
     model: string;
     reasoning: string;

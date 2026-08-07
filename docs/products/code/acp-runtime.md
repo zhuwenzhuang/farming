@@ -27,6 +27,15 @@ Farming-owned, version-pinned runtime artifacts; Terminal follows the native
 Terminal policy. Updating an ACP pin requires protocol, integrity, recovery,
 and Chat/Terminal compatibility verification.
 
+The default ACP launch is an immutable Farming-managed image that binds the
+adapter version, provider CLI version, protocol/build identity, patches, and
+the Node or compatibility-loader invocation. A Provider plus Agent Home may
+instead select an explicit custom provider executable in Plugins. Custom is a
+separate launch identity and never silently falls back to the managed image or
+the Terminal executable. Existing Sessions retain the exact selection they
+were created with. Environment variables are compatibility inputs, not the
+ordinary user configuration authority.
+
 Farming may support standard ACP session, prompt, cancellation, configuration,
 authentication, elicitation, terminal, media, plan, and fork capabilities when
 the live Agent advertises them. Provider extensions must be versioned,
@@ -166,6 +175,11 @@ must prove old-process ownership, restore the same Provider Session and private
 scope, reload authoritative history, and preserve explicit configuration
 overrides. A Turn active at disconnect ends as failed or uncertain and is never
 silently replayed.
+
+Failure to start or reconnect the ACP Runtime Host marks affected Chat Sessions
+unavailable without blocking Server readiness, native Terminal recovery, Files,
+or Plugins. Recovery of one runtime family cannot become a global lifecycle
+barrier for unrelated runtime families.
 
 Chat/Terminal switching is a real runtime replacement that preserves the same
 provider conversation when resumability is proven. Switching is rejected while
