@@ -170,7 +170,7 @@ test('settings sliders stage locally and save only the released value', async ({
     }
   })
 
-  const dragToMaximum = async (target: Locator) => {
+  const dragToMaximum = async (target: Locator, whileDragging?: () => Promise<void>) => {
     await target.scrollIntoViewIfNeeded()
     const [box, range] = await Promise.all([
       target.boundingBox(),
@@ -191,6 +191,12 @@ test('settings sliders stage locally and save only the released value', async ({
     )
     await page.mouse.down()
     await page.mouse.move(
+      box!.x + box!.width / 2,
+      box!.y + box!.height / 2,
+      { steps: 10 },
+    )
+    await whileDragging?.()
+    await page.mouse.move(
       box!.x + box!.width - 2,
       box!.y + box!.height / 2,
       { steps: 20 },
@@ -198,7 +204,11 @@ test('settings sliders stage locally and save only the released value', async ({
     await page.mouse.up()
   }
 
-  await dragToMaximum(slider)
+  await dragToMaximum(slider, async () => {
+    await expect(settings.locator('.code-settings-pet-rest-value output'))
+      .toHaveText('每 30 分钟')
+    expect(writes.reminder).toBe(0)
+  })
 
   await expect(settings.locator('.code-settings-pet-rest-value output')).toHaveText('每 90 分钟')
   await expect.poll(() => writes.reminder).toBe(1)
@@ -220,6 +230,51 @@ test('settings sliders stage locally and save only the released value', async ({
     const response = await page.request.get('/farming/api/settings')
     return (await response.json()).settings?.searchTimeoutMs
   }).toBe(180_000)
+})
+
+test('pending reminder is next to off and restores the setup invitation', async ({ page }) => {
+  await page.request.post('/farming/api/settings', {
+    data: {
+      appearance: 'light',
+      language: 'zh',
+      restReminderIntervalSeconds: 50 * 60,
+    },
+  })
+  await openFarming(page)
+  await page.getByTestId('code-sidebar-options').click()
+  const settings = page.getByTestId('code-settings-panel')
+  const slider = settings.getByRole('slider', { name: '休息提醒' })
+  const offMarker = settings.locator('.code-settings-pet-rest-off-marker')
+  const pendingMarker = settings.locator('.code-settings-pet-rest-pending-marker')
+
+  await expect(offMarker).toHaveText('关闭')
+  await expect(pendingMarker).toHaveText('待定')
+  const [offBox, pendingBox] = await Promise.all([
+    offMarker.boundingBox(),
+    pendingMarker.boundingBox(),
+  ])
+  expect(offBox).not.toBeNull()
+  expect(pendingBox).not.toBeNull()
+  expect(pendingBox!.x).toBeGreaterThan(offBox!.x)
+
+  await slider.fill('1')
+  await expect(settings.locator('.code-settings-pet-rest-value output')).toHaveText('待定')
+  await expect(slider).toHaveAttribute('aria-valuetext', '待定')
+  await slider.blur()
+  await expect.poll(async () => {
+    const response = await page.request.get('/farming/api/settings')
+    return (await response.json()).settings?.restReminderIntervalSeconds
+  }).toBeNull()
+  await expect.poll(() => page.evaluate(key => (
+    JSON.parse(localStorage.getItem(key) ?? 'null')
+      ?.capabilities?.restReminder?.intervalSeconds ?? null
+  ), SETTINGS_KEY)).toBeNull()
+
+  await settings.getByRole('button', { name: '关闭', exact: true }).click()
+  await expect(page.getByTestId('pet-rest-invitation')).toBeVisible()
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await expect(page.getByTestId('app-shell')).toBeVisible()
+  await expect(page.getByTestId('pet-rest-invitation')).toBeVisible()
 })
 
 test('break reminder keeps its English status copy compact', async ({ page }) => {
@@ -315,6 +370,14 @@ test('first-use Pet setup walks from invitation to explicit style selection', as
     runtimeKey: RUNTIME_KEY,
     invitationRuntimeKey: INVITATION_RUNTIME_KEY,
   })
+  await page.route('**/farming/api/settings', async route => {
+    if (route.request().method() !== 'POST') {
+      await route.continue()
+      return
+    }
+    await new Promise(resolve => setTimeout(resolve, 1000))
+    await route.continue()
+  })
 
   await openFarming(page)
   const invitation = page.getByTestId('pet-rest-invitation')
@@ -326,7 +389,7 @@ test('first-use Pet setup walks from invitation to explicit style selection', as
 
   await invitation.getByRole('button', { name: '试用一下', exact: true }).click()
   const appearanceChoice = page.getByTestId('pet-appearance-choice')
-  await expect(appearanceChoice).toBeVisible()
+  await expect(appearanceChoice).toBeVisible({ timeout: 500 })
   await expect(invitation).toHaveCount(0)
   await expect(appearanceChoice.getByRole('button', { name: /^柔光/ }))
     .toHaveAttribute('aria-pressed', 'true')
@@ -374,6 +437,11 @@ test('first-use Pet setup walks from invitation to explicit style selection', as
 
   await appearanceChoice.getByRole('button', { name: /^黑洞/ }).click()
   await expect(appearanceChoice).toHaveCount(0)
+  const setupSuccess = page.getByTestId('pet-setup-success')
+  await expect(setupSuccess).toBeVisible()
+  await expect(setupSuccess).toContainText('休息提醒已设置为黑洞样式')
+  await expect(setupSuccess.locator('svg')).toHaveCount(1)
+  await capturePetSetupStep(page, '03-setup-success')
   await expect.poll(() => page.evaluate(key => {
     const settings = JSON.parse(localStorage.getItem(key) ?? 'null')
     return {
@@ -384,6 +452,7 @@ test('first-use Pet setup walks from invitation to explicit style selection', as
     intervalSeconds: 50 * 60,
     appearance: 'black-hole',
   })
+  await expect(setupSuccess).toHaveCount(0, { timeout: 4_000 })
 
   await page.getByTestId('code-sidebar-options').click()
   const settings = page.getByTestId('code-settings-panel')
@@ -1379,15 +1448,15 @@ test('custom reminder minutes sit between fixed slider stops', async ({ page }) 
   })
 
   await expect(customMinutes).toHaveValue('50')
-  await expect(slider).toHaveValue('5')
+  await expect(slider).toHaveValue('6')
 
   await customMinutes.fill('37')
-  await expect(slider).toHaveValue('3.7')
+  await expect(slider).toHaveValue('4.7')
 
-  await slider.fill('7')
+  await slider.fill('8')
   await slider.blur()
   await expect(customMinutes).toHaveValue('90')
-  await expect(slider).toHaveValue('7')
+  await expect(slider).toHaveValue('8')
   await expect.poll(() => page.evaluate(key => (
     JSON.parse(localStorage.getItem(key) ?? 'null')
       ?.capabilities?.restReminder?.intervalSeconds

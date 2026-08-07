@@ -11,7 +11,7 @@ import {
   resolvePetNotificationIntent,
   type PetIntent,
 } from '@/lib/pet/intents'
-import { PlayGlyph } from '@/components/IconGlyphs'
+import { CheckGlyph, PlayGlyph } from '@/components/IconGlyphs'
 import {
   PET_APPEARANCE_PREVIEW_EVENT,
   PET_SETTINGS_EVENT,
@@ -219,6 +219,14 @@ function petCopy(language: UiLanguage) {
     defaultAppearance: zh ? '默认' : 'Default',
     blackHole: zh ? '黑洞' : 'Black hole',
     blackHoleHint: zh ? '更醒目的动态提示' : 'A more noticeable animated reminder',
+    appearanceSaved: (appearance: PetAppearance) => {
+      const appearanceName = appearance === 'black-hole'
+        ? (zh ? '黑洞' : 'Black hole')
+        : (zh ? '柔光' : 'Soft glow')
+      return zh
+        ? `休息提醒已设置为${appearanceName}样式`
+        : `Break reminder set to ${appearanceName}.`
+    },
     previewAppearance: (appearance: PetAppearance) => {
       const appearanceName = appearance === 'black-hole'
         ? (zh ? '黑洞' : 'black hole')
@@ -288,8 +296,10 @@ function FarmingPetController({
     restUntil: number
   } | null>(null)
   const appearancePreviewEndRef = useRef<(() => void) | null>(null)
+  const setupSaveRef = useRef<Promise<boolean> | null>(null)
   const [startupInvitationDismissed, setStartupInvitationDismissed] = useState(false)
   const [restReminderSetupOption, setRestReminderSetupOption] = useState<'appearance' | null>(null)
+  const [setupConfirmation, setSetupConfirmation] = useState<PetAppearance | null>(null)
   const [settingsError, setSettingsError] = useState('')
   const [persistenceNoticeDismissed, setPersistenceNoticeDismissed] = useState(false)
   const [countdownNow, setCountdownNow] = useState(Date.now)
@@ -331,7 +341,7 @@ function FarmingPetController({
     }
     const onSetting = (event: Event) => {
       const detail = (event as CustomEvent<{
-        intervalSeconds?: number
+        intervalSeconds?: number | null
         appearance?: PetAppearance
       }>).detail
       syncSetting(detail?.intervalSeconds, detail?.appearance, true)
@@ -408,14 +418,26 @@ function FarmingPetController({
     return () => window.clearTimeout(timeout)
   }, [appearancePreview, endAppearancePreview])
 
+  useEffect(() => {
+    if (!setupConfirmation) return undefined
+    const timeout = window.setTimeout(() => setSetupConfirmation(null), 3000)
+    return () => window.clearTimeout(timeout)
+  }, [setupConfirmation])
+
   const tryRestReminder = useCallback(async () => {
-    if (await persistRestReminderIntervalSeconds(
+    setRestReminderSetupOption('appearance')
+    const save = persistRestReminderIntervalSeconds(
       REST_REMINDER_DEFAULT_INTERVAL_SECONDS,
       defaultAppearance,
-    )) {
+    )
+    setupSaveRef.current = save
+    const saved = await save
+    if (setupSaveRef.current === save) setupSaveRef.current = null
+    if (saved) {
       setSettingsError('')
       setRestReminderSetupOption('appearance')
     } else {
+      setRestReminderSetupOption(null)
       setSettingsError(copy.settingsSaveFailed)
     }
   }, [copy.settingsSaveFailed, defaultAppearance])
@@ -426,14 +448,16 @@ function FarmingPetController({
       setSettingsError(copy.settingsSaveFailed)
     }
   }, [copy.settingsSaveFailed, defaultAppearance])
-  const chooseAppearance = useCallback((nextAppearance: PetAppearance) => {
+  const chooseAppearance = useCallback(async (nextAppearance: PetAppearance) => {
+    setAppearance(nextAppearance)
+    if (setupSaveRef.current && !await setupSaveRef.current) return
     if (!savePetAppearance(nextAppearance)) {
       setSettingsError(copy.settingsSaveFailed)
       return
     }
     setSettingsError('')
-    setAppearance(nextAppearance)
     setRestReminderSetupOption(null)
+    setSetupConfirmation(nextAppearance)
   }, [copy.settingsSaveFailed])
 
   const intent = useMemo<PetIntent | null>(() => {
@@ -501,6 +525,22 @@ function FarmingPetController({
         active={pageVisible}
         onEnd={endAppearancePreview}
       />
+    )
+  }
+
+  if (setupConfirmation) {
+    return (
+      <section
+        className="code-pet-bubble code-pet-setup-success"
+        data-pet-ui
+        data-testid="pet-setup-success"
+        role="status"
+      >
+        <span className="code-pet-setup-success-icon" aria-hidden="true">
+          <CheckGlyph />
+        </span>
+        <strong>{copy.appearanceSaved(setupConfirmation)}</strong>
+      </section>
     )
   }
 

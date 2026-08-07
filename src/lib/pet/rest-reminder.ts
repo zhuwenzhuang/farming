@@ -31,6 +31,7 @@ export const REST_REMINDER_INTERVAL_PRESETS_SECONDS = [
   60 * 60,
   90 * 60,
 ] as const
+export const REST_REMINDER_SLIDER_MAX_POSITION = REST_REMINDER_INTERVAL_PRESETS_SECONDS.length
 
 export function restReminderInvitationMs(search = '', allowTestOverride = false) {
   if (!allowTestOverride) return REST_REMINDER_INVITATION_MS
@@ -54,30 +55,33 @@ export function restReminderBreakMinutes(intervalSeconds: number) {
 }
 
 export function restReminderSliderPosition(intervalSeconds: number | null): number {
-  const normalized = intervalSeconds ?? 0
+  if (intervalSeconds === null) return 1
+  if (intervalSeconds === 0) return 0
+  const normalized = intervalSeconds
   const exactIndex = REST_REMINDER_INTERVAL_PRESETS_SECONDS.indexOf(
     normalized as typeof REST_REMINDER_INTERVAL_PRESETS_SECONDS[number],
   )
-  if (exactIndex >= 0) return exactIndex
+  if (exactIndex >= 0) return exactIndex + 1
 
   const upperIndex = REST_REMINDER_INTERVAL_PRESETS_SECONDS.findIndex(
     preset => preset > normalized,
   )
-  if (upperIndex < 0) return REST_REMINDER_INTERVAL_PRESETS_SECONDS.length - 1
+  if (upperIndex < 0) return REST_REMINDER_SLIDER_MAX_POSITION
   if (upperIndex === 0) return 0
 
   const lowerIndex = upperIndex - 1
   const lower = REST_REMINDER_INTERVAL_PRESETS_SECONDS[lowerIndex]!
   const upper = REST_REMINDER_INTERVAL_PRESETS_SECONDS[upperIndex]!
-  return lowerIndex + ((normalized - lower) / (upper - lower))
+  return lowerIndex + 1 + ((normalized - lower) / (upper - lower))
 }
 
-export function restReminderSliderIntervalSeconds(position: number): number {
+export function restReminderSliderIntervalSeconds(position: number): number | null {
+  if (Math.round(position) === 1) return null
   const presetIndex = Math.max(
     0,
     Math.min(
       REST_REMINDER_INTERVAL_PRESETS_SECONDS.length - 1,
-      Math.round(position),
+      Math.round(position) - 1,
     ),
   )
   return REST_REMINDER_INTERVAL_PRESETS_SECONDS[presetIndex] ?? 0
@@ -101,7 +105,7 @@ export function requestPetAppearancePreview(
   }))
 }
 
-type PetSettingsStorage = Pick<Storage, 'getItem' | 'setItem'>
+type PetSettingsStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
 type PetRuntimeStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
 
 interface StoredPetSettings {
@@ -171,7 +175,7 @@ export function readPetAppearance(
   }
 }
 
-function dispatchPetSettings(intervalSeconds: number, appearance: PetAppearance) {
+function dispatchPetSettings(intervalSeconds: number | null, appearance: PetAppearance) {
   window.dispatchEvent(new CustomEvent(PET_SETTINGS_EVENT, {
     detail: {
       capability: 'rest-reminder',
@@ -179,6 +183,31 @@ function dispatchPetSettings(intervalSeconds: number, appearance: PetAppearance)
       appearance,
     }
   }))
+}
+
+function clearRestReminderIntervalSeconds(defaultAppearance: PetAppearance) {
+  try {
+    window.localStorage.removeItem(PET_SETTINGS_STORAGE_KEY)
+  } catch {
+    return false
+  }
+  dispatchPetSettings(null, defaultAppearance)
+  return true
+}
+
+export function markRestReminderInvitationReady() {
+  try {
+    window.sessionStorage.setItem(
+      PET_REST_REMINDER_INVITATION_STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        foregroundMs: REST_REMINDER_INVITATION_MS,
+        foregroundStartedAt: null,
+      }),
+    )
+  } catch {
+    // The reminder will use its normal invitation delay when session storage is unavailable.
+  }
 }
 
 export function saveRestReminderIntervalSeconds(
@@ -243,7 +272,7 @@ type RestReminderServerSettings = {
 
 let restReminderSettingWrite = Promise.resolve(true)
 
-async function postRestReminderIntervalSeconds(seconds: number) {
+async function postRestReminderIntervalSeconds(seconds: number | null) {
   const response = await fetch(appPath('/api/settings'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -256,22 +285,23 @@ async function postRestReminderIntervalSeconds(seconds: number) {
   if (!response.ok) {
     throw new Error(data?.error || `Could not save break reminder (${response.status})`)
   }
-  const saved = normalizeRestReminderIntervalSeconds(
-    data?.settings?.restReminderIntervalSeconds,
-  )
+  const savedValue = data?.settings?.restReminderIntervalSeconds
+  if (savedValue === null) return null
+  const saved = normalizeRestReminderIntervalSeconds(savedValue)
   if (saved === null) throw new Error('The saved break reminder setting is invalid.')
   return saved
 }
 
 export function persistRestReminderIntervalSeconds(
-  seconds: number,
+  seconds: number | null,
   defaultAppearance: PetAppearance = 'glass',
 ) {
-  const normalized = normalizeRestReminderIntervalSeconds(seconds)
-  if (normalized === null) return Promise.resolve(false)
+  const normalized = seconds === null ? null : normalizeRestReminderIntervalSeconds(seconds)
+  if (seconds !== null && normalized === null) return Promise.resolve(false)
   const write = async () => {
     try {
       const saved = await postRestReminderIntervalSeconds(normalized)
+      if (saved === null) return clearRestReminderIntervalSeconds(defaultAppearance)
       return saveRestReminderIntervalSeconds(saved, undefined, defaultAppearance)
     } catch {
       return false

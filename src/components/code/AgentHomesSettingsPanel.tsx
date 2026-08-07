@@ -7,10 +7,11 @@ import {
   REST_REMINDER_CUSTOM_MINUTES_MAX,
   REST_REMINDER_CUSTOM_MINUTES_MIN,
   REST_REMINDER_IDLE_RESET_MINUTES,
-  REST_REMINDER_INTERVAL_PRESETS_SECONDS,
+  REST_REMINDER_SLIDER_MAX_POSITION,
   REST_REMINDER_TEST_INTERVAL_SECONDS,
   isPetSettingsStorageKey,
   loadRestReminderIntervalSeconds,
+  markRestReminderInvitationReady,
   normalizeRestReminderIntervalSeconds,
   persistRestReminderIntervalSeconds,
   readPetAppearance,
@@ -144,7 +145,8 @@ function panelCopy(language: UiPreferences['language']) {
       ? `按本页前台可见时间计时，离开 ${REST_REMINDER_IDLE_RESET_MINUTES} 分钟后重置；90 分钟及以上休息 10 分钟。`
       : `Counts foreground time in this tab; resets after ${REST_REMINDER_IDLE_RESET_MINUTES} minutes away. Intervals of 90 min or longer use a 10 min break.`,
     breakReminderValue: (seconds: number | null) => {
-      if (!seconds || seconds <= 0) return zh ? '关闭' : 'Off'
+      if (seconds === null) return zh ? '待定' : 'Pending'
+      if (seconds <= 0) return zh ? '关闭' : 'Off'
       if (seconds === REST_REMINDER_TEST_INTERVAL_SECONDS) {
         return zh ? '5 秒（仅用于观察效果）' : '5 sec (preview only)'
       }
@@ -156,6 +158,7 @@ function panelCopy(language: UiPreferences['language']) {
       return zh ? `每 ${minutes} 分钟` : `Every ${minutes} min`
     },
     breakReminderOffMarker: zh ? '关闭' : 'Off',
+    breakReminderPendingMarker: zh ? '待定' : 'Pending',
     customBreakReminder: zh ? '自定义' : 'Custom',
     customBreakReminderMinutes: zh ? '自定义提醒间隔（分钟）' : 'Custom reminder interval in minutes',
     customBreakReminderUnit: zh ? '分钟' : 'min',
@@ -259,7 +262,7 @@ export function AgentHomesSettingsPanel({
   const [restReminderIntervalSeconds, setRestReminderIntervalSecondsState] = useState<number | null>(
     readRestReminderIntervalSeconds,
   )
-  const [restReminderSliderDraftSeconds, setRestReminderSliderDraftSeconds] = useState<number | null>(null)
+  const [restReminderSliderDraftPosition, setRestReminderSliderDraftPosition] = useState<number | null>(null)
   const [petAppearance, setPetAppearanceState] = useState<PetAppearance>(() => (
     readPetAppearance(undefined, defaultPetAppearance)
   ))
@@ -371,7 +374,7 @@ export function AgentHomesSettingsPanel({
   useEffect(() => {
     const onSetting = (event: Event) => {
       const detail = (event as CustomEvent<{
-        intervalSeconds?: number
+        intervalSeconds?: number | null
         appearance?: PetAppearance
       }>).detail
       setRestReminderIntervalSecondsState(normalizeRestReminderIntervalSeconds(
@@ -509,7 +512,7 @@ export function AgentHomesSettingsPanel({
     onUpdateUiPreferences({ codeContentFontSize: contentFontSize })
   }, [contentFontSizeDraft, onUpdateUiPreferences])
 
-  const setRestReminderIntervalSeconds = useCallback(async (seconds: number) => {
+  const setRestReminderIntervalSeconds = useCallback(async (seconds: number | null) => {
     const requestId = restReminderSaveRequestRef.current + 1
     restReminderSaveRequestRef.current = requestId
     const previousSeconds = restReminderIntervalSeconds
@@ -521,6 +524,7 @@ export function AgentHomesSettingsPanel({
       }
       return false
     }
+    if (seconds === null) markRestReminderInvitationReady()
     if (restReminderSaveRequestRef.current === requestId) setError('')
     return true
   }, [copy.saveFailed, defaultPetAppearance, restReminderIntervalSeconds])
@@ -534,20 +538,21 @@ export function AgentHomesSettingsPanel({
     setPetAppearanceState(appearance)
   }, [copy.saveFailed])
 
-  const displayedRestReminderIntervalSeconds = restReminderSliderDraftSeconds
-    ?? restReminderIntervalSeconds
-  const restReminderSliderValue = restReminderSliderPosition(displayedRestReminderIntervalSeconds)
+  const restReminderSliderValue = restReminderSliderDraftPosition
+    ?? restReminderSliderPosition(restReminderIntervalSeconds)
+  const displayedRestReminderIntervalSeconds = restReminderSliderDraftPosition === null
+    ? restReminderIntervalSeconds
+    : restReminderSliderIntervalSeconds(restReminderSliderDraftPosition)
 
   const setRestReminderSliderValue = useCallback((value: number) => {
-    setRestReminderSliderDraftSeconds(restReminderSliderIntervalSeconds(value))
+    setRestReminderSliderDraftPosition(value)
   }, [])
 
-  const commitRestReminderSliderValue = useCallback(() => {
-    if (restReminderSliderDraftSeconds === null) return
-    const seconds = restReminderSliderDraftSeconds
-    setRestReminderSliderDraftSeconds(null)
+  const commitRestReminderSliderValue = useCallback((position: number) => {
+    const seconds = restReminderSliderIntervalSeconds(position)
+    setRestReminderSliderDraftPosition(null)
     void setRestReminderIntervalSeconds(seconds)
-  }, [restReminderSliderDraftSeconds, setRestReminderIntervalSeconds])
+  }, [setRestReminderIntervalSeconds])
 
   const setCustomRestReminderMinutes = useCallback((value: string) => {
     if (value === '') {
@@ -928,18 +933,21 @@ export function AgentHomesSettingsPanel({
                   <input
                     type="range"
                     min="0"
-                    max={String(REST_REMINDER_INTERVAL_PRESETS_SECONDS.length - 1)}
+                    max={String(REST_REMINDER_SLIDER_MAX_POSITION)}
                     step="any"
                     value={restReminderSliderValue}
                     aria-label={copy.breakReminder}
                     aria-valuetext={copy.breakReminderValue(displayedRestReminderIntervalSeconds)}
                     onChange={event => setRestReminderSliderValue(Number(event.target.value))}
-                    onPointerUp={commitRestReminderSliderValue}
-                    onPointerCancel={commitRestReminderSliderValue}
-                    onKeyUp={commitRestReminderSliderValue}
-                    onBlur={commitRestReminderSliderValue}
+                    onPointerUp={event => commitRestReminderSliderValue(Number(event.currentTarget.value))}
+                    onPointerCancel={event => commitRestReminderSliderValue(Number(event.currentTarget.value))}
+                    onKeyUp={event => commitRestReminderSliderValue(Number(event.currentTarget.value))}
+                    onBlur={event => commitRestReminderSliderValue(Number(event.currentTarget.value))}
                   />
-                  <span className="code-settings-pet-rest-off-marker">{copy.breakReminderOffMarker}</span>
+                  <div className="code-settings-pet-rest-markers" aria-hidden="true">
+                    <span className="code-settings-pet-rest-off-marker">{copy.breakReminderOffMarker}</span>
+                    <span className="code-settings-pet-rest-pending-marker">{copy.breakReminderPendingMarker}</span>
+                  </div>
                 </div>
                 <div className="code-settings-pet-rest-value">
                   <output>{copy.breakReminderValue(displayedRestReminderIntervalSeconds)}</output>

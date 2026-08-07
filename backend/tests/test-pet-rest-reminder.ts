@@ -458,6 +458,7 @@ const path = require('path');
   assert(settingsSource.includes("farmingPet: 'Farming Pet'"));
   assert(settingsSource.includes('code-settings-pet-rest-off-marker'));
   assert(settingsSource.includes("breakReminderOffMarker: zh ? '关闭' : 'Off'"));
+  assert(settingsSource.includes("breakReminderPendingMarker: zh ? '待定' : 'Pending'"));
   assert(settingsSource.includes('5 秒（仅用于观察效果）'));
   assert(settingsSource.includes('code-settings-pet-rest-custom'));
   assert(settingsSource.includes('code-settings-pet-appearance-options'));
@@ -468,10 +469,10 @@ const path = require('path');
   assert(settingsSource.includes('按本页前台可见时间计时'));
   assert(settingsSource.includes('value={restReminderSliderValue}'));
   assert(settingsSource.includes('step="any"'));
-  assert(settingsSource.includes('REST_REMINDER_INTERVAL_PRESETS_SECONDS.length - 1'));
-  assert(settingsSource.includes('restReminderSliderIntervalSeconds(value)'));
+  assert(settingsSource.includes('REST_REMINDER_SLIDER_MAX_POSITION'));
+  assert(settingsSource.includes('setRestReminderSliderDraftPosition(value)'));
   assert(settingsSource.includes('onChange={event => setRestReminderSliderValue(Number(event.target.value))}'));
-  assert(settingsSource.includes('onPointerUp={commitRestReminderSliderValue}'));
+  assert(settingsSource.includes('onPointerUp={event => commitRestReminderSliderValue(Number(event.currentTarget.value))}'));
   assert(settingsSource.includes('onPointerUp={commitContentFontSize}'));
   assert(settingsSource.includes('onPointerUp={commitSearchTimeout}'));
   assert(settingsSource.includes('onChange={event => setCustomRestReminderMinutes(event.currentTarget.value)}'));
@@ -523,15 +524,17 @@ const path = require('path');
   assert.strictEqual(normalizeRestReminderIntervalSeconds(4 * 60 * 60), 4 * 60 * 60);
   assert.strictEqual(normalizeRestReminderIntervalSeconds(30), null);
   assert.strictEqual(restReminderSliderPosition(0), 0);
+  assert.strictEqual(restReminderSliderPosition(null), 1);
   assert.strictEqual(
     restReminderSliderPosition(REST_REMINDER_TEST_INTERVAL_SECONDS),
-    1,
+    2,
   );
-  assert.strictEqual(restReminderSliderPosition(37 * 60), 3.7);
-  assert.strictEqual(restReminderSliderIntervalSeconds(3.4), 30 * 60);
-  assert.strictEqual(restReminderSliderIntervalSeconds(3.6), 40 * 60);
+  assert.strictEqual(restReminderSliderPosition(37 * 60), 4.7);
+  assert.strictEqual(restReminderSliderIntervalSeconds(1), null);
+  assert.strictEqual(restReminderSliderIntervalSeconds(4.4), 30 * 60);
+  assert.strictEqual(restReminderSliderIntervalSeconds(4.6), 40 * 60);
   assert.strictEqual(
-    restReminderSliderIntervalSeconds(REST_REMINDER_INTERVAL_PRESETS_SECONDS.length - 1),
+    restReminderSliderIntervalSeconds(REST_REMINDER_INTERVAL_PRESETS_SECONDS.length),
     90 * 60,
   );
   assert.strictEqual(restReminderBreakMinutes(50 * 60), REST_REMINDER_BREAK_MINUTES);
