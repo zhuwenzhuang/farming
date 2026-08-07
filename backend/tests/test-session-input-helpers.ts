@@ -281,6 +281,14 @@ function run() {
       !terminalOutputSource.includes('moveTerminalCursor'),
     'terminal bootstrap helper should install opaque serialized checkpoint bytes without text reconstruction'
   );
+  assert(
+    terminalPoolSource.includes('const TERMINAL_CHECKPOINT_MAX_CONCURRENT_REQUESTS = 3') &&
+      terminalPoolSource.includes('function acquireTerminalCheckpointRequestSlot') &&
+      terminalPoolSource.includes('terminalCheckpointActiveRequests < TERMINAL_CHECKPOINT_MAX_CONCURRENT_REQUESTS') &&
+      terminalPoolSource.includes('acquireTerminalCheckpointRequestSlot(1, controller.signal)') &&
+      terminalPoolSource.includes('acquireTerminalCheckpointRequestSlot(0, controller.signal)'),
+    'terminal checkpoint recovery should bound reconnect fan-out and prioritize visible attachments over prefetch'
+  );
   const repaintBody = terminalOutputSource.slice(
     terminalOutputSource.indexOf('export function scheduleTerminalRepaint'),
     terminalOutputSource.indexOf('export function scrollRecordToViewportY')

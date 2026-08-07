@@ -298,7 +298,11 @@ class NativeSessionEngine extends SessionEngine {
   }
 
   override async getSessionState(sessionId: string): Promise<TerminalSessionState | null> {
-    return this.client.request<TerminalSessionState | null>('getSessionState', { sessionId });
+    return this.client.request<TerminalSessionState | null>(
+      'getSessionState',
+      { sessionId },
+      { timeoutMs: 4_500 },
+    );
   }
 
   async getSessionAttachCheckpoint(sessionId: string): Promise<TerminalAttachCheckpoint | null> {

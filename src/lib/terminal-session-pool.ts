@@ -308,6 +308,15 @@ interface SessionRecord {
 
 const sessions = new Map<string, Promise<SessionRecord> | SessionRecord>()
 let terminalFocusRevision = 0
+const TERMINAL_CHECKPOINT_MAX_CONCURRENT_REQUESTS = 3
+let terminalCheckpointActiveRequests = 0
+const terminalCheckpointRequestQueue: Array<{
+  priority: number
+  signal: AbortSignal
+  resolve: (release: () => void) => void
+  reject: (error: DOMException) => void
+  onAbort: () => void
+}> = []
 const TOUCH_SCROLL_ACTIVATION_PX = 6
 const TOUCH_LONG_PRESS_MS = 520
 const TOUCH_MOMENTUM_MIN_VELOCITY = 0.025
@@ -318,6 +327,53 @@ const TOUCH_EDGE_RESISTANCE = 0.28
 const TOUCH_EDGE_MAX_OFFSET_PX = 30
 const TOUCH_EDGE_SPRING_MS = 240
 const TERMINAL_PATH_RESOLVE_CACHE_TTL_MS = 30_000
+
+function drainTerminalCheckpointRequestQueue() {
+  while (
+    terminalCheckpointActiveRequests < TERMINAL_CHECKPOINT_MAX_CONCURRENT_REQUESTS
+    && terminalCheckpointRequestQueue.length > 0
+  ) {
+    const request = terminalCheckpointRequestQueue.shift()
+    if (!request) return
+    request.signal.removeEventListener('abort', request.onAbort)
+    if (request.signal.aborted) {
+      request.reject(new DOMException('Terminal checkpoint request was cancelled', 'AbortError'))
+      continue
+    }
+    terminalCheckpointActiveRequests += 1
+    let released = false
+    request.resolve(() => {
+      if (released) return
+      released = true
+      terminalCheckpointActiveRequests = Math.max(0, terminalCheckpointActiveRequests - 1)
+      drainTerminalCheckpointRequestQueue()
+    })
+  }
+}
+
+function acquireTerminalCheckpointRequestSlot(priority: number, signal: AbortSignal) {
+  if (signal.aborted) {
+    return Promise.reject(new DOMException('Terminal checkpoint request was cancelled', 'AbortError'))
+  }
+  return new Promise<() => void>((resolve, reject) => {
+    const request = {
+      priority,
+      signal,
+      resolve,
+      reject,
+      onAbort: () => {
+        const index = terminalCheckpointRequestQueue.indexOf(request)
+        if (index >= 0) terminalCheckpointRequestQueue.splice(index, 1)
+        reject(new DOMException('Terminal checkpoint request was cancelled', 'AbortError'))
+      },
+    }
+    signal.addEventListener('abort', request.onAbort, { once: true })
+    const lowerPriorityIndex = terminalCheckpointRequestQueue.findIndex(item => item.priority < priority)
+    if (lowerPriorityIndex >= 0) terminalCheckpointRequestQueue.splice(lowerPriorityIndex, 0, request)
+    else terminalCheckpointRequestQueue.push(request)
+    drainTerminalCheckpointRequestQueue()
+  })
+}
 
 interface TerminalTouchInteraction {
   pointerDownHandler: (event: PointerEvent) => void
@@ -330,6 +386,7 @@ declare global {
   interface Window {
     __FARMING_E2E__?: boolean
     __farmingTerminalTest?: {
+      prefetchCheckpoint: (agentId: string) => Promise<void>
       writeFixture: (agentId: string, text: string) => Promise<void>
       resumeLive: (agentId: string) => Promise<void>
       isReady: (agentId: string) => boolean
@@ -656,11 +713,12 @@ export function prefetchTerminalSessionCheckpoint(agentId: string): Promise<void
   if (inFlight) return inFlight
 
   const controller = new AbortController()
-  const timeout = window.setTimeout(
-    () => controller.abort(new DOMException('Terminal checkpoint prefetch timed out', 'TimeoutError')),
-    TERMINAL_CHECKPOINT_REQUEST_TIMEOUT_MS,
-  )
   const prefetch = (async () => {
+    const release = await acquireTerminalCheckpointRequestSlot(0, controller.signal)
+    const timeout = window.setTimeout(
+      () => controller.abort(new DOMException('Terminal checkpoint prefetch timed out', 'TimeoutError')),
+      TERMINAL_CHECKPOINT_REQUEST_TIMEOUT_MS,
+    )
     try {
       const state = await fetchSessionBootstrapState(agentId, controller.signal)
       if (hasTerminalCheckpointProof(state)) {
@@ -673,9 +731,12 @@ export function prefetchTerminalSessionCheckpoint(agentId: string): Promise<void
       // retains its authoritative checkpoint request and recovery behavior.
     } finally {
       window.clearTimeout(timeout)
+      release()
       terminalCheckpointPrefetches.delete(agentId)
     }
-  })()
+  })().catch(() => {
+    terminalCheckpointPrefetches.delete(agentId)
+  })
   terminalCheckpointPrefetches.set(agentId, prefetch)
   return prefetch
 }
@@ -702,17 +763,21 @@ export function prefetchedTerminalSessionCheckpoint(
 async function fetchSessionBootstrapStateForCurrentTerminal(record: SessionRecord) {
   const controller = new AbortController()
   record.bootstrapRequestControllers.add(controller)
-  const timeout = window.setTimeout(
-    () => controller.abort(new DOMException('Terminal checkpoint request timed out', 'TimeoutError')),
-    TERMINAL_CHECKPOINT_REQUEST_TIMEOUT_MS,
-  )
+  let release: (() => void) | null = null
+  let timeout: number | null = null
   try {
+    release = await acquireTerminalCheckpointRequestSlot(1, controller.signal)
+    timeout = window.setTimeout(
+      () => controller.abort(new DOMException('Terminal checkpoint request timed out', 'TimeoutError')),
+      TERMINAL_CHECKPOINT_REQUEST_TIMEOUT_MS,
+    )
     // The reducer's checkpoint dimensions are part of the authoritative cut.
     // Install that cut first; the visible browser submits its latest geometry
     // only after the checkpoint barrier has completed.
     return await fetchSessionBootstrapState(record.agentId, controller.signal)
   } finally {
-    window.clearTimeout(timeout)
+    if (timeout !== null) window.clearTimeout(timeout)
+    release?.()
     record.bootstrapRequestControllers.delete(controller)
   }
 }
@@ -3377,6 +3442,7 @@ function installTerminalTestApi() {
   if (typeof window === 'undefined' || !window.__FARMING_E2E__ || window.__farmingTerminalTest) return
 
   window.__farmingTerminalTest = {
+    prefetchCheckpoint: prefetchTerminalSessionCheckpoint,
     async writeFixture(agentId: string, text: string) {
       const current = sessions.get(agentId)
       const record = current instanceof Promise ? await current : current

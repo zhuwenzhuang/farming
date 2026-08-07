@@ -129,6 +129,40 @@ async function visibleText(page: import('@playwright/test').Page, agentId: strin
 }
 
 test.describe('terminal state protocol', () => {
+  test('bounds simultaneous checkpoint prefetches after a reconnect burst', async ({ page, workspaceRoot }) => {
+    let activeRequests = 0
+    let maximumActiveRequests = 0
+    let requestCount = 0
+    await page.route(/\/farming\/api\/agents\/checkpoint-limit-\d+\/session-view$/, async route => {
+      requestCount += 1
+      activeRequests += 1
+      maximumActiveRequests = Math.max(maximumActiveRequests, activeRequests)
+      try {
+        await new Promise(resolve => setTimeout(resolve, 100))
+        await route.fulfill({ status: 503, body: 'synthetic unavailable checkpoint' })
+      } finally {
+        activeRequests -= 1
+      }
+    })
+
+    const workspace = path.join(workspaceRoot, 'terminal-checkpoint-concurrency')
+    fs.mkdirSync(workspace, { recursive: true })
+    const agentId = await createControlAgent(page, workspace)
+    await openTerminalTestPage(page)
+    await selectControlAgent(page, agentId)
+    const result = await page.evaluate(async () => {
+      const api = window.__farmingTerminalTest
+      if (!api) throw new Error('Terminal test API is unavailable')
+      await Promise.all(Array.from({ length: 9 }, (_, index) => (
+        api.prefetchCheckpoint(`checkpoint-limit-${index}`)
+      )))
+      return true
+    })
+    expect(result).toBe(true)
+    expect(requestCount).toBe(9)
+    expect(maximumActiveRequests).toBeLessThanOrEqual(3)
+  })
+
   test('terminal starts on LAN HTTP where crypto.randomUUID is unavailable', async ({ page, workspaceRoot }) => {
     await page.addInitScript(() => {
       Object.defineProperty(globalThis.crypto, 'randomUUID', {
