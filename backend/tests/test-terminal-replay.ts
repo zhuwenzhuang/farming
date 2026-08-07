@@ -47,7 +47,42 @@ function run() {
     'a checkpoint must remain rejected when its queued output sequence is not contiguous',
   );
 
-  console.log('✓ terminal replay composes checkpoints only with a complete queued suffix');
+  const transportFailure = TERMINAL_REPLAY.createState({ maxTransportFailures: 3 });
+  assert.deepStrictEqual(
+    TERMINAL_REPLAY.recordTransportFailure(transportFailure),
+    { halted: false, delay: 250, message: '' },
+  );
+  assert.deepStrictEqual(
+    TERMINAL_REPLAY.recordTransportFailure(transportFailure),
+    { halted: false, delay: 500, message: '' },
+  );
+  assert.deepStrictEqual(
+    TERMINAL_REPLAY.recordTransportFailure(transportFailure),
+    {
+      halted: true,
+      delay: 0,
+      message: 'Terminal state could not be loaded after repeated connection failures',
+    },
+    'transport recovery must halt after a bounded number of consecutive failures',
+  );
+  TERMINAL_REPLAY.resetRecovery(transportFailure);
+  assert.strictEqual(transportFailure.failureCount, 0);
+  assert.strictEqual(transportFailure.transportFailureCount, 0);
+  assert.strictEqual(transportFailure.halted, false);
+
+  TERMINAL_REPLAY.recordTransportFailure(transportFailure);
+  TERMINAL_REPLAY.recordInvariantFailure(transportFailure, 'invalid-checkpoint', 'invalid');
+  assert.strictEqual(
+    transportFailure.transportFailureCount,
+    0,
+    'a received checkpoint ends the run of consecutive transport failures',
+  );
+  TERMINAL_REPLAY.recordTransportFailure(transportFailure);
+  TERMINAL_REPLAY.commitCheckpoint(transportFailure, checkpoint(1));
+  assert.strictEqual(transportFailure.failureCount, 0);
+  assert.strictEqual(transportFailure.transportFailureCount, 0);
+
+  console.log('✓ terminal replay composes checkpoints and bounds transport recovery');
 }
 
 run();

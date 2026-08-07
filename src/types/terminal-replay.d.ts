@@ -33,6 +33,7 @@ type TerminalReplayState = {
   queuedBytes: number
   retiredRuntimeEpochs: Set<string>
   failureCount: number
+  transportFailureCount: number
   invariantFailureSignature: string
   invariantFailureCount: number
   halted: boolean
@@ -41,6 +42,7 @@ type TerminalReplayState = {
   maxQueuedBytes: number
   retryBaseMs: number
   retryMaxMs: number
+  maxTransportFailures: number
   maxIdenticalInvariantFailures: number
 }
 
@@ -59,7 +61,7 @@ type TerminalReplayFailure = {
 
 type FarmingTerminalReplayApi = {
   createState: (options?: Partial<Pick<TerminalReplayState,
-    'maxQueuedTransitions' | 'maxQueuedBytes' | 'retryBaseMs' | 'retryMaxMs' | 'maxIdenticalInvariantFailures'
+    'maxQueuedTransitions' | 'maxQueuedBytes' | 'retryBaseMs' | 'retryMaxMs' | 'maxTransportFailures' | 'maxIdenticalInvariantFailures'
   >>) => TerminalReplayState
   compareRuntimeEpochs: (left: string, right: string) => -1 | 0 | 1 | null
   beginRecovery: (state: TerminalReplayState, event?: TerminalReplayTransition) => void

@@ -977,6 +977,68 @@ test.describe('terminal state protocol', () => {
     expect(await visibleText(page, agentId)).not.toContain('GAP_MUST_NOT_RENDER')
   })
 
+  test('transport recovery halts after three failures and Retry starts a fresh recovery', async ({ page, workspaceRoot }) => {
+    const workspace = path.join(workspaceRoot, 'terminal-transport-retry')
+    fs.mkdirSync(workspace, { recursive: true })
+    const agentId = await createControlAgent(page, workspace)
+    await openTerminalTestPage(page)
+    await selectControlAgent(page, agentId)
+    const initial = await terminalState(page, agentId)
+    const targetSeq = initial.outputSeq + 2
+    const targetRevision = initial.stateRevision + 2
+    const routePattern = new RegExp(`/farming/api/agents/${agentId}/session-view$`)
+    let requests = 0
+    let transportAvailable = false
+
+    await page.route(routePattern, async (route) => {
+      requests += 1
+      if (!transportAvailable) {
+        await route.fulfill({ status: 503, body: 'checkpoint unavailable' })
+        return
+      }
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify(checkpoint(
+          initial.runtimeEpoch,
+          targetSeq,
+          targetRevision,
+          initial.cols,
+          initial.rows,
+          'RECOVERED_AFTER_RETRY',
+        )),
+      })
+    })
+
+    await page.evaluate(async ({ id, epoch, seq, revision }) => {
+      await window.__farmingTerminalTest?.streamSequenced(
+        id,
+        'TRANSPORT_GAP_MUST_NOT_RENDER\r\n',
+        seq,
+        epoch,
+        revision,
+      )
+    }, {
+      id: agentId,
+      epoch: initial.runtimeEpoch,
+      seq: targetSeq,
+      revision: targetRevision,
+    })
+
+    await expect(page.getByTestId('code-terminal-status-card')).toBeVisible({ timeout: 10_000 })
+    expect(requests).toBe(3)
+    await page.waitForTimeout(1_000)
+    expect(requests).toBe(3)
+
+    transportAvailable = true
+    await page.getByTestId('code-terminal-status-card').locator('button').click()
+
+    await expect.poll(() => requests, { timeout: 10_000 }).toBe(4)
+    await expect(page.getByTestId('code-terminal-status-card')).toHaveCount(0)
+    await expect.poll(() => visibleText(page, agentId), { timeout: 10_000 })
+      .toContain('RECOVERED_AFTER_RETRY')
+    expect(await visibleText(page, agentId)).not.toContain('TRANSPORT_GAP_MUST_NOT_RENDER')
+  })
+
   test('cross-epoch overflow cannot lose the newest replay target or accept a retired epoch', async ({ page, workspaceRoot }) => {
     const workspace = path.join(workspaceRoot, 'terminal-cross-epoch')
     fs.mkdirSync(workspace, { recursive: true })

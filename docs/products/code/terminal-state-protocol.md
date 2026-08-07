@@ -117,10 +117,12 @@ host replacement preserves a final checkpoint before rotation when possible.
 Unexpected PTY-host loss is reported as process loss and is never presented as
 successful replay.
 
-Transport failures retry with bounded backoff. Repeated checkpoint invariant
-failure reaches a visible terminal error instead of looping forever. Uncertain
-input or lifecycle mutations are reconciled from authoritative terminal and
-process state and are not replayed blindly.
+Transport failures retry with bounded backoff and reach a visible terminal
+error after three consecutive failed checkpoint requests. Repeated checkpoint
+invariant failure also reaches a visible terminal error instead of looping
+forever. A user retry starts a new recovery generation and reads a fresh
+authoritative checkpoint. Uncertain input or lifecycle mutations are reconciled
+from authoritative terminal and process state and are not replayed blindly.
 
 ## Acceptance Criteria
 

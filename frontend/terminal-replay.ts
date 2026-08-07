@@ -30,6 +30,7 @@ declare const module: { exports: Record<string, unknown> } | undefined;
     | 'maxQueuedBytes'
     | 'retryBaseMs'
     | 'retryMaxMs'
+    | 'maxTransportFailures'
     | 'maxIdenticalInvariantFailures'
   >>;
 
@@ -44,6 +45,7 @@ declare const module: { exports: Record<string, unknown> } | undefined;
     queuedBytes: number;
     retiredRuntimeEpochs: Set<string>;
     failureCount: number;
+    transportFailureCount: number;
     invariantFailureSignature: string;
     invariantFailureCount: number;
     halted: boolean;
@@ -52,6 +54,7 @@ declare const module: { exports: Record<string, unknown> } | undefined;
     maxQueuedBytes: number;
     retryBaseMs: number;
     retryMaxMs: number;
+    maxTransportFailures: number;
     maxIdenticalInvariantFailures: number;
   };
 
@@ -90,6 +93,7 @@ declare const module: { exports: Record<string, unknown> } | undefined;
   const DEFAULT_MAX_QUEUED_BYTES = 1024 * 1024;
   const DEFAULT_RETRY_BASE_MS = 250;
   const DEFAULT_RETRY_MAX_MS = 5000;
+  const DEFAULT_MAX_TRANSPORT_FAILURES = 3;
   const DEFAULT_MAX_IDENTICAL_INVARIANT_FAILURES = 3;
 
   function isFiniteNumber(value: unknown): value is number {
@@ -133,6 +137,7 @@ declare const module: { exports: Record<string, unknown> } | undefined;
       queuedBytes: 0,
       retiredRuntimeEpochs: new Set(),
       failureCount: 0,
+      transportFailureCount: 0,
       invariantFailureSignature: '',
       invariantFailureCount: 0,
       halted: false,
@@ -141,6 +146,7 @@ declare const module: { exports: Record<string, unknown> } | undefined;
       maxQueuedBytes: options.maxQueuedBytes || DEFAULT_MAX_QUEUED_BYTES,
       retryBaseMs: options.retryBaseMs || DEFAULT_RETRY_BASE_MS,
       retryMaxMs: options.retryMaxMs || DEFAULT_RETRY_MAX_MS,
+      maxTransportFailures: options.maxTransportFailures || DEFAULT_MAX_TRANSPORT_FAILURES,
       maxIdenticalInvariantFailures:
         options.maxIdenticalInvariantFailures || DEFAULT_MAX_IDENTICAL_INVARIANT_FAILURES,
     };
@@ -359,6 +365,7 @@ declare const module: { exports: Record<string, unknown> } | undefined;
 
   function clearFailures(state: TerminalReplayState): void {
     state.failureCount = 0;
+    state.transportFailureCount = 0;
     state.invariantFailureSignature = '';
     state.invariantFailureCount = 0;
     state.halted = false;
@@ -411,12 +418,22 @@ declare const module: { exports: Record<string, unknown> } | undefined;
 
   function recordTransportFailure(state: TerminalReplayState): TerminalReplayFailure {
     state.failureCount += 1;
+    state.transportFailureCount += 1;
     state.recovering = true;
-    return { halted: false, delay: retryDelay(state), message: '' };
+    if (state.transportFailureCount >= state.maxTransportFailures) {
+      state.halted = true;
+      state.haltMessage = 'Terminal state could not be loaded after repeated connection failures';
+    }
+    return {
+      halted: state.halted,
+      delay: state.halted ? 0 : retryDelay(state),
+      message: state.haltMessage,
+    };
   }
 
   function recordInvariantFailure(state: TerminalReplayState, signature: string, message: string): TerminalReplayFailure {
     state.failureCount += 1;
+    state.transportFailureCount = 0;
     state.recovering = true;
     if (state.invariantFailureSignature === signature) {
       state.invariantFailureCount += 1;

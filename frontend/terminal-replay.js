@@ -6,6 +6,7 @@
     const DEFAULT_MAX_QUEUED_BYTES = 1024 * 1024;
     const DEFAULT_RETRY_BASE_MS = 250;
     const DEFAULT_RETRY_MAX_MS = 5000;
+    const DEFAULT_MAX_TRANSPORT_FAILURES = 3;
     const DEFAULT_MAX_IDENTICAL_INVARIANT_FAILURES = 3;
     function isFiniteNumber(value) {
         return typeof value === 'number' && Number.isFinite(value);
@@ -46,6 +47,7 @@
             queuedBytes: 0,
             retiredRuntimeEpochs: new Set(),
             failureCount: 0,
+            transportFailureCount: 0,
             invariantFailureSignature: '',
             invariantFailureCount: 0,
             halted: false,
@@ -54,6 +56,7 @@
             maxQueuedBytes: options.maxQueuedBytes || DEFAULT_MAX_QUEUED_BYTES,
             retryBaseMs: options.retryBaseMs || DEFAULT_RETRY_BASE_MS,
             retryMaxMs: options.retryMaxMs || DEFAULT_RETRY_MAX_MS,
+            maxTransportFailures: options.maxTransportFailures || DEFAULT_MAX_TRANSPORT_FAILURES,
             maxIdenticalInvariantFailures: options.maxIdenticalInvariantFailures || DEFAULT_MAX_IDENTICAL_INVARIANT_FAILURES,
         };
     }
@@ -238,6 +241,7 @@
     }
     function clearFailures(state) {
         state.failureCount = 0;
+        state.transportFailureCount = 0;
         state.invariantFailureSignature = '';
         state.invariantFailureCount = 0;
         state.halted = false;
@@ -287,11 +291,21 @@
     }
     function recordTransportFailure(state) {
         state.failureCount += 1;
+        state.transportFailureCount += 1;
         state.recovering = true;
-        return { halted: false, delay: retryDelay(state), message: '' };
+        if (state.transportFailureCount >= state.maxTransportFailures) {
+            state.halted = true;
+            state.haltMessage = 'Terminal state could not be loaded after repeated connection failures';
+        }
+        return {
+            halted: state.halted,
+            delay: state.halted ? 0 : retryDelay(state),
+            message: state.haltMessage,
+        };
     }
     function recordInvariantFailure(state, signature, message) {
         state.failureCount += 1;
+        state.transportFailureCount = 0;
         state.recovering = true;
         if (state.invariantFailureSignature === signature) {
             state.invariantFailureCount += 1;

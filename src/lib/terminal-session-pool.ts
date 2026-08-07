@@ -4746,6 +4746,27 @@ export async function attachTerminalSession(agentId: string, options: AttachOpti
   fitAndFocus(record, options, generation)
 }
 
+export function retryTerminalSession(agentId: string) {
+  const current = sessions.get(agentId)
+  if (
+    !current
+    || current instanceof Promise
+    || current.disposed
+    || !isTerminalSessionAttached(current)
+  ) return false
+
+  invalidateTerminalCheckpointRequest(current)
+  current.pendingSnapshotReplay = false
+  TERMINAL_REPLAY.resetRecovery(current.replayState)
+  TERMINAL_REPLAY.beginRecovery(current.replayState)
+  current.needsReconnectOutputSync = true
+  current.bootstrappingSnapshot = true
+  current.hostEl.classList.add('terminal-checkpoint-installing')
+  publishTerminalRecoveryStatus(current, 'requesting', { attempt: 1, restart: true })
+  requestTerminalReplay(current, current.attachGeneration)
+  return true
+}
+
 export async function updateTerminalSessionBootstrapState(
   agentId: string,
   state: SessionBootstrapState,

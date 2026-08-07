@@ -188,12 +188,14 @@ interface FarmingTerminalReplayState {
   failureCount: number;
   invariantFailureSignature: string;
   invariantFailureCount: number;
+  transportFailureCount: number;
   halted: boolean;
   haltMessage: string;
   maxQueuedTransitions: number;
   maxQueuedBytes: number;
   retryBaseMs: number;
   retryMaxMs: number;
+  maxTransportFailures: number;
   maxIdenticalInvariantFailures: number;
 }
 
@@ -216,6 +218,7 @@ interface FarmingTerminalReplay {
     | 'maxQueuedBytes'
     | 'retryBaseMs'
     | 'retryMaxMs'
+    | 'maxTransportFailures'
     | 'maxIdenticalInvariantFailures'
   >>): FarmingTerminalReplayState;
   compareRuntimeEpochs(left: string, right: string): -1 | 0 | 1 | null;

@@ -9,6 +9,7 @@ import {
   getTerminalSelection,
   getTerminalSelectionNow,
   refreshTerminalSessionLayout,
+  retryTerminalSession,
   scrollTerminalSessionToBottom,
   searchTerminalSession,
   updateTerminalSessionBootstrapState,
@@ -261,6 +262,11 @@ export function usePooledTerminal({
     })
   }, [agentId])
 
+  const retry = useCallback(() => {
+    if (!agentId) return false
+    return retryTerminalSession(agentId)
+  }, [agentId])
+
   const getSelection = useCallback(async () => {
     if (!agentId) return ''
     return getTerminalSelection(agentId)
@@ -295,6 +301,7 @@ export function usePooledTerminal({
 
   return {
     focus,
+    retry,
     refreshLayout,
     getSelection,
     getSelectionNow,

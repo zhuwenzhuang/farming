@@ -181,6 +181,7 @@ export function AgentTerminalPane({
 
   const {
     focus,
+    retry,
     refreshLayout,
     getSelectionNow,
     getReadCutNow,
@@ -415,8 +416,8 @@ export function AgentTerminalPane({
 
   const retryTerminalAttach = useCallback(() => {
     setTerminalError(null)
-    focus()
-  }, [focus])
+    if (!retry()) focus()
+  }, [focus, retry])
 
   const shouldShowJumpButton = !followOutputState.following || followOutputState.hasUnreadOutput
   const searchStatus = terminalSearchStatus(terminalSearchQuery, terminalSearchResult, copy)

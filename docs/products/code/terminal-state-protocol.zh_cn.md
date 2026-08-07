@@ -90,9 +90,10 @@ Existing Agent 只是本地 View Change，不能触发 Full Agent-state Refresh�
 兼容 Server Restart 会重连 Live PTY Host。不兼容 Host Replacement 在可能时先保留 Final
 Checkpoint。PTY Host 意外丢失属于 Process Loss，不能伪装成成功 Replay。
 
-Transport Failure 使用有界 Backoff。连续违反 Checkpoint Invariant 时进入可见 Terminal Error，
-不能永久循环。结果不确定的 Input 或 Lifecycle Mutation 先根据权威 Terminal 与 Process State
-对账，绝不盲目重放。
+Transport Failure 使用有界 Backoff；连续三次 Checkpoint Request 失败后进入可见 Terminal
+Error。连续违反 Checkpoint Invariant 时同样进入可见 Terminal Error，不能永久循环。用户点击
+Retry 会启动新一代 Recovery，并重新读取权威 Checkpoint。结果不确定的 Input 或 Lifecycle
+Mutation 先根据权威 Terminal 与 Process State 对账，绝不盲目重放。
 
 ## 验收标准
 
