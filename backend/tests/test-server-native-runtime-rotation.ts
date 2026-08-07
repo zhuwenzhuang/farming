@@ -11,6 +11,7 @@ const { NativeSessionEngine } = require('../native-session-engine.cjs');
 const { FarmingSessionStore } = require('../farming-session-store.cjs');
 const { nativePtyHostSocketPath } = require('../native-pty-host-path.cjs');
 const { nativePtyHostRuntimeIdentity } = require('../native-pty-host-identity.cjs');
+const { TerminalCheckpointClient } = require('./helpers/terminal-checkpoint-client.ts');
 
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -118,6 +119,7 @@ async function run() {
   const socketPath = nativePtyHostSocketPath(configDir);
   const port = await freePort();
   const baseUrl = `http://127.0.0.1:${port}/farming`;
+  const checkpointClient = new TerminalCheckpointClient(baseUrl);
   const currentIdentity = nativePtyHostRuntimeIdentity();
   const oldIdentity = {
     ...currentIdentity,
@@ -246,10 +248,8 @@ exec '${fakeCodex}' "$@"
     for (let index = 0; index < agentIds.length; index += 1) {
       const agentId = agentIds[index];
       const revived = await waitFor(async () => {
-        const view = await fetchJson(baseUrl, `/api/agents/${agentId}/session-view`);
-        const session = view.body.session;
-        return view.response.ok
-          && session?.runtimeEpoch
+        const session = await checkpointClient.request(agentId);
+        return session?.runtimeEpoch
           && session.runtimeEpoch !== oldEpochs.get(agentId)
           && String(session.renderOutput || '').includes(`${beforeMarker}_${index}`)
           && String(session.renderOutput || '').includes('History restored')
@@ -259,7 +259,7 @@ exec '${fakeCodex}' "$@"
           )
           ? session
           : Promise.reject(new Error(
-            `revived terminal not ready: ${view.response.status} ${JSON.stringify(view.body)}`,
+            `revived terminal not ready: ${JSON.stringify(session)}`,
           ));
       }, `revived terminal ${index} after controlled host rotation`);
       assert.strictEqual(revived.status, 'running');
@@ -281,8 +281,8 @@ exec '${fakeCodex}' "$@"
     });
     assert.strictEqual(sent.response.status, 200, JSON.stringify(sent.body));
     await waitFor(async () => {
-      const view = await fetchJson(baseUrl, `/api/agents/${agentId}/session-view`);
-      return String(view.body.session?.output || '').includes(afterMarker);
+      const session = await checkpointClient.request(agentId);
+      return String(session.output || '').includes(afterMarker);
     }, 'new input after controlled host rotation');
 
     for (const currentAgentId of agentIds) {
@@ -295,6 +295,7 @@ exec '${fakeCodex}' "$@"
     }
     throw error;
   } finally {
+    checkpointClient.close();
     if (oldEngine) oldEngine.dispose();
     await stopServerProcess(serverProcess);
     await oldHost.dispose().catch(() => {});

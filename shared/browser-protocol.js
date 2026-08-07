@@ -7,12 +7,13 @@ exports.validateClientMessage = validateClientMessage;
 exports.validateServerMessage = validateServerMessage;
 exports.protocolCompatible = protocolCompatible;
 const agent_state_semantics_js_1 = require("./agent-state-semantics.js");
-exports.PROTOCOL_VERSION = 8;
-exports.MIN_PROTOCOL_VERSION = 8;
+exports.PROTOCOL_VERSION = 9;
+exports.MIN_PROTOCOL_VERSION = 9;
 exports.PROJECT_ATTENTION_SCORE_MAX = agent_state_semantics_js_1.PROJECT_ATTENTION_SCORE_MAX;
 const CLIENT_MESSAGE_TYPES = new Set([
     'protocol-hello',
     'business-health-probe',
+    'terminal-checkpoint-request',
     'start-agent',
     'input',
     'composer-input',
@@ -31,6 +32,7 @@ const SERVER_MESSAGE_TYPES = new Set([
     'protocol-hello',
     'protocol-error',
     'business-health-result',
+    'terminal-checkpoint-result',
     'command-ack',
     'state',
     'state-delta',
@@ -245,6 +247,9 @@ function validateClientMessage(value) {
         case 'business-health-probe':
             valid = stringField(value, 'requestId');
             break;
+        case 'terminal-checkpoint-request':
+            valid = stringField(value, 'requestId') && stringField(value, 'agentId');
+            break;
         case 'start-agent':
             valid = stringField(value, 'command');
             break;
@@ -323,6 +328,14 @@ function validateServerMessage(value) {
                 && typeof value.agentCount === 'number'
                 && value.agentCount >= 0
                 && (value.mainAgentId === null || stringField(value, 'mainAgentId'));
+            break;
+        case 'terminal-checkpoint-result':
+            valid = stringField(value, 'requestId')
+                && stringField(value, 'agentId')
+                && typeof value.ok === 'boolean'
+                && (value.ok === true
+                    ? objectMessage(value.session) && value.error === undefined
+                    : stringField(value, 'error') && value.session === undefined);
             break;
         case 'protocol-error':
         case 'error':

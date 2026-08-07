@@ -1212,8 +1212,7 @@ function getSessionClient() {
 
   if (!sessionClient) {
     sessionClient = window.FarmingSessionBridge.createClient({
-      getSocket: () => ws,
-      fetchImpl: (...args: Parameters<typeof fetch>) => fetch(...args)
+      getSocket: () => ws
     });
   }
 
@@ -6352,7 +6351,7 @@ function connect(): void {
     agentStateSnapshotAgents = [];
     agentStateSnapshotCursor = null;
     clearCrtAgentStateSnapshotDeadline();
-    getSessionClient()?.rejectPendingComposerMessages();
+    getSessionClient()?.handleTransportDisconnected();
     console.log('Disconnected from server');
     if (crtTerminalReplication) {
       clearPendingCrtTerminalFitResize(crtTerminalReplication);
@@ -9029,7 +9028,7 @@ async function refreshSessionView(_forceReplace = false, expectedAgentId = focus
   try {
     const sessionClient = getSessionClient();
     if (!sessionClient) throw new Error('Terminal session client is unavailable');
-    const payload = await sessionClient.getSessionView(expectedAgentId, {
+    const payload = await sessionClient.requestTerminalCheckpoint(expectedAgentId, {
       signal: controller.signal
     });
     if (

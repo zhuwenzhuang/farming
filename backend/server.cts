@@ -1643,16 +1643,6 @@ app.get(routePath(BASE_PATH, '/api/agents/:agentId/session-text'), async (req, r
   res.send(text);
 });
 
-app.get(routePath(BASE_PATH, '/api/agents/:agentId/session-view'), async (req, res) => {
-  const sessionView = await agentManager.getAgentSessionView(req.params.agentId);
-  if (!sessionView) {
-    res.status(404).json({ error: 'Agent not found' });
-    return;
-  }
-
-  res.json({ session: sessionView });
-});
-
 app.get(routePath(BASE_PATH, '/api/agents/:agentId/acp-session'), async (req, res) => {
   try {
     res.json({
@@ -3433,6 +3423,44 @@ async function sendBusinessHealthResult(ws: WebSocketClient, requestId: string) 
   }));
 }
 
+async function sendTerminalCheckpointResult(
+  ws: WebSocketClient,
+  requestId: string,
+  agentId: string,
+) {
+  try {
+    const session = await agentManager.getAgentSessionView(agentId);
+    if (ws.readyState !== WebSocket.OPEN) return;
+    if (!session) {
+      ws.send(JSON.stringify({
+        type: 'terminal-checkpoint-result',
+        requestId,
+        agentId,
+        ok: false,
+        error: 'Agent not found',
+      }));
+      return;
+    }
+    ws.send(JSON.stringify({
+      type: 'terminal-checkpoint-result',
+      requestId,
+      agentId,
+      ok: true,
+      session,
+    }));
+  } catch (caught) {
+    if (ws.readyState !== WebSocket.OPEN) return;
+    const error = caughtError(caught);
+    ws.send(JSON.stringify({
+      type: 'terminal-checkpoint-result',
+      requestId,
+      agentId,
+      ok: false,
+      error: error.message || 'Failed to read terminal checkpoint',
+    }));
+  }
+}
+
 function handleMessage(ws: WebSocketClient, data: ServerClientMessage) {
   switch (data.type) {
     case 'protocol-hello':
@@ -3473,6 +3501,18 @@ function handleMessage(ws: WebSocketClient, data: ServerClientMessage) {
         return;
       }
       void sendBusinessHealthResult(ws, data.requestId);
+      break;
+    case 'terminal-checkpoint-request':
+      if (!ws.protocolVersion) {
+        ws.send(JSON.stringify({
+          type: 'protocol-error',
+          protocolVersion: PROTOCOL_VERSION,
+          requestId: data.requestId,
+          message: 'Terminal checkpoint requires a negotiated Farming protocol',
+        }));
+        return;
+      }
+      void sendTerminalCheckpointResult(ws, data.requestId, data.agentId);
       break;
     case 'state-resync':
       sendState(ws);
@@ -4033,7 +4073,7 @@ function previewForClient(preview: ServerRecord, client: WebSocketClient) {
   if (!preview || !client || client.focusedAgentId !== preview.agentId || !preview.previewSnapshot) {
     return preview;
   }
-  // The active terminal is hydrated from its authoritative session-view and
+  // The active terminal is hydrated from its authoritative checkpoint and
   // receives live session-output. Sending its sidebar snapshot again adds a
   // large, unrelated React update to every keystroke in a full-screen TUI.
   return {

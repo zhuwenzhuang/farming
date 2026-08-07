@@ -5,6 +5,7 @@ import {
   expect,
   openFarming,
   openNewAgentDialog,
+  terminalCheckpointOutput,
   test,
 } from './fixtures'
 import type { Agent } from '../../src/types/agent'
@@ -604,13 +605,7 @@ test.describe('mobile Farming Code user story', () => {
     await page.keyboard.press('Enter')
     await expect(composerInput).toHaveValue('')
     await expect.poll(async () => {
-      const response = await page.request.get(`/farming/api/agents/${agentId}/session-view`)
-      const data = await response.json()
-      return [
-        data.session?.output,
-        data.session?.renderOutput,
-        data.session?.previewText,
-      ].filter(Boolean).join('\n')
+      return terminalCheckpointOutput(page, agentId)
     }).toContain(marker)
 
     await revealMobileSidebar(page)

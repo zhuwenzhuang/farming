@@ -27,6 +27,21 @@ Live output is applied only after the checkpoint installation completes. The
 browser discards output already covered by the checkpoint and requests a new
 checkpoint after any sequence gap or epoch change.
 
+Checkpoint reads use the negotiated main WebSocket as a multiplexed RPC. The
+browser sends `terminal-checkpoint-request` with a request ID and exact Agent
+identity; the Server returns the matching `terminal-checkpoint-result` on the
+same connection. There is no browser HTTP checkpoint path or compatibility
+fallback.
+
+A disconnected request becomes unsent. After the next compatible protocol
+hello, the browser may resend that read-only request with the same request ID.
+This replay rule applies only to checkpoint reads; it does not make terminal
+input or lifecycle mutations replay-safe. Cancellation and timeout remain
+bounded, but HTTP connection admission and browser HTTP/1.1 queueing are not
+part of terminal attachment. Background attention changes do not speculatively
+read checkpoints; an attachment or an actual recovery trigger requests the
+authoritative cut it needs.
+
 A stale checkpoint already queued for rendering may drain, but its completion
 cannot commit after a newer attachment or recovery generation exists. The
 replacement checkpoint remains able to reach a visible authoritative state.
@@ -46,7 +61,7 @@ the same Agent and mount cancels a pending release. A stale lease cannot release
 a newer attachment, and a different Agent or mount releases the old owner before
 attaching the new one.
 
-Code and CRT share the same protocol implementation and recovery semantics.
+Code and CRT share the same protocol contract and recovery semantics.
 Each interface may adapt layout and renderer integration, but must not maintain
 a second ordering or checkpoint state machine.
 
@@ -130,3 +145,6 @@ Verification must cover attach, detach, hidden-page resume, reconnect, restart,
 epoch changes, sequence gaps, stale checkpoint completion, multiple viewers,
 IME, direct input, resize churn, full-screen TUI redraw, mouse modes, clickable
 locations, slow connections, renderer failure, and exact process cleanup.
+It must also cover selecting an Agent that was initially hidden behind the
+collapsed list with at least six Agents while unrelated background HTTP reads
+are pending, in both Code and CRT where the interaction exists.

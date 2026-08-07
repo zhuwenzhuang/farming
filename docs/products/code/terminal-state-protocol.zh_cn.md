@@ -22,6 +22,17 @@ Dimensions，以及继续交互需要的 Terminal Mode。Browser 只在 Attach�
 Checkpoint 安装完成后才能继续应用 Live Output。Browser 丢弃已被 Checkpoint 覆盖的 Output；
 发现 Sequence Gap 或 Epoch 变化时请求新 Checkpoint。
 
+Checkpoint Read 通过完成协议协商的 Main WebSocket 作为 Multiplexed RPC 传输。Browser 发送带
+Request ID 与精确 Agent Identity 的 `terminal-checkpoint-request`，Server 在同一连接返回匹配的
+`terminal-checkpoint-result`。Browser 不再存在 HTTP Checkpoint Path 或 Compatibility Fallback。
+
+连接断开后，未完成请求恢复为 Unsent。下一次 Compatible Protocol Hello 完成后，Browser 可以用
+相同 Request ID 重发这个 Read-only Request。该重放规则只适用于 Checkpoint Read，不能推导出
+Terminal Input 或 Lifecycle Mutation 可以安全重放。Cancellation 与 Timeout 仍然有界，但 HTTP
+Connection Admission 与 Browser HTTP/1.1 Queue 不再参与 Terminal Attachment。Background
+Attention 变化不会推测性读取 Checkpoint；只有 Attachment 或真实 Recovery Trigger 才请求所需的
+权威 Cut。
+
 已经排入 Renderer Queue 的 Stale Checkpoint 可以按顺序排空，但存在更新 Attachment 或 Recovery
 Generation 后，它的 Completion 不能提交。Replacement Checkpoint 必须始终能推进到可见权威状态。
 
@@ -37,7 +48,7 @@ Attachment Lease 处于 Detached、Attached 或 Release-pending。同一 Agent �
 取消 Pending Release。Stale Lease 不能释放更新 Attachment；Agent 或 Mount 真正变化时先释放
 旧 Owner，再 Attach 新 Owner。
 
-Code 与 CRT 共用同一 Protocol Implementation 与 Recovery Semantics。两套界面可以适配不同
+Code 与 CRT 共用同一 Protocol Contract 与 Recovery Semantics。两套界面可以适配不同
 Layout 与 Renderer Integration，但不能各自维护第二套 Ordering 或 Checkpoint State Machine。
 
 ## Input 与 Resize
@@ -100,3 +111,5 @@ Mutation 先根据权威 Terminal 与 Process State 对账，绝不盲目重放�
 验证必须覆盖：Attach、Detach、Hidden-page Resume、Reconnect、Restart、Epoch Change、Sequence
 Gap、Stale Checkpoint Completion、Multi-viewer、IME、Direct Input、Resize Churn、Full-screen TUI
 Redraw、Mouse Mode、Clickable Location、Slow Connection、Renderer Failure 与精确 Process Cleanup。
+还必须覆盖至少六个 Agent 时，展开折叠列表并选择初始隐藏 Agent，同时存在无关 Background HTTP
+Read 的场景；存在对应交互的 Code 与 CRT 都要满足同等验收标准。

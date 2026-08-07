@@ -56,13 +56,13 @@ function run() {
       sessionBridge.includes("typeof options.requestId === 'string'") &&
       sessionBridge.includes('...(attachments.length > 0 ? { attachments } : {})') &&
       sessionBridge.includes("candidate.type === 'composer-input-result'") &&
-      sessionBridge.includes('rejectPendingComposerMessages') &&
+      sessionBridge.includes('handleTransportDisconnected') &&
       sessionBridge.includes('uncertain: true'),
     'structured runtimes should preserve ACP attachments and correlate Codex chat acceptance through the session bridge'
   );
   assert(
     crtApp.includes('getSessionClient()?.handleServerMessage(data)') &&
-      crtApp.includes('getSessionClient()?.rejectPendingComposerMessages()') &&
+      crtApp.includes('getSessionClient()?.handleTransportDisconnected()') &&
       crtApp.includes('function structuredComposerPromptAttachments()') &&
       crtApp.includes('sendComposerMessage(agentId, message, promptAttachments') &&
       crtApp.includes('structuredComposerRequestIds') &&

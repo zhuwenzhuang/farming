@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Page } from '@playwright/test'
-import { expect, test } from './fixtures'
+import { expect, openFarming, terminalCheckpointOutput, test } from './fixtures'
 
 type TerminalInputFrame = {
   agentId: string
@@ -18,21 +18,28 @@ async function createBashAgent(page: Page, workspace: string) {
   return data.agentId as string
 }
 
-async function sessionView(page: Page, agentId: string) {
-  const response = await page.request.get(`/farming/api/agents/${agentId}/session-view`)
-  expect(response.ok()).toBeTruthy()
-  const body = await response.json() as {
-    session?: {
-      renderOutput?: string
-    }
-  }
-  return body.session || {}
-}
-
 async function prepareBrowserPage(page: Page) {
   await page.addInitScript(() => {
     window.__FARMING_E2E__ = true
   })
+}
+
+function trackTerminalCheckpointRequests(page: Page, agentId: string) {
+  let requestCount = 0
+  page.on('websocket', socket => {
+    socket.on('framesent', frame => {
+      const payload = Buffer.isBuffer(frame.payload) ? frame.payload.toString('utf8') : frame.payload
+      try {
+        const message = JSON.parse(payload) as { type?: string; agentId?: string }
+        if (message.type === 'terminal-checkpoint-request' && message.agentId === agentId) {
+          requestCount += 1
+        }
+      } catch {
+        // Ignore non-JSON WebSocket frames from unrelated test traffic.
+      }
+    })
+  })
+  return () => requestCount
 }
 
 function codeAgentRow(page: Page, agentId: string) {
@@ -173,19 +180,15 @@ test('CRT reload restores one checkpoint and keeps accepting input', async ({
   const crtPage = await context.newPage()
   await prepareBrowserPage(crtPage)
   const inputs = trackTerminalInputs(crtPage)
-  let checkpointRequests = 0
-  crtPage.on('request', request => {
-    if (request.url().endsWith(`/farming/api/agents/${agentId}/session-view`)) {
-      checkpointRequests += 1
-    }
-  })
+  const checkpointRequests = trackTerminalCheckpointRequests(crtPage, agentId)
 
   try {
+    await openFarming(page)
     await openCrtTerminal(crtPage, agentId)
     await waitForCrtReady(crtPage)
     await crtPage.waitForTimeout(3_000)
     // Each visible CRT attachment hydrates from one authoritative checkpoint.
-    expect(checkpointRequests).toBe(1)
+    expect(checkpointRequests()).toBe(1)
 
     const historyCommand = `printf '${historyMarker}\\n'`
     const historyInputStart = inputs.length
@@ -193,17 +196,15 @@ test('CRT reload restores one checkpoint and keeps accepting input', async ({
     await expect.poll(() => inputs.slice(historyInputStart).map(frame => frame.input).join(''))
       .toContain(`${historyCommand}\r`)
     await expect.poll(async () => {
-      const response = await crtPage.request.get(`/farming/api/agents/${agentId}/session-view`)
-      const body = await response.json() as { session?: { renderOutput?: string } }
-      return body.session?.renderOutput || ''
+      return terminalCheckpointOutput(page, agentId)
     }, { timeout: 10_000 }).toContain(historyMarker)
 
-    const requestsBeforeReload = checkpointRequests
+    const requestsBeforeReload = checkpointRequests()
     await crtPage.reload({ waitUntil: 'domcontentloaded' })
     await expect(crtPage.locator('#session-modal')).toHaveClass(/active/, { timeout: 30_000 })
     await waitForCrtReady(crtPage)
     await crtPage.waitForTimeout(3_000)
-    expect(checkpointRequests).toBe(requestsBeforeReload + 1)
+    expect(checkpointRequests()).toBe(requestsBeforeReload + 1)
 
     const reloadCommand = "printf 'reload-input-ok\\n' > after-reload.txt"
     const reloadInputStart = inputs.length
@@ -245,7 +246,7 @@ test('CRT hidden-page disconnect resumes from one authoritative latest checkpoin
     })
     expect(response.ok()).toBeTruthy()
     await expect.poll(async () => (
-      (await sessionView(page, agentId)).renderOutput || ''
+      await terminalCheckpointOutput(page, agentId)
     ), { timeout: 10_000 }).toContain(marker)
 
     await crtPage.evaluate(() => {

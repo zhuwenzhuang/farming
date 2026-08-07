@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { expect, openFarming, test } from './fixtures'
+import { expect, openFarming, terminalCheckpointOutput, test } from './fixtures'
 
 const IPHONE_AUDIT_DIR = path.resolve('.tmp/iphone-real-agent-audit')
 
@@ -419,9 +419,7 @@ test.describe('iPhone mobile layout', () => {
     await expect.poll(() => fs.existsSync(outputPath) ? fs.readFileSync(outputPath, 'utf8') : '', { timeout: 15_000 })
       .toBe('MOBILE_RELOAD_ONCE\n')
     await expect.poll(async () => {
-      const response = await page.request.get(`/farming/api/agents/${agentId}/session-view`)
-      const data = await response.json()
-      return String(data.session?.renderOutput || data.session?.output || '')
+      return terminalCheckpointOutput(page, agentId)
     }, { timeout: 15_000 }).toContain('MOBILE_RELOAD_UI_OK')
     await expect.poll(async () => page.evaluate(
       id => (window.__farmingTerminalTest?.getRows(id, 10_000) ?? []).join('\n'),
@@ -471,11 +469,7 @@ test.describe('iPhone mobile layout', () => {
     await page.keyboard.insertText('echo IPHONE_LANDSCAPE_OK')
     await page.getByTestId('code-composer-send').tap()
     await expect.poll(async () => {
-      const response = await page.request.get(`/farming/api/agents/${agentId}/session-view`)
-      const data = await response.json()
-      return [data.session?.output, data.session?.renderOutput, data.session?.previewText]
-        .filter(Boolean)
-        .join('\n')
+      return terminalCheckpointOutput(page, agentId)
     }, { timeout: 30_000 }).toContain('IPHONE_LANDSCAPE_OK')
     await expect.poll(async () => page.evaluate(
       id => (window.__farmingTerminalTest?.getRows(id, 10_000) ?? []).join('\n'),
@@ -552,11 +546,7 @@ test.describe('iPhone mobile layout', () => {
     await page.keyboard.press('Enter')
     await expect(input).toHaveValue('')
     await expect.poll(async () => {
-      const response = await page.request.get(`/farming/api/agents/${agentId}/session-view`)
-      const data = await response.json()
-      return [data.session?.output, data.session?.renderOutput, data.session?.previewText]
-        .filter(Boolean)
-        .join('\n')
+      return terminalCheckpointOutput(page, agentId)
     }, { timeout: 30_000 }).toContain(readyMarker)
     await page.waitForTimeout(400)
 
@@ -799,13 +789,7 @@ test.describe('iPhone mobile layout', () => {
     await page.keyboard.press('Enter')
     await expect(composerInput).toHaveValue('')
     await expect.poll(async () => {
-      const response = await page.request.get(`/farming/api/agents/${agentId}/session-view`)
-      const data = await response.json()
-      return [
-        data.session?.output,
-        data.session?.renderOutput,
-        data.session?.previewText,
-      ].filter(Boolean).join('\n')
+      return terminalCheckpointOutput(page, agentId)
     }).toContain(tapInputMarker)
 
     const keyboardMetrics = await composer.evaluate(async element => {

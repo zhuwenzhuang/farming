@@ -1,7 +1,7 @@
 import { PROJECT_ATTENTION_SCORE_MAX as projectAttentionScoreMax } from './agent-state-semantics.js'
 
-export const PROTOCOL_VERSION = 8
-export const MIN_PROTOCOL_VERSION = 8
+export const PROTOCOL_VERSION = 9
+export const MIN_PROTOCOL_VERSION = 9
 export const PROJECT_ATTENTION_SCORE_MAX = projectAttentionScoreMax
 
 type ObjectMessage = Record<string, unknown>
@@ -20,6 +20,12 @@ export interface ProtocolClientHelloMessage extends ExtensibleMessage {
 export interface BusinessHealthProbeMessage extends ExtensibleMessage {
   type: 'business-health-probe'
   requestId: string
+}
+
+export interface TerminalCheckpointRequestMessage extends ExtensibleMessage {
+  type: 'terminal-checkpoint-request'
+  requestId: string
+  agentId: string
 }
 
 export interface StartAgentMessage extends ExtensibleMessage {
@@ -95,6 +101,7 @@ export interface StateResyncMessage extends ExtensibleMessage {
 export type ClientMessage =
   | ProtocolClientHelloMessage
   | BusinessHealthProbeMessage
+  | TerminalCheckpointRequestMessage
   | StartAgentMessage
   | InputMessage
   | ComposerInputMessage
@@ -124,6 +131,15 @@ export interface BusinessHealthResultMessage extends ExtensibleMessage {
   status: 'ready' | 'recovering' | 'failed' | 'stopping'
   agentCount: number
   mainAgentId: string | null
+}
+
+export interface TerminalCheckpointResultMessage extends ExtensibleMessage {
+  type: 'terminal-checkpoint-result'
+  requestId: string
+  agentId: string
+  ok: boolean
+  session?: ObjectMessage
+  error?: string
 }
 
 export interface ErrorServerMessage<Type extends 'protocol-error' | 'error'> extends ExtensibleMessage {
@@ -297,6 +313,7 @@ export interface ComputerResourceDeletedMessage extends ExtensibleMessage {
 export type ServerMessage =
   | ProtocolServerHelloMessage
   | BusinessHealthResultMessage
+  | TerminalCheckpointResultMessage
   | ErrorServerMessage<'protocol-error'>
   | ErrorServerMessage<'error'>
   | CommandAckMessage
@@ -328,6 +345,7 @@ export type ValidationResult<Message> =
 const CLIENT_MESSAGE_TYPES: ReadonlySet<ClientMessage['type']> = new Set([
   'protocol-hello',
   'business-health-probe',
+  'terminal-checkpoint-request',
   'start-agent',
   'input',
   'composer-input',
@@ -347,6 +365,7 @@ const SERVER_MESSAGE_TYPES: ReadonlySet<ServerMessage['type']> = new Set([
   'protocol-hello',
   'protocol-error',
   'business-health-result',
+  'terminal-checkpoint-result',
   'command-ack',
   'state',
   'state-delta',
@@ -582,6 +601,9 @@ export function validateClientMessage(value: unknown): ValidationResult<ClientMe
           || value.initialStateScope === 'focused')
       break
     case 'business-health-probe': valid = stringField(value, 'requestId'); break
+    case 'terminal-checkpoint-request':
+      valid = stringField(value, 'requestId') && stringField(value, 'agentId')
+      break
     case 'start-agent': valid = stringField(value, 'command'); break
     case 'input': valid = stringField(value, 'agentId', true) && (typeof value.input === 'string' || Array.isArray(value.inputParts)); break
     case 'composer-input':
@@ -647,6 +669,16 @@ export function validateServerMessage(value: unknown): ValidationResult<ServerMe
         && typeof value.agentCount === 'number'
         && value.agentCount >= 0
         && (value.mainAgentId === null || stringField(value, 'mainAgentId'))
+      break
+    case 'terminal-checkpoint-result':
+      valid = stringField(value, 'requestId')
+        && stringField(value, 'agentId')
+        && typeof value.ok === 'boolean'
+        && (
+          value.ok === true
+            ? objectMessage(value.session) && value.error === undefined
+            : stringField(value, 'error') && value.session === undefined
+        )
       break
     case 'protocol-error':
     case 'error': valid = stringField(value, 'message'); break

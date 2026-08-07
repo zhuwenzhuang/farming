@@ -81,7 +81,6 @@ function run() {
   const usePooledTerminalSource = read('src/hooks/usePooledTerminal.ts');
   const browserResourcesHookSource = read('extensions/browser/frontend/useBrowserResources.ts');
   const computerResourcesHookSource = read('extensions/computer/frontend/useComputerResources.ts');
-  const foregroundHttpPrioritySource = read('src/lib/foreground-http-priority.ts');
   const xtermSource = read('src/lib/xterm.ts');
   const fileEditorMonacoSource = read('src/components/files/useFileEditorMonacoController.ts');
   const inputDialogSource = read('src/components/InputDialog.tsx');
@@ -112,19 +111,6 @@ function run() {
       && historyViewStyles.includes('justify-content: flex-start'),
     'History should top-align its column so refresh cannot strand the first page above scrollTop zero'
   );
-  assert(
-    foregroundHttpPrioritySource.includes('requestForegroundHttpPriority')
-      && foregroundHttpPrioritySource.includes('FOREGROUND_HTTP_HOLD_MS = 5_000')
-      && appSource.includes('requestForegroundHttpPriority()')
-      && appSource.includes('if (foregroundHttpPriorityActive()) {')
-      && appSource.includes('deferredLoadTimer = window.setTimeout')
-      && appSource.includes("fetch(appPath('/api/usage'), { signal: controller.signal })")
-      && workspaceSource.includes('subscribeForegroundHttpPriority')
-      && workspaceSource.includes('agentSessionsLoadAbortRef.current?.abort()')
-      && workspaceSource.includes('signal: options.signal'),
-    'opening a Terminal must synchronously abort low-priority usage and Agent-session prefetches so session-view can acquire an HTTP connection',
-  );
-
   assert(
     appSource.includes('<CodeWorkspace') &&
       !appSource.includes('<MapView') &&

@@ -2,7 +2,11 @@ import { useEffect, useRef, useCallback, useState } from 'react'
 import type { Agent, ProjectAgentSummary, TaskHistoryEntry } from '@/types/agent'
 import type { ClientMessage, ComposerInputAttachment, ComposerInputMessage, ServerMessage, StartAgentMessage, WorkspaceFileEventMessage } from '@/types/messages'
 import { appWsUrl } from '@/lib/base-path'
-import { setTerminalSessionTransport } from '@/lib/terminal-session-client'
+import {
+  setTerminalSessionTransport,
+  setTerminalSessionTransportReady,
+  settleTerminalSessionCheckpoint,
+} from '@/lib/terminal-session-client'
 import {
   markBackendDisconnected,
   resetBackendConnectionStatus,
@@ -60,6 +64,7 @@ const READ_ONLY_CLIENT_MESSAGE_TYPES = new Set<ClientMessage['type']>([
   'focus-agent',
   'protocol-hello',
   'state-resync',
+  'terminal-checkpoint-request',
   'unwatch-workspace-files',
   'watch-workspace-files',
 ])
@@ -433,7 +438,11 @@ export function useWebSocket() {
 
   useEffect(() => {
     setTerminalSessionTransport(message => sendMessage(message))
-    return () => setTerminalSessionTransport(null)
+    setTerminalSessionTransportReady(false)
+    return () => {
+      setTerminalSessionTransportReady(false)
+      setTerminalSessionTransport(null)
+    }
   }, [sendMessage])
 
   useEffect(() => {
@@ -553,6 +562,7 @@ export function useWebSocket() {
       // Keep it alive in hidden tabs so Chat keeps progressing and returning
       // to the page does not manufacture a disconnected/reconnecting state.
       if (disposed) return
+      setTerminalSessionTransportReady(false)
       accessModeRef.current = 'unknown'
       pendingAccessMessagesRef.current = []
       setState(prev => prev.accessMode === 'unknown' ? prev : { ...prev, accessMode: 'unknown' })
@@ -626,6 +636,7 @@ export function useWebSocket() {
                   : 'The Farming backend is newer than this page. Refresh this page to load the updated interface.'
                 ws.close(4002, `Unsupported Farming protocol version ${msg.protocolVersion}`)
               } else {
+                setTerminalSessionTransportReady(true)
                 const pendingMessages = pendingAccessMessagesRef.current
                 pendingAccessMessagesRef.current = []
                 pendingMessages.forEach(message => {
@@ -659,6 +670,9 @@ export function useWebSocket() {
                 ws,
                 msg.status === 'ready' ? BUSINESS_HEALTH_INTERVAL_MS : BUSINESS_HEALTH_RETRY_MS,
               )
+              break
+            case 'terminal-checkpoint-result':
+              settleTerminalSessionCheckpoint(msg)
               break
             case 'command-ack':
               break
@@ -1037,6 +1051,7 @@ export function useWebSocket() {
 
       ws.onclose = (event) => {
         if (disposed || wsRef.current !== ws) return
+        setTerminalSessionTransportReady(false)
         const terminalError = event.code === 4001
           ? 'Farming token expired or is invalid'
           : event.code === 4002
@@ -1084,6 +1099,7 @@ export function useWebSocket() {
 
     return () => {
       disposed = true
+      setTerminalSessionTransportReady(false)
       clearTimeout(reconnectTimer)
       document.removeEventListener('visibilitychange', handlePageVisibilityChange)
       clearBusinessProbeTimers()

@@ -18,6 +18,9 @@ function delay(ms: number) {
 declare global {
   interface Window {
     __FARMING_E2E__?: boolean
+    __farmingTerminalCheckpointInterceptor?: (
+      message: TerminalCheckpointTestResult,
+    ) => TerminalCheckpointTestResult | null | Promise<TerminalCheckpointTestResult | null>
     __farmingFileEditorTest?: {
       focus: () => boolean
       revealLine: (lineNumber: number) => boolean
@@ -33,7 +36,14 @@ declare global {
       }
     }
     __farmingTerminalTest?: {
-      prefetchCheckpoint: (agentId: string) => Promise<void>
+      requestCheckpoint: (agentId: string) => Promise<{
+        runtimeEpoch: string
+        output: string
+        outputSeq: number | null
+        stateRevision: number | null
+        cols: number | null
+        rows: number | null
+      }>
       getCellCenter: (agentId: string, col: number, row: number) => { x: number; y: number } | null
       getRows: (agentId: string, rowCount?: number) => string[]
       getViewport: (agentId: string) => {
@@ -74,6 +84,7 @@ declare global {
         pendingSnapshotReplay?: boolean
         runtimeEpoch?: string
         reconnectSnapshotSeq?: number
+        checkpointRequestCount?: number
         bootstrapRefreshSeq?: number
         attachGeneration?: number
         currentAttachment?: boolean
@@ -135,6 +146,61 @@ declare global {
       isReady: (agentId: string) => boolean
     }
   }
+}
+
+export interface TerminalCheckpointTestResult {
+  type: 'terminal-checkpoint-result'
+  requestId: string
+  agentId: string
+  ok: boolean
+  session?: Record<string, unknown>
+  error?: string
+}
+
+export interface TerminalCheckpointTestState {
+  runtimeEpoch: string
+  output: string
+  outputSeq: number | null
+  stateRevision: number | null
+  cols: number | null
+  rows: number | null
+}
+
+let checkpointInterceptorSequence = 0
+
+export async function interceptTerminalCheckpoints(
+  page: Page,
+  handler: (message: TerminalCheckpointTestResult) => (
+    TerminalCheckpointTestResult | null | Promise<TerminalCheckpointTestResult | null>
+  ),
+) {
+  checkpointInterceptorSequence += 1
+  const binding = `__farmingCheckpointInterceptor${checkpointInterceptorSequence}`
+  await page.exposeFunction(binding, handler)
+  const install = (bindingName: string) => {
+    const exposed = (window as unknown as Record<
+      string,
+      (message: TerminalCheckpointTestResult) => Promise<TerminalCheckpointTestResult | null>
+    >)[bindingName]
+    const previous = window.__farmingTerminalCheckpointInterceptor
+    window.__farmingTerminalCheckpointInterceptor = async message => {
+      const previousResult = previous ? await previous(message) : message
+      return previousResult ? exposed(previousResult) : null
+    }
+  }
+  await page.addInitScript(install, binding)
+  await page.evaluate(install, binding)
+}
+
+export async function requestTerminalCheckpoint(page: Page, agentId: string) {
+  await page.waitForFunction(() => Boolean(window.__farmingTerminalTest?.requestCheckpoint))
+  return page.evaluate(id => (
+    window.__farmingTerminalTest?.requestCheckpoint(id)
+  ), agentId) as Promise<TerminalCheckpointTestState>
+}
+
+export async function terminalCheckpointOutput(page: Page, agentId: string) {
+  return (await requestTerminalCheckpoint(page, agentId)).output
 }
 
 type CleanupAgent = {
@@ -406,13 +472,10 @@ export async function writeTerminalRaw(page: Page, agentId: string, text: string
       id => window.__farmingTerminalTest?.getBufferDiagnostics(id) ?? null,
       agentId,
     )
-    const checkpointProbe = await page.request
-      .get(`/farming/api/agents/${agentId}/session-view`, { timeout: 2_000 })
-      .then(async response => ({
-        ok: response.ok(),
-        status: response.status(),
-        body: await response.json().catch(() => null),
-      }))
+    const checkpointProbe = await page.evaluate(id => (
+      window.__farmingTerminalTest?.requestCheckpoint(id)
+    ), agentId)
+      .then(body => ({ ok: true, body }))
       .catch(probeError => ({
         error: probeError instanceof Error ? probeError.message : String(probeError),
       }))

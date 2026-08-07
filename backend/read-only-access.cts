@@ -3,6 +3,7 @@ const READ_ONLY_CLIENT_MESSAGE_TYPES = new Set([
   'focus-agent',
   'protocol-hello',
   'state-resync',
+  'terminal-checkpoint-request',
   'unwatch-workspace-files',
   'watch-workspace-files',
 ]);

@@ -61,6 +61,15 @@ assert.strictEqual(validateClientMessage({
 }).ok, false);
 assert.strictEqual(validateClientMessage({ type: 'business-health-probe', requestId: 'health-1' }).ok, true);
 assert.strictEqual(validateClientMessage({ type: 'business-health-probe', requestId: 1 }).ok, false);
+assert.strictEqual(validateClientMessage({
+  type: 'terminal-checkpoint-request',
+  requestId: 'checkpoint-1',
+  agentId: 'agent-1',
+}).ok, true);
+assert.strictEqual(validateClientMessage({
+  type: 'terminal-checkpoint-request',
+  requestId: 'checkpoint-1',
+}).ok, false);
 assert.strictEqual(validateClientMessage({ type: 'focus-agent', agentId: 'a', activityScope: 'focused' }).ok, true);
 assert.strictEqual(validateClientMessage({ type: 'focus-agent', agentId: null, activityScope: 'none' }).ok, true);
 assert.strictEqual(validateClientMessage({ type: 'focus-agent', agentId: 'a', activityScope: 'project' }).ok, false);
@@ -265,6 +274,34 @@ assert.strictEqual(validateServerMessage({
   deletion: { id: 'computer-1', collectionRevision: -1 },
 }).ok, false);
 assert.strictEqual(validateServerMessage({ type: 'composer-input-result', requestId: 'request-1', agentId: 'a', accepted: true }).ok, true);
+assert.strictEqual(validateServerMessage({
+  type: 'terminal-checkpoint-result',
+  requestId: 'checkpoint-1',
+  agentId: 'agent-1',
+  ok: true,
+  session: {
+    runtimeEpoch: 'runtime-1',
+    outputSeq: 4,
+    stateRevision: 5,
+    renderOutput: 'ready',
+    previewCols: 80,
+    previewRows: 24,
+  },
+}).ok, true);
+assert.strictEqual(validateServerMessage({
+  type: 'terminal-checkpoint-result',
+  requestId: 'checkpoint-1',
+  agentId: 'agent-1',
+  ok: false,
+  error: 'Agent not found',
+}).ok, true);
+assert.strictEqual(validateServerMessage({
+  type: 'terminal-checkpoint-result',
+  requestId: 'checkpoint-1',
+  agentId: 'agent-1',
+  ok: true,
+  error: 'not allowed with success',
+}).ok, false);
 assert.strictEqual(validateServerMessage({ type: 'composer-input-result', requestId: 'request-1', agentId: 'a', accepted: false, uncertain: true }).ok, true);
 assert.strictEqual(validateServerMessage({ type: 'composer-input-result', requestId: 'request-1', agentId: 'a', accepted: false, uncertain: 'true' }).ok, false);
 assert.strictEqual(validateServerMessage({ type: 'composer-input-result', requestId: 'request-1', agentId: 'a', accepted: 'true' }).ok, false);

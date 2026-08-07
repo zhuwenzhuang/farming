@@ -60,6 +60,12 @@ async function createControlAgent(page: Page, command: string, workspace: string
   return data.agentId as string
 }
 
+async function terminalCheckpointOutput(page: Page, agentId: string) {
+  return page.evaluate(id => (
+    window.__farmingTerminalTest?.requestCheckpoint(id).then(checkpoint => checkpoint.output) ?? ''
+  ), agentId)
+}
+
 async function expectCompactVersionLabel(productMark: Locator, mode: 'light' | 'dark') {
   const productMarkBadge = productMark.locator('.code-product-mark-badge')
   await expect(productMark).toHaveCSS('border-top-width', '0px')
@@ -1145,6 +1151,48 @@ test.describe('display-backed agent flows', () => {
     const projectDir = path.join(workspaceRoot, 'compact-project-agents')
     fs.mkdirSync(projectDir, { recursive: true })
     fs.writeFileSync(path.join(projectDir, 'README.md'), 'compact agents\n')
+    const checkpointRequests: string[] = []
+    const checkpointResults = new Map<string, {
+      runtimeEpoch?: string
+      outputSeq?: number | null
+      stateRevision?: number | null
+    }>()
+    let legacyCheckpointHttpRequests = 0
+    page.on('request', request => {
+      if (/\/farming\/api\/agents\/[^/]+\/session-view$/.test(new URL(request.url()).pathname)) {
+        legacyCheckpointHttpRequests += 1
+      }
+    })
+    page.on('websocket', socket => {
+      socket.on('framesent', event => {
+        try {
+          const message = JSON.parse(event.payload.toString()) as { type?: string; agentId?: string }
+          if (message.type === 'terminal-checkpoint-request' && message.agentId) {
+            checkpointRequests.push(message.agentId)
+          }
+        } catch {
+          // Ignore non-JSON WebSocket frames from unrelated resources.
+        }
+      })
+      socket.on('framereceived', event => {
+        try {
+          const message = JSON.parse(event.payload.toString()) as {
+            type?: string
+            agentId?: string
+            session?: {
+              runtimeEpoch?: string
+              outputSeq?: number | null
+              stateRevision?: number | null
+            }
+          }
+          if (message.type === 'terminal-checkpoint-result' && message.agentId && message.session) {
+            checkpointResults.set(message.agentId, message.session)
+          }
+        } catch {
+          // Ignore non-JSON WebSocket frames from unrelated resources.
+        }
+      })
+    })
     const agentIds = []
     for (let index = 0; index < 6; index += 1) {
       agentIds.push(await createControlAgent(page, 'bash', projectDir))
@@ -1161,6 +1209,11 @@ test.describe('display-backed agent flows', () => {
     await expect(projectGroup).toBeVisible({ timeout: 30_000 })
     await expect(projectGroup.getByTestId('code-project-agent-strip')).toHaveCount(0)
     await expect(projectGroup.getByTestId('code-agent-row')).toHaveCount(5)
+    const initiallyVisibleAgentIds = await projectGroup.getByTestId('code-agent-row').evaluateAll(rows => (
+      rows.map(row => row.getAttribute('data-agent-id')).filter((id): id is string => Boolean(id))
+    ))
+    const initiallyHiddenAgentId = agentIds.find(agentId => !initiallyVisibleAgentIds.includes(agentId))
+    expect(initiallyHiddenAgentId).toBeTruthy()
     const showMoreAgents = projectGroup.getByTestId('code-agent-show-more')
     const agentVisibility = projectGroup.getByTestId('code-project-agent-visibility')
     await expect(showMoreAgents).toBeVisible()
@@ -1202,12 +1255,71 @@ test.describe('display-backed agent flows', () => {
     })
     await expect(projectGroup.getByTestId('code-project-agent-strip')).toHaveCount(0)
     await expect(projectGroup.getByTestId('code-agent-row')).toHaveCount(6)
-    const selectedAgentRow = projectGroup.getByTestId('code-agent-row').nth(2)
-    const selectedAgentId = await selectedAgentRow.getAttribute('data-agent-id')
-    expect(selectedAgentId).toBeTruthy()
-    expect(agentIds).toContain(selectedAgentId)
+    const selectedAgentId = initiallyHiddenAgentId!
+    const selectedAgentRow = projectGroup.locator(
+      `[data-testid="code-agent-row"][data-agent-id="${selectedAgentId}"]`,
+    )
+    let releaseStarvedHttp!: () => void
+    const starvedHttpGate = new Promise<void>(resolve => {
+      releaseStarvedHttp = resolve
+    })
+    let starvedHttpRequests = 0
+    await page.route(/\/farming\/api\/files\/search\?.*checkpoint-starvation=/, async route => {
+      starvedHttpRequests += 1
+      await starvedHttpGate
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ results: { matches: [] } }) })
+    })
+    const starvedHttp = page.evaluate(() => Promise.allSettled(Array.from({ length: 6 }, (_, index) => (
+      fetch(`/farming/api/files/search?rootId=starved&q=checkpoint&checkpoint-starvation=${index}`)
+    ))))
+    await expect.poll(() => starvedHttpRequests).toBe(6)
+
     await selectedAgentRow.click()
-    await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${selectedAgentId}"]`)).toBeVisible()
+    const selectedTerminalPane = page.locator(
+      `[data-testid="code-terminal-pane"][data-agent-id="${selectedAgentId}"]`,
+    )
+    await expect(selectedAgentRow).toHaveClass(/active/)
+    await expect(selectedTerminalPane).toBeVisible()
+    await expect.poll(() => page.evaluate(agentId => (
+      window.__farmingTerminalTest?.isReady(agentId) === true
+    ), selectedAgentId), { timeout: 10_000 }).toBe(true)
+    await expect(page.getByTestId('code-terminal-status-card')).toHaveCount(0)
+    await expect(selectedTerminalPane.locator('.terminal-checkpoint-installing')).toHaveCount(0)
+    await expect.poll(() => page.evaluate(agentId => (
+      window.__farmingTerminalTest?.getHostDiagnostics().filter(host => host.agentId === agentId)
+    ), selectedAgentId)).toEqual([expect.objectContaining({
+      agentId: selectedAgentId,
+      paneAgentId: selectedAgentId,
+      inParkingLot: false,
+      recordAttached: true,
+      attachedMountMatchesParent: true,
+      visible: true,
+      hostCountInMount: 1,
+    })])
+    await expect.poll(() => checkpointResults.get(selectedAgentId)).toBeTruthy()
+    const selectedCheckpoint = checkpointResults.get(selectedAgentId)!
+    await expect.poll(() => page.evaluate(({ agentId, checkpoint }) => {
+      const outputSeq = window.__farmingTerminalTest?.getLastOutputSeq(agentId)
+      const stateRevision = window.__farmingTerminalTest?.getStateRevision(agentId)
+      return {
+        runtimeEpochMatches: window.__farmingTerminalTest?.getRuntimeEpoch(agentId) === checkpoint.runtimeEpoch,
+        outputSeqCovers: typeof outputSeq === 'number'
+          && typeof checkpoint.outputSeq === 'number'
+          && outputSeq >= checkpoint.outputSeq,
+        stateRevisionCovers: typeof stateRevision === 'number'
+          && typeof checkpoint.stateRevision === 'number'
+          && stateRevision >= checkpoint.stateRevision,
+      }
+    }, { agentId: selectedAgentId, checkpoint: selectedCheckpoint })).toEqual({
+      runtimeEpochMatches: true,
+      outputSeqCovers: true,
+      stateRevisionCovers: true,
+    })
+    releaseStarvedHttp()
+    await starvedHttp
+    expect(legacyCheckpointHttpRequests).toBe(0)
+    expect(checkpointRequests.filter(agentId => agentId === selectedAgentId)).toHaveLength(1)
+    expect(checkpointResults.has(selectedAgentId)).toBe(true)
   })
 
   test('keeps previous Main Agent resume out of the normal New Agent flow', async ({ page }) => {
@@ -3413,15 +3525,7 @@ test.describe('display-backed agent flows', () => {
     await page.getByTestId('code-composer').locator('textarea').fill(`echo ${desktopClickMarker}`)
     await page.getByTestId('code-composer-send').click()
     await expect(page.getByTestId('code-composer').locator('textarea')).toHaveValue('')
-    await expect.poll(async () => {
-      const response = await page.request.get(`/farming/api/agents/${agentId}/session-view`)
-      const data = await response.json()
-      return [
-        data.session?.output,
-        data.session?.renderOutput,
-        data.session?.previewText,
-      ].filter(Boolean).join('\n')
-    }).toContain(desktopClickMarker)
+    await expect.poll(() => terminalCheckpointOutput(page, agentId)).toContain(desktopClickMarker)
     const desktopChildMarker = `desktop-child-${Date.now()}`
     const desktopComposerInput = page.getByTestId('code-composer').locator('textarea')
     await expect(page.getByTestId('input-dialog')).toBeHidden()
@@ -3429,28 +3533,12 @@ test.describe('display-backed agent flows', () => {
     await desktopComposerInput.fill(`echo ${desktopChildMarker}`)
     await desktopComposerInput.press('Enter')
     await expect(desktopComposerInput).toHaveValue('')
-    await expect.poll(async () => {
-      const response = await page.request.get(`/farming/api/agents/${agentId}/session-view`)
-      const data = await response.json()
-      return [
-        data.session?.output,
-        data.session?.renderOutput,
-        data.session?.previewText,
-      ].filter(Boolean).join('\n')
-    }).toContain(desktopChildMarker)
+    await expect.poll(() => terminalCheckpointOutput(page, agentId)).toContain(desktopChildMarker)
     await primaryRow.click()
     const desktopMainMarker = `desktop-main-${Date.now()}`
     await page.getByTestId('code-composer').locator('textarea').fill(`echo ${desktopMainMarker}`)
     await page.getByTestId('code-composer').locator('textarea').press('Enter')
-    await expect.poll(async () => {
-      const response = await page.request.get(`/farming/api/agents/${primaryAgentId}/session-view`)
-      const data = await response.json()
-      return [
-        data.session?.output,
-        data.session?.renderOutput,
-        data.session?.previewText,
-      ].filter(Boolean).join('\n')
-    }).toContain(desktopMainMarker)
+    await expect.poll(() => terminalCheckpointOutput(page, primaryAgentId)).toContain(desktopMainMarker)
     await childRow.click()
     const terminalHostForAgent = (id: string) => page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${id}"] .terminal-session-host[data-agent-id="${id}"]`)
     let terminalHost = terminalHostForAgent(agentId)
@@ -3742,15 +3830,7 @@ test.describe('display-backed agent flows', () => {
     await mobileComposerInput.fill(`echo ${mobileMarker}`)
     await mobileComposerInput.press('Enter')
     await expect(mobileComposerInput).toHaveValue('')
-    await expect.poll(async () => {
-      const response = await page.request.get(`/farming/api/agents/${agentId}/session-view`)
-      const data = await response.json()
-      return [
-        data.session?.output,
-        data.session?.renderOutput,
-        data.session?.previewText,
-      ].filter(Boolean).join('\n')
-    }).toContain(mobileMarker)
+    await expect.poll(() => terminalCheckpointOutput(page, agentId)).toContain(mobileMarker)
 
     const revealMobileSidebar = async () => {
       if ((await page.getByTestId('code-workspace').getAttribute('class'))?.includes('sidebar-collapsed')) {

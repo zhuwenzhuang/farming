@@ -6,6 +6,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { NativePtyHostClient } = require('../native-pty-host-client.cjs');
 const { nativePtyHostSocketPath } = require('../native-pty-host-path.cjs');
+const { TerminalCheckpointClient } = require('./helpers/terminal-checkpoint-client.ts');
 
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -111,6 +112,7 @@ async function run() {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-server-restart-workspace-'));
   const port = await freePort();
   const baseUrl = `http://127.0.0.1:${port}/farming`;
+  const checkpointClient = new TerminalCheckpointClient(baseUrl);
   const marker = `SERVER_RESTART_MARKER_${Date.now()}`;
   const secondMarker = `${marker}_SECOND`;
   const postRecoveryMarker = `${marker}_POST_RECOVERY`;
@@ -135,8 +137,8 @@ async function run() {
     assert(agentId, 'control API should return the created agent id');
 
     await waitFor(async () => {
-      const view = await fetchJson(baseUrl, `/api/agents/${agentId}/session-view`);
-      return view.response.ok && String(view.body.session?.output || '').includes('Fake Codex') ? view.body.session : null;
+      const session = await checkpointClient.request(agentId);
+      return String(session.output || '').includes('Fake Codex') ? session : null;
     }, 'initial fake Codex output');
 
     const sent = await fetchJson(baseUrl, `/api/control/agents/${agentId}/input`, {
@@ -145,8 +147,8 @@ async function run() {
     });
     assert.strictEqual(sent.response.status, 200, JSON.stringify(sent.body));
     await waitFor(async () => {
-      const view = await fetchJson(baseUrl, `/api/agents/${agentId}/session-view`);
-      return view.response.ok && String(view.body.session?.output || '').includes(marker) ? view.body.session : null;
+      const session = await checkpointClient.request(agentId);
+      return String(session.output || '').includes(marker) ? session : null;
     }, 'terminal marker before restart');
 
     await stopServerProcess(serverProcess);
@@ -165,8 +167,8 @@ async function run() {
     }, 'recovered agent after server restart', 20000);
 
     const recoveredView = await waitFor(async () => {
-      const view = await fetchJson(baseUrl, `/api/agents/${agentId}/session-view`);
-      return view.response.ok && String(view.body.session?.output || '').includes(marker) ? view.body.session : null;
+      const session = await checkpointClient.request(agentId);
+      return String(session.output || '').includes(marker) ? session : null;
     }, 'recovered terminal output after server restart', 20000);
 
     assert.strictEqual(recoveredView.engineName, 'native');
@@ -179,8 +181,8 @@ async function run() {
     });
     assert.strictEqual(sentAfterRecovery.response.status, 200, JSON.stringify(sentAfterRecovery.body));
     await waitFor(async () => {
-      const view = await fetchJson(baseUrl, `/api/agents/${agentId}/session-view`);
-      return view.response.ok && String(view.body.session?.output || '').includes(secondMarker);
+      const session = await checkpointClient.request(agentId);
+      return String(session.output || '').includes(secondMarker);
     }, 'terminal input after first recovery');
 
     await stopServerProcess(serverProcess);
@@ -201,10 +203,10 @@ async function run() {
     assert.strictEqual(twiceRecoveredAgents.length, 1, 'repeated failover must not duplicate the Agent');
 
     const twiceRecoveredView = await waitFor(async () => {
-      const view = await fetchJson(baseUrl, `/api/agents/${agentId}/session-view`);
-      const output = String(view.body.session?.output || '');
-      return view.response.ok && output.includes(marker) && output.includes(secondMarker)
-        ? view.body.session
+      const session = await checkpointClient.request(agentId);
+      const output = String(session.output || '');
+      return output.includes(marker) && output.includes(secondMarker)
+        ? session
         : null;
     }, 'terminal output after second server restart', 20000);
     assert.strictEqual(twiceRecoveredView.engineName, 'native');
@@ -216,8 +218,8 @@ async function run() {
     });
     assert.strictEqual(sentAfterSecondRecovery.response.status, 200, JSON.stringify(sentAfterSecondRecovery.body));
     await waitFor(async () => {
-      const view = await fetchJson(baseUrl, `/api/agents/${agentId}/session-view`);
-      return view.response.ok && String(view.body.session?.output || '').includes(postRecoveryMarker);
+      const session = await checkpointClient.request(agentId);
+      return String(session.output || '').includes(postRecoveryMarker);
     }, 'terminal input after repeated recovery');
     assert(
       !serverProcess.outputText().includes('circular dependency'),
@@ -228,6 +230,7 @@ async function run() {
 
     console.log('✓ repeated Farming server failover preserves one writable native pty terminal session');
   } finally {
+    checkpointClient.close();
     await stopServerProcess(serverProcess);
     await shutdownNativeHost(configDir).catch(() => {});
     fs.rmSync(configDir, { recursive: true, force: true });

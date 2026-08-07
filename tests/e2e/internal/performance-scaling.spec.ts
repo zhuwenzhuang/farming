@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { CDPSession, Page, WebSocket } from '@playwright/test'
-import { expect, openFarming, test } from '../fixtures'
+import { expect, openFarming, terminalCheckpointOutput, test } from '../fixtures'
 import { PROTOCOL_VERSION } from '../../../shared/browser-protocol'
 
 function scaleAgentCounts() {
@@ -446,12 +446,7 @@ test('scopes one-page Code Preview hydration and preserves legacy fallback', asy
     )
     expect(input.ok()).toBeTruthy()
     await expect.poll(async () => {
-      const response = await page.request.get(
-        `/farming/api/agents/${encodeURIComponent(agentId)}/session-view`,
-      )
-      if (!response.ok()) return false
-      const body = await response.json() as { session?: { previewText?: string } }
-      return String(body.session?.previewText || '').includes(marker)
+      return (await terminalCheckpointOutput(page, agentId)).includes(marker)
     }, { timeout: 30_000 }).toBe(true)
   }
 
@@ -503,12 +498,7 @@ test('scopes one-page Code Preview hydration and preserves legacy fallback', asy
   )
   expect(noneScopeInput.ok()).toBeTruthy()
   await expect.poll(async () => {
-    const response = await page.request.get(
-      `/farming/api/agents/${encodeURIComponent(activeAgentId)}/session-view`,
-    )
-    if (!response.ok()) return false
-    const body = await response.json() as { session?: { previewText?: string } }
-    return String(body.session?.previewText || '').includes(noneScopeMarker)
+    return (await terminalCheckpointOutput(page, activeAgentId)).includes(noneScopeMarker)
   }, { timeout: 30_000 }).toBe(true)
   await waitForWireQuiet(frames, 700, 5_000)
   expect(frames.slice(noneScopeStart).some(frame => frame.type === 'session-preview')).toBe(false)

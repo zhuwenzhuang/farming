@@ -1,4 +1,4 @@
-import { expect, openFarming, terminalRows, test } from '../fixtures'
+import { expect, interceptTerminalCheckpoints, openFarming, terminalRows, test } from '../fixtures'
 
 type TerminalSnapshotCell = {
   char: string
@@ -31,10 +31,14 @@ async function createControlAgent(page: import('@playwright/test').Page, command
 }
 
 async function selectAgent(page: import('@playwright/test').Page, agentId: string) {
-  const row = page.locator(`[data-testid="codex-agent-row"][data-agent-id="${agentId}"]`)
+  const row = page.locator(
+    `[data-testid="code-agent-row"][data-agent-id="${agentId}"], `
+    + `[data-testid="code-project-agent-compact"][data-agent-id="${agentId}"], `
+    + `[data-testid="code-pinned-agent-compact"][data-agent-id="${agentId}"]`,
+  ).first()
   await expect(row).toBeVisible({ timeout: 30_000 })
   await row.click()
-  await expect(page.locator(`[data-testid="codex-terminal-pane"][data-agent-id="${agentId}"]`))
+  await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"]`))
     .toBeVisible({ timeout: 15_000 })
 }
 
@@ -50,9 +54,10 @@ function hasWrappedPromptFragments(text: string) {
 test.describe('terminal recovery fixtures', () => {
   test('recovers a prompt without keeping narrow snapshot fragments', async ({ page, workspaceRoot }) => {
     const agentId = await createControlAgent(page, 'bash', workspaceRoot)
-    let sessionViewCalls = 0
-    await page.route(new RegExp(`/farming/api/agents/${agentId}/session-view$`), async route => {
-      sessionViewCalls += 1
+    let checkpointCalls = 0
+    await interceptTerminalCheckpoints(page, message => {
+      if (message.agentId !== agentId) return message
+      checkpointCalls += 1
       const narrowRows = [
         '[dev@example',
         ' /workspaces',
@@ -67,22 +72,23 @@ test.describe('terminal recovery fixtures', () => {
         '$  ',
         '',
       ]
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify({
-          session: {
-            output: wideRows.join('\n'),
-            renderOutput: wideRows.join('\n'),
-            previewSnapshot: snapshotFromRows(narrowRows, 10),
-          },
-        }),
-      })
+      return {
+        ...message,
+        ok: true,
+        error: undefined,
+        session: {
+          ...message.session,
+          output: wideRows.join('\n'),
+          renderOutput: wideRows.join('\n'),
+          previewSnapshot: snapshotFromRows(narrowRows, 10),
+        },
+      }
     })
 
     await openFarming(page)
     await selectAgent(page, agentId)
     await expect(page.locator(`[data-agent-id="${agentId}"] .xterm`)).toBeVisible({ timeout: 20_000 })
-    await expect.poll(() => sessionViewCalls, { timeout: 15_000 }).toBe(1)
+    await expect.poll(() => checkpointCalls, { timeout: 15_000 }).toBe(1)
 
     const text = await visibleTerminalText(page, agentId)
     expect(text).toContain('[dev@example /workspaces/example-project]')

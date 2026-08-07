@@ -4,7 +4,6 @@ import type { Agent } from '@/types/agent'
 import { usePooledTerminal } from '@/hooks/usePooledTerminal'
 import { isTouchInputViewport as isMobileViewport } from '@/lib/responsive-mode'
 import {
-  prefetchedTerminalSessionCheckpoint,
   type TerminalPathOpenTarget,
   type TerminalRecoveryStatus,
   type TerminalSearchDirection,
@@ -173,12 +172,6 @@ export function AgentTerminalPane({
     setTerminalRecoveryStatus(status)
     setTerminalRecoveryClock(Date.now())
   }, [])
-  const bootstrapState = prefetchedTerminalSessionCheckpoint(agent.id, {
-    runtimeEpoch: agent.runtimeEpoch || '',
-    outputSeq: agent.outputSeq ?? null,
-    stateRevision: agent.stateRevision ?? null,
-  })
-
   const {
     focus,
     retry,
@@ -202,7 +195,6 @@ export function AgentTerminalPane({
     onRecoveryStatusChange: handleTerminalRecoveryStatus,
     onReady: handleTerminalReady,
     onError: handleTerminalError,
-    bootstrapState,
   })
 
   useEffect(() => {

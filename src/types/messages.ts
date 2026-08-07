@@ -95,10 +95,17 @@ export interface ClearTerminalMessage {
   agentId: string
 }
 
+export interface TerminalCheckpointRequestMessage {
+  type: 'terminal-checkpoint-request'
+  requestId: string
+  agentId: string
+}
+
 export type TerminalSessionClientMessage =
   | InputMessage
   | ClearTerminalMessage
   | ResizeAgentMessage
+  | TerminalCheckpointRequestMessage
 
 export interface ArchiveAgentMessage {
   type: 'archive-agent'
@@ -170,6 +177,15 @@ export interface BusinessHealthResultMessage {
   status: 'ready' | 'recovering' | 'failed' | 'stopping'
   agentCount: number
   mainAgentId: string | null
+}
+
+export interface TerminalCheckpointResultMessage {
+  type: 'terminal-checkpoint-result'
+  requestId: string
+  agentId: string
+  ok: boolean
+  session?: Record<string, unknown>
+  error?: string
 }
 
 export interface CommandAckMessage {
@@ -373,6 +389,7 @@ export type ServerMessage =
   | ProtocolServerHelloMessage
   | ProtocolErrorMessage
   | BusinessHealthResultMessage
+  | TerminalCheckpointResultMessage
   | CommandAckMessage
   | StateMessage
   | StateDeltaMessage

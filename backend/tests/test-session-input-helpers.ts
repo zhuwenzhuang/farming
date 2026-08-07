@@ -285,9 +285,9 @@ function run() {
     terminalPoolSource.includes('const TERMINAL_CHECKPOINT_MAX_CONCURRENT_REQUESTS = 3') &&
       terminalPoolSource.includes('function acquireTerminalCheckpointRequestSlot') &&
       terminalPoolSource.includes('terminalCheckpointActiveRequests < TERMINAL_CHECKPOINT_MAX_CONCURRENT_REQUESTS') &&
-      terminalPoolSource.includes('acquireTerminalCheckpointRequestSlot(1, controller.signal)') &&
-      terminalPoolSource.includes('acquireTerminalCheckpointRequestSlot(0, controller.signal)'),
-    'terminal checkpoint recovery should bound reconnect fan-out and prioritize visible attachments over prefetch'
+      terminalPoolSource.includes('acquireTerminalCheckpointRequestSlot(controller.signal)') &&
+      !terminalPoolSource.includes('prefetchTerminalSessionCheckpoint'),
+    'terminal checkpoint recovery should bound reconnect fan-out without speculative background checkpoint reads'
   );
   const repaintBody = terminalOutputSource.slice(
     terminalOutputSource.indexOf('export function scheduleTerminalRepaint'),
@@ -431,8 +431,8 @@ function run() {
     'terminal session pool should route terminal search by agent id and expose it to browser regression tests'
   );
   assert(
-    terminalPoolSource.includes('if (!response.ok)') &&
-      terminalPoolSource.includes('Terminal session view failed:') &&
+    terminalPoolSource.includes('requestTerminalSessionCheckpoint(agentId, signal)') &&
+      terminalPoolSource.includes('retryTerminalReplayAfterFailure(') &&
       terminalPoolSource.includes('options.onError?.(error instanceof Error ? error : new Error(String(error)))') &&
       pooledTerminalHookSource.includes('onError?: (error: Error) => void') &&
       pooledTerminalHookSource.includes('attachmentHandlers.onError(error instanceof Error ? error : new Error(String(error)))'),

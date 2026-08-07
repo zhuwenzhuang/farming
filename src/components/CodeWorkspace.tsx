@@ -27,10 +27,6 @@ import {
   useAgentWithLiveRuntimeState,
 } from '@/lib/agent-live-state'
 import { recordPerformanceTestRender } from '@/lib/performance-test-observer'
-import {
-  foregroundHttpPriorityActive,
-  subscribeForegroundHttpPriority,
-} from '@/lib/foreground-http-priority'
 import { agentTitle } from '@/lib/format'
 import {
   GLOBAL_WORKSPACE_FILES_AGENT_ID,
@@ -1744,7 +1740,6 @@ export function CodeWorkspace({
   }, [fetchAgentSessions])
   const loadAgentSessions = useCallback((fresh = false) => {
     let cancelled = false
-    if (!fresh && foregroundHttpPriorityActive()) return () => {}
     if (fresh && agentSessionsBackgroundTimerRef.current !== null) {
       window.clearTimeout(agentSessionsBackgroundTimerRef.current)
       agentSessionsBackgroundTimerRef.current = null
@@ -1803,13 +1798,6 @@ export function CodeWorkspace({
       window.clearTimeout(agentSessionsBackgroundTimerRef.current)
     }
     const run = () => {
-      if (foregroundHttpPriorityActive()) {
-        agentSessionsBackgroundTimerRef.current = window.setTimeout(
-          run,
-          quietMs,
-        )
-        return
-      }
       agentSessionsBackgroundTimerRef.current = null
       const requestedFresh = agentSessionsBackgroundFreshRef.current
       agentSessionsBackgroundFreshRef.current = false
@@ -1821,10 +1809,6 @@ export function CodeWorkspace({
       quietMs,
     )
   }, [loadAgentSessions])
-  useEffect(() => subscribeForegroundHttpPriority(() => {
-    agentSessionsLoadAbortRef.current?.abort()
-    scheduleAgentSessionsBackgroundLoad()
-  }), [scheduleAgentSessionsBackgroundLoad])
   useEffect(() => () => {
     if (agentSessionsBackgroundTimerRef.current !== null) {
       window.clearTimeout(agentSessionsBackgroundTimerRef.current)

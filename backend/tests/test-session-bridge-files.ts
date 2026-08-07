@@ -130,8 +130,8 @@ function run() {
   );
   assert(
     !terminalPane.includes('sessionBootstrapStateFromPayload') &&
-      terminalPane.includes('prefetchedTerminalSessionCheckpoint'),
-    'Code must fetch the authoritative /session-view checkpoint instead of treating truncated Agent list output as serialized terminal state',
+      !terminalPane.includes('prefetchedTerminalSessionCheckpoint'),
+    'Code must request the authoritative terminal checkpoint instead of treating truncated Agent list output as serialized terminal state',
   );
   assert(
     !server.includes('markUnreadForBackgroundOutput(stream.agentId)'),

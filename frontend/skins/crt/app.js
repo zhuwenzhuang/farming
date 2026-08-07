@@ -135,7 +135,7 @@ const terminalPreviewSnapshots = new Map();
 const crtBrandPulseTimers = new Map();
 const SESSION_LINK_LIMIT = 6;
 // Replaced from shared/browser-protocol.ts by build-classic-browser-runtime.ts.
-const CRT_PROTOCOL_VERSION = 8;
+const CRT_PROTOCOL_VERSION = 9;
 const CRT_AGENT_STATE_SNAPSHOT_PAGE_DEADLINE_MS = 30_000;
 const CRT_PREVIEW_RENDER_INTERVAL_MS = 1000;
 const CRT_STRUCTURED_PREVIEW_REFRESH_MS = 240;
@@ -885,8 +885,7 @@ function getSessionClient() {
     }
     if (!sessionClient) {
         sessionClient = window.FarmingSessionBridge.createClient({
-            getSocket: () => ws,
-            fetchImpl: (...args) => fetch(...args)
+            getSocket: () => ws
         });
     }
     return sessionClient;
@@ -5828,7 +5827,7 @@ function connect() {
         agentStateSnapshotAgents = [];
         agentStateSnapshotCursor = null;
         clearCrtAgentStateSnapshotDeadline();
-        getSessionClient()?.rejectPendingComposerMessages();
+        getSessionClient()?.handleTransportDisconnected();
         console.log('Disconnected from server');
         if (crtTerminalReplication) {
             clearPendingCrtTerminalFitResize(crtTerminalReplication);
@@ -8388,7 +8387,7 @@ async function refreshSessionView(_forceReplace = false, expectedAgentId = focus
         const sessionClient = getSessionClient();
         if (!sessionClient)
             throw new Error('Terminal session client is unavailable');
-        const payload = await sessionClient.getSessionView(expectedAgentId, {
+        const payload = await sessionClient.requestTerminalCheckpoint(expectedAgentId, {
             signal: controller.signal
         });
         if (!crtTerminalReplication ||

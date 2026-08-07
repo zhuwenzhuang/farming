@@ -1,6 +1,14 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { expect, terminalRows, terminalViewport, test, writeTerminalFixture } from './fixtures'
+import {
+  expect,
+  interceptTerminalCheckpoints,
+  terminalRows,
+  terminalViewport,
+  test,
+  writeTerminalFixture,
+  type TerminalCheckpointTestResult,
+} from './fixtures'
 
 async function openTerminalTestPage(page: import('@playwright/test').Page) {
   await page.goto('/farming/', { waitUntil: 'domcontentloaded' })
@@ -17,7 +25,11 @@ async function createControlAgent(page: import('@playwright/test').Page, workspa
   return data.agentId as string
 }
 
-async function selectControlAgent(page: import('@playwright/test').Page, agentId: string) {
+async function selectControlAgent(
+  page: import('@playwright/test').Page,
+  agentId: string,
+  options: { waitForAuthoritativeIdle?: boolean } = {},
+) {
   const row = page.locator(
     `[data-testid="code-agent-row"][data-agent-id="${agentId}"], ` +
     `[data-testid="code-project-agent-compact"][data-agent-id="${agentId}"], ` +
@@ -28,7 +40,7 @@ async function selectControlAgent(page: import('@playwright/test').Page, agentId
   await expect(page.locator(`.terminal-session-host[data-agent-id="${agentId}"]`))
     .toBeVisible({ timeout: 15_000 })
   await page.waitForFunction(id => Boolean(window.__farmingTerminalTest?.isReady(id)), agentId)
-  await waitForProtocolIdle(page, agentId)
+  if (options.waitForAuthoritativeIdle !== false) await waitForProtocolIdle(page, agentId)
 }
 
 function terminalHost(page: import('@playwright/test').Page, agentId: string) {
@@ -59,20 +71,28 @@ async function authoritativeTerminalState(
   page: import('@playwright/test').Page,
   agentId: string,
 ) {
-  const response = await page.request.get(`/farming/api/agents/${agentId}/session-view`)
-  expect(response.ok()).toBeTruthy()
-  const body = await response.json() as {
-    session?: {
-      runtimeEpoch?: string
-      outputSeq?: number
-      stateRevision?: number
-    }
-  }
+  const body = await page.evaluate(id => (
+    window.__farmingTerminalTest?.requestCheckpoint(id)
+  ), agentId)
   return {
-    runtimeEpoch: body.session?.runtimeEpoch || '',
-    outputSeq: body.session?.outputSeq ?? 0,
-    stateRevision: body.session?.stateRevision ?? 0,
+    runtimeEpoch: body?.runtimeEpoch || '',
+    outputSeq: body?.outputSeq ?? 0,
+    stateRevision: body?.stateRevision ?? 0,
   }
+}
+
+function successfulCheckpointResult(
+  message: TerminalCheckpointTestResult,
+  payload: ReturnType<typeof checkpoint>,
+): TerminalCheckpointTestResult {
+  return { ...message, ok: true, session: payload.session, error: undefined }
+}
+
+function failedCheckpointResult(
+  message: TerminalCheckpointTestResult,
+  error: string,
+): TerminalCheckpointTestResult {
+  return { ...message, ok: false, session: undefined, error }
 }
 
 async function waitForProtocolIdle(
@@ -129,17 +149,18 @@ async function visibleText(page: import('@playwright/test').Page, agentId: strin
 }
 
 test.describe('terminal state protocol', () => {
-  test('bounds simultaneous checkpoint prefetches after a reconnect burst', async ({ page, workspaceRoot }) => {
+  test('bounds simultaneous checkpoint requests after a reconnect burst', async ({ page, workspaceRoot }) => {
     let activeRequests = 0
     let maximumActiveRequests = 0
     let requestCount = 0
-    await page.route(/\/farming\/api\/agents\/checkpoint-limit-\d+\/session-view$/, async route => {
+    await interceptTerminalCheckpoints(page, async message => {
+      if (!/^checkpoint-limit-\d+$/.test(message.agentId)) return message
       requestCount += 1
       activeRequests += 1
       maximumActiveRequests = Math.max(maximumActiveRequests, activeRequests)
       try {
         await new Promise(resolve => setTimeout(resolve, 100))
-        await route.fulfill({ status: 503, body: 'synthetic unavailable checkpoint' })
+        return failedCheckpointResult(message, 'synthetic unavailable checkpoint')
       } finally {
         activeRequests -= 1
       }
@@ -153,8 +174,8 @@ test.describe('terminal state protocol', () => {
     const result = await page.evaluate(async () => {
       const api = window.__farmingTerminalTest
       if (!api) throw new Error('Terminal test API is unavailable')
-      await Promise.all(Array.from({ length: 9 }, (_, index) => (
-        api.prefetchCheckpoint(`checkpoint-limit-${index}`)
+      await Promise.allSettled(Array.from({ length: 9 }, (_, index) => (
+        api.requestCheckpoint(`checkpoint-limit-${index}`)
       )))
       return true
     })
@@ -202,13 +223,11 @@ test.describe('terminal state protocol', () => {
     const checkpointGate = new Promise<void>(resolve => {
       releaseCheckpoint = resolve
     })
-    await page.route(
-      new RegExp(`/farming/api/agents/${firstAgentId}/session-view$`),
-      async route => {
-        await checkpointGate
-        await route.continue()
-      },
-    )
+    await interceptTerminalCheckpoints(page, async message => {
+      if (message.agentId !== firstAgentId) return message
+      await checkpointGate
+      return message
+    })
 
     const firstRow = page.locator(
       `[data-testid="code-agent-row"][data-agent-id="${firstAgentId}"], `
@@ -270,11 +289,10 @@ test.describe('terminal state protocol', () => {
     const agentId = await createControlAgent(page, workspace)
     await openTerminalTestPage(page)
     await selectControlAgent(page, agentId)
-    let sessionViewRequests = 0
-    const routePattern = new RegExp(`/farming/api/agents/${agentId}/session-view$`)
-    await page.route(routePattern, async route => {
-      sessionViewRequests += 1
-      await route.continue()
+    let checkpointRequests = 0
+    await interceptTerminalCheckpoints(page, message => {
+      if (message.agentId === agentId) checkpointRequests += 1
+      return message
     })
 
     await page.evaluate(() => window.dispatchEvent(new Event('pagehide')))
@@ -293,15 +311,16 @@ test.describe('terminal state protocol', () => {
         id => window.__farmingTerminalTest?.getBufferDiagnostics(id),
         agentId,
       )
-      const authoritative = await page.request.get(`/farming/api/agents/${agentId}/session-view`)
-        .then(response => response.json())
+      const authoritative = await page.evaluate(id => (
+        window.__farmingTerminalTest?.requestCheckpoint(id)
+      ), agentId)
         .catch(probeError => ({ error: String(probeError) }))
       throw new Error(
         `Page resume did not install checkpoint: ${JSON.stringify({ diagnostics, authoritative })}`,
         { cause: error },
       )
     }
-    expect(sessionViewRequests).toBeLessThanOrEqual(2)
+    expect(checkpointRequests).toBeLessThanOrEqual(2)
   })
 
   test('checkpoint recovery reports its live phase and wait time in the terminal pane', async ({ page, workspaceRoot }) => {
@@ -315,10 +334,10 @@ test.describe('terminal state protocol', () => {
     const checkpointGate = new Promise<void>((resolve) => {
       releaseCheckpoint = resolve
     })
-    const routePattern = new RegExp(`/farming/api/agents/${agentId}/session-view$`)
-    await page.route(routePattern, async route => {
+    await interceptTerminalCheckpoints(page, async message => {
+      if (message.agentId !== agentId) return message
       await checkpointGate
-      await route.continue()
+      return message
     })
 
     await page.evaluate(() => window.dispatchEvent(new Event('farming:backend-connected')))
@@ -339,10 +358,10 @@ test.describe('terminal state protocol', () => {
     const workspace = path.join(workspaceRoot, 'terminal-fast-checkpoint-no-flash')
     fs.mkdirSync(workspace, { recursive: true })
     const agentId = await createControlAgent(page, workspace)
-    const routePattern = new RegExp(`/farming/api/agents/${agentId}/session-view$`)
-    await page.route(routePattern, async route => {
+    await interceptTerminalCheckpoints(page, async message => {
+      if (message.agentId !== agentId) return message
       await new Promise(resolve => setTimeout(resolve, 150))
-      await route.continue()
+      return message
     })
     await openTerminalTestPage(page)
     await page.evaluate(() => {
@@ -378,15 +397,14 @@ test.describe('terminal state protocol', () => {
     const successfulRetryGate = new Promise<void>((resolve) => {
       releaseSuccessfulRetry = resolve
     })
-    const routePattern = new RegExp(`/farming/api/agents/${agentId}/session-view$`)
-    await page.route(routePattern, async route => {
+    await interceptTerminalCheckpoints(page, async message => {
+      if (message.agentId !== agentId) return message
       requests += 1
       if (requests === 1) {
-        await route.fulfill({ status: 503, body: 'checkpoint temporarily unavailable' })
-        return
+        return failedCheckpointResult(message, 'checkpoint temporarily unavailable')
       }
       await successfulRetryGate
-      await route.continue()
+      return message
     })
 
     const retryingState = page.waitForFunction(() => {
@@ -419,7 +437,6 @@ test.describe('terminal state protocol', () => {
     await selectControlAgent(page, agentId)
     const initial = await terminalState(page, agentId)
 
-    const routePattern = new RegExp(`/farming/api/agents/${agentId}/session-view$`)
     const latest = checkpoint(
       initial.runtimeEpoch,
       initial.outputSeq + 2,
@@ -429,7 +446,8 @@ test.describe('terminal state protocol', () => {
       'LATEST_SUPERSEDING_CHECKPOINT',
     )
     let requests = 0
-    await page.route(routePattern, async route => {
+    await interceptTerminalCheckpoints(page, message => {
+      if (message.agentId !== agentId) return message
       requests += 1
       if (requests === 1) {
         const stale = checkpoint(
@@ -440,10 +458,9 @@ test.describe('terminal state protocol', () => {
           initial.rows,
           'STALE_INSTALL_IN_PROGRESS',
         )
-        await route.fulfill({ contentType: 'application/json', body: JSON.stringify(stale) })
-        return
+        return successfulCheckpointResult(message, stale)
       }
-      await route.fulfill({ contentType: 'application/json', body: JSON.stringify(latest) })
+      return successfulCheckpointResult(message, latest)
     })
 
     await page.evaluate(id => {
@@ -522,7 +539,6 @@ test.describe('terminal state protocol', () => {
     await page.evaluate(id => {
       window.__farmingTerminalTest?.setCheckpointAckSuppressed(id, true)
     }, agentId)
-    const routePattern = new RegExp(`/farming/api/agents/${agentId}/session-view$`)
     const checkpoints = [
       checkpoint(
         initial.runtimeEpoch,
@@ -542,10 +558,11 @@ test.describe('terminal state protocol', () => {
       ),
     ]
     let requests = 0
-    await page.route(routePattern, async (route) => {
+    await interceptTerminalCheckpoints(page, message => {
+      if (message.agentId !== agentId) return message
       const body = checkpoints[Math.min(requests, checkpoints.length - 1)]
       requests += 1
-      await route.fulfill({ contentType: 'application/json', body: JSON.stringify(body) })
+      return successfulCheckpointResult(message, body)
     })
 
     await page.evaluate(async ({ id, epoch, outputSeq, stateRevision }) => {
@@ -626,27 +643,23 @@ test.describe('terminal state protocol', () => {
 
     const checkpointOutputSeq = initial.outputSeq + 2
     const checkpointStateRevision = initial.stateRevision + 2
-    const routePattern = new RegExp(`/farming/api/agents/${agentId}/session-view$`)
     let observeRequest!: () => void
     let releaseCheckpoint!: () => void
     const requestObserved = new Promise<void>(resolve => { observeRequest = resolve })
     const checkpointReleased = new Promise<void>(resolve => { releaseCheckpoint = resolve })
-    const handler = async (route: import('@playwright/test').Route) => {
+    await interceptTerminalCheckpoints(page, async message => {
+      if (message.agentId !== agentId) return message
       observeRequest()
       await checkpointReleased
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify(checkpoint(
+      return successfulCheckpointResult(message, checkpoint(
           initial.runtimeEpoch,
           checkpointOutputSeq,
           checkpointStateRevision,
           initial.cols,
           initial.rows,
           'HELD_CHECKPOINT',
-        )),
-      })
-    }
-    await page.route(routePattern, handler)
+        ))
+    })
 
     try {
       await page.evaluate(async ({ id, epoch, outputSeq, stateRevision }) => {
@@ -682,7 +695,6 @@ test.describe('terminal state protocol', () => {
       expect(output).not.toContain('HELD_CHECKPOINT_GAP_POISON')
     } finally {
       releaseCheckpoint()
-      await page.unroute(routePattern, handler)
     }
   })
 
@@ -873,10 +885,10 @@ test.describe('terminal state protocol', () => {
     const initial = await terminalState(page, agentId)
     const targetSeq = initial.outputSeq + 2
     const targetRevision = initial.stateRevision + 2
-    const routePattern = new RegExp(`/farming/api/agents/${agentId}/session-view$`)
     let requests = 0
 
-    await page.route(routePattern, async (route) => {
+    await interceptTerminalCheckpoints(page, message => {
+      if (message.agentId !== agentId) return message
       requests += 1
       const body = requests === 1
         ? checkpoint(
@@ -895,7 +907,7 @@ test.describe('terminal state protocol', () => {
           initial.rows,
           'LATEST_CHECKPOINT',
         )
-      await route.fulfill({ contentType: 'application/json', body: JSON.stringify(body) })
+      return successfulCheckpointResult(message, body)
     })
 
     await page.evaluate(async ({ id, epoch, seq, revision }) => {
@@ -932,22 +944,19 @@ test.describe('terminal state protocol', () => {
     const initial = await terminalState(page, agentId)
     const targetSeq = initial.outputSeq + 2
     const targetRevision = initial.stateRevision + 2
-    const routePattern = new RegExp(`/farming/api/agents/${agentId}/session-view$`)
     let requests = 0
 
-    await page.route(routePattern, async (route) => {
+    await interceptTerminalCheckpoints(page, message => {
+      if (message.agentId !== agentId) return message
       requests += 1
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify(checkpoint(
+      return successfulCheckpointResult(message, checkpoint(
           initial.runtimeEpoch,
           initial.outputSeq,
           initial.stateRevision,
           initial.cols,
           initial.rows,
           'STUCK_CHECKPOINT',
-        )),
-      })
+        ))
     })
 
     await page.evaluate(async ({ id, epoch, seq, revision }) => {
@@ -986,27 +995,23 @@ test.describe('terminal state protocol', () => {
     const initial = await terminalState(page, agentId)
     const targetSeq = initial.outputSeq + 2
     const targetRevision = initial.stateRevision + 2
-    const routePattern = new RegExp(`/farming/api/agents/${agentId}/session-view$`)
     let requests = 0
     let transportAvailable = false
 
-    await page.route(routePattern, async (route) => {
+    await interceptTerminalCheckpoints(page, message => {
+      if (message.agentId !== agentId) return message
       requests += 1
       if (!transportAvailable) {
-        await route.fulfill({ status: 503, body: 'checkpoint unavailable' })
-        return
+        return failedCheckpointResult(message, 'checkpoint unavailable')
       }
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify(checkpoint(
+      return successfulCheckpointResult(message, checkpoint(
           initial.runtimeEpoch,
           targetSeq,
           targetRevision,
           initial.cols,
           initial.rows,
           'RECOVERED_AFTER_RETRY',
-        )),
-      })
+        ))
     })
 
     await page.evaluate(async ({ id, epoch, seq, revision }) => {
@@ -1048,7 +1053,6 @@ test.describe('terminal state protocol', () => {
     const initial = await terminalState(page, agentId)
     const epochB = nextEpoch(initial.runtimeEpoch, 1)
     const epochC = nextEpoch(initial.runtimeEpoch, 2)
-    const routePattern = new RegExp(`/farming/api/agents/${agentId}/session-view$`)
     let requests = 0
     let releaseFirst!: () => void
     let markFirstStarted!: () => void
@@ -1059,21 +1063,21 @@ test.describe('terminal state protocol', () => {
       markFirstStarted = resolve
     })
 
-    await page.route(routePattern, async (route) => {
+    await interceptTerminalCheckpoints(page, async message => {
+      if (message.agentId !== agentId) return message
       requests += 1
       if (requests === 1) {
         markFirstStarted()
         await firstGate
-        await route.fulfill({
-          contentType: 'application/json',
-          body: JSON.stringify(checkpoint(epochB, 1, 1, initial.cols, initial.rows, 'EPOCH_B_STALE')),
-        })
-        return
+        return successfulCheckpointResult(
+          message,
+          checkpoint(epochB, 1, 1, initial.cols, initial.rows, 'EPOCH_B_STALE'),
+        )
       }
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify(checkpoint(epochC, 513, 513, initial.cols, initial.rows, 'EPOCH_C_LATEST')),
-      })
+      return successfulCheckpointResult(
+        message,
+        checkpoint(epochC, 513, 513, initial.cols, initial.rows, 'EPOCH_C_LATEST'),
+      )
     })
 
     await page.evaluate(async ({ id, epoch }) => {
@@ -1168,21 +1172,18 @@ test.describe('terminal state protocol', () => {
     ))
     expect(initial?.runtimeEpoch).toBeTruthy()
     const replacementEpoch = nextEpoch(initial!.runtimeEpoch, 1)
-    const routePattern = new RegExp(`/farming/api/agents/${agentId}/session-view$`)
     let requests = 0
-    await page.route(routePattern, async (route) => {
+    await interceptTerminalCheckpoints(page, message => {
+      if (message.agentId !== agentId) return message
       requests += 1
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify(checkpoint(
+      return successfulCheckpointResult(message, checkpoint(
           replacementEpoch,
           initial!.outputSeq + 1,
           initial!.stateRevision + 1,
           initial!.cols,
           initial!.rows,
           'CRT_REPLACEMENT_CHECKPOINT',
-        )),
-      })
+        ))
     })
 
     await page.evaluate(({ epoch, outputSeq, stateRevision }) => {
@@ -1239,14 +1240,26 @@ test.describe('terminal state protocol', () => {
     await selectControlAgent(page, parkedAgentId)
     await selectControlAgent(page, activeAgentId)
 
-    const routePattern = new RegExp(`/farming/api/agents/${parkedAgentId}/session-view$`)
     let checkpointRequests = 0
-    const handler = async (route: import('@playwright/test').Route) => {
-      checkpointRequests += 1
-      await route.continue()
-    }
-    await page.route(routePattern, handler)
-    try {
+    const checkpointCuts: Array<{
+      requestId: string
+      runtimeEpoch: unknown
+      outputSeq: unknown
+      stateRevision: unknown
+    }> = []
+    await interceptTerminalCheckpoints(page, message => {
+      if (message.agentId === parkedAgentId) {
+        checkpointRequests += 1
+        checkpointCuts.push({
+          requestId: message.requestId,
+          runtimeEpoch: message.session?.runtimeEpoch,
+          outputSeq: message.session?.outputSeq,
+          stateRevision: message.session?.stateRevision,
+        })
+      }
+      return message
+    })
+    {
       await page.evaluate(() => {
         const state = window as typeof window & {
           __parkedReconnectDisconnected?: boolean
@@ -1269,57 +1282,25 @@ test.describe('terminal state protocol', () => {
       ))
 
       const marker = `PARKED_REAL_RECONNECT_${Date.now()}`
+      const markerFile = path.join(workspace, 'parked-reconnect-ready.txt')
       const inputResponse = await page.request.post(`/farming/api/control/agents/${parkedAgentId}/input`, {
-        data: { input: `printf "${marker}\\n"\r` },
+        data: { input: `printf "${marker}\\n"; printf ready > parked-reconnect-ready.txt\r` },
       })
       expect(inputResponse.ok()).toBeTruthy()
-      await expect.poll(async () => {
-        const response = await page.request.get(`/farming/api/agents/${parkedAgentId}/session-view`)
-        const payload = await response.json() as { session?: { renderOutput?: string } }
-        return payload.session?.renderOutput || ''
-      }).toContain(marker)
+      await expect.poll(() => fs.existsSync(markerFile) ? fs.readFileSync(markerFile, 'utf8') : '')
+        .toBe('ready')
       await page.waitForFunction(() => (
         (window as typeof window & { __parkedReconnectConnected?: boolean })
           .__parkedReconnectConnected === true
       ), undefined, { timeout: 10_000 })
       expect(checkpointRequests).toBe(0)
 
-      await selectControlAgent(page, parkedAgentId)
+      await selectControlAgent(page, parkedAgentId, { waitForAuthoritativeIdle: false })
       await expect.poll(() => visibleText(page, parkedAgentId), { timeout: 10_000 }).toContain(marker)
-      expect(checkpointRequests).toBe(1)
-    } finally {
-      await page.unroute(routePattern, handler)
-    }
-  })
-
-  test('preloads a parked terminal checkpoint after new background attention', async ({ page, workspaceRoot }) => {
-    const workspace = path.join(workspaceRoot, 'parked-checkpoint-prefetch')
-    fs.mkdirSync(workspace, { recursive: true })
-    const parkedAgentId = await createControlAgent(page, workspace)
-    const activeAgentId = await createControlAgent(page, workspace)
-    await openTerminalTestPage(page)
-    await selectControlAgent(page, parkedAgentId)
-    await selectControlAgent(page, activeAgentId)
-
-    const routePattern = new RegExp('/farming/api/agents/' + parkedAgentId + '/session-view$')
-    let checkpointRequests = 0
-    const handler = async (route: import('@playwright/test').Route) => {
-      checkpointRequests += 1
-      await route.continue()
-    }
-    await page.route(routePattern, handler)
-    try {
-      const unread = await page.request.patch('/farming/api/agents/' + parkedAgentId, {
-        data: { unread: true },
-      })
-      expect(unread.ok()).toBeTruthy()
-      await expect.poll(() => checkpointRequests, { timeout: 10_000 }).toBe(1)
-
-      await selectControlAgent(page, parkedAgentId)
-      await page.waitForTimeout(300)
-      expect(checkpointRequests).toBe(1)
-    } finally {
-      await page.unroute(routePattern, handler)
+      const diagnostics = await page.evaluate(id => (
+        window.__farmingTerminalTest?.getBufferDiagnostics(id) ?? null
+      ), parkedAgentId)
+      expect(checkpointRequests, JSON.stringify({ checkpointCuts, diagnostics }, null, 2)).toBe(1)
     }
   })
 
@@ -1366,16 +1347,15 @@ test.describe('terminal state protocol', () => {
     expect(text.split(marker).length - 1).toBe(1)
 
     await expect(terminalHost(page, agentId)).toBeVisible({ timeout: 10_000 })
-    const authoritative = await page.request.get(`/farming/api/agents/${agentId}/session-view`)
-      .then(response => response.json()) as {
-        session?: { runtimeEpoch?: string; stateRevision?: number }
-      }
+    const authoritative = await page.evaluate(id => (
+      window.__farmingTerminalTest?.requestCheckpoint(id)
+    ), agentId)
     await expect.poll(() => page.evaluate(id => ({
       runtimeEpoch: window.__farmingTerminalTest?.getRuntimeEpoch(id),
       stateRevision: window.__farmingTerminalTest?.getStateRevision(id),
     }), agentId)).toEqual({
-      runtimeEpoch: authoritative.session?.runtimeEpoch,
-      stateRevision: authoritative.session?.stateRevision,
+      runtimeEpoch: authoritative?.runtimeEpoch,
+      stateRevision: authoritative?.stateRevision,
     })
   })
 })

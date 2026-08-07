@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Page } from '@playwright/test'
-import { expect, test } from './fixtures'
+import { expect, requestTerminalCheckpoint, test } from './fixtures'
 
 async function openCodePage(page: Page) {
   const resourceEventRequests: string[] = []
@@ -95,13 +95,8 @@ async function openTerminal(page: Page, agentId: string) {
       id => window.__farmingTerminalTest?.getBufferDiagnostics(id) ?? null,
       agentId,
     )
-    const checkpoint = await page.request
-      .get(`/farming/api/agents/${agentId}/session-view`, { timeout: 5_000 })
-      .then(async response => ({
-        body: await response.json().catch(() => null),
-        ok: response.ok(),
-        status: response.status(),
-      }))
+    const checkpoint = await requestTerminalCheckpoint(page, agentId)
+      .then(body => ({ body, ok: true }))
       .catch(error => ({
         error: error instanceof Error ? error.message : String(error),
       }))
@@ -137,18 +132,13 @@ test('three Farming pages keep one control WebSocket and do not starve terminal 
   ).toEqual([])))
   const activeBeforeCheckpoints = observations.map(observation => [...observation.activeRequests])
 
-  const checkpointResults = await Promise.all(pages.map(current => current.evaluate(async id => {
-    const controller = new AbortController()
-    const timeout = window.setTimeout(() => controller.abort(), 5_000)
+  const checkpointResults = await Promise.all(pages.map(async current => {
     const startedAt = performance.now()
     try {
-      const response = await fetch(`/farming/api/agents/${encodeURIComponent(id)}/session-view`, {
-        cache: 'no-store',
-        signal: controller.signal,
-      })
+      await requestTerminalCheckpoint(current, agentId!)
       return {
         elapsedMs: performance.now() - startedAt,
-        ok: response.ok,
+        ok: true,
       }
     } catch (caught) {
       return {
@@ -156,10 +146,8 @@ test('three Farming pages keep one control WebSocket and do not starve terminal 
         error: caught instanceof Error ? caught.message : String(caught),
         ok: false,
       }
-    } finally {
-      window.clearTimeout(timeout)
     }
-  }, agentId!)))
+  }))
 
   for (const observation of observations) {
     expect(observation.resourceEventRequests).toEqual([])

@@ -78,8 +78,7 @@ import {
 import {
   sessionBootstrapStateFromPayload,
 } from '@/lib/terminal-bootstrap'
-import type { SessionBootstrapState, SessionDataPayload } from '@/lib/terminal-bootstrap'
-import { appPath } from '@/lib/base-path'
+import type { SessionBootstrapState } from '@/lib/terminal-bootstrap'
 import { openExternalUrl, showUrlOpenMenu } from '@/lib/url-open-menu'
 import {
   clearReadingAnchor,
@@ -94,7 +93,10 @@ import {
   isTouchInputViewport as isMobileViewport,
 } from '@/lib/responsive-mode'
 import type { TerminalSearchOptions } from '@/lib/terminal-search'
-import { sendTerminalSessionMessage } from '@/lib/terminal-session-client'
+import {
+  requestTerminalSessionCheckpoint,
+  sendTerminalSessionMessage,
+} from '@/lib/terminal-session-client'
 import type { TerminalInputPart } from '@/types/messages'
 import {
   codeTerminalFontSize,
@@ -118,8 +120,6 @@ type TerminalOutputHandler = (
 type TerminalTransitionKind = 'output' | 'resize' | 'clear'
 
 const TERMINAL_CHECKPOINT_REQUEST_TIMEOUT_MS = 5000
-const TERMINAL_CHECKPOINT_PREFETCH_TTL_MS = 15_000
-const TERMINAL_CHECKPOINT_PREFETCH_LIMIT = 24
 const TERMINAL_RESIZE_SETTLE_MS = 250
 const TERMINAL_RESIZE_DELIVERY_TIMEOUT_MS = 1500
 const TERMINAL_RESIZE_REDRAW_QUIET_MS = 50
@@ -273,6 +273,7 @@ interface SessionRecord {
   heldCheckpointInstallCompletionForTest: (() => void) | null
   bootstrapRefreshSeq: number
   reconnectSnapshotSeq: number
+  checkpointRequestCount: number
   checkpointRequestInFlight: boolean
   checkpointRetryTimer: number | null
   bootstrapRequestControllers: Set<AbortController>
@@ -311,7 +312,6 @@ let terminalFocusRevision = 0
 const TERMINAL_CHECKPOINT_MAX_CONCURRENT_REQUESTS = 3
 let terminalCheckpointActiveRequests = 0
 const terminalCheckpointRequestQueue: Array<{
-  priority: number
   signal: AbortSignal
   resolve: (release: () => void) => void
   reject: (error: DOMException) => void
@@ -351,13 +351,12 @@ function drainTerminalCheckpointRequestQueue() {
   }
 }
 
-function acquireTerminalCheckpointRequestSlot(priority: number, signal: AbortSignal) {
+function acquireTerminalCheckpointRequestSlot(signal: AbortSignal) {
   if (signal.aborted) {
     return Promise.reject(new DOMException('Terminal checkpoint request was cancelled', 'AbortError'))
   }
   return new Promise<() => void>((resolve, reject) => {
     const request = {
-      priority,
       signal,
       resolve,
       reject,
@@ -368,9 +367,7 @@ function acquireTerminalCheckpointRequestSlot(priority: number, signal: AbortSig
       },
     }
     signal.addEventListener('abort', request.onAbort, { once: true })
-    const lowerPriorityIndex = terminalCheckpointRequestQueue.findIndex(item => item.priority < priority)
-    if (lowerPriorityIndex >= 0) terminalCheckpointRequestQueue.splice(lowerPriorityIndex, 0, request)
-    else terminalCheckpointRequestQueue.push(request)
+    terminalCheckpointRequestQueue.push(request)
     drainTerminalCheckpointRequestQueue()
   })
 }
@@ -386,7 +383,7 @@ declare global {
   interface Window {
     __FARMING_E2E__?: boolean
     __farmingTerminalTest?: {
-      prefetchCheckpoint: (agentId: string) => Promise<void>
+      requestCheckpoint: (agentId: string) => Promise<SessionBootstrapState>
       writeFixture: (agentId: string, text: string) => Promise<void>
       resumeLive: (agentId: string) => Promise<void>
       isReady: (agentId: string) => boolean
@@ -660,113 +657,18 @@ async function fetchSessionBootstrapState(
   agentId: string,
   signal: AbortSignal,
 ): Promise<SessionBootstrapState> {
-  const response = await fetch(appPath(`/api/agents/${agentId}/session-view`), { signal })
-  if (!response.ok) {
-    throw new Error(`Terminal session view failed: ${response.status}`)
-  }
-  const data = await response.json() as SessionDataPayload
+  const data = await requestTerminalSessionCheckpoint(agentId, signal)
   return sessionBootstrapStateFromPayload(data)
 }
 
-type PrefetchedTerminalCheckpoint = {
-  fetchedAt: number
-  state: SessionBootstrapState
-}
-
-const prefetchedTerminalCheckpoints = new Map<string, PrefetchedTerminalCheckpoint>()
-const terminalCheckpointPrefetches = new Map<string, Promise<void>>()
-
-function hasTerminalCheckpointProof(
-  state: SessionBootstrapState,
-): state is SessionBootstrapState & {
-  outputSeq: number
-  stateRevision: number
-  cols: number
-  rows: number
-} {
-  return Boolean(
-    state.runtimeEpoch
-    && Number.isFinite(state.outputSeq)
-    && Number.isFinite(state.stateRevision)
-    && Number.isFinite(state.cols)
-    && Number.isFinite(state.rows)
-  )
-}
-
-function trimPrefetchedTerminalCheckpoints(now = Date.now()) {
-  for (const [agentId, checkpoint] of prefetchedTerminalCheckpoints) {
-    if (now - checkpoint.fetchedAt > TERMINAL_CHECKPOINT_PREFETCH_TTL_MS) {
-      prefetchedTerminalCheckpoints.delete(agentId)
-    }
-  }
-  while (prefetchedTerminalCheckpoints.size > TERMINAL_CHECKPOINT_PREFETCH_LIMIT) {
-    const oldestAgentId = prefetchedTerminalCheckpoints.keys().next().value
-    if (!oldestAgentId) return
-    prefetchedTerminalCheckpoints.delete(oldestAgentId)
-  }
-}
-
-export function prefetchTerminalSessionCheckpoint(agentId: string): Promise<void> {
-  if (!agentId) return Promise.resolve()
-  trimPrefetchedTerminalCheckpoints()
-  const inFlight = terminalCheckpointPrefetches.get(agentId)
-  if (inFlight) return inFlight
-
-  const controller = new AbortController()
-  const prefetch = (async () => {
-    const release = await acquireTerminalCheckpointRequestSlot(0, controller.signal)
-    const timeout = window.setTimeout(
-      () => controller.abort(new DOMException('Terminal checkpoint prefetch timed out', 'TimeoutError')),
-      TERMINAL_CHECKPOINT_REQUEST_TIMEOUT_MS,
-    )
-    try {
-      const state = await fetchSessionBootstrapState(agentId, controller.signal)
-      if (hasTerminalCheckpointProof(state)) {
-        prefetchedTerminalCheckpoints.delete(agentId)
-        prefetchedTerminalCheckpoints.set(agentId, { fetchedAt: Date.now(), state })
-        trimPrefetchedTerminalCheckpoints()
-      }
-    } catch {
-      // A prefetch is an optional latency optimization. The normal attach path
-      // retains its authoritative checkpoint request and recovery behavior.
-    } finally {
-      window.clearTimeout(timeout)
-      release()
-      terminalCheckpointPrefetches.delete(agentId)
-    }
-  })().catch(() => {
-    terminalCheckpointPrefetches.delete(agentId)
-  })
-  terminalCheckpointPrefetches.set(agentId, prefetch)
-  return prefetch
-}
-
-export function prefetchedTerminalSessionCheckpoint(
-  agentId: string,
-  expected: Pick<SessionBootstrapState, 'runtimeEpoch' | 'outputSeq' | 'stateRevision'>,
-) {
-  trimPrefetchedTerminalCheckpoints()
-  const checkpoint = prefetchedTerminalCheckpoints.get(agentId)
-  if (!checkpoint) return undefined
-  const state = checkpoint.state
-  if (
-    state.runtimeEpoch !== expected.runtimeEpoch
-    || !hasTerminalCheckpointProof(state)
-    || (expected.outputSeq !== null && state.outputSeq < expected.outputSeq)
-    || (expected.stateRevision !== null && state.stateRevision < expected.stateRevision)
-  ) {
-    return undefined
-  }
-  return state
-}
-
 async function fetchSessionBootstrapStateForCurrentTerminal(record: SessionRecord) {
+  record.checkpointRequestCount += 1
   const controller = new AbortController()
   record.bootstrapRequestControllers.add(controller)
   let release: (() => void) | null = null
   let timeout: number | null = null
   try {
-    release = await acquireTerminalCheckpointRequestSlot(1, controller.signal)
+    release = await acquireTerminalCheckpointRequestSlot(controller.signal)
     timeout = window.setTimeout(
       () => controller.abort(new DOMException('Terminal checkpoint request timed out', 'TimeoutError')),
       TERMINAL_CHECKPOINT_REQUEST_TIMEOUT_MS,
@@ -3442,7 +3344,15 @@ function installTerminalTestApi() {
   if (typeof window === 'undefined' || !window.__FARMING_E2E__ || window.__farmingTerminalTest) return
 
   window.__farmingTerminalTest = {
-    prefetchCheckpoint: prefetchTerminalSessionCheckpoint,
+    async requestCheckpoint(agentId: string) {
+      const controller = new AbortController()
+      const release = await acquireTerminalCheckpointRequestSlot(controller.signal)
+      try {
+        return await fetchSessionBootstrapState(agentId, controller.signal)
+      } finally {
+        release()
+      }
+    },
     async writeFixture(agentId: string, text: string) {
       const current = sessions.get(agentId)
       const record = current instanceof Promise ? await current : current
@@ -3837,6 +3747,7 @@ function installTerminalTestApi() {
         stateRevision: current.replayState.stateRevision,
         lastOutputSeq: current.replayState.outputSeq,
         reconnectSnapshotSeq: current.reconnectSnapshotSeq,
+        checkpointRequestCount: current.checkpointRequestCount,
         bootstrapRefreshSeq: current.bootstrapRefreshSeq,
         attachGeneration: current.attachGeneration,
         currentAttachment: isCurrentAttachment(current, current.attachGeneration),
@@ -4027,6 +3938,7 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     heldCheckpointInstallCompletionForTest: null,
     bootstrapRefreshSeq: 0,
     reconnectSnapshotSeq: 0,
+    checkpointRequestCount: 0,
     checkpointRequestInFlight: false,
     checkpointRetryTimer: null,
     bootstrapRequestControllers: new Set(),

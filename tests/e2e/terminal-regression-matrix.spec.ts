@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { expect, openFarming, terminalHostDiagnostics, terminalRows, terminalViewport, test, writeTerminalFixture, writeTerminalRaw } from './fixtures'
+import { expect, interceptTerminalCheckpoints, openFarming, requestTerminalCheckpoint, terminalCheckpointOutput, terminalHostDiagnostics, terminalRows, terminalViewport, test, writeTerminalFixture, writeTerminalRaw } from './fixtures'
 
 type ScenarioRunner = (name: string, fn: () => Promise<void>) => Promise<void>
 
@@ -27,16 +27,11 @@ function snapshotFromRows(rows: string[], cols = 80, cursorX = 0, cursorY = Math
   }
 }
 
-async function authoritativeCheckpoint(
-  route: import('@playwright/test').Route,
+function authoritativeCheckpoint(
+  session: Record<string, unknown>,
   output: string,
   revisionOffset = 1,
 ) {
-  const response = await route.fetch()
-  const data = await response.json() as {
-    session?: Record<string, unknown>
-  }
-  const session = data.session && typeof data.session === 'object' ? data.session : {}
   const outputSeq = Math.max(0, Number(session.outputSeq) || 0) + revisionOffset
   const stateRevision = Math.max(0, Number(session.stateRevision) || 0) + revisionOffset
   const cols = Math.max(40, Math.floor(Number(session.previewCols ?? session.cols) || 80))
@@ -448,9 +443,10 @@ test.describe('terminal regression matrix', () => {
     await installWindowOpenProbe(page)
 
     const recoveringAgentId = await createControlAgent(page, 'bash', projectDir)
-    let sessionViewCalls = 0
-    await page.route(new RegExp(`/farming/api/agents/${recoveringAgentId}/session-view$`), async route => {
-      sessionViewCalls += 1
+    let checkpointCalls = 0
+    await interceptTerminalCheckpoints(page, message => {
+      if (message.agentId !== recoveringAgentId) return message
+      checkpointCalls += 1
       const wideRows = [
         '',
         '',
@@ -458,17 +454,16 @@ test.describe('terminal regression matrix', () => {
         '$  ',
         '',
       ]
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify({
-          session: await authoritativeCheckpoint(route, wideRows.join('\n'), sessionViewCalls * 100),
-        }),
-      })
+      return {
+        ...message,
+        session: authoritativeCheckpoint(message.session || {}, wideRows.join('\n'), checkpointCalls * 100),
+      }
     })
 
     const cursorRecoveringAgentId = await createControlAgent(page, 'bash', projectDir)
     let cursorCheckpointCalls = 0
-    await page.route(new RegExp(`/farming/api/agents/${cursorRecoveringAgentId}/session-view$`), async route => {
+    await interceptTerminalCheckpoints(page, message => {
+      if (message.agentId !== cursorRecoveringAgentId) return message
       cursorCheckpointCalls += 1
       const renderRows = [
         '',
@@ -477,21 +472,20 @@ test.describe('terminal regression matrix', () => {
         '$  ',
         '',
       ]
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify({
-          session: await authoritativeCheckpoint(
-            route,
-            `${renderRows.join('\n')}\x1b[H`,
-            cursorCheckpointCalls * 100,
-          ),
-        }),
-      })
+      return {
+        ...message,
+        session: authoritativeCheckpoint(
+          message.session || {},
+          `${renderRows.join('\n')}\x1b[H`,
+          cursorCheckpointCalls * 100,
+        ),
+      }
     })
 
     const bootstrapReconnectAgentId = await createControlAgent(page, 'bash', projectDir)
     let bootstrapReconnectCalls = 0
-    await page.route(new RegExp(`/farming/api/agents/${bootstrapReconnectAgentId}/session-view$`), async route => {
+    await interceptTerminalCheckpoints(page, async message => {
+      if (message.agentId !== bootstrapReconnectAgentId) return message
       bootstrapReconnectCalls += 1
       if (bootstrapReconnectCalls === 1) {
         await page.evaluate(() => window.dispatchEvent(new Event('farming:backend-connected'))).catch(() => {})
@@ -509,43 +503,38 @@ test.describe('terminal regression matrix', () => {
             'BOOTSTRAP_RECONNECT_OUTPUT',
             '$  ',
           ].join('\n')
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify({
-          session: await authoritativeCheckpoint(route, output, bootstrapReconnectCalls),
-        }),
-      })
+      return {
+        ...message,
+        session: authoritativeCheckpoint(message.session || {}, output, bootstrapReconnectCalls),
+      }
     })
 
     const delayedCheckpointAgentId = await createControlAgent(page, 'bash', projectDir)
     let delayedCheckpointCalls = 0
-    await page.route(new RegExp(`/farming/api/agents/${delayedCheckpointAgentId}/session-view$`), async route => {
+    await interceptTerminalCheckpoints(page, message => {
+      if (message.agentId !== delayedCheckpointAgentId) return message
       delayedCheckpointCalls += 1
       if (delayedCheckpointCalls === 1) {
-        await route.fulfill({
-          contentType: 'application/json',
-          body: JSON.stringify({
-            session: {
-              output: '',
-              renderOutput: '',
-              outputSeq: null,
-              stateRevision: null,
-            },
-          }),
-        })
-        return
+        return {
+          ...message,
+          session: {
+            ...message.session,
+            output: '',
+            renderOutput: '',
+            outputSeq: null,
+            stateRevision: null,
+          },
+        }
       }
       const output = [
         '[agent@example-host /srv/example/projects/matrix]',
         'DELAYED_CHECKPOINT_RECOVERED',
         '$  ',
       ].join('\n')
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify({
-          session: await authoritativeCheckpoint(route, output, delayedCheckpointCalls),
-        }),
-      })
+      return {
+        ...message,
+        session: authoritativeCheckpoint(message.session || {}, output, delayedCheckpointCalls),
+      }
     })
 
     const bashAgentId = await createControlAgent(page, 'bash', projectDir)
@@ -563,7 +552,7 @@ test.describe('terminal regression matrix', () => {
       await expect.poll(() => page.locator(`[data-agent-id="${recoveringAgentId}"] canvas`).count())
         .toBeGreaterThan(0)
       await forceHttpCheckpointFallback(page, recoveringAgentId, 'RECOVERY_CHECKPOINT_GAP\r\n')
-      await expect.poll(() => sessionViewCalls, { timeout: 15_000 }).toBeGreaterThan(0)
+      await expect.poll(() => checkpointCalls, { timeout: 15_000 }).toBeGreaterThan(0)
       await expect.poll(() => visibleTerminalText(page, recoveringAgentId), { timeout: 15_000 })
         .toContain('[agent@example-host /srv/example/projects/matrix]')
     })
@@ -581,10 +570,10 @@ test.describe('terminal regression matrix', () => {
           { cause: error },
         )
       }
-      const settledCount = sessionViewCalls
+      const settledCount = checkpointCalls
       await page.waitForTimeout(750)
-      expect(sessionViewCalls - settledCount).toBeLessThanOrEqual(2)
-      expect(sessionViewCalls).toBeLessThanOrEqual(12)
+      expect(checkpointCalls - settledCount).toBeLessThanOrEqual(2)
+      expect(checkpointCalls).toBeLessThanOrEqual(12)
     })
 
     await scenario('recovered prompt is not hard-wrapped into 10-column fragments', async () => {
@@ -691,11 +680,8 @@ test.describe('terminal regression matrix', () => {
         }, bashAgentId)).toBe(true)
       } catch (error) {
         const diagnostics = await terminalDiagnostics(page, bashAgentId)
-        const probe = await page.request.get(`/farming/api/agents/${bashAgentId}/session-view`)
-          .then(async response => ({
-            status: response.status(),
-            body: await response.json().catch(() => null),
-          }))
+        const probe = await requestTerminalCheckpoint(page, bashAgentId)
+          .then(body => ({ body }))
           .catch(probeError => ({
             error: probeError instanceof Error ? probeError.message : String(probeError),
           }))
@@ -749,12 +735,10 @@ test.describe('terminal regression matrix', () => {
         resizeCount: window.__farmingTerminalTest?.getResizeNotificationCount(id) ?? 0,
         diagnostics: window.__farmingTerminalTest?.getBufferDiagnostics(id) ?? null,
       }), bashAgentId)
-      const sessionView = await (await page.request.get(`/farming/api/agents/${bashAgentId}/session-view`)).json() as {
-        session?: { previewCols?: number; previewRows?: number }
-      }
+      const checkpoint = await requestTerminalCheckpoint(page, bashAgentId)
       expect(result.resizeCount).toBeGreaterThanOrEqual(beforeCount)
-      expect(sessionView.session?.previewCols).toBe(result.diagnostics?.cols)
-      expect(sessionView.session?.previewRows).toBe(result.diagnostics?.rows)
+      expect(checkpoint.cols).toBe(result.diagnostics?.cols)
+      expect(checkpoint.rows).toBe(result.diagnostics?.rows)
     })
 
     await scenario('long output creates scrollback without moving the whole page', async () => {
@@ -1886,28 +1870,25 @@ test.describe('terminal regression matrix', () => {
       const runtimeEpoch = initialState.runtimeEpoch
       const checkpointOutputSeq = initialState.outputSeq + 100
       const checkpointStateRevision = initialState.stateRevision + 100
-      const sessionViewRoute = new RegExp(`/farming/api/agents/${agentId}/session-view$`)
       let snapshotRequests = 0
-      const handler = async (route: import('@playwright/test').Route) => {
+      await interceptTerminalCheckpoints(page, message => {
+        if (message.agentId !== agentId) return message
         snapshotRequests += 1
-        await route.fulfill({
-          contentType: 'application/json',
-          body: JSON.stringify({
-            session: {
-              runtimeEpoch,
-              output: latestOutput,
-              renderOutput: latestOutput,
-              outputSeq: checkpointOutputSeq,
-              stateRevision: checkpointStateRevision,
-              previewCols: initialState.cols,
-              previewRows: initialState.rows,
-              previewSnapshot: snapshotFromRows(latestOutput.split('\n'), 100, 3, 3),
-            },
-          }),
-        })
-      }
-      await page.route(sessionViewRoute, handler)
-      try {
+        return {
+          ...message,
+          session: {
+            ...message.session,
+            runtimeEpoch,
+            output: latestOutput,
+            renderOutput: latestOutput,
+            outputSeq: checkpointOutputSeq,
+            stateRevision: checkpointStateRevision,
+            previewCols: initialState.cols,
+            previewRows: initialState.rows,
+            previewSnapshot: snapshotFromRows(latestOutput.split('\n'), 100, 3, 3),
+          },
+        }
+      })
         await page.evaluate(() => window.dispatchEvent(new Event('pagehide')))
         await page.evaluate(async ({ id, epoch, outputSeq, stateRevision }) => {
           for (let offset = 1; offset <= 100; offset += 1) {
@@ -1935,9 +1916,6 @@ test.describe('terminal regression matrix', () => {
         await expect.poll(async () => page.evaluate((id) => (
           window.__farmingTerminalTest?.getLastOutputSeq(id) ?? null
         ), agentId)).toBe(checkpointOutputSeq)
-      } finally {
-        await page.unroute(sessionViewRoute, handler)
-      }
     } finally {
       await cleanupControlAgents(page.request)
     }
@@ -1978,9 +1956,7 @@ test.describe('terminal regression matrix', () => {
       expect(inputAccepted).toBe(true)
 
       await expect.poll(async () => {
-        const response = await page.request.get(`/farming/api/agents/${agentId}/session-view`)
-        const payload = await response.json() as { session?: { renderOutput?: string } }
-        return payload.session?.renderOutput || ''
+        return terminalCheckpointOutput(page, agentId)
       }).toContain('REAL_MISSED_RESUME_OUTPUT')
 
       await page.evaluate(() => window.dispatchEvent(new Event('farming:backend-connected')))
@@ -2003,23 +1979,21 @@ test.describe('terminal regression matrix', () => {
     fs.mkdirSync(projectDir, { recursive: true })
     await cleanupControlAgents(page.request)
     const agentId = await createControlAgent(page, 'bash', projectDir)
-    const sessionViewRoute = new RegExp(`/farming/api/agents/${agentId}/session-view$`)
     let requestCount = 0
     let observeFirstRequest!: () => void
     let releaseFirstRequest!: () => void
     const firstRequestObserved = new Promise<void>(resolve => { observeFirstRequest = resolve })
     const firstRequestRelease = new Promise<void>(resolve => { releaseFirstRequest = resolve })
-    const handler = async (route: import('@playwright/test').Route) => {
+    await interceptTerminalCheckpoints(page, async message => {
+      if (message.agentId !== agentId) return message
       requestCount += 1
       if (requestCount === 1) {
         observeFirstRequest()
         await firstRequestRelease
-        await route.abort('aborted')
-        return
+        return null
       }
-      await route.continue()
-    }
-    await page.route(sessionViewRoute, handler)
+      return message
+    })
 
     try {
       await openFarming(page)
@@ -2032,20 +2006,18 @@ test.describe('terminal regression matrix', () => {
       releaseFirstRequest()
 
       let inputAccepted = false
+      const markerFile = path.join(projectDir, 'aborted-bootstrap-ready.txt')
       for (let attempt = 0; attempt < 20 && !inputAccepted; attempt += 1) {
         const response = await page.request.post(
           `/farming/api/control/agents/${agentId}/input`,
-          { data: { input: 'printf "ABORTED_BOOTSTRAP_RESUME_OUTPUT\\n"\r' } },
+          { data: { input: 'printf "ABORTED_BOOTSTRAP_RESUME_OUTPUT\\n"; printf ready > aborted-bootstrap-ready.txt\r' } },
         )
         inputAccepted = response.ok()
         if (!inputAccepted) await page.waitForTimeout(50)
       }
       expect(inputAccepted).toBe(true)
-      await expect.poll(async () => {
-        const response = await page.request.get(`/farming/api/agents/${agentId}/session-view`)
-        const payload = await response.json() as { session?: { renderOutput?: string } }
-        return payload.session?.renderOutput || ''
-      }).toContain('ABORTED_BOOTSTRAP_RESUME_OUTPUT')
+      await expect.poll(() => fs.existsSync(markerFile) ? fs.readFileSync(markerFile, 'utf8') : '')
+        .toBe('ready')
 
       await page.evaluate(() => window.dispatchEvent(new Event('pageshow')))
       await selecting
@@ -2059,7 +2031,6 @@ test.describe('terminal regression matrix', () => {
       expect(requestCount).toBe(2)
     } finally {
       releaseFirstRequest()
-      await page.unroute(sessionViewRoute, handler)
       await cleanupControlAgents(page.request)
     }
   })
@@ -2091,36 +2062,33 @@ test.describe('terminal regression matrix', () => {
       expect(checkpoint.stateRevision).not.toBeNull()
       const runtimeEpoch = checkpoint.runtimeEpoch
 
-      const sessionViewRoute = new RegExp(`/farming/api/agents/${agentId}/session-view$`)
       let snapshotRequests = 0
       type CheckpointCut = { outputSeq: number; stateRevision: number }
       let resolveCheckpointCut!: (cut: CheckpointCut) => void
       const checkpointCutReady = new Promise<CheckpointCut>((resolve) => {
         resolveCheckpointCut = resolve
       })
-      const handler = async (route: import('@playwright/test').Route) => {
+      await interceptTerminalCheckpoints(page, async message => {
+        if (message.agentId !== agentId) return message
         snapshotRequests += 1
         const checkpointCut = await checkpointCutReady
         const checkpointLabel = `CHECKPOINT_${checkpointCut.stateRevision}`
         const output = `${checkpointLabel}\r\n$ `
-        await route.fulfill({
-          contentType: 'application/json',
-          body: JSON.stringify({
-            session: {
-              runtimeEpoch,
-              output,
-              renderOutput: output,
-              outputSeq: checkpointCut.outputSeq,
-              stateRevision: checkpointCut.stateRevision,
-              previewCols: checkpoint.dimensions.cols,
-              previewRows: checkpoint.dimensions.rows,
-              previewSnapshot: snapshotFromRows([checkpointLabel, '$ '], 100, 1, 2),
-            },
-          }),
-        })
-      }
-      await page.route(sessionViewRoute, handler)
-      try {
+        return {
+          ...message,
+          session: {
+            ...message.session,
+            runtimeEpoch,
+            output,
+            renderOutput: output,
+            outputSeq: checkpointCut.outputSeq,
+            stateRevision: checkpointCut.stateRevision,
+            previewCols: checkpoint.dimensions.cols,
+            previewRows: checkpoint.dimensions.rows,
+            previewSnapshot: snapshotFromRows([checkpointLabel, '$ '], 100, 1, 2),
+          },
+        }
+      })
         const checkpointCut = await page.evaluate(async ({ id, epoch }) => {
           const outputSeq = window.__farmingTerminalTest?.getLastOutputSeq(id) ?? 0
           const stateRevision = window.__farmingTerminalTest?.getStateRevision(id) ?? 0
@@ -2162,9 +2130,6 @@ test.describe('terminal regression matrix', () => {
           stateRevision: checkpointCut.stateRevision,
         })
         await expect.poll(async () => await visibleTerminalText(page, agentId)).toContain('DELTA_AFTER_CHECKPOINT')
-      } finally {
-        await page.unroute(sessionViewRoute, handler)
-      }
     } finally {
       await cleanupControlAgents(page.request)
     }

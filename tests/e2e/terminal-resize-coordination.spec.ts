@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { expect, test } from './fixtures'
+import { expect, requestTerminalCheckpoint, test } from './fixtures'
 
 declare global {
   interface Window {
@@ -256,11 +256,10 @@ test('keeps newer local terminal geometry while older resize transitions arrive'
   }))).toEqual([first, latest])
 
   await expect.poll(async () => {
-    const response = await page.request.get(`/farming/api/agents/${agentId}/session-view`)
-    const body = await response.json() as { session?: { previewCols?: number; previewRows?: number } }
+    const checkpoint = await requestTerminalCheckpoint(page, agentId)
     return {
-      cols: body.session?.previewCols ?? null,
-      rows: body.session?.previewRows ?? null,
+      cols: checkpoint.cols,
+      rows: checkpoint.rows,
     }
   }).toEqual({ cols: latest.cols, rows: latest.rows })
 })
@@ -376,11 +375,10 @@ test('coalesces a sustained diagonal window drag into one geometry update', asyn
   expect(messages[0].rows).not.toBe(before.rows)
 
   await expect.poll(async () => {
-    const response = await page.request.get(`/farming/api/agents/${agentId}/session-view`)
-    const body = await response.json() as { session?: { previewCols?: number; previewRows?: number } }
+    const checkpoint = await requestTerminalCheckpoint(page, agentId)
     return {
-      cols: body.session?.previewCols ?? null,
-      rows: body.session?.previewRows ?? null,
+      cols: checkpoint.cols,
+      rows: checkpoint.rows,
     }
   }).toEqual(messages[0])
 })

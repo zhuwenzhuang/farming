@@ -24,18 +24,17 @@ interface FarmingSessionClient {
     options?: { requestId?: string; onResult?: (result: FarmingComposerResult) => void },
   ): boolean;
   handleServerMessage(message: unknown): boolean;
-  rejectPendingComposerMessages(message?: string): void;
+  handleTransportDisconnected(message?: string): void;
   interruptAgent(agentId: string): boolean;
   resizeAgent(agentId: string, cols: number, rows: number): boolean;
   clearTerminal(agentId: string): boolean;
   archiveAgent(agentId: string): boolean;
-  getSessionView(agentId: string, options?: { signal?: AbortSignal }): Promise<Record<string, unknown>>;
+  requestTerminalCheckpoint(agentId: string, options?: { signal?: AbortSignal }): Promise<Record<string, unknown>>;
 }
 
 interface FarmingSessionBridge {
   createClient(options?: {
     getSocket?: () => WebSocket | null;
-    fetchImpl?: typeof fetch;
   }): FarmingSessionClient;
 }
 
