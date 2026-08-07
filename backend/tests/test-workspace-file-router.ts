@@ -67,8 +67,8 @@ async function fetchJson(baseUrl, pathname, options: RequestInit = {}) {
   return { response, body };
 }
 
-async function fetchRaw(baseUrl, pathname) {
-  const response = await fetchWithRetry(`${baseUrl}${pathname}`);
+async function fetchRaw(baseUrl, pathname, options: RequestInit = {}) {
+  const response = await fetchWithRetry(`${baseUrl}${pathname}`, options);
   const buffer = Buffer.from(await response.arrayBuffer());
   return { response, buffer };
 }
@@ -146,6 +146,12 @@ async function run() {
     };
 
     const app = express();
+    app.use((req, _res, next) => {
+      if (req.headers['x-farming-test-access'] === 'read-only') {
+        (req as typeof req & { authAccessMode?: 'read-only' }).authAccessMode = 'read-only';
+      }
+      next();
+    });
     app.use('/api/files', createWorkspaceFileRouter(agentManager, service));
     const server = await new Promise<HttpServer>((resolve) => {
       const listener = app.listen(0, () => resolve(listener));
@@ -210,11 +216,23 @@ async function run() {
       const exactExternalRead = await fetchJson(baseUrl, `/api/files/file?agentId=${GLOBAL_WORKSPACE_FILES_AGENT_ID}&path=${encodeURIComponent(forbiddenGlobalReadPath)}&exact=1`);
       assert.strictEqual(exactExternalRead.response.status, 200);
       assert.strictEqual(exactExternalRead.body.file.content, 'outside project\n');
+      const readOnlyWorkspaceRead = await fetchJson(baseUrl, `/api/files/file?agentId=${GLOBAL_WORKSPACE_FILES_AGENT_ID}&path=${encodeURIComponent(globalReadPath)}`, {
+        headers: { 'X-Farming-Test-Access': 'read-only' },
+      });
+      assert.strictEqual(readOnlyWorkspaceRead.response.status, 200);
+      const readOnlyExactExternalRead = await fetchJson(baseUrl, `/api/files/file?agentId=${GLOBAL_WORKSPACE_FILES_AGENT_ID}&path=${encodeURIComponent(forbiddenGlobalReadPath)}&exact=1`, {
+        headers: { 'X-Farming-Test-Access': 'read-only' },
+      });
+      assert.strictEqual(readOnlyExactExternalRead.response.status, 403);
       const exactExternalDirectory = await fetchJson(baseUrl, `/api/files/file?agentId=${GLOBAL_WORKSPACE_FILES_AGENT_ID}&path=${encodeURIComponent(tmpRoot.replace(/^\/+/, ''))}&exact=1`);
       assert.strictEqual(exactExternalDirectory.response.status, 400);
       const exactExternalRaw = await fetchRaw(baseUrl, `/api/files/raw?agentId=${GLOBAL_WORKSPACE_FILES_AGENT_ID}&path=${encodeURIComponent(exactExternalPreviewFile.replace(/^\/+/, ''))}&exact=1`);
       assert.strictEqual(exactExternalRaw.response.status, 200);
       assert(exactExternalRaw.response.headers.get('content-type').includes('image/png'));
+      const readOnlyExactExternalRaw = await fetchRaw(baseUrl, `/api/files/raw?agentId=${GLOBAL_WORKSPACE_FILES_AGENT_ID}&path=${encodeURIComponent(exactExternalPreviewFile.replace(/^\/+/, ''))}&exact=1`, {
+        headers: { 'X-Farming-Test-Access': 'read-only' },
+      });
+      assert.strictEqual(readOnlyExactExternalRaw.response.status, 403);
       const exactExternalHtmlPath = exactExternalHtmlFile.replace(/^\/+/, '');
       const deniedExternalHtmlPreview = await fetchJson(baseUrl, '/api/files/previews', {
         method: 'POST',

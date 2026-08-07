@@ -19,6 +19,11 @@ silently download Chromium.
 Local Chromium is the simplest ordinary path. Isolated Browser is for an Agent
 that needs an independent Linux desktop or Computer Use. Cross-engine testing
 belongs in a dedicated testing service, not an automatic Browser fallback.
+Explicit isolated-runtime preparation uses the Farming-owned, pinned
+`agent-browser` installer. If its primary source is unavailable, Farming may
+download a Farming-pinned Chromium release from the configured mirror, but it
+verifies a repository-pinned SHA-256 digest before extraction or execution.
+Missing or mismatched integrity metadata fails preparation visibly.
 
 Browser tools follow the coding Agent Session's permission policy. Operating-
 system device permissions and attachment to an external personal browser remain

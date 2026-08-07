@@ -6,19 +6,23 @@ Farming can operate and display a Chromium browser that another process, user, o
 
 ## Contract
 
-Start Chromium with a browser-level CDP endpoint that is reachable only on the Farming host's loopback interface. Docker publication is image-specific. For example, on Linux, host networking also makes a Chromium build that binds container loopback available on host loopback:
+Start Chromium with a browser-level CDP endpoint that is reachable only on the Farming host's loopback interface. The image must run Chromium as a non-root user with its sandbox enabled. Publish only the CDP port to host loopback and keep the container on an isolated bridge network. For example, with an image that documents sandboxed non-root operation:
 
 ```bash
+docker network create farming-cdp
 docker run --rm --name farming-cdp --init --shm-size=1g \
-  --network host \
+  --network farming-cdp \
+  --publish 127.0.0.1:9222:9222 \
+  --user 1000:1000 \
   <chromium-image> <chromium-command> \
-  --headless=new --no-sandbox \
+  --headless=new \
+  --remote-debugging-address=0.0.0.0 \
   --remote-debugging-port=9222 \
   --user-data-dir=/tmp/farming-cdp-profile \
   about:blank
 ```
 
-Some Chromium builds ignore `--remote-debugging-address=0.0.0.0` and bind only inside the container, so a normal `-p` mapping may not work. In that case use the image's documented CDP proxy or Linux host networking; Farming does not need a Docker-specific mode. CDP grants full control of that browser. Never publish this port on `0.0.0.0` or the public network. For a browser on another machine, create an SSH tunnel so Farming still connects to a local loopback address.
+Do not add `--no-sandbox`, run the container as root, use host networking, or publish the port on `0.0.0.0`. Some Chromium builds ignore `--remote-debugging-address=0.0.0.0` and bind only inside the container; use the image's documented sandbox-preserving CDP proxy instead of weakening process or network isolation. CDP grants full control of that browser. For a browser on another machine, create an SSH tunnel so Farming still connects to a local loopback address.
 
 Verify the endpoint:
 

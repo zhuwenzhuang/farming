@@ -15,6 +15,9 @@ Farming Browser 让 Agent 操作自己拥有的 Browser，同时用户可以在 
 
 本机 Chromium 是普通使用最简单的路径；Isolated Browser 适合需要独立 Linux Desktop 或
 Computer Use 的 Agent。跨浏览器内核测试应交给专门 Testing Service，不能成为自动 Fallback。
+显式准备隔离 Runtime 时，优先使用 Farming 自有且固定版本的 `agent-browser` Installer；
+Primary Source 不可用时，Farming 可以从配置的 Mirror 下载由 Farming 固定的 Chromium Release，但在
+解压或执行前必须验证仓库固定的 SHA-256。摘要缺失或不匹配时，准备过程显式失败。
 
 Browser Tool 遵循 Coding Agent Session 的 Permission Policy。操作系统设备权限和挂载外部
 个人浏览器仍是独立安全边界。

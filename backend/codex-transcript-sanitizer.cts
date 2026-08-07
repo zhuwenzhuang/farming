@@ -23,6 +23,7 @@ interface CodexInlineVisualizationStreamResult {
 }
 
 const CODEX_INLINE_VISUALIZATION_PREFIX = '::codex-inline-vis{';
+const MAX_CODEX_INLINE_VISUALIZATION_BUFFER_BYTES = 16 * 1024;
 
 function normalizeCodexTranscriptText(value: unknown): string {
   return String(value || '')
@@ -216,6 +217,11 @@ function consumeCodexInlineVisualizationStream(
       state.buffer = '';
       consumeLine(line, '');
     }
+    if (Buffer.byteLength(state.buffer, 'utf8') > MAX_CODEX_INLINE_VISUALIZATION_BUFFER_BYTES) {
+      text += state.buffer;
+      state.buffer = '';
+      state.passthroughLine = true;
+    }
     break;
   }
 
@@ -278,6 +284,7 @@ function isCodexContextCompactionMessage(value: unknown): boolean {
 }
 
 export {
+  MAX_CODEX_INLINE_VISUALIZATION_BUFFER_BYTES,
   heartbeatAssistantMessage,
   heartbeatUserMessage,
   isCodexContextCompactionMessage,

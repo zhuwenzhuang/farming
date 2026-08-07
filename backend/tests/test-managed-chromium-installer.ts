@@ -1,14 +1,18 @@
 const assert = require('assert');
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const storageLayout = require('../storage-layout.cjs');
 const {
+  CHROMIUM_DOWNLOADS,
   GOOGLE_METADATA_URL,
   MANIFEST_FORMAT,
   NPMMIRROR_ARCHIVE_ROOT,
   NPMMIRROR_METADATA_URL,
+  PINNED_CHROMIUM_VERSION,
   ManagedChromiumInstaller,
+  downloadFile,
   findBrowserExecutable,
   installFromNpmMirror,
   probeChromiumInstallSources,
@@ -166,40 +170,45 @@ async function testFailureDoesNotPublishAndCanRetry() {
   }
 }
 
-async function testNetworkProbeRanksReachableSourcesAndRetainsFailures() {
+async function testNetworkProbeKeepsPinnedMirrorArtifact() {
+  for (const artifact of Object.values(CHROMIUM_DOWNLOADS) as Array<{ sha256: string }>) {
+    assert.match(artifact.sha256, /^[a-f0-9]{64}$/);
+  }
   const requested = [];
   const sources = await probeChromiumInstallSources({
+    platform: 'linux',
+    arch: 'x64',
     fetchJson: async url => {
       requested.push(url);
       if (url === GOOGLE_METADATA_URL) throw new Error('official source blocked');
       assert.strictEqual(url, NPMMIRROR_METADATA_URL);
-      return { channels: { Stable: { version: '151.0.7922.47' } } };
+      return { channels: { Stable: { version: '999.0.0.0' } } };
     },
   });
 
   assert.deepStrictEqual(
     requested.sort(),
     [GOOGLE_METADATA_URL, NPMMIRROR_METADATA_URL].sort(),
-    'network detection must probe every configured source',
   );
   assert.strictEqual(sources[0].id, 'npmmirror');
+  assert.strictEqual(sources[0].version, PINNED_CHROMIUM_VERSION);
+  assert.strictEqual(sources[0].sha256, CHROMIUM_DOWNLOADS['linux-x64'].sha256);
   assert.strictEqual(sources[0].available, true);
   assert.strictEqual(sources[1].id, 'google');
   assert.strictEqual(sources[1].available, false);
-  assert.match(sources[1].error, /blocked/);
 }
 
-async function testMirrorBuildsPlatformArchiveUrl() {
+async function testMirrorUsesPinnedArchiveAndDigest() {
   const destination = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-managed-chromium-mirror-'));
   let downloadedUrl = '';
+  let expectedSha256 = '';
   try {
-    await installFromNpmMirror({
-      version: '151.0.7922.47',
-    }, destination, {
+    await installFromNpmMirror({}, destination, {
       platform: 'darwin',
       arch: 'arm64',
-      downloadFile: async (url, archivePath) => {
+      downloadFile: async (url, archivePath, sha256) => {
         downloadedUrl = url;
+        expectedSha256 = sha256;
         fs.writeFileSync(archivePath, 'fake archive');
       },
       extractArchive: async (_archivePath, options) => {
@@ -208,20 +217,46 @@ async function testMirrorBuildsPlatformArchiveUrl() {
     });
     assert.strictEqual(
       downloadedUrl,
-      `${NPMMIRROR_ARCHIVE_ROOT}/151.0.7922.47/mac-arm64/chrome-mac-arm64.zip`,
+      `${NPMMIRROR_ARCHIVE_ROOT}/${PINNED_CHROMIUM_VERSION}/mac-arm64/chrome-mac-arm64.zip`,
     );
+    assert.strictEqual(expectedSha256, CHROMIUM_DOWNLOADS['darwin-arm64'].sha256);
   } finally {
     fs.rmSync(destination, { recursive: true, force: true });
   }
 }
 
-async function testFailedSourceContinuesWithNextSource() {
+async function testDownloadRejectsUntrustedArchive() {
+  const destination = path.join(os.tmpdir(), `farming-chromium-download-${crypto.randomUUID()}`);
+  const payload = Buffer.from('chromium archive');
+  const expectedSha256 = crypto.createHash('sha256').update(payload).digest('hex');
+  await downloadFile('https://example.test/chrome.zip', destination, expectedSha256, {
+    fetchImpl: async () => new Response(payload),
+  });
+  assert.deepStrictEqual(fs.readFileSync(destination), payload);
+  fs.rmSync(destination, { force: true });
+
+  await assert.rejects(
+    downloadFile('https://example.test/chrome.zip', destination, '0'.repeat(64), {
+      fetchImpl: async () => new Response(payload),
+    }),
+    error => error.code === 'CHROMIUM_INTEGRITY_FAILED',
+  );
+  assert.strictEqual(fs.existsSync(destination), false);
+}
+
+async function testFailedSourceContinuesWithVerifiedMirror() {
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-managed-chromium-sources-'));
   const attempts = [];
   const installer = new ManagedChromiumInstaller(installerOptions(configDir, {
     resolveInstallSources: async () => [
       { id: 'google', label: 'Google Chrome for Testing', kind: 'agent-browser' },
-      { id: 'npmmirror', label: 'npmmirror', kind: 'mirror', version: '151.0.7922.47' },
+      {
+        id: 'npmmirror',
+        label: 'npmmirror',
+        kind: 'mirror',
+        version: PINNED_CHROMIUM_VERSION,
+        sha256: CHROMIUM_DOWNLOADS['linux-x64'].sha256,
+      },
     ],
     runInstallCommand: async () => {
       attempts.push('google');
@@ -249,7 +284,7 @@ async function testUnprovenInstallerExitStopsFallback() {
   const installer = new ManagedChromiumInstaller(installerOptions(configDir, {
     resolveInstallSources: async () => [
       { id: 'google', label: 'Google Chrome for Testing', kind: 'agent-browser' },
-      { id: 'npmmirror', label: 'npmmirror', kind: 'mirror', version: '151.0.7922.47' },
+      { id: 'npmmirror', label: 'npmmirror', kind: 'mirror' },
     ],
     runInstallCommand: async () => {
       const error = Object.assign(new Error('installer exit could not be proven'), {
@@ -317,9 +352,10 @@ async function testAgentBrowserUpgradeRequiresMatchingChromium() {
 async function run() {
   await testInstallPublishesOnlyAfterVerification();
   await testFailureDoesNotPublishAndCanRetry();
-  await testNetworkProbeRanksReachableSourcesAndRetainsFailures();
-  await testMirrorBuildsPlatformArchiveUrl();
-  await testFailedSourceContinuesWithNextSource();
+  await testNetworkProbeKeepsPinnedMirrorArtifact();
+  await testMirrorUsesPinnedArchiveAndDigest();
+  await testDownloadRejectsUntrustedArchive();
+  await testFailedSourceContinuesWithVerifiedMirror();
   await testUnprovenInstallerExitStopsFallback();
   await testAgentBrowserUpgradeRequiresMatchingChromium();
   console.log('managed Chromium installer tests passed');

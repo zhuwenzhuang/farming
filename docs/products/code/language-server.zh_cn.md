@@ -48,6 +48,11 @@ Type Hierarchy 与 Diagnostics，具体取决于 Active Server 实际支持的�
 并发启动加入同一转换。退出或失败的 Server 会从 Active State 移除；之后用户显式请求可以
 重新启动。Request 与 Shutdown 都必须有界；失败保持可见，不静默切换到另一 Provider。
 
+Backend 优先启动 Project Host 上已经存在的匹配 Language Server Executable。clangd 或
+JDTLS 不可用时，Farming 可以按需安装仓库固定的 Runtime Version，但不会解析可变的
+`latest` Archive：每个 Managed Download 都有仓库固定的 URL 与 SHA-256，并在解压或执行前
+验证。摘要缺失或不匹配时返回可操作的显式错误。
+
 ## 验收标准
 
 验证必须覆盖：Project Root Discovery、Saved-file Semantics、Result Filtering、Process Reuse

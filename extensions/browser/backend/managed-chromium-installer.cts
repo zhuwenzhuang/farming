@@ -19,12 +19,20 @@ const LOCK_POLL_MS = 200;
 const MAX_INSTALL_OUTPUT_BYTES = 256 * 1024;
 const MAX_CHROMIUM_ARCHIVE_BYTES = 1024 * 1024 * 1024;
 const SOURCE_PROBE_TIMEOUT_MS = 5_000;
+const PINNED_CHROMIUM_VERSION = '151.0.7922.77';
 const NPMMIRROR_METADATA_URL =
   'https://registry.npmmirror.com/-/binary/chrome-for-testing/last-known-good-versions.json';
 const NPMMIRROR_ARCHIVE_ROOT =
   'https://registry.npmmirror.com/-/binary/chrome-for-testing';
 const GOOGLE_METADATA_URL =
   'https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json';
+
+const CHROMIUM_DOWNLOADS = {
+  'darwin-arm64': { platformName: 'mac-arm64', sha256: '4b3caaabb967070f1541ff5b0fd2c95b2ba839be33a58842a8a877ec5f3fbd9b' },
+  'darwin-x64': { platformName: 'mac-x64', sha256: '0345f09aaa36c85cf716959390f8a7d73b22fe4a26c1e7735dcb5653e474887a' },
+  'linux-x64': { platformName: 'linux64', sha256: '60a324a6e1d27b20f2035a2cdaf71641a739fe1f5571f63794773225820bce8a' },
+  'win32-x64': { platformName: 'win64', sha256: 'a561db084cf08f3f4d25681ed3e764726b0537082f27063848a01e2e23d612ae' },
+} as const;
 
 type BrowserPlatform = NodeJS.Platform;
 type InstallSourceKind = 'agent-browser' | 'mirror';
@@ -57,6 +65,7 @@ interface ChromiumInstallSource {
   label: string;
   latencyMs?: number;
   metadataUrl?: string;
+  sha256?: string;
   version?: string;
 }
 
@@ -83,6 +92,7 @@ interface DownloadFileOptions extends FetchJsonOptions {
 type DownloadFile = (
   url: string,
   destination: string,
+  expectedSha256: string,
   options?: DownloadFileOptions,
 ) => Promise<void>;
 
@@ -127,7 +137,6 @@ interface MirrorInstallOptions {
   arch: string;
   downloadFile?: DownloadFile;
   extractArchive?: ExtractArchive;
-  fetchJson?: FetchJson;
   platform: BrowserPlatform;
 }
 
@@ -307,12 +316,8 @@ function stableChromeVersion(payload: unknown): string {
   return /^\d+\.\d+\.\d+\.\d+$/.test(version) ? version : '';
 }
 
-function chromiumArchivePlatform(platform: BrowserPlatform, arch: string): string {
-  if (platform === 'darwin' && arch === 'arm64') return 'mac-arm64';
-  if (platform === 'darwin' && arch === 'x64') return 'mac-x64';
-  if (platform === 'linux' && arch === 'x64') return 'linux64';
-  if (platform === 'win32' && arch === 'x64') return 'win64';
-  return '';
+function chromiumDownload(platform: BrowserPlatform, arch: string) {
+  return CHROMIUM_DOWNLOADS[`${platform}-${arch}` as keyof typeof CHROMIUM_DOWNLOADS];
 }
 
 function chromiumArchiveName(platformName: string): string {
@@ -340,9 +345,18 @@ async function fetchJson(url: string, options: FetchJsonOptions = {}): Promise<u
 }
 
 async function probeChromiumInstallSources(
-  options: { fetchJson?: FetchJson; timeoutMs?: number } = {},
+  options: {
+    arch?: string;
+    fetchJson?: FetchJson;
+    platform?: BrowserPlatform;
+    timeoutMs?: number;
+  } = {},
 ): Promise<ProbedChromiumInstallSource[]> {
   const fetchJsonImpl = options.fetchJson || fetchJson;
+  const mirrorDownload = chromiumDownload(
+    options.platform || process.platform,
+    options.arch || process.arch,
+  );
   const candidates: Array<ChromiumInstallSource & { metadataUrl: string }> = [
     {
       id: 'google',
@@ -355,6 +369,8 @@ async function probeChromiumInstallSources(
       label: 'npmmirror',
       kind: 'mirror',
       metadataUrl: NPMMIRROR_METADATA_URL,
+      sha256: mirrorDownload?.sha256 || '',
+      version: PINNED_CHROMIUM_VERSION,
     },
   ];
   const probed = await Promise.all(candidates.map(async (candidate, index) => {
@@ -363,8 +379,13 @@ async function probeChromiumInstallSources(
       const metadata = await fetchJsonImpl(candidate.metadataUrl || '', {
         timeoutMs: options.timeoutMs || SOURCE_PROBE_TIMEOUT_MS,
       });
-      const version = stableChromeVersion(metadata);
+      const version = candidate.kind === 'mirror'
+        ? candidate.version || ''
+        : stableChromeVersion(metadata);
       if (!version) throw new Error('Stable Chrome version is missing');
+      if (candidate.kind === 'mirror' && !candidate.sha256) {
+        throw new Error('No trusted Chromium digest is available for this platform');
+      }
       return {
         ...candidate,
         index,
@@ -394,6 +415,7 @@ async function probeChromiumInstallSources(
 async function downloadFile(
   url: string,
   destination: string,
+  expectedSha256: string,
   options: DownloadFileOptions = {},
 ): Promise<void> {
   const controller = new AbortController();
@@ -418,6 +440,7 @@ async function downloadFile(
     if (contentLength > MAX_CHROMIUM_ARCHIVE_BYTES) {
       throw new Error(`Chromium archive is unexpectedly large (${contentLength} bytes)`);
     }
+    const sha256 = crypto.createHash('sha256');
     let received = 0;
     const limit = new Transform({
       transform(chunk: Buffer, _encoding: BufferEncoding, callback: TransformCallback) {
@@ -426,6 +449,7 @@ async function downloadFile(
           callback(new Error('Chromium archive exceeded the download size limit'));
           return;
         }
+        sha256.update(chunk);
         callback(null, chunk);
       },
     });
@@ -434,6 +458,14 @@ async function downloadFile(
       limit,
       fs.createWriteStream(destination, { flags: 'wx', mode: 0o600 }),
     );
+    const actualSha256 = sha256.digest('hex');
+    if (actualSha256 !== expectedSha256.toLowerCase()) {
+      const error = new Error(
+        `Chromium download integrity check failed (expected ${expectedSha256}, received ${actualSha256})`,
+      ) as ErrorMetadata;
+      error.code = 'CHROMIUM_INTEGRITY_FAILED';
+      throw error;
+    }
   } catch (error) {
     fs.rmSync(destination, { force: true });
     throw error;
@@ -575,29 +607,20 @@ function defaultVerifyBrowser(
 }
 
 async function installFromNpmMirror(
-  source: ChromiumInstallSource,
+  _source: ChromiumInstallSource,
   destination: string,
   options: MirrorInstallOptions,
 ): Promise<{ version: string }> {
-  const platformName = chromiumArchivePlatform(options.platform, options.arch);
-  if (!platformName) {
+  const artifact = chromiumDownload(options.platform, options.arch);
+  if (!artifact) {
     throw new Error(
-      `Chrome for Testing does not publish a ${options.platform}-${options.arch} archive`,
+      `Chrome for Testing does not publish a trusted ${options.platform}-${options.arch} archive`,
     );
   }
-  let version = String(source.version || '').trim();
-  if (!version) {
-    const metadata = await (options.fetchJson || fetchJson)(NPMMIRROR_METADATA_URL, {
-      timeoutMs: SOURCE_PROBE_TIMEOUT_MS,
-    });
-    version = stableChromeVersion(metadata);
-  }
-  if (!version) throw new Error('npmmirror did not report a Stable Chrome version');
-
-  const archiveName = chromiumArchiveName(platformName);
+  const archiveName = chromiumArchiveName(artifact.platformName);
   const archivePath = path.join(destination, archiveName);
-  const archiveUrl = `${NPMMIRROR_ARCHIVE_ROOT}/${version}/${platformName}/${archiveName}`;
-  await (options.downloadFile || downloadFile)(archiveUrl, archivePath, {
+  const archiveUrl = `${NPMMIRROR_ARCHIVE_ROOT}/${PINNED_CHROMIUM_VERSION}/${artifact.platformName}/${archiveName}`;
+  await (options.downloadFile || downloadFile)(archiveUrl, archivePath, artifact.sha256, {
     allowedHosts: ['registry.npmmirror.com', 'cdn.npmmirror.com'],
     timeoutMs: INSTALL_TIMEOUT_MS,
   });
@@ -606,7 +629,7 @@ async function installFromNpmMirror(
   } finally {
     fs.rmSync(archivePath, { force: true });
   }
-  return { version };
+  return { version: PINNED_CHROMIUM_VERSION };
 }
 
 class ManagedChromiumInstaller {
@@ -617,7 +640,6 @@ class ManagedChromiumInstaller {
   readonly downloadFile: DownloadFile;
   readonly env: NodeJS.ProcessEnv;
   readonly extractArchive: ExtractArchive;
-  readonly fetchJson: FetchJson;
   readonly installFromMirror: InstallFromMirror;
   readonly platform: BrowserPlatform;
   readonly platformKey: string;
@@ -644,11 +666,14 @@ class ManagedChromiumInstaller {
       || (() => managedAgentBrowserPath({ env: this.env }));
     this.runInstallCommand = options.runInstallCommand || defaultRunInstallCommand;
     this.resolveInstallSources = options.resolveInstallSources
-      || (() => probeChromiumInstallSources({ fetchJson: options.fetchJson }));
+      || (() => probeChromiumInstallSources({
+        arch: this.arch,
+        fetchJson: options.fetchJson,
+        platform: this.platform,
+      }));
     this.installFromMirror = options.installFromMirror || installFromNpmMirror;
     this.downloadFile = options.downloadFile || downloadFile;
     this.extractArchive = options.extractArchive || (extractZip as ExtractArchive);
-    this.fetchJson = options.fetchJson || fetchJson;
     this.verifyBrowser = options.verifyBrowser || defaultVerifyBrowser;
     this.verifyAgentBrowser = options.verifyAgentBrowser
       || (executablePath => verifyExecutable(executablePath, this.agentBrowserVersion, {
@@ -930,7 +955,6 @@ class ManagedChromiumInstaller {
             await this.installFromMirror(source, attemptDir, {
               platform: this.platform,
               arch: this.arch,
-              fetchJson: this.fetchJson,
               downloadFile: this.downloadFile,
               extractArchive: this.extractArchive,
             });
@@ -1020,13 +1044,14 @@ class ManagedChromiumInstaller {
 }
 
 export {
+  CHROMIUM_DOWNLOADS,
   GOOGLE_METADATA_URL,
   INSTALL_TIMEOUT_MS,
   MANIFEST_FORMAT,
   NPMMIRROR_ARCHIVE_ROOT,
   NPMMIRROR_METADATA_URL,
+  PINNED_CHROMIUM_VERSION,
   ManagedChromiumInstaller,
-  chromiumArchivePlatform,
   downloadFile,
   defaultRunInstallCommand,
   defaultVerifyBrowser,

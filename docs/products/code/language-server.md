@@ -54,6 +54,13 @@ server is removed from active state; a later explicit request may start it
 again. Requests and shutdown are bounded, and failures remain visible instead
 of silently switching to another provider.
 
+The backend prefers a matching Language Server executable already available on
+the Project host. When clangd or JDTLS is unavailable, Farming may install its
+repository-pinned runtime version on demand. It does not resolve mutable
+`latest` archives: every managed download has a repository-pinned URL and
+SHA-256 digest, and is verified before extraction or execution. Missing or
+mismatched integrity metadata fails with an actionable error.
+
 ## Acceptance Criteria
 
 Verification must cover Project-root discovery, saved-file semantics, result

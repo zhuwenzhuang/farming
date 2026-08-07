@@ -1569,6 +1569,10 @@ async function testBrowserRouterAgentOwnership() {
 
 function testBrowserUiAndPackagingWiring() {
   const projectRoot = path.join(__dirname, '..', '..');
+  const externalCdpGuides = [
+    'external-cdp-browser.md',
+    'external-cdp-browser.zh_cn.md',
+  ].map(name => fs.readFileSync(path.join(projectRoot, 'docs', 'products', 'code', name), 'utf8'));
   const workspaceSource = fs.readFileSync(path.join(projectRoot, 'src', 'components', 'CodeWorkspace.tsx'), 'utf8');
   const mainAreaSource = fs.readFileSync(path.join(projectRoot, 'src', 'components', 'code', 'CodeMainArea.tsx'), 'utf8');
   const activityPreviewSource = fs.readFileSync(
@@ -1611,6 +1615,11 @@ function testBrowserUiAndPackagingWiring() {
   assert(packageJson.files.includes('extensions/browser/backend/*.cjs'));
   assert(packageJson.files.includes('extensions/browser/bin/'));
   assert(packageJson.files.includes('backend/farming-agent-bootstrap.zh_cn.md'));
+  for (const guide of externalCdpGuides) {
+    assert.doesNotMatch(guide, /^\s*--network host\b/m);
+    assert.doesNotMatch(guide, /^\s*--no-sandbox\b/m);
+    assert.match(guide, /--publish 127\.0\.0\.1:9222:9222/);
+  }
 }
 
 Promise.resolve()

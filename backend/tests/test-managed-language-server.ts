@@ -1,11 +1,14 @@
 import assert from 'node:assert';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const {
+  LANGUAGE_SERVER_DOWNLOADS,
   ManagedLanguageServerManager,
+  downloadFile,
 } = require('../../extensions/language-server/backend/managed-language-server-manager.cjs');
 const {
   resolveLanguageServer,
@@ -23,6 +26,30 @@ async function run() {
     }],
   });
   try {
+    const artifacts = [
+      ...Object.values(LANGUAGE_SERVER_DOWNLOADS.clangd),
+      LANGUAGE_SERVER_DOWNLOADS.jdtls,
+    ] as Array<{ sha256: string; url: string }>;
+    for (const artifact of artifacts) {
+      assert.doesNotMatch(artifact.url, /\/latest(?:\/|$)/);
+      assert.match(artifact.sha256, /^[a-f0-9]{64}$/);
+    }
+    const downloadPayload = Buffer.from('verified language server archive');
+    const expectedSha256 = crypto.createHash('sha256').update(downloadPayload).digest('hex');
+    const verifiedDownload = path.join(tempDir, 'verified-download');
+    await downloadFile('https://example.test/server.zip', verifiedDownload, expectedSha256, {
+      fetchImpl: async () => new Response(downloadPayload),
+    });
+    assert.deepStrictEqual(fs.readFileSync(verifiedDownload), downloadPayload);
+    const rejectedDownload = path.join(tempDir, 'rejected-download');
+    await assert.rejects(
+      downloadFile('https://example.test/server.zip', rejectedDownload, '0'.repeat(64), {
+        fetchImpl: async () => new Response(downloadPayload),
+      }),
+      (error: { code?: string }) => error.code === 'LANGUAGE_SERVER_INTEGRITY_FAILED',
+    );
+    assert.strictEqual(fs.existsSync(rejectedDownload), false);
+
     const cppRoot = path.join(tempDir, 'cpp');
     const cppFile = path.join(cppRoot, 'src', 'main.cpp');
     fs.mkdirSync(path.dirname(cppFile), { recursive: true });

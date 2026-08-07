@@ -89,6 +89,7 @@ interface PreviewSessionManagerLike {
 }
 
 interface HttpRequest {
+  authAccessMode?: 'owner' | 'read-only';
   baseUrl: string;
   body: InputRecord;
   params: Record<string, string> & { 0?: string };
@@ -336,6 +337,12 @@ function assertExactExternalFileReadable(userPath: unknown): string {
   return relativeGlobalPath(target);
 }
 
+function assertExactExternalFileAccess(request: HttpRequest): void {
+  if (request.authAccessMode === 'read-only') {
+    throw new WorkspaceFileError('read-only shares cannot access external files', 403);
+  }
+}
+
 function globalSyntheticTree(agentManager: AgentManager, userPath: unknown = '') {
   const { target, allowedRoots } = assertGlobalWorkspacePathAllowed(agentManager, userPath, {
     allowAllowedRootAncestor: true,
@@ -446,7 +453,9 @@ function createWorkspaceFileRouter(
   router.get('/file', async (req: HttpRequest, res: HttpResponse) => {
     try {
       const rootRef = workspaceRef(req.query);
-      const requestPath = isGlobalWorkspaceFilesAgentId(rootRef) && req.query.exact === '1'
+      const exactExternal = isGlobalWorkspaceFilesAgentId(rootRef) && req.query.exact === '1';
+      if (exactExternal) assertExactExternalFileAccess(req);
+      const requestPath = exactExternal
         ? assertExactExternalFileReadable(req.query.path || '')
         : req.query.path || '';
       if (isGlobalWorkspaceFilesAgentId(rootRef) && req.query.exact !== '1') {
@@ -463,7 +472,9 @@ function createWorkspaceFileRouter(
   router.get('/raw', async (req: HttpRequest, res: HttpResponse) => {
     try {
       const rootRef = workspaceRef(req.query);
-      const requestPath = isGlobalWorkspaceFilesAgentId(rootRef) && req.query.exact === '1'
+      const exactExternal = isGlobalWorkspaceFilesAgentId(rootRef) && req.query.exact === '1';
+      if (exactExternal) assertExactExternalFileAccess(req);
+      const requestPath = exactExternal
         ? assertExactExternalFileReadable(req.query.path || '')
         : req.query.path || '';
       if (isGlobalWorkspaceFilesAgentId(rootRef) && req.query.exact !== '1') {

@@ -20,11 +20,51 @@ import {
   type LanguageServerDefinition,
 } from './language-server-registry.cjs';
 
+type JsonRecord = Record<string, unknown>;
+
 const execFileAsync = promisify(execFile);
 const MAX_DOWNLOAD_BYTES = 512 * 1024 * 1024;
+const JDTLS_VERSION = '1.60.0';
+const LANGUAGE_SERVER_DOWNLOADS = {
+  clangd: {
+    darwin: {
+      name: 'clangd-mac-22.1.6.zip',
+      sha256: '631aef462556cbd74e0ebaae1778a38d1997d0ba3371652ca54f82652a179e7d',
+      url: 'https://github.com/clangd/clangd/releases/download/22.1.6/clangd-mac-22.1.6.zip',
+      version: '22.1.6',
+    },
+    linux: {
+      name: 'clangd-linux-22.1.6.zip',
+      sha256: 'a9c77443af2e447ed467e84771848d3a6ac1c56f84bcfcde717e66318de77cfa',
+      url: 'https://github.com/clangd/clangd/releases/download/22.1.6/clangd-linux-22.1.6.zip',
+      version: '22.1.6',
+    },
+    win32: {
+      name: 'clangd-windows-22.1.6.zip',
+      sha256: 'ce54f16e0b4fd76d450eeda9664420b195360b73febcfe40e661108fa57f2ce1',
+      url: 'https://github.com/clangd/clangd/releases/download/22.1.6/clangd-windows-22.1.6.zip',
+      version: '22.1.6',
+    },
+  },
+  jdtls: {
+    name: 'jdt-language-server-1.60.0-202606262232.tar.gz',
+    sha256: 'e94c303d8198f977930803582738771fd18c52c5492878410bf222b1aa81ef1d',
+    url: 'https://download.eclipse.org/jdtls/milestones/1.60.0/jdt-language-server-1.60.0-202606262232.tar.gz',
+    version: JDTLS_VERSION,
+  },
+} as const;
 const extractZip = require('extract-zip') as (source: string, options: { dir: string }) => Promise<void>;
 
-type JsonRecord = Record<string, unknown>;
+type DownloadArtifact = {
+  name: string;
+  sha256: string;
+  url: string;
+  version: string;
+};
+
+interface DownloadFileOptions {
+  fetchImpl?: typeof fetch;
+}
 
 interface ManagedClient {
   readonly id: string;
@@ -73,47 +113,56 @@ function which(command: string, env: NodeJS.ProcessEnv): string {
   }
 }
 
-async function downloadFile(url: string, target: string): Promise<void> {
-  const response = await fetch(url, { headers: { 'User-Agent': 'Farming-Language-Server' } });
-  if (!response.ok || !response.body) {
-    throw languageServerError(`Language Server download failed: HTTP ${response.status}`, 'LANGUAGE_SERVER_DOWNLOAD_FAILED');
-  }
-  const contentLength = Number(response.headers.get('content-length') || 0);
-  if (contentLength > MAX_DOWNLOAD_BYTES) {
-    throw languageServerError('Language Server download is too large', 'LANGUAGE_SERVER_DOWNLOAD_TOO_LARGE');
-  }
-  const handle = await fs.promises.open(target, 'wx', 0o600);
-  let size = 0;
+async function downloadFile(
+  url: string,
+  target: string,
+  expectedSha256: string,
+  options: DownloadFileOptions = {},
+): Promise<void> {
+  let handle: fs.promises.FileHandle | null = null;
   try {
+    const response = await (options.fetchImpl || fetch)(url, {
+      headers: { 'User-Agent': 'Farming-Language-Server' },
+    });
+    if (!response.ok || !response.body) {
+      throw languageServerError(`Language Server download failed: HTTP ${response.status}`, 'LANGUAGE_SERVER_DOWNLOAD_FAILED');
+    }
+    const contentLength = Number(response.headers.get('content-length') || 0);
+    if (contentLength > MAX_DOWNLOAD_BYTES) {
+      throw languageServerError('Language Server download is too large', 'LANGUAGE_SERVER_DOWNLOAD_TOO_LARGE');
+    }
+    handle = await fs.promises.open(target, 'wx', 0o600);
+    const sha256 = crypto.createHash('sha256');
+    let size = 0;
     for await (const chunk of response.body) {
       const buffer = Buffer.from(chunk);
       size += buffer.length;
       if (size > MAX_DOWNLOAD_BYTES) {
         throw languageServerError('Language Server download is too large', 'LANGUAGE_SERVER_DOWNLOAD_TOO_LARGE');
       }
+      sha256.update(buffer);
       await handle.write(buffer);
     }
-  } finally {
     await handle.close();
+    handle = null;
+    const actualSha256 = sha256.digest('hex');
+    if (actualSha256 !== expectedSha256.toLowerCase()) {
+      throw languageServerError(
+        `Language Server download integrity check failed (expected ${expectedSha256}, received ${actualSha256})`,
+        'LANGUAGE_SERVER_INTEGRITY_FAILED',
+      );
+    }
+  } catch (error) {
+    await handle?.close().catch(() => undefined);
+    await fs.promises.rm(target, { force: true }).catch(() => undefined);
+    throw error;
   }
 }
 
-function cachedClangd(cacheRoot: string): string {
+function cachedClangd(cacheRoot: string, version: string): string {
   const executableName = process.platform === 'win32' ? 'clangd.exe' : 'clangd';
-  const direct = path.join(cacheRoot, executableName);
-  if (fs.existsSync(direct)) return direct;
-  let entries: fs.Dirent[] = [];
-  try {
-    entries = fs.readdirSync(cacheRoot, { withFileTypes: true });
-  } catch {
-    return '';
-  }
-  for (const entry of entries) {
-    if (!entry.isDirectory() || !entry.name.startsWith('clangd_')) continue;
-    const candidate = path.join(cacheRoot, entry.name, 'bin', executableName);
-    if (fs.existsSync(candidate)) return candidate;
-  }
-  return '';
+  const candidate = path.join(cacheRoot, `clangd_${version}`, 'bin', executableName);
+  return fs.existsSync(candidate) ? candidate : '';
 }
 
 function jdtlsLauncher(distPath: string): string {
@@ -194,42 +243,27 @@ class ManagedLanguageServerManager {
 
   private async prepareClangd(): Promise<string> {
     return this.prepareOnce('clangd', async () => {
+      const artifact = LANGUAGE_SERVER_DOWNLOADS.clangd[
+        process.platform as keyof typeof LANGUAGE_SERVER_DOWNLOADS.clangd
+      ] as DownloadArtifact | undefined;
+      if (!artifact) return '';
       const cacheRoot = this.cacheRoot('clangd');
-      const cached = cachedClangd(cacheRoot);
+      const cached = cachedClangd(cacheRoot, artifact.version);
       if (cached) return cached;
-      if (!['darwin', 'linux', 'win32'].includes(process.platform)) return '';
-
-      const releaseResponse = await fetch('https://api.github.com/repos/clangd/clangd/releases/latest', {
-        headers: { 'User-Agent': 'Farming-Language-Server' },
-      });
-      if (!releaseResponse.ok) return '';
-      const release = recordValue(await releaseResponse.json());
-      const tag = String(release.tag_name || '');
-      const assets = Array.isArray(release.assets) ? release.assets.map(recordValue) : [];
-      const token = process.platform === 'darwin' ? 'mac' : process.platform === 'win32' ? 'windows' : 'linux';
-      const asset = assets.find(value => (
-        String(value.name || '').includes(token)
-        && String(value.name || '').includes(tag)
-        && /\.(zip|tar\.xz)$/.test(String(value.name || ''))
-      ));
-      const url = String(asset?.browser_download_url || '');
-      const name = String(asset?.name || '');
-      if (!url || !name || !tag) return '';
 
       await fs.promises.mkdir(cacheRoot, { recursive: true });
       const tempRoot = await fs.promises.mkdtemp(path.join(cacheRoot, '.prepare-'));
       try {
-        const archive = path.join(tempRoot, name);
+        const archive = path.join(tempRoot, artifact.name);
         const extractRoot = path.join(tempRoot, 'extract');
         await fs.promises.mkdir(extractRoot);
-        await downloadFile(url, archive);
-        if (name.endsWith('.zip')) await extractZip(archive, { dir: extractRoot });
-        else await execFileAsync('tar', ['-xf', archive, '-C', extractRoot], { timeout: 120_000 });
-        const source = path.join(extractRoot, `clangd_${tag}`);
-        const finalPath = path.join(cacheRoot, `clangd_${tag}`);
+        await downloadFile(artifact.url, archive, artifact.sha256);
+        await extractZip(archive, { dir: extractRoot });
+        const source = path.join(extractRoot, `clangd_${artifact.version}`);
+        const finalPath = path.join(cacheRoot, `clangd_${artifact.version}`);
         if (!fs.existsSync(source)) return '';
         if (!fs.existsSync(finalPath)) await fs.promises.rename(source, finalPath);
-        const executable = cachedClangd(cacheRoot);
+        const executable = cachedClangd(cacheRoot, artifact.version);
         if (executable && process.platform !== 'win32') await fs.promises.chmod(executable, 0o755);
         return executable;
       } finally {
@@ -240,23 +274,20 @@ class ManagedLanguageServerManager {
 
   private async prepareJdtls(): Promise<string> {
     return this.prepareOnce('jdtls', async () => {
+      const artifact: DownloadArtifact = LANGUAGE_SERVER_DOWNLOADS.jdtls;
       const cacheRoot = this.cacheRoot('jdtls');
-      const current = path.join(cacheRoot, 'current');
+      const current = path.join(cacheRoot, artifact.version);
       if (jdtlsLauncher(current)) return current;
       await fs.promises.mkdir(cacheRoot, { recursive: true });
       const tempRoot = await fs.promises.mkdtemp(path.join(cacheRoot, '.prepare-'));
       try {
-        const archive = path.join(tempRoot, 'jdtls.tar.gz');
+        const archive = path.join(tempRoot, artifact.name);
         const extractRoot = path.join(tempRoot, 'extract');
         await fs.promises.mkdir(extractRoot);
-        await downloadFile(
-          'https://www.eclipse.org/downloads/download.php?file=/jdtls/snapshots/jdt-language-server-latest.tar.gz',
-          archive,
-        );
+        await downloadFile(artifact.url, archive, artifact.sha256);
         await execFileAsync('tar', ['-xzf', archive, '-C', extractRoot], { timeout: 120_000 });
         if (!jdtlsLauncher(extractRoot)) return '';
-        await fs.promises.rm(current, { recursive: true, force: true });
-        await fs.promises.rename(extractRoot, current);
+        if (!fs.existsSync(current)) await fs.promises.rename(extractRoot, current);
         return current;
       } finally {
         await fs.promises.rm(tempRoot, { recursive: true, force: true });
@@ -400,6 +431,8 @@ class ManagedLanguageServerManager {
 }
 
 export {
+  LANGUAGE_SERVER_DOWNLOADS,
   ManagedLanguageServerManager,
+  downloadFile,
   type ManagedLanguageServerManagerOptions,
 };

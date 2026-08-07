@@ -6,19 +6,23 @@ Farming 可以操作和展示由其他进程、用户或 Agent 管理的 Chromiu
 
 ## 接入约定
 
-启动 Chromium 的 Browser 级 CDP Endpoint，并确保它只能从 Farming Host 的回环地址访问。Docker 的发布方式由镜像决定。例如在 Linux 上，Host Network 也能让只监听容器回环地址的 Chromium 出现在 Host 回环地址上：
+启动 Chromium 的 Browser 级 CDP Endpoint，并确保它只能从 Farming Host 的回环地址访问。镜像必须以非 Root 用户运行 Chromium，并保留 Chromium Sandbox。只把 CDP 端口发布到 Host 回环地址，同时让容器使用隔离的 Bridge Network。例如，对于明确支持 Sandbox 与非 Root 运行的镜像：
 
 ```bash
+docker network create farming-cdp
 docker run --rm --name farming-cdp --init --shm-size=1g \
-  --network host \
+  --network farming-cdp \
+  --publish 127.0.0.1:9222:9222 \
+  --user 1000:1000 \
   <chromium-image> <chromium-command> \
-  --headless=new --no-sandbox \
+  --headless=new \
+  --remote-debugging-address=0.0.0.0 \
   --remote-debugging-port=9222 \
   --user-data-dir=/tmp/farming-cdp-profile \
   about:blank
 ```
 
-部分 Chromium Build 会忽略 `--remote-debugging-address=0.0.0.0`，只监听容器内部回环地址，因此普通 `-p` 映射可能不可用。此时应使用镜像文档提供的 CDP Proxy，或在 Linux 上使用 Host Network；Farming 不需要 Docker 专用模式。CDP 等同于对该浏览器的完整控制权限。不要把这个端口发布到 `0.0.0.0` 或公网。浏览器位于另一台机器时，请建立 SSH Tunnel，让 Farming 仍然只连接本机回环地址。
+不要添加 `--no-sandbox`、以 Root 运行容器、使用 Host Network，或把端口发布到 `0.0.0.0`。部分 Chromium Build 会忽略 `--remote-debugging-address=0.0.0.0`，只监听容器内部回环地址；此时应使用镜像文档提供且保留 Sandbox 的 CDP Proxy，而不是削弱进程或网络隔离。CDP 等同于对该浏览器的完整控制权限。浏览器位于另一台机器时，请建立 SSH Tunnel，让 Farming 仍然只连接本机回环地址。
 
 先验证 Endpoint：
 
