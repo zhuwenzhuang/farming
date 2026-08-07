@@ -60,7 +60,6 @@ const playwrightServerEnv = {
   FARMING_BROWSER_EXECUTABLE: browserResourceExecutablePath,
   ...(managedAgentBrowserPath ? { FARMING_AGENT_BROWSER_BIN: managedAgentBrowserPath } : {}),
   FARMING_BROWSER_NO_SANDBOX: process.env.CI ? '1' : '0',
-  VITE_FARMING_BLAME_AUTHOR_URL_TEMPLATE: 'https://example.invalid/users/{author}',
   NODE_ENV: 'test',
 }
 

@@ -28,6 +28,10 @@ import {
 } from '@/lib/reading-anchor'
 import type { OpenWorkspaceFile } from '@/lib/workspace-open-files'
 import type { WorkspaceNavigationFileInput } from '@/lib/workspace-navigation-history'
+import {
+  attachLanguageServerDocumentHighlights,
+  markLanguageServerModelDirty,
+} from '../../../extensions/language-server/frontend/monaco-providers'
 import { useFileEditorTestBridge } from './useFileEditorTestBridge'
 
 interface UseFileEditorMonacoControllerOptions {
@@ -159,6 +163,7 @@ export function useFileEditorMonacoController({
       ariaLabel: editorLabelRef.current,
       wordWrapEnabled: wordWrapEnabledRef.current,
     }))
+    const documentHighlights = attachLanguageServerDocumentHighlights(editor)
     applyWorkspaceEditorMonacoTheme(editor)
 
     const applyResponsiveEditorOptions = () => updateWorkspaceEditorResponsiveOptions(editor, wordWrapEnabledRef.current)
@@ -174,6 +179,8 @@ export function useFileEditorMonacoController({
     editorRef.current = editor
     changeSubscriptionRef.current = editor.onDidChangeModelContent(() => {
       if (suppressEditorChangeRef.current > 0) return
+      const model = editor.getModel()
+      if (model) markLanguageServerModelDirty(model)
       onChangeDraftRef.current(editor.getValue())
     })
     cursorSubscriptionRef.current = editor.onDidChangeCursorPosition(event => {
@@ -248,6 +255,7 @@ export function useFileEditorMonacoController({
       scrollSubscriptionRef.current = null
       changeSubscriptionRef.current?.dispose()
       changeSubscriptionRef.current = null
+      documentHighlights.dispose()
       cancelWorkspaceEditorScheduledLayout(editor)
       editor.dispose()
       disposeWorkspaceEditorModels()
@@ -350,6 +358,10 @@ export function useFileEditorMonacoController({
       domReadOnly: readOnly,
     })
   }, [readOnly])
+
+  useEffect(() => {
+    editorRef.current?.updateOptions({ ariaLabel: editorLabel })
+  }, [editorLabel])
 
   useEffect(() => {
     const editor = editorRef.current

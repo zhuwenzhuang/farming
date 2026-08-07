@@ -270,6 +270,7 @@ import {
   LanguageServerService,
   ManagedLanguageServerManager,
   createLanguageServerRouter,
+  type ManagedLanguageServerRefreshEvent,
 } from '../extensions/language-server/backend/index.cjs';
 import { UsageMonitor } from './usage-monitor.cjs';
 import { CodexContextWindowReader } from './codex-context-window.cjs';
@@ -407,9 +408,38 @@ const browserResourceManager = new BrowserResourceManager({
   }),
   isolatedBrowserProvider,
 });
+
+function broadcastLanguageServerRefresh(event: ManagedLanguageServerRefreshEvent) {
+  const message = languageServerRefreshMessage(event);
+  for (const client of wss.clients) {
+    if (client.readyState !== WebSocket.OPEN || client.protocolVersion !== PROTOCOL_VERSION) continue;
+    client.send(message);
+  }
+}
+
+function languageServerRefreshMessage(event: ManagedLanguageServerRefreshEvent) {
+  return JSON.stringify({
+    type: 'language-server-refresh',
+    serverEpoch: SERVER_EPOCH,
+    rootId: rootIdForPath(event.workspaceRoot),
+    workspace: event.workspaceRoot,
+    kind: event.kind,
+    revision: event.revision,
+  });
+}
+
 const managedLanguageServerManager = new ManagedLanguageServerManager({
   configDir: configManager.farmingDir,
+  onRefresh: broadcastLanguageServerRefresh,
 });
+
+function sendLanguageServerRefreshSnapshot(ws: WebSocketClient) {
+  if (ws.readyState !== WebSocket.OPEN || ws.protocolVersion !== PROTOCOL_VERSION) return;
+  managedLanguageServerManager.refreshSnapshot().forEach(event => {
+    ws.send(languageServerRefreshMessage(event));
+  });
+}
+
 const languageServerService = new LanguageServerService(managedLanguageServerManager);
 server.on('close', () => {
   void languageServerService.dispose();
@@ -3489,6 +3519,7 @@ function handleMessage(ws: WebSocketClient, data: ServerClientMessage) {
       }
       if (ws.initialStateSnapshotSent !== true) sendState(ws);
       sendResourceSnapshots(ws);
+      sendLanguageServerRefreshSnapshot(ws);
       break;
     case 'business-health-probe':
       if (!ws.protocolVersion) {

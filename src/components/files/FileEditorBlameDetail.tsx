@@ -1,5 +1,8 @@
-import { formatWorkspaceBlameTime as formatBlameTime } from '@/lib/workspace-editor-model'
-import type { WorkspaceFileBlame } from '@/lib/workspace-files'
+import {
+  formatWorkspaceBlameTime as formatBlameTime,
+  workspaceBlameMessageParts,
+} from '@/lib/workspace-editor-model'
+import type { WorkspaceFileBlame, WorkspaceIssueLinkRule } from '@/lib/workspace-files'
 import type { CodeCopy } from '../code/copy'
 
 type WorkspaceFileBlameLine = WorkspaceFileBlame['lines'][number]
@@ -8,6 +11,8 @@ interface FileEditorBlameDetailProps {
   filePath: string
   line: WorkspaceFileBlameLine
   authorProfileUrl: string
+  commitUrl: string
+  issueLinkRules: readonly WorkspaceIssueLinkRule[]
   copy: CodeCopy
   onClose: () => void
 }
@@ -16,6 +21,8 @@ export function FileEditorBlameDetail({
   filePath,
   line,
   authorProfileUrl,
+  commitUrl,
+  issueLinkRules,
   copy,
   onClose,
 }: FileEditorBlameDetailProps) {
@@ -27,10 +34,30 @@ export function FileEditorBlameDetail({
     >
       <div className="code-file-blame-detail-main">
         <div className="code-file-blame-detail-title">
-          <strong>{line.summary || line.shortCommit}</strong>
-          <code title={line.commit}>{line.shortCommit}</code>
+          <strong>
+            {workspaceBlameMessageParts(line.summary || line.shortCommit, issueLinkRules).map((part, index) => (
+              part.url ? (
+                <a
+                  className="code-file-blame-detail-issue-link"
+                  href={part.url}
+                  key={`${index}:${part.text}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {part.text}
+                </a>
+              ) : part.text
+            ))}
+          </strong>
+          {commitUrl ? (
+            <a className="code-file-blame-detail-commit-link" href={commitUrl} target="_blank" rel="noreferrer" title={line.commit}>
+              <code>{line.shortCommit}</code>
+            </a>
+          ) : (
+            <code title={line.commit}>{line.shortCommit}</code>
+          )}
         </div>
-        <div className="code-file-blame-detail-subtitle">
+        <div className="code-file-blame-detail-subtitle" title={filePath}>
           {filePath}
         </div>
       </div>
@@ -47,7 +74,11 @@ export function FileEditorBlameDetail({
         </div>
         <div className="code-file-blame-detail-row">
           <span>{copy.commit}</span>
-          <strong title={line.commit}>{line.shortCommit}</strong>
+          {commitUrl ? (
+            <a href={commitUrl} target="_blank" rel="noreferrer" title={line.commit}>{line.shortCommit}</a>
+          ) : (
+            <strong title={line.commit}>{line.shortCommit}</strong>
+          )}
         </div>
         <div className="code-file-blame-detail-row">
           <span>{copy.date}</span>

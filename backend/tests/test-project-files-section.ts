@@ -1489,7 +1489,9 @@ function run() {
       editorSurfaceSource.includes('<FileEditorBlameDetail') &&
       editorBlameDetailSource.includes('data-testid="code-file-blame-detail"') &&
 		      editorSource.includes('workspaceBlameAuthorProfileUrl') &&
+		      editorSource.includes('workspaceBlameCommitUrl') &&
 		      editorBlameDetailSource.includes('authorProfileUrl ? (') &&
+		      editorBlameDetailSource.includes('commitUrl ? (') &&
 		      editorModelSource.includes('function estimateWorkspaceBlameLabelWidth') &&
 			      editorInlineBlameLayerSource.includes('formatBlameInlineLabel(line)') &&
 			      editorModelSource.includes('workspaceBlameInlineLabel(line).length') &&
@@ -1891,6 +1893,7 @@ function run() {
       stylesSource.includes('.code-file-inline-blame.uncommitted') &&
       stylesSource.includes('.code-file-blame-toast') &&
       stylesSource.includes('.code-file-blame-detail') &&
+		      stylesSource.includes('z-index: 22') &&
       stylesSource.includes('.code-file-blame-detail-main') &&
       stylesSource.includes('.code-file-blame-detail-title code') &&
       stylesSource.includes('.code-file-blame-detail-row') &&

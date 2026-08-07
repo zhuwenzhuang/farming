@@ -8,6 +8,7 @@ import {
   workspaceEditorModelKey,
   workspaceEditorStatusKind,
   workspaceBlameAuthorProfileUrl,
+  workspaceBlameCommitUrl,
   workspaceEditorTabDomId as fileEditorTabDomId,
 } from '@/lib/workspace-editor-model'
 import { isGlobalWorkspaceFilesAgentId } from '@/lib/global-workspace-files'
@@ -59,7 +60,6 @@ interface FileEditorPaneProps {
   copy: CodeCopy
 }
 
-const BLAME_AUTHOR_URL_TEMPLATE = String(import.meta.env.VITE_FARMING_BLAME_AUTHOR_URL_TEMPLATE || '').trim()
 const WORD_WRAP_STORAGE_KEY = 'farming.code.fileEditor.wordWrap'
 
 function readWordWrapPreference() {
@@ -277,7 +277,10 @@ export function FileEditorPane({
 
   const statusText = workspaceEditorStatusKind(openFile) === 'changedOnDisk' ? copy.changedOnDisk : null
   const blameAuthorProfileUrl = blameDetail
-    ? workspaceBlameAuthorProfileUrl(blameDetail.line.author, BLAME_AUTHOR_URL_TEMPLATE)
+    ? workspaceBlameAuthorProfileUrl(blameDetail.line.author, blame?.authorUrlTemplate || '')
+    : ''
+  const blameCommitUrl = blameDetail
+    ? workspaceBlameCommitUrl(blameDetail.line.commit, blame?.commitUrlTemplate || '')
     : ''
   const toggleSourcePreview = () => {
     if (!canPreviewMarkdown && !canPreviewSource) return
@@ -378,6 +381,7 @@ export function FileEditorPane({
         activeTabDomId={activeTabDomId}
         blame={blame}
         blameAuthorProfileUrl={blameAuthorProfileUrl}
+        blameCommitUrl={blameCommitUrl}
         blameDetailLine={blameDetail?.line ?? null}
         blameOpen={blameOpen}
         blameOverlay={blameOverlay}

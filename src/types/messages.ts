@@ -355,6 +355,15 @@ export interface WorkspaceFileEventMessage {
   }
 }
 
+export interface LanguageServerRefreshMessage {
+  type: 'language-server-refresh'
+  serverEpoch: string
+  rootId: string
+  workspace: string
+  kind: 'semanticTokens' | 'inlayHints'
+  revision: number
+}
+
 export interface BrowserResourceSnapshotMessage {
   type: 'browser-resource-snapshot'
   snapshot: BrowserResourceCollection
@@ -406,6 +415,7 @@ export type ServerMessage =
   | AgentReadMessage
   | WorkspaceFileWatchMessage
   | WorkspaceFileEventMessage
+  | LanguageServerRefreshMessage
   | BrowserResourceSnapshotMessage
   | BrowserResourceUpdateMessage
   | BrowserResourceDeletedMessage

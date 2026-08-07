@@ -73,9 +73,17 @@ export interface WorkspaceFileBlameLine {
   uncommitted: boolean
 }
 
+export interface WorkspaceIssueLinkRule {
+  issueRegexp: string
+  linkRegexp: string
+}
+
 export interface WorkspaceFileBlame {
   isGitRepo: boolean
   path: string
+  commitUrlTemplate?: string
+  authorUrlTemplate?: string
+  issueLinkRules?: WorkspaceIssueLinkRule[]
   lines: WorkspaceFileBlameLine[]
 }
 

@@ -5,11 +5,13 @@ import { bindLanguageServerModels, refreshLanguageServerDiagnostics, setLanguage
 import type {
   LanguageServerCapability,
   LanguageServerHierarchyItem,
+  LanguageServerLocation,
   LanguageServerSymbol,
 } from '../../../extensions/language-server/frontend/types'
 import type { OpenWorkspaceFile, WorkspaceFileOpenTarget } from '@/lib/workspace-open-files'
 import type { FileEditorContextAction } from './FileEditorContextMenu'
 import {
+  languageNavigatorHierarchyRequestIsCurrent,
   languageNavigatorNodeRoot,
   languageNavigatorRequestIsCurrent,
   languageNavigatorSourceIsActive,
@@ -19,25 +21,19 @@ import {
   sameLanguageNavigatorSource,
   type LanguageNavigatorSource,
 } from './language-navigator-ownership'
+import {
+  beginLanguageNavigatorNodeLoad,
+  completeLanguageNavigatorNodeLoad,
+  failLanguageNavigatorNodeLoad,
+  languageNavigatorDirectoryLabel,
+  toggleLanguageNavigatorNode,
+  type LanguageNavigatorNode,
+} from './language-navigator-tree'
 
-export type LanguageNavigatorMode = 'call' | 'type' | 'document' | 'workspace'
+export type { LanguageNavigatorNode } from './language-navigator-tree'
+
+export type LanguageNavigatorMode = 'call' | 'type' | 'document' | 'workspace' | 'definition' | 'references' | 'implementation'
 export type LanguageNavigatorDirection = 'incoming' | 'outgoing' | 'supertypes' | 'subtypes'
-
-export interface LanguageNavigatorNode {
-  key: string
-  id?: string
-  name: string
-  detail: string
-  kind: number
-  path: string
-  lineNumber: number
-  column: number
-  source: LanguageNavigatorSource
-  children?: LanguageNavigatorNode[]
-  expanded?: boolean
-  loading?: boolean
-  error?: string
-}
 
 export interface LanguageNavigatorState {
   open: boolean
@@ -46,6 +42,8 @@ export interface LanguageNavigatorState {
   loading: boolean
   error: string
   query: string
+  searched: boolean
+  truncated: boolean
   nodes: LanguageNavigatorNode[]
   source: LanguageNavigatorSource | null
 }
@@ -78,7 +76,30 @@ function itemNode(item: LanguageServerHierarchyItem, source: LanguageNavigatorSo
   }
 }
 
-function symbolNodes(symbols: LanguageServerSymbol[], defaultPath: string, source: LanguageNavigatorSource, prefix = ''): LanguageNavigatorNode[] {
+function locationNodes(locations: LanguageServerLocation[], source: LanguageNavigatorSource) {
+  return locations.map((location, index) => {
+    const range = location.selectionRange || location.range
+    const name = location.path.split('/').pop() || location.path
+    return {
+      key: `location:${index}:${location.path}:${range?.start.line || 0}:${range?.start.character || 0}`,
+      name,
+      detail: languageNavigatorDirectoryLabel(location.path),
+      kind: 1,
+      path: location.path,
+      lineNumber: (range?.start.line || 0) + 1,
+      column: (range?.start.character || 0) + 1,
+      source,
+    }
+  })
+}
+
+function symbolNodes(
+  symbols: LanguageServerSymbol[],
+  defaultPath: string,
+  source: LanguageNavigatorSource,
+  prefix = '',
+  depth = 0,
+): LanguageNavigatorNode[] {
   return symbols.map((symbol, index) => {
     const range = symbol.selectionRange || symbol.range
     const key = `${prefix}${index}:${symbol.name}:${range?.start.line || 0}`
@@ -91,17 +112,9 @@ function symbolNodes(symbols: LanguageServerSymbol[], defaultPath: string, sourc
       lineNumber: (range?.start.line || 0) + 1,
       column: (range?.start.character || 0) + 1,
       source,
-      children: symbolNodes(symbol.children || [], symbol.path || defaultPath, source, `${key}/`),
-      expanded: true,
+      children: symbolNodes(symbol.children || [], symbol.path || defaultPath, source, `${key}/`, depth + 1),
+      expanded: depth === 0,
     }
-  })
-}
-
-function updateNode(nodes: LanguageNavigatorNode[], key: string, updater: (node: LanguageNavigatorNode) => LanguageNavigatorNode): LanguageNavigatorNode[] {
-  return nodes.map(node => {
-    if (node.key === key) return updater(node)
-    if (!node.children?.length) return node
-    return { ...node, children: updateNode(node.children, key, updater) }
   })
 }
 
@@ -112,9 +125,13 @@ const CLOSED_STATE: LanguageNavigatorState = {
   loading: false,
   error: '',
   query: '',
+  searched: false,
+  truncated: false,
   nodes: [],
   source: null,
 }
+
+const WORKSPACE_SYMBOL_LIMIT = 500
 
 function capabilityIncludesWorkspace(capability: LanguageServerCapability, workspaceRoot: string | undefined) {
   if (capability.source === 'managed') return true
@@ -142,6 +159,7 @@ export function useLanguageServerController({
   const [capability, setCapability] = useState<LanguageServerCapability | null>(null)
   const [navigator, setNavigator] = useState<LanguageNavigatorState>(CLOSED_STATE)
   const requestGenerationRef = useRef(0)
+  const navigatorOpenTargetRef = useRef<{ rootId: string; filePath: string } | null>(null)
   const activeFileRef = useRef({ rootId: openFile.agentId, filePath: openFile.file.path })
   activeFileRef.current = { rootId: openFile.agentId, filePath: openFile.file.path }
 
@@ -160,6 +178,9 @@ export function useLanguageServerController({
   }, [])
 
   useEffect(() => {
+    const target = navigatorOpenTargetRef.current
+    navigatorOpenTargetRef.current = null
+    if (target && target.rootId === openFile.agentId && target.filePath === openFile.file.path) return
     setNavigator(CLOSED_STATE)
   }, [openFile.agentId, openFile.file.path])
 
@@ -253,18 +274,49 @@ export function useLanguageServerController({
 
   const searchWorkspaceSymbols = useCallback(async (query: string) => {
     if (!available) return
+    const normalizedQuery = query.trim()
     const source = nextNavigatorSource()
-    setNavigator(current => ({ ...current, open: true, mode: 'workspace', loading: true, error: '', query, source }))
+    if (!normalizedQuery) {
+      setNavigator({
+        ...CLOSED_STATE,
+        open: true,
+        mode: 'workspace',
+        direction: 'incoming',
+        query: '',
+        source,
+      })
+      return
+    }
+    setNavigator(current => ({
+      ...current,
+      open: true,
+      mode: 'workspace',
+      loading: true,
+      error: '',
+      query: normalizedQuery,
+      searched: true,
+      truncated: false,
+      nodes: [],
+      source,
+    }))
     try {
       const outcome = await requestLanguageServerOutcome<LanguageServerSymbol[]>({
         rootId: source.rootId,
+        filePath: source.filePath,
         method: 'workspaceSymbols',
-        query,
+        query: normalizedQuery,
       })
       if (!outcome.supported) throw new Error(unsupportedMessage)
-      commitNavigatorRequest(source, current => ({ ...current, loading: false, nodes: symbolNodes(outcome.result || [], source.filePath, source) }))
+      const symbols = outcome.result || []
+      commitNavigatorRequest(source, current => ({
+        ...current,
+        loading: false,
+        searched: true,
+        truncated: symbols.length > WORKSPACE_SYMBOL_LIMIT,
+        nodes: symbolNodes(symbols.slice(0, WORKSPACE_SYMBOL_LIMIT), source.filePath, source),
+      }))
     } catch (error) {
-      commitNavigatorRequest(source, current => ({ ...current, loading: false, error: error instanceof Error ? error.message : String(error) }))
+      commitNavigatorRequest(source, current => ({ ...current, loading: false, searched: true, error: error instanceof Error ? error.message : String(error) }))
     }
   }, [available, commitNavigatorRequest, nextNavigatorSource, unsupportedMessage])
 
@@ -273,22 +325,60 @@ export function useLanguageServerController({
     const model = editorRef.current?.getModel()
     const selected = selection && model ? model.getValueInRange(selection).trim() : ''
     const word = editorRef.current?.getModel()?.getWordAtPosition(editorRef.current.getPosition() || { lineNumber: 1, column: 1 })?.word || ''
-    void searchWorkspaceSymbols(selected || word)
-  }, [editorRef, searchWorkspaceSymbols])
+    const initialQuery = selected && selected.length <= 200 && !selected.includes('\n') ? selected : word
+    if (initialQuery) {
+      void searchWorkspaceSymbols(initialQuery)
+      return
+    }
+    const source = nextNavigatorSource()
+    setNavigator({ ...CLOSED_STATE, open: true, mode: 'workspace', direction: 'incoming', source })
+  }, [editorRef, nextNavigatorSource, searchWorkspaceSymbols])
+
+  const openLocations = useCallback(async (mode: 'definition' | 'references' | 'implementation') => {
+    const editor = editorRef.current
+    if (!editor || !available) return
+    const source = nextNavigatorSource()
+    setNavigator({ ...CLOSED_STATE, open: true, mode, direction: 'incoming', loading: true, source })
+    try {
+      const outcome = await requestLanguageServerOutcome<LanguageServerLocation[]>({
+        rootId: source.rootId,
+        filePath: source.filePath,
+        method: mode,
+        position: positionForEditor(editor),
+      })
+      if (!outcome.supported) throw new Error(unsupportedMessage)
+      const nodes = locationNodes(outcome.result || [], source)
+      const directNode = nodes.length === 1 ? nodes[0] : undefined
+      if (mode !== 'references' && directNode && languageNavigatorSourceIsActive(activeFileRef.current, source)) {
+        setNavigator(CLOSED_STATE)
+        await onOpenFilePath(source.rootId, directNode.path, {
+          lineNumber: directNode.lineNumber,
+          column: directNode.column,
+          transient: true,
+          revealInTree: true,
+        })
+        return
+      }
+      commitNavigatorRequest(source, current => ({ ...current, loading: false, nodes }))
+    } catch (error) {
+      commitNavigatorRequest(source, current => ({ ...current, loading: false, error: error instanceof Error ? error.message : String(error) }))
+    }
+  }, [available, commitNavigatorRequest, editorRef, nextNavigatorSource, onOpenFilePath, unsupportedMessage])
 
   const runAction = useCallback(async (action: FileEditorContextAction) => {
     const editor = editorRef.current
     if (!editor || !available) return
-    if (action === 'go-to-definition') await editor.getAction('editor.action.revealDefinition')?.run()
-    else if (action === 'find-references') await editor.getAction('editor.action.referenceSearch.trigger')?.run()
-    else if (action === 'go-to-implementation') await editor.getAction('editor.action.goToImplementation')?.run()
+    if (action === 'go-to-definition') await openLocations('definition')
+    else if (action === 'find-references') await openLocations('references')
+    else if (action === 'go-to-implementation') await openLocations('implementation')
     else if (action === 'call-hierarchy') await prepareHierarchy('call')
     else if (action === 'type-hierarchy') await prepareHierarchy('type')
     else if (action === 'document-symbols') await openDocumentSymbols()
     else if (action === 'workspace-symbols') openWorkspaceSymbols()
-  }, [available, editorRef, openDocumentSymbols, openWorkspaceSymbols, prepareHierarchy])
+  }, [available, editorRef, openDocumentSymbols, openLocations, openWorkspaceSymbols, prepareHierarchy])
 
   const changeDirection = useCallback((direction: LanguageNavigatorDirection) => {
+    if (direction === navigator.direction) return
     const currentSource = navigator.source
     if (!currentSource) {
       setNavigator(CLOSED_STATE)
@@ -311,19 +401,24 @@ export function useLanguageServerController({
           nodes: resetLanguageNavigatorNodesForDirection(current.nodes),
         }
       : current)
-  }, [navigator.source])
+  }, [navigator.direction, navigator.source])
 
   const toggleNode = useCallback(async (node: LanguageNavigatorNode) => {
-    if (!node.id || (navigator.mode !== 'call' && navigator.mode !== 'type')) return
-    if (!languageNavigatorSourceIsActive(activeFileRef.current, node.source)
+    if (activeFileRef.current.rootId !== node.source.rootId
       || !sameLanguageNavigatorFile(navigator.source, node.source)) return
-    const requestSource = navigator.source
-    if (!requestSource) return
-    if (node.children) {
-      setNavigator(current => ({ ...current, nodes: updateNode(current.nodes, node.key, value => ({ ...value, expanded: !value.expanded })) }))
+    if (navigator.mode === 'document') {
+      if (!node.children?.length) return
+      setNavigator(current => ({ ...current, nodes: toggleLanguageNavigatorNode(current.nodes, node.key) }))
       return
     }
-    setNavigator(current => ({ ...current, nodes: updateNode(current.nodes, node.key, value => ({ ...value, expanded: true, loading: true })) }))
+    if (!node.id || (navigator.mode !== 'call' && navigator.mode !== 'type')) return
+    const requestSource = navigator.source
+    if (!requestSource) return
+    if (node.loading || node.children !== undefined) {
+      setNavigator(current => ({ ...current, nodes: toggleLanguageNavigatorNode(current.nodes, node.key) }))
+      return
+    }
+    setNavigator(current => ({ ...current, nodes: beginLanguageNavigatorNodeLoad(current.nodes, node.key) }))
     try {
       const method = navigator.mode === 'call'
         ? navigator.direction === 'outgoing' ? 'outgoingCalls' : 'incomingCalls'
@@ -335,26 +430,33 @@ export function useLanguageServerController({
       })
       if (!outcome.supported) throw new Error(unsupportedMessage)
       const children = (outcome.result || []).map(value => itemNode('item' in value ? value.item : value, requestSource, `${node.key}/`))
-      commitNavigatorRequest(requestSource, current => ({
-        ...current,
-        nodes: updateNode(current.nodes, node.key, value => ({ ...value, loading: false, expanded: true, children })),
-      }))
+      setNavigator(current => languageNavigatorHierarchyRequestIsCurrent(activeFileRef.current, current.source, requestSource)
+        ? {
+            ...current,
+            nodes: completeLanguageNavigatorNodeLoad(current.nodes, node.key, children),
+          }
+        : current)
     } catch (error) {
-      commitNavigatorRequest(requestSource, current => ({
-        ...current,
-        nodes: updateNode(current.nodes, node.key, value => ({ ...value, loading: false, error: error instanceof Error ? error.message : String(error) })),
-      }))
+      setNavigator(current => languageNavigatorHierarchyRequestIsCurrent(activeFileRef.current, current.source, requestSource)
+        ? {
+            ...current,
+            nodes: failLanguageNavigatorNodeLoad(current.nodes, node.key, error instanceof Error ? error.message : String(error)),
+          }
+        : current)
     }
-  }, [commitNavigatorRequest, navigator.direction, navigator.mode, navigator.source, unsupportedMessage])
+  }, [navigator.direction, navigator.mode, navigator.source, unsupportedMessage])
 
   const openNode = useCallback((node: LanguageNavigatorNode) => {
     const rootId = languageNavigatorNodeRoot(activeFileRef.current, node.source)
     if (!rootId || !sameLanguageNavigatorFile(navigator.source, node.source)) return
-    void onOpenFilePath(rootId, node.path, {
+    navigatorOpenTargetRef.current = { rootId, filePath: node.path }
+    void Promise.resolve(onOpenFilePath(rootId, node.path, {
       lineNumber: node.lineNumber,
       column: node.column,
       transient: true,
       revealInTree: true,
+    })).catch(() => {
+      navigatorOpenTargetRef.current = null
     })
   }, [navigator.source, onOpenFilePath])
 

@@ -118,6 +118,14 @@ interaction levels and should not be collapsed into one narrow sidebar panel.
 Git operations use deterministic, path-safe input and treat truncation or
 timeouts as visible partial results, never as proof of a clean workspace.
 
+Blame annotations load bounded Git porcelain output and keep commit details
+interactive. Commit hashes link to the repository web view when the remote can
+be mapped safely. Handle-shaped GitLab authors link to their profile on the
+same remote host; ambiguous display names remain plain text. Commit-message
+issue references follow the workspace's IntelliJ
+`IssueNavigationConfiguration` from `.idea/vcs.xml`; unsupported, oversized,
+non-HTTP(S), or invalid rules remain plain text.
+
 ## Visual And Interaction Rules
 
 - Rows remain compact, stable, keyboard-accessible, and single-line.

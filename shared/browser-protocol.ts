@@ -1,7 +1,7 @@
 import { PROJECT_ATTENTION_SCORE_MAX as projectAttentionScoreMax } from './agent-state-semantics.js'
 
-export const PROTOCOL_VERSION = 9
-export const MIN_PROTOCOL_VERSION = 9
+export const PROTOCOL_VERSION = 10
+export const MIN_PROTOCOL_VERSION = 10
 export const PROJECT_ATTENTION_SCORE_MAX = projectAttentionScoreMax
 
 type ObjectMessage = Record<string, unknown>
@@ -280,6 +280,15 @@ export interface WorkspaceFileEventMessage extends ExtensibleMessage {
   event: ObjectMessage & { agentId: string }
 }
 
+export interface LanguageServerRefreshMessage extends ExtensibleMessage {
+  type: 'language-server-refresh'
+  serverEpoch: string
+  rootId: string
+  workspace: string
+  kind: 'semanticTokens' | 'inlayHints'
+  revision: number
+}
+
 export interface BrowserResourceSnapshotMessage extends ExtensibleMessage {
   type: 'browser-resource-snapshot'
   snapshot: ObjectMessage & { collectionRevision: number; resources: unknown[] }
@@ -331,6 +340,7 @@ export type ServerMessage =
   | AgentReadMessage
   | WorkspaceFileWatchMessage
   | WorkspaceFileEventMessage
+  | LanguageServerRefreshMessage
   | BrowserResourceSnapshotMessage
   | BrowserResourceUpdateMessage
   | BrowserResourceDeletedMessage
@@ -382,6 +392,7 @@ const SERVER_MESSAGE_TYPES: ReadonlySet<ServerMessage['type']> = new Set([
   'agent-read',
   'workspace-file-watch',
   'workspace-file-event',
+  'language-server-refresh',
   'browser-resource-snapshot',
   'browser-resource-updated',
   'browser-resource-deleted',
@@ -709,6 +720,17 @@ export function validateServerMessage(value: unknown): ValidationResult<ServerMe
     case 'agent-read': valid = agentReadState(value.read); break
     case 'workspace-file-watch': valid = stringField(value, 'agentId') && typeof value.watching === 'boolean'; break
     case 'workspace-file-event': valid = objectMessage(value.event) && stringField(value.event, 'agentId'); break
+    case 'language-server-refresh':
+      valid = stringField(value, 'serverEpoch')
+        && String(value.serverEpoch).length > 0
+        && stringField(value, 'rootId')
+        && String(value.rootId).length > 0
+        && stringField(value, 'workspace')
+        && String(value.workspace).length > 0
+        && (value.kind === 'semanticTokens' || value.kind === 'inlayHints')
+        && revisionField(value, 'revision')
+        && Number(value.revision) > 0
+      break
     case 'browser-resource-snapshot': valid = resourceSnapshot(value.snapshot); break
     case 'browser-resource-updated': valid = resourceUpdate(value.resource); break
     case 'browser-resource-deleted': valid = resourceDeletion(value.deletion); break

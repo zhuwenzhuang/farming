@@ -53,6 +53,7 @@ import {
   type ComputerResourceState,
 } from '../../extensions/computer/frontend/computer-resource-state'
 import type { ComputerResource, ComputerResourceDeletion } from '../../extensions/computer/frontend/types'
+import { refreshLanguageServerProviders } from '../../extensions/language-server/frontend/monaco-providers'
 
 const LAST_MESSAGE_STATE_THROTTLE_MS = 1000
 const BUSINESS_HEALTH_INTERVAL_MS = 10_000
@@ -1003,6 +1004,9 @@ export function useWebSocket() {
               break
             case 'workspace-file-event':
               workspaceFileListenersRef.current.get(msg.event.agentId)?.forEach(listener => listener(msg.event))
+              break
+            case 'language-server-refresh':
+              refreshLanguageServerProviders(msg)
               break
             case 'browser-resource-snapshot':
               setState(prev => {

@@ -250,6 +250,30 @@ assert.strictEqual(validateServerMessage({
   snapshot: { collectionRevision: 3, resources: [] },
 }).ok, true);
 assert.strictEqual(validateServerMessage({
+  type: 'language-server-refresh',
+  serverEpoch: 'server-1',
+  rootId: 'wroot-a',
+  workspace: '/workspace-a',
+  kind: 'semanticTokens',
+  revision: 1,
+}).ok, true);
+assert.strictEqual(validateServerMessage({
+  type: 'language-server-refresh',
+  serverEpoch: 'server-1',
+  rootId: 'wroot-a',
+  workspace: '/workspace-a',
+  kind: 'documentHighlights',
+  revision: 1,
+}).ok, false);
+assert.strictEqual(validateServerMessage({
+  type: 'language-server-refresh',
+  serverEpoch: 'server-1',
+  rootId: 'wroot-a',
+  workspace: '/workspace-a',
+  kind: 'inlayHints',
+  revision: 0,
+}).ok, false);
+assert.strictEqual(validateServerMessage({
   type: 'browser-resource-snapshot',
   snapshot: { collectionRevision: 3, resources: [{ id: '', revision: 1, collectionRevision: 3 }] },
 }).ok, false);

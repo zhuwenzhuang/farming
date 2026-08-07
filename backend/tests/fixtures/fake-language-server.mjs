@@ -1,5 +1,6 @@
 let buffer = Buffer.alloc(0)
 let rootUri = ''
+let refreshSupported = false
 
 function send(message) {
   const body = Buffer.from(JSON.stringify(message))
@@ -24,8 +25,37 @@ function hierarchyItem(uri, name = 'main') {
 
 function handle(message) {
   const { id, method, params = {} } = message
+  if (!method) return
   if (method === 'initialize') {
     rootUri = params.rootUri
+    refreshSupported = params.capabilities?.workspace?.semanticTokens?.refreshSupport === true
+      && params.capabilities?.workspace?.inlayHint?.refreshSupport === true
+    send({
+      jsonrpc: '2.0',
+      id: 900,
+      method: 'client/registerCapability',
+      params: {
+        registrations: [{
+          id: 'fake-document-highlights',
+          method: 'textDocument/documentHighlight',
+          registerOptions: {},
+        }, {
+          id: 'fake-semantic-tokens',
+          method: 'textDocument/semanticTokens',
+          registerOptions: {
+            legend: {
+              tokenTypes: ['variable', 'function'],
+              tokenModifiers: ['declaration'],
+            },
+            full: true,
+          },
+        }, {
+          id: 'fake-inlay-hints',
+          method: 'textDocument/inlayHint',
+          registerOptions: {},
+        }],
+      },
+    })
     reply(id, {
       capabilities: {
         hoverProvider: true,
@@ -50,7 +80,12 @@ function handle(message) {
   }
   if (method === 'textDocument/didOpen') {
     const uri = params.textDocument.uri
-    send({
+    if (refreshSupported) {
+      send({ jsonrpc: '2.0', id: 901, method: 'workspace/semanticTokens/refresh' })
+      send({ jsonrpc: '2.0', id: 902, method: 'workspace/inlayHint/refresh' })
+      send({ jsonrpc: '2.0', id: 903, method: 'workspace/semanticTokens/refresh' })
+    }
+    const diagnostics = {
       jsonrpc: '2.0',
       method: 'textDocument/publishDiagnostics',
       params: {
@@ -62,7 +97,11 @@ function handle(message) {
           source: 'fake-lsp',
         }],
       },
-    })
+    }
+    send(diagnostics)
+    send(diagnostics)
+    send({ jsonrpc: '2.0', method: 'language/status', params: { type: 'ServiceReady', message: 'Ready' } })
+    send({ jsonrpc: '2.0', method: 'language/status', params: { type: 'ServiceReady', message: 'Ready' } })
     return
   }
   if (id === undefined) return
@@ -75,6 +114,30 @@ function handle(message) {
     reply(id, [{
       uri,
       range: { start: { line: 0, character: 0 }, end: { line: 0, character: 4 } },
+    }])
+    return
+  }
+  if (method === 'textDocument/documentHighlight') {
+    reply(id, [{
+      range: { start: { line: 0, character: 0 }, end: { line: 0, character: 4 } },
+      kind: 2,
+    }, {
+      range: { start: { line: 1, character: 0 }, end: { line: 1, character: 4 } },
+      kind: 3,
+    }])
+    return
+  }
+  if (method === 'textDocument/semanticTokens/full') {
+    reply(id, { resultId: 'fake-semantic-1', data: [0, 0, 4, 1, 1] })
+    return
+  }
+  if (method === 'textDocument/inlayHint') {
+    reply(id, [{
+      position: { line: 0, character: 4 },
+      label: [{ value: ': number', tooltip: { kind: 'markdown', value: '**inferred type**' } }],
+      kind: 1,
+      tooltip: 'fake inlay hint',
+      paddingLeft: true,
     }])
     return
   }

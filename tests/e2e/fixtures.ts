@@ -23,7 +23,7 @@ declare global {
     ) => TerminalCheckpointTestResult | null | Promise<TerminalCheckpointTestResult | null>
     __farmingFileEditorTest?: {
       focus: () => boolean
-      revealLine: (lineNumber: number) => boolean
+      revealLine: (lineNumber: number, column?: number) => boolean
       insertText: (text: string) => boolean
       undo: () => boolean
       getValue: () => string

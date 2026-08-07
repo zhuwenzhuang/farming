@@ -16,6 +16,7 @@ const {
 
 async function run() {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-managed-lsp-'));
+  const refreshEvents: Array<{ kind: string; workspaceRoot: string; revision: number }> = [];
   const manager = new ManagedLanguageServerManager({
     configDir: path.join(tempDir, 'config'),
     definitions: [{
@@ -24,6 +25,7 @@ async function run() {
       command: [process.execPath, path.join(__dirname, 'fixtures', 'fake-language-server.mjs')],
       rootMarkers: ['project.marker'],
     }],
+    onRefresh: event => refreshEvents.push(event),
   });
   try {
     const artifacts = [
@@ -97,12 +99,66 @@ async function run() {
     assert.strictEqual(idleCapability.status, 'ready');
     assert.deepStrictEqual(idleCapability.workspaces, []);
     assert.deepStrictEqual(idleCapability.connections, []);
+    const initialSymbols = await manager.request({
+      ...base,
+      method: 'workspaceSymbols',
+      query: 'main',
+    });
+    assert.deepStrictEqual(initialSymbols.result, [{
+      name: 'main',
+      detail: '',
+      kind: 12,
+      uri: pathToFileURL(file).toString(),
+      range: { start: { line: 0, character: 0 }, end: { line: 0, character: 4 } },
+      selectionRange: { start: { line: 0, character: 0 }, end: { line: 0, character: 4 } },
+    }], 'workspace symbol search should start the active file server and normalize nested locations');
     const definition = await manager.request({ ...base, method: 'definition' });
     assert.strictEqual(definition.supported, true);
     assert.deepStrictEqual(definition.result, [{
       uri: pathToFileURL(file).toString(),
       range: { start: { line: 0, character: 0 }, end: { line: 0, character: 4 } },
     }]);
+    for (let attempt = 0; attempt < 20 && refreshEvents.length < 7; attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    assert.deepStrictEqual(refreshEvents, [{
+      kind: 'semanticTokens',
+      workspaceRoot: workspace,
+      revision: 1,
+    }, {
+      kind: 'inlayHints',
+      workspaceRoot: workspace,
+      revision: 1,
+    }, {
+      kind: 'semanticTokens',
+      workspaceRoot: workspace,
+      revision: 2,
+    }, {
+      kind: 'semanticTokens',
+      workspaceRoot: workspace,
+      revision: 3,
+    }, {
+      kind: 'inlayHints',
+      workspaceRoot: workspace,
+      revision: 2,
+    }, {
+      kind: 'semanticTokens',
+      workspaceRoot: workspace,
+      revision: 4,
+    }, {
+      kind: 'inlayHints',
+      workspaceRoot: workspace,
+      revision: 3,
+    }], 'server refresh requests should become ordered Project-scoped events');
+    assert.deepStrictEqual(manager.refreshSnapshot(), [{
+      kind: 'inlayHints',
+      workspaceRoot: workspace,
+      revision: 3,
+    }, {
+      kind: 'semanticTokens',
+      workspaceRoot: workspace,
+      revision: 4,
+    }], 'a reconnecting page should receive the latest active Project refresh revisions');
 
     const activeCapability = manager.capability();
     assert.strictEqual(activeCapability.status, 'connected');
@@ -115,6 +171,38 @@ async function run() {
 
     const hover = await manager.request({ ...base, method: 'hover' });
     assert.deepStrictEqual(hover.result, [{ contents: ['**fake hover**'] }]);
+
+    const documentHighlights = await manager.request({ ...base, method: 'documentHighlights' });
+    assert.deepStrictEqual(documentHighlights.result, [{
+      range: { start: { line: 0, character: 0 }, end: { line: 0, character: 4 } },
+      kind: 2,
+    }, {
+      range: { start: { line: 1, character: 0 }, end: { line: 1, character: 4 } },
+      kind: 3,
+    }]);
+
+    const semanticTokens = await manager.request({ ...base, method: 'semanticTokens' });
+    assert.deepStrictEqual(semanticTokens.result, {
+      data: [0, 0, 4, 1, 1],
+      resultId: 'fake-semantic-1',
+      legend: {
+        tokenTypes: ['variable', 'function'],
+        tokenModifiers: ['declaration'],
+      },
+    });
+
+    const inlayHints = await manager.request({
+      ...base,
+      method: 'inlayHints',
+      range: { start: { line: 0, character: 0 }, end: { line: 1, character: 0 } },
+    });
+    assert.deepStrictEqual(inlayHints.result, [{
+      position: { line: 0, character: 4 },
+      label: [{ value: ': number', tooltip: { kind: 'markdown', value: '**inferred type**' } }],
+      kind: 1,
+      tooltip: 'fake inlay hint',
+      paddingLeft: true,
+    }]);
 
     const diagnostics = await manager.request({ ...base, method: 'diagnostics' });
     assert.deepStrictEqual(diagnostics.result, [{

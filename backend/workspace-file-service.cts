@@ -18,6 +18,8 @@ const DEFAULT_GIT_STATUS_INLINE_TIMEOUT_MS = 80;
 const DEFAULT_GIT_STATUS_TIMEOUT_MS = 15000;
 const DEFAULT_SEARCH_TIMEOUT_MS = 3000;
 const DEFAULT_BLAME_TIMEOUT_MS = 5000;
+const DEFAULT_BLAME_MAX_BUFFER = 16 * 1024 * 1024;
+const DEFAULT_ISSUE_NAVIGATION_MAX_SIZE = 256 * 1024;
 const DEFAULT_DIFF_TIMEOUT_MS = 5000;
 const DEFAULT_DIFF_MAX_BUFFER = 1024 * 1024;
 const DEFAULT_GIT_HISTORY_LIMIT = 50;
@@ -1128,6 +1130,7 @@ function parseGitStatus(stdout: unknown): GitStatusMap {
 function parseGitBlamePorcelain(stdout: unknown) {
   const lines = String(stdout || '').split('\n');
   const blameLines = [];
+  const commits = new Map<string, Pick<BlameEntry, 'author' | 'authorMail' | 'authorTime' | 'authorTimeIso' | 'summary'>>();
   let index = 0;
 
   while (index < lines.length) {
@@ -1138,15 +1141,17 @@ function parseGitBlamePorcelain(stdout: unknown) {
       continue;
     }
 
+    const commit = match[1].replace(/^\^/, '');
+    const cachedCommit = commits.get(commit);
     const entry: BlameEntry = {
-      commit: match[1].replace(/^\^/, ''),
+      commit,
       originalLineNumber: Number(match[2]),
       lineNumber: Number(match[3]),
-      author: '',
-      authorMail: '',
-      authorTime: null,
-      authorTimeIso: '',
-      summary: '',
+      author: cachedCommit?.author || '',
+      authorMail: cachedCommit?.authorMail || '',
+      authorTime: cachedCommit?.authorTime ?? null,
+      authorTimeIso: cachedCommit?.authorTimeIso || '',
+      summary: cachedCommit?.summary || '',
       content: '',
     };
     index += 1;
@@ -1172,6 +1177,13 @@ function parseGitBlamePorcelain(stdout: unknown) {
       if (fieldName === 'summary') entry.summary = value;
     }
 
+    commits.set(commit, {
+      author: entry.author,
+      authorMail: entry.authorMail,
+      authorTime: entry.authorTime,
+      authorTimeIso: entry.authorTimeIso,
+      summary: entry.summary,
+    });
     const uncommitted = /^0+$/.test(entry.commit);
     blameLines.push({
       ...entry,
@@ -1181,6 +1193,110 @@ function parseGitBlamePorcelain(stdout: unknown) {
   }
 
   return blameLines;
+}
+
+function gitRemoteWebUrl(remoteUrl: unknown) {
+  const raw = String(remoteUrl || '').trim();
+  if (!raw) return '';
+  let webUrl = '';
+  const scpMatch = /^(?:[^@\s]+@)?([^:/\s]+):(.+)$/.exec(raw);
+  if (scpMatch && !raw.includes('://') && !/^[A-Za-z]:[\\/]/.test(raw)) {
+    webUrl = `https://${scpMatch[1]}/${scpMatch[2]}`;
+  }
+  else {
+    try {
+      const parsed = new URL(raw);
+      if (!['http:', 'https:', 'ssh:', 'git:'].includes(parsed.protocol)) return '';
+      const protocol = parsed.protocol === 'http:' ? 'http:' : 'https:';
+      webUrl = `${protocol}//${parsed.host}${parsed.pathname}`;
+    }
+    catch {
+      return '';
+    }
+  }
+  webUrl = webUrl.replace(/\.git\/?$/, '').replace(/\/$/, '');
+  if (!/^https?:\/\//.test(webUrl)) return '';
+  return webUrl;
+}
+
+function gitCommitUrlTemplate(remoteUrl: unknown) {
+  const webUrl = gitRemoteWebUrl(remoteUrl);
+  if (!webUrl) return '';
+  const host = new URL(webUrl).hostname.toLowerCase();
+  if (host.includes('gitlab')) return `${webUrl}/-/commit/{commit}`;
+  if (host.includes('bitbucket')) return `${webUrl}/commits/{commit}`;
+  return `${webUrl}/commit/{commit}`;
+}
+
+function gitAuthorUrlTemplate(remoteUrl: unknown) {
+  const webUrl = gitRemoteWebUrl(remoteUrl);
+  if (!webUrl) return '';
+  const url = new URL(webUrl);
+  return url.hostname.toLowerCase().includes('gitlab')
+    ? `${url.origin}/{author}`
+    : '';
+}
+
+function decodeXmlAttribute(value: string) {
+  return value.replace(/&#(x[0-9a-f]+|\d+);|&(quot|apos|lt|gt|amp);/gi, (entity, numeric, named) => {
+    if (numeric) {
+      const codePoint = Number.parseInt(numeric.startsWith('x') || numeric.startsWith('X') ? numeric.slice(1) : numeric, numeric.startsWith('x') || numeric.startsWith('X') ? 16 : 10);
+      return Number.isInteger(codePoint) && codePoint >= 0 && codePoint <= 0x10ffff
+        ? String.fromCodePoint(codePoint)
+        : entity;
+    }
+    return ({ quot: '"', apos: "'", lt: '<', gt: '>', amp: '&' } as Record<string, string>)[String(named).toLowerCase()] || entity;
+  });
+}
+
+function xmlTagAttributes(tag: string) {
+  const attributes = new Map<string, string>();
+  const attributePattern = /([\w:-]+)\s*=\s*(["'])(.*?)\2/g;
+  let match: RegExpExecArray | null;
+  while ((match = attributePattern.exec(tag))) {
+    attributes.set(match[1], decodeXmlAttribute(match[3]));
+  }
+  return attributes;
+}
+
+function parseIntelliJIssueNavigationLinks(xml: unknown) {
+  const source = String(xml || '');
+  const component = /<component\b[^>]*\bname\s*=\s*(["'])IssueNavigationConfiguration\1[^>]*>([\s\S]*?)<\/component>/i.exec(source)?.[2] || '';
+  if (!component) return [];
+
+  const rules: Array<{ issueRegexp: string; linkRegexp: string }> = [];
+  const linkPattern = /<IssueNavigationLink\b[^>]*>([\s\S]*?)<\/IssueNavigationLink>/gi;
+  let linkMatch: RegExpExecArray | null;
+  while (rules.length < 64 && (linkMatch = linkPattern.exec(component))) {
+    let issueRegexp = '';
+    let linkRegexp = '';
+    const optionPattern = /<option\b[^>]*\/?>/gi;
+    let optionMatch: RegExpExecArray | null;
+    while ((optionMatch = optionPattern.exec(linkMatch[1]))) {
+      const attributes = xmlTagAttributes(optionMatch[0]);
+      if (attributes.get('name') === 'issueRegexp') issueRegexp = attributes.get('value') || '';
+      if (attributes.get('name') === 'linkRegexp') linkRegexp = attributes.get('value') || '';
+    }
+    if (!issueRegexp || issueRegexp.length > 2_048 || !/^https?:\/\//i.test(linkRegexp) || linkRegexp.length > 4_096) continue;
+    try {
+      new RegExp(issueRegexp, 'g');
+    }
+    catch {
+      continue;
+    }
+    rules.push({ issueRegexp, linkRegexp });
+  }
+  return rules;
+}
+
+async function loadIntelliJIssueNavigationLinks(root: string) {
+  const requestedPath = path.join(root, '.idea', 'vcs.xml');
+  const actualPath = await fsp.realpath(requestedPath).catch(() => '');
+  if (!actualPath || !isInside(root, actualPath)) return [];
+  const stat = await fsp.stat(actualPath).catch(() => null);
+  if (!stat?.isFile() || stat.size > DEFAULT_ISSUE_NAVIGATION_MAX_SIZE) return [];
+  const source = await fsp.readFile(actualPath, 'utf8').catch(() => '');
+  return parseIntelliJIssueNavigationLinks(source);
 }
 
 function parseUnifiedDiffHunks(patch: unknown): DiffHunk[] {
@@ -3509,13 +3625,22 @@ class WorkspaceFileService {
     try {
       const { stdout } = await this.execFile(this.gitPath, [
         'blame',
-        '--line-porcelain',
+        '--porcelain',
         '--',
         actualRelativePath || relativePath,
-      ], { cwd: root, timeout: this.blameTimeoutMs });
+      ], { cwd: root, timeout: this.blameTimeoutMs, maxBuffer: DEFAULT_BLAME_MAX_BUFFER });
+      const [remote, issueLinkRules] = await Promise.all([
+        this.execFile(this.gitPath, [
+          'config', '--get', 'remote.origin.url',
+        ], { cwd: root, timeout: 1_000, maxBuffer: 64 * 1024 }).catch(() => ({ stdout: '' })),
+        loadIntelliJIssueNavigationLinks(root),
+      ]);
       return {
         isGitRepo: true,
         path: relativePath,
+        commitUrlTemplate: gitCommitUrlTemplate(remote.stdout),
+        authorUrlTemplate: gitAuthorUrlTemplate(remote.stdout),
+        issueLinkRules,
         lines: parseGitBlamePorcelain(stdout),
       };
     } catch (caught: unknown) {
@@ -3525,6 +3650,9 @@ class WorkspaceFileService {
       }
       if (error.code === 'ETIMEDOUT' || error.signal === 'SIGTERM') {
         throw new WorkspaceFileError('git blame timed out', 504);
+      }
+      if (error.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
+        throw new WorkspaceFileError('git blame output is too large', 413);
       }
       if (error.stderr && /not a git repository/i.test(String(error.stderr))) {
         return {
@@ -3698,6 +3826,9 @@ export {
   DEFAULT_WATCH_DEPTH,
   isPackagedRuntime,
   parseGitBlamePorcelain,
+  gitCommitUrlTemplate,
+  gitAuthorUrlTemplate,
+  parseIntelliJIssueNavigationLinks,
   parseUnifiedDiffRows,
   createAddedFileLineChangesHunk,
   parseUnifiedDiffHunks,

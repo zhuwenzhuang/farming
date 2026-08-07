@@ -13,7 +13,11 @@ import path from 'node:path';
 import { execFile, execFileSync, spawnSync } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { ManagedLanguageServerClient, languageServerError } from './managed-language-server-client.cjs';
+import {
+  ManagedLanguageServerClient,
+  languageServerError,
+  type LanguageServerRefreshKind,
+} from './managed-language-server-client.cjs';
 import {
   LANGUAGE_SERVERS,
   resolveLanguageServer,
@@ -79,6 +83,7 @@ interface ManagedLanguageServerManagerOptions {
   configDir: string;
   definitions?: LanguageServerDefinition[];
   env?: NodeJS.ProcessEnv;
+  onRefresh?: (event: ManagedLanguageServerRefreshEvent) => void;
   clientFactory?: (options: {
     id: string;
     command: string;
@@ -87,7 +92,14 @@ interface ManagedLanguageServerManagerOptions {
     workspaceRoot: string;
     env?: NodeJS.ProcessEnv;
     onExit?: () => void;
+    onRefresh?: (kind: LanguageServerRefreshKind) => void;
   }) => Promise<ManagedClient>;
+}
+
+interface ManagedLanguageServerRefreshEvent {
+  kind: LanguageServerRefreshKind;
+  workspaceRoot: string;
+  revision: number;
 }
 
 interface LaunchCommand {
@@ -190,15 +202,44 @@ class ManagedLanguageServerManager {
   private readonly definitions: LanguageServerDefinition[];
   private readonly env: NodeJS.ProcessEnv;
   private readonly clientFactory: NonNullable<ManagedLanguageServerManagerOptions['clientFactory']>;
+  private readonly onRefresh: NonNullable<ManagedLanguageServerManagerOptions['onRefresh']>;
   private readonly clients = new Map<string, ManagedClient>();
   private readonly spawning = new Map<string, Promise<ManagedClient>>();
   private readonly preparing = new Map<string, Promise<string>>();
+  private readonly refreshRevisions = new Map<string, number>();
 
   constructor(options: ManagedLanguageServerManagerOptions) {
     this.configDir = options.configDir;
     this.definitions = options.definitions || LANGUAGE_SERVERS;
     this.env = options.env || process.env;
     this.clientFactory = options.clientFactory || (value => ManagedLanguageServerClient.create(value));
+    this.onRefresh = options.onRefresh || (() => {});
+  }
+
+  private emitRefresh(kind: LanguageServerRefreshKind, workspaceRoot: string): void {
+    const key = `${workspaceRoot}\0${kind}`;
+    const revision = (this.refreshRevisions.get(key) || 0) + 1;
+    this.refreshRevisions.set(key, revision);
+    this.onRefresh({ kind, workspaceRoot, revision });
+  }
+
+  refreshSnapshot(): ManagedLanguageServerRefreshEvent[] {
+    const activeWorkspaces = new Set([...this.clients.values()].map(client => client.workspaceRoot));
+    return [...this.refreshRevisions.entries()]
+      .flatMap(([key, revision]) => {
+        const separator = key.lastIndexOf('\0');
+        const workspaceRoot = key.slice(0, separator);
+        const kind = key.slice(separator + 1);
+        if (
+          separator < 0
+          || !activeWorkspaces.has(workspaceRoot)
+          || (kind !== 'semanticTokens' && kind !== 'inlayHints')
+        ) return [];
+        return [{ kind: kind as LanguageServerRefreshKind, workspaceRoot, revision }];
+      })
+      .sort((left, right) => (
+        `${left.workspaceRoot}\0${left.kind}`.localeCompare(`${right.workspaceRoot}\0${right.kind}`)
+      ));
   }
 
   capability() {
@@ -221,6 +262,7 @@ class ManagedLanguageServerManager {
       features: [
         'hover', 'definition', 'references', 'implementation', 'documentSymbols',
         'workspaceSymbols', 'callHierarchy', 'typeHierarchy', 'diagnostics',
+        'documentHighlights', 'semanticTokens', 'inlayHints',
       ],
       workspaces,
       connections,
@@ -363,6 +405,7 @@ class ManagedLanguageServerManager {
         onExit: () => {
           if (created && this.clients.get(key) === created) this.clients.delete(key);
         },
+        onRefresh: kind => this.emitRefresh(kind, workspaceRoot),
       });
       created = client;
       const raced = this.clients.get(key);
@@ -396,6 +439,17 @@ class ManagedLanguageServerManager {
       return client.execute(payload);
     }
     if (method === 'workspaceSymbols') {
+      const uri = String(payload.uri || '');
+      if (uri) {
+        let filePath = '';
+        try {
+          filePath = fileURLToPath(uri);
+        } catch {
+          throw languageServerError('Managed Language Server requires a file', 'LANGUAGE_SERVER_FILE_REQUIRED', 400);
+        }
+        const resolved = await resolveLanguageServer(filePath, workspaceRoot, this.definitions);
+        if (resolved) await this.ensureClient(resolved.definition, resolved.root, workspaceRoot);
+      }
       const clients = [...this.clients.values()].filter(value => value.workspaceRoot === workspaceRoot);
       if (clients.length === 0) {
         throw languageServerError(
@@ -427,6 +481,7 @@ class ManagedLanguageServerManager {
     await Promise.allSettled([...this.clients.values()].map(client => client.dispose()));
     this.clients.clear();
     this.spawning.clear();
+    this.refreshRevisions.clear();
   }
 }
 
@@ -434,5 +489,6 @@ export {
   LANGUAGE_SERVER_DOWNLOADS,
   ManagedLanguageServerManager,
   downloadFile,
+  type ManagedLanguageServerRefreshEvent,
   type ManagedLanguageServerManagerOptions,
 };

@@ -9,6 +9,9 @@ const {
   WorkspaceFileService,
   WorkspaceFileError,
   DEFAULT_WATCH_DEPTH,
+  gitAuthorUrlTemplate,
+  gitCommitUrlTemplate,
+  parseIntelliJIssueNavigationLinks,
   resolveCommandRunnerNodePath,
 } = require('../workspace-file-service.cjs');
 
@@ -51,6 +54,44 @@ async function waitFor(predicate, timeoutMs = 6000) {
 }
 
 async function run() {
+  assert.strictEqual(
+    gitCommitUrlTemplate('git@gitlab.example.test:group/project.git'),
+    'https://gitlab.example.test/group/project/-/commit/{commit}',
+  );
+  assert.strictEqual(
+    gitCommitUrlTemplate('https://github.com/example/project.git'),
+    'https://github.com/example/project/commit/{commit}',
+  );
+  assert.strictEqual(
+    gitAuthorUrlTemplate('git@gitlab.example.test:group/project.git'),
+    'https://gitlab.example.test/{author}',
+  );
+  assert.strictEqual(gitAuthorUrlTemplate('https://github.com/example/project.git'), '');
+  assert.strictEqual(gitCommitUrlTemplate('file:///private/repository'), '');
+  assert.deepStrictEqual(parseIntelliJIssueNavigationLinks(`
+    <project version="4">
+      <component name="IssueNavigationConfiguration">
+        <option name="links"><list><IssueNavigationLink>
+          <option name="issueRegexp" value="[a-z]+\\s*#(\\d+)" />
+          <option name="linkRegexp" value="https://issues.example.test/workitem/$1?source=blame&amp;view=compact" />
+        </IssueNavigationLink></list></option>
+      </component>
+    </project>
+  `), [{
+    issueRegexp: '[a-z]+\\s*#(\\d+)',
+    linkRegexp: 'https://issues.example.test/workitem/$1?source=blame&view=compact',
+  }]);
+  assert.deepStrictEqual(parseIntelliJIssueNavigationLinks(`
+    <component name="IssueNavigationConfiguration">
+      <IssueNavigationLink>
+        <option name="issueRegexp" value="#(\\d+)" />
+        <option name="linkRegexp" value="https://issues.example.test/&#x110000;/$1" />
+      </IssueNavigationLink>
+    </component>
+  `), [{
+    issueRegexp: '#(\\d+)',
+    linkRegexp: 'https://issues.example.test/&#x110000;/$1',
+  }], 'out-of-range XML entities should remain literal instead of breaking blame');
   const previousNodeBin = process.env.FARMING_NODE_BIN;
   try {
     process.env.FARMING_NODE_BIN = '/tmp/farming-node-bin';
@@ -743,8 +784,19 @@ async function run() {
       assert.strictEqual(expandedZhilinSearch.truncated, false);
 
       fs.writeFileSync(path.join(srcDir, 'App.tsx'), 'external change\nsecond line\n');
+      fs.mkdirSync(path.join(workspace, '.idea'), { recursive: true });
+      fs.writeFileSync(path.join(workspace, '.idea', 'vcs.xml'), `
+        <project version="4">
+          <component name="IssueNavigationConfiguration">
+            <option name="links"><list><IssueNavigationLink>
+              <option name="issueRegexp" value="[a-z]+\\s*#(\\d+)" />
+              <option name="linkRegexp" value="https://issues.example.test/workitem/$1" />
+            </IssueNavigationLink></list></option>
+          </component>
+        </project>
+      `);
       execFileSync('git', ['add', 'src/App.tsx'], { cwd: workspace });
-      execFileSync('git', ['commit', '-m', 'second app line'], {
+      execFileSync('git', ['commit', '-m', 'fix #41644075 second app line'], {
         cwd: workspace,
         stdio: 'ignore',
         env: {
@@ -759,8 +811,27 @@ async function run() {
       assert.strictEqual(blame.lines.length, 2);
       assert.strictEqual(blame.lines[1].lineNumber, 2);
       assert.strictEqual(blame.lines[1].author, 'Second Author');
-      assert.strictEqual(blame.lines[1].summary, 'second app line');
+      assert.strictEqual(blame.lines[1].summary, 'fix #41644075 second app line');
+      assert.deepStrictEqual(blame.issueLinkRules, [{
+        issueRegexp: '[a-z]+\\s*#(\\d+)',
+        linkRegexp: 'https://issues.example.test/workitem/$1',
+      }]);
       assert(blame.lines[1].shortCommit);
+
+      const originalBlameBufferExecFile = service.execFile;
+      service.execFile = async (command, args, options) => {
+        if (command === service.gitPath && args.includes('blame')) {
+          assert.strictEqual(options.maxBuffer, 16 * 1024 * 1024);
+          assert(args.includes('--porcelain'));
+          assert(!args.includes('--line-porcelain'));
+        }
+        return originalBlameBufferExecFile(command, args, options);
+      };
+      try {
+        await service.blame(workspace, 'src/App.tsx');
+      } finally {
+        service.execFile = originalBlameBufferExecFile;
+      }
       const previousLineChanges = await service.lineChanges(workspace, 'src/App.tsx', 2, 'previous');
       assert.strictEqual(previousLineChanges.isGitRepo, true);
       assert.strictEqual(previousLineChanges.available, true);

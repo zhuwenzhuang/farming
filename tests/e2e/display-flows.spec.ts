@@ -1642,7 +1642,7 @@ test.describe('display-backed agent flows', () => {
     execFileSync('git', ['config', 'user.email', 'farming-e2e@example.test'], { cwd: childWorkspace })
     execFileSync('git', ['config', 'user.name', 'Farming E2E'], { cwd: childWorkspace })
     execFileSync('git', ['add', 'README.md'], { cwd: childWorkspace, stdio: 'ignore' })
-    execFileSync('git', ['commit', '-m', 'Seed README blame'], { cwd: childWorkspace, stdio: 'ignore' })
+    execFileSync('git', ['commit', '-m', '[to #41644075] Seed README blame'], { cwd: childWorkspace, stdio: 'ignore' })
     fs.writeFileSync(
       path.join(deepInnerWorkspace, 'blame-multi.py'),
       ['print("alpha")', 'print("beta")', ''].join('\n'),
@@ -2049,6 +2049,17 @@ test.describe('display-backed agent flows', () => {
     await page.keyboard.press(process.platform === 'darwin' ? 'Meta+P' : 'Control+P')
     await expect(fileSearchInput).toBeFocused()
     await expect(page.getByTestId('code-file-blame-panel')).toHaveCount(0)
+    fs.mkdirSync(path.join(childWorkspace, '.idea'), { recursive: true })
+    fs.writeFileSync(path.join(childWorkspace, '.idea', 'vcs.xml'), `
+      <project version="4">
+        <component name="IssueNavigationConfiguration">
+          <option name="links"><list><IssueNavigationLink>
+            <option name="issueRegexp" value="[a-z]+\\s*#(\\d+)" />
+            <option name="linkRegexp" value="https://issues.example.test/workitem/$1" />
+          </IssueNavigationLink></list></option>
+        </component>
+      </project>
+    `)
     const editorContextMenu = page.getByTestId('code-editor-context-menu')
     await page.getByTestId('code-file-monaco').click({ button: 'right', position: { x: 42, y: 38 } })
     await expect(editorContextMenu).toBeVisible()
@@ -2059,6 +2070,12 @@ test.describe('display-backed agent flows', () => {
     await inlineBlame.nth(0).click()
     const blameDetail = page.getByTestId('code-file-blame-detail')
     await expect(blameDetail).toContainText('Seed README blame')
+    await expect(blameDetail.getByRole('link', { name: 'to #41644075' })).toHaveAttribute(
+      'href',
+      'https://issues.example.test/workitem/41644075',
+    )
+    fs.rmSync(path.join(childWorkspace, '.idea'), { recursive: true, force: true })
+    await expect(childFiles.locator('[data-testid="code-file-row"][data-file-path=".idea"]')).toHaveCount(0)
     await expect(blameDetail.getByText('Farming E2E', { exact: true })).toBeVisible()
     await expect(blameDetail.getByRole('button', { name: 'Close blame details' })).toBeVisible()
     await expect(page.getByTestId('code-file-editor-statusbar')).not.toContainText('Seed README blame')

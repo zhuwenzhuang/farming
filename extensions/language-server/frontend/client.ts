@@ -4,7 +4,7 @@ import type {
   LanguageServerRequest,
 } from './types'
 
-const REQUEST_TIMEOUT_MS = 12_000
+const REQUEST_TIMEOUT_MS = 60_000
 
 export class LanguageServerError extends Error {
   readonly status: number
@@ -29,6 +29,15 @@ async function fetchWithTimeout(url: string, init?: RequestInit) {
   const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
   try {
     return await fetch(url, { ...init, signal: controller.signal })
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new LanguageServerError(
+        'Language Server request timed out',
+        504,
+        'LANGUAGE_SERVER_REQUEST_TIMEOUT',
+      )
+    }
+    throw error
   } finally {
     window.clearTimeout(timeoutId)
   }

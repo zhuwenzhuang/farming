@@ -46,6 +46,9 @@ const SUPPORTED_METHODS = new Set([
   'definition',
   'references',
   'implementation',
+  'documentHighlights',
+  'semanticTokens',
+  'inlayHints',
   'documentSymbols',
   'workspaceSymbols',
   'prepareCallHierarchy',
@@ -183,7 +186,7 @@ function createLanguageServerRouter(client: LanguageServerClient, roots: Workspa
       if (body.filePath !== undefined) {
         payload.uri = pathToFileURL(resolveFile(root, body.filePath)).toString();
       }
-      for (const key of ['position', 'query', 'itemId']) {
+      for (const key of ['position', 'range', 'query', 'itemId']) {
         if (body[key] !== undefined) payload[key] = body[key];
       }
       const response = recordValue(await client.request(payload));

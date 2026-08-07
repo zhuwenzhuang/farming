@@ -6,7 +6,7 @@ declare global {
     __FARMING_E2E__?: boolean
     __farmingFileEditorTest?: {
       focus: () => boolean
-      revealLine: (lineNumber: number) => boolean
+      revealLine: (lineNumber: number, column?: number) => boolean
       insertText: (text: string) => boolean
       undo: () => boolean
       getValue: () => string
@@ -38,12 +38,13 @@ export function useFileEditorTestBridge({
         onFocusEditor()
         return Boolean(editorRef.current)
       },
-      revealLine(lineNumber: number) {
+      revealLine(lineNumber: number, column = 1) {
         const editor = editorRef.current
         const model = editor?.getModel()
         if (!editor || !model) return false
         const targetLine = Math.min(Math.max(1, lineNumber), model.getLineCount())
-        editor.setPosition({ lineNumber: targetLine, column: 1 })
+        const targetColumn = Math.min(Math.max(1, column), model.getLineMaxColumn(targetLine))
+        editor.setPosition({ lineNumber: targetLine, column: targetColumn })
         editor.revealLineInCenter(targetLine)
         editor.focus()
         return true

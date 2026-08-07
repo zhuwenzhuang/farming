@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  languageNavigatorHierarchyRequestIsCurrent,
   languageNavigatorNodeRoot,
   languageNavigatorRequestIsCurrent,
   nextLanguageNavigatorDirectionSource,
@@ -41,6 +42,20 @@ test('only the latest navigator generation can commit within one file', () => {
   assert.equal(languageNavigatorRequestIsCurrent(activeFile, second, first), false)
   assert.equal(languageNavigatorRequestIsCurrent(activeFile, second, second), true)
   assert.equal(languageNavigatorNodeRoot(activeFile, second), 'agent-a')
+})
+
+test('a hierarchy stays owned by its project while navigation opens one of its result files', () => {
+  const source = { rootId: 'agent-a', filePath: 'App.ts', generation: 9 }
+  const navigatedFile = { rootId: 'agent-a', filePath: 'Other.ts' }
+
+  assert.equal(languageNavigatorRequestIsCurrent(navigatedFile, source, source), false)
+  assert.equal(languageNavigatorHierarchyRequestIsCurrent(navigatedFile, source, source), true)
+  assert.equal(languageNavigatorNodeRoot(navigatedFile, source), 'agent-a')
+  assert.deepEqual(nextLanguageNavigatorDirectionSource(navigatedFile, source, 10), {
+    rootId: 'agent-a',
+    filePath: 'App.ts',
+    generation: 10,
+  })
 })
 
 test('direction change cannot relabel old nodes before the file-change effect runs', () => {

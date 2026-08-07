@@ -22,7 +22,21 @@ import {
 const INITIALIZE_TIMEOUT_MS = 45_000;
 const REQUEST_TIMEOUT_MS = 10_000;
 const DIAGNOSTICS_WAIT_MS = 2_000;
+const SEMANTIC_TOKENS_LEGEND_WAIT_MS = 500;
 const MAX_HIERARCHY_HANDLES = 2_048;
+const MAX_DOCUMENT_HIGHLIGHTS = 20_000;
+const MAX_INLAY_HINTS = 10_000;
+const MAX_SEMANTIC_TOKEN_INTEGERS = 1_000_000;
+const SEMANTIC_TOKEN_TYPES = [
+  'namespace', 'type', 'class', 'enum', 'interface', 'struct', 'typeParameter',
+  'parameter', 'variable', 'property', 'enumMember', 'event', 'function', 'method',
+  'macro', 'keyword', 'modifier', 'comment', 'string', 'number', 'regexp',
+  'operator', 'decorator', 'annotationMember', 'record', 'recordComponent',
+];
+const SEMANTIC_TOKEN_MODIFIERS = [
+  'declaration', 'definition', 'readonly', 'static', 'deprecated', 'abstract',
+  'async', 'modification', 'documentation', 'defaultLibrary',
+];
 
 type JsonRecord = Record<string, unknown>;
 
@@ -34,7 +48,10 @@ interface ManagedLanguageServerClientOptions {
   workspaceRoot: string;
   env?: NodeJS.ProcessEnv;
   onExit?: () => void;
+  onRefresh?: (kind: LanguageServerRefreshKind) => void;
 }
+
+type LanguageServerRefreshKind = 'semanticTokens' | 'inlayHints';
 
 interface OpenDocument {
   signature: string;
@@ -49,6 +66,11 @@ interface DiagnosticSnapshot {
 interface HierarchyHandle {
   kind: 'call' | 'type';
   item: JsonRecord;
+}
+
+interface DynamicRegistration {
+  method: string;
+  registerOptions: JsonRecord;
 }
 
 function recordValue(value: unknown): JsonRecord {
@@ -112,6 +134,47 @@ function normalizeLocations(value: unknown): unknown[] {
   });
 }
 
+function normalizeWorkspaceSymbols(value: unknown): JsonRecord[] {
+  const items = Array.isArray(value) ? value : value ? [value] : [];
+  return items.flatMap(item => {
+    const symbol = recordValue(item);
+    const location = recordValue(symbol.location);
+    const uri = typeof location.uri === 'string'
+      ? location.uri
+      : typeof symbol.uri === 'string' ? symbol.uri : '';
+    if (!uri) return [];
+    const range = location.range || symbol.range || null;
+    return [{
+      name: String(symbol.name || ''),
+      detail: String(symbol.detail || symbol.containerName || ''),
+      kind: Number(symbol.kind || 0),
+      uri,
+      range,
+      selectionRange: symbol.selectionRange || range,
+    }];
+  });
+}
+
+function boundedArray(value: unknown, maximum: number, label: string): unknown[] {
+  const items = Array.isArray(value) ? value : [];
+  if (items.length > maximum) {
+    throw languageServerError(
+      `${label} result is too large`,
+      'LANGUAGE_SERVER_RESULT_TOO_LARGE',
+      413,
+    );
+  }
+  return items;
+}
+
+function normalizeSemanticTokenData(value: unknown): number[] {
+  const data = boundedArray(value, MAX_SEMANTIC_TOKEN_INTEGERS, 'Semantic Tokens');
+  if (data.length % 5 !== 0 || data.some(item => !Number.isInteger(item) || Number(item) < 0 || Number(item) > 0xffffffff)) {
+    throw languageServerError('Language Server returned invalid Semantic Tokens', 'LANGUAGE_SERVER_RESULT_INVALID');
+  }
+  return data.map(Number);
+}
+
 class ManagedLanguageServerClient {
   readonly id: string;
   readonly root: string;
@@ -120,17 +183,24 @@ class ManagedLanguageServerClient {
   private readonly connection: MessageConnection;
   private readonly documents = new Map<string, OpenDocument>();
   private readonly diagnostics = new Map<string, DiagnosticSnapshot>();
+  private readonly providerRefreshDocumentVersions = new Map<string, number>();
   private readonly diagnosticWaiters = new Map<string, Set<() => void>>();
   private readonly hierarchyHandles = new Map<string, HierarchyHandle>();
+  private readonly dynamicRegistrations = new Map<string, DynamicRegistration>();
+  private readonly semanticLegendWaiters = new Set<() => void>();
+  private serverCapabilities: JsonRecord = {};
   private disposed = false;
+  private serviceReadyProviderRefreshSent = false;
   private diagnosticRevision = 0;
   private readonly onExit: () => void;
+  private readonly onRefresh: (kind: LanguageServerRefreshKind) => void;
 
   private constructor(options: ManagedLanguageServerClientOptions) {
     this.id = options.id;
     this.root = options.root;
     this.workspaceRoot = options.workspaceRoot;
     this.onExit = options.onExit || (() => {});
+    this.onRefresh = options.onRefresh || (() => {});
     this.process = spawn(options.command, options.args, {
       cwd: options.root,
       env: options.env || process.env,
@@ -144,9 +214,59 @@ class ManagedLanguageServerClient {
       const items = recordValue(params).items;
       return Array.isArray(items) ? items.map(() => null) : [];
     });
-    this.connection.onRequest('client/registerCapability', () => null);
+    this.connection.onRequest('client/registerCapability', (params: unknown) => {
+      const registrations = recordValue(params).registrations;
+      if (Array.isArray(registrations)) {
+        for (const value of registrations) {
+          const registration = recordValue(value);
+          const id = String(registration.id || '');
+          const method = String(registration.method || '');
+          if (!id || !method) continue;
+          this.dynamicRegistrations.set(id, {
+            method,
+            registerOptions: recordValue(registration.registerOptions),
+          });
+        }
+        this.resolveSemanticLegendWaiters();
+      }
+      return null;
+    });
+    this.connection.onRequest('client/unregisterCapability', (params: unknown) => {
+      const source = recordValue(params);
+      const registrations = source.unregisterations || source.unregistrations;
+      if (Array.isArray(registrations)) {
+        for (const value of registrations) {
+          const id = String(recordValue(value).id || '');
+          if (id) this.dynamicRegistrations.delete(id);
+        }
+      }
+      return null;
+    });
     this.connection.onRequest('window/workDoneProgress/create', () => null);
     this.connection.onRequest('workspace/workspaceFolders', () => [this.workspaceFolder()]);
+    this.connection.onRequest('workspace/semanticTokens/refresh', () => {
+      this.emitProviderRefresh('semanticTokens');
+      return null;
+    });
+    this.connection.onRequest('workspace/inlayHint/refresh', () => {
+      this.emitProviderRefresh('inlayHints');
+      return null;
+    });
+    this.connection.onNotification('workspace/semanticTokens/refresh', () => {
+      this.emitProviderRefresh('semanticTokens');
+    });
+    this.connection.onNotification('workspace/inlayHint/refresh', () => {
+      this.emitProviderRefresh('inlayHints');
+    });
+    this.connection.onNotification('language/status', (params: unknown) => {
+      if (
+        String(recordValue(params).type || '') !== 'ServiceReady'
+        || this.serviceReadyProviderRefreshSent
+      ) return;
+      this.serviceReadyProviderRefreshSent = true;
+      this.emitProviderRefresh('semanticTokens');
+      this.emitProviderRefresh('inlayHints');
+    });
     this.connection.onNotification('textDocument/publishDiagnostics', (params: unknown) => {
       const record = recordValue(params);
       const uri = String(record.uri || '');
@@ -157,6 +277,15 @@ class ManagedLanguageServerClient {
       });
       const waiters = this.diagnosticWaiters.get(uri);
       if (waiters) [...waiters].forEach(resolve => resolve());
+      const documentVersion = this.documents.get(uri)?.version;
+      if (
+        documentVersion !== undefined
+        && this.providerRefreshDocumentVersions.get(uri) !== documentVersion
+      ) {
+        this.providerRefreshDocumentVersions.set(uri, documentVersion);
+        this.emitProviderRefresh('semanticTokens');
+        this.emitProviderRefresh('inlayHints');
+      }
     });
     this.process.once('exit', () => {
       this.disposed = true;
@@ -164,6 +293,8 @@ class ManagedLanguageServerClient {
       this.onExit();
       for (const waiters of this.diagnosticWaiters.values()) [...waiters].forEach(resolve => resolve());
       this.diagnosticWaiters.clear();
+      for (const resolve of this.semanticLegendWaiters) resolve();
+      this.semanticLegendWaiters.clear();
     });
     this.connection.listen();
   }
@@ -180,7 +311,7 @@ class ManagedLanguageServerClient {
       );
     });
     try {
-      await withTimeout(client.connection.sendRequest('initialize', {
+      const initializeResult = recordValue(await withTimeout(client.connection.sendRequest('initialize', {
         processId: process.pid,
         rootUri: pathToFileURL(options.root).toString(),
         workspaceFolders: [client.workspaceFolder()],
@@ -191,6 +322,19 @@ class ManagedLanguageServerClient {
             definition: { linkSupport: true },
             references: {},
             implementation: { linkSupport: true },
+            documentHighlight: { dynamicRegistration: true },
+            semanticTokens: {
+              dynamicRegistration: true,
+              requests: { range: false, full: { delta: false } },
+              tokenTypes: SEMANTIC_TOKEN_TYPES,
+              tokenModifiers: SEMANTIC_TOKEN_MODIFIERS,
+              formats: ['relative'],
+              overlappingTokenSupport: false,
+              multilineTokenSupport: false,
+              serverCancelSupport: true,
+              augmentsSyntaxTokens: true,
+            },
+            inlayHint: { dynamicRegistration: true },
             documentSymbol: { hierarchicalDocumentSymbolSupport: true },
             callHierarchy: {},
             typeHierarchy: {},
@@ -200,9 +344,12 @@ class ManagedLanguageServerClient {
             symbol: {},
             configuration: true,
             workspaceFolders: true,
+            semanticTokens: { refreshSupport: true },
+            inlayHint: { refreshSupport: true },
           },
         },
-      }), INITIALIZE_TIMEOUT_MS, `${options.id} initialization timed out`);
+      }), INITIALIZE_TIMEOUT_MS, `${options.id} initialization timed out`));
+      client.serverCapabilities = recordValue(initializeResult.capabilities);
       client.connection.sendNotification('initialized', {});
       return client;
     } catch (error) {
@@ -222,6 +369,46 @@ class ManagedLanguageServerClient {
     if (this.disposed) {
       throw languageServerError(`${this.id} is not running`, 'LANGUAGE_SERVER_PROCESS_EXITED', 503);
     }
+  }
+
+  private resolveSemanticLegendWaiters(): void {
+    if (!this.semanticTokensLegend()) return;
+    for (const resolve of this.semanticLegendWaiters) resolve();
+    this.semanticLegendWaiters.clear();
+  }
+
+  private emitProviderRefresh(kind: LanguageServerRefreshKind): void {
+    this.onRefresh(kind);
+  }
+
+  private semanticTokensLegend(): { tokenTypes: string[]; tokenModifiers: string[] } | null {
+    const dynamic = [...this.dynamicRegistrations.values()]
+      .reverse()
+      .find(registration => registration.method === 'textDocument/semanticTokens');
+    const provider = dynamic?.registerOptions || recordValue(this.serverCapabilities.semanticTokensProvider);
+    const legend = recordValue(provider.legend);
+    const tokenTypes = Array.isArray(legend.tokenTypes)
+      ? legend.tokenTypes.filter(value => typeof value === 'string') as string[]
+      : [];
+    const tokenModifiers = Array.isArray(legend.tokenModifiers)
+      ? legend.tokenModifiers.filter(value => typeof value === 'string') as string[]
+      : [];
+    return tokenTypes.length > 0 ? { tokenTypes, tokenModifiers } : null;
+  }
+
+  private async waitForSemanticTokensLegend(): Promise<{ tokenTypes: string[]; tokenModifiers: string[] } | null> {
+    const current = this.semanticTokensLegend();
+    if (current) return current;
+    await new Promise<void>(resolve => {
+      const finish = () => {
+        clearTimeout(timer);
+        this.semanticLegendWaiters.delete(finish);
+        resolve();
+      };
+      const timer = setTimeout(finish, SEMANTIC_TOKENS_LEGEND_WAIT_MS);
+      this.semanticLegendWaiters.add(finish);
+    });
+    return this.semanticTokensLegend();
   }
 
   private async ensureDocument(filePath: string): Promise<string> {
@@ -328,11 +515,47 @@ class ManagedLanguageServerClient {
         supported: true,
       };
     }
+    if (method === 'documentHighlights') {
+      return {
+        result: boundedArray(await this.request('textDocument/documentHighlight', {
+          textDocument: { uri: documentUri }, position,
+        }), MAX_DOCUMENT_HIGHLIGHTS, 'Document Highlight'),
+        supported: true,
+      };
+    }
+    if (method === 'semanticTokens') {
+      const value = recordValue(await this.request('textDocument/semanticTokens/full', {
+        textDocument: { uri: documentUri },
+      }));
+      const legend = await this.waitForSemanticTokensLegend();
+      if (!legend) {
+        throw languageServerError('Language Server did not provide a Semantic Tokens legend', 'LANGUAGE_SERVER_RESULT_INVALID');
+      }
+      return {
+        result: {
+          data: normalizeSemanticTokenData(value.data),
+          ...(typeof value.resultId === 'string' ? { resultId: value.resultId } : {}),
+          legend,
+        },
+        supported: true,
+      };
+    }
+    if (method === 'inlayHints') {
+      return {
+        result: boundedArray(await this.request('textDocument/inlayHint', {
+          textDocument: { uri: documentUri }, range: payload.range,
+        }), MAX_INLAY_HINTS, 'Inlay Hints'),
+        supported: true,
+      };
+    }
     if (method === 'documentSymbols') {
       return { result: await this.request('textDocument/documentSymbol', { textDocument: { uri: documentUri } }) || [], supported: true };
     }
     if (method === 'workspaceSymbols') {
-      return { result: await this.request('workspace/symbol', { query: String(payload.query || '') }) || [], supported: true };
+      return {
+        result: normalizeWorkspaceSymbols(await this.request('workspace/symbol', { query: String(payload.query || '') })),
+        supported: true,
+      };
     }
     if (method === 'diagnostics') {
       const before = this.diagnostics.get(documentUri)?.revision || 0;
@@ -394,11 +617,14 @@ class ManagedLanguageServerClient {
     ]);
     if (this.process.exitCode === null && !this.process.killed) this.process.kill('SIGTERM');
     this.connection.dispose();
+    for (const resolve of this.semanticLegendWaiters) resolve();
+    this.semanticLegendWaiters.clear();
   }
 }
 
 export {
   ManagedLanguageServerClient,
   languageServerError,
+  type LanguageServerRefreshKind,
   type ManagedLanguageServerClientOptions,
 };

@@ -2790,7 +2790,7 @@ body.code-mode[data-appearance='dark'] .code-file-blame-toast.error {
 }
 
 body.code-mode[data-appearance='dark'] .code-file-blame-detail {
-  background: rgba(22, 27, 34, 0.96);
+  background: #161b22;
   border-color: var(--code-dark-border);
   color: var(--code-dark-text);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
@@ -2802,9 +2802,13 @@ body.code-mode[data-appearance='dark'] .code-file-blame-detail-row span {
   color: var(--code-dark-text-muted);
 }
 
-body.code-mode[data-appearance='dark'] .code-file-blame-detail-row strong,
+body.code-mode[data-appearance='dark'] .code-file-blame-detail-commit-link,
 body.code-mode[data-appearance='dark'] .code-file-blame-detail-row a {
   color: var(--code-dark-accent);
+}
+
+body.code-mode[data-appearance='dark'] .code-file-blame-detail-row strong {
+  color: var(--code-dark-text);
 }
 
 body.code-mode[data-appearance='dark'] .code-file-blame-detail-close {
@@ -2846,8 +2850,48 @@ body.code-mode[data-appearance='dark'] .code-language-server-search input {
 body.code-mode[data-appearance='dark'] .code-language-server-location span,
 body.code-mode[data-appearance='dark'] .code-language-server-location small,
 body.code-mode[data-appearance='dark'] .code-language-server-results > p,
-body.code-mode[data-appearance='dark'] .code-language-server-expand {
+body.code-mode[data-appearance='dark'] .code-language-server-expand,
+body.code-mode[data-appearance='dark'] .code-language-server-node-state {
   color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-language-server-directions button {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-language-server-directions button.active {
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-language-server-node.root,
+body.code-mode[data-appearance='dark'] .code-language-server-node-title em {
+  background: rgba(88, 166, 255, 0.08);
+}
+
+body.code-mode[data-appearance='dark'] .code-language-server-node-title em {
+  color: var(--code-dark-text-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-language-server-symbol-kind {
+  background: rgba(88, 166, 255, 0.12);
+  color: #79c0ff;
+}
+
+body.code-mode[data-appearance='dark'] .code-language-server-symbol-kind.interface,
+body.code-mode[data-appearance='dark'] .code-language-server-symbol-kind.class {
+  background: rgba(210, 153, 34, 0.14);
+  color: #e3b341;
+}
+
+body.code-mode[data-appearance='dark'] .code-language-server-symbol-kind.function {
+  background: rgba(188, 140, 255, 0.14);
+  color: #d2a8ff;
+}
+
+body.code-mode[data-appearance='dark'] .code-language-server-symbol-kind.property,
+body.code-mode[data-appearance='dark'] .code-language-server-symbol-kind.variable {
+  background: rgba(86, 211, 100, 0.12);
+  color: #7ee787;
 }
 
 body.code-mode[data-appearance='dark'] .code-language-server-node-error,

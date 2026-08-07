@@ -68,6 +68,8 @@ const {
   shouldDisposeWorkspaceEditorModelUri,
   shouldKeepWorkspaceEditorViewState,
   workspaceBlameAuthorProfileUrl,
+  workspaceBlameCommitUrl,
+  workspaceBlameMessageParts,
   workspaceBlameInlineLabel,
   workspaceEditorBlameOverlayRows,
   workspaceEditorBasename,
@@ -1401,8 +1403,23 @@ function run() {
     [16, 240],
   ]);
   assert.strictEqual(blameOverlayRows[0].line.author, 'Ada');
-  assert.strictEqual(workspaceBlameAuthorProfileUrl('Ada Lovelace', 'https://example.test/u/{author}'), 'https://example.test/u/Ada%20Lovelace');
+  assert.strictEqual(workspaceBlameAuthorProfileUrl('ada.lovelace', 'https://example.test/u/{author}'), 'https://example.test/u/ada.lovelace');
+  assert.strictEqual(workspaceBlameAuthorProfileUrl('Ada Lovelace', 'https://example.test/u/{author}'), '');
   assert.strictEqual(workspaceBlameAuthorProfileUrl('Unknown', 'https://example.test/u/{author}'), '');
+  assert.strictEqual(workspaceBlameCommitUrl('abc123', 'https://example.test/commit/{commit}'), 'https://example.test/commit/abc123');
+  assert.strictEqual(workspaceBlameCommitUrl('000000', 'https://example.test/commit/{commit}'), '');
+  assert.deepStrictEqual(workspaceBlameMessageParts('[to #41644075] Support issue', [{
+    issueRegexp: '[a-z]+\\s*#(\\d+)',
+    linkRegexp: 'https://issues.example.test/workitem/$1',
+  }]), [
+    { text: '[' },
+    { text: 'to #41644075', url: 'https://issues.example.test/workitem/41644075' },
+    { text: '] Support issue' },
+  ]);
+  assert.deepStrictEqual(workspaceBlameMessageParts('No issue', [{
+    issueRegexp: '(',
+    linkRegexp: 'https://issues.example.test/workitem/$1',
+  }]), [{ text: 'No issue' }]);
   assert.strictEqual(isPermanentWorkspaceBlameFailureStatus(409), true);
   assert.strictEqual(isPermanentWorkspaceBlameFailureStatus(500), false);
 

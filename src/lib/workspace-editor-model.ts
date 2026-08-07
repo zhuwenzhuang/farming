@@ -1,4 +1,4 @@
-import type { WorkspaceFile, WorkspaceFileLineChanges } from './workspace-files'
+import type { WorkspaceFile, WorkspaceFileLineChanges, WorkspaceIssueLinkRule } from './workspace-files'
 import { workspaceFileSupportsViewer } from './workspace-viewer-registry'
 import {
   shouldShowWorkspaceWorkingCopyOverwriteAction,
@@ -498,9 +498,78 @@ export function workspaceEditorBlameOverlayRows<T extends WorkspaceBlameOverlayL
 
 export function workspaceBlameAuthorProfileUrl(author: string, urlTemplate: string) {
   const value = author.trim()
-  if (!value || value === 'Unknown') return ''
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(value) || value === 'Unknown') return ''
   if (!urlTemplate || !urlTemplate.includes('{author}')) return ''
   return urlTemplate.replace(/\{author\}/g, encodeURIComponent(value))
+}
+
+export function workspaceBlameCommitUrl(commit: string, urlTemplate: string) {
+  const value = commit.trim()
+  if (!value || /^0+$/.test(value)) return ''
+  if (!urlTemplate || !urlTemplate.includes('{commit}')) return ''
+  return urlTemplate.replace(/\{commit\}/g, encodeURIComponent(value))
+}
+
+export interface WorkspaceBlameMessagePart {
+  text: string
+  url?: string
+}
+
+function workspaceIssueLinkUrl(template: string, match: RegExpExecArray) {
+  const candidate = template.replace(/\$(\d+)/g, (_placeholder, index) => encodeURIComponent(match[Number(index)] || ''))
+  try {
+    const url = new URL(candidate)
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString() : ''
+  }
+  catch {
+    return ''
+  }
+}
+
+export function workspaceBlameMessageParts(message: string, rules: readonly WorkspaceIssueLinkRule[]) {
+  if (!message || message.length > 4_096 || rules.length === 0) return [{ text: message }] satisfies WorkspaceBlameMessagePart[]
+  const candidates: Array<{ end: number; ruleIndex: number; start: number; text: string; url: string }> = []
+  rules.slice(0, 64).forEach((rule, ruleIndex) => {
+    if (!rule.issueRegexp || rule.issueRegexp.length > 2_048 || rule.linkRegexp.length > 4_096) return
+    let pattern: RegExp
+    try {
+      pattern = new RegExp(rule.issueRegexp, 'g')
+    }
+    catch {
+      return
+    }
+    let count = 0
+    let match: RegExpExecArray | null
+    while (count < 64 && (match = pattern.exec(message))) {
+      if (!match[0]) {
+        pattern.lastIndex += 1
+        continue
+      }
+      const url = workspaceIssueLinkUrl(rule.linkRegexp, match)
+      if (url) {
+        candidates.push({
+          start: match.index,
+          end: match.index + match[0].length,
+          ruleIndex,
+          text: match[0],
+          url,
+        })
+      }
+      count += 1
+    }
+  })
+  candidates.sort((left, right) => left.start - right.start || left.ruleIndex - right.ruleIndex || right.end - left.end)
+
+  const parts: WorkspaceBlameMessagePart[] = []
+  let offset = 0
+  candidates.forEach((candidate) => {
+    if (candidate.start < offset) return
+    if (candidate.start > offset) parts.push({ text: message.slice(offset, candidate.start) })
+    parts.push({ text: candidate.text, url: candidate.url })
+    offset = candidate.end
+  })
+  if (offset < message.length) parts.push({ text: message.slice(offset) })
+  return parts.length > 0 ? parts : [{ text: message }]
 }
 
 export function isPermanentWorkspaceBlameFailureStatus(status: number) {

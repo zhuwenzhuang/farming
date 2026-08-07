@@ -44,11 +44,20 @@ export function languageNavigatorRequestIsCurrent(
     && sameLanguageNavigatorSource(navigatorSource, requestSource)
 }
 
+export function languageNavigatorHierarchyRequestIsCurrent(
+  activeFile: LanguageNavigatorFileScope,
+  navigatorSource: LanguageNavigatorSource | null,
+  requestSource: LanguageNavigatorSource,
+) {
+  return activeFile.rootId === requestSource.rootId
+    && sameLanguageNavigatorSource(navigatorSource, requestSource)
+}
+
 export function languageNavigatorNodeRoot(
   activeFile: LanguageNavigatorFileScope,
   source: LanguageNavigatorSource,
 ) {
-  return languageNavigatorSourceIsActive(activeFile, source) ? source.rootId : null
+  return activeFile.rootId === source.rootId ? source.rootId : null
 }
 
 export function nextLanguageNavigatorDirectionSource(
@@ -56,7 +65,7 @@ export function nextLanguageNavigatorDirectionSource(
   currentSource: LanguageNavigatorSource | null,
   generation: number,
 ): LanguageNavigatorSource | null {
-  if (!currentSource || !languageNavigatorSourceIsActive(activeFile, currentSource)) return null
+  if (!currentSource || activeFile.rootId !== currentSource.rootId) return null
   return { rootId: currentSource.rootId, filePath: currentSource.filePath, generation }
 }
 

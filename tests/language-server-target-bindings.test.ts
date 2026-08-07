@@ -11,8 +11,18 @@ interface ProviderHarness {
   editorOpener?: {
     openCodeEditor(source: unknown, resource: unknown, selection: unknown): boolean
   }
+  semanticTokensProvider?: {
+    onDidChange(listener: () => void): { dispose(): void }
+  }
+  inlayHintsProvider?: {
+    onDidChangeInlayHints(listener: () => void): { dispose(): void }
+    provideInlayHints(model: unknown, range: unknown, token: unknown): Promise<{ hints: unknown[] }>
+  }
+  languageServerError?: new (message: string, status: number, code: string) => Error
   request: () => Promise<unknown>
 }
+
+let providerModuleSequence = 0
 
 async function loadMonacoProviders(harness: ProviderHarness) {
   const globalHarness = globalThis as typeof globalThis & { __farmingLanguageServerHarness?: ProviderHarness }
@@ -30,7 +40,19 @@ async function loadMonacoProviders(harness: ProviderHarness) {
           }` }
         }
         if (stubPath === 'client') {
-          return { contents: `export class LanguageServerError extends Error {}
+          return { contents: `export class LanguageServerError extends Error {
+              constructor(message, status, code) {
+                super(message)
+                this.status = status
+                this.code = code
+              }
+              get unavailable() {
+                return this.status === 503
+                  || this.code === 'LANGUAGE_SERVER_UNAVAILABLE'
+                  || this.code === 'LANGUAGE_SERVER_WORKSPACE_UNAVAILABLE'
+              }
+            }
+            globalThis.__farmingLanguageServerHarness.languageServerError = LanguageServerError
             export function requestLanguageServer() {
               return globalThis.__farmingLanguageServerHarness.request()
             }` }
@@ -38,9 +60,19 @@ async function loadMonacoProviders(harness: ProviderHarness) {
         return { contents: `
           const harness = globalThis.__farmingLanguageServerHarness
           const disposable = { dispose() {} }
+          export class Emitter {
+            listeners = new Set()
+            event = listener => {
+              this.listeners.add(listener)
+              return { dispose: () => this.listeners.delete(listener) }
+            }
+            fire() { this.listeners.forEach(listener => listener()) }
+          }
           export class Range {}
           export const MarkerSeverity = { Error: 8, Warning: 4, Info: 2, Hint: 1 }
+          export const TrackedRangeStickiness = { NeverGrowsWhenTypingAtEdges: 1 }
           export const editor = {
+            TrackedRangeStickiness,
             onWillDisposeModel() { return disposable },
             registerEditorOpener(value) { harness.editorOpener = value; return disposable },
             getModel() { return null },
@@ -51,6 +83,8 @@ async function loadMonacoProviders(harness: ProviderHarness) {
             registerDefinitionProvider(_selector, value) { harness.definitionProvider = value; return disposable },
             registerReferenceProvider() { return disposable },
             registerImplementationProvider() { return disposable },
+            registerDocumentSemanticTokensProvider(_selector, value) { harness.semanticTokensProvider = value; return disposable },
+            registerInlayHintsProvider(_selector, value) { harness.inlayHintsProvider = value; return disposable },
             registerDocumentSymbolProvider() { return disposable },
           }
         ` }
@@ -67,7 +101,8 @@ async function loadMonacoProviders(harness: ProviderHarness) {
     write: false,
   })
   const source = result.outputFiles[0]?.text || ''
-  return import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`)
+  providerModuleSequence += 1
+  return import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}#${providerModuleSequence}`)
 }
 
 test('target bindings are released with their source model', () => {
@@ -147,4 +182,153 @@ test('bindLanguageServerModels live inventory falls back from removed Agent B to
     null,
   ), true)
   assert.equal(openedRootId, 'agent-a')
+})
+
+test('Language Server refresh events are ordered and scoped to clean Project models', async () => {
+  const harness: ProviderHarness = { request: async () => [] }
+  const providers = await loadMonacoProviders(harness)
+  providers.bindLanguageServerModels([{
+    agentId: 'agent-a',
+    file: { path: 'clean.java' },
+    workspaceRoot: '/workspace-a/',
+    dirty: false,
+    externalChanged: false,
+  }, {
+    agentId: 'agent-b',
+    file: { path: 'dirty.java' },
+    workspaceRoot: '/workspace-b',
+    dirty: true,
+    externalChanged: false,
+  }])
+  let semanticRefreshes = 0
+  let inlayRefreshes = 0
+  harness.semanticTokensProvider?.onDidChange(() => { semanticRefreshes += 1 })
+  harness.inlayHintsProvider?.onDidChangeInlayHints(() => { inlayRefreshes += 1 })
+
+  assert.equal(providers.refreshLanguageServerProviders({
+    serverEpoch: 'server-1', rootId: 'agent-a', workspace: '/workspace-a', kind: 'semanticTokens', revision: 1,
+  }), true)
+  assert.equal(semanticRefreshes, 1)
+  assert.equal(providers.refreshLanguageServerProviders({
+    serverEpoch: 'server-1', rootId: 'agent-a', workspace: '/workspace-a', kind: 'semanticTokens', revision: 1,
+  }), false, 'a duplicate revision must not refresh providers again')
+  assert.equal(providers.refreshLanguageServerProviders({
+    serverEpoch: 'server-1', rootId: 'agent-a', workspace: '/workspace-a', kind: 'semanticTokens', revision: 0,
+  }), false, 'an older revision must not refresh providers')
+  assert.equal(providers.refreshLanguageServerProviders({
+    serverEpoch: 'server-1', rootId: 'agent-b', workspace: '/workspace-b', kind: 'inlayHints', revision: 1,
+  }), false, 'a dirty model must not consume saved-file semantic results')
+  assert.equal(providers.refreshLanguageServerProviders({
+    serverEpoch: 'server-1', rootId: 'agent-c', workspace: '/workspace-c', kind: 'inlayHints', revision: 1,
+  }), false, 'an unrelated Project must not refresh providers')
+  assert.equal(inlayRefreshes, 0)
+  assert.equal(providers.refreshLanguageServerProviders({
+    serverEpoch: 'server-2', rootId: 'agent-a', workspace: '/workspace-a', kind: 'semanticTokens', revision: 1,
+  }), true, 'a backend restart begins a new revision epoch')
+  assert.equal(semanticRefreshes, 2)
+})
+
+test('a cold-start Inlay Hints timeout stays refreshable after the Language Server becomes ready', async () => {
+  let requestCount = 0
+  const harness: ProviderHarness = {
+    request: async () => {
+      requestCount += 1
+      if (requestCount === 1) {
+        throw new harness.languageServerError!(
+          'jdtls request timed out',
+          504,
+          'LANGUAGE_SERVER_REQUEST_TIMEOUT',
+        )
+      }
+      return [{
+        position: { line: 0, character: 10 },
+        label: 'defaultValue:',
+        kind: 2,
+      }]
+    },
+  }
+  const providers = await loadMonacoProviders(harness)
+  providers.bindLanguageServerModels([{
+    agentId: 'agent-java',
+    file: { path: 'ColdStart.java' },
+    workspaceRoot: '/workspace-java',
+    dirty: false,
+    externalChanged: false,
+  }])
+  const model = {
+    uri: { toString: () => 'ColdStart.java' },
+    isDisposed: () => false,
+    getVersionId: () => 1,
+  }
+  const range = {
+    startLineNumber: 1,
+    startColumn: 1,
+    endLineNumber: 1,
+    endColumn: 20,
+  }
+  const token = { isCancellationRequested: false }
+
+  const initial = await harness.inlayHintsProvider?.provideInlayHints(model, range, token)
+  assert.deepEqual(initial?.hints, [], 'a transient startup timeout must not reject Monaco\'s provider')
+
+  let refreshes = 0
+  harness.inlayHintsProvider?.onDidChangeInlayHints(() => { refreshes += 1 })
+  assert.equal(providers.refreshLanguageServerProviders({
+    serverEpoch: 'server-java',
+    rootId: 'agent-java',
+    workspace: '/workspace-java',
+    kind: 'inlayHints',
+    revision: 1,
+  }), true)
+  assert.equal(refreshes, 1)
+
+  const ready = await harness.inlayHintsProvider?.provideInlayHints(model, range, token)
+  assert.equal(ready?.hints.length, 1)
+  assert.deepEqual(ready?.hints[0], {
+    position: { lineNumber: 1, column: 11 },
+    label: 'defaultValue:',
+    kind: 2,
+    tooltip: undefined,
+    paddingLeft: undefined,
+    paddingRight: undefined,
+  })
+})
+
+test('a refresh snapshot received before its Project model is bound is consumed after binding', async () => {
+  const harness: ProviderHarness = { request: async () => [] }
+  const providers = await loadMonacoProviders(harness)
+  const unrelated = {
+    agentId: 'agent-other',
+    file: { path: 'Other.java' },
+    workspaceRoot: '/workspace-other',
+    dirty: false,
+    externalChanged: false,
+  }
+  providers.bindLanguageServerModels([unrelated])
+  let inlayRefreshes = 0
+  harness.inlayHintsProvider?.onDidChangeInlayHints(() => { inlayRefreshes += 1 })
+  const snapshot = {
+    serverEpoch: 'server-reconnect',
+    rootId: 'agent-java',
+    workspace: '/workspace-java',
+    kind: 'inlayHints' as const,
+    revision: 3,
+  }
+
+  assert.equal(providers.refreshLanguageServerProviders(snapshot), false)
+  assert.equal(inlayRefreshes, 0, 'an unbound Project must not request saved-file hints yet')
+
+  providers.bindLanguageServerModels([unrelated, {
+    agentId: 'agent-java',
+    file: { path: 'Ready.java' },
+    workspaceRoot: '/workspace-java/',
+    dirty: false,
+    externalChanged: false,
+  }])
+  assert.equal(inlayRefreshes, 1)
+  assert.equal(
+    providers.refreshLanguageServerProviders(snapshot),
+    false,
+    'binding the Project must consume the pending revision so a replay stays idempotent',
+  )
 })

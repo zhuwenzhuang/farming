@@ -459,6 +459,13 @@ export interface CodeCopy {
   languageServerSavedFilesOnly: string
   languageServerUnavailable: string
   languageServerNoResults: string
+  languageServerSearchPrompt: string
+  languageServerResultsTruncated: (limit: number) => string
+  hierarchyRoot: string
+  hierarchyNoChildren: string
+  hierarchyLoadingChildren: string
+  expandHierarchyNode: (name: string) => string
+  collapseHierarchyNode: (name: string) => string
   languageServerSearchSymbols: string
   languageServerFeatureUnavailable: string
   lineChanges: string
@@ -1009,6 +1016,13 @@ const EN_COPY: CodeCopy = {
   languageServerSavedFilesOnly: 'Language features use the last saved file.',
   languageServerUnavailable: 'Language Server is unavailable.',
   languageServerNoResults: 'No results.',
+  languageServerSearchPrompt: 'Enter a symbol name to search this project.',
+  languageServerResultsTruncated: limit => `Showing the first ${limit} results. Refine the search to see more.`,
+  hierarchyRoot: 'Root',
+  hierarchyNoChildren: 'No related items.',
+  hierarchyLoadingChildren: 'Loading related items...',
+  expandHierarchyNode: name => `Expand ${name}`,
+  collapseHierarchyNode: name => `Collapse ${name}`,
   languageServerSearchSymbols: 'Search workspace symbols',
   languageServerFeatureUnavailable: 'VS Code does not provide this language feature for the selected file.',
   lineChanges: 'Line changes',
@@ -1595,6 +1609,13 @@ const ZH_COPY: CodeCopy = {
   languageServerSavedFilesOnly: '语言能力使用上次保存的文件。',
   languageServerUnavailable: 'Language Server 不可用。',
   languageServerNoResults: '没有结果。',
+  languageServerSearchPrompt: '输入符号名称以搜索当前 Project。',
+  languageServerResultsTruncated: limit => `仅显示前 ${limit} 个结果，请缩小搜索范围。`,
+  hierarchyRoot: '根节点',
+  hierarchyNoChildren: '没有下一级。',
+  hierarchyLoadingChildren: '正在加载下一级...',
+  expandHierarchyNode: name => `展开 ${name}`,
+  collapseHierarchyNode: name => `折叠 ${name}`,
   languageServerSearchSymbols: '搜索工作区符号',
   languageServerFeatureUnavailable: 'VS Code 没有为当前文件提供这项语言能力。',
   lineChanges: '行变化',

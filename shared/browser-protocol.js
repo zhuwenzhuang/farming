@@ -7,8 +7,8 @@ exports.validateClientMessage = validateClientMessage;
 exports.validateServerMessage = validateServerMessage;
 exports.protocolCompatible = protocolCompatible;
 const agent_state_semantics_js_1 = require("./agent-state-semantics.js");
-exports.PROTOCOL_VERSION = 9;
-exports.MIN_PROTOCOL_VERSION = 9;
+exports.PROTOCOL_VERSION = 10;
+exports.MIN_PROTOCOL_VERSION = 10;
 exports.PROJECT_ATTENTION_SCORE_MAX = agent_state_semantics_js_1.PROJECT_ATTENTION_SCORE_MAX;
 const CLIENT_MESSAGE_TYPES = new Set([
     'protocol-hello',
@@ -49,6 +49,7 @@ const SERVER_MESSAGE_TYPES = new Set([
     'agent-read',
     'workspace-file-watch',
     'workspace-file-event',
+    'language-server-refresh',
     'browser-resource-snapshot',
     'browser-resource-updated',
     'browser-resource-deleted',
@@ -393,6 +394,17 @@ function validateServerMessage(value) {
             break;
         case 'workspace-file-event':
             valid = objectMessage(value.event) && stringField(value.event, 'agentId');
+            break;
+        case 'language-server-refresh':
+            valid = stringField(value, 'serverEpoch')
+                && String(value.serverEpoch).length > 0
+                && stringField(value, 'rootId')
+                && String(value.rootId).length > 0
+                && stringField(value, 'workspace')
+                && String(value.workspace).length > 0
+                && (value.kind === 'semanticTokens' || value.kind === 'inlayHints')
+                && revisionField(value, 'revision')
+                && Number(value.revision) > 0;
             break;
         case 'browser-resource-snapshot':
             valid = resourceSnapshot(value.snapshot);

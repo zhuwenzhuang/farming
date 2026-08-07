@@ -28,6 +28,7 @@ interface FileEditorSurfaceProps {
   activeTabDomId: string
   blame: WorkspaceFileBlame | null
   blameAuthorProfileUrl: string
+  blameCommitUrl: string
   blameDetailLine: FileEditorBlameLine | null
   blameOpen: boolean
   blameOverlay: FileEditorBlameOverlayState
@@ -93,6 +94,7 @@ export function FileEditorSurface({
   activeTabDomId,
   blame,
   blameAuthorProfileUrl,
+  blameCommitUrl,
   blameDetailLine,
   blameOpen,
   blameOverlay,
@@ -229,6 +231,8 @@ export function FileEditorSurface({
           filePath={openFile.file.path}
           line={blameDetailLine}
           authorProfileUrl={blameAuthorProfileUrl}
+          commitUrl={blameCommitUrl}
+          issueLinkRules={blame?.issueLinkRules ?? []}
           copy={copy}
           onClose={onClearBlameDetail}
         />

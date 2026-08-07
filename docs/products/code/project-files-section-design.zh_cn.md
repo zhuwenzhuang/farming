@@ -98,6 +98,12 @@ Review Identity。这是两种不同交互层级，不能挤进同一个狭窄 S
 Git Operation 使用确定、Path-safe Input；Truncation 或 Timeout 作为可见 Partial Result，
 不能被解释成 Clean Workspace。
 
+Blame Annotation 使用有界 Git Porcelain Output，并保持 Commit Detail 可交互。能够安全映射
+Remote 时，Commit Hash 链接到 Repository Web View；符合账号形式的 GitLab Author 链接到
+同一 Remote Host 上的 Profile，含义不明确的 Display Name 保持普通文本；Commit Message 中的
+Issue Reference 遵循 Workspace `.idea/vcs.xml` 内的 IntelliJ
+`IssueNavigationConfiguration`。不支持、过大、非 HTTP(S) 或无效的规则继续按普通文本显示。
+
 ## 视觉与交互规则
 
 - Row 保持紧凑、稳定、支持键盘且单行展示。

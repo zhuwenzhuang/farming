@@ -54,6 +54,40 @@ const WORKSPACE_EDITOR_SYNTAX_ONLY_DIAGNOSTICS = {
   noSyntaxValidation: false,
   noSuggestionDiagnostics: true,
 } as const
+const WORKSPACE_EDITOR_SEMANTIC_TOKEN_RULES: monaco.editor.ITokenThemeRule[] = [
+  { token: 'namespace', foreground: '267F99' },
+  { token: 'type', foreground: '267F99' },
+  { token: 'class', foreground: '267F99' },
+  { token: 'enum', foreground: '267F99' },
+  { token: 'interface', foreground: '267F99' },
+  { token: 'struct', foreground: '267F99' },
+  { token: 'typeParameter', foreground: '267F99' },
+  { token: 'record', foreground: '267F99' },
+  { token: 'function', foreground: '795E26' },
+  { token: 'method', foreground: '795E26' },
+  { token: 'parameter', foreground: '001080' },
+  { token: 'property', foreground: '001080' },
+  { token: 'annotationMember', foreground: '001080' },
+  { token: 'recordComponent', foreground: '001080' },
+  { token: 'enumMember', foreground: '0070C1' },
+]
+const WORKSPACE_EDITOR_DARK_SEMANTIC_TOKEN_RULES: monaco.editor.ITokenThemeRule[] = [
+  { token: 'namespace', foreground: '4EC9B0' },
+  { token: 'type', foreground: '4EC9B0' },
+  { token: 'class', foreground: '4EC9B0' },
+  { token: 'enum', foreground: '4EC9B0' },
+  { token: 'interface', foreground: '4EC9B0' },
+  { token: 'struct', foreground: '4EC9B0' },
+  { token: 'typeParameter', foreground: '4EC9B0' },
+  { token: 'record', foreground: '4EC9B0' },
+  { token: 'function', foreground: 'DCDCAA' },
+  { token: 'method', foreground: 'DCDCAA' },
+  { token: 'parameter', foreground: '9CDCFE' },
+  { token: 'property', foreground: '9CDCFE' },
+  { token: 'annotationMember', foreground: '9CDCFE' },
+  { token: 'recordComponent', foreground: '9CDCFE' },
+  { token: 'enumMember', foreground: '4FC1FF' },
+]
 const WORKSPACE_EDITOR_CONTEXT_MENU_IGNORE_SELECTOR = [
   '.code-editor-context-menu',
   '.code-file-tab-context-menu',
@@ -103,7 +137,7 @@ function defineCodexMonacoThemes() {
   monaco.editor.defineTheme(CODEX_LIGHT_MONACO_THEME, {
     base: 'vs',
     inherit: true,
-    rules: [],
+    rules: WORKSPACE_EDITOR_SEMANTIC_TOKEN_RULES,
     colors: {
       'editor.background': '#ffffff',
       'editor.foreground': '#24292f',
@@ -122,7 +156,7 @@ function defineCodexMonacoThemes() {
   monaco.editor.defineTheme(CODEX_DARK_MONACO_THEME, {
     base: 'vs-dark',
     inherit: true,
-    rules: [],
+    rules: WORKSPACE_EDITOR_DARK_SEMANTIC_TOKEN_RULES,
     colors: {
       'editor.background': '#181818',
       'editor.foreground': '#ffffff',
@@ -231,6 +265,14 @@ export function workspaceEditorCreateOptions({
     fixedOverflowWidgets: true,
     editContext: false,
     contextmenu: false,
+    occurrencesHighlight: 'singleFile',
+    occurrencesHighlightDelay: 150,
+    'semanticHighlighting.enabled': true,
+    inlayHints: {
+      enabled: 'on',
+      padding: true,
+      maximumLength: 80,
+    },
     unicodeHighlight: {
       ambiguousCharacters: false,
       invisibleCharacters: true,

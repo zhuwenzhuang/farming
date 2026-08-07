@@ -55,11 +55,44 @@ export interface LanguageServerDiagnostic {
   code?: string | number
 }
 
+export interface LanguageServerDocumentHighlight {
+  range: LanguageServerRange
+  kind?: number
+}
+
+export interface LanguageServerSemanticTokensLegend {
+  tokenTypes: string[]
+  tokenModifiers: string[]
+}
+
+export interface LanguageServerSemanticTokens {
+  data: number[]
+  resultId?: string
+  legend: LanguageServerSemanticTokensLegend
+}
+
+export interface LanguageServerInlayHintLabelPart {
+  value: string
+  tooltip?: string | { kind?: string; value: string }
+}
+
+export interface LanguageServerInlayHint {
+  position: LanguageServerPosition
+  label: string | LanguageServerInlayHintLabelPart[]
+  kind?: number
+  tooltip?: string | { kind?: string; value: string }
+  paddingLeft?: boolean
+  paddingRight?: boolean
+}
+
 export type LanguageServerMethod =
   | 'hover'
   | 'definition'
   | 'references'
   | 'implementation'
+  | 'documentHighlights'
+  | 'semanticTokens'
+  | 'inlayHints'
   | 'documentSymbols'
   | 'workspaceSymbols'
   | 'prepareCallHierarchy'
@@ -75,6 +108,7 @@ export interface LanguageServerRequest {
   method: LanguageServerMethod
   filePath?: string
   position?: LanguageServerPosition
+  range?: LanguageServerRange
   query?: string
   itemId?: string
 }
