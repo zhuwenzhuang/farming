@@ -1717,15 +1717,24 @@ function getCrtAgentTitle(agent: CrtAgent|undefined) {
   if (customTitle) return customTitle;
   if (agent.isMain) return 'Main Agent';
 
-  const providerTitle = meaningfulCrtSessionTitle(agent.providerSessionTitle, agent);
-  if (providerTitle) return providerTitle;
-
-  const sessionTitle = meaningfulCrtSessionTitle(agent.sessionTitle, agent);
-  if (sessionTitle) return sessionTitle;
+  const adaptiveTitle = meaningfulCrtSessionTitle(agent.adaptiveTitle, agent);
+  if (adaptiveTitle) return adaptiveTitle;
 
   if (/^[a-z]+-history(?:-fork)?:/.test(agent.source || '')) {
+    const providerTitle = meaningfulCrtSessionTitle(agent.providerSessionTitle, agent);
+    if (providerTitle) return providerTitle;
+
+    const sessionTitle = meaningfulCrtSessionTitle(agent.sessionTitle, agent);
+    if (sessionTitle) return sessionTitle;
+
     const taskTitle = meaningfulCrtSessionTitle(agent.task, agent);
     if (taskTitle) return taskTitle;
+  } else if (agent.runtimeBinding?.kind !== 'acp') {
+    const providerTitle = meaningfulCrtSessionTitle(agent.providerSessionTitle, agent);
+    if (providerTitle) return providerTitle;
+
+    const sessionTitle = meaningfulCrtSessionTitle(agent.sessionTitle, agent);
+    if (sessionTitle) return sessionTitle;
   }
 
   return crtAgentDisplayName(agent.command);

@@ -57,10 +57,15 @@ Provider 明确声明 `session/close` Capability 时才发送关闭请求；否�
 Session 引用，并在 Project Connection 的最后一个 Session 结束时回收 Provider Process。
 
 Browser 与 Computer 使用实例精确的 Farming CLI 和共享 Backend Service，不再为每个 Agent
-启动一份 Capability 子进程。每个 ACP Binding 通过 Session Context 获得自己的 Agent 名字；
-CLI 调用携带该本地名字，Backend 直接解析当前 Agent 与 Project Workspace。Agent 名字只用于
-路由，不是单独的授权 Credential。Farming 不向 ACP Session 注入自有 Capability MCP Entry；
-Provider 与用户 MCP 配置仍是私有 Session Input。
+启动一份 Capability 子进程。每个 ACP Session 通过 Session-scoped Environment Metadata
+获得自己的 Agent 与 Project Identity；CLI 调用携带该本地身份，Backend 直接解析当前 Agent
+与 Project Workspace。Identity 与其它 Farming Operational Context 绝不能追加到用户 Prompt。
+Agent 名字只用于路由，不是单独的授权 Credential。Farming 不向 ACP Session 注入自有
+Capability MCP Entry；Provider 与用户 MCP 配置仍是私有 Session Input。
+
+Farming Bootstrap 只包含 Provider-neutral 的操作指令，不定义用户偏好的回复语言。对于只有
+标点或其它 Language-neutral 的输入，不得从 Bootstrap、UI Locale、Agent Identity、Workspace
+Metadata 或隐藏 Operational Context 推断回复语言。
 
 ## Session 身份与配置
 
@@ -153,8 +158,13 @@ Reasoning 与 Tool Detail 不应在默认阅读面上形成重叠摘要。Disclo
 槽位，只在 Hover 或 Keyboard Focus 时视觉浮现。
 
 新建 Chat 在 Session 连接期间持续显示稳定的空对话状态。Session 启动不属于 Active Turn，
-不得启用 Steer，也不应使用短暂的启动文案替换空状态。显式 History Restore 可以在首份权威
-Transcript 稳定前显示有界的同步反馈。
+不得启用 Steer，也不应使用短暂的启动文案替换空状态。新 Session 启动期间的 Transcript
+读取失败不能替换该空状态；真实 Runtime Failure 仍通过权威 Runtime 与 Composer State 显示。
+显式 History Restore 可以在首份权威 Transcript 稳定前显示有界的同步反馈。
+
+Live Chat Agent 只允许显式用户重命名或 Agent-managed Adaptive Title 覆盖稳定 Provider 名称。
+由第一条 Prompt 派生的 Provider Session Title 属于 History Metadata，不能重命名 Live Agent；
+恢复的 History Agent 在没有更强标题来源时可以使用其持久 Provider Session Title。
 
 尚未 Settled 但已包含 Turn 的权威 Transcript 必须立即进入显示，同时先在后台执行有界的快速
 稳定重试，之后以更慢的恢复节奏继续对账，直到获得权威 Settled Response。只有“预期存在历史

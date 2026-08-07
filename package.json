@@ -11,7 +11,7 @@
   "files": [
     "backend/usage-history-scanner.generated.js",
     "backend/*.cjs",
-    "backend/farming-agent-bootstrap.zh_cn.md",
+    "backend/farming-agent-bootstrap.md",
     "backend/acp/*.cjs",
     "backend/data/",
     "backend/vendor/usage-parsers/",

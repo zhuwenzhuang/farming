@@ -118,7 +118,7 @@ function managedChromiumInstallLockDir(configDir: string): string {
 }
 
 function farmingAgentBootstrapFile(configDir: string): string {
-  return path.join(configDir, 'farming-agent-bootstrap.zh_cn.md');
+  return path.join(configDir, 'farming-agent-bootstrap.md');
 }
 
 function sessionIndexFile(configDir: string): string {

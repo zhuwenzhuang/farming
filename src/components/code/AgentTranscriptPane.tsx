@@ -3858,7 +3858,6 @@ export function AgentTranscriptPane({
     )
   const showFreshAcpEmpty = source === 'acp'
     && !expectHistory
-    && !error
     && turns.length === 0
   const awaitingInitialReveal = !initialRevealReady
     && !error

@@ -12,6 +12,27 @@ async function createCodexChat(page: import('@playwright/test').Page, workspace:
   return agentId
 }
 
+test('keeps a fresh Chat in its empty state when the startup transcript read fails', async ({ page, workspaceRoot }) => {
+  const agentId = await createCodexChat(page, path.join(workspaceRoot, 'acp-fresh-empty-read-failure'))
+  let transcriptRequests = 0
+  const transcriptRoute = new RegExp(`/farming/api/agents/${agentId}/acp-transcript(?:\\?.*)?$`)
+  await page.route(transcriptRoute, async route => {
+    transcriptRequests += 1
+    await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'startup fixture unavailable' }) })
+  })
+
+  await openFarming(page)
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+  await expect.poll(() => transcriptRequests).toBeGreaterThanOrEqual(1)
+  await expect(page.locator('.code-agent-transcript-blank')).toHaveText('No conversation yet.')
+  await expect(page.getByText('Chat history is unavailable for this session.', { exact: true })).toHaveCount(0)
+
+  await page.waitForTimeout(1_200)
+  await expect(page.locator('.code-agent-transcript-blank')).toHaveText('No conversation yet.')
+  await expect(page.getByText('Chat history is unavailable for this session.', { exact: true })).toHaveCount(0)
+  await page.unroute(transcriptRoute)
+})
+
 test('retries an unsettled authoritative transcript when returning to and refreshing an existing Chat', async ({ page, workspaceRoot }) => {
   const agentId = await createCodexChat(page, path.join(workspaceRoot, 'acp-existing-chat-recovery'))
   const emptyAgentId = await createCodexChat(page, path.join(workspaceRoot, 'acp-existing-chat-recovery-empty'))

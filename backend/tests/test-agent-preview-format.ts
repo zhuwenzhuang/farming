@@ -11,9 +11,9 @@ const { importTsModule } = require('./helpers/import-ts-module');
   assert.strictEqual(agentDisplayName('claude'), 'Claude Code');
   assert.strictEqual(agentDisplayName('bash'), 'bash');
   assert.strictEqual(
-    agentTitle({ command: 'claude', sessionTitle: 'Investigating planner bug', task: 'Fallback task' }),
+    agentTitle({ command: 'claude', source: 'claude-history:8d8f', sessionTitle: 'Investigating planner bug', task: 'Fallback task' }),
     'Investigating planner bug',
-    'agent-updated session titles should drive sidebar titles before task text'
+    'history session titles should drive sidebar titles before task text'
   );
   assert.strictEqual(
     agentTitle({ command: 'claude', sessionTitle: 'Claude Code' }),
@@ -80,11 +80,22 @@ const { importTsModule } = require('./helpers/import-ts-module');
       command: 'codex',
       cwd: '/repo/warehouse-engine',
       projectWorkspace: '/repo/warehouse-engine',
+      runtimeBinding: { kind: 'acp' },
+      providerSessionTitle: '看下cron worker怎么加新模块',
+      sessionTitle: 'warehouse-engine',
+    }),
+    'Codex',
+    'a live Agent must not use the first user prompt exposed as a Provider session title'
+  );
+  assert.strictEqual(
+    agentTitle({
+      command: 'codex',
+      source: 'codex-history:019d0f72',
       providerSessionTitle: '看下cron worker怎么加新模块',
       sessionTitle: 'warehouse-engine',
     }),
     '看下cron worker怎么加新模块',
-    'resolved provider session titles should win over generic terminal workspace titles'
+    'a resumed history Agent should retain its durable Provider session title'
   );
   assert.strictEqual(
     agentTitle({ command: 'codex', source: 'codex-history:019d0f73', task: 'Hash delta daily 问题调查3', sessionTitle: 'Codex' }),

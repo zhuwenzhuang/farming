@@ -212,6 +212,7 @@ interface CrtAgent extends CrtUnknownRecord {
   engineName?: string;
   customTitle?: string;
   providerSessionTitle?: string;
+  adaptiveTitle?: string;
   sessionTitle?: string;
   cwd?: string;
   projectWorkspace?: string;

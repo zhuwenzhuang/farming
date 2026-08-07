@@ -1614,7 +1614,7 @@ function testBrowserUiAndPackagingWiring() {
   assert.strictEqual(packageJson.bin['farming-browser'], 'extensions/browser/bin/farming-browser');
   assert(packageJson.files.includes('extensions/browser/backend/*.cjs'));
   assert(packageJson.files.includes('extensions/browser/bin/'));
-  assert(packageJson.files.includes('backend/farming-agent-bootstrap.zh_cn.md'));
+  assert(packageJson.files.includes('backend/farming-agent-bootstrap.md'));
   for (const guide of externalCdpGuides) {
     assert.doesNotMatch(guide, /^\s*--network host\b/m);
     assert.doesNotMatch(guide, /^\s*--no-sandbox\b/m);

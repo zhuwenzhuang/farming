@@ -81,7 +81,7 @@ function run() {
     assert.strictEqual(manager.getSettings().computerExtensionEnabled, false);
     assert.strictEqual(
       fs
-        .readFileSync(path.join(farmingDir, 'farming-agent-bootstrap.zh_cn.md'), 'utf8')
+        .readFileSync(path.join(farmingDir, 'farming-agent-bootstrap.md'), 'utf8')
         .includes('"$FARMING_CLI_BIN_DIR/farming" capabilities'),
       true,
     );

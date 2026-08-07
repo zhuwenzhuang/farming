@@ -110,6 +110,7 @@ interface AgentTitleSource {
   task?: string
   source?: string
   isMain?: boolean
+  runtimeBinding?: { kind?: string }
 }
 
 function resolveAgentTitle(agent: AgentTitleSource) {
@@ -121,21 +122,27 @@ function resolveAgentTitle(agent: AgentTitleSource) {
   const adaptiveTitle = meaningfulSessionTitle(agent.adaptiveTitle, agent)
   if (adaptiveTitle) return adaptiveTitle
 
-  const providerSessionTitle = meaningfulSessionTitle(agent.providerSessionTitle, agent)
-  if (providerSessionTitle) return providerSessionTitle
-
-  const sessionTitle = meaningfulSessionTitle(agent.sessionTitle, agent)
-  if (sessionTitle) return sessionTitle
-
   if (/^[a-z]+-history(?:-fork)?:/.test(agent.source || '')) {
+    const providerSessionTitle = meaningfulSessionTitle(agent.providerSessionTitle, agent)
+    if (providerSessionTitle) return providerSessionTitle
+
+    const sessionTitle = meaningfulSessionTitle(agent.sessionTitle, agent)
+    if (sessionTitle) return sessionTitle
+
     const taskTitle = meaningfulSessionTitle(agent.task, agent)
     if (taskTitle) return taskTitle
+  } else if (agent.runtimeBinding?.kind !== 'acp') {
+    const providerSessionTitle = meaningfulSessionTitle(agent.providerSessionTitle, agent)
+    if (providerSessionTitle) return providerSessionTitle
+
+    const sessionTitle = meaningfulSessionTitle(agent.sessionTitle, agent)
+    if (sessionTitle) return sessionTitle
   }
 
   return agentDisplayName(agent.command)
 }
 
-/** Prefer a user rename, then the Agent-managed title, runtime titles, and finally its kind. */
+/** Prefer a user rename, then an Agent-managed title, history metadata, and finally its kind. */
 export function agentTitle(agent: AgentTitleSource) {
   return truncateTitle(resolveAgentTitle(agent))
 }

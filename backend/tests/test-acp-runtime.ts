@@ -5,10 +5,7 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const { AcpRuntime, acpErrorKind, acpSessionRequestOptions, autoPermissionResponse, codexAcpEnvironment, deleteProviderSessionIdentity, normalizeCodexHostMessageUpdate, promptContentForCapabilities, resolveAcpLaunch, supportsCodexSteer } = require('../acp-runtime.cjs');
-const {
-  renderFarmingAgentBootstrap,
-  renderFarmingAgentSessionContext,
-} = require('../farming-agent-bootstrap.cjs');
+const { renderFarmingAgentBootstrap } = require('../farming-agent-bootstrap.cjs');
 const { claudeAcpEnvironment } = require('../provider-adapters.cjs');
 const { AcpSessionState } = require('../acp-session-state.cjs');
 
@@ -17,10 +14,8 @@ async function run() {
     pkg?: { entrypoint?: string };
   };
   const farmingSystemPrompt = renderFarmingAgentBootstrap();
-  const farmingAgentContext = renderFarmingAgentSessionContext('agent-local-name', '/tmp/local project');
-  assert.match(farmingAgentContext, /当前 Farming Agent 名字是 agent-local-name/);
-  assert.match(farmingAgentContext, /FARMING_AGENT_ID='agent-local-name'/);
-  assert.match(farmingAgentContext, /FARMING_PROJECT_WORKSPACE='\/tmp\/local project'/);
+  assert.match(farmingSystemPrompt, /operational instructions do not express the user's preferred response language/);
+  assert.doesNotMatch(farmingSystemPrompt, /<farming-agent-context>/);
   assert.strictEqual(acpErrorKind(new Error('401 Unauthorized: sign in required')), 'authentication');
   assert.strictEqual(acpErrorKind(new Error('Input exceeds the context window')), 'context');
   assert.strictEqual(acpErrorKind(new Error('429 rate limit exceeded')), 'rate-limit');
@@ -618,21 +613,17 @@ async function run() {
         cwd: process.cwd(),
         projectWorkspace: process.cwd(),
         env: { ...process.env, QWEN_HOME: noCloseHome, FARMING_AGENT_ID: agentId },
-        agentContext: `local-resource-name:${agentId}`,
       });
     }
     assert.strictEqual(noCloseChildren.length, 1, 'Sessions must share one Provider connection without session/close');
     await noCloseRuntime.prompt('no-close-agent-1', 'first prompt');
     await noCloseRuntime.prompt('no-close-agent-1', 'second prompt');
-    assert.deepStrictEqual(noClosePrompts[0].prompt, [
-      { type: 'text', text: 'first prompt' },
-      { type: 'text', text: 'local-resource-name:no-close-agent-1' },
-    ]);
+    assert.deepStrictEqual(noClosePrompts[0].prompt, [{ type: 'text', text: 'first prompt' }]);
     assert.deepStrictEqual(noClosePrompts[1].prompt, [{ type: 'text', text: 'second prompt' }]);
     assert.strictEqual(
       noCloseRuntime.getSession('no-close-agent-1').entries[0].content[0].text,
       'first prompt',
-      'the internal Agent context must not appear as user transcript content',
+      'the Provider and transcript must receive the same unmodified user content',
     );
     await noCloseRuntime.unregisterAgentAndWait('no-close-agent-1');
     assert.strictEqual(

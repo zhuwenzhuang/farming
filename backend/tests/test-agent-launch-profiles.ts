@@ -4,17 +4,17 @@ const { renderFarmingAgentBootstrap } = require('../farming-agent-bootstrap.cjs'
 
 function run() {
   const farmingSystemPrompt = renderFarmingAgentBootstrap();
-  assert.match(farmingSystemPrompt, /将 `agent-browser` 封装为 Farming Browser/);
+  assert.match(farmingSystemPrompt, /wraps `agent-browser` as Farming Browser/);
   assert.match(farmingSystemPrompt, /"\$FARMING_CLI_BIN_DIR\/farming" capabilities/);
-  assert.match(farmingSystemPrompt, /不要依赖 Shell 的 `PATH`/);
-  assert.match(farmingSystemPrompt, /整体效率、可靠性和可验证性选择工具/);
-  assert.match(farmingSystemPrompt, /当前 Agent 自带的能力/);
-  assert.match(farmingSystemPrompt, /环境中已有的 CLI、项目工具或服务专用 Connector\/MCP/);
-  assert.match(farmingSystemPrompt, /能更直接、更快或更可靠地完成不依赖交互界面的任务/);
-  assert.match(farmingSystemPrompt, /任务本身必须依赖浏览器或完整桌面交互时/);
-  assert.match(farmingSystemPrompt, /让用户与 Agent 关注、操作并按需接管同一个共享资源/);
-  assert.match(farmingSystemPrompt, /真实页面视觉\/控制台\/网络状态/);
-  assert.match(farmingSystemPrompt, /Farming Computer 只用于必须操作完整桌面/);
+  assert.match(farmingSystemPrompt, /Do not rely on the shell `PATH`/);
+  assert.match(farmingSystemPrompt, /overall efficiency, reliability, and verifiability/);
+  assert.match(farmingSystemPrompt, /built-in Agent capabilities/);
+  assert.match(farmingSystemPrompt, /existing CLIs, project tools, or service-specific connectors\/MCPs/);
+  assert.match(farmingSystemPrompt, /more directly, quickly, or reliably/);
+  assert.match(farmingSystemPrompt, /inherently requires browser or full-desktop interaction/);
+  assert.match(farmingSystemPrompt, /observe, operate, and take over the same shared resource/);
+  assert.match(farmingSystemPrompt, /real page visuals, console or network state/);
+  assert.match(farmingSystemPrompt, /Use Farming Computer only when the task requires a full desktop/);
 
   const claudeDefault = resolveLaunchCommand('claude', { dangerouslySkipPermissions: false });
   assert.deepStrictEqual(claudeDefault.args, []);

@@ -1294,7 +1294,8 @@ function run() {
       transcriptPaneSource.includes('&& !error') &&
       transcriptPaneSource.includes("expectHistory && transcript?.envelopeVersion === 1 && transcript.settled !== true") &&
       transcriptPaneSource.includes("const showFreshAcpEmpty = source === 'acp'") &&
-      transcriptPaneSource.includes("const showFreshAcpEmpty = source === 'acp'\n    && !expectHistory\n    && !error\n    && turns.length === 0") &&
+      transcriptPaneSource.includes("const showFreshAcpEmpty = source === 'acp'\n    && !expectHistory\n    && turns.length === 0") &&
+      !transcriptPaneSource.includes("const showFreshAcpEmpty = source === 'acp'\n    && !expectHistory\n    && !error") &&
       transcriptPaneSource.includes('showFreshAcpEmpty ? (') &&
       transcriptPaneSource.includes('loading || awaitingAcpHistory') &&
       workspaceSource.includes('无法加载此会话的 Chat 历史。') &&

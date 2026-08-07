@@ -86,7 +86,7 @@ async function run() {
     assert.strictEqual(captured[0].env.FARMING_CAPABILITIES_COMMAND, 'farming capabilities');
     assert.strictEqual(
       captured[0].env.FARMING_STARTUP_PROMPT_FILE,
-      path.join(farmingDir, 'farming-agent-bootstrap.zh_cn.md'),
+      path.join(farmingDir, 'farming-agent-bootstrap.md'),
     );
     assert.strictEqual(captured[0].cwd, mainWorkspace);
     assert.strictEqual(captured[0].env.FARMING_MAIN_WORKSPACE, mainWorkspace);
@@ -153,7 +153,7 @@ async function run() {
       'the OpenCode instructions file must contain the same bootstrap as other providers',
     );
     assert(
-      farmingSystemPrompt.includes('farming" title "简短任务标题"'),
+      farmingSystemPrompt.includes('farming" title "Short task title"'),
       'the shared Terminal and ACP bootstrap must require concise Agent-managed titles',
     );
 

@@ -42,6 +42,7 @@ function run() {
     assert(config.pkg.scripts.includes('backend/terminal-screen-worker-thread.pkg.js'));
     assert(config.pkg.scripts.includes('backend/usage-history-worker.pkg.js'));
     assert(config.pkg.assets.includes('backend/cua-tools.json'));
+    assert(config.pkg.assets.includes('backend/farming-agent-bootstrap.md'));
     assert(config.pkg.assets.includes('node_modules/node-pty/lib/**/*.js'));
     assert.strictEqual(config.pkg.fallbackToSource, false);
   } finally {

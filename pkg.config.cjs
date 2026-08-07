@@ -15,7 +15,7 @@ module.exports = {
       'dist/**/*',
       'backend/cua-tools.json',
       'backend/data/**/*',
-      'backend/farming-agent-bootstrap.zh_cn.md',
+      'backend/farming-agent-bootstrap.md',
       'backend/vendor/usage-parsers/**/*',
       'frontend/*.js',
       'frontend/skins/**/*',

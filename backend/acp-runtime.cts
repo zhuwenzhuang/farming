@@ -144,7 +144,6 @@ interface AcpBinding {
   agentId: string; provider: string; providerHomeId: string; providerHomePath: string;
   providerHomeIdentity: string; projectPath: string; cwd: string;
   capabilityRuntimeEpoch: string;
-  agentContext: string; agentContextPending: boolean;
   sessionRequestOptions: AcpSessionRequestOptions; env: NodeJS.ProcessEnv; launch: AcpLaunch;
   restartOptions: PrepareAgentOptions; approvalMode: string; ownsProcessGroup: boolean;
   runtime: AcpRuntimeProcess | null;
@@ -240,7 +239,6 @@ interface PrepareAgentOptions extends UnknownRecord {
   configOverrides?: SessionConfigChange[];
   executable?: string; env?: NodeJS.ProcessEnv; runtimeEnv?: NodeJS.ProcessEnv;
   additionalDirectories?: string[]; mcpServers?: UnknownRecord[]; farmingSystemPrompt?: string;
-  agentContext?: string;
   requireLoad?: boolean; expectedRevision?: number; retainForCleanup?: boolean;
   onProcessStarted?: (identity: ProcessIdentity) => Promise<void> | void;
   onForkSessionCreated?: (sessionId: string) => Promise<void> | void;
@@ -1561,7 +1559,6 @@ class AcpRuntime extends EventEmitter {
       throw new Error('ACP capability runtime epoch is invalid');
     }
     const launch = this.resolveLaunch(provider, options);
-    const agentContext = String(options.agentContext || '').trim();
     const cwd = path.resolve(options.cwd || process.cwd());
     const projectPath = path.resolve(String(options.projectWorkspace || cwd).trim() || cwd);
     const requestedSessionId = String(options.sessionId || '').trim();
@@ -1633,8 +1630,6 @@ class AcpRuntime extends EventEmitter {
     const binding: AcpBinding = {
       agentId,
       capabilityRuntimeEpoch,
-      agentContext,
-      agentContextPending: Boolean(agentContext),
       provider,
       providerHomeId: String(options.providerHomeId || 'default'),
       providerHomePath,
@@ -2954,9 +2949,6 @@ class AcpRuntime extends EventEmitter {
       rawContent,
       binding.initializeResponse?.agentCapabilities || {},
     );
-    const providerContent = binding.agentContextPending
-      ? [...content, { type: 'text', text: binding.agentContext }]
-      : content;
     const turn = this.beginTurn(binding);
     try {
       options.onTurnAdmitted?.({ previousState: String(turn.previousState || 'idle') });
@@ -2997,7 +2989,7 @@ class AcpRuntime extends EventEmitter {
     this.emitSession(binding);
     let response;
     try {
-      const responsePromise = binding.connection.prompt({ sessionId: binding.sessionId, prompt: providerContent });
+      const responsePromise = binding.connection.prompt({ sessionId: binding.sessionId, prompt: content });
       try {
         options.onSubmitted?.({ steered: false });
       } catch {
@@ -3005,7 +2997,6 @@ class AcpRuntime extends EventEmitter {
       }
       response = await responsePromise;
       turn.providerSettled = true;
-      binding.agentContextPending = false;
     } catch (error) {
       turn.providerSettled = true;
       const runtimeError = new Error(acpErrorMessage(error), { cause: error });

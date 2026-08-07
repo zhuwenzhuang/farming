@@ -431,6 +431,7 @@ function run() {
     command: 'codex resume --last',
     cwd: '/repo/farming',
     projectWorkspace: '/repo/farming',
+    source: 'codex-history:019d0f72',
     providerSessionTitle: '修复终端缩略图展示',
     sessionTitle: 'farming',
     status: 'running',
@@ -445,6 +446,16 @@ function run() {
   assert.strictEqual(
     getCrtAgentTitle({ ...titledAgent, customTitle: '用户命名的 Agent' }),
     '用户命名的 Agent',
+  );
+  assert.strictEqual(
+    getCrtAgentTitle({ ...titledAgent, source: 'ui', runtimeBinding: { kind: 'acp' }, providerSessionTitle: '第一条消息', sessionTitle: '第一条消息' }),
+    'Codex',
+    'CRT live Agents must not use first-message Provider titles',
+  );
+  assert.strictEqual(
+    getCrtAgentTitle({ ...titledAgent, source: 'ui', adaptiveTitle: 'Agent-generated title' }),
+    'Agent-generated title',
+    'CRT should use the same explicit adaptive-title source as Farming Code',
   );
   assert.strictEqual(
     getCrtAgentTitle({ command: 'qodercli', sessionTitle: '✦ Working… (farming)' }),

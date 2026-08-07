@@ -76,11 +76,18 @@ Project connection reclaims the Provider process when its final Session ends.
 
 Browser and Computer capabilities use the instance-exact Farming CLI and
 shared backend services rather than one capability subprocess per Agent.
-Each ACP Binding receives its Agent name as Session context. CLI calls carry
-that local name, and the backend resolves the current Agent and Project
-workspace directly. The name is routing state, not a separate authorization
-credential. Farming-owned capability MCP entries are not injected into ACP
-Sessions; provider and user MCP configuration remains a private Session input.
+Each ACP Session receives its Agent and Project identity through Session-scoped
+environment metadata. CLI calls carry that local identity, and the backend
+resolves the current Agent and Project workspace directly. Identity and other
+Farming operational context must never be appended to a user Prompt. The name
+is routing state, not a separate authorization credential. Farming-owned
+capability MCP entries are not injected into ACP Sessions; provider and user
+MCP configuration remains a private Session input.
+
+Farming's bootstrap contains provider-neutral operational instructions. It does
+not define the user's preferred response language, and punctuation-only or
+otherwise language-neutral input must not derive a language from bootstrap,
+UI locale, Agent identity, workspace metadata, or hidden operational context.
 
 ## Session Identity And Configuration
 
@@ -201,9 +208,17 @@ focus.
 
 A fresh Chat shows the stable empty-conversation state while its Session
 connects. Session startup is not an active Turn and must not enable Steer or
-replace the empty state with transient startup copy. Explicit history restores
-may show bounded synchronization feedback until their first authoritative
-transcript settles.
+replace the empty state with transient startup copy. A startup-time transcript
+read failure for a fresh Session cannot replace that empty state; an actual
+Runtime failure remains visible through the authoritative Runtime and Composer
+state. Explicit history restores may show bounded synchronization feedback
+until their first authoritative transcript settles.
+
+A live Chat Agent uses only an explicit user rename or an Agent-managed adaptive
+title above its stable provider name. Provider Session titles derived from the
+first Prompt are history metadata and do not rename a live Agent. A restored
+history Agent may use its durable Provider Session title when no stronger title
+exists.
 
 An unsettled authoritative transcript that already contains Turns is admitted
 immediately while bounded fast settlement retries continue in the background,

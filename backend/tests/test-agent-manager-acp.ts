@@ -105,8 +105,17 @@ async function run() {
     const initialCapabilityRuntimeEpoch = runtime.bindingEpoch(agentId);
     assert.strictEqual(binding.capabilityRuntimeEpoch, initialCapabilityRuntimeEpoch);
     assert.strictEqual(binding.env.FARMING_AGENT_TITLE_TOKEN, undefined);
-    assert.match(binding.agentContext, new RegExp(`当前 Farming Agent 名字是 ${agentId}`));
     assert.strictEqual(binding.env.FARMING_CLI_BIN_DIR, '/opt/farming/bin');
+    assert.strictEqual(
+      binding.sessionRequestOptions._meta?.farming?.env?.FARMING_AGENT_ID,
+      agentId,
+      'Agent identity must be delivered as Session-scoped environment metadata',
+    );
+    assert.strictEqual(
+      binding.sessionRequestOptions._meta?.farming?.env?.FARMING_PROJECT_WORKSPACE,
+      process.cwd(),
+      'Project identity must be delivered as Session-scoped environment metadata',
+    );
     binding.sessionState.revision = nextSessionRevision;
     binding.sessionState.apply({
       sessionId: binding.sessionId,
@@ -750,10 +759,10 @@ async function run() {
       assert.strictEqual(providerAgent.runtimeBinding.kind, 'acp');
       const providerBinding = providerRuntime.bindings.get(providerAgentId);
       assert.strictEqual(providerBinding.env.FARMING_AGENT_TITLE_TOKEN, undefined);
-      assert.match(
-        providerBinding.agentContext,
-        new RegExp(`当前 Farming Agent 名字是 ${providerAgentId}`),
-        `${provider} ACP must receive its Agent name as Session context`,
+      assert.strictEqual(
+        providerBinding.sessionRequestOptions._meta?.farming?.env?.FARMING_AGENT_ID,
+        providerAgentId,
+        `${provider} ACP must receive its Agent identity as Session metadata`,
       );
       assert.strictEqual(
         providerBinding.env.FARMING_CLI_BIN_DIR,

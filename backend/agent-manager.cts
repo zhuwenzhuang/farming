@@ -137,7 +137,6 @@ import { ensureMainAgentSkillFiles, renderMainAgentBootstrap } from './main-agen
 import {
   appendOpenCodeBootstrap,
   renderFarmingAgentBootstrap,
-  renderFarmingAgentSessionContext,
 } from './farming-agent-bootstrap.cjs';
 import { mainPageAgentSessionKey, resumedAgentSource } from './main-page-session.cjs';
 import * as storageLayout from './storage-layout.cjs';
@@ -3420,10 +3419,6 @@ class AgentManager extends EventEmitter {
           reasoningEffort: 'config',
           serviceTier: 'config',
           farmingSystemPrompt: renderFarmingAgentBootstrap(),
-          agentContext: renderFarmingAgentSessionContext(
-            agentId,
-            effectiveAgentWorkspaceRoot(agent),
-          ),
           additionalDirectories: Array.isArray(record.acpAdditionalDirectories) ? record.acpAdditionalDirectories : [],
           configOverrides: recoveryConfigOverrides,
           capabilityRuntimeEpoch: recoveryProjection.capabilityRuntimeEpoch,
@@ -6126,10 +6121,6 @@ class AgentManager extends EventEmitter {
           reasoningEffort: codexReasoningEffort,
           serviceTier: codexServiceTier,
           farmingSystemPrompt: renderFarmingAgentBootstrap(),
-          agentContext: renderFarmingAgentSessionContext(
-            agentId,
-            effectiveAgentWorkspaceRoot(agentRecord),
-          ),
           additionalDirectories: requestedAdditionalDirectories,
           mcpServers: requestedMcpServers,
         });
@@ -6332,10 +6323,6 @@ class AgentManager extends EventEmitter {
             : codexReasoningEffort,
           serviceTier: codexServiceTier,
           farmingSystemPrompt: renderFarmingAgentBootstrap(),
-          agentContext: renderFarmingAgentSessionContext(
-            agentId,
-            effectiveAgentWorkspaceRoot(agentRecord),
-          ),
           additionalDirectories,
           configOverrides,
           mcpServers,

@@ -70,7 +70,7 @@ function run() {
     );
     assert.strictEqual(
       storageLayout.farmingAgentBootstrapFile(configDir),
-      path.join(configDir, 'farming-agent-bootstrap.zh_cn.md'),
+      path.join(configDir, 'farming-agent-bootstrap.md'),
     );
     assert.strictEqual(
       storageLayout.browserResourcesFile(configDir),
