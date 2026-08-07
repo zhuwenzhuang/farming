@@ -3,6 +3,7 @@
 import { execFile } from 'node:child_process';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { runtimeExecutableInvocation } from '../backend/runtime-executable-invocation.cjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -33,10 +34,11 @@ function parseArgs(argv: string[]): SmokeOptions {
 
 function launch(options: SmokeOptions, args: string[]): { args: string[]; command: string } {
   if (options.packageRoot) {
-    return {
-      command: process.execPath,
-      args: [path.join(options.packageRoot, 'bin', 'farming'), ...args],
-    };
+    return runtimeExecutableInvocation(
+      process.env.FARMING_NODE_BIN || process.execPath,
+      [path.join(options.packageRoot, 'bin', 'farming'), ...args],
+      process.env,
+    );
   }
   return { command: options.command!, args };
 }

@@ -218,7 +218,7 @@ if [ ! -f "${CLAUDE_ACP_VENDOR}" ]; then
   echo "npm package omitted the version-locked Claude ACP runtime" >&2
   exit 1
 fi
-"${PROJECT_ROOT}/node_modules/.bin/tsx" "${PROJECT_ROOT}/scripts/assert-no-bundled-agent-clis.ts" "${PACKAGE_ROOT}"
+node --import tsx "${PROJECT_ROOT}/scripts/assert-no-bundled-agent-clis.ts" "${PACKAGE_ROOT}"
 node - "${PACKAGE_ROOT}" "${CODEX_ACP_VENDOR}" "${CLAUDE_ACP_VENDOR}" <<'NODE'
 const crypto = require('crypto');
 const fs = require('fs');

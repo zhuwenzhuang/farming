@@ -60,6 +60,9 @@ function writePackage(packageRoot, version) {
 
 function runPostinstall(packageRoot, environment: NodeJS.ProcessEnv = {}) {
   const env: NodeJS.ProcessEnv = { ...process.env };
+  delete env.FARMING_NODE_BIN;
+  delete env.FARMING_NODE_LD;
+  delete env.FARMING_NODE_LIBRARY_PATH;
   for (const [name, value] of Object.entries(environment)) {
     if (value === undefined) delete env[name];
     else env[name] = value;
@@ -179,6 +182,31 @@ function run() {
       fs.existsSync(path.join(ordinaryRoot, '.farming-runtime-seed', 'prepared.json')),
       true,
       'ordinary npm postinstall must still prepare its package-owned seed',
+    );
+
+    const loaderRoot = path.join(fixtureRoot, 'loader-install', 'farming-code');
+    const loaderPath = path.join(fixtureRoot, 'loader.sh');
+    const loaderLibraryPath = path.join(fixtureRoot, 'loader-libs');
+    fs.mkdirSync(loaderLibraryPath);
+    fs.writeFileSync(loaderPath, [
+      '#!/usr/bin/env bash',
+      'set -euo pipefail',
+      'test "$1" = "--library-path"',
+      `test "$2" = ${JSON.stringify(loaderLibraryPath)}`,
+      'shift 2',
+      'exec "$@"',
+      '',
+    ].join('\n'), { mode: 0o755 });
+    writePackage(loaderRoot, '2.3.3');
+    assertPostinstallSucceeded(runPostinstall(loaderRoot, {
+      FARMING_NODE_BIN: process.execPath,
+      FARMING_NODE_LD: loaderPath,
+      FARMING_NODE_LIBRARY_PATH: loaderLibraryPath,
+    }));
+    assert.strictEqual(
+      fs.existsSync(path.join(loaderRoot, '.farming-runtime-seed', 'prepared.json')),
+      true,
+      'postinstall child Node must preserve the configured compatibility-loader invocation',
     );
 
     console.log('✓ installed runtime postinstall is package-local and selection-free');

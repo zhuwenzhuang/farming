@@ -34,6 +34,11 @@ time. Application startup verifies an already prepared artifact and fails with
 an actionable repair instruction when it is missing or corrupt; startup does
 not silently download a replacement.
 
+Managed ACP dependencies are always prepared from the pinned manifest. A
+matching system provider CLI cannot satisfy that managed dependency. The
+prepared image also carries the child-process invocation contract required by
+the target platform, including a compatibility loader when necessary.
+
 ## Update State Machine
 
 - **Idle**: no update is active.

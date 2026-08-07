@@ -26,6 +26,10 @@ Config 状态与 Package Image 属于不同 Owner。Config 状态按 Config 身�
 固定 Provider 与 Browser Runtime 在安装或更新阶段准备。应用启动只验证已经准备好的 Artifact；
 缺失或损坏时给出可操作的修复说明，不会在启动中静默下载替代品。
 
+Managed ACP Dependency 必须始终从固定 Manifest 准备；即使系统 Provider CLI 版本相同，
+也不能满足该 Managed Dependency。Prepared Image 还携带目标平台所需的 Child Process
+Invocation Contract，包括必要时使用的兼容 Loader。
+
 ## 更新状态机
 
 - **Idle**：没有更新。

@@ -17,6 +17,10 @@ function run() {
   const releaseWorkflow = fs.readFileSync(path.join(root, '.github/workflows/release.yml'), 'utf8');
   const packageJson = require(path.join(root, 'package.json'));
   const bundleCliScript = fs.readFileSync(path.join(root, 'scripts/bundle-cli-runtime.ts'), 'utf8');
+  const capabilitySmokeScript = fs.readFileSync(
+    path.join(root, 'scripts/smoke-capability-cli-process.ts'),
+    'utf8',
+  );
   const prepareCodexAcpVendorScript = fs.readFileSync(
     path.join(root, 'scripts/prepare-codex-acp-vendor.ts'),
     'utf8',
@@ -108,6 +112,8 @@ function run() {
     packageScript.includes('smoke-capability-cli-process.ts')
       && packageScript.includes('cp "${SOURCE_COMPUTER_TOOLS}" "${BUNDLE_COMPUTER_TOOLS}"')
       && npmSmokeScript.includes('smoke-capability-cli-process.ts')
+      && capabilitySmokeScript.includes('runtimeExecutableInvocation(')
+      && capabilitySmokeScript.includes('process.env.FARMING_NODE_BIN || process.execPath')
       && !packageScript.includes('smoke-browser-mcp-process.ts')
       && !npmSmokeScript.includes('smoke-browser-mcp-process.ts')
       && !npmSmokeScript.includes('smoke-computer-mcp-process.ts')
@@ -128,8 +134,10 @@ function run() {
     npmSmokeScript.includes('--offline')
       && npmSmokeScript.includes('FARMING_SKIP_INSTALL_RUNTIME_PREPARE=1')
       && npmSmokeScript.includes("grep -q '^npm warn allow-scripts'")
+      && npmSmokeScript.includes('node --import tsx "${PROJECT_ROOT}/scripts/assert-no-bundled-agent-clis.ts"')
+      && !npmSmokeScript.includes('node_modules/.bin/tsx')
       && !npmSmokeScript.includes('--ignore-scripts'),
-    'npm package smoke must install from the tarball alone under the default script policy without approval warnings',
+    'npm package smoke must install offline and keep TypeScript verification compatible with loader-aware Node',
   );
   assert(
     packageJson.scripts?.postinstall === 'node scripts/prepare-installed-runtime.cjs'
