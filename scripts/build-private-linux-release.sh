@@ -97,13 +97,18 @@ trap cleanup EXIT
 
 echo "==> Preparing isolated source tree for ${GIT_SHA}" >&2
 git -C "${PROJECT_ROOT}" worktree add --detach "${WORKTREE_DIR}" "${GIT_SHA}" >/dev/null
+GIT_COMMON_DIR="$(git -C "${WORKTREE_DIR}" rev-parse --path-format=absolute --git-common-dir)"
 
 echo "==> Building private Linux release in ${BUILDER_IMAGE}" >&2
 docker "${DOCKER_ARGS[@]}" run --rm --platform linux/amd64 \
-  --mount "type=bind,source=${WORKTREE_DIR},target=/workspace" \
+  --mount "type=bind,source=${WORKTREE_DIR},target=${WORKTREE_DIR}" \
+  --mount "type=bind,source=${GIT_COMMON_DIR},target=${GIT_COMMON_DIR},readonly" \
   --mount "type=bind,source=${OUTPUT_DIR},target=/output" \
   --mount "type=bind,source=${PROJECT_ROOT}/.tmp/deploy-npm-cache,target=/root/.npm" \
-  --workdir /workspace \
+  --workdir "${WORKTREE_DIR}" \
+  --env GIT_CONFIG_COUNT=1 \
+  --env GIT_CONFIG_KEY_0=safe.directory \
+  --env GIT_CONFIG_VALUE_0="${WORKTREE_DIR}" \
   --env FARMING_RELEASE_GIT_SHA="${GIT_SHA}" \
   --env FARMING_RELEASE_DIR=/output \
   --env FARMING_RELEASE_NAME="${RELEASE_NAME}" \

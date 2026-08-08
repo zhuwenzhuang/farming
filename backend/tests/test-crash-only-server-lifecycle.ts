@@ -65,8 +65,11 @@ function run() {
 
   assert(
     privateBuilderSource.includes('mktemp -d "${PROJECT_ROOT}/.tmp/private-release-worktree.XXXXXX"') &&
-      !privateBuilderSource.includes('mktemp -d /tmp/'),
-    'the container builder worktree must live under the shared project path rather than host-only /tmp',
+      !privateBuilderSource.includes('mktemp -d /tmp/') &&
+      privateBuilderSource.includes('source=${WORKTREE_DIR},target=${WORKTREE_DIR}') &&
+      privateBuilderSource.includes('source=${GIT_COMMON_DIR},target=${GIT_COMMON_DIR},readonly') &&
+      privateBuilderSource.includes('--env GIT_CONFIG_KEY_0=safe.directory'),
+    'the container builder must preserve the shared worktree and read-only git metadata paths',
   );
 
   assert(
