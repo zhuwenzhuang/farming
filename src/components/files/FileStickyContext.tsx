@@ -28,8 +28,8 @@ function renderDirectoryStickyItem(
       type="button"
       className="code-file-row directory code-file-sticky-row"
       style={workspaceFileTreeDepthStyle(0)}
-      title={presentation.fullLabel}
-      aria-label={presentation.fullLabel}
+      title={item.node.path}
+      aria-label={item.node.path}
       onClick={event => {
         event.preventDefault()
         event.stopPropagation()
@@ -43,7 +43,7 @@ function renderDirectoryStickyItem(
         <span className="code-file-sticky-current">
           <span className="code-file-sticky-path-compact">{presentation.compactLabel}</span>
           <span className="code-file-sticky-path-medium">{presentation.mediumLabel}</span>
-          <span className="code-file-sticky-path-full">{presentation.fullLabel}</span>
+          <span className="code-file-sticky-path-full code-file-name">{presentation.fullLabel}</span>
         </span>
         <span className="code-file-sticky-parent">{presentation.fullLabel}</span>
       </span>

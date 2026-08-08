@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type RefObject } from 'react'
 import { flushSync } from 'react-dom'
+import type { TreeApi } from 'react-arborist'
 import { findWorkspaceFileTreeNode, type WorkspaceFileTreeNode as FileExplorerNode } from '@/lib/workspace-file-tree'
 import { WORKSPACE_FILE_TREE_INDENT } from '@/lib/workspace-file-tree-row'
 import {
@@ -8,8 +9,9 @@ import {
   workspaceStickyContentTop,
   workspaceStickyContextRevealProgress,
   workspaceStickyContextItems,
-  workspaceStickyDirectoryPathsForIndexedViewport,
-  workspaceVisibleFileTreeRows,
+  workspaceStickyDirectoryPathsForViewport,
+  type WorkspaceFileRowSnapshot,
+  type WorkspaceVisibleFileTreeRow,
   type WorkspaceFileStickyContextItem,
 } from '@/lib/workspace-file-view-model'
 
@@ -28,6 +30,7 @@ interface UseWorkspaceFileStickyContextOptions {
   refreshTreeLayout: () => void
   resetKey: string | null
   treeData: FileExplorerNode[]
+  treeRef: MutableRefObject<TreeApi<FileExplorerNode> | undefined>
   treeViewportRef: RefObject<HTMLDivElement | null>
 }
 
@@ -53,15 +56,29 @@ export function useWorkspaceFileStickyContext({
   refreshTreeLayout,
   resetKey,
   treeData,
+  treeRef,
   treeViewportRef,
 }: UseWorkspaceFileStickyContextOptions) {
   const [stickyDirectoryPaths, setStickyDirectoryPaths] = useState<string[]>([])
   const indentShiftRef = useRef(0)
   const contextShiftRef = useRef(0)
 
-  const visibleRows = useMemo(() => (
-    workspaceVisibleFileTreeRows(treeData, openDirectoryPaths)
-  ), [openDirectoryPaths, treeData])
+  const readVisibleRows = useCallback((): WorkspaceVisibleFileTreeRow[] => (
+    (treeRef.current?.visibleNodes ?? []).map(node => {
+      const ancestors: WorkspaceVisibleFileTreeRow['ancestors'] = []
+      let parent = node.parent
+      while (parent && !parent.isRoot) {
+        ancestors.unshift({ path: parent.data.path, depth: parent.level })
+        parent = parent.parent
+      }
+      return {
+        path: node.data.path,
+        type: node.data.type,
+        depth: node.level,
+        ancestors,
+      }
+    })
+  ), [treeRef])
 
   const stickyDirectoryNodes = useMemo(() => (
     stickyDirectoryPaths
@@ -107,21 +124,38 @@ export function useWorkspaceFileStickyContext({
     }
 
     const scrollerRect = scroller.getBoundingClientRect()
-    const stickyTop = stickyContentTop(scroller, viewport)
+    const renderedStickyTop = viewport
+      .querySelector<HTMLElement>('[data-testid="code-file-sticky-stack"]')
+      ?.getBoundingClientRect().top
+    const stickyTop = renderedStickyTop ?? stickyContentTop(scroller, viewport)
     const viewportRect = viewport.getBoundingClientRect()
     if (!isWorkspaceStickyContextVisible(viewportRect.top, stickyTop)) {
       clearStickyContext()
       return
     }
 
-    const nextStickyPaths = workspaceStickyDirectoryPathsForIndexedViewport({
-      rows: visibleRows,
-      treeTop: viewportRect.top,
+    const renderedRows = Array.from(viewport.querySelectorAll<HTMLElement>('[data-file-path]'))
+    const rowSnapshots: WorkspaceFileRowSnapshot[] = renderedRows.flatMap(row => {
+      const path = row.dataset.filePath
+      if (!path) return []
+      const rect = row.getBoundingClientRect()
+      const depth = Number(row.dataset.treeLevel)
+      return [{
+        path,
+        type: row.dataset.fileType,
+        depth: Number.isFinite(depth) ? depth : undefined,
+        top: rect.top,
+        bottom: rect.bottom,
+      }]
+    })
+    const nextStickyPaths = workspaceStickyDirectoryPathsForViewport({
+      rows: rowSnapshots,
       stickyTop,
       scrollerBottom: scrollerRect.bottom,
-      rowHeight,
-      stickyHeight: FILE_STICKY_CONTEXT_HEIGHT,
+      rowHeight: FILE_STICKY_CONTEXT_HEIGHT,
     })
+    const visibleRows = readVisibleRows()
+    const treeTop = viewportRect.top - (treeRef.current?.listEl.current?.scrollTop ?? 0)
     if (nextStickyPaths.length === 0) {
       clearStickyContext()
       return
@@ -131,7 +165,7 @@ export function useWorkspaceFileStickyContext({
 
     const indentShiftDepth = workspaceFileIndentShiftDepthForViewport({
       rows: visibleRows,
-      treeTop: viewportRect.top,
+      treeTop,
       stickyTop,
       scrollerBottom: scrollerRect.bottom,
       rowHeight,
@@ -144,7 +178,7 @@ export function useWorkspaceFileStickyContext({
         ? current
         : nextStickyPaths
     ))
-  }, [clearStickyContext, filesCollapsed, rowHeight, treeViewportRef, updateContextShift, updateIndentShift, visibleRows])
+  }, [clearStickyContext, filesCollapsed, readVisibleRows, rowHeight, treeRef, treeViewportRef, updateContextShift, updateIndentShift])
 
   const focusStickyDirectory = useCallback((node: FileExplorerNode) => {
     lastFocusedFilePathRef.current = node.path
@@ -176,24 +210,47 @@ export function useWorkspaceFileStickyContext({
     if (filesCollapsed) return undefined
     const scroller = treeViewportRef.current?.closest<HTMLElement>('.code-project-list')
     let frameId = 0
+    let settleTimeoutId: number | null = null
     const refreshBeforePaint = () => {
       if (frameId) return
       frameId = window.requestAnimationFrame(() => {
         frameId = 0
         flushSync(refreshStickyAncestors)
+        if (settleTimeoutId !== null) window.clearTimeout(settleTimeoutId)
+        settleTimeoutId = window.setTimeout(() => {
+          settleTimeoutId = null
+          refreshStickyAncestors()
+        }, 80)
       })
     }
 
     refreshStickyAncestors()
-    window.setTimeout(refreshStickyAncestors, 80)
+    const earlyTimeoutId = window.setTimeout(refreshStickyAncestors, 80)
+    const lateTimeoutId = window.setTimeout(refreshStickyAncestors, 180)
+    const treeObserver = typeof MutationObserver === 'undefined'
+      ? null
+      : new MutationObserver(refreshBeforePaint)
+    const treeElement = treeRef.current?.listEl.current
+    if (treeElement) {
+      treeObserver?.observe(treeElement, {
+        attributes: true,
+        attributeFilter: ['style'],
+        childList: true,
+        subtree: true,
+      })
+    }
     scroller?.addEventListener('scroll', refreshBeforePaint, { passive: true })
     window.addEventListener('resize', refreshBeforePaint)
     return () => {
       if (frameId) window.cancelAnimationFrame(frameId)
+      window.clearTimeout(earlyTimeoutId)
+      window.clearTimeout(lateTimeoutId)
+      if (settleTimeoutId !== null) window.clearTimeout(settleTimeoutId)
+      treeObserver?.disconnect()
       scroller?.removeEventListener('scroll', refreshBeforePaint)
       window.removeEventListener('resize', refreshBeforePaint)
     }
-  }, [filesCollapsed, openDirectoryPaths, refreshStickyAncestors, treeData, treeViewportRef])
+  }, [filesCollapsed, openDirectoryPaths, refreshStickyAncestors, treeData, treeRef, treeViewportRef])
 
   return {
     focusStickyDirectory,

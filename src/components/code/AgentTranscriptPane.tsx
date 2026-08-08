@@ -3530,7 +3530,14 @@ export function AgentTranscriptPane({
           }
           retryAttempt = 0
           needsReconnectReload = source === 'acp' && !responseReceived && reason instanceof TypeError
-          setError(transcriptRef.current?.available ? '' : copy.agentTranscriptUnavailable)
+          const suppressFreshAcpResponseError = source === 'acp'
+            && !expectHistoryRef.current
+            && responseReceived
+          setError(
+            transcriptRef.current?.available || suppressFreshAcpResponseError
+              ? ''
+              : copy.agentTranscriptUnavailable,
+          )
           revealInitialTranscript()
           setLoading(false)
           setLoadingOlder(false)
@@ -4005,7 +4012,9 @@ export function AgentTranscriptPane({
         className="code-agent-transcript"
         data-testid="code-agent-transcript"
       >
-      {showFreshAcpEmpty ? (
+      {error ? (
+        <div className="code-agent-transcript-state" role="status">{error}</div>
+      ) : showFreshAcpEmpty ? (
         <div className="code-agent-transcript-blank" role="status">{copy.agentTranscriptEmpty}</div>
       ) : loading || awaitingAcpHistory || awaitingInitialReveal ? (
         <div className="code-agent-transcript-state subtle">
@@ -4013,8 +4022,6 @@ export function AgentTranscriptPane({
             ? copy.agentChatStarting
             : copy.agentTranscriptSyncing}
         </div>
-      ) : error ? (
-        <div className="code-agent-transcript-state" role="status">{error}</div>
       ) : !transcript?.available ? (
         <div className="code-agent-transcript-blank" role="status">{copy.agentTranscriptEmpty}</div>
       ) : turns.length === 0 ? (

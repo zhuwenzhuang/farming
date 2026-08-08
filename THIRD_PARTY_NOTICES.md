@@ -32,7 +32,7 @@ preserved in bundled `node_modules` when bundled dependencies are enabled.
 | `highlight.js` | 11.11.1 | BSD-3-Clause | Syntax highlighting |
 | `katex` | 0.17.0 | MIT | Mathematical notation rendering |
 | `material-icon-theme` | 5.36.1 | MIT | File and folder icons |
-| `mermaid` | 11.16.0 | MIT | Diagram rendering |
+| `mermaid` | 11.16.1 | MIT | Diagram rendering |
 | `monaco-editor` | 0.55.1 | MIT | Lightweight code editor |
 | `node-pty` | 1.2.0-beta.12 | MIT | Native pseudo-terminal integration |
 | `qrcode-generator` | 2.0.4 | MIT | Browser share QR generation |

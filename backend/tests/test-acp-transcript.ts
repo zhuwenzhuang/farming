@@ -1142,7 +1142,8 @@ assert(
 assert(
   transcriptPaneSource.includes('ACP_TRANSCRIPT_FETCH_RETRY_DELAYS_MS = [250, 1000]')
     && transcriptPaneSource.includes("source === 'acp' && !responseReceived && reason instanceof TypeError")
-    && transcriptPaneSource.includes("setError(transcriptRef.current?.available ? '' : copy.agentTranscriptUnavailable)"),
+    && transcriptPaneSource.includes("const suppressFreshAcpResponseError = source === 'acp'")
+    && transcriptPaneSource.includes('transcriptRef.current?.available || suppressFreshAcpResponseError'),
   'only read-only ACP transcript network failures should receive bounded retries and localized final errors'
 );
 assert(

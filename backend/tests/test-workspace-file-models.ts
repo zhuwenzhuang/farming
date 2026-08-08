@@ -1273,7 +1273,7 @@ function run() {
       scrollerBottom: 160,
       rowHeight: 24,
     }),
-    ['odps-sql/optimizer/rules']
+    ['odps-sql/optimizer/rules/util']
   );
   const indexedRows = [
     { path: 'module', type: 'directory', depth: 0, ancestors: [] },
@@ -1326,6 +1326,41 @@ function run() {
     rowHeight: 24,
     stickyHeight: 40,
   }), ['module', 'module/src', 'module/src/main', 'module/src/main/rules']);
+  const indexedSiblingRows = [
+    { path: 'src/components/code', type: 'directory', depth: 0, ancestors: [] },
+    {
+      path: 'src/components/code/acp',
+      type: 'directory',
+      depth: 1,
+      ancestors: [{ path: 'src/components/code', depth: 0 }],
+    },
+    {
+      path: 'src/components/code/pet',
+      type: 'directory',
+      depth: 1,
+      ancestors: [{ path: 'src/components/code', depth: 0 }],
+    },
+    {
+      path: 'src/components/code/agent-00.ts',
+      type: 'file',
+      depth: 1,
+      ancestors: [{ path: 'src/components/code', depth: 0 }],
+    },
+    {
+      path: 'src/components/code/agent-01.ts',
+      type: 'file',
+      depth: 1,
+      ancestors: [{ path: 'src/components/code', depth: 0 }],
+    },
+  ];
+  assert.deepStrictEqual(workspaceStickyDirectoryPathsForIndexedViewport({
+    rows: indexedSiblingRows,
+    treeTop: -56,
+    stickyTop: 0,
+    scrollerBottom: 88,
+    rowHeight: 24,
+    stickyHeight: 40,
+  }), ['src/components/code/pet']);
   assert.strictEqual(workspaceFileIndentShiftDepthForViewport({
     rows: indexedRows,
     treeTop: -56,

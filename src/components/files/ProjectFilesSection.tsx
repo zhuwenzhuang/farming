@@ -430,6 +430,7 @@ export function ProjectFilesSection({
     refreshTreeLayout,
     resetKey: agentId,
     treeData,
+    treeRef,
     treeViewportRef,
   })
 

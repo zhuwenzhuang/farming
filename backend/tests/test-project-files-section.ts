@@ -784,13 +784,15 @@ function run() {
       fileStickyContextHookSource.includes('window.requestAnimationFrame(() =>') &&
       fileStickyContextHookSource.includes("scroller?.addEventListener('scroll', refreshBeforePaint, { passive: true })") &&
 	      fileStickyContextHookSource.includes('if (!isWorkspaceStickyContextVisible(viewportRect.top, stickyTop))') &&
-	      fileStickyContextHookSource.includes('workspaceVisibleFileTreeRows(treeData, openDirectoryPaths)') &&
-	      fileStickyContextHookSource.includes('workspaceStickyDirectoryPathsForIndexedViewport({') &&
+	      fileStickyContextHookSource.includes('treeRef.current?.visibleNodes') &&
+	      fileStickyContextHookSource.includes('ancestors.unshift({ path: parent.data.path, depth: parent.level })') &&
+	      fileStickyContextHookSource.includes('viewportRect.top - (treeRef.current?.listEl.current?.scrollTop ?? 0)') &&
+	      fileStickyContextHookSource.includes('workspaceStickyDirectoryPathsForViewport({') &&
+	      fileStickyContextHookSource.includes("querySelectorAll<HTMLElement>('[data-file-path]')") &&
 	      fileStickyContextHookSource.includes('workspaceFileIndentShiftDepthForViewport({') &&
 	      fileStickyContextHookSource.includes('workspaceStickyContextRevealProgress(viewportRect.top, stickyTop, rowHeight)') &&
 	      fileStickyContextHookSource.includes("style.setProperty('--file-indent-shift'") &&
 	      fileStickyContextHookSource.includes("style.setProperty('--file-context-shift'") &&
-	      !fileStickyContextHookSource.includes("querySelectorAll<HTMLElement>('[data-file-path]')") &&
       fileViewModelSource.includes('function firstVisibleWorkspaceFilePath') &&
       fileViewModelSource.includes('function workspaceStickyDirectoryPaths') &&
 	      fileViewModelSource.includes('function workspaceStickyDirectoryPathsForViewport') &&
