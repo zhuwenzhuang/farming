@@ -792,7 +792,8 @@ function run() {
       fileStickyContextSource.includes('data-testid="code-file-sticky-stack"') &&
 	      fileStickyContextSource.includes('className="code-file-row directory code-file-sticky-row"') &&
 	      fileStickyContextSource.includes('style={workspaceFileTreeDepthStyle(0)}') &&
-	      fileStickyContextSource.includes('workspaceCompactStickyDirectoryLabel(item.nodes)') &&
+	      fileStickyContextSource.includes('workspaceStickyDirectoryPresentation(item.nodes)') &&
+	      fileStickyContextSource.includes('code-file-sticky-parent') &&
 	      !fileStickyContextSource.includes('code-file-sticky-expanded-rows') &&
 	      !fileStickyContextSource.includes('code-file-sticky-compact-row') &&
 	      treeRowModelSource.includes('function workspaceFileTreeDescendantGitStatusClassName') &&

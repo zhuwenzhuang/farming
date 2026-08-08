@@ -3963,6 +3963,7 @@ body.code-mode .code-file-change-group-toggle {
   top: 0;
   left: 0;
   right: 0;
+  container-type: inline-size;
   pointer-events: auto;
   background: #f7f7f6;
   box-shadow: 0 10px 14px -16px rgba(31, 35, 40, 0.32);
@@ -4080,7 +4081,11 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
 }
 
 .code-file-row.code-file-sticky-row {
+  height: 40px;
+  min-height: 40px;
   align-items: start;
+  padding-top: 3px;
+  padding-bottom: 3px;
   background: transparent;
   color: #3d3d3d;
 }
@@ -4089,11 +4094,59 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   margin-top: 1px;
 }
 
-.code-file-row.code-file-sticky-row .code-file-name {
-  overflow: visible;
+.code-file-sticky-labels {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: 14px 20px;
+}
+
+.code-file-sticky-current,
+.code-file-sticky-parent {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.code-file-sticky-current {
+  line-height: 14px;
+}
+
+.code-file-sticky-path-medium,
+.code-file-sticky-path-full {
+  display: none;
+}
+
+.code-file-sticky-parent {
+  color: #8a8a8a;
+  display: -webkit-box;
+  font-size: 9px;
+  line-height: 10px;
   overflow-wrap: anywhere;
   text-overflow: clip;
   white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+@container (min-width: 250px) {
+  .code-file-sticky-path-compact {
+    display: none;
+  }
+
+  .code-file-sticky-path-medium {
+    display: inline;
+  }
+}
+
+@container (min-width: 520px) {
+  .code-file-sticky-path-medium {
+    display: none;
+  }
+
+  .code-file-sticky-path-full {
+    display: inline;
+  }
 }
 
 .code-file-row.directory {

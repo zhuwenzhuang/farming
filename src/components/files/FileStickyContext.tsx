@@ -1,6 +1,6 @@
 import { ChevronDownGlyph } from '@/components/IconGlyphs'
 import type { WorkspaceFileTreeNode as FileExplorerNode } from '@/lib/workspace-file-tree'
-import { workspaceCompactStickyDirectoryLabel } from '@/lib/workspace-file-view-model'
+import { workspaceStickyDirectoryPresentation } from '@/lib/workspace-file-view-model'
 import {
   workspaceFileTreeDescendantGitStatusClassName,
   workspaceFileTreeDepthStyle,
@@ -21,13 +21,15 @@ function renderDirectoryStickyItem(
   onFocusDirectory: (node: FileExplorerNode) => void
 ) {
   const descendantStatusClassName = workspaceFileTreeDescendantGitStatusClassName(item.node.descendantGitStatus)
+  const presentation = workspaceStickyDirectoryPresentation(item.nodes)
   return (
     <button
       key={item.key}
       type="button"
       className="code-file-row directory code-file-sticky-row"
       style={workspaceFileTreeDepthStyle(0)}
-      title={item.node.path}
+      title={presentation.fullLabel}
+      aria-label={presentation.fullLabel}
       onClick={event => {
         event.preventDefault()
         event.stopPropagation()
@@ -37,7 +39,14 @@ function renderDirectoryStickyItem(
       <span className="code-file-chevron expanded" aria-hidden="true">
         <ChevronDownGlyph />
       </span>
-      <span className="code-file-name">{workspaceCompactStickyDirectoryLabel(item.nodes)}</span>
+      <span className="code-file-sticky-labels">
+        <span className="code-file-sticky-current">
+          <span className="code-file-sticky-path-compact">{presentation.compactLabel}</span>
+          <span className="code-file-sticky-path-medium">{presentation.mediumLabel}</span>
+          <span className="code-file-sticky-path-full">{presentation.fullLabel}</span>
+        </span>
+        <span className="code-file-sticky-parent">{presentation.fullLabel}</span>
+      </span>
       {descendantStatusClassName && (
         <span
           className={descendantStatusClassName}

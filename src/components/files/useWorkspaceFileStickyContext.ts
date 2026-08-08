@@ -13,6 +13,8 @@ import {
 
 export type FileStickyContextItem = WorkspaceFileStickyContextItem
 
+const FILE_STICKY_CONTEXT_HEIGHT = 40
+
 interface UseWorkspaceFileStickyContextOptions {
   filesCollapsed: boolean
   focusFileTreePath: (path: string) => void
@@ -106,7 +108,7 @@ export function useWorkspaceFileStickyContext({
       rows: rowSnapshots,
       stickyTop,
       scrollerBottom: scrollerRect.bottom,
-      rowHeight: firstRowHeight,
+      rowHeight: Math.max(firstRowHeight, FILE_STICKY_CONTEXT_HEIGHT),
     })
 
     setStickyDirectoryPaths(current => (

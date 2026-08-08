@@ -48,6 +48,7 @@ const {
   workspaceFileTreeActivationIntent,
   workspaceFileTreeRowClickIntent,
   workspaceCompactStickyDirectoryLabel,
+  workspaceStickyDirectoryPresentation,
   workspaceStickyContentTop,
   workspaceStickyContextItems,
   workspaceStickyDirectoryPaths,
@@ -964,9 +965,9 @@ function run() {
   assert.strictEqual(linkedDirectoryTree[0].symbolicLink, true);
   assert.strictEqual(linkedDirectoryTree[0].children[0].path, 'reference/index.md');
   assert.deepStrictEqual(workspaceFileTreeDepthStyle(2), {
-    '--file-indent': '30px',
-    '--file-status-indent': '48px',
-    '--file-guide-width': '24px',
+    '--file-indent': '22px',
+    '--file-status-indent': '40px',
+    '--file-guide-width': '16px',
     '--file-depth': 2,
   });
   assert.strictEqual(visibleWorkspaceFileTreeGitStatus('untracked'), undefined);
@@ -1084,6 +1085,22 @@ function run() {
     directory('Users/example/git'),
     directory('Users/example/git/farming'),
   ]), 'example/git/farming');
+  assert.deepStrictEqual(workspaceStickyDirectoryPresentation([
+    directory('odps-sql'),
+    directory('odps-sql/odps-optimizer'),
+    directory('odps-sql/odps-optimizer/odps-optimizer-cbo'),
+    directory('odps-sql/odps-optimizer/odps-optimizer-cbo/src'),
+    directory('odps-sql/odps-optimizer/odps-optimizer-cbo/src/main'),
+    directory('odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java'),
+    directory('odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo', {
+      displayName: 'com/aliyun/odps/lot/cbo',
+    }),
+    directory('odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo/rules'),
+  ]), {
+    compactLabel: 'odps-sql/…/cbo/rules',
+    mediumLabel: 'odps-sql/…/odps/lot/cbo/rules',
+    fullLabel: 'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo/rules',
+  });
   assert.strictEqual(workspaceFileRevealScrollDelta({ top: 100, bottom: 200 }, { top: 80, bottom: 120 }), -20);
   assert.strictEqual(workspaceFileRevealScrollDelta({ top: 100, bottom: 200 }, { top: 180, bottom: 220 }), 20);
   assert.strictEqual(workspaceFileRevealScrollDelta({ top: 100, bottom: 200 }, { top: 120, bottom: 180 }), 0);
@@ -1225,16 +1242,16 @@ function run() {
   assert.deepStrictEqual(
     workspaceStickyDirectoryPathsForViewport({
       rows: [
-        { path: 'src/components/code', type: 'directory', depth: 0, top: -4, bottom: 20 },
-        { path: 'src/components/code/acp', type: 'directory', depth: 1, top: 20, bottom: 44 },
-        { path: 'src/components/code/pet', type: 'directory', depth: 1, top: 44, bottom: 68 },
-        { path: 'src/components/code/agent-kind.ts', type: 'file', depth: 1, top: 68, bottom: 92 },
+        { path: 'odps-sql/optimizer/rules', type: 'directory', depth: 0, top: -4, bottom: 20 },
+        { path: 'odps-sql/optimizer/rules/util', type: 'directory', depth: 1, top: 20, bottom: 44 },
+        { path: 'odps-sql/optimizer/rules/OdpsSemiJoinRule.java', type: 'file', depth: 1, top: 44, bottom: 68 },
+        { path: 'odps-sql/optimizer/rules/OdpsVectorSearchConvertRule.java', type: 'file', depth: 1, top: 68, bottom: 92 },
       ],
       stickyTop: 40,
       scrollerBottom: 160,
       rowHeight: 24,
     }),
-    ['src/components/code/pet']
+    ['odps-sql/optimizer/rules']
   );
   assert.deepStrictEqual(WORKSPACE_FILE_SEARCH_FOCUS_RETRY_DELAYS, [0, 80, 180, 300, 520, 900, 1200]);
   assert.deepStrictEqual(WORKSPACE_FILE_TREE_FOCUS_RETRY_DELAYS, [80, 180, 360]);

@@ -77,6 +77,9 @@ Farming Instance 都是同一文件系统的独立客户端。
   Reconciliation 与 Refresh。
 - **Editor And Viewer**：拥有 Working Copy、Tab、Editor State、Conflict 与有界 Preview。
 
+单个粘性目录上下文使用固定高度的两级标签：上方是随宽度压缩的路径，下方是最多两行的浅色
+完整路径。其渲染内容不得反向决定自身身份或高度。
+
 文本使用轻量 Editor。Markdown 与静态 HTML 可以在同一 File Identity 中切换 Source 与有界
 Preview。Image、PDF、Binary 与 Oversized Text 使用 Read-only Viewer。所有 Viewer 共用同一
 Project Authorization，不能形成独立 File Access Path。

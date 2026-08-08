@@ -92,6 +92,10 @@ Four responsibilities remain separate:
 - **Editor and Viewers** own working copies, tabs, editor state, conflicts, and
   bounded previews.
 
+The single sticky directory context uses a fixed-height two-level label: a
+width-responsive compact path above a muted full path of at most two lines. Its
+rendered content must not determine its own identity or height.
+
 Text uses the lightweight editor. Markdown and static HTML may switch between
 source and bounded preview within the same file identity. Images, PDFs, binary
 files, and oversized text use read-only viewers. Every Viewer uses the same

@@ -1,7 +1,7 @@
 import { isDescendantPath, type WorkspaceFileTreeNode } from './workspace-file-tree'
 import type { WorkspaceFileEntry } from './workspace-files'
 
-const FILE_TREE_INDENT = 12
+const FILE_TREE_INDENT = 8
 
 export type WorkspaceFileTreeStatusTitleKind = 'git' | 'external' | 'dirty'
 

@@ -1,4 +1,4 @@
-import { ancestorDirectories, parentDirectory, type WorkspaceFileTreeNode } from './workspace-file-tree'
+import { ancestorDirectories, type WorkspaceFileTreeNode } from './workspace-file-tree'
 
 export const WORKSPACE_FILE_SEARCH_FOCUS_RETRY_DELAYS = [0, 80, 180, 300, 520, 900, 1200]
 export const WORKSPACE_FILE_TREE_FOCUS_RETRY_DELAYS = [80, 180, 360]
@@ -199,33 +199,13 @@ export function workspaceStickyDirectoryPathsForViewport(options: {
   scrollerBottom: number
   rowHeight: number
 }) {
-  const rowHeight = Math.max(1, options.rowHeight)
-  const stickyBottom = options.stickyTop + rowHeight
+  const stickyBottom = options.stickyTop + Math.max(1, options.rowHeight)
   const firstUncoveredIndex = options.rows.findIndex(row => (
     row.top >= stickyBottom - 1 && row.top < options.scrollerBottom
   ))
   if (firstUncoveredIndex < 0) return []
 
   const firstUncoveredRow = options.rows[firstUncoveredIndex]!
-  let siblingFileGroupStart = firstUncoveredIndex
-  while (siblingFileGroupStart > 0) {
-    const previousRow = options.rows[siblingFileGroupStart - 1]!
-    if (
-      previousRow.type !== 'file' ||
-      previousRow.depth !== firstUncoveredRow.depth ||
-      parentDirectory(previousRow.path) !== parentDirectory(firstUncoveredRow.path)
-    ) break
-    siblingFileGroupStart -= 1
-  }
-  const precedingSiblingDirectory = firstUncoveredRow.type === 'file'
-    ? options.rows[siblingFileGroupStart - 1]
-    : undefined
-  const usesSiblingDirectoryPrefix = precedingSiblingDirectory?.type === 'directory' &&
-    precedingSiblingDirectory.depth === firstUncoveredRow.depth &&
-    parentDirectory(precedingSiblingDirectory.path) === parentDirectory(firstUncoveredRow.path) &&
-    precedingSiblingDirectory.top < stickyBottom
-  if (usesSiblingDirectoryPrefix) return [precedingSiblingDirectory.path]
-
   return workspaceStickyDirectoryPaths(firstUncoveredRow.path, options.rows, stickyBottom)
 }
 
@@ -244,6 +224,22 @@ export function workspaceStickyContextItems(options: {
 
 export function workspaceCompactStickyDirectoryLabel(nodes: readonly WorkspaceFileTreeNode[]) {
   return nodes.map(node => node.displayName ?? node.name).filter(Boolean).join('/')
+}
+
+export function workspaceStickyDirectoryPresentation(nodes: readonly WorkspaceFileTreeNode[]) {
+  const segments = workspaceCompactStickyDirectoryLabel(nodes).split('/').filter(Boolean)
+  const fullLabel = segments.join('/')
+  const compactLabel = segments.length > 3
+    ? [segments[0]!, '…', ...segments.slice(-2)].join('/')
+    : fullLabel
+  const mediumLabel = segments.length > 5
+    ? [segments[0]!, '…', ...segments.slice(-4)].join('/')
+    : fullLabel
+  return {
+    compactLabel,
+    mediumLabel,
+    fullLabel,
+  }
 }
 
 export function preserveWorkspaceFileScrollPosition(scroller: HTMLElement | null | undefined) {
