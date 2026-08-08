@@ -96,6 +96,12 @@ The single sticky directory context uses a fixed-height two-level label: a
 width-responsive compact path above a muted full path of at most two lines. Its
 rendered content must not determine its own identity or height.
 
+When the visible rows share a deep offscreen ancestor represented by that
+sticky context, the Explorer may reclaim the ancestor indentation with one
+uniform, scroll-linked horizontal offset. The offset is derived from fixed row
+geometry, changes continuously at viewport boundaries, and never changes the
+authoritative tree depth or vertical scroll position.
+
 Text uses the lightweight editor. Markdown and static HTML may switch between
 source and bounded preview within the same file identity. Images, PDFs, binary
 files, and oversized text use read-only viewers. Every Viewer uses the same

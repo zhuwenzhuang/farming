@@ -80,6 +80,10 @@ Farming Instance 都是同一文件系统的独立客户端。
 单个粘性目录上下文使用固定高度的两级标签：上方是随宽度压缩的路径，下方是最多两行的浅色
 完整路径。其渲染内容不得反向决定自身身份或高度。
 
+当可见行共享一个已由该粘性上下文展示的深层屏外祖先时，Explorer 可以用一个统一且随滚动
+连续变化的横向偏移回收祖先缩进。该偏移来自固定行高几何，在视口边界连续变化，并且绝不改变
+权威树深度或垂直滚动位置。
+
 文本使用轻量 Editor。Markdown 与静态 HTML 可以在同一 File Identity 中切换 Source 与有界
 Preview。Image、PDF、Binary 与 Oversized Text 使用 Read-only Viewer。所有 Viewer 共用同一
 Project Authorization，不能形成独立 File Access Path。

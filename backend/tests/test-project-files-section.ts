@@ -780,10 +780,15 @@ function run() {
       fileStickyContextHookSource.includes('window.requestAnimationFrame(() =>') &&
       fileStickyContextHookSource.includes("scroller?.addEventListener('scroll', refreshBeforePaint, { passive: true })") &&
 	      fileStickyContextHookSource.includes('if (!isWorkspaceStickyContextVisible(viewportRect.top, stickyTop))') &&
-	      fileStickyContextHookSource.includes('workspaceStickyDirectoryPathsForViewport({') &&
+	      fileStickyContextHookSource.includes('workspaceVisibleFileTreeRows(treeData, openDirectoryPaths)') &&
+	      fileStickyContextHookSource.includes('workspaceStickyDirectoryPathsForIndexedViewport({') &&
+	      fileStickyContextHookSource.includes('workspaceFileIndentShiftDepthForViewport({') &&
+	      fileStickyContextHookSource.includes("style.setProperty('--file-indent-shift'") &&
+	      !fileStickyContextHookSource.includes("querySelectorAll<HTMLElement>('[data-file-path]')") &&
       fileViewModelSource.includes('function firstVisibleWorkspaceFilePath') &&
       fileViewModelSource.includes('function workspaceStickyDirectoryPaths') &&
 	      fileViewModelSource.includes('function workspaceStickyDirectoryPathsForViewport') &&
+	      fileViewModelSource.includes('function workspaceFileIndentShiftDepthForViewport') &&
 	      !fileViewModelSource.includes('function constrainWorkspaceStickyDirectoryPaths') &&
 	      !fileStickyContextHookSource.includes('MAX_STICKY_VIEWPORT_RATIO') &&
 	      fileStickyContextHookSource.includes('setStickyDirectoryPaths(current =>') &&

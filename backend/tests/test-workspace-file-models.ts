@@ -47,12 +47,15 @@ const {
   workspaceFileRevealScrollDelta,
   workspaceFileTreeActivationIntent,
   workspaceFileTreeRowClickIntent,
+  workspaceFileIndentShiftDepthForViewport,
   workspaceCompactStickyDirectoryLabel,
   workspaceStickyDirectoryPresentation,
   workspaceStickyContentTop,
   workspaceStickyContextItems,
   workspaceStickyDirectoryPaths,
+  workspaceStickyDirectoryPathsForIndexedViewport,
   workspaceStickyDirectoryPathsForViewport,
+  workspaceVisibleFileTreeRows,
   WORKSPACE_FILE_SEARCH_FOCUS_RETRY_DELAYS,
   WORKSPACE_FILE_TREE_FOCUS_RETRY_DELAYS,
 } = require('../../src/lib/workspace-file-view-model.ts');
@@ -942,6 +945,19 @@ function run() {
   assert.deepStrictEqual(visibleWorkspaceDirectoryPathsToOpenForTarget(tree, 'src', true), ['src/components']);
   assert.strictEqual(countVisibleWorkspaceTreeRows(tree, new Set()), 2);
   assert.strictEqual(countVisibleWorkspaceTreeRows(tree, new Set(['src/components'])), 4);
+  assert.deepStrictEqual(
+    workspaceVisibleFileTreeRows(tree, new Set(['src/components'])).map(row => ({
+      path: row.path,
+      depth: row.depth,
+      ancestors: row.ancestors.map(ancestor => ancestor.path),
+    })),
+    [
+      { path: 'src/components', depth: 0, ancestors: [] },
+      { path: 'src/components/App.tsx', depth: 1, ancestors: ['src/components'] },
+      { path: 'src/components/index.ts', depth: 1, ancestors: ['src/components'] },
+      { path: 'README.md', depth: 0, ancestors: [] },
+    ]
+  );
   const nestedRevealDirectories = {
     '': { items: [directory('reference')] },
     reference: { items: [directory('reference/poem'), workspaceFile('reference/index.md')] },
@@ -965,9 +981,9 @@ function run() {
   assert.strictEqual(linkedDirectoryTree[0].symbolicLink, true);
   assert.strictEqual(linkedDirectoryTree[0].children[0].path, 'reference/index.md');
   assert.deepStrictEqual(workspaceFileTreeDepthStyle(2), {
-    '--file-indent': '22px',
-    '--file-status-indent': '40px',
-    '--file-guide-width': '16px',
+    '--file-indent': 'max(6px, calc(22px - var(--file-indent-shift, 0px)))',
+    '--file-status-indent': 'max(24px, calc(40px - var(--file-indent-shift, 0px)))',
+    '--file-guide-width': 'max(0px, calc(16px - var(--file-indent-shift, 0px)))',
     '--file-depth': 2,
   });
   assert.strictEqual(visibleWorkspaceFileTreeGitStatus('untracked'), undefined);
@@ -1253,6 +1269,81 @@ function run() {
     }),
     ['odps-sql/optimizer/rules']
   );
+  const indexedRows = [
+    { path: 'module', type: 'directory', depth: 0, ancestors: [] },
+    { path: 'module/src', type: 'directory', depth: 1, ancestors: [{ path: 'module', depth: 0 }] },
+    {
+      path: 'module/src/main',
+      type: 'directory',
+      depth: 2,
+      ancestors: [{ path: 'module', depth: 0 }, { path: 'module/src', depth: 1 }],
+    },
+    {
+      path: 'module/src/main/rules',
+      type: 'directory',
+      depth: 3,
+      ancestors: [
+        { path: 'module', depth: 0 },
+        { path: 'module/src', depth: 1 },
+        { path: 'module/src/main', depth: 2 },
+      ],
+    },
+    {
+      path: 'module/src/main/rules/A.java',
+      type: 'file',
+      depth: 4,
+      ancestors: [
+        { path: 'module', depth: 0 },
+        { path: 'module/src', depth: 1 },
+        { path: 'module/src/main', depth: 2 },
+        { path: 'module/src/main/rules', depth: 3 },
+      ],
+    },
+    {
+      path: 'module/src/main/rules/B.java',
+      type: 'file',
+      depth: 4,
+      ancestors: [
+        { path: 'module', depth: 0 },
+        { path: 'module/src', depth: 1 },
+        { path: 'module/src/main', depth: 2 },
+        { path: 'module/src/main/rules', depth: 3 },
+      ],
+    },
+    { path: 'module/peer', type: 'directory', depth: 1, ancestors: [{ path: 'module', depth: 0 }] },
+  ];
+  assert.deepStrictEqual(workspaceStickyDirectoryPathsForIndexedViewport({
+    rows: indexedRows,
+    treeTop: -56,
+    stickyTop: 0,
+    scrollerBottom: 88,
+    rowHeight: 24,
+    stickyHeight: 40,
+  }), ['module', 'module/src', 'module/src/main', 'module/src/main/rules']);
+  assert.strictEqual(workspaceFileIndentShiftDepthForViewport({
+    rows: indexedRows,
+    treeTop: -56,
+    stickyTop: 0,
+    scrollerBottom: 88,
+    rowHeight: 24,
+    stickyHeight: 40,
+  }), 3);
+  assert.strictEqual(workspaceFileIndentShiftDepthForViewport({
+    rows: indexedRows,
+    treeTop: -68,
+    stickyTop: 0,
+    scrollerBottom: 88,
+    rowHeight: 24,
+    stickyHeight: 40,
+  }), 1.5);
+  assert.strictEqual(workspaceFileIndentShiftDepthForViewport({
+    rows: indexedRows,
+    treeTop: 0,
+    stickyTop: 0,
+    scrollerBottom: 88,
+    rowHeight: 24,
+    stickyHeight: 40,
+  }), 0);
   assert.deepStrictEqual(WORKSPACE_FILE_SEARCH_FOCUS_RETRY_DELAYS, [0, 80, 180, 300, 520, 900, 1200]);
   assert.deepStrictEqual(WORKSPACE_FILE_TREE_FOCUS_RETRY_DELAYS, [80, 180, 360]);
 

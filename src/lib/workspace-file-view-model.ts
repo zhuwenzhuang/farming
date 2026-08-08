@@ -1,4 +1,4 @@
-import { ancestorDirectories, type WorkspaceFileTreeNode } from './workspace-file-tree'
+import { ancestorDirectories, isDescendantPath, type WorkspaceFileTreeNode } from './workspace-file-tree'
 
 export const WORKSPACE_FILE_SEARCH_FOCUS_RETRY_DELAYS = [0, 80, 180, 300, 520, 900, 1200]
 export const WORKSPACE_FILE_TREE_FOCUS_RETRY_DELAYS = [80, 180, 360]
@@ -28,6 +28,13 @@ export interface WorkspaceFileRowSnapshot extends WorkspaceFileViewRect {
   path: string
   type?: string
   depth?: number
+}
+
+export interface WorkspaceVisibleFileTreeRow {
+  path: string
+  type: WorkspaceFileTreeNode['type']
+  depth: number
+  ancestors: Array<{ path: string; depth: number }>
 }
 
 export interface WorkspaceFileTreeSelectedRowState {
@@ -207,6 +214,103 @@ export function workspaceStickyDirectoryPathsForViewport(options: {
 
   const firstUncoveredRow = options.rows[firstUncoveredIndex]!
   return workspaceStickyDirectoryPaths(firstUncoveredRow.path, options.rows, stickyBottom)
+}
+
+export function workspaceVisibleFileTreeRows(
+  nodes: readonly WorkspaceFileTreeNode[],
+  openDirectoryPaths: ReadonlySet<string>,
+  depth = 0,
+  ancestors: Array<{ path: string; depth: number }> = []
+): WorkspaceVisibleFileTreeRow[] {
+  return nodes.flatMap(node => {
+    const row: WorkspaceVisibleFileTreeRow = {
+      path: node.path,
+      type: node.type,
+      depth,
+      ancestors: [...ancestors],
+    }
+    if (node.type !== 'directory' || !openDirectoryPaths.has(node.path)) return [row]
+    return [
+      row,
+      ...workspaceVisibleFileTreeRows(
+        node.children ?? [],
+        openDirectoryPaths,
+        depth + 1,
+        [...ancestors, { path: node.path, depth }]
+      ),
+    ]
+  })
+}
+
+export function workspaceStickyDirectoryPathsForIndexedViewport(options: {
+  rows: readonly WorkspaceVisibleFileTreeRow[]
+  treeTop: number
+  stickyTop: number
+  scrollerBottom: number
+  rowHeight: number
+  stickyHeight: number
+}) {
+  const rowHeight = Math.max(1, options.rowHeight)
+  const stickyBottom = options.stickyTop + Math.max(0, options.stickyHeight)
+  const firstUncoveredIndex = Math.max(0, Math.ceil((stickyBottom - 1 - options.treeTop) / rowHeight))
+  const firstUncoveredRow = options.rows[firstUncoveredIndex]
+  if (!firstUncoveredRow) return []
+  if (options.treeTop + firstUncoveredIndex * rowHeight >= options.scrollerBottom) return []
+  return firstUncoveredRow.ancestors.map(ancestor => ancestor.path)
+}
+
+function workspaceFileIndentShiftDepthForWindow(
+  rows: readonly WorkspaceVisibleFileTreeRow[],
+  startIndex: number,
+  rowCount: number,
+  minimumShiftDepth: number
+) {
+  const visibleRows = rows.slice(startIndex, startIndex + rowCount)
+  const firstRow = visibleRows[0]
+  if (!firstRow) return 0
+  for (let index = firstRow.ancestors.length - 1; index >= 0; index -= 1) {
+    const ancestor = firstRow.ancestors[index]!
+    if (ancestor.depth < minimumShiftDepth) break
+    if (visibleRows.every(row => isDescendantPath(ancestor.path, row.path))) {
+      return ancestor.depth
+    }
+  }
+  return 0
+}
+
+export function workspaceFileIndentShiftDepthForViewport(options: {
+  rows: readonly WorkspaceVisibleFileTreeRow[]
+  treeTop: number
+  stickyTop: number
+  scrollerBottom: number
+  rowHeight: number
+  stickyHeight: number
+  minimumShiftDepth?: number
+}) {
+  if (options.treeTop >= options.stickyTop || options.rows.length === 0) return 0
+  const rowHeight = Math.max(1, options.rowHeight)
+  const viewportTop = options.stickyTop + Math.max(0, options.stickyHeight)
+  const viewportHeight = options.scrollerBottom - viewportTop
+  if (viewportHeight <= 0) return 0
+
+  const rowPosition = Math.max(0, (viewportTop - options.treeTop) / rowHeight)
+  const startIndex = Math.floor(rowPosition)
+  const progress = rowPosition - startIndex
+  const rowCount = Math.max(1, Math.floor(viewportHeight / rowHeight))
+  const minimumShiftDepth = Math.max(0, options.minimumShiftDepth ?? 2)
+  const currentShift = workspaceFileIndentShiftDepthForWindow(
+    options.rows,
+    startIndex,
+    rowCount,
+    minimumShiftDepth
+  )
+  const nextShift = workspaceFileIndentShiftDepthForWindow(
+    options.rows,
+    startIndex + 1,
+    rowCount,
+    minimumShiftDepth
+  )
+  return currentShift + (nextShift - currentShift) * progress
 }
 
 export function workspaceStickyContextItems(options: {

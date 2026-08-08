@@ -1,14 +1,15 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState, type MutableRefObject, type RefObject } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type RefObject } from 'react'
 import { flushSync } from 'react-dom'
 import { findWorkspaceFileTreeNode, type WorkspaceFileTreeNode as FileExplorerNode } from '@/lib/workspace-file-tree'
+import { WORKSPACE_FILE_TREE_INDENT } from '@/lib/workspace-file-tree-row'
 import {
-  firstVisibleWorkspaceFilePath,
   isWorkspaceStickyContextVisible,
+  workspaceFileIndentShiftDepthForViewport,
   workspaceStickyContentTop,
   workspaceStickyContextItems,
-  workspaceStickyDirectoryPathsForViewport,
+  workspaceStickyDirectoryPathsForIndexedViewport,
+  workspaceVisibleFileTreeRows,
   type WorkspaceFileStickyContextItem,
-  type WorkspaceFileRowSnapshot,
 } from '@/lib/workspace-file-view-model'
 
 export type FileStickyContextItem = WorkspaceFileStickyContextItem
@@ -20,6 +21,7 @@ interface UseWorkspaceFileStickyContextOptions {
   focusFileTreePath: (path: string) => void
   lastFocusedFilePathRef: MutableRefObject<string | null>
   openDirectoryPaths: ReadonlySet<string>
+  rowHeight: number
   refreshTreeLayout: () => void
   resetKey: string | null
   treeData: FileExplorerNode[]
@@ -44,12 +46,18 @@ export function useWorkspaceFileStickyContext({
   focusFileTreePath,
   lastFocusedFilePathRef,
   openDirectoryPaths,
+  rowHeight,
   refreshTreeLayout,
   resetKey,
   treeData,
   treeViewportRef,
 }: UseWorkspaceFileStickyContextOptions) {
   const [stickyDirectoryPaths, setStickyDirectoryPaths] = useState<string[]>([])
+  const indentShiftRef = useRef(0)
+
+  const visibleRows = useMemo(() => (
+    workspaceVisibleFileTreeRows(treeData, openDirectoryPaths)
+  ), [openDirectoryPaths, treeData])
 
   const stickyDirectoryNodes = useMemo(() => (
     stickyDirectoryPaths
@@ -63,9 +71,17 @@ export function useWorkspaceFileStickyContext({
     })
   ), [stickyDirectoryNodes])
 
+  const updateIndentShift = useCallback((shift: number) => {
+    const roundedShift = Math.round(Math.max(0, shift) * 100) / 100
+    if (roundedShift === indentShiftRef.current) return
+    indentShiftRef.current = roundedShift
+    treeViewportRef.current?.style.setProperty('--file-indent-shift', `${roundedShift}px`)
+  }, [treeViewportRef])
+
   const clearStickyContext = useCallback(() => {
     setStickyDirectoryPaths(current => current.length === 0 ? current : [])
-  }, [])
+    updateIndentShift(0)
+  }, [updateIndentShift])
 
   const refreshStickyAncestors = useCallback(() => {
     const viewport = treeViewportRef.current
@@ -83,40 +99,35 @@ export function useWorkspaceFileStickyContext({
       return
     }
 
-    const rows = Array.from(viewport.querySelectorAll<HTMLElement>('[data-file-path]'))
-    const rowSnapshots: WorkspaceFileRowSnapshot[] = rows.flatMap(row => {
-      const path = row.dataset.filePath
-      if (!path) return []
-      const rect = row.getBoundingClientRect()
-      const depth = Number(row.dataset.treeLevel)
-      return [{
-        path,
-        type: row.dataset.fileType,
-        depth: Number.isFinite(depth) ? depth : undefined,
-        top: rect.top,
-        bottom: rect.bottom,
-      }]
+    const nextStickyPaths = workspaceStickyDirectoryPathsForIndexedViewport({
+      rows: visibleRows,
+      treeTop: viewportRect.top,
+      stickyTop,
+      scrollerBottom: scrollerRect.bottom,
+      rowHeight,
+      stickyHeight: FILE_STICKY_CONTEXT_HEIGHT,
     })
-    const firstVisiblePath = firstVisibleWorkspaceFilePath(rowSnapshots, stickyTop, scrollerRect.bottom)
-    if (!firstVisiblePath) {
+    if (nextStickyPaths.length === 0) {
       clearStickyContext()
       return
     }
 
-    const firstRowHeight = Math.max(1, rows[0]?.getBoundingClientRect().height ?? 24)
-    const nextStickyPaths = workspaceStickyDirectoryPathsForViewport({
-      rows: rowSnapshots,
+    const indentShiftDepth = workspaceFileIndentShiftDepthForViewport({
+      rows: visibleRows,
+      treeTop: viewportRect.top,
       stickyTop,
       scrollerBottom: scrollerRect.bottom,
-      rowHeight: Math.max(firstRowHeight, FILE_STICKY_CONTEXT_HEIGHT),
+      rowHeight,
+      stickyHeight: FILE_STICKY_CONTEXT_HEIGHT,
     })
+    updateIndentShift(indentShiftDepth * WORKSPACE_FILE_TREE_INDENT)
 
     setStickyDirectoryPaths(current => (
       current.length === nextStickyPaths.length && current.every((path, index) => path === nextStickyPaths[index])
         ? current
         : nextStickyPaths
     ))
-  }, [clearStickyContext, filesCollapsed, treeViewportRef])
+  }, [clearStickyContext, filesCollapsed, rowHeight, treeViewportRef, updateIndentShift, visibleRows])
 
   const focusStickyDirectory = useCallback((node: FileExplorerNode) => {
     lastFocusedFilePathRef.current = node.path

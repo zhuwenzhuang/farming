@@ -426,6 +426,7 @@ export function ProjectFilesSection({
     focusFileTreePath,
     lastFocusedFilePathRef,
     openDirectoryPaths,
+    rowHeight: FILE_ROW_HEIGHT,
     refreshTreeLayout,
     resetKey: agentId,
     treeData,
