@@ -178,6 +178,10 @@ export function isWorkspaceStickyContextVisible(viewportTop: number, stickyTop: 
   return viewportTop < stickyTop + margin
 }
 
+export function workspaceStickyContextRevealProgress(viewportTop: number, stickyTop: number, rowHeight: number) {
+  return Math.min(1, Math.max(0, (stickyTop - viewportTop) / Math.max(1, rowHeight)))
+}
+
 export function firstVisibleWorkspaceFilePath(
   rows: readonly WorkspaceFileRowSnapshot[],
   stickyTop: number,

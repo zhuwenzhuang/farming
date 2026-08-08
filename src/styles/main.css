@@ -3931,7 +3931,9 @@ body.code-mode .code-file-change-group-toggle {
 
 .code-file-tree {
   position: relative;
+  left: calc(0px - var(--file-context-shift, 0px));
   height: 100% !important;
+  width: calc(100% + var(--file-context-shift, 0px)) !important;
   flex: 0 0 auto;
   box-sizing: border-box;
   overflow: visible !important;
@@ -3961,7 +3963,7 @@ body.code-mode .code-file-change-group-toggle {
 .code-file-sticky-stack {
   position: absolute;
   top: 0;
-  left: 0;
+  left: calc(0px - var(--file-context-shift, 0px));
   right: 0;
   container-type: inline-size;
   pointer-events: auto;
@@ -22577,9 +22579,13 @@ body.code-mode[data-appearance='dark'] .code-settings-language-choice {
     margin-right: 4px;
   }
 
-  body.code-mode.code-compact-layout .code-file-tree-viewport,
-  body.code-mode.code-compact-layout .code-file-tree {
+  body.code-mode.code-compact-layout .code-file-tree-viewport {
     width: 100% !important;
+    min-width: 0;
+  }
+
+  body.code-mode.code-compact-layout .code-file-tree {
+    width: calc(100% + var(--file-context-shift, 0px)) !important;
     min-width: 0;
   }
 

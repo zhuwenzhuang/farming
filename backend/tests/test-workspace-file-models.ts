@@ -51,6 +51,7 @@ const {
   workspaceCompactStickyDirectoryLabel,
   workspaceStickyDirectoryPresentation,
   workspaceStickyContentTop,
+  workspaceStickyContextRevealProgress,
   workspaceStickyContextItems,
   workspaceStickyDirectoryPaths,
   workspaceStickyDirectoryPathsForIndexedViewport,
@@ -1182,6 +1183,10 @@ function run() {
   assert.strictEqual(workspaceStickyContentTop(10, 30, 12, 0), 52);
   assert.strictEqual(isWorkspaceStickyContextVisible(40, 41), true);
   assert.strictEqual(isWorkspaceStickyContextVisible(43, 41), false);
+  assert.strictEqual(workspaceStickyContextRevealProgress(40, 40, 24), 0);
+  assert.strictEqual(workspaceStickyContextRevealProgress(28, 40, 24), 0.5);
+  assert.strictEqual(workspaceStickyContextRevealProgress(16, 40, 24), 1);
+  assert.strictEqual(workspaceStickyContextRevealProgress(52, 40, 24), 0);
   const rowSnapshots = [
     { path: 'src', top: 20, bottom: 44 },
     { path: 'src/components', top: 52, bottom: 76 },

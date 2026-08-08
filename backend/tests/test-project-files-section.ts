@@ -783,7 +783,9 @@ function run() {
 	      fileStickyContextHookSource.includes('workspaceVisibleFileTreeRows(treeData, openDirectoryPaths)') &&
 	      fileStickyContextHookSource.includes('workspaceStickyDirectoryPathsForIndexedViewport({') &&
 	      fileStickyContextHookSource.includes('workspaceFileIndentShiftDepthForViewport({') &&
+	      fileStickyContextHookSource.includes('workspaceStickyContextRevealProgress(viewportRect.top, stickyTop, rowHeight)') &&
 	      fileStickyContextHookSource.includes("style.setProperty('--file-indent-shift'") &&
+	      fileStickyContextHookSource.includes("style.setProperty('--file-context-shift'") &&
 	      !fileStickyContextHookSource.includes("querySelectorAll<HTMLElement>('[data-file-path]')") &&
       fileViewModelSource.includes('function firstVisibleWorkspaceFilePath') &&
       fileViewModelSource.includes('function workspaceStickyDirectoryPaths') &&
@@ -799,6 +801,8 @@ function run() {
 	      fileStickyContextSource.includes('style={workspaceFileTreeDepthStyle(0)}') &&
 	      fileStickyContextSource.includes('workspaceStickyDirectoryPresentation(item.nodes)') &&
 	      fileStickyContextSource.includes('code-file-sticky-parent') &&
+	      stylesSource.includes('left: calc(0px - var(--file-context-shift, 0px));') &&
+	      stylesSource.includes('width: calc(100% + var(--file-context-shift, 0px)) !important;') &&
 	      !fileStickyContextSource.includes('code-file-sticky-expanded-rows') &&
 	      !fileStickyContextSource.includes('code-file-sticky-compact-row') &&
 	      treeRowModelSource.includes('function workspaceFileTreeDescendantGitStatusClassName') &&

@@ -100,7 +100,10 @@ When the visible rows share a deep offscreen ancestor represented by that
 sticky context, the Explorer may reclaim the ancestor indentation with one
 uniform, scroll-linked horizontal offset. The offset is derived from fixed row
 geometry, changes continuously at viewport boundaries, and never changes the
-authoritative tree depth or vertical scroll position.
+authoritative tree depth or vertical scroll position. As the sticky context
+enters or leaves, it and the tree below may continuously reclaim or restore the
+enclosing Files inset as one surface; switching sticky paths does not reset that
+surface offset.
 
 Text uses the lightweight editor. Markdown and static HTML may switch between
 source and bounded preview within the same file identity. Images, PDFs, binary
