@@ -188,6 +188,13 @@ fi
 log "Building frontend for base path ${BASE_PATH} ..."
 (cd "${PROJECT_ROOT}" && FARMING_BASE_PATH="${BASE_PATH}" npm run build >&2)
 
+runtime_platform_key="${TARGET_PLATFORM}-${TARGET_ARCH}"
+if glibc_runtime_requested; then
+  runtime_platform_key="${runtime_platform_key}-musl"
+fi
+log "Preparing packaged runtime for ${runtime_platform_key} ..."
+(cd "${PROJECT_ROOT}" && npm run prepare:packaged-runtimes -- --platform "${runtime_platform_key}" >&2)
+
 log "Copying release files ..."
 git -C "${PROJECT_ROOT}" archive --format=tar HEAD -- \
   package.json \

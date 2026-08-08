@@ -59,6 +59,11 @@ function run() {
     assert(packageScript.includes('FARMING_RELEASE_UPDATE_METHOD:-$(if glibc_runtime_requested; then printf \'npm\''));
     assert(packageScript.includes('set -- daemon'));
     assert(packageScript.includes('FARMING_CLI_INSTALL_DIR'));
+    assert(
+      packageScript.includes('runtime_platform_key="${runtime_platform_key}-musl"')
+      && packageScript.includes('prepare:packaged-runtimes -- --platform "${runtime_platform_key}"'),
+      'legacy bundles must include the static agent-browser runtime selected by the glibc loader profile',
+    );
     const installScript = fs.readFileSync(
       path.join(process.cwd(), 'scripts/install-release.sh'),
       'utf8',
