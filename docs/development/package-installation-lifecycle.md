@@ -39,6 +39,19 @@ matching system provider CLI cannot satisfy that managed dependency. The
 prepared image also carries the child-process invocation contract required by
 the target platform, including a compatibility loader when necessary.
 
+### npm lifecycle-script constraint
+
+An npm installation must not depend on `preinstall`, `install`, `postinstall`,
+or any other npm lifecycle script for correctness. Installing Farming must be
+an unpack-only operation: the package image already contains the selected,
+verified runtime artifacts required for its target platform.
+
+The release pipeline, not the user's npm client, owns runtime preparation and
+platform selection. It must publish the required prebuilt artifacts with the
+package image (or declaratively selected platform packages). Server startup
+only verifies those artifacts and gives an actionable repair error if they are
+missing or corrupt; it never compensates by downloading or preparing them.
+
 ## Update State Machine
 
 - **Idle**: no update is active.
@@ -92,7 +105,8 @@ untouched and reports a retryable failure.
 
 ## Acceptance Criteria
 
-Verification must cover first installation without startup downloads,
-concurrent Configs, update preparation while serving traffic, stale selection
-races, exact rollback, failed cleanup, external npm replacement, and each
-supported installation form's boundary.
+Verification must cover installation with npm lifecycle scripts disabled,
+first installation without startup downloads, concurrent Configs, update
+preparation while serving traffic, stale selection races, exact rollback,
+failed cleanup, external npm replacement, and each supported installation
+form's boundary.

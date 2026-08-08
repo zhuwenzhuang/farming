@@ -38,11 +38,11 @@ test.describe('workspace sharing', () => {
     const fullAccessButton = page.getByTestId('code-share-copy-link')
     await expect(fullAccessButton).toBeVisible()
     await expect(fullAccessButton.locator('.code-share-token-line')).toHaveCount(3)
-    await expect(fullAccessButton).toContainText(/Copy full-control link|复制完整控制链接/)
+    await expect(fullAccessButton).toContainText(/Copy full-control passphrase link|复制完整控制口令链接/)
     await fullAccessButton.click()
 
     await expect.poll(async () => page.evaluate(() => navigator.clipboard.readText())).toBe(fullAccessUrl)
-    await expect(fullAccessButton).toContainText(/Full-control link copied|完整控制链接已复制/)
+    await expect(fullAccessButton).toContainText(/Full-control passphrase link copied|完整控制口令链接已复制/)
   })
 
   test('refuses to present an unsafe share when authentication is disabled', async ({ page }) => {

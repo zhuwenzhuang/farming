@@ -146,7 +146,6 @@ export interface CodeCopy {
   shareLinkVisibility: string
   copyFullAccessShareLink: string
   copiedFullAccessShareLink: string
-  sharePassphraseFullAccessWarning: string
   shareQrFullAccessWarning: string
   shareQrReadOnlyWarning: string
   shareLinkFailed: string
@@ -678,11 +677,10 @@ const EN_COPY: CodeCopy = {
   scanToOpenOnPhone: 'Scan to open on phone',
   copiedShareLink: 'Current page read-only link copied',
   shareLinkVisibility: 'View only, no changes. It expires with the countdown.',
-  copyFullAccessShareLink: 'Copy full-control link',
-  copiedFullAccessShareLink: 'Full-control link copied',
-  sharePassphraseFullAccessWarning: 'Full control until the instance passphrase changes.',
-  shareQrFullAccessWarning: 'Full control. This QR code expires with the countdown.',
-  shareQrReadOnlyWarning: 'View only, no changes. This QR code expires with the countdown.',
+  copyFullAccessShareLink: 'Copy full-control passphrase link',
+  copiedFullAccessShareLink: 'Full-control passphrase link copied',
+  shareQrFullAccessWarning: 'This QR code contains the full-control passphrase link.',
+  shareQrReadOnlyWarning: 'This QR code contains the read-only link for this page.',
   shareLinkFailed: 'Share link unavailable',
   sharedLocationUnavailable: path => `Unable to locate shared path: ${path}`,
   shareLinkExpired: 'Expired',
@@ -1238,11 +1236,10 @@ const ZH_COPY: CodeCopy = {
   scanToOpenOnPhone: '手机扫码打开',
   copiedShareLink: '当前页面只读链接已复制',
   shareLinkVisibility: '只能查看，不能修改；链接会随倒计时过期。',
-  copyFullAccessShareLink: '复制完整控制链接',
-  copiedFullAccessShareLink: '完整控制链接已复制',
-  sharePassphraseFullAccessWarning: '授予完整控制权限，直到实例口令变更。',
-  shareQrFullAccessWarning: '授予完整控制权限；二维码会随倒计时过期。',
-  shareQrReadOnlyWarning: '只能查看，不能修改；二维码会随倒计时过期。',
+  copyFullAccessShareLink: '复制完整控制口令链接',
+  copiedFullAccessShareLink: '完整控制口令链接已复制',
+  shareQrFullAccessWarning: '二维码包含完整控制口令链接。',
+  shareQrReadOnlyWarning: '二维码包含当前页面的只读链接。',
   shareLinkFailed: '分享链接不可用',
   sharedLocationUnavailable: path => `无法定位分享路径：${path}`,
   shareLinkExpired: '已过期',

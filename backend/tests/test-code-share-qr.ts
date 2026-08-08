@@ -50,7 +50,7 @@ function run() {
     shareButtonSource.includes('ticket?.tokenLabel && ticket.fullAccessUrl && ('),
     'read-only re-shares must hide the owner passphrase and writable URL button'
   );
-  assert(shareButtonSource.includes('copy.sharePassphraseFullAccessWarning'));
+  assert(!shareButtonSource.includes('code-share-passphrase-warning'));
   assert(shareButtonSource.includes('function tokenDisplayLines'));
   assert(shareButtonSource.includes(".split('-')"));
   assert(shareButtonSource.includes('singleLineTokenFits'));
@@ -80,11 +80,11 @@ function run() {
   assert(!copySource.includes("shareShortLinkLabel: '分享短链'"));
   assert(copySource.includes("copiedShareLink: '当前页面只读链接已复制'"));
   assert(copySource.includes("shareLinkVisibility: '只能查看，不能修改；链接会随倒计时过期。'"));
-  assert(copySource.includes("copyFullAccessShareLink: '复制完整控制链接'"));
-  assert(copySource.includes("copiedFullAccessShareLink: '完整控制链接已复制'"));
-  assert(copySource.includes("sharePassphraseFullAccessWarning: '授予完整控制权限，直到实例口令变更。'"));
-  assert(copySource.includes("shareQrFullAccessWarning: '授予完整控制权限；二维码会随倒计时过期。'"));
-  assert(copySource.includes("shareQrReadOnlyWarning: '只能查看，不能修改；二维码会随倒计时过期。'"));
+  assert(copySource.includes("copyFullAccessShareLink: '复制完整控制口令链接'"));
+  assert(copySource.includes("copiedFullAccessShareLink: '完整控制口令链接已复制'"));
+  assert(!copySource.includes('sharePassphraseFullAccessWarning'));
+  assert(copySource.includes("shareQrFullAccessWarning: '二维码包含完整控制口令链接。'"));
+  assert(copySource.includes("shareQrReadOnlyWarning: '二维码包含当前页面的只读链接。'"));
 
   assert(stylesSource.includes('.code-share-popover'));
   assert(stylesSource.includes('width: 264px;'));

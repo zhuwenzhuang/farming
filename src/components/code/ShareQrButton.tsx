@@ -547,7 +547,6 @@ export function ShareQrButton({
                   {fullAccessCopied ? copy.copiedFullAccessShareLink : copy.copyFullAccessShareLink}
                 </span>
               </span>
-              <span className="code-share-passphrase-warning">{copy.sharePassphraseFullAccessWarning}</span>
             </button>
           )}
           {error && <div className="code-share-error" role="status">{error}</div>}

@@ -30,6 +30,16 @@ Managed ACP Dependency 必须始终从固定 Manifest 准备；即使系统 Prov
 也不能满足该 Managed Dependency。Prepared Image 还携带目标平台所需的 Child Process
 Invocation Contract，包括必要时使用的兼容 Loader。
 
+### npm 生命周期脚本约束
+
+npm 安装不得为了正确运行而依赖 `preinstall`、`install`、`postinstall` 或任何其他 npm
+生命周期脚本。安装 Farming 必须是纯解包操作：Package Image 已包含其目标平台所需、经过验证的
+Runtime Artifact。
+
+Release Pipeline，而不是用户的 npm Client，拥有 Runtime Prepare 与 Platform Selection 的职责。
+它必须随 Package Image 发布所需的预构建 Artifact（或由 Package Manager 声明式选择的平台包）。
+Server 启动只校验这些 Artifact；它们缺失或损坏时给出可操作的修复错误，绝不通过下载或准备来补偿。
+
 ## 更新状态机
 
 - **Idle**：没有更新。
@@ -75,5 +85,6 @@ Launcher 或 Helper 崩溃后，新 Server 会用实际运行版本对账 Update
 
 ## 验收标准
 
-验证必须覆盖：首次安装无启动下载、多个 Config 并行、服务不中断的更新准备、陈旧 Selection
-竞争、精确 Rollback、Cleanup 失败、外部 npm 替换，以及各安装形态的边界。
+验证必须覆盖：在 npm 生命周期脚本禁用时安装、首次安装无启动下载、多个 Config 并行、服务
+不中断的更新准备、陈旧 Selection 竞争、精确 Rollback、Cleanup 失败、外部 npm 替换，以及各
+安装形态的边界。
