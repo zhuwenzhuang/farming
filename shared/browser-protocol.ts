@@ -352,25 +352,6 @@ export type ValidationResult<Message> =
   | { ok: true; value: Message }
   | { ok: false; error: string }
 
-const CLIENT_MESSAGE_TYPES: ReadonlySet<ClientMessage['type']> = new Set([
-  'protocol-hello',
-  'business-health-probe',
-  'terminal-checkpoint-request',
-  'start-agent',
-  'input',
-  'composer-input',
-  'acp-permission-response',
-  'interrupt-agent',
-  'focus-agent',
-  'resize-agent',
-  'clear-terminal',
-  'watch-workspace-files',
-  'unwatch-workspace-files',
-  'archive-agent',
-  'restart-main-agent',
-  'state-resync',
-])
-
 const SERVER_MESSAGE_TYPES: ReadonlySet<ServerMessage['type']> = new Set([
   'protocol-hello',
   'protocol-error',
@@ -596,11 +577,9 @@ export function validateClientMessage(value: unknown): ValidationResult<ClientMe
   if (!objectMessage(value) || typeof value.type !== 'string') {
     return { ok: false, error: 'message must be an object with a type' }
   }
-  if (!CLIENT_MESSAGE_TYPES.has(value.type as ClientMessage['type'])) {
-    return { ok: false, error: `unsupported client message: ${value.type}` }
-  }
+  const messageType = value.type as ClientMessage['type']
   let valid = true
-  switch (value.type) {
+  switch (messageType) {
     case 'protocol-hello':
       valid = Number.isInteger(value.protocolVersion)
         && (!Object.prototype.hasOwnProperty.call(value, 'initialStateScope')
@@ -654,7 +633,16 @@ export function validateClientMessage(value: unknown): ValidationResult<ClientMe
       valid = stringField(value, 'generation', true)
         && optionalField(value, 'afterSequence', () => revisionField(value, 'afterSequence'))
       break
-    default: valid = stringField(value, 'agentId'); break
+    case 'interrupt-agent':
+    case 'clear-terminal':
+    case 'watch-workspace-files':
+    case 'archive-agent':
+      valid = stringField(value, 'agentId')
+      break
+    default: {
+      const unsupportedMessageType: never = messageType
+      return { ok: false, error: `unsupported client message: ${unsupportedMessageType}` }
+    }
   }
   return valid
     ? { ok: true, value: value as ClientMessage }

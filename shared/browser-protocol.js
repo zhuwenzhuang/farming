@@ -10,24 +10,6 @@ const agent_state_semantics_js_1 = require("./agent-state-semantics.js");
 exports.PROTOCOL_VERSION = 10;
 exports.MIN_PROTOCOL_VERSION = 10;
 exports.PROJECT_ATTENTION_SCORE_MAX = agent_state_semantics_js_1.PROJECT_ATTENTION_SCORE_MAX;
-const CLIENT_MESSAGE_TYPES = new Set([
-    'protocol-hello',
-    'business-health-probe',
-    'terminal-checkpoint-request',
-    'start-agent',
-    'input',
-    'composer-input',
-    'acp-permission-response',
-    'interrupt-agent',
-    'focus-agent',
-    'resize-agent',
-    'clear-terminal',
-    'watch-workspace-files',
-    'unwatch-workspace-files',
-    'archive-agent',
-    'restart-main-agent',
-    'state-resync',
-]);
 const SERVER_MESSAGE_TYPES = new Set([
     'protocol-hello',
     'protocol-error',
@@ -230,11 +212,9 @@ function validateClientMessage(value) {
     if (!objectMessage(value) || typeof value.type !== 'string') {
         return { ok: false, error: 'message must be an object with a type' };
     }
-    if (!CLIENT_MESSAGE_TYPES.has(value.type)) {
-        return { ok: false, error: `unsupported client message: ${value.type}` };
-    }
+    const messageType = value.type;
     let valid = true;
-    switch (value.type) {
+    switch (messageType) {
         case 'protocol-hello':
             valid = Number.isInteger(value.protocolVersion)
                 && (!Object.prototype.hasOwnProperty.call(value, 'initialStateScope')
@@ -300,9 +280,16 @@ function validateClientMessage(value) {
             valid = stringField(value, 'generation', true)
                 && optionalField(value, 'afterSequence', () => revisionField(value, 'afterSequence'));
             break;
-        default:
+        case 'interrupt-agent':
+        case 'clear-terminal':
+        case 'watch-workspace-files':
+        case 'archive-agent':
             valid = stringField(value, 'agentId');
             break;
+        default: {
+            const unsupportedMessageType = messageType;
+            return { ok: false, error: `unsupported client message: ${unsupportedMessageType}` };
+        }
     }
     return valid
         ? { ok: true, value: value }

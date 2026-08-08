@@ -1,3 +1,5 @@
+import type { ClientMessage } from '../../shared/browser-protocol.js';
+
 const assert = require('assert');
 const packageJson = require('../../package.json');
 const { importTsModule } = require('./helpers/import-ts-module');
@@ -8,6 +10,38 @@ const {
   validateServerMessage,
 } = importTsModule('shared/browser-protocol.ts');
 
+type ClientMessageByType = {
+  [Type in ClientMessage['type']]: Extract<ClientMessage, { type: Type }>;
+};
+
+const validClientMessages = {
+  'protocol-hello': { type: 'protocol-hello', protocolVersion: PROTOCOL_VERSION },
+  'business-health-probe': { type: 'business-health-probe', requestId: 'health-1' },
+  'terminal-checkpoint-request': {
+    type: 'terminal-checkpoint-request',
+    requestId: 'checkpoint-1',
+    agentId: 'agent-1',
+  },
+  'start-agent': { type: 'start-agent', command: 'codex' },
+  input: { type: 'input', agentId: 'agent-1', input: 'hello' },
+  'composer-input': { type: 'composer-input', agentId: 'agent-1', message: 'hello' },
+  'acp-permission-response': {
+    type: 'acp-permission-response',
+    agentId: 'agent-1',
+    requestId: 'permission-1',
+    optionId: 'allow',
+  },
+  'interrupt-agent': { type: 'interrupt-agent', agentId: 'agent-1' },
+  'focus-agent': { type: 'focus-agent', agentId: 'agent-1' },
+  'resize-agent': { type: 'resize-agent', agentId: 'agent-1', cols: 80, rows: 24 },
+  'clear-terminal': { type: 'clear-terminal', agentId: 'agent-1' },
+  'watch-workspace-files': { type: 'watch-workspace-files', agentId: 'agent-1' },
+  'unwatch-workspace-files': { type: 'unwatch-workspace-files', agentId: 'agent-1' },
+  'archive-agent': { type: 'archive-agent', agentId: 'agent-1' },
+  'restart-main-agent': { type: 'restart-main-agent', command: 'codex' },
+  'state-resync': { type: 'state-resync' },
+} satisfies ClientMessageByType;
+
 assert(
   packageJson.files.includes('shared/*.js'),
   'the npm package must include the shared browser protocol required by the server',
@@ -16,6 +50,13 @@ assert(
 assert.strictEqual(protocolCompatible(PROTOCOL_VERSION), true);
 assert.strictEqual(protocolCompatible(PROTOCOL_VERSION - 1), false);
 assert.strictEqual(protocolCompatible(PROTOCOL_VERSION + 1), false);
+for (const message of Object.values(validClientMessages)) {
+  assert.strictEqual(
+    validateClientMessage(message).ok,
+    true,
+    `${message.type} must have a working client-message validator`,
+  );
+}
 assert.strictEqual(validateClientMessage({ type: 'protocol-hello', protocolVersion: PROTOCOL_VERSION }).ok, true);
 assert.strictEqual(validateClientMessage({
   type: 'protocol-hello',
