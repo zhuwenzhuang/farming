@@ -3,16 +3,18 @@ import {
   PROJECT_ATTENTION_SCORE_MAX,
   projectWorkspaceFromAgentState,
 } from '../shared/agent-state-semantics.js';
+import type {
+  StateDeltaMessage,
+  StateMessage,
+} from '../shared/browser-protocol.js';
 
 type AgentStateRecord = Record<string, unknown> & { id: string };
 type AgentStatePayload = Record<string, unknown> & { agents: AgentStateRecord[] };
 
-interface AgentStateBroadcastDelta {
-  removedAgentIds: string[];
-  sequence: number;
+type AgentStateBroadcastDelta = Pick<StateDeltaMessage, 'removedAgentIds' | 'sequence'> & {
   state?: Record<string, unknown>;
   upserts: AgentStateRecord[];
-}
+};
 
 interface AgentStateBroadcastMutation {
   removedAgentIds?: string[];
@@ -21,12 +23,7 @@ interface AgentStateBroadcastMutation {
 }
 
 interface AgentStateSnapshotFrame {
-  snapshot: {
-    complete: boolean;
-    id: string;
-    offset: number;
-    total: number;
-  };
+  snapshot: NonNullable<StateMessage['snapshot']>;
   state: AgentStatePayload;
 }
 

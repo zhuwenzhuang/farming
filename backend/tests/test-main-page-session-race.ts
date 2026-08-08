@@ -1,34 +1,12 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const ts = require('typescript');
 
 const workspaceSource = fs.readFileSync(path.join(__dirname, '../../src/components/CodeWorkspace.tsx'), 'utf8');
 
-function loadMutationHelper() {
-  const start = workspaceSource.indexOf('export type MainPageSessionKeyMutation =');
-  const end = workspaceSource.indexOf('\nexport function CodeWorkspace', start);
-  assert(start >= 0 && end > start, 'main-page mutation helper should remain directly testable');
-  const compiled = ts.transpileModule(workspaceSource.slice(start, end), {
-    compilerOptions: {
-      module: ts.ModuleKind.CommonJS,
-      target: ts.ScriptTarget.ES2022,
-    },
-  }).outputText;
-  type ApplyPending = (
-    sessionKeys: string[],
-    mutations: Array<{ version: number; operation: string; sessionKeys: string[] }>,
-  ) => string[];
-  const testModule: { exports: { applyPendingMainPageSessionKeyMutations?: ApplyPending } } = {
-    exports: {},
-  };
-  Function('module', 'exports', compiled)(testModule, testModule.exports);
-  assert(testModule.exports.applyPendingMainPageSessionKeyMutations);
-  return testModule.exports.applyPendingMainPageSessionKeyMutations;
-}
-
-function run() {
-  const applyPending = loadMutationHelper();
+async function run() {
+  const imported = await import('../../src/lib/main-page-session-mutations.ts');
+  const applyPending = imported.applyPendingMainPageSessionKeyMutations;
   assert(
     workspaceSource.includes('const MAIN_PAGE_SESSION_MUTATION_TIMEOUT_MS = 15_000')
       && workspaceSource.includes('fetchMainPageSessionMutation(appPath(\'/api/main-page-agent-sessions\')')
@@ -65,4 +43,7 @@ function run() {
   console.log('✓ Main-page pending commands replay over stale WebSocket snapshots in local order');
 }
 
-run();
+run().catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});

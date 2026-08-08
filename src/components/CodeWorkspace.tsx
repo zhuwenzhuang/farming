@@ -248,6 +248,10 @@ import {
   normalizeAgentLaunchOptions,
   type AgentLaunchOption,
 } from './code/agent-launch-options'
+import {
+  applyPendingMainPageSessionKeyMutations,
+  type MainPageSessionKeyMutation,
+} from '@/lib/main-page-session-mutations'
 import { touchAgentViewCache } from './code/agent-view-cache'
 
 export type { WorkspaceView } from './code/types'
@@ -559,26 +563,6 @@ function uniqueTerminalFileSearchMatches(matches: WorkspaceFileSearchMatch[]) {
     uniqueByPath.set(match.path, match)
   }
   return Array.from(uniqueByPath.values())
-}
-
-export type MainPageSessionKeyMutation = {
-  version: number
-  operation: 'add' | 'remove'
-  sessionKeys: string[]
-}
-
-export function applyPendingMainPageSessionKeyMutations(
-  baseline: Iterable<string>,
-  mutations: readonly MainPageSessionKeyMutation[],
-) {
-  const projected = new Set(baseline)
-  mutations.forEach(mutation => {
-    mutation.sessionKeys.forEach(sessionKey => {
-      if (mutation.operation === 'add') projected.add(sessionKey)
-      else projected.delete(sessionKey)
-    })
-  })
-  return Array.from(projected)
 }
 
 export function CodeWorkspace({
