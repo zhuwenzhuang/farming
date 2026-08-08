@@ -218,7 +218,11 @@ start_server() {
   local code_root="$2"
   local args=()
   while IFS= read -r value; do args+=("${value}"); done < <(server_args)
-  run_cli "${runtime_root}" "${code_root}" "${args[@]}"
+  if run_cli "${runtime_root}" "${code_root}" "${args[@]}" >/dev/null 2>&1; then
+    return 0
+  fi
+  echo "Farming Server startup failed; inspect the Config-owned farming-server.log on the target." >&2
+  return 1
 }
 
 stop_server() {

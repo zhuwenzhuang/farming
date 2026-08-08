@@ -7,6 +7,7 @@ const { spawn, spawnSync } = require('child_process');
 
 const projectRoot = path.join(__dirname, '../..');
 const activator = path.join(projectRoot, 'scripts', 'activate-remote-release.sh');
+const daemonSecretSentinel = 'farming-deploy-daemon-secret-sentinel';
 
 function commandExists(command) {
   return spawnSync('bash', ['-lc', `command -v ${command}`], { stdio: 'ignore' }).status === 0;
@@ -50,6 +51,8 @@ if (command === 'stop') {
 }
 if (command === 'daemon') {
   fs.writeFileSync(path.join(configDir, 'farming-server.pid'), String(process.pid));
+  process.stdout.write(${JSON.stringify(options.daemonStdout || '')});
+  process.stderr.write(${JSON.stringify(options.daemonStderr || '')});
   process.exit(${options.startExitCode || 0});
 }
 process.exit(1);
@@ -119,25 +122,55 @@ async function run() {
   const configDir = path.join(root, 'config');
   try {
     const firstSha = '1'.repeat(40);
-    const first = writeFixtureBundle(root, { gitSha: firstSha });
+    const first = writeFixtureBundle(root, {
+      gitSha: firstSha,
+      daemonStdout: `${daemonSecretSentinel}\n`,
+    });
     const firstResult = activate(first, firstSha, remoteDir, configDir);
     assert.strictEqual(firstResult.status, 0, firstResult.stderr);
+    assert.doesNotMatch(`${firstResult.stdout}\n${firstResult.stderr}`, new RegExp(daemonSecretSentinel));
+    const successLines = firstResult.stdout.trim().split('\n');
+    const success = JSON.parse(successLines[successLines.length - 1]);
+    assert.strictEqual(success.ok, true);
+    assert.strictEqual(success.gitSha, firstSha);
     const firstImage = fs.realpathSync(remoteDir);
     assert.match(firstImage, /111111111111-/);
 
     const secondSha = '2'.repeat(40);
-    const failing = writeFixtureBundle(root, { gitSha: secondSha, smokeExitCode: 7 });
-    const failedResult = activate(failing, secondSha, remoteDir, configDir);
+    const failingStart = writeFixtureBundle(root, {
+      gitSha: secondSha,
+      daemonStderr: `${daemonSecretSentinel}\n`,
+      startExitCode: 7,
+    });
+    const failedStartResult = activate(failingStart, secondSha, remoteDir, configDir);
+    assert.notStrictEqual(failedStartResult.status, 0);
+    assert.match(
+      failedStartResult.stderr,
+      /Farming Server startup failed; inspect the Config-owned farming-server\.log on the target\./,
+    );
+    assert.match(failedStartResult.stderr, /previous image was restored/i);
+    assert.doesNotMatch(
+      `${failedStartResult.stdout}\n${failedStartResult.stderr}`,
+      new RegExp(daemonSecretSentinel),
+    );
+    assert.strictEqual(fs.realpathSync(remoteDir), firstImage);
+    const eventsAfterStartRollback = fs.readFileSync(path.join(configDir, 'fixture-events.log'), 'utf8');
+    assert(eventsAfterStartRollback.split('\n').filter(line => line.startsWith(`daemon:${firstImage}`)).length >= 2);
+
+    const thirdSha = '3'.repeat(40);
+    const failingSmoke = writeFixtureBundle(root, { gitSha: thirdSha, smokeExitCode: 7 });
+    const failedResult = activate(failingSmoke, thirdSha, remoteDir, configDir);
     assert.notStrictEqual(failedResult.status, 0);
     assert.match(failedResult.stderr, /previous image was restored/i);
+    assert.doesNotMatch(`${failedResult.stdout}\n${failedResult.stderr}`, new RegExp(daemonSecretSentinel));
     assert.strictEqual(fs.realpathSync(remoteDir), firstImage);
     const eventsAfterRollback = fs.readFileSync(path.join(configDir, 'fixture-events.log'), 'utf8');
     assert(eventsAfterRollback.split('\n').filter(line => line.startsWith(`daemon:${firstImage}`)).length >= 2);
 
     const eventsBeforePreflight = fs.readFileSync(path.join(configDir, 'fixture-events.log'), 'utf8');
-    const thirdSha = '3'.repeat(40);
-    const invalidNative = writeFixtureBundle(root, { gitSha: thirdSha, invalidNodePty: true });
-    const preflightResult = activate(invalidNative, thirdSha, remoteDir, configDir);
+    const fourthSha = '4'.repeat(40);
+    const invalidNative = writeFixtureBundle(root, { gitSha: fourthSha, invalidNodePty: true });
+    const preflightResult = activate(invalidNative, fourthSha, remoteDir, configDir);
     assert.notStrictEqual(preflightResult.status, 0);
     assert.match(preflightResult.stderr, /invalid node-pty fixture/);
     assert.strictEqual(fs.realpathSync(remoteDir), firstImage);
@@ -150,9 +183,9 @@ async function run() {
     });
     try {
       await waitForFile(readyFile);
-      const fourthSha = '4'.repeat(40);
-      const blocked = writeFixtureBundle(root, { gitSha: fourthSha });
-      const blockedResult = activate(blocked, fourthSha, remoteDir, configDir);
+      const fifthSha = '5'.repeat(40);
+      const blocked = writeFixtureBundle(root, { gitSha: fifthSha });
+      const blockedResult = activate(blocked, fifthSha, remoteDir, configDir);
       assert.notStrictEqual(blockedResult.status, 0);
       assert.match(blockedResult.stderr, /Another Farming deployment is active/);
       assert.strictEqual(fs.realpathSync(remoteDir), firstImage);
