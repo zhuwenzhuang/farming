@@ -66,6 +66,10 @@ function run() {
     path.join(__dirname, '../../src/lib/terminal-viewport.ts'),
     'utf8'
   );
+  const terminalTouchScrollSource = fs.readFileSync(
+    path.join(__dirname, '../../src/lib/terminal-touch-scroll.ts'),
+    'utf8'
+  );
   const terminalOutputSource = fs.readFileSync(
     path.join(__dirname, '../../src/lib/terminal-output.ts'),
     'utf8'
@@ -458,16 +462,19 @@ function run() {
   assert(
     terminalPoolSource.includes('isTouchInputViewport as isMobileViewport') &&
       !terminalPoolSource.includes('function isMobileViewport()') &&
-      terminalPoolSource.includes('TOUCH_MOMENTUM_MIN_VELOCITY') &&
-      terminalPoolSource.includes('TOUCH_MOMENTUM_DECAY_PER_FRAME') &&
-      terminalPoolSource.includes('TOUCH_VELOCITY_WINDOW_MS') &&
+      terminalPoolSource.includes("from '@/lib/terminal-touch-scroll'") &&
+      terminalTouchScrollSource.includes('const TOUCH_MOMENTUM_MIN_VELOCITY') &&
+      terminalTouchScrollSource.includes('const TOUCH_MOMENTUM_DECAY_PER_FRAME') &&
+      terminalTouchScrollSource.includes('const TOUCH_VELOCITY_WINDOW_MS') &&
+      terminalTouchScrollSource.includes('export function appendTerminalTouchVelocitySample(') &&
+      terminalTouchScrollSource.includes('export function stepTerminalTouchMomentum(') &&
       terminalPoolSource.includes('const readTouchGestureVelocity = () =>') &&
-      terminalPoolSource.includes('TOUCH_EDGE_RESISTANCE') &&
+      terminalTouchScrollSource.includes('const TOUCH_EDGE_RESISTANCE') &&
       terminalPoolSource.includes('TOUCH_EDGE_SPRING_MS') &&
       terminalPoolSource.includes('const releaseTouchEdge = (animate = true) =>') &&
       terminalPoolSource.includes('record.touchInteraction?.stopTouchMomentum()') &&
       terminalPoolSource.includes('const stepTouchMomentum = (timestamp: number) =>') &&
-      terminalPoolSource.includes('touchVelocityY *= Math.pow(TOUCH_MOMENTUM_DECAY_PER_FRAME') &&
+      terminalPoolSource.includes('stepTerminalTouchMomentum(touchVelocityY, momentumLastAt, timestamp)') &&
       terminalPoolSource.includes('const startTouchMomentum = () =>') &&
       terminalPoolSource.includes('startTouchMomentum()') &&
       terminalPoolSource.includes("record.hostEl.addEventListener('lostpointercapture', pointerUpHandler") &&
