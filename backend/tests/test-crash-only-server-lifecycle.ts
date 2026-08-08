@@ -67,8 +67,11 @@ function run() {
     privateBuilderSource.includes('mktemp -d "${PROJECT_ROOT}/.tmp/private-release-worktree.XXXXXX"') &&
       !privateBuilderSource.includes('mktemp -d /tmp/') &&
       privateBuilderSource.includes('source=${WORKTREE_DIR},target=${WORKTREE_DIR}') &&
-      privateBuilderSource.includes('source=${GIT_COMMON_DIR},target=${GIT_COMMON_DIR},readonly') &&
-      privateBuilderSource.includes('source=${RUNTIME_CACHE_DIR},target=/farming-runtime-cache') &&
+    privateBuilderSource.includes('source=${GIT_COMMON_DIR},target=${GIT_COMMON_DIR},readonly') &&
+    privateBuilderSource.includes('source=${RUNTIME_CACHE_DIR},target=/farming-runtime-cache') &&
+      privateBuilderSource.includes('docker_command()') &&
+      privateBuilderSource.includes('docker --context "${DOCKER_CONTEXT}" "$@"') &&
+      !privateBuilderSource.includes('"${DOCKER_ARGS[@]}"') &&
       privateBuilderSource.includes('--env GIT_CONFIG_KEY_0=safe.directory') &&
       privateBuilderSource.includes("bash -lc 'npm ci --no-audit --no-fund && npm run release:app:legacy-linux' >&2") &&
       privateBuilderSource.includes("printf '%s\\n' \"${TARBALL}\""),

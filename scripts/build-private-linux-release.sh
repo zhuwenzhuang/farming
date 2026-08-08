@@ -69,9 +69,15 @@ if [[ "${NPM_REGISTRY}" == *[[:space:]]* ]]; then
   exit 2
 fi
 
-DOCKER_ARGS=()
-if [ -n "${DOCKER_CONTEXT}" ]; then DOCKER_ARGS+=(--context "${DOCKER_CONTEXT}"); fi
-docker "${DOCKER_ARGS[@]}" info >/dev/null 2>&1 || {
+docker_command() {
+  if [ -n "${DOCKER_CONTEXT}" ]; then
+    docker --context "${DOCKER_CONTEXT}" "$@"
+  else
+    docker "$@"
+  fi
+}
+
+docker_command info >/dev/null 2>&1 || {
   echo "Docker is installed but its Linux engine is not running." >&2
   exit 1
 }
@@ -101,7 +107,7 @@ git -C "${PROJECT_ROOT}" worktree add --detach "${WORKTREE_DIR}" "${GIT_SHA}" >/
 GIT_COMMON_DIR="$(git -C "${WORKTREE_DIR}" rev-parse --path-format=absolute --git-common-dir)"
 
 echo "==> Building private Linux release in ${BUILDER_IMAGE}" >&2
-docker "${DOCKER_ARGS[@]}" run --rm --platform linux/amd64 \
+docker_command run --rm --platform linux/amd64 \
   --mount "type=bind,source=${WORKTREE_DIR},target=${WORKTREE_DIR}" \
   --mount "type=bind,source=${GIT_COMMON_DIR},target=${GIT_COMMON_DIR},readonly" \
   --mount "type=bind,source=${OUTPUT_DIR},target=/output" \
