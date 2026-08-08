@@ -27,6 +27,13 @@ interface RuntimeArtifact {
   archivePrefix?: string;
   archiveEntry?: string;
   entry: string;
+  installedPackage?: {
+    name: string;
+    version: string;
+    entry: string;
+  };
+  packagedEntry?: string;
+  sha256?: string;
 }
 
 interface RuntimeDependency {
@@ -53,8 +60,8 @@ const lock = JSON.parse(
 ) as PackageLock;
 const packages = lock.packages || {};
 
-const CODEX_VERSION = '0.146.0';
-const CLAUDE_VERSION = '0.3.207';
+const CODEX_VERSION = '0.147.0';
+const CLAUDE_VERSION = '0.3.220';
 const AGENT_BROWSER_VERSION = '0.32.3';
 
 const PLATFORM_TARGETS: Record<string, PlatformTarget> = {
@@ -110,6 +117,14 @@ const AGENT_BROWSER_ENTRIES: Record<string, string> = {
   'win32-x64': 'agent-browser-win32-x64.exe',
 };
 
+const agentBrowserPackageRoot = path.dirname(require.resolve('agent-browser/package.json'));
+
+function agentBrowserSha256(archiveFilename: string): string {
+  return crypto.createHash('sha256')
+    .update(fs.readFileSync(path.join(agentBrowserPackageRoot, 'bin', archiveFilename)))
+    .digest('hex');
+}
+
 function packageRecord(packageName: string, version: string): Required<PackageLockRecord> {
   const record = packages[`node_modules/${packageName}`];
   if (!record || record.version !== version || !record.resolved || !record.integrity) {
@@ -127,6 +142,8 @@ function npmArtifact(
   entry: string,
   archivePrefix = '',
   archiveEntry = '',
+  installedEntry = '',
+  packagedEntry = '',
 ): RuntimeArtifact {
   const record = packageRecord(packageName, version);
   return {
@@ -136,6 +153,10 @@ function npmArtifact(
     ...(archivePrefix ? { archivePrefix } : {}),
     ...(archiveEntry ? { archiveEntry } : {}),
     entry,
+    ...(installedEntry ? {
+      installedPackage: { name: packageName, version, entry: installedEntry },
+    } : {}),
+    ...(packagedEntry ? { packagedEntry } : {}),
   };
 }
 
@@ -149,23 +170,32 @@ export function buildManifest(): RuntimeDependencyManifest {
       `${CODEX_VERSION}-${platformKey.replace('win32', 'win32').replace('-musl', '')}`,
       `bin/codex${windows ? '.exe' : ''}`,
       `package/vendor/${target.codexTarget}`,
+      '',
+      `vendor/${target.codexTarget}/bin/codex${windows ? '.exe' : ''}`,
     );
     claudeArtifacts[platformKey] = npmArtifact(
       target.claudePackage,
       CLAUDE_VERSION,
       `claude${windows ? '.exe' : ''}`,
       'package',
+      '',
+      `claude${windows ? '.exe' : ''}`,
     );
   }
   const agentBrowserArtifacts: Record<string, RuntimeArtifact> = {};
   for (const [platformKey, archiveFilename] of Object.entries(AGENT_BROWSER_ENTRIES)) {
-    agentBrowserArtifacts[platformKey] = npmArtifact(
+    agentBrowserArtifacts[platformKey] = {
+      ...npmArtifact(
       'agent-browser',
       AGENT_BROWSER_VERSION,
       platformKey.startsWith('win32-') ? 'agent-browser.exe' : 'agent-browser',
       '',
       `package/bin/${archiveFilename}`,
-    );
+      '',
+      `dist/runtime/agent-browser/${platformKey}/${platformKey.startsWith('win32-') ? 'agent-browser.exe' : 'agent-browser'}`,
+      ),
+      sha256: agentBrowserSha256(archiveFilename),
+    };
   }
   const manifest = {
     schemaVersion: 1 as const,

@@ -33,6 +33,13 @@ interface RuntimeArtifact {
   archiveEntry?: string;
   archivePrefix?: string;
   entry: string;
+  installedPackage?: {
+    name: string;
+    version: string;
+    entry: string;
+  };
+  packagedEntry?: string;
+  sha256?: string;
 }
 
 interface RuntimeDependencyManifestEntry {
@@ -57,6 +64,7 @@ interface RuntimeDependencySourceConfig {
 }
 
 const PREPARED_RUNTIME_SEED_ENV = 'FARMING_RUNTIME_SEED_DIR';
+const PACKAGED_RUNTIME_ROOT_ENV = 'FARMING_PACKAGED_RUNTIME_ROOT';
 const RUNTIME_DOWNLOAD_POLICY_ENV = 'FARMING_RUNTIME_DOWNLOAD_POLICY';
 
 interface RuntimeDependencyDefinition {
@@ -931,6 +939,72 @@ async function resolveCachedRuntime(
   };
 }
 
+async function resolvePackagedRuntime(
+  id: string,
+  platformKey: string,
+  env: NodeJS.ProcessEnv,
+): Promise<ResolvedRuntime | null> {
+  const packageRootValue = String(env[PACKAGED_RUNTIME_ROOT_ENV] || '').trim();
+  if (!packageRootValue) return null;
+  if (!path.isAbsolute(packageRootValue)) {
+    throw new Error(`${PACKAGED_RUNTIME_ROOT_ENV} must be an absolute directory.`);
+  }
+  const packageRoot = fs.realpathSync(packageRootValue);
+  const { dependency, artifact } = dependencyManifest(id, platformKey);
+  let executablePath = '';
+  if (artifact.installedPackage) {
+    const packageDirectory = path.join(
+      packageRoot,
+      'node_modules',
+      ...artifact.installedPackage.name.split('/'),
+    );
+    const metadata = readJson<{ version?: string }>(path.join(packageDirectory, 'package.json'));
+    if (metadata?.version !== artifact.installedPackage.version) return null;
+    executablePath = path.join(
+      packageDirectory,
+      safeRelative(artifact.installedPackage.entry, 'installed package entry'),
+    );
+  } else if (artifact.packagedEntry) {
+    executablePath = path.join(
+      packageRoot,
+      safeRelative(artifact.packagedEntry, 'packaged runtime entry'),
+    );
+  } else {
+    return null;
+  }
+  if (!fs.existsSync(executablePath)) return null;
+  const realExecutablePath = fs.realpathSync(executablePath);
+  const executableStat = fs.lstatSync(executablePath);
+  if (
+    !executableStat.isFile()
+    || executableStat.isSymbolicLink()
+    || !realExecutablePath.startsWith(`${packageRoot}${path.sep}`)
+  ) {
+    return null;
+  }
+  if (artifact.sha256 && fileSha256(realExecutablePath) !== artifact.sha256) return null;
+  if (dependency.managedProbe !== false) {
+    const verification = await verifyExecutable(
+      realExecutablePath,
+      dependency.reportedVersion || dependency.version,
+      {
+        args: dependency.probe?.args,
+        env,
+        useConfiguredLoader: managedRuntimeUsesConfiguredLoader(id, platformKey),
+      },
+    );
+    if (!verification.valid) return null;
+  }
+  return {
+    id,
+    version: dependency.version,
+    reportedVersion: dependency.reportedVersion,
+    platformKey,
+    source: 'managed',
+    executablePath: realExecutablePath,
+  };
+}
+
 async function findExactRuntime(
   configDir: string,
   definition: RuntimeDependencyDefinition,
@@ -970,6 +1044,8 @@ async function findExactRuntime(
   }
   const cached = await resolveCachedRuntime(configDir, definition.id, platformKey, { env });
   if (cached) return cached;
+  const packaged = await resolvePackagedRuntime(definition.id, platformKey, env);
+  if (packaged) return packaged;
   const seedDir = String(env[PREPARED_RUNTIME_SEED_ENV] || '').trim();
   if (!seedDir) return null;
   if (!path.isAbsolute(seedDir)) {
@@ -986,6 +1062,13 @@ async function installExactRuntime(
   options: RuntimeManagerOptions = {},
 ): Promise<ResolvedRuntime> {
   if (String(options.env?.[RUNTIME_DOWNLOAD_POLICY_ENV] || '').trim() === 'forbid') {
+    if (String(options.env?.[PACKAGED_RUNTIME_ROOT_ENV] || '').trim()) {
+      throw new Error(
+        `${definition.id} ${MANIFEST.dependencies[definition.id]?.version || ''} is missing or corrupt `
+        + 'in the Farming package image; reinstall farming-code for this platform. '
+        + 'Farming startup will not download a replacement.',
+      );
+    }
     throw new Error(
       `${definition.id} ${MANIFEST.dependencies[definition.id]?.version || ''} was not prepared during npm install; `
       + 'run npm install again before starting Farming Desktop.',

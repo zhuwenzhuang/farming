@@ -13,6 +13,8 @@ if (!process.pkg) {
   activePackageRoot = resolved.packageRoot;
   if (resolved.context) {
     applyPackageInstallationEnvironment(process.env, resolved.context, activePackageRoot);
+    process.env.FARMING_PACKAGED_RUNTIME_ROOT = activePackageRoot;
+    process.env.FARMING_RUNTIME_DOWNLOAD_POLICY = 'forbid';
   }
 }
 

@@ -22,7 +22,7 @@ assert.match(progressLine('agent-browser', 50, 100), /50%/);
 
 const cachedStream = captureStream(false);
 const cached = createRuntimeDependencyProgressRenderer({ stream: cachedStream });
-cached.report({ dependencyId: 'codex', phase: 'ready', source: 'system', version: '0.146.0' });
+cached.report({ dependencyId: 'codex', phase: 'ready', source: 'system', version: '0.147.0' });
 cached.finish();
 assert.strictEqual(cachedStream.chunks.join(''), '');
 
@@ -106,21 +106,21 @@ ttyRenderer.report({
   phase: 'download',
   receivedBytes: 0,
   totalBytes: 200,
-  version: '0.3.207',
+  version: '0.3.220',
 });
 ttyRenderer.report({
   dependencyId: 'claude',
   phase: 'download',
   receivedBytes: 100,
   totalBytes: 200,
-  version: '0.3.207',
+  version: '0.3.220',
 });
-ttyRenderer.report({ dependencyId: 'claude', phase: 'verify', version: '0.3.207' });
+ttyRenderer.report({ dependencyId: 'claude', phase: 'verify', version: '0.3.220' });
 ttyRenderer.report({
   dependencyId: 'claude',
   phase: 'ready',
   source: 'managed',
-  version: '0.3.207',
+  version: '0.3.220',
 });
 ttyRenderer.finish();
 const ttyOutput = ttyStream.chunks.join('');

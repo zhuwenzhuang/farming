@@ -14,7 +14,7 @@ preserved in bundled `node_modules` when bundled dependencies are enabled.
 
 | Package | Version | License | Purpose |
 | --- | --- | --- | --- |
-| `@agentclientprotocol/sdk` | 1.2.1 | Apache-2.0 | ACP JSON-RPC client and protocol types |
+| `@agentclientprotocol/sdk` | 1.3.0 | Apache-2.0 | ACP JSON-RPC client and protocol types |
 | `@xterm/addon-clipboard` | 0.2.0 | MIT | Browser terminal clipboard integration |
 | `@xterm/addon-fit` | 0.11.0 | MIT | Browser terminal sizing |
 | `@xterm/addon-search` | 0.16.0 | MIT | Browser terminal search |
@@ -60,16 +60,17 @@ files under `dist/acp/`:
 
 | Package | Version | License | Purpose |
 | --- | --- | --- | --- |
-| `@agentclientprotocol/codex-acp` | 1.1.4 | Apache-2.0 | Reviewed and patched Codex ACP adapter |
-| `@openai/codex` | 0.146.0 | Apache-2.0 | Codex executable discovery and launch bridge; platform CLI binaries are excluded |
-| `@agentclientprotocol/claude-agent-acp` | 0.59.0 | Apache-2.0 | Claude Code ACP adapter |
-| `@anthropic-ai/claude-agent-sdk` | 0.3.207 | Anthropic commercial terms | Claude Agent SDK bridge; platform CLI binaries are excluded |
+| `@agentclientprotocol/codex-acp` | 1.1.14 | Apache-2.0 | Reviewed and patched Codex ACP adapter |
+| `@openai/codex` | 0.147.0 | Apache-2.0 | Codex executable discovery and launch bridge; platform CLI binaries are excluded |
+| `@agentclientprotocol/claude-agent-acp` | 0.66.0 | Apache-2.0 | Claude Code ACP adapter |
+| `@anthropic-ai/claude-agent-sdk` | 0.3.220 | Anthropic commercial terms | Claude Agent SDK bridge; platform CLI binaries are excluded |
 
-Before starting a fresh Server, Farming may prepare the exact Codex CLI
-0.146.0, Claude Agent SDK CLI package 0.3.207, and `agent-browser` 0.32.3
-platform artifacts in its private runtime cache. They are not part of the npm
-or application package and remain independent works under their own terms.
-Farming accepts only the version-locked sources and integrity values declared
+The npm distribution declares the exact Codex CLI 0.147.0 and Claude Agent SDK
+CLI package 0.3.220 platform carriers as optional dependencies and embeds the
+reviewed `agent-browser` 0.32.3 platform artifacts. Other release forms may
+prepare the same exact artifacts in a private runtime cache. These artifacts
+remain independent works under their own terms. Farming accepts only the
+version-locked sources and integrity values declared
 by its release manifest. The `agent-browser` license text is included at
 `backend/data/LICENSE.agent-browser`.
 

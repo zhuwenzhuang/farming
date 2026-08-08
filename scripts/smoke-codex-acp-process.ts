@@ -25,6 +25,10 @@ interface JsonRpcResponse {
       _meta?: { codex?: { steer?: { method?: string; version?: number }; subagents?: { version?: number } } };
     };
     agentInfo?: { version?: string };
+    _meta?: {
+      steering?: { supported?: boolean };
+      goal?: { version?: number; controlMethod?: string; actions?: string[] };
+    };
   };
 }
 
@@ -143,6 +147,14 @@ async function smokeCodexAcp(options: SmokeOptions): Promise<void> {
   }
   if (response.result?.agentCapabilities?.sessionCapabilities?.fork == null) {
     throw new Error('Codex ACP initialize omitted the reviewed session/fork capability');
+  }
+  if (response.result?._meta?.steering?.supported !== true) {
+    throw new Error('Codex ACP initialize omitted provider-neutral steering support');
+  }
+  const goal = response.result?._meta?.goal;
+  if (goal?.version !== 1 || goal.controlMethod !== '_session/goal'
+    || !['set', 'pause', 'resume', 'clear'].every(action => goal.actions?.includes(action))) {
+    throw new Error(`Codex ACP initialize omitted goal support: ${JSON.stringify(goal)}`);
   }
   console.log(`✓ Codex ACP process initialized through ${launch.command} ${launch.args.join(' ')}`);
 }

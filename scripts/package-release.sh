@@ -200,7 +200,6 @@ git -C "${PROJECT_ROOT}" archive --format=tar HEAD -- \
   frontend \
   scripts/compute-node-heap-mb.sh \
   scripts/install-release.sh \
-  scripts/prepare-installed-runtime.cjs \
   scripts/smoke-deployed-server.mjs \
   LICENSE \
   README.md \

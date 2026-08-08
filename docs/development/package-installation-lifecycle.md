@@ -52,6 +52,13 @@ package image (or declaratively selected platform packages). Server startup
 only verifies those artifacts and gives an actionable repair error if they are
 missing or corrupt; it never compensates by downloading or preparing them.
 
+The npm image declares the exact Codex and Claude native carrier packages as
+platform-constrained optional dependencies, so npm selects the matching OS,
+architecture, and libc artifact without executing lifecycle code. The release
+pipeline embeds the reviewed agent-browser binaries in the Farming image.
+The launcher marks npm images as download-forbidden and the runtime manager
+binds only an exact declared carrier or embedded artifact after verification.
+
 ## Update State Machine
 
 - **Idle**: no update is active.

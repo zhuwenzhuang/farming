@@ -412,7 +412,7 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
     acp: {
       executablePolicy: 'managed',
       packageName: '@agentclientprotocol/codex-acp',
-      version: '1.1.4',
+      version: '1.1.14',
       sharedRuntime: true,
     },
     prepareAcpEnvironment: codexAcpEnvironment,
@@ -444,7 +444,7 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
     acp: {
       executablePolicy: 'managed',
       packageName: '@agentclientprotocol/claude-agent-acp',
-      version: '0.59.0',
+      version: '0.66.0',
       sharedRuntime: true,
     },
     prepareAcpEnvironment: claudeAcpEnvironment,

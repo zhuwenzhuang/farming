@@ -29,17 +29,22 @@ echo "==> Building npm package runtime" >&2
 
 echo "==> Preparing isolated production dependency tree" >&2
 rsync -a \
-  --exclude '/.git/' \
-  --exclude '/node_modules/' \
-  --exclude '/releases/' \
-  --exclude '/coverage/' \
-  --exclude '/playwright-report/' \
-  --exclude '/test-results/' \
+  --exclude '.git/' \
+  --exclude 'node_modules/' \
+  --exclude '.farming-runtime-seed/' \
+  --exclude '.tmp/' \
+  --exclude 'releases/' \
+  --exclude 'dist-release/' \
+  --exclude 'reference/' \
+  --exclude 'coverage/' \
+  --exclude 'playwright-report/' \
+  --exclude 'test-results/' \
   "${PROJECT_ROOT}/" "${STAGE_DIR}/"
 
 (
   cd "${STAGE_DIR}"
-  npm ci --omit=dev --ignore-scripts --registry="${NPM_REGISTRY}" --no-audit --no-fund >&2
+  npm ci --omit=dev --omit=optional --ignore-scripts --registry="${NPM_REGISTRY}" \
+    --replace-registry-host=always --no-audit --no-fund >&2
 )
 
 node - "${STAGE_DIR}" "${GIT_SHA}" <<'NODE'

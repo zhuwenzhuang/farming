@@ -104,9 +104,12 @@ public verification, and npm publication remain serial and consume the remaining
 budget.
 
 Before the fan-out starts, release preflight queries the public npm registry for
-the `latest` versions of the pinned Codex and Claude ACP adapters, ACP SDK,
-managed Codex and Claude runtimes, and agent-browser. A registry failure or any
-pin that differs from `latest` fails closed before artifact construction. A
+the `latest` versions of the pinned Codex and Claude ACP adapters, ACP SDK, and
+managed Codex runtime. It also checks the standalone Claude Agent SDK latest,
+while requiring the managed Claude runtime to match the exact SDK version owned
+by the current Claude ACP adapter. The standalone SDK result is informational
+until that adapter adopts it. A registry failure or any release-owned pin that
+differs from `latest` fails closed before artifact construction. A
 maintainer must review the upstream change, update every affected pin, reviewed
 patch and integrity hash, and rerun the required acceptance evidence; discovering
 a version does not by itself prove that the upgrade is compatible.

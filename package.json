@@ -42,7 +42,6 @@
     "extensions/language-server/backend/*.cjs",
     "extensions/language-server/backend/LICENSE.opencode",
     "shared/*.js",
-    "scripts/prepare-installed-runtime.cjs",
     "LICENSE",
     "README.md",
     "README.zh_cn.md",
@@ -56,11 +55,11 @@
     "build:classic-runtime": "tsx scripts/build-classic-browser-runtime.ts",
     "prepare:acp-vendor": "tsx scripts/prepare-codex-acp-vendor.ts --copy && tsx scripts/prepare-claude-acp-vendor.ts --copy",
     "prepare:runtime-manifest": "tsx scripts/build-runtime-dependency-manifest.ts",
+    "prepare:packaged-runtimes": "tsx scripts/prepare-packaged-runtimes.ts",
     "build:usage-history": "tsx scripts/build-usage-history-scanner.ts",
     "build:desktop-runtime": "esbuild desktop/main.ts desktop/preload.ts --bundle --platform=node --format=cjs --target=node22 --outdir=dist-desktop --external:electron && node -e \"const fs=require('node:fs');fs.mkdirSync('dist-desktop/assets',{recursive:true});fs.copyFileSync('desktop/assets/farming-desktop.png','dist-desktop/assets/farming-desktop.png')\"",
     "prebuild": "npm run build:backend-runtime && npm run build:classic-runtime && npm run build:usage-history && npm run prepare:acp-vendor && npm run prepare:runtime-manifest",
-    "prepack": "FARMING_BASE_PATH=/farming npm run build",
-    "postinstall": "node scripts/prepare-installed-runtime.cjs",
+    "prepack": "FARMING_BASE_PATH=/farming npm run build && npm run prepare:packaged-runtimes",
     "pretest": "npm run build:backend-runtime && npm run build:classic-runtime && npm run prepare:acp-vendor && npm run prepare:runtime-manifest && npm run build:usage-history",
     "start": "FARMING_BASE_PATH=${FARMING_BASE_PATH:-/farming} npm run build && node bin/farming start --port 3000",
     "start:net": "node backend/farming-net-server.cjs",
@@ -147,7 +146,7 @@
     "node": "^22.13.0 || >=24.0.0"
   },
   "dependencies": {
-    "@agentclientprotocol/sdk": "1.2.1",
+    "@agentclientprotocol/sdk": "1.3.0",
     "@xterm/addon-clipboard": "^0.2.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-search": "^0.16.0",
@@ -225,8 +224,8 @@
     "zod"
   ],
   "devDependencies": {
-    "@agentclientprotocol/claude-agent-acp": "0.59.0",
-    "@agentclientprotocol/codex-acp": "1.1.4",
+    "@agentclientprotocol/claude-agent-acp": "0.66.0",
+    "@agentclientprotocol/codex-acp": "1.1.14",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.59.1",
     "@types/node": "^26.1.1",
@@ -256,7 +255,23 @@
     },
     "qs": "6.15.3",
     "dompurify": "3.4.13",
-    "@openai/codex": "0.146.0"
+    "@openai/codex": "0.147.0"
+  },
+  "optionalDependencies": {
+    "@anthropic-ai/claude-agent-sdk-darwin-arm64": "0.3.220",
+    "@anthropic-ai/claude-agent-sdk-darwin-x64": "0.3.220",
+    "@anthropic-ai/claude-agent-sdk-linux-arm64": "0.3.220",
+    "@anthropic-ai/claude-agent-sdk-linux-arm64-musl": "0.3.220",
+    "@anthropic-ai/claude-agent-sdk-linux-x64": "0.3.220",
+    "@anthropic-ai/claude-agent-sdk-linux-x64-musl": "0.3.220",
+    "@anthropic-ai/claude-agent-sdk-win32-arm64": "0.3.220",
+    "@anthropic-ai/claude-agent-sdk-win32-x64": "0.3.220",
+    "@openai/codex-darwin-arm64": "npm:@openai/codex@0.147.0-darwin-arm64",
+    "@openai/codex-darwin-x64": "npm:@openai/codex@0.147.0-darwin-x64",
+    "@openai/codex-linux-arm64": "npm:@openai/codex@0.147.0-linux-arm64",
+    "@openai/codex-linux-x64": "npm:@openai/codex@0.147.0-linux-x64",
+    "@openai/codex-win32-arm64": "npm:@openai/codex@0.147.0-win32-arm64",
+    "@openai/codex-win32-x64": "npm:@openai/codex@0.147.0-win32-x64"
   },
   "allowScripts": {
     "esbuild@0.27.7": true,

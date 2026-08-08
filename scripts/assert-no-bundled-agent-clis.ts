@@ -27,15 +27,27 @@ const forbiddenPlatformPackages: ReadonlyArray<readonly [scope: string, prefix: 
   ['@anthropic-ai', 'claude-agent-sdk-'],
 ];
 
+const manifest = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8')) as {
+  optionalDependencies?: Record<string, string>;
+};
+
 for (const [scope, prefix] of forbiddenPlatformPackages) {
   const scopeDirectory = path.join(packageRoot, 'node_modules', scope);
   const names = fs.existsSync(scopeDirectory) ? fs.readdirSync(scopeDirectory) : [];
-  const platformPackage = names.find(name => name.startsWith(prefix));
-  if (platformPackage) {
-    throw new Error(
-      `Release unexpectedly bundled platform Agent CLI: node_modules/${scope}/${platformPackage}`,
-    );
+  for (const platformPackage of names.filter(name => name.startsWith(prefix))) {
+    const packageName = `${scope}/${platformPackage}`;
+    const packageMetadata = JSON.parse(fs.readFileSync(
+      path.join(scopeDirectory, platformPackage, 'package.json'),
+      'utf8',
+    )) as { name?: string; version?: string };
+    const declared = manifest.optionalDependencies?.[packageName];
+    if (
+      declared !== packageMetadata.version
+      && declared !== `npm:${packageMetadata.name}@${packageMetadata.version}`
+    ) {
+      throw new Error(`Installed Agent runtime carrier is not an exact declared optional dependency: ${packageName}`);
+    }
   }
 }
 
-console.log(`Verified no duplicate Codex, Claude, or agent-browser CLI under ${packageRoot}`);
+console.log(`Verified Agent runtime carriers are declarative and exact under ${packageRoot}`);

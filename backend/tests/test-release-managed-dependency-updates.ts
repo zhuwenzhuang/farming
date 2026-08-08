@@ -20,6 +20,13 @@ async function run() {
       },
       overrides: { '@openai/codex': '0.146.0' },
     }));
+    fs.writeFileSync(path.join(temporaryRoot, 'package-lock.json'), JSON.stringify({
+      packages: {
+        'node_modules/@agentclientprotocol/claude-agent-acp': {
+          dependencies: { '@anthropic-ai/claude-agent-sdk': '0.3.207' },
+        },
+      },
+    }));
     fs.writeFileSync(
       path.join(temporaryRoot, 'backend/data/runtime-dependency-manifest.json'),
       JSON.stringify({
@@ -40,7 +47,6 @@ async function run() {
         '@agentclientprotocol/sdk',
         '@openai/codex',
         '@anthropic-ai/claude-agent-sdk',
-        'agent-browser',
       ],
     );
 
@@ -57,6 +63,7 @@ async function run() {
       registry: 'https://registry.test/',
     });
     assert.strictEqual(current.mismatches.length, 0);
+    assert.strictEqual(current.reviews.length, 0);
 
     currentVersions.set('@agentclientprotocol/codex-acp', '1.1.14');
     currentVersions.set('@anthropic-ai/claude-agent-sdk', '0.3.226');
@@ -66,7 +73,11 @@ async function run() {
     });
     assert.deepStrictEqual(
       outdated.mismatches.map(dependency => dependency.name),
-      ['@agentclientprotocol/codex-acp', '@anthropic-ai/claude-agent-sdk'],
+      ['@agentclientprotocol/codex-acp'],
+    );
+    assert.deepStrictEqual(
+      outdated.reviews.map(dependency => dependency.name),
+      ['@anthropic-ai/claude-agent-sdk'],
     );
 
     await assert.rejects(
@@ -83,6 +94,17 @@ async function run() {
     assert.throws(
       () => checker.readManagedReleaseDependencies(temporaryRoot),
       /Codex override must match/,
+    );
+
+    packageJson.overrides['@openai/codex'] = '0.146.0';
+    fs.writeFileSync(path.join(temporaryRoot, 'package.json'), JSON.stringify(packageJson));
+    const runtimeManifestPath = path.join(temporaryRoot, 'backend/data/runtime-dependency-manifest.json');
+    const runtimeManifest = JSON.parse(fs.readFileSync(runtimeManifestPath, 'utf8'));
+    runtimeManifest.dependencies.claude.version = '0.3.206';
+    fs.writeFileSync(runtimeManifestPath, JSON.stringify(runtimeManifest));
+    assert.throws(
+      () => checker.readManagedReleaseDependencies(temporaryRoot),
+      /must match the exact Claude ACP adapter dependency/,
     );
   } finally {
     fs.rmSync(temporaryRoot, { recursive: true, force: true });

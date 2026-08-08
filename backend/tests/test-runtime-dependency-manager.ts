@@ -31,6 +31,7 @@ type RuntimeArtifactFixture = {
   archive?: string;
   archiveEntry?: string;
   archivePrefix?: string;
+  packagedEntry?: string;
 };
 
 type RuntimeDependencyFixture = {
@@ -162,6 +163,55 @@ async function run() {
   assert.strictEqual(seedFetches, 0);
   assert.strictEqual(seeded.dependencies[0].executablePath, seededBrowser);
   assert.strictEqual(seeded.dependencies[0].source, 'managed');
+  let packagedFetches = 0;
+  const packagedRoot = path.join(root, 'package-image');
+  const packagedBrowser = path.join(packagedRoot, browserArtifact.packagedEntry);
+  const agentBrowserPackageRoot = path.dirname(require.resolve('agent-browser/package.json'));
+  const packagedBrowserSource = path.join(
+    agentBrowserPackageRoot,
+    browserArtifact.archiveEntry.replace(/^package\//, ''),
+  );
+  fs.mkdirSync(path.dirname(packagedBrowser), { recursive: true });
+  fs.copyFileSync(packagedBrowserSource, packagedBrowser);
+  if (process.platform !== 'win32') fs.chmodSync(packagedBrowser, 0o755);
+  const packaged = await prepareRuntimeDependencies({
+    configDir: path.join(root, 'packaged-target'),
+    dependencyIds: ['agentBrowser'],
+    env: {
+      PATH: process.env.PATH,
+      FARMING_PACKAGED_RUNTIME_ROOT: packagedRoot,
+      FARMING_RUNTIME_DOWNLOAD_POLICY: 'forbid',
+    },
+    fetch: async () => {
+      packagedFetches += 1;
+      throw new Error('packaged runtime resolution must not fetch');
+    },
+  });
+  assert.strictEqual(packagedFetches, 0);
+  assert.strictEqual(packaged.dependencies[0].source, 'managed');
+  assert.strictEqual(
+    packaged.dependencies[0].executablePath,
+    fs.realpathSync(packagedBrowser),
+  );
+  const incompletePackageRoot = path.join(root, 'incomplete-package');
+  fs.mkdirSync(incompletePackageRoot);
+  await assert.rejects(
+    prepareRuntimeDependencies({
+      configDir: path.join(root, 'incomplete-package-target'),
+      dependencyIds: ['agentBrowser'],
+      env: {
+        PATH: process.env.PATH,
+        FARMING_PACKAGED_RUNTIME_ROOT: incompletePackageRoot,
+        FARMING_RUNTIME_DOWNLOAD_POLICY: 'forbid',
+      },
+      fetch: async () => {
+        packagedFetches += 1;
+        throw new Error('incomplete package image must not fetch');
+      },
+    }),
+    /missing or corrupt in the Farming package image/,
+  );
+  assert.strictEqual(packagedFetches, 0);
   fs.appendFileSync(seededBrowser, '\ncorrupted after install\n');
   await assert.rejects(
     prepareRuntimeDependencies({
@@ -298,11 +348,11 @@ async function run() {
   fs.mkdirSync(binDir);
   const env: NodeJS.ProcessEnv = {
     PATH: process.env.PATH,
-    FARMING_CODEX_BIN: writeVersionExecutable(binDir, 'codex', '0.146.0'),
+    FARMING_CODEX_BIN: writeVersionExecutable(binDir, 'codex', '0.147.0'),
     FARMING_CLAUDE_BIN: writeVersionExecutable(binDir, 'claude', '2.1.0'),
     FARMING_AGENT_BROWSER_BIN: writeVersionExecutable(binDir, 'agent-browser', '0.33.2'),
   };
-  const managedCodex = writeVersionExecutable(binDir, 'managed-codex', '0.146.0');
+  const managedCodex = writeVersionExecutable(binDir, 'managed-codex', '0.147.0');
   const managedClaude = writeVersionExecutable(binDir, 'managed-claude', '2.1.0');
   const managedAgentBrowser = writeVersionExecutable(binDir, 'managed-agent-browser', '0.33.2');
   const installRuntime = async (_configDir, definition) => {
@@ -568,7 +618,7 @@ async function run() {
   );
 
   const invalid = writeVersionExecutable(binDir, 'wrong-codex', '0.1.0');
-  assert.strictEqual((await verifyExecutable(invalid, '0.146.0')).valid, false);
+  assert.strictEqual((await verifyExecutable(invalid, '0.147.0')).valid, false);
   const ignoredSystemOverride = await prepareRuntimeDependencies({
     configDir: path.join(root, 'wrong'),
     env: {

@@ -82,11 +82,10 @@ if [ ! -f "${PACKAGE_TARBALL}" ]; then
   exit 1
 fi
 
-if ! FARMING_SKIP_INSTALL_RUNTIME_PREPARE=1 \
-  NPM_CONFIG_CACHE="${NPM_CACHE}" NPM_CONFIG_REGISTRY="${NPM_REGISTRY}" \
+if ! NPM_CONFIG_CACHE="${NPM_CACHE}" NPM_CONFIG_REGISTRY="${NPM_REGISTRY}" \
   NPM_CONFIG_USERCONFIG=/dev/null \
   npm install --global --prefix "${PREFIX}" "${PACKAGE_TARBALL}" \
-    --offline --no-audit --no-fund >"${INSTALL_LOG}" 2>&1; then
+    --ignore-scripts --no-audit --no-fund >"${INSTALL_LOG}" 2>&1; then
   echo "npm package did not install from its bundled production dependencies" >&2
   cat "${INSTALL_LOG}" >&2
   exit 1
@@ -97,8 +96,14 @@ if grep -q '^npm warn allow-scripts' "${INSTALL_LOG}"; then
   exit 1
 fi
 PACKAGE_ROOT="${PREFIX}/lib/node_modules/farming-code"
-CODEX_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/codex-acp-1.1.4.mjs"
-CLAUDE_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/claude-agent-acp-0.59.0.mjs"
+CODEX_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/codex-acp-1.1.14.mjs"
+CLAUDE_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/claude-agent-acp-0.66.0.mjs"
+if node -e 'const p=require(process.argv[1]); for (const name of ["preinstall", "install", "postinstall"]) if (p.scripts?.[name]) process.exit(1)' "${PACKAGE_ROOT}/package.json"; then
+  :
+else
+  echo "npm package declares a forbidden install lifecycle script" >&2
+  exit 1
+fi
 for runtime_module in \
   agent-order \
   agent-order-transaction \
@@ -226,8 +231,8 @@ const path = require('path');
 
 const [packageRoot, codexVendorEntry, claudeVendorEntry] = process.argv.slice(2);
 const sha256 = filePath => crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
-const expectedCodexVendor = '1b4ac2aa5e99d0ae9b43f10ccd5796fcd15bfae1e70fbaaa9765519de1c79114';
-const expectedClaudeVendor = 'a6aa515dd02382617bf46d9eac47b8a1022c6835bcf7a8d61e2c63939be2e49c';
+const expectedCodexVendor = 'd6236cac607691766cec3c064a8d80daaa923ed527219aa5314dc488e37a52e2';
+const expectedClaudeVendor = '33e2379f1ed9e502f3442a19a0d575c2c6df912080db7fea197289e55b3fae2f';
 if (sha256(codexVendorEntry) !== expectedCodexVendor) {
   throw new Error('Packed Codex ACP runtime failed its SHA-256 verification');
 }
@@ -246,13 +251,21 @@ if (fs.realpathSync(claudeLaunch.args.at(-1)) !== fs.realpathSync(claudeVendorEn
 NODE
 (
   cd "${PROJECT_ROOT}"
-  CODEX_PATH="${PROJECT_ROOT}/node_modules/.bin/codex" \
+  CODEX_PATH="$(node - "${PACKAGE_ROOT}" <<'NODE'
+const path = require('path');
+const root = process.argv[2];
+const manifest = require(path.join(root, 'backend/data/runtime-dependency-manifest.json'));
+const manager = require(path.join(root, 'backend/runtime-dependency-manager.cjs'));
+const artifact = manifest.dependencies.codex.artifacts[manager.runtimePlatformKey()];
+process.stdout.write(path.join(root, 'node_modules', ...artifact.installedPackage.name.split('/'), artifact.installedPackage.entry));
+NODE
+)" \
     node --import tsx scripts/smoke-codex-acp-process.ts --package-root "${PACKAGE_ROOT}"
   node --import tsx scripts/smoke-claude-acp-process.ts --package-root "${PACKAGE_ROOT}"
   node --import tsx scripts/smoke-capability-cli-process.ts --package-root "${PACKAGE_ROOT}"
 )
 "${PREFIX}/bin/farming" help >/dev/null
-FARMING_DISABLE_AUTH=1 FARMING_NATIVE_PTY_HOST_PERSIST=0 FARMING_SKIP_RUNTIME_PREPARE=1 \
+FARMING_DISABLE_AUTH=1 FARMING_NATIVE_PTY_HOST_PERSIST=0 \
   "${PREFIX}/bin/farming" daemon \
   --port "${PORT_VALUE}" \
   --base-path /farming \
@@ -354,4 +367,4 @@ fi
 wait_for_process_exit "${SERVER_PID}" "Farming server"
 wait_for_process_exit "${NATIVE_HOST_PID}" "native PTY host"
 wait_for_process_exit "${MAIN_BASH_PID}" "Main bash"
-echo "✓ npm package installs offline without script warnings or package mutation, verifies Codex ACP, and stops its server/native PTY process tree"
+echo "✓ npm package installs with lifecycle scripts disabled, verifies packaged runtimes and Codex ACP, and stops its server/native PTY process tree"

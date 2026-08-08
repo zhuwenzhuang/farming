@@ -303,11 +303,11 @@ const IDENTITY_ADAPTER_KILL_MS = 1_000;
 const CODEX_SET_SESSION_MODEL_METHOD = 'session/set_model';
 const CODEX_STEER_METHOD = '_codex/session/steer';
 const CODEX_ACP_PACKAGE = '@agentclientprotocol/codex-acp';
-const CODEX_ACP_VERSION = '1.1.4';
-const CODEX_ACP_SHA256 = '1b4ac2aa5e99d0ae9b43f10ccd5796fcd15bfae1e70fbaaa9765519de1c79114';
+const CODEX_ACP_VERSION = '1.1.14';
+const CODEX_ACP_SHA256 = 'd6236cac607691766cec3c064a8d80daaa923ed527219aa5314dc488e37a52e2';
 const CLAUDE_ACP_PACKAGE = '@agentclientprotocol/claude-agent-acp';
-const CLAUDE_ACP_VERSION = '0.59.0';
-const CLAUDE_ACP_SHA256 = 'a6aa515dd02382617bf46d9eac47b8a1022c6835bcf7a8d61e2c63939be2e49c';
+const CLAUDE_ACP_VERSION = '0.66.0';
+const CLAUDE_ACP_SHA256 = '33e2379f1ed9e502f3442a19a0d575c2c6df912080db7fea197289e55b3fae2f';
 const CODEX_ACP_VENDOR_ENTRY = path.join(
   __dirname,
   '..',

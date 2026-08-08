@@ -15,8 +15,8 @@ const packagedCodexBridge = path.join(projectRoot, 'backend', 'acp', 'packaged-c
 const packagedClaudeBridge = path.join(projectRoot, 'backend', 'acp', 'packaged-claude-acp.cts');
 const packagedCodexRuntimeBridge = path.join(projectRoot, 'backend', 'acp', 'packaged-codex-acp.cjs');
 const packagedClaudeRuntimeBridge = path.join(projectRoot, 'backend', 'acp', 'packaged-claude-acp.cjs');
-const packagedCodexEntry = path.join(projectRoot, 'dist', 'acp', 'codex-acp-1.1.4.mjs');
-const packagedClaudeEntry = path.join(projectRoot, 'dist', 'acp', 'claude-agent-acp-0.59.0.mjs');
+const packagedCodexEntry = path.join(projectRoot, 'dist', 'acp', 'codex-acp-1.1.14.mjs');
+const packagedClaudeEntry = path.join(projectRoot, 'dist', 'acp', 'claude-agent-acp-0.66.0.mjs');
 
 const dynamicRequire = [
   'var __farmingDynamicRequire = typeof module !== "undefined" && module.require',
@@ -70,7 +70,7 @@ const packagedAcpPlugin: esbuild.Plugin = {
       };
     });
 
-    build.onLoad({ filter: /claude-agent-acp-0\.59\.0\.mjs$/ }, async (args) => {
+    build.onLoad({ filter: /claude-agent-acp-0\.66\.0\.mjs$/ }, async (args) => {
       if (path.resolve(args.path) !== path.resolve(packagedClaudeEntry)) return null;
       const source = await fs.promises.readFile(args.path, 'utf8');
       const marker = '// dist/index.js\nif (process.argv.includes("--cli")) {';

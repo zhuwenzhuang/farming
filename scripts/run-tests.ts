@@ -111,7 +111,7 @@ interface TestFailure {
 
 const testRuns: TestRun[] = [
   ...unitTestFiles.map(filePath => ({
-    args: [tsxCli, '--test', filePath],
+    args: ['--import', 'tsx', '--test', filePath],
     label: path.relative(projectRoot, filePath),
   })),
   ...testFiles.map(file => ({

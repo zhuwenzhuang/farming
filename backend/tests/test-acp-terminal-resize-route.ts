@@ -151,24 +151,16 @@ async function run() {
     const throwingManager = {
       resizeAcpTerminal() { throw new Error('Agent not found'); },
     };
-    const errorApp = express();
-    errorApp.post(
-      '/api/agents/:agentId/acp-terminals/:terminalId/resize',
-      express.json(),
-      createAcpTerminalResizeHandler(throwingManager),
+    let errorStatus = 200;
+    const errorResponse = {
+      status(code: number) { errorStatus = code; return errorResponse; },
+      json() { return errorResponse; },
+    };
+    createAcpTerminalResizeHandler(throwingManager)(
+      { body: { cols: 80, rows: 24 }, params: { agentId: 'bad', terminalId: 't' } },
+      errorResponse,
     );
-    const errorServer = await new Promise<HttpServer>(resolve => {
-      const listener = errorApp.listen(0, () => resolve(listener));
-    });
-    try {
-      const notFound = await fetch(
-        `http://127.0.0.1:${serverPort(errorServer)}/api/agents/bad/acp-terminals/t/resize`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cols: 80, rows: 24 }) },
-      );
-      assert.strictEqual(notFound.status, 404, 'Agent not found maps to 404');
-    } finally {
-      await new Promise(resolve => errorServer.close(resolve));
-    }
+    assert.strictEqual(errorStatus, 404, 'Agent not found maps to 404');
 
     console.log('✓ ACP terminal resize handler validates canonical PTY bounds via real extracted route');
   } finally {

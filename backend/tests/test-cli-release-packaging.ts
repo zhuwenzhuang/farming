@@ -16,6 +16,7 @@ function run() {
   );
   const releaseWorkflow = fs.readFileSync(path.join(root, '.github/workflows/release.yml'), 'utf8');
   const packageJson = require(path.join(root, 'package.json'));
+  const farmingLauncher = fs.readFileSync(path.join(root, 'bin/farming'), 'utf8');
   const bundleCliScript = fs.readFileSync(path.join(root, 'scripts/bundle-cli-runtime.ts'), 'utf8');
   const capabilitySmokeScript = fs.readFileSync(
     path.join(root, 'scripts/smoke-capability-cli-process.ts'),
@@ -64,7 +65,7 @@ function run() {
   assert(
     packagedAcpBridge.includes("PACKAGED_CODEX_ACP_ARG = '--farming-codex-acp'")
       && packagedAcpBridge.includes('omitted its embedded Codex ACP runtime')
-      && bundleCliScript.includes("'codex-acp-1.1.4.mjs'")
+      && bundleCliScript.includes("'codex-acp-1.1.14.mjs'")
       && bundleCliScript.includes('/packaged-(?:codex|claude)-acp\\.(?:cjs|cts)$/'),
     'standalone CLI must bundle a hidden entry for the pinned Codex ACP runtime',
   );
@@ -75,7 +76,7 @@ function run() {
   assert(
     packagedClaudeAcpBridge.includes("PACKAGED_CLAUDE_ACP_ARG = '--farming-claude-acp'")
       && packagedClaudeAcpBridge.includes('omitted its embedded Claude ACP runtime')
-      && bundleCliScript.includes("'claude-agent-acp-0.59.0.mjs'"),
+      && bundleCliScript.includes("'claude-agent-acp-0.66.0.mjs'"),
     'standalone CLI must bundle a hidden entry for the pinned Claude ACP runtime',
   );
   assert(
@@ -132,21 +133,30 @@ function run() {
     'npm packages must bundle every direct production dependency',
   );
   assert(
-    npmSmokeScript.includes('--offline')
-      && npmSmokeScript.includes('FARMING_SKIP_INSTALL_RUNTIME_PREPARE=1')
+    npmSmokeScript.includes('--ignore-scripts')
       && npmSmokeScript.includes("grep -q '^npm warn allow-scripts'")
       && npmSmokeScript.includes('node --import tsx "${PROJECT_ROOT}/scripts/assert-no-bundled-agent-clis.ts"')
       && !npmSmokeScript.includes('node_modules/.bin/tsx')
-      && !npmSmokeScript.includes('--ignore-scripts'),
-    'npm package smoke must install offline and keep TypeScript verification compatible with loader-aware Node',
+      && !npmSmokeScript.includes('FARMING_SKIP_INSTALL_RUNTIME_PREPARE=1'),
+    'npm package smoke must disable lifecycle scripts and keep TypeScript verification compatible with loader-aware Node',
   );
   assert(
-    packageJson.scripts?.postinstall === 'node scripts/prepare-installed-runtime.cjs'
-      && packageJson.files.includes('scripts/prepare-installed-runtime.cjs'),
-    'npm install must prepare platform runtimes before Farming can start',
+    packageJson.scripts?.preinstall == null
+      && packageJson.scripts?.install == null
+      && packageJson.scripts?.postinstall == null
+      && !packageJson.files.includes('scripts/prepare-installed-runtime.cjs')
+      && packageJson.scripts?.['prepare:packaged-runtimes'],
+    'npm install must be lifecycle-script-free and release packaging must prepare runtime artifacts',
   );
   assert(
-    npmPackageScript.includes('npm ci --omit=dev --ignore-scripts')
+    farmingLauncher.includes('FARMING_PACKAGED_RUNTIME_ROOT')
+      && farmingLauncher.includes("FARMING_RUNTIME_DOWNLOAD_POLICY = 'forbid'")
+      && Object.keys(packageJson.optionalDependencies || {}).filter(name => name.startsWith('@openai/codex-')).length === 6
+      && Object.keys(packageJson.optionalDependencies || {}).filter(name => name.startsWith('@anthropic-ai/claude-agent-sdk-')).length === 8,
+    'npm launches must resolve exact declarative platform runtimes without startup downloads',
+  );
+  assert(
+    npmPackageScript.includes('npm ci --omit=dev --omit=optional --ignore-scripts')
       && npmPackageScript.includes('delete rootManifest.overrides')
       && npmPackageScript.includes('rootManifest.gitHead = gitSha')
       && packageJson.overrides?.['@hono/node-server'] === '2.0.11'

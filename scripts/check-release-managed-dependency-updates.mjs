@@ -16,6 +16,7 @@ function requireExactVersion(value, label) {
 
 export function readManagedReleaseDependencies(projectRoot) {
   const packageJson = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8'));
+  const packageLock = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package-lock.json'), 'utf8'));
   const runtimeManifest = JSON.parse(fs.readFileSync(
     path.join(projectRoot, 'backend/data/runtime-dependency-manifest.json'),
     'utf8',
@@ -28,16 +29,17 @@ export function readManagedReleaseDependencies(projectRoot) {
     runtimeManifest.dependencies?.claude?.version,
     'managed Claude Agent SDK version',
   );
-  const agentBrowserVersion = requireExactVersion(
-    runtimeManifest.dependencies?.agentBrowser?.version,
-    'managed agent-browser version',
+  const claudeAdapterSdkVersion = requireExactVersion(
+    packageLock.packages?.['node_modules/@agentclientprotocol/claude-agent-acp']
+      ?.dependencies?.['@anthropic-ai/claude-agent-sdk'],
+    'Claude ACP adapter SDK dependency',
   );
 
   if (packageJson.overrides?.['@openai/codex'] !== codexVersion) {
     throw new Error('package.json Codex override must match the managed runtime manifest');
   }
-  if (packageJson.devDependencies?.['agent-browser'] !== agentBrowserVersion) {
-    throw new Error('package.json agent-browser pin must match the managed runtime manifest');
+  if (claudeVersion !== claudeAdapterSdkVersion) {
+    throw new Error('managed Claude Agent SDK version must match the exact Claude ACP adapter dependency');
   }
 
   return [
@@ -47,6 +49,7 @@ export function readManagedReleaseDependencies(projectRoot) {
         packageJson.devDependencies?.['@agentclientprotocol/codex-acp'],
         'Codex ACP version',
       ),
+      policy: 'latest',
     },
     {
       name: '@agentclientprotocol/claude-agent-acp',
@@ -54,6 +57,7 @@ export function readManagedReleaseDependencies(projectRoot) {
         packageJson.devDependencies?.['@agentclientprotocol/claude-agent-acp'],
         'Claude ACP version',
       ),
+      policy: 'latest',
     },
     {
       name: '@agentclientprotocol/sdk',
@@ -61,10 +65,14 @@ export function readManagedReleaseDependencies(projectRoot) {
         packageJson.dependencies?.['@agentclientprotocol/sdk'],
         'ACP SDK version',
       ),
+      policy: 'latest',
     },
-    { name: '@openai/codex', current: codexVersion },
-    { name: '@anthropic-ai/claude-agent-sdk', current: claudeVersion },
-    { name: 'agent-browser', current: agentBrowserVersion },
+    { name: '@openai/codex', current: codexVersion, policy: 'latest' },
+    {
+      name: '@anthropic-ai/claude-agent-sdk',
+      current: claudeVersion,
+      policy: 'adapter',
+    },
   ];
 }
 
@@ -104,7 +112,8 @@ export async function inspectManagedReleaseDependencies(
   })));
   return {
     results,
-    mismatches: results.filter(result => result.current !== result.latest),
+    mismatches: results.filter(result => result.policy === 'latest' && result.current !== result.latest),
+    reviews: results.filter(result => result.policy === 'adapter' && result.current !== result.latest),
   };
 }
 
@@ -124,15 +133,25 @@ async function main() {
   const { registry } = parseArguments(process.argv.slice(2));
   const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const dependencies = readManagedReleaseDependencies(projectRoot);
-  const { results, mismatches } = await inspectManagedReleaseDependencies(dependencies, { registry });
+  const { results, mismatches, reviews } = await inspectManagedReleaseDependencies(dependencies, { registry });
   for (const result of results) {
-    const marker = result.current === result.latest ? 'ok' : 'update available';
+    const marker = result.current === result.latest
+      ? 'ok'
+      : result.policy === 'adapter'
+        ? 'adapter constrained'
+        : 'update available';
     console.log(`${marker}: ${result.name} current=${result.current} latest=${result.latest}`);
   }
   if (mismatches.length > 0) {
     throw new Error(
       `Release blocked: ${mismatches.length} managed Agent dependencies do not match npm latest. `
       + 'Review and update each pin, patch, hash, and affected acceptance evidence before releasing.',
+    );
+  }
+  if (reviews.length > 0) {
+    console.log(
+      'Claude Agent SDK is intentionally constrained by the latest Claude ACP adapter; '
+      + 'its standalone npm latest is informational until the adapter adopts it.',
     );
   }
   console.log('All managed Agent dependencies match their npm latest versions.');

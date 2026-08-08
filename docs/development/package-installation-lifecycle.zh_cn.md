@@ -40,6 +40,11 @@ Release Pipeline，而不是用户的 npm Client，拥有 Runtime Prepare 与 Pl
 它必须随 Package Image 发布所需的预构建 Artifact（或由 Package Manager 声明式选择的平台包）。
 Server 启动只校验这些 Artifact；它们缺失或损坏时给出可操作的修复错误，绝不通过下载或准备来补偿。
 
+npm Image 将精确版本的 Codex 与 Claude Native Carrier 声明为受平台约束的 Optional Dependency，
+由 npm 在不执行生命周期代码的前提下按 OS、Architecture 与 libc 选择；Release Pipeline 则把经过
+审查的 agent-browser 二进制直接嵌入 Farming Image。Launcher 会把 npm Image 标记为禁止下载，
+Runtime Manager 只能在校验后绑定精确声明的 Carrier 或内置 Artifact。
+
 ## 更新状态机
 
 - **Idle**：没有更新。
