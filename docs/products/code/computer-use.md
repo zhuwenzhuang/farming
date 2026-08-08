@@ -35,9 +35,20 @@ Farming verifies exact ownership before destructive actions. The Viewer is
 served through the authenticated Farming boundary rather than exposed as a
 public desktop endpoint.
 
-The Resource owns one driver session identity. An Agent's idempotent
-`start_session` refreshes or recreates that exact session after driver idle-TTL
-reclamation; caller-supplied session identities cannot replace it.
+The Resource owns one driver session identity and desktop capture scope. Inside
+the Resource's serialized action queue, Farming idempotently refreshes that
+exact session before every session-bound tool call, including an explicit
+`start_session`. Caller-supplied session identities and capture scopes cannot
+replace the Resource-owned values. If the preflight refresh for another tool
+fails, that requested tool has not been sent. Farming exposes this fact through
+the HTTP and Agent CLI error envelope. A transient refresh transport failure is
+retryable; deterministic runtime failures remain explicit. An explicit
+`start_session` is itself the refresh, so its delivery may be uncertain, but
+the operation is idempotent and safe to retry after a transient failure.
+Queue wait, refresh, the Driver call, and screenshot extraction share one
+request deadline shorter than the Agent HTTP transport timeout. Expiry before
+the original tool is sent is reported with `actionStarted: false`; expiry after
+a mutation starts follows the uncertain-outcome contract below.
 
 ## Agent And Human Control
 

@@ -16,6 +16,7 @@ interface WriteWorkspaceImageOptions {
   capability: 'browser' | 'computer';
   mimeType?: string;
   operation: string;
+  signal?: AbortSignal;
   workspace: string;
 }
 
@@ -43,7 +44,9 @@ async function ensurePrivateDirectory(
   parentReal: string,
   name: string,
   workspaceReal: string,
+  signal?: AbortSignal,
 ): Promise<string> {
+  signal?.throwIfAborted();
   const candidate = path.join(parentReal, name);
   try {
     await fs.promises.mkdir(candidate, { mode: 0o700 });
@@ -52,11 +55,14 @@ async function ensurePrivateDirectory(
       throw error;
     }
   }
+  signal?.throwIfAborted();
   const stat = await fs.promises.lstat(candidate);
+  signal?.throwIfAborted();
   if (!stat.isDirectory() || stat.isSymbolicLink()) {
     throw new Error('Workspace artifact path contains a symlink or non-directory component');
   }
   const resolved = await fs.promises.realpath(candidate);
+  signal?.throwIfAborted();
   if (!pathInside(workspaceReal, resolved)) {
     throw new Error('Workspace artifact directory resolves outside the Project workspace');
   }
@@ -66,6 +72,7 @@ async function ensurePrivateDirectory(
 async function writeWorkspaceImageArtifact(
   options: WriteWorkspaceImageOptions,
 ): Promise<WorkspaceArtifact> {
+  options.signal?.throwIfAborted();
   const workspace = path.resolve(String(options.workspace || '').trim());
   if (!String(options.workspace || '').trim()) {
     throw new Error('Workspace image artifact requires an exact Project workspace');
@@ -77,17 +84,22 @@ async function writeWorkspaceImageArtifact(
   }
 
   const workspaceReal = await fs.promises.realpath(workspace);
+  options.signal?.throwIfAborted();
   const capability = safeNamePart(options.capability, 'capability');
-  const temporaryDirectory = await ensurePrivateDirectory(workspaceReal, '.tmp', workspaceReal);
-  const farmingDirectory = await ensurePrivateDirectory(temporaryDirectory, 'farming', workspaceReal);
-  const directoryReal = await ensurePrivateDirectory(farmingDirectory, capability, workspaceReal);
+  const temporaryDirectory = await ensurePrivateDirectory(workspaceReal, '.tmp', workspaceReal, options.signal);
+  const farmingDirectory = await ensurePrivateDirectory(temporaryDirectory, 'farming', workspaceReal, options.signal);
+  const directoryReal = await ensurePrivateDirectory(farmingDirectory, capability, workspaceReal, options.signal);
 
   const mimeType = String(options.mimeType || 'image/png').toLowerCase();
   const operation = safeNamePart(options.operation, 'capture');
   const filename = `${operation}-${Date.now().toString(36)}-${crypto.randomBytes(6).toString('hex')}${extensionForMimeType(mimeType)}`;
   const absolutePath = path.join(directoryReal, filename);
   try {
-    await fs.promises.writeFile(absolutePath, bytes, { flag: 'wx', mode: 0o600 });
+    await fs.promises.writeFile(absolutePath, bytes, {
+      flag: 'wx',
+      mode: 0o600,
+      signal: options.signal,
+    });
   } catch (error) {
     await fs.promises.rm(absolutePath, { force: true }).catch(() => {});
     throw error;

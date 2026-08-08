@@ -3,6 +3,7 @@ const http = require('http');
 const https = require('https');
 const { URL } = require('url');
 const { bearerAuthorizationHeader } = require('../../../backend/auth.cjs');
+const { COMPUTER_AGENT_HTTP_TIMEOUT_MS } = require('./computer-constants.cjs');
 
 function connection(env: NodeJS.ProcessEnv = process.env) {
   const controlUrl = String(env.FARMING_CONTROL_URL || '').trim();
@@ -53,13 +54,16 @@ function requestJson(
             status: response.statusCode,
             code: record.code,
             uncertain: record.uncertain === true,
+            retryable: record.retryable === true,
+            ...(record.actionStarted === false ? { actionStarted: false } : {}),
+            ...(typeof record.hint === 'string' ? { hint: record.hint } : {}),
           }));
           return;
         }
         resolve(value);
       });
     });
-    request.setTimeout(60_000, () => request.destroy(new Error('Computer request timed out')));
+    request.setTimeout(COMPUTER_AGENT_HTTP_TIMEOUT_MS, () => request.destroy(new Error('Computer request timed out')));
     request.on('error', reject);
     if (payload) request.write(payload);
     request.end();

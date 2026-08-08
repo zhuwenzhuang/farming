@@ -85,6 +85,10 @@ async function run() {
   assert.strictEqual(description.result.providerToolName, 'computer_get_desktop_state');
   assert.strictEqual(description.result.result.media, 'workspace-artifact');
   assert(!JSON.stringify(description).includes('MCP'));
+  assert(
+    describeTool('click').failures.includes('COMPUTER_SESSION_REFRESH_FAILED'),
+    'Agent tool metadata must expose the managed-session recovery failure',
+  );
 
   const globalHelp = (await invoke(farmingCli, ['--help'])).stdout;
   assert(globalHelp.includes('farming computer ...'));
@@ -146,6 +150,27 @@ async function run() {
         }));
         return;
       }
+      if (request.method === 'POST' && request.url === '/api/computers/computer_test/tool/click') {
+        response.statusCode = 503;
+        response.end(JSON.stringify({
+          error: 'Computer session could not be refreshed before click; the requested action was not sent: session refresh timed out',
+          code: 'COMPUTER_SESSION_REFRESH_FAILED',
+          retryable: true,
+          actionStarted: false,
+        }));
+        return;
+      }
+      if (request.method === 'POST' && request.url === '/api/computers/computer_test/tool/start_session') {
+        response.statusCode = 503;
+        response.end(JSON.stringify({
+          error: 'Computer start_session did not complete: session refresh timed out',
+          code: 'COMPUTER_SESSION_REFRESH_FAILED',
+          retryable: true,
+          uncertain: true,
+          hint: 'start_session is idempotent; retry it before sending another Computer tool.',
+        }));
+        return;
+      }
       response.statusCode = 404;
       response.end(JSON.stringify({ error: 'not found', code: 'TEST_NOT_FOUND' }));
     });
@@ -175,6 +200,35 @@ async function run() {
     assert.strictEqual(observed.artifacts[0].path, '.tmp/farming/computer/get-desktop-state-test.png');
     assert(!JSON.stringify(observed).includes('base64'));
     assert(requests.some(request => request.url === '/api/computers/computer_test/tool/get_desktop_state'));
+    await assert.rejects(
+      invokeWithInput(computerCli, ['call', 'click', '--json', '-'], '{"x":1,"y":1}', env),
+      error => {
+        const envelope = JSON.parse(error.stderr);
+        assert.strictEqual(
+          envelope.code,
+          'COMPUTER_SESSION_REFRESH_FAILED',
+          JSON.stringify(envelope),
+        );
+        assert.strictEqual(envelope.retryable, true, JSON.stringify(envelope));
+        assert.strictEqual(envelope.actionStarted, false, JSON.stringify(envelope));
+        assert.strictEqual(envelope.uncertain, false, JSON.stringify(envelope));
+        return true;
+      },
+      'HTTP session-refresh safety metadata must survive the Agent CLI boundary',
+    );
+    await assert.rejects(
+      invokeWithInput(computerCli, ['call', 'start_session', '--json', '-'], '{}', env),
+      error => {
+        const envelope = JSON.parse(error.stderr);
+        assert.strictEqual(envelope.code, 'COMPUTER_SESSION_REFRESH_FAILED', JSON.stringify(envelope));
+        assert.strictEqual(envelope.retryable, true, JSON.stringify(envelope));
+        assert.strictEqual(envelope.actionStarted, undefined, JSON.stringify(envelope));
+        assert.strictEqual(envelope.uncertain, true, JSON.stringify(envelope));
+        assert.match(envelope.hint, /idempotent/);
+        return true;
+      },
+      'an explicit idempotent start_session must preserve ambiguous transport delivery',
+    );
   } finally {
     await close(server);
   }

@@ -37,6 +37,14 @@ assert.strictEqual(uncertain.uncertain, true);
 assert.strictEqual(uncertain.retryable, false);
 assert.match(uncertain.hint, /Observe/);
 
+const notStarted = capabilityError(Object.assign(new Error('session refresh failed'), {
+  code: 'COMPUTER_SESSION_REFRESH_FAILED',
+  retryable: true,
+  actionStarted: false,
+}), 'computer', 'click');
+assert.strictEqual(notStarted.retryable, true);
+assert.strictEqual(notStarted.actionStarted, false);
+
 let largeErrorOutput = '';
 writeCapabilityJson({ write(chunk) { largeErrorOutput += chunk; } }, capabilityError(
   Object.assign(new Error('x'.repeat(MAX_CAPABILITY_CLI_CHARS * 2)), { code: 'LARGE_ERROR' }),

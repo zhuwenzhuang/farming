@@ -25,6 +25,20 @@ async function run() {
     assert.strictEqual(fs.readFileSync(artifactPath, 'utf8'), 'small image fixture');
     assert.strictEqual(fs.statSync(artifactPath).mode & 0o777, 0o600);
 
+    const aborted = new AbortController();
+    aborted.abort();
+    await assert.rejects(
+      writeWorkspaceImageArtifact({
+        bytes: Buffer.from('must not be written'),
+        capability: 'computer',
+        operation: 'desktop',
+        signal: aborted.signal,
+        workspace,
+      }),
+      error => error.name === 'AbortError',
+      'workspace artifact writes must honor the shared Computer request deadline signal',
+    );
+
     await assert.rejects(
       writeWorkspaceImageArtifact({
         bytes: Buffer.alloc(MAX_IMAGE_ARTIFACT_BYTES + 1),

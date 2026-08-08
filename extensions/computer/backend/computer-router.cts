@@ -103,6 +103,8 @@ function sendError(res: any, caught: unknown): void {
     ...(error.code ? { code: error.code } : {}),
     ...(error.uncertain ? { uncertain: true } : {}),
     ...(recordValue(error).retryable === true ? { retryable: true } : {}),
+    ...(recordValue(error).actionStarted === false ? { actionStarted: false } : {}),
+    ...(typeof recordValue(error).hint === 'string' ? { hint: recordValue(error).hint } : {}),
     ...(recordValue(error).compatibilityRequired ? { compatibilityRequired: true } : {}),
   });
 }

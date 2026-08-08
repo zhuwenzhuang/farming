@@ -12,7 +12,9 @@ const {
   createComputerRouter,
 } = require('../../extensions/computer/backend/computer-router.cjs');
 const {
+  COMPUTER_AGENT_HTTP_TIMEOUT_MS,
   COMPUTER_IMAGE,
+  COMPUTER_TOOL_REQUEST_TIMEOUT_MS,
 } = require('../../extensions/computer/backend/computer-constants.cjs');
 const { configInstanceFingerprint } = require('../config-instance.cjs');
 const storageLayout = require('../storage-layout.cjs');
@@ -151,8 +153,12 @@ class FakeDocker {
   removed: boolean;
   labels: Record<string, string>;
   calls: string[][];
+  dockerTimeouts: Array<number | undefined>;
   toolCalls: string[];
   toolInputs: Array<{ tool: string; input: Record<string, unknown> }>;
+  toolTimeouts: Array<{ tool: string; timeoutMs: number | undefined }>;
+  sessionActive: boolean;
+  nextSessionRefreshError: (Error & { killed?: boolean; code?: string }) | null;
   blockTool: string | null;
   releaseTool: (() => void) | null;
   blockRemove: boolean;
@@ -164,16 +170,21 @@ class FakeDocker {
     this.removed = false;
     this.labels = {};
     this.calls = [];
+    this.dockerTimeouts = [];
     this.toolCalls = [];
     this.toolInputs = [];
+    this.toolTimeouts = [];
+    this.sessionActive = false;
+    this.nextSessionRefreshError = null;
     this.blockTool = null;
     this.releaseTool = null;
     this.blockRemove = false;
     this.releaseRemove = null;
   }
 
-  run = async args => {
+  run = async (args, options: { timeoutMs?: number; maxBuffer?: number } = {}) => {
     this.calls.push([...args]);
+    this.dockerTimeouts.push(options.timeoutMs);
     if (args[0] === 'version') return { stdout: '20.10.18\n', stderr: '' };
     if (args[0] === 'pull') return { stdout: 'pulled\n', stderr: '' };
     if (args[0] === 'image' && args[1] === 'inspect') {
@@ -245,8 +256,22 @@ class FakeDocker {
       const callIndex = args.indexOf('call');
       if (callIndex >= 0) {
         const tool = args[callIndex + 1];
+        const input = JSON.parse(args[callIndex + 2]);
         this.toolCalls.push(tool);
-        this.toolInputs.push({ tool, input: JSON.parse(args[callIndex + 2]) });
+        this.toolInputs.push({ tool, input });
+        this.toolTimeouts.push({ tool, timeoutMs: options.timeoutMs });
+        if (tool === 'start_session') {
+          if (this.nextSessionRefreshError) {
+            const error = this.nextSessionRefreshError;
+            this.nextSessionRefreshError = null;
+            throw error;
+          }
+          this.sessionActive = true;
+        } else if (tool === 'end_session') {
+          this.sessionActive = false;
+        } else if (input.session && !this.sessionActive) {
+          throw new Error(`session '${input.session}' has ended`);
+        }
         if (this.blockTool === tool) {
           await new Promise<void>(resolve => {
             this.releaseTool = resolve;
@@ -257,6 +282,12 @@ class FakeDocker {
           stderr: '',
         };
       }
+      if (args.includes('stat') && args.includes('%s')) {
+        return { stdout: '8\n', stderr: '' };
+      }
+      if (args.includes('base64')) {
+        return { stdout: Buffer.from('png-data').toString('base64'), stderr: '' };
+      }
       return { stdout: '', stderr: '' };
     }
     throw new Error(`Unexpected docker call: ${args.join(' ')}`);
@@ -265,6 +296,10 @@ class FakeDocker {
 
 async function run() {
   testComputerResourceRevisionOrdering();
+  assert(
+    COMPUTER_TOOL_REQUEST_TIMEOUT_MS + 1_000 < COMPUTER_AGENT_HTTP_TIMEOUT_MS,
+    'the server deadline and cleanup grace must finish before the Agent HTTP transport timeout',
+  );
   const viewerConnectionHeaders = [];
   const viewer = http.createServer((_request, response) => {
     viewerConnectionHeaders.push(_request.headers.connection);
@@ -287,6 +322,14 @@ async function run() {
     dockerRunner: fake.run,
   });
   manager.store.init();
+  const cleanupDeadline = Date.now() - 500;
+  const cleanupTimeout = (manager as unknown as {
+    screenshotCleanupTimeout(deadline: number): number;
+  }).screenshotCleanupTimeout(cleanupDeadline);
+  assert(
+    cleanupTimeout >= 400 && cleanupTimeout <= 500,
+    'screenshot cleanup must retain the unused part of its one-second post-deadline grace',
+  );
 
   try {
     const capability = await manager.capability();
@@ -391,12 +434,32 @@ async function run() {
     );
     await manager.releaseBrowser(browserLease.leaseKey);
 
+    const callsBeforeFirstObservation = fake.calls.length;
     const firstObservation = await manager.callTool(created.id, 'get_desktop_state', {});
     assert.strictEqual(firstObservation.structuredContent.tool, 'get_desktop_state');
+    const observationDockerCalls = fake.calls.slice(callsBeforeFirstObservation);
+    const observationTimeouts = fake.dockerTimeouts.slice(callsBeforeFirstObservation);
+    assert.deepStrictEqual(
+      observationDockerCalls.map(args => {
+        const callIndex = args.indexOf('call');
+        if (callIndex >= 0) return args[callIndex + 1];
+        if (args.includes('stat')) return 'stat';
+        if (args.includes('base64')) return 'base64';
+        if (args.includes('rm')) return 'rm';
+        return 'other';
+      }),
+      ['start_session', 'get_desktop_state', 'stat', 'base64', 'rm'],
+      'an observation request must keep refresh, Driver call, screenshot extraction, and cleanup ordered',
+    );
+    assert(
+      observationTimeouts.every(timeout => Number(timeout) > 0 && Number(timeout) <= 45_000),
+      'every blocking observation step must be capped by the shared server request deadline',
+    );
+    assert(Number(observationTimeouts.at(-1)) <= 1_000, 'screenshot cleanup must use bounded deadline grace');
     const startCallsBefore = fake.toolCalls.filter(tool => tool === 'start_session').length;
     const refreshedSession = await manager.callTool(created.id, 'start_session', {
       session: 'caller-must-not-replace-owned-session',
-      capture_scope: 'desktop',
+      capture_scope: 'auto',
     });
     assert.strictEqual(refreshedSession.structuredContent.tool, 'start_session');
     assert.strictEqual(
@@ -409,6 +472,156 @@ async function run() {
       manager.get(created.id).sessionId,
       'session recovery must keep the Resource-owned identity',
     );
+    assert.strictEqual(
+      fake.toolInputs.filter(call => call.tool === 'start_session').at(-1)?.input.capture_scope,
+      'desktop',
+      'session recovery must preserve the Resource-owned desktop capture scope',
+    );
+    assert.strictEqual(
+      fake.toolTimeouts.filter(call => call.tool === 'start_session').at(-1)?.timeoutMs,
+      5_000,
+      'session refresh must remain inside the 60-second Agent transport budget',
+    );
+
+    fake.nextSessionRefreshError = Object.assign(
+      new Error('injected explicit session refresh timed out'),
+      { killed: true, code: 'ETIMEDOUT' },
+    );
+    await assert.rejects(
+      manager.callTool(created.id, 'start_session', {}),
+      error => (
+        error.code === 'COMPUTER_SESSION_REFRESH_FAILED'
+        && error.retryable === true
+        && error.uncertain === true
+        && error.actionStarted === undefined
+        && /start_session did not complete/.test(error.message)
+      ),
+      'an explicit idempotent refresh must not claim it was never sent',
+    );
+
+    fake.sessionActive = false;
+    fake.nextSessionRefreshError = Object.assign(
+      new Error('injected session refresh timed out'),
+      { killed: true, code: 'ETIMEDOUT' },
+    );
+    const clicksBeforeFailedRefresh = fake.toolCalls.filter(tool => tool === 'click').length;
+    await assert.rejects(
+      manager.callTool(created.id, 'click', { x: 1, y: 1 }),
+      error => (
+        error.code === 'COMPUTER_SESSION_REFRESH_FAILED'
+        && error.actionStarted === false
+        && error.retryable === true
+        && error.uncertain === undefined
+      ),
+    );
+    assert.strictEqual(
+      fake.toolCalls.filter(tool => tool === 'click').length,
+      clicksBeforeFailedRefresh,
+      'a session refresh failure must leave the original action unsent',
+    );
+
+    fake.nextSessionRefreshError = new Error('injected permanent session permission failure');
+    await assert.rejects(
+      manager.callTool(created.id, 'click', { x: 1, y: 1 }),
+      error => (
+        error.code === 'COMPUTER_SESSION_REFRESH_FAILED'
+        && error.actionStarted === false
+        && error.retryable === false
+        && /permission failure/.test(error.message)
+      ),
+      'a deterministic refresh failure must preserve its cause without inviting blind retries',
+    );
+
+    const callsBeforeExpiredSessionRecovery = fake.toolCalls.length;
+    const recoveredAction = await manager.callTool(created.id, 'click', { x: 2, y: 2 });
+    assert.strictEqual(recoveredAction.structuredContent.tool, 'click');
+    assert.deepStrictEqual(
+      fake.toolCalls.slice(callsBeforeExpiredSessionRecovery),
+      ['start_session', 'click'],
+      'an expired session must be refreshed before executing the original action exactly once',
+    );
+    const recoveryTimeouts = fake.toolTimeouts
+      .slice(callsBeforeExpiredSessionRecovery)
+      .map(call => Number(call.timeoutMs));
+    assert(
+      recoveryTimeouts[0] > 0 && recoveryTimeouts[0] <= 5_000
+      && recoveryTimeouts[1] > 0 && recoveryTimeouts[1] <= 45_000,
+      'refresh and the original action must both consume the shared server request deadline',
+    );
+
+    fake.sessionActive = false;
+    const callsBeforeSessionIndependentTool = fake.toolCalls.length;
+    await manager.callTool(created.id, 'health_report', { session: 'caller-supplied-noise' });
+    assert.deepStrictEqual(
+      fake.toolCalls.slice(callsBeforeSessionIndependentTool),
+      ['health_report'],
+      'caller input must not make a session-independent tool depend on session liveness',
+    );
+    assert.strictEqual(
+      fake.toolInputs.at(-1)?.input.session,
+      undefined,
+      'session-independent tools must not forward a caller-supplied session identity',
+    );
+
+    fake.blockTool = 'type_text';
+    fake.releaseTool = null;
+    const callsBeforeConcurrentActions = fake.toolCalls.length;
+    const firstConcurrentAction = manager.callTool(created.id, 'type_text', { text: 'first' });
+    while (!fake.releaseTool) {
+      await new Promise(resolve => setImmediate(resolve));
+    }
+    const secondConcurrentAction = manager.callTool(created.id, 'click', { x: 3, y: 3 });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepStrictEqual(
+      fake.toolCalls.slice(callsBeforeConcurrentActions),
+      ['start_session', 'type_text'],
+      'another action must not enter between a queued session refresh and its original action',
+    );
+    fake.releaseTool();
+    await Promise.all([firstConcurrentAction, secondConcurrentAction]);
+    fake.blockTool = null;
+    assert.deepStrictEqual(
+      fake.toolCalls.slice(callsBeforeConcurrentActions),
+      ['start_session', 'type_text', 'start_session', 'click'],
+      'each concurrent action must retain one ordered refresh-action pair',
+    );
+
+    const realDateNow = Date.now;
+    let controlledNow = realDateNow();
+    Date.now = () => controlledNow;
+    try {
+      fake.blockTool = 'type_text';
+      fake.releaseTool = null;
+      const blocker = manager.callTool(created.id, 'type_text', { text: 'deadline blocker' });
+      while (!fake.releaseTool) {
+        await new Promise(resolve => setImmediate(resolve));
+      }
+      const startCallsBeforeExpiredQueue = fake.toolCalls.filter(tool => tool === 'start_session').length;
+      const expiredInQueue = manager.callTool(created.id, 'start_session', {});
+      controlledNow += COMPUTER_TOOL_REQUEST_TIMEOUT_MS + 1;
+      fake.releaseTool();
+      await blocker;
+      await assert.rejects(
+        expiredInQueue,
+        error => (
+          error.code === 'COMPUTER_SESSION_REFRESH_FAILED'
+          && error.actionStarted === false
+          && error.retryable === true
+          && error.uncertain === undefined
+          && /was not sent/.test(error.message)
+        ),
+        'a start_session whose queue deadline expired must remain a proven zero-send outcome',
+      );
+      assert.strictEqual(
+        fake.toolCalls.filter(tool => tool === 'start_session').length,
+        startCallsBeforeExpiredQueue,
+        'an expired queued start_session must not reach the Driver',
+      );
+    } finally {
+      Date.now = realDateNow;
+      fake.blockTool = null;
+      fake.releaseTool = null;
+    }
     assert.throws(
       () => manager.callTool(created.id, 'not_a_real_cua_tool', {}),
       error => error.code === 'COMPUTER_TOOL_NOT_SUPPORTED' && error.status === 400,
@@ -588,6 +801,23 @@ async function run() {
       );
       assert.strictEqual(retainedDuringSwitch.status, 200);
       assert.strictEqual(retainedDuringSwitch.body.status, 'running');
+      fake.sessionActive = false;
+      fake.nextSessionRefreshError = Object.assign(
+        new Error('injected API session refresh timed out'),
+        { killed: true, code: 'ETIMEDOUT' },
+      );
+      const refreshFailure = await requestJson(
+        apiPort,
+        'POST',
+        `/api/computers/${encodeURIComponent(created.id)}/tool/click`,
+        { x: 4, y: 4 },
+        { 'X-Farming-Agent-Id': 'agent_owner' },
+      );
+      assert.strictEqual(refreshFailure.status, 503);
+      assert.strictEqual(refreshFailure.body.code, 'COMPUTER_SESSION_REFRESH_FAILED');
+      assert.strictEqual(refreshFailure.body.retryable, true);
+      assert.strictEqual(refreshFailure.body.actionStarted, false);
+      assert.strictEqual(refreshFailure.body.uncertain, undefined);
       const filtered = await requestJson(
         apiPort,
         'GET',

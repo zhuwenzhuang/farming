@@ -86,6 +86,7 @@ function boundedOutput(value: unknown): unknown {
     message: '',
     uncertain: record.uncertain === true,
     retryable: false,
+    ...(record.actionStarted === false ? { actionStarted: false } : {}),
     hint: 'Narrow the next observation or inspect a smaller result.',
     truncated: true,
     originalChars: serialized.length,
@@ -134,6 +135,7 @@ function capabilityError(error: unknown, capability: string, operation: string) 
     message,
     uncertain,
     retryable: value.retryable === true,
+    ...(value.actionStarted === false ? { actionStarted: false } : {}),
     hint: String(value.hint || (uncertain
       ? `Observe the current ${capability} state before deciding whether to retry.`
       : 'Inspect the command help and current capability state, then retry only if safe.')),

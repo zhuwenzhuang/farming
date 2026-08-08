@@ -16,7 +16,7 @@ import {
   writeWorkspaceImageArtifact,
   type WorkspaceArtifact,
 } from '../../../backend/workspace-artifacts.cjs';
-import { COMPUTER_CONTAINER_CPUS, COMPUTER_CONTAINER_MEMORY, COMPUTER_CONTAINER_PIDS, COMPUTER_CONTAINER_SHM_SIZE, COMPUTER_DRIVER_BIN, COMPUTER_DRIVER_VERSION, COMPUTER_IMAGE, COMPUTER_IMAGE_INDEX_DIGEST, COMPUTER_USER } from './computer-constants.cjs';
+import { COMPUTER_CONTAINER_CPUS, COMPUTER_CONTAINER_MEMORY, COMPUTER_CONTAINER_PIDS, COMPUTER_CONTAINER_SHM_SIZE, COMPUTER_DRIVER_BIN, COMPUTER_DRIVER_VERSION, COMPUTER_IMAGE, COMPUTER_IMAGE_INDEX_DIGEST, COMPUTER_TOOL_REQUEST_TIMEOUT_MS, COMPUTER_USER } from './computer-constants.cjs';
 import { ComputerResourceStore, publicResource } from './computer-resource-store.cjs';
 
 const execFileAsync = promisify(execFile);
@@ -51,6 +51,8 @@ const SCREENSHOT_TOOLS = new Set([
   'zoom',
 ]);
 const DRIVER_CALL_TIMEOUT_MS = 45_000;
+const SESSION_REFRESH_TIMEOUT_MS = 5_000;
+const SCREENSHOT_CLEANUP_GRACE_MS = 1_000;
 const DOCKER_TIMEOUT_MS = 90_000;
 const START_TIMEOUT_MS = 45_000;
 const COMPUTER_BROWSER_CDP_PORT = '9223/tcp';
@@ -86,6 +88,12 @@ interface DockerResult {
 
 interface DockerRunner {
   (args: string[], options?: { timeoutMs?: number; maxBuffer?: number }): Promise<DockerResult>;
+}
+
+interface DriverCallOptions {
+  screenshotPath?: string;
+  timeoutMs?: number;
+  deadline?: number;
 }
 
 interface ComputerManagerOptions {
@@ -821,6 +829,7 @@ class ComputerResourceManager extends EventEmitter {
     }
     const admittedGeneration = resource.generation;
     const admittedEpoch = resource.controlEpoch;
+    const requestDeadline = Date.now() + COMPUTER_TOOL_REQUEST_TIMEOUT_MS;
     return this.enqueue(id, async () => {
       const current = this.privateResource(id);
       if (
@@ -833,16 +842,43 @@ class ComputerResourceManager extends EventEmitter {
       }
       const args = { ...input };
       delete args.screenshot_out_file;
-      if ('session' in args || this.toolAcceptsSession(tool)) args.session = current.sessionId;
+      const usesSession = this.toolAcceptsSession(tool);
+      if (usesSession) args.session = current.sessionId;
+      else delete args.session;
       if (tool === 'end_session') {
         return { content: [{ type: 'text', text: 'Farming keeps this Computer session alive until Stop.' }] };
+      }
+      if (usesSession) {
+        let sessionResult;
+        try {
+          sessionResult = await this.refreshDriverSession(
+            current,
+            current.sessionId,
+            tool === 'start_session' ? args : {},
+            requestDeadline,
+          );
+        } catch (caught) {
+          throw this.sessionRefreshError(caught, tool, tool === 'start_session');
+        }
+        if (tool === 'start_session') return sessionResult;
       }
       const screenshotPath = SCREENSHOT_TOOLS.has(tool)
         ? `/tmp/farming-${current.id}-${crypto.randomBytes(5).toString('hex')}.png`
         : '';
+      if (Date.now() >= requestDeadline) {
+        throw computerError(
+          `Computer action ${tool} was not sent because its request deadline expired`,
+          503,
+          'COMPUTER_ACTION_NOT_STARTED',
+          { actionStarted: false, retryable: true },
+        );
+      }
       let result;
       try {
-        result = await this.driverCall(current, tool, args, screenshotPath);
+        result = await this.driverCall(current, tool, args, {
+          screenshotPath,
+          deadline: requestDeadline,
+        });
       } catch (caught) {
         const error = caught as Error & { killed?: boolean };
         if (error.killed || error.signal || /timed out/i.test(error.message || '')) {
@@ -1142,10 +1178,7 @@ class ComputerResourceManager extends EventEmitter {
         if (!version.stdout.includes(COMPUTER_DRIVER_VERSION)) {
           throw new Error(`Expected Cua Driver ${COMPUTER_DRIVER_VERSION}, got ${version.stdout.trim()}`);
         }
-        await this.driverCall(resource, 'start_session', {
-          session: sessionId,
-          capture_scope: 'desktop',
-        });
+        await this.refreshDriverSession(resource, sessionId);
         return;
       } catch (caught) {
         lastError = caught;
@@ -1159,8 +1192,11 @@ class ComputerResourceManager extends EventEmitter {
     resource: { containerId: string; workspace: string },
     tool: string,
     input: Record<string, unknown>,
-    screenshotPath = '',
+    options: DriverCallOptions = {},
   ) {
+    const screenshotPath = options.screenshotPath || '';
+    const timeoutMs = options.timeoutMs || DRIVER_CALL_TIMEOUT_MS;
+    const deadline = options.deadline || 0;
     const args = [
       'exec', '-u', COMPUTER_USER,
       '-e', 'HOME=/home/cua',
@@ -1170,7 +1206,7 @@ class ComputerResourceManager extends EventEmitter {
       ...(screenshotPath ? ['--screenshot-out-file', screenshotPath] : []),
     ];
     const result = await this.docker(args, {
-      timeoutMs: DRIVER_CALL_TIMEOUT_MS,
+      timeoutMs: this.timeoutBeforeDeadline(deadline, timeoutMs, false),
       maxBuffer: 32 * 1024 * 1024,
     });
     let structuredContent: unknown;
@@ -1194,7 +1230,7 @@ class ComputerResourceManager extends EventEmitter {
           'exec', '-u', COMPUTER_USER,
           resource.containerId,
           'stat', '-c', '%s', screenshotPath,
-        ], { timeoutMs: 5_000 });
+        ], { timeoutMs: this.timeoutBeforeDeadline(deadline, 5_000) });
         const screenshotBytes = Number(screenshotStat.stdout.trim());
         if (!Number.isSafeInteger(screenshotBytes) || screenshotBytes <= 0) {
           throw new Error('Computer observation did not produce a non-empty screenshot');
@@ -1206,19 +1242,49 @@ class ComputerResourceManager extends EventEmitter {
           'exec', '-u', COMPUTER_USER,
           resource.containerId,
           'base64', '-w', '0', screenshotPath,
-        ], { timeoutMs: 10_000, maxBuffer: 48 * 1024 * 1024 });
+        ], {
+          timeoutMs: this.timeoutBeforeDeadline(deadline, 10_000),
+          maxBuffer: 48 * 1024 * 1024,
+        });
         if (image.stdout.trim()) {
-          const artifact = await writeWorkspaceImageArtifact({
-            bytes: Buffer.from(image.stdout.trim(), 'base64'),
-            capability: 'computer',
-            mimeType: 'image/png',
-            operation: tool,
-            workspace: resource.workspace,
-          });
+          const artifactAbort = deadline ? new AbortController() : null;
+          const artifactTimer = artifactAbort
+            ? setTimeout(
+                () => artifactAbort.abort(),
+                this.timeoutBeforeDeadline(deadline, COMPUTER_TOOL_REQUEST_TIMEOUT_MS),
+              )
+            : null;
+          let artifact: WorkspaceArtifact;
+          try {
+            artifact = await writeWorkspaceImageArtifact({
+              bytes: Buffer.from(image.stdout.trim(), 'base64'),
+              capability: 'computer',
+              mimeType: 'image/png',
+              operation: tool,
+              signal: artifactAbort?.signal,
+              workspace: resource.workspace,
+            });
+          } finally {
+            if (artifactTimer) clearTimeout(artifactTimer);
+          }
           artifacts.push(artifact);
           content.push({ type: 'image', ...artifact });
         }
       } catch (caught) {
+        if (
+          deadline
+          && (
+            Date.now() >= deadline
+            || ['AbortError', 'TimeoutError'].includes(String((caught as { name?: string }).name || ''))
+          )
+        ) {
+          throw computerError(
+            'Computer request deadline expired while saving its screenshot',
+            504,
+            'COMPUTER_REQUEST_DEADLINE_EXCEEDED',
+            { retryable: true },
+          );
+        }
         const message = caught instanceof Error ? caught.message : String(caught);
         if (!/no such file|did not produce a non-empty screenshot/i.test(message)) throw caught;
         // Some observation tools legitimately return no image for the current target.
@@ -1227,7 +1293,9 @@ class ComputerResourceManager extends EventEmitter {
           'exec', '-u', COMPUTER_USER,
           resource.containerId,
           'rm', '-f', screenshotPath,
-        ], { timeoutMs: 5_000 }).catch(() => null);
+        ], {
+          timeoutMs: this.screenshotCleanupTimeout(deadline),
+        }).catch(() => null);
       }
     }
     return {
@@ -1235,6 +1303,78 @@ class ComputerResourceManager extends EventEmitter {
       ...(structuredContent === undefined ? {} : { structuredContent }),
       ...(artifacts.length === 0 ? {} : { artifacts }),
     };
+  }
+
+  private refreshDriverSession(
+    resource: { containerId: string; workspace: string },
+    sessionId: string,
+    input: Record<string, unknown> = {},
+    deadline = 0,
+  ) {
+    return this.driverCall(resource, 'start_session', {
+      ...input,
+      session: sessionId,
+      capture_scope: 'desktop',
+    }, { timeoutMs: SESSION_REFRESH_TIMEOUT_MS, deadline });
+  }
+
+  private timeoutBeforeDeadline(
+    deadline: number,
+    maximumMs: number,
+    actionStarted?: boolean,
+  ): number {
+    if (!deadline) return maximumMs;
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) {
+      throw computerError(
+        'Computer request deadline expired',
+        504,
+        'COMPUTER_REQUEST_DEADLINE_EXCEEDED',
+        {
+          retryable: true,
+          ...(actionStarted === false ? { actionStarted: false } : {}),
+        },
+      );
+    }
+    return Math.max(1, Math.min(maximumMs, remainingMs));
+  }
+
+  private screenshotCleanupTimeout(deadline: number): number {
+    if (!deadline) return 5_000;
+    return Math.max(
+      1,
+      Math.min(SCREENSHOT_CLEANUP_GRACE_MS, deadline + SCREENSHOT_CLEANUP_GRACE_MS - Date.now()),
+    );
+  }
+
+  private sessionRefreshError(caught: unknown, tool: string, explicitStart: boolean) {
+    const error = caught as Error & { killed?: boolean; signal?: string; status?: number; code?: string };
+    const message = error.message || 'Cua Driver session refresh failed';
+    const refreshNotSent = recordValue(error).actionStarted === false;
+    const retryable = Boolean(
+      error.killed
+      || error.signal
+      || ['ETIMEDOUT', 'ECONNRESET', 'EPIPE'].includes(String(error.code || ''))
+      || /timed out|deadline expired|socket hang up|connection reset|broken pipe/i.test(message),
+    );
+    const failureMessage = explicitStart
+      ? (refreshNotSent
+          ? `Computer start_session was not sent: ${message}`
+          : `Computer start_session did not complete: ${message}`)
+      : `Computer session could not be refreshed before ${tool}; the requested action was not sent: ${message}`;
+    return computerError(
+      failureMessage,
+      Number(error.status) || (retryable ? 503 : 500),
+      'COMPUTER_SESSION_REFRESH_FAILED',
+      {
+        retryable,
+        ...(explicitStart && retryable && !refreshNotSent ? {
+          uncertain: true,
+          hint: 'start_session is idempotent; retry it before sending another Computer tool.',
+        } : {}),
+        ...(!explicitStart || refreshNotSent ? { actionStarted: false } : {}),
+      },
+    );
   }
 
   private toolAcceptsSession(tool: string): boolean {
