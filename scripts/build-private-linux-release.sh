@@ -87,7 +87,7 @@ case "${OUTPUT_DIR}" in
 esac
 mkdir -p "${OUTPUT_DIR}" "${PROJECT_ROOT}/.tmp/deploy-npm-cache"
 
-WORKTREE_ROOT="$(mktemp -d /tmp/farming-private-release.XXXXXX)"
+WORKTREE_ROOT="$(mktemp -d "${PROJECT_ROOT}/.tmp/private-release-worktree.XXXXXX")"
 WORKTREE_DIR="${WORKTREE_ROOT}/source"
 cleanup() {
   git -C "${PROJECT_ROOT}" worktree remove --force "${WORKTREE_DIR}" >/dev/null 2>&1 || true

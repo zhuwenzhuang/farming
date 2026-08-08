@@ -9,6 +9,7 @@ function read(relativePath) {
 function run() {
   const deploySource = read('scripts/deploy.sh');
   const activateSource = read('scripts/activate-remote-release.sh');
+  const privateBuilderSource = read('scripts/build-private-linux-release.sh');
   const serverSource = read('backend/server.cts');
   const appCliSource = read('backend/farming-app-cli.cts');
   const npmUpdateHelperSource = read('backend/npm-update-helper.cts');
@@ -60,6 +61,12 @@ function run() {
       deploySource.includes('verify-release-bundle.ts') &&
       deploySource.includes('rsync -a --partial --checksum'),
     'remote deployment should upload one locally built and verified artifact instead of synchronizing source',
+  );
+
+  assert(
+    privateBuilderSource.includes('mktemp -d "${PROJECT_ROOT}/.tmp/private-release-worktree.XXXXXX"') &&
+      !privateBuilderSource.includes('mktemp -d /tmp/'),
+    'the container builder worktree must live under the shared project path rather than host-only /tmp',
   );
 
   assert(
