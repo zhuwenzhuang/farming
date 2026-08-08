@@ -152,6 +152,7 @@ class FakeDocker {
   labels: Record<string, string>;
   calls: string[][];
   toolCalls: string[];
+  toolInputs: Array<{ tool: string; input: Record<string, unknown> }>;
   blockTool: string | null;
   releaseTool: (() => void) | null;
   blockRemove: boolean;
@@ -164,6 +165,7 @@ class FakeDocker {
     this.labels = {};
     this.calls = [];
     this.toolCalls = [];
+    this.toolInputs = [];
     this.blockTool = null;
     this.releaseTool = null;
     this.blockRemove = false;
@@ -244,6 +246,7 @@ class FakeDocker {
       if (callIndex >= 0) {
         const tool = args[callIndex + 1];
         this.toolCalls.push(tool);
+        this.toolInputs.push({ tool, input: JSON.parse(args[callIndex + 2]) });
         if (this.blockTool === tool) {
           await new Promise<void>(resolve => {
             this.releaseTool = resolve;
@@ -390,6 +393,22 @@ async function run() {
 
     const firstObservation = await manager.callTool(created.id, 'get_desktop_state', {});
     assert.strictEqual(firstObservation.structuredContent.tool, 'get_desktop_state');
+    const startCallsBefore = fake.toolCalls.filter(tool => tool === 'start_session').length;
+    const refreshedSession = await manager.callTool(created.id, 'start_session', {
+      session: 'caller-must-not-replace-owned-session',
+      capture_scope: 'desktop',
+    });
+    assert.strictEqual(refreshedSession.structuredContent.tool, 'start_session');
+    assert.strictEqual(
+      fake.toolCalls.filter(tool => tool === 'start_session').length,
+      startCallsBefore + 1,
+      'an idempotent start_session call must reach the driver so an idle-TTL session can recover',
+    );
+    assert.strictEqual(
+      fake.toolInputs.filter(call => call.tool === 'start_session').at(-1)?.input.session,
+      manager.get(created.id).sessionId,
+      'session recovery must keep the Resource-owned identity',
+    );
     assert.throws(
       () => manager.callTool(created.id, 'not_a_real_cua_tool', {}),
       error => error.code === 'COMPUTER_TOOL_NOT_SUPPORTED' && error.status === 400,

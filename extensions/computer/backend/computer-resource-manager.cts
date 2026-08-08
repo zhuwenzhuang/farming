@@ -834,9 +834,6 @@ class ComputerResourceManager extends EventEmitter {
       const args = { ...input };
       delete args.screenshot_out_file;
       if ('session' in args || this.toolAcceptsSession(tool)) args.session = current.sessionId;
-      if (tool === 'start_session') {
-        return { content: [{ type: 'text', text: `Farming manages session ${current.sessionId}` }] };
-      }
       if (tool === 'end_session') {
         return { content: [{ type: 'text', text: 'Farming keeps this Computer session alive until Stop.' }] };
       }

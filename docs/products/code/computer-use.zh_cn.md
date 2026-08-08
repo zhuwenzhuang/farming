@@ -29,6 +29,9 @@ Session、Credential、Profile 或 Private Endpoint。
 破坏性操作前必须验证精确 Ownership。Viewer 通过带鉴权的 Farming Boundary 提供，而不是
 暴露公开 Desktop Endpoint。
 
+Resource 拥有唯一的 driver session 身份。Agent 幂等调用 `start_session` 时，会在 driver
+idle-TTL 回收后刷新或重建这个确切 session；调用方提供的 session 身份不能替换它。
+
 ## Agent 与人工控制
 
 ACP Agent 使用 Computer Tool；Terminal Agent 通过 `farming computer` 使用同一 Capability。

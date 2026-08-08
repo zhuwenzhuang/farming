@@ -35,6 +35,10 @@ Farming verifies exact ownership before destructive actions. The Viewer is
 served through the authenticated Farming boundary rather than exposed as a
 public desktop endpoint.
 
+The Resource owns one driver session identity. An Agent's idempotent
+`start_session` refreshes or recreates that exact session after driver idle-TTL
+reclamation; caller-supplied session identities cannot replace it.
+
 ## Agent And Human Control
 
 ACP Agents use Computer tools; Terminal Agents use the same capability through
