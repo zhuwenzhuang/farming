@@ -314,6 +314,7 @@ async function run() {
         command: 'codex',
         workspace: '/chat-repo',
         agentRuntimeMode: 'chat',
+        source: 'deployment-smoke',
         additionalDirectories: ['/shared'],
         mcpServers: [{ name: 'docs', command: '/bin/docs-mcp', args: [], env: [] }],
       }),
@@ -322,6 +323,7 @@ async function run() {
     assert.strictEqual(chatCreated.body.initialInputDelivered, false);
     assert.strictEqual(calls.at(-1).type, 'startAgent');
     assert.strictEqual(calls.at(-1).options.agentRuntimeMode, 'chat');
+    assert.strictEqual(calls.at(-1).options.source, 'deployment-smoke');
     assert.deepStrictEqual(calls.at(-1).options.additionalDirectories, ['/shared']);
     assert.deepStrictEqual(calls.at(-1).options.mcpServers, [
       { name: 'docs', command: '/bin/docs-mcp', args: [], env: [] },

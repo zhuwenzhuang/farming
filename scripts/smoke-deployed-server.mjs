@@ -138,6 +138,7 @@ async function main() {
         command: 'bash',
         workspace: options.workspace,
         agentRuntimeMode: 'terminal',
+        source: 'deployment-smoke',
         requestId: `deploy-terminal-${process.pid}-${Date.now()}`,
       }),
     }, options.timeoutMs)
@@ -153,6 +154,7 @@ async function main() {
         command: options.agent,
         workspace: options.workspace,
         agentRuntimeMode: 'chat',
+        source: 'deployment-smoke',
         requestId: `deploy-chat-${process.pid}-${Date.now()}`,
       }),
     }, options.timeoutMs)

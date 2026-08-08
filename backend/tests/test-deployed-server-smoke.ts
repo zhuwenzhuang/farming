@@ -65,6 +65,7 @@ async function run() {
   const deletedAgentIds = [];
   let terminalCreates = 0;
   let chatCreates = 0;
+  const createdSources: unknown[] = [];
 
   const server = http.createServer(async (request, response) => {
     const url = new URL(request.url || '/', 'http://127.0.0.1');
@@ -76,6 +77,7 @@ async function run() {
 
     if (url.pathname === '/farming/api/control/agents' && request.method === 'POST') {
       const body = JSON.parse(await readBody(request));
+      createdSources.push(body.source);
       const id = body.command === 'bash' ? 'agent-terminal-smoke' : 'agent-chat-smoke';
       if (body.command === 'bash') {
         terminalCreates += 1;
@@ -147,6 +149,7 @@ async function run() {
     });
     assert.strictEqual(terminalCreates, 1);
     assert.strictEqual(chatCreates, 1);
+    assert.deepStrictEqual(createdSources, ['deployment-smoke', 'deployment-smoke']);
     assert.deepStrictEqual(deletedAgentIds, ['agent-terminal-smoke', 'agent-chat-smoke']);
     assert.strictEqual(agents.size, 0);
     console.log('✓ deployed Server smoke reads ACP idle from the authoritative runtime binding');

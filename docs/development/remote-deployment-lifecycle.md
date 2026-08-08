@@ -44,7 +44,7 @@ one install path may stop only the exact Server proven by the selected Config.
 | Staging | The checksum-matched archive is safely extracted to a unique staging path. | Invalid paths, metadata, platform, or identity remove only that staging path. |
 | Prepared | Native modules load through the artifact compatibility runtime and fixed runtimes are prepared with `--no-activate`. | Failure leaves the current Server live. |
 | Activating | The exact old Server stops, a symlink atomically selects the prepared image, and the new Server starts. | A stop failure leaves selection unchanged. A selection or start failure enters rollback. |
-| Verifying | Authenticated HTTP, versioned WebSocket, PTY Host, ACP Host, and one fresh empty Chat are exercised and exact smoke Agents are removed. | Any failure enters rollback without replaying an uncertain mutation. |
+| Verifying | Authenticated HTTP, versioned WebSocket, PTY Host, ACP Host, and one fresh empty Chat are exercised through internal smoke Agents that stay out of interactive browser inventories, then those exact Agents are removed. | Any failure enters rollback without replaying an uncertain mutation. |
 | Succeeded | Current and rollback selections are recorded and only safe old images outside retention are removed. | Cleanup failure does not invalidate the running image and remains visible. |
 | Rolling back | The failed image stops, the prior image is selected, and its Server starts from the same Config. | Success ends as a visible failed deployment with service restored; rollback failure requires operator action. |
 
@@ -63,8 +63,8 @@ Safety requires:
 3. no Server stop occurs before native dependency and runtime preflight passes;
 4. current selection changes atomically and exact prior selection remains
    available through verification;
-5. stop, smoke cleanup, rollback, and retention target exact Config, Agent, and
-   image identities;
+5. smoke Agents remain internal to readiness, while stop, smoke cleanup,
+   rollback, and retention target exact Config, Agent, and image identities;
 6. private SSH or Farming credentials are neither printed nor copied into an
    image.
 

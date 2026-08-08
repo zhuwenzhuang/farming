@@ -66,6 +66,10 @@ interface AgentStateInventorySummary {
   agentInventoryTotal: number;
 }
 
+function agentStateVisibleToInteractiveClients(agent: AgentStateRecord | null | undefined): boolean {
+  return agent?.source !== 'deployment-smoke';
+}
+
 function normalizeAgentStateScope(scope: unknown): AgentStateClientScope {
   return scope === 'focused' ? 'focused' : 'all';
 }
@@ -440,6 +444,7 @@ export {
   advanceAgentStateBroadcast,
   advanceAgentStateMutation,
   agentStateClientDelivery,
+  agentStateVisibleToInteractiveClients,
   agentStateDeltaForScope,
   agentStateBroadcastInventorySummary,
   agentStateBroadcastProjectSummaries,

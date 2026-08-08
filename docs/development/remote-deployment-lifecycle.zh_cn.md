@@ -37,7 +37,7 @@ Config 状态和部署 image 不共享所有权身份。更新一个安装路径
 | Staging | checksum 匹配的压缩包安全解压到唯一 staging 路径。 | 路径、元数据、平台或身份非法时只删除该 staging。 |
 | Prepared | 通过 artifact 自带兼容运行时加载原生模块，并用 `--no-activate` 准备固定 runtime。 | 失败时当前 Server 继续运行。 |
 | Activating | 精确停止旧 Server，原子切换 symlink，并启动新 Server。 | 停止失败不改变选择；切换或启动失败进入回滚。 |
-| Verifying | 验证认证 HTTP、版本化 WebSocket、PTY Host、ACP Host，并创建和删除一个全新空 Chat。 | 任一步失败都进入回滚，不重放结果不确定的 mutation。 |
+| Verifying | 通过不进入交互式浏览器 Agent 清单的内部 smoke Agent 验证认证 HTTP、版本化 WebSocket、PTY Host、ACP Host 和一个全新空 Chat，随后删除这些确切 Agent。 | 任一步失败都进入回滚，不重放结果不确定的 mutation。 |
 | Succeeded | 记录 current 与 rollback 选择，只清理保留策略外且可证明安全的旧 image。 | 清理失败不会否定运行中的 image，但必须可见。 |
 | Rolling back | 停止失败 image，选择旧 image，并用同一个 Config 启动旧 Server。 | 成功则部署失败但服务恢复；回滚也失败时需要人工处理。 |
 
@@ -53,7 +53,7 @@ Safety 要求：
 2. image 发布前必须完整，发布后不得原地修改；
 3. 原生依赖与 runtime preflight 成功前不得停止 Server；
 4. current 选择原子切换，验证结束前必须保留确切旧选择；
-5. stop、smoke 清理、rollback 和 retention 都以确切 Config、Agent 和 image 身份为目标；
+5. smoke Agent 只服务于 readiness 且不进入交互清单；stop、smoke 清理、rollback 和 retention 都以确切 Config、Agent 和 image 身份为目标；
 6. 私有 SSH 或 Farming 凭证不得被打印或复制进 image。
 
 在文件系统、SSH、容器 builder、Provider 和进程控制正常可用时，每次操作最终必须是

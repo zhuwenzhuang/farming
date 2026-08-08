@@ -78,6 +78,7 @@ function run() {
   );
 
   const productIndex = fs.readFileSync(path.join(repoRoot, 'index.html'), 'utf8');
+  const mainSource = fs.readFileSync(path.join(repoRoot, 'src/main.tsx'), 'utf8');
   const serverSource = fs.readFileSync(path.join(repoRoot, 'backend/server.cts'), 'utf8');
   const manifest = JSON.parse(fs.readFileSync(path.join(repoRoot, 'public/farming-2/site.webmanifest'), 'utf8'));
   const faviconHeader = fs.readFileSync(path.join(repoRoot, 'public/farming-2/favicon-v2.ico')).subarray(0, 4);
@@ -85,6 +86,11 @@ function run() {
   assert(productIndex.includes('favicon-v2-32.png'), 'browser tabs should use the versioned small-icon crop');
   assert(productIndex.includes('data-appearance-preference="system"'), 'the entry document should expose a server-rewritable appearance preference');
   assert(productIndex.includes("root.dataset.appearance = appearance"), 'the entry document should resolve its first-paint appearance before loading app code');
+  assert(
+    mainSource.includes('visibleUrlWithoutToken(window.location.href)')
+      && mainSource.includes("window.history.replaceState(window.history.state, '', tokenFreeVisibleUrl)"),
+    'the loaded application should replace the credential-bearing owner URL without adding browser history',
+  );
   assert.strictEqual(manifest.id, undefined, 'the installed app identity should inherit the resolved start URL instead of collapsing custom base paths to one origin-level id');
   assert.strictEqual(manifest.start_url, '../', 'the installed app should reopen the authenticated base path without persisting a token URL');
   assert.strictEqual(manifest.scope, '../', 'the installed app should keep Code and CRT routes inside the same standalone window');

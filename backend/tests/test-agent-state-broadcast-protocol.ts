@@ -6,6 +6,7 @@ const {
   advanceAgentStateBroadcast,
   advanceAgentStateMutation,
   agentStateClientDelivery,
+  agentStateVisibleToInteractiveClients,
   agentStateDeltaForScope,
   agentStateBroadcastInventorySummary,
   agentStateBroadcastProjectSummaries,
@@ -18,6 +19,9 @@ const {
   normalizeAgentStateScope,
   projectAgentSummaries,
 } = require('../agent-state-broadcast-protocol.cjs');
+
+assert.strictEqual(agentStateVisibleToInteractiveClients({ id: 'user-agent', source: 'control-cli' }), true);
+assert.strictEqual(agentStateVisibleToInteractiveClients({ id: 'smoke-agent', source: 'deployment-smoke' }), false);
 
 const state = (agents, metadata = {}) => ({
   mainAgentId: null,
@@ -554,6 +558,11 @@ advanceAgentStateMutation(inventoryInvariantTracker, { upserts: [{ id: 'b', stat
 assertInventoryInvariant();
 
 const serverSource = fs.readFileSync(path.join(__dirname, '..', 'server.cts'), 'utf8');
+assert(
+  serverSource.includes('.filter(agent => agentStateVisibleToInteractiveClients(agent as ServerRecord & { id: string }))')
+    && serverSource.includes('if (agent && agentStateVisibleToInteractiveClients(agent)) upserts.push(projectAgentState(agent));'),
+  'Deployment smoke Agents must stay out of both authoritative snapshots and incremental browser state',
+);
 assert.strictEqual(
   (serverSource.match(/buildStatePayload\(\)/g) || []).length,
   2,

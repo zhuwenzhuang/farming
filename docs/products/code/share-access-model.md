@@ -72,6 +72,11 @@ The copied long URL always carries a read-only query capability. On first use th
 backend moves it into an HTTP-only cookie and removes it from the URL before the
 application loads, reducing address-bar, history, and referrer exposure.
 
+An owner startup URL may carry the instance token so the entry assets can load.
+Once the application has loaded and the HTTP-only cookie owns subsequent access,
+the frontend removes that token from the visible URL while preserving other query
+state and the fragment.
+
 New HTTP requests and WebSocket handshakes are admitted only while a capability is
 valid. Existing WebSocket connections retain their admission until disconnect.
 

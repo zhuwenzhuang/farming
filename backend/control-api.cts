@@ -119,7 +119,7 @@ interface StartAgentOptions extends Record<string, unknown> {
   dangerouslySkipPermissions: boolean;
   parentAgentId: string;
   providerSessionTitle: string;
-  source: 'control-cli';
+  source: 'control-cli' | 'deployment-smoke';
   task: string;
   wantsMain: false;
 }
@@ -557,7 +557,7 @@ function createControlRouter(
       wantsMain: false,
       parentAgentId: typeof body.parentAgentId === 'string' ? body.parentAgentId : '',
       task,
-      source: 'control-cli',
+      source: body.source === 'deployment-smoke' ? 'deployment-smoke' : 'control-cli',
       createRequestId,
       createInitialInputSignature: requestSignature(initialInput),
       agentRuntimeMode: isRequestedRuntimeMode(body.agentRuntimeMode)

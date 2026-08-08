@@ -288,6 +288,7 @@ import {
   advanceAgentStateMutation,
   agentStateClientDelivery,
   agentStateDeltaForScope,
+  agentStateVisibleToInteractiveClients,
   agentStateBroadcastInventorySummary,
   agentStateBroadcastSnapshotForScope,
   agentStateBroadcastProjectSummaries,
@@ -3901,7 +3902,9 @@ function buildStatePayload() {
   const state = agentManager.getState();
   return {
     ...state,
-    agents: state.agents.map(agent => projectAgentState(agent as ServerRecord & { id: string })),
+    agents: state.agents
+      .filter(agent => agentStateVisibleToInteractiveClients(agent as ServerRecord & { id: string }))
+      .map(agent => projectAgentState(agent as ServerRecord & { id: string })),
     ...currentAgentListMetadata({ includeWorkspaceRoots: true }),
   };
 }
@@ -4531,7 +4534,7 @@ function pendingAgentStateMutation() {
   const now = Date.now();
   for (const agentId of pendingStateAgentIds) {
     const agent = agentManager.getAgentState(agentId, now) as (ServerRecord & { id: string }) | null;
-    if (agent) upserts.push(projectAgentState(agent));
+    if (agent && agentStateVisibleToInteractiveClients(agent)) upserts.push(projectAgentState(agent));
     else removedAgentIds.push(agentId);
   }
   const managerMetadata = agentManager.getStateMetadata();
