@@ -16,6 +16,7 @@ import { FileEditorPreviewPanel } from './FileEditorPreviewPanel'
 import type { FileEditorBlameOverlayState } from './useFileEditorBlameOverlayController'
 import type { FileEditorDiffState } from './useFileEditorDiffController'
 import type { FileEditorLineChangesState } from './useFileEditorLineChangesController'
+import type { FileEditorModelStatus } from './useFileEditorMonacoController'
 
 type FileEditorCursorPosition = {
   lineNumber: number
@@ -38,6 +39,7 @@ interface FileEditorSurfaceProps {
   editorMode: WorkspaceEditorFileMode
   editorHostRef: RefObject<HTMLDivElement | null>
   lineChanges: FileEditorLineChangesState | null
+  modelStatus: FileEditorModelStatus
   markdownSplitOpen: boolean
   markdownPreviewOpen: boolean
   sourcePreviewOpen: boolean
@@ -104,6 +106,7 @@ export function FileEditorSurface({
   editorMode,
   editorHostRef,
   lineChanges,
+  modelStatus,
   markdownSplitOpen,
   markdownPreviewOpen,
   sourcePreviewOpen,
@@ -250,6 +253,25 @@ export function FileEditorSurface({
       )}
       {showEditorStatusbar && (
         <div className="code-file-editor-statusbar" data-testid="code-file-editor-statusbar">
+          <div className="code-file-editor-statusbar-primary">
+            <span
+              className="code-file-editor-language"
+              data-testid="code-file-editor-language"
+              title={modelStatus.languageId}
+            >
+              {modelStatus.languageLabel}
+            </span>
+            {modelStatus.errors > 0 || modelStatus.warnings > 0 ? (
+              <span className="code-file-editor-diagnostics" data-testid="code-file-editor-diagnostics">
+                {modelStatus.errors > 0 ? (
+                  <span className="code-file-editor-problem error">{copy.editorErrorCount(modelStatus.errors)}</span>
+                ) : null}
+                {modelStatus.warnings > 0 ? (
+                  <span className="code-file-editor-problem warning">{copy.editorWarningCount(modelStatus.warnings)}</span>
+                ) : null}
+              </span>
+            ) : null}
+          </div>
           <span className="code-file-editor-cursor-position">{copy.cursorPosition(cursorPosition.lineNumber, cursorPosition.column)}</span>
         </div>
       )}

@@ -173,6 +173,7 @@ export function FileEditorPane({
     editorHostRef,
     editorRef,
     cursorPosition,
+    modelStatus,
     revealLine: revealBlameLine,
   } = useFileEditorMonacoController({
     openFile,
@@ -377,41 +378,51 @@ export function FileEditorPane({
         </div>
       )}
 
-      <FileEditorSurface
-        activeTabDomId={activeTabDomId}
-        blame={blame}
-        blameAuthorProfileUrl={blameAuthorProfileUrl}
-        blameCommitUrl={blameCommitUrl}
-        blameDetailLine={blameDetail?.line ?? null}
-        blameOpen={blameOpen}
-        blameOverlay={blameOverlay}
-        copy={copy}
-        cursorPosition={cursorPosition}
-        diffState={diffState}
-        editorMode={editorMode}
-        editorHostRef={editorHostRef}
-        lineChanges={lineChanges}
-        markdownSplitOpen={markdownSplitOpen}
-        markdownPreviewOpen={markdownPreviewOpen}
-        sourcePreviewOpen={sourceVisualPreviewOpen}
-        openFile={openFile}
-        onClearBlameDetail={clearBlameDetail}
-        onCloseDiff={closeDiff}
-        onCloseLineChanges={closeLineChanges}
-        onOpenFilePath={onOpenFilePath}
-        onShowBlameDetail={showBlameDetail}
-      />
-      {languageServer.navigator.open ? (
-        <LanguageServerPanel
-          state={languageServer.navigator}
-          copy={copy}
-          onClose={languageServer.closeNavigator}
-          onDirection={languageServer.changeDirection}
-          onToggleNode={node => void languageServer.toggleNode(node)}
-          onOpenNode={languageServer.openNode}
-          onSearch={query => void languageServer.searchWorkspaceSymbols(query)}
-        />
-      ) : null}
+      <div className="code-file-editor-workbench-shell">
+        <div
+          className={`code-file-editor-workbench ${languageServer.navigator.open ? 'navigator-open' : ''}`.trim()}
+          data-testid="code-file-editor-workbench"
+        >
+          <div className="code-file-editor-main" data-testid="code-file-editor-main">
+            <FileEditorSurface
+              activeTabDomId={activeTabDomId}
+              blame={blame}
+              blameAuthorProfileUrl={blameAuthorProfileUrl}
+              blameCommitUrl={blameCommitUrl}
+              blameDetailLine={blameDetail?.line ?? null}
+              blameOpen={blameOpen}
+              blameOverlay={blameOverlay}
+              copy={copy}
+              cursorPosition={cursorPosition}
+              diffState={diffState}
+              editorMode={editorMode}
+              editorHostRef={editorHostRef}
+              lineChanges={lineChanges}
+              modelStatus={modelStatus}
+              markdownSplitOpen={markdownSplitOpen}
+              markdownPreviewOpen={markdownPreviewOpen}
+              sourcePreviewOpen={sourceVisualPreviewOpen}
+              openFile={openFile}
+              onClearBlameDetail={clearBlameDetail}
+              onCloseDiff={closeDiff}
+              onCloseLineChanges={closeLineChanges}
+              onOpenFilePath={onOpenFilePath}
+              onShowBlameDetail={showBlameDetail}
+            />
+          </div>
+          {languageServer.navigator.open ? (
+            <LanguageServerPanel
+              state={languageServer.navigator}
+              copy={copy}
+              onClose={languageServer.closeNavigator}
+              onDirection={languageServer.changeDirection}
+              onToggleNode={node => void languageServer.toggleNode(node)}
+              onOpenNode={languageServer.openNode}
+              onSearch={query => void languageServer.searchWorkspaceSymbols(query)}
+            />
+          ) : null}
+        </div>
+      </div>
       <FileEditorOverlays
         blame={blame}
         blameError={blameError}

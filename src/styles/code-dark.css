@@ -2472,6 +2472,18 @@ body.code-mode[data-appearance='dark'] .code-file-editor-statusbar {
   color: var(--code-dark-text-soft);
 }
 
+body.code-mode[data-appearance='dark'] .code-file-editor-language {
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-file-editor-problem.error {
+  color: #ff7b72;
+}
+
+body.code-mode[data-appearance='dark'] .code-file-editor-problem.warning {
+  color: #d29922;
+}
+
 body.code-mode[data-appearance='dark'] .code-file-editor-bar {
   background: var(--code-dark-bg);
   border-color: transparent;
@@ -2832,13 +2844,17 @@ body.code-mode[data-appearance='dark'] .code-language-server-panel {
   background: rgba(22, 27, 34, 0.98);
   border-color: var(--code-dark-border);
   color: var(--code-dark-text);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.42);
+  box-shadow: none;
 }
 
 body.code-mode[data-appearance='dark'] .code-language-server-panel > header,
 body.code-mode[data-appearance='dark'] .code-language-server-directions,
 body.code-mode[data-appearance='dark'] .code-language-server-search {
   border-color: var(--code-dark-border);
+}
+
+body.code-mode[data-appearance='dark'] .code-language-server-panel > header {
+  background: var(--code-dark-bg-panel);
 }
 
 body.code-mode[data-appearance='dark'] .code-language-server-search input {

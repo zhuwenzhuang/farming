@@ -95,6 +95,11 @@ Project Authorization，不能形成独立 File Access Path。
 代码语义导航由 Managed Language Server 处理且只针对已保存文件。Dirty Draft 不能收到把旧
 磁盘版本冒充当前内容的 Cross-file Result。
 
+源码 Editor Status Bar 展示当前 Monaco Language、该 Model 已经发布的非零 Error/Warning
+Marker，以及源码 Cursor Position。Marker Count 只描述当前 Editor 已有的证据；未显示 Count
+不能被解释为 Project 分析已经完成且没有问题。Language Server 的共享结果使用自适应 Dock，
+通过缩小 Editor Viewport 避免遮盖代码：Editor 足够宽时停靠右侧，窄容器中停靠在 Editor 下方。
+
 ## Git 与 Review
 
 Working-copy Changes 与 Committed Git History 位于 Files 内。History 属于 Project，并按有界

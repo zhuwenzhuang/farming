@@ -118,6 +118,14 @@ Semantic code navigation is delegated to the managed Language Server for saved
 files. Dirty drafts do not receive cross-file results that describe an older
 disk version as current.
 
+The source editor status bar reports the active Monaco language, non-zero error
+and warning markers already published for that model, and the source cursor
+position. Marker counts describe current editor evidence; an omitted count is
+not proof that Project analysis completed without problems. Shared Language
+Server results use an adaptive dock that reduces the editor viewport instead of
+covering it: the dock is on the right when the editor is wide enough and below
+the editor in a narrow container.
+
 ## Git And Review
 
 Working-copy Changes and committed Git History live inside Files. History is

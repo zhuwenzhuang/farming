@@ -106,9 +106,12 @@ expanding or collapsing them does not issue another Language Server request.
 
 Definition and implementation requests navigate directly when the server
 returns one location; multiple locations and references remain visible in the
-shared navigation panel with compact parent-directory context, filenames, and
-line numbers. These actions issue requests from the current saved model
-binding, and changing the active file fences a late result.
+shared navigation tool window with compact parent-directory context, filenames,
+and line numbers. The tool window is a non-overlapping adaptive dock: it uses
+the right side of a wide editor and the bottom of a narrow editor. Opening one
+of its results keeps the current hierarchy or result set available for related
+Project-local navigation. These actions issue requests from the current saved
+model binding, and changing the active file fences a late result.
 
 Workspace symbol search requires a non-blank query. Searching from a saved
 file starts that file's matching managed server when needed, normalizes the

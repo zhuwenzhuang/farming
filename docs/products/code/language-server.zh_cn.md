@@ -82,8 +82,10 @@ Document Symbols 保留 Server 返回的层次。首层初始可见，嵌套容�
 交互不再发起 Language Server Request。
 
 Definition 与 Implementation 只返回一个 Location 时直接跳转；多个 Location 与 References
-保留在共享 Navigation Panel 中，并显示压缩的父目录上下文、文件名与行号。这些操作使用当前
-已保存的 Model Binding 发起请求；Active File 变化后，迟到结果不能继续导航。
+保留在共享 Navigation Tool Window 中，并显示压缩的父目录上下文、文件名与行号。该 Tool
+Window 是不遮挡代码的自适应 Dock：宽 Editor 中停靠右侧，窄 Editor 中停靠底部。打开其中一个
+结果后，当前 Hierarchy 或 Result Set 在相关的 Project-local Navigation 中继续保留。这些操作
+使用当前已保存的 Model Binding 发起请求；Active File 变化后，迟到结果不能继续导航。
 
 Workspace Symbol Search 要求非空 Query。从已保存文件发起搜索时，如有必要会先启动与该文件
 匹配的 Managed Server，并在导航前规范化 LSP Workspace Symbol Location。一次最多渲染 500

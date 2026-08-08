@@ -17,6 +17,7 @@ import {
   updateWorkspaceEditorResponsiveOptions,
   workspaceEditorCreateOptions,
   workspaceEditorLanguageForPath,
+  workspaceEditorLanguageLabel,
   workspaceEditorModelForOpenFile,
   workspaceEditorViewportMedia,
 } from '@/lib/workspace-editor-monaco'
@@ -45,6 +46,25 @@ interface UseFileEditorMonacoControllerOptions {
   onRecordNavigationCursor?: (input: WorkspaceNavigationFileInput) => void
   onSaveShortcut: () => void
   onOpenContextMenuRef: MutableRefObject<(event: monaco.editor.IEditorMouseEvent) => void>
+}
+
+export interface FileEditorModelStatus {
+  languageId: string
+  languageLabel: string
+  errors: number
+  warnings: number
+}
+
+function modelStatusForEditor(editor: monaco.editor.IStandaloneCodeEditor): FileEditorModelStatus {
+  const model = editor.getModel()
+  const languageId = model?.getLanguageId() || 'plaintext'
+  const markers = model ? monaco.editor.getModelMarkers({ resource: model.uri }) : []
+  return {
+    languageId,
+    languageLabel: workspaceEditorLanguageLabel(languageId),
+    errors: markers.filter(marker => marker.severity === monaco.MarkerSeverity.Error).length,
+    warnings: markers.filter(marker => marker.severity === monaco.MarkerSeverity.Warning).length,
+  }
 }
 
 export function useFileEditorMonacoController({
@@ -83,6 +103,15 @@ export function useFileEditorMonacoController({
   const suppressEditorChangeRef = useRef(0)
   const suppressNavigationCursorRef = useRef(0)
   const [cursorPosition, setCursorPosition] = useState({ lineNumber: 1, column: 1 })
+  const [modelStatus, setModelStatus] = useState<FileEditorModelStatus>(() => {
+    const languageId = workspaceEditorLanguageForPath(openFile.file.path, openFile.draft)
+    return {
+      languageId,
+      languageLabel: workspaceEditorLanguageLabel(languageId),
+      errors: 0,
+      warnings: 0,
+    }
+  })
 
   onChangeDraftRef.current = onChangeDraft
   onFocusFilesSearchRef.current = onFocusFilesSearch
@@ -165,6 +194,29 @@ export function useFileEditorMonacoController({
     }))
     const documentHighlights = attachLanguageServerDocumentHighlights(editor)
     applyWorkspaceEditorMonacoTheme(editor)
+
+    const updateModelStatus = () => {
+      const next = modelStatusForEditor(editor)
+      setModelStatus(current => (
+        current.languageId === next.languageId
+        && current.languageLabel === next.languageLabel
+        && current.errors === next.errors
+        && current.warnings === next.warnings
+          ? current
+          : next
+      ))
+    }
+    const modelStatusSubscription = editor.onDidChangeModel(updateModelStatus)
+    const languageStatusSubscription = monaco.editor.onDidChangeModelLanguage(event => {
+      if (event.model === editor.getModel()) updateModelStatus()
+    })
+    const markerStatusSubscription = monaco.editor.onDidChangeMarkers(resources => {
+      const activeModelUri = editor.getModel()?.uri.toString()
+      if (activeModelUri && resources.some(resource => resource.toString() === activeModelUri)) {
+        updateModelStatus()
+      }
+    })
+    updateModelStatus()
 
     const applyResponsiveEditorOptions = () => updateWorkspaceEditorResponsiveOptions(editor, wordWrapEnabledRef.current)
     const viewportMedia = workspaceEditorViewportMedia()
@@ -255,6 +307,9 @@ export function useFileEditorMonacoController({
       scrollSubscriptionRef.current = null
       changeSubscriptionRef.current?.dispose()
       changeSubscriptionRef.current = null
+      markerStatusSubscription.dispose()
+      languageStatusSubscription.dispose()
+      modelStatusSubscription.dispose()
       documentHighlights.dispose()
       cancelWorkspaceEditorScheduledLayout(editor)
       editor.dispose()
@@ -373,6 +428,7 @@ export function useFileEditorMonacoController({
     editorHostRef,
     editorRef,
     cursorPosition,
+    modelStatus,
     focusEditor,
     revealLine,
   }

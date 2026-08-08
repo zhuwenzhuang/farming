@@ -14,6 +14,7 @@ import {
   languageForWorkspaceFile,
   shouldDisposeWorkspaceEditorModelUri,
   shouldKeepWorkspaceEditorViewState,
+  workspaceEditorLanguageLabel as languageLabelForWorkspaceEditor,
   workspaceEditorLiveModelKeys,
   workspaceEditorLiveModelUriStrings,
   workspaceEditorModelUriParts,
@@ -357,6 +358,10 @@ function getMonacoLanguageMetadata() {
 
 export function workspaceEditorLanguageForPath(filePath: string, content?: string) {
   return languageForWorkspaceFile(filePath, content, getMonacoLanguageMetadata())
+}
+
+export function workspaceEditorLanguageLabel(languageId: string) {
+  return languageLabelForWorkspaceEditor(languageId, getMonacoLanguageMetadata())
 }
 
 export function workspaceEditorModelUriForFile(file: Pick<OpenWorkspaceFile, 'agentId' | 'file' | 'workspaceRoot'>) {

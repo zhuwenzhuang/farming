@@ -79,6 +79,7 @@ const {
   workspaceEditorBlameOverlayRows,
   workspaceEditorBasename,
   workspaceEditorCursorSelection,
+  workspaceEditorLanguageLabel,
   workspaceEditorLanguageLookupPath,
   workspaceEditorLiveModelKeys,
 	  workspaceEditorLiveModelUriStrings,
@@ -1465,6 +1466,11 @@ function run() {
   assert.strictEqual(languageForWorkspaceFile('scripts/warehouse.osql', '', languages), 'sql');
   assert.strictEqual(languageForWorkspaceFile('scripts/warehouse.odpsql', '', languages), 'sql');
   assert.strictEqual(languageForWorkspaceFile('notes/readme.unknown', '', languages), 'plaintext');
+  assert.strictEqual(workspaceEditorLanguageLabel('typescript'), 'TypeScript');
+  assert.strictEqual(workspaceEditorLanguageLabel('custom-language', [
+    { id: 'custom-language', aliases: ['Custom Language', 'custom'] },
+  ]), 'Custom Language');
+  assert.strictEqual(workspaceEditorLanguageLabel('unknown-language'), 'unknown-language');
   assert.ok(formatWorkspaceBlameTime(1704067200).includes('2024'));
   assert.strictEqual(workspaceBlameInlineLabel({ author: '', authorTime: null }), 'Unknown');
   assert.ok(workspaceBlameInlineLabel({ author: 'Ada Lovelace', authorTime: 1704067200 }).includes('Ada Lovelace'));

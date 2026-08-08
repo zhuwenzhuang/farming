@@ -485,6 +485,8 @@ export interface CodeCopy {
   notGitRepository: string
   noCommittedLines: string
   cursorPosition: (line: number, column: number) => string
+  editorErrorCount: (count: number) => string
+  editorWarningCount: (count: number) => string
   startMainAgent: string
   startNewAgent: string
   loadingAgents: string
@@ -1042,6 +1044,8 @@ const EN_COPY: CodeCopy = {
   notGitRepository: 'Not a git repository.',
   noCommittedLines: 'No committed lines.',
   cursorPosition: (line, column) => `Ln ${line}, Col ${column}`,
+  editorErrorCount: count => `${count} ${count === 1 ? 'error' : 'errors'}`,
+  editorWarningCount: count => `${count} ${count === 1 ? 'warning' : 'warnings'}`,
   startMainAgent: 'Start Main Agent',
   startNewAgent: 'Start New Agent',
   loadingAgents: 'Loading agents...',
@@ -1635,6 +1639,8 @@ const ZH_COPY: CodeCopy = {
   notGitRepository: '不是 Git 仓库。',
   noCommittedLines: '没有已提交行。',
   cursorPosition: (line, column) => `第 ${line} 行，第 ${column} 列`,
+  editorErrorCount: count => `错误 ${count}`,
+  editorWarningCount: count => `警告 ${count}`,
   startMainAgent: '启动 Main Agent',
   startNewAgent: '启动新 Agent',
   loadingAgents: '正在加载 Agent...',

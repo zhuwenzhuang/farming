@@ -103,8 +103,12 @@ function run() {
   const stylesSource = read('src/styles/main.css');
   const darkStylesSource = read('src/styles/code-dark.css');
   const monacoHostStyle = stylesSource.match(/\.code-file-monaco\s*\{[^}]+\}/)?.[0] || '';
+  const languageServerPanelStyle = stylesSource.match(/\.code-language-server-panel\s*\{[^}]+\}/)?.[0] || '';
   const singleTerminalGridStyle = stylesSource.match(/\.code-terminal-grid\.panes-1\s*\{[^}]+\}/)?.[0] || '';
   const designSource = read('docs/products/code/project-files-section-design.zh_cn.md');
+  const designEnglishSource = read('docs/products/code/project-files-section-design.md');
+  const languageServerDesignSource = read('docs/products/code/language-server.zh_cn.md');
+  const languageServerDesignEnglishSource = read('docs/products/code/language-server.md');
   const fileTreeSurfaceSource = `${fileSectionSource}\n${fileSectionViewModelSource}\n${fileTreeViewSource}`;
 
   assert(
@@ -1112,8 +1116,34 @@ function run() {
       designSource.includes('Explorer 区分 Active File、Keyboard Focus 与 Selection') &&
       designSource.includes('Line Changes 用于解释当前行附近的局部 Hunk') &&
       designSource.includes('Full Review 使用主 Comparison Surface') &&
-      designSource.includes('代码语义导航由 Managed Language Server 处理'),
+      designSource.includes('代码语义导航由 Managed Language Server 处理') &&
+      designSource.includes('Language Server 的共享结果使用自适应 Dock') &&
+      designEnglishSource.includes('Server results use an adaptive dock') &&
+      languageServerDesignSource.includes('宽 Editor 中停靠右侧，窄 Editor 中停靠底部') &&
+      languageServerDesignEnglishSource.includes('the right side of a wide editor and the bottom of a narrow editor'),
     'Project Files design should retain durable ownership, mutation, navigation, and review boundaries'
+  );
+
+  assert(
+    editorSource.includes('className="code-file-editor-workbench-shell"') &&
+      editorSource.includes('code-file-editor-workbench ${languageServer.navigator.open') &&
+      editorSource.includes('className="code-file-editor-main"') &&
+      editorSource.indexOf('<FileEditorSurface') < editorSource.indexOf('<LanguageServerPanel') &&
+      languageServerPanelStyle.includes('display: flex') &&
+      !languageServerPanelStyle.includes('position: absolute') &&
+      stylesSource.includes('@container code-file-editor-workbench (max-width: 980px)'),
+    'Language Server navigation should use a non-overlapping right or bottom editor dock'
+  );
+
+  assert(
+    editorMonacoControllerSource.includes('monaco.editor.onDidChangeMarkers') &&
+      editorMonacoControllerSource.includes('monaco.editor.onDidChangeModelLanguage') &&
+      editorMonacoControllerSource.includes('editor.onDidChangeModel(updateModelStatus)') &&
+      editorMonacoControllerSource.includes('monaco.editor.getModelMarkers({ resource: model.uri })') &&
+      editorSurfaceSource.includes('data-testid="code-file-editor-language"') &&
+      editorSurfaceSource.includes('data-testid="code-file-editor-diagnostics"') &&
+      editorSurfaceSource.includes('modelStatus.errors > 0 || modelStatus.warnings > 0'),
+    'the editor status bar should report the active Monaco language and only published non-zero problems'
   );
 
   assert(

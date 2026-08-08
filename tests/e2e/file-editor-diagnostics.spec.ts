@@ -184,6 +184,8 @@ test('renders document highlights, semantic tokens, and inlay hints only for the
   await files.locator('.code-files-title').first().click()
   await files.locator('[data-testid="code-file-row"][data-file-path="Demo.java"]').click()
   await expect(page.getByTestId('code-file-monaco')).toBeVisible()
+  await expect(page.getByTestId('code-file-editor-language')).toHaveText('Java')
+  await expect(page.getByTestId('code-file-editor-diagnostics')).toHaveCount(0)
 
   await expect.poll(() => requestCounts.get('semanticTokens') || 0).toBeGreaterThan(0)
   await expect.poll(() => requestCounts.get('inlayHints') || 0).toBeGreaterThan(0)
@@ -262,6 +264,10 @@ test('shows nested, cached, and retryable call/type hierarchy trees for a saved 
     hierarchyRequestCounts.set(requestKey, (hierarchyRequestCounts.get(requestKey) || 0) + 1)
     if (body.method === 'diagnostics') {
       diagnosticsRequestCount += 1
+      if (body.filePath === 'Other.ts') {
+        await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ result: [] }) })
+        return
+      }
       if (diagnosticsRequestCount === 1) {
         firstDiagnosticsStartedResolve?.()
         await releaseFirstDiagnostics
@@ -410,11 +416,14 @@ test('shows nested, cached, and retryable call/type hierarchy trees for a saved 
   await expect.poll(async () => page.evaluate(() => (
     window.__farmingFileEditorTest?.getMarkers().some(marker => marker.message === 'stale diagnostic must stay cleared') ?? false
   ))).toBe(false)
+  await expect(page.getByTestId('code-file-editor-diagnostics')).toHaveCount(0)
   await page.getByRole('button', { name: 'Save file' }).click()
   await expect(page.getByRole('button', { name: 'Save file' })).toHaveCount(0)
   await expect.poll(async () => page.evaluate(() => (
     window.__farmingFileEditorTest?.getMarkers().some(marker => marker.message === 'saved diagnostic is current') ?? false
   ))).toBe(true)
+  await expect(page.getByTestId('code-file-editor-language')).toHaveText('TypeScript')
+  await expect(page.getByTestId('code-file-editor-diagnostics')).toHaveText('1 warning')
 
   await page.locator('.monaco-editor .view-line').first().hover({ position: { x: 100, y: 8 } })
   await expect(page.locator('.monaco-hover').filter({ hasText: 'Farming hover' })).toBeVisible()
@@ -429,7 +438,9 @@ test('shows nested, cached, and retryable call/type hierarchy trees for a saved 
   await expect.poll(() => hierarchyRequestCounts.get('definition:') || 0).toBe(1)
   await expect(page.getByRole('tab', { name: /Other\.ts/ })).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByTestId('code-file-editor-statusbar')).toContainText('Ln 1, Col 14')
+  await expect(page.getByTestId('code-file-editor-diagnostics')).toHaveCount(0)
   await page.getByRole('tab', { name: /App\.ts/ }).click()
+  await expect(page.getByTestId('code-file-editor-diagnostics')).toHaveText('1 warning')
 
   await runEditorAction('Find References')
   const referencesPanel = page.getByTestId('code-language-server-panel')
@@ -444,15 +455,61 @@ test('shows nested, cached, and retryable call/type hierarchy trees for a saved 
 
   await page.getByTestId('code-file-monaco').click({ button: 'right', position: { x: 220, y: 38 } })
   await expect(menu.getByRole('menuitem', { name: 'Go to Definition' })).toBeVisible()
+  const editorWidthBeforeHierarchy = (await page.getByTestId('code-file-monaco').boundingBox())?.width || 0
   await menu.getByRole('menuitem', { name: 'Call Hierarchy' }).click()
   const panel = page.getByTestId('code-language-server-panel')
   await expect(panel).toContainText('root')
   await expect(panel.getByText('Root', { exact: true })).toBeVisible()
+  await expect.poll(async () => page.evaluate(() => {
+    const host = document.querySelector<HTMLElement>('[data-testid="code-file-monaco"]')?.getBoundingClientRect()
+    const inner = document.querySelector<HTMLElement>('[data-testid="code-file-monaco"] > .monaco-editor')?.getBoundingClientRect()
+    const statusbar = document.querySelector<HTMLElement>('[data-testid="code-file-editor-statusbar"]')?.getBoundingClientRect()
+    const dock = document.querySelector<HTMLElement>('[data-testid="code-language-server-panel"]')?.getBoundingClientRect()
+    if (!host || !inner || !statusbar || !dock) return null
+    return {
+      separateEditor: host.right <= dock.left + 1,
+      separateStatusbar: statusbar.right <= dock.left + 1,
+      monacoLaidOut: Math.abs(inner.width - host.width) <= 2,
+    }
+  })).toEqual({
+    separateEditor: true,
+    separateStatusbar: true,
+    monacoLaidOut: true,
+  })
+  await expect.poll(async () => (await page.getByTestId('code-file-monaco').boundingBox())?.width || 0)
+    .toBeLessThan(editorWidthBeforeHierarchy - 200)
+
+  await page.setViewportSize({ width: 680, height: 800 })
+  await expect.poll(async () => page.evaluate(() => {
+    const workbench = document.querySelector<HTMLElement>('[data-testid="code-file-editor-workbench"]')?.getBoundingClientRect()
+    const main = document.querySelector<HTMLElement>('[data-testid="code-file-editor-main"]')?.getBoundingClientRect()
+    const dock = document.querySelector<HTMLElement>('[data-testid="code-language-server-panel"]')?.getBoundingClientRect()
+    if (!workbench || !main || !dock) return null
+    return {
+      stacked: main.bottom <= dock.top + 1,
+      aligned: Math.abs(workbench.left - dock.left) <= 1 && Math.abs(workbench.width - dock.width) <= 2,
+      editorUsable: main.height > 120,
+      dockUsable: dock.height >= 150,
+    }
+  })).toEqual({ stacked: true, aligned: true, editorUsable: true, dockUsable: true })
+  await page.setViewportSize({ width: 1024, height: 800 })
+  await expect.poll(async () => page.evaluate(() => {
+    const main = document.querySelector<HTMLElement>('[data-testid="code-file-editor-main"]')?.getBoundingClientRect()
+    const dock = document.querySelector<HTMLElement>('[data-testid="code-language-server-panel"]')?.getBoundingClientRect()
+    return Boolean(main && dock && main.bottom <= dock.top + 1)
+  })).toBe(true)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await expect.poll(async () => page.evaluate(() => {
+    const main = document.querySelector<HTMLElement>('[data-testid="code-file-editor-main"]')?.getBoundingClientRect()
+    const dock = document.querySelector<HTMLElement>('[data-testid="code-language-server-panel"]')?.getBoundingClientRect()
+    return Boolean(main && dock && main.right <= dock.left + 1)
+  })).toBe(true)
   const rootTreeItem = panel.locator('[role="treeitem"][data-node-key="call-root"]')
   await rootTreeItem.focus()
   await rootTreeItem.press('ArrowRight')
   await expect(panel).toContainText('callerA')
   const callerATreeItem = panel.locator('[role="treeitem"][data-node-key="call-root/caller-a"]')
+  await rootTreeItem.focus()
   await rootTreeItem.press('ArrowRight')
   await expect(callerATreeItem).toBeFocused()
   await callerATreeItem.press('Enter')
@@ -485,6 +542,8 @@ test('shows nested, cached, and retryable call/type hierarchy trees for a saved 
   expect(hierarchyRequestCounts.get('outgoingCalls:call-root')).toBe(2)
 
   await panel.getByRole('button', { name: 'Close' }).click()
+  await expect.poll(async () => (await page.getByTestId('code-file-monaco').boundingBox())?.width || 0)
+    .toBeGreaterThanOrEqual(editorWidthBeforeHierarchy - 2)
   await page.getByRole('tab', { name: /App\.ts/ }).click()
   await page.getByTestId('code-file-monaco').click({ button: 'right', position: { x: 220, y: 38 } })
   await page.getByTestId('code-editor-context-menu').getByRole('menuitem', { name: 'Type Hierarchy' }).click()

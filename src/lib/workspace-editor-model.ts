@@ -34,6 +34,7 @@ export interface WorkspaceEditorFileReference {
 
 export interface WorkspaceEditorLanguageMetadata {
   id: string
+  aliases?: string[]
   filenames?: string[]
   extensions?: string[]
   filenamePatterns?: string[]
@@ -426,6 +427,36 @@ export function languageForWorkspaceFile(
   if (fallbackLanguage) return fallbackLanguage
 
   return 'plaintext'
+}
+
+const WORKSPACE_EDITOR_LANGUAGE_LABELS: Readonly<Record<string, string>> = {
+  plaintext: 'Plain Text',
+  typescript: 'TypeScript',
+  javascript: 'JavaScript',
+  json: 'JSON',
+  html: 'HTML',
+  css: 'CSS',
+  scss: 'SCSS',
+  less: 'Less',
+  markdown: 'Markdown',
+  python: 'Python',
+  shell: 'Shell',
+  java: 'Java',
+  cpp: 'C++',
+  csharp: 'C#',
+  go: 'Go',
+  rust: 'Rust',
+  sql: 'SQL',
+  yaml: 'YAML',
+  xml: 'XML',
+}
+
+export function workspaceEditorLanguageLabel(
+  languageId: string,
+  languages: readonly WorkspaceEditorLanguageMetadata[] = []
+) {
+  const alias = languages.find(language => language.id === languageId)?.aliases?.find(Boolean)?.trim()
+  return alias || WORKSPACE_EDITOR_LANGUAGE_LABELS[languageId] || languageId
 }
 
 export function formatWorkspaceBlameTime(authorTime: number | null) {
