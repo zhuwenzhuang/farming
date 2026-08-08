@@ -50,6 +50,16 @@ import {
   shouldDebounceTerminalResize,
 } from '@/lib/terminal-resize'
 import {
+  appendTerminalTouchVelocitySample,
+  blendTerminalTouchVelocity,
+  consumeTerminalTouchScrollDelta,
+  nextTerminalTouchEdgeOffset,
+  readTerminalTouchGestureVelocity,
+  shouldStartTerminalTouchMomentum,
+  stepTerminalTouchMomentum,
+} from '@/lib/terminal-touch-scroll'
+import type { TerminalTouchVelocitySample } from '@/lib/terminal-touch-scroll'
+import {
   flushPendingTerminalWrites,
   forceTerminalRender,
   replaceTerminalOutput,
@@ -319,12 +329,6 @@ const terminalCheckpointRequestQueue: Array<{
 }> = []
 const TOUCH_SCROLL_ACTIVATION_PX = 6
 const TOUCH_LONG_PRESS_MS = 520
-const TOUCH_MOMENTUM_MIN_VELOCITY = 0.025
-const TOUCH_MOMENTUM_MAX_VELOCITY = 3.2
-const TOUCH_MOMENTUM_DECAY_PER_FRAME = 0.972
-const TOUCH_VELOCITY_WINDOW_MS = 90
-const TOUCH_EDGE_RESISTANCE = 0.28
-const TOUCH_EDGE_MAX_OFFSET_PX = 30
 const TOUCH_EDGE_SPRING_MS = 240
 const TERMINAL_PATH_RESOLVE_CACHE_TTL_MS = 30_000
 
@@ -3088,7 +3092,6 @@ function installTerminalContextMenu(record: SessionRecord, agentId: string) {
 }
 
 function installTerminalTouchInteraction(record: SessionRecord) {
-  type TouchVelocitySample = { y: number; at: number }
   let touchPointerId: number | null = null
   let touchStartX = 0
   let touchStartY = 0
@@ -3099,16 +3102,11 @@ function installTerminalTouchInteraction(record: SessionRecord) {
   let touchMoved = false
   let momentumFrame: number | null = null
   let momentumLastAt = 0
-  let touchVelocitySamples: TouchVelocitySample[] = []
+  let touchVelocitySamples: TerminalTouchVelocitySample[] = []
   let touchEdgeOffsetPx = 0
   let touchEdgeResetTimer: number | null = null
   let longPressTimer: number | null = null
   let longPressEvent: PointerEvent | null = null
-
-  const clampTouchVelocity = (velocity: number) => Math.max(
-    -TOUCH_MOMENTUM_MAX_VELOCITY,
-    Math.min(TOUCH_MOMENTUM_MAX_VELOCITY, velocity)
-  )
 
   const clearLongPress = () => {
     if (longPressTimer !== null) {
@@ -3146,10 +3144,7 @@ function installTerminalTouchInteraction(record: SessionRecord) {
   }
 
   const pullTouchEdge = (deltaY: number) => {
-    const nextOffset = Math.max(
-      -TOUCH_EDGE_MAX_OFFSET_PX,
-      Math.min(TOUCH_EDGE_MAX_OFFSET_PX, touchEdgeOffsetPx + deltaY * TOUCH_EDGE_RESISTANCE)
-    )
+    const nextOffset = nextTerminalTouchEdgeOffset(touchEdgeOffsetPx, deltaY)
     renderTouchEdgeOffset(nextOffset)
   }
 
@@ -3159,18 +3154,11 @@ function installTerminalTouchInteraction(record: SessionRecord) {
   }
 
   const pushTouchVelocitySample = (y: number, at: number) => {
-    touchVelocitySamples.push({ y, at })
-    const cutoff = at - TOUCH_VELOCITY_WINDOW_MS
-    while (touchVelocitySamples.length > 2 && touchVelocitySamples[0]!.at < cutoff) {
-      touchVelocitySamples.shift()
-    }
+    touchVelocitySamples = appendTerminalTouchVelocitySample(touchVelocitySamples, { y, at })
   }
 
   const readTouchGestureVelocity = () => {
-    const first = touchVelocitySamples[0]
-    const last = touchVelocitySamples[touchVelocitySamples.length - 1]
-    if (!first || !last || last.at <= first.at) return touchVelocityY
-    return clampTouchVelocity((last.y - first.y) / (last.at - first.at))
+    return readTerminalTouchGestureVelocity(touchVelocitySamples, touchVelocityY)
   }
 
   const handleLongPress = () => {
@@ -3186,11 +3174,11 @@ function installTerminalTouchInteraction(record: SessionRecord) {
 
   const scrollByTouchDelta = (deltaY: number) => {
     const lineHeight = Math.max(8, getTerminalCellMetrics(record)?.height || 16)
-    touchScrollRemainderPx += deltaY
-    const lineDelta = Math.trunc(touchScrollRemainderPx / lineHeight)
+    const scrollDelta = consumeTerminalTouchScrollDelta(touchScrollRemainderPx, deltaY, lineHeight)
+    touchScrollRemainderPx = scrollDelta.remainderPx
+    const { lineDelta } = scrollDelta
     if (lineDelta === 0) return false
 
-    touchScrollRemainderPx -= lineDelta * lineHeight
     const previousViewportY = getTerminalViewportY(record.terminal)
     scrollRecordToViewportY(record, previousViewportY + lineDelta)
     const moved = getTerminalViewportY(record.terminal) !== previousViewportY
@@ -3216,15 +3204,13 @@ function installTerminalTouchInteraction(record: SessionRecord) {
       momentumFrame = null
       return
     }
-    const elapsed = momentumLastAt === 0
-      ? 16
-      : Math.min(48, Math.max(1, timestamp - momentumLastAt))
+    const momentumStep = stepTerminalTouchMomentum(touchVelocityY, momentumLastAt, timestamp)
     momentumLastAt = timestamp
 
-    const momentumDelta = touchVelocityY * elapsed
+    const momentumDelta = momentumStep.scrollDeltaPx
     const moved = scrollByTouchDelta(momentumDelta)
-    touchVelocityY *= Math.pow(TOUCH_MOMENTUM_DECAY_PER_FRAME, elapsed / 16)
-    if (!moved || Math.abs(touchVelocityY) < TOUCH_MOMENTUM_MIN_VELOCITY) {
+    touchVelocityY = momentumStep.nextVelocity
+    if (!moved || !momentumStep.shouldContinue) {
       if (!moved) {
         pullTouchEdge(momentumDelta)
       }
@@ -3237,7 +3223,7 @@ function installTerminalTouchInteraction(record: SessionRecord) {
   }
 
   const startTouchMomentum = () => {
-    if (Math.abs(touchVelocityY) < TOUCH_MOMENTUM_MIN_VELOCITY) {
+    if (!shouldStartTerminalTouchMomentum(touchVelocityY)) {
       touchVelocityY = 0
       return
     }
@@ -3282,9 +3268,8 @@ function installTerminalTouchInteraction(record: SessionRecord) {
     touchLastMoveAt = now
     if (Math.abs(deltaY) < 0.5) return
     pushTouchVelocitySample(event.clientY, now)
-    const instantVelocity = deltaY / elapsed
     const gestureVelocity = readTouchGestureVelocity()
-    touchVelocityY = clampTouchVelocity(gestureVelocity * 0.72 + instantVelocity * 0.28)
+    touchVelocityY = blendTerminalTouchVelocity(gestureVelocity, deltaY, elapsed)
 
     const moved = scrollByTouchDelta(deltaY)
     if (!moved && touchMoved) {
