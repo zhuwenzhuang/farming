@@ -16,6 +16,7 @@ function run() {
   const crtIconPath = path.join(__dirname, '../../frontend/skins/crt/assets/branding/farming-crt-icon.svg');
   const pkgConfigPath = path.join(__dirname, '../../pkg.config.cjs');
   const serverPath = path.join(__dirname, '../../backend/server.cts');
+  const usageRouterPath = path.join(__dirname, '../../backend/usage-router.cts');
 
   const terminalBridge = fs.readFileSync(terminalBridgePath, 'utf8');
   const skinBridge = fs.readFileSync(skinBridgePath, 'utf8');
@@ -28,6 +29,7 @@ function run() {
   const crtIcon = fs.readFileSync(crtIconPath, 'utf8');
   const pkgConfig = fs.readFileSync(pkgConfigPath, 'utf8');
   const server = fs.readFileSync(serverPath, 'utf8');
+  const usageRouter = fs.readFileSync(usageRouterPath, 'utf8');
   const crtApp = fs.readFileSync(path.join(__dirname, '../../frontend/skins/crt/app.ts'), 'utf8');
   const generatedCrtApp = fs.readFileSync(path.join(__dirname, '../../frontend/skins/crt/app.js'), 'utf8');
   const browserProtocolSource = fs.readFileSync(path.join(__dirname, '../../shared/browser-protocol.ts'), 'utf8');
@@ -268,7 +270,7 @@ function run() {
   );
   assert(
     crtApp.includes("billingMode === 'live' ? '?live=1' : ''")
-      && server.includes("live ? { maxAgeMs: 15_000 }"),
+      && usageRouter.includes("live ? { maxAgeMs: 15_000 }"),
     'CRT Billing Live should request a bounded fresh summary without invalidating daily history',
   );
   assert(
@@ -279,8 +281,9 @@ function run() {
     'CRT live token labels should follow the usage timeline window instead of claiming a fixed 60-minute range',
   );
   assert(
-    server.includes('if (fresh) usageMonitor.invalidateDailyCache()')
-      && server.includes("fresh ? { force: true } : live ? { maxAgeMs: 15_000 } : {}"),
+    server.includes("app.use(routePath(BASE_PATH, '/api/usage'), createUsageRouter({")
+      && usageRouter.includes('if (fresh) service.invalidateDailyCache()')
+      && usageRouter.includes("fresh ? { force: true } : live ? { maxAgeMs: 15_000 } : {}"),
     'the Farming usage API should support an explicit fresh live and daily Billing sample',
   );
   assert(
