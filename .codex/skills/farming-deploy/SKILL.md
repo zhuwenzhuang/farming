@@ -58,3 +58,28 @@ transitions separately while it is running.
   read the current image and Config-owned Server state; never blindly replay.
 - Use `farming-release` instead when the request includes public GitHub Release,
   npm publication, multi-platform artifacts, or an exact release campaign.
+
+## Visible Multi-Agent Acceptance
+
+When visible acceptance is selected, reuse the release Computer Use contract
+without turning the private deployment into a public release campaign:
+
+1. Treat the successfully deployed Farming instance as the one system under
+   test. Do not start one Farming Server per lane unless the requested contract
+   is specifically deployment or Config isolation.
+2. Create one real Agent and one Agent-owned Computer Resource per independent
+   lane. Give every lane a distinct workspace, Desktop container, browser
+   profile, evidence directory, and bounded scenario.
+3. Bind every result to the deployed git SHA and image ID. Record the Agent,
+   Resource, container image digest, timestamps, action trace, screenshots,
+   authoritative backend evidence, and terminal result.
+4. Run independent lanes concurrently. Actions inside one lane remain ordered,
+   and an uncertain Computer mutation is reconciled by observing before any
+   further action.
+5. Preserve the first stable failure only for bounded investigation. Delete
+   each successful test Agent through Farming so its exact owned Computer is
+   removed; verify the recorded Resource and container identities disappeared.
+
+Automated HTTP, WebSocket, PTY, ACP, Playwright, or container checks are not
+Computer Use evidence. Historical or unrelated containers are not lane
+capacity and must never be reused or broadly cleaned by name pattern.
