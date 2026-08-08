@@ -25,8 +25,17 @@ const CUA_TOOL_MANIFEST = require('./cua-tools.json') as {
   tools?: Array<{
     upstreamName?: unknown;
     annotations?: { readOnlyHint?: unknown };
+    inputSchema?: {
+      properties?: Record<string, unknown>;
+      required?: unknown[];
+    };
   }>;
 };
+const TOOL_DESCRIPTORS = new Map(
+  (CUA_TOOL_MANIFEST.tools || [])
+    .map(tool => [String(tool.upstreamName || '').trim(), tool] as const)
+    .filter(([name]) => Boolean(name)),
+);
 const SUPPORTED_UPSTREAM_TOOLS = new Set(
   (CUA_TOOL_MANIFEST.tools || [])
     .map(tool => String(tool.upstreamName || '').trim())
@@ -49,6 +58,24 @@ const SCREENSHOT_TOOLS = new Set([
   'get_desktop_state',
   'get_window_state',
   'zoom',
+]);
+const WINDOW_SCOPED_TOOLS = new Set([
+  'click',
+  'drag',
+  'hotkey',
+  'move_cursor',
+  'press_key',
+  'scroll',
+  'type_text',
+]);
+const WINDOW_ONLY_CURSORLESS_TOOLS = new Set([
+  'double_click',
+  'get_window_state',
+  'mouse_button_down',
+  'mouse_button_up',
+  'mouse_drag',
+  'right_click',
+  'set_value',
 ]);
 const DRIVER_CALL_TIMEOUT_MS = 45_000;
 const SESSION_REFRESH_TIMEOUT_MS = 5_000;
@@ -842,7 +869,7 @@ class ComputerResourceManager extends EventEmitter {
       }
       const args = { ...input };
       delete args.screenshot_out_file;
-      const usesSession = this.toolAcceptsSession(tool);
+      const usesSession = this.toolUsesManagedSession(tool, args);
       if (usesSession) args.session = current.sessionId;
       else delete args.session;
       if (tool === 'end_session') {
@@ -1377,21 +1404,14 @@ class ComputerResourceManager extends EventEmitter {
     );
   }
 
-  private toolAcceptsSession(tool: string): boolean {
-    return ![
-      'check_for_update',
-      'check_permissions',
-      'get_config',
-      'health_report',
-      'install_ffmpeg',
-      'list_apps',
-      'list_windows',
-      'set_config',
-      'start_recording',
-      'stop_recording',
-      'get_recording_state',
-      'replay_trajectory',
-    ].includes(tool);
+  private toolUsesManagedSession(tool: string, input: Record<string, unknown>): boolean {
+    const descriptor = TOOL_DESCRIPTORS.get(tool);
+    const properties = descriptor?.inputSchema?.properties || {};
+    if (!Object.prototype.hasOwnProperty.call(properties, 'session')) return false;
+    if ((descriptor?.inputSchema?.required || []).includes('session')) return true;
+    if (WINDOW_ONLY_CURSORLESS_TOOLS.has(tool)) return false;
+    if (WINDOW_SCOPED_TOOLS.has(tool)) return input.scope === 'desktop';
+    return true;
   }
 
   private holdStopAdmission(id: string): void {

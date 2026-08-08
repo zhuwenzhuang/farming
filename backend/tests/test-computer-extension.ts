@@ -506,7 +506,7 @@ async function run() {
     );
     const clicksBeforeFailedRefresh = fake.toolCalls.filter(tool => tool === 'click').length;
     await assert.rejects(
-      manager.callTool(created.id, 'click', { x: 1, y: 1 }),
+      manager.callTool(created.id, 'click', { scope: 'desktop', x: 1, y: 1 }),
       error => (
         error.code === 'COMPUTER_SESSION_REFRESH_FAILED'
         && error.actionStarted === false
@@ -522,7 +522,7 @@ async function run() {
 
     fake.nextSessionRefreshError = new Error('injected permanent session permission failure');
     await assert.rejects(
-      manager.callTool(created.id, 'click', { x: 1, y: 1 }),
+      manager.callTool(created.id, 'click', { scope: 'desktop', x: 1, y: 1 }),
       error => (
         error.code === 'COMPUTER_SESSION_REFRESH_FAILED'
         && error.actionStarted === false
@@ -533,7 +533,7 @@ async function run() {
     );
 
     const callsBeforeExpiredSessionRecovery = fake.toolCalls.length;
-    const recoveredAction = await manager.callTool(created.id, 'click', { x: 2, y: 2 });
+    const recoveredAction = await manager.callTool(created.id, 'click', { scope: 'desktop', x: 2, y: 2 });
     assert.strictEqual(recoveredAction.structuredContent.tool, 'click');
     assert.deepStrictEqual(
       fake.toolCalls.slice(callsBeforeExpiredSessionRecovery),
@@ -563,14 +563,47 @@ async function run() {
       'session-independent tools must not forward a caller-supplied session identity',
     );
 
+    const callsBeforeWindowAccessibility = fake.toolCalls.length;
+    await manager.callTool(created.id, 'get_accessibility_tree', {
+      session: 'caller-must-not-bind-desktop-policy',
+    });
+    await manager.callTool(created.id, 'get_window_state', {
+      include_screenshot: false,
+      pid: 417,
+      session: 'caller-must-not-bind-desktop-policy',
+      window_id: 31_457_283,
+    });
+    await manager.callTool(created.id, 'click', {
+      element_index: 1,
+      pid: 417,
+      session: 'caller-must-not-bind-desktop-policy',
+      window_id: 31_457_283,
+    });
+    assert.deepStrictEqual(
+      fake.toolCalls.slice(callsBeforeWindowAccessibility),
+      ['get_accessibility_tree', 'get_window_state', 'click'],
+      'window accessibility must remain cursor-less instead of refreshing the desktop session policy',
+    );
+    assert(
+      fake.toolInputs.slice(-3).every(call => call.input.session === undefined),
+      'window discovery and accessibility-targeted actions must not forward a caller session',
+    );
+
     fake.blockTool = 'type_text';
     fake.releaseTool = null;
     const callsBeforeConcurrentActions = fake.toolCalls.length;
-    const firstConcurrentAction = manager.callTool(created.id, 'type_text', { text: 'first' });
+    const firstConcurrentAction = manager.callTool(created.id, 'type_text', {
+      scope: 'desktop',
+      text: 'first',
+    });
     while (!fake.releaseTool) {
       await new Promise(resolve => setImmediate(resolve));
     }
-    const secondConcurrentAction = manager.callTool(created.id, 'click', { x: 3, y: 3 });
+    const secondConcurrentAction = manager.callTool(created.id, 'click', {
+      scope: 'desktop',
+      x: 3,
+      y: 3,
+    });
     await new Promise(resolve => setImmediate(resolve));
     assert.deepStrictEqual(
       fake.toolCalls.slice(callsBeforeConcurrentActions),
@@ -592,7 +625,10 @@ async function run() {
     try {
       fake.blockTool = 'type_text';
       fake.releaseTool = null;
-      const blocker = manager.callTool(created.id, 'type_text', { text: 'deadline blocker' });
+      const blocker = manager.callTool(created.id, 'type_text', {
+        scope: 'desktop',
+        text: 'deadline blocker',
+      });
       while (!fake.releaseTool) {
         await new Promise(resolve => setImmediate(resolve));
       }
@@ -630,7 +666,10 @@ async function run() {
 
     fake.blockTool = 'type_text';
     fake.releaseTool = null;
-    const admittedBeforeControl = manager.callTool(created.id, 'type_text', { text: 'accepted-before-control' });
+    const admittedBeforeControl = manager.callTool(created.id, 'type_text', {
+      scope: 'desktop',
+      text: 'accepted-before-control',
+    });
     while (!fake.releaseTool) {
       await new Promise(resolve => setImmediate(resolve));
     }
@@ -644,7 +683,7 @@ async function run() {
     await takingControl;
     assert.strictEqual(manager.viewerConfig(created.id).viewOnly, false);
     assert.throws(
-      () => manager.callTool(created.id, 'click', { x: 1, y: 1 }),
+      () => manager.callTool(created.id, 'click', { scope: 'desktop', x: 1, y: 1 }),
       error => error.code === 'COMPUTER_CONTROL_OWNER_MISMATCH',
     );
     await manager.takeControl(created.id, 'agent');
@@ -655,21 +694,21 @@ async function run() {
       'metadata-only reads must not clear the post-takeover observation fence',
     );
     assert.throws(
-      () => manager.callTool(created.id, 'click', { x: 1, y: 1 }),
+      () => manager.callTool(created.id, 'click', { scope: 'desktop', x: 1, y: 1 }),
       error => error.code === 'COMPUTER_OBSERVE_REQUIRED',
     );
     await manager.callTool(created.id, 'get_desktop_state', {});
-    await manager.callTool(created.id, 'click', { x: 1, y: 1 });
+    await manager.callTool(created.id, 'click', { scope: 'desktop', x: 1, y: 1 });
 
     fake.blockTool = 'type_text';
     fake.releaseTool = null;
-    const admitted = manager.callTool(created.id, 'type_text', { text: 'accepted' });
+    const admitted = manager.callTool(created.id, 'type_text', { scope: 'desktop', text: 'accepted' });
     while (!fake.releaseTool) {
       await new Promise(resolve => setImmediate(resolve));
     }
     const stopping = manager.stop(created.id);
     assert.throws(
-      () => manager.callTool(created.id, 'type_text', { text: 'late' }),
+      () => manager.callTool(created.id, 'type_text', { scope: 'desktop', text: 'late' }),
       error => error.code === 'COMPUTER_STOPPING',
     );
     fake.releaseTool();
@@ -810,7 +849,7 @@ async function run() {
         apiPort,
         'POST',
         `/api/computers/${encodeURIComponent(created.id)}/tool/click`,
-        { x: 4, y: 4 },
+        { scope: 'desktop', x: 4, y: 4 },
         { 'X-Farming-Agent-Id': 'agent_owner' },
       );
       assert.strictEqual(refreshFailure.status, 503);

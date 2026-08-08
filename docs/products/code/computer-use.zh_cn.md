@@ -30,12 +30,14 @@ Session、Credential、Profile 或 Private Endpoint。
 暴露公开 Desktop Endpoint。
 
 Resource 拥有唯一的 driver session 身份和 desktop capture scope。在 Resource 的串行 Action
-Queue 内，Farming 会在每个绑定 Session 的 Tool（包括显式 `start_session`）之前幂等刷新这个
+Queue 内，Farming 会在每个 Desktop Session Tool（包括显式 `start_session`）之前幂等刷新这个
 确切 Session。调用方提供的 Session 身份和 Capture Scope 都不能替换 Resource 所有的值。
-其它 Tool 的前置刷新失败时，该 Tool 尚未发送；Farming 会通过 HTTP 和 Agent CLI Error
-Envelope 暴露这个事实。临时的 Refresh Transport Failure 可以重试，确定性的 Runtime Failure
-保持显式错误。显式 `start_session` 本身就是 Refresh，因此它的 Delivery 可能不确定；但该操作
-幂等，临时失败后可以安全重试。
+Window 与 AT-SPI Tool 则按照固定 Driver Manifest 以 Cursor-less 方式运行，避免不可变的
+Desktop Session Policy 禁用 Window Discovery 或 Accessibility Target Action。其它 Tool 的前置
+Refresh 失败时，该 Tool 尚未发送；Farming 会通过 HTTP 和 Agent CLI Error Envelope 暴露这个
+事实。临时的 Refresh Transport Failure 可以重试，确定性的 Runtime Failure 保持显式错误。
+显式 `start_session` 本身就是 Refresh，因此它的 Delivery 可能不确定；但该操作幂等，临时失败
+后可以安全重试。
 Queue Wait、Refresh、Driver Call 和 Screenshot Extraction 共用一个短于 Agent HTTP Transport
 Timeout 的 Request Deadline。原 Tool 发送前到期时返回 `actionStarted: false`；Mutation 开始后
 到期时遵循下文的 Uncertain Outcome 契约。
