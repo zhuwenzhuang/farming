@@ -2,6 +2,8 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const express = require('express');
+const { createUpdateRouter } = require('../update-router.cjs');
 const {
   FarmingUpdateService,
   compareVersions,
@@ -16,6 +18,117 @@ const {
   publishPreparedPackageImage,
   publishRunningPackageImage,
 } = require('../package-installation.cjs');
+
+type HttpServer = import('http').Server;
+
+function serverPort(server: HttpServer): number {
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('expected a TCP listener');
+  return address.port;
+}
+
+async function verifyUpdateRouterBehavior() {
+  const calls: Array<[string, unknown?]> = [];
+  let failure: { operation: 'check' | 'install' | 'restart'; message: string } | null = null;
+  const service = {
+    async check(options) {
+      calls.push(['check', options]);
+      if (failure?.operation === 'check') throw new Error(failure.message);
+      return { available: true, checkedAt: '2026-08-08T00:00:00.000Z' };
+    },
+    async startInstall(options) {
+      calls.push(['install', options]);
+      if (failure?.operation === 'install') throw new Error(failure.message);
+      return { phase: 'installing', version: options.assetName };
+    },
+    async applyPreparedUpdate() {
+      calls.push(['restart']);
+      if (failure?.operation === 'restart') throw new Error(failure.message);
+      return { phase: 'restarting', version: '2.3.0' };
+    },
+  };
+  const app = express();
+  app.use('/api/update', createUpdateRouter(service));
+  const server = await new Promise<HttpServer>(resolve => {
+    const listener = app.listen(0, () => resolve(listener));
+  });
+  const baseUrl = `http://127.0.0.1:${serverPort(server)}/api/update`;
+
+  try {
+    const checked = await fetch(`${baseUrl}?force=1`);
+    assert.strictEqual(checked.status, 200);
+    assert.deepStrictEqual(await checked.json(), {
+      update: { available: true, checkedAt: '2026-08-08T00:00:00.000Z' },
+    });
+    assert.deepStrictEqual(calls.at(-1), ['check', { force: true }]);
+
+    const regularCheck = await fetch(baseUrl);
+    assert.strictEqual(regularCheck.status, 200);
+    assert.deepStrictEqual(calls.at(-1), ['check', { force: false }]);
+
+    const install = await fetch(`${baseUrl}/install`, {
+      body: JSON.stringify({ assetName: '2.3.0' }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+    assert.strictEqual(install.status, 202);
+    assert.deepStrictEqual(await install.json(), {
+      update: { state: { phase: 'installing', version: '2.3.0' } },
+    });
+    assert.deepStrictEqual(calls.at(-1), ['install', { assetName: '2.3.0' }]);
+
+    const invalidAssetName = await fetch(`${baseUrl}/install`, {
+      body: JSON.stringify({ assetName: 23 }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+    assert.strictEqual(invalidAssetName.status, 202);
+    assert.deepStrictEqual(calls.at(-1), ['install', { assetName: '' }]);
+
+    const restart = await fetch(`${baseUrl}/restart`, {
+      body: '{}',
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+    assert.strictEqual(restart.status, 202);
+    assert.deepStrictEqual(await restart.json(), {
+      update: { state: { phase: 'restarting', version: '2.3.0' } },
+    });
+    assert.deepStrictEqual(calls.at(-1), ['restart']);
+
+    failure = { operation: 'check', message: 'registry unavailable' };
+    const failedCheck = await fetch(baseUrl);
+    assert.strictEqual(failedCheck.status, 502);
+    assert.deepStrictEqual(await failedCheck.json(), { error: 'registry unavailable' });
+
+    failure = { operation: 'check', message: '' };
+    const fallbackCheck = await fetch(baseUrl);
+    assert.strictEqual(fallbackCheck.status, 502);
+    assert.deepStrictEqual(await fallbackCheck.json(), { error: 'Failed to check for updates' });
+
+    failure = { operation: 'install', message: '' };
+    const failedInstall = await fetch(`${baseUrl}/install`, {
+      body: '{}',
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+    assert.strictEqual(failedInstall.status, 500);
+    assert.deepStrictEqual(await failedInstall.json(), { error: 'Failed to start update' });
+
+    failure = { operation: 'restart', message: '' };
+    const failedRestart = await fetch(`${baseUrl}/restart`, {
+      body: '{}',
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+    assert.strictEqual(failedRestart.status, 500);
+    assert.deepStrictEqual(await failedRestart.json(), { error: 'Failed to restart for update' });
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close(error => error ? reject(error) : resolve());
+    });
+  }
+}
 
 async function run() {
   const singleFlightRootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-update-single-flight-root-'));
@@ -44,10 +157,20 @@ async function run() {
   assert.strictEqual(singleFlightService.installStartPromise, null, 'the start reservation should clear after completion');
 
   const serverSource = fs.readFileSync(path.join(process.cwd(), 'backend/server.cts'), 'utf8');
-  assert(serverSource.includes("app.get(routePath(BASE_PATH, '/api/update')"));
-  assert(serverSource.includes("app.post(routePath(BASE_PATH, '/api/update/install')"));
-  assert(serverSource.includes("app.post(routePath(BASE_PATH, '/api/update/restart')"));
+  const updateRouterSource = fs.readFileSync(path.join(process.cwd(), 'backend/update-router.cts'), 'utf8');
+  const updateRegistration = "app.use(routePath(BASE_PATH, '/api/update'), createUpdateRouter(updateService));";
+  assert(serverSource.includes("import { createUpdateRouter } from './update-router.cjs';"));
+  assert(serverSource.includes(updateRegistration));
+  assert(serverSource.indexOf(updateRegistration) > serverSource.indexOf("'/api/codex/context-windows'"));
+  assert(serverSource.indexOf(updateRegistration) < serverSource.indexOf('function warmCodexExecutableVersionCache()'));
+  assert(!serverSource.includes("app.get(routePath(BASE_PATH, '/api/update')"));
+  assert(!serverSource.includes("app.post(routePath(BASE_PATH, '/api/update/install')"));
+  assert(!serverSource.includes("app.post(routePath(BASE_PATH, '/api/update/restart')"));
+  assert(updateRouterSource.includes("router.get('/', async"));
+  assert(updateRouterSource.includes("router.post('/install', expressFactory.json(), async"));
+  assert(updateRouterSource.includes("router.post('/restart', expressFactory.json(), async"));
   assert(!serverSource.includes('getUpdateUrl'));
+  await verifyUpdateRouterBehavior();
 
   assert.strictEqual(normalizeVersion('v2.0.5'), '2.0.5');
   assert.strictEqual(compareVersions('2.0.5', '2.0.0'), 1);

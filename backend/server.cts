@@ -281,6 +281,7 @@ import { AgentSessionInventory } from './agent-session-inventory.cjs';
 import { createSlashCommandDiscoveryCache } from './slash-command-cache.cjs';
 import { agentExtensionInventoryCacheFile, agentSessionInventoryCacheFile } from './storage-layout.cjs';
 import { FarmingUpdateService } from './update-service.cjs';
+import { createUpdateRouter } from './update-router.cjs';
 import { inputPartsFromMessage } from './input-parts.cjs';
 import { cleanupTerminalRuntime } from './terminal-runtime-cleanup.cjs';
 import {
@@ -1441,37 +1442,7 @@ app.post(routePath(BASE_PATH, '/api/codex/context-windows'), express.json(), asy
   }
 });
 
-app.get(routePath(BASE_PATH, '/api/update'), async (req, res) => {
-  try {
-    const update = await updateService.check({ force: req.query.force === '1' });
-    res.json({ update });
-  } catch (caught) {
-    const error = caughtError(caught);
-    res.status(502).json({ error: error.message || 'Failed to check for updates' });
-  }
-});
-
-app.post(routePath(BASE_PATH, '/api/update/install'), express.json(), async (req, res) => {
-  try {
-    const state = await updateService.startInstall({
-      assetName: req.body && typeof req.body.assetName === 'string' ? req.body.assetName : '',
-    });
-    res.status(202).json({ update: { state } });
-  } catch (caught) {
-    const error = caughtError(caught);
-    res.status(500).json({ error: error.message || 'Failed to start update' });
-  }
-});
-
-app.post(routePath(BASE_PATH, '/api/update/restart'), express.json(), async (req, res) => {
-  try {
-    const state = await updateService.applyPreparedUpdate();
-    res.status(202).json({ update: { state } });
-  } catch (caught) {
-    const error = caughtError(caught);
-    res.status(500).json({ error: error.message || 'Failed to restart for update' });
-  }
-});
+app.use(routePath(BASE_PATH, '/api/update'), createUpdateRouter(updateService));
 
 function warmCodexExecutableVersionCache() {
   const startedAt = Date.now();
