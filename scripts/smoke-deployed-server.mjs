@@ -162,7 +162,11 @@ async function main() {
       controlUrl,
       token,
       chat.agentId,
-      agent => agent.status === 'idle' && ['acp', 'chat'].includes(agent.agentRuntimeMode || agent.runtimeBinding?.kind),
+      agent => (
+        agent.status === 'running'
+        && agent.runtimeBinding?.kind === 'acp'
+        && agent.runtimeBinding.state === 'idle'
+      ),
       options.timeoutMs,
     )
     await deleteAgent(controlUrl, token, chat.agentId, options.timeoutMs)
