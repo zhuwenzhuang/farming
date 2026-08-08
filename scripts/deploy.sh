@@ -2,512 +2,270 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-DEFAULT_REMOTE_CONFIG_FILE="${PROJECT_ROOT}/config/farming.deploy.env"
-LEGACY_REMOTE_CONFIG_FILE="${PROJECT_ROOT}/.farming-release.env"
-if [ -n "${FARMING_REMOTE_CONFIG_FILE:-}" ]; then
-  REMOTE_CONFIG_FILE="${FARMING_REMOTE_CONFIG_FILE}"
-  if [ ! -f "${REMOTE_CONFIG_FILE}" ]; then
-    echo "FARMING_REMOTE_CONFIG_FILE does not exist: ${REMOTE_CONFIG_FILE}" >&2
-    exit 1
-  fi
-elif [ -f "${DEFAULT_REMOTE_CONFIG_FILE}" ]; then
-  REMOTE_CONFIG_FILE="${DEFAULT_REMOTE_CONFIG_FILE}"
-elif [ -f "${LEGACY_REMOTE_CONFIG_FILE}" ]; then
-  REMOTE_CONFIG_FILE="${LEGACY_REMOTE_CONFIG_FILE}"
-else
-  REMOTE_CONFIG_FILE=""
-fi
+SSH_HOST=""
+SSH_USER=""
+SSH_PORT=""
+SSH_OPTIONS=()
+REMOTE_DIR=""
+REMOTE_CONFIG_DIR=""
+REMOTE_SERVER_HOME=""
+APP_PORT="6694"
+BASE_PATH="/farming"
+ARTIFACT=""
+BUILDER_IMAGE="${FARMING_DEPLOY_BUILDER_IMAGE:-node:22.17.0-bookworm}"
+DOCKER_CONTEXT="${FARMING_DEPLOY_DOCKER_CONTEXT:-}"
+NPM_REGISTRY="${FARMING_DEPLOY_NPM_REGISTRY:-https://registry.npmjs.org/}"
+SMOKE_AGENT="codex"
+KEEP_IMAGES="5"
+DISABLE_AUTH="0"
+RUNTIME_NPM_MIRROR=""
 
-if [ -n "${REMOTE_CONFIG_FILE}" ]; then
-  # shellcheck disable=SC1090
-  source "${REMOTE_CONFIG_FILE}"
-fi
-
-resolve_remote() {
-  if [ -n "${FARMING_REMOTE:-}" ]; then
-    printf '%s\n' "${FARMING_REMOTE}"
-    return
-  fi
-  if [ -n "${FARMING_REMOTE_HOST:-}" ]; then
-    printf '%s@%s\n' "${FARMING_REMOTE_USER:-${USER:-user}}" "${FARMING_REMOTE_HOST}"
-    return
-  fi
-  echo "Set FARMING_REMOTE or create config/farming.deploy.env from config/farming.deploy.env.example." >&2
-  exit 1
-}
-
-# ── Configuration ──────────────────────────────────────────────
-REMOTE="$(resolve_remote)"
-REMOTE_DIR="${FARMING_REMOTE_DIR:-farming}"
-REMOTE_PORT="${FARMING_REMOTE_PORT:-6694}"
-REMOTE_BASE_PATH="${FARMING_REMOTE_BASE_PATH:-/farming}"
-REMOTE_CONFIG_DIR="${FARMING_REMOTE_CONFIG_DIR:-}"
-REMOTE_GLIBC_ROOT="${FARMING_REMOTE_GLIBC_ROOT:-}"
-REMOTE_USE_GLIBC="${FARMING_REMOTE_USE_GLIBC:-${REMOTE_GLIBC_ROOT:+1}}"
-RUNTIME_NPM_MIRROR="${FARMING_RUNTIME_NPM_MIRROR:-}"
-
-PID_FILE="${REMOTE_DIR}/.farming.pid"
-
-# ── Helpers ────────────────────────────────────────────────────
-remote() {
-  ssh "${REMOTE}" "$@"
-}
-
-log() {
-  echo "==> $*"
-}
-
-ensure_remote_dir() {
-  remote "mkdir -p ${REMOTE_DIR}"
-}
-
-ensure_remote_prerequisites() {
-  log "Checking remote prerequisites ..."
-  remote "command -v node >/dev/null && command -v npm >/dev/null && command -v git >/dev/null && command -v curl >/dev/null"
-  if remote_uses_glibc; then
-    if [ -z "${REMOTE_GLIBC_ROOT}" ]; then
-      echo "FARMING_REMOTE_GLIBC_ROOT is required when FARMING_REMOTE_USE_GLIBC is enabled." >&2
-      exit 1
-    fi
-    remote "test -x ${REMOTE_GLIBC_ROOT}/lib/ld-2.28.so"
-  fi
-}
-
-remote_uses_glibc() {
-  [[ "${REMOTE_USE_GLIBC}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]]
-}
-
-configured_token() {
-  printf '%s' "${FARMING_REMOTE_TOKEN:-${FARMING_TOKEN:-}}"
-}
-
-server_config_dir() {
-  if [ -n "${REMOTE_CONFIG_DIR}" ]; then
-    printf '%s' "${REMOTE_CONFIG_DIR}"
-    return
-  fi
-  remote 'printf "%s" "$HOME/.farming"'
-}
-
-remote_server_control_exists() {
-  local config_dir
-  config_dir="$(server_config_dir)"
-  remote "test -f ${config_dir}/farming-server.pid"
-}
-
-remote_token_b64() {
-  local configured
-  configured="$(configured_token)"
-  if [ -n "${configured}" ]; then
-    printf '%s' "${configured}" | base64 | tr -d '\n'
-    return
-  fi
-
-  local config_dir
-  config_dir="$(server_config_dir)"
-  remote "if [ -f ${config_dir}/.session-token ]; then \
-    token=\$(cat ${config_dir}/.session-token); \
-    printf '%s' \"\$token\" | base64 | tr -d '\n'; \
-  fi" 2>/dev/null || true
-}
-
-source_release_metadata_b64() {
-  node - "${PROJECT_ROOT}" <<'NODE' | base64 | tr -d '\n'
-const childProcess = require('child_process');
-const fs = require('fs');
-const path = require('path');
-
-const projectRoot = process.argv[2];
-
-function git(args) {
-  try {
-    return childProcess.execFileSync('git', ['-C', projectRoot, ...args], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-  } catch {
-    return '';
-  }
-}
-
-function gitQuiet(args) {
-  try {
-    childProcess.execFileSync('git', ['-C', projectRoot, ...args], {
-      stdio: ['ignore', 'ignore', 'ignore'],
-    });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function isDirty() {
-  if (!gitQuiet(['diff', '--quiet'])) return true;
-  if (!gitQuiet(['diff', '--cached', '--quiet'])) return true;
-  return git(['ls-files', '--others', '--exclude-standard']) !== '';
-}
-
-function normalizeSemver(value) {
-  const match = String(value || '').trim().replace(/^v/i, '').match(/^(\d+\.\d+\.\d+)/);
-  return match ? match[1] : '';
-}
-
-function compareSemver(left, right) {
-  const leftParts = normalizeSemver(left).split('.').map(part => Number(part) || 0);
-  const rightParts = normalizeSemver(right).split('.').map(part => Number(part) || 0);
-  for (let index = 0; index < 3; index += 1) {
-    if ((leftParts[index] || 0) > (rightParts[index] || 0)) return 1;
-    if ((leftParts[index] || 0) < (rightParts[index] || 0)) return -1;
-  }
-  return 0;
-}
-
-function latestTaggedVersion() {
-  return git(['tag', '--list', 'v[0-9]*', '--sort=-v:refname'])
-    .split(/\r?\n/)
-    .map(normalizeSemver)
-    .find(Boolean) || '';
-}
-
-function sourceVersionSuffix(gitDescribe, dirty) {
-  const described = String(gitDescribe || '').match(/^v?\d+\.\d+\.\d+-(\d+)-g[0-9a-f]+(?:-dirty)?$/i);
-  if (described) return described[1];
-  return dirty ? '1' : '';
-}
-
-const packageJson = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8'));
-const gitSha = git(['rev-parse', 'HEAD']);
-const gitDescribe = git(['describe', '--tags', '--dirty', '--always']) || gitSha.slice(0, 12) || String(packageJson.version || '');
-const dirty = isDirty();
-const packageVersion = String(packageJson.version || '');
-const latestVersion = latestTaggedVersion();
-const packageNewerThanLatest = compareSemver(packageVersion, latestVersion) > 0;
-const baseVersion = packageNewerThanLatest ? normalizeSemver(packageVersion) : latestVersion;
-const suffix = packageNewerThanLatest ? '' : sourceVersionSuffix(gitDescribe, dirty);
-const releaseVersion = baseVersion
-  ? `${baseVersion}${suffix ? `-${suffix}` : ''}`
-  : gitDescribe.replace(/^v(?=\d)/, '');
-
-process.stdout.write(JSON.stringify({
-  type: 'source-deploy',
-  releaseVersion,
-  packageVersion,
-  gitSha,
-  gitDescribe,
-  dirty,
-  deployedAt: new Date().toISOString(),
-  bundledNodeModules: false,
-}, null, 2));
-process.stdout.write('\n');
-NODE
-}
-
-write_source_release_metadata() {
-  local metadata_b64
-  metadata_b64="$(source_release_metadata_b64)"
-  log "Writing source deployment metadata ..."
-  remote "printf '%s' '${metadata_b64}' | base64 -d > ${REMOTE_DIR}/RELEASE.json"
-}
-
-prepare_remote_runtime_dependencies() {
-  local config_dir remote_node prepare_command mirror_prefix
-  config_dir="$(server_config_dir)"
-  remote_node="$(remote "which node")"
-  mirror_prefix=""
-  if [ -n "${RUNTIME_NPM_MIRROR}" ]; then
-    printf -v mirror_prefix 'FARMING_RUNTIME_NPM_MIRROR=%q ' "${RUNTIME_NPM_MIRROR}"
-  fi
-  prepare_command="${mirror_prefix}${remote_node} bin/farming runtime prepare --config-dir ${config_dir} --no-activate"
-  if remote_uses_glibc; then
-    prepare_command="${mirror_prefix}FARMING_NODE_LD=${REMOTE_GLIBC_ROOT}/lib/ld-2.28.so FARMING_NODE_LIBRARY_PATH=${REMOTE_GLIBC_ROOT}/lib ${REMOTE_GLIBC_ROOT}/lib/ld-2.28.so --library-path ${REMOTE_GLIBC_ROOT}/lib ${remote_node} bin/farming runtime prepare --config-dir ${config_dir} --no-activate"
-  fi
-  log "Preparing startup dependencies before the restart window ..."
-  remote "cd ${REMOTE_DIR} && ${prepare_command}"
-}
-
-# ── Commands ───────────────────────────────────────────────────
-
-cmd_deploy() {
-  ensure_remote_dir
-  ensure_remote_prerequisites
-
-  log "Syncing code to ${REMOTE}:${REMOTE_DIR} ..."
-  rsync -azP --delete \
-    --exclude 'node_modules/' \
-    --exclude 'dist/' \
-    --exclude 'dist-release/' \
-    --exclude 'tmp/' \
-    --exclude '.tmp/' \
-    --exclude '.beads/' \
-    --exclude '.gc/' \
-    --exclude '.codex/' \
-    --exclude '.qoder/' \
-    --exclude '.farming-runtime-seed/' \
-    --exclude '.dolt-backup/' \
-    --exclude 'fa-273-mol-dog-stale-db/' \
-    --exclude 'fa-oxg-mol-dog-stale-db/' \
-    --exclude '.git' \
-    --exclude '.git/' \
-    --exclude '.idea/' \
-    --exclude '.farming/' \
-    --exclude '.dolt/' \
-    --exclude 'reference/' \
-    --exclude 'archive/' \
-    --exclude 'poem/' \
-    --exclude 'conversation-log.md' \
-    --exclude 'claude_plan.md' \
-    --exclude 'remote-communication*.md' \
-    --exclude 'terminal-session-attach-plan.md' \
-    --exclude 'releases/' \
-    --exclude 'eslint.config.js' \
-    --exclude 'playwright.config.ts' \
-    --exclude '[' \
-    --exclude '.doltcfg/' \
-    --exclude 'config.yaml' \
-    --exclude 'playwright-report/' \
-    --exclude 'test-results/' \
-    --exclude 'tests/' \
-    --exclude 'backend/tests/' \
-    --exclude 'scripts/e2e*.ts' \
-    --exclude 'scripts/run-tests.ts' \
-    --exclude 'scripts/start-playwright-server.ts' \
-    --exclude 'scripts/test-*.ts' \
-    --exclude '.DS_Store' \
-    --exclude '*.log' \
-    --exclude '.farming.pid' \
-    --exclude '.claude/' \
-    --exclude '.env' \
-    "${PROJECT_ROOT}/" "${REMOTE}:${REMOTE_DIR}/"
-
-  remote "if [ -f ${REMOTE_DIR}/.git ]; then rm -f ${REMOTE_DIR}/.git; fi"
-
-  log "Installing dependencies ..."
-  remote "cd ${REMOTE_DIR} && PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 PUPPETEER_SKIP_DOWNLOAD=1 npm ci"
-
-  log "Building frontend and CRT renderers ..."
-  remote "cd ${REMOTE_DIR} && FARMING_BASE_PATH=${REMOTE_BASE_PATH} npm run build"
-
-  log "Pruning development dependencies from runtime install ..."
-  remote "cd ${REMOTE_DIR} && npm prune --omit=dev"
-
-  prepare_remote_runtime_dependencies
-  write_source_release_metadata
-
-  log "Deploy complete."
-}
-
-cmd_up() {
-  cmd_deploy
-  cmd_start "$@"
-}
-
-cmd_start() {
-  local disable_auth="${FARMING_REMOTE_DISABLE_AUTH:-0}"
-  while [ "$#" -gt 0 ]; do
-    case "$1" in
-      --disable-auth)
-        disable_auth=1
-        ;;
-      --auth)
-        disable_auth=0
-        ;;
-      --force)
-        # Kept as a no-op for command compatibility. Restart is always crash-only.
-        ;;
-      *)
-        echo "Unknown start option: $1" >&2
-        exit 1
-        ;;
-    esac
-    shift
-  done
-
-  ensure_remote_dir
-
-  local configured_token
-  configured_token="$(configured_token)"
-  local inherited_token_b64=""
-  if [ -z "${configured_token}" ]; then
-    inherited_token_b64="$(remote_token_b64)"
-  fi
-
-  if remote_server_control_exists 2>/dev/null; then
-    log "A previous Server control record exists. Reconciling it before start ..."
-    cmd_stop
-  elif remote "test -f ${PID_FILE}" 2>/dev/null; then
-    echo "Only legacy source-deploy PID metadata exists at ${PID_FILE}; refusing to guess process ownership. Stop that Server manually once, remove the stale PID file, and retry." >&2
-    return 1
-  fi
-
-  log "Starting Farming server on ${REMOTE}:${REMOTE_PORT} ..."
-
-  # Resolve node path on remote
-  local remote_node
-  remote_node=$(remote "which node")
-
-  local auth_line
-  auth_line="unset FARMING_DISABLE_AUTH"
-  if [[ "${disable_auth}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]]; then
-    auth_line="export FARMING_DISABLE_AUTH=1"
-    log "Token auth will be disabled for this server process."
-  else
-    log "Token auth is enabled by default. Use '$0 start --disable-auth' to run without token auth."
-  fi
-
-  local token_line
-  token_line="unset FARMING_TOKEN"
-  if [ -n "${configured_token}" ]; then
-    local token_b64
-    token_b64=$(printf '%s' "${configured_token}" | base64 | tr -d '\n')
-    token_line="export FARMING_TOKEN=\"\$(printf '%s' '${token_b64}' | base64 -d)\""
-  elif [ -n "${inherited_token_b64}" ]; then
-    token_line="export FARMING_TOKEN=\"\$(printf '%s' '${inherited_token_b64}' | base64 -d)\""
-  fi
-
-  # Write a small environment launcher, but let the product CLI exclusively
-  # own process identity, readiness, and crash-only termination.
-  local config_dir config_line exec_line runtime_lines mirror_line auth_arg
-  config_dir="$(server_config_dir)"
-  config_line="export FARMING_CONFIG_DIR=${config_dir}"
-  auth_arg=""
-  if [[ "${disable_auth}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]]; then
-    auth_arg="--no-auth"
-  fi
-  exec_line="exec ${remote_node} bin/farming daemon --port ${REMOTE_PORT} --base-path ${REMOTE_BASE_PATH} --config-dir ${config_dir} ${auth_arg}"
-  runtime_lines="unset FARMING_NODE_LD FARMING_NODE_LIBRARY_PATH"
-  if remote_uses_glibc; then
-    exec_line="exec ${REMOTE_GLIBC_ROOT}/lib/ld-2.28.so --library-path ${REMOTE_GLIBC_ROOT}/lib ${remote_node} bin/farming daemon --port ${REMOTE_PORT} --base-path ${REMOTE_BASE_PATH} --config-dir ${config_dir} ${auth_arg}"
-    runtime_lines="export FARMING_NODE_LD=${REMOTE_GLIBC_ROOT}/lib/ld-2.28.so
-export FARMING_NODE_LIBRARY_PATH=${REMOTE_GLIBC_ROOT}/lib"
-  fi
-  mirror_line="unset FARMING_RUNTIME_NPM_MIRROR"
-  if [ -n "${RUNTIME_NPM_MIRROR}" ]; then
-    printf -v mirror_line 'export FARMING_RUNTIME_NPM_MIRROR=%q' "${RUNTIME_NPM_MIRROR}"
-  fi
-
-  remote "printf '%s\n' \
-    '#!/usr/bin/env bash' \
-    'source ~/.bashrc 2>/dev/null || source ~/.bash_profile 2>/dev/null || true' \
-    'cd ${REMOTE_DIR}' \
-    'export PORT=${REMOTE_PORT}' \
-    'export FARMING_BASE_PATH=${REMOTE_BASE_PATH}' \
-    '${config_line}' \
-    'export FARMING_NODE_BIN=${remote_node}' \
-    '${runtime_lines}' \
-    '${mirror_line}' \
-    'if [ \"\${FARMING_NODE_MAX_OLD_SPACE_SIZE:-auto}\" = \"auto\" ] || [ -z \"\${FARMING_NODE_MAX_OLD_SPACE_SIZE:-}\" ]; then' \
-    '  export FARMING_NODE_MAX_OLD_SPACE_SIZE=\"\$(./scripts/compute-node-heap-mb.sh)\"' \
-    'fi' \
-    'case \"\${FARMING_NODE_MAX_OLD_SPACE_SIZE}\" in' \
-    '  0|off|OFF|false|FALSE) unset NODE_OPTIONS ;;' \
-    '  *) export NODE_OPTIONS=\"--max-old-space-size=\${FARMING_NODE_MAX_OLD_SPACE_SIZE}\"; echo \"Farming Node heap max: \${FARMING_NODE_MAX_OLD_SPACE_SIZE} MB\" ;;' \
-    'esac' \
-    '${token_line}' \
-    '${auth_line}' \
-    '${exec_line}' \
-    > ${REMOTE_DIR}/.farming-launcher.sh && chmod +x ${REMOTE_DIR}/.farming-launcher.sh"
-
-  if ! remote "${REMOTE_DIR}/.farming-launcher.sh"; then
-    return 1
-  fi
-  remote "cp ${config_dir}/farming-server.pid ${PID_FILE}"
-
-  log "Server started. Access URL:"
-  echo ""
-  remote "head -20 ${config_dir}/farming-server.log" 2>/dev/null || true
-  echo ""
-}
-
-cmd_stop() {
-  while [ "$#" -gt 0 ]; do
-    case "$1" in
-      --force)
-        # Kept as a no-op for command compatibility. Stop is always crash-only.
-        ;;
-      *)
-        echo "Unknown stop option: $1" >&2
-        exit 1
-        ;;
-    esac
-    shift
-  done
-
-  local control_config_dir
-  control_config_dir="$(server_config_dir)"
-  if ! remote "test -f ${control_config_dir}/farming-server.pid" 2>/dev/null; then
-    if remote "test -f ${PID_FILE}" 2>/dev/null; then
-      echo "Only legacy source-deploy PID metadata exists at ${PID_FILE}; refusing to guess process ownership. Stop that Server manually once, remove the stale PID file, and retry." >&2
-      return 1
-    fi
-    log "No PID file found. Server not running."
-    return 0
-  fi
-
-  local pid
-  pid="$(remote "cat ${control_config_dir}/farming-server.pid")"
-  log "Stopping server (PID ${pid}) ..."
-
-  local remote_node
-  remote_node="$(remote "which node")"
-  local stop_command
-  stop_command="${remote_node} bin/farming stop --config-dir ${control_config_dir}"
-  if remote_uses_glibc; then
-    stop_command="${REMOTE_GLIBC_ROOT}/lib/ld-2.28.so --library-path ${REMOTE_GLIBC_ROOT}/lib ${remote_node} bin/farming stop --config-dir ${control_config_dir}"
-  fi
-  remote "cd ${REMOTE_DIR} && ${stop_command} && rm -f ${PID_FILE}"
-  log "Server stopped."
-}
-
-cmd_status() {
-  local config_dir remote_node status_command
-  config_dir="$(server_config_dir)"
-  remote_node="$(remote "which node")"
-  status_command="${remote_node} bin/farming status --config-dir ${config_dir}"
-  if remote_uses_glibc; then
-    status_command="${REMOTE_GLIBC_ROOT}/lib/ld-2.28.so --library-path ${REMOTE_GLIBC_ROOT}/lib ${remote_node} bin/farming status --config-dir ${config_dir}"
-  fi
-  remote "cd ${REMOTE_DIR} && ${status_command}"
-}
-
-cmd_logs() {
-  local config_dir
-  config_dir="$(server_config_dir)"
-  remote "tail -50 ${config_dir}/farming-server.log" 2>/dev/null || echo "No log file found."
-}
-
-# ── Main ───────────────────────────────────────────────────────
 usage() {
-  cat <<EOF
-Usage: $0 <command>
+  cat <<'EOF'
+Usage: scripts/deploy.sh deploy --ssh-host HOST --remote-dir PATH [options]
 
-Commands:
-  up [--disable-auth] [--force]
-           Sync code, install deps, build frontend, prune dev deps, then restart.
-  deploy   Sync code, install deps, build frontend
-  start [--disable-auth] [--force]
-           Start the server (or restart if running). Token auth is enabled by default.
-  stop [--force]
-           Stop the server immediately through the crash-only lifecycle.
-  status   Check if server is running
-  logs     Show recent log output
+Build the committed Farming SHA as a private Linux Release artifact, upload it
+through SSH, atomically activate it, run product readiness checks, and roll back
+on failure. The remote host never installs source dependencies or builds code.
 
-Environment:
-  FARMING_REMOTE=user@host         # required unless config/farming.deploy.env exists
-  FARMING_REMOTE_DIR=/path/to/farming
-  FARMING_REMOTE_PORT=6694
-  FARMING_REMOTE_BASE_PATH=/farming
-  FARMING_REMOTE_CONFIG_DIR=/path/to/config
-  FARMING_REMOTE_GLIBC_ROOT=/path/to/glibc228
-  FARMING_REMOTE_USE_GLIBC=1      # launch Node through ld-2.28.so
+SSH options:
+  --ssh-host HOST             Required SSH hostname or config alias
+  --ssh-user USER             SSH user (default: current SSH configuration)
+  --ssh-port PORT             SSH port (default: OpenSSH config or 22)
+  --ssh-option KEY=VALUE      Repeatable OpenSSH -o option
+
+Deployment options:
+  --remote-dir PATH           Required absolute active-install path
+  --config-dir PATH           Remote Config instance (default: ~/.farming)
+  --server-home PATH          Optional isolated remote HOME for the Server
+  --app-port PORT             Farming HTTP port (default: 6694)
+  --base-path PATH            Farming URL base path (default: /farming)
+  --artifact PATH             Deploy an existing verified private app bundle
+  --builder-image IMAGE       Linux amd64 builder used when --artifact is omitted
+  --docker-context NAME       Explicit Docker context used by the Linux builder
+  --npm-registry URL          npm registry used inside the Linux builder
+  --smoke-agent COMMAND       ACP provider exercised after startup (default: codex)
+  --keep-images COUNT         Recent images retained in addition to rollback (default: 5)
+  --runtime-npm-mirror VALUE  Optional packaged-runtime npm mirror override
+  --disable-auth              Disable Farming authentication for this Config
+  --help                      Show this help
+
+Authentication uses normal OpenSSH configuration, ssh-agent, and known_hosts.
 EOF
 }
 
-case "${1:-}" in
-  up)     shift; cmd_up "$@" ;;
-  deploy) cmd_deploy ;;
-  start)  shift; cmd_start "$@" ;;
-  stop)   shift; cmd_stop "$@" ;;
-  status) cmd_status ;;
-  logs)   cmd_logs ;;
-  *)      usage; exit 1 ;;
+read_value() {
+  local option="$1"
+  local value="${2:-}"
+  if [ -z "${value}" ] || [[ "${value}" == --* ]]; then
+    echo "${option} requires a value" >&2
+    exit 2
+  fi
+  printf '%s\n' "${value}"
+}
+
+if [ "${1:-}" = "deploy" ]; then shift; fi
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --ssh-host) SSH_HOST="$(read_value "$1" "${2:-}")"; shift 2 ;;
+    --ssh-user) SSH_USER="$(read_value "$1" "${2:-}")"; shift 2 ;;
+    --ssh-port) SSH_PORT="$(read_value "$1" "${2:-}")"; shift 2 ;;
+    --ssh-option) SSH_OPTIONS+=("$(read_value "$1" "${2:-}")"); shift 2 ;;
+    --remote-dir) REMOTE_DIR="$(read_value "$1" "${2:-}")"; shift 2 ;;
+    --config-dir) REMOTE_CONFIG_DIR="$(read_value "$1" "${2:-}")"; shift 2 ;;
+    --server-home) REMOTE_SERVER_HOME="$(read_value "$1" "${2:-}")"; shift 2 ;;
+    --app-port) APP_PORT="$(read_value "$1" "${2:-}")"; shift 2 ;;
+    --base-path) BASE_PATH="$(read_value "$1" "${2:-}")"; shift 2 ;;
+    --artifact) ARTIFACT="$(read_value "$1" "${2:-}")"; shift 2 ;;
+    --builder-image) BUILDER_IMAGE="$(read_value "$1" "${2:-}")"; shift 2 ;;
+    --docker-context) DOCKER_CONTEXT="$(read_value "$1" "${2:-}")"; shift 2 ;;
+    --npm-registry) NPM_REGISTRY="$(read_value "$1" "${2:-}")"; shift 2 ;;
+    --smoke-agent) SMOKE_AGENT="$(read_value "$1" "${2:-}")"; shift 2 ;;
+    --keep-images) KEEP_IMAGES="$(read_value "$1" "${2:-}")"; shift 2 ;;
+    --runtime-npm-mirror) RUNTIME_NPM_MIRROR="$(read_value "$1" "${2:-}")"; shift 2 ;;
+    --disable-auth) DISABLE_AUTH="1"; shift ;;
+    --help|-h) usage; exit 0 ;;
+    *) echo "Unknown deploy option: $1" >&2; usage >&2; exit 2 ;;
+  esac
+done
+
+if [ -z "${SSH_HOST}" ] || [[ "${SSH_HOST}" == -* ]] || [[ "${SSH_HOST}" == *[[:space:]]* ]]; then
+  echo "--ssh-host is required and must be one OpenSSH hostname or config alias." >&2
+  exit 2
+fi
+if [ -n "${SSH_USER}" ] && [[ ! "${SSH_USER}" =~ ^[A-Za-z0-9._-]+$ ]]; then
+  echo "--ssh-user contains unsupported characters." >&2
+  exit 2
+fi
+if [ -n "${SSH_PORT}" ] && { [[ ! "${SSH_PORT}" =~ ^[0-9]+$ ]] || [ "${SSH_PORT}" -lt 1 ] || [ "${SSH_PORT}" -gt 65535 ]; }; then
+  echo "--ssh-port must be between 1 and 65535." >&2
+  exit 2
+fi
+case "${REMOTE_DIR}" in
+  /*) ;;
+  *) echo "--remote-dir is required and must be absolute." >&2; exit 2 ;;
 esac
+if [[ "${REMOTE_DIR}" == *[[:space:]]* ]]; then
+  echo "--remote-dir cannot contain whitespace." >&2
+  exit 2
+fi
+for remote_path in "${REMOTE_CONFIG_DIR}" "${REMOTE_SERVER_HOME}"; do
+  if [ -n "${remote_path}" ] && { [[ "${remote_path}" != /* ]] || [[ "${remote_path}" == *[[:space:]]* ]]; }; then
+    echo "Remote Config and Server HOME paths must be absolute and contain no whitespace." >&2
+    exit 2
+  fi
+done
+for ssh_option in ${SSH_OPTIONS[@]+"${SSH_OPTIONS[@]}"}; do
+  if [[ ! "${ssh_option}" =~ ^[A-Za-z][A-Za-z0-9-]*=.+$ ]] || [[ "${ssh_option}" == *[[:space:]]* ]]; then
+    echo "--ssh-option must use KEY=VALUE without whitespace." >&2
+    exit 2
+  fi
+done
+
+command -v ssh >/dev/null || { echo "ssh is required." >&2; exit 1; }
+command -v rsync >/dev/null || { echo "rsync is required." >&2; exit 1; }
+
+SSH_ARGS=()
+if [ -n "${SSH_PORT}" ]; then SSH_ARGS+=(-p "${SSH_PORT}"); fi
+for ssh_option in ${SSH_OPTIONS[@]+"${SSH_OPTIONS[@]}"}; do SSH_ARGS+=(-o "${ssh_option}"); done
+SSH_ARGS+=(-o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=2)
+DESTINATION="${SSH_HOST}"
+if [ -n "${SSH_USER}" ]; then DESTINATION="${SSH_USER}@${SSH_HOST}"; fi
+
+remote_command() {
+  local command=""
+  local argument quoted
+  for argument in "$@"; do
+    printf -v quoted '%q' "${argument}"
+    command+="${command:+ }${quoted}"
+  done
+  printf '%s\n' "${command}"
+}
+
+echo "==> Checking remote deployment prerequisites" >&2
+EXPECTED_SELECTION="$(ssh "${SSH_ARGS[@]}" "${DESTINATION}" "$(remote_command bash -s -- "${REMOTE_DIR}")" <<'REMOTE'
+set -euo pipefail
+remote_dir="$1"
+for command_name in node tar sha256sum flock curl find stat; do
+  command -v "${command_name}" >/dev/null || {
+    echo "Remote deployment requires ${command_name}." >&2
+    exit 1
+  }
+done
+node -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit((major === 22 && minor >= 13) || major >= 24 ? 0 : 1)' || {
+  echo "Remote deployment requires Node.js 22.13 LTS or Node.js 24+." >&2
+  exit 1
+}
+if [ -L "${remote_dir}" ]; then
+  selected="$(readlink -f "${remote_dir}")"
+  node - "${selected}/.farming-deployment.json" <<'NODE'
+const fs = require('fs');
+try {
+  const value = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+  process.stdout.write(`image:${value.gitSha || 'legacy'}:${value.sha256 || value.imageId || 'unknown'}`);
+} catch {
+  process.stdout.write('invalid-symlink');
+}
+NODE
+elif [ -d "${remote_dir}" ]; then
+  stat -Lc 'legacy:%d:%i' "${remote_dir}"
+elif [ -e "${remote_dir}" ]; then
+  printf '%s\n' invalid-path
+else
+  printf '%s\n' none
+fi
+REMOTE
+ )"
+case "${EXPECTED_SELECTION}" in
+  none|legacy:*|image:*) ;;
+  *) echo "Remote install selection is invalid or cannot be verified." >&2; exit 1 ;;
+esac
+
+if [ -z "${ARTIFACT}" ]; then
+  BUILD_OUTPUT_DIR="${PROJECT_ROOT}/.tmp/private-releases/$(git -C "${PROJECT_ROOT}" rev-parse HEAD)"
+  ARTIFACT="$(${PROJECT_ROOT}/scripts/build-private-linux-release.sh \
+    --output-dir "${BUILD_OUTPUT_DIR}" \
+    --builder-image "${BUILDER_IMAGE}" \
+    --docker-context "${DOCKER_CONTEXT}" \
+    --npm-registry "${NPM_REGISTRY}")"
+fi
+case "${ARTIFACT}" in /*) ;; *) ARTIFACT="${PROJECT_ROOT}/${ARTIFACT}" ;; esac
+if [ ! -f "${ARTIFACT}" ]; then
+  echo "Deployment artifact does not exist: ${ARTIFACT}" >&2
+  exit 1
+fi
+
+node --import tsx "${PROJECT_ROOT}/scripts/verify-release-bundle.ts" "${ARTIFACT}" >&2
+METADATA="$(cd "${PROJECT_ROOT}" && node --import tsx - "${ARTIFACT}" <<'NODE'
+import { readBundleRelease } from './scripts/verify-release-bundle.ts';
+const { release } = readBundleRelease(process.argv[2]);
+process.stdout.write([
+  release.gitSha || '', release.platform || '', release.arch || '', release.updateMethod || '',
+  String(release.bundledNodeModules === true), String(release.bundledGlibcRuntime === true),
+].join('\t'));
+NODE
+)"
+IFS=$'\t' read -r GIT_SHA PLATFORM ARCH UPDATE_METHOD BUNDLED_MODULES BUNDLED_GLIBC <<<"${METADATA}"
+if [[ ! "${GIT_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "Deployment artifact does not identify one exact commit SHA." >&2
+  exit 1
+fi
+if [ "${PLATFORM}" != "linux" ] || [ "${ARCH}" != "x64" ] || [ "${UPDATE_METHOD}" != "app-bundle" ] || [ "${BUNDLED_MODULES}" != "true" ]; then
+  echo "Deployment artifact must be a self-contained linux-x64 app bundle." >&2
+  exit 1
+fi
+if [ "${BUNDLED_GLIBC}" != "true" ]; then
+  echo "Deployment artifact must carry its Linux compatibility runtime." >&2
+  exit 1
+fi
+
+if command -v sha256sum >/dev/null 2>&1; then
+  CHECKSUM="$(sha256sum "${ARTIFACT}" | awk '{print $1}')"
+else
+  CHECKSUM="$(shasum -a 256 "${ARTIFACT}" | awk '{print $1}')"
+fi
+OPERATION_ID="${GIT_SHA:0:12}-$(node -e 'process.stdout.write(require("crypto").randomUUID())')"
+REMOTE_ARTIFACT="${REMOTE_DIR}.deploy/incoming/${OPERATION_ID}.tar.gz"
+
+ssh "${SSH_ARGS[@]}" "${DESTINATION}" "$(remote_command bash -s -- "${REMOTE_ARTIFACT}")" <<'REMOTE'
+set -euo pipefail
+artifact="$1"
+case "${artifact}" in /*.deploy/incoming/*.tar.gz) ;; *) echo "Unsafe remote artifact path." >&2; exit 1 ;; esac
+mkdir -p "$(dirname "${artifact}")"
+REMOTE
+
+RSYNC_RSH="ssh"
+if [ -n "${SSH_PORT}" ]; then
+  printf -v quoted_port '%q' "${SSH_PORT}"
+  RSYNC_RSH+=" -p ${quoted_port}"
+fi
+for ssh_option in ${SSH_OPTIONS[@]+"${SSH_OPTIONS[@]}"}; do
+  printf -v quoted_option '%q' "${ssh_option}"
+  RSYNC_RSH+=" -o ${quoted_option}"
+done
+RSYNC_RSH+=" -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=2"
+echo "==> Uploading verified private Release artifact" >&2
+rsync -a --partial --checksum -e "${RSYNC_RSH}" "${ARTIFACT}" "${DESTINATION}:${REMOTE_ARTIFACT}"
+
+ACTIVATION_ARGS=(
+  --artifact "${REMOTE_ARTIFACT}"
+  --checksum "${CHECKSUM}"
+  --git-sha "${GIT_SHA}"
+  --expected-selection "${EXPECTED_SELECTION}"
+  --remote-dir "${REMOTE_DIR}"
+  --app-port "${APP_PORT}"
+  --base-path "${BASE_PATH}"
+  --smoke-agent "${SMOKE_AGENT}"
+  --keep-images "${KEEP_IMAGES}"
+)
+if [ -n "${REMOTE_CONFIG_DIR}" ]; then ACTIVATION_ARGS+=(--config-dir "${REMOTE_CONFIG_DIR}"); fi
+if [ -n "${REMOTE_SERVER_HOME}" ]; then ACTIVATION_ARGS+=(--server-home "${REMOTE_SERVER_HOME}"); fi
+if [ -n "${RUNTIME_NPM_MIRROR}" ]; then ACTIVATION_ARGS+=(--runtime-npm-mirror "${RUNTIME_NPM_MIRROR}"); fi
+if [ "${DISABLE_AUTH}" = "1" ]; then ACTIVATION_ARGS+=(--disable-auth); fi
+
+echo "==> Activating image and running Server, WebSocket, PTY, and ACP readiness" >&2
+ssh "${SSH_ARGS[@]}" "${DESTINATION}" \
+  "$(remote_command bash -s -- "${ACTIVATION_ARGS[@]}")" \
+  < "${PROJECT_ROOT}/scripts/activate-remote-release.sh"
+
+echo "==> Deployment succeeded for ${GIT_SHA}" >&2

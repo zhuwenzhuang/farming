@@ -15,6 +15,7 @@ the [documentation home](../README.md).
 
 - [Config instance isolation](config-instance-isolation.md)
 - [Package installation and update lifecycle](package-installation-lifecycle.md)
+- [Remote deployment lifecycle](remote-deployment-lifecycle.md)
 - [ACP runtime](../products/code/acp-runtime.md)
 - [Codex runtime](../products/code/codex-runtime.md)
 - [Agent list state protocol](../products/code/agent-list-state-protocol.md)

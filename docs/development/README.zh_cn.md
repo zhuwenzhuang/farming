@@ -14,6 +14,7 @@
 
 - [Config 实例隔离](config-instance-isolation.zh_cn.md)
 - [Package 安装与更新生命周期](package-installation-lifecycle.zh_cn.md)
+- [远端部署生命周期](remote-deployment-lifecycle.zh_cn.md)
 - [ACP Runtime](../products/code/acp-runtime.zh_cn.md)
 - [Codex Runtime](../products/code/codex-runtime.zh_cn.md)
 - [Agent 列表状态协议](../products/code/agent-list-state-protocol.zh_cn.md)

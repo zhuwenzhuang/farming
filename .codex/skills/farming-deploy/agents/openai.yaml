@@ -1,0 +1,4 @@
+interface:
+  display_name: "Farming Deploy"
+  short_description: "Deploy one verified Farming artifact over SSH"
+  default_prompt: "Use $farming-deploy to deploy the current committed Farming SHA to a remote Linux server."

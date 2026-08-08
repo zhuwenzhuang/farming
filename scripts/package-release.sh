@@ -13,7 +13,7 @@ PACKAGE_VERSION="$(cd "${PROJECT_ROOT}" && node -p "require('./package.json').ve
 RELEASE_VERSION="${FARMING_RELEASE_VERSION:-${PACKAGE_VERSION}}"
 RELEASE_VERSION="${RELEASE_VERSION#v}"
 RELEASE_DIR="${FARMING_RELEASE_DIR:-${PROJECT_ROOT}/releases/${RELEASE_VERSION}}"
-GIT_SHA="$(cd "${PROJECT_ROOT}" && git rev-parse --short HEAD 2>/dev/null || date +%Y%m%d%H%M%S)"
+GIT_SHA="${FARMING_RELEASE_GIT_SHA:-$(cd "${PROJECT_ROOT}" && git rev-parse HEAD 2>/dev/null || true)}"
 GIT_STATUS="$(cd "${PROJECT_ROOT}" && git status --porcelain --untracked-files=normal 2>/dev/null || true)"
 GIT_DIRTY=false
 host_platform() {
@@ -151,6 +151,11 @@ if [ "${RELEASE_VERSION}" != "${PACKAGE_VERSION}" ]; then
   exit 1
 fi
 
+if [[ ! "${GIT_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "Release git SHA must be an exact 40-character commit: ${GIT_SHA:-missing}" >&2
+  exit 1
+fi
+
 if [ "${GIT_DIRTY}" = "true" ]; then
   echo "Refusing to package a dirty working tree. Commit or remove all tracked and untracked changes first." >&2
   exit 1
@@ -172,6 +177,7 @@ git -C "${PROJECT_ROOT}" archive --format=tar HEAD -- \
   scripts/compute-node-heap-mb.sh \
   scripts/install-release.sh \
   scripts/prepare-installed-runtime.cjs \
+  scripts/smoke-deployed-server.mjs \
   LICENSE \
   README.md \
   README.zh_cn.md \
@@ -299,7 +305,7 @@ cat > "${APP_DIR}/RELEASE.json" <<EOF
 {
   "name": "farming",
   "type": "app-bundle",
-  "updateMethod": "$(if glibc_runtime_requested; then printf 'npm'; else printf 'app-bundle'; fi)",
+  "updateMethod": "${FARMING_RELEASE_UPDATE_METHOD:-$(if glibc_runtime_requested; then printf 'npm'; else printf 'app-bundle'; fi)}",
   "releaseVersion": "${RELEASE_VERSION}",
   "packageVersion": "${PACKAGE_VERSION}",
   "gitSha": "${GIT_SHA}",

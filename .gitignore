@@ -47,6 +47,8 @@ playwright-report/
 .codex/skills/*
 !.codex/skills/farming-release/
 !.codex/skills/farming-release/**
+!.codex/skills/farming-deploy/
+!.codex/skills/farming-deploy/**
 .claude/
 .qwen/
 .dolt-backup/
@@ -58,6 +60,8 @@ packs.lock
 agents/
 !.codex/skills/farming-release/agents/
 !.codex/skills/farming-release/agents/openai.yaml
+!.codex/skills/farming-deploy/agents/
+!.codex/skills/farming-deploy/agents/openai.yaml
 
 # Beads / Dolt files (added by bd init)
 .dolt/
