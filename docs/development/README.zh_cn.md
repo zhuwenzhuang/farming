@@ -34,4 +34,8 @@
 - [验收与 Dogfood 计划](../products/code/test/acceptance-dogfood-plan.zh_cn.md)
 - [真实 Codex 跨界面用例](../products/code/real-codex-release-case.zh_cn.md)
 
+## 重构
+
+- [结构性重构计划](structural-refactor-plan.zh_cn.md)
+
 开发文档可以包含协议、状态机、不变量和测试证据；这些内容不应复制到仓库或产品入口页。
