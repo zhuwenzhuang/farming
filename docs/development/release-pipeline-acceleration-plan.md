@@ -103,6 +103,14 @@ The middle fan-out has a seven-minute wall-time budget. GitHub publication,
 public verification, and npm publication remain serial and consume the remaining
 budget.
 
+Before the fan-out starts, release preflight queries the public npm registry for
+the `latest` versions of the pinned Codex and Claude ACP adapters, ACP SDK,
+managed Codex and Claude runtimes, and agent-browser. A registry failure or any
+pin that differs from `latest` fails closed before artifact construction. A
+maintainer must review the upstream change, update every affected pin, reviewed
+patch and integrity hash, and rerun the required acceptance evidence; discovering
+a version does not by itself prove that the upgrade is compatible.
+
 ### Candidate-triggered workflow coverage
 
 The release coordinator monitors every workflow created by the exact candidate

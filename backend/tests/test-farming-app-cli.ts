@@ -1239,6 +1239,7 @@ async function runTests() {
     assert(releaseWorkflowSource.includes('body.replaceAll(`](./v${version}.zh_cn.md)`, `](./release-notes/v${version}.zh_cn.md)`)'));
     assert(releaseWorkflowSource.includes('body.replaceAll(`](./v${version}.md)`, `](./release-notes/v${version}.md)`)'));
     assert(releaseWorkflowSource.includes('node scripts/verify-release-notes.mjs "${RELEASE_VERSION}"'));
+    assert(releaseWorkflowSource.includes('npm run release:dependencies:check'));
     assert(releaseWorkflowSource.includes('RELEASE_CODENAME: ${{ steps.notes.outputs.codename }}'));
     assert(releaseWorkflowSource.includes('--title "Farming ${RELEASE_VERSION} · ${RELEASE_CODENAME}"'));
     assert(releaseWorkflowSource.includes('workflow_dispatch:'));
@@ -1328,6 +1329,14 @@ async function runTests() {
     assert.deepStrictEqual(
       releaseWorkflow.jobs['stage-release'].needs,
       ['build-linux', 'build-macos', 'prepare-npm'],
+    );
+    const dependencyUpdateGate = releaseWorkflow.jobs.preflight.steps.find(
+      step => step.name === 'Check managed Agent dependency updates',
+    );
+    assert.strictEqual(
+      dependencyUpdateGate?.run,
+      'npm run release:dependencies:check',
+      'release preflight must fail closed before artifact jobs when managed Agent pins are not current',
     );
     assert.deepStrictEqual(
       releaseWorkflow.jobs['stage-release'].permissions,

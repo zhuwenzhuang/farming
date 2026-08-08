@@ -79,6 +79,12 @@ Exact-SHA CI       平台制品            唯一 npm Tarball
 
 中间 Fan-out 的墙钟预算为 7 分钟。GitHub 公开、公开验证和 npm 发布保持串行，使用剩余预算。
 
+Fan-out 开始前，Release Preflight 必须从公共 npm Registry 查询固定的 Codex/Claude ACP Adapter、
+ACP SDK、受管 Codex/Claude Runtime 和 agent-browser 的 `latest` 版本。Registry 查询失败或任一 Pin
+与 `latest` 不一致时，必须在构建制品前 Fail Closed。维护者需要审查上游变化，更新所有受影响的
+Pin、已审查 Patch 与完整性 Hash，并重新运行必需的 Acceptance Evidence；发现新版本本身并不能
+证明升级兼容。
+
 ### 候选提交触发的 Workflow 全覆盖
 
 Release Coordinator 必须监控 Exact Candidate Push 创建的每个 Workflow，不能只盯 `CI` 和
