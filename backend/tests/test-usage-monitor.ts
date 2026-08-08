@@ -2,6 +2,8 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const express = require('express');
+const { createUsageRouter } = require('../usage-router.cjs');
 const {
   UsageMonitor,
   buildDailyUsage,
@@ -14,7 +16,110 @@ const {
   readCodexAuthStatus,
 } = require('../usage-monitor.cjs');
 
+type HttpServer = import('http').Server;
+
+function serverPort(server: HttpServer): number {
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('expected a TCP listener');
+  return address.port;
+}
+
+async function verifyUsageRouterBehavior() {
+  const calls: Array<[string, unknown?]> = [];
+  let invalidations = 0;
+  let failure: { operation: 'summary' | 'day'; error: Error } | null = null;
+  const service = {
+    async getUsageSummary(options) {
+      calls.push(['summary', options]);
+      if (failure?.operation === 'summary') throw failure.error;
+      return { sampledAt: 123, totalTokens: 456 };
+    },
+    async getUsageDay(date, options) {
+      calls.push(['day', { date, ...options }]);
+      if (failure?.operation === 'day') throw failure.error;
+      return { date, totalTokens: 78 };
+    },
+    invalidateDailyCache() {
+      invalidations += 1;
+    },
+  };
+  const app = express();
+  app.use('/api/usage', createUsageRouter(service));
+  const server = await new Promise<HttpServer>(resolve => {
+    const listener = app.listen(0, () => resolve(listener));
+  });
+  const baseUrl = `http://127.0.0.1:${serverPort(server)}/api/usage`;
+
+  try {
+    const regular = await fetch(baseUrl);
+    assert.strictEqual(regular.status, 200);
+    assert.deepStrictEqual(await regular.json(), {
+      usage: { sampledAt: 123, totalTokens: 456 },
+    });
+    assert.deepStrictEqual(calls.at(-1), ['summary', {}]);
+    assert.strictEqual(invalidations, 0);
+
+    const live = await fetch(`${baseUrl}?live=1`);
+    assert.strictEqual(live.status, 200);
+    assert.deepStrictEqual(calls.at(-1), ['summary', { maxAgeMs: 15_000 }]);
+    assert.strictEqual(invalidations, 0);
+
+    const fresh = await fetch(`${baseUrl}?fresh=1&live=1`);
+    assert.strictEqual(fresh.status, 200);
+    assert.deepStrictEqual(calls.at(-1), ['summary', { force: true }]);
+    assert.strictEqual(invalidations, 1);
+
+    const day = await fetch(`${baseUrl}/day?date=%202026-08-08%20&fresh=1&live=1`);
+    assert.strictEqual(day.status, 200);
+    assert.deepStrictEqual(await day.json(), {
+      detail: { date: '2026-08-08', totalTokens: 78 },
+    });
+    assert.deepStrictEqual(calls.at(-1), ['day', {
+      date: '2026-08-08',
+      fresh: true,
+      live: true,
+    }]);
+
+    failure = { operation: 'summary', error: new Error('summary unavailable') };
+    const summaryError = await fetch(baseUrl);
+    assert.strictEqual(summaryError.status, 500);
+    assert.deepStrictEqual(await summaryError.json(), { error: 'summary unavailable' });
+
+    failure = { operation: 'summary', error: new Error('') };
+    const summaryFallback = await fetch(baseUrl);
+    assert.strictEqual(summaryFallback.status, 500);
+    assert.deepStrictEqual(await summaryFallback.json(), { error: 'Failed to read usage information' });
+
+    failure = { operation: 'day', error: new RangeError('date must be valid') };
+    const invalidDate = await fetch(`${baseUrl}/day?date=2026-02-30`);
+    assert.strictEqual(invalidDate.status, 400);
+    assert.deepStrictEqual(await invalidDate.json(), { error: 'date must be valid' });
+
+    failure = { operation: 'day', error: new Error('') };
+    const dayFallback = await fetch(`${baseUrl}/day?date=2026-08-08`);
+    assert.strictEqual(dayFallback.status, 500);
+    assert.deepStrictEqual(await dayFallback.json(), { error: 'Failed to read usage day information' });
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close(error => error ? reject(error) : resolve());
+    });
+  }
+}
+
 async function run() {
+  const serverSource = fs.readFileSync(path.join(process.cwd(), 'backend/server.cts'), 'utf8');
+  const routerSource = fs.readFileSync(path.join(process.cwd(), 'backend/usage-router.cts'), 'utf8');
+  const registration = "app.use(routePath(BASE_PATH, '/api/usage'), createUsageRouter({";
+  assert(serverSource.includes("import { createUsageRouter } from './usage-router.cjs';"));
+  assert(serverSource.includes(registration));
+  assert(serverSource.indexOf(registration) > serverSource.indexOf("'/api/claude/settings'"));
+  assert(serverSource.indexOf(registration) < serverSource.indexOf("'/api/codex/context-windows'"));
+  assert(!serverSource.includes("app.get(routePath(BASE_PATH, '/api/usage')"));
+  assert(!serverSource.includes("app.get(routePath(BASE_PATH, '/api/usage/day')"));
+  assert(routerSource.includes("router.get('/', async"));
+  assert(routerSource.includes("router.get('/day', async"));
+  await verifyUsageRouterBehavior();
+
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-usage-monitor-'));
   const codexHome = path.join(root, 'codex');
   const secondCodexHome = path.join(root, 'codex-secondary');

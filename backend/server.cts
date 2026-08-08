@@ -273,6 +273,7 @@ import {
   type ManagedLanguageServerRefreshEvent,
 } from '../extensions/language-server/backend/index.cjs';
 import { UsageMonitor } from './usage-monitor.cjs';
+import { createUsageRouter } from './usage-router.cjs';
 import { CodexContextWindowReader } from './codex-context-window.cjs';
 import { AsyncCache } from './async-cache.cjs';
 import { getMainAgentSkillsCatalog } from './main-agent-skills.cjs';
@@ -1389,40 +1390,11 @@ app.get(routePath(BASE_PATH, '/api/claude/settings'), (req, res) => {
   });
 });
 
-app.get(routePath(BASE_PATH, '/api/usage'), async (req, res) => {
-  try {
-    const fresh = req.query.fresh === '1';
-    const live = req.query.live === '1';
-    if (fresh) usageMonitor.invalidateDailyCache();
-    const usage = await usageSummaryCache.get(
-      'summary',
-      fresh ? { force: true } : live ? { maxAgeMs: 15_000 } : {},
-    );
-    res.json({ usage });
-  } catch (caught) {
-    const error = caughtError(caught);
-    res.status(500).json({ error: error.message || 'Failed to read usage information' });
-  }
-});
-
-app.get(routePath(BASE_PATH, '/api/usage/day'), async (req, res) => {
-  try {
-    const date = String(req.query.date || '').trim();
-    const detail = await usageMonitor.getUsageDay(date, {
-      fresh: req.query.fresh === '1',
-      live: req.query.live === '1',
-    });
-    res.json({ detail });
-  } catch (caught) {
-    const error = caughtError(caught);
-    const invalidDate = error instanceof RangeError;
-    res.status(invalidDate ? 400 : 500).json({
-      error: invalidDate
-        ? error.message
-        : error.message || 'Failed to read usage day information',
-    });
-  }
-});
+app.use(routePath(BASE_PATH, '/api/usage'), createUsageRouter({
+  getUsageDay: (date, options) => usageMonitor.getUsageDay(date, options),
+  getUsageSummary: options => usageSummaryCache.get('summary', options),
+  invalidateDailyCache: () => usageMonitor.invalidateDailyCache(),
+}));
 
 app.post(routePath(BASE_PATH, '/api/codex/context-windows'), express.json(), async (req, res) => {
   try {
