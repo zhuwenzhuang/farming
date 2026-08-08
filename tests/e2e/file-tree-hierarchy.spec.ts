@@ -77,12 +77,25 @@ async function stickyHierarchyMatchesFirstUncoveredRow(section: Locator) {
 }
 
 async function scrollFileRowIntoStickyRange(row: Locator) {
-  await row.evaluate(() => new Promise(resolve => window.setTimeout(resolve, 250)))
   await row.evaluate(element => {
     const scroller = element.closest<HTMLElement>('.code-project-list')
     if (!scroller) return
     const desiredTop = scroller.getBoundingClientRect().top + scroller.clientHeight * 0.55
     scroller.scrollTop += element.getBoundingClientRect().top - desiredTop
+  })
+}
+
+async function stickyContextClearsPinnedAgents(section: Locator) {
+  return section.evaluate(element => {
+    const project = element.closest<HTMLElement>('.code-project-group')
+    const agents = project?.querySelector<HTMLElement>('.code-agents-section')
+    const sticky = element.querySelector<HTMLElement>('[data-testid="code-file-sticky-stack"]')
+    if (!project || !agents || !sticky) return false
+    const publishedHeight = Number.parseFloat(
+      getComputedStyle(project).getPropertyValue('--code-agents-sticky-height')
+    )
+    return Math.round(publishedHeight) === Math.ceil(agents.getBoundingClientRect().height)
+      && sticky.getBoundingClientRect().top >= agents.getBoundingClientRect().bottom - 1
   })
 }
 
@@ -200,6 +213,7 @@ test('preserves every visible directory level across sticky scroll, collapse, re
   await expect(target).toBeVisible()
   await scrollFileRowIntoStickyRange(target)
   await expect.poll(() => stickyHierarchyMatchesFirstUncoveredRow(files)).toBe(true)
+  await expect.poll(() => stickyContextClearsPinnedAgents(files)).toBe(true)
   const implPath = TARGET_FILE.slice(0, TARGET_FILE.indexOf('/meta/'))
   await expect(files.locator(`[data-file-path="${implPath}/meta"]`)).toHaveCount(1)
   await expect(files.locator(`[data-file-path="${implPath}/pangu"]`)).toHaveCount(1)
@@ -229,8 +243,8 @@ test('preserves every visible directory level across sticky scroll, collapse, re
 
   await files.locator('.code-files-header').hover()
   await files.getByTestId('code-files-refresh').click()
-  await expect(target).toBeVisible()
   await scrollFileRowIntoStickyRange(target)
+  await expect(target).toBeVisible()
   await expect.poll(() => stickyHierarchyMatchesFirstUncoveredRow(files)).toBe(true)
 
   await page.reload({ waitUntil: 'domcontentloaded' })

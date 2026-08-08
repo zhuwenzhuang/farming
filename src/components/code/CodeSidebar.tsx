@@ -1509,7 +1509,6 @@ function projectHeaderMetrics(
 
 function ProjectSection(props: ProjectSectionProps) {
   const { agentInventoryComplete, now, project } = props
-  const projectGroupRef = useRef<HTMLElement | null>(null)
   const liveSummary = useProjectAgentLiveSummary(
     agentInventoryComplete && !project.hasMain ? project.workspace : '',
   )
@@ -1517,7 +1516,6 @@ function ProjectSection(props: ProjectSectionProps) {
 
   return (
     <section
-      ref={projectGroupRef}
       className="code-project-group"
       data-testid="code-project-group"
       data-project-agent-count={metrics.agentCount}
@@ -1526,13 +1524,9 @@ function ProjectSection(props: ProjectSectionProps) {
       data-project-zombie-count={metrics.zombieCount}
       data-project-max-attention={metrics.maxAttentionScore}
     >
-      <ProjectSectionContent {...props} projectGroupRef={projectGroupRef} />
+      <ProjectSectionContent {...props} />
     </section>
   )
-}
-
-type ProjectSectionContentProps = ProjectSectionProps & {
-  projectGroupRef: RefObject<HTMLElement | null>
 }
 
 const ProjectSectionContent = memo(function ProjectSectionContent({
@@ -1582,8 +1576,7 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
   onDeleteWorkspaceEntries,
   onRefreshProjectOpenFiles,
   copy,
-  projectGroupRef,
-}: ProjectSectionContentProps) {
+}: ProjectSectionProps) {
   recordPerformanceTestRender('projectSectionContent')
   const projectDraggedRef = useRef(false)
   const projectRowRef = useRef<HTMLDivElement | null>(null)
@@ -1733,7 +1726,7 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
   }, [lastProjectAgentId])
 
   useLayoutEffect(() => {
-    const projectGroup = projectGroupRef.current
+    const projectGroup = projectRowRef.current?.closest<HTMLElement>('.code-project-group')
     if (!projectGroup) return
 
     const setStickyMetrics = () => {
@@ -1775,7 +1768,6 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
     project.agentSessionsExpanded,
     project.hiddenAgentSessionCount,
     project.id,
-    projectGroupRef,
     projectAgentsExpanded,
     showAgentsSection,
     visibleAgentSessions.length,
