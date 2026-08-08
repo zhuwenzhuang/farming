@@ -14,6 +14,10 @@ interface AcpContent extends DataRecord {
 }
 
 interface AcpMeta extends DataRecord {
+  farming?: {
+    steer?: unknown;
+    turnId?: unknown;
+  };
   codex?: {
     phase?: unknown;
     steer?: unknown;
@@ -259,10 +263,13 @@ function contentText(content: unknown): string {
     .join('');
 }
 
-function isCodexSteerMessage(entry: AcpEntry | null | undefined): boolean {
+function isSteerMessage(entry: AcpEntry | null | undefined): boolean {
   return entry?.type === 'message'
     && entry.role === 'user'
-    && entry?._meta?.codex?.steer === true;
+    && (
+      entry?._meta?.farming?.steer === true
+      || entry?._meta?.codex?.steer === true
+    );
 }
 
 function codexInternalUserScope(entry: AcpEntry | null | undefined): 'entry' | 'turn' | null {
@@ -277,7 +284,7 @@ function codexInternalUserScope(entry: AcpEntry | null | undefined): 'entry' | '
 function isTranscriptTurnStart(entry: AcpEntry | null | undefined): boolean {
   return entry?.type === 'message'
     && entry.role === 'user'
-    && !isCodexSteerMessage(entry)
+    && !isSteerMessage(entry)
     && codexInternalUserScope(entry) !== 'entry';
 }
 
@@ -513,7 +520,7 @@ class AcpSessionState {
       content,
       createdAt: Date.now(),
       _meta: {
-        codex: {
+        farming: {
           steer: true,
           turnId: String(options.turnId || ''),
         },

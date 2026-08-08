@@ -224,6 +224,7 @@ class FakeAgent implements Agent {
     }
     return {
       protocolVersion: PROTOCOL_VERSION,
+      _meta: { steering: { supported: true } },
       agentCapabilities: {
         auth: { logout: {} },
         loadSession: true,
@@ -433,7 +434,7 @@ class FakeAgent implements Agent {
   }
 
   async extMethod(method, params) {
-    if (method === '_codex/session/steer') {
+    if (method === '_session/steering' || method === '_codex/session/steer') {
       const steerTurn = activeSteerTurn;
       if (!steerTurn || steerTurn.sessionId !== params.sessionId) {
         const error = Object.assign(new Error('No active Codex turn to steer'), {

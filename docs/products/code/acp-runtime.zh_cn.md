@@ -99,6 +99,14 @@ Prompt Submission 有明确身份。相同请求的重复提交可以加入已�
 Queued Follow-up 在准入开始前保持可编辑、可丢弃。协商成功的 Live Steer 保留在所属 Turn
 内部；不支持 Steer 的 Provider 使用可见 Queue。
 
+Farming 从 Agent 的 Initialize Response 协商标准 Steering，并且只在拥有 Active Turn 时
+调用 `_session/steering`。旧 Codex Steer Extension 仅作为 Adapter Boundary 的兼容路径，
+用于尚未声明标准能力的 Agent。已接受的 Steering 使用 Provider-neutral Farming Metadata
+记录，从而让所有支持该能力的 Agent 具有一致的 Transcript 与 Composer 行为。
+
+Composer 中的 Goal 输入被明确视为 Prompt Content，而不是持久 ACP Goal Binding。Farming
+不会根据该输入创建跨 Turn Goal 状态；提交的文字本身就是完整事实来源。
+
 ## Transcript 协议
 
 Backend 把 History Replay 与 Live ACP Update 归约成一条有序、Provider-neutral Transcript。

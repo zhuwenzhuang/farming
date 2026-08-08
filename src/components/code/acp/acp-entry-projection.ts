@@ -215,8 +215,9 @@ function codexMessagePhase(entry: AcpRecord) {
   return stringValue(record(record(entry._meta).codex).phase).trim().toLowerCase()
 }
 
-function isCodexSteerEntry(entry: AcpRecord) {
-  return record(record(entry._meta).codex).steer === true
+function isSteerEntry(entry: AcpRecord) {
+  return record(record(entry._meta).farming).steer === true
+    || record(record(entry._meta).codex).steer === true
 }
 
 function diffBlocks(content: unknown) {
@@ -735,7 +736,7 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
     const entry = record(value)
     if (entry.internalScope === 'entry') continue
     if (entry.type === 'message' && entry.role === 'user') {
-      if (isCodexSteerEntry(entry) && current) {
+      if (isSteerEntry(entry) && current) {
         const entryId = stringValue(entry.id) || String(++sequence)
         if (current.finalMessage) {
           current.processItems.push({

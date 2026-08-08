@@ -4,7 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
-const { AcpRuntime, acpErrorKind, acpSessionRequestOptions, autoPermissionResponse, codexAcpEnvironment, deleteProviderSessionIdentity, normalizeCodexHostMessageUpdate, promptContentForCapabilities, resolveAcpLaunch, supportsCodexSteer } = require('../acp-runtime.cjs');
+const { AcpRuntime, acpErrorKind, acpSessionRequestOptions, autoPermissionResponse, codexAcpEnvironment, deleteProviderSessionIdentity, normalizeCodexHostMessageUpdate, promptContentForCapabilities, resolveAcpLaunch, steeringMethod, supportsCodexSteer } = require('../acp-runtime.cjs');
 const { renderFarmingAgentBootstrap } = require('../farming-agent-bootstrap.cjs');
 const { claudeAcpEnvironment } = require('../provider-adapters.cjs');
 const { AcpSessionState } = require('../acp-session-state.cjs');
@@ -63,6 +63,17 @@ async function run() {
   assert.strictEqual(supportsCodexSteer({
     _meta: { codex: { steer: { method: '_codex/session/steer', version: 0 } } },
   }), false);
+  assert.strictEqual(steeringMethod({
+    protocolVersion: 1,
+    _meta: { steering: { supported: true } },
+  }), '_session/steering');
+  assert.strictEqual(steeringMethod({
+    protocolVersion: 1,
+    agentCapabilities: {
+      _meta: { codex: { steer: { method: '_codex/session/steer', version: 1 } } },
+    },
+  }), '_codex/session/steer');
+  assert.strictEqual(steeringMethod({ protocolVersion: 1 }), '');
   let unsafeConnectionClose;
   const unsafeConnectionClosed = new Promise(resolve => {
     unsafeConnectionClose = resolve;
@@ -1116,6 +1127,11 @@ async function run() {
   assert(Number.isFinite(
     steeredDeltaState.entries.find(entry => entry.messageId === 'accepted-local-steer').createdAt,
   ));
+  assert.strictEqual(
+    steeredDeltaState.entries.find(entry => entry.messageId === 'accepted-local-steer')._meta?.farming?.steer,
+    true,
+    'accepted steering must use provider-neutral Farming metadata',
+  );
   steeredDeltaState.apply({ sessionId: 'steered-delta', update: {
     sessionUpdate: 'user_message_chunk',
     messageId: 'accepted-local-steer',
@@ -2198,7 +2214,7 @@ async function run() {
     resolveSteerCompletionPrompt({ stopReason: 'end_turn' });
     await new Promise(resolve => setImmediate(resolve));
     releaseSteerCheckpoint();
-    await assert.rejects(staleSteer, /No active Codex turn to steer/);
+    await assert.rejects(staleSteer, /No active ACP turn to steer/);
     assert.strictEqual(staleSteerRequests, 0, 'steer must revalidate the exact Turn after checkpoint IO');
     assert.strictEqual((await steerCompletionPrompt).stopReason, 'end_turn');
     runtime.markCheckpointDirty = markCheckpointDirty;

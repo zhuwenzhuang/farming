@@ -130,6 +130,17 @@ Queued follow-ups remain editable and discardable until admission begins.
 Negotiated live Steer remains inside its owning Turn; providers without that
 capability use the visible queue.
 
+Farming negotiates standard Steering from the Agent's initialize response and
+uses `_session/steering` only while it owns an active Turn. The older Codex
+steer extension remains an adapter-boundary compatibility path for Agents that
+do not advertise the standard capability. Accepted Steering is recorded with
+provider-neutral Farming metadata so every supporting Agent has the same
+transcript and Composer behavior.
+
+The Composer's Goal input is intentionally prompt content, not a persistent ACP
+Goal binding. Farming does not create cross-Turn Goal state from that input;
+the submitted text remains the complete source of truth.
+
 ## Transcript Protocol
 
 The backend reduces history replay and live ACP updates into one ordered,
