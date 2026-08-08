@@ -9,27 +9,42 @@ const { WebSocketServer } = require('ws');
 const projectRoot = path.join(__dirname, '../..');
 const smokeScript = path.join(projectRoot, 'scripts', 'smoke-deployed-server.mjs');
 
-function listen(server) {
+interface SmokeResult {
+  code: number | null;
+  stdout: string;
+  stderr: string;
+}
+
+function listen(server: import('http').Server): Promise<number> {
   return new Promise((resolve, reject) => {
     server.once('error', reject);
-    server.listen(0, '127.0.0.1', () => resolve(server.address().port));
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        reject(new Error('Smoke fixture did not bind a TCP port'));
+        return;
+      }
+      resolve(address.port);
+    });
   });
 }
 
-function close(server) {
-  return new Promise((resolve) => server.close(resolve));
+function close(server: import('http').Server): Promise<void> {
+  return new Promise((resolve, reject) => server.close(error => (
+    error ? reject(error) : resolve()
+  )));
 }
 
-function readBody(request) {
+function readBody(request: import('http').IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
-    const chunks = [];
+    const chunks: Buffer[] = [];
     request.on('data', chunk => chunks.push(chunk));
     request.once('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
     request.once('error', reject);
   });
 }
 
-function runSmoke(args) {
+function runSmoke(args: string[]): Promise<SmokeResult> {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [smokeScript, ...args], {
       cwd: projectRoot,
