@@ -68,14 +68,35 @@ import {
   clearReadingAnchor,
   readingAnchorAgentKey,
   readReadingAnchor,
-  saveReadingAnchor,
   type ReadingAnchor,
 } from '@/lib/reading-anchor'
-import { collectTerminalPathLinkMatches } from '@/lib/terminal-links'
 import { isCompactViewport } from '@/lib/responsive-mode'
 import { useSharedNow } from '@/lib/shared-now'
 import { isPageActive } from '@/hooks/usePageVisibility'
 import { loadAcpReviewPreview, loadReviewComparisonSources } from '@/lib/review/api'
+import {
+  ACP_TRANSCRIPT_UNSETTLED_RETRY_LADDER_LENGTH,
+  acpTranscriptFetchRetryDelayMs,
+  acpTranscriptRefreshCoalesceDelayMs,
+  acpTranscriptUnsettledRetryDelayMs,
+} from '@/lib/transcript-fetch-policy'
+import {
+  fileReferenceDisplayText,
+  hasQualifiedTranscriptFileReference,
+  isBareDomainTranscriptHref,
+  isExternalTranscriptHref,
+  isTranscriptFileLineHref,
+  normalizeTranscriptHref,
+  transcriptFileTargetFromText,
+  transcriptImageFilePath,
+} from '@/lib/transcript-file-links'
+import {
+  TRANSCRIPT_BOTTOM_FOLLOW_THRESHOLD,
+  captureTranscriptReadingAnchor,
+  isTranscriptNearBottom,
+  persistTranscriptReadingAnchor,
+  restoreTranscriptReadingAnchor,
+} from '@/lib/transcript-reading-anchor'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-open-files'
 import type { CodeCopy } from './copy'
 import { planDetailItems } from './agent-plan'
@@ -159,72 +180,12 @@ export interface AgentTranscriptPaneProps {
   copy: CodeCopy
 }
 
-type TranscriptAnchorRestoreResult = 'none' | 'restored' | 'missing' | 'expired'
-
-function captureTranscriptReadingAnchor(agentId: string, element: HTMLDivElement): ReadingAnchor | null | undefined {
-  if (isTranscriptNearBottom(element)) {
-    return null
-  }
-  const scrollerRect = element.getBoundingClientRect()
-  const turns = Array.from(element.querySelectorAll<HTMLElement>('[data-turn-id]'))
-  const turn = turns.find(candidate => candidate.getBoundingClientRect().bottom > scrollerRect.top)
-  if (!turn) return undefined
-  const processItem = Array.from(turn.querySelectorAll<HTMLElement>('[data-process-item-id]'))
-    .find(candidate => candidate.getBoundingClientRect().bottom > scrollerRect.top)
-  const target = processItem || turn
-  const targetRect = target.getBoundingClientRect()
-  const fraction = targetRect.height > 0
-    ? Math.max(0, Math.min(1, (scrollerRect.top - targetRect.top) / targetRect.height))
-    : 0
-  const turnId = turn.dataset.turnId
-  if (!turnId) return undefined
-  return {
-    version: 1,
-    surface: 'chat',
-    resource: { kind: 'agent', id: agentId },
-    locator: {
-      kind: 'message',
-      id: turnId,
-      ...(processItem?.dataset.processItemId ? { childId: processItem.dataset.processItemId } : {}),
-    },
-    position: { unit: 'fraction', value: fraction },
-  }
-}
-
-function persistTranscriptReadingAnchor(agentId: string, anchor: ReadingAnchor | null) {
-  if (anchor) saveReadingAnchor(anchor)
-  else clearReadingAnchor(readingAnchorAgentKey(agentId, 'chat'))
-}
-
-function restoreTranscriptReadingAnchor(agentId: string, element: HTMLDivElement): TranscriptAnchorRestoreResult {
-  const key = readingAnchorAgentKey(agentId, 'chat')
-  const anchor = readReadingAnchor(key)
-  if (!anchor) return 'none'
-  if (anchor.surface !== 'chat' || anchor.resource.kind !== 'agent') {
-    clearReadingAnchor(key)
-    return 'expired'
-  }
-  const turn = element.querySelector<HTMLElement>(`[data-turn-id="${CSS.escape(anchor.locator.id)}"]`)
-  if (!turn) return 'missing'
-  const processItem = anchor.locator.childId
-    ? turn.querySelector<HTMLElement>(`[data-process-item-id="${CSS.escape(anchor.locator.childId)}"]`)
-    : null
-  const target = processItem || turn
-  const targetRect = target.getBoundingClientRect()
-  const scrollerRect = element.getBoundingClientRect()
-  const targetOffset = targetRect.height * anchor.position.value
-  element.scrollTop += targetRect.top + targetOffset - scrollerRect.top
-  return 'restored'
-}
 const INITIAL_TRANSCRIPT_TURN_LIMIT = 80
 const TRANSCRIPT_TURN_PAGE_SIZE = 80
 const INITIAL_ACP_TRANSCRIPT_TURN_LIMIT = 5
 const ACP_TRANSCRIPT_TURN_PAGE_SIZE = 10
 const MAX_TRANSCRIPT_TURN_LIMIT = 1000
 const ACP_TRANSCRIPT_FETCH_RETRY_DELAYS_MS = [250, 1000] as const
-const ACP_TRANSCRIPT_UNSETTLED_RETRY_DELAYS_MS = [100, 250, 500, 1000, 2000, 3000, 5000, 5000, 5000, 5000] as const
-const ACP_TRANSCRIPT_UNSETTLED_SLOW_RETRY_MS = 15_000
-const ACP_TRANSCRIPT_REFRESH_COALESCE_MS = 80
 const INITIAL_TRANSCRIPT_REVEAL_QUIET_MS = 120
 const INITIAL_TRANSCRIPT_REVEAL_MAX_MS = 400
 const LIVE_ACTIVITY_SWEEP_SPEED_PX_PER_SECOND = 130
@@ -235,7 +196,6 @@ function initialTranscriptTurnLimit(source: AgentTranscriptPaneProps['source']) 
     : INITIAL_TRANSCRIPT_TURN_LIMIT
 }
 const TRANSCRIPT_LOAD_MORE_THRESHOLD = 72
-const TRANSCRIPT_BOTTOM_FOLLOW_THRESHOLD = 96
 
 function useLiveTranscriptSnapshot(targetText: string, holdGrowingSnapshot: boolean) {
   const [visibleText, setVisibleText] = useState(targetText)
@@ -385,172 +345,6 @@ function plainTextBlock(text: string) {
 
 function stripRawMemoryCitation(text: string) {
   return text.replace(/<oai-mem-citation>[\s\S]*?<\/oai-mem-citation>/g, '').trim()
-}
-
-function isExternalTranscriptHref(href: string) {
-  const trimmed = href.trim()
-  if (isTranscriptFileLineHref(trimmed)) return false
-  return /^[a-z][a-z\d+.-]*:/i.test(trimmed) || isBareDomainTranscriptHref(trimmed)
-}
-
-function isTranscriptFileLineHref(href: string) {
-  return Boolean(exactTranscriptPathTarget(href)?.lineNumber)
-}
-
-function isBareDomainTranscriptHref(href: string) {
-  return /^(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?[/?#].*$/i.test(href.trim())
-}
-
-function normalizeTranscriptHref(href: string) {
-  const trimmed = href.trim()
-  return isBareDomainTranscriptHref(trimmed) ? `https://${trimmed}` : href
-}
-
-const TRANSCRIPT_FILE_EXTENSIONS = new Set([
-  'c',
-  'cc',
-  'cpp',
-  'cxx',
-  'h',
-  'hh',
-  'hpp',
-  'hxx',
-  'go',
-  'java',
-  'js',
-  'jsx',
-  'ts',
-  'tsx',
-  'mjs',
-  'cjs',
-  'json',
-  'jsonl',
-  'py',
-  'rb',
-  'rs',
-  'sh',
-  'bash',
-  'zsh',
-  'sql',
-  'md',
-  'mdx',
-  'pdf',
-  'txt',
-  'xml',
-  'html',
-  'css',
-  'scss',
-  'less',
-  'yaml',
-  'yml',
-  'toml',
-  'ini',
-  'conf',
-  'gradle',
-  'kt',
-  'kts',
-  'scala',
-  'proto',
-  'swift',
-  'vue',
-  'svelte',
-  'svg',
-  'png',
-  'jpg',
-  'jpeg',
-  'gif',
-  'webp',
-])
-
-const TRANSCRIPT_SPECIAL_FILENAMES = new Set([
-  'BUILD',
-  'BUCK',
-  'Dockerfile',
-  'Makefile',
-  'WORKSPACE',
-])
-
-function stripCandidateLocationSuffix(text: string) {
-  return exactTranscriptPathTarget(text)?.path ?? text.replace(/:(\d+)(?::(\d+)(?:-(\d+))?)?$/, '')
-}
-
-function transcriptFileBasenameLooksValid(pathText: string) {
-  const basename = pathText.split(/[\\/]/).filter(Boolean).pop() || pathText
-  if (TRANSCRIPT_SPECIAL_FILENAMES.has(basename)) return true
-  const extensionMatch = basename.match(/\.([A-Za-z0-9+_-]+)$/)
-  if (!extensionMatch) return false
-  return TRANSCRIPT_FILE_EXTENSIONS.has((extensionMatch[1] || '').toLowerCase())
-}
-
-function safeDecodeTranscriptHref(text: string) {
-  try {
-    return decodeURI(text)
-  } catch {
-    return text
-  }
-}
-
-function exactTranscriptPathTarget(text: string) {
-  const decoded = safeDecodeTranscriptHref(text.trim())
-  const matches = collectTerminalPathLinkMatches(decoded)
-  const exact = matches.find(match => (
-    match.startIndex === 0 &&
-    match.length === decoded.length &&
-    match.pathTarget &&
-    transcriptFileBasenameLooksValid(match.pathTarget.path)
-  ))
-  return exact?.pathTarget ?? null
-}
-
-function transcriptFileTargetFromText(text: string, workspaceRoot?: string) {
-  const trimmed = text.trim()
-  if (!trimmed || trimmed.startsWith('#') || isBareDomainTranscriptHref(trimmed)) return null
-  const pathTarget = exactTranscriptPathTarget(trimmed)
-  if (!pathTarget) return null
-  const filePath = terminalTargetFilePath(pathTarget.path, workspaceRoot || '')
-  if (!filePath && !pathTarget.path.startsWith('/')) return null
-  const globalFilePath = !filePath && pathTarget.path.startsWith('/')
-    ? normalizeGlobalWorkspaceFilePath(pathTarget.path)
-    : ''
-  if (!filePath && !globalFilePath) return null
-  return {
-    filePath: filePath || globalFilePath,
-    target: {
-      ...(pathTarget.lineNumber
-        ? {
-            lineNumber: pathTarget.lineNumber,
-            column: pathTarget.column,
-            endColumn: pathTarget.endColumn,
-          }
-        : {}),
-      ...(!filePath && globalFilePath ? { globalRoot: true } : {}),
-    },
-  }
-}
-
-function transcriptImageFilePath(filePath: string) {
-  return /\.(?:gif|jpe?g|png|webp)$/i.test(filePath)
-}
-
-function hasQualifiedTranscriptFileReference(text: string) {
-  const trimmed = text.trim()
-  if (!trimmed) return false
-  const pathTarget = exactTranscriptPathTarget(trimmed)
-  if (!pathTarget) return false
-  const withoutLocation = pathTarget.path
-  return (
-    withoutLocation.startsWith('/') ||
-    withoutLocation.startsWith('~/') ||
-    withoutLocation.startsWith('./') ||
-    withoutLocation.startsWith('../') ||
-    withoutLocation.includes('/') ||
-    Boolean(pathTarget.lineNumber)
-  )
-}
-
-function fileReferenceDisplayText(filePath: string, lineNumber?: number) {
-  const basename = stripCandidateLocationSuffix(filePath.trim()).split(/[\\/]/).filter(Boolean).pop() || filePath.trim()
-  return lineNumber && lineNumber > 1 ? `${basename}:${lineNumber}` : basename
 }
 
 function agentTranscriptUrlTransform(value: string, key: string) {
@@ -1289,14 +1083,6 @@ function isProcessItemFailed(item: AgentTranscriptProcessItem) {
   return ['failed', 'rejected', 'cancelled', 'canceled'].includes(
     String(item.status || '').trim().toLowerCase(),
   ) || item.type === 'error'
-}
-
-function transcriptBottomDistance(element: HTMLElement) {
-  return element.scrollHeight - element.clientHeight - element.scrollTop
-}
-
-function isTranscriptNearBottom(element: HTMLElement) {
-  return transcriptBottomDistance(element) <= TRANSCRIPT_BOTTOM_FOLLOW_THRESHOLD
 }
 
 function hasTextSelectionWithin(element: HTMLElement) {
@@ -3698,12 +3484,11 @@ export function AgentTranscriptPane({
             setError('')
             setLoading(!hasAuthoritativeTurns)
             setLoadingOlder(false)
-            const retryDelay = ACP_TRANSCRIPT_UNSETTLED_RETRY_DELAYS_MS[unsettledRetryAttempt]
-              ?? (hasAuthoritativeTurns ? ACP_TRANSCRIPT_UNSETTLED_SLOW_RETRY_MS : undefined)
+            const retryDelay = acpTranscriptUnsettledRetryDelayMs(unsettledRetryAttempt, hasAuthoritativeTurns)
             if (retryDelay !== undefined) {
               unsettledRetryAttempt = Math.min(
                 unsettledRetryAttempt + 1,
-                ACP_TRANSCRIPT_UNSETTLED_RETRY_DELAYS_MS.length,
+                ACP_TRANSCRIPT_UNSETTLED_RETRY_LADDER_LENGTH,
               )
               retryTimer = window.setTimeout(load, retryDelay)
               return
@@ -3736,7 +3521,7 @@ export function AgentTranscriptPane({
         .catch(reason => {
           if (stopped || generation !== requestGeneration || reason?.name === 'AbortError') return
           const retryDelay = source === 'acp' && !responseReceived && reason instanceof TypeError
-            ? ACP_TRANSCRIPT_FETCH_RETRY_DELAYS_MS[retryAttempt]
+            ? acpTranscriptFetchRetryDelayMs(ACP_TRANSCRIPT_FETCH_RETRY_DELAYS_MS, retryAttempt)
             : undefined
           if (retryDelay !== undefined) {
             retryAttempt += 1
@@ -3774,10 +3559,7 @@ export function AgentTranscriptPane({
         refreshQueued = true
         return
       }
-      const delay = Math.max(
-        0,
-        ACP_TRANSCRIPT_REFRESH_COALESCE_MS - (performance.now() - lastLoadStartedAt),
-      )
+      const delay = acpTranscriptRefreshCoalesceDelayMs(performance.now() - lastLoadStartedAt)
       if (delay === 0) {
         load()
         return
