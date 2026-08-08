@@ -651,9 +651,24 @@ function canonicalAcpHomePath(provider: string, options: PrepareAgentOptions, en
   try {
     canonical = fs.realpathSync.native(resolved);
   } catch {
-    // A configured Agent Home may be created lazily by its provider.
+    // The binding must enter connecting synchronously. Its owned startup path
+    // creates and canonicalizes a missing Home before acquiring a process.
   }
   return process.platform === 'win32' ? canonical.toLowerCase() : canonical;
+}
+
+async function prepareAcpHomePath(provider: string, configured: string) {
+  if (!configured) return '';
+  try {
+    await fs.promises.mkdir(configured, { recursive: true, mode: 0o700 });
+    const canonical = await fs.promises.realpath(configured);
+    return process.platform === 'win32' ? canonical.toLowerCase() : canonical;
+  } catch (caught) {
+    throw new Error(
+      `Failed to prepare ${provider} Agent Home ${configured}: ${caught instanceof Error ? caught.message : caught}`,
+      { cause: caught },
+    );
+  }
 }
 
 async function canonicalAcpProjectPath(options: PrepareAgentOptions, cwd: string) {
@@ -1699,6 +1714,12 @@ class AcpRuntime extends EventEmitter {
 
     try {
       binding.projectPath = await canonicalAcpProjectPath(options, cwd);
+      this.requireOpenBinding(binding);
+      binding.providerHomeIdentity = await prepareAcpHomePath(provider, binding.providerHomeIdentity);
+      if (binding.providerHomePath) {
+        binding.providerHomePath = binding.providerHomeIdentity;
+        binding.restartOptions.providerHomePath = binding.providerHomePath;
+      }
       this.requireOpenBinding(binding);
       const runtime = await this.acquireRuntimeProcess(binding, options);
       this.requireOpenBinding(binding);

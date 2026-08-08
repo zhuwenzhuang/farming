@@ -52,6 +52,9 @@ Session ID、配置、权限、身份、MCP Scope、Active Turn 与 Recovery Sta
 Host 内，一个 Provider Session 在全部 Project Pool 中最多只有一个 Live Owner。关闭或删除
 一个 Session 不能停止同 Pool 的无关 Session。共享 Runtime 失败时必须对账全部受影响
 Session，且绝不重放结果不明确的 Prompt。
+Session 进入 `connecting` 后、Farming 获取 Provider Process 前，会在所选 Agent Home 不存在
+时创建它，并解析其 Canonical Identity。Home 准备失败会成为显式 Session Failure，绝不
+Fallback 到其它 Home 或 Executable。
 Codex、Claude、OpenCode、Qoder 与 Qwen 都使用该 Connection 边界。与 Zed 一致，只有
 Provider 明确声明 `session/close` Capability 时才发送关闭请求；否则 Farming 只释放本地
 Session 引用，并在 Project Connection 的最后一个 Session 结束时回收 Provider Process。

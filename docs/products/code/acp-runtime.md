@@ -69,6 +69,10 @@ scope, active Turn, and recovery state. Within one Runtime Host, a Provider
 Session has at most one live owner across all Project pools. Closing or deleting
 one Session must not stop unrelated Sessions in the same pool. A pooled runtime
 failure reconciles every affected Session and never replays an uncertain Prompt.
+After the Session enters `connecting` and before Farming acquires a Provider
+process, it creates the selected Agent Home when missing and resolves its
+canonical identity. A Home preparation failure becomes an explicit Session
+failure and never falls back to another Home or executable.
 Codex, Claude, OpenCode, Qoder, and Qwen use this connection boundary. As in
 Zed, Session release sends `session/close` only when the Provider advertises
 that capability; otherwise Farming releases its local Session reference and the

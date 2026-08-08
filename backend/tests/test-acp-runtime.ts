@@ -192,6 +192,55 @@ async function run() {
   );
   await stalePrepareRuntime.dispose();
 
+  const missingHomeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-acp-missing-home-'));
+  const missingHome = path.join(missingHomeRoot, 'nested', '.codex');
+  const missingHomeRuntime = new AcpRuntime({
+    resolveLaunch() {
+      return {
+        command: process.execPath,
+        args: ['-e', "process.stdin.resume(); process.stdin.on('end', () => process.exit(0))"],
+        version: 'missing-home-test',
+      };
+    },
+    async createConnection() {
+      let resolveClosed;
+      const signal = { aborted: false };
+      return {
+        signal,
+        closed: new Promise(resolve => { resolveClosed = resolve; }),
+        async initialize() {
+          return {
+            protocolVersion: 1,
+            agentCapabilities: { sessionCapabilities: {} },
+            agentInfo: { name: 'missing-home-test', version: '1' },
+          };
+        },
+        async newSession() { return { sessionId: 'missing-home-session' }; },
+        async prompt() { return { stopReason: 'end_turn' }; },
+        async cancel() { return {}; },
+        close() {
+          signal.aborted = true;
+          resolveClosed();
+        },
+      };
+    },
+  });
+  try {
+    await missingHomeRuntime.prepareAgent({
+      agentId: 'missing-home-agent',
+      provider: 'codex',
+      providerHomeId: 'default',
+      providerHomePath: missingHome,
+      cwd: process.cwd(),
+      env: { ...process.env, CODEX_HOME: missingHome },
+    });
+    assert.strictEqual(fs.statSync(missingHome).isDirectory(), true);
+    assert.strictEqual(missingHomeRuntime.bindings.get('missing-home-agent').providerHomePath, fs.realpathSync(missingHome));
+  } finally {
+    await missingHomeRuntime.dispose();
+    fs.rmSync(missingHomeRoot, { recursive: true, force: true });
+  }
+
   const sharedHome = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-acp-shared-home-'));
   const sharedChildren = [];
   const sharedProcessIdentities = [];
