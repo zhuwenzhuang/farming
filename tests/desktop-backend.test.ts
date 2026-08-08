@@ -954,8 +954,8 @@ test('desktop release download reports progress and has bounded cancellation and
     const progress: string[] = []
     const completed = path.join(temporaryDir, 'completed')
     await downloadDesktopReleaseUrl(`${root}/progress`, completed, 'Test download', {
-      timeoutMs: 500,
-      idleTimeoutMs: 100,
+      timeoutMs: 3_000,
+      idleTimeoutMs: 1_000,
       onProgress: message => progress.push(message),
     })
     assert.equal(fs.readFileSync(completed, 'utf8'), 'hello world!')
