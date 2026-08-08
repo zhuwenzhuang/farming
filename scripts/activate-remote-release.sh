@@ -384,13 +384,16 @@ fi
 if [ -z "${START_FAILURE:-}" ]; then
   mkdir -p "${SMOKE_WORKSPACE}"
   if command -v git >/dev/null 2>&1; then git -C "${SMOKE_WORKSPACE}" init -q; fi
-  TOKEN_FILE="${CONFIG_DIR}/.session-token"
-  if [ "${DISABLE_AUTH}" = "1" ]; then TOKEN_FILE=""; fi
+  SMOKE_ARGS=(
+    --base-url "http://127.0.0.1:${APP_PORT}${BASE_PATH}"
+    --workspace "${SMOKE_WORKSPACE}"
+    --agent "${SMOKE_AGENT}"
+  )
+  if [ "${DISABLE_AUTH}" != "1" ]; then
+    SMOKE_ARGS+=(--token-file "${CONFIG_DIR}/.session-token")
+  fi
   if ! run_node "${IMAGE_ROOT}" "${IMAGE_ROOT}/scripts/smoke-deployed-server.mjs" \
-    --base-url "http://127.0.0.1:${APP_PORT}${BASE_PATH}" \
-    --token-file "${TOKEN_FILE}" \
-    --workspace "${SMOKE_WORKSPACE}" \
-    --agent "${SMOKE_AGENT}"; then
+    "${SMOKE_ARGS[@]}"; then
     START_FAILURE="New Farming image failed the HTTP, WebSocket, PTY, or ACP deployment smoke."
   fi
 fi

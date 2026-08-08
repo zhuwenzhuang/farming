@@ -83,6 +83,8 @@ function run() {
       activateSource.includes('switch_current "${IMAGE_ROOT}"') &&
       activateSource.includes('The previous image was restored.') &&
       activateSource.includes('smoke-deployed-server.mjs') &&
+      activateSource.includes('SMOKE_ARGS+=(--token-file "${CONFIG_DIR}/.session-token")') &&
+      !activateSource.includes('--token-file "${TOKEN_FILE}"') &&
       activateSource.indexOf('runtime prepare --config-dir "${CONFIG_DIR}" --no-activate')
         < activateSource.indexOf('stop_server "${IMAGE_ROOT}" "${IMAGE_ROOT}"'),
     'remote activation should lock, preflight, atomically select, smoke, and roll back immutable images',
@@ -114,7 +116,7 @@ function run() {
   );
 
   assert(
-    activateSource.includes('TOKEN_FILE="${CONFIG_DIR}/.session-token"') &&
+    activateSource.includes('SMOKE_ARGS+=(--token-file "${CONFIG_DIR}/.session-token")') &&
       !activateSource.includes('cat "${CONFIG_DIR}/.session-token"') &&
       !deploySource.includes('FARMING_REMOTE_TOKEN'),
     'deployment smoke should consume the persisted token file without transporting or printing the secret',

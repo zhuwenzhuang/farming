@@ -59,7 +59,10 @@ process.exit(1);
 `);
   fs.writeFileSync(
     path.join(bundleRoot, 'scripts', 'smoke-deployed-server.mjs'),
-    `process.exit(${options.smokeExitCode || 0})\n`,
+    `const args = process.argv.slice(2)
+const tokenIndex = args.indexOf('--token-file')
+if (tokenIndex >= 0 && !args[tokenIndex + 1]) process.exit(98)
+process.exit(${options.smokeExitCode || 0})\n`,
   );
   const archive = path.join(root, `artifact-${options.gitSha.slice(0, 8)}.tar.gz`);
   const packed = spawnSync('tar', ['-czf', archive, '-C', root, path.basename(bundleRoot)], {
