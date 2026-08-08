@@ -180,6 +180,23 @@ import { commitAgentOrderTransaction } from './agent-order-transaction.cjs';
 import { buildInteractiveAgentBaseEnv, normalizeInteractiveTerminalEnv, resolveUserShellEnvSync } from './agent-env.cjs';
 import { inspectGitWorktree, invalidateGitWorktreeInfoCache } from './git-worktree-info.cjs';
 import { AgentWorktreeRefreshQueue } from './agent-worktree-refresh-queue.cjs';
+import {
+  AGENT_USAGE_RATE_REFRESH_MS,
+  AGENT_USAGE_RATE_WINDOW_MS,
+  agentUsageRateWindowMs,
+  projectAgentUsageRate,
+  recordTerminalOutputActivity,
+  terminalOutputActivityTotals,
+} from './agent-usage-rate.cjs';
+import type {
+  AgentUsageRate,
+  TerminalOutputActivityBucket,
+  UsageRateOptions,
+} from './agent-usage-rate.cjs';
+import {
+  AgentAttentionTracker,
+  agentAttentionUnread,
+} from './agent-attention.cjs';
 import { deserializeTerminalState } from './terminal-state-serialization.cjs';
 import type { TranscriptBuildOptions } from './codex-transcript.cjs';
 import { compareNativePtyRuntimeEpochs } from './native-pty-controller-generation.cjs';
@@ -413,116 +430,6 @@ interface AdaptiveTitlePersistenceEntry {
   runtimeEpoch: string;
 }
 
-interface TerminalOutputActivityBucket {
-  bucketStartedAt: number;
-  bytes: number;
-  eventCount: number;
-  firstEventAt: number;
-  lastEventAt: number;
-}
-
-interface UsageRateOptions {
-  now?: number;
-  windowMs?: number;
-}
-
-interface AgentUsageRate {
-  estimatedOutputTokens: number;
-  estimatedTokensPerMinute: number;
-  eventCount: number;
-  outputBytes: number;
-  sampledAt: number;
-  source: string;
-  windowMs: number;
-}
-
-function terminalOutputActivityTotals(
-  buckets: TerminalOutputActivityBucket[],
-  options: {
-    cutoff: number;
-    inclusiveCutoff?: boolean;
-    maximumEventAt?: number;
-  },
-): { bytes: number; eventCount: number } {
-  const maximumEventAt = options.maximumEventAt ?? Number.POSITIVE_INFINITY;
-  const inclusiveCutoff = options.inclusiveCutoff !== false;
-  let bytes = 0;
-  let eventCount = 0;
-  for (const bucket of buckets) {
-    const beforeCutoff = inclusiveCutoff
-      ? bucket.lastEventAt < options.cutoff
-      : bucket.lastEventAt <= options.cutoff;
-    if (beforeCutoff || bucket.firstEventAt > maximumEventAt) continue;
-    bytes += Math.max(0, bucket.bytes || 0);
-    eventCount += Math.max(0, bucket.eventCount || 0);
-  }
-  return { bytes, eventCount };
-}
-
-function recordTerminalOutputActivity(
-  buckets: TerminalOutputActivityBucket[],
-  timestamp: number,
-  bytes: number,
-): void {
-  const observedAt = Date.now();
-  const requestedEventAt = Number.isFinite(timestamp) ? Math.floor(timestamp) : observedAt;
-  const eventAt = Math.min(
-    requestedEventAt,
-    observedAt + TERMINAL_OUTPUT_ACTIVITY_FUTURE_TOLERANCE_MS,
-  );
-  const outputBytes = Number.isFinite(bytes) ? Math.max(0, Math.floor(bytes)) : 0;
-  const bucketStartedAt = Math.floor(eventAt / TERMINAL_OUTPUT_ACTIVITY_BUCKET_MS)
-    * TERMINAL_OUTPUT_ACTIVITY_BUCKET_MS;
-  const lastBucket = buckets.at(-1);
-  let bucket = lastBucket?.bucketStartedAt === bucketStartedAt ? lastBucket : undefined;
-  let insertionIndex = buckets.length;
-  if (!bucket && lastBucket && bucketStartedAt < lastBucket.bucketStartedAt) {
-    for (let index = buckets.length - 1; index >= 0; index -= 1) {
-      const candidate = buckets[index];
-      if (candidate.bucketStartedAt === bucketStartedAt) {
-        bucket = candidate;
-        break;
-      }
-      if (candidate.bucketStartedAt < bucketStartedAt) {
-        insertionIndex = index + 1;
-        break;
-      }
-      insertionIndex = index;
-    }
-  }
-  if (!bucket) {
-    bucket = {
-      bucketStartedAt,
-      bytes: 0,
-      eventCount: 0,
-      firstEventAt: eventAt,
-      lastEventAt: eventAt,
-    };
-    if (!lastBucket || bucketStartedAt > lastBucket.bucketStartedAt) {
-      buckets.push(bucket);
-    } else {
-      buckets.splice(insertionIndex, 0, bucket);
-    }
-  }
-  bucket.bytes += outputBytes;
-  bucket.eventCount += 1;
-  bucket.firstEventAt = Math.min(bucket.firstEventAt, eventAt);
-  bucket.lastEventAt = Math.max(bucket.lastEventAt, eventAt);
-
-  const newestEventAt = Math.max(eventAt, buckets.at(-1)?.lastEventAt || eventAt);
-  const retentionCutoff = newestEventAt
-    - AGENT_USAGE_RATE_WINDOW_MS
-    - TERMINAL_OUTPUT_ACTIVITY_BUCKET_MS
-    - TERMINAL_OUTPUT_ACTIVITY_FUTURE_TOLERANCE_MS;
-  while (buckets[0] && buckets[0].lastEventAt < retentionCutoff) buckets.shift();
-}
-
-function agentUsageRateWindowMs(value: unknown): number {
-  const requested = Number(value);
-  if (!Number.isFinite(requested) || requested <= 0) return AGENT_USAGE_RATE_WINDOW_MS;
-  return Math.min(AGENT_USAGE_RATE_WINDOW_MS, Math.max(1, Math.floor(requested)));
-}
-
 export interface AgentPublicState extends UnknownRecord {
   id: AgentId;
 }
@@ -657,10 +564,6 @@ interface TerminalSize {
 }
 
 const SESSION_OUTPUT_LIMIT = 10000;
-const AGENT_USAGE_RATE_WINDOW_MS = 5 * 60 * 1000;
-const AGENT_USAGE_RATE_REFRESH_MS = 5 * 1000;
-const TERMINAL_OUTPUT_ACTIVITY_BUCKET_MS = 1000;
-const TERMINAL_OUTPUT_ACTIVITY_FUTURE_TOLERANCE_MS = 1000;
 const ACTIVITY_UPDATE_INTERVAL_MS = 1000;
 const ACTIVITY_HOT_SEC = 30 * 60;
 const ACTIVITY_WARM_SEC = 3 * 60 * 60;
@@ -681,7 +584,6 @@ const WORKTREE_DELETE_START_DRAIN_TIMEOUT_MS = 30_000;
 const CODEX_TERMINAL_START_READY_POLL_MS = 50;
 const CODEX_TERMINAL_START_OUTPUT_LIMIT = 64 * 1024;
 const TERMINAL_NOTIFICATION_COMPLETION_SUPPRESS_MS = 10_000;
-const QWEN_TERMINAL_IDLE_STABILITY_MS = 3_000;
 const ACP_ATTENTION_STOP_REASONS = new Set([
   'end_turn',
   'max_tokens',
@@ -1217,31 +1119,10 @@ function deriveAgentTerminalStatus(agent: TypedAgentRecord, overrides: TerminalS
   });
 }
 
-function agentAttentionUnread(agent: TypedAgentRecord) {
-  return finiteNonNegativeInteger(agent && agent.attentionSeq) > finiteNonNegativeInteger(agent && agent.readAttentionSeq);
-}
-
 function setAgentRecordId(agent: TypedAgentRecord, agentRecordId: unknown) {
   if (!agent || typeof agentRecordId !== 'string' || !agentRecordId) return;
   agent.agentRecordId = agentRecordId;
   agent.persistentSessionId = agentRecordId;
-}
-
-function hasAgentOutputAfterAttentionBaseline(agent: TypedAgentRecord) {
-  if (!agent || agent.attentionRequiresNewOutput !== true) return true;
-  const baselineSeq = finiteNumberOrNull(agent.attentionBaselineOutputSeq);
-  const lastOutputSeq = finiteNumberOrNull(agent.lastOutputSeq);
-  if (baselineSeq !== null && lastOutputSeq !== null) {
-    return lastOutputSeq > baselineSeq;
-  }
-
-  const baselineAt = finiteNumberOrNull(agent.attentionBaselineOutputAt);
-  const lastOutputAt = finiteNumberOrNull(agent.lastEngineOutputAt);
-  if (baselineAt !== null && lastOutputAt !== null) {
-    return lastOutputAt > baselineAt;
-  }
-
-  return false;
 }
 
 function shouldRestoreAgentFromMetadata(record: TypedAgentRecord, mainPageSessionKeys: ReadonlySet<string>) {
@@ -1543,7 +1424,7 @@ class AgentManager extends EventEmitter {
   declare acpFinalizedTurns: Map<string, string>;
   declare acpTurnFinalizationTails: Map<string, Promise<void>>;
   declare activeAcpTurnFinalizations: Set<Promise<void>>;
-  declare qwenTerminalIdleCandidates: Map<AgentId, ReturnType<typeof setTimeout>>;
+  declare attentionTracker: AgentAttentionTracker;
   declare acpSessionOptionsByKey: Map<string, AcpSessionOptionsRecord>;
   declare acpPreparedTranscriptCache: AcpPreparedTranscriptCache;
   declare acpTranscriptReads: Map<string, Promise<{ payload?: UnknownRecord; serialized?: string }>>;
@@ -1647,7 +1528,24 @@ class AgentManager extends EventEmitter {
     this.acpFinalizedTurns = new Map();
     this.acpTurnFinalizationTails = new Map();
     this.activeAcpTurnFinalizations = new Set();
-    this.qwenTerminalIdleCandidates = new Map();
+    this.attentionTracker = new AgentAttentionTracker({
+      getAgent: (agentId: AgentId) => this.agents.get(agentId),
+      isDisposed: () => this.disposed,
+      isMainAgent: (agentId: AgentId, agent: TypedAgentRecord) => (
+        this.isMainAgentRecord(agentId, agent)
+      ),
+      isTurnActive: (agent: TypedAgentRecord) => this.isAgentAttentionTurnActive(agent),
+      persistAgent: (agent: TypedAgentRecord) => {
+        this.ensurePersistentAgentSession(agent);
+      },
+      providerForAgent: (agent: TypedAgentRecord) => this.agentAttentionProvider(agent),
+      publishReadState: payload => {
+        this.emit('agent-read', payload);
+      },
+      updateProviderMetadata: (agent: TypedAgentRecord) => {
+        this.updateEngineProviderSessionMetadata(agent);
+      },
+    });
     // Standard ACP session inputs may contain MCP credentials. Keep the live
     // copy outside browser-facing Agent records; crash recovery persists it
     // only through the private Farming session store.
@@ -2475,7 +2373,7 @@ class AgentManager extends EventEmitter {
         provider === 'qwen'
         && (
           this.isAgentAttentionTurnActive(agent)
-          || this.qwenTerminalIdleCandidates.has(agent.id)
+          || this.attentionTracker.hasQwenTerminalIdleCandidate(agent.id)
         )
       ) {
         agent.pendingTerminalNotificationSummary = summary;
@@ -4341,107 +4239,19 @@ class AgentManager extends EventEmitter {
   }
 
   cancelQwenTerminalIdleCandidate(agentId: AgentId) {
-    const candidate = this.qwenTerminalIdleCandidates.get(agentId);
-    if (!candidate) return false;
-    clearTimeout(candidate);
-    this.qwenTerminalIdleCandidates.delete(agentId);
-    return true;
+    return this.attentionTracker.cancelQwenTerminalIdleCandidate(agentId);
   }
 
   scheduleQwenTerminalIdleCandidate(agent: TypedAgentRecord) {
-    if (this.qwenTerminalIdleCandidates.has(agent.id)) return;
-    const runtimeEpoch = agent.runtimeEpoch;
-    const candidate = setTimeout(() => {
-      if (this.qwenTerminalIdleCandidates.get(agent.id) !== candidate) return;
-      this.qwenTerminalIdleCandidates.delete(agent.id);
-      const current = this.agents.get(agent.id);
-      if (
-        this.disposed
-        || current !== agent
-        || current.runtimeEpoch !== runtimeEpoch
-        || this.agentAttentionProvider(current) !== 'qwen'
-        || current.lastObservedTurnActive === true
-        || this.isAgentAttentionTurnActive(current)
-      ) {
-        return;
-      }
-      this.completeAgentAttentionTransition(current);
-    }, QWEN_TERMINAL_IDLE_STABILITY_MS);
-    candidate.unref?.();
-    this.qwenTerminalIdleCandidates.set(agent.id, candidate);
+    this.attentionTracker.scheduleQwenTerminalIdleCandidate(agent);
   }
 
   completeAgentAttentionTransition(agent: TypedAgentRecord) {
-    const pendingTerminalNotificationSummary = agent.pendingTerminalNotificationSummary;
-    delete agent.pendingTerminalNotificationSummary;
-    if (typeof pendingTerminalNotificationSummary === 'string') {
-      if (!hasAgentOutputAfterAttentionBaseline(agent)) {
-        return false;
-      }
-      agent.attentionRequiresNewOutput = false;
-      agent.attentionSummary = pendingTerminalNotificationSummary;
-      this.recordAgentAttentionEvent(agent, 'terminal-notification');
-      return true;
-    }
-    const terminalNotificationUntil = finiteNumberOrNull(agent.terminalNotificationAttentionUntil);
-    delete agent.terminalNotificationAttentionUntil;
-    if (terminalNotificationUntil !== null && terminalNotificationUntil >= Date.now()) {
-      agent.attentionRequiresNewOutput = false;
-      return false;
-    }
-    if (!hasAgentOutputAfterAttentionBaseline(agent)) {
-      return false;
-    }
-    agent.attentionRequiresNewOutput = false;
-    if (isEphemeralShellAgent(agent)) {
-      return false;
-    }
-    const reason = agent.status === 'stopped' || agent.status === 'dead'
-      ? 'process-exit'
-      : 'turn-complete';
-    this.recordAgentAttentionEvent(agent, reason);
-    return true;
+    return this.attentionTracker.completeAgentAttentionTransition(agent);
   }
 
   observeAgentAttentionState(agentId: AgentId) {
-    const agent = this.agents.get(agentId);
-    if (!agent) return false;
-
-    // Older releases turned every interactive shell busy→idle transition into
-    // unread attention.  Keep deliberate manual unread marks, but retire those
-    // persisted automatic shell events as soon as their Agent is observed.
-    if (
-      isEphemeralShellAgent(agent)
-      && agent.unread === true
-      && (agent.attentionReason === 'turn-complete' || agent.attentionReason === 'process-exit')
-    ) {
-      this.markAgentReadCursor(agent.id, finiteNonNegativeInteger(agent.attentionSeq));
-    }
-
-    const turnActive = this.isAgentAttentionTurnActive(agent);
-    if (agent.attentionTrackingReady !== true) {
-      agent.lastObservedTurnActive = turnActive;
-      agent.attentionTrackingReady = true;
-      return false;
-    }
-
-    const wasTurnActive = agent.lastObservedTurnActive === true;
-    agent.lastObservedTurnActive = turnActive;
-    const provider = this.agentAttentionProvider(agent);
-
-    if (turnActive && provider === 'qwen') {
-      this.cancelQwenTerminalIdleCandidate(agent.id);
-    }
-
-    if (wasTurnActive && !turnActive) {
-      if (provider === 'qwen' && agent.status === 'running') {
-        this.scheduleQwenTerminalIdleCandidate(agent);
-        return false;
-      }
-      return this.completeAgentAttentionTransition(agent);
-    }
-
-    return false;
+    return this.attentionTracker.observeAgentAttentionState(agentId);
   }
 
   recordAgentAttentionEvent(
@@ -4449,71 +4259,11 @@ class AgentManager extends EventEmitter {
     reason: string = 'turn-complete',
     options: { persist?: boolean; publish?: boolean } = {},
   ) {
-    if (!agent || this.isMainAgentRecord(agent.id, agent)) return null;
-    const now = Date.now();
-    const nextSeq = finiteNonNegativeInteger(agent.attentionSeq) + 1;
-    agent.attentionSeq = nextSeq;
-    agent.attentionUpdatedAt = now;
-    agent.attentionReason = reason;
-    agent.attentionOutputEpoch = typeof agent.runtimeEpoch === 'string' ? agent.runtimeEpoch : '';
-    const attentionOutputSeq = Number.isFinite(agent.lastOutputSeq)
-      ? Number(agent.lastOutputSeq)
-      : null;
-    agent.attentionOutputSeq = attentionOutputSeq;
-    const attentionOutputAlreadyRead = Boolean(
-      agent.attentionOutputEpoch
-      && agent.attentionOutputEpoch === agent.readOutputEpoch
-      && attentionOutputSeq !== null
-      && Number.isFinite(agent.readOutputSeq)
-      && attentionOutputSeq <= Number(agent.readOutputSeq)
-    );
-    if (agent.attentionAutoReadNext === true || attentionOutputAlreadyRead) {
-      agent.attentionAutoReadNext = false;
-      agent.readAttentionSeq = nextSeq;
-      agent.readAttentionAt = now;
-    }
-    agent.unread = agentAttentionUnread(agent);
-    if (options.persist !== false) this.ensurePersistentAgentSession(agent);
-    if (options.publish !== false) {
-      this.updateEngineProviderSessionMetadata(agent);
-      this.emitAgentReadState(agent);
-    }
-    return {
-      agentId: agent.id,
-      attentionSeq: agent.attentionSeq,
-      readAttentionSeq: finiteNonNegativeInteger(agent.readAttentionSeq),
-      unread: agent.unread,
-    };
+    return this.attentionTracker.recordAgentAttentionEvent(agent, reason, options);
   }
 
   markAgentReadCursor(agentId: AgentId, readAttentionSeq?: number, options: UnknownRecord = {}) {
-    const agent = this.agents.get(agentId);
-    if (!agent) {
-      return { error: 'Agent not found' };
-    }
-
-    const attentionSeq = finiteNonNegativeInteger(agent.attentionSeq);
-    const requestedSeq = Number.isFinite(readAttentionSeq)
-      ? finiteNonNegativeInteger(readAttentionSeq)
-      : attentionSeq;
-    const nextReadSeq = Math.min(attentionSeq, Math.max(finiteNonNegativeInteger(agent.readAttentionSeq), requestedSeq));
-    const changed = finiteNonNegativeInteger(agent.readAttentionSeq) !== nextReadSeq || agent.unread === true;
-
-    agent.readAttentionSeq = nextReadSeq;
-    agent.readAttentionAt = Date.now();
-    agent.unread = agentAttentionUnread(agent);
-    if (changed) {
-      this.ensurePersistentAgentSession(agent);
-      this.updateEngineProviderSessionMetadata(agent);
-      if (options.emitUpdate !== false) this.emitAgentReadState(agent);
-    }
-    return {
-      agentId,
-      attentionSeq,
-      readAttentionSeq: agent.readAttentionSeq,
-      unread: agent.unread,
-      changed,
-    };
+    return this.attentionTracker.markAgentReadCursor(agentId, readAttentionSeq, options);
   }
 
   markAgentReadOutputCut(agentId: AgentId, runtimeEpoch: string, outputSeq: number) {
@@ -4559,53 +4309,11 @@ class AgentManager extends EventEmitter {
   }
 
   markAgentUnreadCursor(agentId: AgentId) {
-    const agent = this.agents.get(agentId);
-    if (!agent) {
-      return { error: 'Agent not found' };
-    }
-
-    let changed = false;
-    if (finiteNonNegativeInteger(agent.attentionSeq) === 0) {
-      this.recordAgentAttentionEvent(agent, 'manual-unread');
-      changed = true;
-    }
-    const attentionSeq = finiteNonNegativeInteger(agent.attentionSeq);
-    const nextReadAttentionSeq = Math.max(0, attentionSeq - 1);
-    changed = changed ||
-      finiteNonNegativeInteger(agent.readAttentionSeq) !== nextReadAttentionSeq ||
-      agent.unread !== true;
-    if (changed) {
-      agent.readAttentionSeq = nextReadAttentionSeq;
-      agent.readAttentionAt = Date.now();
-      agent.unread = agentAttentionUnread(agent);
-      this.ensurePersistentAgentSession(agent);
-      this.updateEngineProviderSessionMetadata(agent);
-      this.emitAgentReadState(agent);
-    }
-    return {
-      agentId,
-      attentionSeq: agent.attentionSeq,
-      readAttentionSeq: agent.readAttentionSeq,
-      unread: agent.unread,
-      changed,
-    };
+    return this.attentionTracker.markAgentUnreadCursor(agentId);
   }
 
   emitAgentReadState(agent: TypedAgentRecord) {
-    this.emit('agent-read', {
-      agentId: agent.id,
-      unread: agent.unread === true,
-      attentionSeq: finiteNonNegativeInteger(agent.attentionSeq),
-      readAttentionSeq: finiteNonNegativeInteger(agent.readAttentionSeq),
-      attentionUpdatedAt: finiteNumberOrNull(agent.attentionUpdatedAt),
-      readAttentionAt: finiteNumberOrNull(agent.readAttentionAt),
-      attentionReason: typeof agent.attentionReason === 'string' ? agent.attentionReason : '',
-      attentionSummary: typeof agent.attentionSummary === 'string' ? agent.attentionSummary : '',
-      attentionOutputEpoch: typeof agent.attentionOutputEpoch === 'string' ? agent.attentionOutputEpoch : '',
-      attentionOutputSeq: finiteNumberOrNull(agent.attentionOutputSeq),
-      readOutputEpoch: typeof agent.readOutputEpoch === 'string' ? agent.readOutputEpoch : '',
-      readOutputSeq: finiteNumberOrNull(agent.readOutputSeq),
-    });
+    this.attentionTracker.emitAgentReadState(agent);
   }
 
   async refreshAgentWorktree(agentId: AgentId, workspaceCandidate: unknown = ''): Promise<boolean> {
@@ -5093,8 +4801,7 @@ class AgentManager extends EventEmitter {
     this.adaptiveTitlePersistenceEntries.clear();
     this.activeAcpTurnFinalizations.clear();
     this.acpSessionOptionsByKey.clear();
-    for (const candidate of this.qwenTerminalIdleCandidates.values()) clearTimeout(candidate);
-    this.qwenTerminalIdleCandidates.clear();
+    this.attentionTracker.cancelAllQwenTerminalIdleCandidates();
     this.disposed = true;
   }
 
@@ -11216,37 +10923,16 @@ class AgentManager extends EventEmitter {
   calculateAgentUsageRate(agentId: AgentId, options: UsageRateOptions = {}): AgentUsageRate {
     const now = options.now || Date.now();
     const windowMs = agentUsageRateWindowMs(options.windowMs);
-    const cutoff = now - windowMs;
-    const retentionCutoff = now - AGENT_USAGE_RATE_WINDOW_MS;
-    const buckets = (this.outputActivityBuckets.get(agentId) || []).filter((bucket) => (
-      bucket.lastEventAt >= retentionCutoff
-      && bucket.firstEventAt <= now + TERMINAL_OUTPUT_ACTIVITY_FUTURE_TOLERANCE_MS
-    ));
-    if (buckets.length > 0) {
-      this.outputActivityBuckets.set(agentId, buckets);
+    const projection = projectAgentUsageRate(
+      this.outputActivityBuckets.get(agentId) || [],
+      { now, windowMs },
+    );
+    if (projection.retainedBuckets.length > 0) {
+      this.outputActivityBuckets.set(agentId, projection.retainedBuckets);
     } else {
       this.outputActivityBuckets.delete(agentId);
     }
-    const activity = terminalOutputActivityTotals(
-      buckets,
-      {
-        cutoff,
-        maximumEventAt: now + TERMINAL_OUTPUT_ACTIVITY_FUTURE_TOLERANCE_MS,
-      },
-    );
-    const outputBytes = activity.bytes;
-    const estimatedOutputTokens = Math.ceil(outputBytes / 4);
-    const windowMinutes = Math.max(1, windowMs / 60_000);
-
-    return {
-      windowMs,
-      outputBytes,
-      estimatedOutputTokens,
-      estimatedTokensPerMinute: Math.round((estimatedOutputTokens / windowMinutes) * 10) / 10,
-      eventCount: activity.eventCount,
-      sampledAt: now,
-      source: 'terminal-output-estimate',
-    };
+    return projection.value;
   }
 
   getAgentUsageSnapshots(options: UsageRateOptions = {}) {
