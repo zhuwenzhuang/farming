@@ -7,7 +7,7 @@ import type { ForkMode, KillAgentResult } from './agent-manager-lifecycle-types.
 import type { AcpConfigValue } from './agent-manager-provider-types.js';
 import type { AgentRecord, ProjectMembershipPatch } from './agent-manager-record-types.js';
 
-type ServerClientMessage = ClientMessage & Record<string, unknown>;
+type ServerClientMessage = ClientMessage;
 
 interface ServerRecord {
   [key: string]: unknown;
@@ -3773,8 +3773,10 @@ function handleMessage(ws: WebSocketClient, data: ServerClientMessage) {
       restartMainAgent(ws, data.command);
       break;
       
-    default:
-      console.log('Unknown message type');
+    default: {
+      const unhandledMessage: never = data;
+      console.log('Unknown message type', unhandledMessage);
+    }
   }
 }
 
