@@ -23,6 +23,8 @@ of the artifact or repository configuration.
 - The local builder owns artifact construction and verification.
 - The operator may select an explicit Docker context and npm registry for the
   local builder; deployment never infers or changes another engine's lifecycle.
+- The local builder caches checksum-pinned compatibility runtime inputs outside
+  the artifact output; every reuse is revalidated before packaging.
 - The canonical Config directory owns Server, authentication, Agent, PTY, ACP,
   Browser, and Computer state.
 - The deployment root beside the configured install path owns immutable images,

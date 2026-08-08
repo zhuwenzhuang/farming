@@ -18,6 +18,8 @@ Artifact 明确记录完整 Git SHA、平台、架构、兼容运行时、包内
 
 - 本地 builder 拥有 artifact 构建与验证。操作者可以显式选择 Docker context
   和 npm registry；部署不会推断或改变其他容器引擎的生命周期。
+- 本地 builder 在 artifact 输出之外缓存 checksum 固定的兼容 runtime 输入；每次
+  复用前都重新校验。
 - 规范化 Config 目录拥有 Server、认证、Agent、PTY、ACP、Browser 和 Computer 状态。
 - 配置安装路径旁边的部署根目录拥有不可变 image、staging、部署锁和回滚选择。
 - 配置安装路径是一个 symlink，只决定后续启动选择哪个 image。运行中的 Server 始终

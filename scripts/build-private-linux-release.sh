@@ -85,7 +85,8 @@ case "${OUTPUT_DIR}" in
   /*) ;;
   *) OUTPUT_DIR="${PROJECT_ROOT}/${OUTPUT_DIR}" ;;
 esac
-mkdir -p "${OUTPUT_DIR}" "${PROJECT_ROOT}/.tmp/deploy-npm-cache"
+RUNTIME_CACHE_DIR="${PROJECT_ROOT}/.tmp/deploy-runtime-cache"
+mkdir -p "${OUTPUT_DIR}" "${PROJECT_ROOT}/.tmp/deploy-npm-cache" "${RUNTIME_CACHE_DIR}"
 
 WORKTREE_ROOT="$(mktemp -d "${PROJECT_ROOT}/.tmp/private-release-worktree.XXXXXX")"
 WORKTREE_DIR="${WORKTREE_ROOT}/source"
@@ -105,6 +106,7 @@ docker "${DOCKER_ARGS[@]}" run --rm --platform linux/amd64 \
   --mount "type=bind,source=${GIT_COMMON_DIR},target=${GIT_COMMON_DIR},readonly" \
   --mount "type=bind,source=${OUTPUT_DIR},target=/output" \
   --mount "type=bind,source=${PROJECT_ROOT}/.tmp/deploy-npm-cache,target=/root/.npm" \
+  --mount "type=bind,source=${RUNTIME_CACHE_DIR},target=/farming-runtime-cache" \
   --workdir "${WORKTREE_DIR}" \
   --env GIT_CONFIG_COUNT=1 \
   --env GIT_CONFIG_KEY_0=safe.directory \
@@ -113,6 +115,7 @@ docker "${DOCKER_ARGS[@]}" run --rm --platform linux/amd64 \
   --env FARMING_RELEASE_DIR=/output \
   --env FARMING_RELEASE_NAME="${RELEASE_NAME}" \
   --env FARMING_RELEASE_UPDATE_METHOD=app-bundle \
+  --env FARMING_GLIBC_RUNTIME_CACHE=/farming-runtime-cache/glibc228-lib.tar.gz \
   --env FARMING_SKIP_INSTALL_RUNTIME_PREPARE=1 \
   --env PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
   --env PUPPETEER_SKIP_DOWNLOAD=1 \

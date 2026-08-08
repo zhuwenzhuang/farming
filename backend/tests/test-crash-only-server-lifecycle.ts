@@ -68,6 +68,7 @@ function run() {
       !privateBuilderSource.includes('mktemp -d /tmp/') &&
       privateBuilderSource.includes('source=${WORKTREE_DIR},target=${WORKTREE_DIR}') &&
       privateBuilderSource.includes('source=${GIT_COMMON_DIR},target=${GIT_COMMON_DIR},readonly') &&
+      privateBuilderSource.includes('source=${RUNTIME_CACHE_DIR},target=/farming-runtime-cache') &&
       privateBuilderSource.includes('--env GIT_CONFIG_KEY_0=safe.directory'),
     'the container builder must preserve the shared worktree and read-only git metadata paths',
   );

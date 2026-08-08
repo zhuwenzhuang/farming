@@ -6,6 +6,7 @@ BASE_PATH="${FARMING_BASE_PATH:-/farming}"
 BUNDLE_NODE_MODULES="${FARMING_BUNDLE_NODE_MODULES:-1}"
 RELEASE_PROFILE="${FARMING_RELEASE_PROFILE:-standard}"
 GLIBC_RUNTIME_BUNDLE="${FARMING_GLIBC_RUNTIME_BUNDLE:-}"
+GLIBC_RUNTIME_CACHE="${FARMING_GLIBC_RUNTIME_CACHE:-}"
 GLIBC_RUNTIME_SOURCE_REPO="${FARMING_GLIBC_RUNTIME_SOURCE_REPO:-https://github.com/liuliping0315/glibc2.28_for_CentOS7.git}"
 GLIBC_RUNTIME_SOURCE_REF="${FARMING_GLIBC_RUNTIME_SOURCE_REF:-ba989d6b879b75bc3a823b53e684cdd3ab1bdbcd}"
 GLIBC_RUNTIME_SOURCE_SHA256="${FARMING_GLIBC_RUNTIME_SOURCE_SHA256:-eaf615e3d72b096bc603476a481730e39b5e01e47dc874ae05e535be1bc7fb89}"
@@ -116,6 +117,21 @@ resolve_glibc_runtime_bundle() {
     return 0
   fi
 
+  if [ -n "${GLIBC_RUNTIME_CACHE}" ] && [ -f "${GLIBC_RUNTIME_CACHE}" ]; then
+    if ! glibc_tarball_contains_loader "${GLIBC_RUNTIME_CACHE}"; then
+      echo "Cached glibc runtime does not contain ld-2.28.so: ${GLIBC_RUNTIME_CACHE}" >&2
+      exit 1
+    fi
+    local cached_sha256
+    cached_sha256="$(checksum_value "${GLIBC_RUNTIME_CACHE}")"
+    if [ "${cached_sha256}" != "${GLIBC_RUNTIME_SOURCE_SHA256}" ]; then
+      echo "Cached glibc runtime checksum mismatch: expected ${GLIBC_RUNTIME_SOURCE_SHA256}, got ${cached_sha256}" >&2
+      exit 1
+    fi
+    printf '%s\n' "${GLIBC_RUNTIME_CACHE}"
+    return 0
+  fi
+
   if ! command -v git >/dev/null 2>&1; then
     echo "git is required to fetch the pinned legacy glibc runtime." >&2
     exit 1
@@ -136,6 +152,14 @@ resolve_glibc_runtime_bundle() {
   if [ "${actual_sha256}" != "${GLIBC_RUNTIME_SOURCE_SHA256}" ]; then
     echo "Pinned glibc runtime checksum mismatch: expected ${GLIBC_RUNTIME_SOURCE_SHA256}, got ${actual_sha256}" >&2
     exit 1
+  fi
+  if [ -n "${GLIBC_RUNTIME_CACHE}" ]; then
+    mkdir -p "$(dirname "${GLIBC_RUNTIME_CACHE}")"
+    local cache_staging="${GLIBC_RUNTIME_CACHE}.tmp.$$"
+    cp "${repo_dir}/lib.tgz" "${cache_staging}"
+    mv "${cache_staging}" "${GLIBC_RUNTIME_CACHE}"
+    printf '%s\n' "${GLIBC_RUNTIME_CACHE}"
+    return 0
   fi
   cp "${repo_dir}/lib.tgz" "${output}"
   printf '%s\n' "${output}"
