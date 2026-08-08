@@ -69,8 +69,10 @@ function run() {
       privateBuilderSource.includes('source=${WORKTREE_DIR},target=${WORKTREE_DIR}') &&
       privateBuilderSource.includes('source=${GIT_COMMON_DIR},target=${GIT_COMMON_DIR},readonly') &&
       privateBuilderSource.includes('source=${RUNTIME_CACHE_DIR},target=/farming-runtime-cache') &&
-      privateBuilderSource.includes('--env GIT_CONFIG_KEY_0=safe.directory'),
-    'the container builder must preserve the shared worktree and read-only git metadata paths',
+      privateBuilderSource.includes('--env GIT_CONFIG_KEY_0=safe.directory') &&
+      privateBuilderSource.includes("bash -lc 'npm ci --no-audit --no-fund && npm run release:app:legacy-linux' >&2") &&
+      privateBuilderSource.includes("printf '%s\\n' \"${TARBALL}\""),
+    'the container builder must preserve shared paths and reserve stdout for the artifact path',
   );
 
   assert(

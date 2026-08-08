@@ -121,7 +121,7 @@ docker "${DOCKER_ARGS[@]}" run --rm --platform linux/amd64 \
   --env PUPPETEER_SKIP_DOWNLOAD=1 \
   --env npm_config_registry="${NPM_REGISTRY}" \
   "${BUILDER_IMAGE}" \
-  bash -lc 'npm ci --no-audit --no-fund && npm run release:app:legacy-linux'
+  bash -lc 'npm ci --no-audit --no-fund && npm run release:app:legacy-linux' >&2
 
 TARBALL="${OUTPUT_DIR}/${RELEASE_NAME}.tar.gz"
 test -f "${TARBALL}"
