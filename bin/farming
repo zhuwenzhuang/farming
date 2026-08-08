@@ -32,7 +32,11 @@ if (command === 'browser' || command === 'computer') {
   return;
 }
 
-require(path.join(activePackageRoot, 'backend', 'farming-app-cli.cjs')).run().catch((error) => {
-  console.error(error.message);
-  process.exitCode = 1;
-});
+require(path.join(activePackageRoot, 'backend', 'farming-app-cli.cjs')).run()
+  .then((code) => {
+    if (code) process.exitCode = code;
+  })
+  .catch((error) => {
+    console.error(error.message);
+    process.exitCode = 1;
+  });

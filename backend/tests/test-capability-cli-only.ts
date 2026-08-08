@@ -1,6 +1,8 @@
 const assert = require('assert');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
+const { spawnSync } = require('child_process');
 
 const projectRoot = path.join(__dirname, '..', '..');
 const removedSources = [
@@ -47,5 +49,26 @@ assert(!npmSmokeScript.includes('smoke-computer-mcp-process.ts'));
 assert(scriptsTypecheck.includes('smoke-capability-cli-process.ts'));
 assert(!scriptsTypecheck.includes('smoke-browser-mcp-process.ts'));
 assert(!scriptsTypecheck.includes('smoke-computer-mcp-process.ts'));
+
+const launcherFixture = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-launcher-exit.'));
+try {
+  fs.mkdirSync(path.join(launcherFixture, 'bin'), { recursive: true });
+  fs.mkdirSync(path.join(launcherFixture, 'backend'), { recursive: true });
+  fs.copyFileSync(path.join(projectRoot, 'bin/farming'), path.join(launcherFixture, 'bin/farming'));
+  fs.writeFileSync(path.join(launcherFixture, 'backend/package-installation.cjs'), `
+exports.resolvePackageLaunch = () => ({ packageRoot: ${JSON.stringify(launcherFixture)}, context: null });
+exports.applyPackageInstallationEnvironment = () => {};
+`);
+  fs.writeFileSync(path.join(launcherFixture, 'backend/farming-app-cli.cjs'), `
+exports.run = async () => Number(process.env.FARMING_FIXTURE_EXIT_CODE || 0);
+`);
+  const exited = spawnSync(process.execPath, [path.join(launcherFixture, 'bin/farming'), 'status'], {
+    env: { ...process.env, FARMING_FIXTURE_EXIT_CODE: '7' },
+    encoding: 'utf8',
+  });
+  assert.strictEqual(exited.status, 7, exited.stderr);
+} finally {
+  fs.rmSync(launcherFixture, { recursive: true, force: true });
+}
 
 console.log('Capability CLI-only process boundary tests passed');
