@@ -2847,6 +2847,16 @@ body.code-mode[data-appearance='dark'] .code-language-server-panel {
   box-shadow: none;
 }
 
+body.code-mode[data-appearance='dark'] .code-language-server-resizer {
+  background: var(--code-dark-border);
+}
+
+body.code-mode[data-appearance='dark'] .code-language-server-resizer:hover,
+body.code-mode[data-appearance='dark'] .code-language-server-resizer:focus-visible,
+body.code-resizing-language-server-dock[data-appearance='dark'] .code-language-server-resizer {
+  background: var(--code-dark-text-muted);
+}
+
 body.code-mode[data-appearance='dark'] .code-language-server-panel > header,
 body.code-mode[data-appearance='dark'] .code-language-server-directions,
 body.code-mode[data-appearance='dark'] .code-language-server-search {

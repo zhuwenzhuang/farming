@@ -468,6 +468,7 @@ export interface CodeCopy {
   collapseHierarchyNode: (name: string) => string
   languageServerSearchSymbols: string
   languageServerFeatureUnavailable: string
+  resizeLanguageServerPanel: string
   lineChanges: string
   loadingLineChanges: string
   noLineChanges: string
@@ -1027,6 +1028,7 @@ const EN_COPY: CodeCopy = {
   collapseHierarchyNode: name => `Collapse ${name}`,
   languageServerSearchSymbols: 'Search workspace symbols',
   languageServerFeatureUnavailable: 'VS Code does not provide this language feature for the selected file.',
+  resizeLanguageServerPanel: 'Resize Language Server results',
   lineChanges: 'Line changes',
   loadingLineChanges: 'Loading line changes...',
   noLineChanges: 'No line changes for this line.',
@@ -1622,6 +1624,7 @@ const ZH_COPY: CodeCopy = {
   collapseHierarchyNode: name => `折叠 ${name}`,
   languageServerSearchSymbols: '搜索工作区符号',
   languageServerFeatureUnavailable: 'VS Code 没有为当前文件提供这项语言能力。',
+  resizeLanguageServerPanel: '调整 Language Server 结果宽度',
   lineChanges: '行变化',
   loadingLineChanges: '正在加载行变化...',
   noLineChanges: '这一行没有可显示的变化。',

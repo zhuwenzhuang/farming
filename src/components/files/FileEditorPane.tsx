@@ -1,4 +1,12 @@
-import { useEffect, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react'
 import * as monaco from 'monaco-editor'
 import {
   isWorkspaceHtmlFile,
@@ -61,6 +69,22 @@ interface FileEditorPaneProps {
 }
 
 const WORD_WRAP_STORAGE_KEY = 'farming.code.fileEditor.wordWrap'
+const LANGUAGE_SERVER_DOCK_WIDTH_STORAGE_KEY = 'farming.code.languageServerDockWidth.v1'
+const DEFAULT_LANGUAGE_SERVER_DOCK_WIDTH = 380
+const MIN_LANGUAGE_SERVER_DOCK_WIDTH = 320
+const MAX_LANGUAGE_SERVER_DOCK_WIDTH = 640
+const MIN_LANGUAGE_SERVER_EDITOR_WIDTH = 640
+const LANGUAGE_SERVER_DOCK_KEYBOARD_STEP = 16
+
+type LanguageServerDockStyle = CSSProperties & {
+  '--code-language-server-dock-width'?: string
+}
+
+type LanguageServerDockResizeGesture = {
+  pointerId: number
+  target: HTMLDivElement
+  latestWidth: number
+}
 
 function readWordWrapPreference() {
   if (typeof window === 'undefined') return false
@@ -78,6 +102,36 @@ function writeWordWrapPreference(enabled: boolean) {
   } catch {
     // Ignore unavailable storage; the in-memory toggle still applies.
   }
+}
+
+function readLanguageServerDockWidthPreference() {
+  if (typeof window === 'undefined') return null
+  try {
+    const stored = Number(window.localStorage.getItem(LANGUAGE_SERVER_DOCK_WIDTH_STORAGE_KEY))
+    if (!Number.isFinite(stored) || stored <= 0) return null
+    return Math.round(Math.max(MIN_LANGUAGE_SERVER_DOCK_WIDTH, Math.min(MAX_LANGUAGE_SERVER_DOCK_WIDTH, stored)))
+  } catch {
+    return null
+  }
+}
+
+function writeLanguageServerDockWidthPreference(width: number | null) {
+  if (typeof window === 'undefined') return
+  try {
+    if (width === null) window.localStorage.removeItem(LANGUAGE_SERVER_DOCK_WIDTH_STORAGE_KEY)
+    else window.localStorage.setItem(LANGUAGE_SERVER_DOCK_WIDTH_STORAGE_KEY, String(Math.round(width)))
+  } catch {
+    // Ignore unavailable storage; the in-memory width still applies.
+  }
+}
+
+function clampLanguageServerDockWidth(workbenchWidth: number, width: number) {
+  const availableMaximum = Math.max(
+    MIN_LANGUAGE_SERVER_DOCK_WIDTH,
+    workbenchWidth - MIN_LANGUAGE_SERVER_EDITOR_WIDTH - 1
+  )
+  const maximum = Math.min(MAX_LANGUAGE_SERVER_DOCK_WIDTH, availableMaximum)
+  return Math.round(Math.max(MIN_LANGUAGE_SERVER_DOCK_WIDTH, Math.min(maximum, width)))
 }
 
 export function FileEditorPane({
@@ -101,11 +155,20 @@ export function FileEditorPane({
 }: FileEditorPaneProps) {
   const openEditorContextMenuRef = useRef<(event: monaco.editor.IEditorMouseEvent) => void>(() => {})
   const closeEditorContextMenuRef = useRef<() => void>(() => {})
+  const languageServerWorkbenchRef = useRef<HTMLDivElement>(null)
+  const languageServerDockResizeGestureRef = useRef<LanguageServerDockResizeGesture | null>(null)
+  const languageServerDockResizeFrameRef = useRef<number | null>(null)
+  const pendingLanguageServerDockClientXRef = useRef<number | null>(null)
   const activeTabDomId = fileEditorTabDomId(openFile)
   const editorMode = workspaceEditorFileMode(openFile)
   const [sourcePreviewByFileKey, setSourcePreviewByFileKey] = useState<Record<string, boolean>>({})
   const [markdownSplitByFileKey, setMarkdownSplitByFileKey] = useState<Record<string, boolean>>({})
   const [wordWrapEnabled, setWordWrapEnabled] = useState(readWordWrapPreference)
+  const [languageServerDockWidth, setLanguageServerDockWidth] = useState<number | null>(
+    readLanguageServerDockWidthPreference
+  )
+  const languageServerDockWidthRef = useRef(languageServerDockWidth)
+  languageServerDockWidthRef.current = languageServerDockWidth
   const activeFileKey = workspaceEditorModelKey(openFile)
   const canPreviewMarkdown = !editorMode.preview && !editorMode.diffOnly && isWorkspaceMarkdownFile(openFile.file.path)
   const canPreviewSource = !editorMode.preview && !editorMode.diffOnly && (
@@ -197,6 +260,127 @@ export function FileEditorPane({
     onOpenFilePath,
     unsupportedMessage: copy.languageServerFeatureUnavailable,
   })
+
+  const clearQueuedLanguageServerDockResize = useCallback(() => {
+    pendingLanguageServerDockClientXRef.current = null
+    if (languageServerDockResizeFrameRef.current !== null) {
+      window.cancelAnimationFrame(languageServerDockResizeFrameRef.current)
+      languageServerDockResizeFrameRef.current = null
+    }
+  }, [])
+
+  const applyLanguageServerDockWidth = useCallback((clientX: number) => {
+    const gesture = languageServerDockResizeGestureRef.current
+    const workbench = languageServerWorkbenchRef.current
+    if (!gesture || !workbench) return
+    const bounds = workbench.getBoundingClientRect()
+    const nextWidth = clampLanguageServerDockWidth(bounds.width, bounds.right - clientX)
+    gesture.latestWidth = nextWidth
+    workbench.style.setProperty('--code-language-server-dock-width', `${nextWidth}px`)
+    gesture.target.setAttribute('aria-valuenow', String(nextWidth))
+  }, [])
+
+  const queueLanguageServerDockWidth = useCallback((clientX: number) => {
+    pendingLanguageServerDockClientXRef.current = clientX
+    if (languageServerDockResizeFrameRef.current !== null) return
+    languageServerDockResizeFrameRef.current = window.requestAnimationFrame(() => {
+      languageServerDockResizeFrameRef.current = null
+      const pendingClientX = pendingLanguageServerDockClientXRef.current
+      pendingLanguageServerDockClientXRef.current = null
+      if (pendingClientX !== null) applyLanguageServerDockWidth(pendingClientX)
+    })
+  }, [applyLanguageServerDockWidth])
+
+  const restoreCommittedLanguageServerDockWidth = useCallback(() => {
+    const workbench = languageServerWorkbenchRef.current
+    if (!workbench) return
+    const committedWidth = languageServerDockWidthRef.current
+    if (committedWidth === null) workbench.style.removeProperty('--code-language-server-dock-width')
+    else workbench.style.setProperty('--code-language-server-dock-width', `${committedWidth}px`)
+  }, [])
+
+  const finishLanguageServerDockResize = useCallback((
+    target: HTMLDivElement,
+    pointerId: number,
+    commit: boolean,
+    clientX?: number
+  ) => {
+    const gesture = languageServerDockResizeGestureRef.current
+    if (!gesture || gesture.pointerId !== pointerId) return
+    if (clientX !== undefined) applyLanguageServerDockWidth(clientX)
+    clearQueuedLanguageServerDockResize()
+    languageServerDockResizeGestureRef.current = null
+    document.body.classList.remove('code-resizing-language-server-dock')
+    if (commit) {
+      languageServerDockWidthRef.current = gesture.latestWidth
+      setLanguageServerDockWidth(gesture.latestWidth)
+      writeLanguageServerDockWidthPreference(gesture.latestWidth)
+    } else {
+      restoreCommittedLanguageServerDockWidth()
+    }
+    if (target.hasPointerCapture(pointerId)) target.releasePointerCapture(pointerId)
+  }, [applyLanguageServerDockWidth, clearQueuedLanguageServerDockResize, restoreCommittedLanguageServerDockWidth])
+
+  const beginLanguageServerDockResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || !event.isPrimary || languageServerDockResizeGestureRef.current) return
+    const workbench = languageServerWorkbenchRef.current
+    const panel = workbench?.querySelector<HTMLElement>('.code-language-server-panel')
+    if (!workbench || !panel) return
+    event.preventDefault()
+    event.currentTarget.focus()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    languageServerDockResizeGestureRef.current = {
+      pointerId: event.pointerId,
+      target: event.currentTarget,
+      latestWidth: Math.round(panel.getBoundingClientRect().width),
+    }
+    document.body.classList.add('code-resizing-language-server-dock')
+    applyLanguageServerDockWidth(event.clientX)
+  }, [applyLanguageServerDockWidth])
+
+  const resizeLanguageServerDockFromKeyboard = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const workbench = languageServerWorkbenchRef.current
+    const panel = workbench?.querySelector<HTMLElement>('.code-language-server-panel')
+    if (!workbench || !panel) return
+    const bounds = workbench.getBoundingClientRect()
+    const currentWidth = panel.getBoundingClientRect().width
+    const step = event.shiftKey ? LANGUAGE_SERVER_DOCK_KEYBOARD_STEP * 3 : LANGUAGE_SERVER_DOCK_KEYBOARD_STEP
+    let requestedWidth: number
+    if (event.key === 'ArrowLeft') requestedWidth = currentWidth + step
+    else if (event.key === 'ArrowRight') requestedWidth = currentWidth - step
+    else if (event.key === 'Home') requestedWidth = MIN_LANGUAGE_SERVER_DOCK_WIDTH
+    else if (event.key === 'End') requestedWidth = MAX_LANGUAGE_SERVER_DOCK_WIDTH
+    else return
+    event.preventDefault()
+    event.stopPropagation()
+    const nextWidth = clampLanguageServerDockWidth(bounds.width, requestedWidth)
+    workbench.style.setProperty('--code-language-server-dock-width', `${nextWidth}px`)
+    languageServerDockWidthRef.current = nextWidth
+    setLanguageServerDockWidth(nextWidth)
+    writeLanguageServerDockWidthPreference(nextWidth)
+  }, [])
+
+  const resetLanguageServerDockWidth = useCallback(() => {
+    clearQueuedLanguageServerDockResize()
+    languageServerDockResizeGestureRef.current = null
+    document.body.classList.remove('code-resizing-language-server-dock')
+    languageServerDockWidthRef.current = null
+    setLanguageServerDockWidth(null)
+    writeLanguageServerDockWidthPreference(null)
+    languageServerWorkbenchRef.current?.style.removeProperty('--code-language-server-dock-width')
+  }, [clearQueuedLanguageServerDockResize])
+
+  useEffect(() => {
+    if (languageServer.navigator.open) return
+    const gesture = languageServerDockResizeGestureRef.current
+    if (gesture) finishLanguageServerDockResize(gesture.target, gesture.pointerId, false)
+  }, [finishLanguageServerDockResize, languageServer.navigator.open])
+
+  useEffect(() => () => {
+    clearQueuedLanguageServerDockResize()
+    languageServerDockResizeGestureRef.current = null
+    document.body.classList.remove('code-resizing-language-server-dock')
+  }, [clearQueuedLanguageServerDockResize])
 
   const {
     blameOpen,
@@ -339,51 +523,53 @@ export function FileEditorPane({
       data-testid="code-file-editor"
       onKeyDownCapture={handleEditorShellKeyDown}
     >
-      <FileEditorHeader
-        openFile={openFile}
-        openFiles={openFiles}
-        editorMode={editorMode}
-        copy={copy}
-        statusText={statusText}
-        onBackToAgent={onBackToAgent}
-        onSelectOpenFile={onSelectOpenFile}
-        canNavigateBack={canNavigateBack}
-        canNavigateForward={canNavigateForward}
-        onNavigateHistory={onNavigateHistory}
-        onSetTabRef={setTabRef}
-        onOpenTabContextMenu={openEditorTabContextMenu}
-        onTabAuxClick={handleEditorTabAuxClick}
-        onTabKeyDown={handleEditorTabKeyDown}
-        onCloseTab={closeEditorTab}
-        onReorderOpenFile={onReorderOpenFile}
-        onRevealInExplorer={onRevealInExplorer}
-        onSave={saveFile}
-        onReload={reloadFile}
-        onToggleSourcePreview={toggleSourcePreview}
-        onToggleMarkdownSplit={toggleMarkdownSplit}
-        onToggleWordWrap={toggleWordWrap}
-        onToggleDiff={toggleDiff}
-        canPreviewMarkdown={canPreviewMarkdown}
-        canPreviewSource={canPreviewSource}
-        diffOpen={diffState.open}
-        previewVisible={markdownPreviewVisible || visualPreviewVisible}
-        markdownSplitOpen={markdownSplitOpen}
-        sourcePreviewOpen={sourcePreviewOpen}
-        wordWrapEnabled={wordWrapEnabled}
-      />
-
-      {openFile.error && (
-        <div className="code-file-editor-alert" data-testid="code-file-editor-alert">
-          {openFile.error}
-        </div>
-      )}
-
       <div className="code-file-editor-workbench-shell">
         <div
+          ref={languageServerWorkbenchRef}
           className={`code-file-editor-workbench ${languageServer.navigator.open ? 'navigator-open' : ''}`.trim()}
           data-testid="code-file-editor-workbench"
+          style={languageServerDockWidth === null ? undefined : ({
+            '--code-language-server-dock-width': `${languageServerDockWidth}px`,
+          } as LanguageServerDockStyle)}
         >
           <div className="code-file-editor-main" data-testid="code-file-editor-main">
+            <FileEditorHeader
+              openFile={openFile}
+              openFiles={openFiles}
+              editorMode={editorMode}
+              copy={copy}
+              statusText={statusText}
+              onBackToAgent={onBackToAgent}
+              onSelectOpenFile={onSelectOpenFile}
+              canNavigateBack={canNavigateBack}
+              canNavigateForward={canNavigateForward}
+              onNavigateHistory={onNavigateHistory}
+              onSetTabRef={setTabRef}
+              onOpenTabContextMenu={openEditorTabContextMenu}
+              onTabAuxClick={handleEditorTabAuxClick}
+              onTabKeyDown={handleEditorTabKeyDown}
+              onCloseTab={closeEditorTab}
+              onReorderOpenFile={onReorderOpenFile}
+              onRevealInExplorer={onRevealInExplorer}
+              onSave={saveFile}
+              onReload={reloadFile}
+              onToggleSourcePreview={toggleSourcePreview}
+              onToggleMarkdownSplit={toggleMarkdownSplit}
+              onToggleWordWrap={toggleWordWrap}
+              onToggleDiff={toggleDiff}
+              canPreviewMarkdown={canPreviewMarkdown}
+              canPreviewSource={canPreviewSource}
+              diffOpen={diffState.open}
+              previewVisible={markdownPreviewVisible || visualPreviewVisible}
+              markdownSplitOpen={markdownSplitOpen}
+              sourcePreviewOpen={sourcePreviewOpen}
+              wordWrapEnabled={wordWrapEnabled}
+            />
+            {openFile.error && (
+              <div className="code-file-editor-alert" data-testid="code-file-editor-alert">
+                {openFile.error}
+              </div>
+            )}
             <FileEditorSurface
               activeTabDomId={activeTabDomId}
               blame={blame}
@@ -411,15 +597,54 @@ export function FileEditorPane({
             />
           </div>
           {languageServer.navigator.open ? (
-            <LanguageServerPanel
-              state={languageServer.navigator}
-              copy={copy}
-              onClose={languageServer.closeNavigator}
-              onDirection={languageServer.changeDirection}
-              onToggleNode={node => void languageServer.toggleNode(node)}
-              onOpenNode={languageServer.openNode}
-              onSearch={query => void languageServer.searchWorkspaceSymbols(query)}
-            />
+            <>
+              <div
+                className="code-language-server-resizer"
+                data-testid="code-language-server-resizer"
+                role="separator"
+                aria-label={copy.resizeLanguageServerPanel}
+                aria-orientation="vertical"
+                aria-valuemin={MIN_LANGUAGE_SERVER_DOCK_WIDTH}
+                aria-valuemax={MAX_LANGUAGE_SERVER_DOCK_WIDTH}
+                aria-valuenow={languageServerDockWidth ?? DEFAULT_LANGUAGE_SERVER_DOCK_WIDTH}
+                tabIndex={0}
+                title={copy.resizeLanguageServerPanel}
+                onPointerDown={beginLanguageServerDockResize}
+                onPointerMove={event => {
+                  const gesture = languageServerDockResizeGestureRef.current
+                  if (!gesture || gesture.pointerId !== event.pointerId) return
+                  if (event.pointerType === 'mouse' && event.buttons === 0) {
+                    finishLanguageServerDockResize(event.currentTarget, event.pointerId, true, event.clientX)
+                    return
+                  }
+                  event.preventDefault()
+                  queueLanguageServerDockWidth(event.clientX)
+                }}
+                onPointerUp={event => {
+                  finishLanguageServerDockResize(event.currentTarget, event.pointerId, true, event.clientX)
+                }}
+                onPointerCancel={event => {
+                  finishLanguageServerDockResize(event.currentTarget, event.pointerId, false)
+                }}
+                onLostPointerCapture={event => {
+                  finishLanguageServerDockResize(event.currentTarget, event.pointerId, false)
+                }}
+                onDoubleClick={event => {
+                  event.preventDefault()
+                  resetLanguageServerDockWidth()
+                }}
+                onKeyDown={resizeLanguageServerDockFromKeyboard}
+              />
+              <LanguageServerPanel
+                state={languageServer.navigator}
+                copy={copy}
+                onClose={languageServer.closeNavigator}
+                onDirection={languageServer.changeDirection}
+                onToggleNode={node => void languageServer.toggleNode(node)}
+                onOpenNode={languageServer.openNode}
+                onSearch={query => void languageServer.searchWorkspaceSymbols(query)}
+              />
+            </>
           ) : null}
         </div>
       </div>

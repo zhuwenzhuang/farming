@@ -9552,7 +9552,16 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-age
 }
 
 .code-file-editor-workbench.navigator-open {
-  grid-template-columns: minmax(0, 1fr) clamp(320px, 34%, 430px);
+  grid-template-columns:
+    minmax(0, 1fr)
+    1px
+    minmax(
+      320px,
+      min(
+        var(--code-language-server-dock-width, clamp(320px, 34%, 430px)),
+        calc(100% - 641px)
+      )
+    );
 }
 
 .code-file-editor-main {
@@ -11069,10 +11078,37 @@ body.code-mode .code-file-editor-fallback-textarea {
   flex-direction: column;
   overflow: hidden;
   border: 0;
-  border-left: 1px solid rgba(36, 41, 47, 0.14);
   background: #ffffff;
   color: #30362f;
   font-size: 12px;
+}
+
+.code-language-server-resizer {
+  width: 1px;
+  min-width: 1px;
+  position: relative;
+  z-index: 4;
+  background: rgba(36, 41, 47, 0.14);
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.code-language-server-resizer::before {
+  content: '';
+  position: absolute;
+  inset: 0 -4px;
+}
+
+.code-language-server-resizer:hover,
+.code-language-server-resizer:focus-visible,
+body.code-resizing-language-server-dock .code-language-server-resizer {
+  background: #aeb3aa;
+  outline: 0;
+}
+
+body.code-resizing-language-server-dock {
+  cursor: col-resize;
+  user-select: none;
 }
 
 .code-language-server-panel > header {
@@ -11093,7 +11129,10 @@ body.code-mode .code-file-editor-fallback-textarea {
 
   .code-language-server-panel {
     border-top: 1px solid rgba(36, 41, 47, 0.14);
-    border-left: 0;
+  }
+
+  .code-language-server-resizer {
+    display: none;
   }
 }
 
