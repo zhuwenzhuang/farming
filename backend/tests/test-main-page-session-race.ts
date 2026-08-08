@@ -13,8 +13,8 @@ async function run() {
       && workspaceSource.includes('fetchMainPageSessionMutation(appPath(\'/api/settings\'))'),
     'main-page mutation and authoritative reconciliation requests must both have a bounded wait',
   );
-  const add = { version: 1, operation: 'add', sessionKeys: ['codex:default:one'] };
-  const remove = { version: 2, operation: 'remove', sessionKeys: ['codex:default:one'] };
+  const add = { version: 1, operation: 'add' as const, sessionKeys: ['codex:default:one'] };
+  const remove = { version: 2, operation: 'remove' as const, sessionKeys: ['codex:default:one'] };
 
   assert.deepStrictEqual(applyPending([], [add, remove]), []);
 
