@@ -94,6 +94,10 @@ function run() {
     path.join(__dirname, '../../src/lib/terminal-input.ts'),
     'utf8'
   );
+  const terminalImeSource = fs.readFileSync(
+    path.join(__dirname, '../../src/lib/terminal-ime.ts'),
+    'utf8'
+  );
   const xtermSource = fs.readFileSync(
     path.join(__dirname, '../../src/lib/xterm.ts'),
     'utf8'
@@ -493,7 +497,9 @@ function run() {
   assert(
     terminalPoolSource.includes('readTerminalFontSize') &&
       terminalPoolSource.includes('dataset.terminalFontSize') &&
-      terminalPoolSource.includes('input.style.fontSize'),
+      terminalPoolSource.includes("from '@/lib/terminal-ime'") &&
+      terminalPoolSource.includes('terminalImeOverlayStyle(') &&
+      terminalImeSource.includes('fontSize: `${fontSize}px`'),
     'terminal IME overlay text should track host terminal font size'
   );
   assert(

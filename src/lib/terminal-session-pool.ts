@@ -19,6 +19,7 @@ import {
   terminalLinkMatchRange,
 } from '@/lib/terminal-links'
 import type { TerminalLinkHoverTarget, TerminalLinkMatch, TerminalPathOpenTarget } from '@/lib/terminal-links'
+import { terminalImeOverlayStyle } from '@/lib/terminal-ime'
 import {
   isContinuousSelectionText,
   isZeroWidthCell,
@@ -873,35 +874,19 @@ function updateTerminalImeOverlay(hostEl: HTMLDivElement, terminal: FarmingTermi
   const input = hostEl.querySelector('textarea')
   const metrics = terminal.renderer?.getMetrics?.()
   const cursor = terminal.wasmTerm?.getCursor?.()
-  if (!(input instanceof HTMLTextAreaElement) || !metrics || !cursor) {
-    return
-  }
+  if (!(input instanceof HTMLTextAreaElement) || !metrics || !cursor) return
 
   const fontSize = readTerminalFontSize(hostEl)
-
-  const left = Math.max(0, cursor.x * metrics.width)
-  const top = Math.max(0, cursor.y * metrics.height)
-  const height = Math.max(fontSize + 2, metrics.height)
-  const width = Math.max(metrics.width * 8, 120)
+  const style = terminalImeOverlayStyle(
+    cursor,
+    metrics,
+    fontSize,
+    DEFAULT_FONT_FAMILY,
+  )
+  if (!style) return
 
   input.classList.add('terminal-ime-input')
-  input.style.position = 'absolute'
-  input.style.left = `${left}px`
-  input.style.top = `${top}px`
-  input.style.width = `${width}px`
-  input.style.height = `${height}px`
-  input.style.lineHeight = `${height}px`
-  input.style.fontSize = `${fontSize}px`
-  input.style.fontFamily = DEFAULT_FONT_FAMILY
-  input.style.padding = '0'
-  input.style.margin = '0'
-  input.style.border = '0'
-  input.style.outline = '0'
-  input.style.background = 'transparent'
-  input.style.clipPath = 'none'
-  input.style.overflow = 'hidden'
-  input.style.whiteSpace = 'pre'
-  input.style.resize = 'none'
+  Object.assign(input.style, style)
 }
 
 function isCurrentAttachment(record: SessionRecord, generation: number) {
