@@ -226,6 +226,10 @@ import {
   throwIfProjectMountAborted,
   useProjectMembershipController,
 } from './code/useProjectMembershipController'
+import {
+  normalizeProjectNames,
+  useProjectMutationController,
+} from './code/useProjectMutationController'
 import { useQrShareController } from './code/useQrShareController'
 import {
   terminalTargetFilePath,
@@ -271,18 +275,6 @@ function languageOptionDisplayLabel(label: string) {
   return label
     .replace(/^Language:\s*/i, '')
     .replace(/^语言[:：]\s*/, '')
-}
-
-function normalizeProjectNames(projectNames: unknown): Record<string, string> {
-  if (!projectNames || typeof projectNames !== 'object' || Array.isArray(projectNames)) return {}
-  const normalized: Record<string, string> = {}
-  Object.entries(projectNames as Record<string, unknown>).forEach(([workspace, name]) => {
-    const key = workspace.trim()
-    const value = String(name ?? '').trim()
-    if (!key || !value) return
-    normalized[key] = value.slice(0, 80)
-  })
-  return normalized
 }
 
 function appearanceOptionDisplayLabel(label: string) {
@@ -735,6 +727,23 @@ export function CodeWorkspace({
   } | null>(null)
   const [deleteWorktreeDialog, setDeleteWorktreeDialog] = useState<{ projectId: string; workspace: string; sessionHandles: string[] } | null>(null)
   const [copyNotice, setCopyNotice] = useState<{ id: number; kind: 'success' | 'error'; message: string } | null>(null)
+  const mutateProject = useProjectMutationController({
+    applyProjectMembership,
+    replaceProjectName: (workspace, name, expectedCurrent) => {
+      setProjectNames(current => {
+        if (expectedCurrent !== undefined && current[workspace] !== expectedCurrent) return current
+        if (name === null) {
+          if (!(workspace in current)) return current
+          const next = { ...current }
+          delete next[workspace]
+          return next
+        }
+        if (current[workspace] === name) return current
+        return { ...current, [workspace]: name }
+      })
+    },
+    showError: message => setCopyNotice({ id: Date.now(), kind: 'error', message }),
+  })
   const [fileRevealRequest, setFileRevealRequest] = useState<{ agentId: string; path: string; kind: 'directory' | 'file'; requestId: number } | null>(null)
   const [fileSearchFocusRequest, setFileSearchFocusRequest] = useState<{ agentId: string; requestId: number; query?: string } | null>(null)
   const renameDialogIdentity = renameDialog
@@ -3818,34 +3827,16 @@ export function CodeWorkspace({
     }
 
     if (!title) return
-    const nextProjectNames = {
-      ...projectNames,
-      [renameDialog.workspace]: title,
-    }
-    setProjectNames(nextProjectNames)
-    fetch(appPath('/api/projects/name'), {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ workspace: renameDialog.workspace, name: title }),
+    void mutateProject({
+      kind: 'rename',
+      workspace: renameDialog.workspace,
+      name: title,
+      previousName: projectNames[renameDialog.workspace],
+      errorMessage: copy.copyFailed,
     })
-      .then(async response => {
-        const data = await response.json().catch(() => null) as { error?: string } | null
-        if (!response.ok) throw new Error(data?.error || copy.copyFailed)
-      })
-      .catch(() => {
-        setProjectNames(current => {
-          if (current[renameDialog.workspace] !== title) return current
-          const restored = { ...current }
-          const previousName = projectNames[renameDialog.workspace]
-          if (previousName) restored[renameDialog.workspace] = previousName
-          else delete restored[renameDialog.workspace]
-          return restored
-        })
-        setCopyNotice({ id: Date.now(), kind: 'error', message: copy.copyFailed })
-      })
     setRenameDialog(null)
     focusProjectTitle(renameDialog.projectId)
-  }, [copy.copyFailed, focusAgentRow, focusProjectTitle, onRenameAgent, projectNames, renameDialog])
+  }, [copy.copyFailed, focusAgentRow, focusProjectTitle, mutateProject, onRenameAgent, projectNames, renameDialog])
 
   const copyContextMenuValue = useCallback(async (value: string, focusTarget?: SearchTarget) => {
     closeContextMenu()
@@ -3959,29 +3950,14 @@ export function CodeWorkspace({
     beforeWorkspace: string,
     afterWorkspace: string,
   ) => {
-    try {
-      const response = await fetch(appPath('/api/projects/reorder'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspace, beforeWorkspace, afterWorkspace }),
-      })
-      const membership = await response.json().catch(() => null) as {
-        error?: string
-        projectWorkspaces?: string[]
-        pinnedProjectWorkspaces?: string[]
-      } | null
-      if (!response.ok) {
-        throw new Error(membership?.error || copy.reorderProjectFailed)
-      }
-      applyProjectMembership(membership || {})
-    } catch (error) {
-      setCopyNotice({
-        id: Date.now(),
-        kind: 'error',
-        message: error instanceof Error ? error.message : copy.reorderProjectFailed,
-      })
-    }
-  }, [applyProjectMembership, copy.reorderProjectFailed])
+    await mutateProject({
+      kind: 'reorder',
+      workspace,
+      beforeWorkspace,
+      afterWorkspace,
+      errorMessage: copy.reorderProjectFailed,
+    })
+  }, [copy.reorderProjectFailed, mutateProject])
 
   const restoreArchivedAgent = useCallback((agentId: string) => {
     pendingArchivedFocusAgentRef.current = null
@@ -4411,25 +4387,14 @@ export function CodeWorkspace({
     const projectId = contextMenuProject.id
     const workspace = contextMenuProject.workspace
     closeContextMenu()
-    try {
-      const response = await fetch(appPath('/api/projects/pin'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspace, pinned: !contextMenuProject.pinned }),
-      })
-      const membership = await response.json().catch(() => null) as {
-        error?: string
-      } | null
-      if (!response.ok) throw new Error(membership?.error || `Project request failed (${response.status})`)
-    } catch (error) {
-      setCopyNotice({
-        id: Date.now(),
-        kind: 'error',
-        message: error instanceof Error ? error.message : copy.copyFailed,
-      })
-    }
+    await mutateProject({
+      kind: 'pin',
+      workspace,
+      pinned: !contextMenuProject.pinned,
+      errorMessage: copy.copyFailed,
+    })
     window.requestAnimationFrame(() => focusProjectTitle(projectId))
-  }, [closeContextMenu, contextMenuProject, copy.copyFailed, focusProjectTitle])
+  }, [closeContextMenu, contextMenuProject, copy.copyFailed, focusProjectTitle, mutateProject])
 
   const revealContextProject = useCallback(async () => {
     if (!contextMenuProject?.workspace) return
@@ -4528,26 +4493,14 @@ export function CodeWorkspace({
       || contextMenuProject.agentSessions.length > 0
       || contextMenuProject.hasOpenFile
     ) return
-    try {
-      const response = await fetch(appPath('/api/projects/remove'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspace: contextMenuProject.workspace }),
-      })
-      const membership = await response.json().catch(() => null) as {
-        error?: string
-      } | null
-      if (!response.ok) throw new Error(membership?.error || `Project request failed (${response.status})`)
-    } catch (error) {
-      setCopyNotice({
-        id: Date.now(),
-        kind: 'error',
-        message: error instanceof Error ? error.message : copy.copyFailed,
-      })
-    }
+    await mutateProject({
+      kind: 'remove',
+      workspace: contextMenuProject.workspace,
+      errorMessage: copy.copyFailed,
+    })
     closeContextMenu()
     restoreProjectListFocusRef.current = 'list'
-  }, [closeContextMenu, contextMenuProject, copy.copyFailed])
+  }, [closeContextMenu, contextMenuProject, copy.copyFailed, mutateProject])
 
   const deleteContextWorktree = useCallback(() => {
     if (!contextMenuProject) return

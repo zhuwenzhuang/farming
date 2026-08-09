@@ -8,6 +8,7 @@ function read(relativePath) {
 
 function run() {
   const appSource = read('src/App.tsx');
+  const codeWorkspaceSource = read('src/components/CodeWorkspace.tsx');
   const workspaceSource = [
     'src/components/CodeWorkspace.tsx',
     'src/components/code/CodeComposer.tsx',
@@ -47,6 +48,7 @@ function run() {
     'src/components/code/useComposerProviderCatalogController.ts',
     'src/components/code/useMainPageSessionMembershipController.ts',
     'src/components/code/useProjectMembershipController.ts',
+    'src/components/code/useProjectMutationController.ts',
     'src/components/code/useQrShareController.ts',
     'src/components/code/useResumeAgentSessionController.ts',
     'src/components/code/useResourcePaneController.ts',
@@ -72,6 +74,7 @@ function run() {
   const websocketHandshakeHealthHandlersSource = read('backend/websocket-handshake-health-handlers.cts');
   const agentSessionInventoryControllerSource = read('src/components/code/useAgentSessionInventoryController.ts');
   const projectMembershipControllerSource = read('src/components/code/useProjectMembershipController.ts');
+  const projectMutationControllerSource = read('src/components/code/useProjectMutationController.ts');
   const qrShareControllerSource = read('src/components/code/useQrShareController.ts');
   const resumeAgentSessionSource = read('src/components/code/useResumeAgentSessionController.ts');
   const resourcePaneControllerSource = read('src/components/code/useResourcePaneController.ts');
@@ -148,6 +151,22 @@ function run() {
       && resumeAgentSessionSource.includes('this.ports.mountProject(activeAgent.workspace, signal)')
       && !workspaceSource.includes("fetch(appPath(`/api/agent-sessions/${encodeURIComponent(provider)}/${encodeURIComponent(sessionId)}/resume`"),
     'Resume Agent Session should keep admission, request validation, membership ordering, and stale fencing in one controller',
+  );
+
+  assert(
+    codeWorkspaceSource.includes('useProjectMutationController({')
+      && projectMutationControllerSource.includes('class ProjectMutationController')
+      && projectMutationControllerSource.includes("return input.kind === 'rename' ? `rename:${input.workspace}` : 'membership'")
+      && projectMutationControllerSource.includes('private readonly membershipQueue: QueuedMembershipMutation[] = []')
+      && projectMutationControllerSource.includes('private readonly reconcileAborts = new Map<string, AbortController>()')
+      && projectMutationControllerSource.includes('const result = await Promise.race([')
+      && projectMutationControllerSource.includes("if (typeof name !== 'string') continue")
+      && projectMutationControllerSource.includes('this.ports.replaceProjectName(input.workspace, names[input.workspace] ?? null, input.name)')
+      && !codeWorkspaceSource.includes("appPath('/api/projects/name')")
+      && !codeWorkspaceSource.includes("appPath('/api/projects/pin')")
+      && !codeWorkspaceSource.includes("appPath('/api/projects/remove')")
+      && !codeWorkspaceSource.includes("appPath('/api/projects/reorder')"),
+    'Project mutations should keep admission, bounded cancellation, authoritative postconditions, and per-key reconciliation in one controller',
   );
 
   assert(
@@ -1260,10 +1279,10 @@ function run() {
       projectMembershipControllerSource.includes("appPath('/api/projects/mount')") &&
       workspaceSource.includes('const mountedWorkspace = await mountProject(identity.workspaceRoot)') &&
       projectMembershipControllerSource.includes('applyMembership(result.membership)') &&
-      workspaceSource.includes("appPath('/api/projects/remove')") &&
-      workspaceSource.includes("appPath('/api/projects/pin')") &&
-      workspaceSource.includes("appPath('/api/projects/name')") &&
-      workspaceSource.includes("method: 'PATCH'") &&
+      projectMutationControllerSource.includes("path: '/api/projects/remove'") &&
+      projectMutationControllerSource.includes("path: '/api/projects/pin'") &&
+      projectMutationControllerSource.includes("path: '/api/projects/name'") &&
+      projectMutationControllerSource.includes("method: 'PATCH' as const") &&
       !workspaceSource.includes('body: JSON.stringify({ projectNames: nextProjectNames })') &&
       projectMembershipControllerSource.includes('applyMembership({ projectWorkspaces: remoteProjectWorkspaces })') &&
       projectMembershipControllerSource.includes('applyMembership({ pinnedProjectWorkspaces: remotePinnedProjectWorkspaces })') &&
