@@ -1,4 +1,4 @@
-import type { ClientMessage } from '../shared/browser-protocol.js';
+import type { AgentStateRecord, ClientMessage } from '../shared/browser-protocol.js';
 import type { AuthAccessMode } from './auth.cjs';
 import type { AgentSession } from './agent-session-history.cjs';
 import type { AgentSessionInventoryMetadata } from './agent-session-inventory.cjs';
@@ -201,7 +201,7 @@ const crypto = require('crypto');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
 const { URLSearchParams } = require('url');
-import { AgentManager, type AgentManagerStateChange } from './agent-manager.cjs';
+import { AgentManager } from './agent-manager.cjs';
 import { isAgentRuntimeModeRequest, runtimeKind } from './agent-runtime-binding.cjs';
 import { ConfigManager } from './config-manager.cjs';
 import { ThemeManager } from './theme-manager.cjs';
@@ -292,6 +292,10 @@ import {
 } from './agent-state-snapshot-delivery.cjs';
 import { createWebSocketResourceBroadcastController } from './websocket-resource-broadcasts.cjs';
 import { createWebSocketAgentChangeBroadcasts } from './websocket-agent-change-broadcasts.cjs';
+import {
+  createWebSocketAgentStateBroadcastScheduler,
+  type AgentStateBroadcastSchedulerMutation,
+} from './websocket-agent-state-broadcast-scheduler.cjs';
 import { createWebSocketAgentActivityBroadcasts } from './websocket-agent-activity-broadcasts.cjs';
 import { createWebSocketSessionPreviewBroadcasts } from './websocket-session-preview-broadcasts.cjs';
 import {
@@ -1022,7 +1026,7 @@ app.use(routePath(BASE_PATH, '/api'), createAgentSessionRouter({
   invalidate: () => agentSessionInventory.invalidate(),
   listDisplayRecords: () => configManager.listAgentSessionRecords(),
   listSessions: () => currentAgentSessions(),
-  publishStateMetadata: state => queueStateMetadata(state),
+  publishStateMetadata: state => stateBroadcastScheduler.queueMetadata(state),
   rememberMainPageSessionKey: (sessionKey, patch) => {
     configManager.rememberMainPageSessionKey(sessionKey, patch);
   },
@@ -1568,7 +1572,7 @@ app.patch(routePath(BASE_PATH, '/api/agents/:agentId'), express.json(), async (r
   }
 
   if (flagUpdateRequiresState || typeof body.task === 'string' || typeof body.customTitle === 'string' || typeof body.launchPermissionMode === 'string' || typeof body.agentRuntimeMode === 'string') {
-    queueAgentStateChange({ agentIds: [req.params.agentId] });
+    stateBroadcastScheduler.queueChange({ agentIds: [req.params.agentId] });
   }
   res.json({ agentId: req.params.agentId, ...updates });
 });
@@ -1628,7 +1632,7 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/fork'), express.json(), asyn
     result.pinnedProjectWorkspaces = membership.pinnedProjectWorkspaces;
   } catch (caught) {
     const error = caughtError(caught);
-    queueStateMetadata(currentAgentListMetadata());
+    stateBroadcastScheduler.queueMetadata(currentAgentListMetadata());
     broadcastState();
     const mountError = error.message || 'Failed to create Project';
     res.status(500).json({
@@ -1638,7 +1642,7 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/fork'), express.json(), asyn
     });
     return;
   }
-  queueStateMetadata(currentAgentListMetadata());
+  stateBroadcastScheduler.queueMetadata(currentAgentListMetadata());
   broadcastState();
   res.status(201).json(result);
 });
@@ -1679,11 +1683,11 @@ app.use(routePath(BASE_PATH, '/api/projects'), createProjectMutationRouter({
   reorderWorkspace: (workspace, position) => configManager.reorderProjectWorkspace(workspace, position),
   setWorkspaceName: (workspace, name) => configManager.setProjectName(workspace, name),
   publishMembershipChange: () => {
-    queueStateMetadata(currentAgentListMetadata());
+    stateBroadcastScheduler.queueMetadata(currentAgentListMetadata());
     broadcastState();
   },
   publishNameChange: () => {
-    queueStateMetadata(currentAgentListMetadata());
+    stateBroadcastScheduler.queueMetadata(currentAgentListMetadata());
   },
 }));
 
@@ -1697,7 +1701,7 @@ app.post(routePath(BASE_PATH, '/api/projects/create-worktree'), express.json(), 
     const root = resolveProjectActionRoot(typeof req.body?.rootId === 'string' ? req.body.rootId : '');
     const created = await agentManager.createPermanentWorktree(root.canonicalPath, { requestId });
     if (!isRecord(created)) throw new Error('Project worktree creation returned an invalid result');
-    queueStateMetadata(currentAgentListMetadata());
+    stateBroadcastScheduler.queueMetadata(currentAgentListMetadata());
     broadcastState();
     res.status(201).json({
       ...created,
@@ -1730,7 +1734,7 @@ app.post(routePath(BASE_PATH, '/api/projects/delete-worktree'), express.json(), 
     requestId,
   });
   if (result.error) {
-    queueStateMetadata(currentAgentListMetadata());
+    stateBroadcastScheduler.queueMetadata(currentAgentListMetadata());
     broadcastState();
     const status = result.requiresForce
       ? 409
@@ -1738,7 +1742,7 @@ app.post(routePath(BASE_PATH, '/api/projects/delete-worktree'), express.json(), 
     res.status(status).json(result);
     return;
   }
-  queueStateMetadata(currentAgentListMetadata());
+  stateBroadcastScheduler.queueMetadata(currentAgentListMetadata());
   broadcastState();
   res.json(result);
 });
@@ -1778,7 +1782,7 @@ const agentSessionResumeCoordinator = new AgentSessionResumeCoordinator({
   getSettings: () => configManager.getSettings(),
   mountProjectWorkspace: workspace => configManager.mountProjectWorkspace(workspace),
   publishAgentState: () => {
-    queueStateMetadata(currentAgentListMetadata());
+    stateBroadcastScheduler.queueMetadata(currentAgentListMetadata());
     broadcastState();
   },
   rememberMainPageSession: (provider, sessionId, providerHomeId) => {
@@ -1843,7 +1847,7 @@ app.use(routePath(BASE_PATH, '/api/settings'), createSettingsMutationRouter({
   ),
   probeComputer: settings => computerResourceManager.probeSettings(settings),
   publishSettingsMetadata: () => {
-    queueStateMetadata(currentAgentListMetadata({ includeWorkspaceRoots: true }));
+    stateBroadcastScheduler.queueMetadata(currentAgentListMetadata({ includeWorkspaceRoots: true }));
   },
   refreshBrowserCapability: () => browserResourceManager.refreshCapability(),
   refreshComputerCapability: async () => {
@@ -2057,7 +2061,7 @@ const websocketAgentLifecycleHandlers = createWebSocketAgentLifecycleHandlers<We
   getAgentState: () => agentManager.getState(),
   killAgent: agentId => agentManager.killAgent(agentId),
   publishAgentState: () => {
-    queueStateMetadata(currentAgentListMetadata());
+    stateBroadcastScheduler.queueMetadata(currentAgentListMetadata());
     broadcastState();
   },
   revealAgentState: () => broadcastState(),
@@ -2596,14 +2600,8 @@ function recoverAcpSessionRevisionIfReady(client: WebSocketClient) {
   deliverAcpSessionRevision(client, revision);
 }
 
-let stateBroadcastTimer: ReturnType<typeof setTimeout> | null = null;
-let lastStateBroadcastAt = 0;
 const stateBroadcastTracker = createAgentStateBroadcastTracker();
 let stateSnapshotSerial = 0;
-const pendingStateAgentIds = new Set<string>();
-let pendingMainAgentIdState = false;
-let pendingTaskHistoryState = false;
-let pendingStateMetadata: Record<string, unknown> = {};
 const pendingAcpSessionRevisions = new Map();
 const websocketResourceBroadcasts = createWebSocketResourceBroadcastController<WebSocketClient>({
   clients: () => wss.clients,
@@ -2695,47 +2693,23 @@ function recoverStateSnapshotIfReady(client: WebSocketClient) {
   if (client.bufferedAmount <= MAX_STATE_CLIENT_BUFFERED_AMOUNT) sendState(client);
 }
 
-function pendingAgentStateMutation() {
-  const upserts = [];
-  const removedAgentIds = [];
-  const now = Date.now();
-  for (const agentId of pendingStateAgentIds) {
-    const agent = agentManager.getAgentState(agentId, now) as (ServerRecord & { id: string }) | null;
-    if (agent && agentStateVisibleToInteractiveClients(agent)) upserts.push(projectAgentState(agent));
-    else removedAgentIds.push(agentId);
-  }
-  const managerMetadata = agentManager.getStateMetadata();
-  const state = {
-    ...pendingStateMetadata,
-    ...(pendingMainAgentIdState ? { mainAgentId: managerMetadata.mainAgentId } : {}),
-    ...(pendingTaskHistoryState ? { taskHistory: managerMetadata.taskHistory } : {}),
-  };
-  pendingStateAgentIds.clear();
-  pendingMainAgentIdState = false;
-  pendingTaskHistoryState = false;
-  pendingStateMetadata = {};
-  return {
-    upserts,
-    removedAgentIds,
-    ...(Object.keys(state).length > 0 ? { state } : {}),
-  };
+interface StateBroadcastContext {
+  authoritativeCheckpoint: boolean;
+  excludedClient: WebSocketClient | null;
 }
 
-function broadcastState(
-  excludedClient: WebSocketClient | null = null,
-  authoritativeCheckpoint = false,
+function deliverStateBroadcast(
+  mutation: AgentStateBroadcastSchedulerMutation<AgentStateRecord>,
+  context: StateBroadcastContext | null,
 ) {
-  lastStateBroadcastAt = Date.now();
-  if (stateBroadcastTimer) clearTimeout(stateBroadcastTimer);
-  stateBroadcastTimer = null;
-  const mutation = pendingAgentStateMutation();
-  const delta = authoritativeCheckpoint
+  const delta = context?.authoritativeCheckpoint === true
     ? advanceAgentStateBroadcast(
         stateBroadcastTracker,
         buildStatePayload() as AgentStatePayload,
       )
     : advanceAgentStateMutation(stateBroadcastTracker, mutation);
   if (!delta) return;
+  const excludedClient = context?.excludedClient ?? null;
   const inventorySummary = agentStateBroadcastInventorySummary(stateBroadcastTracker);
   const allDelta = inventorySummary
     ? {
@@ -2781,35 +2755,29 @@ function broadcastState(
   });
 }
 
-function queueAgentStateChange(change: AgentManagerStateChange) {
-  change.agentIds?.forEach(agentId => pendingStateAgentIds.add(agentId));
-  change.removedAgentIds?.forEach(agentId => pendingStateAgentIds.add(agentId));
-  if (change.mainAgentIdChanged === true) pendingMainAgentIdState = true;
-  if (change.taskHistoryChanged === true) pendingTaskHistoryState = true;
-  scheduleBroadcastState();
-}
+const stateBroadcastScheduler = createWebSocketAgentStateBroadcastScheduler<
+  AgentStateRecord,
+  StateBroadcastContext,
+  ReturnType<typeof setTimeout>
+>({
+  clearTimer: clearTimeout,
+  deliver: deliverStateBroadcast,
+  intervalMs: STATE_BROADCAST_INTERVAL_MS,
+  now: Date.now,
+  projectAgent: (agentId, now) => {
+    const agent = agentManager.getAgentState(agentId, now) as (ServerRecord & { id: string }) | null;
+    if (!agent || !agentStateVisibleToInteractiveClients(agent)) return null;
+    return projectAgentState(agent);
+  },
+  setTimer: setTimeout,
+  stateMetadata: () => agentManager.getStateMetadata(),
+});
 
-function queueStateMetadata(state: Record<string, unknown>) {
-  Object.assign(pendingStateMetadata, state);
-  scheduleBroadcastState();
-}
-
-function scheduleBroadcastState() {
-  const now = Date.now();
-  const elapsed = now - lastStateBroadcastAt;
-
-  if (elapsed >= STATE_BROADCAST_INTERVAL_MS) {
-    broadcastState();
-    return;
-  }
-
-  if (stateBroadcastTimer) {
-    return;
-  }
-
-  stateBroadcastTimer = setTimeout(() => {
-    broadcastState();
-  }, STATE_BROADCAST_INTERVAL_MS - elapsed);
+function broadcastState(
+  excludedClient: WebSocketClient | null = null,
+  authoritativeCheckpoint = false,
+) {
+  stateBroadcastScheduler.flush({ authoritativeCheckpoint, excludedClient });
 }
 
 function broadcastSessionPreview(preview: ServerRecord) {
@@ -2826,7 +2794,7 @@ const websocketSessionPreviewBroadcasts = createWebSocketSessionPreviewBroadcast
   setTimer: setTimeout,
 });
 
-agentManager.onUpdate(queueAgentStateChange);
+agentManager.onUpdate(stateBroadcastScheduler.queueChange);
 
 agentManager.on('provider-session-updated', () => {
   agentSessionInventory.invalidate();

@@ -560,7 +560,7 @@ assertInventoryInvariant();
 const serverSource = fs.readFileSync(path.join(__dirname, '..', 'server.cts'), 'utf8');
 assert(
   serverSource.includes('.filter(agent => agentStateVisibleToInteractiveClients(agent as ServerRecord & { id: string }))')
-    && serverSource.includes('if (agent && agentStateVisibleToInteractiveClients(agent)) upserts.push(projectAgentState(agent));'),
+    && serverSource.includes('if (!agent || !agentStateVisibleToInteractiveClients(agent)) return null;'),
   'Deployment smoke Agents must stay out of both authoritative snapshots and incremental browser state',
 );
 assert.strictEqual(

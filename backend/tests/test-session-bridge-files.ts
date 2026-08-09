@@ -176,7 +176,7 @@ function run() {
     server.indexOf("app.post(routePath(BASE_PATH, '/api/agents/:agentId/fork')")
   );
   assert(
-    agentPatchRoute.includes('queueAgentStateChange({ agentIds: [req.params.agentId] });') &&
+    agentPatchRoute.includes('stateBroadcastScheduler.queueChange({ agentIds: [req.params.agentId] });') &&
       !agentPatchRoute.includes('broadcastState();'),
     'agent flag PATCH responses should coalesce one exact Agent mutation through the shared scheduler'
   );

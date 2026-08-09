@@ -194,7 +194,7 @@ function run() {
 
   assert(
     serverSource.includes("app.use(routePath(BASE_PATH, '/api/settings'), createSettingsMutationRouter({")
-      && serverSource.includes('queueStateMetadata(currentAgentListMetadata({ includeWorkspaceRoots: true }));')
+      && serverSource.includes('stateBroadcastScheduler.queueMetadata(currentAgentListMetadata({ includeWorkspaceRoots: true }));')
       && settingsMutationRouterSource.includes('ports.publishSettingsMetadata();')
       && !settingsMutationRouterSource.includes('broadcastState();'),
     'rapid settings writes should coalesce exact list metadata through the shared state scheduler',
