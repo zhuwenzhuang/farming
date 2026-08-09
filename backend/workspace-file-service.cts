@@ -101,7 +101,7 @@ interface PathSearchResult {
 
 interface ProcessError extends Error {
   code?: string | number;
-  signal?: NodeJS.Signals | string;
+  signal?: NodeJS.Signals | string | null;
   stderr?: string | Buffer;
   stdout?: string | Buffer;
 }
@@ -389,7 +389,8 @@ function resolveCommandRunnerNodePath(options: CommandRunnerOptions = {}) {
 }
 
 function isPackagedRuntime() {
-  return Boolean(process.pkg) || process.env.FARMING_PACKAGED_RUNTIME === '1';
+  return Boolean((process as NodeJS.Process & { pkg?: unknown }).pkg)
+    || process.env.FARMING_PACKAGED_RUNTIME === '1';
 }
 
 let chokidarPromise: Promise<{ watch(path: string, options: Record<string, unknown>): ChokidarWatcher }> | null = null;
@@ -463,7 +464,7 @@ class CommandRunner implements WorkspaceCommandRunner {
         return;
       }
 
-      const error = new Error(response.error?.message || 'command failed');
+      const error = new Error(response.error?.message || 'command failed') as ProcessError;
       error.code = response.error?.code;
       error.signal = response.error?.signal;
       error.stdout = response.error?.stdout || '';
@@ -1618,7 +1619,7 @@ class WorkspaceFileService {
 
   async loadBundledRipgrep(): Promise<BundledRipgrepModule> {
     if (!this.bundledRipgrepModulePath) {
-      const error = new Error('bundled ripgrep is unavailable');
+      const error = new Error('bundled ripgrep is unavailable') as ProcessError;
       error.code = 'ENOENT';
       throw error;
     }
@@ -1641,7 +1642,7 @@ class WorkspaceFileService {
         run,
         new Promise<never>((_, reject) => {
           setTimeout(() => {
-            const error = new Error('bundled ripgrep timed out');
+            const error = new Error('bundled ripgrep timed out') as ProcessError;
             error.code = 'ETIMEDOUT';
             reject(error);
           }, options.timeout);
@@ -1651,7 +1652,7 @@ class WorkspaceFileService {
     const stdout = result.stdout || '';
     const stderr = result.stderr || '';
     if (result.code && result.code !== 0) {
-      const error = new Error(stderr || `ripgrep exited with code ${result.code}`);
+      const error = new Error(stderr || `ripgrep exited with code ${result.code}`) as ProcessError;
       error.code = result.code;
       error.stdout = stdout;
       error.stderr = stderr;
@@ -1813,7 +1814,7 @@ class WorkspaceFileService {
         if (pending) processLine(pending);
         if (settled) return;
         if (code && code !== 0 && signal !== 'SIGTERM') {
-          const error = new Error(stderr || 'path search failed');
+          const error = new Error(stderr || 'path search failed') as ProcessError;
           error.code = code;
           error.signal = signal;
           error.stderr = stderr;
