@@ -31,6 +31,7 @@ function createHarness() {
   let nextTimer = 1
   let paging = { hasMore: true, nextCursor: 'next' }
   const replaced: AgentSessionPage[] = []
+  const visibleReplaced: AgentSessionPage[] = []
   const appended: AgentSessionPage[] = []
   const ports: AgentSessionInventoryRequestLifecyclePorts = {
     fetchPage: options => {
@@ -39,6 +40,7 @@ function createHarness() {
       return pending.promise
     },
     replaceFirstPage: result => replaced.push(result),
+    replaceVisiblePage: result => visibleReplaced.push(result),
     appendPage: result => appended.push(result),
     getPaging: () => paging,
     setFreshLoading: () => {},
@@ -53,7 +55,12 @@ function createHarness() {
     createAbortController: () => new AbortController(),
   }
   return {
-    lifecycle: new AgentSessionInventoryRequestLifecycle(ports), requests, timers, replaced, appended,
+    lifecycle: new AgentSessionInventoryRequestLifecycle(ports),
+    requests,
+    timers,
+    replaced,
+    visibleReplaced,
+    appended,
     setPaging: (next: typeof paging) => { paging = next },
   }
 }
@@ -114,4 +121,27 @@ test('dispose cancels active work and prevents late replacement', async () => {
   pending.deferred.resolve(page('late'))
   await Promise.resolve()
   assert.deepEqual(harness.replaced, [])
+})
+
+test('a newer first-page generation rejects a late load-more page', async () => {
+  const harness = createHarness()
+  const loadMore = harness.lifecycle.loadMore()
+  harness.lifecycle.load(true)
+  harness.requests[0]!.deferred.resolve(page('stale-cursor'))
+  assert.equal(await loadMore, false)
+  assert.deepEqual(harness.appended, [])
+  harness.requests[1]!.deferred.resolve(page('fresh'))
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(harness.replaced.map(result => result.sessions[0]!.id), ['fresh'])
+})
+
+test('only the newest visible-page refresh may replace the inventory', async () => {
+  const harness = createHarness()
+  const older = harness.lifecycle.refreshVisiblePage(60)
+  const newer = harness.lifecycle.refreshVisiblePage(60)
+  harness.requests[0]!.deferred.resolve(page('older'))
+  assert.equal(await older, false)
+  harness.requests[1]!.deferred.resolve(page('newer'))
+  assert.equal(await newer, true)
+  assert.deepEqual(harness.visibleReplaced.map(result => result.sessions[0]!.id), ['newer'])
 })

@@ -29,6 +29,7 @@ export interface AgentSessionInventoryControllerOptions {
 export interface AgentSessionInventoryRequestLifecyclePorts {
   fetchPage: (options?: SessionPageOptions) => Promise<AgentSessionPage>
   replaceFirstPage: (page: AgentSessionPage) => void
+  replaceVisiblePage: (page: AgentSessionPage) => void
   appendPage: (page: AgentSessionPage) => void
   getPaging: () => Pick<ReturnType<typeof createAgentSessionInventoryState>, 'hasMore' | 'nextCursor'>
   setFreshLoading: (loading: boolean) => void
@@ -48,6 +49,7 @@ export class AgentSessionInventoryRequestLifecycle {
   private backgroundFresh = false
   private backgroundCancel: (() => void) | null = null
   private firstPageRequest: { limit: number; fresh: boolean; promise: Promise<AgentSessionPage> } | null = null
+  private visibleRefreshVersion = 0
 
   constructor(private readonly ports: AgentSessionInventoryRequestLifecyclePorts) {}
 
@@ -126,8 +128,10 @@ export class AgentSessionInventoryRequestLifecycle {
     const { hasMore, nextCursor } = this.ports.getPaging()
     if (!hasMore || !nextCursor || this.loadingMore) return false
     this.loadingMore = true
+    const generation = this.generation
     try {
       const page = await this.ports.fetchPage({ cursor: nextCursor })
+      if (generation !== this.generation) return false
       this.ports.appendPage(page)
       return page.sessions.length > 0
     } catch {
@@ -135,6 +139,15 @@ export class AgentSessionInventoryRequestLifecycle {
     } finally {
       this.loadingMore = false
     }
+  }
+
+  async refreshVisiblePage(limit: number) {
+    const generation = this.generation
+    const requestVersion = ++this.visibleRefreshVersion
+    const page = await this.ports.fetchPage({ limit })
+    if (generation !== this.generation || requestVersion !== this.visibleRefreshVersion) return false
+    this.ports.replaceVisiblePage(page)
+    return true
   }
 
   dispose() {
@@ -208,6 +221,7 @@ export function useAgentSessionInventoryController({
     lifecycleRef.current = new AgentSessionInventoryRequestLifecycle({
       fetchPage: fetchAgentSessions,
       replaceFirstPage: page => dispatch({ type: 'first-page-replaced', page }),
+      replaceVisiblePage: page => dispatch({ type: 'visible-page-replaced', page }),
       appendPage: page => dispatch({ type: 'page-appended', page }),
       getPaging: () => inventoryRef.current,
       setFreshLoading,
@@ -223,11 +237,10 @@ export function useAgentSessionInventoryController({
   const scheduleBackgroundLoad = useCallback((fresh = false) => lifecycle.scheduleBackgroundLoad(fresh), [lifecycle])
   const invalidateForHistory = useCallback(() => lifecycle.invalidateForHistory(), [lifecycle])
   const loadMore = useCallback(() => lifecycle.loadMore(), [lifecycle])
-
-  const refreshVisiblePage = useCallback(async () => {
-    const page = await fetchAgentSessions({ limit: inventory.loadedCount })
-    dispatch({ type: 'visible-page-replaced', page })
-  }, [fetchAgentSessions, inventory.loadedCount])
+  const refreshVisiblePage = useCallback(
+    () => lifecycle.refreshVisiblePage(inventory.loadedCount),
+    [inventory.loadedCount, lifecycle],
+  )
 
   useEffect(() => {
     if (!searchActive) {
