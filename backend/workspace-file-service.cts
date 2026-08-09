@@ -529,7 +529,11 @@ class CommandRunner implements WorkspaceCommandRunner {
 
 function isInside(root: string, target: string): boolean {
   const relative = path.relative(root, target);
-  return relative === '' || Boolean(relative) && !relative.startsWith('..') && !path.isAbsolute(relative);
+  return relative === '' || (
+    relative !== '..'
+    && !relative.startsWith(`..${path.sep}`)
+    && !path.isAbsolute(relative)
+  );
 }
 
 function isInsideAnyRoot(roots: unknown, target: string): boolean {
