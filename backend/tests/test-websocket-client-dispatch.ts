@@ -1,11 +1,14 @@
 import type { ClientMessage } from '../../shared/browser-protocol.js';
 
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
 const {
   createClientMessageRegistration,
   defineClientMessageDispatchTable,
   dispatchClientMessage,
 } = require('../websocket-client-dispatch.cjs') as typeof import('../websocket-client-dispatch.cjs');
+const { reportWebSocketAdmissionFailure } = require('../websocket-admission-errors.cjs') as typeof import('../websocket-admission-errors.cjs');
 
 type ClientMessageByType = {
   [Type in ClientMessage['type']]: Extract<ClientMessage, { type: Type }>;
@@ -15,6 +18,10 @@ interface DispatchContext {
   asyncGate: Promise<void>;
   calls: string[];
   expectedIdentity: DispatchContext | null;
+  interruptAdmission: Promise<void>;
+  readyState: number;
+  sent: string[];
+  send(message: string): void;
   throwOnRestart: boolean;
 }
 
@@ -55,6 +62,10 @@ async function run(): Promise<void> {
     asyncGate,
     calls: [],
     expectedIdentity: null,
+    interruptAdmission: Promise.resolve(),
+    readyState: 1,
+    sent: [],
+    send(message) { this.sent.push(message); },
     throwOnRestart: false,
   };
   context.expectedIdentity = context;
@@ -74,7 +85,15 @@ async function run(): Promise<void> {
     input: register('input', record),
     'composer-input': register('composer-input', record),
     'acp-permission-response': register('acp-permission-response', record),
-    'interrupt-agent': register('interrupt-agent', record),
+    'interrupt-agent': register('interrupt-agent', (dispatchContext, message) => {
+      record(dispatchContext, message);
+      void dispatchContext.interruptAdmission.catch(error => {
+        reportWebSocketAdmissionFailure(dispatchContext, error, {
+          openState: 1,
+          fallbackMessage: 'Failed to interrupt Agent',
+        });
+      });
+    }),
     'focus-agent': register('focus-agent', record),
     'resize-agent': register('resize-agent', record),
     'clear-terminal': register('clear-terminal', record),
@@ -108,6 +127,47 @@ async function run(): Promise<void> {
   await asyncGate;
   await Promise.resolve();
   assert.strictEqual(context.calls.at(-1), 'health-finished');
+
+  const unhandled: unknown[] = [];
+  const onUnhandled = (error: unknown) => { unhandled.push(error); };
+  process.on('unhandledRejection', onUnhandled);
+  try {
+    context.interruptAdmission = Promise.reject(new Error('interrupt admission rejected'));
+    dispatchClientMessage(table, context, validClientMessages['interrupt-agent']);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepStrictEqual(context.sent.map(message => JSON.parse(message)), [{
+      type: 'error',
+      message: 'interrupt admission rejected',
+    }]);
+    assert.deepStrictEqual(unhandled, [], 'rejected interrupt admission must be terminally observed');
+
+    context.readyState = 3;
+    context.interruptAdmission = Promise.reject(new Error('closed client rejection'));
+    dispatchClientMessage(table, context, validClientMessages['interrupt-agent']);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.strictEqual(context.sent.length, 1, 'closed clients must not receive admission errors');
+    assert.deepStrictEqual(unhandled, []);
+
+    context.readyState = 1;
+    const originalSend = context.send;
+    context.send = () => { throw new Error('socket closed during send'); };
+    context.interruptAdmission = Promise.reject(new Error('racing close rejection'));
+    dispatchClientMessage(table, context, validClientMessages['interrupt-agent']);
+    await new Promise(resolve => setImmediate(resolve));
+    context.send = originalSend;
+    assert.deepStrictEqual(unhandled, [], 'a send race must not turn a handled admission into another rejection');
+  } finally {
+    process.off('unhandledRejection', onUnhandled);
+  }
+
+  const serverSource = fs.readFileSync(path.join(__dirname, '..', 'server.cts'), 'utf8');
+  assert(
+    serverSource.includes("import { reportWebSocketAdmissionFailure } from './websocket-admission-errors.cjs'")
+      && serverSource.includes('void agentManager.interruptAgent(data.agentId).catch((error: unknown) => {')
+      && serverSource.includes('reportWebSocketAdmissionFailure(ws, error, {')
+      && serverSource.includes("fallbackMessage: 'Failed to interrupt Agent'"),
+    'the production interrupt dispatch must terminally observe rejected admission and report it through the guarded socket helper',
+  );
 
   context.throwOnRestart = true;
   assert.throws(

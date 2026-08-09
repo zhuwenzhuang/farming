@@ -239,6 +239,7 @@ import { createWorkspaceFileWatchController } from './websocket-workspace-file-w
 import { createWebSocketHandshakeHealthHandlers } from './websocket-handshake-health-handlers.cjs';
 import { createWebSocketTerminalHandlers } from './websocket-terminal-handlers.cjs';
 import { createWebSocketFocusScopeHandlers } from './websocket-focus-scope-handlers.cjs';
+import { reportWebSocketAdmissionFailure } from './websocket-admission-errors.cjs';
 import { TokenAuth } from './auth.cjs';
 import { readOnlyClientMessageAllowed } from './read-only-access.cjs';
 import { getLocalIPs, getPrimaryLocalIP } from './network.cjs';
@@ -2903,9 +2904,14 @@ const clientMessageDispatchTable = defineClientMessageDispatchTable<WebSocketCli
       }));
     }
   }),
-  'interrupt-agent': registerClientMessage('interrupt-agent', (_ws, data) => {
+  'interrupt-agent': registerClientMessage('interrupt-agent', (ws, data) => {
     if (data.agentId) {
-      void agentManager.interruptAgent(data.agentId);
+      void agentManager.interruptAgent(data.agentId).catch((error: unknown) => {
+        reportWebSocketAdmissionFailure(ws, error, {
+          openState: WebSocket.OPEN,
+          fallbackMessage: 'Failed to interrupt Agent',
+        });
+      });
     }
   }),
   'focus-agent': registerClientMessage('focus-agent', websocketFocusScopeHandlers.focusAgent),
