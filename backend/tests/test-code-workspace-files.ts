@@ -63,6 +63,7 @@ function run() {
   const workspaceNavigationSource = read('src/lib/workspace-navigation-history.ts');
   const responsiveModeSource = read('src/lib/responsive-mode.ts');
   const serverSource = read('backend/server.cts');
+  const projectMutationRouterSource = read('backend/project-mutation-router.cts');
   const agentSessionRouterSource = read('backend/agent-session-router.cts');
   const agentManagerSource = read('backend/agent-manager.cts');
   const preparedTranscriptCacheSource = read('backend/acp-prepared-transcript-cache.cts');
@@ -1270,8 +1271,9 @@ function run() {
       workspaceSource.includes('const mountedWorkspace = await requestProjectMount(workspace, signal)\n    throwIfProjectMountAborted(signal)\n    if (!mountedWorkspace) return \'\'\n    setCollapsedProjectIds') &&
       resumeAgentSessionSource.includes("await this.ports.mountProject(activeAgent.workspace, signal)\n        if (!active()) return { status: 'stale' } as const\n        return this.finish(identity, activeAgent.id, false)") &&
       serverSource.includes('configManager.mountProjectWorkspace(result.projectWorkspace)') &&
-      serverSource.includes("app.patch(routePath(BASE_PATH, '/api/projects/name')") &&
-      serverSource.includes('configManager.setProjectName(req.body?.workspace, req.body?.name)') &&
+      serverSource.includes("app.use(routePath(BASE_PATH, '/api/projects'), createProjectMutationRouter(") &&
+      projectMutationRouterSource.includes("router.patch('/name'") &&
+      projectMutationRouterSource.includes('port.setWorkspaceName(req.body?.workspace, req.body?.name)') &&
       serverSource.includes('delete settingsPatch.projectWorkspaces') &&
       serverSource.includes('delete settingsPatch.pinnedProjectWorkspaces') &&
       serverSource.includes('Retry the same Fork request to reconcile Project membership.') &&

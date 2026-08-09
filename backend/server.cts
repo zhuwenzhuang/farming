@@ -282,6 +282,7 @@ import { createAgentExtensionRouter } from './agent-extension-router.cjs';
 import { createProviderCatalogRouter } from './provider-catalog-router.cjs';
 import { AgentSessionInventory } from './agent-session-inventory.cjs';
 import { createAgentSessionRouter } from './agent-session-router.cjs';
+import { createProjectMutationRouter } from './project-mutation-router.cjs';
 import { createSlashCommandDiscoveryCache } from './slash-command-cache.cjs';
 import { agentExtensionInventoryCacheFile, agentSessionInventoryCacheFile } from './storage-layout.cjs';
 import { FarmingUpdateService } from './update-service.cjs';
@@ -1802,72 +1803,21 @@ app.post(routePath(BASE_PATH, '/api/projects/reveal'), express.json(), async (re
   }
 });
 
-app.post(routePath(BASE_PATH, '/api/projects/mount'), express.json(), async (req, res) => {
-  try {
-    const workspace = await canonicalProjectWorkspace(typeof req.body?.workspace === 'string' ? req.body.workspace : '');
-    const membership = configManager.mountProjectWorkspace(workspace);
+app.use(routePath(BASE_PATH, '/api/projects'), createProjectMutationRouter({
+  canonicalWorkspace: workspace => canonicalProjectWorkspace(workspace),
+  mountWorkspace: workspace => configManager.mountProjectWorkspace(workspace),
+  removeWorkspace: workspace => configManager.removeProjectWorkspace(workspace),
+  setWorkspacePinned: (workspace, pinned) => configManager.setProjectWorkspacePinned(workspace, pinned),
+  reorderWorkspace: (workspace, position) => configManager.reorderProjectWorkspace(workspace, position),
+  setWorkspaceName: (workspace, name) => configManager.setProjectName(workspace, name),
+  publishMembershipChange: () => {
     queueStateMetadata(currentAgentListMetadata());
     broadcastState();
-    res.json(membership);
-  } catch (caught) {
-    const error = caughtError(caught);
-    res.status(400).json({ error: error.message || 'Failed to create Project' });
-  }
-});
-
-app.post(routePath(BASE_PATH, '/api/projects/remove'), express.json(), (req, res) => {
-  try {
-    const membership = configManager.removeProjectWorkspace(req.body?.workspace);
+  },
+  publishNameChange: () => {
     queueStateMetadata(currentAgentListMetadata());
-    broadcastState();
-    res.json(membership);
-  } catch (caught) {
-    const error = caughtError(caught);
-    res.status(400).json({ error: error.message || 'Failed to remove Project' });
-  }
-});
-
-app.post(routePath(BASE_PATH, '/api/projects/pin'), express.json(), (req, res) => {
-  try {
-    const membership = configManager.setProjectWorkspacePinned(
-      req.body?.workspace,
-      req.body?.pinned === true
-    );
-    queueStateMetadata(currentAgentListMetadata());
-    broadcastState();
-    res.json(membership);
-  } catch (caught) {
-    const error = caughtError(caught);
-    res.status(400).json({ error: error.message || 'Failed to update Project pin' });
-  }
-});
-
-app.post(routePath(BASE_PATH, '/api/projects/reorder'), express.json(), (req, res) => {
-  try {
-    const membership = configManager.reorderProjectWorkspace(req.body?.workspace, {
-      beforeWorkspace: optionalString(req.body?.beforeWorkspace),
-      afterWorkspace: optionalString(req.body?.afterWorkspace),
-    });
-    queueStateMetadata(currentAgentListMetadata());
-    broadcastState();
-    res.json(membership);
-  } catch (caught) {
-    const error = caughtError(caught);
-    const status = error.message === 'Project does not exist' ? 404 : 409;
-    res.status(status).json({ error: error.message || 'Failed to reorder Project' });
-  }
-});
-
-app.patch(routePath(BASE_PATH, '/api/projects/name'), express.json(), (req, res) => {
-  try {
-    const result = configManager.setProjectName(req.body?.workspace, req.body?.name);
-    queueStateMetadata(currentAgentListMetadata());
-    res.json(result);
-  } catch (caught) {
-    const error = caughtError(caught);
-    res.status(400).json({ error: error.message || 'Failed to rename Project' });
-  }
-});
+  },
+}));
 
 app.post(routePath(BASE_PATH, '/api/projects/create-worktree'), express.json(), async (req, res) => {
   const requestId = typeof req.body?.requestId === 'string' ? req.body.requestId.trim() : '';

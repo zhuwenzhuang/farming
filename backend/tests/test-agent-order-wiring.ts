@@ -10,6 +10,7 @@ function run() {
   const manager = read('backend/agent-manager.cts');
   const server = read('backend/server.cts');
   const agentSessionRouter = read('backend/agent-session-router.cts');
+  const projectMutationRouter = read('backend/project-mutation-router.cts');
   const sessionStore = read('backend/farming-session-store.cts');
   const workspace = read('src/components/CodeWorkspace.tsx');
   const sidebar = read('src/components/code/CodeSidebar.tsx');
@@ -36,7 +37,8 @@ function run() {
   assert(manager.includes('projectOrder: finiteOrder(agent.projectOrder)'));
   assert(manager.includes('pinnedOrder: finiteOrder(agent.pinnedOrder)'));
   assert(server.includes("app.post(routePath(BASE_PATH, '/api/agents/:agentId/reorder')"));
-  assert(server.includes("app.post(routePath(BASE_PATH, '/api/projects/reorder')"));
+  assert(server.includes("app.use(routePath(BASE_PATH, '/api/projects'), createProjectMutationRouter("));
+  assert(projectMutationRouter.includes("router.post('/reorder'"));
   assert(agentSessionRouter.includes("router.patch('/agent-sessions/:provider/:sessionId'"));
   assert(agentSessionRouter.includes('displayPinned'));
   assert(sessionStore.includes('projectOrder: typeof agent.projectOrder'));
