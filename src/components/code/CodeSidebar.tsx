@@ -186,6 +186,8 @@ const ProjectFilesSection = lazy(() => import('../files/ProjectFilesSection').th
 
 interface CodeSidebarProps {
   sidebarCollapsed: boolean
+  navigationModalOpen: boolean
+  navigationDialogRef: RefObject<HTMLElement | null>
   hoverPreviewsPaused: boolean
   emptyHomeActionRequest: { kind: 'share' | 'focus'; nonce: number } | null
   activeView: WorkspaceView
@@ -223,6 +225,7 @@ interface CodeSidebarProps {
   onNewAgent: (workspace?: string, command?: string, returnFocusTarget?: HTMLElement | null) => void
   onStartAgent: (command: string, workspace: string, options?: { projectWorkspace?: string; agentRuntimeMode?: 'terminal' | 'chat' | 'acp' }) => void
   onToggleSidebar: () => void
+  onDismissNavigationModal: () => void
   onOpenSearch: () => void
   onOpenWorkspaceView: (view: WorkspaceView) => void
   onOpenMainAgent: () => void
@@ -250,8 +253,38 @@ interface CodeSidebarProps {
   copy: CodeCopy
 }
 
+function trapFocusInContainer(event: ReactKeyboardEvent<HTMLElement>, container: HTMLElement) {
+  if (event.key !== 'Tab') return
+
+  const focusable = Array.from(container.querySelectorAll<HTMLElement>(
+    'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [href], [tabindex]:not([tabindex="-1"])'
+  )).filter(element => element.offsetParent !== null)
+  if (focusable.length === 0) {
+    event.preventDefault()
+    return
+  }
+
+  const first = focusable[0]
+  const last = focusable[focusable.length - 1]
+  const activeElement = document.activeElement
+  if (event.shiftKey) {
+    if (activeElement === first || !container.contains(activeElement)) {
+      event.preventDefault()
+      last?.focus()
+    }
+    return
+  }
+
+  if (activeElement === last || !container.contains(activeElement)) {
+    event.preventDefault()
+    first?.focus()
+  }
+}
+
 export function CodeSidebar({
   sidebarCollapsed,
+  navigationModalOpen,
+  navigationDialogRef,
   hoverPreviewsPaused,
   emptyHomeActionRequest,
   activeView,
@@ -289,6 +322,7 @@ export function CodeSidebar({
   onNewAgent,
   onStartAgent,
   onToggleSidebar,
+  onDismissNavigationModal,
   onOpenSearch,
   onOpenWorkspaceView,
   onOpenMainAgent,
@@ -562,11 +596,25 @@ export function CodeSidebar({
 
   return (
     <aside
+      ref={navigationDialogRef}
       className={`code-sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}
       data-testid="code-sidebar"
+      role={navigationModalOpen ? 'dialog' : undefined}
+      aria-modal={navigationModalOpen ? true : undefined}
+      aria-label={navigationModalOpen ? copy.projectsAndAgents : undefined}
       onMouseLeave={resetAgentPreview}
       onPointerDownCapture={hideAgentPreview}
       onContextMenuCapture={hideAgentPreview}
+      onKeyDown={event => {
+        if (!navigationModalOpen || event.defaultPrevented) return
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          event.stopPropagation()
+          onDismissNavigationModal()
+          return
+        }
+        trapFocusInContainer(event, event.currentTarget)
+      }}
     >
       <div className="code-nav">
         <div className="code-nav-top-row">
@@ -651,8 +699,8 @@ export function CodeSidebar({
             type="button"
             className="code-sidebar-toggle"
             data-testid="code-sidebar-toggle"
-            aria-label={sidebarCollapsed ? copy.expandSidebar : copy.collapseSidebar}
-            title={sidebarCollapsed ? copy.expandSidebar : copy.collapseSidebar}
+            aria-label={navigationModalOpen ? copy.closeNavigation : sidebarCollapsed ? copy.expandSidebar : copy.collapseSidebar}
+            title={navigationModalOpen ? copy.closeNavigation : sidebarCollapsed ? copy.expandSidebar : copy.collapseSidebar}
             onClick={onToggleSidebar}
           >
             <span

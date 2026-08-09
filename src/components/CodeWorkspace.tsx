@@ -752,6 +752,7 @@ export function CodeWorkspace({
   const [expandedSessionProjectIds, setExpandedSessionProjectIds] = useState<Set<string>>(() => new Set())
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => shouldCollapseSidebarInitially())
+  const [mobileNavigationViewport, setMobileNavigationViewport] = useState(() => isMobileNavigationViewport())
   const [emptyHomeSidebarActionRequest, setEmptyHomeSidebarActionRequest] = useState<EmptyHomeSidebarActionRequest | null>(null)
   const [pendingShareTarget, setPendingShareTarget] = useState<WorkspaceShareTarget | null>(() => (
     typeof window === 'undefined' ? null : workspaceShareTargetFromSearch(window.location.search)
@@ -820,7 +821,13 @@ export function CodeWorkspace({
   const trackedMainPageAgentKeysRef = useRef<Set<string>>(new Set())
   const resizingSidebarRef = useRef(false)
   const sidebarAutoCollapsedRef = useRef(sidebarCollapsed)
-  const mobileNavigationViewportRef = useRef(isMobileNavigationViewport())
+  const mobileNavigationViewportRef = useRef(mobileNavigationViewport)
+  const mobileNavigationDialogRef = useRef<HTMLElement>(null)
+  const mobileNavigationTriggerRef = useRef<HTMLButtonElement>(null)
+  const restoreMobileNavigationFocusRef = useRef(false)
+  const mobileNavigationFocusRestoreFrameRef = useRef<number | null>(null)
+  const mobileShareRequestRef = useRef(0)
+  const mobileNavigationModalOpen = mobileNavigationViewport && !sidebarCollapsed
 
   const collapseSidebar = useCallback(() => {
     sidebarAutoCollapsedRef.current = false
@@ -843,6 +850,19 @@ export function CodeWorkspace({
     sidebarAutoCollapsedRef.current = false
     setSidebarCollapsed(collapsed => !collapsed)
   }, [])
+
+  const dismissMobileNavigation = useCallback(() => {
+    restoreMobileNavigationFocusRef.current = true
+    autoCollapseSidebar()
+  }, [autoCollapseSidebar])
+
+  const toggleSidebarFromSidebar = useCallback(() => {
+    if (mobileNavigationModalOpen) {
+      dismissMobileNavigation()
+      return
+    }
+    toggleSidebar()
+  }, [dismissMobileNavigation, mobileNavigationModalOpen, toggleSidebar])
   const requestEmptyHomeSidebarAction = useCallback((kind: EmptyHomeSidebarActionRequest['kind']) => {
     setEmptyHomeSidebarActionRequest(previous => ({
       kind,
@@ -2689,12 +2709,52 @@ export function CodeWorkspace({
   }, [closeActiveComposerMenus, closeContextMenu, expandSidebar, onWorkspaceViewChange])
 
   const closeSidebarForMobile = useCallback(() => {
-    if (isMobileNavigationViewport()) autoCollapseSidebar()
+    if (!isMobileNavigationViewport()) return
+    restoreMobileNavigationFocusRef.current = false
+    autoCollapseSidebar()
   }, [autoCollapseSidebar])
 
   const openMobileSidebar = useCallback(() => {
+    restoreMobileNavigationFocusRef.current = false
+    closeContextMenu()
+    closeActiveComposerMenus()
     expandSidebar()
-  }, [expandSidebar])
+  }, [closeActiveComposerMenus, closeContextMenu, expandSidebar])
+
+  useEffect(() => {
+    if (!mobileNavigationModalOpen) return undefined
+    mobileShareRequestRef.current += 1
+    setMobileShareUrl('')
+    if (mobileNavigationFocusRestoreFrameRef.current !== null) {
+      window.cancelAnimationFrame(mobileNavigationFocusRestoreFrameRef.current)
+      mobileNavigationFocusRestoreFrameRef.current = null
+    }
+    const returnFocusTarget = mobileNavigationTriggerRef.current
+    const focusFrame = window.requestAnimationFrame(() => {
+      mobileNavigationDialogRef.current
+        ?.querySelector<HTMLButtonElement>('[data-testid="code-sidebar-toggle"]')
+        ?.focus({ preventScroll: true })
+    })
+    return () => {
+      window.cancelAnimationFrame(focusFrame)
+      const shouldRestoreFocus = restoreMobileNavigationFocusRef.current
+      restoreMobileNavigationFocusRef.current = false
+      if (shouldRestoreFocus && isMobileNavigationViewport() && returnFocusTarget?.isConnected) {
+        mobileNavigationFocusRestoreFrameRef.current = window.requestAnimationFrame(() => {
+          mobileNavigationFocusRestoreFrameRef.current = null
+          if (isMobileNavigationViewport() && returnFocusTarget.isConnected) {
+            returnFocusTarget.focus({ preventScroll: true })
+          }
+        })
+      }
+    }
+  }, [mobileNavigationModalOpen])
+
+  useEffect(() => () => {
+    if (mobileNavigationFocusRestoreFrameRef.current !== null) {
+      window.cancelAnimationFrame(mobileNavigationFocusRestoreFrameRef.current)
+    }
+  }, [])
 
   const startNewAgentFromSidebar = useCallback((workspace?: string, command?: string, returnFocusTarget?: HTMLElement | null) => {
     onNewAgent(workspace, command, returnFocusTarget)
@@ -4435,6 +4495,8 @@ export function CodeWorkspace({
   }, [closeContextMenu, openOptionsContextMenu])
 
   const shareCurrentView = useCallback(async () => {
+    const requestId = mobileShareRequestRef.current + 1
+    mobileShareRequestRef.current = requestId
     closeContextMenu()
     try {
       const target = workspaceShareTargetWithCurrentReadingAnchor(shareTarget)
@@ -4444,11 +4506,13 @@ export function CodeWorkspace({
         body: JSON.stringify(target ? { target } : {}),
       })
       const body = await response.json().catch(() => null) as { longUrl?: string; shortUrl?: string; error?: string } | null
+      if (mobileShareRequestRef.current !== requestId) return
       if (!response.ok || (!body?.longUrl && !body?.shortUrl)) {
         throw new Error(body?.error || copy.shareLinkFailed)
       }
       setMobileShareUrl(body.longUrl || body.shortUrl || '')
     } catch (error) {
+      if (mobileShareRequestRef.current !== requestId) return
       if (error instanceof DOMException && error.name === 'AbortError') return
       setCopyNotice({ id: Date.now(), kind: 'error', message: error instanceof Error ? error.message : copy.shareLinkFailed })
     }
@@ -5047,6 +5111,11 @@ export function CodeWorkspace({
       if (dialogOpen) return
 
       const target = event.target
+      if (
+        mobileNavigationModalOpen
+        && target instanceof HTMLElement
+        && target.closest('[data-testid="code-sidebar"]')
+      ) return
       if (contextMenu) {
         if (handleContextMenuNavigation(event, contextMenuRef.current)) return
         if (
@@ -5180,7 +5249,7 @@ export function CodeWorkspace({
 
     window.addEventListener('keydown', handleKeyDown, true)
     return () => window.removeEventListener('keydown', handleKeyDown, true)
-  }, [activeView, approvalMenuOpen, archiveExitDialog, clearSearch, closeActiveComposerMenus, closeArchiveExitDialog, closeContextMenu, closeContextMenuAndRestoreFocus, closeDeleteWorktreeDialog, closeRenameDialog, contextMenu, contextMenuRef, deleteWorktreeDialog, dialogOpen, focusComposerTextarea, focusWorkspaceFilesSearch, handleContextMenuNavigation, keyboardShortcutsEnabled, modelMenuOpen, navigateWorkspaceHistory, onWorkspaceViewChange, openSearch, plusMenuOpen, projectFileSearchId, projectFileSearchIdForShortcutTarget, renameDialog, reopenLastClosedWorkspaceFile, toggleSidebar])
+  }, [activeView, approvalMenuOpen, archiveExitDialog, clearSearch, closeActiveComposerMenus, closeArchiveExitDialog, closeContextMenu, closeContextMenuAndRestoreFocus, closeDeleteWorktreeDialog, closeRenameDialog, contextMenu, contextMenuRef, deleteWorktreeDialog, dialogOpen, focusComposerTextarea, focusWorkspaceFilesSearch, handleContextMenuNavigation, keyboardShortcutsEnabled, mobileNavigationModalOpen, modelMenuOpen, navigateWorkspaceHistory, onWorkspaceViewChange, openSearch, plusMenuOpen, projectFileSearchId, projectFileSearchIdForShortcutTarget, renameDialog, reopenLastClosedWorkspaceFile, toggleSidebar])
 
   useEffect(() => {
     const dialog = renameDialogStateRef.current
@@ -5423,8 +5492,9 @@ export function CodeWorkspace({
     if (!workspace || typeof ResizeObserver === 'undefined') return
 
     const syncSidebarForWorkspaceWidth = (width: number) => {
-      const mobileNavigationViewport = isMobileNavigationViewport()
-      if (mobileNavigationViewport) {
+      const mobileViewport = isMobileNavigationViewport()
+      setMobileNavigationViewport(mobileViewport)
+      if (mobileViewport) {
         if (!mobileNavigationViewportRef.current) autoCollapseSidebar()
         mobileNavigationViewportRef.current = true
         return
@@ -5533,6 +5603,8 @@ export function CodeWorkspace({
     >
       <CodeSidebar
         sidebarCollapsed={sidebarCollapsed}
+        navigationModalOpen={mobileNavigationModalOpen}
+        navigationDialogRef={mobileNavigationDialogRef}
         hoverPreviewsPaused={Boolean(projectMenu)}
         emptyHomeActionRequest={emptyHomeSidebarActionRequest}
         activeView={activeView}
@@ -5576,7 +5648,8 @@ export function CodeWorkspace({
         onLoadMoreAgentSessions={loadMoreAgentSessions}
         onNewAgent={startNewAgentFromSidebar}
         onStartAgent={startAgentWithLaunchProfile}
-        onToggleSidebar={toggleSidebar}
+        onToggleSidebar={toggleSidebarFromSidebar}
+        onDismissNavigationModal={dismissMobileNavigation}
         onOpenSearch={openSearchFromSidebar}
         onOpenWorkspaceView={openWorkspaceViewFromSidebar}
         onOpenMainAgent={() => {
@@ -5662,7 +5735,7 @@ export function CodeWorkspace({
         onUpdateUiPreferences={onUpdateUiPreferences}
       />
 
-      {mobileShareUrl && (
+      {mobileShareUrl && !mobileNavigationModalOpen && (
         <MobileShareSheet
           copy={copy}
           title={mobileHeaderTitle}
@@ -5684,16 +5757,20 @@ export function CodeWorkspace({
       />
 
       {!sidebarCollapsed && (
-        <button
-          type="button"
+        <div
           className="code-mobile-sidebar-backdrop"
           data-testid="code-mobile-sidebar-backdrop"
-          aria-label={copy.closeNavigation}
-          onPointerDown={autoCollapseSidebar}
+          role="presentation"
+          aria-hidden="true"
+          onPointerDown={dismissMobileNavigation}
         />
       )}
 
-      <div className="code-mobile-topbar" data-testid="code-mobile-topbar">
+      <div
+        className="code-mobile-topbar"
+        data-testid="code-mobile-topbar"
+        inert={mobileNavigationModalOpen ? true : undefined}
+      >
         {showMobileBackButton ? (
           <button
             type="button"
@@ -5708,6 +5785,7 @@ export function CodeWorkspace({
           </button>
         ) : (
           <button
+            ref={mobileNavigationTriggerRef}
             type="button"
             className="code-mobile-topbar-button menu"
             data-testid="code-mobile-menu"
@@ -5752,6 +5830,7 @@ export function CodeWorkspace({
       )}
 
       <CodeMainArea
+        inert={mobileNavigationModalOpen}
         activeView={activeView}
         activeBrowserResource={mainPaneMode === 'browser' ? activeBrowserResource : null}
         browserController={browserResources}

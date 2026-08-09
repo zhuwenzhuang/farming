@@ -242,6 +242,7 @@ function FileEditorFallback({
 }
 
 interface CodeMainAreaProps {
+  inert?: boolean
   activeView: WorkspaceView
   activeBrowserResource: BrowserResource | null
   browserController: BrowserResourcesController
@@ -528,6 +529,7 @@ function EmptyWorkspaceGuide({
 }
 
 export function CodeMainArea({
+  inert,
   activeView,
   activeBrowserResource,
   browserController,
@@ -802,6 +804,7 @@ export function CodeMainArea({
     <main
       className="code-main"
       data-testid="code-main"
+      inert={inert ? true : undefined}
       onPointerDownCapture={dismissComposerKeyboardOnMainPress}
       onTouchStartCapture={dismissComposerKeyboardOnMainPress}
     >
