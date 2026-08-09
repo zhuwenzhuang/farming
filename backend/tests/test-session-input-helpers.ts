@@ -129,6 +129,9 @@ function run() {
   const mainCssSource = fs.readFileSync(
     path.join(__dirname, '../../src/styles/main.css'),
     'utf8'
+  ) + fs.readFileSync(
+    path.join(__dirname, '../../src/styles/composer.css'),
+    'utf8'
   );
   const codeComposerSource = fs.readFileSync(
     path.join(__dirname, '../../src/components/code/CodeComposer.tsx'),

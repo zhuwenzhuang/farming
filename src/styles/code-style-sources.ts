@@ -1,11 +1,13 @@
 export const CODE_STYLE_SOURCES = [
   'src/styles/tokens.css',
   'src/styles/main.css',
+  'src/styles/composer.css',
   'src/styles/plugin.css',
   'src/styles/settings.css',
   'src/styles/share.css',
   'src/styles/sidebar-resources.css',
   'src/styles/code-dark.css',
+  'src/styles/composer-dark.css',
   'src/styles/plugin-dark.css',
   'src/styles/settings-dark.css',
   'src/styles/share-dark.css',

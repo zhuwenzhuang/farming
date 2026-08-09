@@ -110,9 +110,15 @@ function run() {
   const fileEditorMonacoSource = read('src/components/files/useFileEditorMonacoController.ts');
   const inputDialogSource = read('src/components/InputDialog.tsx');
   const settingsFileExists = fs.existsSync(path.join(__dirname, '../..', 'src/components/Settings.tsx'));
-  const stylesSource = read('src/styles/main.css');
+  const stylesSource = [
+    read('src/styles/main.css'),
+    read('src/styles/composer.css'),
+  ].join('\n');
   const composerMicStyles = stylesSource.match(/\.code-composer-mic svg \{[\s\S]*?\n\}/)?.[0] || '';
-  const darkStylesSource = read('src/styles/code-dark.css');
+  const darkStylesSource = [
+    read('src/styles/code-dark.css'),
+    read('src/styles/composer-dark.css'),
+  ].join('\n');
   const useAgentsSource = read('src/hooks/useAgents.ts');
   const webSocketSource = read('src/hooks/useWebSocket.ts');
   const messagesSource = read('src/types/messages.ts');
