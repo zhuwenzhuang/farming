@@ -55,6 +55,7 @@ function run() {
     'src/components/code/useResourcePaneController.ts',
     'src/components/code/useWorkspaceContextMenu.ts',
     'src/components/code/useWorkspaceNavigationHistory.ts',
+    'src/components/code/useWorkspaceSurfaceController.ts',
     'src/components/code/workspace-derived.ts',
     'src/components/code/workspace-file-view.ts',
     'src/lib/main-page-session-mutations.ts',
