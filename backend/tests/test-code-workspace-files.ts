@@ -46,6 +46,7 @@ function run() {
     'src/components/code/useAgentComposerState.ts',
     'src/components/code/useCodexModelCatalogController.ts',
     'src/components/code/useComposerProviderCatalogController.ts',
+    'src/components/code/useComposerFollowUpController.ts',
     'src/components/code/useMainPageSessionMembershipController.ts',
     'src/components/code/useProjectMembershipController.ts',
     'src/components/code/useProjectMutationController.ts',
@@ -74,6 +75,7 @@ function run() {
   const mainPageSessionSource = read('backend/main-page-session.cts');
   const inputPartsSource = read('backend/input-parts.cts');
   const websocketHandshakeHealthHandlersSource = read('backend/websocket-handshake-health-handlers.cts');
+  const websocketAcpHandlersSource = read('backend/websocket-acp-handlers.cts');
   const agentSessionInventoryControllerSource = read('src/components/code/useAgentSessionInventoryController.ts');
   const projectMembershipControllerSource = read('src/components/code/useProjectMembershipController.ts');
   const projectMutationControllerSource = read('src/components/code/useProjectMutationController.ts');
@@ -1037,7 +1039,7 @@ function run() {
       workspaceSource.includes('acpComposerStateKeyForAgent(activeAgent)') &&
       workspaceSource.includes('const activeComposerState = activeComposerKey') &&
       workspaceSource.includes('const activePendingFollowUp = activeComposerState.pendingFollowUp') &&
-      workspaceSource.includes('const activeAgentTurnActive = useMemo') &&
+      workspaceSource.includes('const activeAgentTurnActive = activePromptStartFenced || isAgentTurnActive(activeAgent)') &&
       workspaceSource.includes('scheduleFocusRetries(focus, { delays: [60] })') &&
       workspaceSource.includes('scheduleFocusRetries(() => {\n      focusAgentRowNow(agentId)\n    }, { delays: [80, 180] })') &&
       workspaceSource.includes('scheduleFocusRetries(focusCancelButton, { runNow: false, delays: [180] })') &&
@@ -1065,17 +1067,17 @@ function run() {
       workspaceSource.includes('editableText = text') &&
       workspaceSource.includes("composerMode: ComposerMode = 'default'") &&
       workspaceSource.includes('function removePendingFollowUpMessage(') &&
-      workspaceSource.includes('const pendingFollowUpAutoFlushRef = useRef<Record<string, string>>({})') &&
+      workspaceSource.includes('const admissionsRef = useRef(new ComposerFollowUpAdmissions())') &&
       workspaceSource.includes('const latestDraft = submittedDraft ?? composerTextareaRef.current?.value ?? draft') &&
       workspaceSource.includes('const navigateActiveComposerHistory = useCallback') &&
       workspaceSource.includes('canUseComposerHistoryNavigation(input)') &&
       workspaceSource.includes('navigateComposerHistory(activeComposerState.history, direction, input.value)') &&
-      workspaceSource.includes('const message = pending.messages.find(item => item.id === messageId)') &&
-      workspaceSource.includes("sendComposerMessageToAgent(\n        activeAgent,\n        message.text,\n        message.attachments,\n        message.id,\n        'prompt',\n      )") &&
-      workspaceSource.includes('pendingFlushes.push({ agent, composerKey, message: nextMessage })') &&
-      workspaceSource.includes("sendComposerMessageToAgent(\n          agent,\n          message.text,\n          message.attachments,\n          message.id,\n          'prompt',\n        )") &&
+      workspaceSource.includes('const message = pending.messages[0]') &&
+      workspaceSource.includes("settleComposerDelivery(sendMessage(activeAgent, message.text, message.attachments, message.id, 'prompt'), settle)") &&
+      workspaceSource.includes('pendingFlushes.push({ agent, composerKey, message })') &&
+      workspaceSource.includes("settleComposerDelivery(sendMessage(agent, message.text, message.attachments, message.id, 'prompt'), settle)") &&
       workspaceSource.includes('subscribeAgentRuntimeBindingEvents(agentId => {') &&
-      workspaceSource.includes('reconcileAcpPromptStartFence(structuralAgent)') &&
+      workspaceSource.includes('reconcilePromptStartFence(structuralAgent)') &&
       workspaceSource.includes('flushPendingFollowUps([structuralAgent])') &&
       !workspaceSource.includes("pending.messages.join('\\n\\n')") &&
       workspaceSource.includes('submitAction: composerSubmitAction') &&
@@ -1561,8 +1563,10 @@ function run() {
       acpComposerBehaviorSource.includes('formatComposerMessage') &&
       acpComposerBehaviorSource.includes('composerPromptAttachments') &&
       acpComposerBehaviorSource.includes('createPendingFollowUpMessage') &&
-      serverSource.includes("data: data.toString('base64')") &&
-      serverSource.includes('uri: pathToFileURL(filePath).href') &&
+      websocketAcpHandlersSource.includes("data: data.toString('base64')") &&
+      websocketAcpHandlersSource.includes('uri: pathToFileURL(filePath).href') &&
+      !serverSource.includes("data: data.toString('base64')") &&
+      !serverSource.includes('uri: pathToFileURL(filePath).href') &&
       agentManagerSource.includes('this.acpRuntime.submitMessage(agentId, prompt') &&
       workspaceSource.includes('activeAcpRuntime') &&
       acpComposerStateSource.includes("const ACP_COMPOSER_STATE_PREFIX = 'acp:'") &&
@@ -1597,9 +1601,9 @@ function run() {
     'ACP chat should own a separate composer and behavior module without changing the Terminal composer contract'
   );
   assert(
-    workspaceSource.includes('const activeAgentCanInterrupt = useMemo') &&
+    workspaceSource.includes('const activeAgentCanInterrupt = activeAgentTurnActive || terminalCanInterrupt') &&
       workspaceSource.includes('activeAgentTurnActive ||') &&
-      workspaceSource.includes("activeAgent?.status === 'running'") &&
+      workspaceSource.includes("activeAgent.status === 'running'") &&
       workspaceSource.includes("composerAgentKind === 'shell'") &&
       workspaceSource.includes('activeAgentTerminalState.terminalBusy') &&
       !workspaceSource.includes("composerAgentKind === 'codex'\n        || composerAgentKind === 'claude'") &&
