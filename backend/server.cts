@@ -161,8 +161,6 @@ interface WebSocketClient {
   stateSnapshotRetryTimer?: ReturnType<typeof setTimeout> | null;
   stateScope?: 'all' | 'focused';
   streamScope?: 'focused' | 'all';
-  protocolCompatible?: boolean;
-  protocolReady?: boolean;
   close(code?: number, reason?: string): void;
   send(data: string): void;
   terminate(): void;
@@ -241,6 +239,7 @@ import {
   dispatchClientMessage,
 } from './websocket-client-dispatch.cjs';
 import { createWorkspaceFileWatchController } from './websocket-workspace-file-watch.cjs';
+import { createWebSocketHandshakeHealthHandlers } from './websocket-handshake-health-handlers.cjs';
 import { TokenAuth } from './auth.cjs';
 import { readOnlyClientMessageAllowed } from './read-only-access.cjs';
 import { getLocalIPs, getPrimaryLocalIP } from './network.cjs';
@@ -341,7 +340,6 @@ import { coalesceSessionStream, deliverSessionStreamToClients, shouldBroadcastSe
 const {
   MIN_PROTOCOL_VERSION,
   PROTOCOL_VERSION,
-  protocolCompatible,
   sanitizeAgentUpdatePatch,
   validateClientMessage,
 } = require('../shared/browser-protocol');
@@ -3123,47 +3121,15 @@ async function sendTerminalCheckpointResult(
 }
 
 const registerClientMessage = createClientMessageRegistration<WebSocketClient>();
+const websocketHandshakeHealthHandlers = createWebSocketHandshakeHealthHandlers({
+  sendState,
+  sendResourceSnapshots,
+  sendLanguageServerRefreshSnapshot,
+  sendBusinessHealthResult,
+});
 const clientMessageDispatchTable = defineClientMessageDispatchTable<WebSocketClient>({
-  'protocol-hello': registerClientMessage('protocol-hello', (ws, data) => {
-    if (!protocolCompatible(data.protocolVersion)) {
-      // Released clients render protocol-error messages, so deliver the
-      // upgrade guidance before the terminal 4002 close reaches them.
-      ws.send(JSON.stringify({
-        type: 'protocol-error',
-        protocolVersion: PROTOCOL_VERSION,
-        requestId: '',
-        message: Number(data.protocolVersion) < MIN_PROTOCOL_VERSION
-          ? `This Farming page uses protocol ${data.protocolVersion}, but the backend requires ${MIN_PROTOCOL_VERSION}. Refresh this page or update the Farming client.`
-          : `This Farming page uses protocol ${data.protocolVersion}, but the backend only supports ${PROTOCOL_VERSION}. Update and restart the Farming backend.`,
-      }));
-      ws.close(4002, `Unsupported Farming protocol version ${data.protocolVersion}`);
-      return;
-    }
-    ws.protocolVersion = data.protocolVersion;
-    if (
-      ws.initialStateSnapshotSent !== true
-      && data.initialStateScope === 'focused'
-      && data.initialFocusedAgentId
-    ) {
-      ws.focusedAgentId = data.initialFocusedAgentId;
-      ws.stateScope = 'focused';
-    }
-    if (ws.initialStateSnapshotSent !== true) sendState(ws);
-    sendResourceSnapshots(ws);
-    sendLanguageServerRefreshSnapshot(ws);
-  }),
-  'business-health-probe': registerClientMessage('business-health-probe', (ws, data) => {
-    if (!ws.protocolVersion) {
-      ws.send(JSON.stringify({
-        type: 'protocol-error',
-        protocolVersion: PROTOCOL_VERSION,
-        requestId: data.requestId,
-        message: 'Business health requires a negotiated Farming protocol',
-      }));
-      return;
-    }
-    void sendBusinessHealthResult(ws, data.requestId);
-  }),
+  'protocol-hello': registerClientMessage('protocol-hello', websocketHandshakeHealthHandlers.protocolHello),
+  'business-health-probe': registerClientMessage('business-health-probe', websocketHandshakeHealthHandlers.businessHealthProbe),
   'terminal-checkpoint-request': registerClientMessage('terminal-checkpoint-request', (ws, data) => {
     if (!ws.protocolVersion) {
       ws.send(JSON.stringify({
