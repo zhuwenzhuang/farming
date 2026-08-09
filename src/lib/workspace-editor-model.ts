@@ -201,12 +201,6 @@ export function workspaceEditorBasename(filePath: string) {
   return filePath.split('/').filter(Boolean).pop() || filePath
 }
 
-export function workspaceEditorExtension(filePath: string) {
-  const basename = workspaceEditorBasename(filePath).toLowerCase()
-  const dotIndex = basename.lastIndexOf('.')
-  return dotIndex > 0 ? basename.slice(dotIndex) : ''
-}
-
 export function isWorkspaceMarkdownFile(filePath: string) {
   return workspaceFileSupportsViewer(filePath, 'markdown.preview')
 }

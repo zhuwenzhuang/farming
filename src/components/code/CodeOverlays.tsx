@@ -4,10 +4,6 @@ import type {
 } from 'react'
 import type { Agent } from '@/types/agent'
 import {
-  agentSessionWorkingDirectory,
-  projectWorkspaceForAgent,
-} from './model'
-import {
   canSwitchAgentRuntime,
   capabilitiesForAgent,
   isAgentTurnActive,
@@ -662,12 +658,4 @@ function trapFocusInContainer(event: ReactKeyboardEvent<HTMLElement>, container:
     event.preventDefault()
     first.focus()
   }
-}
-
-export function agentContextWorkingDirectory(agent: Agent) {
-  return projectWorkspaceForAgent(agent)
-}
-
-export function sessionContextWorkingDirectory(session: AgentSessionHistoryItem) {
-  return agentSessionWorkingDirectory(session)
 }

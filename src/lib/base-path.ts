@@ -24,10 +24,6 @@ export function resolveAppPath(baseUrl: string, path = '/') {
 
 const basePath = resolveAppBasePath(runtimeBasePath, buildBaseUrl)
 
-export function getBasePath() {
-  return basePath
-}
-
 export function appPath(path = '/') {
   return resolveAppPath(basePath, path)
 }

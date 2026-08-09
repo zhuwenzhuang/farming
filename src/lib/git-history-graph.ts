@@ -103,9 +103,3 @@ export function toGitHistoryItemViewModelArray(
 
   return viewModels
 }
-
-export function gitHistoryItemLaneIndex(historyItemViewModel: GitHistoryItemViewModel) {
-  const inputIndex = historyItemViewModel.inputSwimlanes
-    .findIndex(node => node.id === historyItemViewModel.historyItem.id)
-  return inputIndex !== -1 ? inputIndex : historyItemViewModel.inputSwimlanes.length
-}
