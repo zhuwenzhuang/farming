@@ -4,6 +4,16 @@ const os = require('os');
 const path = require('path');
 const { AgentManager } = require('../agent-manager.cjs');
 
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((settle, fail) => {
+    resolve = settle;
+    reject = fail;
+  });
+  return { promise, reject, resolve };
+}
+
 (async () => {
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-runtime-switch-'));
   const sessionsDir = path.join(codexHome, 'sessions', '2026', '07', '12');
@@ -110,6 +120,9 @@ const { AgentManager } = require('../agent-manager.cjs');
   ));
   killed = '';
   started = null;
+  const blockedAcpResult = await manager.restartAgentRuntimeMode('agent-acp-switch', 'chat');
+  assert.match(blockedAcpResult.error, /delivery finished while the runtime switch was waiting/);
+  assert.strictEqual(killed, '');
   const acpResult = await manager.restartAgentRuntimeMode('agent-acp-switch', 'chat');
   assert.strictEqual(killed, 'agent-acp-switch');
   assert.strictEqual(started.options.agentRuntimeMode, 'chat');
@@ -178,6 +191,9 @@ const { AgentManager } = require('../agent-manager.cjs');
   ));
   killed = '';
   started = null;
+  const blockedLiveAcpResult = await manager.restartAgentRuntimeMode('agent-live-acp-switch', 'terminal');
+  assert.match(blockedLiveAcpResult.error, /delivery finished while the runtime switch was waiting/);
+  assert.strictEqual(killed, '');
   const liveAcpResult = await manager.restartAgentRuntimeMode('agent-live-acp-switch', 'terminal');
   assert.strictEqual(killed, 'agent-live-acp-switch');
   assert.strictEqual(started.options.agentRuntimeMode, 'terminal');
@@ -472,6 +488,9 @@ const { AgentManager } = require('../agent-manager.cjs');
     callback('agent-restored');
     return 'agent-restored';
   };
+  const blockedRollbackResult = await manager.restartAgentRuntimeMode('agent-rollback', 'chat');
+  assert.match(blockedRollbackResult.error, /delivery finished while the runtime switch was waiting/);
+  assert.strictEqual(rollbackStarts, 0);
   const rollbackResult = await manager.restartAgentRuntimeMode('agent-rollback', 'chat');
   assert.strictEqual(rollbackStarts, 2);
   assert.strictEqual(rollbackResult.switchFailed, true);
@@ -542,6 +561,174 @@ const { AgentManager } = require('../agent-manager.cjs');
   assert.strictEqual(manager.agents.has('agent-uncertain-replacement'), true);
 
   await manager.dispose();
+
+  const raceManager = new AgentManager({
+    getHeartbeatInterval: () => 60_000,
+    getTaskHistory: () => [],
+  });
+  raceManager.ensurePersistentAgentSession = () => 'race-record';
+  raceManager.findRuntimeSwitchSession = async () => ({ provider: 'codex' });
+  let raceKills = 0;
+  let raceStarts = 0;
+  let raceTerminalWrites = 0;
+  raceManager.killAgent = async agentId => {
+    raceKills += 1;
+    raceManager.agents.delete(agentId);
+    return { agentId, killed: true };
+  };
+  raceManager.startAgent = async (_command, _cwd, callback, options) => {
+    raceStarts += 1;
+    const replacementId = `race-replacement-${raceStarts}`;
+    raceManager.agents.set(replacementId, {
+      id: replacementId,
+      ...options,
+      runtimeEpoch: `replacement-epoch-${raceStarts}`,
+      status: 'running',
+    });
+    callback(replacementId);
+    return replacementId;
+  };
+  raceManager.engineBridge.getEngine = () => ({
+    async sendInput() {
+      raceTerminalWrites += 1;
+      return { sent: true };
+    },
+  });
+
+  raceManager.agents.set('switch-first', {
+    id: 'switch-first',
+    command: 'codex',
+    forkCommand: 'codex',
+    cwd: '/tmp/project',
+    projectWorkspace: '/tmp/project',
+    providerSessionProvider: 'codex',
+    providerSessionId: sessionId,
+    providerSessionTemporary: false,
+    providerHomeId: 'zwz',
+    providerHomePath: codexHome,
+    agentRuntimeMode: 'terminal',
+    runtimeEpoch: 'switch-first-epoch',
+    status: 'running',
+  });
+  const switchFirst = raceManager.restartAgentRuntimeMode('switch-first', 'chat');
+  await assert.rejects(
+    () => raceManager.sendPersistentComposerMessage(
+      'switch-first',
+      'must not cross a runtime switch',
+      'switch-first-request',
+    ),
+    /lifecycle change already in progress: runtime switch/,
+  );
+  assert.strictEqual(raceTerminalWrites, 0, 'switch-first Composer must not reach the old runtime');
+  assert.strictEqual((await switchFirst).agentRuntimeMode, 'chat');
+
+  let bindingEpoch = 'binding-1';
+  raceManager.acpRuntime.bindingEpoch = () => bindingEpoch;
+  raceManager.acpRuntime.hasBinding = () => true;
+  raceManager.acpRuntime.getSession = () => ({ sessionId, state: 'idle' });
+  const reconnectStarted = deferred();
+  const reconnectRelease = deferred();
+  raceManager.acpRuntime.reconnectAgent = async () => {
+    reconnectStarted.resolve();
+    await reconnectRelease.promise;
+    return { reconnected: false };
+  };
+  const providerTurn = deferred();
+  let raceAcpSubmissions = 0;
+  raceManager.acpRuntime.submitMessage = async (_agentId, _prompt, options) => {
+    raceAcpSubmissions += 1;
+    options.onSubmitted?.();
+    await providerTurn.promise;
+    return { stopReason: 'end_turn' };
+  };
+  raceManager.agents.set('prompt-first', {
+    id: 'prompt-first',
+    command: 'codex',
+    forkCommand: 'codex',
+    cwd: '/tmp/project',
+    projectWorkspace: '/tmp/project',
+    providerSessionProvider: 'codex',
+    providerSessionId: sessionId,
+    providerSessionTemporary: false,
+    providerHomeId: 'zwz',
+    providerHomePath: codexHome,
+    runtimeBinding: { kind: 'acp', state: 'idle' },
+    status: 'running',
+  });
+  const promptFirst = raceManager.sendPersistentComposerMessage(
+    'prompt-first',
+    'finish this exact delivery before switching',
+    'prompt-first-request',
+  );
+  await reconnectStarted.promise;
+  const switchAfterPrompt = raceManager.restartAgentRuntimeMode('prompt-first', 'terminal');
+  await assert.rejects(
+    () => raceManager.sendPersistentComposerMessage(
+      'prompt-first',
+      'must be rejected behind the switch owner',
+      'prompt-after-switch-request',
+    ),
+    /lifecycle change already in progress: runtime switch/,
+  );
+  await new Promise(resolve => setImmediate(resolve));
+  assert.strictEqual(raceKills, 1, 'runtime switch must not kill while Composer reconnect is pending');
+  reconnectRelease.resolve();
+  const acceptedPrompt = await promptFirst;
+  assert.strictEqual(acceptedPrompt.accepted, true);
+  assert.strictEqual(raceAcpSubmissions, 1);
+  let switchAfterPromptSettled = false;
+  void switchAfterPrompt.finally(() => {
+    switchAfterPromptSettled = true;
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.strictEqual(switchAfterPromptSettled, false, 'accepted callback must not release a pending delivery effect');
+  assert.strictEqual(raceKills, 1, 'accepted callback must not allow destructive runtime replacement');
+  providerTurn.resolve();
+  const promptFirstSwitchResult = await switchAfterPrompt;
+  assert.match(promptFirstSwitchResult.error, /delivery finished while the runtime switch was waiting/);
+  assert.strictEqual(raceKills, 1, 'prompt-first switch must terminate without killing the admitted runtime');
+
+  const staleReconnectStarted = deferred();
+  const staleReconnectRelease = deferred();
+  raceManager.acpRuntime.reconnectAgent = async () => {
+    staleReconnectStarted.resolve();
+    await staleReconnectRelease.promise;
+    return { reconnected: true };
+  };
+  raceManager.agents.set('stale-binding', {
+    id: 'stale-binding',
+    command: 'codex',
+    forkCommand: 'codex',
+    cwd: '/tmp/project',
+    projectWorkspace: '/tmp/project',
+    providerSessionProvider: 'codex',
+    providerSessionId: sessionId,
+    providerSessionTemporary: false,
+    providerHomeId: 'zwz',
+    providerHomePath: codexHome,
+    runtimeBinding: { kind: 'acp', state: 'idle' },
+    status: 'running',
+  });
+  const staleAdmission = raceManager.sendPersistentComposerMessage(
+    'stale-binding',
+    'never submit across a replaced binding',
+    'stale-binding-request',
+  );
+  await staleReconnectStarted.promise;
+  bindingEpoch = 'binding-2';
+  staleReconnectRelease.resolve();
+  await assert.rejects(
+    staleAdmission,
+    error => error?.uncertain === true && /runtime changed/.test(error.message),
+  );
+  assert.strictEqual(raceAcpSubmissions, 1, 'stale ACP binding must fail before provider submission');
+  assert.strictEqual(
+    raceManager.agents.get('stale-binding').composerCommands.at(-1).state,
+    'intent',
+    'stale ownership must not persist a terminal outcome through the old record',
+  );
+  raceManager.agents.clear();
+  await raceManager.dispose();
   fs.rmSync(codexHome, { recursive: true, force: true });
   console.log('agent runtime switch tests passed');
 })().catch(error => {

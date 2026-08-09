@@ -84,7 +84,6 @@ import type {
   ProjectOperationType,
   ProjectOperationAdmission,
   ProjectWorkspaceDeleteAdmission,
-  ComposerCommandRecord,
   CodexSessionMutationAdmission,
   PersistedAgentPrivateMetadata,
   RecoveredEngineSessionMetadata,
@@ -186,6 +185,12 @@ import {
   type WorktreeGitServicePort,
 } from './worktree-git-service.cjs';
 import { ForkOperationCoordinator } from './fork-operation-coordinator.cjs';
+import {
+  AgentComposerAdmissionCoordinator,
+  composerAdmissionError,
+  normalizedComposerCommands,
+  normalizedComposerPrompt,
+} from './agent-composer-admission.cjs';
 import {
   AGENT_USAGE_RATE_REFRESH_MS,
   AGENT_USAGE_RATE_WINDOW_MS,
@@ -295,16 +300,12 @@ interface ComposerSubmissionResult extends Record<string, unknown> {
 }
 
 interface ComposerSendOptions extends ComposerMessageOptions {
+  assertDeliveryOwner?: () => void;
   expectedTerminalAgent?: AgentRecord;
   expectedTerminalRuntimeEpoch?: string;
   onSubmitted?: (result: ComposerSubmissionResult) => void;
   requireConfirmedTerminalDelivery?: boolean;
   releaseInput?: () => void;
-}
-
-interface ComposerAdmissionEntry {
-  contentHash: string;
-  promise: Promise<unknown>;
 }
 
 interface CodexTerminalProfileRequest extends Record<string, unknown> {
@@ -383,15 +384,6 @@ interface AgentSessionViewContract extends UnknownRecord {
 interface ComposerContentPart extends UnknownRecord {
   type: string;
   text?: string;
-}
-
-function isComposerCommandRecord(value: unknown): value is ComposerCommandRecord {
-  return isRecord(value)
-    && typeof value.requestId === 'string'
-    && /^[A-Za-z0-9._:-]{1,160}$/.test(value.requestId)
-    && typeof value.contentHash === 'string'
-    && typeof value.state === 'string'
-    && ['intent', 'accepted', 'unknown', 'failed'].includes(value.state);
 }
 
 function normalizeAcpConfigOverrides(value: unknown): AcpConfigChange[] {
@@ -574,7 +566,6 @@ const SESSION_OUTPUT_LIMIT = 10000;
 const ACTIVITY_UPDATE_INTERVAL_MS = 1000;
 const ACTIVITY_HOT_SEC = 30 * 60;
 const ACTIVITY_WARM_SEC = 3 * 60 * 60;
-const MAX_COMPOSER_COMMANDS = 64;
 const ACTIVITY_COOL_SEC = 12 * 60 * 60;
 const ZOMBIE_IDLE_MS = 72 * 60 * 60 * 1000;
 const ZOMBIE_SWEEP_INTERVAL_MS = 60 * 1000;
@@ -939,48 +930,6 @@ function forkTargetRuntime(
     return requestedTargetRuntime;
   }
   return runtimeKind(agent) === 'acp' ? 'chat' : 'terminal';
-}
-
-function normalizedComposerPrompt(message: unknown): ComposerContentPart[] {
-  const prompt = Array.isArray(message) ? message : [{ type: 'text', text: String(message || '') }];
-  const text = prompt
-    .filter((content: ComposerContentPart) => content?.type === 'text')
-    .map((content: ComposerContentPart) => String(content.text || ''))
-    .join('')
-    .trim();
-  if (prompt.length === 0 || (!text && !prompt.some((content: ComposerContentPart) => content?.type !== 'text'))) {
-    throw new Error('Composer message is empty');
-  }
-  return prompt;
-}
-
-function composerCommandHash(prompt: unknown): string {
-  return crypto.createHash('sha256')
-    .update(JSON.stringify(stableJsonValue(prompt)))
-    .digest('hex');
-}
-
-function composerAdmissionError(message: string, uncertain = false): Error & { uncertain?: boolean } {
-  const error: Error & { uncertain?: boolean } = new Error(message);
-  if (uncertain) error.uncertain = true;
-  return error;
-}
-
-function normalizedComposerCommands(commands: unknown): ComposerCommandRecord[] {
-  return (Array.isArray(commands) ? commands : [])
-    .filter(isComposerCommandRecord)
-    .slice(-MAX_COMPOSER_COMMANDS)
-    .map((command: ComposerCommandRecord): ComposerCommandRecord => ({
-      requestId: command.requestId,
-      contentHash: command.contentHash,
-      state: command.state,
-      result: command.result && typeof command.result === 'object'
-        ? JSON.parse(JSON.stringify(command.result))
-        : null,
-      error: typeof command.error === 'string' ? command.error.slice(0, 2000) : '',
-      createdAt: Number(command.createdAt) || 0,
-      updatedAt: Number(command.updatedAt) || 0,
-    }));
 }
 
 function isShellProgram(command: string) {
@@ -1380,7 +1329,7 @@ class AgentManager extends EventEmitter {
   declare pendingResizeByAgent: Map<AgentId, TerminalSize>;
   declare resizeDrains: Map<AgentId, Promise<void>>;
   declare inputQueues: Map<AgentId, Promise<unknown>>;
-  declare composerAdmissions: Map<string, ComposerAdmissionEntry>;
+  declare composerAdmissionCoordinator: AgentComposerAdmissionCoordinator;
   declare codexTerminalProfileQueues: Map<AgentId, Promise<unknown>>;
   declare codexTerminalIdentityAttempts: Map<AgentId, string>;
   declare codexTerminalIdentityPromises: Map<AgentId, Promise<boolean>>;
@@ -1487,7 +1436,89 @@ class AgentManager extends EventEmitter {
     this.pendingResizeByAgent = new Map();
     this.resizeDrains = new Map();
     this.inputQueues = new Map();
-    this.composerAdmissions = new Map();
+    this.composerAdmissionCoordinator = new AgentComposerAdmissionCoordinator({
+      captureDeliveryOwner: agent => {
+        const expectedAgent = agent;
+        const expectedRuntimeKind = runtimeKind(agent);
+        const expectedRuntimeBinding = agent.runtimeBinding;
+        const expectedRuntimeEpoch = expectedRuntimeKind === 'acp'
+          ? String(this.acpRuntime.bindingEpoch(agent.id) || '')
+          : String(agent.runtimeEpoch || '');
+        return {
+          assertCurrent: () => {
+            const current = this.agents.get(agent.id);
+            const currentRuntimeEpoch = expectedRuntimeKind === 'acp'
+              ? String(this.acpRuntime.bindingEpoch(agent.id) || '')
+              : String(current?.runtimeEpoch || '');
+            if (
+              current !== expectedAgent
+              || runtimeKind(current) !== expectedRuntimeKind
+              || current?.runtimeBinding !== expectedRuntimeBinding
+              || currentRuntimeEpoch !== expectedRuntimeEpoch
+            ) {
+              throw Object.assign(
+                new Error('Agent runtime changed before Composer message delivery'),
+                { code: 'COMPOSER_DELIVERY_OWNER_CHANGED', uncertain: true },
+              );
+            }
+          },
+        };
+      },
+      deliver: ({
+        agent,
+        assertCurrentOwner,
+        delivery,
+        onSubmitted,
+        prompt,
+        requestId,
+        retryDefinitiveFailure,
+      }) => {
+        const persistentTerminalDelivery = runtimeKind(agent) === 'terminal';
+        const terminalRuntimeEpoch = persistentTerminalDelivery
+          ? String(agent.runtimeEpoch || '')
+          : '';
+        if (!persistentTerminalDelivery) {
+          if (delivery === 'steer') {
+            return this.sendComposerMessageNow(agent.id, prompt, {
+              assertDeliveryOwner: assertCurrentOwner,
+              delivery,
+              requestId,
+              retryDefinitiveFailure,
+              onSubmitted: () => onSubmitted({ kind: 'acp' }),
+            });
+          }
+          return this.enqueueInputOperationUntilReleased(
+            agent.id,
+            (releaseInput: () => void) => this.sendComposerMessageNow(agent.id, prompt, {
+              assertDeliveryOwner: assertCurrentOwner,
+              delivery,
+              requestId,
+              retryDefinitiveFailure,
+              onSubmitted: () => {
+                try {
+                  onSubmitted({ kind: 'acp' });
+                } finally {
+                  releaseInput();
+                }
+              },
+            }),
+          );
+        }
+        return this.enqueueInputOperation(
+          agent.id,
+          () => this.sendComposerMessageNow(agent.id, prompt, {
+            assertDeliveryOwner: assertCurrentOwner,
+            expectedTerminalAgent: agent,
+            expectedTerminalRuntimeEpoch: terminalRuntimeEpoch,
+            onSubmitted: result => onSubmitted(result),
+            requireConfirmedTerminalDelivery: true,
+          }),
+        );
+      },
+      persistAgent: agent => this.ensurePersistentAgentSession(agent),
+      persistenceRequired: () => typeof this.configManager?.ensureAgentSessionRecord === 'function',
+      runtimeKind: agent => runtimeKind(agent),
+    });
     this.codexTerminalProfileQueues = new Map();
     this.codexTerminalIdentityAttempts = new Map();
     this.codexTerminalIdentityPromises = new Map();
@@ -6589,190 +6620,26 @@ class AgentManager extends EventEmitter {
     return this.enqueueInputOperation(agentId, () => this.sendInputNow(agentId, input, options));
   }
 
-  commitComposerCommand(agent: AgentRecord, command: ComposerCommandRecord) {
-    const commands = normalizedComposerCommands(agent.composerCommands)
-      .filter((candidate: ComposerCommandRecord) => candidate.requestId !== command.requestId);
-    commands.push(command);
-    const staged: AgentRecord = {
-      ...agent,
-      composerCommands: normalizedComposerCommands(commands),
-    };
-    const persistentSessionId = this.ensurePersistentAgentSession(staged);
-    if (
-      typeof this.configManager?.ensureAgentSessionRecord === 'function'
-      && !persistentSessionId
-    ) {
-      throw new Error('Agent session store did not return a persistent id');
-    }
-    agent.composerCommands = staged.composerCommands || [];
-    setAgentRecordId(agent, staged.agentRecordId || staged.persistentSessionId || '');
-    return command;
-  }
-
-  setComposerCommandInMemory(agent: AgentRecord, command: ComposerCommandRecord) {
-    agent.composerCommands = normalizedComposerCommands([
-      ...normalizedComposerCommands(agent.composerCommands)
-        .filter((candidate: ComposerCommandRecord) => candidate.requestId !== command.requestId),
-      command,
-    ]);
-  }
-
   sendPersistentComposerMessage(
     agentId: AgentId,
     message: unknown,
     requestId: string,
     options: ComposerMessageOptions = {},
   ): Promise<unknown> {
+    const lifecycleOperation = this.agentLifecycleOperations.get(agentId);
+    if (lifecycleOperation) {
+      return Promise.reject(new Error(
+        `Agent lifecycle change already in progress: ${lifecycleOperation.label}`,
+      ));
+    }
     const agent = this.agents.get(agentId);
     if (!agent) return Promise.reject(new Error('Agent not found'));
-    const persistentTerminalDelivery = runtimeKind(agent) === 'terminal';
-    const terminalRuntimeEpoch = persistentTerminalDelivery
-      ? String(agent.runtimeEpoch || '')
-      : '';
-    const prompt = normalizedComposerPrompt(message);
-    const delivery = options.delivery === 'prompt' || options.delivery === 'steer'
-      ? options.delivery
-      : 'auto';
-    const contentHash = composerCommandHash({ prompt, delivery });
-    const commands = normalizedComposerCommands(agent.composerCommands);
-    const existing = commands.find((command: ComposerCommandRecord) => command.requestId === requestId);
-    const admissionKey = `${agentId}:${requestId}`;
-    const inFlight = this.composerAdmissions.get(admissionKey) as ComposerAdmissionEntry | undefined;
-    if (existing?.contentHash && existing.contentHash !== contentHash) {
-      return Promise.reject(new Error(`Composer request ${requestId} was already used for different content`));
-    }
-    if (existing?.state === 'accepted') {
-      return Promise.resolve({ ...(existing.result || {}), accepted: true, deduplicated: true });
-    }
-    if (inFlight) return inFlight.promise;
-    if (existing?.state === 'unknown' || existing?.state === 'intent') {
-      const detail = existing.error || `Composer request ${requestId} has an uncertain outcome and will not be replayed automatically`;
-      if (existing.state === 'intent') {
-        const unknown: ComposerCommandRecord = { ...existing, state: 'unknown', error: detail, updatedAt: Date.now() };
-        try {
-          this.commitComposerCommand(agent, unknown);
-        } catch {
-          this.setComposerCommandInMemory(agent, unknown);
-        }
-      }
-      return Promise.reject(composerAdmissionError(detail, true));
-    }
-
-    const intent: ComposerCommandRecord = {
+    return this.composerAdmissionCoordinator.request({
+      agent,
+      delivery: options.delivery,
+      message,
       requestId,
-      contentHash,
-      state: 'intent',
-      result: null,
-      error: '',
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
-    try {
-      this.commitComposerCommand(agent, intent);
-    } catch (caughtError: unknown) {
-      const error = caughtError as ErrorRecord;
-      return Promise.reject(new Error(`Failed to persist Composer intent: ${error.message || error}`));
-    }
-
-    let resolveAdmission!: (value: unknown) => void;
-    let rejectAdmission!: (reason?: unknown) => void;
-    const admissionPromise = new Promise<unknown>((resolve, reject) => {
-      resolveAdmission = resolve;
-      rejectAdmission = reject;
     });
-    const entry: ComposerAdmissionEntry = { contentHash, promise: admissionPromise };
-    this.composerAdmissions.set(admissionKey, entry);
-    let submitted = false;
-    const onSubmitted = (result: unknown = { kind: runtimeKind(agent) }) => {
-      if (submitted) return;
-      submitted = true;
-      const submission: ComposerSubmissionResult = isRecord(result)
-        ? { kind: runtimeKind(agent), ...result }
-        : { kind: runtimeKind(agent) };
-      const accepted: ComposerCommandRecord = {
-        ...intent,
-        state: 'accepted',
-        result: submission,
-        updatedAt: Date.now(),
-      };
-      try {
-        this.commitComposerCommand(agent, accepted);
-        resolveAdmission({ ...submission, accepted: true });
-      } catch (caughtError: unknown) {
-      const error = caughtError as ErrorRecord;
-        const unknown: ComposerCommandRecord = {
-          ...intent,
-          state: 'unknown',
-          error: `Provider accepted Composer request, but admission could not be saved: ${error.message || error}`,
-          updatedAt: Date.now(),
-        };
-        this.setComposerCommandInMemory(agent, unknown);
-        rejectAdmission(composerAdmissionError(String(unknown.error || ''), true));
-      }
-    };
-
-    const completion = !persistentTerminalDelivery
-      ? (delivery === 'steer'
-        ? this.sendComposerMessageNow(agentId, prompt, {
-            delivery,
-            requestId,
-            retryDefinitiveFailure: existing?.state === 'failed',
-            onSubmitted: () => onSubmitted({ kind: 'acp' }),
-          })
-        : this.enqueueInputOperationUntilReleased(
-          agentId,
-          (releaseInput: () => void) => this.sendComposerMessageNow(agentId, prompt, {
-            delivery,
-            requestId,
-            retryDefinitiveFailure: existing?.state === 'failed',
-            onSubmitted: () => {
-              try {
-                onSubmitted({ kind: 'acp' });
-              } finally {
-                releaseInput();
-              }
-            },
-          }),
-        ))
-      : this.enqueueInputOperation(
-          agentId,
-          () => this.sendComposerMessageNow(agentId, prompt, {
-            expectedTerminalAgent: agent,
-            expectedTerminalRuntimeEpoch: terminalRuntimeEpoch,
-            onSubmitted: (result: ComposerSubmissionResult) => onSubmitted(result),
-            requireConfirmedTerminalDelivery: true,
-          }),
-        );
-    void Promise.resolve(completion).then((result: unknown) => {
-      if (!submitted) onSubmitted(result);
-    }).catch((caughtError: unknown) => {
-      if (submitted) return;
-      const error = caughtError as ErrorRecord;
-      const uncertain = isRecord(error) && error.uncertain === true;
-      const failed: ComposerCommandRecord = {
-        ...intent,
-        state: uncertain ? 'unknown' : 'failed',
-        error: error.message || String(error),
-        updatedAt: Date.now(),
-      };
-      let outcomeUncertain = uncertain;
-      try {
-        this.commitComposerCommand(agent, failed);
-      } catch (caughtPersistError: unknown) {
-      const persistError = caughtPersistError as ErrorRecord;
-        failed.state = 'unknown';
-        failed.error = `${failed.error}; failed to persist rejection: ${persistError.message || persistError}`;
-        this.setComposerCommandInMemory(agent, failed);
-        outcomeUncertain = true;
-      }
-      rejectAdmission(composerAdmissionError(String(failed.error || ''), outcomeUncertain));
-    });
-    void admissionPromise.finally(() => {
-      if (this.composerAdmissions.get(admissionKey) === entry) {
-        this.composerAdmissions.delete(admissionKey);
-      }
-    }).catch(() => {});
-    return admissionPromise;
   }
 
   async sendComposerMessage(
@@ -6780,6 +6647,10 @@ class AgentManager extends EventEmitter {
     message: unknown,
     options: ComposerMessageOptions = {},
   ): Promise<unknown> {
+    const lifecycleOperation = this.agentLifecycleOperations.get(agentId);
+    if (lifecycleOperation) {
+      throw new Error(`Agent lifecycle change already in progress: ${lifecycleOperation.label}`);
+    }
     const requestId = String(options.requestId || '').trim();
     if (requestId) {
       if (!/^[A-Za-z0-9._:-]{1,160}$/.test(requestId)) throw new Error('Composer requestId is invalid');
@@ -7063,6 +6934,7 @@ class AgentManager extends EventEmitter {
     message: unknown,
     options: ComposerSendOptions = {},
   ): Promise<ComposerSubmissionResult> {
+    options.assertDeliveryOwner?.();
     const agent = this.agents.get(agentId);
     if (!agent) throw new Error('Agent not found');
     if (options.requireConfirmedTerminalDelivery === true) {
@@ -7084,6 +6956,7 @@ class AgentManager extends EventEmitter {
     if (isAcpAgent(agent)) {
       this.requireLiveAcpAgent(agentId);
       await this.reconnectAcpAgent(agentId);
+      options.assertDeliveryOwner?.();
       this.requireLiveAcpAgent(agentId);
       const result = await this.acpRuntime.submitMessage(agentId, prompt, {
         delivery: options.delivery,
@@ -8307,8 +8180,15 @@ class AgentManager extends EventEmitter {
     mode: AgentRuntimeModeRequest,
     lifecycleToken: symbol,
   ): Promise<AgentRestartResult> {
+    if (await this.composerAdmissionCoordinator.whenIdle(agentId)) {
+      return { error: 'Composer message delivery finished while the runtime switch was waiting. Retry the runtime switch.' };
+    }
     const agent = this.agents.get(agentId);
     if (!agent) return { error: 'Agent not found' };
+    const expectedRuntimeBinding = agent.runtimeBinding;
+    const expectedRuntimeEpoch = runtimeKind(agent) === 'acp'
+      ? String(this.acpRuntime.bindingEpoch(agentId) || '')
+      : String(agent.runtimeEpoch || '');
     const provider = agent.providerSessionProvider || '';
     const nextMode = mode === 'acp' && provider === 'codex' ? 'chat' : mode;
     const currentKind = runtimeKind(agent);
@@ -8477,6 +8357,16 @@ class AgentManager extends EventEmitter {
       Object.assign(replacement, preserved);
       this.ensurePersistentAgentSession(replacement);
     };
+    const currentRuntimeEpoch = currentKind === 'acp'
+      ? String(this.acpRuntime.bindingEpoch(agentId) || '')
+      : String(this.agents.get(agentId)?.runtimeEpoch || '');
+    if (
+      this.agents.get(agentId) !== agent
+      || agent.runtimeBinding !== expectedRuntimeBinding
+      || currentRuntimeEpoch !== expectedRuntimeEpoch
+    ) {
+      return { error: 'Agent runtime changed while preparing the runtime switch. Retry the runtime switch.' };
+    }
     const killResult = await this.killAgent(agentId, {
       reason: 'runtime-switch',
       recordHistory: false,
