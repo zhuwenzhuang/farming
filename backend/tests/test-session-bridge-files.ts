@@ -8,6 +8,7 @@ function run() {
   const sessionStreamProtocolPath = path.join(__dirname, '../session-stream-protocol.cts');
   const sessionPreviewDeliveryPath = path.join(__dirname, '../session-preview-delivery.cts');
   const focusScopeHandlersPath = path.join(__dirname, '../websocket-focus-scope-handlers.cts');
+  const agentChangeBroadcastsPath = path.join(__dirname, '../websocket-agent-change-broadcasts.cts');
   const appPath = path.join(__dirname, '../../src/App.tsx');
   const useWebSocketPath = path.join(__dirname, '../../src/hooks/useWebSocket.ts');
   const workspacePath = path.join(__dirname, '../../src/components/CodeWorkspace.tsx');
@@ -19,6 +20,7 @@ function run() {
   const sessionStreamProtocol = fs.readFileSync(sessionStreamProtocolPath, 'utf8');
   const sessionPreviewDelivery = fs.readFileSync(sessionPreviewDeliveryPath, 'utf8');
   const focusScopeHandlers = fs.readFileSync(focusScopeHandlersPath, 'utf8');
+  const agentChangeBroadcasts = fs.readFileSync(agentChangeBroadcastsPath, 'utf8');
   const app = fs.readFileSync(appPath, 'utf8');
   const useWebSocket = fs.readFileSync(useWebSocketPath, 'utf8');
   const workspace = fs.readFileSync(workspacePath, 'utf8');
@@ -72,8 +74,8 @@ function run() {
     'the focused terminal must not receive a redundant full preview snapshot alongside its live output stream',
   );
   assert(
-    server.includes("agentManager.on('agent-read', broadcastAgentRead);") &&
-      server.includes("type: 'agent-read'") &&
+    server.includes("agentManager.on('agent-read', websocketAgentChangeBroadcasts.broadcastAgentRead);") &&
+      agentChangeBroadcasts.includes("type: 'agent-read'") &&
       useWebSocket.includes("case 'agent-read':"),
     'read-cursor changes should travel as a small Agent delta instead of replacing the full Agent list',
   );

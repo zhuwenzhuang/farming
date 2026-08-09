@@ -866,6 +866,10 @@ function run() {
     path.join(__dirname, '../../backend/websocket-session-stream-broadcasts.cts'),
     'utf8'
   );
+  const previewBroadcastsSource = fs.readFileSync(
+    path.join(__dirname, '../../backend/websocket-session-preview-broadcasts.cts'),
+    'utf8'
+  );
   assert(
     serverSource.includes('websocketSessionStreamBroadcasts.schedule(stream)') &&
       streamBroadcastsSource.includes('coalesceSessionStream(pendingStreams.get(key), stream)') &&
@@ -882,9 +886,9 @@ function run() {
   );
   assert(
     serverSource.includes('const PREVIEW_BROADCAST_INTERVAL_MS = 500') &&
-      serverSource.includes('function schedulePreviewBroadcast(') &&
-      serverSource.includes('pendingPreviewBroadcasts.set(agentId, entry)') &&
-      serverSource.includes('schedulePreviewBroadcast(preview)'),
+      serverSource.includes('createWebSocketSessionPreviewBroadcasts({') &&
+      previewBroadcastsSource.includes('pendingPreviewBroadcasts.set(agentId, entry)') &&
+      serverSource.includes('websocketSessionPreviewBroadcasts.schedule(preview)'),
     'server should coalesce terminal preview broadcasts so live output does not flood the UI'
   );
   assert(

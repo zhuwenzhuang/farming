@@ -306,6 +306,9 @@ import {
   type DeferredAgentStateMessage,
 } from './agent-state-snapshot-delivery.cjs';
 import { createWebSocketResourceBroadcastController } from './websocket-resource-broadcasts.cjs';
+import { createWebSocketAgentChangeBroadcasts } from './websocket-agent-change-broadcasts.cjs';
+import { createWebSocketAgentActivityBroadcasts } from './websocket-agent-activity-broadcasts.cjs';
+import { createWebSocketSessionPreviewBroadcasts } from './websocket-session-preview-broadcasts.cjs';
 import {
   agentActivityClientDelivery,
   normalizeAgentActivityScope,
@@ -336,7 +339,6 @@ import {
 const {
   MIN_PROTOCOL_VERSION,
   PROTOCOL_VERSION,
-  sanitizeAgentUpdatePatch,
   validateClientMessage,
 } = require('../shared/browser-protocol');
 const {
@@ -3728,9 +3730,6 @@ const pendingStateAgentIds = new Set<string>();
 let pendingMainAgentIdState = false;
 let pendingTaskHistoryState = false;
 let pendingStateMetadata: Record<string, unknown> = {};
-const pendingPreviewBroadcasts = new Map();
-const pendingAgentActivityBroadcasts = new Map();
-const pendingAgentUpdates = new Map();
 const pendingAcpSessionRevisions = new Map();
 const websocketResourceBroadcasts = createWebSocketResourceBroadcastController<WebSocketClient>({
   clients: () => wss.clients,
@@ -3779,6 +3778,21 @@ function deferUntilAgentStateSnapshotCompletes(
     AGENT_STATE_SNAPSHOT_MESSAGE_LIMITS,
   );
 }
+
+const websocketAgentChangeBroadcasts = createWebSocketAgentChangeBroadcasts<WebSocketClient>({
+  clients: () => wss.clients,
+  deferUntilSnapshot: (client, message, isRelevant) => (
+    deferUntilAgentStateSnapshotCompletes(client, message, isRelevant)
+  ),
+  openState: WebSocket.OPEN,
+  scopeIncludesAgent: (client, agentId) => agentStateScopeIncludesAgent(
+    normalizeAgentStateScope(client.stateScope),
+    client.focusedAgentId,
+    agentId,
+  ),
+  setTimer: setTimeout,
+  updateDelayMs: AGENT_ACTIVITY_BROADCAST_DELAY_MS,
+});
 
 function deliverStateDelta(client: WebSocketClient, message: string) {
   if (deferUntilAgentStateSnapshotCompletes(client, message)) return;
@@ -3930,50 +3944,13 @@ function broadcastSessionPreview(preview: ServerRecord) {
   });
 }
 
-function schedulePreviewBroadcast(preview: ServerRecord) {
-  const agentId = preview && preview.agentId;
-  if (!agentId) {
-    broadcastSessionPreview(preview);
-    return;
-  }
-
-  const now = Date.now();
-  const entry = pendingPreviewBroadcasts.get(agentId) || {
-    lastAt: 0,
-    timer: null,
-    preview: null,
-  };
-  entry.preview = preview;
-
-  const elapsed = now - entry.lastAt;
-  if (elapsed >= PREVIEW_BROADCAST_INTERVAL_MS) {
-    if (entry.timer) {
-      clearTimeout(entry.timer);
-      entry.timer = null;
-    }
-    entry.lastAt = now;
-    const latest = entry.preview;
-    entry.preview = null;
-    pendingPreviewBroadcasts.set(agentId, entry);
-    broadcastSessionPreview(latest);
-    return;
-  }
-
-  if (!entry.timer) {
-    entry.timer = setTimeout(() => {
-      entry.timer = null;
-      entry.lastAt = Date.now();
-      const latest = entry.preview;
-      entry.preview = null;
-      pendingPreviewBroadcasts.set(agentId, entry);
-      if (latest) {
-        broadcastSessionPreview(latest);
-      }
-    }, PREVIEW_BROADCAST_INTERVAL_MS - elapsed);
-  }
-
-  pendingPreviewBroadcasts.set(agentId, entry);
-}
+const websocketSessionPreviewBroadcasts = createWebSocketSessionPreviewBroadcasts({
+  clearTimer: clearTimeout,
+  deliver: broadcastSessionPreview,
+  intervalMs: PREVIEW_BROADCAST_INTERVAL_MS,
+  now: Date.now,
+  setTimer: setTimeout,
+});
 
 agentManager.onUpdate(queueAgentStateChange);
 
@@ -3991,70 +3968,15 @@ function broadcastAgentActivity(activity: AgentScopedServerEvent) {
   });
 }
 
-function scheduleAgentActivityBroadcast(activity: unknown) {
-  if (!isAgentScopedServerEvent(activity)) return;
-  const agentId = activity.agentId;
-  const existing = pendingAgentActivityBroadcasts.get(agentId);
-  if (existing) {
-    existing.activity = activity;
-    return;
-  }
-  const entry = {
-    activity,
-    timer: setTimeout(() => {
-      pendingAgentActivityBroadcasts.delete(agentId);
-      broadcastAgentActivity(entry.activity);
-    }, AGENT_ACTIVITY_BROADCAST_DELAY_MS),
-  };
-  entry.timer.unref?.();
-  pendingAgentActivityBroadcasts.set(agentId, entry);
-}
+const websocketAgentActivityBroadcasts = createWebSocketAgentActivityBroadcasts({
+  delayMs: AGENT_ACTIVITY_BROADCAST_DELAY_MS,
+  deliver: broadcastAgentActivity,
+  setTimer: setTimeout,
+});
 
-agentManager.onAgentActivity(scheduleAgentActivityBroadcast);
+agentManager.onAgentActivity(websocketAgentActivityBroadcasts.schedule);
 
-function scheduleAgentUpdate(update: unknown) {
-  if (!isAgentScopedServerEvent(update)) return;
-  const patch = sanitizeAgentUpdatePatch(update?.patch);
-  if (!patch) return;
-  const existing = pendingAgentUpdates.get(update.agentId);
-  if (existing) {
-    Object.assign(existing.patch, patch);
-    return;
-  }
-  const entry = {
-    patch,
-    timer: setTimeout(() => {
-      pendingAgentUpdates.delete(update.agentId);
-      const message = JSON.stringify({
-        type: 'agent-update',
-        update: { agentId: update.agentId, patch: entry.patch },
-      });
-      wss.clients.forEach((client) => {
-        if (
-          client.readyState === WebSocket.OPEN
-          && agentStateScopeIncludesAgent(
-            normalizeAgentStateScope(client.stateScope),
-            client.focusedAgentId,
-            update.agentId,
-          )
-        ) {
-          const stillRelevant = () => agentStateScopeIncludesAgent(
-            normalizeAgentStateScope(client.stateScope),
-            client.focusedAgentId,
-            update.agentId,
-          );
-          if (!deferUntilAgentStateSnapshotCompletes(client, message, stillRelevant)) {
-            client.send(message);
-          }
-        }
-      });
-    }, AGENT_ACTIVITY_BROADCAST_DELAY_MS),
-  };
-  entry.timer.unref?.();
-  pendingAgentUpdates.set(update.agentId, entry);
-}
-
-agentManager.on('agent-update', scheduleAgentUpdate);
+agentManager.on('agent-update', websocketAgentChangeBroadcasts.scheduleAgentUpdate);
 
 function scheduleAcpSessionRevision(session: unknown) {
   if (
@@ -4084,31 +4006,7 @@ function scheduleAcpSessionRevision(session: unknown) {
 
 agentManager.on('acp-session-revision', scheduleAcpSessionRevision);
 
-function broadcastAgentRead(read: unknown) {
-  if (!isAgentScopedServerEvent(read)) return;
-  const message = JSON.stringify({ type: 'agent-read', read });
-  wss.clients.forEach((client) => {
-    if (
-      client.readyState === WebSocket.OPEN
-      && agentStateScopeIncludesAgent(
-        normalizeAgentStateScope(client.stateScope),
-        client.focusedAgentId,
-        read.agentId,
-      )
-    ) {
-      const stillRelevant = () => agentStateScopeIncludesAgent(
-        normalizeAgentStateScope(client.stateScope),
-        client.focusedAgentId,
-        read.agentId,
-      );
-      if (!deferUntilAgentStateSnapshotCompletes(client, message, stillRelevant)) {
-        client.send(message);
-      }
-    }
-  });
-}
-
-agentManager.on('agent-read', broadcastAgentRead);
+agentManager.on('agent-read', websocketAgentChangeBroadcasts.broadcastAgentRead);
 
 function broadcastSessionStream(stream: SessionStream) {
   const message = JSON.stringify({
@@ -4134,7 +4032,7 @@ agentManager.onSessionStream((stream) => {
 });
 
 agentManager.onSessionPreview((preview) => {
-  if (isAgentScopedServerEvent(preview)) schedulePreviewBroadcast(preview);
+  if (isAgentScopedServerEvent(preview)) websocketSessionPreviewBroadcasts.schedule(preview);
 });
 
 agentManager.onSystemStats((systemStats) => {
