@@ -44,6 +44,7 @@ function run() {
     'src/components/code/types.ts',
     'src/components/code/useAgentComposerState.ts',
     'src/components/code/useMainPageSessionMembershipController.ts',
+    'src/components/code/useResourcePaneController.ts',
     'src/components/code/useWorkspaceContextMenu.ts',
     'src/components/code/useWorkspaceNavigationHistory.ts',
     'src/components/code/workspace-derived.ts',
@@ -63,6 +64,7 @@ function run() {
   const inputPartsSource = read('backend/input-parts.cts');
   const websocketHandshakeHealthHandlersSource = read('backend/websocket-handshake-health-handlers.cts');
   const agentSessionInventoryControllerSource = read('src/components/code/useAgentSessionInventoryController.ts');
+  const resourcePaneControllerSource = read('src/components/code/useResourcePaneController.ts');
   const websocketResourceBroadcastsSource = read('backend/websocket-resource-broadcasts.cts');
   const websocketTerminalHandlersSource = read('backend/websocket-terminal-handlers.cts');
   const terminalPaneSource = read('src/components/AgentTerminalPane.tsx');
@@ -1385,6 +1387,16 @@ function run() {
       usePooledTerminalSource.includes('}, [agentId, attachmentHandlers, farmingUrlOpenEnabled, inputDisabled, suppressRendererCursor])') &&
       terminalSessionPoolSource.includes('record.attachedMount === options.mountEl && isTerminalSessionAttached(record)'),
     'Pooled-terminal attachment identity must use a handoff lease, isolate hot options, and make duplicate same-owner attach idempotent'
+  );
+
+  assert(
+    workspaceSource.includes("import { resourcePaneBackTarget, useResourcePaneController } from './code/useResourcePaneController'") &&
+      resourcePaneControllerSource.includes("type: 'reconcile-resources'") &&
+      resourcePaneControllerSource.includes('if (!id || !collection.loaded) return true') &&
+      resourcePaneControllerSource.includes('resourcePaneBackTarget') &&
+      !workspaceSource.includes('const [activeBrowserId, setActiveBrowserId]') &&
+      !workspaceSource.includes('const [activeComputerId, setActiveComputerId]'),
+    'Resource pane selection should have one reducer owner, preserve URL resources while collections load, and reconcile only confirmed deletions'
   );
 
   assert(

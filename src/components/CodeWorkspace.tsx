@@ -186,7 +186,6 @@ import type {
   ComposerMode,
   GlobalSettings,
   LegacyCodexModelOption,
-  MainPaneMode,
   SearchTarget,
   SpeechRecognitionLike,
   WindowWithSpeechRecognition,
@@ -244,6 +243,7 @@ import {
   saveSessionDisplayState,
 } from './code/session-display'
 import { useAgentSessionInventoryController } from './code/useAgentSessionInventoryController'
+import { resourcePaneBackTarget, useResourcePaneController } from './code/useResourcePaneController'
 import {
   normalizeAgentLaunchOptions,
   type AgentLaunchOption,
@@ -598,14 +598,22 @@ export function CodeWorkspace({
   // authoritative, but the first prompt must not leave a click-sized window
   // in which a second prompt is sent before its `working` update arrives.
   const acpPromptStartFencesRef = useRef<Record<string, number>>({})
-  const [activeBrowserId, setActiveBrowserId] = useState<string | null>(initialBrowserResourceId)
-  const [browserReturnAgentId, setBrowserReturnAgentId] = useState<string | null>(null)
-  const [activeComputerId, setActiveComputerId] = useState<string | null>(initialComputerResourceId)
-  const [computerReturnAgentId, setComputerReturnAgentId] = useState<string | null>(null)
+  const resourcePane = useResourcePaneController({
+    browserId: initialBrowserResourceId(),
+    computerId: initialComputerResourceId(),
+  })
+  const {
+    activeBrowserId,
+    browserReturnAgentId,
+    activeComputerId,
+    computerReturnAgentId,
+    mainPaneMode,
+    setMainPaneMode,
+    showBrowser,
+    showComputer,
+    reconcileResources,
+  } = resourcePane
   const [collapsedComputerAgentIds, setCollapsedComputerAgentIds] = useState<Set<string>>(() => new Set())
-  const [mainPaneMode, setMainPaneMode] = useState<MainPaneMode>(() => (
-    initialComputerResourceId() ? 'computer' : initialBrowserResourceId() ? 'browser' : 'terminal'
-  ))
   const browserResources = useBrowserResources({
     collection: browserResourceState,
     onResource: onBrowserResource,
@@ -1240,16 +1248,23 @@ export function CodeWorkspace({
   ])
 
   useEffect(() => {
-    if (browserResources.collectionLoading || !activeBrowserId || activeBrowserResource) return
-    setActiveBrowserId(null)
-    setMainPaneMode('terminal')
-  }, [activeBrowserId, activeBrowserResource, browserResources.collectionLoading])
-
-  useEffect(() => {
-    if (computerResources.collectionLoading || !activeComputerId || activeComputerResource) return
-    setActiveComputerId(null)
-    setMainPaneMode('terminal')
-  }, [activeComputerId, activeComputerResource, computerResources.collectionLoading])
+    reconcileResources({
+      browser: {
+        loaded: !browserResources.collectionLoading,
+        ids: browserResources.resources.map(resource => resource.id),
+      },
+      computer: {
+        loaded: !computerResources.collectionLoading,
+        ids: computerResources.resources.map(resource => resource.id),
+      },
+    })
+  }, [
+    browserResources.collectionLoading,
+    browserResources.resources,
+    computerResources.collectionLoading,
+    computerResources.resources,
+    reconcileResources,
+  ])
 
   useEffect(() => {
     const url = new URL(window.location.href)
@@ -1348,6 +1363,7 @@ export function CodeWorkspace({
     closeContextMenu,
     notificationRevealRequest,
     onWorkspaceViewChange,
+    setMainPaneMode,
   ])
   const structuralContextMenuAgent = useMemo(
     () => activeAgents.find(agent => agent.id === agentMenu?.agentId) ?? null,
@@ -2567,7 +2583,7 @@ export function CodeWorkspace({
       codexApprovalMode: selectedApprovalMode,
       ...(selectedApprovalMode === 'full' ? { dangerouslySkipPermissions: true } : {}),
     })
-  }, [codexApprovalMode, onStartAgent, onWorkspaceViewChange])
+  }, [codexApprovalMode, onStartAgent, onWorkspaceViewChange, setMainPaneMode])
 
   useEffect(() => {
     let cancelled = false
@@ -2852,7 +2868,7 @@ export function CodeWorkspace({
     } else {
       resumeAgentSessionRef.current(target.provider, target.id, target.providerHomeId)
     }
-  }, [onOpenTerminal, onWorkspaceViewChange])
+  }, [onOpenTerminal, onWorkspaceViewChange, setMainPaneMode])
 
   const currentProjectListTargetId = useCallback(() => {
     const activeElement = document.activeElement
@@ -3040,30 +3056,27 @@ export function CodeWorkspace({
     setMainPaneMode('terminal')
     onWorkspaceViewChange('projects')
     onOpenTerminal(agentId, options)
-  }, [clearSearch, closeContextMenu, onOpenTerminal, onWorkspaceViewChange])
+  }, [clearSearch, closeContextMenu, onOpenTerminal, onWorkspaceViewChange, setMainPaneMode])
 
-  const showBrowserResource = useCallback((resource: BrowserResource) => {
+  const showBrowserResource = useCallback((resource: BrowserResource, returnAgentId = activeTerminalId) => {
     closeContextMenu()
     clearSearch()
-    setActiveBrowserId(resource.id)
-    setMainPaneMode('browser')
+    showBrowser(resource.id, returnAgentId)
     onWorkspaceViewChange('projects')
     closeSidebarForMobile()
-  }, [clearSearch, closeContextMenu, closeSidebarForMobile, onWorkspaceViewChange])
+  }, [activeTerminalId, clearSearch, closeContextMenu, closeSidebarForMobile, onWorkspaceViewChange, showBrowser])
 
   const openBrowserFromSidebar = useCallback((resource: BrowserResource) => {
-    setBrowserReturnAgentId(activeTerminalId)
     showBrowserResource(resource)
-  }, [activeTerminalId, showBrowserResource])
+  }, [showBrowserResource])
 
   const openUrlInFarmingBrowser = useCallback((agentId: string, url: string) => {
     const agent = agents.find(candidate => candidate.id === agentId)
     const workspace = agent?.projectWorkspace || agent?.cwd || ''
     if (!workspace) return
-    setBrowserReturnAgentId(agentId)
     void createBrowserResource(workspace, { agentId, url })
       .then(resource => startBrowserResource(resource.id))
-      .then(showBrowserResource)
+      .then(resource => showBrowserResource(resource, agentId))
       .catch(error => {
         setCopyNotice({
           id: Date.now(),
@@ -3074,44 +3087,42 @@ export function CodeWorkspace({
   }, [agents, createBrowserResource, showBrowserResource, startBrowserResource])
 
   const backFromBrowser = useCallback(() => {
-    const returnAgent = browserReturnAgentId
-      ? agents.find(agent => agent.id === browserReturnAgentId)
-      : activeAgent
+    const returnAgentId = resourcePaneBackTarget(browserReturnAgentId, activeAgent?.id ?? null)
+    const returnAgent = returnAgentId ? agents.find(agent => agent.id === returnAgentId) : null
     if (returnAgent) {
       openTerminalFromWorkspace(returnAgent.id, { focusTerminal: false })
       return
     }
     setMainPaneMode('terminal')
-  }, [activeAgent, agents, browserReturnAgentId, openTerminalFromWorkspace])
+  }, [activeAgent, agents, browserReturnAgentId, openTerminalFromWorkspace, setMainPaneMode])
 
-  const showComputerResource = useCallback((resource: ComputerResource) => {
+  const showComputerResource = useCallback((resource: ComputerResource, returnAgentId = activeTerminalId) => {
     closeContextMenu()
     clearSearch()
-    setActiveComputerId(resource.id)
-    setMainPaneMode('computer')
+    showComputer(resource.id, returnAgentId)
     onWorkspaceViewChange('projects')
     closeSidebarForMobile()
   }, [
     clearSearch,
     closeContextMenu,
     closeSidebarForMobile,
+    activeTerminalId,
     onWorkspaceViewChange,
+    showComputer,
   ])
 
   const openComputerFromSidebar = useCallback((resource: ComputerResource) => {
-    setComputerReturnAgentId(activeTerminalId)
     showComputerResource(resource)
-  }, [activeTerminalId, showComputerResource])
+  }, [showComputerResource])
 
   const createContextMenuAgentBrowser = useCallback(() => {
     if (!contextMenuAgent) return
     const agentId = contextMenuAgent.id
     const workspace = projectWorkspaceForAgent(contextMenuAgent)
     closeContextMenu()
-    setBrowserReturnAgentId(agentId)
     void createBrowserResource(workspace, { agentId })
       .then(resource => startBrowserResource(resource.id))
-      .then(showBrowserResource)
+      .then(resource => showBrowserResource(resource, agentId))
       .catch(error => setCopyNotice({
         id: Date.now(),
         kind: 'error',
@@ -3124,10 +3135,9 @@ export function CodeWorkspace({
     const agentId = contextMenuAgent.id
     const workspace = projectWorkspaceForAgent(contextMenuAgent)
     closeContextMenu()
-    setComputerReturnAgentId(agentId)
     void computerResources.create(workspace, agentId)
       .then(resource => computerResources.start(resource.id))
-      .then(showComputerResource)
+      .then(resource => showComputerResource(resource, agentId))
       .catch(error => setCopyNotice({
         id: Date.now(),
         kind: 'error',
@@ -3136,15 +3146,14 @@ export function CodeWorkspace({
   }, [closeContextMenu, computerResources, contextMenuAgent, copy.updateFailed, showComputerResource])
 
   const backFromComputer = useCallback(() => {
-    const returnAgent = computerReturnAgentId
-      ? agents.find(agent => agent.id === computerReturnAgentId)
-      : activeAgent
+    const returnAgentId = resourcePaneBackTarget(computerReturnAgentId, activeAgent?.id ?? null)
+    const returnAgent = returnAgentId ? agents.find(agent => agent.id === returnAgentId) : null
     if (returnAgent) {
       openTerminalFromWorkspace(returnAgent.id, { focusTerminal: false })
       return
     }
     setMainPaneMode('terminal')
-  }, [activeAgent, agents, computerReturnAgentId, openTerminalFromWorkspace])
+  }, [activeAgent, agents, computerReturnAgentId, openTerminalFromWorkspace, setMainPaneMode])
 
   const openTerminalFromSidebar = useCallback((agentId: string) => {
     openTerminalFromWorkspace(agentId)
@@ -3214,7 +3223,7 @@ export function CodeWorkspace({
       onOpenTerminal(identity.sourceAgentId, { focusTerminal: false })
     }
     closeSidebarForMobile()
-  }, [clearSearch, closeContextMenu, closeSidebarForMobile, createWorkspaceOpenFileRequest, mountProject, onOpenTerminal, onWorkspaceViewChange, resolveWorkspaceFileIdentity, workspaceOpenFiles])
+  }, [clearSearch, closeContextMenu, closeSidebarForMobile, createWorkspaceOpenFileRequest, mountProject, onOpenTerminal, onWorkspaceViewChange, resolveWorkspaceFileIdentity, setMainPaneMode, workspaceOpenFiles])
 
   useEffect(() => {
     if (workspaceSurfaceRestoredRef.current || workspaceSurfaceRestoreStartedRef.current) return
@@ -3538,7 +3547,7 @@ export function CodeWorkspace({
     }
     closeSidebarForMobile()
     return true
-  }, [clearSearch, closeContextMenu, closeSidebarForMobile, createWorkspaceOpenFileRequest, onOpenTerminal, onWorkspaceViewChange, openWorkspaceFiles, resolveWorkspaceFileIdentity, workspaceOpenFiles])
+  }, [clearSearch, closeContextMenu, closeSidebarForMobile, createWorkspaceOpenFileRequest, onOpenTerminal, onWorkspaceViewChange, openWorkspaceFiles, resolveWorkspaceFileIdentity, setMainPaneMode, workspaceOpenFiles])
 
   const openWorkspaceFilePath = useCallback(async (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => {
     const requestedFilesId = target?.globalRoot ? GLOBAL_WORKSPACE_FILES_AGENT_ID : agentId
@@ -3628,7 +3637,7 @@ export function CodeWorkspace({
         message: error instanceof Error ? error.message : 'Failed to open Agent Home configuration',
       })
     }
-  }, [clearSearch, closeContextMenu, closeSidebarForMobile, onWorkspaceViewChange, workspaceOpenFiles])
+  }, [clearSearch, closeContextMenu, closeSidebarForMobile, onWorkspaceViewChange, setMainPaneMode, workspaceOpenFiles])
 
   const restoreWorkspaceShareTarget = useCallback(async (target: WorkspaceShareTarget) => {
     importSharedReadingAnchor(target.kind === 'agent' ? target.readingAnchor : undefined)
@@ -3703,6 +3712,7 @@ export function CodeWorkspace({
     revealWorkspaceFileInExplorer,
     resolveWorkspaceFileIdentity,
     selectOpenWorkspaceFile,
+    setMainPaneMode,
     workspaceNavigationAgentIds,
   ])
   const restoreWorkspaceShareTargetRef = useRef(restoreWorkspaceShareTarget)
@@ -3800,6 +3810,7 @@ export function CodeWorkspace({
     openProjectFile,
     resolveWorkspaceFileIdentity,
     selectOpenWorkspaceFile,
+    setMainPaneMode,
     workspaceNavigationAgentIds,
     workspaceNavigationFileIds,
   ])
@@ -3825,7 +3836,7 @@ export function CodeWorkspace({
     onWorkspaceViewChange('projects')
     onOpenTerminal(agentId, { focusTerminal: !isTouchInputViewport() })
     closeSidebarForMobile()
-  }, [closeSidebarForMobile, onOpenTerminal, onWorkspaceViewChange])
+  }, [closeSidebarForMobile, onOpenTerminal, onWorkspaceViewChange, setMainPaneMode])
 
   const closeOpenWorkspaceFiles = useCallback((targets: WorkspaceOpenFileTarget[]) => {
     const nextState = workspaceOpenFiles.close(targets)
@@ -3833,7 +3844,7 @@ export function CodeWorkspace({
     if (nextState.activeFileClosed) {
       setMainPaneMode(nextState.activeFile ? 'editor' : 'terminal')
     }
-  }, [workspaceOpenFiles])
+  }, [setMainPaneMode, workspaceOpenFiles])
 
   const closeOpenWorkspaceFile = useCallback((agentId: string, filePath: string, workspaceRoot?: string) => {
     closeOpenWorkspaceFiles([{ agentId, filePath, workspaceRoot }])
@@ -3858,7 +3869,7 @@ export function CodeWorkspace({
     }
     closeSidebarForMobile()
     return true
-  }, [activeAgents, clearSearch, closeContextMenu, closeSidebarForMobile, onOpenTerminal, onWorkspaceViewChange, workspaceNavigationFileIds, workspaceOpenFiles])
+  }, [activeAgents, clearSearch, closeContextMenu, closeSidebarForMobile, onOpenTerminal, onWorkspaceViewChange, setMainPaneMode, workspaceNavigationFileIds, workspaceOpenFiles])
 
   const updateOpenWorkspaceFile = useCallback((
     target: WorkspaceOpenFileTarget,
@@ -3884,7 +3895,7 @@ export function CodeWorkspace({
     if (nextState.activeFileDeleted) {
       if (!nextState.activeFile) setMainPaneMode('terminal')
     }
-  }, [workspaceOpenFiles])
+  }, [setMainPaneMode, workspaceOpenFiles])
 
   const renameContextMenuAgent = useCallback(() => {
     if (!contextMenuAgent) return
