@@ -223,6 +223,7 @@ import { useCodexModelCatalogController } from './code/useCodexModelCatalogContr
 import { useComposerProviderCatalogController } from './code/useComposerProviderCatalogController'
 import { useMainPageSessionMembershipController } from './code/useMainPageSessionMembershipController'
 import { useProjectMembershipController } from './code/useProjectMembershipController'
+import { useQrShareController } from './code/useQrShareController'
 import {
   terminalTargetFilePath,
   terminalTargetGlobalFilePath,
@@ -724,7 +725,6 @@ export function CodeWorkspace({
   const [lastProjectWorkspace, setLastProjectWorkspace] = useState<string | undefined>(undefined)
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(false)
   const [instanceName, setInstanceName] = useState('Farming')
-  const [mobileShareUrl, setMobileShareUrl] = useState('')
   const [renameDialog, setRenameDialog] = useState<RenameDialogState | null>(null)
   const [archiveExitDialog, setArchiveExitDialog] = useState<{
     agentId: string
@@ -780,7 +780,6 @@ export function CodeWorkspace({
   const mobileNavigationTriggerRef = useRef<HTMLButtonElement>(null)
   const restoreMobileNavigationFocusRef = useRef(false)
   const mobileNavigationFocusRestoreFrameRef = useRef<number | null>(null)
-  const mobileShareRequestRef = useRef(0)
   const mobileNavigationModalOpen = mobileNavigationViewport && !sidebarCollapsed
 
   const collapseSidebar = useCallback(() => {
@@ -1158,6 +1157,17 @@ export function CodeWorkspace({
     enabled: modelMenuOpen && composerAgentKind === 'codex',
     onError: reportCodexModelCatalogError,
   })
+  const reportShareLinkError = useCallback((message: string) => {
+    setCopyNotice({ id: Date.now(), kind: 'error', message })
+  }, [])
+  const {
+    url: mobileShareUrl,
+    create: createMobileShareLink,
+    clear: clearMobileShareLink,
+  } = useQrShareController({
+    failureMessage: copy.shareLinkFailed,
+    onError: reportShareLinkError,
+  })
   const { claudeSettings, discoveredSlashCommands } = useComposerProviderCatalogController({
     providerKind: composerAgentKind || '',
     homeId: activeProviderHomeId,
@@ -1357,7 +1367,7 @@ export function CodeWorkspace({
     setSearchOpen(false)
     setSearchQuery('')
     setSettingsPanelOpen(false)
-    setMobileShareUrl('')
+    clearMobileShareLink()
     setRenameDialog(null)
     setArchiveExitDialog(null)
     setDeleteWorktreeDialog(null)
@@ -1366,6 +1376,7 @@ export function CodeWorkspace({
     onWorkspaceViewChange('projects')
   }, [
     autoCollapseSidebar,
+    clearMobileShareLink,
     closeContextMenu,
     notificationRevealRequest,
     onWorkspaceViewChange,
@@ -2432,8 +2443,7 @@ export function CodeWorkspace({
 
   useEffect(() => {
     if (!mobileNavigationModalOpen) return undefined
-    mobileShareRequestRef.current += 1
-    setMobileShareUrl('')
+    clearMobileShareLink()
     if (mobileNavigationFocusRestoreFrameRef.current !== null) {
       window.cancelAnimationFrame(mobileNavigationFocusRestoreFrameRef.current)
       mobileNavigationFocusRestoreFrameRef.current = null
@@ -2457,7 +2467,7 @@ export function CodeWorkspace({
         })
       }
     }
-  }, [mobileNavigationModalOpen])
+  }, [clearMobileShareLink, mobileNavigationModalOpen])
 
   useEffect(() => () => {
     if (mobileNavigationFocusRestoreFrameRef.current !== null) {
@@ -4077,29 +4087,10 @@ export function CodeWorkspace({
     openOptionsContextMenu(event)
   }, [closeContextMenu, openOptionsContextMenu])
 
-  const shareCurrentView = useCallback(async () => {
-    const requestId = mobileShareRequestRef.current + 1
-    mobileShareRequestRef.current = requestId
+  const shareCurrentView = useCallback(() => {
     closeContextMenu()
-    try {
-      const target = workspaceShareTargetWithCurrentReadingAnchor(shareTarget)
-      const response = await fetch(appPath('/api/share/qr-ticket'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(target ? { target } : {}),
-      })
-      const body = await response.json().catch(() => null) as { longUrl?: string; shortUrl?: string; error?: string } | null
-      if (mobileShareRequestRef.current !== requestId) return
-      if (!response.ok || (!body?.longUrl && !body?.shortUrl)) {
-        throw new Error(body?.error || copy.shareLinkFailed)
-      }
-      setMobileShareUrl(body.longUrl || body.shortUrl || '')
-    } catch (error) {
-      if (mobileShareRequestRef.current !== requestId) return
-      if (error instanceof DOMException && error.name === 'AbortError') return
-      setCopyNotice({ id: Date.now(), kind: 'error', message: error instanceof Error ? error.message : copy.shareLinkFailed })
-    }
-  }, [closeContextMenu, copy.shareLinkFailed, shareTarget])
+    createMobileShareLink(workspaceShareTargetWithCurrentReadingAnchor(shareTarget))
+  }, [closeContextMenu, createMobileShareLink, shareTarget])
 
   const updateLanguagePreference = useCallback((language: UiPreferences['language']) => {
     closeContextMenu()
@@ -5295,7 +5286,7 @@ export function CodeWorkspace({
           copy={copy}
           title={mobileHeaderTitle}
           url={mobileShareUrl}
-          onClose={() => setMobileShareUrl('')}
+          onClose={clearMobileShareLink}
         />
       )}
 

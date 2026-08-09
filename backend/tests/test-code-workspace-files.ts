@@ -47,6 +47,7 @@ function run() {
     'src/components/code/useComposerProviderCatalogController.ts',
     'src/components/code/useMainPageSessionMembershipController.ts',
     'src/components/code/useProjectMembershipController.ts',
+    'src/components/code/useQrShareController.ts',
     'src/components/code/useResourcePaneController.ts',
     'src/components/code/useWorkspaceContextMenu.ts',
     'src/components/code/useWorkspaceNavigationHistory.ts',
@@ -61,6 +62,7 @@ function run() {
   const workspaceNavigationSource = read('src/lib/workspace-navigation-history.ts');
   const responsiveModeSource = read('src/lib/responsive-mode.ts');
   const serverSource = read('backend/server.cts');
+  const agentSessionRouterSource = read('backend/agent-session-router.cts');
   const agentManagerSource = read('backend/agent-manager.cts');
   const preparedTranscriptCacheSource = read('backend/acp-prepared-transcript-cache.cts');
   const mainPageSessionSource = read('backend/main-page-session.cts');
@@ -68,6 +70,7 @@ function run() {
   const websocketHandshakeHealthHandlersSource = read('backend/websocket-handshake-health-handlers.cts');
   const agentSessionInventoryControllerSource = read('src/components/code/useAgentSessionInventoryController.ts');
   const projectMembershipControllerSource = read('src/components/code/useProjectMembershipController.ts');
+  const qrShareControllerSource = read('src/components/code/useQrShareController.ts');
   const resourcePaneControllerSource = read('src/components/code/useResourcePaneController.ts');
   const websocketResourceBroadcastsSource = read('backend/websocket-resource-broadcasts.cts');
   const websocketTerminalHandlersSource = read('backend/websocket-terminal-handlers.cts');
@@ -781,9 +784,10 @@ function run() {
       workspaceSource.includes("appPath('/api/main-page-agent-sessions')") &&
       workspaceSource.includes('mutateMainPageSessionKeys') &&
       workspaceSource.includes('useMainPageSessionMembershipController') &&
-      serverSource.includes("'/api/main-page-agent-sessions'") &&
-      serverSource.includes('rememberMainPageSessionKey(sessionKey') &&
-      serverSource.includes('removeMainPageSessionKeys(sessionKeys)') &&
+      serverSource.includes("app.use(routePath(BASE_PATH, '/api'), createAgentSessionRouter(") &&
+      agentSessionRouterSource.includes("router.post('/main-page-agent-sessions'") &&
+      agentSessionRouterSource.includes('service.rememberMainPageSessionKey(sessionKey') &&
+      agentSessionRouterSource.includes('service.removeMainPageSessionKeys(sessionKeys)') &&
       serverSource.includes('delete settingsPatch.mainPageSessionKeys;') &&
       workspaceSource.includes('class MainPageSessionMembershipController') &&
       workspaceSource.includes('settleMainPageSessionKeyMutation') &&
@@ -1259,6 +1263,22 @@ function run() {
       serverSource.includes('projectWorkspaces: settings.projectWorkspaces || []') &&
       serverSource.includes('pinnedProjectWorkspaces: settings.pinnedProjectWorkspaces || []'),
     'Project membership should be owned by backend CRUD transitions instead of frontend render-derived settings writes'
+  );
+
+  assert(
+    !workspaceSource.includes('mobileShareRequestRef') &&
+      !workspaceSource.includes('setMobileShareUrl(') &&
+      workspaceSource.includes('useQrShareController({') &&
+      workspaceSource.includes('failureMessage: copy.shareLinkFailed') &&
+      workspaceSource.includes('createMobileShareLink(workspaceShareTargetWithCurrentReadingAnchor(shareTarget))') &&
+      workspaceSource.includes('onClose={clearMobileShareLink}') &&
+      qrShareControllerSource.includes("appPath('/api/share/qr-ticket')") &&
+      qrShareControllerSource.includes('JSON.stringify(target ? { target } : {})') &&
+      qrShareControllerSource.includes('const longUrl = nonEmptyString(record?.longUrl)') &&
+      qrShareControllerSource.includes('const shortUrl = nonEmptyString(record?.shortUrl)') &&
+      qrShareControllerSource.includes('nonEmptyString(record?.error) ?? failureMessage') &&
+      qrShareControllerSource.includes("error instanceof DOMException && error.name === 'AbortError'"),
+    'Share QR tickets should be owned by one controller that admits only the newest request for the exact share target'
   );
 
   assert(
