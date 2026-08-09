@@ -42,10 +42,12 @@ function run() {
     'src/components/code/session-display.ts',
     'src/components/code/types.ts',
     'src/components/code/useAgentComposerState.ts',
+    'src/components/code/useMainPageSessionMembershipController.ts',
     'src/components/code/useWorkspaceContextMenu.ts',
     'src/components/code/useWorkspaceNavigationHistory.ts',
     'src/components/code/workspace-derived.ts',
     'src/components/code/workspace-file-view.ts',
+    'src/lib/main-page-session-mutations.ts',
     'src/lib/workspace-share-target.ts',
   ].map(read).join('\n');
   const settingsPanelSource = read('src/components/code/AgentHomesSettingsPanel.tsx');
@@ -760,14 +762,16 @@ function run() {
       workspaceSource.includes('mainPageSessionKeys') &&
       workspaceSource.includes("appPath('/api/main-page-agent-sessions')") &&
       workspaceSource.includes('mutateMainPageSessionKeys') &&
-      workspaceSource.includes('updateLocalMainPageSessionKeys') &&
+      workspaceSource.includes('useMainPageSessionMembershipController') &&
       serverSource.includes("'/api/main-page-agent-sessions'") &&
       serverSource.includes('rememberMainPageSessionKey(sessionKey') &&
       serverSource.includes('removeMainPageSessionKeys(sessionKeys)') &&
       serverSource.includes('delete settingsPatch.mainPageSessionKeys;') &&
-      workspaceSource.includes('mainPageSessionKeysPendingMutationsRef') &&
-      workspaceSource.includes('mainPageSessionKeysAuthoritativeRevisionRef') &&
+      workspaceSource.includes('class MainPageSessionMembershipController') &&
+      workspaceSource.includes('settleMainPageSessionKeyMutation') &&
       workspaceSource.includes('applyPendingMainPageSessionKeyMutations') &&
+      !workspaceSource.includes('mainPageSessionKeysPendingMutationsRef') &&
+      !workspaceSource.includes('mainPageSessionKeysAuthoritativeRevisionRef') &&
       !workspaceSource.includes('pendingMainPageLaunchForAgent') &&
       !workspaceSource.includes('resolvePendingMainPageLaunches') &&
       workspaceSource.includes('trackedMainPageAgentKeysRef') &&

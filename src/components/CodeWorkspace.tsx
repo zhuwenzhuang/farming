@@ -230,6 +230,7 @@ import {
   type CodeWorkspaceSurface,
 } from './code/workspace-view-state'
 import { useAgentComposerState } from './code/useAgentComposerState'
+import { useMainPageSessionMembershipController } from './code/useMainPageSessionMembershipController'
 import {
   terminalTargetFilePath,
   terminalTargetGlobalFilePath,
@@ -238,7 +239,6 @@ import {
   applySessionDisplayOverrides,
   limitProjectAgentSessions,
   loadSessionDisplayState,
-  normalizeMainPageSessionKeys,
   resumedAgentSessionFromSource,
   resumedAgentSessionIdFromSource,
   resumedAgentSource,
@@ -253,10 +253,6 @@ import {
   normalizeAgentLaunchOptions,
   type AgentLaunchOption,
 } from './code/agent-launch-options'
-import {
-  applyPendingMainPageSessionKeyMutations,
-  type MainPageSessionKeyMutation,
-} from '@/lib/main-page-session-mutations'
 import { touchAgentViewCache } from './code/agent-view-cache'
 
 export type { WorkspaceView } from './code/types'
@@ -300,11 +296,6 @@ function appearanceOptionDisplayLabel(label: string) {
   return label
     .replace(/^Appearance:\s*/i, '')
     .replace(/^外观[:：]\s*/, '')
-}
-
-function sameStringSet(set: ReadonlySet<string>, values: string[]) {
-  if (set.size !== values.length) return false
-  return values.every(value => set.has(value))
 }
 
 function isReopenClosedEditorShortcut(event: KeyboardEvent) {
@@ -428,17 +419,6 @@ const AGENT_SESSION_BACKGROUND_QUIET_MS = 5_000
 const AGENT_SESSION_LIFECYCLE_SETTLE_MS = 30_000
 const EMPTY_PROJECT_AGENT_SUMMARIES: ProjectAgentSummary[] = []
 const CODEX_TERMINAL_PROFILE_REQUEST_TIMEOUT_MS = 35_000
-const MAIN_PAGE_SESSION_MUTATION_TIMEOUT_MS = 15_000
-
-async function fetchMainPageSessionMutation(url: string, init?: RequestInit) {
-  const controller = new AbortController()
-  const timeoutId = window.setTimeout(() => controller.abort(), MAIN_PAGE_SESSION_MUTATION_TIMEOUT_MS)
-  try {
-    return await fetch(url, { ...init, signal: controller.signal })
-  } finally {
-    window.clearTimeout(timeoutId)
-  }
-}
 
 async function refreshOpenWorkspaceFileReads(agentId: string, filePaths: readonly string[]) {
   const files: WorkspaceFile[] = []
@@ -710,7 +690,13 @@ export function CodeWorkspace({
   const [pinnedProjectWorkspaces, setPinnedProjectWorkspaces] = useState<string[]>([])
   const [projectNames, setProjectNames] = useState<Record<string, string>>({})
   const [agentLaunchOptions, setAgentLaunchOptions] = useState<AgentLaunchOption[]>([])
-  const [mainPageSessionKeys, setMainPageSessionKeys] = useState<Set<string>>(() => new Set())
+  const {
+    mainPageSessionKeys,
+    mutateMainPageSessionKeys,
+    observeSessionKeys: observeMainPageSessionKeys,
+    captureInitialSettingsGuard: captureMainPageSessionKeysInitialGuard,
+    receiveInitialSettings: receiveInitialMainPageSessionKeys,
+  } = useMainPageSessionMembershipController(remoteMainPageSessionKeys)
   const [codexApprovalMode, setCodexApprovalMode] = useState<CodexApprovalMode>('approve')
   const [codexModel, setCodexModel] = useState('gpt-5.5')
   const [codexReasoningEffort, setCodexReasoningEffort] = useState('xhigh')
@@ -817,12 +803,7 @@ export function CodeWorkspace({
   const restoreProjectListFocusRef = useRef<'active' | 'active-force' | 'list' | null>(null)
   const pendingArchivedFocusAgentRef = useRef<string | null>(null)
   const pendingRestoredFocusAgentRef = useRef<string | null>(null)
-  const mainPageSessionKeysMutationRef = useRef(0)
   const projectOperationRequestIdsRef = useRef(new Map<string, string>())
-  const mainPageSessionKeysAuthoritativeRef = useRef(normalizeMainPageSessionKeys(remoteMainPageSessionKeys))
-  const mainPageSessionKeysAuthoritativeRevisionRef = useRef(0)
-  const mainPageSessionKeysPendingMutationsRef = useRef<MainPageSessionKeyMutation[]>([])
-  const mainPageSessionKeysMutationTailRef = useRef<Promise<void>>(Promise.resolve())
   const trackedMainPageAgentKeysRef = useRef<Set<string>>(new Set())
   const resizingSidebarRef = useRef(false)
   const sidebarAutoCollapsedRef = useRef(sidebarCollapsed)
@@ -1577,15 +1558,13 @@ export function CodeWorkspace({
   }, [])
   const loadGlobalSettings = useCallback(() => {
     let cancelled = false
-    const loadMutationVersion = mainPageSessionKeysMutationRef.current
+    const membershipGuard = captureMainPageSessionKeysInitialGuard()
     fetch(appPath('/api/settings'))
       .then(response => response.json())
       .then((data: { settings?: GlobalSettings }) => {
         if (cancelled) return
         const settings = data.settings ?? {}
-        if (loadMutationVersion === mainPageSessionKeysMutationRef.current) {
-          setMainPageSessionKeys(new Set(normalizeMainPageSessionKeys(settings.mainPageSessionKeys ?? [])))
-        }
+        receiveInitialMainPageSessionKeys(settings.mainPageSessionKeys ?? [], membershipGuard)
         setProjectNames(normalizeProjectNames(settings.projectNames))
         if (typeof settings.instanceName === 'string' && settings.instanceName.trim()) {
           setInstanceName(settings.instanceName)
@@ -1597,7 +1576,7 @@ export function CodeWorkspace({
     return () => {
       cancelled = true
     }
-  }, [applyLaunchSettings])
+  }, [applyLaunchSettings, captureMainPageSessionKeysInitialGuard, receiveInitialMainPageSessionKeys])
   const renameInstance = useCallback(async (name: string) => {
     try {
       const response = await fetch(appPath('/api/settings'), {
@@ -2793,97 +2772,18 @@ export function CodeWorkspace({
     }
   }, [])
 
-  const updateLocalMainPageSessionKeys = useCallback((updater: (previous: ReadonlySet<string>) => string[]) => {
-    setMainPageSessionKeys(previous => {
-      const normalized = normalizeMainPageSessionKeys(updater(previous))
-      if (sameStringSet(previous, normalized)) return previous
-      return new Set(normalized)
-    })
-  }, [])
-
-  const reconcileMainPageSessionKeys = useCallback((authoritativeKeys?: string[]) => {
-    if (authoritativeKeys) {
-      mainPageSessionKeysAuthoritativeRef.current = normalizeMainPageSessionKeys(authoritativeKeys)
-    }
-    const projected = applyPendingMainPageSessionKeyMutations(
-      mainPageSessionKeysAuthoritativeRef.current,
-      mainPageSessionKeysPendingMutationsRef.current,
-    )
-    setMainPageSessionKeys(previous => sameStringSet(previous, projected) ? previous : new Set(projected))
-  }, [])
-
-  const mutateMainPageSessionKeys = useCallback((operation: 'add' | 'remove', sessionKeys: string[]) => {
-    const normalized = normalizeMainPageSessionKeys(sessionKeys)
-    if (normalized.length === 0) return
-    const mutationVersion = ++mainPageSessionKeysMutationRef.current
-    mainPageSessionKeysPendingMutationsRef.current.push({
-      version: mutationVersion,
-      operation,
-      sessionKeys: normalized,
-    })
-    const mutation = async () => {
-      const authoritativeRevisionAtStart = mainPageSessionKeysAuthoritativeRevisionRef.current
-      let authoritativeKeys: string[] | null = null
-      try {
-        const response = await fetchMainPageSessionMutation(appPath('/api/main-page-agent-sessions'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ operation, sessionKeys: normalized }),
-        })
-        const data = await response.json().catch(() => null) as { mainPageSessionKeys?: string[] } | null
-        if (!response.ok || !Array.isArray(data?.mainPageSessionKeys)) {
-          throw new Error(`Failed to update main-page sessions: ${response.status}`)
-        }
-        authoritativeKeys = data.mainPageSessionKeys
-      } catch {
-        try {
-          const response = await fetchMainPageSessionMutation(appPath('/api/settings'))
-          if (!response.ok) throw new Error(`Failed to reconcile main-page sessions: ${response.status}`)
-          const data = await response.json() as { settings?: { mainPageSessionKeys?: string[] } }
-          if (!Array.isArray(data.settings?.mainPageSessionKeys)) {
-            throw new Error('Failed to reconcile main-page sessions: invalid response')
-          }
-          authoritativeKeys = data.settings.mainPageSessionKeys
-        } catch {
-          // Fall back to the latest WebSocket baseline below.
-        }
-      } finally {
-        mainPageSessionKeysPendingMutationsRef.current = mainPageSessionKeysPendingMutationsRef.current
-          .filter(mutationEntry => mutationEntry.version !== mutationVersion)
-        const responseIsStillAuthoritative = authoritativeKeys !== null
-          && mainPageSessionKeysAuthoritativeRevisionRef.current === authoritativeRevisionAtStart
-        reconcileMainPageSessionKeys(
-          responseIsStillAuthoritative && authoritativeKeys ? authoritativeKeys : undefined,
-        )
-      }
-    }
-    mainPageSessionKeysMutationTailRef.current = mainPageSessionKeysMutationTailRef.current
-      .catch(() => {})
-      .then(mutation)
-  }, [reconcileMainPageSessionKeys])
-
-  useEffect(() => {
-    mainPageSessionKeysAuthoritativeRevisionRef.current += 1
-    const normalized = normalizeMainPageSessionKeys(remoteMainPageSessionKeys)
-    reconcileMainPageSessionKeys(normalized)
-  }, [reconcileMainPageSessionKeys, remoteMainPageSessionKeys])
-
   const addMainPageAgentSession = useCallback((provider: string, sessionId: string, providerHomeId = '') => {
     const sessionHandle = agentSessionId({ provider, id: sessionId, providerHomeId })
-    updateLocalMainPageSessionKeys(previous => [...previous, sessionHandle])
     mutateMainPageSessionKeys('add', [sessionHandle])
-  }, [mutateMainPageSessionKeys, updateLocalMainPageSessionKeys])
+  }, [mutateMainPageSessionKeys])
 
   const removeMainPageAgentSession = useCallback((sessionHandle: string) => {
-    updateLocalMainPageSessionKeys(previous => Array.from(previous).filter(key => key !== sessionHandle))
     mutateMainPageSessionKeys('remove', [sessionHandle])
-  }, [mutateMainPageSessionKeys, updateLocalMainPageSessionKeys])
+  }, [mutateMainPageSessionKeys])
 
   const removeMainPageAgentSessions = useCallback((sessionHandles: string[]) => {
-    const removeKeys = new Set(sessionHandles)
-    updateLocalMainPageSessionKeys(previous => Array.from(previous).filter(key => !removeKeys.has(key)))
     mutateMainPageSessionKeys('remove', sessionHandles)
-  }, [mutateMainPageSessionKeys, updateLocalMainPageSessionKeys])
+  }, [mutateMainPageSessionKeys])
 
   const syncRemovedMainPageSessionsFromAgentUpdate = useCallback((result: AgentFlagUpdateResponse | Promise<AgentFlagUpdateResponse>) => {
     Promise.resolve(result)
@@ -2939,6 +2839,7 @@ export function CodeWorkspace({
 
   useEffect(() => {
     let discoveredSession = false
+    const discoveredSessionKeys: string[] = []
     activeAgents.forEach(agent => {
       if (agent.providerSessionTemporary === true) return
       const sessionHandle = agent.providerSessionKey || resumedAgentSessionIdFromSource(agent.source)
@@ -2946,11 +2847,12 @@ export function CodeWorkspace({
       const trackingKey = `${agent.id}:${sessionHandle}`
       if (trackedMainPageAgentKeysRef.current.has(trackingKey)) return
       trackedMainPageAgentKeysRef.current.add(trackingKey)
-      updateLocalMainPageSessionKeys(previous => [...previous, sessionHandle])
+      discoveredSessionKeys.push(sessionHandle)
       discoveredSession = true
     })
+    if (discoveredSessionKeys.length > 0) observeMainPageSessionKeys(discoveredSessionKeys)
     if (discoveredSession) scheduleAgentSessionsBackgroundLoad(true)
-  }, [activeAgents, scheduleAgentSessionsBackgroundLoad, updateLocalMainPageSessionKeys])
+  }, [activeAgents, observeMainPageSessionKeys, scheduleAgentSessionsBackgroundLoad])
 
   const focusActiveProjectListTargetNow = useCallback(() => {
     const activeAgentId = activeTerminalIdRef.current
