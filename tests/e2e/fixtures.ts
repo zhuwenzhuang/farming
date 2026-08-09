@@ -2,6 +2,10 @@ import { test as base, expect, type Page } from '@playwright/test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import type {
+  TerminalHostDiagnostics,
+  TerminalSessionDiagnostics,
+} from '../../src/lib/terminal-session-diagnostics'
 
 // macOS exposes the same temporary directory through both /var and /private/var.
 // Start with the canonical root so persisted project identities and live Agent
@@ -54,59 +58,8 @@ declare global {
       } | null
       getInputCount: (agentId: string) => number
       getCursor: (agentId: string) => { x: number; y: number; visible?: boolean } | null
-      getBufferDiagnostics: (agentId: string) => {
-        engine?: string
-        renderer?: 'pending' | 'webgl' | 'failed'
-        cols: number
-        rows: number
-        viewportY: number
-        scrollbackLength: number
-        visibleBufferBase: number
-        bufferViewportY?: number
-        bufferBaseY?: number
-        bufferLength?: number
-        queuedTransitions: number
-        queuedBytes: number
-        terminalWriteBatchCount?: number
-        resizeRedrawTimerPending?: boolean
-        replayTargetEpoch: string
-        replayTargetRevision: number | null
-        checkpointRequestInFlight: boolean
-        checkpointRequestGeneration?: number | null
-        checkpointRequestSeq?: number | null
-        checkpointRequestAgeMs?: number
-        checkpointLastResult?: string
-        checkpointFetchCount?: number
-        checkpointFailureCount?: number
-        checkpointRetryScheduled?: boolean
-        replayInProgress?: boolean
-        bootstrappingSnapshot?: boolean
-        pendingSnapshotReplay?: boolean
-        runtimeEpoch?: string
-        reconnectSnapshotSeq?: number
-        checkpointRequestCount?: number
-        bootstrapRefreshSeq?: number
-        attachGeneration?: number
-        currentAttachment?: boolean
-        attachedMount?: boolean
-        fixtureOverrideActive?: boolean
-        pageOutputSuspended?: boolean
-        suppressOutputForMs?: number
-        needsReconnectOutputSync?: boolean
-        lastNotifiedResize?: { cols: number; rows: number } | null
-        resizeNotificationCount?: number
-        pendingFitResize?: { cols: number; rows: number } | null
-        fitResizeTimerPending?: boolean
-      } | null
-      getHostDiagnostics: () => Array<{
-        agentId: string
-        paneAgentId: string
-        inParkingLot: boolean
-        recordAttached: boolean
-        attachedMountMatchesParent: boolean
-        visible: boolean
-        hostCountInMount: number
-      }>
+      getBufferDiagnostics: (agentId: string) => TerminalSessionDiagnostics | null
+      getHostDiagnostics: () => TerminalHostDiagnostics[]
       getCanvasInkPixelCount: (agentId: string) => number
       scrollToLine: (agentId: string, line: number) => Promise<void>
       writeFixture: (agentId: string, text: string) => Promise<void>

@@ -117,6 +117,12 @@ import {
 } from '@/lib/terminal-session-client'
 import { TerminalSessionRegistry } from '@/lib/terminal-session-registry'
 import { TerminalAttachmentCoordinator } from '@/lib/terminal-attachment-coordinator'
+import {
+  TerminalSessionDiagnosticsProjection,
+  type TerminalHostDiagnostics,
+  type TerminalSessionDiagnostics,
+  type TerminalSessionDiagnosticsSource,
+} from '@/lib/terminal-session-diagnostics'
 import type { TerminalInputPart } from '@/types/messages'
 import {
   codeTerminalFontSize,
@@ -194,7 +200,7 @@ interface TerminalLogicalLine {
   buffer: TerminalBuffer
 }
 
-interface SessionRecord {
+interface SessionRecord extends TerminalSessionDiagnosticsSource {
   agentId: string
   hostEl: HTMLDivElement
   attachedMount: HTMLElement | null
@@ -311,6 +317,10 @@ interface SessionRecord {
 }
 
 const sessions = new TerminalSessionRegistry<string, SessionRecord>()
+const terminalSessionDiagnostics = new TerminalSessionDiagnosticsProjection({
+  get: agentId => sessions.get(agentId),
+  values: () => sessions.values(),
+})
 let terminalFocusRevision = 0
 const TERMINAL_CHECKPOINT_MAX_CONCURRENT_REQUESTS = 3
 let terminalCheckpointActiveRequests = 0
@@ -432,36 +442,8 @@ declare global {
       getStateRevision: (agentId: string) => number | null
       setCheckpointAckSuppressed: (agentId: string, suppressed: boolean) => boolean
       setCheckpointInstallCompletionHeld: (agentId: string, held: boolean) => boolean
-      getBufferDiagnostics: (agentId: string) => {
-        engine?: string
-        renderer?: 'pending' | 'webgl' | 'failed'
-        cols: number
-        rows: number
-        viewportY: number
-        scrollbackLength: number
-        visibleBufferBase: number
-        bufferViewportY?: number
-        bufferBaseY?: number
-        bufferLength?: number
-        queuedTransitions: number
-        queuedBytes: number
-        replayTargetEpoch: string
-        replayTargetRevision: number | null
-        checkpointHalted: boolean
-        checkpointFailureCount: number
-        checkpointRequestInFlight: boolean
-        replayInProgress: boolean
-        bootstrappingSnapshot: boolean
-        pendingFitResize?: { cols: number; rows: number } | null
-        fitResizeTimerPending?: boolean
-      } | null
-      getHostDiagnostics: () => Array<{
-        agentId: string
-        paneAgentId: string
-        inParkingLot: boolean
-        visible: boolean
-        hostCountInMount: number
-      }>
+      getBufferDiagnostics: (agentId: string) => TerminalSessionDiagnostics | null
+      getHostDiagnostics: () => TerminalHostDiagnostics[]
       scrollToLine: (agentId: string, line: number) => Promise<void>
       scrollToBottom: (agentId: string) => Promise<void>
       search: (agentId: string, term: string, direction?: TerminalSearchDirection, options?: TerminalSearchOptions) => Promise<TerminalSearchResult>
@@ -3252,6 +3234,7 @@ function installTerminalTestApi() {
   if (typeof window === 'undefined' || !window.__FARMING_E2E__ || window.__farmingTerminalTest) return
 
   window.__farmingTerminalTest = {
+    ...terminalSessionDiagnostics.testBridge(),
     async requestCheckpoint(agentId: string) {
       const controller = new AbortController()
       const release = await acquireTerminalCheckpointRequestSlot(controller.signal)
@@ -3351,24 +3334,6 @@ function installTerminalTestApi() {
         rows.push(cells.join('').trimEnd())
       }
       return rows
-    },
-    getHostDiagnostics() {
-      return Array.from(document.querySelectorAll('.terminal-session-host')).map(host => {
-        const hostEl = host as HTMLDivElement
-        const record = findSessionRecordForHost(hostEl)
-        const rect = hostEl.getBoundingClientRect()
-        const parent = hostEl.parentElement
-        const mount = parent?.classList.contains('terminal-container') ? parent : null
-        return {
-          agentId: hostEl.dataset.agentId || '',
-          paneAgentId: hostEl.closest('[data-testid="code-terminal-pane"]')?.getAttribute('data-agent-id') || '',
-          inParkingLot: hostEl.closest('#terminal-session-parking-lot') !== null,
-          recordAttached: record ? isTerminalSessionAttached(record) : false,
-          attachedMountMatchesParent: record ? record.attachedMount !== null && record.hostEl.parentElement === record.attachedMount : false,
-          visible: rect.width > 0 && rect.height > 0 && getComputedStyle(hostEl).display !== 'none',
-          hostCountInMount: mount ? mount.querySelectorAll('.terminal-session-host').length : 0,
-        }
-      })
     },
     doubleClickCell(agentId: string, col: number, row: number) {
       const current = sessions.get(agentId)
@@ -3620,57 +3585,6 @@ function installTerminalTestApi() {
         completeInstall?.()
       }
       return true
-    },
-    getBufferDiagnostics(agentId: string) {
-      const current = sessions.get(agentId)
-      if (!current || current instanceof Promise || current.disposed) return null
-      const buffer = current.terminal.buffer?.active as TerminalBuffer & {
-        viewportY?: number
-        baseY?: number
-      } | undefined
-      const resizeDiagnostics = current.resizeScheduler.diagnostics()
-      const attachmentDiagnostics = current.attachment.snapshot()
-      return {
-        engine: current.terminal.__farmingTerminalEngine,
-        renderer: current.terminal.getRendererType?.(),
-        cols: current.terminal.cols || 0,
-        rows: current.terminal.rows || 0,
-        viewportY: getTerminalViewportY(current.terminal),
-        scrollbackLength: getTerminalScrollbackLength(current.terminal),
-        visibleBufferBase: getTerminalVisibleBufferBase(current.terminal),
-        bufferViewportY: typeof buffer?.viewportY === 'number' ? buffer.viewportY : undefined,
-        bufferBaseY: typeof buffer?.baseY === 'number' ? buffer.baseY : undefined,
-        bufferLength: typeof buffer?.length === 'number' ? buffer.length : undefined,
-        queuedTransitions: attachmentDiagnostics.queuedTransitions,
-        queuedBytes: attachmentDiagnostics.queuedBytes,
-        terminalWriteBatchCount: current.terminalWriteBatchCount,
-        replayTargetEpoch: attachmentDiagnostics.replayTargetEpoch,
-        replayTargetRevision: attachmentDiagnostics.replayTargetRevision,
-        checkpointHalted: attachmentDiagnostics.halted,
-        checkpointFailureCount: attachmentDiagnostics.failureCount,
-        checkpointRequestInFlight: current.checkpointRequestInFlight,
-        replayInProgress: current.replayInProgress,
-        bootstrappingSnapshot: current.bootstrappingSnapshot,
-        pendingSnapshotReplay: current.pendingSnapshotReplay,
-        runtimeEpoch: attachmentDiagnostics.runtimeEpoch,
-        stateRevision: attachmentDiagnostics.stateRevision,
-        lastOutputSeq: attachmentDiagnostics.outputSeq,
-        reconnectSnapshotSeq: attachmentDiagnostics.revision,
-        checkpointRequestCount: current.checkpointRequestCount,
-        bootstrapRefreshSeq: current.bootstrapRefreshSeq,
-        attachGeneration: current.attachment.generation,
-        currentAttachment: isCurrentAttachment(current, current.attachment.generation),
-        attachedMount: current.attachedMount !== null,
-        fixtureOverrideActive: current.fixtureOverrideActive,
-        pageOutputSuspended: current.pageOutputSuspended,
-        suppressOutputForMs: Math.max(0, current.suppressOutputUntil - Date.now()),
-        needsReconnectOutputSync: current.needsReconnectOutputSync,
-        lastNotifiedResize: current.lastNotifiedResize,
-        resizeNotificationCount: current.resizeNotificationCount,
-        resizeRequestInFlight: current.resizeRequestInFlight,
-        pendingResizeRequest: current.pendingResizeRequest,
-        ...resizeDiagnostics,
-      }
     },
     async scrollToLine(agentId: string, line: number) {
       const current = sessions.get(agentId)

@@ -5,6 +5,10 @@ const path = require('path');
 const root = path.resolve(__dirname, '..', '..');
 const poolSource = fs.readFileSync(path.join(root, 'src/lib/terminal-session-pool.ts'), 'utf8');
 const terminalOutputSource = fs.readFileSync(path.join(root, 'src/lib/terminal-output.ts'), 'utf8');
+const terminalDiagnosticsSource = fs.readFileSync(
+  path.join(root, 'src/lib/terminal-session-diagnostics.ts'),
+  'utf8',
+);
 
 assert(
   poolSource.includes('terminalWriteResolvers: Set<(cancelled?: boolean) => boolean>') &&
@@ -43,6 +47,25 @@ assert(
     poolSource.includes('return sessions.getOrCreate(') &&
     poolSource.includes('const current = sessions.take(agentId)'),
   'terminal session pool should delegate bootstrap admission and destroy ownership to its exact-key registry'
+);
+
+assert(
+  poolSource.includes('new TerminalSessionDiagnosticsProjection({') &&
+    poolSource.includes('get: agentId => sessions.get(agentId)') &&
+    poolSource.includes('values: () => sessions.values()') &&
+    poolSource.includes('...terminalSessionDiagnostics.testBridge()') &&
+    !poolSource.includes('terminalSessionDiagnostics.register(record)') &&
+    !poolSource.includes('terminalSessionDiagnostics.unregister(record)') &&
+    !poolSource.includes('const attachmentDiagnostics = current.attachment.snapshot()') &&
+    !terminalDiagnosticsSource.includes('new Map<') &&
+    terminalDiagnosticsSource.includes('readonly #ports: TerminalSessionDiagnosticsPorts') &&
+    terminalDiagnosticsSource.includes('const current = this.#ports.get(agentId)') &&
+    terminalDiagnosticsSource.includes('current instanceof Promise') &&
+    terminalDiagnosticsSource.includes('getBufferDiagnostics: agentId => this.snapshot(agentId)') &&
+    terminalDiagnosticsSource.includes('getHostDiagnostics: () => this.hostSnapshots(root)') &&
+    terminalDiagnosticsSource.includes('const attachment = current.attachment.snapshot()') &&
+    terminalDiagnosticsSource.includes('const resize = current.resizeScheduler.diagnostics()'),
+  'terminal diagnostics should own its bridge and lazy projection while reading exact identity from the canonical registry'
 );
 
 assert(
