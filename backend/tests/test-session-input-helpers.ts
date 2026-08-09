@@ -78,6 +78,10 @@ function run() {
     path.join(__dirname, '../../src/lib/terminal-output.ts'),
     'utf8'
   );
+  const terminalRendererEffectsSource = fs.readFileSync(
+    path.join(__dirname, '../../src/lib/terminal-renderer-effects.ts'),
+    'utf8'
+  );
   const terminalResizeSource = fs.readFileSync(
     path.join(__dirname, '../../src/lib/terminal-resize.ts'),
     'utf8'
@@ -247,11 +251,13 @@ function run() {
       terminalPoolSource.includes('terminal-ime-composing') &&
       terminalPoolSource.includes('terminal-ime-active') &&
       terminalPoolSource.includes('setRendererCursorSuppressedForIme') &&
-      terminalPoolSource.includes('suppressRendererCursor') &&
-      terminalPoolSource.includes('shouldSuppressRendererCursor(record)') &&
-      terminalPoolSource.includes('renderer.cursorVisible = false') &&
-      terminalPoolSource.includes('rendererCursorWasVisible') &&
-      terminalPoolSource.includes('installImeAwareRenderer') &&
+      terminalPoolSource.includes('rendererEffects: TerminalRendererEffectController') &&
+      terminalPoolSource.includes('record.rendererEffects.beginImeComposition()') &&
+      terminalRendererEffectsSource.includes('#attachmentCursorSuppressed') &&
+      terminalRendererEffectsSource.includes('#imeComposing') &&
+      terminalRendererEffectsSource.includes('installation.renderer.cursorVisible = false') &&
+      terminalRendererEffectsSource.includes('cursorRestore: { visible: boolean | undefined } | null') &&
+      terminalRendererEffectsSource.includes('#ensureInstallation()') &&
       terminalPoolSource.includes('forceTerminalRender') &&
       terminalPoolSource.includes("record.hostEl.addEventListener('keydown'") &&
       terminalPoolSource.includes('event.keyCode === 229') &&
@@ -261,8 +267,9 @@ function run() {
   );
   assert(
     terminalOutputSource.includes('QUIET_TERMINAL_WRITE_THRESHOLD') &&
-      terminalOutputSource.includes('record.suspendRendering = true') &&
-      terminalPoolSource.includes('if (record.suspendRendering)') &&
+      terminalOutputSource.includes('record.rendererEffects.acquireRenderSuspension()') &&
+      terminalRendererEffectsSource.includes('#renderSuspensions = new Set<symbol>()') &&
+      terminalRendererEffectsSource.includes('if (this.isRenderingSuspended) return') &&
       terminalOutputSource.includes('export function replaceTerminalOutput') &&
       terminalPoolSource.includes("from '@/lib/terminal-output'") &&
       terminalPoolSource.includes('replaceTerminalOutput(record, state.output,') &&
@@ -684,7 +691,7 @@ function run() {
   assert(
       xtermSource.includes("import { WebglAddon } from '@xterm/addon-webgl'") &&
         xtermSource.includes("cursorInactiveStyle: 'none'") &&
-        terminalPoolSource.includes('if (isXtermTerminal(record.terminal)) return false'),
+        terminalPoolSource.includes('supportsCursorSuppression: !isXtermTerminal(terminal)'),
     'xterm WebGL should own cursor paint and hide its inactive cursor without DOM renderer overrides'
   );
   assert(

@@ -71,9 +71,9 @@ import {
   scrollRecordToBottom,
   scrollRecordToLine,
   scrollRecordToViewportY,
-  stableTerminalScrollbarOpacity,
   writeTerminalOutput,
 } from '@/lib/terminal-output'
+import { TerminalRendererEffectController } from '@/lib/terminal-renderer-effects'
 import {
   attachTerminalHost,
   canDetachTerminalHost,
@@ -265,7 +265,7 @@ interface SessionRecord extends TerminalSessionDiagnosticsSource {
   searchOpenHandler: ((agentId: string, query: string) => void) | null
   farmingUrlOpenHandler: ((agentId: string, url: string) => void) | null
   pathResolveCache: Map<string, { resolvedAt: number; target: TerminalPathOpenTarget | null; promise?: Promise<TerminalPathOpenTarget | null> }>
-  originalRender: NonNullable<NonNullable<FarmingTerminal['renderer']>['render']> | null
+  rendererEffects: TerminalRendererEffectController
   snapshotOutput: string
   snapshotRuntimeEpoch: string
   snapshotOutputSeq: number | null
@@ -292,7 +292,6 @@ interface SessionRecord extends TerminalSessionDiagnosticsSource {
   pendingSnapshotReplay: boolean
   bootstrappingSnapshot: boolean
   fixtureOverrideActive: boolean
-  suspendRendering: boolean
   cachedSelection: string
   lastNonEmptySelection: string
   openTargetMouseDown: { x: number; y: number; pathTargets: TerminalPathOpenTarget[] } | null
@@ -304,9 +303,6 @@ interface SessionRecord extends TerminalSessionDiagnosticsSource {
   } | null
   suppressClickUntil: number
   suppressOutputUntil: number
-  imeComposing: boolean
-  suppressRendererCursor: boolean
-  rendererCursorWasVisible: boolean | undefined
   inputCount: number
   followOutput: boolean
   hasUnreadOutput: boolean
@@ -1499,101 +1495,21 @@ function scheduleFollowStateFromViewport(
 }
 
 function scheduleImeOverlayUpdateIfActive(record: SessionRecord) {
-  if (!record.imeComposing) return
+  if (!record.rendererEffects.isImeComposing) return
   requestAnimationFrame(() => {
-    if (!record.disposed && record.imeComposing) {
+    if (!record.disposed && record.rendererEffects.isImeComposing) {
       updateTerminalImeOverlay(record.hostEl, record.terminal)
     }
   })
 }
 
-function shouldSuppressRendererCursor(record: SessionRecord) {
-  if (isXtermTerminal(record.terminal)) return false
-  return record.imeComposing || record.suppressRendererCursor
-}
-
-function applyRendererCursorPolicy(record: SessionRecord, forceFullRedraw = true) {
-  const renderer = record.terminal.renderer
-  if (record.disposed) return
-
-  record.hostEl.classList.toggle('terminal-renderer-cursor-suppressed', shouldSuppressRendererCursor(record))
-
-  if (!renderer) {
-    if (forceFullRedraw) {
-      forceTerminalRender(record)
-    }
-    return
-  }
-
-  if (shouldSuppressRendererCursor(record)) {
-    renderer.cursorVisible = false
-  } else if (!record.imeComposing && record.rendererCursorWasVisible !== undefined) {
-    renderer.cursorVisible = record.rendererCursorWasVisible
-    record.rendererCursorWasVisible = undefined
-  }
-
-  if (forceFullRedraw) {
-    forceTerminalRender(record)
-  }
-}
-
 function updateRendererCursorSuppression(record: SessionRecord, suppressed: boolean) {
-  if (record.suppressRendererCursor === suppressed) {
-    record.hostEl.classList.toggle('terminal-renderer-cursor-suppressed', shouldSuppressRendererCursor(record))
-    return
-  }
-  record.suppressRendererCursor = suppressed
-  applyRendererCursorPolicy(record)
+  record.rendererEffects.setAttachmentCursorSuppressed(suppressed)
 }
 
 function setRendererCursorSuppressedForIme(record: SessionRecord, suppressed: boolean) {
-  const renderer = record.terminal.renderer
-  if (record.disposed || !renderer) return
-
-  if (suppressed) {
-    if (!record.imeComposing) {
-      record.rendererCursorWasVisible = renderer.cursorVisible === undefined
-        ? undefined
-        : Boolean(renderer.cursorVisible)
-    }
-    record.imeComposing = true
-    applyRendererCursorPolicy(record)
-    return
-  }
-
-  if (!record.imeComposing) return
-  record.imeComposing = false
-  if (record.suppressRendererCursor) {
-    renderer.cursorVisible = false
-    forceTerminalRender(record)
-    return
-  }
-  renderer.cursorVisible = record.rendererCursorWasVisible ?? true
-  record.rendererCursorWasVisible = undefined
-  forceTerminalRender(record)
-}
-
-function installImeAwareRenderer(record: SessionRecord) {
-  const renderer = record.terminal.renderer
-  if (!renderer?.render || record.originalRender) return
-
-  const originalRender = renderer.render.bind(renderer)
-  record.originalRender = originalRender
-  renderer.render = (wasmTerm, forceFullRedraw, viewportY, terminal, scrollbarOpacity) => {
-    const stableScrollbarOpacity = stableTerminalScrollbarOpacity(scrollbarOpacity)
-    if (record.suspendRendering) {
-      return
-    }
-
-    if (!shouldSuppressRendererCursor(record)) {
-      originalRender(wasmTerm, forceFullRedraw, viewportY, terminal, stableScrollbarOpacity)
-      return
-    }
-
-    renderer.cursorVisible = false
-    originalRender(wasmTerm, true, viewportY, terminal, stableScrollbarOpacity)
-    renderer.cursorVisible = false
-  }
+  if (suppressed) record.rendererEffects.beginImeComposition()
+  else record.rendererEffects.endImeComposition()
 }
 
 function setupTerminalImeOverlay(record: SessionRecord) {
@@ -1609,7 +1525,7 @@ function setupTerminalImeOverlay(record: SessionRecord) {
   }
   const rafSync = () => requestAnimationFrame(sync)
   const rafSyncIfComposing = () => {
-    if (record.imeComposing) rafSync()
+    if (record.rendererEffects.isImeComposing) rafSync()
   }
   const activateComposition = () => {
     sync()
@@ -3748,7 +3664,13 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     searchOpenHandler: options.onSearchOpen ?? null,
     farmingUrlOpenHandler: options.onOpenUrlInFarming ?? null,
     pathResolveCache: new Map(),
-    originalRender: null,
+    rendererEffects: new TerminalRendererEffectController({
+      terminal,
+      hostEl,
+      supportsCursorSuppression: !isXtermTerminal(terminal),
+      initialCursorSuppressed: Boolean(options.suppressRendererCursor),
+      forceRender: () => forceTerminalRender(record),
+    }),
     snapshotOutput: '',
     snapshotRuntimeEpoch: '',
     snapshotOutputSeq: null,
@@ -3775,16 +3697,12 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     pendingSnapshotReplay: false,
     bootstrappingSnapshot: true,
     fixtureOverrideActive: false,
-    suspendRendering: false,
     cachedSelection: '',
     lastNonEmptySelection: '',
     openTargetMouseDown: null,
     dragSelection: null,
     suppressClickUntil: 0,
     suppressOutputUntil: 0,
-    imeComposing: false,
-    suppressRendererCursor: Boolean(options.suppressRendererCursor),
-    rendererCursorWasVisible: undefined,
     inputCount: 0,
     followOutput: true,
     hasUnreadOutput: false,
@@ -3826,8 +3744,7 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     if (!record.disposed) terminal.syncAppearanceTheme?.()
   })
 
-  installImeAwareRenderer(record)
-  applyRendererCursorPolicy(record, false)
+  record.rendererEffects.install()
 
   const syncCachedSelection = () => {
     record.cachedSelection = normalizeTerminalSelection(terminal)
@@ -4709,9 +4626,7 @@ export async function destroyTerminalSession(agentId: string) {
     record.hostEl.removeEventListener('pointercancel', record.touchInteraction.pointerUpHandler, true)
     record.hostEl.removeEventListener('lostpointercapture', record.touchInteraction.pointerUpHandler, true)
   }
-  if (record.originalRender && record.terminal.renderer) {
-    record.terminal.renderer.render = record.originalRender
-  }
+  record.rendererEffects.dispose()
   record.terminal.dispose()
   record.hostEl.remove()
 }

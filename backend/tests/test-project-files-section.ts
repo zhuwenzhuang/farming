@@ -92,6 +92,7 @@ function run() {
   const terminalPaneSource = read('src/components/AgentTerminalPane.tsx');
   const pooledTerminalHookSource = read('src/hooks/usePooledTerminal.ts');
   const terminalPoolSource = read('src/lib/terminal-session-pool.ts');
+  const terminalRendererEffectsSource = read('src/lib/terminal-renderer-effects.ts');
   const terminalLinksSource = read('src/lib/terminal-links.ts');
   const terminalLinkParsingSource = read('src/lib/terminal-link-parsing.ts');
   const fileIconsSource = read('src/lib/file-icons.ts');
@@ -321,7 +322,7 @@ function run() {
 	      terminalPoolSource.includes("hostEl.addEventListener('contextmenu', contextMenuHandler, true)") &&
 	      terminalPoolSource.includes('record.pathOpenHandler(agentId, pathTarget)') &&
 	      terminalPoolSource.includes('event.stopImmediatePropagation()') &&
-      terminalPoolSource.includes('stableTerminalScrollbarOpacity(scrollbarOpacity)') &&
+      terminalRendererEffectsSource.includes('stableTerminalScrollbarOpacity(scrollbarOpacity)') &&
       terminalPoolSource.includes('record.pathOpenHandler = options.onPathOpen ?? null') &&
       terminalPoolSource.includes('record.pathOpenHandler = null') &&
       pooledTerminalHookSource.includes('onPathOpen?: (agentId: string, target: TerminalPathOpenTarget) => void') &&
