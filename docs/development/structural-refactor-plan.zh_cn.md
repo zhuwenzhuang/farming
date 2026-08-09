@@ -202,10 +202,16 @@ Checkpoint 安装副作用、请求重试和 DOM 写入完成。同一所有权 
 以及 Session inventory 与 Search、Settings、Agent 与 Project Mutation、Agent
 Lifecycle、ACP Interaction 的 Domain Router 与 WebSocket Handler 分组。Agent State
 Broadcast Scheduler 已是本 Transport Lane 的 Owner，并作为 Agent 状态 Delta 变更
-意图的合并与调度的唯一所有者；权威 Projection 与 Tracker 仍在其之外，Pending 的
-Per-client Snapshot 生命周期也仍是独立关注点。剩余范围：
+意图的合并与调度的唯一所有者；权威 Projection 与 Tracker 仍在其之外。
 
-- 为 Per-client 初始 Snapshot 下发建立显式的连接级生命周期 Owner，并有界失败；
+Per-client 的 Agent 状态 Snapshot 下发已有自己的连接级 Owner
+`WebSocketAgentStateSnapshotController`。它拥有每个 Client 的 Cut Serial、分页与
+Backpressure、延迟下发、重启与溢出处理、有界失败与清理，以及 Activity/ACP/Preview
+完成屏障：该屏障把这些后续恢复下发挡在该 Client 权威 Snapshot Cut 完成之前，待该
+Cut 完成后再放行。权威 Projection 与 Broadcast Scheduler 仍在该边界之外。
+
+剩余范围：
+
 - 抽取其余有界 Bootstrap 领域：ACP Agent HTTP Operation、Usage 与 Update
   Operation、Auth/Share/Static 分组，仅在分离确有价值时进行。
 
@@ -252,31 +258,27 @@ Real-provider Smoke。
 剩余工作按以下依赖顺序继续拆成小切片。本列表记录未完成的架构结果，不记录临时
 Branch 或逐文件进度：
 
-1. 为 Per-client 初始 Agent Snapshot 下发建立一个连接级生命周期 Owner。每个
-   Client 的下发、Scope 变更或重新同步和失败都必须有界且明确，同时 Agent
-   Broadcast Scheduler 继续作为 Agent 状态 Delta 变更意图的合并与调度的唯一
-   所有者。
-2. 完成剩余有界的 Workspace 与 Terminal Owner。Workspace 侧迁出其余内聚的
+1. 完成剩余有界的 Workspace 与 Terminal Owner。Workspace 侧迁出其余内聚的
    Layout 领域，随后围绕已建立的 Owner 收窄 Props；Terminal 侧把 Resize 与
    Renderer Effect 编排收敛到 Attachment 顺序模型，并把 Session Pool 收窄为集成
    边界。必须覆盖生产形态的 Code 与 CRT Reconnect、Stale Completion、Gap、Resize
    和 Multi-viewer 场景。
-3. 把 Agent 启动环境、Provider Policy 解析和 Attention/Unread 迁出 Manager，
+2. 把 Agent 启动环境、Provider Policy 解析和 Attention/Unread 迁出 Manager，
    成为有类型的决策和有文档的状态机，通过窄 Host Port 表达；随后把剩余 Facade
    收窄到精确身份与顶层生命周期准入。
-4. 完成剩余 Server Transport 与 ACP 工作。在保持 Auth、Middleware 顺序、Route
+3. 完成剩余 Server Transport 与 ACP 工作。在保持 Auth、Middleware 顺序、Route
    Shape 和连接级状态不变的前提下抽取其余有界 HTTP 与 Bootstrap 领域；并收敛到
    Server 只经过 ACP Host 的路径：确定性 Host Fake 或 Harness 覆盖恢复与
    Prompt/Cancel 不确定结果后删除进程内 Fallback，通过显式 Projection 分离
    Engine State 与 Host Operation State，并运行要求的 Real-provider Smoke。
-5. 持续退役已经失效的兼容代码。Compatibility Alias、Adapter、Fallback、Parser
+4. 持续退役已经失效的兼容代码。Compatibility Alias、Adapter、Fallback、Parser
    Branch 或旧 State Shape 只有在全仓调用分析和边界测试证明没有受支持的 Client、
    Protocol Version、持久化数据、Extension 或 Public API 继续依赖时才能删除。用一个
    行为中立的小切片同时删除失效路径及仅服务于该路径的测试；不能因为它曾支持旧实现
    就保留不可达代码，也不能仅凭静态 Import 就把仍处于系统边界的 Adapter 判为死代码。
-6. 与代码热点并行继续 Stylesheet 拆分。把其余产品 Domain 从主样式表和 Dark Skin
+5. 与代码热点并行继续 Stylesheet 拆分。把其余产品 Domain 从主样式表和 Dark Skin
    样式表中拆出，并提供 Cascade、Specificity 与 Import 顺序证据。
-7. 持续集成。每个可审查切片都 Rebase 到当前 `main`，先运行聚焦状态机测试，再运行
+6. 持续集成。每个可审查切片都 Rebase 到当前 `main`，先运行聚焦状态机测试，再运行
    完整 Typecheck、Lint、Test 及适用的 Server、Terminal、Playwright 或 Provider
    门禁后合入。不能把这些优先项重新积累成长期 Integration Branch。
 

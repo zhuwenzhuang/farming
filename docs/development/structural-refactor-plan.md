@@ -229,12 +229,19 @@ domain routers and WebSocket handler groups for session inventory and search,
 Settings, Agent and Project mutations, Agent lifecycle, and ACP interaction. The
 Agent-state broadcast scheduler is already an owner in this transport lane and
 is the single owner of coalescing and scheduling Agent-state delta mutation
-intent; the authoritative projection and tracker stay outside it, and the
-pending per-client snapshot lifecycle remains a separate concern. Remaining
-scope:
+intent; the authoritative projection and tracker stay outside it.
 
-- give per-client initial snapshot delivery an explicit connection-scoped
-  lifecycle owner with bounded failure;
+Per-client Agent-state snapshot delivery has its own connection-scoped owner,
+`WebSocketAgentStateSnapshotController`. It owns the per-client cut serial,
+paging and backpressure, deferred delivery, restart and overflow handling,
+bounded failure and cleanup, and the Activity/ACP/Preview completion barrier
+that holds those follow-up recovery deliveries behind completion of the
+client's authoritative snapshot cut and releases them once that cut is
+complete. The authoritative projection and the broadcast scheduler remain
+outside that boundary.
+
+Remaining scope:
+
 - extract the remaining bounded bootstrap domains — ACP Agent HTTP operations,
   usage and update operations, auth/share/static groups — where separation is
   useful.
@@ -291,29 +298,24 @@ Continue the remaining work as small slices in the following dependency order.
 This list records unfinished architectural outcomes rather than a branch or
 file-by-file progress log:
 
-1. Give per-client initial Agent snapshot delivery one connection-scoped
-   lifecycle owner. Delivery, scope change or resynchronization, and failure
-   must be bounded and explicit per client while the Agent broadcast scheduler
-   stays the single owner of coalescing and scheduling Agent-state delta
-   mutation intent.
-2. Finish the bounded remaining Workspace and Terminal owners. For Workspace,
+1. Finish the bounded remaining Workspace and Terminal owners. For Workspace,
    move the remaining cohesive layout-owned domains and then narrow props
    around the established owners. For Terminal, converge resize and
    renderer-effect orchestration onto the attachment ordering model and slim
    the Session pool to an integration boundary. Preserve production-shaped Code
    and CRT reconnect, stale-completion, gap, resize, and multi-viewer coverage.
-3. Move Agent launch environment, provider policy resolution, and
+2. Move Agent launch environment, provider policy resolution, and
    attention/unread out of the Manager as typed decisions and a documented
    state machine over narrow host ports, then slim the remaining facade to
    exact identity and top-level lifecycle admission.
-4. Finish the remaining Server transport and ACP work. Extract the remaining
+3. Finish the remaining Server transport and ACP work. Extract the remaining
    bounded HTTP and bootstrap domains while preserving auth, middleware order,
    route shapes, and connection-local state, and converge on the ACP Host-only
    Server path: remove the in-process fallback once deterministic Host fakes or
    a harness cover recovery and uncertain prompt/cancel outcomes, keep engine
    state separate from Host operation state through an explicit projection, and
    run the required real-provider smokes.
-5. Retire obsolete compatibility code continuously. A compatibility alias,
+4. Retire obsolete compatibility code continuously. A compatibility alias,
    adapter, fallback, parser branch, or old state shape may be removed only
    after repository-wide call-site analysis and boundary tests show that no
    supported client, protocol version, persisted data, extension, or public API
@@ -322,10 +324,10 @@ file-by-file progress log:
    code merely because it once supported an older implementation, and do not
    classify an active system-boundary adapter as dead code from static imports
    alone.
-6. Continue stylesheet decomposition alongside the code hotspots. Split the
+5. Continue stylesheet decomposition alongside the code hotspots. Split the
    remaining product domains out of the main and dark-skin stylesheets with
    cascade, specificity, and import-order proof.
-7. Integrate continuously. Rebase each reviewable slice onto current `main`, run
+6. Integrate continuously. Rebase each reviewable slice onto current `main`, run
    its focused state-machine tests, then run the full typecheck, lint, test, and
    applicable Server, Terminal, Playwright, or provider gates before merging.
    Do not accumulate these priorities into another long-lived integration
