@@ -316,11 +316,6 @@ export function parseTerminalPathTargetAtColumn(lineText: string, col: number): 
   return parseTerminalPathLinkAtColumn(lineText, col)?.pathTarget ?? null
 }
 
-export function parseTerminalFileTargetAtColumn(lineText: string, col: number): TerminalPathOpenTarget | null {
-  const target = parseTerminalPathLinkAtColumn(lineText, col)?.pathTarget
-  return target?.lineNumber ? null : target ?? null
-}
-
 export function parseTerminalPathLinkAtColumn(lineText: string, col: number): TerminalLinkMatch | null {
   return collectTerminalPathLinkMatches(lineText).find(match => (
     col >= match.startIndex && col < match.startIndex + match.length

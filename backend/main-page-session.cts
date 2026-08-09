@@ -1,8 +1,5 @@
 'use strict';
 
-import * as path from 'path';
-import { parseCommand } from './cli-agents.cjs';
-
 import { isSafeProviderSessionId } from './provider-session-id.cjs';
 
 const AUTO_RESUME_AGENT_SESSION_PROVIDERS = new Set(['codex', 'claude', 'opencode', 'qoder', 'qwen']);
@@ -114,15 +111,6 @@ function resumedAgentSource(
     : `${provider}-history:${sessionId}`;
 }
 
-function mainPageSessionProviderForCommand(command: unknown): string {
-  const executable = (parseCommand(command) as string[])
-    .find(token => token !== 'env' && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(token));
-  const basename = path.basename(executable || '');
-  if (basename === 'qodercli') return 'qoder';
-  if (basename === 'qwen') return 'qwen';
-  return normalizeMainPageSessionProvider(basename);
-}
-
 function isActiveAgent(agent: MainPageAgentClaim | null | undefined): boolean {
   return Boolean(agent
     && agent.archived !== true
@@ -166,6 +154,5 @@ export {
   mainPageAgentSessionFromKey,
   mainPageAgentSessionKey,
   mainPageAgentSessionsToAutoResume,
-  mainPageSessionProviderForCommand,
   resumedAgentSource,
 };

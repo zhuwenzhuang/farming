@@ -217,18 +217,6 @@ function renderCompatibilityFile(targetName = 'AGENTS.md'): string {
   ].join('\n');
 }
 
-function renderCompatibilityPointerFile(targetName = 'AGENTS.md'): string {
-  return [
-    '# Farming Main Agent',
-    '',
-    `This is a compatibility entrypoint for ${targetName}.`,
-    '',
-    'The canonical Farming Main Agent instructions are in `AGENTS.md`.',
-    'Read `AGENTS.md`, then run `farming skills` if you need the current skill list.',
-    '',
-  ].join('\n');
-}
-
 function renderMainAgentBootstrap(): string {
   return [
     renderMainAgentSkills(),
@@ -311,7 +299,6 @@ export {
   ensureMainAgentSkillFiles,
   renderCanonicalAgentsFile,
   renderCompatibilityFile,
-  renderCompatibilityPointerFile,
   renderMainAgentBootstrap,
   renderMainAgentOperatingGuide,
   renderMainAgentSkills,
