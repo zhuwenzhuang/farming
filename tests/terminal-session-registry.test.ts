@@ -98,6 +98,20 @@ test('creation error is reported once for callers sharing one rejected pending e
   assert.equal(registry.get('one'), undefined)
 })
 
+test('synchronous non-Error creation failures are normalized for reporting', async () => {
+  const registry = new TerminalSessionRegistry<string, string>()
+  const reported: Error[] = []
+  const created = registry.getOrCreate('one', () => {
+    throw 'sync failure'
+  }, error => { reported.push(error) })
+
+  await assert.rejects(created, reason => reason === 'sync failure')
+  await Promise.resolve()
+  assert.equal(reported.length, 1)
+  assert.equal(reported[0]?.message, 'sync failure')
+  assert.equal(registry.get('one'), undefined)
+})
+
 test('values and forEach expose the current entries without changing ownership', async () => {
   const registry = new TerminalSessionRegistry<string, string>()
   await registry.getOrCreate('one', () => 'first')

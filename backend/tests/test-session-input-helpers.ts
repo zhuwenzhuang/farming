@@ -50,6 +50,10 @@ function run() {
     path.join(__dirname, '../../src/lib/terminal-session-pool.ts'),
     'utf8'
   );
+  const terminalRegistrySource = fs.readFileSync(
+    path.join(__dirname, '../../src/lib/terminal-session-registry.ts'),
+    'utf8'
+  );
   const terminalBootstrapSource = fs.readFileSync(
     path.join(__dirname, '../../src/lib/terminal-bootstrap.ts'),
     'utf8'
@@ -76,6 +80,10 @@ function run() {
   );
   const terminalResizeSource = fs.readFileSync(
     path.join(__dirname, '../../src/lib/terminal-resize.ts'),
+    'utf8'
+  );
+  const terminalResizeSchedulerSource = fs.readFileSync(
+    path.join(__dirname, '../../src/lib/terminal-resize-scheduler.ts'),
     'utf8'
   );
   const terminalReplaySource = fs.readFileSync(
@@ -441,7 +449,9 @@ function run() {
   assert(
     terminalPoolSource.includes('requestTerminalSessionCheckpoint(agentId, signal)') &&
       terminalPoolSource.includes('retryTerminalReplayAfterFailure(') &&
-      terminalPoolSource.includes('options.onError?.(error instanceof Error ? error : new Error(String(error)))') &&
+      terminalPoolSource.includes('sessions.getOrCreate(') &&
+      terminalPoolSource.includes('options.onError,') &&
+      terminalRegistrySource.includes('onCreateError?.(reason instanceof Error ? reason : new Error(String(reason)))') &&
       pooledTerminalHookSource.includes('onError?: (error: Error) => void') &&
       pooledTerminalHookSource.includes('attachmentHandlers.onError(error instanceof Error ? error : new Error(String(error)))'),
     'terminal session pool should surface bootstrap failures to the React terminal pane instead of failing silently'
@@ -515,9 +525,13 @@ function run() {
       terminalResizeSource.includes('export function resetTerminalResizeDeliveryTracker') &&
       terminalResizeSource.includes('export function resetTerminalResizeTracker') &&
       terminalPoolSource.includes("from '@/lib/terminal-resize'") &&
-      terminalPoolSource.includes('TERMINAL_RESIZE_SETTLE_MS = 250') &&
-      terminalPoolSource.includes('TERMINAL_RESIZE_DELIVERY_TIMEOUT_MS = 1500') &&
-      terminalPoolSource.includes('function scheduleTerminalFitResize') &&
+      terminalResizeSchedulerSource.includes('export const TERMINAL_RESIZE_SETTLE_MS = 250') &&
+      terminalResizeSchedulerSource.includes('export const TERMINAL_RESIZE_DELIVERY_TIMEOUT_MS = 1500') &&
+      terminalResizeSchedulerSource.includes('export function createTerminalResizeScheduler') &&
+      terminalResizeSchedulerSource.includes('scheduleFit(dimensions)') &&
+      terminalResizeSchedulerSource.includes('scheduleDeliveryTimeout()') &&
+      terminalPoolSource.includes("from '@/lib/terminal-resize-scheduler'") &&
+      terminalPoolSource.includes('resizeScheduler: createTerminalResizeScheduler({') &&
       !terminalResizeSource.includes('normalBufferLength') &&
       !terminalPoolSource.includes('getNormalBufferLength') &&
       terminalPoolSource.includes('function deliverTerminalResize') &&
@@ -654,7 +668,7 @@ function run() {
     'xterm WebGL should own cursor paint and hide its inactive cursor without DOM renderer overrides'
   );
   assert(
-    terminalPoolSource.includes('if (sessions.get(agentId) !== record) return'),
+    terminalPoolSource.includes('if (!sessions.isCurrent(agentId, record)) return'),
     'terminal session pool should ignore stale attach/detach races after a session is destroyed'
   );
   assert(
