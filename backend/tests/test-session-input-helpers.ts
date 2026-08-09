@@ -921,6 +921,10 @@ function run() {
     path.join(__dirname, '../../backend/websocket-session-preview-broadcasts.cts'),
     'utf8'
   );
+  const resumeCoordinatorSource = fs.readFileSync(
+    path.join(__dirname, '../../backend/agent-session-resume-coordinator.cts'),
+    'utf8'
+  );
   assert(
     serverSource.includes('websocketSessionStreamBroadcasts.schedule(stream)') &&
       streamBroadcastsSource.includes('coalesceSessionStream(pendingStreams.get(key), stream)') &&
@@ -943,14 +947,15 @@ function run() {
     'server should coalesce terminal preview broadcasts so live output does not flood the UI'
   );
   assert(
-      serverSource.includes('const pendingResumeStarts = new Map') &&
-      serverSource.includes('function resumedAgentStartKey') &&
-      serverSource.includes('const pendingStart = pendingResumeStarts.get(pendingResumeId)') &&
-      serverSource.includes('reused: true') &&
-      serverSource.includes('pending: true') &&
-      serverSource.includes('result.claimed ? { claimed: true } : {}') &&
-      serverSource.includes('pendingResumeStarts.delete(pendingResumeId)'),
-    'server should serialize duplicate resume requests for the same agent session'
+    serverSource.includes('const agentSessionResumeCoordinator = new AgentSessionResumeCoordinator({') &&
+      resumeCoordinatorSource.includes('readonly #pendingHttpResumes: PendingResumeAdmissions<ResumeHttpReply> = new Map()') &&
+      resumeCoordinatorSource.includes('readonly #pendingStartResumes: PendingResumeAdmissions<ResumeAgentResult> = new Map()') &&
+      resumeCoordinatorSource.includes('function resumeAdmissionSignature(') &&
+      resumeCoordinatorSource.includes('this.#pendingHttpResumes,') &&
+      resumeCoordinatorSource.includes('this.#pendingStartResumes,') &&
+      resumeCoordinatorSource.includes("status: 409, body: { error: 'A different resume request is already in progress for this Agent session' }") &&
+      resumeCoordinatorSource.includes('this.#clearPendingAdmission(admissions, provider, providerHomeId, sessionId, admission);'),
+    'the resume coordinator should serialize a full exact HTTP resume operation and reject conflicting semantics'
   );
   assert(
     serverSource.includes('createWebSocketAgentLifecycleHandlers<WebSocketClient>({') &&

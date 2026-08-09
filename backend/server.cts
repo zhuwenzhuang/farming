@@ -180,29 +180,6 @@ function caughtError(error: unknown): ServerError {
   return normalized;
 }
 
-interface ResumeOptions {
-  acpHistoryMode?: string;
-  agentRuntimeMode?: string;
-  allowUnarchiveArchived?: boolean;
-  asMain?: boolean;
-  autoReadInitialAttention?: boolean;
-  customTitle?: string;
-  fork?: boolean;
-  providerHomeId?: string;
-  rememberMainPageSession?: boolean;
-}
-
-interface ResumeAgentResult {
-  agentId?: string;
-  archived?: boolean;
-  claimed?: boolean;
-  error?: string;
-  pending?: boolean;
-  projectWorkspace?: string;
-  reused?: boolean;
-  status?: number;
-}
-
 interface WebSocketServer {
   clients: Set<WebSocketClient>;
   close(): void;
@@ -248,13 +225,14 @@ import { listAvailableAgents, resolveTerminalCodexExecutable } from './executabl
 import { readClaudeSettingsSummary } from './claude-settings.cjs';
 import { listCodexModelOptions } from './codex-models.cjs';
 import { readProviderHomeConfiguration } from './provider-home-configuration.cjs';
-import { applyProviderHomeEnvironment, getProviderAdapter, providerCapabilities, providerConversationForkCapability } from './provider-adapters.cjs';
+import { applyProviderHomeEnvironment, getProviderAdapter, providerCapabilities } from './provider-adapters.cjs';
 import { listCodexSessions } from './codex-session-history.cjs';
-import { buildAgentSessionResumeCommand, findAgentSession, isSafeSessionId, normalizeProvider, resolveCodexResumeModelProvider } from './agent-session-history.cjs';
-import { findActiveAgentClaimingSession, mainPageAgentSessionKey, mainPageAgentSessionsToAutoResume, resumedAgentSource } from './main-page-session.cjs';
+import { findAgentSession } from './agent-session-history.cjs';
+import { mainPageAgentSessionKey } from './main-page-session.cjs';
 import { discoverAgentWorkspaces } from './workspace-discovery.cjs';
 import { inspectGitWorktree } from './git-worktree-info.cjs';
 import { createProjectWorkspaceCanonicalizer } from './project-workspace-canonicalizer.cjs';
+import { AgentSessionResumeCoordinator } from './agent-session-resume-coordinator.cjs';
 import { createWorkspaceDirectoryRouter } from './workspace-directory.cjs';
 import { createWorkspacePickerRouter } from './workspace-picker-router.cjs';
 import { createControlRouter } from './control-api.cjs';
@@ -1765,15 +1743,6 @@ app.post(routePath(BASE_PATH, '/api/projects/delete-worktree'), express.json(), 
   res.json(result);
 });
 
-app.post(routePath(BASE_PATH, '/api/codex/sessions/:sessionId/resume'), express.json(), async (req, res) => {
-  await startResumedAgentSession(req, res, 'codex', req.params.sessionId);
-});
-
-app.post(routePath(BASE_PATH, '/api/agent-sessions/:provider/:sessionId/resume'), express.json(), async (req, res) => {
-  await startResumedAgentSession(req, res, req.params.provider, req.params.sessionId);
-});
-
-const pendingResumeStarts = new Map<string, Promise<ResumeAgentResult>>();
 const canonicalProjectWorkspaceCandidate = createProjectWorkspaceCanonicalizer({
   inspectWorkspace: async candidate => (await inspectGitWorktree(candidate))?.workspace || '',
   realpath: candidate => fs.promises.realpath(path.resolve(candidate)),
@@ -1782,466 +1751,84 @@ const canonicalProjectWorkspaceCandidate = createProjectWorkspaceCanonicalizer({
     console.warn('Failed to resolve project worktree:', candidate, error?.message || error);
   },
 });
-
-function resumedAgentStartKey(provider: string, sessionId: string, options: ResumeOptions = {}) {
-  return [
-    provider,
-    options.providerHomeId || 'default',
-    sessionId,
-    options.fork === true ? 'fork' : 'resume',
-    options.asMain === true ? 'main' : 'agent',
-  ].join(':');
-}
-
-function findResumedAgent(provider: string, sessionId: string, providerHomeId = '') {
-  return findActiveAgentClaimingSession(agentManager.getState().agents, provider, { id: sessionId, providerHomeId });
-}
-
-function isMainAgentSessionWorkspace(session: AgentSession | null) {
-  const values = [session?.cwd, session?.workspace];
-  return values.some(value => {
-    const normalized = String(value || '').trim().replace(/[\\/]+$/, '');
-    return normalized === '~/.farming' || /(^|[/\\])\.farming$/.test(normalized);
-  });
-}
-
-function rememberMainPageAgentSession(provider: string, sessionId: string, providerHomeId = '') {
-  const sessionKey = mainPageAgentSessionKey(provider, sessionId, providerHomeId);
-  if (typeof configManager.rememberMainPageSessionKey === 'function') {
-    configManager.rememberMainPageSessionKey(sessionKey, {
-      provider,
-      providerSessionId: sessionId,
-      providerSessionKey: sessionKey,
-      providerHomeId: providerHomeId || 'default',
-      source: 'resume',
-    });
-    return;
-  }
-  const currentKeys = typeof configManager.getMainPageSessionKeys === 'function'
-    ? configManager.getMainPageSessionKeys()
-    : (Array.isArray(configManager.getSettings().mainPageSessionKeys) ? configManager.getSettings().mainPageSessionKeys : []);
-  configManager.updateSettings({
-    mainPageSessionKeys: [
-      sessionKey,
-      ...currentKeys.filter((key: string) => key !== sessionKey),
-    ],
-  });
-}
-
-function forgetMainPageAgentSession(provider: string, sessionId: string, providerHomeId = '') {
-  const sessionKey = mainPageAgentSessionKey(provider, sessionId, providerHomeId);
-  if (typeof configManager.removeMainPageSessionKey === 'function') {
-    configManager.removeMainPageSessionKey(sessionKey);
-    return;
-  }
-  const currentKeys = typeof configManager.getMainPageSessionKeys === 'function'
-    ? configManager.getMainPageSessionKeys()
-    : (Array.isArray(configManager.getSettings().mainPageSessionKeys) ? configManager.getSettings().mainPageSessionKeys : []);
-  if (!currentKeys.includes(sessionKey)) return;
-  configManager.updateSettings({
-    mainPageSessionKeys: currentKeys.filter((key: string) => key !== sessionKey),
-  });
-}
-
-function savedFarmingAgentSession(provider: string, sessionId: string, providerHomeId = '') {
-  if (typeof configManager.getAgentSessionRecordForProviderSessionKey !== 'function') return null;
-  const sessionKey = mainPageAgentSessionKey(provider, sessionId, providerHomeId);
-  return sessionKey
-    ? configManager.getAgentSessionRecordForProviderSessionKey(sessionKey)
-    : null;
-}
-
-async function resumeAgentSessionById(
-  provider: string,
-  rawSessionId: string,
-  options: ResumeOptions = {},
-): Promise<ResumeAgentResult> {
-  const normalizedProvider = normalizeProvider(provider);
-  const sessionId = String(rawSessionId || '').trim();
-  const providerHomeId = typeof options.providerHomeId === 'string' && options.providerHomeId.trim() ? options.providerHomeId.trim() : 'default';
-  if (!normalizedProvider || !isSafeSessionId(sessionId)) {
-    return { error: 'invalid session id', status: 400 };
-  }
-
-  const shouldFork = options.fork === true;
-  if (shouldFork && providerConversationForkCapability(normalizedProvider, 'terminal').supported !== true) {
-    return { error: `${normalizedProvider} does not support session Fork`, status: 400 };
-  }
-  const requestedAsMain = options.asMain === true && !shouldFork;
-  const shouldRememberMainPageSession = options.rememberMainPageSession !== false && !shouldFork && !requestedAsMain;
-  const pendingResumeId = resumedAgentStartKey(normalizedProvider, sessionId, {
-    fork: shouldFork,
-    asMain: requestedAsMain,
-    providerHomeId,
-  });
-  if (!shouldFork) {
-    const existingAgent = findResumedAgent(normalizedProvider, sessionId, providerHomeId);
-    if (existingAgent) {
-      if (shouldRememberMainPageSession) rememberMainPageAgentSession(normalizedProvider, sessionId, providerHomeId);
-      const projectWorkspace = requestedAsMain
-        ? ''
-        : await canonicalProjectWorkspace(
-          existingAgent.gitWorktree?.workspace || existingAgent.projectWorkspace || existingAgent.cwd || null
-        );
-      return { agentId: existingAgent.id, projectWorkspace, reused: true };
-    }
-  }
-  const pendingStart = pendingResumeStarts.get(pendingResumeId);
-  if (pendingStart) {
-    const result = await pendingStart;
-    if (result.error) {
-      return result;
-    }
-    if (shouldRememberMainPageSession) rememberMainPageAgentSession(normalizedProvider, sessionId, providerHomeId);
-    return {
-      agentId: result.agentId,
-      projectWorkspace: result.projectWorkspace || '',
-      reused: true,
-      pending: true,
-      ...(result.claimed ? { claimed: true } : {}),
-    };
-  }
-
-  const startPromise: Promise<ResumeAgentResult> = (async (): Promise<ResumeAgentResult> => {
-    let session = await findAgentSession(normalizedProvider, sessionId, {
-      limit: 1000,
-      providerLimit: 1000,
-      scanLimit: 5000,
-      providerHomeId,
-      providerHomes: configuredProviderHomes(),
-    });
-    if (
-      options.allowUnarchiveArchived === true
-      && normalizedProvider === 'codex'
-      && !requestedAsMain
-    ) {
-      const providerHomes = configuredProviderHomes();
-      const configuredHomePath = (providerHomes.codex || [])
-        .find((home: { id: string; path: string }) => home.id === providerHomeId)?.path || '';
-      const unarchiveResult = await agentManager.ensureCodexSessionAvailable(sessionId, {
-        providerHomeId,
-        providerHomePath: session?.providerHomePath || configuredHomePath,
-        providerHomes,
-        cwd: session?.cwd || session?.workspace || '',
-      });
-      if (unarchiveResult?.error) return unarchiveResult;
-      session = await findAgentSession(normalizedProvider, sessionId, {
-        limit: 1000,
-        providerLimit: 1000,
-        scanLimit: 5000,
-        providerHomeId,
-        providerHomes,
-      }) || (session ? { ...session, archived: false } : session);
-    }
-    if (session && session.archived && !shouldFork) {
-      forgetMainPageAgentSession(normalizedProvider, sessionId, providerHomeId);
-      return {
-        error: `${session.providerName || normalizedProvider} session is archived. Unarchive it before resuming.`,
-        status: 409,
-        archived: true,
-      };
-    }
-    if (!shouldFork && !requestedAsMain) {
-      const claimingAgent = findActiveAgentClaimingSession(agentManager.getState().agents, normalizedProvider, {
-        id: sessionId,
-        providerHomeId,
-        ...(session || {}),
-      });
-      if (claimingAgent) {
-        if (shouldRememberMainPageSession) rememberMainPageAgentSession(normalizedProvider, sessionId, providerHomeId);
-        const projectWorkspace = await canonicalProjectWorkspace(
-          claimingAgent.gitWorktree?.workspace || claimingAgent.projectWorkspace || claimingAgent.cwd || null
-        );
-        return { agentId: claimingAgent.id, projectWorkspace, reused: true, claimed: true };
-      }
-    }
-
-    const resumeAsMain = requestedAsMain && isMainAgentSessionWorkspace(session);
-    if (requestedAsMain && !resumeAsMain) {
-      return { error: 'session is not a Main Agent session', status: 400 };
-    }
-
-    const savedSession = shouldFork
-      ? null
-      : savedFarmingAgentSession(normalizedProvider, sessionId, session
-        ? (session.providerHomeId || providerHomeId)
-        : providerHomeId);
-    const hasRequestedCustomTitle = Object.prototype.hasOwnProperty.call(options, 'customTitle');
-    const savedAttentionSeq = Number(savedSession?.attentionSeq) || 0;
-    const savedReadAttentionSeq = Number(savedSession?.readAttentionSeq) || 0;
-    const workingDirectory = session?.cwd || session?.workspace || null;
-    const projectWorkspace = resumeAsMain
-      ? ''
-      : await canonicalProjectWorkspace(
-        String(savedSession?.projectWorkspace || (session ? (session.workspace || session.cwd || '') : workingDirectory) || '')
-      );
-    const command = buildAgentSessionResumeCommand(normalizedProvider, sessionId, {
-      fork: shouldFork,
-      cwd: workingDirectory,
-      modelProvider: normalizedProvider === 'codex'
-        ? resolveCodexResumeModelProvider(session?.providerHomePath || '')
-        : '',
-    });
-
-    if (!command) {
-      return { error: 'invalid session id', status: 400 };
-    }
-
-    return new Promise<ResumeAgentResult>((resolve) => {
-      const resolvedProviderHomeId = session ? (session.providerHomeId || providerHomeId) : providerHomeId;
-      const resumeSource = resumedAgentSource(normalizedProvider, sessionId, resolvedProviderHomeId);
-      const startResult = agentManager.startAgent(command, workingDirectory, (agentId, error) => {
-        if (error) {
-          resolve({ error, status: 400 });
-          return;
-        }
-
-        if (!agentId) {
-          resolve({ error: 'failed to resume agent session', status: 500 });
-          return;
-        }
-
-        resolve({ agentId, projectWorkspace });
-      }, {
-        wantsMain: resumeAsMain,
-        task: savedSession?.task || (session ? session.title : ''),
-        workflowTemplate: savedSession?.workflowTemplate || '',
-        customTitle: hasRequestedCustomTitle
-          ? (typeof options.customTitle === 'string' ? options.customTitle : '')
-          : (savedSession?.customTitle || ''),
-        customTitleExplicit: hasRequestedCustomTitle,
-        requiredCliVersion: normalizedProvider === 'codex' && session ? session.cliVersion : '',
-        projectWorkspace,
-        source: shouldFork ? resumeSource.replace('-history:', '-history-fork:') : resumeSource,
-        agentRuntimeMode: typeof options.agentRuntimeMode === 'string' && ['chat', 'acp'].includes(options.agentRuntimeMode) ? 'chat' : 'terminal',
-        acpHistoryMode: options.acpHistoryMode === 'resume' ? 'resume' : 'load',
-        providerHomeId: resolvedProviderHomeId,
-        providerHomePath: session ? (session.providerHomePath || '') : '',
-        providerSessionTitle: session?.title || savedSession?.providerSessionTitle || '',
-        persistentSessionId: savedSession?.id || '',
-        pinned: savedSession?.pinned === true,
-        projectOrder: savedSession?.projectOrder,
-        pinnedOrder: savedSession?.pinnedOrder,
-        attentionSeq: savedAttentionSeq,
-        readAttentionSeq: savedReadAttentionSeq,
-        attentionUpdatedAt: savedSession?.attentionUpdatedAt,
-        readAttentionAt: savedSession?.readAttentionAt,
-        attentionReason: savedSession?.attentionReason,
-        attentionOutputEpoch: savedSession?.attentionOutputEpoch,
-        attentionOutputSeq: savedSession?.attentionOutputSeq,
-        readOutputEpoch: savedSession?.readOutputEpoch,
-        readOutputSeq: savedSession?.readOutputSeq,
-        autoReadInitialAttention: options.autoReadInitialAttention === true
-          && savedAttentionSeq <= savedReadAttentionSeq,
-        preserveProviderSessionProfile: normalizedProvider === 'codex' || normalizedProvider === 'claude',
-      });
-      Promise.resolve(startResult).catch((error) => {
-        resolve({ error: error.message || 'failed to resume agent session', status: 500 });
-      });
-    });
-  })();
-  pendingResumeStarts.set(pendingResumeId, startPromise);
-
-  const result = await startPromise;
-  if (pendingResumeStarts.get(pendingResumeId) === startPromise) {
-    pendingResumeStarts.delete(pendingResumeId);
-  }
-
-  if (result.error) {
-    return result;
-  }
-
-  if (shouldRememberMainPageSession) rememberMainPageAgentSession(normalizedProvider, sessionId, providerHomeId);
-  if (result.reused) {
-    return {
-      agentId: result.agentId,
-      projectWorkspace: result.projectWorkspace || '',
-      reused: true,
-      ...(result.claimed ? { claimed: true } : {}),
-    };
-  }
-  return {
-    agentId: result.agentId,
-    projectWorkspace: result.projectWorkspace || '',
-  };
-}
-
 async function canonicalProjectWorkspace(workspace: string | null) {
   const candidate = configManager.expandWorkspacePath(String(workspace || '').trim());
   return canonicalProjectWorkspaceCandidate(candidate);
 }
-
-async function startResumedAgentSession(req: HttpRequest, res: HttpResponse, provider: string, rawSessionId: string) {
-  const shouldFork = req.body && req.body.fork === true;
-  const requestedAsMain = req.body && req.body.asMain === true && !shouldFork;
-  const allowUnarchiveArchived = req.body && req.body.unarchiveArchived === true && !shouldFork && !requestedAsMain;
-  const providerHomeId = req.body && typeof req.body.providerHomeId === 'string'
-    ? req.body.providerHomeId
-    : '';
-  const sessionKey = mainPageAgentSessionKey(provider, rawSessionId, providerHomeId);
-  const mainPageSessionWasRemembered = !shouldFork
-    && !requestedAsMain
-    && configManager.getMainPageSessionKeys().includes(sessionKey);
-  if (
-    req.body
-    && Object.prototype.hasOwnProperty.call(req.body, 'customTitle')
-    && typeof req.body.customTitle !== 'string'
-  ) {
-    res.status(400).json({ error: 'customTitle must be a string' });
-    return;
-  }
-  const result = await resumeAgentSessionById(provider, rawSessionId, {
-    fork: shouldFork,
-    asMain: requestedAsMain,
-    allowUnarchiveArchived,
-    providerHomeId,
-    ...(req.body && Object.prototype.hasOwnProperty.call(req.body, 'customTitle')
-      ? { customTitle: req.body.customTitle }
-      : {}),
-    agentRuntimeMode: typeof req.body?.agentRuntimeMode === 'string' && ['chat', 'acp'].includes(req.body.agentRuntimeMode) ? 'chat' : 'terminal',
-    acpHistoryMode: req.body && req.body.acpHistoryMode === 'resume' ? 'resume' : 'load',
-  });
-
-  if (result.error) {
-    res.status(result.status || 400).json({ error: result.error });
-    return;
-  }
-  if (!result.agentId) {
-    res.status(500).json({ error: 'Agent session resume returned no Agent identity' });
-    return;
-  }
-
-  let projectMembership = {
-    projectWorkspaces: configManager.getSettings().projectWorkspaces || [],
-    pinnedProjectWorkspaces: configManager.getSettings().pinnedProjectWorkspaces || [],
-  };
-  try {
-    if (!requestedAsMain && result.projectWorkspace) {
-      projectMembership = configManager.mountProjectWorkspace(result.projectWorkspace);
-    }
-  } catch (caught) {
-    const error = caughtError(caught);
-    let rollbackError = '';
-    if (!result.reused) {
-      try {
-        const rollback = await agentManager.archiveAgent(result.agentId, {
-          reason: 'project-mount-failed',
-          recordHistory: false,
-          requireEngineExit: true,
-          scheduleProviderArchive: false,
-        });
-        if (rollback?.error) rollbackError = rollback.error;
-      } catch (cleanupError) {
-        rollbackError = caughtError(cleanupError).message || String(cleanupError);
-      }
-    }
-    if (!mainPageSessionWasRemembered && !rollbackError) {
-      forgetMainPageAgentSession(provider, rawSessionId, providerHomeId || 'default');
-    }
+const agentSessionResumeCoordinator = new AgentSessionResumeCoordinator({
+  archiveNewAgent: agentId => agentManager.archiveAgent(agentId, {
+    reason: 'project-mount-failed',
+    recordHistory: false,
+    requireEngineExit: true,
+    scheduleProviderArchive: false,
+  }),
+  canonicalProjectWorkspace,
+  configuredProviderHomes,
+  currentAgentSessions,
+  ensureCodexSessionAvailable: (sessionId, options) => agentManager.ensureCodexSessionAvailable(sessionId, options),
+  findAgentSession: (provider, sessionId, options) => findAgentSession(provider, sessionId, options),
+  getActiveAgents: () => agentManager.getState().agents,
+  getMainPageSessionKeys: () => configManager.getMainPageSessionKeys(),
+  getSavedAgentSession: (provider, sessionId, providerHomeId) => {
+    if (typeof configManager.getAgentSessionRecordForProviderSessionKey !== 'function') return null;
+    return configManager.getAgentSessionRecordForProviderSessionKey(
+      mainPageAgentSessionKey(provider, sessionId, providerHomeId),
+    );
+  },
+  getSettings: () => configManager.getSettings(),
+  mountProjectWorkspace: workspace => configManager.mountProjectWorkspace(workspace),
+  publishAgentState: () => {
     queueStateMetadata(currentAgentListMetadata());
     broadcastState();
-    const mountError = error.message || 'Failed to create Project';
-    res.status(500).json({
-      error: rollbackError
-        ? `${mountError}. Rollback failed: ${rollbackError}`
-        : mountError,
-      ...(rollbackError ? { rollbackError } : {}),
+  },
+  rememberMainPageSession: (provider, sessionId, providerHomeId) => {
+    const sessionKey = mainPageAgentSessionKey(provider, sessionId, providerHomeId);
+    if (typeof configManager.rememberMainPageSessionKey === 'function') {
+      configManager.rememberMainPageSessionKey(sessionKey, {
+        provider,
+        providerSessionId: sessionId,
+        providerSessionKey: sessionKey,
+        providerHomeId: providerHomeId || 'default',
+        source: 'resume',
+      });
+      return;
+    }
+    const currentKeys = typeof configManager.getMainPageSessionKeys === 'function'
+      ? configManager.getMainPageSessionKeys()
+      : (Array.isArray(configManager.getSettings().mainPageSessionKeys) ? configManager.getSettings().mainPageSessionKeys : []);
+    configManager.updateSettings({
+      mainPageSessionKeys: [sessionKey, ...currentKeys.filter((key: string) => key !== sessionKey)],
     });
-    return;
-  }
-  queueStateMetadata(currentAgentListMetadata());
-  broadcastState();
-  if (result.reused) {
-    res.status(200).json({
-      agentId: result.agentId,
-      ...(result.projectWorkspace ? { projectWorkspace: result.projectWorkspace } : {}),
-      projectWorkspaces: projectMembership.projectWorkspaces,
-      pinnedProjectWorkspaces: projectMembership.pinnedProjectWorkspaces,
-      reused: true,
-      ...(result.claimed ? { claimed: true } : {}),
-      ...(result.pending ? { pending: true } : {}),
-    });
-    return;
-  }
+  },
+  removeMainPageSession: (provider, sessionId, providerHomeId) => {
+    const sessionKey = mainPageAgentSessionKey(provider, sessionId, providerHomeId);
+    if (typeof configManager.removeMainPageSessionKey === 'function') {
+      configManager.removeMainPageSessionKey(sessionKey);
+      return;
+    }
+    const currentKeys = typeof configManager.getMainPageSessionKeys === 'function'
+      ? configManager.getMainPageSessionKeys()
+      : (Array.isArray(configManager.getSettings().mainPageSessionKeys) ? configManager.getSettings().mainPageSessionKeys : []);
+    if (!currentKeys.includes(sessionKey)) return;
+    configManager.updateSettings({ mainPageSessionKeys: currentKeys.filter((key: string) => key !== sessionKey) });
+  },
+  startAgent: (command, workspace, callback, options) => agentManager.startAgent(command, workspace, callback, options),
+  waitForAgentRecovery: () => agentManager.whenRecovered(),
+  warn: (...args) => console.warn(...args),
+});
 
-  res.status(201).json({
-    agentId: result.agentId,
-    ...(result.projectWorkspace ? { projectWorkspace: result.projectWorkspace } : {}),
-    projectWorkspaces: projectMembership.projectWorkspaces,
-    pinnedProjectWorkspaces: projectMembership.pinnedProjectWorkspaces,
-  });
-}
+app.post(routePath(BASE_PATH, '/api/codex/sessions/:sessionId/resume'), express.json(), async (req, res) => {
+  const reply = await agentSessionResumeCoordinator.resumeHttp('codex', req.params.sessionId, req.body);
+  res.status(reply.status).json(reply.body);
+});
+
+app.post(routePath(BASE_PATH, '/api/agent-sessions/:provider/:sessionId/resume'), express.json(), async (req, res) => {
+  const reply = await agentSessionResumeCoordinator.resumeHttp(req.params.provider, req.params.sessionId, req.body);
+  res.status(reply.status).json(reply.body);
+});
 
 async function autoResumeMainPageAgentSessions() {
-  if (typeof agentManager.whenRecovered === 'function') {
-    await agentManager.whenRecovered();
-  }
-
-  const sessions = mainPageAgentSessionsToAutoResume(configManager.getSettings());
-  if (sessions.length === 0) return;
-
-  let knownSessions: AgentSession[];
-  try {
-    knownSessions = await currentAgentSessions();
-  } catch (caught) {
-    const error = caughtError(caught);
-    console.warn('Failed to load Agent session catalog for auto-resume:', error && (error.message || error));
-    return;
-  }
-  const knownSessionByKey = new Map(knownSessions.map(session => [
-    mainPageAgentSessionKey(session.provider, session.id, session.providerHomeId || 'default'),
-    session,
-  ]));
-
-  let resumedCount = 0;
-  for (const session of sessions) {
-    try {
-      const sessionDetails = knownSessionByKey.get(mainPageAgentSessionKey(
-        session.provider,
-        session.sessionId,
-        session.providerHomeId || 'default'
-      ));
-      if (!sessionDetails) {
-        console.warn('Dropping stale main-page session from auto-resume:', session.provider, session.sessionId);
-        forgetMainPageAgentSession(session.provider, session.sessionId, session.providerHomeId || 'default');
-        continue;
-      }
-
-      const claimingAgent = findActiveAgentClaimingSession(agentManager.getState().agents, session.provider, {
-        id: session.sessionId,
-        ...(sessionDetails || {}),
-      });
-      if (claimingAgent) {
-        continue;
-      }
-
-      const result = await resumeAgentSessionById(session.provider, session.sessionId, {
-        rememberMainPageSession: false,
-        providerHomeId: session.providerHomeId || 'default',
-        autoReadInitialAttention: true,
-      });
-      if (result.error) {
-        const message = String(result.error || '').toLowerCase();
-        if (session.provider === 'qoder' && message.includes('invalid session identifier')) {
-          console.warn('Dropping stale qoder session from auto-resume:', session.provider, session.sessionId, result.error);
-          forgetMainPageAgentSession(session.provider, session.sessionId, session.providerHomeId || 'default');
-          continue;
-        }
-        console.warn('Failed to auto-resume main page agent session:', session.provider, session.sessionId, result.error);
-      } else {
-        resumedCount += 1;
-      }
-    } catch (caught) {
-    const error = caughtError(caught);
-      const message = error instanceof Error ? error.message : String(error);
-      console.warn('Failed to auto-resume main page agent session:', session.provider, session.sessionId, message);
-    }
-  }
-
-  if (resumedCount > 0) {
-    queueStateMetadata(currentAgentListMetadata());
-    broadcastState();
-  }
+  await agentSessionResumeCoordinator.autoResumeMainPageAgentSessions();
 }
 
 app.use(routePath(BASE_PATH, '/api/settings'), createSettingsMutationRouter({

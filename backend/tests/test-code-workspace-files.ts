@@ -75,6 +75,7 @@ function run() {
   const agentManagerSource = read('backend/agent-manager.cts');
   const preparedTranscriptCacheSource = read('backend/acp-prepared-transcript-cache.cts');
   const mainPageSessionSource = read('backend/main-page-session.cts');
+  const resumeCoordinatorSource = read('backend/agent-session-resume-coordinator.cts');
   const inputPartsSource = read('backend/input-parts.cts');
   const websocketHandshakeHealthHandlersSource = read('backend/websocket-handshake-health-handlers.cts');
   const websocketAcpHandlersSource = read('backend/websocket-acp-handlers.cts');
@@ -1256,28 +1257,28 @@ function run() {
       !serverSource.includes('for (let index = 0; index < inputParts.length; index += 1)') &&
       agentLifecycleSource.includes('await ports.killAgent(currentMain.id)') &&
       agentLifecycleSource.includes('await ports.startAgent(command, null') &&
-      serverSource.includes("function findResumedAgent(provider: string, sessionId: string, providerHomeId = '')") &&
-      serverSource.includes("function rememberMainPageAgentSession(provider: string, sessionId: string, providerHomeId = '')") &&
+      serverSource.includes("import { AgentSessionResumeCoordinator } from './agent-session-resume-coordinator.cjs';") &&
+      serverSource.includes('const agentSessionResumeCoordinator = new AgentSessionResumeCoordinator({') &&
       mainPageSessionSource.includes("const AUTO_RESUME_AGENT_SESSION_PROVIDERS = new Set(['codex', 'claude', 'opencode', 'qoder', 'qwen'])") &&
       mainPageSessionSource.includes('function mainPageAgentSessionFromKey(key: unknown)') &&
       serverSource.includes('function autoResumeMainPageAgentSessions()') &&
-      serverSource.includes('findActiveAgentClaimingSession(agentManager.getState().agents') &&
+      resumeCoordinatorSource.includes('return findActiveAgentClaimingSession(this.ports.getActiveAgents()') &&
       mainPageSessionSource.includes('agent.providerSessionKey === sessionKey') &&
-      serverSource.includes('claimed: true') &&
-      serverSource.includes('rememberMainPageSession: false') &&
-      serverSource.includes("console.warn('Failed to auto-resume main page agent session:'") &&
+      resumeCoordinatorSource.includes('claimed: true') &&
+      resumeCoordinatorSource.includes('rememberMainPageSession: false') &&
+      resumeCoordinatorSource.includes("this.ports.warn('Failed to auto-resume main page agent session:'") &&
       serverSource.includes('void autoResumeMainPageAgentSessions()') &&
-      serverSource.includes('function isMainAgentSessionWorkspace(session: AgentSession | null)') &&
-      serverSource.includes('const requestedAsMain = req.body && req.body.asMain === true && !shouldFork') &&
-      serverSource.includes('const shouldRememberMainPageSession = options.rememberMainPageSession !== false && !shouldFork && !requestedAsMain') &&
-      serverSource.includes("return { error: 'session is not a Main Agent session', status: 400 }") &&
-      serverSource.includes('if (shouldRememberMainPageSession) rememberMainPageAgentSession(normalizedProvider, sessionId, providerHomeId);') &&
-      serverSource.includes('return { agentId: existingAgent.id, projectWorkspace, reused: true }') &&
-      serverSource.includes('wantsMain: resumeAsMain') &&
-      serverSource.includes("source: shouldFork ? resumeSource.replace('-history:', '-history-fork:') : resumeSource") &&
+      resumeCoordinatorSource.includes('function isMainAgentSessionWorkspace(session: AgentSession | null)') &&
+      resumeCoordinatorSource.includes('const requestedAsMain = requestBody.asMain === true && !shouldFork') &&
+      resumeCoordinatorSource.includes('const shouldRememberMainPageSession = options.rememberMainPageSession !== false && !shouldFork && !requestedAsMain') &&
+      resumeCoordinatorSource.includes("return { error: 'session is not a Main Agent session', status: 400 }") &&
+      resumeCoordinatorSource.includes('this.ports.rememberMainPageSession(identity.provider, identity.sessionId, identity.providerHomeId);') &&
+      resumeCoordinatorSource.includes('result: { agentId: existingAgent.id, projectWorkspace, reused: true }') &&
+      resumeCoordinatorSource.includes('wantsMain: resumeAsMain') &&
+      resumeCoordinatorSource.includes("source: shouldFork ? resumeSource.replace('-history:', '-history-fork:') : resumeSource") &&
       resumeAgentSessionSource.includes("agentRuntimeMode: 'chat'") &&
       resumeAgentSessionSource.includes("acpHistoryMode: 'load'") &&
-      serverSource.includes("agentRuntimeMode: typeof options.agentRuntimeMode === 'string' && ['chat', 'acp'].includes(options.agentRuntimeMode) ? 'chat' : 'terminal'") &&
+      resumeCoordinatorSource.includes("agentRuntimeMode: options.agentRuntimeMode === 'chat' || options.agentRuntimeMode === 'acp' ? 'chat' : 'terminal'") &&
       mainPageSessionSource.includes("agent.status !== 'dead'") &&
       mainPageSessionSource.includes("agent.status !== 'stopped'") &&
       !resumeAgentSessionSource.includes("agent.status === 'dead' || agent.status === 'stopped'"),
@@ -1304,7 +1305,8 @@ function run() {
       projectMembershipControllerSource.includes('throwIfProjectMountAborted(signal)\n    if (result.membership) applyMembership(result.membership)') &&
       workspaceSource.includes('const mountedWorkspace = await requestProjectMount(workspace, signal)\n    throwIfProjectMountAborted(signal)\n    if (!mountedWorkspace) return \'\'\n    setCollapsedProjectIds') &&
       resumeAgentSessionSource.includes("await this.ports.mountProject(activeAgent.workspace, signal)\n        if (!active()) return { status: 'stale' } as const\n        return this.finish(identity, activeAgent.id, false)") &&
-      serverSource.includes('configManager.mountProjectWorkspace(result.projectWorkspace)') &&
+      resumeCoordinatorSource.includes('membership = this.ports.mountProjectWorkspace(result.projectWorkspace)') &&
+      serverSource.includes('mountProjectWorkspace: workspace => configManager.mountProjectWorkspace(workspace)') &&
       serverSource.includes("app.use(routePath(BASE_PATH, '/api/projects'), createProjectMutationRouter(") &&
       projectMutationRouterSource.includes("router.patch('/name'") &&
       projectMutationRouterSource.includes('port.setWorkspaceName(req.body?.workspace, req.body?.name)') &&
