@@ -285,6 +285,7 @@ import { createProviderCatalogRouter } from './provider-catalog-router.cjs';
 import { AgentSessionInventory } from './agent-session-inventory.cjs';
 import { createAgentSessionRouter } from './agent-session-router.cjs';
 import { createProjectMutationRouter } from './project-mutation-router.cjs';
+import { createSettingsMutationRouter } from './settings-mutation-router.cjs';
 import { AttachmentUploadStore, createAttachmentUploadHandler } from './attachment-upload.cjs';
 import { createSlashCommandDiscoveryCache } from './slash-command-cache.cjs';
 import { agentExtensionInventoryCacheFile, agentSessionInventoryCacheFile } from './storage-layout.cjs';
@@ -2243,205 +2244,30 @@ async function autoResumeMainPageAgentSessions() {
   }
 }
 
-app.post(routePath(BASE_PATH, '/api/settings'), express.json(), async (req, res) => {
-  const settingsPatch = { ...(req.body || {}) };
-  delete settingsPatch.mainPageSessionKeys;
-  delete settingsPatch.projectWorkspaces;
-  delete settingsPatch.pinnedProjectWorkspaces;
-  const browserConfigurationKeys = [
-    'browserSource',
-    'browserExecutablePath',
-    'browserExternalCdpUrl',
-  ];
-  const computerConfigurationKeys = [
-    'computerImage',
-    'computerCompatibilityMode',
-  ];
-  const currentSettings = configManager.getSettings();
-  const requestsIsolatedBrowser = (
-    Object.prototype.hasOwnProperty.call(settingsPatch, 'browserExtensionEnabled')
-      ? settingsPatch.browserExtensionEnabled === true
-      : currentSettings.browserExtensionEnabled === true
-  ) && (
-    optionalString(settingsPatch.browserSource) ?? currentSettings.browserSource
-  ) === 'isolated';
-  if (requestsIsolatedBrowser) {
-    settingsPatch.computerExtensionEnabled = true;
-  }
-  const changesAgentHomes = Object.prototype.hasOwnProperty.call(settingsPatch, 'agentHomes');
-  if (changesAgentHomes) {
-    try {
-      const normalizedHomes = configManager.normalizeAgentHomes(settingsPatch.agentHomes);
-      for (const [provider, homes] of Object.entries(normalizedHomes)) {
-        for (const home of homes) {
-          if (home.acpRuntime.mode !== 'custom') continue;
-          const executable = configManager.expandWorkspacePath(home.acpRuntime.executable);
-          if (!path.isAbsolute(executable)) {
-            const error = new Error(`${provider} Agent Home "${home.id}" custom ACP executable must be an absolute path`) as Error & { code?: string; status?: number };
-            error.code = 'AGENT_HOME_ACP_RUNTIME_INVALID';
-            error.status = 400;
-            throw error;
-          }
-          try {
-            await fs.promises.access(executable, fs.constants.X_OK);
-          } catch (cause) {
-            const error = new Error(
-              `${provider} Agent Home "${home.id}" custom ACP executable is not executable: ${executable}`,
-              { cause },
-            ) as Error & { code?: string; status?: number };
-            error.code = 'AGENT_HOME_ACP_RUNTIME_INVALID';
-            error.status = 400;
-            throw error;
-          }
-        }
-      }
-    } catch (caught) {
-      const error = caughtError(caught);
-      res.status(Number(error.status) || 400).json({
-        error: error.message || 'Agent Home ACP runtime configuration is invalid',
-        code: error.code || 'AGENT_HOME_ACP_RUNTIME_INVALID',
-      });
-      return;
-    }
-  }
-  const changesBrowserExtension = Object.prototype.hasOwnProperty.call(settingsPatch, 'browserExtensionEnabled');
-  const changesBrowserConfiguration = browserConfigurationKeys.some(key =>
-    Object.prototype.hasOwnProperty.call(settingsPatch, key)
-  );
-  let changesComputerExtension = Object.prototype.hasOwnProperty.call(settingsPatch, 'computerExtensionEnabled');
-  const changesComputerConfiguration = computerConfigurationKeys.some(key =>
-    Object.prototype.hasOwnProperty.call(settingsPatch, key)
-  );
-  const browserExtensionEnabled = settingsPatch.browserExtensionEnabled === true;
-  const desiredBrowserEnabled = changesBrowserExtension
-    ? browserExtensionEnabled
-    : currentSettings.browserExtensionEnabled === true;
-  let computerExtensionEnabled = settingsPatch.computerExtensionEnabled === true;
-  let desiredComputerEnabled = changesComputerExtension
-    ? computerExtensionEnabled
-    : currentSettings.computerExtensionEnabled === true;
-  if ((changesBrowserExtension && browserExtensionEnabled) || changesBrowserConfiguration) {
-    const desiredSelection = browserResourceManager.browserSelection({
-      browserSource: optionalString(settingsPatch.browserSource) ?? currentSettings.browserSource,
-      browserExecutablePath:
-        optionalString(settingsPatch.browserExecutablePath) ?? currentSettings.browserExecutablePath,
-      browserExternalCdpUrl:
-        optionalString(settingsPatch.browserExternalCdpUrl) ?? currentSettings.browserExternalCdpUrl,
-    });
-    const probe = await browserResourceManager.probeCapability(desiredSelection);
-    if (
-      (changesBrowserConfiguration || desiredBrowserEnabled)
-      && (!probe.runtimeCapability || probe.runtimeCapability.error)
-    ) {
-      res.status(400).json({
-        error: probe.runtimeCapability?.error
-          || 'Choose a local Chromium browser or prepare the isolated Browser runtime',
-        code: 'BROWSER_EXECUTABLE_NOT_FOUND',
-      });
-      return;
-    }
-    if (
-      desiredBrowserEnabled
-      && probe.runtimeCapability?.kind === 'isolated-computer'
-    ) {
-      settingsPatch.computerExtensionEnabled = true;
-      changesComputerExtension = true;
-      computerExtensionEnabled = true;
-      desiredComputerEnabled = true;
-    }
-  }
-  if (
-    currentSettings.browserExtensionEnabled === true
-    && (
-      (changesBrowserExtension && !browserExtensionEnabled)
-      || changesBrowserConfiguration
-    )
-  ) {
-    try {
-      await browserResourceManager.stopAll();
-    } catch (caught) {
-    const error = caughtError(caught);
-      res.status(Number(error?.status) || 500).json({
-        error: error?.message || 'Browser extension could not be disabled',
-        code: error?.code || 'BROWSER_DISABLE_FAILED',
-      });
-      return;
-    }
-  }
-  if ((changesComputerExtension && computerExtensionEnabled) || changesComputerConfiguration) {
-    try {
-      const probe = await computerResourceManager.probeSettings({
-        ...currentSettings,
-        ...settingsPatch,
-      });
-      if (desiredComputerEnabled && !probe.imageReady) {
-        res.status(400).json({
-          error: probe.error || 'Prepare the pinned Computer runtime before enabling this plugin',
-          code: probe.dockerAvailable ? 'COMPUTER_IMAGE_NOT_READY' : 'COMPUTER_DOCKER_NOT_AVAILABLE',
-        });
-        return;
-      }
-    } catch (caught) {
-      const error = caughtError(caught);
-      res.status(Number(error?.status) || 400).json({
-        error: error?.message || 'Computer configuration is invalid',
-        code: error?.code || 'COMPUTER_CONFIGURATION_INVALID',
-      });
-      return;
-    }
-  }
-  if (
-    currentSettings.computerExtensionEnabled === true
-    && (
-      (changesComputerExtension && !computerExtensionEnabled)
-      || changesComputerConfiguration
-    )
-  ) {
-    try {
-      if (changesComputerConfiguration) {
-        await computerResourceManager.resetAllContainers();
-      } else {
-        await computerResourceManager.stopAll();
-      }
-    } catch (caught) {
-      const error = caughtError(caught);
-      res.status(Number(error?.status) || 500).json({
-        error: error?.message || 'Computer extension could not be disabled',
-        code: error?.code || 'COMPUTER_DISABLE_FAILED',
-      });
-      return;
-    }
-  }
-  try {
-    configManager.updateSettings(settingsPatch);
-  } catch (caught) {
-    const error = caughtError(caught);
-    if (error?.code && String(error.code).startsWith('AGENT_HOME_')) {
-      res.status(Number(error.status) || 409).json({
-        error: error.message || 'Agent Home configuration conflicts with persisted Agent metadata',
-        code: error.code,
-      });
-      return;
-    }
-    throw caught;
-  }
-  if (changesBrowserExtension || changesBrowserConfiguration) {
-    await browserResourceManager.refreshCapability();
-  }
-  if (changesComputerExtension || changesComputerConfiguration) {
+app.use(routePath(BASE_PATH, '/api/settings'), createSettingsMutationRouter({
+  assertExecutable: filePath => fs.promises.access(filePath, fs.constants.X_OK),
+  expandWorkspacePath: filePath => configManager.expandWorkspacePath(filePath),
+  getSettings: () => configManager.getSettings(),
+  invalidateAgentExtensionInventory: () => agentExtensionInventory.invalidate(),
+  invalidateAgentSessionInventory: () => agentSessionInventory.invalidate(),
+  normalizeAgentHomes: value => configManager.normalizeAgentHomes(value),
+  probeBrowser: settings => browserResourceManager.probeCapability(
+    browserResourceManager.browserSelection(settings),
+  ),
+  probeComputer: settings => computerResourceManager.probeSettings(settings),
+  publishSettingsMetadata: () => {
+    queueStateMetadata(currentAgentListMetadata({ includeWorkspaceRoots: true }));
+  },
+  refreshBrowserCapability: () => browserResourceManager.refreshCapability(),
+  refreshComputerCapability: async () => {
     computerResourceManager.capabilityCache = null;
     await computerResourceManager.capability(true);
-  }
-  if (changesAgentHomes) {
-    agentSessionInventory.invalidate();
-    agentExtensionInventory.invalidate();
-  }
-  res.json({
-    success: true,
-    settings: configManager.getSettings()
-  });
-  queueStateMetadata(currentAgentListMetadata({ includeWorkspaceRoots: true }));
-});
+  },
+  resetAllComputerContainers: () => computerResourceManager.resetAllContainers(),
+  stopAllBrowsers: () => browserResourceManager.stopAll(),
+  stopAllComputers: () => computerResourceManager.stopAll(),
+  updateSettings: patch => configManager.updateSettings(patch),
+}));
 
 app.use(routePath(BASE_PATH, '/api/themes'), createThemeRouter({
   getTheme: themeId => themeManager.getTheme(themeId),

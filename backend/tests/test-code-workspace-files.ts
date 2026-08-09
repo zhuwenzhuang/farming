@@ -66,6 +66,7 @@ function run() {
   const workspaceNavigationSource = read('src/lib/workspace-navigation-history.ts');
   const responsiveModeSource = read('src/lib/responsive-mode.ts');
   const serverSource = read('backend/server.cts');
+  const settingsMutationRouterSource = read('backend/settings-mutation-router.cts');
   const agentLifecycleSource = read('backend/websocket-agent-lifecycle-handlers.cts');
   const attachmentUploadSource = read('backend/attachment-upload.cts');
   const projectMutationRouterSource = read('backend/project-mutation-router.cts');
@@ -124,10 +125,6 @@ function run() {
   const useAgentsSource = read('src/hooks/useAgents.ts');
   const webSocketSource = read('src/hooks/useWebSocket.ts');
   const messagesSource = read('src/types/messages.ts');
-  const settingsUpdateRouteSource = serverSource.slice(
-    serverSource.indexOf("app.post(routePath(BASE_PATH, '/api/settings')"),
-    serverSource.indexOf("app.use(routePath(BASE_PATH, '/api/themes'), createThemeRouter("),
-  );
   const historyViewStyles = stylesSource.match(/\.code-history-view \{[\s\S]*?\n\}/)?.[0] || '';
   const transcriptLinkClickStart = transcriptPaneSource.indexOf(
     'const handleClick = (event: ReactMouseEvent<HTMLAnchorElement>) => {'
@@ -194,8 +191,10 @@ function run() {
   );
 
   assert(
-    settingsUpdateRouteSource.includes('queueStateMetadata(currentAgentListMetadata({ includeWorkspaceRoots: true }));') &&
-      !settingsUpdateRouteSource.includes('broadcastState();'),
+    serverSource.includes("app.use(routePath(BASE_PATH, '/api/settings'), createSettingsMutationRouter({")
+      && serverSource.includes('queueStateMetadata(currentAgentListMetadata({ includeWorkspaceRoots: true }));')
+      && settingsMutationRouterSource.includes('ports.publishSettingsMetadata();')
+      && !settingsMutationRouterSource.includes('broadcastState();'),
     'rapid settings writes should coalesce exact list metadata through the shared state scheduler',
   );
 
@@ -835,7 +834,9 @@ function run() {
       agentSessionRouterSource.includes("router.post('/main-page-agent-sessions'") &&
       agentSessionRouterSource.includes('service.rememberMainPageSessionKey(sessionKey') &&
       agentSessionRouterSource.includes('service.removeMainPageSessionKeys(sessionKeys)') &&
-      serverSource.includes('delete settingsPatch.mainPageSessionKeys;') &&
+      settingsMutationRouterSource.includes("'mainPageSessionKeys',") &&
+      settingsMutationRouterSource.includes('PROTECTED_SETTINGS_KEYS.forEach(key => delete settingsPatch[key]);') &&
+      !serverSource.includes('delete settingsPatch.mainPageSessionKeys;') &&
       workspaceSource.includes('class MainPageSessionMembershipController') &&
       workspaceSource.includes('settleMainPageSessionKeyMutation') &&
       workspaceSource.includes('applyPendingMainPageSessionKeyMutations') &&
@@ -1306,8 +1307,10 @@ function run() {
       serverSource.includes("app.use(routePath(BASE_PATH, '/api/projects'), createProjectMutationRouter(") &&
       projectMutationRouterSource.includes("router.patch('/name'") &&
       projectMutationRouterSource.includes('port.setWorkspaceName(req.body?.workspace, req.body?.name)') &&
-      serverSource.includes('delete settingsPatch.projectWorkspaces') &&
-      serverSource.includes('delete settingsPatch.pinnedProjectWorkspaces') &&
+      settingsMutationRouterSource.includes("'projectWorkspaces',") &&
+      settingsMutationRouterSource.includes("'pinnedProjectWorkspaces',") &&
+      !serverSource.includes('delete settingsPatch.projectWorkspaces') &&
+      !serverSource.includes('delete settingsPatch.pinnedProjectWorkspaces') &&
       serverSource.includes('Retry the same Fork request to reconcile Project membership.') &&
       serverSource.includes('createPermanentWorktree(root.canonicalPath, { requestId })') &&
       serverSource.includes('configManager.getProjectOperation?.(requestId)') &&

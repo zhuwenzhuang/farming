@@ -23,6 +23,7 @@ const {
 async function run() {
   const serverSource = fs.readFileSync(path.resolve(__dirname, '../server.cts'), 'utf8');
   const routerSource = fs.readFileSync(path.resolve(__dirname, '../agent-session-router.cts'), 'utf8');
+  const settingsRouterSource = fs.readFileSync(path.resolve(__dirname, '../settings-mutation-router.cts'), 'utf8');
   assert(
     serverSource.includes('const agentSessionInventory = new AgentSessionInventory({')
       && serverSource.includes('return agentSessionInventory.list(')
@@ -47,15 +48,11 @@ async function run() {
     routerRouteOffsets.every((offset, index) => offset >= 0 && (index === 0 || offset > routerRouteOffsets[index - 1])),
     'Agent session router must declare list, search, display, and membership routes in that order with route-local JSON parsing',
   );
-  const settingsRoute = serverSource.slice(
-    serverSource.indexOf("app.post(routePath(BASE_PATH, '/api/settings')"),
-    serverSource.indexOf("app.use(routePath(BASE_PATH, '/api/themes'), createThemeRouter("),
-  );
   assert(
-    settingsRoute.includes("const changesAgentHomes = Object.prototype.hasOwnProperty.call(settingsPatch, 'agentHomes');")
-      && settingsRoute.includes('if (changesAgentHomes) {')
-      && settingsRoute.includes('agentSessionInventory.invalidate();')
-      && settingsRoute.includes('agentExtensionInventory.invalidate();'),
+    settingsRouterSource.includes("const changesAgentHomes = owns(settingsPatch, 'agentHomes');")
+      && settingsRouterSource.includes('if (changesAgentHomes) {')
+      && settingsRouterSource.includes('this.ports.invalidateAgentSessionInventory();')
+      && settingsRouterSource.includes('this.ports.invalidateAgentExtensionInventory();'),
     'Unrelated Settings writes must not invalidate Agent Home inventories',
   );
 
