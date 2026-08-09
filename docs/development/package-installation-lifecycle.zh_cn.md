@@ -58,6 +58,11 @@ Runtime Manager 只能在校验后绑定精确声明的 Carrier 或内置 Artifa
 Prepare 与 Publication 是独立转换。基于旧 Selection 准备的目标不能覆盖更新部署；Detached
 工作只有在仍拥有同一个 Update Operation 时才能提交状态。
 
+对于 npm 更新，Update Registry 的元数据负责证明精确目标版本与 Integrity。Prepare 首先尊重
+Operator 配置的 npm Registry；该命令失败后，Helper 只删除自己拥有的 Staging Prefix，并显式
+指定权威 Update Registry 重试一次。这个转换只依赖命令是否成功、Registry 身份和 Operation
+Ownership，绝不能解析 npm 日志文案或错误文本。只有权威来源的尝试也失败，更新才进入 `Failed`。
+
 ## 安装形态边界
 
 - **Source Checkout** 遵循该仓库的源码与 Package Manager 工作流。
@@ -91,5 +96,6 @@ Launcher 或 Helper 崩溃后，新 Server 会用实际运行版本对账 Update
 ## 验收标准
 
 验证必须覆盖：在 npm 生命周期脚本禁用时安装、首次安装无启动下载、多个 Config 并行、服务
-不中断的更新准备、陈旧 Selection 竞争、精确 Rollback、Cleanup 失败、外部 npm 替换，以及各
-安装形态的边界。
+不中断的更新准备、配置 Registry 失败后不检查错误文本并从干净 Staging 切换到权威 Registry、
+陈旧 Selection 竞争、精确 Rollback、Cleanup 失败、外部 npm 替换，以及各安装形态的边界。
+聚焦的 npm 更新状态机测试属于 Release Preparation Gate，不能只作为普通 Unit Test。

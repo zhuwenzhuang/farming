@@ -75,6 +75,14 @@ Preparation and publication are separate transitions. A target prepared from a
 stale selection must not overwrite a newer deployment. Detached work may commit
 state only while it still owns the same update operation.
 
+For npm updates, metadata from the update registry proves the exact target
+version and integrity. Preparation first honors the operator's configured npm
+registry. If that command fails, the helper removes only its owned staging
+prefix and retries once with the authoritative update registry explicitly set.
+This transition depends on command success, registry identity, and operation
+ownership; it must never parse npm log wording or error text. The update reaches
+`Failed` only after the authoritative attempt also fails.
+
 ## Installation Boundaries
 
 - **Source checkout** follows the repository and package-manager workflow of
@@ -114,6 +122,8 @@ untouched and reports a retryable failure.
 
 Verification must cover installation with npm lifecycle scripts disabled,
 first installation without startup downloads, concurrent Configs, update
-preparation while serving traffic, stale selection races, exact rollback,
-failed cleanup, external npm replacement, and each supported installation
-form's boundary.
+preparation while serving traffic, a configured registry failure followed by a
+clean authoritative-registry retry without inspecting error text, stale
+selection races, exact rollback, failed cleanup, external npm replacement, and
+each supported installation form's boundary. The focused npm update state-machine
+test is a release-preparation gate, not only an ordinary unit test.

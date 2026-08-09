@@ -139,17 +139,21 @@ function appendLog(logPath: string, message: string): void {
 function runCommand(command: string, args: string[], options: CommandOptions): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const logFd = fs.openSync(options.logPath, 'a');
+    let spawnError: Error | null = null;
     const child = spawn(command, args, {
       cwd: options.cwd,
       env: options.env,
       stdio: ['ignore', logFd, logFd],
     });
     child.once('error', (error: Error) => {
-      fs.closeSync(logFd);
-      reject(error);
+      spawnError = error;
     });
-    child.once('exit', (code: number | null, signal: NodeJS.Signals | null) => {
+    child.once('close', (code: number | null, signal: NodeJS.Signals | null) => {
       fs.closeSync(logFd);
+      if (spawnError) {
+        reject(spawnError);
+        return;
+      }
       if (code === 0) {
         resolve();
         return;
@@ -318,7 +322,28 @@ async function installPackage(
   version: string,
 ): Promise<void> {
   const packageSpec = `${payload.packageName}@${version}`;
-  return installPackageFromRegistry(payload, packageSpec);
+  try {
+    await installPackageFromRegistry(payload, packageSpec);
+  } catch (configuredRegistryError: unknown) {
+    if (!payload.npmFallbackRegistryUrl) throw configuredRegistryError;
+    if (!operationOwnsState(payload)) {
+      throw new SupersededUpdateOperationError(`Update operation ${payload.operationId} is no longer current`);
+    }
+    appendLog(
+      payload.logPath,
+      `Configured npm install failed for ${packageSpec}; retrying from the authoritative update registry`,
+    );
+    fs.rmSync(String(payload.stagingPrefix), { recursive: true, force: true });
+    fs.mkdirSync(String(payload.stagingPrefix), { recursive: true });
+    try {
+      await installPackageFromRegistry(payload, packageSpec, payload.npmFallbackRegistryUrl);
+    } catch (authoritativeRegistryError: unknown) {
+      throw new Error(
+        `Both configured and authoritative npm installs failed; ${errorMessage(authoritativeRegistryError)}`,
+        { cause: authoritativeRegistryError },
+      );
+    }
+  }
 }
 
 function verifyInstalledVersion(
@@ -358,6 +383,13 @@ function logSince(filePath: string, offset: number): string {
   }
 }
 
+function commandFailureMessage(error: unknown, logPath: string, offset: number): string {
+  const output = logSince(logPath, offset).trim().replace(/\s+/g, ' ');
+  if (!output) return errorMessage(error);
+  const detail = output.length > 1200 ? `…${output.slice(-1200)}` : output;
+  return `${errorMessage(error)}: ${detail}`;
+}
+
 async function installPackageFromRegistry(
   payload: NpmUpdatePayload,
   packageSpec: string,
@@ -376,11 +408,7 @@ async function installPackageFromRegistry(
       logPath: payload.logPath,
     });
   } catch (error: unknown) {
-    if (!registryUrl && payload.npmFallbackRegistryUrl && /(?:ETARGET|No matching version found)/.test(logSince(payload.logPath, offset))) {
-      appendLog(payload.logPath, `Configured npm registry has no ${packageSpec}; retrying from the update-status registry`);
-      return installPackageFromRegistry(payload, packageSpec, payload.npmFallbackRegistryUrl);
-    }
-    throw error;
+    throw new Error(commandFailureMessage(error, payload.logPath, offset), { cause: error });
   }
 }
 

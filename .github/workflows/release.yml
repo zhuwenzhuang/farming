@@ -394,6 +394,7 @@ jobs:
             echo "release_version and npm package versions must match: requested=${RELEASE_VERSION}, package=${package_version}" >&2
             exit 1
           fi
+          npm run test:update:npm
           package_dir="${RUNNER_TEMP}/farming-npm-package"
           npm run release:npm:pack -- "${package_dir}"
           package_tarball="${package_dir}/farming-code-${RELEASE_VERSION}.tgz"

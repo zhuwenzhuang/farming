@@ -97,6 +97,7 @@
     "test:performance:audit": "tsx tests/performance/agent-usage-hotpath.ts && FARMING_PLAYWRIGHT_INTERNAL=1 playwright test tests/e2e/internal/performance-bottlenecks.spec.ts --project=chromium --workers=1 --retries=0 --trace=retain-on-failure",
     "test:performance:scale": "FARMING_PLAYWRIGHT_INTERNAL=1 playwright test tests/e2e/internal/performance-scaling.spec.ts --project=chromium --workers=1 --retries=0 --trace=retain-on-failure",
     "test:update:platforms": "tsx scripts/test-update-platforms.ts",
+    "test:update:npm": "npm run build:backend-runtime && node --test backend/tests/test-npm-update-helper.ts",
     "test:e2e": "npm run test:e2e:playwright",
     "test:desktop:smoke": "npm run desktop:build && tsx scripts/smoke-desktop.ts",
     "test:e2e:playwright": "playwright test",

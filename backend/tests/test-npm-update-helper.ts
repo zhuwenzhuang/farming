@@ -52,10 +52,12 @@ function writeFakeNpm(rootDir, callsFile, {
     `const path = require('path');`,
     `const args = process.argv.slice(2);`,
     `fs.appendFileSync(${JSON.stringify(callsFile)}, JSON.stringify(args) + '\\n');`,
-    ...(requireFallback ? [
-      `if (!args.includes('--registry')) { console.error('npm error code ETARGET\\nnpm error notarget No matching version found'); process.exit(1); }`,
-    ] : []),
     `const prefix = args[args.indexOf('--prefix') + 1];`,
+    ...(requireFallback ? [
+      `const partialMarker = path.join(prefix, '.partial-install');`,
+      `if (!args.includes('--registry')) { fs.mkdirSync(prefix, { recursive: true }); fs.writeFileSync(partialMarker, 'partial'); console.error('configured registry request failed'); process.exit(1); }`,
+      `if (fs.existsSync(partialMarker)) { console.error('fallback reused partial configured-registry state'); process.exit(2); }`,
+    ] : []),
     `const spec = args.find(value => value.startsWith('farming-code@'));`,
     `const version = spec.split('@').pop();`,
     `const packageRoot = path.join(prefix, 'lib', 'node_modules', 'farming-code');`,
@@ -323,13 +325,17 @@ async function run() {
   );
 
   const failedPrepareRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-npm-helper-prepare-failure.'));
-  const failedPreparePayload = payloadFor(failedPrepareRoot, { npmCommand: '/usr/bin/false' });
+  const failedNpm = path.join(failedPrepareRoot, 'failed-npm');
+  fs.mkdirSync(failedPrepareRoot, { recursive: true });
+  fs.writeFileSync(failedNpm, '#!/usr/bin/env node\nconsole.error("npm error simulated registry failure");\nprocess.exit(1);\n', { mode: 0o755 });
+  const failedPreparePayload = payloadFor(failedPrepareRoot, { npmCommand: failedNpm });
   writePackage(failedPreparePayload.activePackageRoot, '2.2.5');
   writeCli(failedPreparePayload.activePackageRoot, 0, path.join(failedPrepareRoot, 'starts'));
   seedOperation(failedPreparePayload);
   await runNpmUpdate(failedPreparePayload);
   const failedPrepare = JSON.parse(fs.readFileSync(failedPreparePayload.stateFile, 'utf8'));
   assert.strictEqual(failedPrepare.phase, 'failed');
+  assert.match(failedPrepare.error, /npm error simulated registry failure/);
   assert.strictEqual(JSON.parse(fs.readFileSync(path.join(failedPreparePayload.activePackageRoot, 'package.json'))).version, '2.2.5');
   assert.strictEqual(fs.existsSync(failedPreparePayload.stagingPrefix), false);
 
