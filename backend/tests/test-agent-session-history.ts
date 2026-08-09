@@ -27,10 +27,25 @@ async function run() {
     serverSource.includes('const agentSessionInventory = new AgentSessionInventory({')
       && serverSource.includes('return agentSessionInventory.list(')
       && serverSource.includes("import { createAgentSessionRouter } from './agent-session-router.cjs';")
-      && serverSource.includes("app.use(routePath(BASE_PATH, '/api/agent-sessions'), createAgentSessionRouter({")
+      && serverSource.includes("app.use(routePath(BASE_PATH, '/api'), createAgentSessionRouter({")
       && routerSource.includes("if (req.query.force === '1') service.invalidate();")
-      && routerSource.includes("router.get('/search', async"),
+      && routerSource.includes("router.get('/agent-sessions/search', async"),
     'Agent session list and search APIs should use the authoritative inventory and expose explicit force refreshes'
+  );
+  assert(
+    !serverSource.includes("app.patch(routePath(BASE_PATH, '/api/agent-sessions/:provider/:sessionId')")
+      && !serverSource.includes("app.post(routePath(BASE_PATH, '/api/main-page-agent-sessions')"),
+    'Agent session display and main-page membership routes must be owned by the Agent session router',
+  );
+  const routerRouteOffsets = [
+    "router.get('/agent-sessions',",
+    "router.get('/agent-sessions/search',",
+    "router.patch('/agent-sessions/:provider/:sessionId', expressFactory.json(),",
+    "router.post('/main-page-agent-sessions', expressFactory.json(),",
+  ].map(route => routerSource.indexOf(route));
+  assert(
+    routerRouteOffsets.every((offset, index) => offset >= 0 && (index === 0 || offset > routerRouteOffsets[index - 1])),
+    'Agent session router must declare list, search, display, and membership routes in that order with route-local JSON parsing',
   );
   const settingsRoute = serverSource.slice(
     serverSource.indexOf("app.post(routePath(BASE_PATH, '/api/settings')"),

@@ -1,9 +1,11 @@
 import {
+  isSafeSessionId,
+  normalizeProvider,
   paginateAgentSessions,
   searchAgentSessions,
 } from './agent-session-history.cjs';
 import type { AgentSession } from './agent-session-history.cjs';
-import { mainPageAgentSessionKey } from './main-page-session.cjs';
+import { mainPageAgentSessionFromKey, mainPageAgentSessionKey } from './main-page-session.cjs';
 
 const express = require('express');
 
@@ -17,14 +19,28 @@ interface AgentSessionRouterSettings {
   searchTimeoutMs: number;
 }
 
+type MainPageSessionRecordPatch = {
+  provider: string;
+  providerHomeId: string;
+  providerSessionId: string;
+  providerSessionKey: string;
+};
+
 interface AgentSessionRouterPort {
+  getMainPageSessionKeys(): string[];
   getSettings(): AgentSessionRouterSettings;
   invalidate(): void;
   listDisplayRecords(): readonly AgentSessionDisplayRecord[];
   listSessions(): Promise<AgentSession[]>;
+  publishStateMetadata(state: { mainPageSessionKeys: string[] }): void;
+  rememberMainPageSessionKey(sessionKey: string, patch: MainPageSessionRecordPatch): void;
+  removeMainPageSessionKeys(sessionKeys: readonly string[]): void;
+  setProviderSessionDisplayState(sessionKey: string, patch: { pinned: boolean }): void;
 }
 
 interface ExpressRequest {
+  body?: Record<string, unknown>;
+  params: Record<string, string>;
   query: Record<string, unknown>;
 }
 
@@ -39,12 +55,21 @@ type ExpressHandler = (
   response: ExpressResponse,
 ) => void | Promise<void>;
 
+type ExpressMiddleware = (
+  request: ExpressRequest,
+  response: ExpressResponse,
+  next: (error?: unknown) => void,
+) => void;
+
 interface ExpressRouter {
   get(path: string, handler: ExpressHandler): ExpressRouter;
+  patch(path: string, parser: ExpressMiddleware, handler: ExpressHandler): ExpressRouter;
+  post(path: string, parser: ExpressMiddleware, handler: ExpressHandler): ExpressRouter;
 }
 
 interface ExpressFactory {
   Router(): ExpressRouter;
+  json(): ExpressMiddleware;
 }
 
 interface AgentSessionRouterError extends Error {
@@ -103,7 +128,7 @@ function withSearchTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
 function createAgentSessionRouter(service: AgentSessionRouterPort): ExpressRouter {
   const router = expressFactory.Router();
 
-  router.get('/', async (req, res) => {
+  router.get('/agent-sessions', async (req, res) => {
     try {
       res.setHeader('Cache-Control', 'no-store');
       const requestedLimit = Number(req.query.limit);
@@ -129,7 +154,7 @@ function createAgentSessionRouter(service: AgentSessionRouterPort): ExpressRoute
     }
   });
 
-  router.get('/search', async (req, res) => {
+  router.get('/agent-sessions/search', async (req, res) => {
     try {
       res.setHeader('Cache-Control', 'no-store');
       const query = typeof req.query.q === 'string' ? req.query.q : '';
@@ -158,6 +183,58 @@ function createAgentSessionRouter(service: AgentSessionRouterPort): ExpressRoute
       console.error('Failed to search agent sessions:', error);
       res.status(500).json({ error: error.message || 'Failed to search Agent sessions' });
     }
+  });
+
+  router.patch('/agent-sessions/:provider/:sessionId', expressFactory.json(), (req, res) => {
+    const provider = normalizeProvider(req.params.provider);
+    const sessionId = String(req.params.sessionId || '').trim();
+    const providerHomeId = String(req.body?.providerHomeId || 'default').trim() || 'default';
+    if (!provider || !isSafeSessionId(sessionId) || !/^[A-Za-z0-9._-]+$/.test(providerHomeId)) {
+      res.status(400).json({ error: 'Invalid Agent session' });
+      return;
+    }
+    if (typeof req.body?.pinned !== 'boolean') {
+      res.status(400).json({ error: 'Pinned state is required' });
+      return;
+    }
+    const sessionKey = mainPageAgentSessionKey(provider, sessionId, providerHomeId);
+    service.setProviderSessionDisplayState(sessionKey, { pinned: req.body.pinned });
+    res.json({ sessionKey, pinned: req.body.pinned });
+  });
+
+  router.post('/main-page-agent-sessions', expressFactory.json(), (req, res) => {
+    const operation = typeof req.body?.operation === 'string' ? req.body.operation : '';
+    const requestedKeys = Array.isArray(req.body?.sessionKeys) ? req.body.sessionKeys : [];
+    const sessionKeys = [...new Set(requestedKeys.map(key => String(key || '').trim()).filter(Boolean))];
+    if (
+      !['add', 'remove'].includes(operation)
+      || sessionKeys.length === 0
+      || sessionKeys.length > 50
+      || sessionKeys.some(key => !mainPageAgentSessionFromKey(key))
+    ) {
+      res.status(400).json({ error: 'A valid main-page Agent session mutation is required' });
+      return;
+    }
+
+    if (operation === 'add') {
+      [...sessionKeys].reverse().forEach(sessionKey => {
+        const session = mainPageAgentSessionFromKey(sessionKey);
+        if (!session) return;
+        service.rememberMainPageSessionKey(sessionKey, {
+          provider: session.provider,
+          providerSessionId: session.sessionId,
+          providerSessionKey: sessionKey,
+          providerHomeId: session.providerHomeId || 'default',
+        });
+      });
+    } else {
+      service.removeMainPageSessionKeys(sessionKeys);
+    }
+
+    const mainPageSessionKeys = service.getMainPageSessionKeys();
+    service.invalidate();
+    res.json({ success: true, mainPageSessionKeys });
+    service.publishStateMetadata({ mainPageSessionKeys });
   });
 
   return router;

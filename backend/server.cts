@@ -250,7 +250,7 @@ import { readProviderHomeConfiguration } from './provider-home-configuration.cjs
 import { applyProviderHomeEnvironment, getProviderAdapter, providerCapabilities, providerConversationForkCapability } from './provider-adapters.cjs';
 import { listCodexSessions } from './codex-session-history.cjs';
 import { buildAgentSessionResumeCommand, findAgentSession, isSafeSessionId, normalizeProvider, resolveCodexResumeModelProvider } from './agent-session-history.cjs';
-import { findActiveAgentClaimingSession, mainPageAgentSessionKey, mainPageAgentSessionFromKey, mainPageAgentSessionsToAutoResume, resumedAgentSource } from './main-page-session.cjs';
+import { findActiveAgentClaimingSession, mainPageAgentSessionKey, mainPageAgentSessionsToAutoResume, resumedAgentSource } from './main-page-session.cjs';
 import { discoverAgentWorkspaces } from './workspace-discovery.cjs';
 import { inspectGitWorktree } from './git-worktree-info.cjs';
 import { createWorkspaceDirectoryRouter } from './workspace-directory.cjs';
@@ -1147,64 +1147,23 @@ app.get(routePath(BASE_PATH, '/api/codex/sessions'), async (req, res) => {
   res.json({ sessions });
 });
 
-app.use(routePath(BASE_PATH, '/api/agent-sessions'), createAgentSessionRouter({
+app.use(routePath(BASE_PATH, '/api'), createAgentSessionRouter({
+  getMainPageSessionKeys: () => configManager.getMainPageSessionKeys(),
   getSettings: () => configManager.getSettings(),
   invalidate: () => agentSessionInventory.invalidate(),
   listDisplayRecords: () => configManager.listAgentSessionRecords(),
   listSessions: () => currentAgentSessions(),
+  publishStateMetadata: state => queueStateMetadata(state),
+  rememberMainPageSessionKey: (sessionKey, patch) => {
+    configManager.rememberMainPageSessionKey(sessionKey, patch);
+  },
+  removeMainPageSessionKeys: sessionKeys => {
+    configManager.removeMainPageSessionKeys([...sessionKeys]);
+  },
+  setProviderSessionDisplayState: (sessionKey, patch) => {
+    configManager.setProviderSessionDisplayState(sessionKey, patch);
+  },
 }));
-
-app.patch(routePath(BASE_PATH, '/api/agent-sessions/:provider/:sessionId'), express.json(), (req, res) => {
-  const provider = normalizeProvider(req.params.provider);
-  const sessionId = String(req.params.sessionId || '').trim();
-  const providerHomeId = String(req.body?.providerHomeId || 'default').trim() || 'default';
-  if (!provider || !isSafeSessionId(sessionId) || !/^[A-Za-z0-9._-]+$/.test(providerHomeId)) {
-    res.status(400).json({ error: 'Invalid Agent session' });
-    return;
-  }
-  if (typeof req.body?.pinned !== 'boolean') {
-    res.status(400).json({ error: 'Pinned state is required' });
-    return;
-  }
-  const sessionKey = mainPageAgentSessionKey(provider, sessionId, providerHomeId);
-  configManager.setProviderSessionDisplayState(sessionKey, { pinned: req.body.pinned });
-  res.json({ sessionKey, pinned: req.body.pinned });
-});
-
-app.post(routePath(BASE_PATH, '/api/main-page-agent-sessions'), express.json(), (req, res) => {
-  const operation = typeof req.body?.operation === 'string' ? req.body.operation : '';
-  const requestedKeys = Array.isArray(req.body?.sessionKeys) ? req.body.sessionKeys : [];
-  const sessionKeys = [...new Set(requestedKeys.map(key => String(key || '').trim()).filter(Boolean))];
-  if (
-    !['add', 'remove'].includes(operation)
-    || sessionKeys.length === 0
-    || sessionKeys.length > 50
-    || sessionKeys.some(key => !mainPageAgentSessionFromKey(key))
-  ) {
-    res.status(400).json({ error: 'A valid main-page Agent session mutation is required' });
-    return;
-  }
-
-  if (operation === 'add') {
-    [...sessionKeys].reverse().forEach(sessionKey => {
-      const session = mainPageAgentSessionFromKey(sessionKey);
-      if (!session) return;
-      configManager.rememberMainPageSessionKey(sessionKey, {
-        provider: session.provider,
-        providerSessionId: session.sessionId,
-        providerSessionKey: sessionKey,
-        providerHomeId: session.providerHomeId || 'default',
-      });
-    });
-  } else {
-    configManager.removeMainPageSessionKeys(sessionKeys);
-  }
-
-  const mainPageSessionKeys = configManager.getMainPageSessionKeys();
-  agentSessionInventory.invalidate();
-  res.json({ success: true, mainPageSessionKeys });
-  queueStateMetadata({ mainPageSessionKeys });
-});
 
 app.get(routePath(BASE_PATH, '/api/themes'), (req, res) => {
   const currentTheme = configManager.getSettings().theme || 'terminal';

@@ -82,6 +82,11 @@ async function run(): Promise<void> {
   ];
   const events: string[] = [];
   const loggedErrors: unknown[][] = [];
+  const displayWrites: Array<{ patch: unknown; sessionKey: string }> = [];
+  const rememberedKeys: Array<{ patch: unknown; sessionKey: string }> = [];
+  const removedKeys: string[][] = [];
+  const publishedMetadata: unknown[] = [];
+  let mainPageSessionKeys: string[] = ['agent-session:codex:home:work:session-alpha'];
   let listFailure: Error | null = null;
   let listPending = false;
   let searchTimeoutMs = 50;
@@ -92,6 +97,10 @@ async function run(): Promise<void> {
     },
   };
   const service = {
+    getMainPageSessionKeys() {
+      events.push('main-page-keys');
+      return mainPageSessionKeys;
+    },
     getSettings() {
       events.push('settings');
       return settings;
@@ -109,18 +118,59 @@ async function run(): Promise<void> {
       if (listPending) return new Promise<SessionRecord[]>(() => {});
       return sessions;
     },
+    publishStateMetadata(state: unknown) {
+      events.push('publish');
+      publishedMetadata.push(state);
+    },
+    rememberMainPageSessionKey(sessionKey: string, patch: unknown) {
+      events.push('remember');
+      rememberedKeys.push({ patch, sessionKey });
+    },
+    removeMainPageSessionKeys(sessionKeys: readonly string[]) {
+      events.push('remove');
+      removedKeys.push([...sessionKeys]);
+    },
+    setProviderSessionDisplayState(sessionKey: string, patch: unknown) {
+      events.push('set-display');
+      displayWrites.push({ patch, sessionKey });
+    },
   };
 
   const app = express();
-  app.use('/api/agent-sessions', createAgentSessionRouter(service));
+  app.use((
+    request: { method: string; path: string },
+    response: { json: (body: unknown) => unknown; statusCode: number },
+    next: () => void,
+  ) => {
+    if (request.method === 'POST' && request.path === '/api/main-page-agent-sessions') {
+      const respond = response.json.bind(response);
+      response.json = (body: unknown) => {
+        if (response.statusCode === 200) events.push('response');
+        return respond(body);
+      };
+    }
+    next();
+  });
+  app.use('/api', createAgentSessionRouter(service));
   const server = await new Promise<HttpServer>(resolve => {
     const listener = app.listen(0, () => resolve(listener));
   });
-  const baseUrl = `http://127.0.0.1:${serverPort(server)}/api/agent-sessions`;
+  const apiUrl = `http://127.0.0.1:${serverPort(server)}/api`;
+  const baseUrl = `${apiUrl}/agent-sessions`;
   const originalConsoleError = console.error;
   console.error = (...args: unknown[]) => {
     loggedErrors.push(args);
   };
+
+  const patchPin = (path: string, body?: string) => fetch(`${baseUrl}${path}`, {
+    method: 'PATCH',
+    ...(body === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body }),
+  });
+  const postMembership = (body: string) => fetch(`${apiUrl}/main-page-agent-sessions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body,
+  });
 
   try {
     const fullList = await fetch(baseUrl);
@@ -204,6 +254,137 @@ async function run(): Promise<void> {
     assert.strictEqual(timedOutSearch.status, 504);
     assert.strictEqual(timedOutSearch.headers.get('cache-control'), 'no-store');
     assert.deepStrictEqual(await timedOutSearch.json(), { error: 'Agent search timed out' });
+
+    listPending = false;
+    events.length = 0;
+    const pinned = await patchPin('/codex/session-alpha', JSON.stringify({ pinned: true, providerHomeId: 'work' }));
+    assert.strictEqual(pinned.status, 200);
+    assert.deepStrictEqual(await pinned.json(), {
+      sessionKey: 'agent-session:codex:home:work:session-alpha',
+      pinned: true,
+    });
+    assert.deepStrictEqual(events, ['set-display']);
+    assert.deepStrictEqual(displayWrites, [{
+      patch: { pinned: true },
+      sessionKey: 'agent-session:codex:home:work:session-alpha',
+    }]);
+
+    const defaultHomePin = await patchPin('/CODEX/session-alpha', JSON.stringify({ pinned: false }));
+    assert.strictEqual(defaultHomePin.status, 200);
+    assert.deepStrictEqual(await defaultHomePin.json(), {
+      sessionKey: 'agent-session:codex:session-alpha',
+      pinned: false,
+    });
+    assert.deepStrictEqual(displayWrites.at(-1), {
+      patch: { pinned: false },
+      sessionKey: 'agent-session:codex:session-alpha',
+    });
+
+    events.length = 0;
+    const unknownProvider = await patchPin('/not-a-provider/session-alpha', JSON.stringify({ pinned: true }));
+    assert.strictEqual(unknownProvider.status, 400);
+    assert.deepStrictEqual(await unknownProvider.json(), { error: 'Invalid Agent session' });
+
+    const unsafeSessionId = await patchPin('/codex/..%2Fescape', JSON.stringify({ pinned: true }));
+    assert.strictEqual(unsafeSessionId.status, 400);
+    assert.deepStrictEqual(await unsafeSessionId.json(), { error: 'Invalid Agent session' });
+
+    const unsafeHomeId = await patchPin('/codex/session-alpha', JSON.stringify({ pinned: true, providerHomeId: 'bad home' }));
+    assert.strictEqual(unsafeHomeId.status, 400);
+    assert.deepStrictEqual(await unsafeHomeId.json(), { error: 'Invalid Agent session' });
+
+    const nonBooleanPinned = await patchPin('/codex/session-alpha', JSON.stringify({ pinned: 'yes' }));
+    assert.strictEqual(nonBooleanPinned.status, 400);
+    assert.deepStrictEqual(await nonBooleanPinned.json(), { error: 'Pinned state is required' });
+
+    const missingBody = await patchPin('/codex/session-alpha');
+    assert.strictEqual(missingBody.status, 400);
+    assert.deepStrictEqual(await missingBody.json(), { error: 'Pinned state is required' });
+
+    const malformedPin = await patchPin('/codex/session-alpha', '{"pinned":');
+    assert.strictEqual(malformedPin.status, 400);
+    assert.deepStrictEqual(events, [], 'invalid display mutations must not reach the store');
+
+    events.length = 0;
+    mainPageSessionKeys = [
+      'agent-session:codex:home:work:session-alpha',
+      'agent-session:claude:session-beta',
+    ];
+    const added = await postMembership(JSON.stringify({
+      operation: 'add',
+      sessionKeys: [
+        ' agent-session:claude:session-beta ',
+        'agent-session:codex:home:work:session-alpha',
+        'agent-session:claude:session-beta',
+        '',
+      ],
+    }));
+    assert.strictEqual(added.status, 200);
+    assert.deepStrictEqual(await added.json(), { success: true, mainPageSessionKeys });
+    assert.deepStrictEqual(events, ['remember', 'remember', 'main-page-keys', 'invalidate', 'response', 'publish']);
+    assert.deepStrictEqual(rememberedKeys, [
+      {
+        patch: {
+          provider: 'codex',
+          providerSessionId: 'session-alpha',
+          providerSessionKey: 'agent-session:codex:home:work:session-alpha',
+          providerHomeId: 'work',
+        },
+        sessionKey: 'agent-session:codex:home:work:session-alpha',
+      },
+      {
+        patch: {
+          provider: 'claude',
+          providerSessionId: 'session-beta',
+          providerSessionKey: 'agent-session:claude:session-beta',
+          providerHomeId: 'default',
+        },
+        sessionKey: 'agent-session:claude:session-beta',
+      },
+    ]);
+    assert.deepStrictEqual(publishedMetadata, [{ mainPageSessionKeys }]);
+
+    events.length = 0;
+    const removed = await postMembership(JSON.stringify({
+      operation: 'remove',
+      sessionKeys: ['agent-session:claude:session-beta', 'agent-session:qwen:session-gamma'],
+    }));
+    assert.strictEqual(removed.status, 200);
+    assert.deepStrictEqual(await removed.json(), { success: true, mainPageSessionKeys });
+    assert.deepStrictEqual(events, ['remove', 'main-page-keys', 'invalidate', 'response', 'publish']);
+    assert.deepStrictEqual(removedKeys, [[
+      'agent-session:claude:session-beta',
+      'agent-session:qwen:session-gamma',
+    ]]);
+
+    events.length = 0;
+    const invalidOperation = await postMembership(JSON.stringify({
+      operation: 'replace',
+      sessionKeys: ['agent-session:claude:session-beta'],
+    }));
+    assert.strictEqual(invalidOperation.status, 400);
+    assert.deepStrictEqual(await invalidOperation.json(), {
+      error: 'A valid main-page Agent session mutation is required',
+    });
+
+    const emptyKeys = await postMembership(JSON.stringify({ operation: 'add', sessionKeys: ['  '] }));
+    assert.strictEqual(emptyKeys.status, 400);
+
+    const unknownKey = await postMembership(JSON.stringify({
+      operation: 'add',
+      sessionKeys: ['agent-session:not-a-provider:session-alpha'],
+    }));
+    assert.strictEqual(unknownKey.status, 400);
+
+    const tooManyKeys = await postMembership(JSON.stringify({
+      operation: 'add',
+      sessionKeys: Array.from({ length: 51 }, (_, index) => `agent-session:codex:session-${index}`),
+    }));
+    assert.strictEqual(tooManyKeys.status, 400);
+
+    const malformedMembership = await postMembership('{"operation":');
+    assert.strictEqual(malformedMembership.status, 400);
+    assert.deepStrictEqual(events, [], 'invalid membership mutations must not reach the store');
 
     console.log('agent session router behavior passed');
   } finally {
