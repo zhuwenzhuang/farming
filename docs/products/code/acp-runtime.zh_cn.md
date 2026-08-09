@@ -42,6 +42,13 @@ Qwen Code 的 v1 Prompt Suggestion Notification 会在该边界归一化为临�
 拥有 Live Provider Connection、Active Operation、有序 Reducer 和进程身份。兼容 Server
 重启会重连 Host，并读取其权威 Checkpoint 与 Delta，而不是重启健康 Session。
 
+上述 Server-only 重连属于故障恢复行为，不是 Farming 的主动 Stop Mode。Farming 只有一种
+主动 Stop 语义：直接杀掉选中的、由 Farming 拥有的全部进程，不做 Graceful Shutdown 或 Drain、
+Handoff，也不保留或复用进程。这个单一的 Hard-stop 契约用于刻意简化状态管理，也用于保证
+状态机正确性：Graceful 路径会增加第二种终止场景，并可能隐藏只有突然终止才会暴露的问题，
+因此 Recovery 与 Cleanup 必须以 Hard-stop 为准。仓库的 `npm restart` 命令会完整停止
+Farming 后全新启动；其性能优化必须改进冷启动 Inventory 与 Session 恢复。
+
 ACP 不设置固定 Agent、Session、Process、Thread 或并发数量上限。资源保护来自有界 Queue、
 Payload、Cache 与 Backpressure，不能用任意 Live Agent 限制代替真实性能治理。
 
@@ -152,6 +159,11 @@ Provider Session 与私有 Scope，重新加载权威 History，并保留显式 
 
 普通启动不会替换仍拥有 Live Chat Session 的不兼容 Host。显式全量重启可以主动接管该
 Host、终止其 Live Session，并从持久化 Session Record 启动新的 Host。
+
+冷恢复会先一次性物化全部可恢复 Agent Inventory，再按持久优先级以有界并发准备 Provider
+Session；单个 Session 失败不能阻断其余恢复。多个 Record 指向同一持久进程身份时，Farming
+只对该身份执行一次精确 Hard-stop 证明，并让这些 Record 共享结果。并发完成顺序不得改变
+既有 Main Page Membership 的顺序。
 
 ACP Runtime Host 无法启动或重连时，只把受影响 Chat Session 标记为不可用，不得阻塞
 Server Ready、Native Terminal Recovery、Files 或 Plugins。一个 Runtime Family 的恢复不能

@@ -56,6 +56,17 @@ operations, ordered reducers, and process identities. A compatible Server
 restart reconnects to the Host and restores its authoritative checkpoint and
 deltas instead of restarting healthy sessions.
 
+That Server-only reconnection is failure-recovery behavior, not an intentional
+Farming stop mode. Farming has one intentional stop semantic: directly kill the
+complete selected set of Farming-owned processes, without graceful shutdown or
+drain, handoff, or process preservation and reuse. This single hard-stop
+contract deliberately simplifies state management and is required for
+state-machine correctness: a graceful path would add a second termination
+scenario and can hide failures exposed by abrupt loss. Recovery and cleanup
+must therefore be correct against hard stop. The repository's `npm restart`
+command performs a full Farming stop followed by a fresh start; its performance
+work must optimize cold inventory and Session recovery.
+
 ACP has no fixed Agent, Session, process, thread, or concurrency cap. Resource
 protection must come from bounded queues, payloads, caches, and backpressure,
 not from an arbitrary limit on how many Agents may exist.
@@ -202,6 +213,14 @@ An ordinary startup does not replace an incompatible Host that owns live Chat
 Sessions. An explicit full restart may intentionally take over that Host,
 terminate its live Sessions, and start a new Host from the persisted Session
 records.
+
+Cold recovery materializes the complete recoverable Agent inventory before it
+loads Provider Sessions. Session preparation then runs with bounded parallelism
+in persisted priority order; one Session failure does not stop the remaining
+work. When multiple records refer to the same persisted process identity,
+Farming performs one exact hard-stop proof for that identity and shares its
+result across those records. Parallel completion must not reorder existing
+main-page membership.
 
 Failure to start or reconnect the ACP Runtime Host marks affected Chat Sessions
 unavailable without blocking Server readiness, native Terminal recovery, Files,

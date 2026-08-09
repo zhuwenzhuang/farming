@@ -127,6 +127,17 @@ Execution environment
 - Keep Agent processes and Config instances isolated. Resolve process,
   workspace, session, and external-resource ownership by exact identity before
   mutating or cleaning them up.
+- Farming has exactly one intentional stop semantic: directly kill the complete
+  set of Farming-owned processes selected by that stop. Do not add graceful
+  shutdown or drain, handoff, process preservation or reuse, or an alternative
+  stop mode. This single hard-stop contract deliberately simplifies state
+  management; the next start must recover as after abrupt process loss. This is
+  a state-machine correctness constraint, not merely an implementation
+  shortcut: graceful termination would add a second termination scenario and
+  can hide failures exposed by abrupt loss. Recovery and cleanup correctness
+  must be proven against the hard-stop path. `npm restart` is a full Farming
+  stop followed by a fresh start. Compatible Server-only reconnection is
+  failure-recovery behavior, not a stop semantic.
 - Treat an ambiguous timeout or transport failure as an uncertain outcome.
   Reconcile from authoritative state; do not automatically replay a mutation
   unless its protocol explicitly proves replay safety.

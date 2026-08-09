@@ -718,6 +718,24 @@ function withBoundedWait<T>(promise: PromiseLike<T>, timeoutMs: number, label: s
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
+const ACP_SESSION_RECOVERY_CONCURRENCY = 8;
+
+async function runWithBoundedConcurrency<T>(
+  items: readonly T[],
+  concurrency: number,
+  operation: (item: T, index: number) => Promise<void>,
+): Promise<void> {
+  let nextIndex = 0;
+  const workerCount = Math.min(items.length, Math.max(1, Math.floor(concurrency)));
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      await operation(items[index], index);
+    }
+  }));
+}
+
 function canonicalProviderHomePath(value: unknown): string {
   const resolved = path.resolve(String(value || '').trim() || '.');
   try {
@@ -3209,6 +3227,11 @@ class AgentManager extends EventEmitter {
       }
     }
 
+    // A compatible Server-only restart may reconnect bindings that survived in
+    // the ACP Host. Reconcile those cheap, already-live bindings in persisted
+    // order before starting cold work so lifecycle membership remains
+    // deterministic. A full Farming stop leaves this list empty.
+    const coldRecords: PersistedAgentPrivateMetadata[] = [];
     for (const record of records) {
       const agentId = String(record.runtimeAgentId || '').trim();
       const provider = String(record.providerSessionProvider || record.provider || '').trim();
@@ -3217,102 +3240,142 @@ class AgentManager extends EventEmitter {
       const liveHostBinding = this.acpRuntime.hasBinding(agentId);
       if (!agent || (!sessionId && !liveHostBinding) || !providerSupportsRuntime(provider, 'acp')) continue;
       if (lifecycleOperationBlocksRuntimeStart(record) && !liveHostBinding) continue;
+      if (!liveHostBinding) {
+        coldRecords.push(record);
+        continue;
+      }
       try {
         const recoveryEnv = this.buildAgentEnv(agentId, agent);
-        if (liveHostBinding) {
-          const snapshot = this.acpRuntime.getSession(agentId, { maxEntries: 0 });
-          const hostSessionId = String(snapshot.sessionId || '');
-          if (hostSessionId && hostSessionId !== sessionId) {
-            throw new Error('ACP runtime Host binding does not match the persisted provider Session');
-          }
-          const requestOptions = this.acpRuntime.getSessionRequestOptions(agentId);
-          this.acpSessionOptionsByKey.set(String(agent.providerSessionKey || ''), {
-            additionalDirectories: [...requestOptions.additionalDirectories],
-            configOverrides: cloneAcpConfigOverrides(requestOptions.configOverrides),
-            mcpServers: JSON.parse(JSON.stringify(requestOptions.mcpServers)),
-          });
-          this.acpRuntime.registerBindingCallbacks?.(agentId, {
-            refreshMcpServersForRuntime: mcpServers => (
-              this.projectAcpMcpServersForRuntime(mcpServers.filter(isRecord), recoveryEnv)
-            ),
-            onProcessStarted: async (processIdentity: AcpProcessIdentity) => {
-              agent.structuredRuntimeProcess = {
-                kind: 'acp-process-group',
-                ...processIdentity,
-                ...(this.configInstanceFingerprint
-                  ? { configInstanceFingerprint: this.configInstanceFingerprint }
-                  : {}),
-              };
-              this.ensurePersistentAgentSession(agent);
-            },
-            onProcessStopped: () => {
-              agent.structuredRuntimeProcess = null;
-              this.ensurePersistentAgentSession(agent);
-            },
-          });
-          const createOperation = activeLifecycleOperation(agent);
-          if (createOperation?.type === 'create') {
-            agent.status = 'running';
-            agent.engineStatus = 'running';
-            this.transitionPersistentAgentOperation(
-              agent,
-              createOperation.id,
-              'membership-pending',
-              '',
-              { visibleOnMainPage: true, archived: false },
-            );
-            this.rememberMainPageProviderSession(agent);
-            this.transitionPersistentAgentOperation(
-              agent,
-              createOperation.id,
-              'succeeded',
-              '',
-              { visibleOnMainPage: true, archived: false },
-            );
-          }
-          this.ensurePersistentAgentSession(agent);
-          continue;
+        const snapshot = this.acpRuntime.getSession(agentId, { maxEntries: 0 });
+        const hostSessionId = String(snapshot.sessionId || '');
+        if (hostSessionId && hostSessionId !== sessionId) {
+          throw new Error('ACP runtime Host binding does not match the persisted provider Session');
         }
-        if (
-          !record.structuredRuntimeProcess
-          && !this.allowUnprovenLegacyAcpRecovery
-          && !record.legacyAcpProcessExitAcknowledgedAt
-        ) {
-          const cleanupError: MutableError = new Error(
-            'Legacy ACP process exit cannot be proven after restart; automatic recovery is blocked',
+        const requestOptions = this.acpRuntime.getSessionRequestOptions(agentId);
+        this.acpSessionOptionsByKey.set(String(agent.providerSessionKey || ''), {
+          additionalDirectories: [...requestOptions.additionalDirectories],
+          configOverrides: cloneAcpConfigOverrides(requestOptions.configOverrides),
+          mcpServers: JSON.parse(JSON.stringify(requestOptions.mcpServers)),
+        });
+        this.acpRuntime.registerBindingCallbacks?.(agentId, {
+          refreshMcpServersForRuntime: mcpServers => (
+            this.projectAcpMcpServersForRuntime(mcpServers.filter(isRecord), recoveryEnv)
+          ),
+          onProcessStarted: async (processIdentity: AcpProcessIdentity) => {
+            agent.structuredRuntimeProcess = {
+              kind: 'acp-process-group',
+              ...processIdentity,
+              ...(this.configInstanceFingerprint
+                ? { configInstanceFingerprint: this.configInstanceFingerprint }
+                : {}),
+            };
+            this.ensurePersistentAgentSession(agent);
+          },
+          onProcessStopped: () => {
+            agent.structuredRuntimeProcess = null;
+            this.ensurePersistentAgentSession(agent);
+          },
+        });
+        const createOperation = activeLifecycleOperation(agent);
+        if (createOperation?.type === 'create') {
+          agent.status = 'running';
+          agent.engineStatus = 'running';
+          this.transitionPersistentAgentOperation(
+            agent,
+            createOperation.id,
+            'membership-pending',
+            '',
+            { visibleOnMainPage: true, archived: false },
           );
-          cleanupError.code = 'ACP_PROCESS_CLEANUP_UNCERTAIN';
-          throw cleanupError;
+          this.rememberMainPageProviderSession(agent);
+          this.transitionPersistentAgentOperation(
+            agent,
+            createOperation.id,
+            'succeeded',
+            '',
+            { visibleOnMainPage: true, archived: false },
+          );
         }
-        if (
-          record.structuredRuntimeProcess
-          && !this.hasLiveAcpProcessPeer(
-            agentId,
-            record.structuredRuntimeProcess,
-            records,
-            liveHostBindingIds,
-          )
-        ) {
-          let cleanup: StopPersistedAcpProcessResult;
-          try {
-            cleanup = await this.stopPersistedAcpProcessGroup(record.structuredRuntimeProcess);
-          } catch (caughtCause: unknown) {
-      const cause = caughtCause as ErrorRecord;
+        this.ensurePersistentAgentSession(agent);
+      } catch (caughtError: unknown) {
+        const error = caughtError as ErrorRecord;
+        const runtime = replaceRuntimeBinding(
+          agent,
+          'acp',
+          runtimeBindingOf(agent, 'acp'),
+        );
+        runtime.state = 'error';
+        runtime.error = `ACP recovery failed: ${error && (error.message || error)}`;
+        agent.status = 'stopped';
+        agent.engineStatus = 'stopped';
+        agent.engineStarted = false;
+        agent.exitedAt = Date.now();
+        this.ensurePersistentAgentSession(agent);
+      }
+    }
+
+    const cleanupByProcess = new Map<string, Promise<StopPersistedAcpProcessResult>>();
+    const recoveredAgentIds = new Set<string>();
+    await runWithBoundedConcurrency(
+      coldRecords,
+      ACP_SESSION_RECOVERY_CONCURRENCY,
+      async (record) => {
+        const agentId = String(record.runtimeAgentId || '').trim();
+        const provider = String(record.providerSessionProvider || record.provider || '').trim();
+        const sessionId = String(record.providerSessionId || '').trim();
+        const agent = this.agents.get(agentId);
+        if (!agent || !sessionId || !providerSupportsRuntime(provider, 'acp')) return;
+        try {
+          if (
+            !record.structuredRuntimeProcess
+            && !this.allowUnprovenLegacyAcpRecovery
+            && !record.legacyAcpProcessExitAcknowledgedAt
+          ) {
             const cleanupError: MutableError = new Error(
-              `Persisted ACP process exit proof failed: ${cause.message || cause}`,
-              { cause },
+              'Legacy ACP process exit cannot be proven after restart; automatic recovery is blocked',
             );
             cleanupError.code = 'ACP_PROCESS_CLEANUP_UNCERTAIN';
             throw cleanupError;
           }
-          if (cleanup.stopped !== true) {
-            const cleanupError: MutableError = new Error('Persisted ACP process identity could not be safely stopped');
-            cleanupError.code = 'ACP_PROCESS_CLEANUP_UNCERTAIN';
-            throw cleanupError;
+          if (
+            record.structuredRuntimeProcess
+            && !this.hasLiveAcpProcessPeer(
+              agentId,
+              record.structuredRuntimeProcess,
+              records,
+              liveHostBindingIds,
+            )
+          ) {
+            let cleanup: StopPersistedAcpProcessResult;
+            try {
+              const cleanupKey = [
+                record.structuredRuntimeProcess.pid,
+                record.structuredRuntimeProcess.processGroupId,
+                record.structuredRuntimeProcess.startedAt,
+              ].join('\u0000');
+              let cleanupPromise = cleanupByProcess.get(cleanupKey);
+              if (!cleanupPromise) {
+                cleanupPromise = this.stopPersistedAcpProcessGroup(record.structuredRuntimeProcess);
+                cleanupByProcess.set(cleanupKey, cleanupPromise);
+              }
+              cleanup = await cleanupPromise;
+            } catch (caughtCause: unknown) {
+              const cause = caughtCause as ErrorRecord;
+              const cleanupError: MutableError = new Error(
+                `Persisted ACP process exit proof failed: ${cause.message || cause}`,
+                { cause },
+              );
+              cleanupError.code = 'ACP_PROCESS_CLEANUP_UNCERTAIN';
+              throw cleanupError;
+            }
+            if (cleanup.stopped !== true) {
+              const cleanupError: MutableError = new Error('Persisted ACP process identity could not be safely stopped');
+              cleanupError.code = 'ACP_PROCESS_CLEANUP_UNCERTAIN';
+              throw cleanupError;
+            }
+            agent.structuredRuntimeProcess = null;
+            this.ensurePersistentAgentSession(agent);
           }
-          agent.structuredRuntimeProcess = null;
-          this.ensurePersistentAgentSession(agent);
-        }
         const providerAdapter = getProviderAdapter(provider);
         if (!providerAdapter) throw new Error(`Unsupported Agent provider: ${provider}`);
         const executableName = providerAdapter.executable;
@@ -3341,7 +3404,7 @@ class AgentManager extends EventEmitter {
         agent.acpRuntimeMode = acpRuntimeMode;
         agent.acpRuntimeExecutable = executable;
         const approvalMode = agent.launchPermissionMode || (
-          provider === 'codex' && this.configManager.getCodexApprovalMode
+          provider === 'codex' && this.configManager?.getCodexApprovalMode
             ? this.configManager.getCodexApprovalMode()
             : 'approve'
         );
@@ -3434,9 +3497,9 @@ class AgentManager extends EventEmitter {
         agent.engineStarted = false;
         agent.requiresProcessExitAcknowledgement = false;
         this.ensurePersistentAgentSession(agent);
-        this.rememberMainPageProviderSession(agent);
+        recoveredAgentIds.add(agentId);
       } catch (caughtError: unknown) {
-      const error = caughtError as ErrorRecord;
+        const error = caughtError as ErrorRecord;
         const runtime = replaceRuntimeBinding(
           agent,
           'acp',
@@ -3454,6 +3517,27 @@ class AgentManager extends EventEmitter {
         agent.exitedAt = Date.now();
         this.ensurePersistentAgentSession(agent);
       }
+      },
+    );
+
+    // Most recovered Sessions are already present in the authoritative main
+    // page index. Repair only missing memberships, in reverse persisted order,
+    // so parallel completion timing cannot reorder the user's Agent list.
+    const indexedSessionKeys = new Set(this.getMainPageSessionKeys());
+    for (let index = coldRecords.length - 1; index >= 0; index -= 1) {
+      const agentId = String(coldRecords[index].runtimeAgentId || '').trim();
+      if (!recoveredAgentIds.has(agentId)) continue;
+      const agent = this.agents.get(agentId);
+      const sessionKey = agent
+        ? mainPageAgentSessionKey(
+            agent.providerSessionProvider,
+            agent.providerSessionId,
+            agent.providerHomeId || '',
+          )
+        : '';
+      if (!agent || !sessionKey || indexedSessionKeys.has(sessionKey)) continue;
+      this.rememberMainPageProviderSession(agent);
+      indexedSessionKeys.add(sessionKey);
     }
     this.emitStateChange({ agentIds: records.map(record => String(record.runtimeAgentId || '')).filter(Boolean) });
   }

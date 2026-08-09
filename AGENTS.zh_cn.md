@@ -112,6 +112,13 @@ Farming Backend
   授权的 Workspace 或 Config Root 内。
 - 保持 Agent Process 与 Config Instance 隔离。修改或清理前，按精确身份解析
   Process、Workspace、Session 与外部 Resource 的所有权。
+- Farming 只有一种主动 Stop 语义：直接杀掉该 Stop 选中的、由 Farming 拥有的全部进程。
+  不得增加 Graceful Shutdown 或 Drain、Handoff、进程保留或复用，也不得增加另一种
+  Stop Mode。这个单一的 Hard-stop 契约用于刻意简化状态管理；下次启动必须按进程突然
+  丢失来恢复。这是状态机正确性约束，而不只是实现上的简化：Graceful Termination 会
+  增加第二种终止场景，并可能隐藏只有突然终止才会暴露的问题。Recovery 与 Cleanup 的
+  正确性必须以 Hard-stop 路径为准。`npm restart` 是完整停止 Farming 后全新启动。兼容的
+  Server-only 重连属于故障恢复行为，不是 Stop 语义。
 - 模糊的 Timeout 或 Transport Failure 属于结果未知。应从权威状态做 Reconcile；
   除非协议明确证明可安全重放，否则不得自动重试 Mutation。
 - 每个非平凡功能在实现前都要写出最小状态迁移模型：权威 Owner、Trigger、Guard、
