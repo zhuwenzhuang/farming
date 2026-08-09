@@ -65,6 +65,7 @@ function run() {
   const workspaceNavigationSource = read('src/lib/workspace-navigation-history.ts');
   const responsiveModeSource = read('src/lib/responsive-mode.ts');
   const serverSource = read('backend/server.cts');
+  const attachmentUploadSource = read('backend/attachment-upload.cts');
   const projectMutationRouterSource = read('backend/project-mutation-router.cts');
   const agentSessionRouterSource = read('backend/agent-session-router.cts');
   const agentManagerSource = read('backend/agent-manager.cts');
@@ -1225,9 +1226,12 @@ function run() {
       serverSource.includes("'interrupt-agent': registerClientMessage('interrupt-agent'") &&
       serverSource.includes("routePath(BASE_PATH, '/api/attachments/image')") &&
       serverSource.includes("express.raw({ type: 'image/*', limit: '12mb' })") &&
-      serverSource.includes('IMAGE_ATTACHMENT_RETENTION_MS') &&
-      serverSource.includes('cleanupExpiredImageAttachments') &&
-      serverSource.includes('IMAGE_ATTACHMENT_FILENAME_RE') &&
+      serverSource.includes("createAttachmentUploadHandler({ kind: 'image', store: attachmentUploadStore })") &&
+      attachmentUploadSource.includes('const DEFAULT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000') &&
+      attachmentUploadSource.includes('const ATTACHMENT_FILENAME_RE =') &&
+      attachmentUploadSource.includes("await this.fileOperations.writeFile(filePath, body, { flag: 'wx' })") &&
+      attachmentUploadSource.includes('await this.fileOperations.unlink(filePath)') &&
+      attachmentUploadSource.includes("res.status(500).json({ error: `failed to store ${kind} attachment` })") &&
       serverSource.includes('void agentManager.interruptAgent(data.agentId)') &&
       websocketTerminalHandlersSource.includes("import { inputPartsFromMessage } from './input-parts.cjs'") &&
       inputPartsSource.includes('function inputPartsFromMessage(data: TerminalInputMessage | null | undefined)') &&

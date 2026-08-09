@@ -1,5 +1,4 @@
 import type { ClientMessage } from '../shared/browser-protocol.js';
-import type { Dirent } from 'fs';
 import type { AuthAccessMode } from './auth.cjs';
 import type { AgentSession } from './agent-session-history.cjs';
 import type { AgentSessionInventoryMetadata } from './agent-session-inventory.cjs';
@@ -283,6 +282,7 @@ import { createProviderCatalogRouter } from './provider-catalog-router.cjs';
 import { AgentSessionInventory } from './agent-session-inventory.cjs';
 import { createAgentSessionRouter } from './agent-session-router.cjs';
 import { createProjectMutationRouter } from './project-mutation-router.cjs';
+import { AttachmentUploadStore, attachmentExtension, createAttachmentUploadHandler } from './attachment-upload.cjs';
 import { createSlashCommandDiscoveryCache } from './slash-command-cache.cjs';
 import { agentExtensionInventoryCacheFile, agentSessionInventoryCacheFile } from './storage-layout.cjs';
 import { FarmingUpdateService } from './update-service.cjs';
@@ -956,135 +956,21 @@ app.use(routePath(BASE_PATH, '/api'), createAgentExtensionRouter({
   slashCommandDiscoveryCache,
 }));
 
-const IMAGE_ATTACHMENT_EXTENSIONS: Record<string, string> = {
-  'image/png': 'png',
-  'image/jpeg': 'jpg',
-  'image/gif': 'gif',
-  'image/webp': 'webp',
-};
-const AUDIO_ATTACHMENT_EXTENSIONS: Record<string, string> = {
-  'audio/aac': 'aac',
-  'audio/flac': 'flac',
-  'audio/mp4': 'm4a',
-  'audio/mpeg': 'mp3',
-  'audio/ogg': 'ogg',
-  'audio/wav': 'wav',
-  'audio/wave': 'wav',
-  'audio/webm': 'webm',
-  'audio/x-wav': 'wav',
-};
-const IMAGE_ATTACHMENT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
-const IMAGE_ATTACHMENT_GC_INTERVAL_MS = 60 * 60 * 1000;
-const IMAGE_ATTACHMENT_FILENAME_RE = /^pasted-image-\d+-[a-f0-9]{8}\.(?:png|jpg|gif|webp)$/;
-const AUDIO_ATTACHMENT_FILENAME_RE = /^pasted-audio-\d+-[a-f0-9]{8}\.(?:aac|flac|m4a|mp3|ogg|wav|webm)$/;
-let lastImageAttachmentGcAt = 0;
-
-function imageAttachmentExtension(contentType: string) {
-  const normalized = String(contentType || '').split(';')[0].trim().toLowerCase();
-  return IMAGE_ATTACHMENT_EXTENSIONS[normalized] || '';
-}
-
-function audioAttachmentExtension(contentType: string) {
-  const normalized = String(contentType || '').split(';')[0].trim().toLowerCase();
-  return AUDIO_ATTACHMENT_EXTENSIONS[normalized] || '';
-}
-
-function imageAttachmentsDir() {
-  return path.join(configManager.farmingDir, 'attachments');
-}
-
-async function cleanupExpiredImageAttachments(options: { force?: boolean } = {}) {
-  const now = Date.now();
-  if (!options.force && now - lastImageAttachmentGcAt < IMAGE_ATTACHMENT_GC_INTERVAL_MS) return;
-  lastImageAttachmentGcAt = now;
-
-  const attachmentsDir = imageAttachmentsDir();
-  let entries: Dirent[] = [];
-  try {
-    entries = await fs.promises.readdir(attachmentsDir, { withFileTypes: true });
-  } catch (caught) {
-    const error = caughtError(caught);
-    if (error && error.code !== 'ENOENT') {
-      console.warn('Failed to scan image attachments:', error.message || error);
-    }
-    return;
-  }
-
-  const cutoff = now - IMAGE_ATTACHMENT_RETENTION_MS;
-  await Promise.all(entries.map(async (entry) => {
-    if (!entry.isFile() || (!IMAGE_ATTACHMENT_FILENAME_RE.test(entry.name) && !AUDIO_ATTACHMENT_FILENAME_RE.test(entry.name))) return;
-
-    const filePath = path.join(attachmentsDir, entry.name);
-    try {
-      const stat = await fs.promises.stat(filePath);
-      if (stat.mtimeMs < cutoff) {
-        await fs.promises.unlink(filePath);
-      }
-    } catch (caught) {
-    const error = caughtError(caught);
-      if (!error || error.code !== 'ENOENT') {
-        console.warn('Failed to remove expired image attachment:', error && (error.message || error));
-      }
-    }
-  }));
-}
-
-void cleanupExpiredImageAttachments({ force: true });
+const attachmentUploadStore = new AttachmentUploadStore({
+  attachmentsDir: path.join(configManager.farmingDir, 'attachments'),
+});
+void attachmentUploadStore.cleanupExpired({ force: true });
 
 app.post(
   routePath(BASE_PATH, '/api/attachments/image'),
   express.raw({ type: 'image/*', limit: '12mb' }),
-  (req, res) => {
-    const contentType = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
-    const extension = imageAttachmentExtension(contentType);
-    if (!extension) {
-      res.status(415).json({ error: 'unsupported image type' });
-      return;
-    }
-
-    if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
-      res.status(400).json({ error: 'empty image attachment' });
-      return;
-    }
-
-    const attachmentsDir = imageAttachmentsDir();
-    fs.mkdirSync(attachmentsDir, { recursive: true });
-    const filename = `pasted-image-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.${extension}`;
-    const filePath = path.join(attachmentsDir, filename);
-    fs.writeFileSync(filePath, req.body);
-    void cleanupExpiredImageAttachments();
-
-    res.status(201).json({
-      path: filePath,
-      name: filename,
-      type: contentType,
-      size: req.body.length,
-    });
-  }
+  createAttachmentUploadHandler({ kind: 'image', store: attachmentUploadStore })
 );
 
 app.post(
   routePath(BASE_PATH, '/api/attachments/audio'),
   express.raw({ type: 'audio/*', limit: '25mb' }),
-  (req, res) => {
-    const contentType = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
-    const extension = audioAttachmentExtension(contentType);
-    if (!extension) {
-      res.status(415).json({ error: 'unsupported audio type' });
-      return;
-    }
-    if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
-      res.status(400).json({ error: 'empty audio attachment' });
-      return;
-    }
-    const attachmentsDir = imageAttachmentsDir();
-    fs.mkdirSync(attachmentsDir, { recursive: true });
-    const filename = `pasted-audio-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.${extension}`;
-    const filePath = path.join(attachmentsDir, filename);
-    fs.writeFileSync(filePath, req.body);
-    void cleanupExpiredImageAttachments();
-    res.status(201).json({ path: filePath, name: filename, type: contentType, size: req.body.length });
-  }
+  createAttachmentUploadHandler({ kind: 'audio', store: attachmentUploadStore })
 );
 
 app.use(routePath(BASE_PATH, '/api'), createProviderCatalogRouter({
@@ -2816,7 +2702,7 @@ async function sendComposerInputMessage(
   }
   const content = [];
   if (message.trim()) content.push({ type: 'text', text: message });
-  const attachmentsRoot = path.resolve(imageAttachmentsDir());
+  const attachmentsRoot = path.resolve(attachmentUploadStore.attachmentsDir);
   const attachments = Array.isArray(data.attachments) ? data.attachments.slice(0, 8) : [];
   for (const attachment of attachments) {
     if (!['image', 'audio'].includes(attachment?.kind) || typeof attachment.path !== 'string') continue;
@@ -2824,7 +2710,7 @@ async function sendComposerInputMessage(
     if (!filePath.startsWith(`${attachmentsRoot}${path.sep}`)) continue;
     const mimeType = typeof attachment.type === 'string' && attachment.kind === 'image' && /^image\/(?:png|jpe?g|gif|webp)$/i.test(attachment.type)
       ? attachment.type.toLowerCase()
-      : (typeof attachment.type === 'string' && attachment.kind === 'audio' && Object.hasOwn(AUDIO_ATTACHMENT_EXTENSIONS, attachment.type.toLowerCase())
+      : (typeof attachment.type === 'string' && attachment.kind === 'audio' && attachmentExtension('audio', attachment.type)
         ? attachment.type.toLowerCase()
         : '');
     if (!mimeType) continue;
