@@ -292,14 +292,6 @@ interface TerminalMetadataPatch {
   terminalStatus: TerminalStatusContract;
 }
 
-interface TerminalOutputActivityBucket {
-  bucketStartedAt: number;
-  bytes: number;
-  eventCount: number;
-  firstEventAt: number;
-  lastEventAt: number;
-}
-
 interface TerminalResizeRequest extends TerminalDimensions {}
 
 interface AgentManagerTerminalEngineFields {
@@ -307,7 +299,6 @@ interface AgentManagerTerminalEngineFields {
   codexTerminalStartOutput: Map<string, string>;
   engineBridge: SessionEngineBridgeContract;
   lastResizeByAgent: Map<string, TerminalDimensions>;
-  outputActivityBuckets: Map<string, TerminalOutputActivityBucket[]>;
   pendingResizeByAgent: Map<string, TerminalResizeRequest>;
   permissionRestartSuppressedAgentIds: Set<string>;
   resizeDrains: Map<string, Promise<void>>;
@@ -513,7 +504,6 @@ export type {
   TerminalInputResult,
   TerminalKillResult,
   TerminalMetadataPatch,
-  TerminalOutputActivityBucket,
   TerminalResizeRequest,
   TerminalResizeResult,
   TerminalSessionActivityEvent,

@@ -192,18 +192,14 @@ import {
   normalizedComposerPrompt,
 } from './agent-composer-admission.cjs';
 import {
-  AGENT_USAGE_RATE_REFRESH_MS,
   AGENT_USAGE_RATE_WINDOW_MS,
   agentUsageRateWindowMs,
-  projectAgentUsageRate,
-  recordTerminalOutputActivity,
-  terminalOutputActivityTotals,
 } from './agent-usage-rate.cjs';
 import type {
   AgentUsageRate,
-  TerminalOutputActivityBucket,
   UsageRateOptions,
 } from './agent-usage-rate.cjs';
+import { AgentUsageRateTracker } from './agent-usage-rate-tracker.cjs';
 import {
   AgentAttentionTracker,
   agentAttentionUnread,
@@ -1323,8 +1319,7 @@ class AgentManager extends EventEmitter {
     ReturnType<typeof deriveAgentTerminalStatus>
   >;
   declare codexTerminalProfileProjections: WeakMap<TypedAgentRecord, object | null>;
-  declare outputActivityBuckets: Map<AgentId, TerminalOutputActivityBucket[]>;
-  declare agentUsageRateCache: Map<AgentId, { sampledAt: number; value: AgentUsageRate; windowMs: number }>;
+  declare usageRateTracker: AgentUsageRateTracker;
   declare lastResizeByAgent: Map<AgentId, TerminalSize>;
   declare pendingResizeByAgent: Map<AgentId, TerminalSize>;
   declare resizeDrains: Map<AgentId, Promise<void>>;
@@ -1430,8 +1425,7 @@ class AgentManager extends EventEmitter {
     this.lastActivityUpdate = new Map();
     this.terminalStatusProjections = new WeakMap();
     this.codexTerminalProfileProjections = new WeakMap();
-    this.outputActivityBuckets = new Map();
-    this.agentUsageRateCache = new Map();
+    this.usageRateTracker = new AgentUsageRateTracker();
     this.lastResizeByAgent = new Map();
     this.pendingResizeByAgent = new Map();
     this.resizeDrains = new Map();
@@ -2197,8 +2191,7 @@ class AgentManager extends EventEmitter {
         agent.output = '';
         agent.previewText = '';
         agent.previewSnapshot = null;
-        this.outputActivityBuckets.delete(sessionId);
-        this.agentUsageRateCache.delete(sessionId);
+        this.usageRateTracker.forget(sessionId);
       }
       if (Number.isFinite(cols) && cols > 0) agent.previewCols = cols;
       if (Number.isFinite(rows) && rows > 0) agent.previewRows = rows;
@@ -2527,8 +2520,7 @@ class AgentManager extends EventEmitter {
           this.deleteAgentRecord(sessionId);
           this.lastActivity.delete(sessionId);
           this.lastActivityUpdate.delete(sessionId);
-          this.outputActivityBuckets.delete(sessionId);
-          this.agentUsageRateCache.delete(sessionId);
+          this.usageRateTracker.forget(sessionId);
           this.lastResizeByAgent.delete(sessionId);
 
           if (this.mainAgentId === sessionId) {
@@ -6530,8 +6522,7 @@ class AgentManager extends EventEmitter {
       this.acpTurnFinalizationTails.delete(agentId);
       this.lastActivity.delete(agentId);
       this.lastActivityUpdate.delete(agentId);
-      this.outputActivityBuckets.delete(agentId);
-      this.agentUsageRateCache.delete(agentId);
+      this.usageRateTracker.forget(agentId);
       this.lastResizeByAgent.delete(agentId);
       this.codexTerminalIdentityAttempts.delete(agentId);
       this.codexTerminalIdentityPromises.delete(agentId);
@@ -10652,8 +10643,7 @@ class AgentManager extends EventEmitter {
     this.verifiedStoppedAgentIds.delete(agentId);
     this.lastActivity.delete(agentId);
     this.lastActivityUpdate.delete(agentId);
-    this.outputActivityBuckets.delete(agentId);
-    this.agentUsageRateCache.delete(agentId);
+    this.usageRateTracker.forget(agentId);
     this.lastResizeByAgent.delete(agentId);
     this.codexTerminalIdentityAttempts.delete(agentId);
     this.codexTerminalIdentityPromises.delete(agentId);
@@ -10886,42 +10876,15 @@ class AgentManager extends EventEmitter {
   }
 
   recordAgentOutputActivity(agentId: AgentId, bytes: number, timestamp = Date.now()) {
-    const buckets = this.outputActivityBuckets.get(agentId) || [];
-    recordTerminalOutputActivity(buckets, timestamp, bytes);
-    this.outputActivityBuckets.set(agentId, buckets);
+    this.usageRateTracker.record(agentId, bytes, timestamp);
   }
 
   getAgentUsageRate(agentId: AgentId, options: UsageRateOptions = {}): AgentUsageRate {
-    const now = options.now || Date.now();
-    const windowMs = agentUsageRateWindowMs(options.windowMs);
-    const cached = this.agentUsageRateCache.get(agentId);
-    if (
-      cached
-      && cached.windowMs === windowMs
-      && now >= cached.sampledAt
-      && now - cached.sampledAt < AGENT_USAGE_RATE_REFRESH_MS
-    ) {
-      return cached.value;
-    }
-
-    const value = this.calculateAgentUsageRate(agentId, { now, windowMs });
-    this.agentUsageRateCache.set(agentId, { windowMs, sampledAt: now, value });
-    return value;
+    return this.usageRateTracker.getRate(agentId, options);
   }
 
   calculateAgentUsageRate(agentId: AgentId, options: UsageRateOptions = {}): AgentUsageRate {
-    const now = options.now || Date.now();
-    const windowMs = agentUsageRateWindowMs(options.windowMs);
-    const projection = projectAgentUsageRate(
-      this.outputActivityBuckets.get(agentId) || [],
-      { now, windowMs },
-    );
-    if (projection.retainedBuckets.length > 0) {
-      this.outputActivityBuckets.set(agentId, projection.retainedBuckets);
-    } else {
-      this.outputActivityBuckets.delete(agentId);
-    }
-    return projection.value;
+    return this.usageRateTracker.calculateRate(agentId, options);
   }
 
   getAgentUsageSnapshots(options: UsageRateOptions = {}) {
@@ -11129,13 +11092,10 @@ class AgentManager extends EventEmitter {
     else if (secsSinceActivity < ACTIVITY_COOL_SEC) score += 15;
 
     // Output rate (0-30) — based on bounded one-second buckets from the last 30s
-    const recentOutput = terminalOutputActivityTotals(
-      this.outputActivityBuckets.get(agentId) || [],
-      {
-        cutoff: now - 30_000,
-        inclusiveCutoff: false,
-      },
-    );
+    const recentOutput = this.usageRateTracker.getActivityTotals(agentId, {
+      cutoff: now - 30_000,
+      inclusiveCutoff: false,
+    });
     if (recentOutput.eventCount > 0) {
       const eventsPerSec = recentOutput.eventCount / 30;
       const bytesPerSec = recentOutput.bytes / 30;

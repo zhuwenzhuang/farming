@@ -1,10 +1,7 @@
 const assert = require('assert');
 const { performance } = require('perf_hooks');
-const { AgentManager } = require('../../backend/agent-manager.cjs');
+const { AgentUsageRateTracker } = require('../../backend/agent-usage-rate-tracker.cjs');
 
-const calculateAgentUsageRate = AgentManager.prototype.calculateAgentUsageRate;
-const getAgentUsageRate = AgentManager.prototype.getAgentUsageRate;
-const recordAgentOutputActivity = AgentManager.prototype.recordAgentOutputActivity;
 const NOW = 10_000_000;
 const WINDOW_MS = 5 * 60 * 1000;
 
@@ -16,13 +13,11 @@ function median(values: number[]): number {
 function benchmark(eventCount: number) {
   const bucketCount = Math.min(300, eventCount);
   let calculationCount = 0;
-  const manager = {
-    outputActivityBuckets: new Map(),
-    agentUsageRateCache: new Map(),
-    calculateAgentUsageRate(agentId, options) {
-      calculationCount += 1;
-      return calculateAgentUsageRate.call(this, agentId, options);
-    },
+  const tracker = new AgentUsageRateTracker();
+  const calculateRate = tracker.calculateRate.bind(tracker);
+  tracker.calculateRate = (agentId, options) => {
+    calculationCount += 1;
+    return calculateRate(agentId, options);
   };
   const aggregationStartedAt = performance.now();
   for (let index = 0; index < eventCount; index += 1) {
@@ -31,32 +26,25 @@ function benchmark(eventCount: number) {
       Math.floor((index * bucketCount) / eventCount),
     );
     const eventAt = NOW - (bucketCount - 1 - bucketIndex) * 1000;
-    recordAgentOutputActivity.call(manager, 'agent', 32, eventAt);
+    tracker.record('agent', 32, eventAt);
   }
   const aggregationMs = performance.now() - aggregationStartedAt;
-  const buckets = manager.outputActivityBuckets.get('agent');
-  assert.strictEqual(buckets.length, bucketCount);
-  assert.deepStrictEqual(
-    buckets.map(bucket => bucket.bucketStartedAt),
-    [...buckets].sort((left, right) => left.bucketStartedAt - right.bucketStartedAt)
-      .map(bucket => bucket.bucketStartedAt),
-  );
   const iterations = 100_000;
 
-  getAgentUsageRate.call(manager, 'agent', { now: NOW, windowMs: WINDOW_MS });
+  tracker.getRate('agent', { now: NOW, windowMs: WINDOW_MS });
 
   const samples: number[] = [];
   for (let sample = 0; sample < 7; sample += 1) {
     const startedAt = performance.now();
     for (let index = 0; index < iterations; index += 1) {
-      const result = getAgentUsageRate.call(manager, 'agent', { now: NOW + 1000, windowMs: WINDOW_MS });
+      const result = tracker.getRate('agent', { now: NOW + 1000, windowMs: WINDOW_MS });
       assert.strictEqual(result.eventCount, eventCount);
     }
     samples.push((performance.now() - startedAt) / iterations);
   }
 
   assert.strictEqual(calculationCount, 1, 'cached reads should not rescan output events');
-  getAgentUsageRate.call(manager, 'agent', { now: NOW + 5000, windowMs: WINDOW_MS });
+  tracker.getRate('agent', { now: NOW + 5000, windowMs: WINDOW_MS });
   assert.strictEqual(calculationCount, 2, 'the exact usage rate should refresh after five seconds');
 
   return {

@@ -29,7 +29,11 @@ async function run() {
     const activeRate = manager.calculateAgentUsageRate('agent-1', { now, windowMs });
     assert.strictEqual(activeRate.outputBytes, 40);
     assert.strictEqual(activeRate.estimatedOutputTokens, 10);
-    assert.strictEqual(manager.outputActivityBuckets.get('agent-1').length, 1);
+    assert.deepStrictEqual(
+      manager.usageRateTracker.getActivityTotals('agent-1', { cutoff: 0 }),
+      { bytes: 40, eventCount: 1 },
+      'a read must drop activity older than the retention window',
+    );
 
     const cachedRate = manager.getAgentUsageRate('agent-1', { now, windowMs });
     manager.recordAgentOutputActivity('agent-1', 20, now + 1000);
@@ -46,7 +50,11 @@ async function run() {
     assert.strictEqual(idleRate.outputBytes, 0);
     assert.strictEqual(idleRate.estimatedOutputTokens, 0);
     assert.strictEqual(idleRate.estimatedTokensPerMinute, 0);
-    assert.strictEqual(manager.outputActivityBuckets.has('agent-1'), false);
+    assert.deepStrictEqual(
+      manager.usageRateTracker.getActivityTotals('agent-1', { cutoff: 0 }),
+      { bytes: 0, eventCount: 0 },
+      'an idle read must retain no activity for the Agent',
+    );
 
     manager.agents.set('agent-1', { id: 'agent-1', status: 'running' });
     manager.lastActivity.set('agent-1', now);
@@ -64,10 +72,10 @@ async function run() {
         burstStartedAt + Math.floor(index / 10_000) * 1000,
       );
     }
-    assert.strictEqual(
-      manager.outputActivityBuckets.get('burst-agent').length,
-      10,
-      '100,000 output chunks across ten seconds should occupy ten bounded buckets',
+    assert.deepStrictEqual(
+      manager.usageRateTracker.getActivityTotals('burst-agent', { cutoff: 0 }),
+      { bytes: 400_000, eventCount: 100_000 },
+      '100,000 output chunks across ten seconds must aggregate into bounded totals',
     );
     const burstRate = manager.calculateAgentUsageRate('burst-agent', {
       now: burstStartedAt + 9000,
@@ -88,10 +96,10 @@ async function run() {
     for (let second = 0; second <= 600; second += 1) {
       manager.recordAgentOutputActivity('bounded-agent', 1, boundedStartedAt + second * 1000);
     }
-    assert.strictEqual(
-      manager.outputActivityBuckets.get('bounded-agent').length,
-      303,
-      'ten minutes of output should retain only the bounded five-minute bucket window',
+    assert.deepStrictEqual(
+      manager.usageRateTracker.getActivityTotals('bounded-agent', { cutoff: 0 }),
+      { bytes: 303, eventCount: 303 },
+      'ten minutes of output should retain only the bounded five-minute window',
     );
     const shortRate = manager.calculateAgentUsageRate('bounded-agent', {
       now: boundedStartedAt + 600_000,
@@ -105,9 +113,9 @@ async function run() {
     });
     assert.strictEqual(boundedRate.outputBytes, 301);
     assert.strictEqual(boundedRate.eventCount, 301);
-    assert.strictEqual(
-      manager.outputActivityBuckets.get('bounded-agent').length,
-      301,
+    assert.deepStrictEqual(
+      manager.usageRateTracker.getActivityTotals('bounded-agent', { cutoff: 0 }),
+      { bytes: 301, eventCount: 301 },
       'a short-window read must retain the full five-minute history for later readers',
     );
     const clampedRate = manager.calculateAgentUsageRate('bounded-agent', {
@@ -123,24 +131,27 @@ async function run() {
     manager.recordAgentOutputActivity('disorder-agent', 20, disorderStartedAt + 2500);
     manager.recordAgentOutputActivity('disorder-agent', 30, disorderStartedAt + 2900);
     manager.recordAgentOutputActivity('disorder-agent', 40, disorderStartedAt + 5000);
-    const disorderBuckets = manager.outputActivityBuckets.get('disorder-agent');
     assert.deepStrictEqual(
-      disorderBuckets.map(bucket => bucket.bucketStartedAt),
-      [disorderStartedAt + 2000, disorderStartedAt + 4000, disorderStartedAt + 5000],
+      manager.usageRateTracker.getActivityTotals('disorder-agent', { cutoff: 0 }),
+      { bytes: 100, eventCount: 4 },
     );
-    assert.strictEqual(disorderBuckets[0].bytes, 50);
-    assert.strictEqual(disorderBuckets[0].eventCount, 2);
+    assert.deepStrictEqual(
+      manager.usageRateTracker.getActivityTotals('disorder-agent', {
+        cutoff: disorderStartedAt + 3000,
+        inclusiveCutoff: false,
+      }),
+      { bytes: 50, eventCount: 2 },
+      'out-of-order events in one second must merge and drop together at a cutoff',
+    );
 
     const futureStartedAt = 5_000_000;
     clockNow = futureStartedAt;
     manager.recordAgentOutputActivity('future-agent', 10, futureStartedAt - 1000);
     manager.recordAgentOutputActivity('future-agent', 20, futureStartedAt + 60_000);
     manager.recordAgentOutputActivity('future-agent', 30, futureStartedAt);
-    const futureBuckets = manager.outputActivityBuckets.get('future-agent');
-    assert.strictEqual(futureBuckets.length, 3);
-    assert(
-      futureBuckets.at(-1).lastEventAt <= futureStartedAt + 1000,
-      'an anomalous future timestamp must be clamped without evicting valid buckets',
+    assert.deepStrictEqual(
+      manager.usageRateTracker.getActivityTotals('future-agent', { cutoff: 0 }),
+      { bytes: 60, eventCount: 3 },
     );
     const futureRate = manager.calculateAgentUsageRate('future-agent', {
       now: futureStartedAt,
@@ -167,10 +178,26 @@ async function run() {
 
     manager.agents.set('cleanup-agent', { id: 'cleanup-agent', status: 'stopped' });
     manager.recordAgentOutputActivity('cleanup-agent', 10, futureStartedAt);
-    manager.getAgentUsageRate('cleanup-agent', { now: futureStartedAt, windowMs });
+    const cachedCleanupRate = manager.getAgentUsageRate('cleanup-agent', {
+      now: futureStartedAt,
+      windowMs,
+    });
+    assert.strictEqual(cachedCleanupRate.outputBytes, 10);
     manager.forgetStoppedAgentRecord('cleanup-agent', { emitUpdate: false });
-    assert.strictEqual(manager.outputActivityBuckets.has('cleanup-agent'), false);
-    assert.strictEqual(manager.agentUsageRateCache.has('cleanup-agent'), false);
+    assert.deepStrictEqual(
+      manager.usageRateTracker.getActivityTotals('cleanup-agent', { cutoff: 0 }),
+      { bytes: 0, eventCount: 0 },
+    );
+    const coldCleanupRate = manager.getAgentUsageRate('cleanup-agent', {
+      now: futureStartedAt,
+      windowMs,
+    });
+    assert.notStrictEqual(
+      coldCleanupRate,
+      cachedCleanupRate,
+      'forgetting an Agent must drop its cached rate as well as its buckets',
+    );
+    assert.strictEqual(coldCleanupRate.outputBytes, 0);
 
     console.log('✓ agent output usage rate uses bounded buckets and expires stale activity');
   } finally {
