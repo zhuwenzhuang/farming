@@ -8,7 +8,10 @@ const {
   defineClientMessageDispatchTable,
   dispatchClientMessage,
 } = require('../websocket-client-dispatch.cjs') as typeof import('../websocket-client-dispatch.cjs');
-const { reportWebSocketAdmissionFailure } = require('../websocket-admission-errors.cjs') as typeof import('../websocket-admission-errors.cjs');
+const {
+  observeWebSocketCallbackRejection,
+  reportWebSocketAdmissionFailure,
+} = require('../websocket-admission-errors.cjs') as typeof import('../websocket-admission-errors.cjs');
 
 type ClientMessageByType = {
   [Type in ClientMessage['type']]: Extract<ClientMessage, { type: Type }>;
@@ -130,6 +133,29 @@ async function run(): Promise<void> {
 
   const unhandled: unknown[] = [];
   const onUnhandled = (error: unknown) => { unhandled.push(error); };
+  const dispatchStartLikeProduction = (
+    client: DispatchContext,
+    startAgent: (
+      callback: (agentId: string | null, error?: string | null) => void,
+    ) => PromiseLike<unknown>,
+  ) => {
+    void (async () => {
+      let callbackReported = false;
+      const startResult = startAgent((_agentId, error) => {
+        callbackReported = true;
+        if (error) client.send(JSON.stringify({ type: 'error', message: error }));
+      });
+      observeWebSocketCallbackRejection(client, startResult, () => callbackReported, {
+        openState: 1,
+        fallbackMessage: 'Failed to start Agent',
+      });
+    })().catch((error: unknown) => {
+      reportWebSocketAdmissionFailure(client, error, {
+        openState: 1,
+        fallbackMessage: 'Failed to resolve Project workspace',
+      });
+    });
+  };
   process.on('unhandledRejection', onUnhandled);
   try {
     context.interruptAdmission = Promise.reject(new Error('interrupt admission rejected'));
@@ -156,17 +182,105 @@ async function run(): Promise<void> {
     await new Promise(resolve => setImmediate(resolve));
     context.send = originalSend;
     assert.deepStrictEqual(unhandled, [], 'a send race must not turn a handled admission into another rejection');
+
+    let startCallbackReported = false;
+    observeWebSocketCallbackRejection(
+      context,
+      Promise.reject(new Error('start admission rejected')),
+      () => startCallbackReported,
+      { openState: 1, fallbackMessage: 'Failed to start Agent' },
+    );
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepStrictEqual(JSON.parse(context.sent.at(-1) || '{}'), {
+      type: 'error',
+      message: 'start admission rejected',
+    });
+
+    const sentAfterUnreportedRejection = context.sent.length;
+    startCallbackReported = true;
+    observeWebSocketCallbackRejection(
+      context,
+      Promise.reject(new Error('callback already reported this failure')),
+      () => startCallbackReported,
+      { openState: 1, fallbackMessage: 'Failed to start Agent' },
+    );
+    await new Promise(resolve => setImmediate(resolve));
+    assert.strictEqual(
+      context.sent.length,
+      sentAfterUnreportedRejection,
+      'a callback-reported start failure must not be sent twice when the start promise rethrows',
+    );
+
+    startCallbackReported = false;
+    context.readyState = 3;
+    observeWebSocketCallbackRejection(
+      context,
+      Promise.reject(new Error('closed client start rejection')),
+      () => startCallbackReported,
+      { openState: 1, fallbackMessage: 'Failed to start Agent' },
+    );
+    await new Promise(resolve => setImmediate(resolve));
+    assert.strictEqual(context.sent.length, sentAfterUnreportedRejection);
+
+    context.readyState = 1;
+    context.send = () => { throw new Error('socket closed during start error send'); };
+    observeWebSocketCallbackRejection(
+      context,
+      Promise.reject(new Error('racing start rejection')),
+      () => startCallbackReported,
+      { openState: 1, fallbackMessage: 'Failed to start Agent' },
+    );
+    await new Promise(resolve => setImmediate(resolve));
+    context.send = originalSend;
+    assert.deepStrictEqual(unhandled, [], 'every start rejection and send race must be terminally observed');
+
+    const sentBeforeCallbackSendRace = context.sent.length;
+    context.send = () => { throw new Error('socket closed during synchronous start callback'); };
+    dispatchStartLikeProduction(context, async callback => {
+      callback(null, 'synchronous start callback failure');
+      return null;
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    context.send = originalSend;
+    assert.strictEqual(context.sent.length, sentBeforeCallbackSendRace);
+    assert.deepStrictEqual(
+      unhandled,
+      [],
+      'a synchronous callback send race must be consumed by the start promise observer without a duplicate report',
+    );
+
+    context.readyState = 1;
+    dispatchStartLikeProduction(context, () => {
+      context.readyState = 3;
+      throw new Error('synchronous start admission failure after close');
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.strictEqual(context.sent.length, sentBeforeCallbackSendRace);
+    assert.deepStrictEqual(
+      unhandled,
+      [],
+      'a synchronous start throw must be observed even when the socket closes before the outer handler catch',
+    );
   } finally {
     process.off('unhandledRejection', onUnhandled);
   }
 
   const serverSource = fs.readFileSync(path.join(__dirname, '..', 'server.cts'), 'utf8');
   assert(
-    serverSource.includes("import { reportWebSocketAdmissionFailure } from './websocket-admission-errors.cjs'")
+    serverSource.includes("from './websocket-admission-errors.cjs'")
       && serverSource.includes('void agentManager.interruptAgent(data.agentId).catch((error: unknown) => {')
       && serverSource.includes('reportWebSocketAdmissionFailure(ws, error, {')
       && serverSource.includes("fallbackMessage: 'Failed to interrupt Agent'"),
     'the production interrupt dispatch must terminally observe rejected admission and report it through the guarded socket helper',
+  );
+  assert(
+    serverSource.includes('let startCallbackReported = false;')
+      && serverSource.includes('const startResult = agentManager.startAgent(data.command, workspace, (agentId, error) => {')
+      && serverSource.includes('startCallbackReported = true;')
+      && serverSource.includes('observeWebSocketCallbackRejection(ws, startResult, () => startCallbackReported, {')
+      && serverSource.includes("fallbackMessage: 'Failed to start Agent'")
+      && serverSource.includes("fallbackMessage: 'Failed to resolve Project workspace'"),
+    'the production start dispatch must observe a rejected start promise without duplicating callback-reported failures',
   );
 
   context.throwOnRestart = true;

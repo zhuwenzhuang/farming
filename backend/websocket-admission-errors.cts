@@ -26,4 +26,16 @@ function reportWebSocketAdmissionFailure(
   }
 }
 
-export { reportWebSocketAdmissionFailure };
+function observeWebSocketCallbackRejection(
+  client: ErrorClient,
+  operation: PromiseLike<unknown>,
+  callbackReported: () => boolean,
+  options: { openState: number; fallbackMessage: string },
+): void {
+  void Promise.resolve(operation).catch((error: unknown) => {
+    if (callbackReported()) return;
+    reportWebSocketAdmissionFailure(client, error, options);
+  });
+}
+
+export { observeWebSocketCallbackRejection, reportWebSocketAdmissionFailure };

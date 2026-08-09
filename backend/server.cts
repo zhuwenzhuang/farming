@@ -239,7 +239,10 @@ import { createWorkspaceFileWatchController } from './websocket-workspace-file-w
 import { createWebSocketHandshakeHealthHandlers } from './websocket-handshake-health-handlers.cjs';
 import { createWebSocketTerminalHandlers } from './websocket-terminal-handlers.cjs';
 import { createWebSocketFocusScopeHandlers } from './websocket-focus-scope-handlers.cjs';
-import { reportWebSocketAdmissionFailure } from './websocket-admission-errors.cjs';
+import {
+  observeWebSocketCallbackRejection,
+  reportWebSocketAdmissionFailure,
+} from './websocket-admission-errors.cjs';
 import { TokenAuth } from './auth.cjs';
 import { readOnlyClientMessageAllowed } from './read-only-access.cjs';
 import { getLocalIPs, getPrimaryLocalIP } from './network.cjs';
@@ -2799,7 +2802,9 @@ const clientMessageDispatchTable = defineClientMessageDispatchTable<WebSocketCli
             ? data.projectWorkspace
             : workspace
         );
-      agentManager.startAgent(data.command, workspace, (agentId, error) => {
+      let startCallbackReported = false;
+      const startResult = agentManager.startAgent(data.command, workspace, (agentId, error) => {
+        startCallbackReported = true;
         if (error) {
           ws.send(JSON.stringify({ type: 'error', message: error }));
         } else if (agentId) {
@@ -2860,11 +2865,15 @@ const clientMessageDispatchTable = defineClientMessageDispatchTable<WebSocketCli
         ...(Array.isArray(data.mcpServers) ? { mcpServers: data.mcpServers } : {}),
         ...(data.dangerouslySkipPermissions === true ? { dangerouslySkipPermissions: true } : {}),
       });
+      observeWebSocketCallbackRejection(ws, startResult, () => startCallbackReported, {
+        openState: WebSocket.OPEN,
+        fallbackMessage: 'Failed to start Agent',
+      });
     })().catch((error: unknown) => {
-      ws.send(JSON.stringify({
-        type: 'error',
-        message: caughtError(error).message || 'Failed to resolve Project workspace',
-      }));
+      reportWebSocketAdmissionFailure(ws, caughtError(error), {
+        openState: WebSocket.OPEN,
+        fallbackMessage: 'Failed to resolve Project workspace',
+      });
     });
   }),
   input: registerClientMessage('input', websocketTerminalHandlers.input),
