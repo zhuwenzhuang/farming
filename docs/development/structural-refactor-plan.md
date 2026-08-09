@@ -342,6 +342,20 @@ file-by-file progress log:
    Do not accumulate these priorities into another long-lived integration
    branch.
 
+### Stylesheet ownership
+
+Oversized application stylesheets are an independent supporting lane and may
+be decomposed while code hotspots are busy. Split styles by product domain and
+rendered surface, not by arbitrary line count. A slice moves the domain's base
+rules, dark-skin overrides, responsive rules, animations, and style-contract
+tests together while preserving runtime import order, cascade, specificity, and
+visual behavior. Theme tokens and independent skins remain separate owners.
+Source-contract tests should read a declared style-source manifest instead of
+assuming every selector lives in one monolithic file. Remove an obsolete
+selector only after component-source and rendered-DOM evidence show that no
+supported state, extension, or responsive layout can produce it; visible slices
+require focused desktop, dark, and narrow-layout verification.
+
 ## Verification
 
 Every slice defines focused gates from its state model. The default final gates

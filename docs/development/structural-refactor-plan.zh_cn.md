@@ -294,6 +294,17 @@ Branch 或逐文件进度：
    完整 Typecheck、Lint、Test 及适用的 Server、Terminal、Playwright 或 Provider
    门禁后合入。不能把这些优先项重新积累成长期 Integration Branch。
 
+### Stylesheet 所有权
+
+超大应用 Stylesheet 是一条可独立推进的辅助 Lane，可以在代码热点被占用时拆分。拆分
+必须按产品 Domain 和渲染 Surface，而不是按任意行数。每个切片同时迁移该 Domain 的
+基础规则、Dark Skin Override、Responsive Rule、Animation 和样式契约测试，并保持
+运行时 Import 顺序、Cascade、Specificity 和视觉行为不变。Theme Token 与独立 Skin
+继续作为不同 Owner。源码契约测试应读取声明式 Style-source Manifest，而不是假设所有
+Selector 都位于一个巨型文件中。只有当组件源码与真实渲染 DOM 都证明受支持状态、
+Extension 和响应式布局不会再产生某个 Selector 时才能删除它；可见样式切片必须完成
+聚焦的桌面、Dark 和窄布局验证。
+
 ## 验证
 
 每个切片根据状态模型定义聚焦门禁。默认最终门禁为：
