@@ -6,6 +6,7 @@ const path = require('path');
 
 const { AgentManager } = require('../agent-manager.cjs');
 const { ConfigManager } = require('../config-manager.cjs');
+const { WorktreeGitService } = require('../worktree-git-service.cjs');
 
 function git(repository, ...args) {
   return execFileSync('git', ['-C', repository, ...args], { encoding: 'utf8' }).trim();
@@ -28,7 +29,13 @@ async function run() {
 
   const configManager = new ConfigManager({ configDir });
   configManager.init();
-  const manager = new AgentManager(configManager, { skipExecutablePreflight: true });
+  const manager = new AgentManager(configManager, {
+    skipExecutablePreflight: true,
+    worktreeGitService: new WorktreeGitService({
+      now: () => new Date(2026, 7, 9, 12, 34, 56),
+      identityNonce: () => 'd'.repeat(32),
+    }),
+  });
   try {
     await manager.whenRecovered();
     const createRequestId = 'create-worktree-request-1';
@@ -62,6 +69,59 @@ async function run() {
       1,
       'concurrent delivery of one request id must join one git mutation',
     );
+    const [distinctConcurrentOne, distinctConcurrentTwo] = await Promise.all([
+      manager.createPermanentWorktree(repository, { requestId: 'create-worktree-distinct-1' }),
+      manager.createPermanentWorktree(repository, { requestId: 'create-worktree-distinct-2' }),
+    ]);
+    assert.notStrictEqual(distinctConcurrentOne.workspace, distinctConcurrentTwo.workspace);
+    assert.notStrictEqual(distinctConcurrentOne.branch, distinctConcurrentTwo.branch);
+    assert.strictEqual(configManager.getProjectOperation('create-worktree-distinct-1').state, 'succeeded');
+    assert.strictEqual(configManager.getProjectOperation('create-worktree-distinct-2').state, 'succeeded');
+
+    const realWorktreeGitService = manager.worktreeGitService;
+    const branchMissingIdentity = {
+      sourceWorkspace: repository,
+      workspace: path.join(root, 'branch-missing-worktree'),
+      branch: 'farming/worktree-branch-missing',
+    };
+    const branchMissingPostcondition = {
+      proven: true,
+      exists: true,
+      registered: true,
+      branchMatches: true,
+      branchExists: false,
+      worktree: {
+        workspace: branchMissingIdentity.workspace,
+        branch: branchMissingIdentity.branch,
+      },
+    };
+    let branchMissingCreateCalls = 0;
+    manager.worktreeGitService = {
+      allocatePermanentWorktree: async () => branchMissingIdentity,
+      createPermanentWorktree: async () => {
+        branchMissingCreateCalls += 1;
+        return { commandFailure: null, postcondition: branchMissingPostcondition };
+      },
+      inspectPostcondition: async () => branchMissingPostcondition,
+      listWorktrees: sourceWorkspace => realWorktreeGitService.listWorktrees(sourceWorkspace),
+      releasePermanentWorktreeReservation() {},
+      resolveSourceRoot: workspace => realWorktreeGitService.resolveSourceRoot(workspace),
+      rollbackPermanentWorktree: identity => realWorktreeGitService.rollbackPermanentWorktree(identity),
+    };
+    try {
+      await assert.rejects(
+        () => manager.createPermanentWorktree(repository, { requestId: 'create-worktree-branch-missing' }),
+        /could not be proven.*will not be replayed/i,
+      );
+      assert.strictEqual(configManager.getProjectOperation('create-worktree-branch-missing').state, 'unknown');
+      await assert.rejects(
+        () => manager.createPermanentWorktree(repository, { requestId: 'create-worktree-branch-missing' }),
+        /could not be proven/i,
+      );
+      assert.strictEqual(branchMissingCreateCalls, 1, 'an unknown partial result must not replay git worktree add');
+    } finally {
+      manager.worktreeGitService = realWorktreeGitService;
+    }
 
     const originalCommitProjectOperation = configManager.commitProjectOperation.bind(configManager);
     let failCreateResultCommit = true;

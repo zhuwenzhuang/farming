@@ -86,7 +86,6 @@ import type {
   ProjectWorkspaceDeleteAdmission,
   ComposerCommandRecord,
   CodexSessionMutationAdmission,
-  GitWorktreeRecord,
   PersistedAgentPrivateMetadata,
   RecoveredEngineSessionMetadata,
   StructuredRuntimeProcessIdentity,
@@ -180,6 +179,10 @@ import { commitAgentOrderTransaction } from './agent-order-transaction.cjs';
 import { buildInteractiveAgentBaseEnv, normalizeInteractiveTerminalEnv, resolveUserShellEnvSync } from './agent-env.cjs';
 import { inspectGitWorktree, invalidateGitWorktreeInfoCache } from './git-worktree-info.cjs';
 import { AgentWorktreeRefreshQueue } from './agent-worktree-refresh-queue.cjs';
+import {
+  WorktreeGitService,
+  type WorktreeGitServicePort,
+} from './worktree-git-service.cjs';
 import {
   AGENT_USAGE_RATE_REFRESH_MS,
   AGENT_USAGE_RATE_WINDOW_MS,
@@ -497,6 +500,7 @@ interface AgentManagerOptions extends UnknownRecord {
   tokenFile?: string;
   transcriptMediaPathPrefix?: (agentId: string) => string;
   unarchiveCodexSession?: UnarchiveCodexSessionContract;
+  worktreeGitService?: WorktreeGitServicePort;
 }
 
 interface AgentResourceBinding {
@@ -1344,21 +1348,6 @@ function projectOperationSignature(value: unknown) {
     .digest('hex');
 }
 
-function worktreesFromPorcelain(output: string): GitWorktreeRecord[] {
-  const worktrees: Array<Pick<GitWorktreeRecord, 'workspace' | 'branch'>> = [];
-  let current: Pick<GitWorktreeRecord, 'workspace' | 'branch'> | null = null;
-  for (const line of String(output || '').split(/\r?\n/)) {
-    if (line.startsWith('worktree ')) {
-      if (current) worktrees.push(current);
-      current = { workspace: path.resolve(line.slice('worktree '.length)), branch: '' };
-    } else if (current && line.startsWith('branch refs/heads/')) {
-      current.branch = line.slice('branch refs/heads/'.length);
-    }
-  }
-  if (current) worktrees.push(current);
-  return worktrees as GitWorktreeRecord[];
-}
-
 function isFarmingForkWorktreePath(workspace: string) {
   const basename = path.basename(String(workspace || '').replace(/[\\/]+$/, ''));
   return /-farming-fork-\d{8}-\d{6}(?:-\d+)?$/.test(basename);
@@ -1408,6 +1397,7 @@ class AgentManager extends EventEmitter {
   declare codexTerminalStartOutput: Map<AgentId, string>;
   declare agentWorktreeResolveGeneration: Map<AgentId, number>;
   declare agentWorktreeRefreshQueue: AgentWorktreeRefreshQueue;
+  declare worktreeGitService: WorktreeGitServicePort;
   declare agentLifecycleOperations: Map<AgentId, AgentLifecycleEntry<unknown>>;
   declare agentStartAdmissions: Map<symbol, AgentStartAdmission>;
   declare createRequestAdmissions: Map<string, CreateRequestAdmission>;
@@ -1515,6 +1505,7 @@ class AgentManager extends EventEmitter {
     this.agentWorktreeRefreshQueue = new AgentWorktreeRefreshQueue(
       AGENT_WORKTREE_REFRESH_CONCURRENCY,
     );
+    this.worktreeGitService = options.worktreeGitService || new WorktreeGitService();
     this.agentLifecycleOperations = new Map();
     this.agentStartAdmissions = new Map();
     this.createRequestAdmissions = new Map();
@@ -8648,71 +8639,16 @@ class AgentManager extends EventEmitter {
   }
 
   async listGitWorktrees(sourceWorkspace: string) {
-    const { stdout } = await execFileAsync('git', ['-C', sourceWorkspace, 'worktree', 'list', '--porcelain'], {
-      timeout: 15000,
-      maxBuffer: 1024 * 1024 * 4,
-    });
-    return worktreesFromPorcelain(stdout);
+    return this.worktreeGitService.listWorktrees(sourceWorkspace);
   }
 
   async inspectGitWorktreePostcondition(sourceWorkspace: string, workspace: string, branch: string = '') {
-    const target = path.resolve(workspace);
-    let worktrees: GitWorktreeRecord[];
-    try {
-      worktrees = await this.listGitWorktrees(sourceWorkspace);
-    } catch (caughtError: unknown) {
-      const error = caughtError as ErrorRecord;
-      return { proven: false, error: error.message || String(error) };
-    }
-    const registered = worktrees.find((entry: GitWorktreeRecord) => entry.workspace === target) || null;
-    let exists = false;
-    try {
-      exists = fs.statSync(target).isDirectory();
-    } catch {
-      exists = false;
-    }
-    let branchExists = false;
-    if (branch) {
-      try {
-        await execFileAsync('git', ['-C', sourceWorkspace, 'show-ref', '--verify', '--quiet', `refs/heads/${branch}`], {
-          timeout: 15000,
-          maxBuffer: 1024 * 1024,
-        });
-        branchExists = true;
-      } catch (caughtError: unknown) {
-      const error = caughtError as ErrorRecord;
-        if (error?.code !== 1) {
-          return { proven: false, error: error.message || String(error) };
-        }
-      }
-    }
-    return {
-      proven: true,
-      exists,
-      registered: Boolean(registered),
-      branchMatches: !branch || registered?.branch === branch,
-      branchExists,
-      worktree: registered,
-    };
+    return this.worktreeGitService.inspectPostcondition(sourceWorkspace, workspace, branch);
   }
 
   async resolveGitWorktreeSourceRoot(workspace: string) {
     const sourceWorkspace = this.expandWorkspacePath(workspace);
-    if (!sourceWorkspace) {
-      throw new Error('Source workspace is empty');
-    }
-
-    try {
-      const { stdout } = await execFileAsync('git', ['-C', sourceWorkspace, 'rev-parse', '--show-toplevel'], {
-        timeout: 15000,
-        maxBuffer: 1024 * 1024,
-      });
-      return stdout.trim();
-    } catch (caughtError: unknown) {
-      const error = caughtError as ErrorRecord;
-      const message = error && error.stderr ? String(error.stderr).trim() : '';
-      throw new Error(message || 'Source workspace is not inside a git repository', { cause: caughtError });
-    }
+    return this.worktreeGitService.resolveSourceRoot(sourceWorkspace);
   }
 
   async createForkWorktree(workspace: string) {
@@ -8794,48 +8730,27 @@ class AgentManager extends EventEmitter {
       };
     }
 
-    const parentDir = path.dirname(root);
-    const baseName = path.basename(root);
     let target = String(existingOperation?.request?.workspace || '');
     let branch = String(existingOperation?.request?.branch || '');
     let operation = existingOperation;
+    let reservedIdentity: Awaited<ReturnType<WorktreeGitServicePort['allocatePermanentWorktree']>> | null = null;
     if (!operation) {
-      const slug = timestampSlug();
-      let suffix = 1;
-      while (suffix < 1000) {
-        const suffixText = suffix === 1 ? '' : `-${suffix}`;
-        const candidateTarget = path.join(parentDir, `${baseName}-farming-worktree-${slug}${suffixText}`);
-        const candidateBranch = `farming/worktree-${slug}${suffixText}`;
-        let branchExists = false;
-        try {
-          await execFileAsync('git', ['-C', root, 'show-ref', '--verify', '--quiet', `refs/heads/${candidateBranch}`], {
-            timeout: 15000,
-            maxBuffer: 1024 * 1024,
-          });
-          branchExists = true;
-        } catch (caughtError: unknown) {
-      const error = caughtError as ErrorRecord;
-          if (error?.code !== 1) {
-            const message = error && error.stderr ? String(error.stderr).trim() : '';
-            throw new Error(message || 'Failed to inspect git branches', { cause: caughtError });
-          }
-        }
-
-        if (!fs.existsSync(candidateTarget) && !branchExists) {
-          target = candidateTarget;
-          branch = candidateBranch;
-          break;
-        }
-        suffix += 1;
+      const identity = await this.worktreeGitService.allocatePermanentWorktree(root);
+      reservedIdentity = identity;
+      target = identity.workspace;
+      branch = identity.branch;
+      try {
+        const admission = this.persistentProjectOperation(requestId, 'create-worktree', signature, {
+          sourceWorkspace: root,
+          workspace: target,
+          branch,
+        });
+        if ('error' in admission) throw new Error(admission.error);
+        operation = admission.operation || null;
+      } catch (caught) {
+        this.worktreeGitService.releasePermanentWorktreeReservation(identity);
+        throw caught;
       }
-      if (!target || !branch) throw new Error('Unable to allocate a permanent worktree name');
-      const admission = this.persistentProjectOperation(requestId, 'create-worktree', signature, {
-        sourceWorkspace: root,
-        workspace: target,
-        branch,
-      });
-      if ('error' in admission) throw new Error(admission.error);
-      operation = admission.operation || null;
     }
 
     const commitSuccess = () => {
@@ -8856,6 +8771,7 @@ class AgentManager extends EventEmitter {
     };
 
     if (operation && !['pending', 'unknown'].includes(operation.state)) {
+      if (reservedIdentity) this.worktreeGitService.releasePermanentWorktreeReservation(reservedIdentity);
       throw new Error(operation.error || `Project operation ${requestId} already finished with state ${operation.state}`);
     }
     if (operation && operationWasExisting) {
@@ -8865,6 +8781,7 @@ class AgentManager extends EventEmitter {
         && postcondition.exists
         && postcondition.registered
         && postcondition.branchMatches
+        && postcondition.branchExists
       ) {
         return commitSuccess();
       }
@@ -8883,24 +8800,23 @@ class AgentManager extends EventEmitter {
       }
     }
 
-    try {
-      await execFileAsync('git', ['-C', root, 'worktree', 'add', '-b', branch, target, 'HEAD'], {
-        timeout: 60000,
-        maxBuffer: 1024 * 1024 * 4,
-      });
-    } catch (caughtError: unknown) {
-      const error = caughtError as ErrorRecord;
-      const postcondition = await this.inspectGitWorktreePostcondition(root, target, branch);
-      if (
-        postcondition.proven
-        && postcondition.exists
-        && postcondition.registered
-        && postcondition.branchMatches
-      ) {
-        return commitSuccess();
-      }
-      const message = error && error.stderr ? String(error.stderr).trim() : '';
-      const detail = message || 'Failed to create permanent git worktree';
+    const mutation = await this.worktreeGitService.createPermanentWorktree(reservedIdentity || {
+      sourceWorkspace: root,
+      workspace: target,
+      branch,
+    });
+    const postcondition = mutation.postcondition;
+    if (
+      postcondition.proven
+      && postcondition.exists
+      && postcondition.registered
+      && postcondition.branchMatches
+      && postcondition.branchExists
+    ) {
+      return commitSuccess();
+    }
+    if (mutation.commandFailure) {
+      const detail = mutation.commandFailure.message;
       if (operation) {
         const state = postcondition.proven
           && !postcondition.exists
@@ -8910,17 +8826,14 @@ class AgentManager extends EventEmitter {
           : 'unknown';
         this.commitPersistentProjectOperation(operation, state, null, detail);
       }
-      throw new Error(detail, { cause: caughtError });
-    } finally {
-      invalidateGitWorktreeInfoCache();
+      throw new Error(detail, { cause: mutation.commandFailure.cause });
     }
-
-    const postcondition = await this.inspectGitWorktreePostcondition(root, target, branch);
     if (
       !postcondition.proven
       || !postcondition.exists
       || !postcondition.registered
       || !postcondition.branchMatches
+      || !postcondition.branchExists
     ) {
       const detail = postcondition.error || 'Permanent worktree creation could not be proven';
       if (operation) this.commitPersistentProjectOperation(operation, 'unknown', null, detail);
@@ -8935,34 +8848,11 @@ class AgentManager extends EventEmitter {
     if (!created?.workspace || !created?.sourceWorkspace) {
       return { rolledBack: true };
     }
-    const errors: string[] = [];
-    try {
-      await execFileAsync('git', ['-C', created.sourceWorkspace, 'worktree', 'remove', '--force', created.workspace], {
-        timeout: 60000,
-        maxBuffer: 1024 * 1024 * 4,
-      });
-    } catch (caughtError: unknown) {
-      const error = caughtError as ErrorRecord;
-      const message = error && error.stderr ? String(error.stderr).trim() : '';
-      errors.push(message || 'Failed to remove the created worktree');
-    } finally {
-      invalidateGitWorktreeInfoCache();
-    }
-    if (created.branch) {
-      try {
-        await execFileAsync('git', ['-C', created.sourceWorkspace, 'branch', '-D', created.branch], {
-          timeout: 30000,
-          maxBuffer: 1024 * 1024 * 4,
-        });
-      } catch (caughtError: unknown) {
-      const error = caughtError as ErrorRecord;
-        const message = error && error.stderr ? String(error.stderr).trim() : '';
-        errors.push(message || 'Failed to delete the created worktree branch');
-      }
-    }
-    return errors.length > 0
-      ? { rolledBack: false, error: errors.join('; ') }
-      : { rolledBack: true };
+    return this.worktreeGitService.rollbackPermanentWorktree({
+      sourceWorkspace: created.sourceWorkspace,
+      workspace: created.workspace,
+      branch: created.branch || '',
+    });
   }
 
   async inspectForkWorktreeProject(workspace: string) {
