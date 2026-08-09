@@ -50,6 +50,10 @@ const serverBackedTests = new Set([
   'test-session-terminal-input-e2e.ts',
 ]);
 const exclusiveTestFiles = new Set([
+  // This browser test drives a complete external Server and native Terminal.
+  // Run it after the shared worker pool so process pressure cannot turn its
+  // bounded UI waits into unrelated startup failures.
+  'test-session-terminal-input-e2e.ts',
   // This suite exercises cancellation and cleanup against real child-process
   // timing. Parallel process suites can exhaust its outer 45-second budget
   // even though every bounded subtest completes normally in isolation.

@@ -18,6 +18,8 @@ type TestWindow = typeof window & {
   __lastAlertMessage: string | null;
 };
 
+const TEST_BASE_URL = process.env.FARMING_SERVER_TEST_BASE_URL || 'http://localhost:3000';
+
 async function launchBrowser() {
   return puppeteer.launch({
     headless: true,
@@ -30,11 +32,24 @@ async function openDisposableShellSession(page) {
   return startDisposableSession(page, 'bash');
 }
 
+async function openTestServer(page) {
+  const response = await page.goto(TEST_BASE_URL, { waitUntil: 'networkidle2' });
+  if (!response) throw new Error(`Farming test server did not respond at ${TEST_BASE_URL}`);
+  if (response.status() === 401) {
+    throw new Error(
+      `Farming terminal input E2E requires a no-auth test server at ${TEST_BASE_URL}; received 401 Unauthorized`,
+    );
+  }
+  if (!response.ok()) {
+    throw new Error(`Farming test server returned HTTP ${response.status()} at ${TEST_BASE_URL}`);
+  }
+}
+
 async function startDisposableSession(page, agentName) {
   const workspace = path.join(os.tmpdir(), `farming-e2e-${Date.now()}`);
   fs.mkdirSync(workspace, { recursive: true });
 
-  await page.goto('http://localhost:3000', { waitUntil: 'networkidle2' });
+  await openTestServer(page);
   await page.waitForFunction(() => !document.documentElement.innerHTML.includes('xterm.min.js'));
   await page.waitForFunction(() => Boolean((window as TestWindow).FarmingTerminalBridge));
   await page.waitForSelector('#input-dialog.active, .agent-block, #main-agent-block', { timeout: 10000 });
@@ -204,7 +219,7 @@ async function getSessionLayoutMetrics(page) {
 }
 
 async function openClaudeFromDialog(page, startAgent = false) {
-  await page.goto('http://localhost:3000', { waitUntil: 'networkidle2' });
+  await openTestServer(page);
   const dialogAlreadyActive = await page.$('#input-dialog.active');
   if (!dialogAlreadyActive) {
     await page.click('.sidebar-item');
@@ -234,7 +249,7 @@ async function openClaudeFromDialog(page, startAgent = false) {
 }
 
 async function openAgentWorkspaceDialog(page, agentName) {
-  await page.goto('http://localhost:3000', { waitUntil: 'networkidle2' });
+  await openTestServer(page);
   const dialogAlreadyActive = await page.$('#input-dialog.active');
   if (!dialogAlreadyActive) {
     await page.click('.sidebar-item');
@@ -293,8 +308,7 @@ async function getImeInputHandle(page) {
   });
 }
 
-async function run() {
-  const browser = await launchBrowser();
+async function runWithBrowser(browser) {
   const page = await browser.newPage();
   await page.setViewport({ width: 1600, height: 1200, deviceScaleFactor: 1 });
 
@@ -574,7 +588,15 @@ async function run() {
   await zshPage.close();
 
   console.log('test-session-terminal-input-e2e passed');
-  await browser.close();
+}
+
+async function run() {
+  const browser = await launchBrowser();
+  try {
+    await runWithBrowser(browser);
+  } finally {
+    await browser.close();
+  }
 }
 
 run().catch((error) => {
