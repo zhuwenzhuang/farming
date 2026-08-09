@@ -16,6 +16,7 @@ function run() {
     'src/components/code/CodeOverlays.tsx',
     'src/components/code/CodeSidebar.tsx',
     'src/components/code/UsagePanel.tsx',
+    'src/components/code/agent-session-inventory.ts',
     'src/components/code/agent-list-state.ts',
     'src/components/code/agent-row-state.ts',
     'src/components/code/agent-terminal-inference.ts',
@@ -702,8 +703,9 @@ function run() {
       workspaceSource.includes("cache: options.fresh ? 'no-store' : 'default'") &&
       workspaceSource.includes("cache: 'no-store'") &&
       workspaceSource.includes('const loadMoreAgentSessions = useCallback(async') &&
-      workspaceSource.includes('setAgentSessionNextCursor(page.nextCursor)') &&
-      workspaceSource.includes('const seen = new Set(current.map(agentSessionId))') &&
+      workspaceSource.includes("type: 'page-appended'") &&
+      workspaceSource.includes("case 'page-appended'") &&
+      workspaceSource.includes('const seen = new Set(state.sessions.map(agentSessionId))') &&
       workspaceSource.includes('canLoadMoreAgentSessions={agentSessionsHasMore}') &&
       workspaceSource.includes('canLoadMoreHistoryAgentSessions={agentSessionsHasMore}') &&
       workspaceSource.includes('onLoadMoreHistoryAgentSessions={loadMoreAgentSessions}') &&

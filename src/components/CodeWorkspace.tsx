@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
+import { useEffect, useMemo, useReducer, useRef, useState, useCallback } from 'react'
 import type {
   ChangeEvent as ReactChangeEvent,
   ClipboardEvent as ReactClipboardEvent,
@@ -245,6 +245,11 @@ import {
   saveSessionDisplayState,
 } from './code/session-display'
 import {
+  createAgentSessionInventoryState,
+  reduceAgentSessionInventory,
+  type AgentSessionPage,
+} from './code/agent-session-inventory'
+import {
   normalizeAgentLaunchOptions,
   type AgentLaunchOption,
 } from './code/agent-launch-options'
@@ -403,13 +408,6 @@ interface CodeWorkspaceProps {
   onComputerResourceDeletion: (deletion: ComputerResourceDeletion) => void
   onSyncUiPreferences: (patch: Partial<UiPreferences>) => void
   onUpdateUiPreferences: (patch: Partial<UiPreferences>) => void
-}
-
-interface AgentSessionPage {
-  sessions: AgentSessionHistoryItem[]
-  nextCursor: string
-  hasMore: boolean
-  total: number
 }
 
 const DEFAULT_SIDEBAR_WIDTH = 296
@@ -726,10 +724,18 @@ export function CodeWorkspace({
   const [claudeEffort, setClaudeEffort] = useState('config')
   const [claudeSettings, setClaudeSettings] = useState<ClaudeSettingsSummary>(DEFAULT_CLAUDE_SETTINGS)
   const [discoveredSlashCommands, setDiscoveredSlashCommands] = useState<SlashCommandOption[]>([])
-  const [agentSessions, setAgentSessions] = useState<AgentSessionHistoryItem[]>([])
-  const [agentSessionNextCursor, setAgentSessionNextCursor] = useState('')
-  const [agentSessionsHasMore, setAgentSessionsHasMore] = useState(false)
-  const [agentSessionTotal, setAgentSessionTotal] = useState<number | null>(null)
+  const [agentSessionInventory, dispatchAgentSessionInventory] = useReducer(
+    reduceAgentSessionInventory,
+    AGENT_SESSION_PAGE_SIZE,
+    createAgentSessionInventoryState,
+  )
+  const {
+    sessions: agentSessions,
+    nextCursor: agentSessionNextCursor,
+    hasMore: agentSessionsHasMore,
+    total: agentSessionTotal,
+    loadedCount: agentSessionLoadedCount,
+  } = agentSessionInventory
   const [agentSessionsFreshLoading, setAgentSessionsFreshLoading] = useState(false)
   const [agentSessionsFreshError, setAgentSessionsFreshError] = useState('')
   const [searchedAgentSessions, setSearchedAgentSessions] = useState<AgentSessionHistoryItem[]>([])
@@ -741,7 +747,6 @@ export function CodeWorkspace({
   const agentSessionsBackgroundTimerRef = useRef<number | null>(null)
   const agentSessionsBackgroundFreshRef = useRef(false)
   const agentSessionsBackgroundCancelRef = useRef<(() => void) | null>(null)
-  const agentSessionLoadedCountRef = useRef(AGENT_SESSION_PAGE_SIZE)
   const [agentSessionPinnedOverrides, setAgentSessionPinnedOverrides] = useState<Record<string, boolean>>(
     () => loadSessionDisplayState().pinnedOverrides
   )
@@ -1765,11 +1770,7 @@ export function CodeWorkspace({
     fetchAgentSessionPage(fresh ? { fresh: true, signal: controller.signal } : { signal: controller.signal })
       .then(page => {
         if (cancelled || generation !== agentSessionsLoadGenerationRef.current) return
-        setAgentSessions(page.sessions)
-        setAgentSessionNextCursor(page.nextCursor)
-        setAgentSessionsHasMore(page.hasMore)
-        setAgentSessionTotal(page.total)
-        agentSessionLoadedCountRef.current = Math.max(AGENT_SESSION_PAGE_SIZE, page.sessions.length)
+        dispatchAgentSessionInventory({ type: 'first-page-replaced', page })
       })
       .catch(() => {
         if (controller.signal.aborted) return
@@ -1831,21 +1832,7 @@ export function CodeWorkspace({
     agentSessionsLoadingRef.current = true
     try {
       const page = await fetchAgentSessionPage({ cursor: agentSessionNextCursor })
-      setAgentSessions(current => {
-        const seen = new Set(current.map(agentSessionId))
-        const next = [...current]
-        page.sessions.forEach(session => {
-          const sessionId = agentSessionId(session)
-          if (seen.has(sessionId)) return
-          seen.add(sessionId)
-          next.push(session)
-        })
-        agentSessionLoadedCountRef.current = Math.max(AGENT_SESSION_PAGE_SIZE, next.length)
-        return next
-      })
-      setAgentSessionNextCursor(page.nextCursor)
-      setAgentSessionsHasMore(page.hasMore)
-      setAgentSessionTotal(page.total)
+      dispatchAgentSessionInventory({ type: 'page-appended', page })
       return page.sessions.length > 0
     } catch {
       return false
@@ -3282,10 +3269,8 @@ export function CodeWorkspace({
         }),
       })
       if (!response.ok) throw new Error(copy.updateFailed)
-      const page = await fetchAgentSessions({ limit: agentSessionLoadedCountRef.current })
-      setAgentSessions(page.sessions)
-      setAgentSessionNextCursor(page.nextCursor)
-      setAgentSessionsHasMore(page.hasMore)
+      const page = await fetchAgentSessions({ limit: agentSessionLoadedCount })
+      dispatchAgentSessionInventory({ type: 'visible-page-replaced', page })
       setAgentSessionPinnedOverrides(previous => {
         const next = { ...previous }
         delete next[sessionId]
@@ -3302,7 +3287,7 @@ export function CodeWorkspace({
         message: error instanceof Error ? error.message : copy.updateFailed,
       })
     }
-  }, [closeContextMenu, contextMenuAgentSession, copy.updateFailed, fetchAgentSessions, focusAgentSessionRow, mainPageSessionKeys])
+  }, [agentSessionLoadedCount, closeContextMenu, contextMenuAgentSession, copy.updateFailed, fetchAgentSessions, focusAgentSessionRow, mainPageSessionKeys])
 
   const archiveContextMenuAgentSession = useCallback(() => {
     if (!contextMenuAgentSession) return
@@ -4407,11 +4392,12 @@ export function CodeWorkspace({
   const resumeAgentSession = useCallback(async (provider: string, sessionId: string, providerHomeId = '', customTitle = '') => {
     const sessionHandle = agentSessionId({ provider, id: sessionId, providerHomeId })
     const markSessionResumedLocally = () => {
-      setAgentSessions(current => current.map(session => (
-        session.provider === provider && session.id === sessionId && ((session.providerHomeId || 'default') === (providerHomeId || 'default'))
-          ? { ...session, archived: false }
-          : session
-      )))
+      dispatchAgentSessionInventory({
+        type: 'session-resumed',
+        provider,
+        sessionId,
+        providerHomeId,
+      })
     }
     const existingAgent = activeAgents.find(agent => (
       (
