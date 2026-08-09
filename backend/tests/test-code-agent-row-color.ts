@@ -1,13 +1,12 @@
 const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
+const { readCodeStyleSource } = require('./style-source-reader');
 
-const projectRoot = path.join(__dirname, '..', '..');
-const styles = fs.readFileSync(path.join(projectRoot, 'src', 'styles', 'main.css'), 'utf8');
+const styles = readCodeStyleSource('src/styles/main.css');
+const gitHistoryStyles = readCodeStyleSource('src/styles/git-history.css');
 
-function ruleBody(selector) {
+function ruleBody(selector, source = styles) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const match = styles.match(new RegExp(`(?:^|\\n)${escaped}\\s*\\{([^}]*)\\}`, 'm'));
+  const match = source.match(new RegExp(`(?:^|\\n)${escaped}\\s*\\{([^}]*)\\}`, 'm'));
   assert(match, `Missing CSS rule: ${selector}`);
   return match[1];
 }
@@ -27,8 +26,12 @@ const agentSectionBackground = propertyValue(ruleBody('.code-agents-section'), '
 const projectRowBackground = propertyValue(ruleBody('.code-project-row'), 'background');
 const projectRowActionSurface = propertyValue(ruleBody('.code-project-row'), '--code-project-row-action-surface');
 const projectTitleColor = propertyValue(ruleBody('.code-project-title'), 'color');
-const filesHeaderBackground = propertyValue(ruleBody('.code-open-editors-header,\n.code-git-history-header,\n.code-files-header'), 'background');
-const filesHeaderColor = propertyValue(ruleBody('.code-open-editors-header,\n.code-git-history-header,\n.code-files-header'), 'color');
+const filesHeaderRule = ruleBody('.code-open-editors-header,\n.code-files-header');
+const gitHistoryHeaderRule = ruleBody('.code-git-history-header', gitHistoryStyles);
+const filesHeaderBackground = propertyValue(filesHeaderRule, 'background');
+const filesHeaderColor = propertyValue(filesHeaderRule, 'color');
+const gitHistoryHeaderBackground = propertyValue(gitHistoryHeaderRule, 'background');
+const gitHistoryHeaderColor = propertyValue(gitHistoryHeaderRule, 'color');
 const openEditorActionSurface = propertyValue(ruleBody('.code-open-editor-row'), '--code-open-editor-row-action-surface');
 const activeOpenEditorActionSurface = propertyValue(ruleBody('.code-open-editor-row.active'), '--code-open-editor-row-action-surface');
 const openEditorColor = propertyValue(ruleBody('.code-open-editor-main'), 'color');
@@ -49,6 +52,8 @@ assert.strictEqual(projectRowActionSurface, '#f7f7f6');
 assert.strictEqual(projectTitleColor, '#444444');
 assert.strictEqual(filesHeaderBackground, '#f7f7f6');
 assert.strictEqual(filesHeaderColor, '#606060');
+assert.strictEqual(gitHistoryHeaderBackground, filesHeaderBackground);
+assert.strictEqual(gitHistoryHeaderColor, filesHeaderColor);
 assert.strictEqual(openEditorActionSurface, '#f7f7f6');
 assert.strictEqual(activeOpenEditorActionSurface, '#e9e9e8');
 assert.strictEqual(openEditorColor, '#444444');

@@ -8,12 +8,14 @@ const mainEntrySource = fs.readFileSync(path.join(projectRoot, 'src/main.tsx'), 
 const expectedSources = [
   'src/styles/tokens.css',
   'src/styles/main.css',
+  'src/styles/git-history.css',
   'src/styles/composer.css',
   'src/styles/plugin.css',
   'src/styles/settings.css',
   'src/styles/share.css',
   'src/styles/sidebar-resources.css',
   'src/styles/code-dark.css',
+  'src/styles/git-history-dark.css',
   'src/styles/composer-dark.css',
   'src/styles/plugin-dark.css',
   'src/styles/settings-dark.css',
@@ -26,17 +28,27 @@ assert.deepStrictEqual(
   'the Code style manifest must preserve the runtime cascade order',
 );
 // Extracted owners stay adjacent to the monolith they came from and before the
-// later feature owners. Moving either Composer file behind those owners would
-// create a new cross-domain cascade even when every individual rule is intact.
+// later feature owners. Reordering these files would create a new cross-domain
+// cascade even when every individual rule is intact.
+assert.strictEqual(
+  CODE_STYLE_SOURCES.indexOf('src/styles/git-history.css'),
+  CODE_STYLE_SOURCES.indexOf('src/styles/main.css') + 1,
+  'Git History base styles must load immediately after main.css',
+);
 assert.strictEqual(
   CODE_STYLE_SOURCES.indexOf('src/styles/composer.css'),
-  CODE_STYLE_SOURCES.indexOf('src/styles/main.css') + 1,
-  'Composer base styles must load immediately after main.css',
+  CODE_STYLE_SOURCES.indexOf('src/styles/git-history.css') + 1,
+  'Composer base styles must load immediately after Git History',
+);
+assert.strictEqual(
+  CODE_STYLE_SOURCES.indexOf('src/styles/git-history-dark.css'),
+  CODE_STYLE_SOURCES.indexOf('src/styles/code-dark.css') + 1,
+  'Git History dark styles must load immediately after code-dark.css',
 );
 assert.strictEqual(
   CODE_STYLE_SOURCES.indexOf('src/styles/composer-dark.css'),
-  CODE_STYLE_SOURCES.indexOf('src/styles/code-dark.css') + 1,
-  'Composer dark styles must load immediately after code-dark.css',
+  CODE_STYLE_SOURCES.indexOf('src/styles/git-history-dark.css') + 1,
+  'Composer dark styles must load immediately after dark Git History',
 );
 assert.strictEqual(new Set(CODE_STYLE_SOURCES).size, CODE_STYLE_SOURCES.length, 'Code style sources must be unique');
 

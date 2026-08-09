@@ -1,6 +1,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const { readCodeStyleSource } = require('./style-source-reader');
 
 function read(relativePath) {
   return fs.readFileSync(path.join(__dirname, '../..', relativePath), 'utf8');
@@ -14,7 +15,7 @@ function run() {
   const api = read('src/lib/workspace-files.ts');
   const router = read('backend/workspace-file-router.cts');
   const copy = read('src/components/code/copy.ts');
-  const styles = `${read('src/styles/main.css')}\n${read('src/styles/code-dark.css')}`;
+  const styles = `${readCodeStyleSource('src/styles/git-history.css')}\n${readCodeStyleSource('src/styles/git-history-dark.css')}`;
   const notices = read('THIRD_PARTY_NOTICES.md');
 
   assert(projectFiles.includes("import { GitHistorySection } from './GitHistorySection'"));

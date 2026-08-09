@@ -834,8 +834,7 @@ body.code-mode[data-appearance='dark'] .code-usage-provider {
 }
 
 body.code-mode[data-appearance='dark'] .code-files-title,
-body.code-mode[data-appearance='dark'] .code-open-editors-title,
-body.code-mode[data-appearance='dark'] .code-git-history-title {
+body.code-mode[data-appearance='dark'] .code-open-editors-title {
   color: var(--code-dark-text-soft);
 }
 
@@ -975,106 +974,6 @@ body.code-mode[data-appearance='dark'] .code-file-change-status,
 body.code-mode[data-appearance='dark'] .code-file-change-status.modified,
 body.code-mode[data-appearance='dark'] .code-file-change-group-toggle {
   color: var(--code-dark-text-soft);
-}
-
-body.code-mode[data-appearance='dark'] .code-git-history-section {
-  --code-git-history-node-bg: var(--code-dark-bg-soft);
-  color: var(--code-dark-text);
-}
-
-body.code-mode[data-appearance='dark'] .code-git-history-header,
-body.code-mode[data-appearance='dark'] .code-git-history-subject,
-body.code-mode[data-appearance='dark'] .code-git-history-change,
-body.code-mode[data-appearance='dark'] .code-git-history-parent-select .code-select-trigger {
-  color: var(--code-dark-text-soft);
-}
-
-body.code-mode[data-appearance='dark'] .code-git-history-header {
-  background: var(--code-dark-bg-soft);
-}
-
-body.code-mode[data-appearance='dark'] .code-git-history-entry.selected,
-body.code-mode[data-appearance='dark'] .code-git-history-commit:hover,
-body.code-mode[data-appearance='dark'] .code-git-history-commit:focus-visible,
-body.code-mode[data-appearance='dark'] button.code-git-history-change:hover,
-body.code-mode[data-appearance='dark'] button.code-git-history-change:focus-visible,
-body.code-mode[data-appearance='dark'] .code-git-history-refresh:hover,
-body.code-mode[data-appearance='dark'] .code-git-history-refresh:focus-visible {
-  background: var(--code-dark-bg-hover);
-}
-
-body.code-mode[data-appearance='dark'] .code-git-history-meta,
-body.code-mode[data-appearance='dark'] .code-git-history-change-previous,
-body.code-mode[data-appearance='dark'] .code-git-history-change-summary,
-body.code-mode[data-appearance='dark'] .code-git-history-root-label,
-body.code-mode[data-appearance='dark'] .code-git-history-status,
-body.code-mode[data-appearance='dark'] .code-git-history-reference-more {
-  color: var(--code-dark-text-muted);
-}
-
-body.code-mode[data-appearance='dark'] .code-git-history-parent-select .code-select-trigger {
-  border-color: var(--code-dark-border);
-  background: var(--code-dark-bg-soft);
-}
-
-body.code-mode[data-appearance='dark'] .code-git-history-scope:hover,
-body.code-mode[data-appearance='dark'] .code-git-history-scope:focus-visible,
-body.code-mode[data-appearance='dark'] .code-git-history-scope[aria-expanded='true'] {
-  background: var(--code-dark-bg-hover);
-  color: var(--code-dark-text);
-}
-
-body.code-mode[data-appearance='dark'] .code-git-history-scope-menu {
-  border-color: var(--code-dark-border);
-  background: rgba(22, 27, 34, 0.98);
-  color: var(--code-dark-text-soft);
-}
-
-body.code-mode[data-appearance='dark'] .code-git-history-scope-menu button:hover,
-body.code-mode[data-appearance='dark'] .code-git-history-scope-menu button:focus-visible {
-  background: var(--code-dark-bg-hover);
-}
-
-body.code-mode[data-appearance='dark'] .code-git-history-message {
-  border-left-color: var(--code-dark-border-strong);
-  background: var(--code-dark-bg-soft);
-}
-
-body.code-mode[data-appearance='dark'] .code-git-history-message-label {
-  color: var(--code-dark-text-muted);
-}
-
-body.code-mode[data-appearance='dark'] .code-git-history-message-body {
-  color: var(--code-dark-text-soft);
-}
-
-body.code-mode[data-appearance='dark'] .code-git-history-reference,
-body.code-mode[data-appearance='dark'] .code-git-history-branch,
-body.code-mode[data-appearance='dark'] .code-git-history-scope {
-  color: #8faed8;
-}
-
-body.code-mode[data-appearance='dark'] .code-git-history-reference.tag {
-  color: #d2b47c;
-}
-
-body.code-mode[data-appearance='dark'] .code-git-history-reference.remote-branch {
-  color: #69c5bd;
-}
-
-body.code-mode[data-appearance='dark'] .code-git-history-review,
-body.code-mode[data-appearance='dark'] .code-git-history-load-more {
-  color: #8faed8;
-}
-
-body.code-mode[data-appearance='dark'] .code-git-history-review:hover,
-body.code-mode[data-appearance='dark'] .code-git-history-review:focus-visible {
-  background: var(--code-dark-bg-hover);
-  color: #b7cff0;
-}
-
-body.code-mode[data-appearance='dark'] .code-git-history-status.error {
-  color: var(--code-dark-danger);
 }
 
 body.code-mode[data-appearance='dark'] .code-file-change-review {

@@ -143,7 +143,7 @@ assert.deepEqual(
 )
 assert.deepEqual(
   [main.remaining.length, digest(main.remaining)],
-  [2668, '23740c3377593bbc42f02c832af287f09cfc9b755fd7f0390516de3a7aeaf69c'],
+  [2571, 'a21dc70786fb7b2a821e13d68e1d7f4202c106f6b9b354264931a0709fd66c5e'],
   'main.css must preserve the ordered non-Composer rule set',
 )
 assert.deepEqual(
@@ -153,7 +153,7 @@ assert.deepEqual(
 )
 assert.deepEqual(
   [dark.remaining.length, digest(dark.remaining)],
-  [1005, '747d31028b337f511cb9bed48b5dff47066957766cc06cc34c252e305bf164e9'],
+  [965, '6c37c809c9f48e84d4e2f2707fce2efad1e9d9a84efd0434be8a344bc3256056'],
   'code-dark.css must preserve the ordered non-Composer dark rule set',
 )
 
