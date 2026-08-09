@@ -895,7 +895,7 @@ function run() {
   assert(
     serverSource.includes('async function archiveAgentFromMessage') &&
       serverSource.includes('const result = await agentManager.archiveAgent(agentId)') &&
-      serverSource.includes("case 'archive-agent':") &&
+      serverSource.includes("'archive-agent': registerClientMessage('archive-agent'") &&
       serverSource.includes('void archiveAgentFromMessage(ws, data.agentId)') &&
       !serverSource.includes("case 'kill-agent':"),
     'WebSocket Agent termination should expose only the shared Archive lifecycle'

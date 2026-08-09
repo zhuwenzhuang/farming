@@ -242,6 +242,11 @@ import { ConfigManager } from './config-manager.cjs';
 import { ThemeManager } from './theme-manager.cjs';
 import { createThemeRouter } from './theme-router.cjs';
 import { createQrShareRouter, entryPathWithQuery } from './qr-share-router.cjs';
+import {
+  createClientMessageRegistration,
+  defineClientMessageDispatchTable,
+  dispatchClientMessage,
+} from './websocket-client-dispatch.cjs';
 import { TokenAuth } from './auth.cjs';
 import { readOnlyClientMessageAllowed } from './read-only-access.cjs';
 import { getLocalIPs, getPrimaryLocalIP } from './network.cjs';
@@ -3112,292 +3117,274 @@ async function sendTerminalCheckpointResult(
   }
 }
 
-function handleMessage(ws: WebSocketClient, data: ServerClientMessage) {
-  switch (data.type) {
-    case 'protocol-hello':
-      if (!protocolCompatible(data.protocolVersion)) {
-        // Released clients render protocol-error messages, so deliver the
-        // upgrade guidance before the terminal 4002 close reaches them.
-        ws.send(JSON.stringify({
-          type: 'protocol-error',
-          protocolVersion: PROTOCOL_VERSION,
-          requestId: '',
-          message: Number(data.protocolVersion) < MIN_PROTOCOL_VERSION
-            ? `This Farming page uses protocol ${data.protocolVersion}, but the backend requires ${MIN_PROTOCOL_VERSION}. Refresh this page or update the Farming client.`
-            : `This Farming page uses protocol ${data.protocolVersion}, but the backend only supports ${PROTOCOL_VERSION}. Update and restart the Farming backend.`,
-        }));
-        ws.close(4002, `Unsupported Farming protocol version ${data.protocolVersion}`);
-        return;
-      }
-      ws.protocolVersion = data.protocolVersion;
-      if (
-        ws.initialStateSnapshotSent !== true
-        && data.initialStateScope === 'focused'
-        && data.initialFocusedAgentId
-      ) {
-        ws.focusedAgentId = data.initialFocusedAgentId;
-        ws.stateScope = 'focused';
-      }
-      if (ws.initialStateSnapshotSent !== true) sendState(ws);
-      sendResourceSnapshots(ws);
-      sendLanguageServerRefreshSnapshot(ws);
-      break;
-    case 'business-health-probe':
-      if (!ws.protocolVersion) {
-        ws.send(JSON.stringify({
-          type: 'protocol-error',
-          protocolVersion: PROTOCOL_VERSION,
-          requestId: data.requestId,
-          message: 'Business health requires a negotiated Farming protocol',
-        }));
-        return;
-      }
-      void sendBusinessHealthResult(ws, data.requestId);
-      break;
-    case 'terminal-checkpoint-request':
-      if (!ws.protocolVersion) {
-        ws.send(JSON.stringify({
-          type: 'protocol-error',
-          protocolVersion: PROTOCOL_VERSION,
-          requestId: data.requestId,
-          message: 'Terminal checkpoint requires a negotiated Farming protocol',
-        }));
-        return;
-      }
-      void sendTerminalCheckpointResult(ws, data.requestId, data.agentId);
-      break;
-    case 'state-resync':
-      sendState(ws);
-      break;
-    case 'start-agent': {
-      const workspace = typeof data.workspace === 'string' ? data.workspace : null;
-      const revealChatAgentWhileConnecting = data.agentRuntimeMode === 'chat';
-      void (async () => {
-        const projectWorkspace = data.asMain === true
-          ? ''
-          : await canonicalProjectWorkspace(
-            typeof data.projectWorkspace === 'string' && data.projectWorkspace.trim()
-              ? data.projectWorkspace
-              : workspace
-          );
-        agentManager.startAgent(data.command, workspace, (agentId, error) => {
-          if (error) {
-            ws.send(JSON.stringify({ type: 'error', message: error }));
-          } else if (agentId) {
-            void (async () => {
+const registerClientMessage = createClientMessageRegistration<WebSocketClient>();
+const clientMessageDispatchTable = defineClientMessageDispatchTable<WebSocketClient>({
+  'protocol-hello': registerClientMessage('protocol-hello', (ws, data) => {
+    if (!protocolCompatible(data.protocolVersion)) {
+      // Released clients render protocol-error messages, so deliver the
+      // upgrade guidance before the terminal 4002 close reaches them.
+      ws.send(JSON.stringify({
+        type: 'protocol-error',
+        protocolVersion: PROTOCOL_VERSION,
+        requestId: '',
+        message: Number(data.protocolVersion) < MIN_PROTOCOL_VERSION
+          ? `This Farming page uses protocol ${data.protocolVersion}, but the backend requires ${MIN_PROTOCOL_VERSION}. Refresh this page or update the Farming client.`
+          : `This Farming page uses protocol ${data.protocolVersion}, but the backend only supports ${PROTOCOL_VERSION}. Update and restart the Farming backend.`,
+      }));
+      ws.close(4002, `Unsupported Farming protocol version ${data.protocolVersion}`);
+      return;
+    }
+    ws.protocolVersion = data.protocolVersion;
+    if (
+      ws.initialStateSnapshotSent !== true
+      && data.initialStateScope === 'focused'
+      && data.initialFocusedAgentId
+    ) {
+      ws.focusedAgentId = data.initialFocusedAgentId;
+      ws.stateScope = 'focused';
+    }
+    if (ws.initialStateSnapshotSent !== true) sendState(ws);
+    sendResourceSnapshots(ws);
+    sendLanguageServerRefreshSnapshot(ws);
+  }),
+  'business-health-probe': registerClientMessage('business-health-probe', (ws, data) => {
+    if (!ws.protocolVersion) {
+      ws.send(JSON.stringify({
+        type: 'protocol-error',
+        protocolVersion: PROTOCOL_VERSION,
+        requestId: data.requestId,
+        message: 'Business health requires a negotiated Farming protocol',
+      }));
+      return;
+    }
+    void sendBusinessHealthResult(ws, data.requestId);
+  }),
+  'terminal-checkpoint-request': registerClientMessage('terminal-checkpoint-request', (ws, data) => {
+    if (!ws.protocolVersion) {
+      ws.send(JSON.stringify({
+        type: 'protocol-error',
+        protocolVersion: PROTOCOL_VERSION,
+        requestId: data.requestId,
+        message: 'Terminal checkpoint requires a negotiated Farming protocol',
+      }));
+      return;
+    }
+    void sendTerminalCheckpointResult(ws, data.requestId, data.agentId);
+  }),
+  'state-resync': registerClientMessage('state-resync', (ws) => {
+    sendState(ws);
+  }),
+  'start-agent': registerClientMessage('start-agent', (ws, data) => {
+    const workspace = typeof data.workspace === 'string' ? data.workspace : null;
+    const revealChatAgentWhileConnecting = data.agentRuntimeMode === 'chat';
+    void (async () => {
+      const projectWorkspace = data.asMain === true
+        ? ''
+        : await canonicalProjectWorkspace(
+          typeof data.projectWorkspace === 'string' && data.projectWorkspace.trim()
+            ? data.projectWorkspace
+            : workspace
+        );
+      agentManager.startAgent(data.command, workspace, (agentId, error) => {
+        if (error) {
+          ws.send(JSON.stringify({ type: 'error', message: error }));
+        } else if (agentId) {
+          void (async () => {
+            try {
+              if (projectWorkspace) configManager.mountProjectWorkspace(projectWorkspace);
+            } catch (mountError) {
+              let rollbackError = '';
               try {
-                if (projectWorkspace) configManager.mountProjectWorkspace(projectWorkspace);
-              } catch (mountError) {
-                let rollbackError = '';
-                try {
-                  const rollback = await agentManager.archiveAgent(agentId, {
-                    reason: 'project-mount-failed',
-                    recordHistory: false,
-                    requireEngineExit: true,
-                    scheduleProviderArchive: false,
-                  });
-                  if (rollback?.error) rollbackError = rollback.error;
-                } catch (cleanupError) {
-                  rollbackError = caughtError(cleanupError).message || String(cleanupError);
-                }
-                queueStateMetadata(currentAgentListMetadata());
-                broadcastState();
-                const errorMessage = caughtError(mountError).message || 'Failed to create Project';
-                ws.send(JSON.stringify({
-                  type: 'error',
-                  message: rollbackError
-                    ? `${errorMessage}. Rollback failed: ${rollbackError}`
-                    : errorMessage,
-                }));
-                return;
+                const rollback = await agentManager.archiveAgent(agentId, {
+                  reason: 'project-mount-failed',
+                  recordHistory: false,
+                  requireEngineExit: true,
+                  scheduleProviderArchive: false,
+                });
+                if (rollback?.error) rollbackError = rollback.error;
+              } catch (cleanupError) {
+                rollbackError = caughtError(cleanupError).message || String(cleanupError);
               }
-              ws.agentId = agentId;
               queueStateMetadata(currentAgentListMetadata());
               broadcastState();
-              ws.send(JSON.stringify({ type: 'agent-started', agentId }));
-            })().catch((callbackError: unknown) => {
-              console.warn('Failed to finish started Agent transition:', agentId, caughtError(callbackError).message || callbackError);
-            });
-          }
-        }, {
-          wantsMain: data.asMain === true,
-          projectWorkspace,
-          task: typeof data.task === 'string' ? data.task : '',
-          workflowTemplate: typeof data.workflowTemplate === 'string' ? data.workflowTemplate : '',
-          customTitle: typeof data.customTitle === 'string' ? data.customTitle : '',
-          createRequestId: typeof data.requestId === 'string' ? data.requestId : '',
-          codexApprovalMode: typeof data.codexApprovalMode === 'string' ? data.codexApprovalMode : undefined,
-          agentRuntimeMode: typeof data.agentRuntimeMode === 'string' && ['acp', 'chat'].includes(data.agentRuntimeMode) ? data.agentRuntimeMode : 'terminal',
-          acpHistoryMode: data.acpHistoryMode === 'resume' ? 'resume' : 'load',
-          providerHomeId: typeof data.providerHomeId === 'string' ? data.providerHomeId : '',
-          ...(revealChatAgentWhileConnecting ? {
-            onAgentRegistered: (agentId: string) => {
-              ws.agentId = agentId;
-              broadcastState();
-              ws.send(JSON.stringify({ type: 'agent-started', agentId }));
-            },
-          } : {}),
-          ...(Array.isArray(data.additionalDirectories) ? { additionalDirectories: data.additionalDirectories } : {}),
-          ...(Array.isArray(data.mcpServers) ? { mcpServers: data.mcpServers } : {}),
-          ...(data.dangerouslySkipPermissions === true ? { dangerouslySkipPermissions: true } : {}),
-        });
-      })().catch((error: unknown) => {
-        ws.send(JSON.stringify({
-          type: 'error',
-          message: caughtError(error).message || 'Failed to resolve Project workspace',
-        }));
+              const errorMessage = caughtError(mountError).message || 'Failed to create Project';
+              ws.send(JSON.stringify({
+                type: 'error',
+                message: rollbackError
+                  ? `${errorMessage}. Rollback failed: ${rollbackError}`
+                  : errorMessage,
+              }));
+              return;
+            }
+            ws.agentId = agentId;
+            queueStateMetadata(currentAgentListMetadata());
+            broadcastState();
+            ws.send(JSON.stringify({ type: 'agent-started', agentId }));
+          })().catch((callbackError: unknown) => {
+            console.warn('Failed to finish started Agent transition:', agentId, caughtError(callbackError).message || callbackError);
+          });
+        }
+      }, {
+        wantsMain: data.asMain === true,
+        projectWorkspace,
+        task: typeof data.task === 'string' ? data.task : '',
+        workflowTemplate: typeof data.workflowTemplate === 'string' ? data.workflowTemplate : '',
+        customTitle: typeof data.customTitle === 'string' ? data.customTitle : '',
+        createRequestId: typeof data.requestId === 'string' ? data.requestId : '',
+        codexApprovalMode: typeof data.codexApprovalMode === 'string' ? data.codexApprovalMode : undefined,
+        agentRuntimeMode: typeof data.agentRuntimeMode === 'string' && ['acp', 'chat'].includes(data.agentRuntimeMode) ? data.agentRuntimeMode : 'terminal',
+        acpHistoryMode: data.acpHistoryMode === 'resume' ? 'resume' : 'load',
+        providerHomeId: typeof data.providerHomeId === 'string' ? data.providerHomeId : '',
+        ...(revealChatAgentWhileConnecting ? {
+          onAgentRegistered: (agentId: string) => {
+            ws.agentId = agentId;
+            broadcastState();
+            ws.send(JSON.stringify({ type: 'agent-started', agentId }));
+          },
+        } : {}),
+        ...(Array.isArray(data.additionalDirectories) ? { additionalDirectories: data.additionalDirectories } : {}),
+        ...(Array.isArray(data.mcpServers) ? { mcpServers: data.mcpServers } : {}),
+        ...(data.dangerouslySkipPermissions === true ? { dangerouslySkipPermissions: true } : {}),
       });
-      break;
+    })().catch((error: unknown) => {
+      ws.send(JSON.stringify({
+        type: 'error',
+        message: caughtError(error).message || 'Failed to resolve Project workspace',
+      }));
+    });
+  }),
+  input: registerClientMessage('input', (ws, data) => {
+    void sendInputMessage(ws, data);
+  }),
+  'composer-input': registerClientMessage('composer-input', (ws, data) => {
+    void sendComposerInputMessage(ws, data);
+  }),
+  'acp-permission-response': registerClientMessage('acp-permission-response', (ws, data) => {
+    try {
+      agentManager.respondToAcpPermission(
+        data.agentId,
+        data.requestId,
+        data.optionId,
+        data.cancelled === true
+      );
+    } catch (caught) {
+      const error = caughtError(caught);
+      ws.send(JSON.stringify({
+        type: 'error',
+        message: error && error.message ? error.message : 'Failed to respond to ACP permission',
+      }));
     }
-    case 'input':
-      {
-        void sendInputMessage(ws, data);
-      }
-      break;
-
-    case 'composer-input':
-      {
-        void sendComposerInputMessage(ws, data);
-      }
-      break;
-
-    case 'acp-permission-response':
-      try {
-        agentManager.respondToAcpPermission(
-          data.agentId,
-          data.requestId,
-          data.optionId,
-          data.cancelled === true
-        );
-      } catch (caught) {
-    const error = caughtError(caught);
-        ws.send(JSON.stringify({
-          type: 'error',
-          message: error && error.message ? error.message : 'Failed to respond to ACP permission',
-        }));
-      }
-      break;
-
-    case 'interrupt-agent':
-      if (data.agentId) {
-        void agentManager.interruptAgent(data.agentId);
-      }
-      break;
-      
-    case 'focus-agent': {
-      const previousActivityScope = normalizeAgentActivityScope(ws.activityScope);
-      const nextActivityScope = normalizeAgentActivityScope(data.activityScope ?? previousActivityScope);
-      const previousStateScope = normalizeAgentStateScope(ws.stateScope);
-      const previousPreviewScope = normalizeSessionPreviewScope(ws.previewScope);
-      const nextPreviewScope = normalizeSessionPreviewScope(data.previewScope ?? previousPreviewScope);
-      const previewScopeDeclared = Object.prototype.hasOwnProperty.call(data, 'previewScope');
-      const initialPreviewHydrationPending = previewScopeDeclared
-        ? declareSessionPreviewScope(ws)
-        : false;
-      const previousFocusedAgentId = ws.focusedAgentId;
-      const focusChanged = previousFocusedAgentId !== data.agentId;
-      const scopeChanged = previousActivityScope !== nextActivityScope;
-      const stateScopeTransition = agentStateScopeTransition(
-        previousStateScope,
-        previousFocusedAgentId,
-        normalizeAgentStateScope(data.stateScope ?? previousStateScope),
-        data.agentId,
-      );
-      const previewCheckpointRequired = sessionPreviewScopeCheckpointRequired(
-        previousPreviewScope,
-        previousFocusedAgentId,
-        nextPreviewScope,
-        data.agentId,
-      );
-      if (Object.prototype.hasOwnProperty.call(data, 'activityScope')) {
-        ws.activityScopeDeclared = true;
-      }
-      if (scopeChanged) {
-        if (ws.agentActivityAllCheckpointPending || ws.agentActivityCheckpointPending) {
-          ws.agentActivityResyncPending = true;
-        }
-        ws.agentActivityAllCheckpointPending = false;
-        ws.agentActivityCheckpointPending = false;
-      } else if (focusChanged && ws.agentActivityCheckpointPending) {
+  }),
+  'interrupt-agent': registerClientMessage('interrupt-agent', (_ws, data) => {
+    if (data.agentId) {
+      void agentManager.interruptAgent(data.agentId);
+    }
+  }),
+  'focus-agent': registerClientMessage('focus-agent', (ws, data) => {
+    const previousActivityScope = normalizeAgentActivityScope(ws.activityScope);
+    const nextActivityScope = normalizeAgentActivityScope(data.activityScope ?? previousActivityScope);
+    const previousStateScope = normalizeAgentStateScope(ws.stateScope);
+    const previousPreviewScope = normalizeSessionPreviewScope(ws.previewScope);
+    const nextPreviewScope = normalizeSessionPreviewScope(data.previewScope ?? previousPreviewScope);
+    const previewScopeDeclared = Object.prototype.hasOwnProperty.call(data, 'previewScope');
+    const initialPreviewHydrationPending = previewScopeDeclared
+      ? declareSessionPreviewScope(ws)
+      : false;
+    const previousFocusedAgentId = ws.focusedAgentId;
+    const focusChanged = previousFocusedAgentId !== data.agentId;
+    const scopeChanged = previousActivityScope !== nextActivityScope;
+    const stateScopeTransition = agentStateScopeTransition(
+      previousStateScope,
+      previousFocusedAgentId,
+      normalizeAgentStateScope(data.stateScope ?? previousStateScope),
+      data.agentId,
+    );
+    const previewCheckpointRequired = sessionPreviewScopeCheckpointRequired(
+      previousPreviewScope,
+      previousFocusedAgentId,
+      nextPreviewScope,
+      data.agentId,
+    );
+    if (Object.prototype.hasOwnProperty.call(data, 'activityScope')) {
+      ws.activityScopeDeclared = true;
+    }
+    if (scopeChanged) {
+      if (ws.agentActivityAllCheckpointPending || ws.agentActivityCheckpointPending) {
         ws.agentActivityResyncPending = true;
-        ws.agentActivityCheckpointPending = false;
       }
-      const activitySnapshotRequired = nextActivityScope === 'all'
-        && scopeChanged
-        && ws.activityScopeDeclared === true
-        && ws.agentActivityResyncPending === true;
-      if (focusChanged) {
-        ws.acpRevisionCheckpointPending = false;
-        ws.acpRevisionSentRevision = -1;
-      }
-      ws.focusedAgentId = data.agentId;
-      ws.activityScope = nextActivityScope;
-      ws.previewScope = nextPreviewScope;
-      ws.stateScope = stateScopeTransition.scope;
-      if (data.agentId) {
-        agentManager.prioritizeAcpPreparedTranscript(data.agentId);
-        const revision = currentAcpSessionRevision(data.agentId);
-        if (revision) deliverAcpSessionRevision(ws, revision);
-        if (nextActivityScope === 'focused') {
-          const activity = currentAgentActivity(data.agentId);
-          if (activity) deliverAgentActivity(ws, activity);
-        }
-      }
-      if (data.streamScope === 'focused' || data.streamScope === 'all') {
-        ws.streamScope = data.streamScope;
-      }
-      const stateSnapshotRequired = data.refreshState === true
-        || stateScopeTransition.snapshotRequired
-        || (
-          ws.stateSnapshotInProgress === true
-          && previousStateScope !== stateScopeTransition.scope
-        );
-      if (stateSnapshotRequired) {
-        // The requested Agent snapshot checkpoints the projections represented
-        // by its state scope. Independently scoped Activity recovers separately
-        // when that snapshot cannot cover its current interest.
-        sendState(ws);
-      } else {
-        if (activitySnapshotRequired) sendAgentActivitySnapshot(ws);
-        if (
-          !ws.stateSnapshotInProgress
-          && (initialPreviewHydrationPending || previewCheckpointRequired)
-        ) sendPreviewHydration(ws);
-      }
-      break;
+      ws.agentActivityAllCheckpointPending = false;
+      ws.agentActivityCheckpointPending = false;
+    } else if (focusChanged && ws.agentActivityCheckpointPending) {
+      ws.agentActivityResyncPending = true;
+      ws.agentActivityCheckpointPending = false;
     }
-
-    case 'resize-agent':
-      if (data.agentId && Number.isFinite(data.cols) && Number.isFinite(data.rows)) {
-        agentManager.requestAgentSessionResize(data.agentId, data.cols, data.rows);
-      }
-      break;
-
-    case 'clear-terminal':
-      if (data.agentId) void agentManager.clearAgentSessionBuffer(data.agentId);
-      break;
-
-    case 'watch-workspace-files':
-      watchWorkspaceFiles(ws, data as ServerClientMessage & { agentId: string });
-      break;
-
-    case 'unwatch-workspace-files':
-      clearWorkspaceFileWatch(ws, data.agentId);
-      break;
-      
-    case 'archive-agent':
-      void archiveAgentFromMessage(ws, data.agentId);
-      break;
-
-    case 'restart-main-agent':
-      restartMainAgent(ws, data.command);
-      break;
-      
-    default: {
-      const unhandledMessage: never = data;
-      console.log('Unknown message type', unhandledMessage);
+    const activitySnapshotRequired = nextActivityScope === 'all'
+      && scopeChanged
+      && ws.activityScopeDeclared === true
+      && ws.agentActivityResyncPending === true;
+    if (focusChanged) {
+      ws.acpRevisionCheckpointPending = false;
+      ws.acpRevisionSentRevision = -1;
     }
-  }
+    ws.focusedAgentId = data.agentId;
+    ws.activityScope = nextActivityScope;
+    ws.previewScope = nextPreviewScope;
+    ws.stateScope = stateScopeTransition.scope;
+    if (data.agentId) {
+      agentManager.prioritizeAcpPreparedTranscript(data.agentId);
+      const revision = currentAcpSessionRevision(data.agentId);
+      if (revision) deliverAcpSessionRevision(ws, revision);
+      if (nextActivityScope === 'focused') {
+        const activity = currentAgentActivity(data.agentId);
+        if (activity) deliverAgentActivity(ws, activity);
+      }
+    }
+    if (data.streamScope === 'focused' || data.streamScope === 'all') {
+      ws.streamScope = data.streamScope;
+    }
+    const stateSnapshotRequired = data.refreshState === true
+      || stateScopeTransition.snapshotRequired
+      || (
+        ws.stateSnapshotInProgress === true
+        && previousStateScope !== stateScopeTransition.scope
+      );
+    if (stateSnapshotRequired) {
+      // The requested Agent snapshot checkpoints the projections represented
+      // by its state scope. Independently scoped Activity recovers separately
+      // when that snapshot cannot cover its current interest.
+      sendState(ws);
+    } else {
+      if (activitySnapshotRequired) sendAgentActivitySnapshot(ws);
+      if (
+        !ws.stateSnapshotInProgress
+        && (initialPreviewHydrationPending || previewCheckpointRequired)
+      ) sendPreviewHydration(ws);
+    }
+  }),
+  'resize-agent': registerClientMessage('resize-agent', (_ws, data) => {
+    if (data.agentId && Number.isFinite(data.cols) && Number.isFinite(data.rows)) {
+      agentManager.requestAgentSessionResize(data.agentId, data.cols, data.rows);
+    }
+  }),
+  'clear-terminal': registerClientMessage('clear-terminal', (_ws, data) => {
+    if (data.agentId) void agentManager.clearAgentSessionBuffer(data.agentId);
+  }),
+  'watch-workspace-files': registerClientMessage('watch-workspace-files', (ws, data) => {
+    watchWorkspaceFiles(ws, data);
+  }),
+  'unwatch-workspace-files': registerClientMessage('unwatch-workspace-files', (ws, data) => {
+    clearWorkspaceFileWatch(ws, data.agentId);
+  }),
+  'archive-agent': registerClientMessage('archive-agent', (ws, data) => {
+    void archiveAgentFromMessage(ws, data.agentId);
+  }),
+  'restart-main-agent': registerClientMessage('restart-main-agent', (ws, data) => {
+    restartMainAgent(ws, data.command);
+  }),
+});
+
+function handleMessage(ws: WebSocketClient, data: ServerClientMessage) {
+  dispatchClientMessage(clientMessageDispatchTable, ws, data);
 }
 
 import { resolveInputTargetAgentId } from './input-routing.cjs';

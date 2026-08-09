@@ -115,7 +115,7 @@ function run() {
     serverSource.includes('startWebSocketLivenessMonitor(wss') &&
       serverSource.includes("server.on('close', () => clearInterval(websocketLivenessTimer))") &&
     serverSource.includes('initializeWebSocketLiveness(ws)') &&
-      serverSource.includes("case 'business-health-probe':") &&
+      serverSource.includes("'business-health-probe': registerClientMessage('business-health-probe'") &&
       serverSource.includes('probeAgentManagerBusinessHealth(agentManager)') &&
       livenessSource.includes("socket.on('pong'") &&
       livenessSource.includes('socket.ping()') &&

@@ -1153,8 +1153,8 @@ function run() {
     mainPageSessionSource.includes('function resumedAgentSource(') &&
       serverSource.includes("const MAIN_AGENT_RESTART_COMMANDS = new Set(['codex', 'claude', 'opencode', 'qoder', 'qwen', 'bash', 'zsh'])") &&
       serverSource.includes('function restartMainAgent(ws: WebSocketClient, command: string)') &&
-      serverSource.includes("case 'restart-main-agent'") &&
-      serverSource.includes("case 'interrupt-agent'") &&
+      serverSource.includes("'restart-main-agent': registerClientMessage('restart-main-agent'") &&
+      serverSource.includes("'interrupt-agent': registerClientMessage('interrupt-agent'") &&
       serverSource.includes("routePath(BASE_PATH, '/api/attachments/image')") &&
       serverSource.includes("express.raw({ type: 'image/*', limit: '12mb' })") &&
       serverSource.includes('IMAGE_ATTACHMENT_RETENTION_MS') &&
