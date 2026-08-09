@@ -57,8 +57,6 @@ interface FarmingSessionModalRuntime {
   markHydrated(nextLength?: number): void;
   activate(state: FarmingSessionModalState): void;
   deactivate(): void;
-  startPolling(context?: CrtUnknownRecord): null;
-  stopPolling(): void;
   handleStateMessage(state: CrtWorkspaceState): { focusedAgentId: string | null };
   handleStreamMessage(stream: unknown): {
     focusedAgentId: string | null;
@@ -77,7 +75,6 @@ interface FarmingSessionModalBridge {
     themeId?: string | null,
     themeSettings?: CrtUnknownRecord,
   ): FarmingSessionModalState;
-  shouldPollSessionView(sessionSource: unknown): false;
   getDomState(documentRef: Document): {
     modal: HTMLElement;
     terminalContainer: HTMLElement;
@@ -113,11 +110,6 @@ interface FarmingSessionModalBridge {
       agentId: string | null,
       source: string | null,
     ) => { text: string; nextLengthDelta: number } | null;
-    refreshSessionView?: (
-      forceReplace?: boolean,
-      expectedAgentId?: string | null,
-      expectedSessionToken?: number,
-    ) => Promise<void>;
   }): FarmingSessionModalRuntime;
   closeShell(documentRef: Document): CrtUnknownRecord;
 }

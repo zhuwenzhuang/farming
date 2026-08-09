@@ -10,16 +10,13 @@ const {
   extractSessionLinks,
   formatSelectionStatus,
   deriveSessionSearchMatchesFromLines,
-  createSessionModalState,
-  shouldPollSessionView
+  createSessionModalState
 } = require('../../frontend/skins/crt/app.js');
 
 function run() {
   assert.strictEqual(shouldUseLiveSessionText({ sessionSource: 'live-text' }), true);
   assert.strictEqual(shouldUseLiveSessionText({ sessionSource: 'buffer' }), false);
   assert.strictEqual(shouldUseLiveSessionText(null), false);
-  assert.strictEqual(shouldPollSessionView('live-text'), false);
-  assert.strictEqual(shouldPollSessionView('buffer'), false);
 
   assert.deepStrictEqual(
     deriveSessionTextPatch('hello', 0, true),

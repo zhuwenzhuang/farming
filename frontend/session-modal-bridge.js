@@ -19,9 +19,6 @@
             title: agent ? `${agent.command} (${agent.id})` : 'Agent Session',
         };
     }
-    function shouldPollSessionView(_sessionSource) {
-        return false;
-    }
     function getDomState(documentRef) {
         return {
             modal: documentRef.getElementById('session-modal'),
@@ -100,18 +97,13 @@
         let focusedAgentId = null;
         let sessionSource = null;
         let lastOutputLength = 0;
-        let poller = null;
         let sessionToken = 0;
         let awaitingInitialSync = false;
-        function syncPoller() {
-            options.onPollerChange?.(poller);
-        }
         const runtime = {
             getState: () => ({
                 focusedAgentId,
                 sessionSource,
                 lastOutputLength,
-                poller,
                 sessionToken,
                 awaitingInitialSync,
             }),
@@ -123,7 +115,6 @@
                 awaitingInitialSync = Boolean(focusedAgentId);
             },
             deactivate() {
-                runtime.stopPolling();
                 sessionToken += 1;
                 focusedAgentId = null;
                 sessionSource = null;
@@ -172,17 +163,6 @@
                 const patch = runtime.applyStream(stream);
                 return { patch, focusedAgentId, sessionSource, lastOutputLength };
             },
-            startPolling(context = {}) {
-                runtime.stopPolling();
-                void context;
-                return null;
-            },
-            stopPolling() {
-                if (poller && options.clearPoll)
-                    options.clearPoll(poller);
-                poller = null;
-                syncPoller();
-            },
         };
         return runtime;
     }
@@ -195,7 +175,6 @@
     }
     return {
         createModalState,
-        shouldPollSessionView,
         getDomState,
         openShell,
         mountTerminal,

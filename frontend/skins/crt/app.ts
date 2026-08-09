@@ -3133,13 +3133,6 @@ function createSessionModalState(
   };
 }
 
-function shouldPollSessionView(sessionSource: unknown) {
-  if (SESSION_MODAL_BRIDGE && SESSION_MODAL_BRIDGE.shouldPollSessionView) {
-    return SESSION_MODAL_BRIDGE.shouldPollSessionView(sessionSource);
-  }
-  return false;
-}
-
 function getSessionModalDomState(documentRef: Document) {
   if (SESSION_MODAL_BRIDGE && SESSION_MODAL_BRIDGE.getDomState) {
     return SESSION_MODAL_BRIDGE.getDomState(documentRef);
@@ -3155,7 +3148,6 @@ function getSessionRuntime() {
   if (!sessionRuntime && SESSION_MODAL_BRIDGE && SESSION_MODAL_BRIDGE.createRuntime) {
     sessionRuntime = SESSION_MODAL_BRIDGE.createRuntime({
       deriveSessionStreamPatch,
-      refreshSessionView,
     });
   }
 
@@ -8579,7 +8571,6 @@ async function openStructuredSession(agent: CrtAgent, sessionToken: number) {
 }
 
 function teardownSessionSurface() {
-  stopSessionViewPolling();
   stopStructuredSessionPolling();
   disposeCrtTerminalReplication();
   disposeTerminal();
@@ -8691,9 +8682,6 @@ async function openSession(agentId: string|null|undefined) {
     terminalContainer.innerHTML = '';
     terminalContainer.textContent = '';
     await refreshSessionView(true, agentId, sessionToken);
-    if (shouldPollSessionView(modalState.sessionSource)) {
-      startSessionViewPolling(agentId, sessionToken);
-    }
     return;
   }
 
@@ -8835,9 +8823,6 @@ async function openSession(agentId: string|null|undefined) {
   await refreshSessionView(true, agentId, sessionToken);
   restoreCrtTerminalReadingAnchor(agentId, terminal);
   sendSessionResize(agentId);
-  if (!crtTerminalReplication && shouldPollSessionView(modalState.sessionSource)) {
-    startSessionViewPolling(agentId, sessionToken);
-  }
 }
 
 function closeSession() {
@@ -9099,23 +9084,6 @@ async function refreshSessionView(_forceReplace = false, expectedAgentId = focus
     }
   }
 }
-function startSessionViewPolling(agentId = focusedAgentId, sessionToken = getCurrentSessionToken()) {
-  const runtime = getSessionRuntime();
-  if (runtime) {
-    runtime.startPolling({ agentId, sessionToken });
-    return null;
-  }
-  return null;
-}
-
-function stopSessionViewPolling() {
-  const runtime = getSessionRuntime();
-  if (runtime) {
-    runtime.stopPolling();
-    return;
-  }
-}
-
 if (typeof document !== 'undefined') {
   window.addEventListener('resize', () => {
     if (crtMainView === 'history') renderCrtHistory();
@@ -9554,7 +9522,6 @@ if (typeof module !== 'undefined' && module.exports) {
     isCrtNativeTerminalPasteTarget,
     isPasteShortcut,
     shouldUseLiveSessionText,
-    shouldPollSessionView,
     deriveSessionTextPatch,
     replaceTerminalOutput,
     normalizeSessionViewPayload,

@@ -1,4 +1,6 @@
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
 
 const sessionModalBridge = require('../../frontend/session-modal-bridge.js');
 
@@ -54,6 +56,23 @@ function run() {
   assert.strictEqual(typeof sessionModalBridge.resetTerminalShell, 'function');
   assert.strictEqual(typeof sessionModalBridge.createRuntime, 'function');
   assert.strictEqual(typeof sessionModalBridge.closeShell, 'function');
+  const bridgeSource = fs.readFileSync(
+    path.join(__dirname, '../../frontend/session-modal-bridge.ts'),
+    'utf8',
+  );
+  const generatedBridgeSource = fs.readFileSync(
+    path.join(__dirname, '../../frontend/session-modal-bridge.js'),
+    'utf8',
+  );
+  const crtSource = fs.readFileSync(
+    path.join(__dirname, '../../frontend/skins/crt/app.ts'),
+    'utf8',
+  );
+  for (const source of [bridgeSource, generatedBridgeSource, crtSource]) {
+    assert(!source.includes('shouldPollSessionView'));
+    assert(!source.includes('startSessionViewPolling'));
+    assert(!source.includes('stopSessionViewPolling'));
+  }
 
   const modalState = sessionModalBridge.createModalState(
     { id: 'agent-1', command: 'claude', sessionSource: 'live-text' },
@@ -171,8 +190,7 @@ function run() {
         text: stream.data,
         nextLengthDelta: stream.data.length
       };
-    },
-    onPollerChange() {}
+    }
   });
 
   runtime.activate(modalState);
@@ -184,7 +202,6 @@ function run() {
     focusedAgentId: 'agent-1',
     sessionSource: 'live-text',
     lastOutputLength: 0,
-    poller: null,
     sessionToken: initialToken,
     awaitingInitialSync: true
   });
@@ -244,12 +261,6 @@ function run() {
   assert.strictEqual(runtime.isAwaitingInitialSync(), true);
   assert.strictEqual(modal.classList.contains('active'), true);
   assert.strictEqual(bodyClassList.contains('session-open'), true);
-
-  assert.strictEqual(
-    runtime.startPolling({ agentId: 'agent-1', sessionToken: runtime.getSessionToken() }),
-    null
-  );
-  runtime.stopPolling();
 
   runtime.deactivate();
   assert.strictEqual(runtime.getFocusedAgentId(), null);

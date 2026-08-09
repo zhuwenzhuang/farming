@@ -2652,12 +2652,6 @@ function createSessionModalState(agent, themeId, currentThemeSettings) {
         title
     };
 }
-function shouldPollSessionView(sessionSource) {
-    if (SESSION_MODAL_BRIDGE && SESSION_MODAL_BRIDGE.shouldPollSessionView) {
-        return SESSION_MODAL_BRIDGE.shouldPollSessionView(sessionSource);
-    }
-    return false;
-}
 function getSessionModalDomState(documentRef) {
     if (SESSION_MODAL_BRIDGE && SESSION_MODAL_BRIDGE.getDomState) {
         return SESSION_MODAL_BRIDGE.getDomState(documentRef);
@@ -2672,7 +2666,6 @@ function getSessionRuntime() {
     if (!sessionRuntime && SESSION_MODAL_BRIDGE && SESSION_MODAL_BRIDGE.createRuntime) {
         sessionRuntime = SESSION_MODAL_BRIDGE.createRuntime({
             deriveSessionStreamPatch,
-            refreshSessionView,
         });
     }
     return sessionRuntime;
@@ -7967,7 +7960,6 @@ async function openStructuredSession(agent, sessionToken) {
     }
 }
 function teardownSessionSurface() {
-    stopSessionViewPolling();
     stopStructuredSessionPolling();
     disposeCrtTerminalReplication();
     disposeTerminal();
@@ -8071,9 +8063,6 @@ async function openSession(agentId) {
         terminalContainer.innerHTML = '';
         terminalContainer.textContent = '';
         await refreshSessionView(true, agentId, sessionToken);
-        if (shouldPollSessionView(modalState.sessionSource)) {
-            startSessionViewPolling(agentId, sessionToken);
-        }
         return;
     }
     disposeTerminal();
@@ -8227,9 +8216,6 @@ async function openSession(agentId) {
     await refreshSessionView(true, agentId, sessionToken);
     restoreCrtTerminalReadingAnchor(agentId, terminal);
     sendSessionResize(agentId);
-    if (!crtTerminalReplication && shouldPollSessionView(modalState.sessionSource)) {
-        startSessionViewPolling(agentId, sessionToken);
-    }
 }
 function closeSession() {
     if (focusedAgentId) {
@@ -8450,21 +8436,6 @@ async function refreshSessionView(_forceReplace = false, expectedAgentId = focus
             replication.checkpointAbortController = null;
             finishCrtTerminalReplay(replication);
         }
-    }
-}
-function startSessionViewPolling(agentId = focusedAgentId, sessionToken = getCurrentSessionToken()) {
-    const runtime = getSessionRuntime();
-    if (runtime) {
-        runtime.startPolling({ agentId, sessionToken });
-        return null;
-    }
-    return null;
-}
-function stopSessionViewPolling() {
-    const runtime = getSessionRuntime();
-    if (runtime) {
-        runtime.stopPolling();
-        return;
     }
 }
 if (typeof document !== 'undefined') {
@@ -8863,7 +8834,6 @@ if (typeof module !== 'undefined' && module.exports) {
         isCrtNativeTerminalPasteTarget,
         isPasteShortcut,
         shouldUseLiveSessionText,
-        shouldPollSessionView,
         deriveSessionTextPatch,
         replaceTerminalOutput,
         normalizeSessionViewPayload,

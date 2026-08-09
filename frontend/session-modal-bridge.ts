@@ -54,8 +54,6 @@ interface SessionModalRuntimeOptions {
     focusedAgentId: string | null,
     sessionSource: string | null,
   ) => SessionStreamPatch | null;
-  onPollerChange?: (poller: unknown) => void;
-  clearPoll?: (poller: unknown) => void;
 }
 
 interface SessionModalRuntime {
@@ -63,7 +61,6 @@ interface SessionModalRuntime {
     focusedAgentId: string | null;
     sessionSource: string | null;
     lastOutputLength: number;
-    poller: unknown;
     sessionToken: number;
     awaitingInitialSync: boolean;
   };
@@ -96,8 +93,6 @@ interface SessionModalRuntime {
     sessionSource: string | null;
     lastOutputLength: number;
   };
-  startPolling(context?: Record<string, unknown>): null;
-  stopPolling(): void;
 }
 
 interface SessionModalBridge {
@@ -106,7 +101,6 @@ interface SessionModalBridge {
     themeId?: string | null,
     themeSettings?: unknown,
   ): SessionModalState;
-  shouldPollSessionView(sessionSource: string | null): false;
   getDomState(documentRef: Document): SessionModalDomState;
   openShell(documentRef: Document, modalState: SessionModalState): SessionModalDomState;
   mountTerminal(
@@ -162,10 +156,6 @@ type SessionModalRoot = typeof globalThis & {
         sessionSkin,
         title: agent ? `${agent.command} (${agent.id})` : 'Agent Session',
       };
-    }
-
-    function shouldPollSessionView(_sessionSource: string | null): false {
-      return false;
     }
 
     function getDomState(documentRef: Document): SessionModalDomState {
@@ -257,20 +247,14 @@ type SessionModalRoot = typeof globalThis & {
       let focusedAgentId: string | null = null;
       let sessionSource: string | null = null;
       let lastOutputLength = 0;
-      let poller: unknown = null;
       let sessionToken = 0;
       let awaitingInitialSync = false;
-
-      function syncPoller() {
-        options.onPollerChange?.(poller);
-      }
 
       const runtime: SessionModalRuntime = {
         getState: () => ({
           focusedAgentId,
           sessionSource,
           lastOutputLength,
-          poller,
           sessionToken,
           awaitingInitialSync,
         }),
@@ -284,7 +268,6 @@ type SessionModalRoot = typeof globalThis & {
         },
 
         deactivate() {
-          runtime.stopPolling();
           sessionToken += 1;
           focusedAgentId = null;
           sessionSource = null;
@@ -335,16 +318,6 @@ type SessionModalRoot = typeof globalThis & {
           const patch = runtime.applyStream(stream);
           return { patch, focusedAgentId, sessionSource, lastOutputLength };
         },
-        startPolling(context = {}) {
-          runtime.stopPolling();
-          void context;
-          return null;
-        },
-        stopPolling() {
-          if (poller && options.clearPoll) options.clearPoll(poller);
-          poller = null;
-          syncPoller();
-        },
       };
 
       return runtime;
@@ -360,7 +333,6 @@ type SessionModalRoot = typeof globalThis & {
 
     return {
       createModalState,
-      shouldPollSessionView,
       getDomState,
       openShell,
       mountTerminal,
