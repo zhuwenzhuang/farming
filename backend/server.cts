@@ -241,6 +241,7 @@ import { isAgentRuntimeModeRequest, runtimeKind } from './agent-runtime-binding.
 import { ConfigManager } from './config-manager.cjs';
 import { ThemeManager } from './theme-manager.cjs';
 import { createThemeRouter } from './theme-router.cjs';
+import { createQrShareRouter, entryPathWithQuery } from './qr-share-router.cjs';
 import { TokenAuth } from './auth.cjs';
 import { readOnlyClientMessageAllowed } from './read-only-access.cjs';
 import { getLocalIPs, getPrimaryLocalIP } from './network.cjs';
@@ -760,7 +761,10 @@ app.get(routePath(BASE_PATH, '/j/:code'), (req, res) => {
   if (authEnabled) {
     tokenAuth.setAccessCookie(res, ticket.token);
   }
-  res.redirect(302, entryPathWithQuery(ticket.targetQuery));
+  res.redirect(302, entryPathWithQuery(ticket.targetQuery, {
+    authEnabled,
+    basePath: BASE_PATH,
+  }));
 });
 
 // Token authentication middleware (before static files)
@@ -774,140 +778,19 @@ app.get(routePath(BASE_PATH, '/api/auth/status'), (req, res) => {
   });
 });
 
-function absoluteClientUrl(req: HttpRequest, urlPath: string) {
-  const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
-  const protocol = forwardedProto || req.protocol || 'http';
-  const forwardedHost = String(req.headers['x-forwarded-host'] || '').split(',')[0].trim();
-  const host = forwardedHost || req.headers.host || `127.0.0.1:${PORT}`;
-  return `${protocol}://${host}${urlPath}`;
-}
-
-function shareTargetPositiveInteger(value: unknown) {
-  const number = Number(value);
-  return Number.isInteger(number) && number > 0 ? String(number) : '';
-}
-
-function shareTargetString(value: unknown, maxLength: number) {
-  const string = String(value || '').trim();
-  if (!string || string.length > maxLength || string.includes('\0')) return '';
-  return string;
-}
-
-function shareTargetQueryFromBody(body: ServerRecord) {
-  const target = body && typeof body === 'object' ? body.target : null;
-  if (!target || typeof target !== 'object') return '';
-  const targetRecord = target as ServerRecord;
-
-  const kind = targetRecord.kind === 'file' ? 'file' : targetRecord.kind === 'folder' ? 'folder' : targetRecord.kind === 'agent' ? 'agent' : '';
-  const agentId = shareTargetString(targetRecord.agentId, 160);
-  const absolutePath = shareTargetString(targetRecord.absolutePath, 2048);
-  const projectLabel = shareTargetString(targetRecord.projectLabel, 160);
-  const readingAnchor = shareTargetString(targetRecord.readingAnchor, 1800);
-  if (!kind || kind === 'agent' && !agentId || kind !== 'agent' && !absolutePath && !agentId && !projectLabel) return '';
-
-  const params = new URLSearchParams();
-  params.set('ftarget', kind);
-  if (agentId) params.set('agent', agentId);
-  if (kind === 'agent' && readingAnchor && /^[A-Za-z0-9_-]+$/.test(readingAnchor)) params.set('fra', readingAnchor);
-  if (absolutePath) params.set('path', absolutePath);
-  if (projectLabel) params.set('project', projectLabel);
-
-  if (kind === 'folder') {
-    const folderPath = shareTargetString(targetRecord.folderPath, 2048);
-    if (!absolutePath && !folderPath) return '';
-    if (folderPath) params.set('folder', folderPath);
-  } else if (kind === 'file') {
-    const filePath = shareTargetString(targetRecord.filePath, 2048);
-    if (!absolutePath && !filePath) return '';
-    if (filePath) params.set('file', filePath);
-    if (targetRecord.view === 'diff') params.set('view', 'diff');
-    const line = shareTargetPositiveInteger(targetRecord.lineNumber);
-    const column = shareTargetPositiveInteger(targetRecord.column);
-    const endColumn = shareTargetPositiveInteger(targetRecord.endColumn);
-    if (line) params.set('line', line);
-    if (column) params.set('column', column);
-    if (endColumn) params.set('endColumn', endColumn);
-  }
-
-  if (absolutePath) {
-    const absoluteParams = new URLSearchParams(params);
-    absoluteParams.delete('agent');
-    absoluteParams.delete(kind === 'folder' ? 'folder' : 'file');
-    if (absoluteParams.toString().length <= 1800) return absoluteParams.toString();
-    params.delete('path');
-  }
-
-  return params.toString();
-}
-
-function entryPathWithQuery(query = '', options: { token?: string } = {}) {
-  const entryPath = BASE_PATH || '/';
-  const params = new URLSearchParams(query || '');
-  if (options.token && authEnabled) {
-    params.set('token', options.token);
-  }
-  const queryString = params.toString();
-  return queryString ? `${entryPath}?${queryString}` : entryPath;
-}
-
-function entryPathWithToken(targetQuery = '', token = '') {
-  return entryPathWithQuery(targetQuery, { token });
-}
-
-app.post(routePath(BASE_PATH, '/api/share/qr-ticket'), express.json({ limit: '8kb' }), (req, res) => {
-  try {
-    if (!authEnabled) {
-      res.status(409).json({ error: 'Read-only sharing requires token authentication.' });
-      return;
-    }
-    const now = Date.now();
-    const requesterAccessMode = req.authAccessMode === 'read-only' ? 'read-only' : 'owner';
-    const requesterToken = tokenAuth.extractToken(req);
-    const requesterExpiresAt = requesterAccessMode === 'read-only'
-      ? tokenAuth.readOnlyTokenExpiresAt(requesterToken)
-      : null;
-    if (requesterAccessMode === 'read-only' && !requesterExpiresAt) {
-      res.status(401).json({ error: 'Read-only share credential expired.' });
-      return;
-    }
-    const shareExpiresAt = Math.min(
-      now + SHARE_TICKET_TTL_MS,
-      requesterExpiresAt || Number.POSITIVE_INFINITY,
-    );
-    if (shareExpiresAt <= now + 1000) {
-      res.status(410).json({ error: 'Read-only share credential is too close to expiry.' });
-      return;
-    }
-    const targetQuery = shareTargetQueryFromBody(req.body);
-    const readOnlyToken = tokenAuth.createReadOnlyToken({ expiresAt: shareExpiresAt });
-    const qrToken = requesterAccessMode === 'owner' ? tokenAuth.getToken() : readOnlyToken;
-    const ticket = qrShareTickets.create(qrToken, { expiresAt: shareExpiresAt, now, targetQuery });
-    const shortPath = routePath(BASE_PATH, `/j/${ticket.code}`);
-    const longPath = entryPathWithToken(ticket.targetQuery, readOnlyToken);
-    const fullAccessPath = requesterAccessMode === 'owner'
-      ? entryPathWithToken(ticket.targetQuery, qrToken)
-      : '';
-    res.json({
-      code: ticket.code,
-      expiresAt: ticket.expiresAt,
-      ttlMs: SHARE_TICKET_TTL_MS,
-      shortPath,
-      shortUrl: absoluteClientUrl(req, shortPath),
-      longUrl: absoluteClientUrl(req, longPath),
-      shortUrlAccessMode: requesterAccessMode,
-      longUrlAccessMode: 'read-only',
-      tokenLabel: requesterAccessMode === 'owner' ? tokenAuth.getToken() : '',
-      ...(fullAccessPath ? { fullAccessUrl: absoluteClientUrl(req, fullAccessPath) } : {}),
-    });
-  } catch (caught) {
-    const error = caughtError(caught);
-    res.status(500).json({ error: error.message || 'Failed to create share ticket' });
-  }
-});
-
-app.delete(routePath(BASE_PATH, '/api/share/qr-ticket/:code'), (req, res) => {
-  res.json({ revoked: qrShareTickets.revoke(req.params.code) });
-});
+app.use(routePath(BASE_PATH, '/api/share/qr-ticket'), createQrShareRouter({
+  createReadOnlyToken: options => tokenAuth.createReadOnlyToken(options),
+  extractToken: request => tokenAuth.extractToken(request),
+  getToken: () => tokenAuth.getToken(),
+  readOnlyTokenExpiresAt: token => tokenAuth.readOnlyTokenExpiresAt(token),
+}, {
+  create: (token, options) => qrShareTickets.create(token, options),
+  revoke: code => qrShareTickets.revoke(code),
+}, {
+  authEnabled,
+  basePath: BASE_PATH,
+  fallbackPort: PORT,
+}));
 
 // Terminal assets remain available to the standalone CRT skin when React is served from dist.
 app.use(routePath(BASE_PATH, '/vendor'), express.static(path.join(frontendDir, 'vendor')));
