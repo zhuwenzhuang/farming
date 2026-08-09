@@ -175,7 +175,6 @@
         DEFAULT_THEME,
         DEFAULT_FONT_FAMILY,
         preferredEngine,
-        ensureLibrary: ensureGhosttyLibrary,
         ensureGhosttyLibrary,
         ensureXtermLibrary,
         ensureXtermWebglLibrary,

@@ -19,6 +19,7 @@ function run() {
   const usageRouterPath = path.join(__dirname, '../../backend/usage-router.cts');
 
   const terminalBridge = fs.readFileSync(terminalBridgePath, 'utf8');
+  const terminalBridgeSource = fs.readFileSync(path.join(__dirname, '../../frontend/terminal-bridge.ts'), 'utf8');
   const skinBridge = fs.readFileSync(skinBridgePath, 'utf8');
   const runtimePaths = fs.readFileSync(runtimePathsPath, 'utf8');
   const sessionBridge = fs.readFileSync(sessionBridgePath, 'utf8');
@@ -41,6 +42,12 @@ function run() {
     'terminal bridge should attach a global bridge object'
   );
   assert(terminalBridge.includes('createInstance'), 'terminal bridge should expose terminal creation');
+  assert(
+    terminalBridgeSource.includes('ensureGhosttyLibrary')
+      && !terminalBridgeSource.includes('ensureLibrary')
+      && !terminalBridge.includes('ensureLibrary'),
+    'terminal bridge should expose only ensureGhosttyLibrary and must not reintroduce the ensureLibrary alias'
+  );
   assert(terminalBridge.includes("kind: 'xterm'"), 'terminal bridge should default to the stable xterm renderer');
   assert(terminalBridge.includes("=== 'ghostty'"), 'terminal bridge should retain Ghostty as an explicit debug override');
   assert(

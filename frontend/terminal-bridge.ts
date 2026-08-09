@@ -40,7 +40,6 @@ type FarmingTerminalBridgeApi = {
   DEFAULT_THEME: TerminalTheme;
   DEFAULT_FONT_FAMILY: string;
   preferredEngine: () => 'ghostty' | 'xterm';
-  ensureLibrary: () => Promise<GhosttyLibrary | null>;
   ensureGhosttyLibrary: () => Promise<GhosttyLibrary | null>;
   ensureXtermLibrary: () => XtermLibrary | null;
   ensureXtermWebglLibrary: () => WebglAddonConstructor | null;
@@ -241,7 +240,6 @@ type TerminalBridgeGlobal = Window & typeof globalThis & {
     DEFAULT_THEME,
     DEFAULT_FONT_FAMILY,
     preferredEngine,
-    ensureLibrary: ensureGhosttyLibrary,
     ensureGhosttyLibrary,
     ensureXtermLibrary,
     ensureXtermWebglLibrary,
