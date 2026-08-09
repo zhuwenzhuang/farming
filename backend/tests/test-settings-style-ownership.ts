@@ -11,6 +11,7 @@ const mainStyles = readCodeStyleSource('src/styles/main.css');
 const darkStyles = readCodeStyleSource('src/styles/code-dark.css');
 const settingsStyles = readCodeStyleSource('src/styles/settings.css');
 const settingsDarkStyles = readCodeStyleSource('src/styles/settings-dark.css');
+const petDarkStyles = readCodeStyleSource('src/styles/pet-dark.css');
 
 const settingsClassNames = new Set<string>();
 for (const match of settingsPanelSource.matchAll(/className=(?:"([^"]+)"|\{`([^`]+)`\})/g)) {
@@ -56,8 +57,10 @@ assert(!mainStyles.includes('.code-agent-home'));
 assert(!darkStyles.includes('.code-settings'));
 assert(!darkStyles.includes('.code-agent-home'));
 
-assert(mainStyles.includes("body.code-mode[data-appearance='dark'] .code-pet-bubble"));
-assert(mainStyles.includes("body.code-mode[data-appearance='dark'] .code-pet-appearance-select"));
+assert(petDarkStyles.includes("body.code-mode[data-appearance='dark'] .code-pet-bubble"));
+assert(petDarkStyles.includes("body.code-mode[data-appearance='dark'] .code-pet-appearance-select"));
+assert(!mainStyles.includes('.code-pet-bubble'));
+assert(!mainStyles.includes('.code-pet-appearance-select'));
 assert(!settingsStyles.includes('.code-pet-bubble'));
 assert(!settingsDarkStyles.includes('.code-pet-bubble'));
 

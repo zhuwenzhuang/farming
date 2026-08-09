@@ -43,9 +43,17 @@ const path = require('path');
     path.join(__dirname, '../../src/components/CodeWorkspace.tsx'),
     'utf8',
   );
+  const petCssSource = fs.readFileSync(
+    path.join(__dirname, '../../src/styles/pet.css'),
+    'utf8',
+  );
   const mainCssSource = fs.readFileSync(
     path.join(__dirname, '../../src/styles/main.css'),
     'utf8',
+  );
+  assert(
+    !/\.code-pet[a-z0-9-]*/.test(mainCssSource),
+    'Pet rules must live in the Pet style owner, not main.css',
   );
   assert(petSource.includes('需要长时使用休息提醒吗？'));
   assert(petSource.includes('之后可随时在设置的“Farming Pet”中调整或关闭。'));
@@ -103,7 +111,7 @@ const path = require('path');
   assert(petSource.includes('code-pet-appearance-preview'));
   assert(petSource.includes('title={copy.previewAppearance(option)}'));
   assert(petSource.includes('<PlayGlyph />'));
-  assert(mainCssSource.includes('code-pet-black-hole-disk-flow'));
+  assert(petCssSource.includes('code-pet-black-hole-disk-flow'));
   assert(
     petSource.includes("const PET_OWNER_ATTRIBUTE = 'data-farming-pet-owner'")
       && petSource.includes("const PET_OWNER_EVENT = 'farming:pet-owner-change'")
@@ -435,19 +443,19 @@ const path = require('path');
   assert(!blackHoleRendererSource.includes('float radialRays'));
   assert(blackHoleSceneSource.includes('className="code-pet-black-hole-compositor"'));
   assert(
-    mainCssSource.includes(
+    petCssSource.includes(
       "body.code-mode[data-appearance='light'] .code-pet-black-hole-compositor",
     )
-      && mainCssSource.includes('filter: brightness(0.88) saturate(0.92);'),
+      && petCssSource.includes('filter: brightness(0.88) saturate(0.92);'),
     'the light appearance should lower the frozen scene luminance so the white disk and Hawking radiation remain visible',
   );
   assert(
-    mainCssSource.includes(
+    petCssSource.includes(
       "body.code-mode[data-appearance='light'] .code-pet-black-hole-canvas",
     )
-      && mainCssSource.includes('brightness(0.84)')
-      && mainCssSource.includes('saturate(1.28)')
-      && mainCssSource.includes('drop-shadow(0 8px 20px rgba(8, 10, 9, 0.28))'),
+      && petCssSource.includes('brightness(0.84)')
+      && petCssSource.includes('saturate(1.28)')
+      && petCssSource.includes('drop-shadow(0 8px 20px rgba(8, 10, 9, 0.28))'),
     'the light appearance should retain a defined body silhouette without changing the dark preset',
   );
 

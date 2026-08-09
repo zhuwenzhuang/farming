@@ -8,6 +8,7 @@ const mainEntrySource = fs.readFileSync(path.join(projectRoot, 'src/main.tsx'), 
 const expectedSources = [
   'src/styles/tokens.css',
   'src/styles/main.css',
+  'src/styles/pet.css',
   'src/styles/git-history.css',
   'src/styles/composer.css',
   'src/styles/plugin.css',
@@ -15,6 +16,7 @@ const expectedSources = [
   'src/styles/share.css',
   'src/styles/sidebar-resources.css',
   'src/styles/code-dark.css',
+  'src/styles/pet-dark.css',
   'src/styles/git-history-dark.css',
   'src/styles/composer-dark.css',
   'src/styles/plugin-dark.css',
@@ -31,9 +33,14 @@ assert.deepStrictEqual(
 // later feature owners. Reordering these files would create a new cross-domain
 // cascade even when every individual rule is intact.
 assert.strictEqual(
-  CODE_STYLE_SOURCES.indexOf('src/styles/git-history.css'),
+  CODE_STYLE_SOURCES.indexOf('src/styles/pet.css'),
   CODE_STYLE_SOURCES.indexOf('src/styles/main.css') + 1,
-  'Git History base styles must load immediately after main.css',
+  'Pet base styles must load immediately after main.css',
+);
+assert.strictEqual(
+  CODE_STYLE_SOURCES.indexOf('src/styles/git-history.css'),
+  CODE_STYLE_SOURCES.indexOf('src/styles/pet.css') + 1,
+  'Git History base styles must load immediately after Pet',
 );
 assert.strictEqual(
   CODE_STYLE_SOURCES.indexOf('src/styles/composer.css'),
@@ -41,9 +48,14 @@ assert.strictEqual(
   'Composer base styles must load immediately after Git History',
 );
 assert.strictEqual(
-  CODE_STYLE_SOURCES.indexOf('src/styles/git-history-dark.css'),
+  CODE_STYLE_SOURCES.indexOf('src/styles/pet-dark.css'),
   CODE_STYLE_SOURCES.indexOf('src/styles/code-dark.css') + 1,
-  'Git History dark styles must load immediately after code-dark.css',
+  'Pet dark styles must load immediately after code-dark.css',
+);
+assert.strictEqual(
+  CODE_STYLE_SOURCES.indexOf('src/styles/git-history-dark.css'),
+  CODE_STYLE_SOURCES.indexOf('src/styles/pet-dark.css') + 1,
+  'Git History dark styles must load immediately after dark Pet',
 );
 assert.strictEqual(
   CODE_STYLE_SOURCES.indexOf('src/styles/composer-dark.css'),
