@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useReducer, useRef, useState, useCallback } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import type {
   ChangeEvent as ReactChangeEvent,
   ClipboardEvent as ReactClipboardEvent,
@@ -180,7 +180,6 @@ import {
   type ClaudeSettingsSummary,
 } from './code/composer-profile'
 import type {
-  AgentSessionHistoryItem,
   ClaudePermissionMode,
   CodexApprovalMode,
   CodexModelOption,
@@ -244,11 +243,7 @@ import {
   resumedAgentSource,
   saveSessionDisplayState,
 } from './code/session-display'
-import {
-  createAgentSessionInventoryState,
-  reduceAgentSessionInventory,
-  type AgentSessionPage,
-} from './code/agent-session-inventory'
+import { useAgentSessionInventoryController } from './code/useAgentSessionInventoryController'
 import {
   normalizeAgentLaunchOptions,
   type AgentLaunchOption,
@@ -412,11 +407,6 @@ const DESKTOP_AUTO_COLLAPSE_WIDTH = 900
 const TERMINAL_PATH_SEARCH_LIMIT = 12
 const OPEN_FILE_REFRESH_CONCURRENCY = 4
 const OPEN_FILE_REFRESH_TIMEOUT_MS = 15_000
-const AGENT_SESSION_PAGE_SIZE = 60
-const AGENT_SESSION_SEARCH_LIMIT = 1000
-const AGENT_SESSION_SEARCH_DEBOUNCE_MS = 150
-const AGENT_SESSION_BACKGROUND_QUIET_MS = 5_000
-const AGENT_SESSION_LIFECYCLE_SETTLE_MS = 30_000
 const EMPTY_PROJECT_AGENT_SUMMARIES: ProjectAgentSummary[] = []
 const CODEX_TERMINAL_PROFILE_REQUEST_TIMEOUT_MS = 35_000
 
@@ -710,29 +700,6 @@ export function CodeWorkspace({
   const [claudeEffort, setClaudeEffort] = useState('config')
   const [claudeSettings, setClaudeSettings] = useState<ClaudeSettingsSummary>(DEFAULT_CLAUDE_SETTINGS)
   const [discoveredSlashCommands, setDiscoveredSlashCommands] = useState<SlashCommandOption[]>([])
-  const [agentSessionInventory, dispatchAgentSessionInventory] = useReducer(
-    reduceAgentSessionInventory,
-    AGENT_SESSION_PAGE_SIZE,
-    createAgentSessionInventoryState,
-  )
-  const {
-    sessions: agentSessions,
-    nextCursor: agentSessionNextCursor,
-    hasMore: agentSessionsHasMore,
-    total: agentSessionTotal,
-    loadedCount: agentSessionLoadedCount,
-  } = agentSessionInventory
-  const [agentSessionsFreshLoading, setAgentSessionsFreshLoading] = useState(false)
-  const [agentSessionsFreshError, setAgentSessionsFreshError] = useState('')
-  const [searchedAgentSessions, setSearchedAgentSessions] = useState<AgentSessionHistoryItem[]>([])
-  const [agentSessionSearchLoading, setAgentSessionSearchLoading] = useState(false)
-  const agentSessionsLoadingRef = useRef(false)
-  const agentSessionsFirstPageRequestRef = useRef<{ limit: number; fresh: boolean; promise: Promise<AgentSessionPage> } | null>(null)
-  const agentSessionsLoadGenerationRef = useRef(0)
-  const agentSessionsLoadAbortRef = useRef<AbortController | null>(null)
-  const agentSessionsBackgroundTimerRef = useRef<number | null>(null)
-  const agentSessionsBackgroundFreshRef = useRef(false)
-  const agentSessionsBackgroundCancelRef = useRef<(() => void) | null>(null)
   const [agentSessionPinnedOverrides, setAgentSessionPinnedOverrides] = useState<Record<string, boolean>>(
     () => loadSessionDisplayState().pinnedOverrides
   )
@@ -859,6 +826,30 @@ export function CodeWorkspace({
   const copy = useMemo(() => codeCopyForLanguage(uiPreferences.language), [uiPreferences.language])
   const currentInfoLoadFailedRef = useRef(copy.currentInfoLoadFailed)
   currentInfoLoadFailedRef.current = copy.currentInfoLoadFailed
+  const agentSessionInventorySearchQuery = searchQuery.trim().toLowerCase()
+  const {
+    agentSessionInventory,
+    dispatchAgentSessionInventory,
+    agentSessionsFreshLoading,
+    agentSessionsFreshError,
+    searchedAgentSessions,
+    agentSessionSearchLoading,
+    fetchSearchedAgentSessions,
+    loadAgentSessions,
+    scheduleAgentSessionsBackgroundLoad,
+    invalidateAgentSessionsForHistory,
+    loadMoreAgentSessions,
+    refreshVisibleAgentSessionPage,
+  } = useAgentSessionInventoryController({
+    searchActive: (activeView === 'search' || searchOpen) && agentSessionInventorySearchQuery.length > 0,
+    searchQuery: agentSessionInventorySearchQuery,
+    freshErrorMessage: currentInfoLoadFailedRef.current,
+  })
+  const {
+    sessions: agentSessions,
+    hasMore: agentSessionsHasMore,
+    total: agentSessionTotal,
+  } = agentSessionInventory
 
   useEffect(() => {
     saveSessionDisplayState({
@@ -1667,19 +1658,6 @@ export function CodeWorkspace({
       cancelled = true
     }
   }, [activeProviderHomeId])
-  const fetchSearchedAgentSessions = useCallback(async (query: string, signal: AbortSignal) => {
-    const params = new URLSearchParams({
-      q: query,
-      limit: String(AGENT_SESSION_SEARCH_LIMIT),
-    })
-    const response = await fetch(appPath(`/api/agent-sessions/search?${params.toString()}`), {
-      signal,
-      cache: 'no-store',
-    })
-    if (!response.ok) throw new Error(`Failed to search Agent sessions: ${response.status}`)
-    const data = await response.json() as { sessions?: AgentSessionHistoryItem[] }
-    return Array.isArray(data.sessions) ? data.sessions : []
-  }, [])
   const searchHistoryAgentSessions = useCallback(async (query: string, signal: AbortSignal) => {
     const sessions = await fetchSearchedAgentSessions(query, signal)
     const decoratedSessions = applySessionDisplayOverrides(sessions, agentSessionPinnedOverrides, {})
@@ -1689,166 +1667,6 @@ export function CodeWorkspace({
       agentListState.claimedAgentSessionKeys
     )
   }, [agentListState.claimedAgentSessionKeys, agentSessionPinnedOverrides, fetchSearchedAgentSessions, mainPageSessionKeys])
-  const fetchAgentSessions = useCallback(async (options: { cursor?: string; limit?: number; fresh?: boolean; signal?: AbortSignal } = {}) => {
-    const params = new URLSearchParams({ limit: String(options.limit || AGENT_SESSION_PAGE_SIZE) })
-    if (options.cursor) params.set('cursor', options.cursor)
-    if (options.fresh) params.set('fresh', '1')
-    const response = await fetch(appPath(`/api/agent-sessions?${params.toString()}`), {
-      cache: options.fresh ? 'no-store' : 'default',
-      signal: options.signal,
-    })
-    if (!response.ok) throw new Error(`Failed to load Agent sessions: ${response.status}`)
-    const data = await response.json() as {
-      sessions?: AgentSessionHistoryItem[]
-      nextCursor?: string
-      hasMore?: boolean
-      total?: number
-    }
-    const sessions = Array.isArray(data.sessions) ? data.sessions : []
-    return {
-      sessions,
-      nextCursor: typeof data.nextCursor === 'string' ? data.nextCursor : '',
-      hasMore: data.hasMore === true,
-      total: Number.isFinite(data.total) ? Math.max(sessions.length, Math.floor(data.total as number)) : sessions.length,
-    }
-  }, [])
-  const fetchAgentSessionPage = useCallback((options: { cursor?: string; limit?: number; fresh?: boolean; signal?: AbortSignal } = {}) => {
-    if (options.cursor) return fetchAgentSessions(options)
-    const limit = options.limit || AGENT_SESSION_PAGE_SIZE
-    const fresh = options.fresh === true
-    const current = agentSessionsFirstPageRequestRef.current
-    if (current?.limit === limit && current.fresh === fresh) return current.promise
-    const request = fetchAgentSessions({ ...options, limit }).finally(() => {
-      if (agentSessionsFirstPageRequestRef.current?.promise === request) {
-        agentSessionsFirstPageRequestRef.current = null
-      }
-    })
-    agentSessionsFirstPageRequestRef.current = { limit, fresh, promise: request }
-    return request
-  }, [fetchAgentSessions])
-  const loadAgentSessions = useCallback((fresh = false) => {
-    let cancelled = false
-    if (fresh && agentSessionsBackgroundTimerRef.current !== null) {
-      window.clearTimeout(agentSessionsBackgroundTimerRef.current)
-      agentSessionsBackgroundTimerRef.current = null
-      agentSessionsBackgroundFreshRef.current = false
-    }
-    agentSessionsLoadAbortRef.current?.abort()
-    // A superseded first-page request remains in the single-flight ref until
-    // its promise settles. Clear that ownership synchronously so an explicit
-    // History refresh cannot reuse the just-aborted background request.
-    agentSessionsFirstPageRequestRef.current = null
-    const controller = new AbortController()
-    agentSessionsLoadAbortRef.current = controller
-    const generation = agentSessionsLoadGenerationRef.current + 1
-    agentSessionsLoadGenerationRef.current = generation
-    if (fresh) {
-      setAgentSessionsFreshLoading(true)
-      setAgentSessionsFreshError('')
-    }
-    fetchAgentSessionPage(fresh ? { fresh: true, signal: controller.signal } : { signal: controller.signal })
-      .then(page => {
-        if (cancelled || generation !== agentSessionsLoadGenerationRef.current) return
-        dispatchAgentSessionInventory({ type: 'first-page-replaced', page })
-      })
-      .catch(() => {
-        if (controller.signal.aborted) return
-        if (!cancelled && generation === agentSessionsLoadGenerationRef.current) {
-          if (fresh) setAgentSessionsFreshError(currentInfoLoadFailedRef.current)
-        }
-      })
-      .finally(() => {
-        if (agentSessionsLoadAbortRef.current === controller) agentSessionsLoadAbortRef.current = null
-        if (!cancelled && fresh && generation === agentSessionsLoadGenerationRef.current) {
-          setAgentSessionsFreshLoading(false)
-        }
-      })
-
-    return () => {
-      cancelled = true
-      controller.abort()
-      if (agentSessionsLoadAbortRef.current === controller) agentSessionsLoadAbortRef.current = null
-      if (fresh && generation === agentSessionsLoadGenerationRef.current) {
-        setAgentSessionsFreshLoading(false)
-      }
-    }
-  }, [fetchAgentSessionPage])
-  const scheduleAgentSessionsBackgroundLoad = useCallback((fresh = false) => {
-    agentSessionsBackgroundFreshRef.current = agentSessionsBackgroundFreshRef.current || fresh
-    const quietMs = agentSessionsBackgroundFreshRef.current
-      ? AGENT_SESSION_LIFECYCLE_SETTLE_MS
-      : AGENT_SESSION_BACKGROUND_QUIET_MS
-    if (agentSessionsBackgroundTimerRef.current !== null) {
-      window.clearTimeout(agentSessionsBackgroundTimerRef.current)
-    }
-    const run = () => {
-      agentSessionsBackgroundTimerRef.current = null
-      const requestedFresh = agentSessionsBackgroundFreshRef.current
-      agentSessionsBackgroundFreshRef.current = false
-      agentSessionsBackgroundCancelRef.current?.()
-      agentSessionsBackgroundCancelRef.current = loadAgentSessions(requestedFresh)
-    }
-    agentSessionsBackgroundTimerRef.current = window.setTimeout(
-      run,
-      quietMs,
-    )
-  }, [loadAgentSessions])
-  useEffect(() => () => {
-    if (agentSessionsBackgroundTimerRef.current !== null) {
-      window.clearTimeout(agentSessionsBackgroundTimerRef.current)
-      agentSessionsBackgroundTimerRef.current = null
-    }
-    agentSessionsBackgroundCancelRef.current?.()
-    agentSessionsBackgroundCancelRef.current = null
-  }, [])
-  const invalidateAgentSessionsForHistory = useCallback(() => {
-    agentSessionsLoadGenerationRef.current += 1
-    setAgentSessionsFreshLoading(true)
-    setAgentSessionsFreshError('')
-  }, [])
-  const loadMoreAgentSessions = useCallback(async () => {
-    if (!agentSessionsHasMore || !agentSessionNextCursor || agentSessionsLoadingRef.current) return false
-    agentSessionsLoadingRef.current = true
-    try {
-      const page = await fetchAgentSessionPage({ cursor: agentSessionNextCursor })
-      dispatchAgentSessionInventory({ type: 'page-appended', page })
-      return page.sessions.length > 0
-    } catch {
-      return false
-    } finally {
-      agentSessionsLoadingRef.current = false
-    }
-  }, [agentSessionNextCursor, agentSessionsHasMore, fetchAgentSessionPage])
-
-  useEffect(() => {
-    const searchActive = (activeView === 'search' || searchOpen) && hasSearchQuery
-    if (!searchActive) {
-      setSearchedAgentSessions([])
-      setAgentSessionSearchLoading(false)
-      return undefined
-    }
-
-    const controller = new AbortController()
-    setSearchedAgentSessions([])
-    setAgentSessionSearchLoading(true)
-    const timer = window.setTimeout(() => {
-      fetchSearchedAgentSessions(normalizedSearch, controller.signal)
-        .then(setSearchedAgentSessions)
-        .catch(error => {
-          if (error instanceof DOMException && error.name === 'AbortError') return
-          setSearchedAgentSessions([])
-        })
-        .finally(() => {
-          if (!controller.signal.aborted) setAgentSessionSearchLoading(false)
-        })
-    }, AGENT_SESSION_SEARCH_DEBOUNCE_MS)
-
-    return () => {
-      window.clearTimeout(timer)
-      controller.abort()
-    }
-  }, [activeView, fetchSearchedAgentSessions, hasSearchQuery, normalizedSearch, searchOpen])
-
   const loadSlashCommands = useCallback((provider: string, homeId: string, workspace?: string) => {
     if (provider !== 'codex' && provider !== 'claude') {
       setDiscoveredSlashCommands([])
@@ -3171,8 +2989,7 @@ export function CodeWorkspace({
         }),
       })
       if (!response.ok) throw new Error(copy.updateFailed)
-      const page = await fetchAgentSessions({ limit: agentSessionLoadedCount })
-      dispatchAgentSessionInventory({ type: 'visible-page-replaced', page })
+      await refreshVisibleAgentSessionPage()
       setAgentSessionPinnedOverrides(previous => {
         const next = { ...previous }
         delete next[sessionId]
@@ -3189,7 +3006,7 @@ export function CodeWorkspace({
         message: error instanceof Error ? error.message : copy.updateFailed,
       })
     }
-  }, [agentSessionLoadedCount, closeContextMenu, contextMenuAgentSession, copy.updateFailed, fetchAgentSessions, focusAgentSessionRow, mainPageSessionKeys])
+  }, [closeContextMenu, contextMenuAgentSession, copy.updateFailed, focusAgentSessionRow, mainPageSessionKeys, refreshVisibleAgentSessionPage])
 
   const archiveContextMenuAgentSession = useCallback(() => {
     if (!contextMenuAgentSession) return
@@ -4357,7 +4174,7 @@ export function CodeWorkspace({
     } catch (error) {
       setCopyNotice({ id: Date.now(), kind: 'error', message: error instanceof Error ? error.message : 'Failed to resume agent session' })
     }
-  }, [activeAgents, addMainPageAgentSession, closeSidebarForMobile, mountProject, onOpenTerminal, onOpenTerminalWhenReady])
+  }, [activeAgents, addMainPageAgentSession, closeSidebarForMobile, dispatchAgentSessionInventory, mountProject, onOpenTerminal, onOpenTerminalWhenReady])
   resumeAgentSessionRef.current = resumeAgentSession
 
   const continueArchivedRun = useCallback((entry: TaskHistoryEntry) => {

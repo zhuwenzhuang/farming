@@ -17,6 +17,7 @@ function run() {
     'src/components/code/CodeSidebar.tsx',
     'src/components/code/UsagePanel.tsx',
     'src/components/code/agent-session-inventory.ts',
+    'src/components/code/useAgentSessionInventoryController.ts',
     'src/components/code/agent-list-state.ts',
     'src/components/code/agent-row-state.ts',
     'src/components/code/agent-terminal-inference.ts',
@@ -61,6 +62,7 @@ function run() {
   const mainPageSessionSource = read('backend/main-page-session.cts');
   const inputPartsSource = read('backend/input-parts.cts');
   const websocketHandshakeHealthHandlersSource = read('backend/websocket-handshake-health-handlers.cts');
+  const agentSessionInventoryControllerSource = read('src/components/code/useAgentSessionInventoryController.ts');
   const websocketResourceBroadcastsSource = read('backend/websocket-resource-broadcasts.cts');
   const websocketTerminalHandlersSource = read('backend/websocket-terminal-handlers.cts');
   const terminalPaneSource = read('src/components/AgentTerminalPane.tsx');
@@ -109,6 +111,16 @@ function run() {
   const transcriptLinkClickSource = transcriptPaneSource.slice(
     transcriptLinkClickStart,
     transcriptPaneSource.indexOf('      return (', transcriptLinkClickStart),
+  );
+
+  assert(
+    workspaceSource.includes('useAgentSessionInventoryController({')
+      && agentSessionInventoryControllerSource.includes('class AgentSessionInventoryRequestLifecycle')
+      && agentSessionInventoryControllerSource.includes('this.firstPageRequest = null')
+      && agentSessionInventoryControllerSource.includes('this.loadAbort?.abort()')
+      && agentSessionInventoryControllerSource.includes('refreshVisibleAgentSessionPage: refreshVisiblePage')
+      && agentSessionInventoryControllerSource.includes('AGENT_SESSION_SEARCH_DEBOUNCE_MS'),
+    'Agent session inventory ownership should keep request fencing, pagination, background scheduling, and search cancellation in one controller',
   );
 
   assert(
@@ -704,7 +716,7 @@ function run() {
       !workspaceSource.includes("params.set('force', '1')") &&
       workspaceSource.includes("cache: options.fresh ? 'no-store' : 'default'") &&
       workspaceSource.includes("cache: 'no-store'") &&
-      workspaceSource.includes('const loadMoreAgentSessions = useCallback(async') &&
+      agentSessionInventoryControllerSource.includes('async loadMore()') &&
       workspaceSource.includes("type: 'page-appended'") &&
       workspaceSource.includes("case 'page-appended'") &&
       workspaceSource.includes('const seen = new Set(state.sessions.map(agentSessionId))') &&
@@ -777,11 +789,11 @@ function run() {
       workspaceSource.includes('trackedMainPageAgentKeysRef') &&
       workspaceSource.includes('let discoveredSession = false') &&
       workspaceSource.includes('if (discoveredSession) scheduleAgentSessionsBackgroundLoad(true)') &&
-      workspaceSource.includes('agentSessionsBackgroundTimerRef') &&
+      agentSessionInventoryControllerSource.includes('backgroundTimer') &&
       workspaceSource.includes('AGENT_SESSION_LIFECYCLE_SETTLE_MS = 30_000') &&
-      workspaceSource.includes('agentSessionsFirstPageRequestRef') &&
-      workspaceSource.lastIndexOf('agentSessionsFirstPageRequestRef.current = null')
-        > workspaceSource.indexOf('agentSessionsLoadAbortRef.current?.abort()') &&
+      agentSessionInventoryControllerSource.includes('firstPageRequest') &&
+      agentSessionInventoryControllerSource.lastIndexOf('this.firstPageRequest = null')
+        > agentSessionInventoryControllerSource.indexOf('this.loadAbort?.abort()') &&
       workspaceSource.includes('if (current?.limit === limit && current.fresh === fresh) return current.promise') &&
       workspaceSource.includes('agent.providerSessionTemporary === true') &&
       !workspaceSource.includes('window.setInterval(refreshAgentSessions, 5_000)') &&
