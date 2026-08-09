@@ -44,6 +44,7 @@ function run() {
     'src/components/code/types.ts',
     'src/components/code/useAgentComposerState.ts',
     'src/components/code/useMainPageSessionMembershipController.ts',
+    'src/components/code/useProjectMembershipController.ts',
     'src/components/code/useResourcePaneController.ts',
     'src/components/code/useWorkspaceContextMenu.ts',
     'src/components/code/useWorkspaceNavigationHistory.ts',
@@ -64,6 +65,7 @@ function run() {
   const inputPartsSource = read('backend/input-parts.cts');
   const websocketHandshakeHealthHandlersSource = read('backend/websocket-handshake-health-handlers.cts');
   const agentSessionInventoryControllerSource = read('src/components/code/useAgentSessionInventoryController.ts');
+  const projectMembershipControllerSource = read('src/components/code/useProjectMembershipController.ts');
   const resourcePaneControllerSource = read('src/components/code/useResourcePaneController.ts');
   const websocketResourceBroadcastsSource = read('backend/websocket-resource-broadcasts.cts');
   const websocketTerminalHandlersSource = read('backend/websocket-terminal-handlers.cts');
@@ -1230,16 +1232,17 @@ function run() {
       !workspaceSource.includes('pinnedProjectWorkspacesMutationRef') &&
       !workspaceSource.includes('setProjectWorkspaces(normalizeProjectWorkspaces(settings.projectWorkspaces))') &&
       !workspaceSource.includes('setPinnedProjectWorkspaces(normalizeProjectWorkspaces(settings.pinnedProjectWorkspaces))') &&
-      workspaceSource.includes("appPath('/api/projects/mount')") &&
+      workspaceSource.includes('useProjectMembershipController(') &&
+      projectMembershipControllerSource.includes("appPath('/api/projects/mount')") &&
       workspaceSource.includes('const mountedWorkspace = await mountProject(identity.workspaceRoot)') &&
-      workspaceSource.includes('applyProjectMembership(membership || {})') &&
+      projectMembershipControllerSource.includes('applyMembership(result.membership)') &&
       workspaceSource.includes("appPath('/api/projects/remove')") &&
       workspaceSource.includes("appPath('/api/projects/pin')") &&
       workspaceSource.includes("appPath('/api/projects/name')") &&
       workspaceSource.includes("method: 'PATCH'") &&
       !workspaceSource.includes('body: JSON.stringify({ projectNames: nextProjectNames })') &&
-      workspaceSource.includes('applyProjectMembership({ projectWorkspaces: remoteProjectWorkspaces })') &&
-      workspaceSource.includes('applyProjectMembership({ pinnedProjectWorkspaces: remotePinnedProjectWorkspaces })') &&
+      projectMembershipControllerSource.includes('applyMembership({ projectWorkspaces: remoteProjectWorkspaces })') &&
+      projectMembershipControllerSource.includes('applyMembership({ pinnedProjectWorkspaces: remotePinnedProjectWorkspaces })') &&
       !workspaceSource.includes('applyProjectMembership(data)') &&
       resumeAgentSessionSource.indexOf('await mountProject(projectWorkspaceForAgent(existingAgent))') <
         resumeAgentSessionSource.indexOf('\n      markSessionResumedLocally()') &&

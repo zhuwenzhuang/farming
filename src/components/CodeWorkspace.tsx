@@ -35,7 +35,6 @@ import {
   normalizeGlobalWorkspaceFilePath,
 } from '@/lib/global-workspace-files'
 import {
-  normalizeProjectWorkspaces,
   projectFilesWorkspaceId,
   projectWorkspaceFromFilesId,
 } from '@/lib/project-workspaces'
@@ -229,6 +228,7 @@ import {
 } from './code/workspace-view-state'
 import { useAgentComposerState } from './code/useAgentComposerState'
 import { useMainPageSessionMembershipController } from './code/useMainPageSessionMembershipController'
+import { useProjectMembershipController } from './code/useProjectMembershipController'
 import {
   terminalTargetFilePath,
   terminalTargetGlobalFilePath,
@@ -683,9 +683,16 @@ export function CodeWorkspace({
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchSelectionIndex, setSearchSelectionIndex] = useState(0)
-  const [projectWorkspaces, setProjectWorkspaces] = useState<string[]>([])
-  const [projectWorkspacesLoaded, setProjectWorkspacesLoaded] = useState(false)
-  const [pinnedProjectWorkspaces, setPinnedProjectWorkspaces] = useState<string[]>([])
+  const {
+    projectWorkspaces,
+    projectWorkspacesLoaded,
+    pinnedProjectWorkspaces,
+    applyMembership: applyProjectMembership,
+    mountProject: requestProjectMount,
+  } = useProjectMembershipController(
+    remoteProjectWorkspaces,
+    remotePinnedProjectWorkspaces,
+  )
   const [projectNames, setProjectNames] = useState<Record<string, string>>({})
   const [agentLaunchOptions, setAgentLaunchOptions] = useState<AgentLaunchOption[]>([])
   const {
@@ -2794,51 +2801,9 @@ export function CodeWorkspace({
     })
   }, [])
 
-  const applyProjectMembership = useCallback((membership: {
-    projectWorkspaces?: string[]
-    pinnedProjectWorkspaces?: string[]
-  }) => {
-    if (Array.isArray(membership.projectWorkspaces)) {
-      const saved = normalizeProjectWorkspaces(membership.projectWorkspaces)
-      setProjectWorkspaces(saved)
-      setProjectWorkspacesLoaded(true)
-    }
-    if (Array.isArray(membership.pinnedProjectWorkspaces)) {
-      const savedPinned = normalizeProjectWorkspaces(membership.pinnedProjectWorkspaces)
-      setPinnedProjectWorkspaces(savedPinned)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!remoteProjectWorkspaces) return
-    applyProjectMembership({ projectWorkspaces: remoteProjectWorkspaces })
-  }, [applyProjectMembership, remoteProjectWorkspaces])
-
-  useEffect(() => {
-    if (!remotePinnedProjectWorkspaces) return
-    applyProjectMembership({ pinnedProjectWorkspaces: remotePinnedProjectWorkspaces })
-  }, [applyProjectMembership, remotePinnedProjectWorkspaces])
-
   const mountProject = useCallback(async (workspace: string) => {
-    const trimmedWorkspace = workspace.trim()
-    const normalizedWorkspace = trimmedWorkspace === '/'
-      ? '/'
-      : trimmedWorkspace.replace(/[\\/]+$/, '')
-    if (!normalizedWorkspace) return ''
-    const response = await fetch(appPath('/api/projects/mount'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ workspace: normalizedWorkspace }),
-    })
-    const membership = await response.json().catch(() => null) as {
-      error?: string
-      workspace?: string
-      projectWorkspaces?: string[]
-      pinnedProjectWorkspaces?: string[]
-    } | null
-    if (!response.ok) throw new Error(membership?.error || `Project request failed (${response.status})`)
-    const mountedWorkspace = membership?.workspace || normalizedWorkspace
-    applyProjectMembership(membership || {})
+    const mountedWorkspace = await requestProjectMount(workspace)
+    if (!mountedWorkspace) return ''
     setCollapsedProjectIds(current => {
       if (!current.has(mountedWorkspace)) return current
       const next = new Set(current)
@@ -2846,7 +2811,7 @@ export function CodeWorkspace({
       return next
     })
     return mountedWorkspace
-  }, [applyProjectMembership])
+  }, [requestProjectMount])
 
   const toggleProjectSessions = useCallback((projectId: string) => {
     setExpandedSessionProjectIds(previous => {
