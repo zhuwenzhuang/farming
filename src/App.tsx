@@ -68,9 +68,12 @@ type PermissionSwitchState = {
   agent: Agent
   kind: 'permission' | 'runtime'
   startedAt: number
+  confirmedReplacementAgentId?: string
+  confirmedRuntimeMode?: 'terminal' | 'chat' | 'acp'
   replacementAgentId?: string
   transitionFromAgentId?: string
   requestSettled?: boolean
+  requestWarning?: string
   requestError?: string
   requestErrorAt?: number
   requestFreshStateAt?: number
@@ -124,6 +127,37 @@ function latestRestartDescendant(agents: Agent[], ancestorAgentId: string, expec
       if (lineageDifference !== 0) return lineageDifference
       return (b.startedAt ?? 0) - (a.startedAt ?? 0)
     })[0] ?? null
+}
+
+function isConfirmedRuntimeReplacement(
+  original: Agent,
+  candidate: Agent,
+  confirmedAgentId: string,
+  confirmedRuntimeMode: 'terminal' | 'chat' | 'acp' | undefined,
+) {
+  if (
+    candidate.id !== confirmedAgentId
+    || candidate.restartedFromAgentId !== original.id
+    || candidate.providerSessionProvider !== original.providerSessionProvider
+    || (candidate.providerHomeId || '') !== (original.providerHomeId || '')
+    || (candidate.providerHomePath || '') !== (original.providerHomePath || '')
+    || projectWorkspaceForAgent(candidate) !== projectWorkspaceForAgent(original)
+  ) return false
+
+  if (
+    original.providerSessionTemporary !== true
+    && (
+      candidate.providerSessionTemporary === true
+      || !original.providerSessionId
+      || candidate.providerSessionId !== original.providerSessionId
+    )
+  ) return false
+
+  return confirmedRuntimeMode === 'terminal'
+    ? candidate.runtimeBinding.kind === 'terminal'
+    : confirmedRuntimeMode === 'chat' || confirmedRuntimeMode === 'acp'
+      ? candidate.runtimeBinding.kind === 'acp'
+      : false
 }
 
 function canReadCodexContextWindow(agent: Agent | null | undefined): agent is Agent & { providerSessionProvider: 'codex'; providerSessionId: string } {
@@ -313,7 +347,14 @@ export function App() {
   useEffect(() => {
     const current = permissionSwitchStateRef.current
     if (!current) return
-    const replacement = latestRestartDescendant(ws.agents, current.originalAgentId, current.agent)
+    const replacement = current.kind === 'runtime'
+      ? ws.agents.find(agent => isConfirmedRuntimeReplacement(
+          current.agent,
+          agent,
+          current.confirmedReplacementAgentId || '',
+          current.confirmedRuntimeMode,
+        )) ?? null
+      : latestRestartDescendant(ws.agents, current.originalAgentId, current.agent)
     if (!replacement || replacement.id === current.agent.id) return
 
     const transitionFromAgentId = current.agent.id
@@ -324,16 +365,30 @@ export function App() {
       transitionFromAgentId,
     }
     setOpenTerminalIds(ids => Array.from(new Set(ids.map(id => (
-      isRestartDescendantOf(replacement, id) ? replacement.id : id
+      current.kind === 'runtime'
+        ? (id === current.originalAgentId ? replacement.id : id)
+        : (isRestartDescendantOf(replacement, id) ? replacement.id : id)
     )))))
     setRetainedAgentViewIds(ids => reconcileAgentViewCache(ids, ids.map(id => (
-      isRestartDescendantOf(replacement, id) ? replacement.id : id
+      current.kind === 'runtime'
+        ? (id === current.originalAgentId ? replacement.id : id)
+        : (isRestartDescendantOf(replacement, id) ? replacement.id : id)
     ))))
     setActiveTerminalId(activeId => (
-      activeId && isRestartDescendantOf(replacement, activeId) ? replacement.id : activeId
+      current.kind === 'runtime'
+        ? (activeId === current.originalAgentId ? replacement.id : activeId)
+        : (activeId && isRestartDescendantOf(replacement, activeId) ? replacement.id : activeId)
     ))
     commitPermissionSwitch(next)
-  }, [commitPermissionSwitch, permissionSwitch?.agent.id, permissionSwitch?.originalAgentId, ws.agents])
+  }, [
+    commitPermissionSwitch,
+    permissionSwitch?.agent.id,
+    permissionSwitch?.confirmedReplacementAgentId,
+    permissionSwitch?.confirmedRuntimeMode,
+    permissionSwitch?.kind,
+    permissionSwitch?.originalAgentId,
+    ws.agents,
+  ])
 
   useEffect(() => {
     const current = permissionSwitch
@@ -342,6 +397,9 @@ export function App() {
     if (permissionSwitchStateRef.current?.agent.id !== current.agent.id) return
     permissionSwitchRequestRef.current = null
     commitPermissionSwitch(null)
+    if (current.requestWarning) {
+      setAppNotice({ id: Date.now(), kind: 'error', message: current.requestWarning })
+    }
   }, [
     commitPermissionSwitch,
     permissionSwitch,
@@ -938,12 +996,22 @@ export function App() {
         if (flags.archived === true && data?.archived === true) return data
         return false
       }
-      if (data?.warning) notifyError(data.warning)
+      const settledSwitch = permissionSwitchStateRef.current
+      if (data?.warning && settledSwitch?.kind !== 'runtime') notifyError(data.warning)
       if (data?.restartedAgentId) {
         const restartedAgentId = data.restartedAgentId
         const current = permissionSwitchStateRef.current
         if (switchingAgent && current?.originalAgentId === agentId) {
-          if (current.agent.id === agentId) {
+          if (current.kind === 'runtime') {
+            commitPermissionSwitch({
+              ...current,
+              confirmedReplacementAgentId: restartedAgentId,
+              confirmedRuntimeMode: data.agentRuntimeMode ?? flags.agentRuntimeMode,
+              requestSettled: true,
+              requestWarning: data.warning,
+              requestError: undefined,
+            })
+          } else if (current.agent.id === agentId) {
             setOpenTerminalIds(ids => ids.map(id => id === agentId ? restartedAgentId : id))
             setRetainedAgentViewIds(ids => reconcileAgentViewCache(ids,
               ids.map(id => id === agentId ? restartedAgentId : id)
