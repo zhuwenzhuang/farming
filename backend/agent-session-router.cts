@@ -6,6 +6,7 @@ import {
 } from './agent-session-history.cjs';
 import type { AgentSession } from './agent-session-history.cjs';
 import { mainPageAgentSessionFromKey, mainPageAgentSessionKey } from './main-page-session.cjs';
+import { canonicalProviderSessionKey } from '../shared/provider-session-identity.js';
 
 const express = require('express');
 
@@ -205,7 +206,13 @@ function createAgentSessionRouter(service: AgentSessionRouterPort): ExpressRoute
   router.post('/main-page-agent-sessions', expressFactory.json(), (req, res) => {
     const operation = typeof req.body?.operation === 'string' ? req.body.operation : '';
     const requestedKeys = Array.isArray(req.body?.sessionKeys) ? req.body.sessionKeys : [];
-    const sessionKeys = [...new Set(requestedKeys.map(key => String(key || '').trim()).filter(Boolean))];
+    // A client may still hold a pre-v2 spelling, so dedupe by the exact tuple
+    // rather than by the received string.
+    const sessionKeys = [...new Set(
+      requestedKeys
+        .map(key => canonicalProviderSessionKey(key))
+        .filter(Boolean),
+    )];
     if (
       !['add', 'remove'].includes(operation)
       || sessionKeys.length === 0

@@ -2,6 +2,10 @@ import { useCallback, useEffect, useRef } from 'react'
 import { appPath } from '@/lib/base-path'
 import { agentSessionId } from './model'
 import { resumedAgentSource } from './session-display'
+import {
+  canonicalProviderSessionKey,
+  canonicalResumedProviderSessionSource,
+} from '../../../shared/provider-session-identity.js'
 import type { ProjectMembership } from './useProjectMembershipController'
 
 const CHAT_RESUME_PROVIDERS = new Set(['codex', 'claude', 'opencode', 'qoder', 'qwen'])
@@ -182,7 +186,8 @@ export class ResumeAgentSessionController {
     })
     const source = resumedAgentSource(identity.provider, identity.sessionId, identity.providerHomeId)
     const activeAgent = this.ports.getActiveAgents().find(agent => (
-      (agent.providerSessionKey === sessionHandle || agent.source === source)
+      (canonicalProviderSessionKey(agent.providerSessionKey) === sessionHandle
+        || canonicalResumedProviderSessionSource(agent.source) === source)
       && agent.archived !== true
       && agent.status !== 'dead'
       && agent.status !== 'stopped'

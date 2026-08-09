@@ -2,6 +2,9 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const { importTsModule } = require('./helpers/import-ts-module');
+const {
+  encodeProviderSessionKey,
+} = require('../../shared/provider-session-identity.js');
 
 async function run() {
   const {
@@ -10,7 +13,8 @@ async function run() {
     agentSessionWorkspace,
   } = importTsModule('src/components/code/model.ts');
   const {
-    resumedAgentSessionFromSource,
+    claimedAgentSessionIdFromSource,
+    resumedAgentSessionSourceIdentity,
   } = importTsModule('src/components/code/session-display.ts');
   const {
     claimedAgentSessionKeysForAgents,
@@ -23,7 +27,10 @@ async function run() {
   assert.strictEqual(mainPageAgentSessionKey('', ''), '');
   assert.strictEqual(mainPageAgentSessionKey('bash', 'shell-session'), '');
   assert.strictEqual(mainPageAgentSessionKey('codex', ''), '');
-  assert.strictEqual(mainPageAgentSessionKey('CODEX', 'session-1'), 'agent-session:codex:session-1');
+  assert.strictEqual(
+    mainPageAgentSessionKey('CODEX', 'session-1'),
+    encodeProviderSessionKey('codex', 'session-1', 'default'),
+  );
 
   const sessions = [
     {
@@ -53,11 +60,20 @@ async function run() {
   assert.strictEqual(agentSessionWorkingDirectory(nestedWorkspaceSession), '/repo/packages/api');
   assert.strictEqual(
     agentSessionId({ provider: 'codex', providerHomeId: 'zwz', id: 'newer' }),
-    'agent-session:codex:home:zwz:newer'
+    encodeProviderSessionKey('codex', 'newer', 'zwz')
   );
   assert.deepStrictEqual(
-    resumedAgentSessionFromSource('codex-history-fork:home:zwz:newer'),
-    { provider: 'codex', providerHomeId: 'zwz', sessionId: 'newer' }
+    resumedAgentSessionSourceIdentity('codex-history-fork:home:zwz:newer'),
+    { provider: 'codex', providerHomeId: 'zwz', sessionId: 'newer', forked: true }
+  );
+  assert.strictEqual(
+    claimedAgentSessionIdFromSource('codex-history-fork:home:zwz:newer'),
+    '',
+    'a forked resume owns a new provider session, so it resolves no claimed handle'
+  );
+  assert.strictEqual(
+    claimedAgentSessionIdFromSource('codex-history:home:zwz:newer'),
+    encodeProviderSessionKey('codex', 'newer', 'zwz')
   );
 
   const claimedFromLiveUiAgent = claimedAgentSessionKeysForAgents([
@@ -87,7 +103,10 @@ async function run() {
       startedAt: 190_000,
     },
   ], [nestedWorkspaceSession]);
-  assert.deepStrictEqual(Array.from(claimedFromProviderSessionAgent), ['agent-session:claude:nested']);
+  assert.deepStrictEqual(
+    Array.from(claimedFromProviderSessionAgent),
+    [encodeProviderSessionKey('claude', 'nested', 'default')],
+  );
 
   const claimedFromResumedAgent = claimedAgentSessionKeysForAgents([
     {
@@ -101,7 +120,10 @@ async function run() {
       startedAt: 190_000,
     },
   ], sessions);
-  assert.deepStrictEqual(Array.from(claimedFromResumedAgent), ['agent-session:codex:newer']);
+  assert.deepStrictEqual(
+    Array.from(claimedFromResumedAgent),
+    [encodeProviderSessionKey('codex', 'newer', 'default')],
+  );
 
   assert.deepStrictEqual(
     mainPageAgentSessionsToAutoResume({
@@ -118,11 +140,11 @@ async function run() {
       ],
     }),
     [
-      { provider: 'codex', sessionId: 'newer' },
-      { provider: 'claude', sessionId: 'nested' },
+      { provider: 'codex', providerHomeId: 'default', sessionId: 'newer' },
+      { provider: 'claude', providerHomeId: 'default', sessionId: 'nested' },
       { provider: 'codex', providerHomeId: 'zwz', sessionId: 'newer' },
-      { provider: 'opencode', sessionId: 'ses_example' },
-      { provider: 'qoder', sessionId: 'insight' },
+      { provider: 'opencode', providerHomeId: 'default', sessionId: 'ses_example' },
+      { provider: 'qoder', providerHomeId: 'default', sessionId: 'insight' },
     ],
     'Server auto-resume should normalize, validate, and dedupe persisted main-page session keys'
   );
@@ -189,7 +211,7 @@ async function run() {
       resumeCoordinatorSource.includes('const knownByKey = new Map(knownSessions.map(session => [') &&
       resumeCoordinatorSource.includes('knownByKey.get(mainPageAgentSessionKey(') &&
       resumeCoordinatorSource.includes('return findActiveAgentClaimingSession(this.ports.getActiveAgents()') &&
-      mainPageSessionSource.includes("agent.providerSessionKey === sessionKey") &&
+      mainPageSessionSource.includes('return claimedProviderSessionTupleKeys(agent).has(tupleKey);') &&
       resumeCoordinatorSource.includes('claimed: true') &&
       resumeCoordinatorSource.includes('rememberMainPageSession: false') &&
       resumeCoordinatorSource.includes('autoReadInitialAttention: true') &&

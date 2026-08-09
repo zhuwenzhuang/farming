@@ -1,4 +1,5 @@
 const assert = require('assert');
+const { encodeProviderSessionKey } = require('../../shared/provider-session-identity.js');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -30,26 +31,26 @@ function run() {
   const store = new FarmingSessionStore(root, { normalizeMainPageSessionKeys });
   store.init({
     legacyMainPageSessionKeys: [
-      'agent-session:codex:legacy-session',
-      'agent-session:codex:tmp_uuid_11111111-2222-4333-8444-555555555555',
+      encodeProviderSessionKey('codex', 'legacy-session', 'default'),
+      encodeProviderSessionKey('codex', 'tmp_uuid_11111111-2222-4333-8444-555555555555', 'default'),
     ],
   });
 
-  assert.deepStrictEqual(store.getMainPageSessionKeys(), ['agent-session:codex:legacy-session']);
+  assert.deepStrictEqual(store.getMainPageSessionKeys(), [encodeProviderSessionKey('codex', 'legacy-session', 'default')]);
   const indexFile = path.join(root, 'sessions', 'index.json');
   let index = readJson(indexFile);
   assert.strictEqual(index.version, 2);
   assert.strictEqual(index.providerSessionRecords, undefined, 'index v2 should own membership only');
-  const legacyRecordId = store.getRecordForProviderSessionKey('agent-session:codex:legacy-session').id;
+  const legacyRecordId = store.getRecordForProviderSessionKey(encodeProviderSessionKey('codex', 'legacy-session', 'default')).id;
   assert(/^agent_/.test(legacyRecordId), 'legacy provider session should be mapped to a stable Agent record id');
   assert(fs.existsSync(path.join(root, 'sessions', `${legacyRecordId}.json`)));
 
-  store.rememberMainPageSessionKey('agent-session:claude:claude-session', {
+  store.rememberMainPageSessionKey(encodeProviderSessionKey('claude', 'claude-session', 'default'), {
     cwd: '/repo',
     runtimeAgentId: 'agent-live-1',
   });
   index = readJson(indexFile);
-  const claudeRecordId = store.getRecordForProviderSessionKey('agent-session:claude:claude-session').id;
+  const claudeRecordId = store.getRecordForProviderSessionKey(encodeProviderSessionKey('claude', 'claude-session', 'default')).id;
   assert(/^agent_/.test(claudeRecordId));
   const claudeRecord = readJson(path.join(root, 'sessions', `${claudeRecordId}.json`));
   assert.strictEqual(claudeRecord.id, claudeRecordId);
@@ -58,15 +59,15 @@ function run() {
   assert.strictEqual(claudeRecord.runtimeAgentId, 'agent-live-1');
   assert.strictEqual(claudeRecord.visibleOnMainPage, undefined, 'stable membership belongs only to index v2');
   assert.deepStrictEqual(store.getMainPageSessionKeys(), [
-    'agent-session:claude:claude-session',
-    'agent-session:codex:legacy-session',
+    encodeProviderSessionKey('claude', 'claude-session', 'default'),
+    encodeProviderSessionKey('codex', 'legacy-session', 'default'),
   ]);
 
-  store.rememberMainPageSessionKey('agent-session:claude:claude-session', {
+  store.rememberMainPageSessionKey(encodeProviderSessionKey('claude', 'claude-session', 'default'), {
     runtimeAgentId: 'agent-live-2',
   });
   assert.strictEqual(
-    store.getRecordForProviderSessionKey('agent-session:claude:claude-session').id,
+    store.getRecordForProviderSessionKey(encodeProviderSessionKey('claude', 'claude-session', 'default')).id,
     claudeRecordId,
     'remembering the same provider session should reuse the stable Farming session file'
   );
@@ -75,13 +76,13 @@ function run() {
     'agent-live-2'
   );
 
-  assert.strictEqual(store.removeMainPageSessionKey('agent-session:claude:claude-session'), true);
-  assert.deepStrictEqual(store.getMainPageSessionKeys(), ['agent-session:codex:legacy-session']);
+  assert.strictEqual(store.removeMainPageSessionKey(encodeProviderSessionKey('claude', 'claude-session', 'default')), true);
+  assert.deepStrictEqual(store.getMainPageSessionKeys(), [encodeProviderSessionKey('codex', 'legacy-session', 'default')]);
   const hiddenClaudeRecord = readJson(path.join(root, 'sessions', `${claudeRecordId}.json`));
   assert.strictEqual(hiddenClaudeRecord.visibleOnMainPage, undefined);
   assert(fs.existsSync(path.join(root, 'sessions', `${claudeRecordId}.json`)), 'history metadata should survive main-page removal');
   assert.strictEqual(
-    store.setProviderSessionDisplayState('agent-session:claude:claude-session', { pinned: true }),
+    store.setProviderSessionDisplayState(encodeProviderSessionKey('claude', 'claude-session', 'default'), { pinned: true }),
     claudeRecordId
   );
   assert.strictEqual(
@@ -89,7 +90,7 @@ function run() {
     true,
     'Farming pin overrides should persist in the stable provider session record'
   );
-  store.setProviderSessionDisplayState('agent-session:claude:claude-session', { pinned: false });
+  store.setProviderSessionDisplayState(encodeProviderSessionKey('claude', 'claude-session', 'default'), { pinned: false });
   assert.strictEqual(readJson(path.join(root, 'sessions', `${claudeRecordId}.json`)).displayPinned, false);
 
   const tempRecordId = store.ensureRecordForAgent({
@@ -120,7 +121,7 @@ function run() {
     projectWorkspace: '/repo',
     providerSessionProvider: 'codex',
     providerSessionId: 'resolved-codex-session',
-    providerSessionKey: 'agent-session:codex:resolved-codex-session',
+    providerSessionKey: encodeProviderSessionKey('codex', 'resolved-codex-session', 'default'),
     providerSessionTemporary: false,
     providerSessionTitle: '看下cron worker怎么加新模块',
     capabilityRuntimeEpoch: 'capability-runtime-1',
@@ -134,7 +135,7 @@ function run() {
   });
   assert.strictEqual(resolvedRecordId, tempRecordId, 'resolved provider id should keep the original Farming session file');
   assert.strictEqual(
-    store.getRecordForProviderSessionKey('agent-session:codex:resolved-codex-session').id,
+    store.getRecordForProviderSessionKey(encodeProviderSessionKey('codex', 'resolved-codex-session', 'default')).id,
     tempRecordId,
   );
   const resolvedRecord = store.readRecord(tempRecordId);
@@ -173,7 +174,7 @@ function run() {
     id: 'agent-adaptive-title',
     providerSessionProvider: 'codex',
     providerSessionId: 'resolved-codex-session',
-    providerSessionKey: 'agent-session:codex:resolved-codex-session',
+    providerSessionKey: encodeProviderSessionKey('codex', 'resolved-codex-session', 'default'),
     providerSessionTemporary: false,
     adaptiveTitle: '修复跨运行时标题更新',
   }, {
@@ -188,7 +189,7 @@ function run() {
     persistentSessionId: tempRecordId,
     providerSessionProvider: 'codex',
     providerSessionId: 'resolved-codex-session',
-    providerSessionKey: 'agent-session:codex:resolved-codex-session',
+    providerSessionKey: encodeProviderSessionKey('codex', 'resolved-codex-session', 'default'),
     providerSessionTemporary: false,
     customTitle: '用户自定义名称',
   }, {
@@ -198,7 +199,7 @@ function run() {
     id: 'agent-resumed-without-title',
     providerSessionProvider: 'codex',
     providerSessionId: 'resolved-codex-session',
-    providerSessionKey: 'agent-session:codex:resolved-codex-session',
+    providerSessionKey: encodeProviderSessionKey('codex', 'resolved-codex-session', 'default'),
     providerSessionTemporary: false,
     customTitle: '',
   });
@@ -214,7 +215,7 @@ function run() {
     id: 'agent-provider-title-refresh',
     providerSessionProvider: 'codex',
     providerSessionId: 'resolved-codex-session',
-    providerSessionKey: 'agent-session:codex:resolved-codex-session',
+    providerSessionKey: encodeProviderSessionKey('codex', 'resolved-codex-session', 'default'),
     providerSessionTemporary: false,
     providerSessionTitle: 'Codex generated summary',
     customTitle: '',
@@ -229,7 +230,7 @@ function run() {
     id: 'agent-explicitly-cleared-title',
     providerSessionProvider: 'codex',
     providerSessionId: 'resolved-codex-session',
-    providerSessionKey: 'agent-session:codex:resolved-codex-session',
+    providerSessionKey: encodeProviderSessionKey('codex', 'resolved-codex-session', 'default'),
     providerSessionTemporary: false,
     customTitle: '',
   }, {
@@ -243,7 +244,7 @@ function run() {
   assert.strictEqual(store.readRecord(tempRecordId).title, '修复跨运行时标题更新');
   assert.strictEqual(store.readRecord(tempRecordId).titleUserSpecified, false);
 
-  const collisionKey = 'agent-session:codex:collision-session';
+  const collisionKey = encodeProviderSessionKey('codex', 'collision-session', 'default');
   const canonicalCollisionId = store.ensureRecordForAgent({
     id: 'agent-old-collision',
     providerSessionProvider: 'codex',
@@ -344,7 +345,7 @@ function run() {
   });
   assert.notStrictEqual(workRecordId, resolvedRecordId, 'the same provider session id in another home needs its own Farming record');
   assert.strictEqual(
-    store.getRecordForProviderSessionKey('agent-session:codex:home:work:resolved-codex-session').id,
+    store.getRecordForProviderSessionKey(encodeProviderSessionKey('codex', 'resolved-codex-session', 'work')).id,
     workRecordId,
   );
   const workRecord = readJson(path.join(root, 'sessions', `${workRecordId}.json`));
@@ -357,7 +358,7 @@ function run() {
     providerHomePath: '/homes/opencode-work',
     providerSessionProvider: 'opencode',
     providerSessionId: 'ses_global_identity',
-    providerSessionKey: 'agent-session:opencode:home:work:ses_global_identity',
+    providerSessionKey: encodeProviderSessionKey('opencode', 'ses_global_identity', 'work'),
     providerSessionTemporary: false,
   });
   assert.throws(
@@ -367,7 +368,7 @@ function run() {
       providerHomePath: '/homes/opencode',
       providerSessionProvider: 'opencode',
       providerSessionId: 'ses_global_identity',
-      providerSessionKey: 'agent-session:opencode:ses_global_identity',
+      providerSessionKey: encodeProviderSessionKey('opencode', 'ses_global_identity', 'default'),
       providerSessionTemporary: false,
     }),
     /already bound to Agent Home "work"/,
@@ -379,7 +380,7 @@ function run() {
       persistentSessionId: workRecordId,
       providerSessionProvider: 'codex',
       providerSessionId: 'different-stable-session',
-      providerSessionKey: 'agent-session:codex:home:work:different-stable-session',
+      providerSessionKey: encodeProviderSessionKey('codex', 'different-stable-session', 'work'),
       providerSessionTemporary: false,
     }),
     /already bound/,
@@ -466,7 +467,7 @@ function run() {
   const legacyProviderSessions = path.join(legacyProviderRoot, 'sessions');
   fs.mkdirSync(legacyProviderSessions, { recursive: true });
   const legacyProviderId = 'fsess_legacy_provider';
-  const legacyProviderKey = 'agent-session:claude:legacy-provider-session';
+  const legacyProviderKey = encodeProviderSessionKey('claude', 'legacy-provider-session', 'default');
   const legacyProviderFile = path.join(legacyProviderSessions, `${legacyProviderId}.json`);
   fs.writeFileSync(legacyProviderFile, JSON.stringify({
     id: legacyProviderId,
@@ -537,7 +538,7 @@ function run() {
   const repairRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-session-store-repair-'));
   const repairStore = new FarmingSessionStore(repairRoot, { normalizeMainPageSessionKeys });
   repairStore.init();
-  const repairKey = 'agent-session:claude:repair-session';
+  const repairKey = encodeProviderSessionKey('claude', 'repair-session', 'default');
   const repairId = repairStore.ensureRecordForAgent({
     id: 'agent-repair',
     providerSessionProvider: 'claude',
@@ -593,7 +594,7 @@ function run() {
   const duplicateRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-session-store-conflict-'));
   const duplicateStore = new FarmingSessionStore(duplicateRoot, { normalizeMainPageSessionKeys });
   duplicateStore.init();
-  const duplicateKey = 'agent-session:claude:duplicate-session';
+  const duplicateKey = encodeProviderSessionKey('claude', 'duplicate-session', 'default');
   const duplicateId = duplicateStore.ensureRecordForAgent({
     id: 'agent-duplicate-a',
     providerSessionProvider: 'claude',
@@ -636,7 +637,7 @@ function run() {
   const failedMembershipIndex = path.join(failedMembershipRoot, 'sessions', 'index.json');
   const indexBeforeFailedMembership = fs.readFileSync(failedMembershipIndex, 'utf8');
   failIndexWrite = true;
-  const failedMembershipKey = 'agent-session:claude:record-survives-index-failure';
+  const failedMembershipKey = encodeProviderSessionKey('claude', 'record-survives-index-failure', 'default');
   assert.throws(
     () => membershipStore.rememberMainPageSessionKey(failedMembershipKey),
     /membership index failure/,
@@ -658,7 +659,7 @@ function run() {
 
   restartedMembershipStore.setMainPageSessionKeys([
     failedMembershipKey,
-    'agent-session:codex:second-membership',
+    encodeProviderSessionKey('codex', 'second-membership', 'default'),
   ]);
   const membershipBeforeFailedRemoval = restartedMembershipStore.getMainPageSessionKeys();
   const removalIndexBytes = fs.readFileSync(failedMembershipIndex, 'utf8');

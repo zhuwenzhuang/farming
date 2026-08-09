@@ -21,8 +21,11 @@ import {
 } from './model'
 import type { CodeCopy } from './copy'
 import type { AgentSessionHistoryItem } from './types'
-import { resumedAgentSessionFromSource } from './session-display'
+import { resumedAgentSessionSourceIdentity } from './session-display'
 import { AgentLaunchIcon } from './AgentLaunchIcon'
+import {
+  providerSessionIdentityTupleKey,
+} from '../../../shared/provider-session-identity.js'
 
 export type HistoryAgentItem =
   | { kind: 'run'; historyKey: string; updatedAt: number; entry: TaskHistoryEntry }
@@ -70,7 +73,7 @@ function historyCommandIconName(command?: string) {
 }
 
 function historyRunIconName(entry: TaskHistoryEntry) {
-  return historyAgentIconName(resumedAgentSessionFromSource(entry.source)?.provider)
+  return historyAgentIconName(resumedAgentSessionSourceIdentity(entry.source)?.provider)
     || historyCommandIconName(entry.command)
 }
 
@@ -133,7 +136,7 @@ function normalizeHistoryProvider(provider?: string) {
 }
 
 function resumedSessionFromHistorySource(source?: string) {
-  const session = resumedAgentSessionFromSource(source)
+  const session = resumedAgentSessionSourceIdentity(source)
   if (!session) return null
   const provider = normalizeHistoryProvider(session.provider)
   const sessionId = String(session.sessionId || '').trim()
@@ -184,7 +187,11 @@ function historyAgentUpdatedAt(agent: Agent) {
   return Math.max(agent.archivedAt || 0, agent.lastActivity || 0, agent.startedAt || 0)
 }
 
-function historyItemResumeSession(item: HistoryAgentItem) {
+/**
+ * The session a row displays, including the origin a forked resume was started
+ * from. Display only: use historyItemResumeSession for anything keyed by session.
+ */
+function historyItemSourceSession(item: HistoryAgentItem) {
   if (item.kind === 'session') {
     const provider = normalizeHistoryProvider(item.session.provider)
     const sessionId = String(item.session.id || '').trim()
@@ -192,6 +199,7 @@ function historyItemResumeSession(item: HistoryAgentItem) {
       provider,
       sessionId,
       providerHomeId: item.session.providerHomeId || 'default',
+      forked: false,
     } : null
   }
 
@@ -203,6 +211,7 @@ function historyItemResumeSession(item: HistoryAgentItem) {
         provider,
         sessionId,
         providerHomeId: item.agent.providerHomeId || 'default',
+        forked: false,
       }
     }
 
@@ -212,9 +221,15 @@ function historyItemResumeSession(item: HistoryAgentItem) {
   return resumedSessionFromHistorySource(item.entry.source)
 }
 
+/** A fork owns a new Provider Session, so its row is never keyed by the origin. */
+function historyItemResumeSession(item: HistoryAgentItem) {
+  const session = historyItemSourceSession(item)
+  return session && !session.forked ? session : null
+}
+
 function historyItemResumeKey(item: HistoryAgentItem) {
   const resumed = historyItemResumeSession(item)
-  return resumed ? `resume:${resumed.provider}:${resumed.providerHomeId || 'default'}:${resumed.sessionId}` : ''
+  return resumed ? `resume:${providerSessionIdentityTupleKey(resumed)}` : ''
 }
 
 export function historyItemSessionKey(item: HistoryAgentItem) {
@@ -307,7 +322,7 @@ export function filterHistoryAgentItems(items: HistoryAgentItem[], query: string
   if (!normalizedQuery) return items
 
   return items.filter(item => {
-    const resumeId = historyItemResumeSession(item)?.sessionId
+    const resumeId = historyItemSourceSession(item)?.sessionId
     if (item.kind === 'run') {
       return normalizeHistorySearchValue([
         historyRunTitle(item.entry),
@@ -533,7 +548,7 @@ export function HistoryPanel({
                         <span className="code-history-card-title">{historyRunTitle(entry)}</span>
                         <HistoryMeta
                           iconName={historyRunIconName(entry)}
-                          resumeId={historyItemResumeSession(item)?.sessionId}
+                          resumeId={historyItemSourceSession(item)?.sessionId}
                           openOnMainPage={openOnMainPage}
                           openOnMainPageLabel={copy.openOnMainPage}
                         >
@@ -576,7 +591,7 @@ export function HistoryPanel({
                         <span className="code-history-card-title">{agentTitle(agent)}</span>
                         <HistoryMeta
                           iconName={historyArchivedAgentIconName(agent)}
-                          resumeId={historyItemResumeSession(item)?.sessionId}
+                          resumeId={historyItemSourceSession(item)?.sessionId}
                           openOnMainPage={openOnMainPage}
                           openOnMainPageLabel={copy.openOnMainPage}
                         >

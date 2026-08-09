@@ -18,6 +18,7 @@ Maintainer contracts remain in this directory. Important entry points include:
 - [ACP runtime](acp-runtime.md)
 - [Codex runtime](codex-runtime.md)
 - [Agent list state protocol](agent-list-state-protocol.md)
+- [Provider Session durable identity](provider-session-identity.md)
 - [Terminal state protocol](terminal-state-protocol.md)
 - [Extension and Resource model](extension-model.md)
 - [Project Files design](project-files-section-design.md)

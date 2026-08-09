@@ -13,6 +13,7 @@ const {
   transitionLifecycleOperation,
 } = require('../agent-lifecycle-journal.cjs');
 const { FarmingSessionStore } = require('../farming-session-store.cjs');
+const { canonicalProviderSessionKey } = require('../../shared/provider-session-identity.js');
 
 function configForStore(store, workspace, ensureAgentSessionRecord?) {
   return {
@@ -344,7 +345,10 @@ async function run() {
     assert.strictEqual(stableRecord.runtimeAgentId, firstStableId);
     assert.strictEqual(
       Array.from(recoveredManager.agents.values())
-        .filter((candidate: TestAcpAgent) => candidate.providerSessionKey === stableKey)
+        .filter((candidate: TestAcpAgent) => (
+          canonicalProviderSessionKey(candidate.providerSessionKey)
+            === canonicalProviderSessionKey(stableKey)
+        ))
         .length,
       1,
       'one stable provider session must have one live Runtime owner',
@@ -426,7 +430,9 @@ async function run() {
     assert.strictEqual(rolledBackRecord.runtimeAgentId, rollbackOwner.id);
     assert.strictEqual(rolledBackRecord.visibleOnMainPage, undefined);
     assert(
-      store.getMainPageSessionKeys().includes(`agent-session:claude:${rollbackSessionId}`),
+      store.getMainPageSessionKeys().includes(
+        canonicalProviderSessionKey(`agent-session:claude:${rollbackSessionId}`),
+      ),
       'stable provider visibility must be restored through index membership',
     );
     assert.strictEqual(rolledBackRecord.customTitle, 'Keep this title');

@@ -1,4 +1,5 @@
 const assert = require('assert');
+const { encodeProviderSessionKey } = require('../../shared/provider-session-identity.js');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -43,7 +44,7 @@ async function run() {
       projectWorkspace: root,
       providerSessionProvider: 'codex',
       providerSessionId: 'state-async-session',
-      providerSessionKey: 'agent-session:codex:state-async-session',
+      providerSessionKey: encodeProviderSessionKey('codex', 'state-async-session', 'default'),
       providerSessionTemporary: false,
       runtimeBinding: {
         kind: 'acp',
@@ -217,7 +218,7 @@ async function run() {
       ...agent,
       id: 'runtime-agent-config-state',
       providerSessionId: 'config-state-session',
-      providerSessionKey: 'agent-session:codex:config-state-session',
+      providerSessionKey: encodeProviderSessionKey('codex', 'config-state-session', 'default'),
       agentRecordId: '',
       persistentSessionId: '',
     };

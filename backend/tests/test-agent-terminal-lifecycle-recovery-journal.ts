@@ -1,4 +1,5 @@
 const assert = require('assert');
+const { encodeProviderSessionKey } = require('../../shared/provider-session-identity.js');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -84,7 +85,7 @@ async function run() {
   committedCreate.providerSessionProvider = 'claude';
   committedCreate.providerHomeId = 'default';
   committedCreate.providerSessionId = '66666666-6666-4666-8666-666666666666';
-  committedCreate.providerSessionKey = `agent-session:claude:${committedCreate.providerSessionId}`;
+  committedCreate.providerSessionKey = encodeProviderSessionKey('claude', committedCreate.providerSessionId, 'default');
   committedCreate.providerSessionTemporary = false;
   committedCreate.forkRequestId = 'persisted-fork-request';
   committedCreate.forkRequestSignature = 'a'.repeat(64);

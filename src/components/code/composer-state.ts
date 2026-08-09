@@ -3,7 +3,12 @@ import { agentSessionId } from './model'
 import { createDefaultComposerHistoryState, type ComposerHistoryState } from './composer-history'
 import type { ComposerAttachment, ComposerPromptAttachment } from './composer-message'
 import type { CodeModelPickerPane, ComposerMode } from './types'
-import { resumedAgentSessionIdFromSource } from './session-display'
+import { claimedAgentSessionIdFromSource } from './session-display'
+import {
+  canonicalProviderSessionKey,
+  decodeProviderSessionKey,
+  legacyProviderSessionKeyAlias,
+} from '../../../shared/provider-session-identity.js'
 
 export interface AgentComposerPendingFollowUpMessage {
   id: string
@@ -192,7 +197,7 @@ export function mergeAgentComposerStates(primary: AgentComposerState, incoming: 
 
 export function providerComposerStateKey(agent: Agent | null | undefined) {
   if (!agent || agent.providerSessionTemporary === true) return ''
-  if (agent.providerSessionKey) return agent.providerSessionKey
+  if (agent.providerSessionKey) return canonicalProviderSessionKey(agent.providerSessionKey)
   if (agent.providerSessionProvider && agent.providerSessionId) {
     return agentSessionId({
       provider: agent.providerSessionProvider,
@@ -200,7 +205,7 @@ export function providerComposerStateKey(agent: Agent | null | undefined) {
       providerHomeId: agent.providerHomeId,
     })
   }
-  return resumedAgentSessionIdFromSource(agent.source)
+  return claimedAgentSessionIdFromSource(agent.source)
 }
 
 export function composerStateKeyForAgent(agent: Agent | null | undefined) {
@@ -210,17 +215,28 @@ export function composerStateKeyForAgent(agent: Agent | null | undefined) {
 
 export function composerStateAliasKeysForAgent(agent: Agent) {
   const keys = new Set<string>()
+  const legacyAliases: string[] = []
   if (agent.id) keys.add(agent.id)
   agent.restartedFromAgentIds?.forEach(agentId => keys.add(agentId))
   if (agent.providerSessionKey) keys.add(agent.providerSessionKey)
   if (agent.providerSessionProvider && agent.providerSessionId) {
-    keys.add(agentSessionId({
+    const fieldKey = agentSessionId({
       provider: agent.providerSessionProvider,
       id: agent.providerSessionId,
       providerHomeId: agent.providerHomeId,
-    }))
+    })
+    if (fieldKey) keys.add(fieldKey)
   }
-  const sourceKey = resumedAgentSessionIdFromSource(agent.source)
+  const sourceKey = claimedAgentSessionIdFromSource(agent.source)
   if (sourceKey) keys.add(sourceKey)
+  keys.forEach(key => {
+    const identity = decodeProviderSessionKey(key)
+    if (!identity) return
+    // Empty when the pre-v2 spelling is ambiguous, in which case it belongs to
+    // the Home-scoped tuple and this Agent must not adopt its state.
+    const alias = legacyProviderSessionKeyAlias(identity)
+    if (alias) legacyAliases.push(alias)
+  })
+  legacyAliases.forEach(alias => keys.add(alias))
   return Array.from(keys)
 }

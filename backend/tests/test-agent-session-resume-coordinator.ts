@@ -1,4 +1,8 @@
 import assert from 'assert';
+const {
+  encodeProviderSessionKey,
+  encodeResumedProviderSessionSource,
+} = require('../../shared/provider-session-identity.js');
 import {
   AgentSessionResumeCoordinator,
   type AgentSessionResumeCoordinatorPorts,
@@ -632,7 +636,7 @@ async function testHttpSingleFlightEffects() {
         return { provider: 'codex', id: 'session-claim-join', cwd: '/repo', workspace: '/repo' };
       },
       getActiveAgents: () => (claiming
-        ? [{ id: 'claimed-agent', cwd: '/repo', providerSessionKey: 'agent-session:codex:session-claim-join', status: 'running' }]
+        ? [{ id: 'claimed-agent', cwd: '/repo', providerSessionKey: encodeProviderSessionKey('codex', 'session-claim-join', 'default'), status: 'running' }]
         : []),
       publishAgentState: () => { events.push('publish'); },
       startAgent: () => {
@@ -738,7 +742,7 @@ async function testHttpSingleFlightEffects() {
         events.push('archive');
         return null;
       },
-      getMainPageSessionKeys: () => ['agent-session:codex:session-already-remembered'],
+      getMainPageSessionKeys: () => [encodeProviderSessionKey('codex', 'session-already-remembered', 'default')],
       mountProjectWorkspace: () => { throw new Error('mount failed'); },
       publishAgentState: () => { events.push('publish'); },
       removeMainPageSession: () => { events.push('forget'); },
@@ -753,7 +757,7 @@ async function testHttpSingleFlightEffects() {
       getActiveAgents: () => [{
         id: 'claimed-agent',
         cwd: '/repo',
-        providerSessionKey: 'agent-session:codex:session-alpha',
+        providerSessionKey: encodeProviderSessionKey('codex', 'session-alpha', 'default'),
         status: 'running',
       }],
       archiveNewAgent: async () => {
@@ -931,7 +935,7 @@ async function testTerminalFailuresReleaseAdmission() {
       getActiveAgents: () => [{
         id: 'claimed-agent',
         cwd: '/repo',
-        providerSessionKey: 'agent-session:codex:session-alpha',
+        providerSessionKey: encodeProviderSessionKey('codex', 'session-alpha', 'default'),
         status: 'running',
       }],
     }));
@@ -1088,7 +1092,10 @@ async function testForkAndMainSemantics() {
     const reply = await coordinator.resumeHttp('codex', 'session-fork', { fork: true });
     assert.strictEqual(reply.status, 201);
     assert.deepStrictEqual(events, ['publish'], 'a Fork must not be remembered as a main-page session');
-    assert.strictEqual(startOptions!.source, 'codex-history-fork:session-fork');
+    assert.strictEqual(
+      startOptions!.source,
+      encodeResumedProviderSessionSource('codex', 'session-fork', 'default', { forked: true }),
+    );
     assert.strictEqual(startOptions!.persistentSessionId, '', 'a Fork must not inherit the source session record');
     assert.strictEqual(startOptions!.customTitle, '');
   }
@@ -1143,7 +1150,7 @@ async function testForkAndMainSemantics() {
         id: 'claimed-agent',
         cwd: '/repo',
         projectWorkspace: '/repo',
-        providerSessionKey: 'agent-session:codex:session-alpha',
+        providerSessionKey: encodeProviderSessionKey('codex', 'session-alpha', 'default'),
         status: 'running',
       }],
       startAgent: () => {
@@ -1170,7 +1177,7 @@ async function testForkAndMainSemantics() {
         id: 'claimed-agent',
         cwd: '/repo',
         gitWorktree: { workspace: '/worktree' },
-        providerSessionKey: 'agent-session:codex:session-alpha',
+        providerSessionKey: encodeProviderSessionKey('codex', 'session-alpha', 'default'),
         status: 'running',
       }],
       mountProjectWorkspace: workspace => ({ projectWorkspaces: [workspace], pinnedProjectWorkspaces: [] }),
@@ -1241,7 +1248,10 @@ async function testStartOptionsFromSavedSession() {
   assert.strictEqual(startOptions!.providerHomePath, '/homes/codex-b');
   assert.strictEqual(startOptions!.requiredCliVersion, '1.2.3');
   assert.strictEqual(startOptions!.pinned, true);
-  assert.strictEqual(startOptions!.source, 'codex-history:home:home-b:session-saved');
+  assert.strictEqual(
+    startOptions!.source,
+    encodeResumedProviderSessionSource('codex', 'session-saved', 'home-b'),
+  );
   assert.strictEqual(startOptions!.preserveProviderSessionProfile, true);
   assert.strictEqual(startOptions!.autoReadInitialAttention, false);
   assert.strictEqual(startOptions!.agentRuntimeMode, 'terminal');
@@ -1272,7 +1282,7 @@ async function testAutoResume() {
       currentAgentSessions: async () => [{
         provider: 'codex', id: 'session-alpha', providerHomeId: 'default', cwd: '/repo', workspace: '/repo',
       }],
-      getSettings: () => ({ mainPageSessionKeys: ['agent-session:codex:session-alpha'] }),
+      getSettings: () => ({ mainPageSessionKeys: [encodeProviderSessionKey('codex', 'session-alpha', 'default')] }),
       publishAgentState: () => { events.push('publish'); },
       startAgent: (_command, _workspace, callback) => {
         starts.push(callback);
@@ -1302,7 +1312,7 @@ async function testAutoResume() {
         catalogReads += 1;
         return [];
       },
-      getSettings: () => ({ mainPageSessionKeys: ['agent-session:codex:session-alpha'] }),
+      getSettings: () => ({ mainPageSessionKeys: [encodeProviderSessionKey('codex', 'session-alpha', 'default')] }),
       removeMainPageSession: (provider, sessionId) => { removed.push(`${provider}:${sessionId}`); },
       startAgent: () => {
         starts += 1;
@@ -1326,7 +1336,7 @@ async function testAutoResume() {
     const removed: string[] = [];
     const coordinator = new AgentSessionResumeCoordinator(basePorts({
       currentAgentSessions: async () => [],
-      getSettings: () => ({ mainPageSessionKeys: ['agent-session:codex:session-gone'] }),
+      getSettings: () => ({ mainPageSessionKeys: [encodeProviderSessionKey('codex', 'session-gone', 'default')] }),
       removeMainPageSession: (provider, sessionId, providerHomeId) => {
         removed.push(`${provider}:${providerHomeId}:${sessionId}`);
       },
@@ -1350,10 +1360,10 @@ async function testAutoResume() {
       getActiveAgents: () => [{
         id: 'claimed-agent',
         cwd: '/repo',
-        providerSessionKey: 'agent-session:codex:session-claimed',
+        providerSessionKey: encodeProviderSessionKey('codex', 'session-claimed', 'default'),
         status: 'running',
       }],
-      getSettings: () => ({ mainPageSessionKeys: ['agent-session:codex:session-claimed'] }),
+      getSettings: () => ({ mainPageSessionKeys: [encodeProviderSessionKey('codex', 'session-claimed', 'default')] }),
       removeMainPageSession: (provider, sessionId) => { removed.push(`${provider}:${sessionId}`); },
       startAgent: () => {
         starts += 1;
@@ -1374,7 +1384,7 @@ async function testAutoResume() {
       findAgentSession: async () => ({
         provider: 'qoder', id: 'session-stale', cwd: '/repo', workspace: '/repo',
       }),
-      getSettings: () => ({ mainPageSessionKeys: ['agent-session:qoder:session-stale'] }),
+      getSettings: () => ({ mainPageSessionKeys: [encodeProviderSessionKey('qoder', 'session-stale', 'default')] }),
       removeMainPageSession: (provider, sessionId, providerHomeId) => {
         removed.push(`${provider}:${providerHomeId}:${sessionId}`);
       },
@@ -1396,7 +1406,7 @@ async function testAutoResume() {
       currentAgentSessions: async () => [{
         provider: 'codex', id: 'session-broken', providerHomeId: 'default', cwd: '/repo',
       }],
-      getSettings: () => ({ mainPageSessionKeys: ['agent-session:codex:session-broken'] }),
+      getSettings: () => ({ mainPageSessionKeys: [encodeProviderSessionKey('codex', 'session-broken', 'default')] }),
       publishAgentState: () => { published += 1; },
       startAgent: (_command, _workspace, callback) => {
         callback(null, 'engine unavailable');
@@ -1413,7 +1423,7 @@ async function testAutoResume() {
     const warnings: unknown[][] = [];
     const coordinator = new AgentSessionResumeCoordinator(basePorts({
       currentAgentSessions: async () => { throw new Error('catalog unavailable'); },
-      getSettings: () => ({ mainPageSessionKeys: ['agent-session:codex:session-alpha'] }),
+      getSettings: () => ({ mainPageSessionKeys: [encodeProviderSessionKey('codex', 'session-alpha', 'default')] }),
       warn: (...args) => { warnings.push(args); },
     }));
     await coordinator.autoResumeMainPageAgentSessions();

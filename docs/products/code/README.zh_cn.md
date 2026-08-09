@@ -17,6 +17,7 @@ Farming Code 是默认的浏览器工作区。用户使用说明统一在公开�
 - [ACP Runtime](acp-runtime.zh_cn.md)
 - [Codex Runtime](codex-runtime.zh_cn.md)
 - [Agent List 状态协议](agent-list-state-protocol.zh_cn.md)
+- [Provider Session 持久身份](provider-session-identity.zh_cn.md)
 - [Terminal 状态协议](terminal-state-protocol.zh_cn.md)
 - [Extension 与 Resource 模型](extension-model.zh_cn.md)
 - [Project Files 设计](project-files-section-design.zh_cn.md)

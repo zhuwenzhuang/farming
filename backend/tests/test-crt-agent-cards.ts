@@ -1,4 +1,5 @@
 const assert = require('assert');
+const { encodeProviderSessionKey } = require('../../shared/provider-session-identity.js');
 const fs = require('fs');
 const path = require('path');
 
@@ -10,6 +11,7 @@ const {
   calculateCrtHistoryPageSize,
   crtHistoryAgentName,
   crtAgentSessionKey,
+  crtClaimedSessionFromSource,
   crtResumedSessionFromSource,
   crtDashboardStateSignature,
   findDefaultNewAgentIndex,
@@ -212,7 +214,7 @@ function run() {
           customTitle: 'Harvest Index',
           projectWorkspace: '/repo/farm',
           status: 'running',
-          providerSessionKey: 'agent-session:codex:session-live',
+          providerSessionKey: encodeProviderSessionKey('codex', 'session-live', 'default'),
         },
         { id: 'agent-archived', command: 'claude', projectWorkspace: '/repo/farm', archived: true },
       ],
@@ -285,11 +287,20 @@ function run() {
 
   assert.strictEqual(
     crtAgentSessionKey({ provider: 'codex', id: 'session-1', providerHomeId: 'work' }),
-    'agent-session:codex:home:work:session-1',
+    encodeProviderSessionKey('codex', 'session-1', 'work'),
   );
   assert.deepStrictEqual(
     crtResumedSessionFromSource('qoder-history:home:team:qoder-1'),
-    { provider: 'qoder', providerHomeId: 'team', sessionId: 'qoder-1' },
+    { provider: 'qoder', providerHomeId: 'team', sessionId: 'qoder-1', forked: false },
+  );
+  assert.deepStrictEqual(
+    crtResumedSessionFromSource('qoder-history-fork:home:team:qoder-1'),
+    { provider: 'qoder', providerHomeId: 'team', sessionId: 'qoder-1', forked: true },
+  );
+  assert.strictEqual(
+    crtClaimedSessionFromSource('qoder-history-fork:home:team:qoder-1'),
+    null,
+    'a forked resume owns a new provider session, so CRT must not claim the origin',
   );
   assert.strictEqual(formatCrtHistoryAge(1_000, 1_000), 'now');
   assert.strictEqual(formatCrtHistoryAge(1_000, 61_000), '1m');
@@ -358,7 +369,7 @@ function run() {
       {
         id: 'live-agent',
         status: 'running',
-        providerSessionKey: 'agent-session:codex:live-session',
+        providerSessionKey: encodeProviderSessionKey('codex', 'live-session', 'default'),
       },
     ],
     sessions: [
@@ -384,7 +395,7 @@ function run() {
         updatedAt: new Date(6_000).toISOString(),
       },
     ],
-    mainPageSessionKeys: ['agent-session:qoder:main-page-session'],
+    mainPageSessionKeys: [encodeProviderSessionKey('qoder', 'main-page-session', 'default')],
   });
   assert.deepStrictEqual(
     historyItems.map((item) => `${item.kind}:${item.kind === 'session' ? item.session.id : item.kind === 'agent' ? item.agent.id : item.entry.id}`),

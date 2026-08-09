@@ -19,6 +19,7 @@ the [documentation home](../README.md).
 - [ACP runtime](../products/code/acp-runtime.md)
 - [Codex runtime](../products/code/codex-runtime.md)
 - [Agent list state protocol](../products/code/agent-list-state-protocol.md)
+- [Provider Session durable identity](../products/code/provider-session-identity.md)
 - [Terminal state protocol](../products/code/terminal-state-protocol.md)
 
 ## Product Architecture

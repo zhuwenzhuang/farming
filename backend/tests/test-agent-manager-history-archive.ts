@@ -1,4 +1,5 @@
 const assert = require('assert');
+const { encodeProviderSessionKey } = require('../../shared/provider-session-identity.js');
 const { AgentManager } = require('../agent-manager.cjs');
 const { activeLifecycleOperation } = require('../agent-lifecycle-journal.cjs');
 
@@ -10,8 +11,8 @@ async function run() {
   let resolveCodexArchive;
   const settings = {
     mainPageSessionKeys: [
-      'agent-session:codex:archive-session',
-      'agent-session:codex:other-session',
+      encodeProviderSessionKey('codex', 'archive-session', 'default'),
+      encodeProviderSessionKey('codex', 'other-session', 'default'),
     ],
   };
   const manager = new AgentManager({
@@ -126,7 +127,7 @@ async function run() {
       source: 'codex-history:019f0000-0000-7000-8000-000000000001',
       providerSessionProvider: 'codex',
       providerSessionId: 'archive-session',
-      providerSessionKey: 'agent-session:codex:archive-session',
+      providerSessionKey: encodeProviderSessionKey('codex', 'archive-session', 'default'),
       providerHomePath: '/home/farming/.codex',
       customTitle: 'Named archive run',
       task: 'archive target',
@@ -165,31 +166,31 @@ async function run() {
     assert.strictEqual(archived.error, undefined);
     assert.strictEqual(archived.archived, true);
     assert.strictEqual(archived.removed, true);
-    assert.deepStrictEqual(archived.removedMainPageSessionKeys, ['agent-session:codex:archive-session']);
+    assert.deepStrictEqual(archived.removedMainPageSessionKeys, [encodeProviderSessionKey('codex', 'archive-session', 'default')]);
     assert.deepStrictEqual(
       settings.mainPageSessionKeys,
-      ['agent-session:codex:other-session'],
+      [encodeProviderSessionKey('codex', 'other-session', 'default')],
       'archiving a recoverable agent should remove its main-page membership so restart cannot resume it'
     );
     settings.mainPageSessionKeys = [
-      'agent-session:claude:key-only-session',
+      encodeProviderSessionKey('claude', 'key-only-session', 'default'),
       ...settings.mainPageSessionKeys,
     ];
     assert.deepStrictEqual(
       manager.removeMainPageProviderSessionsForAgents([
-        { providerSessionKey: 'agent-session:claude:key-only-session' },
+        { providerSessionKey: encodeProviderSessionKey('claude', 'key-only-session', 'default') },
       ]),
-      ['agent-session:claude:key-only-session'],
+      [encodeProviderSessionKey('claude', 'key-only-session', 'default')],
       'archive cleanup should also understand legacy agents that only carry providerSessionKey'
     );
     assert.deepStrictEqual(
       manager.removeMainPageProviderSessionsForAgents([
-        { providerSessionKey: 'agent-session:claude:not-present' },
+        { providerSessionKey: encodeProviderSessionKey('claude', 'not-present', 'default') },
       ]),
       [],
       'archive cleanup should only report session keys that were actually removed from settings'
     );
-    assert.deepStrictEqual(settings.mainPageSessionKeys, ['agent-session:codex:other-session']);
+    assert.deepStrictEqual(settings.mainPageSessionKeys, [encodeProviderSessionKey('codex', 'other-session', 'default')]);
     assert.strictEqual(manager.agents.has('sub-archive'), false, 'archived live agents should leave live state');
     assert.strictEqual(manager.taskHistory.length, 3, 'archive should create a history run');
     assert.strictEqual(manager.taskHistory[0].reason, 'manual-archive');
@@ -209,7 +210,7 @@ async function run() {
       source: 'ui',
       providerSessionProvider: 'codex',
       providerSessionId: '019f0000-0000-7000-8000-000000000010',
-      providerSessionKey: 'agent-session:codex:019f0000-0000-7000-8000-000000000010',
+      providerSessionKey: encodeProviderSessionKey('codex', '019f0000-0000-7000-8000-000000000010', 'default'),
       providerSessionMaterialized: false,
       providerSessionTemporary: false,
       task: 'fresh Codex ACP session',
@@ -236,7 +237,7 @@ async function run() {
       source: 'ui',
       providerSessionProvider: 'codex',
       providerSessionId: 'provider-archive-retry',
-      providerSessionKey: 'agent-session:codex:provider-archive-retry',
+      providerSessionKey: encodeProviderSessionKey('codex', 'provider-archive-retry', 'default'),
       task: 'provider archive retry',
     });
     const historyBeforeProviderRetry = manager.taskHistory.length;
@@ -285,7 +286,7 @@ async function run() {
     assert.deepStrictEqual(providerMutationOrder, ['archive-start', 'archive-end', 'unarchive']);
 
     settings.mainPageSessionKeys = [
-      'agent-session:codex:rollback-session',
+      encodeProviderSessionKey('codex', 'rollback-session', 'default'),
       ...settings.mainPageSessionKeys,
     ];
     manager.agents.set('project-rollback', {
@@ -299,7 +300,7 @@ async function run() {
       source: 'codex-history:rollback-session',
       providerSessionProvider: 'codex',
       providerSessionId: 'rollback-session',
-      providerSessionKey: 'agent-session:codex:rollback-session',
+      providerSessionKey: encodeProviderSessionKey('codex', 'rollback-session', 'default'),
       persistentSessionId: 'fsess_project-rollback',
       task: 'failed Project transition',
     });
@@ -315,7 +316,7 @@ async function run() {
     assert.strictEqual(manager.agents.has('project-rollback'), false);
     assert.strictEqual(manager.taskHistory.length, historyBeforeRollback, 'failed Project admission should not create a completed run');
     assert.strictEqual(codexArchiveCalls.length, archiveCallsBeforeRollback, 'failed Project admission should not archive the provider conversation');
-    assert(!settings.mainPageSessionKeys.includes('agent-session:codex:rollback-session'));
+    assert(!settings.mainPageSessionKeys.includes(encodeProviderSessionKey('codex', 'rollback-session', 'default')));
     assert.strictEqual(persistedSessionPatches.at(-1).agentId, 'project-rollback');
     assert.deepStrictEqual(
       {
@@ -389,7 +390,7 @@ async function run() {
     );
 
     settings.mainPageSessionKeys = [
-      'agent-session:codex:unverifiable-archive',
+      encodeProviderSessionKey('codex', 'unverifiable-archive', 'default'),
       ...settings.mainPageSessionKeys,
     ];
     manager.agents.set('unverifiable-archive', {
@@ -403,7 +404,7 @@ async function run() {
       source: 'codex-history:unverifiable-archive',
       providerSessionProvider: 'codex',
       providerSessionId: 'unverifiable-archive',
-      providerSessionKey: 'agent-session:codex:unverifiable-archive',
+      providerSessionKey: encodeProviderSessionKey('codex', 'unverifiable-archive', 'default'),
       task: 'archive must wait for runtime exit proof',
     });
     unverifiableRuntimeIds.add('unverifiable-archive');
@@ -413,7 +414,7 @@ async function run() {
     assert.match(unverifiableArchive.error, /runtime state unavailable/);
     assert.strictEqual(manager.agents.has('unverifiable-archive'), true);
     assert(
-      settings.mainPageSessionKeys.includes('agent-session:codex:unverifiable-archive'),
+      settings.mainPageSessionKeys.includes(encodeProviderSessionKey('codex', 'unverifiable-archive', 'default')),
       'failed archive must preserve main-page membership',
     );
     assert.strictEqual(
@@ -494,7 +495,7 @@ async function run() {
     assert.strictEqual(appended.length, 3, 'unsupported Agents should never be persisted to task history');
 
     settings.mainPageSessionKeys = [
-      'agent-session:codex:archive-metadata-failure',
+      encodeProviderSessionKey('codex', 'archive-metadata-failure', 'default'),
       ...settings.mainPageSessionKeys,
     ];
     manager.agents.set('archive-metadata-failure', {
@@ -507,13 +508,13 @@ async function run() {
       source: 'ui',
       providerSessionProvider: 'codex',
       providerSessionId: 'archive-metadata-failure',
-      providerSessionKey: 'agent-session:codex:archive-metadata-failure',
+      providerSessionKey: encodeProviderSessionKey('codex', 'archive-metadata-failure', 'default'),
       task: 'archive metadata failure',
     });
     const removeMainPageProviderSessionsForAgents = manager.removeMainPageProviderSessionsForAgents;
     manager.removeMainPageProviderSessionsForAgents = () => {
       settings.mainPageSessionKeys = settings.mainPageSessionKeys
-        .filter(key => key !== 'agent-session:codex:archive-metadata-failure');
+        .filter(key => key !== encodeProviderSessionKey('codex', 'archive-metadata-failure', 'default'));
       throw new Error('session metadata disk unavailable');
     };
     const partialArchive = await manager.archiveAgent('archive-metadata-failure', {
@@ -524,7 +525,7 @@ async function run() {
     assert.match(partialArchive.warning, /membership cleanup failed/i);
     assert.strictEqual(manager.agents.has('archive-metadata-failure'), false);
     assert(
-      !settings.mainPageSessionKeys.includes('agent-session:codex:archive-metadata-failure'),
+      !settings.mainPageSessionKeys.includes(encodeProviderSessionKey('codex', 'archive-metadata-failure', 'default')),
       'durable archive tombstone makes membership cleanup a retryable index repair',
     );
     manager.removeMainPageProviderSessionsForAgents = removeMainPageProviderSessionsForAgents;

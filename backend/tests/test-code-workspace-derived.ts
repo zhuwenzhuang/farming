@@ -1,4 +1,5 @@
 const assert = require('assert');
+const { encodeProviderSessionKey } = require('../../shared/provider-session-identity.js');
 const { importTsModule } = require('./helpers/import-ts-module');
 const {
   displayedProjectsForSearch,
@@ -259,7 +260,7 @@ function run() {
     searchSourceProjects,
     'backend-only-match',
     new Set(),
-    new Set(['agent-session:codex:session-beta'])
+    new Set([encodeProviderSessionKey('codex', 'session-beta', 'default')])
   );
   assert.deepStrictEqual(filteredByBackendMatch.map(project => project.workspace), ['/repo-beta']);
   assert.deepStrictEqual(filteredByBackendMatch[0].agentSessions.map(item => item.id), ['session-beta']);

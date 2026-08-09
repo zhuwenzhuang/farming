@@ -1,4 +1,5 @@
 const assert = require('assert');
+const { encodeProviderSessionKey } = require('../../shared/provider-session-identity.js');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -27,7 +28,7 @@ async function run() {
   const store = new FarmingSessionStore(configDir);
   store.init();
   const sessionId = '55555555-5555-4555-8555-555555555555';
-  const sessionKey = `agent-session:claude:${sessionId}`;
+  const sessionKey = encodeProviderSessionKey('claude', sessionId, 'default');
   const agent = {
     id: 'agent-closed-claude',
     command: 'claude',

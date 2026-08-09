@@ -6,6 +6,12 @@ import { atomicWriteJson, atomicWriteJsonAsync } from './atomic-json-store.cjs';
 import { legacyRuntimeMetadata } from './agent-runtime-binding.cjs';
 import { lifecycleJournal } from './agent-lifecycle-journal.cjs';
 import * as storageLayout from './storage-layout.cjs';
+import {
+  canonicalProviderSessionKey,
+  decodeProviderSessionKey,
+  encodeProviderSessionKey,
+  isProviderSessionKeyV2,
+} from '../shared/provider-session-identity.js';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -191,18 +197,19 @@ function withoutUpdatedAt(value: JsonRecord | null | undefined): JsonRecord {
 }
 
 function parseProviderSessionKey(key: unknown): ProviderSessionKey | null {
-  const match = String(key || '').match(/^agent-session:([^:]+):(.+)$/);
-  if (!match) return null;
-  const provider = String(match[1] || '').trim().toLowerCase();
-  let sessionId = String(match[2] || '').trim();
-  let providerHomeId = 'default';
-  const homeMatch = sessionId.match(/^home:([A-Za-z0-9._-]+):(.+)$/);
-  if (homeMatch) {
-    providerHomeId = homeMatch[1];
-    sessionId = String(homeMatch[2] || '').trim();
+  return decodeProviderSessionKey(key);
+}
+
+function canonicalMainPageSessionKeys(keys: readonly string[]): string[] {
+  const canonical: string[] = [];
+  const seen = new Set<string>();
+  for (const key of keys) {
+    const canonicalKey = canonicalProviderSessionKey(key);
+    if (!canonicalKey || seen.has(canonicalKey)) continue;
+    seen.add(canonicalKey);
+    canonical.push(canonicalKey);
   }
-  if (!provider || !sessionId) return null;
-  return { provider, providerHomeId, sessionId };
+  return canonical;
 }
 
 class FarmingSessionStore {
@@ -330,22 +337,46 @@ class FarmingSessionStore {
   normalizeIndex(index: JsonRecord | null | undefined): SessionIndex {
     return {
       version: SESSION_INDEX_VERSION,
-      mainPageSessionKeys: this.normalizeMainPageSessionKeys(index?.mainPageSessionKeys),
+      mainPageSessionKeys: canonicalMainPageSessionKeys(
+        this.normalizeMainPageSessionKeys(index?.mainPageSessionKeys),
+      ),
       updatedAt: typeof index?.updatedAt === 'number' ? index.updatedAt : now(),
     };
   }
 
   normalizeProviderSessionRecords(providerSessionRecords: unknown): Record<string, string> {
-    const normalizedProviderSessionRecords: Record<string, string> = {};
+    const bindingsByCanonicalKey = new Map<string, { v2: Set<string>; legacy: Set<string> }>();
     Object.entries(
       providerSessionRecords && typeof providerSessionRecords === 'object' && !Array.isArray(providerSessionRecords)
         ? providerSessionRecords as JsonRecord
         : {},
     ).forEach(([key, id]) => {
-      if (!parseProviderSessionKey(key)) return;
+      const canonicalKey = canonicalProviderSessionKey(key);
+      if (!canonicalKey) return;
       if (!safeSessionFileName(id)) return;
-      normalizedProviderSessionRecords[key] = String(id);
+      const bindings = bindingsByCanonicalKey.get(canonicalKey)
+        || { v2: new Set<string>(), legacy: new Set<string>() };
+      (isProviderSessionKeyV2(key) ? bindings.v2 : bindings.legacy).add(String(id));
+      bindingsByCanonicalKey.set(canonicalKey, bindings);
     });
+
+    const normalizedProviderSessionRecords: Record<string, string> = {};
+    for (const [canonicalKey, bindings] of bindingsByCanonicalKey) {
+      // A pre-v2 alias and its v2 key collapse onto one canonical key. The v2
+      // spelling was written by a v2 build and therefore outranks the alias;
+      // equally authoritative spellings that disagree are dropped rather than
+      // resolved by persisted key order, so the reconcile pass rebuilds the
+      // binding from the authoritative records.
+      const authoritative = bindings.v2.size > 0 ? bindings.v2 : bindings.legacy;
+      if (authoritative.size !== 1) {
+        console.warn(
+          `Dropping ambiguous Farming session index binding for ${canonicalKey}:`,
+          [...authoritative].sort().join(', '),
+        );
+        continue;
+      }
+      normalizedProviderSessionRecords[canonicalKey] = [...authoritative][0];
+    }
     return normalizedProviderSessionRecords;
   }
 
@@ -410,14 +441,22 @@ class FarmingSessionStore {
   readRecord(id: string): AgentRecord | null {
     const metadata = this.readMetadataRecord(id);
     if (!metadata) return null;
-    if (!isAgentRecordId(id)) return metadata;
+    if (!isAgentRecordId(id)) return this.withCanonicalProviderSessionKey(metadata);
     const state = this.readAgentState(id);
-    if (!state) return { ...metadata, agentRecordId: id };
+    if (!state) return this.withCanonicalProviderSessionKey({ ...metadata, agentRecordId: id });
     const merged: AgentRecord = { ...metadata, agentRecordId: id };
     AGENT_STATE_FIELDS.forEach(field => {
       if (Object.prototype.hasOwnProperty.call(state, field)) merged[field] = cloneJson(state[field]);
     });
-    return merged;
+    return this.withCanonicalProviderSessionKey(merged);
+  }
+
+  withCanonicalProviderSessionKey(record: AgentRecord): AgentRecord {
+    const persisted = typeof record.providerSessionKey === 'string' ? record.providerSessionKey : '';
+    if (!persisted) return record;
+    const canonical = canonicalProviderSessionKey(persisted);
+    if (!canonical || canonical === persisted) return record;
+    return { ...record, providerSessionKey: canonical };
   }
 
   splitAgentRecord(record: JsonRecord, id: string): {
@@ -695,13 +734,14 @@ class FarmingSessionStore {
   providerSessionKeyForAgent(agent: JsonRecord | null | undefined): string {
     if (!agent || agent.providerSessionTemporary === true) return '';
     if (typeof agent.providerSessionKey === 'string' && agent.providerSessionKey) {
-      return agent.providerSessionKey;
+      return canonicalProviderSessionKey(agent.providerSessionKey);
     }
     if (agent.providerSessionProvider && agent.providerSessionId) {
-      const homeId = typeof agent.providerHomeId === 'string' ? agent.providerHomeId.trim() : '';
-      return homeId && homeId !== 'default'
-        ? `agent-session:${agent.providerSessionProvider}:home:${homeId}:${agent.providerSessionId}`
-        : `agent-session:${agent.providerSessionProvider}:${agent.providerSessionId}`;
+      return encodeProviderSessionKey(
+        agent.providerSessionProvider,
+        agent.providerSessionId,
+        typeof agent.providerHomeId === 'string' ? agent.providerHomeId : '',
+      );
     }
     return '';
   }
@@ -799,12 +839,13 @@ class FarmingSessionStore {
   }
 
   ensureRecordForProviderSessionKey(
-    sessionKey: string,
+    requestedSessionKey: string,
     patch: JsonRecord = {},
     preferredId = '',
   ): string {
-    const parsed = parseProviderSessionKey(sessionKey);
+    const parsed = parseProviderSessionKey(requestedSessionKey);
     if (!parsed) return '';
+    const sessionKey = canonicalProviderSessionKey(requestedSessionKey);
     if (parsed.provider === 'opencode') {
       const conflictingBinding = this.listStoredAgentRecords().find(record => {
         const existing = parseProviderSessionKey(record.providerSessionKey);
@@ -939,17 +980,18 @@ class FarmingSessionStore {
     return this.ensureRecordForProviderSessionKey(sessionKey, displayPatch);
   }
 
-  rememberMainPageSessionKey(sessionKey: string, patch: JsonRecord = {}): string[] {
-    const id = this.ensureRecordForProviderSessionKey(sessionKey, {
+  rememberMainPageSessionKey(requestedSessionKey: string, patch: JsonRecord = {}): string[] {
+    const id = this.ensureRecordForProviderSessionKey(requestedSessionKey, {
       ...patch,
       archived: false,
       lastSeenAt: now(),
     });
     if (!id) return this.getMainPageSessionKeys();
+    const sessionKey = canonicalProviderSessionKey(requestedSessionKey);
     const index = this.ensureIndex();
     const nextIndex = this.writeIndex({ ...index, mainPageSessionKeys: this.normalizeMainPageSessionKeys([
       sessionKey,
-      ...index.mainPageSessionKeys.filter(key => key !== sessionKey),
+      ...index.mainPageSessionKeys.filter(key => canonicalProviderSessionKey(key) !== sessionKey),
     ]) });
     return nextIndex.mainPageSessionKeys.slice();
   }
@@ -975,24 +1017,36 @@ class FarmingSessionStore {
     return this.writeIndex({ ...index, mainPageSessionKeys: normalized }).mainPageSessionKeys.slice();
   }
 
-  removeMainPageSessionKey(sessionKey: string): boolean {
+  removeMainPageSessionKey(requestedSessionKey: string): boolean {
+    const sessionKey = canonicalProviderSessionKey(requestedSessionKey);
     const index = this.ensureIndex();
-    if (!index.mainPageSessionKeys.includes(sessionKey)) return false;
+    if (!sessionKey) return false;
+    if (!index.mainPageSessionKeys.some(key => canonicalProviderSessionKey(key) === sessionKey)) return false;
     this.writeIndex({
       ...index,
-      mainPageSessionKeys: index.mainPageSessionKeys.filter(key => key !== sessionKey),
+      mainPageSessionKeys: index.mainPageSessionKeys.filter(
+        key => canonicalProviderSessionKey(key) !== sessionKey,
+      ),
     });
     return true;
   }
 
   removeMainPageSessionKeys(keys: unknown): string[] {
     const index = this.ensureIndex();
-    const requested = new Set(Array.isArray(keys) ? keys : []);
-    const removed = index.mainPageSessionKeys.filter(key => requested.has(key));
+    const requested = new Set(
+      (Array.isArray(keys) ? keys : [])
+        .map(key => canonicalProviderSessionKey(key))
+        .filter(Boolean),
+    );
+    const removed = index.mainPageSessionKeys.filter(
+      key => requested.has(canonicalProviderSessionKey(key)),
+    );
     if (removed.length === 0) return [];
     this.writeIndex({
       ...index,
-      mainPageSessionKeys: index.mainPageSessionKeys.filter(key => !requested.has(key)),
+      mainPageSessionKeys: index.mainPageSessionKeys.filter(
+        key => !requested.has(canonicalProviderSessionKey(key)),
+      ),
     });
     return removed;
   }
@@ -1003,7 +1057,7 @@ class FarmingSessionStore {
 
   getRecordForProviderSessionKey(sessionKey: string): AgentRecord | null {
     this.ensureIndex();
-    const id = this.providerSessionRecords.get(sessionKey);
+    const id = this.providerSessionRecords.get(canonicalProviderSessionKey(sessionKey));
     return safeSessionFileName(id) ? this.readRecord(String(id)) : null;
   }
 

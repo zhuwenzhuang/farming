@@ -230,10 +230,10 @@ import {
 } from './code/workspace-file-view'
 import {
   applySessionDisplayOverrides,
+  claimedAgentSessionFromSource,
+  claimedAgentSessionHandle,
   limitProjectAgentSessions,
   loadSessionDisplayState,
-  resumedAgentSessionFromSource,
-  resumedAgentSessionIdFromSource,
   saveSessionDisplayState,
 } from './code/session-display'
 import { useAgentSessionInventoryController } from './code/useAgentSessionInventoryController'
@@ -446,7 +446,7 @@ function isNativeTextEditingShortcutTarget(target: EventTarget | null) {
 }
 
 function resumedSessionFromHistoryRunSource(source?: string) {
-  return resumedAgentSessionFromSource(source)
+  return claimedAgentSessionFromSource(source)
 }
 
 function searchTargetHandle(target: SearchTarget) {
@@ -2214,7 +2214,7 @@ export function CodeWorkspace({
     const discoveredSessionKeys: string[] = []
     activeAgents.forEach(agent => {
       if (agent.providerSessionTemporary === true) return
-      const sessionHandle = agent.providerSessionKey || resumedAgentSessionIdFromSource(agent.source)
+      const sessionHandle = claimedAgentSessionHandle(agent)
       if (!sessionHandle) return
       const trackingKey = `${agent.id}:${sessionHandle}`
       if (trackedMainPageAgentKeysRef.current.has(trackingKey)) return
@@ -3406,7 +3406,7 @@ export function CodeWorkspace({
       manuallyUnreadActiveAgentIdRef.current = null
     }
     if (flags.archived === true) {
-      const sessionHandle = contextMenuAgent.providerSessionKey || resumedAgentSessionIdFromSource(contextMenuAgent.source)
+      const sessionHandle = claimedAgentSessionHandle(contextMenuAgent)
       if (sessionHandle) removeMainPageAgentSession(sessionHandle)
       pendingArchivedFocusAgentRef.current = agentId
     }
@@ -3423,7 +3423,7 @@ export function CodeWorkspace({
       return
     }
     if (flags.archived === true) {
-      const sessionHandle = agent.providerSessionKey || resumedAgentSessionIdFromSource(agent.source)
+      const sessionHandle = claimedAgentSessionHandle(agent)
       if (sessionHandle) removeMainPageAgentSession(sessionHandle)
       pendingArchivedFocusAgentRef.current = agentId
     }

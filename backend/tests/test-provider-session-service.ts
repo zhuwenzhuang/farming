@@ -1,4 +1,5 @@
 const assert = require('assert');
+const { encodeProviderSessionKey } = require('../../shared/provider-session-identity.js');
 const { ProviderSessionService } = require('../provider-session-service.cjs');
 
 interface ProviderTestAgent {
@@ -60,7 +61,7 @@ async function run() {
   assert.strictEqual(agents.get('temporary').providerSessionTemporary, false);
   assert.strictEqual(
     agents.get('temporary').providerSessionKey,
-    `agent-session:codex:${confirmedId}`,
+    encodeProviderSessionKey('codex', confirmedId, 'default'),
   );
   assert.strictEqual(commits.length, 1, 'one confirmed identity should commit once');
   assert.strictEqual(commits[0].change.kind, 'session-updated');

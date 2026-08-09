@@ -1,4 +1,5 @@
 const assert = require('assert');
+const { encodeProviderSessionKey } = require('../../shared/provider-session-identity.js');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -219,7 +220,7 @@ async function run() {
     const resolvedCodexAgent = manager.getState().agents.find(agent => agent.id === legacyCodexId);
     assert.strictEqual(resolvedCodexAgent.providerSessionId, completeCodexSessionId);
     assert.strictEqual(resolvedCodexAgent.providerSessionTemporary, false);
-    assert.strictEqual(settings.mainPageSessionKeys[0], `agent-session:codex:${completeCodexSessionId}`);
+    assert.strictEqual(settings.mainPageSessionKeys[0], encodeProviderSessionKey('codex', completeCodexSessionId, 'default'));
     assert(!settings.mainPageSessionKeys.some(key => key.includes('tmp_uuid')));
     assert.strictEqual(metadataUpdates.at(-1).patch.providerSessionId, completeCodexSessionId);
 
@@ -229,14 +230,14 @@ async function run() {
     assert(claudeSessionArgIndex >= 0, 'new Claude sessions should receive an explicit --session-id');
     assert.strictEqual(captured.at(-1).args[claudeSessionArgIndex + 1], claudeAgent.providerSessionId);
     assert.strictEqual(claudeAgent.providerSessionTemporary, false);
-    assert.strictEqual(settings.mainPageSessionKeys[0], `agent-session:claude:${claudeAgent.providerSessionId}`);
+    assert.strictEqual(settings.mainPageSessionKeys[0], encodeProviderSessionKey('claude', claudeAgent.providerSessionId, 'default'));
 
     const resumeCodexSessionId = '44444444-5555-4666-8777-888888888888';
     const resumedCodexId = await startAgent(manager, `codex resume ${resumeCodexSessionId}`, workspace, { wantsMain: false });
     const resumedCodexAgent = manager.getState().agents.find(agent => agent.id === resumedCodexId);
     assert.strictEqual(resumedCodexAgent.providerSessionId, resumeCodexSessionId);
     assert.strictEqual(resumedCodexAgent.providerSessionTemporary, false);
-    assert.strictEqual(settings.mainPageSessionKeys[0], `agent-session:codex:${resumeCodexSessionId}`);
+    assert.strictEqual(settings.mainPageSessionKeys[0], encodeProviderSessionKey('codex', resumeCodexSessionId, 'default'));
 
     const workCodexSessionId = '44444444-5555-4666-8777-888888888889';
     const workCodexId = await startAgent(manager, `codex resume ${workCodexSessionId}`, workspace, {
@@ -245,7 +246,7 @@ async function run() {
       source: `codex-history:home:work:${workCodexSessionId}`,
     });
     const workCodexAgent = manager.getState().agents.find(agent => agent.id === workCodexId);
-    assert.strictEqual(workCodexAgent.providerSessionKey, `agent-session:codex:home:work:${workCodexSessionId}`);
+    assert.strictEqual(workCodexAgent.providerSessionKey, encodeProviderSessionKey('codex', workCodexSessionId, 'work'));
     assert.strictEqual(workCodexAgent.providerHomePath, providerHomes.codex[1].path);
     assert.strictEqual(captured.at(-1).env.CODEX_HOME, providerHomes.codex[1].path);
 
@@ -290,8 +291,8 @@ async function run() {
     assert.strictEqual(resumedOpenCodeAgent.providerSessionProvider, 'opencode');
     assert.strictEqual(resumedOpenCodeAgent.providerSessionId, openCodeSessionId);
     assert.strictEqual(resumedOpenCodeAgent.providerSessionTemporary, false);
-    assert.strictEqual(resumedOpenCodeAgent.providerSessionKey, `agent-session:opencode:home:work:${openCodeSessionId}`);
-    assert.strictEqual(settings.mainPageSessionKeys[0], `agent-session:opencode:home:work:${openCodeSessionId}`);
+    assert.strictEqual(resumedOpenCodeAgent.providerSessionKey, encodeProviderSessionKey('opencode', openCodeSessionId, 'work'));
+    assert.strictEqual(settings.mainPageSessionKeys[0], encodeProviderSessionKey('opencode', openCodeSessionId, 'work'));
 
     const originalIdentityFactory = manager.createProviderSessionIdentity;
     const agentCountBeforeIdentityFailure = manager.agents.size;
@@ -416,7 +417,7 @@ async function run() {
     assert(engineKills.length > 0, 'Terminal rollback must call the idempotent engine kill boundary');
     assert.strictEqual(identityRollbacks.at(-1).sessionId, rollbackSessionId);
     assert.strictEqual(
-      manager.acpSessionOptionsByKey.has(`agent-session:opencode:${rollbackSessionId}`),
+      manager.acpSessionOptionsByKey.has(encodeProviderSessionKey('opencode', rollbackSessionId, 'default')),
       false,
       'failed Terminal launch must remove private options for the rolled-back provider identity',
     );
@@ -462,7 +463,7 @@ async function run() {
     assert.strictEqual(qoderAgent.providerSessionProvider, 'qoder');
     assert.strictEqual(qoderAgent.providerSessionTemporary, false);
     assert.strictEqual(captured.at(-1).env.QODER_CONFIG_DIR, providerHomes.qoder[0].path);
-    assert.strictEqual(settings.mainPageSessionKeys[0], `agent-session:qoder:${qoderAgent.providerSessionId}`);
+    assert.strictEqual(settings.mainPageSessionKeys[0], encodeProviderSessionKey('qoder', qoderAgent.providerSessionId, 'default'));
 
     const qwenId = await startAgent(manager, 'qwen', workspace, { wantsMain: false, providerHomeId: 'default' });
     const qwenAgent = manager.getState().agents.find(agent => agent.id === qwenId);
@@ -477,7 +478,7 @@ async function run() {
     assert.strictEqual(qwenAgent.providerCapabilities.terminalSessionFork, false);
     assert.strictEqual(qwenAgent.providerCapabilities.sessionFork, true);
     assert.strictEqual(captured.at(-1).env.QWEN_HOME, providerHomes.qwen[0].path);
-    assert(settings.mainPageSessionKeys.includes(`agent-session:qwen:${qwenAgent.providerSessionId}`));
+    assert(settings.mainPageSessionKeys.includes(encodeProviderSessionKey('qwen', qwenAgent.providerSessionId, 'default')));
 
     const liveQoderAgent = manager.agents.get(qoderId);
     liveQoderAgent.status = 'dead';

@@ -7,6 +7,7 @@ import {
   mergeAgentComposerStates,
 } from '../src/components/code/composer-state'
 import type { Agent } from '../src/types/agent'
+import { encodeProviderSessionKey, encodeResumedProviderSessionSource } from '../shared/provider-session-identity.js'
 
 function agent(overrides: Partial<Agent> = {}): Agent {
   const base = {
@@ -54,10 +55,60 @@ function agent(overrides: Partial<Agent> = {}): Agent {
 
 test('keeps composer state attached to a stable provider session across agent replacement', () => {
   const original = agent({ id: 'agent-original', restartedFromAgentIds: ['agent-before'] })
-  assert.equal(composerStateKeyForAgent(original), 'agent-session:codex:thread-1')
+  assert.equal(composerStateKeyForAgent(original), encodeProviderSessionKey('codex', 'thread-1', 'default'))
   assert.deepEqual(
     composerStateAliasKeysForAgent(original).sort(),
-    ['agent-before', 'agent-original', 'agent-session:codex:thread-1'].sort(),
+    [
+      'agent-before',
+      'agent-original',
+      encodeProviderSessionKey('codex', 'thread-1', 'default'),
+      // A draft persisted by an older build is still reachable under the pre-v2 key.
+      'agent-session:codex:thread-1',
+    ].sort(),
+  )
+})
+
+test('does not adopt an ambiguous pre-v2 key that belongs to another session', () => {
+  // `agent-session:codex:home:work:x` historically meant session `x` under Agent
+  // Home `work`, so the default-Home session with that literal id must not reach
+  // for the other session's persisted drafts.
+  const collidingAgent = agent({
+    id: 'agent-colliding',
+    providerSessionId: 'home:work:x',
+    providerSessionKey: encodeProviderSessionKey('codex', 'home:work:x', 'default'),
+  })
+  assert.deepEqual(
+    composerStateAliasKeysForAgent(collidingAgent).sort(),
+    [
+      'agent-colliding',
+      encodeProviderSessionKey('codex', 'home:work:x', 'default'),
+    ].sort(),
+  )
+})
+
+test('does not adopt the origin session draft while a fork has no provider session of its own', () => {
+  // A fork is admitted before its own provider session id exists. Its only
+  // identity in that window is the origin it was forked from, and a fork owns a
+  // new Provider Session, so it must not key on or alias the origin's state.
+  const pendingFork = agent({
+    id: 'agent-pending-fork',
+    providerSessionProvider: undefined,
+    providerSessionId: undefined,
+    source: encodeResumedProviderSessionSource('codex', 'origin-thread', 'default', { forked: true }),
+  })
+  assert.equal(composerStateKeyForAgent(pendingFork), 'agent-pending-fork')
+  assert.deepEqual(composerStateAliasKeysForAgent(pendingFork), ['agent-pending-fork'])
+
+  const resumedOrigin = agent({
+    id: 'agent-resumed-origin',
+    providerSessionProvider: undefined,
+    providerSessionId: undefined,
+    source: encodeResumedProviderSessionSource('codex', 'origin-thread', 'default'),
+  })
+  assert.equal(
+    composerStateKeyForAgent(resumedOrigin),
+    encodeProviderSessionKey('codex', 'origin-thread', 'default'),
+    'a non-forked resume still owns the origin session state',
   )
 })
 
@@ -72,7 +123,13 @@ test('keeps chained temporary-session replacements on the original composer key'
   assert.equal(composerStateKeyForAgent(replacement), 'agent-original')
   assert.deepEqual(
     composerStateAliasKeysForAgent(replacement).sort(),
-    ['agent-final', 'agent-intermediate', 'agent-original', 'agent-session:codex:tmp_uuid_final'].sort(),
+    [
+      'agent-final',
+      'agent-intermediate',
+      'agent-original',
+      encodeProviderSessionKey('codex', 'tmp_uuid_final', 'default'),
+      'agent-session:codex:tmp_uuid_final',
+    ].sort(),
   )
 })
 

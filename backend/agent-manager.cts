@@ -136,7 +136,7 @@ import {
   appendOpenCodeBootstrap,
   renderFarmingAgentBootstrap,
 } from './farming-agent-bootstrap.cjs';
-import { mainPageAgentSessionKey, resumedAgentSource } from './main-page-session.cjs';
+import { canonicalProviderSessionKey, mainPageAgentSessionKey, resumedAgentSource } from './main-page-session.cjs';
 import * as storageLayout from './storage-layout.cjs';
 import { isSafeProviderSessionId, isTemporaryProviderSessionId } from './provider-session-id.cjs';
 import {
@@ -1109,7 +1109,7 @@ function shouldRestoreAgentFromMetadata(record: TypedAgentRecord, mainPageSessio
     return record.visibleOnMainPage === true;
   }
   const provider = String(record.providerSessionProvider || record.provider || '').trim();
-  const sessionKey = record.providerSessionKey || mainPageAgentSessionKey(
+  const sessionKey = canonicalProviderSessionKey(record.providerSessionKey) || mainPageAgentSessionKey(
     provider,
     record.providerSessionId,
     record.providerHomeId || 'default'
@@ -2910,7 +2910,7 @@ class AgentManager extends EventEmitter {
         const provider = String(record.providerSessionProvider || record.provider || '').trim();
         if (!getProviderAdapter(provider)) return false;
         if (!isSafeProviderSessionId(record.providerSessionId)) return false;
-        const sessionKey = record.providerSessionKey || mainPageAgentSessionKey(
+        const sessionKey = canonicalProviderSessionKey(record.providerSessionKey) || mainPageAgentSessionKey(
           provider,
           record.providerSessionId,
           record.providerHomeId || 'default'
@@ -2924,12 +2924,12 @@ class AgentManager extends EventEmitter {
         if (right.wantsMain === true && left.wantsMain !== true) return 1;
         const leftProvider = String(left.providerSessionProvider || left.provider || '').trim();
         const rightProvider = String(right.providerSessionProvider || right.provider || '').trim();
-        const leftKey = left.providerSessionKey || mainPageAgentSessionKey(
+        const leftKey = canonicalProviderSessionKey(left.providerSessionKey) || mainPageAgentSessionKey(
           leftProvider,
           left.providerSessionId,
           left.providerHomeId || 'default'
         );
-        const rightKey = right.providerSessionKey || mainPageAgentSessionKey(
+        const rightKey = canonicalProviderSessionKey(right.providerSessionKey) || mainPageAgentSessionKey(
           rightProvider,
           right.providerSessionId,
           right.providerHomeId || 'default'
@@ -2941,7 +2941,7 @@ class AgentManager extends EventEmitter {
       })
       .filter(record => {
         const provider = String(record.providerSessionProvider || record.provider || '').trim();
-        const sessionKey = record.providerSessionKey || mainPageAgentSessionKey(
+        const sessionKey = canonicalProviderSessionKey(record.providerSessionKey) || mainPageAgentSessionKey(
           provider,
           record.providerSessionId,
           record.providerHomeId || 'default'
@@ -3009,7 +3009,7 @@ class AgentManager extends EventEmitter {
       if (record.wantsMain === true && this.mainAgentId) continue;
       const provider = String(record.providerSessionProvider || record.provider || '').trim();
       const sessionId = record.providerSessionId;
-      const sessionKey = record.providerSessionKey || mainPageAgentSessionKey(
+      const sessionKey = canonicalProviderSessionKey(record.providerSessionKey) || mainPageAgentSessionKey(
         provider,
         sessionId,
         record.providerHomeId || 'default'
@@ -3196,8 +3196,8 @@ class AgentManager extends EventEmitter {
         && runtimeKind(record) === 'acp'
       ))
       .sort((left: PersistedAgentPrivateMetadata, right: PersistedAgentPrivateMetadata) => {
-        const leftOrder = left.providerSessionKey ? mainPageOrder.get(left.providerSessionKey) : undefined;
-        const rightOrder = right.providerSessionKey ? mainPageOrder.get(right.providerSessionKey) : undefined;
+        const leftOrder = mainPageOrder.get(canonicalProviderSessionKey(left.providerSessionKey));
+        const rightOrder = mainPageOrder.get(canonicalProviderSessionKey(right.providerSessionKey));
         return Number(leftOrder ?? Number.MAX_SAFE_INTEGER) - Number(rightOrder ?? Number.MAX_SAFE_INTEGER);
       });
 
@@ -3996,16 +3996,21 @@ class AgentManager extends EventEmitter {
   }
 
   getMainPageSessionKeys(): string[] {
-    if (this.configManager && typeof this.configManager.getMainPageSessionKeys === 'function') {
-      return this.configManager.getMainPageSessionKeys();
-    }
-    if (this.configManager && typeof this.configManager.getSettings === 'function') {
-      const settings = this.configManager.getSettings();
-      return Array.isArray(settings.mainPageSessionKeys)
-        ? settings.mainPageSessionKeys.filter((key: unknown): key is string => typeof key === 'string')
-        : [];
-    }
-    return [];
+    const persistedKeys: string[] = (() => {
+      if (this.configManager && typeof this.configManager.getMainPageSessionKeys === 'function') {
+        return this.configManager.getMainPageSessionKeys();
+      }
+      if (this.configManager && typeof this.configManager.getSettings === 'function') {
+        const settings = this.configManager.getSettings();
+        return Array.isArray(settings.mainPageSessionKeys)
+          ? settings.mainPageSessionKeys.filter((key: unknown): key is string => typeof key === 'string')
+          : [];
+      }
+      return [];
+    })();
+    return persistedKeys
+      .map((key: string) => canonicalProviderSessionKey(key))
+      .filter((key: string) => Boolean(key));
   }
 
   setMainPageSessionKeys(keys: string[]): string[] {
@@ -9032,7 +9037,7 @@ class AgentManager extends EventEmitter {
 
     const keysToRemove = new Set<string>();
     agents.forEach((agent: TypedAgentRecord) => {
-      const providerSessionKey = agent.providerSessionKey || mainPageAgentSessionKey(
+      const providerSessionKey = canonicalProviderSessionKey(agent.providerSessionKey) || mainPageAgentSessionKey(
         agent.providerSessionProvider,
         agent.providerSessionId,
         agent.providerHomeId || ''

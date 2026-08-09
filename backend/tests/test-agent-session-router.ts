@@ -1,4 +1,5 @@
 const assert = require('assert');
+const { encodeProviderSessionKey } = require('../../shared/provider-session-identity.js');
 const express = require('express');
 const { createAgentSessionRouter } = require('../agent-session-router.cjs');
 
@@ -68,11 +69,11 @@ async function run(): Promise<void> {
   ];
   const displayRecords = [
     {
-      providerSessionKey: 'agent-session:codex:home:work:session-alpha',
+      providerSessionKey: encodeProviderSessionKey('codex', 'session-alpha', 'work'),
       displayPinned: true,
     },
     {
-      providerSessionKey: 'agent-session:claude:session-beta',
+      providerSessionKey: encodeProviderSessionKey('claude', 'session-beta', 'default'),
       displayPinned: false,
     },
     {
@@ -86,7 +87,7 @@ async function run(): Promise<void> {
   const rememberedKeys: Array<{ patch: unknown; sessionKey: string }> = [];
   const removedKeys: string[][] = [];
   const publishedMetadata: unknown[] = [];
-  let mainPageSessionKeys: string[] = ['agent-session:codex:home:work:session-alpha'];
+  let mainPageSessionKeys: string[] = [encodeProviderSessionKey('codex', 'session-alpha', 'work')];
   let listFailure: Error | null = null;
   let listPending = false;
   let searchTimeoutMs = 50;
@@ -260,24 +261,24 @@ async function run(): Promise<void> {
     const pinned = await patchPin('/codex/session-alpha', JSON.stringify({ pinned: true, providerHomeId: 'work' }));
     assert.strictEqual(pinned.status, 200);
     assert.deepStrictEqual(await pinned.json(), {
-      sessionKey: 'agent-session:codex:home:work:session-alpha',
+      sessionKey: encodeProviderSessionKey('codex', 'session-alpha', 'work'),
       pinned: true,
     });
     assert.deepStrictEqual(events, ['set-display']);
     assert.deepStrictEqual(displayWrites, [{
       patch: { pinned: true },
-      sessionKey: 'agent-session:codex:home:work:session-alpha',
+      sessionKey: encodeProviderSessionKey('codex', 'session-alpha', 'work'),
     }]);
 
     const defaultHomePin = await patchPin('/CODEX/session-alpha', JSON.stringify({ pinned: false }));
     assert.strictEqual(defaultHomePin.status, 200);
     assert.deepStrictEqual(await defaultHomePin.json(), {
-      sessionKey: 'agent-session:codex:session-alpha',
+      sessionKey: encodeProviderSessionKey('codex', 'session-alpha', 'default'),
       pinned: false,
     });
     assert.deepStrictEqual(displayWrites.at(-1), {
       patch: { pinned: false },
-      sessionKey: 'agent-session:codex:session-alpha',
+      sessionKey: encodeProviderSessionKey('codex', 'session-alpha', 'default'),
     });
 
     events.length = 0;
@@ -307,15 +308,15 @@ async function run(): Promise<void> {
 
     events.length = 0;
     mainPageSessionKeys = [
-      'agent-session:codex:home:work:session-alpha',
-      'agent-session:claude:session-beta',
+      encodeProviderSessionKey('codex', 'session-alpha', 'work'),
+      encodeProviderSessionKey('claude', 'session-beta', 'default'),
     ];
     const added = await postMembership(JSON.stringify({
       operation: 'add',
       sessionKeys: [
         ' agent-session:claude:session-beta ',
-        'agent-session:codex:home:work:session-alpha',
-        'agent-session:claude:session-beta',
+        encodeProviderSessionKey('codex', 'session-alpha', 'work'),
+        encodeProviderSessionKey('claude', 'session-beta', 'default'),
         '',
       ],
     }));
@@ -327,19 +328,19 @@ async function run(): Promise<void> {
         patch: {
           provider: 'codex',
           providerSessionId: 'session-alpha',
-          providerSessionKey: 'agent-session:codex:home:work:session-alpha',
+          providerSessionKey: encodeProviderSessionKey('codex', 'session-alpha', 'work'),
           providerHomeId: 'work',
         },
-        sessionKey: 'agent-session:codex:home:work:session-alpha',
+        sessionKey: encodeProviderSessionKey('codex', 'session-alpha', 'work'),
       },
       {
         patch: {
           provider: 'claude',
           providerSessionId: 'session-beta',
-          providerSessionKey: 'agent-session:claude:session-beta',
+          providerSessionKey: encodeProviderSessionKey('claude', 'session-beta', 'default'),
           providerHomeId: 'default',
         },
-        sessionKey: 'agent-session:claude:session-beta',
+        sessionKey: encodeProviderSessionKey('claude', 'session-beta', 'default'),
       },
     ]);
     assert.deepStrictEqual(publishedMetadata, [{ mainPageSessionKeys }]);
@@ -347,20 +348,20 @@ async function run(): Promise<void> {
     events.length = 0;
     const removed = await postMembership(JSON.stringify({
       operation: 'remove',
-      sessionKeys: ['agent-session:claude:session-beta', 'agent-session:qwen:session-gamma'],
+      sessionKeys: [encodeProviderSessionKey('claude', 'session-beta', 'default'), encodeProviderSessionKey('qwen', 'session-gamma', 'default')],
     }));
     assert.strictEqual(removed.status, 200);
     assert.deepStrictEqual(await removed.json(), { success: true, mainPageSessionKeys });
     assert.deepStrictEqual(events, ['remove', 'main-page-keys', 'invalidate', 'response', 'publish']);
     assert.deepStrictEqual(removedKeys, [[
-      'agent-session:claude:session-beta',
-      'agent-session:qwen:session-gamma',
+      encodeProviderSessionKey('claude', 'session-beta', 'default'),
+      encodeProviderSessionKey('qwen', 'session-gamma', 'default'),
     ]]);
 
     events.length = 0;
     const invalidOperation = await postMembership(JSON.stringify({
       operation: 'replace',
-      sessionKeys: ['agent-session:claude:session-beta'],
+      sessionKeys: [encodeProviderSessionKey('claude', 'session-beta', 'default')],
     }));
     assert.strictEqual(invalidOperation.status, 400);
     assert.deepStrictEqual(await invalidOperation.json(), {

@@ -18,6 +18,7 @@
 - [ACP Runtime](../products/code/acp-runtime.zh_cn.md)
 - [Codex Runtime](../products/code/codex-runtime.zh_cn.md)
 - [Agent 列表状态协议](../products/code/agent-list-state-protocol.zh_cn.md)
+- [Provider Session 持久身份](../products/code/provider-session-identity.zh_cn.md)
 - [Terminal State Protocol](../products/code/terminal-state-protocol.zh_cn.md)
 
 ## 产品架构

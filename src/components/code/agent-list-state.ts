@@ -4,7 +4,7 @@ import {
   agentSessionId,
   compareAgentSessions,
 } from './model'
-import { resumedAgentSessionIdFromSource } from './session-display'
+import { claimedAgentSessionHandle, claimedAgentSessionIdFromSource } from './session-display'
 
 export interface AgentListState {
   liveAgents: Agent[]
@@ -43,7 +43,7 @@ export function claimedAgentSessionKeyByAgentIdForAgents(
 
   agents.forEach(agent => {
     if (!isAgentListLiveAgent(agent)) return
-    const sessionHandle = agent.providerSessionKey || resumedAgentSessionIdFromSource(agent.source)
+    const sessionHandle = claimedAgentSessionHandle(agent)
     if (sessionHandle) {
       claimedByAgentId.set(agent.id, sessionHandle)
     }
@@ -65,7 +65,7 @@ export function agentListRowIdentity(agent: Pick<Agent, 'id'>, claimedAgentSessi
 
 function exactResumeSourceScore(agent: Agent) {
   if (agent.providerSessionKey && agent.providerSessionTemporary !== true) return 120
-  if (resumedAgentSessionIdFromSource(agent.source)) return 100
+  if (claimedAgentSessionIdFromSource(agent.source)) return 100
   if (agent.providerSessionKey) return 40
   return 0
 }

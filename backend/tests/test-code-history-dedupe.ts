@@ -1,4 +1,5 @@
 const assert = require('assert');
+const { encodeProviderSessionKey } = require('../../shared/provider-session-identity.js');
 const { importTsModule } = require('./helpers/import-ts-module');
 
 function historyEntry(overrides = {}) {
@@ -101,7 +102,7 @@ function run() {
   assert.deepStrictEqual(
     items.map(item => item.historyKey),
     [
-      `agent-session:codex:${codexResumeId}`,
+      encodeProviderSessionKey('codex', codexResumeId, 'default'),
       'run:claude-new',
       'run:plain-a',
       'run:plain-b',
@@ -115,7 +116,7 @@ function run() {
   ]);
   assert.deepStrictEqual(
     repeatedTitleItems.map(item => item.historyKey),
-    ['agent-session:codex:session-new', 'agent-session:codex:session-old'],
+    [encodeProviderSessionKey('codex', 'session-new', 'default'), encodeProviderSessionKey('codex', 'session-old', 'default')],
     'History must keep distinct provider session ids even when title and workspace are identical'
   );
   assert.strictEqual(
@@ -129,7 +130,7 @@ function run() {
     'History should expose the complete resume id'
   );
   assert.strictEqual(formatHistoryResumeId('short-id'), 'short-id');
-  const codexItem = items.find(item => historyItemSessionKey(item) === `agent-session:codex:${codexResumeId}`);
+  const codexItem = items.find(item => historyItemSessionKey(item) === encodeProviderSessionKey('codex', codexResumeId, 'default'));
   assert.ok(codexItem, 'History rows should expose the exact provider session key used by main-page agents');
 
   const sharedId = '019f26d3-7485-76d0-8a64-f5cf5d690130';
@@ -139,7 +140,7 @@ function run() {
   ]);
   assert.deepStrictEqual(
     homeItems.map(item => item.historyKey).sort(),
-    [`agent-session:codex:${sharedId}`, `agent-session:codex:home:work:${sharedId}`].sort(),
+    [encodeProviderSessionKey('codex', sharedId, 'default'), encodeProviderSessionKey('codex', sharedId, 'work')].sort(),
     'Sessions with the same provider id in different Agent Homes must remain distinct'
   );
 
@@ -156,7 +157,7 @@ function run() {
   );
   assert.deepStrictEqual(
     openCodeItems.map(item => item.historyKey),
-    [`agent-session:opencode:${openCodeResumeId}`],
+    [encodeProviderSessionKey('opencode', openCodeResumeId, 'default')],
     'OpenCode History should use the same provider resume identity dedupe as other supported Agents'
   );
 
@@ -167,7 +168,7 @@ function run() {
   );
   assert.deepStrictEqual(
     filterHistoryAgentItems(searchableItems, 'alter').map(item => item.historyKey),
-    ['agent-session:codex:session-search'],
+    [encodeProviderSessionKey('codex', 'session-search', 'default')],
     'History search should match Agent titles without case sensitivity'
   );
   assert.deepStrictEqual(
@@ -177,7 +178,7 @@ function run() {
   );
   assert.deepStrictEqual(
     filterHistoryAgentItems(searchableItems, 'session-search').map(item => item.historyKey),
-    ['agent-session:codex:session-search'],
+    [encodeProviderSessionKey('codex', 'session-search', 'default')],
     'History search should match a provider Resume ID'
   );
   const archivedResumeId = '019f26d3-7485-76d0-8a64-f5cf5d690131';

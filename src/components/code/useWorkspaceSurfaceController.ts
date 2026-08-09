@@ -24,6 +24,7 @@ import {
   saveCodeWorkspaceViewState,
   type CodeWorkspaceSurface,
 } from './workspace-view-state'
+import { canonicalProviderSessionKey } from '../../../shared/provider-session-identity.js'
 
 export interface WorkspaceFileIdentity {
   filesId: string
@@ -186,7 +187,8 @@ export function planWorkspaceSurfaceRestore({
     const targetAgent = activeAgents.find(agent => agent.id === surface.agentId)
       ?? activeAgents.find(agent => (
         Boolean(surface.providerSessionKey)
-        && agent.providerSessionKey === surface.providerSessionKey
+        && canonicalProviderSessionKey(agent.providerSessionKey)
+          === canonicalProviderSessionKey(surface.providerSessionKey)
       ))
       ?? activeAgents.find(agent => (
         Boolean(surface.workspace)

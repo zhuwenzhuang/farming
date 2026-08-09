@@ -1,5 +1,6 @@
 import type { Agent } from '@/types/agent'
 import { projectWorkspaceFromAgentState } from '../../../shared/agent-state-semantics.js'
+import { encodeProviderSessionKey } from '../../../shared/provider-session-identity.js'
 import { formatWorkspaceForDisplay } from '@/lib/workspace-options'
 import type {
   AgentSessionHistoryItem,
@@ -12,7 +13,9 @@ export const MAIN_AGENT_PROJECT_ID = '__farming_main_agent__'
 export const CHATS_PROJECT_ID = '__agent_chats__'
 
 export function workspaceTargetId(target: SearchTarget) {
-  if (target.kind === 'agent-session') return `${target.kind}:${target.provider}:${target.id}`
+  if (target.kind === 'agent-session') {
+    return encodeProviderSessionKey(target.provider, target.id, target.providerHomeId)
+  }
   return `${target.kind}:${target.id}`
 }
 
@@ -66,10 +69,7 @@ export function normalizeModelCatalog(data: { catalog?: CodexModelOption[] }) {
 }
 
 export function agentSessionId(session: Pick<AgentSessionHistoryItem, 'provider' | 'id' | 'providerHomeId'>) {
-  const sessionId = session.providerHomeId && session.providerHomeId !== 'default'
-    ? `home:${session.providerHomeId}:${session.id}`
-    : session.id
-  return workspaceTargetId({ kind: 'agent-session', provider: session.provider, id: sessionId })
+  return encodeProviderSessionKey(session.provider, session.id, session.providerHomeId)
 }
 
 export function formatAgentSessionWorkspace(session: AgentSessionHistoryItem) {

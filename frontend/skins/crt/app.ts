@@ -579,25 +579,98 @@ function findDefaultNewAgentIndex(agentOptions: Array<{ name?: string }>, prefer
   return preferredIndex >= 0 ? preferredIndex : 0;
 }
 
+// Mirrors shared/provider-session-identity.ts. CRT is bundled as a classic
+// script and cannot import shared modules; test-provider-session-identity-codec
+// asserts byte-identical output against the shared codec.
+const CRT_PROVIDER_SESSION_V2_MARKER = '~2~';
+const CRT_PROVIDER_RE = /^[a-z][a-z0-9_-]*$/;
+const CRT_PROVIDER_HOME_ID_RE = /^[A-Za-z0-9._-]+$/;
+
+function crtEncodeProviderSessionSegment(value: string) {
+  return value.replace(/%/g, '%25').replace(/~/g, '%7E');
+}
+
+function crtDecodeProviderSessionSegment(segment: string) {
+  const decoded = segment
+    .replace(/%(25|7E)/g, (_match, code: string) => (code === '25' ? '%' : '~'))
+    .trim();
+  if (!decoded) return null;
+  return crtEncodeProviderSessionSegment(decoded) === segment ? decoded : null;
+}
+
+function crtProviderSessionPayload(providerHomeId: string, sessionId: string) {
+  return `${CRT_PROVIDER_SESSION_V2_MARKER}${crtEncodeProviderSessionSegment(providerHomeId)}`
+    + `~${crtEncodeProviderSessionSegment(sessionId)}`;
+}
+
+function crtDecodeProviderSessionPayload(payload: string) {
+  if (payload.startsWith(CRT_PROVIDER_SESSION_V2_MARKER)) {
+    const segments = payload.slice(CRT_PROVIDER_SESSION_V2_MARKER.length).split('~');
+    if (segments.length !== 2) return null;
+    const providerHomeId = crtDecodeProviderSessionSegment(segments[0]);
+    const sessionId = crtDecodeProviderSessionSegment(segments[1]);
+    if (!providerHomeId || !sessionId) return null;
+    if (!CRT_PROVIDER_HOME_ID_RE.test(providerHomeId)) return null;
+    return { providerHomeId, sessionId };
+  }
+  const homeMatch = /^home:([A-Za-z0-9._-]+):(.+)$/.exec(payload);
+  const providerHomeId = homeMatch ? homeMatch[1] : 'default';
+  const sessionId = String((homeMatch ? homeMatch[2] : payload) || '').trim();
+  return sessionId ? { providerHomeId, sessionId } : null;
+}
+
 function crtAgentSessionKey(session: CrtSessionRecord) {
   const provider = String(session && session.provider || '').trim().toLowerCase();
   const sessionId = String(session && session.id || '').trim();
   const providerHomeId = String(session && session.providerHomeId || 'default').trim() || 'default';
-  if (!provider || !sessionId) return '';
-  const scopedSessionId = providerHomeId === 'default'
-    ? sessionId
-    : `home:${providerHomeId}:${sessionId}`;
-  return `agent-session:${provider}:${scopedSessionId}`;
+  if (!sessionId || !CRT_PROVIDER_RE.test(provider) || !CRT_PROVIDER_HOME_ID_RE.test(providerHomeId)) return '';
+  return `agent-session:${provider}:${crtProviderSessionPayload(providerHomeId, sessionId)}`;
 }
 
+function crtCanonicalAgentSessionKey(key: unknown) {
+  const match = /^agent-session:([^:]+):(.+)$/.exec(String(key || '').trim());
+  if (!match) return '';
+  const provider = String(match[1] || '').trim().toLowerCase();
+  const payload = crtDecodeProviderSessionPayload(String(match[2] || '').trim());
+  if (!provider || !payload) return '';
+  return crtAgentSessionKey({ provider, id: payload.sessionId, providerHomeId: payload.providerHomeId });
+}
+
+// Explicit non-claim parser: it exposes the origin tuple a forked resume started
+// from, for display only. Anything keyed by session must use the claim helper.
 function crtResumedSessionFromSource(source: unknown) {
-  const match = /^([a-z]+)-history(?:-fork)?:(?:(?:home:([A-Za-z0-9._-]+):)?(.+))$/.exec(String(source || ''));
+  const match = /^([a-z][a-z0-9_-]*)-history(-fork)?:(.+)$/.exec(String(source || ''));
   if (!match) return null;
+  const payload = crtDecodeProviderSessionPayload(String(match[3] || '').trim());
+  if (!payload) return null;
   return {
     provider: match[1],
-    providerHomeId: match[2] || 'default',
-    sessionId: match[3]
+    providerHomeId: payload.providerHomeId,
+    sessionId: payload.sessionId,
+    forked: match[2] === '-fork'
   };
+}
+
+// A fork starts a new Provider Session, so a fork source claims nothing.
+function crtClaimedSessionFromSource(source: unknown) {
+  const resumed = crtResumedSessionFromSource(source);
+  if (!resumed || resumed.forked) return null;
+  return {
+    provider: resumed.provider,
+    providerHomeId: resumed.providerHomeId,
+    sessionId: resumed.sessionId
+  };
+}
+
+function crtClaimedAgentSessionKey(agent: { providerSessionKey?: string; source?: string }) {
+  const boundKey = crtCanonicalAgentSessionKey(agent.providerSessionKey);
+  if (boundKey) return boundKey;
+  const claimed = crtClaimedSessionFromSource(agent.source);
+  return claimed ? crtAgentSessionKey({
+    provider: claimed.provider,
+    id: claimed.sessionId,
+    providerHomeId: claimed.providerHomeId
+  }) : '';
 }
 
 function crtHistoryItemResumeSession(item: CrtHistoryCandidate) {
@@ -622,9 +695,9 @@ function crtHistoryItemResumeSession(item: CrtHistoryCandidate) {
         providerHomeId: item.agent.providerHomeId || 'default'
       };
     }
-    return crtResumedSessionFromSource(item.agent.source);
+    return crtClaimedSessionFromSource(item.agent.source);
   }
-  return crtResumedSessionFromSource(item.entry.source);
+  return crtClaimedSessionFromSource(item.entry.source);
 }
 
 function crtHistoryTimestamp(value: unknown) {
@@ -644,7 +717,7 @@ function crtHistoryItemUpdatedAt(item: CrtHistoryCandidate) {
 function crtHistoryItemResumeKey(item: CrtHistoryItem) {
   const resumed = crtHistoryItemResumeSession(item);
   return resumed
-    ? `resume:${resumed.provider}:${resumed.providerHomeId || 'default'}:${resumed.sessionId}`
+    ? `resume:${crtAgentSessionKey({ provider: resumed.provider, id: resumed.sessionId, providerHomeId: resumed.providerHomeId })}`
     : '';
 }
 
@@ -678,17 +751,12 @@ function buildCrtHistoryItems({ taskHistory = [], agents: agentRecords = [], ses
     agent.isMain !== true
     && isCrtLiveAgent(agent)
   ));
-  const claimedSessionKeys = new Set(liveAgents.map((agent) => (
-    agent.providerSessionKey || (() => {
-      const resumed = crtResumedSessionFromSource(agent.source);
-      return resumed ? crtAgentSessionKey({
-        provider: resumed.provider,
-        id: resumed.sessionId,
-        providerHomeId: resumed.providerHomeId
-      }) : '';
-    })()
-  )).filter(Boolean));
-  const mainPageKeys = new Set(Array.isArray(mainPageSessionKeys) ? mainPageSessionKeys : []);
+  const claimedSessionKeys = new Set(liveAgents
+    .map((agent) => crtClaimedAgentSessionKey(agent))
+    .filter(Boolean));
+  const mainPageKeys = new Set((Array.isArray(mainPageSessionKeys) ? mainPageSessionKeys : [])
+    .map((key) => crtCanonicalAgentSessionKey(key))
+    .filter(Boolean));
   const historySessions = sessions.filter((session) => {
     const key = crtAgentSessionKey(session);
     if (!key || claimedSessionKeys.has(key)) return false;
@@ -751,15 +819,9 @@ function buildCrtSearchResults({ query = '', agents: agentRecords = [], sessions
     && agent.isMain !== true
     && isCrtLiveAgent(agent)
   ));
-  const claimedSessionKeys = new Set(liveAgents.map((agent) => {
-    if (agent.providerSessionKey) return agent.providerSessionKey;
-    const resumed = crtResumedSessionFromSource(agent.source);
-    return resumed ? crtAgentSessionKey({
-      provider: resumed.provider,
-      id: resumed.sessionId,
-      providerHomeId: resumed.providerHomeId,
-    }) : '';
-  }).filter(Boolean));
+  const claimedSessionKeys = new Set(liveAgents
+    .map((agent) => crtClaimedAgentSessionKey(agent))
+    .filter(Boolean));
   const includesQuery = (values: unknown[]) => values.some((value: unknown) => (
     String(value || '').toLowerCase().includes(normalizedQuery)
   ));
@@ -5390,7 +5452,7 @@ async function restoreCrtArchivedAgent(agentId: string|number|boolean, openAfter
 }
 
 function continueCrtHistoryRun(entry: CrtHistoryRun) {
-  const resumed = crtResumedSessionFromSource(entry.source);
+  const resumed = crtClaimedSessionFromSource(entry.source);
   if (resumed) {
     void resumeCrtHistorySession(resumed, entry.customTitle || '', `run:${entry.id}`);
     return;
@@ -9509,6 +9571,9 @@ if (typeof module !== 'undefined' && module.exports) {
     crtHistoryAgentName,
     normalizeCrtTerminalFontSize,
     crtAgentSessionKey,
+    crtCanonicalAgentSessionKey,
+    crtClaimedSessionFromSource,
+    crtHistoryItemResumeSession,
     crtResumedSessionFromSource,
     crtDashboardStateSignature,
     crtBillingDayArrowTargetIndex,

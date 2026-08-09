@@ -6,6 +6,10 @@ import { ensureMainAgentSkillFiles } from './main-agent-skills.cjs';
 import { ensureFarmingAgentBootstrapFile } from './farming-agent-bootstrap.cjs';
 import { normalizeClaudeModelValue } from './claude-settings.cjs';
 import { isTemporaryProviderSessionId } from './provider-session-id.cjs';
+import {
+  decodeProviderSessionKey,
+  providerSessionKeyFromIdentity,
+} from '../shared/provider-session-identity.js';
 import { FarmingSessionStore, MAX_MAIN_PAGE_SESSION_KEYS } from './farming-session-store.cjs';
 import { RunHistoryStore } from './run-history-store.cjs';
 import { isSupportedHistoryAgent } from './cli-agents.cjs';
@@ -558,14 +562,14 @@ class ConfigManager {
 
     for (const entry of entries) {
       if (typeof entry !== 'string') continue;
-      const value = entry.trim();
-      if (!/^agent-session:[a-z][a-z0-9_-]*:.+$/i.test(value)) continue;
-      const sessionId = value.replace(/^agent-session:[^:]+:/i, '');
-      if (sessionId.startsWith('-')) continue;
-      if (isTemporaryProviderSessionId(sessionId)) continue;
-      if (seen.has(value)) continue;
-      seen.add(value);
-      result.push(value);
+      const identity = decodeProviderSessionKey(entry.trim());
+      if (!identity) continue;
+      if (identity.sessionId.startsWith('-')) continue;
+      if (isTemporaryProviderSessionId(identity.sessionId)) continue;
+      const canonicalKey = providerSessionKeyFromIdentity(identity);
+      if (seen.has(canonicalKey)) continue;
+      seen.add(canonicalKey);
+      result.push(canonicalKey);
     }
 
     return result.slice(0, MAX_MAIN_PAGE_SESSION_KEYS);

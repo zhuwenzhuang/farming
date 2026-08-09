@@ -1,12 +1,23 @@
 'use strict';
 
 import { isSafeProviderSessionId } from './provider-session-id.cjs';
+import {
+  DEFAULT_PROVIDER_HOME_ID,
+  canonicalProviderSessionKey,
+  decodeProviderSessionKey,
+  decodeResumedProviderSessionSource,
+  encodeProviderSessionKey,
+  encodeResumedProviderSessionSource,
+  providerSessionIdentity,
+  providerSessionIdentityTupleKey,
+  type ProviderSessionIdentity,
+} from '../shared/provider-session-identity.js';
 
 const AUTO_RESUME_AGENT_SESSION_PROVIDERS = new Set(['codex', 'claude', 'opencode', 'qoder', 'qwen']);
 
 interface MainPageAgentSession {
   provider: string;
-  providerHomeId?: string;
+  providerHomeId: string;
   sessionId: string;
 }
 
@@ -49,33 +60,19 @@ function mainPageAgentSessionKey(
   sessionId: unknown,
   providerHomeId: unknown = '',
 ): string {
-  const normalizedProvider = normalizeMainPageSessionProvider(provider);
-  const normalizedSessionId = String(sessionId || '').trim();
-  if (!normalizedProvider || !normalizedSessionId) return '';
-  const homeId = String(providerHomeId || '').trim();
-  if (homeId && homeId !== 'default') return `agent-session:${normalizedProvider}:home:${homeId}:${normalizedSessionId}`;
-  return `agent-session:${normalizedProvider}:${normalizedSessionId}`;
+  return encodeProviderSessionKey(
+    normalizeMainPageSessionProvider(provider),
+    sessionId,
+    providerHomeId,
+  );
 }
 
 function mainPageAgentSessionFromKey(key: unknown): MainPageAgentSession | null {
-  const match = String(key || '').match(/^agent-session:([^:]+):(.+)$/);
-  if (!match) return null;
-
-  const provider = normalizeMainPageSessionProvider(match[1]);
-  let providerHomeId = 'default';
-  let sessionId = String(match[2] || '').trim();
-  const homeMatch = sessionId.match(/^home:([A-Za-z0-9._-]+):(.+)$/);
-  if (homeMatch) {
-    providerHomeId = homeMatch[1];
-    sessionId = String(homeMatch[2] || '').trim();
-  }
-  if (!provider || !isSafeSessionId(sessionId)) {
-    return null;
-  }
-
-  return providerHomeId && providerHomeId !== 'default'
-    ? { provider, providerHomeId, sessionId }
-    : { provider, sessionId };
+  const identity = decodeProviderSessionKey(key);
+  if (!identity) return null;
+  const provider = normalizeMainPageSessionProvider(identity.provider);
+  if (!provider || !isSafeSessionId(identity.sessionId)) return null;
+  return { provider, providerHomeId: identity.providerHomeId, sessionId: identity.sessionId };
 }
 
 function mainPageAgentSessionsToAutoResume(
@@ -91,7 +88,7 @@ function mainPageAgentSessionsToAutoResume(
     const session = mainPageAgentSessionFromKey(key);
     if (!session) return;
 
-    const dedupeKey = `${session.provider}:${session.providerHomeId || 'default'}:${session.sessionId}`;
+    const dedupeKey = providerSessionIdentityTupleKey(session);
     if (seen.has(dedupeKey)) return;
     seen.add(dedupeKey);
     sessions.push(session);
@@ -105,10 +102,7 @@ function resumedAgentSource(
   sessionId: unknown,
   providerHomeId: unknown = '',
 ): string {
-  const homeId = String(providerHomeId || '').trim();
-  return homeId && homeId !== 'default'
-    ? `${provider}-history:home:${homeId}:${sessionId}`
-    : `${provider}-history:${sessionId}`;
+  return encodeResumedProviderSessionSource(provider, sessionId, providerHomeId);
 }
 
 function isActiveAgent(agent: MainPageAgentClaim | null | undefined): boolean {
@@ -116,6 +110,25 @@ function isActiveAgent(agent: MainPageAgentClaim | null | undefined): boolean {
     && agent.archived !== true
     && agent.status !== 'dead'
     && agent.status !== 'stopped');
+}
+
+function claimedProviderSessionTupleKeys(agent: MainPageAgentClaim): Set<string> {
+  const tupleKeys = new Set<string>();
+  const add = (identity: ProviderSessionIdentity | null) => {
+    if (identity) tupleKeys.add(providerSessionIdentityTupleKey(identity));
+  };
+
+  add(decodeProviderSessionKey(agent.providerSessionKey));
+  add(providerSessionIdentity(
+    agent.providerSessionProvider,
+    agent.providerSessionId,
+    agent.providerHomeId || DEFAULT_PROVIDER_HOME_ID,
+  ));
+  const source = decodeResumedProviderSessionSource(agent.source);
+  // A forked resume starts a new provider session, so it never claims the origin.
+  if (source && !source.forked) add(source);
+
+  return tupleKeys;
 }
 
 function findActiveAgentClaimingSession(
@@ -127,29 +140,24 @@ function findActiveAgentClaimingSession(
   const sessionId = String((session && (session.id || session.sessionId)) || '').trim();
   if (!normalizedProvider || !isSafeSessionId(sessionId) || !Array.isArray(agents)) return null;
 
-  const providerHomeId = String((session && session.providerHomeId) || 'default').trim() || 'default';
-  const sessionKey = mainPageAgentSessionKey(normalizedProvider, sessionId, providerHomeId);
-  const legacySessionKey = mainPageAgentSessionKey(normalizedProvider, sessionId);
-  const exactSource = resumedAgentSource(normalizedProvider, sessionId, providerHomeId);
-  const legacySource = resumedAgentSource(normalizedProvider, sessionId);
+  const identity = providerSessionIdentity(
+    normalizedProvider,
+    sessionId,
+    String((session && session.providerHomeId) || DEFAULT_PROVIDER_HOME_ID).trim() || DEFAULT_PROVIDER_HOME_ID,
+  );
+  if (!identity) return null;
+  const tupleKey = providerSessionIdentityTupleKey(identity);
 
   return agents.find(agent => {
     if (!isActiveAgent(agent)) return false;
     if (agent.providerSessionTemporary === true) return false;
-    if (agent.providerSessionKey === sessionKey || (providerHomeId === 'default' && agent.providerSessionKey === legacySessionKey)) return true;
-    if (
-      agent.providerSessionProvider === normalizedProvider
-      && agent.providerSessionId === sessionId
-      && (String(agent.providerHomeId || 'default').trim() || 'default') === providerHomeId
-    ) {
-      return true;
-    }
-    return agent.source === exactSource || (providerHomeId === 'default' && agent.source === legacySource);
+    return claimedProviderSessionTupleKeys(agent).has(tupleKey);
   }) || null;
 }
 
 export {
   AUTO_RESUME_AGENT_SESSION_PROVIDERS,
+  canonicalProviderSessionKey,
   findActiveAgentClaimingSession,
   mainPageAgentSessionFromKey,
   mainPageAgentSessionKey,

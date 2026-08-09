@@ -1,4 +1,5 @@
 const assert = require('assert');
+const { encodeProviderSessionKey } = require('../../shared/provider-session-identity.js');
 const { importTsModule } = require('./helpers/import-ts-module');
 const { publicRuntimeBinding } = require('../agent-runtime-binding.cjs');
 const { deriveRuntimeObservation } = require('../runtime-observation.cjs');
@@ -63,14 +64,14 @@ function run() {
     agentRowKey({
       kind: 'agent',
       agent: agent({ id: 'agent-42' }),
-      claimedSessionKey: 'agent-session:codex:session-42',
+      claimedSessionKey: encodeProviderSessionKey('codex', 'session-42', 'default'),
     }),
-    'agent-session:codex:session-42',
+    encodeProviderSessionKey('codex', 'session-42', 'default'),
     'Codex/Claude live AgentRow identity should use the provider resume id once claimed'
   );
   assert.strictEqual(
     agentRowKey({ kind: 'history', session: session({ provider: 'claude', id: 'session-42' }) }),
-    'agent-session:claude:session-42',
+    encodeProviderSessionKey('claude', 'session-42', 'default'),
     'history-backed AgentRow identity should use the same provider resume id format'
   );
 

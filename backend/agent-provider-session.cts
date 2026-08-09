@@ -4,6 +4,7 @@ import { parseCommand } from './cli-agents.cjs';
 
 import { getProviderAdapter, providerForProgram } from './provider-adapters.cjs';
 import { isSafeProviderSessionId } from './provider-session-id.cjs';
+import { decodeResumedProviderSessionSource } from '../shared/provider-session-identity.js';
 import type {
   AgentProviderSessionPlan,
   AgentProviderSessionPlanOptions,
@@ -11,12 +12,13 @@ import type {
 } from './agent-manager-provider-types.js';
 
 function sessionFromExactResumeSource(source: unknown): ExactResumeSession | null {
-  const match = String(source || '').match(/^([a-z0-9_-]+)-history:(?:home:([A-Za-z0-9._-]+):)?([A-Za-z0-9._:-]+)$/);
-  if (!match || !getProviderAdapter(match[1]) || !isSafeProviderSessionId(match[3])) return null;
+  const decoded = decodeResumedProviderSessionSource(source);
+  if (!decoded || decoded.forked) return null;
+  if (!getProviderAdapter(decoded.provider) || !isSafeProviderSessionId(decoded.sessionId)) return null;
   return {
-    provider: match[1],
-    providerHomeId: match[2] || 'default',
-    sessionId: match[3],
+    provider: decoded.provider,
+    providerHomeId: decoded.providerHomeId,
+    sessionId: decoded.sessionId,
   };
 }
 

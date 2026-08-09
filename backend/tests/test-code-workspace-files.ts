@@ -669,7 +669,7 @@ function run() {
       workspaceSource.includes("if (focusTarget?.kind === 'agent-session') focusAgentSessionRow(focusTarget.provider, agentSessionId(focusTarget))") &&
       workspaceSource.includes('pendingArchivedFocusAgentRef') &&
       workspaceSource.includes('if (flags.archived === true) {') &&
-      workspaceSource.includes('const sessionHandle = contextMenuAgent.providerSessionKey || resumedAgentSessionIdFromSource(contextMenuAgent.source)') &&
+      workspaceSource.includes('const sessionHandle = claimedAgentSessionHandle(contextMenuAgent)') &&
       workspaceSource.includes('if (sessionHandle) removeMainPageAgentSession(sessionHandle)') &&
       workspaceSource.includes('pendingArchivedFocusAgentRef.current = agentId') &&
       workspaceSource.includes('{ initialDelay: 50, retryDelay: 90, maxAttempts: 12, animationFrame: false }') &&
@@ -857,7 +857,7 @@ function run() {
       workspaceSource.includes('if (current?.limit === limit && current.fresh === fresh) return current.promise') &&
       workspaceSource.includes('agent.providerSessionTemporary === true') &&
       !workspaceSource.includes('window.setInterval(refreshAgentSessions, 5_000)') &&
-      workspaceSource.includes('agent.providerSessionKey || resumedAgentSessionIdFromSource(agent.source)') &&
+      workspaceSource.includes('const sessionHandle = claimedAgentSessionHandle(agent)') &&
       workspaceSource.includes('scheduleAgentSessionsBackgroundLoad') &&
       workspaceSource.includes('agentSessionPinnedOverrides') &&
       workspaceSource.includes('toggleContextMenuAgentSessionPinned') &&
@@ -868,7 +868,9 @@ function run() {
       workspaceSource.includes('syncRemovedMainPageSessionsFromAgentUpdate(result)') &&
       workspaceSource.includes("addMainPageAgentSession(provider, sessionId, providerHomeId || '')") &&
       workspaceSource.includes("function resumedAgentSource(provider: string, sessionId: string, providerHomeId = '')") &&
-      workspaceSource.includes('function resumedAgentSessionIdFromSource(source?: string)') &&
+      workspaceSource.includes('return encodeResumedProviderSessionSource(provider, sessionId, providerHomeId)') &&
+      workspaceSource.includes('function claimedAgentSessionIdFromSource(source?: string)') &&
+      workspaceSource.includes('function resumedAgentSessionSourceIdentity(source?: string)') &&
       workspaceSource.includes('visibleAgents.filter(isAgentListLiveAgent)') &&
       resumeAgentSessionSource.includes('const activeAgent = this.ports.getActiveAgents().find(agent => (') &&
       resumeAgentSessionSource.includes("agent.status !== 'dead'") &&
@@ -905,7 +907,7 @@ function run() {
       workspaceSource.includes('resumeId={session.id}') &&
       workspaceSource.includes('visibleSearchTargets') &&
       workspaceSource.includes("kind: 'agent-session'") &&
-      workspaceSource.includes("? `home:${session.providerHomeId}:${session.id}`") &&
+      workspaceSource.includes('return encodeProviderSessionKey(session.provider, session.id, session.providerHomeId)') &&
       workspaceSource.includes('openSelectedSearchTarget') &&
 	      workspaceSource.includes('data-testid="code-active-session-row"') &&
 	      workspaceSource.includes('data-testid="code-agent-hover-preview"') &&
@@ -1263,7 +1265,7 @@ function run() {
       mainPageSessionSource.includes('function mainPageAgentSessionFromKey(key: unknown)') &&
       serverSource.includes('function autoResumeMainPageAgentSessions()') &&
       resumeCoordinatorSource.includes('return findActiveAgentClaimingSession(this.ports.getActiveAgents()') &&
-      mainPageSessionSource.includes('agent.providerSessionKey === sessionKey') &&
+      mainPageSessionSource.includes('return claimedProviderSessionTupleKeys(agent).has(tupleKey);') &&
       resumeCoordinatorSource.includes('claimed: true') &&
       resumeCoordinatorSource.includes('rememberMainPageSession: false') &&
       resumeCoordinatorSource.includes("this.ports.warn('Failed to auto-resume main page agent session:'") &&

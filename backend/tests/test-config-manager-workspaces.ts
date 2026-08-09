@@ -1,4 +1,5 @@
 const assert = require('assert');
+const { encodeProviderSessionKey } = require('../../shared/provider-session-identity.js');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -268,14 +269,16 @@ function run() {
         'agent-session:codex:abc-123',
       ],
     });
+    // Legacy-shaped input migrates to the canonical v2 key for the same tuple,
+    // including a session id that legally contains a colon.
     assert.deepStrictEqual(manager.getSettings().mainPageSessionKeys, [
-      'agent-session:codex:abc-123',
-      'agent-session:claude:chat:with-colon',
+      encodeProviderSessionKey('codex', 'abc-123', 'default'),
+      encodeProviderSessionKey('claude', 'chat:with-colon', 'default'),
     ]);
     const sessionIndex = JSON.parse(fs.readFileSync(path.join(farmingDir, 'sessions', 'index.json'), 'utf8'));
     assert.deepStrictEqual(sessionIndex.mainPageSessionKeys, [
-      'agent-session:codex:abc-123',
-      'agent-session:claude:chat:with-colon',
+      encodeProviderSessionKey('codex', 'abc-123', 'default'),
+      encodeProviderSessionKey('claude', 'chat:with-colon', 'default'),
     ]);
     assert.strictEqual(sessionIndex.version, 2);
     assert.strictEqual(sessionIndex.providerSessionRecords, undefined);
@@ -288,8 +291,14 @@ function run() {
       mainPageSessionKeys: Array.from({ length: 60 }, (_, index) => `agent-session:codex:bulk-${index}`),
     });
     assert.strictEqual(manager.getSettings().mainPageSessionKeys.length, 50);
-    assert.strictEqual(manager.getSettings().mainPageSessionKeys[0], 'agent-session:codex:bulk-0');
-    assert.strictEqual(manager.getSettings().mainPageSessionKeys[49], 'agent-session:codex:bulk-49');
+    assert.strictEqual(
+      manager.getSettings().mainPageSessionKeys[0],
+      encodeProviderSessionKey('codex', 'bulk-0', 'default'),
+    );
+    assert.strictEqual(
+      manager.getSettings().mainPageSessionKeys[49],
+      encodeProviderSessionKey('codex', 'bulk-49', 'default'),
+    );
 
     manager.updateSettings({ appearance: 'dark', language: 'zh' });
     assert.strictEqual(manager.getSettings().appearance, 'dark');

@@ -1,4 +1,8 @@
 const assert = require('assert');
+const {
+  encodeProviderSessionKey,
+  encodeResumedProviderSessionSource,
+} = require('../../shared/provider-session-identity.js');
 const { importTsModule } = require('./helpers/import-ts-module');
 
 function agent(overrides = {}) {
@@ -49,10 +53,18 @@ function run() {
       id: 'recovered-codex',
       source: 'native-recovered',
       command: 'codex',
-      providerSessionKey: 'agent-session:codex:code-claimed',
+      providerSessionKey: encodeProviderSessionKey('codex', 'code-claimed', 'default'),
       providerSessionProvider: 'codex',
       providerSessionId: 'code-claimed',
       startedAt: 190_000,
+    }),
+    // A fork is admitted before its own provider session id exists, so its only
+    // identity for a window is the origin it was forked from.
+    agent({
+      id: 'pending-fork-codex',
+      command: 'codex',
+      source: encodeResumedProviderSessionSource('codex', 'sidebar-open', 'default', { forked: true }),
+      startedAt: 260_000,
     }),
     agent({ id: 'resumed-claude-old', source: 'claude-history:claude-claimed', command: 'claude', cwd: '/repo2', projectWorkspace: '/repo2', startedAt: 80_000 }),
     agent({ id: 'resumed-claude', source: 'claude-history:claude-claimed', command: 'claude', cwd: '/repo2', projectWorkspace: '/repo2', startedAt: 240_000 }),
@@ -77,34 +89,46 @@ function run() {
     liveAgents,
     sessions,
     mainPageSessionKeys: new Set([
-      'agent-session:codex:code-claimed',
-      'agent-session:codex:sidebar-open',
-      'agent-session:codex:archived-main-page',
-      'agent-session:claude:claude-claimed',
-      'agent-session:claude:stopped-claude',
+      encodeProviderSessionKey('codex', 'code-claimed', 'default'),
+      encodeProviderSessionKey('codex', 'sidebar-open', 'default'),
+      encodeProviderSessionKey('codex', 'archived-main-page', 'default'),
+      encodeProviderSessionKey('claude', 'claude-claimed', 'default'),
+      encodeProviderSessionKey('claude', 'stopped-claude', 'default'),
     ]),
   });
 
   assert.deepStrictEqual(
     state.liveAgents.map(item => item.id),
-    ['new-shell', 'fork-shell', 'recovered-codex', 'resumed-claude'],
+    ['new-shell', 'fork-shell', 'recovered-codex', 'pending-fork-codex', 'resumed-claude'],
     'new and forked shells stay unique, duplicate Codex/Claude resume ids collapse, and stopped runtime rows leave the agent list'
   );
   assert.strictEqual(
     agentListRowIdentity(state.liveAgents.find(item => item.id === 'recovered-codex'), state.claimedAgentSessionKeyByAgentId),
-    'agent-session:codex:code-claimed',
+    encodeProviderSessionKey('codex', 'code-claimed', 'default'),
     'Codex/Claude live rows should use provider resume ids once the provider session is claimed'
   );
   assert.deepStrictEqual(state.archivedAgents.map(item => item.id), ['archived']);
   assert.deepStrictEqual(
     Array.from(state.claimedAgentSessionKeys).sort(),
-    ['agent-session:claude:claude-claimed', 'agent-session:codex:code-claimed'],
+    [encodeProviderSessionKey('claude', 'claude-claimed', 'default'), encodeProviderSessionKey('codex', 'code-claimed', 'default')],
     'live runtime rows should claim matching provider sessions instead of creating duplicate sidebar rows'
   );
   assert.deepStrictEqual(
     state.sidebarAgentSessions.map(item => item.id),
     ['sidebar-open', 'stopped-claude'],
     'unclaimed main-page sessions, including stopped provider sessions, should remain as resumable session rows while archived sessions stay out'
+  );
+  assert.deepStrictEqual(
+    Array.from(claimedAgentSessionKeysForAgents([
+      agent({
+        id: 'pending-fork-codex',
+        command: 'codex',
+        source: encodeResumedProviderSessionSource('codex', 'sidebar-open', 'default', { forked: true }),
+        startedAt: 260_000,
+      }),
+    ], sessions)),
+    [],
+    'a pending fork owns a new provider session, so it must never claim the origin session row'
   );
   assert.deepStrictEqual(
     state.historyAgentSessions.map(item => item.id),
