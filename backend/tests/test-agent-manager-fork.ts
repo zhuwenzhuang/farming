@@ -18,6 +18,8 @@ async function run() {
   writeFakeExecutable(path.join(binDir, 'codex'), 'codex 9.9.9\n');
   writeFakeExecutable(path.join(binDir, 'claude'), 'claude 9.9.9\n');
   writeFakeExecutable(path.join(binDir, 'qwen'), 'qwen 9.9.9\n');
+  const absoluteTerminalExecutable = path.join(binDir, 'absolute-terminal');
+  writeFakeExecutable(absoluteTerminalExecutable, 'absolute terminal 1.0.0\n');
   fs.writeFileSync(path.join(repo, 'README.md'), 'fork fixture\n');
   execFileSync('git', ['-C', repo, 'init'], { stdio: 'ignore' });
   execFileSync('git', ['-C', repo, 'add', 'README.md'], { stdio: 'ignore' });
@@ -544,9 +546,148 @@ async function run() {
     manager.acpRuntime.deleteSession = originalClaudeDeleteSession;
 
     manager.agentShellEnvProvider = () => ({ PATH: binDir });
-    manager.agentShellEnvCache.clear();
+    assert.strictEqual(manager.resolveAgentShellEnv('', { force: true }).PATH, binDir);
     const previousFakeExecutables = process.env.FARMING_E2E_FAKE_EXECUTABLES;
     delete process.env.FARMING_E2E_FAKE_EXECUTABLES;
+
+    const startsBeforeAbsoluteTerminal = captured.length;
+    const absoluteTerminalAgentId = await startAgent(
+      manager,
+      absoluteTerminalExecutable,
+      repo,
+      { wantsMain: false },
+    );
+    assert(absoluteTerminalAgentId);
+    assert.strictEqual(captured.length, startsBeforeAbsoluteTerminal + 1);
+    assert.strictEqual(
+      captured.at(-1).command,
+      absoluteTerminalExecutable,
+      'an executable absolute non-Codex Terminal path must reach the engine exactly once',
+    );
+
+    const unusableAbsoluteTerminal = path.join(binDir, 'missing-absolute-terminal');
+    const agentCountBeforeUnusableAbsolute = manager.getState().agents.length;
+    const startsBeforeUnusableAbsolute = captured.length;
+    const rejectedAbsoluteTerminal = await new Promise<{
+      agentId: string | null;
+      error: string;
+    }>(resolve => {
+      manager.startAgent(
+        unusableAbsoluteTerminal,
+        repo,
+        (agentId, error) => resolve({ agentId, error }),
+        { wantsMain: false },
+      );
+    });
+    assert.strictEqual(rejectedAbsoluteTerminal.agentId, null);
+    assert.match(rejectedAbsoluteTerminal.error, /not executable/);
+    assert.strictEqual(manager.getState().agents.length, agentCountBeforeUnusableAbsolute);
+    assert.strictEqual(
+      captured.length,
+      startsBeforeUnusableAbsolute,
+      'an unusable absolute Terminal path must be rejected without reaching the engine',
+    );
+
+    const explicitCodex = path.join(binDir, 'explicit-codex', 'codex');
+    fs.mkdirSync(path.dirname(explicitCodex), { recursive: true });
+    writeFakeExecutable(explicitCodex, 'codex 10.0.0\n');
+    const startsBeforeExplicitCodex = captured.length;
+    const explicitCodexAgentId = await startAgent(manager, explicitCodex, repo, {
+      requiredCliVersion: '9.0.0',
+      wantsMain: false,
+    });
+    assert(explicitCodexAgentId);
+    assert.strictEqual(captured.length, startsBeforeExplicitCodex + 1);
+    assert.strictEqual(
+      captured.at(-1).command,
+      explicitCodex,
+      'an explicit absolute Codex Terminal path must be version-checked and spawned exactly once',
+    );
+
+    const oldExplicitCodex = path.join(binDir, 'old-explicit-codex', 'codex');
+    fs.mkdirSync(path.dirname(oldExplicitCodex), { recursive: true });
+    writeFakeExecutable(oldExplicitCodex, 'codex 1.0.0\n');
+    const startsBeforeOldExplicitCodex = captured.length;
+    const rejectedOldExplicitCodex = await new Promise<{
+      agentId: string | null;
+      error: string;
+    }>(resolve => {
+      manager.startAgent(oldExplicitCodex, repo, (agentId, error) => resolve({ agentId, error }), {
+        requiredCliVersion: '9.0.0',
+        wantsMain: false,
+      });
+    });
+    assert.strictEqual(rejectedOldExplicitCodex.agentId, null);
+    assert.match(rejectedOldExplicitCodex.error, /older than this session/);
+    assert.strictEqual(
+      captured.length,
+      startsBeforeOldExplicitCodex,
+      'an incompatible explicit Codex path must not fall back to a PATH or Farming candidate',
+    );
+
+    const missingExplicitCodex = path.join(binDir, 'missing-explicit-codex', 'codex');
+    const startsBeforeMissingExplicitCodex = captured.length;
+    const rejectedMissingExplicitCodex = await new Promise<{
+      agentId: string | null;
+      error: string;
+    }>(resolve => {
+      manager.startAgent(missingExplicitCodex, repo, (agentId, error) => resolve({ agentId, error }), {
+        requiredCliVersion: '9.0.0',
+        wantsMain: false,
+      });
+    });
+    assert.strictEqual(rejectedMissingExplicitCodex.agentId, null);
+    assert.match(rejectedMissingExplicitCodex.error, /not found/);
+    assert.strictEqual(
+      captured.length,
+      startsBeforeMissingExplicitCodex,
+      'an unusable explicit Codex path must reject without a spawn or fallback',
+    );
+
+    let customHomeShellReads = 0;
+    const customHomeTerminalCaptured = [];
+    const customHomeTerminalManager = new AgentManager({
+      getWorkspace: () => tmpRoot,
+      getHeartbeatInterval: () => 1000,
+      getCodingAgentEngine: () => 'local',
+      getVtBaseUrl: () => 'http://localhost:4020',
+      getDangerouslySkipAgentPermissionsByDefault: () => false,
+      getAgentHome: () => ({
+        id: 'default',
+        path: path.join(tmpRoot, 'custom-codex-home'),
+        acpRuntime: { mode: 'custom', executable: path.join(binDir, 'unused-custom-acp') },
+      }),
+    }, {
+      agentShellEnvProvider: () => {
+        customHomeShellReads += 1;
+        return { PATH: binDir };
+      },
+    });
+    customHomeTerminalManager.engineBridge.resolve = () => ({
+      engineName: 'local',
+      engine: {
+        async createSession(options) {
+          customHomeTerminalCaptured.push(options);
+        },
+      },
+      spec: { category: 'coding' },
+    });
+    try {
+      const customHomeTerminalAgentId = await startAgent(
+        customHomeTerminalManager,
+        'codex',
+        repo,
+        { wantsMain: false },
+      );
+      assert(customHomeTerminalAgentId);
+      assert.strictEqual(customHomeShellReads, 1);
+      assert.strictEqual(customHomeTerminalCaptured.length, 1);
+      assert.strictEqual(customHomeTerminalCaptured[0].command, path.join(binDir, 'codex'));
+    } finally {
+      clearInterval(customHomeTerminalManager.heartbeatInterval);
+      await customHomeTerminalManager.engineBridge.dispose();
+    }
+
     const agentCountBeforeMissingResume = manager.getState().agents.length;
     const engineStartsBeforeMissingResume = captured.length;
     const missingQoder = await new Promise<{
@@ -560,12 +701,40 @@ async function run() {
         { wantsMain: false, source: 'qoder-history:51d0e65d-1ba7-47b6-a0ff-99e053d26e37' }
       );
     });
-    if (previousFakeExecutables === undefined) delete process.env.FARMING_E2E_FAKE_EXECUTABLES;
-    else process.env.FARMING_E2E_FAKE_EXECUTABLES = previousFakeExecutables;
     assert.strictEqual(missingQoder.agentId, null);
-    assert.match(missingQoder.error, /Qoder executable "qodercli" was not found/);
+    assert.match(missingQoder.error, /Executable "qodercli" was not found in the user shell PATH/);
     assert.strictEqual(manager.getState().agents.length, agentCountBeforeMissingResume);
     assert.strictEqual(captured.length, engineStartsBeforeMissingResume);
+
+    process.env.FARMING_E2E_FAKE_EXECUTABLES = '1';
+    const fakeExecutablesMissingQoder = await new Promise<{
+      agentId: string | null;
+      error: string;
+    }>(resolve => {
+      manager.startAgent(
+        'qodercli',
+        repo,
+        (agentId, error) => resolve({ agentId, error }),
+        { wantsMain: false }
+      );
+    });
+    if (previousFakeExecutables === undefined) delete process.env.FARMING_E2E_FAKE_EXECUTABLES;
+    else process.env.FARMING_E2E_FAKE_EXECUTABLES = previousFakeExecutables;
+    assert.strictEqual(
+      fakeExecutablesMissingQoder.agentId,
+      null,
+      'a rejected non-Codex system Terminal executable decision must refuse the launch',
+    );
+    assert.match(
+      fakeExecutablesMissingQoder.error,
+      /Executable "qodercli" was not found in the user shell PATH/,
+    );
+    assert.strictEqual(manager.getState().agents.length, agentCountBeforeMissingResume);
+    assert.strictEqual(
+      captured.length,
+      engineStartsBeforeMissingResume,
+      'a rejected non-Codex system Terminal executable decision must not reach the engine',
+    );
 
     console.log('✓ AgentManager creates permanent worktrees and forks agents into same and new worktrees');
   } finally {

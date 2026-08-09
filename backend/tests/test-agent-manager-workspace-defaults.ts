@@ -26,7 +26,7 @@ async function run() {
     getDangerouslySkipAgentPermissionsByDefault() {
       return false;
     }
-  }, { skipExecutablePreflight: true });
+  }, {});
 
   manager.engineBridge.resolve = (command) => ({
     engineName: 'local',
@@ -141,7 +141,6 @@ async function run() {
         return false;
       },
     }, {
-      skipExecutablePreflight: true,
       async createProviderSessionIdentity() {
         concurrentIdentityCreates += 1;
         throw new Error('fresh Codex must not pre-create a provider identity');
@@ -340,7 +339,7 @@ async function run() {
           newAgentDefaults: { model: 'gpt-5.6-sol', reasoning: 'high', fast: 'on' },
         };
       },
-    }, { skipExecutablePreflight: true });
+    }, {});
     homeProfileManager.engineBridge.resolve = () => ({
       engineName: 'local',
       engine: {
@@ -391,7 +390,7 @@ async function run() {
           newAgentDefaults: { model: 'claude-opus-test', reasoning: 'max', fast: 'inherit' },
         };
       },
-    }, { skipExecutablePreflight: true });
+    }, {});
     claudeHomeProfileManager.engineBridge.resolve = () => ({
       engineName: 'local',
       engine: {

@@ -35,6 +35,8 @@ separate launch identity and never silently falls back to the managed image or
 the Terminal executable. Existing Sessions retain the exact selection they
 were created with. Environment variables are compatibility inputs, not the
 ordinary user configuration authority.
+An existing Session without its exact recorded executable fails closed during
+recovery and is never rediscovered against the current machine.
 
 Farming may support standard ACP session, prompt, cancellation, configuration,
 authentication, elicitation, terminal, media, plan, and fork capabilities when

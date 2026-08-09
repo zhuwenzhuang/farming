@@ -68,7 +68,6 @@ async function run() {
     },
   }, {
     acpRuntime: runtime,
-    skipExecutablePreflight: true,
   });
 
   const agentUpdates = [];

@@ -386,7 +386,7 @@ async function run() {
     listAgentSessionRecords() {
       return [duplicateRecord, rotationRecord, hiddenRecord];
     },
-  }, { skipExecutablePreflight: true });
+  }, {});
   await rotationManager.whenRecovered();
   const rotationBridge = rotationManager.engineBridge;
   const createdRotationSessions = [];

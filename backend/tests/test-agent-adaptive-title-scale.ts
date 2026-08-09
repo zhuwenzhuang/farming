@@ -32,7 +32,7 @@ async function run() {
       persisted.push({ ...agent, adaptiveTitle });
       return agent.agentRecordId || `agent_record_${agent.id}`;
     },
-  }, { skipExecutablePreflight: true });
+  }, {});
 
   const scopedUpdates = [];
   let fullUpdates = 0;

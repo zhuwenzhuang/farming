@@ -265,7 +265,9 @@ function normalizeInteractiveTerminalEnv(
   next.COLORTERM = 'truecolor';
   next.CLICOLOR = next.CLICOLOR || '1';
   next.TERM_PROGRAM = 'farming';
-  next.TERM_PROGRAM_VERSION = process.env.npm_package_version || '';
+  if (!Object.prototype.hasOwnProperty.call(next, 'TERM_PROGRAM_VERSION')) {
+    next.TERM_PROGRAM_VERSION = process.env.npm_package_version || '';
+  }
   return next;
 }
 

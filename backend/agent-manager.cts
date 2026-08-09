@@ -22,7 +22,6 @@ import type {
   BuildAgentProviderSessionPlanContract,
   ExactResumeSession,
   AgentDisposeOptions,
-  AgentShellEnvOptions,
   AgentStartAdmission,
   AgentStartOutcome,
   AgentStartReservation,
@@ -126,11 +125,17 @@ import { buildAgentSessionResumeCommand, findAgentSession } from './agent-sessio
 import { archiveCodexSession, unarchiveCodexSession } from './codex-session-archive.cjs';
 import { buildAgentProviderSessionPlan, sessionFromExactResumeSource } from './agent-provider-session.cjs';
 import {
+  getAcpFarmingOwnedExecutableCandidates,
+  getFarmingOwnedExecutableCandidates,
+  getSystemExecutableCandidates,
+  isExecutable,
+  isFarmingOwnedPath,
   resolveAgentExecutable,
   resolveFarmingOwnedExecutable,
   resolveTerminalCodexExecutable,
   resolveTerminalExecutable,
 } from './executable-discovery.cjs';
+import { AgentLaunchPolicy, type ShellEnvResolveOptions } from './agent-launch-policy.cjs';
 import { ensureMainAgentSkillFiles, renderMainAgentBootstrap } from './main-agent-skills.cjs';
 import {
   appendOpenCodeBootstrap,
@@ -158,7 +163,7 @@ import {
   deriveRuntimeObservation,
   type TerminalObservationStatus,
 } from './runtime-observation.cjs';
-import { applyProviderHomeEnvironment, getProviderAdapter, isFreshAcpSessionSource, providerCapabilities, providerConversationForkCapability, providerForProgram, providerSupportsRuntime } from './provider-adapters.cjs';
+import { getProviderAdapter, isFreshAcpSessionSource, listProviderLaunchDescriptors, providerCapabilities, providerConversationForkCapability, providerForProgram, providerSupportsRuntime } from './provider-adapters.cjs';
 import { deriveTerminalStatus } from './terminal-status.cjs';
 import { AcpRuntime, stopPersistedAcpProcessGroup } from './acp-runtime.cjs';
 import { AcpRuntimeHostRuntime } from './acp-runtime-host-runtime.cjs';
@@ -175,7 +180,7 @@ import {
 } from './codex-terminal-profile.cjs';
 import { AgentOrderAllocator, finiteOrder, reorderedPinnedAgentOrders, reorderedProjectAgentOrders } from './agent-order.cjs';
 import { commitAgentOrderTransaction } from './agent-order-transaction.cjs';
-import { buildInteractiveAgentBaseEnv, normalizeInteractiveTerminalEnv, resolveUserShellEnvSync } from './agent-env.cjs';
+import { resolveUserShellEnvSync } from './agent-env.cjs';
 import { inspectGitWorktree } from './git-worktree-info.cjs';
 import { isSameOrDescendantPath } from './path-containment.cjs';
 import { AgentWorktreeRefreshQueue } from './agent-worktree-refresh-queue.cjs';
@@ -478,7 +483,6 @@ interface AgentManagerOptions extends UnknownRecord {
   controlUrl?: string;
   createProviderSessionIdentity?: CreateProviderSessionIdentityContract;
   deleteProviderSessionIdentity?: DeleteProviderSessionIdentityContract;
-  skipExecutablePreflight?: boolean;
   stopPersistedAcpProcessGroup?: StopPersistedAcpProcessGroupContract;
   tokenFile?: string;
   transcriptMediaPathPrefix?: (agentId: string) => string;
@@ -519,12 +523,6 @@ interface AgentManagerConfigContract extends AgentManagerConfig {
   getHeartbeatInterval(): number;
   getTaskHistory?(): UnknownRecord[];
   getWorkspace(): string;
-}
-
-interface AgentShellEnvCacheEntry {
-  env: NodeJS.ProcessEnv | null;
-  initialized: boolean;
-  resolvedAt: number;
 }
 
 type AcpRuntimeContract = DeclaredAcpRuntimeContract;
@@ -576,16 +574,6 @@ const ACP_ATTENTION_STOP_REASONS = new Set([
   'max_turn_requests',
   'refusal',
 ]);
-const SHELL_PROMPT_ENV_KEYS: string[] = [
-  'PS1',
-  'PS2',
-  'PS3',
-  'PS4',
-  'PROMPT',
-  'RPROMPT',
-  'RPS1',
-  'PROMPT_COMMAND',
-];
 const CREATE_ROLLBACK_FIELDS: string[] = [
   'runtimeAgentId',
   'command',
@@ -1295,11 +1283,9 @@ class AgentManager extends EventEmitter {
   declare controlUrl: string;
   declare tokenFile: string;
   declare authDisabled: boolean;
-  declare skipExecutablePreflight: boolean;
   declare cliBinDir: string;
   declare agentShellEnvProvider: (shell: string) => NodeJS.ProcessEnv | null;
-  declare agentShellEnvCache: Map<string, AgentShellEnvCacheEntry>;
-  declare agentShellEnvCacheMs: number;
+  declare launchPolicy: AgentLaunchPolicy;
   declare agents: Map<AgentId, TypedAgentRecord>;
   declare agentOrderAllocator: AgentOrderAllocator;
   declare mainAgentId: AgentId | null;
@@ -1396,18 +1382,75 @@ class AgentManager extends EventEmitter {
     this.controlUrl = options.controlUrl || '';
     this.tokenFile = options.tokenFile || '';
     this.authDisabled = options.authDisabled === true;
-    this.skipExecutablePreflight = options.skipExecutablePreflight === true;
     this.cliBinDir = options.cliBinDir || path.join(__dirname, '..', 'bin');
     this.agentShellEnvProvider = typeof options.agentShellEnvProvider === 'function'
       ? options.agentShellEnvProvider
       : (shell: string) => resolveUserShellEnvSync({ processEnv: process.env, shell });
-    this.agentShellEnvCache = new Map();
-    this.agentShellEnvCacheMs = normalizePositiveInteger(
-      process.env.FARMING_AGENT_SHELL_ENV_CACHE_MS,
-      5 * 60 * 1000,
-      0,
-      60 * 60 * 1000
-    );
+    const instanceLaunchEnv: NodeJS.ProcessEnv = { ...process.env };
+    if (this.configManager?.farmingDir) {
+      instanceLaunchEnv.FARMING_CONFIG_DIR = this.configManager.farmingDir;
+    } else {
+      delete instanceLaunchEnv.FARMING_CONFIG_DIR;
+    }
+    const frozenInstanceLaunchEnv = Object.freeze(instanceLaunchEnv);
+    this.launchPolicy = new AgentLaunchPolicy({
+      authDisabled: this.authDisabled,
+      cliBinDir: this.cliBinDir,
+      configDir: this.configManager?.farmingDir || '',
+      controlUrl: this.controlUrl,
+      programVersion: process.env.npm_package_version || '',
+      shellEnvCacheMs: normalizePositiveInteger(
+        process.env.FARMING_AGENT_SHELL_ENV_CACHE_MS,
+        5 * 60 * 1000,
+        0,
+        60 * 60 * 1000,
+      ),
+      startupPromptFile: this.configManager?.farmingDir
+        ? storageLayout.farmingAgentBootstrapFile(this.configManager.farmingDir)
+        : '',
+      tokenFile: this.tokenFile,
+    }, {
+      appendBootstrapInstruction: (env, bootstrapFile) => appendOpenCodeBootstrap(env, bootstrapFile),
+      isExecutable: candidate => isExecutable(candidate),
+      isFarmingOwnedExecutable: (_provider, candidate) => (
+        isFarmingOwnedPath(candidate, frozenInstanceLaunchEnv)
+      ),
+      now: () => Date.now(),
+      processEnv: () => process.env,
+      providerLaunchDescriptors: () => listProviderLaunchDescriptors(),
+      resolveFarmingOwnedExecutable: provider => resolveFarmingOwnedExecutable(provider, {
+        farmingCandidates: getAcpFarmingOwnedExecutableCandidates(provider, frozenInstanceLaunchEnv),
+      }),
+      resolveShellEnv: shell => this.agentShellEnvProvider(shell),
+      resolveSystemAcpExecutable: (program, pathEnv) => resolveAgentExecutable(program, pathEnv),
+      resolveSystemTerminalExecutable: (program, pathEnv) => resolveTerminalExecutable(program, pathEnv, {
+        farmingCandidates: getFarmingOwnedExecutableCandidates(program, frozenInstanceLaunchEnv),
+        systemCandidates: getSystemExecutableCandidates(program, pathEnv, frozenInstanceLaunchEnv),
+      }).path,
+      resolveTerminalExecutableVersion: (program, requiredCliVersion, pathEnv) => {
+        const explicitSystemCandidate = path.isAbsolute(program) ? [program] : undefined;
+        const resolution = resolveTerminalCodexExecutable(requiredCliVersion, pathEnv, {
+          environment: frozenInstanceLaunchEnv,
+          farmingCandidates: explicitSystemCandidate
+            ? []
+            : getFarmingOwnedExecutableCandidates('codex', frozenInstanceLaunchEnv),
+          systemCandidates: explicitSystemCandidate,
+        });
+        return {
+          compatible: resolution.compatible,
+          error: resolution.error,
+          path: resolution.path,
+          source: explicitSystemCandidate
+            ? 'system' as const
+            : isFarmingOwnedPath(resolution.path, frozenInstanceLaunchEnv)
+              ? 'farming' as const
+              : 'system' as const,
+        };
+      },
+      warn: (message, error) => {
+        console.warn(`${message}:`, (error as ErrorRecord)?.message || error);
+      },
+    });
     this.agents = new RuntimeAgentMap();
     this.agentOrderAllocator = new AgentOrderAllocator();
     this.mainAgentId = null;
@@ -3412,29 +3455,21 @@ class AgentManager extends EventEmitter {
           }
         const providerAdapter = getProviderAdapter(provider);
         if (!providerAdapter) throw new Error(`Unsupported Agent provider: ${provider}`);
-        const executableName = providerAdapter.executable;
         const acpRuntimeMode = record.acpRuntimeMode === 'custom' ? 'custom' : 'managed';
-        const configuredExecutable = acpRuntimeMode === 'custom'
-          ? String(record.acpRuntimeExecutable || '').trim()
-          : '';
-        const executable = configuredExecutable || (
-          providerAdapter.acp.executablePolicy === 'managed'
-            ? resolveFarmingOwnedExecutable(provider)
-            : (resolveAgentExecutable(executableName) || executableName)
-        );
-        if (acpRuntimeMode === 'custom') {
-          if (!path.isAbsolute(executable)) {
-            throw new Error(`${provider} custom ACP executable must be an absolute path`);
-          }
-          try {
-            fs.accessSync(executable, fs.constants.X_OK);
-          } catch {
-            throw new Error(`${provider} custom ACP executable is not executable: ${executable}`);
-          }
-        }
-        if (providerAdapter.acp.executablePolicy === 'managed' && acpRuntimeMode === 'managed' && !executable) {
-          throw new Error(`${provider} ACP requires a Farming-owned executable, but none is available`);
-        }
+        const decision = this.launchPolicy.selectExecutable({
+          configuredMode: acpRuntimeMode,
+          executablePolicy: providerAdapter.acp.executablePolicy === 'managed' ? 'managed' : 'system',
+          pathEnv: process.env.PATH || '',
+          persistedExecutable: typeof record.acpRuntimeExecutable === 'string'
+            ? record.acpRuntimeExecutable
+            : '',
+          phase: 'resume',
+          program: providerAdapter.executable,
+          provider,
+          runtime: 'acp',
+        });
+        if (!decision.selected) throw new Error(decision.message);
+        const executable = decision.executable;
         agent.acpRuntimeMode = acpRuntimeMode;
         agent.acpRuntimeExecutable = executable;
         const approvalMode = agent.launchPermissionMode || (
@@ -4635,47 +4670,9 @@ class AgentManager extends EventEmitter {
     return 'buffer';
   }
 
-  resolveAgentShellEnv(shell: string = '', options: AgentShellEnvOptions = {}) {
-    const now = Date.now();
-    const cacheKey = String(shell || '').trim() || '__default__';
-    const cached = this.agentShellEnvCache.get(cacheKey);
-    const hasMaxAgeOverride = typeof options.maxAgeMs === 'number' && Number.isFinite(options.maxAgeMs);
-    const maxAgeMs = hasMaxAgeOverride
-      ? Math.max(0, options.maxAgeMs!)
-      : this.agentShellEnvCacheMs;
-    if (
-      options.force !== true &&
-      cached &&
-      ((!hasMaxAgeOverride && maxAgeMs === 0) || now - cached.resolvedAt < maxAgeMs)
-    ) {
-      return cached.env;
-    }
-
-    let shellEnv = null;
-    try {
-      shellEnv = this.agentShellEnvProvider(shell) || null;
-    } catch (caughtError: unknown) {
-      const error = caughtError as ErrorRecord;
-      console.warn('Failed to resolve user shell environment for agent:', error && (error.message || error));
-    }
-
-    this.agentShellEnvCache.set(cacheKey, {
-      initialized: true,
-      resolvedAt: now,
-      env: shellEnv,
-    });
-    return shellEnv;
-  }
-
-  buildAgentBaseEnv(agent: TypedAgentRecord) {
-    const command = agent?.forkCommand || agent?.command || '';
-    const shell = agent?.category === 'other' && isShellProgram(command)
-      ? (resolveAgentExecutable(command) || command)
-      : '';
-    return buildInteractiveAgentBaseEnv({
-      processEnv: process.env,
-      shellEnv: this.resolveAgentShellEnv(shell),
-    });
+  resolveAgentShellEnv(shell: string = '', options: ShellEnvResolveOptions = {}) {
+    const resolution = this.launchPolicy.resolveShellEnv(shell, options);
+    return resolution.source === 'shell' ? resolution.env : null;
   }
 
   resolveAgentResourceBinding(agentId: AgentId): AgentResourceBinding | null {
@@ -4700,80 +4697,25 @@ class AgentManager extends EventEmitter {
     agentId: AgentId,
     agent: TypedAgentRecord,
   ) {
-    const env = this.buildAgentBaseEnv(agent);
-    delete env.FARMING_RUN_SERVER;
-    delete env.FARMING_RUN_NATIVE_PTY_HOST;
-    delete env.FARMING_AGENT_TITLE_TOKEN;
-    delete env.FARMING_BROWSER_TOKEN;
-    delete env.FARMING_COMPUTER_TOKEN;
-    delete env.FARMING_CAPABILITY_RUNTIME_EPOCH;
-    if (agent.category === 'coding') {
-      // Prompt policy is meaningful only for shell sessions. Never pass a
-      // shell presentation toggle into a directly launched coding CLI.
-      delete env.FARMING_ANONYMIZE_SHELL_PROMPT;
-      delete env.FARMING_SHELL_CONTROLLED_PROMPT;
-      delete env.FARMING_PRESERVE_SHELL_PROMPT;
-    }
-    if (agent.category === 'other' && isShellProgram(agent.forkCommand || agent.command || '')) {
-      // Like VS Code, the launched shell's own startup files own its prompt.
-      // Never let a different shell's captured prompt leak into this process.
-      for (const key of SHELL_PROMPT_ENV_KEYS) delete env[key];
-    }
-    const pathEntries = [this.cliBinDir, env.PATH || ''].filter(Boolean);
-
-    env.PATH = pathEntries.join(path.delimiter);
-    normalizeInteractiveTerminalEnv(env, {
-      stripRuntimeShims: process.env.FARMING_STRIP_AGENT_LD_LIBRARY_PATH !== '0',
-      stripNodeOptions: process.env.FARMING_STRIP_AGENT_NODE_OPTIONS !== '0',
-    });
-    env.FARMING_CLI_BIN_DIR = this.cliBinDir;
-    env.FARMING_AGENT_ID = agentId;
-    env.FARMING_IS_MAIN_AGENT = agent.wantsMain ? '1' : '0';
-    env.FARMING_SKILLS_COMMAND = 'farming skills';
-    env.FARMING_CAPABILITIES_COMMAND = 'farming capabilities';
-    env.FARMING_MAIN_WORKSPACE = agent.mainWorkspace || '';
-    env.FARMING_PROJECT_WORKSPACE = canonicalWorkspacePath(effectiveAgentWorkspaceRoot(agent));
-
-    if (agent.parentAgentId) {
-      env.FARMING_PARENT_AGENT_ID = agent.parentAgentId;
-    }
-    if (this.controlUrl) {
-      env.FARMING_CONTROL_URL = this.controlUrl;
-    }
-    if (this.tokenFile) {
-      env.FARMING_TOKEN_FILE = this.tokenFile;
-    }
-    if (this.authDisabled) {
-      env.FARMING_DISABLE_AUTH = '1';
-    }
-    if (this.configManager && this.configManager.farmingDir) {
-      env.FARMING_CONFIG_DIR = this.configManager.farmingDir;
-      env.FARMING_STARTUP_PROMPT_FILE = storageLayout.farmingAgentBootstrapFile(this.configManager.farmingDir);
-    }
-    if (agent.mainWorkspace) {
-      env.FARMING_SKILLS_FILE = path.join(agent.mainWorkspace, 'FARMING_MAIN_AGENT_SKILLS.md');
-    }
-    if (agent.providerHomePath) {
-      const provider = agent.providerSessionProvider || agentHomeProviderForProgram(agent.forkCommand || agent.command || '');
-      applyProviderHomeEnvironment(
-        env,
-        provider,
-        agent.providerHomePath
-      );
-    }
-    const provider = agent.providerSessionProvider || agentHomeProviderForProgram(agent.forkCommand || agent.command || '');
-    if (provider === 'opencode' && env.FARMING_STARTUP_PROMPT_FILE) {
-      Object.assign(env, appendOpenCodeBootstrap(env, env.FARMING_STARTUP_PROMPT_FILE));
-    }
-    if (
-      provider === 'opencode'
-      && runtimeKind(agent) === 'terminal'
-      && env.OPENTUI_NOTIFICATION_PROTOCOL === undefined
-    ) {
-      env.OPENTUI_NOTIFICATION_PROTOCOL = 'osc99';
-    }
-
-    return env;
+    const command = agent?.forkCommand || agent?.command || '';
+    const shellSession = agent?.category === 'other' && isShellProgram(command);
+    return {
+      ...this.launchPolicy.projectAgentEnv({
+        agentId: String(agentId || ''),
+        category: String(agent?.category || ''),
+        isMainAgent: agent?.wantsMain === true,
+        mainWorkspace: agent?.mainWorkspace || '',
+        parentAgentId: agent?.parentAgentId || '',
+        projectWorkspace: canonicalWorkspacePath(effectiveAgentWorkspaceRoot(agent)),
+        provider: agent?.providerSessionProvider || agentHomeProviderForProgram(command),
+        providerHomePath: agent?.providerHomePath || '',
+        runtime: runtimeKind(agent) === 'acp' ? 'acp' : 'terminal',
+        shell: shellSession ? (resolveAgentExecutable(command) || command) : '',
+        shellSession,
+        stripNodeOptions: process.env.FARMING_STRIP_AGENT_NODE_OPTIONS !== '0',
+        stripRuntimeShims: process.env.FARMING_STRIP_AGENT_LD_LIBRARY_PATH !== '0',
+      }).env,
+    };
   }
 
   projectAcpMcpServers(
@@ -4805,6 +4747,15 @@ class AgentManager extends EventEmitter {
     if (value === '~') return process.env.HOME || os.homedir();
     if (value.startsWith('~/')) return path.join(process.env.HOME || os.homedir(), value.slice(2));
     return value;
+  }
+
+  expandExecutablePath(executable: string) {
+    if (typeof executable !== 'string' || executable.trim() === '') return '';
+    if (executable === '~') return process.env.HOME || os.homedir();
+    if (executable.startsWith('~/')) {
+      return path.join(process.env.HOME || os.homedir(), executable.slice(2));
+    }
+    return executable;
   }
 
   canCreateForkWorktree(workspace: string) {
@@ -5637,16 +5588,16 @@ class AgentManager extends EventEmitter {
       : (providerHome ? providerHome.path : '');
     let resolvedProviderHomeId = providerHome ? providerHome.id : (providerHomeId || '');
     if (
-      homeProvider === 'codex'
+      homeProvider
       && !providerHomePath
       && this.configManager
       && typeof this.configManager.getAgentHome === 'function'
     ) {
-      const defaultCodexHome = this.configManager.getAgentHome('codex', 'default');
-      if (defaultCodexHome) {
-        providerHome = defaultCodexHome;
-        providerHomePath = defaultCodexHome.path;
-        resolvedProviderHomeId = defaultCodexHome.id || 'default';
+      const defaultProviderHome = this.configManager.getAgentHome(homeProvider, 'default');
+      if (defaultProviderHome) {
+        providerHome = defaultProviderHome;
+        providerHomePath = defaultProviderHome.path;
+        resolvedProviderHomeId = defaultProviderHome.id || 'default';
       }
     }
     const requestedRuntimeModeValue = (options as Record<string, unknown>).agentRuntimeMode;
@@ -5704,82 +5655,74 @@ class AgentManager extends EventEmitter {
       : {
           mode: providerHome?.acpRuntime?.mode === 'custom' ? 'custom' : 'managed',
           executable: providerHome?.acpRuntime?.mode === 'custom'
-            ? String(providerHome.acpRuntime.executable || '').trim()
+            ? String(providerHome.acpRuntime.executable || '')
             : '',
         };
-    const usesManagedAcpExecutable = useAcp
+    const needsShellExecutableDiscovery = !useAcp || (
+      !existingProviderSessionRecord
       && configuredAcpRuntime.mode === 'managed'
-      && structuredRuntimeAdapter?.acp.executablePolicy === 'managed';
-    if (!usesManagedAcpExecutable && configuredAcpRuntime.mode !== 'custom') {
+      && structuredRuntimeAdapter?.acp.executablePolicy === 'system'
+    );
+    if (needsShellExecutableDiscovery) {
       const userShellEnv = this.resolveAgentShellEnv('', { maxAgeMs: AGENT_DISCOVERY_CACHE_MAX_AGE_MS });
       launchPathEnv = typeof userShellEnv?.PATH === 'string' && userShellEnv.PATH.trim()
         ? userShellEnv.PATH
         : launchPathEnv;
     }
     let resolvedExecutable = '';
-    if (useAcp && configuredAcpRuntime.mode === 'custom') {
-      resolvedExecutable = this.expandWorkspacePath(configuredAcpRuntime.executable);
-      if (!path.isAbsolute(resolvedExecutable)) {
-        if (callback) callback(null, `${structuredRuntimeProvider} custom ACP executable must be an absolute path.`);
+    if (useAcp) {
+      const decision = this.launchPolicy.selectExecutable({
+        configuredMode: configuredAcpRuntime.mode === 'custom' ? 'custom' : 'managed',
+        executablePolicy: structuredRuntimeAdapter?.acp.executablePolicy === 'managed'
+          ? 'managed'
+          : 'system',
+        pathEnv: launchPathEnv,
+        persistedExecutable: configuredAcpRuntime.mode === 'custom'
+          ? this.expandExecutablePath(configuredAcpRuntime.executable)
+          : configuredAcpRuntime.executable,
+        // An already recorded provider Session keeps the executable it was
+        // created with; only a new Session may discover one.
+        phase: existingProviderSessionRecord ? 'resume' : 'fresh',
+        program,
+        provider: structuredRuntimeProvider,
+        runtime: 'acp',
+      });
+      if (!decision.selected) {
+        if (callback) callback(null, decision.message);
         return null;
       }
-      try {
-        fs.accessSync(resolvedExecutable, fs.constants.X_OK);
-      } catch {
-        if (callback) callback(null, `${structuredRuntimeProvider} custom ACP executable is not executable: ${resolvedExecutable}`);
+      resolvedExecutable = decision.executable;
+    } else if (path.basename(program) === 'codex') {
+      const decision = this.launchPolicy.selectExecutable({
+        pathEnv: launchPathEnv,
+        program,
+        provider: String(homeProvider || ''),
+        runtime: 'terminal',
+        terminalPolicy: {
+          kind: 'codex-versioned',
+          requiredCliVersion: options.requiredCliVersion || '',
+        },
+      });
+      if (!decision.selected) {
+        if (callback) callback(null, decision.message);
         return null;
       }
-    } else if (usesManagedAcpExecutable) {
-      resolvedExecutable = resolveFarmingOwnedExecutable(structuredRuntimeProvider);
-    } else if (!useAcp && path.basename(program) === 'codex') {
-      if (
-        process.env.FARMING_E2E_FAKE_EXECUTABLES === '1'
-        && process.env.FARMING_CODEX_BIN
-      ) {
-        resolvedExecutable = process.env.FARMING_CODEX_BIN;
-      } else {
-        const codexResolution = resolveTerminalCodexExecutable(options.requiredCliVersion || '', launchPathEnv);
-        if (!codexResolution.compatible) {
-          if (callback) callback(null, codexResolution.error || 'Codex CLI is not compatible with this session');
-          return null;
-        }
-        resolvedExecutable = codexResolution.path;
-      }
+      resolvedExecutable = decision.executable;
     } else {
-      resolvedExecutable = useAcp
-        ? resolveAgentExecutable(program, launchPathEnv)
-        : resolveTerminalExecutable(program, launchPathEnv).path;
-    }
-    const spawnProgram = resolvedExecutable || program;
-    if (
-      useAcp
-      && structuredRuntimeAdapter?.acp.executablePolicy === 'managed'
-      && configuredAcpRuntime.mode === 'managed'
-      && !resolvedExecutable
-    ) {
-      if (callback) {
-        callback(null, `${structuredRuntimeProvider} ACP requires a Farming-owned executable, but none is available.`);
+      const decision = this.launchPolicy.selectExecutable({
+        pathEnv: launchPathEnv,
+        program,
+        provider: String(homeProvider || ''),
+        runtime: 'terminal',
+        terminalPolicy: { kind: 'system' },
+      });
+      if (!decision.selected) {
+        if (callback) callback(null, decision.message);
+        return null;
       }
-      return null;
+      resolvedExecutable = decision.executable;
     }
-    if (
-      launch.spec
-      && path.basename(program) === program
-      && !resolvedExecutable
-      && !this.skipExecutablePreflight
-      && process.env.FARMING_E2E_FAKE_EXECUTABLES !== '1'
-    ) {
-      const displayName = launch.spec.name === 'opencode'
-        ? 'OpenCode'
-        : launch.spec.name.charAt(0).toUpperCase() + launch.spec.name.slice(1);
-      if (callback) {
-        callback(
-          null,
-          `${displayName} executable "${program}" was not found in the user shell PATH. Install it or refresh the Agent list, then try again.`
-        );
-      }
-      return null;
-    }
+    const spawnProgram = resolvedExecutable;
     const acpGeneratedFreshSession = useAcp
       && isFreshAcpSessionSource(structuredRuntimeProvider, providerSessionPlan.source);
     const agentRecord = {

@@ -47,7 +47,6 @@ async function run() {
   });
   const manager = new AgentManager(config(), {
     acpRuntime: runtime,
-    skipExecutablePreflight: true,
     transcriptMediaPathPrefix: (agentId: string) => `/farming/api/agents/${agentId}/acp-media`,
   });
   try {

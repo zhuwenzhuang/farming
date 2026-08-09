@@ -33,7 +33,7 @@ async function run() {
     async persistAgentAdaptiveTitle(agent, adaptiveTitle) {
       return this.ensureAgentSessionRecord(agent, { adaptiveTitle });
     },
-  }, { skipExecutablePreflight: true });
+  }, {});
 
   manager.engineBridge.resolve = () => ({
     engineName: 'local',
@@ -139,7 +139,7 @@ async function run() {
       getCodexModel() { return 'config'; },
       getCodexReasoningEffort() { return 'config'; },
       getCodexServiceTier() { return 'default'; },
-    }, { skipExecutablePreflight: true });
+    }, {});
     dangerousManager.engineBridge.resolve = () => ({
       engineName: 'local',
       engine: {

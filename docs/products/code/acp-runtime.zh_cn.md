@@ -26,6 +26,8 @@ Protocol、Integrity、Recovery 与 Chat/Terminal Compatibility。
 Agent Home 可以在 Plugins 中显式选择自定义 Provider Executable；Custom 是独立 Launch
 Identity，绝不静默回退 Managed Image 或 Terminal Executable。已有 Session 保留创建时的
 精确选择。环境变量只作为兼容输入，不是普通用户配置的 Authority。
+已有 Session 如果缺少创建时记录的精确 Executable，恢复必须 Fail Closed，且不得按当前
+机器环境重新发现 Executable。
 
 只有 Live Agent 明确声明时，Farming 才启用标准 ACP Session、Prompt、Cancel、Config、
 Authentication、Elicitation、Terminal、Media、Plan 与 Fork 能力。Provider Extension 必须

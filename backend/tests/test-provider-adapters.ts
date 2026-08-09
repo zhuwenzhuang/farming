@@ -3,6 +3,7 @@ const {
   getProviderAdapter,
   isFreshAcpSessionSource,
   listProviderAdapters,
+  listProviderLaunchDescriptors,
   normalizeProviderAcpExtensionNotification,
   providerCapabilities,
   providerConversationForkCapability,
@@ -28,6 +29,61 @@ function run() {
     assert(adapter.acp, `${adapter.id} must declare its ACP launch contract`);
     assert(adapter.acp.version);
     assert(['managed', 'system'].includes(adapter.acp.executablePolicy));
+    assert(adapter.launchEnvironment, `${adapter.id} must declare its launch environment`);
+    assert(Array.isArray(adapter.launchEnvironment.bootstrapInstructionRuntimes));
+    assert.strictEqual(typeof adapter.launchEnvironment.terminalNotificationProtocol, 'string');
+    assert.strictEqual(Object.isFrozen(adapter.launchEnvironment), true, adapter.id);
+    assert.strictEqual(
+      Object.isFrozen(adapter.launchEnvironment.bootstrapInstructionRuntimes),
+      true,
+      adapter.id,
+    );
+  }
+
+  const openCodeAdapter = getProviderAdapter('opencode');
+  const openCodeRuntimes = openCodeAdapter.launchEnvironment.bootstrapInstructionRuntimes;
+  const openCodeLaunchDescriptor = listProviderLaunchDescriptors()
+    .find(descriptor => descriptor.provider === 'opencode');
+  for (const mutate of [
+    () => { openCodeAdapter.launchEnvironment = { bootstrapInstructionRuntimes: [], terminalNotificationProtocol: 'osc0' }; },
+    () => { openCodeAdapter.launchEnvironment.terminalNotificationProtocol = 'osc0'; },
+    () => { openCodeAdapter.launchEnvironment.bootstrapInstructionRuntimes = []; },
+    () => openCodeRuntimes.push('shell'),
+    () => { openCodeRuntimes[0] = 'shell'; },
+  ]) {
+    try {
+      mutate();
+    } catch {
+      // A frozen target may reject the write instead of ignoring it; either way
+      // the launch truth below must be unchanged.
+    }
+  }
+  assert.strictEqual(openCodeAdapter.launchEnvironment.terminalNotificationProtocol, 'osc99');
+  assert.deepStrictEqual([...openCodeAdapter.launchEnvironment.bootstrapInstructionRuntimes].sort(), ['acp', 'terminal']);
+  assert.strictEqual(openCodeLaunchDescriptor.terminalNotificationProtocol, 'osc99');
+  assert.deepStrictEqual([...openCodeLaunchDescriptor.bootstrapInstructionRuntimes].sort(), ['acp', 'terminal']);
+
+  const descriptors = listProviderLaunchDescriptors();
+  assert.deepStrictEqual(
+    descriptors.map(descriptor => descriptor.provider),
+    adapters.map(adapter => adapter.id),
+  );
+  assert.strictEqual(new Set(descriptors.map(d => d.homeEnvKey)).size, descriptors.length);
+  assert(descriptors.every(descriptor => descriptor.homeEnvKey.trim() !== ''));
+  assert.strictEqual(Object.isFrozen(descriptors), true);
+  assert.strictEqual(listProviderLaunchDescriptors(), descriptors);
+  for (const descriptor of descriptors) {
+    const adapter = getProviderAdapter(descriptor.provider);
+    assert.strictEqual(descriptor.homeEnvKey, adapter.homeEnvKey);
+    assert.strictEqual(Object.isFrozen(descriptor), true);
+    assert.strictEqual(Object.isFrozen(descriptor.bootstrapInstructionRuntimes), true);
+    if (descriptor.provider === 'opencode') {
+      assert.deepStrictEqual([...descriptor.bootstrapInstructionRuntimes].sort(), ['acp', 'terminal']);
+      assert.strictEqual(descriptor.terminalNotificationProtocol, 'osc99');
+    } else {
+      assert.deepStrictEqual(descriptor.bootstrapInstructionRuntimes, [], descriptor.provider);
+      assert.strictEqual(descriptor.terminalNotificationProtocol, '', descriptor.provider);
+    }
   }
   assert.strictEqual(getProviderAdapter('codex').acp.executablePolicy, 'managed');
   assert.strictEqual(getProviderAdapter('claude').acp.executablePolicy, 'managed');

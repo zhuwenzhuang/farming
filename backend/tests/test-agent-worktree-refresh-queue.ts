@@ -127,7 +127,7 @@ async function run() {
   const manager = new AgentManager({
     getHeartbeatInterval: () => 60_000,
     getWorkspace: () => process.cwd(),
-  }, { skipExecutablePreflight: true });
+  }, {});
   clearInterval(manager.heartbeatInterval);
   const initialAgent: TestAgentRecord = {
     id: 'agent-wiring',

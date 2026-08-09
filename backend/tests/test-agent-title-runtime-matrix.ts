@@ -35,7 +35,7 @@ async function run() {
     async persistAgentAdaptiveTitle(agent, adaptiveTitle) {
       return this.ensureAgentSessionRecord(agent, { adaptiveTitle });
     },
-  }, { skipExecutablePreflight: true });
+  }, {});
 
   const cases = [
     ['codex', 'codex'],
