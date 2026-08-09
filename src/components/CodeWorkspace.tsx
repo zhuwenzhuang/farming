@@ -116,7 +116,6 @@ import {
   isCodexAgentWorking,
   mergeSlashCommands,
   slashCommandsForAgentKind,
-  type SlashCommandOption,
 } from './code/capabilities'
 import {
   appendDraftBlock,
@@ -164,7 +163,6 @@ import {
 import { codeCopyForLanguage } from './code/copy'
 import { scheduleFocusRetries, scheduleFocusUntil } from './code/focus-retry'
 import {
-  DEFAULT_CLAUDE_SETTINGS,
   buildComposerControlState,
   effectiveClaudePermissionModeForSession,
   effectiveCodexApprovalModeForSession,
@@ -172,10 +170,8 @@ import {
   isCodexApprovalMode,
   normalizeClaudeEffort,
   normalizeClaudeModel,
-  normalizeClaudeSettingsSummary,
   normalizeLaunchProfiles,
   resolveCodexComposerProfile,
-  type ClaudeSettingsSummary,
 } from './code/composer-profile'
 import type {
   ClaudePermissionMode,
@@ -224,6 +220,7 @@ import {
 } from './code/workspace-view-state'
 import { useAgentComposerState } from './code/useAgentComposerState'
 import { useCodexModelCatalogController } from './code/useCodexModelCatalogController'
+import { useComposerProviderCatalogController } from './code/useComposerProviderCatalogController'
 import { useMainPageSessionMembershipController } from './code/useMainPageSessionMembershipController'
 import { useProjectMembershipController } from './code/useProjectMembershipController'
 import {
@@ -708,8 +705,6 @@ export function CodeWorkspace({
   const [claudePermissionMode, setClaudePermissionMode] = useState<ClaudePermissionMode>('default')
   const [claudeModel, setClaudeModel] = useState('config')
   const [claudeEffort, setClaudeEffort] = useState('config')
-  const [claudeSettings, setClaudeSettings] = useState<ClaudeSettingsSummary>(DEFAULT_CLAUDE_SETTINGS)
-  const [discoveredSlashCommands, setDiscoveredSlashCommands] = useState<SlashCommandOption[]>([])
   const [agentSessionPinnedOverrides, setAgentSessionPinnedOverrides] = useState<Record<string, boolean>>(
     () => loadSessionDisplayState().pinnedOverrides
   )
@@ -1163,6 +1158,11 @@ export function CodeWorkspace({
     enabled: modelMenuOpen && composerAgentKind === 'codex',
     onError: reportCodexModelCatalogError,
   })
+  const { claudeSettings, discoveredSlashCommands } = useComposerProviderCatalogController({
+    providerKind: composerAgentKind || '',
+    homeId: activeProviderHomeId,
+    workspace: activeAgent?.cwd,
+  })
   const displayedCodexApprovalMode = useMemo(() => effectiveCodexApprovalModeForSession(
     Boolean(activeAgent && composerAgentKind === 'codex'),
     activeAgent?.launchPermissionMode,
@@ -1607,23 +1607,6 @@ export function CodeWorkspace({
       return false
     }
   }, [])
-  const loadClaudeSettings = useCallback(() => {
-    let cancelled = false
-    const params = new URLSearchParams({ homeId: activeProviderHomeId })
-    fetch(appPath(`/api/claude/settings?${params.toString()}`))
-      .then(response => response.json())
-      .then((data: { settings?: ClaudeSettingsSummary }) => {
-        if (cancelled) return
-        setClaudeSettings(normalizeClaudeSettingsSummary(data.settings))
-      })
-      .catch(() => {
-        if (!cancelled) setClaudeSettings(DEFAULT_CLAUDE_SETTINGS)
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [activeProviderHomeId])
   const searchHistoryAgentSessions = useCallback(async (query: string, signal: AbortSignal) => {
     const sessions = await fetchSearchedAgentSessions(query, signal)
     const decoratedSessions = applySessionDisplayOverrides(sessions, agentSessionPinnedOverrides, {})
@@ -1633,30 +1616,6 @@ export function CodeWorkspace({
       agentListState.claimedAgentSessionKeys
     )
   }, [agentListState.claimedAgentSessionKeys, agentSessionPinnedOverrides, fetchSearchedAgentSessions, mainPageSessionKeys])
-  const loadSlashCommands = useCallback((provider: string, homeId: string, workspace?: string) => {
-    if (provider !== 'codex' && provider !== 'claude') {
-      setDiscoveredSlashCommands([])
-      return () => {}
-    }
-
-    let cancelled = false
-    const params = new URLSearchParams({ provider, homeId })
-    if (workspace) params.set('workspace', workspace)
-
-    fetch(appPath(`/api/slash-commands?${params.toString()}`))
-      .then(response => response.json())
-      .then((data: { commands?: SlashCommandOption[] }) => {
-        if (cancelled) return
-        setDiscoveredSlashCommands(Array.isArray(data.commands) ? data.commands : [])
-      })
-      .catch(() => {
-        if (!cancelled) setDiscoveredSlashCommands([])
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [])
   const chooseAttachmentFile = useCallback(() => {
     if (!activeComposerKey) return
     updateActiveComposerState(state => ({
@@ -5006,14 +4965,6 @@ export function CodeWorkspace({
     window.addEventListener('farming-agent-homes-saved', handleAgentHomesSaved)
     return () => window.removeEventListener('farming-agent-homes-saved', handleAgentHomesSaved)
   }, [loadAgentSessions, loadGlobalSettings])
-  useEffect(() => {
-    if (composerAgentKind !== 'claude') return undefined
-    return loadClaudeSettings()
-  }, [composerAgentKind, loadClaudeSettings])
-  useEffect(
-    () => loadSlashCommands(composerAgentKind || '', activeProviderHomeId, activeAgent?.cwd),
-    [activeAgent?.cwd, activeProviderHomeId, composerAgentKind, loadSlashCommands]
-  )
   useEffect(() => {
     scheduleAgentSessionsBackgroundLoad()
   }, [scheduleAgentSessionsBackgroundLoad])

@@ -44,6 +44,7 @@ function run() {
     'src/components/code/types.ts',
     'src/components/code/useAgentComposerState.ts',
     'src/components/code/useCodexModelCatalogController.ts',
+    'src/components/code/useComposerProviderCatalogController.ts',
     'src/components/code/useMainPageSessionMembershipController.ts',
     'src/components/code/useProjectMembershipController.ts',
     'src/components/code/useResourcePaneController.ts',
