@@ -22,6 +22,10 @@ function run() {
     path.join(__dirname, '../../src/lib/terminal-session-pool.ts'),
     'utf8',
   );
+  const resizeSchedulerSource = fs.readFileSync(
+    path.join(__dirname, '../../src/lib/terminal-resize-scheduler.ts'),
+    'utf8',
+  );
   const tracker = createTracker();
   const sent = [];
   const send = (cols, rows) => {
@@ -149,8 +153,9 @@ function run() {
       terminalPoolSource.includes('!delivery.preserveLocalGeometry') &&
       terminalPoolSource.includes('record.terminal.cols !== nextCols || record.terminal.rows !== nextRows') &&
       terminalPoolSource.includes('deliverTerminalResize(record, delivery.next.cols, delivery.next.rows)') &&
-      terminalPoolSource.includes('TERMINAL_RESIZE_DELIVERY_TIMEOUT_MS = 1500') &&
-      terminalPoolSource.includes('const next = expireTerminalResizeDelivery(record)') &&
+      terminalPoolSource.includes('record.resizeScheduler.scheduleDeliveryTimeout()') &&
+      terminalPoolSource.includes('onDeliveryTimeout: () => {\n        const next = expireTerminalResizeDelivery(record)') &&
+      resizeSchedulerSource.includes('TERMINAL_RESIZE_DELIVERY_TIMEOUT_MS = 1500') &&
       terminalPoolSource.indexOf('TERMINAL_REPLAY.commitTransition(record.replayState, event)') >
         terminalPoolSource.indexOf('!delivery.preserveLocalGeometry'),
     'the terminal pool must preserve newer local geometry while still committing the ordered resize transition',

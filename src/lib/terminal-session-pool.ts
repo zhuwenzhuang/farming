@@ -50,6 +50,8 @@ import {
   resetTerminalResizeTracker,
   shouldDebounceTerminalResize,
 } from '@/lib/terminal-resize'
+import { createTerminalResizeScheduler } from '@/lib/terminal-resize-scheduler'
+import type { TerminalResizeScheduler } from '@/lib/terminal-resize-scheduler'
 import {
   appendTerminalTouchVelocitySample,
   blendTerminalTouchVelocity,
@@ -131,10 +133,6 @@ type TerminalOutputHandler = (
 type TerminalTransitionKind = 'output' | 'resize' | 'clear'
 
 const TERMINAL_CHECKPOINT_REQUEST_TIMEOUT_MS = 5000
-const TERMINAL_RESIZE_SETTLE_MS = 250
-const TERMINAL_RESIZE_DELIVERY_TIMEOUT_MS = 1500
-const TERMINAL_RESIZE_REDRAW_QUIET_MS = 50
-const TERMINAL_RESIZE_REDRAW_MAX_MS = 300
 const TERMINAL_REPLAY = FarmingTerminalReplay
 type TerminalViewportRestoreState = {
   viewportY: number
@@ -254,9 +252,7 @@ interface SessionRecord {
   resizeNotificationCount: number
   resizeRequestInFlight: { cols: number; rows: number } | null
   pendingResizeRequest: { cols: number; rows: number } | null
-  resizeDeliveryTimeout: number | null
-  pendingFitResize: { cols: number; rows: number } | null
-  fitResizeTimer: number | null
+  resizeScheduler: TerminalResizeScheduler
   resizeAfterReplayRequired: boolean
   followOutputHandler: ((state: TerminalFollowState) => void) | null
   pathOpenHandler: ((agentId: string, target: TerminalPathOpenTarget) => void) | null
@@ -275,8 +271,6 @@ interface SessionRecord {
   replayInProgress: boolean
   liveWriteInProgress: boolean
   liveTransitionFlushScheduled: boolean
-  resizeRedrawStartedAt: number | null
-  resizeRedrawTimer: number | null
   terminalWriteQueue: Promise<void>
   terminalWriteResolvers: Set<(cancelled?: boolean) => boolean>
   terminalWriteBatchCount: number
@@ -505,77 +499,9 @@ function invalidateTerminalCheckpointRequest(record: SessionRecord) {
   record.checkpointRequestInFlight = false
 }
 
-function clearTerminalResizeDeliveryTimeout(record: SessionRecord) {
-  if (record.resizeDeliveryTimeout === null) return
-  window.clearTimeout(record.resizeDeliveryTimeout)
-  record.resizeDeliveryTimeout = null
-}
-
-function clearPendingTerminalFitResize(record: SessionRecord) {
-  if (record.fitResizeTimer !== null) {
-    window.clearTimeout(record.fitResizeTimer)
-    record.fitResizeTimer = null
-  }
-  record.pendingFitResize = null
-}
-
-function clearTerminalResizeRedrawBuffer(record: SessionRecord) {
-  if (record.resizeRedrawTimer !== null) {
-    window.clearTimeout(record.resizeRedrawTimer)
-    record.resizeRedrawTimer = null
-  }
-  record.resizeRedrawStartedAt = null
-}
-
-function scheduleTerminalResizeRedrawFlush(record: SessionRecord, restart = false) {
-  const now = Date.now()
-  if (restart || record.resizeRedrawStartedAt === null) {
-    record.resizeRedrawStartedAt = now
-  }
-  if (record.resizeRedrawTimer !== null) {
-    window.clearTimeout(record.resizeRedrawTimer)
-  }
-  const deadline = record.resizeRedrawStartedAt + TERMINAL_RESIZE_REDRAW_MAX_MS
-  const delay = Math.max(0, Math.min(TERMINAL_RESIZE_REDRAW_QUIET_MS, deadline - now))
-  record.resizeRedrawTimer = window.setTimeout(() => {
-    record.resizeRedrawTimer = null
-    record.resizeRedrawStartedAt = null
-    if (!record.disposed) flushQueuedTerminalOutput(record)
-  }, delay)
-}
-
-function scheduleTerminalFitResize(
-  record: SessionRecord,
-  dimensions: { cols: number; rows: number },
-) {
-  if (record.fitResizeTimer !== null) {
-    window.clearTimeout(record.fitResizeTimer)
-  }
-  record.pendingFitResize = dimensions
-  record.fitResizeTimer = window.setTimeout(() => {
-    record.fitResizeTimer = null
-    const next = record.pendingFitResize
-    record.pendingFitResize = null
-    if (!next || record.disposed) return
-    notifyTerminalResize(record, next.cols, next.rows)
-  }, TERMINAL_RESIZE_SETTLE_MS)
-}
-
 function resetTerminalResizeDelivery(record: SessionRecord) {
-  clearPendingTerminalFitResize(record)
-  clearTerminalResizeRedrawBuffer(record)
-  clearTerminalResizeDeliveryTimeout(record)
+  record.resizeScheduler.reset()
   resetTerminalResizeDeliveryTracker(record)
-}
-
-function scheduleTerminalResizeDeliveryTimeout(record: SessionRecord) {
-  clearTerminalResizeDeliveryTimeout(record)
-  record.resizeDeliveryTimeout = window.setTimeout(() => {
-    record.resizeDeliveryTimeout = null
-    const next = expireTerminalResizeDelivery(record)
-    if (!next || record.disposed) return
-    deliverTerminalResize(record, next.cols, next.rows)
-  }, TERMINAL_RESIZE_DELIVERY_TIMEOUT_MS)
 }
 
 function parkTerminalSessionRecord(record: SessionRecord) {
@@ -1279,7 +1205,7 @@ function applyTerminalOutputEvent(
     const nextCols = Math.floor(cols!)
     const nextRows = Math.floor(rows!)
     const delivery = acknowledgeTerminalResizeDelivery(record, nextCols, nextRows)
-    if (delivery.matched) clearTerminalResizeDeliveryTimeout(record)
+    if (delivery.matched) record.resizeScheduler.clearDeliveryTimeout()
     // Commit every ordered resize, but do not repaint an older echoed size over
     // a newer geometry that this browser has already fitted locally.
     if (
@@ -1294,7 +1220,7 @@ function applyTerminalOutputEvent(
       }
     }
     TERMINAL_REPLAY.commitTransition(record.replayState, event)
-    scheduleTerminalResizeRedrawFlush(record, true)
+    record.resizeScheduler.scheduleRedraw(true)
     if (delivery.next) {
       deliverTerminalResize(record, delivery.next.cols, delivery.next.rows)
     }
@@ -1435,8 +1361,8 @@ function handleTerminalStreamOutput(
 }
 
 function scheduleLiveTerminalTransitionFlush(record: SessionRecord) {
-  if (record.resizeRedrawTimer !== null) {
-    scheduleTerminalResizeRedrawFlush(record)
+  if (record.resizeScheduler.isRedrawPending()) {
+    record.resizeScheduler.scheduleRedraw()
     return
   }
   if (record.liveTransitionFlushScheduled) return
@@ -1500,7 +1426,7 @@ function flushQueuedTerminalOutput(record: SessionRecord) {
     record.replayInProgress ||
     record.checkpointRequestInFlight ||
     record.liveWriteInProgress ||
-    record.resizeRedrawTimer !== null
+    record.resizeScheduler.isRedrawPending()
   ) return
 
   while (
@@ -1508,7 +1434,7 @@ function flushQueuedTerminalOutput(record: SessionRecord) {
     !record.replayInProgress &&
     !record.checkpointRequestInFlight &&
     !record.liveWriteInProgress &&
-    record.resizeRedrawTimer === null
+    !record.resizeScheduler.isRedrawPending()
   ) {
     const outputBatch = queuedTerminalOutputBatch(record)
     if (outputBatch) {
@@ -1808,7 +1734,7 @@ function syncTerminalSize(
       current.cols === dimensions.cols &&
       current.rows === dimensions.rows
     ) {
-      clearPendingTerminalFitResize(record)
+      record.resizeScheduler.clearFit()
       return
     }
     if (
@@ -1819,7 +1745,7 @@ function syncTerminalSize(
       // The authoritative PTY geometry may have been changed by another
       // viewer. Do not interpret that remote transition as a new change in
       // this browser's unchanged layout and echo the old local size back.
-      clearPendingTerminalFitResize(record)
+      record.resizeScheduler.clearFit()
       return
     }
 
@@ -1827,7 +1753,7 @@ function syncTerminalSize(
       // A genuine attach/layout change that occurs behind the checkpoint
       // barrier still needs one immediate resize after the exact cut lands.
       record.resizeAfterReplayRequired = true
-      clearPendingTerminalFitResize(record)
+      record.resizeScheduler.clearFit()
       return
     }
 
@@ -1836,11 +1762,11 @@ function syncTerminalSize(
       dimensions,
       options,
     )) {
-      scheduleTerminalFitResize(record, dimensions)
+      record.resizeScheduler.scheduleFit(dimensions)
       return
     }
 
-    clearPendingTerminalFitResize(record)
+    record.resizeScheduler.clearFit()
     notifyTerminalResize(record, dimensions.cols, dimensions.rows, options)
   } catch {
     // ignore transient hidden / zero-size states
@@ -1865,7 +1791,7 @@ function deliverTerminalResize(record: SessionRecord, cols: number, rows: number
     })
   ))
   if (delivered && !hadInFlightResize && record.resizeRequestInFlight) {
-    scheduleTerminalResizeDeliveryTimeout(record)
+    record.resizeScheduler.scheduleDeliveryTimeout()
   }
   return delivered
 }
@@ -3690,6 +3616,7 @@ function installTerminalTestApi() {
         viewportY?: number
         baseY?: number
       } | undefined
+      const resizeDiagnostics = current.resizeScheduler.diagnostics()
       return {
         engine: current.terminal.__farmingTerminalEngine,
         renderer: current.terminal.getRendererType?.(),
@@ -3704,7 +3631,6 @@ function installTerminalTestApi() {
         queuedTransitions: current.replayState.queuedTransitions.length,
         queuedBytes: current.replayState.queuedBytes,
         terminalWriteBatchCount: current.terminalWriteBatchCount,
-        resizeRedrawTimerPending: current.resizeRedrawTimer !== null,
         replayTargetEpoch: current.replayState.replayTargetEpoch,
         replayTargetRevision: current.replayState.replayTargetRevision,
         checkpointHalted: current.replayState.halted,
@@ -3730,9 +3656,7 @@ function installTerminalTestApi() {
         resizeNotificationCount: current.resizeNotificationCount,
         resizeRequestInFlight: current.resizeRequestInFlight,
         pendingResizeRequest: current.pendingResizeRequest,
-        resizeDeliveryTimeoutPending: current.resizeDeliveryTimeout !== null,
-        pendingFitResize: current.pendingFitResize,
-        fitResizeTimerPending: current.fitResizeTimer !== null,
+        ...resizeDiagnostics,
       }
     },
     async scrollToLine(agentId: string, line: number) {
@@ -3815,7 +3739,8 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
   const { terminal, fitAddon } = result
   terminal.loadAddon(fitAddon)
 
-  const record: SessionRecord = {
+  let record: SessionRecord
+  record = {
     agentId,
     hostEl,
     attachedMount: null,
@@ -3878,9 +3803,18 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     resizeNotificationCount: 0,
     resizeRequestInFlight: null,
     pendingResizeRequest: null,
-    resizeDeliveryTimeout: null,
-    pendingFitResize: null,
-    fitResizeTimer: null,
+    resizeScheduler: createTerminalResizeScheduler({
+      onFitSettled: dimensions => {
+        if (!record.disposed) notifyTerminalResize(record, dimensions.cols, dimensions.rows)
+      },
+      onRedrawFlush: () => {
+        if (!record.disposed) flushQueuedTerminalOutput(record)
+      },
+      onDeliveryTimeout: () => {
+        const next = expireTerminalResizeDelivery(record)
+        if (next && !record.disposed) deliverTerminalResize(record, next.cols, next.rows)
+      },
+    }),
     resizeAfterReplayRequired: false,
     followOutputHandler: options.onFollowOutputChange ?? null,
     pathOpenHandler: options.onPathOpen ?? null,
@@ -3899,8 +3833,6 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     replayInProgress: false,
     liveWriteInProgress: false,
     liveTransitionFlushScheduled: false,
-    resizeRedrawStartedAt: null,
-    resizeRedrawTimer: null,
     terminalWriteQueue: Promise.resolve(),
     terminalWriteResolvers: new Set(),
     terminalWriteBatchCount: 0,
