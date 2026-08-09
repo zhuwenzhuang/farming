@@ -272,6 +272,7 @@ test.describe('ACP human-like browser matrix', () => {
     expect(reconnectResponse.ok()).toBeTruthy()
     await expect(reconnectResponse.json()).resolves.toMatchObject({ reconnected: true })
     await expect(page.getByTestId('code-acp-reconnect')).toHaveCount(0, { timeout: 15_000 })
+    await expect(page.getByTestId('code-acp-error')).toHaveCount(0)
 
     await sendAcpMessage(page, 'new explicit request after reconnect')
     await expect(page.getByText('ACP reconnect reply', { exact: true })).toBeVisible({ timeout: 15_000 })
