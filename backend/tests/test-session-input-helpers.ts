@@ -94,6 +94,10 @@ function run() {
     path.join(__dirname, '../../src/lib/terminal-attachment.ts'),
     'utf8'
   );
+  const terminalAttachmentCoordinatorSource = fs.readFileSync(
+    path.join(__dirname, '../../src/lib/terminal-attachment-coordinator.ts'),
+    'utf8'
+  );
   const terminalClipboardSource = fs.readFileSync(
     path.join(__dirname, '../../src/lib/clipboard.ts'),
     'utf8'
@@ -256,7 +260,7 @@ function run() {
       terminalPoolSource.includes("from '@/lib/terminal-output'") &&
       terminalPoolSource.includes('replaceTerminalOutput(record, state.output,') &&
       terminalPoolSource.includes('record.replayInProgress = true') &&
-      terminalPoolSource.includes('record.reconnectSnapshotSeq !== installSeq') &&
+      terminalPoolSource.includes('record.attachment.isCurrentOperation(operation)') &&
       crtAppSource.includes('replication.installSeq !== installSeq') &&
       crtAppSource.includes('replication.installInProgress') &&
       crtAppSource.includes('drainCrtTerminalCheckpointInstall(replication)'),
@@ -264,18 +268,23 @@ function run() {
   );
   assert(
       terminalPoolSource.includes('bootstrappingSnapshot') &&
-      terminalPoolSource.includes('replayState: TERMINAL_REPLAY.createState()') &&
+      terminalPoolSource.includes('attachment: new TerminalAttachmentCoordinator(TERMINAL_REPLAY)') &&
       terminalPoolSource.includes('function flushQueuedTerminalOutput') &&
       terminalPoolSource.includes('function queueTerminalTransition') &&
-      terminalPoolSource.includes('TERMINAL_REPLAY.queueTransition(record.replayState, event)') &&
-      terminalPoolSource.includes('TERMINAL_REPLAY.takeQueuedTransition(record.replayState)') &&
+      terminalPoolSource.includes('record.attachment.queueTransition(event)') &&
+      terminalPoolSource.includes('record.attachment.takeQueuedTransition()') &&
       terminalPoolSource.includes('function handleTerminalStreamOutput') &&
       terminalPoolSource.includes("document.visibilityState === 'hidden'") &&
       terminalPoolSource.includes('record.pageOutputSuspended') &&
       terminalPoolSource.includes('snapshotStateRevision') &&
       terminalPoolSource.includes('snapshotRuntimeEpoch') &&
-      terminalPoolSource.includes('TERMINAL_REPLAY.classifyTransition(record.replayState, event)') &&
-      terminalPoolSource.includes('TERMINAL_REPLAY.commitTransition(record.replayState, event)') &&
+      terminalPoolSource.includes('record.attachment.classifyTransition(event)') &&
+      terminalPoolSource.includes('record.attachment.commitTransition(event)') &&
+      terminalAttachmentCoordinatorSource.includes('class TerminalAttachmentCoordinator') &&
+      terminalAttachmentCoordinatorSource.includes('readonly #replay: FarmingTerminalReplayApi') &&
+      terminalAttachmentCoordinatorSource.includes('readonly #replayState: TerminalReplayState') &&
+      !terminalAttachmentCoordinatorSource.includes('interface TerminalReplayPort') &&
+      !terminalPoolSource.includes('as unknown as TerminalReplayPort') &&
       terminalPoolSource.includes('requestTerminalReplay(record)') &&
       terminalReplaySource.includes('const DEFAULT_MAX_QUEUED_TRANSITIONS = 512') &&
       terminalReplaySource.includes('const DEFAULT_MAX_QUEUED_BYTES = 1024 * 1024') &&
@@ -546,20 +555,20 @@ function run() {
       terminalPoolSource.includes('notifyTerminalResizeTracker(record, cols, rows, (nextCols, nextRows) =>') &&
       terminalPoolSource.includes('notifyResizeForTest(agentId: string, cols: number, rows: number)') &&
       terminalPoolSource.includes('function resyncTerminalSizeAfterBackendReconnect') &&
-      terminalPoolSource.includes('requestTerminalReplay(record, record.attachGeneration)') &&
+      terminalPoolSource.includes('requestTerminalReplay(record, record.attachment.generation)') &&
       terminalPoolSource.includes('needsReconnectOutputSync') &&
       terminalPoolSource.includes('record.needsReconnectOutputSync = true') &&
       terminalPoolSource.includes('record.needsReconnectOutputSync = false') &&
       terminalPoolSource.includes('function notifyTerminalAttachReady') &&
       terminalPoolSource.includes('record.liveWriteInProgress ||') &&
-      terminalPoolSource.includes('record.replayState.queuedTransitions.length > 0 ||') &&
+      terminalPoolSource.includes('record.attachment.queuedTransitionCount > 0 ||') &&
       !terminalPoolSource.includes('attemptsRemaining = 40') &&
       terminalPoolSource.includes('fetchSessionBootstrapState(record.agentId, controller.signal)') &&
       terminalPoolSource.includes('const controller = new AbortController()') &&
       terminalPoolSource.includes('TERMINAL_CHECKPOINT_REQUEST_TIMEOUT_MS = 5000') &&
       terminalPoolSource.includes('record.bootstrapRequestControllers.forEach(controller => controller.abort())') &&
       terminalPoolSource.includes('old install latch or it can never start') &&
-      terminalPoolSource.includes('TERMINAL_REPLAY.evaluateCheckpoint(record.replayState, checkpoint)') &&
+      terminalPoolSource.includes('record.attachment.evaluateCheckpoint(checkpoint)') &&
       terminalPoolSource.includes('installTerminalCheckpoint(record, state, generation)') &&
       terminalPoolSource.includes("publishTerminalRecoveryStatus(record, 'requesting'") &&
       terminalPoolSource.includes("publishTerminalRecoveryStatus(record, 'installing'") &&
@@ -584,22 +593,23 @@ function run() {
   );
   assert(
     terminalAttachmentSource.includes('attachedMount: HTMLElement | null') &&
-      terminalAttachmentSource.includes('attachGeneration: number') &&
-      terminalAttachmentSource.includes('export function isCurrentTerminalAttachment') &&
+      !terminalAttachmentSource.includes('attachGeneration: number') &&
+      !terminalAttachmentSource.includes('function isCurrentTerminalAttachment') &&
       terminalAttachmentSource.includes('record.attachedMount = mountEl') &&
       terminalAttachmentSource.includes('export function attachTerminalHost') &&
       terminalPoolSource.includes("from '@/lib/terminal-attachment'") &&
       terminalPoolSource.includes('function isCurrentAttachment(record: SessionRecord, generation: number)') &&
-      terminalPoolSource.includes('return isCurrentTerminalAttachment(record, generation)') &&
+      terminalPoolSource.includes('record.attachment.isCurrentGeneration(generation)') &&
+      terminalAttachmentCoordinatorSource.includes('get generation()') &&
       terminalPoolSource.includes('function resetTransientTerminalUi(record: SessionRecord)') &&
       terminalPoolSource.includes('record.terminal.clearTerminalSelection?.()') &&
       terminalPoolSource.includes('function repairTerminalAfterAttach(record: SessionRecord)') &&
       terminalPoolSource.includes('function invalidateTerminalCheckpointRequest(record: SessionRecord') &&
-      terminalPoolSource.includes('record.reconnectSnapshotSeq += 1') &&
+      terminalPoolSource.includes('record.attachment.invalidateOperation()') &&
       terminalPoolSource.includes('invalidateTerminalCheckpointRequest(record)') &&
       terminalPoolSource.includes('record.terminal.reattach?.()') &&
       terminalPoolSource.includes('record.terminal.forceRedraw?.()') &&
-      terminalPoolSource.includes('const generation = beginTerminalAttachment(record)') &&
+      terminalPoolSource.includes('record.attachment.beginAttachment().generation') &&
       terminalPoolSource.includes('record.attachedMount === options.mountEl && isTerminalSessionAttached(record)') &&
       terminalPoolSource.includes('attachTerminalHost(record, mountEl') &&
       terminalPoolSource.includes('repairTerminalAfterAttach(record)') &&
@@ -678,7 +688,7 @@ function run() {
       terminalPoolSource.includes('record.pathOpenHandler = null') &&
       terminalAttachmentSource.includes('export function parkTerminalHost') &&
       terminalAttachmentSource.includes('record.attachedMount = null') &&
-      terminalAttachmentSource.includes('record.attachGeneration += 1') &&
+      terminalPoolSource.includes('record.attachment.detach()') &&
       terminalAttachmentSource.includes('getTerminalSessionParkingLot().appendChild(record.hostEl)') &&
       terminalPoolSource.includes('const record = findSessionRecordForHost(candidate)') &&
       terminalPoolSource.includes('parkTerminalSessionRecord(record)') &&
@@ -757,7 +767,7 @@ function run() {
   );
   assert(
     terminalPoolSource.includes('writeSequenced') &&
-      terminalPoolSource.includes('stateRevision ?? ((record.replayState.stateRevision ?? 0) + 1)') &&
+      terminalPoolSource.includes('stateRevision ?? ((record.attachment.stateRevision ?? 0) + 1)') &&
       terminalPoolSource.includes('applyTerminalOutputEvent(') &&
       terminalPoolSource.includes('streamSequenced') &&
       terminalPoolSource.includes('handleTerminalStreamOutput('),
@@ -831,7 +841,7 @@ function run() {
     'terminal URL/path targets should use xterm link providers with direct high-confidence file links and modifier-protected URL links'
   );
   assert(
-    terminalPoolSource.includes('const attachmentGeneration = record.attachGeneration') &&
+    terminalPoolSource.includes('const attachmentGeneration = record.attachment.generation') &&
       terminalPoolSource.includes('if (!isCurrentAttachment(record, attachmentGeneration))') &&
       terminalPoolSource.includes('if (Date.now() < record.suppressClickUntil) return') &&
       terminalPoolSource.includes("if (match.kind === 'url' && findTerminalUrlAtMouseEvent(record, event) !== match.text) return") &&

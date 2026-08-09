@@ -257,9 +257,14 @@ export function replaceTerminalOutput(
   record: TerminalOutputRecord,
   data: string,
   callback?: () => void,
+  options: { beforeReplace?: () => boolean } = {},
 ) {
   void enqueueTerminalWrite(record, done => {
     if (record.disposed) {
+      completeTerminalWrite(done, callback)
+      return
+    }
+    if (options.beforeReplace && !options.beforeReplace()) {
       completeTerminalWrite(done, callback)
       return
     }

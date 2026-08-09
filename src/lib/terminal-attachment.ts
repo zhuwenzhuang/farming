@@ -1,7 +1,6 @@
 export interface TerminalAttachmentRecord {
   hostEl: HTMLDivElement
   attachedMount: HTMLElement | null
-  attachGeneration: number
   disposed: boolean
 }
 
@@ -108,15 +107,6 @@ export function isTerminalHostAttached(record: TerminalAttachmentRecord) {
     && record.hostEl.parentElement === record.attachedMount
 }
 
-export function isCurrentTerminalAttachment(record: TerminalAttachmentRecord, generation: number) {
-  return record.attachGeneration === generation && isTerminalHostAttached(record)
-}
-
-export function beginTerminalAttachment(record: TerminalAttachmentRecord) {
-  record.attachGeneration += 1
-  return record.attachGeneration
-}
-
 export function attachTerminalHost(
   record: TerminalAttachmentRecord,
   mountEl: HTMLElement,
@@ -146,7 +136,6 @@ export function canDetachTerminalHost(record: TerminalAttachmentRecord, expected
 export function parkTerminalHost(record: TerminalAttachmentRecord) {
   if (record.disposed) return false
   record.attachedMount = null
-  record.attachGeneration += 1
   getTerminalSessionParkingLot().appendChild(record.hostEl)
   return true
 }

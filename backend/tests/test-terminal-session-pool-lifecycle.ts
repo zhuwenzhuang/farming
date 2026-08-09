@@ -28,6 +28,16 @@ assert(
 );
 
 assert(
+  terminalOutputSource.includes('options: { beforeReplace?: () => boolean } = {}') &&
+    terminalOutputSource.indexOf('if (options.beforeReplace && !options.beforeReplace())') <
+      terminalOutputSource.indexOf('record.terminal.reset()') &&
+    poolSource.includes('record.attachment.admitCheckpointInstall(operation, checkpoint)') &&
+    poolSource.indexOf('record.attachment.admitCheckpointInstall(operation, checkpoint)') <
+      poolSource.indexOf('record.terminal.resize?.(state.cols!, state.rows!)'),
+  'checkpoint replacement should revalidate ordering inside the write queue before resize or reset'
+);
+
+assert(
   poolSource.includes("import { TerminalSessionRegistry } from '@/lib/terminal-session-registry'") &&
     poolSource.includes('const sessions = new TerminalSessionRegistry<string, SessionRecord>()') &&
     poolSource.includes('return sessions.getOrCreate(') &&
@@ -47,7 +57,7 @@ assert(
 
 assert(
   poolSource.includes('function clearPendingTerminalOutput(record: SessionRecord)') &&
-    poolSource.includes('TERMINAL_REPLAY.clearQueuedTransitions(record.replayState)') &&
+    poolSource.includes('record.attachment.clearQueuedTransitions()') &&
     poolSource.includes('record.bootstrappingSnapshot = false') &&
     poolSource.includes('record.pendingSnapshotReplay = false'),
   'destroyTerminalSession should drop pending bootstrap/replay output for disposed terminal sessions'
