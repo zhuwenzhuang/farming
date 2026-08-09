@@ -102,6 +102,9 @@ async function run() {
         branchMissingCreateCalls += 1;
         return { commandFailure: null, postcondition: branchMissingPostcondition };
       },
+      createTemporaryWorktree: sourceWorkspace => realWorktreeGitService.createTemporaryWorktree(sourceWorkspace),
+      deleteWorktree: (identity, force) => realWorktreeGitService.deleteWorktree(identity, force),
+      inspectForkWorktree: workspace => realWorktreeGitService.inspectForkWorktree(workspace),
       inspectPostcondition: async () => branchMissingPostcondition,
       listWorktrees: sourceWorkspace => realWorktreeGitService.listWorktrees(sourceWorkspace),
       releasePermanentWorktreeReservation() {},
@@ -158,6 +161,18 @@ async function run() {
 
     const forkWorkspace = await manager.createForkWorktree(repository);
     configManager.mountProjectWorkspace(forkWorkspace);
+    fs.writeFileSync(path.join(forkWorkspace, 'untracked.txt'), 'dirty worktree fixture\n');
+    const blockedDirtyDelete = await manager.deleteForkWorktreeProject(forkWorkspace, {
+      requestId: 'delete-worktree-dirty-blocked',
+    });
+    assert.strictEqual(blockedDirtyDelete.requiresForce, true);
+    assert.match(blockedDirtyDelete.error, /uncommitted or untracked/i);
+    assert.strictEqual(fs.existsSync(forkWorkspace), true, 'a dirty worktree must remain until force is explicit');
+    assert.strictEqual(
+      configManager.getProjectOperation('delete-worktree-dirty-blocked'),
+      null,
+      'a dirty precondition blocks before a mutation intent is admitted',
+    );
     let failDeleteResultCommit = true;
     configManager.commitProjectOperation = (operation, membership) => {
       if (
@@ -181,6 +196,7 @@ async function run() {
     assert(configManager.getSettings().projectWorkspaces.includes(forkWorkspace));
     assert.strictEqual(configManager.getProjectOperation('delete-worktree-request-1').state, 'pending');
     failDeleteResultCommit = false;
+    manager.worktreeGitService = new WorktreeGitService();
     const reconciledDelete = await manager.deleteForkWorktreeProject(forkWorkspace, {
       force: true,
       requestId: 'delete-worktree-request-1',
@@ -189,6 +205,61 @@ async function run() {
     assert.strictEqual(reconciledDelete.error, undefined);
     assert.strictEqual(configManager.getSettings().projectWorkspaces.includes(forkWorkspace), false);
     assert.strictEqual(configManager.getProjectOperation('delete-worktree-request-1').state, 'succeeded');
+
+    const uncertainWorkspace = await manager.createForkWorktree(repository);
+    configManager.mountProjectWorkspace(uncertainWorkspace);
+    const serviceBeforeTimeout = manager.worktreeGitService;
+    const timeoutError = Object.assign(new Error('synthetic delete timeout'), { code: 'ETIMEDOUT' });
+    let uncertainDeleteCalls = 0;
+    manager.worktreeGitService = {
+      allocatePermanentWorktree: sourceWorkspace => serviceBeforeTimeout.allocatePermanentWorktree(sourceWorkspace),
+      createPermanentWorktree: identity => serviceBeforeTimeout.createPermanentWorktree(identity),
+      createTemporaryWorktree: sourceWorkspace => serviceBeforeTimeout.createTemporaryWorktree(sourceWorkspace),
+      deleteWorktree: async () => {
+        uncertainDeleteCalls += 1;
+        return {
+          commandFailure: { cause: timeoutError, message: timeoutError.message },
+          postcondition: {
+            proven: false,
+            exists: true,
+            registered: true,
+            branchMatches: true,
+            branchExists: false,
+            worktree: { workspace: uncertainWorkspace, branch: '' },
+            error: 'fresh delete postcondition unavailable',
+          },
+        };
+      },
+      inspectForkWorktree: workspace => serviceBeforeTimeout.inspectForkWorktree(workspace),
+      inspectPostcondition: (sourceWorkspace, workspace, branch) => (
+        serviceBeforeTimeout.inspectPostcondition(sourceWorkspace, workspace, branch)
+      ),
+      listWorktrees: sourceWorkspace => serviceBeforeTimeout.listWorktrees(sourceWorkspace),
+      releasePermanentWorktreeReservation: identity => serviceBeforeTimeout.releasePermanentWorktreeReservation(identity),
+      resolveSourceRoot: workspace => serviceBeforeTimeout.resolveSourceRoot(workspace),
+      rollbackPermanentWorktree: identity => serviceBeforeTimeout.rollbackPermanentWorktree(identity),
+    };
+    const uncertainDelete = await manager.deleteForkWorktreeProject(uncertainWorkspace, {
+      force: true,
+      requestId: 'delete-worktree-timeout-unknown',
+    });
+    assert.strictEqual(uncertainDelete.uncertain, true);
+    assert.match(uncertainDelete.error, /synthetic delete timeout/);
+    assert.strictEqual(configManager.getProjectOperation('delete-worktree-timeout-unknown').state, 'unknown');
+    const replayedUncertainDelete = await manager.deleteForkWorktreeProject(uncertainWorkspace, {
+      force: true,
+      requestId: 'delete-worktree-timeout-unknown',
+    });
+    assert.strictEqual(replayedUncertainDelete.uncertain, true);
+    assert.strictEqual(uncertainDeleteCalls, 1, 'an uncertain delete mutation must not be replayed automatically');
+    manager.worktreeGitService = serviceBeforeTimeout;
+    const cleanup = await serviceBeforeTimeout.deleteWorktree({
+      sourceWorkspace: repository,
+      workspace: uncertainWorkspace,
+    }, true);
+    assert.strictEqual(cleanup.postcondition.proven, true);
+    assert.strictEqual(cleanup.postcondition.exists, false);
+    assert.strictEqual(cleanup.postcondition.registered, false);
 
     console.log('test-worktree-project-operations passed');
   } finally {

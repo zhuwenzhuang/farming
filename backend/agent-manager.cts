@@ -177,7 +177,7 @@ import {
 import { AgentOrderAllocator, finiteOrder, reorderedPinnedAgentOrders, reorderedProjectAgentOrders } from './agent-order.cjs';
 import { commitAgentOrderTransaction } from './agent-order-transaction.cjs';
 import { buildInteractiveAgentBaseEnv, normalizeInteractiveTerminalEnv, resolveUserShellEnvSync } from './agent-env.cjs';
-import { inspectGitWorktree, invalidateGitWorktreeInfoCache } from './git-worktree-info.cjs';
+import { inspectGitWorktree } from './git-worktree-info.cjs';
 import { AgentWorktreeRefreshQueue } from './agent-worktree-refresh-queue.cjs';
 import {
   WorktreeGitService,
@@ -1329,35 +1329,10 @@ function isLiveEngineSessionState(sessionState: unknown) {
   return Boolean(isRecord(sessionState) && sessionState.status && sessionState.status !== 'exited');
 }
 
-function timestampSlug(now: Date = new Date()) {
-  const pad = (value: unknown) => String(value).padStart(2, '0');
-  return [
-    now.getFullYear(),
-    pad(now.getMonth() + 1),
-    pad(now.getDate()),
-    '-',
-    pad(now.getHours()),
-    pad(now.getMinutes()),
-    pad(now.getSeconds()),
-  ].join('');
-}
-
 function projectOperationSignature(value: unknown) {
   return crypto.createHash('sha256')
     .update(JSON.stringify(stableJsonValue(value)))
     .digest('hex');
-}
-
-function isFarmingForkWorktreePath(workspace: string) {
-  const basename = path.basename(String(workspace || '').replace(/[\\/]+$/, ''));
-  return /-farming-fork-\d{8}-\d{6}(?:-\d+)?$/.test(basename);
-}
-
-function statusEntriesFromPorcelain(output: string) {
-  return String(output || '')
-    .split(/\r?\n/)
-    .map((line: string) => line.trimEnd())
-    .filter(Boolean);
 }
 
 class AgentManager extends EventEmitter {
@@ -8653,31 +8628,20 @@ class AgentManager extends EventEmitter {
 
   async createForkWorktree(workspace: string) {
     const root = await this.resolveGitWorktreeSourceRoot(workspace);
-
-    const parentDir = path.dirname(root);
-    const baseName = path.basename(root);
-    const slug = timestampSlug();
-    let target = path.join(parentDir, `${baseName}-farming-fork-${slug}`);
-    let suffix = 2;
-    while (fs.existsSync(target)) {
-      target = path.join(parentDir, `${baseName}-farming-fork-${slug}-${suffix}`);
-      suffix += 1;
+    const mutation = await this.worktreeGitService.createTemporaryWorktree(root);
+    const { postcondition } = mutation;
+    if (postcondition.proven && postcondition.exists && postcondition.registered) {
+      return mutation.identity.workspace;
     }
-
-    try {
-      await execFileAsync('git', ['-C', root, 'worktree', 'add', target, 'HEAD'], {
-        timeout: 60000,
-        maxBuffer: 1024 * 1024 * 4,
-      });
-    } catch (caughtError: unknown) {
-      const error = caughtError as ErrorRecord;
-      const message = error && error.stderr ? String(error.stderr).trim() : '';
-      throw new Error(message || 'Failed to create git worktree', { cause: caughtError });
-    } finally {
-      invalidateGitWorktreeInfoCache();
+    if (mutation.commandFailure) {
+      const exactAbsence = postcondition.proven && !postcondition.exists && !postcondition.registered;
+      const detail = exactAbsence
+        ? mutation.commandFailure.message
+        : `${mutation.commandFailure.message}; the temporary worktree outcome is uncertain`;
+      throw new Error(detail, { cause: mutation.commandFailure.cause });
     }
-
-    return target;
+    const detail = postcondition.error || 'Temporary worktree creation could not be proven';
+    throw new Error(`${detail}; the operation outcome is uncertain`);
   }
 
   createPermanentWorktree(workspace: string, options: CreatePermanentWorktreeOptions = {}) {
@@ -8857,57 +8821,7 @@ class AgentManager extends EventEmitter {
 
   async inspectForkWorktreeProject(workspace: string) {
     const expanded = this.expandWorkspacePath(workspace);
-    const resolvedWorkspace = expanded ? path.resolve(expanded) : '';
-    if (!resolvedWorkspace) {
-      return { error: 'Workspace is required' };
-    }
-    if (!isFarmingForkWorktreePath(resolvedWorkspace)) {
-      return { error: 'Only Farming fork worktrees can be deleted' };
-    }
-    try {
-      if (!fs.statSync(resolvedWorkspace).isDirectory()) {
-        return { error: 'Workspace is not a directory' };
-      }
-    } catch {
-      return { error: 'Workspace not found' };
-    }
-
-    let topLevel = '';
-    try {
-      const { stdout } = await execFileAsync('git', ['-C', resolvedWorkspace, 'rev-parse', '--show-toplevel'], {
-        timeout: 15000,
-        maxBuffer: 1024 * 1024,
-      });
-      topLevel = path.resolve(stdout.trim());
-    } catch (caughtError: unknown) {
-      const error = caughtError as ErrorRecord;
-      const message = error && error.stderr ? String(error.stderr).trim() : '';
-      return { error: message || 'Workspace is not a git worktree' };
-    }
-
-    if (topLevel !== resolvedWorkspace) {
-      return { error: 'Workspace must be the root of a Farming fork worktree' };
-    }
-
-    try {
-      const worktrees = await this.listGitWorktrees(resolvedWorkspace);
-      const sourceWorkspace = worktrees[0]?.workspace || resolvedWorkspace;
-      const { stdout } = await execFileAsync('git', ['-C', resolvedWorkspace, 'status', '--porcelain', '--untracked-files=all'], {
-        timeout: 30000,
-        maxBuffer: 1024 * 1024 * 4,
-      });
-      const dirtyEntries = statusEntriesFromPorcelain(stdout);
-      return {
-        workspace: resolvedWorkspace,
-        sourceWorkspace,
-        dirtyEntries,
-        requiresForce: dirtyEntries.length > 0,
-      };
-    } catch (caughtError: unknown) {
-      const error = caughtError as ErrorRecord;
-      const message = error && error.stderr ? String(error.stderr).trim() : '';
-      return { error: message || 'Failed to inspect worktree status' };
-    }
+    return this.worktreeGitService.inspectForkWorktree(expanded);
   }
 
   agentsForProjectWorkspace(workspace: string): TypedAgentRecord[] {
@@ -9093,7 +9007,7 @@ class AgentManager extends EventEmitter {
       };
     }
     const inspected = await this.inspectForkWorktreeProject(workspace);
-    if (inspected.error) return inspected;
+    if ('error' in inspected) return inspected;
     if (inspected.requiresForce && options.force !== true) {
       return {
         ...inspected,
@@ -9129,20 +9043,12 @@ class AgentManager extends EventEmitter {
       }
     }
 
-    const args: string[] = ['-C', inspected.workspace, 'worktree', 'remove'];
-    if (options.force === true) args.push('--force');
-    args.push(inspected.workspace);
-    try {
-      await execFileAsync('git', args, {
-        timeout: 60000,
-        maxBuffer: 1024 * 1024 * 4,
-      });
-    } catch (caughtError: unknown) {
-      const error = caughtError as ErrorRecord;
-      const postcondition = await this.inspectGitWorktreePostcondition(
-        inspected.sourceWorkspace,
-        inspected.workspace,
-      );
+    const mutation = await this.worktreeGitService.deleteWorktree({
+      sourceWorkspace: inspected.sourceWorkspace,
+      workspace: inspected.workspace,
+    }, options.force === true);
+    const postcondition = mutation.postcondition;
+    if (mutation.commandFailure) {
       if (postcondition.proven && !postcondition.exists && !postcondition.registered) {
         try {
           return commitDeleted({
@@ -9164,8 +9070,7 @@ class AgentManager extends EventEmitter {
           };
         }
       }
-      const message = error && error.stderr ? String(error.stderr).trim() : '';
-      const detail = message || 'Failed to delete git worktree';
+      const detail = mutation.commandFailure.message;
       if (operation) {
         const state = postcondition.proven && postcondition.exists && postcondition.registered
           ? 'failed'
@@ -9185,14 +9090,7 @@ class AgentManager extends EventEmitter {
         archivedAgentIds,
         removedMainPageSessionKeys: Array.from(new Set(removedMainPageSessionKeys)),
       };
-    } finally {
-      invalidateGitWorktreeInfoCache();
     }
-
-    const postcondition = await this.inspectGitWorktreePostcondition(
-      inspected.sourceWorkspace,
-      inspected.workspace,
-    );
     if (!postcondition.proven || postcondition.exists || postcondition.registered) {
       const detail = postcondition.error || 'Worktree deletion could not be proven';
       if (operation) {

@@ -5,6 +5,7 @@ const path = require('path');
 
 const {
   WorktreeGitService,
+  isFarmingForkWorktreePath,
   parseGitWorktreeList,
 } = require('../worktree-git-service.cjs');
 
@@ -13,6 +14,26 @@ function commandKey(args: readonly string[]) {
 }
 
 async function run() {
+  const managerSource = fs.readFileSync(path.join(__dirname, '../agent-manager.cts'), 'utf8');
+  assert(managerSource.includes('this.worktreeGitService.createTemporaryWorktree(root)'));
+  assert(managerSource.includes('this.worktreeGitService.inspectForkWorktree(expanded)'));
+  assert(managerSource.includes('this.worktreeGitService.deleteWorktree({'));
+  const temporaryCreateBody = managerSource.slice(
+    managerSource.indexOf('async createForkWorktree'),
+    managerSource.indexOf('createPermanentWorktree(', managerSource.indexOf('async createForkWorktree')),
+  );
+  const forkInspectionBody = managerSource.slice(
+    managerSource.indexOf('async inspectForkWorktreeProject'),
+    managerSource.indexOf('agentsForProjectWorkspace', managerSource.indexOf('async inspectForkWorktreeProject')),
+  );
+  const deleteBody = managerSource.slice(
+    managerSource.indexOf('async deleteForkWorktreeProjectAdmitted'),
+    managerSource.indexOf('async replayPersistentForkRequest'),
+  );
+  assert(!temporaryCreateBody.includes('execFileAsync'));
+  assert(!forkInspectionBody.includes('execFileAsync'));
+  assert(!deleteBody.includes('execFileAsync'));
+
   const allocationNonce = 'a'.repeat(32);
   const allocationSlug = `20260809-123456-${allocationNonce}`;
   const parsed = parseGitWorktreeList([
@@ -313,6 +334,149 @@ async function run() {
     { key: `show-ref --verify --quiet refs/heads/${identity.branch}`, timeout: 15_000 },
   ]);
   assert.strictEqual(invalidations, 1);
+
+  const temporaryExec = async (_executable: string, args: readonly string[]) => {
+    const key = commandKey(args);
+    if (key.startsWith('worktree add ')) throw timedOut;
+    if (key === 'worktree list --porcelain') return { stdout: '', stderr: '' };
+    throw new Error(`Unexpected git command: ${key}`);
+  };
+  const temporaryOne = new WorktreeGitService({
+    now: () => new Date(2026, 7, 9, 12, 34, 56),
+    identityNonce: () => 'e'.repeat(32),
+    pathExists: () => false,
+    execFile: temporaryExec,
+  });
+  const temporaryTwo = new WorktreeGitService({
+    now: () => new Date(2026, 7, 9, 12, 34, 56),
+    identityNonce: () => 'f'.repeat(32),
+    pathExists: () => false,
+    execFile: temporaryExec,
+  });
+  const [temporaryMutationOne, temporaryMutationTwo] = await Promise.all([
+    temporaryOne.createTemporaryWorktree('/projects/repo'),
+    temporaryTwo.createTemporaryWorktree('/projects/repo'),
+  ]);
+  assert.notStrictEqual(
+    temporaryMutationOne.identity.workspace,
+    temporaryMutationTwo.identity.workspace,
+    'independent Farming instances must allocate different temporary worktree identities',
+  );
+  assert.match(
+    path.basename(temporaryMutationOne.identity.workspace),
+    /^repo-farming-fork-20260809-123456-\d+$/,
+    'the nonce-bearing identity must remain compatible with the Farming fork path contract',
+  );
+  const crossInstanceNumericOne = path.basename(temporaryMutationOne.identity.workspace)
+    .match(/20260809-123456-(\d+)$/)?.[1] || '';
+  const crossInstanceNumericTwo = path.basename(temporaryMutationTwo.identity.workspace)
+    .match(/20260809-123456-(\d+)$/)?.[1] || '';
+  assert.strictEqual(crossInstanceNumericOne.length, 42);
+  assert.strictEqual(crossInstanceNumericTwo.length, 42);
+  assert.notStrictEqual(
+    crossInstanceNumericOne.slice(0, 39),
+    crossInstanceNumericTwo.slice(0, 39),
+    'temporary identities must retain a full 128-bit, 39-digit decimal nonce segment',
+  );
+  assert.strictEqual(crossInstanceNumericOne.slice(39), '001');
+  assert.deepStrictEqual(temporaryMutationOne.postcondition, {
+    proven: true,
+    exists: false,
+    registered: false,
+    branchMatches: true,
+    branchExists: false,
+    worktree: null,
+  });
+
+  const deleteUncertainService = new WorktreeGitService({
+    pathExists: () => { throw permissionError; },
+    execFile: async (_executable, args) => {
+      const key = commandKey(args);
+      if (key.startsWith('worktree remove ')) throw timedOut;
+      if (key === 'worktree list --porcelain') {
+        return {
+          stdout: `worktree ${identity.sourceWorkspace}\nbranch refs/heads/main\n\nworktree ${identity.workspace}\ndetached\n`,
+          stderr: '',
+        };
+      }
+      throw new Error(`Unexpected git command: ${key}`);
+    },
+  });
+  const uncertainDelete = await deleteUncertainService.deleteWorktree(identity, true);
+  assert.deepStrictEqual(uncertainDelete.commandFailure, { cause: timedOut, message: 'timed out' });
+  assert.strictEqual(uncertainDelete.postcondition.proven, false);
+  assert.strictEqual(uncertainDelete.postcondition.registered, true);
+  assert.strictEqual(uncertainDelete.postcondition.error, 'permission denied');
+
+  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-temporary-worktree-service-'));
+  try {
+    const sourceWorkspace = path.join(temporaryRoot, 'repo');
+    fs.mkdirSync(sourceWorkspace);
+    const registered = new Set<string>();
+    const concurrentTemporaryService = new WorktreeGitService({
+      now: () => new Date(2026, 7, 9, 12, 34, 56),
+      identityNonce: () => 'g'.repeat(32),
+      execFile: async (_executable, args) => {
+        const key = commandKey(args);
+        if (key.startsWith('worktree add ')) {
+          const target = String(args[4]);
+          fs.mkdirSync(target);
+          registered.add(path.resolve(target));
+          return { stdout: '', stderr: '' };
+        }
+        if (key === 'worktree list --porcelain') {
+          return {
+            stdout: [
+              `worktree ${sourceWorkspace}`,
+              'branch refs/heads/main',
+              ...Array.from(registered, workspace => `\nworktree ${workspace}\ndetached`),
+              '',
+            ].join('\n'),
+            stderr: '',
+          };
+        }
+        if (key === 'rev-parse --show-toplevel') {
+          return { stdout: `${path.resolve(String(args[1]))}\n`, stderr: '' };
+        }
+        if (key === 'status --porcelain --untracked-files=all') {
+          return { stdout: '', stderr: '' };
+        }
+        if (key.startsWith('worktree remove ')) {
+          const target = path.resolve(String(args.at(-1)));
+          registered.delete(target);
+          fs.rmSync(target, { recursive: true, force: true });
+          return { stdout: '', stderr: '' };
+        }
+        throw new Error(`Unexpected git command: ${key}`);
+      },
+    });
+    const [firstTemporary, secondTemporary] = await Promise.all([
+      concurrentTemporaryService.createTemporaryWorktree(sourceWorkspace),
+      concurrentTemporaryService.createTemporaryWorktree(sourceWorkspace),
+    ]);
+    assert.notStrictEqual(firstTemporary.identity.workspace, secondTemporary.identity.workspace);
+    const concurrentNumericSegments = [firstTemporary, secondTemporary].map(mutation => (
+      path.basename(mutation.identity.workspace).match(/20260809-123456-(\d+)$/)?.[1] || ''
+    ));
+    assert.deepStrictEqual(
+      new Set(concurrentNumericSegments.map(segment => segment.slice(39))),
+      new Set(['001', '002']),
+      'same-nonce allocations must use an unambiguous fixed-width suffix',
+    );
+    assert.strictEqual(concurrentNumericSegments[0].slice(0, 39), concurrentNumericSegments[1].slice(0, 39));
+    assert(concurrentNumericSegments.every(segment => segment.length === 42));
+    for (const mutation of [firstTemporary, secondTemporary]) {
+      assert.strictEqual(isFarmingForkWorktreePath(mutation.identity.workspace), true);
+      const inspection = await concurrentTemporaryService.inspectForkWorktree(mutation.identity.workspace);
+      assert.strictEqual(inspection.error, undefined);
+      const deletion = await concurrentTemporaryService.deleteWorktree(mutation.identity, true);
+      assert.strictEqual(deletion.postcondition.proven, true);
+      assert.strictEqual(deletion.postcondition.exists, false);
+      assert.strictEqual(deletion.postcondition.registered, false);
+    }
+  } finally {
+    fs.rmSync(temporaryRoot, { recursive: true, force: true });
+  }
 
   console.log('test-worktree-git-service passed');
 }
