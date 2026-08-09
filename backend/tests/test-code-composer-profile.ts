@@ -66,6 +66,13 @@ function run() {
     [],
     'a missing backend catalog must not turn into a static frontend fallback'
   );
+  assert.deepStrictEqual(
+    normalizeModelCatalog({
+      models: [{ value: 'gpt-legacy:high', label: 'Legacy', model: 'gpt-legacy', effort: 'high' }],
+    }),
+    [],
+    'the frontend must not revive the removed flat models compatibility shape'
+  );
 
   assert.deepStrictEqual(
     resolveCodexComposerProfile(

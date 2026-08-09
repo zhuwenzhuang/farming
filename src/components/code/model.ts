@@ -4,7 +4,6 @@ import { formatWorkspaceForDisplay } from '@/lib/workspace-options'
 import type {
   AgentSessionHistoryItem,
   CodexModelOption,
-  LegacyCodexModelOption,
   ProjectGroup,
   SearchTarget,
 } from './types'
@@ -60,42 +59,10 @@ export function codexModelDisplayName(option: CodexModelOption | undefined, valu
   return option?.label || value || 'Model'
 }
 
-function legacyModelOptionsToCatalog(options: LegacyCodexModelOption[]) {
-  const byModel = new Map<string, CodexModelOption>()
-
-  options.forEach(option => {
-    const model = option.model || option.value.split(':')[0]
-    if (!model) return
-    const current = byModel.get(model) ?? {
-      value: model,
-      label: model.replace(/^gpt-/i, ''),
-      defaultEffort: option.effort || 'medium',
-      reasoningLevels: [],
-      serviceTiers: [{ value: 'default', label: 'Standard', description: 'Default speed' }],
-      source: option.source,
-    }
-    if (option.effort && !current.reasoningLevels?.some(level => level.value === option.effort)) {
-      current.reasoningLevels = [
-        ...(current.reasoningLevels ?? []),
-        { value: option.effort, effort: option.effort, label: effortLabel(option.effort), description: option.description },
-      ]
-    }
-    byModel.set(model, current)
-  })
-
-  return Array.from(byModel.values())
-}
-
-export function normalizeModelCatalog(data: { catalog?: CodexModelOption[]; models?: LegacyCodexModelOption[] }) {
-  const catalog = Array.isArray(data.catalog)
+export function normalizeModelCatalog(data: { catalog?: CodexModelOption[] }) {
+  return Array.isArray(data.catalog)
     ? data.catalog.filter(option => option && typeof option.value === 'string' && typeof option.label === 'string')
     : []
-  if (catalog.length > 0) return catalog
-
-  const legacyOptions = Array.isArray(data.models)
-    ? data.models.filter(option => option && typeof option.value === 'string' && typeof option.label === 'string')
-    : []
-  return legacyModelOptionsToCatalog(legacyOptions)
 }
 
 export function agentSessionId(session: Pick<AgentSessionHistoryItem, 'provider' | 'id' | 'providerHomeId'>) {

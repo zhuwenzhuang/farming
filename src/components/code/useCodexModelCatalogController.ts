@@ -3,7 +3,7 @@ import { appPath } from '@/lib/base-path'
 import { getBackendConnectionSnapshot } from '@/lib/backend-live-status'
 import { LatestRequestFence } from './latest-request-fence'
 import { normalizeModelCatalog } from './model'
-import type { CodexModelOption, LegacyCodexModelOption } from './types'
+import type { CodexModelOption } from './types'
 
 export const CODEX_MODEL_CATALOG_TTL_MS = 5 * 60_000
 const EMPTY_CATALOG_ERROR = 'Codex model catalog did not contain any visible models'
@@ -11,7 +11,6 @@ const CATALOG_LOAD_ERROR = 'Failed to load Codex model catalog'
 
 type CodexModelCatalogResponse = {
   catalog?: CodexModelOption[]
-  models?: LegacyCodexModelOption[]
   error?: string
 }
 

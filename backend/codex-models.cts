@@ -35,18 +35,8 @@ interface CodexModelCatalogItem {
   value: string;
 }
 
-interface CodexModelOption {
-  description: string;
-  effort: string;
-  label: string;
-  model: string;
-  source: string;
-  value: string;
-}
-
 interface CodexModelListResult {
   catalog: CodexModelCatalogItem[];
-  models: CodexModelOption[];
   source: 'codex';
 }
 
@@ -198,30 +188,6 @@ function buildModelCatalog(models: unknown[], source = 'codex'): CodexModelCatal
   });
 }
 
-function buildModelOptions(models: unknown[], source = 'codex'): CodexModelOption[] {
-  return buildModelCatalog(models, source).flatMap(model => {
-    if (model.reasoningLevels.length === 0) {
-      return [{
-        value: model.value,
-        model: model.value,
-        effort: '',
-        label: model.label,
-        description: model.description,
-        source,
-      }];
-    }
-
-    return model.reasoningLevels.map(level => ({
-      value: `${model.value}:${level.value}`,
-      model: model.value,
-      effort: level.value,
-      label: `${model.label} ${level.label}`,
-      description: level.description || model.description,
-      source,
-    }));
-  });
-}
-
 function listCodexModelOptions(
   options: ListCodexModelOptions = {},
 ): Promise<CodexModelListResult> {
@@ -282,9 +248,8 @@ function listCodexModelOptions(
           return;
         }
 
-        const modelOptions = buildModelOptions(models, 'codex');
         const catalog = buildModelCatalog(models, 'codex');
-        if (modelOptions.length === 0 || catalog.length === 0) {
+        if (catalog.length === 0) {
           reject(new CodexModelCatalogError(
             'CODEX_MODELS_EMPTY_CATALOG',
             'Codex model catalog did not contain any visible models'
@@ -293,7 +258,6 @@ function listCodexModelOptions(
         }
 
         resolve({
-          models: modelOptions,
           catalog,
           source: 'codex',
         });
@@ -312,7 +276,6 @@ export {
   CodexModelCatalogError,
   DEFAULT_CODEX_MODELS_TIMEOUT_MS,
   buildModelCatalog,
-  buildModelOptions,
   catalogModelsFromJson,
   listCodexModelOptions,
 };

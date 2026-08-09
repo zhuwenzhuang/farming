@@ -116,15 +116,6 @@ export interface CodexModelOption {
   source?: string
 }
 
-export interface LegacyCodexModelOption {
-  value: string
-  label: string
-  description?: string
-  model?: string
-  effort?: string
-  source?: string
-}
-
 export interface AgentSessionHistoryItem {
   provider: string
   providerName?: string

@@ -2,7 +2,6 @@ const assert = require('assert');
 const {
   DEFAULT_CODEX_MODELS_TIMEOUT_MS,
   buildModelCatalog,
-  buildModelOptions,
   catalogModelsFromJson,
   listCodexModelOptions,
 } = require('../codex-models.cjs');
@@ -46,18 +45,13 @@ async function run() {
 
   const models = catalogModelsFromJson(raw);
   const catalog = buildModelCatalog(models);
-  const options = buildModelOptions(models);
 
   assert.deepStrictEqual(catalog.map(option => option.value), ['gpt-5.5', 'gpt-5.4']);
   assert.deepStrictEqual(catalog[0].serviceTiers.map(tier => tier.value), ['default', 'priority']);
   assert.strictEqual(catalog[0].serviceTiers[0].label, 'Standard');
   assert.strictEqual(catalog[0].serviceTiers[0].description, 'Default speed');
   assert.strictEqual(catalog[0].serviceTiers[1].label, 'Fast');
-  assert.deepStrictEqual(options.map(option => option.value), ['gpt-5.5:high', 'gpt-5.5:xhigh', 'gpt-5.5:ultra', 'gpt-5.4:medium']);
-  assert.strictEqual(options[0].label, '5.5 High');
-  assert.strictEqual(options[1].label, '5.5 Extra High');
-  assert.strictEqual(options[2].label, '5.5 Ultra');
-  assert.strictEqual(options.some(option => JSON.stringify(option).includes('do not expose this')), false);
+  assert.strictEqual(catalog.some(option => JSON.stringify(option).includes('do not expose this')), false);
 
   let observedExecOptions = null;
   const liveCatalog = await listCodexModelOptions({
@@ -72,6 +66,7 @@ async function run() {
   assert.strictEqual(DEFAULT_CODEX_MODELS_TIMEOUT_MS, 15_000);
   assert.strictEqual(liveCatalog.source, 'codex');
   assert.deepStrictEqual(liveCatalog.catalog.map(option => option.value), ['gpt-5.5', 'gpt-5.4']);
+  assert.strictEqual('models' in liveCatalog, false, 'the response must expose only the canonical catalog shape');
 
   const timeoutError = Object.assign(new Error('Command timed out'), {
     killed: true,
