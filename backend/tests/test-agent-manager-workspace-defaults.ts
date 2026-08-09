@@ -260,6 +260,26 @@ async function run() {
       canonicalRestoredProjectWorkspace
     );
 
+    const dotDotNamedWorkingDirectory = path.join(restoredProjectWorkspace, '..foo');
+    fs.mkdirSync(dotDotNamedWorkingDirectory, { recursive: true });
+    const dotDotNamedAgentId = await startAgent(
+      manager,
+      'claude --resume session-dotdot-name',
+      dotDotNamedWorkingDirectory,
+      {
+        wantsMain: false,
+        projectWorkspace: restoredProjectWorkspace,
+        source: 'claude-history:session-dotdot-name',
+      },
+    );
+    const dotDotNamedAgent = manager.agents.get(dotDotNamedAgentId);
+    assert.strictEqual(dotDotNamedAgent.cwd, dotDotNamedWorkingDirectory);
+    assert.strictEqual(
+      fs.realpathSync(dotDotNamedAgent.projectWorkspace),
+      canonicalRestoredProjectWorkspace,
+      'a descendant whose basename starts with two dots must retain its Project owner',
+    );
+
     const aliasedWorkspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-aliased-project-'));
     const canonicalAliasedWorkspace = path.join(aliasedWorkspaceRoot, 'project');
     const aliasedWorkspace = path.join(aliasedWorkspaceRoot, 'project-link');

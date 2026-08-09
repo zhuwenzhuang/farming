@@ -178,6 +178,7 @@ import { AgentOrderAllocator, finiteOrder, reorderedPinnedAgentOrders, reordered
 import { commitAgentOrderTransaction } from './agent-order-transaction.cjs';
 import { buildInteractiveAgentBaseEnv, normalizeInteractiveTerminalEnv, resolveUserShellEnvSync } from './agent-env.cjs';
 import { inspectGitWorktree } from './git-worktree-info.cjs';
+import { isSameOrDescendantPath } from './path-containment.cjs';
 import { AgentWorktreeRefreshQueue } from './agent-worktree-refresh-queue.cjs';
 import {
   WorktreeGitService,
@@ -908,11 +909,6 @@ function preserveCodexSessionProfileOptions() {
   return {
     preserveProviderSessionProfile: true,
   };
-}
-
-function isSameOrDescendantPath(root: string, target: string): boolean {
-  const relative = path.relative(root, target);
-  return relative === '' || Boolean(relative) && !relative.startsWith('..') && !path.isAbsolute(relative);
 }
 
 function resumedSessionFromSource(source: string): ExactResumeSession | null {

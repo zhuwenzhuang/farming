@@ -161,6 +161,39 @@ async function run() {
     assert(configManager.getSettings().projectWorkspaces.includes(reconciledCreate.workspace));
     assert.strictEqual(configManager.getProjectOperation('create-worktree-request-2').state, 'succeeded');
 
+    const overlapWorkspace = await manager.createForkWorktree(repository);
+    configManager.mountProjectWorkspace(overlapWorkspace);
+    const dotDotNamedDescendant = path.join(overlapWorkspace, '..foo');
+    fs.mkdirSync(dotDotNamedDescendant);
+    let releaseOverlappingStart = () => {};
+    const overlappingStart = new Promise<void>(resolve => {
+      releaseOverlappingStart = resolve;
+    });
+    const overlappingStartToken = Symbol('dot-dot-named-descendant-start');
+    manager.agentStartAdmissions.set(overlappingStartToken, {
+      token: overlappingStartToken,
+      workspaceKey: dotDotNamedDescendant,
+      promise: overlappingStart,
+    });
+    let overlapDeleteSettled = false;
+    const overlapDelete = manager.deleteForkWorktreeProject(overlapWorkspace, {
+      requestId: 'delete-worktree-overlap-dot-dot-name',
+    });
+    void overlapDelete.finally(() => {
+      overlapDeleteSettled = true;
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.strictEqual(
+      overlapDeleteSettled,
+      false,
+      'Project deletion must drain a start admitted under a valid ..foo descendant',
+    );
+    releaseOverlappingStart();
+    const overlapDeleted = await overlapDelete;
+    manager.agentStartAdmissions.delete(overlappingStartToken);
+    assert.strictEqual(overlapDeleted.deleted, true);
+    assert.strictEqual(fs.existsSync(overlapWorkspace), false);
+
     const forkWorkspace = await manager.createForkWorktree(repository);
     configManager.mountProjectWorkspace(forkWorkspace);
     fs.writeFileSync(path.join(forkWorkspace, 'untracked.txt'), 'dirty worktree fixture\n');
