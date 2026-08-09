@@ -223,7 +223,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
-const { URLSearchParams, pathToFileURL } = require('url');
+const { URLSearchParams } = require('url');
 import { AgentManager, type AgentManagerStateChange } from './agent-manager.cjs';
 import { isAgentRuntimeModeRequest, runtimeKind } from './agent-runtime-binding.cjs';
 import { ConfigManager } from './config-manager.cjs';
@@ -240,6 +240,7 @@ import { createWebSocketHandshakeHealthHandlers } from './websocket-handshake-he
 import { createWebSocketTerminalHandlers } from './websocket-terminal-handlers.cjs';
 import { createWebSocketFocusScopeHandlers } from './websocket-focus-scope-handlers.cjs';
 import { createWebSocketAgentLifecycleHandlers } from './websocket-agent-lifecycle-handlers.cjs';
+import { createWebSocketAcpHandlers } from './websocket-acp-handlers.cjs';
 import { TokenAuth } from './auth.cjs';
 import { readOnlyClientMessageAllowed } from './read-only-access.cjs';
 import { getLocalIPs, getPrimaryLocalIP } from './network.cjs';
@@ -284,7 +285,7 @@ import { createProviderCatalogRouter } from './provider-catalog-router.cjs';
 import { AgentSessionInventory } from './agent-session-inventory.cjs';
 import { createAgentSessionRouter } from './agent-session-router.cjs';
 import { createProjectMutationRouter } from './project-mutation-router.cjs';
-import { AttachmentUploadStore, attachmentExtension, createAttachmentUploadHandler } from './attachment-upload.cjs';
+import { AttachmentUploadStore, createAttachmentUploadHandler } from './attachment-upload.cjs';
 import { createSlashCommandDiscoveryCache } from './slash-command-cache.cjs';
 import { agentExtensionInventoryCacheFile, agentSessionInventoryCacheFile } from './storage-layout.cjs';
 import { FarmingUpdateService } from './update-service.cjs';
@@ -2582,90 +2583,6 @@ function rejectReadOnlyClientMutation(ws: WebSocketClient, data: ServerClientMes
   return true;
 }
 
-async function sendComposerInputMessage(
-  ws: WebSocketClient,
-  data: Extract<ClientMessage, { type: 'composer-input' }>,
-) {
-  const targetAgentId = resolveInputTargetAgentId(ws, data);
-  const requestId = typeof data.requestId === 'string' ? data.requestId.trim() : '';
-  const delivery = data.delivery === 'steer' || data.delivery === 'prompt'
-    ? data.delivery
-    : 'auto';
-  const responseAgentId = targetAgentId || (typeof data.agentId === 'string' ? data.agentId : '');
-  const respond = (accepted: boolean, message = '', uncertain = false) => {
-    if (!requestId || !responseAgentId) return;
-    ws.send(JSON.stringify({
-      type: 'composer-input-result',
-      requestId,
-      agentId: responseAgentId,
-      accepted,
-      ...(message ? { message } : {}),
-      ...(uncertain ? { uncertain: true } : {}),
-    }));
-  };
-  const message = typeof data.message === 'string' ? data.message : '';
-  if (!/^[A-Za-z0-9._:-]{1,160}$/.test(requestId)) {
-    if (responseAgentId) {
-      ws.send(JSON.stringify({
-        type: 'composer-input-result',
-        requestId: requestId || 'invalid-request',
-        agentId: responseAgentId,
-        accepted: false,
-        message: 'Structured Composer input requires a valid requestId',
-      }));
-    }
-    return;
-  }
-  const content = [];
-  if (message.trim()) content.push({ type: 'text', text: message });
-  const attachmentsRoot = path.resolve(attachmentUploadStore.attachmentsDir);
-  const attachments = Array.isArray(data.attachments) ? data.attachments.slice(0, 8) : [];
-  for (const attachment of attachments) {
-    if (!['image', 'audio'].includes(attachment?.kind) || typeof attachment.path !== 'string') continue;
-    const filePath = path.resolve(attachment.path);
-    if (!filePath.startsWith(`${attachmentsRoot}${path.sep}`)) continue;
-    const mimeType = typeof attachment.type === 'string' && attachment.kind === 'image' && /^image\/(?:png|jpe?g|gif|webp)$/i.test(attachment.type)
-      ? attachment.type.toLowerCase()
-      : (typeof attachment.type === 'string' && attachment.kind === 'audio' && attachmentExtension('audio', attachment.type)
-        ? attachment.type.toLowerCase()
-        : '');
-    if (!mimeType) continue;
-    try {
-      const data = await fs.promises.readFile(filePath);
-      if (data.length === 0 || data.length > 12 * 1024 * 1024) continue;
-      content.push({
-        type: attachment.kind,
-        data: data.toString('base64'),
-        mimeType,
-        path: filePath,
-        uri: pathToFileURL(filePath).href,
-      });
-    } catch {
-      // The text fallback already explains failed or unavailable uploads.
-    }
-  }
-  if (!targetAgentId || content.length === 0) {
-    respond(false, 'Composer message is empty');
-    return;
-  }
-  const structuredRuntime = agentManager.agentRuntimeKind(targetAgentId) === 'acp';
-  if (!structuredRuntime) {
-    const error = 'Terminal Composer input requires the active terminal owner';
-    if (requestId) respond(false, error);
-    else ws.send(JSON.stringify({ type: 'error', message: error }));
-    return;
-  }
-  try {
-    await agentManager.sendComposerMessage(targetAgentId, content, { requestId, delivery });
-    respond(true);
-  } catch (caught) {
-    const error = caughtError(caught);
-    const message = error && error.message ? error.message : 'Failed to send Composer message';
-    if (requestId) respond(false, message, error?.uncertain === true);
-    else ws.send(JSON.stringify({ type: 'error', message }));
-  }
-}
-
 async function sendBusinessHealthResult(ws: WebSocketClient, requestId: string) {
   const health = await probeAgentManagerBusinessHealth(agentManager);
   if (ws.readyState !== WebSocket.OPEN) return;
@@ -2736,6 +2653,18 @@ const websocketAgentLifecycleHandlers = createWebSocketAgentLifecycleHandlers<We
     console.warn('Failed to finish started Agent transition:', agentId, normalized.message || error);
   },
 });
+const websocketAcpHandlers = createWebSocketAcpHandlers<WebSocketClient>({
+  openState: WebSocket.OPEN,
+  attachmentsRoot: path.resolve(attachmentUploadStore.attachmentsDir),
+  readAttachment: filePath => fs.promises.readFile(filePath),
+  agentRuntimeKind: agentId => agentManager.agentRuntimeKind(agentId),
+  sendComposerMessage: (agentId, content, options) => (
+    agentManager.sendComposerMessage(agentId, content, options)
+  ),
+  respondToAcpPermission: (agentId, requestId, optionId, cancelled) => (
+    agentManager.respondToAcpPermission(agentId, requestId, optionId, cancelled)
+  ),
+});
 const clientMessageDispatchTable = defineClientMessageDispatchTable<WebSocketClient>({
   'protocol-hello': registerClientMessage('protocol-hello', websocketHandshakeHealthHandlers.protocolHello),
   'business-health-probe': registerClientMessage('business-health-probe', websocketHandshakeHealthHandlers.businessHealthProbe),
@@ -2743,25 +2672,8 @@ const clientMessageDispatchTable = defineClientMessageDispatchTable<WebSocketCli
   'state-resync': registerClientMessage('state-resync', websocketFocusScopeHandlers.stateResync),
   'start-agent': registerClientMessage('start-agent', websocketAgentLifecycleHandlers.startAgent),
   input: registerClientMessage('input', websocketTerminalHandlers.input),
-  'composer-input': registerClientMessage('composer-input', (ws, data) => {
-    void sendComposerInputMessage(ws, data);
-  }),
-  'acp-permission-response': registerClientMessage('acp-permission-response', (ws, data) => {
-    try {
-      agentManager.respondToAcpPermission(
-        data.agentId,
-        data.requestId,
-        data.optionId,
-        data.cancelled === true
-      );
-    } catch (caught) {
-      const error = caughtError(caught);
-      ws.send(JSON.stringify({
-        type: 'error',
-        message: error && error.message ? error.message : 'Failed to respond to ACP permission',
-      }));
-    }
-  }),
+  'composer-input': registerClientMessage('composer-input', websocketAcpHandlers.composerInput),
+  'acp-permission-response': registerClientMessage('acp-permission-response', websocketAcpHandlers.acpPermissionResponse),
   'interrupt-agent': registerClientMessage('interrupt-agent', websocketAgentLifecycleHandlers.interruptAgent),
   'focus-agent': registerClientMessage('focus-agent', websocketFocusScopeHandlers.focusAgent),
   'resize-agent': registerClientMessage('resize-agent', websocketTerminalHandlers.resizeAgent),
