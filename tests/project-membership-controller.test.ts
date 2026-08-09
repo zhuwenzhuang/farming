@@ -67,7 +67,7 @@ test('mount result keeps authoritative state when a successful response omits me
 
 test('mount request preserves normalization and only returns accepted membership', async () => {
   let capturedBody = ''
-  const result = await requestProjectMount(' /repo/// ', async (_url, init) => {
+  const result = await requestProjectMount(' /repo/// ', undefined, async (_url, init) => {
     capturedBody = init.body
     return {
       ok: true,
@@ -86,11 +86,31 @@ test('mount request preserves normalization and only returns accepted membership
 
 test('mount rejection exposes the server error without returning membership to apply', async () => {
   await assert.rejects(
-    requestProjectMount('/repo', async () => ({
+    requestProjectMount('/repo', undefined, async () => ({
       ok: false,
       status: 409,
       async json() { return { error: 'mount conflict' } },
     })),
     /mount conflict/,
   )
+})
+
+test('an aborted late body cannot return membership for application', async () => {
+  let resolveBody!: (value: unknown) => void
+  const body = new Promise<unknown>(resolve => { resolveBody = resolve })
+  const abortController = new AbortController()
+  const pending = requestProjectMount('/repo', abortController.signal, async (_url, init) => {
+    assert.equal(init.signal, abortController.signal)
+    return {
+      ok: true,
+      status: 200,
+      json: () => body,
+    }
+  })
+
+  abortController.abort()
+  resolveBody({ workspace: '/repo', projectWorkspaces: ['/repo'] })
+  await assert.rejects(pending, error => (
+    error instanceof DOMException && error.name === 'AbortError'
+  ))
 })

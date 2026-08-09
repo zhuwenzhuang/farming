@@ -20,7 +20,12 @@ export type ProjectMountResponse = ProjectMembership & {
 
 type ProjectMountRequest = (
   url: string,
-  init: { method: 'POST'; headers: { 'Content-Type': 'application/json' }; body: string },
+  init: {
+    method: 'POST'
+    headers: { 'Content-Type': 'application/json' }
+    body: string
+    signal?: AbortSignal
+  },
 ) => Promise<{
   ok: boolean
   status: number
@@ -74,18 +79,27 @@ function normalizeMountWorkspace(workspace: string) {
     : trimmedWorkspace.replace(/[\\/]+$/, '')
 }
 
+export function throwIfProjectMountAborted(signal?: AbortSignal) {
+  if (!signal?.aborted) return
+  throw new DOMException('Project mount was aborted', 'AbortError')
+}
+
 export async function requestProjectMount(
   workspace: string,
+  signal?: AbortSignal,
   request: ProjectMountRequest = fetch,
 ) {
+  throwIfProjectMountAborted(signal)
   const normalizedWorkspace = normalizeMountWorkspace(workspace)
   if (!normalizedWorkspace) return { membership: null, workspace: '' }
   const response = await request(appPath('/api/projects/mount'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ workspace: normalizedWorkspace }),
+    signal,
   })
   const membership = await response.json().catch(() => null) as ProjectMountResponse | null
+  throwIfProjectMountAborted(signal)
   if (!response.ok) throw new Error(membership?.error || `Project request failed (${response.status})`)
   return projectMountResult(normalizedWorkspace, membership)
 }
@@ -109,8 +123,9 @@ export function useProjectMembershipController(
     applyMembership({ pinnedProjectWorkspaces: remotePinnedProjectWorkspaces })
   }, [remotePinnedProjectWorkspaces])
 
-  const mountProject = useCallback(async (workspace: string) => {
-    const result = await requestProjectMount(workspace)
+  const mountProject = useCallback(async (workspace: string, signal?: AbortSignal) => {
+    const result = await requestProjectMount(workspace, signal)
+    throwIfProjectMountAborted(signal)
     if (result.membership) applyMembership(result.membership)
     return result.workspace
   }, [])

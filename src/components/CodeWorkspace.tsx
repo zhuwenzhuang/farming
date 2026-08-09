@@ -222,7 +222,10 @@ import { useAgentComposerState } from './code/useAgentComposerState'
 import { useCodexModelCatalogController } from './code/useCodexModelCatalogController'
 import { useComposerProviderCatalogController } from './code/useComposerProviderCatalogController'
 import { useMainPageSessionMembershipController } from './code/useMainPageSessionMembershipController'
-import { useProjectMembershipController } from './code/useProjectMembershipController'
+import {
+  throwIfProjectMountAborted,
+  useProjectMembershipController,
+} from './code/useProjectMembershipController'
 import { useQrShareController } from './code/useQrShareController'
 import {
   terminalTargetFilePath,
@@ -234,10 +237,10 @@ import {
   loadSessionDisplayState,
   resumedAgentSessionFromSource,
   resumedAgentSessionIdFromSource,
-  resumedAgentSource,
   saveSessionDisplayState,
 } from './code/session-display'
 import { useAgentSessionInventoryController } from './code/useAgentSessionInventoryController'
+import { useResumeAgentSessionController } from './code/useResumeAgentSessionController'
 import { resourcePaneBackTarget, useResourcePaneController } from './code/useResourcePaneController'
 import {
   normalizeAgentLaunchOptions,
@@ -2713,8 +2716,9 @@ export function CodeWorkspace({
     })
   }, [])
 
-  const mountProject = useCallback(async (workspace: string) => {
-    const mountedWorkspace = await requestProjectMount(workspace)
+  const mountProject = useCallback(async (workspace: string, signal?: AbortSignal) => {
+    const mountedWorkspace = await requestProjectMount(workspace, signal)
+    throwIfProjectMountAborted(signal)
     if (!mountedWorkspace) return ''
     setCollapsedProjectIds(current => {
       if (!current.has(mountedWorkspace)) return current
@@ -3996,73 +4000,28 @@ export function CodeWorkspace({
     onOpenArchivedAgent(agentId)
   }, [onOpenArchivedAgent])
 
-  const resumeAgentSession = useCallback(async (provider: string, sessionId: string, providerHomeId = '', customTitle = '') => {
-    const sessionHandle = agentSessionId({ provider, id: sessionId, providerHomeId })
-    const markSessionResumedLocally = () => {
-      dispatchAgentSessionInventory({
-        type: 'session-resumed',
-        provider,
-        sessionId,
-        providerHomeId,
-      })
-    }
-    const existingAgent = activeAgents.find(agent => (
-      (
-        agent.providerSessionKey === sessionHandle
-        || agent.source === resumedAgentSource(provider, sessionId, providerHomeId)
-      )
-      && agent.archived !== true
-      && agent.status !== 'dead'
-      && agent.status !== 'stopped'
-    ))
-    if (existingAgent) {
-      try {
-        await mountProject(projectWorkspaceForAgent(existingAgent))
-      } catch (error) {
-        setCopyNotice({
-          id: Date.now(),
-          kind: 'error',
-          message: error instanceof Error ? error.message : 'Failed to resume agent session',
-        })
-        return
-      }
-      markSessionResumedLocally()
-      addMainPageAgentSession(provider, sessionId, providerHomeId)
-      onOpenTerminal(existingAgent.id)
-      closeSidebarForMobile()
-      return
-    }
-
-    try {
-      const response = await fetch(appPath(`/api/agent-sessions/${encodeURIComponent(provider)}/${encodeURIComponent(sessionId)}/resume`), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          unarchiveArchived: true,
-          providerHomeId,
-          ...(['codex', 'claude', 'opencode', 'qoder', 'qwen'].includes(provider) ? {
-            agentRuntimeMode: 'chat',
-            acpHistoryMode: 'load',
-          } : {}),
-          ...(customTitle ? { customTitle } : {}),
-        }),
-      })
-      const data = await response.json().catch(() => null) as {
-        agentId?: string
-        error?: string
-      } | null
-      if (!response.ok || !data?.agentId) {
-        setCopyNotice({ id: Date.now(), kind: 'error', message: data?.error || `Failed to resume agent session (${response.status})` })
-        return
-      }
-      markSessionResumedLocally()
-      addMainPageAgentSession(provider, sessionId, providerHomeId)
-      onOpenTerminalWhenReady(data.agentId)
-      closeSidebarForMobile()
-    } catch (error) {
-      setCopyNotice({ id: Date.now(), kind: 'error', message: error instanceof Error ? error.message : 'Failed to resume agent session' })
-    }
-  }, [activeAgents, addMainPageAgentSession, closeSidebarForMobile, dispatchAgentSessionInventory, mountProject, onOpenTerminal, onOpenTerminalWhenReady])
+  const resumeAgentSession = useResumeAgentSessionController({
+    getActiveAgents: () => activeAgents.map(agent => ({
+      id: agent.id,
+      archived: agent.archived,
+      providerSessionKey: agent.providerSessionKey,
+      source: agent.source,
+      status: agent.status,
+      workspace: projectWorkspaceForAgent(agent),
+    })),
+    mountProject,
+    applyProjectMembership,
+    commitSessionMembership: ({ provider, sessionId, providerHomeId }) => {
+      dispatchAgentSessionInventory({ type: 'session-resumed', provider, sessionId, providerHomeId: providerHomeId || '' })
+      addMainPageAgentSession(provider, sessionId, providerHomeId || '')
+    },
+    openAgent: (agentId, whenReady) => {
+      if (whenReady) onOpenTerminalWhenReady(agentId)
+      else onOpenTerminal(agentId)
+    },
+    showError: message => setCopyNotice({ id: Date.now(), kind: 'error', message }),
+    closeMobileNavigation: closeSidebarForMobile,
+  })
   resumeAgentSessionRef.current = resumeAgentSession
 
   const continueArchivedRun = useCallback((entry: TaskHistoryEntry) => {

@@ -48,6 +48,7 @@ function run() {
     'src/components/code/useMainPageSessionMembershipController.ts',
     'src/components/code/useProjectMembershipController.ts',
     'src/components/code/useQrShareController.ts',
+    'src/components/code/useResumeAgentSessionController.ts',
     'src/components/code/useResourcePaneController.ts',
     'src/components/code/useWorkspaceContextMenu.ts',
     'src/components/code/useWorkspaceNavigationHistory.ts',
@@ -71,6 +72,7 @@ function run() {
   const agentSessionInventoryControllerSource = read('src/components/code/useAgentSessionInventoryController.ts');
   const projectMembershipControllerSource = read('src/components/code/useProjectMembershipController.ts');
   const qrShareControllerSource = read('src/components/code/useQrShareController.ts');
+  const resumeAgentSessionSource = read('src/components/code/useResumeAgentSessionController.ts');
   const resourcePaneControllerSource = read('src/components/code/useResourcePaneController.ts');
   const websocketResourceBroadcastsSource = read('backend/websocket-resource-broadcasts.cts');
   const websocketTerminalHandlersSource = read('backend/websocket-terminal-handlers.cts');
@@ -108,7 +110,6 @@ function run() {
   const useAgentsSource = read('src/hooks/useAgents.ts');
   const webSocketSource = read('src/hooks/useWebSocket.ts');
   const messagesSource = read('src/types/messages.ts');
-  const resumeAgentSessionSource = workspaceSource.match(/const resumeAgentSession = useCallback[\s\S]*?resumeAgentSessionRef\.current = resumeAgentSession/)?.[0] || '';
   const settingsUpdateRouteSource = serverSource.slice(
     serverSource.indexOf("app.post(routePath(BASE_PATH, '/api/settings')"),
     serverSource.indexOf("app.use(routePath(BASE_PATH, '/api/themes'), createThemeRouter("),
@@ -130,6 +131,22 @@ function run() {
       && agentSessionInventoryControllerSource.includes('refreshVisibleAgentSessionPage: refreshVisiblePage')
       && agentSessionInventoryControllerSource.includes('AGENT_SESSION_SEARCH_DEBOUNCE_MS'),
     'Agent session inventory ownership should keep request fencing, pagination, background scheduling, and search cancellation in one controller',
+  );
+
+  assert(
+    workspaceSource.includes('useResumeAgentSessionController({')
+      && resumeAgentSessionSource.includes('class ResumeAgentSessionController')
+      && resumeAgentSessionSource.includes('private readonly inFlight = new Map<string, ResumeOperation>()')
+      && resumeAgentSessionSource.includes('const existing = this.inFlight.get(key)')
+      && resumeAgentSessionSource.includes('if (existing.customTitle === customTitle) return existing.promise')
+      && resumeAgentSessionSource.includes('const abortController = (this.ports.createAbortController || (() => new AbortController()))()')
+      && resumeAgentSessionSource.includes('this.ports.showError(\'Agent session resume timed out; the outcome is uncertain\')')
+      && resumeAgentSessionSource.includes('abortController.abort()')
+      && resumeAgentSessionSource.includes('signal,')
+      && resumeAgentSessionSource.includes('this.ports.applyProjectMembership(data)')
+      && resumeAgentSessionSource.includes('this.ports.mountProject(activeAgent.workspace, signal)')
+      && !workspaceSource.includes("fetch(appPath(`/api/agent-sessions/${encodeURIComponent(provider)}/${encodeURIComponent(sessionId)}/resume`"),
+    'Resume Agent Session should keep admission, request validation, membership ordering, and stale fencing in one controller',
   );
 
   assert(
@@ -816,11 +833,11 @@ function run() {
       workspaceSource.includes('syncRemovedMainPageSessionsFromAgentUpdate') &&
       workspaceSource.includes('value.removedMainPageSessionKeys') &&
       workspaceSource.includes('syncRemovedMainPageSessionsFromAgentUpdate(result)') &&
-      workspaceSource.includes('addMainPageAgentSession(provider, sessionId, providerHomeId)') &&
+      workspaceSource.includes("addMainPageAgentSession(provider, sessionId, providerHomeId || '')") &&
       workspaceSource.includes("function resumedAgentSource(provider: string, sessionId: string, providerHomeId = '')") &&
       workspaceSource.includes('function resumedAgentSessionIdFromSource(source?: string)') &&
       workspaceSource.includes('visibleAgents.filter(isAgentListLiveAgent)') &&
-      workspaceSource.includes('const existingAgent = activeAgents.find(agent => (') &&
+      resumeAgentSessionSource.includes('const activeAgent = this.ports.getActiveAgents().find(agent => (') &&
       resumeAgentSessionSource.includes("agent.status !== 'dead'") &&
       resumeAgentSessionSource.includes("agent.status !== 'stopped'") &&
       workspaceSource.includes('buildAgentListState') &&
@@ -1249,9 +1266,9 @@ function run() {
       !workspaceSource.includes('body: JSON.stringify({ projectNames: nextProjectNames })') &&
       projectMembershipControllerSource.includes('applyMembership({ projectWorkspaces: remoteProjectWorkspaces })') &&
       projectMembershipControllerSource.includes('applyMembership({ pinnedProjectWorkspaces: remotePinnedProjectWorkspaces })') &&
-      !workspaceSource.includes('applyProjectMembership(data)') &&
-      resumeAgentSessionSource.indexOf('await mountProject(projectWorkspaceForAgent(existingAgent))') <
-        resumeAgentSessionSource.indexOf('\n      markSessionResumedLocally()') &&
+      projectMembershipControllerSource.includes('throwIfProjectMountAborted(signal)\n    if (result.membership) applyMembership(result.membership)') &&
+      workspaceSource.includes('const mountedWorkspace = await requestProjectMount(workspace, signal)\n    throwIfProjectMountAborted(signal)\n    if (!mountedWorkspace) return \'\'\n    setCollapsedProjectIds') &&
+      resumeAgentSessionSource.includes("await this.ports.mountProject(activeAgent.workspace, signal)\n        if (!active()) return { status: 'stale' } as const\n        return this.finish(identity, activeAgent.id, false)") &&
       serverSource.includes('configManager.mountProjectWorkspace(result.projectWorkspace)') &&
       serverSource.includes("app.patch(routePath(BASE_PATH, '/api/projects/name')") &&
       serverSource.includes('configManager.setProjectName(req.body?.workspace, req.body?.name)') &&
