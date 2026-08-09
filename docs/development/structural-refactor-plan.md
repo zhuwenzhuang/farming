@@ -327,7 +327,16 @@ file-by-file progress log:
    operation state through an explicit projection, and move provider decisions
    into typed adapter policies. Run the required real-provider smokes for every
    affected provider.
-6. Integrate continuously. Rebase each reviewable slice onto current `main`, run
+6. Retire obsolete compatibility code continuously. A compatibility alias,
+   adapter, fallback, parser branch, or old state shape may be removed only
+   after repository-wide call-site analysis and boundary tests show that no
+   supported client, protocol version, persisted data, extension, or public API
+   still depends on it. Delete the obsolete path and its compatibility-only
+   tests together in a small behavior-neutral slice; do not preserve unreachable
+   code merely because it once supported an older implementation, and do not
+   classify an active system-boundary adapter as dead code from static imports
+   alone.
+7. Integrate continuously. Rebase each reviewable slice onto current `main`, run
    its focused state-machine tests, then run the full typecheck, lint, test, and
    applicable Server, Terminal, Playwright, or provider gates before merging.
    Do not accumulate these priorities into another long-lived integration

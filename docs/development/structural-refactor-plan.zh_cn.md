@@ -285,7 +285,12 @@ Branch 或逐文件进度：
    Prompt/Cancel 不确定结果后，删除 Server 进程内 Fallback；通过显式 Projection
    分离 Engine State 与 Host Operation State，并把 Provider 决策移入有类型的
    Adapter Policy。每个受影响 Provider 都要运行要求的 Real-provider Smoke。
-6. 持续集成。每个可审查切片都 Rebase 到当前 `main`，先运行聚焦状态机测试，再运行
+6. 持续退役已经失效的兼容代码。Compatibility Alias、Adapter、Fallback、Parser
+   Branch 或旧 State Shape 只有在全仓调用分析和边界测试证明没有受支持的 Client、
+   Protocol Version、持久化数据、Extension 或 Public API 继续依赖时才能删除。用一个
+   行为中立的小切片同时删除失效路径及仅服务于该路径的测试；不能因为它曾支持旧实现
+   就保留不可达代码，也不能仅凭静态 Import 就把仍处于系统边界的 Adapter 判为死代码。
+7. 持续集成。每个可审查切片都 Rebase 到当前 `main`，先运行聚焦状态机测试，再运行
    完整 Typecheck、Lint、Test 及适用的 Server、Terminal、Playwright 或 Provider
    门禁后合入。不能把这些优先项重新积累成长期 Integration Branch。
 
