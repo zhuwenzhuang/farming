@@ -1,14 +1,12 @@
-export interface AgentStateCursor {
-  generation: string
-  sequence: number
-}
+import type {
+  AgentStateCursor,
+  AgentStateSnapshotPage,
+} from '../../shared/browser-protocol'
 
-export interface AgentStateSnapshotPage {
-  complete: boolean
-  id: string
-  offset: number
-  total: number
-}
+export type {
+  AgentStateCursor,
+  AgentStateSnapshotPage,
+} from '../../shared/browser-protocol'
 
 export interface AgentStateSnapshotCursor extends AgentStateCursor {
   id: string

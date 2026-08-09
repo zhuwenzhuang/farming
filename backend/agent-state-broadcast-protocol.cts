@@ -4,17 +4,13 @@ import {
   projectWorkspaceFromAgentState,
 } from '../shared/agent-state-semantics.js';
 import type {
-  StateDeltaMessage,
+  AgentStateDeltaBody,
+  AgentStatePayload,
+  AgentStateRecord,
   StateMessage,
 } from '../shared/browser-protocol.js';
 
-type AgentStateRecord = Record<string, unknown> & { id: string };
-type AgentStatePayload = Record<string, unknown> & { agents: AgentStateRecord[] };
-
-type AgentStateBroadcastDelta = Pick<StateDeltaMessage, 'removedAgentIds' | 'sequence'> & {
-  state?: Record<string, unknown>;
-  upserts: AgentStateRecord[];
-};
+type AgentStateBroadcastDelta = AgentStateDeltaBody;
 
 interface AgentStateBroadcastMutation {
   removedAgentIds?: string[];
@@ -22,10 +18,9 @@ interface AgentStateBroadcastMutation {
   upserts?: AgentStateRecord[];
 }
 
-interface AgentStateSnapshotFrame {
+type AgentStateSnapshotFrame = Pick<StateMessage, 'state'> & {
   snapshot: NonNullable<StateMessage['snapshot']>;
-  state: AgentStatePayload;
-}
+};
 
 interface ProjectAgentSummary {
   activeCount: number;

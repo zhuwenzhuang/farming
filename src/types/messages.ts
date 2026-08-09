@@ -1,5 +1,9 @@
 import type { Agent, AgentTerminalStatus, AppState, CodexTerminalProfile, RuntimeObservation, SystemStats, TerminalPreviewSnapshot } from './agent'
 import type {
+  StateDeltaMessage as AgentStateDeltaMessage,
+  StateMessage as AgentStateMessage,
+} from '../../shared/browser-protocol'
+import type {
   BrowserResource,
   BrowserResourceCollection,
   BrowserResourceDeletion,
@@ -194,27 +198,9 @@ export interface CommandAckMessage {
   command: string
 }
 
-export interface StateMessage {
-  type: 'state'
-  generation: string
-  sequence: number
-  snapshot?: {
-    complete: boolean
-    id: string
-    offset: number
-    total: number
-  }
-  state: Partial<Omit<AppState, 'agents'>> & { agents: Agent[] }
-}
+export type StateMessage = AgentStateMessage<Agent, Partial<Omit<AppState, 'agents'>>>
 
-export interface StateDeltaMessage {
-  type: 'state-delta'
-  generation: string
-  sequence: number
-  upserts: Agent[]
-  removedAgentIds: string[]
-  state?: Partial<Omit<AppState, 'agents'>>
-}
+export type StateDeltaMessage = AgentStateDeltaMessage<Agent, Partial<Omit<AppState, 'agents'>>>
 
 export interface ErrorMessage {
   type: 'error'

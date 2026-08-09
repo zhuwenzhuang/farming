@@ -10,6 +10,27 @@ interface ExtensibleMessage extends ObjectMessage {
   type: string
 }
 
+export interface AgentStateRecord extends ObjectMessage {
+  id: string
+}
+
+export interface AgentStateCursor {
+  generation: string
+  sequence: number
+}
+
+export interface AgentStateSnapshotPage {
+  complete: boolean
+  id: string
+  offset: number
+  total: number
+}
+
+export type AgentStatePayload<
+  AgentRecord extends { id: string } = AgentStateRecord,
+  StateMetadata extends object = ObjectMessage,
+> = StateMetadata & { agents: AgentRecord[] }
+
 export interface ProtocolClientHelloMessage extends ExtensibleMessage {
   type: 'protocol-hello'
   protocolVersion: number
@@ -153,26 +174,33 @@ export interface CommandAckMessage extends ExtensibleMessage {
   command: string
 }
 
-export interface StateMessage extends ExtensibleMessage {
+export interface StateMessage<
+  AgentRecord extends { id: string } = AgentStateRecord,
+  StateMetadata extends object = ObjectMessage,
+> extends ExtensibleMessage {
   type: 'state'
   generation: string
   sequence: number
-  snapshot?: {
-    complete: boolean
-    id: string
-    offset: number
-    total: number
-  }
-  state: ObjectMessage & { agents: unknown[] }
+  snapshot?: AgentStateSnapshotPage
+  state: AgentStatePayload<AgentRecord, StateMetadata>
 }
 
-export interface StateDeltaMessage extends ExtensibleMessage {
+export interface AgentStateDeltaBody<
+  AgentRecord extends { id: string } = AgentStateRecord,
+  StateMetadata extends object = ObjectMessage,
+> {
+  sequence: number
+  upserts: AgentRecord[]
+  removedAgentIds: string[]
+  state?: StateMetadata
+}
+
+export interface StateDeltaMessage<
+  AgentRecord extends { id: string } = AgentStateRecord,
+  StateMetadata extends object = ObjectMessage,
+> extends ExtensibleMessage, AgentStateDeltaBody<AgentRecord, StateMetadata> {
   type: 'state-delta'
   generation: string
-  sequence: number
-  upserts: Array<ObjectMessage & { id: string }>
-  removedAgentIds: string[]
-  state?: ObjectMessage
 }
 
 export interface ComposerInputResultMessage extends ExtensibleMessage {
