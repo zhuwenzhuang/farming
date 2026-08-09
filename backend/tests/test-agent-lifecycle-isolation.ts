@@ -164,6 +164,7 @@ async function run() {
     assert.strictEqual(await pendingStart, 'agent-pending-start');
     assert.strictEqual((await pendingStartKill).killed, true);
 
+    // Legacy agentRuntimeMode='json' must be rejected outright: there is no json runtime to fall back to.
     let unsupportedJsonStartError = '';
     const unsupportedJsonStart = await manager.startAgent(
       'codex',

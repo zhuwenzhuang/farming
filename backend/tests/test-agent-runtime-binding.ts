@@ -2,8 +2,11 @@ const assert = require('assert');
 const {
   isAgentRuntimeModeRequest,
   installRuntimeBinding,
+  legacyRuntimeMetadata,
   publicRuntimeBinding,
+  runtimeBindingOf,
   runtimeKind,
+  runtimeState,
 } = require('../agent-runtime-binding.cjs');
 
 function run() {
@@ -39,6 +42,26 @@ function run() {
     publicRuntimeBinding({ runtimeBinding: { kind: 'json', state: 'idle', error: '', transcriptUpdatedAt: '' } }),
     { kind: 'terminal' },
   );
+
+  // The JSON-stream runtime is gone: legacy markers resolve to terminal, never a revived json runtime.
+  const legacyJsonAgent = {
+    agentRuntimeMode: 'json',
+    jsonCliState: 'working',
+    jsonCliError: 'boom',
+    jsonCliEvents: [{ type: 'message' }],
+    jsonCliTranscriptUpdatedAt: '2026-08-10T00:00:00.000Z',
+  };
+  assert.strictEqual(runtimeKind(legacyJsonAgent), 'terminal');
+  assert.strictEqual(runtimeState(legacyJsonAgent), '');
+  assert.strictEqual(runtimeBindingOf(legacyJsonAgent, 'acp'), null);
+  assert.deepStrictEqual(runtimeBindingOf(legacyJsonAgent, 'terminal'), { kind: 'terminal' });
+  assert.deepStrictEqual(legacyRuntimeMetadata(legacyJsonAgent), { agentRuntimeMode: 'terminal' });
+  const installedJsonAgent = installRuntimeBinding(legacyJsonAgent);
+  assert.deepStrictEqual(installedJsonAgent.runtimeBinding, { kind: 'terminal' });
+  for (const field of ['agentRuntimeMode', 'jsonCliState', 'jsonCliError', 'jsonCliEvents', 'jsonCliTranscriptUpdatedAt']) {
+    assert.strictEqual(field in installedJsonAgent, false);
+  }
+
   const acpAgent = installRuntimeBinding({
     agentRuntimeMode: 'acp',
     acpState: 'working',
