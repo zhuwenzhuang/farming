@@ -28,35 +28,7 @@ type JsonRecord = Record<string, unknown>;
 
 const execFileAsync = promisify(execFile);
 const MAX_DOWNLOAD_BYTES = 512 * 1024 * 1024;
-const JDTLS_VERSION = '1.60.0';
-const LANGUAGE_SERVER_DOWNLOADS = {
-  clangd: {
-    darwin: {
-      name: 'clangd-mac-22.1.6.zip',
-      sha256: '631aef462556cbd74e0ebaae1778a38d1997d0ba3371652ca54f82652a179e7d',
-      url: 'https://github.com/clangd/clangd/releases/download/22.1.6/clangd-mac-22.1.6.zip',
-      version: '22.1.6',
-    },
-    linux: {
-      name: 'clangd-linux-22.1.6.zip',
-      sha256: 'a9c77443af2e447ed467e84771848d3a6ac1c56f84bcfcde717e66318de77cfa',
-      url: 'https://github.com/clangd/clangd/releases/download/22.1.6/clangd-linux-22.1.6.zip',
-      version: '22.1.6',
-    },
-    win32: {
-      name: 'clangd-windows-22.1.6.zip',
-      sha256: 'ce54f16e0b4fd76d450eeda9664420b195360b73febcfe40e661108fa57f2ce1',
-      url: 'https://github.com/clangd/clangd/releases/download/22.1.6/clangd-windows-22.1.6.zip',
-      version: '22.1.6',
-    },
-  },
-  jdtls: {
-    name: 'jdt-language-server-1.60.0-202606262232.tar.gz',
-    sha256: 'e94c303d8198f977930803582738771fd18c52c5492878410bf222b1aa81ef1d',
-    url: 'https://download.eclipse.org/jdtls/milestones/1.60.0/jdt-language-server-1.60.0-202606262232.tar.gz',
-    version: JDTLS_VERSION,
-  },
-} as const;
+const LANGUAGE_SERVER_METADATA_TIMEOUT_MS = 15_000;
 const extractZip = require('extract-zip') as (source: string, options: { dir: string }) => Promise<void>;
 
 type DownloadArtifact = {
@@ -83,6 +55,7 @@ interface ManagedLanguageServerManagerOptions {
   configDir: string;
   definitions?: LanguageServerDefinition[];
   env?: NodeJS.ProcessEnv;
+  fetchImpl?: typeof fetch;
   onRefresh?: (event: ManagedLanguageServerRefreshEvent) => void;
   clientFactory?: (options: {
     id: string;
@@ -107,6 +80,10 @@ interface LaunchCommand {
   args: string[];
 }
 
+interface CachedRuntime {
+  path: string;
+}
+
 function recordValue(value: unknown): JsonRecord {
   return value && typeof value === 'object' ? value as JsonRecord : {};
 }
@@ -123,6 +100,78 @@ function which(command: string, env: NodeJS.ProcessEnv): string {
   } catch {
     return '';
   }
+}
+
+async function fetchText(url: string, fetchImpl: typeof fetch): Promise<string> {
+  const response = await fetchImpl(url, {
+    headers: { 'User-Agent': 'Farming-Language-Server' },
+    signal: AbortSignal.timeout(LANGUAGE_SERVER_METADATA_TIMEOUT_MS),
+  });
+  if (!response.ok) {
+    throw languageServerError(`Language Server metadata request failed: HTTP ${response.status}`, 'LANGUAGE_SERVER_DOWNLOAD_FAILED');
+  }
+  return response.text();
+}
+
+async function resolveLatestClangdArtifact(
+  fetchImpl: typeof fetch = fetch,
+  platform: NodeJS.Platform = process.platform,
+): Promise<DownloadArtifact> {
+  const platformName = platform === 'darwin' ? 'mac' : platform === 'linux' ? 'linux' : platform === 'win32' ? 'windows' : '';
+  if (!platformName) {
+    throw languageServerError(`clangd does not publish a managed binary for ${platform}`, 'LANGUAGE_SERVER_RUNTIME_UNAVAILABLE', 503);
+  }
+  const latestResponse = await fetchImpl('https://github.com/clangd/clangd/releases/latest', {
+    method: 'HEAD',
+    redirect: 'manual',
+    headers: { 'User-Agent': 'Farming-Language-Server' },
+    signal: AbortSignal.timeout(LANGUAGE_SERVER_METADATA_TIMEOUT_MS),
+  });
+  const location = latestResponse.headers.get('location') || '';
+  const version = location.match(/\/releases\/tag\/(\d+\.\d+\.\d+)$/)?.[1] || '';
+  if (!version) {
+    throw languageServerError('clangd latest release was not found', 'LANGUAGE_SERVER_DOWNLOAD_FAILED');
+  }
+  const name = `clangd-${platformName}-${version}.zip`;
+  const releaseHtml = await fetchText(
+    `https://github.com/clangd/clangd/releases/expanded_assets/${encodeURIComponent(version)}`,
+    fetchImpl,
+  );
+  const assetIndex = releaseHtml.indexOf(`/clangd/clangd/releases/download/${version}/${name}`);
+  const sha256 = assetIndex < 0
+    ? ''
+    : releaseHtml.slice(assetIndex, assetIndex + 5_000).match(/sha256:([a-f0-9]{64})/i)?.[1] || '';
+  if (!sha256) {
+    throw languageServerError(`clangd release did not publish a SHA-256 digest for ${name}`, 'LANGUAGE_SERVER_DOWNLOAD_FAILED');
+  }
+  return {
+    name,
+    sha256,
+    url: `https://github.com/clangd/clangd/releases/download/${version}/${name}`,
+    version,
+  };
+}
+
+async function resolveLatestJdtlsArtifact(fetchImpl: typeof fetch = fetch): Promise<DownloadArtifact> {
+  const milestonesUrl = 'https://download.eclipse.org/jdtls/milestones/';
+  const milestones = await fetchText(milestonesUrl, fetchImpl);
+  const versions = [...milestones.matchAll(/\/jdtls\/milestones\/(\d+\.\d+\.\d+)/g)]
+    .map(match => match[1])
+    .sort((left, right) => right.localeCompare(left, undefined, { numeric: true }));
+  const version = versions[0] || '';
+  if (!version) {
+    throw languageServerError('JDTLS latest milestone was not found', 'LANGUAGE_SERVER_DOWNLOAD_FAILED');
+  }
+  const releaseUrl = `${milestonesUrl}${version}/`;
+  const name = (await fetchText(`${releaseUrl}latest.txt`, fetchImpl)).trim();
+  if (!new RegExp(`^jdt-language-server-${version.replaceAll('.', '\\.')}\\-\\d{12}\\.tar\\.gz$`).test(name)) {
+    throw languageServerError('JDTLS latest milestone returned an invalid archive name', 'LANGUAGE_SERVER_DOWNLOAD_FAILED');
+  }
+  const sha256 = (await fetchText(`${releaseUrl}${name}.sha256`, fetchImpl)).match(/[a-f0-9]{64}/i)?.[0] || '';
+  if (!sha256) {
+    throw languageServerError('JDTLS latest milestone did not publish a SHA-256 digest', 'LANGUAGE_SERVER_DOWNLOAD_FAILED');
+  }
+  return { name, sha256, url: `${releaseUrl}${name}`, version };
 }
 
 async function downloadFile(
@@ -171,10 +220,23 @@ async function downloadFile(
   }
 }
 
-function cachedClangd(cacheRoot: string, version: string): string {
+function cachedClangdVersion(cacheRoot: string, version: string): string {
   const executableName = process.platform === 'win32' ? 'clangd.exe' : 'clangd';
   const candidate = path.join(cacheRoot, `clangd_${version}`, 'bin', executableName);
   return fs.existsSync(candidate) ? candidate : '';
+}
+
+function cachedClangd(cacheRoot: string): CachedRuntime | null {
+  try {
+    for (const entry of fs.readdirSync(cacheRoot).sort((left, right) => right.localeCompare(left, undefined, { numeric: true }))) {
+      const version = entry.match(/^clangd_(\d+\.\d+\.\d+)$/)?.[1] || '';
+      const executable = version ? cachedClangdVersion(cacheRoot, version) : '';
+      if (executable) return { path: executable };
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 function jdtlsLauncher(distPath: string): string {
@@ -185,6 +247,19 @@ function jdtlsLauncher(distPath: string): string {
   } catch {
     return '';
   }
+}
+
+function cachedJdtls(cacheRoot: string): CachedRuntime | null {
+  try {
+    for (const version of fs.readdirSync(cacheRoot).sort((left, right) => right.localeCompare(left, undefined, { numeric: true }))) {
+      if (!/^\d+\.\d+\.\d+$/.test(version)) continue;
+      const distPath = path.join(cacheRoot, version);
+      if (jdtlsLauncher(distPath)) return { path: distPath };
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 function javaMajorVersion(java: string): number {
@@ -201,17 +276,20 @@ class ManagedLanguageServerManager {
   private readonly configDir: string;
   private readonly definitions: LanguageServerDefinition[];
   private readonly env: NodeJS.ProcessEnv;
+  private readonly fetchImpl: typeof fetch;
   private readonly clientFactory: NonNullable<ManagedLanguageServerManagerOptions['clientFactory']>;
   private readonly onRefresh: NonNullable<ManagedLanguageServerManagerOptions['onRefresh']>;
   private readonly clients = new Map<string, ManagedClient>();
   private readonly spawning = new Map<string, Promise<ManagedClient>>();
   private readonly preparing = new Map<string, Promise<string>>();
+  private readonly updateChecks = new Set<string>();
   private readonly refreshRevisions = new Map<string, number>();
 
   constructor(options: ManagedLanguageServerManagerOptions) {
     this.configDir = options.configDir;
     this.definitions = options.definitions || LANGUAGE_SERVERS;
     this.env = options.env || process.env;
+    this.fetchImpl = options.fetchImpl || fetch;
     this.clientFactory = options.clientFactory || (value => ManagedLanguageServerClient.create(value));
     this.onRefresh = options.onRefresh || (() => {});
   }
@@ -283,58 +361,86 @@ class ManagedLanguageServerManager {
     return task;
   }
 
-  private async prepareClangd(): Promise<string> {
-    return this.prepareOnce('clangd', async () => {
-      const artifact = LANGUAGE_SERVER_DOWNLOADS.clangd[
-        process.platform as keyof typeof LANGUAGE_SERVER_DOWNLOADS.clangd
-      ] as DownloadArtifact | undefined;
-      if (!artifact) return '';
-      const cacheRoot = this.cacheRoot('clangd');
-      const cached = cachedClangd(cacheRoot, artifact.version);
-      if (cached) return cached;
-
-      await fs.promises.mkdir(cacheRoot, { recursive: true });
-      const tempRoot = await fs.promises.mkdtemp(path.join(cacheRoot, '.prepare-'));
-      try {
-        const archive = path.join(tempRoot, artifact.name);
-        const extractRoot = path.join(tempRoot, 'extract');
-        await fs.promises.mkdir(extractRoot);
-        await downloadFile(artifact.url, archive, artifact.sha256);
-        await extractZip(archive, { dir: extractRoot });
-        const source = path.join(extractRoot, `clangd_${artifact.version}`);
-        const finalPath = path.join(cacheRoot, `clangd_${artifact.version}`);
-        if (!fs.existsSync(source)) return '';
-        if (!fs.existsSync(finalPath)) await fs.promises.rename(source, finalPath);
-        const executable = cachedClangd(cacheRoot, artifact.version);
-        if (executable && process.platform !== 'win32') await fs.promises.chmod(executable, 0o755);
-        return executable;
-      } finally {
-        await fs.promises.rm(tempRoot, { recursive: true, force: true });
-      }
+  private checkForUpdate(id: string, operation: () => Promise<string>): void {
+    if (this.updateChecks.has(id)) return;
+    this.updateChecks.add(id);
+    void this.prepareOnce(id, operation).catch(error => {
+      console.warn(`Failed to update managed ${id}; continuing with the cached version`, error);
     });
   }
 
-  private async prepareJdtls(): Promise<string> {
-    return this.prepareOnce('jdtls', async () => {
-      const artifact: DownloadArtifact = LANGUAGE_SERVER_DOWNLOADS.jdtls;
-      const cacheRoot = this.cacheRoot('jdtls');
-      const current = path.join(cacheRoot, artifact.version);
-      if (jdtlsLauncher(current)) return current;
-      await fs.promises.mkdir(cacheRoot, { recursive: true });
-      const tempRoot = await fs.promises.mkdtemp(path.join(cacheRoot, '.prepare-'));
-      try {
-        const archive = path.join(tempRoot, artifact.name);
-        const extractRoot = path.join(tempRoot, 'extract');
-        await fs.promises.mkdir(extractRoot);
-        await downloadFile(artifact.url, archive, artifact.sha256);
-        await execFileAsync('tar', ['-xzf', archive, '-C', extractRoot], { timeout: 120_000 });
-        if (!jdtlsLauncher(extractRoot)) return '';
-        if (!fs.existsSync(current)) await fs.promises.rename(extractRoot, current);
-        return current;
-      } finally {
-        await fs.promises.rm(tempRoot, { recursive: true, force: true });
+  private async installLatestClangd(): Promise<string> {
+    const artifact = await resolveLatestClangdArtifact(this.fetchImpl);
+    const cacheRoot = this.cacheRoot('clangd');
+    const installed = cachedClangdVersion(cacheRoot, artifact.version);
+    if (installed) return installed;
+
+    await fs.promises.mkdir(cacheRoot, { recursive: true });
+    const tempRoot = await fs.promises.mkdtemp(path.join(cacheRoot, '.prepare-'));
+    try {
+      const archive = path.join(tempRoot, artifact.name);
+      const extractRoot = path.join(tempRoot, 'extract');
+      await fs.promises.mkdir(extractRoot);
+      await downloadFile(artifact.url, archive, artifact.sha256, { fetchImpl: this.fetchImpl });
+      await extractZip(archive, { dir: extractRoot });
+      const source = path.join(extractRoot, `clangd_${artifact.version}`);
+      const finalPath = path.join(cacheRoot, `clangd_${artifact.version}`);
+      if (!fs.existsSync(source)) {
+        throw languageServerError('clangd archive did not contain the expected runtime', 'LANGUAGE_SERVER_RESULT_INVALID');
       }
-    });
+      if (!fs.existsSync(finalPath)) await fs.promises.rename(source, finalPath);
+      const executable = cachedClangdVersion(cacheRoot, artifact.version);
+      if (!executable) {
+        throw languageServerError('clangd archive did not contain the expected executable', 'LANGUAGE_SERVER_RESULT_INVALID');
+      }
+      if (process.platform !== 'win32') await fs.promises.chmod(executable, 0o755);
+      return executable;
+    } finally {
+      await fs.promises.rm(tempRoot, { recursive: true, force: true });
+    }
+  }
+
+  private async prepareClangd(): Promise<string> {
+    const cached = cachedClangd(this.cacheRoot('clangd'));
+    if (cached) {
+      this.checkForUpdate('clangd', () => this.installLatestClangd());
+      return cached.path;
+    }
+    this.updateChecks.add('clangd');
+    return this.prepareOnce('clangd', () => this.installLatestClangd());
+  }
+
+  private async installLatestJdtls(): Promise<string> {
+    const artifact = await resolveLatestJdtlsArtifact(this.fetchImpl);
+    const cacheRoot = this.cacheRoot('jdtls');
+    const current = path.join(cacheRoot, artifact.version);
+    if (jdtlsLauncher(current)) return current;
+    await fs.promises.mkdir(cacheRoot, { recursive: true });
+    const tempRoot = await fs.promises.mkdtemp(path.join(cacheRoot, '.prepare-'));
+    try {
+      const archive = path.join(tempRoot, artifact.name);
+      const extractRoot = path.join(tempRoot, 'extract');
+      await fs.promises.mkdir(extractRoot);
+      await downloadFile(artifact.url, archive, artifact.sha256, { fetchImpl: this.fetchImpl });
+      await execFileAsync('tar', ['-xzf', archive, '-C', extractRoot], { timeout: 120_000 });
+      if (!jdtlsLauncher(extractRoot)) {
+        throw languageServerError('JDTLS archive did not contain the expected runtime', 'LANGUAGE_SERVER_RESULT_INVALID');
+      }
+      if (!fs.existsSync(current)) await fs.promises.rename(extractRoot, current);
+      return current;
+    } finally {
+      await fs.promises.rm(tempRoot, { recursive: true, force: true });
+    }
+  }
+
+  private async prepareJdtls(): Promise<string> {
+    const cached = cachedJdtls(this.cacheRoot('jdtls'));
+    if (cached) {
+      this.checkForUpdate('jdtls', () => this.installLatestJdtls());
+      return cached.path;
+    }
+    this.updateChecks.add('jdtls');
+    return this.prepareOnce('jdtls', () => this.installLatestJdtls());
   }
 
   private async launchCommand(definition: LanguageServerDefinition, root: string): Promise<LaunchCommand> {
@@ -486,9 +592,10 @@ class ManagedLanguageServerManager {
 }
 
 export {
-  LANGUAGE_SERVER_DOWNLOADS,
   ManagedLanguageServerManager,
   downloadFile,
+  resolveLatestClangdArtifact,
+  resolveLatestJdtlsArtifact,
   type ManagedLanguageServerRefreshEvent,
   type ManagedLanguageServerManagerOptions,
 };

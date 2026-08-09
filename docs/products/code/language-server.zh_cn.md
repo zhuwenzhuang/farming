@@ -102,13 +102,15 @@ State 已清除的 Marker 再写回来。
 重新启动。Request 与 Shutdown 都必须有界；失败保持可见，不静默切换到另一 Provider。
 
 Backend 优先启动 Project Host 上已经存在的匹配 Language Server Executable。clangd 或
-JDTLS 不可用时，Farming 可以按需安装仓库固定的 Runtime Version，但不会解析可变的
-`latest` Archive：每个 Managed Download 都有仓库固定的 URL 与 SHA-256，并在解压或执行前
-验证。摘要缺失或不匹配时返回可操作的显式错误。
+JDTLS 不可用时，Farming 会解析 Upstream 最新 Stable Release 并按需安装。已有 Managed
+Runtime 时立即启动缓存，同时在后台执行一次更新检查；更新失败继续保留该缓存。新的下载必须取得
+Upstream Release 发布的 SHA-256，并在解压或执行前验证。摘要缺失或不匹配时返回可操作的显式
+错误。
 
 ## 验收标准
 
 验证必须覆盖：Project Root Discovery、Saved-file Semantics、Result Filtering、Process Reuse
-与 Restart、Concurrent Request、显式失败、Remote SSH Ownership、静态与动态 Capability
-Registration、Semantic Legend Mapping、Visible-range Inlay Request、按 Project 有序的 Provider
-Refresh、Dirty Model Refresh Rejection、Stale-result Fencing，以及代表性真实 Language Server。
+与 Restart、Concurrent Request、显式失败、Remote SSH Ownership、Stable Release Discovery、
+Cached Runtime Update Fallback、静态与动态 Capability Registration、Semantic Legend Mapping、
+Visible-range Inlay Request、按 Project 有序的 Provider Refresh、Dirty Model Refresh Rejection、
+Stale-result Fencing，以及代表性真实 Language Server。

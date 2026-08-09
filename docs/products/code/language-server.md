@@ -132,17 +132,20 @@ again. Requests and shutdown are bounded, and failures remain visible instead
 of silently switching to another provider.
 
 The backend prefers a matching Language Server executable already available on
-the Project host. When clangd or JDTLS is unavailable, Farming may install its
-repository-pinned runtime version on demand. It does not resolve mutable
-`latest` archives: every managed download has a repository-pinned URL and
-SHA-256 digest, and is verified before extraction or execution. Missing or
-mismatched integrity metadata fails with an actionable error.
+the Project host. When clangd or JDTLS is unavailable, Farming resolves the
+latest stable upstream release and installs it on demand. A cached managed
+runtime starts immediately while one update check runs in the background; an
+update failure keeps that cached runtime available. Fresh downloads require the
+SHA-256 digest published with the upstream release and are verified before
+extraction or execution. Missing or mismatched integrity metadata fails with an
+actionable error.
 
 ## Acceptance Criteria
 
 Verification must cover Project-root discovery, saved-file semantics, result
 filtering, process reuse and restart, concurrent requests, explicit failure,
-Remote SSH ownership, static and dynamic capability registration, semantic
-legend mapping, visible-range inlay requests, ordered Project-scoped provider
-refresh, dirty-model refresh rejection, stale-result fencing, and representative
-real language servers.
+Remote SSH ownership, stable-release discovery, cached-runtime update fallback,
+static and dynamic capability registration, semantic legend mapping,
+visible-range inlay requests, ordered Project-scoped provider refresh,
+dirty-model refresh rejection, stale-result fencing, and representative real
+language servers.

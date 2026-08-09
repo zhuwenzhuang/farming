@@ -6,9 +6,10 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const {
-  LANGUAGE_SERVER_DOWNLOADS,
   ManagedLanguageServerManager,
   downloadFile,
+  resolveLatestClangdArtifact,
+  resolveLatestJdtlsArtifact,
 } = require('../../extensions/language-server/backend/managed-language-server-manager.cjs');
 const {
   resolveLanguageServer,
@@ -28,14 +29,48 @@ async function run() {
     onRefresh: event => refreshEvents.push(event),
   });
   try {
-    const artifacts = [
-      ...Object.values(LANGUAGE_SERVER_DOWNLOADS.clangd),
-      LANGUAGE_SERVER_DOWNLOADS.jdtls,
-    ] as Array<{ sha256: string; url: string }>;
-    for (const artifact of artifacts) {
-      assert.doesNotMatch(artifact.url, /\/latest(?:\/|$)/);
-      assert.match(artifact.sha256, /^[a-f0-9]{64}$/);
-    }
+    const clangdDigest = 'a'.repeat(64);
+    const clangdFetch: typeof fetch = async input => {
+      const url = String(input);
+      if (url.endsWith('/releases/latest')) {
+        return new Response(null, {
+          status: 302,
+          headers: { location: 'https://github.com/clangd/clangd/releases/tag/23.1.2' },
+        });
+      }
+      if (url.endsWith('/releases/expanded_assets/23.1.2')) {
+        return new Response(`/clangd/clangd/releases/download/23.1.2/clangd-linux-23.1.2.zip sha256:${clangdDigest}`);
+      }
+      throw new Error(`Unexpected clangd metadata request: ${url}`);
+    };
+    assert.deepStrictEqual(await resolveLatestClangdArtifact(clangdFetch, 'linux'), {
+      name: 'clangd-linux-23.1.2.zip',
+      sha256: clangdDigest,
+      url: 'https://github.com/clangd/clangd/releases/download/23.1.2/clangd-linux-23.1.2.zip',
+      version: '23.1.2',
+    });
+
+    const jdtlsDigest = 'b'.repeat(64);
+    const jdtlsFetch: typeof fetch = async input => {
+      const url = String(input);
+      if (url.endsWith('/milestones/')) {
+        return new Response("<a href='/jdtls/milestones/1.9.0'>1.9.0</a><a href='/jdtls/milestones/1.60.0'>1.60.0</a>");
+      }
+      if (url.endsWith('/1.60.0/latest.txt')) {
+        return new Response('jdt-language-server-1.60.0-202606262232.tar.gz\n');
+      }
+      if (url.endsWith('/1.60.0/jdt-language-server-1.60.0-202606262232.tar.gz.sha256')) {
+        return new Response(`${jdtlsDigest}\n`);
+      }
+      throw new Error(`Unexpected JDTLS metadata request: ${url}`);
+    };
+    assert.deepStrictEqual(await resolveLatestJdtlsArtifact(jdtlsFetch), {
+      name: 'jdt-language-server-1.60.0-202606262232.tar.gz',
+      sha256: jdtlsDigest,
+      url: 'https://download.eclipse.org/jdtls/milestones/1.60.0/jdt-language-server-1.60.0-202606262232.tar.gz',
+      version: '1.60.0',
+    });
+
     const downloadPayload = Buffer.from('verified language server archive');
     const expectedSha256 = crypto.createHash('sha256').update(downloadPayload).digest('hex');
     const verifiedDownload = path.join(tempDir, 'verified-download');
@@ -60,6 +95,61 @@ async function run() {
     const cpp = await resolveLanguageServer(cppFile, cppRoot);
     assert.strictEqual(cpp?.definition.id, 'clangd');
     assert.strictEqual(cpp?.root, cppRoot);
+
+    const cachedConfigDir = path.join(tempDir, 'cached-config');
+    const cachedClangd = path.join(
+      cachedConfigDir,
+      'language-servers',
+      'clangd',
+      'clangd_23.1.2',
+      'bin',
+      process.platform === 'win32' ? 'clangd.exe' : 'clangd',
+    );
+    fs.mkdirSync(path.dirname(cachedClangd), { recursive: true });
+    fs.writeFileSync(cachedClangd, 'cached clangd');
+    let launchedCommand = '';
+    const cachedFetch: typeof fetch = async () => { throw new Error('offline'); };
+    const cachedManager = new ManagedLanguageServerManager({
+      configDir: cachedConfigDir,
+      definitions: [{
+        id: 'clangd',
+        extensions: ['.cpp'],
+        command: ['clangd'],
+        rootMarkers: ['compile_commands.json'],
+      }],
+      env: { ...process.env, PATH: '' },
+      fetchImpl: cachedFetch,
+      clientFactory: async (value: { id: string; command: string; root: string; workspaceRoot: string }) => {
+        launchedCommand = value.command;
+        return {
+          id: value.id,
+          root: value.root,
+          workspaceRoot: value.workspaceRoot,
+          execute: async () => ({ result: [], supported: true }),
+          ownsHierarchyHandle: () => false,
+          dispose: async () => undefined,
+        };
+      },
+    });
+    const originalWarn = console.warn;
+    let updateWarning = '';
+    console.warn = (...values: unknown[]) => { updateWarning = values.map(String).join(' '); };
+    try {
+      await cachedManager.request({
+        workspace: pathToFileURL(cppRoot).toString(),
+        uri: pathToFileURL(cppFile).toString(),
+        method: 'definition',
+        position: { line: 0, character: 0 },
+      });
+      assert.strictEqual(launchedCommand, cachedClangd, 'a cached runtime should start without waiting for its update check');
+      for (let attempt = 0; attempt < 10 && !updateWarning; attempt += 1) {
+        await new Promise(resolve => setImmediate(resolve));
+      }
+      assert.match(updateWarning, /continuing with the cached version/);
+    } finally {
+      console.warn = originalWarn;
+      await cachedManager.dispose();
+    }
 
     const javaRoot = path.join(tempDir, 'java');
     const javaModule = path.join(javaRoot, 'module');
