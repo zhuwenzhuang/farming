@@ -45,6 +45,7 @@ class ComposerAdmissionHarness {
   deliverCount = 0;
   failPersistState = '';
   ownerCurrent = true;
+  ownerFailure: unknown = null;
   persistCount = 0;
   delivery: AgentComposerAdmissionPorts['deliver'] = async request => {
     this.deliverCount += 1;
@@ -56,6 +57,7 @@ class ComposerAdmissionHarness {
   readonly ports: AgentComposerAdmissionPorts = {
     captureDeliveryOwner: () => ({
       assertCurrent: () => {
+        if (this.ownerFailure) throw this.ownerFailure;
         if (!this.ownerCurrent) {
           throw Object.assign(new Error('runtime owner changed'), { uncertain: true });
         }
@@ -210,6 +212,93 @@ test('definitive failure may retry while uncertain failure may not', async () =>
     /will not be replayed automatically|transport ownership unknown/,
   );
   assert.equal(harness.deliverCount, 3);
+});
+
+test('a zero-effect runtime replacement on the exact record fails definitively', async () => {
+  const harness = new ComposerAdmissionHarness();
+  const coordinator = harness.coordinator();
+  const replacedRuntime = Object.assign(
+    new Error('Agent runtime changed before Terminal message delivery'),
+    { composerRecordExact: true, composerZeroEffect: true },
+  );
+  harness.delivery = async () => {
+    harness.deliverCount += 1;
+    harness.ownerFailure = replacedRuntime;
+    throw replacedRuntime;
+  };
+
+  await assert.rejects(
+    harness.request(coordinator, 'queued behind a replaced runtime', 'request-epoch'),
+    error => (
+      error instanceof Error
+      && (error as Error & { uncertain?: boolean }).uncertain !== true
+      && /before Terminal message delivery/.test(error.message)
+    ),
+  );
+  assert.equal(harness.persisted.get('request-epoch')?.state, 'failed');
+
+  harness.ownerFailure = null;
+  harness.delivery = async request => {
+    harness.deliverCount += 1;
+    assert.equal(request.retryDefinitiveFailure, true);
+    request.onSubmitted({ kind: 'acp' });
+    return { kind: 'acp' };
+  };
+  assert.equal(
+    (await harness.request(coordinator, 'queued behind a replaced runtime', 'request-epoch') as {
+      accepted?: boolean;
+    }).accepted,
+    true,
+  );
+  assert.equal(harness.deliverCount, 2);
+});
+
+test('a replaced Agent record is never written and stays uncertain', async () => {
+  const harness = new ComposerAdmissionHarness();
+  harness.delivery = async () => {
+    harness.deliverCount += 1;
+    harness.ownerFailure = Object.assign(
+      new Error('Agent record was replaced before Composer message delivery'),
+      { composerRecordExact: false, uncertain: true },
+    );
+    throw Object.assign(
+      new Error('Agent runtime changed before Terminal message delivery'),
+      { composerZeroEffect: true },
+    );
+  };
+
+  await assert.rejects(
+    harness.request(harness.coordinator(), 'replaced record', 'request-replaced'),
+    error => error instanceof Error && (error as Error & { uncertain?: boolean }).uncertain === true,
+  );
+  assert.equal(harness.persisted.get('request-replaced')?.state, 'intent');
+  assert.equal(harness.agent.composerCommands?.at(-1)?.state, 'intent');
+});
+
+test('an unproven delivery error stays uncertain even when ownership proves zero effect', async () => {
+  const harness = new ComposerAdmissionHarness();
+  const coordinator = harness.coordinator();
+  harness.delivery = async () => {
+    harness.deliverCount += 1;
+    harness.ownerFailure = Object.assign(
+      new Error('Agent runtime changed before Terminal message delivery'),
+      { composerRecordExact: true, composerZeroEffect: true },
+    );
+    throw new Error('Terminal runtime is unavailable');
+  };
+
+  await assert.rejects(
+    harness.request(coordinator, 'unproven terminal failure', 'request-unproven'),
+    error => error instanceof Error && (error as Error & { uncertain?: boolean }).uncertain === true,
+  );
+  assert.equal(harness.persisted.get('request-unproven')?.state, 'unknown');
+
+  harness.ownerFailure = null;
+  await assert.rejects(
+    harness.request(coordinator, 'unproven terminal failure', 'request-unproven'),
+    /will not be replayed automatically|Terminal runtime is unavailable/,
+  );
+  assert.equal(harness.deliverCount, 1, 'an unknown outcome must never replay delivery');
 });
 
 test('recovered intent becomes unknown before any delivery', async () => {

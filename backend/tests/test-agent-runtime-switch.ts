@@ -4,6 +4,31 @@ const os = require('os');
 const path = require('path');
 const { AgentManager } = require('../agent-manager.cjs');
 
+interface ComposerCommandProbe {
+  requestId?: string;
+  state?: 'intent' | 'accepted' | 'unknown' | 'failed';
+}
+
+interface StaleComposerAgentRecord {
+  id: string;
+  command: string;
+  forkCommand: string;
+  cwd: string;
+  projectWorkspace: string;
+  providerSessionProvider: string;
+  providerSessionId: string;
+  providerSessionTemporary: boolean;
+  providerHomeId: string;
+  providerHomePath: string;
+  runtimeBinding: { kind: string; state: string };
+  status: string;
+  composerCommands?: ComposerCommandProbe[];
+}
+
+interface ComposerTerminalInputOptions {
+  expectedRuntimeEpoch?: string;
+}
+
 function deferred() {
   let resolve;
   let reject;
@@ -688,15 +713,16 @@ function deferred() {
   assert.match(promptFirstSwitchResult.error, /delivery finished while the runtime switch was waiting/);
   assert.strictEqual(raceKills, 1, 'prompt-first switch must terminate without killing the admitted runtime');
 
-  const staleReconnectStarted = deferred();
-  const staleReconnectRelease = deferred();
+  raceManager.acpRuntime.getTranscriptSessionForRead = async () => ({ sessionId, entries: [] });
+  const rebindReconnectStarted = deferred();
+  const rebindReconnectRelease = deferred();
   raceManager.acpRuntime.reconnectAgent = async () => {
-    staleReconnectStarted.resolve();
-    await staleReconnectRelease.promise;
+    rebindReconnectStarted.resolve();
+    await rebindReconnectRelease.promise;
     return { reconnected: true };
   };
-  raceManager.agents.set('stale-binding', {
-    id: 'stale-binding',
+  const hostRebindAgent = {
+    id: 'host-rebind',
     command: 'codex',
     forkCommand: 'codex',
     cwd: '/tmp/project',
@@ -708,25 +734,132 @@ function deferred() {
     providerHomePath: codexHome,
     runtimeBinding: { kind: 'acp', state: 'idle' },
     status: 'running',
-  });
+  };
+  raceManager.agents.set('host-rebind', hostRebindAgent);
+  const rebindAdmission = raceManager.sendPersistentComposerMessage(
+    'host-rebind',
+    'admit through a recovered Host binding',
+    'host-rebind-request',
+  );
+  await rebindReconnectStarted.promise;
+  bindingEpoch = 'binding-2';
+  hostRebindAgent.runtimeBinding = { ...hostRebindAgent.runtimeBinding };
+  rebindReconnectRelease.resolve();
+  assert.strictEqual((await rebindAdmission).accepted, true);
+  assert.strictEqual(raceAcpSubmissions, 2, 'Host recovery on the exact record must submit exactly once');
+  assert.strictEqual(
+    raceManager.agents.get('host-rebind').composerCommands.at(-1).state,
+    'accepted',
+    'a recovered Host binding on the exact record is not a cross-runtime ownership change',
+  );
+
+  const staleReconnectStarted = deferred();
+  const staleReconnectRelease = deferred();
+  raceManager.acpRuntime.reconnectAgent = async () => {
+    staleReconnectStarted.resolve();
+    await staleReconnectRelease.promise;
+    return { reconnected: true };
+  };
+  const staleRecord: StaleComposerAgentRecord = {
+    id: 'stale-record',
+    command: 'codex',
+    forkCommand: 'codex',
+    cwd: '/tmp/project',
+    projectWorkspace: '/tmp/project',
+    providerSessionProvider: 'codex',
+    providerSessionId: sessionId,
+    providerSessionTemporary: false,
+    providerHomeId: 'zwz',
+    providerHomePath: codexHome,
+    runtimeBinding: { kind: 'acp', state: 'idle' },
+    status: 'running',
+  };
+  raceManager.agents.set('stale-record', staleRecord);
   const staleAdmission = raceManager.sendPersistentComposerMessage(
-    'stale-binding',
-    'never submit across a replaced binding',
-    'stale-binding-request',
+    'stale-record',
+    'never submit through a replaced record',
+    'stale-record-request',
   );
   await staleReconnectStarted.promise;
-  bindingEpoch = 'binding-2';
+  raceManager.agents.set('stale-record', { ...staleRecord, composerCommands: [] });
   staleReconnectRelease.resolve();
   await assert.rejects(
     staleAdmission,
-    error => error?.uncertain === true && /runtime changed/.test(error.message),
+    error => error?.uncertain === true && /record was replaced/.test(error.message),
   );
-  assert.strictEqual(raceAcpSubmissions, 1, 'stale ACP binding must fail before provider submission');
+  assert.strictEqual(raceAcpSubmissions, 2, 'a replaced Agent record must fail before provider submission');
   assert.strictEqual(
-    raceManager.agents.get('stale-binding').composerCommands.at(-1).state,
+    staleRecord.composerCommands.at(-1).state,
     'intent',
     'stale ownership must not persist a terminal outcome through the old record',
   );
+
+  const rotatedTerminalAgent = {
+    id: 'terminal-epoch-rotation',
+    command: 'codex',
+    forkCommand: 'codex',
+    cwd: '/tmp/project',
+    projectWorkspace: '/tmp/project',
+    providerSessionProvider: 'codex',
+    providerSessionId: sessionId,
+    providerSessionTemporary: false,
+    providerHomeId: 'zwz',
+    providerHomePath: codexHome,
+    agentRuntimeMode: 'terminal',
+    runtimeEpoch: 'terminal-epoch-1',
+    status: 'running',
+  };
+  raceManager.agents.set('terminal-epoch-rotation', rotatedTerminalAgent);
+  let terminalSessionEpoch = 'terminal-epoch-1';
+  let rotatedTerminalWrites = 0;
+  let gateRotatedTerminalInput = true;
+  const rotatedInputStarted = deferred();
+  const rotatedInputRelease = deferred();
+  raceManager.engineBridge.getEngine = () => ({
+    async sendInput(_agentId, _input, options: ComposerTerminalInputOptions = {}) {
+      if (gateRotatedTerminalInput) {
+        gateRotatedTerminalInput = false;
+        rotatedInputStarted.resolve();
+        await rotatedInputRelease.promise;
+      }
+      if (options.expectedRuntimeEpoch && options.expectedRuntimeEpoch !== terminalSessionEpoch) {
+        return { status: 'input-rejected', reason: 'runtime-epoch-mismatch' };
+      }
+      rotatedTerminalWrites += 1;
+      return { sent: true };
+    },
+  });
+  const rotatedAdmission = raceManager.sendPersistentComposerMessage(
+    'terminal-epoch-rotation',
+    'never write through a rotated Terminal runtime',
+    'terminal-epoch-rotation-request',
+  );
+  await rotatedInputStarted.promise;
+  terminalSessionEpoch = 'terminal-epoch-2';
+  rotatedTerminalAgent.runtimeEpoch = 'terminal-epoch-2';
+  rotatedInputRelease.resolve();
+  await assert.rejects(
+    rotatedAdmission,
+    error => error?.uncertain !== true && /epoch advanced before Composer input/.test(error.message),
+  );
+  assert.strictEqual(rotatedTerminalWrites, 0, 'a rotated Terminal runtime must reject before the PTY write');
+  assert.strictEqual(
+    raceManager.agents.get('terminal-epoch-rotation').composerCommands.at(-1).state,
+    'failed',
+    'a rejection proven before the PTY write is a definitive failure on the exact record',
+  );
+  const rotatedRetry = await raceManager.sendPersistentComposerMessage(
+    'terminal-epoch-rotation',
+    'never write through a rotated Terminal runtime',
+    'terminal-epoch-rotation-request',
+  );
+  assert.strictEqual(rotatedRetry.accepted, true);
+  assert.strictEqual(
+    rotatedTerminalWrites,
+    1,
+    'the definitive retry must write exactly once through the new runtime epoch',
+  );
+
   raceManager.agents.clear();
   await raceManager.dispose();
   fs.rmSync(codexHome, { recursive: true, force: true });

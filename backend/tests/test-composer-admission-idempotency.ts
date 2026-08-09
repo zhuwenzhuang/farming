@@ -211,6 +211,29 @@ async function run() {
     assert.strictEqual(submitCount, 6, 'the failed attempt and explicit retry should each submit at most once');
     releaseTurn();
 
+    const originalBindingEpoch = runtime.bindingEpoch.bind(runtime);
+    const fakeReconnectAgent = runtime.reconnectAgent;
+    let hostBindingEpoch = 'host-binding-1';
+    runtime.bindingEpoch = () => hostBindingEpoch;
+    runtime.reconnectAgent = async () => {
+      hostBindingEpoch = 'host-binding-2';
+      agent.runtimeBinding = { ...agent.runtimeBinding };
+      return { reconnected: true };
+    };
+    const acceptedAfterHostRecovery = await manager.sendComposerMessage(agent.id, 'accept after Host recovery', {
+      requestId: 'composer-request-host-recovery',
+    });
+    assert.strictEqual(acceptedAfterHostRecovery.accepted, true);
+    assert.strictEqual(
+      configManager.sessionStore.readRecord(agent.persistentSessionId)
+        .composerCommands.find(command => command.requestId === 'composer-request-host-recovery').state,
+      'accepted',
+      'Host recovery on the exact Agent record must not be judged a cross-runtime ownership change',
+    );
+    runtime.bindingEpoch = originalBindingEpoch;
+    runtime.reconnectAgent = fakeReconnectAgent;
+    releaseTurn();
+
     await Promise.all([...manager.acpTurnFinalizationTails.values()]);
     const attentionBeforeRapidTurns = Number(agent.attentionSeq || 0);
     const finalizedHandleBeforeRapidTurns = agent.acpFinalizedTurnHandle || '';

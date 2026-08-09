@@ -1441,24 +1441,36 @@ class AgentManager extends EventEmitter {
         const expectedAgent = agent;
         const expectedRuntimeKind = runtimeKind(agent);
         const expectedRuntimeBinding = agent.runtimeBinding;
-        const expectedRuntimeEpoch = expectedRuntimeKind === 'acp'
-          ? String(this.acpRuntime.bindingEpoch(agent.id) || '')
-          : String(agent.runtimeEpoch || '');
+        const expectedRuntimeEpoch = String(agent.runtimeEpoch || '');
         return {
           assertCurrent: () => {
             const current = this.agents.get(agent.id);
-            const currentRuntimeEpoch = expectedRuntimeKind === 'acp'
-              ? String(this.acpRuntime.bindingEpoch(agent.id) || '')
-              : String(current?.runtimeEpoch || '');
+            if (current !== expectedAgent || runtimeKind(current) !== expectedRuntimeKind) {
+              throw Object.assign(
+                new Error('Agent record was replaced before Composer message delivery'),
+                {
+                  code: 'COMPOSER_DELIVERY_OWNER_CHANGED',
+                  composerRecordExact: false,
+                  uncertain: true,
+                },
+              );
+            }
+            // ACP Host recovery rebinds the same record after an abrupt Host
+            // loss, so a new binding or binding epoch is not an ownership
+            // change. A Chat/Terminal switch waits for admission completion
+            // through the lifecycle interlock and changes the runtime kind.
+            if (expectedRuntimeKind === 'acp') return;
             if (
-              current !== expectedAgent
-              || runtimeKind(current) !== expectedRuntimeKind
-              || current?.runtimeBinding !== expectedRuntimeBinding
-              || currentRuntimeEpoch !== expectedRuntimeEpoch
+              current.runtimeBinding !== expectedRuntimeBinding
+              || String(current.runtimeEpoch || '') !== expectedRuntimeEpoch
             ) {
               throw Object.assign(
-                new Error('Agent runtime changed before Composer message delivery'),
-                { code: 'COMPOSER_DELIVERY_OWNER_CHANGED', uncertain: true },
+                new Error('Agent runtime changed before Terminal message delivery'),
+                {
+                  code: 'COMPOSER_TERMINAL_RUNTIME_REPLACED',
+                  composerRecordExact: true,
+                  composerZeroEffect: true,
+                },
               );
             }
           },
@@ -6943,7 +6955,14 @@ class AgentManager extends EventEmitter {
         || agent !== options.expectedTerminalAgent
         || agent.runtimeEpoch !== options.expectedTerminalRuntimeEpoch
       ) {
-        throw new Error('Agent runtime changed before Terminal message delivery');
+        throw Object.assign(
+          new Error('Agent runtime changed before Terminal message delivery'),
+          {
+            code: 'COMPOSER_TERMINAL_RUNTIME_REPLACED',
+            composerRecordExact: agent === options.expectedTerminalAgent,
+            composerZeroEffect: true,
+          },
+        );
       }
     }
     const prompt = normalizedComposerPrompt(message);
@@ -7004,6 +7023,23 @@ class AgentManager extends EventEmitter {
         throwOnUncertain: true,
       });
       if (!result || !('sent' in result) || result.sent !== true) {
+        if (
+          result
+          && 'status' in result
+          && result.status === 'input-rejected'
+          && result.reason === 'runtime-epoch-mismatch'
+        ) {
+          // Terminal engines reject a stale runtime epoch before the PTY write,
+          // so this exact rejection proves the message had no provider effect.
+          throw Object.assign(
+            new Error('Terminal runtime epoch advanced before Composer input reached the terminal'),
+            {
+              code: 'COMPOSER_TERMINAL_INPUT_EPOCH_REJECTED',
+              composerRecordExact: this.agents.get(agentId) === agent,
+              composerZeroEffect: true,
+            },
+          );
+        }
         const reason = result && 'reason' in result ? result.reason : 'Terminal runtime is unavailable';
         throw new Error(reason);
       }

@@ -30,8 +30,17 @@ interface ComposerDeliveryRequest {
   retryDefinitiveFailure: boolean;
 }
 
+export interface ComposerDeliveryOwner {
+  /**
+   * Throws when this admission no longer owns delivery. The thrown error may
+   * carry `composerRecordExact` (the exact Agent record is still installed) and
+   * `composerZeroEffect` (the guard proves no provider-visible effect happened).
+   */
+  assertCurrent(): void;
+}
+
 export interface AgentComposerAdmissionPorts {
-  captureDeliveryOwner(agent: AgentRecord): { assertCurrent(): void };
+  captureDeliveryOwner(agent: AgentRecord): ComposerDeliveryOwner;
   deliver(request: ComposerDeliveryRequest): Promise<unknown>;
   persistAgent(agent: AgentRecord): string;
   persistenceRequired(): boolean;
@@ -291,13 +300,10 @@ export class AgentComposerAdmissionCoordinator {
       .catch(error => {
         if (outcome !== 'pending') return;
         outcome = 'failed';
-        let ownerCurrent = true;
-        try {
-          owner.assertCurrent();
-        } catch {
-          ownerCurrent = false;
-        }
-        const uncertain = !ownerCurrent || (isRecord(error) && error.uncertain === true);
+        const ownerFailure = this.#ownerFailure(owner);
+        const recordExact = !ownerFailure || this.#proves(ownerFailure, 'composerRecordExact');
+        const zeroEffect = recordExact && this.#proves(error, 'composerZeroEffect');
+        const uncertain = this.#proves(error, 'uncertain') || (Boolean(ownerFailure) && !zeroEffect);
         const failed: ComposerCommandRecord = {
           ...intent,
           state: uncertain ? 'unknown' : 'failed',
@@ -305,7 +311,7 @@ export class AgentComposerAdmissionCoordinator {
           updatedAt: Date.now(),
         };
         let outcomeUncertain = uncertain;
-        if (ownerCurrent) {
+        if (recordExact) {
           try {
             this.#commit(agent, failed);
           } catch (persistError) {
@@ -365,6 +371,19 @@ export class AgentComposerAdmissionCoordinator {
         .filter(candidate => candidate.requestId !== command.requestId),
       command,
     ]);
+  }
+
+  #ownerFailure(owner: ComposerDeliveryOwner): unknown {
+    try {
+      owner.assertCurrent();
+      return null;
+    } catch (error) {
+      return error || new Error('Composer delivery ownership changed');
+    }
+  }
+
+  #proves(value: unknown, proof: 'composerRecordExact' | 'composerZeroEffect' | 'uncertain') {
+    return isRecord(value) && value[proof] === true;
   }
 
   #errorMessage(error: unknown) {
