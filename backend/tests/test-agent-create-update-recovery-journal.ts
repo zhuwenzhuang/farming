@@ -499,9 +499,9 @@ async function run() {
     recoveredRuntime.unregisterAgentAndWait = unregisterAgentAndWait;
     assert.strictEqual(failedScopeClaim, null);
     assert.match(scopeRollbackError, /success commit failure/);
-    const scopeRolledBackRecord = store.getRecordForProviderSessionKey(
-      `agent-session:claude:${scopeRollbackSessionId}`,
-    );
+    const scopeRollbackLegacyKey = `agent-session:claude:${scopeRollbackSessionId}`;
+    const scopeRollbackKey = canonicalProviderSessionKey(scopeRollbackLegacyKey);
+    const scopeRolledBackRecord = store.getRecordForProviderSessionKey(scopeRollbackKey);
     assert.strictEqual(scopeRolledBackRecord.runtimeAgentId, scopeRollbackOwner.id);
     assert.deepStrictEqual(scopeRolledBackRecord.acpAdditionalDirectories, ['/old-scope']);
     assert.deepStrictEqual(scopeRolledBackRecord.acpConfigOverrides, [
@@ -512,7 +512,7 @@ async function run() {
     ]);
     assert.deepStrictEqual(
       recoveredManager.acpSessionOptionsByKey.get(
-        `agent-session:claude:${scopeRollbackSessionId}`,
+        scopeRollbackKey,
       ),
       {
         additionalDirectories: ['/old-scope'],
@@ -520,6 +520,11 @@ async function run() {
         mcpServers: [{ name: 'old', command: '/bin/old', args: [], env: [] }],
       },
       'Create rollback must restore the in-memory ACP scope as well as disk metadata',
+    );
+    assert.strictEqual(
+      recoveredManager.acpSessionOptionsByKey.has(scopeRollbackLegacyKey),
+      false,
+      'ACP scope ownership must use only the canonical v2 Provider Session key',
     );
   } finally {
     await recoveredManager.dispose();
