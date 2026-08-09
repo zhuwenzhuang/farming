@@ -298,29 +298,28 @@ Continue the remaining work as small slices in the following dependency order.
 This list records unfinished architectural outcomes rather than a branch or
 file-by-file progress log:
 
-1. Complete the Terminal attachment coordinator. Checkpoint installation,
-   ordered output, sequence gaps, resize transitions, and attachment
-   generations must have one ordering owner. Existing registry, resize, input,
-   and recovery policies remain subordinate collaborators instead of becoming
-   competing state machines. Completion requires production-shaped Code and
-   CRT reconnect, stale-completion, gap, resize, and multi-viewer coverage.
-2. Finish coherent Workspace controllers. Move the remaining Project mutation,
-   Settings, Resume, and Share request lifecycles out of layout components only
-   when each controller can own admission, cancellation, stale-response
-   rejection, reconciliation, and terminal failure. Afterward, narrow component
-   props around those owners; do not replace inline requests with stateless API
-   wrappers.
-3. Finish the remaining Server transport domains. Extract Agent and Project
-   mutations, ACP Agent operations, Settings, attachments, and the remaining
-   WebSocket Agent-lifecycle and ACP-interaction groups while preserving auth,
-   middleware order, route shapes, and connection-local state. Slices that
-   depend on AgentManager or ACP internals wait until those hotspots have one
-   writer.
-4. Continue AgentManager service extraction serially. Extract Worktree and Git
-   operations with explicit postconditions first, move runtime and record types
-   with their owners, then introduce Composer or Fork orchestration only after
-   lifecycle, persistence, Worktree, and ACP ports are narrow enough to model
-   rollback and uncertain outcomes without receiving the complete Manager.
+1. Finish the Terminal browser-runtime boundary around the shared attachment
+   ordering owner. Move diagnostics and test bridges only after they can project
+   registry, resize, input, recovery, and attachment state without copying it or
+   allocating on the output hot path. Keep production-shaped Code and CRT
+   reconnect, stale-completion, gap, resize, and multi-viewer coverage.
+2. Finish coherent Workspace controllers. Settings may move out of the layout
+   component only when a controller can own admission, cancellation,
+   stale-response rejection, reconciliation, and terminal failure without
+   becoming a host for unrelated Browser, Computer, Agent Home, and plugin
+   effects. Narrow component props around the established Session, Project,
+   Resume, Share, catalog, and Resource owners; do not replace inline requests
+   with stateless API wrappers.
+3. Finish the remaining Server transport domains. Extract Agent mutations, ACP
+   Agent operations, Settings, and the remaining WebSocket Agent-lifecycle and
+   ACP-interaction groups while preserving auth, middleware order, route shapes,
+   and connection-local state. Slices that depend on AgentManager or ACP
+   internals wait until those hotspots have one writer.
+4. Continue AgentManager service extraction serially. Complete durable Fork and
+   Composer orchestration now that Worktree/Git mutations and their exact
+   postconditions have a service owner. Move runtime and record types with those
+   owners, and require narrow lifecycle, persistence, Worktree, and ACP ports so
+   rollback and uncertain outcomes never need the complete Manager.
 5. Converge on the ACP Host-only Server path. Remove the in-process Server
    fallback after deterministic Host fakes or a harness cover recovery and
    uncertain prompt/cancel outcomes; keep engine state separate from Host
