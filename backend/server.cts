@@ -240,6 +240,7 @@ import { AgentManager, type AgentManagerStateChange } from './agent-manager.cjs'
 import { isAgentRuntimeModeRequest, runtimeKind } from './agent-runtime-binding.cjs';
 import { ConfigManager } from './config-manager.cjs';
 import { ThemeManager } from './theme-manager.cjs';
+import { createThemeRouter } from './theme-router.cjs';
 import { TokenAuth } from './auth.cjs';
 import { readOnlyClientMessageAllowed } from './read-only-access.cjs';
 import { getLocalIPs, getPrimaryLocalIP } from './network.cjs';
@@ -2870,56 +2871,12 @@ app.post(routePath(BASE_PATH, '/api/settings'), express.json(), async (req, res)
   queueStateMetadata(currentAgentListMetadata({ includeWorkspaceRoots: true }));
 });
 
-app.post(routePath(BASE_PATH, '/api/themes/:themeId/set'), express.json(), (req, res) => {
-  const theme = themeManager.getTheme(req.params.themeId);
-  if (!theme) {
-    res.status(404).json({ error: 'Theme not found' });
-    return;
-  }
-  
-  configManager.updateSettings({ theme: req.params.themeId });
-  res.json({ success: true, theme: req.params.themeId });
-});
-
-app.get(routePath(BASE_PATH, '/api/themes/:themeId/settings'), (req, res) => {
-  const theme = themeManager.getTheme(req.params.themeId);
-  if (!theme) {
-    res.status(404).json({ error: 'Theme not found' });
-    return;
-  }
-  
-  const settings = themeManager.getThemeSettings(req.params.themeId);
-  res.json({ settings });
-});
-
-app.post(routePath(BASE_PATH, '/api/themes/:themeId/settings'), express.json(), (req, res) => {
-  const theme = themeManager.getTheme(req.params.themeId);
-  if (!theme) {
-    res.status(404).json({ error: 'Theme not found' });
-    return;
-  }
-  
-  const success = themeManager.updateThemeSettings(req.params.themeId, req.body);
-  if (success) {
-    res.json({ success: true, settings: themeManager.getThemeSettings(req.params.themeId) });
-  } else {
-    res.status(500).json({ error: 'Failed to update theme settings' });
-  }
-});
-
-app.get(routePath(BASE_PATH, '/api/themes/:themeId'), (req, res) => {
-  const theme = themeManager.getTheme(req.params.themeId);
-  if (!theme) {
-    res.status(404).json({ error: 'Theme not found' });
-    return;
-  }
-  
-  const css = themeManager.getThemeCSS(req.params.themeId);
-  res.json({
-    theme,
-    css
-  });
-});
+app.use(routePath(BASE_PATH, '/api/themes'), createThemeRouter({
+  getTheme: themeId => themeManager.getTheme(themeId),
+  getThemeCSS: themeId => themeManager.getThemeCSS(themeId),
+  getThemeSettings: themeId => themeManager.getThemeSettings(themeId),
+  updateThemeSettings: (themeId, settings) => themeManager.updateThemeSettings(themeId, settings),
+}, themeId => configManager.updateSettings({ theme: themeId })));
 
 wss.on('connection', (ws, req) => {
   initializeWebSocketLiveness(ws);

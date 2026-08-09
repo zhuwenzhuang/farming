@@ -94,7 +94,7 @@ function run() {
   const resumeAgentSessionSource = workspaceSource.match(/const resumeAgentSession = useCallback[\s\S]*?resumeAgentSessionRef\.current = resumeAgentSession/)?.[0] || '';
   const settingsUpdateRouteSource = serverSource.slice(
     serverSource.indexOf("app.post(routePath(BASE_PATH, '/api/settings')"),
-    serverSource.indexOf("app.post(routePath(BASE_PATH, '/api/themes/:themeId/set')"),
+    serverSource.indexOf("app.use(routePath(BASE_PATH, '/api/themes'), createThemeRouter("),
   );
   const historyViewStyles = stylesSource.match(/\.code-history-view \{[\s\S]*?\n\}/)?.[0] || '';
   const transcriptLinkClickStart = transcriptPaneSource.indexOf(

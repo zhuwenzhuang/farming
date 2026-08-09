@@ -34,7 +34,7 @@ async function run() {
   );
   const settingsRoute = serverSource.slice(
     serverSource.indexOf("app.post(routePath(BASE_PATH, '/api/settings')"),
-    serverSource.indexOf("app.post(routePath(BASE_PATH, '/api/themes/:themeId/set')"),
+    serverSource.indexOf("app.use(routePath(BASE_PATH, '/api/themes'), createThemeRouter("),
   );
   assert(
     settingsRoute.includes("const changesAgentHomes = Object.prototype.hasOwnProperty.call(settingsPatch, 'agentHomes');")
