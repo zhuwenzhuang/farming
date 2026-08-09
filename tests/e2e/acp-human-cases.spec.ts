@@ -88,11 +88,14 @@ test.describe('ACP human-like browser matrix', () => {
     await expect(page.getByText('farming-inline.html', { exact: true })).toHaveCount(0)
   })
 
-  test('renders a local image link as a bounded inline preview', async ({ page, workspaceRoot }) => {
+  test('renders workspace and external local image links as bounded inline previews', async ({ page, workspaceRoot }) => {
     const workspace = path.join(workspaceRoot, 'acp-local-image-link')
     fs.mkdirSync(workspace, { recursive: true })
     const imagePath = path.join(workspace, 'screenshot.png')
-    fs.writeFileSync(imagePath, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=', 'base64'))
+    const externalImagePath = path.join(workspaceRoot, 'external-screenshot.png')
+    const image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=', 'base64')
+    fs.writeFileSync(imagePath, image)
+    fs.writeFileSync(externalImagePath, image)
 
     const agentId = await createCodexAcpAgent(page, workspace)
     await openFarming(page)
@@ -111,6 +114,12 @@ test.describe('ACP human-like browser matrix', () => {
     await expect(page.getByTestId('code-file-editor')).toHaveCount(0)
     await page.keyboard.press('Escape')
     await expect(page.getByTestId('code-agent-transcript-image-overlay')).toHaveCount(0)
+
+    await sendAcpMessage(page, `local image link ${externalImagePath}`)
+    await expect(page.locator('.code-agent-transcript-markdown-image-link img')).toHaveCount(2, { timeout: 20_000 })
+    const externalPreview = page.locator('.code-agent-transcript-markdown-image-link img').last()
+    await expect(externalPreview).toHaveAttribute('src', /rootId=wroot_global.*path=[^&]*external-screenshot\.png.*exact=1/)
+    await expect(page.getByText('screenshot.png', { exact: true })).toHaveCount(0)
   })
 
   test('opens connecting Chat without waiting for ordered workspace-history saves', async ({ page }) => {

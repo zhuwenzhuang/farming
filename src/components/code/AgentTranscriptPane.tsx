@@ -2730,10 +2730,17 @@ function AgentTranscriptTurnView({
     a: ({ href, children, onClick, ...props }) => {
       const target = href ? transcriptFileTargetFromText(href, workspaceRoot) : null
       const imageUrl = target
-        && agentId
-        && target.target.globalRoot !== true
         && transcriptImageFilePath(target.filePath)
-        ? rawWorkspaceFileUrl(agentId, target.filePath)
+        ? target.target.globalRoot === true
+          ? rawWorkspaceFileUrl(
+              GLOBAL_WORKSPACE_FILES_AGENT_ID,
+              target.filePath,
+              undefined,
+              { exactExternal: true },
+            )
+          : agentId
+            ? rawWorkspaceFileUrl(agentId, target.filePath)
+            : ''
         : ''
       const external = href ? isExternalTranscriptHref(href) : false
       const normalizedHref = href ? normalizeTranscriptHref(href) : href
