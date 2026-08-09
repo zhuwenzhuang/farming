@@ -257,6 +257,38 @@ Real-provider Smoke。
 例如 Record Guard、Bounded Wait 或 Process Execution。集中化会增加耦合时，简单
 重复可以保留。
 
+## 后续推进优先级
+
+剩余工作按以下依赖顺序继续拆成小切片。本列表记录未完成的架构结果，不记录临时
+Branch 或逐文件进度：
+
+1. 完成 Terminal Attachment Coordinator。Checkpoint 安装、Ordered Output、
+   Sequence Gap、Resize Transition 和 Attachment Generation 必须只有一个顺序
+   Owner。已有 Registry、Resize、Input 和 Recovery Policy 只能作为下层协作者，
+   不能形成相互竞争的状态机。完成时必须覆盖生产形态的 Code 与 CRT Reconnect、
+   Stale Completion、Gap、Resize 和 Multi-viewer 场景。
+2. 完成边界完整的 Workspace Controller。只有当各 Controller 能同时拥有
+   Admission、Cancellation、Stale-response Rejection、Reconciliation 和终止失败
+   时，才继续把 Project Mutation、Settings、Resume 和 Share 请求生命周期移出
+   Layout Component；随后再围绕这些 Owner 收窄组件 Props。不能用无状态 API
+   Wrapper 替换 Inline Request。
+3. 完成剩余 Server Transport Domain。在保持 Auth、Middleware 顺序、Route Shape
+   和连接级状态不变的前提下，继续提取 Agent/Project Mutation、ACP Agent
+   Operation、Settings、Attachment，以及剩余的 WebSocket Agent Lifecycle 和 ACP
+   Interaction 分组。依赖 AgentManager 或 ACP 内部状态的切片必须等对应热点只有一个
+   Writer 后再开始。
+4. 串行继续 AgentManager Service 提取。先提取有明确 Postcondition 的 Worktree 与
+   Git Operation，并让 Runtime/Record Type 随 Owner 移动；只有当 Lifecycle、
+   Persistence、Worktree 和 ACP Port 足够窄，可以明确表达 Rollback 与不确定结果
+   时，才提取 Composer 或 Fork Orchestration，且不能把完整 Manager 传入 Service。
+5. 收敛到 Server 只经过 ACP Host 的路径。确定性 Host Fake 或 Harness 覆盖恢复和
+   Prompt/Cancel 不确定结果后，删除 Server 进程内 Fallback；通过显式 Projection
+   分离 Engine State 与 Host Operation State，并把 Provider 决策移入有类型的
+   Adapter Policy。每个受影响 Provider 都要运行要求的 Real-provider Smoke。
+6. 持续集成。每个可审查切片都 Rebase 到当前 `main`，先运行聚焦状态机测试，再运行
+   完整 Typecheck、Lint、Test 及适用的 Server、Terminal、Playwright 或 Provider
+   门禁后合入。不能把这些优先项重新积累成长期 Integration Branch。
+
 ## 验证
 
 每个切片根据状态模型定义聚焦门禁。默认最终门禁为：

@@ -292,6 +292,47 @@ boundaries in focused modules, for example record guards, bounded waits, or
 process execution. Trivial duplication may remain when centralization would
 increase coupling.
 
+## Continuation Priorities
+
+Continue the remaining work as small slices in the following dependency order.
+This list records unfinished architectural outcomes rather than a branch or
+file-by-file progress log:
+
+1. Complete the Terminal attachment coordinator. Checkpoint installation,
+   ordered output, sequence gaps, resize transitions, and attachment
+   generations must have one ordering owner. Existing registry, resize, input,
+   and recovery policies remain subordinate collaborators instead of becoming
+   competing state machines. Completion requires production-shaped Code and
+   CRT reconnect, stale-completion, gap, resize, and multi-viewer coverage.
+2. Finish coherent Workspace controllers. Move the remaining Project mutation,
+   Settings, Resume, and Share request lifecycles out of layout components only
+   when each controller can own admission, cancellation, stale-response
+   rejection, reconciliation, and terminal failure. Afterward, narrow component
+   props around those owners; do not replace inline requests with stateless API
+   wrappers.
+3. Finish the remaining Server transport domains. Extract Agent and Project
+   mutations, ACP Agent operations, Settings, attachments, and the remaining
+   WebSocket Agent-lifecycle and ACP-interaction groups while preserving auth,
+   middleware order, route shapes, and connection-local state. Slices that
+   depend on AgentManager or ACP internals wait until those hotspots have one
+   writer.
+4. Continue AgentManager service extraction serially. Extract Worktree and Git
+   operations with explicit postconditions first, move runtime and record types
+   with their owners, then introduce Composer or Fork orchestration only after
+   lifecycle, persistence, Worktree, and ACP ports are narrow enough to model
+   rollback and uncertain outcomes without receiving the complete Manager.
+5. Converge on the ACP Host-only Server path. Remove the in-process Server
+   fallback after deterministic Host fakes or a harness cover recovery and
+   uncertain prompt/cancel outcomes; keep engine state separate from Host
+   operation state through an explicit projection, and move provider decisions
+   into typed adapter policies. Run the required real-provider smokes for every
+   affected provider.
+6. Integrate continuously. Rebase each reviewable slice onto current `main`, run
+   its focused state-machine tests, then run the full typecheck, lint, test, and
+   applicable Server, Terminal, Playwright, or provider gates before merging.
+   Do not accumulate these priorities into another long-lived integration
+   branch.
+
 ## Verification
 
 Every slice defines focused gates from its state model. The default final gates
