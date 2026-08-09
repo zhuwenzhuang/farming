@@ -110,6 +110,7 @@ import {
   requestTerminalSessionCheckpoint,
   sendTerminalSessionMessage,
 } from '@/lib/terminal-session-client'
+import { TerminalSessionRegistry } from '@/lib/terminal-session-registry'
 import type { TerminalInputPart } from '@/types/messages'
 import {
   codeTerminalFontSize,
@@ -312,7 +313,7 @@ interface SessionRecord {
   bootstrapped: boolean
 }
 
-const sessions = new Map<string, Promise<SessionRecord> | SessionRecord>()
+const sessions = new TerminalSessionRegistry<string, SessionRecord>()
 let terminalFocusRevision = 0
 const TERMINAL_CHECKPOINT_MAX_CONCURRENT_REQUESTS = 3
 let terminalCheckpointActiveRequests = 0
@@ -4403,24 +4404,11 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
 }
 
 async function getOrCreateSession(agentId: string, options: AttachOptions) {
-  const current = sessions.get(agentId)
-  if (current) {
-    return current instanceof Promise ? current : Promise.resolve(current)
-  }
-
-  const pending = bootstrapSession(agentId, options)
-    .then((record) => {
-      sessions.set(agentId, record)
-      return record
-    })
-    .catch((error) => {
-      sessions.delete(agentId)
-      options.onError?.(error instanceof Error ? error : new Error(String(error)))
-      throw error
-    })
-
-  sessions.set(agentId, pending)
-  return pending
+  return sessions.getOrCreate(
+    agentId,
+    () => bootstrapSession(agentId, options),
+    options.onError,
+  )
 }
 
 function notifyTerminalAttachReady(record: SessionRecord, generation: number) {
@@ -4522,7 +4510,7 @@ export async function attachTerminalSession(agentId: string, options: AttachOpti
 
   const record = await getOrCreateSession(agentId, options)
   if (record.disposed || options.signal?.aborted) return
-  if (sessions.get(agentId) !== record) return
+  if (!sessions.isCurrent(agentId, record)) return
 
   if (record.attachedMount === options.mountEl && isTerminalSessionAttached(record)) {
     // Repeating the same ownership claim is a live-options refresh, not an
@@ -4614,7 +4602,7 @@ export async function updateTerminalSessionLiveOptions(
   const current = sessions.get(agentId)
   if (!current) return false
   const record = current instanceof Promise ? await current : current
-  if (record.disposed || sessions.get(agentId) !== record) return false
+  if (record.disposed || !sessions.isCurrent(agentId, record)) return false
 
   record.inputDisabled = options.inputDisabled
   record.farmingUrlOpenHandler = options.onOpenUrlInFarming ?? null
@@ -4627,7 +4615,7 @@ export async function detachTerminalSession(agentId: string, expectedMount?: HTM
   if (!current) return
   const record = await current
   if (record.disposed) return
-  if (sessions.get(agentId) !== record) return
+  if (!sessions.isCurrent(agentId, record)) return
   if (!canDetachTerminalHost(record, expectedMount)) return
 
   parkTerminalSessionRecord(record)
@@ -4684,9 +4672,8 @@ export function getTerminalSessionReadCut(agentId: string) {
 }
 
 export async function destroyTerminalSession(agentId: string) {
-  const current = sessions.get(agentId)
+  const current = sessions.take(agentId)
   if (!current) return
-  sessions.delete(agentId)
 
   const record = await current
   if (record.disposed) return

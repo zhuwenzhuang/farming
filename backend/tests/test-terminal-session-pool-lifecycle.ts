@@ -28,6 +28,14 @@ assert(
 );
 
 assert(
+  poolSource.includes("import { TerminalSessionRegistry } from '@/lib/terminal-session-registry'") &&
+    poolSource.includes('const sessions = new TerminalSessionRegistry<string, SessionRecord>()') &&
+    poolSource.includes('return sessions.getOrCreate(') &&
+    poolSource.includes('const current = sessions.take(agentId)'),
+  'terminal session pool should delegate bootstrap admission and destroy ownership to its exact-key registry'
+);
+
+assert(
   poolSource.indexOf('record.disposed = true') <
     poolSource.indexOf('clearPendingTerminalOutput(record)') &&
     poolSource.indexOf('clearPendingTerminalOutput(record)') <
