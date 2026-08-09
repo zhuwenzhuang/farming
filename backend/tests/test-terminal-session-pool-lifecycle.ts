@@ -41,7 +41,7 @@ assert(
       terminalOutputSource.indexOf('record.terminal.reset()') &&
     poolSource.includes('record.attachment.admitCheckpointInstall(operation, checkpoint)') &&
     poolSource.indexOf('record.attachment.admitCheckpointInstall(operation, checkpoint)') <
-      poolSource.indexOf('record.terminal.resize?.(state.cols!, state.rows!)'),
+      poolSource.indexOf('record.resizeEffects.applyAuthoritativeDimensions(state.cols!, state.rows!)'),
   'checkpoint replacement should revalidate ordering inside the write queue before resize or reset'
 );
 
@@ -68,7 +68,7 @@ assert(
     terminalDiagnosticsSource.includes('getBufferDiagnostics: agentId => this.snapshot(agentId)') &&
     terminalDiagnosticsSource.includes('getHostDiagnostics: () => this.hostSnapshots(root)') &&
     terminalDiagnosticsSource.includes('const attachment = current.attachment.snapshot()') &&
-    terminalDiagnosticsSource.includes('const resize = current.resizeScheduler.diagnostics()'),
+    terminalDiagnosticsSource.includes('const resize = current.resizeEffects.diagnostics()'),
   'terminal diagnostics should own its bridge and lazy projection while reading exact identity from the canonical registry'
 );
 

@@ -36,17 +36,9 @@ import {
 import type { TerminalFollowState } from '@/lib/terminal-viewport'
 import {
   MIN_TERMINAL_RESIZE_ROWS,
-  acknowledgeTerminalResizeDelivery,
-  expireTerminalResizeDelivery,
-  notifyTerminalResizeTracker,
   proposeTerminalResizeDimensions,
-  queueTerminalResizeDelivery,
-  resetTerminalResizeDeliveryTracker,
-  resetTerminalResizeTracker,
-  shouldDebounceTerminalResize,
 } from '@/lib/terminal-resize'
-import { createTerminalResizeScheduler } from '@/lib/terminal-resize-scheduler'
-import type { TerminalResizeScheduler } from '@/lib/terminal-resize-scheduler'
+import { TerminalResizeEffectController } from '@/lib/terminal-resize-effect-controller'
 import {
   appendTerminalTouchVelocitySample,
   blendTerminalTouchVelocity,
@@ -215,8 +207,7 @@ interface SessionRecord extends TerminalSessionDiagnosticsSource {
   unsubscribeOutput: (() => void) | null
   selectionChangeDisposable: (() => void) | null
   imeOverlayDisposables: Array<() => void>
-  resizeObserver: ResizeObserver | null
-  applyingLocalResize: boolean
+  resizeEffects: TerminalResizeEffectController
   parkedViewportState: TerminalViewportRestoreState | null
   inputDisabled: boolean
   errorHandler: ((error: Error) => void) | null
@@ -246,12 +237,6 @@ interface SessionRecord extends TerminalSessionDiagnosticsSource {
   scrollIntentHandler: ((event: Event) => void) | null
   scrollKeyHandler: ((event: KeyboardEvent) => void) | null
   touchInteraction: TerminalTouchInteraction | null
-  lastNotifiedResize: { cols: number; rows: number } | null
-  resizeNotificationCount: number
-  resizeRequestInFlight: { cols: number; rows: number } | null
-  pendingResizeRequest: { cols: number; rows: number } | null
-  resizeScheduler: TerminalResizeScheduler
-  resizeAfterReplayRequired: boolean
   followOutputHandler: ((state: TerminalFollowState) => void) | null
   pathOpenHandler: ((agentId: string, target: TerminalPathOpenTarget) => void) | null
   pathResolveHandler: ((agentId: string, target: TerminalPathOpenTarget) => Promise<TerminalPathOpenTarget | null> | TerminalPathOpenTarget | null) | null
@@ -454,6 +439,10 @@ function findSessionRecordForHost(hostEl: HTMLDivElement) {
 }
 
 function invalidateTerminalCheckpointRequest(record: SessionRecord) {
+  // Resize effects capture the attachment operation revision. Clear them
+  // before advancing that owner so no stale timeout can strand an in-flight
+  // delivery after an unrelated checkpoint or fixture replacement.
+  record.resizeEffects.beginRecovery()
   record.attachment.invalidateOperation()
   // A checkpoint may already be inside xterm's ordered write queue. Its
   // completion is fenced by the coordinator operation token, but the replacement
@@ -463,11 +452,6 @@ function invalidateTerminalCheckpointRequest(record: SessionRecord) {
   record.bootstrapRequestControllers.forEach(controller => controller.abort())
   record.bootstrapRequestControllers.clear()
   record.checkpointRequestInFlight = false
-}
-
-function resetTerminalResizeDelivery(record: SessionRecord) {
-  record.resizeScheduler.reset()
-  resetTerminalResizeDeliveryTracker(record)
 }
 
 function parkTerminalSessionRecord(record: SessionRecord) {
@@ -481,7 +465,6 @@ function parkTerminalSessionRecord(record: SessionRecord) {
     readingAnchor: captureTerminalReadingAnchor(record),
   }
   invalidateTerminalCheckpointRequest(record)
-  resetTerminalResizeDelivery(record)
   record.followOutputHandler = null
   record.recoveryStatusHandler = null
   record.pathOpenHandler = null
@@ -494,12 +477,12 @@ function parkTerminalSessionRecord(record: SessionRecord) {
 }
 
 function observeTerminalResize(record: SessionRecord) {
-  if (record.disposed || !record.resizeObserver) return
-  record.resizeObserver.observe(record.hostEl)
+  if (record.disposed) return
+  record.resizeEffects.observe(record.hostEl)
 }
 
 function pauseTerminalResizeObserver(record: SessionRecord) {
-  record.resizeObserver?.disconnect()
+  record.resizeEffects.pause()
 }
 
 function isolateSinglePaneTerminalMount(hostEl: HTMLDivElement, mountEl: HTMLElement) {
@@ -918,13 +901,11 @@ function finishTerminalReplay(record: SessionRecord, generation: number) {
   }
 
   record.bootstrappingSnapshot = false
-  resetTerminalResizeDelivery(record)
-  const forceResize = record.resizeAfterReplayRequired || record.lastNotifiedResize === null
-  record.resizeAfterReplayRequired = false
+  const forceResize = record.resizeEffects.recoveryFitRequired()
   requestAnimationFrame(() => {
     if (!isCurrentAttachment(record, generation) || record.disposed) return
     record.hostEl.classList.remove('terminal-checkpoint-installing')
-    syncTerminalSize(record, { force: forceResize })
+    record.resizeEffects.syncFit({ force: forceResize })
     notifyTerminalAttachReady(record, generation)
   })
 }
@@ -987,6 +968,9 @@ function installTerminalCheckpoint(
     !isCurrentAttachment(record, generation)
   ) return false
 
+  // Installing the fetched cut advances the attachment operation again. The
+  // fetch operation's resize effects must be invalid before that revision.
+  record.resizeEffects.beginRecovery()
   const operation = record.attachment.beginCheckpointOperation(generation)
   if (!operation) return false
   publishTerminalRecoveryStatus(record, 'installing', {
@@ -1088,12 +1072,7 @@ function installTerminalCheckpoint(
         record.terminal.cols !== state.cols
         || record.terminal.rows !== state.rows
       ) {
-        record.applyingLocalResize = true
-        try {
-          record.terminal.resize?.(state.cols!, state.rows!)
-        } finally {
-          record.applyingLocalResize = false
-        }
+        record.resizeEffects.applyAuthoritativeDimensions(state.cols!, state.rows!)
       }
       checkpointEffectAdmitted = true
       return true
@@ -1117,6 +1096,10 @@ function requestTerminalReplay(record: SessionRecord, generation = record.attach
   publishTerminalRecoveryStatus(record, 'requesting', {
     attempt: record.attachment.failureCount + 1,
   })
+  // A checkpoint operation advances the protocol operation revision. Invalidate
+  // every resize observer/timer/delivery token before that revision changes so
+  // an old delivery cannot become permanently in-flight behind the new cut.
+  record.resizeEffects.beginRecovery()
   record.attachment.beginRecovery()
   const requestOperation = record.attachment.beginCheckpointOperation(generation)
   if (!requestOperation) return
@@ -1181,6 +1164,7 @@ function applyTerminalOutputEvent(
     cols,
     rows,
   }
+  const transitionAttachment = record.attachment.currentOperation()
   const decision = record.attachment.classifyTransition(event)
   if (decision.action === 'drop') return
   if (decision.action === 'recover') {
@@ -1194,26 +1178,11 @@ function applyTerminalOutputEvent(
   if (kind === 'resize') {
     const nextCols = Math.floor(cols!)
     const nextRows = Math.floor(rows!)
-    const delivery = acknowledgeTerminalResizeDelivery(record, nextCols, nextRows)
-    if (delivery.matched) record.resizeScheduler.clearDeliveryTimeout()
-    // Commit every ordered resize, but do not repaint an older echoed size over
-    // a newer geometry that this browser has already fitted locally.
-    if (
-      !delivery.preserveLocalGeometry &&
-      (record.terminal.cols !== nextCols || record.terminal.rows !== nextRows)
-    ) {
-      record.applyingLocalResize = true
-      try {
-        record.terminal.resize?.(nextCols, nextRows)
-      } finally {
-        record.applyingLocalResize = false
-      }
-    }
     record.attachment.commitTransition(event)
-    record.resizeScheduler.scheduleRedraw(true)
-    if (delivery.next) {
-      deliverTerminalResize(record, delivery.next.cols, delivery.next.rows)
-    }
+    record.resizeEffects.applyCommittedRemoteResize(nextCols, nextRows, {
+      attachment: transitionAttachment,
+      stateRevision: record.attachment.stateRevision!,
+    })
     scheduleImeOverlayUpdateIfActive(record)
     flushQueuedTerminalOutput(record)
     notifyTerminalAttachReady(record, record.attachment.generation)
@@ -1351,10 +1320,7 @@ function handleTerminalStreamOutput(
 }
 
 function scheduleLiveTerminalTransitionFlush(record: SessionRecord) {
-  if (record.resizeScheduler.isRedrawPending()) {
-    record.resizeScheduler.scheduleRedraw()
-    return
-  }
+  if (record.resizeEffects.deferOutputFlush()) return
   if (record.liveTransitionFlushScheduled) return
   record.liveTransitionFlushScheduled = true
   queueMicrotask(() => {
@@ -1402,7 +1368,7 @@ function flushQueuedTerminalOutput(record: SessionRecord) {
     record.replayInProgress ||
     record.checkpointRequestInFlight ||
     record.liveWriteInProgress ||
-    record.resizeScheduler.isRedrawPending()
+    record.resizeEffects.isRedrawPending()
   ) return
 
   while (
@@ -1410,7 +1376,7 @@ function flushQueuedTerminalOutput(record: SessionRecord) {
     !record.replayInProgress &&
     !record.checkpointRequestInFlight &&
     !record.liveWriteInProgress &&
-    !record.resizeScheduler.isRedrawPending()
+    !record.resizeEffects.isRedrawPending()
   ) {
     const outputBatch = queuedTerminalOutputBatch(record)
     if (outputBatch) {
@@ -1615,113 +1581,19 @@ function queueTerminalInput(record: SessionRecord, input: string | TerminalInput
   return true
 }
 
-function syncTerminalSize(
-  record: SessionRecord,
-  options: { force?: boolean } = {},
-) {
-  try {
-    const dimensions = proposeTerminalResizeDimensions(record.hostEl, record.fitAddon)
-    if (!dimensions) return
-    const current = {
-      cols: record.terminal.cols || dimensions.cols,
-      rows: record.terminal.rows || dimensions.rows,
-    }
-    if (
-      current.cols === dimensions.cols &&
-      current.rows === dimensions.rows
-    ) {
-      record.resizeScheduler.clearFit()
-      return
-    }
-    if (
-      !options.force &&
-      record.lastNotifiedResize?.cols === dimensions.cols &&
-      record.lastNotifiedResize.rows === dimensions.rows
-    ) {
-      // The authoritative PTY geometry may have been changed by another
-      // viewer. Do not interpret that remote transition as a new change in
-      // this browser's unchanged layout and echo the old local size back.
-      record.resizeScheduler.clearFit()
-      return
-    }
-
-    if (record.replayInProgress || record.bootstrappingSnapshot) {
-      // A genuine attach/layout change that occurs behind the checkpoint
-      // barrier still needs one immediate resize after the exact cut lands.
-      record.resizeAfterReplayRequired = true
-      record.resizeScheduler.clearFit()
-      return
-    }
-
-    if (shouldDebounceTerminalResize(
-      current,
-      dimensions,
-      options,
-    )) {
-      record.resizeScheduler.scheduleFit(dimensions)
-      return
-    }
-
-    record.resizeScheduler.clearFit()
-    notifyTerminalResize(record, dimensions.cols, dimensions.rows, options)
-  } catch {
-    // ignore transient hidden / zero-size states
-  }
-}
-
-function deliverTerminalResize(record: SessionRecord, cols: number, rows: number) {
-  if (
-    !isTerminalSessionAttached(record) ||
-    record.replayInProgress ||
-    record.bootstrappingSnapshot ||
-    record.pageOutputSuspended
-  ) return false
-
-  const hadInFlightResize = record.resizeRequestInFlight !== null
-  const delivered = queueTerminalResizeDelivery(record, cols, rows, (nextCols, nextRows) => (
-    sendTerminalSessionMessage({
-      type: 'resize-agent',
-      agentId: record.agentId,
-      cols: nextCols,
-      rows: nextRows,
-    })
-  ))
-  if (delivered && !hadInFlightResize && record.resizeRequestInFlight) {
-    record.resizeScheduler.scheduleDeliveryTimeout()
-  }
-  return delivered
-}
-
-function notifyTerminalResize(
-  record: SessionRecord,
-  cols: number,
-  rows: number,
-  options: { force?: boolean } = {},
-) {
-  if (
-    !isTerminalSessionAttached(record) ||
-    record.replayInProgress ||
-    record.bootstrappingSnapshot
-  ) return
-  notifyTerminalResizeTracker(record, cols, rows, (nextCols, nextRows) => {
-    if (typeof record.terminal.resize !== 'function') return false
-    if (record.terminal.cols !== nextCols || record.terminal.rows !== nextRows) {
-      record.applyingLocalResize = true
-      try {
-        record.terminal.resize(nextCols, nextRows)
-      } finally {
-        record.applyingLocalResize = false
-      }
-    }
-    return deliverTerminalResize(record, nextCols, nextRows)
-  }, options)
+function requestTerminalResizeRecovery(record: SessionRecord) {
+  if (record.disposed) return
+  invalidateTerminalCheckpointRequest(record)
+  record.attachment.resetRecovery()
+  record.attachment.beginRecovery()
+  record.needsReconnectOutputSync = true
+  record.bootstrappingSnapshot = true
+  if (record.pageOutputSuspended || !isTerminalSessionAttached(record)) return
+  requestTerminalReplay(record, record.attachment.generation)
 }
 
 function resyncTerminalSizeAfterBackendReconnect(record: SessionRecord) {
-  if (record.resizeRequestInFlight || record.pendingResizeRequest) {
-    record.resizeAfterReplayRequired = true
-  }
-  resetTerminalResizeDelivery(record)
+  record.resizeEffects.beginRecovery()
   record.attachment.resetRecovery()
   record.attachment.beginRecovery()
   record.needsReconnectOutputSync = true
@@ -1732,9 +1604,10 @@ function resyncTerminalSizeAfterBackendReconnect(record: SessionRecord) {
 }
 
 function resyncTerminalAfterPageResume(record: SessionRecord) {
-  resetTerminalResizeTracker(record)
-  record.resizeAfterReplayRequired = true
-  resetTerminalResizeDelivery(record)
+  record.resizeEffects.beginRecovery({
+    forceAfterRecovery: true,
+    resetLastNotified: true,
+  })
   record.attachment.resetRecovery()
   record.attachment.beginRecovery()
   record.needsReconnectOutputSync = true
@@ -3000,18 +2873,18 @@ function installTerminalTestApi() {
     getLastNotifiedResize(agentId: string) {
       const current = sessions.get(agentId)
       if (!current || current instanceof Promise || current.disposed) return null
-      return current.lastNotifiedResize
+      return current.resizeEffects.diagnostics().lastNotifiedResize
     },
     getResizeNotificationCount(agentId: string) {
       const current = sessions.get(agentId)
       if (!current || current instanceof Promise || current.disposed) return 0
-      return current.resizeNotificationCount
+      return current.resizeEffects.diagnostics().resizeNotificationCount
     },
     notifyResizeForTest(agentId: string, cols: number, rows: number) {
       const current = sessions.get(agentId)
       if (!current || current instanceof Promise || current.disposed) return 0
-      notifyTerminalResize(current, cols, rows)
-      return current.resizeNotificationCount
+      current.resizeEffects.notify(cols, rows)
+      return current.resizeEffects.diagnostics().resizeNotificationCount
     },
     getLastOutputSeq(agentId: string) {
       const current = sessions.get(agentId)
@@ -3136,8 +3009,6 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     unsubscribeOutput: null,
     selectionChangeDisposable: null,
     imeOverlayDisposables: [],
-    resizeObserver: null,
-    applyingLocalResize: false,
     parkedViewportState: null,
     inputDisabled: Boolean(options.inputDisabled),
     errorHandler: options.onError ?? null,
@@ -3201,23 +3072,34 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     scrollIntentHandler: null,
     scrollKeyHandler: null,
     touchInteraction: null,
-    lastNotifiedResize: null,
-    resizeNotificationCount: 0,
-    resizeRequestInFlight: null,
-    pendingResizeRequest: null,
-    resizeScheduler: createTerminalResizeScheduler({
-      onFitSettled: dimensions => {
-        if (!record.disposed) notifyTerminalResize(record, dimensions.cols, dimensions.rows)
-      },
-      onRedrawFlush: () => {
+    resizeEffects: new TerminalResizeEffectController({
+      attachmentOperation: () => record.attachment.currentOperation(),
+      isCurrentAttachmentOperation: operation => record.attachment.isCurrentOperation(operation),
+      stateRevision: () => record.attachment.stateRevision,
+      canMutate: () => Boolean(
+        !record.disposed
+        && isTerminalSessionAttached(record)
+        && !record.replayInProgress
+        && !record.bootstrappingSnapshot
+        && !record.pageOutputSuspended
+      ),
+      currentDimensions: () => ({
+        cols: record.terminal.cols || 0,
+        rows: record.terminal.rows || 0,
+      }),
+      proposeDimensions: () => proposeTerminalResizeDimensions(record.hostEl, record.fitAddon),
+      applyLocalDimensions: dimensions => record.terminal.resize?.(dimensions.cols, dimensions.rows),
+      deliver: dimensions => sendTerminalSessionMessage({
+        type: 'resize-agent',
+        agentId: record.agentId,
+        cols: dimensions.cols,
+        rows: dimensions.rows,
+      }),
+      requestRecovery: () => requestTerminalResizeRecovery(record),
+      flushOutput: () => {
         if (!record.disposed) flushQueuedTerminalOutput(record)
       },
-      onDeliveryTimeout: () => {
-        const next = expireTerminalResizeDelivery(record)
-        if (next && !record.disposed) deliverTerminalResize(record, next.cols, next.rows)
-      },
     }),
-    resizeAfterReplayRequired: false,
     followOutputHandler: options.onFollowOutputChange ?? null,
     pathOpenHandler: options.onPathOpen ?? null,
     pathResolveHandler: options.onPathResolve ?? null,
@@ -3275,16 +3157,16 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
   })
 
   terminal.onResize(({ cols, rows }: { cols: number; rows: number }) => {
-    if (record.applyingLocalResize) return
+    if (record.resizeEffects.applyingLocalResize) return
     if (record.replayInProgress || record.bootstrappingSnapshot) return
-    notifyTerminalResize(record, cols, rows)
+    record.resizeEffects.notify(cols, rows)
   })
 
   installTerminalContextMenu(record, agentId)
   const rendererFailureSubscription = terminal.onRendererFailure?.((error) => {
     if (record.disposed) return
     record.inputDisabled = true
-    resetTerminalResizeDelivery(record)
+    record.resizeEffects.beginRecovery()
     publishTerminalRecoveryStatus(record, 'failed')
     record.errorHandler?.(error)
     void destroyTerminalSession(record.agentId).catch((destroyError) => {
@@ -3333,7 +3215,7 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     const suspended = event.type === 'pagehide' || document.visibilityState === 'hidden'
     record.pageOutputSuspended = suspended
     if (suspended) {
-      resetTerminalResizeDelivery(record)
+      record.resizeEffects.beginRecovery()
       record.needsReconnectOutputSync = true
       return
     }
@@ -3551,18 +3433,6 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
   }
   installTerminalTouchInteraction(record)
 
-  const resizeObserver = new ResizeObserver(() => {
-    requestAnimationFrame(() => {
-      if (record.disposed) return
-      try {
-        syncTerminalSize(record)
-      } catch {
-        // ignore transient zero-size states while hidden
-      }
-    })
-  })
-  record.resizeObserver = resizeObserver
-
   const unsubscribeOutput = options.onSessionOutput(agentId, (
     data,
     replace,
@@ -3666,7 +3536,7 @@ function fitAndFocus(record: SessionRecord, options: Pick<AttachOptions, 'autoFo
 
   requestAnimationFrame(() => {
     if (!isCurrentAttachment(record, generation)) return
-    syncTerminalSize(record, { force: true })
+    record.resizeEffects.syncFit({ force: true })
     restoreViewportAfterLayout(record, previousViewportY, previousScrollbackLength, wasFollowing, hadUnreadOutput)
     scheduleTerminalRepaint(record)
     if (options.autoFocus && !isMobileViewport() && shouldAllowTerminalAutoFocus(record.hostEl)) {
@@ -3674,7 +3544,7 @@ function fitAndFocus(record: SessionRecord, options: Pick<AttachOptions, 'autoFo
     }
     requestAnimationFrame(() => {
       if (!isCurrentAttachment(record, generation)) return
-      syncTerminalSize(record, { force: true })
+      record.resizeEffects.syncFit({ force: true })
       restoreViewportAfterLayout(record, previousViewportY, previousScrollbackLength, wasFollowing, hadUnreadOutput)
       scheduleTerminalRepaint(record)
       finishTerminalAttachBootstrap(record, generation)
@@ -3778,6 +3648,7 @@ export async function attachTerminalSession(agentId: string, options: AttachOpti
     return
   }
 
+  record.resizeEffects.beginRecovery({ forceAfterRecovery: true })
   const generation = record.attachment.beginAttachment().generation
   record.attachReadyHandler = options.onReady ?? null
   record.attachReadyGeneration = generation
@@ -3817,6 +3688,7 @@ export function retryTerminalSession(agentId: string) {
   ) return false
 
   invalidateTerminalCheckpointRequest(current)
+  current.resizeEffects.beginRecovery({ forceAfterRecovery: true })
   current.pendingSnapshotReplay = false
   current.attachment.resetRecovery()
   current.attachment.beginRecovery()
@@ -3958,7 +3830,7 @@ export async function destroyTerminalSession(agentId: string) {
   }
   record.disposed = true
   invalidateTerminalCheckpointRequest(record)
-  resetTerminalResizeDelivery(record)
+  record.resizeEffects.dispose()
   clearPendingTerminalOutput(record)
   flushPendingTerminalWrites(record)
 
@@ -3975,7 +3847,6 @@ export async function destroyTerminalSession(agentId: string) {
     window.removeEventListener('pageshow', record.pageLifecycleHandler)
   }
   record.imeOverlayDisposables.forEach(dispose => dispose())
-  record.resizeObserver?.disconnect()
   if (record.followCheckFrame !== null) {
     cancelAnimationFrame(record.followCheckFrame)
   }
@@ -4081,7 +3952,7 @@ export async function refreshTerminalSessionLayout(agentId: string, options: { a
 
   const refresh = () => {
     if (record.disposed || !isTerminalSessionAttached(record)) return
-    syncTerminalSize(record, { force: true })
+    record.resizeEffects.syncFit({ force: true })
     restoreViewportAfterLayout(record, previousViewportY, previousScrollbackLength, wasFollowing, hadUnreadOutput)
     scheduleTerminalRepaint(record)
     if (options.autoFocus && !isMobileViewport() && shouldAllowTerminalAutoFocus(record.hostEl)) {
@@ -4107,11 +3978,11 @@ export function updateTerminalSessionContentFontSize(contentFontSize: unknown) {
     if (!isTerminalSessionAttached(current)) return
     requestAnimationFrame(() => {
       if (current.disposed || !isTerminalSessionAttached(current)) return
-      syncTerminalSize(current, { force: true })
+      current.resizeEffects.syncFit({ force: true })
       scheduleTerminalRepaint(current)
       requestAnimationFrame(() => {
         if (current.disposed || !isTerminalSessionAttached(current)) return
-        syncTerminalSize(current, { force: true })
+        current.resizeEffects.syncFit({ force: true })
         scheduleTerminalRepaint(current)
       })
     })

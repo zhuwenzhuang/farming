@@ -1,8 +1,8 @@
 import type { FarmingTerminal } from '@/lib/terminal-engine'
 import { isTerminalHostAttached } from '@/lib/terminal-attachment'
 import type { TerminalAttachmentCoordinator } from '@/lib/terminal-attachment-coordinator'
+import type { TerminalResizeEffectController } from '@/lib/terminal-resize-effect-controller'
 import type { TerminalResizeDimensions } from '@/lib/terminal-resize'
-import type { TerminalResizeScheduler } from '@/lib/terminal-resize-scheduler'
 import {
   getTerminalScrollbackLength,
   getTerminalViewportY,
@@ -18,7 +18,7 @@ export interface TerminalSessionDiagnosticsSource {
   disposed: boolean
   terminal: FarmingTerminal
   attachment: TerminalAttachmentCoordinator
-  resizeScheduler: TerminalResizeScheduler
+  resizeEffects: TerminalResizeEffectController
   terminalWriteBatchCount: number
   checkpointRequestInFlight: boolean
   checkpointRequestCount: number
@@ -30,10 +30,6 @@ export interface TerminalSessionDiagnosticsSource {
   pageOutputSuspended: boolean
   suppressOutputUntil: number
   needsReconnectOutputSync: boolean
-  lastNotifiedResize: TerminalResizeDimensions | null
-  resizeNotificationCount: number
-  resizeRequestInFlight: TerminalResizeDimensions | null
-  pendingResizeRequest: TerminalResizeDimensions | null
 }
 
 export interface TerminalSessionDiagnostics {
@@ -134,7 +130,7 @@ export class TerminalSessionDiagnosticsProjection {
       viewportY?: number
       baseY?: number
     }) | undefined
-    const resize = current.resizeScheduler.diagnostics()
+    const resize = current.resizeEffects.diagnostics()
     const attachment = current.attachment.snapshot()
     const generation = current.attachment.generation
 
@@ -174,10 +170,6 @@ export class TerminalSessionDiagnosticsProjection {
       pageOutputSuspended: current.pageOutputSuspended,
       suppressOutputForMs: Math.max(0, current.suppressOutputUntil - this.#now()),
       needsReconnectOutputSync: current.needsReconnectOutputSync,
-      lastNotifiedResize: current.lastNotifiedResize,
-      resizeNotificationCount: current.resizeNotificationCount,
-      resizeRequestInFlight: current.resizeRequestInFlight,
-      pendingResizeRequest: current.pendingResizeRequest,
       ...resize,
     }
   }

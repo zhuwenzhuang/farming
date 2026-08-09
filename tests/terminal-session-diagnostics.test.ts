@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { FarmingTerminal } from '../src/lib/terminal-engine'
 import type { TerminalAttachmentCoordinator } from '../src/lib/terminal-attachment-coordinator'
-import type { TerminalResizeScheduler } from '../src/lib/terminal-resize-scheduler'
+import type { TerminalResizeEffectController } from '../src/lib/terminal-resize-effect-controller'
 import {
   TerminalSessionDiagnosticsProjection,
   type TerminalSessionDiagnosticsSource,
@@ -46,14 +46,18 @@ function diagnosticsSource(agentId = 'agent-one'): TerminalSessionDiagnosticsSou
       },
     },
   } as unknown as FarmingTerminal
-  const resizeScheduler = {
+  const resizeEffects = {
     diagnostics: () => ({
+      lastNotifiedResize: { cols: 118, rows: 33 },
+      resizeNotificationCount: 5,
+      resizeRequestInFlight: { cols: 117, rows: 32 },
+      pendingResizeRequest: { cols: 116, rows: 31 },
       pendingFitResize: { cols: 119, rows: 34 },
       fitResizeTimerPending: true,
       resizeRedrawTimerPending: false,
       resizeDeliveryTimeoutPending: true,
     }),
-  } as unknown as TerminalResizeScheduler
+  } as unknown as TerminalResizeEffectController
 
   return {
     agentId,
@@ -62,7 +66,7 @@ function diagnosticsSource(agentId = 'agent-one'): TerminalSessionDiagnosticsSou
     disposed: false,
     terminal,
     attachment,
-    resizeScheduler,
+    resizeEffects,
     terminalWriteBatchCount: 6,
     checkpointRequestInFlight: true,
     checkpointRequestCount: 8,
@@ -74,10 +78,6 @@ function diagnosticsSource(agentId = 'agent-one'): TerminalSessionDiagnosticsSou
     pageOutputSuspended: true,
     suppressOutputUntil: 1_250,
     needsReconnectOutputSync: true,
-    lastNotifiedResize: { cols: 118, rows: 33 },
-    resizeNotificationCount: 5,
-    resizeRequestInFlight: { cols: 117, rows: 32 },
-    pendingResizeRequest: { cols: 116, rows: 31 },
   }
 }
 

@@ -80,6 +80,20 @@ latest complete geometry without violating output order. A browser applying a
 committed remote resize does not echo it back. Recovery does not automatically
 reclaim an older viewer's geometry when another viewer may be active.
 
+The attachment coordinator remains the owner of protocol generation, operation
+revision, state revision, and transition commit. The browser resize-effect
+controller owns only observer, fit, redraw, delivery, and local-renderer
+effects. Each scheduled effect captures the exact attachment operation and its
+own effect revision. At most one resize mutation is in flight, with only the
+latest complete pending geometry retained.
+
+A resize delivery timeout is an uncertain mutation outcome. The browser enters
+checkpoint recovery and does not send the pending geometry directly. After the
+authoritative checkpoint establishes a new attachment cut, the controller may
+send the currently visible geometry once when recovery explicitly requires it.
+Late acknowledgements, animation frames, or timers from an older attachment or
+effect revision cannot complete or mutate the new cut.
+
 ## Output, Backpressure, And Rendering
 
 The PTY host publishes output only after the reducer has committed it. Reducer

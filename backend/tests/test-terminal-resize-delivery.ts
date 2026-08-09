@@ -2,166 +2,76 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 
-const {
-  acknowledgeTerminalResizeDelivery,
-  expireTerminalResizeDelivery,
-  queueTerminalResizeDelivery,
-  resetTerminalResizeDeliveryTracker,
-  shouldDebounceTerminalResize,
-} = require('../../src/lib/terminal-resize.ts');
-
-function createTracker() {
-  return {
-    resizeRequestInFlight: null,
-    pendingResizeRequest: null,
-  };
-}
-
 function run() {
   const terminalPoolSource = fs.readFileSync(
     path.join(__dirname, '../../src/lib/terminal-session-pool.ts'),
     'utf8',
   );
-  const resizeSchedulerSource = fs.readFileSync(
-    path.join(__dirname, '../../src/lib/terminal-resize-scheduler.ts'),
+  const controllerSource = fs.readFileSync(
+    path.join(__dirname, '../../src/lib/terminal-resize-effect-controller.ts'),
     'utf8',
   );
-  const tracker = createTracker();
-  const sent = [];
-  const send = (cols, rows) => {
-    sent.push({ cols, rows });
-    return true;
-  };
-
-  assert.strictEqual(
-    shouldDebounceTerminalResize(
-      { cols: 120, rows: 35 },
-      { cols: 118, rows: 35 },
-    ),
-    true,
-    'browser-driven horizontal geometry changes should be coalesced',
+  const resizeSource = fs.readFileSync(
+    path.join(__dirname, '../../src/lib/terminal-resize.ts'),
+    'utf8',
   );
-  assert.strictEqual(
-    shouldDebounceTerminalResize(
-      { cols: 120, rows: 35 },
-      { cols: 120, rows: 35 },
-    ),
-    false,
-    'unchanged geometry should not schedule resize work',
-  );
-  assert.strictEqual(
-    shouldDebounceTerminalResize(
-      { cols: 120, rows: 35 },
-      { cols: 120, rows: 34 },
-    ),
-    true,
-    'vertical changes from the same window drag must use the same coalescing path',
-  );
-  assert.strictEqual(
-    shouldDebounceTerminalResize(
-      { cols: 120, rows: 35 },
-      { cols: 118, rows: 35 },
-      { force: true },
-    ),
-    false,
-    'explicit recovery and attach fits must remain immediate',
-  );
-
-  assert.strictEqual(queueTerminalResizeDelivery(tracker, 120, 35, send), true);
-  assert.deepStrictEqual(sent, [{ cols: 120, rows: 35 }]);
-  assert.deepStrictEqual(tracker.resizeRequestInFlight, { cols: 120, rows: 35 });
-  assert.strictEqual(tracker.pendingResizeRequest, null);
-
-  assert.strictEqual(queueTerminalResizeDelivery(tracker, 112, 35, send), true);
-  assert.strictEqual(queueTerminalResizeDelivery(tracker, 104, 35, send), true);
-  assert.deepStrictEqual(sent, [{ cols: 120, rows: 35 }], 'only one resize may be in flight');
-  assert.deepStrictEqual(
-    tracker.pendingResizeRequest,
-    { cols: 104, rows: 35 },
-    'dragging should retain only the latest pending geometry',
-  );
-
-  const staleEcho = acknowledgeTerminalResizeDelivery(tracker, 120, 35);
-  assert.deepStrictEqual(staleEcho, {
-    matched: true,
-    preserveLocalGeometry: true,
-    next: { cols: 104, rows: 35 },
-  });
-  assert.strictEqual(tracker.resizeRequestInFlight, null);
-  assert.strictEqual(tracker.pendingResizeRequest, null);
-
-  assert.strictEqual(
-    queueTerminalResizeDelivery(tracker, staleEcho.next.cols, staleEcho.next.rows, send),
-    true,
-  );
-  assert.deepStrictEqual(sent, [
-    { cols: 120, rows: 35 },
-    { cols: 104, rows: 35 },
-  ]);
-
-  const currentEcho = acknowledgeTerminalResizeDelivery(tracker, 104, 35);
-  assert.deepStrictEqual(currentEcho, {
-    matched: true,
-    preserveLocalGeometry: false,
-    next: null,
-  });
-
-  assert.strictEqual(queueTerminalResizeDelivery(tracker, 100, 32, send), true);
-  assert.strictEqual(queueTerminalResizeDelivery(tracker, 100, 32, send), true);
-  const duplicatePending = acknowledgeTerminalResizeDelivery(tracker, 100, 32);
-  assert.deepStrictEqual(duplicatePending, {
-    matched: true,
-    preserveLocalGeometry: false,
-    next: null,
-  }, 'a pending duplicate should collapse into the acknowledged resize');
-
-  assert.strictEqual(queueTerminalResizeDelivery(tracker, 96, 30, send), true);
-  assert.strictEqual(queueTerminalResizeDelivery(tracker, 92, 28, send), true);
-  const unrelatedResize = acknowledgeTerminalResizeDelivery(tracker, 90, 28);
-  assert.deepStrictEqual(unrelatedResize, {
-    matched: false,
-    preserveLocalGeometry: true,
-    next: null,
-  });
-  assert.deepStrictEqual(
-    tracker.resizeRequestInFlight,
-    { cols: 96, rows: 30 },
-    'an unrelated viewer resize must not acknowledge the local request',
-  );
-
-  assert.deepStrictEqual(expireTerminalResizeDelivery(tracker), { cols: 92, rows: 28 });
-  assert.strictEqual(tracker.resizeRequestInFlight, null);
-  assert.strictEqual(tracker.pendingResizeRequest, null);
-  assert.strictEqual(
-    expireTerminalResizeDelivery(tracker),
-    null,
-    'an acknowledgement timeout without a newer geometry should end without retrying',
-  );
-
-  resetTerminalResizeDeliveryTracker(tracker);
-  assert.strictEqual(tracker.resizeRequestInFlight, null);
-  assert.strictEqual(tracker.pendingResizeRequest, null);
-
-  const rejected = createTracker();
-  assert.strictEqual(queueTerminalResizeDelivery(rejected, 80, 24, () => false), false);
-  assert.strictEqual(rejected.resizeRequestInFlight, null);
-  assert.strictEqual(rejected.pendingResizeRequest, null);
 
   assert(
-    terminalPoolSource.includes('function deliverTerminalResize') &&
-      terminalPoolSource.includes('const delivery = acknowledgeTerminalResizeDelivery(record, nextCols, nextRows)') &&
-      terminalPoolSource.includes('!delivery.preserveLocalGeometry') &&
-      terminalPoolSource.includes('record.terminal.cols !== nextCols || record.terminal.rows !== nextRows') &&
-      terminalPoolSource.includes('deliverTerminalResize(record, delivery.next.cols, delivery.next.rows)') &&
-      terminalPoolSource.includes('record.resizeScheduler.scheduleDeliveryTimeout()') &&
-      terminalPoolSource.includes('onDeliveryTimeout: () => {\n        const next = expireTerminalResizeDelivery(record)') &&
-      resizeSchedulerSource.includes('TERMINAL_RESIZE_DELIVERY_TIMEOUT_MS = 1500') &&
-      terminalPoolSource.indexOf('record.attachment.commitTransition(event)') >
-        terminalPoolSource.indexOf('!delivery.preserveLocalGeometry'),
-    'the terminal pool must preserve newer local geometry while still committing the ordered resize transition',
+    controllerSource.includes('export class TerminalResizeEffectController') &&
+      controllerSource.includes('#resizeRequestInFlight: TerminalResizeDeliveryOperation | null') &&
+      controllerSource.includes('#pendingResizeRequest: TerminalResizeDimensions | null') &&
+      controllerSource.includes('attachment: this.#ports.attachmentOperation()') &&
+      controllerSource.includes('baselineStateRevision: this.#ports.stateRevision()') &&
+      controllerSource.includes('this.#ports.isCurrentAttachmentOperation(token.attachment)') &&
+      controllerSource.includes('transition.stateRevision > inFlight.baselineStateRevision') &&
+      controllerSource.includes('this.beginRecovery({ forceAfterRecovery: true })') &&
+      controllerSource.includes('this.#ports.requestRecovery()') &&
+      !controllerSource.includes('expireTerminalResizeDelivery'),
+    'the resize-effect owner must keep one exact attachment/revision-fenced mutation and recover an uncertain timeout without replaying it',
   );
 
-  console.log('✓ terminal resize delivery keeps one request in flight and preserves newer local geometry');
+  const commitIndex = terminalPoolSource.indexOf('record.attachment.commitTransition(event)');
+  const applyIndex = terminalPoolSource.indexOf('record.resizeEffects.applyCommittedRemoteResize(nextCols, nextRows');
+  const installCheckpointBody = terminalPoolSource.slice(
+    terminalPoolSource.indexOf('function installTerminalCheckpoint('),
+    terminalPoolSource.indexOf('function requestTerminalReplay('),
+  );
+  const attachBody = terminalPoolSource.slice(
+    terminalPoolSource.indexOf('export async function attachTerminalSession('),
+    terminalPoolSource.indexOf('export function retryTerminalSession('),
+  );
+  assert(
+    terminalPoolSource.includes('resizeEffects: TerminalResizeEffectController') &&
+      terminalPoolSource.includes('resizeEffects: new TerminalResizeEffectController({') &&
+      terminalPoolSource.includes('if (record.resizeEffects.applyingLocalResize) return') &&
+      terminalPoolSource.includes("type: 'resize-agent'") &&
+      terminalPoolSource.includes('requestRecovery: () => requestTerminalResizeRecovery(record)') &&
+      commitIndex >= 0 && applyIndex > commitIndex &&
+      !terminalPoolSource.includes('resizeScheduler') &&
+      !terminalPoolSource.includes('resizeRequestInFlight:') &&
+      !terminalPoolSource.includes('pendingResizeRequest:') &&
+      !terminalPoolSource.includes('function deliverTerminalResize') &&
+      !terminalPoolSource.includes('function notifyTerminalResize') &&
+      installCheckpointBody.indexOf('record.resizeEffects.beginRecovery()') <
+        installCheckpointBody.indexOf('record.attachment.beginCheckpointOperation(generation)') &&
+      attachBody.indexOf('record.resizeEffects.beginRecovery({ forceAfterRecovery: true })') <
+        attachBody.indexOf('record.attachment.beginAttachment()') &&
+      terminalPoolSource.indexOf('const transitionAttachment = record.attachment.currentOperation()') <
+        terminalPoolSource.indexOf('const decision = record.attachment.classifyTransition(event)') &&
+      terminalPoolSource.includes('attachment: transitionAttachment'),
+    'SessionRecord must expose one resize-effect collaborator while AttachmentCoordinator commits protocol order first',
+  );
+
+  assert(
+    resizeSource.includes('export function normalizeTerminalResizeDimensions') &&
+      resizeSource.includes('export function proposeTerminalResizeDimensions') &&
+      !resizeSource.includes('TerminalResizeDeliveryTracker') &&
+      !resizeSource.includes('notifyTerminalResizeTracker') &&
+      !resizeSource.includes('queueTerminalResizeDelivery'),
+    'the geometry helper must not retain the deleted delivery state machine',
+  );
+
+  console.log('✓ terminal resize effects have one revision-fenced owner and uncertain delivery recovery');
 }
 
 run();

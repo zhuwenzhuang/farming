@@ -63,6 +63,17 @@ Resize 是有序 Terminal Transition。Layout Churn 合并为最新完整 Geomet
 顺序。Browser 应用已提交 Remote Resize 时不回传。Recovery 不能自动抢回某个旧 Viewer 的
 Geometry，因为可能存在其它 Active Viewer。
 
+Attachment Coordinator 仍是 Protocol Generation、Operation Revision、State Revision 与
+Transition Commit 的 Owner。Browser Resize-effect Controller 只拥有 Observer、Fit、Redraw、
+Delivery 与 Local-renderer Effect。每个 Scheduled Effect 都捕获精确 Attachment Operation 与
+自身 Effect Revision。任意时刻最多只有一个 Resize Mutation In-flight，并且只保留最新完整的
+Pending Geometry。
+
+Resize Delivery Timeout 表示 Mutation Outcome 不确定。Browser 进入 Checkpoint Recovery，不能
+直接发送 Pending Geometry。权威 Checkpoint 建立新的 Attachment Cut 后，只有 Recovery 明确要求
+时，Controller 才可以发送一次当前可见 Geometry。来自旧 Attachment 或 Effect Revision 的 Late
+Acknowledgement、Animation Frame 或 Timer 不能完成或修改新的 Cut。
+
 ## Output、Backpressure 与 Rendering
 
 PTY Host 只在 Reducer 提交后发布 Output。Reducer Backlog 可以暂停 PTY Read。慢 Browser

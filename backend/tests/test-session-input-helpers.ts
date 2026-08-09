@@ -90,8 +90,8 @@ function run() {
     path.join(__dirname, '../../src/lib/terminal-resize.ts'),
     'utf8'
   );
-  const terminalResizeSchedulerSource = fs.readFileSync(
-    path.join(__dirname, '../../src/lib/terminal-resize-scheduler.ts'),
+  const terminalResizeEffectSource = fs.readFileSync(
+    path.join(__dirname, '../../src/lib/terminal-resize-effect-controller.ts'),
     'utf8'
   );
   const terminalReplaySource = fs.readFileSync(
@@ -225,7 +225,7 @@ function run() {
       terminalPoolSource.includes('return await fetchSessionBootstrapState(record.agentId, controller.signal)') &&
       !terminalPoolSource.includes('BOOTSTRAP_DIMENSION_RETRY_COUNT') &&
       terminalBootstrapSource.includes('parseSessionDimensions') &&
-      terminalPoolSource.includes('record.terminal.resize?.(state.cols!, state.rows!)') &&
+      terminalPoolSource.includes('record.resizeEffects.applyAuthoritativeDimensions(state.cols!, state.rows!)') &&
       !terminalPoolSource.includes('pendingResizeCheckpoint') &&
       !terminalPoolSource.includes('output: state.textOutput'),
     'terminal bootstrap replay should install checkpoint bytes and dimensions as one authoritative reducer cut without coupling replay to a pending resize'
@@ -548,32 +548,27 @@ function run() {
       terminalResizeSource.includes('export function proposeTerminalResizeDimensions') &&
       terminalResizeSource.includes('const hostRect = hostEl.getBoundingClientRect()') &&
       terminalResizeSource.includes('if (hostRect.width <= 0 || hostRect.height <= 0) return null') &&
-      terminalResizeSource.includes('export function notifyTerminalResizeTracker') &&
-      terminalResizeSource.includes('export function shouldDebounceTerminalResize') &&
-      terminalResizeSource.includes('export function queueTerminalResizeDelivery') &&
-      terminalResizeSource.includes('export function acknowledgeTerminalResizeDelivery') &&
-      terminalResizeSource.includes('export function resetTerminalResizeDeliveryTracker') &&
-      terminalResizeSource.includes('export function resetTerminalResizeTracker') &&
       terminalPoolSource.includes("from '@/lib/terminal-resize'") &&
-      terminalResizeSchedulerSource.includes('export const TERMINAL_RESIZE_SETTLE_MS = 250') &&
-      terminalResizeSchedulerSource.includes('export const TERMINAL_RESIZE_DELIVERY_TIMEOUT_MS = 1500') &&
-      terminalResizeSchedulerSource.includes('export function createTerminalResizeScheduler') &&
-      terminalResizeSchedulerSource.includes('scheduleFit(dimensions)') &&
-      terminalResizeSchedulerSource.includes('scheduleDeliveryTimeout()') &&
-      terminalPoolSource.includes("from '@/lib/terminal-resize-scheduler'") &&
-      terminalPoolSource.includes('resizeScheduler: createTerminalResizeScheduler({') &&
+      terminalResizeEffectSource.includes('export const TERMINAL_RESIZE_SETTLE_MS = 250') &&
+      terminalResizeEffectSource.includes('export const TERMINAL_RESIZE_DELIVERY_TIMEOUT_MS = 1500') &&
+      terminalResizeEffectSource.includes('export class TerminalResizeEffectController') &&
+      terminalResizeEffectSource.includes('#captureEffectToken()') &&
+      terminalResizeEffectSource.includes('this.#ports.isCurrentAttachmentOperation(token.attachment)') &&
+      terminalResizeEffectSource.includes('this.beginRecovery({ forceAfterRecovery: true })') &&
+      terminalPoolSource.includes("from '@/lib/terminal-resize-effect-controller'") &&
+      terminalPoolSource.includes('resizeEffects: new TerminalResizeEffectController({') &&
       !terminalResizeSource.includes('normalBufferLength') &&
       !terminalPoolSource.includes('getNormalBufferLength') &&
-      terminalPoolSource.includes('function deliverTerminalResize') &&
-      terminalPoolSource.includes('queueTerminalResizeDelivery(record, cols, rows') &&
-      terminalPoolSource.includes('function notifyTerminalResize') &&
+      !terminalPoolSource.includes('resizeScheduler') &&
+      !terminalPoolSource.includes('function deliverTerminalResize') &&
+      !terminalPoolSource.includes('function notifyTerminalResize') &&
       !terminalPoolSource.includes('function requestTerminalControllerResize') &&
       !terminalPoolSource.includes('pendingResizeCheckpoint') &&
       terminalPoolSource.includes("type: 'resize-agent'") &&
       terminalPoolSource.includes('agentId: record.agentId') &&
-      terminalPoolSource.includes('cols: nextCols') &&
-      terminalPoolSource.includes('rows: nextRows') &&
-      terminalPoolSource.includes('notifyTerminalResizeTracker(record, cols, rows, (nextCols, nextRows) =>') &&
+      terminalPoolSource.includes('cols: dimensions.cols') &&
+      terminalPoolSource.includes('rows: dimensions.rows') &&
+      terminalPoolSource.includes('if (record.resizeEffects.applyingLocalResize) return') &&
       terminalPoolSource.includes('notifyResizeForTest(agentId: string, cols: number, rows: number)') &&
       terminalPoolSource.includes('function resyncTerminalSizeAfterBackendReconnect') &&
       terminalPoolSource.includes('requestTerminalReplay(record, record.attachment.generation)') &&
@@ -581,11 +576,13 @@ function run() {
       terminalPoolSource.includes('record.needsReconnectOutputSync = true') &&
       terminalPoolSource.includes('record.needsReconnectOutputSync = false') &&
       terminalPoolSource.includes('function notifyTerminalAttachReady') &&
+      terminalPoolSource.indexOf('record.resizeEffects.beginRecovery()\n  record.attachment.invalidateOperation()') >= 0 &&
       terminalPoolSource.includes('record.liveWriteInProgress ||') &&
       terminalPoolSource.includes('record.attachment.queuedTransitionCount > 0 ||') &&
       !terminalPoolSource.includes('attemptsRemaining = 40') &&
       terminalPoolSource.includes('fetchSessionBootstrapState(record.agentId, controller.signal)') &&
       terminalPoolSource.includes('const controller = new AbortController()') &&
+      terminalPoolSource.includes('record.resizeEffects.beginRecovery()\n  record.attachment.beginRecovery()') &&
       terminalPoolSource.includes('TERMINAL_CHECKPOINT_REQUEST_TIMEOUT_MS = 5000') &&
       terminalPoolSource.includes('record.bootstrapRequestControllers.forEach(controller => controller.abort())') &&
       terminalPoolSource.includes('old install latch or it can never start') &&
@@ -595,16 +592,16 @@ function run() {
       terminalPoolSource.includes("publishTerminalRecoveryStatus(record, 'installing'") &&
       terminalPoolSource.includes("publishTerminalRecoveryStatus(record, 'retrying'") &&
       terminalPoolSource.includes("publishTerminalRecoveryStatus(record, 'ready'") &&
-      terminalPoolSource.includes('resetTerminalResizeTracker(record)') &&
-      terminalPoolSource.includes('resetTerminalResizeDelivery(record)') &&
+      terminalPoolSource.includes('record.resizeEffects.beginRecovery()') &&
+      terminalPoolSource.includes('const forceResize = record.resizeEffects.recoveryFitRequired()') &&
       terminalPoolSource.includes("window.addEventListener('farming:backend-connected', backendConnectedHandler)") &&
       terminalPoolSource.includes("window.removeEventListener('farming:backend-connected', record.backendConnectedHandler)") &&
       terminalPoolSource.includes("document.addEventListener('visibilitychange', pageLifecycleHandler)") &&
       terminalPoolSource.includes("window.addEventListener('pagehide', pageLifecycleHandler)") &&
       terminalPoolSource.includes("window.addEventListener('pageshow', pageLifecycleHandler)") &&
       terminalPoolSource.includes("document.removeEventListener('visibilitychange', record.pageLifecycleHandler)") &&
-      terminalPoolSource.includes('notifyTerminalResize(record, dimensions.cols, dimensions.rows, options)') &&
-      terminalPoolSource.includes('notifyTerminalResize(record, cols, rows)') &&
+      terminalPoolSource.includes('current.resizeEffects.notify(cols, rows)') &&
+      terminalPoolSource.includes('record.resizeEffects.notify(cols, rows)') &&
       webSocketSource.includes("window.dispatchEvent(new Event('farming:backend-connected'))"),
     'terminal session pool should coalesce browser geometry, keep one delivery in flight, and recover display from an independent authoritative checkpoint'
   );
@@ -654,7 +651,7 @@ function run() {
   );
   const codeInputBody = terminalPoolSource.slice(
     terminalPoolSource.indexOf('function queueTerminalInput'),
-    terminalPoolSource.indexOf('function syncTerminalSize')
+    terminalPoolSource.indexOf('function requestTerminalResizeRecovery')
   );
   const crtInputBody = crtAppSource.slice(
     crtAppSource.indexOf('function queueCrtTerminalInput'),
