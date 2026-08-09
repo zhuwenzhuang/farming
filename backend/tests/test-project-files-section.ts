@@ -94,6 +94,7 @@ function run() {
   const terminalPoolSource = read('src/lib/terminal-session-pool.ts');
   const terminalRendererEffectsSource = read('src/lib/terminal-renderer-effects.ts');
   const terminalLinksSource = read('src/lib/terminal-links.ts');
+  const linkInteractionSource = read('src/lib/terminal-link-interaction.ts');
   const terminalLinkParsingSource = read('src/lib/terminal-link-parsing.ts');
   const fileIconsSource = read('src/lib/file-icons.ts');
   const hookSource = read('src/hooks/useWorkspaceFiles.ts');
@@ -279,16 +280,16 @@ function run() {
     terminalLinksSource.includes('export interface TerminalPathOpenTarget') &&
 	      terminalPoolSource.includes('onPathOpen?: (agentId: string, target: TerminalPathOpenTarget) => void') &&
 	      terminalLinksSource.includes('function parseTerminalPathTargetAtColumn') &&
-	      terminalPoolSource.includes('function readDomTerminalLineAtMouseEvent') &&
-	      terminalPoolSource.includes("target.closest<HTMLElement>('.xterm-rows > div')") &&
-	      terminalPoolSource.includes('function findTerminalPathTargetAtMouseEvent') &&
-	      terminalPoolSource.includes('Click to open file or folder') &&
-	      terminalPoolSource.includes('点击打开文件或文件夹') &&
+	      linkInteractionSource.includes('#readDomLineAtEvent(event: MouseEvent)') &&
+	      linkInteractionSource.includes("target?.closest<HTMLElement>('.xterm-rows > div')") &&
+	      linkInteractionSource.includes('resolvedPathTargetAtEvent(event: MouseEvent)') &&
+	      linkInteractionSource.includes('Click to open file or folder') &&
+	      linkInteractionSource.includes('点击打开文件或文件夹') &&
       terminalLinksSource.includes('LinkComputer.computeLinks') &&
       terminalLinksSource.includes('const MAX_TERMINAL_URL_LENGTH = 2048') &&
       terminalLinksSource.includes('function parseTerminalUrlAtColumn') &&
-      terminalPoolSource.includes('function findTerminalUrlAtMouseEvent') &&
-      terminalPoolSource.includes('function openTerminalUrl(_record: SessionRecord, url: string)') &&
+      linkInteractionSource.includes('urlAtEvent(event: MouseEvent)') &&
+      terminalPoolSource.includes('openUrl: url => openExternalUrl(url)') &&
       terminalPoolSource.includes('openExternalUrl(url)') &&
       terminalPoolSource.includes('onOpenInFarming: record.farmingUrlOpenHandler') &&
       terminalLinksSource.includes('isLikelyTerminalPathTarget(filePath)') &&
@@ -298,27 +299,27 @@ function run() {
       terminalPoolSource.includes('while (buffer.getLine(logicalEndRow + 1)?.isWrapped)') &&
       terminalPoolSource.includes('const logicalCol = ((bufferRow - logicalStartRow) * cols) + cell.col') &&
       terminalPoolSource.includes('getTerminalVisibleBufferBase(record.terminal) + cell.row') &&
-      terminalPoolSource.includes("hostEl.addEventListener('click', clickHandler, true)") &&
-	      terminalPoolSource.includes('function isTerminalPathOpenClick(event: MouseEvent)') &&
-			      terminalPoolSource.includes('function isTerminalOpenModifierActive') &&
-			      terminalPoolSource.includes('return isTerminalOpenModifierEvent(event) || record.openModifierActive') &&
-			      terminalPoolSource.includes('const openTerminalClickTarget = (event: MouseEvent | PointerEvent)') &&
-			      terminalPoolSource.includes('openTerminalClickTarget(event)') &&
-			      terminalPoolSource.includes('record.suppressClickUntil = Date.now() + 250') &&
-			      terminalPoolSource.includes('const modifierActive = isTerminalOpenModifierActive(record, event)') &&
-			      terminalPoolSource.includes('const url = event.button === 0 && modifierActive ? findTerminalUrlAtMouseEvent(record, event) : null') &&
-			      terminalPoolSource.includes('openTerminalUrl(record, url)') &&
-			      terminalPoolSource.includes('const pathDirectOpen = match.kind === \'path\' && Boolean(match.pathTarget && record.pathOpenHandler)') &&
-				      terminalPoolSource.includes('pointerCursor: pathDirectOpen') &&
-				      terminalPoolSource.includes('underline: pathDirectOpen') &&
-				      terminalPoolSource.includes("underline: pathDirectOpen || match.kind === 'url' || active") &&
-				      terminalPoolSource.includes('pointerCursor: active') &&
-				      terminalPoolSource.includes('const mouseDownOpenTargetHandler = (event: MouseEvent) =>') &&
-				      terminalPoolSource.includes('record.openTargetMouseDown = {') &&
-				      terminalPoolSource.includes('Math.hypot(event.clientX - mouseDown.x, event.clientY - mouseDown.y) > 4') &&
-				      terminalPoolSource.includes("hostEl.addEventListener('mouseup', mouseUpOpenTargetHandler, true)") &&
+      linkInteractionSource.includes("this.#listen(this.#ports.hostEl, 'click', this.#handleClick as EventListener)") &&
+	      linkInteractionSource.includes('export function isTerminalPathOpenClick(event: MouseEvent)') &&
+			      linkInteractionSource.includes('#isOpenModifierActive(event: Pick<MouseEvent') &&
+			      linkInteractionSource.includes('return isTerminalOpenModifierEvent(event, this.#ports.isMacPlatform()) || this.#openModifierActive') &&
+			      linkInteractionSource.includes('activateOpenTargetAtEvent(event: MouseEvent)') &&
+			      terminalPoolSource.includes('record.linkInteraction.activateOpenTargetAtEvent(event)') &&
+			      linkInteractionSource.includes('this.#activationSuppressedUntil = this.#ports.now() + TERMINAL_OPEN_ACTIVATION_FENCE_MS') &&
+			      linkInteractionSource.includes('const modifierActive = this.#isOpenModifierActive(event)') &&
+			      linkInteractionSource.includes('const url = event.button === 0 && modifierActive ? this.urlAtEvent(event) : null') &&
+			      linkInteractionSource.includes('this.#ports.openUrl(url)') &&
+			      linkInteractionSource.includes('const pathDirectOpen = match.kind === \'path\' && Boolean(match.pathTarget && this.#ports.pathOpenHandler())') &&
+				      linkInteractionSource.includes('pointerCursor: pathDirectOpen') &&
+				      linkInteractionSource.includes('underline: pathDirectOpen') &&
+				      linkInteractionSource.includes("underline: pathDirectOpen || match.kind === 'url' || active") &&
+				      linkInteractionSource.includes('pointerCursor: active') &&
+				      linkInteractionSource.includes('#handleExactOpenMouseDown = (event: MouseEvent) =>') &&
+				      linkInteractionSource.includes('this.#exactOpenMouseDown = {') &&
+				      linkInteractionSource.includes('Math.hypot(event.clientX - mouseDown.x, event.clientY - mouseDown.y)') &&
+				      linkInteractionSource.includes("this.#listen(this.#ports.hostEl, 'mouseup', this.#handleExactOpenMouseUp as EventListener)") &&
 			      terminalPoolSource.includes('record.pathOpenHandler && isTerminalPathOpenClick(event)') &&
-			      terminalPoolSource.includes('if (record.pathOpenHandler && event.button === 0)') &&
+			      linkInteractionSource.includes('if (this.#ports.pathOpenHandler() && event.button === 0)') &&
 	      terminalPoolSource.includes("hostEl.addEventListener('contextmenu', contextMenuHandler, true)") &&
 	      terminalPoolSource.includes('record.pathOpenHandler(agentId, pathTarget)') &&
 	      terminalPoolSource.includes('event.stopImmediatePropagation()') &&

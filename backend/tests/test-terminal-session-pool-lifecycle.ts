@@ -5,6 +5,10 @@ const path = require('path');
 const root = path.resolve(__dirname, '..', '..');
 const poolSource = fs.readFileSync(path.join(root, 'src/lib/terminal-session-pool.ts'), 'utf8');
 const terminalOutputSource = fs.readFileSync(path.join(root, 'src/lib/terminal-output.ts'), 'utf8');
+const linkInteractionSource = fs.readFileSync(
+  path.join(root, 'src/lib/terminal-link-interaction.ts'),
+  'utf8',
+);
 const terminalDiagnosticsSource = fs.readFileSync(
   path.join(root, 'src/lib/terminal-session-diagnostics.ts'),
   'utf8',
@@ -94,17 +98,30 @@ assert(
 );
 
 assert(
-  poolSource.includes('function clearTerminalOpenTargetState(record: SessionRecord)') &&
-    poolSource.includes('record.openModifierActive = false') &&
-    poolSource.includes('record.lastLinkHoverEvent = null') &&
-    poolSource.includes('setTerminalLinkHoverTarget(record, null)'),
+  linkInteractionSource.includes('#clearHoverState() {') &&
+    linkInteractionSource.includes('this.#openModifierActive = false') &&
+    linkInteractionSource.includes('this.#lastHoverEvent = null') &&
+    linkInteractionSource.includes('this.#setHoverTarget(null)'),
   'terminal open-target cleanup should clear both visual hover state and the tracked modifier state'
 );
 
 assert(
-  poolSource.includes('clearTerminalOpenTargetState(record)\n  clearTerminalSelectionState(record)') &&
-    poolSource.includes('const linkHoverBlurHandler = () => {\n    clearTerminalOpenTargetState(record)\n  }'),
+  poolSource.includes('record.linkInteraction.reset()\n  clearTerminalSelectionState(record)') &&
+    linkInteractionSource.includes('#handleWindowBlur = () => {\n    this.#clearHoverState()\n  }') &&
+    linkInteractionSource.includes("this.#listen(this.#ports.windowTarget, 'blur', this.#handleWindowBlur as EventListener, false)"),
   'detach and window blur should clear terminal open-target modifier state'
+);
+
+assert(
+  poolSource.includes('  repairTerminalAfterAttach(record)\n  applyTerminalAttachmentOptions(record, options)') &&
+    poolSource.includes('function repairTerminalAfterAttach(record: SessionRecord) {\n  resetTransientTerminalUi(record)') &&
+    poolSource.includes('function resetTransientTerminalUi(record: SessionRecord) {\n  hideTerminalContextMenu(record)\n  record.linkInteraction.reset()') &&
+    poolSource.includes('if (record.attachedMount === options.mountEl && isTerminalSessionAttached(record)) {') &&
+    poolSource.includes('    applyTerminalAttachmentOptions(record, options)\n    return\n  }') &&
+    poolSource.includes('const revisionInvalidated = record.linkInteraction.adoptHandlersRevision(committedRevision)') &&
+    poolSource.includes('if (!revisionInvalidated && linkHandlersReplaced) record.linkInteraction.notifyHandlersChanged()') &&
+    !poolSource.includes('    resetTransientTerminalUi(record)\n    applyTerminalAttachmentOptions(record, options)\n    return\n  }'),
+  'a different-mount attach should reset link interaction fences before installing new handlers, while a same-mount refresh only replaces handlers'
 );
 
 console.log('✓ terminal session pool releases pending writes on destroy');

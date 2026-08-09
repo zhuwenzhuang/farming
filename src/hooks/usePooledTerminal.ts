@@ -1,14 +1,16 @@
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 import type { RefObject } from 'react'
 import {
   attachTerminalSession,
   clearTerminalSearch,
+  commitTerminalSessionLinkHandlers,
   detachTerminalSession,
   focusTerminalSession,
   getTerminalSessionReadCut,
   getTerminalSelection,
   getTerminalSelectionNow,
   refreshTerminalSessionLayout,
+  releaseTerminalSessionLinkHandlers,
   retryTerminalSession,
   scrollTerminalSessionToBottom,
   searchTerminalSession,
@@ -21,6 +23,7 @@ import {
 } from '@/lib/terminal-session-pool'
 import type { TerminalSearchOptions } from '@/lib/terminal-search'
 import type { SessionBootstrapState } from '@/lib/terminal-bootstrap'
+import { createTerminalLinkHandlersRevisionTracker } from '@/lib/terminal-link-interaction'
 import { createTerminalAttachmentLeaseCoordinator } from '@/lib/terminal-attachment'
 
 interface TerminalFollowState {
@@ -76,9 +79,6 @@ export function usePooledTerminal({
   const latestHandlersRef = useRef({
     onSessionOutput,
     onFollowOutputChange,
-    onPathOpen,
-    onPathResolve,
-    onSearchOpen,
     onOpenUrlInFarming,
     onRecoveryStatusChange,
     onReady,
@@ -88,15 +88,17 @@ export function usePooledTerminal({
   latestHandlersRef.current = {
     onSessionOutput,
     onFollowOutputChange,
-    onPathOpen,
-    onPathResolve,
-    onSearchOpen,
     onOpenUrlInFarming,
     onRecoveryStatusChange,
     onReady,
     onError,
     bootstrapState,
   }
+  // The three link handlers are committed, not latest-read: the pool caches
+  // resolutions behind these stable wrappers, so an opener may only become
+  // reachable after the pool has adopted the matching revision and dropped what
+  // the previous handlers produced.
+  const committedLinkHandlersRef = useRef({ onPathOpen, onPathResolve, onSearchOpen })
 
   const attachmentHandlersRef = useRef<TerminalAttachmentHandlers | null>(null)
   if (!attachmentHandlersRef.current) {
@@ -108,13 +110,13 @@ export function usePooledTerminal({
         latestHandlersRef.current.onFollowOutputChange?.(state)
       },
       onPathOpen: (currentAgentId, target) => {
-        latestHandlersRef.current.onPathOpen?.(currentAgentId, target)
+        committedLinkHandlersRef.current.onPathOpen?.(currentAgentId, target)
       },
       onPathResolve: (currentAgentId, target) => {
-        return latestHandlersRef.current.onPathResolve?.(currentAgentId, target) ?? null
+        return committedLinkHandlersRef.current.onPathResolve?.(currentAgentId, target) ?? null
       },
       onSearchOpen: (currentAgentId, query) => {
-        latestHandlersRef.current.onSearchOpen?.(currentAgentId, query)
+        committedLinkHandlersRef.current.onSearchOpen?.(currentAgentId, query)
       },
       onOpenUrlInFarming: (currentAgentId, url) => {
         latestHandlersRef.current.onOpenUrlInFarming?.(currentAgentId, url)
@@ -132,21 +134,54 @@ export function usePooledTerminal({
   }
   const attachmentHandlers = attachmentHandlersRef.current
   const farmingUrlOpenEnabled = Boolean(onOpenUrlInFarming)
+  const linkHandlersRevisionTrackerRef = useRef<ReturnType<typeof createTerminalLinkHandlersRevisionTracker> | null>(null)
+  if (!linkHandlersRevisionTrackerRef.current) {
+    linkHandlersRevisionTrackerRef.current = createTerminalLinkHandlersRevisionTracker()
+  }
+  // The wrappers handed to the pool are stable by design, so their references
+  // can never prove that the real resolver and opener were replaced. This token
+  // advances only when one of those three handlers actually changes identity,
+  // which keeps a re-render - including StrictMode's double render - from
+  // invalidating a resolution that is still current.
+  const linkHandlersRevision = linkHandlersRevisionTrackerRef.current.revisionFor({
+    onPathOpen,
+    onPathResolve,
+    onSearchOpen,
+  })
   const latestLiveOptionsRef = useRef({
     inputDisabled,
     suppressRendererCursor,
     farmingUrlOpenEnabled,
+    linkHandlersRevision,
   })
   latestLiveOptionsRef.current = {
     inputDisabled,
     suppressRendererCursor,
     farmingUrlOpenEnabled,
+    linkHandlersRevision,
   }
   const attachmentLeaseCoordinatorRef = useRef<ReturnType<typeof createTerminalAttachmentLeaseCoordinator> | null>(null)
   if (!attachmentLeaseCoordinatorRef.current) {
     attachmentLeaseCoordinatorRef.current = createTerminalAttachmentLeaseCoordinator()
   }
   const attachmentLeaseCoordinator = attachmentLeaseCoordinatorRef.current
+
+  // One atomic commit per render: the pool adopts this exact revision - which
+  // invalidates every resolution and pending decision the previous handlers
+  // produced - and only then do the wrappers start reaching the new opener. The
+  // pool needs these exact wrappers to tell whether the live record is still this
+  // owner's: a record that is absent, still being created, or still routing
+  // through another owner's wrappers has nothing to invalidate yet and adopts the
+  // latched revision when its own attach installs them, so a late attach cannot
+  // reinstate a superseded one.
+  useLayoutEffect(() => {
+    const candidateLinkHandlers = { onPathOpen, onPathResolve, onSearchOpen }
+    if (agentId) commitTerminalSessionLinkHandlers(agentId, linkHandlersRevision, attachmentHandlers)
+    committedLinkHandlersRef.current = candidateLinkHandlers
+    return () => {
+      if (agentId) releaseTerminalSessionLinkHandlers(agentId, linkHandlersRevision)
+    }
+  }, [agentId, attachmentHandlers, linkHandlersRevision, onPathOpen, onPathResolve, onSearchOpen])
 
   useEffect(() => {
     if (!agentId || !containerRef.current) return
@@ -165,6 +200,7 @@ export function usePooledTerminal({
         onPathOpen: attachmentHandlers.onPathOpen,
         onPathResolve: attachmentHandlers.onPathResolve,
         onSearchOpen: attachmentHandlers.onSearchOpen,
+        linkHandlersRevision: latestLiveOptionsRef.current.linkHandlersRevision,
         onOpenUrlInFarming: latestLiveOptionsRef.current.farmingUrlOpenEnabled
           ? attachmentHandlers.onOpenUrlInFarming
           : undefined,
@@ -241,6 +277,7 @@ export function usePooledTerminal({
         onPathOpen: attachmentHandlers.onPathOpen,
         onPathResolve: attachmentHandlers.onPathResolve,
         onSearchOpen: attachmentHandlers.onSearchOpen,
+        linkHandlersRevision: latestLiveOptionsRef.current.linkHandlersRevision,
         onOpenUrlInFarming: latestLiveOptionsRef.current.farmingUrlOpenEnabled
           ? attachmentHandlers.onOpenUrlInFarming
           : undefined,

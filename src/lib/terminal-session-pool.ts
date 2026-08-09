@@ -7,18 +7,13 @@ import {
   isXtermTerminal,
 } from '@/lib/terminal-engine'
 import type { FarmingFitAddon, FarmingTerminal } from '@/lib/terminal-engine'
-import type { TerminalLinkProvider } from '@/lib/terminal-engine'
 import {
-  collectTerminalLinkMatches,
-  collectTerminalMultiLinePathLinkMatches,
-  collectTerminalPathLinkMatches,
-  parseExplicitTerminalUrlAtColumn,
-  parseTerminalSearchAtColumn,
-  parseTerminalUrlAtColumn,
-  terminalTextColumnAtPixelOffset,
-  terminalLinkMatchRange,
-} from '@/lib/terminal-links'
-import type { TerminalLinkHoverTarget, TerminalLinkMatch, TerminalPathOpenTarget } from '@/lib/terminal-links'
+  TerminalLinkInteractionController,
+  createTerminalLinkHandlersCommitLatch,
+  isTerminalPathOpenClick,
+} from '@/lib/terminal-link-interaction'
+import type { TerminalLinkHandlersRevision } from '@/lib/terminal-link-interaction'
+import type { TerminalPathOpenTarget } from '@/lib/terminal-links'
 import { terminalImeOverlayStyle } from '@/lib/terminal-ime'
 import {
   isContinuousSelectionText,
@@ -166,6 +161,7 @@ interface AttachOptions {
   onPathOpen?: (agentId: string, target: TerminalPathOpenTarget) => void
   onPathResolve?: (agentId: string, target: TerminalPathOpenTarget) => Promise<TerminalPathOpenTarget | null> | TerminalPathOpenTarget | null
   onSearchOpen?: (agentId: string, query: string) => void
+  linkHandlersRevision?: TerminalLinkHandlersRevision
   onOpenUrlInFarming?: (agentId: string, url: string) => void
   onRecoveryStatusChange?: (status: TerminalRecoveryStatus) => void
   onReady?: () => void
@@ -173,6 +169,13 @@ interface AttachOptions {
   bootstrapState?: SessionBootstrapState
   signal?: AbortSignal
 }
+
+/**
+ * The exact three link-handler wrappers one owner installs on a record. They are
+ * compared by reference, so only the owner that actually holds the record can
+ * commit a revision against it.
+ */
+export type TerminalLinkHandlerWrappers = Pick<AttachOptions, 'onPathOpen' | 'onPathResolve' | 'onSearchOpen'>
 
 export interface TerminalSessionLiveOptions {
   inputDisabled: boolean
@@ -222,28 +225,18 @@ interface SessionRecord extends TerminalSessionDiagnosticsSource {
   rendererFailureDisposable: (() => void) | null
   scrollChangeDisposable: (() => void) | null
   backendConnectedHandler: (() => void) | null
-  clickHandler: ((event: MouseEvent) => void) | null
   pointerDownSelectionHandler: ((event: PointerEvent) => void) | null
   pointerMoveSelectionHandler: ((event: PointerEvent) => void) | null
   pointerUpSelectionHandler: ((event: PointerEvent) => void) | null
-  mouseDownOpenTargetHandler: ((event: MouseEvent) => void) | null
   mouseDownSelectionHandler: ((event: MouseEvent) => void) | null
   mouseMoveSelectionHandler: ((event: MouseEvent) => void) | null
   mouseUpSelectionHandler: ((event: MouseEvent) => void) | null
-  mouseUpOpenTargetHandler: ((event: MouseEvent) => void) | null
   doubleClickHandler: ((event: MouseEvent) => void) | null
   copyHandler: ((event: ClipboardEvent) => void) | null
   copyKeyHandler: ((event: KeyboardEvent) => void) | null
   clearKeyHandler: ((event: KeyboardEvent) => void) | null
   pasteHandler: ((event: ClipboardEvent) => void) | null
-  lastLinkHoverEvent: MouseEvent | null
-  openModifierActive: boolean
-  linkHoverHandler: ((event: MouseEvent) => void) | null
-  linkHoverLeaveHandler: ((event: MouseEvent) => void) | null
-  linkHoverKeyHandler: ((event: KeyboardEvent) => void) | null
-  linkHoverBlurHandler: (() => void) | null
-  linkProviderDisposable: (() => void) | null
-  linkProviderHoverTarget: TerminalLinkHoverTarget | null
+  linkInteraction: TerminalLinkInteractionController
   contextMenuHandler: ((event: MouseEvent) => void) | null
   contextMenuMouseDownHandler: ((event: MouseEvent) => void) | null
   contextMenuEl: HTMLDivElement | null
@@ -264,7 +257,6 @@ interface SessionRecord extends TerminalSessionDiagnosticsSource {
   pathResolveHandler: ((agentId: string, target: TerminalPathOpenTarget) => Promise<TerminalPathOpenTarget | null> | TerminalPathOpenTarget | null) | null
   searchOpenHandler: ((agentId: string, query: string) => void) | null
   farmingUrlOpenHandler: ((agentId: string, url: string) => void) | null
-  pathResolveCache: Map<string, { resolvedAt: number; target: TerminalPathOpenTarget | null; promise?: Promise<TerminalPathOpenTarget | null> }>
   rendererEffects: TerminalRendererEffectController
   snapshotOutput: string
   snapshotRuntimeEpoch: string
@@ -294,14 +286,12 @@ interface SessionRecord extends TerminalSessionDiagnosticsSource {
   fixtureOverrideActive: boolean
   cachedSelection: string
   lastNonEmptySelection: string
-  openTargetMouseDown: { x: number; y: number; pathTargets: TerminalPathOpenTarget[] } | null
   dragSelection: {
     start: { col: number; row: number }
     active: boolean
     moved: boolean
     pointerId?: number
   } | null
-  suppressClickUntil: number
   suppressOutputUntil: number
   inputCount: number
   followOutput: boolean
@@ -313,6 +303,7 @@ interface SessionRecord extends TerminalSessionDiagnosticsSource {
 }
 
 const sessions = new TerminalSessionRegistry<string, SessionRecord>()
+const linkHandlersCommitLatch = createTerminalLinkHandlersCommitLatch()
 const terminalSessionDiagnostics = new TerminalSessionDiagnosticsProjection({
   get: agentId => sessions.get(agentId),
   values: () => sessions.values(),
@@ -329,7 +320,6 @@ const terminalCheckpointRequestQueue: Array<{
 const TOUCH_SCROLL_ACTIVATION_PX = 6
 const TOUCH_LONG_PRESS_MS = 520
 const TOUCH_EDGE_SPRING_MS = 240
-const TERMINAL_PATH_RESOLVE_CACHE_TTL_MS = 30_000
 
 function drainTerminalCheckpointRequestQueue() {
   while (
@@ -732,10 +722,6 @@ function handleTerminalClearKeyEvent(record: SessionRecord, event: KeyboardEvent
 
 function isTerminalSessionAttached(record: SessionRecord) {
   return isTerminalHostAttached(record)
-}
-
-function shouldHandleTerminalHoverEvent(record: SessionRecord) {
-  return isTerminalSessionAttached(record)
 }
 
 function shouldHandleTerminalScrollKeyEvent(record: SessionRecord, event: KeyboardEvent) {
@@ -1916,249 +1902,6 @@ function readBufferLineText(buffer: TerminalBuffer, row: number, fallbackCols: n
   return trimEnd ? text.trimEnd() : text
 }
 
-function isTerminalPathOpenClick(event: MouseEvent) {
-  return event.button === 0 && (event.ctrlKey || event.metaKey)
-}
-
-function isTerminalOpenModifierEvent(event: Pick<MouseEvent, 'ctrlKey' | 'metaKey'>) {
-  return navigator.platform.toLowerCase().includes('mac')
-    ? event.metaKey
-    : event.ctrlKey
-}
-
-function isTerminalOpenModifierActive(record: SessionRecord, event: Pick<MouseEvent, 'ctrlKey' | 'metaKey'>) {
-  return isTerminalOpenModifierEvent(event) || record.openModifierActive
-}
-
-function setTerminalLinkDecorations(
-  link: { decorations?: { pointerCursor: boolean; underline: boolean } },
-  options: { pointerCursor: boolean; underline: boolean },
-) {
-  if (!link.decorations) {
-    link.decorations = options
-    return
-  }
-  link.decorations.pointerCursor = options.pointerCursor
-  link.decorations.underline = options.underline
-}
-
-function terminalPathResolveCacheKey(target: TerminalPathOpenTarget) {
-  return [
-    target.path,
-    target.lineNumber ?? '',
-    target.column ?? '',
-    target.endLineNumber ?? '',
-    target.endColumn ?? '',
-  ].join('\0')
-}
-
-async function resolveTerminalPathTarget(record: SessionRecord, target: TerminalPathOpenTarget) {
-  if (!record.pathResolveHandler) return target
-  if (target.globalRoot) return target
-
-  const cacheKey = terminalPathResolveCacheKey(target)
-  const cached = record.pathResolveCache.get(cacheKey)
-  if (cached && Date.now() - cached.resolvedAt <= TERMINAL_PATH_RESOLVE_CACHE_TTL_MS) {
-    if (cached.promise) return await cached.promise
-    return cached.target
-  }
-
-  const promise = Promise.resolve(record.pathResolveHandler(record.agentId, target)).catch(() => null)
-  record.pathResolveCache.set(cacheKey, {
-    resolvedAt: Date.now(),
-    target: null,
-    promise,
-  })
-  const resolved = await promise
-  record.pathResolveCache.set(cacheKey, {
-    resolvedAt: Date.now(),
-    target: resolved,
-  })
-  return resolved
-}
-
-async function resolveTerminalLinkMatches(record: SessionRecord, matches: TerminalLinkMatch[]) {
-  if (!record.pathResolveHandler) return matches
-
-  const resolved = await Promise.all(matches.map(async match => {
-    if (match.kind !== 'path' || !match.pathTarget) return match
-    const resolvedTarget = await resolveTerminalPathTarget(record, match.pathTarget)
-    return resolvedTarget ? { ...match, pathTarget: resolvedTarget } : null
-  }))
-  const available = resolved.filter((match): match is TerminalLinkMatch => Boolean(match))
-  const preferred: TerminalLinkMatch[] = []
-  for (const match of [...available].sort((a, b) => a.length - b.length || a.startIndex - b.startIndex)) {
-    if (
-      match.kind === 'path'
-      && preferred.some(existing => (
-        existing.kind === 'path'
-        && match.startIndex < existing.startIndex + existing.length
-        && existing.startIndex < match.startIndex + match.length
-      ))
-    ) continue
-    preferred.push(match)
-  }
-  return preferred.sort((a, b) => a.startIndex - b.startIndex)
-}
-
-function cachedTerminalPathLink(record: SessionRecord, match: TerminalLinkMatch) {
-  if (!record.pathResolveHandler || match.kind !== 'path' || !match.pathTarget) return match
-
-  const cached = record.pathResolveCache.get(terminalPathResolveCacheKey(match.pathTarget))
-  if (!cached || cached.promise || Date.now() - cached.resolvedAt > TERMINAL_PATH_RESOLVE_CACHE_TTL_MS) {
-    return null
-  }
-  return cached.target ? { ...match, pathTarget: cached.target } : null
-}
-
-function installTerminalLinkProvider(record: SessionRecord) {
-  if (!isXtermTerminal(record.terminal) || typeof record.terminal.registerLinkProvider !== 'function') return
-
-  const provider: TerminalLinkProvider = {
-    provideLinks: (bufferLineNumber, callback) => {
-      if (record.disposed) {
-        callback(undefined)
-        return
-      }
-      const attachmentGeneration = record.attachment.generation
-
-      const logicalLine = readLogicalTerminalLineAtBufferRow(record, bufferLineNumber - 1)
-      if (!logicalLine?.text) {
-        callback(undefined)
-        return
-      }
-
-      const matches = collectTerminalLinkMatches(
-        logicalLine.text,
-        Boolean(record.pathOpenHandler),
-        Boolean(record.searchOpenHandler),
-      )
-      if (record.pathOpenHandler) {
-        const previousLogicalLines = readPreviousLogicalTerminalLines(record, logicalLine.startRow)
-        for (const multiLineMatch of collectTerminalMultiLinePathLinkMatches(
-          logicalLine.text,
-          previousLogicalLines,
-        )) {
-          const overlapsHigherPriority = matches.some(match => (
-            match.kind !== 'search'
-            &&
-            multiLineMatch.startIndex < match.startIndex + match.length
-            && match.startIndex < multiLineMatch.startIndex + multiLineMatch.length
-          ))
-          if (overlapsHigherPriority) continue
-          for (let index = matches.length - 1; index >= 0; index -= 1) {
-            const match = matches[index]
-            if (
-              match?.kind === 'search'
-              && multiLineMatch.startIndex < match.startIndex + match.length
-              && match.startIndex < multiLineMatch.startIndex + multiLineMatch.length
-            ) {
-              matches.splice(index, 1)
-            }
-          }
-          matches.push(multiLineMatch)
-        }
-        matches.sort((a, b) => a.startIndex - b.startIndex)
-      }
-      if (matches.length === 0) {
-        callback(undefined)
-        return
-      }
-
-      void (async () => {
-        const resolvedMatches = await resolveTerminalLinkMatches(record, matches)
-        if (!isCurrentAttachment(record, attachmentGeneration)) {
-          callback(undefined)
-          return
-        }
-        if (resolvedMatches.length === 0) {
-          callback(undefined)
-          return
-        }
-
-        const links = resolvedMatches.map(match => {
-          const pathDirectOpen = match.kind === 'path' && Boolean(match.pathTarget && record.pathOpenHandler)
-          const link = {
-            range: terminalLinkMatchRange(match, logicalLine),
-            text: match.text,
-            decorations: {
-              pointerCursor: pathDirectOpen,
-              // xterm snapshots the initial decoration state before invoking
-              // link.hover, then installs the live decoration setters. Keep
-              // URLs underlined in that initial state so the first hover is
-              // visibly recognized; the modifier still gates activation and
-              // the pointer cursor.
-              underline: pathDirectOpen || match.kind === 'url',
-            },
-            activate: (event: MouseEvent) => {
-              if (event.button !== 0) return
-              if (Date.now() < record.suppressClickUntil) return
-              if (!isCurrentAttachment(record, attachmentGeneration)) return
-              const modifierActive = isTerminalOpenModifierActive(record, event)
-              if (match.kind === 'url' && findTerminalUrlAtMouseEvent(record, event) !== match.text) return
-              if (
-                match.kind === 'path'
-                && !readTerminalPathLinksAtMouseEvent(record, event).some(pathLink => pathLink.text === match.text)
-              ) return
-              if (match.kind === 'search' && findTerminalSearchAtMouseEvent(record, event) !== match.text) return
-              if (match.kind === 'url' && !modifierActive) return
-              if (match.kind === 'search' && !modifierActive) return
-              if (match.kind === 'path' && !pathDirectOpen) return
-
-              event.preventDefault()
-              event.stopPropagation()
-              event.stopImmediatePropagation()
-              if (match.kind === 'url') {
-                openTerminalUrl(record, match.text)
-              } else if (match.kind === 'search') {
-                record.searchOpenHandler?.(record.agentId, match.text)
-              } else if (match.pathTarget && record.pathOpenHandler) {
-                record.pathOpenHandler(record.agentId, match.pathTarget)
-              }
-              record.suppressClickUntil = Date.now() + 250
-            },
-            hover: (event: MouseEvent) => {
-              if (!shouldHandleTerminalHoverEvent(record) || isMobileViewport()) return
-              record.linkProviderHoverTarget = {
-                kind: match.kind,
-                text: match.text,
-                ...(match.pathTarget ? { pathTarget: match.pathTarget } : {}),
-              }
-              record.lastLinkHoverEvent = event
-              const active = pathDirectOpen || isTerminalOpenModifierActive(record, event)
-              setTerminalLinkDecorations(link, {
-                pointerCursor: active,
-                underline: pathDirectOpen || match.kind === 'url' || active,
-              })
-              refreshTerminalLinkHoverTarget(record, active)
-            },
-            leave: () => {
-              if (record.linkProviderHoverTarget?.text === match.text) {
-                record.linkProviderHoverTarget = null
-              }
-              setTerminalLinkDecorations(link, {
-                pointerCursor: pathDirectOpen,
-                underline: pathDirectOpen || match.kind === 'url',
-              })
-              clearTerminalOpenTargetState(record)
-            },
-            dispose: () => {
-              if (record.linkProviderHoverTarget?.text === match.text) {
-                record.linkProviderHoverTarget = null
-              }
-            },
-          }
-          return link
-        })
-        callback(links)
-      })()
-    },
-  }
-
-  const disposable = record.terminal.registerLinkProvider(provider)
-  record.linkProviderDisposable = () => disposable.dispose()
-}
-
 function readLogicalTerminalLineAtCellWithRows(record: SessionRecord, cell: { col: number; row: number }): TerminalLogicalLine | null {
   const buffer = record.terminal.buffer?.active
   if (!cell || !buffer || typeof buffer.getLine !== 'function') return null
@@ -2238,37 +1981,6 @@ function readPreviousLogicalTerminalLines(
     row = logicalLine.startRow - 1
   }
   return lines
-}
-
-function readTerminalPathLinksAtCell(
-  record: SessionRecord,
-  cell: { col: number; row: number },
-) {
-  const logicalLine = readLogicalTerminalLineAtCellWithRows(record, cell)
-  if (!logicalLine) return []
-  // URL-shaped text is owned by the URL interaction. Treating its path
-  // portion as a workspace path makes a plain click start file resolution and
-  // briefly suppresses the modifier-click that should open the URL.
-  if (parseExplicitTerminalUrlAtColumn(logicalLine.text, logicalLine.col)) return []
-  const directLinks = collectTerminalPathLinkMatches(logicalLine.text).filter(match => (
-    logicalLine.col >= match.startIndex
-    && logicalLine.col < match.startIndex + match.length
-  ))
-  if (directLinks.length > 0) return directLinks
-  return collectTerminalMultiLinePathLinkMatches(
-    logicalLine.text,
-    readPreviousLogicalTerminalLines(record, logicalLine.startRow),
-  ).filter(match => (
-    logicalLine.col >= match.startIndex
-    && logicalLine.col < match.startIndex + match.length
-  ))
-}
-
-function readTerminalPathLinkAtCell(
-  record: SessionRecord,
-  cell: { col: number; row: number },
-) {
-  return readTerminalPathLinksAtCell(record, cell)[0] ?? null
 }
 
 const TERMINAL_READING_ANCHOR_LINE_COUNT = 3
@@ -2362,93 +2074,6 @@ function restoreTerminalReadingAnchor(
   return true
 }
 
-function readLogicalTerminalLineAtCell(record: SessionRecord, cell: { col: number; row: number }) {
-  const logicalLine = readLogicalTerminalLineAtCellWithRows(record, cell)
-  return logicalLine
-    ? { text: logicalLine.text, col: logicalLine.col }
-    : null
-}
-
-function readDomTerminalLineAtMouseEvent(record: SessionRecord, event: MouseEvent) {
-  const target = document.elementFromPoint(event.clientX, event.clientY)
-  if (!(target instanceof HTMLElement)) return null
-
-  const row = target.closest<HTMLElement>('.xterm-rows > div')
-  if (!row || !record.hostEl.contains(row)) return null
-
-  const metrics = getTerminalCellMetrics(record)
-  const rowRect = row.getBoundingClientRect()
-  if (!metrics || metrics.width <= 0 || rowRect.width <= 0) return null
-
-  const text = (row.textContent || '').trimEnd()
-  if (!text) return null
-
-  const col = terminalTextColumnAtPixelOffset(event.clientX - rowRect.left, metrics.width, text.length)
-  if (col === null) return null
-  return { text, col }
-}
-
-function readTerminalUrlLineAtCell(record: SessionRecord, cell: { col: number; row: number }) {
-  return readLogicalTerminalLineAtCell(record, cell)
-}
-
-function readTerminalPathLinksAtMouseEvent(record: SessionRecord, event: MouseEvent | PointerEvent) {
-  const cell = cellFromMouseEvent(record, event)
-  if (cell) {
-    const pathLinks = readTerminalPathLinksAtCell(record, cell)
-    if (pathLinks.length > 0) return pathLinks
-  }
-
-  const domLine = readDomTerminalLineAtMouseEvent(record, event)
-  if (!domLine || parseExplicitTerminalUrlAtColumn(domLine.text, domLine.col)) return []
-  return collectTerminalPathLinkMatches(domLine.text).filter(match => (
-    domLine.col >= match.startIndex
-    && domLine.col < match.startIndex + match.length
-  ))
-}
-
-function readTerminalPathLinkAtMouseEvent(record: SessionRecord, event: MouseEvent | PointerEvent) {
-  return readTerminalPathLinksAtMouseEvent(record, event)[0] ?? null
-}
-
-function findTerminalPathLinkAtMouseEvent(record: SessionRecord, event: MouseEvent) {
-  for (const pathLink of readTerminalPathLinksAtMouseEvent(record, event)) {
-    const cached = cachedTerminalPathLink(record, pathLink)
-    if (cached) return cached
-  }
-  return null
-}
-
-function findTerminalPathTargetAtMouseEvent(record: SessionRecord, event: MouseEvent) {
-  return findTerminalPathLinkAtMouseEvent(record, event)?.pathTarget ?? null
-}
-
-function findTerminalUrlAtMouseEvent(record: SessionRecord, event: MouseEvent) {
-  const cell = cellFromMouseEvent(record, event)
-  if (cell) {
-    const logicalLine = readTerminalUrlLineAtCell(record, cell)
-    const url = logicalLine ? parseTerminalUrlAtColumn(logicalLine.text, logicalLine.col) : null
-    if (url) return url
-  }
-
-  const domLine = readDomTerminalLineAtMouseEvent(record, event)
-  return domLine ? parseTerminalUrlAtColumn(domLine.text, domLine.col) : null
-}
-
-function findTerminalSearchAtMouseEvent(record: SessionRecord, event: MouseEvent) {
-  if (findTerminalUrlAtMouseEvent(record, event)) return null
-  if (record.pathOpenHandler && readTerminalPathLinkAtMouseEvent(record, event)) return null
-  const cell = cellFromMouseEvent(record, event)
-  if (cell) {
-    const logicalLine = readLogicalTerminalLineAtCell(record, cell)
-    const query = logicalLine ? parseTerminalSearchAtColumn(logicalLine.text, logicalLine.col) : null
-    if (query) return query
-  }
-
-  const domLine = readDomTerminalLineAtMouseEvent(record, event)
-  return domLine ? parseTerminalSearchAtColumn(domLine.text, domLine.col) : null
-}
-
 function getXtermSelectionForCopy(record: SessionRecord) {
   const selection = record.terminal.getSelection() || ''
   return normalizeTerminalSelectionForCopy(selection)
@@ -2501,88 +2126,6 @@ function getNativeTerminalSelection(hostEl: HTMLElement) {
   }
 
   return selection.toString()
-}
-
-function openTerminalUrl(_record: SessionRecord, url: string) {
-  openExternalUrl(url)
-}
-
-function terminalOpenTargetTitle(kind: 'url' | 'path' | 'search') {
-  const isMac = navigator.platform.toLowerCase().includes('mac')
-  const modifier = isMac ? 'Cmd' : 'Ctrl'
-  const lang = document.documentElement.lang || navigator.language || ''
-  if (lang.toLowerCase().startsWith('zh')) {
-    if (kind === 'url') return `按住 ${modifier} 点击打开链接`
-    if (kind === 'search') return `按住 ${modifier} 点击在工作区中搜索`
-    return '点击打开文件或文件夹'
-  }
-  if (kind === 'url') return `${modifier}-click to open link`
-  if (kind === 'search') return `${modifier}-click to search the workspace`
-  return 'Click to open file or folder'
-}
-
-function setTerminalLinkHoverTarget(record: SessionRecord, kind: 'url' | 'path' | 'search' | null) {
-  record.hostEl.classList.toggle('terminal-open-target-hover', kind !== null)
-  record.hostEl.classList.toggle('terminal-open-target-url', kind === 'url')
-  record.hostEl.classList.toggle('terminal-open-target-path', kind === 'path')
-  record.hostEl.classList.toggle('terminal-open-target-search', kind === 'search')
-  if (kind) {
-    record.hostEl.dataset.terminalOpenTarget = kind
-    record.hostEl.title = terminalOpenTargetTitle(kind)
-  } else {
-    delete record.hostEl.dataset.terminalOpenTarget
-    record.hostEl.removeAttribute('title')
-  }
-}
-
-function clearTerminalOpenTargetState(record: SessionRecord) {
-  record.openModifierActive = false
-  record.lastLinkHoverEvent = null
-  record.linkProviderHoverTarget = null
-  setTerminalLinkHoverTarget(record, null)
-}
-
-function terminalOpenTargetKindAtMouseEvent(
-  record: SessionRecord,
-  event: MouseEvent | PointerEvent,
-  modifierActive = isTerminalOpenModifierActive(record, event),
-) {
-  if (record.pathOpenHandler && findTerminalPathTargetAtMouseEvent(record, event)) return 'path'
-  if (!modifierActive) return null
-  if (findTerminalUrlAtMouseEvent(record, event)) return 'url'
-  if (record.searchOpenHandler && findTerminalSearchAtMouseEvent(record, event)) return 'search'
-  return null
-}
-
-async function resolveTerminalPathLinkAtMouseEvent(record: SessionRecord, event: MouseEvent | PointerEvent) {
-  if (!record.pathOpenHandler) return null
-  for (const pathLink of readTerminalPathLinksAtMouseEvent(record, event)) {
-    if (!pathLink.pathTarget) continue
-    const resolvedTarget = await resolveTerminalPathTarget(record, pathLink.pathTarget)
-    if (resolvedTarget) return { ...pathLink, pathTarget: resolvedTarget }
-  }
-  return null
-}
-
-function refreshTerminalLinkHoverTarget(record: SessionRecord, modifierActive?: boolean) {
-  if (!shouldHandleTerminalHoverEvent(record) || isMobileViewport()) {
-    setTerminalLinkHoverTarget(record, null)
-    return
-  }
-
-  const providerTarget = record.linkProviderHoverTarget
-  const active = modifierActive ?? record.openModifierActive
-  if (providerTarget) {
-    setTerminalLinkHoverTarget(record, providerTarget.kind === 'path' || active ? providerTarget.kind : null)
-    return
-  }
-
-  if (!record.lastLinkHoverEvent) {
-    setTerminalLinkHoverTarget(record, null)
-    return
-  }
-
-  setTerminalLinkHoverTarget(record, terminalOpenTargetKindAtMouseEvent(record, record.lastLinkHoverEvent, active))
 }
 
 function hideTerminalContextMenu(record: SessionRecord) {
@@ -2793,7 +2336,7 @@ function clearTerminalSelectionState(record: SessionRecord) {
 
 function resetTransientTerminalUi(record: SessionRecord) {
   hideTerminalContextMenu(record)
-  clearTerminalOpenTargetState(record)
+  record.linkInteraction.reset()
   clearTerminalSelectionState(record)
 }
 
@@ -2821,8 +2364,8 @@ function getTerminalCopyTextAtEvent(record: SessionRecord, event: MouseEvent) {
     record.contextMenuSelection ||
     record.lastNonEmptySelection
 
-  const url = findTerminalUrlAtMouseEvent(record, event)
-  const pathLink = record.pathOpenHandler ? findTerminalPathLinkAtMouseEvent(record, event) : null
+  const url = record.linkInteraction.urlAtEvent(event)
+  const pathLink = record.pathOpenHandler ? record.linkInteraction.resolvedPathLinkAtEvent(event) : null
   const selectionAtEvent = Boolean(selection) && isTerminalEventInsideSelection(record, event)
   const compactSelection = selection.replace(/\s+/g, '')
   if (url && (!selectionAtEvent || url.includes(compactSelection))) {
@@ -2844,7 +2387,7 @@ function getTerminalCopyTextAtEvent(record: SessionRecord, event: MouseEvent) {
 function installTerminalContextMenu(record: SessionRecord, agentId: string) {
   const contextMenuHandler = (event: MouseEvent) => {
     if (!(event.target instanceof Node) || !record.hostEl.contains(event.target)) return
-    const url = findTerminalUrlAtMouseEvent(record, event)
+    const url = record.linkInteraction.urlAtEvent(event)
     if (url) {
       showUrlOpenMenu({
         event,
@@ -2856,14 +2399,15 @@ function installTerminalContextMenu(record: SessionRecord, agentId: string) {
       return
     }
     const rawPathLink = record.pathOpenHandler
-      ? findTerminalPathLinkAtMouseEvent(record, event) ?? readTerminalPathLinkAtMouseEvent(record, event)
+      ? record.linkInteraction.resolvedPathLinkAtEvent(event) ?? record.linkInteraction.pathLinkAtEvent(event)
       : null
     if (rawPathLink?.pathTarget) {
       event.preventDefault()
       event.stopPropagation()
       event.stopImmediatePropagation()
-      void resolveTerminalPathTarget(record, rawPathLink.pathTarget).then(resolvedTarget => {
-        if (record.disposed) return
+      const attachmentGeneration = record.attachment.generation
+      void record.linkInteraction.resolvePathTarget(rawPathLink.pathTarget).then(resolvedTarget => {
+        if (!isCurrentAttachment(record, attachmentGeneration)) return
         if (resolvedTarget) {
           showTerminalContextMenu(record, event, rawPathLink.text)
           return
@@ -2875,7 +2419,7 @@ function installTerminalContextMenu(record: SessionRecord, agentId: string) {
     }
 
     if (record.pathOpenHandler && isTerminalPathOpenClick(event)) {
-      const pathTarget = findTerminalPathTargetAtMouseEvent(record, event)
+      const pathTarget = record.linkInteraction.resolvedPathTargetAtEvent(event)
       if (pathTarget) {
         event.preventDefault()
         event.stopPropagation()
@@ -3181,8 +2725,6 @@ function installTerminalTestApi() {
       record.fixtureOverrideActive = true
       record.suppressOutputUntil = Date.now() + 1500
       resetTransientTerminalUi(record)
-      record.openTargetMouseDown = null
-      record.suppressClickUntil = 0
       record.terminal.reset()
       record.terminal.viewportY = 0
       record.terminal.scrollToLine?.(0)
@@ -3259,8 +2801,7 @@ function installTerminalTestApi() {
     getUrlAtCell(agentId: string, col: number, row: number) {
       const current = sessions.get(agentId)
       if (!current || current instanceof Promise || current.disposed) return null
-      const logicalLine = readTerminalUrlLineAtCell(current, { col, row })
-      return logicalLine ? parseTerminalUrlAtColumn(logicalLine.text, logicalLine.col) : null
+      return current.linkInteraction.urlAtCell({ col, row })
     },
     isReady(agentId: string) {
       const current = sessions.get(agentId)
@@ -3269,12 +2810,12 @@ function installTerminalTestApi() {
     getPathAtCell(agentId: string, col: number, row: number) {
       const current = sessions.get(agentId)
       if (!current || current instanceof Promise || current.disposed) return null
-      return readTerminalPathLinkAtCell(current, { col, row })?.pathTarget ?? null
+      return current.linkInteraction.pathLinkAtCell({ col, row })?.pathTarget ?? null
     },
     openPathAtCell(agentId: string, col: number, row: number) {
       const current = sessions.get(agentId)
       if (!current || current instanceof Promise || current.disposed || !current.pathOpenHandler) return false
-      const pathTarget = readTerminalPathLinkAtCell(current, { col, row })?.pathTarget ?? null
+      const pathTarget = current.linkInteraction.pathLinkAtCell({ col, row })?.pathTarget ?? null
       if (!pathTarget) return false
       current.pathOpenHandler(agentId, pathTarget)
       return true
@@ -3610,28 +3151,47 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     rendererFailureDisposable: null,
     scrollChangeDisposable: null,
     backendConnectedHandler: null,
-    clickHandler: null,
     pointerDownSelectionHandler: null,
     pointerMoveSelectionHandler: null,
     pointerUpSelectionHandler: null,
-    mouseDownOpenTargetHandler: null,
     mouseDownSelectionHandler: null,
     mouseMoveSelectionHandler: null,
     mouseUpSelectionHandler: null,
-    mouseUpOpenTargetHandler: null,
     doubleClickHandler: null,
     copyHandler: null,
     copyKeyHandler: null,
     clearKeyHandler: null,
     pasteHandler: null,
-    lastLinkHoverEvent: null,
-    openModifierActive: false,
-    linkHoverHandler: null,
-    linkHoverLeaveHandler: null,
-    linkHoverKeyHandler: null,
-    linkHoverBlurHandler: null,
-    linkProviderDisposable: null,
-    linkProviderHoverTarget: null,
+    linkInteraction: new TerminalLinkInteractionController({
+      agentId,
+      hostEl,
+      windowTarget: window,
+      isXterm: isXtermTerminal(terminal),
+      registerLinkProvider: isXtermTerminal(terminal) && typeof terminal.registerLinkProvider === 'function'
+        ? provider => terminal.registerLinkProvider!(provider)
+        : null,
+      now: () => Date.now(),
+      isMacPlatform: () => navigator.platform.toLowerCase().includes('mac'),
+      language: () => document.documentElement.lang || navigator.language || '',
+      isMobileViewport: () => isMobileViewport(),
+      isAttached: () => isTerminalSessionAttached(record),
+      attachmentGeneration: () => record.attachment.generation,
+      isCurrentAttachment: generation => isCurrentAttachment(record, generation),
+      cellFromEvent: event => cellFromMouseEvent(record, event),
+      cellMetrics: () => getTerminalCellMetrics(record) ?? null,
+      elementFromPoint: (x, y) => document.elementFromPoint(x, y),
+      logicalLineAtCell: cell => readLogicalTerminalLineAtCellWithRows(record, cell),
+      logicalLineAtBufferRow: bufferRow => readLogicalTerminalLineAtBufferRow(record, bufferRow),
+      previousLogicalLines: beforeBufferRow => readPreviousLogicalTerminalLines(record, beforeBufferRow),
+      pathOpenHandler: () => record.pathOpenHandler,
+      pathResolveHandler: () => record.pathResolveHandler,
+      searchOpenHandler: () => record.searchOpenHandler,
+      openUrl: url => openExternalUrl(url),
+      clearSelection: () => clearTerminalSelectionState(record),
+      focusInput: () => {
+        focusAttachedTerminalInput(record)
+      },
+    }),
     contextMenuHandler: null,
     contextMenuMouseDownHandler: null,
     contextMenuEl: null,
@@ -3663,7 +3223,6 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     pathResolveHandler: options.onPathResolve ?? null,
     searchOpenHandler: options.onSearchOpen ?? null,
     farmingUrlOpenHandler: options.onOpenUrlInFarming ?? null,
-    pathResolveCache: new Map(),
     rendererEffects: new TerminalRendererEffectController({
       terminal,
       hostEl,
@@ -3699,9 +3258,7 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     fixtureOverrideActive: false,
     cachedSelection: '',
     lastNonEmptySelection: '',
-    openTargetMouseDown: null,
     dragSelection: null,
-    suppressClickUntil: 0,
     suppressOutputUntil: 0,
     inputCount: 0,
     followOutput: true,
@@ -3738,7 +3295,7 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     ? () => rendererFailureSubscription.dispose()
     : null
   terminal.open(hostEl)
-  installTerminalLinkProvider(record)
+  record.linkInteraction.install()
   terminal.syncAppearanceTheme?.()
   requestAnimationFrame(() => {
     if (!record.disposed) terminal.syncAppearanceTheme?.()
@@ -3788,55 +3345,6 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
   record.pageLifecycleHandler = pageLifecycleHandler
   setupTerminalImeOverlay(record)
 
-  const openTerminalClickTarget = (event: MouseEvent | PointerEvent) => {
-    const modifierActive = isTerminalOpenModifierActive(record, event)
-    const url = event.button === 0 && modifierActive ? findTerminalUrlAtMouseEvent(record, event) : null
-    if (url) {
-      event.preventDefault()
-      event.stopPropagation()
-      event.stopImmediatePropagation()
-      openTerminalUrl(record, url)
-      record.suppressClickUntil = Date.now() + 250
-      return true
-    }
-
-    const searchQuery = event.button === 0 && modifierActive && record.searchOpenHandler
-      ? findTerminalSearchAtMouseEvent(record, event)
-      : null
-    if (searchQuery) {
-      event.preventDefault()
-      event.stopPropagation()
-      event.stopImmediatePropagation()
-      clearTerminalSelectionState(record)
-      record.searchOpenHandler?.(agentId, searchQuery)
-      record.suppressClickUntil = Date.now() + 250
-      return true
-    }
-
-    if (record.pathOpenHandler && event.button === 0) {
-      const pathTarget = findTerminalPathTargetAtMouseEvent(record, event)
-      if (pathTarget) {
-        event.preventDefault()
-        event.stopPropagation()
-        event.stopImmediatePropagation()
-        clearTerminalSelectionState(record)
-        const attachmentGeneration = record.attachment.generation
-        void resolveTerminalPathTarget(record, pathTarget).then(resolvedTarget => {
-          if (!isCurrentAttachment(record, attachmentGeneration)) return
-          if (!resolvedTarget) {
-            focusAttachedTerminalInput(record)
-            return
-          }
-          record.pathOpenHandler?.(agentId, resolvedTarget)
-        })
-        record.suppressClickUntil = Date.now() + 250
-        return true
-      }
-    }
-
-    return false
-  }
-
   const startDragSelection = (event: MouseEvent | PointerEvent, pointerId?: number) => {
     if (isMobileViewport() || event.button !== 0 || event.ctrlKey || event.metaKey || event.altKey) return false
     const cell = cellFromMouseEvent(record, event)
@@ -3878,99 +3386,12 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     record.dragSelection = null
     if (!dragSelection.moved) return false
 
-    record.suppressClickUntil = Date.now() + 250
+    record.linkInteraction.suppressActivation()
     record.cachedSelection = normalizeTerminalSelection(terminal)
     event.preventDefault()
     event.stopPropagation()
     return true
   }
-
-  const mouseDownOpenTargetHandler = (event: MouseEvent) => {
-    record.openTargetMouseDown = null
-    if (isMobileViewport() || event.button !== 0 || event.ctrlKey || event.metaKey || event.altKey) return
-    const pathTargets = record.pathOpenHandler
-      ? readTerminalPathLinksAtMouseEvent(record, event).flatMap(link => link.pathTarget ? [link.pathTarget] : [])
-      : []
-    if (pathTargets.length === 0) return
-    // Do not intercept mousedown: xterm needs it to start text selection when
-    // the user drags across a path. The later mouseup/click path decides
-    // whether this was a small click that should open the file.
-    record.openTargetMouseDown = {
-      x: event.clientX,
-      y: event.clientY,
-      pathTargets,
-    }
-  }
-  hostEl.addEventListener('mousedown', mouseDownOpenTargetHandler, true)
-  record.mouseDownOpenTargetHandler = mouseDownOpenTargetHandler
-
-  const mouseUpOpenTargetHandler = (event: MouseEvent) => {
-    if (isMobileViewport() || event.button !== 0) return
-    if (Date.now() < record.suppressClickUntil) {
-      record.openTargetMouseDown = null
-      return
-    }
-    const modifierActive = isTerminalOpenModifierActive(record, event)
-    if (modifierActive) {
-      const url = findTerminalUrlAtMouseEvent(record, event)
-      if (url) {
-        // xterm owns a document-level mouseup listener that terminates its
-        // selection gesture. Let this mouseup bubble to it; the following
-        // click is still suppressed so the target opens only once.
-        event.preventDefault()
-        if (!isXtermTerminal(terminal)) {
-          event.stopPropagation()
-          event.stopImmediatePropagation()
-        }
-        openTerminalUrl(record, url)
-        record.suppressClickUntil = Date.now() + 250
-        return
-      }
-      const searchQuery = record.searchOpenHandler
-        ? findTerminalSearchAtMouseEvent(record, event)
-        : null
-      if (searchQuery) {
-        event.preventDefault()
-        if (!isXtermTerminal(terminal)) {
-          event.stopPropagation()
-          event.stopImmediatePropagation()
-        }
-        clearTerminalSelectionState(record)
-        record.searchOpenHandler?.(agentId, searchQuery)
-        record.suppressClickUntil = Date.now() + 250
-        return
-      }
-    }
-
-    const mouseDown = record.openTargetMouseDown
-    record.openTargetMouseDown = null
-    if (!mouseDown) return
-    if (Math.hypot(event.clientX - mouseDown.x, event.clientY - mouseDown.y) > 4) {
-      record.suppressClickUntil = Date.now() + 250
-      return
-    }
-    if (openTerminalClickTarget(event)) return
-
-    event.preventDefault()
-    event.stopPropagation()
-    event.stopImmediatePropagation()
-    clearTerminalSelectionState(record)
-    record.suppressClickUntil = Date.now() + 250
-    const attachmentGeneration = record.attachment.generation
-    void (async () => {
-      for (const pathTarget of mouseDown.pathTargets) {
-        const resolvedTarget = await resolveTerminalPathTarget(record, pathTarget)
-        if (!isCurrentAttachment(record, attachmentGeneration)) return
-        if (!resolvedTarget) continue
-        record.pathOpenHandler?.(agentId, resolvedTarget)
-        record.suppressClickUntil = Date.now() + 250
-        return
-      }
-      focusAttachedTerminalInput(record)
-    })()
-  }
-  hostEl.addEventListener('mouseup', mouseUpOpenTargetHandler, true)
-  record.mouseUpOpenTargetHandler = mouseUpOpenTargetHandler
 
   const pointerDownSelectionHandler = (event: PointerEvent) => {
     if (event.pointerType === 'touch') return
@@ -3997,9 +3418,9 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
       if (event.pointerType === 'touch') return
       const finished = finishDragSelection(event)
       if (!finished) {
-        openTerminalClickTarget(event)
+        record.linkInteraction.activateOpenTargetAtEvent(event)
       }
-      if (finished || Date.now() < record.suppressClickUntil) {
+      if (finished || record.linkInteraction.isActivationSuppressed) {
         try {
           record.hostEl.releasePointerCapture(event.pointerId)
         } catch {
@@ -4030,25 +3451,6 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     window.addEventListener('mouseup', mouseUpSelectionHandler, true)
     record.mouseUpSelectionHandler = mouseUpSelectionHandler
   }
-
-  const clickHandler = (event: MouseEvent) => {
-    if (isMobileViewport()) {
-      return
-    }
-
-    if (Date.now() < record.suppressClickUntil) {
-      event.preventDefault()
-      event.stopPropagation()
-      event.stopImmediatePropagation()
-      return
-    }
-
-    if (openTerminalClickTarget(event)) return
-
-    focusAttachedTerminalInput(record)
-  }
-  hostEl.addEventListener('click', clickHandler, true)
-  record.clickHandler = clickHandler
 
   const doubleClickHandler = (event: MouseEvent) => {
     if (isXtermTerminal(terminal)) return
@@ -4122,60 +3524,6 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
   window.addEventListener('paste', pasteHandler, true)
   hostEl.addEventListener('paste', pasteHandler, true)
   record.pasteHandler = pasteHandler
-
-  const linkHoverHandler = (event: MouseEvent) => {
-    if (!shouldHandleTerminalHoverEvent(record)) {
-      clearTerminalOpenTargetState(record)
-      return
-    }
-    record.lastLinkHoverEvent = event
-    if (!terminalOpenTargetKindAtMouseEvent(record, event)) {
-      record.linkProviderHoverTarget = null
-      setTerminalLinkHoverTarget(record, null)
-    }
-    refreshTerminalLinkHoverTarget(record)
-    void resolveTerminalPathLinkAtMouseEvent(record, event).then(pathLink => {
-      if (!pathLink || record.disposed || record.lastLinkHoverEvent !== event) return
-      record.linkProviderHoverTarget = {
-        kind: 'path',
-        text: pathLink.text,
-        ...(pathLink.pathTarget ? { pathTarget: pathLink.pathTarget } : {}),
-      }
-      setTerminalLinkHoverTarget(record, 'path')
-    })
-  }
-  hostEl.addEventListener('mousemove', linkHoverHandler, true)
-  record.linkHoverHandler = linkHoverHandler
-
-  const linkHoverLeaveHandler = () => {
-    clearTerminalOpenTargetState(record)
-  }
-  hostEl.addEventListener('mouseleave', linkHoverLeaveHandler, true)
-  record.linkHoverLeaveHandler = linkHoverLeaveHandler
-
-  const linkHoverKeyHandler = (event: KeyboardEvent) => {
-    if (!shouldHandleTerminalHoverEvent(record)) {
-      clearTerminalOpenTargetState(record)
-      return
-    }
-    if (event.type === 'keydown' && ['Control', 'Meta'].includes(event.key)) {
-      record.openModifierActive = true
-    } else {
-      record.openModifierActive = isTerminalOpenModifierEvent(event)
-    }
-    if (!record.lastLinkHoverEvent) return
-    if (!['Control', 'Meta'].includes(event.key) && !record.openModifierActive) return
-    refreshTerminalLinkHoverTarget(record, record.openModifierActive)
-  }
-  window.addEventListener('keydown', linkHoverKeyHandler, true)
-  window.addEventListener('keyup', linkHoverKeyHandler, true)
-  record.linkHoverKeyHandler = linkHoverKeyHandler
-
-  const linkHoverBlurHandler = () => {
-    clearTerminalOpenTargetState(record)
-  }
-  window.addEventListener('blur', linkHoverBlurHandler)
-  record.linkHoverBlurHandler = linkHoverBlurHandler
 
   const scrollIntentHandler = (event: Event) => {
     if (event instanceof WheelEvent && event.deltaY < 0) {
@@ -4338,12 +3686,82 @@ function applyTerminalAttachmentOptions(record: SessionRecord, options: AttachOp
   record.errorHandler = options.onError ?? null
   record.inputDisabled = Boolean(options.inputDisabled)
   record.followOutputHandler = options.onFollowOutputChange ?? null
-  record.pathOpenHandler = options.onPathOpen ?? null
-  record.pathResolveHandler = options.onPathResolve ?? null
-  record.searchOpenHandler = options.onSearchOpen ?? null
+  const nextPathOpenHandler = options.onPathOpen ?? null
+  const nextPathResolveHandler = options.onPathResolve ?? null
+  const nextSearchOpenHandler = options.onSearchOpen ?? null
+  // A same-mount refresh keeps the attachment generation, so the interaction
+  // revision is the only fence between a resolution the previous resolver
+  // produced and the workspace the new opener owns. An owner that passes stable
+  // wrappers never changes those references, so the revision token - not
+  // handler identity - is the authoritative evidence of a replacement.
+  const linkHandlersReplaced = record.pathOpenHandler !== nextPathOpenHandler
+    || record.pathResolveHandler !== nextPathResolveHandler
+    || record.searchOpenHandler !== nextSearchOpenHandler
+  record.pathOpenHandler = nextPathOpenHandler
+  record.pathResolveHandler = nextPathResolveHandler
+  record.searchOpenHandler = nextSearchOpenHandler
   record.farmingUrlOpenHandler = options.onOpenUrlInFarming ?? null
   record.recoveryStatusHandler = options.onRecoveryStatusChange ?? null
   updateRendererCursorSuppression(record, Boolean(options.suppressRendererCursor))
+  // An attach can resolve after the owner already committed a newer revision, so
+  // the latch - not the revision this attach captured - is the authoritative
+  // identity of the handlers behind those wrappers.
+  const committedRevision = linkHandlersCommitLatch.committedRevision(
+    record.agentId,
+    options.linkHandlersRevision,
+  )
+  const revisionInvalidated = record.linkInteraction.adoptHandlersRevision(committedRevision)
+  if (!revisionInvalidated && linkHandlersReplaced) record.linkInteraction.notifyHandlersChanged()
+}
+
+/**
+ * Atomically adopts the link handler revision one owner just committed. The
+ * owner's stable wrappers must not reach a new resolver or opener before this
+ * returns, so the adoption is synchronous while this owner already holds the live
+ * record and latched otherwise. Returns true when a live record adopted it and
+ * therefore already invalidated the previous owner's cache and pending
+ * resolutions.
+ *
+ * A record still routing through another owner's wrappers may not adopt here: it
+ * would resolve through those foreign handlers under this revision's fence, and
+ * the attach that later installs the new wrappers would find the revision
+ * unchanged and keep that foreign resolution. Latching alone is enough, because
+ * `applyTerminalAttachmentOptions` installs the wrappers before adopting the
+ * latched revision.
+ */
+export function commitTerminalSessionLinkHandlers(
+  agentId: string,
+  revision: TerminalLinkHandlersRevision,
+  handlers: TerminalLinkHandlerWrappers,
+) {
+  linkHandlersCommitLatch.commit(agentId, revision)
+  const current = sessions.get(agentId)
+  if (!current || current instanceof Promise || current.disposed) return false
+  if (!sessions.isCurrent(agentId, current)) return false
+  if (!ownsTerminalLinkHandlers(current, handlers)) return false
+  current.linkInteraction.adoptHandlersRevision(revision)
+  return true
+}
+
+function ownsTerminalLinkHandlers(record: SessionRecord, handlers: TerminalLinkHandlerWrappers) {
+  return record.pathOpenHandler === (handlers.onPathOpen ?? null)
+    && record.pathResolveHandler === (handlers.onPathResolve ?? null)
+    && record.searchOpenHandler === (handlers.onSearchOpen ?? null)
+}
+
+/**
+ * Drops the commit this owner is giving up. Only the exact latched revision is
+ * released, so a cleanup that runs after a newer commit - a replacement owner
+ * that already committed, or StrictMode's double invoke - leaves that newer
+ * token in place. Without this release, a commit for an agent whose record never
+ * appeared (empty container, unmount before the attach, failed bootstrap) would
+ * stay latched until a destroy that never runs.
+ */
+export function releaseTerminalSessionLinkHandlers(
+  agentId: string,
+  revision: TerminalLinkHandlersRevision,
+) {
+  return linkHandlersCommitLatch.release(agentId, revision)
 }
 
 export async function attachTerminalSession(agentId: string, options: AttachOptions) {
@@ -4517,8 +3935,27 @@ export async function destroyTerminalSession(agentId: string) {
   const current = sessions.take(agentId)
   if (!current) return
 
-  const record = await current
-  if (record.disposed) return
+  // `take` is the moment this destroy owns the entry, so the latched commit it
+  // may release is the one visible right now. Awaiting the bootstrap below lets
+  // a new owner commit its own revisions and create a replacement session;
+  // releasing that owner's token would send its late attach back to the revision
+  // it captured before those commits.
+  const takenLinkHandlersRevision = linkHandlersCommitLatch.committedRevision(agentId)
+  const releaseTakenLinkHandlers = () => {
+    linkHandlersCommitLatch.release(agentId, takenLinkHandlersRevision)
+  }
+
+  let record: SessionRecord
+  try {
+    record = await current
+  } catch (error) {
+    releaseTakenLinkHandlers()
+    throw error
+  }
+  if (record.disposed) {
+    releaseTakenLinkHandlers()
+    return
+  }
   record.disposed = true
   invalidateTerminalCheckpointRequest(record)
   resetTerminalResizeDelivery(record)
@@ -4542,9 +3979,6 @@ export async function destroyTerminalSession(agentId: string) {
   if (record.followCheckFrame !== null) {
     cancelAnimationFrame(record.followCheckFrame)
   }
-  if (record.clickHandler) {
-    record.hostEl.removeEventListener('click', record.clickHandler, true)
-  }
   if (record.pointerDownSelectionHandler) {
     record.hostEl.removeEventListener('pointerdown', record.pointerDownSelectionHandler, true)
   }
@@ -4555,9 +3989,6 @@ export async function destroyTerminalSession(agentId: string) {
     window.removeEventListener('pointerup', record.pointerUpSelectionHandler, true)
     window.removeEventListener('pointercancel', record.pointerUpSelectionHandler, true)
   }
-  if (record.mouseDownOpenTargetHandler) {
-    record.hostEl.removeEventListener('mousedown', record.mouseDownOpenTargetHandler, true)
-  }
   if (record.mouseDownSelectionHandler) {
     record.hostEl.removeEventListener('mousedown', record.mouseDownSelectionHandler, true)
   }
@@ -4566,9 +3997,6 @@ export async function destroyTerminalSession(agentId: string) {
   }
   if (record.mouseUpSelectionHandler) {
     window.removeEventListener('mouseup', record.mouseUpSelectionHandler, true)
-  }
-  if (record.mouseUpOpenTargetHandler) {
-    record.hostEl.removeEventListener('mouseup', record.mouseUpOpenTargetHandler, true)
   }
   if (record.doubleClickHandler) {
     record.hostEl.removeEventListener('dblclick', record.doubleClickHandler, true)
@@ -4587,20 +4015,8 @@ export async function destroyTerminalSession(agentId: string) {
     window.removeEventListener('paste', record.pasteHandler, true)
     record.hostEl.removeEventListener('paste', record.pasteHandler, true)
   }
-  if (record.linkHoverHandler) {
-    record.hostEl.removeEventListener('mousemove', record.linkHoverHandler, true)
-  }
-  if (record.linkHoverLeaveHandler) {
-    record.hostEl.removeEventListener('mouseleave', record.linkHoverLeaveHandler, true)
-  }
-  if (record.linkHoverKeyHandler) {
-    window.removeEventListener('keydown', record.linkHoverKeyHandler, true)
-    window.removeEventListener('keyup', record.linkHoverKeyHandler, true)
-  }
-  if (record.linkHoverBlurHandler) {
-    window.removeEventListener('blur', record.linkHoverBlurHandler)
-  }
-  record.linkProviderDisposable?.()
+  record.linkInteraction.dispose()
+  releaseTakenLinkHandlers()
   if (record.contextMenuHandler) {
     record.hostEl.removeEventListener('contextmenu', record.contextMenuHandler, true)
     window.removeEventListener('contextmenu', record.contextMenuHandler, true)

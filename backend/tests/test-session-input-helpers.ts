@@ -62,6 +62,10 @@ function run() {
     path.join(__dirname, '../../src/lib/terminal-links.ts'),
     'utf8'
   );
+  const linkInteractionSource = fs.readFileSync(
+    path.join(__dirname, '../../src/lib/terminal-link-interaction.ts'),
+    'utf8'
+  );
   const terminalSelectionSource = fs.readFileSync(
     path.join(__dirname, '../../src/lib/terminal-selection.ts'),
     'utf8'
@@ -206,10 +210,10 @@ function run() {
       terminalPoolSource.includes('contextMenuSelection') &&
       terminalPoolSource.includes("event.button !== 2") &&
       terminalLinksSource.includes('export function parseTerminalPathLinkAtColumn') &&
-      terminalPoolSource.includes('function findTerminalPathLinkAtMouseEvent') &&
+      linkInteractionSource.includes('resolvedPathLinkAtEvent(event: MouseEvent)') &&
       terminalPoolSource.includes('function isTerminalEventInsideSelection') &&
       terminalPoolSource.includes('const selectionAtEvent = Boolean(selection) && isTerminalEventInsideSelection(record, event)') &&
-      copyTextAtEventBody.includes('const pathLink = record.pathOpenHandler ? findTerminalPathLinkAtMouseEvent(record, event) : null') &&
+      copyTextAtEventBody.includes('const pathLink = record.pathOpenHandler ? record.linkInteraction.resolvedPathLinkAtEvent(event) : null') &&
       copyTextAtEventBody.includes('if (pathLink?.text && (!selectionAtEvent || pathLink.text.includes(compactSelection)))') &&
       terminalPoolSource.includes("window.addEventListener('contextmenu', contextMenuHandler, true)") &&
       copyTextAtEventBody.includes('return selectContinuousTextAtCell(record, cell.col, cell.row)'),
@@ -237,8 +241,8 @@ function run() {
       terminalPoolSource.includes("window.addEventListener('pointerup', pointerUpSelectionHandler, true)") &&
       terminalPoolSource.includes("window.addEventListener('pointercancel', pointerUpSelectionHandler, true)") &&
       terminalPoolSource.includes("event.pointerType === 'touch'") &&
-      terminalPoolSource.includes('record.suppressClickUntil = Date.now() + 250') &&
-      terminalPoolSource.includes('Date.now() < record.suppressClickUntil') &&
+      terminalPoolSource.includes('record.linkInteraction.suppressActivation()') &&
+      terminalPoolSource.includes('record.linkInteraction.isActivationSuppressed') &&
       terminalPoolSource.includes("window.removeEventListener('mousemove', record.mouseMoveSelectionHandler, true)") &&
       terminalPoolSource.includes("window.removeEventListener('mouseup', record.mouseUpSelectionHandler, true)") &&
       terminalPoolSource.includes("window.removeEventListener('pointermove', record.pointerMoveSelectionHandler, true)") &&
@@ -791,21 +795,21 @@ function run() {
     'terminal regression tests should exercise reconnect/live-output races through the sequenced output state path'
   );
   assert(
-    terminalPoolSource.includes('function installTerminalLinkProvider') &&
+    linkInteractionSource.includes('#installLinkProvider()') &&
       terminalPoolSource.includes("from '@/lib/terminal-links'") &&
-      terminalPoolSource.includes('const provider: TerminalLinkProvider =') &&
-      terminalPoolSource.includes('record.terminal.registerLinkProvider(provider)') &&
+      linkInteractionSource.includes('const provider: TerminalLinkProvider =') &&
+      terminalPoolSource.includes('terminal.registerLinkProvider!(provider)') &&
       terminalPoolSource.includes('onPathResolve?: (agentId: string, target: TerminalPathOpenTarget)') &&
       terminalPoolSource.includes('pathResolveHandler:') &&
-      terminalPoolSource.includes('pathResolveCache: Map<string') &&
-      terminalPoolSource.includes('const TERMINAL_PATH_RESOLVE_CACHE_TTL_MS') &&
-      terminalPoolSource.includes('function resolveTerminalPathTarget') &&
-      terminalPoolSource.includes('function resolveTerminalLinkMatches') &&
-      terminalPoolSource.includes('function cachedTerminalPathLink') &&
-      terminalPoolSource.includes('function readTerminalPathLinksAtMouseEvent') &&
-      terminalPoolSource.includes('function readTerminalPathLinkAtMouseEvent') &&
-      terminalPoolSource.includes('void resolveTerminalPathLinkAtMouseEvent(record, event).then') &&
-      terminalPoolSource.includes('findTerminalPathLinkAtMouseEvent(record, event) ?? readTerminalPathLinkAtMouseEvent(record, event)') &&
+      linkInteractionSource.includes('#pathResolveCache = new Map<string, PathResolveCacheEntry>()') &&
+      linkInteractionSource.includes('export const TERMINAL_PATH_RESOLVE_CACHE_TTL_MS') &&
+      linkInteractionSource.includes('async resolvePathTarget(target: TerminalPathOpenTarget)') &&
+      linkInteractionSource.includes('async #resolveLinkMatches(matches: TerminalLinkMatch[])') &&
+      linkInteractionSource.includes('#cachedPathLink(match: TerminalLinkMatch)') &&
+      linkInteractionSource.includes('#pathLinksAtEvent(event: MouseEvent)') &&
+      linkInteractionSource.includes('pathLinkAtEvent(event: MouseEvent)') &&
+      linkInteractionSource.includes('void this.#resolvePathLinkAtEvent(event).then') &&
+      terminalPoolSource.includes('record.linkInteraction.resolvedPathLinkAtEvent(event) ?? record.linkInteraction.pathLinkAtEvent(event)') &&
       pooledTerminalHookSource.includes('onPathResolve?: (agentId: string, target: TerminalPathOpenTarget)') &&
       pooledTerminalHookSource.includes('onPathResolve: attachmentHandlers.onPathResolve') &&
       terminalLinksSource.includes('export function collectTerminalLinkMatches') &&
@@ -814,58 +818,74 @@ function run() {
       terminalLinksSource.includes('export function parseTerminalPathLinkAtColumn') &&
       terminalLinksSource.includes('export function parseTerminalPathTargetAtColumn') &&
       terminalLinksSource.includes('export function terminalLinkMatchRange') &&
-      terminalPoolSource.includes('function terminalOpenTargetKindAtMouseEvent') &&
-      terminalPoolSource.includes('function refreshTerminalLinkHoverTarget') &&
+      linkInteractionSource.includes('#openTargetKindAtEvent(') &&
+      linkInteractionSource.includes('#refreshHoverTarget(modifierActive?: boolean)') &&
       terminalPoolSource.includes('function isTerminalSessionAttached(record: SessionRecord)') &&
-      terminalPoolSource.includes('function shouldHandleTerminalHoverEvent(record: SessionRecord)') &&
-      terminalPoolSource.includes('if (!shouldHandleTerminalHoverEvent(record) || isMobileViewport())') &&
-      terminalPoolSource.includes('const providerTarget = record.linkProviderHoverTarget') &&
-      terminalPoolSource.includes("setTerminalLinkHoverTarget(record, providerTarget.kind === 'path' || active ? providerTarget.kind : null)") &&
-      terminalPoolSource.includes('if (!shouldHandleTerminalHoverEvent(record)) {') &&
-      terminalPoolSource.includes('clearTerminalOpenTargetState(record)') &&
-      terminalPoolSource.includes('const modifierActive = isTerminalOpenModifierActive(record, event)') &&
+      terminalPoolSource.includes('isAttached: () => isTerminalSessionAttached(record)') &&
+      linkInteractionSource.includes('if (!this.#ports.isAttached() || this.#ports.isMobileViewport())') &&
+      linkInteractionSource.includes('const providerTarget = this.#providerHoverTarget') &&
+      linkInteractionSource.includes("this.#setHoverTarget(providerTarget.kind === 'path' || active ? providerTarget.kind : null)") &&
+      linkInteractionSource.includes('if (!this.#ports.isAttached()) {') &&
+      linkInteractionSource.includes('this.#clearHoverState()') &&
+      linkInteractionSource.includes('const modifierActive = this.#isOpenModifierActive(event)') &&
       terminalPoolSource.includes('if (!isTerminalSessionAttached(record)) return') &&
-      terminalPoolSource.includes('record.openModifierActive = isTerminalOpenModifierEvent(event)') &&
-      terminalPoolSource.includes('refreshTerminalLinkHoverTarget(record, record.openModifierActive)') &&
-      terminalPoolSource.includes("record.hostEl.classList.toggle('terminal-open-target-hover'") &&
-      terminalPoolSource.includes("hostEl.addEventListener('mousemove', linkHoverHandler, true)") &&
-      terminalPoolSource.includes("record.hostEl.removeEventListener('mousemove', record.linkHoverHandler, true)") &&
-      terminalPoolSource.includes("window.addEventListener('keydown', linkHoverKeyHandler, true)") &&
-      terminalPoolSource.includes("window.removeEventListener('keyup', record.linkHoverKeyHandler, true)") &&
-      terminalPoolSource.includes('const pathDirectOpen = match.kind === \'path\' && Boolean(match.pathTarget && record.pathOpenHandler)') &&
-      terminalPoolSource.includes('pointerCursor: pathDirectOpen') &&
-      terminalPoolSource.includes("underline: pathDirectOpen || match.kind === 'url'") &&
-      terminalPoolSource.includes("underline: pathDirectOpen || match.kind === 'url' || active") &&
-      terminalPoolSource.includes('if (event.button !== 0) return') &&
-      terminalPoolSource.includes("if (match.kind === 'url' && !modifierActive) return") &&
-      terminalPoolSource.includes("if (match.kind === 'path' && !pathDirectOpen) return") &&
-      terminalPoolSource.includes("setTerminalLinkHoverTarget(record, providerTarget.kind === 'path' || active ? providerTarget.kind : null)") &&
-      terminalPoolSource.includes('openTargetMouseDown: { x: number; y: number; pathTargets: TerminalPathOpenTarget[] } | null') &&
-      terminalPoolSource.includes('const mouseDownOpenTargetHandler = (event: MouseEvent) =>') &&
-      terminalPoolSource.includes('readTerminalPathLinksAtMouseEvent(record, event).flatMap') &&
-      terminalPoolSource.includes('event.stopImmediatePropagation()') &&
+      linkInteractionSource.includes('this.#openModifierActive = isTerminalOpenModifierEvent(event, this.#ports.isMacPlatform())') &&
+      linkInteractionSource.includes('this.#refreshHoverTarget(this.#openModifierActive)') &&
+      linkInteractionSource.includes("hostEl.classList.toggle('terminal-open-target-hover'") &&
+      linkInteractionSource.includes("this.#listen(this.#ports.hostEl, 'mousemove', this.#handleHoverMove as EventListener)") &&
+      linkInteractionSource.includes('this.#listenerRemovals.push(() => target.removeEventListener(type, listener, capture))') &&
+      linkInteractionSource.includes("this.#listen(this.#ports.windowTarget, 'keydown', this.#handleModifierKey as EventListener)") &&
+      linkInteractionSource.includes("this.#listen(this.#ports.windowTarget, 'keyup', this.#handleModifierKey as EventListener)") &&
+      linkInteractionSource.includes('const pathDirectOpen = match.kind === \'path\' && Boolean(match.pathTarget && this.#ports.pathOpenHandler())') &&
+      linkInteractionSource.includes('pointerCursor: pathDirectOpen') &&
+      linkInteractionSource.includes("underline: pathDirectOpen || match.kind === 'url'") &&
+      linkInteractionSource.includes("underline: pathDirectOpen || match.kind === 'url' || active") &&
+      linkInteractionSource.includes('if (event.button !== 0) return') &&
+      linkInteractionSource.includes("if (match.kind === 'url' && !modifierActive) return") &&
+      linkInteractionSource.includes("if (match.kind === 'path' && !pathDirectOpen) return") &&
+      linkInteractionSource.includes('interface TerminalExactOpenMouseDown {') &&
+      linkInteractionSource.includes('#handleExactOpenMouseDown = (event: MouseEvent) =>') &&
+      linkInteractionSource.includes('this.#pathLinksAtEvent(event).flatMap') &&
+      linkInteractionSource.includes('event.stopImmediatePropagation()') &&
       terminalPoolSource.includes('clearTerminalSelectionState(record)') &&
-      terminalPoolSource.includes('record.openTargetMouseDown = {') &&
-      terminalPoolSource.includes('pathTargets,') &&
-      terminalPoolSource.includes('Math.hypot(event.clientX - mouseDown.x, event.clientY - mouseDown.y) > 4') &&
-      terminalPoolSource.includes('for (const pathTarget of mouseDown.pathTargets)') &&
-      terminalPoolSource.includes('const resolvedTarget = await resolveTerminalPathTarget(record, pathTarget)') &&
-      terminalPoolSource.includes("hostEl.addEventListener('mouseup', mouseUpOpenTargetHandler, true)") &&
-      terminalPoolSource.includes("record.hostEl.removeEventListener('mouseup', record.mouseUpOpenTargetHandler, true)") &&
+      linkInteractionSource.includes('this.#exactOpenMouseDown = {') &&
+      linkInteractionSource.includes('pathTargets,') &&
+      linkInteractionSource.includes('const TERMINAL_EXACT_OPEN_CLICK_SLOP_PX = 4') &&
+      linkInteractionSource.includes('Math.hypot(event.clientX - mouseDown.x, event.clientY - mouseDown.y)') &&
+      linkInteractionSource.includes('for (const pathTarget of mouseDown.pathTargets)') &&
+      linkInteractionSource.includes('const resolvedTarget = await this.resolvePathTarget(pathTarget)') &&
+      linkInteractionSource.includes("this.#listen(this.#ports.hostEl, 'mouseup', this.#handleExactOpenMouseUp as EventListener)") &&
+      terminalPoolSource.includes('record.linkInteraction.dispose()') &&
       terminalEngineSource.includes('registerLinkProvider?: (linkProvider: TerminalLinkProvider) => { dispose: () => void }') &&
       xtermSource.includes("registerLinkProvider: Terminal['registerLinkProvider']") &&
       mainCssSource.includes('.terminal-session-host.terminal-open-target-hover .xterm'),
     'terminal URL/path targets should use xterm link providers with direct high-confidence file links and modifier-protected URL links'
   );
   assert(
-    terminalPoolSource.includes('const attachmentGeneration = record.attachment.generation') &&
+    linkInteractionSource.includes('const fence = this.#currentFence()') &&
+      linkInteractionSource.includes('if (!this.#isCurrentFence(fence)) return null') &&
+      linkInteractionSource.includes('if (!this.#isCurrentFence(mouseDown.fence)) return') &&
+      linkInteractionSource.includes('#currentFence(): TerminalLinkInteractionFence {\n    return { generation: this.#ports.attachmentGeneration(), revision: this.#revision }\n  }') &&
+      linkInteractionSource.includes('if (this.#disposed || fence.revision !== this.#revision) return false') &&
+      linkInteractionSource.includes('return this.#ports.isCurrentAttachment(fence.generation)') &&
+      linkInteractionSource.includes('notifyHandlersChanged() {\n    this.#invalidateInteractionRevision()\n  }') &&
+      linkInteractionSource.includes('#invalidateInteractionRevision() {\n    this.#revision += 1') &&
+      linkInteractionSource.includes('this.#pathResolveCache.clear()') &&
+      !linkInteractionSource.includes('mouseDown.generation') &&
+      !linkInteractionSource.includes('this.#isCurrentAttachment(') &&
+      terminalPoolSource.includes('attachmentGeneration: () => record.attachment.generation') &&
+      terminalPoolSource.includes('isCurrentAttachment: generation => isCurrentAttachment(record, generation)') &&
+      terminalPoolSource.includes('const attachmentGeneration = record.attachment.generation') &&
       terminalPoolSource.includes('if (!isCurrentAttachment(record, attachmentGeneration))') &&
-      terminalPoolSource.includes('if (Date.now() < record.suppressClickUntil) return') &&
-      terminalPoolSource.includes("if (match.kind === 'url' && findTerminalUrlAtMouseEvent(record, event) !== match.text) return") &&
-      terminalPoolSource.includes("pathLink => pathLink.text === match.text") &&
-      terminalPoolSource.includes('const pathLinks = readTerminalPathLinksAtCell(record, cell)') &&
-      terminalPoolSource.includes('collectTerminalMultiLinePathLinkMatches(') &&
-      terminalPoolSource.includes('record.suppressClickUntil = Date.now() + 250'),
+      terminalPoolSource.includes('const committedRevision = linkHandlersCommitLatch.committedRevision(') &&
+      terminalPoolSource.includes('const revisionInvalidated = record.linkInteraction.adoptHandlersRevision(committedRevision)') &&
+      terminalPoolSource.includes('if (!revisionInvalidated && linkHandlersReplaced) record.linkInteraction.notifyHandlersChanged()') &&
+      linkInteractionSource.includes('if (this.isActivationSuppressed) return') &&
+      linkInteractionSource.includes("if (match.kind === 'url' && this.urlAtEvent(event) !== match.text) return") &&
+      linkInteractionSource.includes('pathLink => pathLink.text === match.text') &&
+      linkInteractionSource.includes('const pathLinks = this.#pathLinksAtCell(cell)') &&
+      linkInteractionSource.includes('collectTerminalMultiLinePathLinkMatches(') &&
+      linkInteractionSource.includes('this.suppressActivation()'),
     'terminal link activation should reject stale attachment and cell matches without adding retry latency'
   );
   assert(
