@@ -83,6 +83,13 @@ import {
   isTerminalHostAttached,
   parkTerminalHost,
 } from '@/lib/terminal-attachment'
+import {
+  transitionTerminalRecoveryStatus,
+} from '@/lib/terminal-recovery-status'
+import type {
+  TerminalRecoveryPhase,
+  TerminalRecoveryStatus,
+} from '@/lib/terminal-recovery-status'
 import { readClipboardText, writeClipboardText } from '@/lib/clipboard'
 import {
   shouldBlockDetachedTerminalPaste,
@@ -168,14 +175,7 @@ export interface TerminalSessionLiveOptions {
   onOpenUrlInFarming?: (agentId: string, url: string) => void
 }
 
-export type TerminalRecoveryPhase = 'requesting' | 'installing' | 'retrying' | 'ready' | 'failed'
-
-export interface TerminalRecoveryStatus {
-  phase: TerminalRecoveryPhase
-  attempt: number
-  startedAt: number | null
-  retryDelayMs: number | null
-}
+export type { TerminalRecoveryPhase, TerminalRecoveryStatus } from '@/lib/terminal-recovery-status'
 
 export type TerminalSearchDirection = 'next' | 'previous'
 
@@ -563,17 +563,10 @@ function publishTerminalRecoveryStatus(
   phase: TerminalRecoveryPhase,
   options: { attempt?: number; retryDelayMs?: number | null; restart?: boolean } = {},
 ) {
-  const active = phase !== 'ready' && phase !== 'failed'
-  const next: TerminalRecoveryStatus = {
+  const next = transitionTerminalRecoveryStatus(record.recoveryStatus, {
     phase,
-    attempt: active ? Math.max(1, options.attempt ?? record.recoveryStatus.attempt) : 0,
-    startedAt: active
-      ? (options.restart || record.recoveryStatus.startedAt === null
-          ? Date.now()
-          : record.recoveryStatus.startedAt)
-      : null,
-    retryDelayMs: phase === 'retrying' ? options.retryDelayMs ?? null : null,
-  }
+    ...options,
+  })
   const previous = record.recoveryStatus
   if (
     previous.phase === next.phase
