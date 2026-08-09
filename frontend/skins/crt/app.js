@@ -4,6 +4,7 @@
 /// <reference path="./app-terminal.types.d.ts" />
 /// <reference path="./app-history.types.d.ts" />
 /// <reference path="./app-protocol.types.d.ts" />
+/// <reference path="../../../src/types/terminal-replay.d.ts" />
 function isDirectionKey(key) {
     return key === 'ArrowLeft' || key === 'ArrowRight' || key === 'ArrowUp' || key === 'ArrowDown';
 }
@@ -177,6 +178,7 @@ const CRT_TITLE_STATUS_PREFIX_PATTERN = /^[\s*＊✳✱✲✶·•◇✋✦⏲\u
 const CRT_QODER_RUNTIME_TITLE_PATTERN = /^[◇✋✦⏲]/u;
 const RUNTIME_PATHS = typeof window !== 'undefined' ? window.FarmingRuntimePaths : null;
 const TERMINAL_REPLAY = (typeof window !== 'undefined' ? window.FarmingTerminalReplay : null);
+const TERMINAL_ATTACHMENT_COORDINATOR = (typeof window !== 'undefined' ? window.FarmingTerminalAttachmentCoordinator : null);
 function requiredRuntimePaths() {
     if (!RUNTIME_PATHS) {
         throw new Error('FarmingRuntimePaths must load before the CRT application');
@@ -2139,6 +2141,8 @@ function normalizeSessionViewPayload(payload, fallbackAgent = null) {
     };
 }
 function createCrtTerminalReplication(agentId, { initialFocusPending = false } = {}) {
+    const attachment = new TERMINAL_ATTACHMENT_COORDINATOR(TERMINAL_REPLAY);
+    attachment.beginAttachment();
     return {
         agentId,
         initialFocusPending,
@@ -2147,12 +2151,10 @@ function createCrtTerminalReplication(agentId, { initialFocusPending = false } =
         pendingFitResize: null,
         fitResizeTimer: null,
         applyingLocalResize: false,
-        replayState: TERMINAL_REPLAY.createState(),
+        attachment,
         checkpointInFlight: false,
-        checkpointSeq: 0,
         checkpointAbortController: null,
         checkpointRetryTimer: null,
-        installSeq: 0,
         installInProgress: false,
         pendingCheckpoint: null,
         writeInProgress: false,
@@ -2189,18 +2191,18 @@ function installCrtTerminalTestApi() {
             if (!replication || replication.disposed)
                 return null;
             return {
-                runtimeEpoch: replication.replayState.runtimeEpoch,
-                outputSeq: replication.replayState.outputSeq,
-                stateRevision: replication.replayState.stateRevision,
+                runtimeEpoch: replication.attachment.runtimeEpoch,
+                outputSeq: replication.attachment.outputSeq,
+                stateRevision: replication.attachment.stateRevision,
                 cols: terminal?.cols || 0,
                 rows: terminal?.rows || 0,
-                replaying: replication.replayState.recovering,
-                checkpointHalted: replication.replayState.halted,
+                replaying: replication.attachment.recovering,
+                checkpointHalted: replication.attachment.halted,
                 writeInProgress: replication.writeInProgress,
                 checkpointInFlight: replication.checkpointInFlight,
                 checkpointInstallInProgress: replication.installInProgress,
                 initialFocusPending: replication.initialFocusPending,
-                queuedTransitionCount: replication.replayState.queuedTransitions.length,
+                queuedTransitionCount: replication.attachment.queuedTransitionCount,
                 pendingFitResize: replication.pendingFitResize,
                 fitResizeTimerPending: replication.fitResizeTimer !== null
             };
@@ -2273,6 +2275,7 @@ function disposeCrtTerminalReplication() {
     replication.checkpointRetryTimer = null;
     replication.checkpointAbortController?.abort();
     replication.checkpointAbortController = null;
+    replication.attachment.detach();
     document.getElementById('terminal-output')?.classList.remove('crt-terminal-checkpoint-installing');
     crtTerminalReplication = null;
 }
@@ -2289,19 +2292,19 @@ function requestCrtTerminalReplay() {
     const replication = crtTerminalReplication;
     if (!replication ||
         replication.disposed ||
-        replication.replayState.halted ||
+        replication.attachment.halted ||
         replication.checkpointRetryTimer ||
         replication.checkpointInFlight ||
         replication.installInProgress)
         return;
-    TERMINAL_REPLAY.beginRecovery(replication.replayState);
+    replication.attachment.beginRecovery();
     void refreshSessionView(true, replication.agentId, getCurrentSessionToken());
 }
 function queueCrtTerminalTransition(event) {
     const replication = crtTerminalReplication;
     if (!replication || replication.disposed)
         return;
-    const result = TERMINAL_REPLAY.queueTransition(replication.replayState, event);
+    const result = replication.attachment.queueTransition(event);
     if (!result.queued) {
         requestCrtTerminalReplay();
     }
@@ -2309,7 +2312,7 @@ function queueCrtTerminalTransition(event) {
 function scheduleCrtTerminalCheckpointRetry(replication, delay) {
     if (!replication ||
         replication.disposed ||
-        replication.replayState.halted ||
+        replication.attachment.halted ||
         replication.checkpointRetryTimer)
         return;
     replication.checkpointRetryTimer = setTimeout(() => {
@@ -2339,16 +2342,16 @@ function finishCrtTerminalReplay(replication = crtTerminalReplication) {
         replication.pendingCheckpoint ||
         replication.writeInProgress)
         return;
-    if (replication.replayState.queuedTransitions.length > 0 && !replication.replayState.recovering) {
+    if (replication.attachment.queuedTransitionCount > 0 && !replication.attachment.recovering) {
         flushCrtTerminalTransitions();
-        if (replication.replayState.queuedTransitions.length > 0 ||
+        if (replication.attachment.queuedTransitionCount > 0 ||
             replication.writeInProgress ||
             replication.checkpointInFlight ||
-            replication.replayState.recovering)
+            replication.attachment.recovering)
             return;
     }
-    if (replication.replayState.recovering ||
-        TERMINAL_REPLAY.isReplayTargetPending(replication.replayState)) {
+    if (replication.attachment.recovering ||
+        replication.attachment.isReplayTargetPending()) {
         requestCrtTerminalReplay();
         return;
     }
@@ -2366,7 +2369,7 @@ function stopCrtTerminalReplay(replication, error) {
     replication.checkpointInFlight = false;
     replication.installInProgress = false;
     replication.pendingCheckpoint = null;
-    TERMINAL_REPLAY.clearQueuedTransitions(replication.replayState);
+    replication.attachment.clearQueuedTransitions();
     document.getElementById('terminal-output')?.classList.add('crt-terminal-checkpoint-installing');
     console.error('Terminal replay failed:', error);
     showCrtTerminalFailure('CRT TERMINAL SYNC ERROR', error, 'The Agent is still running. Close and reopen this terminal to retry recovery.');
@@ -2375,7 +2378,7 @@ function applyCrtTerminalTransition(event) {
     const replication = crtTerminalReplication;
     if (!replication || !terminal || replication.disposed)
         return;
-    const decision = TERMINAL_REPLAY.classifyTransition(replication.replayState, event);
+    const decision = replication.attachment.classifyTransition(event);
     if (decision.action === 'drop')
         return;
     if (decision.action === 'recover') {
@@ -2391,14 +2394,14 @@ function applyCrtTerminalTransition(event) {
         finally {
             replication.applyingLocalResize = false;
         }
-        TERMINAL_REPLAY.commitTransition(replication.replayState, event);
+        replication.attachment.commitTransition(event);
         refreshSessionTerminalUi({ preserveSearchIndex: true });
         flushCrtTerminalTransitions();
         return;
     }
     const transitionData = event.kind === 'clear' ? '\x1b[2J\x1b[3J\x1b[H' : event.data;
     if (!transitionData) {
-        TERMINAL_REPLAY.commitTransition(replication.replayState, event);
+        replication.attachment.commitTransition(event);
         flushCrtTerminalTransitions();
         return;
     }
@@ -2407,7 +2410,7 @@ function applyCrtTerminalTransition(event) {
     terminalInstance.write(transitionData, () => {
         if (!crtTerminalReplication || crtTerminalReplication !== replication || replication.disposed)
             return;
-        TERMINAL_REPLAY.commitTransition(replication.replayState, event);
+        replication.attachment.commitTransition(event);
         if (event.kind === 'clear')
             terminalInstance.clearSelection();
         replication.writeInProgress = false;
@@ -2422,31 +2425,44 @@ function flushCrtTerminalTransitions() {
     const replication = crtTerminalReplication;
     if (!replication ||
         replication.disposed ||
-        replication.replayState.recovering ||
+        replication.attachment.recovering ||
         replication.checkpointInFlight ||
         replication.installInProgress ||
         replication.writeInProgress)
         return;
-    while (!replication.replayState.recovering &&
+    while (!replication.attachment.recovering &&
         !replication.checkpointInFlight &&
         !replication.installInProgress &&
         !replication.writeInProgress) {
-        const next = TERMINAL_REPLAY.takeQueuedTransition(replication.replayState);
+        const next = replication.attachment.takeQueuedTransition();
         if (!next)
             break;
         applyCrtTerminalTransition(next);
     }
 }
-function performCrtTerminalCheckpointInstall(replication, sessionView) {
+function performCrtTerminalCheckpointInstall(replication, pending) {
     if (!crtTerminalReplication ||
         crtTerminalReplication !== replication ||
         !terminal ||
         replication.disposed)
         return false;
-    const installSeq = replication.installSeq + 1;
-    replication.installSeq = installSeq;
+    const { operation, sessionView } = pending;
+    const checkpoint = {
+        runtimeEpoch: sessionView.runtimeEpoch,
+        outputSeq: sessionView.outputSeq,
+        stateRevision: sessionView.stateRevision,
+        cols: sessionView.previewCols,
+        rows: sessionView.previewRows
+    };
+    // Admission belongs at the head of the xterm write queue. A live write that
+    // committed after the response was accepted can make this screen stale.
+    if (!replication.attachment.admitCheckpointInstall(operation, checkpoint)) {
+        replication.attachment.beginRecovery();
+        finishCrtTerminalReplay(replication);
+        return false;
+    }
     replication.installInProgress = true;
-    TERMINAL_REPLAY.beginRecovery(replication.replayState, sessionView);
+    replication.attachment.beginRecovery(sessionView);
     const container = document.getElementById('terminal-output');
     container?.classList.add('crt-terminal-checkpoint-installing');
     replication.applyingLocalResize = true;
@@ -2458,19 +2474,18 @@ function performCrtTerminalCheckpointInstall(replication, sessionView) {
     }
     terminal.reset();
     const finishInstall = () => {
-        if (!crtTerminalReplication ||
-            crtTerminalReplication !== replication ||
-            replication.disposed ||
-            replication.installSeq !== installSeq)
+        if (!crtTerminalReplication || crtTerminalReplication !== replication || replication.disposed)
             return;
-        TERMINAL_REPLAY.commitCheckpoint(replication.replayState, {
-            runtimeEpoch: sessionView.runtimeEpoch,
-            outputSeq: sessionView.outputSeq,
-            stateRevision: sessionView.stateRevision,
-            cols: sessionView.previewCols,
-            rows: sessionView.previewRows
-        });
         replication.installInProgress = false;
+        if (!replication.attachment.commitCheckpoint(operation, checkpoint)) {
+            // The old screen may already have reached xterm. A newer checkpoint wins;
+            // otherwise recover from the authoritative cursor instead of exposing it.
+            if (drainCrtTerminalCheckpointInstall(replication))
+                return;
+            replication.attachment.beginRecovery();
+            requestCrtTerminalReplay();
+            return;
+        }
         refreshSessionTerminalUi({ preserveSearchIndex: true });
         const runtime = getSessionRuntime();
         if (runtime) {
@@ -2505,9 +2520,9 @@ function drainCrtTerminalCheckpointInstall(replication = crtTerminalReplication)
     replication.pendingCheckpoint = null;
     return performCrtTerminalCheckpointInstall(replication, sessionView);
 }
-function installCrtTerminalCheckpoint(sessionView) {
+function installCrtTerminalCheckpoint(sessionView, operation = crtTerminalReplication?.attachment.beginCheckpointOperation() || null) {
     const replication = crtTerminalReplication;
-    if (!replication || !terminal || replication.disposed)
+    if (!replication || !terminal || replication.disposed || !operation)
         return false;
     const checkpoint = {
         runtimeEpoch: sessionView.runtimeEpoch,
@@ -2516,9 +2531,11 @@ function installCrtTerminalCheckpoint(sessionView) {
         cols: sessionView.previewCols,
         rows: sessionView.previewRows
     };
-    const decision = TERMINAL_REPLAY.evaluateCheckpoint(replication.replayState, checkpoint);
+    if (!replication.attachment.isCurrentOperation(operation))
+        return false;
+    const decision = replication.attachment.evaluateCheckpoint(checkpoint);
     if (decision.action === 'reject') {
-        retryCrtTerminalReplayAfterFailure(replication, TERMINAL_REPLAY.recordInvariantFailure(replication.replayState, decision.signature || 'invalid-checkpoint', decision.message || 'Terminal replay returned an invalid screen state'));
+        retryCrtTerminalReplayAfterFailure(replication, replication.attachment.recordInvariantFailure(decision.signature || 'invalid-checkpoint', decision.message || 'Terminal replay returned an invalid screen state'));
         return false;
     }
     const validatedCheckpoint = checkpoint;
@@ -2534,14 +2551,18 @@ function installCrtTerminalCheckpoint(sessionView) {
     if (decision.action === 'current' &&
         terminal.cols === validatedSessionView.previewCols &&
         terminal.rows === validatedSessionView.previewRows) {
-        TERMINAL_REPLAY.commitCheckpoint(replication.replayState, validatedCheckpoint);
+        if (!replication.attachment.commitCheckpoint(operation, validatedCheckpoint)) {
+            replication.attachment.beginRecovery();
+            finishCrtTerminalReplay(replication);
+            return false;
+        }
         sendSessionResize(replication.agentId);
         flushCrtTerminalTransitions();
         finishCrtTerminalReplay(replication);
         return true;
     }
-    replication.pendingCheckpoint = validatedSessionView;
-    TERMINAL_REPLAY.beginRecovery(replication.replayState, validatedSessionView);
+    replication.pendingCheckpoint = { operation, sessionView: validatedSessionView };
+    replication.attachment.beginRecovery(validatedSessionView);
     drainCrtTerminalCheckpointInstall(replication);
     return true;
 }
@@ -2550,10 +2571,12 @@ function handleCrtTerminalStream(stream) {
     if (!replication || !stream || stream.agentId !== replication.agentId)
         return;
     if (stream.replace === true) {
-        replication.checkpointSeq += 1;
         replication.checkpointAbortController?.abort();
         replication.checkpointAbortController = null;
         replication.checkpointInFlight = false;
+        const operation = replication.attachment.beginCheckpointOperation();
+        if (!operation)
+            return;
         installCrtTerminalCheckpoint({
             runtimeEpoch: String(stream.runtimeEpoch || ''),
             outputSeq: Number(stream.outputSeq),
@@ -2561,7 +2584,7 @@ function handleCrtTerminalStream(stream) {
             previewCols: Number(stream.cols),
             previewRows: Number(stream.rows),
             renderOutput: typeof stream.data === 'string' ? stream.data : ''
-        });
+        }, operation);
         if (Array.isArray(stream.chunks)) {
             stream.chunks.forEach((chunk) => queueCrtTerminalTransition({
                 kind: chunk.kind || 'output',
@@ -2588,7 +2611,7 @@ function handleCrtTerminalStream(stream) {
             cols: chunk.cols,
             rows: chunk.rows
         };
-        if (replication.replayState.recovering ||
+        if (replication.attachment.recovering ||
             replication.checkpointInFlight ||
             replication.installInProgress ||
             replication.writeInProgress) {
@@ -5629,8 +5652,8 @@ function connect() {
                     clearTimeout(crtTerminalReplication.checkpointRetryTimer);
                     crtTerminalReplication.checkpointRetryTimer = null;
                 }
-                TERMINAL_REPLAY.resetRecovery(crtTerminalReplication.replayState);
-                TERMINAL_REPLAY.beginRecovery(crtTerminalReplication.replayState);
+                crtTerminalReplication.attachment.resetRecovery();
+                crtTerminalReplication.attachment.beginRecovery();
                 requestCrtTerminalReplay();
             }
         }
@@ -5844,7 +5867,7 @@ function connect() {
             clearPendingCrtTerminalFitResize(crtTerminalReplication);
             crtTerminalReplication.lastResizeCols = null;
             crtTerminalReplication.lastResizeRows = null;
-            crtTerminalReplication.checkpointSeq += 1;
+            crtTerminalReplication.attachment.invalidateOperation();
             crtTerminalReplication.checkpointAbortController?.abort();
             crtTerminalReplication.checkpointAbortController = null;
             crtTerminalReplication.checkpointInFlight = false;
@@ -5852,8 +5875,8 @@ function connect() {
                 clearTimeout(crtTerminalReplication.checkpointRetryTimer);
                 crtTerminalReplication.checkpointRetryTimer = null;
             }
-            TERMINAL_REPLAY.resetRecovery(crtTerminalReplication.replayState);
-            TERMINAL_REPLAY.beginRecovery(crtTerminalReplication.replayState);
+            crtTerminalReplication.attachment.resetRecovery();
+            crtTerminalReplication.attachment.beginRecovery();
         }
         const terminalClose = event.code === 4001 || event.code === 4002;
         if (!terminalClose && (typeof document === 'undefined' || document.visibilityState !== 'hidden')) {
@@ -8289,7 +8312,7 @@ function commitCrtTerminalResize(agentId, normalizedDimensions, { allowDuringRec
         !replication ||
         replication.disposed ||
         replication.agentId !== agentId ||
-        (!allowDuringRecovery && replication.replayState.recovering) ||
+        (!allowDuringRecovery && replication.attachment.recovering) ||
         (normalizedDimensions.cols === replication.lastResizeCols &&
             normalizedDimensions.rows === replication.lastResizeRows))
         return;
@@ -8331,7 +8354,7 @@ function sendSessionResize(agentId = focusedAgentId, requestedDimensions = null,
         !fitAddon ||
         !replication ||
         replication.agentId !== agentId ||
-        (!forceDuringRecovery && replication.replayState.recovering))
+        (!forceDuringRecovery && replication.attachment.recovering))
         return;
     const dimensions = requestedDimensions || (typeof fitAddon.proposeDimensions === 'function'
         ? fitAddon.proposeDimensions()
@@ -8383,14 +8406,15 @@ async function refreshSessionView(_forceReplace = false, expectedAgentId = focus
     const replication = crtTerminalReplication;
     if (!replication ||
         replication.agentId !== expectedAgentId ||
-        replication.replayState.halted ||
+        replication.attachment.halted ||
         replication.checkpointRetryTimer ||
         replication.checkpointInFlight)
         return;
-    const checkpointSeq = replication.checkpointSeq + 1;
-    replication.checkpointSeq = checkpointSeq;
+    const operation = replication.attachment.beginCheckpointOperation();
+    if (!operation)
+        return;
     replication.checkpointInFlight = true;
-    TERMINAL_REPLAY.beginRecovery(replication.replayState);
+    replication.attachment.beginRecovery();
     const controller = new globalThis.AbortController();
     replication.checkpointAbortController = controller;
     const timeout = setTimeout(() => controller.abort(), CRT_TERMINAL_CHECKPOINT_REQUEST_TIMEOUT_MS);
@@ -8403,25 +8427,25 @@ async function refreshSessionView(_forceReplace = false, expectedAgentId = focus
         });
         if (!crtTerminalReplication ||
             crtTerminalReplication !== replication ||
-            replication.checkpointSeq !== checkpointSeq)
+            !replication.attachment.isCurrentOperation(operation))
             return;
         if (runtime && !runtime.isCurrentSession(expectedAgentId, expectedSessionToken))
             return;
         const currentAgent = state && state.agents
             ? state.agents.find((agent) => agent.id === expectedAgentId)
             : null;
-        installCrtTerminalCheckpoint(normalizeSessionViewPayload(payload, currentAgent));
+        installCrtTerminalCheckpoint(normalizeSessionViewPayload(payload, currentAgent), operation);
     }
     catch (error) {
         if (crtTerminalReplication === replication &&
-            replication.checkpointSeq === checkpointSeq) {
-            retryCrtTerminalReplayAfterFailure(replication, TERMINAL_REPLAY.recordTransportFailure(replication.replayState), error);
+            replication.attachment.isCurrentOperation(operation)) {
+            retryCrtTerminalReplayAfterFailure(replication, replication.attachment.recordTransportFailure(), error);
         }
     }
     finally {
         clearTimeout(timeout);
         if (crtTerminalReplication === replication &&
-            replication.checkpointSeq === checkpointSeq) {
+            replication.attachment.isCurrentOperation(operation)) {
             replication.checkpointInFlight = false;
             replication.checkpointAbortController = null;
             finishCrtTerminalReplay(replication);

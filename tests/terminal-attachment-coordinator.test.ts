@@ -9,6 +9,10 @@ import {
 const replay = require('../frontend/terminal-replay.js') as FarmingTerminalReplayApi
 const epoch = 'farming-runtime-v1:00000000000000000001:test'
 
+test('Code imports the same generated coordinator constructor that classic CRT uses', () => {
+  assert.equal(TerminalAttachmentCoordinator, globalThis.FarmingTerminalAttachmentCoordinator)
+})
+
 function checkpoint(revision: number): TerminalReplayCheckpoint {
   return { runtimeEpoch: epoch, outputSeq: revision, stateRevision: revision, cols: 80, rows: 24 }
 }

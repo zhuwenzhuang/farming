@@ -98,6 +98,10 @@ function run() {
     path.join(__dirname, '../../src/lib/terminal-attachment-coordinator.ts'),
     'utf8'
   );
+  const canonicalTerminalAttachmentCoordinatorSource = fs.readFileSync(
+    path.join(__dirname, '../../frontend/terminal-attachment-coordinator.ts'),
+    'utf8'
+  );
   const terminalClipboardSource = fs.readFileSync(
     path.join(__dirname, '../../src/lib/clipboard.ts'),
     'utf8'
@@ -261,7 +265,8 @@ function run() {
       terminalPoolSource.includes('replaceTerminalOutput(record, state.output,') &&
       terminalPoolSource.includes('record.replayInProgress = true') &&
       terminalPoolSource.includes('record.attachment.isCurrentOperation(operation)') &&
-      crtAppSource.includes('replication.installSeq !== installSeq') &&
+      crtAppSource.includes('replication.attachment.admitCheckpointInstall(operation, checkpoint)') &&
+      crtAppSource.includes('replication.attachment.commitCheckpoint(operation, checkpoint)') &&
       crtAppSource.includes('replication.installInProgress') &&
       crtAppSource.includes('drainCrtTerminalCheckpointInstall(replication)'),
     'terminal checkpoint installs should serialize xterm writes and fence superseded callbacks'
@@ -280,10 +285,12 @@ function run() {
       terminalPoolSource.includes('snapshotRuntimeEpoch') &&
       terminalPoolSource.includes('record.attachment.classifyTransition(event)') &&
       terminalPoolSource.includes('record.attachment.commitTransition(event)') &&
-      terminalAttachmentCoordinatorSource.includes('class TerminalAttachmentCoordinator') &&
-      terminalAttachmentCoordinatorSource.includes('readonly #replay: FarmingTerminalReplayApi') &&
-      terminalAttachmentCoordinatorSource.includes('readonly #replayState: TerminalReplayState') &&
-      !terminalAttachmentCoordinatorSource.includes('interface TerminalReplayPort') &&
+      terminalAttachmentCoordinatorSource.includes("import '../../frontend/terminal-attachment-coordinator.js'") &&
+      canonicalTerminalAttachmentCoordinatorSource.includes('class TerminalAttachmentCoordinator') &&
+      canonicalTerminalAttachmentCoordinatorSource.includes('readonly #replay: FarmingTerminalReplayApi') &&
+      canonicalTerminalAttachmentCoordinatorSource.includes('readonly #replayState: TerminalReplayState') &&
+      canonicalTerminalAttachmentCoordinatorSource.includes('global.FarmingTerminalAttachmentCoordinator = TerminalAttachmentCoordinator') &&
+      !canonicalTerminalAttachmentCoordinatorSource.includes('interface TerminalReplayPort') &&
       !terminalPoolSource.includes('as unknown as TerminalReplayPort') &&
       terminalPoolSource.includes('requestTerminalReplay(record)') &&
       terminalReplaySource.includes('const DEFAULT_MAX_QUEUED_TRANSITIONS = 512') &&
@@ -600,7 +607,7 @@ function run() {
       terminalPoolSource.includes("from '@/lib/terminal-attachment'") &&
       terminalPoolSource.includes('function isCurrentAttachment(record: SessionRecord, generation: number)') &&
       terminalPoolSource.includes('record.attachment.isCurrentGeneration(generation)') &&
-      terminalAttachmentCoordinatorSource.includes('get generation()') &&
+      canonicalTerminalAttachmentCoordinatorSource.includes('get generation()') &&
       terminalPoolSource.includes('function resetTransientTerminalUi(record: SessionRecord)') &&
       terminalPoolSource.includes('record.terminal.clearTerminalSelection?.()') &&
       terminalPoolSource.includes('function repairTerminalAfterAttach(record: SessionRecord)') &&

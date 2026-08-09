@@ -25,6 +25,14 @@ declare const module: { exports: Record<string, unknown> } | undefined;
     rows: number;
   };
 
+  type TerminalReplayCheckpointCandidate = {
+    runtimeEpoch?: string;
+    outputSeq?: number | null;
+    stateRevision?: number | null;
+    cols?: number | null;
+    rows?: number | null;
+  };
+
   type TerminalReplayOptions = Partial<Pick<TerminalReplayState,
     | 'maxQueuedTransitions'
     | 'maxQueuedBytes'
@@ -164,7 +172,7 @@ declare const module: { exports: Record<string, unknown> } | undefined;
       );
   }
 
-  function isCheckpointValid(checkpoint: TerminalReplayCheckpoint | null | undefined): checkpoint is TerminalReplayCheckpoint {
+  function isCheckpointValid(checkpoint: TerminalReplayCheckpointCandidate | null | undefined): checkpoint is TerminalReplayCheckpoint {
     return checkpoint !== null
       && checkpoint !== undefined
       && Boolean(checkpoint.runtimeEpoch)
@@ -300,7 +308,7 @@ declare const module: { exports: Record<string, unknown> } | undefined;
     return false;
   }
 
-  function evaluateCheckpoint(state: TerminalReplayState, checkpoint: TerminalReplayCheckpoint): TerminalReplayDecision {
+  function evaluateCheckpoint(state: TerminalReplayState, checkpoint: TerminalReplayCheckpointCandidate): TerminalReplayDecision {
     if (!isCheckpointValid(checkpoint)) {
       return checkpointInvariant('invalid-checkpoint', 'Terminal replay returned an invalid screen state');
     }

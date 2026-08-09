@@ -22,6 +22,14 @@ type TerminalReplayCheckpoint = {
   rows: number
 }
 
+type TerminalReplayCheckpointCandidate = {
+  runtimeEpoch?: string
+  outputSeq?: number | null
+  stateRevision?: number | null
+  cols?: number | null
+  rows?: number | null
+}
+
 type TerminalReplayState = {
   runtimeEpoch: string
   outputSeq: number | null
@@ -70,7 +78,7 @@ type FarmingTerminalReplayApi = {
   queueTransition: (state: TerminalReplayState, event: TerminalReplayTransition) => { queued: boolean; overflow: boolean }
   takeQueuedTransition: (state: TerminalReplayState) => ValidTerminalReplayTransition | null
   clearQueuedTransitions: (state: TerminalReplayState) => void
-  evaluateCheckpoint: (state: TerminalReplayState, checkpoint: TerminalReplayCheckpoint) => TerminalReplayDecision
+  evaluateCheckpoint: (state: TerminalReplayState, checkpoint: TerminalReplayCheckpointCandidate) => TerminalReplayDecision
   commitCheckpoint: (state: TerminalReplayState, checkpoint: TerminalReplayCheckpoint) => boolean
   commitTransition: (state: TerminalReplayState, event: TerminalReplayTransition) => void
   recordTransportFailure: (state: TerminalReplayState) => TerminalReplayFailure
@@ -80,6 +88,66 @@ type FarmingTerminalReplayApi = {
 
 declare var FarmingTerminalReplay: FarmingTerminalReplayApi
 
+type TerminalAttachmentOperation = {
+  generation: number
+  revision: number
+}
+
+type TerminalAttachmentOrderingSnapshot = {
+  generation: number
+  revision: number
+  runtimeEpoch: string
+  outputSeq: number | null
+  stateRevision: number | null
+  replayTargetEpoch: string
+  replayTargetRevision: number | null
+  queuedTransitions: number
+  queuedBytes: number
+  recovering: boolean
+  halted: boolean
+  failureCount: number
+}
+
+interface FarmingTerminalAttachmentCoordinatorApi {
+  readonly failureCount: number
+  readonly generation: number
+  readonly halted: boolean
+  readonly outputSeq: number | null
+  readonly queuedTransitionCount: number
+  readonly recovering: boolean
+  readonly runtimeEpoch: string
+  readonly stateRevision: number | null
+  admitCheckpointInstall(operation: TerminalAttachmentOperation, checkpoint: TerminalReplayCheckpoint): boolean
+  beginAttachment(): TerminalAttachmentOperation
+  beginCheckpointOperation(generation?: number): TerminalAttachmentOperation | null
+  beginRecovery(event?: TerminalReplayTransition): void
+  classifyTransition(event: TerminalReplayTransition): TerminalReplayDecision
+  clearQueuedTransitions(): void
+  commitCheckpoint(operation: TerminalAttachmentOperation, checkpoint: TerminalReplayCheckpoint): boolean
+  commitTransition(event: TerminalReplayTransition): void
+  currentOperation(): TerminalAttachmentOperation
+  detach(): TerminalAttachmentOperation
+  evaluateCheckpoint(checkpoint: TerminalReplayCheckpointCandidate): TerminalReplayDecision
+  invalidateOperation(): TerminalAttachmentOperation
+  isCurrentGeneration(generation: number): boolean
+  isCurrentOperation(operation: TerminalAttachmentOperation): boolean
+  isReplayTargetPending(): boolean
+  queuedOutputBatch(): TerminalReplayTransition[] | null
+  queueTransition(event: TerminalReplayTransition): { queued: boolean; overflow: boolean }
+  recordInvariantFailure(signature: string, message: string): TerminalReplayFailure
+  recordTransportFailure(): TerminalReplayFailure
+  resetRecovery(options?: { keepCursor?: boolean }): void
+  snapshot(): TerminalAttachmentOrderingSnapshot
+  takeQueuedTransition(): ValidTerminalReplayTransition | null
+}
+
+interface FarmingTerminalAttachmentCoordinatorConstructor {
+  new(replay: FarmingTerminalReplayApi): FarmingTerminalAttachmentCoordinatorApi
+}
+
+declare var FarmingTerminalAttachmentCoordinator: FarmingTerminalAttachmentCoordinatorConstructor
+
 interface Window {
-  FarmingTerminalReplay: FarmingTerminalReplayApi
+  FarmingTerminalReplay?: FarmingTerminalReplayApi
+  FarmingTerminalAttachmentCoordinator?: FarmingTerminalAttachmentCoordinatorConstructor
 }

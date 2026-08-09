@@ -143,111 +143,14 @@ interface FarmingTerminalBridge {
 
 type FarmingTerminalTransitionKind = 'output' | 'resize' | 'clear';
 
-interface FarmingTerminalTransition {
-  kind?: FarmingTerminalTransitionKind;
-  data?: string;
-  runtimeEpoch?: string;
-  outputSeq?: number | null;
-  stateRevision?: number | null;
-  cols?: number;
-  rows?: number;
-}
-
-interface FarmingValidTerminalTransition extends FarmingTerminalTransition {
-  runtimeEpoch: string;
-  outputSeq: number;
-  stateRevision: number;
-}
-
-interface FarmingTerminalCheckpoint {
-  runtimeEpoch: string;
-  outputSeq: number;
-  stateRevision: number;
-  cols: number;
-  rows: number;
-}
-
-interface FarmingTerminalCheckpointCandidate {
-  runtimeEpoch?: string;
-  outputSeq?: number | null;
-  stateRevision?: number | null;
-  cols?: number | null;
-  rows?: number | null;
-}
-
-interface FarmingTerminalReplayState {
-  runtimeEpoch: string;
-  outputSeq: number | null;
-  stateRevision: number | null;
-  replayTargetEpoch: string;
-  replayTargetRevision: number | null;
-  recovering: boolean;
-  queuedTransitions: FarmingValidTerminalTransition[];
-  queuedBytes: number;
-  retiredRuntimeEpochs: Set<string>;
-  failureCount: number;
-  invariantFailureSignature: string;
-  invariantFailureCount: number;
-  transportFailureCount: number;
-  halted: boolean;
-  haltMessage: string;
-  maxQueuedTransitions: number;
-  maxQueuedBytes: number;
-  retryBaseMs: number;
-  retryMaxMs: number;
-  maxTransportFailures: number;
-  maxIdenticalInvariantFailures: number;
-}
-
-interface FarmingTerminalReplayDecision {
-  action: 'apply' | 'drop' | 'recover' | 'current' | 'install' | 'reject';
-  reason?: string;
-  signature?: string;
-  message?: string;
-}
-
-interface FarmingTerminalReplayFailure {
-  halted: boolean;
-  delay: number;
-  message: string;
-}
-
-interface FarmingTerminalReplay {
-  createState(options?: Partial<Pick<FarmingTerminalReplayState,
-    | 'maxQueuedTransitions'
-    | 'maxQueuedBytes'
-    | 'retryBaseMs'
-    | 'retryMaxMs'
-    | 'maxTransportFailures'
-    | 'maxIdenticalInvariantFailures'
-  >>): FarmingTerminalReplayState;
-  compareRuntimeEpochs(left: string, right: string): -1 | 0 | 1 | null;
-  beginRecovery(state: FarmingTerminalReplayState, event?: FarmingTerminalTransition): void;
-  isReplayTargetPending(state: FarmingTerminalReplayState): boolean;
-  classifyTransition(
-    state: FarmingTerminalReplayState,
-    event: FarmingTerminalTransition,
-  ): FarmingTerminalReplayDecision;
-  queueTransition(
-    state: FarmingTerminalReplayState,
-    event: FarmingTerminalTransition,
-  ): { queued: boolean; overflow: boolean };
-  takeQueuedTransition(state: FarmingTerminalReplayState): FarmingValidTerminalTransition | null;
-  clearQueuedTransitions(state: FarmingTerminalReplayState): void;
-  evaluateCheckpoint(
-    state: FarmingTerminalReplayState,
-    checkpoint: FarmingTerminalCheckpointCandidate,
-  ): FarmingTerminalReplayDecision;
-  commitCheckpoint(state: FarmingTerminalReplayState, checkpoint: FarmingTerminalCheckpoint): boolean;
-  commitTransition(state: FarmingTerminalReplayState, event: FarmingTerminalTransition): void;
-  recordTransportFailure(state: FarmingTerminalReplayState): FarmingTerminalReplayFailure;
-  recordInvariantFailure(
-    state: FarmingTerminalReplayState,
-    signature: string,
-    message: string,
-  ): FarmingTerminalReplayFailure;
-  resetRecovery(state: FarmingTerminalReplayState, options?: { keepCursor?: boolean }): void;
-}
+type FarmingTerminalTransition = TerminalReplayTransition;
+type FarmingValidTerminalTransition = ValidTerminalReplayTransition;
+type FarmingTerminalCheckpoint = TerminalReplayCheckpoint;
+type FarmingTerminalCheckpointCandidate = TerminalReplayCheckpointCandidate;
+type FarmingTerminalReplayState = TerminalReplayState;
+type FarmingTerminalReplayDecision = TerminalReplayDecision;
+type FarmingTerminalReplayFailure = TerminalReplayFailure;
+type FarmingTerminalReplay = FarmingTerminalReplayApi;
 
 interface CrtTerminalSessionViewResponse {
   agentId?: string;
@@ -289,14 +192,15 @@ interface CrtTerminalReplication {
   pendingFitResize: CrtTerminalDimensions | null;
   fitResizeTimer: number | null;
   applyingLocalResize: boolean;
-  replayState: FarmingTerminalReplayState;
+  attachment: FarmingTerminalAttachmentCoordinatorApi;
   checkpointInFlight: boolean;
-  checkpointSeq: number;
   checkpointAbortController: AbortController | null;
   checkpointRetryTimer: number | null;
-  installSeq: number;
   installInProgress: boolean;
-  pendingCheckpoint: CrtTerminalSessionView | null;
+  pendingCheckpoint: {
+    operation: TerminalAttachmentOperation;
+    sessionView: CrtTerminalSessionView;
+  } | null;
   writeInProgress: boolean;
   disposed: boolean;
 }
@@ -304,4 +208,5 @@ interface CrtTerminalReplication {
 interface Window {
   FarmingTerminalBridge?: FarmingTerminalBridge;
   FarmingTerminalReplay?: FarmingTerminalReplay;
+  FarmingTerminalAttachmentCoordinator?: FarmingTerminalAttachmentCoordinatorConstructor;
 }
