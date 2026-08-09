@@ -173,6 +173,7 @@ async function run() {
 
   const serverSource = fs.readFileSync(path.join(__dirname, '..', 'server.cts'), 'utf8');
   const mainPageSessionSource = fs.readFileSync(path.join(__dirname, '..', 'main-page-session.cts'), 'utf8');
+  const projectWorkspaceCanonicalizerSource = fs.readFileSync(path.join(__dirname, '..', 'project-workspace-canonicalizer.cts'), 'utf8');
   assert(
     mainPageSessionSource.includes("const AUTO_RESUME_AGENT_SESSION_PROVIDERS = new Set(['codex', 'claude', 'opencode', 'qoder', 'qwen'])") &&
       mainPageSessionSource.includes('function mainPageAgentSessionFromKey(key: unknown)') &&
@@ -194,7 +195,10 @@ async function run() {
       serverSource.includes("res.status(400).json({ error: 'customTitle must be a string' })") &&
       serverSource.includes('const workingDirectory = session?.cwd || session?.workspace || null') &&
       serverSource.includes("savedSession?.projectWorkspace || (session ? (session.workspace || session.cwd || '') : workingDirectory)") &&
-      serverSource.includes('const worktree = await inspectGitWorktree(candidate)') &&
+      serverSource.includes('const canonicalProjectWorkspaceCandidate = createProjectWorkspaceCanonicalizer({') &&
+      serverSource.includes("inspectWorkspace: async candidate => (await inspectGitWorktree(candidate))?.workspace || ''") &&
+      projectWorkspaceCanonicalizerSource.includes('const existing = pending.get(candidate)') &&
+      projectWorkspaceCanonicalizerSource.includes('if (inspectedWorkspace) return inspectedWorkspace') &&
       serverSource.includes('void autoResumeMainPageAgentSessions()'),
     'Server restart should auto-resume only supported coding-agent main-page history sessions and leave shell rows out'
   );

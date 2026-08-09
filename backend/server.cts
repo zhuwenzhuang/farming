@@ -253,6 +253,7 @@ import { buildAgentSessionResumeCommand, findAgentSession, isSafeSessionId, norm
 import { findActiveAgentClaimingSession, mainPageAgentSessionKey, mainPageAgentSessionsToAutoResume, resumedAgentSource } from './main-page-session.cjs';
 import { discoverAgentWorkspaces } from './workspace-discovery.cjs';
 import { inspectGitWorktree } from './git-worktree-info.cjs';
+import { createProjectWorkspaceCanonicalizer } from './project-workspace-canonicalizer.cjs';
 import { createWorkspaceDirectoryRouter } from './workspace-directory.cjs';
 import { createWorkspacePickerRouter } from './workspace-picker-router.cjs';
 import { createControlRouter } from './control-api.cjs';
@@ -1771,7 +1772,14 @@ app.post(routePath(BASE_PATH, '/api/agent-sessions/:provider/:sessionId/resume')
 });
 
 const pendingResumeStarts = new Map<string, Promise<ResumeAgentResult>>();
-const pendingProjectWorkspaceResolutions = new Map<string, Promise<string>>();
+const canonicalProjectWorkspaceCandidate = createProjectWorkspaceCanonicalizer({
+  inspectWorkspace: async candidate => (await inspectGitWorktree(candidate))?.workspace || '',
+  realpath: candidate => fs.promises.realpath(path.resolve(candidate)),
+  warnInspectFailure: (candidate, caught) => {
+    const error = caughtError(caught);
+    console.warn('Failed to resolve project worktree:', candidate, error?.message || error);
+  },
+});
 
 function resumedAgentStartKey(provider: string, sessionId: string, options: ResumeOptions = {}) {
   return [
@@ -2058,32 +2066,7 @@ async function resumeAgentSessionById(
 
 async function canonicalProjectWorkspace(workspace: string | null) {
   const candidate = configManager.expandWorkspacePath(String(workspace || '').trim());
-  if (!candidate) return '';
-  const pending = pendingProjectWorkspaceResolutions.get(candidate);
-  if (pending) return pending;
-
-  const resolution = (async () => {
-    try {
-      const worktree = await inspectGitWorktree(candidate);
-      if (worktree?.workspace) return worktree.workspace;
-    } catch (caught) {
-    const error = caughtError(caught);
-      console.warn('Failed to resolve project worktree:', candidate, error?.message || error);
-    }
-    try {
-      return fs.realpathSync(path.resolve(candidate));
-    } catch {
-      return candidate;
-    }
-  })();
-  pendingProjectWorkspaceResolutions.set(candidate, resolution);
-  try {
-    return await resolution;
-  } finally {
-    if (pendingProjectWorkspaceResolutions.get(candidate) === resolution) {
-      pendingProjectWorkspaceResolutions.delete(candidate);
-    }
-  }
+  return canonicalProjectWorkspaceCandidate(candidate);
 }
 
 async function startResumedAgentSession(req: HttpRequest, res: HttpResponse, provider: string, rawSessionId: string) {
