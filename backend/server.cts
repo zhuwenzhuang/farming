@@ -161,7 +161,6 @@ interface WebSocketClient {
   stateSnapshotRetryTimer?: ReturnType<typeof setTimeout> | null;
   stateScope?: 'all' | 'focused';
   streamScope?: 'focused' | 'all';
-  workspaceFileUnsubscribes?: Map<string, WorkspaceFileWatchRecord> | null;
   protocolCompatible?: boolean;
   protocolReady?: boolean;
   close(code?: number, reason?: string): void;
@@ -184,12 +183,6 @@ function caughtError(error: unknown): ServerError {
   const normalized = new Error(String(error)) as ServerError;
   if (error && typeof error === 'object') Object.assign(normalized, error);
   return normalized;
-}
-
-interface WorkspaceFileWatchRecord {
-  cancelled: boolean;
-  ready: Promise<boolean> | null;
-  unsubscribe: (() => void) | null;
 }
 
 interface ResumeOptions {
@@ -247,6 +240,7 @@ import {
   defineClientMessageDispatchTable,
   dispatchClientMessage,
 } from './websocket-client-dispatch.cjs';
+import { createWorkspaceFileWatchController } from './websocket-workspace-file-watch.cjs';
 import { TokenAuth } from './auth.cjs';
 import { readOnlyClientMessageAllowed } from './read-only-access.cjs';
 import { getLocalIPs, getPrimaryLocalIP } from './network.cjs';
@@ -489,6 +483,17 @@ const workspaceFileService = new WorkspaceFileService();
 const workspaceRootRegistry = new WorkspaceRootRegistry(
   agentManager,
 );
+const workspaceFileWatchController = createWorkspaceFileWatchController({
+  openState: WebSocket.OPEN,
+  resolveRoot: agentId => resolveWorkspaceRoot(agentManager, agentId),
+  subscribe: (root, onEvent) => workspaceFileService.subscribe(root, event => onEvent({ ...event })),
+  logCleanupError: error => {
+    console.error('Failed to clear workspace file watch:', error);
+  },
+  watchErrorMessage: error => (
+    error instanceof WorkspaceFileError ? caughtError(error).message : null
+  ),
+});
 let agentResourceReconcileRequested = false;
 let agentResourceReconcileRunning = false;
 const reconcileAgentResourceLifecycle = () => {
@@ -2861,7 +2866,7 @@ wss.on('connection', (ws, req) => {
   });
   
   ws.on('close', (code: number, reason: Buffer) => {
-    clearWorkspaceFileWatch(ws);
+    workspaceFileWatchController.close(ws);
     cancelSessionPreviewHydration(ws);
     if (ws.initialStateSnapshotTimer) clearTimeout(ws.initialStateSnapshotTimer);
     if (ws.stateSnapshotRetryTimer) clearTimeout(ws.stateSnapshotRetryTimer);
@@ -3370,10 +3375,10 @@ const clientMessageDispatchTable = defineClientMessageDispatchTable<WebSocketCli
     if (data.agentId) void agentManager.clearAgentSessionBuffer(data.agentId);
   }),
   'watch-workspace-files': registerClientMessage('watch-workspace-files', (ws, data) => {
-    watchWorkspaceFiles(ws, data);
+    void workspaceFileWatchController.watch(ws, data.agentId);
   }),
   'unwatch-workspace-files': registerClientMessage('unwatch-workspace-files', (ws, data) => {
-    clearWorkspaceFileWatch(ws, data.agentId);
+    workspaceFileWatchController.unwatch(ws, data.agentId);
   }),
   'archive-agent': registerClientMessage('archive-agent', (ws, data) => {
     void archiveAgentFromMessage(ws, data.agentId);
@@ -3388,117 +3393,6 @@ function handleMessage(ws: WebSocketClient, data: ServerClientMessage) {
 }
 
 import { resolveInputTargetAgentId } from './input-routing.cjs';
-
-function sendWorkspaceFileWatchError(ws: WebSocketClient, error: unknown) {
-  if (ws.readyState !== WebSocket.OPEN) return;
-  const message = error instanceof WorkspaceFileError ? caughtError(error).message : 'failed to watch workspace files';
-  ws.send(JSON.stringify({ type: 'error', message }));
-}
-
-function isCurrentWorkspaceFileWatch(ws: WebSocketClient, agentId: string, record: WorkspaceFileWatchRecord) {
-  return Boolean(
-    !record.cancelled
-    && ws.workspaceFileUnsubscribes?.get(agentId) === record
-  );
-}
-
-function closeWorkspaceFileWatchRecord(record: WorkspaceFileWatchRecord) {
-  record.cancelled = true;
-  if (!record.unsubscribe) return;
-  Promise.resolve(record.unsubscribe()).catch((error) => {
-    console.error('Failed to clear workspace file watch:', error);
-  });
-}
-
-function clearWorkspaceFileWatch(ws: WebSocketClient, agentId: string | null = null) {
-  const watches = ws.workspaceFileUnsubscribes;
-  if (!watches) return;
-
-  const entries: Array<[string, WorkspaceFileWatchRecord | undefined]> = agentId
-    ? [[agentId, watches.get(agentId)]]
-    : Array.from(watches.entries());
-
-  entries.forEach(([watchedAgentId, record]) => {
-    if (!record) return;
-    if (watches.get(watchedAgentId) === record) watches.delete(watchedAgentId);
-    closeWorkspaceFileWatchRecord(record);
-  });
-
-  if (watches.size === 0) {
-    ws.workspaceFileUnsubscribes = null;
-  }
-}
-
-async function watchWorkspaceFiles(ws: WebSocketClient, data: ServerClientMessage & { agentId: string }) {
-  try {
-    if (!data.agentId) {
-      throw new WorkspaceFileError('agentId is required', 400);
-    }
-    if (!ws.workspaceFileUnsubscribes) {
-      ws.workspaceFileUnsubscribes = new Map();
-    }
-    const watches = ws.workspaceFileUnsubscribes;
-    const existing = watches.get(data.agentId);
-    if (existing) {
-      const watching = await existing.ready;
-      if (watching && isCurrentWorkspaceFileWatch(ws, data.agentId, existing) && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({
-          type: 'workspace-file-watch',
-          agentId: data.agentId,
-          watching: true,
-        }));
-      }
-      return;
-    }
-
-    const root = resolveWorkspaceRoot(agentManager, data.agentId);
-    const record: WorkspaceFileWatchRecord = {
-      cancelled: false,
-      unsubscribe: null,
-      ready: null,
-    };
-    record.ready = (async () => {
-      const unsubscribe = await workspaceFileService.subscribe(root, (event) => {
-        if (!isCurrentWorkspaceFileWatch(ws, data.agentId, record) || ws.readyState !== WebSocket.OPEN) return;
-        ws.send(JSON.stringify({
-          type: 'workspace-file-event',
-          event: {
-            agentId: data.agentId,
-            ...event,
-          },
-        }));
-      });
-      record.unsubscribe = unsubscribe;
-      if (!isCurrentWorkspaceFileWatch(ws, data.agentId, record) || ws.readyState !== WebSocket.OPEN) {
-        closeWorkspaceFileWatchRecord(record);
-        return false;
-      }
-      return true;
-    })();
-    watches.set(data.agentId, record);
-    try {
-      const watching = await record.ready;
-      if (watching && isCurrentWorkspaceFileWatch(ws, data.agentId, record) && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({
-          type: 'workspace-file-watch',
-          agentId: data.agentId,
-          watching: true,
-        }));
-      }
-    } catch (caught) {
-    const error = caughtError(caught);
-      if (watches.get(data.agentId) === record) watches.delete(data.agentId);
-      closeWorkspaceFileWatchRecord(record);
-      if (watches.size === 0 && ws.workspaceFileUnsubscribes === watches) {
-        ws.workspaceFileUnsubscribes = null;
-      }
-      throw error;
-    }
-  } catch (caught) {
-    const error = caughtError(caught);
-    sendWorkspaceFileWatchError(ws, error);
-  }
-}
 
 function projectAgentState(agent: ServerRecord & { id: string }) {
   return {

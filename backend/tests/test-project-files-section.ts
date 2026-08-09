@@ -100,6 +100,7 @@ function run() {
   const apiSource = read('src/lib/workspace-files.ts');
   const messagesSource = read('src/types/messages.ts');
   const serverSource = read('backend/server.cts');
+  const workspaceFileWatchSource = read('backend/websocket-workspace-file-watch.cts');
   const stylesSource = read('src/styles/main.css');
   const darkStylesSource = read('src/styles/code-dark.css');
   const monacoHostStyle = stylesSource.match(/\.code-file-monaco\s*\{[^}]+\}/)?.[0] || '';
@@ -1717,14 +1718,17 @@ function run() {
   );
 
   assert(
-    serverSource.includes('workspaceFileUnsubscribes') &&
-      serverSource.includes('new Map()') &&
-      serverSource.includes('clearWorkspaceFileWatch(ws, data.agentId)') &&
-      serverSource.includes('resolveWorkspaceRoot(agentManager, data.agentId)') &&
-      serverSource.includes('watches.set(data.agentId, record)') &&
-      serverSource.includes('isCurrentWorkspaceFileWatch(ws, data.agentId, record)') &&
-      serverSource.includes('closeWorkspaceFileWatchRecord(record)'),
-    'server should keep workspace file watchers per stable Files id instead of one watcher per WebSocket'
+    serverSource.includes('createWorkspaceFileWatchController({') &&
+      serverSource.includes('resolveRoot: agentId => resolveWorkspaceRoot(agentManager, agentId)') &&
+      serverSource.includes('watchErrorMessage: error => (') &&
+      serverSource.includes('workspaceFileWatchController.watch(ws, data.agentId)') &&
+      serverSource.includes('workspaceFileWatchController.unwatch(ws, data.agentId)') &&
+      serverSource.includes('workspaceFileWatchController.close(ws)') &&
+      workspaceFileWatchSource.includes('new WeakMap<Client, WorkspaceFileWatchLeases>()') &&
+      workspaceFileWatchSource.includes('leases.set(agentId, lease)') &&
+      workspaceFileWatchSource.includes('isCurrentLease(client, agentId, lease)') &&
+      workspaceFileWatchSource.includes('closeLease(lease)'),
+    'workspace file watch controller should own per-connection leases keyed by stable Files id'
   );
 
   assert(
