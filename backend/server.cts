@@ -278,6 +278,7 @@ import { CodexContextWindowReader } from './codex-context-window.cjs';
 import { AsyncCache } from './async-cache.cjs';
 import { getMainAgentSkillsCatalog } from './main-agent-skills.cjs';
 import { AgentExtensionInventory } from './agent-extension-inventory.cjs';
+import { createAgentExtensionRouter } from './agent-extension-router.cjs';
 import { AgentSessionInventory } from './agent-session-inventory.cjs';
 import { createAgentSessionRouter } from './agent-session-router.cjs';
 import { createSlashCommandDiscoveryCache } from './slash-command-cache.cjs';
@@ -941,92 +942,17 @@ app.use(routePath(BASE_PATH, '/api/workspaces'), createWorkspacePickerRouter({
 
 app.use(routePath(BASE_PATH, '/api/workspaces'), createWorkspaceDirectoryRouter());
 
-app.get(routePath(BASE_PATH, '/api/skills'), (_req, res) => {
-  res.json({ skills: getMainAgentSkillsCatalog() });
-});
-
-app.get(routePath(BASE_PATH, '/api/agent-extensions'), async (_req, res) => {
-  try {
-    const availableAgents = getAvailableAgentsForRequest()
-      .filter(agent => agent.category === 'coding');
-    const availableByProvider = new Map(availableAgents.map(agent => [
-      String(agent.name || agent.command || '').trim().toLowerCase(),
-      agent,
-    ]));
-    const configuredProviders = Object.keys(configManager.getSettings().agentHomes || {});
-    const retainedHomes: Array<{ provider: string; path: string }> = [];
-    const agents = await Promise.all(configuredProviders.map(async provider => {
-      const agent = availableByProvider.get(provider);
-      const configuredHomes = configManager.getAgentHomes(provider);
-      const homes = configuredHomes.length > 0
-        ? configuredHomes
-        : [{
-            id: 'default',
-            path: '',
-            order: Number.MAX_SAFE_INTEGER,
-            acpRuntime: { mode: 'managed' as const, executable: '' },
-            newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' as const },
-          }];
-      return {
-        id: provider,
-        name: agent?.name || provider,
-        description: agent?.description || '',
-        available: Boolean(agent),
-        discoverySupported: true,
-        acpExecutablePolicy: getProviderAdapter(provider)?.acp.executablePolicy || 'system',
-        homes: await Promise.all(homes.map(async home => {
-          if (home.path) retainedHomes.push({ provider, path: home.path });
-          const inventory = await agentExtensionInventory.get(provider, home.path);
-          return {
-            id: home.id,
-            path: home.path,
-            order: home.order,
-            acpRuntime: home.acpRuntime,
-            newAgentDefaults: home.newAgentDefaults,
-            configuration: {
-              rootId: rootIdForPath(home.path),
-              ...inventory.configuration,
-            },
-            extensions: inventory.extensions.map(extension => ({
-              ...extension,
-              rootId: rootIdForPath(home.path),
-            })),
-          };
-        })),
-      };
-    }));
-    await agentExtensionInventory.retain(retainedHomes);
-    res.setHeader('Cache-Control', 'no-store');
-    res.json({ agents });
-  } catch (caught) {
-    const error = caughtError(caught);
-    console.error('Failed to read Agent extension inventory:', error);
-    res.setHeader('Cache-Control', 'no-store');
-    res.status(500).json({ error: error.message || 'Failed to read Agent extensions' });
-  }
-});
-
-app.get(routePath(BASE_PATH, '/api/slash-commands'), async (req, res) => {
-  const provider = typeof req.query.provider === 'string' ? req.query.provider : '';
-  const workspace = typeof req.query.workspace === 'string' ? req.query.workspace : '';
-  const requested = requestedProviderHome(provider, req.query.homeId);
-  if (!requested.home) {
-    res.status(requested.status).json({ error: requested.error });
-    return;
-  }
-  try {
-    const commands = await slashCommandDiscoveryCache.get({
-      provider,
-      providerHomePath: requested.home.path,
-      workspace,
-    });
-    res.json({ commands });
-  } catch (caught) {
-    const error = caughtError(caught);
-    console.error('Failed to discover slash commands:', error);
-    res.status(500).json({ error: error.message || 'Failed to discover slash commands' });
-  }
-});
+app.use(routePath(BASE_PATH, '/api'), createAgentExtensionRouter({
+  agentExtensionInventory,
+  configuredProviders: () => Object.keys(configManager.getSettings().agentHomes || {}),
+  getAgentHomes: provider => configManager.getAgentHomes(provider),
+  getAvailableAgents: getAvailableAgentsForRequest,
+  getMainAgentSkillsCatalog,
+  getProviderAcpExecutablePolicy: provider => getProviderAdapter(provider)?.acp.executablePolicy || 'system',
+  requestedProviderHome,
+  rootIdForPath,
+  slashCommandDiscoveryCache,
+}));
 
 const IMAGE_ATTACHMENT_EXTENSIONS: Record<string, string> = {
   'image/png': 'png',

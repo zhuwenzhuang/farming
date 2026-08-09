@@ -371,7 +371,8 @@ function serverApiRouteManifest(serverPath: string): string[] {
         });
         return;
       }
-      const paths = literalPaths(node.arguments[0]).filter(route => route.startsWith('/api/'));
+      const paths = literalPaths(node.arguments[0])
+        .filter(route => route === '/api' || route.startsWith('/api/'));
       const method = node.expression.name.text;
       for (const route of paths) {
         const conditions = enclosingConditionals(node, parsed);
