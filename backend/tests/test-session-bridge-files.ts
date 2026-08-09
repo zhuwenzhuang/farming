@@ -5,6 +5,7 @@ const path = require('path');
 function run() {
   const sessionBridgePath = path.join(__dirname, '../../frontend/session-bridge.js');
   const serverPath = path.join(__dirname, '../server.cts');
+  const agentMutationRouterPath = path.join(__dirname, '../agent-mutation-router.cts');
   const sessionStreamProtocolPath = path.join(__dirname, '../session-stream-protocol.cts');
   const sessionPreviewDeliveryPath = path.join(__dirname, '../session-preview-delivery.cts');
   const focusScopeHandlersPath = path.join(__dirname, '../websocket-focus-scope-handlers.cts');
@@ -17,6 +18,7 @@ function run() {
   const terminalPanePath = path.join(__dirname, '../../src/components/AgentTerminalPane.tsx');
   const sessionBridge = fs.readFileSync(sessionBridgePath, 'utf8');
   const server = fs.readFileSync(serverPath, 'utf8');
+  const agentMutationRouter = fs.readFileSync(agentMutationRouterPath, 'utf8');
   const sessionStreamProtocol = fs.readFileSync(sessionStreamProtocolPath, 'utf8');
   const sessionPreviewDelivery = fs.readFileSync(sessionPreviewDeliveryPath, 'utf8');
   const focusScopeHandlers = fs.readFileSync(focusScopeHandlersPath, 'utf8');
@@ -171,14 +173,28 @@ function run() {
       agentRowState.includes('agent.terminalStatus?.runningCommand'),
     'Code Project, History, mobile, and Agent-row presentation must use lightweight Agent state rather than background Preview payloads',
   );
-  const agentPatchRoute = server.slice(
-    server.indexOf("app.patch(routePath(BASE_PATH, '/api/agents/:agentId')"),
-    server.indexOf("app.post(routePath(BASE_PATH, '/api/agents/:agentId/fork')")
+  const agentMutationMount = server.slice(
+    server.indexOf("app.use(routePath(BASE_PATH, '/api/agents'), createAgentMutationRouter({"),
+    server.indexOf("app.post(routePath(BASE_PATH, '/api/agents/:agentId/reorder')")
   );
   assert(
-    agentPatchRoute.includes('stateBroadcastScheduler.queueChange({ agentIds: [req.params.agentId] });') &&
-      !agentPatchRoute.includes('broadcastState();'),
-    'agent flag PATCH responses should coalesce one exact Agent mutation through the shared scheduler'
+    agentMutationMount.includes('publishAgentDelta: agentId => {')
+      && agentMutationMount.includes('stateBroadcastScheduler.queueChange({ agentIds: [agentId] });')
+      && !agentMutationMount.includes('broadcastState();'),
+    'the Agent mutation router owner should coalesce one exact Agent mutation through the shared scheduler'
+  );
+  assert(
+    agentMutationRouter.includes(`    if (
+      flagUpdateRequiresState
+      || typeof body.task === 'string'
+      || typeof body.customTitle === 'string'
+      || typeof body.launchPermissionMode === 'string'
+      || typeof body.agentRuntimeMode === 'string'
+    ) {
+      port.publishAgentDelta(req.params.agentId);
+    }`)
+      && !agentMutationRouter.includes('broadcastState('),
+    'Agent PATCH should publish one exact Agent delta only for state-affecting updates and never broadcast full state'
   );
 
   console.log('✓ Session bridge file is present');

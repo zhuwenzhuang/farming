@@ -202,7 +202,7 @@ const { execFile } = require('child_process');
 const { promisify } = require('util');
 const { URLSearchParams } = require('url');
 import { AgentManager } from './agent-manager.cjs';
-import { isAgentRuntimeModeRequest, runtimeKind } from './agent-runtime-binding.cjs';
+import { runtimeKind } from './agent-runtime-binding.cjs';
 import { ConfigManager } from './config-manager.cjs';
 import { ThemeManager } from './theme-manager.cjs';
 import { createThemeRouter } from './theme-router.cjs';
@@ -262,6 +262,7 @@ import { createAgentExtensionRouter } from './agent-extension-router.cjs';
 import { createProviderCatalogRouter } from './provider-catalog-router.cjs';
 import { AgentSessionInventory } from './agent-session-inventory.cjs';
 import { createAgentSessionRouter } from './agent-session-router.cjs';
+import { createAgentMutationRouter, type AgentMutationRecord } from './agent-mutation-router.cjs';
 import { createProjectMutationRouter } from './project-mutation-router.cjs';
 import { createSettingsMutationRouter } from './settings-mutation-router.cjs';
 import { AttachmentUploadStore, createAttachmentUploadHandler } from './attachment-upload.cjs';
@@ -1404,177 +1405,25 @@ app.post(routePath(BASE_PATH, '/api/agents/:agentId/codex-terminal-profile'), ex
   }
 });
 
-app.patch(routePath(BASE_PATH, '/api/agents/:agentId'), express.json(), async (req, res) => {
-  if (!await requireAgentRecoveryForHttp(res)) return;
-  const body = req.body || {};
-  const updates: Record<string, unknown> = {};
-  const providedPatchFields = [
-    'customTitle',
-    'task',
-    'pinned',
-    'unread',
-    'archived',
-    'acknowledgeUnprovenAcpExit',
-    'readAttentionSeq',
-    'readOutputEpoch',
-    'readOutputSeq',
-    'launchPermissionMode',
-    'agentRuntimeMode',
-  ].filter(field => Object.prototype.hasOwnProperty.call(body, field));
-  const lifecyclePatchFields = providedPatchFields.filter(field => (
-    field === 'launchPermissionMode'
-    || field === 'agentRuntimeMode'
-    || (field === 'archived' && body.archived === true)
-  ));
-  if (body.acknowledgeUnprovenAcpExit === true && body.archived !== true) {
-    res.status(400).json({ error: 'Process-exit acknowledgement is only valid for Archive' });
-    return;
-  }
-  const archivePatchFields = new Set(['archived', 'acknowledgeUnprovenAcpExit']);
-  const hasMixedLifecyclePatch = body.archived === true
-    ? providedPatchFields.some(field => !archivePatchFields.has(field))
-    : lifecyclePatchFields.length > 0 && providedPatchFields.length > 1;
-  if (hasMixedLifecyclePatch) {
-    res.status(400).json({
-      error: 'Archive, permission restart, and runtime switch must be requested separately from other Agent updates',
-    });
-    return;
-  }
-  const ordinaryPatchGroups = [
-    providedPatchFields.includes('customTitle') ? 'customTitle' : '',
-    providedPatchFields.includes('task') ? 'task' : '',
-    providedPatchFields.some(field => [
-      'pinned',
-      'unread',
-      'archived',
-      'readAttentionSeq',
-      'readOutputEpoch',
-      'readOutputSeq',
-    ].includes(field)) ? 'flags' : '',
-  ].filter(Boolean);
-  if (ordinaryPatchGroups.length > 1) {
-    res.status(400).json({
-      error: 'Agent title, task, and flags must be updated in separate requests',
-    });
-    return;
-  }
-
-  await agentManager.whenAgentLifecycleIdle(req.params.agentId);
-
-  if (typeof body.customTitle === 'string') {
-    const result = agentManager.renameAgent(req.params.agentId, body.customTitle) as ServerRecord;
-    if (result.error) {
-      const status = result.error === 'Agent not found'
-        ? 404
-        : (result.error.startsWith('Failed to ') ? 500 : 409);
-      res.status(status).json({ error: result.error });
-      return;
-    }
-    updates.customTitle = result.customTitle;
-  }
-
-  if (typeof body.task === 'string') {
-    const result = agentManager.setAgentTask(req.params.agentId, body.task) as ServerRecord;
-    if (result.error) {
-      const status = result.error === 'Agent not found'
-        ? 404
-        : (result.error.startsWith('Failed to ') ? 500 : 409);
-      res.status(status).json({ error: result.error });
-      return;
-    }
-    updates.task = result.task;
-  }
-
-  const flagPatch: Record<string, unknown> = {};
-  ['pinned', 'unread', 'archived'].forEach((flagName) => {
-    if (typeof body[flagName] === 'boolean') {
-      flagPatch[flagName] = body[flagName];
-    }
-  });
-  if (typeof body.readAttentionSeq === 'number' && Number.isFinite(body.readAttentionSeq)) {
-    flagPatch.readAttentionSeq = body.readAttentionSeq;
-  }
-  if (
-    typeof body.readOutputEpoch === 'string'
-    && body.readOutputEpoch
-    && typeof body.readOutputSeq === 'number'
-    && Number.isFinite(body.readOutputSeq)
-  ) {
-    flagPatch.readOutputEpoch = body.readOutputEpoch;
-    flagPatch.readOutputSeq = body.readOutputSeq;
-  }
-
-  if (flagPatch.archived === true) {
-    const result = await agentManager.archiveAgent(req.params.agentId, {
-      acknowledgeUnprovenAcpExit: body.acknowledgeUnprovenAcpExit === true,
-    }) as ServerRecord;
-    if (result.error) {
-      const status = result.stopped === true
-        ? 409
-        : (result.error === 'Agent not found' ? 404 : 400);
-      res.status(status).json(result);
-      return;
-    }
-    Object.assign(updates, result);
-    delete updates.agentId;
-    delete flagPatch.archived;
-  }
-
-  let flagUpdateRequiresState = false;
-  if (Object.keys(flagPatch).length > 0) {
-    const result = agentManager.updateAgentFlags(req.params.agentId, flagPatch) as ServerRecord;
-    if (result.error) {
-      const status = result.error === 'Agent not found'
-        ? 404
-        : (result.error.startsWith('Failed to ') ? 500 : 409);
-      res.status(status).json({ error: result.error });
-      return;
-    }
-    Object.assign(updates, result);
-    delete updates.agentId;
-    flagUpdateRequiresState = 'requiresState' in result && result.requiresState === true;
-  }
-
-  if (typeof body.launchPermissionMode === 'string') {
-    const result = await agentManager.syncCodexTerminalPermissionMode(req.params.agentId, body.launchPermissionMode) as ServerRecord;
-    if (result.error) {
-      const status = result.error === 'Agent not found' ? 404 : 400;
-      res.status(status).json({ error: result.error });
-      return;
-    }
-    updates.launchPermissionMode = result.launchPermissionMode;
-    if (result.restarted === true) updates.restarted = true;
-    if (result.restartedAgentId) updates.restartedAgentId = result.restartedAgentId;
-  }
-
-  if (typeof body.agentRuntimeMode === 'string') {
-    if (!isAgentRuntimeModeRequest(body.agentRuntimeMode)) {
-      res.status(400).json({ error: 'Unsupported Agent runtime mode' });
-      return;
-    }
-    const result = await agentManager.restartAgentRuntimeMode(req.params.agentId, body.agentRuntimeMode) as ServerRecord;
-    if (result.error) {
-      const status = result.error === 'Agent not found' ? 404 : 400;
-      res.status(status).json({ error: result.error });
-      return;
-    }
-    updates.agentRuntimeMode = result.agentRuntimeMode;
-    if (result.restarted === true) updates.restarted = true;
-    if (result.restartedAgentId) updates.restartedAgentId = result.restartedAgentId;
-    if (result.switchFailed === true) updates.switchFailed = true;
-    if (result.warning) updates.warning = result.warning;
-  }
-
-  if (Object.keys(updates).length === 0) {
-    res.status(400).json({ error: 'customTitle, task, pinned, unread, archived, readAttentionSeq, readOutputEpoch/readOutputSeq, launchPermissionMode, or agentRuntimeMode is required' });
-    return;
-  }
-
-  if (flagUpdateRequiresState || typeof body.task === 'string' || typeof body.customTitle === 'string' || typeof body.launchPermissionMode === 'string' || typeof body.agentRuntimeMode === 'string') {
-    stateBroadcastScheduler.queueChange({ agentIds: [req.params.agentId] });
-  }
-  res.json({ agentId: req.params.agentId, ...updates });
-});
+app.use(routePath(BASE_PATH, '/api/agents'), createAgentMutationRouter({
+  archiveAgent: (agentId, options) => agentManager.archiveAgent(agentId, options) as Promise<AgentMutationRecord>,
+  publishAgentDelta: agentId => {
+    stateBroadcastScheduler.queueChange({ agentIds: [agentId] });
+  },
+  renameAgent: (agentId, customTitle) => agentManager.renameAgent(agentId, customTitle) as AgentMutationRecord,
+  restartAgentRuntimeMode: (agentId, mode) => agentManager.restartAgentRuntimeMode(
+    agentId,
+    mode,
+  ) as Promise<AgentMutationRecord>,
+  setAgentTask: (agentId, task) => agentManager.setAgentTask(agentId, task) as AgentMutationRecord,
+  syncLaunchPermissionMode: (agentId, mode) => agentManager.syncCodexTerminalPermissionMode(
+    agentId,
+    mode,
+  ) as Promise<AgentMutationRecord>,
+  updateAgentFlags: (agentId, patch) => agentManager.updateAgentFlags(agentId, patch) as AgentMutationRecord,
+  whenAgentLifecycleIdle: agentId => agentManager.whenAgentLifecycleIdle(agentId),
+  whenRecovered: () => agentManager.whenRecovered(),
+}));
 
 app.post(routePath(BASE_PATH, '/api/agents/:agentId/reorder'), express.json(), async (req, res) => {
   if (!await requireAgentRecoveryForHttp(res)) return;
