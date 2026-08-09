@@ -1,6 +1,8 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const { CODE_STYLE_SOURCES } = require('../../src/styles/code-style-sources');
+const { readCodeStyleSource, readCodeStyles } = require('./style-source-reader');
 
 function read(relativePath) {
   return fs.readFileSync(path.join(__dirname, '../..', relativePath), 'utf8');
@@ -13,9 +15,33 @@ function run() {
   const copySource = read('src/components/code/copy.ts');
   const appSource = read('src/App.tsx');
   const webSocketSource = read('src/hooks/useWebSocket.ts');
-  const stylesSource = read('src/styles/main.css');
-  const darkStylesSource = read('src/styles/code-dark.css');
+  const stylesSource = readCodeStyles();
+  const shareStylesSource = readCodeStyleSource('src/styles/share.css');
+  const shareDarkStylesSource = readCodeStyleSource('src/styles/share-dark.css');
+  const mainStylesSource = readCodeStyleSource('src/styles/main.css');
+  const darkStylesSource = readCodeStyleSource('src/styles/code-dark.css');
+  const mainEntrySource = read('src/main.tsx');
   const packageSource = read('package.json');
+
+  assert.deepStrictEqual(
+    CODE_STYLE_SOURCES,
+    [
+      'src/styles/tokens.css',
+      'src/styles/main.css',
+      'src/styles/share.css',
+      'src/styles/sidebar-resources.css',
+      'src/styles/code-dark.css',
+      'src/styles/share-dark.css',
+    ],
+    'the declared Code style manifest must preserve the runtime cascade order'
+  );
+  let previousStyleImport = -1;
+  for (const sourcePath of CODE_STYLE_SOURCES) {
+    const importPath = `./styles/${path.basename(sourcePath)}`;
+    const importIndex = mainEntrySource.indexOf(`await import('${importPath}')`);
+    assert(importIndex > previousStyleImport, `Missing or out-of-order Code style import: ${importPath}`);
+    previousStyleImport = importIndex;
+  }
 
   assert(packageSource.includes('"qrcode-generator"'), 'QR rendering should use the mature qrcode-generator matrix library');
   assert(shareButtonSource.includes("import type qrcode from 'qrcode-generator'"));
@@ -115,11 +141,17 @@ function run() {
   assert(stylesSource.includes('.code-share-token-measure'));
   assert(stylesSource.includes('.code-share-token-line'));
   assert(stylesSource.includes('.code-sidebar.collapsed .code-share-root'));
-  assert(darkStylesSource.includes('.code-share-popover'));
-  assert(darkStylesSource.includes('.code-share-countdown'));
-  assert(!darkStylesSource.includes('.code-share-meta'));
-  assert(darkStylesSource.includes('.code-share-token-card'));
-  assert(darkStylesSource.includes('.code-share-copy-status'));
+  assert(shareStylesSource.includes('.code-share-popover'));
+  assert(shareStylesSource.includes('.code-share-countdown'));
+  assert(!shareStylesSource.includes('.code-share-meta'));
+  assert(shareStylesSource.includes('.code-share-token-card'));
+  assert(shareStylesSource.includes('.code-share-copy-status'));
+  assert(shareDarkStylesSource.includes('.code-share-popover'));
+  assert(shareDarkStylesSource.includes('.code-share-countdown'));
+  assert(shareDarkStylesSource.includes('.code-share-token-card'));
+  assert(shareDarkStylesSource.includes('.code-share-copy-status'));
+  assert(!mainStylesSource.includes('.code-share-popover'));
+  assert(!darkStylesSource.includes('.code-share-popover'));
 
   assert(!mobileShareSource.includes('MobileSharePlatform'));
   assert(!mobileShareSource.includes('navigator.userAgent'));
@@ -140,7 +172,7 @@ function run() {
   assert(stylesSource.includes('.code-mobile-install-control'));
   assert(stylesSource.includes('.code-mobile-install-more'));
   assert(stylesSource.includes('.code-mobile-share-link-row'));
-  assert(darkStylesSource.includes('.code-mobile-install-control'));
+  assert(shareDarkStylesSource.includes('.code-mobile-install-control'));
 
   console.log('code share QR assertions passed');
 }

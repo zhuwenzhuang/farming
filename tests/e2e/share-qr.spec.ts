@@ -32,6 +32,11 @@ test.describe('workspace sharing', () => {
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(page.url()).origin })
     await page.getByTestId('code-share-button').click()
 
+    const popover = page.getByTestId('code-share-popover')
+    await expect(popover).toHaveCSS('color', 'rgb(38, 51, 39)')
+    await page.evaluate(() => document.body.setAttribute('data-appearance', 'dark'))
+    await expect(popover).toHaveCSS('color', 'rgb(255, 255, 255)')
+
     await expect.poll(async () => page.evaluate(() => navigator.clipboard.readText())).toBe(readOnlyUrl)
     await expect(page.getByTestId('code-share-copy-status')).toContainText(/Current page read-only link copied|当前页面只读链接已复制/)
 
