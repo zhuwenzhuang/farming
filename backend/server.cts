@@ -241,6 +241,7 @@ import {
 import { createWorkspaceFileWatchController } from './websocket-workspace-file-watch.cjs';
 import { createWebSocketHandshakeHealthHandlers } from './websocket-handshake-health-handlers.cjs';
 import { createWebSocketTerminalHandlers } from './websocket-terminal-handlers.cjs';
+import { createWebSocketFocusScopeHandlers } from './websocket-focus-scope-handlers.cjs';
 import { TokenAuth } from './auth.cjs';
 import { readOnlyClientMessageAllowed } from './read-only-access.cjs';
 import { getLocalIPs, getPrimaryLocalIP } from './network.cjs';
@@ -296,7 +297,6 @@ import {
   agentStateBroadcastSnapshotForScope,
   agentStateBroadcastProjectSummaries,
   agentStateScopeIncludesAgent,
-  agentStateScopeTransition,
   agentStateSnapshotFrames,
   createAgentStateBroadcastTracker,
   normalizeAgentStateScope,
@@ -323,7 +323,6 @@ import {
   declareSessionPreviewScope,
   normalizeSessionPreviewScope,
   queueSessionPreviewHydration,
-  sessionPreviewScopeCheckpointRequired,
   sessionPreviewScopeIncludesAgent,
 } from './session-preview-delivery.cjs';
 import { QrShareTicketStore, SHARE_TICKET_TTL_MS } from './qr-share-tickets.cjs';
@@ -3088,13 +3087,26 @@ const websocketTerminalHandlers = createWebSocketTerminalHandlers({
     return error.message || 'Failed to read terminal checkpoint';
   },
 });
+const websocketFocusScopeHandlers = createWebSocketFocusScopeHandlers<WebSocketClient>({
+  declarePreviewScope: client => declareSessionPreviewScope(client),
+  prioritizeTranscript: agentId => agentManager.prioritizeAcpPreparedTranscript(agentId),
+  sendAcpRevision: (client, agentId) => {
+    const revision = currentAcpSessionRevision(agentId);
+    if (revision) deliverAcpSessionRevision(client, revision);
+  },
+  sendFocusedActivity: (client, agentId) => {
+    const activity = currentAgentActivity(agentId);
+    if (activity) deliverAgentActivity(client, activity);
+  },
+  sendState,
+  sendAllActivitySnapshot: sendAgentActivitySnapshot,
+  sendPreviewHydration,
+});
 const clientMessageDispatchTable = defineClientMessageDispatchTable<WebSocketClient>({
   'protocol-hello': registerClientMessage('protocol-hello', websocketHandshakeHealthHandlers.protocolHello),
   'business-health-probe': registerClientMessage('business-health-probe', websocketHandshakeHealthHandlers.businessHealthProbe),
   'terminal-checkpoint-request': registerClientMessage('terminal-checkpoint-request', websocketTerminalHandlers.terminalCheckpointRequest),
-  'state-resync': registerClientMessage('state-resync', (ws) => {
-    sendState(ws);
-  }),
+  'state-resync': registerClientMessage('state-resync', websocketFocusScopeHandlers.stateResync),
   'start-agent': registerClientMessage('start-agent', (ws, data) => {
     const workspace = typeof data.workspace === 'string' ? data.workspace : null;
     const revealChatAgentWhileConnecting = data.agentRuntimeMode === 'chat';
@@ -3199,87 +3211,7 @@ const clientMessageDispatchTable = defineClientMessageDispatchTable<WebSocketCli
       void agentManager.interruptAgent(data.agentId);
     }
   }),
-  'focus-agent': registerClientMessage('focus-agent', (ws, data) => {
-    const previousActivityScope = normalizeAgentActivityScope(ws.activityScope);
-    const nextActivityScope = normalizeAgentActivityScope(data.activityScope ?? previousActivityScope);
-    const previousStateScope = normalizeAgentStateScope(ws.stateScope);
-    const previousPreviewScope = normalizeSessionPreviewScope(ws.previewScope);
-    const nextPreviewScope = normalizeSessionPreviewScope(data.previewScope ?? previousPreviewScope);
-    const previewScopeDeclared = Object.prototype.hasOwnProperty.call(data, 'previewScope');
-    const initialPreviewHydrationPending = previewScopeDeclared
-      ? declareSessionPreviewScope(ws)
-      : false;
-    const previousFocusedAgentId = ws.focusedAgentId;
-    const focusChanged = previousFocusedAgentId !== data.agentId;
-    const scopeChanged = previousActivityScope !== nextActivityScope;
-    const stateScopeTransition = agentStateScopeTransition(
-      previousStateScope,
-      previousFocusedAgentId,
-      normalizeAgentStateScope(data.stateScope ?? previousStateScope),
-      data.agentId,
-    );
-    const previewCheckpointRequired = sessionPreviewScopeCheckpointRequired(
-      previousPreviewScope,
-      previousFocusedAgentId,
-      nextPreviewScope,
-      data.agentId,
-    );
-    if (Object.prototype.hasOwnProperty.call(data, 'activityScope')) {
-      ws.activityScopeDeclared = true;
-    }
-    if (scopeChanged) {
-      if (ws.agentActivityAllCheckpointPending || ws.agentActivityCheckpointPending) {
-        ws.agentActivityResyncPending = true;
-      }
-      ws.agentActivityAllCheckpointPending = false;
-      ws.agentActivityCheckpointPending = false;
-    } else if (focusChanged && ws.agentActivityCheckpointPending) {
-      ws.agentActivityResyncPending = true;
-      ws.agentActivityCheckpointPending = false;
-    }
-    const activitySnapshotRequired = nextActivityScope === 'all'
-      && scopeChanged
-      && ws.activityScopeDeclared === true
-      && ws.agentActivityResyncPending === true;
-    if (focusChanged) {
-      ws.acpRevisionCheckpointPending = false;
-      ws.acpRevisionSentRevision = -1;
-    }
-    ws.focusedAgentId = data.agentId;
-    ws.activityScope = nextActivityScope;
-    ws.previewScope = nextPreviewScope;
-    ws.stateScope = stateScopeTransition.scope;
-    if (data.agentId) {
-      agentManager.prioritizeAcpPreparedTranscript(data.agentId);
-      const revision = currentAcpSessionRevision(data.agentId);
-      if (revision) deliverAcpSessionRevision(ws, revision);
-      if (nextActivityScope === 'focused') {
-        const activity = currentAgentActivity(data.agentId);
-        if (activity) deliverAgentActivity(ws, activity);
-      }
-    }
-    if (data.streamScope === 'focused' || data.streamScope === 'all') {
-      ws.streamScope = data.streamScope;
-    }
-    const stateSnapshotRequired = data.refreshState === true
-      || stateScopeTransition.snapshotRequired
-      || (
-        ws.stateSnapshotInProgress === true
-        && previousStateScope !== stateScopeTransition.scope
-      );
-    if (stateSnapshotRequired) {
-      // The requested Agent snapshot checkpoints the projections represented
-      // by its state scope. Independently scoped Activity recovers separately
-      // when that snapshot cannot cover its current interest.
-      sendState(ws);
-    } else {
-      if (activitySnapshotRequired) sendAgentActivitySnapshot(ws);
-      if (
-        !ws.stateSnapshotInProgress
-        && (initialPreviewHydrationPending || previewCheckpointRequired)
-      ) sendPreviewHydration(ws);
-    }
-  }),
+  'focus-agent': registerClientMessage('focus-agent', websocketFocusScopeHandlers.focusAgent),
   'resize-agent': registerClientMessage('resize-agent', websocketTerminalHandlers.resizeAgent),
   'clear-terminal': registerClientMessage('clear-terminal', websocketTerminalHandlers.clearTerminal),
   'watch-workspace-files': registerClientMessage('watch-workspace-files', (ws, data) => {

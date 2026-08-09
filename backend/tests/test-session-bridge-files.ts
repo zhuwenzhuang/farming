@@ -7,6 +7,7 @@ function run() {
   const serverPath = path.join(__dirname, '../server.cts');
   const sessionStreamProtocolPath = path.join(__dirname, '../session-stream-protocol.cts');
   const sessionPreviewDeliveryPath = path.join(__dirname, '../session-preview-delivery.cts');
+  const focusScopeHandlersPath = path.join(__dirname, '../websocket-focus-scope-handlers.cts');
   const appPath = path.join(__dirname, '../../src/App.tsx');
   const useWebSocketPath = path.join(__dirname, '../../src/hooks/useWebSocket.ts');
   const workspacePath = path.join(__dirname, '../../src/components/CodeWorkspace.tsx');
@@ -17,6 +18,7 @@ function run() {
   const server = fs.readFileSync(serverPath, 'utf8');
   const sessionStreamProtocol = fs.readFileSync(sessionStreamProtocolPath, 'utf8');
   const sessionPreviewDelivery = fs.readFileSync(sessionPreviewDeliveryPath, 'utf8');
+  const focusScopeHandlers = fs.readFileSync(focusScopeHandlersPath, 'utf8');
   const app = fs.readFileSync(appPath, 'utf8');
   const useWebSocket = fs.readFileSync(useWebSocketPath, 'utf8');
   const workspace = fs.readFileSync(workspacePath, 'utf8');
@@ -141,11 +143,13 @@ function run() {
     server.includes('deliverSessionStreamToClients(Array.from(wss.clients), stream') &&
       sessionStreamProtocol.includes("client.streamScope === 'focused'") &&
       server.includes('sessionPreviewScopeIncludesAgent(ws.previewScope, ws.focusedAgentId, previewAgentId)') &&
-      server.includes('sessionPreviewScopeCheckpointRequired(') &&
-      server.includes('sendPreviewHydration(ws)') &&
+      focusScopeHandlers.includes('sessionPreviewScopeCheckpointRequired(') &&
+      focusScopeHandlers.includes('ports.sendPreviewHydration(client)') &&
+      focusScopeHandlers.includes('ports.declarePreviewScope(client)') &&
+      server.includes('declarePreviewScope: client => declareSessionPreviewScope(client)') &&
+      server.includes('sendPreviewHydration,') &&
       server.includes('PREVIEW_SCOPE_DECLARATION_WINDOW_MS') &&
       server.includes('ws.previewScopeDeclared !== true') &&
-      server.includes('declareSessionPreviewScope(ws)') &&
       server.includes('queueSessionPreviewHydration(') &&
       server.includes('cancelSessionPreviewHydration(ws)') &&
       server.includes("if (scope === 'none') return;") &&
