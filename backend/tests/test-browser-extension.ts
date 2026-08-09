@@ -1574,6 +1574,10 @@ function testBrowserUiAndPackagingWiring() {
     'external-cdp-browser.zh_cn.md',
   ].map(name => fs.readFileSync(path.join(projectRoot, 'docs', 'products', 'code', name), 'utf8'));
   const workspaceSource = fs.readFileSync(path.join(projectRoot, 'src', 'components', 'CodeWorkspace.tsx'), 'utf8');
+  const resourcePaneControllerSource = fs.readFileSync(
+    path.join(projectRoot, 'src', 'components', 'code', 'useResourcePaneController.ts'),
+    'utf8',
+  );
   const mainAreaSource = fs.readFileSync(path.join(projectRoot, 'src', 'components', 'code', 'CodeMainArea.tsx'), 'utf8');
   const activityPreviewSource = fs.readFileSync(
     path.join(projectRoot, 'extensions', 'browser', 'frontend', 'BrowserActivityPreview.tsx'),
@@ -1584,7 +1588,13 @@ function testBrowserUiAndPackagingWiring() {
   const serverSource = fs.readFileSync(path.join(projectRoot, 'backend', 'server.cts'), 'utf8');
   const packageJson = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8'));
   assert(workspaceSource.includes('<BrowserSidebarPortals'));
-  assert(workspaceSource.includes("setMainPaneMode('browser')"));
+  assert(
+    workspaceSource.includes('useResourcePaneController({')
+      && workspaceSource.includes('showBrowser(resource.id, returnAgentId)')
+      && resourcePaneControllerSource.includes("case 'show-browser':")
+      && resourcePaneControllerSource.includes("mainPaneMode: 'browser'"),
+    'Opening a Browser resource must select the Browser pane through its state owner',
+  );
   assert(mainAreaSource.includes('<BrowserViewer'));
   assert(mainAreaSource.includes('<BrowserActivityPreview'));
   assert(activityPreviewSource.includes('new WebSocket('));
