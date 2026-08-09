@@ -136,25 +136,20 @@ assert.equal(composerDark.remaining.length, 0, 'composer-dark.css must contain o
 // extraction. Splitting comma groups into individual selectors proves that mixed
 // rules kept their selector specificity, declaration bodies, media context, and
 // relative order on both sides of the ownership boundary.
+//
+// This test locks only the Composer side of that boundary. The mutable
+// main.css/code-dark.css remainder is owned by the newest extraction test
+// (currently test-pet-style-ownership), so a later CSS split updates that single
+// newest owner proof instead of every historical owner test.
 assert.deepEqual(
   [composer.composer.length, digest(composer.composer)],
   [514, '63eb2bd78537ca490c61bc6cd088b630c80ccb09b93b6f3c4cda8826f7cba7d9'],
   'composer.css must preserve the ordered base Composer rule set from main.css',
 )
 assert.deepEqual(
-  [main.remaining.length, digest(main.remaining)],
-  [2571, 'a21dc70786fb7b2a821e13d68e1d7f4202c106f6b9b354264931a0709fd66c5e'],
-  'main.css must preserve the ordered non-Composer rule set',
-)
-assert.deepEqual(
   [composerDark.composer.length, digest(composerDark.composer)],
   [151, 'e47f36299c94a901369d26add5db92040fc42ab320999e5eadf1b8b51c96f082'],
   'composer-dark.css must preserve the ordered dark Composer rule set from code-dark.css',
-)
-assert.deepEqual(
-  [dark.remaining.length, digest(dark.remaining)],
-  [965, '6c37c809c9f48e84d4e2f2707fce2efad1e9d9a84efd0434be8a344bc3256056'],
-  'code-dark.css must preserve the ordered non-Composer dark rule set',
 )
 
 console.log('test-composer-style-ownership passed')

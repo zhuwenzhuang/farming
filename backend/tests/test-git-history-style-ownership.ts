@@ -79,22 +79,19 @@ assert.equal(historyDark.remaining.length, 0, 'git-history-dark.css must contain
 
 // Captured before extraction. Selector-level records prove that mixed selector
 // groups retained their declarations, specificity, media context, and owner
-// order while the monolith retained its complete non-History rule sequence.
+// order.
+//
+// This test locks only the Git History side of that boundary. The mutable
+// main.css/code-dark.css remainder is owned by the newest extraction test
+// (currently test-pet-style-ownership), so a later CSS split updates that single
+// newest owner proof instead of every historical owner test.
 assert.deepEqual(
   [history.owned.length, digest(history.owned)],
   [97, '4c72521b49f9ce74614cad4de1013069aa2ab32045b3c805e7e6d01bb91769f3'],
 )
 assert.deepEqual(
-  [main.remaining.length, digest(main.remaining)],
-  [2571, 'a21dc70786fb7b2a821e13d68e1d7f4202c106f6b9b354264931a0709fd66c5e'],
-)
-assert.deepEqual(
   [historyDark.owned.length, digest(historyDark.owned)],
   [40, '6d6b7cffb57f7cf12a21db699c8f9f8a118ecc47dc4e1ad1219de665837ed98b'],
-)
-assert.deepEqual(
-  [dark.remaining.length, digest(dark.remaining)],
-  [965, '6c37c809c9f48e84d4e2f2707fce2efad1e9d9a84efd0434be8a344bc3256056'],
 )
 
 console.log('test-git-history-style-ownership passed')

@@ -116,6 +116,11 @@ assert.equal(petDark.remaining.length, 0, 'pet-dark.css must contain only Pet-ow
 // rules kept their selector specificity, declaration bodies, media context, and
 // relative order on both sides of the ownership boundary. The combined record set
 // spans both owner files because the dark Pet overrides used to live in main.css.
+//
+// As the newest extraction, this test is the single owner of the mutable
+// main.css/code-dark.css remainder contract. Earlier owner tests lock only their
+// own moved rules, so the next CSS split moves this remainder proof forward here
+// instead of rewriting hashes across every historical owner test.
 assert.deepEqual(
   [pet.pet.length + petDark.pet.length, digest([...pet.pet, ...petDark.pet])],
   [139, '95d0a6cead9ea38074ced1ec3fe853b546f28c5dae42160eca67590b81effcf9'],
