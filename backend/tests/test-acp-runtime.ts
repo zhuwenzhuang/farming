@@ -74,6 +74,111 @@ async function run() {
     },
   }), '_codex/session/steer');
   assert.strictEqual(steeringMethod({ protocolVersion: 1 }), '');
+
+  let startupCleanupFailureChild = null;
+  let startupCleanupFailureIdentity = null;
+  let startupCleanupFailureAttempts = 0;
+  let startupCleanupFailureSpawnCount = 0;
+  let allowStartupCleanupFailureTeardown = false;
+  const startupCleanupFailureHome = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-acp-startup-cleanup-'));
+  const startupCleanupFailureRuntime = new AcpRuntime({
+    spawn(command, args, options) {
+      startupCleanupFailureSpawnCount += 1;
+      startupCleanupFailureChild = spawn(command, args, options);
+      return startupCleanupFailureChild;
+    },
+    resolveLaunch() {
+      return {
+        command: process.execPath,
+        args: ['-e', 'setInterval(() => {}, 1000)'],
+        version: 'startup-cleanup-failure-test',
+      };
+    },
+    async describeAcpProcessGroup(pid) {
+      return { pid, processGroupId: pid, startedAt: 'startup-cleanup-failure-test' };
+    },
+    async createConnection() {
+      throw new Error('deterministic ACP startup failure');
+    },
+    async stopProcessAndWait(owner) {
+      startupCleanupFailureAttempts += 1;
+      if (!allowStartupCleanupFailureTeardown) {
+        throw new Error(`deterministic process-tree cleanup failure ${startupCleanupFailureAttempts}`);
+      }
+      const child = owner.child;
+      if (!child || child.exitCode !== null || child.signalCode !== null) return;
+      const closed = new Promise(resolve => child.once('close', resolve));
+      process.kill(-child.pid, 'SIGKILL');
+      await closed;
+    },
+  });
+  try {
+    await assert.rejects(
+      startupCleanupFailureRuntime.prepareAgent({
+        agentId: 'startup-cleanup-failure-agent',
+        provider: 'codex',
+        providerHomePath: startupCleanupFailureHome,
+        cwd: process.cwd(),
+        env: { ...process.env, CODEX_HOME: startupCleanupFailureHome },
+        onProcessStarted(identity) {
+          startupCleanupFailureIdentity = identity;
+        },
+      }),
+      error => {
+        assert.match(error.message, /deterministic ACP startup failure/);
+        assert.match(error.adapterCleanupError?.message || '', /deterministic process-tree cleanup failure 2/);
+        assert.match(error.cause?.adapterCleanupError?.message || '', /deterministic process-tree cleanup failure 1/);
+        assert.strictEqual(error.runtimeCleanupVerified, false);
+        return true;
+      },
+    );
+    assert.strictEqual(startupCleanupFailureIdentity?.pid, startupCleanupFailureChild?.pid);
+    const retainedBinding = startupCleanupFailureRuntime.bindings.get('startup-cleanup-failure-agent');
+    assert(retainedBinding, 'uncertain startup cleanup must retain the exact Agent binding');
+    assert.deepStrictEqual(retainedBinding.runtime.processIdentity, startupCleanupFailureIdentity);
+    assert.strictEqual(retainedBinding.runtime.exited, false, 'failed cleanup must not claim process exit');
+    assert.strictEqual(retainedBinding.runtime.stopping, true);
+    assert.doesNotThrow(
+      () => process.kill(-startupCleanupFailureIdentity.pid, 0),
+      'the retained identity must still address the process tree whose exit is uncertain',
+    );
+    assert.strictEqual(startupCleanupFailureAttempts, 2, 'startup and prepare cleanup must both verify process-tree exit');
+    await assert.rejects(
+      startupCleanupFailureRuntime.prepareAgent({
+        agentId: 'startup-cleanup-failure-agent',
+        provider: 'codex',
+        providerHomePath: startupCleanupFailureHome,
+        cwd: process.cwd(),
+        env: { ...process.env, CODEX_HOME: startupCleanupFailureHome },
+      }),
+      /already registered/,
+    );
+    assert.strictEqual(startupCleanupFailureSpawnCount, 1, 'uncertain startup cleanup must block blind restart');
+    await assert.rejects(
+      startupCleanupFailureRuntime.prepareAgent({
+        agentId: 'startup-cleanup-failure-peer',
+        provider: 'codex',
+        providerHomePath: startupCleanupFailureHome,
+        cwd: process.cwd(),
+        env: { ...process.env, CODEX_HOME: startupCleanupFailureHome },
+      }),
+      /cleanup is not verified/,
+    );
+    assert.strictEqual(
+      startupCleanupFailureRuntime.bindings.has('startup-cleanup-failure-peer'),
+      false,
+      'a blocked shared-runtime acquisition has no process ownership to retain',
+    );
+    assert.strictEqual(startupCleanupFailureSpawnCount, 1, 'a shared peer must not bypass uncertain cleanup');
+  } finally {
+    allowStartupCleanupFailureTeardown = true;
+    try {
+      await startupCleanupFailureRuntime.dispose();
+    } finally {
+      fs.rmSync(startupCleanupFailureHome, { recursive: true, force: true });
+    }
+  }
+
   let unsafeConnectionClose;
   const unsafeConnectionClosed = new Promise(resolve => {
     unsafeConnectionClose = resolve;

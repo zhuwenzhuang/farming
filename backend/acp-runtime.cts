@@ -46,6 +46,7 @@ interface ErrorLike {
   code?: string | number;
   data?: { code?: string | number; details?: string };
   cause?: ErrorLike;
+  adapterCleanupError?: ErrorLike;
   runtimeCleanupVerified?: boolean;
 }
 type AcpSdk = typeof import('@agentclientprotocol/sdk');
@@ -211,6 +212,7 @@ interface AcpRuntimeOptions extends PrepareAgentOptions {
   sessionSetupTimeoutMs?: number; requestTimeoutMs?: number; cancelTimeoutMs?: number;
   historyReplayMinWaitMs?: number; historyReplayQuietMs?: number; historyReplayMaxWaitMs?: number;
   deleteProviderSessionIdentity?: typeof deleteProviderSessionIdentity; describeAcpProcessGroup?: typeof describeAcpProcessGroup;
+  stopProcessAndWait?: (owner: AcpProcessOwner) => Promise<void>;
   checkpointStore?: Pick<
     AcpCheckpointStore,
     'dispose' | 'flush' | 'load' | 'markDirty' | 'schedule' | 'write'
@@ -1197,6 +1199,7 @@ class AcpRuntime extends EventEmitter {
   declare historyReplayMaxWaitMs: number;
   declare deleteProviderSessionIdentity: NonNullable<AcpRuntimeOptions['deleteProviderSessionIdentity']>;
   declare describeProcessGroup: NonNullable<AcpRuntimeOptions['describeAcpProcessGroup']>;
+  declare stopProcessTreeAndWait: NonNullable<AcpRuntimeOptions['stopProcessAndWait']>;
   declare configInstanceFingerprint: string;
   declare checkpointStore: Pick<
     AcpCheckpointStore,
@@ -1234,6 +1237,7 @@ class AcpRuntime extends EventEmitter {
     this.historyReplayMaxWaitMs = options.historyReplayMaxWaitMs ?? DEFAULT_HISTORY_REPLAY_MAX_WAIT_MS;
     this.deleteProviderSessionIdentity = options.deleteProviderSessionIdentity || deleteProviderSessionIdentity;
     this.describeProcessGroup = options.describeAcpProcessGroup || describeAcpProcessGroup;
+    this.stopProcessTreeAndWait = options.stopProcessAndWait || stopProcessAndWait;
     this.configInstanceFingerprint = options.configDir
       ? fingerprintConfigInstance(options.configDir)
       : '';
@@ -1405,6 +1409,9 @@ class AcpRuntime extends EventEmitter {
       binding.supportsSteer = Boolean(steeringMethod(runtime.initializeResponse));
       return runtime;
     } catch (error) {
+      const startupError = error instanceof Error
+        ? error
+        : new Error(acpErrorMessage(error), { cause: error });
       runtime.stopping = true;
       try {
         runtime.connection?.close();
@@ -1418,15 +1425,29 @@ class AcpRuntime extends EventEmitter {
           // Process cleanup below remains authoritative.
         }
       }
-      await stopProcessAndWait(runtime).catch(() => {});
-      runtime.exited = true;
-      throw error;
+      try {
+        await this.stopProcessTreeAndWait(runtime);
+        runtime.exited = true;
+      } catch (cleanupError) {
+        if (!this.runtimeProcesses.has(runtime.key)) {
+          this.runtimeProcesses.set(runtime.key, runtime);
+        }
+        Object.defineProperty(startupError, 'adapterCleanupError', {
+          value: cleanupError,
+          enumerable: false,
+          configurable: true,
+        });
+      }
+      throw startupError;
     }
   }
 
   async acquireRuntimeProcess(binding: AcpBinding, options: PrepareAgentOptions) {
     const { key, shared } = this.runtimeKey(binding);
     const existing = this.runtimeProcesses.get(key);
+    if (existing && !existing.exited && existing.stopping) {
+      throw new Error('ACP runtime process cleanup is not verified; retry after exact process exit');
+    }
     if (existing && !existing.exited && !existing.stopping) {
       this.attachBindingToRuntime(binding, existing);
       await this.persistRuntimeIdentity(existing, options);
@@ -2026,6 +2047,14 @@ class AcpRuntime extends EventEmitter {
       };
     } catch (error) {
       const runtimeError = new Error(acpErrorMessage(error), { cause: error });
+      const startupCleanupError = asErrorLike(error).adapterCleanupError;
+      if (startupCleanupError) {
+        Object.defineProperty(runtimeError, 'adapterCleanupError', {
+          value: startupCleanupError,
+          enumerable: false,
+          configurable: true,
+        });
+      }
       if (binding.runtime?.shared && !binding.runtime.exited) {
         binding.state = 'error';
         binding.error = runtimeError.message;
@@ -2073,7 +2102,12 @@ class AcpRuntime extends EventEmitter {
         let runtimeCleanupVerified = false;
         try {
           if (this.isCurrentBinding(binding)) {
-            runtimeCleanupVerified = await this.unregisterAgentAndWait(agentId, binding);
+            if (!binding.runtime) {
+              this.bindings.delete(agentId);
+              runtimeCleanupVerified = true;
+            } else {
+              runtimeCleanupVerified = await this.unregisterAgentAndWait(agentId, binding);
+            }
           } else {
             const detachedRuntime = binding.runtime;
             this.releaseRuntimeSessions(binding);
@@ -2085,7 +2119,7 @@ class AcpRuntime extends EventEmitter {
               } catch {
                 // Process-tree cleanup below remains authoritative.
               }
-              await stopProcessAndWait(detachedRuntime || binding);
+              await this.stopProcessTreeAndWait(detachedRuntime || binding);
             }
             runtimeCleanupVerified = true;
           }
@@ -4660,9 +4694,6 @@ class AcpRuntime extends EventEmitter {
     }
     runtime.stopping = true;
     this.runtimeStarts.delete(runtime.key);
-    if (this.runtimeProcesses.get(runtime.key) === runtime) {
-      this.runtimeProcesses.delete(runtime.key);
-    }
     if (!this.detachAgentBinding(binding, { retainForCleanup: true })) return false;
     try {
       runtime.connection?.close();
@@ -4676,8 +4707,11 @@ class AcpRuntime extends EventEmitter {
         // Process cleanup below remains authoritative.
       }
     }
-    await stopProcessAndWait(runtime);
+    await this.stopProcessTreeAndWait(runtime);
     runtime.exited = true;
+    if (this.runtimeProcesses.get(runtime.key) === runtime) {
+      this.runtimeProcesses.delete(runtime.key);
+    }
     if (this.bindings.get(agentId) === binding) this.bindings.delete(agentId);
     return true;
   }
