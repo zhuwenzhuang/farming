@@ -250,7 +250,7 @@ import { listCodexModelOptions } from './codex-models.cjs';
 import { readProviderHomeConfiguration } from './provider-home-configuration.cjs';
 import { applyProviderHomeEnvironment, getProviderAdapter, providerCapabilities, providerConversationForkCapability } from './provider-adapters.cjs';
 import { listCodexSessions } from './codex-session-history.cjs';
-import { buildAgentSessionResumeCommand, findAgentSession, isSafeSessionId, normalizeProvider, paginateAgentSessions, resolveCodexResumeModelProvider, searchAgentSessions } from './agent-session-history.cjs';
+import { buildAgentSessionResumeCommand, findAgentSession, isSafeSessionId, normalizeProvider, resolveCodexResumeModelProvider } from './agent-session-history.cjs';
 import { findActiveAgentClaimingSession, mainPageAgentSessionKey, mainPageAgentSessionFromKey, mainPageAgentSessionsToAutoResume, resumedAgentSource } from './main-page-session.cjs';
 import { discoverAgentWorkspaces } from './workspace-discovery.cjs';
 import { inspectGitWorktree } from './git-worktree-info.cjs';
@@ -279,6 +279,7 @@ import { AsyncCache } from './async-cache.cjs';
 import { getMainAgentSkillsCatalog } from './main-agent-skills.cjs';
 import { AgentExtensionInventory } from './agent-extension-inventory.cjs';
 import { AgentSessionInventory } from './agent-session-inventory.cjs';
+import { createAgentSessionRouter } from './agent-session-router.cjs';
 import { createSlashCommandDiscoveryCache } from './slash-command-cache.cjs';
 import { agentExtensionInventoryCacheFile, agentSessionInventoryCacheFile } from './storage-layout.cjs';
 import { FarmingUpdateService } from './update-service.cjs';
@@ -590,20 +591,6 @@ function currentAgentSessions(): Promise<AgentSession[]> {
   return agentSessionInventory.list(
     () => configuredProviderMetadata() as AgentSessionInventoryMetadata,
   );
-}
-
-function withSearchTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => {
-      const error = new Error('Agent search timed out');
-      error.code = 'ETIMEDOUT';
-      reject(error);
-    }, timeoutMs);
-  });
-  return Promise.race([promise, timeout]).finally(() => {
-    if (timer) clearTimeout(timer);
-  });
 }
 
 const qrShareTickets = new QrShareTicketStore({ ttlMs: SHARE_TICKET_TTL_MS });
@@ -1443,86 +1430,12 @@ app.get(routePath(BASE_PATH, '/api/codex/sessions'), async (req, res) => {
   res.json({ sessions });
 });
 
-function providerSessionDisplayStates(): Map<string, Record<string, unknown>> {
-  const states = new Map<string, Record<string, unknown>>();
-  for (const record of configManager.listAgentSessionRecords()) {
-    if (typeof record.providerSessionKey === 'string' && record.providerSessionKey) {
-      states.set(record.providerSessionKey, record);
-    }
-  }
-  return states;
-}
-
-app.get(routePath(BASE_PATH, '/api/agent-sessions'), async (req, res) => {
-  try {
-    res.setHeader('Cache-Control', 'no-store');
-    const requestedLimit = Number(req.query.limit);
-    const limit = Number.isFinite(requestedLimit) ? Math.max(0, Math.min(1000, requestedLimit)) : 60;
-    const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : '';
-    if (req.query.force === '1') agentSessionInventory.invalidate();
-    const sessions = await currentAgentSessions();
-    const page = paginateAgentSessions(sessions, { limit: Math.max(1, limit), cursor });
-    if (page.invalidCursor) {
-      res.status(400).json({ error: 'Invalid Agent session cursor' });
-      return;
-    }
-    const displayStateByKey = providerSessionDisplayStates();
-    res.json({
-      sessions: page.sessions.map(session => {
-        const key = mainPageAgentSessionKey(session.provider, session.id, session.providerHomeId);
-        const displayState = displayStateByKey.get(key);
-        return typeof displayState?.displayPinned === 'boolean'
-          ? { ...session, pinned: displayState.displayPinned }
-          : session;
-      }),
-      nextCursor: page.nextCursor,
-      hasMore: page.hasMore,
-      total: sessions.length,
-    });
-  } catch (caught) {
-    const error = caughtError(caught);
-    console.error('Failed to read agent sessions:', error);
-    res.status(500).json({ error: error.message || 'Failed to read agent sessions' });
-  }
-});
-
-app.get(routePath(BASE_PATH, '/api/agent-sessions/search'), async (req, res) => {
-  try {
-    res.setHeader('Cache-Control', 'no-store');
-    const query = typeof req.query.q === 'string' ? req.query.q : '';
-    const requestedLimit = Number(req.query.limit);
-    const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(1000, requestedLimit)) : 100;
-    const settings = configManager.getSettings();
-    if (req.query.force === '1') agentSessionInventory.invalidate();
-    const sessions = await withSearchTimeout(
-      currentAgentSessions(),
-      Number(settings.searchTimeoutMs) || 10_000
-    );
-    const result = searchAgentSessions(sessions, query, {
-      limit,
-      projectNames: settings.projectNames,
-    });
-    const displayStateByKey = providerSessionDisplayStates();
-    res.json({
-      ...result,
-      sessions: result.sessions.map(session => {
-        const key = mainPageAgentSessionKey(session.provider, session.id, session.providerHomeId);
-        const displayState = displayStateByKey.get(key);
-        return typeof displayState?.displayPinned === 'boolean'
-          ? { ...session, pinned: displayState.displayPinned }
-          : session;
-      }),
-    });
-  } catch (caught) {
-    const error = caughtError(caught);
-    if (error?.code === 'ETIMEDOUT') {
-      res.status(504).json({ error: error.message });
-      return;
-    }
-    console.error('Failed to search agent sessions:', error);
-    res.status(500).json({ error: error.message || 'Failed to search Agent sessions' });
-  }
-});
+app.use(routePath(BASE_PATH, '/api/agent-sessions'), createAgentSessionRouter({
+  getSettings: () => configManager.getSettings(),
+  invalidate: () => agentSessionInventory.invalidate(),
+  listDisplayRecords: () => configManager.listAgentSessionRecords(),
+  listSessions: () => currentAgentSessions(),
+}));
 
 app.patch(routePath(BASE_PATH, '/api/agent-sessions/:provider/:sessionId'), express.json(), (req, res) => {
   const provider = normalizeProvider(req.params.provider);

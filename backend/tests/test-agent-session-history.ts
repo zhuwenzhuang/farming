@@ -22,11 +22,14 @@ const {
 
 async function run() {
   const serverSource = fs.readFileSync(path.resolve(__dirname, '../server.cts'), 'utf8');
+  const routerSource = fs.readFileSync(path.resolve(__dirname, '../agent-session-router.cts'), 'utf8');
   assert(
     serverSource.includes('const agentSessionInventory = new AgentSessionInventory({')
       && serverSource.includes('return agentSessionInventory.list(')
-      && serverSource.includes("if (req.query.force === '1') agentSessionInventory.invalidate();")
-      && serverSource.includes("routePath(BASE_PATH, '/api/agent-sessions/search')"),
+      && serverSource.includes("import { createAgentSessionRouter } from './agent-session-router.cjs';")
+      && serverSource.includes("app.use(routePath(BASE_PATH, '/api/agent-sessions'), createAgentSessionRouter({")
+      && routerSource.includes("if (req.query.force === '1') service.invalidate();")
+      && routerSource.includes("router.get('/search', async"),
     'Agent session list and search APIs should use the authoritative inventory and expose explicit force refreshes'
   );
   const settingsRoute = serverSource.slice(
