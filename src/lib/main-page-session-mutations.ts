@@ -7,14 +7,17 @@ export type MainPageSessionKeyMutation = {
 }
 
 export type MainPageSessionKeysInitialGuard = {
-  authoritativeRevision: number
-  mutationVersion: number
+  membershipRevision: number
+  requestVersion: number
 }
 
 export type MainPageSessionMembershipState = {
   authoritativeKeys: string[]
   authoritativeRevision: number
+  latestAcceptedSettingsRequestVersion: number
   latestMutationVersion: number
+  latestSettingsRequestVersion: number
+  membershipRevision: number
   observedSessionKeys: string[]
   pendingMutations: MainPageSessionKeyMutation[]
   projectedKeys: string[]
@@ -34,23 +37,34 @@ export type MainPageSessionMembershipEvent =
 
 const MAX_PROJECTED_MAIN_PAGE_SESSION_KEYS = 50
 
-function applyMainPageSessionKeyMutation(
-  projected: Set<string>,
+function projectMainPageSessionKeyMutation(
+  projectedKeys: readonly string[],
   mutation: Pick<MainPageSessionKeyMutation, 'operation' | 'sessionKeys'>,
 ) {
-  mutation.sessionKeys.forEach(sessionKey => {
-    if (mutation.operation === 'add') projected.add(sessionKey)
-    else projected.delete(sessionKey)
-  })
+  const mutationKeys = new Set(mutation.sessionKeys)
+  if (mutation.operation === 'remove') {
+    return projectedKeys
+      .filter(sessionKey => !mutationKeys.has(sessionKey))
+      .slice(0, MAX_PROJECTED_MAIN_PAGE_SESSION_KEYS)
+  }
+
+  const addedKeys = Array.from(new Set(mutation.sessionKeys))
+  return [
+    ...addedKeys,
+    ...projectedKeys.filter(sessionKey => !mutationKeys.has(sessionKey)),
+  ].slice(0, MAX_PROJECTED_MAIN_PAGE_SESSION_KEYS)
 }
 
 export function applyPendingMainPageSessionKeyMutations(
   baseline: Iterable<string>,
   mutations: readonly MainPageSessionKeyMutation[],
 ) {
-  const projected = new Set(baseline)
-  mutations.forEach(mutation => applyMainPageSessionKeyMutation(projected, mutation))
-  return Array.from(projected)
+  let projectedKeys = Array.from(new Set(baseline))
+    .slice(0, MAX_PROJECTED_MAIN_PAGE_SESSION_KEYS)
+  mutations.forEach(mutation => {
+    projectedKeys = projectMainPageSessionKeyMutation(projectedKeys, mutation)
+  })
+  return projectedKeys
 }
 
 function membershipState(
@@ -58,14 +72,12 @@ function membershipState(
 ): MainPageSessionMembershipState {
   let projectedKeys = Array.from(new Set(state.authoritativeKeys))
     .slice(0, MAX_PROJECTED_MAIN_PAGE_SESSION_KEYS)
-  const optimisticMutations: Array<Pick<MainPageSessionKeyMutation, 'operation' | 'sessionKeys'>> = [
-    { operation: 'add', sessionKeys: state.observedSessionKeys },
-    ...state.pendingMutations,
-  ]
-  optimisticMutations.forEach(mutation => {
-    const projected = new Set(projectedKeys)
-    applyMainPageSessionKeyMutation(projected, mutation)
-    projectedKeys = Array.from(projected).slice(0, MAX_PROJECTED_MAIN_PAGE_SESSION_KEYS)
+  projectedKeys = projectMainPageSessionKeyMutation(projectedKeys, {
+    operation: 'add',
+    sessionKeys: state.observedSessionKeys,
+  })
+  state.pendingMutations.forEach(mutation => {
+    projectedKeys = projectMainPageSessionKeyMutation(projectedKeys, mutation)
   })
   return {
     ...state,
@@ -79,7 +91,10 @@ export function createMainPageSessionMembershipState(
   return membershipState({
     authoritativeKeys: Array.from(authoritativeKeys),
     authoritativeRevision: 0,
+    latestAcceptedSettingsRequestVersion: 0,
     latestMutationVersion: 0,
+    latestSettingsRequestVersion: 0,
+    membershipRevision: 0,
     observedSessionKeys: [],
     pendingMutations: [],
   })
@@ -94,36 +109,43 @@ export function reduceMainPageSessionMembership(
       ...state,
       authoritativeKeys: [...event.authoritativeKeys],
       authoritativeRevision: state.authoritativeRevision + 1,
+      membershipRevision: state.membershipRevision + 1,
       observedSessionKeys: [],
     })
   }
 
   if (event.type === 'initial-settings-received') {
     if (
-      event.guard.authoritativeRevision !== state.authoritativeRevision
-      || event.guard.mutationVersion !== state.latestMutationVersion
+      event.guard.membershipRevision !== state.membershipRevision
+      || event.guard.requestVersion <= state.latestAcceptedSettingsRequestVersion
+      || event.guard.requestVersion > state.latestSettingsRequestVersion
     ) {
       return state
     }
     return membershipState({
       ...state,
       authoritativeKeys: [...event.authoritativeKeys],
+      latestAcceptedSettingsRequestVersion: event.guard.requestVersion,
       observedSessionKeys: [],
     })
   }
 
   if (event.type === 'session-keys-observed') {
-    const observedSessionKeys = [...state.observedSessionKeys]
-    const projected = new Set(state.projectedKeys)
+    const previousObserved = new Set(state.observedSessionKeys)
+    const newlyObserved: string[] = []
     event.sessionKeys.forEach(sessionKey => {
-      if (projected.has(sessionKey)) return
-      projected.add(sessionKey)
-      observedSessionKeys.push(sessionKey)
+      if (previousObserved.has(sessionKey)) return
+      previousObserved.add(sessionKey)
+      newlyObserved.push(sessionKey)
     })
-    if (observedSessionKeys.length === state.observedSessionKeys.length) return state
+    if (newlyObserved.length === 0) return state
     return membershipState({
       ...state,
-      observedSessionKeys,
+      membershipRevision: state.membershipRevision + 1,
+      observedSessionKeys: [
+        ...newlyObserved,
+        ...state.observedSessionKeys,
+      ].slice(0, MAX_PROJECTED_MAIN_PAGE_SESSION_KEYS),
     })
   }
 
@@ -131,6 +153,7 @@ export function reduceMainPageSessionMembership(
     return membershipState({
       ...state,
       latestMutationVersion: Math.max(state.latestMutationVersion, event.mutation.version),
+      membershipRevision: state.membershipRevision + 1,
       pendingMutations: [...state.pendingMutations, event.mutation],
     })
   }
@@ -146,7 +169,8 @@ export function reduceMainPageSessionMembership(
     authoritativeKeys: responseIsStillAuthoritative && event.authoritativeKeys
       ? [...event.authoritativeKeys]
       : state.authoritativeKeys,
-    observedSessionKeys: [],
+    membershipRevision: state.membershipRevision + 1,
+    observedSessionKeys: responseIsStillAuthoritative ? [] : state.observedSessionKeys,
     pendingMutations,
   })
 }
@@ -187,12 +211,19 @@ export function observeMainPageSessionKeys(
   })
 }
 
-export function captureMainPageSessionKeysInitialGuard(
+export function beginMainPageSessionKeysSettingsRequest(
   state: MainPageSessionMembershipState,
-): MainPageSessionKeysInitialGuard {
+): { guard: MainPageSessionKeysInitialGuard; state: MainPageSessionMembershipState } {
+  const requestVersion = state.latestSettingsRequestVersion + 1
   return {
-    authoritativeRevision: state.authoritativeRevision,
-    mutationVersion: state.latestMutationVersion,
+    guard: {
+      membershipRevision: state.membershipRevision,
+      requestVersion,
+    },
+    state: {
+      ...state,
+      latestSettingsRequestVersion: requestVersion,
+    },
   }
 }
 
@@ -250,7 +281,11 @@ export class MainPageSessionMembershipController {
     return () => this.listeners.delete(listener)
   }
 
-  captureInitialSettingsGuard = () => captureMainPageSessionKeysInitialGuard(this.state)
+  captureInitialSettingsGuard = () => {
+    const request = beginMainPageSessionKeysSettingsRequest(this.state)
+    this.publish(request.state)
+    return request.guard
+  }
 
   receiveInitialSettings = (
     authoritativeKeys: string[],
