@@ -239,10 +239,7 @@ import { createWorkspaceFileWatchController } from './websocket-workspace-file-w
 import { createWebSocketHandshakeHealthHandlers } from './websocket-handshake-health-handlers.cjs';
 import { createWebSocketTerminalHandlers } from './websocket-terminal-handlers.cjs';
 import { createWebSocketFocusScopeHandlers } from './websocket-focus-scope-handlers.cjs';
-import {
-  observeWebSocketCallbackRejection,
-  reportWebSocketAdmissionFailure,
-} from './websocket-admission-errors.cjs';
+import { createWebSocketAgentLifecycleHandlers } from './websocket-agent-lifecycle-handlers.cjs';
 import { TokenAuth } from './auth.cjs';
 import { readOnlyClientMessageAllowed } from './read-only-access.cjs';
 import { getLocalIPs, getPrimaryLocalIP } from './network.cjs';
@@ -2585,74 +2582,6 @@ function rejectReadOnlyClientMutation(ws: WebSocketClient, data: ServerClientMes
   return true;
 }
 
-const MAIN_AGENT_RESTART_COMMANDS = new Set(['codex', 'claude', 'opencode', 'qoder', 'qwen', 'bash', 'zsh']);
-
-function normalizeMainAgentRestartCommand(command: string) {
-  const normalized = String(command || '').trim();
-  return MAIN_AGENT_RESTART_COMMANDS.has(normalized) ? normalized : '';
-}
-
-function restartMainAgent(ws: WebSocketClient, command: string) {
-  const normalizedCommand = normalizeMainAgentRestartCommand(command);
-  if (!normalizedCommand) {
-    ws.send(JSON.stringify({ type: 'error', message: 'Unsupported Main Agent restart command' }));
-    return;
-  }
-
-  void (async () => {
-    try {
-      const state = agentManager.getState();
-      const currentMain = state.agents.find((agent: ServerRecord) => (
-        agent.id === state.mainAgentId || agent.isMain === true
-      ));
-      if (currentMain) {
-        const killed = await agentManager.killAgent(currentMain.id);
-        if (killed?.error) {
-          ws.send(JSON.stringify({ type: 'error', message: killed.error }));
-          return;
-        }
-      }
-
-      await agentManager.startAgent(normalizedCommand, null, (agentId, error) => {
-        if (error) {
-          ws.send(JSON.stringify({ type: 'error', message: error }));
-        } else if (agentId) {
-          ws.agentId = agentId;
-          queueStateMetadata(currentAgentListMetadata());
-          broadcastState();
-          ws.send(JSON.stringify({ type: 'agent-started', agentId }));
-        }
-      }, {
-        wantsMain: true
-      });
-    } catch (caught) {
-    const error = caughtError(caught);
-      const message = error instanceof Error ? error.message : 'Failed to restart Main Agent';
-      ws.send(JSON.stringify({ type: 'error', message }));
-      queueStateMetadata(currentAgentListMetadata());
-      broadcastState();
-    }
-  })();
-}
-
-async function archiveAgentFromMessage(ws: WebSocketClient, agentId: string) {
-  try {
-    const result = await agentManager.archiveAgent(agentId) as ServerRecord;
-    if (result?.error) {
-      ws.send(JSON.stringify({ type: 'error', message: result.error }));
-    }
-  } catch (caught) {
-    const error = caughtError(caught);
-    ws.send(JSON.stringify({
-      type: 'error',
-      message: error instanceof Error ? error.message : 'Failed to archive Agent',
-    }));
-  } finally {
-    queueStateMetadata(currentAgentListMetadata());
-    broadcastState();
-  }
-}
-
 async function sendComposerInputMessage(
   ws: WebSocketClient,
   data: Extract<ClientMessage, { type: 'composer-input' }>,
@@ -2786,96 +2715,33 @@ const websocketFocusScopeHandlers = createWebSocketFocusScopeHandlers<WebSocketC
   sendAllActivitySnapshot: sendAgentActivitySnapshot,
   sendPreviewHydration,
 });
+const websocketAgentLifecycleHandlers = createWebSocketAgentLifecycleHandlers<WebSocketClient>({
+  openState: WebSocket.OPEN,
+  canonicalProjectWorkspace,
+  startAgent: (command, workspace, callback, options) => (
+    agentManager.startAgent(command, workspace, callback, options)
+  ),
+  mountProjectWorkspace: workspace => configManager.mountProjectWorkspace(workspace),
+  archiveAgent: (agentId, options = {}) => agentManager.archiveAgent(agentId, options),
+  interruptAgent: agentId => agentManager.interruptAgent(agentId),
+  getAgentState: () => agentManager.getState(),
+  killAgent: agentId => agentManager.killAgent(agentId),
+  publishAgentState: () => {
+    queueStateMetadata(currentAgentListMetadata());
+    broadcastState();
+  },
+  revealAgentState: () => broadcastState(),
+  warnStartCompletionFailure: (agentId, error) => {
+    const normalized = caughtError(error);
+    console.warn('Failed to finish started Agent transition:', agentId, normalized.message || error);
+  },
+});
 const clientMessageDispatchTable = defineClientMessageDispatchTable<WebSocketClient>({
   'protocol-hello': registerClientMessage('protocol-hello', websocketHandshakeHealthHandlers.protocolHello),
   'business-health-probe': registerClientMessage('business-health-probe', websocketHandshakeHealthHandlers.businessHealthProbe),
   'terminal-checkpoint-request': registerClientMessage('terminal-checkpoint-request', websocketTerminalHandlers.terminalCheckpointRequest),
   'state-resync': registerClientMessage('state-resync', websocketFocusScopeHandlers.stateResync),
-  'start-agent': registerClientMessage('start-agent', (ws, data) => {
-    const workspace = typeof data.workspace === 'string' ? data.workspace : null;
-    const revealChatAgentWhileConnecting = data.agentRuntimeMode === 'chat';
-    void (async () => {
-      const projectWorkspace = data.asMain === true
-        ? ''
-        : await canonicalProjectWorkspace(
-          typeof data.projectWorkspace === 'string' && data.projectWorkspace.trim()
-            ? data.projectWorkspace
-            : workspace
-        );
-      let startCallbackReported = false;
-      const startResult = agentManager.startAgent(data.command, workspace, (agentId, error) => {
-        startCallbackReported = true;
-        if (error) {
-          ws.send(JSON.stringify({ type: 'error', message: error }));
-        } else if (agentId) {
-          void (async () => {
-            try {
-              if (projectWorkspace) configManager.mountProjectWorkspace(projectWorkspace);
-            } catch (mountError) {
-              let rollbackError = '';
-              try {
-                const rollback = await agentManager.archiveAgent(agentId, {
-                  reason: 'project-mount-failed',
-                  recordHistory: false,
-                  requireEngineExit: true,
-                  scheduleProviderArchive: false,
-                });
-                if (rollback?.error) rollbackError = rollback.error;
-              } catch (cleanupError) {
-                rollbackError = caughtError(cleanupError).message || String(cleanupError);
-              }
-              queueStateMetadata(currentAgentListMetadata());
-              broadcastState();
-              const errorMessage = caughtError(mountError).message || 'Failed to create Project';
-              ws.send(JSON.stringify({
-                type: 'error',
-                message: rollbackError
-                  ? `${errorMessage}. Rollback failed: ${rollbackError}`
-                  : errorMessage,
-              }));
-              return;
-            }
-            ws.agentId = agentId;
-            queueStateMetadata(currentAgentListMetadata());
-            broadcastState();
-            ws.send(JSON.stringify({ type: 'agent-started', agentId }));
-          })().catch((callbackError: unknown) => {
-            console.warn('Failed to finish started Agent transition:', agentId, caughtError(callbackError).message || callbackError);
-          });
-        }
-      }, {
-        wantsMain: data.asMain === true,
-        projectWorkspace,
-        task: typeof data.task === 'string' ? data.task : '',
-        workflowTemplate: typeof data.workflowTemplate === 'string' ? data.workflowTemplate : '',
-        customTitle: typeof data.customTitle === 'string' ? data.customTitle : '',
-        createRequestId: typeof data.requestId === 'string' ? data.requestId : '',
-        codexApprovalMode: typeof data.codexApprovalMode === 'string' ? data.codexApprovalMode : undefined,
-        agentRuntimeMode: typeof data.agentRuntimeMode === 'string' && ['acp', 'chat'].includes(data.agentRuntimeMode) ? data.agentRuntimeMode : 'terminal',
-        acpHistoryMode: data.acpHistoryMode === 'resume' ? 'resume' : 'load',
-        providerHomeId: typeof data.providerHomeId === 'string' ? data.providerHomeId : '',
-        ...(revealChatAgentWhileConnecting ? {
-          onAgentRegistered: (agentId: string) => {
-            ws.agentId = agentId;
-            broadcastState();
-            ws.send(JSON.stringify({ type: 'agent-started', agentId }));
-          },
-        } : {}),
-        ...(Array.isArray(data.additionalDirectories) ? { additionalDirectories: data.additionalDirectories } : {}),
-        ...(Array.isArray(data.mcpServers) ? { mcpServers: data.mcpServers } : {}),
-        ...(data.dangerouslySkipPermissions === true ? { dangerouslySkipPermissions: true } : {}),
-      });
-      observeWebSocketCallbackRejection(ws, startResult, () => startCallbackReported, {
-        openState: WebSocket.OPEN,
-        fallbackMessage: 'Failed to start Agent',
-      });
-    })().catch((error: unknown) => {
-      reportWebSocketAdmissionFailure(ws, caughtError(error), {
-        openState: WebSocket.OPEN,
-        fallbackMessage: 'Failed to resolve Project workspace',
-      });
-    });
-  }),
+  'start-agent': registerClientMessage('start-agent', websocketAgentLifecycleHandlers.startAgent),
   input: registerClientMessage('input', websocketTerminalHandlers.input),
   'composer-input': registerClientMessage('composer-input', (ws, data) => {
     void sendComposerInputMessage(ws, data);
@@ -2896,16 +2762,7 @@ const clientMessageDispatchTable = defineClientMessageDispatchTable<WebSocketCli
       }));
     }
   }),
-  'interrupt-agent': registerClientMessage('interrupt-agent', (ws, data) => {
-    if (data.agentId) {
-      void agentManager.interruptAgent(data.agentId).catch((error: unknown) => {
-        reportWebSocketAdmissionFailure(ws, error, {
-          openState: WebSocket.OPEN,
-          fallbackMessage: 'Failed to interrupt Agent',
-        });
-      });
-    }
-  }),
+  'interrupt-agent': registerClientMessage('interrupt-agent', websocketAgentLifecycleHandlers.interruptAgent),
   'focus-agent': registerClientMessage('focus-agent', websocketFocusScopeHandlers.focusAgent),
   'resize-agent': registerClientMessage('resize-agent', websocketTerminalHandlers.resizeAgent),
   'clear-terminal': registerClientMessage('clear-terminal', websocketTerminalHandlers.clearTerminal),
@@ -2915,12 +2772,8 @@ const clientMessageDispatchTable = defineClientMessageDispatchTable<WebSocketCli
   'unwatch-workspace-files': registerClientMessage('unwatch-workspace-files', (ws, data) => {
     workspaceFileWatchController.unwatch(ws, data.agentId);
   }),
-  'archive-agent': registerClientMessage('archive-agent', (ws, data) => {
-    void archiveAgentFromMessage(ws, data.agentId);
-  }),
-  'restart-main-agent': registerClientMessage('restart-main-agent', (ws, data) => {
-    restartMainAgent(ws, data.command);
-  }),
+  'archive-agent': registerClientMessage('archive-agent', websocketAgentLifecycleHandlers.archiveAgent),
+  'restart-main-agent': registerClientMessage('restart-main-agent', websocketAgentLifecycleHandlers.restartMainAgent),
 });
 
 function handleMessage(ws: WebSocketClient, data: ServerClientMessage) {

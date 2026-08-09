@@ -65,6 +65,7 @@ function run() {
   const workspaceNavigationSource = read('src/lib/workspace-navigation-history.ts');
   const responsiveModeSource = read('src/lib/responsive-mode.ts');
   const serverSource = read('backend/server.cts');
+  const agentLifecycleSource = read('backend/websocket-agent-lifecycle-handlers.cts');
   const attachmentUploadSource = read('backend/attachment-upload.cts');
   const projectMutationRouterSource = read('backend/project-mutation-router.cts');
   const agentSessionRouterSource = read('backend/agent-session-router.cts');
@@ -1220,8 +1221,8 @@ function run() {
 
   assert(
     mainPageSessionSource.includes('function resumedAgentSource(') &&
-      serverSource.includes("const MAIN_AGENT_RESTART_COMMANDS = new Set(['codex', 'claude', 'opencode', 'qoder', 'qwen', 'bash', 'zsh'])") &&
-      serverSource.includes('function restartMainAgent(ws: WebSocketClient, command: string)') &&
+      agentLifecycleSource.includes('const MAIN_AGENT_RESTART_COMMANDS = new Set([') &&
+      agentLifecycleSource.includes('const restartMainAgent = (client: Client, message: RestartMainAgentMessage): void => {') &&
       serverSource.includes("'restart-main-agent': registerClientMessage('restart-main-agent'") &&
       serverSource.includes("'interrupt-agent': registerClientMessage('interrupt-agent'") &&
       serverSource.includes("routePath(BASE_PATH, '/api/attachments/image')") &&
@@ -1232,7 +1233,7 @@ function run() {
       attachmentUploadSource.includes("await this.fileOperations.writeFile(filePath, body, { flag: 'wx' })") &&
       attachmentUploadSource.includes('await this.fileOperations.unlink(filePath)') &&
       attachmentUploadSource.includes("res.status(500).json({ error: `failed to store ${kind} attachment` })") &&
-      serverSource.includes('void agentManager.interruptAgent(data.agentId)') &&
+      serverSource.includes('interruptAgent: agentId => agentManager.interruptAgent(agentId)') &&
       websocketTerminalHandlersSource.includes("import { inputPartsFromMessage } from './input-parts.cjs'") &&
       inputPartsSource.includes('function inputPartsFromMessage(data: TerminalInputMessage | null | undefined)') &&
       inputPartsSource.includes('Array.isArray(data?.inputParts)') &&
@@ -1243,8 +1244,8 @@ function run() {
       !serverSource.includes('terminalControllerCoordinator') &&
       !serverSource.includes('const INPUT_PART_DELAY_MS = 24') &&
       !serverSource.includes('for (let index = 0; index < inputParts.length; index += 1)') &&
-      serverSource.includes('await agentManager.killAgent(currentMain.id)') &&
-      serverSource.includes('await agentManager.startAgent(normalizedCommand, null') &&
+      agentLifecycleSource.includes('await ports.killAgent(currentMain.id)') &&
+      agentLifecycleSource.includes('await ports.startAgent(command, null') &&
       serverSource.includes("function findResumedAgent(provider: string, sessionId: string, providerHomeId = '')") &&
       serverSource.includes("function rememberMainPageAgentSession(provider: string, sessionId: string, providerHomeId = '')") &&
       mainPageSessionSource.includes("const AUTO_RESUME_AGENT_SESSION_PROVIDERS = new Set(['codex', 'claude', 'opencode', 'qoder', 'qwen'])") &&

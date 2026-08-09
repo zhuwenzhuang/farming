@@ -266,20 +266,26 @@ async function run(): Promise<void> {
   }
 
   const serverSource = fs.readFileSync(path.join(__dirname, '..', 'server.cts'), 'utf8');
+  const agentLifecycleSource = fs.readFileSync(
+    path.join(__dirname, '..', 'websocket-agent-lifecycle-handlers.cts'),
+    'utf8',
+  );
   assert(
-    serverSource.includes("from './websocket-admission-errors.cjs'")
-      && serverSource.includes('void agentManager.interruptAgent(data.agentId).catch((error: unknown) => {')
-      && serverSource.includes('reportWebSocketAdmissionFailure(ws, error, {')
-      && serverSource.includes("fallbackMessage: 'Failed to interrupt Agent'"),
+    serverSource.includes("from './websocket-agent-lifecycle-handlers.cjs'")
+      && serverSource.includes("'interrupt-agent': registerClientMessage('interrupt-agent', websocketAgentLifecycleHandlers.interruptAgent)")
+      && agentLifecycleSource.includes('Promise.resolve(ports.interruptAgent(message.agentId)).catch((error: unknown) => {')
+      && agentLifecycleSource.includes('reportWebSocketAdmissionFailure(client, error, {')
+      && agentLifecycleSource.includes("fallbackMessage: 'Failed to interrupt Agent'"),
     'the production interrupt dispatch must terminally observe rejected admission and report it through the guarded socket helper',
   );
   assert(
-    serverSource.includes('let startCallbackReported = false;')
-      && serverSource.includes('const startResult = agentManager.startAgent(data.command, workspace, (agentId, error) => {')
-      && serverSource.includes('startCallbackReported = true;')
-      && serverSource.includes('observeWebSocketCallbackRejection(ws, startResult, () => startCallbackReported, {')
-      && serverSource.includes("fallbackMessage: 'Failed to start Agent'")
-      && serverSource.includes("fallbackMessage: 'Failed to resolve Project workspace'"),
+    serverSource.includes("'start-agent': registerClientMessage('start-agent', websocketAgentLifecycleHandlers.startAgent)")
+      && agentLifecycleSource.includes('let startCallbackReported = false;')
+      && agentLifecycleSource.includes('const startResult = ports.startAgent(message.command, workspace, (agentId, error) => {')
+      && agentLifecycleSource.includes('startCallbackReported = true;')
+      && agentLifecycleSource.includes('observeWebSocketCallbackRejection(client, startResult, () => startCallbackReported, {')
+      && agentLifecycleSource.includes("fallbackMessage: 'Failed to start Agent'")
+      && agentLifecycleSource.includes("const fallbackMessage = 'Failed to resolve Project workspace'"),
     'the production start dispatch must observe a rejected start promise without duplicating callback-reported failures',
   );
 

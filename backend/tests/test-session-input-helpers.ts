@@ -895,6 +895,10 @@ function run() {
   );
 
   const serverSource = fs.readFileSync(path.join(__dirname, '../../backend/server.cts'), 'utf8');
+  const agentLifecycleSource = fs.readFileSync(
+    path.join(__dirname, '../../backend/websocket-agent-lifecycle-handlers.cts'),
+    'utf8'
+  );
   const streamProtocolSource = fs.readFileSync(
     path.join(__dirname, '../../backend/session-stream-protocol.cts'),
     'utf8'
@@ -939,10 +943,10 @@ function run() {
     'server should serialize duplicate resume requests for the same agent session'
   );
   assert(
-    serverSource.includes('async function archiveAgentFromMessage') &&
-      serverSource.includes('const result = await agentManager.archiveAgent(agentId)') &&
+    serverSource.includes('createWebSocketAgentLifecycleHandlers<WebSocketClient>({') &&
+      agentLifecycleSource.includes('const result = await ports.archiveAgent(message.agentId)') &&
       serverSource.includes("'archive-agent': registerClientMessage('archive-agent'") &&
-      serverSource.includes('void archiveAgentFromMessage(ws, data.agentId)') &&
+      serverSource.includes('websocketAgentLifecycleHandlers.archiveAgent') &&
       !serverSource.includes("case 'kill-agent':"),
     'WebSocket Agent termination should expose only the shared Archive lifecycle'
   );
