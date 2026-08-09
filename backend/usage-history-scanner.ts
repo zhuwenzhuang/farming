@@ -1833,11 +1833,6 @@ function latestQuotas(database: DatabaseSync): unknown[] {
   return candidates;
 }
 
-function scalarCount(database: DatabaseSync, sql: string): number {
-  const row = database.prepare(sql).get() as { count: number };
-  return Number(row.count);
-}
-
 function metadataValue(database: DatabaseSync, key: string): string {
   const row = database.prepare('SELECT value FROM metadata WHERE key = ?').get(key) as
     { value?: string } | undefined;
