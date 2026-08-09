@@ -86,9 +86,9 @@ HTTP, WebSocket, persistence, and runtime-host boundaries.
   ports.
 - A domain service owns its internal state and postconditions. It must not
   receive the complete Manager merely to call arbitrary methods.
-- Fork remains orchestration until Worktree, lifecycle persistence, and ACP
-  runtime ports are narrow enough for a `ForkCoordinator` with explicit inputs,
-  effects, rollback, and uncertain outcomes.
+- Fork is owned by a coordinator with explicit inputs, effects, rollback, and
+  uncertain outcomes over narrow Worktree, lifecycle-persistence, and ACP
+  runtime ports. Remaining Manager domains follow the same port discipline.
 - Provider adapters expose typed decisions such as permission restart,
   Terminal identity, idle stability, and conversation Fork policy. Generic
   lifecycle code does not interpret provider names.
@@ -176,92 +176,85 @@ foundation lands, disjoint lanes may run concurrently.
 
 ### Foundation — contract safety
 
-Land these guards before moving high-risk owners:
-
-1. Co-locate the Agent state snapshot/delta wire contract in `shared/` and add
-   parity tests for backend projection and browser reduction.
-2. Add an HTTP route manifest test covering method, path, registration order,
-   and important middleware/error shapes before router extraction.
-3. Replace the WebSocket switch's implicit completeness with a typed dispatch
-   table and tests that every negotiated client message has one handler.
-4. Add ACP Host contract tests for Server-visible behavior, recovery,
-   uncertain prompt/cancel outcomes, and exact runtime identity.
-5. Characterize Terminal checkpoint/output/resize ordering, stale completion,
-   reconnect, and attachment generation before moving that logic.
+The shared Agent snapshot/delta wire contract, the HTTP route manifest, and
+typed WebSocket dispatch are established guards. Any remaining high-risk owner
+move still requires an equivalent guard first: ACP Host contract tests for
+Server-visible behavior, recovery, uncertain prompt/cancel outcomes, and exact
+runtime identity; and characterization of the ordering, stale completion,
+reconnect, and generation behavior of whatever state is about to move.
 
 These are contract guards, not new compatibility layers.
 
 ### Lane F1 — Transcript pure logic
 
-Extract independently testable logic from `AgentTranscriptPane` in small
-slices:
-
-1. file-link parsing and location normalization;
-2. transcript fetch retry policy;
-3. reading-anchor capture and restoration.
-
-Rendering and live transcript orchestration stay in the component until a
-later change proves another stable owner. Existing prototype work must be
-reconciled onto current `main`, not merged through an old integration branch.
+Independently testable transcript logic — file-link parsing and location
+normalization, fetch retry policy, and reading-anchor capture and restoration —
+belongs in pure modules. Rendering and live transcript orchestration stay in
+the component until a later change proves another stable owner.
 
 ### Lane F2 — Workspace application controllers
 
-Refactor `CodeWorkspace` by domain:
+`CodeWorkspace` already delegates session inventory, Project membership and
+mutation, Settings, Resume and QR share, queued Composer follow-ups, and
+resource/workspace-surface restoration to domain owners. Remaining scope:
 
-1. extract the session inventory and `mainPageSessionKeys` reconciliation as a
-   pure reducer with illegal-sequence tests;
-2. introduce a Session inventory controller that owns paging, cancellation,
-   generation checks, and request errors;
-3. introduce Project operations, Settings/catalog, and Resume/share
-   controllers only where each has a coherent lifecycle;
-4. narrow component props after ownership has moved.
+1. move each remaining cohesive layout-owned domain to a controller that owns
+   admission, cancellation, generation checks, stale-response rejection,
+   reconciliation, and terminal failure;
+2. narrow component props around the established owners.
 
 Do not create a collection of stateless `api-*` wrappers whose only effect is
 moving `fetch` calls to another file.
 
 ### Lane F3 — Terminal browser runtime
 
-Run these slices in order within one ownership lane:
+The browser runtime has an injectable Session registry, one attachment
+coordinator for checkpoint ordering and admission, ordered output, gaps and
+attachment generation, shared Code/CRT replay, renderer, link, input and
+recovery owners. The Session pool still owns checkpoint install effects,
+request retry, and DOM-write completion. Remaining scope within this single
+ownership lane:
 
-1. extract and test touch-scroll physics;
-2. isolate IME and DOM input integration behind a small adapter;
-3. wrap the module-global Session map in an injectable registry while
-   preserving the current exported API;
-4. extract one Terminal attachment coordinator that owns checkpoint install,
-   ordered output, gaps, resize, and attachment generation;
-5. move diagnostics and test bridges after the production state owner is
-   stable.
+1. converge resize and renderer-effect orchestration onto the attachment
+   ordering model instead of parallel effect chains;
+2. slim the Session pool to an integration boundary once another stateful
+   collaborator can move without copying renderer or protocol truth.
 
-Terminal protocol E2E coverage for Code and CRT is required after steps 3 and
-4.
+Code and CRT Terminal protocol E2E coverage is required for each slice.
 
 ### Lane B1 — Server transport boundaries
 
-Keep `server.cts` as bootstrap and extract one domain at a time:
+`server.cts` is bootstrap with a route manifest, typed WebSocket dispatch, and
+domain routers and WebSocket handler groups for session inventory and search,
+Settings, Agent and Project mutations, Agent lifecycle, and ACP interaction. The
+Agent-state broadcast scheduler is already an owner in this transport lane and
+is the single owner of coalescing and scheduling Agent-state delta mutation
+intent; the authoritative projection and tracker stay outside it, and the
+pending per-client snapshot lifecycle remains a separate concern. Remaining
+scope:
 
-- Session inventory and search;
-- ACP Agent HTTP operations;
-- Agent and Project mutations;
-- Settings, themes, usage, and update operations;
-- remaining bounded auth/share/static bootstrap groups where separation is
+- give per-client initial snapshot delivery an explicit connection-scoped
+  lifecycle owner with bounded failure;
+- extract the remaining bounded bootstrap domains — ACP Agent HTTP operations,
+  usage and update operations, auth/share/static groups — where separation is
   useful.
 
-WebSocket handlers are grouped by protocol domain—handshake/health, Agent
-lifecycle, Terminal, ACP interaction, focus/scope, and workspace resources.
 Avoid one file per message. Each slice must preserve the route manifest,
-middleware order, response shape, and WebSocket behavior.
+middleware order, response shape, and connection-local state.
 
 ### Lane B2 — Agent application services
 
-Serialize slices that touch `agent-manager.cts`:
+Slices touching `agent-manager.cts` remain serialized. Usage-rate accounting,
+adaptive title persistence, Worktree/git operations, Fork coordination, and
+Composer admission have owners. Remaining scope:
 
-1. usage-rate accounting as a bounded pure projection;
-2. Attention/unread as a documented state machine with a narrow host port;
-3. Worktree/git operations and proven postconditions as a service;
-4. move runtime and record types with their new owners instead of performing a
+1. Attention/unread as a documented state machine with a narrow host port;
+2. launch environment and provider policy resolution as typed decisions rather
+   than inline Manager knowledge;
+3. move runtime and record types with their owners instead of performing a
    final repository-wide type shuffle;
-5. extract Composer or Fork orchestration only after their dependency ports
-   are narrow and their state-transition models are explicit.
+4. slim the remaining facade until it holds exact identity and top-level
+   lifecycle admission only.
 
 Line count is not an acceptance criterion. A service is accepted only if it
 reduces the Manager's knowledge and can be tested without constructing the
@@ -298,39 +291,29 @@ Continue the remaining work as small slices in the following dependency order.
 This list records unfinished architectural outcomes rather than a branch or
 file-by-file progress log:
 
-1. Finish the remaining Terminal browser-runtime orchestration after the shared
-   attachment, registry, resize, recovery, diagnostics, IME, and renderer-effect
-   owners. Keep the Session pool as the integration boundary until another
-   stateful collaborator can move without copying renderer or protocol truth.
-   Preserve production-shaped Code and CRT reconnect, stale-completion, gap,
-   resize, and multi-viewer coverage.
-2. Finish coherent Workspace controllers. Session inventory and membership,
-   Project membership and mutations, Resume and Share, Resource panes, queued
-   Composer follow-ups, and persisted workspace-surface restoration now have
-   lifecycle owners. Continue only with remaining layout-owned state machines
-   that can own admission, cancellation, stale-response rejection,
-   reconciliation, and terminal failure through narrow ports; do not replace
-   inline requests with stateless API wrappers.
-3. Finish the remaining Server transport domains. Settings and Project
-   mutations plus WebSocket Agent-lifecycle and ACP-interaction groups now have
-   transport owners. Continue with the bounded Agent and ACP HTTP operations
-   and useful bootstrap/static groups while preserving auth, middleware order,
-   route shapes, and connection-local state. Slices that depend on AgentManager
-   or ACP internals wait until those hotspots have one writer.
-4. Continue AgentManager service extraction serially. Durable Fork orchestration
-   and permanent/temporary Worktree mutations now use explicit journals, exact
-   identities, and proven postconditions. Complete Composer admission with the
-   same exact-settlement and runtime-transition guarantees, then move runtime
-   and record types with their owners. Require narrow lifecycle, persistence,
-   Worktree, and ACP ports so rollback and uncertain outcomes never need the
-   complete Manager.
-5. Converge on the ACP Host-only Server path. Remove the in-process Server
-   fallback after deterministic Host fakes or a harness cover recovery and
-   uncertain prompt/cancel outcomes; keep engine state separate from Host
-   operation state through an explicit projection, and move provider decisions
-   into typed adapter policies. Run the required real-provider smokes for every
-   affected provider.
-6. Retire obsolete compatibility code continuously. A compatibility alias,
+1. Give per-client initial Agent snapshot delivery one connection-scoped
+   lifecycle owner. Delivery, scope change or resynchronization, and failure
+   must be bounded and explicit per client while the Agent broadcast scheduler
+   stays the single owner of coalescing and scheduling Agent-state delta
+   mutation intent.
+2. Finish the bounded remaining Workspace and Terminal owners. For Workspace,
+   move the remaining cohesive layout-owned domains and then narrow props
+   around the established owners. For Terminal, converge resize and
+   renderer-effect orchestration onto the attachment ordering model and slim
+   the Session pool to an integration boundary. Preserve production-shaped Code
+   and CRT reconnect, stale-completion, gap, resize, and multi-viewer coverage.
+3. Move Agent launch environment, provider policy resolution, and
+   attention/unread out of the Manager as typed decisions and a documented
+   state machine over narrow host ports, then slim the remaining facade to
+   exact identity and top-level lifecycle admission.
+4. Finish the remaining Server transport and ACP work. Extract the remaining
+   bounded HTTP and bootstrap domains while preserving auth, middleware order,
+   route shapes, and connection-local state, and converge on the ACP Host-only
+   Server path: remove the in-process fallback once deterministic Host fakes or
+   a harness cover recovery and uncertain prompt/cancel outcomes, keep engine
+   state separate from Host operation state through an explicit projection, and
+   run the required real-provider smokes.
+5. Retire obsolete compatibility code continuously. A compatibility alias,
    adapter, fallback, parser branch, or old state shape may be removed only
    after repository-wide call-site analysis and boundary tests show that no
    supported client, protocol version, persisted data, extension, or public API
@@ -339,6 +322,9 @@ file-by-file progress log:
    code merely because it once supported an older implementation, and do not
    classify an active system-boundary adapter as dead code from static imports
    alone.
+6. Continue stylesheet decomposition alongside the code hotspots. Split the
+   remaining product domains out of the main and dark-skin stylesheets with
+   cascade, specificity, and import-order proof.
 7. Integrate continuously. Rebase each reviewable slice onto current `main`, run
    its focused state-machine tests, then run the full typecheck, lint, test, and
    applicable Server, Terminal, Playwright, or provider gates before merging.
@@ -348,8 +334,11 @@ file-by-file progress log:
 ### Stylesheet ownership
 
 Oversized application stylesheets are an independent supporting lane and may
-be decomposed while code hotspots are busy. Split styles by product domain and
-rendered surface, not by arbitrary line count. A slice moves the domain's base
+be decomposed while code hotspots are busy. Git History, Composer, Plugin,
+Settings, Share, and Pet surfaces already have their own style owners; the main
+and Code dark-skin stylesheets still need their remaining product-domain splits.
+Split styles by product domain and rendered surface, not by arbitrary line
+count. A slice moves the domain's base
 rules, dark-skin overrides, responsive rules, animations, and style-contract
 tests together while preserving runtime import order, cascade, specificity, and
 visual behavior. Theme tokens and independent skins remain separate owners.
