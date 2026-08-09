@@ -88,6 +88,18 @@ function appendTolerantHistoryPaths(provider: AgentProvider, homePath: string): 
   ];
 }
 
+function historyFingerprintDepth(provider: AgentProvider): number {
+  if (provider === 'codex' || provider === 'opencode') return 4;
+  if (provider === 'qwen') return 3;
+  return 2;
+}
+
+function historyActivityDirectoryDepth(provider: AgentProvider): number {
+  if (provider === 'codex') return 3;
+  if (provider === 'qwen') return 2;
+  return 1;
+}
+
 function stringSet(value: unknown): Set<string> {
   return new Set(Array.isArray(value)
     ? value.filter((item): item is string => typeof item === 'string')
@@ -157,9 +169,10 @@ async function appendOnlySessionActivity(
   homePath: string,
 ): Promise<Map<string, number>> {
   const activity = new Map<string, number>();
+  const maxDirectoryDepth = historyActivityDirectoryDepth(provider);
   let visited = 0;
   const visit = async (directory: string, depth: number): Promise<void> => {
-    if (depth > 16 || visited >= 50_000) return;
+    if (depth > maxDirectoryDepth || visited >= 50_000) return;
     let entries: import('fs').Dirent[];
     try {
       entries = await fsp.readdir(directory, { withFileTypes: true });
@@ -173,7 +186,7 @@ async function appendOnlySessionActivity(
       visited += 1;
       const candidate = path.join(directory, entry.name);
       if (entry.isDirectory()) {
-        await visit(candidate, depth + 1);
+        if (depth < maxDirectoryDepth) await visit(candidate, depth + 1);
         continue;
       }
       if (!entry.isFile()) continue;
@@ -317,8 +330,9 @@ class AgentSessionInventory {
             appendOnlyPrefixBytes: 64 * 1024,
             appendOnlyRoots: appendOnlyHistoryRoots(provider, home.path),
             appendTolerantPaths: appendTolerantHistoryPaths(provider, home.path),
+            maxDepth: historyFingerprintDepth(provider),
           },
-          watchPaths: provider === 'opencode' ? [] : fingerprintPaths,
+          watchPaths: [],
           sourceMayChangeDuringLoad: provider === 'opencode',
           validate: (value: unknown): value is AgentSession[] => Array.isArray(value),
           load: () => this.listSessions({

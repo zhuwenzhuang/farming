@@ -15,12 +15,23 @@ interface SnapshotDocument<Value> {
 
 interface FingerprintOptions {
   appendOnlyIdentityOnly?: boolean;
+  appendOnlyPrefixCache?: Map<string, AppendOnlyPrefix>;
   appendOnlyPrefixBytes?: number;
   appendOnlyRoots?: string[];
   appendTolerantPaths?: string[];
   ignoredNames?: ReadonlySet<string>;
   maxDepth?: number;
   maxEntries?: number;
+}
+
+interface AppendOnlyPrefix {
+  ctimeMs: number;
+  digest: string;
+  dev: number;
+  ino: number;
+  length: number;
+  mtimeMs: number;
+  size: number;
 }
 
 interface InventoryRequest<Value> {
@@ -34,6 +45,7 @@ interface InventoryRequest<Value> {
 }
 
 interface InventoryEntry<Value> {
+  appendOnlyPrefixes: Map<string, AppendOnlyPrefix>;
   backgroundRefresh: boolean;
   fingerprint: string;
   fingerprintOptions: FingerprintOptions;
@@ -43,6 +55,7 @@ interface InventoryEntry<Value> {
   load: (() => Value | PromiseLike<Value>) | null;
   pending: Promise<Value> | null;
   refreshTimer: ReturnType<typeof setTimeout> | null;
+  retired: boolean;
   sourceMayChangeDuringLoad: boolean;
   value: Value | null;
   validate: ((value: unknown) => value is Value) | null;
@@ -50,6 +63,7 @@ interface InventoryEntry<Value> {
   watchSignature: string;
   watcher: import('chokidar').FSWatcher | null;
   watcherReady: Promise<void> | null;
+  watcherReadyResolve: (() => void) | null;
   watcherToken: number;
 }
 
@@ -58,6 +72,11 @@ interface AuthoritativeInventoryCacheOptions {
   maxReconcileAttempts?: number;
   refreshDebounceMs?: number;
   snapshotFile?: string;
+}
+
+interface InitialFingerprint {
+  generation: number;
+  value: string;
 }
 
 const DEFAULT_IGNORED_NAMES = new Set(['.git', 'node_modules']);
@@ -88,6 +107,10 @@ async function filesystemFingerprint(
   const appendOnlyPrefixBytes = typeof options.appendOnlyPrefixBytes === 'number'
     ? Math.max(1, Math.floor(options.appendOnlyPrefixBytes))
     : 64 * 1024;
+  const appendOnlyPrefixCache = options.appendOnlyPrefixCache;
+  const seenAppendOnlyFiles = appendOnlyPrefixCache && !options.appendOnlyIdentityOnly
+    ? new Set<string>()
+    : null;
   let entries = 0;
 
   const isAppendOnlyFile = (filePath: string) => (
@@ -127,16 +150,36 @@ async function filesystemFingerprint(
     }
     if (stat.isFile() && isAppendOnlyFile(current)) {
       const length = Math.min(stat.size, appendOnlyPrefixBytes);
-      const buffer = Buffer.alloc(length);
-      const handle = await fsp.open(current, 'r');
-      try {
-        if (length > 0) await handle.read(buffer, 0, length, 0);
-      } finally {
-        await handle.close();
+      const cacheKey = path.resolve(current);
+      seenAppendOnlyFiles?.add(cacheKey);
+      let prefix = appendOnlyPrefixCache?.get(cacheKey);
+      const unchangedPrefix = prefix
+        && prefix.dev === stat.dev
+        && prefix.ino === stat.ino
+        && prefix.length === length
+        && stat.ctimeMs === prefix.ctimeMs
+        && stat.size === prefix.size
+        && stat.mtimeMs === prefix.mtimeMs;
+      if (!unchangedPrefix) {
+        const buffer = Buffer.alloc(length);
+        const handle = await fsp.open(current, 'r');
+        try {
+          if (length > 0) await handle.read(buffer, 0, length, 0);
+        } finally {
+          await handle.close();
+        }
+        prefix = {
+          ctimeMs: stat.ctimeMs,
+          digest: crypto.createHash('sha256').update(buffer).digest('hex'),
+          dev: stat.dev,
+          ino: stat.ino,
+          length,
+          mtimeMs: stat.mtimeMs,
+          size: stat.size,
+        };
+        appendOnlyPrefixCache?.set(cacheKey, prefix);
       }
-      hash.update(`${kind}\0${root}\0${relative}\0${stat.dev}\0${stat.ino}\0prefix\0${length}\n`);
-      hash.update(buffer);
-      hash.update('\n');
+      hash.update(`${kind}\0${root}\0${relative}\0${stat.dev}\0${stat.ino}\0prefix-sha256\0${length}\0${prefix?.digest || ''}\n`);
     } else {
       hash.update(`${kind}\0${root}\0${relative}\0${stat.dev}\0${stat.ino}\0${stat.size}\0${stat.mtimeMs}\n`);
     }
@@ -152,6 +195,11 @@ async function filesystemFingerprint(
 
   for (const root of roots) {
     await visit(root, root, 0);
+  }
+  if (seenAppendOnlyFiles && appendOnlyPrefixCache) {
+    for (const cachedPath of appendOnlyPrefixCache.keys()) {
+      if (!seenAppendOnlyFiles.has(cachedPath)) appendOnlyPrefixCache.delete(cachedPath);
+    }
   }
   return hash.digest('hex');
 }
@@ -227,6 +275,10 @@ class InventorySnapshotStore<Value> {
       });
     return this.writeTask;
   }
+
+  flush(): Promise<void> {
+    return this.writeTask;
+  }
 }
 
 let chokidarPromise: Promise<typeof import('chokidar')> | null = null;
@@ -237,6 +289,7 @@ function loadChokidar(): Promise<typeof import('chokidar')> {
 }
 
 class AuthoritativeInventoryCache<Value> {
+  private closed = false;
   private readonly entries = new Map<string, InventoryEntry<Value>>();
   private readonly fingerprintOptions: FingerprintOptions;
   private readonly maxReconcileAttempts: number;
@@ -260,6 +313,7 @@ class AuthoritativeInventoryCache<Value> {
     const snapshot = this.snapshots?.get(key);
     entry = {
       key,
+      appendOnlyPrefixes: new Map(),
       backgroundRefresh: true,
       fingerprint: snapshot?.fingerprint || '',
       fingerprintOptions: {},
@@ -268,6 +322,7 @@ class AuthoritativeInventoryCache<Value> {
       load: null,
       pending: null,
       refreshTimer: null,
+      retired: false,
       sourceMayChangeDuringLoad: false,
       value: snapshot?.value ?? null,
       validate: null,
@@ -275,6 +330,7 @@ class AuthoritativeInventoryCache<Value> {
       watchSignature: '',
       watcher: null,
       watcherReady: null,
+      watcherReadyResolve: null,
       watcherToken: 0,
     };
     this.entries.set(key, entry);
@@ -282,6 +338,7 @@ class AuthoritativeInventoryCache<Value> {
   }
 
   private markDirty(entry: InventoryEntry<Value>): void {
+    if (this.closed || entry.retired) return;
     entry.generation += 1;
     entry.fingerprint = '';
     if (!entry.backgroundRefresh || !entry.load || entry.refreshTimer) return;
@@ -306,15 +363,22 @@ class AuthoritativeInventoryCache<Value> {
     entry.watchSignature = signature;
     entry.watchPaths = normalized;
     if (hadWatchConfiguration) this.markDirty(entry);
+    entry.watcherReadyResolve?.();
     if (entry.watcher) await entry.watcher.close().catch(() => {});
     entry.watcher = null;
 
     if (normalized.length === 0) {
       entry.watcherReady = Promise.resolve();
+      entry.watcherReadyResolve = null;
       return;
     }
 
     const chokidar = await loadChokidar();
+    if (this.closed || entry.retired || entry.watcherToken !== token) {
+      entry.watcherReady = Promise.resolve();
+      entry.watcherReadyResolve = null;
+      return;
+    }
     const watcher = chokidar.watch(normalized, {
       awaitWriteFinish: { pollInterval: 25, stabilityThreshold: 100 },
       followSymlinks: false,
@@ -323,14 +387,19 @@ class AuthoritativeInventoryCache<Value> {
     });
     entry.watcher = watcher;
     entry.watcherReady = new Promise<void>((resolve) => {
-      const onError = () => {
+      const settle = () => {
+        watcher.off('error', onError);
         watcher.off('ready', onReady);
+        if (entry.watcherReadyResolve === settle) entry.watcherReadyResolve = null;
         resolve();
+      };
+      const onError = () => {
+        settle();
       };
       const onReady = () => {
-        watcher.off('error', onError);
-        resolve();
+        settle();
       };
+      entry.watcherReadyResolve = settle;
       watcher.once('error', onError);
       watcher.once('ready', onReady);
     });
@@ -353,14 +422,21 @@ class AuthoritativeInventoryCache<Value> {
     await entry.watcherReady;
   }
 
-  private async reconcile(entry: InventoryEntry<Value>): Promise<Value> {
+  private async reconcile(
+    entry: InventoryEntry<Value>,
+    initialFingerprint?: InitialFingerprint,
+  ): Promise<Value> {
+    this.assertActive(entry);
     if (!entry.load) throw new Error(`Inventory loader is unavailable for ${entry.key}`);
     for (let attempt = 0; attempt < this.maxReconcileAttempts; attempt += 1) {
       const generation = entry.generation;
       const fingerprintOptions = { ...this.fingerprintOptions, ...entry.fingerprintOptions };
       const before = entry.sourceMayChangeDuringLoad
         ? ''
-        : await filesystemFingerprint(entry.fingerprintPaths, fingerprintOptions);
+        : initialFingerprint?.generation === generation
+          ? initialFingerprint.value
+          : await filesystemFingerprint(entry.fingerprintPaths, fingerprintOptions);
+      initialFingerprint = undefined;
       const hasAppendTolerantSources = (fingerprintOptions.appendOnlyRoots || []).length > 0
         || (fingerprintOptions.appendTolerantPaths || []).length > 0;
       const stableBefore = !entry.sourceMayChangeDuringLoad && hasAppendTolerantSources
@@ -369,17 +445,21 @@ class AuthoritativeInventoryCache<Value> {
             appendOnlyIdentityOnly: true,
           })
         : before;
+      this.assertActive(entry);
       const value = await entry.load();
+      this.assertActive(entry);
       if (entry.validate && !entry.validate(value)) {
         throw new Error(`Inventory loader returned an invalid value for ${entry.key}`);
       }
       const after = await filesystemFingerprint(entry.fingerprintPaths, fingerprintOptions);
+      this.assertActive(entry);
       const stableAfter = !entry.sourceMayChangeDuringLoad && hasAppendTolerantSources
         ? await filesystemFingerprint(entry.fingerprintPaths, {
             ...fingerprintOptions,
             appendOnlyIdentityOnly: true,
           })
         : after;
+      this.assertActive(entry);
       if (
         !entry.sourceMayChangeDuringLoad
         && (generation !== entry.generation || stableBefore !== stableAfter)
@@ -388,6 +468,7 @@ class AuthoritativeInventoryCache<Value> {
       entry.fingerprint = before === after ? after : '';
       if (entry.fingerprint) {
         await this.snapshots?.set(entry.key, { fingerprint: after, value });
+        this.assertActive(entry);
       }
       return value;
     }
@@ -395,14 +476,17 @@ class AuthoritativeInventoryCache<Value> {
   }
 
   private resolveCurrent(entry: InventoryEntry<Value>): Promise<Value> {
+    if (this.closed || entry.retired) return Promise.reject(new Error('Inventory cache is closed'));
     if (entry.pending) return entry.pending;
     entry.pending = (async () => {
       if (entry.watcherReady) await entry.watcherReady;
+      this.assertActive(entry);
       const generation = entry.generation;
       const fingerprint = await filesystemFingerprint(entry.fingerprintPaths, {
         ...this.fingerprintOptions,
         ...entry.fingerprintOptions,
       });
+      this.assertActive(entry);
       if (
         entry.value !== null
         && (!entry.validate || entry.validate(entry.value))
@@ -411,7 +495,9 @@ class AuthoritativeInventoryCache<Value> {
       ) {
         return entry.value;
       }
-      return this.reconcile(entry);
+      return this.reconcile(entry, entry.sourceMayChangeDuringLoad
+        ? undefined
+        : { generation, value: fingerprint });
     })().finally(() => {
       entry.pending = null;
     });
@@ -419,11 +505,15 @@ class AuthoritativeInventoryCache<Value> {
   }
 
   async get(key: string, request: InventoryRequest<Value>): Promise<Value> {
+    if (this.closed) throw new Error('Inventory cache is closed');
     const entry = this.entry(key);
     entry.backgroundRefresh = request.backgroundRefresh !== false;
     entry.load = request.load;
     entry.validate = request.validate || null;
-    entry.fingerprintOptions = request.fingerprintOptions || {};
+    entry.fingerprintOptions = {
+      ...(request.fingerprintOptions || {}),
+      appendOnlyPrefixCache: entry.appendOnlyPrefixes,
+    };
     entry.sourceMayChangeDuringLoad = request.sourceMayChangeDuringLoad === true;
     const fingerprintPaths = normalizedWatchPaths(request.fingerprintPaths || request.watchPaths);
     if (JSON.stringify(entry.fingerprintPaths) !== JSON.stringify(fingerprintPaths)) {
@@ -431,7 +521,12 @@ class AuthoritativeInventoryCache<Value> {
       entry.fingerprintPaths = fingerprintPaths;
     }
     await this.configureWatcher(entry, request.watchPaths);
+    this.assertActive(entry);
     return this.resolveCurrent(entry);
+  }
+
+  private assertActive(entry: InventoryEntry<Value>): void {
+    if (this.closed || entry.retired) throw new Error('Inventory cache is closed');
   }
 
   invalidate(key?: string): void {
@@ -444,25 +539,43 @@ class AuthoritativeInventoryCache<Value> {
   }
 
   async retain(keys: ReadonlySet<string>): Promise<void> {
+    if (this.closed) throw new Error('Inventory cache is closed');
     const closes: Promise<void>[] = [];
+    const drains: Promise<unknown>[] = [];
     for (const [key, entry] of this.entries) {
       if (keys.has(key)) continue;
       this.entries.delete(key);
+      entry.retired = true;
+      entry.generation += 1;
+      entry.watcherToken += 1;
       if (entry.refreshTimer) clearTimeout(entry.refreshTimer);
+      entry.watcherReadyResolve?.();
       if (entry.watcher) closes.push(entry.watcher.close());
+      if (entry.pending) drains.push(entry.pending);
+      if (entry.watcherReady) drains.push(entry.watcherReady);
     }
-    await Promise.allSettled(closes);
+    await Promise.allSettled([...closes, ...drains]);
     await this.snapshots?.deleteExcept(keys);
   }
 
   async close(): Promise<void> {
+    this.closed = true;
     const closes: Promise<void>[] = [];
+    const pending: Promise<Value>[] = [];
+    const watcherReadies: Promise<void>[] = [];
     for (const entry of this.entries.values()) {
+      entry.retired = true;
+      entry.generation += 1;
+      entry.watcherToken += 1;
       if (entry.refreshTimer) clearTimeout(entry.refreshTimer);
+      entry.watcherReadyResolve?.();
       if (entry.watcher) closes.push(entry.watcher.close());
+      if (entry.pending) pending.push(entry.pending);
+      if (entry.watcherReady) watcherReadies.push(entry.watcherReady);
     }
+    await Promise.allSettled([...closes, ...pending, ...watcherReadies]);
+    await this.snapshots?.flush().catch(() => {});
     this.entries.clear();
-    await Promise.allSettled(closes);
   }
 }
 

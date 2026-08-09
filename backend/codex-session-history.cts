@@ -1,7 +1,9 @@
 import * as fs from 'fs';
+import * as fsp from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import * as readline from 'readline';
+import { finished } from 'stream/promises';
 import { stripCodexInternalContextBlocks } from './codex-transcript-sanitizer.cjs';
 
 type JsonRecord = Record<string, unknown>;
@@ -103,14 +105,16 @@ const MAX_SESSION_HISTORY_SCAN_LIMIT = 5000;
 const MAX_SCAN_DIRECTORIES = 2000;
 const SESSION_INDEX_TAIL_BYTES = 4 * 1024 * 1024;
 const RECENT_FILE_CANDIDATE_MULTIPLIER = 4;
+const RECENT_FILE_STAT_CONCURRENCY = 32;
+const SESSION_METADATA_READ_CONCURRENCY = 16;
 const USER_MESSAGE_BEGIN = '## My request for Codex:';
 const IMAGE_ONLY_USER_MESSAGE_PLACEHOLDER = '[Image]';
 const MAX_PREVIEW_LENGTH = 160;
 const ACTIVE_AUTOMATION_STATUS = 'ACTIVE';
 
-function readJsonFile(filePath: string, fallback: JsonRecord = {}): JsonRecord {
+async function readJsonFile(filePath: string, fallback: JsonRecord = {}): Promise<JsonRecord> {
   try {
-    return jsonRecord(JSON.parse(fs.readFileSync(filePath, 'utf8'))) || fallback;
+    return jsonRecord(JSON.parse(await fsp.readFile(filePath, 'utf8'))) || fallback;
   } catch {
     return fallback;
   }
@@ -178,31 +182,27 @@ function bestWorkspaceRootForCwd(cwd: string, workspaceRoots: string[]): string 
   return workspaceRoots.find(root => isPathInside(root, cwd)) || '';
 }
 
-function readSessionIndex(codexHome: string): Map<string, SessionIndexEntry> {
+async function readSessionIndex(codexHome: string): Promise<Map<string, SessionIndexEntry>> {
   const indexPath = path.join(codexHome, 'session_index.jsonl');
   const entries = new Map<string, SessionIndexEntry>();
-
-  if (!fs.existsSync(indexPath)) return entries;
-
   let text = '';
+  let handle: fsp.FileHandle | null = null;
   try {
-    const stat = fs.statSync(indexPath);
+    const stat = await fsp.stat(indexPath);
     const start = Math.max(0, stat.size - SESSION_INDEX_TAIL_BYTES);
     const length = stat.size - start;
-    const fd = fs.openSync(indexPath, 'r');
-    try {
-      const buffer = Buffer.alloc(length);
-      fs.readSync(fd, buffer, 0, length, start);
-      text = buffer.toString('utf8');
-      if (start > 0) {
-        const firstNewline = text.indexOf('\n');
-        text = firstNewline >= 0 ? text.slice(firstNewline + 1) : '';
-      }
-    } finally {
-      fs.closeSync(fd);
+    handle = await fsp.open(indexPath, 'r');
+    const buffer = Buffer.alloc(length);
+    await handle.read(buffer, 0, length, start);
+    text = buffer.toString('utf8');
+    if (start > 0) {
+      const firstNewline = text.indexOf('\n');
+      text = firstNewline >= 0 ? text.slice(firstNewline + 1) : '';
     }
   } catch {
     return entries;
+  } finally {
+    await handle?.close().catch(() => {});
   }
 
   const lines = text.split('\n').filter(Boolean);
@@ -290,32 +290,32 @@ function normalizeAutomationSchedule(raw: unknown): AutomationSchedule | null {
   };
 }
 
-function readCodexAutomationSchedules(codexHome: string): Map<string, AutomationSchedule> {
+async function readCodexAutomationSchedules(codexHome: string): Promise<Map<string, AutomationSchedule>> {
   const automationsDir = path.join(codexHome, 'automations');
   const schedules = new Map<string, AutomationSchedule>();
   let entries: fs.Dirent[] = [];
 
   try {
-    entries = fs.readdirSync(automationsDir, { withFileTypes: true });
+    entries = await fsp.readdir(automationsDir, { withFileTypes: true });
   } catch {
     return schedules;
   }
 
-  entries.forEach(entry => {
-    if (!entry.isDirectory()) return;
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
     const filePath = path.join(automationsDir, entry.name, 'automation.toml');
     let raw: JsonRecord;
     try {
-      raw = parseFlatToml(fs.readFileSync(filePath, 'utf8'));
+      raw = parseFlatToml(await fsp.readFile(filePath, 'utf8'));
     } catch {
-      return;
+      continue;
     }
     const schedule = normalizeAutomationSchedule(raw);
     const targetThreadId = typeof raw.target_thread_id === 'string'
       ? raw.target_thread_id.trim()
       : '';
     if (schedule && targetThreadId) schedules.set(targetThreadId, schedule);
-  });
+  }
 
   return schedules;
 }
@@ -368,6 +368,58 @@ function collectRecentJsonlFiles(root: string, limit: number): RecentFileCandida
         mtimeMs = 0;
       }
       files.push({ filePath, mtimeMs });
+      if (files.length > candidateLimit * 2) {
+        files = pruneRecentFileCandidates(files, candidateLimit);
+      }
+    }
+
+    if (files.length >= candidateLimit && directories.length > limit) {
+      directories.splice(0, directories.length - limit);
+    }
+  }
+
+  return pruneRecentFileCandidates(files, limit);
+}
+
+async function collectRecentJsonlFilesAsync(
+  root: string,
+  limit: number,
+): Promise<RecentFileCandidate[]> {
+  const candidateLimit = Math.max(limit, limit * RECENT_FILE_CANDIDATE_MULTIPLIER);
+  const directories = [root];
+  let visitedDirectories = 0;
+  let files: RecentFileCandidate[] = [];
+
+  while (directories.length > 0 && visitedDirectories < MAX_SCAN_DIRECTORIES) {
+    const directory = directories.pop();
+    if (!directory) break;
+    let entries: fs.Dirent[] = [];
+    try {
+      entries = await fsp.readdir(directory, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    visitedDirectories += 1;
+
+    const sortedEntries = sortDirectoryEntriesForRecentScan(entries);
+    for (let index = sortedEntries.length - 1; index >= 0; index -= 1) {
+      const entry = sortedEntries[index];
+      if (entry.isDirectory()) directories.push(path.join(directory, entry.name));
+    }
+
+    const fileEntries = sortedEntries.filter(entry => entry.isFile() && entry.name.endsWith('.jsonl'));
+    for (let offset = 0; offset < fileEntries.length; offset += RECENT_FILE_STAT_CONCURRENCY) {
+      const candidates = await Promise.all(
+        fileEntries.slice(offset, offset + RECENT_FILE_STAT_CONCURRENCY).map(async entry => {
+          const filePath = path.join(directory, entry.name);
+          try {
+            return { filePath, mtimeMs: (await fsp.stat(filePath)).mtimeMs };
+          } catch {
+            return { filePath, mtimeMs: 0 };
+          }
+        }),
+      );
+      files.push(...candidates);
       if (files.length > candidateLimit * 2) {
         files = pruneRecentFileCandidates(files, candidateLimit);
       }
@@ -522,6 +574,7 @@ async function readSessionMetadata(
   } finally {
     reader.close();
     stream.destroy();
+    await finished(stream).catch(() => {});
   }
 
   return metadata.id ? metadata : null;
@@ -631,8 +684,8 @@ function stringSet(value: unknown): Set<string> {
   );
 }
 
-function getGlobalState(codexHome: string): CodexGlobalState {
-  const state = readJsonFile(path.join(codexHome, '.codex-global-state.json'), {});
+async function getGlobalState(codexHome: string): Promise<CodexGlobalState> {
+  const state = await readJsonFile(path.join(codexHome, '.codex-global-state.json'), {});
   const atom = jsonRecord(state['electron-persisted-atom-state']) || {};
   const unreadByHost = jsonRecord(atom['unread-thread-ids-by-host-v1']) || {};
   const workspaceHints = jsonRecord(state['thread-workspace-root-hints']) || {};
@@ -687,48 +740,59 @@ async function listCodexSessions(
     ? Math.max(limit, Math.min(MAX_SESSION_HISTORY_SCAN_LIMIT, Math.floor(options.scanLimit)))
     : DEFAULT_SCAN_LIMIT;
 
-  const index = readSessionIndex(codexHome);
-  const globalState = getGlobalState(codexHome);
-  const automationSchedules = readCodexAutomationSchedules(codexHome);
-  const sessionFiles = [
-    ...collectRecentJsonlFiles(path.join(codexHome, 'sessions'), scanLimit),
-    ...collectRecentJsonlFiles(path.join(codexHome, 'archived_sessions'), scanLimit),
-  ]
+  const [index, globalState, automationSchedules, sessionFileGroups] = await Promise.all([
+    readSessionIndex(codexHome),
+    getGlobalState(codexHome),
+    readCodexAutomationSchedules(codexHome),
+    Promise.all([
+      collectRecentJsonlFilesAsync(path.join(codexHome, 'sessions'), scanLimit),
+      collectRecentJsonlFilesAsync(path.join(codexHome, 'archived_sessions'), scanLimit),
+    ]),
+  ]);
+  const sessionFiles = sessionFileGroups
+    .flat()
     .sort((a, b) => b.mtimeMs - a.mtimeMs)
     .slice(0, scanLimit);
 
   const sessions = new Map<string, CodexSession>();
   const skippedTemporaryIds = new Set<string>();
-  for (const { filePath, mtimeMs } of sessionFiles) {
-    const metadata = await readSessionMetadata(filePath);
-    if (!metadata) continue;
-    const indexed = index.get(metadata.id);
-    const cwd = normalizePathValue(metadata.cwd || indexed?.cwd || globalState.workspaceHints[metadata.id] || indexed?.workspace || '');
-    const workspace = resolveSessionWorkspace(metadata.id, cwd, indexed, globalState);
-    const title = stripCodexInternalContextBlocks(indexed?.title) || metadata.firstUserMessage || metadata.preview || 'Codex session';
-    if (isTemporaryWorkspace(cwd) || isTemporaryWorkspace(workspace) || hasTemporaryWorkspaceReference(title)) {
-      skippedTemporaryIds.add(metadata.id);
-      continue;
+  for (let offset = 0; offset < sessionFiles.length; offset += SESSION_METADATA_READ_CONCURRENCY) {
+    const metadataBatch = await Promise.all(
+      sessionFiles.slice(offset, offset + SESSION_METADATA_READ_CONCURRENCY).map(async candidate => ({
+        candidate,
+        metadata: await readSessionMetadata(candidate.filePath),
+      })),
+    );
+    for (const { candidate: { mtimeMs }, metadata } of metadataBatch) {
+      if (!metadata) continue;
+      const indexed = index.get(metadata.id);
+      const cwd = normalizePathValue(metadata.cwd || indexed?.cwd || globalState.workspaceHints[metadata.id] || indexed?.workspace || '');
+      const workspace = resolveSessionWorkspace(metadata.id, cwd, indexed, globalState);
+      const title = stripCodexInternalContextBlocks(indexed?.title) || metadata.firstUserMessage || metadata.preview || 'Codex session';
+      if (isTemporaryWorkspace(cwd) || isTemporaryWorkspace(workspace) || hasTemporaryWorkspaceReference(title)) {
+        skippedTemporaryIds.add(metadata.id);
+        continue;
+      }
+      sessions.set(metadata.id, {
+        id: metadata.id,
+        title,
+        cwd,
+        workspace,
+        updatedAt: indexed?.updatedAt || metadata.updatedAt || new Date(mtimeMs).toISOString(),
+        createdAt: metadata.createdAt,
+        archived: metadata.archived,
+        pinned: globalState.pinnedIds.has(metadata.id),
+        unread: globalState.unreadIds.has(metadata.id),
+        projectless: globalState.projectlessIds.has(metadata.id),
+        model: metadata.model,
+        effort: metadata.effort,
+        cliVersion: metadata.cliVersion,
+        source: metadata.source,
+        preview: metadata.preview,
+        firstUserMessage: metadata.firstUserMessage,
+        schedule: automationSchedules.get(metadata.id),
+      });
     }
-    sessions.set(metadata.id, {
-      id: metadata.id,
-      title,
-      cwd,
-      workspace,
-      updatedAt: indexed?.updatedAt || metadata.updatedAt || new Date(mtimeMs).toISOString(),
-      createdAt: metadata.createdAt,
-      archived: metadata.archived,
-      pinned: globalState.pinnedIds.has(metadata.id),
-      unread: globalState.unreadIds.has(metadata.id),
-      projectless: globalState.projectlessIds.has(metadata.id),
-      model: metadata.model,
-      effort: metadata.effort,
-      cliVersion: metadata.cliVersion,
-      source: metadata.source,
-      preview: metadata.preview,
-      firstUserMessage: metadata.firstUserMessage,
-      schedule: automationSchedules.get(metadata.id),
-    });
   }
 
   for (const [id, indexed] of index.entries()) {

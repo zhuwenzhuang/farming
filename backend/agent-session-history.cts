@@ -4,6 +4,7 @@ import * as fsp from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import * as readline from 'readline';
+import { finished } from 'stream/promises';
 import {
   formatAutomationRRuleLabel,
   hasTemporaryWorkspaceReference,
@@ -735,6 +736,7 @@ async function readClaudeSessionMetadata(
   } finally {
     reader.close();
     stream.destroy();
+    await finished(stream).catch(() => {});
   }
 
   if (!metadata.id) return null;
@@ -908,6 +910,7 @@ async function readQoderSessionMetadata(
   } finally {
     reader.close();
     stream.destroy();
+    await finished(stream).catch(() => {});
   }
 
   const tail = await readTextTail(filePath, QODER_HISTORY_TAIL_BYTES);
@@ -1067,6 +1070,7 @@ async function readQwenSessionMetadata(
   } finally {
     reader.close();
     stream.destroy();
+    await finished(stream).catch(() => {});
   }
 
   const tail = await readTextTail(filePath, QWEN_HISTORY_TAIL_BYTES);
