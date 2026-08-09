@@ -57,6 +57,8 @@ function run() {
   const preparedTranscriptCacheSource = read('backend/acp-prepared-transcript-cache.cts');
   const mainPageSessionSource = read('backend/main-page-session.cts');
   const inputPartsSource = read('backend/input-parts.cts');
+  const websocketHandshakeHealthHandlersSource = read('backend/websocket-handshake-health-handlers.cts');
+  const websocketTerminalHandlersSource = read('backend/websocket-terminal-handlers.cts');
   const terminalPaneSource = read('src/components/AgentTerminalPane.tsx');
   const transcriptPaneSource = read('src/components/code/AgentTranscriptPane.tsx');
   const copySource = read('src/components/code/copy.ts');
@@ -133,7 +135,7 @@ function run() {
     'Browser and Computer metadata must reuse the main versioned WebSocket instead of holding per-page SSE connections',
   );
   assert(
-    serverSource.includes('sendResourceSnapshots(ws);')
+    websocketHandshakeHealthHandlersSource.includes('ports.sendResourceSnapshots(client);')
       && serverSource.includes("browserResourceManager.on('resource'")
       && serverSource.includes("computerResourceManager.on('resource'")
       && serverSource.includes('coalesceResourceBroadcast(pendingResourceBroadcasts, event);')
@@ -1161,12 +1163,13 @@ function run() {
       serverSource.includes('cleanupExpiredImageAttachments') &&
       serverSource.includes('IMAGE_ATTACHMENT_FILENAME_RE') &&
       serverSource.includes('void agentManager.interruptAgent(data.agentId)') &&
-      serverSource.includes("import { inputPartsFromMessage } from './input-parts.cjs'") &&
+      websocketTerminalHandlersSource.includes("import { inputPartsFromMessage } from './input-parts.cjs'") &&
       inputPartsSource.includes('function inputPartsFromMessage(data: TerminalInputMessage | null | undefined)') &&
       inputPartsSource.includes('Array.isArray(data?.inputParts)') &&
       inputPartsSource.includes("part.type === 'paste'") &&
-      serverSource.includes('if (inputParts.length === 0) return') &&
-      serverSource.includes('await agentManager.sendInput(targetAgentId, inputParts)') &&
+      websocketTerminalHandlersSource.includes('if (inputParts.length === 0) return') &&
+      websocketTerminalHandlersSource.includes('void ports.sendInput(targetAgentId, inputParts)') &&
+      serverSource.includes('sendInput: (agentId, inputParts) => agentManager.sendInput(agentId, inputParts)') &&
       !serverSource.includes('terminalControllerCoordinator') &&
       !serverSource.includes('const INPUT_PART_DELAY_MS = 24') &&
       !serverSource.includes('for (let index = 0; index < inputParts.length; index += 1)') &&

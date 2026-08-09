@@ -240,6 +240,7 @@ import {
 } from './websocket-client-dispatch.cjs';
 import { createWorkspaceFileWatchController } from './websocket-workspace-file-watch.cjs';
 import { createWebSocketHandshakeHealthHandlers } from './websocket-handshake-health-handlers.cjs';
+import { createWebSocketTerminalHandlers } from './websocket-terminal-handlers.cjs';
 import { TokenAuth } from './auth.cjs';
 import { readOnlyClientMessageAllowed } from './read-only-access.cjs';
 import { getLocalIPs, getPrimaryLocalIP } from './network.cjs';
@@ -284,7 +285,6 @@ import { createSlashCommandDiscoveryCache } from './slash-command-cache.cjs';
 import { agentExtensionInventoryCacheFile, agentSessionInventoryCacheFile } from './storage-layout.cjs';
 import { FarmingUpdateService } from './update-service.cjs';
 import { createUpdateRouter } from './update-router.cjs';
-import { inputPartsFromMessage } from './input-parts.cjs';
 import { cleanupTerminalRuntime } from './terminal-runtime-cleanup.cjs';
 import {
   advanceAgentStateBroadcast,
@@ -2970,18 +2970,6 @@ async function archiveAgentFromMessage(ws: WebSocketClient, agentId: string) {
   }
 }
 
-async function sendInputMessage(
-  ws: WebSocketClient,
-  data: Extract<ClientMessage, { type: 'input' }>,
-) {
-  const targetAgentId = resolveInputTargetAgentId(ws, data);
-  if (!targetAgentId) return;
-
-  const inputParts = inputPartsFromMessage(data);
-  if (inputParts.length === 0) return;
-  await agentManager.sendInput(targetAgentId, inputParts);
-}
-
 async function sendComposerInputMessage(
   ws: WebSocketClient,
   data: Extract<ClientMessage, { type: 'composer-input' }>,
@@ -3082,44 +3070,6 @@ async function sendBusinessHealthResult(ws: WebSocketClient, requestId: string) 
   }));
 }
 
-async function sendTerminalCheckpointResult(
-  ws: WebSocketClient,
-  requestId: string,
-  agentId: string,
-) {
-  try {
-    const session = await agentManager.getAgentSessionView(agentId);
-    if (ws.readyState !== WebSocket.OPEN) return;
-    if (!session) {
-      ws.send(JSON.stringify({
-        type: 'terminal-checkpoint-result',
-        requestId,
-        agentId,
-        ok: false,
-        error: 'Agent not found',
-      }));
-      return;
-    }
-    ws.send(JSON.stringify({
-      type: 'terminal-checkpoint-result',
-      requestId,
-      agentId,
-      ok: true,
-      session,
-    }));
-  } catch (caught) {
-    if (ws.readyState !== WebSocket.OPEN) return;
-    const error = caughtError(caught);
-    ws.send(JSON.stringify({
-      type: 'terminal-checkpoint-result',
-      requestId,
-      agentId,
-      ok: false,
-      error: error.message || 'Failed to read terminal checkpoint',
-    }));
-  }
-}
-
 const registerClientMessage = createClientMessageRegistration<WebSocketClient>();
 const websocketHandshakeHealthHandlers = createWebSocketHandshakeHealthHandlers({
   sendState,
@@ -3127,21 +3077,21 @@ const websocketHandshakeHealthHandlers = createWebSocketHandshakeHealthHandlers(
   sendLanguageServerRefreshSnapshot,
   sendBusinessHealthResult,
 });
+const websocketTerminalHandlers = createWebSocketTerminalHandlers({
+  openState: WebSocket.OPEN,
+  getAgentSessionView: agentId => agentManager.getAgentSessionView(agentId),
+  sendInput: (agentId, inputParts) => agentManager.sendInput(agentId, inputParts),
+  requestResize: (agentId, cols, rows) => agentManager.requestAgentSessionResize(agentId, cols, rows),
+  clearBuffer: agentId => agentManager.clearAgentSessionBuffer(agentId),
+  checkpointErrorMessage: caught => {
+    const error = caughtError(caught);
+    return error.message || 'Failed to read terminal checkpoint';
+  },
+});
 const clientMessageDispatchTable = defineClientMessageDispatchTable<WebSocketClient>({
   'protocol-hello': registerClientMessage('protocol-hello', websocketHandshakeHealthHandlers.protocolHello),
   'business-health-probe': registerClientMessage('business-health-probe', websocketHandshakeHealthHandlers.businessHealthProbe),
-  'terminal-checkpoint-request': registerClientMessage('terminal-checkpoint-request', (ws, data) => {
-    if (!ws.protocolVersion) {
-      ws.send(JSON.stringify({
-        type: 'protocol-error',
-        protocolVersion: PROTOCOL_VERSION,
-        requestId: data.requestId,
-        message: 'Terminal checkpoint requires a negotiated Farming protocol',
-      }));
-      return;
-    }
-    void sendTerminalCheckpointResult(ws, data.requestId, data.agentId);
-  }),
+  'terminal-checkpoint-request': registerClientMessage('terminal-checkpoint-request', websocketTerminalHandlers.terminalCheckpointRequest),
   'state-resync': registerClientMessage('state-resync', (ws) => {
     sendState(ws);
   }),
@@ -3224,9 +3174,7 @@ const clientMessageDispatchTable = defineClientMessageDispatchTable<WebSocketCli
       }));
     });
   }),
-  input: registerClientMessage('input', (ws, data) => {
-    void sendInputMessage(ws, data);
-  }),
+  input: registerClientMessage('input', websocketTerminalHandlers.input),
   'composer-input': registerClientMessage('composer-input', (ws, data) => {
     void sendComposerInputMessage(ws, data);
   }),
@@ -3332,14 +3280,8 @@ const clientMessageDispatchTable = defineClientMessageDispatchTable<WebSocketCli
       ) sendPreviewHydration(ws);
     }
   }),
-  'resize-agent': registerClientMessage('resize-agent', (_ws, data) => {
-    if (data.agentId && Number.isFinite(data.cols) && Number.isFinite(data.rows)) {
-      agentManager.requestAgentSessionResize(data.agentId, data.cols, data.rows);
-    }
-  }),
-  'clear-terminal': registerClientMessage('clear-terminal', (_ws, data) => {
-    if (data.agentId) void agentManager.clearAgentSessionBuffer(data.agentId);
-  }),
+  'resize-agent': registerClientMessage('resize-agent', websocketTerminalHandlers.resizeAgent),
+  'clear-terminal': registerClientMessage('clear-terminal', websocketTerminalHandlers.clearTerminal),
   'watch-workspace-files': registerClientMessage('watch-workspace-files', (ws, data) => {
     void workspaceFileWatchController.watch(ws, data.agentId);
   }),
