@@ -1,0 +1,465 @@
+/* Dark-skin overrides for Settings and Agent Homes surfaces. */
+
+/* Settings panel owns its dark palette here so it wins over the light panel rules above. */
+
+body.code-mode[data-appearance='dark'] .code-settings-panel-overlay {
+  background: rgba(1, 4, 9, 0.54);
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-panel {
+  background: #16181d;
+  color: #e6edf3;
+  border-left-color: #30363d;
+  box-shadow: -18px 0 54px rgba(1, 4, 9, 0.52);
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-panel-header {
+  background: #16181d;
+  border-bottom-color: #30363d;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-panel-header h2,
+body.code-mode[data-appearance='dark'] .code-settings-section h3,
+body.code-mode[data-appearance='dark'] .code-settings-choice-row,
+body.code-mode[data-appearance='dark'] .code-agent-home-provider-header strong,
+body.code-mode[data-appearance='dark'] .code-agent-home-id,
+body.code-mode[data-appearance='dark'] .code-agent-home-form label,
+body.code-mode[data-appearance='dark'] .code-settings-update-version {
+  color: #e6edf3;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-panel-header p,
+body.code-mode[data-appearance='dark'] .code-settings-section-heading p,
+body.code-mode[data-appearance='dark'] .code-settings-status,
+body.code-mode[data-appearance='dark'] .code-agent-home-path,
+body.code-mode[data-appearance='dark'] .code-agent-home-form p,
+body.code-mode[data-appearance='dark'] .code-agent-home-empty,
+body.code-mode[data-appearance='dark'] .code-settings-update-summary {
+  color: #8b949e;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-choice-row,
+body.code-mode[data-appearance='dark'] .code-agent-home-provider,
+body.code-mode[data-appearance='dark'] .code-agent-home-form,
+body.code-mode[data-appearance='dark'] .code-settings-update-card {
+  background: #1c2128;
+  border-color: #30363d;
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-home-provider-header {
+  border-bottom-color: #30363d;
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-home-row {
+  border-top-color: rgba(48, 54, 61, 0.72);
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-segmented {
+  background: #0d1117;
+  border-color: #30363d;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-segmented button,
+body.code-mode[data-appearance='dark'] .code-agent-home-provider-header button,
+body.code-mode[data-appearance='dark'] .code-agent-home-actions button,
+body.code-mode[data-appearance='dark'] .code-agent-home-form-actions button,
+body.code-mode[data-appearance='dark'] .code-settings-update-actions button {
+  color: #c9d1d9;
+  background: transparent;
+  border-color: #30363d;
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-home-provider-header button,
+body.code-mode[data-appearance='dark'] .code-agent-home-actions button,
+body.code-mode[data-appearance='dark'] .code-agent-home-form-actions button,
+body.code-mode[data-appearance='dark'] .code-settings-update-actions button {
+  background: #21262d;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-segmented button.active {
+  background: #30363d;
+  color: #f0f6fc;
+  box-shadow: none;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-segmented button:hover,
+body.code-mode[data-appearance='dark'] .code-settings-segmented button:focus-visible,
+body.code-mode[data-appearance='dark'] .code-agent-home-provider-header button:hover,
+body.code-mode[data-appearance='dark'] .code-agent-home-provider-header button:focus-visible,
+body.code-mode[data-appearance='dark'] .code-agent-home-actions button:hover,
+body.code-mode[data-appearance='dark'] .code-agent-home-actions button:focus-visible,
+body.code-mode[data-appearance='dark'] .code-agent-home-form-actions button:hover,
+body.code-mode[data-appearance='dark'] .code-agent-home-form-actions button:focus-visible,
+body.code-mode[data-appearance='dark'] .code-settings-update-actions button:hover,
+body.code-mode[data-appearance='dark'] .code-settings-update-actions button:focus-visible,
+body.code-mode[data-appearance='dark'] .code-settings-panel-close:hover,
+body.code-mode[data-appearance='dark'] .code-settings-panel-close:focus-visible {
+  background: #30363d;
+  color: #f0f6fc;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-panel-close {
+  color: #8b949e;
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-home-form input {
+  background: #0d1117;
+  color: #e6edf3;
+  border-color: #30363d;
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-home-form input::placeholder {
+  color: #6e7681;
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-home-form input:focus {
+  border-color: #6e7681;
+  box-shadow: 0 0 0 3px rgba(110, 118, 129, 0.22);
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-home-form input:disabled {
+  color: #8b949e;
+  background: #161b22;
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-home-form-actions .primary,
+body.code-mode[data-appearance='dark'] .code-settings-update-actions .primary {
+  background: #f0f6fc;
+  border-color: #f0f6fc;
+  color: #0d1117;
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-home-form-actions .primary:hover,
+body.code-mode[data-appearance='dark'] .code-agent-home-form-actions .primary:focus-visible,
+body.code-mode[data-appearance='dark'] .code-settings-update-actions .primary:hover,
+body.code-mode[data-appearance='dark'] .code-settings-update-actions .primary:focus-visible {
+  background: #d8dee4;
+  border-color: #d8dee4;
+  color: #0d1117;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-error {
+  background: rgba(248, 81, 73, 0.1);
+  border-color: rgba(248, 81, 73, 0.36);
+  color: #ff7b72;
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-home-actions button:disabled,
+body.code-mode[data-appearance='dark'] .code-agent-home-form-actions button:disabled {
+  background: #161b22;
+  border-color: #30363d;
+  color: #6e7681;
+  cursor: not-allowed;
+  opacity: 1;
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-home-actions button:disabled:hover,
+body.code-mode[data-appearance='dark'] .code-agent-home-actions button:disabled:focus-visible,
+body.code-mode[data-appearance='dark'] .code-agent-home-form-actions button:disabled:hover,
+body.code-mode[data-appearance='dark'] .code-agent-home-form-actions button:disabled:focus-visible {
+  background: #161b22;
+  color: #6e7681;
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-home-provider {
+  background: transparent;
+  border-color: #30363d;
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-home-provider-title span {
+  color: #6e7681;
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-home-provider-header .code-agent-home-add {
+  background: transparent;
+  border: 0;
+  color: #8b949e;
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-home-provider-header .code-agent-home-add:hover,
+body.code-mode[data-appearance='dark'] .code-agent-home-provider-header .code-agent-home-add:focus-visible {
+  background: transparent;
+  color: #f0f6fc;
+  text-decoration: underline;
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-home-row {
+  background: #161b22;
+  border-color: #30363d;
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-home-actions button {
+  background: transparent;
+  border: 0;
+  color: #8b949e;
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-home-actions button:hover,
+body.code-mode[data-appearance='dark'] .code-agent-home-actions button:focus-visible {
+  background: transparent;
+  color: #ff7b72;
+  text-decoration: underline;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-inline-preferences {
+  background: #1c2128;
+  border-color: #30363d;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-inline-choice > span {
+  color: #8b949e;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-panel {
+  background: #171a1f;
+  border-left: 0;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-choice-row,
+body.code-mode[data-appearance='dark'] .code-settings-update-card,
+body.code-mode[data-appearance='dark'] .code-agent-home-form,
+body.code-mode[data-appearance='dark'] .code-settings-inline-preferences,
+body.code-mode[data-appearance='dark'] .code-agent-home-row,
+body.code-mode[data-appearance='dark'] .code-settings-card,
+body.code-mode[data-appearance='dark'] .code-settings-choice-row.dangerous,
+body.code-mode[data-appearance='dark'] .code-agent-home-provider {
+  background: #1c2128;
+  border-color: #30363d;
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-home-provider-header {
+  background: #21262d;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-update-card.available {
+  border-color: rgba(46, 160, 67, 0.52);
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-update-versions {
+  color: #e6edf3;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-update-versions strong,
+body.code-mode[data-appearance='dark'] .code-settings-update-summary.available {
+  color: #56d364;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-update-arrow,
+body.code-mode[data-appearance='dark'] .code-settings-update-summary,
+body.code-mode[data-appearance='dark'] .code-settings-update-elapsed {
+  color: #8b949e;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-update-summary.phase-failed,
+body.code-mode[data-appearance='dark'] .code-settings-update-summary.phase-rolled-back {
+  color: #ff7b72;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-update-actions button {
+  border-color: #30363d;
+  background: #21262d;
+  color: #c9d1d9;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-update-actions button:hover:not(:disabled),
+body.code-mode[data-appearance='dark'] .code-settings-update-actions button:focus-visible {
+  border-color: #484f58;
+  background: #30363d;
+  color: #f0f6fc;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-update-actions button.primary {
+  border-color: #238636;
+  background: #238636;
+  color: #ffffff;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-update-actions button.primary:hover:not(:disabled),
+body.code-mode[data-appearance='dark'] .code-settings-update-actions button.primary:focus-visible {
+  border-color: #2ea043;
+  background: #2ea043;
+  color: #ffffff;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-update-actions button:disabled {
+  border-color: #30363d;
+  background: #161b22;
+  color: #6e7681;
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-home-form input,
+body.code-mode[data-appearance='dark'] .code-settings-search-timeout-row input[type='range'],
+body.code-mode[data-appearance='dark'] .code-settings-content-font-size-row input[type='range'],
+body.code-mode[data-appearance='dark'] .code-settings-pet-rest-row input[type='range'] {
+  background: transparent;
+  border-color: #30363d;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-pet-rest-custom input {
+  border-color: #3c444d;
+  background: #161b22;
+  color: #c9d1d9;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-pet-appearance-select,
+body.code-mode[data-appearance='dark'] .code-settings-pet-appearance-preview {
+  border-color: #30363d;
+  background: rgba(22, 27, 34, 0.62);
+  color: #c9d1d9;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-pet-appearance-select:hover,
+body.code-mode[data-appearance='dark'] .code-settings-pet-appearance-select:focus-visible,
+body.code-mode[data-appearance='dark'] .code-settings-pet-appearance-select.selected,
+body.code-mode[data-appearance='dark'] .code-settings-pet-appearance-preview:hover,
+body.code-mode[data-appearance='dark'] .code-settings-pet-appearance-preview:focus-visible {
+  border-color: #59636e;
+  background: rgba(48, 54, 61, 0.72);
+  color: #f0f6fc;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-permission-toggle {
+  border-color: #6e7681;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-permission-toggle.active {
+  border-color: #c9d1d9;
+  background: #c9d1d9;
+  color: #171a1f;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-permission-toggle:hover:not(:disabled),
+body.code-mode[data-appearance='dark'] .code-settings-permission-toggle:focus-visible {
+  border-color: #c9d1d9;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-language-choice {
+  border-left-color: #30363d;
+}
+
+@media (max-width: 980px) {
+
+  body.code-mode[data-appearance='dark'].code-compact-layout .code-settings-panel-overlay {
+    background: rgba(1, 4, 9, 0.28);
+  }
+
+  body.code-mode[data-appearance='dark'].code-compact-layout .code-settings-panel {
+    background: rgba(13, 17, 23, 0.97);
+    box-shadow: 16px 0 44px rgba(0, 0, 0, 0.36);
+  }
+
+  body.code-mode[data-appearance='dark'].code-compact-layout .code-settings-panel-back {
+    color: var(--code-dark-text-muted);
+  }
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-panel {
+  background: #171a1f;
+  color: #d8dee9;
+  border-left-color: #30363d;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-panel-header,
+body.code-mode[data-appearance='dark'] .code-agent-home-provider-header {
+  border-color: #30363d;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-panel-header h2,
+body.code-mode[data-appearance='dark'] .code-settings-section h3,
+body.code-mode[data-appearance='dark'] .code-agent-home-id,
+body.code-mode[data-appearance='dark'] .code-agent-home-provider-header strong {
+  color: #f0f3f6;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-panel-header p,
+body.code-mode[data-appearance='dark'] .code-settings-section-heading p,
+body.code-mode[data-appearance='dark'] .code-settings-status,
+body.code-mode[data-appearance='dark'] .code-agent-home-path,
+body.code-mode[data-appearance='dark'] .code-agent-home-form p,
+body.code-mode[data-appearance='dark'] .code-agent-home-empty {
+  color: #8b949e;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-row-copy strong {
+  color: var(--code-dark-text-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-row-copy small,
+body.code-mode[data-appearance='dark'] .code-settings-search-timeout-row output,
+body.code-mode[data-appearance='dark'] .code-settings-update-summary,
+body.code-mode[data-appearance='dark'] .code-agent-home-provider-title span,
+body.code-mode[data-appearance='dark'] .code-settings-inline-choice > svg,
+body.code-mode[data-appearance='dark'] .code-settings-segmented button {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-section + .code-settings-section,
+body.code-mode[data-appearance='dark'] .code-settings-language-choice,
+body.code-mode[data-appearance='dark'] .code-settings-card > .code-settings-choice-row + .code-settings-choice-row {
+  border-color: var(--code-dark-border);
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-choice-row,
+body.code-mode[data-appearance='dark'] .code-agent-home-provider,
+body.code-mode[data-appearance='dark'] .code-agent-home-form {
+  background: #1d2229;
+  border-color: #30363d;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-segmented,
+body.code-mode[data-appearance='dark'] .code-agent-home-provider-header button,
+body.code-mode[data-appearance='dark'] .code-agent-home-actions button,
+body.code-mode[data-appearance='dark'] .code-agent-home-form-actions button,
+body.code-mode[data-appearance='dark'] .code-agent-home-form input,
+body.code-mode[data-appearance='dark'] .code-settings-panel-close {
+  border-color: #30363d;
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-home-form input {
+  background: #11151a;
+  color: #d8dee9;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-segmented button.active,
+body.code-mode[data-appearance='dark'] .code-settings-segmented button:hover,
+body.code-mode[data-appearance='dark'] .code-settings-segmented button:focus-visible,
+body.code-mode[data-appearance='dark'] .code-agent-home-provider-header button:hover,
+body.code-mode[data-appearance='dark'] .code-agent-home-provider-header button:focus-visible,
+body.code-mode[data-appearance='dark'] .code-agent-home-actions button:hover,
+body.code-mode[data-appearance='dark'] .code-agent-home-actions button:focus-visible,
+body.code-mode[data-appearance='dark'] .code-agent-home-form-actions button:hover,
+body.code-mode[data-appearance='dark'] .code-agent-home-form-actions button:focus-visible,
+body.code-mode[data-appearance='dark'] .code-settings-panel-close:hover,
+body.code-mode[data-appearance='dark'] .code-settings-panel-close:focus-visible {
+  background: #30363d;
+  color: #f0f3f6;
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-home-form-actions .primary {
+  background: #f0f3f6;
+  color: #171a1f;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-panel-overlay {
+  background: rgba(1, 4, 9, 0.42);
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-panel-header {
+  background: #171a1f;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-segmented {
+  background: #11151a;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-segmented button.active {
+  background: #30363d;
+  color: #f0f3f6;
+  box-shadow: none;
+}
+
+body.code-mode[data-appearance='dark'] .code-settings-error {
+  background: rgba(248, 81, 73, 0.08);
+  border-color: rgba(248, 81, 73, 0.32);
+  color: #ff7b72;
+}

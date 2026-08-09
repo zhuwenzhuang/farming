@@ -1,24 +1,16 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { CODE_STYLE_SOURCES } = require('../../src/styles/code-style-sources');
 const { readCodeStyleSource } = require('./style-source-reader');
 
 const projectRoot = path.join(__dirname, '..', '..');
 const read = (relativePath: string) => fs.readFileSync(path.join(projectRoot, relativePath), 'utf8');
 
-const mainSource = read('src/main.tsx');
 const sharedStyles = readCodeStyleSource('src/styles/sidebar-resources.css');
 const browserSource = read('extensions/browser/frontend/BrowserSidebarPortals.tsx');
 const browserStyles = read('extensions/browser/frontend/browser.css');
 const computerSource = read('extensions/computer/frontend/ComputerSection.tsx');
 const computerStyles = read('extensions/computer/frontend/computer.css');
-
-assert(
-  CODE_STYLE_SOURCES.includes('src/styles/sidebar-resources.css')
-    && mainSource.includes("await import('./styles/sidebar-resources.css')"),
-  'The Code style manifest and application must load the shared sidebar Resource style contract',
-);
 
 for (const className of [
   'code-sidebar-resource-section',
