@@ -1828,7 +1828,9 @@ function run() {
       responsiveModeSource.includes('navigator.maxTouchPoints > 0') &&
       workspaceSource.includes('function isDesktopAutoCollapseWidth(width: number)') &&
       workspaceSource.includes('const syncSidebarForWorkspaceWidth = (width: number) =>') &&
-      workspaceSource.includes('if (mobileNavigationViewport) {\n        if (!mobileNavigationViewportRef.current) autoCollapseSidebar()\n        mobileNavigationViewportRef.current = true\n        return\n      }') &&
+      workspaceSource.includes('const mobileViewport = isMobileNavigationViewport()') &&
+      workspaceSource.includes('setMobileNavigationViewport(mobileViewport)') &&
+      workspaceSource.includes('if (mobileViewport) {\n        if (!mobileNavigationViewportRef.current) autoCollapseSidebar()\n        mobileNavigationViewportRef.current = true\n        return\n      }') &&
       workspaceSource.includes('if (sidebarAutoCollapsedRef.current)') &&
       workspaceSource.includes('function AgentRail(') &&
       workspaceSource.includes('data-testid="code-agent-rail-item"') &&
