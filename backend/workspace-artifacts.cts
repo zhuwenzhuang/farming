@@ -1,6 +1,7 @@
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { isSameOrDescendantPath } from './path-containment.cjs';
 
 const MAX_IMAGE_ARTIFACT_BYTES = 32 * 1024 * 1024;
 
@@ -18,11 +19,6 @@ interface WriteWorkspaceImageOptions {
   operation: string;
   signal?: AbortSignal;
   workspace: string;
-}
-
-function pathInside(root: string, candidate: string): boolean {
-  const relative = path.relative(path.resolve(root), path.resolve(candidate));
-  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
 function safeNamePart(value: unknown, fallback: string): string {
@@ -63,7 +59,7 @@ async function ensurePrivateDirectory(
   }
   const resolved = await fs.promises.realpath(candidate);
   signal?.throwIfAborted();
-  if (!pathInside(workspaceReal, resolved)) {
+  if (!isSameOrDescendantPath(workspaceReal, resolved)) {
     throw new Error('Workspace artifact directory resolves outside the Project workspace');
   }
   return resolved;
@@ -115,7 +111,6 @@ async function writeWorkspaceImageArtifact(
 
 export {
   MAX_IMAGE_ARTIFACT_BYTES,
-  pathInside,
   writeWorkspaceImageArtifact,
   type WorkspaceArtifact,
 };

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { isSameOrDescendantPath } from '../../../backend/path-containment.cjs';
 interface WorkspaceRoot {
   canonicalPath: string;
   kind: string;
@@ -86,7 +87,7 @@ function resolveFile(root: WorkspaceRoot, filePath: unknown): string {
   }
   const absolutePath = path.resolve(root.canonicalPath, relativePath);
   const relative = path.relative(root.canonicalPath, absolutePath);
-  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+  if (!relative || !isSameOrDescendantPath(root.canonicalPath, absolutePath)) {
     const error = new Error('Language Server file is outside the Project') as Error & { status?: number };
     error.status = 403;
     throw error;
@@ -100,7 +101,7 @@ function resolveFile(root: WorkspaceRoot, filePath: unknown): string {
     throw error;
   }
   const realRelative = path.relative(root.canonicalPath, realPath);
-  if (!realRelative || realRelative.startsWith('..') || path.isAbsolute(realRelative)) {
+  if (!realRelative || !isSameOrDescendantPath(root.canonicalPath, realPath)) {
     const error = new Error('Language Server file resolves outside the Project') as Error & { status?: number };
     error.status = 403;
     throw error;
@@ -124,7 +125,7 @@ function locationWithinRoot(rootPath: string, uri: unknown): { path: string } | 
     return null;
   }
   const relative = path.relative(rootPath, realPath);
-  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return null;
+  if (!relative || !isSameOrDescendantPath(rootPath, realPath)) return null;
   return { path: relative.split(path.sep).join('/') };
 }
 

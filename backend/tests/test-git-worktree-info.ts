@@ -214,16 +214,20 @@ async function run() {
     ], { stdio: 'ignore' });
     execFileSync('git', ['-C', repo, 'worktree', 'add', '-b', 'topic', linked], { stdio: 'ignore' });
     fs.mkdirSync(path.join(linked, 'src'), { recursive: true });
+    fs.mkdirSync(path.join(linked, '..foo'), { recursive: true });
     const canonicalRepo = fs.realpathSync(repo);
     const canonicalLinked = fs.realpathSync(linked);
 
     const mainInfo = await inspectGitWorktree(repo, { cacheMs: 0 });
     const linkedInfo = await inspectGitWorktree(path.join(linked, 'src'), { cacheMs: 0 });
+    const dotDotNameInfo = await inspectGitWorktree(path.join(linked, '..foo'), { cacheMs: 0 });
     assert(mainInfo);
     assert(linkedInfo);
+    assert(dotDotNameInfo, 'a legal ..foo descendant must resolve to its containing worktree');
     assert.strictEqual(mainInfo.workspace, canonicalRepo);
     assert.strictEqual(mainInfo.linked, false);
     assert.strictEqual(linkedInfo.workspace, canonicalLinked);
+    assert.strictEqual(dotDotNameInfo.workspace, canonicalLinked);
     assert.strictEqual(linkedInfo.mainWorkspace, canonicalRepo);
     assert.strictEqual(linkedInfo.linked, true);
     assert.strictEqual(linkedInfo.branch, 'topic');

@@ -9,6 +9,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { isSameOrDescendantPath } from '../../../backend/path-containment.cjs';
 
 interface LanguageServerDefinition {
   id: string;
@@ -36,18 +37,13 @@ function directoryHasMarker(directory: string, marker: string): boolean {
   }
 }
 
-function isWithinRoot(candidate: string, root: string): boolean {
-  const relative = path.relative(root, candidate);
-  return !relative.startsWith('..') && !path.isAbsolute(relative);
-}
-
 function findNearestMarkerDirectory(
   filePath: string,
   workspaceRoot: string,
   markers: string[],
 ): string | undefined {
   let directory = path.dirname(filePath);
-  while (isWithinRoot(directory, workspaceRoot)) {
+  while (isSameOrDescendantPath(workspaceRoot, directory)) {
     if (markers.some(marker => directoryHasMarker(directory, marker))) return directory;
     if (directory === workspaceRoot) break;
     const parent = path.dirname(directory);
@@ -96,7 +92,7 @@ async function javaRoot(filePath: string, workspaceRoot: string): Promise<string
 
   const pomDirectories: string[] = [];
   let directory = path.dirname(filePath);
-  while (isWithinRoot(directory, workspaceRoot)) {
+  while (isSameOrDescendantPath(workspaceRoot, directory)) {
     if (fs.existsSync(path.join(directory, 'pom.xml'))) pomDirectories.push(directory);
     if (directory === workspaceRoot) break;
     const parent = path.dirname(directory);

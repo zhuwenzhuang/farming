@@ -3,6 +3,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 import { inspectGitWorktree } from './git-worktree-info.cjs';
+import { isSameOrDescendantPath } from './path-containment.cjs';
 interface WorkspaceFileApiError extends Error {
   details: Record<string, unknown>;
   statusCode: number;
@@ -182,11 +183,6 @@ function realPathIfPresent(value: string): string {
   } catch {
     return value;
   }
-}
-
-function isSameOrDescendantPath(root: string, target: string): boolean {
-  const relative = path.relative(root, target);
-  return relative === '' || Boolean(relative) && !relative.startsWith('..') && !path.isAbsolute(relative);
 }
 
 function previewAuthorizedRootForTarget(allowedRoots: string[], target: string): string {

@@ -6,6 +6,7 @@ const { diffChars } = require('diff');
 const { execFile, spawn } = require('child_process');
 const readline = require('readline');
 const { pathToFileURL } = require('url');
+import { isSameOrDescendantPath as isInside } from './path-containment.cjs';
 
 const DEFAULT_MAX_FILE_SIZE = 1024 * 1024;
 const DEFAULT_MAX_WRITE_SIZE = 2 * 1024 * 1024;
@@ -525,15 +526,6 @@ class CommandRunner implements WorkspaceCommandRunner {
     this.child = null;
     this.ready = false;
   }
-}
-
-function isInside(root: string, target: string): boolean {
-  const relative = path.relative(root, target);
-  return relative === '' || (
-    relative !== '..'
-    && !relative.startsWith(`..${path.sep}`)
-    && !path.isAbsolute(relative)
-  );
 }
 
 function isInsideAnyRoot(roots: unknown, target: string): boolean {

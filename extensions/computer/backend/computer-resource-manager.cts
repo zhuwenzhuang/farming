@@ -16,6 +16,7 @@ import {
   writeWorkspaceImageArtifact,
   type WorkspaceArtifact,
 } from '../../../backend/workspace-artifacts.cjs';
+import { isSameOrDescendantPath } from '../../../backend/path-containment.cjs';
 import { COMPUTER_CONTAINER_CPUS, COMPUTER_CONTAINER_MEMORY, COMPUTER_CONTAINER_PIDS, COMPUTER_CONTAINER_SHM_SIZE, COMPUTER_DRIVER_BIN, COMPUTER_DRIVER_VERSION, COMPUTER_IMAGE, COMPUTER_IMAGE_INDEX_DIGEST, COMPUTER_TOOL_REQUEST_TIMEOUT_MS, COMPUTER_USER } from './computer-constants.cjs';
 import { ComputerResourceStore, publicResource } from './computer-resource-store.cjs';
 
@@ -156,11 +157,6 @@ function sanitizeDriverResult(value: unknown): unknown {
   return Object.fromEntries(Object.entries(value as Record<string, unknown>)
     .filter(([key]) => !['screenshot_file_path', 'screenshot_out_file'].includes(key))
     .map(([key, item]) => [key, sanitizeDriverResult(item)]));
-}
-
-function pathInside(root: string, candidate: string): boolean {
-  const relative = path.relative(path.resolve(root), path.resolve(candidate));
-  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
 function computerError(message: string, status: number, code: string, extra: Record<string, unknown> = {}) {
@@ -1104,7 +1100,7 @@ class ComputerResourceManager extends EventEmitter {
     const root = this.browserCacheRoot();
     const resolved = path.resolve(String(executablePath || '').trim());
     const relative = path.relative(root, resolved);
-    if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+    if (!relative || !isSameOrDescendantPath(root, resolved)) {
       throw computerError(
         'Computer Chromium must come from Farming managed runtime storage',
         400,
@@ -1117,7 +1113,7 @@ class ComputerResourceManager extends EventEmitter {
   private ensureBrowserCacheTraversal(executablePath: string): void {
     const root = path.resolve(this.browserCacheRoot());
     let current = path.dirname(path.resolve(String(executablePath || '').trim()));
-    while (current === root || pathInside(root, current)) {
+    while (isSameOrDescendantPath(root, current)) {
       const mode = fs.statSync(current).mode & 0o777;
       if ((mode & 0o011) !== 0o011) fs.chmodSync(current, mode | 0o011);
       if (current === root) return;

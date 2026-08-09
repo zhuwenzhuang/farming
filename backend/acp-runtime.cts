@@ -18,6 +18,7 @@ import {
   type TranscriptSliceOptions,
 } from './acp-session-state.cjs';
 import { AcpClientFileSystem, AcpClientTerminalManager } from './acp/client-services.cjs';
+import { isSameOrDescendantPath } from './path-containment.cjs';
 import { PACKAGED_CODEX_ACP_ARG } from './acp/packaged-codex-acp.cjs';
 import { PACKAGED_CLAUDE_ACP_ARG } from './acp/packaged-claude-acp.cjs';
 import { permissionSecurityWarnings } from './acp/permission-security.cjs';
@@ -778,7 +779,7 @@ function codexVisualizationThreadDirectory(binding: Pick<AcpBinding, 'env' | 'se
     .filter(directory => {
       const relative = path.relative(visualizationsDirectory, directory);
       const parts = relative.split(path.sep);
-      return !relative.startsWith('..') && !path.isAbsolute(relative)
+      return isSameOrDescendantPath(visualizationsDirectory, directory)
         && parts.length === 4 && parts[3] === threadId;
     });
   if (grantedThreadDirectories.length === 1) {

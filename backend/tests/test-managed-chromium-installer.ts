@@ -349,6 +349,34 @@ async function testAgentBrowserUpgradeRequiresMatchingChromium() {
   }
 }
 
+async function testManifestAcceptsLegalDotDotPrefixedDescendant() {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-managed-chromium-dot-dot-name-'));
+  const installer = new ManagedChromiumInstaller(installerOptions(configDir));
+  try {
+    const executableRelativePath = path.join('..foo', 'chrome');
+    const executablePath = path.join(installer.targetDir(), executableRelativePath);
+    fs.mkdirSync(path.dirname(executablePath), { recursive: true });
+    fs.writeFileSync(executablePath, '#!/bin/sh\n', { mode: 0o700 });
+    fs.writeFileSync(installer.manifestFile(), JSON.stringify({
+      format: MANIFEST_FORMAT,
+      agentBrowserVersion: '0.32.3',
+      platformKey: 'linux-x64',
+      executableRelativePath,
+    }));
+    assert.strictEqual(installer.readValidManifest()?.executablePath, executablePath);
+
+    fs.writeFileSync(installer.manifestFile(), JSON.stringify({
+      format: MANIFEST_FORMAT,
+      agentBrowserVersion: '0.32.3',
+      platformKey: 'linux-x64',
+      executableRelativePath: path.join('..', 'outside-chrome'),
+    }));
+    assert.strictEqual(installer.readValidManifest(), null, 'a real manifest traversal must remain rejected');
+  } finally {
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+}
+
 async function run() {
   await testInstallPublishesOnlyAfterVerification();
   await testFailureDoesNotPublishAndCanRetry();
@@ -358,6 +386,7 @@ async function run() {
   await testFailedSourceContinuesWithVerifiedMirror();
   await testUnprovenInstallerExitStopsFallback();
   await testAgentBrowserUpgradeRequiresMatchingChromium();
+  await testManifestAcceptsLegalDotDotPrefixedDescendant();
   console.log('managed Chromium installer tests passed');
 }
 

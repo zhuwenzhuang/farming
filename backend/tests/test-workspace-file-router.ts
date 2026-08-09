@@ -94,6 +94,11 @@ async function run() {
     fs.writeFileSync(path.join(externalWorkspace, 'reference.md'), 'external router reference\n');
     fs.symlinkSync(externalWorkspace, path.join(projectWorkspace, 'reference-link'));
     fs.writeFileSync(path.join(projectWorkspace, 'README.md'), 'hello farming\n');
+    fs.mkdirSync(path.join(projectWorkspace, '..foo'), { recursive: true });
+    const dotDotNameFile = path.join(projectWorkspace, '..foo', 'legal.md');
+    fs.writeFileSync(dotDotNameFile, 'legal dot-dot name\n');
+    fs.writeFileSync(path.join(projectWorkspace, '..foo', 'index.html'), '<link rel="stylesheet" href="legal.css"><h1>Dot-dot name</h1>\n');
+    fs.writeFileSync(path.join(projectWorkspace, '..foo', 'legal.css'), 'h1 { color: rgb(7, 8, 9); }\n');
     fs.writeFileSync(path.join(projectWorkspace, 'binary.bin'), Buffer.from([0, 1, 2, 3, 0]));
     fs.writeFileSync(path.join(projectWorkspace, 'large.log'), `${'large text line\n'.repeat(8)}`);
     fs.writeFileSync(path.join(projectWorkspace, 'preview.png'), Buffer.from(
@@ -113,6 +118,7 @@ async function run() {
     const forbiddenGlobalReadFile = path.join(tmpRoot, 'outside-project.md');
     fs.writeFileSync(forbiddenGlobalReadFile, 'outside project\n');
     fs.symlinkSync(forbiddenGlobalReadFile, path.join(projectWorkspace, 'site', 'escape-link.md'));
+    fs.symlinkSync(forbiddenGlobalReadFile, path.join(projectWorkspace, '..foo', 'escape-link.md'));
     const exactExternalPreviewFile = path.join(tmpRoot, 'outside-project.png');
     fs.writeFileSync(exactExternalPreviewFile, Buffer.from(
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgF/2l2fLwAAAABJRU5ErkJggg==',
@@ -299,6 +305,21 @@ async function run() {
       assert(rawSvgPreview.buffer.toString('utf8').includes('<rect'));
       const rawEscaped = await fetchJson(baseUrl, '/api/files/raw?agentId=agent-main&path=../secret.png');
       assert.strictEqual(rawEscaped.response.status, 403);
+
+      const dotDotNamePreview = await fetchJson(baseUrl, '/api/files/previews', {
+        method: 'POST',
+        body: JSON.stringify({ agentId: 'agent-main', path: '..foo/index.html' }),
+      });
+      assert.strictEqual(dotDotNamePreview.response.status, 201);
+      const dotDotNamePreviewId = dotDotNamePreview.body.preview.id;
+      const dotDotNamePreviewHtml = await fetchRaw(baseUrl, `/api/files/previews/${dotDotNamePreviewId}/base/index.html`);
+      assert.strictEqual(dotDotNamePreviewHtml.response.status, 200);
+      assert(dotDotNamePreviewHtml.buffer.toString('utf8').includes('Dot-dot name'));
+      const dotDotNamePreviewCss = await fetchRaw(baseUrl, `/api/files/previews/${dotDotNamePreviewId}/base/legal.css`);
+      assert.strictEqual(dotDotNamePreviewCss.response.status, 200);
+      assert(dotDotNamePreviewCss.buffer.toString('utf8').includes('rgb(7, 8, 9)'));
+      const dotDotNamePreviewEscape = await fetchJson(baseUrl, `/api/files/previews/${dotDotNamePreviewId}/base/escape-link.md`);
+      assert.strictEqual(dotDotNamePreviewEscape.response.status, 403);
 
       const htmlPreview = await fetchJson(baseUrl, '/api/files/previews', {
         method: 'POST',

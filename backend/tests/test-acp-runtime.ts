@@ -1492,6 +1492,36 @@ async function run() {
     assert.match(normalizedVisualization[1].update.content.uri, /^file:\/\//);
     assert(normalizedVisualization[1].update.content.uri.endsWith('/chart.html'));
 
+    const dotDotNameVisualizationDirectory = path.join(
+      codexHome,
+      'visualizations',
+      '..foo',
+      '08',
+      '03',
+      visualizationSessionId,
+    );
+    fs.mkdirSync(dotDotNameVisualizationDirectory, { recursive: true });
+    fs.writeFileSync(path.join(dotDotNameVisualizationDirectory, 'legal.html'), '<div>legal</div>');
+    const dotDotNameVisualization = await normalizeCodexHostMessageUpdate({
+      provider: 'codex', cwd: visualizationWorkspace, env: { CODEX_HOME: codexHome },
+      sessionId: visualizationSessionId,
+      sessionRequestOptions: {
+        additionalDirectories: [dotDotNameVisualizationDirectory],
+        cwd: visualizationWorkspace,
+        mcpServers: [],
+      },
+    }, {
+      sessionId: visualizationSessionId,
+      update: {
+        sessionUpdate: 'agent_message_chunk',
+        messageId: 'dot-dot-name-visualization',
+        content: { type: 'text', text: '::codex-inline-vis{file="legal.html"}' },
+      },
+    });
+    assert.strictEqual(dotDotNameVisualization.length, 1);
+    assert.strictEqual(dotDotNameVisualization[0].update.content.type, 'resource_link');
+    assert(dotDotNameVisualization[0].update.content.uri.endsWith('/legal.html'));
+
     const codeBlockVisualization = await normalizeCodexHostMessageUpdate({
       provider: 'codex', cwd: visualizationWorkspace, env: { CODEX_HOME: codexHome },
       sessionId: visualizationSessionId,

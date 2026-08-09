@@ -1,6 +1,7 @@
 const { execFile } = require('child_process');
 const path = require('path');
 const { promisify } = require('util');
+import { isSameOrDescendantPath } from './path-containment.cjs';
 
 interface GitWorktreeRecord {
   path: string;
@@ -97,11 +98,6 @@ function normalizePathValue(value: unknown): string {
   const trimmed = value.trim();
   if (!trimmed) return '';
   return path.resolve(trimmed);
-}
-
-function isSameOrDescendantPath(root: string, target: string): boolean {
-  const relative = path.relative(root, target);
-  return relative === '' || Boolean(relative) && !relative.startsWith('..') && !path.isAbsolute(relative);
 }
 
 function normalizeBranchRef(value: unknown): string {

@@ -8,6 +8,7 @@ import extractZip from 'extract-zip';
 import * as storageLayout from '../../../backend/storage-layout.cjs';
 import { runtimePlatformKey, verifyExecutable } from '../../../backend/runtime-dependency-manager.cjs';
 import { runtimeExecutableInvocation } from '../../../backend/runtime-executable-invocation.cjs';
+import { isSameOrDescendantPath } from '../../../backend/path-containment.cjs';
 import { AGENT_BROWSER_VERSION } from './agent-browser-runtime.cjs';
 import { managedAgentBrowserPath } from './executable-discovery.cjs';
 
@@ -243,11 +244,6 @@ function processRunning(pid: unknown): boolean {
   } catch (error) {
     return errorCode(error) === 'EPERM' || errorCode(error) === 'EACCES';
   }
-}
-
-function pathInside(root: string, candidate: string): boolean {
-  const relative = path.relative(path.resolve(root), path.resolve(candidate));
-  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
 function browserExecutableName(platform: BrowserPlatform): string {
@@ -711,7 +707,7 @@ class ManagedChromiumInstaller {
       || typeof manifest.executableRelativePath !== 'string'
     ) return null;
     const executablePath = path.resolve(directory, manifest.executableRelativePath);
-    if (!pathInside(directory, executablePath)) return null;
+    if (!isSameOrDescendantPath(directory, executablePath)) return null;
     try {
       fs.accessSync(executablePath, fs.constants.X_OK);
     } catch {
@@ -744,7 +740,7 @@ class ManagedChromiumInstaller {
         || typeof manifest.executableRelativePath !== 'string'
       ) return false;
       const executablePath = path.resolve(directory, manifest.executableRelativePath);
-      if (!pathInside(directory, executablePath)) return false;
+      if (!isSameOrDescendantPath(directory, executablePath)) return false;
       try {
         fs.accessSync(executablePath, fs.constants.X_OK);
         return true;

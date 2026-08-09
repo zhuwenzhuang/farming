@@ -386,7 +386,7 @@ async function run() {
 
     const browserExecutable = path.join(
       storageLayout.managedChromiumRootDir(manager.configDir),
-      '0.33.2',
+      '..foo',
       'linux-x64-computer',
       'chrome',
     );
@@ -399,6 +399,13 @@ async function run() {
     assert.strictEqual(
       await manager.verifyBrowserExecutable(browserExecutable),
       'Chromium 140.0',
+    );
+    const outsideBrowserExecutable = path.join(path.dirname(storageLayout.managedChromiumRootDir(manager.configDir)), 'outside-chrome');
+    fs.writeFileSync(outsideBrowserExecutable, '#!/bin/sh\n', { mode: 0o700 });
+    await assert.rejects(
+      manager.verifyBrowserExecutable(outsideBrowserExecutable),
+      error => error.code === 'COMPUTER_BROWSER_EXECUTABLE_INVALID',
+      'a real managed-runtime escape must remain rejected',
     );
     for (let directory = path.dirname(browserExecutable);; directory = path.dirname(directory)) {
       assert.strictEqual(
