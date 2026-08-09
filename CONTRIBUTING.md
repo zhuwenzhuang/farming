@@ -11,6 +11,12 @@ npm install
 npm start
 ```
 
+To stop every current-user Farming process and start a fresh local Server:
+
+```bash
+npm restart
+```
+
 For trusted local development only:
 
 ```bash

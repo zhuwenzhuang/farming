@@ -11,6 +11,12 @@ npm install
 npm start
 ```
 
+如需结束当前用户的所有 Farming 进程后重新启动本地 Server：
+
+```bash
+npm restart
+```
+
 仅在可信本地开发环境中，可以关闭 token 校验：
 
 ```bash
