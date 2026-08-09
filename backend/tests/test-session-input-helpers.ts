@@ -862,8 +862,13 @@ function run() {
     path.join(__dirname, '../../backend/session-stream-protocol.cts'),
     'utf8'
   );
+  const streamBroadcastsSource = fs.readFileSync(
+    path.join(__dirname, '../../backend/websocket-session-stream-broadcasts.cts'),
+    'utf8'
+  );
   assert(
-    serverSource.includes('coalesceSessionStream(existing, stream)') &&
+    serverSource.includes('websocketSessionStreamBroadcasts.schedule(stream)') &&
+      streamBroadcastsSource.includes('coalesceSessionStream(pendingStreams.get(key), stream)') &&
       streamProtocolSource.includes('outputSeq === undefined || stateRevision === undefined') &&
       streamProtocolSource.includes("kind: transitionKind(stream.kind)") &&
       streamProtocolSource.includes('stateRevision,') &&

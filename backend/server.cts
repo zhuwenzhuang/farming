@@ -49,8 +49,6 @@ interface ServerRecord {
 }
 
 type AgentStartCallback = NonNullable<Parameters<AgentManager['startAgent']>[2]>;
-type SessionStream = ReturnType<typeof coalesceSessionStream>;
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -307,12 +305,7 @@ import {
   deliverDeferredAgentStateMessage,
   type DeferredAgentStateMessage,
 } from './agent-state-snapshot-delivery.cjs';
-import {
-  coalesceResourceBroadcast,
-  drainResourceBroadcasts,
-  resourceClientDelivery,
-  type ResourceBroadcastEvent,
-} from './resource-broadcast-protocol.cjs';
+import { createWebSocketResourceBroadcastController } from './websocket-resource-broadcasts.cjs';
 import {
   agentActivityClientDelivery,
   normalizeAgentActivityScope,
@@ -335,7 +328,11 @@ import { ReviewSessionService } from './review-session-service.cjs';
 import { createReviewSessionRouter } from './review-session-router.cjs';
 import { applyIndexHtmlAppearance, normalizeBasePath, routePath, rewriteIndexHtmlForBasePath, appendIndexHtmlAssetToken } from './index-html.cjs';
 import { decodeAcpTranscriptMedia } from './acp-transcript.cjs';
-import { coalesceSessionStream, deliverSessionStreamToClients, shouldBroadcastSessionStreamImmediately } from './session-stream-protocol.cjs';
+import { deliverSessionStreamToClients } from './session-stream-protocol.cjs';
+import {
+  createWebSocketSessionStreamBroadcasts,
+  type SessionStream,
+} from './websocket-session-stream-broadcasts.cjs';
 const {
   MIN_PROTOCOL_VERSION,
   PROTOCOL_VERSION,
@@ -3735,87 +3732,26 @@ const pendingPreviewBroadcasts = new Map();
 const pendingAgentActivityBroadcasts = new Map();
 const pendingAgentUpdates = new Map();
 const pendingAcpSessionRevisions = new Map();
-const pendingSessionStreams = new Map();
-const pendingResourceBroadcasts = new Map<string, ResourceBroadcastEvent>();
-let sessionStreamBroadcastTimer: ReturnType<typeof setTimeout> | null = null;
-let lastSessionStreamBroadcastAt = 0;
-let resourceBroadcastTimer: ReturnType<typeof setTimeout> | null = null;
-
-function broadcastResourceEvent(event: ResourceBroadcastEvent) {
-  const message = JSON.stringify(event.message);
-  wss.clients.forEach(client => {
-    if (client.readyState !== WebSocket.OPEN || client.protocolVersion !== PROTOCOL_VERSION) return;
-    const delivery = resourceClientDelivery(
-      client.bufferedAmount,
-      client.resourceSnapshotPending === true,
-      MAX_RESOURCE_CLIENT_BUFFERED_AMOUNT,
-    );
-    if (delivery === 'defer') {
-      client.resourceSnapshotPending = true;
-      return;
-    }
-    if (delivery === 'snapshot') {
-      sendResourceSnapshots(client);
-      return;
-    }
-    client.send(message);
-  });
-}
+const websocketResourceBroadcasts = createWebSocketResourceBroadcastController<WebSocketClient>({
+  clients: () => wss.clients,
+  intervalMs: RESOURCE_BROADCAST_INTERVAL_MS,
+  maxBufferedAmount: MAX_RESOURCE_CLIENT_BUFFERED_AMOUNT,
+  openState: WebSocket.OPEN,
+  protocolVersion: PROTOCOL_VERSION,
+  sendResourceSnapshots,
+  setTimer: setTimeout,
+});
 
 function recoverResourceSnapshotIfReady(client: WebSocketClient) {
-  if (client.readyState !== WebSocket.OPEN || client.protocolVersion !== PROTOCOL_VERSION) return;
-  const delivery = resourceClientDelivery(
-    client.bufferedAmount,
-    client.resourceSnapshotPending === true,
-    MAX_RESOURCE_CLIENT_BUFFERED_AMOUNT,
-  );
-  if (delivery === 'snapshot') sendResourceSnapshots(client);
-}
-
-function flushResourceBroadcasts() {
-  resourceBroadcastTimer = null;
-  drainResourceBroadcasts(pendingResourceBroadcasts).forEach(broadcastResourceEvent);
-}
-
-function scheduleResourceBroadcast(event: ResourceBroadcastEvent) {
-  coalesceResourceBroadcast(pendingResourceBroadcasts, event);
-  if (resourceBroadcastTimer) return;
-  resourceBroadcastTimer = setTimeout(flushResourceBroadcasts, RESOURCE_BROADCAST_INTERVAL_MS);
+  websocketResourceBroadcasts.recoverSnapshotIfReady(client);
 }
 
 function scheduleResourceUpdate(domain: 'browser' | 'computer', resource: unknown) {
-  if (!isRecord(resource)) return;
-  const id = typeof resource.id === 'string' ? resource.id : '';
-  const collectionRevision = Number(resource.collectionRevision);
-  const revision = Number(resource.revision);
-  if (!id || !Number.isInteger(collectionRevision) || collectionRevision < 0 || !Number.isInteger(revision) || revision < 0) return;
-  scheduleResourceBroadcast({
-    domain,
-    id,
-    collectionRevision,
-    kind: 'updated',
-    message: {
-      type: `${domain}-resource-updated`,
-      resource,
-    },
-  });
+  websocketResourceBroadcasts.scheduleUpdate(domain, resource);
 }
 
 function scheduleResourceDeletion(domain: 'browser' | 'computer', deletion: unknown) {
-  if (!isRecord(deletion)) return;
-  const id = typeof deletion.id === 'string' ? deletion.id : '';
-  const collectionRevision = Number(deletion.collectionRevision);
-  if (!id || !Number.isInteger(collectionRevision) || collectionRevision < 0) return;
-  scheduleResourceBroadcast({
-    domain,
-    id,
-    collectionRevision,
-    kind: 'deleted',
-    message: {
-      type: `${domain}-resource-deleted`,
-      deletion,
-    },
-  });
+  websocketResourceBroadcasts.scheduleDeletion(domain, deletion);
 }
 
 browserResourceManager.on('resource', (resource: unknown) => scheduleResourceUpdate('browser', resource));
@@ -4174,10 +4110,6 @@ function broadcastAgentRead(read: unknown) {
 
 agentManager.on('agent-read', broadcastAgentRead);
 
-function sessionStreamKey(stream: AgentScopedServerEvent) {
-  return `${stream.agentId}\0${stream.sessionSource || ''}`;
-}
-
 function broadcastSessionStream(stream: SessionStream) {
   const message = JSON.stringify({
     type: 'session-output',
@@ -4190,39 +4122,15 @@ function broadcastSessionStream(stream: SessionStream) {
   });
 }
 
-function flushSessionStreams() {
-  sessionStreamBroadcastTimer = null;
-  const streams = Array.from(pendingSessionStreams.values());
-  pendingSessionStreams.clear();
-  if (streams.length > 0) lastSessionStreamBroadcastAt = Date.now();
-  streams.forEach(broadcastSessionStream);
-}
-
-function scheduleSessionStreamBroadcast(stream: unknown) {
-  if (!isAgentScopedServerEvent(stream)) return;
-  const now = Date.now();
-  if (shouldBroadcastSessionStreamImmediately({
-    pendingCount: pendingSessionStreams.size,
-    lastBroadcastAt: lastSessionStreamBroadcastAt,
-    now,
-    intervalMs: SESSION_STREAM_BROADCAST_INTERVAL_MS,
-  })) {
-    lastSessionStreamBroadcastAt = now;
-    broadcastSessionStream(coalesceSessionStream(null, stream));
-    return;
-  }
-  const key = sessionStreamKey(stream);
-  const existing = pendingSessionStreams.get(key);
-  pendingSessionStreams.set(key, coalesceSessionStream(existing, stream));
-
-  if (!sessionStreamBroadcastTimer) {
-    sessionStreamBroadcastTimer = setTimeout(flushSessionStreams, SESSION_STREAM_BROADCAST_INTERVAL_MS);
-    if (typeof sessionStreamBroadcastTimer.unref === 'function') sessionStreamBroadcastTimer.unref();
-  }
-}
+const websocketSessionStreamBroadcasts = createWebSocketSessionStreamBroadcasts({
+  deliver: broadcastSessionStream,
+  intervalMs: SESSION_STREAM_BROADCAST_INTERVAL_MS,
+  now: Date.now,
+  setTimer: setTimeout,
+});
 
 agentManager.onSessionStream((stream) => {
-  scheduleSessionStreamBroadcast(stream);
+  websocketSessionStreamBroadcasts.schedule(stream);
 });
 
 agentManager.onSessionPreview((preview) => {

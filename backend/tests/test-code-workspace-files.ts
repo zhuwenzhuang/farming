@@ -58,6 +58,7 @@ function run() {
   const mainPageSessionSource = read('backend/main-page-session.cts');
   const inputPartsSource = read('backend/input-parts.cts');
   const websocketHandshakeHealthHandlersSource = read('backend/websocket-handshake-health-handlers.cts');
+  const websocketResourceBroadcastsSource = read('backend/websocket-resource-broadcasts.cts');
   const websocketTerminalHandlersSource = read('backend/websocket-terminal-handlers.cts');
   const terminalPaneSource = read('src/components/AgentTerminalPane.tsx');
   const transcriptPaneSource = read('src/components/code/AgentTranscriptPane.tsx');
@@ -138,8 +139,8 @@ function run() {
     websocketHandshakeHealthHandlersSource.includes('ports.sendResourceSnapshots(client);')
       && serverSource.includes("browserResourceManager.on('resource'")
       && serverSource.includes("computerResourceManager.on('resource'")
-      && serverSource.includes('coalesceResourceBroadcast(pendingResourceBroadcasts, event);')
-      && serverSource.includes('client.resourceSnapshotPending = true;')
+      && serverSource.includes('createWebSocketResourceBroadcastController<WebSocketClient>({')
+      && websocketResourceBroadcastsSource.includes('client.resourceSnapshotPending = true;')
       && serverSource.includes('recoverResourceSnapshotIfReady(ws);'),
     'the Server must hydrate resource snapshots after negotiation, coalesce lightweight deltas, and recover slow clients with a bounded snapshot path',
   );
