@@ -280,16 +280,15 @@ import {
   agentStateBroadcastSnapshotForScope,
   agentStateBroadcastProjectSummaries,
   agentStateScopeIncludesAgent,
-  agentStateSnapshotFrames,
   createAgentStateBroadcastTracker,
   normalizeAgentStateScope,
   type AgentStatePayload,
 } from './agent-state-broadcast-protocol.cjs';
 import {
   deferAgentStateMessageDuringSnapshot,
-  deliverDeferredAgentStateMessage,
   type DeferredAgentStateMessage,
 } from './agent-state-snapshot-delivery.cjs';
+import { createWebSocketAgentStateSnapshotController } from './websocket-agent-state-snapshot-controller.cjs';
 import { createWebSocketResourceBroadcastController } from './websocket-resource-broadcasts.cjs';
 import { createWebSocketAgentChangeBroadcasts } from './websocket-agent-change-broadcasts.cjs';
 import {
@@ -1964,14 +1963,7 @@ wss.on('connection', (ws, req) => {
   ws.on('close', (code: number, reason: Buffer) => {
     workspaceFileWatchController.close(ws);
     cancelSessionPreviewHydration(ws);
-    if (ws.initialStateSnapshotTimer) clearTimeout(ws.initialStateSnapshotTimer);
-    if (ws.stateSnapshotRetryTimer) clearTimeout(ws.stateSnapshotRetryTimer);
-    ws.stateSnapshotMessageBytes = 0;
-    ws.stateSnapshotMessages = [];
-    ws.stateSnapshotRetryTimer = null;
-    ws.initialStateSnapshotTimer = null;
-    ws.stateSnapshotInProgress = false;
-    ws.stateSnapshotOverflowed = false;
+    agentStateSnapshotController.dispose(ws);
     console.log('Client disconnected', JSON.stringify({
       connectionId: ws.connectionId,
       remoteAddress,
@@ -2144,170 +2136,11 @@ function currentAgentListMetadata(options: { includeWorkspaceRoots?: boolean } =
 }
 
 function sendState(ws: WebSocketClient) {
-  ws.initialStateSnapshotSent = true;
-  if (ws.initialStateSnapshotTimer) clearTimeout(ws.initialStateSnapshotTimer);
-  ws.initialStateSnapshotTimer = null;
-  if (ws.stateSnapshotInProgress) {
-    ws.stateSnapshotPending = true;
-    return;
-  }
-  cancelSessionPreviewHydration(ws);
-  broadcastState(ws, true);
-  const stateScope = normalizeAgentStateScope(ws.stateScope);
-  const state = agentStateBroadcastSnapshotForScope(
-    stateBroadcastTracker,
-    stateScope,
-    ws.focusedAgentId,
-  );
-  const summaries = agentStateBroadcastProjectSummaries(stateBroadcastTracker);
-  if (!state || !summaries) {
-    ws.stateSnapshotPending = true;
-    ws.send(JSON.stringify({
-      type: 'error',
-      message: 'Agent state snapshot is temporarily unavailable; Farming will retry',
-    }));
-    return;
-  }
-  const snapshotId = `${SERVER_EPOCH}:${stateBroadcastTracker.sequence}:${++stateSnapshotSerial}`;
-  const forceSinglePage = ws.stateSnapshotOverflowed === true;
-  ws.stateSnapshotOverflowed = false;
-  const frames = agentStateSnapshotFrames(
-    {
-      ...state,
-      projectAgentSummaries: summaries,
-    },
-    snapshotId,
-    forceSinglePage ? Math.max(1, state.agents.length) : INITIAL_AGENT_STATE_SNAPSHOT_PAGE_SIZE,
-    forceSinglePage ? Math.max(1, state.agents.length) : AGENT_STATE_SNAPSHOT_PAGE_SIZE,
-  )[Symbol.iterator]();
-  const sequence = stateBroadcastTracker.sequence;
-  ws.stateSnapshotInProgress = true;
-  ws.stateSnapshotPending = false;
-  ws.stateSnapshotMessageBytes = 0;
-  ws.stateSnapshotMessages = [];
-  const activityScope = normalizeAgentActivityScope(ws.activityScope);
-  const agentSnapshotCoversActivity = activityScope === 'none'
-    || stateScope === 'all'
-    || (activityScope === 'focused' && Boolean(ws.focusedAgentId));
-  if (agentSnapshotCoversActivity) {
-    ws.agentActivityAllCheckpointPending = false;
-    ws.agentActivityCheckpointPending = false;
-    ws.agentActivityResyncPending = false;
-  } else if (ws.agentActivityResyncPending) {
-    if (activityScope === 'all') ws.agentActivityAllCheckpointPending = true;
-    else if (activityScope === 'focused') ws.agentActivityCheckpointPending = true;
-  }
-
-  const queueNextPage = (delayMs: number, callback: () => void = deliverNextPage) => {
-    if (ws.stateSnapshotRetryTimer) clearTimeout(ws.stateSnapshotRetryTimer);
-    ws.stateSnapshotRetryTimer = setTimeout(callback, delayMs);
-    ws.stateSnapshotRetryTimer.unref?.();
-  };
-  const finishSnapshotDelivery = () => {
-    ws.stateSnapshotInProgress = false;
-    ws.stateSnapshotRetryTimer = null;
-    recoverAgentActivityIfReady(ws);
-    recoverAcpSessionRevisionIfReady(ws);
-    queueSessionPreviewHydration(
-      ws,
-      PREVIEW_SCOPE_DECLARATION_WINDOW_MS,
-      () => {
-        if (ws.readyState === WebSocket.OPEN) sendPreviewHydration(ws);
-      },
-    );
-  };
-  const restartPendingSnapshot = () => {
-    if (!ws.stateSnapshotPending) return false;
-    ws.stateSnapshotMessages?.forEach(queued => queued.onDiscard?.());
-    ws.stateSnapshotMessageBytes = 0;
-    ws.stateSnapshotMessages = [];
-    ws.stateSnapshotInProgress = false;
-    sendState(ws);
-    return true;
-  };
-  const drainSnapshotDeltas = () => {
-    ws.stateSnapshotRetryTimer = null;
-    if (ws.readyState !== WebSocket.OPEN) {
-      ws.stateSnapshotInProgress = false;
-      return;
-    }
-    if (restartPendingSnapshot()) return;
-    if (ws.bufferedAmount > MAX_STATE_CLIENT_BUFFERED_AMOUNT) {
-      queueNextPage(AGENT_STATE_SNAPSHOT_BACKPRESSURE_RETRY_MS, drainSnapshotDeltas);
-      return;
-    }
-    const queued = ws.stateSnapshotMessages?.[0];
-    if (!queued) {
-      ws.stateSnapshotMessageBytes = 0;
-      finishSnapshotDelivery();
-      return;
-    }
-    if (
-      Number.isFinite(queued.maxBufferedAmount)
-      && ws.bufferedAmount > Number(queued.maxBufferedAmount)
-    ) {
-      queueNextPage(AGENT_STATE_SNAPSHOT_BACKPRESSURE_RETRY_MS, drainSnapshotDeltas);
-      return;
-    }
-    ws.stateSnapshotMessages?.shift();
-    ws.stateSnapshotMessageBytes = Math.max(
-      0,
-      (ws.stateSnapshotMessageBytes || 0) - Buffer.byteLength(queued.message),
-    );
-    deliverDeferredAgentStateMessage(queued, message => ws.send(message));
-    queueNextPage(0, drainSnapshotDeltas);
-  };
-  const completeSnapshot = () => {
-    ws.stateSnapshotRetryTimer = null;
-    if (forceSinglePage) {
-      // The overflow fallback is emitted synchronously as one complete frame,
-      // so no post-cut message can exist yet. Release the barrier immediately;
-      // later sends remain ordered behind that frame by the WebSocket transport.
-      finishSnapshotDelivery();
-      return;
-    }
-    drainSnapshotDeltas();
-  };
-  let sentPages = 0;
-  function deliverNextPage() {
-    ws.stateSnapshotRetryTimer = null;
-    if (ws.readyState !== WebSocket.OPEN) {
-      ws.stateSnapshotInProgress = false;
-      return;
-    }
-    if (restartPendingSnapshot()) return;
-    if (sentPages > 0 && ws.bufferedAmount > MAX_STATE_CLIENT_BUFFERED_AMOUNT) {
-      queueNextPage(AGENT_STATE_SNAPSHOT_BACKPRESSURE_RETRY_MS);
-      return;
-    }
-    const next = frames.next();
-    if (next.done) {
-      completeSnapshot();
-      return;
-    }
-    ws.send(JSON.stringify({
-      type: 'state',
-      generation: SERVER_EPOCH,
-      sequence,
-      ...next.value,
-    }));
-    sentPages += 1;
-    if (next.value.snapshot.complete) {
-      completeSnapshot();
-      return;
-    }
-    queueNextPage(sentPages === 1 ? INITIAL_AGENT_STATE_SNAPSHOT_FOLLOWUP_DELAY_MS : 0);
-  }
-  deliverNextPage();
+  agentStateSnapshotController.sendState(ws);
 }
 
 function queueInitialStateSnapshot(ws: WebSocketClient) {
-  if (ws.initialStateSnapshotSent === true || ws.initialStateSnapshotTimer) return;
-  ws.initialStateSnapshotTimer = setTimeout(() => {
-    ws.initialStateSnapshotTimer = null;
-    if (ws.readyState === WebSocket.OPEN && ws.initialStateSnapshotSent !== true) sendState(ws);
-  }, INITIAL_STATE_SCOPE_DECLARATION_WINDOW_MS);
-  ws.initialStateSnapshotTimer.unref?.();
+  agentStateSnapshotController.queueInitialSnapshot(ws);
 }
 
 function sendResourceSnapshots(ws: WebSocketClient) {
@@ -2601,7 +2434,47 @@ function recoverAcpSessionRevisionIfReady(client: WebSocketClient) {
 }
 
 const stateBroadcastTracker = createAgentStateBroadcastTracker();
-let stateSnapshotSerial = 0;
+const agentStateSnapshotController = createWebSocketAgentStateSnapshotController<WebSocketClient>({
+  backpressureRetryMs: AGENT_STATE_SNAPSHOT_BACKPRESSURE_RETRY_MS,
+  broadcastCheckpoint: client => broadcastState(client, true),
+  cancelPreviewHydration: client => cancelSessionPreviewHydration(client),
+  clearTimer: timer => clearTimeout(timer as ReturnType<typeof setTimeout>),
+  initialFollowupDelayMs: INITIAL_AGENT_STATE_SNAPSHOT_FOLLOWUP_DELAY_MS,
+  initialPageSize: INITIAL_AGENT_STATE_SNAPSHOT_PAGE_SIZE,
+  maxBufferedAmount: MAX_STATE_CLIENT_BUFFERED_AMOUNT,
+  onDeliveryFailure: (client, error) => {
+    console.error('Agent state snapshot delivery failed', JSON.stringify({
+      connectionId: client.connectionId,
+      error: error instanceof Error ? error.message : String(error),
+    }));
+    try {
+      if (client.readyState === WebSocket.OPEN) {
+        client.close(1011, 'Agent state snapshot delivery failed');
+      }
+    } catch {
+      // The transport is already unusable; the close handler owns cleanup.
+    }
+  },
+  openState: WebSocket.OPEN,
+  pageSize: AGENT_STATE_SNAPSHOT_PAGE_SIZE,
+  previewHydrationWindowMs: PREVIEW_SCOPE_DECLARATION_WINDOW_MS,
+  projectSummaries: () => agentStateBroadcastProjectSummaries(stateBroadcastTracker),
+  queuePreviewHydration: (client, delayMs, callback) => (
+    queueSessionPreviewHydration(client, delayMs, callback)
+  ),
+  recoverAcpSessionRevision: client => recoverAcpSessionRevisionIfReady(client),
+  recoverAgentActivity: client => recoverAgentActivityIfReady(client),
+  scopeDeclarationWindowMs: INITIAL_STATE_SCOPE_DECLARATION_WINDOW_MS,
+  sendPreviewHydration: client => sendPreviewHydration(client),
+  serverEpoch: SERVER_EPOCH,
+  snapshotForScope: (stateScope, focusedAgentId) => agentStateBroadcastSnapshotForScope(
+    stateBroadcastTracker,
+    stateScope,
+    focusedAgentId,
+  ),
+  snapshotSequence: () => stateBroadcastTracker.sequence,
+  setTimer: (callback, delayMs) => setTimeout(callback, delayMs),
+});
 const pendingAcpSessionRevisions = new Map();
 const websocketResourceBroadcasts = createWebSocketResourceBroadcastController<WebSocketClient>({
   clients: () => wss.clients,
@@ -2685,12 +2558,7 @@ function deliverStateDelta(client: WebSocketClient, message: string) {
 }
 
 function recoverStateSnapshotIfReady(client: WebSocketClient) {
-  if (
-    client.readyState !== WebSocket.OPEN
-    || client.stateSnapshotInProgress
-    || client.stateSnapshotPending !== true
-  ) return;
-  if (client.bufferedAmount <= MAX_STATE_CLIENT_BUFFERED_AMOUNT) sendState(client);
+  agentStateSnapshotController.recoverSnapshotIfReady(client);
 }
 
 interface StateBroadcastContext {
