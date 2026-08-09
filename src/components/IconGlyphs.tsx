@@ -406,15 +406,6 @@ export function FocusModeGlyph(props: IconGlyphProps) {
   )
 }
 
-export function QrGlyph(props: IconGlyphProps) {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false" {...props}>
-      <path d="M2.5 2.5h4v4h-4zM9.5 2.5h4v4h-4zM2.5 9.5h4v4h-4z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
-      <path d="M4 4h1v1H4zM11 4h1v1h-1zM4 11h1v1H4zM9.5 9.5h1.4v1.4H9.5zM12.1 9.5h1.4v1.4h-1.4zM9.5 12.1h1.4v1.4H9.5zM12.1 12.1h1.4v1.4h-1.4z" fill="currentColor" />
-    </svg>
-  )
-}
-
 export function ShareGlyph(props: IconGlyphProps) {
   return (
     <svg width="24" height="25" viewBox="0 0 24 25" fill="currentColor" aria-hidden="true" focusable="false" {...props}>
@@ -499,16 +490,6 @@ export function RegexGlyph(props: IconGlyphProps) {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>
       <path fillRule="evenodd" clipRule="evenodd" d="M10.012 2h.976v3.113l2.56-1.557.486.885L11.47 6l2.564 1.559-.485.885-2.561-1.557V10h-.976V6.887l-2.56 1.557-.486-.885L9.53 6 6.966 4.441l.485-.885 2.561 1.557V2zM2 10h4v4H2v-4z" />
-    </svg>
-  )
-}
-
-export function AskGlyph(props: IconGlyphProps) {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>
-      <path d="M8 11C8.414 11 8.75 11.336 8.75 11.75C8.75 12.164 8.414 12.5 8 12.5C7.586 12.5 7.25 12.164 7.25 11.75C7.25 11.336 7.586 11 8 11Z" />
-      <path d="M8 4C9.262 4 10.25 4.988 10.25 6.25C10.25 7.333 9.68352 7.89752 9.22852 8.35352C8.82052 8.76052 8.5 9.082 8.5 9.75C8.5 10.026 8.276 10.25 8 10.25C7.724 10.25 7.5 10.026 7.5 9.75C7.5 8.667 8.06648 8.10248 8.52148 7.64648C8.92948 7.23948 9.25 6.918 9.25 6.25C9.25 5.538 8.712 5 8 5C7.288 5 6.75 5.538 6.75 6.25C6.75 6.526 6.526 6.75 6.25 6.75C5.974 6.75 5.75 6.526 5.75 6.25C5.75 4.988 6.738 4 8 4Z" />
-      <path fillRule="evenodd" clipRule="evenodd" d="M8 1C11.866 1 14.999 4.13499 14.999 8.00098C14.999 11.867 11.865 15.001 7.99902 15.001C6.72402 15.001 5.52612 14.6585 4.49512 14.0615L1.7666 14.9707C1.70669 14.9906 1.64491 15.001 1.58301 15.001C1.43501 15.001 1.28969 14.9449 1.17969 14.8389C1.02386 14.6889 0.964466 14.4647 1.02344 14.2568L1.85254 11.3506C1.30871 10.3547 1 9.21279 1 8C1 4.134 4.134 1 8 1ZM8.00098 2.00098C4.693 2.00099 2.00099 4.693 2.00098 8.00098C2.00098 9.00398 2.25345 9.99707 2.73145 10.8721L2.92676 11.2324L2.20117 13.7725L4.17871 13.1133L4.60742 12.9697L4.99707 13.1963C5.90503 13.7222 6.94407 14 8 14L8.00098 14.001C11.309 14.001 14.001 11.309 14.001 8.00098C14.001 4.69299 11.309 2.00098 8.00098 2.00098Z" />
     </svg>
   )
 }
