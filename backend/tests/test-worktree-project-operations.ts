@@ -102,7 +102,9 @@ async function run() {
         branchMissingCreateCalls += 1;
         return { commandFailure: null, postcondition: branchMissingPostcondition };
       },
-      createTemporaryWorktree: sourceWorkspace => realWorktreeGitService.createTemporaryWorktree(sourceWorkspace),
+      allocateTemporaryWorktree: sourceWorkspace => realWorktreeGitService.allocateTemporaryWorktree(sourceWorkspace),
+      createTemporaryWorktree: identity => realWorktreeGitService.createTemporaryWorktree(identity),
+      releaseTemporaryWorktreeReservation: identity => realWorktreeGitService.releaseTemporaryWorktreeReservation(identity),
       deleteWorktree: (identity, force) => realWorktreeGitService.deleteWorktree(identity, force),
       inspectForkWorktree: workspace => realWorktreeGitService.inspectForkWorktree(workspace),
       inspectPostcondition: async () => branchMissingPostcondition,
@@ -214,7 +216,9 @@ async function run() {
     manager.worktreeGitService = {
       allocatePermanentWorktree: sourceWorkspace => serviceBeforeTimeout.allocatePermanentWorktree(sourceWorkspace),
       createPermanentWorktree: identity => serviceBeforeTimeout.createPermanentWorktree(identity),
-      createTemporaryWorktree: sourceWorkspace => serviceBeforeTimeout.createTemporaryWorktree(sourceWorkspace),
+      allocateTemporaryWorktree: sourceWorkspace => serviceBeforeTimeout.allocateTemporaryWorktree(sourceWorkspace),
+      createTemporaryWorktree: identity => serviceBeforeTimeout.createTemporaryWorktree(identity),
+      releaseTemporaryWorktreeReservation: identity => serviceBeforeTimeout.releaseTemporaryWorktreeReservation(identity),
       deleteWorktree: async () => {
         uncertainDeleteCalls += 1;
         return {

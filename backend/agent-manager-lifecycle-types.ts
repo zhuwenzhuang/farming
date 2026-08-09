@@ -166,6 +166,7 @@ export type ForkMode = 'same-worktree' | 'new-worktree' | 'conversation';
 export interface ForkAgentOptions extends BaseLifecycleOptions {
   expectedRevision?: number;
   forkRequestId?: string;
+  forkRequestSignature?: string;
   providerHomeId?: string;
   requestId?: string;
   targetRuntime?: 'terminal' | 'chat' | 'acp';

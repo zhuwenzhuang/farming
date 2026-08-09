@@ -127,7 +127,14 @@ function beginLifecycleOperation(
   | { conflict: LifecycleOperation; operation?: undefined; joined?: false }
 ) {
   const journal = lifecycleJournal(source);
-  const active = activeLifecycleOperation({ lifecycleJournal: journal });
+  let active = activeLifecycleOperation({ lifecycleJournal: journal });
+  if (
+    active?.type === 'fork'
+    && active.state === 'blocked'
+    && ['archive', 'delete'].includes(String(type || ''))
+  ) {
+    active = null;
+  }
   if (active) {
     if (active.type === type && active.requestKey === String(requestKey || '')) {
       source.lifecycleJournal = journal;

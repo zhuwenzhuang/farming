@@ -181,8 +181,10 @@ import { inspectGitWorktree } from './git-worktree-info.cjs';
 import { AgentWorktreeRefreshQueue } from './agent-worktree-refresh-queue.cjs';
 import {
   WorktreeGitService,
+  type TemporaryWorktreeIdentity,
   type WorktreeGitServicePort,
 } from './worktree-git-service.cjs';
+import { ForkOperationCoordinator } from './fork-operation-coordinator.cjs';
 import {
   AGENT_USAGE_RATE_REFRESH_MS,
   AGENT_USAGE_RATE_WINDOW_MS,
@@ -1373,6 +1375,7 @@ class AgentManager extends EventEmitter {
   declare agentWorktreeResolveGeneration: Map<AgentId, number>;
   declare agentWorktreeRefreshQueue: AgentWorktreeRefreshQueue;
   declare worktreeGitService: WorktreeGitServicePort;
+  declare forkOperationCoordinator: ForkOperationCoordinator;
   declare agentLifecycleOperations: Map<AgentId, AgentLifecycleEntry<unknown>>;
   declare agentStartAdmissions: Map<symbol, AgentStartAdmission>;
   declare createRequestAdmissions: Map<string, CreateRequestAdmission>;
@@ -1481,6 +1484,86 @@ class AgentManager extends EventEmitter {
       AGENT_WORKTREE_REFRESH_CONCURRENCY,
     );
     this.worktreeGitService = options.worktreeGitService || new WorktreeGitService();
+    this.forkOperationCoordinator = new ForkOperationCoordinator({
+      begin: (source, requestKey, request) => {
+        const admission = this.beginPersistentAgentOperation(
+          source as TypedAgentRecord,
+          'fork',
+          requestKey,
+          request,
+        );
+        return admission.operation
+          ? { accepted: true, operation: admission.operation }
+          : { accepted: false, error: admission.error || 'Failed to admit Fork operation' };
+      },
+      complete: (source, operationId, result) => {
+        this.completePersistentAgentOperation(source as TypedAgentRecord, operationId, result);
+      },
+      checkpointWorktree: (source, operationId, identity) => {
+        this.checkpointPersistentAgentOperationRequest(
+          source as TypedAgentRecord,
+          operationId,
+          { forkWorktreeIdentity: identity },
+        );
+      },
+      execute: (agentId, mode, forkOptions, context) => this.forkAgentUntracked(
+        agentId,
+        mode,
+        forkOptions,
+        context,
+      ),
+      getSource: agentId => this.agents.get(agentId),
+      listChildren: () => (
+        typeof this.configManager?.listAgentSessionRecords === 'function'
+          ? this.configManager.listAgentSessionRecords().map(record => {
+              const runtimeAgentId = String(record.runtimeAgentId || '').trim();
+              const currentChild = runtimeAgentId ? this.agents.get(runtimeAgentId) : null;
+              return {
+                ...record,
+                ...(currentChild
+                  ? {
+                      runtimeOwnerRecordIds: [
+                        currentChild.agentRecordId,
+                        currentChild.persistentSessionId,
+                      ].map(value => String(value || '').trim()).filter(Boolean),
+                    }
+                  : {}),
+              };
+            })
+          : []
+      ),
+      rollbackWorktree: identity => this.rollbackTemporaryForkWorktree(identity),
+      runExclusive: (agentId, key, operation) => this.runAgentLifecycleOperation(
+        agentId,
+        key,
+        'fork',
+        'fork',
+        operation,
+      ),
+      stabilizeSourceIdentity: (agentId, forkOptions) => this.stabilizeForkSourceIdentity(
+        agentId,
+        forkOptions,
+      ),
+      transitionBlocked: (source, operationId, error, requestPatch) => {
+        this.transitionPersistentAgentOperation(
+          source as TypedAgentRecord,
+          operationId,
+          'blocked',
+          error,
+          {},
+          requestPatch,
+        );
+      },
+      transitionFailed: (source, operationId, error) => {
+        this.transitionPersistentAgentOperation(
+          source as TypedAgentRecord,
+          operationId,
+          'failed',
+          error,
+        );
+      },
+      waitForRecovery: () => this.whenRecovered(),
+    });
     this.agentLifecycleOperations = new Map();
     this.agentStartAdmissions = new Map();
     this.createRequestAdmissions = new Map();
@@ -2495,6 +2578,12 @@ class AgentManager extends EventEmitter {
         // even briefly makes Chat/Terminal switching disappear until a later
         // provider resolver update happens to repair it.
         source: persisted.source || engineMetadata.source,
+        forkRequestId: typeof persisted.forkRequestId === 'string'
+          ? persisted.forkRequestId
+          : engineMetadata.forkRequestId,
+        forkRequestSignature: typeof persisted.forkRequestSignature === 'string'
+          ? persisted.forkRequestSignature
+          : engineMetadata.forkRequestSignature,
         persistentSessionId: persisted.id || persisted.persistentSessionId || engineMetadata.persistentSessionId,
         projectWorkspace: persisted.projectWorkspace || engineMetadata.projectWorkspace,
         provider: persistedProvider || engineMetadata.provider,
@@ -3676,6 +3765,7 @@ class AgentManager extends EventEmitter {
       launchPermissionMode: metadata.launchPermissionMode || '',
       parentAgentId: metadata.parentAgentId || '',
       forkRequestId: metadata.forkRequestId || '',
+      forkRequestSignature: metadata.forkRequestSignature || '',
       task: metadata.task || '',
       workflowTemplate: metadata.workflowTemplate || '',
       source: metadata.source || 'recovered',
@@ -3950,12 +4040,14 @@ class AgentManager extends EventEmitter {
     state: LifecycleOperationState,
     error = '',
     patch: UnknownRecord = {},
+    requestPatch: LifecycleOperationRequest = {},
   ) {
     const previousJournal = agent.lifecycleJournal
       ? JSON.parse(JSON.stringify(agent.lifecycleJournal))
       : null;
     const operation = transitionLifecycleOperation(agent, operationId, state, error);
     if (!operation) throw new Error(`Agent operation ${operationId} was not found`);
+    operation.request = { ...(operation.request || {}), ...requestPatch };
     try {
       const persistentSessionId = this.ensurePersistentAgentSession(agent, patch);
       if (
@@ -3969,6 +4061,33 @@ class AgentManager extends EventEmitter {
       if (previousJournal) agent.lifecycleJournal = previousJournal;
       else delete agent.lifecycleJournal;
       throw persistError;
+    }
+    return operation;
+  }
+
+  checkpointPersistentAgentOperationRequest(
+    agent: TypedAgentRecord,
+    operationId: string,
+    requestPatch: LifecycleOperationRequest,
+  ) {
+    const previousJournal = agent.lifecycleJournal
+      ? JSON.parse(JSON.stringify(agent.lifecycleJournal))
+      : null;
+    const journal = lifecycleJournal(agent);
+    const operation = journal.entries.find(candidate => candidate.id === operationId);
+    if (!operation) throw new Error(`Agent operation ${operationId} was not found`);
+    operation.request = { ...(operation.request || {}), ...requestPatch };
+    operation.updatedAt = Date.now();
+    agent.lifecycleJournal = journal;
+    try {
+      const persistentSessionId = this.ensurePersistentAgentSession(agent);
+      if (typeof this.configManager?.ensureAgentSessionRecord === 'function' && !persistentSessionId) {
+        throw new Error('Agent session store did not return a persistent id');
+      }
+    } catch (error) {
+      if (previousJournal) agent.lifecycleJournal = previousJournal;
+      else delete agent.lifecycleJournal;
+      throw error;
     }
     return operation;
   }
@@ -4172,6 +4291,8 @@ class AgentManager extends EventEmitter {
       terminalInputReceived: agent.terminalInputReceived === true,
       ...legacyRuntimeMetadata(agent),
       forkedFromProviderSessionId: agent.forkedFromProviderSessionId || '',
+      forkRequestId: agent.forkRequestId || '',
+      forkRequestSignature: agent.forkRequestSignature || '',
       launchPermissionMode: agent.launchPermissionMode || '',
       attentionSeq: finiteNonNegativeInteger(agent.attentionSeq),
       readAttentionSeq: finiteNonNegativeInteger(agent.readAttentionSeq),
@@ -4819,6 +4940,7 @@ class AgentManager extends EventEmitter {
       launchPermissionMode: agent.launchPermissionMode,
       parentAgentId: agent.parentAgentId || '',
       forkRequestId: agent.forkRequestId || '',
+      forkRequestSignature: agent.forkRequestSignature || '',
       task: agent.task,
       workflowTemplate: agent.workflowTemplate,
       source: agent.source,
@@ -5556,6 +5678,9 @@ class AgentManager extends EventEmitter {
       launchPermissionMode: launch.permissionMode || '',
       parentAgentId,
       forkRequestId: typeof options.forkRequestId === 'string' ? options.forkRequestId : '',
+      forkRequestSignature: typeof options.forkRequestSignature === 'string'
+        ? options.forkRequestSignature
+        : '',
       task: typeof options.task === 'string' ? options.task : '',
       workflowTemplate: typeof options.workflowTemplate === 'string' ? options.workflowTemplate : '',
       source: typeof options.source === 'string' ? options.source : 'ui',
@@ -8626,22 +8751,89 @@ class AgentManager extends EventEmitter {
     return this.worktreeGitService.resolveSourceRoot(sourceWorkspace);
   }
 
-  async createForkWorktree(workspace: string) {
+  async createForkWorktreeIdentity(
+    workspace: string,
+    beforeEffect?: (identity: TemporaryWorktreeIdentity) => Promise<void> | void,
+  ): Promise<TemporaryWorktreeIdentity> {
     const root = await this.resolveGitWorktreeSourceRoot(workspace);
-    const mutation = await this.worktreeGitService.createTemporaryWorktree(root);
+    const identity = await this.worktreeGitService.allocateTemporaryWorktree(root);
+    try {
+      await beforeEffect?.(identity);
+    } catch (error) {
+      this.worktreeGitService.releaseTemporaryWorktreeReservation(identity);
+      throw error;
+    }
+    let mutation;
+    try {
+      mutation = await this.worktreeGitService.createTemporaryWorktree(identity);
+    } catch (caughtError: unknown) {
+      const error = caughtError as ErrorRecord;
+      let postcondition;
+      try {
+        postcondition = await this.worktreeGitService.inspectPostcondition(
+          identity.sourceWorkspace,
+          identity.workspace,
+        );
+      } catch (caughtInspectionError: unknown) {
+        const inspectionError = caughtInspectionError as ErrorRecord;
+        postcondition = {
+          proven: false,
+          exists: false,
+          registered: false,
+          error: inspectionError.message || String(inspectionError),
+        };
+      }
+      const exactAbsence = postcondition.proven
+        && !postcondition.exists
+        && !postcondition.registered;
+      const failure = new Error(
+        exactAbsence
+          ? error.message || 'Failed to create git worktree'
+          : `${error.message || 'Failed to create git worktree'}; the temporary worktree outcome is uncertain`,
+        { cause: error },
+      ) as Error & { uncertain?: boolean };
+      if (!exactAbsence) failure.uncertain = true;
+      throw failure;
+    }
     const { postcondition } = mutation;
     if (postcondition.proven && postcondition.exists && postcondition.registered) {
-      return mutation.identity.workspace;
+      return mutation.identity;
     }
     if (mutation.commandFailure) {
       const exactAbsence = postcondition.proven && !postcondition.exists && !postcondition.registered;
       const detail = exactAbsence
         ? mutation.commandFailure.message
         : `${mutation.commandFailure.message}; the temporary worktree outcome is uncertain`;
-      throw new Error(detail, { cause: mutation.commandFailure.cause });
+      const failure = new Error(detail, { cause: mutation.commandFailure.cause }) as Error & {
+        uncertain?: boolean;
+      };
+      if (!exactAbsence) failure.uncertain = true;
+      throw failure;
     }
     const detail = postcondition.error || 'Temporary worktree creation could not be proven';
-    throw new Error(`${detail}; the operation outcome is uncertain`);
+    const failure = new Error(`${detail}; the operation outcome is uncertain`) as Error & {
+      uncertain?: boolean;
+    };
+    failure.uncertain = true;
+    throw failure;
+  }
+
+  async createForkWorktree(workspace: string) {
+    return (await this.createForkWorktreeIdentity(workspace)).workspace;
+  }
+
+  async rollbackTemporaryForkWorktree(identity: TemporaryWorktreeIdentity) {
+    try {
+      return await this.worktreeGitService.rollbackTemporaryWorktree(identity);
+    } catch (caughtError: unknown) {
+      const error = caughtError as ErrorRecord;
+      return {
+        rolledBack: false,
+        error: error.message || 'Temporary Fork worktree rollback could not be proven',
+        retainedWorkspace: identity.workspace,
+        uncertain: true,
+      };
+    }
   }
 
   createPermanentWorktree(workspace: string, options: CreatePermanentWorktreeOptions = {}) {
@@ -9129,154 +9321,46 @@ class AgentManager extends EventEmitter {
     }
   }
 
-  async replayPersistentForkRequest(
-    agent: TypedAgentRecord,
-    requestId: string,
-    signature: string,
-  ): Promise<AgentForkResult | null> {
-    const requestKey = `fork-request:${requestId}`;
-    const operation = lifecycleJournal(agent).entries.find((candidate: LifecycleOperation) => (
-      candidate.type === 'fork' && candidate.requestKey === requestKey
-    ));
-    if (!operation) return null;
-    if (operation.request?.signature && operation.request.signature !== signature) {
-      return { error: `Fork request ${requestId} was already used for different parameters` };
-    }
-    if (operation.state === 'succeeded' && operation.result) {
-      return { ...operation.result, deduplicated: true };
-    }
-    if (TERMINAL_OPERATION_STATES.has(operation.state)) {
-      return { error: operation.error || `Fork request ${requestId} finished with state ${operation.state}` };
-    }
-
-    const children = typeof this.configManager?.listAgentSessionRecords === 'function'
-      ? this.configManager.listAgentSessionRecords().filter((record: PersistedAgentPrivateMetadata) => (
-          record?.parentAgentId === agent.id
-          && record?.forkRequestId === requestId
-          && record?.archived !== true
-        ))
-      : [];
-    if (children.length === 1) {
-      const child = children[0];
-      const request = operation.request || {};
-      const result: UnknownRecord = {
-        agentId: child.runtimeAgentId,
-        workspace: child.projectWorkspace || child.cwd || '',
-        mode: request.mode || 'same-worktree',
-        ...(request.targetRuntime ? { targetRuntime: request.targetRuntime } : {}),
-        ...(child.providerSessionId ? { providerSessionId: child.providerSessionId } : {}),
-        requestId,
-      };
-      try {
-        this.completePersistentAgentOperation(agent, operation.id, result);
-        return { ...result, deduplicated: true, reconciled: true };
-      } catch (caughtError: unknown) {
-      const error = caughtError as ErrorRecord;
-        return {
-          ...result,
-          error: `Fork exists, but its result could not be committed: ${error.message || error}`,
-          retryable: true,
-        };
-      }
-    }
-
-    const detail = children.length > 1
-      ? `Fork request ${requestId} has multiple child Agent records and cannot be reconciled safely`
-      : `Fork request ${requestId} has an uncertain outcome and will not be replayed automatically`;
-    if (operation.state !== 'blocked') {
-      try {
-        this.transitionPersistentAgentOperation(agent, operation.id, 'blocked', detail);
-      } catch (caughtError: unknown) {
-      const error = caughtError as ErrorRecord;
-        return { error: `${detail}; failed to persist blocked state: ${error.message || error}`, uncertain: true };
-      }
-    }
-    return { error: detail, uncertain: true };
-  }
-
   async forkAgent(
     agentId: AgentId,
     mode: 'same-worktree' | 'new-worktree' | 'conversation' = 'same-worktree',
     options: ForkAgentOptions = {},
   ): Promise<AgentForkResult> {
-    const requestId = String(options.requestId || '').trim().slice(0, 160);
-    if (!requestId) return this.forkAgentUntracked(agentId, mode, options);
-    if (!/^[A-Za-z0-9._:-]{1,160}$/.test(requestId)) {
-      return { error: 'Fork requires a valid requestId' };
-    }
-    await this.whenRecovered();
-    const agent = this.agents.get(agentId);
-    if (!agent) return { error: 'Agent not found' };
-    const signature = projectOperationSignature({
-      agentRecordId: agent.agentRecordId || agent.persistentSessionId || '',
-      expectedRevision: Number.isSafeInteger(options.expectedRevision) ? options.expectedRevision : null,
-      mode,
-      targetRuntime: options.targetRuntime || '',
-    });
-    const key = `fork:${requestId}:${signature}`;
-    const inFlight = this.agentLifecycleOperations.get(agentId);
-    if (inFlight?.key === key) return inFlight.promise as Promise<AgentForkResult>;
-    const replay = await this.replayPersistentForkRequest(agent, requestId, signature);
-    if (replay) return replay;
-    return this.runAgentLifecycleOperation(
+    return this.forkOperationCoordinator.request({
       agentId,
-      key,
-      'fork',
-      'fork',
-      async (lifecycleToken: symbol) => {
-        const admission = this.beginPersistentAgentOperation(
-          agent,
-          'fork',
-          `fork-request:${requestId}`,
-          {
-            signature,
-            mode,
-            targetRuntime: options.targetRuntime || '',
-            expectedRevision: Number.isSafeInteger(options.expectedRevision) ? options.expectedRevision : null,
-          },
-        );
-        if ('error' in admission) return { error: admission.error };
-        const result = await this.forkAgentUntracked(agentId, mode, {
-          ...options,
-          requestId: '',
-          forkRequestId: requestId,
-          lifecycleToken,
-        });
-        if (result?.error) {
-          try {
-            this.transitionPersistentAgentOperation(
-              agent,
-              admission.operation.id,
-              'blocked',
-              result.error,
-            );
-          } catch (caughtError: unknown) {
-      const error = caughtError as ErrorRecord;
-            return { ...result, error: `${result.error}; failed to persist Fork outcome: ${error.message || error}` };
-          }
-          return { ...result, requestId, uncertain: true };
-        }
-        const committedResult: UnknownRecord = { ...result, requestId };
-        try {
-          this.completePersistentAgentOperation(agent, admission.operation.id, committedResult);
-          return committedResult;
-        } catch (caughtError: unknown) {
-      const error = caughtError as ErrorRecord;
-          return {
-            ...committedResult,
-            error: `Fork was created, but its result could not be committed: ${error.message || error}`,
-            retainedAgentId: result.agentId,
-            retryable: true,
-          };
-        }
-      },
-    );
+      mode,
+      options,
+    });
+  }
+
+  async stabilizeForkSourceIdentity(
+    agentId: AgentId,
+    options: ForkAgentOptions = {},
+  ): Promise<{ error?: string }> {
+    let agent = this.agents.get(agentId);
+    if (!agent) return { error: 'Agent not found' };
+    if (
+      forkTargetRuntime(agent, options.targetRuntime) !== 'terminal'
+      || agent.providerSessionProvider !== 'codex'
+      || agent.providerSessionTemporary !== true
+    ) {
+      return {};
+    }
+    await this.resolveCodexTerminalIdentityFromPreview(agentId, agent.previewText || '');
+    agent = this.agents.get(agentId);
+    if (!agent) return { error: 'Agent not found' };
+    return agent.providerSessionTemporary === true
+      ? { error: 'Fork requires a resumable Codex session. Try again after the session id is available.' }
+      : {};
   }
 
   async forkAgentUntracked(
     agentId: AgentId,
     mode: 'same-worktree' | 'new-worktree' | 'conversation' = 'same-worktree',
     options: ForkAgentOptions = {},
+    executionContext?: {
+      onWorktreeCreated(identity: TemporaryWorktreeIdentity): Promise<void> | void;
+    },
   ): Promise<AgentForkResult> {
     await this.whenRecovered();
     if (this.disposing) {
@@ -9335,6 +9419,7 @@ class AgentManager extends EventEmitter {
           expectedRevision,
           options.lifecycleToken,
           options.forkRequestId || '',
+          options.forkRequestSignature || '',
         );
       }
       return this.runAgentLifecycleOperation(
@@ -9345,12 +9430,10 @@ class AgentManager extends EventEmitter {
         (lifecycleToken: symbol) => this.performAcpConversationFork(agentId, expectedRevision, lifecycleToken, ''),
       );
     }
-    if (agent.providerSessionProvider === 'codex' && agent.providerSessionTemporary === true) {
-      await this.resolveCodexTerminalIdentityFromPreview(agentId, agent.previewText || '');
-      if (agent.providerSessionTemporary === true) {
-        return { error: 'Fork requires a resumable Codex session. Try again after the session id is available.' };
-      }
-    }
+    const stabilization = await this.stabilizeForkSourceIdentity(agentId, options);
+    if (stabilization.error) return stabilization;
+    agent = this.agents.get(agentId);
+    if (!agent) return { error: 'Agent not found' };
 
     const sourceWorkspace = effectiveAgentWorkspaceRoot(agent);
     const resumedSession = agent.providerSessionProvider
@@ -9364,12 +9447,33 @@ class AgentManager extends EventEmitter {
     }
 
     let targetWorkspace = sourceWorkspace;
+    let forkWorktreeIdentity: TemporaryWorktreeIdentity | null = null;
     if (mode === 'new-worktree') {
       try {
-        targetWorkspace = await this.createForkWorktree(sourceWorkspace);
+        forkWorktreeIdentity = await this.createForkWorktreeIdentity(
+          sourceWorkspace,
+          async identity => {
+            forkWorktreeIdentity = identity;
+            targetWorkspace = identity.workspace;
+            await executionContext?.onWorktreeCreated(identity);
+          },
+        );
+        targetWorkspace = forkWorktreeIdentity.workspace;
       } catch (caughtError: unknown) {
       const error = caughtError as ErrorRecord;
-        return { error: error.message || 'Failed to create git worktree' };
+        const message = error.message || 'Failed to create git worktree';
+        return {
+          error: error.uncertain === true && forkWorktreeIdentity
+            ? `${message}; temporary worktree retained at ${forkWorktreeIdentity.workspace}`
+            : message,
+          ...(error.uncertain === true ? { uncertain: true } : {}),
+          ...(error.uncertain === true && forkWorktreeIdentity
+            ? {
+                retainedWorkspace: forkWorktreeIdentity.workspace,
+                workspace: forkWorktreeIdentity.workspace,
+              }
+            : {}),
+        };
       }
     }
 
@@ -9382,24 +9486,88 @@ class AgentManager extends EventEmitter {
       : String(agent.forkCommand || agent.command || '');
 
     return new Promise<AgentForkResult>(resolve => {
-      this.startAgent(forkCommand, targetWorkspace, (forkedAgentId: AgentId | null, error?: string | null) => {
-        if (error) {
-          resolve({ error });
-          return;
+      const settleStart = async (
+        forkedAgentId: AgentId | null,
+        startError?: string | null,
+        outcomeUnknown = false,
+      ): Promise<AgentForkResult> => {
+        if (outcomeUnknown) {
+          return {
+            error: `Fork start outcome is uncertain${startError ? `: ${startError}` : ''}${forkWorktreeIdentity ? `; temporary worktree retained at ${targetWorkspace}` : ''}`,
+            ...(forkedAgentId ? { retainedAgentId: forkedAgentId } : {}),
+            ...(forkWorktreeIdentity ? { retainedWorkspace: targetWorkspace } : {}),
+            workspace: targetWorkspace,
+            uncertain: true,
+          };
+        }
+        if (startError) {
+          if (forkedAgentId) {
+            return {
+              error: startError,
+              retainedAgentId: forkedAgentId,
+              workspace: targetWorkspace,
+              uncertain: true,
+            };
+          }
+          if (!forkWorktreeIdentity) return { error: startError };
+          const rollback = await this.rollbackTemporaryForkWorktree(forkWorktreeIdentity);
+          return rollback.rolledBack
+            ? { error: startError }
+            : {
+                error: `${startError}; temporary worktree retained at ${targetWorkspace}: ${rollback.error}`,
+                workspace: targetWorkspace,
+                retainedWorkspace: targetWorkspace,
+                uncertain: true,
+              };
         }
         if (!forkedAgentId) {
-          resolve({ error: 'Failed to start forked agent' });
-          return;
+          const failure = 'Failed to start forked agent';
+          if (!forkWorktreeIdentity) return { error: failure };
+          const rollback = await this.rollbackTemporaryForkWorktree(forkWorktreeIdentity);
+          return rollback.rolledBack
+            ? { error: failure }
+            : {
+                error: `${failure}; temporary worktree retained at ${targetWorkspace}: ${rollback.error}`,
+                workspace: targetWorkspace,
+                retainedWorkspace: targetWorkspace,
+                uncertain: true,
+              };
         }
-        resolve({
+        return {
           agentId: forkedAgentId,
           workspace: targetWorkspace,
           mode,
+        };
+      };
+      let settlementStarted = false;
+      const finish = (
+        forkedAgentId: AgentId | null,
+        error?: string | null,
+        outcomeUnknown = false,
+      ) => {
+        if (settlementStarted) return;
+        settlementStarted = true;
+        void settleStart(forkedAgentId, error, outcomeUnknown).then(resolve, caughtError => {
+          const detail = caughtError instanceof Error ? caughtError.message : String(caughtError);
+          resolve({
+            error: `Fork start outcome could not be reconciled; temporary worktree retained at ${targetWorkspace}: ${detail}`,
+            ...(forkedAgentId ? { retainedAgentId: forkedAgentId } : {}),
+            ...(forkWorktreeIdentity ? { retainedWorkspace: targetWorkspace } : {}),
+            workspace: targetWorkspace,
+            uncertain: true,
+          });
         });
-      }, {
+      };
+      let started: Promise<AgentId | null>;
+      try {
+        started = this.startAgent(forkCommand, targetWorkspace, (
+          forkedAgentId: AgentId | null,
+          error?: string | null,
+        ) => finish(forkedAgentId, error), {
         wantsMain: false,
         parentAgentId: agent.id,
         forkRequestId: options.forkRequestId || '',
+        forkRequestSignature: options.forkRequestSignature || '',
         task: agent.task ? `Fork: ${agent.task}` : `Fork of ${agent.command}`,
         workflowTemplate: agent.workflowTemplate || '',
         source: mode === 'new-worktree' ? 'ui-fork-new-worktree' : 'ui-fork-same-worktree',
@@ -9408,7 +9576,23 @@ class AgentManager extends EventEmitter {
         ...(resumedSession?.provider === 'codex'
           ? preserveCodexSessionProfileOptions()
           : {}),
-      });
+        });
+      } catch (caughtError: unknown) {
+        finish(
+          null,
+          caughtError instanceof Error ? caughtError.message : String(caughtError),
+          true,
+        );
+        return;
+      }
+      void Promise.resolve(started).then(
+        forkedAgentId => finish(forkedAgentId),
+        caughtError => finish(
+          null,
+          caughtError instanceof Error ? caughtError.message : String(caughtError),
+          true,
+        ),
+      );
     });
   }
 
@@ -9417,6 +9601,7 @@ class AgentManager extends EventEmitter {
     expectedRevision: number,
     lifecycleToken: symbol,
     forkRequestId = '',
+    forkRequestSignature = '',
   ): Promise<AgentForkResult> {
     const agent = this.agents.get(agentId);
     if (!agent) return { error: 'Agent not found' };
@@ -9452,6 +9637,7 @@ class AgentManager extends EventEmitter {
         lifecycleToken,
         acpSessionOptions,
         forkRequestId,
+        forkRequestSignature,
       });
     }
 
@@ -9466,10 +9652,10 @@ class AgentManager extends EventEmitter {
       forkedSessionId = String(forked?.sessionId || '').trim();
     } catch (caughtError: unknown) {
       const error = caughtError as ErrorRecord;
-      return { error: error.message || 'Failed to fork ACP conversation' };
+      return { error: error.message || 'Failed to fork ACP conversation', uncertain: true };
     }
     if (!isSafeProviderSessionId(forkedSessionId) || forkedSessionId === sourceSessionId) {
-      return { error: 'ACP Conversation Fork did not return a distinct resumable session' };
+      return { error: 'ACP Conversation Fork did not return a distinct resumable session', uncertain: true };
     }
 
     const command = buildAgentSessionResumeCommand(provider, forkedSessionId, {
@@ -9477,7 +9663,11 @@ class AgentManager extends EventEmitter {
       providerHomePath: agent.providerHomePath || '',
     });
     if (!command) {
-      return { error: 'Failed to build provider resume command for the forked ACP session' };
+      return {
+        error: 'Failed to build provider resume command for the forked ACP session',
+        retainedProviderSessionId: forkedSessionId,
+        uncertain: true,
+      };
     }
 
     return new Promise<AgentForkResult>(resolve => {
@@ -9501,6 +9691,7 @@ class AgentManager extends EventEmitter {
               rollbackError ? `forked session cleanup failed: ${rollbackError}` : '',
             ].filter(Boolean).join('; '),
             ...(forkedAgentId ? { retainedAgentId: forkedAgentId } : {}),
+            ...(rollbackError ? { retainedProviderSessionId: forkedSessionId, uncertain: true } : {}),
           });
           return;
         }
@@ -9518,6 +9709,7 @@ class AgentManager extends EventEmitter {
           wantsMain: false,
           parentAgentId: agent.id,
           forkRequestId,
+          forkRequestSignature,
           task: agent.task ? `Fork: ${agent.task}` : `Fork of ${agent.command}`,
           workflowTemplate: agent.workflowTemplate || '',
           source: 'ui-fork-acp-chat',
@@ -9567,6 +9759,7 @@ class AgentManager extends EventEmitter {
       lifecycleToken,
       acpSessionOptions,
       forkRequestId,
+      forkRequestSignature,
     } = options;
     const command = getProviderAdapter(provider)?.executable || provider;
     let preparedSessionId = '';
@@ -9608,6 +9801,7 @@ class AgentManager extends EventEmitter {
                 wantsMain: false,
                 parentAgentId: agent.id,
                 forkRequestId,
+                forkRequestSignature,
                 task: agent.task ? `Fork: ${agent.task}` : `Fork of ${agent.command}`,
                 workflowTemplate: agent.workflowTemplate || '',
                 source: 'ui-fork-acp-chat',
@@ -9646,7 +9840,7 @@ class AgentManager extends EventEmitter {
       );
     } catch (caughtError: unknown) {
       const error = caughtError as ErrorRecord;
-      return { error: error.message || 'Failed to fork ACP conversation' };
+      return { error: error.message || 'Failed to fork ACP conversation', uncertain: true };
     }
     if (
       result?.error

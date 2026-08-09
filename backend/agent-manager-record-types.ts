@@ -168,6 +168,7 @@ export interface AgentRecord extends Record<string, unknown>, AgentDisplayState,
   exitedAt?: number | null;
   forkCommand?: string;
   forkRequestId?: string;
+  forkRequestSignature?: string;
   forkedFromProviderSessionId?: string;
   gitWorktree?: GitWorktreeRecord | null;
   id: AgentId;
@@ -232,6 +233,7 @@ export interface PersistedAgentPrivateMetadata extends Record<string, unknown>, 
   cwd?: string;
   forkCommand?: string;
   forkRequestId?: string;
+  forkRequestSignature?: string;
   forkedFromProviderSessionId?: string;
   id: string;
   kind?: 'agent';

@@ -25,6 +25,7 @@ interface RuntimeEngineMetadata extends Record<string, unknown> {
   engineName?: string;
   forkCommand?: string;
   forkRequestId?: string;
+  forkRequestSignature?: string;
   forkedFromProviderSessionId?: string;
   launchPermissionMode?: string;
   lifecycleJournal?: LifecycleJournal;

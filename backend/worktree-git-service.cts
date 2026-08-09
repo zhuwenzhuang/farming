@@ -30,9 +30,14 @@ interface PermanentWorktreeIdentity {
 }
 
 const reservationTokenProperty: unique symbol = Symbol('permanentWorktreeReservation');
+const temporaryReservationTokenProperty: unique symbol = Symbol('temporaryWorktreeReservation');
 
 type ReservedPermanentWorktreeIdentity = PermanentWorktreeIdentity & {
   [reservationTokenProperty]: symbol;
+};
+
+type ReservedTemporaryWorktreeIdentity = TemporaryWorktreeIdentity & {
+  [temporaryReservationTokenProperty]: symbol;
 };
 
 interface PermanentWorktreeMutation {
@@ -49,6 +54,13 @@ interface TemporaryWorktreeMutation {
   commandFailure: WorktreeCommandFailure | null;
   identity: TemporaryWorktreeIdentity;
   postcondition: WorktreePostcondition;
+}
+
+interface TemporaryWorktreeRollback {
+  error?: string;
+  retainedWorkspace?: string;
+  rolledBack: boolean;
+  uncertain?: boolean;
 }
 
 type ForkWorktreeInspection = {
@@ -95,16 +107,19 @@ interface WorktreeGitServiceOptions {
 }
 
 interface WorktreeGitServicePort {
+  allocateTemporaryWorktree(sourceWorkspace: string): Promise<TemporaryWorktreeIdentity>;
   allocatePermanentWorktree(sourceWorkspace: string): Promise<PermanentWorktreeIdentity>;
   createPermanentWorktree(identity: PermanentWorktreeIdentity): Promise<PermanentWorktreeMutation>;
-  createTemporaryWorktree(sourceWorkspace: string): Promise<TemporaryWorktreeMutation>;
+  createTemporaryWorktree(identity: TemporaryWorktreeIdentity): Promise<TemporaryWorktreeMutation>;
   deleteWorktree(identity: TemporaryWorktreeIdentity, force?: boolean): Promise<WorktreeDeleteMutation>;
   inspectForkWorktree(workspace: string): Promise<ForkWorktreeInspection>;
   inspectPostcondition(sourceWorkspace: string, workspace: string, branch?: string): Promise<WorktreePostcondition>;
   listWorktrees(sourceWorkspace: string): Promise<WorktreeListRecord[]>;
   releasePermanentWorktreeReservation(identity: PermanentWorktreeIdentity): void;
+  releaseTemporaryWorktreeReservation(identity: TemporaryWorktreeIdentity): void;
   resolveSourceRoot(workspace: string): Promise<string>;
   rollbackPermanentWorktree(identity: PermanentWorktreeIdentity): Promise<{ error?: string; rolledBack: boolean }>;
+  rollbackTemporaryWorktree(identity: TemporaryWorktreeIdentity): Promise<TemporaryWorktreeRollback>;
 }
 
 type CommandError = Error & { code?: string | number; stderr?: unknown };
@@ -170,7 +185,7 @@ class WorktreeGitService implements WorktreeGitServicePort {
   private readonly now: () => Date;
   private readonly pathExists: (workspace: string) => boolean | Promise<boolean>;
   private readonly permanentWorktreeReservations = new Map<string, symbol>();
-  private readonly temporaryWorktreeReservations = new Set<string>();
+  private readonly temporaryWorktreeReservations = new Map<string, symbol>();
 
   constructor(options: WorktreeGitServiceOptions = {}) {
     this.execFile = options.execFile || defaultExecFile;
@@ -224,6 +239,28 @@ class WorktreeGitService implements WorktreeGitServicePort {
     const key = this.reservationKey(identity);
     if (this.permanentWorktreeReservations.get(key) === token) {
       this.permanentWorktreeReservations.delete(key);
+    }
+  }
+
+  private temporaryReservationToken(identity: TemporaryWorktreeIdentity): symbol | undefined {
+    return (identity as Partial<ReservedTemporaryWorktreeIdentity>)[temporaryReservationTokenProperty];
+  }
+
+  private reservedTemporaryIdentity(
+    identity: TemporaryWorktreeIdentity,
+    token: symbol,
+  ): TemporaryWorktreeIdentity {
+    const reserved = { ...identity } as ReservedTemporaryWorktreeIdentity;
+    Object.defineProperty(reserved, temporaryReservationTokenProperty, { value: token });
+    return reserved;
+  }
+
+  releaseTemporaryWorktreeReservation(identity: TemporaryWorktreeIdentity): void {
+    const token = this.temporaryReservationToken(identity);
+    if (!token) return;
+    const key = this.reservationKey(identity);
+    if (this.temporaryWorktreeReservations.get(key) === token) {
+      this.temporaryWorktreeReservations.delete(key);
     }
   }
 
@@ -355,7 +392,7 @@ class WorktreeGitService implements WorktreeGitServicePort {
     return BigInt(`0x${digest.slice(0, 32)}`).toString(10).padStart(39, '0');
   }
 
-  private async allocateTemporaryWorktree(sourceWorkspace: string): Promise<TemporaryWorktreeIdentity> {
+  async allocateTemporaryWorktree(sourceWorkspace: string): Promise<TemporaryWorktreeIdentity> {
     const parentDir = path.dirname(sourceWorkspace);
     const baseName = path.basename(sourceWorkspace);
     const slug = `${timestampSlug(this.now())}-${this.temporaryNonceSlug()}`;
@@ -369,15 +406,20 @@ class WorktreeGitService implements WorktreeGitServicePort {
       if (this.temporaryWorktreeReservations.has(key)) continue;
       if (await this.pathExists(identity.workspace)) continue;
       if (this.temporaryWorktreeReservations.has(key)) continue;
-      this.temporaryWorktreeReservations.add(key);
-      return identity;
+      const token = Symbol(key);
+      this.temporaryWorktreeReservations.set(key, token);
+      return this.reservedTemporaryIdentity(identity, token);
     }
     throw new Error('Unable to allocate a temporary worktree name');
   }
 
-  async createTemporaryWorktree(sourceWorkspace: string): Promise<TemporaryWorktreeMutation> {
-    const identity = await this.allocateTemporaryWorktree(sourceWorkspace);
+  async createTemporaryWorktree(identity: TemporaryWorktreeIdentity): Promise<TemporaryWorktreeMutation> {
     const reservationKey = this.reservationKey(identity);
+    const reservationToken = this.temporaryReservationToken(identity);
+    if (!reservationToken || this.temporaryWorktreeReservations.get(reservationKey) !== reservationToken) {
+      throw new Error('Temporary worktree reservation is no longer active');
+    }
+    const sourceWorkspace = identity.sourceWorkspace;
     let commandFailure: WorktreeCommandFailure | null = null;
     try {
       try {
@@ -398,7 +440,9 @@ class WorktreeGitService implements WorktreeGitServicePort {
         postcondition: await this.inspectPostcondition(sourceWorkspace, identity.workspace),
       };
     } finally {
-      this.temporaryWorktreeReservations.delete(reservationKey);
+      if (this.temporaryWorktreeReservations.get(reservationKey) === reservationToken) {
+        this.temporaryWorktreeReservations.delete(reservationKey);
+      }
     }
   }
 
@@ -425,7 +469,11 @@ class WorktreeGitService implements WorktreeGitServicePort {
       const { stdout: topLevelOutput } = await this.execFile('git', [
         '-C', resolvedWorkspace, 'rev-parse', '--show-toplevel',
       ], { timeout: 15_000, maxBuffer: 1024 * 1024 });
-      if (path.resolve(String(topLevelOutput).trim()) !== resolvedWorkspace) {
+      const [canonicalTopLevel, canonicalWorkspace] = await Promise.all([
+        fs.promises.realpath(path.resolve(String(topLevelOutput).trim())),
+        fs.promises.realpath(resolvedWorkspace),
+      ]);
+      if (canonicalTopLevel !== canonicalWorkspace) {
         return { workspace: resolvedWorkspace, error: 'Workspace must be the root of a Farming fork worktree' };
       }
       const worktrees = await this.listWorktrees(resolvedWorkspace);
@@ -473,6 +521,67 @@ class WorktreeGitService implements WorktreeGitServicePort {
         identity.workspace,
       ),
     };
+  }
+
+  async rollbackTemporaryWorktree(
+    identity: TemporaryWorktreeIdentity,
+  ): Promise<TemporaryWorktreeRollback> {
+    const sourceWorkspace = path.resolve(String(identity.sourceWorkspace || ''));
+    const workspace = path.resolve(String(identity.workspace || ''));
+    const retained = (error: string): TemporaryWorktreeRollback => ({
+      rolledBack: false,
+      error,
+      retainedWorkspace: workspace,
+      uncertain: true,
+    });
+    try {
+      const postcondition = await this.inspectPostcondition(sourceWorkspace, workspace);
+      if (postcondition.proven && !postcondition.exists && !postcondition.registered) {
+        return { rolledBack: true };
+      }
+
+      const inspection = await this.inspectForkWorktree(workspace);
+      if (inspection.error) return retained(inspection.error);
+      const [
+        canonicalExpectedSource,
+        canonicalInspectedSource,
+        canonicalExpectedWorkspace,
+        canonicalInspectedWorkspace,
+      ] = await Promise.all([
+        fs.promises.realpath(sourceWorkspace),
+        fs.promises.realpath(inspection.sourceWorkspace),
+        fs.promises.realpath(workspace),
+        fs.promises.realpath(inspection.workspace),
+      ]);
+      if (
+        canonicalExpectedSource !== canonicalInspectedSource
+        || canonicalExpectedWorkspace !== canonicalInspectedWorkspace
+      ) {
+        return retained('Temporary Fork worktree identity does not match the inspected Git worktree');
+      }
+      if (inspection.requiresForce) {
+        return retained('Temporary Fork worktree contains uncommitted changes');
+      }
+
+      const mutation = await this.deleteWorktree({
+        sourceWorkspace: canonicalExpectedSource,
+        workspace: canonicalExpectedWorkspace,
+      }, false);
+      if (
+        mutation.postcondition.proven
+        && !mutation.postcondition.exists
+        && !mutation.postcondition.registered
+      ) {
+        return { rolledBack: true };
+      }
+      return retained(
+        mutation.commandFailure?.message
+          || mutation.postcondition.error
+          || 'Temporary Fork worktree rollback could not be proven',
+      );
+    } catch (caught) {
+      return retained(commandErrorMessage(caught, 'Temporary Fork worktree rollback could not be proven'));
+    }
   }
 
   async createPermanentWorktree(identity: PermanentWorktreeIdentity): Promise<PermanentWorktreeMutation> {
@@ -560,6 +669,7 @@ export {
   type PermanentWorktreeMutation,
   type TemporaryWorktreeIdentity,
   type TemporaryWorktreeMutation,
+  type TemporaryWorktreeRollback,
   type WorktreeGitExec,
   type WorktreeCommandFailure,
   type WorktreeGitServiceOptions,

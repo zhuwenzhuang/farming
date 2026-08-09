@@ -436,6 +436,7 @@ export interface TargetProcessAcpForkOptions {
   lifecycleToken: symbol;
   acpSessionOptions: AcpSessionRequestOptions;
   forkRequestId: string;
+  forkRequestSignature: string;
 }
 
 export interface AcpBindingCheckpoint extends Record<string, unknown> {
@@ -616,6 +617,7 @@ export interface ProviderStartOptions extends Record<string, unknown> {
   customTitleExplicit?: boolean;
   dangerouslySkipPermissions?: boolean;
   forkRequestId?: string;
+  forkRequestSignature?: string;
   forkedFromProviderSessionId?: string;
   lifecycleToken?: symbol;
   mcpServers?: Record<string, unknown>[];

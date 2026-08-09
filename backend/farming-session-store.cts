@@ -722,6 +722,9 @@ class FarmingSessionStore {
       source: typeof agent.source === 'string' ? agent.source : '',
       parentAgentId: typeof agent.parentAgentId === 'string' ? agent.parentAgentId : '',
       forkRequestId: typeof agent.forkRequestId === 'string' ? agent.forkRequestId : '',
+      forkRequestSignature: typeof agent.forkRequestSignature === 'string'
+        ? agent.forkRequestSignature
+        : '',
       provider: parsed ? parsed.provider : (typeof agent.providerSessionProvider === 'string' ? agent.providerSessionProvider : ''),
       providerHomeId: parsed ? parsed.providerHomeId : (typeof agent.providerHomeId === 'string' ? agent.providerHomeId : ''),
       providerHomePath: typeof agent.providerHomePath === 'string' ? agent.providerHomePath : '',

@@ -1,4 +1,5 @@
 const assert = require('assert');
+const { execFileSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -15,7 +16,8 @@ function commandKey(args: readonly string[]) {
 
 async function run() {
   const managerSource = fs.readFileSync(path.join(__dirname, '../agent-manager.cts'), 'utf8');
-  assert(managerSource.includes('this.worktreeGitService.createTemporaryWorktree(root)'));
+  assert(managerSource.includes('this.worktreeGitService.allocateTemporaryWorktree(root)'));
+  assert(managerSource.includes('this.worktreeGitService.createTemporaryWorktree(identity)'));
   assert(managerSource.includes('this.worktreeGitService.inspectForkWorktree(expanded)'));
   assert(managerSource.includes('this.worktreeGitService.deleteWorktree({'));
   const temporaryCreateBody = managerSource.slice(
@@ -28,7 +30,7 @@ async function run() {
   );
   const deleteBody = managerSource.slice(
     managerSource.indexOf('async deleteForkWorktreeProjectAdmitted'),
-    managerSource.indexOf('async replayPersistentForkRequest'),
+    managerSource.indexOf('async forkAgent('),
   );
   assert(!temporaryCreateBody.includes('execFileAsync'));
   assert(!forkInspectionBody.includes('execFileAsync'));
@@ -354,8 +356,12 @@ async function run() {
     execFile: temporaryExec,
   });
   const [temporaryMutationOne, temporaryMutationTwo] = await Promise.all([
-    temporaryOne.createTemporaryWorktree('/projects/repo'),
-    temporaryTwo.createTemporaryWorktree('/projects/repo'),
+    temporaryOne.allocateTemporaryWorktree('/projects/repo').then(identity => (
+      temporaryOne.createTemporaryWorktree(identity)
+    )),
+    temporaryTwo.allocateTemporaryWorktree('/projects/repo').then(identity => (
+      temporaryTwo.createTemporaryWorktree(identity)
+    )),
   ]);
   assert.notStrictEqual(
     temporaryMutationOne.identity.workspace,
@@ -451,8 +457,12 @@ async function run() {
       },
     });
     const [firstTemporary, secondTemporary] = await Promise.all([
-      concurrentTemporaryService.createTemporaryWorktree(sourceWorkspace),
-      concurrentTemporaryService.createTemporaryWorktree(sourceWorkspace),
+      concurrentTemporaryService.allocateTemporaryWorktree(sourceWorkspace).then(identity => (
+        concurrentTemporaryService.createTemporaryWorktree(identity)
+      )),
+      concurrentTemporaryService.allocateTemporaryWorktree(sourceWorkspace).then(identity => (
+        concurrentTemporaryService.createTemporaryWorktree(identity)
+      )),
     ]);
     assert.notStrictEqual(firstTemporary.identity.workspace, secondTemporary.identity.workspace);
     const concurrentNumericSegments = [firstTemporary, secondTemporary].map(mutation => (
@@ -476,6 +486,59 @@ async function run() {
     }
   } finally {
     fs.rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+
+  const realGitRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-temporary-worktree-rollback-'));
+  try {
+    const initializeRepository = (repository: string) => {
+      fs.mkdirSync(repository);
+      execFileSync('git', ['init', '-q', repository]);
+      execFileSync('git', ['-C', repository, 'config', 'user.email', 'farming-test@example.invalid']);
+      execFileSync('git', ['-C', repository, 'config', 'user.name', 'Farming Test']);
+      fs.writeFileSync(path.join(repository, 'README.md'), 'fixture\n');
+      execFileSync('git', ['-C', repository, 'add', 'README.md']);
+      execFileSync('git', ['-C', repository, 'commit', '-qm', 'fixture']);
+    };
+    const sourceWorkspace = path.join(realGitRoot, 'repo');
+    const otherSourceWorkspace = path.join(realGitRoot, 'other-repo');
+    initializeRepository(sourceWorkspace);
+    initializeRepository(otherSourceWorkspace);
+    const realService = new WorktreeGitService({
+      now: () => new Date(2026, 7, 9, 12, 34, 56),
+      identityNonce: () => 'h'.repeat(32),
+    });
+
+    const cleanIdentity = await realService.allocateTemporaryWorktree(sourceWorkspace);
+    const clean = await realService.createTemporaryWorktree(cleanIdentity);
+    assert.strictEqual(clean.postcondition.proven, true);
+    assert.deepStrictEqual(
+      await realService.rollbackTemporaryWorktree(clean.identity),
+      { rolledBack: true },
+    );
+    assert.strictEqual(fs.existsSync(clean.identity.workspace), false);
+
+    const dirtyIdentity = await realService.allocateTemporaryWorktree(sourceWorkspace);
+    const dirty = await realService.createTemporaryWorktree(dirtyIdentity);
+    fs.writeFileSync(path.join(dirty.identity.workspace, 'uncommitted.txt'), 'retain me\n');
+    const retainedDirty = await realService.rollbackTemporaryWorktree(dirty.identity);
+    assert.strictEqual(retainedDirty.rolledBack, false);
+    assert.strictEqual(retainedDirty.retainedWorkspace, dirty.identity.workspace);
+    assert.match(retainedDirty.error || '', /uncommitted changes/);
+    assert.strictEqual(fs.existsSync(dirty.identity.workspace), true);
+    await realService.deleteWorktree(dirty.identity, true);
+
+    const wrongSourceIdentity = await realService.allocateTemporaryWorktree(sourceWorkspace);
+    const wrongSource = await realService.createTemporaryWorktree(wrongSourceIdentity);
+    const refusedWrongSource = await realService.rollbackTemporaryWorktree({
+      sourceWorkspace: otherSourceWorkspace,
+      workspace: wrongSource.identity.workspace,
+    });
+    assert.strictEqual(refusedWrongSource.rolledBack, false);
+    assert.match(refusedWrongSource.error || '', /does not match/);
+    assert.strictEqual(fs.existsSync(wrongSource.identity.workspace), true);
+    await realService.deleteWorktree(wrongSource.identity, true);
+  } finally {
+    fs.rmSync(realGitRoot, { recursive: true, force: true });
   }
 
   console.log('test-worktree-git-service passed');
