@@ -8,17 +8,20 @@ function read(relativePath) {
 
 function run() {
   const serverSource = read('backend/server.cts');
+  const workspacePickerRouterSource = read('backend/workspace-picker-router.cts');
   const inputDialogSource = read('src/components/InputDialog.tsx');
   const stylesSource = read('src/styles/main.css');
 
   assert(
-    serverSource.includes("routePath(BASE_PATH, '/api/workspaces/complete')") &&
-      serverSource.includes('function listWorkspacePathCompletions') &&
-      serverSource.includes('fs.promises.readdir(query.parent, { withFileTypes: true })') &&
-      serverSource.includes('entry.isDirectory()') &&
-      serverSource.includes("normalizedPrefix.startsWith('.') || !entry.name.startsWith('.')") &&
-      serverSource.includes('Math.min(Number(limit) || 12, 100)') &&
-      serverSource.includes('suggestions: []'),
+    serverSource.includes("import { createWorkspacePickerRouter } from './workspace-picker-router.cjs';") &&
+      serverSource.includes("app.use(routePath(BASE_PATH, '/api/workspaces'), createWorkspacePickerRouter({") &&
+      workspacePickerRouterSource.includes("router.get('/complete'") &&
+      workspacePickerRouterSource.includes("router.post('/recent', expressFactory.json({ limit: '8kb' })") &&
+      workspacePickerRouterSource.includes('fs.promises.readdir(query.parent, { withFileTypes: true })') &&
+      workspacePickerRouterSource.includes('entry.isDirectory()') &&
+      workspacePickerRouterSource.includes("normalizedPrefix.startsWith('.') || !entry.name.startsWith('.')") &&
+      workspacePickerRouterSource.includes('Math.min(Number(limit) || 12, 100)') &&
+      workspacePickerRouterSource.includes('suggestions: []'),
     'server should expose a lightweight directory-only workspace path completion API'
   );
 
