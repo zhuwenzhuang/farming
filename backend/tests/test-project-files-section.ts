@@ -19,6 +19,7 @@ function run() {
     'src/components/code/types.ts',
     'src/components/code/workspace-file-view.ts',
   ].map(read).join('\n');
+  const workspaceSurfaceControllerSource = read('src/components/code/useWorkspaceSurfaceController.ts');
   const appSource = read('src/App.tsx');
   const fileSectionSource = read('src/components/files/ProjectFilesSection.tsx');
   const codeCopySource = read('src/components/code/copy.ts');
@@ -142,7 +143,9 @@ function run() {
 	      !workspaceSource.includes('matchesWorkspaceMoveEvent') &&
 	      workspaceSource.includes('selectOpenWorkspaceFile') &&
 	      workspaceSource.includes('WorkspaceFileOpenTarget') &&
-	      workspaceSource.includes('workspaceFileCursorRequestRef') &&
+	      workspaceSurfaceControllerSource.includes('const cursorRequestIdRef = useRef(0)') &&
+	      workspaceSurfaceControllerSource.includes('(cursorRequestIdRef.current += 1)') &&
+	      !workspaceSource.includes('workspaceFileCursorRequestRef') &&
 	      workspaceSource.includes('workspaceFileRevealRequestRef') &&
 	      workspaceSource.includes('workspaceFileSearchFocusRequestRef') &&
 	      workspaceSource.includes('fileRevealRequest') &&
@@ -159,15 +162,22 @@ function run() {
 	      workspaceSource.includes('focusWorkspaceFilesSearch') &&
 	      workspaceSource.includes('setFileRevealRequest({') &&
 	      workspaceSource.includes('setFileSearchFocusRequest({') &&
-	      workspaceSource.includes('const createWorkspaceOpenFileRequest = useCallback') &&
-	      workspaceSource.includes('workspaceOpenFileRequestForTarget(target, {') &&
+	      workspaceSurfaceControllerSource.includes('const createWorkspaceOpenFileRequest = useCallback') &&
+	      workspaceSurfaceControllerSource.includes('workspaceOpenFileRequestForTarget(target, {') &&
+	      !workspaceSource.includes('const createWorkspaceOpenFileRequest = useCallback') &&
+	      !workspaceSource.includes('workspaceOpenFileRequestForTarget(target, {') &&
+	      workspaceSource.includes('} = useWorkspaceFileIdentityController({') &&
+	      workspaceSource.includes('createWorkspaceOpenFileRequest,') &&
+	      workspaceSource.includes('...createWorkspaceOpenFileRequest(target),') &&
 	      workspaceSource.includes('closeOpenWorkspaceFile') &&
 	      workspaceSource.includes('closeOpenWorkspaceFiles') &&
 	      !workspaceSource.includes('closedWorkspaceFileCacheRef') &&
 	      !workspaceSource.includes('workspaceFileCursorForTarget') &&
 	      !workspaceSource.includes('workspaceFileDiffRequestForTarget') &&
 	      !workspaceSource.includes('workspaceFileDiffOnlyForTarget') &&
-	      workspaceSource.includes('workspaceFileDiffRequestRef') &&
+	      workspaceSurfaceControllerSource.includes('const diffRequestIdRef = useRef(0)') &&
+	      workspaceSurfaceControllerSource.includes('(diffRequestIdRef.current += 1)') &&
+	      !workspaceSource.includes('workspaceFileDiffRequestRef') &&
 	      workspaceSource.includes('workspaceOpenFiles.openFromRead(identity.filesId, file, openRequest)') &&
 	      workspaceSource.includes('workspaceOpenFiles.select(identity.filesId, filePath, openRequest)') &&
 	      workspaceSource.includes('workspaceOpenFiles.close(targets)') &&
@@ -324,7 +334,21 @@ function run() {
 	      terminalPoolSource.includes('record.pathOpenHandler(agentId, pathTarget)') &&
 	      terminalPoolSource.includes('event.stopImmediatePropagation()') &&
       terminalRendererEffectsSource.includes('stableTerminalScrollbarOpacity(scrollbarOpacity)') &&
-      terminalPoolSource.includes('record.pathOpenHandler = options.onPathOpen ?? null') &&
+      terminalPoolSource.includes('pathOpenHandler: options.onPathOpen ?? null,') &&
+      terminalPoolSource.includes('const nextPathOpenHandler = options.onPathOpen ?? null') &&
+      terminalPoolSource.includes('const linkHandlersReplaced = record.pathOpenHandler !== nextPathOpenHandler') &&
+      terminalPoolSource.includes('record.pathOpenHandler = nextPathOpenHandler') &&
+      terminalPoolSource.includes('if (!revisionInvalidated && linkHandlersReplaced) record.linkInteraction.notifyHandlersChanged()') &&
+      !terminalPoolSource.includes('record.pathOpenHandler = options.onPathOpen ?? null') &&
+      terminalPoolSource.includes('linkInteraction: new TerminalLinkInteractionController({') &&
+      terminalPoolSource.includes('pathOpenHandler: () => record.pathOpenHandler,') &&
+      terminalPoolSource.includes('registerLinkProvider: isXtermTerminal(terminal) && typeof terminal.registerLinkProvider === \'function\'') &&
+      !terminalPoolSource.includes('provideLinks:') &&
+      linkInteractionSource.includes('provideLinks: (bufferLineNumber, callback) => {') &&
+      linkInteractionSource.includes('const registerLinkProvider = this.#ports.registerLinkProvider') &&
+      linkInteractionSource.includes('notifyHandlersChanged() {') &&
+      terminalPoolSource.includes('record.linkInteraction.install()') &&
+      terminalPoolSource.includes('record.linkInteraction.dispose()') &&
       terminalPoolSource.includes('record.pathOpenHandler = null') &&
       pooledTerminalHookSource.includes('onPathOpen?: (agentId: string, target: TerminalPathOpenTarget) => void') &&
       pooledTerminalHookSource.includes('onPathOpen,') &&
