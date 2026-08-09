@@ -167,6 +167,7 @@ class AcpRuntimeHostRuntime extends EventEmitter implements AcpRuntimeContract {
       if (current && String(current.bindingEpoch || '') === String(payload.bindingEpoch || '')) {
         const next = { ...current, ...payload };
         this.sessions.set(agentId, next);
+        this.emit('agent-runtime', clone(next));
         this.emit('session', {
           agentId,
           revision: Number(next.revision || 0),
@@ -357,10 +358,14 @@ class AcpRuntimeHostRuntime extends EventEmitter implements AcpRuntimeContract {
     delete summary.entries;
     delete summary.transcriptTail;
     delete summary.updates;
-    this.sessions.set(agentId, {
+    const next = {
       ...this.sessions.get(agentId),
       ...summary,
-    });
+    };
+    this.sessions.set(agentId, next);
+    // A full read is authoritative. Republish it so the Server's Agent mirror
+    // cannot retain an older runtime error after the Host has recovered.
+    this.emit('agent-runtime', clone(next));
     return session;
   }
 

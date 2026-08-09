@@ -62,6 +62,9 @@ class FakeRuntime extends EventEmitter {
       sessionId: options.sessionId,
       cwd: options.cwd,
       state: 'idle',
+      error: '',
+      stopReason: '',
+      retryableReconnect: false,
       revision: 1,
       transcriptProjectionRevision: 1,
     };
@@ -189,6 +192,28 @@ async function main() {
     );
     first.sessions.set('agent-1', mirroredSession);
 
+    const bindingPatchEvents = [];
+    first.on('agent-runtime', event => bindingPatchEvents.push(event));
+    host.service.state.patchBinding('agent-1', {
+      state: 'error',
+      error: 'ACP connection closed',
+      stopReason: 'error',
+    });
+    await waitFor(
+      () => bindingPatchEvents.some(event => event.state === 'error' && event.error === 'ACP connection closed'),
+      'facade did not publish an authoritative runtime patch',
+    );
+    host.service.state.patchBinding('agent-1', {
+      state: 'idle',
+      error: '',
+      stopReason: '',
+    });
+    await waitFor(
+      () => bindingPatchEvents.some(event => event.state === 'idle' && event.error === ''),
+      'facade retained a stale runtime error after an idle patch',
+    );
+    assert.strictEqual(first.getSession('agent-1').error, '');
+
     const initialHostEpoch = first.client.hostEpoch;
     const initialControllerGeneration = first.client.controllerGeneration;
     const recoveredRuntimeEvents = [];
@@ -275,8 +300,21 @@ async function main() {
     await third.reconnectAgent('agent-1');
     assert.strictEqual(secondRestartRefresh, 1);
     assert.strictEqual(third.bindingEpoch('agent-1'), 'binding-3');
+    third.sessions.set('agent-1', {
+      ...third.sessions.get('agent-1'),
+      state: 'error',
+      error: 'stale controller error',
+    });
+    const authoritativeReadEvents = [];
+    third.on('agent-runtime', event => authoritativeReadEvents.push(event));
     const fullSession = await third.getSessionForRead('agent-1');
     assert.strictEqual(Array.isArray(fullSession.entries), true);
+    assert.strictEqual(fullSession.state, 'idle');
+    assert.strictEqual(fullSession.error || '', '');
+    assert.ok(
+      authoritativeReadEvents.some(event => event.state === 'idle' && (event.error || '') === ''),
+      'an authoritative read must clear a stale Server-side runtime error',
+    );
     assert.strictEqual(third.getSession('agent-1').entries.length, 0);
     assert.strictEqual(third.sessions.get('agent-1').transcriptTail, undefined);
     assert.strictEqual(third.sessions.get('agent-1').updates, undefined);

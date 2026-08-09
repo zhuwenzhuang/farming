@@ -89,6 +89,7 @@ export interface AcpSessionSnapshot {
   error: string
   stopReason: string
   errorKind?: string
+  retryableReconnect?: boolean
   authMethods?: AcpAuthMethod[]
   capabilities?: {
     auth?: { logout?: Record<string, never> | null } | null

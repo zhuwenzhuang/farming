@@ -44,9 +44,8 @@ function findAcpCommandTrigger(draft: string, selectionStart: number) {
   }
 }
 
-function isReconnectableAcpFailure(runtimeState: string, error: string) {
-  if (runtimeState !== 'error') return false
-  return /(?:connection|transport|socket).*(?:closed|lost|ended|reset|broken)|(?:adapter|process).*(?:exit|closed|stopped)/i.test(error)
+function isReconnectableAcpFailure(runtimeState: string, retryableReconnect: boolean) {
+  return runtimeState === 'error' && retryableReconnect
 }
 
 function QueuedFollowUpGlyph() {
@@ -364,14 +363,17 @@ export function AcpComposer({
       acpUsage?.costLabel ? `Session cost: ${acpUsage.costLabel}` : '',
     ].filter(Boolean).join('. ')
     : ''
+  const effectiveRuntimeState = session?.state || runtimeState
+  const effectiveRuntimeError = effectiveRuntimeState === 'error'
+    ? (session ? session.error : runtimeError)
+    : ''
   const authenticationRequired = session?.errorKind === 'authentication'
-    || /\b(?:auth(?:entication)?|login|sign[ -]?in|unauthorized|401)\b/i.test(runtimeError)
-  const deferredSessionError = runtimeError.startsWith('Deferred session change was not applied:')
+  const deferredSessionError = effectiveRuntimeError.startsWith('Deferred session change was not applied:')
   const reconnectableSessionError = isReconnectableAcpFailure(
-    runtimeState,
-    `${runtimeError}\n${sessionError}`,
+    effectiveRuntimeState,
+    session?.retryableReconnect === true,
   )
-  const displayedSessionError = sessionError || (reconnectableSessionError ? runtimeError : '')
+  const displayedSessionError = sessionError || effectiveRuntimeError
   const hasAcpRequest = active && Boolean(
     permissions.length
     || elicitations.length
@@ -456,7 +458,7 @@ export function AcpComposer({
       ) : null}
       {deferredSessionError ? (
         <section className="code-acp-feedback error" data-testid="code-acp-config-deferred-error" role="alert">
-          <p>{runtimeError}</p>
+          <p>{effectiveRuntimeError}</p>
         </section>
       ) : null}
       {active && session?.configOverrideWarnings?.length ? (
@@ -490,7 +492,7 @@ export function AcpComposer({
       ) : null}
       {active && displayedSessionError ? (
         <section className="code-acp-feedback error code-acp-session-error" data-testid="code-acp-error" role="alert">
-          <header><strong>ACP</strong><span>{runtimeState || 'error'}</span></header>
+          <header><strong>ACP</strong><span>{effectiveRuntimeState || 'error'}</span></header>
           <p>{displayedSessionError}</p>
           {reconnectableSessionError ? (
             <button type="button" data-testid="code-acp-reconnect" onClick={onReconnect}>

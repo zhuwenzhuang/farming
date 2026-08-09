@@ -150,6 +150,9 @@ Adapter 或 Host 异常退出必须进入明确恢复或失败。恢复需要证
 Provider Session 与私有 Scope，重新加载权威 History，并保留显式 Config Override。断线时
 正在执行的 Turn 结束为失败或不确定，绝不能静默重放。
 
+普通启动不会替换仍拥有 Live Chat Session 的不兼容 Host。显式全量重启可以主动接管该
+Host、终止其 Live Session，并从持久化 Session Record 启动新的 Host。
+
 ACP Runtime Host 无法启动或重连时，只把受影响 Chat Session 标记为不可用，不得阻塞
 Server Ready、Native Terminal Recovery、Files 或 Plugins。一个 Runtime Family 的恢复不能
 成为无关 Runtime Family 的全局 Lifecycle Barrier。

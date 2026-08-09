@@ -1558,6 +1558,7 @@ class AgentManager extends EventEmitter {
     this.acpRuntime = options.acpRuntime || (this.configManager?.farmingDir
       ? new AcpRuntimeHostRuntime({
           configDir: this.configManager.farmingDir,
+          forceReplaceActiveHost: process.env.FARMING_FORCE_ACP_HOST_RESTART === '1',
         })
       : new AcpRuntime());
     this.acpPreparedTranscriptCache = new AcpPreparedTranscriptCache({

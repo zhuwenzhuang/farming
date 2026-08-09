@@ -4139,6 +4139,7 @@ class AcpRuntime extends EventEmitter {
       state: binding.state,
       error: binding.error,
       errorKind: binding.error ? acpErrorKind(binding.error) : '',
+      retryableReconnect: binding.retryableReconnect === true,
       stopReason: binding.stopReason,
       supportsSteer: binding.supportsSteer === true,
       supportsFork: Boolean(
@@ -4190,6 +4191,7 @@ class AcpRuntime extends EventEmitter {
       state: binding.state,
       error: binding.error,
       errorKind: binding.error ? acpErrorKind(binding.error) : '',
+      retryableReconnect: binding.retryableReconnect === true,
       stopReason: binding.stopReason,
       plan: binding.sessionState.plan == null
         ? null
@@ -4216,6 +4218,7 @@ class AcpRuntime extends EventEmitter {
       state: binding.state,
       error: binding.error,
       errorKind: binding.error ? acpErrorKind(binding.error) : '',
+      retryableReconnect: binding.retryableReconnect === true,
       stopReason: binding.stopReason,
       plan: state.plan == null ? null : JSON.parse(JSON.stringify(state.plan)),
       ...slice,
@@ -4478,6 +4481,7 @@ class AcpRuntime extends EventEmitter {
       state: binding.state,
       error: binding.error,
       errorKind: binding.error ? acpErrorKind(binding.error) : '',
+      retryableReconnect: binding.retryableReconnect === true,
       stopReason: binding.stopReason,
       supportsSteer: binding.supportsSteer === true,
       supportsFork: Boolean(

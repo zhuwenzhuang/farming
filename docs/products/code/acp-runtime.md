@@ -198,6 +198,11 @@ scope, reload authoritative history, and preserve explicit configuration
 overrides. A Turn active at disconnect ends as failed or uncertain and is never
 silently replayed.
 
+An ordinary startup does not replace an incompatible Host that owns live Chat
+Sessions. An explicit full restart may intentionally take over that Host,
+terminate its live Sessions, and start a new Host from the persisted Session
+records.
+
 Failure to start or reconnect the ACP Runtime Host marks affected Chat Sessions
 unavailable without blocking Server readiness, native Terminal recovery, Files,
 or Plugins. Recovery of one runtime family cannot become a global lifecycle

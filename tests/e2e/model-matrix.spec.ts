@@ -248,6 +248,11 @@ test('ACP model matrix responds locally, settles once, and morphs Advanced witho
   expect(ultraMotion.fillShadow).toContain('18px')
   await expect(ultra).toBeEnabled({ timeout: 2_000 })
   await expect(ultraControl).not.toHaveClass(/is-kicked/, { timeout: 1_500 })
+  await ultra.click()
+  await expect(ultra).toHaveAttribute('aria-pressed', 'false')
+  await expect(picker).toHaveAttribute('data-agent-model-preset', 'gpt-5.6-sol:high')
+  await expect(page.locator('.code-model-matrix-current')).toHaveText('GPT-5.6-Sol · high')
+  await expect(ultra).toBeEnabled({ timeout: 2_000 })
 
   const fast = page.getByRole('button', { name: 'Fast mode' })
   const fastPatchCountBeforeClick = fastPatchCount
@@ -283,9 +288,9 @@ test('ACP model matrix responds locally, settles once, and morphs Advanced witho
   await page.waitForTimeout(300)
   await expect(menu.locator('.code-model-matrix')).toHaveAttribute('aria-hidden', 'false')
   await expect(page.getByTestId('code-model-matrix-advanced')).toHaveAttribute('aria-hidden', 'true')
-  await expect(page.locator('.code-model-matrix-current')).toHaveText('GPT-5.6-Sol · ultra')
+  await expect(page.locator('.code-model-matrix-current')).toHaveText('GPT-5.6-Sol · high')
   await expect(fast).toHaveAttribute('aria-pressed', 'true')
-  await expect(page.getByTestId('code-model-matrix-cell-sol-high')).toHaveAttribute('aria-checked', 'false')
+  await expect(page.getByTestId('code-model-matrix-cell-sol-high')).toHaveAttribute('aria-checked', 'true')
   if (process.env.FARMING_CAPTURE_MODEL_MATRIX) {
     await page.screenshot({ path: process.env.FARMING_CAPTURE_MODEL_MATRIX })
   }

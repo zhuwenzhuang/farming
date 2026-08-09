@@ -7,6 +7,7 @@ const { EventEmitter } = require('events');
 const { AcpRuntimeHostClient, acpRuntimeHostSpawnCommand } = require('../acp-runtime-host-client.cts');
 const { AcpRuntimeHostProcess } = require('../acp-runtime-host-process.cts');
 const { promptContentHash } = require('../acp-runtime-host-service.cts');
+const { configInstanceFingerprint } = require('../config-instance.cts');
 
 class FakeRuntime extends EventEmitter {
   constructor() {
@@ -139,6 +140,40 @@ async function main() {
     }, 'an incompatible Host with live bindings must be preserved with an actionable stop command');
     mismatchedClient.disconnect();
     assert.strictEqual(host.disposed, false);
+    const forcedConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-acp-force-rotation-'));
+    const forcedRotation = new AcpRuntimeHostClient({
+      configDir: forcedConfigDir,
+      socketPath,
+      connectRetries: 1,
+      expectedBuildId: '1'.repeat(64),
+      forceReplaceActiveHost: true,
+      spawnHost: () => {},
+    });
+    const forcedMethods: string[] = [];
+    forcedRotation.connectOnce = async () => {};
+    forcedRotation.request = async (method: string) => {
+      forcedMethods.push(method);
+      if (method === 'ping') {
+        return {
+          runtimeIdentity: { protocolVersion: 1, buildId: '2'.repeat(64) },
+          configInstanceFingerprint: configInstanceFingerprint(forcedConfigDir),
+          bindingCount: 1,
+          pid: process.pid,
+        };
+      }
+      return {};
+    };
+    await assert.rejects(
+      forcedRotation.ensureConnected(),
+      /Replaced an active incompatible ACP runtime Host for a forced restart/,
+    );
+    assert.deepStrictEqual(
+      forcedMethods,
+      ['ping', 'registerController', 'shutdownHost'],
+      'a forced restart must take ownership and close an incompatible Host with active Chats',
+    );
+    forcedRotation.disconnect();
+    fs.rmSync(forcedConfigDir, { recursive: true, force: true });
     const original = first.request('submitPrompt', {
       agentId: 'agent-1',
       bindingEpoch: 'binding-1',

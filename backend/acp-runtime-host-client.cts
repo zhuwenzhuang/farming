@@ -31,6 +31,7 @@ interface AcpRuntimeHostClientOptions {
   connectRetries?: number;
   connectRetryMs?: number;
   expectedBuildId?: string;
+  forceReplaceActiveHost?: boolean;
   hostScript?: string;
   requestTimeoutMs?: number;
   socketPath?: string;
@@ -108,6 +109,7 @@ class AcpRuntimeHostClient extends EventEmitter {
   readonly requestTimeoutMs: number;
   readonly controllerId: string;
   readonly expectedBuildId: string;
+  readonly forceReplaceActiveHost: boolean;
   readonly spawnHostOverride: (() => void) | null;
   controllerGeneration: number;
   socket: net.Socket | null;
@@ -138,6 +140,7 @@ class AcpRuntimeHostClient extends EventEmitter {
     this.requestTimeoutMs = options.requestTimeoutMs || DEFAULT_REQUEST_TIMEOUT_MS;
     this.controllerId = crypto.randomUUID();
     this.expectedBuildId = String(options.expectedBuildId || acpRuntimeHostIdentity().buildId);
+    this.forceReplaceActiveHost = options.forceReplaceActiveHost === true;
     this.spawnHostOverride = options.spawnHost || null;
     this.controllerGeneration = 0;
     this.socket = null;
@@ -413,13 +416,17 @@ class AcpRuntimeHostClient extends EventEmitter {
           throw error;
         }
         if (runtimeIdentity.buildId !== this.expectedBuildId) {
-          if (Number(ping.bindingCount) === 0) {
+          if (Number(ping.bindingCount) === 0 || this.forceReplaceActiveHost) {
             registrationAttempted = true;
             await this.request('registerController', {
               identity: { id: this.controllerId, generation: this.controllerGeneration },
             }, { timeoutMs: 3000 });
             await this.request('shutdownHost', {}, { timeoutMs: 3000 });
-            const rotated = new Error('Replaced an idle incompatible ACP runtime Host') as Error & { code?: string };
+            const rotated = new Error(
+              this.forceReplaceActiveHost
+                ? 'Replaced an active incompatible ACP runtime Host for a forced restart'
+                : 'Replaced an idle incompatible ACP runtime Host',
+            ) as Error & { code?: string };
             rotated.code = 'ACP_RUNTIME_HOST_ROTATED';
             throw rotated;
           }
