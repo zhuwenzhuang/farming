@@ -279,6 +279,7 @@ import { AsyncCache } from './async-cache.cjs';
 import { getMainAgentSkillsCatalog } from './main-agent-skills.cjs';
 import { AgentExtensionInventory } from './agent-extension-inventory.cjs';
 import { createAgentExtensionRouter } from './agent-extension-router.cjs';
+import { createProviderCatalogRouter } from './provider-catalog-router.cjs';
 import { AgentSessionInventory } from './agent-session-inventory.cjs';
 import { createAgentSessionRouter } from './agent-session-router.cjs';
 import { createSlashCommandDiscoveryCache } from './slash-command-cache.cjs';
@@ -1085,37 +1086,13 @@ app.post(
   }
 );
 
-app.get(routePath(BASE_PATH, '/api/codex/models'), async (req, res) => {
-  const requested = requestedProviderHome('codex', req.query.homeId);
-  if (!requested.home) {
-    res.status(requested.status).json({ error: requested.error });
-    return;
-  }
-  try {
-    const catalog = await codexModelOptionsCache.get(requested.home.path);
-    res.json(catalog);
-  } catch (caught) {
-    const error = caughtError(caught);
-    const timedOut = error && error.code === 'CODEX_MODELS_TIMEOUT';
-    res.status(timedOut ? 504 : 502).json({
-      error: error && error.message ? error.message : 'Failed to load Codex model catalog',
-      code: error && error.code ? error.code : 'CODEX_MODELS_FAILED',
-    });
-  }
-});
-
-app.get(routePath(BASE_PATH, '/api/claude/settings'), (req, res) => {
-  const requested = requestedProviderHome('claude', req.query.homeId);
-  if (!requested.home) {
-    res.status(requested.status).json({ error: requested.error });
-    return;
-  }
-  res.json({
-    settings: readClaudeSettingsSummary({
-      settingsFile: path.join(requested.home.path, 'settings.json'),
-    }),
-  });
-});
+app.use(routePath(BASE_PATH, '/api'), createProviderCatalogRouter({
+  loadCodexModels: homePath => codexModelOptionsCache.get(homePath),
+  readClaudeSettings: homePath => readClaudeSettingsSummary({
+    settingsFile: path.join(homePath, 'settings.json'),
+  }),
+  resolveProviderHome: requestedProviderHome,
+}));
 
 app.use(routePath(BASE_PATH, '/api/usage'), createUsageRouter({
   getUsageDay: (date, options) => usageMonitor.getUsageDay(date, options),
