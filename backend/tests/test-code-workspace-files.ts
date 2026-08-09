@@ -43,6 +43,7 @@ function run() {
     'src/components/code/session-display.ts',
     'src/components/code/types.ts',
     'src/components/code/useAgentComposerState.ts',
+    'src/components/code/useCodexModelCatalogController.ts',
     'src/components/code/useMainPageSessionMembershipController.ts',
     'src/components/code/useProjectMembershipController.ts',
     'src/components/code/useResourcePaneController.ts',
@@ -711,9 +712,9 @@ function run() {
       workspaceSource.includes('normalizeClaudeSettingsSummary') &&
       workspaceSource.includes('resolvedClaudeModel') &&
       workspaceSource.includes('resolvedClaudeEffort') &&
-      workspaceSource.includes("if (!modelMenuOpen || composerAgentKind !== 'codex') return undefined") &&
-      workspaceSource.includes('return loadCodexModels()') &&
-      !workspaceSource.includes('useEffect(() => loadCodexModels(), [loadCodexModels])') &&
+      workspaceSource.includes("enabled: modelMenuOpen && composerAgentKind === 'codex'") &&
+      workspaceSource.includes('return lifecycle.load(providerHomeId)') &&
+      !workspaceSource.includes('codexModelsRequestRef') &&
       workspaceSource.includes('const AGENT_SESSION_PAGE_SIZE = 60') &&
       workspaceSource.includes("params.set('cursor', options.cursor)") &&
       workspaceSource.includes("params.set('fresh', '1')") &&

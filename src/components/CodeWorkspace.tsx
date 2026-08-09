@@ -19,7 +19,6 @@ import type {
 import { CheckGlyph } from '@/components/IconGlyphs'
 import { appPath } from '@/lib/base-path'
 import { writeClipboardText } from '@/lib/clipboard'
-import { getBackendConnectionSnapshot } from '@/lib/backend-live-status'
 import { isAcpRuntime, isStructuredRuntime } from '@/lib/agent-runtime'
 import {
   agentWithCurrentLiveState,
@@ -181,10 +180,8 @@ import {
 import type {
   ClaudePermissionMode,
   CodexApprovalMode,
-  CodexModelOption,
   ComposerMode,
   GlobalSettings,
-  LegacyCodexModelOption,
   SearchTarget,
   SpeechRecognitionLike,
   WindowWithSpeechRecognition,
@@ -198,7 +195,6 @@ import {
   agentSessionWorkspace,
   agentSessionWorkingDirectory,
   basename,
-  normalizeModelCatalog,
   projectWorkspaceForAgent,
   workspaceTargetId,
 } from './code/model'
@@ -227,6 +223,7 @@ import {
   type CodeWorkspaceSurface,
 } from './code/workspace-view-state'
 import { useAgentComposerState } from './code/useAgentComposerState'
+import { useCodexModelCatalogController } from './code/useCodexModelCatalogController'
 import { useMainPageSessionMembershipController } from './code/useMainPageSessionMembershipController'
 import { useProjectMembershipController } from './code/useProjectMembershipController'
 import {
@@ -400,7 +397,6 @@ const DEFAULT_SIDEBAR_WIDTH = 296
 const MIN_SIDEBAR_WIDTH = 220
 const MAX_SIDEBAR_WIDTH = 840
 const MIN_MAIN_PANE_WIDTH = 360
-const CODEX_MODEL_CATALOG_TTL_MS = 5 * 60_000
 const COLLAPSED_SIDEBAR_WIDTH = 52
 const SIDEBAR_DRAG_COLLAPSE_WIDTH = 172
 const DESKTOP_AUTO_COLLAPSE_WIDTH = 900
@@ -706,7 +702,6 @@ export function CodeWorkspace({
   const [codexModel, setCodexModel] = useState('gpt-5.5')
   const [codexReasoningEffort, setCodexReasoningEffort] = useState('xhigh')
   const [codexServiceTier, setCodexServiceTier] = useState('default')
-  const [codexModelOptions, setCodexModelOptions] = useState<CodexModelOption[]>([])
   const [codexTerminalProfileApplyingAgentIds, setCodexTerminalProfileApplyingAgentIds] = useState<Set<string>>(() => new Set())
   const [pendingCodexTerminalProfiles, setPendingCodexTerminalProfiles] = useState<Map<string, CodexTerminalProfile>>(() => new Map())
   const codexTerminalProfileRequestAgentIdsRef = useRef(new Set<string>())
@@ -769,10 +764,6 @@ export function CodeWorkspace({
   const deleteWorktreeCancelButtonRef = useRef<HTMLButtonElement>(null)
   const projectListRef = useRef<HTMLDivElement>(null)
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
-  const codexModelsLoadedAtRef = useRef(0)
-  const codexModelsLoadedHomeRef = useRef('')
-  const codexModelsRequestRef = useRef(0)
-  const codexModelsRetryOnReconnectRef = useRef(false)
   const resumeAgentSessionRef = useRef<(provider: string, sessionId: string, providerHomeId?: string) => void>(() => {})
   const activeTerminalIdRef = useRef<string | null>(activeTerminalId)
   const manuallyUnreadActiveAgentIdRef = useRef<string | null>(null)
@@ -1164,6 +1155,14 @@ export function CodeWorkspace({
     [activeAgent]
   )
   const composerAgentKind = activeAgentCapabilities.kind
+  const reportCodexModelCatalogError = useCallback((message: string) => {
+    setCopyNotice({ id: Date.now(), kind: 'error', message })
+  }, [])
+  const codexModelOptions = useCodexModelCatalogController({
+    providerHomeId: activeProviderHomeId,
+    enabled: modelMenuOpen && composerAgentKind === 'codex',
+    onError: reportCodexModelCatalogError,
+  })
   const displayedCodexApprovalMode = useMemo(() => effectiveCodexApprovalModeForSession(
     Boolean(activeAgent && composerAgentKind === 'codex'),
     activeAgent?.launchPermissionMode,
@@ -1608,62 +1607,6 @@ export function CodeWorkspace({
       return false
     }
   }, [])
-  const loadCodexModels = useCallback(() => {
-    const catalogAgeMs = Date.now() - codexModelsLoadedAtRef.current
-    if (
-      codexModelsLoadedHomeRef.current === activeProviderHomeId
-      && codexModelsLoadedAtRef.current > 0
-      && catalogAgeMs <= CODEX_MODEL_CATALOG_TTL_MS
-    ) {
-      return () => {}
-    }
-
-    let cancelled = false
-    const requestId = codexModelsRequestRef.current + 1
-    codexModelsRequestRef.current = requestId
-    setCodexModelOptions([])
-    const params = new URLSearchParams({ homeId: activeProviderHomeId })
-    fetch(appPath(`/api/codex/models?${params.toString()}`))
-      .then(async response => {
-        const data = await response.json().catch(() => ({})) as {
-          catalog?: CodexModelOption[]
-          models?: LegacyCodexModelOption[]
-          error?: string
-        }
-        if (!response.ok) {
-          throw new Error(data.error || `Failed to load Codex model catalog (${response.status})`)
-        }
-        return data
-      })
-      .then((data: { catalog?: CodexModelOption[]; models?: LegacyCodexModelOption[] }) => {
-        if (cancelled || codexModelsRequestRef.current !== requestId) return
-        const options = normalizeModelCatalog(data)
-        if (options.length === 0) throw new Error('Codex model catalog did not contain any visible models')
-        codexModelsLoadedAtRef.current = Date.now()
-        codexModelsLoadedHomeRef.current = activeProviderHomeId
-        codexModelsRetryOnReconnectRef.current = false
-        setCodexModelOptions(options)
-      })
-      .catch(error => {
-        if (cancelled || codexModelsRequestRef.current !== requestId) return
-        codexModelsLoadedAtRef.current = 0
-        codexModelsLoadedHomeRef.current = ''
-        if (!getBackendConnectionSnapshot().connected) {
-          codexModelsRetryOnReconnectRef.current = true
-          return
-        }
-        codexModelsRetryOnReconnectRef.current = false
-        setCopyNotice({
-          id: Date.now(),
-          kind: 'error',
-          message: error instanceof Error ? error.message : 'Failed to load Codex model catalog',
-        })
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [activeProviderHomeId])
   const loadClaudeSettings = useCallback(() => {
     let cancelled = false
     const params = new URLSearchParams({ homeId: activeProviderHomeId })
@@ -5067,30 +5010,10 @@ export function CodeWorkspace({
     if (composerAgentKind !== 'claude') return undefined
     return loadClaudeSettings()
   }, [composerAgentKind, loadClaudeSettings])
-  useEffect(() => {
-    if (codexModelsLoadedHomeRef.current !== activeProviderHomeId) setCodexModelOptions([])
-  }, [activeProviderHomeId])
   useEffect(
     () => loadSlashCommands(composerAgentKind || '', activeProviderHomeId, activeAgent?.cwd),
     [activeAgent?.cwd, activeProviderHomeId, composerAgentKind, loadSlashCommands]
   )
-  useEffect(() => {
-    if (!modelMenuOpen || composerAgentKind !== 'codex') return undefined
-    return loadCodexModels()
-  }, [composerAgentKind, loadCodexModels, modelMenuOpen])
-  useEffect(() => {
-    if (!modelMenuOpen || composerAgentKind !== 'codex') {
-      codexModelsRetryOnReconnectRef.current = false
-      return undefined
-    }
-    const retryRecoverableLoad = () => {
-      if (!codexModelsRetryOnReconnectRef.current) return
-      codexModelsRetryOnReconnectRef.current = false
-      loadCodexModels()
-    }
-    window.addEventListener('farming:backend-connected', retryRecoverableLoad)
-    return () => window.removeEventListener('farming:backend-connected', retryRecoverableLoad)
-  }, [composerAgentKind, loadCodexModels, modelMenuOpen])
   useEffect(() => {
     scheduleAgentSessionsBackgroundLoad()
   }, [scheduleAgentSessionsBackgroundLoad])

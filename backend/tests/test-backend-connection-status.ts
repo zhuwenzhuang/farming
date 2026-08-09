@@ -25,6 +25,7 @@ function run() {
   const workspaceFilesSource = read('src/hooks/useWorkspaceFiles.ts');
   const workspaceChangesSource = read('src/components/files/useWorkspaceFileChanges.ts');
   const pluginsPanelSource = read('src/components/code/PluginsPanel.tsx');
+  const codexModelCatalogControllerSource = read('src/components/code/useCodexModelCatalogController.ts');
   const serverSource = read('backend/server.cts');
   const livenessSource = read('shared/websocket-liveness.ts');
   const liveStatusModule = importTsModule('src/lib/backend-live-status.ts');
@@ -64,7 +65,7 @@ function run() {
       workspaceFilesSource.includes('reconnectDirectoryLoadsRef') &&
       workspaceChangesSource.includes("'farming:backend-connected'") &&
       workspaceChangesSource.includes('retryAfterReconnectRef') &&
-      codeWorkspaceSource.includes('codexModelsRetryOnReconnectRef') &&
+      codexModelCatalogControllerSource.includes('retryOnReconnect') &&
       pluginsPanelSource.includes('retryOnReconnect'),
     'Automatic backend reads should retain their loading state and retry after a recoverable reconnect'
   );
