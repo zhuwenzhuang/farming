@@ -474,9 +474,7 @@ body.code-mode[data-appearance='dark'] .code-file-name,
 body.code-mode[data-appearance='dark'] .code-open-editor-name,
 body.code-mode[data-appearance='dark'] .code-project-title-name,
 body.code-mode[data-appearance='dark'] .code-product-mark-main,
-body.code-mode[data-appearance='dark'] .code-empty-workspace h2,
-body.code-mode[data-appearance='dark'] .code-history-panel-header h2,
-body.code-mode[data-appearance='dark'] .code-history-card-title {
+body.code-mode[data-appearance='dark'] .code-empty-workspace h2 {
   color: var(--code-dark-text);
 }
 
@@ -487,14 +485,7 @@ body.code-mode[data-appearance='dark'] .code-open-editor-path,
 body.code-mode[data-appearance='dark'] .code-file-search-preview,
 body.code-mode[data-appearance='dark'] .code-file-status,
 body.code-mode[data-appearance='dark'] .code-product-mark-badge,
-body.code-mode[data-appearance='dark'] .code-empty-workspace,
-body.code-mode[data-appearance='dark'] .code-history-meta,
-body.code-mode[data-appearance='dark'] .code-history-actions span {
-  color: var(--code-dark-text-muted);
-}
-
-body.code-mode[data-appearance='dark'] .code-history-open-marker {
-  background: rgba(139, 148, 158, 0.16);
+body.code-mode[data-appearance='dark'] .code-empty-workspace {
   color: var(--code-dark-text-muted);
 }
 
@@ -553,46 +544,6 @@ body.code-mode[data-appearance='dark'] .code-side-view-back {
 }
 
 body.code-mode[data-appearance='dark'] .code-side-view-back:hover {
-  background: var(--code-dark-bg-hover);
-  color: var(--code-dark-text);
-}
-
-body.code-mode[data-appearance='dark'] .code-history-card {
-  border-color: transparent;
-  background: transparent;
-  color: var(--code-dark-text);
-}
-
-body.code-mode[data-appearance='dark'] .code-history-card:hover,
-body.code-mode[data-appearance='dark'] .code-history-card.archived:hover {
-  background: var(--code-dark-bg-hover);
-}
-
-body.code-mode[data-appearance='dark'] .code-history-card-primary:focus-visible {
-  outline-color: rgba(88, 166, 255, 0.34);
-}
-
-body.code-mode[data-appearance='dark'] .code-history-actions button {
-  background: transparent;
-  border-color: transparent;
-  color: var(--code-dark-text-muted);
-}
-
-body.code-mode[data-appearance='dark'] .code-history-actions button:hover {
-  background: var(--code-dark-bg-hover);
-}
-
-body.code-mode[data-appearance='dark'] .code-history-pagination {
-  border-top-color: var(--code-dark-border);
-  color: var(--code-dark-text-muted);
-}
-
-body.code-mode[data-appearance='dark'] .code-history-pagination button {
-  border-color: var(--code-dark-border);
-  color: var(--code-dark-text-muted);
-}
-
-body.code-mode[data-appearance='dark'] .code-history-pagination button:hover:not(:disabled) {
   background: var(--code-dark-bg-hover);
   color: var(--code-dark-text);
 }

@@ -1,0 +1,57 @@
+/* Session history panel styles. Extracted from main.css; import order and
+   rule order preserve the original cascade. */
+
+body.code-mode[data-appearance='dark'] .code-history-panel-header h2,
+body.code-mode[data-appearance='dark'] .code-history-card-title {
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-history-meta,
+body.code-mode[data-appearance='dark'] .code-history-actions span {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-history-open-marker {
+  background: rgba(139, 148, 158, 0.16);
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-history-card {
+  border-color: transparent;
+  background: transparent;
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-history-card:hover,
+body.code-mode[data-appearance='dark'] .code-history-card.archived:hover {
+  background: var(--code-dark-bg-hover);
+}
+
+body.code-mode[data-appearance='dark'] .code-history-card-primary:focus-visible {
+  outline-color: rgba(88, 166, 255, 0.34);
+}
+
+body.code-mode[data-appearance='dark'] .code-history-actions button {
+  background: transparent;
+  border-color: transparent;
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-history-actions button:hover {
+  background: var(--code-dark-bg-hover);
+}
+
+body.code-mode[data-appearance='dark'] .code-history-pagination {
+  border-top-color: var(--code-dark-border);
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-history-pagination button {
+  border-color: var(--code-dark-border);
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-history-pagination button:hover:not(:disabled) {
+  background: var(--code-dark-bg-hover);
+  color: var(--code-dark-text);
+}

@@ -62,6 +62,8 @@ export interface DomainStyleOwnershipContract {
   }
   /** Component sources whose owned class names must resolve to an owner rule. */
   componentSources: string[]
+  /** Owned class names that are semantic/test hooks with intentionally no rule. */
+  unstyledClassNames?: string[]
   /** Representative selectors that must stay in the base owner. */
   mustHaveBase: string[]
   /** Representative selectors that must stay in the dark owner. */
@@ -154,7 +156,15 @@ export function assertDomainStyleOwnership(contract: DomainStyleOwnershipContrac
     }
   }
   assert(ownedClassNames.size > 0, `${contract.domain} consumers must reference owned class names`)
+  const unstyled = new Set(contract.unstyledClassNames ?? [])
+  for (const className of unstyled) {
+    assert(
+      !ownerStyles.includes(`.${className}`),
+      `${contract.domain} unstyled hook class actually has rules; remove it from unstyledClassNames: ${className}`,
+    )
+  }
   for (const className of ownedClassNames) {
+    if (unstyled.has(className)) continue
     assert(
       ownerStyles.includes(`.${className}`),
       `${contract.domain} style owner is missing component class: ${className}`,
