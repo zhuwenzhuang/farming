@@ -47,6 +47,7 @@ import {
   workspaceNavigationShortcutDirection,
   type WorkspaceNavigationEntry,
 } from '@/lib/workspace-navigation-history'
+import { requestQrShareTicket } from '@/lib/qr-share-ticket'
 import {
   clearWorkspaceShareTargetSearch,
   resolveWorkspaceSharePath,
@@ -220,7 +221,6 @@ import {
   useProjectMembershipController,
 } from './code/useProjectMembershipController'
 import { useProjectMutationController } from './code/useProjectMutationController'
-import { useQrShareController } from './code/useQrShareController'
 import {
   terminalTargetFilePath,
   terminalTargetGlobalFilePath,
@@ -666,6 +666,7 @@ export function CodeWorkspace({
   const [shareTargetRestoreTick, setShareTargetRestoreTick] = useState(0)
   const [lastProjectWorkspace, setLastProjectWorkspace] = useState<string | undefined>(undefined)
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(false)
+  const [mobileShareUrl, setMobileShareUrl] = useState('')
   const [instanceName, setInstanceName] = useState('Farming')
   const [renameDialog, setRenameDialog] = useState<RenameDialogState | null>(null)
   const [archiveExitDialog, setArchiveExitDialog] = useState<{
@@ -712,6 +713,7 @@ export function CodeWorkspace({
   const workspaceFileRevealRequestRef = useRef(0)
   const workspaceFileSearchFocusRequestRef = useRef(0)
   const terminalPathOpenRequestRef = useRef(new LatestRequestFence())
+  const mobileShareRequestFenceRef = useRef(new LatestRequestFence())
   const shareTargetRestoreAttemptsRef = useRef(0)
   const restoreProjectListFocusRef = useRef<'active' | 'active-force' | 'list' | null>(null)
   const pendingArchivedFocusAgentRef = useRef<string | null>(null)
@@ -769,6 +771,25 @@ export function CodeWorkspace({
   }, [])
   activeTerminalIdRef.current = activeTerminalId
   const copy = useMemo(() => codeCopyForLanguage(uiPreferences.language), [uiPreferences.language])
+  const createMobileShareLink = useCallback(async (target: WorkspaceShareTarget | null | undefined) => {
+    const lease = mobileShareRequestFenceRef.current.begin()
+    try {
+      const url = await requestQrShareTicket(target, copy.shareLinkFailed)
+      if (lease.isCurrent()) setMobileShareUrl(url)
+    } catch (error) {
+      if (!lease.isCurrent()) return
+      if (error instanceof DOMException && error.name === 'AbortError') return
+      const message = error instanceof Error ? error.message : copy.shareLinkFailed
+      setCopyNotice({ id: Date.now(), kind: 'error', message })
+    }
+  }, [copy.shareLinkFailed])
+  const clearMobileShareLink = useCallback(() => {
+    mobileShareRequestFenceRef.current.invalidate()
+    setMobileShareUrl('')
+  }, [])
+  useEffect(() => () => {
+    mobileShareRequestFenceRef.current.invalidate()
+  }, [])
   const currentInfoLoadFailedRef = useRef(copy.currentInfoLoadFailed)
   currentInfoLoadFailedRef.current = copy.currentInfoLoadFailed
   const agentSessionInventorySearchQuery = searchQuery.trim().toLowerCase()
@@ -1041,17 +1062,6 @@ export function CodeWorkspace({
     providerHomeId: activeProviderHomeId,
     enabled: modelMenuOpen && composerAgentKind === 'codex',
     onError: reportCodexModelCatalogError,
-  })
-  const reportShareLinkError = useCallback((message: string) => {
-    setCopyNotice({ id: Date.now(), kind: 'error', message })
-  }, [])
-  const {
-    url: mobileShareUrl,
-    create: createMobileShareLink,
-    clear: clearMobileShareLink,
-  } = useQrShareController({
-    failureMessage: copy.shareLinkFailed,
-    onError: reportShareLinkError,
   })
   const { claudeSettings, discoveredSlashCommands } = useComposerProviderCatalogController({
     providerKind: composerAgentKind || '',

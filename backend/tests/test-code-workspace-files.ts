@@ -50,7 +50,7 @@ function run() {
     'src/components/code/useMainPageSessionMembershipController.ts',
     'src/components/code/useProjectMembershipController.ts',
     'src/components/code/useProjectMutationController.ts',
-    'src/components/code/useQrShareController.ts',
+    'src/lib/qr-share-ticket.ts',
     'src/components/code/useResumeAgentSessionController.ts',
     'src/components/code/useResourcePaneController.ts',
     'src/components/code/useWorkspaceContextMenu.ts',
@@ -83,7 +83,7 @@ function run() {
   const agentSessionInventoryControllerSource = read('src/components/code/useAgentSessionInventoryController.ts');
   const projectMembershipControllerSource = read('src/components/code/useProjectMembershipController.ts');
   const projectMutationControllerSource = read('src/components/code/useProjectMutationController.ts');
-  const qrShareControllerSource = read('src/components/code/useQrShareController.ts');
+  const qrShareTicketSource = read('src/lib/qr-share-ticket.ts');
   const resumeAgentSessionSource = read('src/components/code/useResumeAgentSessionController.ts');
   const resourcePaneControllerSource = read('src/components/code/useResourcePaneController.ts');
   const websocketResourceBroadcastsSource = read('backend/websocket-resource-broadcasts.cts');
@@ -1328,19 +1328,19 @@ function run() {
   );
 
   assert(
-    !workspaceSource.includes('mobileShareRequestRef') &&
-      !workspaceSource.includes('setMobileShareUrl(') &&
-      workspaceSource.includes('useQrShareController({') &&
-      workspaceSource.includes('failureMessage: copy.shareLinkFailed') &&
+    workspaceSource.includes('const mobileShareRequestFenceRef = useRef(new LatestRequestFence())') &&
+      workspaceSource.includes('const [mobileShareUrl, setMobileShareUrl] = useState(\'\')') &&
+      workspaceSource.includes('const lease = mobileShareRequestFenceRef.current.begin()') &&
+      workspaceSource.includes('if (lease.isCurrent()) setMobileShareUrl(url)') &&
+      workspaceSource.includes('mobileShareRequestFenceRef.current.invalidate()') &&
       workspaceSource.includes('createMobileShareLink(workspaceShareTargetWithCurrentReadingAnchor(shareTarget))') &&
       workspaceSource.includes('onClose={clearMobileShareLink}') &&
-      qrShareControllerSource.includes("appPath('/api/share/qr-ticket')") &&
-      qrShareControllerSource.includes('JSON.stringify(target ? { target } : {})') &&
-      qrShareControllerSource.includes('const longUrl = nonEmptyString(record?.longUrl)') &&
-      qrShareControllerSource.includes('const shortUrl = nonEmptyString(record?.shortUrl)') &&
-      qrShareControllerSource.includes('nonEmptyString(record?.error) ?? failureMessage') &&
-      qrShareControllerSource.includes("error instanceof DOMException && error.name === 'AbortError'"),
-    'Share QR tickets should be owned by one controller that admits only the newest request for the exact share target'
+      qrShareTicketSource.includes("appPath('/api/share/qr-ticket')") &&
+      qrShareTicketSource.includes('JSON.stringify(target ? { target } : {})') &&
+      qrShareTicketSource.includes('const longUrl = nonEmptyString(record?.longUrl)') &&
+      qrShareTicketSource.includes('const shortUrl = nonEmptyString(record?.shortUrl)') &&
+      qrShareTicketSource.includes('nonEmptyString(record?.error) ?? failureMessage'),
+    'Share QR tickets should keep transport parsing pure while CodeWorkspace owns its local latest-request state'
   );
 
   assert(
