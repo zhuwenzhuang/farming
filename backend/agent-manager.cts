@@ -195,6 +195,7 @@ import { ProjectOperationAdmissionCoordinator } from './project-operation-admiss
 import { AgentRuntimeStopTracker } from './agent-runtime-stop-tracker.cjs';
 import { ProviderSessionMutationCoordinator } from './provider-session-mutation-coordinator.cjs';
 import { TerminalProviderControlCoordinator } from './terminal-provider-control-coordinator.cjs';
+import { AgentTerminalProjectionTracker } from './agent-terminal-projection-tracker.cjs';
 import { AgentAdaptiveTitlePersistenceCoordinator } from './agent-adaptive-title-persistence.cjs';
 import {
   WorktreeGitService,
@@ -1306,11 +1307,10 @@ class AgentManager extends EventEmitter {
   declare mainAgentId: AgentId | null;
   declare mainAgentStartReservation: AgentStartReservation | null;
   declare activityTracker: AgentActivityTracker;
-  declare terminalStatusProjections: WeakMap<
+  declare terminalProjectionTracker: AgentTerminalProjectionTracker<
     TypedAgentRecord,
     ReturnType<typeof deriveAgentTerminalStatus>
   >;
-  declare codexTerminalProfileProjections: WeakMap<TypedAgentRecord, object | null>;
   declare usageRateTracker: AgentUsageRateTracker;
   declare terminalResizeCoordinator: TerminalResizeCoordinator;
   declare inputCoordinator: AgentInputCoordinator;
@@ -1396,8 +1396,7 @@ class AgentManager extends EventEmitter {
         if (activity) this.emit('agent-activity', activity);
       },
     });
-    this.terminalStatusProjections = new WeakMap();
-    this.codexTerminalProfileProjections = new WeakMap();
+    this.terminalProjectionTracker = new AgentTerminalProjectionTracker();
     this.usageRateTracker = new AgentUsageRateTracker();
     this.terminalResizeCoordinator = new TerminalResizeCoordinator({
       isShuttingDown: () => this.disposing,
@@ -2039,15 +2038,17 @@ class AgentManager extends EventEmitter {
           || !terminalRuntimeEventMatches(agent, runtimeEpoch)
         ) return;
 
-        const previousTerminalStatus = this.terminalStatusProjections.get(agent)
-          || deriveAgentTerminalStatus(agent, {
+        const previousTerminalStatus = this.terminalProjectionTracker.previousStatus(agent, () => (
+          deriveAgentTerminalStatus(agent, {
             previewText: agent.previewText || '',
             title: agent.sessionTitle || '',
             terminalBusy: typeof agent.terminalBusy === 'boolean' ? agent.terminalBusy : null,
-          });
-        const previousCodexTerminalProfile = this.codexTerminalProfileProjections.has(agent)
-          ? this.codexTerminalProfileProjections.get(agent) ?? null
-          : (isRecord(agent.codexTerminalProfile) ? agent.codexTerminalProfile : null);
+          })
+        ));
+        const previousCodexTerminalProfile = this.terminalProjectionTracker.previousProviderProfile(
+          agent,
+          () => (isRecord(agent.codexTerminalProfile) ? agent.codexTerminalProfile : null),
+        );
         const titleChanged = typeof title === 'string'
           ? this.updateAgentSessionTitle(agent, title)
           : false;
@@ -2066,8 +2067,7 @@ class AgentManager extends EventEmitter {
         });
         const runtimeObservation = deriveRuntimeObservation({ ...agent, terminalStatus });
         const codexTerminalProfile = activeCodexTerminalProfile(agent, agent.previewText) || null;
-        this.terminalStatusProjections.set(agent, terminalStatus);
-        this.codexTerminalProfileProjections.set(agent, codexTerminalProfile);
+        this.terminalProjectionTracker.update(agent, terminalStatus, codexTerminalProfile);
         this.emit('session-preview-update', {
           agentId: sessionId,
           previewText: agent.previewText,
@@ -2210,7 +2210,7 @@ class AgentManager extends EventEmitter {
         }
         this.attentionTracker.observeAgentAttentionState(sessionId);
         const patch = terminalMetadataPatch(agent);
-        this.terminalStatusProjections.set(agent, patch.terminalStatus);
+        this.terminalProjectionTracker.updateStatus(agent, patch.terminalStatus);
         this.emit('agent-update', { agentId: sessionId, patch });
       });
 
@@ -10072,8 +10072,7 @@ class AgentManager extends EventEmitter {
       previewText: agent.previewText || '',
     });
     const codexTerminalProfile = activeCodexTerminalProfile(agent, agent.previewText || '') || null;
-    this.terminalStatusProjections.set(agent, terminalStatus);
-    this.codexTerminalProfileProjections.set(agent, codexTerminalProfile);
+    this.terminalProjectionTracker.update(agent, terminalStatus, codexTerminalProfile);
 
     return {
       id: agent.id,

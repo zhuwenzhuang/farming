@@ -117,6 +117,8 @@ Runtime Port 与 Provider Policy
 - ACP Transcript Projection 在一个 Service 中统一拥有 Prepared Cache Identity、按需
   Read 合并、序列化、失效、优先级和精确 Agent Cleanup。Manager 只保留 Live Agent
   准入和面向 Transport 的委托。
+- Terminal Projection 去重把最后发布的 Status 与 Provider Profile 放进同一个 Weak
+  Key Tracker。Event Handler 计算当前事实，但不再拥有平行 Projection Cache。
 - Provider Adapter 提供有类型的权限重启、Terminal 身份/启动约束、空闲稳定和会话
   Fork 策略；通用生命周期代码不解释 Provider 名称。共享 Terminal Startup
   Coordinator 拥有可变的排序和就绪状态；Adapter 只提供无状态的资源作用域和就绪策略。

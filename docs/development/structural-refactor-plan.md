@@ -144,6 +144,9 @@ HTTP, WebSocket, persistence, and runtime-host boundaries.
   coalescing, serialization, invalidation, prioritization, and exact Agent
   cleanup in one service. The Manager retains only live-Agent admission and
   transport-facing delegation.
+- Terminal projection deduplication keeps the last published status and
+  provider profile in one weakly keyed tracker. Event handlers compute current
+  facts but do not own parallel projection caches.
 - Provider adapters expose typed decisions such as permission restart,
   Terminal identity/startup constraints, idle stability, and conversation Fork
   policy. Generic lifecycle code does not interpret provider names. A shared
