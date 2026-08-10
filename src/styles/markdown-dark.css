@@ -1,0 +1,215 @@
+/* Dark-appearance overrides for Markdown rendering. Extracted from
+   code-dark.css; import order and rule order preserve the original cascade. */
+
+body.code-mode[data-appearance='dark'] .code-agent-transcript-assistant.code-markdown-preview {
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-transcript-assistant.code-markdown-preview strong {
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-transcript-assistant.code-markdown-preview code {
+  background: rgba(255, 255, 255, 0.09);
+  color: var(--code-dark-text);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.035),
+    0 1px 1px rgba(0, 0, 0, 0.16);
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-transcript-assistant.code-markdown-preview blockquote {
+  color: var(--code-dark-text-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-transcript-assistant.code-markdown-preview blockquote::after {
+  background: var(--code-dark-border);
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-transcript-assistant.code-markdown-preview pre {
+  border-color: var(--code-dark-border);
+  background: rgba(13, 17, 23, 0.82);
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-transcript-assistant.code-markdown-preview hr {
+  border-top-color: var(--code-dark-border);
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-transcript-assistant.code-markdown-preview th {
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-agent-transcript-assistant.code-markdown-preview th,
+body.code-mode[data-appearance='dark'] .code-agent-transcript-assistant.code-markdown-preview td {
+  border-bottom-color: var(--code-dark-border-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-markdown-preview {
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-markdown-preview h1,
+body.code-mode[data-appearance='dark'] .code-markdown-preview h2,
+body.code-mode[data-appearance='dark'] .code-markdown-preview h3,
+body.code-mode[data-appearance='dark'] .code-markdown-preview h4,
+body.code-mode[data-appearance='dark'] .code-markdown-preview h5,
+body.code-mode[data-appearance='dark'] .code-markdown-preview h6 {
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-markdown-preview h1,
+body.code-mode[data-appearance='dark'] .code-markdown-preview h2 {
+  border-color: var(--code-dark-border);
+}
+
+body.code-mode[data-appearance='dark'] .code-markdown-preview a {
+  color: #79c0ff;
+}
+
+body.code-mode[data-appearance='dark'] .code-markdown-heading-anchor {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-markdown-preview blockquote {
+  border-color: #30363d;
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-markdown-preview code {
+  background: rgba(110, 118, 129, 0.32);
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-markdown-preview pre,
+body.code-mode[data-appearance='dark'] .code-markdown-preview th {
+  background: #161b22;
+}
+
+body.code-mode[data-appearance='dark'] .code-markdown-preview pre[data-language]::before {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-markdown-preview .katex {
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-markdown-preview .hljs-comment,
+body.code-mode[data-appearance='dark'] .code-markdown-preview .hljs-quote {
+  color: #8b949e;
+}
+
+body.code-mode[data-appearance='dark'] .code-markdown-preview .hljs-keyword,
+body.code-mode[data-appearance='dark'] .code-markdown-preview .hljs-selector-tag,
+body.code-mode[data-appearance='dark'] .code-markdown-preview .hljs-subst {
+  color: #ff7b72;
+}
+
+body.code-mode[data-appearance='dark'] .code-markdown-preview .hljs-literal,
+body.code-mode[data-appearance='dark'] .code-markdown-preview .hljs-number,
+body.code-mode[data-appearance='dark'] .code-markdown-preview .hljs-tag .hljs-attr,
+body.code-mode[data-appearance='dark'] .code-markdown-preview .hljs-template-variable,
+body.code-mode[data-appearance='dark'] .code-markdown-preview .hljs-variable {
+  color: #79c0ff;
+}
+
+body.code-mode[data-appearance='dark'] .code-markdown-preview .hljs-doctag,
+body.code-mode[data-appearance='dark'] .code-markdown-preview .hljs-string {
+  color: #a5d6ff;
+}
+
+body.code-mode[data-appearance='dark'] .code-markdown-preview .hljs-section,
+body.code-mode[data-appearance='dark'] .code-markdown-preview .hljs-selector-id,
+body.code-mode[data-appearance='dark'] .code-markdown-preview .hljs-title {
+  color: #d2a8ff;
+}
+
+body.code-mode[data-appearance='dark'] .code-markdown-preview .hljs-attr,
+body.code-mode[data-appearance='dark'] .code-markdown-preview .hljs-attribute,
+body.code-mode[data-appearance='dark'] .code-markdown-preview .hljs-name,
+body.code-mode[data-appearance='dark'] .code-markdown-preview .hljs-selector-class,
+body.code-mode[data-appearance='dark'] .code-markdown-preview .hljs-selector-pseudo,
+body.code-mode[data-appearance='dark'] .code-markdown-preview .hljs-tag {
+  color: #7ee787;
+}
+
+body.code-mode[data-appearance='dark'] .code-markdown-preview .hljs-built_in,
+body.code-mode[data-appearance='dark'] .code-markdown-preview .hljs-symbol {
+  color: #ffa657;
+}
+
+body.code-mode[data-appearance='dark'] .code-markdown-preview .code-markdown-frontmatter {
+  border-color: #30363d;
+}
+
+body.code-mode[data-appearance='dark'] .code-markdown-preview .code-markdown-frontmatter th,
+body.code-mode[data-appearance='dark'] .code-markdown-preview .code-markdown-frontmatter td {
+  border-color: #30363d;
+}
+
+body.code-mode[data-appearance='dark'] .code-markdown-preview .code-markdown-frontmatter th {
+  background: #161b22;
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-markdown-preview .code-markdown-frontmatter.error {
+  border-color: rgba(248, 81, 73, 0.42);
+  background: rgba(22, 27, 34, 0.9);
+  color: #ff7b72;
+}
+
+body.code-mode[data-appearance='dark'] .code-markdown-mermaid {
+  border-color: #30363d;
+  background: #0d1117;
+}
+
+body.code-mode[data-appearance='dark'] .code-markdown-mermaid-toolbar {
+  border-color: #30363d;
+  background: rgba(22, 27, 34, 0.92);
+  box-shadow: 0 8px 24px rgba(1, 4, 9, 0.32);
+}
+
+body.code-mode[data-appearance='dark'] .code-markdown-mermaid-toolbar button {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-markdown-mermaid-toolbar button:hover:not(:disabled),
+body.code-mode[data-appearance='dark'] .code-markdown-mermaid-toolbar button:focus-visible {
+  background: rgba(110, 118, 129, 0.24);
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-markdown-mermaid-toolbar button[aria-pressed='true'] {
+  background: rgba(56, 139, 253, 0.2);
+  color: #58a6ff;
+}
+
+body.code-mode[data-appearance='dark'] .code-markdown-mermaid-loading {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-markdown-mermaid.error {
+  border-color: rgba(248, 81, 73, 0.42);
+  background: rgba(22, 27, 34, 0.9);
+}
+
+body.code-mode[data-appearance='dark'] .code-markdown-mermaid-error-title {
+  color: #ff7b72;
+}
+
+body.code-mode[data-appearance='dark'] .code-markdown-mermaid-error-message {
+  border-color: rgba(248, 81, 73, 0.28);
+  background: rgba(13, 17, 23, 0.76);
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-markdown-preview th,
+body.code-mode[data-appearance='dark'] .code-markdown-preview td {
+  border-color: #30363d;
+}
+
+body.code-mode[data-appearance='dark'] .code-markdown-preview tr:nth-child(2n) {
+  background: rgba(22, 27, 34, 0.76);
+}
+
+body.code-mode[data-appearance='dark'] .code-markdown-preview hr {
+  background: var(--code-dark-border);
+}
