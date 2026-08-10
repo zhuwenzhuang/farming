@@ -197,6 +197,7 @@ import { AgentStartAdmissionCoordinator } from './agent-start-admission-coordina
 import { ProjectOperationAdmissionCoordinator } from './project-operation-admission-coordinator.cjs';
 import { AgentRuntimeStopTracker } from './agent-runtime-stop-tracker.cjs';
 import { ProviderSessionMutationCoordinator } from './provider-session-mutation-coordinator.cjs';
+import { TerminalProviderControlCoordinator } from './terminal-provider-control-coordinator.cjs';
 import { AgentAdaptiveTitlePersistenceCoordinator } from './agent-adaptive-title-persistence.cjs';
 import {
   WorktreeGitService,
@@ -1321,9 +1322,7 @@ class AgentManager extends EventEmitter {
   declare terminalResizeCoordinator: TerminalResizeCoordinator;
   declare inputCoordinator: AgentInputCoordinator;
   declare composerAdmissionCoordinator: AgentComposerAdmissionCoordinator;
-  declare codexTerminalProfileQueues: Map<AgentId, Promise<unknown>>;
-  declare codexTerminalIdentityAttempts: Map<AgentId, string>;
-  declare codexTerminalIdentityPromises: Map<AgentId, Promise<boolean>>;
+  declare terminalProviderControlCoordinator: TerminalProviderControlCoordinator;
   declare terminalStartupCoordinator: TerminalStartupCoordinator;
   declare agentWorktreeRefreshQueue: AgentWorktreeRefreshQueue;
   declare worktreeGitService: WorktreeGitServicePort;
@@ -1511,9 +1510,7 @@ class AgentManager extends EventEmitter {
       persistenceRequired: () => typeof this.configManager?.ensureAgentSessionRecord === 'function',
       runtimeKind: agent => runtimeKind(agent),
     });
-    this.codexTerminalProfileQueues = new Map();
-    this.codexTerminalIdentityAttempts = new Map();
-    this.codexTerminalIdentityPromises = new Map();
+    this.terminalProviderControlCoordinator = new TerminalProviderControlCoordinator();
     this.terminalStartupCoordinator = new TerminalStartupCoordinator();
     this.agentWorktreeRefreshQueue = new AgentWorktreeRefreshQueue(
       AGENT_WORKTREE_REFRESH_CONCURRENCY,
@@ -4716,9 +4713,7 @@ class AgentManager extends EventEmitter {
     this.activityTracker.dispose();
     this.runtimeStopTracker.clear();
     this.terminalResizeCoordinator.dispose();
-    this.codexTerminalProfileQueues.clear();
-    this.codexTerminalIdentityAttempts.clear();
-    this.codexTerminalIdentityPromises.clear();
+    this.terminalProviderControlCoordinator.clear();
     this.terminalStartupCoordinator.dispose();
     this.adaptiveTitlePersistence.clearPending();
     this.acpTurnFinalizationCoordinator.dispose();
@@ -4734,6 +4729,7 @@ class AgentManager extends EventEmitter {
       for (const operation of this.startAdmissionCoordinator.pendingOperations()) pending.add(operation);
       for (const operation of this.projectAdmissionCoordinator.pendingOperations()) pending.add(operation);
       for (const operation of this.providerSessionMutationCoordinator.pendingOperations()) pending.add(operation);
+      for (const operation of this.terminalProviderControlCoordinator.pendingOperations()) pending.add(operation);
       for (const operation of this.inputCoordinator.pendingOperations()) pending.add(operation);
       for (const operation of this.terminalResizeCoordinator.pendingOperations()) pending.add(operation);
       const adaptiveTitleDrain = this.adaptiveTitlePersistence.activeDrain();
@@ -6163,8 +6159,7 @@ class AgentManager extends EventEmitter {
       this.acpTurnFinalizationCoordinator.forget(agentId);
       this.activityTracker.forget(agentId);
       this.usageRateTracker.forget(agentId);
-      this.codexTerminalIdentityAttempts.delete(agentId);
-      this.codexTerminalIdentityPromises.delete(agentId);
+      this.terminalProviderControlCoordinator.forget(agentId);
       this.providerSessionService.stop(agentId);
       if (this.acpRuntime) this.acpRuntime.unregisterAgent(agentId);
 
@@ -6321,78 +6316,66 @@ class AgentManager extends EventEmitter {
     if (!isCodexTerminalComposerPreview(previewText)) return Promise.resolve(false);
 
     const attemptKey = runtimeEpoch || `started:${Number(agent.startedAt) || 0}`;
-    if (this.codexTerminalIdentityAttempts.get(agentId) === attemptKey) {
-      return this.codexTerminalIdentityPromises.get(agentId) || Promise.resolve(false);
-    }
-    this.codexTerminalIdentityAttempts.set(agentId, attemptKey);
+    return this.terminalProviderControlCoordinator.resolveIdentityOnce(agentId, attemptKey, () => (
+      this.enqueueInputOperation(agentId, async () => {
+        const current = this.agents.get(agentId);
+        if (
+          current !== agent
+          || current.providerSessionTemporary !== true
+          || (runtimeEpoch && current.runtimeEpoch !== runtimeEpoch)
+        ) {
+          return false;
+        }
+        const view = await this.getAgentSessionView(agentId);
+        const currentPreview = String(view?.previewText || '');
+        const renderedSessionId = codexTerminalSessionIdFromStatus(currentPreview);
+        if (renderedSessionId) {
+          return this.confirmCodexTerminalStatusIdentity(
+            agentId,
+            renderedSessionId,
+            agent,
+            runtimeEpoch,
+          );
+        }
+        if (!isCodexTerminalComposerPreview(currentPreview)) {
+          this.terminalProviderControlCoordinator.resetIdentityAttempt(agentId, attemptKey);
+          return false;
+        }
 
-    const operation = this.enqueueInputOperation(agentId, async () => {
-      const current = this.agents.get(agentId);
-      if (
-        current !== agent
-        || current.providerSessionTemporary !== true
-        || (runtimeEpoch && current.runtimeEpoch !== runtimeEpoch)
-      ) {
-        return false;
-      }
-      const view = await this.getAgentSessionView(agentId);
-      const currentPreview = String(view?.previewText || '');
-      const renderedSessionId = codexTerminalSessionIdFromStatus(currentPreview);
-      if (renderedSessionId) {
+        const resolvedSessionId = await resolveCodexTerminalSessionId({
+          timeoutMs: CODEX_TERMINAL_STATUS_TIMEOUT_MS,
+          readPreview: async () => {
+            const nextView = await this.getAgentSessionView(agentId);
+            if (!nextView) throw new Error('Agent not found');
+            return nextView.previewText;
+          },
+          sendInput: async (input: TerminalInput) => {
+            const result = await this.sendInputNow(agentId, input, {
+              expectedRuntimeEpoch: runtimeEpoch,
+              markUserInput: false,
+              throwOnUncertain: true,
+            });
+            if (!result) throw new Error('Codex Terminal is not available');
+            if ('status' in result && result.status === 'input-rejected') {
+              throw new Error('Codex Terminal runtime changed before /status');
+            }
+            return result;
+          },
+        });
         return this.confirmCodexTerminalStatusIdentity(
           agentId,
-          renderedSessionId,
+          resolvedSessionId,
           agent,
           runtimeEpoch,
         );
-      }
-      if (!isCodexTerminalComposerPreview(currentPreview)) {
-        if (this.codexTerminalIdentityAttempts.get(agentId) === attemptKey) {
-          this.codexTerminalIdentityAttempts.delete(agentId);
-        }
+      }).catch((error: unknown) => {
+        console.warn(
+          `Failed to resolve Codex Terminal session id for ${agentId}:`,
+          error instanceof Error ? error.message : String(error),
+        );
         return false;
-      }
-
-      const resolvedSessionId = await resolveCodexTerminalSessionId({
-        timeoutMs: CODEX_TERMINAL_STATUS_TIMEOUT_MS,
-        readPreview: async () => {
-          const nextView = await this.getAgentSessionView(agentId);
-          if (!nextView) throw new Error('Agent not found');
-          return nextView.previewText;
-        },
-        sendInput: async (input: TerminalInput) => {
-          const result = await this.sendInputNow(agentId, input, {
-            expectedRuntimeEpoch: runtimeEpoch,
-            markUserInput: false,
-            throwOnUncertain: true,
-          });
-          if (!result) throw new Error('Codex Terminal is not available');
-          if ('status' in result && result.status === 'input-rejected') {
-            throw new Error('Codex Terminal runtime changed before /status');
-          }
-          return result;
-        },
-      });
-      return this.confirmCodexTerminalStatusIdentity(
-        agentId,
-        resolvedSessionId,
-        agent,
-        runtimeEpoch,
-      );
-    }).catch((error: unknown) => {
-      console.warn(
-        `Failed to resolve Codex Terminal session id for ${agentId}:`,
-        error instanceof Error ? error.message : String(error),
-      );
-      return false;
-    });
-    this.codexTerminalIdentityPromises.set(agentId, operation);
-    void operation.finally(() => {
-      if (this.codexTerminalIdentityPromises.get(agentId) === operation) {
-        this.codexTerminalIdentityPromises.delete(agentId);
-      }
-    });
-    return operation;
+      })
+    ));
   }
 
   async resolveCodexTerminalIdentityFromCurrentView(agentId: AgentId): Promise<boolean> {
@@ -6425,25 +6408,15 @@ class AgentManager extends EventEmitter {
     profile: CodexTerminalProfileRequest,
     options: CodexTerminalProfileOptions = {},
   ): Promise<unknown> {
-    const previous = this.codexTerminalProfileQueues.get(agentId) || Promise.resolve();
-    const start = () => this.enqueueInputOperationUntilReleased(
-      agentId,
-      (releaseInput: () => void) => this.setCodexTerminalProfileNow(agentId, profile, {
-        ...options,
-        onInputSafe: releaseInput,
-      }),
-    );
-    const next = this.codexTerminalProfileQueues.has(agentId)
-      ? previous.catch(() => {}).then(start)
-      : start();
-    this.codexTerminalProfileQueues.set(agentId, next);
-    try {
-      return await next;
-    } finally {
-      if (this.codexTerminalProfileQueues.get(agentId) === next) {
-        this.codexTerminalProfileQueues.delete(agentId);
-      }
-    }
+    return this.terminalProviderControlCoordinator.runProfileMutation(agentId, () => (
+      this.enqueueInputOperationUntilReleased(
+        agentId,
+        (releaseInput: () => void) => this.setCodexTerminalProfileNow(agentId, profile, {
+          ...options,
+          onInputSafe: releaseInput,
+        }),
+      )
+    ));
   }
 
   async setCodexTerminalProfileNow(
@@ -9937,8 +9910,7 @@ class AgentManager extends EventEmitter {
     this.runtimeStopTracker.forget(agentId);
     this.activityTracker.forget(agentId);
     this.usageRateTracker.forget(agentId);
-    this.codexTerminalIdentityAttempts.delete(agentId);
-    this.codexTerminalIdentityPromises.delete(agentId);
+    this.terminalProviderControlCoordinator.forget(agentId);
     this.providerSessionService.stop(agentId);
     if (this.acpRuntime) this.acpRuntime.unregisterAgent(agentId);
 

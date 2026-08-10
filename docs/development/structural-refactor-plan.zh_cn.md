@@ -111,6 +111,9 @@ Runtime Port 与 Provider Policy
 - Provider Session Mutation 按 Provider、Home 和精确 Session Identity 采用中立排序。
   Codex Archive 仍是 Adapter Effect；排队、同操作合并、失败释放和 Drain 不是
   Codex 专属状态机。
+- Terminal Provider Control 排序同样保持 Provider 中立。每个 Runtime 只尝试一次的
+  Identity Resolution 与单 Agent Profile Mutation 串行化进入共享 Owner；Codex 的
+  Preview 解析以及 `/status`、`/model` 命令仍属于 Provider Policy 与 Effect。
 - Provider Adapter 提供有类型的权限重启、Terminal 身份/启动约束、空闲稳定和会话
   Fork 策略；通用生命周期代码不解释 Provider 名称。共享 Terminal Startup
   Coordinator 拥有可变的排序和就绪状态；Adapter 只提供无状态的资源作用域和就绪策略。

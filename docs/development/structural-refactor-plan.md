@@ -136,6 +136,10 @@ HTTP, WebSocket, persistence, and runtime-host boundaries.
   home, and exact session identity. Codex archive behavior remains an adapter
   effect; queueing, same-operation joining, failure release, and drain are not
   Codex-specific state machines.
+- Terminal-provider control ordering is also provider-neutral. One-attempt-per-
+  runtime identity resolution and per-Agent profile mutation serialization live
+  in a shared owner; Codex preview parsing and `/status` or `/model` commands
+  remain provider policy and effects.
 - Provider adapters expose typed decisions such as permission restart,
   Terminal identity/startup constraints, idle stability, and conversation Fork
   policy. Generic lifecycle code does not interpret provider names. A shared
