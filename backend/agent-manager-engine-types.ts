@@ -298,7 +298,6 @@ interface AgentManagerTerminalEngineFields {
   activeInputOperations: Set<Promise<unknown>>;
   codexTerminalStartOutput: Map<string, string>;
   engineBridge: SessionEngineBridgeContract;
-  lastResizeByAgent: Map<string, TerminalDimensions>;
   pendingResizeByAgent: Map<string, TerminalResizeRequest>;
   permissionRestartSuppressedAgentIds: Set<string>;
   resizeDrains: Map<string, Promise<void>>;

@@ -1344,7 +1344,6 @@ class AgentManager extends EventEmitter {
   >;
   declare codexTerminalProfileProjections: WeakMap<TypedAgentRecord, object | null>;
   declare usageRateTracker: AgentUsageRateTracker;
-  declare lastResizeByAgent: Map<AgentId, TerminalSize>;
   declare pendingResizeByAgent: Map<AgentId, TerminalSize>;
   declare resizeDrains: Map<AgentId, Promise<void>>;
   declare inputQueues: Map<AgentId, Promise<unknown>>;
@@ -1449,7 +1448,6 @@ class AgentManager extends EventEmitter {
     this.terminalStatusProjections = new WeakMap();
     this.codexTerminalProfileProjections = new WeakMap();
     this.usageRateTracker = new AgentUsageRateTracker();
-    this.lastResizeByAgent = new Map();
     this.pendingResizeByAgent = new Map();
     this.resizeDrains = new Map();
     this.inputQueues = new Map();
@@ -2556,7 +2554,6 @@ class AgentManager extends EventEmitter {
           this.lastActivity.delete(sessionId);
           this.lastActivityUpdate.delete(sessionId);
           this.usageRateTracker.forget(sessionId);
-          this.lastResizeByAgent.delete(sessionId);
 
           if (this.mainAgentId === sessionId) {
             this.mainAgentId = null;
@@ -6640,7 +6637,6 @@ class AgentManager extends EventEmitter {
       this.lastActivity.delete(agentId);
       this.lastActivityUpdate.delete(agentId);
       this.usageRateTracker.forget(agentId);
-      this.lastResizeByAgent.delete(agentId);
       this.codexTerminalIdentityAttempts.delete(agentId);
       this.codexTerminalIdentityPromises.delete(agentId);
       this.providerSessionService.stop(agentId);
@@ -7661,9 +7657,6 @@ class AgentManager extends EventEmitter {
       const result = await engine.resizeSession(agentId, nextCols, nextRows);
       if (result && result.resized === false && result.reason === 'session-unavailable') {
         this.markAgentSessionDead(agentId, 'Session not available');
-      }
-      if (result && result.status === 'resize-committed') {
-        this.lastResizeByAgent.set(agentId, { cols: nextCols, rows: nextRows });
       }
       return result;
     } catch (caughtError: unknown) {
@@ -10598,7 +10591,6 @@ class AgentManager extends EventEmitter {
     this.lastActivity.delete(agentId);
     this.lastActivityUpdate.delete(agentId);
     this.usageRateTracker.forget(agentId);
-    this.lastResizeByAgent.delete(agentId);
     this.codexTerminalIdentityAttempts.delete(agentId);
     this.codexTerminalIdentityPromises.delete(agentId);
     this.providerSessionService.stop(agentId);
