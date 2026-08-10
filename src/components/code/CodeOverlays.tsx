@@ -160,27 +160,6 @@ export function CodeOverlays({
   const agentMenuEntries = compactContextMenuEntries([
     {
       type: 'item',
-      id: 'switch-agent-runtime',
-      label: agentChatMode ? copy.switchToTerminal : copy.switchToChat,
-      icon: agentChatMode ? 'terminal' : 'chat',
-      hidden: !canSwitchAgentRuntime(contextMenuAgent),
-      disabled: runtimeSwitchDisabled || isAgentTurnActive(contextMenuAgent),
-      onSelect: () => {
-        if (!contextMenuAgent) return
-        onSwitchAgentRuntime(contextMenuAgent.id, agentChatMode ? 'terminal' : 'chat')
-      },
-    },
-    { type: 'separator', id: 'agent-runtime-separator' },
-    {
-      type: 'item',
-      id: 'create-agent-browser',
-      label: copy.createBrowser,
-      icon: 'browser',
-      hidden: !canCreateAgentBrowser,
-      onSelect: onCreateAgentBrowser,
-    },
-    {
-      type: 'item',
       id: 'create-agent-desktop',
       label: copy.createIsolatedDesktop,
       icon: 'desktop',
@@ -245,6 +224,27 @@ export function CodeOverlays({
       icon: 'fork-plus',
       hidden: !agentCapabilities.actions.forkNewWorktree,
       onSelect: () => onForkAgent('new-worktree'),
+    },
+    { type: 'separator', id: 'agent-runtime-separator' },
+    {
+      type: 'item',
+      id: 'switch-agent-runtime',
+      label: agentChatMode ? copy.switchToTerminal : copy.switchToChat,
+      icon: agentChatMode ? 'terminal' : 'chat',
+      hidden: !canSwitchAgentRuntime(contextMenuAgent),
+      disabled: runtimeSwitchDisabled || isAgentTurnActive(contextMenuAgent),
+      onSelect: () => {
+        if (!contextMenuAgent) return
+        onSwitchAgentRuntime(contextMenuAgent.id, agentChatMode ? 'terminal' : 'chat')
+      },
+    },
+    {
+      type: 'item',
+      id: 'create-agent-browser',
+      label: copy.createBrowser,
+      icon: 'browser',
+      hidden: !canCreateAgentBrowser,
+      onSelect: onCreateAgentBrowser,
     },
   ])
   const sessionMenuEntries = compactContextMenuEntries([
