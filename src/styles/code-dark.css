@@ -39,50 +39,6 @@ body.code-mode[data-appearance='dark'] ::selection {
   color: #ffffff;
 }
 
-body.code-mode[data-appearance='dark'] .code-agent-rail-button,
-body.code-mode[data-appearance='dark'] .code-agent-row {
-  color: var(--code-dark-text-soft);
-}
-
-body.code-mode[data-appearance='dark'] .code-agent-rail-button:hover,
-body.code-mode[data-appearance='dark'] .code-agent-rail-button:focus-visible,
-body.code-mode[data-appearance='dark'] .code-agent-rail-button.active,
-body.code-mode[data-appearance='dark'] .code-agent-row:hover,
-body.code-mode[data-appearance='dark'] .code-agent-row.active,
-body.code-mode[data-appearance='dark'] .code-agent-row.search-selected {
-  background: var(--code-dark-bg-hover);
-  color: var(--code-dark-text);
-}
-
-body.code-mode[data-appearance='dark'] .code-agent-row-action {
-  color: var(--code-dark-text-muted);
-}
-
-body.code-mode[data-appearance='dark'] .code-agent-row-action:hover,
-body.code-mode[data-appearance='dark'] .code-agent-row-action:focus-visible {
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--code-dark-text);
-}
-
-body.code-mode[data-appearance='dark'] .code-agent-row-action.pin.active {
-  color: #d7c66f;
-}
-
-body.code-mode[data-appearance='dark'] .code-agent-row-actions {
-  --code-agent-row-action-surface: var(--code-dark-bg-soft);
-}
-
-body.code-mode[data-appearance='dark'] .code-agent-row:hover .code-agent-row-actions,
-body.code-mode[data-appearance='dark'] .code-agent-row.active .code-agent-row-actions,
-body.code-mode[data-appearance='dark'] .code-agent-row.search-selected .code-agent-row-actions {
-  --code-agent-row-action-surface: var(--code-dark-bg-hover);
-}
-
-body.code-mode[data-appearance='dark'] .code-agent-row.drop-before::before,
-body.code-mode[data-appearance='dark'] .code-agent-row.drop-after::after {
-  background: #58a6ff;
-}
-
 body.code-mode[data-appearance='dark'] .workspace-input input,
 body.code-mode[data-appearance='dark'] .workspace-directory-picker,
 body.code-mode[data-appearance='dark'] .workspace-input .workflow-select .code-select-trigger,
@@ -161,79 +117,18 @@ body.code-mode[data-appearance='dark'] .workspace-input textarea.task-input::pla
   color: var(--code-dark-text-muted);
 }
 
-body.code-mode[data-appearance='dark'] .code-agent-hover-preview,
-body.code-mode[data-appearance='dark'] .code-agent-hover-title-card {
-  border-color: var(--code-dark-border);
-  background: rgba(22, 27, 34, 0.98);
-  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.36);
-  color: var(--code-dark-text);
-}
-
-body.code-mode[data-appearance='dark'] .code-agent-hover-preview-header span,
-body.code-mode[data-appearance='dark'] .code-agent-hover-preview-icon {
-  color: var(--code-dark-text-muted);
-}
-
-body.code-mode[data-appearance='dark'] .code-agent-hover-preview-line {
-  color: var(--code-dark-text);
-}
-
-body.code-mode[data-appearance='dark'] .code-agent-hover-preview-resources {
-  border-color: var(--code-dark-border);
-  color: var(--code-dark-text);
-}
-
-body.code-mode[data-appearance='dark'] .code-agent-hover-preview-resource svg {
-  color: var(--code-dark-text-muted);
-}
-
 body.code-mode[data-appearance='dark'] .code-side-view-panel {
   background: var(--code-dark-bg);
   color: var(--code-dark-text);
 }
 
-
-body.code-mode[data-appearance='dark'] .code-agent-dot.running {
-  background: var(--code-dark-success);
-}
-
-body.code-mode[data-appearance='dark'] .code-agent-dot.turn-active {
-  background: transparent;
-  border-color: rgba(63, 185, 80, 0.24);
-  border-top-color: var(--code-dark-success);
-}
-
 @media (prefers-reduced-motion: reduce) {
-  body.code-mode[data-appearance='dark'] .code-agent-dot.turn-active {
-    background: var(--code-dark-success);
-    border: 0;
-  }
 }
 
-body.code-mode[data-appearance='dark'] .code-agent-dot.pending:not(.turn-active) {
-  background: var(--code-dark-warning);
-}
-
-body.code-mode[data-appearance='dark'] .code-agent-dot.stopped {
-  background: #6e7681;
-}
-
-body.code-mode[data-appearance='dark'] .code-agent-dot.dead {
-  background: var(--code-dark-danger);
-}
-
-body.code-mode[data-appearance='dark'] .code-agent-unread {
-  background: #58a6ff;
-}
-
-body.code-mode[data-appearance='dark'] .code-agent-name,
 body.code-mode[data-appearance='dark'] .code-product-mark-main {
   color: var(--code-dark-text);
 }
 
-body.code-mode[data-appearance='dark'] .code-agent-meta,
-body.code-mode[data-appearance='dark'] .code-agent-age,
-body.code-mode[data-appearance='dark'] .code-agent-fork-new-worktree,
 body.code-mode[data-appearance='dark'] .code-product-mark-badge {
   color: var(--code-dark-text-muted);
 }
@@ -245,11 +140,6 @@ body.code-mode[data-appearance='dark'] .code-side-view-back {
 body.code-mode[data-appearance='dark'] .code-side-view-back:hover {
   background: var(--code-dark-bg-hover);
   color: var(--code-dark-text);
-}
-
-body.code-mode[data-appearance='dark'] .code-agents-section {
-  background: var(--code-dark-bg-soft);
-  color: var(--code-dark-text-soft);
 }
 
 body.code-mode[data-appearance='dark'] .code-folder-icon {
@@ -415,7 +305,6 @@ body.code-mode[data-appearance='dark'] .app-toast.recovering {
 
 body.code-mode[data-appearance='dark'] .code-context-menu,
 body.code-mode[data-appearance='dark'] .code-options-menu,
-body.code-mode[data-appearance='dark'] .code-agent-launch-submenu-panel,
 body.code-mode[data-appearance='dark'] .code-editor-context-menu {
   background: var(--code-dark-bg-elevated);
   border-color: var(--code-dark-border);
@@ -456,10 +345,6 @@ body.code-mode[data-appearance='dark'] .code-context-menu-icon {
 
 body.code-mode[data-appearance='dark'] .code-context-menu-icon .code-context-menu-unread-icon {
   color: #58a6ff;
-}
-
-body.code-mode[data-appearance='dark'] .code-agent-launch-submenu-arrow {
-  color: var(--code-dark-text-muted);
 }
 
 body.code-mode[data-appearance='dark'] .code-options-menu button.checked {
@@ -510,8 +395,7 @@ body.code-mode[data-appearance='dark'] .code-kill-dialog p {
   color: var(--code-dark-text-muted);
 }
 
-body.code-mode[data-appearance='dark'] .agent-launch-icon,
-body.code-mode[data-appearance='dark'] .code-agent-launch-submenu-panel .agent-launch-icon {
+body.code-mode[data-appearance='dark'] .agent-launch-icon {
   color: var(--code-dark-text);
 }
 
@@ -765,8 +649,7 @@ body.code-mode[data-appearance='dark'].code-compact-layout #root,
 body.code-mode[data-appearance='dark'].code-compact-layout .app-container,
 body.code-mode[data-appearance='dark'].code-compact-layout .code-app-shell,
 body.code-mode[data-appearance='dark'].code-compact-layout .code-workspace,
-body.code-mode[data-appearance='dark'].code-compact-layout .code-main,
-body.code-mode[data-appearance='dark'].code-compact-layout .code-agent-work-pane {
+body.code-mode[data-appearance='dark'].code-compact-layout .code-main {
   background: var(--code-dark-bg) !important;
   color: var(--code-dark-text);
 }

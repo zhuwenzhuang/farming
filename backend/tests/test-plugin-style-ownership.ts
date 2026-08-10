@@ -65,7 +65,9 @@ assert(!mainStyles.includes('.desktop-connection'));
 assert(!darkStyles.includes('.desktop-connection'));
 
 // The navigation control belongs to the sidebar, not the Plugin content surface.
-assert(mainStyles.includes('.code-sidebar-plugins-toggle'));
-assert(darkStyles.includes('.code-sidebar-plugins-toggle'));
+const sidebarStyles = readCodeStyleSource('src/styles/sidebar.css');
+const sidebarDarkStyles = readCodeStyleSource('src/styles/sidebar-dark.css');
+assert(sidebarStyles.includes('.code-sidebar-plugins-toggle'));
+assert(sidebarDarkStyles.includes('.code-sidebar-plugins-toggle'));
 
 console.log('test-plugin-style-ownership passed');
