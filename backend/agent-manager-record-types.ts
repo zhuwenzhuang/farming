@@ -453,16 +453,6 @@ export interface AcpProcessCleanupResult {
   timedOut?: boolean;
 }
 
-export interface ProjectOperationAdmission<T = unknown> {
-  promise: Promise<T>;
-  workspaceKey: string;
-}
-
-export interface ProjectWorkspaceDeleteAdmission<T = unknown> {
-  promise: Promise<T>;
-  requestId: string;
-}
-
 export interface CodexSessionMutationAdmission<T = unknown> {
   promise: Promise<T>;
   type: string;

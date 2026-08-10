@@ -78,8 +78,6 @@ import type {
   ProjectOperationResult,
   ProjectOperationState,
   ProjectOperationType,
-  ProjectOperationAdmission,
-  ProjectWorkspaceDeleteAdmission,
   CodexSessionMutationAdmission,
   PersistedAgentPrivateMetadata,
   RecoveredEngineSessionMetadata,
@@ -197,6 +195,7 @@ import { isSameOrDescendantPath } from './path-containment.cjs';
 import { AgentWorktreeRefreshQueue } from './agent-worktree-refresh-queue.cjs';
 import { AgentLifecycleCoordinator } from './agent-lifecycle-coordinator.cjs';
 import { AgentStartAdmissionCoordinator } from './agent-start-admission-coordinator.cjs';
+import { ProjectOperationAdmissionCoordinator } from './project-operation-admission-coordinator.cjs';
 import { AgentAdaptiveTitlePersistenceCoordinator } from './agent-adaptive-title-persistence.cjs';
 import {
   WorktreeGitService,
@@ -1330,11 +1329,7 @@ class AgentManager extends EventEmitter {
   declare forkOperationCoordinator: ForkOperationCoordinator;
   declare lifecycleCoordinator: AgentLifecycleCoordinator;
   declare startAdmissionCoordinator: AgentStartAdmissionCoordinator;
-  declare projectOperationAdmissions: Map<string, ProjectOperationAdmission<unknown>>;
-  declare projectWorkspaceDeleteAdmissions: Map<
-    string,
-    ProjectWorkspaceDeleteAdmission<DeleteProjectWorktreeResult | UnknownRecord>
-  >;
+  declare projectAdmissionCoordinator: ProjectOperationAdmissionCoordinator;
   declare verifiedStoppedAgentIds: Set<AgentId>;
   declare codexSessionMutationQueues: Map<string, CodexSessionMutationAdmission<unknown>>;
   declare adaptiveTitlePersistence: AgentAdaptiveTitlePersistenceCoordinator;
@@ -1608,8 +1603,7 @@ class AgentManager extends EventEmitter {
       isShuttingDown: () => this.disposing,
     });
     this.startAdmissionCoordinator = new AgentStartAdmissionCoordinator();
-    this.projectOperationAdmissions = new Map();
-    this.projectWorkspaceDeleteAdmissions = new Map();
+    this.projectAdmissionCoordinator = new ProjectOperationAdmissionCoordinator();
     this.verifiedStoppedAgentIds = new Set();
     this.codexSessionMutationQueues = new Map();
     this.adaptiveTitlePersistence = new AgentAdaptiveTitlePersistenceCoordinator({
@@ -4716,6 +4710,7 @@ class AgentManager extends EventEmitter {
     this.acpTranscriptReads.clear();
     this.lifecycleCoordinator.clear();
     this.startAdmissionCoordinator.clear();
+    this.projectAdmissionCoordinator.clear();
     this.inputCoordinator.dispose();
     this.agentShellEnvResolver.dispose();
     this.activityTracker.dispose();
@@ -4738,6 +4733,7 @@ class AgentManager extends EventEmitter {
       const pending = new Set();
       for (const operation of this.lifecycleCoordinator.pendingOperations()) pending.add(operation);
       for (const operation of this.startAdmissionCoordinator.pendingOperations()) pending.add(operation);
+      for (const operation of this.projectAdmissionCoordinator.pendingOperations()) pending.add(operation);
       for (const operation of this.inputCoordinator.pendingOperations()) pending.add(operation);
       for (const operation of this.terminalResizeCoordinator.pendingOperations()) pending.add(operation);
       const adaptiveTitleDrain = this.adaptiveTitlePersistence.activeDrain();
@@ -5183,10 +5179,10 @@ class AgentManager extends EventEmitter {
 
     const projectWorkspaceKey = canonicalWorkspacePath(projectWorkspace);
     this.startAdmissionCoordinator.setWorkspace(options.startAdmissionToken, projectWorkspaceKey);
-    const deletingProjectWorkspace = projectWorkspaceKey
-      ? [...this.projectWorkspaceDeleteAdmissions.keys()]
-          .find((candidate: string) => isSameOrDescendantPath(candidate, projectWorkspaceKey))
-      : '';
+    const deletingProjectWorkspace = this.projectAdmissionCoordinator.findExclusiveKey(
+      projectWorkspaceKey,
+      isSameOrDescendantPath,
+    );
     if (deletingProjectWorkspace) {
       if (callback) callback(null, `Project worktree is being deleted: ${projectWorkspace}`);
       return null;
@@ -8256,22 +8252,12 @@ class AgentManager extends EventEmitter {
 
   createPermanentWorktree(workspace: string, options: CreatePermanentWorktreeOptions = {}) {
     const requestId = String(options.requestId || '').trim().slice(0, 160);
-    if (!requestId) return this.createPermanentWorktreeAdmitted(workspace, options);
     const workspaceKey = canonicalWorkspacePath(this.expandWorkspacePath(workspace));
-    const current = this.projectOperationAdmissions.get(requestId);
-    if (current) {
-      if (current.workspaceKey === workspaceKey) return current.promise;
-      return Promise.reject(new Error(`Project operation request ${requestId} was already used for different parameters`));
-    }
-    const promise = this.createPermanentWorktreeAdmitted(workspace, options);
-    const admission: ProjectOperationAdmission<Awaited<typeof promise>> = { workspaceKey, promise };
-    this.projectOperationAdmissions.set(requestId, admission);
-    void promise.finally(() => {
-      if (this.projectOperationAdmissions.get(requestId) === admission) {
-        this.projectOperationAdmissions.delete(requestId);
-      }
-    }).catch(() => {});
-    return promise;
+    return this.projectAdmissionCoordinator.runRequest(
+      requestId,
+      workspaceKey,
+      () => this.createPermanentWorktreeAdmitted(workspace, options),
+    );
   }
 
   async createPermanentWorktreeAdmitted(
@@ -8479,25 +8465,12 @@ class AgentManager extends EventEmitter {
     options: DeleteProjectWorktreeOptions = {},
   ): Promise<DeleteProjectWorktreeResult | UnknownRecord> {
     const workspaceKey = canonicalWorkspacePath(this.expandWorkspacePath(workspace));
-    if (!workspaceKey) return this.deleteForkWorktreeProjectAdmitted(workspace, options);
-    const inFlight = this.projectWorkspaceDeleteAdmissions.get(workspaceKey);
     const requestId = String(options.requestId || '').trim();
-    if (inFlight) {
-      if (requestId && inFlight.requestId === requestId) return inFlight.promise;
-      return inFlight.promise
-        .catch(() => {})
-        .then(() => this.deleteForkWorktreeProject(workspace, options));
-    }
-
-    const promise = this.deleteForkWorktreeProjectAdmitted(workspace, options);
-    const admission: ProjectWorkspaceDeleteAdmission<Awaited<typeof promise>> = { requestId, promise };
-    this.projectWorkspaceDeleteAdmissions.set(workspaceKey, admission);
-    void promise.finally(() => {
-      if (this.projectWorkspaceDeleteAdmissions.get(workspaceKey) === admission) {
-        this.projectWorkspaceDeleteAdmissions.delete(workspaceKey);
-      }
-    }).catch(() => {});
-    return promise;
+    return this.projectAdmissionCoordinator.runExclusive(
+      workspaceKey,
+      requestId,
+      () => this.deleteForkWorktreeProjectAdmitted(workspace, options),
+    );
   }
 
   async deleteForkWorktreeProjectAdmitted(

@@ -104,6 +104,8 @@ Runtime Port 与 Provider Policy
 - Agent 启动准入由独立 Owner 管理 Create Request 幂等、运行中 Workspace 归属、
   停机 Drain 可见性和精确 Token 释放。Project 删除只能按 Workspace 查询 Pending
   Operation，不能检查准入 Map。
+- Project Mutation 准入统一拥有 Request Key 幂等和 Workspace Key 互斥，包括排队
+  删除与停机 Drain 可见性。Agent 启动只询问其 Workspace 是否与已准入删除相交。
 - Provider Adapter 提供有类型的权限重启、Terminal 身份/启动约束、空闲稳定和会话
   Fork 策略；通用生命周期代码不解释 Provider 名称。共享 Terminal Startup
   Coordinator 拥有可变的排序和就绪状态；Adapter 只提供无状态的资源作用域和就绪策略。

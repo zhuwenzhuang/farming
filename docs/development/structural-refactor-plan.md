@@ -126,6 +126,9 @@ HTTP, WebSocket, persistence, and runtime-host boundaries.
   in-flight workspace association, shutdown drain visibility, and exact token
   release. Project deletion queries it through workspace-scoped pending
   operations rather than inspecting an admission map.
+- Project mutation admission owns request-key idempotency and workspace-key
+  exclusion, including queued deletes and shutdown drain visibility. Agent
+  startup asks only whether its workspace intersects an admitted deletion.
 - Provider adapters expose typed decisions such as permission restart,
   Terminal identity/startup constraints, idle stability, and conversation Fork
   policy. Generic lifecycle code does not interpret provider names. A shared
