@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 const path = require('path');
 const { requestJson } = require('../backend/farming-browser-client.cjs');
-const { rootIdForPath } = require('../../../backend/workspace-root-registry.cjs');
+const {
+  canonicalWorkspacePath,
+  rootIdForPath,
+} = require('../../../backend/workspace-root-registry.cjs');
 const {
   capabilityEnvelope,
   capabilityError,
@@ -460,8 +463,8 @@ function boundWorkspace(requested, operation) {
   const agentWorkspace = String(process.env.FARMING_PROJECT_WORKSPACE || '').trim();
   const selected = String(requested || agentWorkspace).trim();
   if (!selected) return '';
-  const workspace = path.resolve(selected);
-  if (agentWorkspace && workspace !== path.resolve(agentWorkspace)) {
+  const workspace = canonicalWorkspacePath(selected);
+  if (agentWorkspace && workspace !== canonicalWorkspacePath(agentWorkspace)) {
     throw new Error(`Browser ${operation} cannot leave this Agent Project workspace`);
   }
   return workspace;
@@ -471,13 +474,13 @@ async function requireProjectBrowser(id) {
   const requestedWorkspace = String(process.env.FARMING_PROJECT_WORKSPACE || '').trim();
   const requestedAgentId = String(process.env.FARMING_AGENT_ID || '').trim();
   if (!requestedWorkspace) return;
-  const workspace = path.resolve(requestedWorkspace);
+  const workspace = canonicalWorkspacePath(requestedWorkspace);
   const result = await requestJson('GET', '/api/browsers');
   const resource = (result.resources || []).find(item => (
     item?.id === id
     && (!requestedAgentId || item.ownerAgentId === requestedAgentId)
     && item.workspace
-    && path.resolve(item.workspace) === workspace
+    && canonicalWorkspacePath(item.workspace) === workspace
   ));
   if (!resource) {
     throw new Error(`Browser Resource ${id} is not owned by this Agent`);
@@ -535,7 +538,7 @@ async function run(argv = process.argv.slice(2)) {
     const result = await requestJson('GET', '/api/browsers');
     const resources = workspace
       ? result.resources.filter(resource => (
-        path.resolve(resource.workspace) === workspace
+        canonicalWorkspacePath(resource.workspace) === workspace
         && (
           !process.env.FARMING_AGENT_ID
           || resource.ownerAgentId === process.env.FARMING_AGENT_ID

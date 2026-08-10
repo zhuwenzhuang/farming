@@ -1,6 +1,8 @@
 const assert = require('assert');
 const { execFile } = require('child_process');
+const fs = require('fs');
 const http = require('http');
+const os = require('os');
 const path = require('path');
 const { promisify } = require('util');
 
@@ -91,6 +93,11 @@ async function run() {
     },
   );
 
+  const symlinkFixture = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-browser-cli-workspace-'));
+  const canonicalWorkspace = path.join(symlinkFixture, 'canonical');
+  const linkedWorkspace = path.join(symlinkFixture, 'linked');
+  fs.mkdirSync(canonicalWorkspace);
+  fs.symlinkSync(canonicalWorkspace, linkedWorkspace, process.platform === 'win32' ? 'junction' : 'dir');
   const requests = [];
   const server = http.createServer((request, response) => {
     const chunks = [];
@@ -111,6 +118,8 @@ async function run() {
           resources: [{
             id: 'browser_project', ownerAgentId: 'agent_test', workspace: '/project', status: 'running',
           }, {
+            id: 'browser_symlink', ownerAgentId: 'agent_test', workspace: canonicalWorkspace, status: 'running',
+          }, {
             id: 'browser_other', ownerAgentId: 'agent_other', workspace: '/project', status: 'running',
           }],
         }));
@@ -128,7 +137,7 @@ async function run() {
         response.end(JSON.stringify({ id: 'browser_project', deleted: true }));
         return;
       }
-      if (request.method === 'POST' && request.url === '/api/browsers/browser_project/action') {
+      if (request.method === 'POST' && ['/api/browsers/browser_project/action', '/api/browsers/browser_symlink/action'].includes(request.url)) {
         if (body.kind === 'screenshot') {
           response.end(JSON.stringify({
             artifact: {
@@ -183,6 +192,13 @@ async function run() {
     assert.strictEqual(deleted.result.deleted, true);
     assert(requests.some(item => item.method === 'DELETE' && item.url === '/api/browsers/browser_project'));
 
+    const symlinkSnapshot = JSON.parse((await invoke(browserCli, ['snapshot', 'browser_symlink'], {
+      ...env,
+      FARMING_AGENT_ID: 'agent_test',
+      FARMING_PROJECT_WORKSPACE: linkedWorkspace,
+    })).stdout);
+    assert.strictEqual(symlinkSnapshot.ok, true, 'workspace symlink aliases must preserve Browser ownership');
+
     await assert.rejects(
       invoke(browserCli, ['open', '--workspace', '/other-project'], {
           ...env,
@@ -202,6 +218,7 @@ async function run() {
     );
   } finally {
     await close(server);
+    fs.rmSync(symlinkFixture, { recursive: true, force: true });
   }
 
   console.log('Farming Browser CLI-only capability tests passed');
