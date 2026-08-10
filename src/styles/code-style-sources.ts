@@ -14,6 +14,7 @@ export const CODE_STYLE_SOURCES = [
   'src/styles/search.css',
   'src/styles/history.css',
   'src/styles/files.css',
+  'src/styles/sidebar.css',
   'src/styles/code-dark.css',
   'src/styles/file-editor-dark.css',
   'src/styles/pet-dark.css',
@@ -27,6 +28,7 @@ export const CODE_STYLE_SOURCES = [
   'src/styles/search-dark.css',
   'src/styles/history-dark.css',
   'src/styles/files-dark.css',
+  'src/styles/sidebar-dark.css',
 ] as const
 
 export type CodeStyleSourcePath = typeof CODE_STYLE_SOURCES[number]

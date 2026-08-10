@@ -21,6 +21,7 @@ const expectedSources = [
   'src/styles/search.css',
   'src/styles/history.css',
   'src/styles/files.css',
+  'src/styles/sidebar.css',
   'src/styles/code-dark.css',
   'src/styles/file-editor-dark.css',
   'src/styles/pet-dark.css',
@@ -34,6 +35,7 @@ const expectedSources = [
   'src/styles/search-dark.css',
   'src/styles/history-dark.css',
   'src/styles/files-dark.css',
+  'src/styles/sidebar-dark.css',
 ];
 
 assert.deepStrictEqual(

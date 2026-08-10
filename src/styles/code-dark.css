@@ -39,90 +39,17 @@ body.code-mode[data-appearance='dark'] ::selection {
   color: #ffffff;
 }
 
-body.code-mode[data-appearance='dark'] .code-sidebar {
-  --code-dark-bg-soft: var(--code-dark-bg-sidebar);
-
-  background: var(--code-dark-bg-sidebar);
-  color: var(--code-dark-text);
-  border-right-color: var(--code-dark-border);
-}
-
-body.code-mode[data-appearance='dark'] .code-project-row,
-body.code-mode[data-appearance='dark'] .code-pinned-section,
-body.code-mode[data-appearance='dark'] .code-pinned-title {
-  background: var(--code-dark-bg-soft);
-  color: var(--code-dark-text-soft);
-}
-
-body.code-mode[data-appearance='dark'] .code-sidebar-resizer {
-  background: var(--code-dark-border-soft);
-}
-
-body.code-mode[data-appearance='dark'] .code-sidebar-resizer:hover,
-body.code-resizing-sidebar[data-appearance='dark'] .code-sidebar-resizer {
-  background: var(--code-dark-accent);
-}
-
-body.code-mode[data-appearance='dark'] .code-sidebar-toggle,
-body.code-mode[data-appearance='dark'] .code-sidebar-focus-toggle,
-body.code-mode[data-appearance='dark'] .code-sidebar-search-toggle,
-body.code-mode[data-appearance='dark'] .code-sidebar-plugins-toggle,
-body.code-mode[data-appearance='dark'] .code-sidebar-options,
-body.code-mode[data-appearance='dark'] .code-nav-item,
 body.code-mode[data-appearance='dark'] .code-agent-rail-button,
-body.code-mode[data-appearance='dark'] .code-project-agent-compact,
-body.code-mode[data-appearance='dark'] .code-project-title,
-body.code-mode[data-appearance='dark'] .code-project-title-action,
-body.code-mode[data-appearance='dark'] .code-agent-row,
-body.code-mode[data-appearance='dark'] .code-session-show-more {
+body.code-mode[data-appearance='dark'] .code-agent-row {
   color: var(--code-dark-text-soft);
 }
 
-body.code-mode[data-appearance='dark'] .code-nav-icon {
-  color: var(--code-dark-text-soft);
-}
-
-body.code-mode[data-appearance='dark'] .code-sidebar-toggle,
-body.code-mode[data-appearance='dark'] .code-sidebar-focus-toggle,
-body.code-mode[data-appearance='dark'] .code-sidebar-search-toggle,
-body.code-mode[data-appearance='dark'] .code-sidebar-history-toggle,
-body.code-mode[data-appearance='dark'] .code-sidebar-plugins-toggle,
-body.code-mode[data-appearance='dark'] .code-sidebar-options {
-  background: rgba(22, 27, 34, 0.66);
-  color: var(--code-dark-text-muted);
-}
-
-body.code-mode[data-appearance='dark'] .code-nav-item:hover,
-body.code-mode[data-appearance='dark'] .code-nav-item.active,
 body.code-mode[data-appearance='dark'] .code-agent-rail-button:hover,
 body.code-mode[data-appearance='dark'] .code-agent-rail-button:focus-visible,
 body.code-mode[data-appearance='dark'] .code-agent-rail-button.active,
-body.code-mode[data-appearance='dark'] .code-project-agent-compact:hover,
-body.code-mode[data-appearance='dark'] .code-project-agent-compact:focus-visible,
-body.code-mode[data-appearance='dark'] .code-project-agent-compact.active,
 body.code-mode[data-appearance='dark'] .code-agent-row:hover,
 body.code-mode[data-appearance='dark'] .code-agent-row.active,
-body.code-mode[data-appearance='dark'] .code-agent-row.search-selected,
-body.code-mode[data-appearance='dark'] .code-project-row:hover:not(:has(.code-project-worktree:hover)) .code-project-title,
-body.code-mode[data-appearance='dark'] .code-project-title:hover,
-body.code-mode[data-appearance='dark'] .code-pinned-title:hover,
-body.code-mode[data-appearance='dark'] .code-pinned-title:focus-visible,
-body.code-mode[data-appearance='dark'] .code-sidebar-toggle:hover,
-body.code-mode[data-appearance='dark'] .code-sidebar-toggle:focus-visible,
-body.code-mode[data-appearance='dark'] .code-sidebar-focus-toggle:hover,
-body.code-mode[data-appearance='dark'] .code-sidebar-focus-toggle:focus-visible,
-body.code-mode[data-appearance='dark'] .code-sidebar-focus-toggle.active,
-body.code-mode[data-appearance='dark'] .code-sidebar-search-toggle:hover,
-body.code-mode[data-appearance='dark'] .code-sidebar-search-toggle:focus-visible,
-body.code-mode[data-appearance='dark'] .code-sidebar-search-toggle.active,
-body.code-mode[data-appearance='dark'] .code-sidebar-history-toggle:hover,
-body.code-mode[data-appearance='dark'] .code-sidebar-history-toggle:focus-visible,
-body.code-mode[data-appearance='dark'] .code-sidebar-history-toggle.active,
-body.code-mode[data-appearance='dark'] .code-sidebar-plugins-toggle:hover,
-body.code-mode[data-appearance='dark'] .code-sidebar-plugins-toggle:focus-visible,
-body.code-mode[data-appearance='dark'] .code-sidebar-plugins-toggle.active,
-body.code-mode[data-appearance='dark'] .code-sidebar-options:hover,
-body.code-mode[data-appearance='dark'] .code-sidebar-options:focus-visible {
+body.code-mode[data-appearance='dark'] .code-agent-row.search-selected {
   background: var(--code-dark-bg-hover);
   color: var(--code-dark-text);
 }
@@ -151,26 +78,6 @@ body.code-mode[data-appearance='dark'] .code-agent-row.search-selected .code-age
   --code-agent-row-action-surface: var(--code-dark-bg-hover);
 }
 
-body.code-mode[data-appearance='dark'] .code-project-row {
-  --code-project-row-action-surface: var(--code-dark-bg-soft);
-}
-
-body.code-mode[data-appearance='dark'] .code-project-row:hover {
-  --code-project-row-action-surface: var(--code-dark-bg-hover);
-}
-
-body.code-mode[data-appearance='dark'] .code-project-title-action {
-  color: var(--code-dark-text-muted);
-}
-
-body.code-mode[data-appearance='dark'] .code-project-title-action:hover,
-body.code-mode[data-appearance='dark'] .code-project-title-action:focus-visible {
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--code-dark-text);
-}
-
-body.code-mode[data-appearance='dark'] .code-project-row.drop-before::before,
-body.code-mode[data-appearance='dark'] .code-project-row.drop-after::after,
 body.code-mode[data-appearance='dark'] .code-agent-row.drop-before::before,
 body.code-mode[data-appearance='dark'] .code-agent-row.drop-after::after {
   background: #58a6ff;
@@ -254,17 +161,8 @@ body.code-mode[data-appearance='dark'] .workspace-input textarea.task-input::pla
   color: var(--code-dark-text-muted);
 }
 
-body.code-mode[data-appearance='dark'] .code-project-list:hover {
-  scrollbar-color: rgba(139, 148, 158, 0.32) transparent;
-}
-
-body.code-mode[data-appearance='dark'] .code-project-list:hover::-webkit-scrollbar-thumb {
-  background: rgba(139, 148, 158, 0.32);
-}
-
 body.code-mode[data-appearance='dark'] .code-agent-hover-preview,
-body.code-mode[data-appearance='dark'] .code-agent-hover-title-card,
-body.code-mode[data-appearance='dark'] .code-project-hover-preview {
+body.code-mode[data-appearance='dark'] .code-agent-hover-title-card {
   border-color: var(--code-dark-border);
   background: rgba(22, 27, 34, 0.98);
   box-shadow: 0 16px 36px rgba(0, 0, 0, 0.36);
@@ -272,9 +170,7 @@ body.code-mode[data-appearance='dark'] .code-project-hover-preview {
 }
 
 body.code-mode[data-appearance='dark'] .code-agent-hover-preview-header span,
-body.code-mode[data-appearance='dark'] .code-agent-hover-preview-icon,
-body.code-mode[data-appearance='dark'] .code-project-hover-preview-icon,
-body.code-mode[data-appearance='dark'] .code-project-hover-preview-pin {
+body.code-mode[data-appearance='dark'] .code-agent-hover-preview-icon {
   color: var(--code-dark-text-muted);
 }
 
@@ -289,11 +185,6 @@ body.code-mode[data-appearance='dark'] .code-agent-hover-preview-resources {
 
 body.code-mode[data-appearance='dark'] .code-agent-hover-preview-resource svg {
   color: var(--code-dark-text-muted);
-}
-
-body.code-mode[data-appearance='dark'] .code-project-hover-preview-line {
-  border-color: var(--code-dark-border);
-  color: var(--code-dark-text);
 }
 
 body.code-mode[data-appearance='dark'] .code-side-view-panel {
@@ -335,43 +226,7 @@ body.code-mode[data-appearance='dark'] .code-agent-unread {
   background: #58a6ff;
 }
 
-body.code-mode[data-appearance='dark'] .code-project-agent-compact-unread {
-  background: #58a6ff;
-  border-color: var(--code-dark-bg-soft);
-}
-
-body.code-mode[data-appearance='dark'] .code-project-worktree {
-  color: var(--code-dark-text-muted);
-}
-
-body.code-mode[data-appearance='dark'] .code-project-worktree:hover,
-body.code-mode[data-appearance='dark'] .code-project-worktree:focus-visible {
-  background: rgba(139, 148, 158, 0.12);
-  color: var(--code-dark-text);
-}
-
-body.code-mode[data-appearance='dark'] .code-worktree-popover {
-  border-color: var(--code-dark-border);
-  background: rgba(22, 27, 34, 0.98);
-  color: var(--code-dark-text);
-}
-
-body.code-mode[data-appearance='dark'] .code-worktree-popover-header {
-  border-color: var(--code-dark-border);
-}
-
-body.code-mode[data-appearance='dark'] .code-worktree-row-heading strong {
-  color: var(--code-dark-text);
-}
-
-body.code-mode[data-appearance='dark'] .code-worktree-row:hover,
-body.code-mode[data-appearance='dark'] .code-worktree-row:focus-visible,
-body.code-mode[data-appearance='dark'] .code-worktree-row.current {
-  background: rgba(88, 166, 255, 0.12);
-}
-
 body.code-mode[data-appearance='dark'] .code-agent-name,
-body.code-mode[data-appearance='dark'] .code-project-title-name,
 body.code-mode[data-appearance='dark'] .code-product-mark-main {
   color: var(--code-dark-text);
 }
@@ -1066,22 +921,6 @@ body.code-mode[data-appearance='dark'] .code-editor-context-menu {
   box-shadow: 0 18px 48px var(--code-dark-shadow);
 }
 
-body.code-mode[data-appearance='dark'] .code-project-context-menu,
-body.code-mode[data-appearance='dark'] .code-project-launch-menu {
-  background: rgba(22, 27, 34, 0.92);
-  border-color: rgba(139, 148, 158, 0.18);
-  box-shadow:
-    0 18px 48px rgba(1, 4, 9, 0.42),
-    inset 0 1px 0 rgba(240, 246, 252, 0.05);
-  backdrop-filter: blur(18px) saturate(1.06);
-  -webkit-backdrop-filter: blur(18px) saturate(1.06);
-}
-
-body.code-mode[data-appearance='dark'] .code-project-context-menu button,
-body.code-mode[data-appearance='dark'] .code-project-launch-menu button {
-  color: var(--code-dark-text);
-}
-
 body.code-mode[data-appearance='dark'] .code-context-menu button,
 body.code-mode[data-appearance='dark'] .code-options-menu button,
 body.code-mode[data-appearance='dark'] .code-editor-context-menu button {
@@ -1133,12 +972,7 @@ body.code-mode[data-appearance='dark'] .dialog-overlay {
   background: rgba(1, 4, 9, 0.72);
 }
 
-body.code-mode[data-appearance='dark'] .code-rename-backdrop {
-  background: rgba(1, 4, 9, 0.64);
-}
-
 body.code-mode[data-appearance='dark'] .input-dialog,
-body.code-mode[data-appearance='dark'] .code-rename-dialog,
 body.code-mode[data-appearance='dark'] .workspace-history,
 body.code-mode[data-appearance='dark'] .workspace-path-suggestions,
 body.code-mode[data-appearance='dark'] .agent-list,
@@ -1161,7 +995,6 @@ body.code-mode[data-appearance='dark'] .group-label,
 body.code-mode[data-appearance='dark'] .workspace-field-copy,
 body.code-mode[data-appearance='dark'] .agent-item-name,
 body.code-mode[data-appearance='dark'] .main-agent-resume-title,
-body.code-mode[data-appearance='dark'] .code-rename-dialog label,
 body.code-mode[data-appearance='dark'] .code-kill-dialog h2 {
   color: var(--code-dark-text);
 }
@@ -1176,7 +1009,6 @@ body.code-mode[data-appearance='dark'] .code-kill-dialog p {
 }
 
 body.code-mode[data-appearance='dark'] .agent-launch-icon,
-body.code-mode[data-appearance='dark'] .code-project-launch-menu .agent-launch-icon,
 body.code-mode[data-appearance='dark'] .code-agent-launch-submenu-panel .agent-launch-icon {
   color: var(--code-dark-text);
 }
@@ -1196,17 +1028,6 @@ body.code-mode[data-appearance='dark'] .agent-launch-icon-theme-dark {
 body.code-mode[data-appearance='dark'] .workspace-input .workflow-select .code-select-trigger:focus-visible,
 body.code-mode[data-appearance='dark'] .workspace-input textarea.task-input:focus,
 body.code-mode[data-appearance='dark'] .workspace-input input:focus {
-  border-color: rgba(88, 166, 255, 0.58);
-  box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.16);
-}
-
-body.code-mode[data-appearance='dark'] .code-rename-dialog input {
-  background: var(--code-dark-bg-panel);
-  border-color: var(--code-dark-border);
-  color: var(--code-dark-text);
-}
-
-body.code-mode[data-appearance='dark'] .code-rename-dialog input:focus {
   border-color: rgba(88, 166, 255, 0.58);
   box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.16);
 }
@@ -1400,28 +1221,24 @@ body.code-mode[data-appearance='dark'] .workspace-directory-prompt-actions butto
 
 body.code-mode[data-appearance='dark'] .workspace-actions button,
 body.code-mode[data-appearance='dark'] .close-btn,
-body.code-mode[data-appearance='dark'] .kill-btn,
-body.code-mode[data-appearance='dark'] .code-rename-actions button {
+body.code-mode[data-appearance='dark'] .kill-btn {
   background: var(--code-dark-bg-panel);
   border-color: var(--code-dark-border);
   color: var(--code-dark-text);
 }
 
 body.code-mode[data-appearance='dark'] .workspace-actions button:hover,
-body.code-mode[data-appearance='dark'] .close-btn:hover,
-body.code-mode[data-appearance='dark'] .code-rename-actions button:hover:not(:disabled) {
+body.code-mode[data-appearance='dark'] .close-btn:hover {
   background: var(--code-dark-bg-hover);
 }
 
-body.code-mode[data-appearance='dark'] .kill-btn,
-body.code-mode[data-appearance='dark'] .code-rename-actions button.primary {
+body.code-mode[data-appearance='dark'] .kill-btn {
   background: var(--code-dark-accent);
   border-color: var(--code-dark-accent);
   color: #ffffff;
 }
 
-body.code-mode[data-appearance='dark'] .kill-btn,
-body.code-mode[data-appearance='dark'] .code-rename-actions button.danger {
+body.code-mode[data-appearance='dark'] .kill-btn {
   background: var(--code-dark-danger);
   border-color: var(--code-dark-danger);
   color: #ffffff;
