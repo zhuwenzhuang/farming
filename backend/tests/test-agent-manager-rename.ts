@@ -407,13 +407,13 @@ async function run() {
     assert.strictEqual(restored.archivedAt, null);
     assert.strictEqual(restored.unread, false);
 
-    const markedUnread = manager.setAgentUnread(agentId, true);
+    const markedUnread = manager.attentionTracker.markAgentUnreadCursor(agentId);
     assert.strictEqual(markedUnread.unread, true);
     assert.strictEqual(markedUnread.changed, true);
     assert.strictEqual(manager.getState().agents.find(agent => agent.id === agentId).unread, true);
-    const duplicateUnread = manager.setAgentUnread(agentId, true);
+    const duplicateUnread = manager.attentionTracker.markAgentUnreadCursor(agentId);
     assert.strictEqual(duplicateUnread.changed, false);
-    const markedRead = manager.setAgentUnread(agentId, false);
+    const markedRead = manager.attentionTracker.markAgentReadCursor(agentId);
     assert.strictEqual(markedRead.unread, false);
     assert.strictEqual(markedRead.changed, true);
 

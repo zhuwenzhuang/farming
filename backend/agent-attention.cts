@@ -12,6 +12,8 @@
  */
 
 import type { AgentId, AgentRecord as TypedAgentRecord } from './agent-manager-record-types.js';
+import { deriveAgentTerminalStatus } from './agent-terminal-status.cjs';
+import { providerForProgram } from './provider-adapters.cjs';
 
 const path = require('path');
 
@@ -26,13 +28,23 @@ interface AgentReadStatePayload extends UnknownRecord {
   readAttentionSeq: number;
 }
 
+interface AgentReadRequest {
+  readAttentionSeq?: unknown;
+  readOutputEpoch?: unknown;
+  readOutputSeq?: unknown;
+  unread?: unknown;
+}
+
+interface AgentReadTransitionResult {
+  changed: boolean;
+  updates: UnknownRecord;
+}
+
 interface AgentAttentionHost {
   getAgent(agentId: AgentId): TypedAgentRecord | undefined;
   isDisposed(): boolean;
   isMainAgent(agentId: AgentId, agent: TypedAgentRecord): boolean;
-  isTurnActive(agent: TypedAgentRecord): boolean;
   persistAgent(agent: TypedAgentRecord): void;
-  providerForAgent(agent: TypedAgentRecord): string;
   publishReadState(payload: AgentReadStatePayload): void;
   updateProviderMetadata(agent: TypedAgentRecord): void;
 }
@@ -67,6 +79,18 @@ function isEphemeralShellAgent(agent: TypedAgentRecord): boolean {
   return ['bash', 'zsh', 'sh', 'fish'].includes(program);
 }
 
+function agentAttentionProvider(agent: TypedAgentRecord): string {
+  return agent.providerSessionProvider
+    || providerForProgram(agentProgramName(agent.forkCommand || agent.command || ''));
+}
+
+function agentAttentionTurnActive(agent: TypedAgentRecord | null | undefined): boolean {
+  if (!agent) return false;
+  if (agent.status === 'pending') return true;
+  if (agent.status !== 'running') return false;
+  return deriveAgentTerminalStatus(agent).activity === 'busy';
+}
+
 function agentAttentionUnread(agent: TypedAgentRecord | null | undefined) {
   return finiteNonNegativeInteger(agent?.attentionSeq)
     > finiteNonNegativeInteger(agent?.readAttentionSeq);
@@ -87,6 +111,96 @@ function hasAgentOutputAfterAttentionBaseline(agent: TypedAgentRecord | null | u
   }
 
   return false;
+}
+
+function applyAgentReadRequest(
+  agent: TypedAgentRecord,
+  request: AgentReadRequest,
+  now = Date.now(),
+): AgentReadTransitionResult {
+  const updates: UnknownRecord = {};
+  let changed = false;
+
+  if (
+    typeof request.readOutputEpoch === 'string'
+    && typeof request.readOutputSeq === 'number'
+    && Number.isFinite(request.readOutputSeq)
+  ) {
+    const currentRuntimeEpoch = typeof agent.runtimeEpoch === 'string' ? agent.runtimeEpoch : '';
+    const currentOutputSeq = finiteNumberOrNull(agent.lastOutputSeq);
+    if (
+      currentRuntimeEpoch
+      && request.readOutputEpoch === currentRuntimeEpoch
+      && currentOutputSeq !== null
+    ) {
+      const nextOutputSeq = Math.min(
+        currentOutputSeq,
+        Math.max(0, Math.floor(request.readOutputSeq)),
+      );
+      const previousOutputSeq = agent.readOutputEpoch === currentRuntimeEpoch
+        ? finiteNumberOrNull(agent.readOutputSeq)
+        : null;
+      const readOutputSeq = previousOutputSeq === null
+        ? nextOutputSeq
+        : Math.max(previousOutputSeq, nextOutputSeq);
+      changed = changed
+        || agent.readOutputEpoch !== currentRuntimeEpoch
+        || previousOutputSeq !== readOutputSeq;
+      agent.readOutputEpoch = currentRuntimeEpoch;
+      agent.readOutputSeq = readOutputSeq;
+    }
+    updates.readOutputEpoch = typeof agent.readOutputEpoch === 'string' ? agent.readOutputEpoch : '';
+    updates.readOutputSeq = finiteNumberOrNull(agent.readOutputSeq);
+  }
+
+  if (typeof request.unread === 'boolean') {
+    const previousReadSeq = finiteNonNegativeInteger(agent.readAttentionSeq);
+    const previousUnread = agent.unread === true;
+    if (request.unread) {
+      if (finiteNonNegativeInteger(agent.attentionSeq) === 0) {
+        agent.attentionSeq = 1;
+        agent.attentionUpdatedAt = now;
+        agent.attentionReason = 'manual-unread';
+        agent.attentionOutputEpoch = typeof agent.runtimeEpoch === 'string' ? agent.runtimeEpoch : '';
+        agent.attentionOutputSeq = finiteNumberOrNull(agent.lastOutputSeq);
+        agent.attentionAutoReadNext = false;
+      }
+      agent.readAttentionSeq = Math.max(0, finiteNonNegativeInteger(agent.attentionSeq) - 1);
+    } else {
+      agent.readAttentionSeq = finiteNonNegativeInteger(agent.attentionSeq);
+    }
+    agent.readAttentionAt = now;
+    agent.unread = agentAttentionUnread(agent);
+    changed = changed
+      || previousReadSeq !== agent.readAttentionSeq
+      || previousUnread !== agent.unread;
+    updates.unread = agent.unread;
+    updates.attentionSeq = finiteNonNegativeInteger(agent.attentionSeq);
+    updates.readAttentionSeq = finiteNonNegativeInteger(agent.readAttentionSeq);
+  }
+
+  if (
+    typeof request.readAttentionSeq === 'number'
+    && Number.isFinite(request.readAttentionSeq)
+  ) {
+    const previousReadSeq = finiteNonNegativeInteger(agent.readAttentionSeq);
+    const previousUnread = agent.unread === true;
+    const attentionSeq = finiteNonNegativeInteger(agent.attentionSeq);
+    agent.readAttentionSeq = Math.min(
+      attentionSeq,
+      Math.max(previousReadSeq, finiteNonNegativeInteger(request.readAttentionSeq)),
+    );
+    agent.readAttentionAt = now;
+    agent.unread = agentAttentionUnread(agent);
+    changed = changed
+      || previousReadSeq !== agent.readAttentionSeq
+      || previousUnread !== agent.unread;
+    updates.unread = agent.unread;
+    updates.attentionSeq = attentionSeq;
+    updates.readAttentionSeq = agent.readAttentionSeq;
+  }
+
+  return { changed, updates };
 }
 
 class AgentAttentionTracker {
@@ -125,9 +239,9 @@ class AgentAttentionTracker {
         this.host.isDisposed()
         || current !== agent
         || current.runtimeEpoch !== runtimeEpoch
-        || this.host.providerForAgent(current) !== 'qwen'
+        || agentAttentionProvider(current) !== 'qwen'
         || current.lastObservedTurnActive === true
-        || this.host.isTurnActive(current)
+        || agentAttentionTurnActive(current)
       ) {
         return;
       }
@@ -179,7 +293,7 @@ class AgentAttentionTracker {
       this.markAgentReadCursor(agent.id, finiteNonNegativeInteger(agent.attentionSeq));
     }
 
-    const turnActive = this.host.isTurnActive(agent);
+    const turnActive = agentAttentionTurnActive(agent);
     if (agent.attentionTrackingReady !== true) {
       agent.lastObservedTurnActive = turnActive;
       agent.attentionTrackingReady = true;
@@ -188,7 +302,7 @@ class AgentAttentionTracker {
 
     const wasTurnActive = agent.lastObservedTurnActive === true;
     agent.lastObservedTurnActive = turnActive;
-    const provider = this.host.providerForAgent(agent);
+    const provider = agentAttentionProvider(agent);
 
     if (turnActive && provider === 'qwen') {
       this.cancelQwenTerminalIdleCandidate(agent.id);
@@ -253,19 +367,10 @@ class AgentAttentionTracker {
     if (!agent) return { error: 'Agent not found' };
 
     const attentionSeq = finiteNonNegativeInteger(agent.attentionSeq);
-    const requestedSeq = Number.isFinite(readAttentionSeq)
-      ? finiteNonNegativeInteger(readAttentionSeq)
-      : attentionSeq;
-    const nextReadSeq = Math.min(
-      attentionSeq,
-      Math.max(finiteNonNegativeInteger(agent.readAttentionSeq), requestedSeq),
-    );
-    const changed = finiteNonNegativeInteger(agent.readAttentionSeq) !== nextReadSeq
-      || agent.unread === true;
-
-    agent.readAttentionSeq = nextReadSeq;
-    agent.readAttentionAt = Date.now();
-    agent.unread = agentAttentionUnread(agent);
+    const transition = applyAgentReadRequest(agent, {
+      readAttentionSeq: Number.isFinite(readAttentionSeq) ? readAttentionSeq : attentionSeq,
+    });
+    const changed = transition.changed;
     if (changed) {
       this.host.persistAgent(agent);
       this.host.updateProviderMetadata(agent);
@@ -332,6 +437,9 @@ class AgentAttentionTracker {
 export {
   AgentAttentionTracker,
   QWEN_TERMINAL_IDLE_STABILITY_MS,
+  applyAgentReadRequest,
+  agentAttentionProvider,
+  agentAttentionTurnActive,
   agentAttentionUnread,
   hasAgentOutputAfterAttentionBaseline,
 };

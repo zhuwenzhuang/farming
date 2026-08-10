@@ -156,7 +156,11 @@ import {
   providerSupportsRuntime,
   providerTerminalStartupPolicy,
 } from './provider-adapters.cjs';
-import { deriveTerminalStatus } from './terminal-status.cjs';
+import {
+  agentTerminalRuntimeStatus,
+  agentTerminalStatusEqual,
+  deriveAgentTerminalStatus,
+} from './agent-terminal-status.cjs';
 import { AcpRuntime, stopPersistedAcpProcessGroup } from './acp-runtime.cjs';
 import { AcpRuntimeHostRuntime } from './acp-runtime-host-runtime.cjs';
 import { AcpTranscriptService } from './acp-transcript-service.cjs';
@@ -249,6 +253,8 @@ import {
 } from './agent-activity-tracker.cjs';
 import {
   AgentAttentionTracker,
+  applyAgentReadRequest,
+  agentAttentionTurnActive,
   agentAttentionUnread,
 } from './agent-attention.cjs';
 import { deserializeTerminalState } from './terminal-state-serialization.cjs';
@@ -436,20 +442,6 @@ export interface AgentManagerStateChange {
   mainAgentIdChanged?: boolean;
   removedAgentIds?: AgentId[];
   taskHistoryChanged?: boolean;
-}
-
-interface TerminalStatusOverrides extends Record<string, unknown> {
-  cwd?: string;
-  previewText?: string;
-  shellCommand?: string;
-  shellCommandStartedAt?: number | null;
-  shellLastCommand?: string;
-  shellLastCommandDurationMs?: number | null;
-  shellLastCommandFinishedAt?: number | null;
-  shellLastCommandStartedAt?: number | null;
-  status?: string;
-  terminalBusy?: boolean | null;
-  title?: string;
 }
 
 interface TerminalStateCursor {
@@ -998,19 +990,6 @@ function terminalMetadataPatch(agent: TypedAgentRecord) {
   };
 }
 
-function terminalStatusEqual(
-  left: ReturnType<typeof deriveAgentTerminalStatus>,
-  right: ReturnType<typeof deriveAgentTerminalStatus>,
-) {
-  if (left === right) return true;
-  const leftKeys = Object.keys(left) as Array<keyof typeof left>;
-  if (leftKeys.length !== Object.keys(right).length) return false;
-  return leftKeys.every(key => (
-    Object.prototype.hasOwnProperty.call(right, key)
-    && Object.is(left[key], right[key])
-  ));
-}
-
 function codexTerminalProfileEqual(left: unknown, right: unknown) {
   if (left === right) return true;
   if (!isRecord(left) || !isRecord(right)) return false;
@@ -1018,10 +997,6 @@ function codexTerminalProfileEqual(left: unknown, right: unknown) {
     && left.reasoningEffort === right.reasoningEffort
     && left.serviceTier === right.serviceTier
     && left.source === right.source;
-}
-
-function terminalRuntimeStatus(agentStatus: unknown) {
-  return agentStatus === 'stopped' || agentStatus === 'dead' ? 'exited' : agentStatus;
 }
 
 function finiteNumberOrNull(value: unknown) {
@@ -1032,44 +1007,6 @@ function finiteNonNegativeInteger(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0
     ? Math.floor(value)
     : 0;
-}
-
-function deriveAgentTerminalStatus(agent: TypedAgentRecord, overrides: TerminalStatusOverrides = {}) {
-  const terminalBusy = Object.prototype.hasOwnProperty.call(overrides, 'terminalBusy')
-    ? overrides.terminalBusy
-    : agent.terminalBusy;
-  return deriveTerminalStatus({
-    command: agent.forkCommand || agent.command,
-    cwd: overrides.cwd || agent.shellCwd || agent.cwd,
-    status: overrides.status || terminalRuntimeStatus(agent.status),
-    title: Object.prototype.hasOwnProperty.call(overrides, 'title')
-      ? overrides.title
-      : (agent.sessionTitle || ''),
-    previewText: Object.prototype.hasOwnProperty.call(overrides, 'previewText')
-      ? overrides.previewText
-      : (agent.previewText || agent.output || ''),
-    terminalBusy: typeof terminalBusy === 'boolean' ? terminalBusy : null,
-    shellLastExitCode: typeof agent.shellLastExitCode === 'number' ? agent.shellLastExitCode : null,
-    shellLastEvent: agent.shellLastEvent || '',
-    shellCommand: Object.prototype.hasOwnProperty.call(overrides, 'shellCommand')
-      ? overrides.shellCommand
-      : (agent.shellCommand || ''),
-    shellLastCommand: Object.prototype.hasOwnProperty.call(overrides, 'shellLastCommand')
-      ? overrides.shellLastCommand
-      : (agent.shellLastCommand || ''),
-    shellCommandStartedAt: Object.prototype.hasOwnProperty.call(overrides, 'shellCommandStartedAt')
-      ? overrides.shellCommandStartedAt
-      : finiteNumberOrNull(agent.shellCommandStartedAt),
-    shellLastCommandStartedAt: Object.prototype.hasOwnProperty.call(overrides, 'shellLastCommandStartedAt')
-      ? overrides.shellLastCommandStartedAt
-      : finiteNumberOrNull(agent.shellLastCommandStartedAt),
-    shellLastCommandFinishedAt: Object.prototype.hasOwnProperty.call(overrides, 'shellLastCommandFinishedAt')
-      ? overrides.shellLastCommandFinishedAt
-      : finiteNumberOrNull(agent.shellLastCommandFinishedAt),
-    shellLastCommandDurationMs: Object.prototype.hasOwnProperty.call(overrides, 'shellLastCommandDurationMs')
-      ? overrides.shellLastCommandDurationMs
-      : finiteNumberOrNull(agent.shellLastCommandDurationMs),
-  });
 }
 
 function setAgentRecordId(agent: TypedAgentRecord, agentRecordId: unknown) {
@@ -1603,11 +1540,9 @@ class AgentManager extends EventEmitter {
       isMainAgent: (agentId: AgentId, agent: TypedAgentRecord) => (
         this.isMainAgentRecord(agentId, agent)
       ),
-      isTurnActive: (agent: TypedAgentRecord) => this.isAgentAttentionTurnActive(agent),
       persistAgent: (agent: TypedAgentRecord) => {
         this.sessionPersistence.persist(agent);
       },
-      providerForAgent: (agent: TypedAgentRecord) => this.agentAttentionProvider(agent),
       publishReadState: payload => {
         this.emit('agent-read', payload);
       },
@@ -2090,7 +2025,7 @@ class AgentManager extends EventEmitter {
           runtimeObservation,
         });
         const patch: UnknownRecord = {};
-        if (!titleChanged && !terminalStatusEqual(previousTerminalStatus, terminalStatus)) {
+        if (!titleChanged && !agentTerminalStatusEqual(previousTerminalStatus, terminalStatus)) {
           patch.terminalStatus = terminalStatus;
           patch.runtimeObservation = runtimeObservation;
         }
@@ -2239,7 +2174,7 @@ class AgentManager extends EventEmitter {
       if (
         provider === 'qwen'
         && (
-          this.isAgentAttentionTurnActive(agent)
+          agentAttentionTurnActive(agent)
           || this.attentionTracker.hasQwenTerminalIdleCandidate(agent.id)
         )
       ) {
@@ -2247,7 +2182,7 @@ class AgentManager extends EventEmitter {
         return;
       }
       agent.attentionSummary = summary;
-      if (this.isAgentAttentionTurnActive(agent)) {
+      if (agentAttentionTurnActive(agent)) {
         agent.terminalNotificationAttentionUntil = Date.now() + TERMINAL_NOTIFICATION_COMPLETION_SUPPRESS_MS;
       }
       this.attentionTracker.recordAgentAttentionEvent(agent, 'terminal-notification');
@@ -2437,7 +2372,7 @@ class AgentManager extends EventEmitter {
       if (!agentId || this.agents.has(agentId)) continue;
 
       const agentRecord = this.recoveredAgentRecord(agentId, entry.engineName || metadata.engineName || 'native', metadata, state);
-      agentRecord.lastObservedTurnActive = this.isAgentAttentionTurnActive(agentRecord);
+      agentRecord.lastObservedTurnActive = agentAttentionTurnActive(agentRecord);
       this.registerAgentRecord(agentId, agentRecord);
       const recoveredLifecycleOperation = activeLifecycleOperation(agentRecord);
       if (
@@ -3588,23 +3523,7 @@ class AgentManager extends EventEmitter {
         staged.archived = false;
         staged.archivedAt = null;
       }
-      if (typeof request.readAttentionSeq === 'number') {
-        staged.readAttentionSeq = Math.min(
-          finiteNonNegativeInteger(staged.attentionSeq),
-          Math.max(
-            finiteNonNegativeInteger(staged.readAttentionSeq),
-            finiteNonNegativeInteger(request.readAttentionSeq),
-          ),
-        );
-        staged.unread = agentAttentionUnread(staged);
-      }
-      if (
-        typeof request.readOutputEpoch === 'string'
-        && typeof request.readOutputSeq === 'number'
-      ) {
-        staged.readOutputEpoch = request.readOutputEpoch;
-        staged.readOutputSeq = finiteNonNegativeInteger(request.readOutputSeq);
-      }
+      applyAgentReadRequest(staged, request);
       transitionLifecycleOperation(staged, operation.id, 'succeeded');
       try {
         this.sessionPersistence.persist(staged);
@@ -3857,19 +3776,6 @@ class AgentManager extends EventEmitter {
       const error = caught as ErrorRecord;
       console.warn('Failed to update provider session metadata:', error && (error.message || error));
     });
-  }
-
-  isAgentAttentionTurnActive(agent: TypedAgentRecord) {
-    if (!agent) return false;
-    if (agent.status === 'pending') return true;
-    if (agent.status !== 'running') return false;
-    const terminalStatus = deriveAgentTerminalStatus(agent);
-    return terminalStatus.activity === 'busy';
-  }
-
-  agentAttentionProvider(agent: TypedAgentRecord) {
-    return agent.providerSessionProvider
-      || agentHomeProviderForProgram(agent.forkCommand || agent.command || '');
   }
 
   async refreshAgentWorktree(agentId: AgentId, workspaceCandidate: unknown = ''): Promise<boolean> {
@@ -5993,7 +5899,7 @@ class AgentManager extends EventEmitter {
     if (!isRunningAgentRuntimeStatus(agent.status)) {
       throw new Error('Codex Terminal is not running');
     }
-    if (this.isAgentAttentionTurnActive(agent)) {
+    if (agentAttentionTurnActive(agent)) {
       throw new Error('Wait for the active Codex Terminal turn to finish before changing its model');
     }
 
@@ -6771,7 +6677,6 @@ class AgentManager extends EventEmitter {
     };
     const updates: UnknownRecord = {};
     let structuralUpdateChanged = false;
-    let readUpdateChanged = false;
     if (typeof flags.pinned === 'boolean') {
       const wasPinned = staged.pinned === true;
       staged.pinned = flags.pinned;
@@ -6783,79 +6688,9 @@ class AgentManager extends EventEmitter {
       updates.pinnedOrder = finiteOrder(staged.pinnedOrder);
     }
 
-    if (
-      typeof flags.readOutputEpoch === 'string'
-      && typeof flags.readOutputSeq === 'number'
-      && Number.isFinite(flags.readOutputSeq)
-    ) {
-      const currentRuntimeEpoch = typeof staged.runtimeEpoch === 'string' ? staged.runtimeEpoch : '';
-      const currentOutputSeq = finiteNumberOrNull(staged.lastOutputSeq);
-      if (
-        currentRuntimeEpoch
-        && flags.readOutputEpoch === currentRuntimeEpoch
-        && currentOutputSeq !== null
-      ) {
-        const nextOutputSeq = Math.min(currentOutputSeq, Math.max(0, Math.floor(flags.readOutputSeq)));
-        const previousOutputSeq = staged.readOutputEpoch === currentRuntimeEpoch
-          ? finiteNumberOrNull(staged.readOutputSeq)
-          : null;
-        const readOutputSeq = previousOutputSeq === null
-          ? nextOutputSeq
-          : Math.max(previousOutputSeq, nextOutputSeq);
-        readUpdateChanged = readUpdateChanged
-          || staged.readOutputEpoch !== currentRuntimeEpoch
-          || previousOutputSeq !== readOutputSeq;
-        staged.readOutputEpoch = currentRuntimeEpoch;
-        staged.readOutputSeq = readOutputSeq;
-      }
-      updates.readOutputEpoch = typeof staged.readOutputEpoch === 'string' ? staged.readOutputEpoch : '';
-      updates.readOutputSeq = finiteNumberOrNull(staged.readOutputSeq);
-    }
-
-    if (typeof flags.unread === 'boolean') {
-      const previousReadSeq = finiteNonNegativeInteger(staged.readAttentionSeq);
-      const previousUnread = staged.unread === true;
-      if (flags.unread) {
-        if (finiteNonNegativeInteger(staged.attentionSeq) === 0) {
-          const now = Date.now();
-          staged.attentionSeq = 1;
-          staged.attentionUpdatedAt = now;
-          staged.attentionReason = 'manual-unread';
-          staged.attentionOutputEpoch = typeof staged.runtimeEpoch === 'string' ? staged.runtimeEpoch : '';
-          staged.attentionOutputSeq = Number.isFinite(staged.lastOutputSeq) ? staged.lastOutputSeq : null;
-          staged.attentionAutoReadNext = false;
-        }
-        staged.readAttentionSeq = Math.max(0, finiteNonNegativeInteger(staged.attentionSeq) - 1);
-      } else {
-        staged.readAttentionSeq = finiteNonNegativeInteger(staged.attentionSeq);
-      }
-      staged.readAttentionAt = Date.now();
-      staged.unread = agentAttentionUnread(staged);
-      readUpdateChanged = readUpdateChanged
-        || previousReadSeq !== staged.readAttentionSeq
-        || previousUnread !== staged.unread;
-      updates.unread = staged.unread;
-      updates.attentionSeq = finiteNonNegativeInteger(staged.attentionSeq);
-      updates.readAttentionSeq = finiteNonNegativeInteger(staged.readAttentionSeq);
-    }
-
-    if (typeof flags.readAttentionSeq === 'number' && Number.isFinite(flags.readAttentionSeq)) {
-      const previousReadSeq = finiteNonNegativeInteger(staged.readAttentionSeq);
-      const previousUnread = staged.unread === true;
-      const attentionSeq = finiteNonNegativeInteger(staged.attentionSeq);
-      staged.readAttentionSeq = Math.min(
-        attentionSeq,
-        Math.max(previousReadSeq, finiteNonNegativeInteger(flags.readAttentionSeq)),
-      );
-      staged.readAttentionAt = Date.now();
-      staged.unread = agentAttentionUnread(staged);
-      readUpdateChanged = readUpdateChanged
-        || previousReadSeq !== staged.readAttentionSeq
-        || previousUnread !== staged.unread;
-      updates.unread = staged.unread;
-      updates.attentionSeq = attentionSeq;
-      updates.readAttentionSeq = staged.readAttentionSeq;
-    }
+    const readTransition = applyAgentReadRequest(staged, flags);
+    const readUpdateChanged = readTransition.changed;
+    Object.assign(updates, readTransition.updates);
 
     if (flags.archived === false) {
       structuralUpdateChanged = structuralUpdateChanged || staged.archived === true || staged.archivedAt !== null;
@@ -7071,7 +6906,7 @@ class AgentManager extends EventEmitter {
       ? ['working', 'waiting-for-permission', 'interrupting'].includes(
           runtimeBindingOf(agent, 'acp')?.state || '',
         )
-      : this.isAgentAttentionTurnActive(agent);
+      : agentAttentionTurnActive(agent);
     if (turnActive) {
       return { error: 'Interrupt the active Agent turn before switching Chat and Terminal.' };
     }
@@ -7507,12 +7342,6 @@ class AgentManager extends EventEmitter {
         });
       });
     });
-  }
-
-  setAgentUnread(agentId: AgentId, unread: boolean) {
-    return unread === true
-      ? this.attentionTracker.markAgentUnreadCursor(agentId)
-      : this.attentionTracker.markAgentReadCursor(agentId);
   }
 
   persistentProjectOperation(
@@ -9453,7 +9282,7 @@ class AgentManager extends EventEmitter {
     const sessionTitle = (sessionState && typeof sessionState.title === 'string' && sessionState.title) || agent.sessionTitle || '';
     const sessionStatus = sessionState && typeof sessionState.status === 'string'
       ? sessionState.status
-      : terminalRuntimeStatus(agent.status);
+      : agentTerminalRuntimeStatus(agent.status);
     const terminalStatus = (sessionState && sessionState.terminalStatus) || deriveAgentTerminalStatus(agent, {
       terminalBusy,
       status: String(sessionStatus || ''),
@@ -9611,7 +9440,7 @@ class AgentManager extends EventEmitter {
     const terminalBusy = typeof agent.terminalBusy === 'boolean' ? agent.terminalBusy : null;
     const terminalStatus = deriveAgentTerminalStatus(agent, {
       terminalBusy,
-      status: String(terminalRuntimeStatus(agent.status) || ''),
+      status: String(agentTerminalRuntimeStatus(agent.status) || ''),
       title: agent.sessionTitle || '',
       previewText: agent.previewText || '',
     });

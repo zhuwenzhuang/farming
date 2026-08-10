@@ -230,9 +230,7 @@ The current priority structural problems are:
    reducer or fetch;
 2. Terminal link, resize, and attachment code use overlapping operation
    identities;
-3. Attention/unread transitions have a tracker, but persistence/recovery
-   projections and facade wrappers still split knowledge with the Manager;
-4. stylesheet file ownership does not by itself prove cross-owner cascade
+3. stylesheet file ownership does not by itself prove cross-owner cascade
    equivalence.
 
 Resume keeps two internal admission maps because an HTTP resume is a complete
@@ -445,7 +443,9 @@ publication likewise have one tracker owner. ACP settled-Turn finalization now
 owns its per-Agent admission/tails, runtime fencing, durable convergence,
 Attention publication, drain, and exact cleanup as one state machine.
 The Manager calls the Attention tracker directly internally; redundant facade
-wrappers are not retained as a second pseudo-owner.
+wrappers are not retained as a second pseudo-owner. Live staged updates and
+detached crash recovery apply the same owner-defined monotonic Attention/output
+read-cursor transition before persistence.
 Worktree refresh coalescing and generation fencing are now owned together, so
 delete/reuse invalidates both pending and already active observations.
 Provider-neutral Terminal startup ordering also has one owner, activated by a
@@ -461,9 +461,8 @@ boundaries. Remaining scope:
    request admitted under two signature definitions; move Launch composition
    only when a smaller boundary demonstrably removes provider or executable
    knowledge instead of wrapping it in ports;
-3. converge Attention/unread persistence, recovery projection, and facade
-   delegation around the existing tracker, then move runtime/record types with
-   their owner;
+3. move Attention-specific runtime/record types only when doing so removes a
+   concrete shared dependency rather than creating a type-only physical split;
 4. leave the facade with exact registry, public entry points, service
    composition, and event delivery.
 
@@ -507,9 +506,9 @@ file-by-file progress log:
    component boundaries. Remove frontend mirrors of backend truth and
    wrapper-only controllers; unify Terminal attachment-operation identity
    before moving replication and interaction.
-2. For AgentManager, converge Attention/unread around its existing tracker.
-   Keep Fork resource rollback exact and separate, and do not continue Resume
-   or Launch without concrete duplicated-truth evidence.
+2. For AgentManager, keep the converged Attention/unread transition in its
+   existing tracker. Keep Fork resource rollback exact and separate, and do
+   not continue Resume or Launch without concrete duplicated-truth evidence.
 3. Reassess unmerged stylesheet and CRT prototypes. Merge only when the
    production boundary is real, total code remains justified, and one-time
    old/new behavior evidence passes; otherwise reduce or discard them.

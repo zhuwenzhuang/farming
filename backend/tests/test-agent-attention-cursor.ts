@@ -1,5 +1,6 @@
 const assert = require('assert');
 const { AgentManager } = require('../agent-manager.cjs');
+const { agentAttentionTurnActive } = require('../agent-attention.cjs');
 
 function createManager() {
   return new AgentManager({
@@ -146,7 +147,7 @@ async function run() {
       'output after the acknowledged cut must still create unread attention',
     );
 
-    manager.setAgentUnread('cursor-agent', true);
+    manager.attentionTracker.markAgentUnreadCursor('cursor-agent');
     agent = manager.agents.get('cursor-agent');
     assert.strictEqual(agent.attentionSeq, 3);
     assert.strictEqual(agent.readAttentionSeq, 2);
@@ -455,7 +456,7 @@ async function run() {
       runtimeEpoch: qwenRuntimeEpoch,
     });
     agent = manager.agents.get(qwenAgentId);
-    assert.strictEqual(manager.isAgentAttentionTurnActive(agent), true);
+    assert.strictEqual(agentAttentionTurnActive(agent), true);
     assert.strictEqual(
       agent.unread,
       true,

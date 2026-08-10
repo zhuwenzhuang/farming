@@ -184,9 +184,7 @@ Session Identity、Usage、Adaptive Title、Settings、部分 WebSocket Delivery
 
 1. `CodeWorkspace` 的一部分 Controller 复制后端 Truth，或只包装 Reducer/Fetch；
 2. Terminal Link/Resize/Attachment 存在重叠的 Operation Identity；
-3. Attention/Unread Transition 已有 Tracker，但 Persistence/Recovery Projection
-   与 Facade Wrapper 仍和 Manager 分担同一组知识；
-4. Stylesheet 已有物理 Owner，但 Selector Hash 与 Manifest 不能单独证明跨 Owner
+3. Stylesheet 已有物理 Owner，但 Selector Hash 与 Manifest 不能单独证明跨 Owner
    Cascade 等价。
 
 Resume 保留两张内部 Admission Map，因为 HTTP Resume 是完整 Operation，而
@@ -367,7 +365,9 @@ Cache、Expiry 与 Cleanup；Activity Timestamp 与 Throttled Activity Publicati
 一个 Tracker 所有。ACP Settled-Turn Finalization 也把 Per-Agent Admission/Tail、Runtime
 Fence、Durable Convergence、Attention Publication、Drain 与精确 Cleanup 作为一套状态机
 共同拥有。Manager 内部直接调用 Attention Tracker，不保留会形成第二个伪 Owner 的重复
-Facade Wrapper。Worktree Refresh 的 Coalescing 与 Generation Fence 也已共同归一个 Owner，
+Facade Wrapper。Live Staged Update 与 Detached Crash Recovery 在持久化前统一应用由
+Owner 定义的单调 Attention/Output Read Cursor Transition。Worktree Refresh 的
+Coalescing 与 Generation Fence 也已共同归一个 Owner，
 因此 Delete/Reuse 会同时淘汰 Pending 和已开始的旧 Observation。Provider-neutral Terminal Startup Ordering 也已有唯一 Owner，由类型化
 Adapter Policy 激活，而不是由 Provider Name 分支激活。Launch Composition 保留在
 Manager，并组合 Provider Adapter 与 Executable Discovery 边界。剩余范围：
@@ -378,8 +378,8 @@ Manager，并组合 Provider Adapter 与 Executable Discovery 边界。剩余范
 2. 只有拿到具体的重复真相证据（例如同一请求被两种 Signature 定义分别裁决）才再动
    Resume；只有更小的边界能明确删除 Provider 或 Executable 知识，而不是把它们包装
    成 Port 时，才移动 Launch Composition；
-3. 围绕现有 Tracker 收敛 Attention/Unread Persistence、Recovery Projection 与
-   Facade Delegation，再让 Runtime/Record Type 随 Owner 移动；
+3. 只有当迁移 Attention 专属 Runtime/Record Type 能删除具体共享依赖，而不是只形成
+   Type-only 物理拆分时，才让这些类型随 Owner 移动；
 4. Facade 最终只保留精确 Agent Registry、公共入口、Service Composition 与事件出口。
 
 行数不是验收标准。只有当一个 Service 减少 Manager 的系统知识，并能在不构造完整
@@ -416,8 +416,8 @@ Branch 或逐文件进度：
    做严格行为中立的物理拆分。前端删除 Backend Truth 镜像与 Wrapper-only
    Controller；Terminal 统一 Attachment Operation Identity 后再迁出 Replication
    与 Interaction。
-2. AgentManager 下一步围绕现有 Tracker 收敛 Attention/Unread；Fork 的资源回滚继续
-   保持精确且分离。没有具体重复真相证据时，不继续 Resume 与 Launch。
+2. AgentManager 保持已经围绕现有 Tracker 收敛的 Attention/Unread Transition；Fork
+   的资源回滚继续保持精确且分离。没有具体重复真相证据时，不继续 Resume 与 Launch。
 3. 重新评估未提交 Stylesheet 与 CRT Prototype。只有当生产边界真实、系统总代码
    合理且一次性旧/新行为证据成立时才合入；否则缩小或丢弃。
 4. 完成剩余 Server Transport 与 ACP 工作。在保持 Auth、Middleware 顺序、Route

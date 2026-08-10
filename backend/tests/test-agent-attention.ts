@@ -1,6 +1,7 @@
 const assert = require('assert');
 const {
   AgentAttentionTracker,
+  applyAgentReadRequest,
   agentAttentionUnread,
   hasAgentOutputAfterAttentionBaseline,
 } = require('../agent-attention.cjs');
@@ -14,9 +15,7 @@ function createFakeHost(overrides = {}) {
     getAgent: agentId => agents.get(agentId),
     isDisposed: () => false,
     isMainAgent: () => false,
-    isTurnActive: agent => agent.terminalBusy === true,
     persistAgent: () => {},
-    providerForAgent: () => 'codex',
     publishReadState: payload => readEvents.push(payload),
     updateProviderMetadata: () => {},
     ...overrides,
@@ -66,6 +65,53 @@ async function run() {
       lastOutputSeq: 5,
     }),
     true,
+  );
+
+  const readState = createAgent({ runtimeEpoch: 'epoch-1', lastOutputSeq: 8 });
+  const unreadTransition = applyAgentReadRequest(readState, {
+    unread: true,
+    readOutputEpoch: 'epoch-1',
+    readOutputSeq: 6,
+  }, 1234);
+  assert.strictEqual(unreadTransition.changed, true);
+  assert.deepStrictEqual(unreadTransition.updates, {
+    readOutputEpoch: 'epoch-1',
+    readOutputSeq: 6,
+    unread: true,
+    attentionSeq: 1,
+    readAttentionSeq: 0,
+  });
+  assert.strictEqual(readState.attentionReason, 'manual-unread');
+  assert.strictEqual(readState.attentionUpdatedAt, 1234);
+  assert.strictEqual(readState.attentionOutputEpoch, 'epoch-1');
+  assert.strictEqual(readState.attentionOutputSeq, 8);
+
+  const readTransition = applyAgentReadRequest(readState, {
+    readAttentionSeq: 1,
+    readOutputEpoch: 'epoch-1',
+    readOutputSeq: 99,
+  }, 2345);
+  assert.strictEqual(readTransition.changed, true);
+  assert.strictEqual(readState.readAttentionSeq, 1);
+  assert.strictEqual(readState.unread, false);
+  assert.strictEqual(readState.readOutputSeq, 8, 'read output cursor must stop at authoritative output');
+  assert.strictEqual(readState.readAttentionAt, 2345);
+
+  const staleTransition = applyAgentReadRequest(readState, {
+    readAttentionSeq: 0,
+    readOutputEpoch: 'epoch-1',
+    readOutputSeq: 4,
+  });
+  assert.strictEqual(staleTransition.changed, false, 'read cursors must remain monotonic');
+  assert.strictEqual(readState.readAttentionSeq, 1);
+  assert.strictEqual(readState.readOutputSeq, 8);
+
+  const combinedState = createAgent({ attentionSeq: 2, readAttentionSeq: 2 });
+  applyAgentReadRequest(combinedState, { unread: true, readAttentionSeq: 2 });
+  assert.strictEqual(
+    combinedState.unread,
+    false,
+    'an explicit read cursor must retain request-order precedence over the unread flag',
   );
 
   let persisted = 0;
@@ -186,9 +232,13 @@ async function run() {
   assert.strictEqual(legacyShellAgent.readAttentionSeq, 1);
   assert.strictEqual(legacyShellAgent.unread, false);
 
-  const qwenHost = createFakeHost({ providerForAgent: () => 'qwen' });
+  const qwenHost = createFakeHost();
   const qwenTracker = new AgentAttentionTracker(qwenHost);
-  const qwenAgent = createAgent({ id: 'qwen-agent', runtimeEpoch: 'qwen-epoch' });
+  const qwenAgent = createAgent({
+    id: 'qwen-agent',
+    providerSessionProvider: 'qwen',
+    runtimeEpoch: 'qwen-epoch',
+  });
   qwenHost.agents.set(qwenAgent.id, qwenAgent);
   qwenTracker.scheduleQwenTerminalIdleCandidate(qwenAgent);
   assert.strictEqual(qwenTracker.hasQwenTerminalIdleCandidate(qwenAgent.id), true);
