@@ -149,6 +149,10 @@ function run() {
     path.join(__dirname, '../../src/styles/composer.css'),
     'utf8'
   );
+  const terminalCssSource = fs.readFileSync(
+    path.join(__dirname, '../../src/styles/terminal.css'),
+    'utf8'
+  );
   const codeComposerSource = fs.readFileSync(
     path.join(__dirname, '../../src/components/code/CodeComposer.tsx'),
     'utf8'
@@ -174,9 +178,9 @@ function run() {
     'Code composer context-window tooltip should stay compact and avoid duplicate native title tooltips'
   );
   assert(
-    mainCssSource.includes('.terminal-session-host textarea:not(.xterm-helper-textarea)') &&
-      !mainCssSource.includes('.terminal-session-host textarea,\n.terminal-session-host [contenteditable') &&
-      !mainCssSource.includes('.terminal-session-host .xterm-helper-textarea {\n  pointer-events: auto !important;\n  opacity: 0 !important;'),
+    terminalCssSource.includes('.terminal-session-host textarea:not(.xterm-helper-textarea)') &&
+      !terminalCssSource.includes('.terminal-session-host textarea,\n.terminal-session-host [contenteditable') &&
+      !terminalCssSource.includes('.terminal-session-host .xterm-helper-textarea {\n  pointer-events: auto !important;\n  opacity: 0 !important;'),
     'xterm IME input should keep xterm helper textarea out of Farming generic transparent textarea rules'
   );
   assert(
@@ -507,10 +511,10 @@ function run() {
     'xterm should match the VS Code default right-click behavior instead of mutating selection on right click'
   );
   assert(
-    mainCssSource.includes('.terminal-session-host .xterm .xterm-rows') &&
-      mainCssSource.includes('pointer-events: auto !important') &&
-      !mainCssSource.includes('user-select: text !important') &&
-      !mainCssSource.includes('.terminal-session-host .xterm .xterm-rows ::selection'),
+    terminalCssSource.includes('.terminal-session-host .xterm .xterm-rows') &&
+      terminalCssSource.includes('pointer-events: auto !important') &&
+      !terminalCssSource.includes('user-select: text !important') &&
+      !terminalCssSource.includes('.terminal-session-host .xterm .xterm-rows ::selection'),
     'xterm rows should keep pointer hit testing without forcing native browser text selection over xterm selection'
   );
   assert(
@@ -687,12 +691,12 @@ function run() {
     'pooled terminal hook should keep the terminal mounted without duplicating the shared input path'
   );
   assert(
-    mainCssSource.includes('.terminal-session-host textarea.terminal-ime-input.terminal-ime-composing') &&
-      mainCssSource.includes('color: #1f2328 !important') &&
-      !mainCssSource.includes('color: var(--theme-fg, #00ff41) !important'),
+    terminalCssSource.includes('.terminal-session-host textarea.terminal-ime-input.terminal-ime-composing') &&
+      terminalCssSource.includes('color: #1f2328 !important') &&
+      !terminalCssSource.includes('color: var(--theme-fg, #00ff41) !important'),
     'terminal IME composition text should use normal Codex text color instead of terminal green'
   );
-  const xtermCompositionStyle = mainCssSource.match(/\.terminal-session-host \.xterm \.composition-view \{([^}]*)\}/)?.[1] || '';
+  const xtermCompositionStyle = terminalCssSource.match(/\.terminal-session-host \.xterm \.composition-view \{([^}]*)\}/)?.[1] || '';
   assert(
     xtermCompositionStyle.includes('background: transparent') &&
       xtermCompositionStyle.includes('border-bottom: 2px solid #0969da') &&
@@ -866,25 +870,25 @@ function run() {
       terminalPoolSource.includes('record.linkInteraction.dispose()') &&
       terminalEngineSource.includes('registerLinkProvider?: (linkProvider: TerminalLinkProvider) => { dispose: () => void }') &&
       xtermSource.includes("registerLinkProvider: Terminal['registerLinkProvider']") &&
-      mainCssSource.includes('.terminal-session-host.terminal-open-target-hover .xterm'),
+      terminalCssSource.includes('.terminal-session-host.terminal-open-target-hover .xterm'),
     'terminal URL/path targets should use xterm link providers with direct high-confidence file links and modifier-protected URL links'
   );
   assert(
     linkInteractionSource.includes('const fence = this.#currentFence()') &&
       linkInteractionSource.includes('if (!this.#isCurrentFence(fence)) return null') &&
       linkInteractionSource.includes('if (!this.#isCurrentFence(mouseDown.fence)) return') &&
-      linkInteractionSource.includes('#currentFence(): TerminalLinkInteractionFence {\n    return { generation: this.#ports.attachmentGeneration(), revision: this.#revision }\n  }') &&
+      linkInteractionSource.includes('#currentFence(): TerminalLinkInteractionFence {\n    return { attachment: this.#ports.attachmentOperation(), revision: this.#revision }\n  }') &&
       linkInteractionSource.includes('if (this.#disposed || fence.revision !== this.#revision) return false') &&
-      linkInteractionSource.includes('return this.#ports.isCurrentAttachment(fence.generation)') &&
+      linkInteractionSource.includes('return this.#ports.isCurrentAttachmentOperation(fence.attachment)') &&
       linkInteractionSource.includes('notifyHandlersChanged() {\n    this.#invalidateInteractionRevision()\n  }') &&
       linkInteractionSource.includes('#invalidateInteractionRevision() {\n    this.#revision += 1') &&
       linkInteractionSource.includes('this.#pathResolveCache.clear()') &&
       !linkInteractionSource.includes('mouseDown.generation') &&
-      !linkInteractionSource.includes('this.#isCurrentAttachment(') &&
-      terminalPoolSource.includes('attachmentGeneration: () => record.attachment.generation') &&
-      terminalPoolSource.includes('isCurrentAttachment: generation => isCurrentAttachment(record, generation)') &&
-      terminalPoolSource.includes('const attachmentGeneration = record.attachment.generation') &&
-      terminalPoolSource.includes('if (!isCurrentAttachment(record, attachmentGeneration))') &&
+      !linkInteractionSource.includes('this.#ports.attachmentGeneration') &&
+      !linkInteractionSource.includes('this.#ports.isCurrentAttachment(') &&
+      terminalPoolSource.includes('attachmentOperation: () => record.attachment.currentOperation()') &&
+      terminalPoolSource.includes('isCurrentAttachmentOperation: operation => (') &&
+      terminalPoolSource.includes('record.attachment.isCurrentOperation(operation)') &&
       terminalPoolSource.includes('const committedRevision = linkHandlersCommitLatch.committedRevision(') &&
       terminalPoolSource.includes('const revisionInvalidated = record.linkInteraction.adoptHandlersRevision(committedRevision)') &&
       terminalPoolSource.includes('if (!revisionInvalidated && linkHandlersReplaced) record.linkInteraction.notifyHandlersChanged()') &&
