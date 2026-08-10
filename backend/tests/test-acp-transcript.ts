@@ -1131,7 +1131,7 @@ const transcriptPaneSource = fs.readFileSync(
   'utf8'
 );
 const darkStylesSource = fs.readFileSync(
-  path.join(__dirname, '..', '..', 'src', 'styles', 'code-dark.css'),
+  path.join(__dirname, '..', '..', 'src', 'styles', 'transcript-dark.css'),
   'utf8'
 );
 assert(

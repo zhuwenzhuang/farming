@@ -1,4 +1,5 @@
 const assert = require('assert');
+import type { AgentRecord } from '../agent-manager-record-types';
 const {
   AgentAttentionTracker,
   applyAgentReadRequest,
@@ -22,7 +23,7 @@ function createFakeHost(overrides = {}) {
   };
 }
 
-function createAgent(overrides = {}) {
+function createAgent(overrides: Partial<AgentRecord> = {}): AgentRecord {
   return {
     id: 'agent-1',
     command: 'codex',
@@ -39,7 +40,7 @@ function createAgent(overrides = {}) {
     readOutputEpoch: '',
     readOutputSeq: 0,
     ...overrides,
-  };
+  } as AgentRecord;
 }
 
 async function run() {

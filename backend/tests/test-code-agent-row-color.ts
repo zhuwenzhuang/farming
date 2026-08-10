@@ -1,20 +1,20 @@
 const assert = require('assert');
-const { readCodeStyleSource } = require('./style-source-reader');
+const { readCodeBaseStyles, readCodeStyleSource } = require('./style-source-reader');
 
-const styles = readCodeStyleSource('src/styles/main.css');
+const styles = readCodeBaseStyles();
 const gitHistoryStyles = readCodeStyleSource('src/styles/git-history.css');
 
 function ruleBody(selector, source = styles) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const match = source.match(new RegExp(`(?:^|\\n)${escaped}\\s*\\{([^}]*)\\}`, 'm'));
-  assert(match, `Missing CSS rule: ${selector}`);
-  return match[1];
+  const matches = Array.from(source.matchAll(new RegExp(`(?:^|\\n)${escaped}\\s*\\{([^}]*)\\}`, 'gm')));
+  assert(matches.length > 0, `Missing CSS rule: ${selector}`);
+  return matches.map(match => match[1]).join('\n');
 }
 
 function propertyValue(rule, property) {
-  const match = rule.match(new RegExp(`(?:^|\\n)\\s*${property}\\s*:\\s*([^;]+);`, 'm'));
-  assert(match, `Missing CSS property: ${property}`);
-  return match[1].trim();
+  const matches = Array.from(rule.matchAll(new RegExp(`(?:^|\\n)\\s*${property}\\s*:\\s*([^;]+);`, 'gm')));
+  assert(matches.length > 0, `Missing CSS property: ${property}`);
+  return matches[matches.length - 1][1].trim();
 }
 
 const agentRowColor = propertyValue(ruleBody('.code-agent-row'), 'color');

@@ -173,6 +173,7 @@ interface TerminalLinkInteractionFence {
 
 interface PathResolveCacheEntry {
   fence: TerminalLinkInteractionFence
+  resolution: Promise<TerminalPathOpenTarget | null>
   resolvedAt: number
   target: TerminalPathOpenTarget | null
   promise?: Promise<TerminalPathOpenTarget | null>
@@ -472,6 +473,7 @@ export class TerminalLinkInteractionController {
       .catch(() => null)
     this.#pathResolveCache.set(cacheKey, {
       fence,
+      resolution: promise,
       resolvedAt: this.#ports.now(),
       target: null,
       promise,
@@ -611,16 +613,19 @@ export class TerminalLinkInteractionController {
     const resolved = await promise
     if (!this.#isCurrentFence(fence)) return null
 
-    // Only the resolution the cache is still waiting for may commit. A promise
-    // that another request already replaced describes a candidate this owner no
-    // longer tracks, so it is not evidence for this caller either.
+    // Every consumer coalesced onto the same resolution receives its result,
+    // including a link provider and a click racing for one path. A different
+    // resolution identity means this request really was replaced after expiry.
     const current = this.#pathResolveCache.get(cacheKey)
-    if (current?.promise !== promise) return null
-    this.#pathResolveCache.set(cacheKey, {
-      fence,
-      resolvedAt: this.#ports.now(),
-      target: resolved,
-    })
+    if (current?.resolution !== promise) return null
+    if (current.promise === promise) {
+      this.#pathResolveCache.set(cacheKey, {
+        fence,
+        resolution: promise,
+        resolvedAt: this.#ports.now(),
+        target: resolved,
+      })
+    }
     return resolved
   }
 

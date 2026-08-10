@@ -1,10 +1,8 @@
 const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
+const { readCodeStyleSource } = require('./style-source-reader');
 
-const projectRoot = path.join(__dirname, '..', '..');
-const styles = fs.readFileSync(path.join(projectRoot, 'src', 'styles', 'main.css'), 'utf8');
-const darkStyles = fs.readFileSync(path.join(projectRoot, 'src', 'styles', 'code-dark.css'), 'utf8');
+const styles = readCodeStyleSource('src/styles/transcript.css');
+const darkStyles = readCodeStyleSource('src/styles/transcript-dark.css');
 
 function assertPalette(source, selectorPrefix, expectedColors) {
   for (const [tone, expectedColor] of expectedColors.entries()) {

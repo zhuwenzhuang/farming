@@ -50,7 +50,11 @@ export interface LifecycleOperationRequest {
   force?: boolean;
   previousRuntimeAgentId?: string;
   previousState?: LifecyclePreviousState;
+  readAttentionSeq?: unknown;
+  readOutputEpoch?: unknown;
+  readOutputSeq?: unknown;
   signature?: string;
+  unread?: unknown;
   workspace?: string;
 }
 

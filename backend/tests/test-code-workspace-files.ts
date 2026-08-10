@@ -1,6 +1,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const { readCodeBaseStyles, readCodeDarkStyles } = require('./style-source-reader');
 
 function read(relativePath) {
   return fs.readFileSync(path.join(__dirname, '../..', relativePath), 'utf8');
@@ -116,17 +117,9 @@ function run() {
   const fileEditorMonacoSource = read('src/components/files/useFileEditorMonacoController.ts');
   const inputDialogSource = read('src/components/InputDialog.tsx');
   const settingsFileExists = fs.existsSync(path.join(__dirname, '../..', 'src/components/Settings.tsx'));
-  const stylesSource = [
-    read('src/styles/main.css'),
-    read('src/styles/file-editor.css'),
-    read('src/styles/composer.css'),
-  ].join('\n');
+  const stylesSource = readCodeBaseStyles();
   const composerMicStyles = stylesSource.match(/\.code-composer-mic svg \{[\s\S]*?\n\}/)?.[0] || '';
-  const darkStylesSource = [
-    read('src/styles/code-dark.css'),
-    read('src/styles/file-editor-dark.css'),
-    read('src/styles/composer-dark.css'),
-  ].join('\n');
+  const darkStylesSource = readCodeDarkStyles();
   const useAgentsSource = read('src/hooks/useAgents.ts');
   const webSocketSource = read('src/hooks/useWebSocket.ts');
   const messagesSource = read('src/types/messages.ts');
@@ -172,7 +165,8 @@ function run() {
       && projectMutationControllerSource.includes('private readonly membershipQueue: QueuedMembershipMutation[] = []')
       && projectMutationControllerSource.includes('private readonly reconcileAborts = new Map<string, AbortController>()')
       && projectMutationControllerSource.includes('const result = await Promise.race([')
-      && projectMutationControllerSource.includes("if (typeof name !== 'string') continue")
+      && projectMutationControllerSource.includes('normalizeProjectNames(settings.projectNames)')
+      && projectMembershipControllerSource.includes("if (typeof name !== 'string') continue")
       && projectMutationControllerSource.includes('this.ports.replaceProjectName(input.workspace, names[input.workspace] ?? null, input.name)')
       && !codeWorkspaceSource.includes("appPath('/api/projects/name')")
       && !codeWorkspaceSource.includes("appPath('/api/projects/pin')")
@@ -768,7 +762,7 @@ function run() {
       workspaceSource.includes('resolvedClaudeModel') &&
       workspaceSource.includes('resolvedClaudeEffort') &&
       workspaceSource.includes("enabled: modelMenuOpen && composerAgentKind === 'codex'") &&
-      workspaceSource.includes('return lifecycle.load(providerHomeId)') &&
+      workspaceSource.includes('loadCatalog(providerHomeId)') &&
       !workspaceSource.includes('codexModelsRequestRef') &&
       workspaceSource.includes('const AGENT_SESSION_PAGE_SIZE = 60') &&
       workspaceSource.includes("params.set('cursor', options.cursor)") &&

@@ -12,7 +12,7 @@ const transcriptPaneSource = read('src/components/code/AgentTranscriptPane.tsx')
 const agentWorkPaneSource = read('src/components/code/AgentWorkPane.tsx');
 const codeMainAreaSource = read('src/components/code/CodeMainArea.tsx');
 const workspaceSource = read('src/components/CodeWorkspace.tsx');
-const stylesSource = read('src/styles/main.css');
+const stylesSource = read('src/styles/transcript.css');
 
 assert(
   transcriptPaneSource.includes('data-testid="code-agent-transcript-review-and-commit"')

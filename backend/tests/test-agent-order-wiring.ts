@@ -16,7 +16,11 @@ function run() {
   const sidebar = read('src/components/code/CodeSidebar.tsx');
   const reorderHook = read('src/components/code/useAgentReorder.ts');
   const model = read('src/components/code/model.ts');
-  const styles = read('src/styles/main.css');
+  const styles = [
+    read('src/styles/main.css'),
+    read('src/styles/agent-list.css'),
+    read('src/styles/sidebar.css'),
+  ].join('\n');
 
   assert.strictEqual(
     (manager.match(/this\.registerAgentRecord\(/g) || []).length,

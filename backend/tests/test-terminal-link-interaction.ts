@@ -538,6 +538,20 @@ async function testSupersededResolvePromise() {
   assert.strictEqual(fixture.resolveCalls.length, 2, 'the committed resolution is reused');
 }
 
+async function testConcurrentResolveConsumersShareTheCommittedResult() {
+  const fixture = createFixture({ deferResolve: true });
+  const providerResolution = fixture.controller.resolvePathTarget({ path: 'src/lib/terminal-links.ts' });
+  const clickResolution = fixture.controller.resolvePathTarget({ path: 'src/lib/terminal-links.ts' });
+  await flush();
+  assert.strictEqual(fixture.resolveCalls.length, 1, 'concurrent consumers coalesce onto one resolver call');
+
+  fixture.resolvePending();
+  const [providerTarget, clickTarget] = await Promise.all([providerResolution, clickResolution]);
+  assert.strictEqual(providerTarget?.path, '/workspace/src/lib/terminal-links.ts');
+  assert.strictEqual(clickTarget?.path, '/workspace/src/lib/terminal-links.ts',
+    'the second waiter must not mistake the first waiter committing for supersession');
+}
+
 async function testSynchronousResolverThrowIsAFailedResolution() {
   const fixture = createFixture({ throwingResolve: true });
   assert.strictEqual(await fixture.controller.resolvePathTarget({ path: 'src/lib/terminal-links.ts' }), null,
@@ -1119,6 +1133,7 @@ async function run() {
   await testLinkProviderLinks();
   await testLateResolveAfterReset();
   await testSupersededResolvePromise();
+  await testConcurrentResolveConsumersShareTheCommittedResult();
   await testSynchronousResolverThrowIsAFailedResolution();
   await testShortcutsRespectTheFence();
   await testAtomicCommitOrdersPoolAdoptionBeforeTheNewOpener();

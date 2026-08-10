@@ -78,11 +78,12 @@ function activeCodexTerminalProfile(agent: TypedAgentRecord, previewText: string
   const outputProfile = codexTerminalProfileFromOutput(agent.output || '');
   const parsed = outputProfile || codexTerminalProfileFromPreview(previewText);
   if (!parsed) return agent.codexTerminalProfile || null;
-  const previousServiceTier = agent.codexTerminalProfile
+  const previousProfile = agent.codexTerminalProfile
     && typeof agent.codexTerminalProfile === 'object'
     && !Array.isArray(agent.codexTerminalProfile)
-    ? agent.codexTerminalProfile.serviceTier
-    : undefined;
+    ? agent.codexTerminalProfile as CodexTerminalProfileTarget
+    : null;
+  const previousServiceTier = previousProfile?.serviceTier;
   const profile = {
     model: parsed.model,
     reasoningEffort: parsed.effort,

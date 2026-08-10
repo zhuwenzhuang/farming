@@ -23,10 +23,12 @@ function run() {
   const stylesSource = [
     readCodeStyleSource('src/styles/main.css'),
     readCodeStyleSource('src/styles/file-editor.css'),
+    readCodeStyleSource('src/styles/markdown.css'),
   ].join('\n');
   const darkStylesSource = [
     readCodeStyleSource('src/styles/code-dark.css'),
     readCodeStyleSource('src/styles/file-editor-dark.css'),
+    readCodeStyleSource('src/styles/markdown-dark.css'),
   ].join('\n');
 
   assert(
