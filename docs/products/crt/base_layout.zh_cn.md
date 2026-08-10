@@ -64,6 +64,50 @@ Dashboard Chat Preview 使用与 Farming Code 相同的外部媒体 Transcript D
 所有 Same-origin Routing 遵循 Server 提供的 Base Path。Routing 缺失、Protocol Incompatibility、
 Renderer Failure 与 Session Recovery Failure 都必须显式展示；CRT 不静默切换到未测试 Fallback。
 
+## Billing 控制器
+
+CRT Billing 是一个垂直 Owner（`frontend/skins/crt/billing-controller.ts`），独占所有 Billing
+Mutable State、Fetching、Scheduling、Animation 与 Rendering。App Shell 仅接入窄 Lifecycle 与
+Navigation Port，不持有重复的 Billing State。
+
+状态模型：
+
+- 单调递增的 **Generation** 计数器为每个异步操作、Timer 与 Animation Frame 设栅栏。Settle 或
+  Callback 捕获的 Generation 与当前值不同时，静默丢弃。
+- **Summary**（15 s Poll）与 **Live-day Detail**（5 s Poll）各自拥有 AbortController、有界
+  Deadline 与 Request Sequence。Deadline Abort 强制释放 Owner，即使 Fetch 忽略 AbortSignal，
+  下一次 Scheduled Poll 仍可继续。
+- **Top-bar Token Rate**（60 s Poll）拥有 AbortController 与有界 Deadline，使用
+  Controller-presence Guard（已有 In-flight 则跳过）而非 Request Sequence。
+- 每个 Fetch+JSON 操作拥有一个精确的 **Operation Token**。Deadline 触发且 Generation 仍匹配时，
+  先使 Token 失效，再 Abort 并释放 Owner。每一次 Success、Cache Write、Render、Day-followup
+  Start、Error 与 Finally Cleanup 都要求当前 Token，因此 Timeout、Leave、Suspend 或 Dispose 之后
+  迟到的 Fetch Settle 或迟到的 `response.json()` 完成都是 No-op——即使释放 Owner 并不递增 Request
+  Sequence。
+- 每个 Deadline 按操作独占：被取代请求的 Finally 不能清除新请求已 Arm 的 Deadline。
+- 一次性 Scroll、Draw 与 Navigation Frame 通过 Tracked Helper 注册，在 Leave、Suspend 与 Dispose
+  时取消，并额外按 Generation 丢弃；它们不会自我重排。Scope Canvas Frame 在相同切换点显式取消。
+- **Day Detail Cache** 在每次 Summary 成功响应后裁剪至权威 Date Set。权威空 Summary 裁剪所有
+  缓存条目。
+
+失败与恢复：
+
+- Day Detail 仅对 Network Error、HTTP 408、429 与 5xx 重试，最多四次重试（共五次尝试），
+  指数退避。Validation Error 与普通 4xx 对该请求为终态。若 `200` Day-detail Response 在控制器
+  已持有该日 Hourly Bins 后暂时省略 Hourly Bins，则视为已证明的暂时回退，保持同一条有界重试路径，
+  不清除既有 Hourly Detail。
+- 从 Days 切换到 Live Mode 时，Abort 并 Fence 所有待处理的 Days Summary 与 Day-detail Request，
+  然后始终启动 Live Summary Load。迟到的 Days Response 不能渲染到 Live View。
+- Page Suspend（visibilitychange hidden、pagehide）Abort 所有 In-flight Request 并清除所有
+  Timer。Resume 重启 Schedule，并在 Billing View 活跃时执行 Fresh Load。
+- 离开 Billing View（Escape、Navigation）停止 Summary/Day Polling、Abort In-flight Billing
+  Request 并取消 Animation 与 Tracked Frame。全局 60 s Top-bar Token Rate Poll 独立继续。
+- Page/Controller Dispose 递增 Generation、Abort 所有 Request（含 Topbar）并取消所有 Animation
+  与 Tracked Frame。Dispose 后 Settle 的过期 In-flight Response 被 Generation Fence 丢弃。
+
+Backend Usage API（`GET /api/usage`、`GET /api/usage/day`）保持为权威数据源。控制器不从
+Terminal Text 或 Stale UI Data 重建 Usage Truth。
+
 ## 验收标准
 
 验证必须覆盖：Keyboard-only Operation、Empty/Dense Dashboard、Agent Ordering Stability、Code/CRT

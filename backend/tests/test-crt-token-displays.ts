@@ -5,6 +5,8 @@ const {
   crtBillingTimeline,
   crtBillingTimelineLabels,
   formatCrtUsageValue,
+} = require('../../frontend/skins/crt/billing-controller');
+const {
   formatStructuredUsage,
   structuredContextUsage,
   updateStructuredUsageDisplay,

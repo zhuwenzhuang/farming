@@ -1,5 +1,5 @@
 import path from 'node:path'
-import type { Page } from '@playwright/test'
+import type { Page, Route } from '@playwright/test'
 import { expect, openFarming, openNewAgentDialog, startAgentFromOpenDialog, test } from './fixtures'
 
 async function createControlAgent(page: Page, command: string, workspace: string, agentRuntimeMode: 'terminal' | 'chat' | 'acp' = 'terminal') {
@@ -10,6 +10,43 @@ async function createControlAgent(page: Page, command: string, workspace: string
   const payload = await response.json() as { agentId?: string }
   expect(payload.agentId).toBeTruthy()
   return payload.agentId as string
+}
+
+function isCrtFrameUsageRequest(route: Route) {
+  return route.request().frame().url().includes('/farming/crt/')
+}
+
+function crtBillingUsageEnvelope(usage: Record<string, unknown>) {
+  const sampledAt = Date.now()
+  return {
+    usage: {
+      sampledAt,
+      windowMs: 5 * 60 * 1000,
+      providers: [{
+        provider: 'codex',
+        providerName: 'Codex',
+        auth: { available: true, status: 'Test session', source: 'playwright' },
+        quota: { available: false, source: 'playwright', reason: 'not modeled' },
+        tokenUsage: {
+          available: true,
+          totalTokens: 5000,
+          tokensPerMinute: 1000,
+          windowMs: 5 * 60 * 1000,
+          eventCount: 1,
+          sampledAt,
+          source: 'playwright',
+        },
+      }],
+      agentUsage: null,
+      systemStats: null,
+      ...usage,
+    },
+  }
+}
+
+async function openCrtFarming(page: Page) {
+  await page.goto('/farming/crt/', { waitUntil: 'domcontentloaded' })
+  await expect(page.locator('#farming-crt')).toHaveCount(1)
 }
 
 test('shows the quota reset countdown in the collapsed Code Usage summary', async ({ page }) => {
@@ -1490,4 +1527,123 @@ test('renders CRT Billing daily history with a secondary live oscilloscope', asy
   await expect(page.locator('#billing-area')).toHaveClass(/hidden/)
   await page.keyboard.press('Shift+4')
   await expect(page.locator('#billing-area')).not.toHaveClass(/hidden/)
+})
+
+test('fences deferred Days response arriving after Live switch', async ({ page, workspaceRoot }) => {
+  const dailyPoints = Array.from({ length: 7 }, (_, index) => {
+    const date = `2026-07-${String(index + 8).padStart(2, '0')}`
+    return { date, totalTokens: (index + 1) * 1000, inputTokens: 500, outputTokens: 200, cacheReadTokens: 200, cacheWriteTokens: 100 }
+  })
+  let deferDays = true
+  let deferredFulfill: (() => Promise<void>) | null = null
+  await page.route(/\/api\/usage(?:\?|$)/, async route => {
+    if (!isCrtFrameUsageRequest(route)) {
+      await route.fallback()
+      return
+    }
+    const url = new URL(route.request().url())
+    if (url.searchParams.get('fresh') === '1' && deferDays) {
+      deferDays = false
+      deferredFulfill = async () => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(crtBillingUsageEnvelope({
+            daily: { points: dailyPoints, endDate: dailyPoints.at(-1)!.date, summary: { todayTokens: 7000 } },
+          })),
+        })
+      }
+      return
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(crtBillingUsageEnvelope({
+        timeline: { windowMs: 3600000, totalTokens: 5000, peakTokensPerMinute: 2000, points: [{ tokensPerMinute: 1000 }], bucketMs: 60000, bucketCount: 60, activeBucketCount: 30 },
+        liveTimeline: { windowMs: 3600000, totalTokens: 5000, peakTokensPerMinute: 2000, points: [{ tokensPerMinute: 1000 }], bucketMs: 60000, bucketCount: 60, activeBucketCount: 30 },
+      })),
+    })
+  })
+  await page.route(/\/api\/usage\/day/, async route => {
+    if (!isCrtFrameUsageRequest(route)) {
+      await route.fallback()
+      return
+    }
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ detail: { date: dailyPoints.at(-1)!.date, hours: [], total: { totalTokens: 7000 } } }) })
+  })
+  await openFarming(page)
+  await openNewAgentDialog(page)
+  await startAgentFromOpenDialog(page, 'bash', workspaceRoot)
+  await openCrtFarming(page)
+  await expect(page.locator('#input-dialog')).not.toHaveClass(/active/)
+  await page.getByRole('button', { name: '[$] BILLING', exact: true }).click()
+  await expect(page.locator('#billing-area')).not.toHaveClass(/hidden/)
+  await expect(page.locator('#billing-status')).toHaveText(/SCANNING LOGS|REFRESHING/)
+  await page.keyboard.press('l')
+  await expect(page.locator('#billing-live-view')).not.toHaveClass(/hidden/)
+  await expect(page.locator('#billing-status')).toHaveText(/^LIVE \d{2}:\d{2}:\d{2}$/)
+  if (deferredFulfill) await deferredFulfill()
+  await page.waitForTimeout(200)
+  await expect(page.locator('#billing-live-view')).not.toHaveClass(/hidden/)
+  await expect(page.locator('#billing-status')).toHaveText(/^LIVE \d{2}:\d{2}:\d{2}$/)
+  await expect(page.locator('#billing-days-view')).toHaveClass(/hidden/)
+})
+
+test('fences stale billing completion after leave and re-show', async ({ page, workspaceRoot }) => {
+  const dailyPoints = Array.from({ length: 7 }, (_, index) => {
+    const date = `2026-07-${String(index + 8).padStart(2, '0')}`
+    return { date, totalTokens: (index + 1) * 1000, inputTokens: 500, outputTokens: 200, cacheReadTokens: 200, cacheWriteTokens: 100 }
+  })
+  let requestCount = 0
+  let holdFirst = true
+  let heldRoute: { fulfill: (opts: unknown) => Promise<void> } | null = null
+  await page.route(/\/api\/usage(?:\?|$)/, async route => {
+    if (!isCrtFrameUsageRequest(route)) {
+      await route.fallback()
+      return
+    }
+    requestCount += 1
+    if (holdFirst && requestCount === 1) {
+      holdFirst = false
+      heldRoute = route
+      return
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(crtBillingUsageEnvelope({
+        daily: { points: dailyPoints, endDate: dailyPoints.at(-1)!.date, summary: { todayTokens: 7000 } },
+      })),
+    })
+  })
+  await page.route(/\/api\/usage\/day/, async route => {
+    if (!isCrtFrameUsageRequest(route)) {
+      await route.fallback()
+      return
+    }
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ detail: { date: dailyPoints.at(-1)!.date, hours: [], total: { totalTokens: 7000 } } }) })
+  })
+  await openFarming(page)
+  await openNewAgentDialog(page)
+  await startAgentFromOpenDialog(page, 'bash', workspaceRoot)
+  await openCrtFarming(page)
+  await expect(page.locator('#input-dialog')).not.toHaveClass(/active/)
+  await page.getByRole('button', { name: '[$] BILLING', exact: true }).click()
+  await expect(page.locator('#billing-area')).not.toHaveClass(/hidden/)
+  await page.keyboard.press('Escape')
+  await expect(page.locator('#billing-area')).toHaveClass(/hidden/)
+  if (heldRoute) {
+    await heldRoute.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(crtBillingUsageEnvelope({
+        daily: { points: dailyPoints, endDate: dailyPoints.at(-1)!.date, summary: { todayTokens: 99999 } },
+      })),
+    })
+  }
+  await page.waitForTimeout(200)
+  await expect(page.locator('#billing-area')).toHaveClass(/hidden/)
+  await page.getByRole('button', { name: '[$] BILLING', exact: true }).click()
+  await expect(page.locator('#billing-area')).not.toHaveClass(/hidden/)
+  await expect(page.locator('#billing-today-total')).not.toHaveText('99.9K')
 })

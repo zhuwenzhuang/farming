@@ -89,6 +89,7 @@ module.exports = [
         getComputedStyle: 'readonly',
         localStorage: 'readonly',
         CSS: 'readonly',
+        CrtBilling: 'readonly',
       }
     },
     rules: {

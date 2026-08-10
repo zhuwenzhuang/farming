@@ -1545,8 +1545,8 @@
                 <h2>Billing</h2>
                 <div class="billing-header-actions">
                     <div class="billing-view-switch" role="tablist" aria-label="Billing view">
-                        <button type="button" id="billing-days-tab" class="active" role="tab" aria-selected="true" data-crt-nav-key="billing:days" tabindex="-1" onclick="selectCrtBillingMode('days')">[D] DAYS</button>
-                        <button type="button" id="billing-live-tab" role="tab" aria-selected="false" data-crt-nav-key="billing:live" tabindex="-1" onclick="selectCrtBillingMode('live')">[L] LIVE</button>
+                        <button type="button" id="billing-days-tab" class="active" role="tab" aria-selected="true" data-crt-nav-key="billing:days" tabindex="-1" onclick="CrtBilling.selectMode('days')">[D] DAYS</button>
+                        <button type="button" id="billing-live-tab" role="tab" aria-selected="false" data-crt-nav-key="billing:live" tabindex="-1" onclick="CrtBilling.selectMode('live')">[L] LIVE</button>
                     </div>
                     <span class="billing-status" id="billing-status">STANDBY</span>
                 </div>
@@ -1715,7 +1715,7 @@
             </div>
             <div class="billing-footer">
                 <span>[D] Days&nbsp;&nbsp; [L] Live&nbsp;&nbsp; [R] Refresh&nbsp;&nbsp; [↑↓←→] Select Day&nbsp;&nbsp; [Esc] Back</span>
-                <button type="button" id="billing-refresh" data-crt-nav-key="billing:refresh" data-crt-nav-default="true" tabindex="-1" onclick="refreshCrtBilling()">REFRESH [R]</button>
+                <button type="button" id="billing-refresh" data-crt-nav-key="billing:refresh" data-crt-nav-default="true" tabindex="-1" onclick="CrtBilling.refresh()">REFRESH [R]</button>
             </div>
         </section>
 
@@ -1733,7 +1733,7 @@
                 <div class="sidebar-item" style="opacity: 0.5; cursor: not-allowed;">
                     <span class="key">[E]</span> EXTENSIONS
                 </div>
-                <div class="sidebar-item" id="billing-sidebar-item" role="button" tabindex="-1" data-crt-nav-key="sidebar:billing" onclick="showCrtBilling()">
+                <div class="sidebar-item" id="billing-sidebar-item" role="button" tabindex="-1" data-crt-nav-key="sidebar:billing" onclick="CrtBilling.show()">
                     <span class="key">[$]</span> BILLING
                 </div>
                 <div class="sidebar-item" role="button" tabindex="-1" data-crt-nav-key="sidebar:settings" onclick="showSettings()">
@@ -1988,6 +1988,7 @@
     <script type="module" src="shared/ghostty-loader.js"></script>
     <script src="crt-markdown-renderer.js"></script>
     <script src="effects.js"></script>
+    <script src="billing-controller.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

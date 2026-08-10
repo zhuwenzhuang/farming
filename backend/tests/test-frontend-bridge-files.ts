@@ -267,23 +267,20 @@ function run() {
       && indexHtml.includes('id="billing-scope-title"')
       && indexHtml.includes('id="billing-quota-list"')
       && indexHtml.includes('<span class="key">[$]</span> BILLING')
-      && crtApp.includes('/usage/day?date=')
-      && crtApp.includes("live ? '&live=1' : ''")
-      && crtApp.includes('CRT_BILLING_LIVE_DAY_REFRESH_MS = 5_000')
-      && crtApp.includes('updateCrtBillingTotalDisplay')
       && crtApp.includes("e.key === '$'")
       && crtApp.includes("e.key === '4' && e.shiftKey"),
     'CRT Billing should expose daily history, exact day details, live trend, and quota telemetry surfaces',
   );
   assert(
-    crtApp.includes("billingMode === 'live' ? '?live=1' : ''")
-      && usageRouter.includes("live ? { maxAgeMs: 15_000 }"),
+    indexHtml.indexOf('billing-controller.js') < indexHtml.indexOf('app.js'),
+    'CRT billing controller should load before the app shell',
+  );
+  assert(
+    usageRouter.includes("live ? { maxAgeMs: 15_000 }"),
     'CRT Billing Live should request a bounded fresh summary without invalidating daily history',
   );
   assert(
-    crtApp.includes('crtBillingTimelineLabels(timeline)')
-      && crtApp.includes('Number(timeline && timeline.windowMs) / 60_000')
-      && !indexHtml.includes('TOKENS · 60M')
+    !indexHtml.includes('TOKENS · 60M')
       && !indexHtml.includes('TOKEN BURN // 60 MINUTES'),
     'CRT live token labels should follow the usage timeline window instead of claiming a fixed 60-minute range',
   );
@@ -294,10 +291,7 @@ function run() {
     'the Farming usage API should support an explicit fresh live and daily Billing sample',
   );
   assert(
-    crtApp.includes('renderCrtBillingDaily')
-      && crtApp.includes('crtBillingHeatLevel')
-      && indexHtml.includes('id="billing-billion-days"')
-      && crtApp.includes('drawCrtBillingScope')
+    indexHtml.includes('id="billing-billion-days"')
       && billingCss.includes('.billing-calendar-day')
       && billingCss.includes('.billing-day-hour-cell')
       && billingCss.includes('@keyframes crt-billing-sweep'),
@@ -362,41 +356,8 @@ function run() {
   assert(!indexHtml.includes('TASK LIST'), 'CRT Search should replace the disabled Task List placeholder');
   assert(indexHtml.includes('styles/search.css'), 'CRT Search should keep its phosphor layout styles scoped to the CRT skin');
   assert(
-    crtApp.includes("fetch(farmingApiPath('/usage')")
-      && crtApp.includes('crtBillingCurrentRate(summary)')
-      && !crtApp.includes('usageRate && usageRate.estimatedTokensPerMinute'),
+    !crtApp.includes('usageRate && usageRate.estimatedTokensPerMinute'),
     'CRT top bar should render Provider token telemetry instead of the terminal-output estimate',
-  );
-  const crtTopBarUsageLoader = crtApp.slice(
-    crtApp.indexOf('async function loadCrtTopBarTokenRate'),
-    crtApp.indexOf('function stopCrtTopBarTokenRateRefresh'),
-  );
-  assert(
-    crtTopBarUsageLoader.includes('renderCrtTopBarTokenRate(data.usage)')
-      && !crtTopBarUsageLoader.includes('billingSummary = data.usage')
-      && crtTopBarUsageLoader.includes('if (billingLoading || crtTokenRateAbortController) return;')
-      && crtTopBarUsageLoader.includes('if (controller.signal.aborted) return;'),
-    'CRT top-bar polling should not overwrite the Billing view state',
-  );
-  const crtBillingLoader = crtApp.slice(
-    crtApp.indexOf('async function loadCrtBilling'),
-    crtApp.indexOf('async function loadCrtTopBarTokenRate'),
-  );
-  assert(
-    crtBillingLoader.includes('crtTokenRateAbortController.abort()'),
-    'CRT Billing refresh should cancel an older top-bar usage request before rendering fresh telemetry',
-  );
-  const crtTopBarRefresh = crtApp.slice(
-    crtApp.indexOf('function startCrtTopBarTokenRateRefresh'),
-    crtApp.indexOf('function stopCrtBillingRefresh'),
-  );
-  const crtTopBarFirstLoad = crtTopBarRefresh.slice(
-    crtTopBarRefresh.indexOf('crtTokenRateFirstLoadTimer = setTimeout'),
-    crtTopBarRefresh.indexOf('}, CRT_TOKEN_RATE_FIRST_LOAD_MS);'),
-  );
-  assert(
-    crtTopBarFirstLoad.includes("document.visibilityState !== 'hidden'"),
-    'CRT top-bar polling should not issue its initial request while the page is hidden',
   );
   assert(server.includes('agentManager.getAgentUsageSnapshots()') && server.includes('estimatedTokensPerMinute: usageSnapshot.estimatedTokensPerMinute'), 'System stats should publish the aggregate token-rate estimate');
   assert(indexHtml.indexOf('id="system-ip"') < indexHtml.indexOf('id="system-time"') && indexHtml.indexOf('id="system-time"') < indexHtml.indexOf('id="uptime"'), 'CRT IP and time should sit immediately before uptime');

@@ -10,8 +10,10 @@ const {
   getCrtAgentRemovalFallback,
   structuredComposerAction,
   structuredTranscriptTurns,
-  formatCrtCompactTotalValue,
 } = require('../../frontend/skins/crt/app.js');
+const {
+  formatCrtCompactTotalValue,
+} = require('../../frontend/skins/crt/billing-controller.js');
 
 assert.strictEqual(formatCrtCompactTotalValue(2_467_206_586), '2.47B');
 assert.strictEqual(formatCrtCompactTotalValue(10_000), '10K');
