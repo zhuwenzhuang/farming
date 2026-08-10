@@ -100,9 +100,9 @@ async function run() {
       spec: { category: 'other' }
     });
     let releaseRecovery = () => {};
-    recoveryRaceManager.recoveryPromise = new Promise<void>(resolve => {
+    recoveryRaceManager.recoveryGate.start(() => new Promise<void>(resolve => {
       releaseRecovery = resolve;
-    });
+    }));
     const recoveredMainAgentId = 'agent-recovered-main';
     const pendingMainStart = startAgent(recoveryRaceManager, 'bash', null, { wantsMain: true });
     await Promise.resolve();

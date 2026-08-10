@@ -59,7 +59,7 @@ async function run() {
   };
 
   try {
-    await manager.whenRecovered();
+    await manager.recoveryGate.wait();
     const source: {
       id: string;
       command: string;

@@ -88,7 +88,7 @@ async function run() {
     skipExecutablePreflight: true,
   });
   try {
-    await firstManager.whenRecovered();
+    await firstManager.recoveryGate.wait();
     agent.persistentSessionId = store.rememberAgent(agent);
     firstManager.agents.set(agent.id, agent);
     firstManager.activityTracker.record(agent.id);
@@ -164,7 +164,7 @@ async function run() {
     ),
   });
   try {
-    await recoveredManager.whenRecovered();
+    await recoveredManager.recoveryGate.wait();
     assert.strictEqual(prepareCalls, 0);
     const recovered = recoveredManager.agents.get(agent.id);
     assert(recovered, 'blocked Delete must remain visible for recovery');
@@ -278,7 +278,7 @@ async function run() {
     ),
   });
   try {
-    await restartedManager.whenRecovered();
+    await restartedManager.recoveryGate.wait();
     const restartedLegacyAcp = restartedManager.agents.get(legacyAcpAgent.id);
     assert(restartedLegacyAcp, 'blocked legacy Delete must remain visible after another restart');
     assert.strictEqual(

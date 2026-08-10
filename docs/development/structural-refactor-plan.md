@@ -163,6 +163,9 @@ HTTP, WebSocket, persistence, and runtime-host boundaries.
 - The Main Page session index owns canonical key ordering and membership
   updates. Create, recovery, Archive, and Delete request membership changes
   without reading or rewriting Settings storage themselves.
+- A recovery gate owns the pending/complete/failed lifecycle and the exact
+  recovery failure. Callers either wait for an authoritative successful result
+  or await settlement for shutdown; they do not combine promises with flags.
 - Provider adapters expose typed decisions such as permission restart,
   Terminal identity/startup constraints, idle stability, and conversation Fork
   policy. Generic lifecycle code does not interpret provider names. A shared

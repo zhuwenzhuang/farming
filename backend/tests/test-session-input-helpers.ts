@@ -984,7 +984,7 @@ function run() {
   );
   assert(
     serverSource.includes('async function requireAgentRecoveryForHttp(') &&
-      serverSource.includes('await agentManager.whenRecovered()') &&
+      serverSource.includes('await agentManager.recoveryGate.wait()') &&
       serverSource.includes('res.status(503).json({') &&
       serverSource.includes('if (!await requireAgentRecoveryForHttp(res)) return;'),
     'HTTP Agent mutation routes should surface startup recovery failure as a bounded retryable response'

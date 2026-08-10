@@ -12,8 +12,10 @@ interface AgentManagerHealthState {
 interface AgentManagerHealthSource {
   disposed?: boolean;
   disposing?: boolean;
-  whenRecovered(): Promise<unknown>;
   getState(): AgentManagerHealthState | null;
+  recoveryGate: {
+    wait(): Promise<unknown>;
+  };
 }
 
 interface BusinessHealthResult {
@@ -28,7 +30,7 @@ function waitForRecovery(
 ): Promise<'ready' | 'failed' | 'timeout'> {
   return new Promise(resolve => {
     const timer = setTimeout(() => resolve('timeout'), timeoutMs);
-    agentManager.whenRecovered().then(() => {
+    agentManager.recoveryGate.wait().then(() => {
       clearTimeout(timer);
       resolve('ready');
     }, () => {

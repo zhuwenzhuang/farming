@@ -451,7 +451,7 @@ const agentManager = new AgentManager(
 
 async function requireAgentRecoveryForHttp(res: HttpResponse) {
   try {
-    await agentManager.whenRecovered();
+    await agentManager.recoveryGate.wait();
     return true;
   } catch (caught) {
     const error = caughtError(caught);
@@ -489,7 +489,7 @@ const reconcileAgentResourceLifecycle = () => {
     try {
       while (agentResourceReconcileRequested) {
         agentResourceReconcileRequested = false;
-        await agentManager.whenRecovered();
+        await agentManager.recoveryGate.wait();
         const agents = agentManager.getState().agents;
         await browserResourceManager.reconcileAgentLifecycle(Array.isArray(agents) ? agents : []);
         await computerResourceManager.reconcileAgentLifecycle(Array.isArray(agents) ? agents : []);
@@ -1422,7 +1422,7 @@ app.use(routePath(BASE_PATH, '/api/agents'), createAgentMutationRouter({
   ) as Promise<AgentMutationRecord>,
   updateAgentFlags: (agentId, patch) => agentManager.updateAgentFlags(agentId, patch) as AgentMutationRecord,
   whenAgentLifecycleIdle: agentId => agentManager.whenAgentLifecycleIdle(agentId),
-  whenRecovered: () => agentManager.whenRecovered(),
+  whenRecovered: () => agentManager.recoveryGate.wait(),
 }));
 
 app.post(routePath(BASE_PATH, '/api/agents/:agentId/reorder'), express.json(), async (req, res) => {
@@ -1665,7 +1665,7 @@ const agentSessionResumeCoordinator = new AgentSessionResumeCoordinator({
     configManager.updateSettings({ mainPageSessionKeys: currentKeys.filter((key: string) => key !== sessionKey) });
   },
   startAgent: (command, workspace, callback, options) => agentManager.startAgent(command, workspace, callback, options),
-  waitForAgentRecovery: () => agentManager.whenRecovered(),
+  waitForAgentRecovery: () => agentManager.recoveryGate.wait(),
   warn: (...args) => console.warn(...args),
 });
 

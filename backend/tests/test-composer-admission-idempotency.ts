@@ -90,7 +90,7 @@ async function run() {
     skipExecutablePreflight: true,
   });
   try {
-    await manager.whenRecovered();
+    await manager.recoveryGate.wait();
     const agent: ComposerTestAgent = {
       id: 'agent-composer-admission',
       command: 'claude',

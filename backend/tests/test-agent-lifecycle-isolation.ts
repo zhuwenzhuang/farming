@@ -261,9 +261,9 @@ async function run() {
     acpRuntime: recoveryFenceAcpRuntime,
   });
   let releaseRecovery;
-  recoveryFenceManager.recoveryPromise = new Promise(resolve => {
+  recoveryFenceManager.recoveryGate.start(() => new Promise(resolve => {
     releaseRecovery = resolve;
-  });
+  }));
   const recoveryFencedDispose = recoveryFenceManager.dispose();
   await Promise.resolve();
   assert.strictEqual(
@@ -382,11 +382,10 @@ async function run() {
     skipExecutablePreflight: true,
     acpRuntime: recoveryFencedRuntime,
   });
-  recoveryFencedManager.recoveryComplete = false;
   let releaseRecoveryFence;
-  recoveryFencedManager.recoveryPromise = new Promise(resolve => {
+  recoveryFencedManager.recoveryGate.start(() => new Promise(resolve => {
     releaseRecoveryFence = resolve;
-  });
+  }));
   recoveryFencedManager.agents.set('agent-recovery-fenced-delete', {
     id: 'agent-recovery-fenced-delete',
     command: 'claude',

@@ -865,7 +865,7 @@ async function run() {
     assert(unavailableAgent, 'ACP Host failure should retain the affected Chat row');
     assert.strictEqual(unavailableAgent.runtimeBinding.state, 'error');
     assert.match(unavailableAgent.runtimeBinding.error, /host socket missing/);
-    await unavailableHostManager.whenRecovered();
+    await unavailableHostManager.recoveryGate.wait();
   } finally {
     await unavailableHostManager.dispose();
   }

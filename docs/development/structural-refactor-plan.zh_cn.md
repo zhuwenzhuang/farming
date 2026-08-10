@@ -130,6 +130,8 @@ Runtime Port 与 Provider Policy
   但不再实现 Journal Transaction 或解释 Create Request History。
 - Main Page Session Index 统一拥有 Canonical Key 顺序与 Membership 更新。Create、
   Recovery、Archive 和 Delete 只请求加入或移除成员，不再读取或改写 Settings 存储。
+- Recovery Gate 统一拥有 Pending / Complete / Failed 状态和精确失败原因。调用方只选择
+  等待权威成功结果，或在 Shutdown 时等待状态收敛，不再自行组合 Promise 与 Flag。
 - Provider Adapter 提供有类型的权限重启、Terminal 身份/启动约束、空闲稳定和会话
   Fork 策略；通用生命周期代码不解释 Provider 名称。共享 Terminal Startup
   Coordinator 拥有可变的排序和就绪状态；Adapter 只提供无状态的资源作用域和就绪策略。

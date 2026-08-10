@@ -204,6 +204,7 @@ import {
   type PersistentAgentUpdateAdmission,
 } from './agent-lifecycle-journal-service.cjs';
 import { AgentMainPageSessionIndex } from './agent-main-page-session-index.cjs';
+import { AgentRecoveryGate } from './agent-recovery-gate.cjs';
 import { AgentAdaptiveTitlePersistenceCoordinator } from './agent-adaptive-title-persistence.cjs';
 import {
   WorktreeGitService,
@@ -1319,6 +1320,7 @@ class AgentManager extends EventEmitter {
   declare sessionPersistence: AgentSessionPersistenceService;
   declare lifecycleJournalService: AgentLifecycleJournalService;
   declare mainPageSessionIndex: AgentMainPageSessionIndex;
+  declare recoveryGate: AgentRecoveryGate;
   declare acpTranscriptService: AcpTranscriptService;
   declare createProviderSessionIdentity: CreateProviderSessionIdentityContract;
   declare deleteProviderSessionIdentity: DeleteProviderSessionIdentityContract;
@@ -1335,9 +1337,6 @@ class AgentManager extends EventEmitter {
   declare systemMonitor: SystemMonitor;
   declare startTime: number;
   declare providerSessionService: ProviderSessionServiceRuntimeContract;
-  declare recoveryPromise: Promise<void>;
-  declare recoveryComplete: boolean;
-  declare recoveryError: unknown;
   declare taskHistory: UnknownRecord[];
   declare lastZombieSweepAt: number;
 
@@ -1365,6 +1364,7 @@ class AgentManager extends EventEmitter {
   ) {
     super();
     this.configManager = configManager;
+    this.recoveryGate = new AgentRecoveryGate();
     this.controlUrl = options.controlUrl || '';
     this.tokenFile = options.tokenFile || '';
     this.authDisabled = options.authDisabled === true;
@@ -1574,7 +1574,7 @@ class AgentManager extends EventEmitter {
           error,
         );
       },
-      waitForRecovery: () => this.whenRecovered(),
+      waitForRecovery: () => this.recoveryGate.wait(),
     });
     this.lifecycleCoordinator = new AgentLifecycleCoordinator({
       isShuttingDown: () => this.disposing,
@@ -1622,7 +1622,7 @@ class AgentManager extends EventEmitter {
     this.sessionPersistence = new AgentSessionPersistenceService({
       config: this.configManager,
       getAgent: agentId => this.agents.get(agentId),
-      isRecoveryComplete: () => this.recoveryComplete,
+      isRecoveryComplete: () => this.recoveryGate.isComplete(),
       isVerifiedStopped: agentId => this.runtimeStopTracker.isVerifiedStopped(agentId),
       observeOrder: (agent, live) => {
         if (live) this.agentOrderAllocator.observe(agent);
@@ -1724,9 +1724,6 @@ class AgentManager extends EventEmitter {
       runtime: this.acpRuntime,
       updateProviderMetadata: agent => this.updateEngineProviderSessionMetadata(agent),
     });
-    this.recoveryPromise = Promise.resolve();
-    this.recoveryComplete = !(this.configManager && this.configManager.farmingDir);
-    this.recoveryError = null;
     this.taskHistory = (this.configManager && this.configManager.getTaskHistory)
       ? [...this.configManager.getTaskHistory()]
       : [];
@@ -1735,14 +1732,12 @@ class AgentManager extends EventEmitter {
     this.bindEngineEvents();
     this.bindAcpRuntimeEvents();
     if (this.configManager && this.configManager.farmingDir) {
-      this.recoveryPromise = this.recoverEngineSessions()
-        .then(() => {
-          this.recoveryComplete = true;
-        })
-        .catch((error: unknown) => {
-          this.recoveryError = error;
+      this.recoveryGate.start(
+        () => this.recoverEngineSessions(),
+        (error: unknown) => {
           console.warn('Failed to recover engine sessions:', error instanceof Error ? error.message : String(error));
-        });
+        },
+      );
     }
   }
 
@@ -3642,19 +3637,6 @@ class AgentManager extends EventEmitter {
     }
   }
 
-  async whenRecovered() {
-    await this.recoveryPromise;
-    if (this.recoveryError) {
-      const message = this.recoveryError instanceof Error
-        ? this.recoveryError.message
-        : String(this.recoveryError);
-      throw new Error(
-        `Agent lifecycle recovery failed: ${message}`,
-        { cause: this.recoveryError },
-      );
-    }
-  }
-
   recoveredAgentRecord(
     agentId: AgentId,
     engineName: string,
@@ -4231,7 +4213,7 @@ class AgentManager extends EventEmitter {
   }
 
   async performDispose(options: AgentDisposeOptions = {}) {
-    await this.recoveryPromise;
+    await this.recoveryGate.settled();
     await this.drainAcceptedAgentOperations();
 
     const acpBindingIds = new Set<string>(
@@ -4499,7 +4481,7 @@ class AgentManager extends EventEmitter {
       : '';
     if (options.skipRecoveryWait !== true) {
       try {
-        await this.whenRecovered();
+        await this.recoveryGate.wait();
       } catch (caughtError: unknown) {
       const error = caughtError as ErrorRecord;
         if (callback) callback(null, error.message || String(error));
@@ -4608,7 +4590,7 @@ class AgentManager extends EventEmitter {
     options: AgentStartOptions & ProviderStartOptions = {},
   ): Promise<AgentId | null> {
     if (options.wantsMain !== false && options.skipRecoveryWait !== true) {
-      await this.whenRecovered();
+      await this.recoveryGate.wait();
     }
 
     const wantsMain = options.wantsMain === true || (options.wantsMain !== false && !this.mainAgentId);
@@ -7049,7 +7031,7 @@ class AgentManager extends EventEmitter {
   }
 
   async whenAgentLifecycleIdle(agentId: AgentId) {
-    await this.whenRecovered();
+    await this.recoveryGate.wait();
     await this.lifecycleCoordinator.whenIdle(agentId);
   }
 
@@ -7922,7 +7904,7 @@ class AgentManager extends EventEmitter {
     workspace: string,
     options: DeleteProjectWorktreeOptions = {},
   ): Promise<DeleteProjectWorktreeResult | UnknownRecord> {
-    await this.whenRecovered();
+    await this.recoveryGate.wait();
     const workspaceKey = canonicalWorkspacePath(this.expandWorkspacePath(workspace));
     const requestId = String(options.requestId || '').trim().slice(0, 160);
     const signature = projectOperationSignature({
@@ -8196,7 +8178,7 @@ class AgentManager extends EventEmitter {
       onWorktreeCreated(identity: TemporaryWorktreeIdentity): Promise<void> | void;
     },
   ): Promise<AgentForkResult> {
-    await this.whenRecovered();
+    await this.recoveryGate.wait();
     if (this.disposing) {
       return { error: 'Farming is shutting down; Agent lifecycle changes are not accepted' };
     }
@@ -8723,8 +8705,8 @@ class AgentManager extends EventEmitter {
   }
 
   archiveAgent(agentId: AgentId, options: ArchiveAgentOptions = {}): Promise<ArchiveAgentResult> {
-    if (options.skipRecoveryWait !== true && !this.recoveryComplete) {
-      return this.whenRecovered().then(() => this.archiveAgent(agentId, {
+    if (options.skipRecoveryWait !== true && !this.recoveryGate.isComplete()) {
+      return this.recoveryGate.wait().then(() => this.archiveAgent(agentId, {
         ...options,
         skipRecoveryWait: true,
       }));
@@ -9003,7 +8985,7 @@ class AgentManager extends EventEmitter {
     agentId: AgentId,
     options: KillAgentOptions = {},
   ): Promise<KillAgentAdmission> {
-    if (options.skipRecoveryWait !== true) await this.whenRecovered();
+    if (options.skipRecoveryWait !== true) await this.recoveryGate.wait();
     const existing = this.lifecycleCoordinator.get(agentId);
     if (existing && existing.key !== 'kill') {
       await existing.promise.catch(() => {});
@@ -9028,8 +9010,8 @@ class AgentManager extends EventEmitter {
   }
 
   killAgent(agentId: AgentId, options: KillAgentOptions = {}): Promise<KillAgentResult> {
-    if (options.skipRecoveryWait !== true && !this.recoveryComplete) {
-      return this.whenRecovered().then(() => this.killAgent(agentId, {
+    if (options.skipRecoveryWait !== true && !this.recoveryGate.isComplete()) {
+      return this.recoveryGate.wait().then(() => this.killAgent(agentId, {
         ...options,
         skipRecoveryWait: true,
       }));

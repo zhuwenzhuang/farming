@@ -116,7 +116,7 @@ async function run() {
     },
   );
   try {
-    await firstManager.whenRecovered();
+    await firstManager.recoveryGate.wait();
     const failedUpdate = firstManager.renameAgent(updateAgent.id, 'Recovered title');
     assert.strictEqual(failedUpdate.retryable, true, JSON.stringify(failedUpdate));
     assert.match(failedUpdate.error, /before Update commit/);
@@ -196,7 +196,7 @@ async function run() {
     },
   );
   try {
-    await recoveredManager.whenRecovered();
+    await recoveredManager.recoveryGate.wait();
     assert(preparedAgentIds.includes(updateAgent.id), 'reconciled Update may resume its existing ACP runtime');
     assert(!preparedAgentIds.includes(createAgent.id), 'non-terminal Create must not launch a second ACP runtime');
     assert(

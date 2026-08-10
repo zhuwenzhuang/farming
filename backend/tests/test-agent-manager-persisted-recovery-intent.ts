@@ -64,7 +64,7 @@ async function run() {
   });
 
   try {
-    await firstManager.whenRecovered();
+    await firstManager.recoveryGate.wait();
     store.rememberAgent(agent);
     firstManager.agents.set(agent.id, agent);
     firstManager.activityTracker.record(agent.id);
@@ -100,7 +100,7 @@ async function run() {
     { acpRuntime: recoveredRuntime, skipExecutablePreflight: true },
   );
   try {
-    await recoveredManager.whenRecovered();
+    await recoveredManager.recoveryGate.wait();
     assert.strictEqual(
       recoveredManager.agents.has(agent.id),
       false,
@@ -188,7 +188,7 @@ async function runAcpForkRecoveryBlocks() {
   const manager = new AgentManager(configForStore(store, configDir), { acpRuntime: runtime });
   stubEngineBridge(manager);
   try {
-    await manager.whenRecovered();
+    await manager.recoveryGate.wait();
 
     const persisted = store.listAgentRecords()
       .find(record => record.providerSessionKey === source.providerSessionKey);
@@ -275,7 +275,7 @@ async function runAcpForkRecoveryPersistFailure() {
   try {
     manager = new AgentManager(config, { acpRuntime: runtime });
     stubEngineBridge(manager);
-    await manager.whenRecovered();
+    await manager.recoveryGate.wait();
   } finally {
     console.warn = originalWarn;
   }

@@ -387,7 +387,7 @@ async function run() {
       return [duplicateRecord, rotationRecord, hiddenRecord];
     },
   }, { skipExecutablePreflight: true });
-  await rotationManager.whenRecovered();
+  await rotationManager.recoveryGate.wait();
   const rotationBridge = rotationManager.engineBridge;
   const createdRotationSessions = [];
   let rotatedTerminalWrites = 0;
@@ -570,7 +570,7 @@ async function run() {
       ];
     },
   });
-  await serializedRotationManager.whenRecovered();
+  await serializedRotationManager.recoveryGate.wait();
   const serializedRestarts = [];
   serializedRotationManager.engineBridge = {
     async recoverSessions() {

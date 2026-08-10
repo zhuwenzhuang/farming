@@ -37,7 +37,7 @@ async function run() {
     }),
   });
   try {
-    await manager.whenRecovered();
+    await manager.recoveryGate.wait();
     const createRequestId = 'create-worktree-request-1';
     const created = await manager.createPermanentWorktree(repository, { requestId: createRequestId });
     assert.strictEqual(fs.existsSync(created.workspace), true);
