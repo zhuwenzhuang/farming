@@ -78,7 +78,6 @@ import type {
   ProjectOperationResult,
   ProjectOperationState,
   ProjectOperationType,
-  CodexSessionMutationAdmission,
   PersistedAgentPrivateMetadata,
   RecoveredEngineSessionMetadata,
   StructuredRuntimeProcessIdentity,
@@ -197,6 +196,7 @@ import { AgentLifecycleCoordinator } from './agent-lifecycle-coordinator.cjs';
 import { AgentStartAdmissionCoordinator } from './agent-start-admission-coordinator.cjs';
 import { ProjectOperationAdmissionCoordinator } from './project-operation-admission-coordinator.cjs';
 import { AgentRuntimeStopTracker } from './agent-runtime-stop-tracker.cjs';
+import { ProviderSessionMutationCoordinator } from './provider-session-mutation-coordinator.cjs';
 import { AgentAdaptiveTitlePersistenceCoordinator } from './agent-adaptive-title-persistence.cjs';
 import {
   WorktreeGitService,
@@ -1332,7 +1332,7 @@ class AgentManager extends EventEmitter {
   declare startAdmissionCoordinator: AgentStartAdmissionCoordinator;
   declare projectAdmissionCoordinator: ProjectOperationAdmissionCoordinator;
   declare runtimeStopTracker: AgentRuntimeStopTracker;
-  declare codexSessionMutationQueues: Map<string, CodexSessionMutationAdmission<unknown>>;
+  declare providerSessionMutationCoordinator: ProviderSessionMutationCoordinator;
   declare adaptiveTitlePersistence: AgentAdaptiveTitlePersistenceCoordinator;
   declare acpTurnFinalizationCoordinator: AcpTurnFinalizationCoordinator;
   declare attentionTracker: AgentAttentionTracker;
@@ -1605,7 +1605,7 @@ class AgentManager extends EventEmitter {
     this.startAdmissionCoordinator = new AgentStartAdmissionCoordinator();
     this.projectAdmissionCoordinator = new ProjectOperationAdmissionCoordinator();
     this.runtimeStopTracker = new AgentRuntimeStopTracker();
-    this.codexSessionMutationQueues = new Map();
+    this.providerSessionMutationCoordinator = new ProviderSessionMutationCoordinator();
     this.adaptiveTitlePersistence = new AgentAdaptiveTitlePersistenceCoordinator({
       getAgent: (agentId: AgentId) => this.agents.get(agentId),
       persistAdaptiveTitle: async (agent: TypedAgentRecord, adaptiveTitle: string) => {
@@ -4710,6 +4710,7 @@ class AgentManager extends EventEmitter {
     this.lifecycleCoordinator.clear();
     this.startAdmissionCoordinator.clear();
     this.projectAdmissionCoordinator.clear();
+    this.providerSessionMutationCoordinator.clear();
     this.inputCoordinator.dispose();
     this.agentShellEnvResolver.dispose();
     this.activityTracker.dispose();
@@ -4732,6 +4733,7 @@ class AgentManager extends EventEmitter {
       for (const operation of this.lifecycleCoordinator.pendingOperations()) pending.add(operation);
       for (const operation of this.startAdmissionCoordinator.pendingOperations()) pending.add(operation);
       for (const operation of this.projectAdmissionCoordinator.pendingOperations()) pending.add(operation);
+      for (const operation of this.providerSessionMutationCoordinator.pendingOperations()) pending.add(operation);
       for (const operation of this.inputCoordinator.pendingOperations()) pending.add(operation);
       for (const operation of this.terminalResizeCoordinator.pendingOperations()) pending.add(operation);
       const adaptiveTitleDrain = this.adaptiveTitlePersistence.activeDrain();
@@ -9173,41 +9175,19 @@ class AgentManager extends EventEmitter {
     return result;
   }
 
-  enqueueCodexSessionMutation<Result>(
-    sessionId: string,
-    options: ProviderResumeOptions,
-    type: string,
-    operation: () => Result | Promise<Result>,
-    joinSameType = false,
-  ): Promise<Result> {
-    const providerHomeId = String(options?.providerHomeId || 'default').trim() || 'default';
-    const key = JSON.stringify([providerHomeId, sessionId]);
-    const current = this.codexSessionMutationQueues.get(key);
-    if (joinSameType && current?.type === type) return current.promise as Promise<Result>;
-
-    const previous = current?.promise || Promise.resolve();
-    const next = previous.catch(() => {}).then(operation);
-    const entry: CodexSessionMutationAdmission<Result> = { type, promise: next };
-    this.codexSessionMutationQueues.set(key, entry);
-    void next.finally(() => {
-      if (this.codexSessionMutationQueues.get(key) === entry) {
-        this.codexSessionMutationQueues.delete(key);
-      }
-    }).catch(() => {});
-    return next;
-  }
-
   ensureCodexSessionAvailable(
     sessionId: string,
     options: ProviderResumeOptions = {},
   ): Promise<{ error: string } | null> {
     const providerHomeId = String(options.providerHomeId || 'default').trim() || 'default';
     const providerHomePath = String(options.providerHomePath || '').trim();
-    return this.enqueueCodexSessionMutation(
+    return this.providerSessionMutationCoordinator.run({
+      provider: 'codex',
+      homeId: providerHomeId,
       sessionId,
-      { providerHomeId, providerHomePath },
-      'unarchive',
-      async () => {
+      type: 'unarchive',
+      joinSameType: true,
+      operation: async () => {
         let session: Awaited<ReturnType<typeof findAgentSession>>;
         try {
           session = await findAgentSession('codex', sessionId, {
@@ -9234,8 +9214,7 @@ class AgentManager extends EventEmitter {
         });
         return result?.error ? { error: result.error } : null;
       },
-      true,
-    );
+    });
   }
 
   async ensureCodexSessionAvailableForFork(
@@ -9504,16 +9483,14 @@ class AgentManager extends EventEmitter {
       providerHomePath: agent.providerHomePath || '',
     };
     try {
-      const result = await this.enqueueCodexSessionMutation(
+      const result = await this.providerSessionMutationCoordinator.run({
+        provider: 'codex',
+        homeId: agent.providerHomeId || 'default',
         sessionId,
-        {
-          providerHomeId: agent.providerHomeId || 'default',
-          providerHomePath: agent.providerHomePath || '',
-        },
-        'archive',
-        () => this.archiveCodexSession(sessionId, session),
-        true,
-      );
+        type: 'archive',
+        joinSameType: true,
+        operation: () => this.archiveCodexSession(sessionId, session),
+      });
       return result?.error ? { error: result.error } : { archived: true };
     } catch (caughtError: unknown) {
       const error = caughtError as ErrorRecord;

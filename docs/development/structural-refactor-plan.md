@@ -132,6 +132,10 @@ HTTP, WebSocket, persistence, and runtime-host boundaries.
 - Runtime stop proof and temporary exit-event suppression share one tracker.
   Verified exit, restart cleanup, event filtering, exact forget, and disposal
   therefore cannot diverge across independent Manager-owned sets.
+- Provider-session mutation ordering is provider-neutral and keyed by provider,
+  home, and exact session identity. Codex archive behavior remains an adapter
+  effect; queueing, same-operation joining, failure release, and drain are not
+  Codex-specific state machines.
 - Provider adapters expose typed decisions such as permission restart,
   Terminal identity/startup constraints, idle stability, and conversation Fork
   policy. Generic lifecycle code does not interpret provider names. A shared

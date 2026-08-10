@@ -260,25 +260,27 @@ async function run() {
     manager.archiveCodexSession = archiveCodexSession;
     const providerMutationOrder = [];
     let releaseQueuedArchive;
-    const queuedArchive = manager.enqueueCodexSessionMutation(
-      'ordered-session',
-      { providerHomeId: 'default' },
-      'archive',
-      async () => {
+    const queuedArchive = manager.providerSessionMutationCoordinator.run({
+      provider: 'codex',
+      homeId: 'default',
+      sessionId: 'ordered-session',
+      type: 'archive',
+      operation: async () => {
         providerMutationOrder.push('archive-start');
         await new Promise(resolve => { releaseQueuedArchive = resolve; });
         providerMutationOrder.push('archive-end');
       },
-    );
+    });
     await new Promise(resolve => setImmediate(resolve));
-    const queuedUnarchive = manager.enqueueCodexSessionMutation(
-      'ordered-session',
-      { providerHomeId: 'default' },
-      'unarchive',
-      async () => {
+    const queuedUnarchive = manager.providerSessionMutationCoordinator.run({
+      provider: 'codex',
+      homeId: 'default',
+      sessionId: 'ordered-session',
+      type: 'unarchive',
+      operation: async () => {
         providerMutationOrder.push('unarchive');
       },
-    );
+    });
     await new Promise(resolve => setImmediate(resolve));
     assert.deepStrictEqual(providerMutationOrder, ['archive-start']);
     releaseQueuedArchive();

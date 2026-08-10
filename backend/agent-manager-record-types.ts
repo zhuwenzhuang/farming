@@ -453,11 +453,6 @@ export interface AcpProcessCleanupResult {
   timedOut?: boolean;
 }
 
-export interface CodexSessionMutationAdmission<T = unknown> {
-  promise: Promise<T>;
-  type: string;
-}
-
 export interface AgentRecoveryIndexes {
   mainPageSessionKeys: Set<string>;
   persistedByRuntimeAgentId: Map<string, PersistedAgentPrivateMetadata>;
