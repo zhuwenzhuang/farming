@@ -23,10 +23,8 @@ import type {
   ExactResumeSession,
   AgentDisposeOptions,
   AgentShellEnvOptions,
-  AgentStartAdmission,
   AgentStartOutcome,
   AgentStartReservation,
-  CreateRequestAdmission,
   CreateProviderSessionIdentityContract,
   DeleteProviderSessionIdentityContract,
   ProviderSessionIdentityRequest,
@@ -198,6 +196,7 @@ import { inspectGitWorktree } from './git-worktree-info.cjs';
 import { isSameOrDescendantPath } from './path-containment.cjs';
 import { AgentWorktreeRefreshQueue } from './agent-worktree-refresh-queue.cjs';
 import { AgentLifecycleCoordinator } from './agent-lifecycle-coordinator.cjs';
+import { AgentStartAdmissionCoordinator } from './agent-start-admission-coordinator.cjs';
 import { AgentAdaptiveTitlePersistenceCoordinator } from './agent-adaptive-title-persistence.cjs';
 import {
   WorktreeGitService,
@@ -1330,8 +1329,7 @@ class AgentManager extends EventEmitter {
   declare worktreeGitService: WorktreeGitServicePort;
   declare forkOperationCoordinator: ForkOperationCoordinator;
   declare lifecycleCoordinator: AgentLifecycleCoordinator;
-  declare agentStartAdmissions: Map<symbol, AgentStartAdmission>;
-  declare createRequestAdmissions: Map<string, CreateRequestAdmission>;
+  declare startAdmissionCoordinator: AgentStartAdmissionCoordinator;
   declare projectOperationAdmissions: Map<string, ProjectOperationAdmission<unknown>>;
   declare projectWorkspaceDeleteAdmissions: Map<
     string,
@@ -1609,8 +1607,7 @@ class AgentManager extends EventEmitter {
     this.lifecycleCoordinator = new AgentLifecycleCoordinator({
       isShuttingDown: () => this.disposing,
     });
-    this.agentStartAdmissions = new Map();
-    this.createRequestAdmissions = new Map();
+    this.startAdmissionCoordinator = new AgentStartAdmissionCoordinator();
     this.projectOperationAdmissions = new Map();
     this.projectWorkspaceDeleteAdmissions = new Map();
     this.verifiedStoppedAgentIds = new Set();
@@ -4718,7 +4715,7 @@ class AgentManager extends EventEmitter {
     this.acpPreparedTranscriptCache.dispose();
     this.acpTranscriptReads.clear();
     this.lifecycleCoordinator.clear();
-    this.agentStartAdmissions.clear();
+    this.startAdmissionCoordinator.clear();
     this.inputCoordinator.dispose();
     this.agentShellEnvResolver.dispose();
     this.activityTracker.dispose();
@@ -4740,9 +4737,7 @@ class AgentManager extends EventEmitter {
     while (true) {
       const pending = new Set();
       for (const operation of this.lifecycleCoordinator.pendingOperations()) pending.add(operation);
-      for (const entry of this.agentStartAdmissions.values()) {
-        if (entry?.promise) pending.add(entry.promise);
-      }
+      for (const operation of this.startAdmissionCoordinator.pendingOperations()) pending.add(operation);
       for (const operation of this.inputCoordinator.pendingOperations()) pending.add(operation);
       for (const operation of this.terminalResizeCoordinator.pendingOperations()) pending.add(operation);
       const adaptiveTitleDrain = this.adaptiveTitlePersistence.activeDrain();
@@ -4877,86 +4872,23 @@ class AgentManager extends EventEmitter {
       ? options.createRequestId.trim().slice(0, 160)
       : '';
     const createRequestSignature = createOperationSignature(command, customWorkspace, options);
-    const existingCreateRequest = createRequestId
-      ? this.createRequestAdmissions.get(createRequestId)
-      : null;
-    if (existingCreateRequest) {
-      if (existingCreateRequest.signature !== createRequestSignature) {
-        const error = `Create request ${createRequestId} is already in progress with different Agent parameters`;
-        if (callback) callback(null, error);
-        return Promise.resolve(null);
-      }
-      return (existingCreateRequest as CreateRequestAdmission).promise.then((outcome: AgentStartOutcome) => {
-        if (callback) {
-          callback(
-            outcome.agentId || null,
-            outcome.error || null,
-            {
-              ...(outcome.metadata || {}),
-              deduplicated: true,
-            },
-          );
-        }
-        return outcome.agentId || null;
-      });
-    }
-
-    let resolveAdmission!: () => void;
-    const token = Symbol('agent-start-admission');
-    const promise = new Promise<void>(resolve => {
-      resolveAdmission = resolve;
-    });
     const requestedProjectWorkspace = options.wantsMain === true
       ? ''
       : (typeof options.projectWorkspace === 'string' && options.projectWorkspace.trim()
         ? options.projectWorkspace
         : customWorkspace);
-    const admission: AgentStartAdmission = {
-      token,
-      promise,
+    return this.startAdmissionCoordinator.start({
+      requestId: createRequestId,
+      signature: createRequestSignature,
       workspaceKey: requestedProjectWorkspace
         ? canonicalWorkspacePath(this.expandWorkspacePath(requestedProjectWorkspace))
         : '',
-    };
-    this.agentStartAdmissions.set(token, admission);
-    let callbackOutcome: AgentStartOutcome | null = null;
-    const reportStart: AgentStartCallback = (agentId, error, metadata = {}) => {
-      callbackOutcome = {
-        agentId: agentId || null,
-        error: error || null,
-        metadata,
-      };
-      if (callback) callback(agentId, error, metadata);
-    };
-    const startPromise = this.startAgentAdmitted(command, customWorkspace, reportStart, {
-      ...options,
-      startAdmissionToken: token,
+      report: callback,
+      execute: (token, report) => this.startAgentAdmitted(command, customWorkspace, report, {
+        ...options,
+        startAdmissionToken: token,
+      }),
     });
-    const admittedPromise = Promise.resolve(startPromise).finally(() => {
-      if (this.agentStartAdmissions.get(token) === admission) {
-        this.agentStartAdmissions.delete(token);
-      }
-      resolveAdmission();
-    });
-    if (!createRequestId) return admittedPromise;
-
-    const outcomePromise = admittedPromise.then((agentId: AgentId | null) => (
-      callbackOutcome || {
-        agentId: agentId || null,
-        error: agentId ? null : 'Failed to start Agent',
-      }
-    ));
-    const requestAdmission: CreateRequestAdmission = {
-      signature: createRequestSignature,
-      promise: outcomePromise,
-    };
-    this.createRequestAdmissions.set(createRequestId, requestAdmission);
-    void outcomePromise.finally(() => {
-      if (this.createRequestAdmissions.get(createRequestId) === requestAdmission) {
-        this.createRequestAdmissions.delete(createRequestId);
-      }
-    }).catch(() => {});
-    return outcomePromise.then((outcome: AgentStartOutcome) => outcome.agentId || null);
   }
 
   async startAgentAdmitted(
@@ -5250,10 +5182,7 @@ class AgentManager extends EventEmitter {
     }
 
     const projectWorkspaceKey = canonicalWorkspacePath(projectWorkspace);
-    const startAdmission = options.startAdmissionToken
-      ? this.agentStartAdmissions.get(options.startAdmissionToken)
-      : undefined;
-    if (startAdmission) startAdmission.workspaceKey = projectWorkspaceKey;
+    this.startAdmissionCoordinator.setWorkspace(options.startAdmissionToken, projectWorkspaceKey);
     const deletingProjectWorkspace = projectWorkspaceKey
       ? [...this.projectWorkspaceDeleteAdmissions.keys()]
           .find((candidate: string) => isSameOrDescendantPath(candidate, projectWorkspaceKey))
@@ -7661,7 +7590,7 @@ class AgentManager extends EventEmitter {
   ): (() => void) | null {
     return this.lifecycleCoordinator.beginStart(
       agentId,
-      this.agentStartAdmissions.has(startAdmissionToken),
+      this.startAdmissionCoordinator.has(startAdmissionToken),
     );
   }
 
@@ -8668,15 +8597,13 @@ class AgentManager extends EventEmitter {
         error: operation.error || `Project operation ${requestId} already finished with state ${operation.state}`,
       };
     }
-    const relatedStarts = workspaceKey
-      ? [...this.agentStartAdmissions.values()].filter((admission: AgentStartAdmission) => (
-          !admission.workspaceKey
-          || isSameOrDescendantPath(workspaceKey, admission.workspaceKey)
-        ))
-      : [];
+    const relatedStarts = this.startAdmissionCoordinator.pendingForWorkspace(
+      workspaceKey,
+      isSameOrDescendantPath,
+    );
     try {
       await withBoundedWait(
-        Promise.allSettled(relatedStarts.map((admission: AgentStartAdmission) => admission.promise)),
+        Promise.allSettled(relatedStarts),
         WORKTREE_DELETE_START_DRAIN_TIMEOUT_MS,
         `Worktree ${workspaceKey} Agent start drain`,
       );

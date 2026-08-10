@@ -122,6 +122,10 @@ HTTP, WebSocket, persistence, and runtime-host boundaries.
   tokens, replacement-Agent adoption, same-key joining, conflicting-operation
   ordering, shutdown admission, and drain visibility; the Manager supplies the
   lifecycle effect but does not expose or mutate the coordinator's map.
+- Agent-start admission is a separate owner for create-request idempotency,
+  in-flight workspace association, shutdown drain visibility, and exact token
+  release. Project deletion queries it through workspace-scoped pending
+  operations rather than inspecting an admission map.
 - Provider adapters expose typed decisions such as permission restart,
   Terminal identity/startup constraints, idle stability, and conversation Fork
   policy. Generic lifecycle code does not interpret provider names. A shared

@@ -169,11 +169,14 @@ async function run() {
     const overlappingStart = new Promise<void>(resolve => {
       releaseOverlappingStart = resolve;
     });
-    const overlappingStartToken = Symbol('dot-dot-named-descendant-start');
-    manager.agentStartAdmissions.set(overlappingStartToken, {
-      token: overlappingStartToken,
+    const overlappingStartAdmission = manager.startAdmissionCoordinator.start({
+      execute: async () => {
+        await overlappingStart;
+        return null;
+      },
+      requestId: '',
+      signature: 'dot-dot-named-descendant-start',
       workspaceKey: dotDotNamedDescendant,
-      promise: overlappingStart,
     });
     let overlapDeleteSettled = false;
     const overlapDelete = manager.deleteForkWorktreeProject(overlapWorkspace, {
@@ -190,7 +193,7 @@ async function run() {
     );
     releaseOverlappingStart();
     const overlapDeleted = await overlapDelete;
-    manager.agentStartAdmissions.delete(overlappingStartToken);
+    await overlappingStartAdmission;
     assert.strictEqual(overlapDeleted.deleted, true);
     assert.strictEqual(fs.existsSync(overlapWorkspace), false);
 

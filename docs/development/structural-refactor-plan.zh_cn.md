@@ -101,6 +101,9 @@ Runtime Port 与 Provider Policy
 - 单 Agent 生命周期互斥由一个 Coordinator 统一拥有。Operation Token、替换 Agent
   接管、同 Key 合并、冲突操作排序、停机准入和 Drain 可见性都属于它；Manager 只
   提供生命周期 Effect，不再暴露或修改其 Map。
+- Agent 启动准入由独立 Owner 管理 Create Request 幂等、运行中 Workspace 归属、
+  停机 Drain 可见性和精确 Token 释放。Project 删除只能按 Workspace 查询 Pending
+  Operation，不能检查准入 Map。
 - Provider Adapter 提供有类型的权限重启、Terminal 身份/启动约束、空闲稳定和会话
   Fork 策略；通用生命周期代码不解释 Provider 名称。共享 Terminal Startup
   Coordinator 拥有可变的排序和就绪状态；Adapter 只提供无状态的资源作用域和就绪策略。

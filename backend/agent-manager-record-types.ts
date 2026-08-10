@@ -47,12 +47,6 @@ export interface StructuredRuntimeProcessIdentity {
   configInstanceFingerprint?: string;
 }
 
-export interface AcpSessionStartBinding {
-  additionalDirectories: string[];
-  configOverrides: AcpSessionConfigOverride[];
-  mcpServers: unknown[];
-}
-
 export interface AcpSessionConfigOverride {
   configId: string;
   value: string | number | boolean | null | string[];
@@ -457,23 +451,6 @@ export interface AcpProcessCleanupResult {
   missingProof?: boolean;
   stopped: boolean;
   timedOut?: boolean;
-}
-
-export interface AgentStartAdmission<T = unknown> {
-  promise: Promise<T>;
-  token: symbol;
-  workspaceKey?: string;
-}
-
-export interface AgentStartOutcome {
-  agentId: AgentId | null;
-  error: string | null;
-  metadata?: Record<string, unknown>;
-}
-
-export interface CreateRequestAdmission<T = AgentStartOutcome> {
-  promise: Promise<T>;
-  signature: string;
 }
 
 export interface ProjectOperationAdmission<T = unknown> {
