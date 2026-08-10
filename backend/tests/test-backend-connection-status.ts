@@ -25,7 +25,7 @@ function run() {
   const workspaceFilesSource = read('src/hooks/useWorkspaceFiles.ts');
   const workspaceChangesSource = read('src/components/files/useWorkspaceFileChanges.ts');
   const pluginsPanelSource = read('src/components/code/PluginsPanel.tsx');
-  const codexModelCatalogControllerSource = read('src/components/code/useCodexModelCatalogController.ts');
+  const codexModelCatalogControllerSource = read('src/components/code/useCodexModelCatalog.ts');
   const serverSource = read('backend/server.cts');
   const livenessSource = read('shared/websocket-liveness.ts');
   const liveStatusModule = importTsModule('src/lib/backend-live-status.ts');

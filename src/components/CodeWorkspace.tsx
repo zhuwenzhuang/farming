@@ -213,8 +213,8 @@ import {
   useWorkspaceSurfaceController,
 } from './code/useWorkspaceSurfaceController'
 import { useAgentComposerState } from './code/useAgentComposerState'
-import { useCodexModelCatalogController } from './code/useCodexModelCatalogController'
-import { useComposerProviderCatalogController } from './code/useComposerProviderCatalogController'
+import { useCodexModelCatalog } from './code/useCodexModelCatalog'
+import { useComposerProviderCatalog } from './code/useComposerProviderCatalog'
 import { useMainPageSessionMembershipController } from './code/useMainPageSessionMembershipController'
 import {
   throwIfProjectMountAborted,
@@ -1058,12 +1058,12 @@ export function CodeWorkspace({
   const reportCodexModelCatalogError = useCallback((message: string) => {
     setCopyNotice({ id: Date.now(), kind: 'error', message })
   }, [])
-  const codexModelOptions = useCodexModelCatalogController({
+  const codexModelOptions = useCodexModelCatalog({
     providerHomeId: activeProviderHomeId,
     enabled: modelMenuOpen && composerAgentKind === 'codex',
     onError: reportCodexModelCatalogError,
   })
-  const { claudeSettings, discoveredSlashCommands } = useComposerProviderCatalogController({
+  const { claudeSettings, discoveredSlashCommands } = useComposerProviderCatalog({
     providerKind: composerAgentKind || '',
     homeId: activeProviderHomeId,
     workspace: activeAgent?.cwd,
