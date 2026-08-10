@@ -75,7 +75,7 @@ async function run() {
         validated: true,
         startedAt: Date.now(),
       });
-      manager.lastActivity.set(id, Date.now());
+      manager.activityTracker.record(id);
 
       const first = manager.setAgentAdaptiveTitle(id, `Draft scale title ${index}`);
       const latest = manager.setAgentAdaptiveTitle(id, `Final scale title ${index}`);

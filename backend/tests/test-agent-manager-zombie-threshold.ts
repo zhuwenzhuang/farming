@@ -30,7 +30,7 @@ async function run() {
       status: 'running',
       engineName: 'local'
     });
-    manager.lastActivity.set('main-1', now - zombieMs - 60_000);
+    manager.activityTracker.record('main-1', now - zombieMs - 60_000);
 
     const mainFromState = manager.getState().agents.find((a) => a.id === 'main-1');
     assert.strictEqual(mainFromState.isZombie, false, 'main never zombie');
@@ -45,14 +45,14 @@ async function run() {
       status: 'running',
       engineName: 'local'
     });
-    manager.lastActivity.set('sub-1', now - zombieMs);
+    manager.activityTracker.record('sub-1', now - zombieMs);
     assert.strictEqual(
       manager.isZombie('sub-1', now),
       false,
       'sub at exactly zombie idle boundary is not zombie (strict > threshold)'
     );
 
-    manager.lastActivity.set('sub-1', now - zombieMs - 1);
+    manager.activityTracker.record('sub-1', now - zombieMs - 1);
     assert.strictEqual(
       manager.isZombie('sub-1', now),
       true,

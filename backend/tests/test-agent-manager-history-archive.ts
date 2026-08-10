@@ -78,7 +78,7 @@ async function run() {
       source: 'ui',
       task: '',
     });
-    manager.lastActivity.set('main-1', now - zombieMs - 1000);
+    manager.activityTracker.record('main-1', now - zombieMs - 1000);
 
     manager.agents.set('sub-zombie', {
       id: 'sub-zombie',
@@ -90,7 +90,7 @@ async function run() {
       source: 'ui',
       task: 'zombie target',
     });
-    manager.lastActivity.set('sub-zombie', now - zombieMs - 1000);
+    manager.activityTracker.record('sub-zombie', now - zombieMs - 1000);
 
     await manager.cleanupZombieAgents();
 
@@ -110,7 +110,7 @@ async function run() {
       source: 'ui',
       task: 'manual target',
     });
-    manager.lastActivity.set('sub-manual', now);
+    manager.activityTracker.record('sub-manual', now);
 
     await manager.killAgent('sub-manual');
     assert.strictEqual(manager.taskHistory.length, 2, 'manual kill should also be archived');
@@ -132,7 +132,7 @@ async function run() {
       customTitle: 'Named archive run',
       task: 'archive target',
     });
-    manager.lastActivity.set('sub-archive', now);
+    manager.activityTracker.record('sub-archive', now);
 
     let committedArchiveUpdates = 0;
     const observeCommittedArchive = () => {
@@ -338,7 +338,7 @@ async function run() {
       source: 'ui',
       task: 'temporary shell',
     });
-    manager.lastActivity.set('shell-archive', now);
+    manager.activityTracker.record('shell-archive', now);
 
     const archivedShell = await manager.archiveAgent('shell-archive');
     assert.strictEqual(archivedShell.error, undefined);
@@ -357,7 +357,7 @@ async function run() {
       source: 'control-cli',
       task: 'temporary shell kill',
     });
-    manager.lastActivity.set('shell-kill', now);
+    manager.activityTracker.record('shell-kill', now);
 
     await manager.killAgent('shell-kill');
     assert.strictEqual(manager.agents.has('shell-kill'), false, 'killed shell agents should be destroyed');

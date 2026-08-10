@@ -378,7 +378,8 @@ durable Fork admission/reconciliation, Resume coordination, and cross-runtime
 per-Agent input ordering have owners. Terminal resize latest-value coalescing
 and drain state also have one owner, separate from the engine resize effect.
 Shell-environment resolution owns its provider, bounded cache, expiry, and
-cleanup outside the Manager.
+cleanup outside the Manager. Activity timestamps and throttled activity
+publication likewise have one tracker owner.
 Provider-neutral Terminal startup ordering also has one owner, activated by a
 typed adapter policy rather than a provider-name branch. Launch composition
 remains in the Manager over provider-adapter and executable discovery

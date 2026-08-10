@@ -81,7 +81,7 @@ async function run() {
         validated: true,
         startedAt: Date.now(),
       });
-      manager.lastActivity.set(id, Date.now());
+      manager.activityTracker.record(id);
 
       const title = `${testCase.provider || 'Shell'} ${testCase.runtime} title`;
       const result = await manager.setAgentAdaptiveTitle(id, title);

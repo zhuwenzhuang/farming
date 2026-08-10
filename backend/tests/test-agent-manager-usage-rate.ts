@@ -57,7 +57,7 @@ async function run() {
     );
 
     manager.agents.set('agent-1', { id: 'agent-1', status: 'running' });
-    manager.lastActivity.set('agent-1', now);
+    manager.activityTracker.record('agent-1', now);
     const activity = manager.getAgentActivityPayload('agent-1', now + 1000);
     assert(activity);
     assert.strictEqual(activity.agentId, 'agent-1');
@@ -84,7 +84,7 @@ async function run() {
     assert.strictEqual(burstRate.outputBytes, 400_000);
     assert.strictEqual(burstRate.eventCount, 100_000);
     manager.agents.set('burst-agent', { id: 'burst-agent', status: 'running' });
-    manager.lastActivity.set('burst-agent', burstStartedAt + 9000);
+    manager.activityTracker.record('burst-agent', burstStartedAt + 9000);
     assert.strictEqual(
       manager.calculateAttentionScore('burst-agent', burstStartedAt + 9000),
       90,

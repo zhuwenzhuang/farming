@@ -91,7 +91,7 @@ async function run() {
     await firstManager.whenRecovered();
     agent.persistentSessionId = store.rememberAgent(agent);
     firstManager.agents.set(agent.id, agent);
-    firstManager.lastActivity.set(agent.id, Date.now());
+    firstManager.activityTracker.record(agent.id);
 
     const result = await firstManager.killAgent(agent.id);
     assert.strictEqual(result.cleanupUncertain, true);

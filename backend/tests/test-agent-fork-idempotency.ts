@@ -95,7 +95,7 @@ async function run() {
     });
     source.agentRecordId = source.persistentSessionId;
     manager.agents.set(source.id, source);
-    manager.lastActivity.set(source.id, Date.now());
+    manager.activityTracker.record(source.id);
     const registerSource = (id: string) => {
       const record = {
         ...source,
@@ -110,7 +110,7 @@ async function run() {
       });
       record.agentRecordId = record.persistentSessionId;
       manager.agents.set(id, record);
-      manager.lastActivity.set(id, Date.now());
+      manager.activityTracker.record(id);
       return record;
     };
 

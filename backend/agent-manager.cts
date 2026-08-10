@@ -226,6 +226,13 @@ import type {
 } from './agent-usage-rate.cjs';
 import { AgentUsageRateTracker } from './agent-usage-rate-tracker.cjs';
 import {
+  ACTIVITY_COOL_SEC,
+  ACTIVITY_HOT_SEC,
+  ACTIVITY_WARM_SEC,
+  AgentActivityTracker,
+  agentActivityLevel,
+} from './agent-activity-tracker.cjs';
+import {
   AgentAttentionTracker,
   agentAttentionUnread,
 } from './agent-attention.cjs';
@@ -557,10 +564,6 @@ interface ProviderSessionServiceRuntimeContract {
 }
 
 const SESSION_OUTPUT_LIMIT = 10000;
-const ACTIVITY_UPDATE_INTERVAL_MS = 1000;
-const ACTIVITY_HOT_SEC = 30 * 60;
-const ACTIVITY_WARM_SEC = 3 * 60 * 60;
-const ACTIVITY_COOL_SEC = 12 * 60 * 60;
 const ZOMBIE_IDLE_MS = 72 * 60 * 60 * 1000;
 const ZOMBIE_SWEEP_INTERVAL_MS = 60 * 1000;
 const MISSING_ENGINE_SESSION_STARTUP_GRACE_MS = 5000;
@@ -1321,8 +1324,7 @@ class AgentManager extends EventEmitter {
   declare agentOrderAllocator: AgentOrderAllocator;
   declare mainAgentId: AgentId | null;
   declare mainAgentStartReservation: AgentStartReservation | null;
-  declare lastActivity: Map<AgentId, number>;
-  declare lastActivityUpdate: Map<AgentId, number>;
+  declare activityTracker: AgentActivityTracker;
   declare terminalStatusProjections: WeakMap<
     TypedAgentRecord,
     ReturnType<typeof deriveAgentTerminalStatus>
@@ -1421,8 +1423,12 @@ class AgentManager extends EventEmitter {
     this.agentOrderAllocator = new AgentOrderAllocator();
     this.mainAgentId = null;
     this.mainAgentStartReservation = null;
-    this.lastActivity = new Map();
-    this.lastActivityUpdate = new Map();
+    this.activityTracker = new AgentActivityTracker({
+      publish: (agentId, activityAt) => {
+        const activity = this.getAgentActivityPayload(agentId, activityAt);
+        if (activity) this.emit('agent-activity', activity);
+      },
+    });
     this.terminalStatusProjections = new WeakMap();
     this.codexTerminalProfileProjections = new WeakMap();
     this.usageRateTracker = new AgentUsageRateTracker();
@@ -1806,7 +1812,7 @@ class AgentManager extends EventEmitter {
       ) {
         this.ensurePersistentAgentSession(agent);
       }
-      if (state === 'working' || state === 'waiting-for-permission' || state === 'waiting-for-input') this.lastActivity.set(agentId, Date.now());
+      if (state === 'working' || state === 'waiting-for-permission' || state === 'waiting-for-input') this.activityTracker.record(agentId);
       this.refreshAcpPreparedTranscript(agentId);
       const nextRuntime = publicRuntimeBinding(agent);
       if (JSON.stringify(previousRuntime) !== JSON.stringify(nextRuntime)) {
@@ -2149,7 +2155,7 @@ class AgentManager extends EventEmitter {
         this.terminalStartupCoordinator.appendOutput(sessionId, data);
         const outputAt = Date.now();
         agent.lastEngineOutputAt = outputAt;
-        this.lastActivity.set(sessionId, outputAt);
+        this.activityTracker.record(sessionId, outputAt);
 
         this.recordAgentOutputActivity(
           sessionId,
@@ -2202,7 +2208,7 @@ class AgentManager extends EventEmitter {
       }
       if (Number.isFinite(cols) && cols > 0) agent.previewCols = cols;
       if (Number.isFinite(rows) && rows > 0) agent.previewRows = rows;
-      this.lastActivity.set(sessionId, Date.now());
+      this.activityTracker.record(sessionId);
       this.emit('session-stream', {
         agentId: sessionId,
         sessionSource: this.getEngineSessionSource(engineName),
@@ -2249,7 +2255,7 @@ class AgentManager extends EventEmitter {
         this.reviveAgentRuntime(agent);
         agent.output = trimSessionOutput(typeof textOutput === 'string' ? textOutput : output);
         agent.previewText = agent.output.slice(-2000);
-        this.lastActivity.set(sessionId, Date.now());
+        this.activityTracker.record(sessionId);
 
         if (replaceLive) {
           const sessionSource = this.getEngineSessionSource(engineName);
@@ -2362,9 +2368,8 @@ class AgentManager extends EventEmitter {
     this.engineBridge.on('session-activity', ({ sessionId, lastActivityAt, runtimeEpoch }: TerminalSessionActivityEvent) => {
         const agent = this.agents.get(sessionId);
         if (!agent || !terminalRuntimeEventMatches(agent, runtimeEpoch)) return;
-        this.lastActivity.set(sessionId, lastActivityAt || Date.now());
         this.observeAgentAttentionState(sessionId);
-        this.emitActivityUpdate(sessionId, lastActivityAt || Date.now());
+        this.activityTracker.publish(sessionId, lastActivityAt || Date.now());
       });
 
     this.engineBridge.on('session-busy-state', (payload: TerminalSessionBusyStateEvent) => {
@@ -2525,8 +2530,7 @@ class AgentManager extends EventEmitter {
           const removedMainAgent = this.mainAgentId === sessionId;
           this.providerSessionService.stop(sessionId);
           this.deleteAgentRecord(sessionId);
-          this.lastActivity.delete(sessionId);
-          this.lastActivityUpdate.delete(sessionId);
+          this.activityTracker.forget(sessionId);
           this.usageRateTracker.forget(sessionId);
 
           if (this.mainAgentId === sessionId) {
@@ -2736,7 +2740,7 @@ class AgentManager extends EventEmitter {
         console.warn(`Failed to reconcile Agent update ${agentId}: ${recoveredUpdate.error}`);
       }
       void this.refreshAgentWorktree(agentId);
-      this.lastActivity.set(agentId, state.lastActivityAt || metadata.lastActivityAt || Date.now());
+      this.activityTracker.record(agentId, state.lastActivityAt || metadata.lastActivityAt || Date.now());
       if (agentRecord.wantsMain && !this.mainAgentId) {
         this.mainAgentId = agentId;
       }
@@ -2868,7 +2872,7 @@ class AgentManager extends EventEmitter {
         setAgentRecordId(blockedAgent, record.id || record.persistentSessionId || '');
         this.markRecoveredAgentLifecycleBlocked(blockedAgent, operation);
         this.registerAgentRecord(agentId, blockedAgent);
-        this.lastActivity.set(agentId, Date.now());
+        this.activityTracker.record(agentId);
         changed = true;
         continue;
       }
@@ -3322,7 +3326,7 @@ class AgentManager extends EventEmitter {
         }
         this.registerAgentRecord(agentId, recoveredAgent);
         void this.refreshAgentWorktree(agentId);
-        this.lastActivity.set(agentId, Date.now());
+        this.activityTracker.record(agentId);
       }
     }
     this.emitStateChange({ agentIds: records.map(record => String(record.runtimeAgentId || '')).filter(Boolean) });
@@ -4640,11 +4644,11 @@ class AgentManager extends EventEmitter {
     const agent = this.agents.get(sessionId);
     if (!agent) return null;
     const isMain = this.isMainAgentRecord(sessionId, agent);
-    const lastActivity = this.lastActivity.get(sessionId) || now;
+    const lastActivity = this.activityTracker.get(sessionId, now);
     return {
       agentId: sessionId,
       lastActivity,
-      activityLevel: isMain ? 'warm' : this.calculateActivityLevel(lastActivity, now),
+      activityLevel: isMain ? 'warm' : agentActivityLevel(lastActivity, now),
       attentionScore: isMain ? 0 : this.calculateAttentionScore(sessionId, now),
       isZombie: isMain ? false : this.isZombie(sessionId, now),
       usageRate: this.getAgentUsageRate(sessionId, { now }),
@@ -4655,18 +4659,6 @@ class AgentManager extends EventEmitter {
     return Array.from(this.agents.keys())
       .map(agentId => this.getAgentActivityPayload(agentId, now))
       .filter(activity => activity !== null);
-  }
-
-  emitActivityUpdate(sessionId: string, activityAt: number) {
-    const now = Number.isFinite(activityAt) ? activityAt : Date.now();
-    const lastEmittedAt = this.lastActivityUpdate.get(sessionId) || 0;
-    if (now - lastEmittedAt < ACTIVITY_UPDATE_INTERVAL_MS) {
-      return;
-    }
-
-    this.lastActivityUpdate.set(sessionId, now);
-    const activity = this.getAgentActivityPayload(sessionId, now);
-    if (activity) this.emit('agent-activity', activity);
   }
 
   updateAgentSessionTitle(agent: TypedAgentRecord, title: string) {
@@ -5030,6 +5022,7 @@ class AgentManager extends EventEmitter {
     this.agentStartAdmissions.clear();
     this.inputCoordinator.dispose();
     this.agentShellEnvResolver.dispose();
+    this.activityTracker.dispose();
     this.verifiedStoppedAgentIds.clear();
     this.permissionRestartSuppressedAgentIds.clear();
     this.terminalResizeCoordinator.dispose();
@@ -6177,7 +6170,7 @@ class AgentManager extends EventEmitter {
     try {
       this.registerAgentRecord(agentId, agentRecord);
       void this.refreshAgentWorktree(agentId);
-      this.lastActivity.set(agentId, Date.now());
+      this.activityTracker.record(agentId);
       this.emitStateChange({ agentIds: [agentId] });
       // A Chat view can safely attach as soon as this authoritative record
       // exists. ACP initialization continues below and reports any failure on
@@ -6553,8 +6546,7 @@ class AgentManager extends EventEmitter {
       this.deleteAgentRecord(agentId);
       this.acpFinalizedTurns.delete(agentId);
       this.acpTurnFinalizationTails.delete(agentId);
-      this.lastActivity.delete(agentId);
-      this.lastActivityUpdate.delete(agentId);
+      this.activityTracker.forget(agentId);
       this.usageRateTracker.forget(agentId);
       this.codexTerminalIdentityAttempts.delete(agentId);
       this.codexTerminalIdentityPromises.delete(agentId);
@@ -9772,7 +9764,7 @@ class AgentManager extends EventEmitter {
       reason: options.reason || 'manual-kill',
       status: agent.status || 'stopped',
       startedAt: agent.startedAt || null,
-      lastActivity: this.lastActivity.get(agent.id) || null,
+      lastActivity: this.activityTracker.get(agent.id, 0) || null,
       archivedAt: options.archivedAt || Date.now(),
     };
     this.taskHistory = [entry, ...this.taskHistory].slice(0, 200);
@@ -10442,8 +10434,7 @@ class AgentManager extends EventEmitter {
     this.acpFinalizedTurns.delete(agentId);
     this.acpTurnFinalizationTails.delete(agentId);
     this.verifiedStoppedAgentIds.delete(agentId);
-    this.lastActivity.delete(agentId);
-    this.lastActivityUpdate.delete(agentId);
+    this.activityTracker.forget(agentId);
     this.usageRateTracker.forget(agentId);
     this.codexTerminalIdentityAttempts.delete(agentId);
     this.codexTerminalIdentityPromises.delete(agentId);
@@ -10548,7 +10539,7 @@ class AgentManager extends EventEmitter {
 
     const fallbackOutput = agent.output || '';
     const fallbackPreview = agent.previewText || fallbackOutput.slice(-2000);
-    const lastActivity = this.lastActivity.get(agentId) || Date.now();
+    const lastActivity = this.activityTracker.get(agentId, Date.now());
     const terminalBusy = sessionState && typeof sessionState.terminalBusy === 'boolean'
       ? sessionState.terminalBusy
       : (typeof agent.terminalBusy === 'boolean' ? agent.terminalBusy : null);
@@ -10653,7 +10644,7 @@ class AgentManager extends EventEmitter {
         ? sessionState.stateRevision
         : null,
       isMain,
-      activityLevel: isMain ? 'warm' : this.calculateActivityLevel(lastActivity, now),
+      activityLevel: isMain ? 'warm' : agentActivityLevel(lastActivity, now),
       lastActivity,
       attentionScore: isMain ? 0 : this.calculateAttentionScore(agentId, now),
       isZombie: isMain ? false : this.isZombie(agentId, now),
@@ -10727,7 +10718,7 @@ class AgentManager extends EventEmitter {
   getAgentState(agentId: AgentId, now = Date.now()): AgentPublicState | null {
     const agent = this.agents.get(agentId);
     if (!agent) return null;
-    const lastActivity = this.lastActivity.get(agentId) || now;
+    const lastActivity = this.activityTracker.get(agentId, now);
     const isMain = this.isMainAgentRecord(agentId, agent);
     const terminalBusy = typeof agent.terminalBusy === 'boolean' ? agent.terminalBusy : null;
     const terminalStatus = deriveAgentTerminalStatus(agent, {
@@ -10816,7 +10807,7 @@ class AgentManager extends EventEmitter {
       canForkNewWorktree: this.canCreateForkWorktree(effectiveAgentWorkspaceRoot(agent)),
       startedAt: agent.startedAt || null,
       exitedAt: agent.exitedAt || null,
-      activityLevel: isMain ? 'warm' : this.calculateActivityLevel(lastActivity, now),
+      activityLevel: isMain ? 'warm' : agentActivityLevel(lastActivity, now),
       lastActivity,
       attentionScore: isMain ? 0 : this.calculateAttentionScore(agentId, now),
       isZombie: isMain ? false : this.isZombie(agentId, now),
@@ -10846,15 +10837,6 @@ class AgentManager extends EventEmitter {
     return state;
   }
   
-  calculateActivityLevel(lastActivity: number, now: number): 'hot' | 'warm' | 'cool' | 'cold' {
-    const secondsSinceActivity = (now - lastActivity) / 1000;
-
-    if (secondsSinceActivity < ACTIVITY_HOT_SEC) return 'hot';
-    if (secondsSinceActivity < ACTIVITY_WARM_SEC) return 'warm';
-    if (secondsSinceActivity < ACTIVITY_COOL_SEC) return 'cool';
-    return 'cold';
-  }
-
   isZombie(agentId: AgentId, now: number) {
     const agent = this.agents.get(agentId);
     if (!agent || agent.status !== 'running') return false;
@@ -10868,7 +10850,7 @@ class AgentManager extends EventEmitter {
       'interrupting',
       'reconnecting',
     ].includes(acpState)) return false;
-    const lastAct = this.lastActivity.get(agentId) || now;
+    const lastAct = this.activityTracker.get(agentId, now);
     return now - lastAct > ZOMBIE_IDLE_MS;
   }
 
@@ -10878,7 +10860,7 @@ class AgentManager extends EventEmitter {
     if (this.isMainAgentRecord(agentId, agent)) return 0;
 
     let score = 0;
-    const lastAct = this.lastActivity.get(agentId) || now;
+    const lastAct = this.activityTracker.get(agentId, now);
     const secsSinceActivity = (now - lastAct) / 1000;
 
     // Status weight (0-20)

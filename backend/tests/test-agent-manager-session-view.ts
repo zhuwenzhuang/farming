@@ -45,7 +45,7 @@ async function run() {
       status: 'running',
       startedAt: 123
     });
-    manager.lastActivity.set('local-agent', Date.now());
+    manager.activityTracker.record('local-agent');
 
     const localView = await manager.getAgentSessionView('local-agent');
     assert.strictEqual(localView.agentId, 'local-agent');
@@ -67,7 +67,7 @@ async function run() {
       providerSessionProvider: 'codex',
       startedAt: 124,
     });
-    manager.lastActivity.set('terminal-codex', Date.now());
+    manager.activityTracker.record('terminal-codex');
 
     const terminalCodexView = await manager.getAgentSessionView('terminal-codex');
     assert.deepStrictEqual(terminalCodexView.codexTerminalProfile, {
@@ -118,7 +118,7 @@ async function run() {
       terminalBusy: true,
       startedAt: 456,
     });
-    manager.lastActivity.set('missing-session-view', Date.now());
+    manager.activityTracker.record('missing-session-view');
 
     const originalConsoleError = console.error;
     const consoleErrors = [];
@@ -164,7 +164,7 @@ async function run() {
       terminalBusy: true,
       startedAt: 654,
     });
-    manager.lastActivity.set('native-host-missing-view', Date.now());
+    manager.activityTracker.record('native-host-missing-view');
 
     console.error = (...args) => {
       consoleErrors.push(args);
@@ -202,7 +202,7 @@ async function run() {
       terminalBusy: true,
       startedAt: 789,
     });
-    manager.lastActivity.set('null-session-view', Date.now());
+    manager.activityTracker.record('null-session-view');
 
     const nullView = await manager.getAgentSessionView('null-session-view');
     const nullAgent = manager.agents.get('null-session-view');
@@ -225,7 +225,7 @@ async function run() {
       status: 'pending',
       terminalBusy: null,
     });
-    manager.lastActivity.set('pending-session-view', Date.now());
+    manager.activityTracker.record('pending-session-view');
 
     const pendingView = await manager.getAgentSessionView('pending-session-view');
     const pendingAgent = manager.agents.get('pending-session-view');

@@ -334,7 +334,7 @@ async function run() {
       engineStarted: true,
       startedAt: Date.now(),
     });
-    manager.lastActivity.set(historyAgentId, Date.now());
+    manager.activityTracker.record(historyAgentId);
 
     manager.engineBridge.emit('session-title', {
       sessionId: historyAgentId,

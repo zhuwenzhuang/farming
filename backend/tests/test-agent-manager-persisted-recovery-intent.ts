@@ -67,7 +67,7 @@ async function run() {
     await firstManager.whenRecovered();
     store.rememberAgent(agent);
     firstManager.agents.set(agent.id, agent);
-    firstManager.lastActivity.set(agent.id, Date.now());
+    firstManager.activityTracker.record(agent.id);
     firstManager.renameAgent(agent.id, 'Persisted Claude name');
     assert.strictEqual(
       store.listAgentRecords().find(record => record.providerSessionKey === sessionKey).customTitle,
