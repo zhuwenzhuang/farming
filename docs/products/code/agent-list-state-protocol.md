@@ -164,3 +164,18 @@ sequence. A client applies only the next sequence in its current generation.
 After a restart, sequence gap, or uncertain delivery, it requests a fresh
 authoritative snapshot instead of guessing, replaying mutations, or requiring
 per-message acknowledgements.
+
+Server startup materializes every durable main-page Agent row in one aggregate
+state transition before awaiting Terminal-host enumeration, ACP binding, or
+transcript loading. Those rows retain their persisted identity, runtime kind,
+ordering, and attention cursors while their runtime state is `pending` or
+`connecting`; runtime recovery then updates the existing rows instead of adding
+them one at a time. Opening a Chat row whose binding is still pending waits on
+that same authoritative recovery. A row whose runtime cannot be recovered
+remains visible with an explicit failure state rather than disappearing into
+Provider history.
+
+Unread state for a Farming-bound Agent is owned by its monotonic attention and
+read cursors. The persisted `unread` projection must be rewritten from those
+cursors whenever Agent state is persisted; an older contradictory boolean must
+not reappear during startup or while a runtime is still pending.

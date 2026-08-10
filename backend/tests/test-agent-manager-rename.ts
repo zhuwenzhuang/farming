@@ -3,6 +3,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { AgentManager } = require('../agent-manager.cjs');
+const { createTestAgentManager } = require('./helpers/test-acp-runtime.ts');
 const { importTsModule } = require('./helpers/import-ts-module');
 
 async function run() {
@@ -10,7 +11,7 @@ async function run() {
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-agent-rename-'));
   const publicProjectWorkspace = fs.realpathSync(tmpRoot);
   const persistedAgentSnapshots = [];
-  const manager = new AgentManager({
+  const manager = createTestAgentManager(AgentManager, {
     getWorkspace() {
       return tmpRoot;
     },
@@ -127,7 +128,7 @@ async function run() {
 
     const renamed = manager.renameAgent(agentId, '  Investigate parser bug  ');
     const dangerousLaunches = [];
-    const dangerousManager = new AgentManager({
+    const dangerousManager = createTestAgentManager(AgentManager, {
       getWorkspace() { return tmpRoot; },
       getHeartbeatInterval() { return 1000; },
       getCodingAgentEngine() { return 'local'; },

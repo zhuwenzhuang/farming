@@ -1,9 +1,10 @@
 const assert = require('assert');
 const { AgentManager } = require('../agent-manager.cjs');
+const { createTestAgentManager } = require('./helpers/test-acp-runtime.ts');
 const { agentAttentionTurnActive } = require('../agent-attention.cjs');
 
 function createManager() {
-  return new AgentManager({
+  return createTestAgentManager(AgentManager, {
     getWorkspace() {
       return '/tmp';
     },

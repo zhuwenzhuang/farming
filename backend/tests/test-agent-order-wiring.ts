@@ -24,12 +24,12 @@ function run() {
 
   assert.strictEqual(
     (manager.match(/this\.registerAgentRecord\(/g) || []).length,
-    5,
+    7,
     'every Agent insertion path should use the indexed registration gate',
   );
   assert.strictEqual((manager.match(/this\.agents\.set\(/g) || []).length, 1);
   assert.strictEqual((manager.match(/this\.agents\.delete\(/g) || []).length, 1);
-  assert.strictEqual((manager.match(/this\.deleteAgentRecord\(/g) || []).length, 3);
+  assert.strictEqual((manager.match(/this\.deleteAgentRecord\(/g) || []).length, 4);
   assert(manager.includes('this.agentOrderAllocator.observe(agent)'));
   assert(manager.includes('this.agentOrderAllocator.observe(this.agents.get(updatedAgentId))'));
   assert(manager.includes('staged.pinnedOrder = this.agentOrderAllocator.nextPinnedOrder()'));

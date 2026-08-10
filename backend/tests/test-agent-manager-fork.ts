@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { AgentManager } = require('../agent-manager.cjs');
+const { createTestAgentManager } = require('./helpers/test-acp-runtime.ts');
 const { resolveUserShellEnvSync } = require('../agent-env.cjs');
 const { resolveAgentExecutable } = require('../executable-discovery.cjs');
 
@@ -33,7 +34,7 @@ async function run() {
   const captured = [];
   let blockedCreate = null;
   let shellEnvProviderOverride = null;
-  const manager = new AgentManager({
+  const manager = createTestAgentManager(AgentManager, {
     getWorkspace() {
       return tmpRoot;
     },
@@ -441,6 +442,7 @@ async function run() {
     };
     const originalClaudeGetSessionRequestOptions = manager.acpRuntime.getSessionRequestOptions.bind(manager.acpRuntime);
     const originalClaudeForkReservation = manager.acpRuntime.runWithForkReservation.bind(manager.acpRuntime);
+    const originalClaudeBindingCheckpoint = manager.acpRuntime.bindingCheckpoint.bind(manager.acpRuntime);
     const originalClaudePrepareAgent = manager.acpRuntime.prepareAgent.bind(manager.acpRuntime);
     const originalClaudeDeleteSession = manager.acpRuntime.deleteSession.bind(manager.acpRuntime);
     const ownedClaudeForkSessionId = '99999999-aaaa-4bbb-8ccc-dddddddddddd';
@@ -472,6 +474,12 @@ async function run() {
         checkpointProof: null,
       });
     };
+    manager.acpRuntime.bindingCheckpoint = () => ({
+      exportCheckpoint: () => ({
+        version: 2,
+        sessionState: exactClaudeForkCheckpoint,
+      }),
+    });
     manager.acpRuntime.prepareAgent = async options => {
       ownedClaudePrepareOptions = options;
       await options.onForkSessionCreated(ownedClaudeForkSessionId);
@@ -570,6 +578,7 @@ async function run() {
     manager.agents.delete(retainedOwnedClaudeFork.retainedAgentId);
     manager.acpRuntime.getSessionRequestOptions = originalClaudeGetSessionRequestOptions;
     manager.acpRuntime.runWithForkReservation = originalClaudeForkReservation;
+    manager.acpRuntime.bindingCheckpoint = originalClaudeBindingCheckpoint;
     manager.acpRuntime.prepareAgent = originalClaudePrepareAgent;
     manager.acpRuntime.deleteSession = originalClaudeDeleteSession;
 
@@ -612,6 +621,7 @@ async function run() {
     process.env.PATH = previousPath;
     manager.heartbeatScheduler.stop();
     manager.engineBridge.dispose();
+    await manager.acpRuntime.dispose();
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   }
 }

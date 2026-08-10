@@ -3,6 +3,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { AgentManager } = require('../agent-manager.cjs');
+const { createTestAgentManager } = require('./helpers/test-acp-runtime.ts');
 
 interface ComposerCommandProbe {
   requestId?: string;
@@ -43,7 +44,7 @@ function deferred() {
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-runtime-switch-'));
   const sessionsDir = path.join(codexHome, 'sessions', '2026', '07', '12');
   fs.mkdirSync(sessionsDir, { recursive: true });
-  const manager = new AgentManager({
+  const manager = createTestAgentManager(AgentManager, {
     getHeartbeatInterval: () => 60_000,
     getTaskHistory: () => [],
   });
@@ -587,7 +588,7 @@ function deferred() {
 
   await manager.dispose();
 
-  const raceManager = new AgentManager({
+  const raceManager = createTestAgentManager(AgentManager, {
     getHeartbeatInterval: () => 60_000,
     getTaskHistory: () => [],
   });

@@ -1,10 +1,11 @@
 const assert = require('assert');
 const { AgentManager } = require('../agent-manager.cjs');
+const { createTestAgentManager } = require('./helpers/test-acp-runtime.ts');
 
 type ErrorWithCode = Error & { code?: string };
 
 async function run() {
-  const manager = new AgentManager({
+  const manager = createTestAgentManager(AgentManager, {
     getWorkspace() {
       return process.cwd();
     },

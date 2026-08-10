@@ -1,5 +1,6 @@
 const assert = require('assert');
 const { AgentManager } = require('../agent-manager.cjs');
+const { createTestAgentManager } = require('./helpers/test-acp-runtime.ts');
 
 async function run() {
   const configManager = {
@@ -11,7 +12,7 @@ async function run() {
     }
   };
 
-  const manager = new AgentManager(configManager);
+  const manager = createTestAgentManager(AgentManager, configManager);
 
   try {
     manager.engineBridge.getEngine = () => ({

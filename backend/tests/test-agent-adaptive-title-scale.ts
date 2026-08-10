@@ -1,5 +1,6 @@
 const assert = require('assert');
 const { AgentManager } = require('../agent-manager.cjs');
+const { createTestAgentManager } = require('./helpers/test-acp-runtime.ts');
 
 async function run() {
   const persisted = [];
@@ -13,7 +14,7 @@ async function run() {
   const heldWriteStarted = new Promise<void>(resolve => {
     observeHeldWrite = resolve;
   });
-  const manager = new AgentManager({
+  const manager = createTestAgentManager(AgentManager, {
     getWorkspace: () => process.cwd(),
     getHeartbeatInterval: () => 60_000,
     getCodingAgentEngine: () => 'local',

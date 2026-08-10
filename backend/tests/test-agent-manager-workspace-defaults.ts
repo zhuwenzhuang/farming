@@ -3,6 +3,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { AgentManager } = require('../agent-manager.cjs');
+const { createTestAgentManager } = require('./helpers/test-acp-runtime.ts');
 
 async function run() {
   const farmingWorkspace = path.join(os.tmpdir(), 'farming-main-workspace');
@@ -10,7 +11,7 @@ async function run() {
   const captured = [];
   fs.mkdirSync(farmingWorkspace, { recursive: true });
 
-  const manager = new AgentManager({
+  const manager = createTestAgentManager(AgentManager, {
     getWorkspace() {
       return farmingWorkspace;
     },
@@ -79,7 +80,7 @@ async function run() {
     const recoveryRaceWorkspace = path.join(os.tmpdir(), 'farming-recovery-race-workspace');
     fs.mkdirSync(recoveryRaceWorkspace, { recursive: true });
     const recoveryRaceCaptured = [];
-    const recoveryRaceManager = new AgentManager({
+    const recoveryRaceManager = createTestAgentManager(AgentManager, {
       getWorkspace() {
         return recoveryRaceWorkspace;
       },
@@ -130,7 +131,7 @@ async function run() {
     const concurrentMainCreateGate = new Promise<void>(resolve => {
       releaseConcurrentMainCreate = resolve;
     });
-    const concurrentMainManager = new AgentManager({
+    const concurrentMainManager = createTestAgentManager(AgentManager, {
       getWorkspace() {
         return concurrentMainWorkspace;
       },
@@ -186,7 +187,7 @@ async function run() {
     const internalConfigWorkspace = path.join(os.tmpdir(), 'farming-internal-main-workspace', '.farming');
     const internalCaptured = [];
     fs.mkdirSync(internalConfigWorkspace, { recursive: true });
-    const internalManager = new AgentManager({
+    const internalManager = createTestAgentManager(AgentManager, {
       getWorkspace() {
         return internalConfigWorkspace;
       },
@@ -313,7 +314,7 @@ async function run() {
     assert.strictEqual(outsideAgent.projectWorkspace, restoredWorkingDirectory);
 
     const homeLaunches = [];
-    const homeProfileManager = new AgentManager({
+    const homeProfileManager = createTestAgentManager(AgentManager, {
       getWorkspace: () => process.cwd(),
       getHeartbeatInterval: () => 60_000,
       getTaskHistory: () => [],
@@ -364,7 +365,7 @@ async function run() {
     }
 
     const claudeHomeLaunches = [];
-    const claudeHomeProfileManager = new AgentManager({
+    const claudeHomeProfileManager = createTestAgentManager(AgentManager, {
       getWorkspace: () => process.cwd(),
       getHeartbeatInterval: () => 60_000,
       getTaskHistory: () => [],

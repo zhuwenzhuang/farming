@@ -183,12 +183,16 @@ Session Identity、Usage、Adaptive Title、Settings、部分 WebSocket Delivery
 它们要么删除了旧生产路径，
 要么成为一个明确状态或副作用的唯一 Owner。
 
-当前需要优先返工的结构问题是：
+此前优先级最高的结构问题已经收敛：
 
-1. `CodeWorkspace` 的一部分 Controller 复制后端 Truth，或只包装 Reducer/Fetch；
-2. Terminal Link/Resize/Attachment 存在重叠的 Operation Identity；
-3. Stylesheet 已有物理 Owner，但 Selector Hash 与 Manifest 不能单独证明跨 Owner
-   Cascade 等价。
+1. `CodeWorkspace` 中只包装 Catalog 与 QR 的 Controller 已合并；保留的 Controller
+   要么拥有浏览器本地状态，要么拥有真实 Request Lifecycle，宿主只展示其 Projection；
+2. Terminal Link、Resize、Renderer 与 Attachment Effect 已在 Replication 和
+   Interaction Owner 下消费同一个 Attachment Operation Identity；
+3. Stylesheet Domain 已有明确的 Base/Dark Owner，后续修改继续以全局 Cascade、
+   Specificity 与 Import Order 证据作为门禁；
+4. Server 现在只通过 Host Facade 访问 ACP；通用权限重启、Resume Profile、Idle Fence
+   和恢复约束均来自有类型的 Provider Adapter Policy。
 
 Resume 保留两张内部 Admission Map，因为 HTTP Resume 是完整 Operation，而
 Direct/Auto Resume 是 Effect 级入口；二者能否合并为一个 Admission 尚未证明，
@@ -197,9 +201,10 @@ Direct/Auto Resume 是 Effect 级入口；二者能否合并为一个 Admission 
 Cache 并组装 Launch Request。除非更小的 Owner 能删除已证明的重复真相，否则
 不要再创建大型 Launch Service 或 Port Surface。
 
-在这些问题收敛前，不继续新的大型状态提取。未提交 Prototype 只是证据；如果它
-需要不断增加 Ledger、Registry、Generation、Latch 或补偿 Flag 才能通过 Review，
-应缩回更小状态机或直接丢弃。
+计划内的结构收敛已经完成。后续只有出现新的重复真相、Protocol 缺陷，或普通功能
+无法只修改一个现有 Owner 时，才继续提取。未提交 Prototype 只是证据；如果它需要
+不断增加 Ledger、Registry、Generation、Latch 或补偿 Flag 才能通过 Review，应缩回
+更小状态机或直接丢弃。
 
 领域状态机拥有转换规则；底层 Registry/Store 负责精确身份和可靠持久化，Effect
 Executor 只报告已经发生的事实。不能把同一个判断拆成“Coordinator 判一次、
@@ -207,10 +212,10 @@ Lifecycle 层判一次、Manager 再判一次”。
 
 ### 巨型宿主的目标角色
 
-- `agent-manager.cts` 最终只保留精确 Agent Registry、公共 Facade、Service
-  Composition 和事件出口。Recovery/Start/Restart/Archive/Kill 属于同一个 Agent
-  Lifecycle 领域；Fork 与 Project/Worktree 是独立领域，不能继续以内联大段形式留在
-  Manager，也不能只套一层无状态 Wrapper。
+- `agent-manager.cts` 保留精确 Agent Registry、公共 Facade、Service Composition、
+  事件出口和顶层跨资源 Lifecycle 编排。各 Domain Owner 拥有可变的 Admission、顺序、
+  Recovery 状态与 Worktree/Git Effect；Facade 可以串联精确的 Agent、Provider Session、
+  Worktree 与 Project 结果，但不复制这些状态机，也不自行执行 Git Policy。
 - `CodeWorkspace.tsx` 最终只保留页面布局、当前选择、浏览器本地 Workspace Surface
   和子组件组合。Composer 可以拥有 Draft/Menu/Attachment Preview；Project
   Membership、Agent Lifecycle 和持久 Mutation 结果必须直接投影后端权威状态。
@@ -308,16 +313,11 @@ Reading Anchor 捕获与恢复——应位于纯模块中。在后续变更证�
 
 ### Lane F2 —— Workspace 应用 Controller
 
-`CodeWorkspace` 已把若干领域迁到 Controller，但当前 Controller 数量和生产总代码的
-增长超过了宿主职责下降。下一阶段不是继续提取，而是先分类现有 Owner：
-
-1. 保留真正拥有浏览器本地状态的 Composer、Workspace Surface 和 Session View
-   Owner；
-2. 合并或删除只包装 Reducer、Fetch 或 Backend Truth 的 Resource、Catalog、Project
-   Mutation 层；
-3. 让 Project/Agent Mutation 直接投影后端权威结果，删除前端平行 Admission、
-   Deadline 和 Reconcile Truth；
-4. 完成收敛后再围绕剩余 Owner 收窄组件 Props。
+`CodeWorkspace` 的 Controller 收敛已经完成。只包装 Catalog 与 QR 的层已经删除；
+Composer、Workspace Surface、Resource Pane、Session Inventory、Resume 和 Project
+Mutation 被保留，是因为它们拥有浏览器本地状态，或明确的 Admission、Cancellation、
+过期完成与不确定结果语义。`CodeWorkspace` 只组合这些 Owner，不再实现其原始分页或
+Mutation 状态机。只有出现具体的重复真相或 Request Lifecycle 缺陷时才重进本 Lane。
 
 ### Lane F3 —— Terminal 浏览器 Runtime
 
@@ -346,10 +346,8 @@ Backpressure、延迟下发、重启与溢出处理、有界失败与清理，�
 完成屏障：该屏障把这些后续恢复下发挡在该 Client 权威 Snapshot Cut 完成之前，待该
 Cut 完成后再放行。权威 Projection 与 Broadcast Scheduler 仍在该边界之外。
 
-剩余范围：
-
-- 抽取其余有界 Bootstrap 领域：ACP Agent HTTP Operation、Usage 与 Update
-  Operation、Auth/Share/Static 分组，仅在分离确有价值时进行。
+没有必须继续抽取的 Transport 范围。Auth、Share/Static、ACP Agent HTTP、Usage 与
+Update 接线只有在功能变化或已证明的重复状态使独立 Owner 有价值时才移动。
 
 不要每种 Message 一个文件。每个切片保持 Route Manifest、Middleware 顺序、
 Response Shape 和连接级状态不变。
@@ -370,7 +368,7 @@ Owner 定义的单调 Attention/Output Read Cursor Transition。Worktree Refresh
 Coalescing 与 Generation Fence 也已共同归一个 Owner，
 因此 Delete/Reuse 会同时淘汰 Pending 和已开始的旧 Observation。Provider-neutral Terminal Startup Ordering 也已有唯一 Owner，由类型化
 Adapter Policy 激活，而不是由 Provider Name 分支激活。Launch Composition 保留在
-Manager，并组合 Provider Adapter 与 Executable Discovery 边界。剩余范围：
+Manager，并组合 Provider Adapter 与 Executable Discovery 边界。维护约束：
 
 1. 保持共享 Fork Child-start Settlement 的窄边界；Worktree 与 Provider Session
    Rollback 继续按资源分别拥有。除非 Retained-resource 语义被证明相同，否则不要
@@ -380,23 +378,18 @@ Manager，并组合 Provider Adapter 与 Executable Discovery 边界。剩余范
    成 Port 时，才移动 Launch Composition；
 3. 只有当迁移 Attention 专属 Runtime/Record Type 能删除具体共享依赖，而不是只形成
    Type-only 物理拆分时，才让这些类型随 Owner 移动；
-4. Facade 最终只保留精确 Agent Registry、公共入口、Service Composition 与事件出口。
+4. 顶层跨资源 Lifecycle 串联留在 Facade，但不得把 Domain 状态或 Effect 搬回其中。
 
 行数不是验收标准。只有当一个 Service 减少 Manager 的系统知识，并能在不构造完整
 Manager 的情况下测试时，提取才算成功。
 
 ### Lane B3 —— ACP Host 收敛与 Provider Policy
 
-本 Lane 与 B2 共享 AgentManager 热点，因此与冲突的 B2 切片串行，但不必等待所有
-提取完成：
-
-1. 让 ACP Host Runtime 契约成为 Server 唯一默认访问路径；
-2. 把依赖直接进程内 fallback 的测试改为显式 Runtime Fake 或 Host Harness；
-3. 删除 AgentManager 的 fallback 构造，同时保留 Host 进程内部的
-   `AcpRuntime`；
-4. 定义并测试 Engine Session State 到 Host Controller/Operation State 的
-   Projection；
-5. 把 Provider 特例逐步吸收到有类型的 Adapter Policy 中。
+本 Lane 已完成。ACP Host Runtime 契约是 Server 唯一默认访问路径；`AgentManager`
+不再构造进程内 `AcpRuntime`。测试使用显式 Runtime Double 或 Host Harness。Engine
+Session Projection 与 Host Controller/Operation State 保持分离；通用生命周期通过
+有类型的 Provider Adapter Policy 消费权限重启、Resume Profile、Idle Fence、恢复
+约束、启动排序与 Fork Capability。
 
 每次触及 Provider Runtime 行为后，都必须为受影响的全部 Provider 运行隔离、低量
 Real-provider Smoke。
@@ -407,32 +400,23 @@ Real-provider Smoke。
 例如 Record Guard、Bounded Wait 或 Process Execution。集中化会增加耦合时，简单
 重复可以保留。
 
-## 后续推进优先级
+## 收敛后的维护规则
 
-剩余工作按以下依赖顺序继续拆成小切片。本列表记录未完成的架构结果，不记录临时
-Branch 或逐文件进度：
+本结构性计划已经关闭。后续功能和有证据的小型清理切片遵守以下规则：
 
-1. 继续收敛 `CodeWorkspace` 的既有 Owner，删除 Backend Truth 镜像与 Wrapper-only
-   Controller。Terminal 的 Replication 与 Interaction 所有权拆分已经完成；只有出现
-   具体重复真相或 Protocol 缺陷时才重新进入该 Lane。
-2. AgentManager 保持已经围绕现有 Tracker 收敛的 Attention/Unread Transition；Fork
-   的资源回滚继续保持精确且分离。没有具体重复真相证据时，不继续 Resume 与 Launch。
-3. 重新评估未提交 Stylesheet 与 CRT Prototype。只有当生产边界真实、系统总代码
-   合理且一次性旧/新行为证据成立时才合入；否则缩小或丢弃。
-4. 完成剩余 Server Transport 与 ACP 工作。在保持 Auth、Middleware 顺序、Route
-   Shape 和连接级状态不变的前提下抽取其余有界 HTTP 与 Bootstrap 领域；并收敛到
-   Server 只经过 ACP Host 的路径：确定性 Host Fake 或 Harness 覆盖恢复与
-   Prompt/Cancel 不确定结果后删除进程内 Fallback，通过显式 Projection 分离
-   Engine State 与 Host Operation State，并运行要求的 Real-provider Smoke。
-5. 持续退役已经失效的兼容代码。Compatibility Alias、Adapter、Fallback、Parser
+1. 不因为文件较大就重新进入 `CodeWorkspace`、Terminal、Server、Resume、Launch 或
+   ACP Host 抽取；必须先证明具体重复真相、Protocol 缺陷或可独立测试的 Owner。
+2. AgentManager 的 Attention/Unread Transition 继续由 Tracker 拥有，Fork 资源回滚
+   保持精确且分离，Provider 行为留在有类型的 Adapter 中。
+3. 持续退役已经失效的兼容代码。Compatibility Alias、Adapter、Fallback、Parser
    Branch 或旧 State Shape 只有在全仓调用分析和边界测试证明没有受支持的 Client、
    Protocol Version、持久化数据、Extension 或 Public API 继续依赖时才能删除。用一个
    行为中立的小切片同时删除失效路径及仅服务于该路径的测试；不能因为它曾支持旧实现
    就保留不可达代码，也不能仅凭静态 Import 就把仍处于系统边界的 Adapter 判为死代码。
-6. Stylesheet 继续拆分前必须证明全局 Cascade，而不只证明每个分区内部的 Selector
+4. Stylesheet 继续拆分前必须证明全局 Cascade，而不只证明每个分区内部的 Selector
    Hash。其余产品 Domain 从主样式表和 Dark Skin 样式表拆出时，必须同时提供
    Cascade、Specificity 与 Import 顺序证据。
-7. 持续集成。每个可审查切片都 Rebase 到当前 `main`，先运行聚焦状态机测试，再运行
+5. 持续集成。每个可审查切片都 Rebase 到当前 `main`，先运行聚焦状态机测试，再运行
    完整 Typecheck、Lint、Test 及适用的 Server、Terminal、Playwright 或 Provider
    门禁后合入。不能把这些优先项重新积累成长期 Integration Branch。
 
@@ -482,7 +466,7 @@ npm test
 
 ## 完成标准
 
-满足以下全部条件时，本策略完成：
+当前架构已经满足以下完成门槛；后续修改把它们作为回归约束：
 
 - Server Bootstrap 主要挂载 Middleware、Router 和 WebSocket Domain Handler，
   Route 契约保持不变。

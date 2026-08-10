@@ -511,8 +511,10 @@ const computerRuntimeRecoveryPromise = computerResourceManager.init().catch((err
   return null;
 });
 const browserRuntimeRecoveryPromise = computerRuntimeRecoveryPromise
-  .then(() => isolatedBrowserProvider.recover())
-  .then(() => browserResourceManager.init())
+  .then(() => Promise.all([
+    isolatedBrowserProvider.recover(),
+    browserResourceManager.init(),
+  ]))
   .then(() => {
     agentManager.on('update', reconcileAgentResourceLifecycle);
     reconcileAgentResourceLifecycle();

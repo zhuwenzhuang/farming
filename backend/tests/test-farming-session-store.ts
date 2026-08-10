@@ -463,6 +463,39 @@ function run() {
   assert.strictEqual(store.readRecord(upgradedRecordId).acpState, 'working');
   assert.strictEqual(store.readRecord(upgradedRecordId).attentionSeq, 5);
 
+  store.ensureRecordForAgent({
+    id: 'agent-legacy-runtime',
+    agentRecordId: upgradedRecordId,
+    command: 'codex',
+    cwd: '/legacy/repo',
+    projectWorkspace: '/legacy/repo',
+    providerSessionProvider: 'codex',
+    providerSessionId: '',
+    providerSessionTemporary: true,
+    agentRuntimeMode: 'acp',
+    attentionSeq: 5,
+    readAttentionSeq: 1,
+  }, { unread: true });
+  store.ensureRecordForAgent({
+    id: 'agent-legacy-runtime',
+    agentRecordId: upgradedRecordId,
+    command: 'codex',
+    cwd: '/legacy/repo',
+    projectWorkspace: '/legacy/repo',
+    providerSessionProvider: 'codex',
+    providerSessionId: '',
+    providerSessionTemporary: true,
+    agentRuntimeMode: 'acp',
+    attentionSeq: 5,
+    readAttentionSeq: 5,
+    unread: false,
+  });
+  assert.strictEqual(
+    store.readRecord(upgradedRecordId).unread,
+    false,
+    'persisting a read cursor must replace a stale unread boolean in Agent state',
+  );
+
   const legacyProviderRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-session-store-legacy-provider-'));
   const legacyProviderSessions = path.join(legacyProviderRoot, 'sessions');
   fs.mkdirSync(legacyProviderSessions, { recursive: true });

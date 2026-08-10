@@ -1,6 +1,7 @@
 const assert = require('assert');
 const { encodeProviderSessionKey } = require('../../shared/provider-session-identity.js');
 const { AgentManager } = require('../agent-manager.cjs');
+const { createTestAgentManager } = require('./helpers/test-acp-runtime.ts');
 const { activeLifecycleOperation } = require('../agent-lifecycle-journal.cjs');
 
 async function run() {
@@ -15,7 +16,7 @@ async function run() {
       encodeProviderSessionKey('codex', 'other-session', 'default'),
     ],
   };
-  const manager = new AgentManager({
+  const manager = createTestAgentManager(AgentManager, {
     getWorkspace() {
       return process.cwd();
     },
@@ -546,6 +547,7 @@ async function run() {
   } finally {
     manager.heartbeatScheduler.stop();
     manager.engineBridge.dispose();
+    await manager.acpRuntime.dispose();
   }
 }
 

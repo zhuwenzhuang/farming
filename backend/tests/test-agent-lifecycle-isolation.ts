@@ -1,6 +1,7 @@
 const assert = require('assert');
 const EventEmitter = require('events');
 const { AgentManager } = require('../agent-manager.cjs');
+const { createTestAgentManager } = require('./helpers/test-acp-runtime.ts');
 
 function configManager() {
   return {
@@ -37,7 +38,7 @@ class FakeStructuredRuntime extends EventEmitter {
 }
 
 async function run() {
-  const manager = new AgentManager(configManager(), { skipExecutablePreflight: true });
+  const manager = createTestAgentManager(AgentManager, configManager(), { skipExecutablePreflight: true });
 
   try {
     manager.agents.set('agent-lifecycle', {
@@ -233,7 +234,7 @@ async function run() {
   });
   const blockingAcpRuntime = new FakeStructuredRuntime();
   blockingAcpRuntime.dispose = async () => disposeGate;
-  const admissionManager = new AgentManager(configManager(), {
+  const admissionManager = createTestAgentManager(AgentManager, configManager(), {
     skipExecutablePreflight: true,
     acpRuntime: blockingAcpRuntime,
   });
@@ -256,7 +257,7 @@ async function run() {
   recoveryFenceAcpRuntime.dispose = async () => {
     recoveryFenceRuntimeDisposed = true;
   };
-  const recoveryFenceManager = new AgentManager(configManager(), {
+  const recoveryFenceManager = createTestAgentManager(AgentManager, configManager(), {
     skipExecutablePreflight: true,
     acpRuntime: recoveryFenceAcpRuntime,
   });
@@ -281,7 +282,7 @@ async function run() {
     if (failAcpDispose) throw new Error('ACP process tree still live');
     retryableAcpRuntime.bindings.delete('acp-retry');
   };
-  const partialManager = new AgentManager(configManager(), {
+  const partialManager = createTestAgentManager(AgentManager, configManager(), {
     skipExecutablePreflight: true,
     acpRuntime: retryableAcpRuntime,
   });
@@ -310,7 +311,7 @@ async function run() {
   killAcpRuntime.unregisterAgentAndWait = async () => {
     throw new Error('ACP descendant still live');
   };
-  const killTruthManager = new AgentManager(configManager(), {
+  const killTruthManager = createTestAgentManager(AgentManager, configManager(), {
     skipExecutablePreflight: true,
     acpRuntime: killAcpRuntime,
   });
@@ -340,7 +341,7 @@ async function run() {
   const missingBindingRuntime = new FakeStructuredRuntime();
   missingBindingRuntime.unregisterAgentAndWait = async () => false;
   let persistedCleanupIdentity = null;
-  const missingBindingManager = new AgentManager(configManager(), {
+  const missingBindingManager = createTestAgentManager(AgentManager, configManager(), {
     skipExecutablePreflight: true,
     acpRuntime: missingBindingRuntime,
     stopPersistedAcpProcessGroup: async identity => {
@@ -378,7 +379,7 @@ async function run() {
     recoveryFencedRuntime.bindings.delete(agentId);
     return true;
   };
-  const recoveryFencedManager = new AgentManager(configManager(), {
+  const recoveryFencedManager = createTestAgentManager(AgentManager, configManager(), {
     skipExecutablePreflight: true,
     acpRuntime: recoveryFencedRuntime,
   });
@@ -407,7 +408,7 @@ async function run() {
 
   const engineFailureAcpRuntime = new FakeStructuredRuntime();
   engineFailureAcpRuntime.dispose = async () => {};
-  const engineFailureManager = new AgentManager(configManager(), {
+  const engineFailureManager = createTestAgentManager(AgentManager, configManager(), {
     skipExecutablePreflight: true,
     acpRuntime: engineFailureAcpRuntime,
   });

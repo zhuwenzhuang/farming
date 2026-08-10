@@ -1,11 +1,12 @@
 const assert = require('assert');
 const { AgentManager } = require('../agent-manager.cjs');
+const { createTestAgentManager } = require('./helpers/test-acp-runtime.ts');
 
 async function run() {
   const originalDateNow = Date.now;
   let clockNow = 1_000_000;
   Date.now = () => clockNow;
-  const manager = new AgentManager({
+  const manager = createTestAgentManager(AgentManager, {
     getWorkspace() {
       return process.cwd();
     },
@@ -204,6 +205,7 @@ async function run() {
     Date.now = originalDateNow;
     manager.heartbeatScheduler.stop();
     manager.engineBridge.dispose();
+    await manager.acpRuntime.dispose();
   }
 }
 

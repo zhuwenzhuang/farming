@@ -299,6 +299,7 @@ class ComputerResourceManager extends EventEmitter {
       const result = await execFileAsync('docker', args, {
         encoding: 'utf8',
         timeout: runOptions.timeoutMs || DOCKER_TIMEOUT_MS,
+        killSignal: 'SIGKILL',
         maxBuffer: runOptions.maxBuffer || 20 * 1024 * 1024,
       });
       return {

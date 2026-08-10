@@ -804,6 +804,7 @@ class FarmingSessionStore {
       pinnedOrder: typeof agent.pinnedOrder === 'number' && Number.isFinite(agent.pinnedOrder) ? agent.pinnedOrder : null,
       attentionSeq: typeof agent.attentionSeq === 'number' && Number.isFinite(agent.attentionSeq) ? Math.max(0, Math.floor(agent.attentionSeq)) : 0,
       readAttentionSeq: typeof agent.readAttentionSeq === 'number' && Number.isFinite(agent.readAttentionSeq) ? Math.max(0, Math.floor(agent.readAttentionSeq)) : 0,
+      unread: Number(agent.attentionSeq) > Number(agent.readAttentionSeq),
       attentionUpdatedAt: typeof agent.attentionUpdatedAt === 'number' ? agent.attentionUpdatedAt : null,
       readAttentionAt: typeof agent.readAttentionAt === 'number' ? agent.readAttentionAt : null,
       attentionReason: typeof agent.attentionReason === 'string' ? agent.attentionReason : '',

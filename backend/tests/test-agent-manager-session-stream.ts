@@ -1,11 +1,12 @@
 const assert = require('assert');
 const { AgentManager } = require('../agent-manager.cjs');
+const { createTestAgentManager } = require('./helpers/test-acp-runtime.ts');
 const { SESSION_OUTPUT_LIMIT, trimSessionOutput } = require('../agent-manager.cjs');
 
 async function run() {
   const runtimeEpoch1 = 'farming-runtime-v1:00000000000000000001:test-1';
   const runtimeEpoch2 = 'farming-runtime-v1:00000000000000000002:test-2';
-  const manager = new AgentManager({
+  const manager = createTestAgentManager(AgentManager, {
     getWorkspace() {
       return '/tmp';
     },

@@ -5,6 +5,7 @@ const os = require('os');
 const path = require('path');
 
 const { AgentManager } = require('../agent-manager.cjs');
+const { createTestAgentManager } = require('./helpers/test-acp-runtime.ts');
 const {
   activeLifecycleOperation,
   beginLifecycleOperation,
@@ -116,7 +117,7 @@ async function run() {
     });
   }
 
-  const manager = new AgentManager(configForStore(store, configDir), {
+  const manager = createTestAgentManager(AgentManager, configForStore(store, configDir), {
     skipExecutablePreflight: true,
   });
   const originalEngineBridge = manager.engineBridge;
@@ -320,7 +321,7 @@ async function runHiddenForkRecovery() {
   );
   assert.deepStrictEqual(store.getMainPageSessionKeys(), []);
 
-  const manager = new AgentManager(configForStore(store, configDir), {});
+  const manager = createTestAgentManager(AgentManager, configForStore(store, configDir), {});
   await manager.engineBridge.dispose();
   const liveRuntimeIds = new Set([hiddenLive.id]);
   const killed: string[] = [];
@@ -425,7 +426,7 @@ async function runHiddenForkPersistFailure() {
   const unhandledRejections: unknown[] = [];
   const onUnhandledRejection = (reason: unknown) => unhandledRejections.push(reason);
   process.on('unhandledRejection', onUnhandledRejection);
-  const manager = new AgentManager(config, {});
+  const manager = createTestAgentManager(AgentManager, config, {});
   await manager.engineBridge.dispose();
   manager.engineBridge = engineBridgeForFixture([hiddenMissing], new Set());
   let startAgentCalls = 0;

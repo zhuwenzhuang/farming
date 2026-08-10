@@ -32,6 +32,7 @@ require.cache[sessionEngineBridgePath] = {
 } as NodeModule;
 
 const { AgentManager } = require('../agent-manager.cjs');
+const { createTestAgentManager } = require('./helpers/test-acp-runtime.ts');
 const { serializeTerminalState } = require('../terminal-state-serialization.cjs');
 
 function composerCommand(requestId, message, state = 'accepted') {
@@ -156,7 +157,7 @@ function configManager() {
 async function run() {
   const testConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-agent-recovery-'));
   const killed = [];
-  const manager = new AgentManager(configManager());
+  const manager = createTestAgentManager(AgentManager, configManager());
   manager.engineBridge = {
     async recoverSessions() {
       return [
@@ -377,7 +378,7 @@ async function run() {
     providerSessionId: '22222222-2222-4222-8222-222222222222',
     providerSessionKey: 'agent-session:codex:22222222-2222-4222-8222-222222222222',
   };
-  const rotationManager = new AgentManager({
+  const rotationManager = createTestAgentManager(AgentManager, {
     ...configManager(),
     farmingDir: testConfigDir,
     getMainPageSessionKeys() {
@@ -555,7 +556,7 @@ async function run() {
       timestamp: 102,
     },
   ]);
-  const serializedRotationManager = new AgentManager({
+  const serializedRotationManager = createTestAgentManager(AgentManager, {
     ...configManager(),
     farmingDir: testConfigDir,
     getMainPageSessionKeys() {
@@ -617,17 +618,24 @@ async function run() {
     assert.strictEqual(shellRestart.command, 'bash');
     assert.strictEqual(shellRestart.options.reviveTerminalState.replayEvent.events[0].data, 'shell output before rotation');
     assert.strictEqual(serializedRotationManager.agents.has(hiddenRecord.runtimeAgentId), false);
-    assert.strictEqual(
-      serializedRotationManager.agents.has(temporaryCodexRotationRecord.runtimeAgentId),
-      false,
-      'a temporary Codex Terminal with user input must never be replaced by a fresh process after rotation'
+    const blockedTemporaryAgent = serializedRotationManager.agents.get(
+      temporaryCodexRotationRecord.runtimeAgentId,
+    );
+    assert(blockedTemporaryAgent, 'the initial inventory row must remain visible when recovery fails closed');
+    assert.strictEqual(blockedTemporaryAgent.status, 'error');
+    assert.strictEqual(blockedTemporaryAgent.engineStatus, 'recovery-failed');
+    assert(
+      !serializedRestarts.some(entry => (
+        entry.options.runtimeAgentId === temporaryCodexRotationRecord.runtimeAgentId
+      )),
+      'a temporary Codex Terminal with user input must never be replaced by a fresh process after rotation',
     );
   } finally {
     await serializedRotationManager.dispose({ preserveTerminalHost: true });
   }
 
   const persistedRuntimeAgentIds: string[] = [];
-  const rollbackManager = new AgentManager({
+  const rollbackManager = createTestAgentManager(AgentManager, {
     ...configManager(),
     ensureAgentSessionRecord(
       agent: { id: string; persistentSessionId?: string },

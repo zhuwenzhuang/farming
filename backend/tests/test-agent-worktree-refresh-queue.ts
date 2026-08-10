@@ -3,6 +3,7 @@ const {
   AgentWorktreeRefreshQueue,
 } = require('../agent-worktree-refresh-queue.cjs');
 const { AgentManager } = require('../agent-manager.cjs');
+const { createTestAgentManager } = require('./helpers/test-acp-runtime.ts');
 
 interface TestAgentRecord {
   cwd: string;
@@ -138,7 +139,7 @@ async function run() {
     true,
   );
 
-  const manager = new AgentManager({
+  const manager = createTestAgentManager(AgentManager, {
     getHeartbeatInterval: () => 60_000,
     getWorkspace: () => process.cwd(),
   }, { skipExecutablePreflight: true });

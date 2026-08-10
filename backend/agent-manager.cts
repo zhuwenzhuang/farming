@@ -154,16 +154,20 @@ import {
   providerArgsContinueSession,
   providerConversationForkCapability,
   providerForProgram,
+  providerPermissionRestartPolicy,
+  providerRequiresStableTerminalSessionAfterInput,
+  providerSessionResumeOptions,
   providerSessionIdentityRollbackArgs,
   providerSupportsRuntime,
   providerTerminalStartupPolicy,
+  providerTerminalNotificationUsesIdleFence,
 } from './provider-adapters.cjs';
 import {
   agentTerminalRuntimeStatus,
   agentTerminalStatusEqual,
   deriveAgentTerminalStatus,
 } from './agent-terminal-status.cjs';
-import { AcpRuntime, stopPersistedAcpProcessGroup } from './acp-runtime.cjs';
+import { stopPersistedAcpProcessGroup } from './acp-runtime.cjs';
 import { AcpRuntimeHostRuntime } from './acp-runtime-host-runtime.cjs';
 import { AcpTranscriptService } from './acp-transcript-service.cjs';
 import {
@@ -859,12 +863,6 @@ function providerCommandContinuesSession(command: string): boolean {
   return providerArgsContinueSession(provider, parts.slice(1));
 }
 
-function preserveCodexSessionProfileOptions() {
-  return {
-    preserveProviderSessionProfile: true,
-  };
-}
-
 function resumedSessionFromSource(source: string): ExactResumeSession | null {
   return sessionFromExactResumeSource(source);
 }
@@ -1531,12 +1529,14 @@ class AgentManager extends EventEmitter {
     const transcriptMediaPathPrefix = typeof options.transcriptMediaPathPrefix === 'function'
       ? options.transcriptMediaPathPrefix
       : (agentId: string) => `/api/agents/${encodeURIComponent(agentId)}/acp-media`;
-    this.acpRuntime = options.acpRuntime || (this.configManager?.farmingDir
-      ? new AcpRuntimeHostRuntime({
-          configDir: this.configManager.farmingDir,
-          forceReplaceActiveHost: process.env.FARMING_FORCE_ACP_HOST_RESTART === '1',
-        })
-      : new AcpRuntime());
+    const acpRuntimeConfigDir = this.configManager?.farmingDir || '';
+    if (!options.acpRuntime && !acpRuntimeConfigDir) {
+      throw new Error('AgentManager requires an exact Config directory or an explicit ACP runtime');
+    }
+    this.acpRuntime = options.acpRuntime || new AcpRuntimeHostRuntime({
+      configDir: acpRuntimeConfigDir,
+      forceReplaceActiveHost: process.env.FARMING_FORCE_ACP_HOST_RESTART === '1',
+    });
     this.acpTranscriptService = new AcpTranscriptService({
       getAgent: agentId => this.agents.get(agentId),
       mediaPathPrefix: transcriptMediaPathPrefix,
@@ -2142,7 +2142,7 @@ class AgentManager extends EventEmitter {
       const provider = agent.providerSessionProvider
         || agentHomeProviderForProgram(agent.forkCommand || agent.command || '');
       if (
-        provider === 'qwen'
+        providerTerminalNotificationUsesIdleFence(provider)
         && (
           agentAttentionTurnActive(agent)
           || this.attentionTracker.hasQwenTerminalIdleCandidate(agent.id)
@@ -2240,7 +2240,6 @@ class AgentManager extends EventEmitter {
       return;
     }
 
-    const recovered = await this.engineBridge.recoverSessions();
     const recordStore = this.configManager;
     const listPersistedRecords = recordStore && typeof recordStore.listAgentSessionRecords === 'function'
       ? () => recordStore.listAgentSessionRecords()
@@ -2252,6 +2251,51 @@ class AgentManager extends EventEmitter {
       persistedRecords = listPersistedRecords();
     }
     const mainPageSessionKeys = new Set(this.mainPageSessionIndex.list());
+    const materializedAgentIds: string[] = [];
+    for (const record of persistedRecords) {
+      const agentId = String(record.runtimeAgentId || '').trim();
+      const operation = activeLifecycleOperation(record);
+      const recoverableOperation = operation
+        && ['create', 'delete', 'archive', 'fork'].includes(operation.type);
+      if (
+        !agentId
+        || this.agents.has(agentId)
+        || (
+          !recoverableOperation
+          && !shouldRestoreAgentFromMetadata(record, mainPageSessionKeys)
+        )
+      ) continue;
+      const agent = this.recoveredAgentRecord(
+        agentId,
+        record.engine || 'native',
+        record,
+        { status: 'pending' },
+      );
+      setAgentRecordId(agent, record.id || '');
+      agent.status = 'pending';
+      agent.engineStatus = 'recovering';
+      agent.engineStarted = false;
+      const runtime = runtimeBindingOf(agent, 'acp');
+      if (runtime) {
+        runtime.state = 'connecting';
+        runtime.error = '';
+        runtime.stopReason = '';
+      }
+      this.registerAgentRecord(agentId, agent);
+      if (agent.wantsMain && !this.mainAgentIdentity.hasCurrent()) {
+        this.mainAgentIdentity.setCurrent(agentId);
+      }
+      materializedAgentIds.push(agentId);
+    }
+    if (materializedAgentIds.length > 0) {
+      this.emitStateChange({
+        agentIds: materializedAgentIds,
+        mainAgentIdChanged: true,
+      });
+    }
+
+    const recovered = await this.engineBridge.recoverSessions();
+    persistedRecords = listPersistedRecords();
     const persistedByRuntimeAgentId = new Map<string, PersistedAgentPrivateMetadata>(persistedRecords
       .filter((record: PersistedAgentPrivateMetadata) => typeof record.runtimeAgentId === 'string' && Boolean(record.runtimeAgentId))
       .map((record: PersistedAgentPrivateMetadata) => [record.runtimeAgentId as string, record]));
@@ -2339,7 +2383,8 @@ class AgentManager extends EventEmitter {
         projectOrder: finiteOrder(persisted.projectOrder) ?? finiteOrder(engineMetadata.projectOrder),
         pinnedOrder: finiteOrder(persisted.pinnedOrder) ?? finiteOrder(engineMetadata.pinnedOrder),
       } : engineMetadata;
-      if (!agentId || this.agents.has(agentId)) continue;
+      const existingAgent = this.agents.get(agentId);
+      if (!agentId || (existingAgent && existingAgent.engineStarted !== false)) continue;
 
       const agentRecord = this.recoveredAgentRecord(agentId, entry.engineName || metadata.engineName || 'native', metadata, state);
       agentRecord.lastObservedTurnActive = agentAttentionTurnActive(agentRecord);
@@ -2519,7 +2564,12 @@ class AgentManager extends EventEmitter {
         // The shared recovery prepass owns the durable blocked transition.
         // Here the source only needs a fail-closed row so the blocked Fork
         // stays reachable for same-request reconcile or archive/delete.
-        if (this.agents.has(agentId)) continue;
+        const existingAgent = this.agents.get(agentId);
+        if (existingAgent) {
+          this.markRecoveredAgentLifecycleBlocked(existingAgent, operation);
+          changed = true;
+          continue;
+        }
         const blockedAgent = this.recoveredAgentRecord(
           agentId,
           record.engine || 'native',
@@ -2592,6 +2642,9 @@ class AgentManager extends EventEmitter {
             providerArchive?.error || '',
           );
         }
+        if (this.agents.get(agentId)?.engineStarted === false) {
+          this.forgetStoppedAgentRecord(agentId, { emitUpdate: false });
+        }
         changed = true;
       } catch (caughtError: unknown) {
       const error = caughtError as ErrorRecord;
@@ -2612,7 +2665,11 @@ class AgentManager extends EventEmitter {
     const mainPageSessionKeys = new Set(mainPageOrder.keys());
     const liveProviderSessions = new Set(
       [...this.agents.values()]
-        .filter((agent: TypedAgentRecord) => agent?.providerSessionProvider && agent?.providerSessionId)
+        .filter((agent: TypedAgentRecord) => (
+          agent?.engineStarted !== false
+          && agent?.providerSessionProvider
+          && agent?.providerSessionId
+        ))
         .map((agent: TypedAgentRecord) => mainPageAgentSessionKey(
           agent.providerSessionProvider,
           agent.providerSessionId,
@@ -2657,7 +2714,11 @@ class AgentManager extends EventEmitter {
           record.providerHomeId || 'default'
         );
         if (!sessionKey || liveProviderSessions.has(sessionKey)) return false;
-        if (record.wantsMain === true) return !this.mainAgentIdentity.hasCurrent();
+        if (record.wantsMain === true) {
+          const currentMainId = this.mainAgentIdentity.currentId();
+          const currentMain = currentMainId ? this.agents.get(currentMainId) : null;
+          return !currentMain || currentMain.engineStarted === false;
+        }
         return mainPageOrder.has(sessionKey);
       })
       .sort((left, right) => {
@@ -2747,7 +2808,11 @@ class AgentManager extends EventEmitter {
 
     let changed = false;
     for (const record of desiredCandidates) {
-      if (record.wantsMain === true && this.mainAgentIdentity.hasCurrent()) continue;
+      if (record.wantsMain === true) {
+        const currentMainId = this.mainAgentIdentity.currentId();
+        const currentMain = currentMainId ? this.agents.get(currentMainId) : null;
+        if (currentMain?.engineStarted !== false) continue;
+      }
       const provider = String(record.providerSessionProvider || record.provider || '').trim();
       const sessionId = record.providerSessionId;
       const sessionKey = canonicalProviderSessionKey(record.providerSessionKey) || mainPageAgentSessionKey(
@@ -2755,9 +2820,17 @@ class AgentManager extends EventEmitter {
         sessionId,
         record.providerHomeId || 'default'
       );
+      const markPlaceholderRecoveryFailed = (message: string) => {
+        const placeholder = this.agents.get(String(record.runtimeAgentId || '').trim());
+        if (!placeholder || placeholder.engineStarted !== false) return;
+        placeholder.status = 'error';
+        placeholder.engineStatus = 'recovery-failed';
+        placeholder.output = trimSessionOutput(`${placeholder.output || ''}\n${message}`);
+        changed = true;
+      };
       if (sessionKey && liveProviderSessions.has(sessionKey)) continue;
       if (
-        provider === 'codex'
+        providerRequiresStableTerminalSessionAfterInput(provider)
         && record.terminalInputReceived === true
         && (
           record.providerSessionTemporary === true
@@ -2766,6 +2839,9 @@ class AgentManager extends EventEmitter {
       ) {
         console.warn(
           `Refusing to replace Codex Terminal ${record.runtimeAgentId || sessionId} after native PTY runtime rotation without an exact resume id`
+        );
+        markPlaceholderRecoveryFailed(
+          'Terminal recovery requires an exact provider Session id after process loss',
         );
         continue;
       }
@@ -2782,7 +2858,10 @@ class AgentManager extends EventEmitter {
             record.serializedState?.processLaunchConfig?.command ||
             ''
           );
-      if (!command) continue;
+      if (!command) {
+        markPlaceholderRecoveryFailed('Terminal recovery has no persisted launch command');
+        continue;
+      }
 
       const options: UnknownRecord = {
         wantsMain: record.wantsMain === true,
@@ -2819,17 +2898,25 @@ class AgentManager extends EventEmitter {
         runtimeAgentId: record.runtimeAgentId || '',
         reviveTerminalState: record.serializedState || null,
         composerCommands: normalizedComposerCommands(record.composerCommands),
-        ...(provider === 'codex'
-          ? {
-              codexApprovalMode: record.launchPermissionMode || undefined,
-              ...preserveCodexSessionProfileOptions(),
-            }
-          : {}),
-        ...(provider === 'claude'
-          ? { claudePermissionMode: record.launchPermissionMode || undefined }
-          : {}),
+        ...providerSessionResumeOptions(provider, {
+          permissionMode: record.launchPermissionMode,
+          preserveProfile: true,
+        }),
       };
 
+      const placeholderId = String(record.runtimeAgentId || '').trim();
+      const recoveryPlaceholder = placeholderId ? this.agents.get(placeholderId) : null;
+      if (recoveryPlaceholder?.engineStarted === false) {
+        this.deleteAgentRecord(placeholderId);
+        this.mainAgentIdentity.clearIf(placeholderId);
+      }
+      const restorePlaceholder = () => {
+        if (!recoveryPlaceholder || this.agents.has(recoveryPlaceholder.id)) return;
+        this.registerAgentRecord(recoveryPlaceholder.id, recoveryPlaceholder);
+        if (recoveryPlaceholder.wantsMain) {
+          this.mainAgentIdentity.setCurrent(recoveryPlaceholder.id);
+        }
+      };
       let restartedAgentId = null;
       try {
         restartedAgentId = await this.startAgent(
@@ -2844,10 +2931,14 @@ class AgentManager extends EventEmitter {
           `Failed to restore Terminal session ${record.runtimeAgentId || sessionId} after native PTY runtime rotation:`,
           error && (error.message || error)
         );
+        restorePlaceholder();
+        markPlaceholderRecoveryFailed(`Terminal recovery failed: ${error && (error.message || error)}`);
         continue;
       }
       const replacement = restartedAgentId ? this.agents.get(restartedAgentId) : null;
       if (!replacement) {
+        restorePlaceholder();
+        markPlaceholderRecoveryFailed('Terminal recovery did not create a replacement Runtime');
         console.warn(
           `Failed to restore Terminal session ${record.runtimeAgentId || sessionId} after native PTY runtime rotation`
         );
@@ -2984,6 +3075,8 @@ class AgentManager extends EventEmitter {
         this.registerAgentRecord(agentId, recoveredAgent);
         void this.refreshAgentWorktree(agentId);
         this.activityTracker.record(agentId);
+      } else if (blockedOperation) {
+        this.markRecoveredAgentLifecycleBlocked(agent, blockedOperation);
       }
     }
     this.emitStateChange({ agentIds: records.map(record => String(record.runtimeAgentId || '')).filter(Boolean) });
@@ -3048,6 +3141,14 @@ class AgentManager extends EventEmitter {
             this.sessionPersistence.persist(agent);
           },
         });
+        const runtime = replaceRuntimeBinding(agent, 'acp', runtimeBindingOf(agent, 'acp'));
+        runtime.state = typeof snapshot.state === 'string' ? snapshot.state : 'idle';
+        runtime.error = typeof snapshot.error === 'string' ? snapshot.error : '';
+        runtime.stopReason = typeof snapshot.stopReason === 'string' ? snapshot.stopReason : '';
+        agent.status = 'running';
+        agent.engineStatus = 'running';
+        agent.engineStarted = false;
+        agent.exitedAt = null;
         const createOperation = activeLifecycleOperation(agent);
         if (createOperation?.type === 'create') {
           agent.status = 'running';
@@ -3445,6 +3546,12 @@ class AgentManager extends EventEmitter {
             providerArchive?.error || '',
           );
         }
+        if (
+          !(operation.type === 'create' && operation.state === 'membership-pending')
+          && this.agents.get(agentId)?.engineStarted === false
+        ) {
+          this.forgetStoppedAgentRecord(agentId, { emitUpdate: false });
+        }
       } catch (caughtError: unknown) {
       const error = caughtError as ErrorRecord;
         console.warn(
@@ -3466,7 +3573,7 @@ class AgentManager extends EventEmitter {
       if (
         operation?.type !== 'update'
         || !agentId
-        || this.agents.has(agentId)
+        || this.agents.get(agentId)?.engineStarted !== false
       ) {
         continue;
       }
@@ -6052,6 +6159,12 @@ class AgentManager extends EventEmitter {
   }
 
   async getAcpSessionForRead(agentId: AgentId, options: Partial<AcpSessionRequestOptions> = {}) {
+    const agent = this.agents.get(agentId);
+    if (!agent) throw new Error('Agent not found');
+    if (!isAcpAgent(agent)) throw new Error('Agent is not using the ACP runtime');
+    if (!this.acpRuntime.hasBinding(agentId) && !this.recoveryGate.isComplete()) {
+      await this.recoveryGate.wait();
+    }
     this.requireLiveAcpAgent(agentId);
     return this.acpRuntime.getSessionForRead(agentId, options);
   }
@@ -6993,14 +7106,14 @@ class AgentManager extends EventEmitter {
       providerSessionMaterialized: agent.providerSessionMaterialized !== false,
       agentRuntimeMode: nextMode,
       acpStartFresh: startsFreshChatSession && nextRuntimeKind === 'acp',
-      codexApprovalMode: agent.launchPermissionMode || undefined,
       runtimeSwitchVerifiedSessionId: startsFreshChatSession ? '' : sessionId,
       lifecycleToken,
       ...acpSessionOptions,
       acpConfigOverrides,
-      ...(provider === 'codex' && !startsFreshChatSession
-        ? preserveCodexSessionProfileOptions()
-        : {}),
+      ...providerSessionResumeOptions(provider, {
+        permissionMode: agent.launchPermissionMode,
+        preserveProfile: !startsFreshChatSession,
+      }),
     };
     const originalMode = currentMode;
     const originalOptions: ProviderStartOptions = {
@@ -7157,29 +7270,27 @@ class AgentManager extends EventEmitter {
       ? (sourceSession && sourceSession.sessionId)
       : (agent.providerSessionId || (sourceSession && sourceSession.sessionId) || '');
 
-    if (!['codex', 'claude'].includes(provider)) {
+    const permissionRestart = providerPermissionRestartPolicy(provider, mode);
+    if (!permissionRestart) {
       return { error: 'Agent does not support permission restart' };
     }
-
-    const nextMode = provider === 'codex'
-      ? (['ask', 'approve', 'full', 'custom'].includes(mode) ? mode : '')
-      : (['acceptEdits', 'auto', 'bypassPermissions', 'default', 'dontAsk', 'plan'].includes(mode) ? mode : '');
+    const nextMode = permissionRestart.mode;
     if (!nextMode) {
-      return { error: `Unsupported ${provider === 'codex' ? 'Codex' : 'Claude'} permission mode` };
+      return { error: `Unsupported ${permissionRestart.displayName} permission mode` };
     }
 
     const hasResumableSession = isSafeProviderSessionId(sessionId);
-    const startsFreshCodexSession = provider === 'codex'
+    const startsFreshPermissionSession = Boolean(permissionRestart.freshCommand)
       && !hasResumableSession
       && (agent.providerSessionTemporary === true || !String(agent.providerSessionId || '').trim());
-    if (startsFreshCodexSession && agent.terminalInputReceived === true) {
+    if (startsFreshPermissionSession && agent.terminalInputReceived === true) {
       return { error: 'Permission changes require a resumable provider session. Try again after the session id is available.' };
     }
-    if (!hasResumableSession && !startsFreshCodexSession) {
+    if (!hasResumableSession && !startsFreshPermissionSession) {
       return { error: 'Permission changes require a resumable provider session. Try again after the session id is available.' };
     }
-    const command = startsFreshCodexSession
-      ? 'codex'
+    const command = startsFreshPermissionSession
+      ? permissionRestart.freshCommand
       : buildAgentSessionResumeCommand(provider, sessionId, {
         cwd: effectiveAgentWorkspaceRoot(agent),
         providerHomePath: agent.providerHomePath || '',
@@ -7213,11 +7324,8 @@ class AgentManager extends EventEmitter {
       wantsMain: agent.wantsMain === true,
       task: agent.task || agent.providerSessionTitle || '',
       workflowTemplate: agent.workflowTemplate || '',
-      requiredCliVersion: provider === 'codex' && typeof agent.requiredCliVersion === 'string'
-        ? agent.requiredCliVersion
-        : '',
       projectWorkspace: effectiveAgentWorkspaceRoot(agent),
-      source: startsFreshCodexSession
+      source: startsFreshPermissionSession
         ? 'ui'
         : (resumedSessionFromSource(String(agent.source || ''))
           ? String(agent.source || '')
@@ -7241,10 +7349,11 @@ class AgentManager extends EventEmitter {
       lifecycleToken,
       ...acpSessionOptions,
       acpConfigOverrides,
-      ...(provider === 'codex' ? { codexApprovalMode: nextMode } : { claudePermissionMode: nextMode }),
-      ...(provider === 'codex' && hasResumableSession
-        ? preserveCodexSessionProfileOptions()
-        : {}),
+      ...providerSessionResumeOptions(provider, {
+        permissionMode: nextMode,
+        preserveProfile: hasResumableSession,
+        requiredCliVersion: typeof agent.requiredCliVersion === 'string' ? agent.requiredCliVersion : '',
+      }),
     };
     const preserved = {
       pinned: agent.pinned === true,
@@ -8090,9 +8199,7 @@ class AgentManager extends EventEmitter {
         source: mode === 'new-worktree' ? 'ui-fork-new-worktree' : 'ui-fork-same-worktree',
         providerHomeId: agent.providerHomeId || (resumedSession && resumedSession.providerHomeId) || '',
         providerHomePath: agent.providerHomePath || '',
-        ...(resumedSession?.provider === 'codex'
-          ? preserveCodexSessionProfileOptions()
-          : {}),
+        ...providerSessionResumeOptions(resumedSession?.provider, { preserveProfile: true }),
       }),
       'Failed to start forked agent',
     );
@@ -8219,7 +8326,6 @@ class AgentManager extends EventEmitter {
         providerHomeId: agent.providerHomeId || 'default',
         providerHomePath: agent.providerHomePath || '',
         providerSessionTitle: agent.providerSessionTitle || '',
-        requiredCliVersion: provider === 'codex' ? (agent.requiredCliVersion || '') : '',
         projectWorkspace: workspace,
         agentRuntimeMode: 'chat',
         acpHistoryMode: 'load',
@@ -8227,15 +8333,11 @@ class AgentManager extends EventEmitter {
         forkedFromProviderSessionId: sourceSessionId,
         lifecycleToken,
         ...acpSessionOptions,
-        ...(provider === 'codex'
-          ? {
-              codexApprovalMode: agent.launchPermissionMode || undefined,
-              ...preserveCodexSessionProfileOptions(),
-            }
-          : {}),
-        ...(provider === 'claude'
-          ? { claudePermissionMode: agent.launchPermissionMode || undefined }
-          : {}),
+        ...providerSessionResumeOptions(provider, {
+          permissionMode: agent.launchPermissionMode,
+          preserveProfile: true,
+          requiredCliVersion: typeof agent.requiredCliVersion === 'string' ? agent.requiredCliVersion : '',
+        }),
       }),
       'Failed to start forked ACP Chat Agent',
     );
@@ -8326,9 +8428,11 @@ class AgentManager extends EventEmitter {
               onAcpSessionPrepared: (prepared: AcpPrepareResult) => {
                 preparedSessionId = String(prepared?.sessionId || '').trim();
               },
-              ...(provider === 'claude'
-                ? { claudePermissionMode: agent.launchPermissionMode || undefined }
-                : {}),
+              ...providerSessionResumeOptions(provider, {
+                permissionMode: typeof agent.launchPermissionMode === 'string' ? agent.launchPermissionMode : '',
+                preserveProfile: true,
+                requiredCliVersion: typeof agent.requiredCliVersion === 'string' ? agent.requiredCliVersion : '',
+              }),
             }),
             'Failed to start forked ACP Chat Agent',
           );

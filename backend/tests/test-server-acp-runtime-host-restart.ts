@@ -359,7 +359,9 @@ async function run(): Promise<void> {
         const matches = recordArray(listed.body.agents)
           .filter(agent => String(agent.id || '') === agentId);
         lastRecoveredAgent = matches.length === 1 ? matches[0] : null;
-        return matches.length === 1 && ['working', 'idle'].includes(runtimeState(matches[0]))
+        return matches.length === 1
+          && matches[0].status === 'running'
+          && ['working', 'idle'].includes(runtimeState(matches[0]))
           ? matches[0]
           : null;
       }, 'same healthy ACP Agent after Server B recovery');

@@ -3,10 +3,11 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { AgentManager } = require('../agent-manager.cjs');
+const { createTestAgentManager } = require('./helpers/test-acp-runtime.ts');
 
 async function run() {
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-agent-interrupt-'));
-  const manager = new AgentManager({
+  const manager = createTestAgentManager(AgentManager, {
     getWorkspace() {
       return tmpRoot;
     },

@@ -77,6 +77,7 @@ class IsolatedBrowserProvider {
       const result = await execFileAsync('docker', args, {
         encoding: 'utf8',
         timeout: runOptions.timeoutMs || 90_000,
+        killSignal: 'SIGKILL',
         maxBuffer: runOptions.maxBuffer || 20 * 1024 * 1024,
       });
       return {

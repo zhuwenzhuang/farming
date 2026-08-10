@@ -487,6 +487,7 @@ export interface AcpRuntimeContract {
   on(event: 'agent-runtime', listener: (event: AcpRuntimeEvent) => void): this;
   on(event: 'session', listener: (event: AcpSessionEvent) => void): this;
   on(event: 'config-overrides', listener: (event: AcpConfigOverridesEvent) => void): this;
+  on(event: 'bindings-interrupted', listener: (event: { agentIds?: unknown[] }) => void): this;
   prepareAgent(options?: AcpPrepareOptions): Promise<AcpPrepareResult>;
   reconnectAgent(
     agentId: string,

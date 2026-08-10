@@ -8,10 +8,14 @@ const {
   providerCapabilities,
   providerConversationForkCapability,
   providerForProgram,
+  providerPermissionRestartPolicy,
+  providerRequiresStableTerminalSessionAfterInput,
+  providerSessionResumeOptions,
   providerSessionIdentityRollbackArgs,
   providerSupportsSharedAcpRuntime,
   providerSupportsRuntime,
   providerTerminalStartupPolicy,
+  providerTerminalNotificationUsesIdleFence,
 } = require('../provider-adapters.cjs');
 
 function run() {
@@ -34,6 +38,43 @@ function run() {
     ['session', 'delete', 'ses_opencode_1'],
   );
   assert.strictEqual(providerSessionIdentityRollbackArgs('claude', 'session-1'), null);
+  assert.deepStrictEqual(
+    providerSessionResumeOptions('codex', {
+      permissionMode: 'full',
+      preserveProfile: true,
+      requiredCliVersion: '0.100.0',
+    }),
+    {
+      codexApprovalMode: 'full',
+      preserveProviderSessionProfile: true,
+      requiredCliVersion: '0.100.0',
+    },
+  );
+  assert.deepStrictEqual(
+    providerSessionResumeOptions('claude', {
+      permissionMode: 'plan',
+      preserveProfile: true,
+      requiredCliVersion: 'ignored',
+    }),
+    { claudePermissionMode: 'plan' },
+  );
+  assert.deepStrictEqual(providerSessionResumeOptions('opencode', { permissionMode: 'full' }), {});
+  assert.deepStrictEqual(providerPermissionRestartPolicy('codex', 'approve'), {
+    displayName: 'Codex',
+    freshCommand: 'codex',
+    mode: 'approve',
+  });
+  assert.deepStrictEqual(providerPermissionRestartPolicy('claude', 'plan'), {
+    displayName: 'Claude',
+    freshCommand: '',
+    mode: 'plan',
+  });
+  assert.strictEqual(providerPermissionRestartPolicy('claude', 'full').mode, '');
+  assert.strictEqual(providerPermissionRestartPolicy('opencode', 'full'), null);
+  assert.strictEqual(providerRequiresStableTerminalSessionAfterInput('codex'), true);
+  assert.strictEqual(providerRequiresStableTerminalSessionAfterInput('claude'), false);
+  assert.strictEqual(providerTerminalNotificationUsesIdleFence('qwen'), true);
+  assert.strictEqual(providerTerminalNotificationUsesIdleFence('codex'), false);
 
   for (const adapter of adapters) {
     assert.strictEqual(getProviderAdapter(adapter.id), adapter);

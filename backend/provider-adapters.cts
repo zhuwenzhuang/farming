@@ -19,6 +19,23 @@ interface ProviderTerminalStartupPolicy {
   serialization: 'provider-home';
 }
 
+interface ProviderSessionPolicy {
+  permissionDisplayName?: string;
+  permissionOption?: 'claudePermissionMode' | 'codexApprovalMode';
+  permissionRestartModes?: readonly string[];
+  preserveProfileOnResume?: boolean;
+  preserveRequiredCliVersion?: boolean;
+  freshPermissionRestartCommand?: string;
+  requiresStableTerminalSessionAfterInput?: boolean;
+  terminalNotificationIdleFence?: boolean;
+}
+
+interface ProviderPermissionRestartPolicy {
+  displayName: string;
+  freshCommand: string;
+  mode: string;
+}
+
 interface ProviderConversationForkCapability {
   supported: boolean;
   strategy: ProviderConversationForkStrategy | null;
@@ -133,6 +150,7 @@ interface ProviderAdapter {
     plan?: ProviderSessionPlan,
   ) => string[];
   terminalStartup?: ProviderTerminalStartupPolicy;
+  sessionPolicy?: ProviderSessionPolicy;
   acp: ProviderAcpContract;
   prepareAcpEnvironment?: (options?: ProviderEnvironmentOptions) => NodeJS.ProcessEnv;
   capabilities: ProviderCapabilitiesContract;
@@ -427,6 +445,15 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
       serialization: 'provider-home',
       readiness: { kind: 'output-includes', value: '\u001b' },
     },
+    sessionPolicy: {
+      permissionDisplayName: 'Codex',
+      permissionOption: 'codexApprovalMode',
+      permissionRestartModes: ['ask', 'approve', 'full', 'custom'],
+      preserveProfileOnResume: true,
+      preserveRequiredCliVersion: true,
+      freshPermissionRestartCommand: 'codex',
+      requiresStableTerminalSessionAfterInput: true,
+    },
     acp: {
       executablePolicy: 'managed',
       packageName: '@agentclientprotocol/codex-acp',
@@ -466,6 +493,11 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
       || arg === '--fork-session'
     )),
     planSession: (rawArgs, launchArgs) => explicitSessionPlan('claude', rawArgs, launchArgs),
+    sessionPolicy: {
+      permissionDisplayName: 'Claude',
+      permissionOption: 'claudePermissionMode',
+      permissionRestartModes: ['acceptEdits', 'auto', 'bypassPermissions', 'default', 'dontAsk', 'plan'],
+    },
     acp: {
       executablePolicy: 'managed',
       packageName: '@agentclientprotocol/claude-agent-acp',
@@ -582,6 +614,9 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
     commands: ['qwen'],
     supportedRuntimes: ['terminal', 'acp'],
     planSession: (rawArgs, launchArgs) => explicitSessionPlan('qwen', rawArgs, launchArgs),
+    sessionPolicy: {
+      terminalNotificationIdleFence: true,
+    },
     terminalResumeArgs: (args, sessionId) => {
       const delimiterIndex = args.indexOf('--');
       const insertIndex = delimiterIndex >= 0 ? delimiterIndex : args.length;
@@ -686,6 +721,52 @@ function providerTerminalStartupPolicy(
   return getProviderAdapter(provider)?.terminalStartup || null;
 }
 
+function providerSessionResumeOptions(
+  provider: unknown,
+  options: {
+    permissionMode?: string;
+    preserveProfile?: boolean;
+    requiredCliVersion?: string;
+  } = {},
+): Record<string, string | boolean> {
+  const policy = getProviderAdapter(provider)?.sessionPolicy;
+  if (!policy) return {};
+  const result: Record<string, string | boolean> = {};
+  const permissionMode = String(options.permissionMode || '').trim();
+  if (permissionMode && policy.permissionOption) result[policy.permissionOption] = permissionMode;
+  if (options.preserveProfile === true && policy.preserveProfileOnResume === true) {
+    result.preserveProviderSessionProfile = true;
+  }
+  const requiredCliVersion = String(options.requiredCliVersion || '').trim();
+  if (requiredCliVersion && policy.preserveRequiredCliVersion === true) {
+    result.requiredCliVersion = requiredCliVersion;
+  }
+  return result;
+}
+
+function providerPermissionRestartPolicy(
+  provider: unknown,
+  requestedMode: unknown,
+): ProviderPermissionRestartPolicy | null {
+  const adapter = getProviderAdapter(provider);
+  const policy = adapter?.sessionPolicy;
+  if (!adapter || !policy?.permissionRestartModes) return null;
+  const requested = String(requestedMode || '');
+  return {
+    displayName: policy.permissionDisplayName || adapter.displayName,
+    freshCommand: policy.freshPermissionRestartCommand || '',
+    mode: policy.permissionRestartModes.includes(requested) ? requested : '',
+  };
+}
+
+function providerRequiresStableTerminalSessionAfterInput(provider: unknown): boolean {
+  return getProviderAdapter(provider)?.sessionPolicy?.requiresStableTerminalSessionAfterInput === true;
+}
+
+function providerTerminalNotificationUsesIdleFence(provider: unknown): boolean {
+  return getProviderAdapter(provider)?.sessionPolicy?.terminalNotificationIdleFence === true;
+}
+
 function providerSupportsSharedAcpRuntime(provider: unknown): boolean {
   return getProviderAdapter(provider)?.acp.sharedRuntime === true;
 }
@@ -771,9 +852,14 @@ export {
   providerConversationForkCapability,
   providerCapabilities,
   providerForProgram,
+  providerPermissionRestartPolicy,
+  providerRequiresStableTerminalSessionAfterInput,
+  providerSessionResumeOptions,
   providerSessionIdentityRollbackArgs,
   providerSupportsSharedAcpRuntime,
   providerSupportsRuntime,
   providerTerminalStartupPolicy,
+  providerTerminalNotificationUsesIdleFence,
   type ProviderTerminalStartupPolicy,
+  type ProviderPermissionRestartPolicy,
 };

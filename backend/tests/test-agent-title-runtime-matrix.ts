@@ -1,5 +1,6 @@
 const assert = require('assert');
 const { AgentManager } = require('../agent-manager.cjs');
+const { createTestAgentManager } = require('./helpers/test-acp-runtime.ts');
 
 function runtimeBinding(kind) {
   if (kind === 'terminal') return { kind: 'terminal' };
@@ -22,7 +23,7 @@ function runtimeBinding(kind) {
 
 async function run() {
   const persisted = [];
-  const manager = new AgentManager({
+  const manager = createTestAgentManager(AgentManager, {
     getWorkspace: () => process.cwd(),
     getHeartbeatInterval: () => 60_000,
     getCodingAgentEngine: () => 'local',

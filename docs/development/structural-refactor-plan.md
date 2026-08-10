@@ -229,14 +229,18 @@ Resume transport over one domain coordinator. They
 either removed the superseded production path or became the single owner of a
 coherent state or effect.
 
-The current priority structural problems are:
+The former priority structural problems have converged:
 
-1. some `CodeWorkspace` controllers mirror backend truth or merely wrap a
-   reducer or fetch;
-2. Terminal link, resize, and attachment code use overlapping operation
-   identities;
-3. stylesheet file ownership does not by itself prove cross-owner cascade
-   equivalence.
+1. `CodeWorkspace` wrapper-only Catalog and QR controllers were collapsed;
+   the remaining controllers own browser-local state or a real request
+   lifecycle, while the host renders their projections;
+2. Terminal link, resize, renderer, and attachment effects consume one
+   attachment operation identity under the Replication and Interaction owners;
+3. stylesheet domains have explicit base/dark owners and keep global cascade,
+   specificity, and import-order proof as a continuing change gate;
+4. the Server now reaches ACP through the Host facade only, and generic
+   permission restart, resume-profile, idle-fence, and recovery constraints
+   come from typed Provider Adapter policy.
 
 Resume keeps two internal admission maps because an HTTP resume is a complete
 operation while direct and auto resume are effect-level entries; whether they
@@ -247,10 +251,12 @@ shell-environment cache and assembles the launch request. Do not recreate a
 large Launch service or port surface unless a smaller owner removes proven
 duplicated truth.
 
-No new large state extraction starts until these areas converge. An unmerged
-prototype is evidence, not an asset that must be preserved. If it repeatedly
-adds ledgers, registries, generations, latches, or compensating flags to pass
-review, reduce it to a smaller state machine or discard it.
+The planned structural convergence is complete. Further extraction requires a
+newly demonstrated duplicate truth, protocol defect, or feature change that
+cannot stay within one existing owner. An unmerged prototype is evidence, not
+an asset that must be preserved. If it repeatedly adds ledgers, registries,
+generations, latches, or compensating flags to pass review, reduce it to a
+smaller state machine or discard it.
 
 The domain state machine owns transition rules. Registries and stores own exact
 identity and durable data, while effect executors report facts. One decision
@@ -258,11 +264,12 @@ must not be repeated by a coordinator, a lifecycle layer, and the Manager.
 
 ### Target roles for oversized hosts
 
-- `agent-manager.cts` ultimately retains the exact Agent registry, public
-  facade, service composition, and event delivery. Recovery/start/restart/
-  archive/kill form one Agent-lifecycle domain. Fork and Project/Worktree are
-  separate domains; neither may remain as a large inline block or a stateless
-  wrapper around that block.
+- `agent-manager.cts` retains the exact Agent registry, public facade, service
+  composition, event delivery, and top-level cross-resource lifecycle
+  orchestration. Domain owners hold mutable admission/order/recovery state and
+  Worktree/Git effects; the facade may sequence exact Agent, provider-session,
+  Worktree, and Project outcomes, but does not duplicate their state machines
+  or execute Git policy itself.
 - `CodeWorkspace.tsx` retains page layout, current selection, browser-local
   workspace-surface state, and child composition. Composer may own drafts,
   menus, and attachment previews; Project membership, Agent lifecycle, and
@@ -379,16 +386,13 @@ the component until a later change proves another stable owner.
 
 ### Lane F2 — Workspace application controllers
 
-`CodeWorkspace` delegates several domains, but controller count and total
-production code have grown faster than host responsibility has fallen. The
-next step is convergence, not further extraction:
-
-1. retain owners of genuine browser-local Composer, workspace-surface, and
-   session-view state;
-2. merge or remove layers that only wrap reducers, fetches, or backend truth;
-3. project authoritative Project and Agent mutation results instead of keeping
-   parallel frontend admission, deadline, and reconciliation state;
-4. narrow props only after the remaining owners are stable.
+The `CodeWorkspace` controller convergence is complete. Wrapper-only Catalog
+and QR layers have been removed. Composer, Workspace Surface, Resource Pane,
+Session Inventory, Resume, and Project Mutation remain because they own either
+browser-local state or explicit admission, cancellation, stale-completion, and
+uncertain-outcome semantics. `CodeWorkspace` composes these owners and no
+longer implements their raw paging or mutation state machines. Re-enter this
+lane only for a concrete duplicate truth or request-lifecycle defect.
 
 ### Lane F3 — Terminal browser runtime
 
@@ -423,11 +427,9 @@ client's authoritative snapshot cut and releases them once that cut is
 complete. The authoritative projection and the broadcast scheduler remain
 outside that boundary.
 
-Remaining scope:
-
-- extract the remaining bounded bootstrap domains — ACP Agent HTTP operations,
-  usage and update operations, auth/share/static groups — where separation is
-  useful.
+No mandatory transport extraction remains. Auth, share/static, ACP Agent HTTP,
+Usage, and Update wiring may move only when a feature or demonstrated duplicate
+state makes a separate owner useful.
 
 Avoid one file per message. Each slice must preserve the route manifest,
 middleware order, response shape, and connection-local state.
@@ -453,7 +455,7 @@ delete/reuse invalidates both pending and already active observations.
 Provider-neutral Terminal startup ordering also has one owner, activated by a
 typed adapter policy rather than a provider-name branch. Launch composition
 remains in the Manager over provider-adapter and executable discovery
-boundaries. Remaining scope:
+boundaries. Maintenance constraints:
 
 1. keep the shared Fork child-start settlement narrow. Worktree and Provider
    Session rollback remain resource-specific; do not replace them with a
@@ -465,8 +467,8 @@ boundaries. Remaining scope:
    knowledge instead of wrapping it in ports;
 3. move Attention-specific runtime/record types only when doing so removes a
    concrete shared dependency rather than creating a type-only physical split;
-4. leave the facade with exact registry, public entry points, service
-   composition, and event delivery.
+4. keep top-level cross-resource lifecycle sequencing in the facade without
+   moving domain state or effects back into it.
 
 Line count is not an acceptance criterion. A service is accepted only if it
 reduces the Manager's knowledge and can be tested without constructing the
@@ -474,18 +476,13 @@ complete Manager.
 
 ### Lane B3 — ACP Host convergence and provider policy
 
-This lane shares the AgentManager hotspot with B2 and therefore runs serially
-with conflicting B2 slices, but it does not wait for every extraction to
-finish:
-
-1. make the ACP Host runtime contract the only default Server-facing path;
-2. replace tests that rely on the direct in-process fallback with explicit
-   runtime fakes or a Host harness;
-3. remove the AgentManager fallback construction while retaining
-   `AcpRuntime` inside the Host process;
-4. define and test the projection between engine session state and Host
-   controller/operation state;
-5. absorb provider special cases incrementally into typed adapter policies.
+This lane is complete. The ACP Host runtime contract is the only default
+Server-facing path; `AgentManager` no longer constructs an in-process
+`AcpRuntime`. Tests use explicit runtime doubles or the Host harness. Engine
+session projection remains separate from Host controller and operation state,
+and generic lifecycle code consumes typed Provider Adapter policies for
+permission restart, resume-profile options, idle fences, recovery constraints,
+startup ordering, and Fork capability.
 
 This lane requires real-provider smoke verification for every supported
 provider whose runtime behavior is touched.
@@ -497,30 +494,17 @@ boundaries in focused modules, for example record guards, bounded waits, or
 process execution. Trivial duplication may remain when centralization would
 increase coupling.
 
-## Continuation Priorities
+## Post-convergence Maintenance
 
-Continue the remaining work as small slices in the following dependency order.
-This list records unfinished architectural outcomes rather than a branch or
-file-by-file progress log:
+The structural program is closed. Apply these rules to later feature work and
+small evidence-backed cleanup slices:
 
-1. Continue converging the existing `CodeWorkspace` owners and remove frontend
-   mirrors of backend truth and wrapper-only controllers. The Terminal
-   replication and interaction ownership split is complete; revisit it only
-   for a concrete duplicate truth or protocol defect.
-2. For AgentManager, keep the converged Attention/unread transition in its
-   existing tracker. Keep Fork resource rollback exact and separate, and do
-   not continue Resume or Launch without concrete duplicated-truth evidence.
-3. Reassess unmerged stylesheet and CRT prototypes. Merge only when the
-   production boundary is real, total code remains justified, and one-time
-   old/new behavior evidence passes; otherwise reduce or discard them.
-4. Finish the remaining Server transport and ACP work. Extract the remaining
-   bounded HTTP and bootstrap domains while preserving auth, middleware order,
-   route shapes, and connection-local state, and converge on the ACP Host-only
-   Server path: remove the in-process fallback once deterministic Host fakes or
-   a harness cover recovery and uncertain prompt/cancel outcomes, keep engine
-   state separate from Host operation state through an explicit projection, and
-   run the required real-provider smokes.
-5. Retire obsolete compatibility code continuously. A compatibility alias,
+1. Do not re-enter `CodeWorkspace`, Terminal, Server, Resume, Launch, or ACP
+   Host extraction merely because a file is large. Require a concrete duplicate
+   truth, protocol defect, or independently testable owner.
+2. Keep AgentManager Attention/unread transitions in the tracker, Fork resource
+   rollback exact and separate, and provider behavior in typed adapters.
+3. Retire obsolete compatibility code continuously. A compatibility alias,
    adapter, fallback, parser branch, or old state shape may be removed only
    after repository-wide call-site analysis and boundary tests show that no
    supported client, protocol version, persisted data, extension, or public API
@@ -529,11 +513,11 @@ file-by-file progress log:
    code merely because it once supported an older implementation, and do not
    classify an active system-boundary adapter as dead code from static imports
    alone.
-6. Continue stylesheet decomposition only with global-cascade evidence, not
+4. Continue stylesheet decomposition only with global-cascade evidence, not
    partition-local selector hashes alone. Split the remaining product domains
    out of the main and dark-skin stylesheets with cascade, specificity, and
    import-order proof.
-7. Integrate continuously. Rebase each reviewable slice onto current `main`, run
+5. Integrate continuously. Rebase each reviewable slice onto current `main`, run
    its focused state-machine tests, then run the full typecheck, lint, test, and
    applicable Server, Terminal, Playwright, or provider gates before merging.
    Do not accumulate these priorities into another long-lived integration
@@ -591,7 +575,8 @@ assertions must not be weakened merely to accommodate the extraction.
 
 ## Completion Criteria
 
-The strategy is complete when all of the following are true:
+The current architecture satisfies the following completion gates. Keep them as
+regression constraints for later changes:
 
 - Server bootstrap primarily mounts middleware, routers, and WebSocket domain
   handlers; route contracts remain unchanged.

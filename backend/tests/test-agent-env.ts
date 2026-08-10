@@ -1,6 +1,7 @@
 const assert = require('assert');
 const path = require('path');
 const { AgentManager } = require('../agent-manager.cjs');
+const { createTestAgentManager } = require('./helpers/test-acp-runtime.ts');
 const {
   AgentShellEnvResolver,
   SHELL_ENV_BEGIN,
@@ -143,7 +144,7 @@ async function run() {
 
   const resolvedShells = [];
   let shellEnvOverride = null;
-  const manager = new AgentManager({
+  const manager = createTestAgentManager(AgentManager, {
     getWorkspace() {
       return '/tmp';
     },

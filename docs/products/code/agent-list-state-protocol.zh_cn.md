@@ -28,3 +28,13 @@ Adaptive Agent Title 会先发布 Agent-scoped Optimistic Patch，同一 Agent �
 权威 Agent Row 不会等待可选的 Git Worktree Decoration。Worktree Refresh 通过有界的后台队列执行；同一个精确 Agent 尚未开始的旧请求可以被最新请求替代。删除 Agent 会取消其 Pending Refresh；已经在执行的结果仍必须同时匹配同一 Agent Record 与 Refresh Generation，才能发布列表更新。Git Command Timeout 或探测失败只会省略或清除可选 Decoration，不会改变权威 Agent Lifecycle。这个资源边界限制的是后台进程突发量，而不是 Agent 数量。同一精确且规范化 Git Common Directory 的仓库级 Worktree 枚举会在一个短暂且有界的时间窗口内复用；Lifecycle Postcondition Check 使用 Fresh Read，不会消费缓存的枚举结果。
 
 每个快照和增量都带有后端 generation 与递增 sequence。客户端只应用当前 generation 中紧接着的 sequence。遇到后端重启、序号缺口或不确定传输时，客户端请求新的权威快照，而不是自行猜测、重放 mutation 或引入逐消息确认。
+
+Server 启动时必须在等待 Terminal Host 枚举、ACP Binding 或 Transcript 加载之前，通过一次
+聚合状态转换物化全部持久化 Main-page Agent 行。这些行在 Runtime 为 `pending` 或
+`connecting` 时仍保留持久化 Identity、Runtime Kind、顺序和 Attention Cursor；后续 Runtime
+恢复只更新已有行，不能逐个新增。打开 Binding 尚未恢复的 Chat 行时，读取会等待同一次权威
+恢复。Runtime 无法恢复的行继续以明确失败状态可见，不能消失并退回 Provider History。
+
+Farming 已绑定 Agent 的未读状态由单调 Attention Cursor 和 Read Cursor 共同拥有。每次持久化
+Agent State 时，都必须从 Cursor 重新写入 `unread` Projection；旧版本留下的矛盾 Boolean
+不能在启动期间或 Runtime 尚未恢复时重新出现。
