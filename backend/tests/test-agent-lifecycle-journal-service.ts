@@ -2,8 +2,9 @@ import assert from 'assert';
 import type { AgentRecord, PersistedAgentPrivateMetadata } from '../agent-manager-record-types.js';
 import { AgentLifecycleJournalService } from '../agent-lifecycle-journal-service.cjs';
 
-function main() {
+async function main() {
   const agents = new Map<string, AgentRecord>();
+  const records: PersistedAgentPrivateMetadata[] = [];
   const writes: Array<{
     agent: AgentRecord;
     patch: Partial<PersistedAgentPrivateMetadata>;
@@ -24,6 +25,8 @@ function main() {
   };
   const service = new AgentLifecycleJournalService({
     getAgent: agentId => agents.get(agentId),
+    getInFlightPromise: () => null,
+    listRecords: () => records,
     persistence,
   });
   const agent: AgentRecord = { id: 'agent-1', status: 'running' };
@@ -66,7 +69,7 @@ function main() {
     createAgent,
     'create',
     'create-request:req-1',
-    { agentId: createAgent.id },
+    { agentId: createAgent.id, signature: 'signature-1' },
   );
   assert.ok(create.operation);
   service.transition(createAgent, create.operation.id, 'succeeded');
@@ -80,6 +83,23 @@ function main() {
     createAgent.lifecycleJournal?.entries[0]?.result,
     { controlApi: { status: 201 } },
   );
+  records.push({
+    id: 'record-create',
+    runtimeAgentId: createAgent.id,
+    lifecycleJournal: JSON.parse(JSON.stringify(createAgent.lifecycleJournal)),
+  });
+  assert.deepStrictEqual(
+    await service.replayCreateRequest('req-1', 'signature-1'),
+    {
+      agentId: createAgent.id,
+      deduplicated: true,
+      createResult: { controlApi: { status: 201 } },
+    },
+  );
+  assert.match(
+    String((await service.replayCreateRequest('req-1', 'different-signature'))?.error || ''),
+    /different Agent parameters/,
+  );
 
   persistError = 'simulated result failure';
   const unchangedResult = JSON.parse(JSON.stringify(createAgent.lifecycleJournal));
@@ -92,4 +112,7 @@ function main() {
   console.log('Agent lifecycle journal service tests passed');
 }
 
-main();
+main().catch(error => {
+  console.error(error);
+  process.exit(1);
+});

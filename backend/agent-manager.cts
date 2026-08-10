@@ -1632,6 +1632,12 @@ class AgentManager extends EventEmitter {
     });
     this.lifecycleJournalService = new AgentLifecycleJournalService({
       getAgent: agentId => this.agents.get(agentId),
+      getInFlightPromise: agentId => this.lifecycleCoordinator.get(agentId)?.promise || null,
+      listRecords: () => (
+        typeof this.configManager?.listAgentSessionRecords === 'function'
+          ? this.configManager.listAgentSessionRecords()
+          : []
+      ),
       persistence: this.sessionPersistence,
     });
     this.mainPageSessionIndex = new AgentMainPageSessionIndex({
@@ -3834,81 +3840,6 @@ class AgentManager extends EventEmitter {
     return this.updateAgentFlags(agent.id, request);
   }
 
-  async replayPersistentCreateRequest(
-    createRequestId: unknown,
-    requestSignature: unknown = '',
-  ): Promise<Record<string, unknown> | null> {
-    if (!this.configManager || typeof this.configManager.listAgentSessionRecords !== 'function') {
-      return null;
-    }
-    const requestKey = `create-request:${String(createRequestId || '').trim().slice(0, 160)}`;
-    if (requestKey === 'create-request:') return null;
-    const records: PersistedAgentPrivateMetadata[] = this.configManager.listAgentSessionRecords();
-    const matches = records
-      .flatMap((record: PersistedAgentPrivateMetadata) => {
-        const entries = lifecycleJournal(record).entries as LifecycleOperation[];
-        return entries.map((operation, index) => ({ record, entries, operation, index }));
-      })
-      .filter(item => item.operation.type === 'create' && item.operation.requestKey === requestKey)
-      .sort((left, right) => (
-        (Number(right.operation.updatedAt) || 0) - (Number(left.operation.updatedAt) || 0)
-      ));
-    const match = matches[0];
-    if (!match) return null;
-    if (
-      match.operation.request?.signature
-      && match.operation.request.signature !== requestSignature
-    ) {
-      return {
-        error: `Create request ${createRequestId} was already used for different Agent parameters`,
-      };
-    }
-
-    const agentId = String(
-      match.operation.request?.agentId
-      || match.record.runtimeAgentId
-      || '',
-    ).trim();
-    const inFlight = agentId ? this.lifecycleCoordinator.get(agentId) : null;
-    if (inFlight && !TERMINAL_OPERATION_STATES.has(match.operation.state)) {
-      await inFlight.promise.catch(() => {});
-      return this.replayPersistentCreateRequest(createRequestId, requestSignature);
-    }
-
-    const removedLater = match.entries.slice(match.index + 1).some(operation => (
-      ['delete', 'archive'].includes(operation.type)
-      && operation.state === 'succeeded'
-    ));
-    if (removedLater) {
-      return {
-        error: `Create request ${createRequestId} already completed, but its Agent was later removed`,
-      };
-    }
-    if (match.operation.state === 'succeeded') {
-      if (agentId && this.agents.has(agentId)) {
-        return {
-          agentId,
-          deduplicated: true,
-          createResult: match.operation.result,
-        };
-      }
-      return {
-        error: `Create request ${createRequestId} already succeeded, but its Runtime is not available`,
-      };
-    }
-    if (TERMINAL_OPERATION_STATES.has(match.operation.state)) {
-      return {
-        error: match.operation.error
-          || `Create request ${createRequestId} already finished with state ${match.operation.state}`,
-      };
-    }
-    return {
-      agentId,
-      error: match.operation.error
-        || `Create request ${createRequestId} is awaiting lifecycle recovery`,
-    };
-  }
-
   updateEngineProviderSessionMetadata(agent: TypedAgentRecord) {
     if (!agent || !agent.engineName || agent.engineStarted !== true) return;
     const engine = this.engineBridge.getEngine(agent.engineName);
@@ -4577,7 +4508,7 @@ class AgentManager extends EventEmitter {
     }
     const createRequestSignature = createOperationSignature(command, customWorkspace, options);
     if (createRequestId) {
-      const replay = await this.replayPersistentCreateRequest(
+      const replay = await this.lifecycleJournalService.replayCreateRequest(
         createRequestId,
         createRequestSignature,
       );

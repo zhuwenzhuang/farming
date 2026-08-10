@@ -157,8 +157,9 @@ HTTP, WebSocket, persistence, and runtime-host boundaries.
   replacement or copy private session fields themselves.
 - The lifecycle journal owner performs durable admission, transition,
   checkpoint, completion, rollback-on-write-failure, and Create-result
-  recording. Lifecycle execution and recovery may choose the next action, but
-  they do not implement journal transactions.
+  recording and replay classification. Lifecycle execution and recovery may
+  choose the next action, but they do not implement journal transactions or
+  interpret Create-request history.
 - The Main Page session index owns canonical key ordering and membership
   updates. Create, recovery, Archive, and Delete request membership changes
   without reading or rewriting Settings storage themselves.

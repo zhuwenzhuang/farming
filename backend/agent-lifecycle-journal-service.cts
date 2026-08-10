@@ -13,6 +13,7 @@ import type {
   LifecycleOperationType,
 } from './agent-manager-lifecycle-types.js';
 import {
+  TERMINAL_OPERATION_STATES,
   activeLifecycleOperation,
   beginLifecycleOperation,
   latestLifecycleOperation,
@@ -31,6 +32,8 @@ type AgentLifecyclePersistencePort = {
 
 type AgentLifecycleJournalServiceOptions = {
   getAgent: (agentId: string) => AgentRecord | undefined;
+  getInFlightPromise: (agentId: string) => Promise<unknown> | null;
+  listRecords: () => PersistedAgentPrivateMetadata[];
   persistence: AgentLifecyclePersistencePort;
 };
 
@@ -175,6 +178,77 @@ class AgentLifecycleJournalService {
       return { operation: latest, deduplicated: true };
     }
     return this.begin(agent, 'update', requestKey, request);
+  }
+
+  async replayCreateRequest(
+    createRequestId: unknown,
+    requestSignature: unknown = '',
+  ): Promise<Record<string, unknown> | null> {
+    const requestKey = `create-request:${String(createRequestId || '').trim().slice(0, 160)}`;
+    if (requestKey === 'create-request:') return null;
+    const matches = this.options.listRecords()
+      .flatMap(record => {
+        const entries = lifecycleJournal(record).entries;
+        return entries.map((operation, index) => ({ record, entries, operation, index }));
+      })
+      .filter(item => item.operation.type === 'create' && item.operation.requestKey === requestKey)
+      .sort((left, right) => (
+        (Number(right.operation.updatedAt) || 0) - (Number(left.operation.updatedAt) || 0)
+      ));
+    const match = matches[0];
+    if (!match) return null;
+    if (
+      match.operation.request?.signature
+      && match.operation.request.signature !== requestSignature
+    ) {
+      return {
+        error: `Create request ${createRequestId} was already used for different Agent parameters`,
+      };
+    }
+
+    const agentId = String(
+      match.operation.request?.agentId
+      || match.record.runtimeAgentId
+      || '',
+    ).trim();
+    const inFlight = agentId ? this.options.getInFlightPromise(agentId) : null;
+    if (inFlight && !TERMINAL_OPERATION_STATES.has(match.operation.state)) {
+      await inFlight.catch(() => {});
+      return this.replayCreateRequest(createRequestId, requestSignature);
+    }
+
+    const removedLater = match.entries.slice(match.index + 1).some(operation => (
+      ['delete', 'archive'].includes(operation.type)
+      && operation.state === 'succeeded'
+    ));
+    if (removedLater) {
+      return {
+        error: `Create request ${createRequestId} already completed, but its Agent was later removed`,
+      };
+    }
+    if (match.operation.state === 'succeeded') {
+      if (agentId && this.options.getAgent(agentId)) {
+        return {
+          agentId,
+          deduplicated: true,
+          createResult: match.operation.result,
+        };
+      }
+      return {
+        error: `Create request ${createRequestId} already succeeded, but its Runtime is not available`,
+      };
+    }
+    if (TERMINAL_OPERATION_STATES.has(match.operation.state)) {
+      return {
+        error: match.operation.error
+          || `Create request ${createRequestId} already finished with state ${match.operation.state}`,
+      };
+    }
+    return {
+      agentId,
+      error: match.operation.error
+        || `Create request ${createRequestId} is awaiting lifecycle recovery`,
+    };
   }
 
   recordCreateRequestResult(

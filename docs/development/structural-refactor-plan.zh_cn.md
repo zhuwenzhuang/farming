@@ -126,8 +126,8 @@ Runtime Port 与 Provider Policy
   Canonical Record Rebind 和 Order Index Observation。调用方只提交精确 Agent Record
   与 Patch，不再解释 Store Identity 替换或自行复制私有 Session 字段。
 - Lifecycle Journal Owner 统一执行持久化准入、状态迁移、Checkpoint、完成提交、写失败
-  回滚与 Create Result 记录。Lifecycle 执行和恢复逻辑可以决定下一动作，但不再实现
-  Journal Transaction。
+  回滚、Create Result 记录与 Replay 分类。Lifecycle 执行和恢复逻辑可以决定下一动作，
+  但不再实现 Journal Transaction 或解释 Create Request History。
 - Main Page Session Index 统一拥有 Canonical Key 顺序与 Membership 更新。Create、
   Recovery、Archive 和 Delete 只请求加入或移除成员，不再读取或改写 Settings 存储。
 - Provider Adapter 提供有类型的权限重启、Terminal 身份/启动约束、空闲稳定和会话
