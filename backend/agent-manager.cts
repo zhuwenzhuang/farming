@@ -203,6 +203,7 @@ import {
   AgentLifecycleJournalService,
   type PersistentAgentUpdateAdmission,
 } from './agent-lifecycle-journal-service.cjs';
+import { AgentMainPageSessionIndex } from './agent-main-page-session-index.cjs';
 import { AgentAdaptiveTitlePersistenceCoordinator } from './agent-adaptive-title-persistence.cjs';
 import {
   WorktreeGitService,
@@ -1317,6 +1318,7 @@ class AgentManager extends EventEmitter {
   declare acpSessionOptionsStore: AcpSessionOptionsStore;
   declare sessionPersistence: AgentSessionPersistenceService;
   declare lifecycleJournalService: AgentLifecycleJournalService;
+  declare mainPageSessionIndex: AgentMainPageSessionIndex;
   declare acpTranscriptService: AcpTranscriptService;
   declare createProviderSessionIdentity: CreateProviderSessionIdentityContract;
   declare deleteProviderSessionIdentity: DeleteProviderSessionIdentityContract;
@@ -1632,6 +1634,10 @@ class AgentManager extends EventEmitter {
       getAgent: agentId => this.agents.get(agentId),
       persistence: this.sessionPersistence,
     });
+    this.mainPageSessionIndex = new AgentMainPageSessionIndex({
+      config: this.configManager,
+      persistence: this.sessionPersistence,
+    });
     const transcriptMediaPathPrefix = typeof options.transcriptMediaPathPrefix === 'function'
       ? options.transcriptMediaPathPrefix
       : (agentId: string) => `/api/agents/${encodeURIComponent(agentId)}/acp-media`;
@@ -1678,7 +1684,7 @@ class AgentManager extends EventEmitter {
       commit: (agent: TypedAgentRecord, change: ProviderSessionChange = {}) => {
         if (change.kind === 'session-updated') this.sessionPersistence.persist(agent);
         this.updateEngineProviderSessionMetadata(agent);
-        this.rememberMainPageProviderSession(agent);
+        this.mainPageSessionIndex.remember(agent);
         if (change.event) {
           this.emit('provider-session-updated', change.event);
           const providerTitle = typeof change.event.title === 'string'
@@ -2341,7 +2347,7 @@ class AgentManager extends EventEmitter {
     if (this.blockInterruptedPersistedForkOperations(persistedRecords)) {
       persistedRecords = listPersistedRecords();
     }
-    const mainPageSessionKeys = new Set(this.getMainPageSessionKeys());
+    const mainPageSessionKeys = new Set(this.mainPageSessionIndex.list());
     const persistedByRuntimeAgentId = new Map<string, PersistedAgentPrivateMetadata>(persistedRecords
       .filter((record: PersistedAgentPrivateMetadata) => typeof record.runtimeAgentId === 'string' && Boolean(record.runtimeAgentId))
       .map((record: PersistedAgentPrivateMetadata) => [record.runtimeAgentId as string, record]));
@@ -2441,7 +2447,7 @@ class AgentManager extends EventEmitter {
       ) {
         try {
           if (recoveredLifecycleOperation.state === 'membership-pending') {
-            this.rememberMainPageProviderSession(agentRecord);
+            this.mainPageSessionIndex.remember(agentRecord);
           }
           this.lifecycleJournalService.transition(
             agentRecord,
@@ -2495,7 +2501,7 @@ class AgentManager extends EventEmitter {
         recoveredLifecycleOperation?.type !== 'fork'
         || shouldRestoreAgentFromMetadata(agentRecord, mainPageSessionKeys)
       ) {
-        this.rememberMainPageProviderSession(agentRecord);
+        this.mainPageSessionIndex.remember(agentRecord);
         this.providerSessionService.activate(agentId);
         void this.resolveCodexTerminalIdentityFromCurrentView(agentId);
       }
@@ -2659,7 +2665,7 @@ class AgentManager extends EventEmitter {
               runtimeAgentId: '',
             },
           );
-          this.removeMainPageProviderSessionsForAgents([recoveredAgent]);
+          this.mainPageSessionIndex.removeAgents([recoveredAgent]);
         } else {
           this.lifecycleJournalService.transition(
             recoveredAgent,
@@ -2673,7 +2679,7 @@ class AgentManager extends EventEmitter {
               runtimeAgentId: '',
             },
           );
-          this.removeMainPageProviderSessionsForAgents([recoveredAgent]);
+          this.mainPageSessionIndex.removeAgents([recoveredAgent]);
           const providerArchive = await this.archiveCodexProviderSession(recoveredAgent);
           this.lifecycleJournalService.transition(
             recoveredAgent,
@@ -2698,7 +2704,7 @@ class AgentManager extends EventEmitter {
     records: PersistedAgentPrivateMetadata[],
     rotations: RuntimeRotationRecord[],
   ) {
-    const mainPageOrder = new Map(this.getMainPageSessionKeys().map((key: string, index: number) => [key, index]));
+    const mainPageOrder = new Map(this.mainPageSessionIndex.list().map((key: string, index: number) => [key, index]));
     const mainPageSessionKeys = new Set(mainPageOrder.keys());
     const liveProviderSessions = new Set(
       [...this.agents.values()]
@@ -2974,7 +2980,7 @@ class AgentManager extends EventEmitter {
       await this.acpRuntime.initialize?.();
     } catch (caughtError: unknown) {
       const error = caughtError as ErrorRecord;
-      const mainPageSessionKeys = new Set(this.getMainPageSessionKeys());
+      const mainPageSessionKeys = new Set(this.mainPageSessionIndex.list());
       const affectedAgentIds: string[] = [];
       for (const record of persistedRecords) {
         if (
@@ -3016,7 +3022,7 @@ class AgentManager extends EventEmitter {
     // a completed Delete would otherwise be resurrected and a failed Create
     // could remain visible until another restart.
     persistedRecords = this.configManager.listAgentSessionRecords();
-    const mainPageOrder = new Map(this.getMainPageSessionKeys().map((key: string, index: number) => [key, index]));
+    const mainPageOrder = new Map(this.mainPageSessionIndex.list().map((key: string, index: number) => [key, index]));
     const mainPageSessionKeys = new Set(mainPageOrder.keys());
     const records = persistedRecords
       .filter((record: PersistedAgentPrivateMetadata) => (
@@ -3149,7 +3155,7 @@ class AgentManager extends EventEmitter {
             '',
             { visibleOnMainPage: true, archived: false },
           );
-          this.rememberMainPageProviderSession(agent);
+          this.mainPageSessionIndex.remember(agent);
           this.lifecycleJournalService.transition(
             agent,
             createOperation.id,
@@ -3374,7 +3380,7 @@ class AgentManager extends EventEmitter {
     // Most recovered Sessions are already present in the authoritative main
     // page index. Repair only missing memberships, in reverse persisted order,
     // so parallel completion timing cannot reorder the user's Agent list.
-    const indexedSessionKeys = new Set(this.getMainPageSessionKeys());
+    const indexedSessionKeys = new Set(this.mainPageSessionIndex.list());
     for (let index = coldRecords.length - 1; index >= 0; index -= 1) {
       const agentId = String(coldRecords[index].runtimeAgentId || '').trim();
       if (!recoveredAgentIds.has(agentId)) continue;
@@ -3387,7 +3393,7 @@ class AgentManager extends EventEmitter {
           )
         : '';
       if (!agent || !sessionKey || indexedSessionKeys.has(sessionKey)) continue;
-      this.rememberMainPageProviderSession(agent);
+      this.mainPageSessionIndex.remember(agent);
       indexedSessionKeys.add(sessionKey);
     }
     this.emitStateChange({ agentIds: records.map(record => String(record.runtimeAgentId || '')).filter(Boolean) });
@@ -3481,7 +3487,7 @@ class AgentManager extends EventEmitter {
       staged.structuredRuntimeProcess = null;
       try {
         if (operation.type === 'create' && operation.state === 'membership-pending') {
-          this.rememberMainPageProviderSession(staged);
+          this.mainPageSessionIndex.remember(staged);
           this.lifecycleJournalService.transition(
             staged,
             operation.id,
@@ -3511,7 +3517,7 @@ class AgentManager extends EventEmitter {
               structuredRuntimeProcess: null,
             },
           );
-          this.removeMainPageProviderSessionsForAgents([staged]);
+          this.mainPageSessionIndex.removeAgents([staged]);
         } else {
           this.lifecycleJournalService.transition(
             staged,
@@ -3526,7 +3532,7 @@ class AgentManager extends EventEmitter {
               structuredRuntimeProcess: null,
             },
           );
-          this.removeMainPageProviderSessionsForAgents([staged]);
+          this.mainPageSessionIndex.removeAgents([staged]);
           const providerArchive = await this.archiveCodexProviderSession(staged);
           this.lifecycleJournalService.transition(
             staged,
@@ -3815,35 +3821,6 @@ class AgentManager extends EventEmitter {
     return Number.isFinite(startedAt) && Date.now() - startedAt < MISSING_ENGINE_SESSION_STARTUP_GRACE_MS;
   }
 
-  getMainPageSessionKeys(): string[] {
-    const persistedKeys: string[] = (() => {
-      if (this.configManager && typeof this.configManager.getMainPageSessionKeys === 'function') {
-        return this.configManager.getMainPageSessionKeys();
-      }
-      if (this.configManager && typeof this.configManager.getSettings === 'function') {
-        const settings = this.configManager.getSettings();
-        return Array.isArray(settings.mainPageSessionKeys)
-          ? settings.mainPageSessionKeys.filter((key: unknown): key is string => typeof key === 'string')
-          : [];
-      }
-      return [];
-    })();
-    return persistedKeys
-      .map((key: string) => canonicalProviderSessionKey(key))
-      .filter((key: string) => Boolean(key));
-  }
-
-  setMainPageSessionKeys(keys: string[]): string[] {
-    if (this.configManager && typeof this.configManager.setMainPageSessionKeys === 'function') {
-      return this.configManager.setMainPageSessionKeys(keys);
-    }
-    if (this.configManager && typeof this.configManager.updateSettings === 'function') {
-      this.configManager.updateSettings({ mainPageSessionKeys: keys });
-      return keys;
-    }
-    return [];
-  }
-
   reconcilePersistedAgentUpdate(agent: TypedAgentRecord) {
     const operation = activeLifecycleOperation(agent);
     if (operation?.type !== 'update') return null;
@@ -3930,32 +3907,6 @@ class AgentManager extends EventEmitter {
       error: match.operation.error
         || `Create request ${createRequestId} is awaiting lifecycle recovery`,
     };
-  }
-
-  rememberMainPageProviderSession(agent: TypedAgentRecord) {
-    if (!agent || agent.wantsMain) return;
-    if (!agent.providerSessionProvider || !agent.providerSessionId || agent.providerSessionTemporary === true) return;
-    if (!this.configManager) {
-      return;
-    }
-    this.sessionPersistence.assertRuntimeOwner(agent);
-
-    const sessionKey = mainPageAgentSessionKey(agent.providerSessionProvider, agent.providerSessionId, agent.providerHomeId || '');
-    if (!sessionKey) return;
-    const currentKeys = this.getMainPageSessionKeys();
-    if (currentKeys[0] === sessionKey) {
-      this.sessionPersistence.persist(agent, { visibleOnMainPage: true, archived: false });
-      return;
-    }
-    if (typeof this.configManager.rememberAgentSessionRecord === 'function') {
-      const persistentSessionId = this.configManager.rememberAgentSessionRecord(agent);
-      setAgentRecordId(agent, persistentSessionId);
-      return;
-    }
-    this.setMainPageSessionKeys([
-      sessionKey,
-      ...currentKeys.filter((key: string) => key !== sessionKey),
-    ]);
   }
 
   updateEngineProviderSessionMetadata(agent: TypedAgentRecord) {
@@ -5735,7 +5686,7 @@ class AgentManager extends EventEmitter {
           ? { customTitle: agentRecord.customTitle }
           : {}),
       });
-      this.rememberMainPageProviderSession(agentRecord);
+      this.mainPageSessionIndex.remember(agentRecord);
       this.lifecycleJournalService.transition(agentRecord, createOperationId, 'succeeded', '', {
         visibleOnMainPage: true,
         archived: false,
@@ -8023,34 +7974,6 @@ class AgentManager extends EventEmitter {
       });
   }
 
-  removeMainPageProviderSessionsForAgents(agents: readonly TypedAgentRecord[]): string[] {
-    if (!this.configManager) {
-      return [];
-    }
-
-    const keysToRemove = new Set<string>();
-    agents.forEach((agent: TypedAgentRecord) => {
-      const providerSessionKey = canonicalProviderSessionKey(agent.providerSessionKey) || mainPageAgentSessionKey(
-        agent.providerSessionProvider,
-        agent.providerSessionId,
-        agent.providerHomeId || ''
-      );
-      if (providerSessionKey) keysToRemove.add(providerSessionKey);
-    });
-    if (keysToRemove.size === 0) return [];
-
-    const currentKeys = this.getMainPageSessionKeys();
-    const removedKeys = currentKeys.filter((key: string) => keysToRemove.has(key));
-    if (removedKeys.length === 0) return [];
-    if (typeof this.configManager.removeMainPageSessionKeys === 'function') {
-      this.configManager.removeMainPageSessionKeys(removedKeys);
-    } else {
-      const nextKeys = currentKeys.filter((key: string) => !keysToRemove.has(key));
-      this.setMainPageSessionKeys(nextKeys);
-    }
-    return removedKeys;
-  }
-
   deleteForkWorktreeProject(
     workspace: string,
     options: DeleteProjectWorktreeOptions = {},
@@ -8958,7 +8881,7 @@ class AgentManager extends EventEmitter {
     agent.archivedAt = Date.now();
     let metadataWarning = '';
     try {
-      removedMainPageSessionKeys = this.removeMainPageProviderSessionsForAgents([agent]);
+      removedMainPageSessionKeys = this.mainPageSessionIndex.removeAgents([agent]);
     } catch (caughtError: unknown) {
       const error = caughtError as ErrorRecord;
       metadataWarning = `Agent archived, but main-page membership cleanup failed: ${error.message || error}`;
@@ -9408,7 +9331,7 @@ class AgentManager extends EventEmitter {
           archivedAt: Date.now(),
           runtimeAgentId: '',
         });
-        this.removeMainPageProviderSessionsForAgents([agent]);
+        this.mainPageSessionIndex.removeAgents([agent]);
       } catch (caughtError: unknown) {
       const error = caughtError as ErrorRecord;
         const message = `Agent stopped, but Delete metadata could not be committed: ${error.message || error}`;

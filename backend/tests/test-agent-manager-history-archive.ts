@@ -177,14 +177,14 @@ async function run() {
       ...settings.mainPageSessionKeys,
     ];
     assert.deepStrictEqual(
-      manager.removeMainPageProviderSessionsForAgents([
+      manager.mainPageSessionIndex.removeAgents([
         { providerSessionKey: encodeProviderSessionKey('claude', 'key-only-session', 'default') },
       ]),
       [encodeProviderSessionKey('claude', 'key-only-session', 'default')],
       'archive cleanup should also understand legacy agents that only carry providerSessionKey'
     );
     assert.deepStrictEqual(
-      manager.removeMainPageProviderSessionsForAgents([
+      manager.mainPageSessionIndex.removeAgents([
         { providerSessionKey: encodeProviderSessionKey('claude', 'not-present', 'default') },
       ]),
       [],
@@ -513,8 +513,8 @@ async function run() {
       providerSessionKey: encodeProviderSessionKey('codex', 'archive-metadata-failure', 'default'),
       task: 'archive metadata failure',
     });
-    const removeMainPageProviderSessionsForAgents = manager.removeMainPageProviderSessionsForAgents;
-    manager.removeMainPageProviderSessionsForAgents = () => {
+    const removeMainPageProviderSessionsForAgents = manager.mainPageSessionIndex.removeAgents;
+    manager.mainPageSessionIndex.removeAgents = () => {
       settings.mainPageSessionKeys = settings.mainPageSessionKeys
         .filter(key => key !== encodeProviderSessionKey('codex', 'archive-metadata-failure', 'default'));
       throw new Error('session metadata disk unavailable');
@@ -530,7 +530,7 @@ async function run() {
       !settings.mainPageSessionKeys.includes(encodeProviderSessionKey('codex', 'archive-metadata-failure', 'default')),
       'durable archive tombstone makes membership cleanup a retryable index repair',
     );
-    manager.removeMainPageProviderSessionsForAgents = removeMainPageProviderSessionsForAgents;
+    manager.mainPageSessionIndex.removeAgents = removeMainPageProviderSessionsForAgents;
 
     assert.strictEqual((await manager.archiveAgent('missing-agent')).error, 'Agent not found');
     const archivedMain = await manager.archiveAgent('main-1');

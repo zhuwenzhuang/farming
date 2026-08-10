@@ -159,6 +159,9 @@ HTTP, WebSocket, persistence, and runtime-host boundaries.
   checkpoint, completion, rollback-on-write-failure, and Create-result
   recording. Lifecycle execution and recovery may choose the next action, but
   they do not implement journal transactions.
+- The Main Page session index owns canonical key ordering and membership
+  updates. Create, recovery, Archive, and Delete request membership changes
+  without reading or rewriting Settings storage themselves.
 - Provider adapters expose typed decisions such as permission restart,
   Terminal identity/startup constraints, idle stability, and conversation Fork
   policy. Generic lifecycle code does not interpret provider names. A shared
