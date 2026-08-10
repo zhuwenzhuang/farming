@@ -39,16 +39,7 @@ import {
   proposeTerminalResizeDimensions,
 } from '@/lib/terminal-resize'
 import { TerminalResizeEffectController } from '@/lib/terminal-resize-effect-controller'
-import {
-  appendTerminalTouchVelocitySample,
-  blendTerminalTouchVelocity,
-  consumeTerminalTouchScrollDelta,
-  nextTerminalTouchEdgeOffset,
-  readTerminalTouchGestureVelocity,
-  shouldStartTerminalTouchMomentum,
-  stepTerminalTouchMomentum,
-} from '@/lib/terminal-touch-scroll'
-import type { TerminalTouchVelocitySample } from '@/lib/terminal-touch-scroll'
+import { TerminalTouchInteractionController } from '@/lib/terminal-touch-interaction-controller'
 import {
   flushPendingTerminalWrites,
   forceTerminalRender,
@@ -237,7 +228,7 @@ interface SessionRecord extends TerminalSessionDiagnosticsSource {
   imeKeydownHandler: ((event: KeyboardEvent) => void) | null
   scrollIntentHandler: ((event: Event) => void) | null
   scrollKeyHandler: ((event: KeyboardEvent) => void) | null
-  touchInteraction: TerminalTouchInteraction | null
+  touchInteraction: TerminalTouchInteractionController | null
   followOutputHandler: ((state: TerminalFollowState) => void) | null
   pathOpenHandler: ((agentId: string, target: TerminalPathOpenTarget) => void) | null
   pathResolveHandler: ((agentId: string, target: TerminalPathOpenTarget) => Promise<TerminalPathOpenTarget | null> | TerminalPathOpenTarget | null) | null
@@ -296,16 +287,6 @@ const terminalSessionDiagnostics = new TerminalSessionDiagnosticsProjection({
 })
 let terminalFocusRevision = 0
 const terminalCheckpointRequestScheduler = new TerminalCheckpointRequestScheduler()
-const TOUCH_SCROLL_ACTIVATION_PX = 6
-const TOUCH_LONG_PRESS_MS = 520
-const TOUCH_EDGE_SPRING_MS = 240
-
-interface TerminalTouchInteraction {
-  pointerDownHandler: (event: PointerEvent) => void
-  pointerMoveHandler: (event: PointerEvent) => void
-  pointerUpHandler: (event: PointerEvent) => void
-  stopTouchMomentum: () => void
-}
 
 declare global {
   interface Window {
@@ -2280,237 +2261,18 @@ function installTerminalContextMenu(record: SessionRecord, agentId: string) {
 }
 
 function installTerminalTouchInteraction(record: SessionRecord) {
-  let touchPointerId: number | null = null
-  let touchStartX = 0
-  let touchStartY = 0
-  let touchLastY = 0
-  let touchLastMoveAt = 0
-  let touchVelocityY = 0
-  let touchScrollRemainderPx = 0
-  let touchMoved = false
-  let momentumFrame: number | null = null
-  let momentumLastAt = 0
-  let touchVelocitySamples: TerminalTouchVelocitySample[] = []
-  let touchEdgeOffsetPx = 0
-  let touchEdgeResetTimer: number | null = null
-  let longPressTimer: number | null = null
-  let longPressEvent: PointerEvent | null = null
-
-  const clearLongPress = () => {
-    if (longPressTimer !== null) {
-      window.clearTimeout(longPressTimer)
-      longPressTimer = null
-    }
-    longPressEvent = null
-  }
-
-  const getTouchSurface = () => record.hostEl.querySelector<HTMLElement>('.xterm-screen')
-
-  const clearTouchEdgeResetTimer = () => {
-    if (touchEdgeResetTimer !== null) {
-      window.clearTimeout(touchEdgeResetTimer)
-      touchEdgeResetTimer = null
-    }
-  }
-
-  const renderTouchEdgeOffset = (offsetPx: number, animate = false) => {
-    const surface = getTouchSurface()
-    touchEdgeOffsetPx = offsetPx
-    if (!surface) return
-    clearTouchEdgeResetTimer()
-    surface.style.transition = animate
-      ? `transform ${TOUCH_EDGE_SPRING_MS}ms cubic-bezier(0.22, 0.75, 0.28, 1)`
-      : 'none'
-    surface.style.transform = offsetPx === 0 ? '' : `translate3d(0, ${offsetPx}px, 0)`
-    if (animate) {
-      touchEdgeResetTimer = window.setTimeout(() => {
-        surface.style.transition = ''
-        surface.style.transform = ''
-        touchEdgeResetTimer = null
-      }, TOUCH_EDGE_SPRING_MS)
-    }
-  }
-
-  const pullTouchEdge = (deltaY: number) => {
-    const nextOffset = nextTerminalTouchEdgeOffset(touchEdgeOffsetPx, deltaY)
-    renderTouchEdgeOffset(nextOffset)
-  }
-
-  const releaseTouchEdge = (animate = true) => {
-    if (touchEdgeOffsetPx === 0 && touchEdgeResetTimer === null) return
-    renderTouchEdgeOffset(0, animate)
-  }
-
-  const pushTouchVelocitySample = (y: number, at: number) => {
-    touchVelocitySamples = appendTerminalTouchVelocitySample(touchVelocitySamples, { y, at })
-  }
-
-  const readTouchGestureVelocity = () => {
-    return readTerminalTouchGestureVelocity(touchVelocitySamples, touchVelocityY)
-  }
-
-  const handleLongPress = () => {
-    const event = longPressEvent
-    clearLongPress()
-    if (!event || record.disposed || touchMoved) return
-
-    const copyText = getTerminalCopyTextAtEvent(record, event)
-    if (!copyText) return
-
-    showTerminalContextMenu(record, event, copyText)
-  }
-
-  const scrollByTouchDelta = (deltaY: number) => {
-    const lineHeight = Math.max(8, getTerminalCellMetrics(record)?.height || 16)
-    const scrollDelta = consumeTerminalTouchScrollDelta(touchScrollRemainderPx, deltaY, lineHeight)
-    touchScrollRemainderPx = scrollDelta.remainderPx
-    const { lineDelta } = scrollDelta
-    if (lineDelta === 0) return false
-
-    const previousViewportY = getTerminalViewportY(record.terminal)
-    scrollRecordToViewportY(record, previousViewportY + lineDelta)
-    const moved = getTerminalViewportY(record.terminal) !== previousViewportY
-    if (moved) {
-      updateFollowStateFromViewport(record, { allowClearUnread: true })
-      hideTerminalContextMenu(record)
-    }
-    return moved
-  }
-
-  const stopTouchMomentum = () => {
-    if (momentumFrame !== null) {
-      window.cancelAnimationFrame(momentumFrame)
-      momentumFrame = null
-    }
-    momentumLastAt = 0
-    touchVelocityY = 0
-    touchScrollRemainderPx = 0
-  }
-
-  const stepTouchMomentum = (timestamp: number) => {
-    if (record.disposed) {
-      momentumFrame = null
-      return
-    }
-    const momentumStep = stepTerminalTouchMomentum(touchVelocityY, momentumLastAt, timestamp)
-    momentumLastAt = timestamp
-
-    const momentumDelta = momentumStep.scrollDeltaPx
-    const moved = scrollByTouchDelta(momentumDelta)
-    touchVelocityY = momentumStep.nextVelocity
-    if (!moved || !momentumStep.shouldContinue) {
-      if (!moved) {
-        pullTouchEdge(momentumDelta)
-      }
-      stopTouchMomentum()
-      releaseTouchEdge()
-      return
-    }
-
-    momentumFrame = window.requestAnimationFrame(stepTouchMomentum)
-  }
-
-  const startTouchMomentum = () => {
-    if (!shouldStartTerminalTouchMomentum(touchVelocityY)) {
-      touchVelocityY = 0
-      return
-    }
-    momentumLastAt = 0
-    momentumFrame = window.requestAnimationFrame(stepTouchMomentum)
-  }
-
-  const pointerDownHandler = (event: PointerEvent) => {
-    if (event.pointerType !== 'touch') return
-    stopTouchMomentum()
-    releaseTouchEdge(false)
-    touchPointerId = event.pointerId
-    touchStartX = event.clientX
-    touchStartY = event.clientY
-    touchLastY = event.clientY
-    touchLastMoveAt = event.timeStamp || performance.now()
-    touchVelocitySamples = []
-    pushTouchVelocitySample(event.clientY, touchLastMoveAt)
-    touchScrollRemainderPx = 0
-    touchMoved = false
-    longPressEvent = event
-    longPressTimer = window.setTimeout(handleLongPress, TOUCH_LONG_PRESS_MS)
-    try {
-      record.hostEl.setPointerCapture(event.pointerId)
-    } catch {
-      // Best effort only; touch scrolling still works while the pointer stays inside the terminal.
-    }
-  }
-
-  const pointerMoveHandler = (event: PointerEvent) => {
-    if (touchPointerId === null || event.pointerId !== touchPointerId) return
-    const distance = Math.hypot(event.clientX - touchStartX, event.clientY - touchStartY)
-    if (distance > TOUCH_SCROLL_ACTIVATION_PX) {
-      touchMoved = true
-      clearLongPress()
-    }
-
-    const deltaY = event.clientY - touchLastY
-    const now = event.timeStamp || performance.now()
-    const elapsed = Math.max(1, now - touchLastMoveAt)
-    touchLastY = event.clientY
-    touchLastMoveAt = now
-    if (Math.abs(deltaY) < 0.5) return
-    pushTouchVelocitySample(event.clientY, now)
-    const gestureVelocity = readTouchGestureVelocity()
-    touchVelocityY = blendTerminalTouchVelocity(gestureVelocity, deltaY, elapsed)
-
-    const moved = scrollByTouchDelta(deltaY)
-    if (!moved && touchMoved) {
-      pullTouchEdge(deltaY)
-    } else if (moved && touchEdgeOffsetPx !== 0) {
-      releaseTouchEdge(false)
-    }
-    if (touchMoved || moved) {
-      event.preventDefault()
-      event.stopPropagation()
-    }
-  }
-
-  const pointerUpHandler = (event: PointerEvent) => {
-    if (touchPointerId === null || event.pointerId !== touchPointerId) return
-    const wasMoving = touchMoved
-    touchPointerId = null
-    clearLongPress()
-    if (wasMoving) {
-      event.preventDefault()
-      event.stopPropagation()
-      updateFollowStateFromViewport(record, { allowClearUnread: true })
-      touchVelocityY = readTouchGestureVelocity()
-      if (event.type === 'pointerup' && touchEdgeOffsetPx === 0) {
-        startTouchMomentum()
-      } else {
-        stopTouchMomentum()
-        releaseTouchEdge()
-      }
-    } else {
-      touchVelocityY = 0
-      touchScrollRemainderPx = 0
-      releaseTouchEdge()
-    }
-    touchVelocitySamples = []
-    try {
-      record.hostEl.releasePointerCapture(event.pointerId)
-    } catch {
-      // ignore
-    }
-  }
-
-  record.hostEl.addEventListener('pointerdown', pointerDownHandler, { capture: true, passive: false })
-  record.hostEl.addEventListener('pointermove', pointerMoveHandler, { capture: true, passive: false })
-  record.hostEl.addEventListener('pointerup', pointerUpHandler, { capture: true, passive: false })
-  record.hostEl.addEventListener('pointercancel', pointerUpHandler, { capture: true, passive: false })
-  record.hostEl.addEventListener('lostpointercapture', pointerUpHandler, { capture: true, passive: false })
-  record.touchInteraction = {
-    pointerDownHandler,
-    pointerMoveHandler,
-    pointerUpHandler,
-    stopTouchMomentum,
-  }
+  record.touchInteraction = new TerminalTouchInteractionController({
+    hostEl: record.hostEl,
+    isDisposed: () => record.disposed,
+    copyTextAtEvent: event => getTerminalCopyTextAtEvent(record, event),
+    showContextMenu: (event, copyText) => showTerminalContextMenu(record, event, copyText),
+    lineHeight: () => getTerminalCellMetrics(record)?.height || 16,
+    viewportY: () => getTerminalViewportY(record.terminal),
+    scrollToViewportY: viewportY => scrollRecordToViewportY(record, viewportY),
+    onViewportChanged: () => updateFollowStateFromViewport(record, { allowClearUnread: true }),
+    hideContextMenu: () => hideTerminalContextMenu(record),
+  })
+  record.touchInteraction.install()
 }
 
 function installTerminalTestApi() {
@@ -3858,14 +3620,7 @@ export async function destroyTerminalSession(agentId: string) {
     document.removeEventListener('keydown', record.scrollKeyHandler, true)
     record.hostEl.removeEventListener('keydown', record.scrollKeyHandler, true)
   }
-  if (record.touchInteraction) {
-    record.touchInteraction.stopTouchMomentum()
-    record.hostEl.removeEventListener('pointerdown', record.touchInteraction.pointerDownHandler, true)
-    record.hostEl.removeEventListener('pointermove', record.touchInteraction.pointerMoveHandler, true)
-    record.hostEl.removeEventListener('pointerup', record.touchInteraction.pointerUpHandler, true)
-    record.hostEl.removeEventListener('pointercancel', record.touchInteraction.pointerUpHandler, true)
-    record.hostEl.removeEventListener('lostpointercapture', record.touchInteraction.pointerUpHandler, true)
-  }
+  record.touchInteraction?.dispose()
   record.rendererEffects.dispose()
   record.terminal.dispose()
   record.hostEl.remove()

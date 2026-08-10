@@ -59,6 +59,10 @@ Terminal Input 是 Renderer Raw Input Stream，只写入 PTY 一次。Farming �
 IME Composition 在 Terminal Input Surface 内完整结束后再发送 Committed Text。Fallback 处理
 不能重复发送普通 ASCII Input。
 
+Touch Gesture State 由每个 Terminal Host 唯一的 Interaction Owner 持有。该 Owner 精确安装和
+移除 Pointer Listener，并统一拥有 Long-press、Momentum、Edge Feedback、Timer、Animation
+Frame 及其 Dispose。
+
 Resize 是有序 Terminal Transition。Layout Churn 合并为最新完整 Geometry，同时不破坏 Output
 顺序。Browser 应用已提交 Remote Resize 时不回传。Recovery 不能自动抢回某个旧 Viewer 的
 Geometry，因为可能存在其它 Active Viewer。

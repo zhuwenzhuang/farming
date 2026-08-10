@@ -78,6 +78,10 @@ function run() {
     path.join(__dirname, '../../src/lib/terminal-touch-scroll.ts'),
     'utf8'
   );
+  const terminalTouchInteractionSource = fs.readFileSync(
+    path.join(__dirname, '../../src/lib/terminal-touch-interaction-controller.ts'),
+    'utf8'
+  );
   const terminalOutputSource = fs.readFileSync(
     path.join(__dirname, '../../src/lib/terminal-output.ts'),
     'utf8'
@@ -207,7 +211,7 @@ function run() {
   );
   const copyTextAtEventBody = terminalPoolSource.slice(
     terminalPoolSource.indexOf('function getTerminalCopyTextAtEvent'),
-    terminalPoolSource.indexOf('function installTerminalTouchInteraction')
+    terminalPoolSource.indexOf('function installTerminalContextMenu')
   );
   assert(
     copyTextAtEventBody.includes('if (selection) return selection') &&
@@ -512,23 +516,24 @@ function run() {
   assert(
     terminalPoolSource.includes('isTouchInputViewport as isMobileViewport') &&
       !terminalPoolSource.includes('function isMobileViewport()') &&
-      terminalPoolSource.includes("from '@/lib/terminal-touch-scroll'") &&
+      terminalPoolSource.includes("import { TerminalTouchInteractionController } from '@/lib/terminal-touch-interaction-controller'") &&
       terminalTouchScrollSource.includes('const TOUCH_MOMENTUM_MIN_VELOCITY') &&
       terminalTouchScrollSource.includes('const TOUCH_MOMENTUM_DECAY_PER_FRAME') &&
       terminalTouchScrollSource.includes('const TOUCH_VELOCITY_WINDOW_MS') &&
       terminalTouchScrollSource.includes('export function appendTerminalTouchVelocitySample(') &&
       terminalTouchScrollSource.includes('export function stepTerminalTouchMomentum(') &&
-      terminalPoolSource.includes('const readTouchGestureVelocity = () =>') &&
+      terminalTouchInteractionSource.includes('#gestureVelocity()') &&
       terminalTouchScrollSource.includes('const TOUCH_EDGE_RESISTANCE') &&
-      terminalPoolSource.includes('TOUCH_EDGE_SPRING_MS') &&
-      terminalPoolSource.includes('const releaseTouchEdge = (animate = true) =>') &&
+      terminalTouchInteractionSource.includes('const TOUCH_EDGE_SPRING_MS') &&
+      terminalTouchInteractionSource.includes('#releaseEdge(animate = true)') &&
       terminalPoolSource.includes('record.touchInteraction?.stopTouchMomentum()') &&
-      terminalPoolSource.includes('const stepTouchMomentum = (timestamp: number) =>') &&
-      terminalPoolSource.includes('stepTerminalTouchMomentum(touchVelocityY, momentumLastAt, timestamp)') &&
-      terminalPoolSource.includes('const startTouchMomentum = () =>') &&
-      terminalPoolSource.includes('startTouchMomentum()') &&
-      terminalPoolSource.includes("record.hostEl.addEventListener('lostpointercapture', pointerUpHandler") &&
-      terminalPoolSource.includes('record.touchInteraction.stopTouchMomentum()'),
+      terminalTouchInteractionSource.includes('#stepMomentum = (timestamp: number) =>') &&
+      terminalTouchInteractionSource.includes('stepTerminalTouchMomentum(this.#velocityY, this.#momentumLastAt, timestamp)') &&
+      terminalTouchInteractionSource.includes('#startMomentum()') &&
+      terminalTouchInteractionSource.includes('this.#startMomentum()') &&
+      terminalTouchInteractionSource.includes("host.addEventListener('lostpointercapture', this.#pointerUp") &&
+      terminalPoolSource.includes('record.touchInteraction?.dispose()') &&
+      !terminalPoolSource.includes('touchPointerId'),
     'xterm mobile terminals should estimate flick velocity over a short gesture window, preserve momentum, spring at the edge, and clean up interrupted gestures'
   );
   assert(

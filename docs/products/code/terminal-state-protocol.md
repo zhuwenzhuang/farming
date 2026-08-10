@@ -75,6 +75,10 @@ arrival order.
 IME composition completes in the terminal input surface before committed text
 is sent. Fallback handling must not duplicate ordinary ASCII input.
 
+Touch gesture state belongs to one interaction owner per terminal host. That
+owner installs and removes the exact pointer listeners and owns long-press,
+momentum, edge feedback, timers, animation frames, and their disposal.
+
 Resize is an ordered terminal transition. Layout churn is coalesced into the
 latest complete geometry without violating output order. A browser applying a
 committed remote resize does not echo it back. Recovery does not automatically
