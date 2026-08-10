@@ -962,10 +962,55 @@ function setAgentRecordId(agent: TypedAgentRecord, agentRecordId: unknown) {
   agent.persistentSessionId = agentRecordId;
 }
 
-function shouldRestoreAgentFromMetadata(record: TypedAgentRecord, mainPageSessionKeys: ReadonlySet<string>) {
+function persistedMainRecoveryAgentId(
+  records: readonly TypedAgentRecord[],
+  mainPageSessionKeys: ReadonlySet<string>,
+): string {
+  const candidates = records.filter(record => {
+    if (!record || record.archived === true || record.wantsMain !== true) return false;
+    const agentId = String(record.runtimeAgentId || record.id || '').trim();
+    if (!agentId) return false;
+    const latestOperation = latestLifecycleOperation(record);
+    if (latestOperation?.type === 'delete' && latestOperation.state === 'succeeded') return false;
+    const provider = String(record.providerSessionProvider || record.provider || '').trim();
+    const sessionKey = canonicalProviderSessionKey(record.providerSessionKey) || mainPageAgentSessionKey(
+      provider,
+      record.providerSessionId,
+      record.providerHomeId || 'default',
+    );
+    // Main Agents are intentionally absent from the ordinary main-page
+    // provider-session index. Prefer that invariant when legacy records have
+    // copied wantsMain=true onto ordinary history rows.
+    return !sessionKey || !mainPageSessionKeys.has(sessionKey);
+  });
+  candidates.sort((left, right) => {
+    const updatedDelta = (Number(right.updatedAt) || 0) - (Number(left.updatedAt) || 0);
+    if (updatedDelta !== 0) return updatedDelta;
+    const createdDelta = (Number(right.createdAt) || 0) - (Number(left.createdAt) || 0);
+    if (createdDelta !== 0) return createdDelta;
+    return String(left.runtimeAgentId || '').localeCompare(String(right.runtimeAgentId || ''));
+  });
+  return String(candidates[0]?.runtimeAgentId || candidates[0]?.id || '').trim();
+}
+
+function shouldRestoreAgentFromMetadata(
+  record: TypedAgentRecord,
+  mainPageSessionKeys: ReadonlySet<string>,
+  mainAgentId: string,
+) {
   if (!record || record.archived === true) return false;
   const latestOperation = latestLifecycleOperation(record);
   if (latestOperation?.type === 'delete' && latestOperation.state === 'succeeded') return false;
+  const provider = String(record.providerSessionProvider || record.provider || '').trim();
+  const sessionKey = canonicalProviderSessionKey(record.providerSessionKey) || mainPageAgentSessionKey(
+    provider,
+    record.providerSessionId,
+    record.providerHomeId || 'default'
+  );
+  if (record.wantsMain === true) {
+    return String(record.runtimeAgentId || record.id || '').trim() === mainAgentId
+      || Boolean(sessionKey && mainPageSessionKeys.has(sessionKey));
+  }
   if (
     latestOperation?.type === 'create'
     && latestOperation.state === 'succeeded'
@@ -973,19 +1018,12 @@ function shouldRestoreAgentFromMetadata(record: TypedAgentRecord, mainPageSessio
   ) {
     return true;
   }
-  if (record.wantsMain === true) return true;
   if (
     record.providerSessionTemporary === true
     || isTemporaryProviderSessionId(record.providerSessionId)
   ) {
     return record.visibleOnMainPage === true;
   }
-  const provider = String(record.providerSessionProvider || record.provider || '').trim();
-  const sessionKey = canonicalProviderSessionKey(record.providerSessionKey) || mainPageAgentSessionKey(
-    provider,
-    record.providerSessionId,
-    record.providerHomeId || 'default'
-  );
   if (sessionKey) return mainPageSessionKeys.has(sessionKey);
   return record.visibleOnMainPage === true;
 }
@@ -2251,6 +2289,7 @@ class AgentManager extends EventEmitter {
       persistedRecords = listPersistedRecords();
     }
     const mainPageSessionKeys = new Set(this.mainPageSessionIndex.list());
+    let mainRecoveryAgentId = persistedMainRecoveryAgentId(persistedRecords, mainPageSessionKeys);
     const materializedAgentIds: string[] = [];
     for (const record of persistedRecords) {
       const agentId = String(record.runtimeAgentId || '').trim();
@@ -2262,22 +2301,37 @@ class AgentManager extends EventEmitter {
         || this.agents.has(agentId)
         || (
           !recoverableOperation
-          && !shouldRestoreAgentFromMetadata(record, mainPageSessionKeys)
+          && !shouldRestoreAgentFromMetadata(record, mainPageSessionKeys, mainRecoveryAgentId)
         )
       ) continue;
+      const provider = String(record.providerSessionProvider || record.provider || '').trim();
+      const sessionKey = canonicalProviderSessionKey(record.providerSessionKey) || mainPageAgentSessionKey(
+        provider,
+        record.providerSessionId,
+        record.providerHomeId || 'default',
+      );
+      const isColdTerminalHistoryPlaceholder = Boolean(
+        !recoverableOperation
+        && agentId !== mainRecoveryAgentId
+        && sessionKey
+        && mainPageSessionKeys.has(sessionKey)
+        && String(record.agentRuntimeMode || 'terminal') === 'terminal'
+      );
+      const coldStatus = isColdTerminalHistoryPlaceholder ? 'stopped' : 'pending';
       const agent = this.recoveredAgentRecord(
         agentId,
         record.engine || 'native',
         record,
-        { status: 'pending' },
+        { status: coldStatus },
       );
       setAgentRecordId(agent, record.id || '');
-      agent.status = 'pending';
-      agent.engineStatus = 'recovering';
+      agent.wantsMain = agentId === mainRecoveryAgentId;
+      agent.status = coldStatus;
+      agent.engineStatus = isColdTerminalHistoryPlaceholder ? 'stopped' : 'recovering';
       agent.engineStarted = false;
       const runtime = runtimeBindingOf(agent, 'acp');
       if (runtime) {
-        runtime.state = 'connecting';
+        runtime.state = isColdTerminalHistoryPlaceholder ? 'stopped' : 'connecting';
         runtime.error = '';
         runtime.stopReason = '';
       }
@@ -2295,6 +2349,12 @@ class AgentManager extends EventEmitter {
     }
 
     const recovered = await this.engineBridge.recoverSessions();
+    if (!mainRecoveryAgentId) {
+      mainRecoveryAgentId = persistedMainRecoveryAgentId((recovered || []).map(entry => ({
+        ...(entry.metadata || {}),
+        runtimeAgentId: recoveredEngineSessionId(entry, entry.metadata),
+      } as TypedAgentRecord)), mainPageSessionKeys);
+    }
     persistedRecords = listPersistedRecords();
     const persistedByRuntimeAgentId = new Map<string, PersistedAgentPrivateMetadata>(persistedRecords
       .filter((record: PersistedAgentPrivateMetadata) => typeof record.runtimeAgentId === 'string' && Boolean(record.runtimeAgentId))
@@ -2322,7 +2382,7 @@ class AgentManager extends EventEmitter {
           providerSessionResolvedAt: typeof desiredMetadata.providerSessionResolvedAt === 'number'
             ? desiredMetadata.providerSessionResolvedAt
             : null,
-        }, mainPageSessionKeys)
+        }, mainPageSessionKeys, mainRecoveryAgentId)
       ) {
         await this.killRecoveredEngineSession(entry, engineMetadata, agentId);
         continue;
@@ -2387,6 +2447,7 @@ class AgentManager extends EventEmitter {
       if (!agentId || (existingAgent && existingAgent.engineStarted !== false)) continue;
 
       const agentRecord = this.recoveredAgentRecord(agentId, entry.engineName || metadata.engineName || 'native', metadata, state);
+      agentRecord.wantsMain = agentId === mainRecoveryAgentId;
       agentRecord.lastObservedTurnActive = agentAttentionTurnActive(agentRecord);
       this.registerAgentRecord(agentId, agentRecord);
       const recoveredLifecycleOperation = activeLifecycleOperation(agentRecord);
@@ -2448,7 +2509,7 @@ class AgentManager extends EventEmitter {
       }
       if (
         recoveredLifecycleOperation?.type !== 'fork'
-        || shouldRestoreAgentFromMetadata(agentRecord, mainPageSessionKeys)
+        || shouldRestoreAgentFromMetadata(agentRecord, mainPageSessionKeys, mainRecoveryAgentId)
       ) {
         this.mainPageSessionIndex.remember(agentRecord);
         this.providerSessionService.activate(agentId);
@@ -2663,6 +2724,7 @@ class AgentManager extends EventEmitter {
   ) {
     const mainPageOrder = new Map(this.mainPageSessionIndex.list().map((key: string, index: number) => [key, index]));
     const mainPageSessionKeys = new Set(mainPageOrder.keys());
+    const mainRecoveryAgentId = persistedMainRecoveryAgentId(records, mainPageSessionKeys);
     const liveProviderSessions = new Set(
       [...this.agents.values()]
         .filter((agent: TypedAgentRecord) => (
@@ -2700,65 +2762,10 @@ class AgentManager extends EventEmitter {
       }
     }
     const serializedByRuntimeAgentId = new Map<string, SerializedTerminalStateEntry>(serializedStates.map(state => [state.id, state]));
-    const candidateKeys = new Set<string>();
-    const fallbackCandidates: TerminalRecoveryCandidate[] = recordList
-      .filter(record => {
-        if (!record || record.archived === true) return false;
-        if (runtimeKind(record) !== 'terminal') return false;
-        const provider = String(record.providerSessionProvider || record.provider || '').trim();
-        if (!getProviderAdapter(provider)) return false;
-        if (!isSafeProviderSessionId(record.providerSessionId)) return false;
-        const sessionKey = canonicalProviderSessionKey(record.providerSessionKey) || mainPageAgentSessionKey(
-          provider,
-          record.providerSessionId,
-          record.providerHomeId || 'default'
-        );
-        if (!sessionKey || liveProviderSessions.has(sessionKey)) return false;
-        if (record.wantsMain === true) {
-          const currentMainId = this.mainAgentIdentity.currentId();
-          const currentMain = currentMainId ? this.agents.get(currentMainId) : null;
-          return !currentMain || currentMain.engineStarted === false;
-        }
-        return mainPageOrder.has(sessionKey);
-      })
-      .sort((left, right) => {
-        if (left.wantsMain === true && right.wantsMain !== true) return -1;
-        if (right.wantsMain === true && left.wantsMain !== true) return 1;
-        const leftProvider = String(left.providerSessionProvider || left.provider || '').trim();
-        const rightProvider = String(right.providerSessionProvider || right.provider || '').trim();
-        const leftKey = canonicalProviderSessionKey(left.providerSessionKey) || mainPageAgentSessionKey(
-          leftProvider,
-          left.providerSessionId,
-          left.providerHomeId || 'default'
-        );
-        const rightKey = canonicalProviderSessionKey(right.providerSessionKey) || mainPageAgentSessionKey(
-          rightProvider,
-          right.providerSessionId,
-          right.providerHomeId || 'default'
-        );
-        const orderDelta = Number(mainPageOrder.get(leftKey) ?? Number.MAX_SAFE_INTEGER) -
-          Number(mainPageOrder.get(rightKey) ?? Number.MAX_SAFE_INTEGER);
-        if (orderDelta !== 0) return orderDelta;
-        return (Number(right.updatedAt) || 0) - (Number(left.updatedAt) || 0);
-      })
-      .filter(record => {
-        const provider = String(record.providerSessionProvider || record.provider || '').trim();
-        const sessionKey = canonicalProviderSessionKey(record.providerSessionKey) || mainPageAgentSessionKey(
-          provider,
-          record.providerSessionId,
-          record.providerHomeId || 'default'
-        );
-        if (candidateKeys.has(sessionKey)) return false;
-        candidateKeys.add(sessionKey);
-        return true;
-      })
-      .map(record => ({
-        ...record,
-        id: record.id,
-        runtimeAgentId: record.runtimeAgentId as string,
-      }));
-    const candidates: TerminalRecoveryCandidate[] = serializedByRuntimeAgentId.size > 0
-      ? [...serializedByRuntimeAgentId.values()]
+    // Runtime rotation may restart only sessions for which the old Host
+    // supplied an exact serialized live state. Main-page membership is an
+    // inventory fact, not proof that a stopped/history Terminal was running.
+    const candidates: TerminalRecoveryCandidate[] = [...serializedByRuntimeAgentId.values()]
         .map((serializedState): TerminalRecoveryCandidate => ({
           ...(serializedState.metadata || {}),
           ...(recordByRuntimeAgentId.get(serializedState.id) || {}),
@@ -2786,9 +2793,12 @@ class AgentManager extends EventEmitter {
           if (left.wantsMain === true && right.wantsMain !== true) return -1;
           if (right.wantsMain === true && left.wantsMain !== true) return 1;
           return (Number(right.updatedAt) || 0) - (Number(left.updatedAt) || 0);
-        })
-      : fallbackCandidates;
-    const desiredCandidates = candidates.filter(record => shouldRestoreAgentFromMetadata(record, mainPageSessionKeys));
+        });
+    const desiredCandidates = candidates.filter(record => shouldRestoreAgentFromMetadata(
+      record,
+      mainPageSessionKeys,
+      mainRecoveryAgentId,
+    ));
 
     if (desiredCandidates.length > 0) {
       const rotationSummary = rotations.map(rotation => {
@@ -2864,7 +2874,7 @@ class AgentManager extends EventEmitter {
       }
 
       const options: UnknownRecord = {
-        wantsMain: record.wantsMain === true,
+        wantsMain: String(record.runtimeAgentId || '').trim() === mainRecoveryAgentId,
         skipRecoveryWait: true,
         task: record.task || record.providerSessionTitle || '',
         workflowTemplate: record.workflowTemplate || '',
@@ -2976,12 +2986,13 @@ class AgentManager extends EventEmitter {
     } catch (caughtError: unknown) {
       const error = caughtError as ErrorRecord;
       const mainPageSessionKeys = new Set(this.mainPageSessionIndex.list());
+      const mainRecoveryAgentId = persistedMainRecoveryAgentId(persistedRecords, mainPageSessionKeys);
       const affectedAgentIds: string[] = [];
       for (const record of persistedRecords) {
         if (
           runtimeKind(record) !== 'acp'
           || (
-            !shouldRestoreAgentFromMetadata(record, mainPageSessionKeys)
+            !shouldRestoreAgentFromMetadata(record, mainPageSessionKeys, mainRecoveryAgentId)
             && !lifecycleOperationBlocksRuntimeStart(record)
           )
         ) continue;
@@ -2989,6 +3000,7 @@ class AgentManager extends EventEmitter {
         if (!agentId) continue;
         const agent = this.agents.get(agentId)
           || this.recoveredAgentRecord(agentId, record.engine || 'native', record, { status: 'running' });
+        agent.wantsMain = agentId === mainRecoveryAgentId;
         if (!this.agents.has(agentId)) {
           setAgentRecordId(agent, record.id || '');
           this.registerAgentRecord(agentId, agent);
@@ -3019,10 +3031,11 @@ class AgentManager extends EventEmitter {
     persistedRecords = this.configManager.listAgentSessionRecords();
     const mainPageOrder = new Map(this.mainPageSessionIndex.list().map((key: string, index: number) => [key, index]));
     const mainPageSessionKeys = new Set(mainPageOrder.keys());
+    const mainRecoveryAgentId = persistedMainRecoveryAgentId(persistedRecords, mainPageSessionKeys);
     const records = persistedRecords
       .filter((record: PersistedAgentPrivateMetadata) => (
         (
-          shouldRestoreAgentFromMetadata(record, mainPageSessionKeys)
+          shouldRestoreAgentFromMetadata(record, mainPageSessionKeys, mainRecoveryAgentId)
           || lifecycleOperationBlocksRuntimeStart(record)
         )
         && runtimeKind(record) === 'acp'
@@ -3053,6 +3066,7 @@ class AgentManager extends EventEmitter {
       if (!agent) {
         const recoveredAgent = this.recoveredAgentRecord(agentId, record.engine || 'native', record, { status: 'running' });
         setAgentRecordId(recoveredAgent, record.id || '');
+        recoveredAgent.wantsMain = agentId === mainRecoveryAgentId;
         recoveredAgent.engineStarted = false;
         if (blockedOperation) {
           recoveredAgent.status = 'error';

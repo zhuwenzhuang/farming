@@ -29,6 +29,7 @@ async function main() {
         require.resolve('tsx'),
         path.join(__dirname, '..', 'acp-runtime-host-process.cts'),
       ], {
+        detached: process.platform !== 'win32',
         env: {
           ...process.env,
           FARMING_CONFIG_DIR: configDir,

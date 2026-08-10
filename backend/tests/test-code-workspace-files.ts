@@ -492,6 +492,10 @@ function run() {
       workspaceSource.includes('activeRow ?? rows[0] ?? projectListRef.current') &&
       workspaceSource.includes("setMainPaneMode('terminal')\n    onWorkspaceViewChange('projects')") &&
       workspaceSource.includes("if (target.kind === 'agent')") &&
+      workspaceSource.includes('const resumeColdAgentFromUserActivation = useCallback') &&
+      workspaceSource.includes("agent?.status !== 'stopped'") &&
+      workspaceSource.includes('if (!resumeColdAgentFromUserActivation(target.id))') &&
+      workspaceSource.includes('if (!resumeColdAgentFromUserActivation(agentId))') &&
       workspaceSource.includes('resumeAgentSessionRef.current(target.provider, target.id, target.providerHomeId)') &&
       workspaceSource.includes("restoreProjectListFocusRef.current = 'active-force'") &&
       workspaceSource.includes("restoreProjectListFocusRef.current = 'list'") &&
@@ -1260,13 +1264,12 @@ function run() {
       serverSource.includes('const agentSessionResumeCoordinator = new AgentSessionResumeCoordinator({') &&
       mainPageSessionSource.includes("const AUTO_RESUME_AGENT_SESSION_PROVIDERS = new Set(['codex', 'claude', 'opencode', 'qoder', 'qwen'])") &&
       mainPageSessionSource.includes('function mainPageAgentSessionFromKey(key: unknown)') &&
-      serverSource.includes('function autoResumeMainPageAgentSessions()') &&
       resumeCoordinatorSource.includes('return findActiveAgentClaimingSession(this.ports.getActiveAgents()') &&
       mainPageSessionSource.includes('return claimedProviderSessionTupleKeys(agent).has(tupleKey);') &&
       resumeCoordinatorSource.includes('claimed: true') &&
       resumeCoordinatorSource.includes('rememberMainPageSession: false') &&
       resumeCoordinatorSource.includes("this.ports.warn('Failed to auto-resume main page agent session:'") &&
-      serverSource.includes('void autoResumeMainPageAgentSessions()') &&
+      !serverSource.includes('void autoResumeMainPageAgentSessions()') &&
       resumeCoordinatorSource.includes('function isMainAgentSessionWorkspace(session: AgentSession | null)') &&
       resumeCoordinatorSource.includes('const requestedAsMain = requestBody.asMain === true && !shouldFork') &&
       resumeCoordinatorSource.includes('const shouldRememberMainPageSession = options.rememberMainPageSession !== false && !shouldFork && !requestedAsMain') &&

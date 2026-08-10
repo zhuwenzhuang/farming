@@ -9,6 +9,10 @@ import { execFileSync, spawn } from 'child_process';
 import { createRuntimeDependencyProgressRenderer } from './runtime-dependency-progress.cjs';
 import type { RuntimeDependencyProgress } from './runtime-dependency-manager.cjs';
 import { canonicalConfigDir } from './config-instance.cjs';
+import {
+  hardStopConfigComputerContainers,
+  hardStopConfigProcesses,
+} from './config-process-ownership.cjs';
 import type { ServerProcessIdentity } from './server-process-identity.cjs';
 import {
   applyPackageInstallationEnvironment,
@@ -1732,11 +1736,21 @@ async function startDaemon(parsed: ParsedServerOperation): Promise<number> {
   return 0;
 }
 
+async function hardStopConfigRuntimes(configDir: string): Promise<void> {
+  const firstRuntimeStop = await hardStopConfigProcesses(configDir);
+  const secondRuntimeStop = await hardStopConfigProcesses(configDir);
+  const computerStop = hardStopConfigComputerContainers(configDir);
+  if (firstRuntimeStop.refused + secondRuntimeStop.refused + computerStop.refused > 0) {
+    throw new Error('Farming refused to hard-stop one or more Config runtime identities because exact ownership could not be proven');
+  }
+}
+
 async function stopDaemon(parsed: ParsedServerOperation): Promise<number> {
   const env = canonicalizeServerConfigDir(buildServerEnv(parsed.env));
   const configDir = env.FARMING_CONFIG_DIR;
   const pid = readPid(configDir);
   if (!isRunning(pid)) {
+    await hardStopConfigRuntimes(configDir);
     clearProvenStaleServerConfigOwner(configDir);
     fs.rmSync(pidFile(configDir), { force: true });
     fs.rmSync(serverStateFile(configDir), { force: true });
@@ -1752,6 +1766,7 @@ async function stopDaemon(parsed: ParsedServerOperation): Promise<number> {
     processIdentity = await migrateLegacyServerIdentity(configDir, pid, state);
   }
   forceKillServer(pid);
+  await hardStopConfigRuntimes(configDir);
   await waitForDaemonStop(pid, port, {
     timeoutMs: serverStopTimeoutMs(env),
     isRunning: targetPid => matchingProcessIdentity(processIdentity, readServerProcessIdentity(targetPid)),

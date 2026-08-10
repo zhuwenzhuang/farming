@@ -9,6 +9,11 @@ import { AcpRuntimeHostService } from './acp-runtime-host-service.cjs';
 import { acpRuntimeHostIdentity } from './acp-runtime-host-identity.cjs';
 import { acpRuntimeHostSocketPath } from './acp-runtime-host-path.cjs';
 import { configInstanceFingerprint } from './config-instance.cjs';
+import {
+  registerConfigProcessGroup,
+  unregisterConfigProcessGroup,
+} from './config-process-ownership.cjs';
+import { readServerProcessIdentity } from './server-process-identity.cjs';
 import { probeUnixSocket } from './terminal-runtime-cleanup.cjs';
 
 type UnknownRecord = Record<string, unknown>;
@@ -700,7 +705,26 @@ class AcpRuntimeHostProcess {
 
 async function startAcpRuntimeHostProcess(): Promise<AcpRuntimeHostProcess> {
   const host = new AcpRuntimeHostProcess();
+  if (process.platform === 'win32') {
+    await host.start();
+    process.on('SIGTERM', () => void host.dispose().finally(() => process.exit(0)));
+    process.on('SIGINT', () => void host.dispose().finally(() => process.exit(0)));
+    return host;
+  }
+  const processIdentity = readServerProcessIdentity(process.pid);
+  if (!processIdentity || processIdentity.processGroupId !== process.pid) {
+    throw new Error('ACP runtime Host could not publish its exact process-group ownership');
+  }
   await host.start();
+  registerConfigProcessGroup(host.configDir, 'acp-runtime-host', processIdentity);
+  const dispose = host.dispose.bind(host);
+  host.dispose = async () => {
+    try {
+      await dispose();
+    } finally {
+      unregisterConfigProcessGroup(host.configDir, 'acp-runtime-host', processIdentity);
+    }
+  };
   process.on('SIGTERM', () => void host.dispose().finally(() => process.exit(0)));
   process.on('SIGINT', () => void host.dispose().finally(() => process.exit(0)));
   return host;

@@ -42,7 +42,7 @@ Deployment options:
   --base-path PATH            Farming URL base path (default: /farming)
   --artifact PATH             Deploy an existing verified private app bundle
   --builder-image IMAGE       Linux amd64 builder used when --artifact is omitted
-  --docker-context NAME       Explicit Docker context used by the Linux builder
+  --docker-context NAME       Local Unix-socket Docker context used by the Linux builder
   --npm-registry URL          npm registry used inside the Linux builder
   --smoke-agent COMMAND       ACP provider exercised after startup (default: codex)
   --keep-images COUNT         Recent images retained in addition to rollback (default: 5)
@@ -124,6 +124,9 @@ done
 
 command -v ssh >/dev/null || { echo "ssh is required." >&2; exit 1; }
 command -v rsync >/dev/null || { echo "rsync is required." >&2; exit 1; }
+if [ -z "${ARTIFACT}" ]; then
+  "${PROJECT_ROOT}/scripts/assert-local-docker-context.sh" "${DOCKER_CONTEXT}"
+fi
 
 SSH_ARGS=()
 if [ -n "${SSH_PORT}" ]; then SSH_ARGS+=(-p "${SSH_PORT}"); fi

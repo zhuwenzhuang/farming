@@ -204,8 +204,6 @@ async function run() {
       serverSource.includes("import { AgentSessionResumeCoordinator } from './agent-session-resume-coordinator.cjs';") &&
       serverSource.includes('const agentSessionResumeCoordinator = new AgentSessionResumeCoordinator({') &&
       serverSource.includes("resumeHttp('codex', req.params.sessionId, req.body)") &&
-      serverSource.includes('function autoResumeMainPageAgentSessions()') &&
-      serverSource.includes('await agentSessionResumeCoordinator.autoResumeMainPageAgentSessions();') &&
       resumeCoordinatorSource.includes('await this.ports.waitForAgentRecovery();') &&
       resumeCoordinatorSource.includes("'Skipping main-page Agent session auto-resume after failed lifecycle recovery:'") &&
       resumeCoordinatorSource.includes('const knownByKey = new Map(knownSessions.map(session => [') &&
@@ -225,10 +223,10 @@ async function run() {
       serverSource.includes("inspectWorkspace: async candidate => (await inspectGitWorktree(candidate))?.workspace || ''") &&
       projectWorkspaceCanonicalizerSource.includes('const existing = pending.get(candidate)') &&
       projectWorkspaceCanonicalizerSource.includes('if (inspectedWorkspace) return inspectedWorkspace') &&
-      serverSource.includes('void autoResumeMainPageAgentSessions()') &&
+      !serverSource.includes('void autoResumeMainPageAgentSessions()') &&
       !serverSource.includes('const pendingResumeStarts = new Map') &&
       !serverSource.includes('async function resumeAgentSessionById('),
-    'Server restart should auto-resume only supported coding-agent main-page history sessions and leave shell rows out'
+    'Server restart should materialize main-page history without automatically starting provider runtimes'
   );
 
   console.log('✓ Main page session promotion helpers preserve launched coding-agent sessions');

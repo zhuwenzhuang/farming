@@ -44,6 +44,15 @@ not depend on graceful shutdown hooks. Stop, crash recovery, and cleanup may
 signal or release only the exact process and ownership claim they can still
 prove.
 
+An intentional Config stop is one exact hard-stop operation even when the
+Server is already absent. Config-owned process-group roots publish durable
+identity records before accepting work. Stop combines those records with
+exact Host endpoints and persisted Runtime and Resource identities, verifies
+the current operating-system identity, and sends `SIGKILL` directly. Computer
+containers are selected by persisted container id and exact Config ownership
+labels and receive Docker's `KILL` signal. Missing or mismatched proof is a
+visible failure; stop never scans or signals every process owned by the user.
+
 ## Runtime And Authentication Isolation
 
 Config-owned storage and runtime namespaces must derive from the same canonical
@@ -90,5 +99,6 @@ operator resolution instead of guessing.
 
 Verification must cover concurrent same-Config startup, different Configs
 running together, symlink equivalence, stale and uncertain ownership, exact
-process cleanup, independent authentication and runtime namespaces, browser
-base paths, and safe sharing of Projects and Provider Homes.
+process cleanup with and without a live Server, hard-stop signal semantics,
+independent authentication and runtime namespaces, browser base paths, and
+safe sharing of Projects and Provider Homes.

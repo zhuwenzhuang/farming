@@ -168,12 +168,25 @@ per-message acknowledgements.
 Server startup materializes every durable main-page Agent row in one aggregate
 state transition before awaiting Terminal-host enumeration, ACP binding, or
 transcript loading. Those rows retain their persisted identity, runtime kind,
-ordering, and attention cursors while their runtime state is `pending` or
-`connecting`; runtime recovery then updates the existing rows instead of adding
-them one at a time. Opening a Chat row whose binding is still pending waits on
-that same authoritative recovery. A row whose runtime cannot be recovered
-remains visible with an explicit failure state rather than disappearing into
-Provider history.
+ordering, and attention cursors. A runtime that has exact recovery evidence is
+`pending` or `connecting`; an indexed Terminal without live-host evidence is an
+explicit `stopped` placeholder. Runtime recovery then updates existing rows
+instead of adding them one at a time. A real user activation of a stopped
+provider-backed row sends one exact Session resume mutation; background reads,
+preview hydration, and Server readiness never resume it. Opening a Chat row
+whose binding is still pending waits on that same authoritative recovery. A row
+whose runtime cannot be recovered remains visible with an explicit failure
+state rather than disappearing into Provider history.
+
+Main identity is singular. When legacy records contain more than one
+`wantsMain` marker, startup deterministically elects one non-indexed durable
+Main and treats indexed provider Sessions as ordinary rows without deleting
+or bulk-rewriting history. Main-page membership proves only that a row belongs
+in inventory; it does not prove that its Runtime was live before process loss.
+Server readiness therefore never auto-resumes every indexed history Session,
+and native-host rotation restarts only Terminals backed by an exact serialized
+live state from the previous Host. An explicit user resume remains the
+authority for a stopped/history Session.
 
 Unread state for a Farming-bound Agent is owned by its monotonic attention and
 read cursors. The persisted `unread` projection must be rewritten from those

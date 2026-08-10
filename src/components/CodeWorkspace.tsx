@@ -2323,15 +2323,33 @@ export function CodeWorkspace({
     })
   }, [])
 
+  const resumeColdAgentFromUserActivation = useCallback((agentId: string) => {
+    const agent = agents.find(candidate => candidate.id === agentId)
+    if (
+      agent?.status !== 'stopped'
+      || !agent.providerSessionProvider
+      || !agent.providerSessionId
+      || agent.providerSessionTemporary === true
+    ) return false
+    resumeAgentSessionRef.current(
+      agent.providerSessionProvider,
+      agent.providerSessionId,
+      agent.providerHomeId,
+    )
+    return true
+  }, [agents])
+
   const openVisibleTarget = useCallback((target: SearchTarget, options?: { focusTerminal?: boolean }) => {
     setMainPaneMode('terminal')
     onWorkspaceViewChange('projects')
     if (target.kind === 'agent') {
-      onOpenTerminal(target.id, { focusTerminal: options?.focusTerminal })
+      if (!resumeColdAgentFromUserActivation(target.id)) {
+        onOpenTerminal(target.id, { focusTerminal: options?.focusTerminal })
+      }
     } else {
       resumeAgentSessionRef.current(target.provider, target.id, target.providerHomeId)
     }
-  }, [onOpenTerminal, onWorkspaceViewChange, setMainPaneMode])
+  }, [onOpenTerminal, onWorkspaceViewChange, resumeColdAgentFromUserActivation, setMainPaneMode])
 
   const currentProjectListTargetId = useCallback(() => {
     const activeElement = document.activeElement
@@ -2619,9 +2637,11 @@ export function CodeWorkspace({
   }, [activeAgent, agents, computerReturnAgentId, openTerminalFromWorkspace, setMainPaneMode])
 
   const openTerminalFromSidebar = useCallback((agentId: string) => {
-    openTerminalFromWorkspace(agentId)
+    if (!resumeColdAgentFromUserActivation(agentId)) {
+      openTerminalFromWorkspace(agentId)
+    }
     closeSidebarForMobile()
-  }, [closeSidebarForMobile, openTerminalFromWorkspace])
+  }, [closeSidebarForMobile, openTerminalFromWorkspace, resumeColdAgentFromUserActivation])
 
   const openProjectFile = useCallback(async (agentId: string, file: OpenWorkspaceFile['file'], target?: WorkspaceFileOpenTarget) => {
     let identity = resolveWorkspaceFileIdentity(agentId, target?.sourceAgentId)

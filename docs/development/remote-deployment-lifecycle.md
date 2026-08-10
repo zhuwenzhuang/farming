@@ -21,8 +21,11 @@ of the artifact or repository configuration.
 ## Ownership And Layout
 
 - The local builder owns artifact construction and verification.
-- The operator may select an explicit Docker context and npm registry for the
-  local builder; deployment never infers or changes another engine's lifecycle.
+- The operator may select an explicit local Unix-socket Docker context and npm
+  registry for the local builder; deployment never infers or changes another
+  engine's lifecycle. Remote, TCP, forwarded-socket, and Windows-pipe Docker
+  endpoints are rejected before remote preflight or source-worktree creation
+  because the builder bind-mounts repository paths from the local host.
 - The local builder caches checksum-pinned compatibility runtime inputs outside
   the artifact output; every reuse is revalidated before packaging.
 - The canonical Config directory owns Server, authentication, Agent, PTY, ACP,
@@ -75,9 +78,10 @@ protocol rather than hidden behind deployment retries.
 
 ## Verification
 
-Automated verification covers invalid artifacts, native-module preflight,
-concurrent activation, startup failure, product-smoke failure, exact rollback,
-first migration from a legacy source directory, and bounded cleanup. A real
-target acceptance additionally builds the private Linux artifact, deploys it
-through the public command surface, confirms the exact selected SHA, and uses a
-real provider plus visible UI journeys selected by the changed behavior.
+Automated verification covers invalid artifacts, rejection of non-local Docker
+contexts before build or SSH work, native-module preflight, concurrent
+activation, startup failure, product-smoke failure, exact rollback, first
+migration from a legacy source directory, and bounded cleanup. A real target
+acceptance additionally builds the private Linux artifact, deploys it through
+the public command surface, confirms the exact selected SHA, and uses a real
+provider plus visible UI journeys selected by the changed behavior.

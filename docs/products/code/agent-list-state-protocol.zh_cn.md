@@ -30,10 +30,20 @@ Adaptive Agent Title 会先发布 Agent-scoped Optimistic Patch，同一 Agent �
 每个快照和增量都带有后端 generation 与递增 sequence。客户端只应用当前 generation 中紧接着的 sequence。遇到后端重启、序号缺口或不确定传输时，客户端请求新的权威快照，而不是自行猜测、重放 mutation 或引入逐消息确认。
 
 Server 启动时必须在等待 Terminal Host 枚举、ACP Binding 或 Transcript 加载之前，通过一次
-聚合状态转换物化全部持久化 Main-page Agent 行。这些行在 Runtime 为 `pending` 或
-`connecting` 时仍保留持久化 Identity、Runtime Kind、顺序和 Attention Cursor；后续 Runtime
-恢复只更新已有行，不能逐个新增。打开 Binding 尚未恢复的 Chat 行时，读取会等待同一次权威
-恢复。Runtime 无法恢复的行继续以明确失败状态可见，不能消失并退回 Provider History。
+聚合状态转换物化全部持久化 Main-page Agent 行。这些行保留持久化 Identity、Runtime Kind、
+顺序和 Attention Cursor。有精确恢复证据的 Runtime 为 `pending` 或 `connecting`；只有 Indexed
+Membership、没有 Live Host 证据的 Terminal 是明确的 `stopped` Placeholder。后续 Runtime 恢复
+只更新已有行，不能逐个新增。只有用户真实点击 Stopped Provider-backed 行时，Client 才发送
+一次精确 Session Resume Mutation；后台读取、Preview Hydration 和 Server Ready 都不得触发恢复。
+打开 Binding 尚未恢复的 Chat 行时，读取会等待同一次权威恢复。Runtime 无法恢复的行继续以
+明确失败状态可见，不能消失并退回 Provider History。
+
+Main Identity 必须唯一。旧版本 Record 含有多个 `wantsMain` Marker 时，启动流程会确定性选出
+一个未进入普通 Session Index 的持久化 Main；已经进入 Index 的 Provider Session 仍投影为普通
+Agent Row，且不会删除或批量改写历史数据。Main-page Membership 只证明该行属于 Inventory，
+不能证明它在进程丢失前拥有 Live Runtime。因此 Server Ready 后不得自动 Resume 全部 Indexed
+History Session；Native Host Rotation 也只能重启由旧 Host 提供了精确 Serialized Live State 的
+Terminal。Stopped/History Session 只有收到显式用户 Resume 后才能启动 Runtime。
 
 Farming 已绑定 Agent 的未读状态由单调 Attention Cursor 和 Read Cursor 共同拥有。每次持久化
 Agent State 时，都必须从 Cursor 重新写入 `unread` Projection；旧版本留下的矛盾 Boolean

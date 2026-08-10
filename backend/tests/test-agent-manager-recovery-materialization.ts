@@ -106,7 +106,16 @@ async function run() {
       ['materialized-acp', 'materialized-terminal'],
       'all persisted rows must materialize before asynchronous Runtime enumeration completes',
     );
-    assert(initialAgents.every(agent => agent.status === 'pending'));
+    assert.strictEqual(
+      initialAgents.find(agent => agent.id === 'materialized-acp').status,
+      'pending',
+      'a persisted Chat waits for authoritative ACP binding recovery',
+    );
+    assert.strictEqual(
+      initialAgents.find(agent => agent.id === 'materialized-terminal').status,
+      'stopped',
+      'an indexed Terminal without live-host evidence is visible but cold until user resume',
+    );
     assert.strictEqual(
       initialAgents.find(agent => agent.id === 'materialized-acp').runtimeBinding.kind,
       'acp',

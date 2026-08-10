@@ -18,7 +18,7 @@ builder.
 Options:
   --output-dir PATH       Artifact output directory (default: .tmp/private-releases/<sha>)
   --builder-image IMAGE   Linux amd64 container image (default: node:22.17.0-bookworm)
-  --docker-context NAME   Explicit Docker context used by the Linux builder
+  --docker-context NAME   Local Unix-socket Docker context used by the Linux builder
   --npm-registry URL      npm registry used inside the builder
   --help                  Show this help
 EOF
@@ -55,7 +55,6 @@ while [ "$#" -gt 0 ]; do
 done
 
 command -v git >/dev/null || { echo "git is required." >&2; exit 1; }
-command -v docker >/dev/null || { echo "Docker is required to build the Linux release artifact." >&2; exit 1; }
 if [ -n "${DOCKER_CONTEXT}" ] && { [[ "${DOCKER_CONTEXT}" == -* ]] || [[ "${DOCKER_CONTEXT}" == *[[:space:]]* ]]; }; then
   echo "--docker-context must be one Docker context name without whitespace." >&2
   exit 2
@@ -77,6 +76,7 @@ docker_command() {
   fi
 }
 
+"${PROJECT_ROOT}/scripts/assert-local-docker-context.sh" "${DOCKER_CONTEXT}"
 docker_command info >/dev/null 2>&1 || {
   echo "Docker is installed but its Linux engine is not running." >&2
   exit 1

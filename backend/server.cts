@@ -1681,10 +1681,6 @@ app.post(routePath(BASE_PATH, '/api/agent-sessions/:provider/:sessionId/resume')
   res.status(reply.status).json(reply.body);
 });
 
-async function autoResumeMainPageAgentSessions() {
-  await agentSessionResumeCoordinator.autoResumeMainPageAgentSessions();
-}
-
 app.use(routePath(BASE_PATH, '/api/settings'), createSettingsMutationRouter({
   assertExecutable: filePath => fs.promises.access(filePath, fs.constants.X_OK),
   expandWorkspacePath: filePath => configManager.expandWorkspacePath(filePath),
@@ -2668,7 +2664,6 @@ function startServer() {
       }
       console.log('');
       setTimeout(warmCodexExecutableVersionCache, 100);
-      void autoResumeMainPageAgentSessions();
     });
   });
 

@@ -17,8 +17,14 @@ import {
 import type { TerminalScreenWorkerState as ScreenState } from './terminal-screen-worker.cjs';
 import type { TerminalReducerFlowControl } from './terminal-reducer-flow-control.cjs';
 import { TerminalNotificationParser } from './terminal-notification-parser.cjs';
+import {
+  registerConfigProcessGroup,
+  unregisterConfigProcessGroup,
+} from './config-process-ownership.cjs';
+import { readServerProcessIdentity, type ServerProcessIdentity } from './server-process-identity.cjs';
 
 interface PtyProcess {
+  pid?: number;
   kill(signal?: string): void;
   onData(listener: (data: string) => void): unknown;
   onExit(listener: (event: { code: number }) => void): unknown;
@@ -95,6 +101,7 @@ interface LocalSession {
   previewSnapshot: unknown;
   previewText: string;
   process: PtyProcess;
+  processIdentity: ServerProcessIdentity | null;
   reducerCommitQueue: Promise<unknown>;
   reducerFlowControl: TerminalReducerFlowControl;
   renderOutput: string;
@@ -376,6 +383,7 @@ class LocalSessionEngine extends SessionEngine {
       args: normalized.args || [],
       cwd: normalized.cwd,
       process: ptyProcess,
+      processIdentity: null,
       output: '',
       outputSeq: 0,
       stateRevision: 0,
@@ -407,6 +415,17 @@ class LocalSessionEngine extends SessionEngine {
       lastActivityAt: Date.now(),
       screenWorker
     };
+
+    if (ptyProcess.pid && process.platform !== 'win32') {
+      const processIdentity = readServerProcessIdentity(ptyProcess.pid);
+      if (!processIdentity) {
+        ptyProcess.kill('SIGKILL');
+        await screenWorker.dispose().catch(() => {});
+        throw new Error('Terminal process could not publish its exact process ownership');
+      }
+      session.processIdentity = processIdentity;
+      registerConfigProcessGroup(this.configDir, 'terminal', processIdentity);
+    }
 
     screenWorker.on('preview', ({ previewText, title, cols, rows, previewSnapshot }) => {
       const current = this.sessions.get(session.id);
@@ -467,6 +486,9 @@ class LocalSessionEngine extends SessionEngine {
       return Promise.resolve();
     }
     if (session.exitFinalizationPromise) return session.exitFinalizationPromise;
+    if (session.processIdentity) {
+      unregisterConfigProcessGroup(this.configDir, 'terminal', session.processIdentity);
+    }
     const finalization = this.finalizeSessionExit(session, code);
     session.exitFinalizationPromise = finalization;
     return finalization;

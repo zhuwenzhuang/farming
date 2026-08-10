@@ -33,6 +33,10 @@ import {
 import { isSafeProviderSessionId } from './provider-session-id.cjs';
 import { configInstanceFingerprint as fingerprintConfigInstance } from './config-instance.cjs';
 import {
+  registerConfigProcessGroup,
+  unregisterConfigProcessGroup,
+} from './config-process-ownership.cjs';
+import {
   consumeCodexInlineVisualizationStream,
   createCodexInlineVisualizationStreamState,
   stripCodexInternalContextBlocks,
@@ -1201,6 +1205,7 @@ class AcpRuntime extends EventEmitter {
   declare describeProcessGroup: NonNullable<AcpRuntimeOptions['describeAcpProcessGroup']>;
   declare stopProcessTreeAndWait: NonNullable<AcpRuntimeOptions['stopProcessAndWait']>;
   declare configInstanceFingerprint: string;
+  declare configDir: string;
   declare checkpointStore: Pick<
     AcpCheckpointStore,
     'dispose' | 'flush' | 'load' | 'markDirty' | 'schedule' | 'write'
@@ -1238,6 +1243,7 @@ class AcpRuntime extends EventEmitter {
     this.deleteProviderSessionIdentity = options.deleteProviderSessionIdentity || deleteProviderSessionIdentity;
     this.describeProcessGroup = options.describeAcpProcessGroup || describeAcpProcessGroup;
     this.stopProcessTreeAndWait = options.stopProcessAndWait || stopProcessAndWait;
+    this.configDir = options.configDir || '';
     this.configInstanceFingerprint = options.configDir
       ? fingerprintConfigInstance(options.configDir)
       : '';
@@ -1372,6 +1378,9 @@ class AcpRuntime extends EventEmitter {
             : {}),
         };
         await this.persistRuntimeIdentity(runtime, options);
+        if (this.configDir) {
+          registerConfigProcessGroup(this.configDir, 'acp-provider', runtime.processIdentity);
+        }
         await new Promise<void>((resolve, reject) => {
           child.stdin.write('start\n', (error: unknown) => {
             if (error) reject(error);
@@ -1428,6 +1437,9 @@ class AcpRuntime extends EventEmitter {
       try {
         await this.stopProcessTreeAndWait(runtime);
         runtime.exited = true;
+        if (this.configDir && runtime.processIdentity) {
+          unregisterConfigProcessGroup(this.configDir, 'acp-provider', runtime.processIdentity);
+        }
       } catch (cleanupError) {
         if (!this.runtimeProcesses.has(runtime.key)) {
           this.runtimeProcesses.set(runtime.key, runtime);
@@ -4709,6 +4721,9 @@ class AcpRuntime extends EventEmitter {
     }
     await this.stopProcessTreeAndWait(runtime);
     runtime.exited = true;
+    if (this.configDir && runtime.processIdentity) {
+      unregisterConfigProcessGroup(this.configDir, 'acp-provider', runtime.processIdentity);
+    }
     if (this.runtimeProcesses.get(runtime.key) === runtime) {
       this.runtimeProcesses.delete(runtime.key);
     }

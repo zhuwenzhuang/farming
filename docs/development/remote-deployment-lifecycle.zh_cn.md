@@ -16,8 +16,10 @@ Artifact 明确记录完整 Git SHA、平台、架构、兼容运行时、包内
 
 ## 所有权与目录布局
 
-- 本地 builder 拥有 artifact 构建与验证。操作者可以显式选择 Docker context
-  和 npm registry；部署不会推断或改变其他容器引擎的生命周期。
+- 本地 builder 拥有 artifact 构建与验证。操作者可以显式选择本地 Unix socket
+  Docker context 和 npm registry；部署不会推断或改变其他容器引擎的生命周期。
+  由于 builder 需要 bind-mount 本机仓库路径，远端、TCP、转发 socket 和 Windows
+  pipe Docker endpoint 会在远端预检或源码 worktree 创建前被拒绝。
 - 本地 builder 在 artifact 输出之外缓存 checksum 固定的兼容 runtime 输入；每次
   复用前都重新校验。
 - 规范化 Config 目录拥有 Server、认证、Agent、PTY、ACP、Browser 和 Computer 状态。
@@ -62,7 +64,7 @@ Safety 要求：
 
 ## 验证
 
-自动验证覆盖非法 artifact、原生模块 preflight、并发 activation、启动失败、产品
-smoke 失败、精确回滚、从旧源码目录首次迁移以及有界清理。真实目标验收还必须通过
-公开命令入口构建并部署私有 Linux artifact，确认选中的确切 SHA，并根据变更范围使用
-真实 Provider 和可见 UI journey。
+自动验证覆盖非法 artifact、在构建或 SSH 操作前拒绝非本地 Docker context、原生模块
+preflight、并发 activation、启动失败、产品 smoke 失败、精确回滚、从旧源码目录首次
+迁移以及有界清理。真实目标验收还必须通过公开命令入口构建并部署私有 Linux artifact，
+确认选中的确切 SHA，并根据变更范围使用真实 Provider 和可见 UI journey。

@@ -21,6 +21,7 @@ function run() {
       !deploySource.includes('FARMING_GUARD_HTTP_URL') &&
       !deploySource.includes('FARMING_GUARD_WS_URL') &&
       activateSource.includes('run_cli "${runtime_root}" "${code_root}" stop --config-dir "${CONFIG_DIR}"') &&
+      !activateSource.includes('if [ ! -f "${CONFIG_DIR}/farming-server.pid" ]') &&
       activateSource.includes("printf '%s\\n' daemon --port \"${APP_PORT}\"") &&
       !deploySource.includes('write_server_control_metadata') &&
       !activateSource.includes('kill -9') &&
@@ -36,6 +37,7 @@ function run() {
       !appCliSource.includes('serverStopGraceMs') &&
       appCliSource.includes('matchingProcessIdentity(processIdentity, readServerProcessIdentity(targetPid))') &&
       appCliSource.includes('forceKillServer(pid)') &&
+      appCliSource.includes('hardStopConfigProcesses(configDir)') &&
       appCliSource.includes("process.kill(pid, 'SIGKILL')") &&
       npmUpdateHelperSource.includes("process.kill(pid, 'SIGKILL')") &&
       releaseInstallerSource.includes('run_release_cli "${SOURCE_DIR}" stop') &&

@@ -457,40 +457,16 @@ async function run() {
     }
     assert.strictEqual(
       createdRotationSessions.length,
-      1,
-      'only the newest authoritative main-page Terminal record should restart; duplicates and migrated ACP records must not'
+      0,
+      'main-page membership alone must not restart a stopped/history Terminal after Runtime rotation',
     );
-    assert.strictEqual(
-      createdRotationSessions[0].agentId,
-      rotationRecord.runtimeAgentId,
-      'runtime rotation must retain the stable Runtime Agent id through real startAgent initialization',
-    );
-    assert.strictEqual(createdRotationSessions[0].reviveState, null);
-    const replacement = rotationManager.agents.get(rotationRecord.runtimeAgentId);
-    assert(replacement, 'real startAgent must install the replacement under the persisted Runtime Agent id');
-    assert.strictEqual(replacement.customTitle, 'Pinned recovery');
-    assert.strictEqual(replacement.pinned, true);
-    assert.strictEqual(replacement.terminalInputReceived, true);
-    assert.strictEqual(replacement.unread, true);
-    assert.strictEqual(replacement.attentionOutputEpoch, 'runtime-before-upgrade');
-    assert.strictEqual(replacement.attentionOutputSeq, 42);
-    assert.strictEqual(replacement.readOutputEpoch, 'runtime-before-upgrade');
-    assert.strictEqual(replacement.readOutputSeq, 42);
-    assert.deepStrictEqual(
-      replacement.composerCommands,
-      [rotationAcceptedCommand],
-      'the real replacement agentRecord must retain the normalized Composer idempotency ledger',
-    );
-    const rotatedDuplicate = await rotationManager.sendPersistentComposerMessage(
-      rotationRecord.runtimeAgentId,
-      'do not replay after runtime rotation',
-      'rotated-terminal-accepted',
-    );
-    assert.strictEqual(rotatedDuplicate.deduplicated, true);
+    const placeholder = rotationManager.agents.get(rotationRecord.runtimeAgentId);
+    assert(placeholder, 'the stopped/history Terminal must remain visible as an inventory placeholder');
+    assert.strictEqual(placeholder.engineStarted, false);
     assert.strictEqual(
       rotatedTerminalWrites,
       0,
-      'an accepted Composer request must remain deduplicated after native PTY runtime rotation',
+      'startup recovery must perform no input against a stopped/history Terminal',
     );
   } finally {
     await rotationManager.dispose({ preserveTerminalHost: true });

@@ -37,6 +37,12 @@ Server 必须在初始化 Config 自有 Runtime 前原子发布所有权。已�
 非优雅退出后仍必须正确，不能依赖 Graceful Shutdown Hook。停止、崩溃恢复和清理只能作用于
 仍能精确证明的进程与 Owner Claim。
 
+即使 Server 已经消失，一次有意的 Config Stop 仍是一项精确 Hard-stop 操作。Config 自有的
+进程组 Root 必须在接收工作前持久化精确身份。Stop 会合并这些记录、精确 Host Endpoint 以及
+持久化 Runtime/Resource 身份，重新校验当前操作系统进程身份，然后直接发送 `SIGKILL`。
+Computer Container 必须通过持久化 Container ID 与精确 Config Ownership Label 选中，并接收
+Docker `KILL` 信号。证明缺失或不匹配时显式失败；Stop 绝不能扫描或终止当前用户的所有进程。
+
 ## Runtime 与鉴权隔离
 
 Config 自有存储和 Runtime Namespace 必须来自同一个 Canonical 身份。因此不同 Config
@@ -73,5 +79,5 @@ Base Path 改变时必须重新读取入口文档。路由缺失或不一致时�
 ## 验收标准
 
 验证必须覆盖：同 Config 并发启动、不同 Config 同时运行、软链接等价、失效与不确定 Owner、
-精确进程清理、独立鉴权与 Runtime Namespace、Browser Base Path，以及 Project 与 Provider
-Home 的安全共享。
+有无 Live Server 时的精确进程清理、Hard-stop Signal 语义、独立鉴权与 Runtime Namespace、
+Browser Base Path，以及 Project 与 Provider Home 的安全共享。

@@ -228,7 +228,6 @@ start_server() {
 stop_server() {
   local runtime_root="$1"
   local code_root="$2"
-  if [ ! -f "${CONFIG_DIR}/farming-server.pid" ]; then return 0; fi
   run_cli "${runtime_root}" "${code_root}" stop --config-dir "${CONFIG_DIR}"
 }
 

@@ -18,3 +18,9 @@ Repository documents continue to own operational and security contracts:
 The common lifecycle remains `farming daemon`, `farming status`, `farming logs`,
 `farming url`, and `farming stop`. Run `farming --help` for the installed
 version's authoritative command list.
+
+`farming-server.json` is transient live-Server control metadata, not a durable
+monitoring API. A successful `farming stop` removes it, so its absence after a
+stop is expected and is not an empty or corrupt state. Monitors should use
+`farming status --config-dir PATH` for lifecycle state and an HTTP readiness
+check for service availability; file presence alone is not sufficient evidence.

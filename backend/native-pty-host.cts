@@ -230,6 +230,11 @@ const { deriveTerminalStatus } = terminalStatusModule;
 import * as terminalRuntimeCleanupModule from './terminal-runtime-cleanup.cjs';
 const { probeUnixSocket } = terminalRuntimeCleanupModule;
 import * as nativePtyHostIdentityModule from './native-pty-host-identity.cjs';
+import {
+  registerConfigProcessGroup,
+  unregisterConfigProcessGroup,
+} from './config-process-ownership.cjs';
+import { readServerProcessIdentity } from './server-process-identity.cjs';
 const { nativePtyHostRuntimeIdentity } = nativePtyHostIdentityModule;
 import * as runtimeGenerationModule from './native-pty-controller-generation.cjs';
 const {
@@ -1883,6 +1888,28 @@ class NativePtyHost {
 
 function startNativePtyHostProcess(): NativePtyHost {
   const host = new NativePtyHost();
+  const processIdentity = process.platform === 'win32' ? null : readServerProcessIdentity(process.pid);
+  if (process.platform === 'win32') {
+    host.start().catch(error => {
+      console.error(error && error.stack ? error.stack : error);
+      process.exit(1);
+    });
+    process.on('SIGTERM', () => { host.dispose().finally(() => process.exit(0)); });
+    process.on('SIGINT', () => { host.dispose().finally(() => process.exit(0)); });
+    return host;
+  }
+  if (!processIdentity) {
+    throw new Error('Native PTY Host could not publish its exact process ownership');
+  }
+  registerConfigProcessGroup(host.configDir, 'native-pty-host', processIdentity);
+  const dispose = host.dispose.bind(host);
+  host.dispose = async () => {
+    try {
+      await dispose();
+    } finally {
+      unregisterConfigProcessGroup(host.configDir, 'native-pty-host', processIdentity);
+    }
+  };
   host.start().catch(error => {
     console.error(error && error.stack ? error.stack : error);
     process.exit(1);
