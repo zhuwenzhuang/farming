@@ -315,7 +315,7 @@ async function run() {
       [{ name: 'docs', command: '/bin/docs-mcp', args: [], env: [] }],
       'a replacement runtime must keep provider MCPs without adding Farming MCPs',
     );
-    manager.acpPreparedTranscriptCache.deleteAgent(agentId);
+    manager.acpTranscriptService.deleteAgent(agentId);
     runtime.unregisterAgent(agentId);
     manager.agents.delete(agentId);
     const resumedAgentId = await new Promise(resolve => {

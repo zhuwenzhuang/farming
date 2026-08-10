@@ -140,6 +140,10 @@ HTTP, WebSocket, persistence, and runtime-host boundaries.
   runtime identity resolution and per-Agent profile mutation serialization live
   in a shared owner; Codex preview parsing and `/status` or `/model` commands
   remain provider policy and effects.
+- ACP transcript projection owns prepared-cache identity, on-demand read
+  coalescing, serialization, invalidation, prioritization, and exact Agent
+  cleanup in one service. The Manager retains only live-Agent admission and
+  transport-facing delegation.
 - Provider adapters expose typed decisions such as permission restart,
   Terminal identity/startup constraints, idle stability, and conversation Fork
   policy. Generic lifecycle code does not interpret provider names. A shared

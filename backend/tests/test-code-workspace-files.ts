@@ -74,6 +74,7 @@ function run() {
   const agentSessionRouterSource = read('backend/agent-session-router.cts');
   const agentManagerSource = read('backend/agent-manager.cts');
   const preparedTranscriptCacheSource = read('backend/acp-prepared-transcript-cache.cts');
+  const acpTranscriptServiceSource = read('backend/acp-transcript-service.cts');
   const mainPageSessionSource = read('backend/main-page-session.cts');
   const resumeCoordinatorSource = read('backend/agent-session-resume-coordinator.cts');
   const inputPartsSource = read('backend/input-parts.cts');
@@ -1225,9 +1226,9 @@ function run() {
       codeSidebarSource.includes('if (event.button === 0) prepareLiveChat()') &&
       codeSidebarSource.includes('prepareLiveChat()') &&
       serverSource.includes('const MIN_TRANSCRIPT_TURNS = 5;') &&
-      agentManagerSource.includes('const PREPARED_ACP_TRANSCRIPT_TURN_LIMIT = 5;') &&
-      agentManagerSource.includes('const PREPARED_ACP_TRANSCRIPT_QUIET_MS = 60;') &&
-      agentManagerSource.includes('if (!this.acpPreparedTranscriptCache.hasAgent(agentId)) return;') &&
+      acpTranscriptServiceSource.includes('const PREPARED_TRANSCRIPT_TURN_LIMIT = 5;') &&
+      acpTranscriptServiceSource.includes('const PREPARED_TRANSCRIPT_QUIET_MS = 60;') &&
+      acpTranscriptServiceSource.includes('if (this.prepared.hasAgent(agentId)) this.observe(agentId);') &&
       preparedTranscriptCacheSource.includes('maxRecords?: number;') &&
       preparedTranscriptCacheSource.includes('getSerialized(identity: PreparedTranscriptIdentity)') &&
       preparedTranscriptCacheSource.includes('json: string;'),

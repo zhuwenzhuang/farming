@@ -3,7 +3,6 @@ import type {
   AcpConfigChange,
   AcpConfigOverridesEvent,
   AcpConfigValue,
-  AcpTranscriptEntry,
   AcpBindingContract,
   AcpForkOptions,
   AcpPrepareResult,
@@ -102,8 +101,6 @@ import type {
   LifecyclePreviousState,
 } from './agent-manager-lifecycle-types.js';
 
-const PREPARED_ACP_TRANSCRIPT_TURN_LIMIT = 5;
-const PREPARED_ACP_TRANSCRIPT_QUIET_MS = 60;
 const AGENT_WORKTREE_REFRESH_CONCURRENCY = 4;
 
 const { execFile } = require('child_process');
@@ -166,13 +163,13 @@ import {
 import { deriveTerminalStatus } from './terminal-status.cjs';
 import { AcpRuntime, stopPersistedAcpProcessGroup } from './acp-runtime.cjs';
 import { AcpRuntimeHostRuntime } from './acp-runtime-host-runtime.cjs';
-import { AcpPreparedTranscriptCache } from './acp-prepared-transcript-cache.cjs';
+import { AcpTranscriptService } from './acp-transcript-service.cjs';
 import {
   ACP_ATTENTION_STOP_REASONS,
   AcpTurnFinalizationCoordinator,
 } from './acp-turn-finalization-coordinator.cjs';
 import { chatRuntimeForProvider, isChatMode } from './chat-runtime.cjs';
-import { acpTranscriptEntries, acpTranscriptMedia, acpToolChanges, acpToolDetail, acpToolReviewChanges } from './acp-transcript.cjs';
+import { acpTranscriptMedia, acpToolChanges, acpToolDetail, acpToolReviewChanges } from './acp-transcript.cjs';
 import {
   applyCodexTerminalProfile,
   codexTerminalProfileFromOutput,
@@ -264,10 +261,6 @@ type RecoveredSessionStateInput = Partial<Omit<TerminalSessionState, 'status'>> 
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
-function isAcpTranscriptEntry(value: unknown): value is AcpTranscriptEntry {
-  return isRecord(value);
 }
 
 interface LifecycleJournalContract {
@@ -1336,9 +1329,7 @@ class AgentManager extends EventEmitter {
   declare acpTurnFinalizationCoordinator: AcpTurnFinalizationCoordinator;
   declare attentionTracker: AgentAttentionTracker;
   declare acpSessionOptionsByKey: Map<string, AcpSessionOptionsRecord>;
-  declare acpPreparedTranscriptCache: AcpPreparedTranscriptCache;
-  declare acpTranscriptReads: Map<string, Promise<{ payload?: UnknownRecord; serialized?: string }>>;
-  declare transcriptMediaPathPrefix: (agentId: string) => string;
+  declare acpTranscriptService: AcpTranscriptService;
   declare createProviderSessionIdentity: CreateProviderSessionIdentityContract;
   declare deleteProviderSessionIdentity: DeleteProviderSessionIdentityContract;
   declare archiveCodexSession: ArchiveCodexSessionContract;
@@ -1639,8 +1630,7 @@ class AgentManager extends EventEmitter {
     // copy outside browser-facing Agent records; crash recovery persists it
     // only through the private Farming session store.
     this.acpSessionOptionsByKey = new Map();
-    this.acpTranscriptReads = new Map();
-    this.transcriptMediaPathPrefix = typeof options.transcriptMediaPathPrefix === 'function'
+    const transcriptMediaPathPrefix = typeof options.transcriptMediaPathPrefix === 'function'
       ? options.transcriptMediaPathPrefix
       : (agentId: string) => `/api/agents/${encodeURIComponent(agentId)}/acp-media`;
     this.acpRuntime = options.acpRuntime || (this.configManager?.farmingDir
@@ -1649,24 +1639,11 @@ class AgentManager extends EventEmitter {
           forceReplaceActiveHost: process.env.FARMING_FORCE_ACP_HOST_RESTART === '1',
         })
       : new AcpRuntime());
-    this.acpPreparedTranscriptCache = new AcpPreparedTranscriptCache({
-      prepare: identity => this.buildAcpTranscriptEnvelope(identity.agentId, {
-        maxTurns: PREPARED_ACP_TRANSCRIPT_TURN_LIMIT,
-        mediaPathPrefix: this.transcriptMediaPathPrefix(identity.agentId),
-      }),
-      validate: identity => {
-        const agent = this.agents.get(identity.agentId);
-        const runtime = runtimeBindingOf(agent, 'acp');
-        return Boolean(
-          agent
-          && runtime
-          && String(agent.providerSessionId || '') === identity.sessionId
-          && this.acpRuntime.bindingEpoch(identity.agentId) === identity.runtimeEpoch
-          && Number(runtime.sessionRevision || 0) === identity.revision
-          && runtime.state === 'idle'
-        );
-      },
-      quietMs: PREPARED_ACP_TRANSCRIPT_QUIET_MS,
+    this.acpTranscriptService = new AcpTranscriptService({
+      getAgent: agentId => this.agents.get(agentId),
+      mediaPathPrefix: transcriptMediaPathPrefix,
+      requireLiveAgent: agentId => this.requireLiveAcpAgent(agentId),
+      runtime: this.acpRuntime,
     });
     this.createProviderSessionIdentity = typeof options.createProviderSessionIdentity === 'function'
       ? options.createProviderSessionIdentity
@@ -1795,7 +1772,7 @@ class AgentManager extends EventEmitter {
         this.ensurePersistentAgentSession(agent);
       }
       if (state === 'working' || state === 'waiting-for-permission' || state === 'waiting-for-input') this.activityTracker.record(agentId);
-      this.refreshAcpPreparedTranscript(agentId);
+      this.acpTranscriptService.refresh(agentId);
       const nextRuntime = publicRuntimeBinding(agent);
       if (JSON.stringify(previousRuntime) !== JSON.stringify(nextRuntime)) {
         this.emit('agent-update', {
@@ -1848,7 +1825,7 @@ class AgentManager extends EventEmitter {
       if (titleChanged) {
         this.emit('agent-update', { agentId, patch: { sessionTitle: agent.sessionTitle || '' } });
       }
-      if (nextRevision > currentRevision) this.refreshAcpPreparedTranscript(agentId);
+      if (nextRevision > currentRevision) this.acpTranscriptService.refresh(agentId);
     });
     this.acpRuntime.on('config-overrides', ({ agentId, sessionId, configOverrides }: AcpConfigOverridesEvent) => {
       const agent = this.agents.get(String(agentId || ''));
@@ -4702,8 +4679,7 @@ class AgentManager extends EventEmitter {
       this.heartbeatInterval = null;
     }
     this.providerSessionService.dispose();
-    this.acpPreparedTranscriptCache.dispose();
-    this.acpTranscriptReads.clear();
+    this.acpTranscriptService.dispose();
     this.lifecycleCoordinator.clear();
     this.startAdmissionCoordinator.clear();
     this.projectAdmissionCoordinator.clear();
@@ -6637,124 +6613,19 @@ class AgentManager extends EventEmitter {
   }
 
   async getAcpTranscript(agentId: AgentId, options: Partial<AcpSessionRequestOptions> = {}) {
-    const response = await this.resolveAcpTranscriptResponse(agentId, options);
-    if (response.payload) return response.payload;
-    return JSON.parse(String(response.serialized || '{}'));
+    return this.acpTranscriptService.get(agentId, options);
   }
 
   async getAcpTranscriptSerialized(agentId: AgentId, options: Partial<AcpSessionRequestOptions> = {}) {
-    const response = await this.resolveAcpTranscriptResponse(agentId, options);
-    return response.serialized || JSON.stringify(response.payload);
-  }
-
-  async resolveAcpTranscriptResponse(agentId: AgentId, options: Partial<AcpSessionRequestOptions> = {}) {
-    this.requireLiveAcpAgent(agentId);
-    const agent = this.agents.get(agentId);
-    const runtime = runtimeBindingOf(agent, 'acp');
-    const identity = {
-      agentId,
-      sessionId: String(agent?.providerSessionId || ''),
-      runtimeEpoch: this.acpRuntime.bindingEpoch(agentId),
-      revision: Number(runtime?.sessionRevision || 0),
-      projectionRevision: this.acpRuntime.transcriptProjectionRevision(agentId),
-    };
-    const preparedProfile = !Number.isFinite(Number(options.sinceRevision))
-      && Number(options.maxTurns) === PREPARED_ACP_TRANSCRIPT_TURN_LIMIT
-      && options.mediaPathPrefix === this.transcriptMediaPathPrefix(agentId);
-    if (preparedProfile && identity.sessionId) {
-      this.observeAcpPreparedTranscript(agentId, 100);
-      const serialized = this.acpPreparedTranscriptCache.getSerialized(identity);
-      if (serialized) return { serialized };
-    }
-    const readKey = JSON.stringify({
-      agentId,
-      sessionId: identity.sessionId,
-      runtimeEpoch: identity.runtimeEpoch,
-      maxTurns: Number(options.maxTurns) || 0,
-      sinceRevision: Number.isFinite(Number(options.sinceRevision)) ? Number(options.sinceRevision) : null,
-      mediaPathPrefix: String(options.mediaPathPrefix || ''),
-    });
-    const existing = this.acpTranscriptReads.get(readKey);
-    if (existing) return existing;
-    const read = (async () => {
-      const payload = await this.buildAcpTranscriptEnvelope(agentId, options);
-      if (preparedProfile && identity.sessionId) {
-        const serialized = this.acpPreparedTranscriptCache.publishOnDemand(identity, payload);
-        if (serialized) return { payload, serialized };
-      }
-      return { payload };
-    })().finally(() => {
-      if (this.acpTranscriptReads.get(readKey) === read) this.acpTranscriptReads.delete(readKey);
-    });
-    this.acpTranscriptReads.set(readKey, read);
-    return read;
-  }
-
-  async buildAcpTranscript(agentId: AgentId, options: Partial<AcpSessionRequestOptions> = {}) {
-    this.requireLiveAcpAgent(agentId);
-    const transcript = await this.acpRuntime.getTranscriptSessionForRead(agentId, options);
-    const entries = Array.isArray(transcript.entries)
-      ? transcript.entries.filter(isAcpTranscriptEntry)
-      : [];
-    return {
-      ...transcript,
-      entries: acpTranscriptEntries(entries, {
-        mediaPathPrefix: typeof options.mediaPathPrefix === 'string'
-          ? options.mediaPathPrefix
-          : undefined,
-      }),
-    };
-  }
-
-  async buildAcpTranscriptEnvelope(agentId: AgentId, options: Partial<AcpSessionRequestOptions> = {}) {
-    const transcript = await this.buildAcpTranscript(agentId, options);
-    const requestedRevision = Number(options.sinceRevision);
-    const replace = transcript.delta !== true;
-    return {
-      version: 1,
-      agentId,
-      sessionId: String(transcript.sessionId || ''),
-      runtimeEpoch: this.acpRuntime.bindingEpoch(agentId),
-      fromRevision: !replace && Number.isFinite(requestedRevision)
-        ? Math.max(0, Math.floor(requestedRevision))
-        : null,
-      toRevision: Number(transcript.revision || 0),
-      replace,
-      settled: this.acpRuntime.transcriptSettled(agentId),
-      hasMoreBefore: transcript.hasMoreBefore === true,
-      transcript,
-    };
-  }
-
-  observeAcpPreparedTranscript(agentId: AgentId, priority = 0) {
-    const agent = this.agents.get(agentId);
-    const runtime = runtimeBindingOf(agent, 'acp');
-    const sessionId = String(agent?.providerSessionId || '');
-    if (!agent || !runtime || !sessionId) return;
-    this.acpPreparedTranscriptCache.observe({
-      agentId,
-      sessionId,
-      runtimeEpoch: this.acpRuntime.bindingEpoch(agentId),
-      revision: Number(runtime.sessionRevision || 0),
-      projectionRevision: this.acpRuntime.transcriptProjectionRevision(agentId),
-      eligible: runtime.state === 'idle',
-      priority,
-    });
-  }
-
-  refreshAcpPreparedTranscript(agentId: AgentId) {
-    if (!this.acpPreparedTranscriptCache.hasAgent(agentId)) return;
-    this.observeAcpPreparedTranscript(agentId);
+    return this.acpTranscriptService.getSerialized(agentId, options);
   }
 
   prioritizeAcpPreparedTranscript(agentId: AgentId) {
-    this.observeAcpPreparedTranscript(agentId, 100);
+    this.acpTranscriptService.prioritize(agentId);
   }
 
   prepareAcpTranscript(agentId: AgentId) {
-    this.requireLiveAcpAgent(agentId);
-    this.observeAcpPreparedTranscript(agentId, 100);
-    return { accepted: true };
+    return this.acpTranscriptService.prepare(agentId);
   }
 
   async getAcpTranscriptMedia(agentId: AgentId, entryId: string, mediaId: string) {
@@ -9904,7 +9775,7 @@ class AgentManager extends EventEmitter {
   }
 
   forgetStoppedAgentRecord(agentId: AgentId, options: KillAgentOptions = {}) {
-    this.acpPreparedTranscriptCache.deleteAgent(agentId);
+    this.acpTranscriptService.deleteAgent(agentId);
     this.deleteAgentRecord(agentId);
     this.acpTurnFinalizationCoordinator.forget(agentId);
     this.runtimeStopTracker.forget(agentId);

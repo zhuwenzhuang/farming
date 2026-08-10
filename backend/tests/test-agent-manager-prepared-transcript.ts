@@ -78,19 +78,19 @@ async function run() {
     binding.state = 'idle';
     runtime.emitSession(binding);
     assert.strictEqual(
-      manager.acpPreparedTranscriptCache.stats().records,
+      manager.acpTranscriptService.stats().records,
       0,
       'idle inventory updates must not make every Chat a prepared-cache candidate',
     );
     manager.prioritizeAcpPreparedTranscript(agentId);
     await waitFor(
-      () => manager.acpPreparedTranscriptCache.stats().entries === 1,
+      () => manager.acpTranscriptService.stats().entries === 1,
       'idle transcript did not reach the prepared cache',
     );
 
     let onDemandBuilds = 0;
-    const originalBuild = manager.buildAcpTranscript.bind(manager);
-    manager.buildAcpTranscript = (...args: unknown[]) => {
+    const originalBuild = manager.acpTranscriptService.build.bind(manager.acpTranscriptService);
+    manager.acpTranscriptService.build = (...args: unknown[]) => {
       onDemandBuilds += 1;
       return originalBuild(...args);
     };
@@ -124,11 +124,11 @@ async function run() {
 
     binding.state = 'working';
     runtime.emitRuntime(binding);
-    manager.buildAcpTranscript = originalBuild;
+    manager.acpTranscriptService.build = originalBuild;
     let concurrentBuilds = 0;
     let releaseBuild: () => void = () => {};
     const buildGate = new Promise<void>(resolve => { releaseBuild = resolve; });
-    manager.buildAcpTranscript = async (...args: unknown[]) => {
+    manager.acpTranscriptService.build = async (...args: unknown[]) => {
       concurrentBuilds += 1;
       await buildGate;
       return originalBuild(...args);
@@ -155,7 +155,7 @@ async function run() {
     assert.deepStrictEqual(secondConcurrent, firstConcurrent);
 
     manager.forgetStoppedAgentRecord(agentId, { emitUpdate: false });
-    assert.strictEqual(manager.acpPreparedTranscriptCache.stats().entries, 0);
+    assert.strictEqual(manager.acpTranscriptService.stats().entries, 0);
     console.log('test-agent-manager-prepared-transcript passed');
   } finally {
     await manager.dispose();

@@ -114,6 +114,9 @@ Runtime Port 与 Provider Policy
 - Terminal Provider Control 排序同样保持 Provider 中立。每个 Runtime 只尝试一次的
   Identity Resolution 与单 Agent Profile Mutation 串行化进入共享 Owner；Codex 的
   Preview 解析以及 `/status`、`/model` 命令仍属于 Provider Policy 与 Effect。
+- ACP Transcript Projection 在一个 Service 中统一拥有 Prepared Cache Identity、按需
+  Read 合并、序列化、失效、优先级和精确 Agent Cleanup。Manager 只保留 Live Agent
+  准入和面向 Transport 的委托。
 - Provider Adapter 提供有类型的权限重启、Terminal 身份/启动约束、空闲稳定和会话
   Fork 策略；通用生命周期代码不解释 Provider 名称。共享 Terminal Startup
   Coordinator 拥有可变的排序和就绪状态；Adapter 只提供无状态的资源作用域和就绪策略。
