@@ -152,7 +152,7 @@ async function run() {
     for (const agentId of agentIds) {
       const agent = manager.agents.get(agentId);
       agent.attentionSummary = `Finished ${agentId}`;
-      manager.recordAgentAttentionEvent(agent, 'turn-complete');
+      manager.attentionTracker.recordAgentAttentionEvent(agent, 'turn-complete');
     }
     assert.strictEqual(readUpdates.length, count, 'attention changes must use the Agent read channel');
     assert(readUpdates.every(update => update.attentionReason === 'turn-complete'));

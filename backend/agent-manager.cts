@@ -1387,7 +1387,7 @@ class AgentManager extends EventEmitter {
 
   deleteAgentRecord(agentId: AgentId): boolean {
     const agent = this.agents.get(agentId);
-    this.cancelQwenTerminalIdleCandidate(agentId);
+    this.attentionTracker.cancelQwenTerminalIdleCandidate(agentId);
     const deleted = this.agents.delete(agentId);
     if (deleted) {
       this.agentOrderAllocator.remove(agent);
@@ -1920,7 +1920,7 @@ class AgentManager extends EventEmitter {
         agent.engineStarted = true;
         agent.engineStatus = status || 'running';
         agent.startedAt = startedAt || Date.now();
-        this.observeAgentAttentionState(sessionId);
+        this.attentionTracker.observeAgentAttentionState(sessionId);
         this.providerSessionService.observe(sessionId, { force: true });
         this.emitStateChange({ agentIds: [sessionId] });
       });
@@ -1954,7 +1954,7 @@ class AgentManager extends EventEmitter {
         );
         this.getAgentUsageRate(sessionId, { now: outputAt });
 
-        this.observeAgentAttentionState(sessionId);
+        this.attentionTracker.observeAgentAttentionState(sessionId);
         const sessionSource = this.getEngineSessionSource(engineName);
         const stream: UnknownRecord = {
           agentId: sessionId,
@@ -2010,7 +2010,7 @@ class AgentManager extends EventEmitter {
         cols,
         rows,
       });
-      this.observeAgentAttentionState(sessionId);
+      this.attentionTracker.observeAgentAttentionState(sessionId);
       this.emitStateChange({ agentIds: [sessionId] });
     });
 
@@ -2073,7 +2073,7 @@ class AgentManager extends EventEmitter {
           this.emit('session-stream', stream);
         }
         void this.resolveCodexTerminalIdentityFromPreview(sessionId, agent.previewText);
-        this.observeAgentAttentionState(sessionId);
+        this.attentionTracker.observeAgentAttentionState(sessionId);
         this.emitStateChange({ agentIds: [sessionId] });
       });
 
@@ -2139,7 +2139,7 @@ class AgentManager extends EventEmitter {
           });
         }
         void this.resolveCodexTerminalIdentityFromPreview(sessionId, agent.previewText);
-        this.observeAgentAttentionState(sessionId);
+        this.attentionTracker.observeAgentAttentionState(sessionId);
         if (titleChanged) {
           this.emitStateChange({ agentIds: [sessionId] });
         }
@@ -2150,7 +2150,7 @@ class AgentManager extends EventEmitter {
         if (!agent || !terminalRuntimeEventMatches(agent, runtimeEpoch)) return;
 
         if (this.updateAgentSessionTitle(agent, title)) {
-          this.observeAgentAttentionState(sessionId);
+          this.attentionTracker.observeAgentAttentionState(sessionId);
           this.emitStateChange({ agentIds: [sessionId] });
         }
       });
@@ -2158,7 +2158,7 @@ class AgentManager extends EventEmitter {
     this.engineBridge.on('session-activity', ({ sessionId, lastActivityAt, runtimeEpoch }: TerminalSessionActivityEvent) => {
         const agent = this.agents.get(sessionId);
         if (!agent || !terminalRuntimeEventMatches(agent, runtimeEpoch)) return;
-        this.observeAgentAttentionState(sessionId);
+        this.attentionTracker.observeAgentAttentionState(sessionId);
         this.activityTracker.publish(sessionId, lastActivityAt || Date.now());
       });
 
@@ -2254,7 +2254,7 @@ class AgentManager extends EventEmitter {
         if (agent.shellCwd && agent.shellCwd !== previousShellCwd) {
           void this.refreshAgentWorktree(sessionId, agent.shellCwd);
         }
-        this.observeAgentAttentionState(sessionId);
+        this.attentionTracker.observeAgentAttentionState(sessionId);
         const patch = terminalMetadataPatch(agent);
         this.terminalStatusProjections.set(agent, patch.terminalStatus);
         this.emit('agent-update', { agentId: sessionId, patch });
@@ -2285,7 +2285,7 @@ class AgentManager extends EventEmitter {
       if (this.isAgentAttentionTurnActive(agent)) {
         agent.terminalNotificationAttentionUntil = Date.now() + TERMINAL_NOTIFICATION_COMPLETION_SUPPRESS_MS;
       }
-      this.recordAgentAttentionEvent(agent, 'terminal-notification');
+      this.attentionTracker.recordAgentAttentionEvent(agent, 'terminal-notification');
     });
 
     this.engineBridge.on('session-exited', ({
@@ -2310,7 +2310,7 @@ class AgentManager extends EventEmitter {
           if (!String(agent.output || '').includes(proofError)) {
             agent.output = trimSessionOutput(`${agent.output || ''}\n${proofError}`);
           }
-          this.observeAgentAttentionState(sessionId);
+          this.attentionTracker.observeAgentAttentionState(sessionId);
           this.providerSessionService.observe(sessionId, { force: true });
           this.emitStateChange({ agentIds: [sessionId] });
           return;
@@ -2338,7 +2338,7 @@ class AgentManager extends EventEmitter {
         agent.status = sessionId === this.mainAgentId ? 'dead' : 'stopped';
         agent.exitedAt = exitedAt || Date.now();
         agent.output = trimSessionOutput(`${agent.output}\nProcess exited with code ${code}`);
-        this.observeAgentAttentionState(sessionId);
+        this.attentionTracker.observeAgentAttentionState(sessionId);
         this.providerSessionService.observe(sessionId, { force: true });
         if (sessionId !== this.mainAgentId) {
           this.recordTaskHistory(agent, {
@@ -4307,84 +4307,6 @@ class AgentManager extends EventEmitter {
   agentAttentionProvider(agent: TypedAgentRecord) {
     return agent.providerSessionProvider
       || agentHomeProviderForProgram(agent.forkCommand || agent.command || '');
-  }
-
-  cancelQwenTerminalIdleCandidate(agentId: AgentId) {
-    return this.attentionTracker.cancelQwenTerminalIdleCandidate(agentId);
-  }
-
-  scheduleQwenTerminalIdleCandidate(agent: TypedAgentRecord) {
-    this.attentionTracker.scheduleQwenTerminalIdleCandidate(agent);
-  }
-
-  completeAgentAttentionTransition(agent: TypedAgentRecord) {
-    return this.attentionTracker.completeAgentAttentionTransition(agent);
-  }
-
-  observeAgentAttentionState(agentId: AgentId) {
-    return this.attentionTracker.observeAgentAttentionState(agentId);
-  }
-
-  recordAgentAttentionEvent(
-    agent: TypedAgentRecord,
-    reason: string = 'turn-complete',
-    options: { persist?: boolean; publish?: boolean } = {},
-  ) {
-    return this.attentionTracker.recordAgentAttentionEvent(agent, reason, options);
-  }
-
-  markAgentReadCursor(agentId: AgentId, readAttentionSeq?: number, options: UnknownRecord = {}) {
-    return this.attentionTracker.markAgentReadCursor(agentId, readAttentionSeq, options);
-  }
-
-  markAgentReadOutputCut(agentId: AgentId, runtimeEpoch: string, outputSeq: number) {
-    const agent = this.agents.get(agentId);
-    if (!agent) {
-      return { error: 'Agent not found' };
-    }
-
-    const currentRuntimeEpoch = typeof agent.runtimeEpoch === 'string' ? agent.runtimeEpoch : '';
-    const requestedRuntimeEpoch = typeof runtimeEpoch === 'string' ? runtimeEpoch : '';
-    const currentOutputSeq = finiteNumberOrNull(agent.lastOutputSeq);
-    if (
-      !currentRuntimeEpoch
-      || requestedRuntimeEpoch !== currentRuntimeEpoch
-      || currentOutputSeq === null
-      || !Number.isFinite(outputSeq)
-    ) {
-      return {
-        agentId,
-        readOutputEpoch: typeof agent.readOutputEpoch === 'string' ? agent.readOutputEpoch : '',
-        readOutputSeq: finiteNumberOrNull(agent.readOutputSeq),
-        changed: false,
-      };
-    }
-
-    const requestedOutputSeq = Math.max(0, Math.floor(outputSeq));
-    const nextOutputSeq = Math.min(currentOutputSeq, requestedOutputSeq);
-    const previousOutputSeq = agent.readOutputEpoch === currentRuntimeEpoch
-      ? finiteNumberOrNull(agent.readOutputSeq)
-      : null;
-    const readOutputSeq = previousOutputSeq === null
-      ? nextOutputSeq
-      : Math.max(previousOutputSeq, nextOutputSeq);
-    const changed = agent.readOutputEpoch !== currentRuntimeEpoch || previousOutputSeq !== readOutputSeq;
-    agent.readOutputEpoch = currentRuntimeEpoch;
-    agent.readOutputSeq = readOutputSeq;
-    return {
-      agentId,
-      readOutputEpoch: agent.readOutputEpoch,
-      readOutputSeq: agent.readOutputSeq,
-      changed,
-    };
-  }
-
-  markAgentUnreadCursor(agentId: AgentId) {
-    return this.attentionTracker.markAgentUnreadCursor(agentId);
-  }
-
-  emitAgentReadState(agent: TypedAgentRecord) {
-    this.attentionTracker.emitAgentReadState(agent);
   }
 
   async refreshAgentWorktree(agentId: AgentId, workspaceCandidate: unknown = ''): Promise<boolean> {
@@ -6757,7 +6679,7 @@ class AgentManager extends EventEmitter {
           } catch {
             agent.attentionSummary = '';
           }
-          this.recordAgentAttentionEvent(agent, 'turn-complete');
+          this.attentionTracker.recordAgentAttentionEvent(agent, 'turn-complete');
         }
       }
       // ACP assigns a Codex session id before it writes an archivable
@@ -7642,7 +7564,7 @@ class AgentManager extends EventEmitter {
     if (structuralUpdateChanged) {
       this.emitStateChange({ agentIds: [agentId] });
     } else if (readUpdateChanged) {
-      this.emitAgentReadState(agent);
+      this.attentionTracker.emitAgentReadState(agent);
     }
     return {
       agentId,
@@ -8322,8 +8244,8 @@ class AgentManager extends EventEmitter {
 
   setAgentUnread(agentId: AgentId, unread: boolean) {
     return unread === true
-      ? this.markAgentUnreadCursor(agentId)
-      : this.markAgentReadCursor(agentId);
+      ? this.attentionTracker.markAgentUnreadCursor(agentId)
+      : this.attentionTracker.markAgentReadCursor(agentId);
   }
 
   persistentProjectOperation(

@@ -382,6 +382,8 @@ cleanup outside the Manager. Activity timestamps and throttled activity
 publication likewise have one tracker owner. ACP settled-Turn finalization now
 owns its per-Agent admission/tails, runtime fencing, durable convergence,
 Attention publication, drain, and exact cleanup as one state machine.
+The Manager calls the Attention tracker directly internally; redundant facade
+wrappers are not retained as a second pseudo-owner.
 Provider-neutral Terminal startup ordering also has one owner, activated by a
 typed adapter policy rather than a provider-name branch. Launch composition
 remains in the Manager over provider-adapter and executable discovery

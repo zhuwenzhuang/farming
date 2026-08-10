@@ -322,7 +322,8 @@ Effect 分离。Shell Environment Resolution 也在 Manager 外拥有 Provider�
 Cache、Expiry 与 Cleanup；Activity Timestamp 与 Throttled Activity Publication 也归
 一个 Tracker 所有。ACP Settled-Turn Finalization 也把 Per-Agent Admission/Tail、Runtime
 Fence、Durable Convergence、Attention Publication、Drain 与精确 Cleanup 作为一套状态机
-共同拥有。Provider-neutral Terminal Startup Ordering 也已有唯一 Owner，由类型化
+共同拥有。Manager 内部直接调用 Attention Tracker，不保留会形成第二个伪 Owner 的重复
+Facade Wrapper。Provider-neutral Terminal Startup Ordering 也已有唯一 Owner，由类型化
 Adapter Policy 激活，而不是由 Provider Name 分支激活。Launch Composition 保留在
 Manager，并组合 Provider Adapter 与 Executable Discovery 边界。剩余范围：
 

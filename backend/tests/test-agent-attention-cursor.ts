@@ -307,7 +307,7 @@ async function run() {
       lastObservedTurnActive: false,
       attentionSuppressUntil: 0,
     });
-    manager.observeAgentAttentionState('stale-shell-agent');
+    manager.attentionTracker.observeAgentAttentionState('stale-shell-agent');
     agent = manager.agents.get('stale-shell-agent');
     assert.strictEqual(agent.readAttentionSeq, 1, 'automatic shell attention persisted by older releases must be read');
     assert.strictEqual(agent.unread, false);
@@ -329,7 +329,7 @@ async function run() {
       lastObservedTurnActive: false,
       attentionSuppressUntil: 0,
     });
-    manager.observeAgentAttentionState('manual-shell-agent');
+    manager.attentionTracker.observeAgentAttentionState('manual-shell-agent');
     agent = manager.agents.get('manual-shell-agent');
     assert.strictEqual(agent.readAttentionSeq, 0, 'manual shell unread marks must remain deliberate');
     assert.strictEqual(agent.unread, true);
