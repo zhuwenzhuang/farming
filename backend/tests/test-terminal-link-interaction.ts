@@ -110,6 +110,7 @@ function createFixture(options: {
     now: 1_000,
     attached: true,
     generation: 1,
+    revision: 0,
     mobile: false,
     workspace: 'a',
   };
@@ -159,8 +160,12 @@ function createFixture(options: {
     language: () => 'en',
     isMobileViewport: () => state.mobile,
     isAttached: () => state.attached,
-    attachmentGeneration: () => state.generation,
-    isCurrentAttachment: generation => state.attached && state.generation === generation,
+    attachmentOperation: () => ({ generation: state.generation, revision: state.revision }),
+    isCurrentAttachmentOperation: operation => (
+      state.attached
+      && state.generation === operation.generation
+      && state.revision === operation.revision
+    ),
     cellFromEvent: event => ({
       col: Math.floor(event.clientX / CELL_WIDTH),
       row: Math.floor(event.clientY / CELL_HEIGHT),
@@ -257,6 +262,23 @@ async function testStaleResolverAfterDetach() {
     fixture.controller.resolvedPathLinkAtEvent(createEvent({ clientX: 115, clientY: 5 })),
     null,
     'a stale completion cannot commit a resolved candidate for the new generation',
+  );
+}
+
+async function testStaleResolverAfterAttachmentOperationAdvances() {
+  const fixture = createFixture({ deferResolve: true });
+  const pending = fixture.controller.resolvePathTarget({ path: 'src/lib/terminal-links.ts' });
+  await flush();
+
+  fixture.state.revision += 1;
+  fixture.resolvePending();
+
+  assert.strictEqual(await pending, null,
+    'a resolver from an older operation cannot commit after same-generation recovery advances');
+  assert.strictEqual(
+    fixture.controller.resolvedPathLinkAtEvent(createEvent({ clientX: 115, clientY: 5 })),
+    null,
+    'the stale operation does not populate the current attachment cache',
   );
 }
 
@@ -1178,6 +1200,7 @@ function testSourceContracts() {
 
 async function run() {
   await testStaleResolverAfterDetach();
+  await testStaleResolverAfterAttachmentOperationAdvances();
   await testHoverCommitsForTheLatestHoverIdentity();
   await testModifierChangeDrivesUrlHover();
   await testExactOpenClick();

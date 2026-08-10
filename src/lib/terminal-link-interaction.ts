@@ -14,6 +14,7 @@ import type {
   TerminalPathOpenTarget,
 } from '@/lib/terminal-links'
 import type { TerminalLinkProvider } from '@/lib/terminal-engine'
+import type { TerminalAttachmentOperation } from '@/lib/terminal-attachment-coordinator'
 
 export const TERMINAL_PATH_RESOLVE_CACHE_TTL_MS = 30_000
 export const TERMINAL_OPEN_ACTIVATION_FENCE_MS = 250
@@ -143,8 +144,8 @@ export interface TerminalLinkInteractionPorts {
   language: () => string
   isMobileViewport: () => boolean
   isAttached: () => boolean
-  attachmentGeneration: () => number
-  isCurrentAttachment: (generation: number) => boolean
+  attachmentOperation: () => TerminalAttachmentOperation
+  isCurrentAttachmentOperation: (operation: TerminalAttachmentOperation) => boolean
   cellFromEvent: (event: MouseEvent) => TerminalLinkCell | null
   cellMetrics: () => { width: number; height: number } | null
   elementFromPoint: (x: number, y: number) => Element | null
@@ -160,13 +161,13 @@ export interface TerminalLinkInteractionPorts {
 }
 
 /**
- * Identity of the interaction that produced a decision. `generation` is the
- * attachment identity; `revision` additionally changes when the link handlers
- * themselves are replaced, which a same-mount live-options refresh does without
- * an attachment transition.
+ * Identity of the interaction that produced a decision. `attachment` is the
+ * canonical protocol operation; `revision` additionally changes when the link
+ * handlers themselves are replaced, which a same-mount live-options refresh
+ * does without an attachment transition.
  */
 interface TerminalLinkInteractionFence {
-  generation: number
+  attachment: TerminalAttachmentOperation
   revision: number
 }
 
@@ -590,12 +591,12 @@ export class TerminalLinkInteractionController {
   }
 
   #currentFence(): TerminalLinkInteractionFence {
-    return { generation: this.#ports.attachmentGeneration(), revision: this.#revision }
+    return { attachment: this.#ports.attachmentOperation(), revision: this.#revision }
   }
 
   #isCurrentFence(fence: TerminalLinkInteractionFence) {
     if (this.#disposed || fence.revision !== this.#revision) return false
-    return this.#ports.isCurrentAttachment(fence.generation)
+    return this.#ports.isCurrentAttachmentOperation(fence.attachment)
   }
 
   #isOpenModifierActive(event: Pick<MouseEvent, 'ctrlKey' | 'metaKey'>) {

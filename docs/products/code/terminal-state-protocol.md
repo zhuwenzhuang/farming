@@ -128,6 +128,11 @@ Detection is bounded by input length, candidate count, and logical-line scope.
 File identity and location are preserved without guessing across explicit line
 breaks.
 
+Asynchronous link resolution captures the full attachment operation and the
+current handler revision. A checkpoint or recovery operation that advances the
+same attachment invalidates older resolutions before they can decorate or open
+a target.
+
 ## Title And Activity Projection
 
 Terminal Agent titles are published through the authenticated Agent control

@@ -106,6 +106,10 @@ function run() {
     path.join(__dirname, '../../src/lib/terminal-attachment-coordinator.ts'),
     'utf8'
   );
+  const terminalCheckpointRequestSchedulerSource = fs.readFileSync(
+    path.join(__dirname, '../../src/lib/terminal-checkpoint-request-scheduler.ts'),
+    'utf8'
+  );
   const canonicalTerminalAttachmentCoordinatorSource = fs.readFileSync(
     path.join(__dirname, '../../frontend/terminal-attachment-coordinator.ts'),
     'utf8'
@@ -328,12 +332,14 @@ function run() {
     'terminal bootstrap helper should install opaque serialized checkpoint bytes without text reconstruction'
   );
   assert(
-    terminalPoolSource.includes('const TERMINAL_CHECKPOINT_MAX_CONCURRENT_REQUESTS = 3') &&
-      terminalPoolSource.includes('function acquireTerminalCheckpointRequestSlot') &&
-      terminalPoolSource.includes('terminalCheckpointActiveRequests < TERMINAL_CHECKPOINT_MAX_CONCURRENT_REQUESTS') &&
-      terminalPoolSource.includes('acquireTerminalCheckpointRequestSlot(controller.signal)') &&
+    terminalCheckpointRequestSchedulerSource.includes('export const TERMINAL_CHECKPOINT_MAX_CONCURRENT_REQUESTS = 3') &&
+      terminalCheckpointRequestSchedulerSource.includes('export class TerminalCheckpointRequestScheduler') &&
+      terminalCheckpointRequestSchedulerSource.includes('this.#active < this.maxConcurrent') &&
+      terminalPoolSource.includes('terminalCheckpointRequestScheduler.acquire(controller.signal)') &&
+      !terminalPoolSource.includes('terminalCheckpointActiveRequests') &&
+      !terminalPoolSource.includes('terminalCheckpointRequestQueue') &&
       !terminalPoolSource.includes('prefetchTerminalSessionCheckpoint'),
-    'terminal checkpoint recovery should bound reconnect fan-out without speculative background checkpoint reads'
+    'the checkpoint scheduler should own bounded reconnect fan-out without speculative background reads'
   );
   const repaintBody = terminalOutputSource.slice(
     terminalOutputSource.indexOf('export function scheduleTerminalRepaint'),

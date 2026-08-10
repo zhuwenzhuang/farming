@@ -103,6 +103,7 @@ import {
   sendTerminalSessionMessage,
 } from '@/lib/terminal-session-client'
 import { TerminalSessionRegistry } from '@/lib/terminal-session-registry'
+import { TerminalCheckpointRequestScheduler } from '@/lib/terminal-checkpoint-request-scheduler'
 import { TerminalAttachmentCoordinator } from '@/lib/terminal-attachment-coordinator'
 import {
   TerminalSessionDiagnosticsProjection,
@@ -294,61 +295,10 @@ const terminalSessionDiagnostics = new TerminalSessionDiagnosticsProjection({
   values: () => sessions.values(),
 })
 let terminalFocusRevision = 0
-const TERMINAL_CHECKPOINT_MAX_CONCURRENT_REQUESTS = 3
-let terminalCheckpointActiveRequests = 0
-const terminalCheckpointRequestQueue: Array<{
-  signal: AbortSignal
-  resolve: (release: () => void) => void
-  reject: (error: DOMException) => void
-  onAbort: () => void
-}> = []
+const terminalCheckpointRequestScheduler = new TerminalCheckpointRequestScheduler()
 const TOUCH_SCROLL_ACTIVATION_PX = 6
 const TOUCH_LONG_PRESS_MS = 520
 const TOUCH_EDGE_SPRING_MS = 240
-
-function drainTerminalCheckpointRequestQueue() {
-  while (
-    terminalCheckpointActiveRequests < TERMINAL_CHECKPOINT_MAX_CONCURRENT_REQUESTS
-    && terminalCheckpointRequestQueue.length > 0
-  ) {
-    const request = terminalCheckpointRequestQueue.shift()
-    if (!request) return
-    request.signal.removeEventListener('abort', request.onAbort)
-    if (request.signal.aborted) {
-      request.reject(new DOMException('Terminal checkpoint request was cancelled', 'AbortError'))
-      continue
-    }
-    terminalCheckpointActiveRequests += 1
-    let released = false
-    request.resolve(() => {
-      if (released) return
-      released = true
-      terminalCheckpointActiveRequests = Math.max(0, terminalCheckpointActiveRequests - 1)
-      drainTerminalCheckpointRequestQueue()
-    })
-  }
-}
-
-function acquireTerminalCheckpointRequestSlot(signal: AbortSignal) {
-  if (signal.aborted) {
-    return Promise.reject(new DOMException('Terminal checkpoint request was cancelled', 'AbortError'))
-  }
-  return new Promise<() => void>((resolve, reject) => {
-    const request = {
-      signal,
-      resolve,
-      reject,
-      onAbort: () => {
-        const index = terminalCheckpointRequestQueue.indexOf(request)
-        if (index >= 0) terminalCheckpointRequestQueue.splice(index, 1)
-        reject(new DOMException('Terminal checkpoint request was cancelled', 'AbortError'))
-      },
-    }
-    signal.addEventListener('abort', request.onAbort, { once: true })
-    terminalCheckpointRequestQueue.push(request)
-    drainTerminalCheckpointRequestQueue()
-  })
-}
 
 interface TerminalTouchInteraction {
   pointerDownHandler: (event: PointerEvent) => void
@@ -542,7 +492,7 @@ async function fetchSessionBootstrapStateForCurrentTerminal(record: SessionRecor
   let release: (() => void) | null = null
   let timeout: number | null = null
   try {
-    release = await acquireTerminalCheckpointRequestSlot(controller.signal)
+    release = await terminalCheckpointRequestScheduler.acquire(controller.signal)
     timeout = window.setTimeout(
       () => controller.abort(new DOMException('Terminal checkpoint request timed out', 'TimeoutError')),
       TERMINAL_CHECKPOINT_REQUEST_TIMEOUT_MS,
@@ -2570,7 +2520,7 @@ function installTerminalTestApi() {
     ...terminalSessionDiagnostics.testBridge(),
     async requestCheckpoint(agentId: string) {
       const controller = new AbortController()
-      const release = await acquireTerminalCheckpointRequestSlot(controller.signal)
+      const release = await terminalCheckpointRequestScheduler.acquire(controller.signal)
       try {
         return await fetchSessionBootstrapState(agentId, controller.signal)
       } finally {
@@ -3046,8 +2996,11 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
       language: () => document.documentElement.lang || navigator.language || '',
       isMobileViewport: () => isMobileViewport(),
       isAttached: () => isTerminalSessionAttached(record),
-      attachmentGeneration: () => record.attachment.generation,
-      isCurrentAttachment: generation => isCurrentAttachment(record, generation),
+      attachmentOperation: () => record.attachment.currentOperation(),
+      isCurrentAttachmentOperation: operation => (
+        isTerminalSessionAttached(record)
+        && record.attachment.isCurrentOperation(operation)
+      ),
       cellFromEvent: event => cellFromMouseEvent(record, event),
       cellMetrics: () => getTerminalCellMetrics(record) ?? null,
       elementFromPoint: (x, y) => document.elementFromPoint(x, y),

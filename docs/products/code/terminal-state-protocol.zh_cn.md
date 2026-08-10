@@ -99,6 +99,9 @@ Workspace 或显式 Read-only File Boundary 解析，无法解析时保持普通
 检测按 Input Length、Candidate Count 与 Logical-line Scope 有界。File Identity 与 Location
 保持精确，不跨显式换行猜测。
 
+异步 Link Resolution 同时捕获完整 Attachment Operation 和当前 Handler Revision。同一个
+Attachment 内的 Checkpoint 或 Recovery Operation 前进后，旧解析不能再装饰或打开目标。
+
 ## Title 与 Activity Projection
 
 Terminal Agent Title 通过带鉴权的 Agent Control Path 发布，不从 Terminal Prose 推断。Runtime
