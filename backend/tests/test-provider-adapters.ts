@@ -7,6 +7,7 @@ const {
   providerCapabilities,
   providerConversationForkCapability,
   providerForProgram,
+  providerSessionIdentityRollbackArgs,
   providerSupportsSharedAcpRuntime,
   providerSupportsRuntime,
   providerTerminalStartupPolicy,
@@ -18,6 +19,15 @@ function run() {
   assert.strictEqual(providerForProgram('/usr/local/bin/qodercli'), 'qoder');
   assert.strictEqual(providerForProgram('/opt/homebrew/bin/qwen'), 'qwen');
   assert.strictEqual(providerForProgram('unknown'), '');
+  assert.deepStrictEqual(
+    providerSessionIdentityRollbackArgs('codex', 'codex-session-1'),
+    ['delete', '--force', 'codex-session-1'],
+  );
+  assert.deepStrictEqual(
+    providerSessionIdentityRollbackArgs('opencode', 'ses_opencode_1'),
+    ['session', 'delete', 'ses_opencode_1'],
+  );
+  assert.strictEqual(providerSessionIdentityRollbackArgs('claude', 'session-1'), null);
 
   for (const adapter of adapters) {
     assert.strictEqual(getProviderAdapter(adapter.id), adapter);

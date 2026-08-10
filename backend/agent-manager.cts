@@ -153,6 +153,7 @@ import {
   providerCapabilities,
   providerConversationForkCapability,
   providerForProgram,
+  providerSessionIdentityRollbackArgs,
   providerSupportsRuntime,
   providerTerminalStartupPolicy,
 } from './provider-adapters.cjs';
@@ -730,10 +731,8 @@ async function deletePrecreatedProviderSession(options: ProviderSessionDeleteOpt
   const provider = String(options.provider || '').trim().toLowerCase();
   const sessionId = String(options.sessionId || '').trim();
   if (!isSafeProviderSessionId(sessionId)) throw new Error('Invalid pre-created provider session id');
-  let args: string[] = [];
-  if (provider === 'codex') args = ['delete', '--force', sessionId];
-  else if (provider === 'opencode') args = ['session', 'delete', sessionId];
-  else throw new Error(`${provider || 'Provider'} does not support pre-created session rollback`);
+  const args = providerSessionIdentityRollbackArgs(provider, sessionId);
+  if (!args) throw new Error(`${provider || 'Provider'} does not support pre-created session rollback`);
   await execFileAsync(options.executable, args, {
     cwd: options.cwd,
     env: options.env,

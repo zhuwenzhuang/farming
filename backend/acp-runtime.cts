@@ -27,6 +27,7 @@ import {
   getProviderAdapter,
   listProviderAdapters,
   normalizeProviderAcpExtensionNotification,
+  providerSessionIdentityRollbackArgs,
   providerSupportsSharedAcpRuntime,
 } from './provider-adapters.cjs';
 import { isSafeProviderSessionId } from './provider-session-id.cjs';
@@ -1149,10 +1150,8 @@ async function deleteProviderSessionIdentity(options: PrepareAgentOptions = {}) 
   if (!isSafeProviderSessionId(sessionId)) {
     throw new Error('Provider session rollback requires a safe exact session id');
   }
-  let args;
-  if (provider === 'codex') args = ['delete', '--force', sessionId];
-  else if (provider === 'opencode') args = ['session', 'delete', sessionId];
-  else throw new Error(`${provider || 'Provider'} does not support identity rollback`);
+  const args = providerSessionIdentityRollbackArgs(provider, sessionId);
+  if (!args) throw new Error(`${provider || 'Provider'} does not support identity rollback`);
   await execFileAsync(options.executable || getProviderAdapter(provider)?.executable, args, {
     cwd: options.cwd,
     env: options.env,

@@ -182,7 +182,9 @@ HTTP, WebSocket, persistence, and runtime-host boundaries.
   reservation separately.
 - Provider adapters expose typed decisions such as permission restart,
   Terminal identity/startup constraints, idle stability, and conversation Fork
-  policy. Generic lifecycle code does not interpret provider names. A shared
+  policy. Pre-created session rollback command shapes also live in the adapter,
+  so Manager and ACP Host cleanup cannot drift. Generic lifecycle code does not
+  interpret provider names. A shared
   Terminal startup coordinator owns mutable ordering and readiness state;
   adapters contribute stateless resource-scope and readiness policy only.
 

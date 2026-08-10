@@ -125,6 +125,7 @@ interface ProviderAdapter {
   commands: readonly string[];
   supportedRuntimes: readonly ProviderRuntime[];
   planSession: (rawArgs: string[], launchArgs: string[]) => ProviderSessionPlan | null;
+  sessionIdentityRollbackArgs?: (sessionId: string) => string[];
   terminalResumeArgs?: (
     args: string[],
     sessionId: string,
@@ -418,6 +419,7 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
     commands: ['codex'],
     supportedRuntimes: ['terminal', 'acp'],
     planSession: codexSessionPlan,
+    sessionIdentityRollbackArgs: sessionId => ['delete', '--force', sessionId],
     terminalResumeArgs: (args, sessionId) => ['resume', sessionId, ...args],
     terminalStartup: {
       serialization: 'provider-home',
@@ -487,6 +489,7 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
     commands: ['opencode'],
     supportedRuntimes: ['terminal', 'acp'],
     planSession: openCodeSessionPlan,
+    sessionIdentityRollbackArgs: sessionId => ['session', 'delete', sessionId],
     terminalResumeArgs: (args, sessionId) => {
       const delimiterIndex = args.indexOf('--');
       const insertIndex = delimiterIndex >= 0 ? delimiterIndex : args.length;
@@ -674,6 +677,14 @@ function providerSupportsSharedAcpRuntime(provider: unknown): boolean {
   return getProviderAdapter(provider)?.acp.sharedRuntime === true;
 }
 
+function providerSessionIdentityRollbackArgs(
+  provider: unknown,
+  sessionId: string,
+): string[] | null {
+  const rollbackArgs = getProviderAdapter(provider)?.sessionIdentityRollbackArgs;
+  return rollbackArgs ? rollbackArgs(sessionId) : null;
+}
+
 function providerConversationForkCapability(
   provider: unknown,
   runtime: ProviderRuntime,
@@ -746,6 +757,7 @@ export {
   providerConversationForkCapability,
   providerCapabilities,
   providerForProgram,
+  providerSessionIdentityRollbackArgs,
   providerSupportsSharedAcpRuntime,
   providerSupportsRuntime,
   providerTerminalStartupPolicy,
