@@ -22,8 +22,6 @@ import type {
   ExactResumeSession,
   AgentDisposeOptions,
   AgentShellEnvOptions,
-  AgentStartOutcome,
-  AgentStartReservation,
   CreateProviderSessionIdentityContract,
   DeleteProviderSessionIdentityContract,
   ProviderSessionIdentityRequest,
@@ -211,6 +209,7 @@ import {
   type AgentHeartbeatTick,
 } from './agent-heartbeat-scheduler.cjs';
 import { AgentTaskHistoryStore } from './agent-task-history-store.cjs';
+import { MainAgentIdentityOwner } from './main-agent-identity-owner.cjs';
 import { AgentAdaptiveTitlePersistenceCoordinator } from './agent-adaptive-title-persistence.cjs';
 import {
   WorktreeGitService,
@@ -1298,8 +1297,7 @@ class AgentManager extends EventEmitter {
   declare agentShellEnvResolver: AgentShellEnvResolver;
   declare agents: Map<AgentId, TypedAgentRecord>;
   declare agentOrderAllocator: AgentOrderAllocator;
-  declare mainAgentId: AgentId | null;
-  declare mainAgentStartReservation: AgentStartReservation | null;
+  declare mainAgentIdentity: MainAgentIdentityOwner;
   declare activityTracker: AgentActivityTracker;
   declare terminalProjectionTracker: AgentTerminalProjectionTracker<
     TypedAgentRecord,
@@ -1381,8 +1379,7 @@ class AgentManager extends EventEmitter {
     });
     this.agents = new RuntimeAgentMap();
     this.agentOrderAllocator = new AgentOrderAllocator();
-    this.mainAgentId = null;
-    this.mainAgentStartReservation = null;
+    this.mainAgentIdentity = new MainAgentIdentityOwner();
     this.activityTracker = new AgentActivityTracker({
       publish: (agentId, activityAt) => {
         const activity = this.getAgentActivityPayload(agentId, activityAt);
@@ -2285,30 +2282,27 @@ class AgentManager extends EventEmitter {
         }
 
         if (!agent.validated) {
-          const removedMainAgent = this.mainAgentId === sessionId;
+          const mainIdentityChange = this.mainAgentIdentity.clearIf(sessionId);
           this.providerSessionService.stop(sessionId);
           this.deleteAgentRecord(sessionId);
           this.activityTracker.forget(sessionId);
           this.usageRateTracker.forget(sessionId);
 
-          if (this.mainAgentId === sessionId) {
-            this.mainAgentId = null;
-          }
-
           this.emitStateChange({
             removedAgentIds: [sessionId],
-            ...(removedMainAgent ? { mainAgentIdChanged: true } : {}),
+            ...(mainIdentityChange.changed ? { mainAgentIdChanged: true } : {}),
           });
           return;
         }
 
+        const isMainAgent = this.mainAgentIdentity.isCurrent(sessionId);
         this.providerSessionService.stop(sessionId);
-        agent.status = sessionId === this.mainAgentId ? 'dead' : 'stopped';
+        agent.status = isMainAgent ? 'dead' : 'stopped';
         agent.exitedAt = exitedAt || Date.now();
         agent.output = trimSessionOutput(`${agent.output}\nProcess exited with code ${code}`);
         this.attentionTracker.observeAgentAttentionState(sessionId);
         this.providerSessionService.observe(sessionId, { force: true });
-        if (sessionId !== this.mainAgentId) {
+        if (!isMainAgent) {
           this.recordTaskHistory(agent, {
             reason: 'process-exit',
             archivedAt: Date.now(),
@@ -2316,7 +2310,7 @@ class AgentManager extends EventEmitter {
         }
         this.emitStateChange({
           agentIds: [sessionId],
-          ...(sessionId !== this.mainAgentId ? { taskHistoryChanged: true } : {}),
+          ...(!isMainAgent ? { taskHistoryChanged: true } : {}),
         });
       });
 
@@ -2499,8 +2493,8 @@ class AgentManager extends EventEmitter {
       }
       void this.refreshAgentWorktree(agentId);
       this.activityTracker.record(agentId, state.lastActivityAt || metadata.lastActivityAt || Date.now());
-      if (agentRecord.wantsMain && !this.mainAgentId) {
-        this.mainAgentId = agentId;
+      if (agentRecord.wantsMain && !this.mainAgentIdentity.hasCurrent()) {
+        this.mainAgentIdentity.setCurrent(agentId);
       }
       if (
         recoveredLifecycleOperation?.type !== 'fork'
@@ -2758,7 +2752,7 @@ class AgentManager extends EventEmitter {
           record.providerHomeId || 'default'
         );
         if (!sessionKey || liveProviderSessions.has(sessionKey)) return false;
-        if (record.wantsMain === true) return !this.mainAgentId;
+        if (record.wantsMain === true) return !this.mainAgentIdentity.hasCurrent();
         return mainPageOrder.has(sessionKey);
       })
       .sort((left, right) => {
@@ -2848,7 +2842,7 @@ class AgentManager extends EventEmitter {
 
     let changed = false;
     for (const record of desiredCandidates) {
-      if (record.wantsMain === true && this.mainAgentId) continue;
+      if (record.wantsMain === true && this.mainAgentIdentity.hasCurrent()) continue;
       const provider = String(record.providerSessionProvider || record.provider || '').trim();
       const sessionId = record.providerSessionId;
       const sessionKey = canonicalProviderSessionKey(record.providerSessionKey) || mainPageAgentSessionKey(
@@ -4141,7 +4135,8 @@ class AgentManager extends EventEmitter {
     const isActive = (agent: TypedAgentRecord | null | undefined): agent is TypedAgentRecord => (
       Boolean(agent) && !['dead', 'stopped'].includes(agent?.status || '')
     );
-    const currentMain = this.mainAgentId ? this.agents.get(this.mainAgentId) : null;
+    const currentMainAgentId = this.mainAgentIdentity.currentId();
+    const currentMain = currentMainAgentId ? this.agents.get(currentMainAgentId) : null;
     if (isActive(currentMain)) {
       return currentMain;
     }
@@ -4156,7 +4151,7 @@ class AgentManager extends EventEmitter {
   }
 
   isMainAgentRecord(agentId: AgentId, agent: TypedAgentRecord) {
-    if (agentId === this.mainAgentId) {
+    if (this.mainAgentIdentity.isCurrent(agentId)) {
       return true;
     }
 
@@ -4164,7 +4159,8 @@ class AgentManager extends EventEmitter {
       return false;
     }
 
-    const currentMain = this.mainAgentId ? this.agents.get(this.mainAgentId) : null;
+    const currentMainAgentId = this.mainAgentIdentity.currentId();
+    const currentMain = currentMainAgentId ? this.agents.get(currentMainAgentId) : null;
     const hasDifferentActiveMain = currentMain
       && currentMain.id !== agentId
       && !['dead', 'stopped'].includes(currentMain.status || '');
@@ -4175,8 +4171,9 @@ class AgentManager extends EventEmitter {
     if (this.shutdownState.isDisposed()) return;
     if (sweepZombies) await this.cleanupZombieAgents();
 
-    if (this.mainAgentId) {
-      const mainAgent = this.agents.get(this.mainAgentId);
+    const mainAgentId = this.mainAgentIdentity.currentId();
+    if (mainAgentId) {
+      const mainAgent = this.agents.get(mainAgentId);
       if (mainAgent && mainAgent.status === 'dead') {
         this.emitStateChange({ agentIds: [mainAgent.id] });
       }
@@ -4494,7 +4491,8 @@ class AgentManager extends EventEmitter {
       }
     }
 
-    const wantsMain = options.wantsMain === true || (options.wantsMain !== false && !this.mainAgentId);
+    const wantsMain = options.wantsMain === true
+      || (options.wantsMain !== false && !this.mainAgentIdentity.hasCurrent());
     if (!wantsMain) {
       return this.startAgentUnreserved(command, customWorkspace, callback, {
         ...options,
@@ -4503,19 +4501,12 @@ class AgentManager extends EventEmitter {
       });
     }
 
-    if (this.mainAgentStartReservation) {
-      const outcome = await this.mainAgentStartReservation.promise;
-      if (callback) callback(outcome.agentId, outcome.error);
-      return outcome.agentId;
-    }
-
     const existingMainStart = this.findActiveMainAgentStart();
     if (existingMainStart) {
-      if (this.mainAgentId !== existingMainStart.id) {
-        const previousMainAgentId = this.mainAgentId;
-        this.mainAgentId = existingMainStart.id;
+      const mainIdentityChange = this.mainAgentIdentity.setCurrent(existingMainStart.id);
+      if (mainIdentityChange.changed) {
         this.emitStateChange({
-          agentIds: [previousMainAgentId, existingMainStart.id].filter(
+          agentIds: [mainIdentityChange.previousId, existingMainStart.id].filter(
             (value): value is string => typeof value === 'string' && value.length > 0,
           ),
           mainAgentIdChanged: true,
@@ -4526,13 +4517,13 @@ class AgentManager extends EventEmitter {
       return existingMainStart.id;
     }
 
-    let resolveReservation: (value: AgentStartOutcome) => void = () => {};
-    const reservation: AgentStartReservation = {
-      promise: new Promise<AgentStartOutcome>(resolve => {
-        resolveReservation = resolve;
-      }),
-    };
-    this.mainAgentStartReservation = reservation;
+    const mainStartAdmission = this.mainAgentIdentity.beginStart();
+    if (!mainStartAdmission.owner) {
+      const outcome = await mainStartAdmission.promise;
+      if (callback) callback(outcome.agentId, outcome.error);
+      return outcome.agentId;
+    }
+
     let outcome = null;
     let callbackCalled = false;
     const reservedCallback: AgentStartCallback = (agentId, error) => {
@@ -4559,10 +4550,7 @@ class AgentManager extends EventEmitter {
       }
       throw error;
     } finally {
-      resolveReservation(outcome || { agentId: null, error: 'Main Agent failed to start' });
-      if (this.mainAgentStartReservation === reservation) {
-        this.mainAgentStartReservation = null;
-      }
+      mainStartAdmission.complete(outcome || { agentId: null, error: 'Main Agent failed to start' });
     }
   }
 
@@ -4576,15 +4564,15 @@ class AgentManager extends EventEmitter {
       await this.recoveryGate.wait();
     }
 
-    const wantsMain = options.wantsMain === true || (options.wantsMain !== false && !this.mainAgentId);
+    const wantsMain = options.wantsMain === true
+      || (options.wantsMain !== false && !this.mainAgentIdentity.hasCurrent());
     if (wantsMain) {
       const existingMainStart = this.findActiveMainAgentStart();
       if (existingMainStart) {
-        if (this.mainAgentId !== existingMainStart.id) {
-          const previousMainAgentId = this.mainAgentId;
-          this.mainAgentId = existingMainStart.id;
+        const mainIdentityChange = this.mainAgentIdentity.setCurrent(existingMainStart.id);
+        if (mainIdentityChange.changed) {
           this.emitStateChange({
-            agentIds: [previousMainAgentId, existingMainStart.id].filter(
+            agentIds: [mainIdentityChange.previousId, existingMainStart.id].filter(
               (value): value is string => typeof value === 'string' && value.length > 0,
             ),
             mainAgentIdChanged: true,
@@ -5595,14 +5583,15 @@ class AgentManager extends EventEmitter {
       }
 
       const agent = this.agents.get(agentId);
-      const previousMainAgentId = this.mainAgentId;
+      const previousMainAgentId = this.mainAgentIdentity.currentId();
       if (agent && agent.status === 'pending') {
         agent.status = 'running';
 
-        const currentMainAgent = this.mainAgentId ? this.agents.get(this.mainAgentId) : null;
-        const canBecomeMain = !this.mainAgentId || !currentMainAgent || currentMainAgent.status === 'dead';
+        const currentMainAgentId = this.mainAgentIdentity.currentId();
+        const currentMainAgent = currentMainAgentId ? this.agents.get(currentMainAgentId) : null;
+        const canBecomeMain = !currentMainAgentId || !currentMainAgent || currentMainAgent.status === 'dead';
         if (agent.wantsMain && canBecomeMain) {
-          this.mainAgentId = agentId;
+          this.mainAgentIdentity.setCurrent(agentId);
         }
       }
 
@@ -5614,7 +5603,9 @@ class AgentManager extends EventEmitter {
         agentIds: [agentId, previousMainAgentId].filter(
           (value): value is string => typeof value === 'string' && value.length > 0,
         ),
-        ...(this.mainAgentId !== previousMainAgentId ? { mainAgentIdChanged: true } : {}),
+        ...(this.mainAgentIdentity.currentId() !== previousMainAgentId
+          ? { mainAgentIdChanged: true }
+          : {}),
         ...(previousPersistentRuntimeAgentId && previousPersistentRuntimeAgentId !== agentId
           ? { removedAgentIds: [previousPersistentRuntimeAgentId] }
           : {}),
@@ -5733,15 +5724,12 @@ class AgentManager extends EventEmitter {
       this.providerSessionService.stop(agentId);
       if (this.acpRuntime) this.acpRuntime.unregisterAgent(agentId);
 
-      const removedMainAgent = this.mainAgentId === agentId;
-      if (removedMainAgent) {
-        this.mainAgentId = null;
-      }
+      const mainIdentityChange = this.mainAgentIdentity.clearIf(agentId);
 
       finishStartLifecycle();
       this.emitStateChange({
         removedAgentIds: [agentId],
-        ...(removedMainAgent ? { mainAgentIdChanged: true } : {}),
+        ...(mainIdentityChange.changed ? { mainAgentIdChanged: true } : {}),
       });
       if (callback) callback(null, `${startupError}${runtimeCleanupSuffix}${cleanupSuffix}`);
       return null;
@@ -8656,7 +8644,7 @@ class AgentManager extends EventEmitter {
     agent: TypedAgentRecord,
     options: { archivedAt?: number; reason?: string } = {},
   ): void {
-    if (!agent || agent.id === this.mainAgentId) return;
+    if (!agent || this.mainAgentIdentity.isCurrent(agent.id)) return;
     if (!isSupportedHistoryAgent(agent.forkCommand || agent.command || '')) return;
     const providerHistorySource = agent.providerSessionProvider
       && agent.providerSessionId
@@ -9275,7 +9263,7 @@ class AgentManager extends EventEmitter {
       };
     }
 
-    const removedMainAgent = this.mainAgentId === agentId;
+    const removedMainAgent = this.mainAgentIdentity.isCurrent(agentId);
     this.forgetStoppedAgentRecord(agentId, { emitUpdate: false });
     if (options.emitUpdate !== false) {
       this.emitStateChange({
@@ -9344,15 +9332,12 @@ class AgentManager extends EventEmitter {
     this.providerSessionService.stop(agentId);
     if (this.acpRuntime) this.acpRuntime.unregisterAgent(agentId);
 
-    const removedMainAgent = this.mainAgentId === agentId;
-    if (removedMainAgent) {
-      this.mainAgentId = null;
-    }
+    const mainIdentityChange = this.mainAgentIdentity.clearIf(agentId);
     
     if (options.emitUpdate !== false) {
       this.emitStateChange({
         removedAgentIds: [agentId],
-        ...(removedMainAgent ? { mainAgentIdChanged: true } : {}),
+        ...(mainIdentityChange.changed ? { mainAgentIdChanged: true } : {}),
       });
     }
   }
@@ -9719,7 +9704,7 @@ class AgentManager extends EventEmitter {
 
   getStateMetadata(): Omit<AgentManagerState, 'agents'> {
     return {
-      mainAgentId: this.mainAgentId,
+      mainAgentId: this.mainAgentIdentity.currentId(),
       taskHistory: this.taskHistoryStore.list(),
     };
   }

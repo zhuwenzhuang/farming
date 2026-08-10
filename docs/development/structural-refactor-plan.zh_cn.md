@@ -139,6 +139,9 @@ Runtime Port 与 Provider Policy
   Tick 的领域 Effect，但不再拥有 Timer Handle 或 Sweep 计时状态。
 - Task History Store 统一拥有有界内存列表和持久化失败回滚。Archive 与 Delete 负责
   构造 History Entry，但不会在 Durable Append 失败后自行替换或修复列表。
+- Main Agent 身份与并发启动合并由同一个 Owner 维护。Manager 仍决定 Live Agent
+  是否可以成为 Main 并发布最终 Projection，但不再分别保存选中身份和运行中的启动
+  Reservation。
 - Provider Adapter 提供有类型的权限重启、Terminal 身份/启动约束、空闲稳定和会话
   Fork 策略；通用生命周期代码不解释 Provider 名称。共享 Terminal Startup
   Coordinator 拥有可变的排序和就绪状态；Adapter 只提供无状态的资源作用域和就绪策略。

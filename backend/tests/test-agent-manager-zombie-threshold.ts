@@ -21,7 +21,7 @@ async function run() {
   const now = Date.now();
 
   try {
-    manager.mainAgentId = 'main-1';
+    manager.mainAgentIdentity.setCurrent('main-1');
     manager.agents.set('main-1', {
       id: 'main-1',
       command: 'bash',

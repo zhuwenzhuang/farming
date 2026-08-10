@@ -176,6 +176,10 @@ HTTP, WebSocket, persistence, and runtime-host boundaries.
 - Task history storage owns the bounded in-memory list and persistence rollback.
   Archive and Delete build history entries but do not replace or repair the
   owned list when a durable append fails.
+- Main Agent identity and concurrent-start joining share one owner. The Manager
+  decides whether a live Agent may become Main and publishes the resulting
+  projection, but it does not store the selected identity or an in-flight start
+  reservation separately.
 - Provider adapters expose typed decisions such as permission restart,
   Terminal identity/startup constraints, idle stability, and conversation Fork
   policy. Generic lifecycle code does not interpret provider names. A shared

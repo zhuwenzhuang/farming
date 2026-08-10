@@ -46,7 +46,7 @@ async function run() {
     assert.strictEqual(manager.getAgentWorkspaceRoot(mainAgentId), farmingWorkspace);
     assert.strictEqual(manager.agents.get(mainAgentId).status, 'running');
     assert.strictEqual(manager.agents.get(mainAgentId).validated, true);
-    assert.strictEqual(manager.mainAgentId, mainAgentId);
+    assert.strictEqual(manager.mainAgentIdentity.currentId(), mainAgentId);
     assert.strictEqual(
       manager.getState().agents.find(agent => agent.id === mainAgentId).projectWorkspace,
       fs.realpathSync(farmingWorkspace)
@@ -59,7 +59,7 @@ async function run() {
       manager.getState().agents.find(agent => agent.id === mainAgentId).isMain,
       true
     );
-    manager.mainAgentId = null;
+    manager.mainAgentIdentity.setCurrent(null);
     manager.agents.get(mainAgentId).status = 'running';
     assert.strictEqual(
       manager.getState().agents.find(agent => agent.id === mainAgentId).isMain,
@@ -70,7 +70,7 @@ async function run() {
     const duplicateMainAgentId = await startAgent(manager, 'bash', null, { wantsMain: true });
     assert.strictEqual(duplicateMainAgentId, mainAgentId);
     assert.strictEqual(
-      manager.mainAgentId,
+      manager.mainAgentIdentity.currentId(),
       mainAgentId,
       'starting Main Agent should reclaim an active wantsMain Agent when the authoritative id was lost'
     );
@@ -115,7 +115,7 @@ async function run() {
       status: 'running',
       wantsMain: true,
     });
-    recoveryRaceManager.mainAgentId = recoveredMainAgentId;
+    recoveryRaceManager.mainAgentIdentity.setCurrent(recoveredMainAgentId);
     releaseRecovery();
     assert.strictEqual(await pendingMainStart, recoveredMainAgentId);
     assert.strictEqual(recoveryRaceCaptured.length, 0, 'recovered Main Agent should prevent duplicate bash start');
@@ -227,7 +227,7 @@ async function run() {
       /Workspace does not exist/
     );
 
-    manager.mainAgentId = 'main-agent-existing';
+    manager.mainAgentIdentity.setCurrent('main-agent-existing');
     manager.agents.set('main-agent-existing', {
       id: 'main-agent-existing',
       status: 'running',

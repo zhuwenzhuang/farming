@@ -650,10 +650,6 @@ export interface AgentStartOutcome {
   metadata?: Record<string, unknown>;
 }
 
-export interface AgentStartReservation {
-  promise: Promise<AgentStartOutcome>;
-}
-
 export interface AgentStartAdmission {
   token: symbol;
   promise: Promise<void>;

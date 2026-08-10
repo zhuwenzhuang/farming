@@ -67,7 +67,7 @@ async function run() {
     const now = Date.now();
     const zombieMs = AgentManager.ZOMBIE_IDLE_MS;
 
-    manager.mainAgentId = 'main-1';
+    manager.mainAgentIdentity.setCurrent('main-1');
     manager.agents.set('main-1', {
       id: 'main-1',
       command: 'bash',
@@ -536,7 +536,7 @@ async function run() {
     const archivedMain = await manager.archiveAgent('main-1');
     assert.strictEqual(archivedMain.archived, true, 'Main Agent should support explicit Archive');
     assert.strictEqual(manager.agents.has('main-1'), false);
-    assert.strictEqual(manager.mainAgentId, null);
+    assert.strictEqual(manager.mainAgentIdentity.currentId(), null);
 
     const state = manager.getState();
     assert.strictEqual(Array.isArray(state.taskHistory), true, 'state payload should include taskHistory');

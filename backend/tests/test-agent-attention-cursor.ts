@@ -490,7 +490,7 @@ async function run() {
       lastObservedTurnActive: true,
       attentionSuppressUntil: 0,
     });
-    manager.mainAgentId = 'main-agent';
+    manager.mainAgentIdentity.setCurrent('main-agent');
     manager.engineBridge.router.engines.local.emit('session-busy-state', {
       sessionId: 'main-agent',
       terminalBusy: false,

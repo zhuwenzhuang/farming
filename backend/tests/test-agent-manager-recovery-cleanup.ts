@@ -315,7 +315,7 @@ async function run() {
       'full'
     );
     assert(manager.agents.has('main-bash'), 'Main Agent shell sessions should be restored');
-    assert.strictEqual(manager.mainAgentId, 'main-bash');
+    assert.strictEqual(manager.mainAgentIdentity.currentId(), 'main-bash');
     assert.strictEqual(manager.getState().agents.find(agent => agent.id === 'main-bash').isMain, true);
     assert.strictEqual(manager.agents.has('untracked-bash'), false, 'shell sessions should not be restored');
     assert.strictEqual(manager.agents.has('untracked-shell-category'), false, 'shell-category sessions should not be restored');

@@ -418,7 +418,7 @@ async function run() {
     assert.strictEqual(markedRead.changed, true);
 
     const mainId = await startAgent(manager, 'bash', tmpRoot, { wantsMain: true });
-    manager.mainAgentId = mainId;
+    manager.mainAgentIdentity.setCurrent(mainId);
     assert.strictEqual(
       manager.updateAgentFlags(mainId, { archived: true }).error,
       'Use archiveAgent to archive live agents'
