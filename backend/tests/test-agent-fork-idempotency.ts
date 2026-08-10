@@ -473,7 +473,7 @@ async function run() {
       },
     );
     assert.ok(checkpointAdmission.operation);
-    manager.ensurePersistentAgentSession(checkpointSource);
+    manager.sessionPersistence.persist(checkpointSource);
     const checkpointRecovery = await manager.forkAgent(
       checkpointSource.id,
       'new-worktree',

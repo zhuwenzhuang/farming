@@ -242,7 +242,7 @@ async function run() {
       pinned: true,
       projectOrder: 2048,
     });
-    manager.ensurePersistentAgentSession(reboundAgent);
+    manager.sessionPersistence.persist(reboundAgent);
     manager.configManager.getAgentSessionRecordForProviderSessionKey = originalGetAgentSessionRecord;
     assert.strictEqual(
       reboundAgent.persistentSessionId,

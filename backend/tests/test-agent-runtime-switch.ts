@@ -90,7 +90,7 @@ function deferred() {
     killed = agentId;
     manager.agents.delete(agentId);
   };
-  manager.ensurePersistentAgentSession = () => 'fsess_test';
+  manager.sessionPersistence.persist = () => 'fsess_test';
   manager.engineBridge.getEngine = () => ({
     async sendInput() {
       terminalComposerWrites += 1;
@@ -591,7 +591,7 @@ function deferred() {
     getHeartbeatInterval: () => 60_000,
     getTaskHistory: () => [],
   });
-  raceManager.ensurePersistentAgentSession = () => 'race-record';
+  raceManager.sessionPersistence.persist = () => 'race-record';
   raceManager.findRuntimeSwitchSession = async () => ({ provider: 'codex' });
   let raceKills = 0;
   let raceStarts = 0;

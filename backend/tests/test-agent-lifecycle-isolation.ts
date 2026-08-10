@@ -182,7 +182,7 @@ async function run() {
     assert.match(unsupportedJsonStartError, /no longer supported/i);
     assert.strictEqual(manager.agents.has('agent-json-unsupported'), false);
 
-    const ensurePersistentAgentSession = manager.ensurePersistentAgentSession;
+    const ensurePersistentAgentSession = manager.sessionPersistence.persist.bind(manager.sessionPersistence);
     const originalAcpRuntime = manager.acpRuntime;
     let acpCleanupAttempts = 0;
     manager.acpRuntime = {
@@ -215,7 +215,7 @@ async function run() {
     assert.match(acpStartError, /retained for retry/i);
     assert.strictEqual(acpCleanupAttempts, 1);
     assert.strictEqual(manager.agents.get('agent-acp-start-uncertain').status, 'error');
-    manager.ensurePersistentAgentSession = ensurePersistentAgentSession;
+    manager.sessionPersistence.persist = ensurePersistentAgentSession;
     manager.acpRuntime.unregisterAgentAndWait = async () => true;
     const uncertainCleanupRetry = await manager.killAgent('agent-acp-start-uncertain');
     assert.strictEqual(uncertainCleanupRetry.killed, true);

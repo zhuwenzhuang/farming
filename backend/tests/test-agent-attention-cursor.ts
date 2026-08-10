@@ -84,14 +84,14 @@ async function run() {
     assert.strictEqual(staleReadResult.readAttentionSeq, 1, 'read cursors must not move backwards');
     assert.strictEqual(manager.agents.get('cursor-agent').unread, false);
     let noOpPersistenceCount = 0;
-    const originalEnsurePersistentAgentSession = manager.ensurePersistentAgentSession;
-    manager.ensurePersistentAgentSession = (...args) => {
+    const originalEnsurePersistentAgentSession = manager.sessionPersistence.persist;
+    manager.sessionPersistence.persist = (...args) => {
       noOpPersistenceCount += 1;
-      return originalEnsurePersistentAgentSession.apply(manager, args);
+      return originalEnsurePersistentAgentSession.apply(manager.sessionPersistence, args);
     };
     const updatesBeforeNoopRead = updateCount;
     const noOpReadResult = manager.updateAgentFlags('cursor-agent', { unread: false });
-    manager.ensurePersistentAgentSession = originalEnsurePersistentAgentSession;
+    manager.sessionPersistence.persist = originalEnsurePersistentAgentSession;
     assert.strictEqual(noOpReadResult.changed, false);
     assert.strictEqual(noOpPersistenceCount, 0, 'an idempotent read must not rewrite persistent Agent state');
     assert.strictEqual(updateCount, updatesBeforeNoopRead, 'an idempotent read must not rebroadcast unchanged state');

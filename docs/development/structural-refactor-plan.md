@@ -151,6 +151,10 @@ HTTP, WebSocket, persistence, and runtime-host boundaries.
   credentials, live in a private exact-session-key store. The store clones on
   write and read and owns deletion/disposal; browser-facing Agent records never
   become an alternate source of truth.
+- Agent session persistence owns runtime-owner validation, private ACP option
+  projection, canonical-record rebinding, and order-index observation. Callers
+  submit an exact Agent record and patch; they do not interpret store identity
+  replacement or copy private session fields themselves.
 - Provider adapters expose typed decisions such as permission restart,
   Terminal identity/startup constraints, idle stability, and conversation Fork
   policy. Generic lifecycle code does not interpret provider names. A shared
