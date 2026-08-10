@@ -1,9 +1,11 @@
 const assert = require('assert');
 const {
+  activeCodexTerminalProfile,
   applyCodexTerminalProfile,
   codexServiceTierConfirmations,
   codexTerminalProfileFromOutput,
   codexTerminalProfileFromPreview,
+  codexTerminalProfileEqual,
   codexTerminalSessionIdFromStatus,
   isCodexTerminalComposerPreview,
   modelSelectionInput,
@@ -149,6 +151,29 @@ async function run() {
     { model: 'gpt-5.6-sol', effort: 'xhigh', fast: false },
     'a footer without a Fast marker reports the default service tier'
   );
+  const projectedAgent = {
+    id: 'codex-terminal',
+    command: 'codex',
+    output: '• Model changed to gpt-5.6-sol xhigh\n• Service tier set to priority',
+    status: 'running',
+  } as unknown as import('../agent-manager-record-types').AgentRecord;
+  const projectedProfile = activeCodexTerminalProfile(projectedAgent, IDLE_55);
+  assert.deepStrictEqual(projectedProfile, {
+    model: 'gpt-5.6-sol',
+    reasoningEffort: 'xhigh',
+    serviceTier: 'priority',
+    source: 'terminal-output',
+  });
+  assert.strictEqual(projectedAgent.codexTerminalProfile, projectedProfile);
+  assert.strictEqual(codexTerminalProfileEqual(projectedProfile, { ...projectedProfile }), true);
+  assert.strictEqual(codexTerminalProfileEqual(projectedProfile, {
+    ...projectedProfile,
+    serviceTier: 'default',
+  }), false);
+  assert.strictEqual(activeCodexTerminalProfile({
+    command: 'claude',
+    status: 'running',
+  } as unknown as import('../agent-manager-record-types').AgentRecord, IDLE_55), null);
   assert.deepStrictEqual(codexServiceTierConfirmations(
     '• Service tier set to priority\n• Service tier set to default'
   ), [

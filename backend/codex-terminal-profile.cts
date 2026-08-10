@@ -1,5 +1,9 @@
 // One deadline covers the complete picker transaction, including best-effort
 // Escape cleanup. Individual menu steps must not each restart this budget.
+import type { AgentRecord as TypedAgentRecord } from './agent-manager-record-types.js';
+import { runtimeKind } from './agent-runtime-binding.cjs';
+import { providerForProgram } from './provider-adapters.cjs';
+
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_POLL_INTERVAL_MS = 100;
 const MAX_CLEANUP_RESERVE_MS = 1_000;
@@ -57,6 +61,53 @@ type TerminalInput = TerminalCommand | string;
 type AsyncReader = () => unknown | PromiseLike<unknown>;
 type SleepFunction = (ms: number) => unknown | PromiseLike<unknown>;
 type SendInput = (input: TerminalInput) => unknown | PromiseLike<unknown>;
+
+function agentProgramName(command: unknown): string {
+  return String(command || '')
+    .trim()
+    .split(/\s+/)
+    .find(token => token !== 'env' && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(token)) || '';
+}
+
+function activeCodexTerminalProfile(agent: TypedAgentRecord, previewText: string) {
+  if (!agent) return null;
+  const provider = agent.providerSessionProvider
+    || providerForProgram(agentProgramName(agent.forkCommand || agent.command || ''));
+  if (provider !== 'codex' || runtimeKind(agent) !== 'terminal') return null;
+
+  const outputProfile = codexTerminalProfileFromOutput(agent.output || '');
+  const parsed = outputProfile || codexTerminalProfileFromPreview(previewText);
+  if (!parsed) return agent.codexTerminalProfile || null;
+  const previousServiceTier = agent.codexTerminalProfile
+    && typeof agent.codexTerminalProfile === 'object'
+    && !Array.isArray(agent.codexTerminalProfile)
+    ? agent.codexTerminalProfile.serviceTier
+    : undefined;
+  const profile = {
+    model: parsed.model,
+    reasoningEffort: parsed.effort,
+    serviceTier: typeof parsed.fast === 'boolean'
+      ? (parsed.fast ? 'priority' : 'default')
+      : (previousServiceTier || 'default'),
+    source: outputProfile ? 'terminal-output' : 'terminal-footer',
+  };
+  agent.codexTerminalProfile = profile;
+  return profile;
+}
+
+function codexTerminalProfileEqual(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (
+    !left || typeof left !== 'object' || Array.isArray(left)
+    || !right || typeof right !== 'object' || Array.isArray(right)
+  ) return false;
+  const leftProfile = left as Record<string, unknown>;
+  const rightProfile = right as Record<string, unknown>;
+  return leftProfile.model === rightProfile.model
+    && leftProfile.reasoningEffort === rightProfile.reasoningEffort
+    && leftProfile.serviceTier === rightProfile.serviceTier
+    && leftProfile.source === rightProfile.source;
+}
 
 interface ApplyCodexTerminalProfileOptions {
   onInputSafe?: () => void;
@@ -677,6 +728,7 @@ async function resolveCodexTerminalSessionId({
 export {
   DEFAULT_POLL_INTERVAL_MS,
   DEFAULT_TIMEOUT_MS,
+  activeCodexTerminalProfile,
   applyCodexTerminalProfile,
   codexServiceTierConfirmations,
   codexTerminalProfileFromOutput,
@@ -684,6 +736,7 @@ export {
   codexModelMenuOptions,
   codexReasoningMenuOptions,
   codexTerminalProfileFromPreview,
+  codexTerminalProfileEqual,
   codexTerminalSessionIdFromStatus,
   isCodexTerminalComposerPreview,
   modelSelectionInput,

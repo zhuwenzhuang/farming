@@ -146,7 +146,9 @@ HTTP, WebSocket, persistence, and runtime-host boundaries.
   transport-facing delegation.
 - Terminal projection deduplication keeps the last published status and
   provider profile in one weakly keyed tracker. Event handlers compute current
-  facts but do not own parallel projection caches.
+  facts but do not own parallel projection caches. Codex Terminal profile
+  applicability, parsing, merge, and equality remain in the provider-specific
+  projection module rather than the Manager.
 - Live ACP session options, including MCP configuration that may contain
   credentials, live in a private exact-session-key store. The store clones on
   write and read and owns deletion/disposal; browser-facing Agent records never

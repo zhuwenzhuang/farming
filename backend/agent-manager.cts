@@ -173,9 +173,9 @@ import {
 import { chatRuntimeForProvider, isChatMode } from './chat-runtime.cjs';
 import { acpTranscriptMedia, acpToolChanges, acpToolDetail, acpToolReviewChanges } from './acp-transcript.cjs';
 import {
+  activeCodexTerminalProfile,
   applyCodexTerminalProfile,
-  codexTerminalProfileFromOutput,
-  codexTerminalProfileFromPreview,
+  codexTerminalProfileEqual,
   codexTerminalSessionIdFromStatus,
   isCodexTerminalComposerPreview,
   resolveCodexTerminalSessionId,
@@ -930,35 +930,6 @@ function hasTerminalDraftInput(input: TerminalInput) {
   });
 }
 
-function activeCodexTerminalProfile(agent: TypedAgentRecord, previewText: string) {
-  if (!agent) return null;
-  const provider = agent.providerSessionProvider
-    || agentHomeProviderForProgram(agent.forkCommand || agent.command || '');
-  if (
-    provider !== 'codex'
-    || runtimeKind(agent) !== 'terminal'
-  ) {
-    return null;
-  }
-
-  const outputProfile = codexTerminalProfileFromOutput(agent.output || '');
-  const parsed = outputProfile || codexTerminalProfileFromPreview(previewText);
-  if (!parsed) return agent.codexTerminalProfile || null;
-  const previousServiceTier = isRecord(agent.codexTerminalProfile)
-    ? agent.codexTerminalProfile.serviceTier
-    : undefined;
-  const profile: UnknownRecord = {
-    model: parsed.model,
-    reasoningEffort: parsed.effort,
-    serviceTier: typeof parsed.fast === 'boolean'
-      ? (parsed.fast ? 'priority' : 'default')
-      : (previousServiceTier || 'default'),
-    source: outputProfile ? 'terminal-output' : 'terminal-footer',
-  };
-  agent.codexTerminalProfile = profile;
-  return profile;
-}
-
 function terminalMetadataPatch(agent: TypedAgentRecord) {
   const terminalStatus = deriveAgentTerminalStatus(agent);
   return {
@@ -975,15 +946,6 @@ function terminalMetadataPatch(agent: TypedAgentRecord) {
     terminalStatus,
     runtimeObservation: deriveRuntimeObservation({ ...agent, terminalStatus }),
   };
-}
-
-function codexTerminalProfileEqual(left: unknown, right: unknown) {
-  if (left === right) return true;
-  if (!isRecord(left) || !isRecord(right)) return false;
-  return left.model === right.model
-    && left.reasoningEffort === right.reasoningEffort
-    && left.serviceTier === right.serviceTier
-    && left.source === right.source;
 }
 
 function finiteNumberOrNull(value: unknown) {

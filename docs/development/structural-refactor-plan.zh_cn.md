@@ -118,7 +118,9 @@ Runtime Port 与 Provider Policy
   Read 合并、序列化、失效、优先级和精确 Agent Cleanup。Manager 只保留 Live Agent
   准入和面向 Transport 的委托。
 - Terminal Projection 去重把最后发布的 Status 与 Provider Profile 放进同一个 Weak
-  Key Tracker。Event Handler 计算当前事实，但不再拥有平行 Projection Cache。
+  Key Tracker。Event Handler 计算当前事实，但不再拥有平行 Projection Cache。Codex
+  Terminal Profile 的适用判断、解析、合并与相等判断归 Provider 专属 Projection
+  模块，而不是 Manager。
 - Live ACP Session Options（包括可能携带凭据的 MCP 配置）进入按精确 Session Key
   索引的私有 Store。Store 在读写时复制并拥有删除/Dispose；面向浏览器的 Agent
   Record 不会成为另一份事实源。
