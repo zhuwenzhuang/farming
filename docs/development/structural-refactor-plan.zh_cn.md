@@ -123,19 +123,25 @@ Runtime Port 与 Provider Policy
 ## 当前收敛判断
 
 本轮已经形成一批健康边界：Server Transport、Worktree/Git Effect、Provider
-Session Identity、Usage、Adaptive Title、Settings 和部分 WebSocket Delivery。
-它们要么删除了旧生产路径，要么成为一个明确状态或副作用的唯一 Owner。
+Session Identity、Usage、Adaptive Title、Settings、部分 WebSocket Delivery，
+以及 Fork 的 Durable Admission/Reconcile（含共享、no-replay 的重启收敛）、
+Domain Coordinator 之上的薄 Resume Transport、只持有一份 Cache 状态的单一
+Launch Policy Owner。它们要么删除了旧生产路径，要么成为一个明确状态或副作用
+的唯一 Owner。
 
 当前需要优先返工的结构问题是：
 
-1. Fork 的 Durable Admission/Reconcile 与 Manager 内部执行仍是双层判断；
-2. Resume 同时承担 Transport、Domain、两层 Admission 和兼容适配；
-3. Launch Policy 保留了必要的 Fail-closed 与环境隔离语义，但 Public API 和 Manager
-   Wiring 过宽；
-4. `CodeWorkspace` 的一部分 Controller 复制后端 Truth，或只包装 Reducer/Fetch；
-5. Terminal Link/Resize/Attachment 存在重叠的 Operation Identity；
-6. Stylesheet 已有物理 Owner，但 Selector Hash 与 Manifest 不能单独证明跨 Owner
+1. Fork 执行在 Manager 内仍保留三段近同构的 Child-start/Rollback Effect
+   Wrapper，外加少量词汇与结果类型债务；
+2. `CodeWorkspace` 的一部分 Controller 复制后端 Truth，或只包装 Reducer/Fetch；
+3. Terminal Link/Resize/Attachment 存在重叠的 Operation Identity；
+4. Stylesheet 已有物理 Owner，但 Selector Hash 与 Manifest 不能单独证明跨 Owner
    Cascade 等价。
+
+Resume 保留两张内部 Admission Map，因为 HTTP Resume 是完整 Operation，而
+Direct/Auto Resume 是 Effect 级入口；二者能否合并为一个 Admission 尚未证明，
+不能当作已知缺陷。Launch Owner 剩余的显式 Port 与 Type Contract 不自动算债务；
+只有找到真实重复的 Provider Knowledge 或没有生产调用者的 Port 才继续动它。
 
 在这些问题收敛前，不继续新的大型状态提取。未提交 Prototype 只是证据；如果它
 需要不断增加 Ledger、Registry、Generation、Latch 或补偿 Flag 才能通过 Review，
@@ -299,16 +305,17 @@ Response Shape 和连接级状态不变。
 
 ### Lane B2 —— Agent 应用 Service
 
-触碰 `agent-manager.cts` 的切片继续串行。Usage、Adaptive Title、Worktree/Git 和
-Composer Admission 边界可以保留；Fork、Resume 与 Launch 必须先做复杂度收敛：
+触碰 `agent-manager.cts` 的切片继续串行。Usage、Adaptive Title、Worktree/Git、
+Composer Admission、Fork 的 Durable Admission/Reconcile、Resume Coordination 与
+Launch Policy 均已有 Owner。剩余范围：
 
-1. Fork 统一所有入口的 Recovery/Stabilization/Admission/Reconcile，并让 Manager
-   只提供精确 Registry、持久化和 Child/Runtime Effect；
-2. Resume 分离薄 Transport，并只保留一个按精确 Session Identity 建立的 Admission；
-3. Launch 保留 Executable Fail-closed、Provider 隔离和环境 Authority，删除测试专用
-   Public API、无效参数和逐函数 Adapter Wiring；
-4. 收敛完成后再处理 Attention/Unread，并让 Runtime/Record Type 随 Owner 移动；
-5. Facade 最终只保留精确 Agent Registry、公共入口、Service Composition 与事件出口。
+1. 只有在三条路径的不确定性与 Retained-resource 语义被证明等价时，才把 Manager
+   内三段 Fork Child-start/Rollback Effect Wrapper 合并为一个执行器；这是高风险
+   切片，不是默认下一刀；
+2. 只有拿到具体的重复真相证据（例如同一请求被两种 Signature 定义分别裁决，或
+   某个 Port 没有任何生产调用者）才再动 Resume 或 Launch；
+3. 之后再处理 Attention/Unread，并让 Runtime/Record Type 随 Owner 移动；
+4. Facade 最终只保留精确 Agent Registry、公共入口、Service Composition 与事件出口。
 
 行数不是验收标准。只有当一个 Service 减少 Manager 的系统知识，并能在不构造完整
 Manager 的情况下测试时，提取才算成功。
@@ -340,12 +347,13 @@ Real-provider Smoke。
 剩余工作按以下依赖顺序继续拆成小切片。本列表记录未完成的架构结果，不记录临时
 Branch 或逐文件进度：
 
-1. 先收敛已经产生复杂度回归的已合入边界：Fork、Resume、Launch。每项必须删除
-   重复状态与旧路径，并保留已有的 Idempotency、No-replay、Exact Identity 和恢复
-   行为测试。
-2. 收敛 `CodeWorkspace` 和 Terminal 已有 Owner。前端删除 Backend Truth 镜像与
-   Wrapper-only Controller；Terminal 统一 Attachment Operation Identity 后再迁出
-   Replication 与 Interaction。
+1. 先审计并收敛 `CodeWorkspace` 与 Terminal 的既有 Owner，或沿已可见的组件边界
+   做严格行为中立的物理拆分。前端删除 Backend Truth 镜像与 Wrapper-only
+   Controller；Terminal 统一 Attachment Operation Identity 后再迁出 Replication
+   与 Interaction。
+2. 把 Fork Child-start/Rollback Wrapper 合并列为后续高风险候选：必须先给出全部
+   不确定性与 Retained-resource 路径的等价证据。没有具体重复真相证据时，不继续
+   Resume 与 Launch。
 3. 重新评估未提交 Stylesheet 与 CRT Prototype。只有当生产边界真实、系统总代码
    合理且一次性旧/新行为证据成立时才合入；否则缩小或丢弃。
 4. 完成剩余 Server Transport 与 ACP 工作。在保持 Auth、Middleware 顺序、Route

@@ -144,24 +144,30 @@ HTTP, WebSocket, persistence, and runtime-host boundaries.
 ## Current Convergence Assessment
 
 Healthy boundaries now include Server transport, Worktree/Git effects,
-provider-session identity, usage, adaptive titles, Settings, and selected
-WebSocket delivery owners. They either removed the superseded production path
-or became the single owner of a coherent state or effect.
+provider-session identity, usage, adaptive titles, Settings, selected
+WebSocket delivery owners, durable Fork admission/reconciliation with shared
+no-replay restart convergence, thin Resume transport over one domain
+coordinator, and a single Launch policy owner holding one cache state. They
+either removed the superseded production path or became the single owner of a
+coherent state or effect.
 
 The current priority structural problems are:
 
-1. durable Fork admission/reconciliation and Manager execution still make
-   overlapping decisions;
-2. Resume combines transport, domain behavior, two admission layers, and
-   compatibility adaptation;
-3. Launch policy preserves necessary fail-closed and environment-isolation
-   semantics but exposes an over-wide public and Manager wiring surface;
-4. some `CodeWorkspace` controllers mirror backend truth or merely wrap a
+1. Fork execution keeps three near-duplicate child-start/rollback effect
+   wrappers inside the Manager, plus small vocabulary and result-type debt;
+2. some `CodeWorkspace` controllers mirror backend truth or merely wrap a
    reducer or fetch;
-5. Terminal link, resize, and attachment code use overlapping operation
+3. Terminal link, resize, and attachment code use overlapping operation
    identities;
-6. stylesheet file ownership does not by itself prove cross-owner cascade
+4. stylesheet file ownership does not by itself prove cross-owner cascade
    equivalence.
+
+Resume keeps two internal admission maps because an HTTP resume is a complete
+operation while direct and auto resume are effect-level entries; whether they
+can merge into one admission is unproven, not a known defect. The Launch
+owner's remaining explicit ports and type contracts are not automatically
+debt; act on them only with proven duplicated provider knowledge or a port no
+production caller consumes.
 
 No new large state extraction starts until these areas converge. An unmerged
 prototype is evidence, not an asset that must be preserved. If it repeatedly
@@ -354,19 +360,19 @@ middleware order, response shape, and connection-local state.
 ### Lane B2 — Agent application services
 
 Slices touching `agent-manager.cts` remain serialized. Usage-rate accounting,
-adaptive title persistence, Worktree/Git operations, and Composer admission may
-remain. Fork, Resume, and Launch converge first:
+adaptive title persistence, Worktree/Git operations, Composer admission,
+durable Fork admission/reconciliation, Resume coordination, and Launch policy
+have owners. Remaining scope:
 
-1. unify Fork recovery, stabilization, admission, and reconciliation for every
-   entry path, leaving exact registry, persistence, and child/runtime effects
-   behind narrow boundaries;
-2. separate a thin Resume transport adapter and keep one admission keyed by
-   exact session identity;
-3. retain Launch executable fail-closed behavior, provider isolation, and
-   environment authority while deleting test-only public APIs, ineffective
-   parameters, and per-function adapter wiring;
-4. then address Attention/unread and move runtime/record types with their owner;
-5. leave the facade with exact registry, public entry points, service
+1. merge the Manager's three Fork child-start/rollback effect wrappers into
+   one executor only when their uncertainty and retained-resource semantics
+   are proven equivalent; this is a high-risk slice, not a default next cut;
+2. touch Resume or Launch again only with concrete duplicated-truth evidence,
+   such as one request admitted under two signature definitions or a port no
+   production caller consumes;
+3. then address Attention/unread and move runtime/record types with their
+   owner;
+4. leave the facade with exact registry, public entry points, service
    composition, and event delivery.
 
 Line count is not an acceptance criterion. A service is accepted only if it
@@ -404,12 +410,15 @@ Continue the remaining work as small slices in the following dependency order.
 This list records unfinished architectural outcomes rather than a branch or
 file-by-file progress log:
 
-1. Converge already-merged complexity regressions first: Fork, Resume, and
-   Launch. Each slice deletes duplicate state and the superseded path while
-   preserving idempotency, no-replay, exact identity, and recovery tests.
-2. Converge existing `CodeWorkspace` and Terminal owners. Remove frontend
-   mirrors of backend truth and wrapper-only controllers; unify Terminal
-   attachment-operation identity before moving replication and interaction.
+1. Audit and converge the existing `CodeWorkspace` and Terminal owners first,
+   or land strictly behavior-neutral physical splits along already visible
+   component boundaries. Remove frontend mirrors of backend truth and
+   wrapper-only controllers; unify Terminal attachment-operation identity
+   before moving replication and interaction.
+2. Treat the Fork child-start/rollback wrapper merge as a later high-risk
+   candidate that requires equivalence evidence for every uncertainty and
+   retained-resource path. Do not continue Resume or Launch without concrete
+   duplicated-truth evidence.
 3. Reassess unmerged stylesheet and CRT prototypes. Merge only when the
    production boundary is real, total code remains justified, and one-time
    old/new behavior evidence passes; otherwise reduce or discard them.
