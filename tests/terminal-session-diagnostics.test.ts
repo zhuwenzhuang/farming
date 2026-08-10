@@ -3,6 +3,7 @@ import test from 'node:test'
 import type { FarmingTerminal } from '../src/lib/terminal-engine'
 import type { TerminalAttachmentCoordinator } from '../src/lib/terminal-attachment-coordinator'
 import type { TerminalResizeEffectController } from '../src/lib/terminal-resize-effect-controller'
+import type { TerminalReplicationState } from '../src/lib/terminal-session-replication'
 import {
   TerminalSessionDiagnosticsProjection,
   type TerminalSessionDiagnosticsSource,
@@ -58,6 +59,33 @@ function diagnosticsSource(agentId = 'agent-one'): TerminalSessionDiagnosticsSou
       resizeDeliveryTimeoutPending: true,
     }),
   } as unknown as TerminalResizeEffectController
+  const replication: TerminalReplicationState = {
+    snapshotOutput: '',
+    snapshotRuntimeEpoch: '',
+    snapshotOutputSeq: null,
+    snapshotStateRevision: null,
+    snapshotCols: null,
+    snapshotRows: null,
+    replayInProgress: true,
+    liveWriteInProgress: false,
+    liveTransitionFlushScheduled: false,
+    terminalWriteQueue: Promise.resolve(),
+    terminalWriteResolvers: new Set(),
+    terminalWriteBatchCount: 6,
+    holdCheckpointInstallCompletionForTest: false,
+    heldCheckpointInstallCompletionForTest: null,
+    bootstrapRefreshSeq: 3,
+    checkpointRequestCount: 8,
+    checkpointRequestInFlight: true,
+    checkpointRetryTimer: null,
+    bootstrapRequestControllers: new Set(),
+    needsReconnectOutputSync: true,
+    pageOutputSuspended: true,
+    pendingSnapshotReplay: true,
+    bootstrappingSnapshot: false,
+    fixtureOverrideActive: false,
+    suppressOutputUntil: 1_250,
+  }
 
   return {
     agentId,
@@ -67,17 +95,7 @@ function diagnosticsSource(agentId = 'agent-one'): TerminalSessionDiagnosticsSou
     terminal,
     attachment,
     resizeEffects,
-    terminalWriteBatchCount: 6,
-    checkpointRequestInFlight: true,
-    checkpointRequestCount: 8,
-    bootstrapRefreshSeq: 3,
-    replayInProgress: true,
-    bootstrappingSnapshot: false,
-    pendingSnapshotReplay: true,
-    fixtureOverrideActive: false,
-    pageOutputSuspended: true,
-    suppressOutputUntil: 1_250,
-    needsReconnectOutputSync: true,
+    replication,
   }
 }
 
@@ -134,8 +152,8 @@ test('projects one current authoritative terminal cut only when diagnostics are 
     resizeDeliveryTimeoutPending: true,
   })
 
-  source.checkpointRequestCount = 11
-  source.terminalWriteBatchCount = 10
+  source.replication.checkpointRequestCount = 11
+  source.replication.terminalWriteBatchCount = 10
   assert.equal(projection.snapshot(source.agentId)?.checkpointRequestCount, 11)
   assert.equal(projection.snapshot(source.agentId)?.terminalWriteBatchCount, 10)
 })
@@ -156,7 +174,7 @@ test('always follows canonical lookup identity across pending ABA replacement', 
   canonical = undefined
   assert.equal(projection.snapshot('same-agent'), null)
   const newSource = diagnosticsSource('same-agent')
-  newSource.checkpointRequestCount = 22
+  newSource.replication.checkpointRequestCount = 22
   canonical = newSource
   resolveOld(oldSource)
   await oldBootstrap
@@ -188,7 +206,7 @@ test('owns the stable E2E bridge mapping without copying runtime state', () => {
   const root = {} as Document
   const bridge = projection.testBridge(root)
 
-  source.checkpointRequestCount = 31
+  source.replication.checkpointRequestCount = 31
   assert.equal(bridge.getBufferDiagnostics(source.agentId)?.checkpointRequestCount, 31)
   assert.equal(typeof bridge.getHostDiagnostics, 'function')
 })

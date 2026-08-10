@@ -10,19 +10,14 @@ import type { FarmingFitAddon, FarmingTerminal } from '@/lib/terminal-engine'
 import {
   TerminalLinkInteractionController,
   createTerminalLinkHandlersCommitLatch,
-  isTerminalPathOpenClick,
 } from '@/lib/terminal-link-interaction'
 import type { TerminalLinkHandlersRevision } from '@/lib/terminal-link-interaction'
 import type { TerminalPathOpenTarget } from '@/lib/terminal-links'
-import { terminalImeOverlayStyle } from '@/lib/terminal-ime'
 import {
-  isContinuousSelectionText,
   isZeroWidthCell,
-  normalizeTerminalSelection,
-  normalizeTerminalSelectionForCopy,
-  orderedSelection,
   readCellText,
-  selectionLength,
+  TerminalSelectionController,
+  type TerminalLogicalLine,
 } from '@/lib/terminal-selection'
 import {
   emitFollowOutputState,
@@ -39,11 +34,39 @@ import {
   proposeTerminalResizeDimensions,
 } from '@/lib/terminal-resize'
 import { TerminalResizeEffectController } from '@/lib/terminal-resize-effect-controller'
-import { TerminalTouchInteractionController } from '@/lib/terminal-touch-interaction-controller'
+import { TerminalSessionInteractionController } from '@/lib/terminal-session-interaction'
+import {
+  applyTerminalOutputEvent,
+  beginTerminalAttachmentReplication,
+  canUpdateTerminalBootstrapState,
+  clearPendingTerminalReplication as clearPendingTerminalOutput,
+  createTerminalReplicationState,
+  finishTerminalAttachmentReplication,
+  flushQueuedTerminalOutput,
+  hasPendingTerminalSnapshot,
+  handleTerminalStreamOutput,
+  invalidateTerminalReplication as invalidateTerminalCheckpointRequest,
+  markTerminalReplicationInput,
+  replayPendingSnapshot,
+  requestTerminalResizeReplicationRecovery,
+  resyncTerminalReplication,
+  resumeLiveTerminalReplication,
+  retryTerminalReplication,
+  seedTerminalCheckpoint,
+  setTerminalCheckpointInstallHeld,
+  setTerminalReplicationPageSuspended,
+  terminalReplicationBlocksResizeNotification,
+  terminalReplicationBootstrapSettled,
+  terminalReplicationCanFocus,
+  terminalReplicationCanMutateResize,
+  terminalReplicationReady,
+  writeTerminalReplicationFixture,
+  type TerminalReplicationPorts,
+  type TerminalReplicationState,
+} from '@/lib/terminal-session-replication'
 import {
   flushPendingTerminalWrites,
   forceTerminalRender,
-  replaceTerminalOutput,
   restoreViewportAfterLayout,
   scheduleTerminalRepaint,
   scrollRecordToBottom,
@@ -66,16 +89,11 @@ import type {
   TerminalRecoveryPhase,
   TerminalRecoveryStatus,
 } from '@/lib/terminal-recovery-status'
-import { readClipboardText, writeClipboardText } from '@/lib/clipboard'
-import {
-  shouldBlockDetachedTerminalPaste,
-  shouldHandleTerminalPasteEvent,
-} from '@/lib/terminal-input'
 import {
   sessionBootstrapStateFromPayload,
 } from '@/lib/terminal-bootstrap'
 import type { SessionBootstrapState } from '@/lib/terminal-bootstrap'
-import { openExternalUrl, showUrlOpenMenu } from '@/lib/url-open-menu'
+import { openExternalUrl } from '@/lib/url-open-menu'
 import {
   clearReadingAnchor,
   readingAnchorAgentKey,
@@ -124,7 +142,6 @@ type TerminalOutputHandler = (
 
 type TerminalTransitionKind = 'output' | 'resize' | 'clear'
 
-const TERMINAL_CHECKPOINT_REQUEST_TIMEOUT_MS = 5000
 const TERMINAL_REPLAY = FarmingTerminalReplay
 type TerminalViewportRestoreState = {
   viewportY: number
@@ -177,16 +194,6 @@ export interface TerminalSearchResult {
   resultCount?: number
 }
 
-interface TerminalLogicalLine {
-  text: string
-  col: number
-  startRow: number
-  endRow: number
-  bufferRow: number
-  cols: number
-  buffer: TerminalBuffer
-}
-
 interface SessionRecord extends TerminalSessionDiagnosticsSource {
   agentId: string
   hostEl: HTMLDivElement
@@ -197,8 +204,10 @@ interface SessionRecord extends TerminalSessionDiagnosticsSource {
   terminal: FarmingTerminal
   fitAddon: FarmingFitAddon
   unsubscribeOutput: (() => void) | null
-  selectionChangeDisposable: (() => void) | null
-  imeOverlayDisposables: Array<() => void>
+  selection: TerminalSelectionController
+  interaction: TerminalSessionInteractionController
+  replication: TerminalReplicationState
+  replicationPorts: TerminalReplicationPorts
   resizeEffects: TerminalResizeEffectController
   parkedViewportState: TerminalViewportRestoreState | null
   inputDisabled: boolean
@@ -208,68 +217,14 @@ interface SessionRecord extends TerminalSessionDiagnosticsSource {
   rendererFailureDisposable: (() => void) | null
   scrollChangeDisposable: (() => void) | null
   backendConnectedHandler: (() => void) | null
-  pointerDownSelectionHandler: ((event: PointerEvent) => void) | null
-  pointerMoveSelectionHandler: ((event: PointerEvent) => void) | null
-  pointerUpSelectionHandler: ((event: PointerEvent) => void) | null
-  mouseDownSelectionHandler: ((event: MouseEvent) => void) | null
-  mouseMoveSelectionHandler: ((event: MouseEvent) => void) | null
-  mouseUpSelectionHandler: ((event: MouseEvent) => void) | null
-  doubleClickHandler: ((event: MouseEvent) => void) | null
-  copyHandler: ((event: ClipboardEvent) => void) | null
-  copyKeyHandler: ((event: KeyboardEvent) => void) | null
-  clearKeyHandler: ((event: KeyboardEvent) => void) | null
-  pasteHandler: ((event: ClipboardEvent) => void) | null
-  linkInteraction: TerminalLinkInteractionController
-  contextMenuHandler: ((event: MouseEvent) => void) | null
-  contextMenuMouseDownHandler: ((event: MouseEvent) => void) | null
-  contextMenuEl: HTMLDivElement | null
-  contextMenuCleanup: (() => void) | null
-  contextMenuSelection: string
-  imeKeydownHandler: ((event: KeyboardEvent) => void) | null
-  scrollIntentHandler: ((event: Event) => void) | null
-  scrollKeyHandler: ((event: KeyboardEvent) => void) | null
-  touchInteraction: TerminalTouchInteractionController | null
   followOutputHandler: ((state: TerminalFollowState) => void) | null
   pathOpenHandler: ((agentId: string, target: TerminalPathOpenTarget) => void) | null
   pathResolveHandler: ((agentId: string, target: TerminalPathOpenTarget) => Promise<TerminalPathOpenTarget | null> | TerminalPathOpenTarget | null) | null
   searchOpenHandler: ((agentId: string, query: string) => void) | null
   farmingUrlOpenHandler: ((agentId: string, url: string) => void) | null
   rendererEffects: TerminalRendererEffectController
-  snapshotOutput: string
-  snapshotRuntimeEpoch: string
-  snapshotOutputSeq: number | null
-  snapshotStateRevision: number | null
-  snapshotCols: number | null
-  snapshotRows: number | null
   attachment: TerminalAttachmentCoordinator
-  replayInProgress: boolean
-  liveWriteInProgress: boolean
-  liveTransitionFlushScheduled: boolean
-  terminalWriteQueue: Promise<void>
-  terminalWriteResolvers: Set<(cancelled?: boolean) => boolean>
-  terminalWriteBatchCount: number
-  holdCheckpointInstallCompletionForTest: boolean
-  heldCheckpointInstallCompletionForTest: (() => void) | null
-  bootstrapRefreshSeq: number
-  checkpointRequestCount: number
-  checkpointRequestInFlight: boolean
-  checkpointRetryTimer: number | null
-  bootstrapRequestControllers: Set<AbortController>
-  needsReconnectOutputSync: boolean
-  pageOutputSuspended: boolean
   pageLifecycleHandler: ((event: Event) => void) | null
-  pendingSnapshotReplay: boolean
-  bootstrappingSnapshot: boolean
-  fixtureOverrideActive: boolean
-  cachedSelection: string
-  lastNonEmptySelection: string
-  dragSelection: {
-    start: { col: number; row: number }
-    active: boolean
-    moved: boolean
-    pointerId?: number
-  } | null
-  suppressOutputUntil: number
   inputCount: number
   followOutput: boolean
   hasUnreadOutput: boolean
@@ -369,22 +324,6 @@ function findSessionRecordForHost(hostEl: HTMLDivElement) {
   return null
 }
 
-function invalidateTerminalCheckpointRequest(record: SessionRecord) {
-  // Resize effects capture the attachment operation revision. Clear them
-  // before advancing that owner so no stale timeout can strand an in-flight
-  // delivery after an unrelated checkpoint or fixture replacement.
-  record.resizeEffects.beginRecovery()
-  record.attachment.invalidateOperation()
-  // A checkpoint may already be inside xterm's ordered write queue. Its
-  // completion is fenced by the coordinator operation token, but the replacement
-  // recovery must not inherit the old install latch or it can never start.
-  record.replayInProgress = false
-  clearTerminalCheckpointRetry(record)
-  record.bootstrapRequestControllers.forEach(controller => controller.abort())
-  record.bootstrapRequestControllers.clear()
-  record.checkpointRequestInFlight = false
-}
-
 function parkTerminalSessionRecord(record: SessionRecord) {
   if (record.disposed) return
   record.parkedViewportState = {
@@ -402,7 +341,7 @@ function parkTerminalSessionRecord(record: SessionRecord) {
   record.pathResolveHandler = null
   record.searchOpenHandler = null
   pauseTerminalResizeObserver(record)
-  resetTransientTerminalUi(record)
+  record.interaction.reset()
   record.attachment.detach()
   parkTerminalHost(record)
 }
@@ -458,37 +397,6 @@ function publishTerminalRecoveryStatus(
   record.recoveryStatusHandler?.(next)
 }
 
-async function fetchSessionBootstrapState(
-  agentId: string,
-  signal: AbortSignal,
-): Promise<SessionBootstrapState> {
-  const data = await requestTerminalSessionCheckpoint(agentId, signal)
-  return sessionBootstrapStateFromPayload(data)
-}
-
-async function fetchSessionBootstrapStateForCurrentTerminal(record: SessionRecord) {
-  record.checkpointRequestCount += 1
-  const controller = new AbortController()
-  record.bootstrapRequestControllers.add(controller)
-  let release: (() => void) | null = null
-  let timeout: number | null = null
-  try {
-    release = await terminalCheckpointRequestScheduler.acquire(controller.signal)
-    timeout = window.setTimeout(
-      () => controller.abort(new DOMException('Terminal checkpoint request timed out', 'TimeoutError')),
-      TERMINAL_CHECKPOINT_REQUEST_TIMEOUT_MS,
-    )
-    // The reducer's checkpoint dimensions are part of the authoritative cut.
-    // Install that cut first; the visible browser submits its latest geometry
-    // only after the checkpoint barrier has completed.
-    return await fetchSessionBootstrapState(record.agentId, controller.signal)
-  } finally {
-    if (timeout !== null) window.clearTimeout(timeout)
-    release?.()
-    record.bootstrapRequestControllers.delete(controller)
-  }
-}
-
 function focusTerminalInput(hostEl: HTMLDivElement, terminal: FarmingTerminal) {
   // xterm owns its helper textarea and composition lifecycle. Go through its
   // public focus API so a focus change from the composer does not bypass the
@@ -500,7 +408,6 @@ function focusTerminalInput(hostEl: HTMLDivElement, terminal: FarmingTerminal) {
 
   const input = hostEl.querySelector('textarea')
   if (input instanceof HTMLTextAreaElement) {
-    updateTerminalImeOverlay(hostEl, terminal)
     input.focus()
     return true
   }
@@ -513,18 +420,6 @@ function focusAttachedTerminalInput(record: SessionRecord) {
   if (record.disposed || record.attachedMount === null) return false
   terminalFocusRevision += 1
   return focusTerminalInput(record.hostEl, record.terminal)
-}
-
-function mayRestoreTerminalFocusAfterAsyncMenu(
-  record: SessionRecord,
-  menu: HTMLElement,
-  focusRevision: number,
-) {
-  if (record.disposed || record.attachedMount === null || terminalFocusRevision !== focusRevision) return false
-  const activeElement = document.activeElement
-  return activeElement === document.body
-    || menu.contains(activeElement)
-    || record.hostEl.contains(activeElement)
 }
 
 function shouldAllowTerminalAutoFocus(hostEl: HTMLDivElement) {
@@ -549,296 +444,12 @@ function shouldAllowTerminalAutoFocus(hostEl: HTMLDivElement) {
   ].join(','))
 }
 
-function isTextEditingCopyTarget(target: EventTarget | null) {
-  if (!(target instanceof Element)) return false
-  return Boolean(target.closest([
-    '.code-composer',
-    '.code-terminal-search',
-    '.code-file-editor',
-    '.monaco-editor',
-    'input',
-    'textarea',
-    'select',
-    '[contenteditable="true"]',
-    '[role="dialog"]',
-    '[role="menu"]',
-  ].join(',')))
-}
-
-function shouldHandleTerminalCopyEvent(record: SessionRecord, event: ClipboardEvent) {
-  if (record.disposed || record.attachedMount === null) return false
-
-  const target = event.target
-  if (target instanceof Node && record.hostEl.contains(target)) return true
-  if (isTextEditingCopyTarget(target)) return false
-
-  const selection = window.getSelection?.()
-  if (!selection || selection.isCollapsed) return true
-
-  const anchorNode = selection.anchorNode
-  const focusNode = selection.focusNode
-  return Boolean(
-    (anchorNode && record.hostEl.contains(anchorNode)) ||
-    (focusNode && record.hostEl.contains(focusNode))
-  )
-}
-
-function isTerminalCopyShortcut(event: KeyboardEvent) {
-  if (event.key.toLowerCase() !== 'c' || event.altKey || event.shiftKey) return false
-  if (event.metaKey && !event.ctrlKey) return true
-
-  const isMac = navigator.platform.toLowerCase().includes('mac')
-  return !isMac && event.ctrlKey && !event.metaKey
-}
-
-function shouldHandleTerminalCopyKeyEvent(record: SessionRecord, event: KeyboardEvent) {
-  if (!isTerminalCopyShortcut(event)) return false
-  if (record.disposed || record.attachedMount === null) return false
-
-  const target = event.target
-  if (target instanceof Node && record.hostEl.contains(target)) return true
-  if (isTextEditingCopyTarget(target)) return false
-
-  const selection = window.getSelection?.()
-  if (!selection || selection.isCollapsed) return true
-
-  const anchorNode = selection.anchorNode
-  const focusNode = selection.focusNode
-  return Boolean(
-    (anchorNode && record.hostEl.contains(anchorNode)) ||
-    (focusNode && record.hostEl.contains(focusNode))
-  )
-}
-
-function isTerminalClearShortcut(event: KeyboardEvent) {
-  if (event.key.toLowerCase() !== 'k' || event.altKey || event.shiftKey || event.ctrlKey) return false
-  const isMac = navigator.platform.toLowerCase().includes('mac')
-  return isMac && event.metaKey
-}
-
-function shouldHandleTerminalClearKeyEvent(record: SessionRecord, event: KeyboardEvent) {
-  if (!isTerminalClearShortcut(event)) return false
-  if (record.disposed || record.attachedMount === null) return false
-
-  const target = event.target
-  return target instanceof Node && record.hostEl.contains(target)
-}
-
-function handleTerminalClearKeyEvent(record: SessionRecord, event: KeyboardEvent) {
-  if (!shouldHandleTerminalClearKeyEvent(record, event)) return false
-
-  event.preventDefault()
-  event.stopPropagation()
-  event.stopImmediatePropagation()
-  clearTerminalBuffer(record)
-  return true
-}
-
 function isTerminalSessionAttached(record: SessionRecord) {
   return isTerminalHostAttached(record)
 }
 
-function shouldHandleTerminalScrollKeyEvent(record: SessionRecord, event: KeyboardEvent) {
-  if (event.type !== 'keydown') return false
-  if (!['PageUp', 'PageDown'].includes(event.key)) return false
-  if (record.disposed || record.attachedMount === null) return false
-  const target = event.target
-  return target instanceof Node && record.hostEl.contains(target)
-}
-
-function handleTerminalScrollKeyEvent(record: SessionRecord, event: KeyboardEvent) {
-  if (!shouldHandleTerminalScrollKeyEvent(record, event)) return false
-
-  event.preventDefault()
-  event.stopPropagation()
-  event.stopImmediatePropagation()
-
-  const nextViewportY = terminalPageScrollTarget(
-    record.terminal,
-    event.key === 'PageUp' ? 'PageUp' : 'PageDown',
-    MIN_TERMINAL_RESIZE_ROWS,
-  )
-  scrollRecordToViewportY(record, nextViewportY)
-  setFollowOutputState(record, nextViewportY <= 0, nextViewportY <= 0 ? false : record.hasUnreadOutput, {
-    allowClearUnread: nextViewportY <= 0,
-  })
-  emitFollowOutputState(record)
-  return true
-}
-
-function updateTerminalImeOverlay(hostEl: HTMLDivElement, terminal: FarmingTerminal) {
-  const input = hostEl.querySelector('textarea')
-  const metrics = terminal.renderer?.getMetrics?.()
-  const cursor = terminal.wasmTerm?.getCursor?.()
-  if (!(input instanceof HTMLTextAreaElement) || !metrics || !cursor) return
-
-  const fontSize = readTerminalFontSize(hostEl)
-  const style = terminalImeOverlayStyle(
-    cursor,
-    metrics,
-    fontSize,
-    DEFAULT_FONT_FAMILY,
-  )
-  if (!style) return
-
-  input.classList.add('terminal-ime-input')
-  Object.assign(input.style, style)
-}
-
 function isCurrentAttachment(record: SessionRecord, generation: number) {
   return record.attachment.isCurrentGeneration(generation) && isTerminalHostAttached(record)
-}
-
-function replayPendingSnapshot(record: SessionRecord, generation = record.attachment.generation) {
-  if (
-    record.fixtureOverrideActive ||
-    record.disposed ||
-    !record.pendingSnapshotReplay ||
-    !isCurrentAttachment(record, generation)
-  ) return
-
-  record.pendingSnapshotReplay = false
-  if (
-    !record.snapshotRuntimeEpoch ||
-    record.snapshotOutputSeq === null ||
-    record.snapshotStateRevision === null ||
-    record.snapshotCols === null ||
-    record.snapshotRows === null
-  ) {
-    requestTerminalReplay(record, generation)
-    return
-  }
-  installTerminalCheckpoint(record, {
-    runtimeEpoch: record.snapshotRuntimeEpoch,
-    output: record.snapshotOutput,
-    outputSeq: record.snapshotOutputSeq,
-    stateRevision: record.snapshotStateRevision,
-    cols: record.snapshotCols,
-    rows: record.snapshotRows,
-  }, generation)
-}
-
-function seedTerminalCheckpoint(record: SessionRecord, state?: SessionBootstrapState) {
-  if (!state || record.fixtureOverrideActive) return false
-  const checkpoint = terminalReplayCheckpoint(state)
-  if (record.attachment.evaluateCheckpoint(checkpoint).action === 'reject') return false
-
-  record.snapshotOutput = state.output
-  record.snapshotRuntimeEpoch = state.runtimeEpoch
-  record.snapshotOutputSeq = state.outputSeq
-  record.snapshotStateRevision = state.stateRevision
-  record.snapshotCols = state.cols
-  record.snapshotRows = state.rows
-  record.pendingSnapshotReplay = true
-  record.bootstrappingSnapshot = true
-  record.needsReconnectOutputSync = true
-  return true
-}
-
-function terminalReplayCheckpoint(state: SessionBootstrapState): TerminalReplayCheckpoint {
-  return {
-    runtimeEpoch: state.runtimeEpoch,
-    outputSeq: state.outputSeq!,
-    stateRevision: state.stateRevision!,
-    cols: state.cols!,
-    rows: state.rows!,
-  }
-}
-
-function queueTerminalTransition(
-  record: SessionRecord,
-  event: TerminalReplayTransition,
-) {
-  const result = record.attachment.queueTransition(event)
-  if (!result.queued) {
-    record.needsReconnectOutputSync = true
-    record.bootstrappingSnapshot = true
-    requestTerminalReplay(record, record.attachment.generation)
-  }
-}
-
-function clearTerminalCheckpointRetry(record: SessionRecord) {
-  if (record.checkpointRetryTimer === null) return
-  window.clearTimeout(record.checkpointRetryTimer)
-  record.checkpointRetryTimer = null
-}
-
-function scheduleTerminalCheckpointRetry(
-  record: SessionRecord,
-  delay: number,
-  generation = record.attachment.generation,
-) {
-  if (record.disposed || record.attachment.halted || record.checkpointRetryTimer !== null) return
-  record.checkpointRetryTimer = window.setTimeout(() => {
-    record.checkpointRetryTimer = null
-    if (record.disposed || !isCurrentAttachment(record, generation)) return
-    requestTerminalReplay(record, generation)
-  }, delay)
-}
-
-function retryTerminalReplayAfterFailure(
-  record: SessionRecord,
-  failure: TerminalReplayFailure,
-  generation: number,
-) {
-  record.checkpointRequestInFlight = false
-  record.needsReconnectOutputSync = true
-  record.bootstrappingSnapshot = true
-  if (failure.halted) {
-    stopTerminalReplay(record, failure.message)
-    return
-  }
-  publishTerminalRecoveryStatus(record, 'retrying', {
-    attempt: record.attachment.failureCount + 1,
-    retryDelayMs: failure.delay,
-  })
-  scheduleTerminalCheckpointRetry(record, failure.delay, generation)
-}
-
-function stopTerminalReplay(record: SessionRecord, message: string) {
-  clearTerminalCheckpointRetry(record)
-  record.checkpointRequestInFlight = false
-  record.replayInProgress = false
-  record.bootstrappingSnapshot = false
-  record.pendingSnapshotReplay = false
-  record.attachment.clearQueuedTransitions()
-  record.hostEl.classList.add('terminal-checkpoint-installing')
-  publishTerminalRecoveryStatus(record, 'failed')
-  reportTerminalSyncError(record, message)
-}
-
-function finishTerminalReplay(record: SessionRecord, generation: number) {
-  if (
-    record.disposed ||
-    !isCurrentAttachment(record, generation) ||
-    record.replayInProgress ||
-    record.checkpointRequestInFlight ||
-    record.pendingSnapshotReplay ||
-    record.liveWriteInProgress
-  ) return
-
-  if (record.attachment.queuedTransitionCount > 0) {
-    flushQueuedTerminalOutput(record)
-    if (
-      record.attachment.queuedTransitionCount > 0 ||
-      record.liveWriteInProgress ||
-      record.checkpointRequestInFlight
-    ) return
-  }
-
-  if (record.needsReconnectOutputSync || record.attachment.isReplayTargetPending()) {
-    requestTerminalReplay(record, generation)
-    return
-  }
-
-  record.bootstrappingSnapshot = false
-  const forceResize = record.resizeEffects.recoveryFitRequired()
-  requestAnimationFrame(() => {
-    if (!isCurrentAttachment(record, generation) || record.disposed) return
-    record.hostEl.classList.remove('terminal-checkpoint-installing')
-    record.resizeEffects.syncFit({ force: forceResize })
-    notifyTerminalAttachReady(record, generation)
-  })
 }
 
 function terminalViewportStateForRestore(record: SessionRecord): TerminalViewportRestoreState {
@@ -889,446 +500,6 @@ function restoreTerminalViewportFromAnchor(record: SessionRecord, viewportState:
   scrollRecordToBottom(record, { allowClearUnread: true })
 }
 
-function installTerminalCheckpoint(
-  record: SessionRecord,
-  state: SessionBootstrapState,
-  generation: number,
-) {
-  if (
-    record.disposed ||
-    !isCurrentAttachment(record, generation)
-  ) return false
-
-  // Installing the fetched cut advances the attachment operation again. The
-  // fetch operation's resize effects must be invalid before that revision.
-  record.resizeEffects.beginRecovery()
-  const operation = record.attachment.beginCheckpointOperation(generation)
-  if (!operation) return false
-  publishTerminalRecoveryStatus(record, 'installing', {
-    attempt: record.attachment.failureCount + 1,
-  })
-  record.checkpointRequestInFlight = false
-  const checkpoint = terminalReplayCheckpoint(state)
-  const decision = record.attachment.evaluateCheckpoint(checkpoint)
-  if (decision.action === 'reject') {
-    retryTerminalReplayAfterFailure(
-      record,
-      record.attachment.recordInvariantFailure(
-        decision.signature || 'invalid-checkpoint',
-        decision.message || 'Terminal replay returned an invalid screen state',
-      ),
-      generation,
-    )
-    return false
-  }
-  if (
-    decision.action === 'current' &&
-    record.terminal.cols === state.cols &&
-    record.terminal.rows === state.rows
-  ) {
-    const viewportState = terminalViewportStateForRestore(record)
-    record.attachment.commitCheckpoint(operation, checkpoint)
-    record.needsReconnectOutputSync = false
-    record.bootstrappingSnapshot = false
-    restoreTerminalViewportFromAnchor(record, viewportState)
-    flushQueuedTerminalOutput(record)
-    finishTerminalReplay(record, generation)
-    return true
-  }
-
-  const viewportState = terminalViewportStateForRestore(record)
-
-  record.replayInProgress = true
-  record.bootstrappingSnapshot = true
-  record.hostEl.classList.add('terminal-checkpoint-installing')
-
-  let checkpointEffectAdmitted = false
-  replaceTerminalOutput(record, state.output, () => {
-    const completeInstall = () => {
-      if (
-        record.disposed ||
-        !isCurrentAttachment(record, generation) ||
-        !record.attachment.isCurrentOperation(operation)
-      ) return
-
-      if (!checkpointEffectAdmitted) {
-        record.replayInProgress = false
-        if (
-          record.attachment.isReplayTargetPending()
-          || record.attachment.queuedTransitionCount > 0
-        ) {
-          record.needsReconnectOutputSync = true
-          record.bootstrappingSnapshot = true
-          requestTerminalReplay(record, generation)
-        } else {
-          record.needsReconnectOutputSync = false
-          record.bootstrappingSnapshot = false
-          flushQueuedTerminalOutput(record)
-          finishTerminalReplay(record, generation)
-        }
-        return
-      }
-      if (!record.attachment.commitCheckpoint(operation, checkpoint)) {
-        record.replayInProgress = false
-        record.needsReconnectOutputSync = true
-        record.bootstrappingSnapshot = true
-        requestTerminalReplay(record, generation)
-        return
-      }
-      record.followOutput = viewportState.following
-      record.hasUnreadOutput = viewportState.hasUnreadOutput
-      record.preserveUnreadOutputUntilJump = viewportState.preserveUnreadOutputUntilJump
-      restoreTerminalViewportFromAnchor(record, viewportState)
-      record.replayInProgress = false
-      record.needsReconnectOutputSync = false
-      record.bootstrappingSnapshot = false
-      scheduleImeOverlayUpdateIfActive(record)
-      flushQueuedTerminalOutput(record)
-      finishTerminalReplay(record, generation)
-    }
-    if (record.holdCheckpointInstallCompletionForTest) {
-      record.heldCheckpointInstallCompletionForTest = completeInstall
-      return
-    }
-    completeInstall()
-  }, {
-    beforeReplace: () => {
-      if (
-        record.disposed
-        || !isCurrentAttachment(record, generation)
-        || !record.attachment.admitCheckpointInstall(operation, checkpoint)
-      ) return false
-
-      if (
-        record.terminal.cols !== state.cols
-        || record.terminal.rows !== state.rows
-      ) {
-        record.resizeEffects.applyAuthoritativeDimensions(state.cols!, state.rows!)
-      }
-      checkpointEffectAdmitted = true
-      return true
-    },
-  })
-  return true
-}
-
-function requestTerminalReplay(record: SessionRecord, generation = record.attachment.generation) {
-  if (
-    record.disposed ||
-    record.fixtureOverrideActive ||
-    record.pageOutputSuspended ||
-    record.checkpointRequestInFlight ||
-    record.checkpointRetryTimer !== null ||
-    record.replayInProgress ||
-    record.attachment.halted ||
-    !isCurrentAttachment(record, generation)
-  ) return
-
-  publishTerminalRecoveryStatus(record, 'requesting', {
-    attempt: record.attachment.failureCount + 1,
-  })
-  // A checkpoint operation advances the protocol operation revision. Invalidate
-  // every resize observer/timer/delivery token before that revision changes so
-  // an old delivery cannot become permanently in-flight behind the new cut.
-  record.resizeEffects.beginRecovery()
-  record.attachment.beginRecovery()
-  const requestOperation = record.attachment.beginCheckpointOperation(generation)
-  if (!requestOperation) return
-  record.checkpointRequestInFlight = true
-  record.bootstrappingSnapshot = true
-  record.needsReconnectOutputSync = true
-  fetchSessionBootstrapStateForCurrentTerminal(record)
-    .then((state) => {
-      if (
-        record.disposed ||
-        !record.attachment.isCurrentOperation(requestOperation) ||
-        record.pageOutputSuspended ||
-        !isCurrentAttachment(record, generation)
-      ) return
-      record.checkpointRequestInFlight = false
-      installTerminalCheckpoint(record, state, generation)
-    })
-    .catch((error) => {
-      if (record.disposed || !record.attachment.isCurrentOperation(requestOperation)) return
-      retryTerminalReplayAfterFailure(
-        record,
-        record.attachment.recordTransportFailure(),
-        generation,
-      )
-      if (error instanceof Error && error.name !== 'AbortError') {
-        console.warn('Terminal replay request failed; retrying:', error)
-      }
-    })
-}
-
-function applyTerminalOutputEvent(
-  record: SessionRecord,
-  data: string,
-  replace?: boolean,
-  outputSeq?: number | null,
-  runtimeEpoch = '',
-  stateRevision?: number | null,
-  cols?: number,
-  rows?: number,
-  kind: TerminalTransitionKind = 'output',
-) {
-  if (replace) {
-    if (record.fixtureOverrideActive || record.pageOutputSuspended) return
-    invalidateTerminalCheckpointRequest(record)
-    installTerminalCheckpoint(record, {
-      runtimeEpoch,
-      output: data,
-      outputSeq: Number.isFinite(outputSeq) ? outputSeq! : null,
-      stateRevision: Number.isFinite(stateRevision) ? stateRevision! : null,
-      cols: Number.isFinite(cols) ? cols! : null,
-      rows: Number.isFinite(rows) ? rows! : null,
-    }, record.attachment.generation)
-    return
-  }
-
-  const event: TerminalReplayTransition = {
-    kind,
-    data,
-    outputSeq,
-    runtimeEpoch,
-    stateRevision,
-    cols,
-    rows,
-  }
-  const transitionAttachment = record.attachment.currentOperation()
-  const decision = record.attachment.classifyTransition(event)
-  if (decision.action === 'drop') return
-  if (decision.action === 'recover') {
-    queueTerminalTransition(record, event)
-    record.needsReconnectOutputSync = true
-    record.bootstrappingSnapshot = true
-    requestTerminalReplay(record)
-    return
-  }
-
-  if (kind === 'resize') {
-    const nextCols = Math.floor(cols!)
-    const nextRows = Math.floor(rows!)
-    record.attachment.commitTransition(event)
-    record.resizeEffects.applyCommittedRemoteResize(nextCols, nextRows, {
-      attachment: transitionAttachment,
-      stateRevision: record.attachment.stateRevision!,
-    })
-    scheduleImeOverlayUpdateIfActive(record)
-    flushQueuedTerminalOutput(record)
-    notifyTerminalAttachReady(record, record.attachment.generation)
-    return
-  }
-
-  const transitionData = kind === 'clear' ? '\x1b[2J\x1b[3J\x1b[H' : data
-  if (!transitionData) {
-    record.attachment.commitTransition(event)
-    flushQueuedTerminalOutput(record)
-    return
-  }
-
-  record.liveWriteInProgress = true
-  writeTerminalOutput(record, transitionData, () => {
-    if (record.disposed) return
-    record.attachment.commitTransition(event)
-    if (kind === 'clear') record.terminal.clearTerminalSelection?.()
-    record.liveWriteInProgress = false
-    if (record.followOutput && !record.hasUnreadOutput) {
-      emitFollowOutputState(record)
-    }
-    scheduleImeOverlayUpdateIfActive(record)
-    flushQueuedTerminalOutput(record)
-    if (record.hostEl.classList.contains('terminal-checkpoint-installing')) {
-      finishTerminalReplay(record, record.attachment.generation)
-    } else {
-      notifyTerminalAttachReady(record, record.attachment.generation)
-    }
-  }, { isOutputObserved: () => isTerminalSessionAttached(record) })
-}
-
-function handleTerminalStreamOutput(
-  record: SessionRecord,
-  data: string,
-  replace?: boolean,
-  outputSeq?: number | null,
-  runtimeEpoch = '',
-  stateRevision?: number | null,
-  cols?: number,
-  rows?: number,
-  kind: TerminalTransitionKind = 'output',
-) {
-  if (record.disposed || Date.now() < record.suppressOutputUntil) return
-
-  if (record.pageOutputSuspended || document.visibilityState === 'hidden') {
-    record.attachment.clearQueuedTransitions()
-    record.attachment.beginRecovery({
-      kind,
-      data,
-      outputSeq,
-      runtimeEpoch,
-      stateRevision,
-      cols,
-      rows,
-    })
-    record.needsReconnectOutputSync = true
-    return
-  }
-
-  const recoveryActive = record.needsReconnectOutputSync
-    || record.bootstrappingSnapshot
-    || record.pendingSnapshotReplay
-    || record.replayInProgress
-    || record.checkpointRequestInFlight
-    || record.attachment.recovering
-
-  if (record.liveWriteInProgress && !recoveryActive) {
-    queueTerminalTransition(record, {
-      kind,
-      data,
-      outputSeq,
-      runtimeEpoch,
-      stateRevision,
-      cols,
-      rows,
-    })
-    return
-  }
-
-  if (recoveryActive) {
-    if (replace) {
-      applyTerminalOutputEvent(
-        record,
-        data,
-        true,
-        outputSeq,
-        runtimeEpoch,
-        stateRevision,
-        cols,
-        rows,
-        kind,
-      )
-      return
-    }
-    queueTerminalTransition(record, {
-      kind,
-      data,
-      outputSeq,
-      runtimeEpoch,
-      stateRevision,
-      cols,
-      rows,
-    })
-    record.bootstrappingSnapshot = true
-    requestTerminalReplay(record)
-    return
-  }
-
-  if (replace) {
-    applyTerminalOutputEvent(
-      record,
-      data,
-      true,
-      outputSeq,
-      runtimeEpoch,
-      stateRevision,
-      cols,
-      rows,
-      kind,
-    )
-    return
-  }
-
-  queueTerminalTransition(record, {
-    kind,
-    data,
-    outputSeq,
-    runtimeEpoch,
-    stateRevision,
-    cols,
-    rows,
-  })
-  scheduleLiveTerminalTransitionFlush(record)
-}
-
-function scheduleLiveTerminalTransitionFlush(record: SessionRecord) {
-  if (record.resizeEffects.deferOutputFlush()) return
-  if (record.liveTransitionFlushScheduled) return
-  record.liveTransitionFlushScheduled = true
-  queueMicrotask(() => {
-    record.liveTransitionFlushScheduled = false
-    if (!record.disposed) flushQueuedTerminalOutput(record)
-  })
-}
-
-function queuedTerminalOutputBatch(record: SessionRecord) {
-  return record.attachment.queuedOutputBatch()
-}
-
-function applyQueuedTerminalOutputBatch(
-  record: SessionRecord,
-  events: TerminalReplayTransition[],
-) {
-  for (let index = 0; index < events.length; index += 1) {
-    record.attachment.takeQueuedTransition()
-  }
-  const transitionData = events.map(event => (
-    event.kind === 'clear' ? '\x1b[2J\x1b[3J\x1b[H' : event.data
-  )).join('')
-  record.liveWriteInProgress = true
-  writeTerminalOutput(record, transitionData, () => {
-    if (record.disposed) return
-    events.forEach(event => record.attachment.commitTransition(event))
-    if (events.some(event => event.kind === 'clear')) {
-      record.terminal.clearTerminalSelection?.()
-    }
-    record.liveWriteInProgress = false
-    if (record.followOutput && !record.hasUnreadOutput) {
-      emitFollowOutputState(record)
-    }
-    scheduleImeOverlayUpdateIfActive(record)
-    flushQueuedTerminalOutput(record)
-    notifyTerminalAttachReady(record, record.attachment.generation)
-  }, { isOutputObserved: () => isTerminalSessionAttached(record) })
-}
-
-function flushQueuedTerminalOutput(record: SessionRecord) {
-  if (
-    record.disposed ||
-    record.bootstrappingSnapshot ||
-    record.pendingSnapshotReplay ||
-    record.replayInProgress ||
-    record.checkpointRequestInFlight ||
-    record.liveWriteInProgress ||
-    record.resizeEffects.isRedrawPending()
-  ) return
-
-  while (
-    !record.bootstrappingSnapshot &&
-    !record.replayInProgress &&
-    !record.checkpointRequestInFlight &&
-    !record.liveWriteInProgress &&
-    !record.resizeEffects.isRedrawPending()
-  ) {
-    const outputBatch = queuedTerminalOutputBatch(record)
-    if (outputBatch) {
-      applyQueuedTerminalOutputBatch(record, outputBatch)
-      continue
-    }
-    const event = record.attachment.takeQueuedTransition()
-    if (!event) break
-    applyTerminalOutputEvent(
-      record,
-      event.data || '',
-      false,
-      event.outputSeq,
-      event.runtimeEpoch,
-      event.stateRevision,
-      event.cols,
-      event.rows,
-      event.kind,
-    )
-  }
-}
 function getTerminalCellMetrics(record: SessionRecord) {
   return record.terminal.getCellMetrics?.() ?? record.terminal.renderer?.getMetrics?.()
 }
@@ -1353,12 +524,6 @@ function updateFollowStateFromViewport(
   })
 }
 
-function clearPendingTerminalOutput(record: SessionRecord) {
-  record.attachment.clearQueuedTransitions()
-  record.bootstrappingSnapshot = false
-  record.pendingSnapshotReplay = false
-}
-
 function scheduleFollowStateFromViewport(
   record: SessionRecord,
   options: { allowClearUnread?: boolean } = {},
@@ -1377,96 +542,8 @@ function scheduleFollowStateFromViewport(
   })
 }
 
-function scheduleImeOverlayUpdateIfActive(record: SessionRecord) {
-  if (!record.rendererEffects.isImeComposing) return
-  requestAnimationFrame(() => {
-    if (!record.disposed && record.rendererEffects.isImeComposing) {
-      updateTerminalImeOverlay(record.hostEl, record.terminal)
-    }
-  })
-}
-
 function updateRendererCursorSuppression(record: SessionRecord, suppressed: boolean) {
   record.rendererEffects.setAttachmentCursorSuppressed(suppressed)
-}
-
-function setRendererCursorSuppressedForIme(record: SessionRecord, suppressed: boolean) {
-  if (suppressed) record.rendererEffects.beginImeComposition()
-  else record.rendererEffects.endImeComposition()
-}
-
-function setupTerminalImeOverlay(record: SessionRecord) {
-  if (isXtermTerminal(record.terminal)) return
-
-  const input = record.hostEl.querySelector('textarea')
-  if (!(input instanceof HTMLTextAreaElement)) return
-
-  const sync = () => {
-    if (!record.disposed) {
-      updateTerminalImeOverlay(record.hostEl, record.terminal)
-    }
-  }
-  const rafSync = () => requestAnimationFrame(sync)
-  const rafSyncIfComposing = () => {
-    if (record.rendererEffects.isImeComposing) rafSync()
-  }
-  const activateComposition = () => {
-    sync()
-    record.hostEl.classList.add('terminal-ime-active')
-    input.classList.add('terminal-ime-composing')
-    setRendererCursorSuppressedForIme(record, true)
-  }
-  const finishComposition = () => {
-    setRendererCursorSuppressedForIme(record, false)
-    requestAnimationFrame(() => {
-      record.hostEl.classList.remove('terminal-ime-active')
-      input.classList.remove('terminal-ime-composing')
-      input.value = ''
-      sync()
-    })
-  }
-  const cancelComposition = () => {
-    setRendererCursorSuppressedForIme(record, false)
-    record.hostEl.classList.remove('terminal-ime-active')
-    input.classList.remove('terminal-ime-composing')
-  }
-
-  const handleImeKeydown = (event: KeyboardEvent) => {
-    if (event.isComposing || event.keyCode === 229) {
-      activateComposition()
-    }
-  }
-
-  input.addEventListener('focus', sync)
-  record.hostEl.addEventListener('keydown', handleImeKeydown, true)
-  record.hostEl.addEventListener('compositionstart', activateComposition, true)
-  record.hostEl.addEventListener('compositionupdate', sync, true)
-  record.hostEl.addEventListener('compositionend', finishComposition, true)
-  input.addEventListener('input', rafSyncIfComposing)
-  input.addEventListener('blur', cancelComposition)
-  record.imeKeydownHandler = handleImeKeydown
-
-  const cursorMoveSubscription = record.terminal.onCursorMove?.(rafSyncIfComposing)
-  const keySubscription = record.terminal.onKey?.(rafSyncIfComposing)
-
-  record.imeOverlayDisposables.push(
-    () => input.removeEventListener('focus', sync),
-    () => record.hostEl.removeEventListener('keydown', handleImeKeydown, true),
-    () => record.hostEl.removeEventListener('compositionstart', activateComposition, true),
-    () => record.hostEl.removeEventListener('compositionupdate', sync, true),
-    () => record.hostEl.removeEventListener('compositionend', finishComposition, true),
-    () => input.removeEventListener('input', rafSyncIfComposing),
-    () => input.removeEventListener('blur', cancelComposition),
-    cancelComposition,
-  )
-  if (cursorMoveSubscription) {
-    record.imeOverlayDisposables.push(() => cursorMoveSubscription.dispose())
-  }
-  if (keySubscription) {
-    record.imeOverlayDisposables.push(() => keySubscription.dispose())
-  }
-
-  sync()
 }
 
 function focusTerminalInputWhenReady(
@@ -1476,7 +553,7 @@ function focusTerminalInputWhenReady(
 ) {
   if (!isCurrentAttachment(record, generation)) return
   if (!shouldAllowTerminalAutoFocus(record.hostEl)) return
-  if (record.replayInProgress || record.bootstrappingSnapshot || record.pendingSnapshotReplay) {
+  if (!terminalReplicationCanFocus(record)) {
     if (attemptsRemaining <= 0) return
     requestAnimationFrame(() => {
       focusTerminalInputWhenReady(record, generation, attemptsRemaining - 1)
@@ -1505,286 +582,14 @@ function queueTerminalInput(record: SessionRecord, input: string | TerminalInput
     ...(Array.isArray(input) ? { inputParts: input } : { input }),
   })
   if (!delivered) return false
-  record.fixtureOverrideActive = false
+  markTerminalReplicationInput(record)
   record.inputCount += 1
-  record.contextMenuSelection = ''
-  record.lastNonEmptySelection = ''
+  record.interaction.clearAfterInput()
   return true
 }
 
-function requestTerminalResizeRecovery(record: SessionRecord) {
-  if (record.disposed) return
-  invalidateTerminalCheckpointRequest(record)
-  record.attachment.resetRecovery()
-  record.attachment.beginRecovery()
-  record.needsReconnectOutputSync = true
-  record.bootstrappingSnapshot = true
-  if (record.pageOutputSuspended || !isTerminalSessionAttached(record)) return
-  requestTerminalReplay(record, record.attachment.generation)
-}
-
 function resyncTerminalSizeAfterBackendReconnect(record: SessionRecord) {
-  record.resizeEffects.beginRecovery()
-  record.attachment.resetRecovery()
-  record.attachment.beginRecovery()
-  record.needsReconnectOutputSync = true
-  if (record.disposed || record.pageOutputSuspended) return
-  if (!record.attachedMount || record.hostEl.parentElement !== record.attachedMount) return
-  invalidateTerminalCheckpointRequest(record)
-  requestTerminalReplay(record, record.attachment.generation)
-}
-
-function resyncTerminalAfterPageResume(record: SessionRecord) {
-  record.resizeEffects.beginRecovery({
-    forceAfterRecovery: true,
-    resetLastNotified: true,
-  })
-  record.attachment.resetRecovery()
-  record.attachment.beginRecovery()
-  record.needsReconnectOutputSync = true
-  if (record.disposed || record.pageOutputSuspended) return
-  if (!record.attachedMount || record.hostEl.parentElement !== record.attachedMount) return
-  invalidateTerminalCheckpointRequest(record)
-  requestTerminalReplay(record, record.attachment.generation)
-}
-
-type TerminalBuffer = NonNullable<NonNullable<FarmingTerminal['buffer']>['active']>
-
-function getLineLastColumn(line: ReturnType<TerminalBuffer['getLine']>, fallbackCols: number) {
-  return Math.max(0, (typeof line?.length === 'number' ? line.length : fallbackCols) - 1)
-}
-
-function getCellTextAt(buffer: TerminalBuffer, row: number, col: number) {
-  const line = buffer.getLine(row)
-  return readCellText(line?.getCell?.(col))
-}
-
-function moveLeft(buffer: TerminalBuffer, row: number, col: number, cols: number) {
-  if (col > 0) {
-    return { row, col: col - 1 }
-  }
-
-  const line = buffer.getLine(row)
-  if (row <= 0 || !line?.isWrapped) return null
-
-  const previousLine = buffer.getLine(row - 1)
-  return { row: row - 1, col: getLineLastColumn(previousLine, cols) }
-}
-
-function moveRight(buffer: TerminalBuffer, row: number, col: number, cols: number) {
-  const line = buffer.getLine(row)
-  const lastCol = getLineLastColumn(line, cols)
-  if (col < lastCol) {
-    return { row, col: col + 1 }
-  }
-
-  const nextRow = row + 1
-  const nextLine = buffer.getLine(nextRow)
-  if (!nextLine?.isWrapped) return null
-
-  return { row: nextRow, col: 0 }
-}
-
-function selectContinuousTextAtCell(record: SessionRecord, col: number, row: number) {
-  const buffer = record.terminal.buffer?.active
-  const cols = record.terminal.cols || 80
-  if (!buffer || typeof buffer.getLine !== 'function' || typeof record.terminal.select !== 'function') {
-    return ''
-  }
-
-  const bufferRow = getTerminalVisibleBufferBase(record.terminal) + row
-  const originText = getCellTextAt(buffer, bufferRow, col)
-  if (!isContinuousSelectionText(originText)) {
-    return ''
-  }
-
-  let start = { row: bufferRow, col }
-  for (;;) {
-    const previous = moveLeft(buffer, start.row, start.col, cols)
-    if (!previous) break
-    if (!isContinuousSelectionText(getCellTextAt(buffer, previous.row, previous.col))) break
-    start = previous
-  }
-
-  // A shell prompt marker immediately adjacent to typed text is presentation,
-  // not part of the word the user long-pressed.
-  if (/^[#$%>]$/u.test(getCellTextAt(buffer, start.row, start.col))) {
-    const afterPrompt = moveRight(buffer, start.row, start.col, cols)
-    if (afterPrompt) start = afterPrompt
-  }
-
-  let end = { row: bufferRow, col }
-  for (;;) {
-    const next = moveRight(buffer, end.row, end.col, cols)
-    if (!next) break
-    if (!isContinuousSelectionText(getCellTextAt(buffer, next.row, next.col))) break
-    end = next
-  }
-
-  record.terminal.select(start.col, start.row, selectionLength(start, end, cols))
-  record.cachedSelection = normalizeTerminalSelection(record.terminal)
-  return record.cachedSelection
-}
-
-function selectTerminalCellRange(record: SessionRecord, startCell: { col: number; row: number }, endCell: { col: number; row: number }) {
-  const buffer = record.terminal.buffer?.active
-  const cols = record.terminal.cols || 80
-  if (!buffer || typeof record.terminal.select !== 'function') return ''
-
-  const visibleBase = getTerminalVisibleBufferBase(record.terminal)
-  const start = {
-    row: visibleBase + startCell.row,
-    col: startCell.col,
-  }
-  const end = {
-    row: visibleBase + endCell.row,
-    col: endCell.col,
-  }
-  const ordered = start.row < end.row || (start.row === end.row && start.col <= end.col)
-    ? { start, end }
-    : { start: end, end: start }
-
-  record.terminal.select(
-    ordered.start.col,
-    ordered.start.row,
-    selectionLength(ordered.start, ordered.end, cols),
-  )
-  record.cachedSelection = normalizeTerminalSelection(record.terminal)
-  return record.cachedSelection
-}
-
-function selectTerminalBuffer(record: SessionRecord) {
-  const buffer = record.terminal.buffer?.active
-  const cols = record.terminal.cols || 80
-  if (!buffer || typeof buffer.getLine !== 'function' || typeof record.terminal.select !== 'function') {
-    return ''
-  }
-  const rowCount = typeof buffer.length === 'number'
-    ? buffer.length
-    : getTerminalVisibleBufferBase(record.terminal) + (record.terminal.rows || 1)
-  const endRow = Math.max(0, rowCount - 1)
-  const endCol = getLineLastColumn(buffer.getLine(endRow), cols)
-  record.terminal.select(0, 0, selectionLength({ row: 0, col: 0 }, { row: endRow, col: endCol }, cols))
-  record.cachedSelection = normalizeTerminalSelection(record.terminal)
-  return record.cachedSelection
-}
-
-function cellFromMouseEvent(record: SessionRecord, event: MouseEvent) {
-  const metrics = getTerminalCellMetrics(record)
-  const rect = getTerminalScreenRect(record)
-  if (!metrics || !rect) return null
-
-  if (
-    event.clientX < rect.left ||
-    event.clientX > rect.right ||
-    event.clientY < rect.top ||
-    event.clientY > rect.bottom
-  ) {
-    return null
-  }
-
-  const col = Math.max(0, Math.min(
-    Math.floor((event.clientX - rect.left) / metrics.width),
-    (record.terminal.cols || 1) - 1,
-  ))
-  const row = Math.max(0, Math.min(
-    Math.floor((event.clientY - rect.top) / metrics.height),
-    (record.terminal.rows || 1) - 1,
-  ))
-  return { col, row }
-}
-
-function readBufferLineText(buffer: TerminalBuffer, row: number, fallbackCols: number, trimEnd = true) {
-  const line = buffer.getLine(row)
-  if (!line || typeof line.getCell !== 'function') return ''
-
-  const colCount = Math.max(0, typeof line.length === 'number' ? line.length : fallbackCols)
-  let text = ''
-  for (let col = 0; col < colCount; col += 1) {
-    text += readCellText(line.getCell(col)) || ' '
-  }
-  return trimEnd ? text.trimEnd() : text
-}
-
-function readLogicalTerminalLineAtCellWithRows(record: SessionRecord, cell: { col: number; row: number }): TerminalLogicalLine | null {
-  const buffer = record.terminal.buffer?.active
-  if (!cell || !buffer || typeof buffer.getLine !== 'function') return null
-
-  const bufferRow = getTerminalVisibleBufferBase(record.terminal) + cell.row
-  const cols = record.terminal.cols || 80
-  let logicalStartRow = bufferRow
-  while (logicalStartRow > 0 && buffer.getLine(logicalStartRow)?.isWrapped) {
-    logicalStartRow -= 1
-  }
-
-  let logicalEndRow = bufferRow
-  while (buffer.getLine(logicalEndRow + 1)?.isWrapped) {
-    logicalEndRow += 1
-  }
-
-  const lineSegments: string[] = []
-  for (let row = logicalStartRow; row <= logicalEndRow; row += 1) {
-    lineSegments.push(readBufferLineText(buffer, row, cols, row === logicalEndRow))
-  }
-
-  const logicalCol = ((bufferRow - logicalStartRow) * cols) + cell.col
-  return {
-    text: lineSegments.join('').trimEnd(),
-    col: logicalCol,
-    startRow: logicalStartRow,
-    endRow: logicalEndRow,
-    bufferRow,
-    cols,
-    buffer,
-  }
-}
-
-function readLogicalTerminalLineAtBufferRow(record: SessionRecord, bufferRow: number): TerminalLogicalLine | null {
-  const buffer = record.terminal.buffer?.active
-  if (!buffer || typeof buffer.getLine !== 'function') return null
-  if (!Number.isFinite(bufferRow) || bufferRow < 0) return null
-
-  const cols = record.terminal.cols || 80
-  let logicalStartRow = bufferRow
-  while (logicalStartRow > 0 && buffer.getLine(logicalStartRow)?.isWrapped) {
-    logicalStartRow -= 1
-  }
-
-  let logicalEndRow = bufferRow
-  while (buffer.getLine(logicalEndRow + 1)?.isWrapped) {
-    logicalEndRow += 1
-  }
-
-  const lineSegments: string[] = []
-  for (let row = logicalStartRow; row <= logicalEndRow; row += 1) {
-    lineSegments.push(readBufferLineText(buffer, row, cols, row === logicalEndRow))
-  }
-
-  return {
-    text: lineSegments.join('').trimEnd(),
-    col: 0,
-    startRow: logicalStartRow,
-    endRow: logicalEndRow,
-    bufferRow,
-    cols,
-    buffer,
-  }
-}
-
-function readPreviousLogicalTerminalLines(
-  record: SessionRecord,
-  beforeBufferRow: number,
-  limit = 100,
-) {
-  const lines: string[] = []
-  let row = beforeBufferRow - 1
-  while (row >= 0 && lines.length < limit) {
-    const logicalLine = readLogicalTerminalLineAtBufferRow(record, row)
-    if (!logicalLine) break
-    lines.push(logicalLine.text)
-    row = logicalLine.startRow - 1
-  }
-  return lines
+  resyncTerminalReplication(record)
 }
 
 const TERMINAL_READING_ANCHOR_LINE_COUNT = 3
@@ -1796,13 +601,13 @@ function captureTerminalReadingAnchor(record: SessionRecord): Extract<ReadingAnc
     return null
   }
   const visibleBufferRow = getTerminalVisibleBufferBase(record.terminal)
-  const firstLine = readLogicalTerminalLineAtBufferRow(record, visibleBufferRow)
+  const firstLine = record.selection.logicalLineAtBufferRow(visibleBufferRow)
   if (!firstLine) return null
 
   const lines: string[] = []
   let nextRow = firstLine.startRow
   for (let index = 0; index < TERMINAL_READING_ANCHOR_LINE_COUNT; index += 1) {
-    const line = readLogicalTerminalLineAtBufferRow(record, nextRow)
+    const line = record.selection.logicalLineAtBufferRow(nextRow)
     if (!line) break
     lines.push(line.text)
     nextRow = line.endRow + 1
@@ -1842,7 +647,7 @@ function restoreTerminalReadingAnchor(
   let closestMatch: TerminalLogicalLine | null = null
   let closestDistance = Number.POSITIVE_INFINITY
   for (let bufferRow = 0; bufferRow <= lastBufferRow;) {
-    const firstLine = readLogicalTerminalLineAtBufferRow(record, bufferRow)
+    const firstLine = record.selection.logicalLineAtBufferRow(bufferRow)
     if (!firstLine) {
       bufferRow += 1
       continue
@@ -1850,7 +655,7 @@ function restoreTerminalReadingAnchor(
     const lines = [firstLine.text]
     let nextRow = firstLine.endRow + 1
     for (let index = 1; index < lineCount; index += 1) {
-      const line = readLogicalTerminalLineAtBufferRow(record, nextRow)
+      const line = record.selection.logicalLineAtBufferRow(nextRow)
       if (!line) break
       lines.push(line.text)
       nextRow = line.endRow + 1
@@ -1878,274 +683,8 @@ function restoreTerminalReadingAnchor(
   return true
 }
 
-function getXtermSelectionForCopy(record: SessionRecord) {
-  const selection = record.terminal.getSelection() || ''
-  return normalizeTerminalSelectionForCopy(selection)
-}
-
-function getTerminalSelectionForCopy(record: SessionRecord, options?: {
-  includeNativeFallback?: boolean
-}) {
-  const selection = isXtermTerminal(record.terminal)
-    ? getXtermSelectionForCopy(record)
-    : normalizeTerminalSelectionForCopy(normalizeTerminalSelection(record.terminal))
-  if (selection) return selection
-
-  if (!isXtermTerminal(record.terminal) && options?.includeNativeFallback) {
-    return normalizeTerminalSelectionForCopy(getNativeTerminalSelection(record.hostEl))
-  }
-
-  return ''
-}
-
-function isTerminalEventInsideSelection(record: SessionRecord, event: MouseEvent) {
-  const position = record.terminal.getSelectionPosition?.()
-  if (!position || !record.terminal.getSelection?.()) return false
-
-  const cell = cellFromMouseEvent(record, event)
-  if (!cell) return false
-
-  const { start, end } = orderedSelection(position)
-  const point = {
-    x: cell.col,
-    y: getTerminalVisibleBufferBase(record.terminal) + cell.row,
-  }
-  if (point.y < start.y || point.y > end.y) return false
-  if (point.y === start.y && point.x < start.x) return false
-  if (point.y === end.y && point.x > end.x) return false
-  return true
-}
-
-function getNativeTerminalSelection(hostEl: HTMLElement) {
-  const selection = window.getSelection?.()
-  if (!selection || selection.isCollapsed) return ''
-
-  const anchorNode = selection.anchorNode
-  const focusNode = selection.focusNode
-  if (
-    (anchorNode && !hostEl.contains(anchorNode)) ||
-    (focusNode && !hostEl.contains(focusNode))
-  ) {
-    return ''
-  }
-
-  return selection.toString()
-}
-
-function hideTerminalContextMenu(record: SessionRecord) {
-  record.contextMenuCleanup?.()
-  record.contextMenuCleanup = null
-  record.contextMenuEl?.remove()
-  record.contextMenuEl = null
-  record.contextMenuSelection = ''
-}
-
-function terminalContextMenuLabel(action: 'copy' | 'paste' | 'selectAll' | 'clear') {
-  const lang = document.documentElement.lang || navigator.language || ''
-  const zh = lang.toLowerCase().startsWith('zh')
-  if (action === 'copy') return zh ? '复制' : 'Copy'
-  if (action === 'paste') return zh ? '粘贴' : 'Paste'
-  if (action === 'clear') return zh ? '清除' : 'Clear'
-  return zh ? '全选' : 'Select All'
-}
-
-function clampContextMenuPosition(x: number, y: number, width = 160, height = 148) {
-  const margin = 8
-  return {
-    x: Math.max(margin, Math.min(x, window.innerWidth - width - margin)),
-    y: Math.max(margin, Math.min(y, window.innerHeight - height - margin)),
-  }
-}
-
-function focusTerminalContextMenu(menu: HTMLElement) {
-  const firstEnabled = menu.querySelector<HTMLButtonElement>('button:not(:disabled)')
-  firstEnabled?.focus()
-}
-
-function isKeyboardContextMenuEvent(event: MouseEvent) {
-  return event.button === 0 && !('pointerType' in event)
-}
-
-function createTerminalContextMenuItem(
-  label: string,
-  onClick: () => void,
-  options: { disabled?: boolean } = {},
-) {
-  const button = document.createElement('button')
-  button.type = 'button'
-  button.className = 'terminal-context-menu-item'
-  button.setAttribute('role', 'menuitem')
-  button.textContent = label
-  button.disabled = options.disabled === true
-  button.addEventListener('click', () => {
-    if (button.disabled) return
-    onClick()
-  })
-  return button
-}
-
-function pasteTerminalClipboardText(record: SessionRecord, text: string) {
-  if (!text || record.disposed || record.attachedMount === null) return false
-  scrollRecordToBottom(record, { allowClearUnread: true })
-  if (!queueTerminalInput(record, text)) return false
-  return true
-}
-
-function clearTerminalBuffer(record: SessionRecord) {
-  if (record.disposed || record.attachedMount === null) return
-  clearTerminalSelectionState(record)
-  record.contextMenuSelection = ''
-  record.lastNonEmptySelection = ''
-  record.terminal.clearSearch?.()
-  setFollowOutputState(record, true, false, { allowClearUnread: true })
-  sendTerminalSessionMessage({
-    type: 'clear-terminal',
-    agentId: record.agentId,
-  })
-}
-
-function showTerminalContextMenu(record: SessionRecord, event: MouseEvent, selection: string) {
-  hideTerminalContextMenu(record)
-  const focusFirstItem = isKeyboardContextMenuEvent(event)
-
-  const position = clampContextMenuPosition(event.clientX, event.clientY)
-  const menu = document.createElement('div')
-  menu.className = 'terminal-context-menu terminal-context-menu-pooled'
-  menu.setAttribute('data-testid', 'code-terminal-context-menu')
-  menu.setAttribute('role', 'menu')
-  menu.style.left = `${position.x}px`
-  menu.style.top = `${position.y}px`
-
-  const copyButton = createTerminalContextMenuItem(terminalContextMenuLabel('copy'), () => {
-    const focusRevision = terminalFocusRevision
-    writeClipboardText(selection).finally(() => {
-      const restoreFocus = mayRestoreTerminalFocusAfterAsyncMenu(record, menu, focusRevision)
-      hideTerminalContextMenu(record)
-      if (!isMobileViewport() && restoreFocus) {
-        focusAttachedTerminalInput(record)
-      }
-    })
-  }, { disabled: !selection })
-
-  const pasteButton = createTerminalContextMenuItem(terminalContextMenuLabel('paste'), () => {
-    const focusRevision = terminalFocusRevision
-    void readClipboardText().then(text => {
-      pasteTerminalClipboardText(record, text)
-    }).finally(() => {
-      const restoreFocus = mayRestoreTerminalFocusAfterAsyncMenu(record, menu, focusRevision)
-      hideTerminalContextMenu(record)
-      if (!isMobileViewport() && restoreFocus) {
-        focusAttachedTerminalInput(record)
-      }
-    })
-  })
-
-  const selectAllButton = createTerminalContextMenuItem(terminalContextMenuLabel('selectAll'), () => {
-    hideTerminalContextMenu(record)
-    clearTerminalSelectionState(record)
-    requestAnimationFrame(() => {
-      if (record.disposed) return
-      const selection = selectTerminalBuffer(record)
-      record.contextMenuSelection = selection
-      record.lastNonEmptySelection = selection || record.lastNonEmptySelection
-      if (!isMobileViewport()) {
-        focusAttachedTerminalInput(record)
-      }
-    })
-  }, { disabled: typeof record.terminal.select !== 'function' || !record.terminal.buffer?.active })
-
-  const clearButton = createTerminalContextMenuItem(terminalContextMenuLabel('clear'), () => {
-    hideTerminalContextMenu(record)
-    clearTerminalBuffer(record)
-    if (!isMobileViewport()) {
-      focusAttachedTerminalInput(record)
-    }
-  })
-
-  menu.addEventListener('mousedown', event => event.stopPropagation())
-  menu.addEventListener('pointerdown', event => event.stopPropagation())
-  menu.addEventListener('keydown', event => {
-    if (!(event.target instanceof HTMLButtonElement)) return
-    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
-    const items = Array.from(menu.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'))
-    const index = items.indexOf(event.target)
-    if (index < 0 || items.length === 0) return
-    event.preventDefault()
-    const direction = event.key === 'ArrowDown' ? 1 : -1
-    items[(index + direction + items.length) % items.length]?.focus()
-  })
-  menu.appendChild(copyButton)
-  menu.appendChild(pasteButton)
-  menu.appendChild(selectAllButton)
-  menu.appendChild(clearButton)
-  document.body.appendChild(menu)
-  record.contextMenuEl = menu
-
-  const closeOnOutsidePointer = (pointerEvent: MouseEvent | PointerEvent) => {
-    const target = pointerEvent.target
-    if (target instanceof Node && menu.contains(target)) return
-    hideTerminalContextMenu(record)
-  }
-  const closeOnKeydown = (keyboardEvent: KeyboardEvent) => {
-    if (keyboardEvent.key === 'Escape') {
-      keyboardEvent.preventDefault()
-      hideTerminalContextMenu(record)
-      if (!isMobileViewport()) {
-        focusAttachedTerminalInput(record)
-      }
-    }
-  }
-  const closeOnScrollOrResize = () => hideTerminalContextMenu(record)
-
-  document.addEventListener('mousedown', closeOnOutsidePointer, true)
-  document.addEventListener('pointerdown', closeOnOutsidePointer, true)
-  document.addEventListener('keydown', closeOnKeydown, true)
-  window.addEventListener('resize', closeOnScrollOrResize)
-  window.addEventListener('scroll', closeOnScrollOrResize, true)
-  record.contextMenuCleanup = () => {
-    document.removeEventListener('mousedown', closeOnOutsidePointer, true)
-    document.removeEventListener('pointerdown', closeOnOutsidePointer, true)
-    document.removeEventListener('keydown', closeOnKeydown, true)
-    window.removeEventListener('resize', closeOnScrollOrResize)
-    window.removeEventListener('scroll', closeOnScrollOrResize, true)
-  }
-
-  if (focusFirstItem) requestAnimationFrame(() => focusTerminalContextMenu(menu))
-}
-
-function clearNativeSelectionInside(hostEl: HTMLElement) {
-  const selection = window.getSelection?.()
-  if (!selection || selection.rangeCount === 0) return
-
-  const anchorNode = selection.anchorNode
-  const focusNode = selection.focusNode
-  if (
-    (anchorNode && !hostEl.contains(anchorNode)) ||
-    (focusNode && !hostEl.contains(focusNode))
-  ) {
-    return
-  }
-
-  selection.removeAllRanges()
-}
-
-function clearTerminalSelectionState(record: SessionRecord) {
-  record.cachedSelection = ''
-  record.contextMenuSelection = ''
-  record.lastNonEmptySelection = ''
-  record.dragSelection = null
-  record.terminal.clearTerminalSelection?.()
-  clearNativeSelectionInside(record.hostEl)
-}
-
-function resetTransientTerminalUi(record: SessionRecord) {
-  hideTerminalContextMenu(record)
-  record.linkInteraction.reset()
-  clearTerminalSelectionState(record)
-}
-
 function repairTerminalAfterAttach(record: SessionRecord) {
-  resetTransientTerminalUi(record)
+  record.interaction.reset()
 
   if (isXtermTerminal(record.terminal)) {
     record.terminal.reattach?.()
@@ -2163,118 +702,6 @@ function repairTerminalAfterAttach(record: SessionRecord) {
   })
 }
 
-function getTerminalCopyTextAtEvent(record: SessionRecord, event: MouseEvent) {
-  const selection = getTerminalSelectionForCopy(record) ||
-    record.contextMenuSelection ||
-    record.lastNonEmptySelection
-
-  const url = record.linkInteraction.urlAtEvent(event)
-  const pathLink = record.pathOpenHandler ? record.linkInteraction.resolvedPathLinkAtEvent(event) : null
-  const selectionAtEvent = Boolean(selection) && isTerminalEventInsideSelection(record, event)
-  const compactSelection = selection.replace(/\s+/g, '')
-  if (url && (!selectionAtEvent || url.includes(compactSelection))) {
-    return url
-  }
-  if (pathLink?.text && (!selectionAtEvent || pathLink.text.includes(compactSelection))) {
-    return pathLink.text
-  }
-  if (selection) return selection
-
-  const cell = cellFromMouseEvent(record, event)
-  if (cell) {
-    return selectContinuousTextAtCell(record, cell.col, cell.row)
-  }
-
-  return ''
-}
-
-function installTerminalContextMenu(record: SessionRecord, agentId: string) {
-  const contextMenuHandler = (event: MouseEvent) => {
-    if (!(event.target instanceof Node) || !record.hostEl.contains(event.target)) return
-    const url = record.linkInteraction.urlAtEvent(event)
-    if (url) {
-      showUrlOpenMenu({
-        event,
-        url,
-        onOpenInFarming: record.farmingUrlOpenHandler
-          ? () => record.farmingUrlOpenHandler?.(agentId, url)
-          : undefined,
-      })
-      return
-    }
-    const rawPathLink = record.pathOpenHandler
-      ? record.linkInteraction.resolvedPathLinkAtEvent(event) ?? record.linkInteraction.pathLinkAtEvent(event)
-      : null
-    if (rawPathLink?.pathTarget) {
-      event.preventDefault()
-      event.stopPropagation()
-      event.stopImmediatePropagation()
-      const attachmentGeneration = record.attachment.generation
-      void record.linkInteraction.resolvePathTarget(rawPathLink.pathTarget).then(resolvedTarget => {
-        if (!isCurrentAttachment(record, attachmentGeneration)) return
-        if (resolvedTarget) {
-          showTerminalContextMenu(record, event, rawPathLink.text)
-          return
-        }
-        const fallbackCopyText = getTerminalCopyTextAtEvent(record, event)
-        showTerminalContextMenu(record, event, fallbackCopyText)
-      })
-      return
-    }
-
-    if (record.pathOpenHandler && isTerminalPathOpenClick(event)) {
-      const pathTarget = record.linkInteraction.resolvedPathTargetAtEvent(event)
-      if (pathTarget) {
-        event.preventDefault()
-        event.stopPropagation()
-        event.stopImmediatePropagation()
-        record.pathOpenHandler(agentId, pathTarget)
-        return
-      }
-    }
-
-    const copyText = getTerminalCopyTextAtEvent(record, event)
-
-    event.preventDefault()
-    event.stopPropagation()
-    event.stopImmediatePropagation()
-    showTerminalContextMenu(record, event, copyText)
-  }
-  const contextMenuMouseDownHandler = (event: MouseEvent) => {
-    if (!(event.target instanceof Node) || !record.hostEl.contains(event.target)) return
-    if (event.button === 0) {
-      record.contextMenuSelection = ''
-      record.lastNonEmptySelection = ''
-      return
-    }
-    if (event.button !== 2) return
-    record.contextMenuSelection = getTerminalSelectionForCopy(record) ||
-      normalizeTerminalSelectionForCopy(record.cachedSelection) ||
-      record.lastNonEmptySelection
-  }
-  window.addEventListener('mousedown', contextMenuMouseDownHandler, true)
-  window.addEventListener('contextmenu', contextMenuHandler, true)
-  record.hostEl.addEventListener('mousedown', contextMenuMouseDownHandler, true)
-  record.hostEl.addEventListener('contextmenu', contextMenuHandler, true)
-  record.contextMenuMouseDownHandler = contextMenuMouseDownHandler
-  record.contextMenuHandler = contextMenuHandler
-}
-
-function installTerminalTouchInteraction(record: SessionRecord) {
-  record.touchInteraction = new TerminalTouchInteractionController({
-    hostEl: record.hostEl,
-    isDisposed: () => record.disposed,
-    copyTextAtEvent: event => getTerminalCopyTextAtEvent(record, event),
-    showContextMenu: (event, copyText) => showTerminalContextMenu(record, event, copyText),
-    lineHeight: () => getTerminalCellMetrics(record)?.height || 16,
-    viewportY: () => getTerminalViewportY(record.terminal),
-    scrollToViewportY: viewportY => scrollRecordToViewportY(record, viewportY),
-    onViewportChanged: () => updateFollowStateFromViewport(record, { allowClearUnread: true }),
-    hideContextMenu: () => hideTerminalContextMenu(record),
-  })
-  record.touchInteraction.install()
-}
-
 function installTerminalTestApi() {
   if (typeof window === 'undefined' || !window.__FARMING_E2E__ || window.__farmingTerminalTest) return
 
@@ -2284,7 +711,9 @@ function installTerminalTestApi() {
       const controller = new AbortController()
       const release = await terminalCheckpointRequestScheduler.acquire(controller.signal)
       try {
-        return await fetchSessionBootstrapState(agentId, controller.signal)
+        return sessionBootstrapStateFromPayload(
+          await requestTerminalSessionCheckpoint(agentId, controller.signal),
+        )
       } finally {
         release()
       }
@@ -2293,31 +722,7 @@ function installTerminalTestApi() {
       const current = sessions.get(agentId)
       const record = current instanceof Promise ? await current : current
       if (!record || record.disposed) throw new Error(`Terminal session not found: ${agentId}`)
-      record.bootstrapRefreshSeq += 1
-      invalidateTerminalCheckpointRequest(record)
-      record.snapshotOutput = ''
-      record.snapshotRuntimeEpoch = ''
-      record.snapshotOutputSeq = null
-      record.snapshotStateRevision = null
-      record.snapshotCols = null
-      record.snapshotRows = null
-      record.attachment.resetRecovery({ keepCursor: false })
-      record.replayInProgress = false
-      record.liveWriteInProgress = false
-      record.pendingSnapshotReplay = false
-      record.bootstrappingSnapshot = false
-      record.needsReconnectOutputSync = false
-      record.fixtureOverrideActive = true
-      record.suppressOutputUntil = Date.now() + 1500
-      resetTransientTerminalUi(record)
-      record.terminal.reset()
-      record.terminal.viewportY = 0
-      record.terminal.scrollToLine?.(0)
-      await new Promise<void>(resolve => record.terminal.write(text, resolve))
-      record.terminal.viewportY = 0
-      record.terminal.scrollToLine?.(0)
-      setFollowOutputState(record, isTerminalAtBottom(record), false, { allowClearUnread: true })
-      forceTerminalRender(record)
+      await writeTerminalReplicationFixture(record, text)
       // The fixture is the authoritative synthetic cut for this E2E record.
       // If the host was reattached from the parking lot, complete the same
       // visual readiness boundary as a committed checkpoint so the recovery
@@ -2336,13 +741,7 @@ function installTerminalTestApi() {
       const current = sessions.get(agentId)
       const record = current instanceof Promise ? await current : current
       if (!record || record.disposed) throw new Error(`Terminal session not found: ${agentId}`)
-      record.fixtureOverrideActive = false
-      record.suppressOutputUntil = 0
-      invalidateTerminalCheckpointRequest(record)
-      record.attachment.resetRecovery()
-      record.attachment.beginRecovery()
-      record.needsReconnectOutputSync = true
-      requestTerminalReplay(record, record.attachment.generation)
+      resumeLiveTerminalReplication(record)
     },
     getSelection(agentId: string) {
       return getTerminalSelectionNow(agentId)
@@ -2381,26 +780,26 @@ function installTerminalTestApi() {
     doubleClickCell(agentId: string, col: number, row: number) {
       const current = sessions.get(agentId)
       if (!current || current instanceof Promise || current.disposed) return ''
-      return selectContinuousTextAtCell(current, col, row)
+      return current.selection.selectContinuousTextAtCell(col, row)
     },
     getUrlAtCell(agentId: string, col: number, row: number) {
       const current = sessions.get(agentId)
       if (!current || current instanceof Promise || current.disposed) return null
-      return current.linkInteraction.urlAtCell({ col, row })
+      return current.interaction.link.urlAtCell({ col, row })
     },
     isReady(agentId: string) {
       const current = sessions.get(agentId)
-      return Boolean(current && !(current instanceof Promise) && !current.disposed && !current.bootstrappingSnapshot && !current.pendingSnapshotReplay)
+      return Boolean(current && !(current instanceof Promise) && !current.disposed && terminalReplicationBootstrapSettled(current))
     },
     getPathAtCell(agentId: string, col: number, row: number) {
       const current = sessions.get(agentId)
       if (!current || current instanceof Promise || current.disposed) return null
-      return current.linkInteraction.pathLinkAtCell({ col, row })?.pathTarget ?? null
+      return current.interaction.link.pathLinkAtCell({ col, row })?.pathTarget ?? null
     },
     openPathAtCell(agentId: string, col: number, row: number) {
       const current = sessions.get(agentId)
       if (!current || current instanceof Promise || current.disposed || !current.pathOpenHandler) return false
-      const pathTarget = current.linkInteraction.pathLinkAtCell({ col, row })?.pathTarget ?? null
+      const pathTarget = current.interaction.link.pathLinkAtCell({ col, row })?.pathTarget ?? null
       if (!pathTarget) return false
       current.pathOpenHandler(agentId, pathTarget)
       return true
@@ -2620,19 +1019,14 @@ function installTerminalTestApi() {
     setCheckpointInstallCompletionHeld(agentId: string, held: boolean) {
       const current = sessions.get(agentId)
       if (!current || current instanceof Promise || current.disposed) return false
-      current.holdCheckpointInstallCompletionForTest = held
-      if (!held) {
-        const completeInstall = current.heldCheckpointInstallCompletionForTest
-        current.heldCheckpointInstallCompletionForTest = null
-        completeInstall?.()
-      }
+      setTerminalCheckpointInstallHeld(current, held)
       return true
     },
     async scrollToLine(agentId: string, line: number) {
       const current = sessions.get(agentId)
       const record = current instanceof Promise ? await current : current
       if (!record || record.disposed) throw new Error(`Terminal session not found: ${agentId}`)
-      record.touchInteraction?.stopTouchMomentum()
+      record.interaction.stopTouchMomentum()
       scrollRecordToLine(record, line)
       const atBottom = isTerminalAtBottom(record)
       setFollowOutputState(record, atBottom, atBottom ? false : record.hasUnreadOutput, {
@@ -2644,7 +1038,7 @@ function installTerminalTestApi() {
       const current = sessions.get(agentId)
       const record = current instanceof Promise ? await current : current
       if (!record || record.disposed) throw new Error(`Terminal session not found: ${agentId}`)
-      record.touchInteraction?.stopTouchMomentum()
+      record.interaction.stopTouchMomentum()
       scrollRecordToBottom(record, { allowClearUnread: true })
       await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
     },
@@ -2708,7 +1102,140 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
   const { terminal, fitAddon } = result
   terminal.loadAddon(fitAddon)
 
+  const selection = new TerminalSelectionController({
+    terminal,
+    hostEl,
+    cellMetrics: () => terminal.getCellMetrics?.() ?? terminal.renderer?.getMetrics?.() ?? null,
+    screenRect: () => {
+      const screen = terminal.getScreenElement?.()
+      if (screen instanceof HTMLElement) return screen.getBoundingClientRect()
+      const canvas = terminal.renderer?.getCanvas?.() || hostEl.querySelector('canvas')
+      return canvas instanceof HTMLCanvasElement ? canvas.getBoundingClientRect() : null
+    },
+  })
+
   let record: SessionRecord
+  const rendererEffects = new TerminalRendererEffectController({
+    terminal,
+    hostEl,
+    supportsCursorSuppression: !isXtermTerminal(terminal),
+    initialCursorSuppressed: Boolean(options.suppressRendererCursor),
+    forceRender: () => forceTerminalRender(record),
+  })
+  const linkInteraction = new TerminalLinkInteractionController({
+    agentId,
+    hostEl,
+    windowTarget: window,
+    isXterm: isXtermTerminal(terminal),
+    registerLinkProvider: isXtermTerminal(terminal) && typeof terminal.registerLinkProvider === 'function'
+      ? provider => terminal.registerLinkProvider!(provider)
+      : null,
+    now: () => Date.now(),
+    isMacPlatform: () => navigator.platform.toLowerCase().includes('mac'),
+    language: () => document.documentElement.lang || navigator.language || '',
+    isMobileViewport: () => isMobileViewport(),
+    isAttached: () => isTerminalSessionAttached(record),
+    attachmentOperation: () => record.attachment.currentOperation(),
+    isCurrentAttachmentOperation: operation => (
+      isTerminalSessionAttached(record) && record.attachment.isCurrentOperation(operation)
+    ),
+    cellFromEvent: event => selection.cellFromEvent(event),
+    cellMetrics: () => terminal.getCellMetrics?.() ?? terminal.renderer?.getMetrics?.() ?? null,
+    elementFromPoint: (x, y) => document.elementFromPoint(x, y),
+    logicalLineAtCell: cell => selection.logicalLineAtCell(cell),
+    logicalLineAtBufferRow: bufferRow => selection.logicalLineAtBufferRow(bufferRow),
+    previousLogicalLines: beforeBufferRow => selection.previousLogicalLines(beforeBufferRow),
+    pathOpenHandler: () => record.pathOpenHandler,
+    pathResolveHandler: () => record.pathResolveHandler,
+    searchOpenHandler: () => record.searchOpenHandler,
+    openUrl: url => openExternalUrl(url),
+    clearSelection: () => selection.clear(),
+    focusInput: () => { focusAttachedTerminalInput(record) },
+  })
+  const interaction = new TerminalSessionInteractionController({
+    agentId,
+    hostEl,
+    terminal,
+    isXterm: isXtermTerminal(terminal),
+    fontFamily: DEFAULT_FONT_FAMILY,
+    selection,
+    rendererEffects,
+    link: {
+      controller: linkInteraction,
+      pathOpenHandler: () => record.pathOpenHandler,
+      farmingUrlOpenHandler: () => record.farmingUrlOpenHandler,
+    },
+    viewport: {
+      pageScroll: direction => {
+        const nextViewportY = terminalPageScrollTarget(terminal, direction, MIN_TERMINAL_RESIZE_ROWS)
+        scrollRecordToViewportY(record, nextViewportY)
+        setFollowOutputState(record, nextViewportY <= 0, nextViewportY <= 0 ? false : record.hasUnreadOutput, {
+          allowClearUnread: nextViewportY <= 0,
+        })
+        emitFollowOutputState(record)
+      },
+      onScrollIntent: event => {
+        if (event instanceof WheelEvent && event.deltaY < 0) {
+          setFollowOutputState(record, false, record.hasUnreadOutput)
+        }
+        captureTerminalReadingAnchor(record)
+        scheduleFollowStateFromViewport(record, { allowClearUnread: true })
+        window.setTimeout(() => scheduleFollowStateFromViewport(record, { allowClearUnread: true }), 80)
+      },
+      lineHeight: () => getTerminalCellMetrics(record)?.height || 16,
+      viewportY: () => getTerminalViewportY(terminal),
+      scrollToViewportY: viewportY => scrollRecordToViewportY(record, viewportY),
+      onTouchViewportChanged: () => updateFollowStateFromViewport(record, { allowClearUnread: true }),
+    },
+    input: {
+      disabled: () => record.inputDisabled,
+      send: input => {
+        scrollRecordToBottom(record, { allowClearUnread: true })
+        return queueTerminalInput(record, input)
+      },
+      clear: () => {
+        if (record.disposed || record.attachedMount === null) return
+        selection.clear()
+        terminal.clearSearch?.()
+        setFollowOutputState(record, true, false, { allowClearUnread: true })
+        sendTerminalSessionMessage({ type: 'clear-terminal', agentId })
+      },
+    },
+    isDisposed: () => record.disposed,
+    isAttached: () => isTerminalSessionAttached(record),
+    focusInput: () => focusAttachedTerminalInput(record),
+    focusRevision: () => terminalFocusRevision,
+    mayRestoreFocus: (menu, focusRevision) => {
+      if (record.disposed || record.attachedMount === null || terminalFocusRevision !== focusRevision) return false
+      const activeElement = document.activeElement
+      return activeElement === document.body || menu.contains(activeElement) || hostEl.contains(activeElement)
+    },
+    attachmentOperation: () => record.attachment.currentOperation(),
+    isCurrentAttachmentOperation: operation => (
+      isTerminalSessionAttached(record) && record.attachment.isCurrentOperation(operation)
+    ),
+    readFontSize: () => readTerminalFontSize(hostEl),
+  })
+  const resizeEffects = new TerminalResizeEffectController({
+    attachmentOperation: () => record.attachment.currentOperation(),
+    isCurrentAttachmentOperation: operation => record.attachment.isCurrentOperation(operation),
+    stateRevision: () => record.attachment.stateRevision,
+    canMutate: () => terminalReplicationCanMutateResize(record),
+    currentDimensions: () => ({ cols: terminal.cols || 0, rows: terminal.rows || 0 }),
+    proposeDimensions: () => proposeTerminalResizeDimensions(hostEl, fitAddon),
+    applyLocalDimensions: dimensions => terminal.resize?.(dimensions.cols, dimensions.rows),
+    deliver: dimensions => sendTerminalSessionMessage({
+      type: 'resize-agent',
+      agentId,
+      cols: dimensions.cols,
+      rows: dimensions.rows,
+    }),
+    requestRecovery: () => requestTerminalResizeReplicationRecovery(record),
+    flushOutput: () => { if (!record.disposed) flushQueuedTerminalOutput(record) },
+  })
+  const replication = createTerminalReplicationState({
+    pageOutputSuspended: document.visibilityState === 'hidden',
+  })
   record = {
     agentId,
     hostEl,
@@ -2719,8 +1246,16 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     terminal,
     fitAddon,
     unsubscribeOutput: null,
-    selectionChangeDisposable: null,
-    imeOverlayDisposables: [],
+    selection,
+    replication,
+    replicationPorts: {
+      isAttached: () => isTerminalSessionAttached(record),
+      publishStatus: (phase, statusOptions) => publishTerminalRecoveryStatus(record, phase, statusOptions),
+      reportError: message => reportTerminalSyncError(record, message),
+      notifyReady: generation => notifyTerminalAttachReady(record, generation),
+      captureViewportState: () => terminalViewportStateForRestore(record),
+      restoreViewportState: state => restoreTerminalViewportFromAnchor(record, state as TerminalViewportRestoreState),
+    },
     parkedViewportState: null,
     inputDisabled: Boolean(options.inputDisabled),
     errorHandler: options.onError ?? null,
@@ -2734,129 +1269,16 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     rendererFailureDisposable: null,
     scrollChangeDisposable: null,
     backendConnectedHandler: null,
-    pointerDownSelectionHandler: null,
-    pointerMoveSelectionHandler: null,
-    pointerUpSelectionHandler: null,
-    mouseDownSelectionHandler: null,
-    mouseMoveSelectionHandler: null,
-    mouseUpSelectionHandler: null,
-    doubleClickHandler: null,
-    copyHandler: null,
-    copyKeyHandler: null,
-    clearKeyHandler: null,
-    pasteHandler: null,
-    linkInteraction: new TerminalLinkInteractionController({
-      agentId,
-      hostEl,
-      windowTarget: window,
-      isXterm: isXtermTerminal(terminal),
-      registerLinkProvider: isXtermTerminal(terminal) && typeof terminal.registerLinkProvider === 'function'
-        ? provider => terminal.registerLinkProvider!(provider)
-        : null,
-      now: () => Date.now(),
-      isMacPlatform: () => navigator.platform.toLowerCase().includes('mac'),
-      language: () => document.documentElement.lang || navigator.language || '',
-      isMobileViewport: () => isMobileViewport(),
-      isAttached: () => isTerminalSessionAttached(record),
-      attachmentOperation: () => record.attachment.currentOperation(),
-      isCurrentAttachmentOperation: operation => (
-        isTerminalSessionAttached(record)
-        && record.attachment.isCurrentOperation(operation)
-      ),
-      cellFromEvent: event => cellFromMouseEvent(record, event),
-      cellMetrics: () => getTerminalCellMetrics(record) ?? null,
-      elementFromPoint: (x, y) => document.elementFromPoint(x, y),
-      logicalLineAtCell: cell => readLogicalTerminalLineAtCellWithRows(record, cell),
-      logicalLineAtBufferRow: bufferRow => readLogicalTerminalLineAtBufferRow(record, bufferRow),
-      previousLogicalLines: beforeBufferRow => readPreviousLogicalTerminalLines(record, beforeBufferRow),
-      pathOpenHandler: () => record.pathOpenHandler,
-      pathResolveHandler: () => record.pathResolveHandler,
-      searchOpenHandler: () => record.searchOpenHandler,
-      openUrl: url => openExternalUrl(url),
-      clearSelection: () => clearTerminalSelectionState(record),
-      focusInput: () => {
-        focusAttachedTerminalInput(record)
-      },
-    }),
-    contextMenuHandler: null,
-    contextMenuMouseDownHandler: null,
-    contextMenuEl: null,
-    contextMenuCleanup: null,
-    contextMenuSelection: '',
-    imeKeydownHandler: null,
-    scrollIntentHandler: null,
-    scrollKeyHandler: null,
-    touchInteraction: null,
-    resizeEffects: new TerminalResizeEffectController({
-      attachmentOperation: () => record.attachment.currentOperation(),
-      isCurrentAttachmentOperation: operation => record.attachment.isCurrentOperation(operation),
-      stateRevision: () => record.attachment.stateRevision,
-      canMutate: () => Boolean(
-        !record.disposed
-        && isTerminalSessionAttached(record)
-        && !record.replayInProgress
-        && !record.bootstrappingSnapshot
-        && !record.pageOutputSuspended
-      ),
-      currentDimensions: () => ({
-        cols: record.terminal.cols || 0,
-        rows: record.terminal.rows || 0,
-      }),
-      proposeDimensions: () => proposeTerminalResizeDimensions(record.hostEl, record.fitAddon),
-      applyLocalDimensions: dimensions => record.terminal.resize?.(dimensions.cols, dimensions.rows),
-      deliver: dimensions => sendTerminalSessionMessage({
-        type: 'resize-agent',
-        agentId: record.agentId,
-        cols: dimensions.cols,
-        rows: dimensions.rows,
-      }),
-      requestRecovery: () => requestTerminalResizeRecovery(record),
-      flushOutput: () => {
-        if (!record.disposed) flushQueuedTerminalOutput(record)
-      },
-    }),
+    interaction,
+    resizeEffects,
     followOutputHandler: options.onFollowOutputChange ?? null,
     pathOpenHandler: options.onPathOpen ?? null,
     pathResolveHandler: options.onPathResolve ?? null,
     searchOpenHandler: options.onSearchOpen ?? null,
     farmingUrlOpenHandler: options.onOpenUrlInFarming ?? null,
-    rendererEffects: new TerminalRendererEffectController({
-      terminal,
-      hostEl,
-      supportsCursorSuppression: !isXtermTerminal(terminal),
-      initialCursorSuppressed: Boolean(options.suppressRendererCursor),
-      forceRender: () => forceTerminalRender(record),
-    }),
-    snapshotOutput: '',
-    snapshotRuntimeEpoch: '',
-    snapshotOutputSeq: null,
-    snapshotStateRevision: null,
-    snapshotCols: null,
-    snapshotRows: null,
+    rendererEffects,
     attachment: new TerminalAttachmentCoordinator(TERMINAL_REPLAY),
-    replayInProgress: false,
-    liveWriteInProgress: false,
-    liveTransitionFlushScheduled: false,
-    terminalWriteQueue: Promise.resolve(),
-    terminalWriteResolvers: new Set(),
-    terminalWriteBatchCount: 0,
-    holdCheckpointInstallCompletionForTest: false,
-    heldCheckpointInstallCompletionForTest: null,
-    bootstrapRefreshSeq: 0,
-    checkpointRequestCount: 0,
-    checkpointRequestInFlight: false,
-    checkpointRetryTimer: null,
-    bootstrapRequestControllers: new Set(),
-    needsReconnectOutputSync: false,
-    pageOutputSuspended: document.visibilityState === 'hidden',
     pageLifecycleHandler: null,
-    pendingSnapshotReplay: false,
-    bootstrappingSnapshot: true,
-    fixtureOverrideActive: false,
-    cachedSelection: '',
-    lastNonEmptySelection: '',
-    dragSelection: null,
-    suppressOutputUntil: 0,
     inputCount: 0,
     followOutput: true,
     hasUnreadOutput: false,
@@ -2873,11 +1295,10 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
 
   terminal.onResize(({ cols, rows }: { cols: number; rows: number }) => {
     if (record.resizeEffects.applyingLocalResize) return
-    if (record.replayInProgress || record.bootstrappingSnapshot) return
+    if (terminalReplicationBlocksResizeNotification(record)) return
     record.resizeEffects.notify(cols, rows)
   })
 
-  installTerminalContextMenu(record, agentId)
   const rendererFailureSubscription = terminal.onRendererFailure?.((error) => {
     if (record.disposed) return
     record.inputDisabled = true
@@ -2892,24 +1313,13 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     ? () => rendererFailureSubscription.dispose()
     : null
   terminal.open(hostEl)
-  record.linkInteraction.install()
   terminal.syncAppearanceTheme?.()
   requestAnimationFrame(() => {
     if (!record.disposed) terminal.syncAppearanceTheme?.()
   })
 
   record.rendererEffects.install()
-
-  const syncCachedSelection = () => {
-    record.cachedSelection = normalizeTerminalSelection(terminal)
-    if (record.cachedSelection) {
-      record.lastNonEmptySelection = normalizeTerminalSelectionForCopy(record.cachedSelection)
-    }
-  }
-  const selectionSubscription = terminal.onSelectionChange?.(syncCachedSelection)
-  record.selectionChangeDisposable = selectionSubscription
-    ? () => selectionSubscription.dispose()
-    : null
+  record.interaction.install()
   const scrollSubscription = terminal.onScroll?.(() => {
     scheduleFollowStateFromViewport(record)
     captureTerminalReadingAnchor(record)
@@ -2928,225 +1338,13 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
   record.backendConnectedHandler = backendConnectedHandler
   const pageLifecycleHandler = (event: Event) => {
     const suspended = event.type === 'pagehide' || document.visibilityState === 'hidden'
-    record.pageOutputSuspended = suspended
-    if (suspended) {
-      record.resizeEffects.beginRecovery()
-      record.needsReconnectOutputSync = true
-      return
-    }
-    resyncTerminalAfterPageResume(record)
+    setTerminalReplicationPageSuspended(record, suspended)
   }
   document.addEventListener('visibilitychange', pageLifecycleHandler)
   window.addEventListener('pagehide', pageLifecycleHandler)
   window.addEventListener('pageshow', pageLifecycleHandler)
   record.pageLifecycleHandler = pageLifecycleHandler
-  setupTerminalImeOverlay(record)
 
-  const startDragSelection = (event: MouseEvent | PointerEvent, pointerId?: number) => {
-    if (isMobileViewport() || event.button !== 0 || event.ctrlKey || event.metaKey || event.altKey) return false
-    const cell = cellFromMouseEvent(record, event)
-    if (!cell) return false
-
-    record.dragSelection = {
-      start: cell,
-      active: true,
-      moved: false,
-      pointerId,
-    }
-    return true
-  }
-
-  const updateDragSelection = (event: MouseEvent | PointerEvent) => {
-    const dragSelection = record.dragSelection
-    if (!dragSelection?.active) return false
-    if ('pointerId' in event && dragSelection.pointerId !== undefined && event.pointerId !== dragSelection.pointerId) {
-      return false
-    }
-    const cell = cellFromMouseEvent(record, event)
-    if (!cell) return false
-    if (cell.col === dragSelection.start.col && cell.row === dragSelection.start.row && !dragSelection.moved) return false
-
-    dragSelection.moved = true
-    selectTerminalCellRange(record, dragSelection.start, cell)
-    event.preventDefault()
-    event.stopPropagation()
-    return true
-  }
-
-  const finishDragSelection = (event: MouseEvent | PointerEvent) => {
-    const dragSelection = record.dragSelection
-    if (!dragSelection?.active) return false
-    if ('pointerId' in event && dragSelection.pointerId !== undefined && event.pointerId !== dragSelection.pointerId) {
-      return false
-    }
-
-    record.dragSelection = null
-    if (!dragSelection.moved) return false
-
-    record.linkInteraction.suppressActivation()
-    record.cachedSelection = normalizeTerminalSelection(terminal)
-    event.preventDefault()
-    event.stopPropagation()
-    return true
-  }
-
-  const pointerDownSelectionHandler = (event: PointerEvent) => {
-    if (event.pointerType === 'touch') return
-    if (startDragSelection(event, event.pointerId)) {
-      try {
-        record.hostEl.setPointerCapture(event.pointerId)
-      } catch {
-        // Best effort. Window-level move/up listeners still handle normal mouse drags.
-      }
-    }
-  }
-  if (!isXtermTerminal(terminal)) {
-    hostEl.addEventListener('pointerdown', pointerDownSelectionHandler, true)
-    record.pointerDownSelectionHandler = pointerDownSelectionHandler
-
-    const pointerMoveSelectionHandler = (event: PointerEvent) => {
-      if (event.pointerType === 'touch') return
-      updateDragSelection(event)
-    }
-    window.addEventListener('pointermove', pointerMoveSelectionHandler, true)
-    record.pointerMoveSelectionHandler = pointerMoveSelectionHandler
-
-    const pointerUpSelectionHandler = (event: PointerEvent) => {
-      if (event.pointerType === 'touch') return
-      const finished = finishDragSelection(event)
-      if (!finished) {
-        record.linkInteraction.activateOpenTargetAtEvent(event)
-      }
-      if (finished || record.linkInteraction.isActivationSuppressed) {
-        try {
-          record.hostEl.releasePointerCapture(event.pointerId)
-        } catch {
-          // ignore
-        }
-      }
-    }
-    window.addEventListener('pointerup', pointerUpSelectionHandler, true)
-    window.addEventListener('pointercancel', pointerUpSelectionHandler, true)
-    record.pointerUpSelectionHandler = pointerUpSelectionHandler
-
-    const mouseDownSelectionHandler = (event: MouseEvent) => {
-      if (record.dragSelection) return
-      startDragSelection(event)
-    }
-    hostEl.addEventListener('mousedown', mouseDownSelectionHandler, true)
-    record.mouseDownSelectionHandler = mouseDownSelectionHandler
-
-    const mouseMoveSelectionHandler = (event: MouseEvent) => {
-      updateDragSelection(event)
-    }
-    window.addEventListener('mousemove', mouseMoveSelectionHandler, true)
-    record.mouseMoveSelectionHandler = mouseMoveSelectionHandler
-
-    const mouseUpSelectionHandler = (event: MouseEvent) => {
-      finishDragSelection(event)
-    }
-    window.addEventListener('mouseup', mouseUpSelectionHandler, true)
-    record.mouseUpSelectionHandler = mouseUpSelectionHandler
-  }
-
-  const doubleClickHandler = (event: MouseEvent) => {
-    if (isXtermTerminal(terminal)) return
-    if (isMobileViewport()) return
-    const cell = cellFromMouseEvent(record, event)
-    if (!cell) return
-    const selection = selectContinuousTextAtCell(record, cell.col, cell.row)
-    if (!selection) return
-
-    event.preventDefault()
-    event.stopPropagation()
-    event.stopImmediatePropagation()
-  }
-  hostEl.addEventListener('dblclick', doubleClickHandler, true)
-  record.doubleClickHandler = doubleClickHandler
-
-  const copyHandler = (event: ClipboardEvent) => {
-    if (!shouldHandleTerminalCopyEvent(record, event)) return
-    const selection = getTerminalSelectionForCopy(record, { includeNativeFallback: true })
-    if (!selection) return
-
-    event.preventDefault()
-    event.stopPropagation()
-    event.stopImmediatePropagation()
-    event.clipboardData?.setData('text/plain', selection)
-  }
-  hostEl.addEventListener('copy', copyHandler, true)
-  document.addEventListener('copy', copyHandler, true)
-  record.copyHandler = copyHandler
-
-  const copyKeyHandler = (event: KeyboardEvent) => {
-    if (!shouldHandleTerminalCopyKeyEvent(record, event)) return
-    const selection = getTerminalSelectionForCopy(record, { includeNativeFallback: true })
-    if (!selection) return
-
-    event.preventDefault()
-    event.stopPropagation()
-    event.stopImmediatePropagation()
-    void writeClipboardText(selection)
-  }
-  document.addEventListener('keydown', copyKeyHandler, true)
-  record.copyKeyHandler = copyKeyHandler
-
-  const clearKeyHandler = (event: KeyboardEvent) => {
-    handleTerminalClearKeyEvent(record, event)
-  }
-  if (!terminal.attachCustomKeyEventHandler) {
-    document.addEventListener('keydown', clearKeyHandler, true)
-    record.clearKeyHandler = clearKeyHandler
-  }
-
-  const pasteHandler = (event: ClipboardEvent) => {
-    const isAttached = isTerminalSessionAttached(record)
-    if (shouldBlockDetachedTerminalPaste(record.hostEl, event, isAttached)) {
-      event.preventDefault()
-      event.stopPropagation()
-      event.stopImmediatePropagation()
-      return
-    }
-    if (!shouldHandleTerminalPasteEvent(record.hostEl, event, isAttached)) return
-    if (isXtermTerminal(record.terminal)) {
-      return
-    }
-    const text = event.clipboardData?.getData('text/plain') || ''
-    if (!pasteTerminalClipboardText(record, text)) return
-
-    event.preventDefault()
-    event.stopPropagation()
-    event.stopImmediatePropagation()
-  }
-  window.addEventListener('paste', pasteHandler, true)
-  hostEl.addEventListener('paste', pasteHandler, true)
-  record.pasteHandler = pasteHandler
-
-  const scrollIntentHandler = (event: Event) => {
-    if (event instanceof WheelEvent && event.deltaY < 0) {
-      setFollowOutputState(record, false, record.hasUnreadOutput)
-    }
-    captureTerminalReadingAnchor(record)
-    scheduleFollowStateFromViewport(record, { allowClearUnread: true })
-    window.setTimeout(() => scheduleFollowStateFromViewport(record, { allowClearUnread: true }), 80)
-  }
-  hostEl.addEventListener('wheel', scrollIntentHandler, true)
-  hostEl.addEventListener('pointerup', scrollIntentHandler, true)
-  record.scrollIntentHandler = scrollIntentHandler
-
-  const scrollKeyHandler = (event: KeyboardEvent) => {
-    handleTerminalScrollKeyEvent(record, event)
-  }
-  if (terminal.attachCustomKeyEventHandler) {
-    terminal.attachCustomKeyEventHandler((event: KeyboardEvent) => (
-      handleTerminalClearKeyEvent(record, event) || handleTerminalScrollKeyEvent(record, event) ? false : true
-    ))
-  } else {
-    document.addEventListener('keydown', scrollKeyHandler, true)
-    hostEl.addEventListener('keydown', scrollKeyHandler, true)
-    record.scrollKeyHandler = scrollKeyHandler
-  }
-  installTerminalTouchInteraction(record)
 
   const unsubscribeOutput = options.onSessionOutput(agentId, (
     data,
@@ -3189,15 +1387,7 @@ function notifyTerminalAttachReady(record: SessionRecord, generation: number) {
   if (
     record.attachReadyGeneration !== generation ||
     !isCurrentAttachment(record, generation) ||
-    record.bootstrappingSnapshot ||
-    record.pendingSnapshotReplay ||
-    record.needsReconnectOutputSync ||
-    record.replayInProgress ||
-    record.liveWriteInProgress ||
-    record.attachment.queuedTransitionCount > 0 ||
-    !record.attachment.runtimeEpoch ||
-    record.attachment.outputSeq === null ||
-    record.attachment.stateRevision === null
+    !terminalReplicationReady(record)
   ) return false
   // A ready record may have been detached and reattached before the previous
   // install-completion animation frame ran. That frame is generation-fenced,
@@ -3223,26 +1413,6 @@ function notifyTerminalAttachReady(record: SessionRecord, generation: number) {
   return true
 }
 
-function finishTerminalAttachBootstrap(record: SessionRecord, generation: number) {
-  if (!isCurrentAttachment(record, generation)) return
-  if (
-    record.pendingSnapshotReplay
-    && record.snapshotRuntimeEpoch
-    && record.snapshotOutputSeq !== null
-    && record.snapshotStateRevision !== null
-    && record.snapshotCols !== null
-    && record.snapshotRows !== null
-    && Date.now() >= record.suppressOutputUntil
-  ) {
-    replayPendingSnapshot(record, generation)
-    return
-  }
-  if (notifyTerminalAttachReady(record, generation)) return
-  if (record.replayInProgress || record.checkpointRequestInFlight) return
-  record.needsReconnectOutputSync = true
-  requestTerminalReplay(record, generation)
-}
-
 function fitAndFocus(record: SessionRecord, options: Pick<AttachOptions, 'autoFocus' | 'onReady'>, generation: number) {
   const wasFollowing = record.followOutput
   const previousViewportY = getTerminalViewportY(record.terminal)
@@ -3262,7 +1432,7 @@ function fitAndFocus(record: SessionRecord, options: Pick<AttachOptions, 'autoFo
       record.resizeEffects.syncFit({ force: true })
       restoreViewportAfterLayout(record, previousViewportY, previousScrollbackLength, wasFollowing, hadUnreadOutput)
       scheduleTerminalRepaint(record)
-      finishTerminalAttachBootstrap(record, generation)
+      finishTerminalAttachmentReplication(record, generation)
     })
   })
 }
@@ -3295,8 +1465,8 @@ function applyTerminalAttachmentOptions(record: SessionRecord, options: AttachOp
     record.agentId,
     options.linkHandlersRevision,
   )
-  const revisionInvalidated = record.linkInteraction.adoptHandlersRevision(committedRevision)
-  if (!revisionInvalidated && linkHandlersReplaced) record.linkInteraction.notifyHandlersChanged()
+  const revisionInvalidated = record.interaction.link.adoptHandlersRevision(committedRevision)
+  if (!revisionInvalidated && linkHandlersReplaced) record.interaction.link.notifyHandlersChanged()
 }
 
 /**
@@ -3324,7 +1494,7 @@ export function commitTerminalSessionLinkHandlers(
   if (!current || current instanceof Promise || current.disposed) return false
   if (!sessions.isCurrent(agentId, current)) return false
   if (!ownsTerminalLinkHandlers(current, handlers)) return false
-  current.linkInteraction.adoptHandlersRevision(revision)
+  current.interaction.link.adoptHandlersRevision(revision)
   return true
 }
 
@@ -3370,11 +1540,7 @@ export async function attachTerminalSession(agentId: string, options: AttachOpti
   record.attachReadyNotified = false
   record.recoveryStatusHandler = options.onRecoveryStatusChange ?? null
   publishTerminalRecoveryStatus(record, 'requesting', { attempt: 1, restart: true })
-  invalidateTerminalCheckpointRequest(record)
-  record.attachment.resetRecovery()
-  record.attachment.beginRecovery()
-  record.needsReconnectOutputSync = true
-  record.bootstrappingSnapshot = true
+  beginTerminalAttachmentReplication(record)
   // A parked xterm still contains its previous visible buffer. Hide it before
   // moving the host back into the live mount so the browser cannot paint that
   // stale frame while the authoritative checkpoint request is in flight.
@@ -3402,16 +1568,9 @@ export function retryTerminalSession(agentId: string) {
     || !isTerminalSessionAttached(current)
   ) return false
 
-  invalidateTerminalCheckpointRequest(current)
-  current.resizeEffects.beginRecovery({ forceAfterRecovery: true })
-  current.pendingSnapshotReplay = false
-  current.attachment.resetRecovery()
-  current.attachment.beginRecovery()
-  current.needsReconnectOutputSync = true
-  current.bootstrappingSnapshot = true
+  retryTerminalReplication(current)
   current.hostEl.classList.add('terminal-checkpoint-installing')
   publishTerminalRecoveryStatus(current, 'requesting', { attempt: 1, restart: true })
-  requestTerminalReplay(current, current.attachment.generation)
   return true
 }
 
@@ -3424,18 +1583,16 @@ export async function updateTerminalSessionBootstrapState(
   if (
     !record
     || record.disposed
-    || (!record.bootstrappingSnapshot && !record.needsReconnectOutputSync)
+    || !canUpdateTerminalBootstrapState(record)
   ) {
     return false
   }
   invalidateTerminalCheckpointRequest(record)
   const seeded = seedTerminalCheckpoint(record, state)
-  if (!seeded && !record.pendingSnapshotReplay) return false
+  if (!seeded && !hasPendingTerminalSnapshot(record)) return false
   if (isTerminalSessionAttached(record)) {
     requestAnimationFrame(() => {
-      if (!record.disposed && record.pendingSnapshotReplay) {
-        replayPendingSnapshot(record, record.attachment.generation)
-      }
+      if (!record.disposed) replayPendingSnapshot(record, record.attachment.generation)
     })
   }
   return seeded
@@ -3482,22 +1639,14 @@ export async function getTerminalSelection(agentId: string) {
 
   const record = await current
   if (record.disposed) return ''
-  record.cachedSelection = normalizeTerminalSelection(record.terminal)
-  if (record.cachedSelection) {
-    record.lastNonEmptySelection = normalizeTerminalSelectionForCopy(record.cachedSelection)
-  }
-  return record.cachedSelection
+  return record.selection.sync()
 }
 
 export function getTerminalSelectionNow(agentId: string) {
   const current = sessions.get(agentId)
   if (!current || current instanceof Promise || current.disposed) return ''
 
-  current.cachedSelection = normalizeTerminalSelection(current.terminal)
-  if (current.cachedSelection) {
-    current.lastNonEmptySelection = normalizeTerminalSelectionForCopy(current.cachedSelection)
-  }
-  return current.cachedSelection
+  return current.selection.sync()
 }
 
 export function getTerminalSessionReadCut(agentId: string) {
@@ -3551,7 +1700,6 @@ export async function destroyTerminalSession(agentId: string) {
 
   record.unsubscribeOutput?.()
   record.rendererFailureDisposable?.()
-  record.selectionChangeDisposable?.()
   record.scrollChangeDisposable?.()
   if (record.backendConnectedHandler) {
     window.removeEventListener('farming:backend-connected', record.backendConnectedHandler)
@@ -3561,66 +1709,9 @@ export async function destroyTerminalSession(agentId: string) {
     window.removeEventListener('pagehide', record.pageLifecycleHandler)
     window.removeEventListener('pageshow', record.pageLifecycleHandler)
   }
-  record.imeOverlayDisposables.forEach(dispose => dispose())
-  if (record.followCheckFrame !== null) {
-    cancelAnimationFrame(record.followCheckFrame)
-  }
-  if (record.pointerDownSelectionHandler) {
-    record.hostEl.removeEventListener('pointerdown', record.pointerDownSelectionHandler, true)
-  }
-  if (record.pointerMoveSelectionHandler) {
-    window.removeEventListener('pointermove', record.pointerMoveSelectionHandler, true)
-  }
-  if (record.pointerUpSelectionHandler) {
-    window.removeEventListener('pointerup', record.pointerUpSelectionHandler, true)
-    window.removeEventListener('pointercancel', record.pointerUpSelectionHandler, true)
-  }
-  if (record.mouseDownSelectionHandler) {
-    record.hostEl.removeEventListener('mousedown', record.mouseDownSelectionHandler, true)
-  }
-  if (record.mouseMoveSelectionHandler) {
-    window.removeEventListener('mousemove', record.mouseMoveSelectionHandler, true)
-  }
-  if (record.mouseUpSelectionHandler) {
-    window.removeEventListener('mouseup', record.mouseUpSelectionHandler, true)
-  }
-  if (record.doubleClickHandler) {
-    record.hostEl.removeEventListener('dblclick', record.doubleClickHandler, true)
-  }
-  if (record.copyHandler) {
-    record.hostEl.removeEventListener('copy', record.copyHandler, true)
-    document.removeEventListener('copy', record.copyHandler, true)
-  }
-  if (record.copyKeyHandler) {
-    document.removeEventListener('keydown', record.copyKeyHandler, true)
-  }
-  if (record.clearKeyHandler) {
-    document.removeEventListener('keydown', record.clearKeyHandler, true)
-  }
-  if (record.pasteHandler) {
-    window.removeEventListener('paste', record.pasteHandler, true)
-    record.hostEl.removeEventListener('paste', record.pasteHandler, true)
-  }
-  record.linkInteraction.dispose()
+  if (record.followCheckFrame !== null) cancelAnimationFrame(record.followCheckFrame)
+  record.interaction.dispose()
   releaseTakenLinkHandlers()
-  if (record.contextMenuHandler) {
-    record.hostEl.removeEventListener('contextmenu', record.contextMenuHandler, true)
-    window.removeEventListener('contextmenu', record.contextMenuHandler, true)
-  }
-  if (record.contextMenuMouseDownHandler) {
-    record.hostEl.removeEventListener('mousedown', record.contextMenuMouseDownHandler, true)
-    window.removeEventListener('mousedown', record.contextMenuMouseDownHandler, true)
-  }
-  hideTerminalContextMenu(record)
-  if (record.scrollIntentHandler) {
-    record.hostEl.removeEventListener('wheel', record.scrollIntentHandler, true)
-    record.hostEl.removeEventListener('pointerup', record.scrollIntentHandler, true)
-  }
-  if (record.scrollKeyHandler) {
-    document.removeEventListener('keydown', record.scrollKeyHandler, true)
-    record.hostEl.removeEventListener('keydown', record.scrollKeyHandler, true)
-  }
-  record.touchInteraction?.dispose()
   record.rendererEffects.dispose()
   record.terminal.dispose()
   record.hostEl.remove()
@@ -3682,7 +1773,7 @@ export function updateTerminalSessionContentFontSize(contentFontSize: unknown) {
     if (current.hostEl.dataset.terminalFontSize === String(fontSize)) return
     current.hostEl.dataset.terminalFontSize = String(fontSize)
     if (current.terminal.options) current.terminal.options.fontSize = fontSize
-    updateTerminalImeOverlay(current.hostEl, current.terminal)
+    current.interaction.refreshImeOverlay()
     if (!isTerminalSessionAttached(current)) return
     requestAnimationFrame(() => {
       if (current.disposed || !isTerminalSessionAttached(current)) return
@@ -3702,7 +1793,7 @@ export async function scrollTerminalSessionToBottom(agentId: string) {
   if (!current) return
   const record = await current
   if (record.disposed) return
-  record.touchInteraction?.stopTouchMomentum()
+  record.interaction.stopTouchMomentum()
   scrollRecordToBottom(record, { allowClearUnread: true })
 }
 

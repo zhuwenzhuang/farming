@@ -1,6 +1,4 @@
 const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
 const { importTsModule } = require('./helpers/import-ts-module');
 
 const {
@@ -9,8 +7,6 @@ const {
   TERMINAL_PATH_RESOLVE_CACHE_TTL_MS,
   createTerminalLinkHandlersCommitLatch,
   createTerminalLinkHandlersRevisionTracker,
-  isTerminalPathOpenClick,
-  terminalOpenTargetTitle,
 } = importTsModule('src/lib/terminal-link-interaction.ts');
 
 const { TerminalSessionRegistry } = importTsModule('src/lib/terminal-session-registry.ts');
@@ -1110,94 +1106,6 @@ async function testCommitWithoutARecordIsReleasedByItsOwnCleanup() {
     'the successor record adopted its own commit instead of the token the attach captured');
 }
 
-function testSourceContracts() {
-  const root = path.resolve(__dirname, '../..');
-  const poolSource = fs.readFileSync(path.join(root, 'src/lib/terminal-session-pool.ts'), 'utf8');
-  const hookSource = fs.readFileSync(path.join(root, 'src/hooks/usePooledTerminal.ts'), 'utf8');
-  const linkInteractionSource = fs.readFileSync(path.join(root, 'src/lib/terminal-link-interaction.ts'), 'utf8');
-  const occurrences = (source, needle) => source.split(needle).length - 1;
-
-  assert(
-    hookSource.includes("import { createTerminalLinkHandlersRevisionTracker } from '@/lib/terminal-link-interaction'") &&
-      hookSource.includes('linkHandlersRevisionTrackerRef.current = createTerminalLinkHandlersRevisionTracker()') &&
-      hookSource.includes('const linkHandlersRevision = linkHandlersRevisionTrackerRef.current.revisionFor({\n    onPathOpen,\n    onPathResolve,\n    onSearchOpen,\n  })') &&
-      occurrences(hookSource, 'linkHandlersRevision: latestLiveOptionsRef.current.linkHandlersRevision') === 2,
-    'the hook should derive one revision token per mount from its three real link handlers and attach with it',
-  );
-  assert(
-    hookSource.includes('const committedLinkHandlersRef = useRef({ onPathOpen, onPathResolve, onSearchOpen })') &&
-      hookSource.includes('committedLinkHandlersRef.current.onPathOpen?.(currentAgentId, target)') &&
-      hookSource.includes('return committedLinkHandlersRef.current.onPathResolve?.(currentAgentId, target) ?? null') &&
-      hookSource.includes('committedLinkHandlersRef.current.onSearchOpen?.(currentAgentId, query)') &&
-      !hookSource.includes('latestHandlersRef.current.onPathOpen') &&
-      !hookSource.includes('latestHandlersRef.current.onPathResolve') &&
-      !hookSource.includes('latestHandlersRef.current.onSearchOpen'),
-    'the three link wrappers should read only the committed handlers, never the render-phase latest ref',
-  );
-  assert(
-    hookSource.includes('  useLayoutEffect(() => {\n    const candidateLinkHandlers = { onPathOpen, onPathResolve, onSearchOpen }\n    if (agentId) commitTerminalSessionLinkHandlers(agentId, linkHandlersRevision, attachmentHandlers)\n    committedLinkHandlersRef.current = candidateLinkHandlers\n    return () => {\n      if (agentId) releaseTerminalSessionLinkHandlers(agentId, linkHandlersRevision)\n    }\n  }, [agentId, attachmentHandlers, linkHandlersRevision, onPathOpen, onPathResolve, onSearchOpen])') &&
-      hookSource.includes('onPathOpen: attachmentHandlers.onPathOpen,') &&
-      hookSource.includes('onPathResolve: attachmentHandlers.onPathResolve,') &&
-      hookSource.includes('onSearchOpen: attachmentHandlers.onSearchOpen,'),
-    'the commit should pass the exact wrappers the attach installs, adopt the exact revision in the pool before the committed ref reaches the new handlers, and release exactly that revision on cleanup',
-  );
-  assert(
-    hookSource.includes('updateTerminalSessionLiveOptions(agentId, {\n      inputDisabled,\n      suppressRendererCursor,\n      onOpenUrlInFarming') &&
-      hookSource.includes("}, [agentId, attachmentHandlers, farmingUrlOpenEnabled, inputDisabled, suppressRendererCursor])"),
-    'the passive live-options effect should no longer be a second owner of the link handler revision',
-  );
-  assert(
-    poolSource.includes('linkHandlersRevision?: TerminalLinkHandlersRevision\n  onOpenUrlInFarming?: (agentId: string, url: string) => void\n  onRecoveryStatusChange?') &&
-      poolSource.includes('export interface TerminalSessionLiveOptions {\n  inputDisabled: boolean\n  suppressRendererCursor: boolean\n  onOpenUrlInFarming?') &&
-      poolSource.includes('const linkHandlersCommitLatch = createTerminalLinkHandlersCommitLatch()') &&
-      poolSource.includes('const committedRevision = linkHandlersCommitLatch.committedRevision(\n    record.agentId,\n    options.linkHandlersRevision,\n  )\n  const revisionInvalidated = record.linkInteraction.adoptHandlersRevision(committedRevision)\n  if (!revisionInvalidated && linkHandlersReplaced) record.linkInteraction.notifyHandlersChanged()') &&
-      poolSource.includes('export function commitTerminalSessionLinkHandlers(\n  agentId: string,\n  revision: TerminalLinkHandlersRevision,\n  handlers: TerminalLinkHandlerWrappers,\n) {\n  linkHandlersCommitLatch.commit(agentId, revision)') &&
-      poolSource.includes('  if (!ownsTerminalLinkHandlers(current, handlers)) return false\n  current.linkInteraction.adoptHandlersRevision(revision)\n  return true\n}') &&
-      poolSource.includes('function ownsTerminalLinkHandlers(record: SessionRecord, handlers: TerminalLinkHandlerWrappers) {\n  return record.pathOpenHandler === (handlers.onPathOpen ?? null)\n    && record.pathResolveHandler === (handlers.onPathResolve ?? null)\n    && record.searchOpenHandler === (handlers.onSearchOpen ?? null)\n}') &&
-      poolSource.indexOf('  record.pathOpenHandler = nextPathOpenHandler') <
-        poolSource.indexOf('const committedRevision = linkHandlersCommitLatch.committedRevision(') &&
-      poolSource.includes('export function releaseTerminalSessionLinkHandlers(\n  agentId: string,\n  revision: TerminalLinkHandlersRevision,\n) {\n  return linkHandlersCommitLatch.release(agentId, revision)\n}') &&
-      poolSource.includes('const takenLinkHandlersRevision = linkHandlersCommitLatch.committedRevision(agentId)') &&
-      poolSource.indexOf('const current = sessions.take(agentId)') <
-        poolSource.indexOf('const takenLinkHandlersRevision = linkHandlersCommitLatch.committedRevision(agentId)') &&
-      poolSource.includes('const releaseTakenLinkHandlers = () => {\n    linkHandlersCommitLatch.release(agentId, takenLinkHandlersRevision)\n  }') &&
-      poolSource.includes('record.linkInteraction.dispose()\n  releaseTakenLinkHandlers()') &&
-      occurrences(poolSource, 'releaseTakenLinkHandlers()') === 3 &&
-      !poolSource.includes('linkHandlersCommitLatch.release(agentId)\n') &&
-      occurrences(poolSource, 'adoptHandlersRevision(') === 2 &&
-      !poolSource.includes('record.linkInteraction.adoptHandlersRevision(options.linkHandlersRevision)'),
-    'the pool should adopt a commit synchronously only for the owner whose wrappers the record installed, adopt the latch after installing new wrappers, release only the revision its destroy took, and let an owner release its own commit',
-  );
-  assert(
-    linkInteractionSource.includes('release(agentId: string, revision: TerminalLinkHandlersRevision | null | undefined) {') &&
-      linkInteractionSource.includes('if (revision === undefined || revision === null) return false') &&
-      linkInteractionSource.includes('if (committed.get(agentId) !== revision) return false') &&
-      linkInteractionSource.includes('committed.delete(agentId)\n      return true'),
-    'the commit latch should release by compare-and-delete so no caller can drop a token it does not own',
-  );
-
-  assert(
-    poolSource.includes('linkInteraction: TerminalLinkInteractionController') &&
-      poolSource.includes('record.linkInteraction.install()') &&
-      poolSource.includes('record.linkInteraction.dispose()') &&
-      poolSource.includes('record.linkInteraction.reset()') &&
-      !poolSource.includes('suppressClickUntil') &&
-      !poolSource.includes('openTargetMouseDown') &&
-      !poolSource.includes('openModifierActive') &&
-      !poolSource.includes('lastLinkHoverEvent') &&
-      !poolSource.includes('linkProviderHoverTarget') &&
-      !poolSource.includes('pathResolveCache'),
-    'terminal session pool should retain no link interaction mirror state',
-  );
-  assert(
-    isTerminalPathOpenClick({ button: 0, ctrlKey: false, metaKey: true }) === true &&
-      isTerminalPathOpenClick({ button: 2, ctrlKey: true, metaKey: false }) === false &&
-      terminalOpenTargetTitle('search', { isMacPlatform: false, language: 'zh-CN' })
-        === '按住 Ctrl 点击在工作区中搜索',
-    'link interaction should keep the modifier-click and hover-title contract',
-  );
-}
-
 async function run() {
   await testStaleResolverAfterDetach();
   await testStaleResolverAfterAttachmentOperationAdvances();
@@ -1220,8 +1128,6 @@ async function run() {
   await testDestroyReleasesOnlyTheCommitItTook();
   await testDestroyWithoutAReplacementReleasesItsCommit();
   await testCommitWithoutARecordIsReleasedByItsOwnCleanup();
-  testSourceContracts();
-
   console.log('terminal link interaction keeps exact open ownership across stale resolution, handler switch, detach, and dispose');
 }
 

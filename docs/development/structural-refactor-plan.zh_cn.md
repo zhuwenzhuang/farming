@@ -323,15 +323,12 @@ Reading Anchor 捕获与恢复——应位于纯模块中。在后续变更证�
 
 浏览器 Runtime 已具备可注入 Session Registry；一个 Attachment Coordinator 拥有
 Checkpoint 顺序与准入、Ordered Output、Gap 和 Attachment Generation；并有 Code/CRT
-共享 Replay、Renderer、Link、Input 和 Recovery Owner。Session Pool 目前仍拥有
-Checkpoint 安装副作用、请求重试和 DOM 写入完成。同一所有权 Lane 内的剩余
-范围：
-
-1. 先把 Link、Resize 与 Renderer 使用的身份收敛为一个 Attachment Operation；
-2. 删除重复 Commit Latch、Revision 和仅服务于 E2E 的常驻生产 Projection；
-3. 再按实际能力把 Replication（Checkpoint/Output/Reconnect）与 Interaction
-   （Selection/Context Menu/IME/Touch）从 Session Pool 迁出；
-4. Pool 最终只保留 Registry、Bootstrap、Attach/Detach 和稳定公开 API。
+共享 Replay、Renderer、Link、Input 和 Recovery Owner。Link、Resize 与 Renderer Effect
+现在消费同一个 Attachment Operation Identity。Replication 统一拥有 Checkpoint/Output/
+Reconnect 状态和有序 DOM Write Completion；Interaction 统一拥有 Selection、Context Menu、
+IME、Touch、Link Interaction 与 Listener Cleanup。Session Pool 已收敛为 Registry、
+Composition Root、Bootstrap 与 Attach/Detach Facade。除非出现新的重复真相或 Protocol
+缺陷，否则不再仅因文件大小继续拆分。
 
 每个切片都必须运行 Code 与 CRT 的 Terminal 协议 E2E。
 
@@ -415,10 +412,9 @@ Real-provider Smoke。
 剩余工作按以下依赖顺序继续拆成小切片。本列表记录未完成的架构结果，不记录临时
 Branch 或逐文件进度：
 
-1. 先审计并收敛 `CodeWorkspace` 与 Terminal 的既有 Owner，或沿已可见的组件边界
-   做严格行为中立的物理拆分。前端删除 Backend Truth 镜像与 Wrapper-only
-   Controller；Terminal 统一 Attachment Operation Identity 后再迁出 Replication
-   与 Interaction。
+1. 继续收敛 `CodeWorkspace` 的既有 Owner，删除 Backend Truth 镜像与 Wrapper-only
+   Controller。Terminal 的 Replication 与 Interaction 所有权拆分已经完成；只有出现
+   具体重复真相或 Protocol 缺陷时才重新进入该 Lane。
 2. AgentManager 保持已经围绕现有 Tracker 收敛的 Attention/Unread Transition；Fork
    的资源回滚继续保持精确且分离。没有具体重复真相证据时，不继续 Resume 与 Launch。
 3. 重新评估未提交 Stylesheet 与 CRT Prototype。只有当生产边界真实、系统总代码

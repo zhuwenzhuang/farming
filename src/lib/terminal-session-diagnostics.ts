@@ -3,6 +3,7 @@ import { isTerminalHostAttached } from '@/lib/terminal-attachment'
 import type { TerminalAttachmentCoordinator } from '@/lib/terminal-attachment-coordinator'
 import type { TerminalResizeEffectController } from '@/lib/terminal-resize-effect-controller'
 import type { TerminalResizeDimensions } from '@/lib/terminal-resize'
+import type { TerminalReplicationState } from '@/lib/terminal-session-replication'
 import {
   getTerminalScrollbackLength,
   getTerminalViewportY,
@@ -19,17 +20,7 @@ export interface TerminalSessionDiagnosticsSource {
   terminal: FarmingTerminal
   attachment: TerminalAttachmentCoordinator
   resizeEffects: TerminalResizeEffectController
-  terminalWriteBatchCount: number
-  checkpointRequestInFlight: boolean
-  checkpointRequestCount: number
-  bootstrapRefreshSeq: number
-  replayInProgress: boolean
-  bootstrappingSnapshot: boolean
-  pendingSnapshotReplay: boolean
-  fixtureOverrideActive: boolean
-  pageOutputSuspended: boolean
-  suppressOutputUntil: number
-  needsReconnectOutputSync: boolean
+  replication: TerminalReplicationState
 }
 
 export interface TerminalSessionDiagnostics {
@@ -147,29 +138,29 @@ export class TerminalSessionDiagnosticsProjection {
       bufferLength: typeof buffer?.length === 'number' ? buffer.length : undefined,
       queuedTransitions: attachment.queuedTransitions,
       queuedBytes: attachment.queuedBytes,
-      terminalWriteBatchCount: current.terminalWriteBatchCount,
+      terminalWriteBatchCount: current.replication.terminalWriteBatchCount,
       replayTargetEpoch: attachment.replayTargetEpoch,
       replayTargetRevision: attachment.replayTargetRevision,
       checkpointHalted: attachment.halted,
       checkpointFailureCount: attachment.failureCount,
-      checkpointRequestInFlight: current.checkpointRequestInFlight,
-      replayInProgress: current.replayInProgress,
-      bootstrappingSnapshot: current.bootstrappingSnapshot,
-      pendingSnapshotReplay: current.pendingSnapshotReplay,
+      checkpointRequestInFlight: current.replication.checkpointRequestInFlight,
+      replayInProgress: current.replication.replayInProgress,
+      bootstrappingSnapshot: current.replication.bootstrappingSnapshot,
+      pendingSnapshotReplay: current.replication.pendingSnapshotReplay,
       runtimeEpoch: attachment.runtimeEpoch,
       stateRevision: attachment.stateRevision,
       lastOutputSeq: attachment.outputSeq,
       reconnectSnapshotSeq: attachment.revision,
-      checkpointRequestCount: current.checkpointRequestCount,
-      bootstrapRefreshSeq: current.bootstrapRefreshSeq,
+      checkpointRequestCount: current.replication.checkpointRequestCount,
+      bootstrapRefreshSeq: current.replication.bootstrapRefreshSeq,
       attachGeneration: generation,
       currentAttachment: current.attachment.isCurrentGeneration(generation)
         && isTerminalHostAttached(current),
       attachedMount: current.attachedMount !== null,
-      fixtureOverrideActive: current.fixtureOverrideActive,
-      pageOutputSuspended: current.pageOutputSuspended,
-      suppressOutputForMs: Math.max(0, current.suppressOutputUntil - this.#now()),
-      needsReconnectOutputSync: current.needsReconnectOutputSync,
+      fixtureOverrideActive: current.replication.fixtureOverrideActive,
+      pageOutputSuspended: current.replication.pageOutputSuspended,
+      suppressOutputForMs: Math.max(0, current.replication.suppressOutputUntil - this.#now()),
+      needsReconnectOutputSync: current.replication.needsReconnectOutputSync,
       ...resize,
     }
   }

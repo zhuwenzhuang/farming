@@ -395,16 +395,13 @@ next step is convergence, not further extraction:
 The browser runtime has an injectable Session registry, one attachment
 coordinator for checkpoint ordering and admission, ordered output, gaps and
 attachment generation, shared Code/CRT replay, renderer, link, input and
-recovery owners. The Session pool still owns checkpoint install effects,
-request retry, and DOM-write completion. Remaining scope within this single
-ownership lane:
-
-1. converge link, resize, and renderer identity onto one attachment operation;
-2. remove duplicate commit latches, revisions, and production-resident
-   projections used only by E2E;
-3. then move replication (checkpoint/output/reconnect) and interaction
-   (selection/context menu/IME/touch) by actual capability;
-4. leave the pool as registry, bootstrap, attach/detach, and stable public API.
+recovery owners. Link, resize, and renderer effects consume one attachment
+operation identity. Replication owns checkpoint/output/reconnect state and
+ordered DOM-write completion; interaction owns selection, context menu, IME,
+touch, link interaction, and listener cleanup. The Session pool is now the
+registry, composition root, bootstrap and attach/detach facade. Further work in
+this lane requires a newly demonstrated duplicate truth or protocol defect;
+file size alone is not a reason to split it again.
 
 Code and CRT Terminal protocol E2E coverage is required for each slice.
 
@@ -506,11 +503,10 @@ Continue the remaining work as small slices in the following dependency order.
 This list records unfinished architectural outcomes rather than a branch or
 file-by-file progress log:
 
-1. Audit and converge the existing `CodeWorkspace` and Terminal owners first,
-   or land strictly behavior-neutral physical splits along already visible
-   component boundaries. Remove frontend mirrors of backend truth and
-   wrapper-only controllers; unify Terminal attachment-operation identity
-   before moving replication and interaction.
+1. Continue converging the existing `CodeWorkspace` owners and remove frontend
+   mirrors of backend truth and wrapper-only controllers. The Terminal
+   replication and interaction ownership split is complete; revisit it only
+   for a concrete duplicate truth or protocol defect.
 2. For AgentManager, keep the converged Attention/unread transition in its
    existing tracker. Keep Fork resource rollback exact and separate, and do
    not continue Resume or Launch without concrete duplicated-truth evidence.

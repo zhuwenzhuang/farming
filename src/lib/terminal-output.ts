@@ -16,9 +16,11 @@ export interface TerminalOutputRecord {
   hostEl: HTMLElement
   disposed: boolean
   rendererEffects: Pick<TerminalRendererEffectController, 'acquireRenderSuspension'>
-  terminalWriteQueue: Promise<void>
-  terminalWriteResolvers: Set<(cancelled?: boolean) => boolean>
-  terminalWriteBatchCount: number
+  replication: {
+    terminalWriteQueue: Promise<void>
+    terminalWriteResolvers: Set<(cancelled?: boolean) => boolean>
+    terminalWriteBatchCount: number
+  }
   followOutput: boolean
   hasUnreadOutput: boolean
   preserveUnreadOutputUntilJump: boolean
@@ -133,7 +135,7 @@ export function restoreViewportAfterLayout(
 }
 
 function writeTerminalData(record: TerminalOutputRecord, data: string, callback?: () => void) {
-  record.terminalWriteBatchCount += 1
+  record.replication.terminalWriteBatchCount += 1
   record.terminal.write(data, callback)
 }
 
@@ -152,29 +154,29 @@ function enqueueTerminalWrite(
   operation: (done: (cancelled?: boolean) => boolean) => void,
   onCancel?: () => void,
 ) {
-  record.terminalWriteQueue = record.terminalWriteQueue
+  record.replication.terminalWriteQueue = record.replication.terminalWriteQueue
     .catch(() => {})
     .then(() => new Promise<void>(resolve => {
       let settled = false
       const done = (cancelled = false) => {
         if (settled) return false
         settled = true
-        record.terminalWriteResolvers.delete(done)
+        record.replication.terminalWriteResolvers.delete(done)
         if (cancelled) {
           onCancel?.()
         }
         resolve()
         return true
       }
-      record.terminalWriteResolvers.add(done)
+      record.replication.terminalWriteResolvers.add(done)
       operation(done)
     }))
-  return record.terminalWriteQueue
+  return record.replication.terminalWriteQueue
 }
 
 export function flushPendingTerminalWrites(record: TerminalOutputRecord) {
-  const resolvers = Array.from(record.terminalWriteResolvers)
-  record.terminalWriteResolvers.clear()
+  const resolvers = Array.from(record.replication.terminalWriteResolvers)
+  record.replication.terminalWriteResolvers.clear()
   resolvers.forEach(resolve => resolve(true))
 }
 

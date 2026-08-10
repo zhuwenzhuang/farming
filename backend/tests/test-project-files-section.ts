@@ -91,13 +91,6 @@ function run() {
   const explorerHookSource = read('src/components/files/useWorkspaceFileExplorer.ts');
   const operationSource = read('src/lib/workspace-file-operations.ts');
   const workingCopySource = read('src/lib/workspace-working-copy.ts');
-  const terminalPaneSource = read('src/components/AgentTerminalPane.tsx');
-  const pooledTerminalHookSource = read('src/hooks/usePooledTerminal.ts');
-  const terminalPoolSource = read('src/lib/terminal-session-pool.ts');
-  const terminalRendererEffectsSource = read('src/lib/terminal-renderer-effects.ts');
-  const terminalLinksSource = read('src/lib/terminal-links.ts');
-  const linkInteractionSource = read('src/lib/terminal-link-interaction.ts');
-  const terminalLinkParsingSource = read('src/lib/terminal-link-parsing.ts');
   const fileIconsSource = read('src/lib/file-icons.ts');
   const hookSource = read('src/hooks/useWorkspaceFiles.ts');
   const webSocketSource = read('src/hooks/useWebSocket.ts');
@@ -291,79 +284,6 @@ function run() {
   assert(
     !appSource.includes('watchWorkspaceFiles={ws.watchWorkspaceFiles}'),
     'App should keep Project Files on a no-background-watch path by default'
-  );
-
-  assert(
-    terminalLinksSource.includes('export interface TerminalPathOpenTarget') &&
-	      terminalPoolSource.includes('onPathOpen?: (agentId: string, target: TerminalPathOpenTarget) => void') &&
-	      terminalLinksSource.includes('function parseTerminalPathTargetAtColumn') &&
-	      linkInteractionSource.includes('#readDomLineAtEvent(event: MouseEvent)') &&
-	      linkInteractionSource.includes("target?.closest<HTMLElement>('.xterm-rows > div')") &&
-	      linkInteractionSource.includes('resolvedPathTargetAtEvent(event: MouseEvent)') &&
-	      linkInteractionSource.includes('Click to open file or folder') &&
-	      linkInteractionSource.includes('点击打开文件或文件夹') &&
-      terminalLinksSource.includes('LinkComputer.computeLinks') &&
-      terminalLinksSource.includes('const MAX_TERMINAL_URL_LENGTH = 2048') &&
-      terminalLinksSource.includes('function parseTerminalUrlAtColumn') &&
-      linkInteractionSource.includes('urlAtEvent(event: MouseEvent)') &&
-      terminalPoolSource.includes('openUrl: url => openExternalUrl(url)') &&
-      terminalPoolSource.includes('openExternalUrl(url)') &&
-      terminalPoolSource.includes('onOpenInFarming: record.farmingUrlOpenHandler') &&
-      terminalLinksSource.includes('isLikelyTerminalPathTarget(filePath)') &&
-      terminalLinksSource.includes('detectTerminalPathLinks(lineText)') &&
-      terminalLinkParsingSource.includes("export function detectTerminalPathLinks(") &&
-      terminalPoolSource.includes('while (logicalStartRow > 0 && buffer.getLine(logicalStartRow)?.isWrapped)') &&
-      terminalPoolSource.includes('while (buffer.getLine(logicalEndRow + 1)?.isWrapped)') &&
-      terminalPoolSource.includes('const logicalCol = ((bufferRow - logicalStartRow) * cols) + cell.col') &&
-      terminalPoolSource.includes('getTerminalVisibleBufferBase(record.terminal) + cell.row') &&
-      linkInteractionSource.includes("this.#listen(this.#ports.hostEl, 'click', this.#handleClick as EventListener)") &&
-	      linkInteractionSource.includes('export function isTerminalPathOpenClick(event: MouseEvent)') &&
-			      linkInteractionSource.includes('#isOpenModifierActive(event: Pick<MouseEvent') &&
-			      linkInteractionSource.includes('return isTerminalOpenModifierEvent(event, this.#ports.isMacPlatform()) || this.#openModifierActive') &&
-			      linkInteractionSource.includes('activateOpenTargetAtEvent(event: MouseEvent)') &&
-			      terminalPoolSource.includes('record.linkInteraction.activateOpenTargetAtEvent(event)') &&
-			      linkInteractionSource.includes('this.#activationSuppressedUntil = this.#ports.now() + TERMINAL_OPEN_ACTIVATION_FENCE_MS') &&
-			      linkInteractionSource.includes('const modifierActive = this.#isOpenModifierActive(event)') &&
-			      linkInteractionSource.includes('const url = event.button === 0 && modifierActive ? this.urlAtEvent(event) : null') &&
-			      linkInteractionSource.includes('this.#ports.openUrl(url)') &&
-			      linkInteractionSource.includes('const pathDirectOpen = match.kind === \'path\' && Boolean(match.pathTarget && this.#ports.pathOpenHandler())') &&
-				      linkInteractionSource.includes('pointerCursor: pathDirectOpen') &&
-				      linkInteractionSource.includes('underline: pathDirectOpen') &&
-				      linkInteractionSource.includes("underline: pathDirectOpen || match.kind === 'url' || active") &&
-				      linkInteractionSource.includes('pointerCursor: active') &&
-				      linkInteractionSource.includes('#handleExactOpenMouseDown = (event: MouseEvent) =>') &&
-				      linkInteractionSource.includes('this.#exactOpenMouseDown = {') &&
-				      linkInteractionSource.includes('Math.hypot(event.clientX - mouseDown.x, event.clientY - mouseDown.y)') &&
-				      linkInteractionSource.includes("this.#listen(this.#ports.hostEl, 'mouseup', this.#handleExactOpenMouseUp as EventListener)") &&
-			      terminalPoolSource.includes('record.pathOpenHandler && isTerminalPathOpenClick(event)') &&
-			      linkInteractionSource.includes('if (this.#ports.pathOpenHandler() && event.button === 0)') &&
-	      terminalPoolSource.includes("hostEl.addEventListener('contextmenu', contextMenuHandler, true)") &&
-	      terminalPoolSource.includes('record.pathOpenHandler(agentId, pathTarget)') &&
-	      terminalPoolSource.includes('event.stopImmediatePropagation()') &&
-      terminalRendererEffectsSource.includes('stableTerminalScrollbarOpacity(scrollbarOpacity)') &&
-      terminalPoolSource.includes('pathOpenHandler: options.onPathOpen ?? null,') &&
-      terminalPoolSource.includes('const nextPathOpenHandler = options.onPathOpen ?? null') &&
-      terminalPoolSource.includes('const linkHandlersReplaced = record.pathOpenHandler !== nextPathOpenHandler') &&
-      terminalPoolSource.includes('record.pathOpenHandler = nextPathOpenHandler') &&
-      terminalPoolSource.includes('if (!revisionInvalidated && linkHandlersReplaced) record.linkInteraction.notifyHandlersChanged()') &&
-      !terminalPoolSource.includes('record.pathOpenHandler = options.onPathOpen ?? null') &&
-      terminalPoolSource.includes('linkInteraction: new TerminalLinkInteractionController({') &&
-      terminalPoolSource.includes('pathOpenHandler: () => record.pathOpenHandler,') &&
-      terminalPoolSource.includes('registerLinkProvider: isXtermTerminal(terminal) && typeof terminal.registerLinkProvider === \'function\'') &&
-      !terminalPoolSource.includes('provideLinks:') &&
-      linkInteractionSource.includes('provideLinks: (bufferLineNumber, callback) => {') &&
-      linkInteractionSource.includes('const registerLinkProvider = this.#ports.registerLinkProvider') &&
-      linkInteractionSource.includes('notifyHandlersChanged() {') &&
-      terminalPoolSource.includes('record.linkInteraction.install()') &&
-      terminalPoolSource.includes('record.linkInteraction.dispose()') &&
-      terminalPoolSource.includes('record.pathOpenHandler = null') &&
-      pooledTerminalHookSource.includes('onPathOpen?: (agentId: string, target: TerminalPathOpenTarget) => void') &&
-      pooledTerminalHookSource.includes('onPathOpen,') &&
-      terminalPaneSource.includes('onOpenPath?: (agentId: string, target: TerminalPathOpenTarget) => void') &&
-      terminalPaneSource.includes('onPathOpen: onOpenPath') &&
-      workspaceSource.includes('onOpenTerminalPath: (agentId: string, target: TerminalPathOpenTarget) => void') &&
-      workspaceSource.includes('onOpenPath={onOpenTerminalPath}'),
-    'Terminal canvas clicks should recognize relative path:line targets and route them into the Project file editor'
   );
 
   const projectFilesSectionDelegates =

@@ -35,9 +35,11 @@ test('a queued stale checkpoint is rejected before it resets live output', async
     hostEl: { querySelector: () => null },
     disposed: false,
     suspendRendering: false,
-    terminalWriteQueue: Promise.resolve(),
-    terminalWriteResolvers: new Set(),
-    terminalWriteBatchCount: 0,
+    replication: {
+      terminalWriteQueue: Promise.resolve(),
+      terminalWriteResolvers: new Set(),
+      terminalWriteBatchCount: 0,
+    },
     followOutput: true,
     hasUnreadOutput: false,
     preserveUnreadOutputUntilJump: false,
@@ -74,7 +76,7 @@ test('a queued stale checkpoint is rejected before it resets live output', async
 
   const completeLiveWrite = await liveWriteStarted
   completeLiveWrite()
-  await record.terminalWriteQueue
+  await record.replication.terminalWriteQueue
 
   assert.equal(resetCount, 0)
   assert.equal(checkpointCommitted, false)

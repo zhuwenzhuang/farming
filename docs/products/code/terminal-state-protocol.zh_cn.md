@@ -44,6 +44,14 @@ Status 或新提交 Screen，不会观看历史重绘逐步回放。
 Terminal Session Pool 为每个 Agent 保存一份 Browser-side Record。Attachment Identity 是 Agent
 与 Mount。普通 Component Rerender 和 Callback 变化不能 Detach Terminal 或启动 Recovery。
 
+Pool 是 Composition Root 与稳定 Public Facade，不拥有 Record 中的每一项状态。它负责精确 Key
+的 Registry Admission、Renderer Bootstrap、Attach/Detach、Parking 与 Dispose 编排。
+Replication Owner 统一拥有 Checkpoint Snapshot、Request/Retry 状态、有序 Renderer Write
+Completion、Live Transition Admission、Reconnect/Page-resume Recovery 及其 Diagnostic
+Projection。Interaction Owner 统一拥有 Selection、Context Menu、Clipboard 与 Key Routing、
+IME Overlay、Touch Gesture、Link Interaction 和精确 DOM Listener Lifecycle。两者都消费
+Attachment Coordinator 的唯一 Operation Identity，不维护平行 Generation。
+
 Attachment Lease 处于 Detached、Attached 或 Release-pending。同一 Agent 与 Mount 重新获取时
 取消 Pending Release。Stale Lease 不能释放更新 Attachment；Agent 或 Mount 真正变化时先释放
 旧 Owner，再 Attach 新 Owner。
@@ -59,9 +67,9 @@ Terminal Input 是 Renderer Raw Input Stream，只写入 PTY 一次。Farming �
 IME Composition 在 Terminal Input Surface 内完整结束后再发送 Committed Text。Fallback 处理
 不能重复发送普通 ASCII Input。
 
-Touch Gesture State 由每个 Terminal Host 唯一的 Interaction Owner 持有。该 Owner 精确安装和
-移除 Pointer Listener，并统一拥有 Long-press、Momentum、Edge Feedback、Timer、Animation
-Frame 及其 Dispose。
+Touch Gesture State 归对应 Terminal Host 的 Interaction Owner。该 Owner 精确安装和移除
+Pointer Listener，并委托拥有 Long-press、Momentum、Edge Feedback、Timer、Animation Frame
+及其 Dispose 的 Gesture State Machine。
 
 Resize 是有序 Terminal Transition。Layout Churn 合并为最新完整 Geometry，同时不破坏 Output
 顺序。Browser 应用已提交 Remote Resize 时不回传。Recovery 不能自动抢回某个旧 Viewer 的

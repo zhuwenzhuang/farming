@@ -56,6 +56,16 @@ The terminal session pool owns one browser-side record per Agent. Attachment
 identity is the Agent plus its mount. Ordinary component rerenders and callback
 changes do not detach a terminal or start recovery.
 
+The pool is the composition root and stable public facade, not the owner of
+every field in that record. It owns exact-key registry admission, renderer
+bootstrap, attach/detach, parking, and disposal orchestration. A replication
+owner holds checkpoint snapshots, request/retry state, ordered renderer-write
+completion, live-transition admission, reconnect/page-resume recovery, and its
+diagnostic projection. An interaction owner holds selection, context menu,
+clipboard and key routing, IME overlay, touch gestures, link interaction, and
+the exact DOM listener lifecycle. Both consume the attachment coordinator's
+single operation identity instead of maintaining parallel generations.
+
 An attachment lease may enter detached, attached, or release-pending. Reacquiring
 the same Agent and mount cancels a pending release. A stale lease cannot release
 a newer attachment, and a different Agent or mount releases the old owner before
@@ -75,9 +85,10 @@ arrival order.
 IME composition completes in the terminal input surface before committed text
 is sent. Fallback handling must not duplicate ordinary ASCII input.
 
-Touch gesture state belongs to one interaction owner per terminal host. That
-owner installs and removes the exact pointer listeners and owns long-press,
-momentum, edge feedback, timers, animation frames, and their disposal.
+Touch gesture state belongs to the interaction owner for its terminal host.
+That owner installs and removes the exact pointer listeners and delegates the
+gesture state machine that owns long-press, momentum, edge feedback, timers,
+animation frames, and their disposal.
 
 Resize is an ordered terminal transition. Layout churn is coalesced into the
 latest complete geometry without violating output order. A browser applying a
