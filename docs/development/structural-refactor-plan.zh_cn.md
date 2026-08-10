@@ -125,6 +125,9 @@ Runtime Port 与 Provider Policy
 - Agent Session Persistence 统一拥有 Runtime Owner 校验、私有 ACP Option 投影、
   Canonical Record Rebind 和 Order Index Observation。调用方只提交精确 Agent Record
   与 Patch，不再解释 Store Identity 替换或自行复制私有 Session 字段。
+- Lifecycle Journal Owner 统一执行持久化准入、状态迁移、Checkpoint、完成提交、写失败
+  回滚与 Create Result 记录。Lifecycle 执行和恢复逻辑可以决定下一动作，但不再实现
+  Journal Transaction。
 - Provider Adapter 提供有类型的权限重启、Terminal 身份/启动约束、空闲稳定和会话
   Fork 策略；通用生命周期代码不解释 Provider 名称。共享 Terminal Startup
   Coordinator 拥有可变的排序和就绪状态；Adapter 只提供无状态的资源作用域和就绪策略。

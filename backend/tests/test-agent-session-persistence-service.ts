@@ -27,6 +27,7 @@ function main() {
     observeOrder: (_agent, live) => orderObservations.push(live),
     sessionOptions,
   });
+  assert.strictEqual(service.isRequired(), true);
   const sessionKey = 'claude\u0000session-a';
   const agent: AgentRecord = {
     id: 'agent-new',

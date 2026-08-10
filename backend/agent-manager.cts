@@ -96,8 +96,6 @@ import type {
   LifecycleOperation,
   LifecycleOperationRequest,
   LifecycleOperationResult,
-  LifecycleOperationState,
-  LifecycleOperationType,
   LifecyclePreviousState,
 } from './agent-manager-lifecycle-types.js';
 
@@ -201,6 +199,10 @@ import {
   type AcpSessionOptionsRecord,
 } from './acp-session-options-store.cjs';
 import { AgentSessionPersistenceService } from './agent-session-persistence-service.cjs';
+import {
+  AgentLifecycleJournalService,
+  type PersistentAgentUpdateAdmission,
+} from './agent-lifecycle-journal-service.cjs';
 import { AgentAdaptiveTitlePersistenceCoordinator } from './agent-adaptive-title-persistence.cjs';
 import {
   WorktreeGitService,
@@ -249,7 +251,7 @@ import { canonicalWorkspacePath } from './workspace-root-registry.cjs';
 import { configInstanceFingerprint as fingerprintConfigInstance } from './config-instance.cjs';
 import { stripLegacyFarmingCapabilityMcpServers } from './provider-mcp-sanitizer.cjs';
 import { acpLastAssistantNotificationSummary, agentNotificationSummary } from './acp-turn-summary.cjs';
-import { TERMINAL_OPERATION_STATES, activeLifecycleOperation, beginLifecycleOperation, latestLifecycleOperation, lifecycleJournal, setLifecycleOperationResult, transitionLifecycleOperation } from './agent-lifecycle-journal.cjs';
+import { TERMINAL_OPERATION_STATES, activeLifecycleOperation, beginLifecycleOperation, latestLifecycleOperation, lifecycleJournal, transitionLifecycleOperation } from './agent-lifecycle-journal.cjs';
 
 type UnknownRecord = Record<string, unknown>;
 type AgentRecord = TypedAgentRecord;
@@ -342,21 +344,6 @@ interface CodexTerminalProfileOptions {
   signal?: AbortSignal;
   timeoutMs?: number;
 }
-
-type PersistentAgentUpdateAdmission =
-  | {
-      conflict?: LifecycleOperation;
-      error: string;
-      operation?: never;
-      deduplicated?: never;
-      joined?: never;
-    }
-  | {
-      error?: undefined;
-      operation: LifecycleOperation;
-      deduplicated?: boolean;
-      joined?: boolean;
-    };
 
 interface AgentOrderNeighbors {
   afterAgentId?: string;
@@ -1329,6 +1316,7 @@ class AgentManager extends EventEmitter {
   declare attentionTracker: AgentAttentionTracker;
   declare acpSessionOptionsStore: AcpSessionOptionsStore;
   declare sessionPersistence: AgentSessionPersistenceService;
+  declare lifecycleJournalService: AgentLifecycleJournalService;
   declare acpTranscriptService: AcpTranscriptService;
   declare createProviderSessionIdentity: CreateProviderSessionIdentityContract;
   declare deleteProviderSessionIdentity: DeleteProviderSessionIdentityContract;
@@ -1508,7 +1496,7 @@ class AgentManager extends EventEmitter {
     this.worktreeGitService = options.worktreeGitService || new WorktreeGitService();
     this.forkOperationCoordinator = new ForkOperationCoordinator({
       begin: (source, requestKey, request) => {
-        const admission = this.beginPersistentAgentOperation(
+        const admission = this.lifecycleJournalService.begin(
           source as TypedAgentRecord,
           'fork',
           requestKey,
@@ -1519,10 +1507,10 @@ class AgentManager extends EventEmitter {
           : { accepted: false, error: admission.error || 'Failed to admit Fork operation' };
       },
       complete: (source, operationId, result) => {
-        this.completePersistentAgentOperation(source as TypedAgentRecord, operationId, result);
+        this.lifecycleJournalService.complete(source as TypedAgentRecord, operationId, result);
       },
       checkpointWorktree: (source, operationId, identity) => {
-        this.checkpointPersistentAgentOperationRequest(
+        this.lifecycleJournalService.checkpointRequest(
           source as TypedAgentRecord,
           operationId,
           { forkWorktreeIdentity: identity },
@@ -1567,7 +1555,7 @@ class AgentManager extends EventEmitter {
         forkOptions,
       ),
       transitionBlocked: (source, operationId, error, requestPatch) => {
-        this.transitionPersistentAgentOperation(
+        this.lifecycleJournalService.transition(
           source as TypedAgentRecord,
           operationId,
           'blocked',
@@ -1577,7 +1565,7 @@ class AgentManager extends EventEmitter {
         );
       },
       transitionFailed: (source, operationId, error) => {
-        this.transitionPersistentAgentOperation(
+        this.lifecycleJournalService.transition(
           source as TypedAgentRecord,
           operationId,
           'failed',
@@ -1639,6 +1627,10 @@ class AgentManager extends EventEmitter {
         else this.agentOrderAllocator.reserve(agent);
       },
       sessionOptions: this.acpSessionOptionsStore,
+    });
+    this.lifecycleJournalService = new AgentLifecycleJournalService({
+      getAgent: agentId => this.agents.get(agentId),
+      persistence: this.sessionPersistence,
     });
     const transcriptMediaPathPrefix = typeof options.transcriptMediaPathPrefix === 'function'
       ? options.transcriptMediaPathPrefix
@@ -2451,7 +2443,7 @@ class AgentManager extends EventEmitter {
           if (recoveredLifecycleOperation.state === 'membership-pending') {
             this.rememberMainPageProviderSession(agentRecord);
           }
-          this.transitionPersistentAgentOperation(
+          this.lifecycleJournalService.transition(
             agentRecord,
             recoveredLifecycleOperation.id,
             'succeeded',
@@ -2578,7 +2570,7 @@ class AgentManager extends EventEmitter {
       );
       setAgentRecordId(staged, record.id || record.persistentSessionId || '');
       try {
-        this.transitionPersistentAgentOperation(
+        this.lifecycleJournalService.transition(
           staged,
           operation.id,
           'blocked',
@@ -2644,7 +2636,7 @@ class AgentManager extends EventEmitter {
       setAgentRecordId(recoveredAgent, record.id || record.persistentSessionId || '');
       try {
         if (operation.type === 'create') {
-          this.transitionPersistentAgentOperation(
+          this.lifecycleJournalService.transition(
             recoveredAgent,
             operation.id,
             'failed',
@@ -2655,7 +2647,7 @@ class AgentManager extends EventEmitter {
             ),
           );
         } else if (operation.type === 'delete') {
-          this.transitionPersistentAgentOperation(
+          this.lifecycleJournalService.transition(
             recoveredAgent,
             operation.id,
             'succeeded',
@@ -2669,7 +2661,7 @@ class AgentManager extends EventEmitter {
           );
           this.removeMainPageProviderSessionsForAgents([recoveredAgent]);
         } else {
-          this.transitionPersistentAgentOperation(
+          this.lifecycleJournalService.transition(
             recoveredAgent,
             operation.id,
             'provider-archive-pending',
@@ -2683,7 +2675,7 @@ class AgentManager extends EventEmitter {
           );
           this.removeMainPageProviderSessionsForAgents([recoveredAgent]);
           const providerArchive = await this.archiveCodexProviderSession(recoveredAgent);
-          this.transitionPersistentAgentOperation(
+          this.lifecycleJournalService.transition(
             recoveredAgent,
             operation.id,
             providerArchive?.error ? 'blocked' : 'succeeded',
@@ -3150,7 +3142,7 @@ class AgentManager extends EventEmitter {
         if (createOperation?.type === 'create') {
           agent.status = 'running';
           agent.engineStatus = 'running';
-          this.transitionPersistentAgentOperation(
+          this.lifecycleJournalService.transition(
             agent,
             createOperation.id,
             'membership-pending',
@@ -3158,7 +3150,7 @@ class AgentManager extends EventEmitter {
             { visibleOnMainPage: true, archived: false },
           );
           this.rememberMainPageProviderSession(agent);
-          this.transitionPersistentAgentOperation(
+          this.lifecycleJournalService.transition(
             agent,
             createOperation.id,
             'succeeded',
@@ -3490,7 +3482,7 @@ class AgentManager extends EventEmitter {
       try {
         if (operation.type === 'create' && operation.state === 'membership-pending') {
           this.rememberMainPageProviderSession(staged);
-          this.transitionPersistentAgentOperation(
+          this.lifecycleJournalService.transition(
             staged,
             operation.id,
             'succeeded',
@@ -3498,7 +3490,7 @@ class AgentManager extends EventEmitter {
             { archived: false },
           );
         } else if (operation.type === 'create') {
-          this.transitionPersistentAgentOperation(
+          this.lifecycleJournalService.transition(
             staged,
             operation.id,
             'failed',
@@ -3506,7 +3498,7 @@ class AgentManager extends EventEmitter {
             createFailurePatch(operation, operation.request?.previousRuntimeAgentId),
           );
         } else if (operation.type === 'delete') {
-          this.transitionPersistentAgentOperation(
+          this.lifecycleJournalService.transition(
             staged,
             operation.id,
             'succeeded',
@@ -3521,7 +3513,7 @@ class AgentManager extends EventEmitter {
           );
           this.removeMainPageProviderSessionsForAgents([staged]);
         } else {
-          this.transitionPersistentAgentOperation(
+          this.lifecycleJournalService.transition(
             staged,
             operation.id,
             'provider-archive-pending',
@@ -3536,7 +3528,7 @@ class AgentManager extends EventEmitter {
           );
           this.removeMainPageProviderSessionsForAgents([staged]);
           const providerArchive = await this.archiveCodexProviderSession(staged);
-          this.transitionPersistentAgentOperation(
+          this.lifecycleJournalService.transition(
             staged,
             operation.id,
             providerArchive?.error ? 'blocked' : 'succeeded',
@@ -3852,144 +3844,6 @@ class AgentManager extends EventEmitter {
     return [];
   }
 
-  beginPersistentAgentOperation(
-    agent: TypedAgentRecord,
-    type: LifecycleOperationType,
-    requestKey: string,
-    request: LifecycleOperationRequest = {},
-  ): PersistentAgentUpdateAdmission {
-    const previousJournal = agent.lifecycleJournal
-      ? JSON.parse(JSON.stringify(agent.lifecycleJournal))
-      : null;
-    const result = beginLifecycleOperation(agent, type, requestKey, request);
-    if (result.conflict) {
-      return {
-        error: `Agent operation ${result.conflict.id} (${result.conflict.type}) has not reached a terminal state`,
-        conflict: result.conflict,
-      };
-    }
-    if (result.joined && result.operation.state === 'blocked') {
-      transitionLifecycleOperation(agent, result.operation.id, 'pending');
-    }
-    try {
-      const persistentSessionId = this.sessionPersistence.persist(agent);
-      if (
-        typeof this.configManager?.ensureAgentSessionRecord === 'function'
-        && !persistentSessionId
-      ) {
-        throw new Error('Agent session store did not return a persistent id');
-      }
-    } catch (caughtError: unknown) {
-      const error = caughtError as ErrorRecord;
-      if (previousJournal) agent.lifecycleJournal = previousJournal;
-      else delete agent.lifecycleJournal;
-      return { error: `Failed to persist Agent ${type} intent: ${error.message || error}` };
-    }
-    return {
-      operation: activeLifecycleOperation(agent) ?? result.operation,
-      joined: result.joined,
-    };
-  }
-
-  transitionPersistentAgentOperation(
-    agent: TypedAgentRecord,
-    operationId: string,
-    state: LifecycleOperationState,
-    error = '',
-    patch: UnknownRecord = {},
-    requestPatch: LifecycleOperationRequest = {},
-  ) {
-    const previousJournal = agent.lifecycleJournal
-      ? JSON.parse(JSON.stringify(agent.lifecycleJournal))
-      : null;
-    const operation = transitionLifecycleOperation(agent, operationId, state, error);
-    if (!operation) throw new Error(`Agent operation ${operationId} was not found`);
-    operation.request = { ...(operation.request || {}), ...requestPatch };
-    try {
-      const persistentSessionId = this.sessionPersistence.persist(agent, patch);
-      if (
-        typeof this.configManager?.ensureAgentSessionRecord === 'function'
-        && !persistentSessionId
-      ) {
-        throw new Error('Agent session store did not return a persistent id');
-      }
-    } catch (caughtPersistError: unknown) {
-      const persistError = caughtPersistError as ErrorRecord;
-      if (previousJournal) agent.lifecycleJournal = previousJournal;
-      else delete agent.lifecycleJournal;
-      throw persistError;
-    }
-    return operation;
-  }
-
-  checkpointPersistentAgentOperationRequest(
-    agent: TypedAgentRecord,
-    operationId: string,
-    requestPatch: LifecycleOperationRequest,
-  ) {
-    const previousJournal = agent.lifecycleJournal
-      ? JSON.parse(JSON.stringify(agent.lifecycleJournal))
-      : null;
-    const journal = lifecycleJournal(agent);
-    const operation = journal.entries.find(candidate => candidate.id === operationId);
-    if (!operation) throw new Error(`Agent operation ${operationId} was not found`);
-    operation.request = { ...(operation.request || {}), ...requestPatch };
-    operation.updatedAt = Date.now();
-    agent.lifecycleJournal = journal;
-    try {
-      const persistentSessionId = this.sessionPersistence.persist(agent);
-      if (typeof this.configManager?.ensureAgentSessionRecord === 'function' && !persistentSessionId) {
-        throw new Error('Agent session store did not return a persistent id');
-      }
-    } catch (error) {
-      if (previousJournal) agent.lifecycleJournal = previousJournal;
-      else delete agent.lifecycleJournal;
-      throw error;
-    }
-    return operation;
-  }
-
-  completePersistentAgentOperation(
-    agent: TypedAgentRecord,
-    operationId: string,
-    result: LifecycleOperationResult,
-    patch: Partial<PersistedAgentPrivateMetadata> = {},
-  ) {
-    const staged: TypedAgentRecord = {
-      ...agent,
-      lifecycleJournal: lifecycleJournal(agent) as LifecycleJournal,
-    };
-    const operation = setLifecycleOperationResult(staged, operationId, result);
-    if (!operation) throw new Error(`Agent operation ${operationId} was not found`);
-    transitionLifecycleOperation(staged, operationId, 'succeeded');
-    const persistentSessionId = this.sessionPersistence.persist(staged, patch);
-    if (
-      typeof this.configManager?.ensureAgentSessionRecord === 'function'
-      && !persistentSessionId
-    ) {
-      throw new Error('Agent session store did not return a persistent id');
-    }
-    agent.lifecycleJournal = staged.lifecycleJournal;
-    setAgentRecordId(agent, staged.agentRecordId || staged.persistentSessionId || '');
-    return operation;
-  }
-
-  beginPersistentAgentUpdate(
-    agent: TypedAgentRecord,
-    requestKey: string,
-    request: LifecycleOperationRequest,
-  ) {
-    const latest = latestLifecycleOperation(agent);
-    if (
-      latest?.type === 'update'
-      && latest.state === 'succeeded'
-      && latest.requestKey === requestKey
-    ) {
-      return { operation: latest, deduplicated: true };
-    }
-    return this.beginPersistentAgentOperation(agent, 'update', requestKey, request);
-  }
-
   reconcilePersistedAgentUpdate(agent: TypedAgentRecord) {
     const operation = activeLifecycleOperation(agent);
     if (operation?.type !== 'update') return null;
@@ -4076,33 +3930,6 @@ class AgentManager extends EventEmitter {
       error: match.operation.error
         || `Create request ${createRequestId} is awaiting lifecycle recovery`,
     };
-  }
-
-  recordCreateRequestResult(agentId: AgentId, createRequestId: unknown, result: LifecycleOperationResult) {
-    const agent = this.agents.get(agentId);
-    if (!agent) return { error: 'Agent not found' };
-    const requestKey = `create-request:${String(createRequestId || '').trim().slice(0, 160)}`;
-    const entries = lifecycleJournal(agent).entries as LifecycleOperation[];
-    const operation = entries.find(candidate => (
-      candidate.type === 'create'
-      && candidate.requestKey === requestKey
-      && candidate.state === 'succeeded'
-    ));
-    if (!operation) return { error: 'Create operation was not found' };
-    const staged: TypedAgentRecord = {
-      ...agent,
-      lifecycleJournal: lifecycleJournal(agent),
-    };
-    setLifecycleOperationResult(staged, operation.id, result);
-    try {
-      this.sessionPersistence.persist(staged);
-    } catch (caughtError: unknown) {
-      const error = caughtError as ErrorRecord;
-      return { error: `Failed to persist Create result: ${error.message || error}` };
-    }
-    agent.lifecycleJournal = staged.lifecycleJournal;
-    setAgentRecordId(agent, staged.agentRecordId || staged.persistentSessionId || '');
-    return { agentId, operationId: operation.id, result };
   }
 
   rememberMainPageProviderSession(agent: TypedAgentRecord) {
@@ -5445,7 +5272,7 @@ class AgentManager extends EventEmitter {
       finishStartLifecycle = lifecycleFinish;
     }
 
-    const createAdmission = this.beginPersistentAgentOperation(
+    const createAdmission = this.lifecycleJournalService.begin(
       agentRecord,
       'create',
       options.createRequestId
@@ -5507,7 +5334,7 @@ class AgentManager extends EventEmitter {
       if (typeof adapter?.terminalResumeArgs !== 'function') {
         const message = `${providerSessionPlan.provider} cannot resume a pre-created Terminal session`;
         try {
-          this.transitionPersistentAgentOperation(
+          this.lifecycleJournalService.transition(
             agentRecord,
             createOperationId,
             'failed',
@@ -5644,7 +5471,7 @@ class AgentManager extends EventEmitter {
         }
         console.error('Failed to create provider session identity:', error);
         try {
-          this.transitionPersistentAgentOperation(
+          this.lifecycleJournalService.transition(
             agentRecord,
             createOperationId,
             identityRetainedReason || identityRollbackError ? 'blocked' : 'failed',
@@ -5901,7 +5728,7 @@ class AgentManager extends EventEmitter {
           await startTerminal();
         }
       }
-      this.transitionPersistentAgentOperation(agentRecord, createOperationId, 'membership-pending', '', {
+      this.lifecycleJournalService.transition(agentRecord, createOperationId, 'membership-pending', '', {
         visibleOnMainPage: true,
         archived: false,
         ...(options.customTitleExplicit === true
@@ -5909,7 +5736,7 @@ class AgentManager extends EventEmitter {
           : {}),
       });
       this.rememberMainPageProviderSession(agentRecord);
-      this.transitionPersistentAgentOperation(agentRecord, createOperationId, 'succeeded', '', {
+      this.lifecycleJournalService.transition(agentRecord, createOperationId, 'succeeded', '', {
         visibleOnMainPage: true,
         archived: false,
       });
@@ -6015,7 +5842,7 @@ class AgentManager extends EventEmitter {
           runtime.error = runtimeCleanupError.message || String(runtimeCleanupError);
         }
         try {
-          this.transitionPersistentAgentOperation(
+          this.lifecycleJournalService.transition(
             agentRecord,
             createOperationId,
             'blocked',
@@ -6033,7 +5860,7 @@ class AgentManager extends EventEmitter {
         return null;
       }
       try {
-        this.transitionPersistentAgentOperation(
+        this.lifecycleJournalService.transition(
           agentRecord,
           createOperationId,
           'failed',
@@ -6940,7 +6767,7 @@ class AgentManager extends EventEmitter {
     }
 
     const customTitle = String(title || '').trim().slice(0, 80);
-    const admission: PersistentAgentUpdateAdmission = this.beginPersistentAgentUpdate(
+    const admission: PersistentAgentUpdateAdmission = this.lifecycleJournalService.beginUpdate(
       agent,
       `rename:${customTitle}`,
       { customTitle },
@@ -7022,7 +6849,7 @@ class AgentManager extends EventEmitter {
     }
 
     const nextTask = String(task || '').trim().slice(0, 240);
-    const admission: PersistentAgentUpdateAdmission = this.beginPersistentAgentUpdate(
+    const admission: PersistentAgentUpdateAdmission = this.lifecycleJournalService.beginUpdate(
       agent,
       `task:${nextTask}`,
       { task: nextTask },
@@ -7092,7 +6919,7 @@ class AgentManager extends EventEmitter {
         && activeUpdate.requestKey === requestKey
       );
     const admission = needsLifecycleJournal
-      ? this.beginPersistentAgentOperation(
+      ? this.lifecycleJournalService.begin(
           agent,
           'update',
           requestKey,
@@ -9078,7 +8905,7 @@ class AgentManager extends EventEmitter {
   ): Promise<ArchiveAgentResult> {
     const agent = this.agents.get(agentId);
     if (!agent) return { error: 'Agent not found' };
-    const admission = this.beginPersistentAgentOperation(agent, 'archive', 'archive', {
+    const admission = this.lifecycleJournalService.begin(agent, 'archive', 'archive', {
       reason: options.reason || 'manual-archive',
       structuredProcessProofRequired: runtimeKind(agent) === 'acp',
     });
@@ -9096,7 +8923,7 @@ class AgentManager extends EventEmitter {
     });
     if (killResult?.error) {
       try {
-        this.transitionPersistentAgentOperation(agent, operationId, 'blocked', killResult.error);
+        this.lifecycleJournalService.transition(agent, operationId, 'blocked', killResult.error);
       } catch (caughtError: unknown) {
       const error = caughtError as ErrorRecord;
         return {
@@ -9108,7 +8935,7 @@ class AgentManager extends EventEmitter {
     }
     let removedMainPageSessionKeys: string[] = [];
     try {
-      this.transitionPersistentAgentOperation(agent, operationId, 'provider-archive-pending', '', {
+      this.lifecycleJournalService.transition(agent, operationId, 'provider-archive-pending', '', {
         visibleOnMainPage: false,
         archived: true,
         archivedAt: Date.now(),
@@ -9163,7 +8990,7 @@ class AgentManager extends EventEmitter {
       const providerArchive = await this.archiveCodexProviderSession(agent);
       if (providerArchive?.error) {
         try {
-          this.transitionPersistentAgentOperation(agent, operationId, 'blocked', providerArchive.error, {
+          this.lifecycleJournalService.transition(agent, operationId, 'blocked', providerArchive.error, {
             visibleOnMainPage: false,
             archived: true,
             runtimeAgentId: '',
@@ -9194,7 +9021,7 @@ class AgentManager extends EventEmitter {
       }
     }
     try {
-      this.transitionPersistentAgentOperation(agent, operationId, 'succeeded', '', {
+      this.lifecycleJournalService.transition(agent, operationId, 'succeeded', '', {
         visibleOnMainPage: false,
         archived: true,
         runtimeAgentId: '',
@@ -9307,7 +9134,7 @@ class AgentManager extends EventEmitter {
         return { error: `Failed to persist Create cleanup retry: ${error.message || error}` };
       }
     }
-    const admitted = this.beginPersistentAgentOperation(agent, 'delete', 'delete', {
+    const admitted = this.lifecycleJournalService.begin(agent, 'delete', 'delete', {
       reason: options.reason || 'manual-kill',
       structuredProcessProofRequired: runtimeKind(agent) === 'acp',
     });
@@ -9424,7 +9251,7 @@ class AgentManager extends EventEmitter {
       agent.engineStatus = 'cleanup-uncertain';
       if (persistentOperationId) {
         try {
-          this.transitionPersistentAgentOperation(agent, persistentOperationId, 'blocked', error);
+          this.lifecycleJournalService.transition(agent, persistentOperationId, 'blocked', error);
         } catch (caughtPersistError: unknown) {
       const persistError = caughtPersistError as ErrorRecord;
           return {
@@ -9542,7 +9369,7 @@ class AgentManager extends EventEmitter {
 
     if (completesBlockedCreate) {
       try {
-        this.transitionPersistentAgentOperation(
+        this.lifecycleJournalService.transition(
           agent,
           persistentOperationId,
           'failed',
@@ -9563,7 +9390,7 @@ class AgentManager extends EventEmitter {
           operationId: persistentOperationId,
         };
       }
-      const admittedDelete = this.beginPersistentAgentOperation(agent, 'delete', 'delete', {
+      const admittedDelete = this.lifecycleJournalService.begin(agent, 'delete', 'delete', {
         reason: options.reason || 'manual-kill',
         structuredProcessProofRequired: runtimeKind(agent) === 'acp',
       });
@@ -9575,7 +9402,7 @@ class AgentManager extends EventEmitter {
 
     if (persistentOperationId) {
       try {
-        this.transitionPersistentAgentOperation(agent, persistentOperationId, 'succeeded', '', {
+        this.lifecycleJournalService.transition(agent, persistentOperationId, 'succeeded', '', {
           visibleOnMainPage: false,
           archived: true,
           archivedAt: Date.now(),
@@ -9673,7 +9500,7 @@ class AgentManager extends EventEmitter {
       }
       if (options.operationId) {
         try {
-          this.transitionPersistentAgentOperation(agent, options.operationId, 'blocked', message);
+          this.lifecycleJournalService.transition(agent, options.operationId, 'blocked', message);
         } catch (caughtPersistError: unknown) {
       const persistError = caughtPersistError as ErrorRecord;
           return {

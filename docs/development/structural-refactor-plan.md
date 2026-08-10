@@ -155,6 +155,10 @@ HTTP, WebSocket, persistence, and runtime-host boundaries.
   projection, canonical-record rebinding, and order-index observation. Callers
   submit an exact Agent record and patch; they do not interpret store identity
   replacement or copy private session fields themselves.
+- The lifecycle journal owner performs durable admission, transition,
+  checkpoint, completion, rollback-on-write-failure, and Create-result
+  recording. Lifecycle execution and recovery may choose the next action, but
+  they do not implement journal transactions.
 - Provider adapters expose typed decisions such as permission restart,
   Terminal identity/startup constraints, idle stability, and conversation Fork
   policy. Generic lifecycle code does not interpret provider names. A shared

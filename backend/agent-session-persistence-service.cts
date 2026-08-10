@@ -58,6 +58,10 @@ class AgentSessionPersistenceService {
     this.options = options;
   }
 
+  isRequired(): boolean {
+    return typeof this.options.config?.ensureAgentSessionRecord === 'function';
+  }
+
   persist(
     agent: AgentRecord,
     patch: Partial<PersistedAgentPrivateMetadata> = {},

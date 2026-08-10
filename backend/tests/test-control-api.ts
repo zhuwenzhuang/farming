@@ -129,12 +129,14 @@ async function run() {
       const result = await this.killAgent(agentId, options);
       return { result, completion: Promise.resolve(result) };
     },
-    recordCreateRequestResult(agentId, requestId, result) {
-      if (createResultPersistenceFailure) {
-        return { error: createResultPersistenceFailure };
-      }
-      durableCreateResults.set(requestId, { agentId, result });
-      return { agentId, operationId: 'aop_1', result };
+    lifecycleJournalService: {
+      recordCreateRequestResult(agentId, requestId, result) {
+        if (createResultPersistenceFailure) {
+          return { error: createResultPersistenceFailure };
+        }
+        durableCreateResults.set(requestId, { agentId, result });
+        return { agentId, operationId: 'aop_1', result };
+      },
     },
   };
   const app = express();

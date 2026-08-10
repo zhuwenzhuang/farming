@@ -149,11 +149,13 @@ interface AgentManager {
   getState(): AgentState;
   off?(event: 'update', listener: () => void): void;
   on?(event: 'update', listener: () => void): void;
-  recordCreateRequestResult(
-    agentId: string,
-    requestId: string,
-    result: RecordedCreateResult,
-  ): PersistCreateResult;
+  lifecycleJournalService: {
+    recordCreateRequestResult(
+      agentId: string,
+      requestId: string,
+      result: RecordedCreateResult,
+    ): PersistCreateResult;
+  };
   removeListener?(event: 'update', listener: () => void): void;
   requestKillAgent(
     agentId: string,
@@ -516,7 +518,7 @@ function createControlRouter(
         if (!createRequestId) return outcome;
         let persisted;
         try {
-          persisted = agentManager.recordCreateRequestResult(
+          persisted = agentManager.lifecycleJournalService.recordCreateRequestResult(
             agentId,
             createRequestId,
             { controlApi: outcome },

@@ -142,9 +142,10 @@ async function run() {
     assert.strictEqual(concurrentOne.agentId, concurrentTwo.agentId);
     assert.strictEqual(createCount, 2, 'concurrent delivery of one Fork request must join one child start');
 
-    const completePersistentAgentOperation = manager.completePersistentAgentOperation.bind(manager);
+    const completePersistentAgentOperation = manager.lifecycleJournalService.complete
+      .bind(manager.lifecycleJournalService);
     let failResultCommit = true;
-    manager.completePersistentAgentOperation = (...args) => {
+    manager.lifecycleJournalService.complete = (...args) => {
       if (failResultCommit) throw new Error('simulated Fork result commit failure');
       return completePersistentAgentOperation(...args);
     };
@@ -183,8 +184,9 @@ async function run() {
       ['-C', repository, 'worktree', 'list', '--porcelain'],
       { encoding: 'utf8' },
     );
-    const originalCheckpointOperation = manager.checkpointPersistentAgentOperationRequest.bind(manager);
-    manager.checkpointPersistentAgentOperationRequest = () => {
+    const originalCheckpointOperation = manager.lifecycleJournalService.checkpointRequest
+      .bind(manager.lifecycleJournalService);
+    manager.lifecycleJournalService.checkpointRequest = () => {
       throw new Error('simulated checkpoint persistence failure');
     };
     const checkpointFailure = await manager.forkAgent(
@@ -192,7 +194,7 @@ async function run() {
       'new-worktree',
       { requestId: 'fork-checkpoint-before-effect-failure' },
     );
-    manager.checkpointPersistentAgentOperationRequest = originalCheckpointOperation;
+    manager.lifecycleJournalService.checkpointRequest = originalCheckpointOperation;
     assert.match(checkpointFailure.error, /simulated checkpoint persistence failure/);
     assert.strictEqual(checkpointFailure.uncertain, undefined);
     assert.strictEqual(latestLifecycleOperation(checkpointFailureSource).state, 'failed');

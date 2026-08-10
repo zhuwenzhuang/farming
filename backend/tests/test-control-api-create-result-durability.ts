@@ -23,8 +23,10 @@ async function run() {
     async sendComposerMessage() {
       composerCalls += 1;
     },
-    recordCreateRequestResult() {
-      return { error: 'simulated Create result disk failure' };
+    lifecycleJournalService: {
+      recordCreateRequestResult() {
+        return { error: 'simulated Create result disk failure' };
+      },
     },
   };
   const router = createControlRouter(manager);
