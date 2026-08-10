@@ -384,33 +384,8 @@ const COLLAPSED_SIDEBAR_WIDTH = 52
 const SIDEBAR_DRAG_COLLAPSE_WIDTH = 172
 const DESKTOP_AUTO_COLLAPSE_WIDTH = 900
 const TERMINAL_PATH_SEARCH_LIMIT = 12
-const OPEN_FILE_REFRESH_CONCURRENCY = 4
-const OPEN_FILE_REFRESH_TIMEOUT_MS = 15_000
 const EMPTY_PROJECT_AGENT_SUMMARIES: ProjectAgentSummary[] = []
 const CODEX_TERMINAL_PROFILE_REQUEST_TIMEOUT_MS = 35_000
-
-async function refreshOpenWorkspaceFileReads(agentId: string, filePaths: readonly string[]) {
-  const files: WorkspaceFile[] = []
-  let successful = true
-  let nextIndex = 0
-  const workers = Array.from({ length: Math.min(OPEN_FILE_REFRESH_CONCURRENCY, filePaths.length) }, async () => {
-    while (nextIndex < filePaths.length) {
-      const filePath = filePaths[nextIndex]!
-      nextIndex += 1
-      const abortController = new AbortController()
-      const timeoutId = window.setTimeout(() => abortController.abort(), OPEN_FILE_REFRESH_TIMEOUT_MS)
-      try {
-        files.push(await fetchWorkspaceFile(agentId, filePath, { signal: abortController.signal }))
-      } catch {
-        successful = false
-      } finally {
-        window.clearTimeout(timeoutId)
-      }
-    }
-  })
-  await Promise.all(workers)
-  return { files, successful }
-}
 
 
 function shouldUseNativeMobileDictation() {
@@ -637,15 +612,7 @@ export function CodeWorkspace({
     for (const resource of computerResources.resources) update(resource.ownerAgentId, 'desktopCount')
     return counts
   }, [browserResources.resources, computerResources.resources])
-  const refreshProjectOpenFiles = useCallback(async (filesId: string, workspaceRoot: string) => {
-    const filePaths = Array.from(new Set(workspaceOpenFiles.files
-      .filter(file => file.workspaceRoot === workspaceRoot)
-      .map(file => file.file.path)))
-    if (filePaths.length === 0) return true
-    const result = await refreshOpenWorkspaceFileReads(filesId, filePaths)
-    workspaceOpenFiles.refreshFromReads(workspaceRoot, result.files)
-    return result.successful
-  }, [workspaceOpenFiles])
+  const refreshProjectOpenFiles = workspaceOpenFiles.refreshProject
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchSelectionIndex, setSearchSelectionIndex] = useState(0)

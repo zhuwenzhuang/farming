@@ -26,7 +26,15 @@ import {
   type WorkspaceOpenFilesState,
   type WorkspaceOpenFileTarget,
 } from '@/lib/workspace-open-files'
-import type { WorkspaceFile, WorkspaceFileDeleteResult, WorkspaceFileMove } from '@/lib/workspace-files'
+import {
+  fetchWorkspaceFile,
+  type WorkspaceFile,
+  type WorkspaceFileDeleteResult,
+  type WorkspaceFileMove,
+} from '@/lib/workspace-files'
+
+const OPEN_FILE_REFRESH_CONCURRENCY = 4
+const OPEN_FILE_REFRESH_TIMEOUT_MS = 15_000
 
 function initialWorkspaceOpenFilesState(): WorkspaceOpenFilesState {
   return {
@@ -55,6 +63,29 @@ function browserDraftBackupStorage() {
 
 function trackedOpenWorkspaceFiles(state: WorkspaceOpenFilesState) {
   return [...state.files, ...state.closedFileCache.values()]
+}
+
+async function refreshOpenWorkspaceFileReads(rootId: string, filePaths: readonly string[]) {
+  const files: WorkspaceFile[] = []
+  let successful = true
+  let nextIndex = 0
+  const workers = Array.from({ length: Math.min(OPEN_FILE_REFRESH_CONCURRENCY, filePaths.length) }, async () => {
+    while (nextIndex < filePaths.length) {
+      const filePath = filePaths[nextIndex]!
+      nextIndex += 1
+      const abortController = new AbortController()
+      const timeoutId = window.setTimeout(() => abortController.abort(), OPEN_FILE_REFRESH_TIMEOUT_MS)
+      try {
+        files.push(await fetchWorkspaceFile(rootId, filePath, { signal: abortController.signal }))
+      } catch {
+        successful = false
+      } finally {
+        window.clearTimeout(timeoutId)
+      }
+    }
+  })
+  await Promise.all(workers)
+  return { files, successful }
 }
 
 export function useWorkspaceOpenFiles() {
@@ -166,6 +197,16 @@ export function useWorkspaceOpenFiles() {
     commitState(refreshWorkspaceOpenFilesFromReads(stateRef.current, workspaceRoot, files))
   ), [commitState])
 
+  const refreshProject = useCallback(async (rootId: string, workspaceRoot: string) => {
+    const filePaths = Array.from(new Set(stateRef.current.files
+      .filter(file => file.workspaceRoot === workspaceRoot)
+      .map(file => file.file.path)))
+    if (filePaths.length === 0) return true
+    const result = await refreshOpenWorkspaceFileReads(rootId, filePaths)
+    refreshFromReads(workspaceRoot, result.files)
+    return result.successful
+  }, [refreshFromReads])
+
   const updateDraft = useCallback((nextDraft: string) => {
     const activeFile = stateRef.current.activeFile
     if (!activeFile) return null
@@ -218,9 +259,10 @@ export function useWorkspaceOpenFiles() {
     reopenLastClosed,
     update,
     refreshFromReads,
+    refreshProject,
     updateDraft,
     reorder,
     move,
     deleteEntries,
-  }), [closedFiles, close, deleteEntries, move, openFromRead, refreshFromReads, reorder, reopenLastClosed, select, state.activeFile, state.files, update, updateDraft])
+  }), [closedFiles, close, deleteEntries, move, openFromRead, refreshFromReads, refreshProject, reorder, reopenLastClosed, select, state.activeFile, state.files, update, updateDraft])
 }
