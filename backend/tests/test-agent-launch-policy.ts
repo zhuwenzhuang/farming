@@ -83,7 +83,7 @@ class Harness {
         this.terminalVersionCalls.push({ program, requiredCliVersion, pathEnv });
         return options.terminalVersion
           ? options.terminalVersion(program, requiredCliVersion, pathEnv)
-          : { compatible: false, error: 'Codex executable not found', path: '', source: '' };
+          : { compatible: false, error: 'Codex executable not found', path: '' };
       },
       warn: () => {},
     };
@@ -111,7 +111,6 @@ test('shell environment cache honors ttl, force refresh, and exact shell isolati
   assert.equal(harness.policy.resolveShellEnv('', { maxAgeMs: 0 }).env.CALL, '4');
 
   const zsh = harness.policy.resolveShellEnv('/bin/zsh');
-  assert.equal(zsh.shellKey, '/bin/zsh');
   assert.equal(zsh.env.PATH, '/bin//bin/zsh');
   assert.equal(harness.policy.resolveShellEnv('').env.PATH, '/bin/default');
   assert.deepEqual(harness.shellCalls, ['', '', '', '', '/bin/zsh']);
@@ -190,7 +189,6 @@ test('one cached failure snapshot is authoritative for later projections and pro
     runtime: 'terminal',
     shell: '/bin/bash',
   });
-  assert.equal(projection.shellEnvSource, 'process-env');
   assert.equal(projection.env.MARKER, 'first');
   assert.equal(projection.env.PATH, '/process/bin');
   assert.equal(harness.policy.resolveShellEnv('/bin/bash').env.MARKER, 'first');
@@ -472,7 +470,6 @@ test('mutating the descriptor list after construction cannot alter policy', () =
   assert.equal(later.env.OPENTUI_NOTIFICATION_PROTOCOL, undefined);
   assert.equal(later.env.OPENCODE_CONFIG_CONTENT, undefined);
   assert.equal(first.env.OPENTUI_NOTIFICATION_PROTOCOL, undefined);
-  assert.equal(harness.policy.launchOwnedEnvKeys().includes('EVIL_HOME'), false);
   assert.equal(
     harness.policy.projectAgentEnv({ ...request, provider: 'evil', providerHomePath: '/evil/home' }).env.EVIL_HOME,
     undefined,
@@ -561,30 +558,8 @@ test('a persisted executable path keeps exact trailing whitespace', () => {
       provider: 'claude',
       runtime: 'acp',
     }),
-    { selected: true, executable: persisted, source: 'persisted-managed' },
+    { selected: true, executable: persisted },
   );
-});
-
-test('launch owned keys cover control authority, identity, and every adapter home key', () => {
-  const keys = new Harness().policy.launchOwnedEnvKeys();
-  assert.equal(Object.isFrozen(keys), true);
-  for (const key of [
-    ...PROVIDER_HOME_KEYS,
-    'FARMING_AGENT_ID',
-    'FARMING_CLI_BIN_DIR',
-    'FARMING_CONFIG_DIR',
-    'FARMING_IS_MAIN_AGENT',
-    'FARMING_MAIN_WORKSPACE',
-    'FARMING_PARENT_AGENT_ID',
-    'FARMING_PROJECT_WORKSPACE',
-    'FARMING_SKILLS_FILE',
-    'FARMING_STARTUP_PROMPT_FILE',
-    'FARMING_TOKEN',
-    'OPENTUI_NOTIFICATION_PROTOCOL',
-  ]) assert.equal(keys.includes(key), true, key);
-  assert.equal(keys.includes('QODER_CONFIG_DIR'), true);
-  assert.equal(keys.includes('OPENCODE_CONFIG_CONTENT'), false);
-  assert.equal(new Set(keys).size, keys.length);
 });
 
 test('projection scrubs prompt keys and runtime shims per category', () => {
@@ -671,7 +646,7 @@ test('mutating the input config or ports after construction cannot change output
       runtime: 'terminal',
       terminalPolicy: SYSTEM_TERMINAL_POLICY,
     }),
-    { selected: true, executable: '/shell/bin/claude', source: 'system' },
+    { selected: true, executable: '/shell/bin/claude' },
   );
 });
 
@@ -682,7 +657,7 @@ test('a request without its runtime executable policy is rejected without any ef
     farmingOwnership: { claude: ['/farming/bin/claude-acp'] },
     systemAcp: program => `/shell/bin/${program}`,
     systemTerminal: program => `/shell/bin/${program}`,
-    terminalVersion: () => ({ compatible: true, error: '', path: '/shell/bin/codex', source: 'system' }),
+    terminalVersion: () => ({ compatible: true, error: '', path: '/shell/bin/codex' }),
   });
 
   const malformed: unknown[] = [
@@ -726,7 +701,7 @@ test('managed ACP resume keeps the persisted Farming-owned executable instead of
       provider: 'claude',
       runtime: 'acp',
     }),
-    { selected: true, executable: '/farming/versions/a/claude-acp', source: 'persisted-managed' },
+    { selected: true, executable: '/farming/versions/a/claude-acp' },
   );
   assert.deepEqual(harness.farmingOwnedCalls, []);
   assert.deepEqual(harness.ownershipCalls, ['claude:/farming/versions/a/claude-acp']);
@@ -746,7 +721,7 @@ test('managed ACP resume keeps the persisted Farming-owned executable instead of
       provider: 'claude',
       runtime: 'acp',
     }),
-    { selected: true, executable: '/farming/versions/b/claude-acp', source: 'discovered-managed' },
+    { selected: true, executable: '/farming/versions/b/claude-acp' },
   );
   assert.deepEqual(fresh.ownershipCalls, ['claude:/farming/versions/b/claude-acp']);
 });
@@ -828,7 +803,7 @@ test('system ACP resume reuses the persisted executable exactly without rediscov
 
   assert.deepEqual(
     harness.policy.selectExecutable({ ...base, persistedExecutable: '/usr/local/bin/opencode' }),
-    { selected: true, executable: '/usr/local/bin/opencode', source: 'persisted-system' },
+    { selected: true, executable: '/usr/local/bin/opencode' },
   );
   assert.deepEqual(harness.systemCalls, []);
 
@@ -858,7 +833,7 @@ test('custom ACP executable selection is exact and validated for fresh and resum
   for (const phase of ['fresh', 'resume'] as const) {
     assert.deepEqual(
       harness.policy.selectExecutable({ ...request, persistedExecutable: '/custom/claude-acp', phase }),
-      { selected: true, executable: '/custom/claude-acp', source: 'persisted-custom' },
+      { selected: true, executable: '/custom/claude-acp' },
     );
   }
 
@@ -892,7 +867,7 @@ test('system executables must be absolute and executable, never the bare program
       runtime: 'terminal',
       terminalPolicy: SYSTEM_TERMINAL_POLICY,
     }),
-    { selected: true, executable: '/shell/bin/opencode', source: 'system' },
+    { selected: true, executable: '/shell/bin/opencode' },
   );
   for (const phase of ['fresh', 'resume'] as const) {
     const decision = harness.policy.selectExecutable({
@@ -908,7 +883,6 @@ test('system executables must be absolute and executable, never the bare program
     assert.deepEqual(decision, {
       selected: true,
       executable: '/shell/bin/opencode',
-      source: phase === 'fresh' ? 'system' : 'persisted-system',
     });
   }
   assert.deepEqual(
@@ -958,7 +932,7 @@ test('an explicit absolute non-Codex Terminal program is selected exactly withou
       runtime: 'terminal',
       terminalPolicy: SYSTEM_TERMINAL_POLICY,
     }),
-    { selected: true, executable, source: 'system' },
+    { selected: true, executable },
   );
   assert.deepEqual(harness.systemCalls, []);
 
@@ -979,12 +953,12 @@ test('Terminal version policy stays in the resolver port and rejects incompatibl
     executables: ['/shell/bin/codex', '/farming/bin/codex'],
     terminalVersion: (program, requiredCliVersion, pathEnv) => {
       if (requiredCliVersion === '0.50.0') {
-        return { compatible: true, error: '', path: `${pathEnv}/${program}`, source: 'system' };
+        return { compatible: true, error: '', path: `${pathEnv}/${program}` };
       }
       if (requiredCliVersion === '0.60.0') {
-        return { compatible: true, error: '', path: '/farming/bin/codex', source: 'farming' };
+        return { compatible: true, error: '', path: '/farming/bin/codex' };
       }
-      return { compatible: false, error: 'Codex 0.99.0 or newer is required', path: '/shell/bin/codex', source: 'system' };
+      return { compatible: false, error: 'Codex 0.99.0 or newer is required', path: '/shell/bin/codex' };
     },
   });
   const base = {
@@ -999,14 +973,14 @@ test('Terminal version policy stays in the resolver port and rejects incompatibl
       ...base,
       terminalPolicy: { kind: 'codex-versioned', requiredCliVersion: '0.50.0' },
     }),
-    { selected: true, executable: '/shell/bin/codex', source: 'system' },
+    { selected: true, executable: '/shell/bin/codex' },
   );
   assert.deepEqual(
     harness.policy.selectExecutable({
       ...base,
       terminalPolicy: { kind: 'codex-versioned', requiredCliVersion: '0.60.0' },
     }),
-    { selected: true, executable: '/farming/bin/codex', source: 'discovered-managed' },
+    { selected: true, executable: '/farming/bin/codex' },
   );
 
   const incompatible = harness.policy.selectExecutable({
@@ -1025,7 +999,7 @@ test('Terminal version policy stays in the resolver port and rejects incompatibl
   );
 
   const empty = new Harness({
-    terminalVersion: () => ({ compatible: true, error: '', path: 'codex', source: 'system' }),
+    terminalVersion: () => ({ compatible: true, error: '', path: 'codex' }),
   });
   const relative = empty.policy.selectExecutable({
     ...base,
@@ -1046,7 +1020,6 @@ test('Terminal policy is bound to program identity for both legal and illegal co
       compatible: true,
       error: '',
       path: path.isAbsolute(program) ? program : `/shell/bin/${program}`,
-      source: 'system',
     }),
   });
   const versioned = { kind: 'codex-versioned', requiredCliVersion: '0.50.0' } as const;
@@ -1063,7 +1036,6 @@ test('Terminal policy is bound to program identity for both legal and illegal co
       {
         selected: true,
         executable: program === 'codex' ? '/shell/bin/codex' : '/usr/local/bin/codex',
-        source: 'system',
       },
       program,
     );
@@ -1077,7 +1049,7 @@ test('Terminal policy is bound to program identity for both legal and illegal co
   const illegal = new Harness({
     executables: ['/shell/bin/codex', '/shell/bin/opencode'],
     systemTerminal: program => `/shell/bin/${program}`,
-    terminalVersion: program => ({ compatible: true, error: '', path: `/shell/bin/${program}`, source: 'system' }),
+    terminalVersion: program => ({ compatible: true, error: '', path: `/shell/bin/${program}` }),
   });
   const illegalRequests: AgentLaunchExecutableRequest[] = [
     {

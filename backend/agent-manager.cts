@@ -1440,11 +1440,6 @@ class AgentManager extends EventEmitter {
           compatible: resolution.compatible,
           error: resolution.error,
           path: resolution.path,
-          source: explicitSystemCandidate
-            ? 'system' as const
-            : isFarmingOwnedPath(resolution.path, frozenInstanceLaunchEnv)
-              ? 'farming' as const
-              : 'system' as const,
         };
       },
       warn: (message, error) => {

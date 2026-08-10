@@ -82,7 +82,6 @@ export interface TerminalExecutableResolution {
   compatible: boolean;
   error: string;
   path: string;
-  source: 'farming' | 'system' | '';
 }
 
 /**
@@ -145,7 +144,6 @@ export interface ShellEnvResolveOptions {
 
 export interface ShellEnvResolution {
   env: Readonly<NodeJS.ProcessEnv>;
-  shellKey: string;
   source: 'shell' | 'process-env';
 }
 
@@ -162,7 +160,6 @@ export interface AgentEnvProjectionRequest {
   runtime: AgentLaunchRuntime;
   /** Shell whose captured environment this Agent may use. */
   shell?: string;
-  shellEnv?: ShellEnvResolveOptions;
   /** True when the launched program is the user's interactive shell. */
   shellSession?: boolean;
   stripNodeOptions?: boolean;
@@ -171,7 +168,6 @@ export interface AgentEnvProjectionRequest {
 
 export interface AgentEnvProjection {
   env: Readonly<NodeJS.ProcessEnv>;
-  shellEnvSource: ShellEnvResolution['source'];
 }
 
 export interface AcpExecutableRequest {
@@ -204,13 +200,6 @@ export interface TerminalExecutableRequest {
 
 export type AgentLaunchExecutableRequest = AcpExecutableRequest | TerminalExecutableRequest;
 
-export type AgentLaunchExecutableSource =
-  | 'discovered-managed'
-  | 'persisted-custom'
-  | 'persisted-managed'
-  | 'persisted-system'
-  | 'system';
-
 export type AgentLaunchExecutableRejection =
   | 'custom-not-absolute'
   | 'custom-not-configured'
@@ -233,7 +222,7 @@ export type AgentLaunchExecutableRejection =
   | 'terminal-version-incompatible';
 
 export type AgentLaunchExecutableDecision =
-  | { selected: true; executable: string; source: AgentLaunchExecutableSource }
+  | { selected: true; executable: string }
   | { selected: false; reason: AgentLaunchExecutableRejection; message: string };
 
 interface ShellEnvCacheEntry {
@@ -404,20 +393,15 @@ class AgentLaunchPolicy {
     ])].sort());
   }
 
-  /** Every key this owner deletes before rebuilding from the launch request. */
-  launchOwnedEnvKeys(): readonly string[] {
-    return this.#launchOwnedEnvKeys;
-  }
-
   resolveShellEnv(shell = '', options: ShellEnvResolveOptions = {}): ShellEnvResolution {
     const shellKey = String(shell || '').trim() || DEFAULT_SHELL_ENV_KEY;
     const entry = this.#shellEnvEntry(shellKey, options);
-    return Object.freeze({ env: entry.env, shellKey, source: entry.source });
+    return Object.freeze({ env: entry.env, source: entry.source });
   }
 
   projectAgentEnv(request: AgentEnvProjectionRequest): AgentEnvProjection {
     const shellKey = String(request.shell || '').trim() || DEFAULT_SHELL_ENV_KEY;
-    const cached = this.#shellEnvEntry(shellKey, request.shellEnv || {});
+    const cached = this.#shellEnvEntry(shellKey, {});
     const env = buildInteractiveAgentBaseEnv({
       processEnv: { ...cached.processEnv },
       shellEnv: cached.source === 'shell' ? { ...cached.env } : null,
@@ -458,7 +442,7 @@ class AgentLaunchPolicy {
 
     this.#applyProviderLaunch(env, request);
 
-    return Object.freeze({ env: frozenEnv(env), shellEnvSource: cached.source });
+    return Object.freeze({ env: frozenEnv(env) });
   }
 
   selectExecutable(request: AgentLaunchExecutableRequest): AgentLaunchExecutableDecision {
@@ -481,14 +465,13 @@ class AgentLaunchPolicy {
       // lookup name; failure must not retry discovery or fall back to a bare
       // program. Codex remains version-gated by its dedicated resolver.
       if (request.terminalPolicy.kind === 'system' && path.isAbsolute(program)) {
-        return this.#validateSystem(program, program, 'system');
+        return this.#validateSystem(program, program);
       }
       return request.terminalPolicy.kind === 'codex-versioned'
         ? this.#selectVersionedTerminal(program, request.terminalPolicy.requiredCliVersion, pathEnv)
         : this.#validateSystem(
           program,
           exactPath(this.#ports.resolveSystemTerminalExecutable(program, pathEnv)),
-          'system',
         );
     }
 
@@ -507,7 +490,6 @@ class AgentLaunchPolicy {
     return this.#validateSystem(
       program,
       exactPath(this.#ports.resolveSystemAcpExecutable(program, pathEnv)),
-      'system',
     );
   }
 
@@ -543,7 +525,7 @@ class AgentLaunchPolicy {
     if (!this.#ports.isExecutable(persisted)) {
       return this.#reject('custom-not-executable', `${provider} custom ACP executable is not executable: ${persisted}`);
     }
-    return this.#select(persisted, 'persisted-custom');
+    return this.#select(persisted);
   }
 
   #freshManaged(provider: string): AgentLaunchExecutableDecision {
@@ -574,7 +556,7 @@ class AgentLaunchPolicy {
         `${provider} ACP discovered executable is not Farming-owned: ${discovered}`,
       );
     }
-    return this.#select(discovered, 'discovered-managed');
+    return this.#select(discovered);
   }
 
   #resumeManaged(provider: string, persisted: string): AgentLaunchExecutableDecision {
@@ -602,7 +584,7 @@ class AgentLaunchPolicy {
         `${provider} ACP persisted executable is not Farming-owned: ${persisted}`,
       );
     }
-    return this.#select(persisted, 'persisted-managed');
+    return this.#select(persisted);
   }
 
   #resumeSystem(provider: string, persisted: string): AgentLaunchExecutableDecision {
@@ -624,7 +606,7 @@ class AgentLaunchPolicy {
         `${provider} ACP persisted system executable is no longer usable: ${persisted}`,
       );
     }
-    return this.#select(persisted, 'persisted-system');
+    return this.#select(persisted);
   }
 
   #selectVersionedTerminal(
@@ -640,18 +622,10 @@ class AgentLaunchPolicy {
           || `Executable "${program}" does not satisfy the required version ${requiredCliVersion}`,
       );
     }
-    return this.#validateSystem(
-      program,
-      exactPath(resolution.path),
-      resolution.source === 'farming' ? 'discovered-managed' : 'system',
-    );
+    return this.#validateSystem(program, exactPath(resolution.path));
   }
 
-  #validateSystem(
-    program: string,
-    executable: string,
-    source: AgentLaunchExecutableSource,
-  ): AgentLaunchExecutableDecision {
+  #validateSystem(program: string, executable: string): AgentLaunchExecutableDecision {
     if (!executable) {
       return this.#reject(
         'system-not-found',
@@ -670,7 +644,7 @@ class AgentLaunchPolicy {
         `Executable "${program}" resolved to a file that is not executable: ${executable}`,
       );
     }
-    return this.#select(executable, source);
+    return this.#select(executable);
   }
 
   #shellEnvEntry(shellKey: string, options: ShellEnvResolveOptions): ShellEnvCacheEntry {
@@ -732,8 +706,8 @@ class AgentLaunchPolicy {
     return authority;
   }
 
-  #select(executable: string, source: AgentLaunchExecutableSource): AgentLaunchExecutableDecision {
-    return Object.freeze({ selected: true as const, executable, source });
+  #select(executable: string): AgentLaunchExecutableDecision {
+    return Object.freeze({ selected: true as const, executable });
   }
 
   #reject(reason: AgentLaunchExecutableRejection, message: string): AgentLaunchExecutableDecision {

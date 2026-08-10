@@ -80,11 +80,6 @@ function run() {
       .every((selectionPath) => launchPolicySource.includes(selectionPath)),
     'the launch policy must keep system Terminal, Codex-versioned, fresh managed and persisted resume paths distinct'
   );
-  assert(
-    ["'discovered-managed'", "'persisted-managed'", "'persisted-system'", "'system'"]
-      .every((decisionSource) => launchPolicySource.includes(decisionSource)),
-    'each launch selection path must report its own decision source'
-  );
 
   assert.deepStrictEqual(
     getPathDirectories('/usr/bin::/bin:/custom/bin'),
