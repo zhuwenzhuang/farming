@@ -186,7 +186,7 @@ import {
   type TemporaryWorktreeIdentity,
   type WorktreeGitServicePort,
 } from './worktree-git-service.cjs';
-import { ForkOperationCoordinator } from './fork-operation-coordinator.cjs';
+import { ForkOperationCoordinator, settleForkChildStart } from './fork-operation-coordinator.cjs';
 import {
   AgentComposerAdmissionCoordinator,
   composerAdmissionError,
@@ -9508,85 +9508,8 @@ class AgentManager extends EventEmitter {
       })
       : String(agent.forkCommand || agent.command || '');
 
-    return new Promise<AgentForkResult>(resolve => {
-      const settleStart = async (
-        forkedAgentId: AgentId | null,
-        startError?: string | null,
-        outcomeUnknown = false,
-      ): Promise<AgentForkResult> => {
-        if (outcomeUnknown) {
-          return {
-            error: `Fork start outcome is uncertain${startError ? `: ${startError}` : ''}${forkWorktreeIdentity ? `; temporary worktree retained at ${targetWorkspace}` : ''}`,
-            ...(forkedAgentId ? { retainedAgentId: forkedAgentId } : {}),
-            ...(forkWorktreeIdentity ? { retainedWorkspace: targetWorkspace } : {}),
-            workspace: targetWorkspace,
-            uncertain: true,
-          };
-        }
-        if (startError) {
-          if (forkedAgentId) {
-            return {
-              error: startError,
-              retainedAgentId: forkedAgentId,
-              workspace: targetWorkspace,
-              uncertain: true,
-            };
-          }
-          if (!forkWorktreeIdentity) return { error: startError };
-          const rollback = await this.rollbackTemporaryForkWorktree(forkWorktreeIdentity);
-          return rollback.rolledBack
-            ? { error: startError }
-            : {
-                error: `${startError}; temporary worktree retained at ${targetWorkspace}: ${rollback.error}`,
-                workspace: targetWorkspace,
-                retainedWorkspace: targetWorkspace,
-                uncertain: true,
-              };
-        }
-        if (!forkedAgentId) {
-          const failure = 'Failed to start forked agent';
-          if (!forkWorktreeIdentity) return { error: failure };
-          const rollback = await this.rollbackTemporaryForkWorktree(forkWorktreeIdentity);
-          return rollback.rolledBack
-            ? { error: failure }
-            : {
-                error: `${failure}; temporary worktree retained at ${targetWorkspace}: ${rollback.error}`,
-                workspace: targetWorkspace,
-                retainedWorkspace: targetWorkspace,
-                uncertain: true,
-              };
-        }
-        return {
-          agentId: forkedAgentId,
-          workspace: targetWorkspace,
-          mode,
-        };
-      };
-      let settlementStarted = false;
-      const finish = (
-        forkedAgentId: AgentId | null,
-        error?: string | null,
-        outcomeUnknown = false,
-      ) => {
-        if (settlementStarted) return;
-        settlementStarted = true;
-        void settleStart(forkedAgentId, error, outcomeUnknown).then(resolve, caughtError => {
-          const detail = caughtError instanceof Error ? caughtError.message : String(caughtError);
-          resolve({
-            error: `Fork start outcome could not be reconciled; temporary worktree retained at ${targetWorkspace}: ${detail}`,
-            ...(forkedAgentId ? { retainedAgentId: forkedAgentId } : {}),
-            ...(forkWorktreeIdentity ? { retainedWorkspace: targetWorkspace } : {}),
-            workspace: targetWorkspace,
-            uncertain: true,
-          });
-        });
-      };
-      let started: Promise<AgentId | null>;
-      try {
-        started = this.startAgent(forkCommand, targetWorkspace, (
-          forkedAgentId: AgentId | null,
-          error?: string | null,
-        ) => finish(forkedAgentId, error), {
+    const start = await settleForkChildStart(
+      callback => this.startAgent(forkCommand, targetWorkspace, callback, {
         wantsMain: false,
         parentAgentId: agent.id,
         forkRequestId: options.forkRequestId || '',
@@ -9599,24 +9522,44 @@ class AgentManager extends EventEmitter {
         ...(resumedSession?.provider === 'codex'
           ? preserveCodexSessionProfileOptions()
           : {}),
-        });
-      } catch (caughtError: unknown) {
-        finish(
-          null,
-          caughtError instanceof Error ? caughtError.message : String(caughtError),
-          true,
-        );
-        return;
+      }),
+      'Failed to start forked agent',
+    );
+    if (start.uncertain) {
+      return {
+        error: `Fork start outcome is uncertain: ${start.error}${forkWorktreeIdentity ? `; temporary worktree retained at ${targetWorkspace}` : ''}`,
+        ...(start.agentId ? { retainedAgentId: start.agentId } : {}),
+        ...(forkWorktreeIdentity ? { retainedWorkspace: targetWorkspace } : {}),
+        workspace: targetWorkspace,
+        uncertain: true,
+      };
+    }
+    if (start.error || !start.agentId) {
+      const failure = start.error || 'Failed to start forked agent';
+      if (start.agentId) {
+        return {
+          error: failure,
+          retainedAgentId: start.agentId,
+          workspace: targetWorkspace,
+          uncertain: true,
+        };
       }
-      void Promise.resolve(started).then(
-        forkedAgentId => finish(forkedAgentId),
-        caughtError => finish(
-          null,
-          caughtError instanceof Error ? caughtError.message : String(caughtError),
-          true,
-        ),
-      );
-    });
+      if (!forkWorktreeIdentity) return { error: failure };
+      const rollback = await this.rollbackTemporaryForkWorktree(forkWorktreeIdentity);
+      return rollback.rolledBack
+        ? { error: failure }
+        : {
+            error: `${failure}; temporary worktree retained at ${targetWorkspace}: ${rollback.error}`,
+            workspace: targetWorkspace,
+            retainedWorkspace: targetWorkspace,
+            uncertain: true,
+          };
+    }
+    return {
+      agentId: start.agentId,
+      workspace: targetWorkspace,
+      mode,
+    };
   }
 
   async performAcpConversationFork(
@@ -9693,81 +9636,72 @@ class AgentManager extends EventEmitter {
       };
     }
 
-    return new Promise<AgentForkResult>(resolve => {
-      let settled = false;
-      const finish = async (forkedAgentId: AgentId | null, error?: string | null) => {
-        if (settled) return;
-        settled = true;
-        if (error || !forkedAgentId) {
-          let rollbackError = '';
-          if (!forkedAgentId) {
-            try {
-              await this.acpRuntime.deleteSession(agentId, forkedSessionId);
-            } catch (caughtCleanupError: unknown) {
-      const cleanupError = caughtCleanupError as ErrorRecord;
-              rollbackError = cleanupError.message || String(cleanupError);
+    const start = await settleForkChildStart(
+      callback => this.startAgent(command, workspace, callback, {
+        wantsMain: false,
+        parentAgentId: agent.id,
+        forkRequestId,
+        forkRequestSignature,
+        task: agent.task ? `Fork: ${agent.task}` : `Fork of ${agent.command}`,
+        workflowTemplate: agent.workflowTemplate || '',
+        source: 'ui-fork-acp-chat',
+        providerHomeId: agent.providerHomeId || 'default',
+        providerHomePath: agent.providerHomePath || '',
+        providerSessionTitle: agent.providerSessionTitle || '',
+        requiredCliVersion: provider === 'codex' ? (agent.requiredCliVersion || '') : '',
+        projectWorkspace: workspace,
+        agentRuntimeMode: 'chat',
+        acpHistoryMode: 'load',
+        runtimeSwitchVerifiedSessionId: forkedSessionId,
+        forkedFromProviderSessionId: sourceSessionId,
+        lifecycleToken,
+        ...acpSessionOptions,
+        ...(provider === 'codex'
+          ? {
+              codexApprovalMode: agent.launchPermissionMode || undefined,
+              ...preserveCodexSessionProfileOptions(),
             }
-          }
-          resolve({
-            error: [
-              error || 'Failed to start forked ACP Chat Agent',
-              rollbackError ? `forked session cleanup failed: ${rollbackError}` : '',
-            ].filter(Boolean).join('; '),
-            ...(forkedAgentId ? { retainedAgentId: forkedAgentId } : {}),
-            ...(rollbackError ? { retainedProviderSessionId: forkedSessionId, uncertain: true } : {}),
-          });
-          return;
-        }
-        resolve({
-          agentId: forkedAgentId,
-          workspace,
-          mode: 'same-worktree',
-          targetRuntime: 'chat',
-          providerSessionId: forkedSessionId,
-        });
+          : {}),
+        ...(provider === 'claude'
+          ? { claudePermissionMode: agent.launchPermissionMode || undefined }
+          : {}),
+      }),
+      'Failed to start forked ACP Chat Agent',
+    );
+    if (start.uncertain) {
+      return {
+        error: `Fork start outcome is uncertain: ${start.error}`,
+        ...(start.agentId ? { retainedAgentId: start.agentId } : {}),
+        retainedProviderSessionId: forkedSessionId,
+        uncertain: true,
       };
-
-      try {
-        const started = this.startAgent(command, workspace, finish, {
-          wantsMain: false,
-          parentAgentId: agent.id,
-          forkRequestId,
-          forkRequestSignature,
-          task: agent.task ? `Fork: ${agent.task}` : `Fork of ${agent.command}`,
-          workflowTemplate: agent.workflowTemplate || '',
-          source: 'ui-fork-acp-chat',
-          providerHomeId: agent.providerHomeId || 'default',
-          providerHomePath: agent.providerHomePath || '',
-          providerSessionTitle: agent.providerSessionTitle || '',
-          requiredCliVersion: provider === 'codex' ? (agent.requiredCliVersion || '') : '',
-          projectWorkspace: workspace,
-          agentRuntimeMode: 'chat',
-          acpHistoryMode: 'load',
-          runtimeSwitchVerifiedSessionId: forkedSessionId,
-          forkedFromProviderSessionId: sourceSessionId,
-          lifecycleToken,
-          ...acpSessionOptions,
-          ...(provider === 'codex'
-            ? {
-                codexApprovalMode: agent.launchPermissionMode || undefined,
-                ...preserveCodexSessionProfileOptions(),
-              }
-            : {}),
-          ...(provider === 'claude'
-            ? { claudePermissionMode: agent.launchPermissionMode || undefined }
-            : {}),
-        });
-        Promise.resolve(started).then((startedAgentId: AgentId | null) => {
-          if (!startedAgentId) void finish(null, 'Failed to start forked ACP Chat Agent');
-        }).catch((startError: unknown) => {
-          const message = startError instanceof Error ? startError.message : 'Failed to start forked ACP Chat Agent';
-          void finish(null, message);
-        });
-      } catch (caughtStartError: unknown) {
-      const startError = caughtStartError as ErrorRecord;
-        void finish(null, startError?.message || 'Failed to start forked ACP Chat Agent');
+    }
+    if (start.error || !start.agentId) {
+      let rollbackError = '';
+      if (!start.agentId) {
+        try {
+          await this.acpRuntime.deleteSession(agentId, forkedSessionId);
+        } catch (caughtCleanupError: unknown) {
+          const cleanupError = caughtCleanupError as ErrorRecord;
+          rollbackError = cleanupError.message || String(cleanupError);
+        }
       }
-    });
+      return {
+        error: [
+          start.error || 'Failed to start forked ACP Chat Agent',
+          rollbackError ? `forked session cleanup failed: ${rollbackError}` : '',
+        ].filter(Boolean).join('; '),
+        ...(start.agentId ? { retainedAgentId: start.agentId } : {}),
+        ...(rollbackError ? { retainedProviderSessionId: forkedSessionId, uncertain: true } : {}),
+      };
+    }
+    return {
+      agentId: start.agentId,
+      workspace,
+      mode: 'same-worktree',
+      targetRuntime: 'chat',
+      providerSessionId: forkedSessionId,
+    };
   }
 
   async performTargetProcessAcpConversationFork(
@@ -9791,74 +9725,67 @@ class AgentManager extends EventEmitter {
       result = await this.acpRuntime.runWithForkReservation(
         agent.id,
         { expectedRevision, requireLoad: true },
-        (sourceBinding: AcpBindingContract) => {
+        async (sourceBinding: AcpBindingContract) => {
           const forkSourceCheckpoint = this.acpRuntime.bindingCheckpoint(sourceBinding).exportCheckpoint();
           if (!forkSourceCheckpoint?.sessionState) {
             throw new Error('ACP fork source transcript is unavailable');
           }
-          return new Promise<AgentForkResult>(resolve => {
-            let settled = false;
-            const finish = (forkedAgentId: AgentId | null, error?: string | null) => {
-              if (settled) return;
-              settled = true;
-              if (error || !forkedAgentId) {
-                resolve({
-                  error: error || 'Failed to start forked ACP Chat Agent',
-                  ...(forkedAgentId ? { retainedAgentId: forkedAgentId } : {}),
-                });
-                return;
-              }
-              const forkedAgent = this.agents.get(forkedAgentId);
-              const forkedSessionId = String(forkedAgent?.providerSessionId || preparedSessionId).trim();
-              resolve({
-                agentId: forkedAgentId,
-                workspace,
-                mode: 'same-worktree',
-                targetRuntime: 'chat',
-                providerSessionId: forkedSessionId,
-              });
+          const start = await settleForkChildStart(
+            callback => this.startAgent(command, workspace, callback, {
+              wantsMain: false,
+              parentAgentId: agent.id,
+              forkRequestId,
+              forkRequestSignature,
+              task: agent.task ? `Fork: ${agent.task}` : `Fork of ${agent.command}`,
+              workflowTemplate: agent.workflowTemplate || '',
+              source: 'ui-fork-acp-chat',
+              providerHomeId: agent.providerHomeId || 'default',
+              providerHomePath: agent.providerHomePath || '',
+              providerSessionTitle: agent.providerSessionTitle || '',
+              projectWorkspace: workspace,
+              agentRuntimeMode: 'chat',
+              acpForkSourceSessionId: sourceSessionId,
+              acpForkSourceCheckpoint: forkSourceCheckpoint,
+              forkedFromProviderSessionId: sourceSessionId,
+              lifecycleToken,
+              ...acpSessionOptions,
+              onAcpForkSessionCreated: (sessionId: string) => {
+                preparedSessionId = String(sessionId || '').trim();
+              },
+              onAcpSessionPrepared: (prepared: AcpPrepareResult) => {
+                preparedSessionId = String(prepared?.sessionId || '').trim();
+              },
+              ...(provider === 'claude'
+                ? { claudePermissionMode: agent.launchPermissionMode || undefined }
+                : {}),
+            }),
+            'Failed to start forked ACP Chat Agent',
+          );
+          if (start.uncertain) {
+            return {
+              error: `Fork start outcome is uncertain: ${start.error}`,
+              ...(start.agentId ? { retainedAgentId: start.agentId } : {}),
+              ...(isSafeProviderSessionId(preparedSessionId)
+                ? { retainedProviderSessionId: preparedSessionId }
+                : {}),
+              uncertain: true,
             };
-
-            try {
-              const started = this.startAgent(command, workspace, finish, {
-                wantsMain: false,
-                parentAgentId: agent.id,
-                forkRequestId,
-                forkRequestSignature,
-                task: agent.task ? `Fork: ${agent.task}` : `Fork of ${agent.command}`,
-                workflowTemplate: agent.workflowTemplate || '',
-                source: 'ui-fork-acp-chat',
-                providerHomeId: agent.providerHomeId || 'default',
-                providerHomePath: agent.providerHomePath || '',
-                providerSessionTitle: agent.providerSessionTitle || '',
-                projectWorkspace: workspace,
-                agentRuntimeMode: 'chat',
-                acpForkSourceSessionId: sourceSessionId,
-                acpForkSourceCheckpoint: forkSourceCheckpoint,
-                forkedFromProviderSessionId: sourceSessionId,
-                lifecycleToken,
-                ...acpSessionOptions,
-                onAcpForkSessionCreated: (sessionId: string) => {
-                  preparedSessionId = String(sessionId || '').trim();
-                },
-                onAcpSessionPrepared: (prepared: AcpPrepareResult) => {
-                  preparedSessionId = String(prepared?.sessionId || '').trim();
-                },
-                ...(provider === 'claude'
-                  ? { claudePermissionMode: agent.launchPermissionMode || undefined }
-                  : {}),
-              });
-              Promise.resolve(started).then((startedAgentId: AgentId | null) => {
-                if (!startedAgentId) void finish(null, 'Failed to start forked ACP Chat Agent');
-              }).catch((startError: unknown) => {
-                const message = startError instanceof Error ? startError.message : 'Failed to start forked ACP Chat Agent';
-                void finish(null, message);
-              });
-            } catch (caughtStartError: unknown) {
-      const startError = caughtStartError as ErrorRecord;
-              void finish(null, startError?.message || 'Failed to start forked ACP Chat Agent');
-            }
-          });
+          }
+          if (start.error || !start.agentId) {
+            return {
+              error: start.error || 'Failed to start forked ACP Chat Agent',
+              ...(start.agentId ? { retainedAgentId: start.agentId } : {}),
+            };
+          }
+          const forkedAgent = this.agents.get(start.agentId);
+          const forkedSessionId = String(forkedAgent?.providerSessionId || preparedSessionId).trim();
+          return {
+            agentId: start.agentId,
+            workspace,
+            mode: 'same-worktree',
+            targetRuntime: 'chat',
+            providerSessionId: forkedSessionId,
+          };
         },
       );
     } catch (caughtError: unknown) {
@@ -9868,6 +9795,7 @@ class AgentManager extends EventEmitter {
     if (
       result?.error
       && !result.retainedAgentId
+      && result.uncertain !== true
       && isSafeProviderSessionId(preparedSessionId)
     ) {
       try {

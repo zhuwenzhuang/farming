@@ -343,6 +343,31 @@ async function run() {
     assert.strictEqual(acpChatForkAgent.source, 'ui-fork-acp-chat');
     assert.strictEqual(acpChatForkAgent.forkedFromProviderSessionId, codexSessionId);
     assert.strictEqual(fs.realpathSync(acpChatForkAgent.projectWorkspace), fs.realpathSync(repo));
+
+    const uncertainAcpForkSessionId = '88888888-9999-4aaa-8bbb-cccccccccccc';
+    const originalStartAgent = manager.startAgent;
+    const originalDeleteSession = manager.acpRuntime.deleteSession.bind(manager.acpRuntime);
+    let uncertainAcpForkDeleteCalls = 0;
+    manager.acpRuntime.forkSession = async () => ({ sessionId: uncertainAcpForkSessionId });
+    manager.acpRuntime.deleteSession = async () => {
+      uncertainAcpForkDeleteCalls += 1;
+      return { deleted: true };
+    };
+    manager.startAgent = () => Promise.reject(new Error('simulated ACP child start rejection'));
+    const uncertainAcpFork = await manager.forkAgent(resumedCodexId, 'same-worktree', {
+      expectedRevision: 17,
+    });
+    manager.startAgent = originalStartAgent;
+    manager.acpRuntime.deleteSession = originalDeleteSession;
+    assert.strictEqual(uncertainAcpFork.uncertain, true);
+    assert.strictEqual(uncertainAcpFork.retainedProviderSessionId, uncertainAcpForkSessionId);
+    assert.match(uncertainAcpFork.error, /simulated ACP child start rejection/);
+    assert.strictEqual(
+      uncertainAcpForkDeleteCalls,
+      0,
+      'an uncertain child start must retain the exact provider session for reconciliation',
+    );
+
     sourceAcpAgent.runtimeBinding = { kind: 'terminal' };
     manager.acpRuntime.getSessionRequestOptions = originalGetSessionRequestOptions;
     manager.acpRuntime.forkSession = originalForkSession;

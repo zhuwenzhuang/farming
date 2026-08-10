@@ -89,6 +89,12 @@ Runtime Port 与 Provider Policy
   拥有精确 Agent 身份和顶层生命周期准入，并通过窄 Port 委托内聚领域工作。
 - Domain Service 拥有自己的内部状态和后置条件，不能仅为了随意调用方法而接收
   完整 Manager。
+- Stateful Extraction 必须把权威 State Cluster 连同解释它的全部 Transition、
+  Recovery、Dispose 与精确 Cleanup 规则一起迁走。方法移出但 Mutable Map 仍留在
+  Host，只算物理拆分，不算 State Ownership。
+- Callback Port 只传递事实或调用窄 Effect，不能把 Host 的 Decision Tree 藏进构造
+  闭包。评审看语义知识而不是固定的 Callback 数量或行数阈值：只要闭包仍裁决
+  Identity、Ordering、Retry 或 Outcome，责任就仍在 Host。
 - Fork 已由一个 Coordinator 拥有：输入、效果、回滚和不确定结果都通过窄的
   Worktree、生命周期持久化和 ACP Runtime Port 明确表达。Manager 剩余领域遵循
   同样的 Port 纪律。
@@ -125,15 +131,16 @@ Runtime Port 与 Provider Policy
 本轮已经形成一批健康边界：Server Transport、Worktree/Git Effect、Provider
 Session Identity、Usage、Adaptive Title、Settings、部分 WebSocket Delivery，
 以及 Fork 的 Durable Admission/Reconcile（含共享、no-replay 的重启收敛）、
-Domain Coordinator 之上的薄 Resume Transport。它们要么删除了旧生产路径，
+统一的 Fork Child-start 落定规则、Domain Coordinator 之上的薄 Resume Transport。
+它们要么删除了旧生产路径，
 要么成为一个明确状态或副作用的唯一 Owner。
 
 当前需要优先返工的结构问题是：
 
-1. Fork 执行在 Manager 内仍保留三段近同构的 Child-start/Rollback Effect
-   Wrapper，外加少量词汇与结果类型债务；
-2. `CodeWorkspace` 的一部分 Controller 复制后端 Truth，或只包装 Reducer/Fetch；
-3. Terminal Link/Resize/Attachment 存在重叠的 Operation Identity；
+1. `CodeWorkspace` 的一部分 Controller 复制后端 Truth，或只包装 Reducer/Fetch；
+2. Terminal Link/Resize/Attachment 存在重叠的 Operation Identity；
+3. Attention/Unread Transition 已有 Tracker，但 Persistence/Recovery Projection
+   与 Facade Wrapper 仍和 Manager 分担同一组知识；
 4. Stylesheet 已有物理 Owner，但 Selector Hash 与 Manifest 不能单独证明跨 Owner
    Cascade 等价。
 
@@ -311,13 +318,14 @@ Composer Admission、Fork 的 Durable Admission/Reconcile 与 Resume Coordinatio
 均已有 Owner。Launch Composition 保留在 Manager，并组合 Provider Adapter 与
 Executable Discovery 边界。剩余范围：
 
-1. 只有在三条路径的不确定性与 Retained-resource 语义被证明等价时，才把 Manager
-   内三段 Fork Child-start/Rollback Effect Wrapper 合并为一个执行器；这是高风险
-   切片，不是默认下一刀；
+1. 保持共享 Fork Child-start Settlement 的窄边界；Worktree 与 Provider Session
+   Rollback 继续按资源分别拥有。除非 Retained-resource 语义被证明相同，否则不要
+   再造通用 Rollback Executor；
 2. 只有拿到具体的重复真相证据（例如同一请求被两种 Signature 定义分别裁决）才再动
    Resume；只有更小的边界能明确删除 Provider 或 Executable 知识，而不是把它们包装
    成 Port 时，才移动 Launch Composition；
-3. 之后再处理 Attention/Unread，并让 Runtime/Record Type 随 Owner 移动；
+3. 围绕现有 Tracker 收敛 Attention/Unread Persistence、Recovery Projection 与
+   Facade Delegation，再让 Runtime/Record Type 随 Owner 移动；
 4. Facade 最终只保留精确 Agent Registry、公共入口、Service Composition 与事件出口。
 
 行数不是验收标准。只有当一个 Service 减少 Manager 的系统知识，并能在不构造完整
@@ -354,9 +362,8 @@ Branch 或逐文件进度：
    做严格行为中立的物理拆分。前端删除 Backend Truth 镜像与 Wrapper-only
    Controller；Terminal 统一 Attachment Operation Identity 后再迁出 Replication
    与 Interaction。
-2. 把 Fork Child-start/Rollback Wrapper 合并列为后续高风险候选：必须先给出全部
-   不确定性与 Retained-resource 路径的等价证据。没有具体重复真相证据时，不继续
-   Resume 与 Launch。
+2. AgentManager 下一步围绕现有 Tracker 收敛 Attention/Unread；Fork 的资源回滚继续
+   保持精确且分离。没有具体重复真相证据时，不继续 Resume 与 Launch。
 3. 重新评估未提交 Stylesheet 与 CRT Prototype。只有当生产边界真实、系统总代码
    合理且一次性旧/新行为证据成立时才合入；否则缩小或丢弃。
 4. 完成剩余 Server Transport 与 ACP 工作。在保持 Auth、Middleware 顺序、Route

@@ -179,6 +179,11 @@ Conversation Fork 只有在 Adapter Contract 与 Live Capability 都支持时才
 Revision、Child Identity、Ownership 与 Cleanup Responsibility 必须精确；Child Durable 前
 失败时必须显式报告，不能静默创建另一个 Fork。
 
+不同 Runtime Strategy 共用一条 Fork Child Launch 落定规则：Callback 与 Promise
+结果中先到者为准。Callback 明确失败或 Promise resolve null 属于确定失败，可执行精确
+Cleanup；同步抛错或 Promise reject 属于不确定结果，Farming 必须保留精确的 Forked
+Provider Session，在 Durable Reconcile 前不得删除或重放。
+
 Farming 重启时若 Fork Operation 仍未终态，恢复会在任何 Runtime 启动前先对其收敛。
 存在精确 Source Runtime Agent Identity 时，该 Operation 被转换为持久 blocked；若
 blocked Transition 无法持久化，Journal 保留原 pending 事实，Source 仍以

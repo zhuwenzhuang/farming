@@ -145,6 +145,60 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+interface ForkChildStartOutcome {
+  agentId: string | null;
+  error: string;
+  uncertain: boolean;
+}
+
+type ForkChildStartEffect = (
+  callback: (agentId: string | null, error?: string | null) => void,
+) => Promise<string | null>;
+
+/**
+ * Settles the legacy Agent start callback/Promise contract once. Throws and
+ * rejections are uncertain because registration may already have happened;
+ * resource rollback stays with the Fork execution caller.
+ */
+function settleForkChildStart(
+  start: ForkChildStartEffect,
+  failureMessage: string,
+): Promise<ForkChildStartOutcome> {
+  return new Promise(resolve => {
+    let settled = false;
+    const settle = (
+      agentId: string | null,
+      error: string = '',
+      uncertain = false,
+    ) => {
+      if (settled) return;
+      settled = true;
+      resolve({
+        agentId,
+        error: error || (agentId ? '' : failureMessage),
+        uncertain,
+      });
+    };
+    const uncertainError = (error: unknown) => (
+      error instanceof Error && error.message
+        ? error.message
+        : String(error || failureMessage)
+    );
+
+    let started: Promise<string | null>;
+    try {
+      started = start((agentId, error) => settle(agentId, error || ''));
+    } catch (error) {
+      settle(null, uncertainError(error), true);
+      return;
+    }
+    void Promise.resolve(started).then(
+      agentId => settle(agentId),
+      error => settle(null, uncertainError(error), true),
+    );
+  });
+}
+
 function childReconciliationState(
   child: ForkOperationChild,
 ): 'ready' | 'retained' | 'unknown' {
@@ -487,6 +541,7 @@ class ForkOperationCoordinator {
 export {
   ForkOperationCoordinator,
   forkRequestSignature,
+  settleForkChildStart,
   type ForkOperationChild,
   type ForkOperationPorts,
   type ForkOperationRequest,

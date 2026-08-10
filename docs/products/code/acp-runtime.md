@@ -239,6 +239,12 @@ capability both support it. The source revision, child identity, ownership, and
 cleanup responsibility must be exact. Failure before the child is durable is
 visible and must not silently create a different fork.
 
+Fork child launch has one settlement rule across runtime strategies: the first
+callback or Promise result is authoritative. A callback failure or resolved
+null is definitive and permits exact cleanup. A synchronous throw or rejected
+Promise is uncertain; Farming retains the exact forked Provider Session and
+does not delete or replay it before durable reconciliation.
+
 When Farming restarts while a Fork operation is still non-terminal, recovery
 converges it before any runtime starts. With an exact source runtime Agent
 identity the operation is transitioned to durable blocked; if that blocked

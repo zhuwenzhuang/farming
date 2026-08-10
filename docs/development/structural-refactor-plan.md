@@ -106,6 +106,15 @@ HTTP, WebSocket, persistence, and runtime-host boundaries.
   ports.
 - A domain service owns its internal state and postconditions. It must not
   receive the complete Manager merely to call arbitrary methods.
+- A stateful extraction moves the authoritative state cluster together with
+  every transition, recovery, disposal, and exact cleanup rule that interprets
+  it. Moving methods while their mutable maps remain in the host is a physical
+  split, not state ownership.
+- Callback ports carry facts or invoke narrow effects; they do not hide the
+  host's decision tree inside constructor closures. Review semantic knowledge,
+  not a fixed callback-count or line-count threshold: a closure that still
+  decides identity, ordering, retry, or outcome keeps that responsibility in
+  the host.
 - Fork is owned by a coordinator with explicit inputs, effects, rollback, and
   uncertain outcomes over narrow Worktree, lifecycle-persistence, and ACP
   runtime ports. Remaining Manager domains follow the same port discipline.
@@ -146,19 +155,19 @@ HTTP, WebSocket, persistence, and runtime-host boundaries.
 Healthy boundaries now include Server transport, Worktree/Git effects,
 provider-session identity, usage, adaptive titles, Settings, selected
 WebSocket delivery owners, durable Fork admission/reconciliation with shared
-no-replay restart convergence, and thin Resume transport over one domain
-coordinator. They
+no-replay restart convergence, one Fork child-start settlement rule, and thin
+Resume transport over one domain coordinator. They
 either removed the superseded production path or became the single owner of a
 coherent state or effect.
 
 The current priority structural problems are:
 
-1. Fork execution keeps three near-duplicate child-start/rollback effect
-   wrappers inside the Manager, plus small vocabulary and result-type debt;
-2. some `CodeWorkspace` controllers mirror backend truth or merely wrap a
+1. some `CodeWorkspace` controllers mirror backend truth or merely wrap a
    reducer or fetch;
-3. Terminal link, resize, and attachment code use overlapping operation
+2. Terminal link, resize, and attachment code use overlapping operation
    identities;
+3. Attention/unread transitions have a tracker, but persistence/recovery
+   projections and facade wrappers still split knowledge with the Manager;
 4. stylesheet file ownership does not by itself prove cross-owner cascade
    equivalence.
 
@@ -367,15 +376,17 @@ durable Fork admission/reconciliation, and Resume coordination have owners.
 Launch composition remains in the Manager over provider-adapter and executable
 discovery boundaries. Remaining scope:
 
-1. merge the Manager's three Fork child-start/rollback effect wrappers into
-   one executor only when their uncertainty and retained-resource semantics
-   are proven equivalent; this is a high-risk slice, not a default next cut;
+1. keep the shared Fork child-start settlement narrow. Worktree and Provider
+   Session rollback remain resource-specific; do not replace them with a
+   generic rollback executor unless their retained-resource semantics become
+   provably identical;
 2. touch Resume again only with concrete duplicated-truth evidence, such as one
    request admitted under two signature definitions; move Launch composition
    only when a smaller boundary demonstrably removes provider or executable
    knowledge instead of wrapping it in ports;
-3. then address Attention/unread and move runtime/record types with their
-   owner;
+3. converge Attention/unread persistence, recovery projection, and facade
+   delegation around the existing tracker, then move runtime/record types with
+   their owner;
 4. leave the facade with exact registry, public entry points, service
    composition, and event delivery.
 
@@ -419,10 +430,9 @@ file-by-file progress log:
    component boundaries. Remove frontend mirrors of backend truth and
    wrapper-only controllers; unify Terminal attachment-operation identity
    before moving replication and interaction.
-2. Treat the Fork child-start/rollback wrapper merge as a later high-risk
-   candidate that requires equivalence evidence for every uncertainty and
-   retained-resource path. Do not continue Resume or Launch without concrete
-   duplicated-truth evidence.
+2. For AgentManager, converge Attention/unread around its existing tracker.
+   Keep Fork resource rollback exact and separate, and do not continue Resume
+   or Launch without concrete duplicated-truth evidence.
 3. Reassess unmerged stylesheet and CRT prototypes. Merge only when the
    production boundary is real, total code remains justified, and one-time
    old/new behavior evidence passes; otherwise reduce or discard them.
