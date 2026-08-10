@@ -61,7 +61,7 @@ async function run() {
 
     console.log('✓ zombie threshold and main exemption behave as expected');
   } finally {
-    clearInterval(manager.heartbeatInterval);
+    manager.heartbeatScheduler.stop();
     manager.engineBridge.dispose();
   }
 }

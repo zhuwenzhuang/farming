@@ -101,7 +101,7 @@ async function run() {
     assert(persisted.every(record => record.adaptiveTitle), 'every runtime title should be durable');
     console.log('✓ Agent-managed titles cover every provider in Terminal and ACP Chat');
   } finally {
-    clearInterval(manager.heartbeatInterval);
+    manager.heartbeatScheduler.stop();
     await manager.engineBridge.dispose();
   }
 }

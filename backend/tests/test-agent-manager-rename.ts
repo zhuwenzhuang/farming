@@ -153,7 +153,7 @@ async function run() {
     assert(dangerousLaunches.at(-1).args.includes('--dangerously-bypass-approvals-and-sandbox'));
     await startAgent(dangerousManager, 'claude', tmpRoot, { wantsMain: false });
     assert(dangerousLaunches.at(-1).args.includes('--dangerously-skip-permissions'));
-    clearInterval(dangerousManager.heartbeatInterval);
+    dangerousManager.heartbeatScheduler.stop();
     dangerousManager.engineBridge.dispose();
 
     assert.strictEqual(renamed.error, undefined);
@@ -780,7 +780,7 @@ async function run() {
 
     console.log('✓ AgentManager updates agent display titles, task summaries, and sidebar flags');
   } finally {
-    clearInterval(manager.heartbeatInterval);
+    manager.heartbeatScheduler.stop();
     manager.engineBridge.dispose();
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   }

@@ -521,7 +521,7 @@ async function run() {
 
     console.log('test-agent-manager-input-queue passed');
   } finally {
-    clearInterval(manager.heartbeatInterval);
+    manager.heartbeatScheduler.stop();
     manager.engineBridge.dispose();
   }
 }

@@ -236,7 +236,7 @@ async function run() {
 
     console.log('✓ AgentManager session view model works for local states');
   } finally {
-    clearInterval(manager.heartbeatInterval);
+    manager.heartbeatScheduler.stop();
     manager.engineBridge.dispose();
   }
 }

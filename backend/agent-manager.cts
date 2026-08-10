@@ -205,6 +205,11 @@ import {
 } from './agent-lifecycle-journal-service.cjs';
 import { AgentMainPageSessionIndex } from './agent-main-page-session-index.cjs';
 import { AgentRecoveryGate } from './agent-recovery-gate.cjs';
+import { AgentShutdownState } from './agent-shutdown-state.cjs';
+import {
+  AgentHeartbeatScheduler,
+  type AgentHeartbeatTick,
+} from './agent-heartbeat-scheduler.cjs';
 import { AgentAdaptiveTitlePersistenceCoordinator } from './agent-adaptive-title-persistence.cjs';
 import {
   WorktreeGitService,
@@ -1321,6 +1326,8 @@ class AgentManager extends EventEmitter {
   declare lifecycleJournalService: AgentLifecycleJournalService;
   declare mainPageSessionIndex: AgentMainPageSessionIndex;
   declare recoveryGate: AgentRecoveryGate;
+  declare shutdownState: AgentShutdownState;
+  declare heartbeatScheduler: AgentHeartbeatScheduler;
   declare acpTranscriptService: AcpTranscriptService;
   declare createProviderSessionIdentity: CreateProviderSessionIdentityContract;
   declare deleteProviderSessionIdentity: DeleteProviderSessionIdentityContract;
@@ -1329,16 +1336,10 @@ class AgentManager extends EventEmitter {
   declare stopPersistedAcpProcessGroup: StopPersistedAcpProcessGroupContract;
   declare configInstanceFingerprint: string;
   declare allowUnprovenLegacyAcpRecovery: boolean;
-  declare heartbeatInterval: ReturnType<typeof setInterval> | null;
-  declare disposing: boolean;
-  declare disposeFrozen: boolean;
-  declare disposePromise: Promise<void> | null;
-  declare disposed: boolean;
   declare systemMonitor: SystemMonitor;
   declare startTime: number;
   declare providerSessionService: ProviderSessionServiceRuntimeContract;
   declare taskHistory: UnknownRecord[];
-  declare lastZombieSweepAt: number;
 
   registerAgentRecord(agentId: AgentId, agent: TypedAgentRecord): void {
     const previous = this.agents.get(agentId);
@@ -1365,6 +1366,7 @@ class AgentManager extends EventEmitter {
     super();
     this.configManager = configManager;
     this.recoveryGate = new AgentRecoveryGate();
+    this.shutdownState = new AgentShutdownState();
     this.controlUrl = options.controlUrl || '';
     this.tokenFile = options.tokenFile || '';
     this.authDisabled = options.authDisabled === true;
@@ -1389,11 +1391,11 @@ class AgentManager extends EventEmitter {
     this.terminalProjectionTracker = new AgentTerminalProjectionTracker();
     this.usageRateTracker = new AgentUsageRateTracker();
     this.terminalResizeCoordinator = new TerminalResizeCoordinator({
-      isShuttingDown: () => this.disposing,
+      isShuttingDown: () => this.shutdownState.isShuttingDown(),
       resize: (agentId, { cols, rows }) => this.resizeAgentSession(agentId, cols, rows),
     });
     this.inputCoordinator = new AgentInputCoordinator({
-      isShuttingDown: () => this.disposing,
+      isShuttingDown: () => this.shutdownState.isShuttingDown(),
     });
     this.composerAdmissionCoordinator = new AgentComposerAdmissionCoordinator({
       captureDeliveryOwner: agent => {
@@ -1577,7 +1579,7 @@ class AgentManager extends EventEmitter {
       waitForRecovery: () => this.recoveryGate.wait(),
     });
     this.lifecycleCoordinator = new AgentLifecycleCoordinator({
-      isShuttingDown: () => this.disposing,
+      isShuttingDown: () => this.shutdownState.isShuttingDown(),
     });
     this.startAdmissionCoordinator = new AgentStartAdmissionCoordinator();
     this.projectAdmissionCoordinator = new ProjectOperationAdmissionCoordinator();
@@ -1599,7 +1601,7 @@ class AgentManager extends EventEmitter {
     });
     this.attentionTracker = new AgentAttentionTracker({
       getAgent: (agentId: AgentId) => this.agents.get(agentId),
-      isDisposed: () => this.disposed,
+      isDisposed: () => this.shutdownState.isDisposed(),
       isMainAgent: (agentId: AgentId, agent: TypedAgentRecord) => (
         this.isMainAgentRecord(agentId, agent)
       ),
@@ -1676,12 +1678,16 @@ class AgentManager extends EventEmitter {
     // ACP process identities existed must still resume their provider Session.
     // Strict callers may opt out explicitly for cleanup-safety diagnostics.
     this.allowUnprovenLegacyAcpRecovery = options.allowUnprovenLegacyAcpRecovery !== false;
-    this.heartbeatInterval = null;
-    this.disposing = false;
-    this.disposeFrozen = false;
-    this.disposePromise = null;
-    this.disposed = false;
     this.systemMonitor = new SystemMonitor();
+    const heartbeatInterval = this.configManager
+      ? this.configManager.getHeartbeatInterval()
+      : 1000;
+    console.log('Starting heartbeat with interval:', heartbeatInterval, 'ms');
+    this.heartbeatScheduler = new AgentHeartbeatScheduler({
+      intervalMs: heartbeatInterval,
+      onTick: tick => this.runHeartbeatTick(tick),
+      zombieSweepIntervalMs: ZOMBIE_SWEEP_INTERVAL_MS,
+    });
     this.startTime = Date.now();
     this.engineBridge = new SessionEngineBridge(configManager);
     this.providerSessionService = new ProviderSessionService({
@@ -1727,8 +1733,7 @@ class AgentManager extends EventEmitter {
     this.taskHistory = (this.configManager && this.configManager.getTaskHistory)
       ? [...this.configManager.getTaskHistory()]
       : [];
-    this.lastZombieSweepAt = 0;
-    this.startHeartbeat();
+    this.heartbeatScheduler.start();
     this.bindEngineEvents();
     this.bindAcpRuntimeEvents();
     if (this.configManager && this.configManager.farmingDir) {
@@ -3888,14 +3893,13 @@ class AgentManager extends EventEmitter {
 
     const baseWorkspace = normalizePathValue(agent.projectWorkspace || agent.cwd);
     return this.agentWorktreeRefreshQueue.enqueue(agentId, async isCurrent => {
-      if (this.disposing || this.disposed) return false;
+      if (this.shutdownState.isShuttingDown()) return false;
       const [info, baseInfo] = await Promise.all([
         inspectGitWorktree(candidate),
         inspectGitWorktree(baseWorkspace),
       ]);
       if (
-        this.disposing
-        || this.disposed
+        this.shutdownState.isShuttingDown()
         || !isCurrent()
       ) return false;
 
@@ -4168,48 +4172,31 @@ class AgentManager extends EventEmitter {
     return !hasDifferentActiveMain;
   }
   
-  startHeartbeat() {
-    const interval = this.configManager ? this.configManager.getHeartbeatInterval() : 1000;
-    console.log('Starting heartbeat with interval:', interval, 'ms');
-    
-    this.heartbeatInterval = setInterval(async () => {
-      if (this.disposed) return;
-      const now = Date.now();
-      if (now - this.lastZombieSweepAt >= ZOMBIE_SWEEP_INTERVAL_MS) {
-        this.lastZombieSweepAt = now;
-        await this.cleanupZombieAgents();
-      }
+  async runHeartbeatTick({ sweepZombies }: AgentHeartbeatTick) {
+    if (this.shutdownState.isDisposed()) return;
+    if (sweepZombies) await this.cleanupZombieAgents();
 
-      if (this.mainAgentId) {
-        const mainAgent = this.agents.get(this.mainAgentId);
-        if (mainAgent && mainAgent.status === 'dead') {
-          this.emitStateChange({ agentIds: [mainAgent.id] });
-        }
+    if (this.mainAgentId) {
+      const mainAgent = this.agents.get(this.mainAgentId);
+      if (mainAgent && mainAgent.status === 'dead') {
+        this.emitStateChange({ agentIds: [mainAgent.id] });
       }
-      
-      try {
-        const systemStats = await this.systemMonitor.getSystemStats();
-        this.emit('system-stats', systemStats);
-      } catch (caughtError: unknown) {
-      const error = caughtError as ErrorRecord;
-        console.error('Failed to get system stats:', error);
-      }
-    }, interval);
+    }
+
+    try {
+      const systemStats = await this.systemMonitor.getSystemStats();
+      this.emit('system-stats', systemStats);
+    } catch (caughtError: unknown) {
+    const error = caughtError as ErrorRecord;
+      console.error('Failed to get system stats:', error);
+    }
   }
 
   dispose(options: AgentDisposeOptions = {}) {
-    if (this.disposed) return Promise.resolve();
-    if (this.disposePromise) return this.disposePromise;
-
-    this.disposing = true;
-    this.agentWorktreeRefreshQueue.cancelAllPending();
-    const disposePromise = this.performDispose(options);
-    this.disposePromise = disposePromise;
-    void disposePromise.finally(() => {
-      if (this.disposePromise === disposePromise) this.disposePromise = null;
-      if (!this.disposed && !this.disposeFrozen) this.disposing = false;
-    }).catch(() => {});
-    return disposePromise;
+    return this.shutdownState.run(async () => {
+      this.agentWorktreeRefreshQueue.cancelAllPending();
+      await this.performDispose(options);
+    });
   }
 
   async performDispose(options: AgentDisposeOptions = {}) {
@@ -4278,17 +4265,14 @@ class AgentManager extends EventEmitter {
       throw new AggregateError(runtimeCleanupFailures, 'Agent runtime cleanup could not be verified');
     }
 
-    this.disposeFrozen = true;
+    this.shutdownState.freeze();
     if (this.engineBridge && typeof this.engineBridge.dispose === 'function') {
       await this.engineBridge.dispose({
         preserveHost: options.preserveTerminalHost === true,
       });
     }
 
-    if (this.heartbeatInterval) {
-      clearInterval(this.heartbeatInterval);
-      this.heartbeatInterval = null;
-    }
+    this.heartbeatScheduler.stop();
     this.providerSessionService.dispose();
     this.acpTranscriptService.dispose();
     this.lifecycleCoordinator.clear();
@@ -4306,7 +4290,7 @@ class AgentManager extends EventEmitter {
     this.acpTurnFinalizationCoordinator.dispose();
     this.acpSessionOptionsStore.clear();
     this.attentionTracker.cancelAllQwenTerminalIdleCandidates();
-    this.disposed = true;
+    this.shutdownState.complete();
   }
 
   async drainAcceptedAgentOperations() {
@@ -4441,7 +4425,7 @@ class AgentManager extends EventEmitter {
     options: AgentStartOptions = {},
   ): Promise<AgentId | null> {
     const lifecycleEntry = this.lifecycleCoordinator.hasToken(options.lifecycleToken);
-    if (this.disposing && !lifecycleEntry) {
+    if (this.shutdownState.isShuttingDown() && !lifecycleEntry) {
       const error = 'Farming is shutting down; new Agents are not accepted';
       if (callback) callback(null, error);
       return Promise.resolve(null);
@@ -5766,7 +5750,7 @@ class AgentManager extends EventEmitter {
   }
   
   assertAgentOperationAdmission() {
-    if (this.disposing) {
+    if (this.shutdownState.isShuttingDown()) {
       throw new Error('Farming is shutting down; Agent operations are not accepted');
     }
   }
@@ -6618,7 +6602,7 @@ class AgentManager extends EventEmitter {
   }
 
   renameAgent(agentId: AgentId, title: string): UnknownRecord {
-    if (this.disposing) {
+    if (this.shutdownState.isShuttingDown()) {
       return { error: 'Farming is shutting down; Agent updates are not accepted' };
     }
     const lifecycleOperation = this.lifecycleCoordinator.get(agentId);
@@ -6670,7 +6654,7 @@ class AgentManager extends EventEmitter {
     agentId: AgentId,
     title: string,
   ): UnknownRecord | Promise<UnknownRecord> {
-    if (this.disposing) {
+    if (this.shutdownState.isShuttingDown()) {
       return { error: 'Farming is shutting down; Agent title updates are not accepted' };
     }
     const lifecycleOperation = this.lifecycleCoordinator.get(agentId);
@@ -6700,7 +6684,7 @@ class AgentManager extends EventEmitter {
   }
 
   setAgentTask(agentId: AgentId, task: string): UnknownRecord {
-    if (this.disposing) {
+    if (this.shutdownState.isShuttingDown()) {
       return { error: 'Farming is shutting down; Agent updates are not accepted' };
     }
     const lifecycleOperation = this.lifecycleCoordinator.get(agentId);
@@ -6748,7 +6732,7 @@ class AgentManager extends EventEmitter {
   }
 
   updateAgentFlags(agentId: AgentId, flags: UnknownRecord): UnknownRecord {
-    if (this.disposing) {
+    if (this.shutdownState.isShuttingDown()) {
       return { error: 'Farming is shutting down; Agent updates are not accepted' };
     }
     const lifecycleOperation = this.lifecycleCoordinator.get(agentId);
@@ -6992,7 +6976,7 @@ class AgentManager extends EventEmitter {
   }
 
   reorderAgent(agentId: AgentId, neighbors: AgentOrderNeighbors = {}) {
-    if (this.disposing) {
+    if (this.shutdownState.isShuttingDown()) {
       return { error: 'Farming is shutting down; Agent updates are not accepted' };
     }
     const lifecycleOperation = this.lifecycleCoordinator.get(agentId);
@@ -8179,7 +8163,7 @@ class AgentManager extends EventEmitter {
     },
   ): Promise<AgentForkResult> {
     await this.recoveryGate.wait();
-    if (this.disposing) {
+    if (this.shutdownState.isShuttingDown()) {
       return { error: 'Farming is shutting down; Agent lifecycle changes are not accepted' };
     }
     let agent = this.agents.get(agentId);

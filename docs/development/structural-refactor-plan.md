@@ -166,6 +166,13 @@ HTTP, WebSocket, persistence, and runtime-host boundaries.
 - A recovery gate owns the pending/complete/failed lifecycle and the exact
   recovery failure. Callers either wait for an authoritative successful result
   or await settlement for shutdown; they do not combine promises with flags.
+- A shutdown state owner controls concurrent Dispose joining, the irreversible
+  cleanup boundary, retry admission, and final disposal. Callers query one
+  shutdown phase instead of combining disposing, frozen, promise, and disposed
+  fields.
+- Heartbeat scheduling owns the timer and zombie-sweep cadence. The Manager
+  handles one tick's domain effects, but it does not own timer handles or
+  elapsed-sweep bookkeeping.
 - Provider adapters expose typed decisions such as permission restart,
   Terminal identity/startup constraints, idle stability, and conversation Fork
   policy. Generic lifecycle code does not interpret provider names. A shared

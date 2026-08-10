@@ -10,11 +10,12 @@ interface AgentManagerHealthState {
 }
 
 interface AgentManagerHealthSource {
-  disposed?: boolean;
-  disposing?: boolean;
   getState(): AgentManagerHealthState | null;
   recoveryGate: {
     wait(): Promise<unknown>;
+  };
+  shutdownState: {
+    isShuttingDown(): boolean;
   };
 }
 
@@ -44,7 +45,7 @@ async function probeAgentManagerBusinessHealth(
   agentManager: AgentManagerHealthSource,
   { timeoutMs = BUSINESS_HEALTH_RECOVERY_TIMEOUT_MS }: { timeoutMs?: number } = {},
 ): Promise<BusinessHealthResult> {
-  if (agentManager.disposed || agentManager.disposing) {
+  if (agentManager.shutdownState.isShuttingDown()) {
     return { status: 'stopping', agentCount: 0, mainAgentId: null };
   }
 

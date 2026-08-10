@@ -202,7 +202,7 @@ async function run() {
     console.log('✓ agent output usage rate uses bounded buckets and expires stale activity');
   } finally {
     Date.now = originalDateNow;
-    clearInterval(manager.heartbeatInterval);
+    manager.heartbeatScheduler.stop();
     manager.engineBridge.dispose();
   }
 }

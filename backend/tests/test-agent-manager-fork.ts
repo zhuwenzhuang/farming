@@ -610,7 +610,7 @@ async function run() {
       process.env.FARMING_TEST_COMMAND_LOG = previousCommandLog;
     }
     process.env.PATH = previousPath;
-    clearInterval(manager.heartbeatInterval);
+    manager.heartbeatScheduler.stop();
     manager.engineBridge.dispose();
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   }

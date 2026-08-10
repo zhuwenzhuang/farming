@@ -171,7 +171,7 @@ async function run() {
 
     console.log('✓ 120 fake ACP Agents keep runtime, revision, title, and attention events Agent-scoped');
   } finally {
-    clearInterval(manager.heartbeatInterval);
+    manager.heartbeatScheduler.stop();
     await manager.drainAcceptedAgentOperations();
     await manager.engineBridge.dispose();
   }

@@ -132,6 +132,11 @@ Runtime Port 与 Provider Policy
   Recovery、Archive 和 Delete 只请求加入或移除成员，不再读取或改写 Settings 存储。
 - Recovery Gate 统一拥有 Pending / Complete / Failed 状态和精确失败原因。调用方只选择
   等待权威成功结果，或在 Shutdown 时等待状态收敛，不再自行组合 Promise 与 Flag。
+- Shutdown State Owner 统一拥有并发 Dispose Join、不可逆 Cleanup 边界、重试准入与
+  最终 Disposal。调用方只查询一个 Shutdown Phase，不再组合 Disposing、Frozen、
+  Promise 与 Disposed 字段。
+- Heartbeat Scheduler 统一拥有 Timer 与 Zombie Sweep Cadence。Manager 仍编排单次
+  Tick 的领域 Effect，但不再拥有 Timer Handle 或 Sweep 计时状态。
 - Provider Adapter 提供有类型的权限重启、Terminal 身份/启动约束、空闲稳定和会话
   Fork 策略；通用生命周期代码不解释 Provider 名称。共享 Terminal Startup
   Coordinator 拥有可变的排序和就绪状态；Adapter 只提供无状态的资源作用域和就绪策略。

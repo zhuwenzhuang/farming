@@ -533,7 +533,7 @@ async function run() {
     for (const agent of manager.getState().agents) {
       manager.providerSessionService.stop(agent.id);
     }
-    clearInterval(manager.heartbeatInterval);
+    manager.heartbeatScheduler.stop();
     manager.engineBridge.dispose();
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   }

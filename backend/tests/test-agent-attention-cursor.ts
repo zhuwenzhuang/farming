@@ -500,7 +500,7 @@ async function run() {
     assert(readUpdateCount > 0, 'attention cursor changes should notify clients through scoped read deltas');
     console.log('✓ AgentManager tracks unread state with attention read cursors');
   } finally {
-    clearInterval(manager.heartbeatInterval);
+    manager.heartbeatScheduler.stop();
     manager.engineBridge.dispose();
   }
 }

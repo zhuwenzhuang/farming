@@ -544,7 +544,7 @@ async function run() {
 
     console.log('test-agent-manager-history-archive passed');
   } finally {
-    clearInterval(manager.heartbeatInterval);
+    manager.heartbeatScheduler.stop();
     manager.engineBridge.dispose();
   }
 }

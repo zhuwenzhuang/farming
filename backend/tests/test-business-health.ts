@@ -6,6 +6,7 @@ const {
 async function run() {
   const ready = await probeAgentManagerBusinessHealth({
     recoveryGate: { wait: async () => {} },
+    shutdownState: { isShuttingDown: () => false },
     getState: () => ({ agents: [{ id: 'agent-1' }], mainAgentId: 'agent-1' }),
   });
   assert.deepStrictEqual(ready, {
@@ -16,6 +17,7 @@ async function run() {
 
   const recovering = await probeAgentManagerBusinessHealth({
     recoveryGate: { wait: () => new Promise(() => {}) },
+    shutdownState: { isShuttingDown: () => false },
     getState: () => {
       throw new Error('state must not be read before recovery');
     },
@@ -32,6 +34,7 @@ async function run() {
         throw new Error('recovery failed');
       },
     },
+    shutdownState: { isShuttingDown: () => false },
     getState: () => ({ agents: [] }),
   });
   assert.deepStrictEqual(failed, {
@@ -41,8 +44,8 @@ async function run() {
   });
 
   const stopping = await probeAgentManagerBusinessHealth({
-    disposed: true,
     recoveryGate: { wait: async () => {} },
+    shutdownState: { isShuttingDown: () => true },
     getState: () => ({ agents: [] }),
   });
   assert.deepStrictEqual(stopping, {

@@ -119,7 +119,7 @@ async function run() {
     releaseRecovery();
     assert.strictEqual(await pendingMainStart, recoveredMainAgentId);
     assert.strictEqual(recoveryRaceCaptured.length, 0, 'recovered Main Agent should prevent duplicate bash start');
-    clearInterval(recoveryRaceManager.heartbeatInterval);
+    recoveryRaceManager.heartbeatScheduler.stop();
     recoveryRaceManager.engineBridge.dispose();
 
     const concurrentMainWorkspace = path.join(os.tmpdir(), 'farming-concurrent-main-workspace');
@@ -178,7 +178,7 @@ async function run() {
     assert.strictEqual(secondConcurrentMainId, firstConcurrentMainId);
     assert.strictEqual(concurrentIdentityCreates, 0, 'concurrent Codex Main starts must not pre-create a provider identity');
     assert.strictEqual(concurrentMainCreates, 1, 'concurrent Main starts must share one reserved launch');
-    clearInterval(concurrentMainManager.heartbeatInterval);
+    concurrentMainManager.heartbeatScheduler.stop();
     concurrentMainManager.engineBridge.dispose();
 
     manager.agents.get(mainAgentId).status = 'dead';
@@ -219,7 +219,7 @@ async function run() {
       internalManager.getState().agents.find(agent => agent.id === internalMainAgentId).projectWorkspace,
       fs.realpathSync(internalConfigWorkspace)
     );
-    clearInterval(internalManager.heartbeatInterval);
+    internalManager.heartbeatScheduler.stop();
     internalManager.engineBridge.dispose();
 
     await assert.rejects(
@@ -359,7 +359,7 @@ async function run() {
       assert(homeLaunches[0].args.includes('model_reasoning_effort="high"'));
       assert(homeLaunches[0].args.includes('service_tier="priority"'));
     } finally {
-      clearInterval(homeProfileManager.heartbeatInterval);
+      homeProfileManager.heartbeatScheduler.stop();
       homeProfileManager.engineBridge.dispose();
     }
 
@@ -418,13 +418,13 @@ async function run() {
       assert(!claudeHomeLaunches[1].args.includes('--model'));
       assert(!claudeHomeLaunches[1].args.includes('--effort'));
     } finally {
-      clearInterval(claudeHomeProfileManager.heartbeatInterval);
+      claudeHomeProfileManager.heartbeatScheduler.stop();
       claudeHomeProfileManager.engineBridge.dispose();
     }
 
     console.log('✓ AgentManager uses .farming identity workspace for main agent and project cwd for sub agents by default');
   } finally {
-    clearInterval(manager.heartbeatInterval);
+    manager.heartbeatScheduler.stop();
     manager.engineBridge.dispose();
   }
 }

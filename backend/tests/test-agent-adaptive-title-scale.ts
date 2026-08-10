@@ -145,7 +145,7 @@ async function run() {
 
     console.log('✓ adaptive titles coalesce and stay Agent-scoped during 128-Agent startup fan-out');
   } finally {
-    clearInterval(manager.heartbeatInterval);
+    manager.heartbeatScheduler.stop();
     await manager.drainAcceptedAgentOperations();
     await manager.engineBridge.dispose();
   }

@@ -211,7 +211,7 @@ async function run() {
     freshPath = '/third/bin';
     assert.strictEqual(manager.resolveAgentShellEnv('', { force: true }).PATH, '/third/bin', 'forced shell env reads should still bypass every cache');
   } finally {
-    clearInterval(manager.heartbeatInterval);
+    manager.heartbeatScheduler.stop();
     await manager.engineBridge.dispose();
     if (previousPager === undefined) delete process.env.PAGER;
     else process.env.PAGER = previousPager;

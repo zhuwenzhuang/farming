@@ -214,12 +214,12 @@ async function run() {
     const disabledEnv = disabledAuthManager.buildAgentEnv('agent-disabled', { wantsMain: false });
     assert.strictEqual(disabledEnv.FARMING_DISABLE_AUTH, '1');
     assert.strictEqual(disabledEnv.FARMING_TOKEN_FILE, undefined);
-    clearInterval(disabledAuthManager.heartbeatInterval);
+    disabledAuthManager.heartbeatScheduler.stop();
     await disabledAuthManager.engineBridge.dispose();
 
     console.log('✓ AgentManager injects Farming CLI control env and child metadata');
   } finally {
-    clearInterval(manager.heartbeatInterval);
+    manager.heartbeatScheduler.stop();
     await manager.engineBridge.dispose();
     if (previousLdLibraryPath === undefined) {
       delete process.env.LD_LIBRARY_PATH;

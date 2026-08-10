@@ -223,7 +223,7 @@ async function run() {
     manager.acpRuntime = originalAcpRuntime;
 
   } finally {
-    clearInterval(manager.heartbeatInterval);
+    manager.heartbeatScheduler.stop();
     await manager.dispose();
   }
 
@@ -249,7 +249,7 @@ async function run() {
   assert.match(rejectedStartError, /shutting down/i);
   releaseDispose();
   await disposing;
-  assert.strictEqual(admissionManager.disposed, true);
+  assert.strictEqual(admissionManager.shutdownState.isDisposed(), true);
 
   let recoveryFenceRuntimeDisposed = false;
   const recoveryFenceAcpRuntime = new FakeStructuredRuntime();
@@ -294,8 +294,8 @@ async function run() {
   });
 
   await assert.rejects(partialManager.dispose(), /cleanup could not be verified/i);
-  assert.strictEqual(partialManager.disposing, false);
-  assert.strictEqual(partialManager.disposed, false);
+  assert.strictEqual(partialManager.shutdownState.isShuttingDown(), false);
+  assert.strictEqual(partialManager.shutdownState.isDisposed(), false);
   assert.strictEqual(partialManager.agents.has('acp-retry'), true);
   assert.strictEqual(partialManager.agents.get('acp-retry').status, 'error');
   assert.strictEqual(partialManager.agents.get('acp-retry').engineStatus, 'cleanup-uncertain');
@@ -304,7 +304,7 @@ async function run() {
   failAcpDispose = false;
   await partialManager.dispose();
   assert.strictEqual(partialManager.agents.has('acp-retry'), false);
-  assert.strictEqual(partialManager.disposed, true);
+  assert.strictEqual(partialManager.shutdownState.isDisposed(), true);
 
   const killAcpRuntime = new FakeStructuredRuntime(['acp-kill-retry']);
   killAcpRuntime.unregisterAgentAndWait = async () => {
@@ -421,8 +421,8 @@ async function run() {
     throw new Error('Terminal engine teardown failed');
   };
   await assert.rejects(engineFailureManager.dispose(), /Terminal engine teardown failed/);
-  assert.strictEqual(engineFailureManager.disposing, true);
-  assert.strictEqual(engineFailureManager.disposed, false);
+  assert.strictEqual(engineFailureManager.shutdownState.isShuttingDown(), true);
+  assert.strictEqual(engineFailureManager.shutdownState.isDisposed(), false);
   assert.strictEqual(providerDisposeCalls, 0);
   let frozenStartError = '';
   const frozenStart = await engineFailureManager.startAgent('bash', process.cwd(), (_agentId, error) => {
@@ -433,7 +433,7 @@ async function run() {
 
   engineFailureManager.engineBridge.dispose = disposeEngineBridge;
   await engineFailureManager.dispose();
-  assert.strictEqual(engineFailureManager.disposed, true);
+  assert.strictEqual(engineFailureManager.shutdownState.isDisposed(), true);
   assert.strictEqual(providerDisposeCalls, 1);
 
   console.log('test-agent-lifecycle-isolation passed');

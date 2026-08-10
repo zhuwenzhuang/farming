@@ -100,7 +100,7 @@ async function run() {
 
     console.log('✓ AgentManager interrupts coding agents with Esc and shells with Ctrl+C');
   } finally {
-    clearInterval(manager.heartbeatInterval);
+    manager.heartbeatScheduler.stop();
     manager.engineBridge.dispose();
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   }

@@ -142,7 +142,7 @@ async function run() {
     getHeartbeatInterval: () => 60_000,
     getWorkspace: () => process.cwd(),
   }, { skipExecutablePreflight: true });
-  clearInterval(manager.heartbeatInterval);
+  manager.heartbeatScheduler.stop();
   const initialAgent: TestAgentRecord = {
     id: 'agent-wiring',
     cwd: process.cwd(),

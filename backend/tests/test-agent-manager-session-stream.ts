@@ -556,7 +556,7 @@ async function run() {
 
     console.log('✓ AgentManager emits checkpoint and ordered terminal transition streams');
   } finally {
-    clearInterval(manager.heartbeatInterval);
+    manager.heartbeatScheduler.stop();
     manager.engineBridge.dispose();
   }
 }

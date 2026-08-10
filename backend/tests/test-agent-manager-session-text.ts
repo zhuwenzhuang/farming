@@ -118,7 +118,7 @@ async function run() {
 
     console.log('✓ AgentManager session text source works for local engine buffers');
   } finally {
-    clearInterval(manager.heartbeatInterval);
+    manager.heartbeatScheduler.stop();
     manager.engineBridge.dispose();
   }
 }
