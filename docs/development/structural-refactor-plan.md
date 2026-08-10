@@ -23,6 +23,13 @@ A refactor that only moves code, introduces a large host interface, duplicates
 a production path, or replaces one large file with several mutually coupled
 files has not achieved this objective.
 
+A behavior-neutral physical split can still be valuable when it preserves
+production code volume and control flow, introduces no new mutable state or
+cross-module API, and follows an already visible component, pure-function, or
+rendered-surface boundary. Its benefit is lower review, merge-conflict, and
+Coding Agent context cost. Such a split claims physical ownership only; it
+must not be presented as a completed state-architecture refactor.
+
 A shorter host file, focused green tests, or a more explicit state machine is
 not sufficient evidence by itself. Review must also show lower total system
 knowledge, fewer state identities, and lower cross-module reasoning cost.
