@@ -1450,6 +1450,15 @@ export function CodeWorkspace({
     }
     scheduleFocusRetries(focus, { delays: [60] })
   }, [])
+  const consumedComposerFocusNonceRef = useRef(0)
+  useEffect(() => {
+    if (!terminalFocusRequest) return
+    if (terminalFocusRequest.nonce === consumedComposerFocusNonceRef.current) return
+    if (isTouchInputViewport()) return
+    if (terminalFocusRequest.agentId !== activeTerminalId || !activeAcpRuntime) return
+    consumedComposerFocusNonceRef.current = terminalFocusRequest.nonce
+    focusComposerTextarea()
+  }, [activeAcpRuntime, activeTerminalId, focusComposerTextarea, terminalFocusRequest])
   const applyLaunchSettings = useCallback((settings: GlobalSettings) => {
     const profile = normalizeLaunchProfiles(settings)
     setCodexApprovalMode(profile.codexApprovalMode)

@@ -474,12 +474,15 @@
   font-weight: 400;
   line-height: 14px;
   letter-spacing: 0.02em;
+  white-space: nowrap;
   user-select: none;
   -webkit-user-select: none;
 }
 
 .code-agent-transcript-steer-meta .code-agent-transcript-message-time-steer {
   position: static;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .code-agent-transcript-steer-bubble:hover .code-agent-transcript-message-time-steer,
