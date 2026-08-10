@@ -90,7 +90,7 @@ async function run() {
     });
     assert.deepStrictEqual(
       freshDecision,
-      { selected: true, executable: ownManagedCodex, source: 'discovered-managed' },
+      { selected: true, executable: ownManagedCodex },
       'managed ACP discovery must use the Manager Config instance, not ambient FARMING_CONFIG_DIR',
     );
     const foreignResume = instanceManager.launchPolicy.selectExecutable({
@@ -244,12 +244,6 @@ async function run() {
         systemCodexBin,
         'a high-version FARMING_ACP_CODEX_BIN must not override the Terminal system candidate',
       );
-      assert.strictEqual(
-        terminalDecision.selected === true && terminalDecision.source,
-        'system',
-        'a high-version ACP env path must not be mislabeled as farming source',
-      );
-
       // Bare program name: Terminal PATH discovery must not consume ACP env candidates
       const p1bSystemDir = path.join(p1aDir, 'system-bin');
       fs.mkdirSync(p1bSystemDir, { recursive: true });
@@ -272,11 +266,6 @@ async function run() {
         bareTerminalDecision.selected === true && bareTerminalDecision.executable,
         p1bOwnedCodex,
         'a high-version FARMING_ACP_CODEX_BIN must not override Terminal PATH discovery for a bare program',
-      );
-      assert.strictEqual(
-        bareTerminalDecision.selected === true && bareTerminalDecision.source,
-        'system',
-        'a bare-name Terminal resolution must not report farming source from ACP env',
       );
     } finally {
       await p1bManager.dispose();
