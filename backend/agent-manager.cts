@@ -159,7 +159,17 @@ import {
   deriveRuntimeObservation,
   type TerminalObservationStatus,
 } from './runtime-observation.cjs';
-import { applyProviderLaunchEnvironment, clearProviderHomeEnvironment, getProviderAdapter, isFreshAcpSessionSource, providerCapabilities, providerConversationForkCapability, providerForProgram, providerSupportsRuntime } from './provider-adapters.cjs';
+import {
+  applyProviderLaunchEnvironment,
+  clearProviderHomeEnvironment,
+  getProviderAdapter,
+  isFreshAcpSessionSource,
+  providerCapabilities,
+  providerConversationForkCapability,
+  providerForProgram,
+  providerSupportsRuntime,
+  providerTerminalStartupPolicy,
+} from './provider-adapters.cjs';
 import { deriveTerminalStatus } from './terminal-status.cjs';
 import { AcpRuntime, stopPersistedAcpProcessGroup } from './acp-runtime.cjs';
 import { AcpRuntimeHostRuntime } from './acp-runtime-host-runtime.cjs';
@@ -187,6 +197,7 @@ import {
   type WorktreeGitServicePort,
 } from './worktree-git-service.cjs';
 import { ForkOperationCoordinator, settleForkChildStart } from './fork-operation-coordinator.cjs';
+import { TerminalStartupCoordinator } from './terminal-startup-coordinator.cjs';
 import {
   AgentComposerAdmissionCoordinator,
   composerAdmissionError,
@@ -565,11 +576,8 @@ const AGENT_DISCOVERY_CACHE_MAX_AGE_MS = 3_000;
 const UNCERTAIN_TERMINAL_STOP_TIMEOUT_MS = 5_000;
 const TERMINAL_STOP_STATE_READ_TIMEOUT_MS = 1_000;
 const TERMINAL_STOP_POLL_MS = 50;
-const CODEX_TERMINAL_START_READY_TIMEOUT_MS = 30_000;
 const CODEX_TERMINAL_STATUS_TIMEOUT_MS = 5_000;
 const WORKTREE_DELETE_START_DRAIN_TIMEOUT_MS = 30_000;
-const CODEX_TERMINAL_START_READY_POLL_MS = 50;
-const CODEX_TERMINAL_START_OUTPUT_LIMIT = 64 * 1024;
 const TERMINAL_NOTIFICATION_COMPLETION_SUPPRESS_MS = 10_000;
 const ACP_ATTENTION_STOP_REASONS = new Set([
   'end_turn',
@@ -739,15 +747,6 @@ async function runWithBoundedConcurrency<T>(
       await operation(items[index], index);
     }
   }));
-}
-
-function canonicalProviderHomePath(value: unknown): string {
-  const resolved = path.resolve(String(value || '').trim() || '.');
-  try {
-    return fs.realpathSync.native(resolved);
-  } catch {
-    return resolved;
-  }
 }
 
 function sameStructuredRuntimeProcess(
@@ -1351,8 +1350,7 @@ class AgentManager extends EventEmitter {
   declare codexTerminalProfileQueues: Map<AgentId, Promise<unknown>>;
   declare codexTerminalIdentityAttempts: Map<AgentId, string>;
   declare codexTerminalIdentityPromises: Map<AgentId, Promise<boolean>>;
-  declare codexTerminalStartQueues: Map<string, Promise<unknown>>;
-  declare codexTerminalStartOutput: Map<AgentId, string>;
+  declare terminalStartupCoordinator: TerminalStartupCoordinator;
   declare agentWorktreeResolveGeneration: Map<AgentId, number>;
   declare agentWorktreeRefreshQueue: AgentWorktreeRefreshQueue;
   declare worktreeGitService: WorktreeGitServicePort;
@@ -1549,8 +1547,7 @@ class AgentManager extends EventEmitter {
     this.codexTerminalProfileQueues = new Map();
     this.codexTerminalIdentityAttempts = new Map();
     this.codexTerminalIdentityPromises = new Map();
-    this.codexTerminalStartQueues = new Map();
-    this.codexTerminalStartOutput = new Map();
+    this.terminalStartupCoordinator = new TerminalStartupCoordinator();
     this.agentWorktreeResolveGeneration = new Map();
     this.agentWorktreeRefreshQueue = new AgentWorktreeRefreshQueue(
       AGENT_WORKTREE_REFRESH_CONCURRENCY,
@@ -2166,13 +2163,7 @@ class AgentManager extends EventEmitter {
 
         this.reviveAgentRuntime(agent);
         agent.output = trimSessionOutput(agent.output + data);
-        if (this.codexTerminalStartOutput.has(sessionId)) {
-          const startupOutput = `${this.codexTerminalStartOutput.get(sessionId) || ''}${data}`;
-          this.codexTerminalStartOutput.set(
-            sessionId,
-            startupOutput.slice(-CODEX_TERMINAL_START_OUTPUT_LIMIT),
-          );
-        }
+        this.terminalStartupCoordinator.appendOutput(sessionId, data);
         const outputAt = Date.now();
         agent.lastEngineOutputAt = outputAt;
         this.lastActivity.set(sessionId, outputAt);
@@ -5091,8 +5082,7 @@ class AgentManager extends EventEmitter {
     this.codexTerminalProfileQueues.clear();
     this.codexTerminalIdentityAttempts.clear();
     this.codexTerminalIdentityPromises.clear();
-    this.codexTerminalStartQueues.clear();
-    this.codexTerminalStartOutput.clear();
+    this.terminalStartupCoordinator.dispose();
     this.adaptiveTitlePersistence.clearPending();
     this.activeAcpTurnFinalizations.clear();
     this.acpSessionOptionsByKey.clear();
@@ -5226,40 +5216,6 @@ class AgentManager extends EventEmitter {
       await new Promise<void>(resolve => setTimeout(resolve, TERMINAL_STOP_POLL_MS));
     }
     throw new Error(`Terminal ${agentId} did not reach an exited state after kill`);
-  }
-
-  async waitForCodexTerminalStart(agentId: AgentId) {
-    const deadline = Date.now() + CODEX_TERMINAL_START_READY_TIMEOUT_MS;
-    while (Date.now() <= deadline) {
-      const agent = this.agents.get(agentId);
-      if (!agent) throw new Error(`Codex Terminal ${agentId} disappeared during startup`);
-      if (['dead', 'stopped'].includes(agent.status || '') || agent.engineStatus === 'exited') {
-        const detail = trimSessionOutput(agent.previewText || agent.output || '').trim();
-        throw new Error(detail || `Codex Terminal ${agentId} exited during startup`);
-      }
-      if ((this.codexTerminalStartOutput.get(agentId) || '').includes('\u001b')) {
-        return;
-      }
-      await new Promise<void>(resolve => setTimeout(resolve, CODEX_TERMINAL_START_READY_POLL_MS));
-    }
-    throw new Error(`Codex Terminal ${agentId} did not become ready within ${CODEX_TERMINAL_START_READY_TIMEOUT_MS}ms`);
-  }
-
-  async enqueueCodexTerminalStart<T>(
-    providerHomeKey: string,
-    operation: () => Promise<T> | T,
-  ): Promise<T> {
-    const key = canonicalProviderHomePath(providerHomeKey || '.');
-    const previous = this.codexTerminalStartQueues.get(key) || Promise.resolve();
-    const next = previous.catch(() => {}).then(operation);
-    this.codexTerminalStartQueues.set(key, next);
-    try {
-      return await next;
-    } finally {
-      if (this.codexTerminalStartQueues.get(key) === next) {
-        this.codexTerminalStartQueues.delete(key);
-      }
-    }
   }
 
   startAgent(
@@ -6452,8 +6408,9 @@ class AgentManager extends EventEmitter {
       }
 
       if (!useAcp) {
-        const serializeCodexStartup = agentRecord.providerSessionProvider === 'codex'
-          && resolution.engineName === 'native';
+        const terminalStartupPolicy = resolution.engineName === 'native'
+          ? providerTerminalStartupPolicy(agentRecord.providerSessionProvider)
+          : null;
         const startTerminal = async () => {
           const engineLaunch: Omit<TerminalEngineLaunch, 'reviveState'> & { reviveState?: unknown } = {
             command: spawnProgram,
@@ -6462,21 +6419,29 @@ class AgentManager extends EventEmitter {
             category: typeof resolutionSpec?.category === 'string' ? resolutionSpec.category : 'shell',
             reviveState: options.reviveTerminalState || null,
           };
-          if (serializeCodexStartup) this.codexTerminalStartOutput.set(agentId, '');
-          try {
-            await this.createAgentEngineSession(agentRecord, resolution.engine, engineLaunch);
-            if (serializeCodexStartup) {
-              await this.waitForCodexTerminalStart(agentId);
-            }
-          } finally {
-            if (serializeCodexStartup) this.codexTerminalStartOutput.delete(agentId);
-          }
+          await this.createAgentEngineSession(agentRecord, resolution.engine, engineLaunch);
         };
-        if (serializeCodexStartup) {
-          await this.enqueueCodexTerminalStart(
-            providerHomePath || resolvedProviderHomeId || 'default',
-            startTerminal
-          );
+        if (terminalStartupPolicy) {
+          const startupResourceKey = terminalStartupPolicy.serialization === 'provider-home'
+            ? providerHomePath || resolvedProviderHomeId || 'default'
+            : resolvedProviderHomeId || 'default';
+          await this.terminalStartupCoordinator.run({
+            agentId,
+            observe: () => {
+              const current = this.agents.get(agentId);
+              return current
+                ? {
+                  engineStatus: current.engineStatus,
+                  output: current.output,
+                  previewText: current.previewText,
+                  status: current.status,
+                }
+                : null;
+            },
+            policy: terminalStartupPolicy,
+            resourceKey: startupResourceKey,
+            start: startTerminal,
+          });
         } else {
           await startTerminal();
         }

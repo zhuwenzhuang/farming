@@ -42,6 +42,14 @@ Codex structured media, tools, diffs, terminals, permissions, configuration,
 and child activity remain typed protocol data. Provider-specific display hints
 are normalized at the adapter boundary and must not become generic ACP syntax.
 
+Native Terminal startup ordering is not a Codex lifecycle state machine. The
+shared Terminal startup coordinator owns bounded serialization, readiness,
+failure, and cleanup. The Codex adapter declares only its stateless constraint:
+native starts that share one exact Agent Home serialize until the TUI emits
+its readiness signal, because those processes share the Home's local store. Other
+providers remain concurrent unless their adapters declare an equivalent
+resource constraint.
+
 ## Session Continuity
 
 The provider Session id is the authoritative Codex conversation identity.
@@ -68,6 +76,7 @@ restores the original runtime when possible and reports the failure.
 ## Acceptance Criteria
 
 Verification must cover executable-policy separation, negotiated capabilities,
-provider identity, configuration continuity, Chat/Terminal switching, restart,
+provider identity, same-Home native startup serialization, different-Home
+concurrency, configuration continuity, Chat/Terminal switching, restart,
 disconnect, media and tool rendering, live Steer when advertised, and low-volume
 real Codex smoke through the supported ACP and native Terminal paths.

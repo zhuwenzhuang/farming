@@ -11,6 +11,14 @@ type GoalSubmission =
   | { kind: 'prompt' }
   | { kind: 'command'; prefix: string };
 
+interface ProviderTerminalStartupPolicy {
+  readiness: {
+    kind: 'output-includes';
+    value: string;
+  };
+  serialization: 'provider-home';
+}
+
 interface ProviderConversationForkCapability {
   supported: boolean;
   strategy: ProviderConversationForkStrategy | null;
@@ -122,6 +130,7 @@ interface ProviderAdapter {
     sessionId: string,
     plan?: ProviderSessionPlan,
   ) => string[];
+  terminalStartup?: ProviderTerminalStartupPolicy;
   acp: ProviderAcpContract;
   prepareAcpEnvironment?: (options?: ProviderEnvironmentOptions) => NodeJS.ProcessEnv;
   capabilities: ProviderCapabilitiesContract;
@@ -410,6 +419,10 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
     supportedRuntimes: ['terminal', 'acp'],
     planSession: codexSessionPlan,
     terminalResumeArgs: (args, sessionId) => ['resume', sessionId, ...args],
+    terminalStartup: {
+      serialization: 'provider-home',
+      readiness: { kind: 'output-includes', value: '\u001b' },
+    },
     acp: {
       executablePolicy: 'managed',
       packageName: '@agentclientprotocol/codex-acp',
@@ -651,6 +664,12 @@ function providerSupportsRuntime(provider: unknown, runtime: ProviderRuntime): b
   return getProviderAdapter(provider)?.supportedRuntimes.includes(runtime) === true;
 }
 
+function providerTerminalStartupPolicy(
+  provider: unknown,
+): Readonly<ProviderTerminalStartupPolicy> | null {
+  return getProviderAdapter(provider)?.terminalStartup || null;
+}
+
 function providerSupportsSharedAcpRuntime(provider: unknown): boolean {
   return getProviderAdapter(provider)?.acp.sharedRuntime === true;
 }
@@ -729,4 +748,6 @@ export {
   providerForProgram,
   providerSupportsSharedAcpRuntime,
   providerSupportsRuntime,
+  providerTerminalStartupPolicy,
+  type ProviderTerminalStartupPolicy,
 };

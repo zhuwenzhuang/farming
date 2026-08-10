@@ -35,6 +35,11 @@ Capability 以 Live ACP Handshake 和 Session State 为准。Live Steer 等 Code
 Codex 的 Media、Tool、Diff、Terminal、Permission、Config 与 Child Activity 都保持为类型化
 Protocol Data。Provider 特有展示 Hint 在 Adapter 边界归一化，不能变成通用 ACP 语法。
 
+Native Terminal 的启动排序不是一套 Codex Lifecycle State Machine。共享的 Terminal
+Startup Coordinator 拥有有界串行、就绪、失败与清理；Codex Adapter 只声明无状态约束：
+共享同一精确 Agent Home 的 Native Start 必须串行到 TUI 发出就绪信号，因为这些进程共享
+该 Home 的本地 Store。其他 Provider 继续并发，除非其 Adapter 声明等价的资源约束。
+
 ## Session 连续性
 
 Provider Session ID 是 Codex Conversation 的权威身份。Chat/Terminal 切换是真实 Runtime
@@ -56,6 +61,7 @@ Session，但绝不重放结果不明确的 Prompt 或 Terminal Mutation。Chat/
 
 ## 验收标准
 
-验证必须覆盖：Executable Policy 分离、协商 Capability、Provider Identity、Config 连续性、
-Chat/Terminal 切换、Restart、Disconnect、Media 与 Tool 展示、声明支持时的 Live Steer，
-以及受支持 ACP 与 Native Terminal Path 的低频真实 Codex Smoke。
+验证必须覆盖：Executable Policy 分离、协商 Capability、Provider Identity、同 Home Native
+Start 串行、不同 Home 并发、Config 连续性、Chat/Terminal 切换、Restart、Disconnect、
+Media 与 Tool 展示、声明支持时的 Live Steer，以及受支持 ACP 与 Native Terminal Path 的
+低频真实 Codex Smoke。

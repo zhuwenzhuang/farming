@@ -98,8 +98,9 @@ Runtime Port 与 Provider Policy
 - Fork 已由一个 Coordinator 拥有：输入、效果、回滚和不确定结果都通过窄的
   Worktree、生命周期持久化和 ACP Runtime Port 明确表达。Manager 剩余领域遵循
   同样的 Port 纪律。
-- Provider Adapter 提供有类型的权限重启、Terminal 身份、空闲稳定和会话 Fork
-  策略；通用生命周期代码不解释 Provider 名称。
+- Provider Adapter 提供有类型的权限重启、Terminal 身份/启动约束、空闲稳定和会话
+  Fork 策略；通用生命周期代码不解释 Provider 名称。共享 Terminal Startup
+  Coordinator 拥有可变的排序和就绪状态；Adapter 只提供无状态的资源作用域和就绪策略。
 
 ### ACP 所有权
 
@@ -315,8 +316,9 @@ Response Shape 和连接级状态不变。
 
 触碰 `agent-manager.cts` 的切片继续串行。Usage、Adaptive Title、Worktree/Git、
 Composer Admission、Fork 的 Durable Admission/Reconcile 与 Resume Coordination
-均已有 Owner。Launch Composition 保留在 Manager，并组合 Provider Adapter 与
-Executable Discovery 边界。剩余范围：
+均已有 Owner。Provider-neutral Terminal Startup Ordering 也已有唯一 Owner，由类型化
+Adapter Policy 激活，而不是由 Provider Name 分支激活。Launch Composition 保留在
+Manager，并组合 Provider Adapter 与 Executable Discovery 边界。剩余范围：
 
 1. 保持共享 Fork Child-start Settlement 的窄边界；Worktree 与 Provider Session
    Rollback 继续按资源分别拥有。除非 Retained-resource 语义被证明相同，否则不要

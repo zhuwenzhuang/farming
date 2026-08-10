@@ -119,8 +119,10 @@ HTTP, WebSocket, persistence, and runtime-host boundaries.
   uncertain outcomes over narrow Worktree, lifecycle-persistence, and ACP
   runtime ports. Remaining Manager domains follow the same port discipline.
 - Provider adapters expose typed decisions such as permission restart,
-  Terminal identity, idle stability, and conversation Fork policy. Generic
-  lifecycle code does not interpret provider names.
+  Terminal identity/startup constraints, idle stability, and conversation Fork
+  policy. Generic lifecycle code does not interpret provider names. A shared
+  Terminal startup coordinator owns mutable ordering and readiness state;
+  adapters contribute stateless resource-scope and readiness policy only.
 
 ### ACP ownership
 
@@ -373,8 +375,10 @@ middleware order, response shape, and connection-local state.
 Slices touching `agent-manager.cts` remain serialized. Usage-rate accounting,
 adaptive title persistence, Worktree/Git operations, Composer admission,
 durable Fork admission/reconciliation, and Resume coordination have owners.
-Launch composition remains in the Manager over provider-adapter and executable
-discovery boundaries. Remaining scope:
+Provider-neutral Terminal startup ordering also has one owner, activated by a
+typed adapter policy rather than a provider-name branch. Launch composition
+remains in the Manager over provider-adapter and executable discovery
+boundaries. Remaining scope:
 
 1. keep the shared Fork child-start settlement narrow. Worktree and Provider
    Session rollback remain resource-specific; do not replace them with a

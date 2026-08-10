@@ -9,6 +9,7 @@ const {
   providerForProgram,
   providerSupportsSharedAcpRuntime,
   providerSupportsRuntime,
+  providerTerminalStartupPolicy,
 } = require('../provider-adapters.cjs');
 
 function run() {
@@ -32,6 +33,17 @@ function run() {
   assert.strictEqual(getProviderAdapter('codex').acp.executablePolicy, 'managed');
   assert.strictEqual(getProviderAdapter('claude').acp.executablePolicy, 'managed');
   assert.strictEqual(getProviderAdapter('opencode').acp.executablePolicy, 'system');
+  assert.deepStrictEqual(providerTerminalStartupPolicy('codex'), {
+    serialization: 'provider-home',
+    readiness: { kind: 'output-includes', value: '\u001b' },
+  });
+  for (const provider of ['claude', 'opencode', 'qoder', 'qwen', 'unknown']) {
+    assert.strictEqual(
+      providerTerminalStartupPolicy(provider),
+      null,
+      `${provider} must not inherit Codex Terminal startup constraints`,
+    );
+  }
   for (const provider of ['codex', 'claude', 'opencode', 'qoder', 'qwen']) {
     assert.strictEqual(providerSupportsSharedAcpRuntime(provider), true);
   }
