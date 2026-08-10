@@ -119,6 +119,9 @@ Runtime Port 与 Provider Policy
   准入和面向 Transport 的委托。
 - Terminal Projection 去重把最后发布的 Status 与 Provider Profile 放进同一个 Weak
   Key Tracker。Event Handler 计算当前事实，但不再拥有平行 Projection Cache。
+- Live ACP Session Options（包括可能携带凭据的 MCP 配置）进入按精确 Session Key
+  索引的私有 Store。Store 在读写时复制并拥有删除/Dispose；面向浏览器的 Agent
+  Record 不会成为另一份事实源。
 - Provider Adapter 提供有类型的权限重启、Terminal 身份/启动约束、空闲稳定和会话
   Fork 策略；通用生命周期代码不解释 Provider 名称。共享 Terminal Startup
   Coordinator 拥有可变的排序和就绪状态；Adapter 只提供无状态的资源作用域和就绪策略。

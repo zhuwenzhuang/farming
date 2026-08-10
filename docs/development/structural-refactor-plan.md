@@ -147,6 +147,10 @@ HTTP, WebSocket, persistence, and runtime-host boundaries.
 - Terminal projection deduplication keeps the last published status and
   provider profile in one weakly keyed tracker. Event handlers compute current
   facts but do not own parallel projection caches.
+- Live ACP session options, including MCP configuration that may contain
+  credentials, live in a private exact-session-key store. The store clones on
+  write and read and owns deletion/disposal; browser-facing Agent records never
+  become an alternate source of truth.
 - Provider adapters expose typed decisions such as permission restart,
   Terminal identity/startup constraints, idle stability, and conversation Fork
   policy. Generic lifecycle code does not interpret provider names. A shared

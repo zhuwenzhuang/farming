@@ -417,7 +417,7 @@ async function run() {
     assert(engineKills.length > 0, 'Terminal rollback must call the idempotent engine kill boundary');
     assert.strictEqual(identityRollbacks.at(-1).sessionId, rollbackSessionId);
     assert.strictEqual(
-      manager.acpSessionOptionsByKey.has(encodeProviderSessionKey('opencode', rollbackSessionId, 'default')),
+      manager.acpSessionOptionsStore.has(encodeProviderSessionKey('opencode', rollbackSessionId, 'default')),
       false,
       'failed Terminal launch must remove private options for the rolled-back provider identity',
     );

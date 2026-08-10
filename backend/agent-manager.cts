@@ -196,6 +196,7 @@ import { AgentRuntimeStopTracker } from './agent-runtime-stop-tracker.cjs';
 import { ProviderSessionMutationCoordinator } from './provider-session-mutation-coordinator.cjs';
 import { TerminalProviderControlCoordinator } from './terminal-provider-control-coordinator.cjs';
 import { AgentTerminalProjectionTracker } from './agent-terminal-projection-tracker.cjs';
+import { AcpSessionOptionsStore } from './acp-session-options-store.cjs';
 import { AgentAdaptiveTitlePersistenceCoordinator } from './agent-adaptive-title-persistence.cjs';
 import {
   WorktreeGitService,
@@ -420,12 +421,6 @@ function cloneAcpConfigOverrides(value: unknown): AcpConfigChange[] {
     configId: change.configId,
     value: Array.isArray(change.value) ? [...change.value] : change.value,
   }));
-}
-
-interface AcpSessionOptionsRecord {
-  additionalDirectories: string[];
-  configOverrides: AcpConfigChange[];
-  mcpServers: UnknownRecord[];
 }
 
 export interface AgentPublicState extends UnknownRecord {
@@ -1328,7 +1323,7 @@ class AgentManager extends EventEmitter {
   declare adaptiveTitlePersistence: AgentAdaptiveTitlePersistenceCoordinator;
   declare acpTurnFinalizationCoordinator: AcpTurnFinalizationCoordinator;
   declare attentionTracker: AgentAttentionTracker;
-  declare acpSessionOptionsByKey: Map<string, AcpSessionOptionsRecord>;
+  declare acpSessionOptionsStore: AcpSessionOptionsStore;
   declare acpTranscriptService: AcpTranscriptService;
   declare createProviderSessionIdentity: CreateProviderSessionIdentityContract;
   declare deleteProviderSessionIdentity: DeleteProviderSessionIdentityContract;
@@ -1628,7 +1623,7 @@ class AgentManager extends EventEmitter {
     // Standard ACP session inputs may contain MCP credentials. Keep the live
     // copy outside browser-facing Agent records; crash recovery persists it
     // only through the private Farming session store.
-    this.acpSessionOptionsByKey = new Map();
+    this.acpSessionOptionsStore = new AcpSessionOptionsStore();
     const transcriptMediaPathPrefix = typeof options.transcriptMediaPathPrefix === 'function'
       ? options.transcriptMediaPathPrefix
       : (agentId: string) => `/api/agents/${encodeURIComponent(agentId)}/acp-media`;
@@ -1832,7 +1827,7 @@ class AgentManager extends EventEmitter {
       if (sessionId && String(agent.providerSessionId || '') !== String(sessionId)) return;
       const sessionKey = String(agent.providerSessionKey || '');
       if (!sessionKey) return;
-      let current = this.acpSessionOptionsByKey.get(sessionKey);
+      let current = this.acpSessionOptionsStore.get(sessionKey);
       if (!current) {
         try {
           const requestOptions = this.acpRuntime.getSessionRequestOptions(agent.id);
@@ -1845,7 +1840,7 @@ class AgentManager extends EventEmitter {
           current = { additionalDirectories: [], configOverrides: [], mcpServers: [] };
         }
       }
-      this.acpSessionOptionsByKey.set(sessionKey, {
+      this.acpSessionOptionsStore.set(sessionKey, {
         additionalDirectories: [...current.additionalDirectories],
         configOverrides: cloneAcpConfigOverrides(configOverrides),
         mcpServers: JSON.parse(JSON.stringify(current.mcpServers)),
@@ -3111,7 +3106,7 @@ class AgentManager extends EventEmitter {
           throw new Error('ACP runtime Host binding does not match the persisted provider Session');
         }
         const requestOptions = this.acpRuntime.getSessionRequestOptions(agentId);
-        this.acpSessionOptionsByKey.set(String(agent.providerSessionKey || ''), {
+        this.acpSessionOptionsStore.set(String(agent.providerSessionKey || ''), {
           additionalDirectories: [...requestOptions.additionalDirectories],
           configOverrides: cloneAcpConfigOverrides(requestOptions.configOverrides),
           mcpServers: JSON.parse(JSON.stringify(requestOptions.mcpServers)),
@@ -3329,7 +3324,7 @@ class AgentManager extends EventEmitter {
           // The live binding already validated these options. Retain the
           // projected copy for custom runtimes that do not expose it.
         }
-        this.acpSessionOptionsByKey.set(String(agent.providerSessionKey || ''), {
+        this.acpSessionOptionsStore.set(String(agent.providerSessionKey || ''), {
           additionalDirectories: [...recoveredSessionOptions.additionalDirectories],
           configOverrides: cloneAcpConfigOverrides(recoveredSessionOptions.configOverrides),
           mcpServers: JSON.parse(JSON.stringify(recoveredSessionOptions.mcpServers)),
@@ -3851,7 +3846,7 @@ class AgentManager extends EventEmitter {
     this.assertPersistentAgentRuntimeOwner(agent);
     const previousAgentRecordId = agent.agentRecordId || agent.persistentSessionId || '';
     const sessionOptions = agent.providerSessionKey
-      ? this.acpSessionOptionsByKey.get(agent.providerSessionKey)
+      ? this.acpSessionOptionsStore.get(agent.providerSessionKey)
       : null;
     const agentRecordId = this.configManager.ensureAgentSessionRecord(agent, {
       ...(sessionOptions ? {
@@ -4693,7 +4688,7 @@ class AgentManager extends EventEmitter {
     this.terminalStartupCoordinator.dispose();
     this.adaptiveTitlePersistence.clearPending();
     this.acpTurnFinalizationCoordinator.dispose();
-    this.acpSessionOptionsByKey.clear();
+    this.acpSessionOptionsStore.clear();
     this.attentionTracker.cancelAllQwenTerminalIdleCandidates();
     this.disposed = true;
   }
@@ -5568,13 +5563,13 @@ class AgentManager extends EventEmitter {
         && Array.isArray(previousState.acpAdditionalDirectories)
         && Array.isArray(previousState.acpMcpServers)
       ) {
-        this.acpSessionOptionsByKey.set(sessionKey, {
+        this.acpSessionOptionsStore.set(sessionKey, {
           additionalDirectories: [...previousState.acpAdditionalDirectories],
           configOverrides: cloneAcpConfigOverrides(previousState.acpConfigOverrides),
           mcpServers: JSON.parse(JSON.stringify(previousState.acpMcpServers)),
         });
       } else {
-        this.acpSessionOptionsByKey.delete(sessionKey);
+        this.acpSessionOptionsStore.delete(sessionKey);
       }
     };
 
@@ -5669,7 +5664,7 @@ class AgentManager extends EventEmitter {
         agentRecord.providerSessionTemporary = false;
         agentRecord.providerSessionSource = providerSessionPlan.source;
         agentRecord.providerSessionResolvedAt = Date.now();
-        this.acpSessionOptionsByKey.set(String(agentRecord.providerSessionKey || ''), {
+        this.acpSessionOptionsStore.set(String(agentRecord.providerSessionKey || ''), {
           additionalDirectories: Array.isArray(normalizedSessionOptions.additionalDirectories)
             ? [...normalizedSessionOptions.additionalDirectories]
             : [],
@@ -5800,7 +5795,7 @@ class AgentManager extends EventEmitter {
           }
           : { additionalDirectories: [], configOverrides: [], mcpServers: [] };
         const rememberedSessionOptions: AcpSessionOptionsRecord = sessionOptionsKey
-          ? this.acpSessionOptionsByKey.get(sessionOptionsKey) || persistedSessionOptions
+          ? this.acpSessionOptionsStore.get(sessionOptionsKey) || persistedSessionOptions
           : persistedSessionOptions;
         const additionalDirectories = Array.isArray(options.additionalDirectories)
           ? options.additionalDirectories
@@ -5880,7 +5875,7 @@ class AgentManager extends EventEmitter {
               // The live binding already validated the scope. Retain the caller
               // copy only for custom runtimes that do not expose it.
             }
-            this.acpSessionOptionsByKey.set(String(agentRecord.providerSessionKey || ''), {
+            this.acpSessionOptionsStore.set(String(agentRecord.providerSessionKey || ''), {
               additionalDirectories: [...normalizedSessionOptions.additionalDirectories],
               configOverrides: [],
               mcpServers: JSON.parse(JSON.stringify(normalizedSessionOptions.mcpServers)),
@@ -5933,7 +5928,7 @@ class AgentManager extends EventEmitter {
           // prepareAgent already validated the request; retain the caller copy
           // only for custom runtimes that do not expose the normalized scope.
         }
-        this.acpSessionOptionsByKey.set(String(agentRecord.providerSessionKey || ''), {
+        this.acpSessionOptionsStore.set(String(agentRecord.providerSessionKey || ''), {
           additionalDirectories: [...normalizedSessionOptions.additionalDirectories],
           configOverrides: cloneAcpConfigOverrides(normalizedSessionOptions.configOverrides),
           mcpServers: JSON.parse(JSON.stringify(normalizedSessionOptions.mcpServers)),
@@ -6075,9 +6070,9 @@ class AgentManager extends EventEmitter {
             cleanupError && (cleanupError.message || cleanupError)
           );
         }
-        this.acpSessionOptionsByKey.delete(precreatedProviderSession.sessionKey);
+        this.acpSessionOptionsStore.delete(precreatedProviderSession.sessionKey);
       } else if (precreatedProviderSession) {
-        this.acpSessionOptionsByKey.delete(precreatedProviderSession.sessionKey);
+        this.acpSessionOptionsStore.delete(precreatedProviderSession.sessionKey);
       }
       const startupError = error && (error.message || String(error));
       const cleanupSuffix = rollbackError
@@ -7567,7 +7562,7 @@ class AgentManager extends EventEmitter {
     }
     const acpConfigOverrides = cloneAcpConfigOverrides(
       agent.providerSessionKey
-        ? this.acpSessionOptionsByKey.get(agent.providerSessionKey)?.configOverrides
+        ? this.acpSessionOptionsStore.get(agent.providerSessionKey)?.configOverrides
         : [],
     );
     const restartOptions: ProviderStartOptions = {
@@ -7811,7 +7806,7 @@ class AgentManager extends EventEmitter {
     }
     const acpConfigOverrides = cloneAcpConfigOverrides(
       agent.providerSessionKey
-        ? this.acpSessionOptionsByKey.get(agent.providerSessionKey)?.configOverrides
+        ? this.acpSessionOptionsStore.get(agent.providerSessionKey)?.configOverrides
         : [],
     );
     const restartOptions: ProviderStartOptions = {

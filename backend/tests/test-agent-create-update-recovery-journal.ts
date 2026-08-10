@@ -519,7 +519,7 @@ async function run() {
       { name: 'old', command: '/bin/old', args: [], env: [] },
     ]);
     assert.deepStrictEqual(
-      recoveredManager.acpSessionOptionsByKey.get(
+      recoveredManager.acpSessionOptionsStore.get(
         scopeRollbackKey,
       ),
       {
@@ -530,7 +530,7 @@ async function run() {
       'Create rollback must restore the in-memory ACP scope as well as disk metadata',
     );
     assert.strictEqual(
-      recoveredManager.acpSessionOptionsByKey.has(scopeRollbackLegacyKey),
+      recoveredManager.acpSessionOptionsStore.has(scopeRollbackLegacyKey),
       false,
       'ACP scope ownership must use only the canonical v2 Provider Session key',
     );

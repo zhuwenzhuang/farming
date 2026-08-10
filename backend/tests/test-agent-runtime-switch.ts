@@ -177,7 +177,7 @@ function deferred() {
     status: 'running',
     output: '',
   });
-  manager.acpSessionOptionsByKey.set(`agent-session:codex:home:zwz:${sessionId}`, {
+  manager.acpSessionOptionsStore.set(`agent-session:codex:home:zwz:${sessionId}`, {
     additionalDirectories: [],
     configOverrides: [{ configId: 'fast-mode', value: true }],
     mcpServers: [],
@@ -268,7 +268,7 @@ function deferred() {
     status: 'running',
     output: '',
   });
-  manager.acpSessionOptionsByKey.set(permissionSessionKey, {
+  manager.acpSessionOptionsStore.set(permissionSessionKey, {
     additionalDirectories: [],
     configOverrides: [
       { configId: 'model', value: 'gpt-5.6-luna' },
