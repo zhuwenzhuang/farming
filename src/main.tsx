@@ -309,6 +309,7 @@ async function renderApplication() {
   await import('./styles/history.css')
   await import('./styles/empty.css')
   await import('./styles/language-server.css')
+  await import('./styles/desktop-backend.css')
   await import('./styles/code-dark.css')
   await import('./styles/file-editor-dark.css')
   await import('./styles/pet-dark.css')
@@ -323,6 +324,7 @@ async function renderApplication() {
   await import('./styles/history-dark.css')
   await import('./styles/empty-dark.css')
   await import('./styles/language-server-dark.css')
+  await import('./styles/desktop-backend-dark.css')
   const { App } = await import('./App')
   root.render(<ApplicationErrorBoundary><App /></ApplicationErrorBoundary>)
 }
