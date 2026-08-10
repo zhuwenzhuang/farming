@@ -173,6 +173,9 @@ HTTP, WebSocket, persistence, and runtime-host boundaries.
 - Heartbeat scheduling owns the timer and zombie-sweep cadence. The Manager
   handles one tick's domain effects, but it does not own timer handles or
   elapsed-sweep bookkeeping.
+- Task history storage owns the bounded in-memory list and persistence rollback.
+  Archive and Delete build history entries but do not replace or repair the
+  owned list when a durable append fails.
 - Provider adapters expose typed decisions such as permission restart,
   Terminal identity/startup constraints, idle stability, and conversation Fork
   policy. Generic lifecycle code does not interpret provider names. A shared

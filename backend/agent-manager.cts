@@ -210,6 +210,7 @@ import {
   AgentHeartbeatScheduler,
   type AgentHeartbeatTick,
 } from './agent-heartbeat-scheduler.cjs';
+import { AgentTaskHistoryStore } from './agent-task-history-store.cjs';
 import { AgentAdaptiveTitlePersistenceCoordinator } from './agent-adaptive-title-persistence.cjs';
 import {
   WorktreeGitService,
@@ -1328,6 +1329,7 @@ class AgentManager extends EventEmitter {
   declare recoveryGate: AgentRecoveryGate;
   declare shutdownState: AgentShutdownState;
   declare heartbeatScheduler: AgentHeartbeatScheduler;
+  declare taskHistoryStore: AgentTaskHistoryStore;
   declare acpTranscriptService: AcpTranscriptService;
   declare createProviderSessionIdentity: CreateProviderSessionIdentityContract;
   declare deleteProviderSessionIdentity: DeleteProviderSessionIdentityContract;
@@ -1339,7 +1341,6 @@ class AgentManager extends EventEmitter {
   declare systemMonitor: SystemMonitor;
   declare startTime: number;
   declare providerSessionService: ProviderSessionServiceRuntimeContract;
-  declare taskHistory: UnknownRecord[];
 
   registerAgentRecord(agentId: AgentId, agent: TypedAgentRecord): void {
     const previous = this.agents.get(agentId);
@@ -1730,9 +1731,7 @@ class AgentManager extends EventEmitter {
       runtime: this.acpRuntime,
       updateProviderMetadata: agent => this.updateEngineProviderSessionMetadata(agent),
     });
-    this.taskHistory = (this.configManager && this.configManager.getTaskHistory)
-      ? [...this.configManager.getTaskHistory()]
-      : [];
+    this.taskHistoryStore = new AgentTaskHistoryStore(this.configManager);
     this.heartbeatScheduler.start();
     this.bindEngineEvents();
     this.bindAcpRuntimeEvents();
@@ -8682,10 +8681,7 @@ class AgentManager extends EventEmitter {
       lastActivity: this.activityTracker.get(agent.id, 0) || null,
       archivedAt: options.archivedAt || Date.now(),
     };
-    this.taskHistory = [entry, ...this.taskHistory].slice(0, 200);
-    if (this.configManager && this.configManager.appendTaskHistory) {
-      this.configManager.appendTaskHistory(entry);
-    }
+    this.taskHistoryStore.append(entry);
   }
 
   archiveAgent(agentId: AgentId, options: ArchiveAgentOptions = {}): Promise<ArchiveAgentResult> {
@@ -8787,7 +8783,6 @@ class AgentManager extends EventEmitter {
 
     let historyWarning = '';
     if (!admission.joined && options.recordHistory !== false && !isEphemeralShellAgent(agent)) {
-      const previousTaskHistory = this.taskHistory;
       try {
         this.recordTaskHistory(agent, {
           reason: options.reason || 'manual-archive',
@@ -8795,7 +8790,6 @@ class AgentManager extends EventEmitter {
         });
       } catch (caughtError: unknown) {
       const error = caughtError as ErrorRecord;
-        this.taskHistory = previousTaskHistory;
         historyWarning = `Agent stopped, but history could not be saved: ${error.message || error}`;
         console.error(historyWarning);
       }
@@ -9249,7 +9243,6 @@ class AgentManager extends EventEmitter {
 
     let historyWarning = '';
     if (options.recordHistory !== false && !isEphemeralShellAgent(agent)) {
-      const previousTaskHistory = this.taskHistory;
       try {
         this.recordTaskHistory(agent, {
           reason: options.reason || 'manual-kill',
@@ -9257,7 +9250,6 @@ class AgentManager extends EventEmitter {
         });
       } catch (caughtError: unknown) {
       const error = caughtError as ErrorRecord;
-        this.taskHistory = previousTaskHistory;
         historyWarning = `Agent stopped, but history could not be saved: ${error.message || error}`;
         console.error(historyWarning);
       }
@@ -9728,7 +9720,7 @@ class AgentManager extends EventEmitter {
   getStateMetadata(): Omit<AgentManagerState, 'agents'> {
     return {
       mainAgentId: this.mainAgentId,
-      taskHistory: this.taskHistory,
+      taskHistory: this.taskHistoryStore.list(),
     };
   }
   

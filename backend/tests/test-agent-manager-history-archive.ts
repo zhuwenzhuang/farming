@@ -96,8 +96,8 @@ async function run() {
 
     assert.strictEqual(manager.agents.has('sub-zombie'), false, 'zombie sub agent should be killed');
     assert.strictEqual(manager.agents.has('main-1'), true, 'main agent should never be auto-killed');
-    assert.strictEqual(manager.taskHistory.length, 1, 'zombie kill should create one history entry');
-    assert.strictEqual(manager.taskHistory[0].reason, 'zombie-cleanup');
+    assert.strictEqual(manager.taskHistoryStore.list().length, 1, 'zombie kill should create one history entry');
+    assert.strictEqual(manager.taskHistoryStore.list()[0].reason, 'zombie-cleanup');
     assert.strictEqual(appended.length, 1, 'history should be persisted through config manager');
 
     manager.agents.set('sub-manual', {
@@ -113,8 +113,8 @@ async function run() {
     manager.activityTracker.record('sub-manual', now);
 
     await manager.killAgent('sub-manual');
-    assert.strictEqual(manager.taskHistory.length, 2, 'manual kill should also be archived');
-    assert.strictEqual(manager.taskHistory[0].reason, 'manual-kill');
+    assert.strictEqual(manager.taskHistoryStore.list().length, 2, 'manual kill should also be archived');
+    assert.strictEqual(manager.taskHistoryStore.list()[0].reason, 'manual-kill');
 
     manager.agents.set('sub-archive', {
       id: 'sub-archive',
@@ -192,11 +192,11 @@ async function run() {
     );
     assert.deepStrictEqual(settings.mainPageSessionKeys, [encodeProviderSessionKey('codex', 'other-session', 'default')]);
     assert.strictEqual(manager.agents.has('sub-archive'), false, 'archived live agents should leave live state');
-    assert.strictEqual(manager.taskHistory.length, 3, 'archive should create a history run');
-    assert.strictEqual(manager.taskHistory[0].reason, 'manual-archive');
-    assert.strictEqual(manager.taskHistory[0].projectWorkspace, '/repo');
-    assert.strictEqual(manager.taskHistory[0].title, 'Named archive run');
-    assert.strictEqual(manager.taskHistory[0].customTitle, 'Named archive run');
+    assert.strictEqual(manager.taskHistoryStore.list().length, 3, 'archive should create a history run');
+    assert.strictEqual(manager.taskHistoryStore.list()[0].reason, 'manual-archive');
+    assert.strictEqual(manager.taskHistoryStore.list()[0].projectWorkspace, '/repo');
+    assert.strictEqual(manager.taskHistoryStore.list()[0].title, 'Named archive run');
+    assert.strictEqual(manager.taskHistoryStore.list()[0].customTitle, 'Named archive run');
 
     const providerArchiveCallsBeforeFreshArchive = codexArchiveCalls.length;
     manager.agents.set('fresh-codex-acp', {
@@ -240,7 +240,7 @@ async function run() {
       providerSessionKey: encodeProviderSessionKey('codex', 'provider-archive-retry', 'default'),
       task: 'provider archive retry',
     });
-    const historyBeforeProviderRetry = manager.taskHistory.length;
+    const historyBeforeProviderRetry = manager.taskHistoryStore.list().length;
     const failedProviderArchive = await manager.archiveAgent('provider-archive-retry', { recordHistory: false });
     assert.strictEqual(failedProviderArchive.archived, true);
     assert.strictEqual(failedProviderArchive.providerArchived, false);
@@ -253,7 +253,7 @@ async function run() {
     assert.strictEqual(retriedProviderArchive.archived, true);
     assert.strictEqual(manager.agents.has('provider-archive-retry'), false);
     assert.strictEqual(
-      manager.taskHistory.length,
+      manager.taskHistoryStore.list().length,
       historyBeforeProviderRetry,
       'retrying only the provider phase must not append duplicate run history',
     );
@@ -306,7 +306,7 @@ async function run() {
       persistentSessionId: 'fsess_project-rollback',
       task: 'failed Project transition',
     });
-    const historyBeforeRollback = manager.taskHistory.length;
+    const historyBeforeRollback = manager.taskHistoryStore.list().length;
     const archiveCallsBeforeRollback = codexArchiveCalls.length;
     const rollbackArchive = await manager.archiveAgent('project-rollback', {
       reason: 'project-mount-failed',
@@ -316,7 +316,7 @@ async function run() {
     });
     assert.strictEqual(rollbackArchive.error, undefined);
     assert.strictEqual(manager.agents.has('project-rollback'), false);
-    assert.strictEqual(manager.taskHistory.length, historyBeforeRollback, 'failed Project admission should not create a completed run');
+    assert.strictEqual(manager.taskHistoryStore.list().length, historyBeforeRollback, 'failed Project admission should not create a completed run');
     assert.strictEqual(codexArchiveCalls.length, archiveCallsBeforeRollback, 'failed Project admission should not archive the provider conversation');
     assert(!settings.mainPageSessionKeys.includes(encodeProviderSessionKey('codex', 'rollback-session', 'default')));
     assert.strictEqual(persistedSessionPatches.at(-1).agentId, 'project-rollback');
@@ -346,7 +346,7 @@ async function run() {
     assert.strictEqual(archivedShell.error, undefined);
     assert.strictEqual(archivedShell.archived, true);
     assert.strictEqual(manager.agents.has('shell-archive'), false, 'archived shell agents should be destroyed');
-    assert.strictEqual(manager.taskHistory.length, 3, 'manual shell archive should not create a history run');
+    assert.strictEqual(manager.taskHistoryStore.list().length, 3, 'manual shell archive should not create a history run');
     assert.strictEqual(appended.length, 3, 'manual shell archive should not be persisted to task history');
 
     manager.agents.set('shell-kill', {
@@ -363,7 +363,7 @@ async function run() {
 
     await manager.killAgent('shell-kill');
     assert.strictEqual(manager.agents.has('shell-kill'), false, 'killed shell agents should be destroyed');
-    assert.strictEqual(manager.taskHistory.length, 3, 'manual shell kill should not create a history run');
+    assert.strictEqual(manager.taskHistoryStore.list().length, 3, 'manual shell kill should not create a history run');
     assert.strictEqual(appended.length, 3, 'manual shell kill should not be persisted to task history');
 
     manager.agents.set('unverifiable-kill', {
@@ -377,7 +377,7 @@ async function run() {
       task: 'must remain live until exit is proven',
     });
     unverifiableRuntimeIds.add('unverifiable-kill');
-    const historyBeforeUnverifiableKill = manager.taskHistory.length;
+    const historyBeforeUnverifiableKill = manager.taskHistoryStore.list().length;
     const unverifiableKill = await manager.killAgent('unverifiable-kill');
     assert.match(unverifiableKill.error, /runtime state unavailable/);
     assert.strictEqual(
@@ -386,7 +386,7 @@ async function run() {
       'kill must retain the live Agent when runtime exit cannot be verified',
     );
     assert.strictEqual(
-      manager.taskHistory.length,
+      manager.taskHistoryStore.list().length,
       historyBeforeUnverifiableKill,
       'an unverified kill must not record a completed history run',
     );
@@ -483,7 +483,7 @@ async function run() {
       status: 'stopped',
       source: 'ui',
     }, { reason: 'process-exit', archivedAt: now });
-    assert.strictEqual(manager.taskHistory.length, 3, 'central history recording should reject shell process exits');
+    assert.strictEqual(manager.taskHistoryStore.list().length, 3, 'central history recording should reject shell process exits');
     assert.strictEqual(appended.length, 3, 'shell process exits should never be persisted to task history');
 
     manager.recordTaskHistory({
@@ -493,7 +493,7 @@ async function run() {
       status: 'stopped',
       source: 'ui',
     }, { reason: 'process-exit', archivedAt: now });
-    assert.strictEqual(manager.taskHistory.length, 3, 'central history recording should reject unsupported Agents');
+    assert.strictEqual(manager.taskHistoryStore.list().length, 3, 'central history recording should reject unsupported Agents');
     assert.strictEqual(appended.length, 3, 'unsupported Agents should never be persisted to task history');
 
     settings.mainPageSessionKeys = [
