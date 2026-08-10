@@ -197,6 +197,12 @@ import {
   type WorktreeGitServicePort,
 } from './worktree-git-service.cjs';
 import { ForkOperationCoordinator, settleForkChildStart } from './fork-operation-coordinator.cjs';
+import {
+  AgentInputCoordinator,
+  type InputOperation,
+  type InputQueueOptions,
+  type ReleasedInputOperation,
+} from './agent-input-coordinator.cjs';
 import { TerminalStartupCoordinator } from './terminal-startup-coordinator.cjs';
 import {
   AgentComposerAdmissionCoordinator,
@@ -294,13 +300,6 @@ interface InterruptOptions extends UnknownRecord {
 
 interface ClearTerminalOptions extends UnknownRecord {
   expectedRuntimeEpoch?: string;
-}
-
-type InputOperation<Result> = () => Result | Promise<Result>;
-type ReleasedInputOperation<Result> = (releaseInput: () => void) => Result | Promise<Result>;
-
-interface InputQueueOptions {
-  admitted?: boolean;
 }
 
 interface ComposerSubmissionResult extends Record<string, unknown> {
@@ -1345,7 +1344,7 @@ class AgentManager extends EventEmitter {
   declare usageRateTracker: AgentUsageRateTracker;
   declare pendingResizeByAgent: Map<AgentId, TerminalSize>;
   declare resizeDrains: Map<AgentId, Promise<void>>;
-  declare inputQueues: Map<AgentId, Promise<unknown>>;
+  declare inputCoordinator: AgentInputCoordinator;
   declare composerAdmissionCoordinator: AgentComposerAdmissionCoordinator;
   declare codexTerminalProfileQueues: Map<AgentId, Promise<unknown>>;
   declare codexTerminalIdentityAttempts: Map<AgentId, string>;
@@ -1363,7 +1362,6 @@ class AgentManager extends EventEmitter {
     string,
     ProjectWorkspaceDeleteAdmission<DeleteProjectWorktreeResult | UnknownRecord>
   >;
-  declare activeInputOperations: Set<Promise<unknown>>;
   declare verifiedStoppedAgentIds: Set<AgentId>;
   declare codexSessionMutationQueues: Map<string, CodexSessionMutationAdmission<unknown>>;
   declare adaptiveTitlePersistence: AgentAdaptiveTitlePersistenceCoordinator;
@@ -1448,7 +1446,9 @@ class AgentManager extends EventEmitter {
     this.usageRateTracker = new AgentUsageRateTracker();
     this.pendingResizeByAgent = new Map();
     this.resizeDrains = new Map();
-    this.inputQueues = new Map();
+    this.inputCoordinator = new AgentInputCoordinator({
+      isShuttingDown: () => this.disposing,
+    });
     this.composerAdmissionCoordinator = new AgentComposerAdmissionCoordinator({
       captureDeliveryOwner: agent => {
         const expectedAgent = agent;
@@ -1638,7 +1638,6 @@ class AgentManager extends EventEmitter {
     this.createRequestAdmissions = new Map();
     this.projectOperationAdmissions = new Map();
     this.projectWorkspaceDeleteAdmissions = new Map();
-    this.activeInputOperations = new Set();
     this.verifiedStoppedAgentIds = new Set();
     this.codexSessionMutationQueues = new Map();
     this.adaptiveTitlePersistence = new AgentAdaptiveTitlePersistenceCoordinator({
@@ -5073,12 +5072,11 @@ class AgentManager extends EventEmitter {
     this.agentWorktreeResolveGeneration.clear();
     this.agentLifecycleOperations.clear();
     this.agentStartAdmissions.clear();
-    this.activeInputOperations.clear();
+    this.inputCoordinator.dispose();
     this.verifiedStoppedAgentIds.clear();
     this.permissionRestartSuppressedAgentIds.clear();
     this.pendingResizeByAgent.clear();
     this.resizeDrains.clear();
-    this.inputQueues.clear();
     this.codexTerminalProfileQueues.clear();
     this.codexTerminalIdentityAttempts.clear();
     this.codexTerminalIdentityPromises.clear();
@@ -5101,7 +5099,7 @@ class AgentManager extends EventEmitter {
       for (const entry of this.agentStartAdmissions.values()) {
         if (entry?.promise) pending.add(entry.promise);
       }
-      for (const operation of this.activeInputOperations) pending.add(operation);
+      for (const operation of this.inputCoordinator.pendingOperations()) pending.add(operation);
       for (const operation of this.resizeDrains.values()) pending.add(operation);
       const adaptiveTitleDrain = this.adaptiveTitlePersistence.activeDrain();
       if (adaptiveTitleDrain) pending.add(adaptiveTitleDrain);
@@ -6622,14 +6620,6 @@ class AgentManager extends EventEmitter {
     }
   }
   
-  trackInputOperation<Result>(operation: Promise<Result>): Promise<Result> {
-    this.activeInputOperations.add(operation);
-    void operation.finally(() => {
-      this.activeInputOperations.delete(operation);
-    }).catch(() => {});
-    return operation;
-  }
-
   assertAgentOperationAdmission() {
     if (this.disposing) {
       throw new Error('Farming is shutting down; Agent operations are not accepted');
@@ -6641,56 +6631,14 @@ class AgentManager extends EventEmitter {
     operation: InputOperation<Result>,
     options: InputQueueOptions = {},
   ): Promise<Result> {
-    if (this.disposing && options.admitted !== true) {
-      throw new Error('Farming is shutting down; Agent input is not accepted');
-    }
-    const previous = this.inputQueues.get(agentId) || Promise.resolve();
-    const next = previous
-      .catch(() => {})
-      .then(operation);
-
-    this.inputQueues.set(agentId, next);
-    this.trackInputOperation(next);
-    try {
-      return await next;
-    } finally {
-      if (this.inputQueues.get(agentId) === next) {
-        this.inputQueues.delete(agentId);
-      }
-    }
+    return this.inputCoordinator.enqueue(agentId, operation, options);
   }
 
   async enqueueInputOperationUntilReleased<Result>(
     agentId: AgentId,
     operation: ReleasedInputOperation<Result>,
   ): Promise<Result> {
-    if (this.disposing) {
-      throw new Error('Farming is shutting down; Agent input is not accepted');
-    }
-    const previous = this.inputQueues.get(agentId) || Promise.resolve();
-    let released = false;
-    let resolveReleased!: () => void;
-    const releasedPromise = new Promise<void>(resolve => {
-      resolveReleased = resolve;
-    });
-    const release = () => {
-      if (released) return;
-      released = true;
-      resolveReleased();
-    };
-
-    const ready = previous.catch(() => {});
-    const completion = ready.then(() => operation(release));
-    this.trackInputOperation(completion);
-    completion.catch(() => release());
-    const boundary = ready.then(() => releasedPromise);
-    this.inputQueues.set(agentId, boundary);
-    boundary.then(() => {
-      if (this.inputQueues.get(agentId) === boundary) {
-        this.inputQueues.delete(agentId);
-      }
-    });
-    return completion;
+    return this.inputCoordinator.enqueueUntilReleased(agentId, operation);
   }
 
   async sendInput(
