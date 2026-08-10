@@ -305,6 +305,7 @@ async function renderApplication() {
   await import('./styles/sidebar-resources.css')
   await import('./styles/usage.css')
   await import('./styles/markdown.css')
+  await import('./styles/search.css')
   await import('./styles/code-dark.css')
   await import('./styles/file-editor-dark.css')
   await import('./styles/pet-dark.css')
@@ -315,6 +316,7 @@ async function renderApplication() {
   await import('./styles/share-dark.css')
   await import('./styles/usage-dark.css')
   await import('./styles/markdown-dark.css')
+  await import('./styles/search-dark.css')
   const { App } = await import('./App')
   root.render(<ApplicationErrorBoundary><App /></ApplicationErrorBoundary>)
 }
