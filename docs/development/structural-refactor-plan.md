@@ -118,6 +118,10 @@ HTTP, WebSocket, persistence, and runtime-host boundaries.
 - Fork is owned by a coordinator with explicit inputs, effects, rollback, and
   uncertain outcomes over narrow Worktree, lifecycle-persistence, and ACP
   runtime ports. Remaining Manager domains follow the same port discipline.
+- Per-Agent lifecycle exclusion is owned by one coordinator. It owns operation
+  tokens, replacement-Agent adoption, same-key joining, conflicting-operation
+  ordering, shutdown admission, and drain visibility; the Manager supplies the
+  lifecycle effect but does not expose or mutate the coordinator's map.
 - Provider adapters expose typed decisions such as permission restart,
   Terminal identity/startup constraints, idle stability, and conversation Fork
   policy. Generic lifecycle code does not interpret provider names. A shared

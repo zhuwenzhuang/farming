@@ -4,11 +4,17 @@ const { commitAgentOrderTransaction } = require('../agent-order-transaction.cjs'
 function createOwner(agents) {
   const writes = [];
   const metadataUpdates = [];
+  const lifecycleOperations = new Map();
   let updateCount = 0;
   return {
     owner: {
       agents,
-      lifecycleOperations: new Map(),
+      getLifecycleOperation(agentId) {
+        return lifecycleOperations.get(agentId);
+      },
+      hasLifecycleOperation(agentId) {
+        return lifecycleOperations.has(agentId);
+      },
       persistAgent(agent) {
         writes.push({ ...agent });
       },
@@ -27,6 +33,7 @@ function createOwner(agents) {
       },
     },
     writes,
+    lifecycleOperations,
     metadataUpdates,
     updateCount: () => updateCount,
   };
@@ -81,7 +88,7 @@ function run() {
   );
 
   const conflict = createOwner(agents);
-  conflict.owner.lifecycleOperations.set('second', { label: 'Delete Agent' });
+  conflict.lifecycleOperations.set('second', { label: 'Delete Agent' });
   const blocked = commitAgentOrderTransaction(
     conflict.owner,
     'first',

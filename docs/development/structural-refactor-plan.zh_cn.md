@@ -98,6 +98,9 @@ Runtime Port 与 Provider Policy
 - Fork 已由一个 Coordinator 拥有：输入、效果、回滚和不确定结果都通过窄的
   Worktree、生命周期持久化和 ACP Runtime Port 明确表达。Manager 剩余领域遵循
   同样的 Port 纪律。
+- 单 Agent 生命周期互斥由一个 Coordinator 统一拥有。Operation Token、替换 Agent
+  接管、同 Key 合并、冲突操作排序、停机准入和 Drain 可见性都属于它；Manager 只
+  提供生命周期 Effect，不再暴露或修改其 Map。
 - Provider Adapter 提供有类型的权限重启、Terminal 身份/启动约束、空闲稳定和会话
   Fork 策略；通用生命周期代码不解释 Provider 名称。共享 Terminal Startup
   Coordinator 拥有可变的排序和就绪状态；Adapter 只提供无状态的资源作用域和就绪策略。

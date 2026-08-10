@@ -35,7 +35,6 @@ import type {
   ProviderResumeOptions,
   ProviderStartOptions,
   RuntimeBindingRegistry,
-  RuntimeLifecycleEntry,
   SessionFromExactResumeSourceContract,
   StopPersistedAcpProcessResult,
   StopPersistedAcpProcessGroupContract,
@@ -198,6 +197,7 @@ import {
 import { inspectGitWorktree } from './git-worktree-info.cjs';
 import { isSameOrDescendantPath } from './path-containment.cjs';
 import { AgentWorktreeRefreshQueue } from './agent-worktree-refresh-queue.cjs';
+import { AgentLifecycleCoordinator } from './agent-lifecycle-coordinator.cjs';
 import { AgentAdaptiveTitlePersistenceCoordinator } from './agent-adaptive-title-persistence.cjs';
 import {
   WorktreeGitService,
@@ -366,15 +366,6 @@ interface AgentOrderNeighbors {
 
 type AgentOrderField = 'pinnedOrder' | 'projectOrder';
 type AgentOrderUpdates = Map<string, number>;
-
-interface AgentLifecycleEntry<Result = unknown> {
-  agentIds: Set<AgentId>;
-  key: string;
-  kind: string;
-  label: string;
-  promise: Promise<Result>;
-  token: symbol;
-}
 
 interface RuntimeReplacementResult {
   error: string;
@@ -1338,7 +1329,7 @@ class AgentManager extends EventEmitter {
   declare agentWorktreeRefreshQueue: AgentWorktreeRefreshQueue;
   declare worktreeGitService: WorktreeGitServicePort;
   declare forkOperationCoordinator: ForkOperationCoordinator;
-  declare agentLifecycleOperations: Map<AgentId, AgentLifecycleEntry<unknown>>;
+  declare lifecycleCoordinator: AgentLifecycleCoordinator;
   declare agentStartAdmissions: Map<symbol, AgentStartAdmission>;
   declare createRequestAdmissions: Map<string, CreateRequestAdmission>;
   declare projectOperationAdmissions: Map<string, ProjectOperationAdmission<unknown>>;
@@ -1615,7 +1606,9 @@ class AgentManager extends EventEmitter {
       },
       waitForRecovery: () => this.whenRecovered(),
     });
-    this.agentLifecycleOperations = new Map();
+    this.lifecycleCoordinator = new AgentLifecycleCoordinator({
+      isShuttingDown: () => this.disposing,
+    });
     this.agentStartAdmissions = new Map();
     this.createRequestAdmissions = new Map();
     this.projectOperationAdmissions = new Map();
@@ -4161,7 +4154,7 @@ class AgentManager extends EventEmitter {
       || match.record.runtimeAgentId
       || '',
     ).trim();
-    const inFlight = agentId ? this.agentLifecycleOperations.get(agentId) : null;
+    const inFlight = agentId ? this.lifecycleCoordinator.get(agentId) : null;
     if (inFlight && !TERMINAL_OPERATION_STATES.has(match.operation.state)) {
       await inFlight.promise.catch(() => {});
       return this.replayPersistentCreateRequest(createRequestId, requestSignature);
@@ -4724,7 +4717,7 @@ class AgentManager extends EventEmitter {
     this.providerSessionService.dispose();
     this.acpPreparedTranscriptCache.dispose();
     this.acpTranscriptReads.clear();
-    this.agentLifecycleOperations.clear();
+    this.lifecycleCoordinator.clear();
     this.agentStartAdmissions.clear();
     this.inputCoordinator.dispose();
     this.agentShellEnvResolver.dispose();
@@ -4746,11 +4739,7 @@ class AgentManager extends EventEmitter {
   async drainAcceptedAgentOperations() {
     while (true) {
       const pending = new Set();
-      for (const entry of new Set<RuntimeLifecycleEntry>(
-        this.agentLifecycleOperations.values() as Iterable<RuntimeLifecycleEntry>,
-      )) {
-        if (entry?.promise) pending.add(entry.promise);
-      }
+      for (const operation of this.lifecycleCoordinator.pendingOperations()) pending.add(operation);
       for (const entry of this.agentStartAdmissions.values()) {
         if (entry?.promise) pending.add(entry.promise);
       }
@@ -4877,11 +4866,7 @@ class AgentManager extends EventEmitter {
     callback: AgentStartCallback | null,
     options: AgentStartOptions = {},
   ): Promise<AgentId | null> {
-    const lifecycleEntries = this.agentLifecycleOperations.values() as Iterable<RuntimeLifecycleEntry>;
-    const lifecycleEntry = options.lifecycleToken
-      ? [...new Set(lifecycleEntries)]
-          .find(entry => entry.token === options.lifecycleToken)
-      : null;
+    const lifecycleEntry = this.lifecycleCoordinator.hasToken(options.lifecycleToken);
     if (this.disposing && !lifecycleEntry) {
       const error = 'Farming is shutting down; new Agents are not accepted';
       if (callback) callback(null, error);
@@ -6308,7 +6293,7 @@ class AgentManager extends EventEmitter {
     requestId: string,
     options: ComposerMessageOptions = {},
   ): Promise<unknown> {
-    const lifecycleOperation = this.agentLifecycleOperations.get(agentId);
+    const lifecycleOperation = this.lifecycleCoordinator.get(agentId);
     if (lifecycleOperation) {
       return Promise.reject(new Error(
         `Agent lifecycle change already in progress: ${lifecycleOperation.label}`,
@@ -6329,7 +6314,7 @@ class AgentManager extends EventEmitter {
     message: unknown,
     options: ComposerMessageOptions = {},
   ): Promise<unknown> {
-    const lifecycleOperation = this.agentLifecycleOperations.get(agentId);
+    const lifecycleOperation = this.lifecycleCoordinator.get(agentId);
     if (lifecycleOperation) {
       throw new Error(`Agent lifecycle change already in progress: ${lifecycleOperation.label}`);
     }
@@ -7256,7 +7241,7 @@ class AgentManager extends EventEmitter {
     if (this.disposing) {
       return { error: 'Farming is shutting down; Agent updates are not accepted' };
     }
-    const lifecycleOperation = this.agentLifecycleOperations.get(agentId);
+    const lifecycleOperation = this.lifecycleCoordinator.get(agentId);
     if (lifecycleOperation) {
       return { error: `Agent lifecycle change already in progress: ${lifecycleOperation.label}` };
     }
@@ -7308,7 +7293,7 @@ class AgentManager extends EventEmitter {
     if (this.disposing) {
       return { error: 'Farming is shutting down; Agent title updates are not accepted' };
     }
-    const lifecycleOperation = this.agentLifecycleOperations.get(agentId);
+    const lifecycleOperation = this.lifecycleCoordinator.get(agentId);
     if (lifecycleOperation) {
       return { error: `Agent lifecycle change already in progress: ${lifecycleOperation.label}` };
     }
@@ -7338,7 +7323,7 @@ class AgentManager extends EventEmitter {
     if (this.disposing) {
       return { error: 'Farming is shutting down; Agent updates are not accepted' };
     }
-    const lifecycleOperation = this.agentLifecycleOperations.get(agentId);
+    const lifecycleOperation = this.lifecycleCoordinator.get(agentId);
     if (lifecycleOperation) {
       return { error: `Agent lifecycle change already in progress: ${lifecycleOperation.label}` };
     }
@@ -7386,7 +7371,7 @@ class AgentManager extends EventEmitter {
     if (this.disposing) {
       return { error: 'Farming is shutting down; Agent updates are not accepted' };
     }
-    const lifecycleOperation = this.agentLifecycleOperations.get(agentId);
+    const lifecycleOperation = this.lifecycleCoordinator.get(agentId);
     if (lifecycleOperation) {
       return { error: `Agent lifecycle change already in progress: ${lifecycleOperation.label}` };
     }
@@ -7605,7 +7590,8 @@ class AgentManager extends EventEmitter {
     const updatedAgentIds = [...orderUpdates.keys()];
     const result = commitAgentOrderTransaction({
       agents: this.agents,
-      lifecycleOperations: this.agentLifecycleOperations,
+      getLifecycleOperation: agentId => this.lifecycleCoordinator.get(agentId),
+      hasLifecycleOperation: agentId => this.lifecycleCoordinator.has(agentId),
       persistAgent: (agent: TypedAgentRecord) => this.ensurePersistentAgentSession(agent),
       updateRuntimeMetadata: (agent: TypedAgentRecord) => this.updateEngineProviderSessionMetadata(agent),
       emitUpdate: () => this.emitStateChange({ agentIds: updatedAgentIds }),
@@ -7629,7 +7615,7 @@ class AgentManager extends EventEmitter {
     if (this.disposing) {
       return { error: 'Farming is shutting down; Agent updates are not accepted' };
     }
-    const lifecycleOperation = this.agentLifecycleOperations.get(agentId);
+    const lifecycleOperation = this.lifecycleCoordinator.get(agentId);
     if (lifecycleOperation) {
       return { error: `Agent lifecycle change already in progress: ${lifecycleOperation.label}` };
     }
@@ -7654,97 +7640,33 @@ class AgentManager extends EventEmitter {
     operation: (token: symbol) => Result,
     sameKindConflictError = '',
   ): Promise<Awaited<Result> | { error: string }> {
-    const inFlight = this.agentLifecycleOperations.get(agentId) as AgentLifecycleEntry<Awaited<Result>> | undefined;
-    if (inFlight) {
-      if (inFlight.key === key) return inFlight.promise;
-      if (sameKindConflictError && inFlight.kind === kind) {
-        return Promise.resolve({ error: sameKindConflictError });
-      }
-      return inFlight.promise
-        .catch(() => {})
-        .then(() => this.runAgentLifecycleOperation(
-          agentId,
-          key,
-          kind,
-          label,
-          operation,
-          sameKindConflictError,
-        ));
-    }
-    if (this.disposing) {
-      return Promise.resolve({ error: 'Farming is shutting down; Agent lifecycle changes are not accepted' });
-    }
-
-    const token = Symbol(key);
-    const promise = Promise.resolve().then(() => operation(token)) as Promise<Awaited<Result>>;
-    const entry: AgentLifecycleEntry<Awaited<Result>> = {
+    return this.lifecycleCoordinator.run(
+      agentId,
       key,
       kind,
       label,
-      token,
-      promise,
-      agentIds: new Set([agentId]),
-    };
-    this.agentLifecycleOperations.set(agentId, entry);
-    void promise.finally(() => {
-      for (const ownedAgentId of entry.agentIds) {
-        if (this.agentLifecycleOperations.get(ownedAgentId) === entry) {
-          this.agentLifecycleOperations.delete(ownedAgentId);
-        }
-      }
-    }).catch(() => {});
-    return promise;
+      operation,
+      sameKindConflictError,
+    );
   }
 
   async whenAgentLifecycleIdle(agentId: AgentId) {
     await this.whenRecovered();
-    while (true) {
-      const inFlight = this.agentLifecycleOperations.get(agentId);
-      if (!inFlight) return;
-      await inFlight.promise.catch(() => {});
-    }
+    await this.lifecycleCoordinator.whenIdle(agentId);
   }
 
   beginAgentStartLifecycleOperation(
     agentId: AgentId,
     startAdmissionToken: symbol,
   ): (() => void) | null {
-    if (this.agentLifecycleOperations.has(agentId)) return null;
-    if (this.disposing && !this.agentStartAdmissions.has(startAdmissionToken)) return null;
-    let resolveCompletion!: (value: unknown) => void;
-    const promise = new Promise<unknown>(resolve => {
-      resolveCompletion = resolve;
-    });
-    const entry: AgentLifecycleEntry<unknown> = {
-      key: 'start',
-      kind: 'start',
-      label: 'start',
-      token: Symbol('start'),
-      promise,
-      agentIds: new Set([agentId]),
-    };
-    this.agentLifecycleOperations.set(agentId, entry);
-    let finished = false;
-    return () => {
-      if (finished) return;
-      finished = true;
-      if (this.agentLifecycleOperations.get(agentId) === entry) {
-        this.agentLifecycleOperations.delete(agentId);
-      }
-      resolveCompletion({ agentId, started: true });
-    };
+    return this.lifecycleCoordinator.beginStart(
+      agentId,
+      this.agentStartAdmissions.has(startAdmissionToken),
+    );
   }
 
   adoptAgentLifecycleOperation(agentId: AgentId, lifecycleToken: symbol | undefined): boolean {
-    if (!lifecycleToken) return false;
-    const entries = [...new Set(this.agentLifecycleOperations.values())] as AgentLifecycleEntry[];
-    const entry = entries.find((candidate: AgentLifecycleEntry) => candidate.token === lifecycleToken);
-    if (!entry) return false;
-    const existing = this.agentLifecycleOperations.get(agentId);
-    if (existing && existing !== entry) return false;
-    entry.agentIds.add(agentId);
-    this.agentLifecycleOperations.set(agentId, entry);
-    return true;
+    return this.lifecycleCoordinator.adopt(agentId, lifecycleToken);
   }
 
   restartAgentWithPermissionMode(agentId: AgentId, mode: string) {
@@ -9485,7 +9407,7 @@ class AgentManager extends EventEmitter {
         skipRecoveryWait: true,
       }));
     }
-    const inFlight = this.agentLifecycleOperations.get(agentId);
+    const inFlight = this.lifecycleCoordinator.get(agentId);
     if (inFlight) {
       return this.runAgentLifecycleOperation(
         agentId,
@@ -9762,7 +9684,7 @@ class AgentManager extends EventEmitter {
     options: KillAgentOptions = {},
   ): Promise<KillAgentAdmission> {
     if (options.skipRecoveryWait !== true) await this.whenRecovered();
-    const existing = this.agentLifecycleOperations.get(agentId);
+    const existing = this.lifecycleCoordinator.get(agentId);
     if (existing && existing.key !== 'kill') {
       await existing.promise.catch(() => {});
       return this.requestKillAgent(agentId, options);
@@ -9792,7 +9714,7 @@ class AgentManager extends EventEmitter {
         skipRecoveryWait: true,
       }));
     }
-    const inFlight = this.agentLifecycleOperations.get(agentId);
+    const inFlight = this.lifecycleCoordinator.get(agentId);
     if (inFlight) {
       if (options.lifecycleToken && inFlight.token === options.lifecycleToken) {
         return this.performKillAgent(agentId, options);

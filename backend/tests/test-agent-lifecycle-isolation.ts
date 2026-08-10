@@ -129,7 +129,7 @@ async function run() {
     assert.deepStrictEqual(await runtimeSwitch, await duplicateRuntimeSwitch);
     assert.deepStrictEqual(await queuedPermissionRestart, { restarted: true });
     assert.strictEqual(permissionRestartCalls, 1);
-    assert.strictEqual(manager.agentLifecycleOperations.has('agent-replacement'), false);
+    assert.strictEqual(manager.lifecycleCoordinator.has('agent-replacement'), false);
 
     let releaseCreateSession;
     let createSessionEntered;

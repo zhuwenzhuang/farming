@@ -13,7 +13,8 @@ interface AgentOrderTransactionAgent {
 
 interface AgentOrderTransactionOwner {
   agents: Map<string, AgentOrderTransactionAgent>;
-  lifecycleOperations: Map<string, { label?: string }>;
+  getLifecycleOperation(agentId: string): { label?: string } | undefined;
+  hasLifecycleOperation(agentId: string): boolean;
   persistAgent(agent: AgentOrderTransactionAgent): void;
   updateRuntimeMetadata(agent: AgentOrderTransactionAgent): void;
   emitUpdate(): void;
@@ -72,9 +73,9 @@ function commitAgentOrderTransaction(
     })
     .filter((item): item is StagedOrderUpdate => item !== null);
 
-  const conflicting = staged.find(item => owner.lifecycleOperations.has(item.agent.id));
+  const conflicting = staged.find(item => owner.hasLifecycleOperation(item.agent.id));
   if (conflicting) {
-    const lifecycleOperation = owner.lifecycleOperations.get(conflicting.agent.id);
+    const lifecycleOperation = owner.getLifecycleOperation(conflicting.agent.id);
     return { error: `Agent lifecycle change already in progress: ${lifecycleOperation?.label}` };
   }
 

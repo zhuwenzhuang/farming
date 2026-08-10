@@ -374,7 +374,7 @@ function run() {
       workspaceSource.includes('moveReplacementState(sourceAgentId, replacementTerminalKey)') &&
       workspaceSource.includes('moveReplacementState(`acp:${sourceAgentId}`, replacementAcpKey)') &&
       !workspaceSource.includes('previousActiveTerminalIdRef') &&
-      agentManagerSource.includes('agentLifecycleOperations') &&
+      agentManagerSource.includes('lifecycleCoordinator') &&
       agentManagerSource.includes('restartedFromAgentId: agentId') &&
       agentManagerSource.includes('restartedFromAgentIds: Array.from(new Set([') &&
       agentManagerSource.includes('permissionRestartSuppressedAgentIds') &&

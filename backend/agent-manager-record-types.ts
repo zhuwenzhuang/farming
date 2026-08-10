@@ -459,16 +459,6 @@ export interface AcpProcessCleanupResult {
   timedOut?: boolean;
 }
 
-export interface AgentLifecycleOperationAdmission<T = unknown> {
-  agentIds: Set<AgentId>;
-  agentId?: string;
-  key: string;
-  kind: string;
-  label: string;
-  promise: Promise<T>;
-  token: symbol;
-}
-
 export interface AgentStartAdmission<T = unknown> {
   promise: Promise<T>;
   token: symbol;
@@ -499,17 +489,6 @@ export interface ProjectWorkspaceDeleteAdmission<T = unknown> {
 export interface CodexSessionMutationAdmission<T = unknown> {
   promise: Promise<T>;
   type: string;
-}
-
-export interface AgentManagerRecordCollections {
-  acpSessionOptionsByKey: Map<string, AcpSessionStartBinding>;
-  agentLifecycleOperations: Map<string, AgentLifecycleOperationAdmission>;
-  agentStartAdmissions: Map<symbol, AgentStartAdmission>;
-  agents: Map<AgentId, AgentRecord>;
-  codexSessionMutationQueues: Map<string, CodexSessionMutationAdmission>;
-  createRequestAdmissions: Map<string, CreateRequestAdmission>;
-  projectOperationAdmissions: Map<string, ProjectOperationAdmission>;
-  projectWorkspaceDeleteAdmissions: Map<string, ProjectWorkspaceDeleteAdmission>;
 }
 
 export interface AgentRecoveryIndexes {
