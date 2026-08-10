@@ -1,6 +1,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const { readCodeStyleSource } = require('./style-source-reader');
 
 function read(relativePath) {
   return fs.readFileSync(path.join(__dirname, '../..', relativePath), 'utf8');
@@ -104,8 +105,14 @@ function run() {
   const messagesSource = read('src/types/messages.ts');
   const serverSource = read('backend/server.cts');
   const workspaceFileWatchSource = read('backend/websocket-workspace-file-watch.cts');
-  const stylesSource = read('src/styles/main.css');
-  const darkStylesSource = read('src/styles/code-dark.css');
+  const stylesSource = [
+    readCodeStyleSource('src/styles/main.css'),
+    readCodeStyleSource('src/styles/file-editor.css'),
+  ].join('\n');
+  const darkStylesSource = [
+    readCodeStyleSource('src/styles/code-dark.css'),
+    readCodeStyleSource('src/styles/file-editor-dark.css'),
+  ].join('\n');
   const monacoHostStyle = stylesSource.match(/\.code-file-monaco\s*\{[^}]+\}/)?.[0] || '';
   const languageServerPanelStyle = stylesSource.match(/\.code-language-server-panel\s*\{[^}]+\}/)?.[0] || '';
   const singleTerminalGridStyle = stylesSource.match(/\.code-terminal-grid\.panes-1\s*\{[^}]+\}/)?.[0] || '';

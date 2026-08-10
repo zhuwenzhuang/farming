@@ -1,6 +1,7 @@
 export const CODE_STYLE_SOURCES = [
   'src/styles/tokens.css',
   'src/styles/main.css',
+  'src/styles/file-editor.css',
   'src/styles/pet.css',
   'src/styles/git-history.css',
   'src/styles/composer.css',
@@ -9,6 +10,7 @@ export const CODE_STYLE_SOURCES = [
   'src/styles/share.css',
   'src/styles/sidebar-resources.css',
   'src/styles/code-dark.css',
+  'src/styles/file-editor-dark.css',
   'src/styles/pet-dark.css',
   'src/styles/git-history-dark.css',
   'src/styles/composer-dark.css',

@@ -1,0 +1,173 @@
+
+
+body.code-mode[data-appearance='dark'] .code-file-editor-action,
+body.code-mode[data-appearance='dark'] .code-file-editor-breadcrumb {
+  color: var(--code-dark-text-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-file-editor-action:hover:not(:disabled),
+body.code-mode[data-appearance='dark'] .code-file-editor-action.active,
+body.code-mode[data-appearance='dark'] .code-file-editor-breadcrumb:hover,
+body.code-mode[data-appearance='dark'] .code-file-editor-breadcrumb:focus-visible {
+  background: var(--code-dark-bg-hover);
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-file-editor-tabs::-webkit-scrollbar-thumb {
+  background: rgba(139, 148, 158, 0.32);
+}
+
+body.code-mode[data-appearance='dark'] .code-file-editor-tabs::-webkit-scrollbar-track {
+  background: var(--code-dark-bg-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-file-editor {
+  background: var(--code-dark-bg);
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-file-editor-header,
+body.code-mode[data-appearance='dark'] .code-file-editor-statusbar {
+  background: var(--code-dark-bg-panel);
+  border-color: var(--code-dark-border);
+  color: var(--code-dark-text-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-file-editor-language {
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-file-editor-problem.error {
+  color: #ff7b72;
+}
+
+body.code-mode[data-appearance='dark'] .code-file-editor-problem.warning {
+  color: #d29922;
+}
+
+body.code-mode[data-appearance='dark'] .code-file-editor-bar {
+  background: var(--code-dark-bg);
+  border-color: transparent;
+  color: var(--code-dark-text-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-file-editor-tab-strip {
+  background: var(--code-dark-bg-soft);
+  border-color: var(--code-dark-border);
+}
+
+body.code-mode[data-appearance='dark'] .code-file-editor-navigation {
+  border-color: var(--code-dark-border-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-file-editor-navigation-divider {
+  background: var(--code-dark-border-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-file-editor-tab {
+  background: transparent;
+  border-color: var(--code-dark-border-soft);
+  color: var(--code-dark-text-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-file-editor-tab.active {
+  background: var(--code-dark-bg);
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-file-editor-tab.active::after {
+  background: rgba(240, 246, 252, 0.035);
+}
+
+body.code-mode[data-appearance='dark'] .code-file-editor-tab[data-drop-position='before'] {
+  box-shadow: inset 2px 0 var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-file-editor-tab[data-drop-position='after'] {
+  box-shadow: inset -2px 0 var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-file-editor-tab:hover:not(.active) {
+  background: var(--code-dark-bg-hover);
+}
+
+body.code-mode[data-appearance='dark'] .code-file-editor-close {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-file-editor-close:hover {
+  background: var(--code-dark-bg-hover);
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-file-editor-fallback-textarea {
+  background: var(--code-dark-bg);
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-file-monaco,
+body.code-mode[data-appearance='dark'] .code-file-editor-source-region,
+body.code-mode[data-appearance='dark'] .code-file-diff-view,
+body.code-mode[data-appearance='dark'] .code-file-diff-monaco,
+body.code-mode[data-appearance='dark'] .code-file-preview-panel {
+  background: var(--code-dark-bg);
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-file-editor-source-region.markdown-split .code-file-monaco {
+  border-color: var(--code-dark-border);
+}
+
+body.code-mode[data-appearance='dark'] .code-file-diff-header,
+body.code-mode[data-appearance='dark'] .code-file-diff-state {
+  background: var(--code-dark-bg-panel);
+  border-color: var(--code-dark-border);
+  color: var(--code-dark-text-soft);
+}
+
+body.code-mode[data-appearance='dark'] .code-file-diff-title {
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-file-diff-title span {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-file-diff-close {
+  color: var(--code-dark-text-muted);
+}
+
+body.code-mode[data-appearance='dark'] .code-file-diff-close:hover,
+body.code-mode[data-appearance='dark'] .code-file-diff-close:focus-visible {
+  background: var(--code-dark-bg-hover);
+  color: var(--code-dark-text);
+}
+
+body.code-mode[data-appearance='dark'] .code-file-diff-state.error {
+  color: #ff7b72;
+}
+
+body.code-mode[data-appearance='dark'] .code-file-preview-panel.metadata {
+  background:
+    linear-gradient(180deg, rgba(22, 27, 34, 0.88), rgba(13, 17, 23, 0.96));
+}
+
+body.code-mode[data-appearance='dark'].code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.source-preview {
+  background: rgba(22, 27, 34, 0.74);
+  color: rgba(240, 246, 252, 0.84);
+  box-shadow: 0 10px 24px rgba(1, 4, 9, 0.28);
+  backdrop-filter: blur(18px) saturate(1.12);
+  -webkit-backdrop-filter: blur(18px) saturate(1.12);
+}
+
+body.code-mode[data-appearance='dark'].code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.source-preview,
+body.code-mode[data-appearance='dark'].code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.source-preview.active {
+  background: transparent;
+  color: rgba(240, 246, 252, 0.82);
+  box-shadow: none;
+}
+
+body.code-mode[data-appearance='dark'].code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.source-preview:hover:not(:disabled),
+body.code-mode[data-appearance='dark'].code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.source-preview:focus-visible {
+  background: rgba(240, 246, 252, 0.09);
+}

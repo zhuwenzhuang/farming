@@ -1,6 +1,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const { readCodeStyleSource } = require('./style-source-reader');
 
 function read(relativePath) {
   return fs.readFileSync(path.join(__dirname, '../..', relativePath), 'utf8');
@@ -19,8 +20,14 @@ function run() {
   const codeMainAreaSource = read('src/components/code/CodeMainArea.tsx');
   const workspaceSource = read('src/components/CodeWorkspace.tsx');
   const copySource = read('src/components/code/copy.ts');
-  const stylesSource = read('src/styles/main.css');
-  const darkStylesSource = read('src/styles/code-dark.css');
+  const stylesSource = [
+    readCodeStyleSource('src/styles/main.css'),
+    readCodeStyleSource('src/styles/file-editor.css'),
+  ].join('\n');
+  const darkStylesSource = [
+    readCodeStyleSource('src/styles/code-dark.css'),
+    readCodeStyleSource('src/styles/file-editor-dark.css'),
+  ].join('\n');
 
   assert(
     packageSource.includes('"react-markdown"') &&

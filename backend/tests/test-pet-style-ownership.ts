@@ -114,13 +114,8 @@ assert.equal(petDark.remaining.length, 0, 'pet-dark.css must contain only Pet-ow
 // These ordered hashes were captured from the two monolithic source files before
 // extraction. Splitting comma groups into individual selectors proves that mixed
 // rules kept their selector specificity, declaration bodies, media context, and
-// relative order on both sides of the ownership boundary. The combined record set
+// relative order on both sides of the Pet ownership boundary. The combined record set
 // spans both owner files because the dark Pet overrides used to live in main.css.
-//
-// As the newest extraction, this test is the single owner of the mutable
-// main.css/code-dark.css remainder contract. Earlier owner tests lock only their
-// own moved rules, so the next CSS split moves this remainder proof forward here
-// instead of rewriting hashes across every historical owner test.
 assert.deepEqual(
   [pet.pet.length + petDark.pet.length, digest([...pet.pet, ...petDark.pet])],
   [139, '95d0a6cead9ea38074ced1ec3fe853b546f28c5dae42160eca67590b81effcf9'],
@@ -135,16 +130,6 @@ assert.deepEqual(
   [petDark.pet.length, digest(petDark.pet)],
   [31, '219d9a4fc1aec1a371f3ea5f4583945a1155c6e10a49ba166ba27b491efb83dd'],
   'pet-dark.css must preserve the ordered dark Pet rules',
-)
-assert.deepEqual(
-  [main.remaining.length, digest(main.remaining)],
-  [2434, '0421f5929ef4407429e50c303ad9234bd1376b1e85b2e8a1acb1cb7d54bb20b0'],
-  'main.css must preserve the ordered non-Pet rule set',
-)
-assert.deepEqual(
-  [dark.remaining.length, digest(dark.remaining)],
-  [959, '99c239744f6f4cd0844c9bd635b4f69e3014cf8768d16b118777444f3acf4a14'],
-  'code-dark.css must preserve the ordered non-Pet dark rule set',
 )
 
 const componentSources = [

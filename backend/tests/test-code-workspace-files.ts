@@ -117,11 +117,13 @@ function run() {
   const settingsFileExists = fs.existsSync(path.join(__dirname, '../..', 'src/components/Settings.tsx'));
   const stylesSource = [
     read('src/styles/main.css'),
+    read('src/styles/file-editor.css'),
     read('src/styles/composer.css'),
   ].join('\n');
   const composerMicStyles = stylesSource.match(/\.code-composer-mic svg \{[\s\S]*?\n\}/)?.[0] || '';
   const darkStylesSource = [
     read('src/styles/code-dark.css'),
+    read('src/styles/file-editor-dark.css'),
     read('src/styles/composer-dark.css'),
   ].join('\n');
   const useAgentsSource = read('src/hooks/useAgents.ts');
