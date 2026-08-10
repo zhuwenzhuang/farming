@@ -4,6 +4,7 @@ const {
   isFreshAcpSessionSource,
   listProviderAdapters,
   normalizeProviderAcpExtensionNotification,
+  providerArgsContinueSession,
   providerCapabilities,
   providerConversationForkCapability,
   providerForProgram,
@@ -19,6 +20,11 @@ function run() {
   assert.strictEqual(providerForProgram('/usr/local/bin/qodercli'), 'qoder');
   assert.strictEqual(providerForProgram('/opt/homebrew/bin/qwen'), 'qwen');
   assert.strictEqual(providerForProgram('unknown'), '');
+  assert.strictEqual(providerArgsContinueSession('codex', ['resume', '--last']), true);
+  assert.strictEqual(providerArgsContinueSession('codex', ['--model', 'gpt-5.5']), false);
+  assert.strictEqual(providerArgsContinueSession('claude', ['--resume=session-1']), true);
+  assert.strictEqual(providerArgsContinueSession('claude', ['--continue']), true);
+  assert.strictEqual(providerArgsContinueSession('opencode', ['--continue']), false);
   assert.deepStrictEqual(
     providerSessionIdentityRollbackArgs('codex', 'codex-session-1'),
     ['delete', '--force', 'codex-session-1'],

@@ -124,6 +124,7 @@ interface ProviderAdapter {
   freshAcpSessionSources: readonly string[];
   commands: readonly string[];
   supportedRuntimes: readonly ProviderRuntime[];
+  continuesSession?: (rawArgs: string[]) => boolean;
   planSession: (rawArgs: string[], launchArgs: string[]) => ProviderSessionPlan | null;
   sessionIdentityRollbackArgs?: (sessionId: string) => string[];
   terminalResumeArgs?: (
@@ -418,6 +419,7 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
     freshAcpSessionSources: ['codex-temporary'],
     commands: ['codex'],
     supportedRuntimes: ['terminal', 'acp'],
+    continuesSession: args => args.some(arg => arg === 'resume' || arg === 'fork'),
     planSession: codexSessionPlan,
     sessionIdentityRollbackArgs: sessionId => ['delete', '--force', sessionId],
     terminalResumeArgs: (args, sessionId) => ['resume', sessionId, ...args],
@@ -456,6 +458,13 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
     freshAcpSessionSources: ['claude-session-id'],
     commands: ['claude'],
     supportedRuntimes: ['terminal', 'acp'],
+    continuesSession: args => args.some(arg => (
+      arg === '--resume'
+      || arg.startsWith('--resume=')
+      || arg === '--continue'
+      || arg === '-c'
+      || arg === '--fork-session'
+    )),
     planSession: (rawArgs, launchArgs) => explicitSessionPlan('claude', rawArgs, launchArgs),
     acp: {
       executablePolicy: 'managed',
@@ -667,6 +676,10 @@ function providerSupportsRuntime(provider: unknown, runtime: ProviderRuntime): b
   return getProviderAdapter(provider)?.supportedRuntimes.includes(runtime) === true;
 }
 
+function providerArgsContinueSession(provider: unknown, rawArgs: string[]): boolean {
+  return getProviderAdapter(provider)?.continuesSession?.(rawArgs) === true;
+}
+
 function providerTerminalStartupPolicy(
   provider: unknown,
 ): Readonly<ProviderTerminalStartupPolicy> | null {
@@ -754,6 +767,7 @@ export {
   isFreshAcpSessionSource,
   listProviderAdapters,
   normalizeProviderAcpExtensionNotification,
+  providerArgsContinueSession,
   providerConversationForkCapability,
   providerCapabilities,
   providerForProgram,

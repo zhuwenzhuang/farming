@@ -151,6 +151,7 @@ import {
   getProviderAdapter,
   isFreshAcpSessionSource,
   providerCapabilities,
+  providerArgsContinueSession,
   providerConversationForkCapability,
   providerForProgram,
   providerSessionIdentityRollbackArgs,
@@ -855,20 +856,7 @@ function applyTerminalStateCursor(
 function providerCommandContinuesSession(command: string): boolean {
   const parts = parseCommand(command);
   const provider = agentHomeProviderForProgram(parts[0] || '');
-  const args = parts.slice(1);
-  if (provider === 'codex') {
-    return args.some((arg: string) => arg === 'resume' || arg === 'fork');
-  }
-  if (provider === 'claude') {
-    return args.some((arg: string) => (
-      arg === '--resume'
-      || arg.startsWith('--resume=')
-      || arg === '--continue'
-      || arg === '-c'
-      || arg === '--fork-session'
-    ));
-  }
-  return false;
+  return providerArgsContinueSession(provider, parts.slice(1));
 }
 
 function preserveCodexSessionProfileOptions() {
