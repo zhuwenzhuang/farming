@@ -2,6 +2,7 @@ const assert = require('assert');
 const path = require('path');
 const { AgentManager } = require('../agent-manager.cjs');
 const {
+  AgentShellEnvResolver,
   SHELL_ENV_BEGIN,
   SHELL_ENV_END,
   buildInteractiveAgentBaseEnv,
@@ -14,6 +15,26 @@ const {
 const { normalizeShellSessionOptions } = require('../local-session-engine.cjs');
 
 async function run() {
+  let now = 1_000;
+  let resolvedPath = '/first/bin';
+  let resolverCalls = 0;
+  const resolver = new AgentShellEnvResolver({
+    cacheMs: 100,
+    now: () => now,
+    provider: () => {
+      resolverCalls += 1;
+      return { PATH: resolvedPath };
+    },
+  });
+  assert.strictEqual(resolver.resolve('').PATH, '/first/bin');
+  resolvedPath = '/second/bin';
+  now += 99;
+  assert.strictEqual(resolver.resolve('').PATH, '/first/bin');
+  now += 1;
+  assert.strictEqual(resolver.resolve('').PATH, '/second/bin');
+  assert.strictEqual(resolverCalls, 2, 'the bounded cache must refresh exactly at expiry');
+  resolver.dispose();
+
   assert.strictEqual(isCatPager('cat'), true);
   assert.strictEqual(isCatPager('/bin/cat'), true);
   assert.strictEqual(isCatPager('cat -n'), true);
@@ -121,6 +142,7 @@ async function run() {
   assert.strictEqual(shellOptions.env.GIT_PAGER, undefined);
 
   const resolvedShells = [];
+  let shellEnvOverride = null;
   const manager = new AgentManager({
     getWorkspace() {
       return '/tmp';
@@ -130,6 +152,7 @@ async function run() {
     },
   }, {
     agentShellEnvProvider(shell) {
+      if (shellEnvOverride) return shellEnvOverride(shell);
       resolvedShells.push(shell || 'default');
       return String(shell).endsWith('zsh')
         ? {
@@ -179,13 +202,12 @@ async function run() {
     assert.strictEqual(codingEnv.FARMING_ANONYMIZE_SHELL_PROMPT, undefined, 'coding CLIs should not inherit shell anonymization policy');
 
     let freshPath = '/first/bin';
-    manager.agentShellEnvProvider = () => ({ PATH: freshPath });
+    shellEnvOverride = () => ({ PATH: freshPath });
     assert.strictEqual(manager.resolveAgentShellEnv('', { force: true }).PATH, '/first/bin');
     freshPath = '/second/bin';
     assert.strictEqual(manager.resolveAgentShellEnv('').PATH, '/first/bin', 'normal shell env reads should reuse the bounded cache');
     assert.strictEqual(manager.resolveAgentShellEnv('', { maxAgeMs: 3_000 }).PATH, '/first/bin', 'short discovery reads should reuse a recent shell environment');
-    manager.agentShellEnvCache.get('__default__').resolvedAt -= 3_001;
-    assert.strictEqual(manager.resolveAgentShellEnv('', { maxAgeMs: 3_000 }).PATH, '/second/bin', 'short discovery reads should refresh an expired shell environment');
+    assert.strictEqual(manager.resolveAgentShellEnv('', { maxAgeMs: 0 }).PATH, '/second/bin', 'a zero max age should refresh the shell environment');
     freshPath = '/third/bin';
     assert.strictEqual(manager.resolveAgentShellEnv('', { force: true }).PATH, '/third/bin', 'forced shell env reads should still bypass every cache');
   } finally {

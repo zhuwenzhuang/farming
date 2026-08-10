@@ -186,7 +186,12 @@ import {
 } from './codex-terminal-profile.cjs';
 import { AgentOrderAllocator, finiteOrder, reorderedPinnedAgentOrders, reorderedProjectAgentOrders } from './agent-order.cjs';
 import { commitAgentOrderTransaction } from './agent-order-transaction.cjs';
-import { buildInteractiveAgentBaseEnv, normalizeInteractiveTerminalEnv, resolveUserShellEnvSync } from './agent-env.cjs';
+import {
+  AgentShellEnvResolver,
+  buildInteractiveAgentBaseEnv,
+  normalizeInteractiveTerminalEnv,
+  resolveUserShellEnvSync,
+} from './agent-env.cjs';
 import { inspectGitWorktree } from './git-worktree-info.cjs';
 import { isSameOrDescendantPath } from './path-containment.cjs';
 import { AgentWorktreeRefreshQueue } from './agent-worktree-refresh-queue.cjs';
@@ -531,12 +536,6 @@ interface AgentManagerConfigContract extends AgentManagerConfig {
   getHeartbeatInterval(): number;
   getTaskHistory?(): UnknownRecord[];
   getWorkspace(): string;
-}
-
-interface AgentShellEnvCacheEntry {
-  env: NodeJS.ProcessEnv | null;
-  initialized: boolean;
-  resolvedAt: number;
 }
 
 type AcpRuntimeContract = DeclaredAcpRuntimeContract;
@@ -1281,12 +1280,6 @@ function publicAgentGitWorktree(agent: TypedAgentRecord) {
   };
 }
 
-function normalizePositiveInteger(value: unknown, fallback: number, min: number, max: number) {
-  const parsed = Math.floor(Number(value));
-  if (!Number.isFinite(parsed)) return fallback;
-  return Math.max(min, Math.min(max, parsed));
-}
-
 function executableOwnershipEnvironment(configDir: string): NodeJS.ProcessEnv {
   const environment = { ...process.env };
   if (configDir) environment.FARMING_CONFIG_DIR = configDir;
@@ -1323,9 +1316,7 @@ class AgentManager extends EventEmitter {
   declare authDisabled: boolean;
   declare skipExecutablePreflight: boolean;
   declare cliBinDir: string;
-  declare agentShellEnvProvider: (shell: string) => NodeJS.ProcessEnv | null;
-  declare agentShellEnvCache: Map<string, AgentShellEnvCacheEntry>;
-  declare agentShellEnvCacheMs: number;
+  declare agentShellEnvResolver: AgentShellEnvResolver;
   declare agents: Map<AgentId, TypedAgentRecord>;
   declare agentOrderAllocator: AgentOrderAllocator;
   declare mainAgentId: AgentId | null;
@@ -1420,16 +1411,12 @@ class AgentManager extends EventEmitter {
     this.authDisabled = options.authDisabled === true;
     this.skipExecutablePreflight = options.skipExecutablePreflight === true;
     this.cliBinDir = options.cliBinDir || path.join(__dirname, '..', 'bin');
-    this.agentShellEnvProvider = typeof options.agentShellEnvProvider === 'function'
-      ? options.agentShellEnvProvider
-      : (shell: string) => resolveUserShellEnvSync({ processEnv: process.env, shell });
-    this.agentShellEnvCache = new Map();
-    this.agentShellEnvCacheMs = normalizePositiveInteger(
-      process.env.FARMING_AGENT_SHELL_ENV_CACHE_MS,
-      5 * 60 * 1000,
-      0,
-      60 * 60 * 1000
-    );
+    this.agentShellEnvResolver = new AgentShellEnvResolver({
+      cacheMs: process.env.FARMING_AGENT_SHELL_ENV_CACHE_MS,
+      provider: typeof options.agentShellEnvProvider === 'function'
+        ? options.agentShellEnvProvider
+        : (shell: string) => resolveUserShellEnvSync({ processEnv: process.env, shell }),
+    });
     this.agents = new RuntimeAgentMap();
     this.agentOrderAllocator = new AgentOrderAllocator();
     this.mainAgentId = null;
@@ -4715,35 +4702,7 @@ class AgentManager extends EventEmitter {
   }
 
   resolveAgentShellEnv(shell: string = '', options: AgentShellEnvOptions = {}) {
-    const now = Date.now();
-    const cacheKey = String(shell || '').trim() || '__default__';
-    const cached = this.agentShellEnvCache.get(cacheKey);
-    const hasMaxAgeOverride = typeof options.maxAgeMs === 'number' && Number.isFinite(options.maxAgeMs);
-    const maxAgeMs = hasMaxAgeOverride
-      ? Math.max(0, options.maxAgeMs!)
-      : this.agentShellEnvCacheMs;
-    if (
-      options.force !== true &&
-      cached &&
-      ((!hasMaxAgeOverride && maxAgeMs === 0) || now - cached.resolvedAt < maxAgeMs)
-    ) {
-      return cached.env;
-    }
-
-    let shellEnv = null;
-    try {
-      shellEnv = this.agentShellEnvProvider(shell) || null;
-    } catch (caughtError: unknown) {
-      const error = caughtError as ErrorRecord;
-      console.warn('Failed to resolve user shell environment for agent:', error && (error.message || error));
-    }
-
-    this.agentShellEnvCache.set(cacheKey, {
-      initialized: true,
-      resolvedAt: now,
-      env: shellEnv,
-    });
-    return shellEnv;
+    return this.agentShellEnvResolver.resolve(shell, options);
   }
 
   buildAgentBaseEnv(agent: TypedAgentRecord) {
@@ -5070,6 +5029,7 @@ class AgentManager extends EventEmitter {
     this.agentLifecycleOperations.clear();
     this.agentStartAdmissions.clear();
     this.inputCoordinator.dispose();
+    this.agentShellEnvResolver.dispose();
     this.verifiedStoppedAgentIds.clear();
     this.permissionRestartSuppressedAgentIds.clear();
     this.terminalResizeCoordinator.dispose();

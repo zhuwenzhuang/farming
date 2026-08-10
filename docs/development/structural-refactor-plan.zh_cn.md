@@ -318,7 +318,8 @@ Response Shape 和连接级状态不变。
 Composer Admission、Fork 的 Durable Admission/Reconcile 与 Resume Coordination
 以及跨 Runtime 的 Per-Agent Input Ordering 均已有 Owner。Provider-neutral Terminal
 Resize 的 Latest-value Coalescing 与 Drain 状态也已有唯一 Owner，并与 Engine Resize
-Effect 分离。Provider-neutral Terminal Startup Ordering 也已有唯一 Owner，由类型化
+Effect 分离。Shell Environment Resolution 也在 Manager 外拥有 Provider、Bounded
+Cache、Expiry 与 Cleanup。Provider-neutral Terminal Startup Ordering 也已有唯一 Owner，由类型化
 Adapter Policy 激活，而不是由 Provider Name 分支激活。Launch Composition 保留在
 Manager，并组合 Provider Adapter 与 Executable Discovery 边界。剩余范围：
 

@@ -27,6 +27,22 @@ interface NormalizeInteractiveTerminalEnvOptions {
   stripRuntimeShims?: boolean;
 }
 
+interface AgentShellEnvResolveOptions {
+  force?: boolean;
+  maxAgeMs?: number;
+}
+
+interface AgentShellEnvResolverOptions {
+  cacheMs?: unknown;
+  now?: () => number;
+  provider: (shell: string) => NodeJS.ProcessEnv | null;
+}
+
+interface AgentShellEnvCacheEntry {
+  env: NodeJS.ProcessEnv | null;
+  resolvedAt: number;
+}
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -56,6 +72,12 @@ function normalizeTimeoutMs(value: unknown, fallback = DEFAULT_SHELL_ENV_TIMEOUT
   const parsed = Math.floor(Number(value));
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(250, Math.min(parsed, 15000));
+}
+
+function normalizeCacheMs(value: unknown): number {
+  const parsed = Math.floor(Number(value));
+  if (!Number.isFinite(parsed)) return 5 * 60 * 1000;
+  return Math.max(0, Math.min(parsed, 60 * 60 * 1000));
 }
 
 function defaultShell(processEnv: NodeJS.ProcessEnv = process.env): string {
@@ -269,7 +291,50 @@ function normalizeInteractiveTerminalEnv(
   return next;
 }
 
+class AgentShellEnvResolver {
+  readonly #cache = new Map<string, AgentShellEnvCacheEntry>();
+  readonly #cacheMs: number;
+  readonly #now: () => number;
+  readonly #provider: AgentShellEnvResolverOptions['provider'];
+
+  constructor({ cacheMs, now = Date.now, provider }: AgentShellEnvResolverOptions) {
+    this.#cacheMs = normalizeCacheMs(cacheMs);
+    this.#now = now;
+    this.#provider = provider;
+  }
+
+  resolve(shell: string = '', options: AgentShellEnvResolveOptions = {}): NodeJS.ProcessEnv | null {
+    const now = this.#now();
+    const cacheKey = String(shell || '').trim() || '__default__';
+    const cached = this.#cache.get(cacheKey);
+    const hasMaxAgeOverride = typeof options.maxAgeMs === 'number' && Number.isFinite(options.maxAgeMs);
+    const maxAgeMs = hasMaxAgeOverride ? Math.max(0, options.maxAgeMs!) : this.#cacheMs;
+    if (
+      options.force !== true
+      && cached
+      && ((!hasMaxAgeOverride && maxAgeMs === 0) || now - cached.resolvedAt < maxAgeMs)
+    ) {
+      return cached.env;
+    }
+
+    let shellEnv = null;
+    try {
+      shellEnv = this.#provider(shell) || null;
+    } catch (caughtError: unknown) {
+      const error = caughtError as { message?: unknown };
+      console.warn('Failed to resolve user shell environment for agent:', error && (error.message || error));
+    }
+    this.#cache.set(cacheKey, { env: shellEnv, resolvedAt: now });
+    return shellEnv;
+  }
+
+  dispose(): void {
+    this.#cache.clear();
+  }
+}
+
 export {
+  AgentShellEnvResolver,
   SHELL_ENV_BEGIN,
   SHELL_ENV_END,
   buildInteractiveAgentBaseEnv,
@@ -280,4 +345,6 @@ export {
   resolveUserShellEnvSync,
   scrubNonInteractivePagerEnv,
   shellEnvArgs,
+  type AgentShellEnvResolveOptions,
+  type AgentShellEnvResolverOptions,
 };

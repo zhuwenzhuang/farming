@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { AgentManager } = require('../agent-manager.cjs');
+const { resolveUserShellEnvSync } = require('../agent-env.cjs');
 const { resolveAgentExecutable } = require('../executable-discovery.cjs');
 
 async function run() {
@@ -31,6 +32,7 @@ async function run() {
 
   const captured = [];
   let blockedCreate = null;
+  let shellEnvProviderOverride = null;
   const manager = new AgentManager({
     getWorkspace() {
       return tmpRoot;
@@ -48,6 +50,9 @@ async function run() {
       return false;
     },
   }, {
+    agentShellEnvProvider: shell => shellEnvProviderOverride
+      ? shellEnvProviderOverride(shell)
+      : resolveUserShellEnvSync({ processEnv: process.env, shell }),
     createProviderSessionIdentity: async () => ({ sessionId: '019f1234-5678-7abc-8def-0123456789ab' }),
   });
 
@@ -568,8 +573,8 @@ async function run() {
     manager.acpRuntime.prepareAgent = originalClaudePrepareAgent;
     manager.acpRuntime.deleteSession = originalClaudeDeleteSession;
 
-    manager.agentShellEnvProvider = () => ({ PATH: binDir });
-    manager.agentShellEnvCache.clear();
+    shellEnvProviderOverride = () => ({ PATH: binDir });
+    manager.resolveAgentShellEnv('', { force: true });
     const previousFakeExecutables = process.env.FARMING_E2E_FAKE_EXECUTABLES;
     delete process.env.FARMING_E2E_FAKE_EXECUTABLES;
     const agentCountBeforeMissingResume = manager.getState().agents.length;
