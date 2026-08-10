@@ -590,6 +590,11 @@ export interface AgentManagerProviderDependencies extends Record<string, unknown
   agentShellEnvProvider?: (shell: string) => NodeJS.ProcessEnv;
 }
 
+export interface AgentShellEnvOptions {
+  force?: boolean;
+  maxAgeMs?: number;
+}
+
 export interface AgentDisposeOptions {
   preserveTerminalHost?: boolean;
 }

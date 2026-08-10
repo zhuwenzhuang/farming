@@ -87,6 +87,7 @@ async function run() {
   });
   const manager = new AgentManager(configManager, {
     acpRuntime: runtime,
+    skipExecutablePreflight: true,
   });
   try {
     await manager.whenRecovered();

@@ -164,6 +164,7 @@ async function run() {
   const firstManager = new AgentManager(firstConfig, {
     acpRuntime: firstRuntime,
     agentShellEnvProvider: shellEnv(false),
+    skipExecutablePreflight: true,
   });
   let persistedFastOn;
   try {
@@ -220,6 +221,7 @@ async function run() {
   const coldOnManager = new AgentManager(coldOnConfig, {
     acpRuntime: coldOnRuntime,
     agentShellEnvProvider: shellEnv(false),
+    skipExecutablePreflight: true,
   });
   let persistedFastOff;
   try {
@@ -246,6 +248,7 @@ async function run() {
   const coldOffManager = new AgentManager(coldOffConfig, {
     acpRuntime: runtime(),
     agentShellEnvProvider: shellEnv(true),
+    skipExecutablePreflight: true,
   });
   try {
     await coldOffManager.recoverAcpSessions();
@@ -265,6 +268,7 @@ async function run() {
       FARMING_TEST_ACP_MODEL_DEFAULT: 'gpt-5.6-luna',
       FARMING_TEST_ACP_REASONING_DEFAULT: 'ultra',
     }),
+    skipExecutablePreflight: true,
   });
   try {
     const agentId = await startResumedAgent(defaultManager, 'home-default-session');
@@ -294,6 +298,7 @@ async function run() {
       FARMING_TEST_ACP_REASONING_DEFAULT: 'ultra',
       FARMING_TEST_ACP_OMIT_FAST: '1',
     }),
+    skipExecutablePreflight: true,
   });
   try {
     await staleManager.recoverAcpSessions();
@@ -334,6 +339,7 @@ async function run() {
     agentShellEnvProvider: shellEnv(false, {
       FARMING_TEST_ACP_REJECT_CONFIG_ID: 'fast-mode',
     }),
+    skipExecutablePreflight: true,
   });
   try {
     await rejectedManager.recoverAcpSessions();

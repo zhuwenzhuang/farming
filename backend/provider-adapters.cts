@@ -1,5 +1,6 @@
 const path = require('path');
 import { chatCapabilitiesForProvider } from './chat-runtime.cjs';
+import { appendOpenCodeBootstrap } from './farming-agent-bootstrap.cjs';
 import { createProviderSessionId, createTemporaryProviderSessionId, isSafeProviderSessionId } from './provider-session-id.cjs';
 
 type ProviderId = 'codex' | 'claude' | 'opencode' | 'qoder' | 'qwen';
@@ -106,30 +107,11 @@ interface ProviderCapabilitiesContract {
   conversationFork: ProviderConversationForkContract;
 }
 
-/**
- * Provider-declared launch environment behavior. The launch owner applies only
- * what the adapter declares here, so a caller cannot request bootstrap or
- * notification behavior the provider does not actually consume.
- */
-interface ProviderLaunchEnvironmentContract {
-  /** Runtimes whose launch consumes the Farming bootstrap instruction file. */
-  bootstrapInstructionRuntimes: readonly ProviderRuntime[];
-  /** Notification protocol this provider's Terminal TUI requires, else empty. */
-  terminalNotificationProtocol: string;
-}
-
-/** Flat launch projection of one adapter, consumed by the launch policy owner. */
-interface ProviderLaunchDescriptor extends ProviderLaunchEnvironmentContract {
-  provider: ProviderId;
-  homeEnvKey: string;
-}
-
 interface ProviderAdapter {
   id: ProviderId;
   displayName: string;
   executable: string;
   homeEnvKey: string;
-  launchEnvironment: ProviderLaunchEnvironmentContract;
   interruptInput: string;
   freshAcpSessionSources: readonly string[];
   commands: readonly string[];
@@ -422,7 +404,6 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
     displayName: 'codex',
     executable: 'codex',
     homeEnvKey: 'CODEX_HOME',
-    launchEnvironment: { bootstrapInstructionRuntimes: [], terminalNotificationProtocol: '' },
     interruptInput: '\x1b',
     freshAcpSessionSources: ['codex-temporary'],
     commands: ['codex'],
@@ -456,7 +437,6 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
     displayName: 'claude code',
     executable: 'claude',
     homeEnvKey: 'CLAUDE_CONFIG_DIR',
-    launchEnvironment: { bootstrapInstructionRuntimes: [], terminalNotificationProtocol: '' },
     interruptInput: '\x1b',
     freshAcpSessionSources: ['claude-session-id'],
     commands: ['claude'],
@@ -489,10 +469,6 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
     displayName: 'opencode',
     executable: 'opencode',
     homeEnvKey: 'OPENCODE_CONFIG_DIR',
-    launchEnvironment: {
-      bootstrapInstructionRuntimes: ['terminal', 'acp'],
-      terminalNotificationProtocol: 'osc99',
-    },
     interruptInput: '\x03',
     freshAcpSessionSources: [],
     commands: ['opencode'],
@@ -537,7 +513,6 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
     displayName: 'qoder',
     executable: 'qodercli',
     homeEnvKey: 'QODER_CONFIG_DIR',
-    launchEnvironment: { bootstrapInstructionRuntimes: [], terminalNotificationProtocol: '' },
     interruptInput: '\x1b',
     freshAcpSessionSources: ['qoder-session-id'],
     commands: ['qoder', 'qodercli'],
@@ -577,7 +552,6 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
     displayName: 'qwen code',
     executable: 'qwen',
     homeEnvKey: 'QWEN_HOME',
-    launchEnvironment: { bootstrapInstructionRuntimes: [], terminalNotificationProtocol: '' },
     interruptInput: '\x1b',
     freshAcpSessionSources: ['qwen-session-id'],
     commands: ['qwen'],
@@ -631,21 +605,8 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
   },
 ]);
 
-/**
- * Launch truth is immutable for every consumer: the adapter's own
- * `launchEnvironment` and its runtime list are frozen copies, so a holder of a
- * public adapter cannot change what a launch applies.
- */
-function freezeAdapterLaunchTruth(adapter: ProviderAdapter): Readonly<ProviderAdapter> {
-  adapter.launchEnvironment = Object.freeze({
-    bootstrapInstructionRuntimes: Object.freeze([...adapter.launchEnvironment.bootstrapInstructionRuntimes]),
-    terminalNotificationProtocol: adapter.launchEnvironment.terminalNotificationProtocol,
-  });
-  return Object.freeze(adapter);
-}
-
 const ADAPTER_BY_ID = new Map<ProviderId, Readonly<ProviderAdapter>>(
-  PROVIDER_ADAPTERS.map(adapter => [adapter.id, freezeAdapterLaunchTruth(adapter)]),
+  PROVIDER_ADAPTERS.map(adapter => [adapter.id, Object.freeze(adapter)]),
 );
 const ADAPTER_BY_COMMAND = new Map<string, ProviderAdapter>(PROVIDER_ADAPTERS.flatMap(adapter => (
   adapter.commands.map(command => [command, adapter] as [string, ProviderAdapter])
@@ -662,20 +623,6 @@ function providerForProgram(program: unknown): ProviderId | '' {
 
 function listProviderAdapters(): readonly ProviderAdapter[] {
   return [...PROVIDER_ADAPTERS];
-}
-
-const PROVIDER_LAUNCH_DESCRIPTORS: readonly ProviderLaunchDescriptor[] = Object.freeze(
-  listProviderAdapters().map(adapter => Object.freeze({
-    bootstrapInstructionRuntimes: Object.freeze([...adapter.launchEnvironment.bootstrapInstructionRuntimes]),
-    homeEnvKey: adapter.homeEnvKey,
-    provider: adapter.id,
-    terminalNotificationProtocol: adapter.launchEnvironment.terminalNotificationProtocol,
-  })),
-);
-
-/** Canonical launch projection of every provider this instance can launch. */
-function listProviderLaunchDescriptors(): readonly ProviderLaunchDescriptor[] {
-  return PROVIDER_LAUNCH_DESCRIPTORS;
 }
 
 function providerCapabilities(provider: unknown): PublicProviderCapabilities {
@@ -725,6 +672,32 @@ function applyProviderHomeEnvironment(
   return env;
 }
 
+function clearProviderHomeEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  for (const adapter of PROVIDER_ADAPTERS) delete env[adapter.homeEnvKey];
+  return env;
+}
+
+function applyProviderLaunchEnvironment(
+  env: NodeJS.ProcessEnv,
+  provider: unknown,
+  options: {
+    homePath?: string;
+    runtime: ProviderRuntime;
+    startupPromptFile?: string;
+  },
+): NodeJS.ProcessEnv {
+  const adapter = getProviderAdapter(provider);
+  if (!adapter) return env;
+  if (options.homePath) env[adapter.homeEnvKey] = options.homePath;
+  if (adapter.id === 'opencode' && options.startupPromptFile) {
+    Object.assign(env, appendOpenCodeBootstrap(env, options.startupPromptFile));
+  }
+  if (adapter.id === 'opencode' && options.runtime === 'terminal') {
+    env.OPENTUI_NOTIFICATION_PROTOCOL = 'osc99';
+  }
+  return env;
+}
+
 function isFreshAcpSessionSource(provider: unknown, source: string): boolean {
   return getProviderAdapter(provider)?.freshAcpSessionSources.includes(source) === true;
 }
@@ -746,9 +719,10 @@ export {
   claudeAcpEnvironment,
   getProviderAdapter,
   applyProviderHomeEnvironment,
+  applyProviderLaunchEnvironment,
+  clearProviderHomeEnvironment,
   isFreshAcpSessionSource,
   listProviderAdapters,
-  listProviderLaunchDescriptors,
   normalizeProviderAcpExtensionNotification,
   providerConversationForkCapability,
   providerCapabilities,
@@ -756,5 +730,3 @@ export {
   providerSupportsSharedAcpRuntime,
   providerSupportsRuntime,
 };
-
-export type { ProviderLaunchDescriptor };

@@ -125,9 +125,8 @@ Runtime Port 与 Provider Policy
 本轮已经形成一批健康边界：Server Transport、Worktree/Git Effect、Provider
 Session Identity、Usage、Adaptive Title、Settings、部分 WebSocket Delivery，
 以及 Fork 的 Durable Admission/Reconcile（含共享、no-replay 的重启收敛）、
-Domain Coordinator 之上的薄 Resume Transport、只持有一份 Cache 状态的单一
-Launch Policy Owner。它们要么删除了旧生产路径，要么成为一个明确状态或副作用
-的唯一 Owner。
+Domain Coordinator 之上的薄 Resume Transport。它们要么删除了旧生产路径，
+要么成为一个明确状态或副作用的唯一 Owner。
 
 当前需要优先返工的结构问题是：
 
@@ -140,8 +139,10 @@ Launch Policy Owner。它们要么删除了旧生产路径，要么成为一个�
 
 Resume 保留两张内部 Admission Map，因为 HTTP Resume 是完整 Operation，而
 Direct/Auto Resume 是 Effect 级入口；二者能否合并为一个 Admission 尚未证明，
-不能当作已知缺陷。Launch Owner 剩余的显式 Port 与 Type Contract 不自动算债务；
-只有找到真实重复的 Provider Knowledge 或没有生产调用者的 Port 才继续动它。
+不能当作已知缺陷。Launch 保持小型组合边界：Provider Adapter 声明 Provider
+行为，Executable Discovery 负责选择机制，Manager 拥有唯一的 Shell Environment
+Cache 并组装 Launch Request。除非更小的 Owner 能删除已证明的重复真相，否则
+不要再创建大型 Launch Service 或 Port Surface。
 
 在这些问题收敛前，不继续新的大型状态提取。未提交 Prototype 只是证据；如果它
 需要不断增加 Ledger、Registry、Generation、Latch 或补偿 Flag 才能通过 Review，
@@ -306,14 +307,16 @@ Response Shape 和连接级状态不变。
 ### Lane B2 —— Agent 应用 Service
 
 触碰 `agent-manager.cts` 的切片继续串行。Usage、Adaptive Title、Worktree/Git、
-Composer Admission、Fork 的 Durable Admission/Reconcile、Resume Coordination 与
-Launch Policy 均已有 Owner。剩余范围：
+Composer Admission、Fork 的 Durable Admission/Reconcile 与 Resume Coordination
+均已有 Owner。Launch Composition 保留在 Manager，并组合 Provider Adapter 与
+Executable Discovery 边界。剩余范围：
 
 1. 只有在三条路径的不确定性与 Retained-resource 语义被证明等价时，才把 Manager
    内三段 Fork Child-start/Rollback Effect Wrapper 合并为一个执行器；这是高风险
    切片，不是默认下一刀；
-2. 只有拿到具体的重复真相证据（例如同一请求被两种 Signature 定义分别裁决，或
-   某个 Port 没有任何生产调用者）才再动 Resume 或 Launch；
+2. 只有拿到具体的重复真相证据（例如同一请求被两种 Signature 定义分别裁决）才再动
+   Resume；只有更小的边界能明确删除 Provider 或 Executable 知识，而不是把它们包装
+   成 Port 时，才移动 Launch Composition；
 3. 之后再处理 Attention/Unread，并让 Runtime/Record Type 随 Owner 移动；
 4. Facade 最终只保留精确 Agent Registry、公共入口、Service Composition 与事件出口。
 

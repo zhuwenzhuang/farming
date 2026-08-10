@@ -37,7 +37,7 @@ class FakeStructuredRuntime extends EventEmitter {
 }
 
 async function run() {
-  const manager = new AgentManager(configManager(), {});
+  const manager = new AgentManager(configManager(), { skipExecutablePreflight: true });
 
   try {
     manager.agents.set('agent-lifecycle', {
@@ -234,6 +234,7 @@ async function run() {
   const blockingAcpRuntime = new FakeStructuredRuntime();
   blockingAcpRuntime.dispose = async () => disposeGate;
   const admissionManager = new AgentManager(configManager(), {
+    skipExecutablePreflight: true,
     acpRuntime: blockingAcpRuntime,
   });
   const disposing = admissionManager.dispose();
@@ -256,6 +257,7 @@ async function run() {
     recoveryFenceRuntimeDisposed = true;
   };
   const recoveryFenceManager = new AgentManager(configManager(), {
+    skipExecutablePreflight: true,
     acpRuntime: recoveryFenceAcpRuntime,
   });
   let releaseRecovery;
@@ -280,6 +282,7 @@ async function run() {
     retryableAcpRuntime.bindings.delete('acp-retry');
   };
   const partialManager = new AgentManager(configManager(), {
+    skipExecutablePreflight: true,
     acpRuntime: retryableAcpRuntime,
   });
   partialManager.agents.set('acp-retry', {
@@ -308,6 +311,7 @@ async function run() {
     throw new Error('ACP descendant still live');
   };
   const killTruthManager = new AgentManager(configManager(), {
+    skipExecutablePreflight: true,
     acpRuntime: killAcpRuntime,
   });
   killTruthManager.agents.set('acp-kill-retry', {
@@ -337,6 +341,7 @@ async function run() {
   missingBindingRuntime.unregisterAgentAndWait = async () => false;
   let persistedCleanupIdentity = null;
   const missingBindingManager = new AgentManager(configManager(), {
+    skipExecutablePreflight: true,
     acpRuntime: missingBindingRuntime,
     stopPersistedAcpProcessGroup: async identity => {
       persistedCleanupIdentity = identity;
@@ -374,6 +379,7 @@ async function run() {
     return true;
   };
   const recoveryFencedManager = new AgentManager(configManager(), {
+    skipExecutablePreflight: true,
     acpRuntime: recoveryFencedRuntime,
   });
   recoveryFencedManager.recoveryComplete = false;
@@ -403,6 +409,7 @@ async function run() {
   const engineFailureAcpRuntime = new FakeStructuredRuntime();
   engineFailureAcpRuntime.dispose = async () => {};
   const engineFailureManager = new AgentManager(configManager(), {
+    skipExecutablePreflight: true,
     acpRuntime: engineFailureAcpRuntime,
   });
   let providerDisposeCalls = 0;

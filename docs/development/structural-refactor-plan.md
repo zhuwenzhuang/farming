@@ -146,8 +146,8 @@ HTTP, WebSocket, persistence, and runtime-host boundaries.
 Healthy boundaries now include Server transport, Worktree/Git effects,
 provider-session identity, usage, adaptive titles, Settings, selected
 WebSocket delivery owners, durable Fork admission/reconciliation with shared
-no-replay restart convergence, thin Resume transport over one domain
-coordinator, and a single Launch policy owner holding one cache state. They
+no-replay restart convergence, and thin Resume transport over one domain
+coordinator. They
 either removed the superseded production path or became the single owner of a
 coherent state or effect.
 
@@ -164,10 +164,12 @@ The current priority structural problems are:
 
 Resume keeps two internal admission maps because an HTTP resume is a complete
 operation while direct and auto resume are effect-level entries; whether they
-can merge into one admission is unproven, not a known defect. The Launch
-owner's remaining explicit ports and type contracts are not automatically
-debt; act on them only with proven duplicated provider knowledge or a port no
-production caller consumes.
+can merge into one admission is unproven, not a known defect. Launch remains a
+small composition boundary: provider adapters declare provider behavior,
+executable discovery owns selection mechanics, and the Manager owns its one
+shell-environment cache and assembles the launch request. Do not recreate a
+large Launch service or port surface unless a smaller owner removes proven
+duplicated truth.
 
 No new large state extraction starts until these areas converge. An unmerged
 prototype is evidence, not an asset that must be preserved. If it repeatedly
@@ -361,15 +363,17 @@ middleware order, response shape, and connection-local state.
 
 Slices touching `agent-manager.cts` remain serialized. Usage-rate accounting,
 adaptive title persistence, Worktree/Git operations, Composer admission,
-durable Fork admission/reconciliation, Resume coordination, and Launch policy
-have owners. Remaining scope:
+durable Fork admission/reconciliation, and Resume coordination have owners.
+Launch composition remains in the Manager over provider-adapter and executable
+discovery boundaries. Remaining scope:
 
 1. merge the Manager's three Fork child-start/rollback effect wrappers into
    one executor only when their uncertainty and retained-resource semantics
    are proven equivalent; this is a high-risk slice, not a default next cut;
-2. touch Resume or Launch again only with concrete duplicated-truth evidence,
-   such as one request admitted under two signature definitions or a port no
-   production caller consumes;
+2. touch Resume again only with concrete duplicated-truth evidence, such as one
+   request admitted under two signature definitions; move Launch composition
+   only when a smaller boundary demonstrably removes provider or executable
+   knowledge instead of wrapping it in ports;
 3. then address Attention/unread and move runtime/record types with their
    owner;
 4. leave the facade with exact registry, public entry points, service

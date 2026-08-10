@@ -819,12 +819,7 @@ async function run() {
       command: 'bash',
       args: [],
       cwd: process.cwd(),
-      env: {
-        ...process.env,
-        NO_COLOR: '1',
-        TERM: 'dumb',
-        TERM_PROGRAM_VERSION: 'instance-exact-native-version',
-      },
+      env: { ...process.env, NO_COLOR: '1', TERM: 'dumb' },
       category: 'other',
       cols: 80,
       rows: 24,
@@ -835,7 +830,7 @@ async function run() {
     let terminalOptions = await runtimeEpochOptions(engine, 'native-smoke');
     await engine.sendInput(
       'native-smoke',
-      "printf 'TERM=%s COLORTERM=%s NO_COLOR=%s TERM_PROGRAM_VERSION=%s\\n' \"$TERM\" \"$COLORTERM\" \"${NO_COLOR-unset}\" \"$TERM_PROGRAM_VERSION\"\nprintf '\\033[31mred\\033[0m\\n'\n",
+      "printf 'TERM=%s COLORTERM=%s NO_COLOR=%s\\n' \"$TERM\" \"$COLORTERM\" \"${NO_COLOR-unset}\"\nprintf '\\033[31mred\\033[0m\\n'\n",
       terminalOptions,
     );
 
@@ -852,7 +847,6 @@ async function run() {
     assert(state.output.includes('TERM=xterm-256color'), state.output);
     assert(state.output.includes('COLORTERM=truecolor'), state.output);
     assert(state.output.includes('NO_COLOR=unset'), state.output);
-    assert(state.output.includes('TERM_PROGRAM_VERSION=instance-exact-native-version'), state.output);
     assert(state.output.includes('\u001b[31mred\u001b[0m'), JSON.stringify(state.output));
     assert(state.outputSeq > 0, `expected outputSeq to advance, got ${state.outputSeq}`);
     assert.strictEqual(state.terminalStatus.kind, 'shell');

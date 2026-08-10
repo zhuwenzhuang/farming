@@ -117,6 +117,7 @@ async function run() {
   }
 
   const manager = new AgentManager(configForStore(store, configDir), {
+    skipExecutablePreflight: true,
   });
   const originalEngineBridge = manager.engineBridge;
   await originalEngineBridge.dispose();

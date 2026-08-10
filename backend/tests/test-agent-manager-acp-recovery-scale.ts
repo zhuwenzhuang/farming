@@ -121,6 +121,7 @@ async function run() {
   }, {
     acpRuntime: runtime,
     agentShellEnvProvider: () => process.env,
+    skipExecutablePreflight: true,
     stopPersistedAcpProcessGroup: async () => {
       persistedCleanupAttempts += 1;
       return { stopped: true };

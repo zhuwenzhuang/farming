@@ -106,16 +106,7 @@ async function run() {
   assert.strictEqual(normalizedEnv.LD_LIBRARY_PATH, undefined);
   assert.strictEqual(normalizedEnv.NODE_OPTIONS, undefined);
   assert.strictEqual(normalizedEnv.TERM_PROGRAM, 'farming');
-  assert.strictEqual(
-    normalizedEnv.TERM_PROGRAM_VERSION,
-    'not-farming',
-    'terminal normalization must preserve the owner-projected program version',
-  );
-  assert.strictEqual(
-    normalizeInteractiveTerminalEnv({}).TERM_PROGRAM_VERSION,
-    process.env.npm_package_version || '',
-    'terminal normalization should synthesize the ambient package version only when absent',
-  );
+  assert.strictEqual(normalizedEnv.TERM_PROGRAM_VERSION, process.env.npm_package_version || '');
 
   const shellOptions = normalizeShellSessionOptions({
     command: 'bash',
@@ -124,12 +115,10 @@ async function run() {
     env: {
       PAGER: 'cat',
       GIT_PAGER: 'cat',
-      TERM_PROGRAM_VERSION: 'instance-exact-local-version',
     },
   });
   assert.strictEqual(shellOptions.env.PAGER, undefined);
   assert.strictEqual(shellOptions.env.GIT_PAGER, undefined);
-  assert.strictEqual(shellOptions.env.TERM_PROGRAM_VERSION, 'instance-exact-local-version');
 
   const resolvedShells = [];
   const manager = new AgentManager({
@@ -195,7 +184,8 @@ async function run() {
     freshPath = '/second/bin';
     assert.strictEqual(manager.resolveAgentShellEnv('').PATH, '/first/bin', 'normal shell env reads should reuse the bounded cache');
     assert.strictEqual(manager.resolveAgentShellEnv('', { maxAgeMs: 3_000 }).PATH, '/first/bin', 'short discovery reads should reuse a recent shell environment');
-    assert.strictEqual(manager.resolveAgentShellEnv('', { maxAgeMs: 0 }).PATH, '/second/bin', 'an expired discovery read should refresh the shell environment');
+    manager.agentShellEnvCache.get('__default__').resolvedAt -= 3_001;
+    assert.strictEqual(manager.resolveAgentShellEnv('', { maxAgeMs: 3_000 }).PATH, '/second/bin', 'short discovery reads should refresh an expired shell environment');
     freshPath = '/third/bin';
     assert.strictEqual(manager.resolveAgentShellEnv('', { force: true }).PATH, '/third/bin', 'forced shell env reads should still bypass every cache');
   } finally {

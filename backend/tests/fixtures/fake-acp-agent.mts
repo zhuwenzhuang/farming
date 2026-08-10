@@ -85,7 +85,6 @@ function codexVisualizationDirectory(codexHome: string, threadId: string) {
 }
 
 const initialSessionId = process.env.FARMING_E2E_FAKE_EXECUTABLES === '1'
-  || process.env.FARMING_TEST_ACP_UNIQUE_SESSION === '1'
   ? deterministicE2eSessionId(process.env.FARMING_AGENT_ID)
   : 'acp-new-session';
 let sessionId = initialSessionId;
@@ -252,13 +251,7 @@ class FakeAgent implements Agent {
   async newSession(params) {
     validateRequestedSessionScope(params);
     const environment = farmingSessionEnvironment(params);
-    if (
-      (
-        process.env.FARMING_E2E_FAKE_EXECUTABLES === '1'
-        || process.env.FARMING_TEST_ACP_UNIQUE_SESSION === '1'
-      )
-      && environment.FARMING_AGENT_ID
-    ) {
+    if (process.env.FARMING_E2E_FAKE_EXECUTABLES === '1' && environment.FARMING_AGENT_ID) {
       sessionId = deterministicE2eSessionId(environment.FARMING_AGENT_ID);
     }
     bindSessionEnvironment(sessionId, params);

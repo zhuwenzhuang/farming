@@ -56,7 +56,7 @@ async function run() {
   firstRuntime.unregisterAgentAndWait = async () => true;
   const firstManager = new AgentManager(
     configForStore(store, configDir),
-    { acpRuntime: firstRuntime },
+    { acpRuntime: firstRuntime, skipExecutablePreflight: true },
   );
   firstManager.engineBridge.getEngine = () => ({
     killSession: async () => {},
@@ -97,7 +97,7 @@ async function run() {
   const recoveredRuntime = new AcpRuntime();
   const recoveredManager = new AgentManager(
     configForStore(recoveredStore, configDir),
-    { acpRuntime: recoveredRuntime },
+    { acpRuntime: recoveredRuntime, skipExecutablePreflight: true },
   );
   try {
     await recoveredManager.whenRecovered();

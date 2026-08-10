@@ -79,6 +79,7 @@ async function run() {
 
   const manager = new AgentManager(configManager, {
     acpRuntime,
+    skipExecutablePreflight: true,
   });
   const terminalInputs: Array<{
     agentId: string;

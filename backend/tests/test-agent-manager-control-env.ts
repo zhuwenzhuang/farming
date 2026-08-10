@@ -45,8 +45,23 @@ async function run() {
     tokenFile: path.join(farmingDir, '.session-token'),
     cliBinDir: '/repo/bin',
     agentShellEnvProvider() {
-      return { PATH: '/shell/bin' };
+      return {
+        PATH: '/shell/bin',
+        CLAUDE_CONFIG_DIR: '/other-instance/claude',
+        CODEX_HOME: '/other-instance/codex',
+        FARMING_AGENT_ID: 'other-agent',
+        FARMING_CONFIG_DIR: '/other-instance/config',
+        FARMING_DISABLE_AUTH: '1',
+        FARMING_PARENT_AGENT_ID: 'other-parent',
+        FARMING_TOKEN: 'other-token',
+        FARMING_TOKEN_FILE: '/other-instance/token-file',
+        OPENCODE_CONFIG_DIR: '/other-instance/opencode',
+        OPENTUI_NOTIFICATION_PROTOCOL: 'osc0',
+        QODER_CONFIG_DIR: '/other-instance/qoder',
+        QWEN_HOME: '/other-instance/qwen',
+      };
     },
+    skipExecutablePreflight: true,
   });
 
   manager.engineBridge.resolve = () => ({
@@ -81,6 +96,14 @@ async function run() {
     assert.strictEqual(captured[0].env.FARMING_IS_MAIN_AGENT, '1');
     assert.strictEqual(captured[0].env.FARMING_CONTROL_URL, 'http://127.0.0.1:3000/farming');
     assert.strictEqual(captured[0].env.FARMING_TOKEN_FILE, path.join(farmingDir, '.session-token'));
+    assert.strictEqual(captured[0].env.FARMING_TOKEN, undefined);
+    assert.strictEqual(captured[0].env.FARMING_DISABLE_AUTH, undefined);
+    assert.strictEqual(captured[0].env.CLAUDE_CONFIG_DIR, undefined);
+    assert.strictEqual(captured[0].env.CODEX_HOME, undefined);
+    assert.strictEqual(captured[0].env.OPENCODE_CONFIG_DIR, undefined);
+    assert.strictEqual(captured[0].env.QODER_CONFIG_DIR, undefined);
+    assert.strictEqual(captured[0].env.QWEN_HOME, undefined);
+    assert.strictEqual(captured[0].env.OPENTUI_NOTIFICATION_PROTOCOL, undefined);
     assert.strictEqual(captured[0].env.FARMING_SKILLS_COMMAND, 'farming skills');
     assert.strictEqual(captured[0].env.FARMING_CAPABILITIES_COMMAND, 'farming capabilities');
     assert.strictEqual(

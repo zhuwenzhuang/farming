@@ -5,6 +5,7 @@ const path = require('path');
 
 const { AgentManager } = require('../agent-manager.cjs');
 const { AcpRuntime } = require('../acp-runtime.cjs');
+const { resolveFarmingOwnedExecutable } = require('../executable-discovery.cjs');
 const {
   activeLifecycleOperation,
   beginLifecycleOperation,
@@ -13,10 +14,10 @@ const {
   transitionLifecycleOperation,
 } = require('../agent-lifecycle-journal.cjs');
 const { FarmingSessionStore } = require('../farming-session-store.cjs');
-const { resolveFarmingOwnedExecutable } = require('../executable-discovery.cjs');
 const { canonicalProviderSessionKey } = require('../../shared/provider-session-identity.js');
 
 const PERSISTED_CLAUDE_EXECUTABLE = resolveFarmingOwnedExecutable('claude');
+assert(path.isAbsolute(PERSISTED_CLAUDE_EXECUTABLE));
 
 function configForStore(store, workspace, ensureAgentSessionRecord?) {
   return {
@@ -51,7 +52,7 @@ interface TestAcpAgent {
   providerSessionId: string;
   providerSessionKey: string;
   providerSessionTemporary: boolean;
-  acpRuntimeMode: 'managed';
+  acpRuntimeMode: string;
   acpRuntimeExecutable: string;
   runtimeBinding: { kind: string; state: string };
   persistentSessionId?: string;
@@ -81,10 +82,6 @@ function acpAgent(id, sessionId, workspace): TestAcpAgent {
 }
 
 async function run() {
-  assert(
-    path.isAbsolute(PERSISTED_CLAUDE_EXECUTABLE),
-    'Claude recovery fixture requires one creation-time Farming-owned executable',
-  );
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-create-update-journal-'));
   const store = new FarmingSessionStore(configDir);
   store.init();
@@ -114,6 +111,7 @@ async function run() {
     }),
     {
       acpRuntime: firstRuntime,
+      skipExecutablePreflight: true,
       allowUnprovenLegacyAcpRecovery: true,
     },
   );
@@ -188,6 +186,7 @@ async function run() {
     configForStore(store, configDir),
     {
       acpRuntime: recoveredRuntime,
+      skipExecutablePreflight: true,
       allowUnprovenLegacyAcpRecovery: true,
       stopPersistedAcpProcessGroup: async identity => (
         identity?.pid === 4321

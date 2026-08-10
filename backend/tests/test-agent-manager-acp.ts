@@ -4,10 +4,7 @@ const os = require('os');
 const path = require('path');
 const { AgentManager } = require('../agent-manager.cjs');
 const { AcpRuntime } = require('../acp-runtime.cjs');
-const {
-  resolveFarmingOwnedExecutable,
-} = require('../executable-discovery.cjs');
-const storageLayout = require('../storage-layout.cjs');
+const { resolveFarmingOwnedExecutable } = require('../executable-discovery.cjs');
 const {
   ensureFarmingAgentBootstrapFile,
   renderFarmingAgentBootstrap,
@@ -42,247 +39,15 @@ async function run() {
   delete process.env.CODEX_CONFIG;
   const farmingSystemPrompt = renderFarmingAgentBootstrap();
   const fixture = path.join(__dirname, 'fixtures', 'fake-acp-agent.mts');
-  const systemExecutableFixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-acp-system-bin-'));
-  const writeSystemExecutable = name => {
-    const executable = path.join(systemExecutableFixtureDir, name);
-    fs.writeFileSync(executable, '#!/usr/bin/env node\n');
-    fs.chmodSync(executable, 0o755);
-    return executable;
-  };
-  const persistedQoderExecutable = writeSystemExecutable('qodercli');
-  writeSystemExecutable('opencode');
-  writeSystemExecutable('qwen');
-  const customExecutable = writeSystemExecutable('custom-acp ');
   const persistedCodexExecutable = resolveFarmingOwnedExecutable('codex');
-  assert(path.isAbsolute(persistedCodexExecutable), 'Codex recovery fixture requires one Farming-owned executable');
-  try {
-
-  const instanceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-launch-instance-'));
-  const ownConfigDir = path.join(instanceRoot, 'own');
-  const foreignConfigDir = path.join(instanceRoot, 'foreign');
-  const writeManagedCodex = (configDir, label) => {
-    const executable = path.join(configDir, 'runtimes', 'versions', label, 'codex');
-    fs.mkdirSync(path.dirname(executable), { recursive: true });
-    fs.writeFileSync(executable, '#!/usr/bin/env node\n');
-    fs.chmodSync(executable, 0o755);
-    fs.writeFileSync(storageLayout.runtimeDependenciesActiveFile(configDir), JSON.stringify({
-      schemaVersion: 1,
-      dependencies: { codex: { source: 'managed', executablePath: executable } },
-    }));
-    return executable;
-  };
-  const ownManagedCodex = writeManagedCodex(ownConfigDir, 'own-codex');
-  const foreignManagedCodex = writeManagedCodex(foreignConfigDir, 'foreign-codex');
-  const previousConfigDir = process.env.FARMING_CONFIG_DIR;
-  const previousAcpCodexBin = process.env.FARMING_ACP_CODEX_BIN;
-  process.env.FARMING_CONFIG_DIR = foreignConfigDir;
-  delete process.env.FARMING_ACP_CODEX_BIN;
-  const instanceManager = new AgentManager(config({ farmingDir: ownConfigDir }));
-  try {
-    const freshDecision = instanceManager.launchPolicy.selectExecutable({
-      configuredMode: 'managed',
-      executablePolicy: 'managed',
-      pathEnv: process.env.PATH || '',
-      phase: 'fresh',
-      program: 'codex',
-      provider: 'codex',
-      runtime: 'acp',
-    });
-    assert.deepStrictEqual(
-      freshDecision,
-      { selected: true, executable: ownManagedCodex },
-      'managed ACP discovery must use the Manager Config instance, not ambient FARMING_CONFIG_DIR',
-    );
-    const foreignResume = instanceManager.launchPolicy.selectExecutable({
-      configuredMode: 'managed',
-      executablePolicy: 'managed',
-      pathEnv: process.env.PATH || '',
-      persistedExecutable: foreignManagedCodex,
-      phase: 'resume',
-      program: 'codex',
-      provider: 'codex',
-      runtime: 'acp',
-    });
-    assert.strictEqual(
-      foreignResume.selected === false && foreignResume.reason,
-      'persisted-managed-unowned',
-      'ambient ownership from another Config instance must not authorize a persisted executable',
-    );
-    delete process.env.FARMING_CONFIG_DIR;
-    assert.deepStrictEqual(
-      instanceManager.launchPolicy.selectExecutable({
-        configuredMode: 'managed',
-        executablePolicy: 'managed',
-        pathEnv: process.env.PATH || '',
-        phase: 'fresh',
-        program: 'codex',
-        provider: 'codex',
-        runtime: 'acp',
-      }),
-      freshDecision,
-      'ambient environment mutation must not change an existing Manager launch identity',
-    );
-  } finally {
-    await instanceManager.dispose();
-    if (previousConfigDir === undefined) delete process.env.FARMING_CONFIG_DIR;
-    else process.env.FARMING_CONFIG_DIR = previousConfigDir;
-    if (previousAcpCodexBin === undefined) delete process.env.FARMING_ACP_CODEX_BIN;
-    else process.env.FARMING_ACP_CODEX_BIN = previousAcpCodexBin;
-    fs.rmSync(instanceRoot, { recursive: true, force: true });
-  }
-
-  // P1-A: production-shaped Manager Terminal Codex with malformed/timeout version
-  const p1aDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-p1a-codex-'));
-  const p1aConfigDir = path.join(p1aDir, 'config');
-  fs.mkdirSync(path.join(p1aConfigDir, 'runtimes'), { recursive: true });
-  const malformedDir = path.join(p1aDir, 'malformed');
-  fs.mkdirSync(malformedDir, { recursive: true });
-  const malformedCodexBin = path.join(malformedDir, 'codex');
-  fs.writeFileSync(malformedCodexBin, '#!/bin/sh\necho "not-a-version"\n');
-  fs.chmodSync(malformedCodexBin, 0o755);
-  const timeoutDir = path.join(p1aDir, 'timeout');
-  fs.mkdirSync(timeoutDir, { recursive: true });
-  const timeoutCodexBin = path.join(timeoutDir, 'codex');
-  fs.writeFileSync(timeoutCodexBin, '#!/bin/sh\nsleep 10\n');
-  fs.chmodSync(timeoutCodexBin, 0o755);
-  const p1aManager = new AgentManager(config({ farmingDir: p1aConfigDir }));
-  try {
-    const malformedDecision = p1aManager.launchPolicy.selectExecutable({
-      pathEnv: p1aDir,
-      program: malformedCodexBin,
-      provider: 'codex',
-      runtime: 'terminal',
-      terminalPolicy: { kind: 'codex-versioned', requiredCliVersion: '0.100.0' },
-    });
-    assert.strictEqual(
-      malformedDecision.selected,
-      false,
-      'Manager must reject an absolute Codex whose --version output is malformed when requiredCliVersion is set',
-    );
-    assert.strictEqual(malformedDecision.selected === false && malformedDecision.reason, 'terminal-version-incompatible');
-
-    const timeoutDecision = p1aManager.launchPolicy.selectExecutable({
-      pathEnv: p1aDir,
-      program: timeoutCodexBin,
-      provider: 'codex',
-      runtime: 'terminal',
-      terminalPolicy: { kind: 'codex-versioned', requiredCliVersion: '0.100.0' },
-    });
-    assert.strictEqual(
-      timeoutDecision.selected,
-      false,
-      'Manager must reject an absolute Codex whose --version times out when requiredCliVersion is set',
-    );
-    assert.strictEqual(timeoutDecision.selected === false && timeoutDecision.reason, 'terminal-version-incompatible');
-
-    // P1 liveness: a transient timeout must not permanently poison the Manager's executable path
-    const livenessDir = path.join(p1aDir, 'liveness');
-    fs.mkdirSync(livenessDir, { recursive: true });
-    const livenessCodexBin = path.join(livenessDir, 'codex');
-    fs.writeFileSync(livenessCodexBin, '#!/bin/sh\necho ""\n');
-    fs.chmodSync(livenessCodexBin, 0o755);
-    const livenessFail = p1aManager.launchPolicy.selectExecutable({
-      pathEnv: livenessDir,
-      program: livenessCodexBin,
-      provider: 'codex',
-      runtime: 'terminal',
-      terminalPolicy: { kind: 'codex-versioned', requiredCliVersion: '0.100.0' },
-    });
-    assert.strictEqual(livenessFail.selected, false, 'empty --version must fail closed through the Manager');
-
-    fs.writeFileSync(livenessCodexBin, '#!/bin/sh\necho "codex 0.147.0"\n');
-    fs.chmodSync(livenessCodexBin, 0o755);
-    const livenessRecover = p1aManager.launchPolicy.selectExecutable({
-      pathEnv: livenessDir,
-      program: livenessCodexBin,
-      provider: 'codex',
-      runtime: 'terminal',
-      terminalPolicy: { kind: 'codex-versioned', requiredCliVersion: '0.100.0' },
-    });
-    assert.strictEqual(
-      livenessRecover.selected,
-      true,
-      'the same executable path must recover after a transient timeout without Server restart',
-    );
-    assert.strictEqual(livenessRecover.selected === true && livenessRecover.executable, livenessCodexBin);
-
-    // P1-B: production-shaped Manager Terminal must not consume ACP env candidates
-    const p1bAcpDir = path.join(p1aDir, 'acp-managed');
-    fs.mkdirSync(p1bAcpDir, { recursive: true });
-    const p1bAcpCodex = path.join(p1bAcpDir, 'codex');
-    fs.writeFileSync(p1bAcpCodex, '#!/bin/sh\necho "codex 99.0.0"\n');
-    fs.chmodSync(p1bAcpCodex, 0o755);
-    const p1bConfigDir = path.join(p1aDir, 'config');
-    const p1bRuntimeDir = path.join(p1bConfigDir, 'runtimes');
-    fs.mkdirSync(p1bRuntimeDir, { recursive: true });
-    const p1bOwnedCodex = path.join(p1bRuntimeDir, 'codex');
-    fs.writeFileSync(p1bOwnedCodex, '#!/bin/sh\necho "codex 99.0.0"\n');
-    fs.chmodSync(p1bOwnedCodex, 0o755);
-    const previousP1bAcpBin = process.env.FARMING_ACP_CODEX_BIN;
-    process.env.FARMING_ACP_CODEX_BIN = p1bOwnedCodex;
-    const p1bManager = new AgentManager(config({ farmingDir: p1bConfigDir }));
-    try {
-      const systemBinDir = path.join(p1aDir, 'system-bin-abs');
-      fs.mkdirSync(systemBinDir, { recursive: true });
-      const systemCodexBin = path.join(systemBinDir, 'codex');
-      fs.writeFileSync(systemCodexBin, '#!/bin/sh\necho "codex 0.147.0"\n');
-      fs.chmodSync(systemCodexBin, 0o755);
-      const terminalDecision = p1bManager.launchPolicy.selectExecutable({
-        pathEnv: p1aDir,
-        program: systemCodexBin,
-        provider: 'codex',
-        runtime: 'terminal',
-        terminalPolicy: { kind: 'codex-versioned', requiredCliVersion: '0.100.0' },
-      });
-      assert.strictEqual(
-        terminalDecision.selected,
-        true,
-        'Terminal must select the system candidate, not the high-version ACP env path',
-      );
-      assert.strictEqual(
-        terminalDecision.selected === true && terminalDecision.executable,
-        systemCodexBin,
-        'a high-version FARMING_ACP_CODEX_BIN must not override the Terminal system candidate',
-      );
-      // Bare program name: Terminal PATH discovery must not consume ACP env candidates
-      const p1bSystemDir = path.join(p1aDir, 'system-bin');
-      fs.mkdirSync(p1bSystemDir, { recursive: true });
-      const p1bSystemCodex = path.join(p1bSystemDir, 'codex');
-      fs.writeFileSync(p1bSystemCodex, '#!/bin/sh\necho "codex 0.147.0"\n');
-      fs.chmodSync(p1bSystemCodex, 0o755);
-      const bareTerminalDecision = p1bManager.launchPolicy.selectExecutable({
-        pathEnv: p1bSystemDir,
-        program: 'codex',
-        provider: 'codex',
-        runtime: 'terminal',
-        terminalPolicy: { kind: 'codex-versioned', requiredCliVersion: '0.100.0' },
-      });
-      assert.strictEqual(
-        bareTerminalDecision.selected,
-        true,
-        'Terminal bare-name discovery must find a system codex',
-      );
-      assert.notStrictEqual(
-        bareTerminalDecision.selected === true && bareTerminalDecision.executable,
-        p1bOwnedCodex,
-        'a high-version FARMING_ACP_CODEX_BIN must not override Terminal PATH discovery for a bare program',
-      );
-    } finally {
-      await p1bManager.dispose();
-      if (previousP1bAcpBin === undefined) delete process.env.FARMING_ACP_CODEX_BIN;
-      else process.env.FARMING_ACP_CODEX_BIN = previousP1bAcpBin;
-    }
-  } finally {
-    await p1aManager.dispose();
-    fs.rmSync(p1aDir, { recursive: true, force: true });
-  }
-
+  assert(path.isAbsolute(persistedCodexExecutable), 'Codex recovery fixture requires a Farming-owned executable');
   const runtime = new AcpRuntime({
     ...TEST_PROCESS_IDENTITY,
     resolveLaunch: () => ({ command: process.execPath, args: ['--import', require.resolve('tsx'), fixture], version: 'test' }),
   });
   const manager = new AgentManager(config(), {
     acpRuntime: runtime,
+    skipExecutablePreflight: true,
     cliBinDir: '/opt/farming/bin',
     controlUrl: 'http://127.0.0.1:6694/farming',
     tokenFile: '/tmp/farming-test-token',
@@ -579,6 +344,10 @@ async function run() {
 
   let customLaunchExecutable = '';
   let persistedCustomAgent = null;
+  const customExecutableDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-custom-acp-'));
+  const customExecutable = path.join(customExecutableDir, 'custom-acp ');
+  fs.writeFileSync(customExecutable, '#!/usr/bin/env node\n');
+  fs.chmodSync(customExecutable, 0o755);
   const customRuntime = new AcpRuntime({
     ...TEST_PROCESS_IDENTITY,
     resolveLaunch: (_provider, options) => {
@@ -598,6 +367,7 @@ async function run() {
     },
   }), {
     acpRuntime: customRuntime,
+    skipExecutablePreflight: true,
   });
   try {
     const customAgentId = await new Promise(resolve => {
@@ -614,6 +384,7 @@ async function run() {
     assert.strictEqual(persistedCustomAgent.acpRuntimeExecutable, customExecutable);
   } finally {
     await customManager.dispose();
+    fs.rmSync(customExecutableDir, { recursive: true, force: true });
   }
 
   const sharedProofRuntime = new AcpRuntime();
@@ -702,7 +473,7 @@ async function run() {
         effort: 'max',
       };
     },
-  }), { acpRuntime: claudeProfileRuntime });
+  }), { acpRuntime: claudeProfileRuntime, skipExecutablePreflight: true });
   try {
     const freshAgentId = await new Promise(resolve => {
       claudeProfileManager.startAgent('claude', process.cwd(), (id, error) => {
@@ -778,6 +549,7 @@ async function run() {
       delete env.CODEX_CONFIG;
       return env;
     },
+    skipExecutablePreflight: true,
   });
   try {
     const codexAgentId = await new Promise(resolve => {
@@ -937,7 +709,7 @@ async function run() {
   });
   const openCodeManager = new AgentManager(config(), {
     acpRuntime: openCodeRuntime,
-    agentShellEnvProvider: () => ({ PATH: systemExecutableFixtureDir }),
+    skipExecutablePreflight: true,
   });
   try {
     const openCodeAgentId = await new Promise(resolve => {
@@ -967,23 +739,9 @@ async function run() {
     ...TEST_PROCESS_IDENTITY,
     resolveLaunch: () => ({ command: process.execPath, args: ['--import', require.resolve('tsx'), fixture], version: 'test' }),
   });
-  const providerManager = new AgentManager(config({
-    farmingDir: providerFarmingDir,
-    getAgentHome: provider => ({
-      id: 'default',
-      path: path.join(providerFarmingDir, 'homes', provider),
-      acpRuntime: { mode: 'managed', executable: '' },
-    }),
-  }), {
+  const providerManager = new AgentManager(config({ farmingDir: providerFarmingDir }), {
     acpRuntime: providerRuntime,
-    agentShellEnvProvider: () => ({
-      PATH: systemExecutableFixtureDir,
-      CLAUDE_CONFIG_DIR: '/foreign/claude',
-      CODEX_HOME: '/foreign/codex',
-      OPENCODE_CONFIG_DIR: '/foreign/opencode',
-      QODER_CONFIG_DIR: '/foreign/qoder',
-      QWEN_HOME: '/foreign/qwen',
-    }),
+    skipExecutablePreflight: true,
   });
   providerManager.providerSessionService.observe = () => {};
   try {
@@ -1008,22 +766,6 @@ async function run() {
       assert.strictEqual(providerAgent.providerSessionProvider, provider);
       assert.strictEqual(providerAgent.runtimeBinding.kind, 'acp');
       const providerBinding = providerRuntime.bindings.get(providerAgentId);
-      const providerHomeKeys = {
-        claude: 'CLAUDE_CONFIG_DIR',
-        codex: 'CODEX_HOME',
-        opencode: 'OPENCODE_CONFIG_DIR',
-        qoder: 'QODER_CONFIG_DIR',
-        qwen: 'QWEN_HOME',
-      };
-      for (const [candidateProvider, homeKey] of Object.entries(providerHomeKeys)) {
-        assert.strictEqual(
-          providerBinding.env[homeKey],
-          candidateProvider === provider
-            ? path.join(providerFarmingDir, 'homes', provider)
-            : undefined,
-          `${provider} launch must project only its Config-authoritative default Home`,
-        );
-      }
       assert.strictEqual(providerBinding.env.FARMING_AGENT_TITLE_TOKEN, undefined);
       assert.strictEqual(
         providerBinding.sessionRequestOptions._meta?.farming?.env?.FARMING_AGENT_ID,
@@ -1115,6 +857,7 @@ async function run() {
     ensureAgentSessionRecord: () => 'fsess-unavailable-host',
   }), {
     acpRuntime: unavailableHostRuntime,
+    skipExecutablePreflight: true,
   });
   try {
     await unavailableHostManager.recoverAcpSessions();
@@ -1144,6 +887,7 @@ async function run() {
   }), {
     acpRuntime: blockedRecoveryRuntime,
     allowUnprovenLegacyAcpRecovery: false,
+    skipExecutablePreflight: true,
   });
   try {
     await blockedRecoveryManager.recoverAcpSessions();
@@ -1248,7 +992,7 @@ async function run() {
       runtimeAgentId: 'agent-qoder-recovered',
       agentRuntimeMode: 'acp',
       acpRuntimeMode: 'managed',
-      acpRuntimeExecutable: persistedQoderExecutable,
+      acpRuntimeExecutable: process.execPath,
       providerSessionProvider: 'qoder',
       providerSessionId: 'existing-session',
       providerSessionKey: qoderRecoverySessionKey,
@@ -1260,55 +1004,19 @@ async function run() {
   });
   try {
     await qoderRecoveryManager.recoverAcpSessions();
-    assert.strictEqual(recoveredQoderExecutable, persistedQoderExecutable);
+    assert.strictEqual(recoveredQoderExecutable, process.execPath);
     assert.strictEqual(qoderRecoveryManager.agents.get('agent-qoder-recovered').runtimeBinding.kind, 'acp');
   } finally {
     await qoderRecoveryManager.dispose();
-  }
-
-  let missingSystemExecutablePrepareCalls = 0;
-  const missingSystemExecutableRuntime = new AcpRuntime();
-  missingSystemExecutableRuntime.prepareAgent = async () => {
-    missingSystemExecutablePrepareCalls += 1;
-    throw new Error('a missing persisted system executable must not reach ACP preparation');
-  };
-  const missingSystemSessionKey = 'agent-session:qoder:missing-system-executable';
-  const missingSystemExecutable = path.join(systemExecutableFixtureDir, 'missing-qodercli');
-  const missingSystemExecutableManager = new AgentManager(config({
-    getMainPageSessionKeys: () => [missingSystemSessionKey],
-    listAgentSessionRecords: () => [{
-      id: 'fsess-qoder-missing-system-executable',
-      runtimeAgentId: 'agent-qoder-missing-system-executable',
-      agentRuntimeMode: 'acp',
-      acpRuntimeMode: 'managed',
-      acpRuntimeExecutable: missingSystemExecutable,
-      providerSessionProvider: 'qoder',
-      providerSessionId: 'missing-system-executable',
-      providerSessionKey: missingSystemSessionKey,
-      cwd: process.cwd(),
-      status: 'running',
-    }],
-  }), { acpRuntime: missingSystemExecutableRuntime });
-  try {
-    await missingSystemExecutableManager.recoverAcpSessions();
-    const missingSystemAgent = missingSystemExecutableManager.agents.get(
-      'agent-qoder-missing-system-executable',
-    );
-    assert(missingSystemAgent, 'failed system recovery must remain visible');
-    assert.strictEqual(missingSystemAgent.runtimeBinding.state, 'error');
-    assert.match(missingSystemAgent.runtimeBinding.error, /persisted system executable is no longer usable/);
-    assert.strictEqual(missingSystemExecutablePrepareCalls, 0);
-  } finally {
-    await missingSystemExecutableManager.dispose();
   }
 
   let missingExecutablePrepareCalls = 0;
   const missingExecutableRuntime = new AcpRuntime();
   missingExecutableRuntime.prepareAgent = async () => {
     missingExecutablePrepareCalls += 1;
-    throw new Error('a legacy record without an exact executable must not reach ACP preparation');
+    throw new Error('a missing persisted executable must not reach ACP preparation');
   };
-  const missingExecutableSessionKey = 'agent-session:codex:missing-executable-session';
+  const missingExecutableSessionKey = 'agent-session:codex:missing-executable';
   const missingExecutableManager = new AgentManager(config({
     getMainPageSessionKeys: () => [missingExecutableSessionKey],
     listAgentSessionRecords: () => [{
@@ -1318,26 +1026,20 @@ async function run() {
       acpRuntimeMode: 'managed',
       acpRuntimeExecutable: '',
       providerSessionProvider: 'codex',
-      providerSessionId: 'missing-executable-session',
+      providerSessionId: 'missing-executable',
       providerSessionKey: missingExecutableSessionKey,
       cwd: process.cwd(),
       status: 'running',
       legacyAcpProcessExitAcknowledgedAt: Date.now(),
     }],
-  }), {
-    acpRuntime: missingExecutableRuntime,
-  });
+  }), { acpRuntime: missingExecutableRuntime });
   try {
     await missingExecutableManager.recoverAcpSessions();
     const missingExecutableAgent = missingExecutableManager.agents.get('agent-missing-executable');
-    assert(missingExecutableAgent, 'a fail-closed legacy ACP record must remain visible');
+    assert(missingExecutableAgent, 'failed ACP recovery must keep the Agent visible');
     assert.strictEqual(missingExecutablePrepareCalls, 0);
-    assert.strictEqual(missingExecutableAgent.acpRuntimeExecutable, '');
-    assert.strictEqual(missingExecutableAgent.status, 'stopped');
-    assert.match(
-      missingExecutableAgent.runtimeBinding.error,
-      /persisted Farming-owned executable, but none was recorded/,
-    );
+    assert.strictEqual(missingExecutableAgent.runtimeBinding.state, 'error');
+    assert.match(missingExecutableAgent.runtimeBinding.error, /none was recorded/);
   } finally {
     await missingExecutableManager.dispose();
   }
@@ -1431,13 +1133,14 @@ async function run() {
   let shellEnvironmentReads = 0;
   const registrationManager = new AgentManager(config(), {
     acpRuntime: registrationRuntime,
+    skipExecutablePreflight: true,
     agentShellEnvProvider: () => {
       shellEnvironmentReads += 1;
       assert(
         registeredBeforeShellEnvironment,
         'Farming-owned ACP launch must publish the connecting Agent before reading the user shell environment',
       );
-      return { ...process.env, FARMING_TEST_ACP_UNIQUE_SESSION: '1' };
+      return process.env;
     },
   });
   try {
@@ -1542,9 +1245,6 @@ async function run() {
     await registrationManager.dispose();
   }
   console.log('agent manager ACP tests passed');
-  } finally {
-    fs.rmSync(systemExecutableFixtureDir, { recursive: true, force: true });
-  }
 }
 
 run().catch(error => {

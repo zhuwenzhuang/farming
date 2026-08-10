@@ -30,6 +30,7 @@ async function run() {
   const configManager = new ConfigManager({ configDir });
   configManager.init();
   const manager = new AgentManager(configManager, {
+    skipExecutablePreflight: true,
     worktreeGitService: new WorktreeGitService({
       now: () => new Date(2026, 7, 9, 12, 34, 56),
       identityNonce: () => 'd'.repeat(32),

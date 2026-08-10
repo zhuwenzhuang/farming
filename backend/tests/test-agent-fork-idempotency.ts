@@ -30,7 +30,7 @@ async function run() {
 
   const configManager = new ConfigManager({ configDir });
   configManager.init();
-  const manager = new AgentManager(configManager, {});
+  const manager = new AgentManager(configManager, { skipExecutablePreflight: true });
   const originalBridge = manager.engineBridge;
   await originalBridge.dispose();
   let createCount = 0;
