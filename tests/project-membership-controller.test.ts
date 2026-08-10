@@ -4,6 +4,7 @@ import {
   initialProjectMembershipState,
   projectMembershipReducer,
   projectMountResult,
+  ProjectNamesController,
   requestProjectMount,
 } from '../src/components/code/useProjectMembershipController'
 
@@ -113,4 +114,53 @@ test('an aborted late body cannot return membership for application', async () =
   await assert.rejects(pending, error => (
     error instanceof DOMException && error.name === 'AbortError'
   ))
+})
+
+test('initial project names apply only for the guarded request', () => {
+  const controller = new ProjectNamesController()
+  const guard = controller.captureInitialSettingsGuard()
+  controller.receiveInitialSettings({ '/repo': ' Repo ' }, guard)
+  assert.deepEqual(controller.getSnapshot().names, { '/repo': 'Repo' })
+})
+
+test('a superseded settings request cannot apply stale project names', () => {
+  const controller = new ProjectNamesController()
+  const staleGuard = controller.captureInitialSettingsGuard()
+  const latestGuard = controller.captureInitialSettingsGuard()
+  controller.receiveInitialSettings({ '/repo': 'Latest' }, latestGuard)
+  controller.receiveInitialSettings({ '/repo': 'Stale' }, staleGuard)
+  assert.deepEqual(controller.getSnapshot().names, { '/repo': 'Latest' })
+})
+
+test('an initial settings read cannot overwrite a rename that landed after it started', () => {
+  const controller = new ProjectNamesController()
+  const guard = controller.captureInitialSettingsGuard()
+  // A rename lands while the settings response is still in flight.
+  controller.replaceProjectName('/repo', 'Renamed')
+  controller.receiveInitialSettings({ '/repo': 'Old name' }, guard)
+  assert.deepEqual(controller.getSnapshot().names, { '/repo': 'Renamed' })
+})
+
+test('rename rollback uses compare-and-swap against the optimistic name', () => {
+  const controller = new ProjectNamesController()
+  controller.replaceProjectName('/repo', 'Optimistic')
+  // A newer rename replaced the optimistic value; the stale rollback loses.
+  controller.replaceProjectName('/repo', 'Newer')
+  controller.replaceProjectName('/repo', 'Original', 'Optimistic')
+  assert.deepEqual(controller.getSnapshot().names, { '/repo': 'Newer' })
+  // A matching expectation still applies, including deletion.
+  controller.replaceProjectName('/repo', null, 'Newer')
+  assert.deepEqual(controller.getSnapshot().names, {})
+})
+
+test('project name subscribers observe published changes exactly once per change', () => {
+  const controller = new ProjectNamesController()
+  let notifications = 0
+  const unsubscribe = controller.subscribe(() => { notifications += 1 })
+  controller.replaceProjectName('/repo', 'Repo')
+  controller.replaceProjectName('/repo', 'Repo')
+  assert.equal(notifications, 1)
+  unsubscribe()
+  controller.replaceProjectName('/repo', 'Changed')
+  assert.equal(notifications, 1)
 })

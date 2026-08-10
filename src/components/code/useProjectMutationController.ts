@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { appPath } from '@/lib/base-path'
-import type { ProjectMembership } from './useProjectMembershipController'
+import { normalizeProjectNames, type ProjectMembership } from './useProjectMembershipController'
 
 const PROJECT_MUTATION_TIMEOUT_MS = 30_000
 
@@ -61,19 +61,6 @@ function record(value: unknown): Record<string, unknown> | null {
 
 function stringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every(item => typeof item === 'string')
-}
-
-export function normalizeProjectNames(projectNames: unknown): Record<string, string> {
-  const source = record(projectNames)
-  if (!source) return {}
-  const normalized: Record<string, string> = {}
-  for (const [workspace, name] of Object.entries(source)) {
-    if (typeof name !== 'string') continue
-    const key = workspace.trim()
-    const value = name.trim()
-    if (key && value) normalized[key] = value.slice(0, 80)
-  }
-  return normalized
 }
 
 function membership(value: unknown): ProjectMembership | null {

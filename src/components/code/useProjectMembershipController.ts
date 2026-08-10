@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer } from 'react'
+import { useCallback, useEffect, useReducer, useState, useSyncExternalStore } from 'react'
 import { appPath } from '@/lib/base-path'
 import { normalizeProjectWorkspaces } from '@/lib/project-workspaces'
 
@@ -104,6 +104,113 @@ export async function requestProjectMount(
   return projectMountResult(normalizedWorkspace, membership)
 }
 
+export type ProjectNamesState = {
+  latestRequestVersion: number
+  names: Record<string, string>
+  revision: number
+}
+
+export type ProjectNamesInitialGuard = {
+  requestVersion: number
+  revision: number
+}
+
+export const initialProjectNamesState: ProjectNamesState = {
+  latestRequestVersion: 0,
+  names: {},
+  revision: 0,
+}
+
+export function normalizeProjectNames(projectNames: unknown): Record<string, string> {
+  const source = projectNames && typeof projectNames === 'object' && !Array.isArray(projectNames)
+    ? projectNames as Record<string, unknown>
+    : null
+  if (!source) return {}
+  const normalized: Record<string, string> = {}
+  for (const [workspace, name] of Object.entries(source)) {
+    if (typeof name !== 'string') continue
+    const key = workspace.trim()
+    const value = name.trim()
+    if (key && value) normalized[key] = value.slice(0, 80)
+  }
+  return normalized
+}
+
+export function beginProjectNamesSettingsRequest(
+  state: ProjectNamesState,
+): { guard: ProjectNamesInitialGuard; state: ProjectNamesState } {
+  const requestVersion = state.latestRequestVersion + 1
+  return {
+    guard: { requestVersion, revision: state.revision },
+    state: { ...state, latestRequestVersion: requestVersion },
+  }
+}
+
+export function receiveInitialProjectNames(
+  state: ProjectNamesState,
+  projectNames: unknown,
+  guard: ProjectNamesInitialGuard,
+): ProjectNamesState {
+  if (guard.requestVersion !== state.latestRequestVersion) return state
+  if (guard.revision !== state.revision) return state
+  return { ...state, names: normalizeProjectNames(projectNames) }
+}
+
+export function replaceProjectName(
+  state: ProjectNamesState,
+  workspace: string,
+  name: string | null,
+  expectedCurrent?: string,
+): ProjectNamesState {
+  const current = state.names
+  if (expectedCurrent !== undefined && current[workspace] !== expectedCurrent) return state
+  if (name === null) {
+    if (!(workspace in current)) return state
+    const next = { ...current }
+    delete next[workspace]
+    return { ...state, names: next, revision: state.revision + 1 }
+  }
+  if (current[workspace] === name) return state
+  return { ...state, names: { ...current, [workspace]: name }, revision: state.revision + 1 }
+}
+
+/**
+ * Owns the authoritative Project display names: optimistic rename projection
+ * with compare-and-swap rollback, plus stale-response fencing so an initial
+ * settings read can never overwrite a rename that landed after it started.
+ */
+export class ProjectNamesController {
+  private state = initialProjectNamesState
+  private readonly listeners = new Set<() => void>()
+
+  getSnapshot = () => this.state
+
+  subscribe = (listener: () => void) => {
+    this.listeners.add(listener)
+    return () => this.listeners.delete(listener)
+  }
+
+  captureInitialSettingsGuard = () => {
+    const request = beginProjectNamesSettingsRequest(this.state)
+    this.publish(request.state)
+    return request.guard
+  }
+
+  receiveInitialSettings = (projectNames: unknown, guard: ProjectNamesInitialGuard) => {
+    this.publish(receiveInitialProjectNames(this.state, projectNames, guard))
+  }
+
+  replaceProjectName = (workspace: string, name: string | null, expectedCurrent?: string) => {
+    this.publish(replaceProjectName(this.state, workspace, name, expectedCurrent))
+  }
+
+  private publish(next: ProjectNamesState) {
+    if (next === this.state) return
+    this.state = next
+    for (const listener of this.listeners) listener()
+  }
+}
+
 export function useProjectMembershipController(
   remoteProjectWorkspaces: string[] | null,
   remotePinnedProjectWorkspaces: string[] | null,
@@ -111,6 +218,12 @@ export function useProjectMembershipController(
   const [state, applyMembership] = useReducer(
     projectMembershipReducer,
     initialProjectMembershipState,
+  )
+  const [namesController] = useState(() => new ProjectNamesController())
+  const namesState = useSyncExternalStore(
+    namesController.subscribe,
+    namesController.getSnapshot,
+    namesController.getSnapshot,
   )
 
   useEffect(() => {
@@ -132,7 +245,11 @@ export function useProjectMembershipController(
 
   return {
     ...state,
+    projectNames: namesState.names,
     applyMembership,
     mountProject,
+    replaceProjectName: namesController.replaceProjectName,
+    captureProjectNamesInitialGuard: namesController.captureInitialSettingsGuard,
+    receiveInitialProjectNames: namesController.receiveInitialSettings,
   }
 }

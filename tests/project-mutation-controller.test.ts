@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
-  normalizeProjectNames,
   ProjectMutationController,
   type ProjectMutationPorts,
 } from '../src/components/code/useProjectMutationController'
+import { normalizeProjectNames } from '../src/components/code/useProjectMembershipController'
 
 test('project name normalization accepts only authoritative strings', () => {
   assert.deepEqual(normalizeProjectNames({

@@ -219,10 +219,7 @@ import {
   throwIfProjectMountAborted,
   useProjectMembershipController,
 } from './code/useProjectMembershipController'
-import {
-  normalizeProjectNames,
-  useProjectMutationController,
-} from './code/useProjectMutationController'
+import { useProjectMutationController } from './code/useProjectMutationController'
 import { useQrShareController } from './code/useQrShareController'
 import {
   terminalTargetFilePath,
@@ -656,13 +653,16 @@ export function CodeWorkspace({
     projectWorkspaces,
     projectWorkspacesLoaded,
     pinnedProjectWorkspaces,
+    projectNames,
     applyMembership: applyProjectMembership,
     mountProject: requestProjectMount,
+    replaceProjectName,
+    captureProjectNamesInitialGuard,
+    receiveInitialProjectNames,
   } = useProjectMembershipController(
     remoteProjectWorkspaces,
     remotePinnedProjectWorkspaces,
   )
-  const [projectNames, setProjectNames] = useState<Record<string, string>>({})
   const [agentLaunchOptions, setAgentLaunchOptions] = useState<AgentLaunchOption[]>([])
   const {
     mainPageSessionKeys,
@@ -709,19 +709,7 @@ export function CodeWorkspace({
   const [copyNotice, setCopyNotice] = useState<{ id: number; kind: 'success' | 'error'; message: string } | null>(null)
   const mutateProject = useProjectMutationController({
     applyProjectMembership,
-    replaceProjectName: (workspace, name, expectedCurrent) => {
-      setProjectNames(current => {
-        if (expectedCurrent !== undefined && current[workspace] !== expectedCurrent) return current
-        if (name === null) {
-          if (!(workspace in current)) return current
-          const next = { ...current }
-          delete next[workspace]
-          return next
-        }
-        if (current[workspace] === name) return current
-        return { ...current, [workspace]: name }
-      })
-    },
+    replaceProjectName,
     showError: message => setCopyNotice({ id: Date.now(), kind: 'error', message }),
   })
   const [fileRevealRequest, setFileRevealRequest] = useState<{ agentId: string; path: string; kind: 'directory' | 'file'; requestId: number } | null>(null)
@@ -1498,13 +1486,14 @@ export function CodeWorkspace({
   const loadGlobalSettings = useCallback(() => {
     let cancelled = false
     const membershipGuard = captureMainPageSessionKeysInitialGuard()
+    const projectNamesGuard = captureProjectNamesInitialGuard()
     fetch(appPath('/api/settings'))
       .then(response => response.json())
       .then((data: { settings?: GlobalSettings }) => {
         if (cancelled) return
         const settings = data.settings ?? {}
         receiveInitialMainPageSessionKeys(settings.mainPageSessionKeys ?? [], membershipGuard)
-        setProjectNames(normalizeProjectNames(settings.projectNames))
+        receiveInitialProjectNames(settings.projectNames, projectNamesGuard)
         if (typeof settings.instanceName === 'string' && settings.instanceName.trim()) {
           setInstanceName(settings.instanceName)
         }
@@ -1515,7 +1504,7 @@ export function CodeWorkspace({
     return () => {
       cancelled = true
     }
-  }, [applyLaunchSettings, captureMainPageSessionKeysInitialGuard, receiveInitialMainPageSessionKeys])
+  }, [applyLaunchSettings, captureMainPageSessionKeysInitialGuard, captureProjectNamesInitialGuard, receiveInitialMainPageSessionKeys, receiveInitialProjectNames])
   const renameInstance = useCallback(async (name: string) => {
     try {
       const response = await fetch(appPath('/api/settings'), {
