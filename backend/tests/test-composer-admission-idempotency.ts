@@ -234,7 +234,7 @@ async function run() {
     runtime.reconnectAgent = fakeReconnectAgent;
     releaseTurn();
 
-    await Promise.all([...manager.acpTurnFinalizationTails.values()]);
+    await manager.acpTurnFinalizationCoordinator.whenIdle();
     const attentionBeforeRapidTurns = Number(agent.attentionSeq || 0);
     const finalizedHandleBeforeRapidTurns = agent.acpFinalizedTurnHandle || '';
     const productionStateWriter = configManager.sessionStore.writeJsonAsync.bind(configManager.sessionStore);
@@ -322,8 +322,8 @@ async function run() {
       lastSettledTurnSummary: 'Second exact summary',
     });
     await new Promise(resolve => setImmediate(resolve));
-    assert.strictEqual(manager.acpFinalizedTurns.get(agent.id), 'binding-1:2');
-    await Promise.allSettled([...manager.acpTurnFinalizationTails.values()]);
+    assert.strictEqual(manager.acpTurnFinalizationCoordinator.finalizedTurnHandle(agent.id), 'binding-1:2');
+    await manager.acpTurnFinalizationCoordinator.whenIdle();
     assert.strictEqual(agent.acpFinalizedTurnHandle, 'binding-1:2');
     assert.strictEqual(agent.attentionSummary, 'Second exact summary');
     assert.strictEqual(agent.attentionSeq, attentionBeforeRapidTurns + 2);
@@ -358,7 +358,7 @@ async function run() {
       lastSettledTurnHandle: 'binding-1:2',
       lastSettledTurnSummary: 'Second exact summary',
     });
-    await Promise.allSettled([...manager.acpTurnFinalizationTails.values()]);
+    await manager.acpTurnFinalizationCoordinator.whenIdle();
     assert.strictEqual(agent.acpFinalizedTurnHandle, 'binding-1:2');
     assert.strictEqual(agent.attentionSummary, 'Second exact summary');
     assert.strictEqual(agent.attentionSeq, finalizedAttentionSeq, 'stale or duplicate settled Turns must not increment attention');
@@ -387,7 +387,7 @@ async function run() {
       lastSettledTurnHandle: 'binding-1:3',
       lastSettledTurnSummary: 'Conflict fallback summary',
     });
-    await Promise.allSettled([...manager.acpTurnFinalizationTails.values()]);
+    await manager.acpTurnFinalizationCoordinator.whenIdle();
     assert.strictEqual(postCommitLiveConflicts, 8);
     assert.strictEqual(boundedConflictFallbacks, 1);
     assert.strictEqual(agent.acpFinalizedTurnHandle, 'binding-1:3');
@@ -424,7 +424,7 @@ async function run() {
       lastSettledTurnHandle: 'binding-1:4',
       lastSettledTurnSummary: 'Fourth exact summary',
     });
-    await Promise.allSettled([...manager.acpTurnFinalizationTails.values()]);
+    await manager.acpTurnFinalizationCoordinator.whenIdle();
     assert.strictEqual(agent.acpFinalizedTurnHandle, 'binding-1:3');
     assert.strictEqual(agent.attentionSummary, 'Conflict fallback summary');
     assert.strictEqual(agent.attentionSeq, attentionAfterConflictFallback);
@@ -446,7 +446,7 @@ async function run() {
       lastSettledTurnHandle: 'binding-1:4',
       lastSettledTurnSummary: 'Fourth exact summary',
     });
-    await Promise.allSettled([...manager.acpTurnFinalizationTails.values()]);
+    await manager.acpTurnFinalizationCoordinator.whenIdle();
     assert.strictEqual(agent.acpFinalizedTurnHandle, 'binding-1:4');
     assert.strictEqual(agent.attentionSummary, 'Fourth exact summary');
     assert.strictEqual(agent.attentionSeq, attentionAfterConflictFallback + 1);
@@ -456,7 +456,7 @@ async function run() {
     );
     configManager.persistAgentStatePatch = originalPersistFinalization;
     configManager.ensureAgentSessionRecord = originalEnsureFinalization;
-    manager.acpFinalizedTurns.clear();
+    manager.acpTurnFinalizationCoordinator.clearFinalizedTurns();
     runtime.emit('agent-runtime', {
       agentId: agent.id,
       sessionId: agent.providerSessionId,
