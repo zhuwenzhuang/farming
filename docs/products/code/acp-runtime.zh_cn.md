@@ -28,6 +28,9 @@ Identity，绝不静默回退 Managed Image 或 Terminal Executable。已有 Ses
 精确选择。环境变量只作为兼容输入，不是普通用户配置的 Authority。
 已有 Session 如果缺少创建时记录的精确 Executable，恢复必须 Fail Closed，且不得按当前
 机器环境重新发现 Executable。
+Terminal Session 尚未选择 ACP Executable。把同一个 Provider Session 切换到 Chat 时，
+Farming 从其精确 Agent Home 选择配置的 ACP Runtime，并在启动前持久化该选择；后续 ACP
+恢复只能使用这份持久化 Executable。
 
 只有 Live Agent 明确声明时，Farming 才启用标准 ACP Session、Prompt、Cancel、Config、
 Authentication、Elicitation、Terminal、Media、Plan 与 Fork 能力。Provider Extension 必须
@@ -158,6 +161,9 @@ Recoverable Error 与 Terminal Failure。Idle 是普通 Live State；Session 会
 Adapter 或 Host 异常退出必须进入明确恢复或失败。恢复需要证明旧进程 Ownership，恢复同一
 Provider Session 与私有 Scope，重新加载权威 History，并保留显式 Config Override。断线时
 正在执行的 Turn 结束为失败或不确定，绝不能静默重放。
+重连或替换后的 Host 如果不再持有之前观察到的 Binding，Farming 会先把该 Binding 标记为
+Interrupted，并立即为精确的持久化 Provider Session 安排冷恢复；冷恢复成功时，这个短暂
+Interrupted 状态不能成为 Session 的最终状态。
 
 普通启动不会替换仍拥有 Live Chat Session 的不兼容 Host。显式全量重启可以主动接管该
 Host、终止其 Live Session，并从持久化 Session Record 启动新的 Host。

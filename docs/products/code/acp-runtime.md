@@ -37,6 +37,10 @@ were created with. Environment variables are compatibility inputs, not the
 ordinary user configuration authority.
 An existing Session without its exact recorded executable fails closed during
 recovery and is never rediscovered against the current machine.
+A Terminal Session has no ACP executable selection. Switching that same
+Provider Session into Chat selects the configured ACP runtime from its exact
+Agent Home and persists that selection before launch; later ACP recovery then
+uses only the persisted executable.
 
 Farming may support standard ACP session, prompt, cancellation, configuration,
 authentication, elicitation, terminal, media, plan, and fork capabilities when
@@ -210,6 +214,10 @@ must prove old-process ownership, restore the same Provider Session and private
 scope, reload authoritative history, and preserve explicit configuration
 overrides. A Turn active at disconnect ends as failed or uncertain and is never
 silently replayed.
+If a reconnected or replacement Host no longer owns a previously observed
+binding, Farming marks that binding interrupted and immediately schedules cold
+recovery of the exact persisted Provider Session. The transient interruption
+must not become the Session's terminal state when cold recovery succeeds.
 
 An ordinary startup does not replace an incompatible Host that owns live Chat
 Sessions. An explicit full restart may intentionally take over that Host,

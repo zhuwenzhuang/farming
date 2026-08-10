@@ -134,8 +134,10 @@ class AcpRuntimeHostRuntime extends EventEmitter implements AcpRuntimeContract {
       && this.client.hostEpoch
       && previousHostEpoch !== this.client.hostEpoch
     );
+    const interruptedAgentIds: string[] = [];
     for (const [agentId, previous] of previousSessions) {
       if (!hostReplaced && this.sessions.has(agentId)) continue;
+      interruptedAgentIds.push(agentId);
       const interrupted: UnknownRecord = {
         ...previous,
         state: 'error',
@@ -153,6 +155,12 @@ class AcpRuntimeHostRuntime extends EventEmitter implements AcpRuntimeContract {
       });
     }
     this.publishRecoveredBindings();
+    if (interruptedAgentIds.length > 0) {
+      this.emit('bindings-interrupted', {
+        agentIds: interruptedAgentIds,
+        hostReplaced,
+      });
+    }
   }
 
   applyRuntimeEvent(value: unknown): void {

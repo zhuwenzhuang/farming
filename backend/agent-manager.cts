@@ -1747,6 +1747,27 @@ class AgentManager extends EventEmitter {
       });
       this.sessionPersistence.persist(agent);
     });
+    this.acpRuntime.on('bindings-interrupted', ({ agentIds }: { agentIds?: unknown[] }) => {
+      const recoverableAgentIds = Array.isArray(agentIds)
+        ? agentIds.filter((agentId): agentId is string => {
+            const agent = this.agents.get(String(agentId || ''));
+            return Boolean(
+              agent
+              && runtimeKind(agent) === 'acp'
+              && isSafeProviderSessionId(agent.providerSessionId),
+            );
+          })
+        : [];
+      if (recoverableAgentIds.length === 0 || !this.configManager?.farmingDir) return;
+      void this.recoveryGate.wait()
+        .then(() => this.recoverAcpSessions())
+        .catch((error: unknown) => {
+          console.warn(
+            `Failed to cold-resume interrupted ACP binding(s) ${recoverableAgentIds.join(', ')}:`,
+            error instanceof Error ? error.message : String(error),
+          );
+        });
+    });
   }
 
   bindEngineEvents() {
@@ -4706,11 +4727,19 @@ class AgentManager extends EventEmitter {
       && typeof this.configManager?.getAgentSessionRecordForProviderSessionKey === 'function'
       ? this.configManager.getAgentSessionRecordForProviderSessionKey(existingProviderSessionKey)
       : null;
-    const configuredAcpRuntime = existingProviderSessionRecord
+    // A Terminal Session has no ACP executable selection. Entering Chat is a
+    // new ACP selection from the exact Agent Home, not a resume of an
+    // unrecorded ACP executable. Once Chat starts, its selected executable is
+    // persisted and every later ACP recovery remains exact.
+    const existingAcpSessionRecord = existingProviderSessionRecord
+      && runtimeKind(existingProviderSessionRecord) === 'acp'
+      ? existingProviderSessionRecord
+      : null;
+    const configuredAcpRuntime = existingAcpSessionRecord
       ? {
-          mode: existingProviderSessionRecord.acpRuntimeMode === 'custom' ? 'custom' : 'managed',
-          executable: typeof existingProviderSessionRecord.acpRuntimeExecutable === 'string'
-            ? existingProviderSessionRecord.acpRuntimeExecutable
+          mode: existingAcpSessionRecord.acpRuntimeMode === 'custom' ? 'custom' : 'managed',
+          executable: typeof existingAcpSessionRecord.acpRuntimeExecutable === 'string'
+            ? existingAcpSessionRecord.acpRuntimeExecutable
             : '',
         }
       : {
@@ -4729,10 +4758,10 @@ class AgentManager extends EventEmitter {
         : launchPathEnv;
     }
     let resolvedExecutable = '';
-    if (useAcp && existingProviderSessionRecord) {
+    if (useAcp && existingAcpSessionRecord) {
       const executableResolution = validatePersistedAcpExecutable(
         structuredRuntimeProvider,
-        existingProviderSessionRecord.acpRuntimeExecutable,
+        existingAcpSessionRecord.acpRuntimeExecutable,
         {
           environment: executableOwnershipEnvironment(this.configManager?.farmingDir || ''),
           requireFarmingOwned: configuredAcpRuntime.mode === 'managed'

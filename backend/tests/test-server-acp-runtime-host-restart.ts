@@ -258,13 +258,16 @@ async function run(): Promise<void> {
   const socketPath = acpRuntimeHostSocketPath(configDir);
   const firstPort = await freePort();
   const secondPort = await freePort();
+  const thirdPort = await freePort();
   const firstBaseUrl = `http://127.0.0.1:${firstPort}/farming`;
   const secondBaseUrl = `http://127.0.0.1:${secondPort}/farming`;
+  const thirdBaseUrl = `http://127.0.0.1:${thirdPort}/farming`;
   const createRequestId = `create-acp-restart-${Date.now()}`;
   const promptRequestId = `prompt-acp-restart-${Date.now()}`;
   const prompt = `live progress across production Server restart ${promptRequestId}`;
   let serverA: ReturnType<typeof startServerProcess> | null = null;
   let serverB: ReturnType<typeof startServerProcess> | null = null;
+  let serverC: ReturnType<typeof startServerProcess> | null = null;
   let adapterPid = 0;
   let hostPid = 0;
   let agentId = '';
@@ -426,24 +429,155 @@ async function run(): Promise<void> {
       'the recovered transcript must contain one exact user prompt',
     );
 
+    const providerSessionId = String(recovered.providerSessionId || '');
+    assert(providerSessionId, 'Server recovery must retain the exact provider Session id');
+    currentPhase = 'switching recovered Chat to Terminal';
+    const switchedToTerminal = await fetchJson(secondBaseUrl, `/api/agents/${agentId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ agentRuntimeMode: 'terminal' }),
+    });
+    assert.strictEqual(
+      switchedToTerminal.response.status,
+      200,
+      JSON.stringify(switchedToTerminal.body),
+    );
+    const terminalAgentId = String(switchedToTerminal.body.restartedAgentId || '');
+    assert(terminalAgentId, 'Chat to Terminal switch must return the replacement Agent id');
+    await waitFor(async () => {
+      const listed = await fetchJson(secondBaseUrl, '/api/control/agents');
+      const agent = agentById(listed.body, terminalAgentId);
+      const binding = isRecord(agent?.runtimeBinding) ? agent.runtimeBinding : null;
+      return binding?.kind === 'terminal'
+        && String(agent.providerSessionId || '') === providerSessionId
+        ? agent
+        : null;
+    }, 'recovered Terminal replacement');
+    await waitFor(() => !processAlive(adapterPid), 'Chat adapter exit after Terminal switch');
+    const terminalRecord = persistedAgentRecord(configDir, terminalAgentId);
+    assert.strictEqual(
+      String(terminalRecord?.acpRuntimeExecutable || ''),
+      '',
+      'Terminal records must not pretend to own an ACP executable selection',
+    );
+
+    currentPhase = 'switching recovered Terminal back to Chat';
+    const switchedBackToChat = await fetchJson(secondBaseUrl, `/api/agents/${terminalAgentId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ agentRuntimeMode: 'chat' }),
+    });
+    assert.strictEqual(
+      switchedBackToChat.response.status,
+      200,
+      JSON.stringify(switchedBackToChat.body),
+    );
+    assert.strictEqual(
+      switchedBackToChat.body.warning,
+      undefined,
+      'Terminal to Chat must not roll back because the Terminal record has no ACP executable',
+    );
+    agentId = String(switchedBackToChat.body.restartedAgentId || '');
+    assert(agentId, 'Terminal to Chat switch must return the replacement Agent id');
+    const restoredChat = await waitFor(async () => {
+      const listed = await fetchJson(secondBaseUrl, '/api/control/agents');
+      const agent = agentById(listed.body, agentId);
+      const binding = isRecord(agent?.runtimeBinding) ? agent.runtimeBinding : null;
+      return binding?.kind === 'acp'
+        && runtimeState(agent) === 'idle'
+        && String(agent.providerSessionId || '') === providerSessionId
+        ? agent
+        : null;
+    }, 'same provider Session restored as Chat');
+    assert.strictEqual(
+      isRecord(restoredChat.runtimeBinding) ? restoredChat.runtimeBinding.kind : '',
+      'acp',
+    );
+    const restoredProcess = await waitFor(
+      () => structuredRuntimeProcess(persistedAgentRecord(configDir, agentId)),
+      'restored Chat adapter identity',
+    );
+    adapterPid = Number(restoredProcess.pid || 0);
+    assert(processAlive(adapterPid), 'restored Chat must own a live adapter process');
+    assert(
+      String(persistedAgentRecord(configDir, agentId)?.acpRuntimeExecutable || ''),
+      'restored Chat must persist the newly selected managed ACP executable',
+    );
+
+    const persistedExecutable = String(
+      persistedAgentRecord(configDir, agentId)?.acpRuntimeExecutable || '',
+    );
+    const preColdRestartHostPid = hostPid;
+    const preColdRestartAdapterPid = adapterPid;
+    currentPhase = 'hard-stopping complete Farming runtime';
+    await stopServerProcess(serverB);
+    serverB = null;
+    process.kill(preColdRestartHostPid, 'SIGKILL');
+    await waitFor(
+      () => !processAlive(preColdRestartHostPid),
+      'old Host exit during full cold restart',
+    );
+    if (processAlive(preColdRestartAdapterPid)) {
+      process.kill(preColdRestartAdapterPid, 'SIGKILL');
+    }
+    await waitFor(
+      () => !processAlive(preColdRestartAdapterPid),
+      'old adapter exit during full cold restart',
+    );
+
+    currentPhase = 'starting Server C after complete hard stop';
+    serverC = startServerProcess({ capabilityEnvFile, configDir, port: thirdPort });
+    await waitForServer(thirdBaseUrl, serverC, 'Farming Server C cold startup');
+    const coldRecoveredChat = await waitFor(async () => {
+      const listed = await fetchJson(thirdBaseUrl, '/api/control/agents');
+      const agent = agentById(listed.body, agentId);
+      const binding = isRecord(agent?.runtimeBinding) ? agent.runtimeBinding : null;
+      return binding?.kind === 'acp'
+        && runtimeState(agent) === 'idle'
+        && String(agent.providerSessionId || '') === providerSessionId
+        ? agent
+        : null;
+    }, 'same Chat after complete Farming hard restart', 30_000);
+    assert.strictEqual(
+      isRecord(coldRecoveredChat.runtimeBinding) ? coldRecoveredChat.runtimeBinding.kind : '',
+      'acp',
+      'cold restart must not restore a persisted Chat as Terminal',
+    );
+    assert.strictEqual(
+      String(persistedAgentRecord(configDir, agentId)?.acpRuntimeExecutable || ''),
+      persistedExecutable,
+      'cold restart must reuse the exact persisted ACP executable',
+    );
+    const coldProcess = await waitFor(
+      () => structuredRuntimeProcess(persistedAgentRecord(configDir, agentId)),
+      'cold-restored Chat adapter identity',
+    );
+    adapterPid = Number(coldProcess.pid || 0);
+    assert.notStrictEqual(adapterPid, preColdRestartAdapterPid);
+    assert(processAlive(adapterPid));
+    const coldHost = await waitFor(() => pingHost(socketPath), 'cold-restored Host');
+    hostPid = Number(coldHost.pid || 0);
+    assert.notStrictEqual(hostPid, preColdRestartHostPid);
+    assert(processAlive(hostPid));
+    const finalHostEpoch = String(coldHost.hostEpoch || '');
+    assert(finalHostEpoch);
+
     currentPhase = 'deleting recovered Agent';
-    const deleted = await fetchJson(secondBaseUrl, `/api/control/agents/${agentId}?recordHistory=0`, {
+    const deleted = await fetchJson(thirdBaseUrl, `/api/control/agents/${agentId}?recordHistory=0`, {
       method: 'DELETE',
     });
     assert([200, 202].includes(deleted.response.status), JSON.stringify(deleted.body));
     await waitFor(async () => {
-      const listed = await fetchJson(secondBaseUrl, '/api/control/agents');
+      const listed = await fetchJson(thirdBaseUrl, '/api/control/agents');
       return listed.response.ok && !agentById(listed.body, agentId);
     }, 'explicit Agent deletion');
     await waitFor(() => !processAlive(adapterPid), 'exact ACP adapter exit after Agent deletion');
 
     const hostAfterDelete = await pingHost(socketPath);
-    assert.strictEqual(hostAfterDelete.pid, hostA.pid, 'deleting one Agent must not replace its Runtime Host');
-    assert.strictEqual(hostAfterDelete.hostEpoch, hostA.hostEpoch);
+    assert.strictEqual(hostAfterDelete.pid, hostPid, 'deleting one Agent must not replace its Runtime Host');
+    assert.strictEqual(hostAfterDelete.hostEpoch, finalHostEpoch);
 
-    currentPhase = 'stopping Server B';
-    await stopServerProcess(serverB);
-    serverB = null;
+    currentPhase = 'stopping Server C';
+    await stopServerProcess(serverC);
+    serverC = null;
 
     currentPhase = 'connecting deleted-binding inspector';
     const inspector = new AcpRuntimeHostClient({
@@ -460,7 +594,7 @@ async function run(): Promise<void> {
         }),
       ]);
       currentPhase = 'checking deleted Host binding';
-      assert.strictEqual(inspector.hostEpoch, hostA.hostEpoch, 'inspection must attach the same Host');
+      assert.strictEqual(inspector.hostEpoch, finalHostEpoch, 'inspection must attach the same Host');
       assert.strictEqual(
         inspector.bindings.has(agentId),
         false,
@@ -477,10 +611,11 @@ async function run(): Promise<void> {
     }
 
     currentPhase = 'complete';
-    console.log('Server A/B restart preserves one active ACP Turn and exact Host-owned deletion');
+    console.log('Server restart and full hard restart preserve Chat, provider Session, and exact runtime ownership');
   } finally {
     await stopServerProcess(serverA).catch(() => {});
     await stopServerProcess(serverB).catch(() => {});
+    await stopServerProcess(serverC).catch(() => {});
     await shutdownHost(configDir).catch(() => {});
     await stopExactProcess(adapterPid).catch(() => {});
     await stopExactProcess(hostPid).catch(() => {});
@@ -491,9 +626,9 @@ async function run(): Promise<void> {
 }
 
 const watchdog = setTimeout(() => {
-  console.error(`Server ACP Runtime Host restart test exceeded 60 seconds during ${currentPhase}`);
+  console.error(`Server ACP Runtime Host restart test exceeded 90 seconds during ${currentPhase}`);
   process.exitCode = 1;
-}, 60_000);
+}, 90_000);
 
 run().then(() => {
   clearTimeout(watchdog);

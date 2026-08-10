@@ -347,7 +347,9 @@ async function main() {
     assert.strictEqual(third.hasBinding('agent-1'), true, 'a poisoned mutation channel must recover via a new generation');
 
     const interruptedEvents = [];
+    const interruptedBindingEvents = [];
     third.on('agent-runtime', event => interruptedEvents.push(event));
+    third.on('bindings-interrupted', event => interruptedBindingEvents.push(event));
     const missingBindingHostEpoch = third.client.hostEpoch;
     const missingBindingGeneration = third.client.controllerGeneration;
     host.activeControllerClient.socket.destroy();
@@ -363,6 +365,10 @@ async function main() {
     );
     assert.strictEqual(third.client.hostEpoch, missingBindingHostEpoch);
     assert.strictEqual(third.hasBinding('agent-1'), false);
+    assert.deepStrictEqual(interruptedBindingEvents, [{
+      agentIds: ['agent-1'],
+      hostReplaced: false,
+    }]);
   } finally {
     first.disconnect();
     second?.disconnect();

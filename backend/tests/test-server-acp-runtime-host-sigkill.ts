@@ -190,13 +190,19 @@ async function main() {
     assert.strictEqual(created.response.status, 201, JSON.stringify(created.body));
     const agentId = String(created.body.agentId || '');
     assert(agentId);
-    await waitFor(async () => {
+    const createdAgent = await waitFor(async () => {
       const listed = await fetchJson(baseUrl, '/api/control/agents');
       const agent = Array.isArray(listed.body.agents)
         ? listed.body.agents.find(candidate => candidate.id === agentId)
         : null;
-      return isRecord(agent?.runtimeBinding) && agent.runtimeBinding.state === 'idle';
+      return isRecord(agent?.runtimeBinding)
+        && agent.runtimeBinding.kind === 'acp'
+        && agent.runtimeBinding.state === 'idle'
+        ? agent
+        : null;
     }, 'idle ACP Agent');
+    const providerSessionId = String(createdAgent.providerSessionId || '');
+    assert(providerSessionId);
 
     const promptRequestId = `host-sigkill-prompt-${Date.now()}`;
     const submitted = await fetchJson(baseUrl, `/api/control/agents/${agentId}/messages`, {
@@ -226,6 +232,30 @@ async function main() {
     process.kill(hostPid, 'SIGKILL');
     await waitFor(() => !processAlive(hostPid), 'Host SIGKILL exit');
 
+    const autonomouslyRecovered = await waitFor(async () => {
+      const listed = await fetchJson(baseUrl, '/api/control/agents');
+      const agent = Array.isArray(listed.body.agents)
+        ? listed.body.agents.find(candidate => candidate.id === agentId)
+        : null;
+      return isRecord(agent?.runtimeBinding)
+        && agent.runtimeBinding.kind === 'acp'
+        && agent.runtimeBinding.state === 'idle'
+        && String(agent.providerSessionId || '') === providerSessionId
+        ? agent
+        : null;
+    }, 'automatic cold resume after Host binding loss', 30_000);
+    assert.strictEqual(autonomouslyRecovered.runtimeBinding.kind, 'acp');
+    await waitFor(() => !processAlive(oldAdapterPid), 'old adapter cleanup after Host recovery');
+    const replacement = await waitFor(() => {
+      const identity = persistedRuntimeProcess(configDir, agentId);
+      return identity && Number(identity.pid || 0) !== oldAdapterPid ? identity : null;
+    }, 'replacement adapter identity');
+    replacementAdapterPid = Number(replacement.pid || 0);
+    assert(processAlive(replacementAdapterPid));
+    const replacementHost = await pingHost(socketPath);
+    replacementHostPid = Number(replacementHost.pid || 0);
+    assert.notStrictEqual(replacementHostPid, hostPid);
+
     const explicitRequestId = `host-sigkill-explicit-${Date.now()}`;
     const explicit = await fetchJson(baseUrl, `/api/control/agents/${agentId}/messages`, {
       method: 'POST',
@@ -250,15 +280,7 @@ async function main() {
       '1',
       'Host recovery must never replay the uncertain provider-owned prompt',
     );
-    await waitFor(() => !processAlive(oldAdapterPid), 'old adapter cleanup after Host recovery');
-    const replacement = await waitFor(() => persistedRuntimeProcess(configDir, agentId), 'replacement adapter identity');
-    replacementAdapterPid = Number(replacement.pid || 0);
-    assert.notStrictEqual(replacementAdapterPid, oldAdapterPid);
-    const replacementHost = await pingHost(socketPath);
-    replacementHostPid = Number(replacementHost.pid || 0);
-    assert.notStrictEqual(replacementHostPid, hostPid);
-
-    console.log('ACP runtime Host SIGKILL recovery does not replay an active Turn');
+    console.log('ACP runtime Host SIGKILL cold-resumes Chat without replaying an active Turn');
   } finally {
     await stopProcess(server);
     await shutdownHost(configDir).catch(() => {});
