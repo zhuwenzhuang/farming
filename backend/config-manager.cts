@@ -609,61 +609,8 @@ class ConfigManager {
       .slice(0, 200);
   }
   
-  init(): void {
-    if (!fs.existsSync(this.farmingDir)) {
-      fs.mkdirSync(this.farmingDir, { recursive: true });
-      console.log('Created farming directory:', this.farmingDir);
-    }
-    
-    if (!fs.existsSync(this.settingsFile)) {
-      const defaultSettings = {
-        workspace: this.farmingDir,
-        lastMainWorkspace: this.farmingDir,
-        workspaceHistory: [],
-        projectWorkspaces: [],
-        pinnedProjectWorkspaces: [],
-        projectNames: {},
-        projectOperations: {},
-        instanceName: '',
-        theme: 'terminal',
-        appearance: 'system',
-        language: 'en',
-        restReminderIntervalSeconds: null,
-        heartbeatInterval: 1000,
-        dangerouslySkipAgentPermissionsByDefault: false,
-        browserExtensionEnabled: false,
-        browserSource: process.env.FARMING_BROWSER_CDP_URL ? 'external-cdp' : 'system',
-        browserExecutablePath: process.env.FARMING_BROWSER_EXECUTABLE || '',
-        browserExternalCdpUrl: process.env.FARMING_BROWSER_CDP_URL || 'http://127.0.0.1:9222',
-        computerExtensionEnabled: false,
-        computerCompatibilityMode: false,
-        computerImage: COMPUTER_IMAGE,
-        codeContentFontSize: DEFAULT_CODE_CONTENT_FONT_SIZE,
-        composerFollowUpBehavior: 'queue',
-        crtContentFontSize: DEFAULT_CRT_CONTENT_FONT_SIZE,
-        crtSkinEffectsEnabled: true,
-        crtDynamicHeatEnabled: false,
-        crtTerminalFontSize: DEFAULT_CRT_TERMINAL_FONT_SIZE,
-        defaultLaunchAgent: 'codex',
-        agentLaunchProfiles: {
-          codex: cloneLaunchProfile(DEFAULT_CODEX_LAUNCH_PROFILE),
-          claude: cloneLaunchProfile(DEFAULT_CLAUDE_LAUNCH_PROFILE),
-        },
-        agentHomes: cloneAgentHomes(DEFAULT_AGENT_HOMES),
-        searchTimeoutMs: DEFAULT_SEARCH_TIMEOUT_MS,
-        codexApprovalMode: 'approve',
-        codexModel: 'config',
-        codexReasoningEffort: 'config',
-        codexServiceTier: 'config',
-        codexModelPreset: 'config',
-        version: '2'
-      };
-      this.writeSettingsFile(defaultSettings);
-      console.log('Created default settings:', this.settingsFile);
-    }
-    
-    const rawSettings = JSON.parse(fs.readFileSync(this.settingsFile, 'utf8')) as JsonRecord;
-    this.settings = {
+  buildDefaultSettings(): Settings {
+    return {
       workspace: this.farmingDir,
       lastMainWorkspace: this.farmingDir,
       workspaceHistory: [],
@@ -703,7 +650,24 @@ class ConfigManager {
       codexReasoningEffort: 'config',
       codexServiceTier: 'config',
       codexModelPreset: 'config',
-      version: '2',
+      version: '2'
+    };
+  }
+
+  init(): void {
+    if (!fs.existsSync(this.farmingDir)) {
+      fs.mkdirSync(this.farmingDir, { recursive: true });
+      console.log('Created farming directory:', this.farmingDir);
+    }
+    
+    if (!fs.existsSync(this.settingsFile)) {
+      this.writeSettingsFile(this.buildDefaultSettings());
+      console.log('Created default settings:', this.settingsFile);
+    }
+    
+    const rawSettings = JSON.parse(fs.readFileSync(this.settingsFile, 'utf8')) as JsonRecord;
+    this.settings = {
+      ...this.buildDefaultSettings(),
       ...rawSettings
     };
     if (rawSettings.searchTimeoutMs === undefined && rawSettings.workspaceFileSearchTimeoutMs !== undefined) {
