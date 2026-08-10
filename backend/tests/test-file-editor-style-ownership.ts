@@ -36,12 +36,12 @@ const EXPECTED = {
     digest: '75816a29765d71cc7a9b332576ce899872c4d20345adf6305b04af69803c7b2b',
   },
   mainForeign: {
-    count: 1822,
-    digest: '09069f5e1f3f688b167eca48a5ebf2ef46f0610e94e948115d962e4f047c2098',
+    count: 1683,
+    digest: '2d8e2405230fe49bb3bc65114fd90b33333c7e0e5a3879f59c3dd51da7d990c2',
   },
   darkForeign: {
-    count: 485,
-    digest: '73b14fddb562d5d61bd38b285375588625d22bad86db0a99749c037a31b0dd07',
+    count: 453,
+    digest: '824de6062b757a5a00ea3934792917ac67a483bee019df454a356597a128769e',
   },
 };
 

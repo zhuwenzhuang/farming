@@ -474,7 +474,6 @@ body.code-mode[data-appearance='dark'] .code-file-name,
 body.code-mode[data-appearance='dark'] .code-open-editor-name,
 body.code-mode[data-appearance='dark'] .code-project-title-name,
 body.code-mode[data-appearance='dark'] .code-product-mark-main,
-body.code-mode[data-appearance='dark'] .code-usage-row strong,
 body.code-mode[data-appearance='dark'] .code-empty-workspace h2,
 body.code-mode[data-appearance='dark'] .code-search-panel-header h2,
 body.code-mode[data-appearance='dark'] .code-search-result-copy strong,
@@ -490,9 +489,6 @@ body.code-mode[data-appearance='dark'] .code-open-editor-path,
 body.code-mode[data-appearance='dark'] .code-file-search-preview,
 body.code-mode[data-appearance='dark'] .code-file-status,
 body.code-mode[data-appearance='dark'] .code-product-mark-badge,
-body.code-mode[data-appearance='dark'] .code-usage-panel,
-body.code-mode[data-appearance='dark'] .code-usage-header,
-body.code-mode[data-appearance='dark'] .code-usage-subrow,
 body.code-mode[data-appearance='dark'] .code-empty-workspace,
 body.code-mode[data-appearance='dark'] .code-search-panel-header span,
 body.code-mode[data-appearance='dark'] .code-search-result-group h3,
@@ -569,170 +565,6 @@ body.code-mode[data-appearance='dark'] .code-side-view-back {
 body.code-mode[data-appearance='dark'] .code-side-view-back:hover {
   background: var(--code-dark-bg-hover);
   color: var(--code-dark-text);
-}
-
-body.code-mode[data-appearance='dark'] .code-usage-heatmap-cell {
-  background: rgba(88, 166, 255, 0.08);
-}
-
-body.code-mode[data-appearance='dark'] .code-usage-heatmap-cell[data-level='1'] {
-  background: rgba(88, 166, 255, 0.24);
-}
-
-body.code-mode[data-appearance='dark'] .code-usage-heatmap-cell[data-level='2'] {
-  background: rgba(88, 166, 255, 0.42);
-}
-
-body.code-mode[data-appearance='dark'] .code-usage-heatmap-cell[data-level='3'] {
-  background: rgba(88, 166, 255, 0.64);
-}
-
-body.code-mode[data-appearance='dark'] .code-usage-heatmap-cell[data-level='4'] {
-  background: rgba(88, 166, 255, 0.72);
-}
-
-body.code-mode[data-appearance='dark'] .code-usage-heatmap-cell[data-level='5'] {
-  background: rgba(88, 166, 255, 0.94);
-}
-
-body.code-mode[data-appearance='dark'] .code-usage-heatmap-cell:hover {
-  outline-color: rgba(121, 186, 255, 0.7);
-}
-
-body.code-mode[data-appearance='dark'] .code-usage-sparkline {
-  color: #79baff;
-}
-
-body.code-mode[data-appearance='dark'] .code-usage-daily-heatmap-cell[data-recent='true'] {
-  box-shadow: inset 0 0 0 1px rgba(121, 186, 255, 0.42);
-}
-
-body.code-mode[data-appearance='dark'] .code-usage-activity-heading,
-body.code-mode[data-appearance='dark'] .code-usage-time-axis,
-body.code-mode[data-appearance='dark'] .code-usage-activity-readout {
-  color: var(--code-dark-text-muted);
-}
-
-body.code-mode[data-appearance='dark'] .code-usage-detail-backdrop {
-  background: rgba(2, 6, 10, 0.58);
-}
-
-body.code-mode[data-appearance='dark'] .code-usage-detail-dialog {
-  border-color: var(--code-dark-border);
-  background: rgba(22, 27, 34, 0.98);
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
-  color: var(--code-dark-text);
-}
-
-body.code-mode[data-appearance='dark'] .code-usage-detail-eyebrow,
-body.code-mode[data-appearance='dark'] .code-usage-detail-chart-heading,
-body.code-mode[data-appearance='dark'] .code-usage-detail-stat span,
-body.code-mode[data-appearance='dark'] .code-usage-detail-stat small {
-  color: var(--code-dark-text-muted);
-}
-
-body.code-mode[data-appearance='dark'] .code-usage-detail-close {
-  color: var(--code-dark-text-muted);
-}
-
-body.code-mode[data-appearance='dark'] .code-usage-detail-close:hover,
-body.code-mode[data-appearance='dark'] .code-usage-detail-close:focus-visible {
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--code-dark-text);
-}
-
-body.code-mode[data-appearance='dark'] .code-usage-detail-chart {
-  border-color: var(--code-dark-border);
-  background: rgba(13, 17, 23, 0.55);
-}
-
-body.code-mode[data-appearance='dark'] .code-usage-detail-chart-heading strong,
-body.code-mode[data-appearance='dark'] .code-usage-detail-day-highlight > strong,
-body.code-mode[data-appearance='dark'] .code-usage-detail-readout,
-body.code-mode[data-appearance='dark'] .code-usage-detail-stat strong {
-  color: var(--code-dark-text);
-}
-
-body.code-mode[data-appearance='dark'] .code-usage-detail-day-highlight,
-body.code-mode[data-appearance='dark'] .code-usage-detail-day-highlight > small {
-  color: var(--code-dark-text-muted);
-}
-
-body.code-mode[data-appearance='dark'] .code-usage-detail-day-highlight[data-state='selected'] > strong {
-  color: #79baff;
-}
-
-body.code-mode[data-appearance='dark'] .code-usage-daily-heatmap-cell[data-shape='crown'] {
-  filter:
-    drop-shadow(0 0 1px rgba(13, 17, 23, 0.96))
-    drop-shadow(0 0 1px rgba(121, 186, 255, 0.88));
-}
-
-body.code-mode[data-appearance='dark'] .code-usage-detail-chart .code-usage-daily-heatmap-cell[data-selected='true'] {
-  outline-color: rgba(121, 186, 255, 0.9);
-}
-
-body.code-mode[data-appearance='dark'] .code-usage-detail-chart .code-usage-daily-heatmap-cell[data-selected='true'][data-shape] {
-  filter:
-    drop-shadow(0 0 1px rgba(13, 17, 23, 0.96))
-    drop-shadow(0 0 2px rgba(121, 186, 255, 0.92));
-}
-
-body.code-mode[data-appearance='dark'] .code-usage-detail-stat {
-  background: rgba(255, 255, 255, 0.055);
-}
-
-body.code-mode[data-appearance='dark'] .code-usage-mobile-open,
-body.code-mode[data-appearance='dark'] .code-usage-mobile-date-picker {
-  background: rgba(255, 255, 255, 0.065);
-  color: var(--code-dark-text);
-}
-
-body.code-mode[data-appearance='dark'] .code-usage-mobile-open > span:last-child {
-  color: var(--code-dark-text-muted);
-}
-
-body.code-mode[data-appearance='dark'] .code-usage-mobile-date-picker input {
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--code-dark-text);
-}
-
-body.code-mode[data-appearance='dark'].code-compact-layout .code-usage-detail-header {
-  border-bottom-color: var(--code-dark-border);
-  background: rgba(22, 27, 34, 0.98);
-}
-
-body.code-mode[data-appearance='dark'] .code-usage-day-breakdown {
-  border-top-color: var(--code-dark-border);
-}
-
-body.code-mode[data-appearance='dark'] .code-usage-day-breakdown-heading,
-body.code-mode[data-appearance='dark'] .code-usage-day-histogram-scale,
-body.code-mode[data-appearance='dark'] .code-usage-day-histogram-axis,
-body.code-mode[data-appearance='dark'] .code-usage-day-agent-legend,
-body.code-mode[data-appearance='dark'] .code-usage-day-agent-legend small,
-body.code-mode[data-appearance='dark'] .code-usage-day-agent-legend em,
-body.code-mode[data-appearance='dark'] .code-usage-day-breakdown-status {
-  color: var(--code-dark-text-muted);
-}
-
-body.code-mode[data-appearance='dark'] .code-usage-day-breakdown-heading strong {
-  color: var(--code-dark-text);
-}
-
-body.code-mode[data-appearance='dark'] .code-usage-day-histogram-bars {
-  border-bottom-color: var(--code-dark-border);
-  background: repeating-linear-gradient(
-    to bottom,
-    rgba(139, 148, 158, 0.09) 0,
-    rgba(139, 148, 158, 0.09) 1px,
-    transparent 1px,
-    transparent 34px
-  );
-}
-
-body.code-mode[data-appearance='dark'] .code-usage-day-histogram-segment {
-  box-shadow: inset 0 1px rgba(13, 17, 23, 0.42);
 }
 
 body.code-mode[data-appearance='dark'] .code-search-result {
@@ -819,9 +651,7 @@ body.code-mode[data-appearance='dark'] .code-file-row.code-file-sticky-row {
 }
 
 body.code-mode[data-appearance='dark'] .code-open-editors-header,
-body.code-mode[data-appearance='dark'] .code-files-header,
-body.code-mode[data-appearance='dark'] .code-usage-panel,
-body.code-mode[data-appearance='dark'] .code-usage-provider {
+body.code-mode[data-appearance='dark'] .code-files-header {
   border-color: var(--code-dark-border-soft);
 }
 
