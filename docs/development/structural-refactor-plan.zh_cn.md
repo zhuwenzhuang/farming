@@ -434,16 +434,22 @@ Branch 或逐文件进度：
 
 ### Stylesheet 所有权
 
-超大应用 Stylesheet 是一条可独立推进的辅助 Lane，可以在代码热点被占用时拆分。
-Git History、Composer、Plugin、Settings、Share 和 Pet Surface 已有各自的样式
-Owner；主样式表与 Code Dark Skin 样式表仍需完成其余产品 Domain 拆分。拆分
-必须按产品 Domain 和渲染 Surface，而不是按任意行数。每个切片同时迁移该 Domain 的
-基础规则、Dark Skin Override、Responsive Rule、Animation 和样式契约测试，并保持
-运行时 Import 顺序、Cascade、Specificity 和视觉行为不变。Theme Token 与独立 Skin
-继续作为不同 Owner。源码契约测试应读取声明式 Style-source Manifest，而不是假设所有
-Selector 都位于一个巨型文件中。只有当组件源码与真实渲染 DOM 都证明受支持状态、
-Extension 和响应式布局不会再产生某个 Selector 时才能删除它；可见样式切片必须完成
-聚焦的桌面、Dark 和窄布局验证。
+应用 Stylesheet 的产品 Domain 拆分已完成：File Editor、Pet、Git History、
+Composer、Plugin、Settings、Share、Sidebar Resource、Usage、Markdown、Search、
+History、空状态、Language Server、Desktop Backend、Terminal、工作区 Files、
+Sidebar、Transcript 与 Agent List 各自拥有成对的基础与 Dark Owner 文件，均在
+声明式 Style-source Manifest 中登记，并由各自的 Domain 所有权契约测试守护。
+`main.css` 与 `code-dark.css` 只保留应用级 Chrome 与共享基础布局，这正是它们
+的长期定位。
+
+后续任何 Domain 拆分或样式改动仍须遵守既定规则：按产品 Domain 和渲染 Surface
+拆分，而不是按任意行数；每个切片同时迁移该 Domain 的基础规则、Dark Skin
+Override、Responsive Rule、Animation 和样式契约测试，并保持运行时 Import 顺序、
+Cascade、Specificity 和视觉行为不变。Theme Token 与独立 Skin 继续作为不同
+Owner。源码契约测试读取声明式 Style-source Manifest，且不得冻结母文件中
+其他 Domain 的内容——那会对之后的每次拆分和功能样式改动征税。只有当组件源码与
+真实渲染 DOM 都证明受支持状态、Extension 和响应式布局不会再产生某个 Selector
+时才能删除它；可见样式切片必须完成聚焦的桌面、Dark 和窄布局验证。
 
 ## 验证
 

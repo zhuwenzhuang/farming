@@ -534,20 +534,26 @@ file-by-file progress log:
 
 ### Stylesheet ownership
 
-Oversized application stylesheets are an independent supporting lane and may
-be decomposed while code hotspots are busy. Git History, Composer, Plugin,
-Settings, Share, and Pet surfaces already have their own style owners; the main
-and Code dark-skin stylesheets still need their remaining product-domain splits.
-Split styles by product domain and rendered surface, not by arbitrary line
-count. A slice moves the domain's base
-rules, dark-skin overrides, responsive rules, animations, and style-contract
-tests together while preserving runtime import order, cascade, specificity, and
-visual behavior. Theme tokens and independent skins remain separate owners.
-Source-contract tests should read a declared style-source manifest instead of
-assuming every selector lives in one monolithic file. Remove an obsolete
+The product-domain decomposition of the application stylesheets is complete:
+every product domain - File Editor, Pet, Git History, Composer, Plugin,
+Settings, Share, sidebar resources, Usage, Markdown, Search, History, empty
+states, Language Server, desktop backend, Terminal, workspace Files, Sidebar,
+transcript, and Agent list - has its own base and dark owner pair declared in
+the style-source manifest and guarded by a domain ownership contract test.
+`main.css` and `code-dark.css` retain only application-level chrome and shared
+base layout, which is their intended durable scope.
+
+For any future domain split or style change, keep the established rules:
+split by product domain and rendered surface, not by arbitrary line count;
+move the domain's base rules, dark-skin overrides, responsive rules,
+animations, and style-contract tests together while preserving runtime import
+order, cascade, specificity, and visual behavior. Theme tokens and independent
+skins remain separate owners. Source-contract tests read the declared
+style-source manifest and must not freeze foreign monolith content, which
+would tax every later extraction and feature change. Remove an obsolete
 selector only after component-source and rendered-DOM evidence show that no
-supported state, extension, or responsive layout can produce it; visible slices
-require focused desktop, dark, and narrow-layout verification.
+supported state, extension, or responsive layout can produce it; visible
+slices require focused desktop, dark, and narrow-layout verification.
 
 ## Verification
 
