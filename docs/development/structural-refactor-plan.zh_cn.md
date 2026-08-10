@@ -106,6 +106,8 @@ Runtime Port 与 Provider Policy
   Operation，不能检查准入 Map。
 - Project Mutation 准入统一拥有 Request Key 幂等和 Workspace Key 互斥，包括排队
   删除与停机 Drain 可见性。Agent 启动只询问其 Workspace 是否与已准入删除相交。
+- Runtime 停止证明与临时 Exit Event 抑制由同一个 Tracker 管理。已验证退出、重启
+  Cleanup、事件过滤、精确 Forget 和 Dispose 不会再因 Manager 中两套 Set 而分叉。
 - Provider Adapter 提供有类型的权限重启、Terminal 身份/启动约束、空闲稳定和会话
   Fork 策略；通用生命周期代码不解释 Provider 名称。共享 Terminal Startup
   Coordinator 拥有可变的排序和就绪状态；Adapter 只提供无状态的资源作用域和就绪策略。

@@ -129,6 +129,9 @@ HTTP, WebSocket, persistence, and runtime-host boundaries.
 - Project mutation admission owns request-key idempotency and workspace-key
   exclusion, including queued deletes and shutdown drain visibility. Agent
   startup asks only whether its workspace intersects an admitted deletion.
+- Runtime stop proof and temporary exit-event suppression share one tracker.
+  Verified exit, restart cleanup, event filtering, exact forget, and disposal
+  therefore cannot diverge across independent Manager-owned sets.
 - Provider adapters expose typed decisions such as permission restart,
   Terminal identity/startup constraints, idle stability, and conversation Fork
   policy. Generic lifecycle code does not interpret provider names. A shared

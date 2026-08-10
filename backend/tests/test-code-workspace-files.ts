@@ -377,7 +377,7 @@ function run() {
       agentManagerSource.includes('lifecycleCoordinator') &&
       agentManagerSource.includes('restartedFromAgentId: agentId') &&
       agentManagerSource.includes('restartedFromAgentIds: Array.from(new Set([') &&
-      agentManagerSource.includes('permissionRestartSuppressedAgentIds') &&
+      agentManagerSource.includes('runtimeStopTracker') &&
       agentManagerSource.includes('emitUpdate: false') &&
       stylesSource.includes('.code-permission-switching') &&
       darkStylesSource.includes('.code-permission-switching'),

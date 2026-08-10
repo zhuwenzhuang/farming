@@ -196,6 +196,7 @@ import { AgentWorktreeRefreshQueue } from './agent-worktree-refresh-queue.cjs';
 import { AgentLifecycleCoordinator } from './agent-lifecycle-coordinator.cjs';
 import { AgentStartAdmissionCoordinator } from './agent-start-admission-coordinator.cjs';
 import { ProjectOperationAdmissionCoordinator } from './project-operation-admission-coordinator.cjs';
+import { AgentRuntimeStopTracker } from './agent-runtime-stop-tracker.cjs';
 import { AgentAdaptiveTitlePersistenceCoordinator } from './agent-adaptive-title-persistence.cjs';
 import {
   WorktreeGitService,
@@ -1330,7 +1331,7 @@ class AgentManager extends EventEmitter {
   declare lifecycleCoordinator: AgentLifecycleCoordinator;
   declare startAdmissionCoordinator: AgentStartAdmissionCoordinator;
   declare projectAdmissionCoordinator: ProjectOperationAdmissionCoordinator;
-  declare verifiedStoppedAgentIds: Set<AgentId>;
+  declare runtimeStopTracker: AgentRuntimeStopTracker;
   declare codexSessionMutationQueues: Map<string, CodexSessionMutationAdmission<unknown>>;
   declare adaptiveTitlePersistence: AgentAdaptiveTitlePersistenceCoordinator;
   declare acpTurnFinalizationCoordinator: AcpTurnFinalizationCoordinator;
@@ -1339,7 +1340,6 @@ class AgentManager extends EventEmitter {
   declare acpPreparedTranscriptCache: AcpPreparedTranscriptCache;
   declare acpTranscriptReads: Map<string, Promise<{ payload?: UnknownRecord; serialized?: string }>>;
   declare transcriptMediaPathPrefix: (agentId: string) => string;
-  declare permissionRestartSuppressedAgentIds: Set<AgentId>;
   declare createProviderSessionIdentity: CreateProviderSessionIdentityContract;
   declare deleteProviderSessionIdentity: DeleteProviderSessionIdentityContract;
   declare archiveCodexSession: ArchiveCodexSessionContract;
@@ -1604,7 +1604,7 @@ class AgentManager extends EventEmitter {
     });
     this.startAdmissionCoordinator = new AgentStartAdmissionCoordinator();
     this.projectAdmissionCoordinator = new ProjectOperationAdmissionCoordinator();
-    this.verifiedStoppedAgentIds = new Set();
+    this.runtimeStopTracker = new AgentRuntimeStopTracker();
     this.codexSessionMutationQueues = new Map();
     this.adaptiveTitlePersistence = new AgentAdaptiveTitlePersistenceCoordinator({
       getAgent: (agentId: AgentId) => this.agents.get(agentId),
@@ -1646,7 +1646,6 @@ class AgentManager extends EventEmitter {
     this.transcriptMediaPathPrefix = typeof options.transcriptMediaPathPrefix === 'function'
       ? options.transcriptMediaPathPrefix
       : (agentId: string) => `/api/agents/${encodeURIComponent(agentId)}/acp-media`;
-    this.permissionRestartSuppressedAgentIds = new Set();
     this.acpRuntime = options.acpRuntime || (this.configManager?.farmingDir
       ? new AcpRuntimeHostRuntime({
           configDir: this.configManager.farmingDir,
@@ -2279,7 +2278,7 @@ class AgentManager extends EventEmitter {
         const agent = this.agents.get(sessionId);
         if (!agent || !terminalRuntimeEventMatches(agent, runtimeEpoch)) return;
         clearPendingTerminalStartSyncCut(agent);
-        if (this.permissionRestartSuppressedAgentIds.has(sessionId)) return;
+        if (this.runtimeStopTracker.exitEventsSuppressed(sessionId)) return;
 
         if (stateProofAvailable === false) {
           this.providerSessionService.stop(sessionId);
@@ -2336,7 +2335,7 @@ class AgentManager extends EventEmitter {
     this.engineBridge.on('session-error', ({ sessionId, error, fatal = true, runtimeEpoch }: TerminalSessionErrorEvent) => {
         const agent = this.agents.get(sessionId);
         if (!agent || !terminalRuntimeEventMatches(agent, runtimeEpoch)) return;
-        if (this.permissionRestartSuppressedAgentIds.has(sessionId)) return;
+        if (this.runtimeStopTracker.exitEventsSuppressed(sessionId)) return;
 
         if (fatal === false) {
           return;
@@ -3949,7 +3948,7 @@ class AgentManager extends EventEmitter {
       );
     }
     const ownerIsStopped = !ownerAgent
-      || this.verifiedStoppedAgentIds.has(currentOwner)
+      || this.runtimeStopTracker.isVerifiedStopped(currentOwner)
       || ['dead', 'stopped'].includes(String(ownerAgent.status || ''))
       || ownerAgent.engineStatus === 'exited';
     if (ownerIsStopped) return;
@@ -4714,8 +4713,7 @@ class AgentManager extends EventEmitter {
     this.inputCoordinator.dispose();
     this.agentShellEnvResolver.dispose();
     this.activityTracker.dispose();
-    this.verifiedStoppedAgentIds.clear();
-    this.permissionRestartSuppressedAgentIds.clear();
+    this.runtimeStopTracker.clear();
     this.terminalResizeCoordinator.dispose();
     this.codexTerminalProfileQueues.clear();
     this.codexTerminalIdentityAttempts.clear();
@@ -9702,8 +9700,8 @@ class AgentManager extends EventEmitter {
 
     const requireEngineExit = options.requireEngineExit !== false;
     const currentRuntimeKind = runtimeKind(agent);
-    if (!this.verifiedStoppedAgentIds.has(agentId)) {
-      this.permissionRestartSuppressedAgentIds.add(agentId);
+    if (!this.runtimeStopTracker.isVerifiedStopped(agentId)) {
+      const releaseExitSuppression = this.runtimeStopTracker.suppressExitEvents(agentId);
       try {
       if (currentRuntimeKind === 'acp') {
         if (typeof this.acpRuntime?.unregisterAgentAndWait !== 'function') {
@@ -9794,7 +9792,7 @@ class AgentManager extends EventEmitter {
         }
         return cleanupFailure(error.message || 'Failed to stop Agent runtime');
       } finally {
-        this.permissionRestartSuppressedAgentIds.delete(agentId);
+        releaseExitSuppression();
       }
     }
     if (currentRuntimeKind === 'acp') {
@@ -9812,7 +9810,7 @@ class AgentManager extends EventEmitter {
       } catch (caughtError: unknown) {
       const error = caughtError as ErrorRecord;
         const message = `Agent stopped, but Create cleanup could not be committed: ${error.message || error}`;
-        this.verifiedStoppedAgentIds.add(agentId);
+        this.runtimeStopTracker.markVerifiedStopped(agentId);
         agent.status = 'stopped';
         agent.engineStatus = 'exited';
         this.emitStateChange({ agentIds: [agentId] });
@@ -9847,7 +9845,7 @@ class AgentManager extends EventEmitter {
       const error = caughtError as ErrorRecord;
         const message = `Agent stopped, but Delete metadata could not be committed: ${error.message || error}`;
         console.error(message);
-        this.verifiedStoppedAgentIds.add(agentId);
+        this.runtimeStopTracker.markVerifiedStopped(agentId);
         agent.status = 'stopped';
         agent.engineStatus = 'exited';
         this.emitStateChange({ agentIds: [agentId] });
@@ -9878,7 +9876,7 @@ class AgentManager extends EventEmitter {
     }
 
     if (options.retainAgentRecord === true) {
-      this.verifiedStoppedAgentIds.add(agentId);
+      this.runtimeStopTracker.markVerifiedStopped(agentId);
       agent.status = 'stopped';
       agent.engineStatus = 'exited';
       if (options.emitUpdate !== false) {
@@ -9959,7 +9957,7 @@ class AgentManager extends EventEmitter {
     this.acpPreparedTranscriptCache.deleteAgent(agentId);
     this.deleteAgentRecord(agentId);
     this.acpTurnFinalizationCoordinator.forget(agentId);
-    this.verifiedStoppedAgentIds.delete(agentId);
+    this.runtimeStopTracker.forget(agentId);
     this.activityTracker.forget(agentId);
     this.usageRateTracker.forget(agentId);
     this.codexTerminalIdentityAttempts.delete(agentId);
