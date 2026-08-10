@@ -2293,6 +2293,7 @@ function AgentTranscriptTurnView({
   onFork,
   showLiveActivity,
   holdGrowingAnswerSnapshot,
+  initialProgressIds,
 }: {
   turn: AgentTranscriptTurn
   copy: CodeCopy
@@ -2320,6 +2321,7 @@ function AgentTranscriptTurnView({
   onFork?: () => Promise<void> | void
   showLiveActivity: boolean
   holdGrowingAnswerSnapshot: boolean
+  initialProgressIds?: Set<string> | null
 }) {
   recordPerformanceTestRender(turn.status === 'inProgress'
     ? 'liveTranscriptTurn'
@@ -2805,7 +2807,7 @@ function AgentTranscriptTurnView({
                     item={item}
                     markdownComponents={markdownComponents}
                     copy={copy}
-                    animate={turn.status === 'inProgress'}
+                    animate={turn.status === 'inProgress' && !initialProgressIds?.has(item.id)}
                   />
                 ) : (
                   <SafeAgentTranscriptProcessItemView
@@ -2869,7 +2871,7 @@ function AgentTranscriptTurnView({
                       item={entry.item}
                       markdownComponents={markdownComponents}
                       copy={copy}
-                      animate={turn.status === 'inProgress'}
+                      animate={turn.status === 'inProgress' && !initialProgressIds?.has(entry.item.id)}
                     />
                   )
                 }
@@ -3071,6 +3073,10 @@ export function AgentTranscriptPane({
   const initialRevealReadyRef = useRef(false)
   const initialRevealStartedAtRef = useRef<number | null>(null)
   const initialRevealTimerRef = useRef<number | null>(null)
+  // Progress updates already visible when the transcript is first revealed
+  // must not replay the left-to-right fill animation. Only updates that
+  // arrive afterwards should animate.
+  const initialProgressUpdateIdsRef = useRef<Set<string> | null>(null)
   // A transcript refresh can arrive while a user is dragging the mobile
   // scroll surface. Never let the refresh/layout pass take the viewport away
   // from the finger (the old behavior made the list jump back to the same
@@ -3191,6 +3197,7 @@ export function AgentTranscriptPane({
     setLoading(true)
     initialRevealReadyRef.current = false
     initialRevealStartedAtRef.current = null
+    initialProgressUpdateIdsRef.current = null
     setInitialRevealReady(false)
     setLoadingOlder(false)
     setTurnLimit(initialTranscriptTurnLimit(source))
@@ -3539,6 +3546,21 @@ export function AgentTranscriptPane({
     && !error
     && Boolean(transcript?.available)
     && turns.length > 0
+  if (
+    initialProgressUpdateIdsRef.current === null
+    && !error
+    && !loading
+    && !awaitingAcpHistory
+    && !awaitingInitialReveal
+  ) {
+    const ids = new Set<string>()
+    for (const turn of turns) {
+      for (const item of turn.processItems) {
+        if (isAcpProgressUpdate(item)) ids.add(item.id)
+      }
+    }
+    initialProgressUpdateIdsRef.current = ids
+  }
   useEffect(() => {
     if (!active || !isPageActive() || !transcript?.available || turns.length === 0) return
     const element = scrollRef.current
@@ -3968,6 +3990,7 @@ export function AgentTranscriptPane({
                     processOpen={processOpen}
                     groupProcessActions={groupProcessActions}
                     source={source}
+                    initialProgressIds={initialProgressUpdateIdsRef.current}
                     onToggleProcess={handleToggleProcess}
                     onLoadProcessItemDetail={source === 'acp' ? handleLoadProcessItemDetail : undefined}
                     onLoadPatchChanges={source === 'acp' ? handleLoadPatchChanges : undefined}
