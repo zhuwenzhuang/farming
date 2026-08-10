@@ -317,7 +317,8 @@ Response Shape 和连接级状态不变。
 触碰 `agent-manager.cts` 的切片继续串行。Usage、Adaptive Title、Worktree/Git、
 Composer Admission、Fork 的 Durable Admission/Reconcile 与 Resume Coordination
 以及跨 Runtime 的 Per-Agent Input Ordering 均已有 Owner。Provider-neutral Terminal
-Startup Ordering 也已有唯一 Owner，由类型化
+Resize 的 Latest-value Coalescing 与 Drain 状态也已有唯一 Owner，并与 Engine Resize
+Effect 分离。Provider-neutral Terminal Startup Ordering 也已有唯一 Owner，由类型化
 Adapter Policy 激活，而不是由 Provider Name 分支激活。Launch Composition 保留在
 Manager，并组合 Provider Adapter 与 Executable Discovery 边界。剩余范围：
 

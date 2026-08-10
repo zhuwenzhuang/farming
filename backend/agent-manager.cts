@@ -204,6 +204,7 @@ import {
   type ReleasedInputOperation,
 } from './agent-input-coordinator.cjs';
 import { TerminalStartupCoordinator } from './terminal-startup-coordinator.cjs';
+import { TerminalResizeCoordinator } from './terminal-resize-coordinator.cjs';
 import {
   AgentComposerAdmissionCoordinator,
   composerAdmissionError,
@@ -554,11 +555,6 @@ interface ProviderSessionServiceRuntimeContract {
   dispose(): void;
   observe(agentId: string, options?: { force?: boolean }): void;
   stop(agentId: string): void;
-}
-
-interface TerminalSize {
-  cols: number;
-  rows: number;
 }
 
 const SESSION_OUTPUT_LIMIT = 10000;
@@ -1342,8 +1338,7 @@ class AgentManager extends EventEmitter {
   >;
   declare codexTerminalProfileProjections: WeakMap<TypedAgentRecord, object | null>;
   declare usageRateTracker: AgentUsageRateTracker;
-  declare pendingResizeByAgent: Map<AgentId, TerminalSize>;
-  declare resizeDrains: Map<AgentId, Promise<void>>;
+  declare terminalResizeCoordinator: TerminalResizeCoordinator;
   declare inputCoordinator: AgentInputCoordinator;
   declare composerAdmissionCoordinator: AgentComposerAdmissionCoordinator;
   declare codexTerminalProfileQueues: Map<AgentId, Promise<unknown>>;
@@ -1444,8 +1439,10 @@ class AgentManager extends EventEmitter {
     this.terminalStatusProjections = new WeakMap();
     this.codexTerminalProfileProjections = new WeakMap();
     this.usageRateTracker = new AgentUsageRateTracker();
-    this.pendingResizeByAgent = new Map();
-    this.resizeDrains = new Map();
+    this.terminalResizeCoordinator = new TerminalResizeCoordinator({
+      isShuttingDown: () => this.disposing,
+      resize: (agentId, { cols, rows }) => this.resizeAgentSession(agentId, cols, rows),
+    });
     this.inputCoordinator = new AgentInputCoordinator({
       isShuttingDown: () => this.disposing,
     });
@@ -5075,8 +5072,7 @@ class AgentManager extends EventEmitter {
     this.inputCoordinator.dispose();
     this.verifiedStoppedAgentIds.clear();
     this.permissionRestartSuppressedAgentIds.clear();
-    this.pendingResizeByAgent.clear();
-    this.resizeDrains.clear();
+    this.terminalResizeCoordinator.dispose();
     this.codexTerminalProfileQueues.clear();
     this.codexTerminalIdentityAttempts.clear();
     this.codexTerminalIdentityPromises.clear();
@@ -5100,7 +5096,7 @@ class AgentManager extends EventEmitter {
         if (entry?.promise) pending.add(entry.promise);
       }
       for (const operation of this.inputCoordinator.pendingOperations()) pending.add(operation);
-      for (const operation of this.resizeDrains.values()) pending.add(operation);
+      for (const operation of this.terminalResizeCoordinator.pendingOperations()) pending.add(operation);
       const adaptiveTitleDrain = this.adaptiveTitlePersistence.activeDrain();
       if (adaptiveTitleDrain) pending.add(adaptiveTitleDrain);
       for (const finalization of this.activeAcpTurnFinalizations) pending.add(finalization);
@@ -7521,22 +7517,7 @@ class AgentManager extends EventEmitter {
   }
 
   requestAgentSessionResize(agentId: AgentId, cols: number, rows: number): boolean {
-    if (this.disposing) return false;
-    this.pendingResizeByAgent.set(agentId, { cols, rows });
-    if (this.resizeDrains.has(agentId)) return true;
-
-    const drain = (async () => {
-      while (this.pendingResizeByAgent.has(agentId)) {
-        const next = this.pendingResizeByAgent.get(agentId);
-        this.pendingResizeByAgent.delete(agentId);
-        if (!next) continue;
-        await this.resizeAgentSession(agentId, next.cols, next.rows);
-      }
-    })().finally(() => {
-      this.resizeDrains.delete(agentId);
-    });
-    this.resizeDrains.set(agentId, drain);
-    return true;
+    return this.terminalResizeCoordinator.request(agentId, cols, rows);
   }
 
   async resizeAgentSession(

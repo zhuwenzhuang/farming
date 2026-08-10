@@ -375,7 +375,8 @@ middleware order, response shape, and connection-local state.
 Slices touching `agent-manager.cts` remain serialized. Usage-rate accounting,
 adaptive title persistence, Worktree/Git operations, Composer admission,
 durable Fork admission/reconciliation, Resume coordination, and cross-runtime
-per-Agent input ordering have owners.
+per-Agent input ordering have owners. Terminal resize latest-value coalescing
+and drain state also have one owner, separate from the engine resize effect.
 Provider-neutral Terminal startup ordering also has one owner, activated by a
 typed adapter policy rather than a provider-name branch. Launch composition
 remains in the Manager over provider-adapter and executable discovery

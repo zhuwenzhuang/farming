@@ -1,6 +1,7 @@
 import type { LifecycleJournal } from './agent-manager-lifecycle-types.js';
 import type { AgentInputCoordinator } from './agent-input-coordinator.cjs';
 import type { TerminalStartupCoordinator } from './terminal-startup-coordinator.cjs';
+import type { TerminalResizeCoordinator } from './terminal-resize-coordinator.cjs';
 
 type MaybePromise<Value> = Value | Promise<Value>;
 type TerminalInput = string | readonly unknown[];
@@ -294,14 +295,11 @@ interface TerminalMetadataPatch {
   terminalStatus: TerminalStatusContract;
 }
 
-interface TerminalResizeRequest extends TerminalDimensions {}
-
 interface AgentManagerTerminalEngineFields {
   engineBridge: SessionEngineBridgeContract;
   inputCoordinator: AgentInputCoordinator;
-  pendingResizeByAgent: Map<string, TerminalResizeRequest>;
   permissionRestartSuppressedAgentIds: Set<string>;
-  resizeDrains: Map<string, Promise<void>>;
+  terminalResizeCoordinator: TerminalResizeCoordinator;
   terminalStartupCoordinator: TerminalStartupCoordinator;
   verifiedStoppedAgentIds: Set<string>;
 }
@@ -505,7 +503,6 @@ export type {
   TerminalInputResult,
   TerminalKillResult,
   TerminalMetadataPatch,
-  TerminalResizeRequest,
   TerminalResizeResult,
   TerminalSessionActivityEvent,
   TerminalSessionBusyStateEvent,
