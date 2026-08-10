@@ -23,6 +23,12 @@ A refactor that only moves code, introduces a large host interface, duplicates
 a production path, or replaces one large file with several mutually coupled
 files has not achieved this objective.
 
+A shorter host file, focused green tests, or a more explicit state machine is
+not sufficient evidence by itself. Review must also show lower total system
+knowledge, fewer state identities, and lower cross-module reasoning cost.
+Domains with confirmed complexity regressions converge before new large
+extractions begin.
+
 ## Invariants
 
 Every refactor slice must preserve the following:
@@ -35,6 +41,13 @@ Every refactor slice must preserve the following:
   removes the superseded path within a bounded sequence.
 - **One state owner.** Extracted code either owns a coherent state machine or
   is a pure policy. It must not mirror mutable state owned elsewhere.
+- **State and transition rules stay in one domain.** Registries and stores may
+  retain authoritative identity and data, but they do not interpret the same
+  operation outcome alongside a domain service.
+- **Complexity has a budget.** Review compares removed host responsibility,
+  added production code, ports and APIs, state maps and generations, and
+  test-only exports. A small host reduction with a large system-wide increase
+  is rejected unless it closes a concrete safety gap with no smaller model.
 - **Exact identity.** Agent, runtime epoch, Config instance, workspace,
   provider home, and external-resource ownership remain exact across every
   boundary.
@@ -121,11 +134,92 @@ HTTP, WebSocket, persistence, and runtime-host boundaries.
 - Pure reducers define session inventory, pagination, Project operations, and
   other state transitions before UI props are narrowed.
 
+## Current Convergence Assessment
+
+Healthy boundaries now include Server transport, Worktree/Git effects,
+provider-session identity, usage, adaptive titles, Settings, and selected
+WebSocket delivery owners. They either removed the superseded production path
+or became the single owner of a coherent state or effect.
+
+The current priority structural problems are:
+
+1. durable Fork admission/reconciliation and Manager execution still make
+   overlapping decisions;
+2. Resume combines transport, domain behavior, two admission layers, and
+   compatibility adaptation;
+3. Launch policy preserves necessary fail-closed and environment-isolation
+   semantics but exposes an over-wide public and Manager wiring surface;
+4. some `CodeWorkspace` controllers mirror backend truth or merely wrap a
+   reducer or fetch;
+5. Terminal link, resize, and attachment code use overlapping operation
+   identities;
+6. stylesheet file ownership does not by itself prove cross-owner cascade
+   equivalence.
+
+No new large state extraction starts until these areas converge. An unmerged
+prototype is evidence, not an asset that must be preserved. If it repeatedly
+adds ledgers, registries, generations, latches, or compensating flags to pass
+review, reduce it to a smaller state machine or discard it.
+
+The domain state machine owns transition rules. Registries and stores own exact
+identity and durable data, while effect executors report facts. One decision
+must not be repeated by a coordinator, a lifecycle layer, and the Manager.
+
+### Target roles for oversized hosts
+
+- `agent-manager.cts` ultimately retains the exact Agent registry, public
+  facade, service composition, and event delivery. Recovery/start/restart/
+  archive/kill form one Agent-lifecycle domain. Fork and Project/Worktree are
+  separate domains; neither may remain as a large inline block or a stateless
+  wrapper around that block.
+- `CodeWorkspace.tsx` retains page layout, current selection, browser-local
+  workspace-surface state, and child composition. Composer may own drafts,
+  menus, and attachment previews; Project membership, Agent lifecycle, and
+  durable mutation outcomes project backend truth.
+- `terminal-session-pool.ts` retains registry, bootstrap, attach/detach, and the
+  stable public API. Checkpoint/output/reconnect form one replication
+  capability, while selection/context-menu/IME/touch form one interaction
+  capability. Both use one attachment-operation identity.
+- CRT `app.ts` separates by real product surface: shell, Agent list,
+  history/search, workspace launch, Billing, ACP Chat, and shared Terminal
+  integration. Moving one contiguous block into a larger controller is not
+  sufficient.
+- `workspace-file-service.cts` remains a facade over path policy, file
+  read/mutation, search, Git, and watcher executors. Those executors do not own
+  product business state.
+- `acp-runtime.cts` converges only along its two real authorities: the runtime
+  process pool and each Agent's session binding. It does not create one service
+  per ACP method.
+- `AgentTranscriptPane.tsx` and `CodeSidebar.tsx` first split along existing
+  React component boundaries without adding controllers or asynchronous state.
+- `main.css` and `code-dark.css` split by rendered surface with global-cascade
+  evidence; partition-local hashes, selector prefixes, and an import manifest
+  are not sufficient proof.
+
 ## Continuous Integration Model
 
 `main` is the only integration timeline. Refactor work happens in independent
 worktrees, but completed slices merge continuously into current `main`. There
 is no long-lived refactor integration branch.
+
+### Implementation and review ownership
+
+- One persistent implementation owner carries context across consecutive
+  slices. It may delegate bounded investigations, but it remains responsible
+  for one coherent proposal and worktree instead of handing each correction to
+  a new writer.
+- The implementation owner may challenge this plan and propose a simpler
+  boundary. A different design is accepted when it removes more duplicated
+  knowledge, preserves the invariants, and has stronger evidence.
+- A separate integration reviewer controls objective, scope, process, and the
+  final commit. Green focused tests are input to review, not authorization to
+  merge.
+- Review explicitly accepts, rejects, or redirects a slice. A rejected design
+  is reduced or replaced at its owning invariant; it is not repaired by an
+  open-ended sequence of maps, generations, latches, flags, and compatibility
+  branches.
+- The integration reviewer performs the final diff audit and commit so quality
+  responsibility cannot be delegated to the implementation owner.
 
 ### Slice contract
 
@@ -194,17 +288,16 @@ the component until a later change proves another stable owner.
 
 ### Lane F2 — Workspace application controllers
 
-`CodeWorkspace` already delegates session inventory, Project membership and
-mutation, Settings, Resume and QR share, queued Composer follow-ups, and
-resource/workspace-surface restoration to domain owners. Remaining scope:
+`CodeWorkspace` delegates several domains, but controller count and total
+production code have grown faster than host responsibility has fallen. The
+next step is convergence, not further extraction:
 
-1. move each remaining cohesive layout-owned domain to a controller that owns
-   admission, cancellation, generation checks, stale-response rejection,
-   reconciliation, and terminal failure;
-2. narrow component props around the established owners.
-
-Do not create a collection of stateless `api-*` wrappers whose only effect is
-moving `fetch` calls to another file.
+1. retain owners of genuine browser-local Composer, workspace-surface, and
+   session-view state;
+2. merge or remove layers that only wrap reducers, fetches, or backend truth;
+3. project authoritative Project and Agent mutation results instead of keeping
+   parallel frontend admission, deadline, and reconciliation state;
+4. narrow props only after the remaining owners are stable.
 
 ### Lane F3 — Terminal browser runtime
 
@@ -215,10 +308,12 @@ recovery owners. The Session pool still owns checkpoint install effects,
 request retry, and DOM-write completion. Remaining scope within this single
 ownership lane:
 
-1. converge resize and renderer-effect orchestration onto the attachment
-   ordering model instead of parallel effect chains;
-2. slim the Session pool to an integration boundary once another stateful
-   collaborator can move without copying renderer or protocol truth.
+1. converge link, resize, and renderer identity onto one attachment operation;
+2. remove duplicate commit latches, revisions, and production-resident
+   projections used only by E2E;
+3. then move replication (checkpoint/output/reconnect) and interaction
+   (selection/context menu/IME/touch) by actual capability;
+4. leave the pool as registry, bootstrap, attach/detach, and stable public API.
 
 Code and CRT Terminal protocol E2E coverage is required for each slice.
 
@@ -252,16 +347,20 @@ middleware order, response shape, and connection-local state.
 ### Lane B2 — Agent application services
 
 Slices touching `agent-manager.cts` remain serialized. Usage-rate accounting,
-adaptive title persistence, Worktree/git operations, Fork coordination, and
-Composer admission have owners. Remaining scope:
+adaptive title persistence, Worktree/Git operations, and Composer admission may
+remain. Fork, Resume, and Launch converge first:
 
-1. Attention/unread as a documented state machine with a narrow host port;
-2. launch environment and provider policy resolution as typed decisions rather
-   than inline Manager knowledge;
-3. move runtime and record types with their owners instead of performing a
-   final repository-wide type shuffle;
-4. slim the remaining facade until it holds exact identity and top-level
-   lifecycle admission only.
+1. unify Fork recovery, stabilization, admission, and reconciliation for every
+   entry path, leaving exact registry, persistence, and child/runtime effects
+   behind narrow boundaries;
+2. separate a thin Resume transport adapter and keep one admission keyed by
+   exact session identity;
+3. retain Launch executable fail-closed behavior, provider isolation, and
+   environment authority while deleting test-only public APIs, ineffective
+   parameters, and per-function adapter wiring;
+4. then address Attention/unread and move runtime/record types with their owner;
+5. leave the facade with exact registry, public entry points, service
+   composition, and event delivery.
 
 Line count is not an acceptance criterion. A service is accepted only if it
 reduces the Manager's knowledge and can be tested without constructing the
@@ -298,24 +397,23 @@ Continue the remaining work as small slices in the following dependency order.
 This list records unfinished architectural outcomes rather than a branch or
 file-by-file progress log:
 
-1. Finish the bounded remaining Workspace and Terminal owners. For Workspace,
-   move the remaining cohesive layout-owned domains and then narrow props
-   around the established owners. For Terminal, converge resize and
-   renderer-effect orchestration onto the attachment ordering model and slim
-   the Session pool to an integration boundary. Preserve production-shaped Code
-   and CRT reconnect, stale-completion, gap, resize, and multi-viewer coverage.
-2. Move Agent launch environment, provider policy resolution, and
-   attention/unread out of the Manager as typed decisions and a documented
-   state machine over narrow host ports, then slim the remaining facade to
-   exact identity and top-level lifecycle admission.
-3. Finish the remaining Server transport and ACP work. Extract the remaining
+1. Converge already-merged complexity regressions first: Fork, Resume, and
+   Launch. Each slice deletes duplicate state and the superseded path while
+   preserving idempotency, no-replay, exact identity, and recovery tests.
+2. Converge existing `CodeWorkspace` and Terminal owners. Remove frontend
+   mirrors of backend truth and wrapper-only controllers; unify Terminal
+   attachment-operation identity before moving replication and interaction.
+3. Reassess unmerged stylesheet and CRT prototypes. Merge only when the
+   production boundary is real, total code remains justified, and one-time
+   old/new behavior evidence passes; otherwise reduce or discard them.
+4. Finish the remaining Server transport and ACP work. Extract the remaining
    bounded HTTP and bootstrap domains while preserving auth, middleware order,
    route shapes, and connection-local state, and converge on the ACP Host-only
    Server path: remove the in-process fallback once deterministic Host fakes or
    a harness cover recovery and uncertain prompt/cancel outcomes, keep engine
    state separate from Host operation state through an explicit projection, and
    run the required real-provider smokes.
-4. Retire obsolete compatibility code continuously. A compatibility alias,
+5. Retire obsolete compatibility code continuously. A compatibility alias,
    adapter, fallback, parser branch, or old state shape may be removed only
    after repository-wide call-site analysis and boundary tests show that no
    supported client, protocol version, persisted data, extension, or public API
@@ -324,10 +422,11 @@ file-by-file progress log:
    code merely because it once supported an older implementation, and do not
    classify an active system-boundary adapter as dead code from static imports
    alone.
-5. Continue stylesheet decomposition alongside the code hotspots. Split the
-   remaining product domains out of the main and dark-skin stylesheets with
-   cascade, specificity, and import-order proof.
-6. Integrate continuously. Rebase each reviewable slice onto current `main`, run
+6. Continue stylesheet decomposition only with global-cascade evidence, not
+   partition-local selector hashes alone. Split the remaining product domains
+   out of the main and dark-skin stylesheets with cascade, specificity, and
+   import-order proof.
+7. Integrate continuously. Rebase each reviewable slice onto current `main`, run
    its focused state-machine tests, then run the full typecheck, lint, test, and
    applicable Server, Terminal, Playwright, or provider gates before merging.
    Do not accumulate these priorities into another long-lived integration
@@ -407,7 +506,11 @@ The strategy is complete when all of the following are true:
 - passing the complete Manager into every extracted service;
 - separate checkpoint and resize owners with overlapping ordering state;
 - dual production implementations kept as fallback without equivalent tests;
-- line-count reduction used as proof of architectural improvement.
+- line-count reduction used as proof of architectural improvement;
+- repeatedly adding ledgers, registries, generations, revisions, latches, or
+  dynamic error flags to answer review findings without revisiting ownership;
+- production APIs used only by tests, or source-string and same-source manifest
+  assertions treated as primary correctness evidence.
 
 CRT/Code unification, broad tsconfig changes, and unrelated product redesigns
 remain out of scope. They require their own contracts and acceptance plans.

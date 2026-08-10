@@ -19,6 +19,10 @@
 如果一次重构只是搬代码、引入庞大的 Host 接口、复制生产路径，或把一个大文件
 换成多个相互强耦合的文件，就没有实现这个目标。
 
+宿主文件变短、聚焦测试通过或状态机更显式，都不能单独证明重构成功。审查还必须
+确认系统总代码知识、状态身份数量和跨模块推理成本下降。已经确认存在复杂度回归的
+领域，应先完成收敛，再开始新的大型提取。
+
 ## 不变量
 
 每个重构切片都必须保持以下条件：
@@ -29,6 +33,11 @@
   建立边界、切换调用方并删除被替代的路径。
 - **一个状态所有者。**提取后的代码必须拥有一个内聚状态机，或者是纯策略；不能
   镜像其他位置拥有的可变状态。
+- **状态与转换规则同属一个领域。**Registry 和 Store 可以保存权威身份与数据，但
+  不能与 Domain Service 同时解释同一个 Operation 的成功、失败或不确定结果。
+- **复杂度有预算。**审查同时比较宿主职责、新增生产代码、Port/API 数量、
+  Map/Generation/Revision/Latch 数量和测试专用导出。宿主少量减行、系统大量增行的
+  提取默认不成立，除非新增代码关闭了无法用更小模型表达的明确安全缺口。
 - **精确身份。**跨越任何边界时，Agent、Runtime epoch、Config instance、
   Workspace、Provider Home 和外部资源所有权都必须保持精确。
 - **有界结果。**取消、超时、不确定的变更结果、重启、重连和过期完成都保留明确的
@@ -106,10 +115,73 @@ Runtime Port 与 Provider Policy
 - 在收窄 UI Props 之前，先由纯 Reducer 定义 Session inventory、分页、Project
   Operation 等状态转换。
 
+## 当前收敛判断
+
+本轮已经形成一批健康边界：Server Transport、Worktree/Git Effect、Provider
+Session Identity、Usage、Adaptive Title、Settings 和部分 WebSocket Delivery。
+它们要么删除了旧生产路径，要么成为一个明确状态或副作用的唯一 Owner。
+
+当前需要优先返工的结构问题是：
+
+1. Fork 的 Durable Admission/Reconcile 与 Manager 内部执行仍是双层判断；
+2. Resume 同时承担 Transport、Domain、两层 Admission 和兼容适配；
+3. Launch Policy 保留了必要的 Fail-closed 与环境隔离语义，但 Public API 和 Manager
+   Wiring 过宽；
+4. `CodeWorkspace` 的一部分 Controller 复制后端 Truth，或只包装 Reducer/Fetch；
+5. Terminal Link/Resize/Attachment 存在重叠的 Operation Identity；
+6. Stylesheet 已有物理 Owner，但 Selector Hash 与 Manifest 不能单独证明跨 Owner
+   Cascade 等价。
+
+在这些问题收敛前，不继续新的大型状态提取。未提交 Prototype 只是证据；如果它
+需要不断增加 Ledger、Registry、Generation、Latch 或补偿 Flag 才能通过 Review，
+应缩回更小状态机或直接丢弃。
+
+领域状态机拥有转换规则；底层 Registry/Store 负责精确身份和可靠持久化，Effect
+Executor 只报告已经发生的事实。不能把同一个判断拆成“Coordinator 判一次、
+Lifecycle 层判一次、Manager 再判一次”。
+
+### 巨型宿主的目标角色
+
+- `agent-manager.cts` 最终只保留精确 Agent Registry、公共 Facade、Service
+  Composition 和事件出口。Recovery/Start/Restart/Archive/Kill 属于同一个 Agent
+  Lifecycle 领域；Fork 与 Project/Worktree 是独立领域，不能继续以内联大段形式留在
+  Manager，也不能只套一层无状态 Wrapper。
+- `CodeWorkspace.tsx` 最终只保留页面布局、当前选择、浏览器本地 Workspace Surface
+  和子组件组合。Composer 可以拥有 Draft/Menu/Attachment Preview；Project
+  Membership、Agent Lifecycle 和持久 Mutation 结果必须直接投影后端权威状态。
+- `terminal-session-pool.ts` 最终只保留 Registry、Bootstrap、Attach/Detach 和稳定
+  Public API。Checkpoint/Output/Reconnect 形成一个 Replication 能力，Selection/
+  Context Menu/IME/Touch 形成一个 Interaction 能力；两者都使用同一个 Attachment
+  Operation Identity。
+- CRT `app.ts` 按真实产品面拆成 Shell、Agent List、History/Search、Workspace Launch、
+  Billing、ACP Chat 和共享 Terminal 接入。不得把一个连续大块搬成更大的 Controller
+  后就宣称完成。
+- `workspace-file-service.cts` 保持 Facade，内部按 Path Policy、File Read/Mutation、
+  Search、Git 和 Watcher 五种执行能力拆分；这些执行器不拥有产品业务状态。
+- `acp-runtime.cts` 只沿 Runtime Process Pool 与 per-Agent Session Binding 两个真实
+  权威边界收敛，不按每个 ACP 方法建立 Service。
+- `AgentTranscriptPane.tsx` 与 `CodeSidebar.tsx` 优先按已有 React Component 边界做
+  行为中立移动，不新增 Controller 或异步状态。
+- `main.css` 与 `code-dark.css` 按渲染 Surface 迁移；每次必须证明全局 Cascade，不能
+  仅用文件内 Hash、Selector Prefix 或 Import Manifest 自证。
+
 ## 持续集成模型
 
 `main` 是唯一集成时间轴。重构在独立 Worktree 中施工，但完成的切片持续合入最新
 `main`，不建立长期重构 Integration Branch。
+
+### 实现与审查责任
+
+- 由一个持续工作的实现 Owner 贯穿连续切片并保留上下文。它可以委托边界明确的
+  调查，但必须对同一个内聚方案和 Worktree 负责，不能把每次返工交给新的 Writer。
+- 实现 Owner 可以挑战本文方案并提出更简单的边界。只要新设计删除了更多重复知识、
+  保持全部不变量并提供更强证据，就应采纳，而不是机械执行原计划。
+- 独立的集成 Reviewer 控制目标、范围、过程和最终 Commit。聚焦测试全绿只是审查
+  输入，不等于已经获得合入授权。
+- Review 必须明确接受、拒绝或纠正一个切片。被拒绝的设计应在违反不变量的 Owner
+  边界上缩小或替换，不能通过不断增加 Map、Generation、Latch、Flag 和兼容分支
+  无限修补。
+- 最终 Diff Audit 与 Commit 由集成 Reviewer 执行，质量责任不能转交给实现 Owner。
 
 ### 切片契约
 
@@ -171,15 +243,16 @@ Reading Anchor 捕获与恢复——应位于纯模块中。在后续变更证�
 
 ### Lane F2 —— Workspace 应用 Controller
 
-`CodeWorkspace` 已把 Session inventory、Project 成员与 Mutation、Settings、
-Resume 与 QR Share、排队的 Composer Follow-up，以及 Resource/Workspace Surface
-恢复委托给领域 Owner。剩余范围：
+`CodeWorkspace` 已把若干领域迁到 Controller，但当前 Controller 数量和生产总代码的
+增长超过了宿主职责下降。下一阶段不是继续提取，而是先分类现有 Owner：
 
-1. 把其余内聚的、仍由 Layout 拥有的领域迁移到能同时拥有 Admission、
-   Cancellation、Generation Check、过期响应淘汰、调和与终止失败的 Controller；
-2. 围绕已建立的 Owner 收窄组件 Props。
-
-不要建立一组只把 `fetch` 搬到另一个文件的无状态 `api-*` Wrapper。
+1. 保留真正拥有浏览器本地状态的 Composer、Workspace Surface 和 Session View
+   Owner；
+2. 合并或删除只包装 Reducer、Fetch 或 Backend Truth 的 Resource、Catalog、Project
+   Mutation 层；
+3. 让 Project/Agent Mutation 直接投影后端权威结果，删除前端平行 Admission、
+   Deadline 和 Reconcile Truth；
+4. 完成收敛后再围绕剩余 Owner 收窄组件 Props。
 
 ### Lane F3 —— Terminal 浏览器 Runtime
 
@@ -189,10 +262,11 @@ Checkpoint 顺序与准入、Ordered Output、Gap 和 Attachment Generation；�
 Checkpoint 安装副作用、请求重试和 DOM 写入完成。同一所有权 Lane 内的剩余
 范围：
 
-1. 把 Resize 与 Renderer Effect 编排收敛到 Attachment 顺序模型，而不是并行的
-   Effect 链；
-2. 当另一个有状态协作者能够在不复制 Renderer 或协议事实的前提下迁出后，把
-   Session Pool 收窄为集成边界。
+1. 先把 Link、Resize 与 Renderer 使用的身份收敛为一个 Attachment Operation；
+2. 删除重复 Commit Latch、Revision 和仅服务于 E2E 的常驻生产 Projection；
+3. 再按实际能力把 Replication（Checkpoint/Output/Reconnect）与 Interaction
+   （Selection/Context Menu/IME/Touch）从 Session Pool 迁出；
+4. Pool 最终只保留 Registry、Bootstrap、Attach/Detach 和稳定公开 API。
 
 每个切片都必须运行 Code 与 CRT 的 Terminal 协议 E2E。
 
@@ -220,13 +294,16 @@ Response Shape 和连接级状态不变。
 
 ### Lane B2 —— Agent 应用 Service
 
-触碰 `agent-manager.cts` 的切片继续串行。Usage-rate Accounting、自适应标题持久
-化、Worktree/Git Operation、Fork 协调和 Composer Admission 已有 Owner。剩余范围：
+触碰 `agent-manager.cts` 的切片继续串行。Usage、Adaptive Title、Worktree/Git 和
+Composer Admission 边界可以保留；Fork、Resume 与 Launch 必须先做复杂度收敛：
 
-1. 把 Attention/Unread 提取为有文档状态机和窄 Host Port 的所有者；
-2. 把启动环境与 Provider Policy 解析变成有类型的决策，而不是 Manager 内联知识；
-3. Runtime 与 Record Type 随其新所有者移动，不进行最后一次全仓 Type Shuffle；
-4. 持续收窄 Facade，直到它只保留精确身份和顶层生命周期准入。
+1. Fork 统一所有入口的 Recovery/Stabilization/Admission/Reconcile，并让 Manager
+   只提供精确 Registry、持久化和 Child/Runtime Effect；
+2. Resume 分离薄 Transport，并只保留一个按精确 Session Identity 建立的 Admission；
+3. Launch 保留 Executable Fail-closed、Provider 隔离和环境 Authority，删除测试专用
+   Public API、无效参数和逐函数 Adapter Wiring；
+4. 收敛完成后再处理 Attention/Unread，并让 Runtime/Record Type 随 Owner 移动；
+5. Facade 最终只保留精确 Agent Registry、公共入口、Service Composition 与事件出口。
 
 行数不是验收标准。只有当一个 Service 减少 Manager 的系统知识，并能在不构造完整
 Manager 的情况下测试时，提取才算成功。
@@ -258,27 +335,28 @@ Real-provider Smoke。
 剩余工作按以下依赖顺序继续拆成小切片。本列表记录未完成的架构结果，不记录临时
 Branch 或逐文件进度：
 
-1. 完成剩余有界的 Workspace 与 Terminal Owner。Workspace 侧迁出其余内聚的
-   Layout 领域，随后围绕已建立的 Owner 收窄 Props；Terminal 侧把 Resize 与
-   Renderer Effect 编排收敛到 Attachment 顺序模型，并把 Session Pool 收窄为集成
-   边界。必须覆盖生产形态的 Code 与 CRT Reconnect、Stale Completion、Gap、Resize
-   和 Multi-viewer 场景。
-2. 把 Agent 启动环境、Provider Policy 解析和 Attention/Unread 迁出 Manager，
-   成为有类型的决策和有文档的状态机，通过窄 Host Port 表达；随后把剩余 Facade
-   收窄到精确身份与顶层生命周期准入。
-3. 完成剩余 Server Transport 与 ACP 工作。在保持 Auth、Middleware 顺序、Route
+1. 先收敛已经产生复杂度回归的已合入边界：Fork、Resume、Launch。每项必须删除
+   重复状态与旧路径，并保留已有的 Idempotency、No-replay、Exact Identity 和恢复
+   行为测试。
+2. 收敛 `CodeWorkspace` 和 Terminal 已有 Owner。前端删除 Backend Truth 镜像与
+   Wrapper-only Controller；Terminal 统一 Attachment Operation Identity 后再迁出
+   Replication 与 Interaction。
+3. 重新评估未提交 Stylesheet 与 CRT Prototype。只有当生产边界真实、系统总代码
+   合理且一次性旧/新行为证据成立时才合入；否则缩小或丢弃。
+4. 完成剩余 Server Transport 与 ACP 工作。在保持 Auth、Middleware 顺序、Route
    Shape 和连接级状态不变的前提下抽取其余有界 HTTP 与 Bootstrap 领域；并收敛到
    Server 只经过 ACP Host 的路径：确定性 Host Fake 或 Harness 覆盖恢复与
    Prompt/Cancel 不确定结果后删除进程内 Fallback，通过显式 Projection 分离
    Engine State 与 Host Operation State，并运行要求的 Real-provider Smoke。
-4. 持续退役已经失效的兼容代码。Compatibility Alias、Adapter、Fallback、Parser
+5. 持续退役已经失效的兼容代码。Compatibility Alias、Adapter、Fallback、Parser
    Branch 或旧 State Shape 只有在全仓调用分析和边界测试证明没有受支持的 Client、
    Protocol Version、持久化数据、Extension 或 Public API 继续依赖时才能删除。用一个
    行为中立的小切片同时删除失效路径及仅服务于该路径的测试；不能因为它曾支持旧实现
    就保留不可达代码，也不能仅凭静态 Import 就把仍处于系统边界的 Adapter 判为死代码。
-5. 与代码热点并行继续 Stylesheet 拆分。把其余产品 Domain 从主样式表和 Dark Skin
-   样式表中拆出，并提供 Cascade、Specificity 与 Import 顺序证据。
-6. 持续集成。每个可审查切片都 Rebase 到当前 `main`，先运行聚焦状态机测试，再运行
+6. Stylesheet 继续拆分前必须证明全局 Cascade，而不只证明每个分区内部的 Selector
+   Hash。其余产品 Domain 从主样式表和 Dark Skin 样式表拆出时，必须同时提供
+   Cascade、Specificity 与 Import 顺序证据。
+7. 持续集成。每个可审查切片都 Rebase 到当前 `main`，先运行聚焦状态机测试，再运行
    完整 Typecheck、Lint、Test 及适用的 Server、Terminal、Playwright 或 Provider
    门禁后合入。不能把这些优先项重新积累成长期 Integration Branch。
 
@@ -348,7 +426,11 @@ npm test
 - 把完整 Manager 传给每个提取后的 Service；
 - Checkpoint 与 Resize 各自拥有重叠顺序状态；
 - 保留两条没有等价测试的生产实现作为 Fallback；
-- 把减少行数当成架构改善的证据。
+- 把减少行数当成架构改善的证据；
+- 为通过下一条 Review 意见持续叠加 Ledger、Registry、Generation、Revision、Latch
+  或动态 Error Flag，却不重新检查 Owner 边界；
+- 生产模块暴露仅由测试消费的 API，或用源码字符串与同源 Manifest 作为核心正确性
+  证据。
 
 CRT/Code 统一、广泛 tsconfig 修改和无关产品重设计仍不在本次范围内。它们需要独立
 契约和验收计划。
