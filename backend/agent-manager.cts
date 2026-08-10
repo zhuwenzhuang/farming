@@ -1335,7 +1335,6 @@ class AgentManager extends EventEmitter {
   declare codexTerminalIdentityAttempts: Map<AgentId, string>;
   declare codexTerminalIdentityPromises: Map<AgentId, Promise<boolean>>;
   declare terminalStartupCoordinator: TerminalStartupCoordinator;
-  declare agentWorktreeResolveGeneration: Map<AgentId, number>;
   declare agentWorktreeRefreshQueue: AgentWorktreeRefreshQueue;
   declare worktreeGitService: WorktreeGitServicePort;
   declare forkOperationCoordinator: ForkOperationCoordinator;
@@ -1391,8 +1390,7 @@ class AgentManager extends EventEmitter {
     const deleted = this.agents.delete(agentId);
     if (deleted) {
       this.agentOrderAllocator.remove(agent);
-      this.agentWorktreeResolveGeneration.delete(agentId);
-      this.agentWorktreeRefreshQueue.cancelPending(agentId);
+      this.agentWorktreeRefreshQueue.forget(agentId);
     }
     return deleted;
   }
@@ -1533,7 +1531,6 @@ class AgentManager extends EventEmitter {
     this.codexTerminalIdentityAttempts = new Map();
     this.codexTerminalIdentityPromises = new Map();
     this.terminalStartupCoordinator = new TerminalStartupCoordinator();
-    this.agentWorktreeResolveGeneration = new Map();
     this.agentWorktreeRefreshQueue = new AgentWorktreeRefreshQueue(
       AGENT_WORKTREE_REFRESH_CONCURRENCY,
     );
@@ -4321,10 +4318,8 @@ class AgentManager extends EventEmitter {
     );
     if (!candidate) return false;
 
-    const generation = (this.agentWorktreeResolveGeneration.get(agentId) || 0) + 1;
-    this.agentWorktreeResolveGeneration.set(agentId, generation);
     const baseWorkspace = normalizePathValue(agent.projectWorkspace || agent.cwd);
-    return this.agentWorktreeRefreshQueue.enqueue(agentId, async () => {
+    return this.agentWorktreeRefreshQueue.enqueue(agentId, async isCurrent => {
       if (this.disposing || this.disposed) return false;
       const [info, baseInfo] = await Promise.all([
         inspectGitWorktree(candidate),
@@ -4333,7 +4328,7 @@ class AgentManager extends EventEmitter {
       if (
         this.disposing
         || this.disposed
-        || this.agentWorktreeResolveGeneration.get(agentId) !== generation
+        || !isCurrent()
       ) return false;
 
       const current = this.agents.get(agentId);
@@ -4729,7 +4724,6 @@ class AgentManager extends EventEmitter {
     this.providerSessionService.dispose();
     this.acpPreparedTranscriptCache.dispose();
     this.acpTranscriptReads.clear();
-    this.agentWorktreeResolveGeneration.clear();
     this.agentLifecycleOperations.clear();
     this.agentStartAdmissions.clear();
     this.inputCoordinator.dispose();

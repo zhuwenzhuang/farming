@@ -97,6 +97,20 @@ async function run() {
   releaseCancelBlocker();
   assert.strictEqual(await cancelBlocker, true);
 
+  const generationQueue = new AgentWorktreeRefreshQueue(1);
+  let releaseGenerationTask: () => void = () => {};
+  let generationTaskStarted: () => void = () => {};
+  const generationStarted = new Promise<void>(resolve => { generationTaskStarted = resolve; });
+  const invalidated = generationQueue.enqueue('reused-agent', async isCurrent => {
+    generationTaskStarted();
+    await new Promise<void>(resolve => { releaseGenerationTask = resolve; });
+    return isCurrent();
+  });
+  await generationStarted;
+  generationQueue.forget('reused-agent');
+  releaseGenerationTask();
+  assert.strictEqual(await invalidated, false, 'forget must invalidate an already active generation');
+
   const cancelAllQueue = new AgentWorktreeRefreshQueue(1);
   let releaseCancelAllBlocker: () => void = () => {};
   const cancelAllBlocker = cancelAllQueue.enqueue('blocker', () => new Promise<boolean>(resolve => {
@@ -141,21 +155,31 @@ async function run() {
     resolve: (changed: boolean) => void;
     run: () => Promise<boolean>;
   }> = [];
+  const queuedGenerations = new Map<string, number>();
   manager.agentWorktreeRefreshQueue = {
-    enqueue(agentId: string, task: () => Promise<boolean>) {
+    enqueue(agentId: string, task: (isCurrent: () => boolean) => Promise<boolean>) {
+      const generation = (queuedGenerations.get(agentId) || 0) + 1;
+      queuedGenerations.set(agentId, generation);
       return new Promise<boolean>(resolve => {
-        queuedTasks.push({ agentId, resolve, run: task });
+        queuedTasks.push({
+          agentId,
+          resolve,
+          run: () => task(() => queuedGenerations.get(agentId) === generation),
+        });
       });
     },
     cancelPending: () => false,
     cancelAllPending: () => {},
+    forget(agentId: string) {
+      queuedGenerations.set(agentId, (queuedGenerations.get(agentId) || 0) + 1);
+      return false;
+    },
   };
   const initialRefresh = manager.refreshAgentWorktree(initialAgent.id);
   assert.deepStrictEqual(queuedTasks.map(task => task.agentId), [initialAgent.id]);
   const initialChanged = await queuedTasks[0].run();
   queuedTasks[0].resolve(initialChanged);
   assert.strictEqual(await initialRefresh, true);
-  assert.strictEqual(manager.agentWorktreeResolveGeneration.get('agent-wiring'), 1);
 
   const oldAgent: TestAgentRecord = {
     id: 'agent-reused',
@@ -169,7 +193,6 @@ async function run() {
   const replacementAgent: TestAgentRecord = { ...oldAgent };
   manager.agents.set(replacementAgent.id, replacementAgent);
   const replacementRefresh = manager.refreshAgentWorktree(replacementAgent.id);
-  assert.strictEqual(manager.agentWorktreeResolveGeneration.get(oldAgent.id), 1);
   const oldTask = queuedTasks[1];
   const oldChanged = await oldTask.run();
   oldTask.resolve(oldChanged);

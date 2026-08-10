@@ -4,9 +4,12 @@ interface AgentWorktreeRefreshTask {
   run: () => Promise<boolean>;
 }
 
+type AgentWorktreeRefreshRun = (isCurrent: () => boolean) => Promise<boolean>;
+
 class AgentWorktreeRefreshQueue {
   private active = 0;
   private readonly maxConcurrent: number;
+  private readonly generations = new Map<string, number>();
   private readonly order: string[] = [];
   private orderOffset = 0;
   private readonly pending = new Map<string, AgentWorktreeRefreshTask>();
@@ -18,19 +21,22 @@ class AgentWorktreeRefreshQueue {
     this.maxConcurrent = maxConcurrent;
   }
 
-  enqueue(agentId: string, run: () => Promise<boolean>): Promise<boolean> {
+  enqueue(agentId: string, run: AgentWorktreeRefreshRun): Promise<boolean> {
     if (!agentId || typeof run !== 'function') {
       return Promise.reject(new TypeError('Agent Worktree refresh requires an Agent id and task'));
     }
+    const generation = (this.generations.get(agentId) || 0) + 1;
+    this.generations.set(agentId, generation);
+    const guardedRun = () => run(() => this.generations.get(agentId) === generation);
     return new Promise<boolean>((resolve, reject) => {
       const existing = this.pending.get(agentId);
       if (existing) {
-        existing.run = run;
+        existing.run = guardedRun;
         existing.resolvers.push(resolve);
         existing.rejecters.push(reject);
       } else {
         this.pending.set(agentId, {
-          run,
+          run: guardedRun,
           resolvers: [resolve],
           rejecters: [reject],
         });
@@ -48,11 +54,17 @@ class AgentWorktreeRefreshQueue {
     return true;
   }
 
+  forget(agentId: string): boolean {
+    this.generations.set(agentId, (this.generations.get(agentId) || 0) + 1);
+    return this.cancelPending(agentId);
+  }
+
   cancelAllPending(): void {
     this.pending.forEach(task => {
       task.resolvers.forEach(resolve => resolve(false));
     });
     this.pending.clear();
+    this.generations.clear();
     this.order.length = 0;
     this.orderOffset = 0;
   }
@@ -90,4 +102,5 @@ class AgentWorktreeRefreshQueue {
 
 export {
   AgentWorktreeRefreshQueue,
+  type AgentWorktreeRefreshRun,
 };

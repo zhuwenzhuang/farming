@@ -384,6 +384,8 @@ owns its per-Agent admission/tails, runtime fencing, durable convergence,
 Attention publication, drain, and exact cleanup as one state machine.
 The Manager calls the Attention tracker directly internally; redundant facade
 wrappers are not retained as a second pseudo-owner.
+Worktree refresh coalescing and generation fencing are now owned together, so
+delete/reuse invalidates both pending and already active observations.
 Provider-neutral Terminal startup ordering also has one owner, activated by a
 typed adapter policy rather than a provider-name branch. Launch composition
 remains in the Manager over provider-adapter and executable discovery
