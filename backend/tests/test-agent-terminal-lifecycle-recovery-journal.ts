@@ -12,6 +12,7 @@ const {
   transitionLifecycleOperation,
 } = require('../agent-lifecycle-journal.cjs');
 const { FarmingSessionStore } = require('../farming-session-store.cjs');
+const { forkRequestSignature } = require('../fork-operation-coordinator.cjs');
 
 function configForStore(store, workspace) {
   return {
@@ -207,7 +208,284 @@ async function run() {
   console.log('native Terminal lifecycle journal reconciles live and missing runtimes');
 }
 
-run().catch(error => {
+function forkPendingFixture(
+  id: string,
+  workspace: string,
+  store,
+  requestId: string,
+  sessionId: string,
+) {
+  const agent: TerminalAgentFixture = {
+    id,
+    command: 'bash',
+    forkCommand: 'bash',
+    cwd: workspace,
+    projectWorkspace: workspace,
+    status: 'running',
+    engineName: 'native',
+    category: 'shell',
+    source: 'ui',
+    runtimeBinding: { kind: 'terminal' },
+    providerSessionProvider: 'claude',
+    providerHomeId: 'default',
+    providerSessionId: sessionId,
+    providerSessionKey: encodeProviderSessionKey('claude', sessionId, 'default'),
+    providerSessionTemporary: false,
+  };
+  agent.persistentSessionId = store.ensureRecordForAgent(agent, {
+    visibleOnMainPage: false,
+    archived: false,
+  });
+  beginLifecycleOperation(agent, 'fork', `fork-request:${requestId}`, {
+    signature: forkRequestSignature(
+      { id: agent.id, agentRecordId: agent.persistentSessionId, runtimeBinding: { kind: 'terminal' } },
+      'same-worktree',
+      {},
+    ),
+    mode: 'same-worktree',
+    sourceRecordId: agent.persistentSessionId,
+    sourceRuntimeKind: 'terminal',
+    targetRuntime: '',
+    expectedRevision: null,
+  });
+  store.ensureRecordForAgent(agent, {});
+  return agent;
+}
+
+function engineBridgeForFixture(agents, liveRuntimeIds: Set<string>, killed: string[] = []) {
+  const engine = {
+    async killSession(agentId) {
+      killed.push(agentId);
+      liveRuntimeIds.delete(agentId);
+    },
+    async getSessionState(agentId) {
+      return liveRuntimeIds.has(agentId) ? { status: 'running' } : null;
+    },
+    async updateSessionMetadata() {},
+  };
+  return {
+    async recoverSessions() {
+      return agents
+        .filter(agent => liveRuntimeIds.has(agent.id))
+        .map(agent => ({
+          engineName: 'native',
+          agentId: agent.id,
+          metadata: {
+            agentId: agent.id,
+            command: agent.command,
+            cwd: agent.cwd,
+            category: agent.category,
+            source: agent.source,
+          },
+          state: { status: 'running', startedAt: 1000 },
+        }));
+    },
+    consumeRuntimeRotations: () => [],
+    getEngine: () => engine,
+    killSession: async (_engineName, agentId) => engine.killSession(agentId),
+    dispose: async () => {},
+  };
+}
+
+function assertHiddenForkRecord(store, fixture, expectedState: string) {
+  const record = store.readRecord(fixture.persistentSessionId);
+  const operation = latestLifecycleOperation(record);
+  assert.strictEqual(operation.type, 'fork');
+  assert.strictEqual(
+    operation.state,
+    expectedState,
+    `hidden Fork of ${fixture.id} must be durably ${expectedState}`,
+  );
+  assert.notStrictEqual(
+    record.visibleOnMainPage,
+    true,
+    `hidden Fork source ${fixture.id} must not be promoted to the main page`,
+  );
+  return operation;
+}
+
+async function runHiddenForkRecovery() {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-fork-recovery-hidden-'));
+  const store = new FarmingSessionStore(configDir);
+  store.init();
+  const requestId = 'hidden-live-fork-request';
+  const hiddenLive = forkPendingFixture(
+    'agent-hidden-live-fork', configDir, store, requestId,
+    '11111111-1111-4111-8111-111111111111',
+  );
+  const hiddenMissing = forkPendingFixture(
+    'agent-hidden-missing-fork', configDir, store, 'hidden-missing-fork-request',
+    '22222222-2222-4222-8222-222222222222',
+  );
+  assert.deepStrictEqual(store.getMainPageSessionKeys(), []);
+
+  const manager = new AgentManager(configForStore(store, configDir), {});
+  await manager.engineBridge.dispose();
+  const liveRuntimeIds = new Set([hiddenLive.id]);
+  const killed: string[] = [];
+  manager.engineBridge = engineBridgeForFixture([hiddenLive, hiddenMissing], liveRuntimeIds, killed);
+  let startAgentCalls = 0;
+  const originalStartAgent = manager.startAgent.bind(manager);
+  manager.startAgent = (...args) => {
+    startAgentCalls += 1;
+    return originalStartAgent(...args);
+  };
+  let worktreeEffects = 0;
+  const originalAllocate = manager.worktreeGitService.allocateTemporaryWorktree
+    .bind(manager.worktreeGitService);
+  manager.worktreeGitService.allocateTemporaryWorktree = (...args) => {
+    worktreeEffects += 1;
+    return originalAllocate(...args);
+  };
+
+  try {
+    await manager.recoverEngineSessions();
+
+    for (const fixture of [hiddenLive, hiddenMissing]) {
+      const operation = assertHiddenForkRecord(store, fixture, 'blocked');
+      assert.match(operation.error, /interrupted by a restart/);
+      const recovered = manager.agents.get(fixture.id);
+      assert(recovered, `hidden Fork source ${fixture.id} must be materialized for resolution`);
+      assert.strictEqual(recovered.status, 'error');
+      assert.strictEqual(recovered.engineStatus, 'lifecycle-blocked');
+    }
+    assert(
+      !killed.includes(hiddenLive.id),
+      'a live hidden Fork source PTY must be kept for resolution, not killed',
+    );
+    assert.deepStrictEqual(
+      store.getMainPageSessionKeys(),
+      [],
+      'recovery must not add hidden Fork sources to the main page membership',
+    );
+    assert.strictEqual(startAgentCalls, 0, 'hidden Fork recovery must not execute any Fork effect');
+    assert.strictEqual(worktreeEffects, 0, 'hidden Fork recovery must not create a Fork worktree');
+    assert.strictEqual(store.listAgentRecords().length, 2);
+
+    const replay = await manager.forkAgent(hiddenLive.id, 'same-worktree', { requestId });
+    assert.match(replay.error, /will not be replayed automatically/);
+    assert.strictEqual(replay.uncertain, true);
+    assert.strictEqual(startAgentCalls, 0, 'reconcile of a blocked Fork must not auto-replay');
+    assert.strictEqual(store.listAgentRecords().length, 2);
+    assertHiddenForkRecord(store, hiddenLive, 'blocked');
+    assert.deepStrictEqual(store.getMainPageSessionKeys(), []);
+
+    const archived = await manager.archiveAgent(hiddenLive.id);
+    assert.strictEqual(
+      archived.error,
+      undefined,
+      `Archive must supersede the hidden live Fork source: ${archived.error}`,
+    );
+    const archiveOperation = latestLifecycleOperation(store.readRecord(hiddenLive.persistentSessionId));
+    assert.strictEqual(archiveOperation.type, 'archive');
+    assert.strictEqual(archiveOperation.state, 'succeeded');
+
+    const deleted = await manager.killAgent(hiddenMissing.id);
+    assert.strictEqual(
+      deleted.error,
+      undefined,
+      `Delete must supersede the hidden missing-runtime Fork source: ${deleted.error}`,
+    );
+    const deletedRecord = store.readRecord(hiddenMissing.persistentSessionId);
+    const deleteOperation = latestLifecycleOperation(deletedRecord);
+    assert.strictEqual(deleteOperation.type, 'delete');
+    assert.strictEqual(deleteOperation.state, 'succeeded');
+    assert.strictEqual(deletedRecord.runtimeAgentId, '');
+    assert.strictEqual(startAgentCalls, 0);
+  } finally {
+    await manager.dispose();
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+
+  console.log('hidden Terminal Fork sources recover as blocked and stay resolvable');
+}
+
+async function runHiddenForkPersistFailure() {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-fork-hidden-persist-fail-'));
+  const store = new FarmingSessionStore(configDir);
+  store.init();
+  const requestId = 'hidden-fork-persist-fail';
+  const hiddenMissing = forkPendingFixture(
+    'agent-hidden-fork-persist-fail', configDir, store, requestId,
+    '33333333-3333-4333-8333-333333333333',
+  );
+
+  const config = configForStore(store, configDir);
+  const originalEnsure = config.ensureAgentSessionRecord;
+  let remainingPersistFailures = 1;
+  config.ensureAgentSessionRecord = (agent, patch) => {
+    if (remainingPersistFailures > 0 && agent?.id === hiddenMissing.id) {
+      remainingPersistFailures -= 1;
+      throw new Error('simulated hidden fork block persistence failure');
+    }
+    return originalEnsure(agent, patch);
+  };
+
+  const unhandledRejections: unknown[] = [];
+  const onUnhandledRejection = (reason: unknown) => unhandledRejections.push(reason);
+  process.on('unhandledRejection', onUnhandledRejection);
+  const manager = new AgentManager(config, {});
+  await manager.engineBridge.dispose();
+  manager.engineBridge = engineBridgeForFixture([hiddenMissing], new Set());
+  let startAgentCalls = 0;
+  const originalStartAgent = manager.startAgent.bind(manager);
+  manager.startAgent = (...args) => {
+    startAgentCalls += 1;
+    return originalStartAgent(...args);
+  };
+
+  const warnings: string[] = [];
+  const originalWarn = console.warn;
+  try {
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args.map(String).join(' '));
+    };
+    try {
+      await manager.recoverEngineSessions();
+    } finally {
+      console.warn = originalWarn;
+    }
+    await new Promise(resolve => setImmediate(resolve));
+
+    assertHiddenForkRecord(store, hiddenMissing, 'pending');
+    assert.deepStrictEqual(store.getMainPageSessionKeys(), []);
+    const recovered = manager.agents.get(hiddenMissing.id);
+    assert(recovered, 'the hidden Fork source must still be materialized fail closed');
+    assert.strictEqual(recovered.status, 'error');
+    assert.strictEqual(recovered.engineStatus, 'lifecycle-blocked');
+    assert.strictEqual(startAgentCalls, 0);
+    assert(
+      warnings.some(entry => entry.includes('simulated hidden fork block persistence failure')),
+      `the persistence failure must stay observable: ${JSON.stringify(warnings)}`,
+    );
+
+    const replay = await manager.forkAgent(hiddenMissing.id, 'same-worktree', { requestId });
+    assert.match(replay.error, /will not be replayed automatically/);
+    assertHiddenForkRecord(store, hiddenMissing, 'blocked');
+    const deleted = await manager.killAgent(hiddenMissing.id);
+    assert.strictEqual(deleted.error, undefined);
+    assert.strictEqual(
+      latestLifecycleOperation(store.readRecord(hiddenMissing.persistentSessionId)).state,
+      'succeeded',
+    );
+    assert.deepStrictEqual(unhandledRejections, []);
+  } finally {
+    console.warn = originalWarn;
+    process.off('unhandledRejection', onUnhandledRejection);
+    await manager.dispose();
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+
+  console.log('hidden Fork persistence failure stays fail closed and heals on reconcile');
+}
+
+async function main() {
+  await run();
+  await runHiddenForkRecovery();
+  await runHiddenForkPersistFailure();
+}
+
+main().catch(error => {
   console.error(error);
   process.exitCode = 1;
 });

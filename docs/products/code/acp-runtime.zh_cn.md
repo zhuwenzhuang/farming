@@ -179,6 +179,14 @@ Conversation Fork 只有在 Adapter Contract 与 Live Capability 都支持时才
 Revision、Child Identity、Ownership 与 Cleanup Responsibility 必须精确；Child Durable 前
 失败时必须显式报告，不能静默创建另一个 Fork。
 
+Farming 重启时若 Fork Operation 仍未终态，恢复会在任何 Runtime 启动前先对其收敛。
+存在精确 Source Runtime Agent Identity 时，该 Operation 被转换为持久 blocked；若
+blocked Transition 无法持久化，Journal 保留原 pending 事实，Source 仍以
+lifecycle-blocked 的 fail-closed 状态恢复。缺少精确 Identity 时不猜测、不做
+Transition：Operation 保持 pending 并给出显式告警。任何情况下 Fork 都绝不自动
+重放，同一请求只能对持久结果做 Reconcile；当 Source 可寻址时，Archive 或 Delete
+可以 Supersede 它。
+
 ## 展示契约
 
 Chat 展示有序对话、当前 Turn 的一条紧凑 Live Activity，以及可逆的结构化证据。已完成的

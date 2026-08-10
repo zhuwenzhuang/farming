@@ -239,6 +239,16 @@ capability both support it. The source revision, child identity, ownership, and
 cleanup responsibility must be exact. Failure before the child is durable is
 visible and must not silently create a different fork.
 
+When Farming restarts while a Fork operation is still non-terminal, recovery
+converges it before any runtime starts. With an exact source runtime Agent
+identity the operation is transitioned to durable blocked; if that blocked
+transition cannot be persisted, the journal keeps the original pending truth
+and the source still recovers fail closed as lifecycle-blocked. Without an
+exact identity nothing is guessed or transitioned: the operation stays pending
+with an explicit warning. In every case the Fork is never replayed
+automatically, the same request may only reconcile against the durable
+outcome, and archive or delete supersedes it while the source is addressable.
+
 ## Presentation Contract
 
 Chat shows the ordered conversation, one compact live activity signal for the

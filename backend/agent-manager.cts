@@ -1100,7 +1100,7 @@ function shouldRestoreAgentFromMetadata(record: TypedAgentRecord, mainPageSessio
 
 function lifecycleOperationBlocksRuntimeStart(record: TypedAgentRecord) {
   const operation = activeLifecycleOperation(record);
-  return operation && ['create', 'delete', 'archive', 'runtime-switch'].includes(operation.type)
+  return operation && ['create', 'delete', 'archive', 'runtime-switch', 'fork'].includes(operation.type)
     ? operation
     : null;
 }
@@ -2620,9 +2620,16 @@ class AgentManager extends EventEmitter {
     }
 
     const recovered = await this.engineBridge.recoverSessions();
-    const persistedRecords = this.configManager && typeof this.configManager.listAgentSessionRecords === 'function'
-      ? this.configManager.listAgentSessionRecords()
-      : [];
+    const recordStore = this.configManager;
+    const listPersistedRecords = recordStore && typeof recordStore.listAgentSessionRecords === 'function'
+      ? () => recordStore.listAgentSessionRecords()
+      : () => [] as PersistedAgentPrivateMetadata[];
+    let persistedRecords = listPersistedRecords();
+    // Durable Fork convergence happens at this shared boundary, before the
+    // Terminal/ACP split, so both runtimes consume one already-blocked truth.
+    if (this.blockInterruptedPersistedForkOperations(persistedRecords)) {
+      persistedRecords = listPersistedRecords();
+    }
     const mainPageSessionKeys = new Set(this.getMainPageSessionKeys());
     const persistedByRuntimeAgentId = new Map<string, PersistedAgentPrivateMetadata>(persistedRecords
       .filter((record: PersistedAgentPrivateMetadata) => typeof record.runtimeAgentId === 'string' && Boolean(record.runtimeAgentId))
@@ -2640,7 +2647,7 @@ class AgentManager extends EventEmitter {
       const desiredMetadata = persisted || engineMetadata;
       const persistedLifecycleOperation = activeLifecycleOperation(desiredMetadata);
       const hasRecoverableLifecycleOperation = persistedLifecycleOperation
-        && ['create', 'delete', 'archive'].includes(persistedLifecycleOperation.type);
+        && ['create', 'delete', 'archive', 'fork'].includes(persistedLifecycleOperation.type);
       if (
         !hasRecoverableLifecycleOperation
         && !shouldRestoreAgentFromMetadata({
@@ -2773,9 +2780,14 @@ class AgentManager extends EventEmitter {
       if (agentRecord.wantsMain && !this.mainAgentId) {
         this.mainAgentId = agentId;
       }
-      this.rememberMainPageProviderSession(agentRecord);
-      this.providerSessionService.activate(agentId);
-      void this.resolveCodexTerminalIdentityFromCurrentView(agentId);
+      if (
+        recoveredLifecycleOperation?.type !== 'fork'
+        || shouldRestoreAgentFromMetadata(agentRecord, mainPageSessionKeys)
+      ) {
+        this.rememberMainPageProviderSession(agentRecord);
+        this.providerSessionService.activate(agentId);
+        void this.resolveCodexTerminalIdentityFromCurrentView(agentId);
+      }
       changed = true;
     }
 
@@ -2824,6 +2836,48 @@ class AgentManager extends EventEmitter {
     }
   }
 
+  private blockInterruptedPersistedForkOperations(records: PersistedAgentPrivateMetadata[]): boolean {
+    let changed = false;
+    for (const record of Array.isArray(records) ? records : []) {
+      const operation = activeLifecycleOperation(record);
+      if (operation?.type !== 'fork' || operation.state === 'blocked') continue;
+      const agentId = String(record.runtimeAgentId || '').trim();
+      if (!agentId) {
+        // Without an exact runtime Agent identity there is no staged record to
+        // persist through and no runtime start to block; the operation keeps
+        // its pending truth instead of being committed against a guess.
+        console.warn(
+          `Persisted Fork operation ${operation.id} on record ${record.id || record.persistentSessionId || 'unknown'} has no exact runtime Agent identity; keeping its pending journal truth`,
+        );
+        continue;
+      }
+      const staged = this.recoveredAgentRecord(
+        agentId,
+        record.engine || 'native',
+        { ...record, persistentSessionId: record.id || record.persistentSessionId || '' },
+        { status: String(record.status || 'exited') },
+      );
+      setAgentRecordId(staged, record.id || record.persistentSessionId || '');
+      try {
+        this.transitionPersistentAgentOperation(
+          staged,
+          operation.id,
+          'blocked',
+          `Fork operation ${operation.id} was interrupted by a restart before its outcome was recorded; `
+          + 'retry the same Fork request to reconcile it, or archive or delete this Agent',
+        );
+        changed = true;
+      } catch (caughtError: unknown) {
+        const error = caughtError as ErrorRecord;
+        console.warn(
+          `Failed to persist blocked Fork operation ${operation.id} for Agent ${agentId}:`,
+          error && (error.message || error),
+        );
+      }
+    }
+    return changed;
+  }
+
   async reconcileMissingTerminalLifecycleOperations(
     records: PersistedAgentPrivateMetadata[],
     recoveredRuntimeAgentIds: Set<string>,
@@ -2837,8 +2891,28 @@ class AgentManager extends EventEmitter {
         || recoveredRuntimeAgentIds.has(agentId)
         || runtimeKind(record) !== 'terminal'
         || !operation
-        || !['create', 'delete', 'archive'].includes(operation.type)
       ) {
+        continue;
+      }
+      if (operation.type === 'fork') {
+        // The shared recovery prepass owns the durable blocked transition.
+        // Here the source only needs a fail-closed row so the blocked Fork
+        // stays reachable for same-request reconcile or archive/delete.
+        if (this.agents.has(agentId)) continue;
+        const blockedAgent = this.recoveredAgentRecord(
+          agentId,
+          record.engine || 'native',
+          { ...record, persistentSessionId: record.id || record.persistentSessionId || '' },
+          { status: 'exited' },
+        );
+        setAgentRecordId(blockedAgent, record.id || record.persistentSessionId || '');
+        this.markRecoveredAgentLifecycleBlocked(blockedAgent, operation);
+        this.registerAgentRecord(agentId, blockedAgent);
+        this.lastActivity.set(agentId, Date.now());
+        changed = true;
+        continue;
+      }
+      if (!['create', 'delete', 'archive'].includes(operation.type)) {
         continue;
       }
 
