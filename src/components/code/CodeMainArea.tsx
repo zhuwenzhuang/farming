@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ComponentProps, type KeyboardEvent as ReactKeyboardEvent, type RefObject, type SyntheticEvent as ReactSyntheticEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ComponentProps, type Dispatch, type KeyboardEvent as ReactKeyboardEvent, type RefObject, type SetStateAction, type SyntheticEvent as ReactSyntheticEvent } from 'react'
 import type { Agent, TaskHistoryEntry } from '@/types/agent'
 import { isAcpRuntime } from '@/lib/agent-runtime'
 import { agentTitle } from '@/lib/format'
@@ -285,7 +285,7 @@ interface CodeMainAreaProps {
   onOpenHistory: () => void
   onOpenPlugins: () => void
   pluginsNavigationState: PluginsNavigationState
-  onPluginsNavigationStateChange: (state: PluginsNavigationState) => void
+  onPluginsNavigationStateChange: Dispatch<SetStateAction<PluginsNavigationState>>
   onOpenAgentHomeConfiguration: (target: AgentHomeFileTarget) => void
   onOpenSearch: () => void
   onOpenShare: () => void
@@ -867,6 +867,8 @@ export function CodeMainArea({
               language={language}
               navigationState={pluginsNavigationState}
               onNavigationStateChange={onPluginsNavigationStateChange}
+              canNavigateBack={canNavigateWorkspaceBack}
+              onNavigateHistory={onNavigateWorkspaceHistory}
               onBack={onBackToProjects}
               onOpenAgentHomeConfiguration={onOpenAgentHomeConfiguration}
               onRefreshCapability={refreshPluginCapabilities}

@@ -19,7 +19,11 @@ const testTimeoutMs = Number(process.env.FARMING_BEHAVIOR_TEST_TIMEOUT_MS) || 90
 
 for (const relativePath of nodeTests) {
   console.log(`Behavior evidence: ${relativePath}`);
-  const result = spawnSync(process.execPath, [tsxCli, path.join(projectRoot, relativePath)], {
+  const absolutePath = path.join(projectRoot, relativePath);
+  const args = relativePath.startsWith('tests/') && relativePath.endsWith('.test.ts')
+    ? ['--import', 'tsx', '--test', absolutePath]
+    : [tsxCli, absolutePath];
+  const result = spawnSync(process.execPath, args, {
     cwd: projectRoot,
     env: {
       ...process.env,

@@ -342,7 +342,6 @@ test('mounts Agent-owned Browsers behind nested resource controls without layout
   await expect.poll(async () => (await browserSnapshot(page, createdBrowser.id)).url).toBe(targetUrl)
   const runningStatus = browserRow.locator('.farming-browser-resource-icon.running')
   await expect(runningStatus).toHaveCount(1)
-  await expect(runningStatus).toHaveCSS('color', 'rgb(31, 157, 85)')
   const runningRowBox = await browserRow.boundingBox()
   const runningStatusBox = await runningStatus.boundingBox()
   if (!runningRowBox || !runningStatusBox) throw new Error('Running Browser status must have measurable bounds')

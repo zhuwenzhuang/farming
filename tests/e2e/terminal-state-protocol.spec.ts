@@ -986,7 +986,9 @@ test.describe('terminal state protocol', () => {
     expect(await visibleText(page, agentId)).not.toContain('GAP_MUST_NOT_RENDER')
   })
 
-  test('transport recovery halts after three failures and Retry starts a fresh recovery', async ({ page, workspaceRoot }) => {
+  test('transport recovery halts after three failures and Retry starts a fresh recovery', {
+    tag: ['@critical-behavior', '@behavior-CODE-TERMINAL-RECOVERY-RETRY'],
+  }, async ({ page, workspaceRoot }) => {
     const workspace = path.join(workspaceRoot, 'terminal-transport-retry')
     fs.mkdirSync(workspace, { recursive: true })
     const agentId = await createControlAgent(page, workspace)

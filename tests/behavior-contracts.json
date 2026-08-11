@@ -80,7 +80,7 @@
     {
       "id": "CODE-PLUGINS-SOURCE-NAVIGATION",
       "surface": "ui",
-      "promise": "Plugin icons render, opening source reveals the exact file, and Back restores the prior plugin detail and scroll position.",
+      "promise": "Plugin kind filters are exclusive, icons render, opening source reveals the exact file, and the editor's general Back action restores plugin detail and scroll without plugin-only navigation controls.",
       "owner": "docs/products/code/project-files-section-design.md",
       "evidence": {
         "node": [
@@ -102,6 +102,23 @@
       "evidence": {
         "node": [
           "backend/tests/test-config-process-hard-stop.ts"
+        ]
+      }
+    },
+    {
+      "id": "CODE-TERMINAL-RECOVERY-RETRY",
+      "surface": "ui",
+      "promise": "A halted Terminal recovery shows an explicit Retry action that starts one fresh bounded recovery and restores authoritative output.",
+      "owner": "docs/products/code/terminal-state-protocol.md",
+      "evidence": {
+        "node": [
+          "tests/terminal-recovery-status.test.ts"
+        ],
+        "playwright": [
+          {
+            "file": "tests/e2e/terminal-state-protocol.spec.ts",
+            "title": "transport recovery halts after three failures and Retry starts a fresh recovery"
+          }
         ]
       }
     }

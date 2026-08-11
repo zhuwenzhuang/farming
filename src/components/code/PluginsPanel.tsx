@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
+import type { Dispatch, KeyboardEvent as ReactKeyboardEvent, SetStateAction } from 'react'
 import { CodeSelect } from '@/components/CodeSelect'
 import { appPath } from '@/lib/base-path'
 import type { WorkspacePluginsNavigationState } from '@/lib/workspace-navigation-history'
@@ -127,7 +127,7 @@ function pluginCopy(language: UiLanguage) {
   return {
     title: zh ? '插件' : 'Plugins',
     description: zh ? '管理 Farming 和 Agent 可以使用的能力。' : 'Manage capabilities available to Farming and Agents.',
-    back: zh ? '返回工作区' : 'Back to workspace',
+    goBack: zh ? '后退' : 'Go Back',
     tabs: {
       farming: 'Farming',
       homes: 'Agent Homes',
@@ -500,6 +500,8 @@ export function PluginsPanel({
   language,
   navigationState,
   onNavigationStateChange,
+  canNavigateBack,
+  onNavigateHistory,
   onBack,
   onOpenAgentHomeConfiguration,
   onRefreshCapability,
@@ -513,7 +515,9 @@ export function PluginsPanel({
   onPrepareComputer: () => Promise<ComputerCapability>
   language: UiLanguage
   navigationState: PluginsNavigationState
-  onNavigationStateChange: (state: PluginsNavigationState) => void
+  onNavigationStateChange: Dispatch<SetStateAction<PluginsNavigationState>>
+  canNavigateBack: boolean
+  onNavigateHistory: (direction: -1 | 1) => boolean
   onBack: () => void
   onOpenAgentHomeConfiguration: (target: AgentHomeFileTarget) => void
   onRefreshCapability: () => void
@@ -550,8 +554,8 @@ export function PluginsPanel({
   const activeExtensionKind = navigationState.activeExtensionKind
   const extensionQuery = navigationState.extensionQuery
   const updateNavigationState = useCallback((patch: Partial<PluginsNavigationState>) => {
-    onNavigationStateChange({ ...navigationState, ...patch })
-  }, [navigationState, onNavigationStateChange])
+    onNavigationStateChange(current => ({ ...current, ...patch }))
+  }, [onNavigationStateChange])
   const setExtensionQuery = useCallback((value: string) => {
     updateNavigationState({ extensionQuery: value })
   }, [updateNavigationState])
@@ -573,8 +577,10 @@ export function PluginsPanel({
     restoreScroll()
     const frame = window.requestAnimationFrame(restoreScroll)
     const handleScroll = () => {
-      if (scroller.scrollTop === navigationState.scrollTop) return
-      onNavigationStateChange({ ...navigationState, scrollTop: scroller.scrollTop })
+      const scrollTop = scroller.scrollTop
+      onNavigationStateChange(current => (
+        scrollTop === current.scrollTop ? current : { ...current, scrollTop }
+      ))
     }
     scroller.addEventListener('scroll', handleScroll, { passive: true })
     return () => {
@@ -1132,7 +1138,15 @@ export function PluginsPanel({
   return (
     <div ref={panelRef} className="code-plugins-panel" data-testid="code-plugins-panel">
       <header className="code-plugins-panel-header">
-        <button type="button" onClick={onBack} aria-label={copy.back} title={copy.back}>
+        <button
+          type="button"
+          onClick={() => {
+            if (!canNavigateBack || !onNavigateHistory(-1)) onBack()
+          }}
+          aria-label={copy.goBack}
+          title={copy.goBack}
+          data-testid="code-plugin-history-back"
+        >
           <ArrowLeftGlyph />
         </button>
         <div>

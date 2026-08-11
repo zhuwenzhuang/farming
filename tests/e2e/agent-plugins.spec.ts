@@ -338,6 +338,7 @@ test('Plugins shows a read-only extension catalog from one exact Agent Home', {
 
   await page.getByTestId('code-nav-plugins').click()
   const panel = page.getByTestId('code-plugins-panel')
+  await expect(panel.getByTestId('code-plugin-history-forward')).toHaveCount(0)
   await panel.getByTestId('code-plugin-tab-extensions').click()
   await expect(panel.getByTestId('code-plugin-extension-home-codex-catalog')).toHaveAttribute('aria-selected', 'true')
 
@@ -352,10 +353,32 @@ test('Plugins shows a read-only extension catalog from one exact Agent Home', {
 
   await panel.getByTestId('code-plugin-extension-kind-hook').click()
   await expect(panel.getByText('example-plugin: Stop', { exact: true })).toBeVisible()
+  await expect(panel.locator('.code-plugin-extension-group')).toHaveAttribute('data-kind', 'hook')
+  await expect(panel.getByText('Home Skill', { exact: true })).toHaveCount(0)
+  await expect(panel.getByText('example-plugin: Plugin Skill', { exact: true })).toHaveCount(0)
 
   await panel.getByTestId('code-plugin-extension-kind-plugin').click()
+  await expect(panel.locator('.code-plugin-extension-group')).toHaveAttribute('data-kind', 'plugin')
   const examplePlugin = panel.getByRole('button', { name: /Example Plugin/ })
   await expect(examplePlugin.locator('.code-plugin-manifest-icon')).toBeVisible()
+  const filterScrollTop = await page.locator('.code-plugins-view').evaluate(element => {
+    element.scrollTop = Math.min(180, element.scrollHeight - element.clientHeight)
+    element.dispatchEvent(new Event('scroll'))
+    return element.scrollTop
+  })
+  expect(filterScrollTop).toBeGreaterThan(0)
+  await page.evaluate(() => {
+    const hookTab = document.querySelector<HTMLButtonElement>('[data-testid="code-plugin-extension-kind-hook"]')
+    const scroller = document.querySelector<HTMLElement>('.code-plugins-view')
+    if (!hookTab || !scroller) throw new Error('Plugin filter race fixture is unavailable')
+    hookTab.click()
+    scroller.dispatchEvent(new Event('scroll'))
+  })
+  await expect(panel.locator('.code-plugin-extension-group')).toHaveAttribute('data-kind', 'hook')
+  await expect(panel.getByRole('button', { name: /Example Plugin/ })).toHaveCount(0)
+
+  await panel.getByTestId('code-plugin-extension-kind-plugin').click()
+  await expect(panel.locator('.code-plugin-extension-group')).toHaveAttribute('data-kind', 'plugin')
   await examplePlugin.click()
   const detail = panel.getByTestId('code-plugin-detail-dialog')
   await expect(detail).toContainText('plugins/example/.codex-plugin/plugin.json')
@@ -376,6 +399,8 @@ test('Plugins shows a read-only extension catalog from one exact Agent Home', {
   await expect(panel.getByTestId('code-plugin-extension-kind-plugin')).toHaveAttribute('aria-selected', 'true')
   await expect(panel.getByTestId('code-plugin-detail-dialog')).toContainText('Example Plugin')
   await expect.poll(() => page.locator('.code-plugins-view').evaluate(element => element.scrollTop)).toBe(pluginScrollTop)
+
+  await expect(detail.getByTestId('code-plugin-detail-history-forward')).toHaveCount(0)
 
   await panel.getByTestId('code-plugin-detail-dialog').getByRole('button', { name: 'Close details' }).click()
 

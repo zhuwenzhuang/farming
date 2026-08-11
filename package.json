@@ -94,7 +94,7 @@
     "test:behavior": "npm run test:behavior:contracts && npm run test:behavior:node && npm run test:behavior:e2e",
     "test:behavior:contracts": "tsx scripts/check-behavior-contracts.ts",
     "test:behavior:node": "tsx scripts/run-behavior-node-tests.ts",
-    "test:behavior:e2e": "playwright test --project=chromium --workers=1 --retries=0 --grep @critical-behavior",
+    "test:behavior:e2e": "FARMING_E2E_REAL_CODEX=0 FARMING_E2E_FAKE_EXECUTABLES=1 FARMING_E2E_FAKE_ACP_AGENT=1 playwright test --project=chromium --workers=1 --retries=0 --grep @critical-behavior",
     "test:pre-release:codex-ui:smoke": "FARMING_REAL_CODEX_BIN=\"$(command -v codex)\" FARMING_CODEX_BIN=\"$PWD/tests/e2e/fixtures/real-codex-no-update\" FARMING_REAL_CODEX_RELEASE_CASE=1 FARMING_E2E_REAL_CODEX=1 FARMING_PLAYWRIGHT_INTERNAL=1 playwright test tests/e2e/internal/real-codex-release-case.spec.ts --project=chromium --workers=1 --retries=0 --trace=retain-on-failure --grep @release-smoke",
     "test:pre-release:codex-ui": "FARMING_REAL_CODEX_BIN=\"$(command -v codex)\" FARMING_CODEX_BIN=\"$PWD/tests/e2e/fixtures/real-codex-no-update\" FARMING_REAL_CODEX_RELEASE_CASE=1 FARMING_E2E_REAL_CODEX=1 FARMING_PLAYWRIGHT_INTERNAL=1 playwright test tests/e2e/internal/real-codex-release-case.spec.ts --project=chromium --workers=1 --retries=0 --trace=retain-on-failure --grep @release-composite",
     "test:pre-release:terminal-input": "playwright test tests/e2e/terminal-input-performance.spec.ts --project=chromium --workers=1 --retries=0 --trace=retain-on-failure",

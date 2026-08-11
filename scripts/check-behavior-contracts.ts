@@ -26,6 +26,9 @@ interface BehaviorManifest {
 const projectRoot = path.join(__dirname, '..');
 const manifestPath = path.join(projectRoot, 'tests', 'behavior-contracts.json');
 const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as BehaviorManifest;
+const packageScripts = (JSON.parse(
+  fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8'),
+) as { scripts?: Record<string, string> }).scripts || {};
 const failures: string[] = [];
 const contractIds = new Set<string>();
 const registeredTags = new Set<string>();
@@ -53,6 +56,17 @@ function testBlock(source: string, title: string): string | null {
 if (manifest.version !== 1) fail(`unsupported behavior contract manifest version: ${manifest.version}`);
 if (!Array.isArray(manifest.contracts) || manifest.contracts.length === 0) {
   fail('behavior contract manifest must declare at least one contract');
+}
+
+const browserCommand = packageScripts['test:behavior:e2e'] || '';
+for (const requiredSetting of [
+  'FARMING_E2E_REAL_CODEX=0',
+  'FARMING_E2E_FAKE_EXECUTABLES=1',
+  'FARMING_E2E_FAKE_ACP_AGENT=1',
+]) {
+  if (!browserCommand.includes(requiredSetting)) {
+    fail(`test:behavior:e2e must remain provider-independent with ${requiredSetting}`);
+  }
 }
 
 for (const contract of manifest.contracts) {
