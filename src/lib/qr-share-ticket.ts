@@ -33,3 +33,42 @@ export async function requestQrShareTicket(
   }
   return longUrl ?? shortUrl!
 }
+
+export interface ReadOnlyShareLink {
+  url: string
+  expiresAt: number
+  revokeUnusedTicket: () => Promise<void>
+}
+
+export async function requestReadOnlyShareLink(
+  target: WorkspaceShareTarget,
+  failureMessage: string,
+): Promise<ReadOnlyShareLink> {
+  const response = await fetch(appPath('/api/share/qr-ticket'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ target }),
+  })
+  const body = await response.json().catch(() => null)
+  const record = body && typeof body === 'object' ? body as Record<string, unknown> : null
+  const url = nonEmptyString(record?.longUrl)
+  const code = nonEmptyString(record?.code)
+  const expiresAt = Number(record?.expiresAt)
+  if (
+    !response.ok
+    || !url
+    || !code
+    || record?.longUrlAccessMode !== 'read-only'
+    || !Number.isFinite(expiresAt)
+  ) {
+    throw new Error(nonEmptyString(record?.error) ?? failureMessage)
+  }
+  return {
+    url,
+    expiresAt,
+    revokeUnusedTicket: async () => {
+      await fetch(appPath(`/api/share/qr-ticket/${encodeURIComponent(code)}`), { method: 'DELETE' })
+        .catch(() => {})
+    },
+  }
+}

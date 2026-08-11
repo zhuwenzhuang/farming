@@ -9,6 +9,7 @@ import type {
   WorkspaceOpenFileUpdater,
 } from '@/lib/workspace-open-files'
 import type { WorkspaceNavigationFileInput } from '@/lib/workspace-navigation-history'
+import type { WorkspaceShareTarget } from '@/lib/workspace-share-target'
 import { isCompactViewport, isTouchInputViewport } from '@/lib/responsive-mode'
 import type { UiPreferences } from '@/lib/ui-preferences'
 import { isWorkspaceHtmlFile, isWorkspaceMarkdownFile, isWorkspaceSvgFile } from '@/lib/workspace-editor-model'
@@ -326,6 +327,7 @@ interface CodeMainAreaProps {
   ) => OpenWorkspaceFile | null
   onSelectOpenWorkspaceFile: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
   onOpenWorkspaceFilePath: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
+  onCopyReadOnlyShareLink: (target: WorkspaceShareTarget | null) => Promise<void> | void
   onOpenUrlInFarming?: (agentId: string, url: string) => void
   canNavigateWorkspaceBack: boolean
   canNavigateWorkspaceForward: boolean
@@ -605,6 +607,7 @@ export function CodeMainArea({
   onUpdateOpenWorkspaceFile,
   onSelectOpenWorkspaceFile,
   onOpenWorkspaceFilePath,
+  onCopyReadOnlyShareLink,
   onOpenUrlInFarming,
   canNavigateWorkspaceBack,
   canNavigateWorkspaceForward,
@@ -903,6 +906,7 @@ export function CodeMainArea({
             onUpdateOpenFile={onUpdateOpenWorkspaceFile}
             onSelectOpenFile={onSelectOpenWorkspaceFile}
             onOpenFilePath={onOpenWorkspaceFilePath}
+            onCopyReadOnlyShareLink={onCopyReadOnlyShareLink}
             canNavigateBack={canNavigateWorkspaceBack}
             canNavigateForward={canNavigateWorkspaceForward}
             onNavigateHistory={onNavigateWorkspaceHistory}
@@ -994,6 +998,7 @@ export function CodeMainArea({
               onResolvePath={onResolveTerminalPath}
               onSearchTerminalWord={onSearchTerminalWord}
               onOpenWorkspaceFilePath={onOpenWorkspaceFilePath}
+              onCopyReadOnlyShareLink={onCopyReadOnlyShareLink}
               onOpenUrlInFarming={onOpenUrlInFarming}
               onFollowOutputChange={onTerminalFollowOutputChange}
               onReadLatest={onAgentReadLatest}

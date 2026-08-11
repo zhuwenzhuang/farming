@@ -42,6 +42,7 @@ import {
   LoadingGlyph,
   PencilGlyph,
   SearchGlyph,
+  ShareGlyph,
   SparkleGlyph,
   TerminalSquareGlyph,
   ThinkingGlyph,
@@ -66,10 +67,12 @@ import { recordPerformanceTestRender } from '@/lib/performance-test-observer'
 import { markdownTextContent, mermaidCodeBlockSource } from '@/lib/react-markdown-content'
 import {
   clearReadingAnchor,
+  encodeReadingAnchor,
   readingAnchorAgentKey,
   readReadingAnchor,
   type ReadingAnchor,
 } from '@/lib/reading-anchor'
+import type { WorkspaceShareTarget } from '@/lib/workspace-share-target'
 import { isCompactViewport } from '@/lib/responsive-mode'
 import { useSharedNow } from '@/lib/shared-now'
 import { isPageActive } from '@/hooks/usePageVisibility'
@@ -179,6 +182,7 @@ export interface AgentTranscriptPaneProps {
   expectHistory?: boolean
   forkedFromAgent?: boolean
   onOpenWorkspaceFilePath?: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
+  onCopyReadOnlyShareLink?: (target: WorkspaceShareTarget | null) => Promise<void> | void
   onOpenUrlInFarming?: (url: string) => void
   onAvailabilityChange?: (state: { loading: boolean; hasContent: boolean; available: boolean }) => void
   onReadLatest?: () => void
@@ -2291,6 +2295,7 @@ function AgentTranscriptTurnView({
   openCollaborationActivityIds,
   setOpenCollaborationActivityIds,
   onFork,
+  onShare,
   showLiveActivity,
   holdGrowingAnswerSnapshot,
   initialProgressIds,
@@ -2319,6 +2324,7 @@ function AgentTranscriptTurnView({
   openCollaborationActivityIds: Set<string>
   setOpenCollaborationActivityIds: Dispatch<SetStateAction<Set<string>>>
   onFork?: () => Promise<void> | void
+  onShare?: (turnId: string) => Promise<void> | void
   showLiveActivity: boolean
   holdGrowingAnswerSnapshot: boolean
   initialProgressIds?: Set<string> | null
@@ -2565,6 +2571,9 @@ function AgentTranscriptTurnView({
       setForking(false)
     }
   }, [onFork])
+  const handleShare = useCallback(() => {
+    void onShare?.(turn.id)
+  }, [onShare, turn.id])
   const toggleProcessOpen = useCallback(() => {
     onToggleProcess(turn.id)
   }, [onToggleProcess, turn.id])
@@ -2959,6 +2968,19 @@ function AgentTranscriptTurnView({
             >
               {answerCopied ? <CheckGlyph /> : <CopyGlyph />}
             </button>
+            {onShare ? (
+              <button
+                type="button"
+                className="code-agent-transcript-answer-action"
+                data-testid="code-agent-transcript-share-answer"
+                aria-label={copy.copyReadOnlyShareLink}
+                title={copy.copyReadOnlyShareLink}
+                data-tooltip={copy.copyReadOnlyShareLink}
+                onClick={handleShare}
+              >
+                <ShareGlyph />
+              </button>
+            ) : null}
             {onFork ? (
               <button
                 type="button"
@@ -3034,6 +3056,7 @@ export function AgentTranscriptPane({
   expectHistory = false,
   forkedFromAgent = false,
   onOpenWorkspaceFilePath,
+  onCopyReadOnlyShareLink,
   onOpenUrlInFarming,
   onAvailabilityChange,
   onReadLatest,
@@ -3695,6 +3718,18 @@ export function AgentTranscriptPane({
       suppressSearchOnMiss: true,
     })
   ), [agentId])
+  const copyTurnShareLink = useCallback((turnId: string) => {
+    if (!onCopyReadOnlyShareLink) return
+    const readingAnchor = encodeReadingAnchor({
+      version: 1,
+      surface: 'chat',
+      resource: { kind: 'agent', id: readingAnchorAgentId },
+      locator: { kind: 'message', id: turnId },
+      position: { unit: 'fraction', value: 0 },
+    })
+    if (!readingAnchor) return onCopyReadOnlyShareLink(null)
+    return onCopyReadOnlyShareLink({ kind: 'agent', agentId, readingAnchor })
+  }, [agentId, onCopyReadOnlyShareLink, readingAnchorAgentId])
   const transcriptFileOpenContext = useMemo(() => ({
     agentId,
     workspaceRoot,
@@ -4022,6 +4057,7 @@ export function AgentTranscriptPane({
                       && turn.status === 'inProgress'
                     }
                     onFork={index === turns.length - 1 && turn.status !== 'inProgress' ? onForkLatest : undefined}
+                    onShare={onCopyReadOnlyShareLink ? copyTurnShareLink : undefined}
                   />
                 </LocalRenderFault>
               </LocalErrorBoundary>

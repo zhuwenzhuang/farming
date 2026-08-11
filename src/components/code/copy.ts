@@ -142,6 +142,8 @@ export interface CodeCopy {
   copiedWorkingDirectory: string
   copyFailed: string
   sharePage: string
+  copyReadOnlyShareLink: string
+  copiedReadOnlyShareLink: string
   scanToOpenOnPhone: string
   copiedShareLink: string
   shareLinkVisibility: string
@@ -151,6 +153,7 @@ export interface CodeCopy {
   shareQrReadOnlyWarning: string
   shareLinkFailed: string
   sharedLocationUnavailable: (path: string) => string
+  sharedFileFallback: (path: string) => string
   shareLinkExpired: string
   refreshShareLink: string
   brandStoryOrigin: string
@@ -676,6 +679,8 @@ const EN_COPY: CodeCopy = {
   copiedWorkingDirectory: 'Copied working directory',
   copyFailed: 'Copy failed',
   sharePage: 'Share current page',
+  copyReadOnlyShareLink: 'Copy read-only share link',
+  copiedReadOnlyShareLink: 'Read-only share link copied; view only, expires automatically',
   scanToOpenOnPhone: 'Scan to open on phone',
   copiedShareLink: 'Current page read-only link copied',
   shareLinkVisibility: 'View only, no changes. It expires with the countdown.',
@@ -685,6 +690,7 @@ const EN_COPY: CodeCopy = {
   shareQrReadOnlyWarning: 'This QR code contains the read-only link for this page.',
   shareLinkFailed: 'Share link unavailable',
   sharedLocationUnavailable: path => `Unable to locate shared path: ${path}`,
+  sharedFileFallback: path => `The shared file is unavailable. Opened its folder: ${path || '.'}`,
   shareLinkExpired: 'Expired',
   refreshShareLink: 'Refresh',
   brandStoryOrigin: 'Farming Code began with a simple idea: when several coding agents work at once, people should not have to bounce between terminals, editors, and browser tabs.',
@@ -1236,6 +1242,8 @@ const ZH_COPY: CodeCopy = {
   copiedWorkingDirectory: '已复制工作目录',
   copyFailed: '复制失败',
   sharePage: '分享当前页面',
+  copyReadOnlyShareLink: '复制只读分享链接',
+  copiedReadOnlyShareLink: '只读分享链接已复制；只能查看，链接会自动过期',
   scanToOpenOnPhone: '手机扫码打开',
   copiedShareLink: '当前页面只读链接已复制',
   shareLinkVisibility: '只能查看，不能修改；链接会随倒计时过期。',
@@ -1245,6 +1253,7 @@ const ZH_COPY: CodeCopy = {
   shareQrReadOnlyWarning: '二维码包含当前页面的只读链接。',
   shareLinkFailed: '分享链接不可用',
   sharedLocationUnavailable: path => `无法定位分享路径：${path}`,
+  sharedFileFallback: path => `分享的文件已不可用，已打开所在目录：${path || '.'}`,
   shareLinkExpired: '已过期',
   refreshShareLink: '刷新',
   brandStoryOrigin: 'Farming Code 从一个简单的问题出发：当多个 Coding Agent 同时工作，人不该在终端、编辑器和浏览器标签页之间反复切换。',

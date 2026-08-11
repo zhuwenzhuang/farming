@@ -89,6 +89,10 @@ export function encodeReadingAnchorForKey(key: string) {
   return anchor ? runtime()?.encode(anchor) || '' : ''
 }
 
+export function encodeReadingAnchor(anchor: ReadingAnchor) {
+  return runtime()?.encode(anchor) || ''
+}
+
 export function importSharedReadingAnchor(encoded: string | undefined) {
   if (!encoded) return null
   return runtime()?.importEncoded(encoded) || null

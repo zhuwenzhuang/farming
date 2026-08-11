@@ -72,6 +72,22 @@ The copied long URL always carries a read-only query capability. On first use th
 backend moves it into an HTTP-only cookie and removes it from the URL before the
 application loads, reducing address-bar, history, and referrer exposure.
 
+Chat answer actions and the File Viewer expose a direct copy action for this same
+read-only long URL. A Chat action freezes the selected durable Turn identity rather
+than the surrounding viewport. A File action freezes the current file identity,
+Editor or Diff view, and the current reading line and column. Creating a direct link
+also creates a QR ticket as part of the shared backend response; because the direct
+action does not display that ticket, the client revokes it after copying the long URL.
+
+Opening a contextual link resolves the exact location before applying a bounded
+fallback. Chat loads older transcript pages while the selected Turn may still exist,
+then falls back to the latest Chat position if it is unavailable. File positions clamp
+to the current file bounds. If a shared file remains unavailable after bounded Project
+inventory reconciliation, Farming opens its nearest available parent folder. If the
+Agent or Project itself cannot be resolved, Farming keeps the default workspace open
+and reports the failed location. A location fallback never changes the link's
+read-only access mode.
+
 An owner startup URL may carry the instance token so the entry assets can load.
 Once the application has loaded and the HTTP-only cookie owns subsequent access,
 the frontend removes that token from the visible URL while preserving other query
@@ -114,6 +130,10 @@ RFB transport cannot provide a server-verifiable view-only boundary.
 ## Acceptance Criteria
 
 - The automatically copied URL is always read-only.
+- Contextual Chat and File copy actions include the selected Turn or current file
+  reading position and show an explicit read-only-link copy confirmation.
+- Out-of-order direct-share responses cannot replace the clipboard result of a newer
+  share action.
 - Owner QR and passphrase access remain full-control and are labeled as such.
 - A read-only visitor can re-share, but receives only a read-only URL and read-only
   QR, with no owner passphrase or owner token.

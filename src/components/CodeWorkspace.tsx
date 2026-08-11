@@ -47,7 +47,7 @@ import {
   workspaceNavigationShortcutDirection,
   type WorkspaceNavigationEntry,
 } from '@/lib/workspace-navigation-history'
-import { requestQrShareTicket } from '@/lib/qr-share-ticket'
+import { requestQrShareTicket, requestReadOnlyShareLink } from '@/lib/qr-share-ticket'
 import {
   clearWorkspaceShareTargetSearch,
   resolveWorkspaceSharePath,
@@ -723,6 +723,7 @@ export function CodeWorkspace({
   const workspaceFileSearchFocusRequestRef = useRef(0)
   const terminalPathOpenRequestRef = useRef(new LatestRequestFence())
   const mobileShareRequestFenceRef = useRef(new LatestRequestFence())
+  const directShareRequestFenceRef = useRef(new LatestRequestFence())
   const shareTargetRestoreAttemptsRef = useRef(0)
   const restoreProjectListFocusRef = useRef<'active' | 'active-force' | 'list' | null>(null)
   const pendingArchivedFocusAgentRef = useRef<string | null>(null)
@@ -792,12 +793,38 @@ export function CodeWorkspace({
       setCopyNotice({ id: Date.now(), kind: 'error', message })
     }
   }, [copy.shareLinkFailed])
+
+  const copyReadOnlyShareLink = useCallback(async (target: WorkspaceShareTarget | null) => {
+    if (!target) {
+      setCopyNotice({ id: Date.now(), kind: 'error', message: copy.shareLinkFailed })
+      return
+    }
+    const lease = directShareRequestFenceRef.current.begin()
+    let shareLink: Awaited<ReturnType<typeof requestReadOnlyShareLink>> | null = null
+    try {
+      shareLink = await requestReadOnlyShareLink(target, copy.shareLinkFailed)
+      if (!lease.isCurrent()) return
+      if (!await writeClipboardText(shareLink.url)) throw new Error(copy.copyFailed)
+      if (!lease.isCurrent()) return
+      setCopyNotice({ id: Date.now(), kind: 'success', message: copy.copiedReadOnlyShareLink })
+    } catch (error) {
+      if (!lease.isCurrent()) return
+      setCopyNotice({
+        id: Date.now(),
+        kind: 'error',
+        message: error instanceof Error ? error.message : copy.shareLinkFailed,
+      })
+    } finally {
+      await shareLink?.revokeUnusedTicket()
+    }
+  }, [copy.copiedReadOnlyShareLink, copy.copyFailed, copy.shareLinkFailed])
   const clearMobileShareLink = useCallback(() => {
     mobileShareRequestFenceRef.current.invalidate()
     setMobileShareUrl('')
   }, [])
   useEffect(() => () => {
     mobileShareRequestFenceRef.current.invalidate()
+    directShareRequestFenceRef.current.invalidate()
   }, [])
   const currentInfoLoadFailedRef = useRef(copy.currentInfoLoadFailed)
   currentInfoLoadFailedRef.current = copy.currentInfoLoadFailed
@@ -3059,7 +3086,10 @@ export function CodeWorkspace({
     }
   }, [clearSearch, closeContextMenu, closeSidebarForMobile, expandSidebar, onWorkspaceViewChange, setMainPaneMode, workspaceOpenFiles])
 
-  const restoreWorkspaceShareTarget = useCallback(async (target: WorkspaceShareTarget) => {
+  const restoreWorkspaceShareTarget = useCallback(async (
+    target: WorkspaceShareTarget,
+    allowFileFallback = false,
+  ) => {
     importSharedReadingAnchor(target.kind === 'agent' ? target.readingAnchor : undefined)
     if (target.kind === 'agent') {
       if (!workspaceNavigationAgentIds.has(target.agentId)) return false
@@ -3118,6 +3148,17 @@ export function CodeWorkspace({
       await openProjectFile(identity.filesId, file, openTarget)
       return true
     } catch {
+      if (allowFileFallback && !resolvedPath.globalRoot) {
+        const parentPath = resolvedPath.filePath.split('/').slice(0, -1).join('/')
+        try {
+          await fetchWorkspaceTree(identity.filesId, parentPath)
+          revealWorkspaceFileInExplorer(identity.filesId, parentPath, 'directory')
+          setCopyNotice({ id: Date.now(), kind: 'error', message: copy.sharedFileFallback(parentPath) })
+          return true
+        } catch {
+          // Keep retrying while Project and file inventory are still converging.
+        }
+      }
       return false
     }
   }, [
@@ -3132,6 +3173,7 @@ export function CodeWorkspace({
     revealWorkspaceFileInExplorer,
     resolveWorkspaceFileIdentity,
     selectOpenWorkspaceFile,
+    copy,
     setMainPaneMode,
     workspaceNavigationAgentIds,
   ])
@@ -3152,7 +3194,10 @@ export function CodeWorkspace({
       ? pendingShareTarget.agentId
       : pendingShareTarget.absolutePath || (pendingShareTarget.kind === 'folder' ? pendingShareTarget.folderPath : pendingShareTarget.filePath)
 
-    void restoreWorkspaceShareTargetRef.current(pendingShareTarget)
+    void restoreWorkspaceShareTargetRef.current(
+      pendingShareTarget,
+      shareTargetRestoreAttemptsRef.current >= 19,
+    )
       .then(restored => {
         if (cancelled) return
         if (restored) {
@@ -5076,6 +5121,7 @@ export function CodeWorkspace({
         onUpdateOpenWorkspaceFile={updateOpenWorkspaceFile}
         onSelectOpenWorkspaceFile={selectOpenWorkspaceFile}
         onOpenWorkspaceFilePath={openWorkspaceFilePath}
+        onCopyReadOnlyShareLink={copyReadOnlyShareLink}
         onOpenUrlInFarming={browserResources.capability?.available ? openUrlInFarmingBrowser : undefined}
         canNavigateWorkspaceBack={canNavigateWorkspaceBack}
         canNavigateWorkspaceForward={canNavigateWorkspaceForward}

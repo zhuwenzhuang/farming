@@ -1,6 +1,6 @@
 import type { OpenWorkspaceFile } from '@/lib/workspace-open-files'
 import type { WorkspaceEditorActionState } from '@/lib/workspace-editor-model'
-import { ErrorGlyph } from '@/components/IconGlyphs'
+import { ErrorGlyph, ShareGlyph } from '@/components/IconGlyphs'
 import type { CodeCopy } from '../code/copy'
 
 function MarkdownPreviewIcon({ previewOpen }: { previewOpen: boolean }) {
@@ -104,6 +104,7 @@ interface FileEditorActionsProps {
   statusText: string | null
   onReload: () => void
   onSave: (overwrite?: boolean) => void
+  onCopyReadOnlyShareLink: () => void
   onToggleMarkdownSplit: () => void
   onToggleSourcePreview: () => void
   onToggleWordWrap: () => void
@@ -121,6 +122,7 @@ export function FileEditorActions({
   statusText,
   onReload,
   onSave,
+  onCopyReadOnlyShareLink,
   onToggleMarkdownSplit,
   onToggleSourcePreview,
   onToggleWordWrap,
@@ -137,6 +139,16 @@ export function FileEditorActions({
           {statusText}
         </span>
       )}
+      <button
+        type="button"
+        className="code-file-editor-action share"
+        data-testid="code-file-editor-share"
+        onClick={onCopyReadOnlyShareLink}
+        aria-label={copy.copyReadOnlyShareLink}
+        title={copy.copyReadOnlyShareLink}
+      >
+        <ShareGlyph className="code-file-editor-action-svg" />
+      </button>
       {actions.showSave && (
         <button
           type="button"

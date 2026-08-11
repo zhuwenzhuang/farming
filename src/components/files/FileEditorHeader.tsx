@@ -8,6 +8,7 @@ interface FileEditorHeaderProps extends Omit<FileEditorTabsProps, 'actions'> {
   statusText: string | null
   onRevealInExplorer: (agentId: string, filePath: string, kind: 'directory' | 'file') => void
   onSave: (overwrite?: boolean) => void
+  onCopyReadOnlyShareLink: () => void
   onReload: () => void
   onToggleSourcePreview: () => void
   onToggleMarkdownSplit: () => void
@@ -41,6 +42,7 @@ export function FileEditorHeader({
   onReorderOpenFile,
   onRevealInExplorer,
   onSave,
+  onCopyReadOnlyShareLink,
   onReload,
   onToggleSourcePreview,
   onToggleMarkdownSplit,
@@ -91,6 +93,7 @@ export function FileEditorHeader({
             statusText={statusText}
             onReload={onReload}
             onSave={onSave}
+            onCopyReadOnlyShareLink={onCopyReadOnlyShareLink}
             onToggleMarkdownSplit={onToggleMarkdownSplit}
             onToggleSourcePreview={onToggleSourcePreview}
             onToggleWordWrap={onToggleWordWrap}

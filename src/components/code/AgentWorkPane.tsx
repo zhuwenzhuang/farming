@@ -4,6 +4,7 @@ import type { Agent } from '@/types/agent'
 import { isAcpRuntime } from '@/lib/agent-runtime'
 import type { TerminalPathOpenTarget } from '@/lib/terminal-session-pool'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-open-files'
+import type { WorkspaceShareTarget } from '@/lib/workspace-share-target'
 import { AgentTerminalPane } from '../AgentTerminalPane'
 import { ChatBubblesGlyph, TerminalSquareGlyph } from '../IconGlyphs'
 import { AcpTranscriptPane } from './acp/AcpTranscriptPane'
@@ -31,6 +32,7 @@ interface AgentWorkPaneProps {
   onResolvePath?: (agentId: string, target: TerminalPathOpenTarget) => Promise<TerminalPathOpenTarget | null> | TerminalPathOpenTarget | null
   onSearchTerminalWord?: (agentId: string, query: string) => void
   onOpenWorkspaceFilePath?: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
+  onCopyReadOnlyShareLink?: (target: WorkspaceShareTarget | null) => Promise<void> | void
   onOpenUrlInFarming?: (agentId: string, url: string) => void
   onFollowOutputChange?: (agentId: string, state: TerminalFollowState) => void
   onReadLatest?: (agentId: string, readCut?: { runtimeEpoch: string; outputSeq: number } | null) => void
@@ -62,6 +64,7 @@ export function AgentWorkPane({
   onResolvePath,
   onSearchTerminalWord,
   onOpenWorkspaceFilePath,
+  onCopyReadOnlyShareLink,
   onOpenUrlInFarming,
   onFollowOutputChange,
   onReadLatest,
@@ -157,7 +160,7 @@ export function AgentWorkPane({
           aria-hidden={false}
           onPointerDown={activateChatView}
         >
-          <AcpTranscriptPane agentId={agent.id} readingIdentity={agentWorkPaneModeStorageIdentity(agent)} workspaceRoot={agent.projectWorkspace || agent.cwd} active={active} viewportLayoutKey={viewportLayoutKey} runtimeState={acpRuntime?.state || ''} expectHistory={Boolean(resumedAgentSessionSourceIdentity(agent.source)) || Number(acpRuntime?.sessionRevision || 0) > 0} forkedFromAgent={Boolean(agent.parentAgentId && agent.forkedFromProviderSessionId)} refreshSignal={acpRuntime?.sessionRevision || (acpRuntime?.sessionUpdatedAt ? Date.parse(acpRuntime.sessionUpdatedAt) : 0)} onOpenWorkspaceFilePath={onOpenWorkspaceFilePath} onOpenUrlInFarming={onOpenUrlInFarming ? openChatUrlInFarming : undefined} onReadLatest={readLatestChat} onForkLatest={canForkConversation ? forkLatestChat : undefined} onReviewAndCommit={onReviewAndCommit && !isAgentTurnActive(agent) ? reviewAndCommitChat : undefined} onActivePlanChange={publishActivePlan} copy={copy} />
+          <AcpTranscriptPane agentId={agent.id} readingIdentity={agentWorkPaneModeStorageIdentity(agent)} workspaceRoot={agent.projectWorkspace || agent.cwd} active={active} viewportLayoutKey={viewportLayoutKey} runtimeState={acpRuntime?.state || ''} expectHistory={Boolean(resumedAgentSessionSourceIdentity(agent.source)) || Number(acpRuntime?.sessionRevision || 0) > 0} forkedFromAgent={Boolean(agent.parentAgentId && agent.forkedFromProviderSessionId)} refreshSignal={acpRuntime?.sessionRevision || (acpRuntime?.sessionUpdatedAt ? Date.parse(acpRuntime.sessionUpdatedAt) : 0)} onOpenWorkspaceFilePath={onOpenWorkspaceFilePath} onCopyReadOnlyShareLink={onCopyReadOnlyShareLink} onOpenUrlInFarming={onOpenUrlInFarming ? openChatUrlInFarming : undefined} onReadLatest={readLatestChat} onForkLatest={canForkConversation ? forkLatestChat : undefined} onReviewAndCommit={onReviewAndCommit && !isAgentTurnActive(agent) ? reviewAndCommitChat : undefined} onActivePlanChange={publishActivePlan} copy={copy} />
         </div>
       ) : null}
       {switching ? (

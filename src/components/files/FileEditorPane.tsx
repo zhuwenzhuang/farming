@@ -27,6 +27,11 @@ import type {
   WorkspaceOpenFileUpdater,
 } from '@/lib/workspace-open-files'
 import type { WorkspaceNavigationFileInput } from '@/lib/workspace-navigation-history'
+import {
+  workspaceShareAbsolutePath,
+  workspaceShareProjectLabel,
+  type WorkspaceShareTarget,
+} from '@/lib/workspace-share-target'
 import type { CodeCopy } from '../code/copy'
 import { FileEditorHeader } from './FileEditorHeader'
 import { FileEditorOverlays } from './FileEditorOverlays'
@@ -55,6 +60,7 @@ interface FileEditorPaneProps {
   ) => OpenWorkspaceFile | null
   onSelectOpenFile: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
   onOpenFilePath: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
+  onCopyReadOnlyShareLink: (target: WorkspaceShareTarget) => Promise<void> | void
   canNavigateBack: boolean
   canNavigateForward: boolean
   onNavigateHistory: (direction: -1 | 1) => boolean
@@ -141,6 +147,7 @@ export function FileEditorPane({
   onUpdateOpenFile,
   onSelectOpenFile,
   onOpenFilePath,
+  onCopyReadOnlyShareLink,
   canNavigateBack,
   canNavigateForward,
   onNavigateHistory,
@@ -420,6 +427,20 @@ export function FileEditorPane({
     diffDisabled: !editorMode.canShowDiff,
     onClearBlameDetail: clearBlameDetail,
   })
+  const copyReadOnlyShareLink = useCallback(() => {
+    const workspaceRoot = openFile.workspaceRoot || ''
+    const target: WorkspaceShareTarget = {
+      kind: 'file',
+      agentId: openFile.agentId,
+      filePath: openFile.file.path,
+      ...(workspaceRoot ? { absolutePath: workspaceShareAbsolutePath(workspaceRoot, openFile.file.path) } : {}),
+      ...(workspaceRoot ? { projectLabel: workspaceShareProjectLabel(workspaceRoot) } : {}),
+      view: diffState.open ? 'diff' : 'editor',
+      lineNumber: cursorPosition.lineNumber,
+      column: cursorPosition.column,
+    }
+    void onCopyReadOnlyShareLink(target)
+  }, [cursorPosition.column, cursorPosition.lineNumber, diffState.open, onCopyReadOnlyShareLink, openFile.agentId, openFile.file.path, openFile.workspaceRoot])
   const markdownPreviewVisible = markdownPreviewOpen && !diffState.open
   const visualPreviewVisible = !diffState.open && (sourceVisualPreviewOpen || editorMode.visualPreview)
 
@@ -552,6 +573,7 @@ export function FileEditorPane({
               onReorderOpenFile={onReorderOpenFile}
               onRevealInExplorer={onRevealInExplorer}
               onSave={saveFile}
+              onCopyReadOnlyShareLink={copyReadOnlyShareLink}
               onReload={reloadFile}
               onToggleSourcePreview={toggleSourcePreview}
               onToggleMarkdownSplit={toggleMarkdownSplit}

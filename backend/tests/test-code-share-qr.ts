@@ -11,6 +11,10 @@ function run() {
   const shareButtonSource = read('src/components/code/ShareQrButton.tsx');
   const mobileShareSource = read('src/components/code/MobileShareSheet.tsx');
   const sidebarSource = read('src/components/code/CodeSidebar.tsx');
+  const workspaceSource = read('src/components/CodeWorkspace.tsx');
+  const transcriptSource = read('src/components/code/AgentTranscriptPane.tsx');
+  const fileActionsSource = read('src/components/files/FileEditorActions.tsx');
+  const directShareSource = read('src/lib/qr-share-ticket.ts');
   const copySource = read('src/components/code/copy.ts');
   const appSource = read('src/App.tsx');
   const webSocketSource = read('src/hooks/useWebSocket.ts');
@@ -88,6 +92,22 @@ function run() {
   assert(!copySource.includes('sharePassphraseFullAccessWarning'));
   assert(copySource.includes("shareQrFullAccessWarning: '二维码包含完整控制口令链接。'"));
   assert(copySource.includes("shareQrReadOnlyWarning: '二维码包含当前页面的只读链接。'"));
+  assert(copySource.includes("copyReadOnlyShareLink: '复制只读分享链接'"));
+  assert(copySource.includes("copiedReadOnlyShareLink: '只读分享链接已复制；只能查看，链接会自动过期'"));
+
+  assert(transcriptSource.includes('data-testid="code-agent-transcript-share-answer"'));
+  assert(transcriptSource.includes("locator: { kind: 'message', id: turnId }"));
+  assert(transcriptSource.includes("onCopyReadOnlyShareLink({ kind: 'agent', agentId, readingAnchor })"));
+  assert(fileActionsSource.includes('data-testid="code-file-editor-share"'));
+  assert(fileActionsSource.includes('copy.copyReadOnlyShareLink'));
+  assert(workspaceSource.includes('const directShareRequestFenceRef = useRef(new LatestRequestFence())'));
+  assert(workspaceSource.includes('requestReadOnlyShareLink(target, copy.shareLinkFailed)'));
+  assert(workspaceSource.includes('if (!lease.isCurrent()) return'));
+  assert(workspaceSource.includes('writeClipboardText(shareLink.url)'));
+  assert(workspaceSource.includes('copy.copiedReadOnlyShareLink'));
+  assert(workspaceSource.includes('shareLink?.revokeUnusedTicket()'));
+  assert(directShareSource.includes("record?.longUrlAccessMode !== 'read-only'"));
+  assert(directShareSource.includes("method: 'DELETE'"));
 
   assert(stylesSource.includes('.code-share-popover'));
   assert(stylesSource.includes('width: 264px;'));
