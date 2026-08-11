@@ -313,9 +313,13 @@ test('keeps a deeply scrolled directory anchored while pointer expansion loads i
   for (let index = 0; index < 120; index += 1) {
     fs.mkdirSync(path.join(workspace, `module-${String(index).padStart(3, '0')}`), { recursive: true })
   }
+  for (let index = 0; index < 40; index += 1) {
+    fs.mkdirSync(path.join(workspace, `zz-tail-${String(index).padStart(2, '0')}`), { recursive: true })
+  }
   for (let index = 0; index < 24; index += 1) {
     fs.mkdirSync(path.join(workspace, 'velox', `child-${String(index).padStart(2, '0')}`), { recursive: true })
   }
+  fs.writeFileSync(path.join(workspace, 'velox', 'fixture.ts'), 'export const fixture = true\n')
 
   await openFarming(page)
   await openNewAgentDialog(page)
@@ -348,6 +352,11 @@ test('keeps a deeply scrolled directory anchored while pointer expansion loads i
 
   await velox.click()
   await expect(velox).toHaveAttribute('aria-expanded', 'true')
+  const sameDepthLabelLeft = await Promise.all([
+    files.locator('[data-file-path="velox/child-00"] .code-file-name').evaluate(element => element.getBoundingClientRect().left),
+    files.locator('[data-file-path="velox/fixture.ts"] .code-file-name').evaluate(element => element.getBoundingClientRect().left),
+  ])
+  expect(Math.abs(sameDepthLabelLeft[0] - sameDepthLabelLeft[1])).toBeLessThanOrEqual(1)
   await page.waitForTimeout(40)
   const intentionalScrollTop = await velox.evaluate(element => {
     const scroller = element.closest<HTMLElement>('.code-project-list')

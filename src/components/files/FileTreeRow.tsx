@@ -115,9 +115,11 @@ export function FileTreeRow({
       onMouseDown={handleRowMouseDown}
       onClick={handleRowClick}
     >
-      <span className={`code-file-chevron ${chevronState}`} aria-hidden="true">
-        {chevronState === 'expanded' ? <ChevronDownGlyph /> : chevronState === 'collapsed' ? <ChevronRightGlyph /> : null}
-      </span>
+      {isDirectory && (
+        <span className={`code-file-chevron ${chevronState}`} aria-hidden="true">
+          {chevronState === 'expanded' ? <ChevronDownGlyph /> : <ChevronRightGlyph />}
+        </span>
+      )}
       {!isDirectory && (
         <img className="code-file-type-icon file" src={iconUrl} alt="" aria-hidden="true" />
       )}

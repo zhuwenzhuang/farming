@@ -161,6 +161,8 @@ non-HTTP(S), or invalid rules remain plain text.
 ## Visual And Interaction Rules
 
 - Rows remain compact, stable, keyboard-accessible, and single-line.
+- At one tree depth, a file icon occupies the same leading slot as a directory
+  chevron; files do not reserve an additional empty chevron column.
 - On pointer layouts, the Files search and refresh controls use progressive
   disclosure on header hover. A focused or non-empty search remains visible;
   compact touch layouts keep search visible without requiring hover.

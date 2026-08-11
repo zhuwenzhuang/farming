@@ -907,7 +907,7 @@ body.code-mode .code-file-change-group-toggle {
   width: 100%;
   min-height: var(--code-file-entry-height);
   display: grid;
-  grid-template-columns: 14px 16px minmax(0, 1fr) auto;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
   align-items: center;
   gap: 3px;
   padding: 2px 6px 2px var(--file-indent);
@@ -1076,10 +1076,6 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   border-radius: 999px;
   transform: none;
   animation: code-file-chevron-spin 0.8s linear infinite;
-}
-
-.code-file-chevron.placeholder::before {
-  content: none;
 }
 
 @keyframes code-file-chevron-spin {

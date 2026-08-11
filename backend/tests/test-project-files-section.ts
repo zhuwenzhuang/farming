@@ -1791,7 +1791,7 @@ function run() {
       !stylesSource.includes('.code-files-header-chevron') &&
       stylesSource.includes('.code-file-chevron svg') &&
       stylesSource.includes('.code-file-chevron.loading::before') &&
-      stylesSource.includes('.code-file-chevron.placeholder::before') &&
+	      !stylesSource.includes('.code-file-chevron.placeholder::before') &&
       stylesSource.includes('--file-guide-width') &&
       stylesSource.includes('.code-file-row::before') &&
       stylesSource.includes('repeating-linear-gradient') &&
