@@ -36,6 +36,7 @@ import {
   registerConfigProcessGroup,
   unregisterConfigProcessGroup,
 } from './config-process-ownership.cjs';
+import { readServerProcessIdentity } from './server-process-identity.cjs';
 import {
   consumeCodexInlineVisualizationStream,
   createCodexInlineVisualizationStreamState,
@@ -1011,29 +1012,12 @@ async function describeAcpProcessGroup(pid: number) {
   if (!Number.isSafeInteger(processId) || processId <= 0 || process.platform === 'win32') {
     return null;
   }
-  let stdout;
-  try {
-    ({ stdout } = await execFileAsync(
-      '/bin/ps',
-      ['-p', String(processId), '-o', 'pid=', '-o', 'pgid=', '-o', 'lstart='],
-      { encoding: 'utf8', timeout: 1_000, maxBuffer: 16_384 },
-    ));
-  } catch (error) {
-    if (asErrorLike(error).code === 1 || asErrorLike(error).code === 'ESRCH') return null;
-    throw error;
-  }
-  const match = String(stdout || '').trim().match(/^(\d+)\s+(\d+)\s+(.+)$/);
-  if (!match || Number(match[1]) !== processId) {
-    throw new Error(`Could not read ACP process identity for pid ${processId}`);
-  }
-  if (Number(match[2]) !== processId) {
+  const identity = readServerProcessIdentity(processId);
+  if (!identity) return null;
+  if (identity.processGroupId !== processId) {
     throw new Error(`ACP process ${processId} did not become its own process-group leader`);
   }
-  return {
-    pid: processId,
-    processGroupId: Number(match[2]),
-    startedAt: match[3].trim(),
-  };
+  return identity;
 }
 
 async function readAcpProcessConfigFingerprint(pid: number) {

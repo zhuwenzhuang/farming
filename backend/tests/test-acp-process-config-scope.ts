@@ -9,6 +9,7 @@ const {
   stopPersistedAcpProcessGroup,
 } = require('../acp-runtime.cjs');
 const { configInstanceFingerprint } = require('../config-instance.cjs');
+const { readServerProcessIdentity } = require('../server-process-identity.cjs');
 
 async function waitForProcessIdentity(pid) {
   const deadline = Date.now() + 5_000;
@@ -84,6 +85,18 @@ async function run() {
     });
     children.push(legacyChild);
     const legacyIdentity = await waitForProcessIdentity(legacyChild.pid);
+    const previousTimeZone = process.env.TZ;
+    try {
+      process.env.TZ = 'Asia/Shanghai';
+      assert.deepStrictEqual(
+        await describeAcpProcessGroup(legacyChild.pid),
+        readServerProcessIdentity(legacyChild.pid),
+        'ACP ownership identity must use the same time-zone-independent format as hard-stop reconciliation',
+      );
+    } finally {
+      if (previousTimeZone === undefined) delete process.env.TZ;
+      else process.env.TZ = previousTimeZone;
+    }
     const legacyCleanup = await stopPersistedAcpProcessGroup(legacyIdentity, fingerprintA);
     assert.strictEqual(legacyCleanup.stopped, true);
     assert.strictEqual(
