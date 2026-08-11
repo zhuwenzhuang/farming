@@ -1,8 +1,10 @@
 const assert = require('assert');
+const path = require('path');
 const {
   getProviderAdapter,
   isFreshAcpSessionSource,
   listProviderAdapters,
+  listProviderDescriptors,
   normalizeProviderAcpExtensionNotification,
   providerArgsContinueSession,
   providerCapabilities,
@@ -28,6 +30,77 @@ const {
 function run() {
   const adapters = listProviderAdapters();
   assert.deepStrictEqual(adapters.map(adapter => adapter.id), ['codex', 'claude', 'opencode', 'qoder', 'qwen']);
+  const descriptors = listProviderDescriptors();
+  assert.deepStrictEqual(descriptors, [
+    {
+      commands: ['codex'],
+      defaultHomeDirectory: '.codex',
+      displayName: 'Codex',
+      executable: 'codex',
+      id: 'codex',
+      supportedRuntimes: ['terminal', 'acp'],
+    },
+    {
+      commands: ['claude'],
+      defaultHomeDirectory: '.claude',
+      displayName: 'Claude Code',
+      executable: 'claude',
+      id: 'claude',
+      supportedRuntimes: ['terminal', 'acp'],
+    },
+    {
+      commands: ['opencode'],
+      defaultHomeDirectory: '.opencode',
+      displayName: 'OpenCode',
+      executable: 'opencode',
+      id: 'opencode',
+      supportedRuntimes: ['terminal', 'acp'],
+    },
+    {
+      commands: ['qoder', 'qodercli'],
+      defaultHomeDirectory: '.qoder',
+      displayName: 'Qoder',
+      executable: 'qodercli',
+      id: 'qoder',
+      supportedRuntimes: ['terminal', 'acp'],
+    },
+    {
+      commands: ['qwen'],
+      defaultHomeDirectory: '.qwen',
+      displayName: 'Qwen Code',
+      executable: 'qwen',
+      id: 'qwen',
+      supportedRuntimes: ['terminal', 'acp'],
+    },
+  ]);
+  assert(Object.isFrozen(descriptors), 'the Provider descriptor catalog must be immutable');
+  for (const descriptor of descriptors) {
+    assert.deepStrictEqual(
+      Object.keys(descriptor).sort(),
+      ['commands', 'defaultHomeDirectory', 'displayName', 'executable', 'id', 'supportedRuntimes'],
+      `${descriptor.id} must expose only the public descriptor whitelist`,
+    );
+    assert(Object.isFrozen(descriptor), `${descriptor.id} descriptor must be immutable`);
+    assert(Object.isFrozen(descriptor.commands), `${descriptor.id} command aliases must be immutable`);
+    assert(Object.isFrozen(descriptor.supportedRuntimes), `${descriptor.id} runtimes must be immutable`);
+    for (const value of Object.values(descriptor).flat()) {
+      assert.notStrictEqual(typeof value, 'function', `${descriptor.id} must not expose Adapter behavior`);
+      if (typeof value === 'string') {
+        assert.strictEqual(path.isAbsolute(value), false, `${descriptor.id} must not expose absolute paths`);
+      }
+    }
+  }
+  assert.doesNotThrow(() => JSON.stringify(descriptors), 'Provider descriptors must be serializable');
+  assert.throws(
+    () => descriptors.push(descriptors[0]),
+    TypeError,
+    'the Provider descriptor catalog must reject mutation',
+  );
+  assert.throws(
+    () => descriptors[0].commands.push('replacement'),
+    TypeError,
+    'Provider command aliases must reject mutation',
+  );
   assert.strictEqual(providerForProgram('/usr/local/bin/qodercli'), 'qoder');
   assert.strictEqual(providerForProgram('/opt/homebrew/bin/qwen'), 'qwen');
   assert.strictEqual(providerForProgram('unknown'), '');

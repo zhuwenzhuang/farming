@@ -233,6 +233,15 @@ interface ProviderAdapter {
   usage: ProviderUsageContract;
 }
 
+interface ProviderDescriptor {
+  commands: readonly string[];
+  defaultHomeDirectory: string;
+  displayName: string;
+  executable: string;
+  id: ProviderId;
+  supportedRuntimes: readonly ProviderRuntime[];
+}
+
 const CODEX_VALUE_OPTIONS = new Set([
   '-a', '-c', '-C', '-m', '-p', '-s', '--ask-for-approval', '--cd', '--config',
   '--config-profile', '--model', '--profile', '--sandbox', '--add-dir',
@@ -863,6 +872,21 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
   },
 ]);
 
+function projectProviderDescriptor(adapter: ProviderAdapter): Readonly<ProviderDescriptor> {
+  return Object.freeze({
+    commands: Object.freeze([...adapter.commands]),
+    defaultHomeDirectory: adapter.usage.defaultHomeDirectory,
+    displayName: adapter.displayName,
+    executable: adapter.executable,
+    id: adapter.id,
+    supportedRuntimes: Object.freeze([...adapter.supportedRuntimes]),
+  });
+}
+
+const PROVIDER_DESCRIPTORS: readonly Readonly<ProviderDescriptor>[] = Object.freeze(
+  PROVIDER_ADAPTERS.map(projectProviderDescriptor),
+);
+
 const ADAPTER_BY_ID = new Map<ProviderId, Readonly<ProviderAdapter>>(
   PROVIDER_ADAPTERS.map(adapter => [adapter.id, Object.freeze(adapter)]),
 );
@@ -881,6 +905,10 @@ function providerForProgram(program: unknown): ProviderId | '' {
 
 function listProviderAdapters(): readonly ProviderAdapter[] {
   return [...PROVIDER_ADAPTERS];
+}
+
+function listProviderDescriptors(): readonly Readonly<ProviderDescriptor>[] {
+  return PROVIDER_DESCRIPTORS;
 }
 
 function providerCapabilities(provider: unknown): ProviderCapabilitiesWire {
@@ -1122,6 +1150,7 @@ export {
   clearProviderHomeEnvironment,
   isFreshAcpSessionSource,
   listProviderAdapters,
+  listProviderDescriptors,
   normalizeProviderAcpExtensionNotification,
   providerArgsContinueSession,
   providerConversationForkCapability,
@@ -1146,6 +1175,7 @@ export {
   type ProviderTerminalStartupPolicy,
   type ProviderPermissionRestartPolicy,
   type ProviderAdapter,
+  type ProviderDescriptor,
   type ProviderId,
   type ProviderUsageCollection,
   type ProviderUsageLiveCollector,
