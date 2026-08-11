@@ -6,6 +6,7 @@ const { CODE_STYLE_SOURCES } = require('../../src/styles/code-style-sources');
 const projectRoot = path.join(__dirname, '..', '..');
 const mainEntrySource = fs.readFileSync(path.join(projectRoot, 'src/main.tsx'), 'utf8');
 const expectedSources = [
+  'src/styles/crt-tokens.css',
   'src/styles/tokens.css',
   'src/styles/main.css',
   'src/styles/file-editor.css',

@@ -32,19 +32,37 @@ Farming Code 支持跟随系统、浅色、深色和纸张四种外观。外观�
 
 ## CSS 所有权
 
-`tokens.css` 是唯一允许按 `data-appearance` 分支的 CSS 来源。它拥有两层契约：
-一层是整个工作台共用的功能语义（画布、表面、文字、边框、强调色、状态、编辑器和
-终端），另一层是少数组件特殊表面的组件色板。Composer、Files、Settings、
-Transcript 等领域样式只拥有布局和交互选择器，颜色必须消费 token，并保持与外观无关。
+`shared/appearance-themes.json` 是外观的唯一权威注册表。每种已解析外观都必须定义
+完全相同的一组 CSS 角色，以及浏览器元数据、Monaco、Terminal、终端搜索和 Mermaid
+色板。注册表表达的是数据而不是组件选择器，因此新增外观必须一次性补齐完整清单，
+不能再靠逐页覆盖完成。
 
-不得重新增加 `<domain>-dark.css`、Paper 覆盖文件，或在领域样式中增加外观选择器。
-新增外观必须只靠 token 赋值表达，并把 Monaco、Terminal、浏览器元数据和首帧映射到
-同一色板契约。静态的外观 CSS 契约测试会持续守住这一边界。
+`tokens.css` 由该注册表生成，只包含 Light、Dark、Paper 各一条规则，禁止手工修改。
+Composer、Files、Settings、Transcript、Review 和扩展前端等领域样式只拥有布局与
+交互选择器；它们只能消费语义颜色角色，不能包含外观选择器或写死的 Code 颜色。
+
+共享角色数量必须保持克制。普通角色只描述层级、内容、交互或功能语义，例如 canvas、
+chrome、surface、raised、inset、hover、selected、disabled、文字层级、边框层级、
+focus、accent、success、warning、danger、diff、shadow、editor 和 terminal。只有颜色
+区分本身承载产品含义的视觉才允许显式色板例外，例如语法、数据图表、协作身份、Git
+引用、品牌图像和 Farming Pet 美术。例外必须使用稳定语义命名，不能出现由选择器机械
+拼接或带哈希后缀的名称。不随外观变化的固定美术色必须集中成一组小型、具名的组件
+调色板；外围文字、框架、边框、焦点，以及由透明度或阴影形成的派生效果仍必须消费
+外观语义角色。静态契约目前只放行 Model Matrix 身份色和 Pet 黑洞预览调色板。
+
+Farming CRT 的固定色板独立放在 `crt-tokens.css`。CRT 皮肤颜色不是 Code 外观角色，
+不得再混入 Code 主题注册表。
+
+不得重新增加 `<domain>-dark.css`、Paper 覆盖文件、选择器级色板 token，或在领域样式
+中增加外观选择器。入口页首帧代码由同一注册表生成；服务端元数据和所有 JavaScript
+颜色消费者直接读取该注册表。静态契约会拒绝主题字段缺失、生成文件过期、哈希 token、
+Code 固定颜色，以及在生成文件之外按外观分支。
 
 ## 验收标准
 
 - 每个选项都可选择，并能在刷新后保持。
 - 纸张声明浅色浏览器 color scheme，并在应用启动前使用暖色画布。
-- 导航、Chat、Composer、Settings、Files、Monaco 和 Terminal 无需刷新即可重绘。
+- 导航、Chat、Composer、Settings、Files、Review、Browser/Computer 扩展、Monaco、
+  Terminal 和 Mermaid 无需刷新即可重绘。
 - 主文字与弱化文字可读，焦点清晰，成功、警告、危险和 diff 状态可以区分。
 - 桌面与紧凑布局都不出现未覆盖的纯白或深色区域。

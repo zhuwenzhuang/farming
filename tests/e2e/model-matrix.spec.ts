@@ -198,7 +198,7 @@ test('ACP model matrix responds locally, settles once, and morphs Advanced witho
   await expect(target).toBeEnabled({ timeout: 2_000 })
 
   const fill = page.locator('.code-model-matrix-fill')
-  await expect(fill).toHaveCSS('color', 'rgb(240, 161, 74)')
+  await expect(fill).toHaveCSS('color', 'rgb(242, 162, 75)')
   const ultra = page.getByRole('button', { name: 'Ultra reasoning' })
   await ultra.click()
   await expect(ultra).toHaveAttribute('aria-pressed', 'true')

@@ -9,6 +9,7 @@ import CssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker'
 import HtmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker'
 import JsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
 import TsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
+import { APPEARANCE_THEMES, RESOLVED_APPEARANCES, appearanceTheme } from '../../shared/appearance-themes'
 import {
   isWorkspaceEditorModelUri,
   languageForWorkspaceFile,
@@ -31,9 +32,6 @@ declare global {
 }
 
 const NARROW_EDITOR_MEDIA = '(max-width: 980px)'
-const CODEX_LIGHT_MONACO_THEME = 'farming-code-light'
-const CODEX_DARK_MONACO_THEME = 'farming-code-dark'
-const CODEX_PAPER_MONACO_THEME = 'farming-code-paper'
 const WORKSPACE_EDITOR_PRELOAD_LANGUAGE_IDS = [
   'typescript',
   'javascript',
@@ -56,57 +54,6 @@ const WORKSPACE_EDITOR_SYNTAX_ONLY_DIAGNOSTICS = {
   noSyntaxValidation: false,
   noSuggestionDiagnostics: true,
 } as const
-const WORKSPACE_EDITOR_SEMANTIC_TOKEN_RULES: monaco.editor.ITokenThemeRule[] = [
-  { token: 'namespace', foreground: '267F99' },
-  { token: 'type', foreground: '267F99' },
-  { token: 'class', foreground: '267F99' },
-  { token: 'enum', foreground: '267F99' },
-  { token: 'interface', foreground: '267F99' },
-  { token: 'struct', foreground: '267F99' },
-  { token: 'typeParameter', foreground: '267F99' },
-  { token: 'record', foreground: '267F99' },
-  { token: 'function', foreground: '795E26' },
-  { token: 'method', foreground: '795E26' },
-  { token: 'parameter', foreground: '001080' },
-  { token: 'property', foreground: '001080' },
-  { token: 'annotationMember', foreground: '001080' },
-  { token: 'recordComponent', foreground: '001080' },
-  { token: 'enumMember', foreground: '0070C1' },
-]
-const WORKSPACE_EDITOR_DARK_SEMANTIC_TOKEN_RULES: monaco.editor.ITokenThemeRule[] = [
-  { token: 'namespace', foreground: '4EC9B0' },
-  { token: 'type', foreground: '4EC9B0' },
-  { token: 'class', foreground: '4EC9B0' },
-  { token: 'enum', foreground: '4EC9B0' },
-  { token: 'interface', foreground: '4EC9B0' },
-  { token: 'struct', foreground: '4EC9B0' },
-  { token: 'typeParameter', foreground: '4EC9B0' },
-  { token: 'record', foreground: '4EC9B0' },
-  { token: 'function', foreground: 'DCDCAA' },
-  { token: 'method', foreground: 'DCDCAA' },
-  { token: 'parameter', foreground: '9CDCFE' },
-  { token: 'property', foreground: '9CDCFE' },
-  { token: 'annotationMember', foreground: '9CDCFE' },
-  { token: 'recordComponent', foreground: '9CDCFE' },
-  { token: 'enumMember', foreground: '4FC1FF' },
-]
-const WORKSPACE_EDITOR_PAPER_SEMANTIC_TOKEN_RULES: monaco.editor.ITokenThemeRule[] = [
-  { token: 'namespace', foreground: '7A3E9D' },
-  { token: 'type', foreground: '7A3E9D' },
-  { token: 'class', foreground: '7A3E9D' },
-  { token: 'enum', foreground: '7A3E9D' },
-  { token: 'interface', foreground: '7A3E9D' },
-  { token: 'struct', foreground: '7A3E9D' },
-  { token: 'typeParameter', foreground: '7A3E9D' },
-  { token: 'record', foreground: '7A3E9D' },
-  { token: 'function', foreground: 'AA3731' },
-  { token: 'method', foreground: 'AA3731' },
-  { token: 'parameter', foreground: '216E45' },
-  { token: 'property', foreground: '216E45' },
-  { token: 'annotationMember', foreground: '216E45' },
-  { token: 'recordComponent', foreground: '216E45' },
-  { token: 'enumMember', foreground: '9C5D27' },
-]
 const WORKSPACE_EDITOR_CONTEXT_MENU_IGNORE_SELECTOR = [
   '.code-editor-context-menu',
   '.code-file-tab-context-menu',
@@ -153,70 +100,27 @@ export function preloadWorkspaceEditorMonaco() {
 function defineCodexMonacoThemes() {
   if (codexMonacoThemesDefined) return
   codexMonacoThemesDefined = true
-  monaco.editor.defineTheme(CODEX_LIGHT_MONACO_THEME, {
-    base: 'vs',
-    inherit: true,
-    rules: WORKSPACE_EDITOR_SEMANTIC_TOKEN_RULES,
-    colors: {
-      'editor.background': '#ffffff',
-      'editor.foreground': '#24292f',
-      'editorLineNumber.foreground': '#8c959f',
-      'editorLineNumber.activeForeground': '#24292f',
-      'editor.lineHighlightBackground': '#f6f8fa',
-      'editor.selectionBackground': '#b6d7ff',
-      'editor.inactiveSelectionBackground': '#dbeafe',
-      'editorCursor.foreground': '#24292f',
-      'editorWhitespace.foreground': '#d0d7de',
-      'editorIndentGuide.background1': '#d8dee4',
-      'editorIndentGuide.activeBackground1': '#8c959f',
-      'editorGutter.background': '#ffffff',
-    },
-  })
-  monaco.editor.defineTheme(CODEX_DARK_MONACO_THEME, {
-    base: 'vs-dark',
-    inherit: true,
-    rules: WORKSPACE_EDITOR_DARK_SEMANTIC_TOKEN_RULES,
-    colors: {
-      'editor.background': '#181818',
-      'editor.foreground': '#ffffff',
-      'editorLineNumber.foreground': '#6e7681',
-      'editorLineNumber.activeForeground': '#c9d1d9',
-      'editor.lineHighlightBackground': '#161b22',
-      'editor.selectionBackground': '#264f78',
-      'editor.inactiveSelectionBackground': '#1f3a55',
-      'editorCursor.foreground': '#ffffff',
-      'editorWhitespace.foreground': '#383838',
-      'editorIndentGuide.background1': '#21262d',
-      'editorIndentGuide.activeBackground1': '#3b4655',
-      'editorGutter.background': '#181818',
-    },
-  })
-  monaco.editor.defineTheme(CODEX_PAPER_MONACO_THEME, {
-    base: 'vs',
-    inherit: true,
-    rules: WORKSPACE_EDITOR_PAPER_SEMANTIC_TOKEN_RULES,
-    colors: {
-      'editor.background': '#f9f6ef',
-      'editor.foreground': '#282922',
-      'editorLineNumber.foreground': '#8b887e',
-      'editorLineNumber.activeForeground': '#3f4039',
-      'editor.lineHighlightBackground': '#eeebe3',
-      'editor.selectionBackground': '#ccddcf',
-      'editor.inactiveSelectionBackground': '#e1e9e1',
-      'editorCursor.foreground': '#3a6e4a',
-      'editorWhitespace.foreground': '#ddd6c8',
-      'editorIndentGuide.background1': '#e2dccf',
-      'editorIndentGuide.activeBackground1': '#a9a08f',
-      'editorGutter.background': '#f9f6ef',
-    },
-  })
+  for (const appearance of RESOLVED_APPEARANCES) {
+    const { monaco: theme } = APPEARANCE_THEMES[appearance]
+    const rules: monaco.editor.ITokenThemeRule[] = [
+      ...['namespace', 'type', 'class', 'enum', 'interface', 'struct', 'typeParameter', 'record']
+        .map(token => ({ token, foreground: theme.semantic.type })),
+      ...['function', 'method'].map(token => ({ token, foreground: theme.semantic.function })),
+      ...['parameter', 'property', 'annotationMember', 'recordComponent']
+        .map(token => ({ token, foreground: theme.semantic.variable })),
+      { token: 'enumMember', foreground: theme.semantic.enumMember },
+    ]
+    monaco.editor.defineTheme(theme.id, {
+      base: theme.base as monaco.editor.BuiltinTheme,
+      inherit: true,
+      rules,
+      colors: theme.colors,
+    })
+  }
 }
 
 export function workspaceEditorMonacoThemeForAppearance() {
-  if (typeof document === 'undefined') return CODEX_LIGHT_MONACO_THEME
-  if (document.body.dataset.appearance === 'dark') return CODEX_DARK_MONACO_THEME
-  if (document.body.dataset.appearance === 'paper') return CODEX_PAPER_MONACO_THEME
-  return CODEX_LIGHT_MONACO_THEME
+  return appearanceTheme(typeof document === 'undefined' ? 'light' : document.body.dataset.appearance).monaco.id
 }
 
 export function applyWorkspaceEditorMonacoTheme(editor?: monaco.editor.IStandaloneCodeEditor | monaco.editor.IStandaloneDiffEditor | null) {

@@ -485,7 +485,7 @@ test('first-use Pet setup walks from invitation to explicit style selection', as
   await expect(settingsPreview).toContainText('休息中')
   const lightEndBreak = settingsPreview.getByRole('button', { name: '结束休息' })
   await expect(lightEndBreak).toBeVisible()
-  await expect(lightEndBreak).toHaveCSS('border-color', 'rgba(38, 48, 43, 0.32)')
+  await expect(lightEndBreak).toHaveCSS('border-color', 'rgba(31, 35, 40, 0.12)')
   await expect(lightEndBreak).toHaveCSS('color', 'rgba(27, 35, 31, 0.92)')
   await expect(settingsPreview.locator('.code-pet-black-hole-canvas'))
     .toHaveAttribute('data-birth-preset', 'gargantua')

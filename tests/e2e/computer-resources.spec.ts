@@ -199,7 +199,7 @@ test('shows an Agent-owned Desktop only when present and switches Viewer control
   await expect(computerPlugin.getByText('Enabled', { exact: true })).toBeVisible()
   await expect(computerPlugin.getByRole('button', { name: 'Disable' })).toBeEnabled()
 
-  await page.getByRole('button', { name: 'Back to workspace' }).click()
+  await page.getByTestId('code-plugins-panel').getByRole('button', { name: 'Back', exact: true }).click()
   const refreshedAgentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
   await refreshedAgentRow.click({ button: 'right' })
   await page.getByRole('menuitem', { name: 'Create Isolated Desktop' }).click()
@@ -253,6 +253,16 @@ test('shows an Agent-owned Desktop only when present and switches Viewer control
   const viewer = page.getByTestId('farming-computer-viewer')
   await expect(viewer).toBeVisible()
   const frame = viewer.locator('iframe')
+  const appearanceSurfaces = {
+    light: { canvas: 'rgb(255, 255, 255)', inset: 'rgb(246, 248, 250)' },
+    dark: { canvas: 'rgb(24, 24, 24)', inset: 'rgb(28, 28, 28)' },
+    paper: { canvas: 'rgb(247, 244, 237)', inset: 'rgb(237, 233, 224)' },
+  } as const
+  for (const appearance of ['light', 'dark', 'paper', 'light'] as const) {
+    await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+    await expect(viewer).toHaveCSS('background-color', appearanceSurfaces[appearance].canvas)
+    await expect(frame).toHaveCSS('background-color', appearanceSurfaces[appearance].inset)
+  }
   await expect(frame).toHaveAttribute('src', /view_only=1/)
   await expect(frame).toHaveAttribute('src', /compression=0/)
   await viewer.getByRole('button', { name: 'Take control' }).click()

@@ -16,9 +16,9 @@
   align-items: center;
   gap: 8px;
   padding: 0 10px;
-  border-bottom: 1px solid #d8d8d5;
-  background: var(--code-desktop-backend-bar-background);
-  color: var(--code-desktop-backend-bar-color);
+  border-bottom: 1px solid var(--code-border);
+  background: var(--code-bg-surface);
+  color: var(--code-text);
   font-size: 12px;
 }
 
@@ -28,10 +28,10 @@
 .desktop-backend-dialog input,
 .desktop-backend-dialog select {
   min-height: 28px;
-  border: 1px solid #cfd2ce;
+  border: 1px solid var(--code-border-strong);
   border-radius: 5px;
-  background: var(--code-desktop-backend-bar-desktop-backend-dialog-background);
-  color: var(--code-desktop-backend-bar-desktop-backend-dialog-color);
+  background: var(--code-bg-raised);
+  color: var(--code-text);
   font: inherit;
 }
 
@@ -61,29 +61,29 @@
   height: 8px;
   flex: 0 0 8px;
   border-radius: 50%;
-  background: #8b918d;
+  background: var(--code-text-quiet);
 }
 
 .desktop-backend-status.is-ready {
-  background: #258b4b;
+  background: var(--code-success);
 }
 
 .desktop-backend-status.is-connecting {
-  background: #c4851a;
+  background: var(--code-warning);
 }
 
 .desktop-backend-status.is-error {
-  background: #c93d39;
+  background: var(--code-danger);
 }
 
 .desktop-backend-status-label {
-  color: var(--code-desktop-backend-status-label-color);
+  color: var(--code-text-muted);
 }
 
 .desktop-backend-inline-error {
   min-width: 0;
   overflow: hidden;
-  color: #a72e2b;
+  color: var(--code-danger);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -95,7 +95,7 @@
   display: grid;
   place-items: center;
   padding: 24px;
-  background: rgba(14, 16, 15, 0.52);
+  background: var(--code-bg-backdrop);
 }
 
 .desktop-backend-dialog {
@@ -105,10 +105,10 @@
   display: grid;
   gap: 18px;
   padding: 20px;
-  border: 1px solid #cfd2ce;
+  border: 1px solid var(--code-border-strong);
   border-radius: 9px;
-  background: var(--code-desktop-backend-dialog-background);
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
+  background: var(--code-bg-raised);
+  box-shadow: var(--code-shadow-raised);
 }
 
 .desktop-backend-dialog-heading {
@@ -134,7 +134,7 @@
 
 .desktop-backend-dialog p,
 .desktop-backend-dialog small {
-  color: var(--code-desktop-backend-dialog-color-a1558a);
+  color: var(--code-text);
   font-size: 11px;
   line-height: 1.45;
 }
@@ -148,7 +148,7 @@
 
 .desktop-backend-list {
   display: grid;
-  border: 1px solid #dcdfdb;
+  border: 1px solid var(--code-border);
   border-radius: 7px;
   overflow: hidden;
 }
@@ -159,7 +159,7 @@
   align-items: center;
   gap: 8px;
   padding: 9px 10px;
-  border-bottom: 1px solid #e4e6e3;
+  border-bottom: 1px solid var(--code-border-subtle);
 }
 
 .desktop-backend-row:last-child {
@@ -180,11 +180,11 @@
 
 .desktop-backend-row .desktop-backend-row-error,
 .desktop-backend-dialog .desktop-backend-form-error {
-  color: #a72e2b;
+  color: var(--code-danger);
 }
 
 .desktop-backend-dialog button.is-danger {
-  color: #a72e2b;
+  color: var(--code-danger);
 }
 
 .desktop-backend-form {
@@ -192,7 +192,7 @@
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 12px 14px;
   padding-top: 17px;
-  border-top: 1px solid #dcdfdb;
+  border-top: 1px solid var(--code-border);
 }
 
 .desktop-backend-form h3,
@@ -234,9 +234,9 @@
 
 .desktop-backend-form-error {
   padding: 8px 10px;
-  border: 1px solid #e5bbb9;
+  border: 1px solid var(--code-border-danger);
   border-radius: 5px;
-  background: var(--code-desktop-backend-form-error-background);
+  background: var(--code-danger-soft);
   font-size: 12px;
 }
 
@@ -247,49 +247,49 @@
 }
 
 .desktop-backend-bar {
-  border-color: var(--code-desktop-backend-bar-desktop-backend-dialog-border-color);
+  border-color: var(--code-border);
 }
 
 .desktop-backend-dialog {
-  border-color: var(--code-desktop-backend-bar-desktop-backend-dialog-border-color);
+  border-color: var(--code-border);
 }
 
 .desktop-backend-dialog {
-  color: var(--code-desktop-backend-dialog-color);
+  color: var(--code-text);
 }
 
 .desktop-backend-bar select {
-  border-color: var(--code-desktop-backend-bar-desktop-backend-dialog-border-color-77b26c);
+  border-color: var(--code-border);
 }
 
 .desktop-backend-bar button {
-  border-color: var(--code-desktop-backend-bar-desktop-backend-dialog-border-color-77b26c);
+  border-color: var(--code-border);
 }
 
 .desktop-backend-dialog button {
-  border-color: var(--code-desktop-backend-bar-desktop-backend-dialog-border-color-77b26c);
+  border-color: var(--code-border);
 }
 
 .desktop-backend-dialog input {
-  border-color: var(--code-desktop-backend-bar-desktop-backend-dialog-border-color-77b26c);
+  border-color: var(--code-border);
 }
 
 .desktop-backend-dialog select {
-  border-color: var(--code-desktop-backend-bar-desktop-backend-dialog-border-color-77b26c);
+  border-color: var(--code-border);
 }
 
 .desktop-backend-list {
-  border-color: var(--code-desktop-backend-list-desktop-backend-row-desktop-backend-form-border-color);
+  border-color: var(--code-border);
 }
 
 .desktop-backend-row {
-  border-color: var(--code-desktop-backend-list-desktop-backend-row-desktop-backend-form-border-color);
+  border-color: var(--code-border);
 }
 
 .desktop-backend-form {
-  border-color: var(--code-desktop-backend-list-desktop-backend-row-desktop-backend-form-border-color);
+  border-color: var(--code-border);
 }
 
 .desktop-backend-form-error {
-  border-color: var(--code-desktop-backend-form-error-border-color);
+  border-color: var(--code-border-danger);
 }

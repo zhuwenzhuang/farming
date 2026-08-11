@@ -31,6 +31,7 @@ import { markdownTextContent, mermaidCodeBlockSource } from '@/lib/react-markdow
 import { workspaceEditorBasename } from '@/lib/workspace-editor-model'
 import type { OpenWorkspaceFile, WorkspaceFileOpenTarget } from '@/lib/workspace-open-files'
 import type { CodeCopy } from '../code/copy'
+import { appearanceTheme, type ResolvedAppearance } from '../../../shared/appearance-themes'
 
 interface FileEditorMarkdownPreviewProps {
   activeTabDomId: string
@@ -39,7 +40,6 @@ interface FileEditorMarkdownPreviewProps {
   copy: CodeCopy
 }
 
-type MermaidAppearance = 'light' | 'dark'
 type MermaidBindFunctions = (element: Element) => void
 type MermaidRenderState =
   | { status: 'empty' | 'loading' }
@@ -386,12 +386,13 @@ const MARKDOWN_COMPONENTS: Components = {
   pre: MarkdownPre,
 }
 
-function currentMermaidAppearance(): MermaidAppearance {
-  return typeof document !== 'undefined' && document.body?.dataset.appearance === 'dark' ? 'dark' : 'light'
+function currentMermaidAppearance(): ResolvedAppearance {
+  const appearance = typeof document === 'undefined' ? 'light' : document.body?.dataset.appearance
+  return appearance === 'dark' || appearance === 'paper' ? appearance : 'light'
 }
 
 function useMermaidAppearance() {
-  const [appearance, setAppearance] = useState<MermaidAppearance>(() => currentMermaidAppearance())
+  const [appearance, setAppearance] = useState<ResolvedAppearance>(() => currentMermaidAppearance())
 
   useEffect(() => {
     if (typeof document === 'undefined') return
@@ -405,32 +406,9 @@ function useMermaidAppearance() {
   return appearance
 }
 
-function mermaidThemeVariables(appearance: MermaidAppearance) {
-  if (appearance === 'dark') {
-    return {
-      background: '#181818',
-      mainBkg: '#212121',
-      primaryColor: '#212121',
-      primaryTextColor: '#ffffff',
-      primaryBorderColor: '#383838',
-      secondaryColor: '#339cff',
-      tertiaryColor: '#262626',
-      lineColor: '#9b9b9b',
-      textColor: '#ffffff',
-      fontFamily: MERMAID_FONT,
-    }
-  }
-
+function mermaidThemeVariables(appearance: ResolvedAppearance) {
   return {
-    background: '#ffffff',
-    mainBkg: '#f6f8fa',
-    primaryColor: '#f6f8fa',
-    primaryTextColor: '#24292f',
-    primaryBorderColor: '#d0d7de',
-    secondaryColor: '#ddf4ff',
-    tertiaryColor: '#ffffff',
-    lineColor: '#6e7781',
-    textColor: '#24292f',
+    ...appearanceTheme(appearance).mermaid,
     fontFamily: MERMAID_FONT,
   }
 }

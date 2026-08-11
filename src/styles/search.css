@@ -3,7 +3,7 @@
 
 .code-search-view {
   display: block;
-  background: var(--code-component-search-view-background);
+  background: var(--code-bg-surface);
   overflow-y: auto;
   padding: 42px 32px 32px;
 }
@@ -53,22 +53,21 @@
   gap: 7px;
   min-height: 38px;
   padding: 5px 9px;
-  border: 1px solid #e1e3dc;
+  border: 1px solid var(--code-border);
   border-radius: 9px;
-  background: var(--code-search-panel-input-background);
+  background: var(--code-bg-raised);
   color: var(--code-text-subtle);
-  border-color: var(--code-border);
 }
 
 .code-search-panel-input:focus-within {
-  border-color: var(--code-search-panel-input-focus-border-color);
-  box-shadow: var(--code-search-panel-input-focus-box-shadow);
+  border-color: var(--code-accent);
+  box-shadow: var(--code-shadow-focus);
 }
 
 .code-search-panel-icon {
   display: inline-grid;
   place-items: center;
-  color: var(--code-search-panel-icon-color);
+  color: var(--code-text-subtle);
 }
 
 .code-search-panel-icon svg {
@@ -104,8 +103,8 @@
 }
 
 .code-search-panel-input button:hover {
-  background: var(--code-search-panel-clear-hover-background);
-  color: var(--code-search-panel-clear-hover-color);
+  background: var(--code-bg-hover-strong);
+  color: var(--code-text);
 }
 
 .code-search-panel-input button svg {
@@ -155,11 +154,11 @@
 .code-search-result:hover,
 .code-search-result.active {
   background: var(--code-bg-hover);
-  border-color: var(--code-search-result-hover-active-border-color);
+  border-color: var(--code-focus-ring);
 }
 
 .code-search-result:focus-visible {
-  outline: 2px solid rgba(154, 165, 151, 0.34);
+  outline: 2px solid var(--code-focus-ring);
   outline-offset: 2px;
 }
 
@@ -190,7 +189,7 @@
 }
 
 .code-search-result-copy .code-search-result-project {
-  color: #4f564e;
+  color: var(--code-text-muted);
   font-size: 11px;
   font-weight: 550;
   line-height: 1.25;
@@ -219,13 +218,13 @@
       padding: 5px 10px;
       border: 0;
       border-radius: 14px;
-      background: rgba(31, 35, 40, 0.045);
+      background: var(--code-bg-hover);
       box-shadow: none;
     }
 
   body.code-mode.code-compact-layout .code-search-panel-input:focus-within {
       border: 0;
-      background: rgba(31, 35, 40, 0.065);
+      background: var(--code-bg-hover-strong);
       box-shadow: none;
     }
 
@@ -239,5 +238,5 @@
 }
 
 .code-search-view {
-  color: var(--code-component-search-view-color);
+  color: var(--code-text);
 }

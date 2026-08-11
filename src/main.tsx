@@ -271,22 +271,7 @@ const isReviewRoute = ['/review']
   .includes(normalizedPathname)
 const root = createRoot(document.getElementById('root')!)
 
-async function renderApplication() {
-  if (errorPreviewEnabled()) {
-    await loadErrorPreviewAppearance()
-    prepareFailureDocument()
-    root.render(<ApplicationFailure error={previewFailureError()} />)
-    return
-  }
-  if (isReviewRoute) {
-    const [{ ReviewPage }] = await Promise.all([
-      import('./components/review/ReviewPage'),
-      import('./styles/review.css'),
-    ])
-    root.render(<ApplicationErrorBoundary><ReviewPage /></ApplicationErrorBoundary>)
-    return
-  }
-
+function prepareCodeAppearanceDocument() {
   const initialAppearance = document.documentElement.dataset.appearance
   const initialAppearancePreference = document.documentElement.dataset.appearancePreference
   if (initialAppearance === 'light' || initialAppearance === 'dark' || initialAppearance === 'paper') {
@@ -296,6 +281,28 @@ async function renderApplication() {
     document.body.dataset.appearancePreference = initialAppearancePreference
   }
   document.body.classList.add('code-mode')
+}
+
+async function renderApplication() {
+  if (errorPreviewEnabled()) {
+    await loadErrorPreviewAppearance()
+    prepareFailureDocument()
+    root.render(<ApplicationFailure error={previewFailureError()} />)
+    return
+  }
+  if (isReviewRoute) {
+    prepareCodeAppearanceDocument()
+    const [{ ReviewPage }] = await Promise.all([
+      import('./components/review/ReviewPage'),
+      import('./styles/tokens.css'),
+      import('./styles/review.css'),
+    ])
+    root.render(<ApplicationErrorBoundary><ReviewPage /></ApplicationErrorBoundary>)
+    return
+  }
+
+  prepareCodeAppearanceDocument()
+  await import('./styles/crt-tokens.css')
   await import('./styles/tokens.css')
   await import('./styles/main.css')
   await import('./styles/file-editor.css')

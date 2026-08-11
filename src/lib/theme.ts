@@ -1,4 +1,5 @@
 import { normalizeUiAppearance, resolveUiAppearance, type UiAppearance } from './ui-preferences'
+import { appearanceTheme } from '../../shared/appearance-themes'
 
 export interface ThemeRuntimeSettings {
   crtEffects?: boolean
@@ -16,6 +17,7 @@ export function applyThemeAppearance(
   const crtEnabled = settings.crtEffects !== false
   const appearancePreference = normalizeUiAppearance(settings.appearance)
   const appearance = resolveUiAppearance(appearancePreference)
+  const { metadata } = appearanceTheme(appearance)
 
   root.dataset.appearancePreference = appearancePreference
   root.dataset.appearance = appearance
@@ -25,11 +27,11 @@ export function applyThemeAppearance(
   body.dataset.appearance = appearance
   document.querySelector('meta[name="color-scheme"]')?.setAttribute(
     'content',
-    appearance === 'paper' ? 'light' : appearance,
+    metadata.colorScheme,
   )
   document.querySelector('meta[name="theme-color"]')?.setAttribute(
     'content',
-    appearance === 'dark' ? '#181818' : appearance === 'paper' ? '#f7f4ed' : '#ffffff',
+    metadata.themeColor,
   )
 
   if (crtEnabled) {

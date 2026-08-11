@@ -327,6 +327,20 @@ test('mounts Agent-owned Browsers behind nested resource controls without layout
   await browserSection.getByTestId('farming-browser-row').click()
   const viewer = page.getByTestId('farming-browser-viewer')
   await expect(viewer).toBeVisible()
+  const appearanceSurfaces = {
+    light: { canvas: 'rgb(255, 255, 255)', inset: 'rgb(246, 248, 250)', surface: 'rgb(255, 255, 255)' },
+    dark: { canvas: 'rgb(24, 24, 24)', inset: 'rgb(28, 28, 28)', surface: 'rgb(24, 24, 24)' },
+    paper: { canvas: 'rgb(247, 244, 237)', inset: 'rgb(237, 233, 224)', surface: 'rgb(250, 248, 242)' },
+  } as const
+  for (const appearance of ['light', 'dark', 'paper', 'light'] as const) {
+    await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+    await expect(viewer).toHaveCSS('background-color', appearanceSurfaces[appearance].canvas)
+    await expect(viewer.locator('.farming-browser-toolbar')).toHaveCSS('background-color', appearanceSurfaces[appearance].surface)
+    await expect(viewer.getByRole('textbox', { name: 'Browser address' })).toHaveCSS(
+      'background-color',
+      appearanceSurfaces[appearance].inset,
+    )
+  }
   const browserOwnerName = await agentRow.locator('.code-agent-name').textContent() ?? ''
   const truncatedOwner = browserOwnerName.length <= 28
     ? browserOwnerName
@@ -1127,9 +1141,9 @@ test('uses Farming dark colors for the Browser source menu', async ({ page }) =>
   await expect(browserSource).toBeEnabled({ timeout: 30_000 })
   await browserSource.click()
   const menu = browserSource.locator('xpath=..').getByRole('listbox')
-  await expect(menu).toHaveCSS('background-color', 'rgb(22, 27, 34)')
+  await expect(menu).toHaveCSS('background-color', 'rgb(38, 38, 38)')
   await expect(menu).toHaveCSS('border-radius', '12px')
-  await expect(menu.getByRole('option').first()).toHaveCSS('color', 'rgb(230, 237, 243)')
+  await expect(menu.getByRole('option').first()).toHaveCSS('color', 'rgb(255, 255, 255)')
 })
 
 test('shows explicit Browser sources without an Automatic choice', async ({ page }) => {
@@ -1207,7 +1221,7 @@ test('matches the focused Viewer viewport and restores the previous Viewer on cl
   await browserPlugin.getByRole('button', { name: 'Enable' }).click()
   await expect(browserPlugin.getByRole('button', { name: 'Disable' })).toHaveAttribute('aria-pressed', 'true')
   await expect(browserSection).toHaveCount(0)
-  await pluginsPanel.getByRole('button', { name: 'Back to workspace' }).click()
+  await pluginsPanel.getByRole('button', { name: 'Back', exact: true }).click()
   const createResponse = await page.request.post('/farming/api/browsers', {
     data: { rootId: projectFilesWorkspaceId(workspace) },
   })

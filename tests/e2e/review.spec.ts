@@ -5,6 +5,12 @@ import path from 'node:path'
 import { expect, test } from '@playwright/test'
 import { selectCodeOption } from './code-select'
 
+const appearanceExpectations = {
+  light: { canvas: 'rgb(255, 255, 255)', text: 'rgb(36, 41, 47)', added: 'rgb(26, 127, 55)' },
+  dark: { canvas: 'rgb(24, 24, 24)', text: 'rgb(255, 255, 255)', added: 'rgb(64, 201, 119)' },
+  paper: { canvas: 'rgb(247, 244, 237)', text: 'rgb(40, 41, 34)', added: 'rgb(58, 110, 74)' },
+} as const
+
 function git(root: string, ...args: string[]) {
   return execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim()
 }
@@ -27,8 +33,8 @@ test('keeps Gerrit-style review controls and independent inline diffs working', 
   await expect(firstFileReviewedSwitch).toHaveAttribute('data-action-visibility', 'on-row-interaction')
   await expect(firstFileReviewedSwitch).toHaveCSS('opacity', '0')
   await expect(firstFile.locator('.review-file-stats .removed')).toHaveCSS('font-style', 'normal')
-  await expect(firstFile.locator('.review-file-stats .added')).toHaveCSS('color', 'rgb(63, 145, 77)')
-  await expect(firstFile.locator('.review-file-stats .removed')).toHaveCSS('color', 'rgb(200, 79, 79)')
+  await expect(firstFile.locator('.review-file-stats .added')).toHaveCSS('color', 'rgb(26, 127, 55)')
+  await expect(firstFile.locator('.review-file-stats .removed')).toHaveCSS('color', 'rgb(180, 35, 45)')
   const initialStatWeight = await firstFile.locator('.review-file-stats .added').evaluate(element => getComputedStyle(element).fontWeight)
   await expect(firstFile.locator('.review-file-stats .removed')).toHaveCSS('font-weight', initialStatWeight)
   const initialColumns = await firstFile.evaluate(element => {
@@ -66,6 +72,19 @@ test('keeps Gerrit-style review controls and independent inline diffs working', 
   await page.getByRole('button', { name: 'SAVE' }).click()
   await expect(dataflowDiff.locator('.hljs-keyword')).toHaveCount(0)
 
+})
+
+test('renders Review from the complete Light, Dark, and Paper appearance registry', async ({ page }) => {
+  for (const [appearance, colors] of Object.entries(appearanceExpectations)) {
+    const response = await page.request.post('/farming/api/settings', { data: { appearance } })
+    expect(response.ok()).toBeTruthy()
+    await page.goto('/farming/review?fixture=1')
+    await expect(page.locator('body')).toHaveAttribute('data-appearance', appearance)
+    await expect(page.locator('.review-root')).toHaveCSS('background-color', colors.canvas)
+    await expect(page.locator('.review-body')).toHaveCSS('color', colors.text)
+    await expect(page.locator('.review-file-stats .added').first()).toHaveCSS('color', colors.added)
+    await expect(page.locator('.review-diff-row.added').first()).toHaveCSS('color', colors.text)
+  }
 })
 
 test('keeps the current expanded file header and review action visible while scrolling its diff', async ({ page }) => {

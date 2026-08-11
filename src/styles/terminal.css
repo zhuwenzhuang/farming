@@ -67,8 +67,8 @@
   padding: 2px;
   border: 1px solid var(--code-border-subtle);
   border-radius: 999px;
-  background: var(--code-terminal-mode-toggle-background);
-  box-shadow: var(--code-terminal-mode-toggle-box-shadow);
+  background: var(--code-bg-inset);
+  box-shadow: var(--code-shadow-soft);
   backdrop-filter: blur(14px);
   opacity: 0.82;
   transition: opacity 120ms ease, background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
@@ -76,9 +76,9 @@
 
 .code-terminal-mode-toggle:hover,
 .code-terminal-mode-toggle:focus-within {
-  border-color: var(--code-terminal-mode-toggle-hover-focus-within-border-color);
-  background: var(--code-terminal-mode-toggle-hover-focus-within-background);
-  box-shadow: var(--code-terminal-mode-toggle-hover-focus-within-box-shadow);
+  border-color: var(--code-focus-ring);
+  background: var(--code-bg-hover);
+  box-shadow: var(--code-shadow-focus);
   opacity: 1;
 }
 
@@ -114,7 +114,7 @@
 
 .code-terminal-mode-toggle button.active {
   color: var(--code-text);
-  background: var(--code-terminal-mode-toggle-active-background);
+  background: var(--code-bg-selected);
   opacity: 1;
 }
 
@@ -130,11 +130,11 @@
   width: min(460px, calc(100% - 44px));
   min-height: 30px;
   padding: 3px;
-  border: 1px solid rgba(31, 35, 40, 0.14);
+  border: 1px solid var(--code-border);
   border-radius: 8px;
-  background: var(--code-terminal-search-background);
-  box-shadow: 0 10px 28px rgba(31, 35, 40, 0.12);
-  color: var(--code-component-terminal-search-color);
+  background: var(--code-bg-inset);
+  box-shadow: var(--code-shadow-soft);
+  color: var(--code-text);
 }
 
 .code-terminal-search input {
@@ -152,8 +152,8 @@
 }
 
 .code-terminal-search input:focus {
-  box-shadow: var(--code-terminal-search-focus-box-shadow);
-  background: var(--code-terminal-search-focus-background);
+  box-shadow: var(--code-shadow-focus);
+  background: var(--code-bg-hover);
 }
 
 .code-terminal-search-status {
@@ -227,7 +227,7 @@
   padding: 10px 14px;
   border: 1px solid var(--code-border);
   border-radius: 10px;
-  background: var(--code-terminal-recovery-background);
+  background: var(--code-bg-inset);
   color: var(--code-text-muted);
   box-shadow: 0 12px 32px var(--code-shadow-color);
   backdrop-filter: blur(2px);
@@ -270,9 +270,9 @@
   max-width: min(420px, calc(100% - 48px));
   min-height: 36px;
   padding: 6px 8px 6px 12px;
-  border: 1px solid rgba(31, 35, 40, 0.14);
+  border: 1px solid var(--code-border);
   border-radius: 8px;
-  background: var(--code-terminal-status-card-background);
+  background: var(--code-bg-raised);
   color: var(--code-text-muted);
   box-shadow: 0 12px 32px var(--code-shadow-color);
   font-size: 12px;
@@ -289,9 +289,9 @@
 .code-terminal-status-card button {
   flex: 0 0 auto;
   height: 26px;
-  border: 1px solid rgba(31, 35, 40, 0.14);
+  border: 1px solid var(--code-border);
   border-radius: 6px;
-  background: var(--code-terminal-status-card-background-a28db5);
+  background: var(--code-bg-raised);
   color: var(--code-text);
   font: inherit;
   padding: 0 9px;
@@ -301,7 +301,7 @@
 
 .code-terminal-status-card button:hover,
 .code-terminal-status-card button:focus-visible {
-  background: var(--code-terminal-status-card-hover-focus-visible-background);
+  background: var(--code-bg-hover);
   outline: none;
 }
 
@@ -313,10 +313,10 @@
   width: 34px;
   height: 34px;
   border-radius: 50%;
-  border: 1px solid rgba(31, 35, 40, 0.14);
-  background: var(--code-terminal-jump-bottom-background);
-  color: var(--code-terminal-jump-bottom-color);
-  box-shadow: var(--code-terminal-jump-bottom-box-shadow);
+  border: 1px solid var(--code-border);
+  background: var(--code-bg-inset);
+  color: var(--code-text);
+  box-shadow: var(--code-shadow-soft);
   transform: translateX(-50%);
   display: inline-flex;
   align-items: center;
@@ -328,7 +328,7 @@
 }
 
 .code-terminal-jump-bottom:hover {
-  background: var(--code-terminal-jump-bottom-hover-background);
+  background: var(--code-bg-hover);
 }
 
 .code-terminal-jump-bottom svg {
@@ -343,8 +343,8 @@
   touch-action: none;
   box-sizing: border-box;
   padding-right: 4px;
-  background: var(--code-component-terminal-session-host-background);
-  color: var(--code-component-terminal-session-host-color);
+  background: var(--code-terminal-bg);
+  color: var(--code-text);
 }
 
 .terminal-session-host .xterm {
@@ -371,7 +371,7 @@
 
 .terminal-session-host .xterm-screen {
   touch-action: none;
-  background: var(--code-component-terminal-session-host-xterm-screen-background) !important;
+  background: var(--code-terminal-bg) !important;
   color: var(--code-text);
 }
 
@@ -389,9 +389,9 @@
 .terminal-session-host .xterm-viewport {
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-color: var(--code-terminal-session-host-xterm-viewport-scrollbar-color);
+  scrollbar-color: var(--code-scrollbar-thumb) transparent;
   scrollbar-width: thin;
-  background: var(--code-component-terminal-session-host-xterm-viewport-background) !important;
+  background: var(--code-terminal-bg) !important;
   color: var(--code-text);
 }
 
@@ -405,19 +405,19 @@
 }
 
 .terminal-session-host .xterm-viewport::-webkit-scrollbar-thumb {
-  background: rgba(87, 96, 106, 0.12);
+  background: var(--code-scrollbar-thumb);
   background-clip: content-box;
   border-radius: 999px;
   border: 2px solid transparent;
 }
 
 .terminal-session-host .xterm-viewport::-webkit-scrollbar-thumb:hover {
-  background: rgba(87, 96, 106, 0.26);
+  background: var(--code-text-quiet);
   background-clip: content-box;
 }
 
 .terminal-session-host .xterm .xterm-selection div {
-  background-color: var(--code-terminal-session-host-xterm-xterm-selection-background-color) !important;
+  background-color: var(--code-bg-inset) !important;
 }
 
 .terminal-session-host.terminal-renderer-cursor-suppressed .xterm .xterm-cursor {
@@ -484,7 +484,7 @@
   min-width: 180px;
   padding: 6px;
   background: var(--code-bg-raised);
-  border: 1px solid var(--theme-border, #00ff00);
+  border: 1px solid var(--theme-border);
   box-shadow: 0 18px 48px var(--code-shadow-color);
   border-color: var(--code-border);
   color: var(--code-text);
@@ -493,7 +493,7 @@
 .terminal-context-menu-item {
   width: 100%;
   text-align: left;
-  background: var(--code-terminal-context-menu-item-terminal-context-menu-pooled-background);
+  background: transparent;
   border: 1px solid transparent;
   color: var(--code-text);
   font-family: inherit;
@@ -504,7 +504,7 @@
 
 .terminal-context-menu-item:hover:not(:disabled) {
   background: var(--code-bg-hover);
-  border-color: var(--theme-border-info, #00ffff);
+  border-color: var(--theme-border-info);
   color: var(--code-text);
 }
 
@@ -516,10 +516,10 @@
 body.code-mode .terminal-context-menu-pooled {
   min-width: 128px;
   padding: 5px;
-  border: 1px solid #d8dbd2;
+  border: 1px solid var(--code-border);
   border-radius: 8px;
   background: var(--code-bg-surface);
-  box-shadow: 0 18px 48px rgba(31, 35, 40, 0.18);
+  box-shadow: var(--code-shadow-raised);
 }
 
 body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item {
@@ -533,9 +533,9 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item {
 
 body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:hover:not(:disabled),
 body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-visible {
-  outline: 2px solid #9aa597;
+  outline: 2px solid var(--code-focus-ring);
   outline-offset: -2px;
-  background: rgba(0, 0, 0, 0.07);
+  background: var(--code-bg-hover);
   border-color: transparent;
 }
 
@@ -549,8 +549,8 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
       overflow-x: hidden;
       overscroll-behavior: none;
       -webkit-overflow-scrolling: touch;
-      background: var(--code-component-terminal-grid-background);
-      color: var(--code-component-terminal-grid-color);
+      background: var(--code-terminal-bg);
+      color: var(--code-text);
     }
 
   .code-terminal-pane {
@@ -560,16 +560,16 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
       min-height: 260px;
       max-height: 100%;
       resize: none;
-      background: var(--code-component-terminal-pane-background);
-      color: var(--code-component-terminal-pane-color);
+      background: var(--code-terminal-bg);
+      color: var(--code-text);
     }
 
   .code-terminal-container {
       max-width: 100%;
       overflow: hidden;
       padding: 4px 6px 6px;
-      background: var(--code-component-terminal-container-background);
-      color: var(--code-component-terminal-container-color);
+      background: var(--code-terminal-bg);
+      color: var(--code-text);
     }
 
   .code-terminal-search {
@@ -579,8 +579,8 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
       width: auto;
       max-width: none;
       grid-template-columns: minmax(0, 1fr) minmax(34px, auto) repeat(6, 30px);
-      border-color: var(--code-component-editor-context-menu-terminal-search-git-history-menu-border-color);
-      box-shadow: var(--code-component-terminal-search-box-shadow);
+      border-color: var(--code-border);
+      box-shadow: var(--code-shadow-soft);
     }
 
   body.code-mode.code-compact-layout .code-terminal-grid {
@@ -652,7 +652,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
   body.code-mode.code-compact-layout .terminal-session-host .xterm,
   body.code-mode.code-compact-layout .terminal-session-host .xterm-screen,
   body.code-mode.code-compact-layout .terminal-session-host .xterm-viewport {
-      background: var(--code-component-compact-layout-terminal-session-host-xterm-viewport-background) !important;
+      background: var(--code-terminal-bg) !important;
     }
 
   body.code-mode.code-compact-layout .code-terminal-mode-toggle {
@@ -681,81 +681,81 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
 }
 
 .code-terminal-grid::-webkit-scrollbar-thumb {
-  background: var(--code-terminal-grid-webkit-scrollbar-thumb-background);
+  background: var(--code-bg-inset);
 }
 
 .code-terminal-pane {
-  border-color: var(--code-terminal-pane-border-color);
+  border-color: var(--code-border);
 }
 
 .terminal-session-host .xterm .xterm-rows ::selection {
-  background: var(--code-terminal-xterm-xterm-rows-selection-background);
+  background: var(--code-bg-inset);
 }
 
 .terminal-session-host .xterm-viewport::-webkit-scrollbar-thumb {
-  background-color: var(--code-terminal-session-host-xterm-viewport-webkit-scrollbar-thumb-background-color) !important;
+  background-color: var(--code-bg-inset) !important;
 }
 
 .terminal-session-host .xterm-viewport::-webkit-scrollbar-thumb {
-  border-color: var(--code-terminal-session-host-xterm-viewport-webkit-scrollbar-thumb-border-color) !important;
+  border-color: var(--code-border) !important;
 }
 
 .terminal-session-host .xterm-viewport::-webkit-scrollbar-thumb:hover {
-  background-color: var(--code-terminal-xterm-viewport-webkit-scrollbar-thumb-hover-background-color) !important;
+  background-color: var(--code-bg-hover) !important;
 }
 
 .code-terminal-jump-bottom {
-  border-color: var(--code-terminal-jump-bottom-border-color);
+  border-color: var(--code-border);
 }
 
 .code-terminal-jump-bottom {
-  backdrop-filter: var(--code-terminal-jump-bottom-backdrop-filter);
+  backdrop-filter: none;
 }
 
 .code-terminal-jump-bottom {
-  -webkit-backdrop-filter: var(--code-terminal-jump-bottom-webkit-backdrop-filter);
+  -webkit-backdrop-filter: none;
 }
 
 .code-terminal-jump-bottom:hover {
-  border-color: var(--code-terminal-jump-bottom-hover-border-color);
+  border-color: var(--code-border);
 }
 
 .code-terminal-jump-bottom:hover {
-  color: var(--code-terminal-jump-bottom-hover-color);
+  color: var(--code-text);
 }
 
 .code-terminal-mode-toggle {
-  border-color: var(--code-terminal-mode-toggle-border-color);
+  border-color: var(--code-border);
 }
 
 .terminal-context-menu-pooled .terminal-context-menu-item {
-  background: var(--code-terminal-context-menu-item-terminal-context-menu-pooled-background);
+  background: transparent;
 }
 
 .terminal-context-menu-item:hover:not(:disabled) {
-  outline: var(--code-terminal-hover-disabled-focus-visible-outline);
+  outline: 2px solid var(--code-focus-ring);
 }
 
 .terminal-context-menu-item:focus-visible {
-  outline: var(--code-terminal-hover-disabled-focus-visible-outline);
+  outline: 2px solid var(--code-focus-ring);
 }
 
 .code-terminal-toolbar {
-  background: var(--code-component-file-editor-toolbar-language-server-toolbar-terminal-toolbar-background);
+  background: var(--code-bg-inset);
 }
 
 .code-terminal-toolbar {
-  border-color: var(--code-component-file-editor-toolbar-language-server-toolbar-terminal-toolbar-border-color);
+  border-color: var(--code-border);
 }
 
 .code-terminal-toolbar button {
-  color: var(--code-component-terminal-toolbar-color);
+  color: var(--code-text);
 }
 
 .code-terminal-toolbar button:hover {
-  background: var(--code-component-terminal-toolbar-hover-background);
+  background: var(--code-bg-hover);
 }
 
 .code-terminal-toolbar button:hover {
-  color: var(--code-component-terminal-toolbar-hover-color);
+  color: var(--code-text);
 }

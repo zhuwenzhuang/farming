@@ -16,13 +16,13 @@ html {
 
 body {
   font-family: var(--font-terminal, 'Courier New', monospace);
-  background: var(--theme-bg, #0f0f0f);
-  color: var(--theme-fg, #00ff00);
+  background: var(--theme-bg);
+  color: var(--theme-fg);
   height: 100vh;
   overflow: hidden;
   overscroll-behavior: none;
   text-shadow: var(--fx-text-glow, 0 0 5px currentColor);
-  border: 1px solid var(--theme-border, #00ff00);
+  border: 1px solid var(--theme-border);
   display: flex;
   flex-direction: column;
 }
@@ -79,8 +79,8 @@ body.code-mode input {
 }
 
 .code-app-shell {
-  background: var(--code-component-app-shell-background);
-  color: var(--code-component-app-shell-color);
+  background: var(--code-bg-canvas);
+  color: var(--code-text);
   text-shadow: none;
   overflow: hidden;
   overscroll-behavior: none;
@@ -113,7 +113,7 @@ body.code-resizing-sidebar {
 
 .code-context-menu button {
   border: 0;
-  background: var(--code-core-context-menu-options-menu-editor-context-menu-background);
+  background: transparent;
   color: inherit;
   cursor: pointer;
   border-radius: 8px;
@@ -140,11 +140,11 @@ body.code-resizing-sidebar {
   display: grid;
   gap: 14px;
   padding: 24px;
-  border: 1px solid rgba(95, 103, 94, 0.12);
+  border: 1px solid var(--code-border);
   border-radius: 20px;
-  background: var(--code-core-app-mode-dialog-background);
+  background: var(--code-bg-raised);
   color: var(--code-text);
-  box-shadow: var(--code-core-app-mode-dialog-box-shadow);
+  box-shadow: var(--code-shadow-raised);
   border-color: var(--code-border);
 }
 
@@ -214,15 +214,15 @@ body.code-resizing-sidebar {
   display: grid;
   gap: 7px;
   padding: 15px;
-  border: 1px solid #e1e3de;
+  border: 1px solid var(--code-border);
   border-radius: 14px;
-  background: var(--code-core-app-mode-choice-background);
+  background: var(--code-bg-surface);
   border-color: var(--code-border);
 }
 
 .code-app-mode-choice.recommended {
-  border-color: var(--code-core-app-mode-choice-recommended-border-color);
-  background: var(--code-core-app-mode-choice-recommended-background);
+  border-color: var(--code-border);
+  background: var(--code-bg-surface);
 }
 
 .code-app-mode-choice h3 {
@@ -232,7 +232,7 @@ body.code-resizing-sidebar {
 
 .code-app-mode-recommended {
   justify-self: start;
-  color: var(--code-core-app-mode-recommended-color);
+  color: var(--code-text);
   font-size: 10px;
   font-weight: 650;
   letter-spacing: 0.05em;
@@ -252,13 +252,13 @@ body.code-resizing-sidebar {
 
 .code-app-mode-install {
   margin-top: 3px;
-  background: #4d6590;
+  background: var(--code-emphasis);
   color: var(--code-text-on-emphasis);
 }
 
 .code-app-mode-install:hover,
 .code-app-mode-install:focus-visible {
-  background: #40567d;
+  background: var(--code-emphasis-hover);
   outline: 0;
 }
 
@@ -285,15 +285,15 @@ body.code-resizing-sidebar {
 
 .code-app-mode-choice.temporary button {
   padding: 0 13px;
-  border: 1px solid #d8dbd5;
-  background: var(--code-core-app-mode-choice-temporary-background);
+  border: 1px solid var(--code-border);
+  background: var(--code-bg-surface);
   color: var(--code-text-muted);
   border-color: var(--code-border);
 }
 
 .code-app-mode-choice.temporary button:hover,
 .code-app-mode-choice.temporary button:focus-visible {
-  border-color: #bcc2b9;
+  border-color: var(--code-border-strong);
   background: var(--code-bg-hover);
   outline: 0;
 }
@@ -318,11 +318,11 @@ body.code-resizing-sidebar {
   justify-items: center;
   gap: 16px;
   padding: 30px 32px 28px;
-  border: 1px solid rgba(95, 103, 94, 0.12);
+  border: 1px solid var(--code-border);
   border-radius: 22px;
-  background: var(--code-core-brand-dialog-background);
+  background: var(--code-brand-dialog-bg);
   color: var(--code-text);
-  box-shadow: var(--code-core-brand-dialog-box-shadow);
+  box-shadow: var(--code-brand-dialog-shadow);
   border-color: var(--code-border);
 }
 
@@ -394,7 +394,7 @@ body.code-resizing-sidebar {
 }
 
 .code-brand-github {
-  color: var(--code-core-brand-github-color);
+  color: var(--code-brand-github);
   font-size: 13px;
   text-decoration: none;
 }
@@ -427,9 +427,9 @@ body.code-resizing-sidebar {
 }
 
 .code-workspace kbd {
-  border: 1px solid #d3d6ce;
-  background: rgba(255, 255, 255, 0.65);
-  color: #6d736b;
+  border: 1px solid var(--code-border);
+  background: var(--code-bg-raised);
+  color: var(--code-text-muted);
   min-width: 22px;
   height: 20px;
   padding: 0 5px;
@@ -506,7 +506,7 @@ body.code-resizing-sidebar {
 }
 
 .code-product-mark:hover {
-  color: #3f4c68;
+  color: var(--code-text);
 }
 
 .code-product-mark:hover .code-product-mark-badge,
@@ -515,7 +515,7 @@ body.code-resizing-sidebar {
 }
 
 .code-product-mark:focus-visible {
-  outline: 2px solid #9aa597;
+  outline: 2px solid var(--code-focus-ring);
   outline-offset: 2px;
   border-radius: 7px;
 }
@@ -621,7 +621,7 @@ body.code-mode .code-instance-name {
 }
 
 .code-instance-name:focus-visible {
-  outline: 2px solid #9aa597;
+  outline: 2px solid var(--code-focus-ring);
   outline-offset: 1px;
 }
 
@@ -637,7 +637,7 @@ body.code-mode .code-instance-name {
 
 .code-instance-name-dialog input {
   width: 100%;
-  border: 1px solid rgba(63, 76, 104, 0.28);
+  border: 1px solid var(--code-border-strong);
   border-radius: 6px;
   padding: 8px 10px;
   color: var(--code-text);
@@ -647,12 +647,12 @@ body.code-mode .code-instance-name {
 }
 
 .code-instance-name-dialog input:focus-visible {
-  outline: 2px solid #9aa597;
+  outline: 2px solid var(--code-focus-ring);
   outline-offset: 1px;
 }
 
 .code-instance-name-error {
-  color: #b42318;
+  color: var(--code-danger);
 }
 
 .code-instance-name-actions {
@@ -662,7 +662,7 @@ body.code-mode .code-instance-name {
 }
 
 .code-instance-name-actions button {
-  border: 1px solid rgba(63, 76, 104, 0.24);
+  border: 1px solid var(--code-border-strong);
   border-radius: 6px;
   padding: 6px 10px;
   background: var(--code-bg-canvas);
@@ -674,7 +674,7 @@ body.code-mode .code-instance-name {
 
 .code-instance-name-actions button.primary {
   border-color: var(--code-accent);
-  background: var(--code-core-instance-name-actions-primary-background);
+  background: var(--code-accent);
   color: var(--code-text-on-emphasis);
 }
 
@@ -687,15 +687,15 @@ body.code-mode .code-instance-name {
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #6d756b;
+  color: var(--code-text-muted);
   font: inherit;
   font-weight: 600;
   cursor: pointer;
 }
 
 .code-main-agent-restart-menu button:hover {
-  background: rgba(0, 0, 0, 0.06);
-  color: #252a25;
+  background: var(--code-bg-hover);
+  color: var(--code-text);
 }
 
 .code-main-agent-restart-menu {
@@ -727,7 +727,7 @@ body.code-mode .code-instance-name {
   align-items: center;
   justify-content: center;
   gap: 10px;
-  background: var(--code-core-permission-switching-background);
+  background: var(--code-bg-surface);
   color: var(--code-text-muted);
   font-size: 13px;
   font-weight: 600;
@@ -738,7 +738,7 @@ body.code-mode .code-instance-name {
 .code-permission-switching-spinner {
   width: 16px;
   height: 16px;
-  border: 2px solid rgba(79, 87, 80, 0.24);
+  border: 2px solid var(--code-border-strong);
   border-top-color: var(--code-text-muted);
   border-radius: 50%;
   animation: code-permission-switching-spin 700ms linear infinite;
@@ -771,14 +771,14 @@ body.code-mode .code-instance-name {
   z-index: 10006;
   width: 210px;
   padding: 5px;
-  border: 1px solid rgba(36, 41, 47, 0.14);
+  border: 1px solid var(--code-border);
   border-radius: 7px;
-  background: var(--code-component-editor-context-menu-background);
-  box-shadow: var(--code-component-editor-context-menu-box-shadow);
+  background: var(--code-bg-raised);
+  box-shadow: var(--code-shadow-raised);
   max-height: calc(100vh - 16px);
   overflow-y: auto;
-  border-color: var(--code-component-editor-context-menu-terminal-search-git-history-menu-border-color);
-  color: var(--code-component-editor-context-menu-color);
+  border-color: var(--code-border);
+  color: var(--code-text);
 }
 
 body.code-resizing-language-server-dock {
@@ -792,7 +792,7 @@ body.code-resizing-language-server-dock {
   padding: 4px 8px;
   border: 0;
   border-radius: 5px;
-  background: var(--code-core-context-menu-options-menu-editor-context-menu-background);
+  background: transparent;
   color: var(--code-text);
   cursor: pointer;
   font: inherit;
@@ -803,7 +803,7 @@ body.code-resizing-language-server-dock {
 .code-editor-context-menu button:hover:not(:disabled),
 .code-editor-context-menu button:focus-visible {
   background: var(--code-bg-hover);
-  outline: var(--code-core-editor-context-menu-focus-visible-outline);
+  outline: 0;
   color: var(--code-text);
 }
 
@@ -825,12 +825,12 @@ body.code-resizing-language-server-dock {
   min-width: 132px;
   max-width: min(280px, calc(100vw - 24px));
   padding: 5px;
-  border: 1px solid #d8dbd2;
+  border: 1px solid var(--code-border);
   border-radius: 8px;
-  background: var(--code-component-context-menu-background);
-  box-shadow: var(--code-component-context-menu-box-shadow);
-  color: var(--code-component-context-menu-color);
-  border-color: var(--code-component-editor-context-menu-terminal-search-git-history-menu-border-color);
+  background: var(--code-bg-raised);
+  box-shadow: var(--code-shadow-raised);
+  color: var(--code-text);
+  border-color: var(--code-border);
 }
 
 .code-context-menu button {
@@ -874,19 +874,19 @@ body.code-resizing-language-server-dock {
 }
 
 .code-context-menu button:hover:not(:disabled) {
-  background: rgba(0, 0, 0, 0.07);
+  background: var(--code-bg-hover);
 }
 
 .code-context-menu button:focus,
 .code-context-menu button:focus-visible {
-  outline: var(--code-core-context-menu-focus-visible-outline);
+  outline: 2px solid var(--code-focus-ring);
   outline-offset: -2px;
   background: var(--code-bg-hover);
   color: var(--code-text);
 }
 
 .code-context-menu button:disabled {
-  color: #9aa097;
+  color: var(--code-text-disabled);
   cursor: not-allowed;
 }
 
@@ -897,7 +897,7 @@ body.code-resizing-language-server-dock {
 }
 
 .code-context-menu button.danger {
-  color: #9d2f2f;
+  color: var(--code-danger);
 }
 
 .code-context-menu button.danger .code-context-menu-icon {
@@ -928,7 +928,7 @@ body.code-resizing-language-server-dock {
 }
 
 .code-options-menu button.selectable:not(.checked) {
-  color: #50574f;
+  color: var(--code-text-muted);
 }
 
 .code-options-menu button.checked {
@@ -971,9 +971,9 @@ body.code-resizing-language-server-dock {
   align-items: center;
   justify-content: center;
   padding: 7px 13px;
-  border: 1px solid #d8dbd2;
+  border: 1px solid var(--code-border);
   border-radius: 8px;
-  background: var(--code-core-copy-toast-app-toast-background);
+  background: var(--code-bg-raised);
   box-shadow: 0 12px 32px var(--code-shadow-color);
   color: var(--code-text);
   font-size: 13px;
@@ -982,7 +982,7 @@ body.code-resizing-language-server-dock {
 }
 
 .code-copy-toast.error {
-  border-color: var(--code-core-copy-toast-error-app-toast-border-color);
+  border-color: var(--code-border-danger);
   color: var(--code-diff-removed);
 }
 
@@ -997,9 +997,9 @@ body.code-resizing-language-server-dock {
   align-items: center;
   justify-content: center;
   padding: 7px 13px;
-  border: 1px solid #d8dbd2;
+  border: 1px solid var(--code-border);
   border-radius: 8px;
-  background: var(--code-core-copy-toast-app-toast-background);
+  background: var(--code-bg-raised);
   box-shadow: 0 12px 32px var(--code-shadow-color);
   color: var(--code-text);
   font-size: 13px;
@@ -1008,14 +1008,14 @@ body.code-resizing-language-server-dock {
 }
 
 .app-toast.error {
-  border-color: var(--code-core-copy-toast-error-app-toast-border-color);
+  border-color: var(--code-border-danger);
   color: var(--code-diff-removed);
 }
 
 .app-toast.recovering {
-  border-color: rgba(116, 123, 114, 0.16);
-  background: rgba(255, 255, 255, 0.88);
-  box-shadow: 0 6px 18px rgba(31, 35, 40, 0.08);
+  border-color: var(--code-border);
+  background: var(--code-bg-raised);
+  box-shadow: var(--code-shadow-soft);
   color: var(--code-text-subtle);
 }
 
@@ -1061,7 +1061,7 @@ body.code-resizing-language-server-dock {
 }
 
 .code-side-view-back:focus-visible {
-  outline: 2px solid rgba(9, 105, 218, 0.38);
+  outline: 2px solid var(--code-focus-ring);
   outline-offset: 2px;
 }
 
@@ -1872,7 +1872,7 @@ body.code-mode .workspace-path-suggestions::-webkit-scrollbar {
 }
 
 body.code-mode .workspace-path-suggestions::-webkit-scrollbar-thumb {
-  background: var(--code-sidebar-scrollbar-thumb);
+  background: var(--code-scrollbar-thumb);
   border-radius: 999px;
 }
 
@@ -2002,7 +2002,7 @@ body.code-mode .workspace-directory-prompt-actions button:focus-visible {
 .dialog-overlay {
   position: fixed;
   inset: 0;
-  background: var(--code-core-dialog-overlay-background);
+  background: var(--code-bg-backdrop);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2010,8 +2010,8 @@ body.code-mode .workspace-directory-prompt-actions button:focus-visible {
 }
 
 .input-dialog {
-  background: var(--theme-panel-bg, #1a1a1a);
-  border: 1px solid var(--theme-border-soft, #184d18);
+  background: var(--theme-panel-bg);
+  border: 1px solid var(--theme-border-soft);
   padding: 14px;
   width: min(92vw, 600px);
   max-height: 80vh;
@@ -2032,8 +2032,8 @@ body.code-mode .workspace-directory-prompt-actions button:focus-visible {
 
 .dialog-title {
   padding: 8px 10px;
-  background: var(--theme-panel-strong-bg, #2a2a2a);
-  border-bottom: 1px solid var(--theme-border-soft, #184d18);
+  background: var(--theme-panel-strong-bg);
+  border-bottom: 1px solid var(--theme-border-soft);
   margin: -14px -14px 12px -14px;
   font-weight: 600;
   font-size: 11px;
@@ -2041,8 +2041,8 @@ body.code-mode .workspace-directory-prompt-actions button:focus-visible {
 
 .dialog-header {
   padding: 4px 8px;
-  background: var(--theme-panel-strong-bg, #2a2a2a);
-  border-bottom: 1px solid var(--theme-border-soft, #184d18);
+  background: var(--theme-panel-strong-bg);
+  border-bottom: 1px solid var(--theme-border-soft);
   margin: -14px -14px 12px -14px;
   display: flex;
   justify-content: space-between;
@@ -2095,7 +2095,7 @@ body.code-mode .workspace-directory-prompt-actions button:focus-visible {
   align-items: center;
   gap: 10px;
   min-height: 56px;
-  border: 1px solid var(--theme-border-soft, #184d18);
+  border: 1px solid var(--theme-border-soft);
   background: var(--code-bg-raised);
   color: var(--code-text);
   padding: 12px;
@@ -2108,7 +2108,7 @@ body.code-mode .workspace-directory-prompt-actions button:focus-visible {
   grid-template-columns: 18px minmax(0, 1fr);
   gap: 10px;
   align-items: start;
-  border: 1px solid var(--theme-border-soft, #184d18);
+  border: 1px solid var(--theme-border-soft);
   background: var(--code-bg-raised);
   color: var(--code-text);
   padding: 10px;
@@ -2159,7 +2159,7 @@ body.code-mode .workspace-directory-prompt-actions button:focus-visible {
 }
 
 .group-label {
-  color: var(--theme-fg-soft, #87ff87);
+  color: var(--theme-fg-soft);
   font-size: 11px;
   margin: 8px 0 6px;
   text-transform: lowercase;
@@ -2171,12 +2171,12 @@ body.code-mode .workspace-directory-prompt-actions button:focus-visible {
   align-items: center;
   gap: 8px;
   width: 100%;
-  border: 1px solid var(--theme-border-soft, #184d18);
-  background: var(--theme-panel-screen-bg, #0a0a0a);
+  border: 1px solid var(--theme-border-soft);
+  background: var(--theme-panel-screen-bg);
   padding: 6px 8px;
   margin: 4px 0;
   cursor: pointer;
-  color: var(--theme-fg, #00ff00);
+  color: var(--theme-fg);
   font-family: inherit;
   font-size: 11px;
   text-align: left;
@@ -2214,7 +2214,7 @@ body.code-mode .workspace-directory-prompt-actions button:focus-visible {
 
 .agent-item-name {
   font-weight: bold;
-  color: var(--theme-fg-soft, #87ff87);
+  color: var(--theme-fg-soft);
   margin-bottom: 3px;
   display: block;
   overflow: hidden;
@@ -2224,7 +2224,7 @@ body.code-mode .workspace-directory-prompt-actions button:focus-visible {
 
 .agent-item-desc {
   font-size: 10px;
-  color: var(--theme-fg-muted, #888888);
+  color: var(--theme-fg-muted);
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2235,8 +2235,8 @@ body.code-mode .workspace-directory-prompt-actions button:focus-visible {
   position: absolute;
   top: 4px;
   right: 4px;
-  background: var(--theme-selection-bg, #00ff00);
-  color: var(--theme-selection-fg, #1a1a1a);
+  background: var(--theme-selection-bg);
+  color: var(--theme-selection-fg);
   padding: 1px 4px;
   font-size: 9px;
   font-weight: bold;
@@ -2255,7 +2255,7 @@ body.code-mode .workspace-directory-prompt-actions button:focus-visible {
 }
 
 .workspace-input label {
-  color: var(--theme-fg-soft, #87ff87);
+  color: var(--theme-fg-soft);
 }
 
 .workspace-path-field {
@@ -2271,15 +2271,15 @@ body.code-mode .workspace-directory-prompt-actions button:focus-visible {
   align-items: center;
   justify-content: center;
   padding: 0;
-  border: 1px solid var(--theme-border-soft, #184d18);
-  background: var(--theme-panel-screen-bg, #0a0a0a);
-  color: var(--theme-fg, #00ff00);
+  border: 1px solid var(--theme-border-soft);
+  background: var(--theme-panel-screen-bg);
+  color: var(--theme-fg);
   cursor: pointer;
 }
 
 .workspace-directory-picker:hover:not(:disabled),
 .workspace-directory-picker:focus-visible {
-  border-color: var(--theme-border-info, #00ffff);
+  border-color: var(--theme-border-info);
   background: var(--code-bg-hover);
   color: var(--code-text);
 }
@@ -2297,16 +2297,16 @@ body.code-mode .workspace-directory-prompt-actions button:focus-visible {
 .workspace-input input {
   width: 100%;
   padding: 6px 8px;
-  background: var(--theme-panel-screen-bg, #0a0a0a);
-  border: 1px solid var(--theme-border-soft, #184d18);
-  color: var(--theme-fg, #00ff00);
+  background: var(--theme-panel-screen-bg);
+  border: 1px solid var(--theme-border-soft);
+  color: var(--theme-fg);
   font-family: var(--font-terminal, 'Courier New', monospace);
   font-size: 11px;
   outline: none;
 }
 
 .workspace-input input:focus {
-  border-color: var(--code-core-focus-visible-task-input-focus-border-color);
+  border-color: var(--code-focus-ring);
 }
 
 .workspace-input .workflow-select .code-select-trigger,
@@ -2314,7 +2314,7 @@ body.code-mode .workspace-directory-prompt-actions button:focus-visible {
   width: 100%;
   padding: 6px 8px;
   background: var(--code-bg-muted);
-  border: 1px solid var(--theme-border-soft, #184d18);
+  border: 1px solid var(--theme-border-soft);
   color: var(--code-text);
   font-family: var(--font-terminal, 'Courier New', monospace);
   font-size: 11px;
@@ -2332,7 +2332,7 @@ body.code-mode .workspace-directory-prompt-actions button:focus-visible {
 
 .workspace-input .workflow-select .code-select-trigger:focus-visible,
 .workspace-input textarea.task-input:focus {
-  border-color: var(--code-core-focus-visible-task-input-focus-border-color);
+  border-color: var(--code-focus-ring);
 }
 
 .workspace-actions {
@@ -2346,14 +2346,14 @@ body.code-mode .workspace-directory-prompt-actions button:focus-visible {
   z-index: 2;
   margin-top: 2px;
   padding-top: 8px;
-  background: var(--theme-panel-bg, #1a1a1a);
+  background: var(--theme-panel-bg);
   flex: 0 0 auto;
 }
 
 .workspace-actions button,
 .close-btn {
-  background: var(--theme-selection-bg, #00ff00);
-  color: var(--theme-selection-fg, #1a1a1a);
+  background: var(--theme-selection-bg);
+  color: var(--theme-selection-fg);
   border: none;
   padding: 10px 20px;
   font-family: var(--font-terminal, 'Courier New', monospace);
@@ -2375,20 +2375,20 @@ body.code-mode .workspace-directory-prompt-actions button:focus-visible {
 }
 
 .workspace-actions button:disabled {
-  background: var(--theme-disabled, #555555);
-  color: var(--theme-disabled-fg, #888888);
+  background: var(--theme-disabled);
+  color: var(--theme-disabled-fg);
   cursor: not-allowed;
 }
 
 .workspace-history {
   margin-top: 6px;
-  border: 1px solid var(--theme-border-soft, #184d18);
-  background: rgba(8, 16, 8, 0.94);
+  border: 1px solid var(--theme-border-soft);
+  background: var(--theme-panel-screen-bg);
 }
 
 .workspace-path-suggestions {
   margin-top: -2px;
-  border: 1px solid var(--theme-border-soft, #184d18);
+  border: 1px solid var(--theme-border-soft);
   background: var(--code-bg-raised);
   max-height: min(152px, 28vh);
   overflow-y: auto;
@@ -2407,9 +2407,9 @@ body.code-mode .workspace-directory-prompt-actions button:focus-visible {
   min-height: 30px;
   padding: 4px 8px;
   border: 1px solid transparent;
-  border-top: 1px solid #102910;
+  border-top: 1px solid var(--theme-border-soft);
   background: transparent;
-  color: var(--theme-fg, #00ff00);
+  color: var(--theme-fg);
   font-family: var(--font-terminal, 'Courier New', monospace);
   font-size: 11px;
   text-align: left;
@@ -2449,8 +2449,8 @@ body.code-mode .workspace-directory-prompt-actions button:focus-visible {
   justify-content: space-between;
   gap: 8px;
   padding: 6px 8px;
-  border-bottom: 1px solid var(--theme-border-screen, #143514);
-  color: var(--theme-fg-soft, #87ff87);
+  border-bottom: 1px solid var(--theme-border-screen);
+  color: var(--theme-fg-soft);
   font-size: 11px;
   text-transform: lowercase;
 }
@@ -2482,9 +2482,9 @@ body.code-mode .workspace-directory-prompt-actions button:focus-visible {
   min-height: 34px;
   padding: 5px 8px;
   border: 1px solid transparent;
-  border-top: 1px solid #102910;
+  border-top: 1px solid var(--theme-border-soft);
   background: transparent;
-  color: var(--theme-fg, #00ff00);
+  color: var(--theme-fg);
   font-family: var(--font-terminal, 'Courier New', monospace);
   font-size: 11px;
   text-align: left;
@@ -2504,7 +2504,7 @@ body.code-mode .workspace-directory-prompt-actions button:focus-visible {
 
 .workspace-history-item.active {
   border-color: var(--code-border);
-  box-shadow: var(--code-core-workspace-history-item-active-box-shadow);
+  box-shadow: var(--code-shadow-soft);
   background: var(--code-bg-hover);
   color: var(--code-text);
 }
@@ -2558,11 +2558,11 @@ body.code-mode .workspace-directory-prompt-actions button:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  border: 1px solid rgba(116, 123, 114, 0.16);
+  border: 1px solid var(--code-border);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.88);
-  box-shadow: 0 6px 18px rgba(31, 35, 40, 0.08);
-  color: #747b72;
+  background: var(--code-bg-raised);
+  box-shadow: var(--code-shadow-soft);
+  color: var(--code-text-subtle);
   padding: 6px 12px;
   font-size: 13px;
   line-height: 1.25;
@@ -2571,8 +2571,8 @@ body.code-mode .workspace-directory-prompt-actions button:focus-visible {
 
 .connection-status.lost,
 .connection-status.business-unavailable {
-  border-color: var(--code-core-connection-status-lost-business-unavailable-border-color);
-  background: rgba(255, 250, 248, 0.98);
+  border-color: var(--code-border-danger);
+  background: var(--code-danger-soft);
   color: var(--code-diff-removed);
 }
 
@@ -2793,8 +2793,8 @@ body.code-mode .workspace-directory-browser-go {
     bottom: calc(-14px - env(safe-area-inset-bottom));
     margin: 4px -14px calc(-14px - env(safe-area-inset-bottom));
     padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
-    background: linear-gradient(to top, rgba(10, 18, 10, 0.98), rgba(10, 18, 10, 0.86));
-    border-top: 1px solid var(--theme-border-soft, #184d18);
+    background: linear-gradient(to top, var(--theme-panel-screen-bg), var(--theme-panel-bg));
+    border-top: 1px solid var(--theme-border-soft);
   }
 
   .input-dialog .workspace-actions {
@@ -2802,7 +2802,7 @@ body.code-mode .workspace-directory-browser-go {
     margin: 4px -14px calc(-14px - env(safe-area-inset-bottom));
     padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
     background: var(--code-bg-raised);
-    border-top: 1px solid var(--theme-border-soft, #184d18);
+    border-top: 1px solid var(--theme-border-soft);
     border-top-color: var(--code-border);
   }
 
@@ -2858,7 +2858,7 @@ body.code-mode .workspace-directory-browser-go {
     height: 100dvh;
     max-height: 100dvh;
     overflow: hidden;
-    background: var(--code-component-mode-background);
+    background: var(--code-bg-canvas);
   }
 
   body.code-mode #root,
@@ -2889,8 +2889,8 @@ body.code-mode .code-workspace {
     grid-template-columns: minmax(0, 1fr);
     overflow: hidden;
     overscroll-behavior: none;
-    background: var(--code-component-workspace-background);
-    color: var(--code-component-workspace-color);
+    background: var(--code-bg-canvas);
+    color: var(--code-text);
   }
 
   .code-workspace.sidebar-collapsed {
@@ -2941,9 +2941,9 @@ body.code-mode .code-workspace {
     position: relative;
     border: 0;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.78);
+    background: var(--code-bg-raised);
     color: var(--code-text-strong);
-    box-shadow: 0 10px 28px rgba(31, 35, 40, 0.09);
+    box-shadow: var(--code-shadow-soft);
     backdrop-filter: blur(18px) saturate(1.18);
     -webkit-backdrop-filter: blur(18px) saturate(1.18);
     cursor: pointer;
@@ -3006,7 +3006,7 @@ body.code-mode .code-workspace {
     flex-direction: column;
     align-items: center;
     gap: 2px;
-    color: #17191d;
+    color: var(--code-text-strong);
     text-align: center;
     pointer-events: none;
   }
@@ -3029,7 +3029,7 @@ body.code-mode .code-workspace {
     justify-content: center;
     gap: 6px;
     overflow: hidden;
-    color: #8c9189;
+    color: var(--code-text-quiet);
     font-size: 11px;
     line-height: 14px;
     white-space: nowrap;
@@ -3041,7 +3041,7 @@ body.code-mode .code-workspace {
     height: 6px;
     flex: 0 0 auto;
     border-radius: 999px;
-    background: #28c781;
+    background: var(--code-success);
   }
 
   .code-main {
@@ -3053,8 +3053,8 @@ body.code-mode .code-workspace {
     overflow: hidden;
     overscroll-behavior: none;
     padding-top: calc(72px + env(safe-area-inset-top));
-    background: var(--code-component-main-background);
-    color: var(--code-component-main-color);
+    background: var(--code-bg-canvas);
+    color: var(--code-text);
   }
 }
 
@@ -3142,10 +3142,10 @@ body.code-mode.code-compact-layout .code-workspace.sidebar-collapsed {
     border: 0;
     border-radius: 7px;
     background: transparent;
-    color: var(--code-core-mode-compact-layout-mobile-topbar-button-color);
+    color: var(--code-text);
     box-shadow: none;
-    backdrop-filter: var(--code-core-mobile-markdown-reading-mobile-topbar-button-compact-layout-backdrop-filter);
-    -webkit-backdrop-filter: var(--code-core-mobile-markdown-reading-mobile-topbar-button-compact-layout-webkit-backdrop-filter);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
     cursor: pointer;
     pointer-events: auto;
   }
@@ -3407,8 +3407,8 @@ body.code-mode .input-dialog .dialog-header {
   }
 
   body.code-mode.code-compact-layout .code-mobile-topbar-button {
-    background: var(--code-core-mobile-markdown-reading-mobile-topbar-button-compact-layout-background);
-    box-shadow: var(--code-core-mobile-markdown-reading-mobile-topbar-button-compact-layout-box-shadow);
+    background: var(--code-bg-surface);
+    box-shadow: var(--code-shadow-soft);
   }
 
   /* Keep the phone overflow menu as a small action rail, not a desktop
@@ -3419,7 +3419,7 @@ body.code-mode .input-dialog .dialog-header {
     padding: 4px;
     border: 0;
     border-radius: 14px;
-    background: var(--code-core-mode-compact-layout-options-menu-background);
+    background: var(--code-bg-raised);
     box-shadow: var(--code-shadow-raised);
     backdrop-filter: blur(18px) saturate(1.1);
     -webkit-backdrop-filter: blur(18px) saturate(1.1);
@@ -3561,7 +3561,7 @@ body.code-mode.code-compact-layout .code-options-menu button:focus-visible {
   color: var(--code-text-subtle);
 }
 .code-context-menu button:hover {
-  background: var(--code-component-plus-menu-slash-command-context-menu-background);
+  background: var(--code-bg-raised);
   color: var(--code-text);
 }
 .code-options-menu button:hover {
@@ -3703,248 +3703,248 @@ body.code-mode.code-compact-layout .code-options-menu button:focus-visible {
 .kill-btn {
   background: var(--code-danger);
   border-color: var(--code-danger);
-  color: var(--code-core-kill-btn-color);
+  color: var(--code-text);
 }
 ::selection {
-  background: var(--code-core-selection-background);
+  background: var(--code-bg-surface);
 }
 ::selection {
-  color: var(--code-core-selection-color);
+  color: var(--code-text);
 }
 .workspace-directory-browser-row.selected {
-  background: var(--code-core-workspace-directory-browser-row-selected-background);
+  background: var(--code-bg-selected);
 }
 .workspace-directory-browser-actions button:not(.secondary) {
-  color: var(--code-core-workspace-directory-browser-actions-secondary-color);
+  color: var(--code-text-muted);
 }
 .code-product-mark:hover {
-  background: var(--code-core-product-mark-hover-focus-visible-background);
+  background: transparent;
 }
 .code-product-mark:focus-visible {
-  background: var(--code-core-product-mark-hover-focus-visible-background);
+  background: transparent;
 }
 .code-product-mark-badge {
-  border-color: var(--code-core-product-mark-badge-border-color);
+  border-color: var(--code-border);
 }
 .code-product-mark:hover .code-product-mark-badge {
-  background: var(--code-core-product-mark-badge-hover-focus-visible-background);
+  background: transparent;
 }
 .code-product-mark:focus-visible .code-product-mark-badge {
-  background: var(--code-core-product-mark-badge-hover-focus-visible-background);
+  background: transparent;
 }
 .code-product-mark:hover .code-product-mark-badge {
-  border-color: var(--code-core-product-mark-badge-hover-focus-visible-border-color);
+  border-color: var(--code-focus-ring);
 }
 .code-product-mark:focus-visible .code-product-mark-badge {
-  border-color: var(--code-core-product-mark-badge-hover-focus-visible-border-color);
+  border-color: var(--code-focus-ring);
 }
 .code-permission-switching-spinner {
-  border-color: var(--code-core-permission-switching-spinner-border-color);
+  border-color: var(--code-border);
 }
 .code-options-menu button {
-  background: var(--code-core-context-menu-options-menu-editor-context-menu-background);
+  background: transparent;
 }
 .code-context-menu button:hover {
-  outline: var(--code-core-context-menu-hover-outline);
+  outline: none;
 }
 .code-options-menu button:hover {
-  outline: var(--code-core-options-menu-hover-outline);
+  outline: none;
 }
 .code-options-menu button:focus-visible {
-  outline: var(--code-core-options-menu-focus-visible-outline);
+  outline: 2px solid var(--code-focus-ring);
 }
 .agent-launch-icon-monochrome image {
-  filter: var(--code-core-agent-launch-icon-monochrome-filter);
+  filter: var(--code-brand-icon-filter);
 }
 .workspace-input .workflow-select .code-select-trigger:focus-visible {
-  box-shadow: var(--code-core-focus-visible-task-input-focus-box-shadow);
+  box-shadow: var(--code-shadow-focus);
 }
 .workspace-input textarea.task-input:focus {
-  box-shadow: var(--code-core-focus-visible-task-input-focus-box-shadow);
+  box-shadow: var(--code-shadow-focus);
 }
 .workspace-input input:focus {
-  box-shadow: var(--code-core-focus-visible-task-input-focus-box-shadow);
+  box-shadow: var(--code-shadow-focus);
 }
 .workspace-home-trigger:focus-visible {
-  border-color: var(--code-core-workspace-home-trigger-focus-visible-border-color);
+  border-color: var(--code-focus-ring);
 }
 .workspace-home-trigger:focus-visible {
-  box-shadow: var(--code-core-workspace-home-trigger-focus-visible-box-shadow);
+  box-shadow: var(--code-shadow-focus);
 }
 .workspace-home-menu {
-  box-shadow: var(--code-core-workspace-home-menu-box-shadow);
+  box-shadow: var(--code-shadow-raised);
 }
 .workspace-history-list::-webkit-scrollbar-thumb {
-  background: var(--code-core-workspace-history-list-webkit-scrollbar-thumb-background);
+  background: var(--code-bg-surface);
 }
 .workspace-history-item {
-  border-color: var(--code-core-workspace-history-item-workspace-path-suggestion-border-color);
+  border-color: var(--code-border);
 }
 .workspace-path-suggestion {
-  border-color: var(--code-core-workspace-history-item-workspace-path-suggestion-border-color);
+  border-color: var(--code-border);
 }
 .workspace-history-item {
-  box-shadow: var(--code-core-workspace-history-item-workspace-path-suggestion-box-shadow);
+  box-shadow: none;
 }
 .workspace-path-suggestion {
-  box-shadow: var(--code-core-workspace-history-item-workspace-path-suggestion-box-shadow);
+  box-shadow: none;
 }
 .workspace-history-item:first-child {
-  border-top-color: var(--code-core-workspace-history-item-first-child-border-top-color);
+  border-top-color: var(--code-border);
 }
 .agent-item:hover {
-  box-shadow: var(--code-core-agent-item-hover-box-shadow);
+  box-shadow: none;
 }
 .agent-item:focus-visible {
-  box-shadow: var(--code-core-agent-item-focus-visible-box-shadow);
+  box-shadow: none;
 }
 .workspace-history-item:hover {
-  box-shadow: var(--code-core-workspace-history-item-hover-box-shadow);
+  box-shadow: none;
 }
 .workspace-path-suggestion:hover {
-  box-shadow: var(--code-core-workspace-path-suggestion-hover-box-shadow);
+  box-shadow: none;
 }
 .workspace-path-suggestion.active {
-  box-shadow: var(--code-core-workspace-path-suggestion-active-box-shadow);
+  box-shadow: none;
 }
 .workspace-directory-prompt.error {
-  border-color: var(--code-core-workspace-directory-prompt-error-border-color);
+  border-color: var(--code-border-danger);
 }
 .workspace-directory-prompt.error {
-  background: var(--code-core-workspace-directory-prompt-error-background);
+  background: var(--code-danger-soft);
 }
 .workspace-directory-prompt.error .workspace-directory-prompt-icon {
-  background: var(--code-core-workspace-directory-prompt-error-workspace-directory-prompt-icon-background);
+  background: var(--code-danger-soft);
 }
 .workspace-directory-prompt-actions button {
-  color: var(--code-core-workspace-directory-prompt-actions-color);
+  color: var(--code-accent);
 }
 .workspace-directory-prompt-actions button:hover:not(:disabled) {
-  border-color: var(--code-core-workspace-directory-prompt-actions-hover-disabled-border-color);
+  border-color: var(--code-border);
 }
 .workspace-directory-prompt-actions button:hover:not(:disabled) {
-  background: var(--code-core-workspace-directory-prompt-actions-hover-disabled-background);
+  background: var(--code-bg-disabled);
 }
 .workspace-directory-prompt-actions button:focus-visible {
-  box-shadow: var(--code-core-workspace-directory-prompt-actions-focus-visible-box-shadow);
+  box-shadow: var(--code-shadow-focus);
 }
 body.code-mode.code-mobile-markdown-reading .code-mobile-topbar {
-  background: var(--code-core-mode-mobile-markdown-reading-mobile-topbar-background);
+  background: transparent;
 }
 body.code-mode.code-mobile-markdown-reading .code-mobile-topbar {
-  border-color: var(--code-core-mode-mobile-markdown-reading-mobile-topbar-border-color);
+  border-color: var(--code-border);
 }
 body.code-mode.code-mobile-markdown-reading .code-mobile-topbar-button {
-  background: var(--code-core-mobile-markdown-reading-mobile-topbar-button-compact-layout-background);
+  background: var(--code-bg-surface);
 }
 body.code-mode.code-mobile-markdown-reading .code-mobile-topbar-button {
-  color: var(--code-core-mode-mobile-markdown-reading-mobile-topbar-button-color);
+  color: var(--code-text);
 }
 body.code-mode.code-mobile-markdown-reading .code-mobile-topbar-button {
-  box-shadow: var(--code-core-mobile-markdown-reading-mobile-topbar-button-compact-layout-box-shadow);
+  box-shadow: var(--code-shadow-soft);
 }
 body.code-mode.code-mobile-markdown-reading .code-mobile-topbar-button {
-  backdrop-filter: var(--code-core-mobile-markdown-reading-mobile-topbar-button-compact-layout-backdrop-filter);
+  backdrop-filter: none;
 }
 body.code-mode.code-mobile-markdown-reading .code-mobile-topbar-button {
-  -webkit-backdrop-filter: var(--code-core-mobile-markdown-reading-mobile-topbar-button-compact-layout-webkit-backdrop-filter);
+  -webkit-backdrop-filter: none;
 }
 .code-git-history-section {
-  background: var(--code-component-git-history-section-background);
+  background: var(--code-bg-surface);
 }
 .code-file-editor-tabs {
-  background: var(--code-component-file-editor-toolbar-language-server-toolbar-terminal-toolbar-background);
+  background: var(--code-bg-inset);
 }
 .code-file-editor-toolbar {
-  background: var(--code-component-file-editor-toolbar-language-server-toolbar-terminal-toolbar-background);
+  background: var(--code-bg-inset);
 }
 .code-file-editor-tabs {
-  border-color: var(--code-component-file-editor-toolbar-language-server-toolbar-terminal-toolbar-border-color);
+  border-color: var(--code-border);
 }
 .code-file-editor-toolbar {
-  border-color: var(--code-component-file-editor-toolbar-language-server-toolbar-terminal-toolbar-border-color);
+  border-color: var(--code-border);
 }
 .code-acp-request {
-  box-shadow: var(--code-component-acp-request-box-shadow);
+  box-shadow: var(--code-shadow-soft);
 }
 .code-pending-followup {
-  box-shadow: var(--code-component-pending-followup-box-shadow);
+  box-shadow: var(--code-shadow-soft);
 }
 .code-markdown a {
-  color: var(--code-component-agent-transcript-markdown-file-preview-panel-color);
+  color: var(--code-info);
 }
 .code-file-preview-panel a {
-  color: var(--code-component-agent-transcript-markdown-file-preview-panel-color);
+  color: var(--code-info);
 }
 .code-markdown {
-  color: var(--code-component-markdown-agent-transcript-markdown-color);
+  color: var(--code-text);
 }
 .code-markdown blockquote {
-  border-color: var(--code-component-markdown-agent-transcript-markdown-border-color);
+  border-color: var(--code-border);
 }
 .code-markdown blockquote {
-  color: var(--code-component-markdown-agent-transcript-markdown-color-1e3935);
+  color: var(--code-text);
 }
 .code-markdown code {
-  background: var(--code-component-markdown-agent-transcript-markdown-background);
+  background: var(--code-bg-surface);
 }
 .code-markdown pre {
-  border-color: var(--code-component-markdown-agent-transcript-markdown-agent-transcript-code-block-border-color);
+  border-color: var(--code-border);
 }
 .code-markdown pre {
-  background: var(--code-component-markdown-agent-transcript-markdown-agent-transcript-code-block-background);
+  background: var(--code-bg-inset);
 }
 .code-markdown hr {
-  border-color: var(--code-component-markdown-agent-transcript-markdown-border-color-8326e0);
+  border-color: var(--code-border);
 }
 .code-markdown th {
-  border-color: var(--code-component-markdown-agent-transcript-markdown-border-color-8326e0);
+  border-color: var(--code-border);
 }
 .code-markdown td {
-  border-color: var(--code-component-markdown-agent-transcript-markdown-border-color-8326e0);
+  border-color: var(--code-border);
 }
 .code-composer:focus-within {
-  border-color: var(--code-component-composer-focus-within-border-color);
+  border-color: var(--code-focus-ring);
 }
 .code-composer:focus-within {
-  box-shadow: var(--code-component-composer-focus-within-menu-open-box-shadow);
+  box-shadow: var(--code-shadow-focus);
 }
 .code-composer.menu-open {
-  box-shadow: var(--code-component-composer-focus-within-menu-open-box-shadow);
+  box-shadow: var(--code-shadow-focus);
 }
 .code-acp-request-actions button.approve:hover {
-  background: var(--code-component-acp-request-actions-approve-hover-background);
+  background: var(--code-bg-hover);
 }
 .code-git-history-menu {
-  border-color: var(--code-component-editor-context-menu-terminal-search-git-history-menu-border-color);
+  border-color: var(--code-border);
 }
 .code-git-history-menu {
-  background: var(--code-component-git-history-menu-background);
+  background: var(--code-bg-raised);
 }
 .code-git-history-menu {
-  color: var(--code-component-git-history-menu-color);
+  color: var(--code-text);
 }
 .code-git-history-menu {
-  box-shadow: var(--code-component-git-history-menu-box-shadow);
+  box-shadow: var(--code-shadow-raised);
 }
 .code-dialog {
-  border-color: var(--code-component-dialog-border-color);
+  border-color: var(--code-border);
 }
 .code-git-history-popover {
-  border-color: var(--code-component-git-history-popover-border-color);
+  border-color: var(--code-border);
 }
 .code-dialog {
-  background: var(--code-component-dialog-background);
+  background: var(--code-bg-raised);
 }
 .code-git-history-popover {
-  background: var(--code-component-git-history-popover-background);
+  background: var(--code-bg-raised);
 }
 .code-dialog {
-  color: var(--code-component-share-panel-plugin-card-git-history-popover-color);
+  color: var(--code-text);
 }
 .code-git-history-popover {
-  color: var(--code-component-share-panel-plugin-card-git-history-popover-color);
+  color: var(--code-text);
 }
 :is(button, input, textarea, select, [tabindex]):focus-visible {
-  outline-color: var(--code-component-focus-visible-outline-color);
+  outline-color: var(--code-focus-ring);
 }

@@ -91,6 +91,10 @@ Review uses one file-list-first workspace. File rows show change type, summary,
 reviewed state, comments, and expandable inline diff without duplicating the
 same catalog in another panel.
 
+Review follows the authoritative Farming Code appearance preference. Its
+canvas, controls, syntax, comments, and diff states consume the shared semantic
+theme roles; the route must not fall back to a fixed Light skin.
+
 Reviewed actions remain visually quiet until row hover, keyboard focus, or
 expansion. Loaded, loading, failed, binary, truncated, and unavailable diff
 states are explicit. Common-line gaps expand in bounded ranges without moving

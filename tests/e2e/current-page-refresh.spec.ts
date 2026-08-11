@@ -91,7 +91,7 @@ test('entry pages preserve cached capabilities and History while refreshing curr
   await expect.poll(() => computerCapabilityRequests).toBeGreaterThan(computerRequestsBeforePlugins)
   await expect.poll(() => agentExtensionRequests).toBeGreaterThan(extensionRequestsBeforePlugins)
 
-  await page.getByTestId('code-plugins-panel').getByRole('button', { name: 'Back to workspace' }).click()
+  await page.getByTestId('code-plugins-panel').getByRole('button', { name: 'Back', exact: true }).click()
   blockCurrentCapabilityRefresh = true
   const browserRequestsBeforeBlockedRefresh = browserCapabilityRequests
   const computerRequestsBeforeBlockedRefresh = computerCapabilityRequests
@@ -101,7 +101,7 @@ test('entry pages preserve cached capabilities and History while refreshing curr
   await expect.poll(() => browserCapabilityRequests).toBeGreaterThan(browserRequestsBeforeBlockedRefresh)
   await expect.poll(() => computerCapabilityRequests).toBeGreaterThan(computerRequestsBeforeBlockedRefresh)
   releaseCapabilityRefresh?.()
-  await page.getByTestId('code-plugins-panel').getByRole('button', { name: 'Back to workspace' }).click()
+  await page.getByTestId('code-plugins-panel').getByRole('button', { name: 'Back', exact: true }).click()
   blockCurrentHistoryRefresh = true
   await page.getByTestId('code-nav-history').click()
   const history = page.getByTestId('code-history-panel')
@@ -116,7 +116,7 @@ test('entry pages preserve cached capabilities and History while refreshing curr
   await page.getByTestId('code-nav-plugins').click()
   await expect(page.getByTestId('code-plugin-browser')).toContainText('Check failed')
   await expect(page.getByTestId('code-plugin-computer')).toContainText('Check failed')
-  await page.getByTestId('code-plugins-panel').getByRole('button', { name: 'Back to workspace' }).click()
+  await page.getByTestId('code-plugins-panel').getByRole('button', { name: 'Back', exact: true }).click()
   await page.getByTestId('code-nav-history').click()
   await expect(page.getByTestId('code-history-refresh-error')).toContainText('Failed to load current information')
   await expect(page.getByTestId('code-history-panel')).toContainText('Current provider session')

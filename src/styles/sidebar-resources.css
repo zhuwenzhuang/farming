@@ -147,8 +147,8 @@
 
 .code-sidebar-resource-row.active {
   --code-sidebar-resource-row-action-surface: var(--code-bg-hover-strong);
-  background: var(--code-component-sidebar-resource-row-active-background);
-  color: var(--code-component-sidebar-resource-row-active-color);
+  background: var(--code-bg-selected);
+  color: var(--code-accent);
 }
 
 .code-sidebar-resource-row:focus-visible {
@@ -171,7 +171,7 @@
   display: block;
 }
 
-.code-sidebar-resource-icon.running { color: var(--code-component-sidebar-resource-icon-running-color); }
+.code-sidebar-resource-icon.running { color: var(--code-success); }
 .code-sidebar-resource-icon.failed { color: var(--code-danger); }
 .code-sidebar-resource-icon.starting,
 .code-sidebar-resource-icon.stopping { color: var(--code-warning); }
@@ -281,5 +281,5 @@
 }
 
 .code-sidebar-resource-icon.running {
-  background: var(--code-component-sidebar-resource-icon-running-background);
+  background: var(--code-success-soft);
 }

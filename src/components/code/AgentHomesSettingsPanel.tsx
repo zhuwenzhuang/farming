@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { CheckGlyph, ChevronLeftGlyph, CloseGlyph, ColorModeGlyph, PlayGlyph } from '@/components/IconGlyphs'
 import { CodeSelect } from '@/components/CodeSelect'
 import { appPath } from '@/lib/base-path'
@@ -37,6 +37,14 @@ import {
 } from '@/lib/agent-completion-notifications'
 import { usePetDefaultAppearance } from './pet/usePetDefaultAppearance'
 import type { GlobalSettings } from './types'
+import { APPEARANCE_THEMES, type ResolvedAppearance } from '../../../shared/appearance-themes'
+
+function appearanceSwatchStyle(appearance: 'system' | ResolvedAppearance): CSSProperties {
+  const background = appearance === 'system'
+    ? `linear-gradient(135deg, ${APPEARANCE_THEMES.light.metadata.themeColor} 0 48%, ${APPEARANCE_THEMES.dark.metadata.themeColor} 52% 100%)`
+    : APPEARANCE_THEMES[appearance].metadata.themeColor
+  return { background }
+}
 
 type UpdateStatus = {
   method?: string
@@ -748,7 +756,11 @@ export function AgentHomesSettingsPanel({
                       aria-pressed={uiPreferences.appearance === appearance}
                       onClick={() => onUpdateUiPreferences({ appearance })}
                     >
-                      <span className="code-settings-appearance-swatch" aria-hidden="true" />
+                      <span
+                        className="code-settings-appearance-swatch"
+                        style={appearanceSwatchStyle(appearance)}
+                        aria-hidden="true"
+                      />
                       <span>{appearance === 'system'
                         ? copy.system
                         : appearance === 'light'

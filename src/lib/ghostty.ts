@@ -1,5 +1,6 @@
 import { appPath } from '@/lib/base-path'
 import type { TerminalSearchOptions } from '@/lib/terminal-search'
+import { APPEARANCE_THEMES } from '../../shared/appearance-themes'
 
 /**
  * Ghostty-web terminal loader and instance factory.
@@ -88,29 +89,7 @@ interface GhosttyModule {
   FitAddon: new () => GhosttyFitAddon
 }
 
-export const DEFAULT_THEME = {
-  background: '#ffffff',
-  foreground: '#24292f',
-  cursor: '#24292f',
-  cursorAccent: '#ffffff',
-  selectionBackground: 'rgba(31, 35, 40, 0.18)',
-  black: '#24292f',
-  red: '#cf222e',
-  green: '#1a7f37',
-  yellow: '#9a6700',
-  blue: '#0969da',
-  magenta: '#8250df',
-  cyan: '#1b7c83',
-  white: '#57606a',
-  brightBlack: '#6e7781',
-  brightRed: '#a40e26',
-  brightGreen: '#2da44e',
-  brightYellow: '#bf8700',
-  brightBlue: '#218bff',
-  brightMagenta: '#a475f9',
-  brightCyan: '#3192aa',
-  brightWhite: '#24292f',
-}
+export const DEFAULT_THEME = APPEARANCE_THEMES.light.terminal
 
 export const DEFAULT_FONT_FAMILY = [
   '"JetBrains Mono"',

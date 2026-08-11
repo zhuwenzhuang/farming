@@ -73,6 +73,9 @@ Comment ID 与 Operation Type。Stale Response 不能修改更新 Review，也�
 Review 使用一套 File-list-first Workspace。File Row 展示 Change Type、Summary、Reviewed State、
 Comment 与可展开 Inline Diff，不在其它 Panel 重复同一 Catalog。
 
+Review 跟随 Farming Code 的权威外观偏好。画布、控件、语法、评论与 Diff State 统一消费
+共享语义主题角色；该 Route 不得再退化为固定的 Light 皮肤。
+
 Reviewed Action 只在 Row Hover、Keyboard Focus 或 Expanded 时视觉浮现。Loaded、Loading、Failed、
 Binary、Truncated 与 Unavailable Diff State 都明确展示。Common-line Gap 按有界 Range 展开，
 不能移动另一侧边界，也不能因失败丢失 Control。

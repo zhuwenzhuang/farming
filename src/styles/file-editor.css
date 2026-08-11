@@ -55,7 +55,7 @@
   display: flex;
   flex-direction: column;
   border-bottom: 0;
-  background: #f6f7f3;
+  background: var(--code-bg-chrome);
 }
 
 .code-file-editor-tab-strip {
@@ -63,7 +63,7 @@
   position: relative;
   display: flex;
   align-items: stretch;
-  border-bottom: 1px solid rgba(36, 41, 47, 0.08);
+  border-bottom: 1px solid var(--code-border-subtle);
   background: var(--code-bg-inset);
   border-color: var(--code-border);
 }
@@ -111,7 +111,7 @@
   align-items: center;
   gap: 6px;
   padding: 0 6px 0 10px;
-  border-right: 1px solid rgba(36, 41, 47, 0.08);
+  border-right: 1px solid var(--code-border);
   border-top: 1px solid transparent;
   background: transparent;
   color: var(--code-text);
@@ -121,7 +121,7 @@
 
 .code-file-editor-tab.active {
   border-top-color: transparent;
-  background: var(--code-component-file-editor-tab-active-background);
+  background: var(--code-terminal-bg);
   color: var(--code-text);
 }
 
@@ -133,7 +133,7 @@
   bottom: -1px;
   left: 0;
   z-index: 1;
-  background: var(--code-file-editor-tab-active-after-background);
+  background: var(--code-bg-selected);
 }
 
 .code-file-editor-tab[data-dragging='true'] {
@@ -153,7 +153,7 @@
 }
 
 .code-file-editor-tab:focus-visible {
-  outline: 2px solid #8f9b88;
+  outline: 2px solid var(--code-focus-ring);
   outline-offset: -2px;
 }
 
@@ -168,7 +168,7 @@
 }
 
 .code-file-editor-tab.warning.active {
-  border-top-color: #bf7b18;
+  border-top-color: var(--code-warning);
 }
 
 .code-file-editor-tab-tail {
@@ -230,7 +230,7 @@
   height: 7px;
   position: absolute;
   border-radius: 999px;
-  background: #c27d1a;
+  background: var(--code-warning);
 }
 
 .code-file-editor-tab:hover .code-file-editor-dirty,
@@ -252,7 +252,7 @@
   align-items: center;
   gap: 0;
   overflow: hidden;
-  color: #616861;
+  color: var(--code-text-muted);
   font-size: 13px;
   white-space: nowrap;
 }
@@ -265,7 +265,7 @@
   padding: 0;
   border: 0;
   background: transparent;
-  color: var(--code-component-file-editor-breadcrumb-color);
+  color: var(--code-text-muted);
   cursor: pointer;
   font: inherit;
 }
@@ -276,14 +276,14 @@
 
 .code-file-editor-breadcrumb.current {
   flex-shrink: 0;
-  color: #4b524b;
+  color: var(--code-text);
 }
 
 .code-file-editor-breadcrumb:hover,
 .code-file-editor-breadcrumb:focus-visible {
-  color: var(--code-component-file-editor-breadcrumb-hover-color);
+  color: var(--code-text);
   outline: 0;
-  background: var(--code-component-file-editor-breadcrumb-hover-background);
+  background: var(--code-bg-hover);
 }
 
 .code-file-editor-breadcrumb-name {
@@ -306,7 +306,7 @@
   align-items: center;
   justify-content: center;
   flex: 0 0 16px;
-  color: #9aa198;
+  color: var(--code-text-quiet);
 }
 
 .code-file-editor-breadcrumb-separator::before {
@@ -334,22 +334,22 @@
   border: 0;
   border-radius: 4px;
   background: transparent;
-  color: var(--code-component-file-editor-action-color);
+  color: var(--code-text-muted);
   cursor: pointer;
 }
 
 .code-file-editor-action:hover:not(:disabled) {
-  background: var(--code-component-file-editor-action-hover-disabled-background);
-  color: var(--code-component-file-editor-action-hover-disabled-color);
+  background: var(--code-bg-disabled);
+  color: var(--code-text);
 }
 
 .code-file-editor-action.active {
-  background: var(--code-component-file-editor-action-active-background);
-  color: var(--code-component-file-editor-action-active-color);
+  background: var(--code-bg-selected);
+  color: var(--code-text);
 }
 
 .code-file-editor-action:disabled {
-  color: #a1a69e;
+  color: var(--code-text-quiet);
   cursor: not-allowed;
 }
 
@@ -358,7 +358,7 @@
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
-  border-right: 1px solid rgba(36, 41, 47, 0.08);
+  border-right: 1px solid var(--code-border-subtle);
   border-color: var(--code-border-subtle);
 }
 
@@ -376,7 +376,7 @@
 }
 
 .code-file-editor-agent-return {
-  color: #525a50;
+  color: var(--code-text-muted);
 }
 
 .code-file-editor-navigation-divider {
@@ -430,7 +430,7 @@
 }
 
 .code-file-editor-action.overwrite {
-  color: #9d6b1d;
+  color: var(--code-warning);
 }
 
 .code-file-editor-action .code-file-editor-action-svg {
@@ -440,21 +440,21 @@
 }
 
 .code-file-editor-status {
-  color: #6d736b;
+  color: var(--code-text-muted);
   font-size: 12px;
   white-space: nowrap;
 }
 
 .code-file-editor-status.warning {
-  color: #9d6b1d;
+  color: var(--code-warning);
   font-weight: 650;
 }
 
 .code-file-editor-alert {
   padding: 8px 14px;
-  border-bottom: 1px solid #ecd8b4;
-  background: #fff7e8;
-  color: #7a4b00;
+  border-bottom: 1px solid color-mix(in srgb, var(--code-warning) 28%, transparent);
+  background: var(--code-warning-soft);
+  color: var(--code-warning);
   font-size: 13px;
 }
 
@@ -479,8 +479,8 @@
 
 .code-file-editor-source-region {
   display: flex;
-  background: var(--code-component-file-editor-source-region-background);
-  color: var(--code-component-file-editor-source-region-color);
+  background: var(--code-terminal-bg);
+  color: var(--code-text);
 }
 
 .code-file-editor-source-region.hidden {
@@ -498,7 +498,7 @@
 .code-file-editor-source-region.markdown-split .code-file-monaco {
   min-width: 0;
   height: 100%;
-  border-right: 1px solid rgba(36, 41, 47, 0.08);
+  border-right: 1px solid var(--code-border-subtle);
   border-color: var(--code-border);
 }
 
@@ -512,8 +512,8 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: var(--code-component-file-diff-view-background);
-  color: var(--code-component-file-diff-view-color);
+  background: var(--code-terminal-bg);
+  color: var(--code-text);
 }
 
 .code-file-diff-header {
@@ -524,7 +524,7 @@
   align-items: center;
   gap: 10px;
   padding: 0 10px 0 12px;
-  border-bottom: 1px solid rgba(36, 41, 47, 0.08);
+  border-bottom: 1px solid var(--code-border-subtle);
   background: var(--code-bg-muted);
   border-color: var(--code-border);
   color: var(--code-text-muted);
@@ -594,7 +594,7 @@
 .code-file-diff-state {
   flex: 0 0 auto;
   padding: 8px 12px;
-  border-bottom: 1px solid rgba(36, 41, 47, 0.08);
+  border-bottom: 1px solid var(--code-border-subtle);
   background: var(--code-bg-muted);
   color: var(--code-text-muted);
   font-size: 13px;
@@ -641,9 +641,9 @@ body.code-mode .code-file-editor-fallback-textarea {
   display: grid;
   place-items: center;
   padding: 20px;
-  background: var(--code-component-file-preview-panel-background);
+  background: var(--code-terminal-bg);
   overflow: auto;
-  color: var(--code-component-file-preview-panel-color);
+  color: var(--code-text);
 }
 
 .code-file-image-preview-frame {
@@ -691,7 +691,7 @@ body.code-mode .code-file-editor-fallback-textarea {
 
 .code-file-preview-panel.metadata {
   background:
-    var(--code-file-editor-file-preview-panel-metadata-background);
+    var(--code-file-metadata-bg);
 }
 
 .code-file-preview-panel.markdown {
@@ -792,8 +792,8 @@ body.code-mode .code-file-editor-fallback-textarea {
   .code-file-editor {
     min-width: 0;
     overflow: hidden;
-    background: var(--code-component-file-editor-background);
-    color: var(--code-component-file-editor-color);
+    background: var(--code-terminal-bg);
+    color: var(--code-text);
   }
 }
 
@@ -804,7 +804,7 @@ body.code-mode .code-file-editor-fallback-textarea {
 .code-file-editor-statusbar {
     min-width: 0;
     background: var(--code-bg-muted);
-    border-color: var(--code-file-editor-bar-border-color);
+    border-color: var(--code-border);
     color: var(--code-text-muted);
   }
 }
@@ -813,7 +813,7 @@ body.code-mode .code-file-editor-fallback-textarea {
 
   .code-file-editor-tab {
     max-width: min(280px, 76vw);
-    border-color: var(--code-component-file-editor-tab-border-color);
+    border-color: var(--code-border);
     color: var(--code-text-muted);
   }
 }
@@ -850,8 +850,8 @@ body.code-mode .code-file-editor-fallback-textarea {
 
   .code-file-monaco {
     overflow: hidden;
-    background: var(--code-component-file-monaco-background);
-    color: var(--code-component-file-monaco-color);
+    background: var(--code-terminal-bg);
+    color: var(--code-text);
   }
 }
 
@@ -945,11 +945,11 @@ body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file
     height: 40px;
     border: 0;
     border-radius: 999px;
-    background: var(--code-file-editor-markdown-reading-file-editor-action-source-preview-background);
-    color: var(--code-file-editor-markdown-reading-file-editor-action-source-preview-color);
-    box-shadow: var(--code-file-editor-markdown-reading-file-editor-action-source-preview-box-shadow);
-    backdrop-filter: var(--code-file-editor-markdown-reading-file-editor-action-source-preview-backdrop-filter);
-    -webkit-backdrop-filter: var(--code-file-editor-markdown-reading-file-editor-action-source-preview-webkit-backdrop-filter);
+    background: var(--code-info-soft);
+    color: var(--code-info);
+    box-shadow: var(--code-shadow-raised);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 }
 
@@ -957,8 +957,8 @@ body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file
 
   body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.source-preview.active {
     border-color: transparent;
-    background: var(--code-file-editor-action-source-preview-active-background);
-    color: var(--code-file-editor-action-source-preview-active-color);
+    background: transparent;
+    color: var(--code-info);
   }
 }
 
@@ -973,7 +973,7 @@ body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file
 
   body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.source-preview:hover:not(:disabled),
 body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.source-preview:focus-visible {
-    background: var(--code-file-editor-hover-disabled-focus-visible-background);
+    background: var(--code-bg-disabled);
     outline: 0;
   }
 }
@@ -1031,9 +1031,9 @@ body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file
 }
 
 .code-file-editor-tabs::-webkit-scrollbar-thumb {
-  background: var(--code-file-editor-tabs-webkit-scrollbar-thumb-background);
+  background: var(--code-bg-inset);
 }
 
 body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.source-preview.active {
-  box-shadow: var(--code-file-editor-action-source-preview-active-box-shadow);
+  box-shadow: none;
 }

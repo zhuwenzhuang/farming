@@ -15,11 +15,11 @@
   display: grid;
   gap: 8px;
   padding: 13px 34px 12px 13px;
-  border: 1px solid rgba(93, 103, 94, 0.2);
+  border: 1px solid var(--code-border);
   border-radius: 12px;
-  background: var(--code-pet-bubble-background);
+  background: var(--code-bg-raised);
   box-shadow:
-    var(--code-pet-bubble-box-shadow);
+    var(--code-shadow-soft);
   color: var(--code-text-strong);
   font-family: -apple-system, system-ui, "SF Pro Text", "Segoe UI", sans-serif;
   -webkit-backdrop-filter: blur(14px) saturate(0.9);
@@ -51,7 +51,7 @@
 }
 
 .code-pet-glass-rest-time {
-  color: var(--code-pet-glass-rest-time-color);
+  color: var(--code-text);
   font-family: -apple-system, system-ui, "SF Pro Display", "Segoe UI", sans-serif;
   font-size: clamp(64px, 8.5vw, 104px);
   font-variant-numeric: tabular-nums;
@@ -70,7 +70,7 @@
 
 .code-pet-glass-rest-content p {
   margin: 0;
-  color: var(--code-pet-glass-rest-content-color);
+  color: var(--code-text);
   font-size: 13px;
   line-height: 20px;
 }
@@ -87,11 +87,11 @@
   min-height: 34px;
   margin: 0;
   padding: 6px 13px;
-  border: 1px solid rgba(75, 84, 76, 0.18);
+  border: 1px solid var(--code-border);
   border-radius: 999px;
-  background: var(--code-pet-glass-rest-content-background);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4);
-  color: var(--code-pet-glass-rest-content-color-375988);
+  background: var(--code-bg-surface);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--code-bg-raised) 40%, transparent);
+  color: var(--code-text);
   cursor: pointer;
   font: inherit;
   font-size: 12px;
@@ -99,9 +99,9 @@
 
 .code-pet-glass-rest-content button:hover,
 .code-pet-glass-rest-content button:focus-visible {
-  border-color: var(--code-pet-glass-rest-content-hover-focus-visible-border-color);
-  background: var(--code-pet-glass-rest-content-hover-focus-visible-background);
-  color: var(--code-pet-glass-rest-content-hover-focus-visible-color);
+  border-color: var(--code-focus-ring);
+  background: var(--code-bg-hover);
+  color: var(--code-accent);
   outline: 0;
 }
 
@@ -166,7 +166,7 @@
   gap: 16px;
   padding: 10px 11px 10px 18px;
   overflow: hidden;
-  border: 1px solid rgba(225, 232, 227, 0.3);
+  border: 1px solid var(--code-pet-black-hole-status-border-color);
   border-radius: 999px;
   background:
     var(--code-pet-black-hole-status-background);
@@ -194,10 +194,10 @@
   background:
     linear-gradient(
       112deg,
-      rgba(255, 255, 255, 0.15),
+      color-mix(in srgb, var(--code-bg-raised) 15%, transparent),
       transparent 24%,
       transparent 76%,
-      rgba(255, 255, 255, 0.06)
+      color-mix(in srgb, var(--code-bg-raised) 6%, transparent)
     );
   pointer-events: none;
 }
@@ -209,8 +209,8 @@
   top: 0;
   right: 16%;
   left: 16%;
-  background: rgba(255, 255, 255, 0.46);
-  box-shadow: 0 1px 4px rgba(255, 255, 255, 0.16);
+  background: color-mix(in srgb, var(--code-bg-raised) 46%, transparent);
+  box-shadow: 0 1px 4px color-mix(in srgb, var(--code-bg-raised) 16%, transparent);
   pointer-events: none;
 }
 
@@ -348,13 +348,13 @@
   z-index: 1;
   margin: 0;
   padding: 7px 13px;
-  border: 1px solid rgba(38, 48, 43, 0.32);
+  border: 1px solid var(--code-pet-black-hole-button-border);
   border-radius: 999px;
   background:
-    var(--code-pet-black-hole-status-background-a5dd74);
+    var(--code-pet-black-hole-button-bg);
   box-shadow:
-    var(--code-pet-black-hole-status-box-shadow-9dff7a);
-  color: var(--code-pet-black-hole-status-color-11e735);
+    var(--code-pet-black-hole-button-shadow);
+  color: var(--code-pet-black-hole-button-text);
   cursor: pointer;
   font: inherit;
   font-size: 12px;
@@ -363,9 +363,9 @@
 
 .code-pet-black-hole-status button:hover,
 .code-pet-black-hole-status button:focus-visible {
-  border-color: var(--code-pet-black-hole-status-hover-focus-visible-border-color);
+  border-color: var(--code-pet-black-hole-button-hover-border);
   background:
-    var(--code-pet-black-hole-status-hover-focus-visible-background);
+    var(--code-pet-black-hole-button-hover-bg);
   color: var(--code-text-on-emphasis);
   outline: 0;
 }
@@ -382,7 +382,7 @@
   top: 7px;
   left: 12px;
   border-radius: 50%;
-  background: #bb774c;
+  background: var(--code-warning);
 }
 
 .code-pet-black-hole-rest.exiting .code-pet-black-hole-status {
@@ -434,9 +434,9 @@
   position: absolute;
   bottom: -6px;
   left: 8px;
-  border-right: 1px solid rgba(93, 103, 94, 0.2);
-  border-bottom: 1px solid rgba(93, 103, 94, 0.2);
-  background: var(--code-pet-bubble-after-background);
+  border-right: 1px solid var(--code-border);
+  border-bottom: 1px solid var(--code-border);
+  background: var(--code-bg-raised);
   transform: rotate(45deg);
 }
 
@@ -455,7 +455,7 @@
 
 .code-pet-bubble p {
   margin: 0;
-  color: var(--code-pet-bubble-color);
+  color: var(--code-text);
   font-size: 13px;
   line-height: 18px;
 }
@@ -473,8 +473,8 @@
   display: grid;
   place-items: center;
   border-radius: 50%;
-  background: rgba(52, 125, 72, 0.12);
-  color: #347d48;
+  background: var(--code-success-soft);
+  color: var(--code-success);
 }
 
 .code-pet-setup-success-icon svg {
@@ -489,7 +489,7 @@
 }
 
 .code-pet-error {
-  color: var(--code-pet-error-color);
+  color: var(--code-danger);
   font-size: 12px;
   line-height: 17px;
 }
@@ -533,7 +533,7 @@
 .code-pet-actions button {
   min-height: 30px;
   padding: 5px 9px;
-  border: 1px solid #d7dbd4;
+  border: 1px solid var(--code-border);
   border-radius: 7px;
   background: var(--code-bg-muted);
   color: var(--code-text-muted);
@@ -563,6 +563,12 @@
 }
 
 .code-pet-appearance-icon {
+  /* The black-hole preview is artwork, not interface chrome. Keep its identity
+     palette local and derive every translucent paint from these four hues. */
+  --pet-black-hole-core: #111315;
+  --pet-black-hole-gold: #d5a155;
+  --pet-black-hole-gold-bright: #f2cb7e;
+  --pet-black-hole-gold-dark: #614123;
   width: 24px;
   height: 24px;
   position: relative;
@@ -573,22 +579,22 @@
 }
 
 .code-pet-appearance-icon.glass {
-  border: 1px solid rgba(121, 139, 132, 0.28);
+  border: 1px solid var(--code-border-strong);
   background:
-    radial-gradient(circle at 34% 28%, rgba(255, 255, 255, 0.95) 0 16%, transparent 34%),
-    linear-gradient(145deg, rgba(235, 245, 240, 0.9), rgba(174, 198, 191, 0.38));
+    radial-gradient(circle at 34% 28%, color-mix(in srgb, var(--code-bg-raised) 95%, transparent) 0 16%, transparent 34%),
+    linear-gradient(145deg, color-mix(in srgb, var(--code-bg-inset) 90%, transparent), color-mix(in srgb, var(--code-info) 18%, transparent));
   box-shadow:
-    inset 0 0 0 3px rgba(255, 255, 255, 0.34),
-    0 3px 9px rgba(83, 104, 96, 0.16);
+    inset 0 0 0 3px color-mix(in srgb, var(--code-bg-raised) 34%, transparent),
+    0 3px 9px var(--code-shadow-color);
 }
 
 .code-pet-appearance-icon.black-hole {
   --code-pet-black-hole-spin-duration: 2.8s;
-  border: 4px solid rgba(190, 151, 94, 0.58);
-  background: #111315;
+  border: 4px solid color-mix(in srgb, var(--pet-black-hole-gold) 58%, transparent);
+  background: var(--pet-black-hole-core);
   box-shadow:
-    0 0 0 2px rgba(91, 72, 48, 0.18),
-    0 0 9px rgba(190, 151, 94, 0.34);
+    0 0 0 2px color-mix(in srgb, var(--pet-black-hole-gold-dark) 18%, transparent),
+    0 0 9px color-mix(in srgb, var(--pet-black-hole-gold) 34%, transparent);
 }
 
 .code-pet-appearance-icon.black-hole::before,
@@ -606,18 +612,18 @@
   left: -11px;
   background: conic-gradient(
     from 18deg,
-    rgba(97, 65, 35, 0.08) 0deg,
-    rgba(169, 119, 59, 0.48) 38deg,
-    rgba(242, 203, 126, 0.96) 74deg,
-    rgba(126, 82, 40, 0.18) 118deg,
-    rgba(235, 184, 103, 0.72) 178deg,
-    rgba(81, 54, 31, 0.08) 226deg,
-    rgba(213, 161, 85, 0.82) 294deg,
-    rgba(97, 65, 35, 0.08) 360deg
+    color-mix(in srgb, var(--pet-black-hole-gold-dark) 8%, transparent) 0deg,
+    color-mix(in srgb, var(--pet-black-hole-gold) 48%, transparent) 38deg,
+    color-mix(in srgb, var(--pet-black-hole-gold-bright) 96%, transparent) 74deg,
+    color-mix(in srgb, var(--pet-black-hole-gold-dark) 18%, transparent) 118deg,
+    color-mix(in srgb, var(--pet-black-hole-gold-bright) 72%, transparent) 178deg,
+    color-mix(in srgb, var(--pet-black-hole-gold-dark) 8%, transparent) 226deg,
+    color-mix(in srgb, var(--pet-black-hole-gold) 82%, transparent) 294deg,
+    color-mix(in srgb, var(--pet-black-hole-gold-dark) 8%, transparent) 360deg
   );
-  -webkit-mask: radial-gradient(circle, transparent 0 39%, #000 47% 63%, transparent 70%);
-  mask: radial-gradient(circle, transparent 0 39%, #000 47% 63%, transparent 70%);
-  filter: drop-shadow(0 0 3px rgba(214, 170, 101, 0.38));
+  -webkit-mask: radial-gradient(circle, transparent 0 39%, var(--code-text) 47% 63%, transparent 70%);
+  mask: radial-gradient(circle, transparent 0 39%, var(--code-text) 47% 63%, transparent 70%);
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--pet-black-hole-gold) 38%, transparent));
   transform: rotate(-13deg) scaleY(0.3) rotate(0deg);
   animation: code-pet-black-hole-disk-flow var(--code-pet-black-hole-spin-duration) linear infinite;
 }
@@ -627,8 +633,8 @@
   height: 9px;
   top: 3px;
   left: -8px;
-  border-bottom: 2px solid rgba(239, 194, 118, 0.72);
-  box-shadow: 0 3px 5px -4px rgba(255, 218, 148, 0.88);
+  border-bottom: 2px solid color-mix(in srgb, var(--pet-black-hole-gold-bright) 72%, transparent);
+  box-shadow: 0 3px 5px -4px color-mix(in srgb, var(--pet-black-hole-gold-bright) 88%, transparent);
   transform: rotate(-13deg);
   animation: code-pet-black-hole-disk-glow 1.4s ease-in-out infinite alternate;
 }
@@ -666,9 +672,9 @@
   align-content: start;
   gap: 7px;
   padding: 10px;
-  border: 1px solid rgba(93, 103, 94, 0.16);
+  border: 1px solid var(--code-border);
   border-radius: 10px;
-  background: var(--code-pet-appearance-select-background);
+  background: var(--code-bg-surface);
   color: var(--code-text-muted);
   cursor: pointer;
   font: inherit;
@@ -679,7 +685,7 @@
 .code-pet-appearance-select:focus-visible,
 .code-pet-appearance-select.selected {
   border-color: var(--code-border-strong);
-  background: var(--code-pet-appearance-select-selected-background);
+  background: var(--code-bg-selected);
   outline: 0;
 }
 
@@ -696,7 +702,7 @@
 }
 
 .code-pet-appearance-options small {
-  color: var(--code-pet-appearance-options-color);
+  color: var(--code-text);
   font-size: 10px;
   font-weight: 400;
   line-height: 14px;
@@ -708,8 +714,8 @@
   right: 8px;
   padding: 1px 5px;
   border-radius: 999px;
-  background: rgba(83, 100, 127, 0.1);
-  color: #596983;
+  background: var(--code-info-soft);
+  color: var(--code-info);
   font-size: 9px;
   font-style: normal;
   line-height: 14px;
@@ -726,7 +732,7 @@
   padding: 0;
   border: 1px solid transparent;
   border-radius: 50%;
-  background: var(--code-pet-appearance-preview-background);
+  background: var(--code-info-soft);
   color: var(--code-text-muted);
   cursor: pointer;
 }
@@ -739,52 +745,52 @@
 .code-pet-appearance-preview:hover,
 .code-pet-appearance-preview:focus-visible {
   border-color: var(--code-border-strong);
-  background: var(--code-pet-appearance-preview-focus-visible-background);
+  background: var(--code-info-soft);
   outline: 0;
 }
 
 .code-pet-appearance-select {
-  border-color: var(--code-pet-appearance-select-pet-appearance-preview-border-color);
+  border-color: var(--code-border);
 }
 
 .code-pet-appearance-preview {
-  border-color: var(--code-pet-appearance-select-pet-appearance-preview-border-color);
+  border-color: var(--code-border);
 }
 
 .code-pet-appearance-select:hover {
-  color: var(--code-pet-focus-visible-selected-pet-appearance-preview-color);
+  color: var(--code-info);
 }
 
 .code-pet-appearance-select:focus-visible {
-  color: var(--code-pet-focus-visible-selected-pet-appearance-preview-color);
+  color: var(--code-info);
 }
 
 .code-pet-appearance-select.selected {
-  color: var(--code-pet-focus-visible-selected-pet-appearance-preview-color);
+  color: var(--code-info);
 }
 
 .code-pet-appearance-preview:hover {
-  color: var(--code-pet-focus-visible-selected-pet-appearance-preview-color);
+  color: var(--code-info);
 }
 
 .code-pet-appearance-preview:focus-visible {
-  color: var(--code-pet-focus-visible-selected-pet-appearance-preview-color);
+  color: var(--code-info);
 }
 
 .code-pet-bubble {
-  border-color: var(--code-pet-bubble-border-color);
+  border-color: var(--code-border);
 }
 
 .code-pet-glass-rest-content button {
-  border-color: var(--code-pet-glass-rest-content-border-color);
+  border-color: var(--code-border);
 }
 
 .code-pet-bubble::after {
-  border-color: var(--code-pet-bubble-after-border-color);
+  border-color: var(--code-border);
 }
 
 .code-pet-actions button {
-  border-color: var(--code-pet-actions-border-color);
+  border-color: var(--code-border);
 }
 
 .code-pet-black-hole-status {
@@ -792,5 +798,5 @@
 }
 
 .code-pet-black-hole-status button {
-  border-color: var(--code-pet-black-hole-status-border-color-962a94);
+  border-color: var(--code-pet-black-hole-button-border);
 }

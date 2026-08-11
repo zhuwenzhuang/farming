@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="color-scheme" content="light dark" />
     <meta name="theme-color" content="#ffffff" />
-    <style>
+    <!-- appearance-bootstrap:start -->
+    <style id="farming-appearance-bootstrap-style">
       html,
       body {
         background: #ffffff;
@@ -25,24 +26,21 @@
     </style>
     <script>
       (() => {
+        const themes = {"light":{"canvas":"#ffffff","colorScheme":"light","themeColor":"#ffffff"},"dark":{"canvas":"#181818","colorScheme":"dark","themeColor":"#181818"},"paper":{"canvas":"#f7f4ed","colorScheme":"light","themeColor":"#f7f4ed"}}
         const root = document.documentElement
-        const preference = ['light', 'dark', 'paper'].includes(root.dataset.appearancePreference)
+        const preference = Object.hasOwn(themes, root.dataset.appearancePreference)
           ? root.dataset.appearancePreference
           : 'system'
         const appearance = preference === 'system'
           ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
           : preference
+        const theme = themes[appearance]
         root.dataset.appearance = appearance
-        document.querySelector('meta[name="color-scheme"]')?.setAttribute(
-          'content',
-          appearance === 'paper' ? 'light' : appearance,
-        )
-        document.querySelector('meta[name="theme-color"]')?.setAttribute(
-          'content',
-          appearance === 'dark' ? '#181818' : appearance === 'paper' ? '#f7f4ed' : '#ffffff',
-        )
+        document.querySelector('meta[name="color-scheme"]')?.setAttribute('content', theme.colorScheme)
+        document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme.themeColor)
       })()
     </script>
+    <!-- appearance-bootstrap:end -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Farming 2" />

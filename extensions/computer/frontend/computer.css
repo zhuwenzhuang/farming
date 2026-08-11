@@ -1,4 +1,4 @@
-.farming-computer-detail.error { color: #c53d3d; }
+.farming-computer-detail.error { color: var(--code-danger); }
 
 .farming-computer-more-wrap {
   position: relative;
@@ -17,8 +17,8 @@
   padding: 4px;
   border: 1px solid var(--code-border);
   border-radius: 6px;
-  background: var(--code-bg);
-  box-shadow: 0 8px 18px rgba(31, 35, 40, 0.16);
+  background: var(--code-bg-raised);
+  box-shadow: var(--code-shadow-soft);
 }
 
 .farming-computer-more-menu button {
@@ -33,13 +33,10 @@
 
 .farming-computer-more-menu button:hover,
 .farming-computer-more-menu button:focus-visible {
-  background: var(--code-hover);
+  background: var(--code-bg-hover);
 }
 
-.farming-computer-more-menu button.danger { color: #c53d3d; }
-
-body.code-mode[data-appearance='dark'] .farming-computer-detail.error,
-body.code-mode[data-appearance='dark'] .farming-computer-more-menu button.danger { color: #ff7b72; }
+.farming-computer-more-menu button.danger { color: var(--code-danger); }
 
 .farming-computer-viewer {
   display: flex;
@@ -48,7 +45,7 @@ body.code-mode[data-appearance='dark'] .farming-computer-more-menu button.danger
   min-width: 0;
   height: 100%;
   min-height: 0;
-  background: var(--code-bg);
+  background: var(--code-bg-canvas);
 }
 
 .farming-computer-toolbar {
@@ -69,7 +66,7 @@ body.code-mode[data-appearance='dark'] .farming-computer-more-menu button.danger
 }
 
 .farming-computer-toolbar button:hover {
-  background: var(--code-hover);
+  background: var(--code-bg-hover);
   color: var(--code-text);
 }
 
@@ -110,7 +107,7 @@ body.code-mode[data-appearance='dark'] .farming-computer-more-menu button.danger
   width: 100%;
   height: 100%;
   border: 0;
-  background: #111;
+  background: var(--code-bg-inset);
 }
 
 .farming-computer-empty-state {
@@ -129,9 +126,9 @@ body.code-mode[data-appearance='dark'] .farming-computer-more-menu button.danger
 .farming-computer-error {
   position: absolute;
   inset: auto 12px 12px;
-  border: 1px solid #c34747;
+  border: 1px solid var(--code-border-danger);
   border-radius: 8px;
   padding: 8px 10px;
-  background: color-mix(in srgb, var(--code-bg) 92%, #c34747);
+  background: var(--code-danger-soft);
   color: var(--code-text);
 }

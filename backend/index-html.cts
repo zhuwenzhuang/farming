@@ -1,3 +1,5 @@
+const appearanceThemes = require('../shared/appearance-themes.json');
+
 function normalizeBasePath(basePath: unknown): string {
   if (!basePath || basePath === '/') return '';
   const value = String(basePath);
@@ -61,12 +63,10 @@ function applyIndexHtmlAppearance(html: unknown, appearance: unknown): string {
     );
   }
 
-  const colorScheme = normalizedAppearance === 'system'
-    ? 'light dark'
-    : normalizedAppearance === 'paper' ? 'light' : normalizedAppearance;
-  const themeColor = normalizedAppearance === 'dark'
-    ? '#181818'
-    : normalizedAppearance === 'paper' ? '#f7f4ed' : '#ffffff';
+  const resolvedAppearance = normalizedAppearance === 'system' ? 'light' : normalizedAppearance;
+  const metadata = appearanceThemes[resolvedAppearance].metadata;
+  const colorScheme = normalizedAppearance === 'system' ? 'light dark' : metadata.colorScheme;
+  const themeColor = metadata.themeColor;
   return source
     .replace(
       /(<meta\s+name="color-scheme"\s+content=")[^"]*(")/i,

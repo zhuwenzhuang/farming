@@ -10,10 +10,10 @@ import { createTerminalClipboardProvider } from '@/lib/clipboard'
 import {
   DEFAULT_FONT_FAMILY,
   DEFAULT_FONT_SIZE,
-  DEFAULT_THEME,
 } from '@/lib/ghostty'
 import type { GhosttyFitAddon, GhosttyTerminal } from '@/lib/ghostty'
 import type { TerminalSearchOptions } from '@/lib/terminal-search'
+import { APPEARANCE_THEMES, appearanceTheme, type AppearanceThemeDefinition } from '../../shared/appearance-themes'
 
 export type XtermBackedTerminal = GhosttyTerminal & {
   __farmingTerminalEngine: 'xterm'
@@ -41,79 +41,13 @@ export type XtermBackedTerminal = GhosttyTerminal & {
   refresh?: (start: number, end: number) => void
 }
 
-const DARK_THEME = {
-  background: '#181818',
-  foreground: '#ffffff',
-  cursor: '#ffffff',
-  cursorAccent: '#181818',
-  selectionBackground: 'rgba(51, 156, 255, 0.32)',
-  selectionInactiveBackground: 'rgba(51, 156, 255, 0.22)',
-  black: '#484f58',
-  red: '#fa423e',
-  green: '#40c977',
-  yellow: '#d29922',
-  blue: '#339cff',
-  magenta: '#ad7bf9',
-  cyan: '#39c5cf',
-  white: '#b1bac4',
-  brightBlack: '#6e7681',
-  brightRed: '#ffa198',
-  brightGreen: '#56d364',
-  brightYellow: '#e3b341',
-  brightBlue: '#79c0ff',
-  brightMagenta: '#d2a8ff',
-  brightCyan: '#56d4dd',
-  brightWhite: '#f0f6fc',
-  scrollbarSliderBackground: 'rgba(139, 148, 158, 0.32)',
-  scrollbarSliderHoverBackground: 'rgba(139, 148, 158, 0.44)',
-  scrollbarSliderActiveBackground: 'rgba(139, 148, 158, 0.56)',
-}
-
-const PAPER_THEME = {
-  background: '#f9f6ef',
-  foreground: '#30312b',
-  cursor: '#3a6e4a',
-  cursorAccent: '#f9f6ef',
-  selectionBackground: 'rgba(58, 110, 74, 0.22)',
-  selectionInactiveBackground: 'rgba(58, 110, 74, 0.14)',
-  black: '#3f4039',
-  red: '#aa3731',
-  green: '#448c27',
-  yellow: '#9c5d27',
-  blue: '#4b69c6',
-  magenta: '#7a3e9d',
-  cyan: '#267f99',
-  white: '#d5cebf',
-  brightBlack: '#77776e',
-  brightRed: '#c44b45',
-  brightGreen: '#568f3b',
-  brightYellow: '#b57432',
-  brightBlue: '#637ed3',
-  brightMagenta: '#9158ae',
-  brightCyan: '#3d91a8',
-  brightWhite: '#fffdf8',
-  scrollbarSliderBackground: 'rgba(98, 99, 91, 0.22)',
-  scrollbarSliderHoverBackground: 'rgba(98, 99, 91, 0.32)',
-  scrollbarSliderActiveBackground: 'rgba(98, 99, 91, 0.42)',
-}
+type AppearanceTerminalTheme = AppearanceThemeDefinition['terminal']
 
 function xtermThemeForCurrentAppearance() {
-  if (typeof document !== 'undefined' && document.body?.dataset.appearance === 'dark') {
-    return DARK_THEME
-  }
-  if (typeof document !== 'undefined' && document.body?.dataset.appearance === 'paper') {
-    return PAPER_THEME
-  }
-  return {
-    ...DEFAULT_THEME,
-    selectionInactiveBackground: DEFAULT_THEME.selectionBackground,
-    scrollbarSliderBackground: 'rgba(87, 96, 106, 0.24)',
-    scrollbarSliderHoverBackground: 'rgba(87, 96, 106, 0.34)',
-    scrollbarSliderActiveBackground: 'rgba(87, 96, 106, 0.44)',
-  }
+  return appearanceTheme(typeof document === 'undefined' ? 'light' : document.body?.dataset.appearance).terminal
 }
 
-function applyXtermAppearance(terminal: Terminal, themeOverride?: typeof DARK_THEME) {
+function applyXtermAppearance(terminal: Terminal, themeOverride?: AppearanceTerminalTheme) {
   const theme = themeOverride || xtermThemeForCurrentAppearance()
   terminal.options.theme = theme
   applyXtermElementAppearance(terminal, theme)
@@ -149,7 +83,7 @@ function applyXtermElementAppearance(terminal: Terminal, theme = xtermThemeForCu
   })
 }
 
-function scheduleXtermAppearanceRefresh(terminal: Terminal, themeOverride?: typeof DARK_THEME) {
+function scheduleXtermAppearanceRefresh(terminal: Terminal, themeOverride?: AppearanceTerminalTheme) {
   if (typeof window === 'undefined') return () => {}
 
   const refresh = () => {
@@ -164,7 +98,7 @@ function scheduleXtermAppearanceRefresh(terminal: Terminal, themeOverride?: type
   }
 }
 
-function watchXtermAppearance(terminal: Terminal, themeOverride?: typeof DARK_THEME) {
+function watchXtermAppearance(terminal: Terminal, themeOverride?: AppearanceTerminalTheme) {
   if (typeof document === 'undefined') return
   const cancelScheduledRefreshes: Array<() => void> = []
   applyXtermAppearance(terminal, themeOverride)
@@ -276,43 +210,14 @@ function syncXtermViewportTopLine(terminal: Terminal, line: number) {
 }
 
 function xtermSearchDecorations() {
-  if (typeof document !== 'undefined' && document.body?.dataset.appearance === 'dark') {
-    return {
-      matchBackground: '#3b3f1c',
-      matchBorder: '#8a7b24',
-      matchOverviewRuler: '#8a7b24',
-      activeMatchBackground: '#8a5a12',
-      activeMatchBorder: '#d29922',
-      activeMatchColorOverviewRuler: '#d29922',
-    }
-  }
-
-  if (typeof document !== 'undefined' && document.body?.dataset.appearance === 'paper') {
-    return {
-      matchBackground: '#f6e8bc',
-      matchBorder: '#b58128',
-      matchOverviewRuler: '#b58128',
-      activeMatchBackground: '#e9c96f',
-      activeMatchBorder: '#8b5a18',
-      activeMatchColorOverviewRuler: '#8b5a18',
-    }
-  }
-
-  return {
-    matchBackground: '#fff4a3',
-    matchBorder: '#d4a72c',
-    matchOverviewRuler: '#d4a72c',
-    activeMatchBackground: '#ffd33d',
-    activeMatchBorder: '#9a6700',
-    activeMatchColorOverviewRuler: '#9a6700',
-  }
+  return appearanceTheme(typeof document === 'undefined' ? 'light' : document.body?.dataset.appearance).terminalSearch
 }
 
 function decorateXtermTerminal(
   terminal: Terminal,
   searchAddon: SearchAddon,
   serializeAddon: SerializeAddon,
-  themeOverride?: typeof DARK_THEME,
+  themeOverride?: AppearanceTerminalTheme,
 ): XtermBackedTerminal {
   const adapted = terminal as unknown as XtermBackedTerminal
   const nativeOpen = terminal.open.bind(terminal)
@@ -495,7 +400,7 @@ export async function createXtermTerminalInstance(options?: {
   fitAddon: GhosttyFitAddon
 }> {
   const fontSize = options?.fontSize ?? DEFAULT_FONT_SIZE
-  const themeOverride = options?.theme === 'dark' ? DARK_THEME : undefined
+  const themeOverride = options?.theme === 'dark' ? APPEARANCE_THEMES.dark.terminal : undefined
   const terminal = new Terminal({
     allowProposedApi: true,
     altClickMovesCursor: false,
