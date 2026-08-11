@@ -190,6 +190,8 @@ HTTP, WebSocket, persistence, and runtime-host boundaries.
   interpret provider names. A shared
   Terminal startup coordinator owns mutable ordering and readiness state;
   adapters contribute stateless resource-scope and readiness policy only.
+  Terminal-notification idle stability is a duration declared by the adapter;
+  the shared Attention tracker owns the timer, runtime fence, and cleanup.
 - The Code Composer stores one provider-neutral launch profile shape. Composer
   provider profile adapters own settings-field compatibility, option
   normalization, permission labels, model/reasoning/service-tier transitions,

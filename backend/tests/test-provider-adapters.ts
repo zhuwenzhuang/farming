@@ -21,7 +21,7 @@ const {
   providerSupportsSharedAcpRuntime,
   providerSupportsRuntime,
   providerTerminalStartupPolicy,
-  providerTerminalNotificationUsesIdleFence,
+  providerTerminalNotificationIdleFenceMs,
   providerTreatsLegacyAcpRequestAsChat,
 } = require('../provider-adapters.cjs');
 
@@ -153,8 +153,8 @@ function run() {
   assert.strictEqual(providerPermissionRestartPolicy('opencode', 'full'), null);
   assert.strictEqual(providerRequiresStableTerminalSessionAfterInput('codex'), true);
   assert.strictEqual(providerRequiresStableTerminalSessionAfterInput('claude'), false);
-  assert.strictEqual(providerTerminalNotificationUsesIdleFence('qwen'), true);
-  assert.strictEqual(providerTerminalNotificationUsesIdleFence('codex'), false);
+  assert.strictEqual(providerTerminalNotificationIdleFenceMs('qwen'), 3_000);
+  assert.strictEqual(providerTerminalNotificationIdleFenceMs('codex'), 0);
 
   for (const adapter of adapters) {
     assert.strictEqual(getProviderAdapter(adapter.id), adapter);

@@ -6,20 +6,18 @@
  * cursor requests. Guards exclude the Main Agent and ephemeral shell
  * completions, require new output after recovery, and keep read cursors
  * monotonic. Successful transitions update the record, then persist and
- * publish through the narrow host port. Qwen idle detection has one timer per
+ * publish through the narrow host port. Provider idle detection has one timer per
  * Agent, revalidates identity/runtime/activity before firing, cancels when the
  * Agent becomes active, and is fully drained on Manager disposal.
  */
 
 import type { AgentId, AgentRecord as TypedAgentRecord } from './agent-manager-record-types.js';
 import { deriveAgentTerminalStatus } from './agent-terminal-status.cjs';
-import { providerForProgram, providerTerminalNotificationUsesIdleFence } from './provider-adapters.cjs';
+import { providerForProgram, providerTerminalNotificationIdleFenceMs } from './provider-adapters.cjs';
 
 const path = require('path');
 
 type UnknownRecord = Record<string, unknown>;
-
-const QWEN_TERMINAL_IDLE_STABILITY_MS = 3_000;
 
 interface AgentReadStatePayload extends UnknownRecord {
   agentId: AgentId;
@@ -205,50 +203,52 @@ function applyAgentReadRequest(
 
 class AgentAttentionTracker {
   private readonly host: AgentAttentionHost;
-  private readonly qwenTerminalIdleCandidates = new Map<AgentId, ReturnType<typeof setTimeout>>();
+  private readonly terminalIdleCandidates = new Map<AgentId, ReturnType<typeof setTimeout>>();
 
   constructor(host: AgentAttentionHost) {
     this.host = host;
   }
 
-  hasQwenTerminalIdleCandidate(agentId: AgentId): boolean {
-    return this.qwenTerminalIdleCandidates.has(agentId);
+  hasTerminalIdleCandidate(agentId: AgentId): boolean {
+    return this.terminalIdleCandidates.has(agentId);
   }
 
-  cancelQwenTerminalIdleCandidate(agentId: AgentId) {
-    const candidate = this.qwenTerminalIdleCandidates.get(agentId);
+  cancelTerminalIdleCandidate(agentId: AgentId) {
+    const candidate = this.terminalIdleCandidates.get(agentId);
     if (!candidate) return false;
     clearTimeout(candidate);
-    this.qwenTerminalIdleCandidates.delete(agentId);
+    this.terminalIdleCandidates.delete(agentId);
     return true;
   }
 
-  cancelAllQwenTerminalIdleCandidates() {
-    for (const candidate of this.qwenTerminalIdleCandidates.values()) clearTimeout(candidate);
-    this.qwenTerminalIdleCandidates.clear();
+  cancelAllTerminalIdleCandidates() {
+    for (const candidate of this.terminalIdleCandidates.values()) clearTimeout(candidate);
+    this.terminalIdleCandidates.clear();
   }
 
-  scheduleQwenTerminalIdleCandidate(agent: TypedAgentRecord) {
-    if (this.qwenTerminalIdleCandidates.has(agent.id)) return;
+  scheduleTerminalIdleCandidate(agent: TypedAgentRecord) {
+    if (this.terminalIdleCandidates.has(agent.id)) return;
+    const idleFenceMs = providerTerminalNotificationIdleFenceMs(agentAttentionProvider(agent));
+    if (idleFenceMs <= 0) return;
     const runtimeEpoch = agent.runtimeEpoch;
     const candidate = setTimeout(() => {
-      if (this.qwenTerminalIdleCandidates.get(agent.id) !== candidate) return;
-      this.qwenTerminalIdleCandidates.delete(agent.id);
+      if (this.terminalIdleCandidates.get(agent.id) !== candidate) return;
+      this.terminalIdleCandidates.delete(agent.id);
       const current = this.host.getAgent(agent.id);
       if (
         this.host.isDisposed()
         || current !== agent
         || current.runtimeEpoch !== runtimeEpoch
-        || agentAttentionProvider(current) !== 'qwen'
+        || providerTerminalNotificationIdleFenceMs(agentAttentionProvider(current)) <= 0
         || current.lastObservedTurnActive === true
         || agentAttentionTurnActive(current)
       ) {
         return;
       }
       this.completeAgentAttentionTransition(current);
-    }, QWEN_TERMINAL_IDLE_STABILITY_MS);
+    }, idleFenceMs);
     candidate.unref?.();
-    this.qwenTerminalIdleCandidates.set(agent.id, candidate);
+    this.terminalIdleCandidates.set(agent.id, candidate);
   }
 
   completeAgentAttentionTransition(agent: TypedAgentRecord) {
@@ -304,14 +304,14 @@ class AgentAttentionTracker {
     agent.lastObservedTurnActive = turnActive;
     const provider = agentAttentionProvider(agent);
 
-    const usesTerminalIdleFence = providerTerminalNotificationUsesIdleFence(provider);
-    if (turnActive && usesTerminalIdleFence) {
-      this.cancelQwenTerminalIdleCandidate(agent.id);
+    const terminalIdleFenceMs = providerTerminalNotificationIdleFenceMs(provider);
+    if (turnActive && terminalIdleFenceMs > 0) {
+      this.cancelTerminalIdleCandidate(agent.id);
     }
 
     if (wasTurnActive && !turnActive) {
-      if (usesTerminalIdleFence && agent.status === 'running') {
-        this.scheduleQwenTerminalIdleCandidate(agent);
+      if (terminalIdleFenceMs > 0 && agent.status === 'running') {
+        this.scheduleTerminalIdleCandidate(agent);
         return false;
       }
       return this.completeAgentAttentionTransition(agent);
@@ -437,7 +437,6 @@ class AgentAttentionTracker {
 
 export {
   AgentAttentionTracker,
-  QWEN_TERMINAL_IDLE_STABILITY_MS,
   applyAgentReadRequest,
   agentAttentionProvider,
   agentAttentionTurnActive,

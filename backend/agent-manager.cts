@@ -168,7 +168,7 @@ import {
   providerSessionIdentityRollbackArgs,
   providerSupportsRuntime,
   providerTerminalStartupPolicy,
-  providerTerminalNotificationUsesIdleFence,
+  providerTerminalNotificationIdleFenceMs,
   providerTreatsLegacyAcpRequestAsChat,
 } from './provider-adapters.cjs';
 import {
@@ -1282,7 +1282,7 @@ class AgentManager extends EventEmitter {
 
   deleteAgentRecord(agentId: AgentId): boolean {
     const agent = this.agents.get(agentId);
-    this.attentionTracker.cancelQwenTerminalIdleCandidate(agentId);
+    this.attentionTracker.cancelTerminalIdleCandidate(agentId);
     const deleted = this.agents.delete(agentId);
     if (deleted) {
       this.agentOrderAllocator.remove(agent);
@@ -2200,10 +2200,10 @@ class AgentManager extends EventEmitter {
       const provider = agent.providerSessionProvider
         || agentHomeProviderForProgram(agent.forkCommand || agent.command || '');
       if (
-        providerTerminalNotificationUsesIdleFence(provider)
+        providerTerminalNotificationIdleFenceMs(provider) > 0
         && (
           agentAttentionTurnActive(agent)
-          || this.attentionTracker.hasQwenTerminalIdleCandidate(agent.id)
+          || this.attentionTracker.hasTerminalIdleCandidate(agent.id)
         )
       ) {
         agent.pendingTerminalNotificationSummary = summary;
@@ -4409,7 +4409,7 @@ class AgentManager extends EventEmitter {
     this.adaptiveTitlePersistence.clearPending();
     this.acpTurnFinalizationCoordinator.dispose();
     this.acpSessionOptionsStore.clear();
-    this.attentionTracker.cancelAllQwenTerminalIdleCandidates();
+    this.attentionTracker.cancelAllTerminalIdleCandidates();
     this.shutdownState.complete();
   }
 

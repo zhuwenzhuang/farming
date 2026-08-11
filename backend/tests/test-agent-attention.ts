@@ -241,11 +241,11 @@ async function run() {
     runtimeEpoch: 'qwen-epoch',
   });
   qwenHost.agents.set(qwenAgent.id, qwenAgent);
-  qwenTracker.scheduleQwenTerminalIdleCandidate(qwenAgent);
-  assert.strictEqual(qwenTracker.hasQwenTerminalIdleCandidate(qwenAgent.id), true);
-  assert.strictEqual(qwenTracker.cancelQwenTerminalIdleCandidate(qwenAgent.id), true);
-  assert.strictEqual(qwenTracker.hasQwenTerminalIdleCandidate(qwenAgent.id), false);
-  qwenTracker.cancelAllQwenTerminalIdleCandidates();
+  qwenTracker.scheduleTerminalIdleCandidate(qwenAgent);
+  assert.strictEqual(qwenTracker.hasTerminalIdleCandidate(qwenAgent.id), true);
+  assert.strictEqual(qwenTracker.cancelTerminalIdleCandidate(qwenAgent.id), true);
+  assert.strictEqual(qwenTracker.hasTerminalIdleCandidate(qwenAgent.id), false);
+  qwenTracker.cancelAllTerminalIdleCandidates();
 
   assert.deepStrictEqual(tracker.markAgentReadCursor('missing'), { error: 'Agent not found' });
   assert.deepStrictEqual(tracker.markAgentUnreadCursor('missing'), { error: 'Agent not found' });
