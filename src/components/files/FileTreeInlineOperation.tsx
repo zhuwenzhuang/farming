@@ -54,7 +54,7 @@ export function FileTreeInlineOperation({
       className="code-file-inline-operation"
       data-testid="code-file-inline-operation"
       aria-busy={fileOperation.submitting}
-      style={{ gridColumn: '3 / -1' }}
+      style={{ gridColumn: '2 / -1' }}
       autoComplete="off"
       onPointerDown={event => event.stopPropagation()}
       onMouseDown={event => event.stopPropagation()}

@@ -31,30 +31,34 @@ export function FileTreeRowStatus({
 
   return (
     <>
-      <span className="code-file-name">{item.displayName ?? item.name}</span>
-      {item.symbolicLink && (
-        <span className="code-file-symbolic-link" aria-hidden="true">↷</span>
-      )}
-      {fileOpening && (
-        <span className="code-file-open-spinner" title={copy.loading} aria-hidden="true" />
-      )}
-      {!fileOpening && showDirectoryDot && (
-        <span
-          className={directoryDotClassName}
-          title={workspaceFileTreeStatusTitle(directoryDotTitleKind, copy)}
-        />
-      )}
-      {!fileOpening && !isDirectory && visibleGitStatusLabel && (
-        <span className={visibleGitStatusClassName} title={copy.gitStatus(visibleGitStatus || '')}>
-          {visibleGitStatusLabel}
-        </span>
-      )}
-      {!fileOpening && !isDirectory && !visibleGitStatusLabel && fileChangedClassName && (
-        <span
-          className={fileChangedClassName}
-          title={workspaceFileTreeStatusTitle(fileChangedTitleKind, copy)}
-        />
-      )}
+      <span className="code-file-label">
+        <span className="code-file-name">{item.displayName ?? item.name}</span>
+        {item.symbolicLink && (
+          <span className="code-file-symbolic-link" aria-hidden="true">↷</span>
+        )}
+      </span>
+      <span className="code-file-trailing">
+        {fileOpening && (
+          <span className="code-file-open-spinner" title={copy.loading} aria-hidden="true" />
+        )}
+        {!fileOpening && showDirectoryDot && (
+          <span
+            className={directoryDotClassName}
+            title={workspaceFileTreeStatusTitle(directoryDotTitleKind, copy)}
+          />
+        )}
+        {!fileOpening && !isDirectory && visibleGitStatusLabel && (
+          <span className={visibleGitStatusClassName} title={copy.gitStatus(visibleGitStatus || '')}>
+            {visibleGitStatusLabel}
+          </span>
+        )}
+        {!fileOpening && !isDirectory && !visibleGitStatusLabel && fileChangedClassName && (
+          <span
+            className={fileChangedClassName}
+            title={workspaceFileTreeStatusTitle(fileChangedTitleKind, copy)}
+          />
+        )}
+      </span>
     </>
   )
 }

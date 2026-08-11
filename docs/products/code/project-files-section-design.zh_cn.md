@@ -127,6 +127,9 @@ Issue Reference 遵循 Workspace `.idea/vcs.xml` 内的 IntelliJ
 ## 视觉与交互规则
 
 - Row 保持紧凑、稳定、支持键盘且单行展示。
+- 每个 Tree Row 固定使用三个显式 Layout Slot：前导 Icon 或 Chevron、Label 与 Label
+  Decoration、尾部 State。可选 Decoration 不能创建隐式 Grid Row；Inline Rename 占用
+  Label 与 State Slot，但不能移动 Label Origin。
 - 在所有 Layout Width 下，同一 Tree Depth 中的 File Icon 与 Directory Chevron 使用同一个
   前导 Slot；文件不能额外保留一列空 Chevron。
 - 在 Pointer Layout 中，Files Search 与 Refresh Control 在 Header Hover 时渐进显示；

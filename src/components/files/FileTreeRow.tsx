@@ -75,6 +75,7 @@ export function FileTreeRow({
   })
   const {
     chevronState,
+    directoryLoading,
     isDirectory,
   } = viewState
   const rowClasses = `${viewState.rowClasses} ${locatedFilePath === item.path ? 'located' : ''}`.trim()
@@ -116,7 +117,7 @@ export function FileTreeRow({
       onClick={handleRowClick}
     >
       {isDirectory && (
-        <span className={`code-file-chevron ${chevronState}`} aria-hidden="true">
+        <span className={`code-file-chevron ${chevronState} ${directoryLoading ? 'loading' : ''}`.trim()} aria-hidden="true">
           {chevronState === 'expanded' ? <ChevronDownGlyph /> : <ChevronRightGlyph />}
         </span>
       )}

@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Locator } from '@playwright/test'
@@ -65,12 +66,15 @@ async function stickyHierarchyMatchesFirstUncoveredRow(section: Locator) {
     if (stickyRow.getAttribute('title') !== expectedTarget) return false
     if (stickyRow.style.getPropertyValue('--file-depth') !== '0') return false
 
-    const expectedLabel = expectedStickyPaths.map(path => (
+    const expectedLabelSegments = expectedStickyPaths.map(path => (
       rows.find(row => row.dataset.filePath === path)
         ?.querySelector<HTMLElement>('.code-file-name')
         ?.textContent
         ?.trim() ?? ''
-    )).filter(Boolean).join('/')
+    )).filter(Boolean).join('/').split('/').filter(Boolean)
+    const expectedLabel = expectedLabelSegments.length > 3
+      ? [expectedLabelSegments[0], '…', ...expectedLabelSegments.slice(-2)].join('/')
+      : expectedLabelSegments.join('/')
     const actualLabel = stickyRow.querySelector<HTMLElement>('.code-file-name')?.textContent?.trim() ?? ''
     return actualLabel === expectedLabel
   })
@@ -223,12 +227,12 @@ test('preserves every visible directory level across sticky scroll, collapse, re
   const openEditorsTitle = openEditors.locator('.code-open-editors-title')
   if (await openEditorsTitle.getAttribute('aria-expanded') !== 'true') await openEditorsTitle.click()
   await expect.poll(() => sidebarRowPalette(files)).toEqual({
-    projectTitle: 'rgb(68, 68, 68)',
-    filesHeader: 'rgb(96, 96, 96)',
-    fileRow: 'rgb(74, 74, 74)',
-    activeFileBackground: 'rgba(0, 0, 0, 0.055)',
-    stickyRow: 'rgb(61, 61, 61)',
-    openEditor: 'rgb(68, 68, 68)',
+    projectTitle: 'rgb(87, 96, 106)',
+    filesHeader: 'rgb(87, 96, 106)',
+    fileRow: 'rgb(87, 96, 106)',
+    activeFileBackground: 'rgba(31, 35, 40, 0.055)',
+    stickyRow: 'rgb(87, 96, 106)',
+    openEditor: 'rgb(87, 96, 106)',
   })
 
   const metaPath = TARGET_FILE.slice(0, TARGET_FILE.lastIndexOf('/'))
@@ -362,15 +366,21 @@ test('keeps a deeply scrolled directory anchored while pointer expansion loads i
   expect(Math.abs(sameDepthLabelLeft[0] - sameDepthLabelLeft[1])).toBeLessThanOrEqual(1)
   const desktopViewport = page.viewportSize()
   await page.setViewportSize({ width: 720, height: 900 })
-  await page.locator('body').evaluate(element => element.classList.add('code-compact-layout'))
+  await expect(page.locator('body')).toHaveClass(/code-compact-layout/)
   await page.locator('.code-sidebar').evaluate(element => element.classList.remove('collapsed'))
   const compactFileName = files.locator('[data-file-path="velox/fixture.ts"] .code-file-name')
   await expect(compactFileName).toBeVisible()
-  const compactFileNameWidth = await compactFileName
+  const compactFileLabelWidth = await files.locator('[data-file-path="velox/fixture.ts"] .code-file-label')
     .evaluate(element => element.getBoundingClientRect().width)
-  expect(compactFileNameWidth).toBeGreaterThan(100)
-  await page.locator('body').evaluate(element => element.classList.remove('code-compact-layout'))
+  expect(compactFileLabelWidth).toBeGreaterThan(100)
+  expect(await compactFileName.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+  const compactSameDepthLabelLeft = await Promise.all([
+    files.locator('[data-file-path="velox/child-00"] .code-file-name').evaluate(element => element.getBoundingClientRect().left),
+    compactFileName.evaluate(element => element.getBoundingClientRect().left),
+  ])
+  expect(Math.abs(compactSameDepthLabelLeft[0] - compactSameDepthLabelLeft[1])).toBeLessThanOrEqual(1)
   if (desktopViewport) await page.setViewportSize(desktopViewport)
+  await expect(page.locator('body')).not.toHaveClass(/code-compact-layout/)
   await page.waitForTimeout(40)
   const intentionalScrollTop = await velox.evaluate(element => {
     const scroller = element.closest<HTMLElement>('.code-project-list')
@@ -401,6 +411,27 @@ test('keeps a deeply scrolled directory anchored while pointer expansion loads i
     expect(Math.abs(nextAnchor.rowTop - previousAnchor.rowTop)).toBeLessThanOrEqual(1)
     previousAnchor = nextAnchor
   }
+  for (const expanded of ['false', 'true']) {
+    await page.keyboard.press('Space')
+    await expect(velox).toHaveAttribute('aria-expanded', expanded)
+    await page.waitForTimeout(600)
+    const nextAnchor = await readAnchor()
+    expect(Math.abs(nextAnchor.scrollTop - previousAnchor.scrollTop)).toBeLessThanOrEqual(1)
+    expect(Math.abs(nextAnchor.rowTop - previousAnchor.rowTop)).toBeLessThanOrEqual(1)
+    previousAnchor = nextAnchor
+  }
+  await page.keyboard.press('ArrowLeft')
+  await expect(velox).toHaveAttribute('aria-expanded', 'false')
+  let nextAnchor = await readAnchor()
+  expect(Math.abs(nextAnchor.scrollTop - previousAnchor.scrollTop)).toBeLessThanOrEqual(1)
+  expect(Math.abs(nextAnchor.rowTop - previousAnchor.rowTop)).toBeLessThanOrEqual(1)
+  previousAnchor = nextAnchor
+  await page.keyboard.press('ArrowRight')
+  await expect(velox).toHaveAttribute('aria-expanded', 'true')
+  await page.waitForTimeout(600)
+  nextAnchor = await readAnchor()
+  expect(Math.abs(nextAnchor.scrollTop - previousAnchor.scrollTop)).toBeLessThanOrEqual(1)
+  expect(Math.abs(nextAnchor.rowTop - previousAnchor.rowTop)).toBeLessThanOrEqual(1)
   const nestedDirectory = files.locator('[data-testid="code-file-row"][data-file-path="velox/child-12"]')
   await scrollFileRowIntoStickyRange(nestedDirectory)
   await expect(files.getByTestId('code-file-sticky-stack').locator('.code-file-sticky-row')).toHaveAttribute('title', 'velox')
@@ -422,4 +453,114 @@ test('keeps a deeply scrolled directory anchored while pointer expansion loads i
   ))
   expect(revealedPaths).not.toContain('velox')
   expect(revealedPaths).not.toContain('velox/child-12')
+})
+
+test('keeps file row slots stable for rename, links, statuses, loading, and compact layout', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'stable-file-row-slots')
+  fs.mkdirSync(path.join(workspace, 'folder'), { recursive: true })
+  fs.writeFileSync(path.join(workspace, 'folder', 'child.ts'), 'export const child = true\n')
+  fs.writeFileSync(path.join(workspace, 'regular.ts'), 'export const regular = true\n')
+  fs.writeFileSync(path.join(workspace, 'target-a.ts'), 'export const target = "a"\n')
+  fs.writeFileSync(path.join(workspace, 'target-b.ts'), 'export const target = "b"\n')
+  fs.symlinkSync('target-a.ts', path.join(workspace, 'linked.ts'))
+  execFileSync('git', ['init', '-q'], { cwd: workspace })
+  execFileSync('git', ['config', 'user.email', 'farming@example.test'], { cwd: workspace })
+  execFileSync('git', ['config', 'user.name', 'Farming Test'], { cwd: workspace })
+  execFileSync('git', ['add', '.'], { cwd: workspace })
+  execFileSync('git', ['commit', '-qm', 'fixture'], { cwd: workspace })
+  fs.unlinkSync(path.join(workspace, 'linked.ts'))
+  fs.symlinkSync('target-b.ts', path.join(workspace, 'linked.ts'))
+
+  let releaseFolderLoad = () => {}
+  const folderLoadGate = new Promise<void>(resolve => {
+    releaseFolderLoad = resolve
+  })
+  await page.route('**/api/files/tree?**', async route => {
+    const requestUrl = new URL(route.request().url())
+    if (requestUrl.searchParams.get('path') !== 'folder') {
+      await route.continue()
+      return
+    }
+    const response = await route.fetch()
+    await folderLoadGate
+    await route.fulfill({ response })
+  })
+
+  await openFarming(page)
+  await openNewAgentDialog(page)
+  await startAgentFromOpenDialog(page, 'bash', workspace)
+
+  const files = page.getByTestId('code-files-section')
+  const filesTitle = files.getByRole('button', { name: 'Files', exact: true })
+  if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
+
+  const folderRow = files.locator('[data-testid="code-file-row"][data-file-path="folder"]')
+  await folderRow.click()
+  await expect(folderRow).toHaveClass(/loading/)
+  const loadingChevron = folderRow.locator('.code-file-chevron')
+  await expect(loadingChevron).toHaveClass(/loading/)
+  await expect.poll(() => loadingChevron.evaluate(element => (
+    getComputedStyle(element, '::before').content
+  ))).toBe('""')
+  await folderRow.click()
+  await expect(folderRow).toHaveAttribute('aria-expanded', 'false')
+  releaseFolderLoad()
+  await expect(folderRow).not.toHaveClass(/loading/)
+  await expect(folderRow).toHaveAttribute('aria-expanded', 'false')
+
+  const linkedRow = files.locator('[data-testid="code-file-row"][data-file-path="linked.ts"]')
+  await expect(linkedRow.locator('.code-file-git-status')).toHaveText('M')
+  const assertStableSlots = async () => {
+    const geometry = await linkedRow.evaluate(element => {
+      const rowRect = element.getBoundingClientRect()
+      const frameRect = element.closest<HTMLElement>('.code-file-tree-row-frame')?.getBoundingClientRect()
+      const label = element.querySelector('.code-file-label')
+      const trailing = element.querySelector('.code-file-trailing')
+      return {
+        childCount: element.children.length,
+        frameHeight: frameRect?.height ?? 0,
+        rowHeight: rowRect.height,
+        childrenInsideRow: Array.from(element.children).every(child => {
+          const rect = child.getBoundingClientRect()
+          return rect.top >= rowRect.top - 1 && rect.bottom <= rowRect.bottom + 1
+        }),
+        symbolicLinkInLabel: Boolean(label?.querySelector('.code-file-symbolic-link')),
+        gitStatusInTrailing: Boolean(trailing?.querySelector('.code-file-git-status')),
+      }
+    })
+    expect(geometry.childCount).toBe(3)
+    expect(Math.abs(geometry.rowHeight - geometry.frameHeight)).toBeLessThanOrEqual(1)
+    expect(geometry.childrenInsideRow).toBe(true)
+    expect(geometry.symbolicLinkInLabel).toBe(true)
+    expect(geometry.gitStatusInTrailing).toBe(true)
+  }
+  await assertStableSlots()
+
+  const assertRenameKeepsLabelOrigin = async (row: Locator) => {
+    await row.click({ button: 'right' })
+    await page.getByTestId('code-file-context-menu').getByRole('menuitem', { name: 'Rename' }).click()
+    const renameInput = row.getByTestId('code-file-operation-input')
+    await expect(renameInput).toBeFocused()
+    const renameOrigin = await row.evaluate(element => {
+      const leading = element.querySelector<HTMLElement>('.code-file-chevron, .code-file-type-icon')
+      const input = element.querySelector<HTMLElement>('[data-testid="code-file-operation-input"]')
+      const gap = Number.parseFloat(getComputedStyle(element).columnGap) || 0
+      return {
+        expected: (leading?.getBoundingClientRect().right ?? 0) + gap,
+        input: input?.getBoundingClientRect().left ?? -1,
+      }
+    })
+    expect(Math.abs(renameOrigin.input - renameOrigin.expected)).toBeLessThanOrEqual(1)
+    await renameInput.press('Escape')
+  }
+  const regularRow = files.locator('[data-testid="code-file-row"][data-file-path="regular.ts"]')
+  await assertRenameKeepsLabelOrigin(regularRow)
+  await assertRenameKeepsLabelOrigin(folderRow)
+
+  await page.setViewportSize({ width: 720, height: 900 })
+  await expect(page.locator('body')).toHaveClass(/code-compact-layout/)
+  await page.locator('.code-sidebar').evaluate(element => element.classList.remove('collapsed'))
+  await expect(linkedRow).toBeVisible()
+  await assertStableSlots()
+  await assertRenameKeepsLabelOrigin(regularRow)
 })

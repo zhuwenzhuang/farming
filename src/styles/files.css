@@ -1078,6 +1078,10 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   animation: code-file-chevron-spin 0.8s linear infinite;
 }
 
+.code-file-chevron.loading svg {
+  display: none;
+}
+
 @keyframes code-file-chevron-spin {
   to {
     transform: rotate(360deg);
@@ -1100,6 +1104,25 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--code-text);
+}
+
+.code-file-label {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
+}
+
+.code-file-label .code-file-name {
+  flex: 0 1 auto;
+}
+
+.code-file-trailing {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
 }
 
 .code-file-symbolic-link {

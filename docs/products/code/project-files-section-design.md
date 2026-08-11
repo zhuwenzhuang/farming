@@ -161,6 +161,10 @@ non-HTTP(S), or invalid rules remain plain text.
 ## Visual And Interaction Rules
 
 - Rows remain compact, stable, keyboard-accessible, and single-line.
+- Every tree row has three explicit layout slots: leading icon or chevron,
+  label and label decorations, and trailing state. Optional decorations never
+  create implicit grid rows, and inline rename occupies the label and state
+  slots without moving the label origin.
 - At every layout width and one tree depth, a file icon occupies the same
   leading slot as a directory chevron; files do not reserve an additional empty
   chevron column.

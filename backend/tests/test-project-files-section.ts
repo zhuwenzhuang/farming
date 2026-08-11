@@ -976,6 +976,11 @@ function run() {
       fileTreeRowStatusSource.includes('viewState: WorkspaceFileTreeRowViewState') &&
       treeRowModelSource.includes('item.gitStatusLabel') &&
       fileTreeRowSource.includes('<FileTreeRowStatus') &&
+      fileTreeRowSource.includes("directoryLoading ? 'loading' : ''") &&
+      fileTreeInlineOperationSource.includes("gridColumn: '2 / -1'") &&
+      !fileTreeInlineOperationSource.includes("gridColumn: '3 / -1'") &&
+      fileTreeRowStatusSource.includes('className="code-file-label"') &&
+      fileTreeRowStatusSource.includes('className="code-file-trailing"') &&
       fileTreeRowStatusSource.includes('className={visibleGitStatusClassName}') &&
       fileTreeRowStatusSource.includes('className={directoryDotClassName}') &&
       fileTreeRowStatusSource.includes('className={fileChangedClassName}') &&
@@ -1793,6 +1798,9 @@ function run() {
       !stylesSource.includes('.code-files-header-chevron') &&
       stylesSource.includes('.code-file-chevron svg') &&
       stylesSource.includes('.code-file-chevron.loading::before') &&
+      stylesSource.includes('.code-file-chevron.loading svg') &&
+      stylesSource.includes('.code-file-label') &&
+      stylesSource.includes('.code-file-trailing') &&
 	      !stylesSource.includes('.code-file-chevron.placeholder::before') &&
       stylesSource.includes('--file-guide-width') &&
       stylesSource.includes('.code-file-row::before') &&
