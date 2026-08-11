@@ -15,7 +15,8 @@ import ts from 'typescript';
 const projectRoot = path.join(__dirname, '..');
 const allowlistPath = path.join(projectRoot, 'tests', 'source-inspection-allowlist.json');
 const testRoots = ['tests', 'backend/tests'];
-const productionRoots = new Set(['backend', 'desktop', 'extensions', 'frontend', 'scripts', 'shared', 'src']);
+const productionRoots = new Set(['backend', 'bin', 'desktop', 'extensions', 'frontend', 'scripts', 'shared', 'src']);
+const rootProductionFiles = new Set(['index.html', 'package.json', 'pkg.config.cjs', 'vite.config.ts']);
 const allowedCategories = new Set(['architecture', 'generated', 'package', 'security']);
 
 interface AllowlistEntry {
@@ -41,12 +42,17 @@ interface Inspection {
 type HelperSummaries = ReadonlyMap<string, readonly string[]>;
 type LocalModuleReader = (relativePath: string) => string | null;
 
-function discoverTestFiles(): string[] {
+function isTestSupportModule(relativePath: string): boolean {
+  const normalized = relativePath.replaceAll('\\', '/');
+  return testRoots.some(root => normalized.startsWith(`${root}/`));
+}
+
+export function discoverTestFiles(): string[] {
   const files: string[] = [];
   for (const root of testRoots) {
     const absoluteRoot = path.join(projectRoot, root);
     for (const entry of fs.readdirSync(absoluteRoot, { recursive: true, withFileTypes: true })) {
-      if (!entry.isFile() || !/^(?:test-.*|.*\.test)\.ts$/.test(entry.name)) continue;
+      if (!entry.isFile() || !/^(?:test-.*|.*\.(?:test|spec))\.ts$/.test(entry.name)) continue;
       const absolute = path.join(entry.parentPath, entry.name);
       files.push(path.relative(projectRoot, absolute));
     }
@@ -58,6 +64,13 @@ function calleeName(node: ts.CallExpression): string | null {
   if (ts.isIdentifier(node.expression)) return node.expression.text;
   if (!ts.isPropertyAccessExpression(node.expression)) return null;
   return node.expression.name.text;
+}
+
+function expressionReference(node: ts.Expression): string | null {
+  if (ts.isIdentifier(node)) return node.text;
+  if (!ts.isPropertyAccessExpression(node)) return null;
+  const owner = expressionReference(node.expression);
+  return owner ? `${owner}.${node.name.text}` : null;
 }
 
 function isReadCall(node: ts.CallExpression): boolean {
@@ -97,9 +110,43 @@ function hasRequireResolve(node: ts.Node): boolean {
   return found;
 }
 
-function inspectedTarget(node: ts.CallExpression, allowBarePackage = false): string | null {
+function repositoryPathFromExpression(relativePath: string, node: ts.Expression): string | null {
+  if (ts.isIdentifier(node)) {
+    if (node.text === '__dirname') return path.dirname(relativePath);
+    if (node.text === 'projectRoot' || node.text === 'repoRoot') return '.';
+    return null;
+  }
+  if (ts.isStringLiteralLike(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
+  if (ts.isParenthesizedExpression(node)) return repositoryPathFromExpression(relativePath, node.expression);
+  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+    const left = repositoryPathFromExpression(relativePath, node.left);
+    const right = repositoryPathFromExpression(relativePath, node.right);
+    return left !== null && right !== null ? `${left}${right}` : null;
+  }
+  if (!ts.isCallExpression(node)
+    || !ts.isPropertyAccessExpression(node.expression)
+    || !ts.isIdentifier(node.expression.expression)
+    || node.expression.expression.text !== 'path'
+    || !['join', 'resolve'].includes(node.expression.name.text)) return null;
+  const parts = node.arguments.map(argument => repositoryPathFromExpression(relativePath, argument));
+  if (parts.some(part => part === null) || parts.length === 0) return null;
+  return path.normalize(path.join(...parts as string[]));
+}
+
+function targetFromRepositoryPath(repositoryPath: string | null): string | null {
+  if (!repositoryPath) return null;
+  const normalized = path.normalize(repositoryPath);
+  if (normalized === '..' || normalized.startsWith(`..${path.sep}`) || path.isAbsolute(normalized)) return null;
+  const [root] = normalized.split(/[\\/]/);
+  if (root && productionRoots.has(root)) return root;
+  return rootProductionFiles.has(normalized) ? normalized : null;
+}
+
+function inspectedTarget(relativePath: string, node: ts.CallExpression, allowBarePackage = false): string | null {
   const argument = node.arguments[0];
   if (!argument) return null;
+  const repositoryTarget = targetFromRepositoryPath(repositoryPathFromExpression(relativePath, argument));
+  if (repositoryTarget) return repositoryTarget;
   const fragments = stringFragments(argument);
   const root = fragments
     .flatMap(fragment => fragment.split(/[\\/]/))
@@ -186,6 +233,8 @@ export function inspectSourceText(
     return null;
   };
   const targetFromPathExpression = (node: ts.Expression): string | null => {
+    const repositoryTarget = targetFromRepositoryPath(repositoryPathFromExpression(relativePath, node));
+    if (repositoryTarget) return repositoryTarget;
     const fragments = stringFragments(node);
     const root = fragments.flatMap(fragment => fragment.split(/[\\/]/)).find(fragment => productionRoots.has(fragment));
     if (root) return root;
@@ -197,7 +246,7 @@ export function inspectSourceText(
     if (ts.isCallExpression(node)) {
       const name = calleeName(node);
       if (isReadCall(node) || (name !== null && sourceReaders.has(name))) {
-        const target = inspectedTarget(node, name !== null && sourceReaders.has(name))
+        const target = inspectedTarget(relativePath, node, name !== null && sourceReaders.has(name))
           || (name === null ? null : readerDefaultTargets.get(name))
           || null;
         return target ? [inspectionAt(node, target)] : [];
@@ -264,8 +313,9 @@ export function inspectSourceText(
   const stringMethods = new Set(['includes', 'indexOf', 'startsWith', 'endsWith', 'match', 'search']);
   const assertionComparators = new Set(['equal', 'strictEqual', 'notEqual', 'notStrictEqual']);
   const collectAssertions = (node: ts.Node): void => {
-    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
-      for (const target of helperSummaries.get(node.expression.text) || []) {
+    if (ts.isCallExpression(node)) {
+      const reference = expressionReference(node.expression);
+      for (const target of reference ? helperSummaries.get(reference) || [] : []) {
         assertedInspections.push(inspectionAt(node, target));
       }
     }
@@ -313,20 +363,165 @@ function localHelperSummaries(
   const sourceFile = ts.createSourceFile(relativePath, sourceText, ts.ScriptTarget.ES2023, true);
   const summaries = new Map<string, string[]>();
   for (const statement of sourceFile.statements) {
-    if (!ts.isImportDeclaration(statement)
-      || !ts.isStringLiteral(statement.moduleSpecifier)
-      || !statement.importClause?.namedBindings
-      || !ts.isNamedImports(statement.importClause.namedBindings)) continue;
-    const helper = resolveLocalModule(relativePath, statement.moduleSpecifier.text, readLocalModule);
-    if (!helper) continue;
-    const helperSummaries = exportedHelperSummaries(helper.path, helper.source, readLocalModule, cache, visiting);
-    for (const element of statement.importClause.namedBindings.elements) {
-      const importedName = element.propertyName?.text || element.name.text;
-      const targets = helperSummaries.get(importedName);
-      if (targets) summaries.set(element.name.text, targets);
+    if (ts.isImportDeclaration(statement)
+      && ts.isStringLiteral(statement.moduleSpecifier)
+      && statement.importClause?.namedBindings
+      && ts.isNamedImports(statement.importClause.namedBindings)) {
+      const helper = resolveLocalModule(relativePath, statement.moduleSpecifier.text, readLocalModule);
+      if (!helper || !isTestSupportModule(helper.path)) continue;
+      const helperSummaries = exportedHelperSummaries(helper.path, helper.source, readLocalModule, cache, visiting);
+      for (const element of statement.importClause.namedBindings.elements) {
+        const importedName = element.propertyName?.text || element.name.text;
+        const targets = helperSummaries.get(importedName);
+        if (targets) summaries.set(element.name.text, targets);
+      }
     }
   }
+  const collectCommonJsImports = (node: ts.Node): void => {
+    if (ts.isVariableDeclaration(node)) {
+      const requireCall = node.initializer && ts.isCallExpression(node.initializer)
+        ? node.initializer
+        : node.initializer
+          && ts.isPropertyAccessExpression(node.initializer)
+          && ts.isCallExpression(node.initializer.expression)
+          ? node.initializer.expression
+          : null;
+      if (requireCall
+        && ts.isIdentifier(requireCall.expression)
+        && requireCall.expression.text === 'require'
+        && requireCall.arguments.length === 1
+        && ts.isStringLiteral(requireCall.arguments[0])) {
+        const helper = resolveLocalModule(relativePath, requireCall.arguments[0].text, readLocalModule);
+        if (helper && isTestSupportModule(helper.path)) {
+          const helperSummaries = exportedHelperSummaries(helper.path, helper.source, readLocalModule, cache, visiting);
+          if (ts.isObjectBindingPattern(node.name)) {
+            for (const element of node.name.elements) {
+              if (!ts.isIdentifier(element.name)) continue;
+              const importedName = element.propertyName && ts.isIdentifier(element.propertyName)
+                ? element.propertyName.text
+                : element.name.text;
+              const targets = helperSummaries.get(importedName);
+              if (targets) summaries.set(element.name.text, targets);
+            }
+          } else if (ts.isIdentifier(node.name)
+            && node.initializer
+            && ts.isPropertyAccessExpression(node.initializer)) {
+            const targets = helperSummaries.get(node.initializer.name.text);
+            if (targets) summaries.set(node.name.text, targets);
+          } else if (ts.isIdentifier(node.name)) {
+            for (const [exportedName, targets] of helperSummaries) {
+              summaries.set(`${node.name.text}.${exportedName}`, targets);
+            }
+            const defaultTargets = helperSummaries.get('default');
+            if (defaultTargets) summaries.set(node.name.text, defaultTargets);
+          }
+        }
+      }
+    }
+    ts.forEachChild(node, collectCommonJsImports);
+  };
+  collectCommonJsImports(sourceFile);
   return summaries;
+}
+
+interface CallableDefinition {
+  body: ts.ConciseBody;
+  name: string;
+  node: ts.Node;
+}
+
+function topLevelCallableDefinitions(sourceFile: ts.SourceFile): Map<string, CallableDefinition> {
+  const definitions = new Map<string, CallableDefinition>();
+  for (const statement of sourceFile.statements) {
+    if (ts.isFunctionDeclaration(statement) && statement.name && statement.body) {
+      definitions.set(statement.name.text, { body: statement.body, name: statement.name.text, node: statement });
+      continue;
+    }
+    if (!ts.isVariableStatement(statement)) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name)
+        || !declaration.initializer
+        || (!ts.isArrowFunction(declaration.initializer) && !ts.isFunctionExpression(declaration.initializer))) continue;
+      definitions.set(declaration.name.text, {
+        body: declaration.initializer.body,
+        name: declaration.name.text,
+        node: declaration,
+      });
+    }
+  }
+  return definitions;
+}
+
+function exportedCallableNames(
+  sourceFile: ts.SourceFile,
+  definitions: ReadonlyMap<string, CallableDefinition>,
+): Map<string, string> {
+  const exports = new Map<string, string>();
+  const isExported = (node: ts.Node & { modifiers?: ts.NodeArray<ts.ModifierLike> }): boolean => (
+    node.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword) || false
+  );
+  for (const statement of sourceFile.statements) {
+    if (ts.isFunctionDeclaration(statement) && statement.name && isExported(statement)) {
+      exports.set(statement.name.text, statement.name.text);
+      continue;
+    }
+    if (ts.isVariableStatement(statement) && isExported(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        if (ts.isIdentifier(declaration.name) && definitions.has(declaration.name.text)) {
+          exports.set(declaration.name.text, declaration.name.text);
+        }
+      }
+      continue;
+    }
+    if (ts.isExportDeclaration(statement) && statement.exportClause && ts.isNamedExports(statement.exportClause)) {
+      for (const element of statement.exportClause.elements) {
+        const localName = element.propertyName?.text || element.name.text;
+        if (definitions.has(localName)) exports.set(element.name.text, localName);
+      }
+      continue;
+    }
+    if (!ts.isExpressionStatement(statement)
+      || !ts.isBinaryExpression(statement.expression)
+      || statement.expression.operatorToken.kind !== ts.SyntaxKind.EqualsToken) continue;
+    const { left, right } = statement.expression;
+    if (ts.isPropertyAccessExpression(left)
+      && ts.isIdentifier(left.expression)
+      && left.expression.text === 'exports'
+      && ts.isIdentifier(right)
+      && definitions.has(right.text)) {
+      exports.set(left.name.text, right.text);
+      continue;
+    }
+    if (ts.isPropertyAccessExpression(left)
+      && ts.isPropertyAccessExpression(left.expression)
+      && ts.isIdentifier(left.expression.expression)
+      && left.expression.expression.text === 'module'
+      && left.expression.name.text === 'exports'
+      && ts.isIdentifier(right)
+      && definitions.has(right.text)) {
+      exports.set(left.name.text, right.text);
+      continue;
+    }
+    if (!ts.isPropertyAccessExpression(left)
+      || !ts.isIdentifier(left.expression)
+      || left.expression.text !== 'module'
+      || left.name.text !== 'exports') continue;
+    if (ts.isIdentifier(right) && definitions.has(right.text)) {
+      exports.set('default', right.text);
+    } else if (ts.isObjectLiteralExpression(right)) {
+      for (const property of right.properties) {
+        if (ts.isShorthandPropertyAssignment(property) && definitions.has(property.name.text)) {
+          exports.set(property.name.text, property.name.text);
+        } else if (ts.isPropertyAssignment(property)
+          && (ts.isIdentifier(property.name) || ts.isStringLiteralLike(property.name))
+          && ts.isIdentifier(property.initializer)
+          && definitions.has(property.initializer.text)) {
+          exports.set(property.name.text, property.initializer.text);
+        }
+      }
+    }
+  }
+  return exports;
 }
 
 function exportedHelperSummaries(
@@ -344,26 +539,45 @@ function exportedHelperSummaries(
   const importedSummaries = localHelperSummaries(relativePath, sourceText, readLocalModule, cache, visiting);
   const inspections = inspectSourceText(relativePath, sourceText, importedSummaries);
   const summaries = new Map<string, string[]>();
-  const exportedName = (node: ts.FunctionDeclaration | ts.VariableStatement): string | null => {
-    const isExported = node.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword) || false;
-    if (!isExported) return null;
-    if (ts.isFunctionDeclaration(node)) return node.name?.text || null;
-    if (node.declarationList.declarations.length !== 1) return null;
-    const declaration = node.declarationList.declarations[0];
-    return ts.isIdentifier(declaration.name) ? declaration.name.text : null;
-  };
-  for (const statement of sourceFile.statements) {
-    if (!ts.isFunctionDeclaration(statement) && !ts.isVariableStatement(statement)) continue;
-    const name = exportedName(statement);
-    if (!name) continue;
-    const startLine = sourceFile.getLineAndCharacterOfPosition(statement.getStart(sourceFile)).line + 1;
-    const endLine = sourceFile.getLineAndCharacterOfPosition(statement.getEnd()).line + 1;
-    const targets = [...new Set(
+  const definitions = topLevelCallableDefinitions(sourceFile);
+  const targetsByCallable = new Map<string, Set<string>>();
+  const callsByCallable = new Map<string, Set<string>>();
+  for (const definition of definitions.values()) {
+    const startLine = sourceFile.getLineAndCharacterOfPosition(definition.node.getStart(sourceFile)).line + 1;
+    const endLine = sourceFile.getLineAndCharacterOfPosition(definition.node.getEnd()).line + 1;
+    targetsByCallable.set(definition.name, new Set(
       inspections
         .filter(inspection => inspection.line >= startLine && inspection.line <= endLine)
         .map(inspection => inspection.target),
-    )];
-    if (targets.length > 0) summaries.set(name, targets);
+    ));
+    const calls = new Set<string>();
+    const visitCalls = (node: ts.Node): void => {
+      if (node !== definition.body && ts.isFunctionLike(node)) return;
+      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && definitions.has(node.expression.text)) {
+        calls.add(node.expression.text);
+      }
+      ts.forEachChild(node, visitCalls);
+    };
+    visitCalls(definition.body);
+    callsByCallable.set(definition.name, calls);
+  }
+  for (let pass = 0; pass <= definitions.size; pass += 1) {
+    let changed = false;
+    for (const [name, calls] of callsByCallable) {
+      const targets = targetsByCallable.get(name) as Set<string>;
+      for (const called of calls) {
+        for (const target of targetsByCallable.get(called) || []) {
+          if (targets.has(target)) continue;
+          targets.add(target);
+          changed = true;
+        }
+      }
+    }
+    if (!changed) break;
+  }
+  for (const [exportedName, localName] of exportedCallableNames(sourceFile, definitions)) {
+    const targets = [...(targetsByCallable.get(localName) || [])];
+    if (targets.length > 0) summaries.set(exportedName, targets);
   }
   visiting.delete(relativePath);
   cache.set(relativePath, summaries);
@@ -377,7 +591,16 @@ function resolveLocalModule(
 ): { path: string; source: string } | null {
   if (!specifier.startsWith('.')) return null;
   const base = path.normalize(path.join(path.dirname(fromRelativePath), specifier));
-  for (const candidate of [base, `${base}.ts`, `${base}.tsx`, `${base}.cts`, `${base}.js`, path.join(base, 'index.ts')]) {
+  const sourceBase = base.replace(/\.cjs$/, '.cts').replace(/\.js$/, '.ts');
+  for (const candidate of [
+    base,
+    sourceBase,
+    `${base}.ts`,
+    `${base}.tsx`,
+    `${base}.cts`,
+    `${base}.js`,
+    path.join(base, 'index.ts'),
+  ]) {
     const source = readLocalModule(candidate);
     if (source !== null) return { path: candidate, source };
   }

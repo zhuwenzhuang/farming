@@ -15,27 +15,6 @@ function commandKey(args: readonly string[]) {
 }
 
 async function run() {
-  const managerSource = fs.readFileSync(path.join(__dirname, '../agent-manager.cts'), 'utf8');
-  assert(managerSource.includes('this.worktreeGitService.allocateTemporaryWorktree(root)'));
-  assert(managerSource.includes('this.worktreeGitService.createTemporaryWorktree(identity)'));
-  assert(managerSource.includes('this.worktreeGitService.inspectForkWorktree(expanded)'));
-  assert(managerSource.includes('this.worktreeGitService.deleteWorktree({'));
-  const temporaryCreateBody = managerSource.slice(
-    managerSource.indexOf('async createForkWorktree'),
-    managerSource.indexOf('createPermanentWorktree(', managerSource.indexOf('async createForkWorktree')),
-  );
-  const forkInspectionBody = managerSource.slice(
-    managerSource.indexOf('async inspectForkWorktreeProject'),
-    managerSource.indexOf('agentsForProjectWorkspace', managerSource.indexOf('async inspectForkWorktreeProject')),
-  );
-  const deleteBody = managerSource.slice(
-    managerSource.indexOf('async deleteForkWorktreeProjectAdmitted'),
-    managerSource.indexOf('async forkAgent('),
-  );
-  assert(!temporaryCreateBody.includes('execFileAsync'));
-  assert(!forkInspectionBody.includes('execFileAsync'));
-  assert(!deleteBody.includes('execFileAsync'));
-
   const allocationNonce = 'a'.repeat(32);
   const allocationSlug = `20260809-123456-${allocationNonce}`;
   const parsed = parseGitWorktreeList([

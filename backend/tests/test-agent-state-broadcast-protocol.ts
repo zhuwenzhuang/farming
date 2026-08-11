@@ -1,6 +1,4 @@
 const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
 const { PROJECT_ATTENTION_SCORE_MAX } = require('../../shared/browser-protocol.js');
 const {
   advanceAgentStateBroadcast,
@@ -556,23 +554,5 @@ assert.deepStrictEqual(
 assertInventoryInvariant();
 advanceAgentStateMutation(inventoryInvariantTracker, { upserts: [{ id: 'b', status: 'pending' }] });
 assertInventoryInvariant();
-
-const serverSource = fs.readFileSync(path.join(__dirname, '..', 'server.cts'), 'utf8');
-assert(
-  serverSource.includes('.filter(agent => agentStateVisibleToInteractiveClients(agent as ServerRecord & { id: string }))')
-    && serverSource.includes('if (!agent || !agentStateVisibleToInteractiveClients(agent)) return null;'),
-  'Deployment smoke Agents must stay out of both authoritative snapshots and incremental browser state',
-);
-assert.strictEqual(
-  (serverSource.match(/buildStatePayload\(\)/g) || []).length,
-  2,
-  'The complete Agent payload must only be defined and used by authoritative checkpoint construction',
-);
-const managerSource = fs.readFileSync(path.join(__dirname, '..', 'agent-manager.cts'), 'utf8');
-assert.strictEqual(
-  (managerSource.match(/this\.emit\('update'/g) || []).length,
-  1,
-  'AgentManager state changes must go through exact mutation events',
-);
 
 console.log('agent state broadcast protocol tests passed');

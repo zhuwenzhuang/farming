@@ -106,14 +106,6 @@ function run() {
   const limited = discoverAgentWorkspaces({ homeDir, limit: 2 });
   assert.strictEqual(limited.length, 2);
 
-  const serverSource = fs.readFileSync(path.join(__dirname, '..', 'server.cts'), 'utf8');
-  assert(
-    serverSource.includes('const workspaceDiscoveryCache = new AsyncCache') &&
-      serverSource.includes("app.get(routePath(BASE_PATH, '/api/workspaces/discovered')") &&
-      serverSource.includes('workspaceDiscoveryCache.get(cacheToken)'),
-    'workspace discovery API should cache short-lived scans for faster refresh'
-  );
-
   fs.rmSync(tmpRoot, { recursive: true, force: true });
   console.log('test-workspace-discovery passed');
 }

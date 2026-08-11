@@ -1,6 +1,5 @@
 const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
+const packageJson = require('../../package.json');
 const {
   DARWIN_MEMORY_STATS_TTL_MS,
   SystemMonitor,
@@ -26,8 +25,11 @@ async function run() {
   assert.strictEqual(stats.network, null, 'network stats should degrade to null without external probes');
   assert(Number.isFinite(stats.timestamp), 'timestamp should be present');
 
-  const source = fs.readFileSync(path.join(__dirname, '..', 'system-monitor.cts'), 'utf8');
-  assert(!source.includes("require('systeminformation')"), 'system monitor should not depend on systeminformation spawn probes');
+  assert.strictEqual(
+    packageJson.dependencies.systeminformation,
+    undefined,
+    'system monitoring should remain on bounded built-in probes instead of the systeminformation dependency',
+  );
 
   let now = 1_000;
   let diskCalls = 0;

@@ -1,11 +1,20 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const appearanceThemes = require('../../shared/appearance-themes.json');
 const {
   applyIndexHtmlAppearance,
   appendIndexHtmlAssetToken,
   rewriteIndexHtmlForBasePath,
 } = require('../index-html.cjs');
+
+function assertAssetCarriesStartupToken(html, assetPath, startupToken) {
+  const escapedAssetPath = assetPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = html.match(new RegExp(`(?:src|href)="([^"]*${escapedAssetPath}[^"]*)"`));
+  assert(match, `Missing rewritten asset URL for ${assetPath}`);
+  const values = [...new URL(match[1], 'https://farming.example').searchParams.values()];
+  assert(values.includes(startupToken), `${assetPath} should carry the startup token`);
+}
 
 function run() {
   const repoRoot = path.join(__dirname, '..', '..');
@@ -23,22 +32,12 @@ function run() {
   ].join('\n');
 
   const startupToken = '测试令牌-山月-晨光';
-  const encodedToken = encodeURIComponent(startupToken);
   const rewritten = rewriteIndexHtmlForBasePath(html, '/farming');
   const withToken = appendIndexHtmlAssetToken(rewritten, startupToken);
 
-  assert(
-    withToken.includes(`/farming/assets/index.js?token=${encodedToken}`),
-    'entry script should carry the startup token when the entry page was opened with a token'
-  );
-  assert(
-    withToken.includes('/farming/assets/chunk.js?token='),
-    'modulepreload assets should carry the startup token'
-  );
-  assert(
-    withToken.includes('/farming/assets/index.css?token='),
-    'stylesheet assets should carry the startup token'
-  );
+  assertAssetCarriesStartupToken(withToken, '/farming/assets/index.js', startupToken);
+  assertAssetCarriesStartupToken(withToken, '/farming/assets/chunk.js', startupToken);
+  assertAssetCarriesStartupToken(withToken, '/farming/assets/index.css', startupToken);
   assert(
     withToken.includes('<link rel="icon" href="/farming/farming-2/favicon-v2.ico">'),
     'public product icons should keep a stable token-free URL for installed web apps'
@@ -48,11 +47,12 @@ function run() {
     'external asset-like URLs should not be rewritten'
   );
 
-  const once = appendIndexHtmlAssetToken('<script src="/farming/assets/index.js?token=old"></script>', 'new');
+  const once = appendIndexHtmlAssetToken('<script src="/farming/assets/index.js?existing=old"></script>', 'new');
+  assertAssetCarriesStartupToken(once, '/farming/assets/index.js', 'new');
   assert.strictEqual(
+    appendIndexHtmlAssetToken(once, 'other'),
     once,
-    '<script src="/farming/assets/index.js?token=old"></script>',
-    'asset token rewriting should not duplicate an existing token query parameter'
+    'asset token rewriting should remain idempotent after attaching its generated query parameter'
   );
 
   const darkEntry = applyIndexHtmlAppearance(
@@ -84,8 +84,8 @@ function run() {
     'Paper should keep native browser controls in their light color scheme'
   );
   assert(
-    paperEntry.includes('<meta name="theme-color" content="#f7f4ed">'),
-    'the browser chrome should receive the Paper canvas color with the entry document'
+    paperEntry.includes(`<meta name="theme-color" content="${appearanceThemes.paper.metadata.themeColor}">`),
+    'the browser chrome should receive the Paper metadata color from the shared appearance registry'
   );
   assert(
     applyIndexHtmlAppearance('<html>', 'unexpected')
@@ -101,6 +101,11 @@ function run() {
   assert(productIndex.includes('app-icon-v2-180.png'), 'iOS should use the versioned high-resolution touch icon');
   assert(productIndex.includes('favicon-v2-32.png'), 'browser tabs should use the versioned small-icon crop');
   assert(productIndex.includes('data-appearance-preference="system"'), 'the entry document should expose a server-rewritable appearance preference');
+  assert(
+    productIndex.includes(`background: ${appearanceThemes.paper.css['--code-bg-canvas']};`)
+      && productIndex.includes(`"themeColor":"${appearanceThemes.paper.metadata.themeColor}"`),
+    'the Paper first-paint bootstrap should agree with the shared appearance registry',
+  );
   assert(productIndex.includes("root.dataset.appearance = appearance"), 'the entry document should resolve its first-paint appearance before loading app code');
   assert(
     mainSource.includes('visibleUrlWithoutToken(window.location.href)')

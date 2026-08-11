@@ -2,9 +2,7 @@ import type { SettingsMutationPorts } from '../settings-mutation-router.cjs';
 
 const assert = require('assert');
 const express = require('express');
-const fs = require('fs');
 const http = require('http');
-const path = require('path');
 const {
   SettingsMutationCoordinator,
   SettingsMutationResponseError,
@@ -105,24 +103,6 @@ async function withServer(
 }
 
 async function run(): Promise<void> {
-  {
-    const serverSource = fs.readFileSync(path.resolve(__dirname, '../server.cts'), 'utf8');
-    const routerSource = fs.readFileSync(path.resolve(__dirname, '../settings-mutation-router.cts'), 'utf8');
-    assert(serverSource.includes("import { createSettingsMutationRouter } from './settings-mutation-router.cjs';"));
-    assert(serverSource.includes("app.use(routePath(BASE_PATH, '/api/settings'), createSettingsMutationRouter({"));
-    assert(!serverSource.includes("app.post(routePath(BASE_PATH, '/api/settings')"));
-    assert(routerSource.includes('class SettingsMutationCoordinator'));
-    assert(!routerSource.includes('mutationTail'));
-    assert(!routerSource.includes('configManager'));
-    assert(!routerSource.includes('browserResourceManager'));
-    assert(!routerSource.includes('computerResourceManager'));
-    assert(
-      routerSource.indexOf('res.json(await coordinator.mutate(req.body));')
-        < routerSource.indexOf('ports.publishSettingsMetadata();'),
-      'metadata publication must retain the HEAD response-before-publish order',
-    );
-  }
-
   {
     const state = harness({
       async probeBrowser(selection) {

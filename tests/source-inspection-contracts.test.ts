@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 import test from 'node:test'
 import {
+  discoverTestFiles,
   inspectSourceText,
   inspectSourceTextWithLocalHelpers,
 } from '../scripts/check-source-inspection-contracts'
@@ -42,6 +43,24 @@ test('source-inspection scanner follows aliases into match and regexp test asser
   assert.deepEqual(inspections.map(inspection => inspection.target), ['backend'])
 })
 
+test('source-inspection discovery includes Playwright spec files', () => {
+  assert.ok(discoverTestFiles().includes('tests/e2e/display-flows.spec.ts'))
+})
+
+test('source-inspection scanner resolves repository-relative __dirname paths', () => {
+  const backendInspections = inspectSourceText('backend/tests/test-example.ts', `
+    const contents = fs.readFileSync(path.join(__dirname, '..', 'server.cts'), 'utf8')
+    assert.ok(contents.includes('privateMethod'))
+  `)
+  assert.deepEqual(backendInspections.map(inspection => inspection.target), ['backend'])
+
+  const rootInspections = inspectSourceText('backend/tests/test-example.ts', `
+    const contents = fs.readFileSync(path.join(__dirname, '../..', 'vite.config.ts'), 'utf8')
+    assert.ok(contents.includes('privateSetting'))
+  `)
+  assert.deepEqual(rootInspections.map(inspection => inspection.target), ['vite.config.ts'])
+})
+
 test('source reads used to execute product code are not implementation-string inspections', () => {
   const inspections = inspectSourceText('tests/example.test.ts', `
     const code = fs.readFileSync(path.resolve(repoRoot, 'frontend/skins/crt/app.js'), 'utf8')
@@ -67,6 +86,32 @@ test('source-inspection scanner attributes arbitrary local helper assertions to 
   assert.deepEqual(inspections, [{ file: 'tests/example.test.ts', line: 3, target: 'src' }])
 })
 
+test('source-inspection scanner follows CommonJS local helper imports', () => {
+  const modules = new Map<string, string>([
+    ['tests/source-helper.cts', `
+      function assertImplementationContract() {
+        const contents = fs.readFileSync(path.join(repoRoot, 'src/components/Example.tsx'), 'utf8')
+        assert.ok(contents.includes('privateImplementation'))
+      }
+      module.exports = { assertImplementationContract }
+    `],
+  ])
+  const destructured = inspectSourceTextWithLocalHelpers('tests/example.test.ts', `
+    function runContract() {
+      const { assertImplementationContract: verify } = require('./source-helper.cjs')
+      verify()
+    }
+    runContract()
+  `, candidate => modules.get(candidate) ?? null)
+  assert.deepEqual(destructured, [{ file: 'tests/example.test.ts', line: 4, target: 'src' }])
+
+  const namespaced = inspectSourceTextWithLocalHelpers('tests/example.test.ts', `
+    const helper = require('./source-helper.cjs')
+    helper.assertImplementationContract()
+  `, candidate => modules.get(candidate) ?? null)
+  assert.deepEqual(namespaced, [{ file: 'tests/example.test.ts', line: 3, target: 'src' }])
+})
+
 test('local helpers which only execute product source do not create inspection summaries', () => {
   const modules = new Map<string, string>([
     ['tests/runtime-helper.ts', `
@@ -81,6 +126,32 @@ test('local helpers which only execute product source do not create inspection s
     executeRuntime()
   `, candidate => modules.get(candidate) ?? null)
   assert.deepEqual(inspections, [])
+
+  const commonJsInspections = inspectSourceTextWithLocalHelpers('tests/example.test.ts', `
+    const { executeRuntime } = require('./runtime-helper')
+    executeRuntime()
+  `, candidate => modules.get(candidate) ?? null)
+  assert.deepEqual(commonJsInspections, [])
+})
+
+test('exported helper summaries include non-exported local helper calls', () => {
+  const modules = new Map<string, string>([
+    ['tests/source-helper.ts', `
+      function assertPrivateImplementation() {
+        const contents = fs.readFileSync(path.join(repoRoot, 'backend/server.cts'), 'utf8')
+        assert.ok(contents.includes('privateImplementation'))
+      }
+
+      export function assertPublicContract() {
+        assertPrivateImplementation()
+      }
+    `],
+  ])
+  const inspections = inspectSourceTextWithLocalHelpers('tests/example.test.ts', `
+    import { assertPublicContract } from './source-helper'
+    assertPublicContract()
+  `, candidate => modules.get(candidate) ?? null)
+  assert.deepEqual(inspections, [{ file: 'tests/example.test.ts', line: 3, target: 'backend' }])
 })
 
 test('source-inspection summaries cross two helper hops and stop circular imports', () => {

@@ -57,6 +57,36 @@ export interface DomainStyleOwnershipContract {
   mustHaveBase: string[]
 }
 
+export interface AppearanceNeutralStylePaletteContract {
+  /** Product-domain name; the domain base is src/styles/<domain>.css. */
+  domain: string
+  /** Representative selectors whose structural surface remains part of the domain. */
+  mustHaveBase: string[]
+}
+
+/**
+ * Verifies a domain that still shares structural integration rules with main.css.
+ * It deliberately does not assert exclusive ownership or component-class coverage;
+ * use assertDomainStyleOwnership once those boundaries have been extracted.
+ */
+export function assertAppearanceNeutralStylePalette(contract: AppearanceNeutralStylePaletteContract) {
+  const baseFile = `src/styles/${contract.domain}.css` as CodeStyleSourcePath
+  const ownerStyles = readCodeStyleSource(baseFile)
+
+  assert(!/data-appearance/.test(ownerStyles), `${baseFile} must stay appearance-neutral`)
+  assert(
+    ownerStyles.includes('var(--code-'),
+    `${baseFile} must consume the shared semantic color palette`,
+  )
+  assert(
+    !/(?:#[\da-f]{3,8}\b|\brgba?\(|\bhsla?\()/i.test(ownerStyles),
+    `${baseFile} must not hard-code color values outside the shared semantic palette`,
+  )
+  for (const selector of contract.mustHaveBase) {
+    assert(ownerStyles.includes(selector), `Missing ${contract.domain} base rule: ${selector}`)
+  }
+}
+
 export function assertDomainStyleOwnership(contract: DomainStyleOwnershipContract) {
   const prefixPattern = (prefix: string) => new RegExp(`\\.${prefix}(?:[-.:#\\s>+~[,)]|$)`)
   const keyframesPattern = (prefix: string) => new RegExp(`^${prefix}-`)

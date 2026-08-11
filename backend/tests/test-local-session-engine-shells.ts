@@ -1,17 +1,21 @@
 const assert = require('assert');
 const fs = require('fs');
-const path = require('path');
-const { normalizeShellSessionOptions } = require('../local-session-engine.cjs');
+const { createPtyProcess, normalizeShellSessionOptions } = require('../local-session-engine.cjs');
 const { cleanupShellBusyIntegration } = require('../shell-busy-integration.cjs');
 
 function run() {
-  const engineSource = fs.readFileSync(path.join(__dirname, '..', 'local-session-engine.cts'), 'utf8');
-  assert(
-    engineSource.includes('loadPtyModule().spawn') &&
-      !engineSource.includes("spawn('script'") &&
-      !engineSource.includes('FARMING_FORCE_SCRIPT_PTY'),
-    'local session engine should require native node-pty instead of adding a lower-quality PTY fallback'
-  );
+  const packagedNodePty = require('../packaged-node-pty.cjs').nodePty;
+  const originalSpawn = packagedNodePty.spawn;
+  packagedNodePty.spawn = () => { throw new Error('native PTY fixture unavailable'); };
+  try {
+    assert.throws(
+      () => createPtyProcess('bash', [], { cols: 80, rows: 24, env: {}, name: 'xterm-256color' }),
+      /Farming requires node-pty.*native PTY fixture unavailable/,
+      'native PTY failure must stay explicit instead of starting a lower-quality fallback',
+    );
+  } finally {
+    packagedNodePty.spawn = originalSpawn;
+  }
 
   const bashOptions = normalizeShellSessionOptions({
     command: 'bash',

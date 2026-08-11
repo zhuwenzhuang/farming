@@ -35,13 +35,6 @@ function cleanup(dir) {
 }
 
 function run() {
-  const serverSource = fs.readFileSync(path.resolve(__dirname, '../server.cts'), 'utf8');
-  assert(
-    serverSource.includes("agentManager.resolveAgentShellEnv('', { maxAgeMs: INTERACTIVE_REFRESH_CACHE_MAX_AGE_MS })")
-      && serverSource.includes('return withLaunchCapabilities(listAvailableAgents(pathEnv))')
-      && serverSource.includes("res.setHeader('Cache-Control', 'no-store')"),
-    'executable discovery requests should use a short backend shell PATH cache without HTTP caching'
-  );
   assert.deepStrictEqual(
     getPathDirectories('/usr/bin::/bin:/custom/bin'),
     ['/usr/bin', '/bin', '/custom/bin'],

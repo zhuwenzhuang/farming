@@ -1,11 +1,8 @@
-import assert from 'node:assert/strict'
-import { readCodeStyleSource } from './style-source-reader'
+import { assertAppearanceNeutralStylePalette } from './style-ownership-contract'
 
-const styles = readCodeStyleSource('src/styles/usage.css')
-const tokens = readCodeStyleSource('src/styles/tokens.css')
-for (const selector of ['.code-usage-activity', '.code-usage-chart-summary', '.code-usage-detail-dialog']) {
-  assert(styles.includes(selector), `Missing Usage rule: ${selector}`)
-}
-assert(!styles.includes('data-appearance'), 'Usage rules must stay appearance-neutral')
-assert(tokens.includes('--code-usage-'), 'Usage colors must be owned by the shared palette')
+assertAppearanceNeutralStylePalette({
+  domain: 'usage',
+  mustHaveBase: ['.code-usage-activity', '.code-usage-chart-summary', '.code-usage-detail-dialog'],
+})
+
 console.log('test-usage-style-ownership passed')

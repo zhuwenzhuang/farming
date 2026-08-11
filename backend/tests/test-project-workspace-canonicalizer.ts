@@ -1,6 +1,4 @@
 const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
 
 const { createProjectWorkspaceCanonicalizer } = require('../project-workspace-canonicalizer.cjs') as typeof import('../project-workspace-canonicalizer.cjs');
 
@@ -78,14 +76,6 @@ async function run(): Promise<void> {
   });
   assert.strictEqual(await unavailableFallback('/candidate'), '/candidate', 'unavailable realpath preserves the original fallback response');
   assert.strictEqual(await unavailableFallback(''), '');
-
-  const serverSource = fs.readFileSync(path.join(__dirname, '..', 'server.cts'), 'utf8');
-  assert(
-    serverSource.includes('const canonicalProjectWorkspaceCandidate = createProjectWorkspaceCanonicalizer({')
-      && serverSource.includes('realpath: candidate => fs.promises.realpath(path.resolve(candidate))')
-      && !serverSource.includes('return fs.realpathSync(path.resolve(candidate))'),
-    'the production fallback must use the async realpath port without reintroducing event-loop blocking',
-  );
 
   console.log('Project workspace canonicalizer singleflight passed');
 }
