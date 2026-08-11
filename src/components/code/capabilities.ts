@@ -8,7 +8,7 @@ import { agentKindForProvider } from './agent-kind'
 export { agentKindForCommand, type ComposerAgentKind } from './agent-kind'
 export { inferAgentTerminalState, isAgentTurnActive, isCodexAgentWorking } from './agent-working-state'
 
-export type SlashCommandSource = 'codex' | 'claude' | 'skill' | 'custom'
+export type SlashCommandSource = 'codex' | 'claude' | 'skill' | 'custom' | 'plugin'
 
 export interface SlashCommandOption {
   command: string
