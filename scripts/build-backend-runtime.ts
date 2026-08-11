@@ -50,18 +50,6 @@ async function main(): Promise<void> {
     banner: { js: generatedHeader },
   });
 
-  await esbuild.build({
-    entryPoints: [path.join(projectRoot, 'shared', 'appearance-themes.ts')],
-    outfile: path.join(projectRoot, 'shared', 'appearance-themes.js'),
-    bundle: false,
-    platform: 'node',
-    format: 'cjs',
-    target: 'node22',
-    legalComments: 'none',
-    logLevel: 'warning',
-    banner: { js: generatedHeader },
-  });
-
   const expectedOutputs = new Set(entryPoints.map(
     sourcePath => sourcePath.slice(0, -'.cts'.length) + '.cjs',
   ));
