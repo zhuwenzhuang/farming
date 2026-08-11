@@ -14,6 +14,7 @@ const {
   providerPermissionRestartPolicy,
   providerRequiresStableTerminalSessionAfterInput,
   providerSessionResumeOptions,
+  providerSessionIdentityScope,
   providerSessionLaunchProfile,
   providerRequestedLaunchProfile,
   providerSessionIdentityRollbackArgs,
@@ -44,6 +45,10 @@ function run() {
     ['session', 'delete', 'ses_opencode_1'],
   );
   assert.strictEqual(providerSessionIdentityRollbackArgs('claude', 'session-1'), null);
+  assert.strictEqual(providerSessionIdentityScope('opencode'), 'provider');
+  for (const provider of ['codex', 'claude', 'qoder', 'qwen', 'unknown']) {
+    assert.strictEqual(providerSessionIdentityScope(provider), 'provider-home');
+  }
   assert.deepStrictEqual(
     providerSessionResumeOptions('codex', {
       permissionMode: 'full',

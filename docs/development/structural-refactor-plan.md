@@ -184,8 +184,8 @@ HTTP, WebSocket, persistence, and runtime-host boundaries.
   reservation separately.
 - Provider adapters expose typed decisions such as permission restart,
   Terminal identity/startup constraints, idle stability, and conversation Fork
-  policy. Session-continuation detection and pre-created session rollback
-  command shapes also live in the adapter,
+  policy. Provider Session id scope, session-continuation detection, and
+  pre-created session rollback command shapes also live in the adapter,
   so Manager and ACP Host cleanup cannot drift. Generic lifecycle code does not
   interpret provider names. A shared
   Terminal startup coordinator owns mutable ordering and readiness state;

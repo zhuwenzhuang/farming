@@ -145,7 +145,8 @@ Runtime Port 与 Provider Policy
   是否可以成为 Main 并发布最终 Projection，但不再分别保存选中身份和运行中的启动
   Reservation。
 - Provider Adapter 提供有类型的权限重启、Terminal 身份/启动约束、空闲稳定和会话
-  Fork 策略；Session 续接检测与预创建 Session 的回滚命令形状也归 Adapter，避免 Manager 与 ACP Host
+  Fork 策略；Provider Session ID 作用域、Session 续接检测与预创建 Session 的回滚
+  命令形状也归 Adapter，避免 Manager 与 ACP Host
   Cleanup 分叉。通用生命周期代码不解释 Provider 名称。共享 Terminal Startup
   Coordinator 拥有可变的排序和就绪状态；Adapter 只提供无状态的资源作用域和就绪策略。
 - Code Composer 内部只保存一种 Provider-neutral Launch Profile。Composer Provider

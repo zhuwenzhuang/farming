@@ -33,6 +33,7 @@ interface ProviderSessionPolicy {
   resumeLaunchProfileOverrides?: Readonly<Record<string, string>>;
   suppressPermissionOptionWhenDangerousSkip?: boolean;
   freshPermissionRestartCommand?: string;
+  identityScope?: 'provider' | 'provider-home';
   requiresStableTerminalSessionAfterInput?: boolean;
   terminalNotificationIdleFence?: boolean;
 }
@@ -624,6 +625,9 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
       return env;
     },
     planSession: openCodeSessionPlan,
+    sessionPolicy: {
+      identityScope: 'provider',
+    },
     sessionIdentityRollbackArgs: sessionId => ['session', 'delete', sessionId],
     terminalResumeArgs: (args, sessionId) => {
       const delimiterIndex = args.indexOf('--');
@@ -880,6 +884,12 @@ function providerSessionLaunchProfile(
   return overrides ? { ...profile, ...overrides } : { ...profile };
 }
 
+function providerSessionIdentityScope(
+  provider: unknown,
+): 'provider' | 'provider-home' {
+  return getProviderAdapter(provider)?.sessionPolicy?.identityScope || 'provider-home';
+}
+
 function providerRequestedLaunchProfile(
   provider: unknown,
   profile: Record<string, unknown>,
@@ -1047,6 +1057,7 @@ export {
   providerRuntimeObservationKind,
   providerRequiresStableTerminalSessionAfterInput,
   providerSessionResumeOptions,
+  providerSessionIdentityScope,
   providerSessionLaunchProfile,
   providerRequestedLaunchProfile,
   providerSessionIdentityRollbackArgs,

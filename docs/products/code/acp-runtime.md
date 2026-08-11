@@ -141,6 +141,11 @@ Home, provider Session id, and workspace scope. Additional directories and MCP
 definitions are private Session inputs and must survive reconnect, restart, and
 runtime replacement without being exposed as ordinary browser state.
 
+Provider adapters declare whether a Provider Session id is scoped to one Agent
+Home or globally within that Provider. For a global Provider identity, the
+persistence layer rejects binding the same Session id to a second Agent Home;
+generic storage does not identify such Providers by name.
+
 A Session plan marked temporary is not a confirmed Provider identity and is
 never resolved through Provider History. This applies uniformly to every
 Provider until its adapter-specific identity evidence is confirmed.

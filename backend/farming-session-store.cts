@@ -5,6 +5,7 @@ const { isDeepStrictEqual } = require('util');
 import { atomicWriteJson, atomicWriteJsonAsync } from './atomic-json-store.cjs';
 import { legacyRuntimeMetadata } from './agent-runtime-binding.cjs';
 import { lifecycleJournal } from './agent-lifecycle-journal.cjs';
+import { getProviderAdapter, providerSessionIdentityScope } from './provider-adapters.cjs';
 import * as storageLayout from './storage-layout.cjs';
 import {
   canonicalProviderSessionKey,
@@ -847,16 +848,17 @@ class FarmingSessionStore {
     const parsed = parseProviderSessionKey(requestedSessionKey);
     if (!parsed) return '';
     const sessionKey = canonicalProviderSessionKey(requestedSessionKey);
-    if (parsed.provider === 'opencode') {
+    if (providerSessionIdentityScope(parsed.provider) === 'provider') {
       const conflictingBinding = this.listStoredAgentRecords().find(record => {
         const existing = parseProviderSessionKey(record.providerSessionKey);
-        return existing?.provider === 'opencode'
+        return existing?.provider === parsed.provider
           && existing.sessionId === parsed.sessionId
           && existing.providerHomeId !== parsed.providerHomeId;
       });
       if (conflictingBinding) {
+        const providerName = getProviderAdapter(parsed.provider)?.displayName || parsed.provider;
         const error = new Error(
-          `OpenCode session ${parsed.sessionId} is already bound to Agent Home "${String(conflictingBinding.providerHomeId || 'default')}"`,
+          `${providerName} session ${parsed.sessionId} is already bound to Agent Home "${String(conflictingBinding.providerHomeId || 'default')}"`,
         ) as Error & { code?: string; status?: number };
         error.code = 'AGENT_HOME_SESSION_CONFLICT';
         error.status = 409;

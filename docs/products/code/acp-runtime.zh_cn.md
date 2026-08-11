@@ -106,6 +106,10 @@ ACP Conversation 的稳定身份由 Provider、Canonical Agent Home、Provider S
 Workspace Scope 共同组成。Additional Directory 与 MCP Definition 是私有 Session Input，
 必须在重连、重启和 Runtime Replacement 后保留，但不能作为普通 Browser State 暴露。
 
+Provider Adapter 声明 Provider Session ID 是按单个 Agent Home 隔离，还是在该 Provider 内
+全局唯一。对于全局 Provider Identity，Persistence Layer 会拒绝把同一 Session ID 绑定到
+第二个 Agent Home；通用 Storage 不按 Provider 名称识别这类规则。
+
 标记为 Temporary 的 Session Plan 不是已确认的 Provider Identity，不能通过 Provider
 History 解析；该规则对所有 Provider 一致生效，直到 Adapter 特有的 Identity Evidence 被确认。
 
