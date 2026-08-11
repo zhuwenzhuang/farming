@@ -21,9 +21,7 @@ const CLAUDE_HISTORY_TAIL_BYTES = 2 * 1024 * 1024;
 const QODER_HISTORY_TAIL_BYTES = 2 * 1024 * 1024;
 const QWEN_HISTORY_TAIL_BYTES = 2 * 1024 * 1024;
 const MAX_RECENT_FILE_SCAN_DIRECTORIES = 2000;
-const AGENT_PROVIDER_IDS = ['codex', 'claude', 'opencode', 'qoder', 'qwen'] as const;
-type AgentProvider = typeof AGENT_PROVIDER_IDS[number];
-const PROVIDERS = new Set<string>(AGENT_PROVIDER_IDS);
+type AgentProvider = 'codex' | 'claude' | 'opencode' | 'qoder' | 'qwen';
 
 interface HistoryRecord extends Record<string, unknown> {
   automation?: HistoryRecord;
@@ -224,7 +222,7 @@ function isHistoryRecord(value: unknown): value is HistoryRecord {
 }
 
 function isAgentProvider(value: string): value is AgentProvider {
-  return PROVIDERS.has(value);
+  return PROVIDER_HISTORY_BY_ID.has(value as AgentProvider);
 }
 
 function quoteCommandArg(value: unknown): string {
@@ -1456,7 +1454,7 @@ async function listAgentSessions(
     ? options.providers
       .map(normalizeProvider)
       .filter((provider): provider is AgentProvider => Boolean(provider))
-    : [...AGENT_PROVIDER_IDS];
+    : agentSessionHistoryProviders();
   const providers = Array.from(new Set(requestedProviders));
   const sessions: AgentSession[] = [];
 
