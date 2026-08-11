@@ -242,6 +242,36 @@ interface ProviderDescriptor {
   supportedRuntimes: readonly ProviderRuntime[];
 }
 
+function assertProviderCatalogIntegrity(
+  adapters: ReadonlyArray<Pick<ProviderAdapter, 'commands' | 'executable' | 'id'>>,
+): void {
+  const providerIds = new Set<ProviderId>();
+  const commandOwners = new Map<string, ProviderId>();
+
+  for (const adapter of adapters) {
+    if (providerIds.has(adapter.id)) {
+      throw new Error(`Duplicate Provider id "${adapter.id}"`);
+    }
+    providerIds.add(adapter.id);
+
+    if (!adapter.commands.includes(adapter.executable)) {
+      throw new Error(
+        `Provider "${adapter.id}" commands do not include executable "${adapter.executable}"`,
+      );
+    }
+
+    for (const command of adapter.commands) {
+      const existingOwner = commandOwners.get(command);
+      if (existingOwner !== undefined) {
+        throw new Error(
+          `Provider command alias "${command}" is declared by both "${existingOwner}" and "${adapter.id}"`,
+        );
+      }
+      commandOwners.set(command, adapter.id);
+    }
+  }
+}
+
 const CODEX_VALUE_OPTIONS = new Set([
   '-a', '-c', '-C', '-m', '-p', '-s', '--ask-for-approval', '--cd', '--config',
   '--config-profile', '--model', '--profile', '--sandbox', '--add-dir',
@@ -872,6 +902,8 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
   },
 ]);
 
+assertProviderCatalogIntegrity(PROVIDER_ADAPTERS);
+
 function projectProviderDescriptor(adapter: ProviderAdapter): Readonly<ProviderDescriptor> {
   return Object.freeze({
     commands: Object.freeze([...adapter.commands]),
@@ -1143,6 +1175,7 @@ function normalizeProviderAcpExtensionNotification(
 }
 
 export {
+  assertProviderCatalogIntegrity,
   claudeAcpEnvironment,
   getProviderAdapter,
   applyProviderHomeEnvironment,

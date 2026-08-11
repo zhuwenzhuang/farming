@@ -1,6 +1,7 @@
 const assert = require('assert');
 const path = require('path');
 const {
+  assertProviderCatalogIntegrity,
   getProviderAdapter,
   isFreshAcpSessionSource,
   listProviderAdapters,
@@ -100,6 +101,44 @@ function run() {
     () => descriptors[0].commands.push('replacement'),
     TypeError,
     'Provider command aliases must reject mutation',
+  );
+  assert.doesNotThrow(() => assertProviderCatalogIntegrity(adapters));
+  assert.strictEqual(
+    new Set(adapters.map(adapter => adapter.id)).size,
+    adapters.length,
+    'Provider ids must be globally unique',
+  );
+  const commandAliases = adapters.flatMap(adapter => adapter.commands);
+  assert.strictEqual(
+    new Set(commandAliases).size,
+    commandAliases.length,
+    'Provider command aliases must be globally unique',
+  );
+  for (const adapter of adapters) {
+    assert(
+      adapter.commands.includes(adapter.executable),
+      `${adapter.id} commands must include its executable`,
+    );
+  }
+  assert.throws(
+    () => assertProviderCatalogIntegrity([
+      { id: 'alpha', executable: 'alpha', commands: ['alpha'] },
+      { id: 'alpha', executable: 'alpha-next', commands: ['alpha-next'] },
+    ]),
+    /Duplicate Provider id "alpha"/,
+  );
+  assert.throws(
+    () => assertProviderCatalogIntegrity([
+      { id: 'alpha', executable: 'alpha', commands: ['alpha', 'shared'] },
+      { id: 'beta', executable: 'beta', commands: ['beta', 'shared'] },
+    ]),
+    /Provider command alias "shared" is declared by both "alpha" and "beta"/,
+  );
+  assert.throws(
+    () => assertProviderCatalogIntegrity([
+      { id: 'alpha', executable: 'alpha-cli', commands: ['alpha'] },
+    ]),
+    /Provider "alpha" commands do not include executable "alpha-cli"/,
   );
   assert.strictEqual(providerForProgram('/usr/local/bin/qodercli'), 'qoder');
   assert.strictEqual(providerForProgram('/opt/homebrew/bin/qwen'), 'qwen');
