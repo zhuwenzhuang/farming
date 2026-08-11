@@ -106,11 +106,7 @@ class ProviderSessionService<Agent extends ProviderSessionAgent = ProviderSessio
     const agent = this.agents.get(agentId);
     if (!agent?.providerSessionProvider || !agent.providerSessionId) return;
 
-    if (agent.providerSessionProvider === 'codex' && agent.providerSessionTemporary === true) {
-      return;
-    }
-
-    this.resolutions.delete(`codex:${agentId}`);
+    if (agent.providerSessionTemporary === true) return;
     this.commit(agent, { kind: 'known-session' });
     void this.resolveTitle(agentId, { force: true });
   }

@@ -66,6 +66,22 @@ async function run() {
   assert.strictEqual(commits.length, 1, 'one confirmed identity should commit once');
   assert.strictEqual(commits[0].change.kind, 'session-updated');
 
+  agents.set('temporary-opencode', {
+    id: 'temporary-opencode',
+    providerSessionProvider: 'opencode',
+    providerSessionId: 'tmp_uuid-opencode-fork',
+    providerSessionTemporary: true,
+    providerHomeId: 'default',
+  });
+  service.activate('temporary-opencode');
+  service.observe('temporary-opencode', { force: true });
+  await Promise.resolve();
+  assert.strictEqual(
+    historyReads,
+    0,
+    'temporary OpenCode identities must receive the same pre-confirmation History guard',
+  );
+
   agents.set('claimed', {
     id: 'claimed',
     providerSessionProvider: 'codex',

@@ -29,6 +29,10 @@ ACP 与 Native Terminal 使用相互独立的 Executable Policy。ACP 使用 Far
 锁定的 Runtime Artifact；Terminal 遵循 Native Terminal Policy。更新 ACP Pin 必须验证
 Protocol、Integrity、Recovery 与 Chat/Terminal Compatibility。
 
+Native Terminal Executable Discovery 只返回一种归一化 Compatibility Result。Provider
+特有的 Resume Version 要求与受信 Test Override 留在 Executable Discovery Registry；Agent
+Lifecycle 不选择 Provider-specific Resolver。
+
 默认 ACP Launch 是不可变的 Farming-managed Image，统一绑定 Adapter 版本、Provider CLI
 版本、Protocol/Build Identity、Patch，以及 Node 或兼容 Loader 的启动方式。新建 Chat
 Session 始终使用这套 Managed Runtime；Plugins 不再提供第二条 Executable Selection Path。
@@ -97,6 +101,9 @@ Metadata 或隐藏 Operational Context 推断回复语言。
 ACP Conversation 的稳定身份由 Provider、Canonical Agent Home、Provider Session ID 与
 Workspace Scope 共同组成。Additional Directory 与 MCP Definition 是私有 Session Input，
 必须在重连、重启和 Runtime Replacement 后保留，但不能作为普通 Browser State 暴露。
+
+标记为 Temporary 的 Session Plan 不是已确认的 Provider Identity，不能通过 Provider
+History 解析；该规则对所有 Provider 一致生效，直到 Adapter 特有的 Identity Evidence 被确认。
 
 配置有两类权威来源：
 

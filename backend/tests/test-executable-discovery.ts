@@ -13,6 +13,7 @@ const {
   resolveAgentExecutable,
   resolveCompatibleCodexExecutable,
   resolveFarmingOwnedExecutable,
+  resolveProviderTerminalExecutable,
   resolveTerminalCodexExecutable,
   resolveTerminalExecutable,
   validatePersistedAcpExecutable,
@@ -127,6 +128,24 @@ function run() {
     });
     assert.strictEqual(incompatibleCodex.compatible, false);
     assert(incompatibleCodex.error.includes('older than this session'), 'old-only codex should produce an actionable error');
+    const providerIncompatibleCodex = resolveProviderTerminalExecutable('codex', '0.142.0', '', {
+      candidates: [oldCodex],
+      readVersion() {
+        return '0.133.0';
+      },
+    });
+    assert.strictEqual(
+      providerIncompatibleCodex.compatible,
+      false,
+      'the Provider executable policy should enforce Codex session compatibility',
+    );
+    assert.strictEqual(
+      resolveProviderTerminalExecutable('codex', '999.0.0', '', {
+        trustConfiguredExecutable: true,
+      }).path,
+      preferredCodex,
+      'an explicit trusted test executable should be selected through discovery policy',
+    );
 
     const systemCodex = writeExecutable(tempDir, 'system-codex');
     const farmingCodex = writeExecutable(tempDir, 'farming-codex');
@@ -159,6 +178,15 @@ function run() {
     });
     assert.strictEqual(newerSystem.path, systemCodex, 'a newer system executable should win for Terminal');
     assert.strictEqual(newerSystem.source, 'system');
+    const providerClaude = resolveProviderTerminalExecutable('claude', '999.0.0', '', {
+      systemCandidates: [systemCodex],
+      farmingCandidates: [farmingCodex],
+      readVersion(filePath) {
+        return filePath === systemCodex ? '2.2.0' : '2.1.0';
+      },
+    });
+    assert.strictEqual(providerClaude.path, systemCodex);
+    assert.strictEqual(providerClaude.compatible, true, 'providers without a resume version policy remain compatible');
     assert.strictEqual(
       resolveFarmingOwnedExecutable('codex', { farmingCandidates: [farmingCodex] }),
       farmingCodex,

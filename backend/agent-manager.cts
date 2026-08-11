@@ -115,8 +115,7 @@ import {
   getFarmingOwnedExecutableCandidates,
   resolveAgentExecutable,
   resolveFarmingOwnedExecutable,
-  resolveTerminalCodexExecutable,
-  resolveTerminalExecutable,
+  resolveProviderTerminalExecutable,
   validatePersistedAcpExecutable,
 } from './executable-discovery.cjs';
 import { ensureMainAgentSkillFiles, renderMainAgentBootstrap } from './main-agent-skills.cjs';
@@ -5014,24 +5013,27 @@ class AgentManager extends EventEmitter {
           ownershipEnvironment,
         ),
       });
-    } else if (!useAcp && path.basename(program) === 'codex') {
-      if (
-        process.env.FARMING_E2E_FAKE_EXECUTABLES === '1'
-        && process.env.FARMING_CODEX_BIN
-      ) {
-        resolvedExecutable = process.env.FARMING_CODEX_BIN;
+    } else {
+      if (useAcp) {
+        resolvedExecutable = resolveAgentExecutable(program, launchPathEnv);
       } else {
-        const codexResolution = resolveTerminalCodexExecutable(options.requiredCliVersion || '', launchPathEnv);
-        if (!codexResolution.compatible) {
-          if (callback) callback(null, codexResolution.error || 'Codex CLI is not compatible with this session');
+        const terminalResolution = resolveProviderTerminalExecutable(
+          program,
+          options.requiredCliVersion || '',
+          launchPathEnv,
+          { trustConfiguredExecutable: process.env.FARMING_E2E_FAKE_EXECUTABLES === '1' },
+        );
+        if (!terminalResolution.compatible) {
+          if (callback) {
+            callback(
+              null,
+              terminalResolution.error || `${launchProvider || program} CLI is not compatible with this session`,
+            );
+          }
           return null;
         }
-        resolvedExecutable = codexResolution.path;
+        resolvedExecutable = terminalResolution.path;
       }
-    } else {
-      resolvedExecutable = useAcp
-        ? resolveAgentExecutable(program, launchPathEnv)
-        : resolveTerminalExecutable(program, launchPathEnv).path;
     }
     const spawnProgram = resolvedExecutable || program;
     if (

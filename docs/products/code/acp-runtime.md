@@ -39,6 +39,11 @@ Farming-owned, version-pinned runtime artifacts; Terminal follows the native
 Terminal policy. Updating an ACP pin requires protocol, integrity, recovery,
 and Chat/Terminal compatibility verification.
 
+Native Terminal executable discovery returns one normalized compatibility
+result. Provider-specific resume-version requirements and trusted test
+overrides live in the executable discovery registry; Agent lifecycle code does
+not select a Provider-specific resolver.
+
 The default ACP launch is an immutable Farming-managed image that binds the
 adapter version, provider CLI version, protocol/build identity, patches, and
 the Node or compatibility-loader invocation. New Chat Sessions always use this
@@ -130,6 +135,10 @@ The stable identity of an ACP conversation combines Provider, canonical Agent
 Home, provider Session id, and workspace scope. Additional directories and MCP
 definitions are private Session inputs and must survive reconnect, restart, and
 runtime replacement without being exposed as ordinary browser state.
+
+A Session plan marked temporary is not a confirmed Provider identity and is
+never resolved through Provider History. This applies uniformly to every
+Provider until its adapter-specific identity evidence is confirmed.
 
 Configuration has two authorities:
 

@@ -29,6 +29,7 @@ interface ExecutableResolutionOptions {
   preferSystem?: boolean;
   readVersion?: ExecutableVersionReader;
   systemCandidates?: string[];
+  trustConfiguredExecutable?: boolean;
 }
 
 interface CodexExecutableResolution {
@@ -66,6 +67,7 @@ interface ExecutableDiscoveryDefinition {
   packageCandidates?: () => string[];
   preferredEnvironmentKeys?: string[];
   systemCandidates?: string[];
+  terminalSessionCompatibility?: 'codex-version';
 }
 
 const EXECUTABLE_DISCOVERY_DEFINITIONS: Record<string, ExecutableDiscoveryDefinition> = {
@@ -81,6 +83,7 @@ const EXECUTABLE_DISCOVERY_DEFINITIONS: Record<string, ExecutableDiscoveryDefini
     )],
     preferredEnvironmentKeys: ['FARMING_CODEX_BIN'],
     systemCandidates: [DEFAULT_CODEX_APP_BIN, DEFAULT_CHATGPT_APP_CODEX_BIN],
+    terminalSessionCompatibility: 'codex-version',
   },
   claude: {
     acpEnvironmentKey: 'FARMING_ACP_CLAUDE_BIN',
@@ -558,6 +561,38 @@ function resolveTerminalCodexExecutable(
   });
 }
 
+function resolveProviderTerminalExecutable(
+  agentName: string,
+  requiredVersion = '',
+  pathEnv = process.env.PATH || '',
+  options: ExecutableResolutionOptions = {},
+): CodexExecutableResolution {
+  const normalizedAgentName = path.basename(String(agentName || '').trim());
+  const definition = EXECUTABLE_DISCOVERY_DEFINITIONS[normalizedAgentName];
+  const configuredExecutable = definition?.configuredEnvironmentKey
+    ? process.env[definition.configuredEnvironmentKey] || ''
+    : '';
+  if (options.trustConfiguredExecutable === true && configuredExecutable) {
+    return {
+      compatible: true,
+      error: '',
+      path: configuredExecutable,
+      requiredVersion: String(requiredVersion || '').trim(),
+      version: '',
+    };
+  }
+  if (definition?.terminalSessionCompatibility === 'codex-version') {
+    return resolveTerminalCodexExecutable(requiredVersion, pathEnv, options);
+  }
+  const resolved = resolveTerminalExecutable(normalizedAgentName, pathEnv, options);
+  return {
+    ...resolved,
+    compatible: true,
+    error: '',
+    requiredVersion: '',
+  };
+}
+
 function listAvailableAgents(pathEnv = process.env.PATH || ''): AvailableLaunchAgent[] {
   return getUserLaunchAgents()
     .map((agent) => ({
@@ -586,6 +621,7 @@ export {
   resolveCompatibleCodexExecutable,
   resolveFarmingOwnedExecutable,
   resolveTerminalCodexExecutable,
+  resolveProviderTerminalExecutable,
   resolveTerminalExecutable,
   validatePersistedAcpExecutable,
 };
