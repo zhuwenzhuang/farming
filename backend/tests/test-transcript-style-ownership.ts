@@ -6,8 +6,8 @@ assertDomainStyleOwnership({
   // embedded terminal, progress, and terminal cards render inside transcripts.
   prefixes: ['code-agent-transcript', 'code-acp-embedded', 'code-acp-progress', 'code-acp-terminal'],
   expected: {
-    combined: [561, 'e5a155c21188de1c835c67ccfb4e2ee9c72d4d70674d7d5f2b1b2c738ffebc73'],
-    base: [408, '5cfccc90c7173ee7bbb993d5f0896002da305cf30d968b0008d50a493c2305ac'],
+    combined: [561, 'ac6e68f845ae06d64434a22c102b9be801f58438c6045278cff1e13e5f314ec4'],
+    base: [408, 'b8efcdd423f3d94eb40e436eae6847b251123d10bc6d0d15bdf4544bc425b61e'],
     dark: [153, '9eed57cb5e0380fb27c44a01a70b9dc3c429a7c09ab8cb530b9b33aac7017154'],
   },
   componentSources: [

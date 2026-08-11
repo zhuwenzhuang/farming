@@ -37,7 +37,9 @@ try {
   fs.mkdirSync(path.join(pluginRoot, 'skills', 'plugin-skill'), { recursive: true });
   fs.mkdirSync(path.join(pluginRoot, 'commands'), { recursive: true });
   fs.mkdirSync(path.join(pluginRoot, 'hooks'), { recursive: true });
+  fs.mkdirSync(path.join(pluginRoot, 'assets'), { recursive: true });
   fs.mkdirSync(path.join(pluginRoot, '.codex-plugin'), { recursive: true });
+  fs.writeFileSync(path.join(pluginRoot, 'assets', 'logo.svg'), '<svg xmlns="http://www.w3.org/2000/svg"><circle cx="8" cy="8" r="8" /></svg>');
   fs.writeFileSync(path.join(pluginRoot, '.codex-plugin', 'plugin.json'), JSON.stringify({
     name: 'example-plugin',
     version: '1.2.3',
@@ -45,6 +47,7 @@ try {
     skills: './skills',
     mcpServers: './mcp.json',
     hooks: './hooks/hooks.json',
+    interface: { logo: './assets/logo.svg' },
   }));
   fs.writeFileSync(path.join(pluginRoot, 'skills', 'plugin-skill', 'SKILL.md'), [
     '---',
@@ -68,10 +71,12 @@ try {
     },
   }));
   fs.mkdirSync(standardPluginRoot, { recursive: true });
+  fs.writeFileSync(path.join(standardPluginRoot, 'external.svg'), '<svg xmlns="http://www.w3.org/2000/svg"><image href="https://example.test/tracker.png" /></svg>');
   fs.writeFileSync(path.join(standardPluginRoot, 'plugin.json'), JSON.stringify({
     $schema: 'https://agent-plugins.org/schemas/1.0.0/plugin.schema.json',
     name: 'standard-plugin',
     description: 'Agent Plugins v1 root manifest.',
+    interface: { logo: './external.svg' },
   }));
   fs.writeFileSync(path.join(standardPluginRoot, 'mcp.json'), JSON.stringify({
     $schema: 'https://agent-plugins.org/schemas/1.0.0/mcp.schema.json',
@@ -82,8 +87,11 @@ try {
   assert(items.some((item: any) => item.kind === 'skill' && item.name === 'Personal Skill'));
   assert(items.some((item: any) => item.kind === 'skill' && item.name === 'example-plugin: Plugin Skill'));
   assert(items.some((item: any) => item.kind === 'plugin' && item.name === 'Example Plugin'));
+  const pluginItem = items.find((item: any) => item.kind === 'plugin' && item.name === 'Example Plugin');
+  assert(pluginItem?.icon?.startsWith('data:image/svg+xml;base64,'));
   assert(items.some((item: any) => item.kind === 'mcp' && item.name === 'Example MCP'));
   assert(items.some((item: any) => item.kind === 'mcp' && item.name === 'Standard MCP'));
+  assert.strictEqual(items.find((item: any) => item.name === 'Standard Plugin')?.icon, undefined);
   assert(items.some((item: any) => item.kind === 'hook' && item.name === 'example-plugin: PreToolUse'));
   assert(items.some((item: any) => item.kind === 'command' && item.name === 'example-plugin: Review'));
 

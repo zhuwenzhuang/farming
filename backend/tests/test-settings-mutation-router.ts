@@ -35,12 +35,6 @@ function harness(overrides: Partial<SettingsMutationPorts> = {}, initial: Settin
   const calls: string[] = [];
   const patches: Settings[] = [];
   const ports: SettingsMutationPorts = {
-    async assertExecutable(filePath) {
-      calls.push(`executable:${filePath}`);
-    },
-    expandWorkspacePath(filePath) {
-      return filePath;
-    },
     getSettings() {
       calls.push('get-settings');
       return settings;
@@ -162,28 +156,29 @@ async function run(): Promise<void> {
 
   {
     const state = harness({
-      async assertExecutable() {
-        throw new Error('not executable');
+      normalizeAgentHomes(value) {
+        state.calls.push('normalize-homes');
+        const homes = value as Record<string, Array<Record<string, unknown>>>;
+        return Object.fromEntries(Object.entries(homes).map(([provider, entries]) => [
+          provider,
+          entries.map(home => ({
+            ...home,
+            acpRuntime: { mode: 'managed', executable: '' },
+          })),
+        ]));
       },
     });
-    await withServer(state.ports, async baseUrl => {
-      const response = await fetch(`${baseUrl}/api/settings`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          agentHomes: {
-            codex: [{ id: 'custom', acpRuntime: { mode: 'custom', executable: '/missing/codex' } }],
-          },
-        }),
-      });
-      assert.strictEqual(response.status, 400);
-      assert.deepStrictEqual(await response.json(), {
-        error: 'codex Agent Home "custom" custom ACP executable is not executable: /missing/codex',
-        code: 'AGENT_HOME_ACP_RUNTIME_INVALID',
-      });
-      assert.deepStrictEqual(state.patches, []);
-      assert(!state.calls.includes('publish-metadata'));
+    const result = await new SettingsMutationCoordinator(state.ports).mutate({
+      agentHomes: {
+        codex: [{ id: 'legacy', acpRuntime: { mode: 'custom', executable: '/missing/codex' } }],
+      },
     });
+    assert.strictEqual(result.success, true);
+    assert.deepStrictEqual(state.patches, [{
+      agentHomes: {
+        codex: [{ id: 'legacy', acpRuntime: { mode: 'managed', executable: '' } }],
+      },
+    }], 'the settings boundary must commit only the normalized managed runtime');
   }
 
   {

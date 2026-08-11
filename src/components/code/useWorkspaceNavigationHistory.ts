@@ -5,9 +5,11 @@ import {
   pushWorkspaceNavigationEntry,
   workspaceNavigationAgentEntry,
   workspaceNavigationFileEntry,
+  workspaceNavigationPluginEntry,
   type WorkspaceNavigationEntry,
   type WorkspaceNavigationFileInput,
   type WorkspaceNavigationHistorySnapshot,
+  type WorkspacePluginsNavigationState,
 } from '@/lib/workspace-navigation-history'
 
 export function useWorkspaceNavigationHistory() {
@@ -34,6 +36,10 @@ export function useWorkspaceNavigationHistory() {
 
   const recordFile = useCallback((input: WorkspaceNavigationFileInput) => {
     recordEntry(workspaceNavigationFileEntry(input))
+  }, [recordEntry])
+
+  const recordPlugin = useCallback((state: WorkspacePluginsNavigationState) => {
+    recordEntry(workspaceNavigationPluginEntry(state))
   }, [recordEntry])
 
   const recordFileCursor = useCallback((input: WorkspaceNavigationFileInput) => {
@@ -92,6 +98,7 @@ export function useWorkspaceNavigationHistory() {
     canGoForward: state.index >= 0 && state.index < state.entries.length - 1,
     recordAgent,
     recordFile,
+    recordPlugin,
     recordFileCursor,
     beginNavigation,
     finishNavigation,
@@ -102,6 +109,7 @@ export function useWorkspaceNavigationHistory() {
     pruneEntries,
     recordAgent,
     recordFile,
+    recordPlugin,
     recordFileCursor,
     state.entries.length,
     state.index,

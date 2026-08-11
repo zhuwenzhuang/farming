@@ -189,7 +189,9 @@ Collapsed Project session pagination is cut before claimed Provider Sessions
 are replaced by their live Agent rows. A user resume therefore replaces the
 selected Session row in the existing window; it does not backfill another
 history row or grow the Project list. Only the explicit Show more control may
-expand that window. Hidden counts exclude every Session already represented by
+expand that window: the initial window is five rows, the first action reveals
+up to five more, later actions reveal up to ten more, and Show less resets the
+window to five. Hidden counts exclude every Session already represented by
 a live Agent, whether that claim falls inside or outside the current window.
 
 Main identity is singular. When legacy records contain more than one

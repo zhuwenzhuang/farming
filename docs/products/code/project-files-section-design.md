@@ -54,8 +54,11 @@ Each accepted pointer or keyboard action changes the desired expansion state
 once; a later directory response cannot reopen a directory the user closed.
 
 The Explorer keeps active file, keyboard focus, and selection as distinct
-concepts. Opening a file from Chat, Terminal, search, History, or a URL has one
-reveal owner so the tree and Project list do not compete for focus or scroll.
+concepts. Opening a file from Chat, Terminal, search, History, Plugins, or a URL
+has one reveal owner so the tree and Project list do not compete for focus or
+scroll. Workspace back/forward history treats a Plugins location as a first-class
+entry and restores its tab, Agent Home, extension kind, query, detail, and scroll
+position after opening a source file.
 
 ## Working Copies And Mutations
 

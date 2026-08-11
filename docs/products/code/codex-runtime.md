@@ -19,11 +19,10 @@ Terminal and ACP are independent executable-ownership boundaries:
 - ACP uses Farming-owned, version-pinned adapter and runtime artifacts,
   independently of the Terminal selection.
 
-Plugins configures ACP per exact Codex Agent Home. The default managed choice
-uses the release-pinned Codex executable. An explicit custom choice records one
-exact executable path as a separate runtime identity. It affects only new Chat
-Sessions in that Home; Terminal discovery and existing Session bindings do not
-change.
+New ACP Chat Sessions use the release-pinned managed executable for their exact
+Codex Agent Home; Plugins does not expose a custom executable choice. Terminal
+discovery remains independent, and existing Sessions keep their persisted
+launch identity, including legacy custom bindings required for exact recovery.
 
 Keeping these policies separate allows native CLI use and deterministic ACP
 behavior to evolve without silently changing one another.

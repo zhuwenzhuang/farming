@@ -232,7 +232,7 @@ interface CodeSidebarProps {
   onRestartMainAgent: (command: 'codex' | 'claude' | 'opencode' | 'qoder' | 'qwen' | 'bash' | 'zsh') => void
   onProjectListKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => void
   onToggleProject: (projectId: string) => void
-  onToggleProjectSessions: (projectId: string) => void
+  onToggleProjectSessions: (projectId: string, direction: 'more' | 'less') => void
   onMountProject: (workspace: string) => void
   onOpenProjectMenu: (event: ContextMenuTriggerEvent, projectId: string) => void
   onReorderProject: (workspace: string, beforeWorkspace: string, afterWorkspace: string) => void
@@ -1474,7 +1474,7 @@ interface ProjectSectionProps {
   fileRevealRequest: { agentId: string; path: string; kind: 'directory' | 'file'; requestId: number } | null
   fileSearchFocusRequest: { agentId: string; requestId: number; query?: string } | null
   onToggleProject: (projectId: string) => void
-  onToggleProjectSessions: (projectId: string) => void
+  onToggleProjectSessions: (projectId: string, direction: 'more' | 'less') => void
   onMountProject: (workspace: string) => void
   onNewAgent: (workspace?: string, command?: string, returnFocusTarget?: HTMLElement | null) => void
   onStartAgent: (command: string, workspace: string, options?: { projectWorkspace?: string; agentRuntimeMode?: 'terminal' | 'chat' | 'acp' }) => void
@@ -2120,14 +2120,14 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
                         type="button"
                         className="code-agent-row code-session-show-more"
                         data-testid="code-session-show-more"
-                        aria-label={copy.showMoreAgentSessions(project.hiddenAgentSessionCount ?? 0)}
-                        onClick={() => onToggleProjectSessions(project.id)}
+                        aria-label={copy.showMoreAgentSessions(project.agentSessionRevealCount ?? 0)}
+                        onClick={() => onToggleProjectSessions(project.id, 'more')}
                       >
                         <span className="code-agent-row-copy">
                           <span className="code-agent-name">{copy.showMore}</span>
                         </span>
                         <span className="code-agent-row-trailing">
-                          <span className="code-agent-age">{project.hiddenAgentSessionCount}</span>
+                          <span className="code-agent-age">{project.agentSessionRevealCount}</span>
                         </span>
                       </button>
                     )}
@@ -2136,7 +2136,7 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
                         type="button"
                         className="code-agent-row code-session-show-more"
                         data-testid="code-session-show-less"
-                        onClick={() => onToggleProjectSessions(project.id)}
+                        onClick={() => onToggleProjectSessions(project.id, 'less')}
                       >
                         <span className="code-agent-row-copy">
                           <span className="code-agent-name">{copy.showLess}</span>

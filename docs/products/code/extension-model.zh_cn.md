@@ -92,10 +92,9 @@ Provider 加 Agent Home ID 是一份 Configuration Identity。Global Settings �
 的 Home 与展示顺序；Existing Agent Record 保留创建 Session 时使用的精确 Provider Home
 不可变绑定，移除或重排配置不能给已有 Session 改身份。
 
-同一 Identity 也拥有 ACP Runtime Selection。Plugins 在支持时展示 Adapter 的 Managed
-Default 与显式 Custom Provider Executable。保存时校验精确 Executable Boundary。选择只
-作用于新建 Chat Session；已有 Session 保留持久化 Launch Identity，Terminal Executable
-Discovery 继续独立。
+同一 Identity 把新建 Chat Session 绑定到 Adapter 的 Farming-managed ACP Runtime；Plugins
+不提供 Custom Executable 选择。已有 Session 保留持久化 Launch Identity，包括精确恢复所需
+的旧 Custom Binding；Terminal Executable Discovery 继续独立。
 
 Extension Catalog 只属于一份精确 Home。Provider-owned Configuration 是 Enabled/Configured
 状态与默认值的权威来源；Farming 不建立平行 Enablement Database，也不把多个 Home 合并成

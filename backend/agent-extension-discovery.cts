@@ -4,6 +4,7 @@ const path = require('path');
 const MAX_FILE_BYTES = 1024 * 1024;
 const MAX_ITEMS = 500;
 const MAX_PLUGIN_MANIFESTS = 200;
+const MAX_PLUGIN_ICON_BYTES = 64 * 1024;
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const AGENT_PLUGINS_SCHEMA_PREFIX = 'https://agent-plugins.org/schemas/';
 const AGENT_PLUGINS_V1_SCHEMA = /^https:\/\/agent-plugins\.org\/schemas\/(1\.0\.0)\/plugin\.schema\.json$/;
@@ -29,6 +30,8 @@ interface AgentExtensionItem {
   scope: string;
   status: AgentExtensionStatus;
   sourceFile: string;
+  icon?: string;
+  iconDark?: string;
 }
 
 interface DiscoveryOptions {
@@ -116,6 +119,36 @@ function safePluginPath(pluginRoot: string, configured: unknown, fallback: strin
     }
   }
   return resolved;
+}
+
+function pluginIconDataUrl(pluginRoot: string, configured: unknown): string {
+  const iconFile = safePluginPath(pluginRoot, configured, '');
+  if (!iconFile) return '';
+  try {
+    const stats = fs.statSync(iconFile);
+    if (!stats.isFile() || stats.size <= 0 || stats.size > MAX_PLUGIN_ICON_BYTES) return '';
+    const extension = path.extname(iconFile).toLowerCase();
+    const mime = new Map([
+      ['.svg', 'image/svg+xml'],
+      ['.png', 'image/png'],
+      ['.webp', 'image/webp'],
+      ['.jpg', 'image/jpeg'],
+      ['.jpeg', 'image/jpeg'],
+    ]).get(extension);
+    if (!mime) return '';
+    const contents = fs.readFileSync(iconFile);
+    if (extension === '.svg') {
+      const svg = contents.toString('utf8');
+      if (!/<svg(?:\s|>)/i.test(svg)) return '';
+      if (/<(?:script|foreignObject|iframe|object|embed)(?:\s|>)/i.test(svg)) return '';
+      if (/\son[a-z]+\s*=/i.test(svg)) return '';
+      if (/(?:href|src)\s*=\s*["']\s*(?:https?:|\/\/|data:)/i.test(svg)) return '';
+      if (/url\(\s*["']?\s*(?:https?:|\/\/|data:)/i.test(svg)) return '';
+    }
+    return `data:${mime};base64,${contents.toString('base64')}`;
+  } catch {
+    return '';
+  }
 }
 
 function addItem(items: AgentExtensionItem[], item: AgentExtensionItem): void {
@@ -456,6 +489,11 @@ function discoverPlugin(
   const description = stringValue(interfaceMetadata.shortDescription)
     || stringValue(manifest.description)
     || 'Agent plugin';
+  const icon = pluginIconDataUrl(
+    pluginRoot,
+    interfaceMetadata.logo || interfaceMetadata.composerIcon || manifest.logo || manifest.icon,
+  );
+  const iconDark = pluginIconDataUrl(pluginRoot, interfaceMetadata.logoDark || manifest.logoDark);
   addItem(items, {
     id: `plugin:${rawName}`,
     name: pluginName,
@@ -464,6 +502,8 @@ function discoverPlugin(
     scope: stringValue(manifest.version, 64) ? `Plugin · ${stringValue(manifest.version, 64)}` : 'Plugin',
     status: source.nativeStatus || 'configured',
     sourceFile: sourceFileWithin(homePath, source.manifestFile),
+    ...(icon ? { icon } : {}),
+    ...(iconDark ? { iconDark } : {}),
   });
 
   if (agentPluginsSchemaVersion) {

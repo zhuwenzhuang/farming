@@ -1,15 +1,31 @@
 export type WorkspaceNavigationFileView = 'editor' | 'diff'
 
+export interface WorkspacePluginsNavigationState {
+  activeTab: 'farming' | 'homes' | 'extensions'
+  activeExtensionHomeKey: string
+  activeExtensionKind: string
+  extensionQuery: string
+  selectedExtension: { homeKey: string; id: string; sourceFile: string } | null
+  scrollTop: number
+}
+
 export type WorkspaceNavigationReason =
   | 'agent'
   | 'file'
   | 'cursor'
+  | 'plugins'
 
 export type WorkspaceNavigationEntry =
   | {
       kind: 'agent'
       agentId: string
       reason: WorkspaceNavigationReason
+      ts: number
+    }
+  | {
+      kind: 'plugins'
+      state: WorkspacePluginsNavigationState
+      reason: 'plugins'
       ts: number
     }
   | {
@@ -81,12 +97,25 @@ export function workspaceNavigationFileEntry(
   }
 }
 
+export function workspaceNavigationPluginEntry(
+  state: WorkspacePluginsNavigationState,
+  now = Date.now(),
+): WorkspaceNavigationEntry {
+  return {
+    kind: 'plugins',
+    state,
+    reason: 'plugins',
+    ts: now,
+  }
+}
+
 export function workspaceNavigationEntriesMatchLocation(
   a: WorkspaceNavigationEntry,
   b: WorkspaceNavigationEntry
 ) {
   if (a.kind !== b.kind) return false
   if (a.kind === 'agent' && b.kind === 'agent') return a.agentId === b.agentId
+  if (a.kind === 'plugins' && b.kind === 'plugins') return true
   if (a.kind === 'file' && b.kind === 'file') {
     return a.agentId === b.agentId && a.filePath === b.filePath && a.view === b.view
   }
@@ -100,6 +129,7 @@ export function shouldReplaceWorkspaceNavigationEntry(
   if (!current) return false
   if (!workspaceNavigationEntriesMatchLocation(current, next)) return false
   if (current.kind === 'agent' && next.kind === 'agent') return true
+  if (current.kind === 'plugins' && next.kind === 'plugins') return true
   if (current.kind !== 'file' || next.kind !== 'file') return false
 
   const lineDelta = Math.abs(current.lineNumber - next.lineNumber)

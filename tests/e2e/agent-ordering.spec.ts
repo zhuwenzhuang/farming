@@ -28,8 +28,8 @@ async function orderedProjectIds(page: import('@playwright/test').Page, projectI
   }, projectIds)
 }
 
-async function mockPaginatedProjectSessions(page: import('@playwright/test').Page, projectDir: string) {
-  const sessionIds = Array.from({ length: 6 }, (_, index) => `019f0000-0000-7000-8000-00000000020${index}`)
+async function mockPaginatedProjectSessions(page: import('@playwright/test').Page, projectDir: string, count = 6) {
+  const sessionIds = Array.from({ length: count }, (_, index) => `019f0000-0000-7000-8000-${String(index).padStart(12, '0')}`)
   await page.route(/\/farming\/api\/agent-sessions(?:\?.*)?$/, async route => {
     const now = Date.now()
     await route.fulfill({
@@ -107,6 +107,38 @@ test('distinguishes Agent and session pagination controls for assistive technolo
   await expect(showMoreSessions).toHaveAttribute('aria-label', 'Show 1 more Agent session')
   await expect(showMoreAgents.locator('.code-agent-name')).toHaveText('Show more')
   await expect(showMoreSessions.locator('.code-agent-name')).toHaveText('Show more')
+})
+
+test('reveals Project sessions in progressive batches', async ({ page, workspaceRoot }) => {
+  const projectDir = path.join(workspaceRoot, 'session-progressive-pagination')
+  fs.mkdirSync(projectDir, { recursive: true })
+  await mockPaginatedProjectSessions(page, projectDir, 26)
+
+  await openFarming(page)
+  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(projectDir) })
+  const sessionRows = project.getByTestId('code-active-session-row')
+  const showMore = project.getByTestId('code-session-show-more')
+  const showLess = project.getByTestId('code-session-show-less')
+
+  await expect(sessionRows).toHaveCount(5)
+  await expect(showMore).toHaveAttribute('aria-label', 'Show 5 more Agent sessions')
+  await expect(showMore.locator('.code-agent-age')).toHaveText('5')
+
+  await showMore.click()
+  await expect(sessionRows).toHaveCount(10)
+  await expect(showMore).toHaveAttribute('aria-label', 'Show 10 more Agent sessions')
+  await expect(showLess).toBeVisible()
+
+  await showMore.click()
+  await expect(sessionRows).toHaveCount(20)
+  await expect(showMore).toHaveAttribute('aria-label', 'Show 6 more Agent sessions')
+
+  await showMore.click()
+  await expect(sessionRows).toHaveCount(26)
+  await expect(showMore).toHaveCount(0)
+
+  await showLess.click()
+  await expect(sessionRows).toHaveCount(5)
 })
 
 test('reveals Project Agents in progressive batches', async ({ page, workspaceRoot }) => {

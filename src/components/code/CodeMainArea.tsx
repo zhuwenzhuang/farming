@@ -38,7 +38,7 @@ import {
 } from '../IconGlyphs'
 import type { CodeCopy } from './copy'
 import type { AgentSessionHistoryItem, ProjectGroup, WorkspaceFileOpenTarget, WorkspaceView } from './types'
-import { PluginsPanel, type AgentHomeFileTarget } from './PluginsPanel'
+import { PluginsPanel, type AgentHomeFileTarget, type PluginsNavigationState } from './PluginsPanel'
 
 type ComposerProps = Omit<ComponentProps<typeof CodeComposer>, 'copy'>
 type AcpComposerProps = Omit<ComponentProps<typeof AcpComposer>, 'copy'>
@@ -284,6 +284,8 @@ interface CodeMainAreaProps {
   onNewAgent: (workspace?: string, command?: string) => void
   onOpenHistory: () => void
   onOpenPlugins: () => void
+  pluginsNavigationState: PluginsNavigationState
+  onPluginsNavigationStateChange: (state: PluginsNavigationState) => void
   onOpenAgentHomeConfiguration: (target: AgentHomeFileTarget) => void
   onOpenSearch: () => void
   onOpenShare: () => void
@@ -571,6 +573,8 @@ export function CodeMainArea({
   onNewAgent,
   onOpenHistory,
   onOpenPlugins,
+  pluginsNavigationState,
+  onPluginsNavigationStateChange,
   onOpenAgentHomeConfiguration,
   onOpenSearch,
   onOpenShare,
@@ -861,6 +865,8 @@ export function CodeMainArea({
               computerCapabilityError={computerController.capabilityError}
               onPrepareComputer={computerController.prepare}
               language={language}
+              navigationState={pluginsNavigationState}
+              onNavigationStateChange={onPluginsNavigationStateChange}
               onBack={onBackToProjects}
               onOpenAgentHomeConfiguration={onOpenAgentHomeConfiguration}
               onRefreshCapability={refreshPluginCapabilities}

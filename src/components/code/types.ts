@@ -16,6 +16,7 @@ export interface ProjectGroup {
   hasOpenFile?: boolean
   gitWorktree?: Agent['gitWorktree']
   hiddenAgentSessionCount?: number
+  agentSessionRevealCount?: number
   agentSessionsExpanded?: boolean
   agentSummary?: ProjectAgentSummary
   pinned?: boolean

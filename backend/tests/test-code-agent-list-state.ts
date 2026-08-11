@@ -172,14 +172,14 @@ function run() {
   };
   const sessionKey = id => encodeProviderSessionKey('codex', id, 'default');
   const beforeClaims = new Set([sessionKey('pagination-7')]);
-  const beforeResume = limitProjectAgentSessions([project], new Set(), false, beforeClaims)[0];
+  const beforeResume = limitProjectAgentSessions([project], new Map(), false, beforeClaims)[0];
   const afterClaims = new Set([
     ...beforeClaims,
     sessionKey('pagination-2'),
     sessionKey('pagination-3'),
     sessionKey('pagination-4'),
   ]);
-  const afterResume = limitProjectAgentSessions([project], new Set(), false, afterClaims)[0];
+  const afterResume = limitProjectAgentSessions([project], new Map(), false, afterClaims)[0];
   assert.deepStrictEqual(
     beforeResume.agentSessions.map(item => item.id),
     ['pagination-1', 'pagination-2', 'pagination-3', 'pagination-4', 'pagination-5'],
@@ -196,6 +196,29 @@ function run() {
     afterClaims.size + afterResume.agentSessions.length,
     'clicking visible session rows must not grow the combined live Agent and session list',
   );
+
+  const progressiveProject = {
+    ...project,
+    agentSessions: Array.from({ length: 26 }, (_, index) => session({
+      id: `progressive-${index + 1}`,
+      updatedAt: new Date(900_000 - index * 1_000).toISOString(),
+    })),
+  };
+  const initialPage = limitProjectAgentSessions([progressiveProject], new Map(), false)[0];
+  const firstReveal = limitProjectAgentSessions([progressiveProject], new Map([['/repo', 10]]), false)[0];
+  const secondReveal = limitProjectAgentSessions([progressiveProject], new Map([['/repo', 20]]), false)[0];
+  const finalReveal = limitProjectAgentSessions([progressiveProject], new Map([['/repo', 30]]), false)[0];
+  assert.deepStrictEqual(
+    [initialPage.agentSessions.length, firstReveal.agentSessions.length, secondReveal.agentSessions.length, finalReveal.agentSessions.length],
+    [5, 10, 20, 26],
+    'session history reveals five rows first and ten rows per subsequent action instead of expanding all at once',
+  );
+  assert.deepStrictEqual(
+    [initialPage.agentSessionRevealCount, firstReveal.agentSessionRevealCount, secondReveal.agentSessionRevealCount, finalReveal.agentSessionRevealCount],
+    [5, 10, 6, 0],
+  );
+  assert.strictEqual(firstReveal.agentSessionsExpanded, true);
+  assert.strictEqual(limitProjectAgentSessions([progressiveProject], new Map(), false)[0].agentSessions.length, 5);
 
   console.log('test-code-agent-list-state passed');
 }

@@ -29,17 +29,16 @@ and Chat/Terminal compatibility verification.
 
 The default ACP launch is an immutable Farming-managed image that binds the
 adapter version, provider CLI version, protocol/build identity, patches, and
-the Node or compatibility-loader invocation. A Provider plus Agent Home may
-instead select an explicit custom provider executable in Plugins. Custom is a
-separate launch identity and never silently falls back to the managed image or
-the Terminal executable. Existing Sessions retain the exact selection they
-were created with. Environment variables are compatibility inputs, not the
-ordinary user configuration authority.
+the Node or compatibility-loader invocation. New Chat Sessions always use this
+managed runtime; Plugins does not expose a second executable-selection path.
+Existing Sessions retain the exact launch identity they were created with so
+legacy custom bindings can recover without being silently rebound. Environment
+variables are compatibility inputs, not the ordinary user configuration authority.
 An existing Session without its exact recorded executable fails closed during
 recovery and is never rediscovered against the current machine.
 A Terminal Session has no ACP executable selection. Switching that same
-Provider Session into Chat selects the configured ACP runtime from its exact
-Agent Home and persists that selection before launch; later ACP recovery then
+Provider Session into Chat selects the managed ACP runtime for its exact Agent
+Home and persists that launch identity before launch; later ACP recovery then
 uses only the persisted executable.
 
 Farming may support standard ACP session, prompt, cancellation, configuration,

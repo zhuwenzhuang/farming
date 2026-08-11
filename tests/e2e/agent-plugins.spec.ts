@@ -94,18 +94,15 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
 
   const openCode = panel.getByTestId('code-plugin-section-agent-opencode-default')
   await expect(openCode.getByText(/Inherited from|was not found/)).toBeVisible()
-  await expect(openCode.getByRole('combobox', { name: 'ACP Runtime' })).toBeVisible()
-  await expect(openCode.getByRole('combobox')).toHaveCount(1)
+  await expect(openCode.getByRole('combobox')).toHaveCount(0)
   await expect(panel.locator('.code-plugin-extension')).toHaveCount(0)
 
   const claudePrimary = panel.getByTestId('code-plugin-section-agent-claude-primary')
   const claudeWork = panel.getByTestId('code-plugin-section-agent-claude-work')
   await expect(claudePrimary.locator('.code-plugin-agent-configuration')).toContainText('Model: claude-primary-only')
   await expect(claudeWork.locator('.code-plugin-agent-configuration')).toContainText('Model: claude-work-only')
-  await expect(claudePrimary.getByRole('combobox', { name: 'ACP Runtime' })).toBeVisible()
-  await expect(claudeWork.getByRole('combobox', { name: 'ACP Runtime' })).toBeVisible()
-  await expect(claudePrimary.getByRole('combobox')).toHaveCount(1)
-  await expect(claudeWork.getByRole('combobox')).toHaveCount(1)
+  await expect(claudePrimary.getByRole('combobox')).toHaveCount(0)
+  await expect(claudeWork.getByRole('combobox')).toHaveCount(0)
 
   const work = panel.getByTestId('code-plugin-section-agent-codex-work')
   await expect(work.getByText('work', { exact: true })).toBeVisible()
@@ -174,56 +171,15 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
   await expect(review).toHaveCount(0)
 })
 
-test('Plugins validates and persists the ACP runtime for one exact Agent Home', async ({ page, workspaceRoot }) => {
-  const customExecutable = path.join(workspaceRoot, 'custom-codex')
-  fs.writeFileSync(customExecutable, '#!/usr/bin/env bash\nexit 0\n', { mode: 0o755 })
-
+test('Agent Homes use the Farming-managed ACP runtime without a user-facing runtime selector', async ({ page }) => {
   await openFarming(page)
   await page.getByTestId('code-nav-plugins').click()
   const panel = page.getByTestId('code-plugins-panel')
   await panel.getByTestId('code-plugin-tab-homes').click()
   const codexHome = panel.getByTestId('code-plugin-section-agent-codex-default')
-  const runtimeSelect = codexHome.getByRole('combobox', { name: 'ACP Runtime' })
-  await expect(runtimeSelect).toHaveAttribute('data-value', 'managed')
-
-  await selectCodeOption(runtimeSelect, 'custom')
-  await codexHome.getByLabel('Executable path').fill('relative/custom-codex')
-  const invalidResponse = page.waitForResponse(response => (
-    response.url().endsWith('/farming/api/settings')
-    && response.request().method() === 'POST'
-  ))
-  await codexHome.getByRole('button', { name: 'Apply runtime', exact: true }).click()
-  expect((await invalidResponse).status()).toBe(400)
-  await expect(panel.getByRole('alert')).toContainText('must be an absolute path')
-
-  await selectCodeOption(runtimeSelect, 'custom')
-  await codexHome.getByLabel('Executable path').fill(customExecutable)
-  let authoritativeReads = 0
-  await page.route('**/farming/api/agent-extensions', async route => {
-    authoritativeReads += 1
-    await route.continue()
-  })
-  const savedResponse = page.waitForResponse(response => (
-    response.url().endsWith('/farming/api/settings')
-    && response.request().method() === 'POST'
-  ))
-  await codexHome.getByRole('button', { name: 'Apply runtime', exact: true }).click()
-  expect((await savedResponse).ok()).toBeTruthy()
-  await expect.poll(() => authoritativeReads).toBeGreaterThan(0)
-  await expect(runtimeSelect).toHaveAttribute('data-value', 'custom')
-  await expect(codexHome.getByLabel('Executable path')).toHaveValue(customExecutable)
-
-  await page.reload()
-  await page.getByTestId('code-nav-plugins').click()
-  await panel.getByTestId('code-plugin-tab-homes').click()
-  const reloadedCodexHome = panel.getByTestId('code-plugin-section-agent-codex-default')
-  const reloadedRuntimeSelect = reloadedCodexHome.getByRole('combobox', { name: 'ACP Runtime' })
-  await expect(reloadedRuntimeSelect).toHaveAttribute('data-value', 'custom')
-  await expect(reloadedCodexHome.getByLabel('Executable path')).toHaveValue(customExecutable)
-
-  await selectCodeOption(reloadedRuntimeSelect, 'managed')
-  await reloadedCodexHome.getByRole('button', { name: 'Apply runtime', exact: true }).click()
-  await expect(reloadedRuntimeSelect).toHaveAttribute('data-value', 'managed')
+  await expect(codexHome.getByRole('combobox')).toHaveCount(0)
+  await expect(codexHome.getByText('Custom executable')).toHaveCount(0)
+  await expect(codexHome.getByRole('button', { name: 'Apply runtime' })).toHaveCount(0)
   const settingsResponse = await page.request.get('/farming/api/settings')
   expect(settingsResponse.ok()).toBeTruthy()
   const settings = await settingsResponse.json() as {
@@ -321,6 +277,8 @@ test('Plugins shows a read-only extension catalog from one exact Agent Home', as
   fs.mkdirSync(path.join(pluginRoot, '.codex-plugin'), { recursive: true })
   fs.mkdirSync(path.join(pluginRoot, 'skills', 'plugin-skill'), { recursive: true })
   fs.mkdirSync(path.join(pluginRoot, 'hooks'), { recursive: true })
+  fs.mkdirSync(path.join(pluginRoot, 'assets'), { recursive: true })
+  fs.writeFileSync(path.join(pluginRoot, 'assets', 'logo.svg'), '<svg xmlns="http://www.w3.org/2000/svg"><rect width="24" height="24" rx="6" /></svg>')
   fs.writeFileSync(path.join(codexHome, 'config.toml'), [
     '[mcp_servers.read-only-mcp]',
     'command = "node"',
@@ -339,7 +297,16 @@ test('Plugins shows a read-only extension catalog from one exact Agent Home', as
     skills: './skills',
     mcpServers: './mcp.json',
     hooks: './hooks/hooks.json',
+    interface: { logo: './assets/logo.svg' },
   }))
+  for (let index = 0; index < 10; index += 1) {
+    const extraRoot = path.join(codexHome, 'plugins', `extra-${index}`)
+    fs.mkdirSync(path.join(extraRoot, '.codex-plugin'), { recursive: true })
+    fs.writeFileSync(path.join(extraRoot, '.codex-plugin', 'plugin.json'), JSON.stringify({
+      name: `extra-plugin-${index}`,
+      description: `Extra plugin ${index}`,
+    }))
+  }
   fs.writeFileSync(path.join(pluginRoot, 'skills', 'plugin-skill', 'SKILL.md'), [
     '---',
     'name: Plugin Skill',
@@ -383,11 +350,30 @@ test('Plugins shows a read-only extension catalog from one exact Agent Home', as
   await expect(panel.getByText('example-plugin: Stop', { exact: true })).toBeVisible()
 
   await panel.getByTestId('code-plugin-extension-kind-plugin').click()
-  await panel.getByRole('button', { name: /Example Plugin/ }).click()
+  const examplePlugin = panel.getByRole('button', { name: /Example Plugin/ })
+  await expect(examplePlugin.locator('.code-plugin-manifest-icon')).toBeVisible()
+  await examplePlugin.click()
   const detail = panel.getByTestId('code-plugin-detail-dialog')
   await expect(detail).toContainText('plugins/example/.codex-plugin/plugin.json')
+  await expect(detail.locator('.code-plugin-manifest-icon')).toBeVisible()
+  const pluginScrollTop = await page.locator('.code-plugins-view').evaluate(element => {
+    element.scrollTop = Math.min(240, element.scrollHeight - element.clientHeight)
+    element.dispatchEvent(new Event('scroll'))
+    return element.scrollTop
+  })
+  expect(pluginScrollTop).toBeGreaterThan(0)
   await detail.getByRole('button', { name: 'Open source file' }).click()
   await expect(page.getByTestId('code-file-editor').getByRole('tab', { selected: true })).toContainText('plugin.json')
+  await expect(page.locator('[data-file-path="plugins/example/.codex-plugin/plugin.json"].selected')).toBeVisible()
+
+  await page.getByTestId('code-file-editor-history-back').click()
+  await expect(panel.getByTestId('code-plugin-tab-extensions')).toHaveAttribute('aria-selected', 'true')
+  await expect(panel.getByTestId('code-plugin-extension-home-codex-catalog')).toHaveAttribute('aria-selected', 'true')
+  await expect(panel.getByTestId('code-plugin-extension-kind-plugin')).toHaveAttribute('aria-selected', 'true')
+  await expect(panel.getByTestId('code-plugin-detail-dialog')).toContainText('Example Plugin')
+  await expect.poll(() => page.locator('.code-plugins-view').evaluate(element => element.scrollTop)).toBe(pluginScrollTop)
+
+  await panel.getByTestId('code-plugin-detail-dialog').getByRole('button', { name: 'Close details' }).click()
 
   fs.writeFileSync(path.join(codexHome, 'hooks.json'), JSON.stringify({
     hooks: { SessionStart: [{ hooks: [{ type: 'command', command: './start.sh' }] }] },

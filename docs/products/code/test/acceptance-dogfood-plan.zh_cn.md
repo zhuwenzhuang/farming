@@ -26,6 +26,26 @@ Dogfood 证明组合后的产品在生产形态使用中是否可理解、响应
 | Real-provider Smoke | 合并或发布前 | Login、真实 CLI/ACP、Resume、Runtime Switch |
 | Long Soak 与 Scale | 显式或夜间 | Duration、Reconnect、Memory、Navigation、Many Agents |
 
+## Behavior-first 开发契约
+
+User-visible 工作先用可观察的 Given/When/Then 条件描述 Scenario。修复 Regression 时，先增加
+能最小复现失败的 Behavior Test，再修改实现；缺陷跨越 UI 或子系统边界时，还要新增或更新一条
+确定性 Browser Journey。Gherkin 或独立 BDD Framework 不是必需条件；Scenario 必须清晰且结果
+必须可执行验证。
+
+使用三条互补 Test Seam：
+
+1. Pure State-transition Test 不经过 Rendering，验证 Ordering、Guard、Retry、Cancel 与 Recovery；
+2. Public Boundary Test 驱动 Exported Service、HTTP Protocol 或 Rendered Control，并断言 Output
+   或 Accessible UI State；
+3. Playwright Journey 通过可见用户操作验证关键 Cross-surface Behavior，以及最终 Effect、Persistence
+   与 Restoration。
+
+读取 Production Source 并搜索 Identifier 的测试，只能用于狭窄的 Architecture 或 Packaging Boundary，
+不能作为 UI Behavior Evidence。State Transition、Rendering、Navigation、Focus、Pagination 或
+Recovery 不得新增 Source-text Assertion；相关区域发生修改时，应逐步替换为 Imported State Test、
+Public-boundary Test 或 Browser Journey。
+
 真实 Provider Test 必须显式、低频且隔离；不得 Reset Quota、改写 Provider Login/Default，
 也不得启动无关的大型任务。
 
@@ -98,6 +118,7 @@ Line Changes、Review Revision、Reviewed State、Comment 与 History Resume。
 
 Agent 出现、重排、归档或消失时，Files 始终由 Workspace 拥有。Working Tree 后续变化不能改变
 历史 Review Evidence。
+Session 渐进展示必须覆盖连续多次“显示更多”和“显示较少”，不能只验证 Pagination Control 存在。
 
 ### Browser、Computer、Extension 与 Desktop
 
@@ -107,6 +128,8 @@ Human/Agent Shared Control、Handoff、Stop/Delete、Reconnect、Restart 与 Unc
 
 Desktop Story 只使用可见控件：Local Launch、Remote Enrollment、Cancel、Backend Switch、
 Tunnel Loss、Startup 期间 Quit、Relaunch、Files、History、Terminal Input 与 Focus/Fullscreen。
+打开 Extension Source File 必须在 Files 中自动定位；Workspace 前进/返回必须恢复此前 Plugins
+Tab、Home、Kind、Detail 与 Scroll Location。
 
 ### Usage、Notification、Mobile 与 Accessibility
 

@@ -199,10 +199,10 @@ function run() {
   );
   assert.deepStrictEqual(reorderedProjects.map(project => project.workspace), ['/project-c', '/project-a', '/project-b']);
   assert.deepStrictEqual(
-    displayedProjectsForSearch(openOnlyProjects, 'repo-topic', new Set()).map(project => project.workspace),
+    displayedProjectsForSearch(openOnlyProjects, 'repo-topic', new Map()).map(project => project.workspace),
     ['/repo-topic'],
   );
-  assert.deepStrictEqual(displayedProjectsForSearch(openOnlyProjects, 'missing', new Set()), []);
+  assert.deepStrictEqual(displayedProjectsForSearch(openOnlyProjects, 'missing', new Map()), []);
 
   const searchSourceProjects = projectListProjectsForAgents(
     [
@@ -229,37 +229,37 @@ function run() {
     ],
     { '/repo-alpha': 'Compiler Core' }
   );
-  const filteredByProject = displayedProjectsForSearch(searchSourceProjects, 'repo-alpha', new Set(), new Set());
+  const filteredByProject = displayedProjectsForSearch(searchSourceProjects, 'repo-alpha', new Map(), new Set());
   assert.deepStrictEqual(filteredByProject.map(project => project.workspace), ['/repo-alpha']);
   assert.deepStrictEqual(filteredByProject[0].agents.map(item => item.id), ['alpha']);
   assert.deepStrictEqual(filteredByProject[0].agentSessions.map(item => item.id), ['session-alpha']);
 
-  const filteredByProjectName = displayedProjectsForSearch(searchSourceProjects, 'compiler core', new Set(), new Set());
+  const filteredByProjectName = displayedProjectsForSearch(searchSourceProjects, 'compiler core', new Map(), new Set());
   assert.deepStrictEqual(filteredByProjectName.map(project => project.workspace), ['/repo-alpha']);
 
-  const filteredByAgentTitle = displayedProjectsForSearch(searchSourceProjects, 'build search', new Set(), new Set());
+  const filteredByAgentTitle = displayedProjectsForSearch(searchSourceProjects, 'build search', new Map(), new Set());
   assert.deepStrictEqual(filteredByAgentTitle.map(project => project.workspace), ['/repo-alpha']);
   assert.deepStrictEqual(filteredByAgentTitle[0].agents.map(item => item.id), ['alpha']);
   assert.deepStrictEqual(filteredByAgentTitle[0].agentSessions.map(item => item.id), []);
 
-  const filteredByAdaptiveTitleSuffix = displayedProjectsForSearch(searchSourceProjects, 'title suffix', new Set(), new Set());
+  const filteredByAdaptiveTitleSuffix = displayedProjectsForSearch(searchSourceProjects, 'title suffix', new Map(), new Set());
   assert.deepStrictEqual(filteredByAdaptiveTitleSuffix.map(project => project.workspace), ['/repo-alpha']);
   assert.deepStrictEqual(filteredByAdaptiveTitleSuffix[0].agents.map(item => item.id), ['alpha']);
 
-  const filteredBySession = displayedProjectsForSearch(searchSourceProjects, 'model picker', new Set(), new Set());
+  const filteredBySession = displayedProjectsForSearch(searchSourceProjects, 'model picker', new Map(), new Set());
   assert.deepStrictEqual(filteredBySession.map(project => project.workspace), ['/repo-alpha']);
   assert.deepStrictEqual(filteredBySession[0].agents.map(item => item.id), []);
   assert.deepStrictEqual(filteredBySession[0].agentSessions.map(item => item.id), ['session-alpha']);
 
-  assert.deepStrictEqual(displayedProjectsForSearch(searchSourceProjects, 'hidden-alpha-command', new Set(), new Set()), []);
-  assert.deepStrictEqual(displayedProjectsForSearch(searchSourceProjects, 'hidden alpha task', new Set(), new Set()), []);
-  assert.deepStrictEqual(displayedProjectsForSearch(searchSourceProjects, 'hidden provider', new Set(), new Set()), []);
-  assert.deepStrictEqual(displayedProjectsForSearch(searchSourceProjects, 'hidden-session-model', new Set(), new Set()), []);
+  assert.deepStrictEqual(displayedProjectsForSearch(searchSourceProjects, 'hidden-alpha-command', new Map(), new Set()), []);
+  assert.deepStrictEqual(displayedProjectsForSearch(searchSourceProjects, 'hidden alpha task', new Map(), new Set()), []);
+  assert.deepStrictEqual(displayedProjectsForSearch(searchSourceProjects, 'hidden provider', new Map(), new Set()), []);
+  assert.deepStrictEqual(displayedProjectsForSearch(searchSourceProjects, 'hidden-session-model', new Map(), new Set()), []);
 
   const filteredByBackendMatch = displayedProjectsForSearch(
     searchSourceProjects,
     'backend-only-match',
-    new Set(),
+    new Map(),
     new Set([encodeProviderSessionKey('codex', 'session-beta', 'default')])
   );
   assert.deepStrictEqual(filteredByBackendMatch.map(project => project.workspace), ['/repo-beta']);
@@ -268,7 +268,7 @@ function run() {
   const filteredClaimedAgentByBackendMatch = displayedProjectsForSearch(
     searchSourceProjects,
     'backend-only-match',
-    new Set(),
+    new Map(),
     new Set(),
     new Set(['beta'])
   );

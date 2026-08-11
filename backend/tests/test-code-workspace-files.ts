@@ -820,10 +820,6 @@ function run() {
       workspaceSource.includes("return session.projectless ? 'Chats'") &&
       workspaceSource.includes('const aIsChats = a.id === CHATS_PROJECT_ID') &&
       workspaceSource.includes('if (aIsChats !== bIsChats) return aIsChats ? 1 : -1') &&
-      workspaceSource.includes('DEFAULT_PROJECT_SESSION_LIMIT') &&
-      workspaceSource.includes('limitProjectAgentSessions') &&
-      workspaceSource.includes('expandedSessionProjectIds') &&
-      workspaceSource.includes('setExpandedSessionProjectIds') &&
       workspaceSource.includes('SESSION_DISPLAY_STATE_STORAGE_KEY') &&
       workspaceSource.includes('loadSessionDisplayState') &&
       workspaceSource.includes('saveSessionDisplayState') &&
@@ -1013,7 +1009,6 @@ function run() {
       workspaceSource.includes('5m rate · activity') &&
       workspaceSource.includes('data-testid="code-session-show-more"') &&
       workspaceSource.includes('data-testid="code-session-show-less"') &&
-      workspaceSource.includes('onToggleProjectSessions(project.id)') &&
       workspaceSource.includes('onClick={() => onResumeSession(session.provider, session.id, session.providerHomeId)}') &&
       workspaceSource.includes('onResume?.(sessionProvider, sessionId, session?.providerHomeId)') &&
       workspaceSource.includes('onOpenSessionMenu?.(event, sessionProvider, agentSessionId(session))') &&

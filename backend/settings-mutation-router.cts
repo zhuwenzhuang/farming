@@ -1,5 +1,4 @@
 const express = require('express');
-const path = require('path');
 
 interface ExpressRequest {
   body?: unknown;
@@ -36,11 +35,6 @@ interface SettingsRecord {
   computerImage?: unknown;
 }
 
-interface NormalizedAgentHome {
-  acpRuntime: { executable?: unknown; mode?: unknown };
-  id: unknown;
-}
-
 interface BrowserProbe {
   runtimeCapability?: { error?: unknown; kind?: unknown } | null;
 }
@@ -52,12 +46,10 @@ interface ComputerProbe {
 }
 
 interface SettingsMutationPorts {
-  assertExecutable(filePath: string): Promise<void>;
-  expandWorkspacePath(filePath: string): string;
   getSettings(): SettingsRecord;
   invalidateAgentExtensionInventory(): void;
   invalidateAgentSessionInventory(): void;
-  normalizeAgentHomes(value: unknown): Record<string, NormalizedAgentHome[]>;
+  normalizeAgentHomes(value: unknown): SettingsRecord['agentHomes'];
   probeBrowser(settings: {
     browserExecutablePath?: string;
     browserExternalCdpUrl?: string;
@@ -179,31 +171,12 @@ class SettingsMutationCoordinator {
     const changesAgentHomes = owns(settingsPatch, 'agentHomes');
     if (changesAgentHomes) {
       try {
-        const normalizedHomes = this.ports.normalizeAgentHomes(settingsPatch.agentHomes);
-        for (const [provider, homes] of Object.entries(normalizedHomes)) {
-          for (const home of homes) {
-            if (home.acpRuntime.mode !== 'custom') continue;
-            const executable = this.ports.expandWorkspacePath(String(home.acpRuntime.executable || ''));
-            if (!path.isAbsolute(executable)) {
-              throw Object.assign(new Error(
-                `${provider} Agent Home "${String(home.id)}" custom ACP executable must be an absolute path`,
-              ), { code: 'AGENT_HOME_ACP_RUNTIME_INVALID', status: 400 });
-            }
-            try {
-              await this.ports.assertExecutable(executable);
-            } catch (cause) {
-              throw Object.assign(new Error(
-                `${provider} Agent Home "${String(home.id)}" custom ACP executable is not executable: ${executable}`,
-                { cause },
-              ), { code: 'AGENT_HOME_ACP_RUNTIME_INVALID', status: 400 });
-            }
-          }
-        }
+        settingsPatch.agentHomes = this.ports.normalizeAgentHomes(settingsPatch.agentHomes);
       } catch (caught) {
         throw responseError(
           caught,
-          'Agent Home ACP runtime configuration is invalid',
-          'AGENT_HOME_ACP_RUNTIME_INVALID',
+          'Agent Home configuration is invalid',
+          'AGENT_HOME_INVALID',
           400,
         );
       }

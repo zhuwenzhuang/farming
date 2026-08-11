@@ -132,7 +132,7 @@ export function projectListProjectsForAgents(
 export function displayedProjectsForSearch(
   sourceProjects: ProjectGroup[],
   normalizedSearch: string,
-  expandedProjectIds: ReadonlySet<string>,
+  projectSessionLimits: ReadonlyMap<string, number>,
   matchedSessionIds: ReadonlySet<string> = new Set(),
   matchedAgentIds: ReadonlySet<string> = new Set()
 ) {
@@ -165,7 +165,7 @@ export function displayedProjectsForSearch(
     })
     .filter((project): project is ProjectGroup => Boolean(project))
 
-  return limitProjectAgentSessions(filteredProjects, expandedProjectIds, true)
+  return limitProjectAgentSessions(filteredProjects, projectSessionLimits, true)
 }
 
 export function visibleSearchTargetsForProjects(

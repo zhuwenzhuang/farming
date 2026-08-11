@@ -6,6 +6,7 @@ const {
   pushWorkspaceNavigationEntry,
   workspaceNavigationAgentEntry,
   workspaceNavigationFileEntry,
+  workspaceNavigationPluginEntry,
   workspaceNavigationShortcutDirection,
 } = require('../../src/lib/workspace-navigation-history.ts');
 
@@ -13,6 +14,8 @@ function entryLabels(state) {
   return state.entries.map(entry => (
     entry.kind === 'agent'
       ? `agent:${entry.agentId}`
+      : entry.kind === 'plugins'
+        ? `plugins:${entry.state.activeTab}:${entry.state.activeExtensionKind}`
       : `file:${entry.agentId}:${entry.filePath}:${entry.lineNumber}`
   ));
 }
@@ -103,6 +106,29 @@ function run() {
     'file:agent-c:src/feature.ts:175',
   ], 'editor and diff views should be distinct navigation locations');
   assert.strictEqual(state.entries.at(-1).view, 'diff');
+
+  const pluginLocation = {
+    activeTab: 'extensions',
+    activeExtensionHomeKey: 'codex:default',
+    activeExtensionKind: 'plugin',
+    extensionQuery: 'visual',
+    selectedExtension: { homeKey: 'codex:default', id: 'plugin:visualize', sourceFile: 'plugins/visualize/plugin.json' },
+    scrollTop: 420,
+  };
+  let pluginHistory = emptyWorkspaceNavigationHistory();
+  pluginHistory = push(pluginHistory, workspaceNavigationAgentEntry('agent-a', 1));
+  pluginHistory = push(pluginHistory, workspaceNavigationPluginEntry(pluginLocation, 2));
+  pluginHistory = push(pluginHistory, workspaceNavigationPluginEntry({ ...pluginLocation, scrollTop: 512 }, 3));
+  pluginHistory = push(pluginHistory, workspaceNavigationFileEntry({
+    agentId: 'agent-home:codex:default',
+    filePath: 'plugins/visualize/plugin.json',
+  }, 4));
+  assert.deepStrictEqual(entryLabels(pluginHistory), [
+    'agent:agent-a',
+    'plugins:extensions:plugin',
+    'file:agent-home:codex:default:plugins/visualize/plugin.json:1',
+  ], 'changing location inside Plugins should replace one history entry before opening its source file');
+  assert.deepStrictEqual(pluginHistory.entries[1].state, { ...pluginLocation, scrollTop: 512 });
 
   let capped = emptyWorkspaceNavigationHistory();
   for (let index = 0; index < WORKSPACE_NAVIGATION_MAX_ENTRIES + 7; index += 1) {

@@ -45,8 +45,10 @@ Load 失效；旧 Workspace Generation 的响应不能提交数据，也不能�
 Directory Expansion 是按 Workspace 隔离的 Browser-local Navigation State。每次鼠标或键盘
 操作只改变一次期望展开状态；迟到 Directory Response 不能重新打开用户已经关闭的目录。
 
-Explorer 区分 Active File、Keyboard Focus 与 Selection。从 Chat、Terminal、Search、History
-或 URL 打开文件时只有一个 Reveal Owner，避免 Tree 与 Project List 争夺 Focus 或 Scroll。
+Explorer 区分 Active File、Keyboard Focus 与 Selection。从 Chat、Terminal、Search、History、
+Plugins 或 URL 打开文件时只有一个 Reveal Owner，避免 Tree 与 Project List 争夺 Focus 或
+Scroll。Workspace 前进/返回把 Plugins Location 作为一等 History Entry；打开来源文件后返回时，
+恢复原来的 Tab、Agent Home、Extension Kind、Query、Detail 与 Scroll Position。
 
 ## Working Copy 与 Mutation
 

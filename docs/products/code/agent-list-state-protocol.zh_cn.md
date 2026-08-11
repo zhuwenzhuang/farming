@@ -44,7 +44,8 @@ Identity，让 Client 只创建一个替代者；它不能作为 Pending Main Pl
 
 折叠状态下的 Project Session 分页必须先切出窗口，再把已由 Live Agent 认领的 Provider Session
 替换为对应 Agent Row。因此用户 Resume 只会替换当前窗口中的所选 Session Row，不会回填另一条
-History Row 或让 Project 列表自动增长；只有显式的“显示更多”操作可以扩大窗口。隐藏数量会排除
+History Row 或让 Project 列表自动增长；只有显式的“显示更多”操作可以扩大窗口：初始窗口为 5 条，
+第一次最多增加 5 条，之后每次最多增加 10 条，“显示较少”重置为 5 条。隐藏数量会排除
 所有已经由 Live Agent 表示的 Session，无论该 Claim 位于当前窗口内还是窗口外。
 
 Main Identity 必须唯一。旧版本 Record 含有多个 `wantsMain` Marker 时，启动流程会确定性选出

@@ -11,6 +11,8 @@ import {
 } from '../../../shared/provider-session-identity.js'
 
 export const DEFAULT_PROJECT_SESSION_LIMIT = 5
+export const FIRST_PROJECT_SESSION_REVEAL_COUNT = 5
+export const NEXT_PROJECT_SESSION_REVEAL_COUNT = 10
 export const SESSION_DISPLAY_STATE_STORAGE_KEY = 'farming.codex.sessionDisplayState.v1'
 const MAX_MAIN_PAGE_SESSION_KEYS = 50
 const TEMPORARY_PROVIDER_SESSION_ID_PREFIX = 'tmp_uuid'
@@ -195,7 +197,7 @@ export function claimedAgentSessionHandle(agent: Pick<Agent, 'providerSessionKey
 
 export function limitProjectAgentSessions(
   projects: ProjectGroup[],
-  expandedProjectIds: ReadonlySet<string>,
+  projectSessionLimits: ReadonlyMap<string, number>,
   showAll: boolean,
   claimedSessionKeys: ReadonlySet<string> = new Set()
 ) {
@@ -203,19 +205,24 @@ export function limitProjectAgentSessions(
     const isUnclaimed = (session: AgentSessionHistoryItem) => (
       !claimedSessionKeys.has(agentSessionId(session))
     )
-    if (showAll || expandedProjectIds.has(project.id) || project.agentSessions.length <= DEFAULT_PROJECT_SESSION_LIMIT) {
+    const visibleLimit = Math.max(
+      DEFAULT_PROJECT_SESSION_LIMIT,
+      projectSessionLimits.get(project.id) ?? DEFAULT_PROJECT_SESSION_LIMIT,
+    )
+    if (showAll || project.agentSessions.length <= visibleLimit) {
       return {
         ...project,
         agentSessions: project.agentSessions.filter(isUnclaimed),
         hiddenAgentSessionCount: 0,
-        agentSessionsExpanded: expandedProjectIds.has(project.id),
+        agentSessionsExpanded: visibleLimit > DEFAULT_PROJECT_SESSION_LIMIT,
+        agentSessionRevealCount: 0,
       }
     }
 
     const prioritySessions = project.agentSessions.filter(session => session.pinned || session.unread)
     const priorityKeys = new Set(prioritySessions.map(agentSessionId))
     const ordinarySessions = project.agentSessions.filter(session => !priorityKeys.has(agentSessionId(session)))
-    const ordinaryLimit = Math.max(0, DEFAULT_PROJECT_SESSION_LIMIT - prioritySessions.length)
+    const ordinaryLimit = Math.max(0, visibleLimit - prioritySessions.length)
     const visibleOrdinarySessions = ordinarySessions.slice(0, ordinaryLimit)
     const selectedSessions = [
       ...prioritySessions,
@@ -228,7 +235,13 @@ export function limitProjectAgentSessions(
       ...project,
       agentSessions: visibleSessions,
       hiddenAgentSessionCount,
-      agentSessionsExpanded: false,
+      agentSessionsExpanded: visibleLimit > DEFAULT_PROJECT_SESSION_LIMIT,
+      agentSessionRevealCount: Math.min(
+        hiddenAgentSessionCount,
+        visibleLimit === DEFAULT_PROJECT_SESSION_LIMIT
+          ? FIRST_PROJECT_SESSION_REVEAL_COUNT
+          : NEXT_PROJECT_SESSION_REVEAL_COUNT,
+      ),
     }
   })
 }

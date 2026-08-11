@@ -100,7 +100,11 @@ import type { ComputerResourceState } from '../../extensions/computer/frontend/c
 import type { ComputerResource, ComputerResourceDeletion } from '../../extensions/computer/frontend/types'
 import '../../extensions/computer/frontend/computer.css'
 import { AgentHomesSettingsPanel } from './code/AgentHomesSettingsPanel'
-import type { AgentHomeFileTarget } from './code/PluginsPanel'
+import {
+  defaultPluginsNavigationState,
+  type AgentHomeFileTarget,
+  type PluginsNavigationState,
+} from './code/PluginsPanel'
 import {
   requestPetAppearancePreview,
   type PetAppearance,
@@ -229,6 +233,7 @@ import {
   applySessionDisplayOverrides,
   claimedAgentSessionFromSource,
   claimedAgentSessionHandle,
+  DEFAULT_PROJECT_SESSION_LIMIT,
   limitProjectAgentSessions,
   loadSessionDisplayState,
   saveSessionDisplayState,
@@ -582,6 +587,7 @@ export function CodeWorkspace({
     canGoForward: canNavigateWorkspaceForward,
     recordAgent: recordWorkspaceNavigationAgent,
     recordFile: recordWorkspaceNavigationFile,
+    recordPlugin: recordWorkspaceNavigationPlugin,
     recordFileCursor: recordWorkspaceNavigationFileCursor,
     beginNavigation: beginWorkspaceNavigation,
     finishNavigation: finishWorkspaceNavigation,
@@ -655,7 +661,10 @@ export function CodeWorkspace({
   const [speechSupported, setSpeechSupported] = useState(false)
   const [speechListening, setSpeechListening] = useState(false)
   const [collapsedProjectIds, setCollapsedProjectIds] = useState<Set<string>>(() => new Set())
-  const [expandedSessionProjectIds, setExpandedSessionProjectIds] = useState<Set<string>>(() => new Set())
+  const [projectSessionLimits, setProjectSessionLimits] = useState<Map<string, number>>(() => new Map())
+  const [pluginsNavigationState, setPluginsNavigationState] = useState<PluginsNavigationState>(
+    () => defaultPluginsNavigationState(),
+  )
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => shouldCollapseSidebarInitially())
   const [mobileNavigationViewport, setMobileNavigationViewport] = useState(() => isMobileNavigationViewport())
@@ -865,7 +874,9 @@ export function CodeWorkspace({
 
   useEffect(() => {
     pruneWorkspaceNavigationEntries(entry => (
-      entry.kind === 'agent'
+      entry.kind === 'plugins'
+        ? true
+        : entry.kind === 'agent'
         ? workspaceNavigationAgentIds.has(entry.agentId)
         : workspaceNavigationFileIds.has(entry.agentId)
     ))
@@ -933,10 +944,10 @@ export function CodeWorkspace({
   )
   const projects = useMemo(() => limitProjectAgentSessions(
     projectListProjects,
-    expandedSessionProjectIds,
+    projectSessionLimits,
     false,
     agentListState.claimedAgentSessionKeys
-  ), [agentListState.claimedAgentSessionKeys, expandedSessionProjectIds, projectListProjects])
+  ), [agentListState.claimedAgentSessionKeys, projectListProjects, projectSessionLimits])
   const computerSectionAgentIds = existingComputerResourceAgentIds
   const searchableProjects = useMemo(
     () => projectListProjectsForAgents(
@@ -957,11 +968,11 @@ export function CodeWorkspace({
     return displayedProjectsForSearch(
       sourceProjects,
       normalizedSearch,
-      expandedSessionProjectIds,
+      projectSessionLimits,
       searchedAgentSessionIds,
       searchedAgentIds
     )
-  }, [activeView, expandedSessionProjectIds, hasSearchQuery, normalizedSearch, projects, searchableProjects, searchedAgentIds, searchedAgentSessionIds, searchOpen])
+  }, [activeView, hasSearchQuery, normalizedSearch, projectSessionLimits, projects, searchableProjects, searchedAgentIds, searchedAgentSessionIds, searchOpen])
   const hasProjectListItems = projects.some(project => (
     Boolean(project.workspace)
   ))
@@ -1118,6 +1129,11 @@ export function CodeWorkspace({
     if (!activeTerminalId || mainPaneMode !== 'terminal' || activeView !== 'projects') return
     recordWorkspaceNavigationAgent(activeTerminalId)
   }, [activeTerminalId, activeView, mainPaneMode, recordWorkspaceNavigationAgent])
+
+  useEffect(() => {
+    if (activeView !== 'plugins') return
+    recordWorkspaceNavigationPlugin(pluginsNavigationState)
+  }, [activeView, pluginsNavigationState, recordWorkspaceNavigationPlugin])
 
   useEffect(() => {
     const manuallyUnreadAgentId = manuallyUnreadActiveAgentIdRef.current
@@ -2320,13 +2336,14 @@ export function CodeWorkspace({
     return mountedWorkspace
   }, [requestProjectMount])
 
-  const toggleProjectSessions = useCallback((projectId: string) => {
-    setExpandedSessionProjectIds(previous => {
-      const next = new Set(previous)
-      if (next.has(projectId)) {
+  const toggleProjectSessions = useCallback((projectId: string, direction: 'more' | 'less') => {
+    setProjectSessionLimits(previous => {
+      const next = new Map(previous)
+      if (direction === 'less') {
         next.delete(projectId)
       } else {
-        next.add(projectId)
+        const currentLimit = previous.get(projectId) ?? DEFAULT_PROJECT_SESSION_LIMIT
+        next.set(projectId, currentLimit + (currentLimit === DEFAULT_PROJECT_SESSION_LIMIT ? 5 : 10))
       }
       return next
     })
@@ -3025,6 +3042,13 @@ export function CodeWorkspace({
       workspaceOpenFiles.openFromRead(target.rootId, file, {
         workspaceRoot: target.homePath,
       })
+      expandSidebar()
+      setFileRevealRequest({
+        agentId: target.rootId,
+        path: target.filePath,
+        kind: 'file',
+        requestId: workspaceFileRevealRequestRef.current += 1,
+      })
       closeSidebarForMobile()
     } catch (error) {
       setCopyNotice({
@@ -3033,7 +3057,7 @@ export function CodeWorkspace({
         message: error instanceof Error ? error.message : 'Failed to open Agent Home configuration',
       })
     }
-  }, [clearSearch, closeContextMenu, closeSidebarForMobile, onWorkspaceViewChange, setMainPaneMode, workspaceOpenFiles])
+  }, [clearSearch, closeContextMenu, closeSidebarForMobile, expandSidebar, onWorkspaceViewChange, setMainPaneMode, workspaceOpenFiles])
 
   const restoreWorkspaceShareTarget = useCallback(async (target: WorkspaceShareTarget) => {
     importSharedReadingAnchor(target.kind === 'agent' ? target.readingAnchor : undefined)
@@ -3162,6 +3186,14 @@ export function CodeWorkspace({
   }, [clearWorkspaceShareLocation, copy, pendingShareTarget, shareTargetRestoreTick])
 
   const restoreWorkspaceNavigationEntry = useCallback(async (entry: WorkspaceNavigationEntry) => {
+    if (entry.kind === 'plugins') {
+      closeContextMenu()
+      clearSearch()
+      setPluginsNavigationState(entry.state)
+      onWorkspaceViewChange('plugins')
+      closeSidebarForMobile()
+      return true
+    }
     if (entry.kind === 'agent') {
       if (!workspaceNavigationAgentIds.has(entry.agentId)) return false
     } else if (!workspaceNavigationFileIds.has(entry.agentId)) {
@@ -5000,6 +5032,8 @@ export function CodeWorkspace({
         onNewAgent={onNewAgent}
         onOpenHistory={() => openWorkspaceViewFromSidebar('history')}
         onOpenPlugins={() => openWorkspaceViewFromSidebar('plugins')}
+        pluginsNavigationState={pluginsNavigationState}
+        onPluginsNavigationStateChange={setPluginsNavigationState}
         onOpenAgentHomeConfiguration={openAgentHomeConfiguration}
         onOpenSearch={openSearchFromSidebar}
         onOpenShare={() => requestEmptyHomeSidebarAction('share')}

@@ -22,14 +22,14 @@ ACP 与 Native Terminal 使用相互独立的 Executable Policy。ACP 使用 Far
 Protocol、Integrity、Recovery 与 Chat/Terminal Compatibility。
 
 默认 ACP Launch 是不可变的 Farming-managed Image，统一绑定 Adapter 版本、Provider CLI
-版本、Protocol/Build Identity、Patch，以及 Node 或兼容 Loader 的启动方式。Provider 加
-Agent Home 可以在 Plugins 中显式选择自定义 Provider Executable；Custom 是独立 Launch
-Identity，绝不静默回退 Managed Image 或 Terminal Executable。已有 Session 保留创建时的
-精确选择。环境变量只作为兼容输入，不是普通用户配置的 Authority。
+版本、Protocol/Build Identity、Patch，以及 Node 或兼容 Loader 的启动方式。新建 Chat
+Session 始终使用这套 Managed Runtime；Plugins 不再提供第二条 Executable Selection Path。
+已有 Session 保留创建时的精确 Launch Identity，使旧 Custom Binding 能恢复且不会被静默
+重绑。环境变量只作为兼容输入，不是普通用户配置的 Authority。
 已有 Session 如果缺少创建时记录的精确 Executable，恢复必须 Fail Closed，且不得按当前
 机器环境重新发现 Executable。
 Terminal Session 尚未选择 ACP Executable。把同一个 Provider Session 切换到 Chat 时，
-Farming 从其精确 Agent Home 选择配置的 ACP Runtime，并在启动前持久化该选择；后续 ACP
+Farming 从其精确 Agent Home 选择 Managed ACP Runtime，并在启动前持久化该 Launch Identity；后续 ACP
 恢复只能使用这份持久化 Executable。
 
 只有 Live Agent 明确声明时，Farming 才启用标准 ACP Session、Prompt、Cancel、Config、

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { CodeSelect } from '@/components/CodeSelect'
 import { appPath } from '@/lib/base-path'
+import type { WorkspacePluginsNavigationState } from '@/lib/workspace-navigation-history'
 import { getBackendConnectionSnapshot } from '@/lib/backend-live-status'
 import {
   ArrowLeftGlyph,
@@ -39,6 +40,8 @@ type AgentExtension = {
   status: 'configured' | 'enabled' | 'disabled'
   sourceFile: string
   rootId: string
+  icon?: string
+  iconDark?: string
 }
 
 type AgentExtensionGroup = {
@@ -76,18 +79,9 @@ type AgentHomeDraft = {
   path: string
 }
 
-type AgentAcpRuntimeDraft = AgentExtensionGroup['homes'][number]['acpRuntime']
-
 type AgentConfiguration = {
   provider: AgentExtensionGroup
   home: AgentExtensionGroup['homes'][number]
-}
-
-type SelectedAgentExtension = AgentExtension & {
-  agentName: string
-  homeKey: string
-  homeId: string
-  homePath: string
 }
 
 export type AgentHomeFileTarget = {
@@ -97,7 +91,20 @@ export type AgentHomeFileTarget = {
   rootId: string
 }
 
-type PluginsTab = 'farming' | 'homes' | 'extensions'
+export type PluginsTab = 'farming' | 'homes' | 'extensions'
+
+export type PluginsNavigationState = WorkspacePluginsNavigationState
+
+export function defaultPluginsNavigationState(): PluginsNavigationState {
+  return {
+    activeTab: 'farming',
+    activeExtensionHomeKey: '',
+    activeExtensionKind: 'skill',
+    extensionQuery: '',
+    selectedExtension: null,
+    scrollTop: 0,
+  }
+}
 
 const EXTENSION_KIND_ORDER = ['skill', 'mcp', 'hook', 'plugin', 'command']
 const PLUGINS_TABS: PluginsTab[] = ['farming', 'homes', 'extensions']
@@ -154,16 +161,6 @@ function pluginCopy(language: UiLanguage) {
     sandbox: zh ? '沙箱' : 'Sandbox',
     permission: zh ? '权限' : 'Permission',
     homeConfiguration: zh ? 'Home 配置' : 'Home configuration',
-    acpRuntime: 'ACP Runtime',
-    managedAcpRuntime: zh ? 'Farming 管理' : 'Farming managed',
-    providerAcpRuntime: zh ? 'Provider 默认' : 'Provider default',
-    customAcpRuntime: zh ? '自定义 executable' : 'Custom executable',
-    customAcpExecutable: zh ? 'Executable 路径' : 'Executable path',
-    customAcpExecutablePlaceholder: '/opt/codex/bin/codex',
-    acpRuntimeHint: zh
-      ? '仅影响这个 Home 新建的 Chat；Terminal 继续使用独立的系统 CLI 解析策略。'
-      : 'Affects only new Chat sessions in this Home; Terminal keeps its independent system CLI policy.',
-    applyAcpRuntime: zh ? '应用 Runtime' : 'Apply runtime',
     inheritConfiguration: (filePath: string) => zh
       ? `继承 ${filePath}`
       : `Inherited from ${filePath}`,
@@ -176,7 +173,6 @@ function pluginCopy(language: UiLanguage) {
     homeNamePlaceholder: zh ? '例如 work' : 'e.g. work',
     homePathPlaceholder: '~/.codex-work',
     invalidHome: zh ? '请输入有效且不重复的 Home 名称和路径。' : 'Enter a valid, unique Home name and path.',
-    invalidAcpExecutable: zh ? '请输入自定义 ACP executable 的绝对路径。' : 'Enter an absolute path for the custom ACP executable.',
     saveAgentFailed: zh ? 'Agent 设置保存失败' : 'Failed to save Agent settings',
     confirmRemoveAgent: (name: string) => zh ? `删除 ${name}？` : `Remove ${name}?`,
     loadingAgentExtensions: zh ? '正在读取 Agent 扩展…' : 'Loading Agent extensions…',
@@ -374,6 +370,17 @@ function extensionKindGlyph(kind: string) {
   return <PuzzleGlyph />
 }
 
+function ExtensionIcon({ extension }: { extension: Pick<AgentExtension, 'icon' | 'iconDark' | 'kind'> }) {
+  if (!extension.icon && !extension.iconDark) return <>{extensionKindGlyph(extension.kind)}</>
+  const lightIcon = extension.icon || extension.iconDark || ''
+  return <>
+    <img className="code-plugin-manifest-icon light" src={lightIcon} alt="" />
+    {extension.iconDark ? (
+      <img className="code-plugin-manifest-icon dark" src={extension.iconDark} alt="" />
+    ) : null}
+  </>
+}
+
 function configurationSummaryLabel(
   key: AgentExtensionGroup['homes'][number]['configuration']['summary'][number]['key'],
   copy: ReturnType<typeof pluginCopy>,
@@ -410,6 +417,11 @@ function orderedAgentConfigurations(groups: AgentExtensionGroup[]): AgentConfigu
     ))
 }
 
+function safeExtensionIcon(value: unknown) {
+  const icon = typeof value === 'string' ? value : ''
+  return /^data:image\/(?:svg\+xml|png|webp|jpeg);base64,[A-Za-z0-9+/=]+$/.test(icon) ? icon : ''
+}
+
 function normalizeAgentExtensionGroups(rawGroups: AgentExtensionGroup[]): AgentExtensionGroup[] {
   let fallbackOrder = 0
   return rawGroups.map(provider => ({
@@ -420,12 +432,7 @@ function normalizeAgentExtensionGroups(rawGroups: AgentExtensionGroup[]): AgentE
       ...home,
       path: String(home.path || ''),
       order: Number.isFinite(Number(home.order)) ? Number(home.order) : fallbackOrder++,
-      acpRuntime: {
-        mode: home.acpRuntime?.mode === 'custom' ? 'custom' : 'managed',
-        executable: home.acpRuntime?.mode === 'custom'
-          ? String(home.acpRuntime.executable || '')
-          : '',
-      },
+      acpRuntime: { mode: 'managed', executable: '' },
       newAgentDefaults: {
         model: 'inherit',
         reasoning: 'inherit',
@@ -451,6 +458,8 @@ function normalizeAgentExtensionGroups(rawGroups: AgentExtensionGroup[]): AgentE
           status,
           sourceFile: String(extension.sourceFile || ''),
           rootId: String(extension.rootId || home.configuration?.rootId || ''),
+          icon: safeExtensionIcon(extension.icon),
+          iconDark: safeExtensionIcon(extension.iconDark),
         }
       }) : [],
     })),
@@ -464,20 +473,10 @@ function settingsHomes(groups: AgentExtensionGroup[]) {
       id: home.id,
       path: home.path,
       order: home.order,
-      acpRuntime: {
-        mode: home.acpRuntime.mode,
-        executable: home.acpRuntime.mode === 'custom' ? home.acpRuntime.executable : '',
-      },
+      acpRuntime: { mode: 'managed', executable: '' },
       newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
     })),
   ]))
-}
-
-function acpRuntimeDrafts(groups: AgentExtensionGroup[]) {
-  return Object.fromEntries(groups.flatMap(provider => provider.homes.map(home => [
-    agentConfigurationKey(provider.id, home.id),
-    { ...home.acpRuntime },
-  ])))
 }
 
 function homeIdForPath(homePath: string) {
@@ -499,6 +498,8 @@ export function PluginsPanel({
   computerCapabilityError,
   onPrepareComputer,
   language,
+  navigationState,
+  onNavigationStateChange,
   onBack,
   onOpenAgentHomeConfiguration,
   onRefreshCapability,
@@ -511,6 +512,8 @@ export function PluginsPanel({
   computerCapabilityError: string
   onPrepareComputer: () => Promise<ComputerCapability>
   language: UiLanguage
+  navigationState: PluginsNavigationState
+  onNavigationStateChange: (state: PluginsNavigationState) => void
   onBack: () => void
   onOpenAgentHomeConfiguration: (target: AgentHomeFileTarget) => void
   onRefreshCapability: () => void
@@ -539,14 +542,19 @@ export function PluginsPanel({
   const [agentGroupsError, setAgentGroupsError] = useState('')
   const [agentSaving, setAgentSaving] = useState(false)
   const [agentDraft, setAgentDraft] = useState<AgentHomeDraft | null>(null)
-  const [agentAcpRuntimeDrafts, setAgentAcpRuntimeDrafts] = useState<Record<string, AgentAcpRuntimeDraft>>({})
   const [draggingAgentKey, setDraggingAgentKey] = useState('')
-  const [selectedExtension, setSelectedExtension] = useState<SelectedAgentExtension | null>(null)
   const selectedExtensionTriggerRef = useRef<HTMLButtonElement | null>(null)
-  const [activeTab, setActiveTab] = useState<PluginsTab>('farming')
-  const [activeExtensionHomeKey, setActiveExtensionHomeKey] = useState('')
-  const [activeExtensionKind, setActiveExtensionKind] = useState('skill')
-  const [extensionQuery, setExtensionQuery] = useState('')
+  const panelRef = useRef<HTMLDivElement | null>(null)
+  const activeTab = navigationState.activeTab
+  const activeExtensionHomeKey = navigationState.activeExtensionHomeKey
+  const activeExtensionKind = navigationState.activeExtensionKind
+  const extensionQuery = navigationState.extensionQuery
+  const updateNavigationState = useCallback((patch: Partial<PluginsNavigationState>) => {
+    onNavigationStateChange({ ...navigationState, ...patch })
+  }, [navigationState, onNavigationStateChange])
+  const setExtensionQuery = useCallback((value: string) => {
+    updateNavigationState({ extensionQuery: value })
+  }, [updateNavigationState])
   const [languageServerCapability, setLanguageServerCapability] = useState<LanguageServerCapability | null>(null)
   const [languageServerLoading, setLanguageServerLoading] = useState(true)
   const [languageServerError, setLanguageServerError] = useState('')
@@ -555,6 +563,25 @@ export function PluginsPanel({
   const agentSaveSequenceRef = useRef(0)
   const retryOnReconnectRef = useRef(false)
   const agentPanelScopeRef = useRef({ mounted: true, generation: 0 })
+
+  useEffect(() => {
+    const scroller = panelRef.current?.closest<HTMLElement>('.code-plugins-view')
+    if (!scroller || agentGroupsLoading) return undefined
+    const restoreScroll = () => {
+      scroller.scrollTop = navigationState.scrollTop
+    }
+    restoreScroll()
+    const frame = window.requestAnimationFrame(restoreScroll)
+    const handleScroll = () => {
+      if (scroller.scrollTop === navigationState.scrollTop) return
+      onNavigationStateChange({ ...navigationState, scrollTop: scroller.scrollTop })
+    }
+    scroller.addEventListener('scroll', handleScroll, { passive: true })
+    return () => {
+      window.cancelAnimationFrame(frame)
+      scroller.removeEventListener('scroll', handleScroll)
+    }
+  }, [agentGroups.length, agentGroupsLoading, navigationState, onNavigationStateChange])
 
   const loadLanguageServerCapability = useCallback(async (refresh = false) => {
     setLanguageServerLoading(true)
@@ -614,7 +641,6 @@ export function PluginsPanel({
       retryOnReconnectRef.current = false
       const nextGroups = normalizeAgentExtensionGroups(Array.isArray(data.agents) ? data.agents : [])
       setAgentGroups(nextGroups)
-      setAgentAcpRuntimeDrafts(acpRuntimeDrafts(nextGroups))
     } catch (loadError) {
       if (
         agentGroupsRequestRef.current !== requestId
@@ -733,7 +759,7 @@ export function PluginsPanel({
             id: homeId,
             path: homePath,
             order: nextOrder,
-            acpRuntime: { mode: 'managed', executable: '' } satisfies AgentAcpRuntimeDraft,
+            acpRuntime: { mode: 'managed', executable: '' } satisfies AgentExtensionGroup['homes'][number]['acpRuntime'],
             newAgentDefaults: {
               model: 'inherit',
               reasoning: 'inherit',
@@ -763,45 +789,6 @@ export function PluginsPanel({
       : provider)
     void saveAgentGroups(nextGroups)
   }, [agentGroups, agentSaving, copy, saveAgentGroups])
-
-  const updateAgentAcpRuntimeDraft = useCallback((
-    key: string,
-    patch: Partial<AgentAcpRuntimeDraft>,
-  ) => {
-    setAgentAcpRuntimeDrafts(current => ({
-      ...current,
-      [key]: {
-        mode: current[key]?.mode === 'custom' ? 'custom' : 'managed',
-        executable: current[key]?.executable || '',
-        ...patch,
-      },
-    }))
-  }, [])
-
-  const applyAgentAcpRuntime = useCallback((providerId: string, homeId: string) => {
-    if (agentSaving) return
-    const key = agentConfigurationKey(providerId, homeId)
-    const draft = agentAcpRuntimeDrafts[key] || { mode: 'managed', executable: '' }
-    if (draft.mode === 'custom' && !draft.executable.trim()) {
-      setAgentGroupsError(copy.invalidAcpExecutable)
-      return
-    }
-    const nextGroups = agentGroups.map(provider => provider.id === providerId
-      ? {
-          ...provider,
-          homes: provider.homes.map(home => home.id === homeId
-            ? {
-                ...home,
-                acpRuntime: {
-                  mode: draft.mode,
-                  executable: draft.mode === 'custom' ? draft.executable.trim() : '',
-                },
-              }
-            : home),
-        }
-      : provider)
-    void saveAgentGroups(nextGroups)
-  }, [agentAcpRuntimeDrafts, agentGroups, agentSaving, copy.invalidAcpExecutable, saveAgentGroups])
 
   const reorderAgentConfigurations = useCallback((sourceKey: string, targetKey: string) => {
     if (!sourceKey || sourceKey === targetKey || agentSaving) return
@@ -1035,6 +1022,15 @@ export function PluginsPanel({
     () => extensionHomes.flatMap(home => home.extensions),
     [extensionHomes],
   )
+  const selectedExtension = useMemo(() => {
+    const selected = navigationState.selectedExtension
+    if (!selected) return null
+    return agentExtensions.find(extension => (
+      extension.homeKey === selected.homeKey
+      && extension.id === selected.id
+      && extension.sourceFile === selected.sourceFile
+    )) || null
+  }, [agentExtensions, navigationState.selectedExtension])
   const extensionKindCounts = useMemo(() => {
     const counts = new Map<string, number>()
     selectedExtensionHome?.extensions.forEach(extension => {
@@ -1080,12 +1076,11 @@ export function PluginsPanel({
     const nextHome = extensionHomes[nextIndex]
     if (!nextHome) return
     event.preventDefault()
-    setActiveExtensionHomeKey(nextHome.key)
-    setExtensionQuery('')
+    updateNavigationState({ activeExtensionHomeKey: nextHome.key, extensionQuery: '' })
     window.requestAnimationFrame(() => {
       document.getElementById(`code-plugin-extension-home-${nextHome.domId}`)?.focus()
     })
-  }, [extensionHomes, selectedExtensionHome?.key])
+  }, [extensionHomes, selectedExtensionHome?.key, updateNavigationState])
 
   const handleExtensionKindKeyDown = useCallback((event: ReactKeyboardEvent<HTMLButtonElement>) => {
     const availableKinds = extensionKinds.filter(kind => kind.count > 0)
@@ -1099,25 +1094,23 @@ export function PluginsPanel({
     const nextKind = availableKinds[nextIndex]
     if (!nextKind) return
     event.preventDefault()
-    setActiveExtensionKind(nextKind.kind)
-    setExtensionQuery('')
+    updateNavigationState({ activeExtensionKind: nextKind.kind, extensionQuery: '' })
     window.requestAnimationFrame(() => {
       document.getElementById(`code-plugin-extension-kind-${nextKind.kind}`)?.focus()
     })
-  }, [extensionKinds, selectedExtensionKind])
+  }, [extensionKinds, selectedExtensionKind, updateNavigationState])
 
   const activateTab = useCallback((tab: PluginsTab) => {
-    setActiveTab(tab)
-    setSelectedExtension(null)
-  }, [])
+    updateNavigationState({ activeTab: tab, selectedExtension: null })
+  }, [updateNavigationState])
 
   const closeSelectedExtension = useCallback(() => {
-    setSelectedExtension(null)
+    updateNavigationState({ selectedExtension: null })
     window.requestAnimationFrame(() => {
       const trigger = selectedExtensionTriggerRef.current
       if (trigger?.isConnected) trigger.focus({ preventScroll: true })
     })
-  }, [])
+  }, [updateNavigationState])
 
   const handleTabKeyDown = useCallback((event: ReactKeyboardEvent<HTMLButtonElement>) => {
     const currentIndex = PLUGINS_TABS.indexOf(activeTab)
@@ -1137,7 +1130,7 @@ export function PluginsPanel({
   }, [activeTab, activateTab])
 
   return (
-    <div className="code-plugins-panel" data-testid="code-plugins-panel">
+    <div ref={panelRef} className="code-plugins-panel" data-testid="code-plugins-panel">
       <header className="code-plugins-panel-header">
         <button type="button" onClick={onBack} aria-label={copy.back} title={copy.back}>
           <ArrowLeftGlyph />
@@ -1538,7 +1531,6 @@ export function PluginsPanel({
         ) : agentConfigurations.map(configuration => {
           const { provider, home } = configuration
           const key = agentConfigurationKey(provider.id, home.id)
-          const acpRuntimeDraft = agentAcpRuntimeDrafts[key] || home.acpRuntime
           const extensionCount = home.extensions.length
           const configurationSummary = home.configuration.summary.length > 0
             ? home.configuration.summary.map(entry => (
@@ -1621,49 +1613,6 @@ export function PluginsPanel({
                 <span>{configurationSummary}</span>
               </div>
 
-              <div className="code-plugin-agent-runtime">
-                <CodeSelect
-                  className="code-plugin-select"
-                  label={copy.acpRuntime}
-                  value={acpRuntimeDraft.mode}
-                  disabled={agentSaving}
-                  options={[
-                    {
-                      value: 'managed',
-                      label: provider.acpExecutablePolicy === 'managed'
-                        ? copy.managedAcpRuntime
-                        : copy.providerAcpRuntime,
-                    },
-                    { value: 'custom', label: copy.customAcpRuntime },
-                  ]}
-                  onChange={value => updateAgentAcpRuntimeDraft(key, {
-                    mode: value === 'custom' ? 'custom' : 'managed',
-                  })}
-                />
-                {acpRuntimeDraft.mode === 'custom' ? (
-                  <label>
-                    <span>{copy.customAcpExecutable}</span>
-                    <input
-                      type="text"
-                      value={acpRuntimeDraft.executable}
-                      placeholder={copy.customAcpExecutablePlaceholder}
-                      disabled={agentSaving}
-                      onChange={event => updateAgentAcpRuntimeDraft(key, {
-                        executable: event.target.value,
-                      })}
-                    />
-                  </label>
-                ) : null}
-                <p>{copy.acpRuntimeHint}</p>
-                <button
-                  type="button"
-                  disabled={agentSaving}
-                  onClick={() => applyAgentAcpRuntime(provider.id, home.id)}
-                >
-                  {copy.applyAcpRuntime}
-                </button>
-              </div>
-
               {!provider.discoverySupported ? (
                 <p className="code-plugin-agent-note">{copy.unsupportedDiscovery}</p>
               ) : null}
@@ -1721,8 +1670,7 @@ export function PluginsPanel({
                 aria-selected={selectedExtensionHome?.key === home.key}
                 tabIndex={selectedExtensionHome?.key === home.key ? 0 : -1}
                 onClick={() => {
-                  setActiveExtensionHomeKey(home.key)
-                  setExtensionQuery('')
+                  updateNavigationState({ activeExtensionHomeKey: home.key, extensionQuery: '' })
                 }}
                 onKeyDown={handleExtensionHomeKeyDown}
               >
@@ -1743,8 +1691,7 @@ export function PluginsPanel({
                 disabled={kind.count === 0}
                 tabIndex={selectedExtensionKind === kind.kind ? 0 : -1}
                 onClick={() => {
-                  setActiveExtensionKind(kind.kind)
-                  setExtensionQuery('')
+                  updateNavigationState({ activeExtensionKind: kind.kind, extensionQuery: '' })
                 }}
                 onKeyDown={handleExtensionKindKeyDown}
               >
@@ -1772,10 +1719,16 @@ export function PluginsPanel({
                   key={`${extension.agentName}:${extension.id}`}
                   onClick={event => {
                     selectedExtensionTriggerRef.current = event.currentTarget
-                    setSelectedExtension(extension)
+                    updateNavigationState({
+                      selectedExtension: {
+                        homeKey: extension.homeKey,
+                        id: extension.id,
+                        sourceFile: extension.sourceFile,
+                      },
+                    })
                   }}
                 >
-                  <span className="code-plugin-extension-icon" aria-hidden="true">{extensionKindGlyph(extension.kind)}</span>
+                  <span className="code-plugin-extension-icon" aria-hidden="true"><ExtensionIcon extension={extension} /></span>
                   <span className="code-plugin-extension-copy">
                     <span className="code-plugin-extension-title">
                       <strong>{extension.name}</strong>
@@ -1819,9 +1772,12 @@ export function PluginsPanel({
             }}
           >
             <header>
-              <div>
+              <div className="code-plugin-detail-heading">
+                <span className="code-plugin-extension-icon" aria-hidden="true"><ExtensionIcon extension={selectedExtension} /></span>
+                <div>
                 <small>{selectedExtension.agentName} · {copy.extensionDetails}</small>
                 <h3 id="code-plugin-detail-title">{selectedExtension.name}</h3>
+                </div>
               </div>
               <button
                 type="button"

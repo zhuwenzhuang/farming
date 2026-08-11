@@ -415,17 +415,21 @@ function run() {
     });
     assert.strictEqual(manager.getSettings().agentHomes.codex[1].order, 1);
     assert.deepStrictEqual(manager.getAgentHome('codex', 'work').acpRuntime, {
-      mode: 'custom',
-      executable: '~/bin/codex-work',
+      mode: 'managed',
+      executable: '',
     });
-    assert.throws(() => manager.updateSettings({
+    manager.updateSettings({
       agentHomes: {
         ...manager.getSettings().agentHomes,
         codex: manager.getSettings().agentHomes.codex.map(home => home.id === 'work'
           ? { ...home, acpRuntime: { mode: 'custom', executable: '' } }
           : home),
       },
-    }), /custom ACP runtime requires an executable/i);
+    });
+    assert.deepStrictEqual(manager.getAgentHome('codex', 'work').acpRuntime, {
+      mode: 'managed',
+      executable: '',
+    }, 'legacy custom Home input must normalize to the managed runtime');
     assert.throws(() => manager.updateSettings({
       agentHomes: {
         ...manager.getSettings().agentHomes,

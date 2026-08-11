@@ -30,6 +30,29 @@ Each round must answer:
 | Real-provider smoke | before merge or release | login, real CLI/ACP behavior, resume, switching |
 | Long soak and scale | explicit or overnight | duration, reconnect, memory, navigation latency, many Agents |
 
+## Behavior-first Development Contract
+
+User-visible work starts with a scenario stated as observable Given/When/Then
+conditions. A regression fix first adds the smallest failing behavioral test,
+then changes the implementation, then adds or updates one deterministic browser
+journey when the defect crossed UI or subsystem boundaries. Gherkin or a separate
+BDD framework is optional; scenario clarity and executable outcomes are required.
+
+Use three complementary seams:
+
+1. A pure state-transition test covers ordering, guards, retries, cancellation,
+   and recovery without rendering.
+2. A public boundary test drives the exported service, HTTP protocol, or rendered
+   control and asserts outputs or accessible UI state.
+3. A Playwright journey drives visible user actions for critical cross-surface
+   behavior and verifies the final observable effect, persistence, and restoration.
+
+Tests that read production source and search for identifiers may enforce a narrow
+architecture or packaging boundary, but they are not evidence for UI behavior.
+Do not add source-text assertions for state transitions, rendering, navigation,
+focus, pagination, or recovery. Replace such assertions with imported state tests,
+public-boundary tests, or browser journeys as the affected area changes.
+
 Real-provider tests are explicit, low-volume, and isolated. They must not reset
 quotas, rewrite provider login or defaults, or launch broad unrelated work.
 
@@ -113,6 +136,8 @@ Review revisions, reviewed state, comments, and History resume.
 
 Files remain workspace-owned when Agents appear, reorder, archive, or disappear.
 Historical Review evidence must not change when the working tree changes later.
+Session disclosure must exercise repeated Show more actions and Show less, not
+only the presence of pagination controls.
 
 ### Browser, Computer, Extensions, And Desktop
 
@@ -124,6 +149,8 @@ the same capability contract.
 Desktop stories use visible controls only: local launch, remote enrollment,
 cancel, backend switching, tunnel loss, quit during startup, relaunch, Files,
 History, Terminal input, and focus/fullscreen behavior.
+Opening an Extension source file must reveal it in Files, and workspace Back/Forward
+must restore the prior Plugins tab, Home, kind, detail, and scroll location.
 
 ### Usage, Notifications, Mobile, And Accessibility
 
