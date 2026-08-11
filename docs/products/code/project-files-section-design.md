@@ -54,6 +54,12 @@ cannot commit data or leave a loading state that blocks retry.
 Directory expansion is browser-local navigation state scoped to the workspace.
 Each accepted pointer or keyboard action changes the desired expansion state
 once; a later directory response cannot reopen a directory the user closed.
+When the first expansion discovers a single-child directory chain, the Explorer
+may load and compact that chain, then transfers the same expansion intent to
+the final visible directory. This continuation is depth-bounded, detects
+repeated paths, never crosses a symbolic link automatically, and stops on a
+branch, file, empty directory, load failure, workspace change, or intervening
+user collapse.
 Direct pointer or keyboard expansion keeps the current row anchored in the
 single Project scroll surface. A toggle does not write Project scroll or start
 a reveal operation; only navigation to a different target owns reveal.

@@ -34,7 +34,7 @@ export function useWorkspaceFileExplorer(agentId: string | null, workspaceKey = 
   ))
   const openDirectoryPathsRef = useRef(openDirectoryPaths)
   const openDirectoryWorkspaceKeyRef = useRef(normalizedWorkspaceKey)
-  const compactDirectoryHydrationRef = useRef(new Map<string, Promise<void>>())
+  const compactDirectoryHydrationRef = useRef(new Map<string, Promise<readonly string[] | null>>())
   const restoredDirectoryHydrationKeyRef = useRef('')
 
   const treeData = useMemo<WorkspaceFileTreeNode[]>(() => (
@@ -164,33 +164,43 @@ export function useWorkspaceFileExplorer(agentId: string | null, workspaceKey = 
     })()
   }, [loadDirectory])
 
-  const hydrateCompactDirectoryChains = useCallback((directoryPath: string) => {
-    const existingHydration = compactDirectoryHydrationRef.current.get(directoryPath)
+  const hydrateCompactDirectoryChains = useCallback((directoryPath: string, compactChain = true) => {
+    const hydrationKey = `${compactChain ? 'compact' : 'single'}:${directoryPath}`
+    const existingHydration = compactDirectoryHydrationRef.current.get(hydrationKey)
     if (existingHydration) return existingHydration
 
-    let hydration: Promise<void>
+    let hydration: Promise<readonly string[] | null>
     hydration = (async () => {
       let currentPath = directoryPath
+      const hydratedPaths = [currentPath]
+      const visitedPaths = new Set(hydratedPaths)
       for (let depth = 0; depth < COMPACT_DIRECTORY_PRELOAD_MAX_DEPTH; depth += 1) {
         const currentDirectory = await ensureDirectoryLoaded(currentPath)
+        if (!currentDirectory) return null
+        if (!compactChain) return hydratedPaths
         const nextDirectory = currentDirectory?.items.length === 1 && currentDirectory.items[0]?.type === 'directory'
+          && !currentDirectory.items[0].symbolicLink
           ? currentDirectory.items[0]
           : null
-        if (!nextDirectory) return
+        if (!nextDirectory) return hydratedPaths
+        if (visitedPaths.has(nextDirectory.path)) return null
         currentPath = nextDirectory.path
+        hydratedPaths.push(currentPath)
+        visitedPaths.add(currentPath)
       }
+      return null
     })().finally(() => {
-      if (compactDirectoryHydrationRef.current.get(directoryPath) === hydration) {
-        compactDirectoryHydrationRef.current.delete(directoryPath)
+      if (compactDirectoryHydrationRef.current.get(hydrationKey) === hydration) {
+        compactDirectoryHydrationRef.current.delete(hydrationKey)
       }
     })
-    compactDirectoryHydrationRef.current.set(directoryPath, hydration)
+    compactDirectoryHydrationRef.current.set(hydrationKey, hydration)
     return hydration
   }, [ensureDirectoryLoaded])
 
   useEffect(() => {
     compactDirectoryHydrationRef.current.clear()
-  }, [agentId])
+  }, [agentId, normalizedWorkspaceKey])
 
   useEffect(() => {
     if (openDirectoryWorkspaceKeyRef.current !== normalizedWorkspaceKey) return

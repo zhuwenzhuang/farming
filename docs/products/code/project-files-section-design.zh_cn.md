@@ -46,6 +46,9 @@ Load 失效；旧 Workspace Generation 的响应不能提交数据，也不能�
 
 Directory Expansion 是按 Workspace 隔离的 Browser-local Navigation State。每次鼠标或键盘
 操作只改变一次期望展开状态；迟到 Directory Response 不能重新打开用户已经关闭的目录。
+首次展开如果发现单子目录链，Explorer 可以继续加载并压缩该目录链，再把同一次展开意图
+迁移到最终可见目录。该过程必须限制最大深度、检测重复路径、不得自动穿过 Symbolic Link，
+并在遇到分叉、文件、空目录、加载失败、Workspace 切换或用户中途折叠时停止。
 鼠标或键盘直接展开时，当前行必须锚定在唯一的 Project Scroll Surface 中。Toggle 不能写入
 Project Scroll，也不能启动 Reveal Operation；只有导航到其它 Target 时才拥有 Reveal。
 

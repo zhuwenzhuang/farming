@@ -525,7 +525,15 @@ function run() {
 	      fileFocusHookSource.includes('treeRef.current?.open(directoryPath)') &&
 				      fileTreeControllerHookSource.includes('if (isDirectoryOpen(path)) {') &&
 				      !fileSectionSource.includes('if (nextOpen) {') &&
-			      fileTreeControllerHookSource.includes('void hydrateCompactDirectoryChains(path).finally(() => refreshTreeLayout([path]))') &&
+			      explorerHookSource.includes('const visitedPaths = new Set(hydratedPaths)') &&
+			      explorerHookSource.includes('!currentDirectory.items[0].symbolicLink') &&
+			      explorerHookSource.includes('if (visitedPaths.has(nextDirectory.path)) return null') &&
+			      explorerHookSource.includes('depth < COMPACT_DIRECTORY_PRELOAD_MAX_DEPTH') &&
+			      fileTreeControllerHookSource.includes('const compactChain = treeRef.current?.get(path)?.data.symbolicLink !== true') &&
+			      fileTreeControllerHookSource.includes('void hydrateCompactDirectoryChains(path, compactChain).then(hydratedPaths => {') &&
+			      fileTreeControllerHookSource.includes('if (!hydratedPaths || !isDirectoryOpen(path)) {') &&
+			      fileTreeControllerHookSource.includes('setTreePathsOpen(hydratedPaths, true)') &&
+			      fileTreeControllerHookSource.includes('node?.compactedPaths ?? [path]') &&
 			      !fileTreeControllerHookSource.includes('syncObservedToggle') &&
 			      !fileTreeRowInteractionsSource.includes('onHydrateCompactDirectoryChains') &&
 		      fileTreeKeyboardHookSource.includes('const openDirectoryNode = useCallback') &&

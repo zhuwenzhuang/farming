@@ -7,7 +7,10 @@ interface UseWorkspaceFileTreeControllerOptions {
   visibleTreeRowCount: number
   openDirectoryPaths: ReadonlySet<string>
   treeData: WorkspaceFileTreeNode[]
-  hydrateCompactDirectoryChains: (directoryPath: string) => Promise<unknown>
+  hydrateCompactDirectoryChains: (
+    directoryPath: string,
+    compactChain?: boolean,
+  ) => Promise<readonly string[] | null>
   isDirectoryOpen: (path: string) => boolean
   setDirectoryOpen: (path: string, open: boolean) => void
 }
@@ -54,16 +57,23 @@ export function useWorkspaceFileTreeController({
     window.setTimeout(redrawTree, 80)
   }, [openTreePaths])
 
-  const setTreePathOpen = useCallback((path: string, open: boolean) => {
-    if (open) {
-      manuallyClosedPathsRef.current.delete(path)
-      appliedManualClosuresRef.current.delete(path)
-    } else {
-      manuallyClosedPathsRef.current.add(path)
-      appliedManualClosuresRef.current.delete(path)
-    }
-    setDirectoryOpen(path, open)
+  const setTreePathsOpen = useCallback((paths: readonly string[], open: boolean) => {
+    paths.forEach(path => {
+      if (open) {
+        manuallyClosedPathsRef.current.delete(path)
+        appliedManualClosuresRef.current.delete(path)
+      } else {
+        manuallyClosedPathsRef.current.add(path)
+        appliedManualClosuresRef.current.delete(path)
+      }
+      setDirectoryOpen(path, open)
+    })
   }, [setDirectoryOpen])
+
+  const setTreePathOpen = useCallback((path: string, open: boolean) => {
+    const node = treeRef.current?.get(path)?.data
+    setTreePathsOpen(node?.compactedPaths ?? [path], open)
+  }, [setTreePathsOpen])
 
   const toggleTreePathOpen = useCallback((path: string) => {
     const nextOpen = !isDirectoryOpen(path)
@@ -119,11 +129,19 @@ export function useWorkspaceFileTreeController({
 
   const handleTreeToggle = useCallback((path: string) => {
     if (isDirectoryOpen(path)) {
-      void hydrateCompactDirectoryChains(path).finally(() => refreshTreeLayout([path]))
+      const compactChain = treeRef.current?.get(path)?.data.symbolicLink !== true
+      void hydrateCompactDirectoryChains(path, compactChain).then(hydratedPaths => {
+        if (!hydratedPaths || !isDirectoryOpen(path)) {
+          refreshTreeLayout()
+          return
+        }
+        setTreePathsOpen(hydratedPaths, true)
+        refreshTreeLayout([hydratedPaths[hydratedPaths.length - 1] ?? path])
+      })
     } else {
       refreshTreeLayout()
     }
-  }, [hydrateCompactDirectoryChains, isDirectoryOpen, refreshTreeLayout])
+  }, [hydrateCompactDirectoryChains, isDirectoryOpen, refreshTreeLayout, setTreePathsOpen, treeRef])
 
   const rememberFocusedTreeNode = useCallback((node: { data: WorkspaceFileTreeNode } | null | undefined) => {
     if (!node) return

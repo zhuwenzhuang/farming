@@ -370,9 +370,8 @@ test('keeps a deeply scrolled directory anchored while pointer expansion loads i
   await page.locator('.code-sidebar').evaluate(element => element.classList.remove('collapsed'))
   const compactFileName = files.locator('[data-file-path="velox/fixture.ts"] .code-file-name')
   await expect(compactFileName).toBeVisible()
-  const compactFileLabelWidth = await files.locator('[data-file-path="velox/fixture.ts"] .code-file-label')
-    .evaluate(element => element.getBoundingClientRect().width)
-  expect(compactFileLabelWidth).toBeGreaterThan(100)
+  await expect.poll(() => files.locator('[data-file-path="velox/fixture.ts"] .code-file-label')
+    .evaluate(element => element.getBoundingClientRect().width)).toBeGreaterThan(100)
   expect(await compactFileName.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
   const compactSameDepthLabelLeft = await Promise.all([
     files.locator('[data-file-path="velox/child-00"] .code-file-name').evaluate(element => element.getBoundingClientRect().left),
@@ -453,6 +452,78 @@ test('keeps a deeply scrolled directory anchored while pointer expansion loads i
   ))
   expect(revealedPaths).not.toContain('velox')
   expect(revealedPaths).not.toContain('velox/child-12')
+})
+
+test('continues first expansion through a bounded compact directory chain', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'compact-directory-first-expansion')
+  const terminalDirectory = path.join(workspace, 'chain', 'level-one', 'level-two')
+  fs.mkdirSync(terminalDirectory, { recursive: true })
+  fs.writeFileSync(path.join(terminalDirectory, 'first.ts'), 'export const first = true\n')
+  fs.writeFileSync(path.join(terminalDirectory, 'second.ts'), 'export const second = true\n')
+  fs.writeFileSync(path.join(workspace, 'README.md'), '# compact directory fixture\n')
+  fs.symlinkSync('chain', path.join(workspace, 'linked-chain'))
+  const boundedDirectoryPaths = ['bounded']
+  let boundedDirectory = path.join(workspace, boundedDirectoryPaths[0])
+  for (let depth = 0; depth < 14; depth += 1) {
+    boundedDirectoryPaths.push(`${boundedDirectoryPaths[boundedDirectoryPaths.length - 1]}/level-${depth}`)
+    boundedDirectory = path.join(boundedDirectory, `level-${depth}`)
+  }
+  fs.mkdirSync(boundedDirectory, { recursive: true })
+  fs.writeFileSync(path.join(boundedDirectory, 'terminal.ts'), 'export const terminal = true\n')
+
+  const loadedDirectoryPaths: string[] = []
+  page.on('request', request => {
+    const requestUrl = new URL(request.url())
+    if (!requestUrl.pathname.endsWith('/api/files/tree')) return
+    loadedDirectoryPaths.push(requestUrl.searchParams.get('path') ?? '')
+  })
+
+  await openFarming(page)
+  await openNewAgentDialog(page)
+  await startAgentFromOpenDialog(page, 'bash', workspace)
+
+  const files = page.getByTestId('code-files-section')
+  const filesTitle = files.getByRole('button', { name: 'Files', exact: true })
+  if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
+
+  await files.locator('[data-testid="code-file-row"][data-file-path="chain"]').click()
+  const compactedDirectory = files.locator(
+    '[data-testid="code-file-row"][data-file-path="chain/level-one/level-two"]'
+  )
+  await expect(compactedDirectory).toBeVisible()
+  await expect(compactedDirectory.locator('.code-file-name')).toHaveText('chain/level-one/level-two')
+  await expect(compactedDirectory).toHaveAttribute('aria-expanded', 'true')
+  await expect(files.locator('[data-file-path="chain/level-one/level-two/first.ts"]')).toBeVisible()
+  await expect(files.locator('[data-file-path="chain/level-one/level-two/second.ts"]')).toBeVisible()
+  await expect.poll(() => Array.from(new Set(
+    loadedDirectoryPaths.filter(directoryPath => directoryPath.startsWith('chain'))
+  ))).toEqual(['chain', 'chain/level-one', 'chain/level-one/level-two'])
+
+  await compactedDirectory.click()
+  await expect(compactedDirectory).toHaveAttribute('aria-expanded', 'false')
+  await expect(files.locator('[data-file-path="chain/level-one/level-two/first.ts"]')).toHaveCount(0)
+  await page.waitForTimeout(200)
+  await expect(compactedDirectory).toHaveAttribute('aria-expanded', 'false')
+
+  const linkedDirectory = files.locator('[data-testid="code-file-row"][data-file-path="linked-chain"]')
+  await linkedDirectory.click()
+  await expect(linkedDirectory).toHaveAttribute('aria-expanded', 'true')
+  await expect(files.locator('[data-file-path="linked-chain/level-one"]')).toBeVisible()
+  await expect.poll(() => loadedDirectoryPaths.includes('linked-chain')).toBe(true)
+  expect(loadedDirectoryPaths.some(directoryPath => directoryPath.startsWith('linked-chain/'))).toBe(false)
+
+  await files.locator('[data-testid="code-file-row"][data-file-path="bounded"]').click()
+  await expect.poll(() => new Set(
+    loadedDirectoryPaths.filter(directoryPath => directoryPath === 'bounded' || directoryPath.startsWith('bounded/'))
+  ).size).toBe(12)
+  const deepestVisiblePath = boundedDirectoryPaths[12]
+  const boundedCompactedDirectory = files.locator(
+    `[data-testid="code-file-row"][data-file-path="${deepestVisiblePath}"]`
+  )
+  await expect(boundedCompactedDirectory).toBeVisible()
+  await expect(boundedCompactedDirectory).toHaveAttribute('aria-expanded', 'false')
+  expect(loadedDirectoryPaths).not.toContain(deepestVisiblePath)
+  await expect(files.locator(`[data-file-path="${boundedDirectoryPaths[14]}/terminal.ts"]`)).toHaveCount(0)
 })
 
 test('keeps file row slots stable for rename, links, statuses, loading, and compact layout', async ({ page, workspaceRoot }) => {
