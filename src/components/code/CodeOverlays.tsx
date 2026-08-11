@@ -4,8 +4,7 @@ import type {
 } from 'react'
 import type { Agent } from '@/types/agent'
 import {
-  canSwitchAgentRuntime,
-  capabilitiesForAgent,
+  agentMenuAvailability,
   isAgentTurnActive,
   projectCanArchive,
   projectCanDeleteWorktree,
@@ -152,7 +151,10 @@ export function CodeOverlays({
   onSubmitDeleteWorktreeDialog,
   copy,
 }: CodeOverlaysProps) {
-  const agentCapabilities = capabilitiesForAgent(contextMenuAgent)
+  const agentMenuAvailabilityState = agentMenuAvailability(contextMenuAgent, {
+    canCreateBrowser: canCreateAgentBrowser,
+    canCreateDesktop: canCreateAgentDesktop,
+  })
   const canArchiveProject = projectCanArchive(contextMenuProject)
   const canDeleteWorktree = projectCanDeleteWorktree(contextMenuProject)
   const canMarkProjectRead = Boolean(contextMenuProject?.agents.some(agent => agent.unread))
@@ -163,7 +165,7 @@ export function CodeOverlays({
       id: 'create-agent-desktop',
       label: copy.createIsolatedDesktop,
       icon: 'desktop',
-      hidden: !canCreateAgentDesktop,
+      hidden: !agentMenuAvailabilityState.createDesktop,
       onSelect: onCreateAgentDesktop,
     },
     { type: 'separator', id: 'agent-resource-separator' },
@@ -172,7 +174,7 @@ export function CodeOverlays({
       id: 'pin-agent',
       label: contextMenuAgent?.pinned ? copy.unpinAgent : copy.pinAgent,
       icon: contextMenuAgent?.pinned ? 'unpin' : 'pin',
-      hidden: !agentCapabilities.actions.pin,
+      hidden: !agentMenuAvailabilityState.pin,
       onSelect: () => onUpdateAgentFlags({ pinned: !contextMenuAgent?.pinned }),
     },
     {
@@ -180,7 +182,7 @@ export function CodeOverlays({
       id: 'rename-agent',
       label: copy.renameAgent,
       icon: 'rename',
-      hidden: !agentCapabilities.actions.rename,
+      hidden: !agentMenuAvailabilityState.rename,
       onSelect: onRenameAgent,
     },
     {
@@ -188,7 +190,7 @@ export function CodeOverlays({
       id: 'archive-agent',
       label: copy.archiveAgent,
       icon: 'archive',
-      hidden: !agentCapabilities.actions.archive,
+      hidden: !agentMenuAvailabilityState.archive,
       onSelect: onArchiveAgent,
     },
     {
@@ -196,7 +198,7 @@ export function CodeOverlays({
       id: 'toggle-agent-unread',
       label: copy.markAsUnread,
       icon: 'unread',
-      hidden: !agentCapabilities.actions.markUnread,
+      hidden: !agentMenuAvailabilityState.markUnread,
       onSelect: () => onUpdateAgentFlags({ unread: true }),
     },
     { type: 'separator', id: 'agent-copy-separator' },
@@ -205,7 +207,7 @@ export function CodeOverlays({
       id: 'copy-agent-working-directory',
       label: copy.copyWorkingDirectory,
       icon: 'copy',
-      hidden: !agentCapabilities.actions.copyWorkingDirectory,
+      hidden: !agentMenuAvailabilityState.copyWorkingDirectory,
       onSelect: onCopyAgentWorkingDirectory,
     },
     { type: 'separator', id: 'agent-fork-separator' },
@@ -214,7 +216,7 @@ export function CodeOverlays({
       id: 'fork-same-worktree',
       label: copy.forkSameWorktree,
       icon: 'fork',
-      hidden: !agentCapabilities.actions.forkSameWorktree,
+      hidden: !agentMenuAvailabilityState.forkSameWorktree,
       onSelect: () => onForkAgent('same-worktree'),
     },
     {
@@ -222,7 +224,7 @@ export function CodeOverlays({
       id: 'fork-new-worktree',
       label: copy.forkNewWorktree,
       icon: 'fork-plus',
-      hidden: !agentCapabilities.actions.forkNewWorktree,
+      hidden: !agentMenuAvailabilityState.forkNewWorktree,
       onSelect: () => onForkAgent('new-worktree'),
     },
     { type: 'separator', id: 'agent-runtime-separator' },
@@ -231,7 +233,7 @@ export function CodeOverlays({
       id: 'switch-agent-runtime',
       label: agentChatMode ? copy.switchToTerminal : copy.switchToChat,
       icon: agentChatMode ? 'terminal' : 'chat',
-      hidden: !canSwitchAgentRuntime(contextMenuAgent),
+      hidden: !agentMenuAvailabilityState.switchRuntime,
       disabled: runtimeSwitchDisabled || isAgentTurnActive(contextMenuAgent),
       onSelect: () => {
         if (!contextMenuAgent) return
@@ -243,7 +245,7 @@ export function CodeOverlays({
       id: 'create-agent-browser',
       label: copy.createBrowser,
       icon: 'browser',
-      hidden: !canCreateAgentBrowser,
+      hidden: !agentMenuAvailabilityState.createBrowser,
       onSelect: onCreateAgentBrowser,
     },
   ])

@@ -24,19 +24,29 @@ assert.strictEqual(isCrtRuntimeSwitchTargetReady({ runtimeBinding: { kind: 'acp'
 assert.strictEqual(isCrtRuntimeSwitchTargetReady({ runtimeBinding: { kind: 'terminal' } }, 'terminal'), true);
 assert.strictEqual(isCrtRuntimeSwitchTargetReady({ runtimeBinding: { kind: 'acp' } }, 'chat'), true);
 
+const switchableProviderCapabilities = { runtimeSwitch: true, supportsChat: true };
+
 assert.strictEqual(canSwitchCrtAgentRuntime({
   providerSessionProvider: 'codex',
   providerSessionId: 'session-1',
   runtimeBinding: { kind: 'terminal' },
+  providerCapabilities: switchableProviderCapabilities,
 }), true);
 assert.strictEqual(canSwitchCrtAgentRuntime({
   providerSessionProvider: 'bash',
   providerSessionId: 'session-1',
+  providerCapabilities: { runtimeSwitch: false, supportsChat: false },
 }), false);
+assert.strictEqual(canSwitchCrtAgentRuntime({
+  providerSessionProvider: 'future-provider',
+  providerSessionId: 'session-1',
+  providerCapabilities: switchableProviderCapabilities,
+}), true);
 assert.strictEqual(canSwitchCrtAgentRuntime({
   providerSessionProvider: 'qoder',
   providerSessionId: 'session-1',
   providerSessionTemporary: true,
+  providerCapabilities: switchableProviderCapabilities,
 }), false);
 assert.strictEqual(canSwitchCrtAgentRuntime({
   providerSessionProvider: 'codex',
@@ -45,6 +55,7 @@ assert.strictEqual(canSwitchCrtAgentRuntime({
   providerSessionSource: 'codex-temporary',
   runtimeBinding: { kind: 'terminal' },
   terminalInputReceived: false,
+  providerCapabilities: switchableProviderCapabilities,
 }), true);
 assert.strictEqual(canSwitchCrtAgentRuntime({
   providerSessionProvider: 'codex',
@@ -53,6 +64,7 @@ assert.strictEqual(canSwitchCrtAgentRuntime({
   providerSessionSource: 'codex-temporary',
   runtimeBinding: { kind: 'terminal' },
   terminalInputReceived: true,
+  providerCapabilities: switchableProviderCapabilities,
 }), false);
 assert.strictEqual(canSwitchCrtAgentRuntime({ providerSessionProvider: 'opencode' }), false);
 

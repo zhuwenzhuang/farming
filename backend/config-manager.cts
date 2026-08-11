@@ -236,6 +236,19 @@ const DEFAULT_AGENT_LAUNCH_PROFILES: AgentLaunchProfiles = {
   claude: DEFAULT_CLAUDE_LAUNCH_PROFILE,
 };
 
+const AGENT_HOME_LAUNCH_PROFILE_OVERRIDES: Record<string, JsonRecord> = {
+  codex: {
+    model: 'config',
+    reasoningEffort: 'config',
+    serviceTier: 'config',
+    modelPreset: 'config',
+  },
+  claude: {
+    model: 'config',
+    effort: 'config',
+  },
+};
+
 const DEFAULT_LAUNCH_AGENT_NAMES = new Set(
   getUserLaunchAgents().filter(agent => agent.interactive).map(agent => agent.name),
 );
@@ -292,46 +305,6 @@ const MAX_CRT_TERMINAL_FONT_SIZE = 20;
 const MAX_INSTANCE_NAME_LENGTH = 80;
 const MAX_PROJECT_OPERATIONS = 32;
 const PROJECT_OPERATION_ID_PATTERN = /^[A-Za-z0-9._:-]{1,160}$/;
-
-const PERSISTED_SETTING_KEYS = new Set([
-  'workspace',
-  'lastMainWorkspace',
-  'workspaceHistory',
-  'projectWorkspaces',
-  'pinnedProjectWorkspaces',
-  'projectNames',
-  'projectOperations',
-  'instanceName',
-  'theme',
-  'appearance',
-  'language',
-  'restReminderIntervalSeconds',
-  'heartbeatInterval',
-  'dangerouslySkipAgentPermissionsByDefault',
-  'browserExtensionEnabled',
-  'browserSource',
-  'browserExecutablePath',
-  'browserExternalCdpUrl',
-  'computerExtensionEnabled',
-  'computerCompatibilityMode',
-  'computerImage',
-  'codeContentFontSize',
-  'composerFollowUpBehavior',
-  'crtContentFontSize',
-  'crtSkinEffectsEnabled',
-  'crtDynamicHeatEnabled',
-  'crtTerminalFontSize',
-  'defaultLaunchAgent',
-  'agentLaunchProfiles',
-  'agentHomes',
-  'searchTimeoutMs',
-  'codexApprovalMode',
-  'codexModel',
-  'codexReasoningEffort',
-  'codexServiceTier',
-  'codexModelPreset',
-  'version',
-]);
 
 function cloneLaunchProfile<T extends object>(profile: T): T {
   return { ...profile };
@@ -762,8 +735,9 @@ class ConfigManager {
   }
 
   pruneUnknownSettings(settings: Settings = this.settings): void {
+    const persistedSettingKeys = new Set(Object.keys(this.buildDefaultSettings()));
     for (const key of Object.keys(settings || {})) {
-      if (!PERSISTED_SETTING_KEYS.has(key)) {
+      if (!persistedSettingKeys.has(key)) {
         delete settings[key];
       }
     }
@@ -1289,23 +1263,10 @@ class ConfigManager {
     const profile = this.getAgentLaunchProfile(provider);
     const home = this.getAgentHome(provider, homeId);
     if (!home) return profile;
-    if (provider === 'codex') {
-      return {
-        ...profile,
-        model: 'config',
-        reasoningEffort: 'config',
-        serviceTier: 'config',
-        modelPreset: 'config',
-      };
-    }
-    if (provider === 'claude') {
-      return {
-        ...profile,
-        model: 'config',
-        effort: 'config',
-      };
-    }
-    return profile;
+    return {
+      ...profile,
+      ...(AGENT_HOME_LAUNCH_PROFILE_OVERRIDES[provider] || {}),
+    };
   }
 
   getSettings(): PublicSettingsSnapshot {

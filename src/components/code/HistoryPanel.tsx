@@ -115,7 +115,7 @@ function HistoryMeta({
 
 function normalizeHistoryProvider(provider?: string) {
   const value = String(provider || '').trim().toLowerCase()
-  return value === 'codex' || value === 'claude' || value === 'opencode' || value === 'qoder' || value === 'qwen' ? value : ''
+  return /^[a-z][a-z0-9_-]*$/.test(value) ? value : ''
 }
 
 function resumedSessionFromHistorySource(source?: string) {

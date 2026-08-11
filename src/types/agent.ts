@@ -405,7 +405,7 @@ export interface ProviderTokenUsage {
 }
 
 export interface UsageProviderSummary {
-  provider: 'codex' | 'claude' | 'opencode' | 'qoder' | 'qwen'
+  provider: string
   providerName: string
   auth: ProviderAuthStatus
   quota: ProviderQuota

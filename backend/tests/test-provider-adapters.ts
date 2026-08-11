@@ -414,6 +414,7 @@ function run() {
     supportedRuntimes: ['terminal', 'acp'],
     runtimeSwitch: true,
     terminalProfile: true,
+    terminalComposerInput: 'bracketed-paste',
     goals: false,
     goalSubmission: { terminal: { kind: 'prompt' }, acp: { kind: 'prompt' } },
     conversationFork: {
@@ -442,6 +443,7 @@ function run() {
       supportedRuntimes: ['terminal', 'acp'],
       runtimeSwitch: true,
       terminalProfile: false,
+      terminalComposerInput: 'bracketed-paste',
       goals: false,
       goalSubmission: { terminal: { kind: 'command', prefix: '/goal' }, acp: { kind: 'prompt' } },
       conversationFork: {
@@ -471,6 +473,7 @@ function run() {
       supportedRuntimes: ['terminal'],
       runtimeSwitch: false,
       terminalProfile: false,
+      terminalComposerInput: 'bracketed-paste',
       goals: false,
       goalSubmission: null,
       conversationFork: {

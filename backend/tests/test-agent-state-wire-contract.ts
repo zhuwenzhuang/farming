@@ -37,6 +37,7 @@ function wireAgent(id: string, status: 'running' | 'stopped', title: string) {
       supportedRuntimes: ['terminal', 'acp'] as Array<'terminal' | 'acp'>,
       runtimeSwitch: true,
       terminalProfile: true,
+      terminalComposerInput: 'bracketed-paste' as const,
       goals: false,
       goalSubmission: { terminal: { kind: 'prompt' as const }, acp: { kind: 'prompt' as const } },
       terminalSessionFork: true,

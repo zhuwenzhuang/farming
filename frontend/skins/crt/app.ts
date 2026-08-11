@@ -5586,7 +5586,8 @@ function canSwitchCrtAgentRuntime(agent: CrtAgent|null|undefined): agent is CrtA
     && agent.terminalInputReceived !== true;
   return Boolean(
     agent
-    && ['codex', 'claude', 'opencode', 'qoder', 'qwen'].includes(agent.providerSessionProvider || '')
+    && agent.providerCapabilities?.runtimeSwitch === true
+    && agent.providerCapabilities?.supportsChat === true
     && (agent.providerSessionTemporary !== true || freshCodexTerminal)
     && String(agent.providerSessionId || '').trim()
   );

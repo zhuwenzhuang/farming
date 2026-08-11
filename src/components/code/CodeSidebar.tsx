@@ -214,7 +214,7 @@ interface CodeSidebarProps {
   onOpenSearch: () => void
   onOpenWorkspaceView: (view: WorkspaceView) => void
   onOpenMainAgent: () => void
-  onRestartMainAgent: (command: 'codex' | 'claude' | 'opencode' | 'qoder' | 'qwen' | 'bash' | 'zsh') => void
+  onRestartMainAgent: (command: string) => void
   onProjectListKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => void
   onToggleProject: (projectId: string) => void
   onToggleProjectSessions: (projectId: string, direction: 'more' | 'less') => void
@@ -880,6 +880,7 @@ export function CodeSidebar({
             mainAgent={mainAgent}
             now={now}
             usageSummary={usageSummary}
+            agentLaunchOptions={agentLaunchOptions}
             onToggleCollapsed={() => setUsageCollapsed(collapsed => !collapsed)}
             onOpenMainAgent={onOpenMainAgent}
             onRestartMainAgent={onRestartMainAgent}

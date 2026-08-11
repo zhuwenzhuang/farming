@@ -150,10 +150,11 @@ interface ProviderAcpContract {
 interface ProviderCapabilitiesContract {
   runtimeSwitch: boolean;
   terminalProfile: boolean;
+  terminalComposerInput: 'plain-text' | 'bracketed-paste';
   goals: boolean;
   goalSubmission: {
     terminal: GoalSubmission;
-    acp: GoalSubmission;
+    acp: { kind: 'prompt' };
   };
   conversationFork: ProviderConversationForkContract;
 }
@@ -486,6 +487,7 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
     capabilities: {
       runtimeSwitch: true,
       terminalProfile: true,
+      terminalComposerInput: 'bracketed-paste',
       goals: false,
       goalSubmission: { terminal: { kind: 'prompt' }, acp: { kind: 'prompt' } },
       conversationFork: {
@@ -548,6 +550,7 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
     capabilities: {
       runtimeSwitch: true,
       terminalProfile: false,
+      terminalComposerInput: 'bracketed-paste',
       goals: false,
       goalSubmission: { terminal: { kind: 'command', prefix: '/goal' }, acp: { kind: 'prompt' } },
       conversationFork: {
@@ -607,6 +610,7 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
     capabilities: {
       runtimeSwitch: true,
       terminalProfile: false,
+      terminalComposerInput: 'plain-text',
       goals: false,
       goalSubmission: { terminal: { kind: 'prompt' }, acp: { kind: 'prompt' } },
       conversationFork: {
@@ -646,6 +650,7 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
     capabilities: {
       runtimeSwitch: true,
       terminalProfile: false,
+      terminalComposerInput: 'plain-text',
       goals: false,
       goalSubmission: { terminal: { kind: 'command', prefix: '/goal set' }, acp: { kind: 'prompt' } },
       conversationFork: {
@@ -706,6 +711,7 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
     capabilities: {
       runtimeSwitch: true,
       terminalProfile: false,
+      terminalComposerInput: 'plain-text',
       goals: false,
       goalSubmission: { terminal: { kind: 'prompt' }, acp: { kind: 'prompt' } },
       conversationFork: {
@@ -747,6 +753,7 @@ function providerCapabilities(provider: unknown): ProviderCapabilitiesWire {
     supportedRuntimes: adapter ? [...adapter.supportedRuntimes] : ['terminal'],
     runtimeSwitch: adapter?.capabilities?.runtimeSwitch === true,
     terminalProfile: adapter?.capabilities?.terminalProfile === true,
+    terminalComposerInput: adapter?.capabilities?.terminalComposerInput || 'bracketed-paste',
     goals: adapter?.capabilities?.goals === true,
     goalSubmission: adapter?.capabilities?.goalSubmission || null,
     conversationFork: {

@@ -123,7 +123,7 @@ export interface InterruptAgentMessage {
 
 export interface RestartMainAgentMessage {
   type: 'restart-main-agent'
-  command: 'codex' | 'claude' | 'opencode' | 'qoder' | 'qwen' | 'bash' | 'zsh'
+  command: string
 }
 
 export interface StateResyncMessage {

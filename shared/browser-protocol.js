@@ -7,6 +7,7 @@ exports.validateClientMessage = validateClientMessage;
 exports.validateServerMessage = validateServerMessage;
 exports.protocolCompatible = protocolCompatible;
 const agent_state_semantics_js_1 = require("./agent-state-semantics.js");
+const agent_state_wire_js_1 = require("./agent-state-wire.js");
 exports.PROTOCOL_VERSION = 10;
 exports.MIN_PROTOCOL_VERSION = 10;
 exports.PROJECT_ATTENTION_SCORE_MAX = agent_state_semantics_js_1.PROJECT_ATTENTION_SCORE_MAX;
@@ -135,7 +136,7 @@ function stateMessage(value) {
         || !revisionField(value, 'sequence')
         || !objectMessage(state)
         || !Array.isArray(agents)
-        || !agents.every(agent => objectMessage(agent) && stringField(agent, 'id'))
+        || !agents.every(agent_state_wire_js_1.isAgentStateWire)
         || new Set(agents.map(agent => agent.id)).size !== agents.length
         || !agentInventoryMetadata(state)
         || !optionalField(state, 'projectAgentSummaries', () => projectAgentSummaries(state))
@@ -339,7 +340,7 @@ function validateServerMessage(value) {
             valid = stringField(value, 'generation')
                 && revisionField(value, 'sequence')
                 && Array.isArray(value.upserts)
-                && value.upserts.every(agent => objectMessage(agent) && stringField(agent, 'id'))
+                && value.upserts.every(agent_state_wire_js_1.isAgentStateWire)
                 && Array.isArray(value.removedAgentIds)
                 && value.removedAgentIds.every(agentId => typeof agentId === 'string')
                 && optionalField(value, 'state', () => (objectMessage(value.state)

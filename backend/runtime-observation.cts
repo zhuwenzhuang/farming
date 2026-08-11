@@ -2,6 +2,7 @@ import { deriveTerminalStatus } from './terminal-status.cjs';
 
 import { runtimeKind, runtimeState } from './agent-runtime-binding.cjs';
 import { providerRuntimeObservationKind } from './provider-adapters.cjs';
+import type { RuntimeObservationWire } from '../shared/agent-state-wire.js';
 
 const WORKING_STATES = new Set(['working', 'interrupting']);
 const WAITING_STATES = new Set(['waiting-for-input', 'waiting-for-permission']);
@@ -11,7 +12,7 @@ type RuntimeObservationPhase = 'working' | 'waiting' | 'idle' | 'starting' | 'ex
 
 export interface TerminalObservationStatus {
   activity: string;
-  kind?: string;
+  kind?: RuntimeObservationWire['kind'];
   source?: string;
 }
 
@@ -30,16 +31,7 @@ interface RuntimeObservationAgent {
   terminalStatus?: TerminalObservationStatus;
 }
 
-interface RuntimeObservation {
-  kind: string;
-  phase: RuntimeObservationPhase;
-  confidence: 'authoritative' | 'high' | 'heuristic';
-  source: 'structured-runtime' | 'shell-marker' | 'terminal-observer';
-  observerVersion: 'structured-v1' | 'shell-marker-v1' | 'terminal-observer-v1';
-  observedAt: number;
-}
-
-function providerObservationKind(agent: RuntimeObservationAgent): string {
+function providerObservationKind(agent: RuntimeObservationAgent): RuntimeObservationWire['kind'] {
   const provider = String(agent?.providerSessionProvider || '').toLowerCase();
   return providerRuntimeObservationKind(provider);
 }
@@ -85,7 +77,7 @@ function terminalPhase(
   return 'unknown';
 }
 
-function deriveRuntimeObservation(agent: RuntimeObservationAgent): RuntimeObservation {
+function deriveRuntimeObservation(agent: RuntimeObservationAgent): RuntimeObservationWire {
   const observedAt = Number(agent?.lastActivity || agent?.startedAt) || 0;
   if (runtimeKind(agent) !== 'terminal') {
     return {

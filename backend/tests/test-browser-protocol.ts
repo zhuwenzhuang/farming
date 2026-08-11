@@ -143,6 +143,7 @@ function wireAgent(id: string) {
       supportedRuntimes: ['terminal', 'acp'],
       runtimeSwitch: true,
       terminalProfile: true,
+      terminalComposerInput: 'bracketed-paste',
       goals: false,
       goalSubmission: { terminal: { kind: 'prompt' }, acp: { kind: 'prompt' } },
       terminalSessionFork: true,

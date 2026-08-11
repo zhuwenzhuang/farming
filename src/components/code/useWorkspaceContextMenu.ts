@@ -26,6 +26,8 @@ type WorkspaceContextMenuTriggerEvent = ReactMouseEvent<HTMLElement> | ReactKeyb
 interface UseWorkspaceContextMenuOptions {
   agents: Agent[]
   projects: ProjectGroup[]
+  canCreateAgentBrowser: boolean
+  canCreateAgentDesktop: (agent: Agent) => boolean
   focusAgent: (agentId: string) => void
   focusAgentSession: (provider: string, sessionId: string) => void
   focusProject: (projectId: string) => void
@@ -61,7 +63,8 @@ function anchoredMenuPoint(event: WorkspaceContextMenuTriggerEvent, estimatedHei
 }
 
 export function useWorkspaceContextMenu({
-  agents, projects, focusAgent, focusAgentSession, focusProject,
+  agents, projects, canCreateAgentBrowser, canCreateAgentDesktop,
+  focusAgent, focusAgentSession, focusProject,
 }: UseWorkspaceContextMenuOptions) {
   const [contextMenu, setContextMenu] = useState<WorkspaceContextMenu | null>(null)
   const contextMenuRef = useRef<HTMLDivElement>(null)
@@ -88,10 +91,14 @@ export function useWorkspaceContextMenu({
   }, [contextMenu, focusAgent, focusAgentSession, focusProject])
   const openAgentMenu = useCallback((event: WorkspaceContextMenuTriggerEvent, agentId: string) => {
     if (!prepareMenuTrigger(event)) return
-    const height = estimateAgentContextMenuHeight(agents.find(agent => agent.id === agentId))
+    const agent = agents.find(candidate => candidate.id === agentId)
+    const height = estimateAgentContextMenuHeight(agent, {
+      canCreateBrowser: canCreateAgentBrowser,
+      canCreateDesktop: Boolean(agent && canCreateAgentDesktop(agent)),
+    })
     const point = anchoredMenuPoint(event, height)
     setContextMenu({ kind: 'agent', agentId, ...point, focusFirstItem: isKeyboardMenuTrigger(event) })
-  }, [agents])
+  }, [agents, canCreateAgentBrowser, canCreateAgentDesktop])
   const openProjectMenu = useCallback((event: WorkspaceContextMenuTriggerEvent, projectId: string) => {
     if (!prepareMenuTrigger(event)) return
     const rect = event.currentTarget.getBoundingClientRect()

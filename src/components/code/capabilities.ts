@@ -42,6 +42,24 @@ export interface AgentCapabilities {
   actions: AgentActionCapabilities
 }
 
+export interface AgentMenuEnvironment {
+  canCreateBrowser?: boolean
+  canCreateDesktop?: boolean
+}
+
+export interface AgentMenuAvailability {
+  archive: boolean
+  copyWorkingDirectory: boolean
+  createBrowser: boolean
+  createDesktop: boolean
+  forkNewWorktree: boolean
+  forkSameWorktree: boolean
+  markUnread: boolean
+  pin: boolean
+  rename: boolean
+  switchRuntime: boolean
+}
+
 const BASIC_COMPOSER_CAPABILITIES: AgentComposerCapabilities = {
   plusMenu: false,
   goalMode: false,
@@ -349,22 +367,37 @@ export function projectCanDeleteWorktree(project: ProjectGroup | null | undefine
   return /-farming-fork-\d{8}-\d{6}(?:-\d+)?$/.test(basename)
 }
 
-export function agentMenuShape(agent: Agent | undefined) {
+export function agentMenuAvailability(
+  agent: Agent | null | undefined,
+  environment: AgentMenuEnvironment = {},
+): AgentMenuAvailability {
   const capabilities = capabilitiesForAgent(agent)
-  const canSwitchRuntime = canSwitchAgentRuntime(agent)
-  const itemCount = [
-    canSwitchRuntime,
-    capabilities.actions.pin,
-    capabilities.actions.rename,
-    capabilities.actions.archive,
-    capabilities.actions.markUnread,
-    capabilities.actions.copyWorkingDirectory,
-    capabilities.actions.forkSameWorktree,
-    capabilities.actions.forkNewWorktree,
-  ].filter(Boolean).length
+  return {
+    ...capabilities.actions,
+    createBrowser: environment.canCreateBrowser === true,
+    createDesktop: environment.canCreateDesktop === true,
+    switchRuntime: canSwitchAgentRuntime(agent),
+  }
+}
+
+export function agentMenuShape(
+  agent: Agent | undefined,
+  environment: AgentMenuEnvironment = {},
+) {
+  const availability = agentMenuAvailability(agent, environment)
+  const groups = [
+    [availability.createDesktop],
+    [availability.pin, availability.rename, availability.archive, availability.markUnread],
+    [availability.copyWorkingDirectory],
+    [availability.forkSameWorktree, availability.forkNewWorktree],
+    [availability.switchRuntime, availability.createBrowser],
+  ]
+  const visibleGroupCounts = groups
+    .map(group => group.filter(Boolean).length)
+    .filter(count => count > 0)
 
   return {
-    itemCount,
-    separatorCount: itemCount > 0 ? 2 + Number(canSwitchRuntime) : 0,
+    itemCount: visibleGroupCounts.reduce((total, count) => total + count, 0),
+    separatorCount: Math.max(0, visibleGroupCounts.length - 1),
   }
 }

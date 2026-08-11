@@ -399,7 +399,7 @@ export function useWebSocket() {
     return sendMessage({ type: 'interrupt-agent', agentId })
   }, [sendMessage])
 
-  const restartMainAgent = useCallback((command: 'codex' | 'claude' | 'opencode' | 'qoder' | 'qwen' | 'bash' | 'zsh') => {
+  const restartMainAgent = useCallback((command: string) => {
     return sendMessage({ type: 'restart-main-agent', command })
   }, [sendMessage])
 

@@ -8,6 +8,7 @@ import { nativePtyHostPrivateSocketNamePattern, nativePtyHostSocketPath } from '
 import { nativePtyHostRuntimeIdentity, nativePtyHostRuntimeIdentityMatches, normalizeNativePtyHostRuntimeIdentity } from './native-pty-host-identity.cjs';
 import { allocateNativePtyControllerGeneration, positiveGeneration } from './native-pty-controller-generation.cjs';
 import { isTemporaryProviderSessionId } from './provider-session-id.cjs';
+import { providerRequiresStableTerminalSessionAfterInput } from './provider-adapters.cjs';
 import * as storageLayout from './storage-layout.cjs';
 import { deserializeTerminalState } from './terminal-state-serialization.cjs';
 import { probeUnixSocket } from './terminal-runtime-cleanup.cjs';
@@ -800,7 +801,7 @@ class NativePtyHostClient extends EventEmitter {
       unresumableCodex = deserializeTerminalState(serializedTerminalState).find(entry => {
         const metadata = entry.metadata;
         const provider = String(metadata.providerSessionProvider || metadata.provider || '').trim();
-        return provider === 'codex'
+        return providerRequiresStableTerminalSessionAfterInput(provider)
           && metadata.terminalInputReceived === true
           && (
             metadata.providerSessionTemporary === true

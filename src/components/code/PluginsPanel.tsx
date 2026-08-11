@@ -110,7 +110,12 @@ export function defaultPluginsNavigationState(): PluginsNavigationState {
 }
 
 const EXTENSION_KIND_ORDER = ['skill', 'mcp', 'hook', 'plugin', 'command']
-const PLUGINS_TABS: PluginsTab[] = ['farming', 'homes', 'extensions']
+const PLUGIN_TAB_DEFINITIONS = [
+  { id: 'farming' },
+  { id: 'homes' },
+  { id: 'extensions' },
+] as const satisfies ReadonlyArray<{ id: PluginsTab }>
+const PLUGINS_TABS = PLUGIN_TAB_DEFINITIONS.map(tab => tab.id)
 const AGENT_SETTINGS_REQUEST_TIMEOUT_MS = 15_000
 const DOCKER_DESKTOP_MAC_INSTALL_URL = 'https://docs.docker.com/desktop/setup/install/mac-install/'
 const DOCKER_ENGINE_INSTALL_URL = 'https://docs.docker.com/engine/install/'
@@ -130,7 +135,7 @@ function pluginCopy(language: UiLanguage) {
   return {
     title: zh ? '插件' : 'Plugins',
     description: zh ? '管理 Farming 和 Agent 可以使用的能力。' : 'Manage capabilities available to Farming and Agents.',
-    goBack: zh ? '后退' : 'Go Back',
+    goBack: zh ? '返回' : 'Back',
     tabs: {
       farming: 'Farming',
       homes: 'Agent Homes',
@@ -357,7 +362,18 @@ const EXTENSION_KIND_GLYPHS = {
   plugin: PuzzleGlyph,
 } as const
 
-const FARMING_BUILTIN_EXTENSION_IDS = ['browser', 'computer', 'language-server'] as const
+const FARMING_BUILTIN_EXTENSIONS = [
+  { id: 'desktop-connections', desktopOnly: true },
+  { id: 'browser' },
+  { id: 'computer' },
+  { id: 'language-server' },
+] as const
+
+function farmingBuiltinExtensionCount(desktopAvailable: boolean) {
+  return FARMING_BUILTIN_EXTENSIONS.filter(extension => (
+    !('desktopOnly' in extension) || desktopAvailable
+  )).length
+}
 
 function knownExtensionKind(kind: string): kind is keyof typeof EXTENSION_KIND_GLYPHS {
   return Object.prototype.hasOwnProperty.call(EXTENSION_KIND_GLYPHS, kind)
@@ -1181,7 +1197,7 @@ export function PluginsPanel({
       <div className="code-plugin-tabs" role="tablist" aria-label={copy.title}>
         {PLUGINS_TABS.map(tab => {
           let count: number | string
-          if (tab === 'farming') count = FARMING_BUILTIN_EXTENSION_IDS.length + (window.farmingDesktop ? 1 : 0)
+          if (tab === 'farming') count = farmingBuiltinExtensionCount(Boolean(window.farmingDesktop))
           else if (agentGroupsError) count = '!'
           else if (agentGroupsLoading && agentGroups.length === 0) count = '…'
           else if (tab === 'homes') count = agentConfigurations.length

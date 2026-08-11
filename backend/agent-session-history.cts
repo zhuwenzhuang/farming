@@ -1417,6 +1417,10 @@ function providerHistoryAutoResumeErrorIsStale(provider: unknown, error: unknown
   return patterns.some(pattern => pattern.test(message));
 }
 
+function agentSessionHistoryProviders(): AgentProvider[] {
+  return PROVIDER_HISTORY_DEFINITIONS.map(definition => definition.id);
+}
+
 function normalizeProvider(provider: unknown): AgentProvider | '' {
   const normalized = String(provider || '').trim().toLowerCase();
   return isAgentProvider(normalized) ? normalized : '';
@@ -1486,6 +1490,7 @@ async function findAgentSession(
 }
 
 export {
+  agentSessionHistoryProviders,
   buildAgentSessionResumeCommand,
   compareAgentSessions,
   findAgentSession,

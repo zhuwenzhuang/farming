@@ -949,6 +949,12 @@ function finiteNumberOrNull(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
+function publicAgentLifecycleStatus(value: unknown): AgentStateWire['status'] {
+  return value === 'pending' || value === 'running' || value === 'stopped' || value === 'dead'
+    ? value
+    : 'stopped';
+}
+
 function finiteNonNegativeInteger(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0
     ? Math.floor(value)
@@ -4422,9 +4428,9 @@ class AgentManager extends EventEmitter {
   engineSessionMetadata(agent: TypedAgentRecord) {
     return {
       agentId: agent.id,
-      command: agent.command,
+      command: agent.command || '',
       forkCommand: agent.forkCommand,
-      cwd: agent.cwd,
+      cwd: agent.cwd || '',
       projectWorkspace: agent.projectWorkspace || '',
       gitWorktree: publicAgentGitWorktree(agent),
       mainWorkspace: agent.mainWorkspace || '',
@@ -9603,7 +9609,7 @@ class AgentManager extends EventEmitter {
       command: agent.command,
       cwd: agent.cwd,
       isMain: this.isMainAgentRecord(agent.id, agent),
-      status: agent.status,
+      status: publicAgentLifecycleStatus(agent.status),
       usageRate: this.getAgentUsageRate(agent.id, { now, windowMs }),
       }));
     const totalOutputBytes = agents.reduce((sum: number, agent) => sum + agent.usageRate.outputBytes, 0);
@@ -9647,9 +9653,9 @@ class AgentManager extends EventEmitter {
 
     return {
       id: agent.id,
-      command: agent.command,
+      command: agent.command || '',
       engineName: agent.engineName || '',
-      cwd: agent.cwd,
+      cwd: agent.cwd || '',
       projectWorkspace: canonicalWorkspacePath(agent.projectWorkspace || ''),
       gitWorktree: publicAgentGitWorktree(agent),
       output: (agent.output || '').slice(-2000),
@@ -9662,7 +9668,7 @@ class AgentManager extends EventEmitter {
       runtimeEpoch: agent.runtimeEpoch || '',
       outputSeq: finiteNumberOrNull(agent.lastOutputSeq),
       stateRevision: finiteNumberOrNull(agent.stateRevision),
-      status: agent.status,
+      status: publicAgentLifecycleStatus(agent.status),
       terminalBusy,
       terminalStatus,
       shellCommand: agent.shellCommand || '',

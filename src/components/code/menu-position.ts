@@ -1,5 +1,5 @@
 import type { Agent } from '@/types/agent'
-import { agentMenuShape } from './capabilities'
+import { agentMenuShape, type AgentMenuEnvironment } from './capabilities'
 
 export const CONTEXT_MENU_WIDTH = 220
 const CONTEXT_MENU_MARGIN = 8
@@ -92,7 +92,10 @@ export function mobileActionMenuPoint(
   }
 }
 
-export function estimateAgentContextMenuHeight(agent: Agent | undefined) {
-  const shape = agentMenuShape(agent)
+export function estimateAgentContextMenuHeight(
+  agent: Agent | undefined,
+  environment: AgentMenuEnvironment = {},
+) {
+  const shape = agentMenuShape(agent, environment)
   return estimateContextMenuHeight(shape.itemCount, shape.separatorCount)
 }

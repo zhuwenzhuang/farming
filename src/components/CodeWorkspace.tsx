@@ -363,7 +363,7 @@ interface CodeWorkspaceProps {
     options?: { targetRuntime?: 'chat'; expectedRevision?: number }
   ) => Promise<void> | void
   onDeleteForkWorktreeProject: (workspace: string, options?: { force?: boolean }) => Promise<DeleteForkWorktreeProjectResult>
-  onRestartMainAgent: (command: 'codex' | 'claude' | 'opencode' | 'qoder' | 'qwen' | 'bash' | 'zsh') => void
+  onRestartMainAgent: (command: string) => void
   onWorkspaceViewChange: (view: WorkspaceView) => void
   onInterruptAgent: (agentId: string) => void
   sendComposerInput: (
@@ -398,13 +398,8 @@ function shouldUseNativeMobileDictation() {
   return isTouchInputViewport() && isIOSLikeTouchViewport()
 }
 
-function isPlainTextComposerAgentCommand(command?: string) {
-  const executable = (command || '')
-    .trim()
-    .split(/\s+/)
-    .find(token => token !== 'env' && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(token))
-  const basename = executable?.split('/').pop() || ''
-  return basename === 'qoder' || basename === 'qodercli' || basename === 'opencode' || basename === 'qwen'
+function isPlainTextComposerAgent(agent: Agent) {
+  return agent.providerCapabilities?.terminalComposerInput === 'plain-text'
 }
 
 function isCodexTerminalAgent(agent: Agent | null | undefined) {
@@ -1269,6 +1264,16 @@ export function CodeWorkspace({
       titles.find(title => title.dataset.projectId === projectId)?.focus()
     })
   }, [])
+  const canCreateAgentBrowser = browserResources.capability?.available === true
+  const canCreateAgentDesktop = useCallback((agent: Agent) => Boolean(
+    computerResources.capability?.enabled === true
+    && computerResources.capability.available === true
+    && !computerResources.byAgentId.has(agent.id)
+  ), [
+    computerResources.byAgentId,
+    computerResources.capability?.available,
+    computerResources.capability?.enabled,
+  ])
   const {
     contextMenu, agentMenu, projectMenu, agentSessionMenu, optionsMenu,
     contextMenuRef, closeContextMenu, closeContextMenuAndRestoreFocus,
@@ -1280,6 +1285,8 @@ export function CodeWorkspace({
   } = useWorkspaceContextMenu({
     agents: activeAgents,
     projects: projectListProjects,
+    canCreateAgentBrowser,
+    canCreateAgentDesktop,
     focusAgent: focusAgentRow,
     focusAgentSession: focusAgentSessionRow,
     focusProject: focusProjectTitle,
@@ -1887,7 +1894,7 @@ export function CodeWorkspace({
     if (
       agentKindForCommand(agent.command) === 'shell'
       || capabilitiesForAgent(agent).kind === 'shell'
-      || isPlainTextComposerAgentCommand(agent.command)
+      || isPlainTextComposerAgent(agent)
     ) {
       return sendTerminalSessionInput(agent.id, `${message}\r`)
     }
@@ -5155,13 +5162,8 @@ export function CodeWorkspace({
         deleteWorktreeCancelButtonRef={deleteWorktreeCancelButtonRef}
         onContextMenuKeyDown={handleContextMenuKeyDown}
         runtimeSwitchDisabled={Boolean(permissionSwitchingAgentId)}
-        canCreateAgentBrowser={browserResources.capability?.available === true}
-        canCreateAgentDesktop={Boolean(
-          computerResources.capability?.enabled === true
-          && computerResources.capability.available === true
-          && contextMenuAgent
-          && !computerResources.byAgentId.has(contextMenuAgent.id)
-        )}
+        canCreateAgentBrowser={canCreateAgentBrowser}
+        canCreateAgentDesktop={Boolean(contextMenuAgent && canCreateAgentDesktop(contextMenuAgent))}
         onSwitchAgentRuntime={switchContextMenuAgentRuntime}
         onCreateAgentBrowser={createContextMenuAgentBrowser}
         onCreateAgentDesktop={createContextMenuAgentDesktop}

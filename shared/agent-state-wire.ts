@@ -13,6 +13,7 @@ export interface ProviderCapabilitiesWire {
   supportedRuntimes: ProviderRuntime[]
   runtimeSwitch: boolean
   terminalProfile: boolean
+  terminalComposerInput: 'plain-text' | 'bracketed-paste'
   goals: boolean
   goalSubmission: {
     terminal: { kind: 'prompt' } | { kind: 'command'; prefix: string }
@@ -77,6 +78,7 @@ function providerCapabilitiesWire(value: unknown): value is ProviderCapabilities
     && capabilities.supportedRuntimes.every(runtime => runtime === 'terminal' || runtime === 'acp')
     && typeof capabilities.runtimeSwitch === 'boolean'
     && typeof capabilities.terminalProfile === 'boolean'
+    && (capabilities.terminalComposerInput === 'plain-text' || capabilities.terminalComposerInput === 'bracketed-paste')
     && typeof capabilities.goals === 'boolean'
     && typeof capabilities.terminalSessionFork === 'boolean'
     && typeof capabilities.sessionFork === 'boolean'

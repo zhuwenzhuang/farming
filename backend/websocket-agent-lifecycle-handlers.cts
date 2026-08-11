@@ -3,6 +3,7 @@ import {
   observeWebSocketCallbackRejection,
   reportWebSocketAdmissionFailure,
 } from './websocket-admission-errors.cjs';
+import { getUserLaunchAgents } from './cli-agents.cjs';
 
 type StartAgentMessage = Extract<ClientMessage, { type: 'start-agent' }>;
 type InterruptAgentMessage = Extract<ClientMessage, { type: 'interrupt-agent' }>;
@@ -58,15 +59,11 @@ interface WebSocketAgentLifecyclePorts {
   warnStartCompletionFailure(agentId: string, error: unknown): void;
 }
 
-const MAIN_AGENT_RESTART_COMMANDS = new Set([
-  'codex',
-  'claude',
-  'opencode',
-  'qoder',
-  'qwen',
-  'bash',
-  'zsh',
-]);
+const MAIN_AGENT_RESTART_COMMANDS = new Set(
+  getUserLaunchAgents()
+    .filter(agent => agent.interactive !== false)
+    .map(agent => agent.name),
+);
 
 function errorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error) return error.message || fallback;

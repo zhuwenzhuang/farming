@@ -19,6 +19,7 @@ import { appPath } from '@/lib/base-path'
 import { useBackendSystemStats, useHasBackendSystemStats } from '@/lib/backend-live-status'
 import { agentDisplayName, agentTitle } from '@/lib/format'
 import { useEscapeKey } from '@/hooks/useKeyboard'
+import type { AgentLaunchOption } from './agent-launch-options'
 
 function formatUsageWindow(minutes: number | null | undefined) {
   const value = Number(minutes)
@@ -263,9 +264,10 @@ interface UsagePanelProps {
   mainAgent: Agent | null
   now: number
   usageSummary: UsageSummary | null
+  agentLaunchOptions: AgentLaunchOption[]
   onToggleCollapsed: () => void
   onOpenMainAgent: () => void
-  onRestartMainAgent: (command: 'codex' | 'claude' | 'opencode' | 'qoder' | 'qwen' | 'bash' | 'zsh') => void
+  onRestartMainAgent: (command: string) => void
 }
 
 function formatHeatmapTime(timestamp: number) {
@@ -1026,6 +1028,7 @@ export function UsagePanel({
   mainAgent,
   now,
   usageSummary,
+  agentLaunchOptions,
   onToggleCollapsed,
   onOpenMainAgent,
   onRestartMainAgent,
@@ -1122,26 +1125,18 @@ export function UsagePanel({
               </div>
               {restartMenuOpen && (
                 <div className="code-main-agent-restart-menu" data-testid="code-main-agent-restart-menu" role="menu">
-                  {([
-                    ['codex', 'Codex'],
-                    ['claude', 'Claude Code'],
-                    ['opencode', 'OpenCode'],
-                    ['qoder', 'Qoder'],
-                    ['qwen', 'Qwen Code'],
-                    ['bash', 'bash'],
-                    ['zsh', 'zsh'],
-                  ] as const).map(([command, label]) => (
+                  {agentLaunchOptions.map(option => (
                     <button
-                      key={command}
+                      key={option.name}
                       type="button"
                       role="menuitem"
-                      data-testid={`code-main-agent-restart-${command}`}
+                      data-testid={`code-main-agent-restart-${option.name}`}
                       onClick={() => {
                         setRestartMenuOpen(false)
-                        onRestartMainAgent(command)
+                        onRestartMainAgent(option.name)
                       }}
                     >
-                      {label}
+                      {agentDisplayName(option.name)}
                     </button>
                   ))}
                 </div>

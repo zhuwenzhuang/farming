@@ -2,6 +2,7 @@ import * as os from 'os';
 import * as fsp from 'fs/promises';
 import * as path from 'path';
 import {
+  agentSessionHistoryProviders,
   compareAgentSessions,
   listAgentSessions,
   normalizeProvider,
@@ -29,7 +30,6 @@ interface ResolvedProviderHome {
   path: string;
 }
 
-const PROVIDERS: AgentProvider[] = ['codex', 'claude', 'qoder', 'qwen', 'opencode'];
 const INVENTORY_LIMIT = 5000;
 
 function openCodeDataRoots(): string[] {
@@ -48,56 +48,106 @@ function openCodeDataRoots(): string[] {
   ].filter(Boolean))];
 }
 
-function historyWatchPaths(provider: AgentProvider, homePath: string): string[] {
-  if (provider === 'codex') {
-    return [
+interface InventoryProviderPolicy {
+  activityDirectoryDepth: number;
+  appendOnlyRoots: (homePath: string) => string[];
+  appendTolerantPaths: (homePath: string) => string[];
+  bindingsAffectSource?: boolean;
+  enrichWithAppendOnlyActivity?: boolean;
+  fingerprintDepth: number;
+  loadPresentation?: (
+    sessions: AgentSession[],
+    homePath: string,
+  ) => Promise<AgentSession[]>;
+  singleHome?: boolean;
+  sourceMayChangeDuringLoad?: boolean;
+  watchPaths: (homePath: string) => string[];
+}
+
+const INVENTORY_PROVIDER_POLICIES = {
+  codex: {
+    activityDirectoryDepth: 3,
+    appendOnlyRoots: homePath => [
+      path.join(homePath, 'sessions'),
+      path.join(homePath, 'archived_sessions'),
+    ],
+    appendTolerantPaths: homePath => [path.join(homePath, 'session_index.jsonl')],
+    enrichWithAppendOnlyActivity: true,
+    fingerprintDepth: 4,
+    loadPresentation: async (sessions, homePath) => applyCodexSessionPresentation(
+      sessions,
+      await readCodexSessionPresentation(homePath),
+    ),
+    watchPaths: homePath => [
       path.join(homePath, 'sessions'),
       path.join(homePath, 'archived_sessions'),
       path.join(homePath, 'session_index.jsonl'),
       path.join(homePath, 'automations'),
-    ];
-  }
-  if (provider === 'claude') {
-    return [path.join(homePath, 'projects'), path.join(homePath, 'history.jsonl')];
-  }
-  if (provider === 'qoder' || provider === 'qwen') {
-    return [path.join(homePath, 'projects')];
-  }
-  return openCodeDataRoots().flatMap(dataRoot => [
-    path.join(dataRoot, 'opencode.db'),
-    path.join(dataRoot, 'opencode.db-wal'),
-    path.join(dataRoot, 'opencode.db-shm'),
-    path.join(dataRoot, 'storage'),
-  ]);
+    ],
+  },
+  claude: {
+    activityDirectoryDepth: 1,
+    appendOnlyRoots: homePath => [path.join(homePath, 'projects')],
+    appendTolerantPaths: homePath => [path.join(homePath, 'history.jsonl')],
+    enrichWithAppendOnlyActivity: true,
+    fingerprintDepth: 2,
+    watchPaths: homePath => [path.join(homePath, 'projects'), path.join(homePath, 'history.jsonl')],
+  },
+  opencode: {
+    activityDirectoryDepth: 1,
+    appendOnlyRoots: () => [],
+    appendTolerantPaths: () => [],
+    bindingsAffectSource: true,
+    fingerprintDepth: 4,
+    singleHome: true,
+    sourceMayChangeDuringLoad: true,
+    watchPaths: () => openCodeDataRoots().flatMap(dataRoot => [
+      path.join(dataRoot, 'opencode.db'),
+      path.join(dataRoot, 'opencode.db-wal'),
+      path.join(dataRoot, 'opencode.db-shm'),
+      path.join(dataRoot, 'storage'),
+    ]),
+  },
+  qoder: {
+    activityDirectoryDepth: 1,
+    appendOnlyRoots: homePath => [path.join(homePath, 'projects')],
+    appendTolerantPaths: () => [],
+    enrichWithAppendOnlyActivity: true,
+    fingerprintDepth: 2,
+    watchPaths: homePath => [path.join(homePath, 'projects')],
+  },
+  qwen: {
+    activityDirectoryDepth: 2,
+    appendOnlyRoots: homePath => [path.join(homePath, 'projects')],
+    appendTolerantPaths: () => [],
+    enrichWithAppendOnlyActivity: true,
+    fingerprintDepth: 3,
+    watchPaths: homePath => [path.join(homePath, 'projects')],
+  },
+} satisfies Record<AgentProvider, InventoryProviderPolicy>;
+
+function inventoryProviderPolicy(provider: AgentProvider): InventoryProviderPolicy {
+  return INVENTORY_PROVIDER_POLICIES[provider];
+}
+
+function historyWatchPaths(provider: AgentProvider, homePath: string): string[] {
+  return inventoryProviderPolicy(provider).watchPaths(homePath);
 }
 
 function appendOnlyHistoryRoots(provider: AgentProvider, homePath: string): string[] {
-  if (provider === 'codex') {
-    return [path.join(homePath, 'sessions'), path.join(homePath, 'archived_sessions')];
-  }
-  if (provider === 'claude' || provider === 'qoder' || provider === 'qwen') {
-    return [path.join(homePath, 'projects')];
-  }
-  return [];
+  return inventoryProviderPolicy(provider).appendOnlyRoots(homePath);
 }
 
 function appendTolerantHistoryPaths(provider: AgentProvider, homePath: string): string[] {
-  return [
-    ...(provider === 'codex' ? [path.join(homePath, 'session_index.jsonl')] : []),
-    ...(provider === 'claude' ? [path.join(homePath, 'history.jsonl')] : []),
-  ];
+  return inventoryProviderPolicy(provider).appendTolerantPaths(homePath);
 }
 
 function historyFingerprintDepth(provider: AgentProvider): number {
-  if (provider === 'codex' || provider === 'opencode') return 4;
-  if (provider === 'qwen') return 3;
-  return 2;
+  return inventoryProviderPolicy(provider).fingerprintDepth;
 }
 
 function historyActivityDirectoryDepth(provider: AgentProvider): number {
-  if (provider === 'codex') return 3;
-  if (provider === 'qwen') return 2;
-  return 1;
+  return inventoryProviderPolicy(provider).activityDirectoryDepth;
 }
 
 function stringSet(value: unknown): Set<string> {
@@ -222,7 +272,7 @@ function sourceKey(
   home: ResolvedProviderHome,
   bindings: ProviderSessionHomeBinding[],
 ): string {
-  const relevantBindings = provider === 'opencode'
+  const relevantBindings = inventoryProviderPolicy(provider).bindingsAffectSource === true
     ? bindings
       .filter(binding => normalizeProvider(binding.provider) === provider)
       .map(binding => ({
@@ -252,7 +302,7 @@ function selectedHomes(
       return id && homePath ? [{ id, path: homePath }] : [];
     })
     : [];
-  if (provider !== 'opencode') return homes;
+  if (inventoryProviderPolicy(provider).singleHome !== true) return homes;
   const selected = homes.find(home => home.id === 'default') || homes[0];
   return selected ? [selected] : [];
 }
@@ -315,11 +365,12 @@ class AgentSessionInventory {
       const revision = this.revision;
       const current = metadata();
       const bindings = current.providerSessionBindings || [];
-      const requests = PROVIDERS.flatMap(provider => (
+      const requests = agentSessionHistoryProviders().flatMap(provider => (
         selectedHomes(provider, current.providerHomes[provider]).map(home => ({ provider, home }))
       ));
       const activeKeys = new Set<string>();
       const groups = await Promise.all(requests.map(({ provider, home }) => {
+        const policy = inventoryProviderPolicy(provider);
         const key = sourceKey(provider, home, bindings);
         activeKeys.add(key);
         const fingerprintPaths = historyWatchPaths(provider, home.path);
@@ -333,7 +384,7 @@ class AgentSessionInventory {
             maxDepth: historyFingerprintDepth(provider),
           },
           watchPaths: [],
-          sourceMayChangeDuringLoad: provider === 'opencode',
+          sourceMayChangeDuringLoad: policy.sourceMayChangeDuringLoad === true,
           validate: (value: unknown): value is AgentSession[] => Array.isArray(value),
           load: () => this.listSessions({
             providers: [provider],
@@ -344,14 +395,13 @@ class AgentSessionInventory {
             scanLimit: INVENTORY_LIMIT,
           }),
         });
-        if (provider === 'opencode') return cached;
+        if (policy.enrichWithAppendOnlyActivity !== true) return cached;
         return Promise.all([
           cached,
           appendOnlySessionActivity(provider, home.path),
-          provider === 'codex' ? readCodexSessionPresentation(home.path) : null,
-        ]).then(([sessions, activity, presentation]) => applySessionActivity(
-          provider === 'codex'
-            ? applyCodexSessionPresentation(sessions, presentation)
+        ]).then(async ([sessions, activity]) => applySessionActivity(
+          policy.loadPresentation
+            ? await policy.loadPresentation(sessions, home.path)
             : sessions,
           activity,
         ));

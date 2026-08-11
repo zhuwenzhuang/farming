@@ -7,8 +7,6 @@ const MAX_PROJECT_DIRS_PER_AGENT = 80;
 const MAX_FILES_PER_PROJECT = 8;
 const MAX_JSONL_LINES = 40;
 const MAX_JSON_BYTES = 128 * 1024;
-const AGENT_CONFIG_DIRS = new Set(['.claude', '.qwen', '.codex']);
-const DISCOVERABLE_AGENT_NAMES = new Set(['claude', 'qwen', 'codex']);
 
 type WorkspaceConfidence = 'high' | 'medium';
 
@@ -42,6 +40,7 @@ interface ProjectHistoryScanOptions {
 }
 
 interface CodexSessionScanOptions {
+  agent: string;
   homeDir: string;
   resultByPath: Map<string, DiscoveredWorkspace>;
 }
@@ -294,7 +293,7 @@ function scanProjectHistory({
   });
 }
 
-function scanCodexSessions({ homeDir, resultByPath }: CodexSessionScanOptions): void {
+function scanCodexSessions({ agent, homeDir, resultByPath }: CodexSessionScanOptions): void {
   const root = path.join(homeDir, '.codex', 'sessions');
   if (!fs.existsSync(root)) return;
 
@@ -319,13 +318,54 @@ function scanCodexSessions({ homeDir, resultByPath }: CodexSessionScanOptions): 
     const cwd = readCwdFromJsonFile(file);
     if (!cwd) return;
     addWorkspace(resultByPath, cwd, {
-      agent: 'codex',
-      source: 'codex-session-meta',
+      agent,
+      source: `${agent}-session-meta`,
       confidence: 'high',
       lastSeen: getMtimeMs(file),
     });
   });
 }
+
+interface WorkspaceDiscoveryDefinition {
+  configDirectory: string;
+  id: string;
+  scan(homeDir: string, resultByPath: Map<string, DiscoveredWorkspace>): void;
+}
+
+const WORKSPACE_DISCOVERY_DEFINITIONS: readonly WorkspaceDiscoveryDefinition[] = [
+  {
+    id: 'claude',
+    configDirectory: '.claude',
+    scan: (homeDir, resultByPath) => scanProjectHistory({
+      homeDir,
+      agent: 'claude',
+      projectRoot: path.join('.claude', 'projects'),
+      resultByPath,
+    }),
+  },
+  {
+    id: 'qwen',
+    configDirectory: '.qwen',
+    scan: (homeDir, resultByPath) => scanProjectHistory({
+      homeDir,
+      agent: 'qwen',
+      projectRoot: path.join('.qwen', 'projects'),
+      resultByPath,
+    }),
+  },
+  {
+    id: 'codex',
+    configDirectory: '.codex',
+    scan: (homeDir, resultByPath) => scanCodexSessions({ agent: 'codex', homeDir, resultByPath }),
+  },
+];
+
+const AGENT_CONFIG_DIRS = new Set(
+  WORKSPACE_DISCOVERY_DEFINITIONS.map(definition => definition.configDirectory),
+);
+const DISCOVERABLE_AGENT_NAMES = new Set(
+  WORKSPACE_DISCOVERY_DEFINITIONS.map(definition => definition.id),
+);
 
 function discoverAgentWorkspaces(
   options: DiscoverAgentWorkspacesOptions = {}
@@ -338,19 +378,7 @@ function discoverAgentWorkspaces(
   const agentFilter = DISCOVERABLE_AGENT_NAMES.has(requestedAgent) ? requestedAgent : '';
   const resultByPath = new Map<string, DiscoveredWorkspace>();
 
-  scanProjectHistory({
-    homeDir,
-    agent: 'claude',
-    projectRoot: path.join('.claude', 'projects'),
-    resultByPath,
-  });
-  scanProjectHistory({
-    homeDir,
-    agent: 'qwen',
-    projectRoot: path.join('.qwen', 'projects'),
-    resultByPath,
-  });
-  scanCodexSessions({ homeDir, resultByPath });
+  WORKSPACE_DISCOVERY_DEFINITIONS.forEach(definition => definition.scan(homeDir, resultByPath));
 
   return [...resultByPath.values()]
     .filter(item => !agentFilter || item.agents.includes(agentFilter))

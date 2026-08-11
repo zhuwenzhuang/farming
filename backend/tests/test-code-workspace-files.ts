@@ -395,11 +395,11 @@ function run() {
 
   assert(
     messagesSource.includes("type: 'restart-main-agent'") &&
-      messagesSource.includes("command: 'codex' | 'claude' | 'opencode' | 'qoder' | 'qwen' | 'bash' | 'zsh'") &&
+      messagesSource.includes('command: string') &&
       webSocketSource.includes('const restartMainAgent = useCallback') &&
       webSocketSource.includes("sendMessage({ type: 'restart-main-agent', command })") &&
       webSocketSource.includes('restartMainAgent,'),
-    'WebSocket client should expose the unique Main Agent restart command without allowing arbitrary commands'
+    'WebSocket client should expose the catalog-selected Main Agent restart command while the backend owns validation'
   );
 
   assert(
@@ -425,12 +425,9 @@ function run() {
       workspaceSource.includes('data-testid="code-main-agent-open"') &&
       workspaceSource.includes('data-testid="code-main-agent-restart"') &&
       workspaceSource.includes('data-testid="code-main-agent-restart-menu"') &&
-      workspaceSource.includes('onRestartMainAgent(command)') &&
-      workspaceSource.includes("['codex', 'Codex']") &&
-      workspaceSource.includes("['opencode', 'OpenCode']") &&
-      workspaceSource.includes("['qoder', 'Qoder']") &&
-      workspaceSource.includes("['zsh', 'zsh']") &&
-      workspaceSource.includes("['claude', 'Claude Code']") &&
+      workspaceSource.includes('agentLaunchOptions={agentLaunchOptions}') &&
+      workspaceSource.includes('agentLaunchOptions.map(option => (') &&
+      workspaceSource.includes('onRestartMainAgent(option.name)') &&
       workspaceSource.includes('isAgentListLiveAgent') &&
       workspaceSource.includes('isAgentListArchivedAgent') &&
       workspaceSource.includes('const pinnedItems = displayedProjects') &&
@@ -1236,7 +1233,8 @@ function run() {
 
   assert(
     mainPageSessionSource.includes('function resumedAgentSource(') &&
-      agentLifecycleSource.includes('const MAIN_AGENT_RESTART_COMMANDS = new Set([') &&
+      agentLifecycleSource.includes('const MAIN_AGENT_RESTART_COMMANDS = new Set(') &&
+      agentLifecycleSource.includes('getUserLaunchAgents()') &&
       agentLifecycleSource.includes('const restartMainAgent = (client: Client, message: RestartMainAgentMessage): void => {') &&
       serverSource.includes("'restart-main-agent': registerClientMessage('restart-main-agent'") &&
       serverSource.includes("'interrupt-agent': registerClientMessage('interrupt-agent'") &&

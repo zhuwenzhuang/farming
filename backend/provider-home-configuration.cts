@@ -21,14 +21,6 @@ interface ProviderHomeConfiguration {
   summary: ConfigurationSummaryEntry[];
 }
 
-const PROVIDER_CONFIGURATION_FILES: Record<string, string[]> = {
-  codex: ['config.toml'],
-  claude: ['settings.json'],
-  opencode: ['opencode.jsonc', 'opencode.json'],
-  qoder: ['settings.json'],
-  qwen: ['settings.json'],
-};
-
 function scalarText(value: unknown): string {
   const text = typeof value === 'string'
     ? value.trim()
@@ -206,10 +198,46 @@ function summarizeJsonConfiguration(provider: string, contents: string): Configu
   return summary;
 }
 
+interface ProviderConfigurationDefinition {
+  files: string[];
+  summarize(contents: string): ConfigurationSummaryEntry[];
+}
+
+const PROVIDER_CONFIGURATION_DEFINITIONS: Record<string, ProviderConfigurationDefinition> = {
+  codex: {
+    files: ['config.toml'],
+    summarize: summarizeCodexConfiguration,
+  },
+  claude: {
+    files: ['settings.json'],
+    summarize: contents => summarizeJsonConfiguration('claude', contents),
+  },
+  opencode: {
+    files: ['opencode.jsonc', 'opencode.json'],
+    summarize: contents => summarizeJsonConfiguration('opencode', contents),
+  },
+  qoder: {
+    files: ['settings.json'],
+    summarize: contents => summarizeJsonConfiguration('qoder', contents),
+  },
+  qwen: {
+    files: ['settings.json'],
+    summarize: contents => summarizeJsonConfiguration('qwen', contents),
+  },
+};
+
+const PROVIDER_CONFIGURATION_FILES: Record<string, string[]> = Object.fromEntries(
+  Object.entries(PROVIDER_CONFIGURATION_DEFINITIONS).map(([provider, definition]) => [
+    provider,
+    [...definition.files],
+  ]),
+);
+
 function readProviderHomeConfiguration(provider: unknown, homePath: unknown): ProviderHomeConfiguration {
   const normalizedProvider = String(provider || '').trim().toLowerCase();
   const normalizedHomePath = String(homePath || '').trim();
-  const candidates = PROVIDER_CONFIGURATION_FILES[normalizedProvider] || [];
+  const definition = PROVIDER_CONFIGURATION_DEFINITIONS[normalizedProvider];
+  const candidates = definition?.files || [];
   const filePath = candidates.find(candidate => (
     normalizedHomePath && fs.existsSync(path.join(normalizedHomePath, candidate))
   )) || candidates[0] || '';
@@ -222,9 +250,7 @@ function readProviderHomeConfiguration(provider: unknown, homePath: unknown): Pr
     return {
       exists: true,
       filePath,
-      summary: normalizedProvider === 'codex'
-        ? summarizeCodexConfiguration(contents)
-        : summarizeJsonConfiguration(normalizedProvider, contents),
+      summary: definition?.summarize(contents) || [],
     };
   } catch {
     return { exists: true, filePath, summary: [] };
