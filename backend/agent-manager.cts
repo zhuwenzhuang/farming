@@ -183,10 +183,11 @@ import {
   activeCodexTerminalProfile,
   applyCodexTerminalProfile,
   codexTerminalProfileEqual,
-  codexTerminalSessionIdFromStatus,
-  isCodexTerminalComposerPreview,
-  resolveCodexTerminalSessionId,
 } from './codex-terminal-profile.cjs';
+import {
+  providerTerminalIdentityControl,
+  type ProviderTerminalIdentityControl,
+} from './provider-terminal-controls.cjs';
 import { AgentOrderAllocator, finiteOrder, reorderedPinnedAgentOrders, reorderedProjectAgentOrders } from './agent-order.cjs';
 import { commitAgentOrderTransaction } from './agent-order-transaction.cjs';
 import {
@@ -549,7 +550,6 @@ const AGENT_DISCOVERY_CACHE_MAX_AGE_MS = 3_000;
 const UNCERTAIN_TERMINAL_STOP_TIMEOUT_MS = 5_000;
 const TERMINAL_STOP_STATE_READ_TIMEOUT_MS = 1_000;
 const TERMINAL_STOP_POLL_MS = 50;
-const CODEX_TERMINAL_STATUS_TIMEOUT_MS = 5_000;
 const WORKTREE_DELETE_START_DRAIN_TIMEOUT_MS = 30_000;
 const TERMINAL_NOTIFICATION_COMPLETION_SUPPRESS_MS = 10_000;
 const SHELL_PROMPT_ENV_KEYS: string[] = [
@@ -1982,7 +1982,7 @@ class AgentManager extends EventEmitter {
           }
           this.emit('session-stream', stream);
         }
-        void this.resolveCodexTerminalIdentityFromPreview(sessionId, agent.previewText);
+        void this.resolveProviderTerminalIdentityFromPreview(sessionId, agent.previewText);
         this.attentionTracker.observeAgentAttentionState(sessionId);
         this.emitStateChange({ agentIds: [sessionId] });
       });
@@ -2049,7 +2049,7 @@ class AgentManager extends EventEmitter {
             patch,
           });
         }
-        void this.resolveCodexTerminalIdentityFromPreview(sessionId, agent.previewText);
+        void this.resolveProviderTerminalIdentityFromPreview(sessionId, agent.previewText);
         this.attentionTracker.observeAgentAttentionState(sessionId);
         if (titleChanged) {
           this.emitStateChange({ agentIds: [sessionId] });
@@ -2523,7 +2523,7 @@ class AgentManager extends EventEmitter {
       ) {
         this.mainPageSessionIndex.remember(agentRecord);
         this.providerSessionService.activate(agentId);
-        void this.resolveCodexTerminalIdentityFromCurrentView(agentId);
+        void this.resolveProviderTerminalIdentityFromCurrentView(agentId);
       }
       changed = true;
     }
@@ -5698,7 +5698,7 @@ class AgentManager extends EventEmitter {
       }
 
       this.providerSessionService.activate(agentId);
-      void this.resolveCodexTerminalIdentityFromCurrentView(agentId);
+      void this.resolveProviderTerminalIdentityFromCurrentView(agentId);
       finishStartLifecycle();
       if (callback) callback(agentId);
       this.emitStateChange({
@@ -5922,17 +5922,18 @@ class AgentManager extends EventEmitter {
     );
   }
 
-  confirmCodexTerminalStatusIdentity(
+  confirmProviderTerminalStatusIdentity(
     agentId: AgentId,
     sessionId: string,
     expectedAgent: TypedAgentRecord,
     expectedRuntimeEpoch: string,
+    control: Readonly<ProviderTerminalIdentityControl>,
   ): boolean {
     const current = this.agents.get(agentId);
     if (
       current !== expectedAgent
       || runtimeKind(current) !== 'terminal'
-      || current.providerSessionProvider !== 'codex'
+      || current.providerSessionProvider !== control.provider
       || current.providerSessionTemporary !== true
       || (expectedRuntimeEpoch && current.runtimeEpoch !== expectedRuntimeEpoch)
       || !isSafeProviderSessionId(sessionId)
@@ -5940,22 +5941,23 @@ class AgentManager extends EventEmitter {
       return false;
     }
     return this.providerSessionService.confirm(agentId, {
-      provider: 'codex',
+      provider: control.provider,
       sessionId,
-      source: 'codex-terminal-status',
+      source: control.source,
       workspace: current.projectWorkspace || current.cwd || '',
     });
   }
 
-  resolveCodexTerminalIdentityFromPreview(
+  resolveProviderTerminalIdentityFromPreview(
     agentId: AgentId,
     previewText: string,
   ): Promise<boolean> {
     const agent = this.agents.get(agentId);
+    const control = providerTerminalIdentityControl(agent?.providerSessionProvider);
     if (
       !agent
+      || !control
       || runtimeKind(agent) !== 'terminal'
-      || agent.providerSessionProvider !== 'codex'
       || agent.providerSessionTemporary !== true
       || agent.terminalDraftInputReceived === true
       || !isRunningAgentRuntimeStatus(agent.status)
@@ -5964,16 +5966,17 @@ class AgentManager extends EventEmitter {
     }
 
     const runtimeEpoch = String(agent.runtimeEpoch || '');
-    const sessionId = codexTerminalSessionIdFromStatus(previewText);
+    const sessionId = control.sessionIdFromPreview(previewText);
     if (sessionId) {
-      return Promise.resolve(this.confirmCodexTerminalStatusIdentity(
+      return Promise.resolve(this.confirmProviderTerminalStatusIdentity(
         agentId,
         sessionId,
         agent,
         runtimeEpoch,
+        control,
       ));
     }
-    if (!isCodexTerminalComposerPreview(previewText)) return Promise.resolve(false);
+    if (!control.canResolveFromPreview(previewText)) return Promise.resolve(false);
 
     const attemptKey = runtimeEpoch || `started:${Number(agent.startedAt) || 0}`;
     return this.terminalProviderControlCoordinator.resolveIdentityOnce(agentId, attemptKey, () => (
@@ -5981,6 +5984,7 @@ class AgentManager extends EventEmitter {
         const current = this.agents.get(agentId);
         if (
           current !== agent
+          || current.providerSessionProvider !== control.provider
           || current.providerSessionTemporary !== true
           || (runtimeEpoch && current.runtimeEpoch !== runtimeEpoch)
         ) {
@@ -5988,22 +5992,23 @@ class AgentManager extends EventEmitter {
         }
         const view = await this.getAgentSessionView(agentId);
         const currentPreview = String(view?.previewText || '');
-        const renderedSessionId = codexTerminalSessionIdFromStatus(currentPreview);
+        const renderedSessionId = control.sessionIdFromPreview(currentPreview);
         if (renderedSessionId) {
-          return this.confirmCodexTerminalStatusIdentity(
+          return this.confirmProviderTerminalStatusIdentity(
             agentId,
             renderedSessionId,
             agent,
             runtimeEpoch,
+            control,
           );
         }
-        if (!isCodexTerminalComposerPreview(currentPreview)) {
+        if (!control.canResolveFromPreview(currentPreview)) {
           this.terminalProviderControlCoordinator.resetIdentityAttempt(agentId, attemptKey);
           return false;
         }
 
-        const resolvedSessionId = await resolveCodexTerminalSessionId({
-          timeoutMs: CODEX_TERMINAL_STATUS_TIMEOUT_MS,
+        const resolvedSessionId = await control.resolve({
+          timeoutMs: control.timeoutMs,
           readPreview: async () => {
             const nextView = await this.getAgentSessionView(agentId);
             if (!nextView) throw new Error('Agent not found');
@@ -6015,22 +6020,23 @@ class AgentManager extends EventEmitter {
               markUserInput: false,
               throwOnUncertain: true,
             });
-            if (!result) throw new Error('Codex Terminal is not available');
+            if (!result) throw new Error(`${control.displayName} Terminal is not available`);
             if ('status' in result && result.status === 'input-rejected') {
-              throw new Error('Codex Terminal runtime changed before /status');
+              throw new Error(`${control.displayName} Terminal runtime changed before identity resolution`);
             }
             return result;
           },
         });
-        return this.confirmCodexTerminalStatusIdentity(
+        return this.confirmProviderTerminalStatusIdentity(
           agentId,
           resolvedSessionId,
           agent,
           runtimeEpoch,
+          control,
         );
       }).catch((error: unknown) => {
         console.warn(
-          `Failed to resolve Codex Terminal session id for ${agentId}:`,
+          `Failed to resolve ${control.displayName} Terminal session id for ${agentId}:`,
           error instanceof Error ? error.message : String(error),
         );
         return false;
@@ -6038,29 +6044,37 @@ class AgentManager extends EventEmitter {
     ));
   }
 
-  async resolveCodexTerminalIdentityFromCurrentView(agentId: AgentId): Promise<boolean> {
+  async resolveProviderTerminalIdentityFromCurrentView(agentId: AgentId): Promise<boolean> {
     const agent = this.agents.get(agentId);
+    const control = providerTerminalIdentityControl(agent?.providerSessionProvider);
     if (
       !agent
+      || !control
       || runtimeKind(agent) !== 'terminal'
-      || agent.providerSessionProvider !== 'codex'
       || agent.providerSessionTemporary !== true
     ) {
       return false;
     }
     try {
       const view = await this.getAgentSessionView(agentId);
-      return this.resolveCodexTerminalIdentityFromPreview(
+      return this.resolveProviderTerminalIdentityFromPreview(
         agentId,
         String(view?.previewText || agent.previewText || ''),
       );
     } catch (error) {
       console.warn(
-        `Failed to inspect Codex Terminal session id for ${agentId}:`,
+        `Failed to inspect ${control.displayName} Terminal session id for ${agentId}:`,
         error instanceof Error ? error.message : String(error),
       );
       return false;
     }
+  }
+
+  resolveCodexTerminalIdentityFromPreview(
+    agentId: AgentId,
+    previewText: string,
+  ): Promise<boolean> {
+    return this.resolveProviderTerminalIdentityFromPreview(agentId, previewText);
   }
 
   async setCodexTerminalProfile(
@@ -8155,18 +8169,19 @@ class AgentManager extends EventEmitter {
   ): Promise<{ error?: string }> {
     let agent = this.agents.get(agentId);
     if (!agent) return { error: 'Agent not found' };
+    const identityControl = providerTerminalIdentityControl(agent.providerSessionProvider);
     if (
       forkTargetRuntime(agent, options.targetRuntime) !== 'terminal'
-      || agent.providerSessionProvider !== 'codex'
+      || !identityControl
       || agent.providerSessionTemporary !== true
     ) {
       return {};
     }
-    await this.resolveCodexTerminalIdentityFromPreview(agentId, agent.previewText || '');
+    await this.resolveProviderTerminalIdentityFromPreview(agentId, agent.previewText || '');
     agent = this.agents.get(agentId);
     if (!agent) return { error: 'Agent not found' };
     return agent.providerSessionTemporary === true
-      ? { error: 'Fork requires a resumable Codex session. Try again after the session id is available.' }
+      ? { error: `Fork requires a resumable ${identityControl.displayName} session. Try again after the session id is available.` }
       : {};
   }
 

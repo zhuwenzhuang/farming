@@ -49,6 +49,13 @@ Replacement，只有在证明可恢复时才保留该身份。
 重启、恢复与 Fork 都需要已验证的可恢复身份。Terminal Presentation 不得从任意 Output Text
 推断该身份。
 
+因此，全新 Codex Terminal 先使用仅属于 Farming 的 Temporary Identity，而不是猜测 Resume
+ID。精确 Runtime 进入 Idle 后，Codex Terminal Control 通过有序 Input Path 执行一次有界
+`/status` Probe，且不把它标记为用户输入。写入结果不确定时只从渲染出的 Status 对账，绝不
+重放。只有结构化 Status Panel 可以确认真实 Session ID，并且确认受同一 Agent 与 Runtime
+Epoch Fence 保护。在确认成功前，History Lookup、Recovery 与 Fork 都继续把该身份视为
+Temporary。
+
 配置遵循共享 ACP 规则：用户没有确认显式 Override 前，使用 Provider 与 Agent Home 默认值；
 已确认的 Model、Reasoning、Speed 与 Permission Choice 在受支持的 Runtime Replacement 后保留。
 保存的选项不再可用时，优雅降级到 Provider 当前值，并显示可见警告。

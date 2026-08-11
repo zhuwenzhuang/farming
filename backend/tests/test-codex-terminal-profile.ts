@@ -13,6 +13,7 @@ const {
   resolveCodexTerminalSessionId,
   newCodexServiceTierConfirmation,
 } = require('../codex-terminal-profile.cjs');
+const { providerTerminalIdentityControl } = require('../provider-terminal-controls.cjs');
 
 const IDLE_55 = [
   '› Improve documentation in @filename',
@@ -64,6 +65,17 @@ async function run() {
     '  gpt-5.6-sol high · ~/git/farming',
   ].join('\n');
   assert.strictEqual(codexTerminalSessionIdFromStatus(statusPreview), statusSessionId);
+  const identityControl = providerTerminalIdentityControl('codex');
+  assert(identityControl, 'Codex must publish its delayed Terminal identity control');
+  assert.strictEqual(identityControl.provider, 'codex');
+  assert.strictEqual(identityControl.source, 'codex-terminal-status');
+  assert.strictEqual(identityControl.sessionIdFromPreview(statusPreview), statusSessionId);
+  assert.strictEqual(identityControl.canResolveFromPreview(IDLE_55), true);
+  assert.strictEqual(
+    providerTerminalIdentityControl('claude'),
+    null,
+    'providers with launch-time session ids must not inherit the Codex /status probe',
+  );
   const borderedStatusPreview = [
     '╭────────────────────────────────────────────────────────────────────────╮',
     '│  >_ OpenAI Codex (v0.146.0)                                            │',

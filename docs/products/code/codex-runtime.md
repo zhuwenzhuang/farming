@@ -60,6 +60,15 @@ conversation. After input, switching, permission restart, recovery, and Fork
 require a verified resumable identity. Terminal presentation must not infer that
 identity from arbitrary output text.
 
+A fresh Codex Terminal therefore starts with a Farming-only temporary identity,
+not a guessed resume id. Once the exact runtime is idle, the Codex Terminal
+Control performs one bounded `/status` probe through the ordered input path
+without marking it as user input. An uncertain write is reconciled from the
+rendered status and is never replayed. Only the structured status panel may
+confirm the real Session id, and confirmation is fenced to the same Agent and
+runtime epoch. Until confirmation succeeds, History lookup, recovery, and Fork
+continue to treat the identity as temporary.
+
 Configuration follows the shared ACP rule: Provider and Agent Home defaults
 apply until the user confirms an explicit override. Confirmed model, reasoning,
 speed, and permission choices survive supported runtime replacement; unavailable
