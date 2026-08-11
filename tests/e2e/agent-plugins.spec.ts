@@ -171,7 +171,9 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
   await expect(review).toHaveCount(0)
 })
 
-test('Agent Homes use the Farming-managed ACP runtime without a user-facing runtime selector', async ({ page }) => {
+test('Agent Homes use the Farming-managed ACP runtime without a user-facing runtime selector', {
+  tag: ['@critical-behavior', '@behavior-CODE-PLUGINS-MANAGED-RUNTIME'],
+}, async ({ page }) => {
   await openFarming(page)
   await page.getByTestId('code-nav-plugins').click()
   const panel = page.getByTestId('code-plugins-panel')
@@ -269,7 +271,9 @@ test('Plugins reports a disconnected inventory read and retries after reconnecti
   await expect(inventoryAlert).toHaveCount(0)
 })
 
-test('Plugins shows a read-only extension catalog from one exact Agent Home', async ({ page, workspaceRoot }) => {
+test('Plugins shows a read-only extension catalog from one exact Agent Home', {
+  tag: ['@critical-behavior', '@behavior-CODE-PLUGINS-SOURCE-NAVIGATION'],
+}, async ({ page, workspaceRoot }) => {
   await openFarming(page)
   const codexHome = path.join(workspaceRoot, 'codex-catalog')
   const pluginRoot = path.join(codexHome, 'plugins', 'example')

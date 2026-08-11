@@ -211,7 +211,9 @@ test('does not show a Browser section before the first Browser is created', asyn
   await expect(project.getByTestId('farming-browser-section')).toHaveCount(0)
 })
 
-test('mounts Agent-owned Browsers behind nested resource controls without layout noise', async ({
+test('mounts Agent-owned Browsers behind nested resource controls without layout noise', {
+  tag: ['@critical-behavior', '@behavior-CODE-SIDEBAR-BROWSER-NESTING'],
+}, async ({
   page,
   workspaceRoot,
 }, testInfo) => {
@@ -549,7 +551,9 @@ test('deletes a Browser directly without a confirmation dialog', async ({
   expect(dialogs).toEqual([])
 })
 
-test('places Project Browser resources after Agents and before Files', async ({
+test('places Project Browser resources after Agents and before Files', {
+  tag: ['@critical-behavior', '@behavior-CODE-SIDEBAR-BROWSER-ORDER'],
+}, async ({
   page,
   workspaceRoot,
 }) => {

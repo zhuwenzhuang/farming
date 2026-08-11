@@ -79,6 +79,79 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  # Keep the small set of product promises that have repeatedly regressed as a
+  # named, unsharded gate. The complete Chromium matrix still provides broad
+  # coverage; this job makes critical behavior ownership and failures visible.
+  behavior:
+    name: Critical behavior
+    needs: frontend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: npm ci --registry=https://registry.npmjs.org/ --no-audit --no-fund
+
+      - name: Download frontend build
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: dist
+
+      - name: Prepare behavior runtimes
+        run: |
+          npm run build:backend-runtime
+          npm run build:classic-runtime
+          npm run build:usage-history
+          npm run prepare:runtime-manifest
+
+      - name: Validate behavior contracts
+        run: npm run test:behavior:contracts
+
+      - name: Run critical Node behavior evidence
+        run: npm run test:behavior:node
+
+      - name: Resolve Playwright version
+        id: playwright
+        run: |
+          echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-chromium-${{ steps.playwright.outputs.version }}
+
+      - name: Install Chromium system dependencies
+        run: npx playwright install-deps chromium
+
+      - name: Install Chromium for behavior checks
+        run: npx playwright install chromium
+
+      - name: Run critical browser behavior
+        run: npm run test:behavior:e2e
+        env:
+          FARMING_PLAYWRIGHT_SKIP_BUILD: '1'
+
+      - name: Upload critical behavior failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: critical-behavior-failure
+          path: |
+            test-results
+            playwright-report
+          if-no-files-found: ignore
+          retention-days: 3
+
   # Node 22 stays the authoritative gate and keeps sole ownership of lint, the
   # dependency audit, and the Chromium shards. This job only
   # proves the >=24 compatibility floor still typechecks and passes the test

@@ -109,7 +109,9 @@ test('distinguishes Agent and session pagination controls for assistive technolo
   await expect(showMoreSessions.locator('.code-agent-name')).toHaveText('Show more')
 })
 
-test('reveals Project sessions in progressive batches', async ({ page, workspaceRoot }) => {
+test('reveals Project sessions in progressive batches', {
+  tag: ['@critical-behavior', '@behavior-CODE-SIDEBAR-SESSION-PAGINATION'],
+}, async ({ page, workspaceRoot }) => {
   const projectDir = path.join(workspaceRoot, 'session-progressive-pagination')
   fs.mkdirSync(projectDir, { recursive: true })
   await mockPaginatedProjectSessions(page, projectDir, 26)
@@ -141,7 +143,9 @@ test('reveals Project sessions in progressive batches', async ({ page, workspace
   await expect(sessionRows).toHaveCount(5)
 })
 
-test('reveals Project Agents in progressive batches', async ({ page, workspaceRoot }) => {
+test('reveals Project Agents in progressive batches', {
+  tag: ['@critical-behavior', '@behavior-CODE-SIDEBAR-AGENT-PAGINATION'],
+}, async ({ page, workspaceRoot }) => {
   const projectDir = path.join(workspaceRoot, 'agent-progressive-pagination')
   fs.mkdirSync(projectDir, { recursive: true })
 

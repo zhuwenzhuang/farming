@@ -22,6 +22,21 @@ test('check gate runs typecheck, then lint, then the test suite', () => {
   assert.deepEqual(positions, [...positions].sort((left, right) => left - right))
 })
 
+test('critical behavior contracts stay wired into local checks and named CI evidence', () => {
+  assert.equal(scripts['test:behavior:contracts'], 'tsx scripts/check-behavior-contracts.ts')
+  assert.match(scripts['test:behavior:node'], /run-behavior-node-tests\.ts/)
+  assert.match(scripts['test:behavior:e2e'], /--grep @critical-behavior/)
+  assert.ok(
+    scripts.check.indexOf('npm run test:behavior:contracts') < scripts.check.indexOf('npm run typecheck'),
+    'check must validate behavior ownership before the broad implementation gates',
+  )
+
+  const workflow = fs.readFileSync(path.join(repoRoot, '.github', 'workflows', 'ci.yml'), 'utf8')
+  assert.match(workflow, /name: Critical behavior/)
+  assert.match(workflow, /npm run test:behavior:node/)
+  assert.match(workflow, /npm run test:behavior:e2e/)
+})
+
 test('typecheck gate keeps every required project including the strict unit tests', () => {
   const requiredProjects = [
     'tsconfig.backend-runtime.json',

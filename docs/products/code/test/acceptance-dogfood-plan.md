@@ -53,6 +53,16 @@ Do not add source-text assertions for state transitions, rendering, navigation,
 focus, pagination, or recovery. Replace such assertions with imported state tests,
 public-boundary tests, or browser journeys as the affected area changes.
 
+Critical promises are registered in `tests/behavior-contracts.json`. Each contract
+has a stable ID, observable promise, owning design document, and executable
+evidence. A UI contract must name a Playwright journey tagged with both
+`@critical-behavior` and its contract ID; the contract validator rejects missing,
+unregistered, or source-inspection evidence. CI runs this set as the named
+**Critical behavior** gate in addition to the complete sharded browser suite, so a
+refactor cannot hide a known product regression inside a broad green structural
+test. Promote a scenario into this registry when its failure would silently change
+a durable cross-surface interaction or lifecycle guarantee.
+
 Real-provider tests are explicit, low-volume, and isolated. They must not reset
 quotas, rewrite provider login or defaults, or launch broad unrelated work.
 
@@ -229,6 +239,7 @@ npm run typecheck
 npm test
 npm run lint
 npm run build
+npm run test:behavior
 npm run test:e2e:playwright
 ```
 

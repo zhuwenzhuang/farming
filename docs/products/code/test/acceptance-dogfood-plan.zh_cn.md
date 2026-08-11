@@ -46,6 +46,14 @@ User-visible 工作先用可观察的 Given/When/Then 条件描述 Scenario。�
 Recovery 不得新增 Source-text Assertion；相关区域发生修改时，应逐步替换为 Imported State Test、
 Public-boundary Test 或 Browser Journey。
 
+关键产品承诺登记在 `tests/behavior-contracts.json`。每条 Contract 都有稳定 ID、可观察 Promise、
+所属设计文档和可执行 Evidence。UI Contract 必须指向一条同时带有 `@critical-behavior` 与自身
+Contract ID 的 Playwright Journey；Contract Validator 会拒绝缺失、未登记或以 Source Inspection
+冒充的 Evidence。CI 除完整的分片 Browser Suite 外，还会把这些场景作为独立命名的
+**Critical behavior** Gate 执行，使重构不能靠宽泛但绿色的结构测试掩盖已知产品回退。如果某个
+Scenario 失败会静默改变持久的 Cross-surface Interaction 或 Lifecycle Guarantee，就应将它提升为
+这份 Registry 中的 Contract。
+
 真实 Provider Test 必须显式、低频且隔离；不得 Reset Quota、改写 Provider Login/Default，
 也不得启动无关的大型任务。
 
@@ -198,6 +206,7 @@ npm run typecheck
 npm test
 npm run lint
 npm run build
+npm run test:behavior
 npm run test:e2e:playwright
 ```
 
