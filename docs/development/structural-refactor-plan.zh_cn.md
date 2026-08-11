@@ -162,6 +162,9 @@ Runtime Port 与 Provider Policy
   Server/AgentManager 的进程内 fallback，而不是删除 Host 引擎。
 - 引擎 Session 状态与 ACP Host Controller/Operation 状态属于不同所有者。二者
   保持独立，通过显式 Projection 连接，不能合并为一个含义模糊的状态形状。
+- 有序 ACP Session Reducer 为非标准的内部上下文、压缩、Phase 与镜像语义选择无状态
+  Provider Transcript Policy。通用 Reducer 只拥有排序与 Revision 状态，不解释 Provider
+  名称，也不会把某个 Provider 的文字启发式规则全局复用。
 
 ### Terminal 所有权
 

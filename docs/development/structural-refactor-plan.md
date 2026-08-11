@@ -208,6 +208,10 @@ HTTP, WebSocket, persistence, and runtime-host boundaries.
 - Engine session state and ACP Host controller/operation state have different
   owners. They stay distinct and use an explicit projection rather than being
   merged into one ambiguous state shape.
+- The ordered ACP Session reducer selects a stateless Provider transcript
+  policy for non-standard internal-context, compaction, phase, and mirror
+  semantics. The generic reducer owns ordering and revision state but does not
+  interpret Provider names or reuse one Provider's prose heuristics globally.
 
 ### Terminal ownership
 

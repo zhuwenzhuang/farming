@@ -3,8 +3,7 @@ const MAX_ACP_UPDATE_LOG_VALUE_CHARS = 32 * 1024;
 const MAX_CODEX_SUBAGENTS = 128;
 const MAX_CODEX_SUBAGENT_ID_CHARS = 160;
 const MAX_CODEX_SUBAGENT_NAME_CHARS = 120;
-import { visibleUserMessageText } from './codex-transcript.cjs';
-import { isCodexContextCompactionMessage, isCodexInjectedContextMessage, parseHeartbeatEnvelope, stripCodexInternalContextBlocks } from './codex-transcript-sanitizer.cjs';
+import { acpSessionProviderPolicy } from './acp-session-provider-policy.cjs';
 
 type DataRecord = Record<string, unknown>;
 
@@ -256,51 +255,12 @@ function appendContent(blocks: AcpContent[], content: unknown): void {
   blocks.push(next);
 }
 
-function contentText(content: unknown): string {
-  return (Array.isArray(content) ? content : [])
-    .filter(block => block?.type === 'text')
-    .map(block => String(block.text || ''))
-    .join('');
-}
-
-function isSteerMessage(entry: AcpEntry | null | undefined): boolean {
-  return entry?.type === 'message'
-    && entry.role === 'user'
-    && (
-      entry?._meta?.farming?.steer === true
-      || entry?._meta?.codex?.steer === true
-    );
-}
-
-function codexInternalUserScope(entry: AcpEntry | null | undefined): 'entry' | 'turn' | null {
-  if (entry?.type !== 'message' || entry.role !== 'user') return null;
-  const hasAttachment = (entry.content || []).some(content => content.type !== 'text');
-  if (hasAttachment) return null;
-  const text = contentText(entry.content);
-  if (!isCodexInjectedContextMessage(text)) return null;
-  return parseHeartbeatEnvelope(text) ? 'turn' : 'entry';
-}
-
-function isTranscriptTurnStart(entry: AcpEntry | null | undefined): boolean {
-  return entry?.type === 'message'
-    && entry.role === 'user'
-    && !isSteerMessage(entry)
-    && codexInternalUserScope(entry) !== 'entry';
-}
-
-function isContextCompactionText(content: unknown): boolean {
-  return isCodexContextCompactionMessage(contentText(content));
-}
-
 function canMergeMessageIds(existing: unknown, incoming: unknown): boolean {
   return !existing || !incoming || existing === incoming;
 }
 
-function codexMessagePhase(meta: AcpMeta | null | undefined): string {
-  return String(meta?.codex?.phase || '');
-}
-
 function canMergeMessageChunks(
+  provider: string,
   existing: AcpEntry | null | undefined,
   update: AcpUpdate,
 ): boolean {
@@ -313,31 +273,8 @@ function canMergeMessageChunks(
     return Boolean(existingId && incomingId && existingId === incomingId);
   }
   if (!canMergeMessageIds(existing?.messageId, String(update?.messageId || ''))) return false;
-  // Codex ACP history can omit message ids while still preserving the original
-  // commentary/final-answer boundary in metadata. Never merge across that
-  // boundary or the frontend loses the only authoritative answer signal.
-  return codexMessagePhase(existing?._meta) === codexMessagePhase(update?._meta);
-}
-
-function isCodexMirroredAssistantMessage(
-  provider: string,
-  existing: AcpEntry | null | undefined,
-  update: AcpUpdate,
-  role: string,
-  type: string,
-): boolean {
-  if (provider !== 'codex' || role !== 'assistant' || type !== 'message') return false;
-  if (!existing || existing.type !== type || existing.role !== role) return false;
-  if (codexMessagePhase(existing._meta) !== codexMessagePhase(update?._meta)) return false;
-  const existingId = String(existing.messageId || '');
-  const incomingId = String(update?.messageId || '');
-  // The App Server thread item has an id while the JSONL response-item
-  // fallback does not. If both have ids, keep them as distinct protocol
-  // messages even when their visible text happens to match.
-  if (existingId && incomingId) return false;
-  const existingText = stripCodexInternalContextBlocks(contentText(existing.content));
-  const incomingText = stripCodexInternalContextBlocks(contentText([update?.content]));
-  return Boolean(existingText) && existingText === incomingText;
+  const policy = acpSessionProviderPolicy(provider);
+  return policy.messagePhase(existing) === policy.messagePhase(update);
 }
 
 class AcpSessionState {
@@ -647,13 +584,14 @@ class AcpSessionState {
   }
 
   applyMessageChunk(update: AcpUpdate, kind: unknown): void {
+    const providerPolicy = acpSessionProviderPolicy(this.provider);
     const role = kind === 'user_message_chunk' ? 'user' : 'assistant';
     const type = kind === 'agent_thought_chunk' ? 'thought' : 'message';
     const messageId = String(update.messageId || '');
     const last = this.entries[this.entries.length - 1];
 
     const compactionMeta = update?._meta?.context_compaction;
-    if (kind === 'agent_message_chunk' && (isContextCompactionText([update.content]) || compactionMeta)) {
+    if (kind === 'agent_message_chunk' && (providerPolicy.contextCompactionText([update.content]) || compactionMeta)) {
       if (!this.completeContextCompactionTool(compactionMeta?.summary || '')) {
         this.applyCompaction({
           compactionId: compactionMeta?.id || messageId,
@@ -695,9 +633,9 @@ class AcpSessionState {
     if (
       last?.type === type
       && last.role === role
-      && canMergeMessageChunks(last, update)
+      && canMergeMessageChunks(this.provider, last, update)
     ) {
-      const mirroredAssistantMessage = isCodexMirroredAssistantMessage(this.provider, last, update, role, type);
+      const mirroredAssistantMessage = providerPolicy.isMirroredAssistantMessage(last, update, role, type);
       if (!last.messageId) last.messageId = messageId;
       if (!last._meta && update._meta) last._meta = clone(update._meta);
       if (mirroredAssistantMessage) {
@@ -796,6 +734,7 @@ class AcpSessionState {
   }
 
   transcriptSlice(options: TranscriptSliceOptions = {}) {
+    const providerPolicy = acpSessionProviderPolicy(this.provider);
     const maxTurns = Number.isFinite(Number(options.maxTurns))
       ? Math.max(1, Math.floor(Number(options.maxTurns)))
       : 80;
@@ -813,7 +752,7 @@ class AcpSessionState {
       if (startIndex < this.entries.length) {
         while (startIndex > 0) {
           const entry = this.entries[startIndex];
-          if (isTranscriptTurnStart(entry)) break;
+          if (providerPolicy.transcriptTurnStart(entry)) break;
           startIndex -= 1;
         }
       }
@@ -823,7 +762,7 @@ class AcpSessionState {
       while (startIndex > 0) {
         startIndex -= 1;
         const entry = this.entries[startIndex];
-        if (isTranscriptTurnStart(entry)) {
+        if (providerPolicy.transcriptTurnStart(entry)) {
           remaining -= 1;
           if (remaining <= 0) break;
         }
@@ -859,60 +798,11 @@ class AcpSessionState {
     if (options.forTranscript !== true) {
       for (const entry of entries) delete entry._revision;
     }
-    if (this.provider !== 'codex') return entries;
-
-    let internalTurn = false;
-    for (let index = 0; index < safeStart; index += 1) {
-      const entry = this.entries[index];
-      if (entry?.type !== 'message' || entry.role !== 'user') continue;
-      const scope = codexInternalUserScope(entry);
-      if (scope === 'turn') internalTurn = true;
-      else if (scope === null) internalTurn = false;
-    }
-    for (const entry of entries) {
-      delete entry.internalScope;
-      if (entry.type === 'message' && entry.role === 'user') {
-        const scope = codexInternalUserScope(entry);
-        if (scope === 'turn') internalTurn = true;
-        else if (scope === null) internalTurn = false;
-        entry.internal = scope === 'entry' || internalTurn;
-        if (scope) entry.internalScope = scope;
-      } else {
-        entry.internal = internalTurn;
-        if (internalTurn) entry.internalScope = 'turn';
-      }
-      if (!['message', 'thought'].includes(entry.type as string)) continue;
-      const renderedAttachmentKinds = [];
-      if (
-        entry.type === 'message'
-        && entry.role === 'user'
-        && (entry.content || []).some(content => content?.type === 'image')
-      ) {
-        renderedAttachmentKinds.push('image');
-      }
-      for (const content of entry.content || []) {
-        if (content.type !== 'text') continue;
-        content.text = entry.type === 'message' && entry.role === 'user' && entry.internal !== true
-          ? visibleUserMessageText(content.text, { renderedAttachmentKinds })
-          : stripCodexInternalContextBlocks(content.text);
-      }
-    }
-    return entries;
+    return acpSessionProviderPolicy(this.provider).sanitizeEntries(entries, this.entries, safeStart);
   }
 
   isInternalEntry(targetEntry: AcpEntry | null | undefined): boolean {
-    if (this.provider !== 'codex' || !targetEntry) return false;
-    let internalTurn = false;
-    for (const entry of this.entries) {
-      if (entry.type === 'message' && entry.role === 'user') {
-        const scope = codexInternalUserScope(entry);
-        if (scope === 'turn') internalTurn = true;
-        else if (scope === null) internalTurn = false;
-        if (entry === targetEntry) return scope === 'entry' || internalTurn;
-      }
-      if (entry === targetEntry) return internalTurn;
-    }
-    return false;
+    return acpSessionProviderPolicy(this.provider).isInternalEntry(this.entries, targetEntry);
   }
 
   snapshot(

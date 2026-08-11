@@ -830,7 +830,7 @@ async function resolveCodexInlineVisualization(binding: AcpBinding, sessionId: s
 async function normalizeCodexHostMessageUpdate(binding: AcpBinding, notification: UnknownRecord) {
   const update = notification.update as UnknownRecord | undefined;
   const content = update?.content as UnknownRecord | undefined;
-  if (binding.provider !== 'codex' || update?.sessionUpdate !== 'agent_message_chunk' || content?.type !== 'text') {
+  if (update?.sessionUpdate !== 'agent_message_chunk' || content?.type !== 'text') {
     return [notification];
   }
   const messageId = String(update.messageId || '');

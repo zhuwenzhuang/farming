@@ -161,6 +161,11 @@ Checkpoint 发送。慢连接只保留一个 Pending Checkpoint Marker，并在 
 Provider Replay 是权威来源。Local Checkpoint 可以加速投影并保留 Reset Fence，但除非 Provider
 能证明 Freshness，否则不能替代完整 Load。结果不确定的 Prompt 会让 Checkpoint 保持 Dirty。
 
+有序 Session Reducer 保持 Provider-neutral。标准 ACP 之外的 Transcript 细节——例如内部上下文
+作用域、压缩文本识别、消息 Phase 边界与重复消息对账——归所选 Provider Transcript Policy
+所有。某个 Provider 的可见输出即使碰巧匹配另一 Provider 的文字，也不得继承后者的文本
+启发式规则。
+
 打开 Chat 时应立即显示 Shell；存在合法 Prepared Checkpoint 时，首份稳定 Transcript 应在
 数十毫秒内可见。Prepare 只在 Backend 中根据明确 Interest Signal、并等待系统稳定后执行。
 它可以取消，受 Revision Fence 保护，并对 Entry 数、单响应大小、总 Cache 与 Active Work

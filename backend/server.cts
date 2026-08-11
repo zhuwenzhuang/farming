@@ -977,7 +977,7 @@ app.use(routePath(BASE_PATH, '/api/usage'), createUsageRouter({
   invalidateDailyCache: () => usageMonitor.invalidateDailyCache(),
 }));
 
-const readProviderContextWindows = async (req: express.Request, res: express.Response) => {
+const readProviderContextWindows: HttpHandler = async (req, res) => {
   try {
     const requestedIds = Array.isArray(req.body?.agentIds)
       ? req.body.agentIds

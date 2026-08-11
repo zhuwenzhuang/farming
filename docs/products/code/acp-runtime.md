@@ -213,6 +213,13 @@ Provider replay is authoritative. Local checkpoints accelerate projection and
 preserve reset fences, but cannot replace a full load unless the provider can
 prove freshness. An uncertain Prompt leaves the checkpoint dirty.
 
+The ordered Session reducer remains provider-neutral. Transcript details that
+are not part of standard ACP—such as internal-context scoping, compaction-text
+recognition, message-phase boundaries, and duplicate-message reconciliation—
+belong to a selected Provider transcript policy. A Provider must not inherit
+another Provider's text heuristics merely because its visible output happens to
+match the same prose.
+
 Opening a Chat should show its shell immediately and obtain the first settled
 transcript in tens of milliseconds when a valid prepared checkpoint exists.
 Preparation happens in the backend only after an explicit interest signal and
