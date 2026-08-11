@@ -530,7 +530,7 @@ function run() {
 			      !fileTreeRowInteractionsSource.includes('onHydrateCompactDirectoryChains') &&
 		      fileTreeKeyboardHookSource.includes('const openDirectoryNode = useCallback') &&
 		      fileTreeKeyboardHookSource.includes('const closeDirectoryNode = useCallback') &&
-		      fileTreeKeyboardHookSource.includes('preserveWorkspaceFileScrollPosition(projectScroller())') &&
+	      !fileTreeKeyboardHookSource.includes('preserveWorkspaceFileScrollPosition') &&
 		      !fileTreeKeyboardHookSource.includes('hydrateCompactDirectoryChains(node.data.path).finally(refreshTreeLayout)') &&
 			      fileTreeKeyboardHookSource.includes('setDirectoryOpen(node.data.path, true)') &&
 			      fileTreeKeyboardHookSource.includes('setDirectoryOpen(filePath, false)') &&
@@ -874,10 +874,10 @@ function run() {
 		      !fileSectionSource.includes('workspaceFileDeleteRefreshDirectories(deleted)') &&
 	      fileFocusHookSource.includes('treeRef.current?.get(filePath)?.select()') &&
 	      fileFocusHookSource.includes("row?.closest<HTMLElement>('[role=\"tree\"]')") &&
-	      fileViewModelSource.includes('function preserveWorkspaceFileScrollPosition') &&
+	      !fileViewModelSource.includes('function preserveWorkspaceFileScrollPosition') &&
 	      !fileTreeRowInteractionsSource.includes('preserveWorkspaceFileScrollPosition') &&
-	      fileTreeControllerHookSource.includes('preserveWorkspaceFileScrollPosition') &&
-	      fileTreeKeyboardHookSource.includes('preserveWorkspaceFileScrollPosition') &&
+	      !fileTreeControllerHookSource.includes('preserveWorkspaceFileScrollPosition') &&
+	      !fileTreeKeyboardHookSource.includes('preserveWorkspaceFileScrollPosition') &&
 	      !fileSectionSource.includes('preserveWorkspaceFileScrollPosition') &&
       fileFocusHookSource.includes('focusWithoutScrolling(targetTree)') &&
       fileFocusHookSource.includes(';[80, 180, 360].forEach(delay =>') &&

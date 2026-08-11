@@ -349,18 +349,3 @@ export function workspaceStickyDirectoryPresentation(nodes: readonly WorkspaceFi
     fullLabel,
   }
 }
-
-export function preserveWorkspaceFileScrollPosition(scroller: HTMLElement | null | undefined) {
-  if (!scroller) return () => {}
-  const scrollTop = scroller.scrollTop
-  const restore = () => {
-    scroller.scrollTop = scrollTop
-  }
-
-  restore()
-  window.requestAnimationFrame(restore)
-  window.setTimeout(restore, 0)
-  window.setTimeout(restore, 80)
-  window.setTimeout(restore, 180)
-  return restore
-}

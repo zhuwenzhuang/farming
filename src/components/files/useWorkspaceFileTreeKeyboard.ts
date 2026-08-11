@@ -5,7 +5,6 @@ import type {
   WorkspaceFileOperationState,
 } from '@/lib/workspace-file-operation-model'
 import {
-  preserveWorkspaceFileScrollPosition,
   shouldCancelPendingWorkspaceFileTreeFocus,
   shouldCloseWorkspaceFileTreeDirectory,
   workspaceFileTreeActivationIntent,
@@ -72,15 +71,11 @@ export function useWorkspaceFileTreeKeyboard({
     node: NodeApi<WorkspaceFileTreeNode>,
     updateDesiredState = true,
   ) => {
-    preserveWorkspaceFileScrollPosition(projectScroller())
     if (updateDesiredState) setDirectoryOpen(node.data.path, true)
     node.open()
     lastFocusedFilePathRef.current = node.data.path
-    focusFileTreeTarget(node.data)
   }, [
-    focusFileTreeTarget,
     lastFocusedFilePathRef,
-    projectScroller,
     setDirectoryOpen,
   ])
 
@@ -89,7 +84,6 @@ export function useWorkspaceFileTreeKeyboard({
     node: NodeApi<WorkspaceFileTreeNode> | null | undefined,
     updateDesiredState = true,
   ) => {
-    preserveWorkspaceFileScrollPosition(projectScroller())
     if (updateDesiredState) setDirectoryOpen(filePath, false)
     if (node) {
       node.close()
@@ -97,16 +91,12 @@ export function useWorkspaceFileTreeKeyboard({
       treeRef.current?.close(filePath)
     }
     lastFocusedFilePathRef.current = filePath
-    if (node) {
-      focusFileTreeTarget(node.data)
-    } else {
+    if (!node) {
       focusFileTreePath(filePath)
     }
   }, [
     focusFileTreePath,
-    focusFileTreeTarget,
     lastFocusedFilePathRef,
-    projectScroller,
     setDirectoryOpen,
     treeRef,
   ])

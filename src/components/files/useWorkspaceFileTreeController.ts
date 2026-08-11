@@ -1,6 +1,5 @@
 import { createElement, useCallback, useEffect, useRef } from 'react'
 import type { RowRendererProps, TreeApi } from 'react-arborist'
-import { preserveWorkspaceFileScrollPosition } from '@/lib/workspace-file-view-model'
 import type { WorkspaceFileTreeNode } from '@/lib/workspace-file-tree'
 
 interface UseWorkspaceFileTreeControllerOptions {
@@ -119,8 +118,6 @@ export function useWorkspaceFileTreeController({
   }, [])
 
   const handleTreeToggle = useCallback((path: string) => {
-    preserveWorkspaceFileScrollPosition(treeViewportRef.current?.closest<HTMLElement>('.code-project-list'))
-
     if (isDirectoryOpen(path)) {
       void hydrateCompactDirectoryChains(path).finally(() => refreshTreeLayout([path]))
     } else {
