@@ -61,7 +61,9 @@ function shareTicketIsFresh(ticket: ShareTicket | null, now: number) {
   return Boolean(ticket && ticket.expiresAt > now + 1000)
 }
 
-function tokenDisplayLines(value: string) {
+export function tokenDisplayLines(value: string) {
+  const compact = value.replace(/-/g, '')
+  if (!compact || !/^\p{Script=Han}+$/u.test(compact)) return [value]
   const parts = value
     .split('-')
     .map(part => part.trim())
@@ -433,7 +435,8 @@ export function ShareQrButton({
   const countdown = ticket ? formatCountdown(ticket.expiresAt - now) : ''
   const tokenLabel = ticket?.tokenLabel || copy.loading
   const tokenParts = tokenDisplayLines(tokenLabel)
-  const tokenLines = singleLineTokenFits || tokenParts.length <= 1 ? [tokenLabel] : tokenParts
+  const segmentedToken = tokenParts.length > 1
+  const tokenLines = segmentedToken && !singleLineTokenFits ? tokenParts : [tokenLabel]
 
   return (
     <div
@@ -532,11 +535,14 @@ export function ShareQrButton({
               data-testid="code-share-copy-link"
               onClick={() => void copyFullAccessLink()}
             >
-              <span className="code-share-token-card-main">
+              <span
+                className={`code-share-token-card-main${segmentedToken ? '' : ' non-segmented'}`}
+              >
                 <span
                   ref={tokenDisplayRef}
-                  className={`code-share-token ${singleLineTokenFits ? 'single-line' : ''}`}
+                  className={`code-share-token ${tokenLines.length === 1 ? 'single-line' : ''}`}
                   aria-label={tokenLabel}
+                  title={tokenLabel}
                 >
                   <span ref={tokenMeasureRef} className="code-share-token-measure" aria-hidden="true">{tokenLabel}</span>
                   {tokenLines.map((line, index) => (

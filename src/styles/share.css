@@ -193,6 +193,20 @@
   gap: 10px;
 }
 
+.code-share-token-card-main.non-segmented {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.code-share-token-card-main.non-segmented .code-share-token {
+  overflow: hidden;
+  overflow-wrap: normal;
+  text-overflow: ellipsis;
+}
+
+.code-share-token-card-main.non-segmented .code-share-copy-action {
+  text-align: right;
+}
+
 .code-share-token {
   min-width: 0;
   color: var(--code-text);
