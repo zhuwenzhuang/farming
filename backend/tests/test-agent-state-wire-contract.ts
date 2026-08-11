@@ -17,6 +17,7 @@ const {
   createAgentStateBroadcastTracker,
 } = require('../agent-state-broadcast-protocol.cjs');
 const { validateServerMessage } = require('../../shared/browser-protocol.js');
+const { listProviderDescriptors, providerCapabilities } = require('../provider-adapters.cjs');
 
 const generation = 'server-wire-contract';
 const tracker = createAgentStateBroadcastTracker();
@@ -60,6 +61,101 @@ function wireAgent(id: string, status: 'running' | 'stopped', title: string) {
     title,
   };
 }
+
+function validatesProviderCapabilities(capabilities: unknown): boolean {
+  return validateServerMessage({
+    type: 'state',
+    generation: 'provider-capabilities-validation',
+    sequence: 0,
+    state: {
+      agents: [{
+        ...wireAgent('provider-capabilities-agent', 'running', 'Provider capabilities'),
+        providerCapabilities: capabilities,
+      }],
+    },
+  }).ok;
+}
+
+const baseProviderCapabilities = wireAgent('base-provider', 'running', 'Base provider').providerCapabilities;
+assert.strictEqual(validatesProviderCapabilities(baseProviderCapabilities), true);
+assert.strictEqual(validatesProviderCapabilities({ ...baseProviderCapabilities, goalSubmission: null }), true);
+assert.strictEqual(validatesProviderCapabilities({
+  ...baseProviderCapabilities,
+  goalSubmission: {
+    terminal: { kind: 'command', prefix: '/goal set' },
+    acp: { kind: 'prompt' },
+  },
+}), true);
+assert.strictEqual(validatesProviderCapabilities({
+  ...baseProviderCapabilities,
+  conversationFork: {
+    terminal: {
+      supported: true,
+      strategy: 'target-process',
+      worktreeModes: ['same-worktree', 'new-worktree'],
+      requiresRuntimeCapability: false,
+    },
+    acp: {
+      supported: true,
+      strategy: 'source-session',
+      worktreeModes: ['same-worktree'],
+      requiresRuntimeCapability: true,
+    },
+  },
+}), true);
+
+const missingGoalSubmission: Record<string, unknown> = { ...baseProviderCapabilities };
+delete missingGoalSubmission.goalSubmission;
+assert.strictEqual(validatesProviderCapabilities(missingGoalSubmission), false);
+assert.strictEqual(validatesProviderCapabilities({
+  ...baseProviderCapabilities,
+  goalSubmission: { terminal: { kind: 'command' }, acp: { kind: 'prompt' } },
+}), false);
+assert.strictEqual(validatesProviderCapabilities({
+  ...baseProviderCapabilities,
+  goalSubmission: { terminal: { kind: 'prompt' }, acp: { kind: 'command', prefix: '/goal' } },
+}), false);
+assert.strictEqual(validatesProviderCapabilities({
+  ...baseProviderCapabilities,
+  conversationFork: {
+    terminal: {
+      supported: false,
+      strategy: null,
+      worktreeModes: [],
+      requiresRuntimeCapability: false,
+    },
+  },
+}), false);
+assert.strictEqual(validatesProviderCapabilities({
+  ...baseProviderCapabilities,
+  conversationFork: {
+    terminal: {
+      supported: true,
+      strategy: 'unsupported-strategy',
+      worktreeModes: ['same-worktree'],
+      requiresRuntimeCapability: false,
+    },
+    acp: {
+      supported: false,
+      strategy: null,
+      worktreeModes: ['unsupported-worktree-mode'],
+      requiresRuntimeCapability: false,
+    },
+  },
+}), false);
+
+for (const provider of listProviderDescriptors()) {
+  assert.strictEqual(
+    validatesProviderCapabilities(providerCapabilities(provider.id)),
+    true,
+    `${provider.id} production capabilities must satisfy the wire contract`,
+  );
+}
+assert.strictEqual(
+  validatesProviderCapabilities(providerCapabilities('unknown-provider')),
+  true,
+  'the unknown-provider production projection must satisfy the wire contract',
+);
 
 const initialState: AgentStatePayload = {
   agents: [

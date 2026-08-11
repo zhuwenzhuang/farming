@@ -72,6 +72,51 @@ function finiteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
 }
 
+function goalSubmissionWire(value: unknown): value is ProviderCapabilitiesWire['goalSubmission'] {
+  if (value === null) return true
+  const submission = record(value)
+  const terminal = record(submission?.terminal)
+  const acp = record(submission?.acp)
+  return Boolean(
+    submission
+    && terminal
+    && (
+      terminal.kind === 'prompt'
+      || (terminal.kind === 'command' && typeof terminal.prefix === 'string')
+    )
+    && acp?.kind === 'prompt'
+  )
+}
+
+function providerConversationForkCapabilityWire(
+  value: unknown,
+): value is ProviderConversationForkCapability {
+  const capability = record(value)
+  return Boolean(
+    capability
+    && typeof capability.supported === 'boolean'
+    && (
+      capability.strategy === null
+      || capability.strategy === 'source-session'
+      || capability.strategy === 'target-process'
+    )
+    && Array.isArray(capability.worktreeModes)
+    && capability.worktreeModes.every(mode => mode === 'same-worktree' || mode === 'new-worktree')
+    && typeof capability.requiresRuntimeCapability === 'boolean'
+  )
+}
+
+function providerConversationForkWire(
+  value: unknown,
+): value is NonNullable<ProviderCapabilitiesWire['conversationFork']> {
+  const conversationFork = record(value)
+  return Boolean(
+    conversationFork
+    && providerConversationForkCapabilityWire(conversationFork.terminal)
+    && providerConversationForkCapabilityWire(conversationFork.acp)
+  )
+}
+
 function providerCapabilitiesWire(value: unknown): value is ProviderCapabilitiesWire {
   const capabilities = record(value)
   return Boolean(
@@ -84,6 +129,11 @@ function providerCapabilitiesWire(value: unknown): value is ProviderCapabilities
     && (capabilities.terminalComposerInput === 'plain-text' || capabilities.terminalComposerInput === 'bracketed-paste')
     && typeof capabilities.slashCommandDiscovery === 'boolean'
     && typeof capabilities.goals === 'boolean'
+    && goalSubmissionWire(capabilities.goalSubmission)
+    && (
+      capabilities.conversationFork === undefined
+      || providerConversationForkWire(capabilities.conversationFork)
+    )
     && typeof capabilities.terminalSessionFork === 'boolean'
     && typeof capabilities.sessionFork === 'boolean'
     && (capabilities.chatRuntime === '' || capabilities.chatRuntime === 'acp')
