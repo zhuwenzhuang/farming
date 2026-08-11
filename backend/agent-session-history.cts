@@ -213,6 +213,7 @@ interface ProviderHistoryListContext {
 interface ProviderHistoryDefinition {
   id: AgentProvider;
   buildResumeCommand: (sessionId: string, options: ResumeCommandOptions) => string;
+  isVisible?: (session: AgentSession) => boolean;
   listSessions: (context: ProviderHistoryListContext) => Promise<AgentSession[]>;
   staleAutoResumeErrorPatterns?: readonly RegExp[];
   supportsUnarchive?: boolean;
@@ -530,15 +531,14 @@ function qwenTextFromMessage(message: unknown): string {
 }
 
 function isVisibleAgentSession(session: AgentSession | null | undefined): boolean {
-  const provider = String(session?.provider || '').trim().toLowerCase();
-  if (provider === 'claude') {
-    if (isDefaultClaudeSessionTitle(session?.title)) return false;
-    if (isAgentManagedWorktree(session?.cwd) || isAgentManagedWorktree(session?.workspace)) return false;
-  }
-
-  return !isTemporaryWorkspace(session?.cwd)
-    && !isTemporaryWorkspace(session?.workspace)
-    && !hasTemporaryWorkspaceReference(session?.title);
+  if (!session) return true;
+  if (
+    isTemporaryWorkspace(session.cwd)
+    || isTemporaryWorkspace(session.workspace)
+    || hasTemporaryWorkspaceReference(session.title)
+  ) return false;
+  const provider = normalizeProvider(session.provider);
+  return !provider || PROVIDER_HISTORY_BY_ID.get(provider)?.isVisible?.(session) !== false;
 }
 
 function activeScheduleFromMetadata(
@@ -1357,6 +1357,11 @@ const PROVIDER_HISTORY_DEFINITIONS: readonly ProviderHistoryDefinition[] = [
   },
   {
     id: 'claude',
+    isVisible: session => (
+      !isDefaultClaudeSessionTitle(session.title)
+      && !isAgentManagedWorktree(session.cwd)
+      && !isAgentManagedWorktree(session.workspace)
+    ),
     buildResumeCommand: (sessionId, options) => options.fork === true
       ? `claude --resume ${sessionId} --fork-session`
       : `claude --resume ${sessionId}`,

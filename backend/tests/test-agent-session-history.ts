@@ -10,6 +10,7 @@ const {
   isAgentManagedWorktree,
   isDefaultClaudeSessionTitle,
   isTemporaryWorkspace,
+  isVisibleAgentSession,
   listAgentSessions,
   listClaudeSessions,
   listOpenCodeSessions,
@@ -376,6 +377,18 @@ async function run() {
   assert.strictEqual(isAgentManagedWorktree('/Users/example/.codex/worktrees/foo/project'), true);
   assert.strictEqual(isAgentManagedWorktree('/Users/example/.claude/worktrees/foo'), true);
   assert.strictEqual(isAgentManagedWorktree('/Users/example/git/project'), false);
+  assert.strictEqual(isVisibleAgentSession({ provider: 'claude', title: 'Claude session' }), false);
+  assert.strictEqual(isVisibleAgentSession({ provider: 'qoder', title: 'Claude session' }), true);
+  assert.strictEqual(isVisibleAgentSession({
+    provider: 'claude',
+    title: 'Real task',
+    workspace: '/Users/example/.claude/worktrees/foo',
+  }), false);
+  assert.strictEqual(isVisibleAgentSession({
+    provider: 'opencode',
+    title: 'Real task',
+    workspace: '/Users/example/.claude/worktrees/foo',
+  }), true);
 
 
   const claudeSessions = await listClaudeSessions({ claudeHome, limit: 5 });

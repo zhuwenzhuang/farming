@@ -6,7 +6,7 @@ import path from 'node:path';
 const {
   readProviderHomeConfiguration,
   summarizeCodexConfiguration,
-  summarizeJsonConfiguration,
+  summarizeProviderHomeConfiguration,
 } = require('../provider-home-configuration.cjs');
 
 assert.deepStrictEqual(summarizeCodexConfiguration([
@@ -28,7 +28,7 @@ assert.deepStrictEqual(summarizeCodexConfiguration([
   { key: 'sandbox', value: 'workspace-write' },
 ]);
 
-assert.deepStrictEqual(summarizeJsonConfiguration('claude', JSON.stringify({
+assert.deepStrictEqual(summarizeProviderHomeConfiguration('claude', JSON.stringify({
   model: 'claude-opus-4-1',
   effortLevel: 'high',
   permissionMode: 'acceptEdits',
@@ -39,7 +39,7 @@ assert.deepStrictEqual(summarizeJsonConfiguration('claude', JSON.stringify({
   { key: 'permission', value: 'acceptEdits' },
 ]);
 
-assert.deepStrictEqual(summarizeJsonConfiguration('opencode', `{
+assert.deepStrictEqual(summarizeProviderHomeConfiguration('opencode', `{
   // JSONC remains supported.
   "model": "openai/gpt-5.6",
   "provider": "openai",
@@ -48,7 +48,7 @@ assert.deepStrictEqual(summarizeJsonConfiguration('opencode', `{
   { key: 'provider', value: 'openai' },
 ]);
 
-assert.deepStrictEqual(summarizeJsonConfiguration('opencode', `{
+assert.deepStrictEqual(summarizeProviderHomeConfiguration('opencode', `{
   // "model": "commented/old-model",
   /* "provider": "commented-provider" */
   "model": "openai/new-model",
@@ -59,7 +59,7 @@ assert.deepStrictEqual(summarizeJsonConfiguration('opencode', `{
   { key: 'provider', value: 'openai' },
 ]);
 
-assert.deepStrictEqual(summarizeJsonConfiguration('opencode', `{
+assert.deepStrictEqual(summarizeProviderHomeConfiguration('opencode', `{
   "note": ${JSON.stringify('"model": "embedded/old-model"')},
 }`), []);
 

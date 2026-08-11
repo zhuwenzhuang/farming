@@ -173,7 +173,15 @@ function parseJsoncObject(contents: string): Record<string, unknown> {
   }
 }
 
-function summarizeJsonConfiguration(provider: string, contents: string): ConfigurationSummaryEntry[] {
+interface JsonConfigurationSummaryField {
+  key: ConfigurationSummaryKey;
+  setting: string;
+}
+
+function summarizeJsonConfiguration(
+  contents: string,
+  fields: readonly JsonConfigurationSummaryField[] = [],
+): ConfigurationSummaryEntry[] {
   const settings = parseJsoncObject(contents);
 
   const summary: ConfigurationSummaryEntry[] = [];
@@ -187,14 +195,7 @@ function summarizeJsonConfiguration(provider: string, contents: string): Configu
     || scalarText(modelRecord.name)
     || scalarText(env.ANTHROPIC_MODEL);
   pushSummary(summary, 'model', model);
-
-  if (provider === 'claude') {
-    pushSummary(summary, 'reasoning', settings.effortLevel);
-    pushSummary(summary, 'permission', settings.permissionMode);
-  }
-  if (provider === 'opencode') {
-    pushSummary(summary, 'provider', settings.provider);
-  }
+  for (const field of fields) pushSummary(summary, field.key, settings[field.setting]);
   return summary;
 }
 
@@ -210,19 +211,24 @@ const PROVIDER_CONFIGURATION_DEFINITIONS: Record<string, ProviderConfigurationDe
   },
   claude: {
     files: ['settings.json'],
-    summarize: contents => summarizeJsonConfiguration('claude', contents),
+    summarize: contents => summarizeJsonConfiguration(contents, [
+      { key: 'reasoning', setting: 'effortLevel' },
+      { key: 'permission', setting: 'permissionMode' },
+    ]),
   },
   opencode: {
     files: ['opencode.jsonc', 'opencode.json'],
-    summarize: contents => summarizeJsonConfiguration('opencode', contents),
+    summarize: contents => summarizeJsonConfiguration(contents, [
+      { key: 'provider', setting: 'provider' },
+    ]),
   },
   qoder: {
     files: ['settings.json'],
-    summarize: contents => summarizeJsonConfiguration('qoder', contents),
+    summarize: summarizeJsonConfiguration,
   },
   qwen: {
     files: ['settings.json'],
-    summarize: contents => summarizeJsonConfiguration('qwen', contents),
+    summarize: summarizeJsonConfiguration,
   },
 };
 
@@ -232,6 +238,14 @@ const PROVIDER_CONFIGURATION_FILES: Record<string, string[]> = Object.fromEntrie
     [...definition.files],
   ]),
 );
+
+function summarizeProviderHomeConfiguration(
+  provider: unknown,
+  contents: string,
+): ConfigurationSummaryEntry[] {
+  const normalizedProvider = String(provider || '').trim().toLowerCase();
+  return PROVIDER_CONFIGURATION_DEFINITIONS[normalizedProvider]?.summarize(contents) || [];
+}
 
 function readProviderHomeConfiguration(provider: unknown, homePath: unknown): ProviderHomeConfiguration {
   const normalizedProvider = String(provider || '').trim().toLowerCase();
@@ -250,7 +264,7 @@ function readProviderHomeConfiguration(provider: unknown, homePath: unknown): Pr
     return {
       exists: true,
       filePath,
-      summary: definition?.summarize(contents) || [],
+      summary: summarizeProviderHomeConfiguration(normalizedProvider, contents),
     };
   } catch {
     return { exists: true, filePath, summary: [] };
@@ -261,5 +275,5 @@ export {
   PROVIDER_CONFIGURATION_FILES,
   readProviderHomeConfiguration,
   summarizeCodexConfiguration,
-  summarizeJsonConfiguration,
+  summarizeProviderHomeConfiguration,
 };
