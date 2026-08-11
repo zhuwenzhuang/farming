@@ -49,6 +49,14 @@ assert.strictEqual(canSwitchCrtAgentRuntime({
   providerCapabilities: switchableProviderCapabilities,
 }), false);
 assert.strictEqual(canSwitchCrtAgentRuntime({
+  providerSessionProvider: 'future-provider',
+  providerSessionId: 'temporary-provider-session',
+  providerSessionTemporary: true,
+  runtimeBinding: { kind: 'terminal' },
+  terminalInputReceived: false,
+  providerCapabilities: switchableProviderCapabilities,
+}), true, 'fresh temporary switching follows Provider capabilities instead of a Provider-name allowlist');
+assert.strictEqual(canSwitchCrtAgentRuntime({
   providerSessionProvider: 'codex',
   providerSessionId: 'tmp_uuid_aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
   providerSessionTemporary: true,

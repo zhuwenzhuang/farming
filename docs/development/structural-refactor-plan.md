@@ -195,7 +195,9 @@ HTTP, WebSocket, persistence, and runtime-host boundaries.
   normalization, permission labels, model/reasoning/service-tier transitions,
   live Terminal profile projection, and provider-specific launch flags. React
   composition code selects an adapter by Provider identity and must not mirror
-  those decisions in paired Provider-name branches.
+  those decisions in paired Provider-name branches. Optional surfaces such as
+  context-window telemetry are enabled by advertised Provider capabilities,
+  not by browser-side Provider-name checks.
 
 ### ACP ownership
 
@@ -565,8 +567,8 @@ npm test
 
 Additionally:
 
-- Server router or WebSocket changes run server lifecycle and protocol tests
-  with `FARMING_INCLUDE_SERVER_TESTS=1`.
+- Server router or WebSocket changes run the continuously discovered server
+  lifecycle and protocol tests plus their focused browser journeys.
 - Terminal changes run Code and CRT checkpoint, reconnect, resize, IME, TUI,
   and multi-viewer scenarios.
 - Agent lifecycle, Worktree, Fork, or ACP changes test cancellation,

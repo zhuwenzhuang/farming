@@ -488,6 +488,7 @@ function run() {
   assert.deepStrictEqual(providerCapabilities('codex'), {
     supportedRuntimes: ['terminal', 'acp'],
     runtimeSwitch: true,
+    contextWindow: true,
     terminalProfile: true,
     terminalComposerInput: 'bracketed-paste',
     slashCommandDiscovery: true,
@@ -518,6 +519,7 @@ function run() {
     {
       supportedRuntimes: ['terminal', 'acp'],
       runtimeSwitch: true,
+      contextWindow: false,
       terminalProfile: false,
       terminalComposerInput: 'bracketed-paste',
       slashCommandDiscovery: true,
@@ -549,6 +551,7 @@ function run() {
     {
       supportedRuntimes: ['terminal'],
       runtimeSwitch: false,
+      contextWindow: false,
       terminalProfile: false,
       terminalComposerInput: 'bracketed-paste',
       slashCommandDiscovery: false,

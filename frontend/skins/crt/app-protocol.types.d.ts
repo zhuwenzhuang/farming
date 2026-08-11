@@ -24,6 +24,7 @@ interface CrtProtocolRuntimeObservation extends CrtProtocolRecord {
 interface CrtProtocolProviderCapabilities extends CrtProtocolRecord {
   supportedRuntimes: Array<'terminal' | 'acp' | 'json'>;
   runtimeSwitch: boolean;
+  contextWindow?: boolean;
   terminalProfile: boolean;
   terminalSessionFork: boolean;
   sessionFork: boolean;

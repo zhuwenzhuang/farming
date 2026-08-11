@@ -12,6 +12,7 @@ export interface ProviderConversationForkCapability {
 export interface ProviderCapabilitiesWire {
   supportedRuntimes: ProviderRuntime[]
   runtimeSwitch: boolean
+  contextWindow?: boolean
   terminalProfile: boolean
   terminalComposerInput: 'plain-text' | 'bracketed-paste'
   slashCommandDiscovery: boolean
@@ -78,6 +79,7 @@ function providerCapabilitiesWire(value: unknown): value is ProviderCapabilities
     && Array.isArray(capabilities.supportedRuntimes)
     && capabilities.supportedRuntimes.every(runtime => runtime === 'terminal' || runtime === 'acp')
     && typeof capabilities.runtimeSwitch === 'boolean'
+    && (capabilities.contextWindow === undefined || typeof capabilities.contextWindow === 'boolean')
     && typeof capabilities.terminalProfile === 'boolean'
     && (capabilities.terminalComposerInput === 'plain-text' || capabilities.terminalComposerInput === 'bracketed-paste')
     && typeof capabilities.slashCommandDiscovery === 'boolean'

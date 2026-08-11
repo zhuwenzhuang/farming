@@ -5579,8 +5579,8 @@ function crtRuntimeView(agent: CrtAgent|undefined) {
 }
 
 function canSwitchCrtAgentRuntime(agent: CrtAgent|null|undefined): agent is CrtAgent {
-  const freshCodexTerminal = agent
-    && agent.providerSessionProvider === 'codex'
+  const freshSwitchableTerminal = agent
+    && agent.providerCapabilities?.runtimeSwitch === true
     && agent.runtimeBinding?.kind === 'terminal'
     && agent.providerSessionTemporary === true
     && agent.terminalInputReceived !== true;
@@ -5588,7 +5588,7 @@ function canSwitchCrtAgentRuntime(agent: CrtAgent|null|undefined): agent is CrtA
     agent
     && agent.providerCapabilities?.runtimeSwitch === true
     && agent.providerCapabilities?.supportsChat === true
-    && (agent.providerSessionTemporary !== true || freshCodexTerminal)
+    && (agent.providerSessionTemporary !== true || freshSwitchableTerminal)
     && String(agent.providerSessionId || '').trim()
   );
 }

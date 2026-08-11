@@ -152,6 +152,8 @@ Runtime Port 与 Provider Policy
   Profile Adapter 负责 Settings 字段兼容、选项归一化、权限文案、模型/Reasoning/
   Service Tier 转换、Live Terminal Profile Projection 和 Provider 专属启动参数。
   React 组合层只按 Provider 身份选择 Adapter，不再复制成对的 Provider 名称分支。
+  Context Window 遥测等可选 Surface 由 Provider 声明的 Capability 启用，浏览器侧不再
+  按 Provider 名称推断。
 
 ### ACP 所有权
 
@@ -455,8 +457,8 @@ npm test
 
 另外：
 
-- Server Router 或 WebSocket 变更使用 `FARMING_INCLUDE_SERVER_TESTS=1` 运行 Server
-  Lifecycle 与 Protocol 测试。
+- Server Router 或 WebSocket 变更运行持续自动发现的 Server Lifecycle、Protocol
+  测试及其聚焦 Browser Journey。
 - Terminal 变更运行 Code 与 CRT 的 Checkpoint、Reconnect、Resize、IME、TUI 和
   Multi-viewer 场景。
 - Agent Lifecycle、Worktree、Fork 或 ACP 变更覆盖取消、并发、不确定结果、重启、

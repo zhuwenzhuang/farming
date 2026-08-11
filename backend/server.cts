@@ -977,7 +977,7 @@ app.use(routePath(BASE_PATH, '/api/usage'), createUsageRouter({
   invalidateDailyCache: () => usageMonitor.invalidateDailyCache(),
 }));
 
-app.post(routePath(BASE_PATH, '/api/codex/context-windows'), express.json(), async (req, res) => {
+const readProviderContextWindows = async (req: express.Request, res: express.Response) => {
   try {
     const requestedIds = Array.isArray(req.body?.agentIds)
       ? req.body.agentIds
@@ -991,9 +991,13 @@ app.post(routePath(BASE_PATH, '/api/codex/context-windows'), express.json(), asy
     res.json({ contextWindows });
   } catch (caught) {
     const error = caughtError(caught);
-    res.status(500).json({ error: error.message || 'Failed to read Codex context windows' });
+    res.status(500).json({ error: error.message || 'Failed to read provider context windows' });
   }
-});
+};
+
+app.post(routePath(BASE_PATH, '/api/provider-context-windows'), express.json(), readProviderContextWindows);
+// Compatibility for clients from before provider context-window capability routing.
+app.post(routePath(BASE_PATH, '/api/codex/context-windows'), express.json(), readProviderContextWindows);
 
 app.use(routePath(BASE_PATH, '/api/update'), createUpdateRouter(updateService));
 

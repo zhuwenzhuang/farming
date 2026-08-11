@@ -156,6 +156,7 @@ interface ProviderAcpContract {
 
 interface ProviderCapabilitiesContract {
   runtimeSwitch: boolean;
+  contextWindow: boolean;
   terminalProfile: boolean;
   terminalComposerInput: 'plain-text' | 'bracketed-paste';
   slashCommandDiscovery: boolean;
@@ -522,6 +523,7 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
     prepareAcpEnvironment: codexAcpEnvironment,
     capabilities: {
       runtimeSwitch: true,
+      contextWindow: true,
       terminalProfile: true,
       terminalComposerInput: 'bracketed-paste',
       slashCommandDiscovery: true,
@@ -589,6 +591,7 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
     prepareAcpEnvironment: claudeAcpEnvironment,
     capabilities: {
       runtimeSwitch: true,
+      contextWindow: false,
       terminalProfile: false,
       terminalComposerInput: 'bracketed-paste',
       slashCommandDiscovery: true,
@@ -653,6 +656,7 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
     },
     capabilities: {
       runtimeSwitch: true,
+      contextWindow: false,
       terminalProfile: false,
       terminalComposerInput: 'plain-text',
       slashCommandDiscovery: false,
@@ -698,6 +702,7 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
     },
     capabilities: {
       runtimeSwitch: true,
+      contextWindow: false,
       terminalProfile: false,
       terminalComposerInput: 'plain-text',
       slashCommandDiscovery: false,
@@ -760,6 +765,7 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
     },
     capabilities: {
       runtimeSwitch: true,
+      contextWindow: false,
       terminalProfile: false,
       terminalComposerInput: 'plain-text',
       slashCommandDiscovery: false,
@@ -803,6 +809,7 @@ function providerCapabilities(provider: unknown): ProviderCapabilitiesWire {
   return {
     supportedRuntimes: adapter ? [...adapter.supportedRuntimes] : ['terminal'],
     runtimeSwitch: adapter?.capabilities?.runtimeSwitch === true,
+    contextWindow: adapter?.capabilities?.contextWindow === true,
     terminalProfile: adapter?.capabilities?.terminalProfile === true,
     terminalComposerInput: adapter?.capabilities?.terminalComposerInput || 'bracketed-paste',
     slashCommandDiscovery: adapter?.capabilities?.slashCommandDiscovery === true,

@@ -545,6 +545,7 @@ const EXPECTED_API_ROUTE_MANIFEST = [
   'GET /api/claude/settings',
   'GET /api/usage',
   'GET /api/usage/day',
+  'POST /api/provider-context-windows',
   'POST /api/codex/context-windows',
   'GET /api/update',
   'POST /api/update/install',

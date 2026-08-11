@@ -5041,15 +5041,15 @@ function crtRuntimeView(agent) {
     return isStructuredRuntimeAgent(agent) ? 'chat' : 'terminal';
 }
 function canSwitchCrtAgentRuntime(agent) {
-    const freshCodexTerminal = agent
-        && agent.providerSessionProvider === 'codex'
+    const freshSwitchableTerminal = agent
+        && agent.providerCapabilities?.runtimeSwitch === true
         && agent.runtimeBinding?.kind === 'terminal'
         && agent.providerSessionTemporary === true
         && agent.terminalInputReceived !== true;
     return Boolean(agent
         && agent.providerCapabilities?.runtimeSwitch === true
         && agent.providerCapabilities?.supportsChat === true
-        && (agent.providerSessionTemporary !== true || freshCodexTerminal)
+        && (agent.providerSessionTemporary !== true || freshSwitchableTerminal)
         && String(agent.providerSessionId || '').trim());
 }
 function crtRuntimeSwitchUnavailableReason(agent) {

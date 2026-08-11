@@ -162,8 +162,8 @@ function isConfirmedRuntimeReplacement(
       : false
 }
 
-function canReadCodexContextWindow(agent: Agent | null | undefined): agent is Agent & { providerSessionProvider: 'codex'; providerSessionId: string } {
-  return agent?.providerSessionProvider === 'codex'
+function canReadProviderContextWindow(agent: Agent | null | undefined): agent is Agent & { providerSessionId: string } {
+  return agent?.providerCapabilities?.contextWindow === true
     && Boolean(agent.providerSessionId)
     && agent.providerSessionTemporary !== true
 }
@@ -539,7 +539,7 @@ export function App() {
     const uniqueAgentIds = Array.from(new Set(agentIds.filter(Boolean)))
     if (uniqueAgentIds.length === 0) return
 
-    fetch(appPath('/api/codex/context-windows'), {
+    fetch(appPath('/api/provider-context-windows'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ agentIds: uniqueAgentIds }),
@@ -1082,7 +1082,7 @@ export function App() {
 
   useEffect(() => {
     if (!pageVisible) return undefined
-    if (!canReadCodexContextWindow(activeTerminalAgent)) return undefined
+    if (!canReadProviderContextWindow(activeTerminalAgent)) return undefined
 
     const activeAgentId = activeTerminalAgent.id
     let firstLoadTimer: number | undefined
