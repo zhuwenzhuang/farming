@@ -98,6 +98,17 @@ fi
 PACKAGE_ROOT="${PREFIX}/lib/node_modules/farming-code"
 CODEX_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/codex-acp-1.1.14.mjs"
 CLAUDE_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/claude-agent-acp-0.66.0.mjs"
+for packaged_ui_file in \
+  frontend/runtime-paths.js \
+  frontend/skins/crt/app.js \
+  frontend/skins/crt/index.html \
+  frontend/skins/crt/styles/monochrome-green.css
+do
+  if [ ! -f "${PACKAGE_ROOT}/${packaged_ui_file}" ]; then
+    echo "npm package omitted Farming CRT runtime ${packaged_ui_file}" >&2
+    exit 1
+  fi
+done
 if node -e 'const p=require(process.argv[1]); for (const name of ["preinstall", "install", "postinstall"]) if (p.scripts?.[name]) process.exit(1)' "${PACKAGE_ROOT}/package.json"; then
   :
 else
@@ -275,6 +286,14 @@ if ! [[ "${SERVER_PID}" =~ ^[0-9]+$ ]] || ! process_is_alive "${SERVER_PID}"; th
   exit 1
 fi
 curl --fail --silent --show-error "http://127.0.0.1:${PORT_VALUE}/farming/api/auth/status" | grep -q '"authRequired":false'
+for crt_path in \
+  /farming/crt/ \
+  /farming/crt/app.js \
+  /farming/crt/shared/runtime-paths.js \
+  /farming/crt/styles/monochrome-green.css
+do
+  curl --fail --silent --show-error --output /dev/null "http://127.0.0.1:${PORT_VALUE}${crt_path}"
+done
 
 node -e '
   const path = require("path");
@@ -366,4 +385,4 @@ fi
 wait_for_process_exit "${SERVER_PID}" "Farming server"
 wait_for_process_exit "${NATIVE_HOST_PID}" "native PTY host"
 wait_for_process_exit "${MAIN_BASH_PID}" "Main bash"
-echo "✓ npm package installs with lifecycle scripts disabled, verifies packaged runtimes and Codex ACP, and stops its server/native PTY process tree"
+echo "✓ npm package installs with lifecycle scripts disabled, serves Farming CRT, verifies packaged runtimes and Codex ACP, and stops its server/native PTY process tree"

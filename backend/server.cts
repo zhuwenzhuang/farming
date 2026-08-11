@@ -1794,7 +1794,7 @@ wss.on('connection', (ws, req) => {
       }));
     }
   });
-  
+
   ws.on('close', (code: number, reason: Buffer) => {
     workspaceFileWatchController.close(ws);
     cancelSessionPreviewHydration(ws);
@@ -1808,7 +1808,7 @@ wss.on('connection', (ws, req) => {
       protocolVersion: ws.protocolVersion ?? null,
     }));
   });
-  
+
   ws.send(JSON.stringify({
     type: 'protocol-hello',
     protocolVersion: PROTOCOL_VERSION,

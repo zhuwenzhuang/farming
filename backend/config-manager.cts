@@ -666,12 +666,12 @@ class ConfigManager {
       fs.mkdirSync(this.farmingDir, { recursive: true });
       console.log('Created farming directory:', this.farmingDir);
     }
-    
+
     if (!fs.existsSync(this.settingsFile)) {
       this.writeSettingsFile(this.buildDefaultSettings());
       console.log('Created default settings:', this.settingsFile);
     }
-    
+
     const rawSettings = JSON.parse(fs.readFileSync(this.settingsFile, 'utf8')) as JsonRecord;
     this.settings = {
       ...this.buildDefaultSettings(),

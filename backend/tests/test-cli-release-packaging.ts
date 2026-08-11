@@ -135,10 +135,13 @@ function run() {
   assert(
     npmSmokeScript.includes('--ignore-scripts')
       && npmSmokeScript.includes("grep -q '^npm warn allow-scripts'")
+      && npmSmokeScript.includes('frontend/skins/crt/index.html')
+      && npmSmokeScript.includes('/farming/crt/shared/runtime-paths.js')
+      && npmSmokeScript.includes('/farming/crt/styles/monochrome-green.css')
       && npmSmokeScript.includes('node --import tsx "${PROJECT_ROOT}/scripts/assert-no-bundled-agent-clis.ts"')
       && !npmSmokeScript.includes('node_modules/.bin/tsx')
       && !npmSmokeScript.includes('FARMING_SKIP_INSTALL_RUNTIME_PREPARE=1'),
-    'npm package smoke must disable lifecycle scripts and keep TypeScript verification compatible with loader-aware Node',
+    'npm package smoke must disable lifecycle scripts, serve CRT assets, and keep TypeScript verification compatible with loader-aware Node',
   );
   assert(
     packageJson.scripts?.preinstall == null
