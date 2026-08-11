@@ -20,7 +20,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 
-const SCHEMA_VERSION = 12;
+const SCHEMA_VERSION = 13;
 const SOURCE_VERSION = 'farming-usage-ts-1-codexbar-v0.45.2';
 const PREFIX_BYTES = 64 * 1024;
 const READ_CHUNK_BYTES = 1024 * 1024;
@@ -76,7 +76,15 @@ type ClaudeState = {
   sessionId: string;
   projectPath: string;
 };
-type ParserState = CodexState | ClaudeState;
+type LineCheckpoint = {
+  lineBytes: number;
+  lineStartOffset: number;
+  firstBase64: string;
+  tailBase64: string;
+};
+type ParserState = (CodexState | ClaudeState) & {
+  lineCheckpoint?: LineCheckpoint;
+};
 type SourceCandidate = {
   provider: Provider;
   filePath: string;
@@ -1533,16 +1541,34 @@ function scanFile(
   if (!row) throw new Error(`Unable to create usage checkpoint for ${candidate.filePath}`);
 
   const state = JSON.parse(String(row.parser_state)) as ParserState;
+  const lineCheckpoint = state.lineCheckpoint;
+  delete state.lineCheckpoint;
   let committedOffset = Number(row.committed_offset);
   let physicalOffset = committedOffset;
+  let lineStartOffset = lineCheckpoint?.lineStartOffset ?? committedOffset;
   let fullChunks: Buffer[] = [];
-  let lineBytes = 0;
-  let first = Buffer.alloc(0);
-  let tail = Buffer.alloc(0);
-  let truncated = false;
+  let lineBytes = lineCheckpoint?.lineBytes ?? 0;
+  let first = lineCheckpoint
+    ? Buffer.from(lineCheckpoint.firstBase64, 'base64')
+    : Buffer.alloc(0);
+  let tail = lineCheckpoint
+    ? Buffer.from(lineCheckpoint.tailBase64, 'base64')
+    : Buffer.alloc(0);
+  let truncated = Boolean(lineCheckpoint);
   let stoppedForBudget = false;
 
+  const checkpointLine = () => {
+    state.lineCheckpoint = {
+      lineBytes,
+      lineStartOffset,
+      firstBase64: first.toString('base64'),
+      tailBase64: tail.toString('base64'),
+    };
+    committedOffset = physicalOffset;
+  };
+
   const resetLine = () => {
+    lineStartOffset = committedOffset;
     fullChunks = [];
     lineBytes = 0;
     first = Buffer.alloc(0);
@@ -1580,7 +1606,7 @@ function scanFile(
         } catch {
           return false;
         }
-      } else if (!isCompleteJsonValue(candidate.filePath, committedOffset, lineEnd)) {
+      } else if (!isCompleteJsonValue(candidate.filePath, lineStartOffset, lineEnd)) {
         return false;
       }
     }
@@ -1622,11 +1648,25 @@ function scanFile(
         appendPart(Buffer.from(block.subarray(cursor, end)));
         physicalOffset += end - cursor;
         cursor = end;
-        if (newline >= 0) finishLine(physicalOffset);
+        if (newline >= 0) {
+          finishLine(physicalOffset);
+          if (Date.now() >= deadline && physicalOffset < candidate.stat.size) {
+            stoppedForBudget = true;
+            break;
+          }
+        }
       }
-      if (Date.now() >= deadline && lineBytes === 0 && physicalOffset < candidate.stat.size) {
-        stoppedForBudget = true;
-        break;
+      if (stoppedForBudget) break;
+      if (Date.now() >= deadline && physicalOffset < candidate.stat.size) {
+        if (lineBytes === 0) {
+          stoppedForBudget = true;
+          break;
+        }
+        if (truncated) {
+          checkpointLine();
+          stoppedForBudget = true;
+          break;
+        }
       }
     }
   } finally {
@@ -1635,11 +1675,14 @@ function scanFile(
 
   const finalStat = fs.statSync(candidate.filePath);
   if (!stoppedForBudget && physicalOffset >= finalStat.size && lineBytes > 0) {
-    finishLine(physicalOffset, true);
+    const finished = finishLine(physicalOffset, true);
+    if (!finished && truncated) checkpointLine();
   }
   const scanComplete = !stoppedForBudget
     && physicalOffset >= finalStat.size
-    && committedOffset >= finalStat.size;
+    && committedOffset >= finalStat.size
+    && lineBytes === 0
+    && !state.lineCheckpoint;
   database.prepare(`
     UPDATE source_files SET
       size = ?, mtime_ms = ?, committed_offset = ?, file_dev = ?, file_ino = ?,

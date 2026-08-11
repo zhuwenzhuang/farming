@@ -41,6 +41,7 @@ interface UsageHistoryClientLike {
     retentionDays: number;
     roots: Record<string, string[]>;
     fresh?: boolean;
+    scanBudgetMs?: number;
   }): Promise<CCStatisticsResult>;
 }
 
@@ -49,6 +50,7 @@ interface CCStatisticsOptions {
   days?: number;
   retentionDays?: number;
   fresh?: boolean;
+  scanBudgetMs?: number;
   providerHomes?: ProviderHomes;
   codexHome?: string;
   claudeHome?: string;
@@ -221,6 +223,7 @@ const USAGE_LIVE_TIMELINE_BUCKET_COUNT = 60;
 const USAGE_DAILY_DAYS = 52 * 7;
 const USAGE_DAILY_CACHE_MS = 5 * 60 * 1000;
 const USAGE_LIVE_DAY_CACHE_MS = 5 * 1000;
+const USAGE_FOREGROUND_SCAN_BUDGET_MS = 500;
 const COMMAND_TIMEOUT_MS = 2500;
 const OPENCODE_COMMAND_TIMEOUT_MS = 20_000;
 const OPENCODE_EXPORT_CONCURRENCY = 4;
@@ -396,6 +399,7 @@ async function collectCCStatistics(options: CCStatisticsOptions = {}) {
       retentionDays: options.retentionDays ?? USAGE_DAILY_DAYS,
       roots,
       fresh: options.fresh,
+      scanBudgetMs: options.scanBudgetMs,
     });
     return { result, roots };
   } catch (error) {
@@ -1305,6 +1309,7 @@ class UsageMonitor {
   dailyCache: DailyUsageCache;
   liveDayCacheMs: number;
   liveDayCache: LiveDayCache;
+  foregroundScanBudgetMs: number;
 
   constructor(options: UsageMonitorOptions = {}) {
     this.agentManager = options.agentManager || null;
@@ -1326,6 +1331,7 @@ class UsageMonitor {
     this.dailyCache = { value: null, fetchedAt: 0, pending: null };
     this.liveDayCacheMs = options.liveDayCacheMs ?? USAGE_LIVE_DAY_CACHE_MS;
     this.liveDayCache = { date: '', value: null, fetchedAt: 0, pending: null };
+    this.foregroundScanBudgetMs = options.scanBudgetMs ?? USAGE_FOREGROUND_SCAN_BUDGET_MS;
   }
 
   invalidateDailyCache(): void {
@@ -1366,6 +1372,7 @@ class UsageMonitor {
     if (
       !options.force
       && this.dailyCache.value
+      && this.dailyCache.value.daily.syncing !== true
       && now - this.dailyCache.fetchedAt <= this.dailyCacheMs
     ) {
       return Promise.resolve(this.dailyCache.value);
@@ -1381,6 +1388,7 @@ class UsageMonitor {
       openCodeCommandRunner: this.openCodeCommandRunner,
       configDir: this.configDir,
       ccStatisticsClient: this.ccStatisticsClient,
+      scanBudgetMs: this.foregroundScanBudgetMs,
       now,
       days: this.dailyDays,
     }).then(value => {
@@ -1404,6 +1412,7 @@ class UsageMonitor {
         ? this.liveDayCache.value
         : null;
       const fallback = cachedFallback || dailyFallback;
+      const historySyncing = this.dailyCache.value?.daily?.syncing === true;
       const recoverWithFallback = (error: unknown): UsageDayDetail => {
         if (!fallback) throw error;
         if (this.liveDayCache.date === liveDate) {
@@ -1421,7 +1430,11 @@ class UsageMonitor {
         return this.liveDayCache.value;
       }
       if (this.liveDayCache.pending && this.liveDayCache.date === liveDate) {
-        return this.liveDayCache.pending.catch(recoverWithFallback);
+        return options.fresh !== true && historySyncing && fallback
+          ? fallback
+          : options.fresh === true
+            ? this.liveDayCache.pending
+            : this.liveDayCache.pending.catch(recoverWithFallback);
       }
       this.liveDayCache.date = liveDate;
       const pending = collectUsageHistory({
@@ -1433,6 +1446,7 @@ class UsageMonitor {
         openCodeCommandRunner: this.openCodeCommandRunner,
         configDir: this.configDir,
         ccStatisticsClient: this.ccStatisticsClient,
+        scanBudgetMs: this.foregroundScanBudgetMs,
         now,
         days: 1,
       }).then(history => {
@@ -1446,7 +1460,9 @@ class UsageMonitor {
         if (this.liveDayCache.pending === pending) this.liveDayCache.pending = null;
       });
       this.liveDayCache.pending = pending;
-      return pending.catch(recoverWithFallback);
+      void pending.catch(() => {});
+      if (options.fresh !== true && historySyncing && fallback) return fallback;
+      return options.fresh === true ? pending : pending.catch(recoverWithFallback);
     }
     const history = await this.getDailyUsage({
       now,
@@ -1467,6 +1483,7 @@ class UsageMonitor {
       providerHomes,
       configDir: this.configDir,
       ccStatisticsClient: this.ccStatisticsClient,
+      scanBudgetMs: this.foregroundScanBudgetMs,
       now,
       windowMs,
       historyWindowMs,
@@ -1539,6 +1556,7 @@ export {
   USAGE_DAILY_DAYS,
   USAGE_DAILY_CACHE_MS,
   USAGE_LIVE_DAY_CACHE_MS,
+  USAGE_FOREGROUND_SCAN_BUDGET_MS,
   UsageMonitor,
   buildUsageTimeline,
   buildDailyUsage,

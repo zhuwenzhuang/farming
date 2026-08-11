@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+
+if [[ "$#" -eq 3 && "$1" == "auth" && "$2" == "status" && "$3" == "--json" ]]; then
+  printf '{"loggedIn":true,"authMethod":"fixture","apiProvider":"fixture"}\n'
+  exit 0
+fi
+
 printf 'Fake Claude Code ready\n'
 
 while IFS= read -r line; do

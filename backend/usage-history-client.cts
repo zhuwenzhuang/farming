@@ -374,7 +374,11 @@ class UsageHistoryClient {
     this.backgroundTimer = setTimeout(() => {
       this.backgroundTimer = null;
       if (generation !== this.backgroundGeneration || cacheKey !== this.cacheKey) return;
-      const backgroundRequest = { ...request, nowMs: Date.now() };
+      const backgroundRequest = {
+        ...request,
+        nowMs: Date.now(),
+        scanBudgetMs: DEFAULT_SCAN_BUDGET_MS,
+      };
       const pending = this.invoke(backgroundRequest).then((nextResult) => {
         this.storeResult(nextResult, cacheKey);
         this.scheduleBackgroundScan(backgroundRequest, cacheKey, nextResult);

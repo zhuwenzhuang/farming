@@ -169,6 +169,104 @@ async function run() {
     },
   }]);
 
+  const growingLargeLineRoot = path.join(root, 'growing-large-line');
+  const growingLargeLineFile = path.join(growingLargeLineRoot, 'growing.jsonl');
+  const growingLargeLineCache = path.join(configDir, 'growing-large-line.sqlite3');
+  const growingLargeLinePrefix = JSON.stringify({
+    type: 'assistant',
+    timestamp: '2026-07-23T12:05:00.000Z',
+    sessionId: 'growing-large-line',
+    message: {
+      id: 'growing-message',
+      content: [{
+        type: 'tool_use',
+        input: { padding: '__PADDING__' },
+      }],
+      usage: { input_tokens: 11, output_tokens: 2 },
+    },
+  }).replace('__PADDING__', 'x'.repeat(34 * 1024 * 1024));
+  const growingSuffixLength = 4;
+  fs.mkdirSync(growingLargeLineRoot, { recursive: true });
+  fs.writeFileSync(
+    growingLargeLineFile,
+    growingLargeLinePrefix.slice(0, -growingSuffixLength),
+  );
+
+  let sawLargeLineCheckpoint = false;
+  for (let pass = 0; pass < 64; pass += 1) {
+    const startedAt = Date.now();
+    const result = await runUsageWorker({
+      cacheFile: growingLargeLineCache,
+      nowMs: now + pass,
+      scanBudgetMs: 100,
+      roots: { codex: [], claude: [growingLargeLineRoot] },
+    });
+    assert(
+      Date.now() - startedAt < 2_000,
+      'one bounded scan must not finish an oversized JSONL record past the response budget',
+    );
+    const checkpointDatabase = new DatabaseSync(growingLargeLineCache, { readOnly: true });
+    const checkpointRow = checkpointDatabase.prepare(
+      'SELECT committed_offset, parser_state FROM source_files WHERE path = ?',
+    ).get(growingLargeLineFile);
+    checkpointDatabase.close();
+    if (checkpointRow) {
+      const parserState = JSON.parse(String(checkpointRow.parser_state));
+      const checkpoint = parserState.lineCheckpoint;
+      if (checkpoint) {
+        assert(Number(checkpointRow.committed_offset) > Number(checkpoint.lineStartOffset));
+        assert(Number(checkpoint.lineBytes) > 32 * 1024 * 1024);
+        sawLargeLineCheckpoint = true;
+        assert.strictEqual(result.cache.scan_complete, false);
+        break;
+      }
+    }
+    if (result.cache.scan_complete) {
+      assert.fail('incomplete oversized JSON must not be marked complete before checkpointing');
+    }
+  }
+  assert.strictEqual(
+    sawLargeLineCheckpoint,
+    true,
+    'the oversized-line test must exercise a persisted mid-line checkpoint',
+  );
+
+  const incompleteAtEof = await runUsageWorker({
+    cacheFile: growingLargeLineCache,
+    nowMs: now + 100,
+    scanBudgetMs: 30_000,
+    roots: { codex: [], claude: [growingLargeLineRoot] },
+  });
+  assert.strictEqual(incompleteAtEof.cache.scan_complete, false);
+  const incompleteDatabase = new DatabaseSync(growingLargeLineCache, { readOnly: true });
+  const incompleteRow = incompleteDatabase.prepare(
+    'SELECT committed_offset, parser_state FROM source_files WHERE path = ?',
+  ).get(growingLargeLineFile);
+  incompleteDatabase.close();
+  assert(JSON.parse(String(incompleteRow.parser_state)).lineCheckpoint,
+    'an incomplete oversized line must retain its checkpoint after reaching EOF');
+
+  fs.appendFileSync(
+    growingLargeLineFile,
+    growingLargeLinePrefix.slice(-growingSuffixLength),
+  );
+  let completedGrowingLine = null;
+  for (let pass = 0; pass < 8; pass += 1) {
+    const result = await runUsageWorker({
+      cacheFile: growingLargeLineCache,
+      nowMs: now + 101 + pass,
+      scanBudgetMs: 30_000,
+      roots: { codex: [], claude: [growingLargeLineRoot] },
+    });
+    if (result.cache.scan_complete) {
+      completedGrowingLine = result;
+      break;
+    }
+  }
+  assert(completedGrowingLine, 'an appended oversized JSONL record must eventually complete');
+  assert.strictEqual(completedGrowingLine.providers.claude.events.length, 1);
+  assert.strictEqual(sum(completedGrowingLine.providers.claude.events), 13);
+
   const client = new UsageHistoryClient({ configDir });
   const request = {
     now,
@@ -181,7 +279,7 @@ async function run() {
   };
   const cold = await client.collect(request);
   assert.strictEqual(cold.source, 'farming-usage-ts-1-codexbar-v0.45.2');
-  assert.strictEqual(cold.schemaVersion, 12);
+  assert.strictEqual(cold.schemaVersion, 13);
   assert.strictEqual(cold.cache.scan_complete, true);
   assert.strictEqual(cold.providers.codex.events.length, 1);
   assert.strictEqual(sum(cold.providers.codex.events), 110);
@@ -772,6 +870,45 @@ async function run() {
     'bounded enumeration must count as background progress beyond four batches');
   assert.strictEqual(backgroundClient.cached?.cache?.discovered_files, 1_100);
 
+  const backgroundBudgets: number[] = [];
+  const budgetClient = new UsageHistoryClient({
+    configDir: path.join(root, 'background-budget-config'),
+    backgroundDelayMs: 1,
+    runner: async requestData => {
+      backgroundBudgets.push(requestData.scanBudgetMs || 0);
+      return {
+        schemaVersion: 13,
+        source: 'test',
+        sampledAt: requestData.nowMs,
+        providers: {
+          codex: { events: [], available: true, fileCount: 0 },
+          claude: { events: [], available: false, fileCount: 0 },
+        },
+        cache: {
+          scan_complete: backgroundBudgets.length > 1,
+          errors: 0,
+          pending_files: backgroundBudgets.length > 1 ? 0 : 1,
+          pending_directories: 0,
+          committed_bytes: backgroundBudgets.length,
+          enumerated_entries: 1,
+        },
+      };
+    },
+  });
+  await budgetClient.collect({
+    now,
+    codexRoots: [codexRoot],
+    claudeRoots: [],
+    scanBudgetMs: 500,
+    fresh: true,
+  });
+  const budgetDeadline = Date.now() + 1_000;
+  while (backgroundBudgets.length < 2 && Date.now() < budgetDeadline) {
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
+  assert.deepStrictEqual(backgroundBudgets.slice(0, 2), [500, 5_000],
+    'a short foreground scan must resume with the normal background throughput budget');
+
   const compatibilityRoot = path.join(root, 'compatibility');
   const compatibilityFile = path.join(compatibilityRoot, 'rollout.jsonl');
   writeJsonl(compatibilityFile, [
@@ -799,8 +936,23 @@ async function run() {
     roots: { codex: [compatibilityRoot], claude: [] },
   });
   assert.strictEqual(rebuiltCompatibility.cache.cache_rebuilt, true,
-    'missing v11 authoritative tables must invalidate the disposable cache');
+    'missing v13 authoritative tables must invalidate the disposable cache');
   assert.strictEqual(sum(rebuiltCompatibility.providers.codex.events), 4);
+
+  const staleSchemaDb = new DatabaseSync(compatibilityCache);
+  staleSchemaDb.prepare(
+    "UPDATE metadata SET value = '12' WHERE key = 'schema_version'",
+  ).run();
+  staleSchemaDb.close();
+  const rebuiltStaleSchema = await runUsageWorker({
+    cacheFile: compatibilityCache,
+    nowMs: now + 2,
+    scanBudgetMs: 30_000,
+    roots: { codex: [compatibilityRoot], claude: [] },
+  });
+  assert.strictEqual(rebuiltStaleSchema.cache.cache_rebuilt, true,
+    'pre-checkpoint schemas must rebuild instead of resuming a mid-line offset');
+  assert.strictEqual(sum(rebuiltStaleSchema.providers.codex.events), 4);
 
   const direct = await runUsageWorker({
     cacheFile: path.join(root, 'direct.sqlite3'),

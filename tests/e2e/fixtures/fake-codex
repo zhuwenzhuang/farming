@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+
+if [[ "$#" -eq 2 && "$1" == "login" && "$2" == "status" ]]; then
+  printf 'Logged in using fixture\n'
+  exit 0
+fi
+
 printf '\033[?25l\033[?25h'
 printf 'Fake Codex 0.142.3 ready\n'
 idle_footer='gpt-5.6-terra medium · ~/workspace'

@@ -413,6 +413,7 @@ async function run() {
 
   const monitor = new UsageMonitor({
     configDir: root,
+    scanBudgetMs: 30_000,
     codexHome,
     claudeHome,
     openCodeHome,
@@ -487,6 +488,7 @@ async function run() {
 
   const unavailableOpenCodeMonitor = new UsageMonitor({
     configDir: root,
+    scanBudgetMs: 30_000,
     codexHome,
     claudeHome,
     openCodeHome,
@@ -506,6 +508,7 @@ async function run() {
 
   const failedExportOpenCodeMonitor = new UsageMonitor({
     configDir: root,
+    scanBudgetMs: 30_000,
     codexHome,
     claudeHome,
     openCodeHome,
@@ -574,6 +577,74 @@ async function run() {
     summary.daily.summary.todayTokens,
     'a failed live scan should fall back to the successful daily-history snapshot',
   );
+  const blockedLiveScan = new Promise(() => {});
+  let syncingScanBudgetMs = 0;
+  const syncingMonitor = new UsageMonitor({
+    configDir: root,
+    codexHome,
+    claudeHome,
+    usageHistoryClient: {
+      collect(options) {
+        syncingScanBudgetMs = options.scanBudgetMs || 0;
+        return blockedLiveScan;
+      },
+    },
+  });
+  syncingMonitor.dailyCache.value = {
+    ...monitor.dailyCache.value,
+    daily: { ...monitor.dailyCache.value.daily, syncing: true },
+  };
+  const syncingLiveDay = await Promise.race([
+    syncingMonitor.getUsageDay(summary.daily.endDate, { now, live: true }),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('syncing live day blocked on background history')), 100)),
+  ]);
+  assert.strictEqual(
+    syncingLiveDay.total.totalTokens,
+    summary.daily.summary.todayTokens,
+    'an in-progress history sync should serve its coherent day snapshot without waiting for the background scan',
+  );
+  assert.strictEqual(syncingScanBudgetMs, 500,
+    'foreground usage reads should hand history scanning back to the UI within 500ms');
+  const freshSyncingResult = await Promise.race([
+    syncingMonitor.getUsageDay(summary.daily.endDate, { now, live: true, fresh: true })
+      .then(() => 'resolved', () => 'rejected'),
+    new Promise(resolve => setTimeout(() => resolve('waiting'), 50)),
+  ]);
+  assert.strictEqual(freshSyncingResult, 'waiting',
+    'an explicit fresh live-day read must not silently return the syncing fallback');
+
+  let convergenceCollectCalls = 0;
+  const convergenceMonitor = new UsageMonitor({
+    configDir: root,
+    codexHome,
+    claudeHome,
+    usageHistoryClient: {
+      async collect() {
+        convergenceCollectCalls += 1;
+        return {
+          schemaVersion: 13,
+          source: 'test complete history',
+          sampledAt: now + 1,
+          providers: {
+            codex: { events: [], quotaCandidates: [], available: true, fileCount: 0 },
+            claude: { events: [], quotaCandidates: [], available: true, fileCount: 0 },
+          },
+          cache: { scan_complete: true, errors: 0 },
+        };
+      },
+    },
+    async openCodeCommandRunner(args) {
+      if (args[0] === 'session' && args[1] === 'list') return { stdout: '[]' };
+      throw new Error(`Unexpected OpenCode command ${args.join(' ')}`);
+    },
+  });
+  convergenceMonitor.dailyCache.value = syncingMonitor.dailyCache.value;
+  convergenceMonitor.dailyCache.fetchedAt = now;
+  const convergedHistory = await convergenceMonitor.getDailyUsage({ now: now + 1 });
+  assert.strictEqual(convergenceCollectCalls, 1,
+    'a syncing monitor snapshot must re-read the history client instead of staying cached for five minutes');
+  assert.strictEqual(convergedHistory.daily.syncing, false,
+    'the next summary refresh must expose a completed background history scan');
   const historicalDay = await monitor.getUsageDay(summary.daily.endDate, { now: now + 5_000, live: false });
   assert.notStrictEqual(historicalDay, refreshedLiveDay, 'non-live reads should stay on the heavy daily-history cache');
   const cachedSummary = await monitor.getUsageSummary({ now: now + 1_000 });

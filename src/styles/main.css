@@ -1295,7 +1295,7 @@ body.code-mode .workspace-history-badge {
 body.code-mode .workspace-input input,
 body.code-mode .workspace-input .workflow-select .code-select-trigger,
 body.code-mode .workspace-input textarea.task-input {
-  background: var(--code-bg-surface);
+  background: var(--code-input-bg);
   color: var(--code-text);
   border: 1px solid var(--code-border);
   border-radius: 8px;
@@ -1394,7 +1394,7 @@ body.code-mode .workspace-directory-browser-location input {
   padding: 7px 10px;
   border: 1px solid var(--code-border);
   border-radius: 8px;
-  background: var(--code-bg-surface);
+  background: var(--code-input-bg);
   color: var(--code-text);
   font: 13px/1.35 "SF Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   outline: none;
