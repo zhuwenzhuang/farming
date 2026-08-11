@@ -229,6 +229,38 @@ async function run() {
     });
     assert.deepStrictEqual(staleSignals, [], 'an exited persisted identity must not signal a reused process group');
     assert.strictEqual(stale.stopped, 0);
+
+    registerConfigProcessGroup(configDir, 'acp-provider', {
+      format: 'test-v1',
+      pid: 45001,
+      processGroupId: 45001,
+      startedAt: 'zombie identity',
+    });
+    const zombieSignals = [];
+    const zombie = await hardStopConfigProcesses(configDir, {
+      readProcessIdentity() {
+        return { pid: 45001, processGroupId: 45001, startedAt: 'zombie identity' };
+      },
+      isProcessZombie(pid) {
+        return pid === 45001;
+      },
+      signalProcessGroup(processGroupId, signal) {
+        zombieSignals.push({ processGroupId, signal });
+      },
+      waitForProcessGroupExit: async () => true,
+    });
+    assert.deepStrictEqual(zombieSignals, [], 'a zombie process group must not be signalled');
+    assert.deepStrictEqual(zombie, { stopped: 0, refused: 0 }, 'a zombie is already stopped, not an ownership refusal');
+    const cleanedZombie = await hardStopConfigProcesses(configDir, {
+      readProcessIdentity() {
+        return { pid: 45001, processGroupId: 45001, startedAt: 'reused after zombie' };
+      },
+      isProcessZombie() {
+        return false;
+      },
+      waitForProcessGroupExit: async () => true,
+    });
+    assert.strictEqual(cleanedZombie.refused, 0, 'zombie ownership records must be removed after reconciliation');
   } finally {
     fs.rmSync(configDir, { recursive: true, force: true });
     fs.rmSync(otherConfigDir, { recursive: true, force: true });

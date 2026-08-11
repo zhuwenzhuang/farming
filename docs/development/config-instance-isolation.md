@@ -52,6 +52,10 @@ the current operating-system identity, and sends `SIGKILL` directly. Computer
 containers are selected by persisted container id and exact Config ownership
 labels and receive Docker's `KILL` signal. Missing or mismatched proof is a
 visible failure; stop never scans or signals every process owned by the user.
+A zombie process is already terminated and cannot execute or receive a useful
+signal. Stop therefore reconciles an exact zombie identity as exited and
+removes its ownership record instead of requiring the no-longer-readable
+process environment or reporting an ownership refusal.
 
 ## Runtime And Authentication Isolation
 

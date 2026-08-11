@@ -42,6 +42,9 @@ Server 必须在初始化 Config 自有 Runtime 前原子发布所有权。已�
 持久化 Runtime/Resource 身份，重新校验当前操作系统进程身份，然后直接发送 `SIGKILL`。
 Computer Container 必须通过持久化 Container ID 与精确 Config Ownership Label 选中，并接收
 Docker `KILL` 信号。证明缺失或不匹配时显式失败；Stop 绝不能扫描或终止当前用户的所有进程。
+僵尸进程已经终止，不能继续执行，也无法接收有意义的信号。因此 Stop 会把精确匹配的僵尸
+身份收敛为已退出并删除其 Ownership Record，而不会要求读取已经不可用的进程环境或误报
+Ownership 拒绝。
 
 ## Runtime 与鉴权隔离
 

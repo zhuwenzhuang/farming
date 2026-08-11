@@ -23,6 +23,7 @@ type OwnershipRecord = ProcessIdentity & {
 type HardStopOptions = {
   discoverLegacyProcesses?: () => Promise<OwnershipRecord[]>;
   readProcessIdentity?: (pid: number) => ProcessIdentity | null | Promise<ProcessIdentity | null>;
+  isProcessZombie?: (pid: number) => boolean;
   signalProcessGroup?: (processGroupId: number, signal: NodeJS.Signals) => void;
   waitForProcessGroupExit?: (processGroupId: number) => Promise<boolean>;
 };
@@ -125,6 +126,14 @@ function processHasConfigEnvironment(pid: number, configDir: string): boolean {
   } catch {
     return process.platform !== 'linux';
   }
+}
+
+function processIsZombie(pid: number): boolean {
+  if (process.platform !== 'linux') return false;
+  const stat = readBoundedFile(`/proc/${pid}/stat`, 64 * 1024)?.toString('utf8') || '';
+  const commandEnd = stat.lastIndexOf(')');
+  if (commandEnd < 0) return false;
+  return stat.slice(commandEnd + 2).trim().split(/\s+/, 1)[0] === 'Z';
 }
 
 function readBoundedFile(file: string, limit = PROC_READ_LIMIT): Buffer | null {
@@ -392,6 +401,7 @@ async function defaultWaitForProcessGroupExit(processGroupId: number): Promise<b
 
 async function hardStopConfigProcesses(configDir: string, options: HardStopOptions = {}) {
   const readIdentity = options.readProcessIdentity || readServerProcessIdentity;
+  const isZombie = options.isProcessZombie || processIsZombie;
   const signal = options.signalProcessGroup || ((processGroupId, value) => process.kill(-processGroupId, value));
   const waitForExit = options.waitForProcessGroupExit || defaultWaitForProcessGroupExit;
   const registered = readOwnershipRecords(configDir);
@@ -420,6 +430,10 @@ async function hardStopConfigProcesses(configDir: string, options: HardStopOptio
     for (const item of items) {
       const actual = await readIdentity(item.record.pid);
       if (!actual) continue;
+      // A zombie has already terminated and cannot execute or be killed. Its
+      // environment is no longer reliable on Linux, so treating it as an
+      // unowned live process creates a false refusal during hard-stop races.
+      if (isZombie(item.record.pid)) continue;
       observedLiveIdentity = true;
       const configMatches = options.readProcessIdentity
         ? true
