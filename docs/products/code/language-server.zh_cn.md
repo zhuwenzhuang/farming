@@ -43,6 +43,11 @@ Highlight、Semantic Tokens、Inlay Hints、Symbol、Call/Type Hierarchy 与 Dia
 取决于 Active Server 实际支持的能力。Availability 来自真实初始化完成的 Connection，不能把
 内置 Registry 本身当作已经连接。
 
+Hover 是偶发的 Pointer Interaction，因此只展示已经完成的 Semantic Result。Frontend 为请求
+设置 500ms 的交互预算；预算到期、Pointer 移开或请求失败时返回无 Hover，并且必须在 Monaco
+创建空 Hover 或 Loading Hover 之前结束。Pointer Cancellation 同时中止 Frontend Transport
+Request。Definition 等显式导航操作继续保留可见、允许更长时间运行的 Request Semantics。
+
 Document Highlight 使用 Server 返回的符号语义区分文本、读取与写入位置，不退化成纯文本搜索。
 Semantic Tokens 使用 LSP 静态或动态 Capability Registration 返回的 Legend；Frontend 在应用
 Token Stream 前将该 Legend 映射到稳定的 Monaco Legend。Server 私有且未知的 Token Type 使用
@@ -112,5 +117,5 @@ Upstream Release 发布的 SHA-256，并在解压或执行前验证。摘要缺�
 验证必须覆盖：Project Root Discovery、Saved-file Semantics、Result Filtering、Process Reuse
 与 Restart、Concurrent Request、显式失败、Remote SSH Ownership、Stable Release Discovery、
 Cached Runtime Update Fallback、静态与动态 Capability Registration、Semantic Legend Mapping、
-Visible-range Inlay Request、按 Project 有序的 Provider Refresh、Dirty Model Refresh Rejection、
+有界且可取消的 Hover、Visible-range Inlay Request、按 Project 有序的 Provider Refresh、Dirty Model Refresh Rejection、
 Stale-result Fencing，以及代表性真实 Language Server。

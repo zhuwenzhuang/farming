@@ -47,6 +47,14 @@ call/type hierarchy, and diagnostics when the active server supports them.
 Availability is derived from a real initialized connection, not from the
 built-in registry alone.
 
+Hover is an incidental pointer interaction, so it renders only a completed
+semantic result. The frontend gives the request a 500 ms interaction budget
+and returns no Hover when that budget expires, the pointer leaves, or the
+request fails; it must settle before Monaco can create an empty or loading
+Hover. Pointer cancellation also aborts the frontend transport request.
+Explicit navigation actions retain their visible, longer-running request
+semantics.
+
 Document highlights distinguish textual, read, and write occurrences using
 the server's symbol meaning rather than a plain text search. Semantic tokens
 use the legend returned during static or dynamic LSP capability registration;
@@ -146,6 +154,7 @@ Verification must cover Project-root discovery, saved-file semantics, result
 filtering, process reuse and restart, concurrent requests, explicit failure,
 Remote SSH ownership, stable-release discovery, cached-runtime update fallback,
 static and dynamic capability registration, semantic legend mapping,
-visible-range inlay requests, ordered Project-scoped provider refresh,
+bounded and cancellable Hover, visible-range inlay requests, ordered
+Project-scoped provider refresh,
 dirty-model refresh rejection, stale-result fencing, and representative real
 language servers.

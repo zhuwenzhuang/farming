@@ -26,11 +26,19 @@ export class LanguageServerError extends Error {
 
 async function fetchWithTimeout(url: string, init?: RequestInit) {
   const controller = new AbortController()
-  const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+  const externalSignal = init?.signal
+  let timedOut = false
+  const abortFromExternalSignal = () => controller.abort(externalSignal?.reason)
+  if (externalSignal?.aborted) abortFromExternalSignal()
+  else externalSignal?.addEventListener('abort', abortFromExternalSignal, { once: true })
+  const timeoutId = window.setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, REQUEST_TIMEOUT_MS)
   try {
     return await fetch(url, { ...init, signal: controller.signal })
   } catch (error) {
-    if (controller.signal.aborted) {
+    if (timedOut) {
       throw new LanguageServerError(
         'Language Server request timed out',
         504,
@@ -40,6 +48,7 @@ async function fetchWithTimeout(url: string, init?: RequestInit) {
     throw error
   } finally {
     window.clearTimeout(timeoutId)
+    externalSignal?.removeEventListener('abort', abortFromExternalSignal)
   }
 }
 
@@ -56,13 +65,17 @@ export async function fetchLanguageServerCapability(refresh = false): Promise<La
   return data
 }
 
-export async function requestLanguageServer<T>(request: LanguageServerRequest): Promise<T> {
-  return (await requestLanguageServerOutcome<T>(request)).result
+export async function requestLanguageServer<T>(request: LanguageServerRequest, options: { signal?: AbortSignal } = {}): Promise<T> {
+  return (await requestLanguageServerOutcome<T>(request, options)).result
 }
 
-export async function requestLanguageServerOutcome<T>(request: LanguageServerRequest): Promise<{ result: T; supported: boolean }> {
+export async function requestLanguageServerOutcome<T>(
+  request: LanguageServerRequest,
+  options: { signal?: AbortSignal } = {},
+): Promise<{ result: T; supported: boolean }> {
   const response = await fetchWithTimeout(appPath('/api/language-server/request'), {
     method: 'POST',
+    signal: options.signal,
     headers: {
       Accept: 'application/json',
       'Content-Type': 'application/json',

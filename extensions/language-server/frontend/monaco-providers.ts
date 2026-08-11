@@ -43,6 +43,7 @@ const semanticTokensLegend: monaco.languages.SemanticTokensLegend = {
   tokenTypes: semanticTokenTypes,
   tokenModifiers: semanticTokenModifiers,
 }
+const HOVER_REQUEST_BUDGET_MS = 500
 let providerDisposables: monaco.IDisposable[] | null = null
 let editorOpener: ((binding: ModelBinding, selection?: monaco.IRange | monaco.IPosition) => Promise<void> | void) | null = null
 let languageServerRefreshEpoch = ''
@@ -243,6 +244,7 @@ function requestAtPosition<T>(
   model: monaco.editor.ITextModel,
   position: monaco.Position,
   method: 'hover' | 'definition' | 'references' | 'implementation',
+  signal?: AbortSignal,
 ) {
   const binding = bindingForModel(model)
   if (!binding) return null
@@ -251,7 +253,7 @@ function requestAtPosition<T>(
     filePath: binding.filePath,
     method,
     position: positionValue(position),
-  }).catch((error: unknown) => {
+  }, { signal }).catch((error: unknown) => {
     if (isLanguageServerUnavailable(error)) return null
     throw error
   })
@@ -275,13 +277,30 @@ function registerProviders() {
       },
     }),
     monaco.languages.registerHoverProvider('*', {
-      async provideHover(model, position) {
-        const values = await requestAtPosition<Array<{ contents: string[]; range?: LanguageServerRange }>>(model, position, 'hover')
-        const hover = values?.[0]
-        if (!hover) return null
-        return {
-          contents: hover.contents.map(value => ({ value })),
-          ...(hover.range ? { range: rangeValue(hover.range) } : {}),
+      async provideHover(model, position, token) {
+        if (token.isCancellationRequested) return null
+        const controller = new AbortController()
+        const cancellation = token.onCancellationRequested(() => controller.abort())
+        const timeoutId = globalThis.setTimeout(() => controller.abort(), HOVER_REQUEST_BUDGET_MS)
+        try {
+          const values = await requestAtPosition<Array<{ contents: string[]; range?: LanguageServerRange }>>(
+            model,
+            position,
+            'hover',
+            controller.signal,
+          )
+          if (controller.signal.aborted || token.isCancellationRequested) return null
+          const hover = values?.[0]
+          if (!hover?.contents.length) return null
+          return {
+            contents: hover.contents.map(value => ({ value })),
+            ...(hover.range ? { range: rangeValue(hover.range) } : {}),
+          }
+        } catch {
+          return null
+        } finally {
+          globalThis.clearTimeout(timeoutId)
+          cancellation.dispose()
         }
       },
     }),

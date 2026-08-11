@@ -5,6 +5,9 @@ import { build, type Plugin } from 'esbuild'
 import { TargetBindingRegistry } from '../extensions/language-server/frontend/target-binding-registry'
 
 interface ProviderHarness {
+  hoverProvider?: {
+    provideHover(model: unknown, position: unknown, token: unknown): Promise<unknown>
+  }
   definitionProvider?: {
     provideDefinition(model: unknown, position: unknown): Promise<unknown>
   }
@@ -19,10 +22,39 @@ interface ProviderHarness {
     provideInlayHints(model: unknown, range: unknown, token: unknown): Promise<{ hints: unknown[] }>
   }
   languageServerError?: new (message: string, status: number, code: string) => Error
-  request: () => Promise<unknown>
+  request: (options?: { signal?: AbortSignal }) => Promise<unknown>
 }
 
 let providerModuleSequence = 0
+
+function controllableCancellationToken() {
+  let cancelled = false
+  const listeners = new Set<() => void>()
+  return {
+    token: {
+      get isCancellationRequested() { return cancelled },
+      onCancellationRequested(listener: () => void) {
+        listeners.add(listener)
+        return { dispose: () => listeners.delete(listener) }
+      },
+    },
+    cancel() {
+      if (cancelled) return
+      cancelled = true
+      for (const listener of listeners) listener()
+    },
+  }
+}
+
+function requestUntilAborted(options?: { signal?: AbortSignal }): Promise<unknown> {
+  const signal = options?.signal
+  if (!signal) return Promise.reject(new Error('Hover request did not receive an AbortSignal'))
+  return new Promise((_, reject) => {
+    const rejectAbort = () => reject(signal.reason || new Error('Hover request aborted'))
+    if (signal.aborted) rejectAbort()
+    else signal.addEventListener('abort', rejectAbort, { once: true })
+  })
+}
 
 async function loadMonacoProviders(harness: ProviderHarness) {
   const globalHarness = globalThis as typeof globalThis & { __farmingLanguageServerHarness?: ProviderHarness }
@@ -53,8 +85,8 @@ async function loadMonacoProviders(harness: ProviderHarness) {
               }
             }
             globalThis.__farmingLanguageServerHarness.languageServerError = LanguageServerError
-            export function requestLanguageServer() {
-              return globalThis.__farmingLanguageServerHarness.request()
+            export function requestLanguageServer(_request, options) {
+              return globalThis.__farmingLanguageServerHarness.request(options)
             }` }
         }
         return { contents: `
@@ -79,7 +111,7 @@ async function loadMonacoProviders(harness: ProviderHarness) {
             setModelMarkers() {},
           }
           export const languages = {
-            registerHoverProvider() { return disposable },
+            registerHoverProvider(_selector, value) { harness.hoverProvider = value; return disposable },
             registerDefinitionProvider(_selector, value) { harness.definitionProvider = value; return disposable },
             registerReferenceProvider() { return disposable },
             registerImplementationProvider() { return disposable },
@@ -116,6 +148,120 @@ test('target bindings are released with their source model', () => {
   assert.equal(registry.size, 0)
   assert.equal(registry.get('target-a'), undefined)
   assert.equal(registry.get('target-shared'), undefined)
+})
+
+test('Language Server hover renders only a completed semantic result', async () => {
+  const harness: ProviderHarness = {
+    request: async () => [{ contents: ['```cpp\nRowVectorPtr\n```'] }],
+  }
+  const providers = await loadMonacoProviders(harness)
+  providers.bindLanguageServerModels([{
+    agentId: 'agent-cpp',
+    file: { path: 'CompactRow.cpp' },
+    workspaceRoot: '/workspace-cpp',
+    dirty: false,
+    externalChanged: false,
+  }])
+  const cancellation = controllableCancellationToken()
+
+  const hover = await harness.hoverProvider?.provideHover({
+    uri: { toString: () => 'CompactRow.cpp' },
+  }, { lineNumber: 12, column: 8 }, cancellation.token)
+
+  assert.deepEqual(hover, {
+    contents: [{ value: '```cpp\nRowVectorPtr\n```' }],
+  })
+})
+
+test('empty or already cancelled Language Server hover creates no popup', async () => {
+  let requestCount = 0
+  const harness: ProviderHarness = {
+    request: async () => {
+      requestCount += 1
+      return [{ contents: [] }]
+    },
+  }
+  const providers = await loadMonacoProviders(harness)
+  providers.bindLanguageServerModels([{
+    agentId: 'agent-cpp',
+    file: { path: 'CompactRow.cpp' },
+    workspaceRoot: '/workspace-cpp',
+    dirty: false,
+    externalChanged: false,
+  }])
+  const model = { uri: { toString: () => 'CompactRow.cpp' } }
+  const position = { lineNumber: 12, column: 8 }
+  const active = controllableCancellationToken()
+
+  assert.equal(await harness.hoverProvider?.provideHover(model, position, active.token), null)
+  assert.equal(requestCount, 1)
+
+  const cancelled = controllableCancellationToken()
+  cancelled.cancel()
+  assert.equal(await harness.hoverProvider?.provideHover(model, position, cancelled.token), null)
+  assert.equal(requestCount, 1, 'an already cancelled hover must not start a request')
+})
+
+test('slow Language Server hover settles empty before Monaco can show Loading', async () => {
+  let requestSignal: AbortSignal | undefined
+  const harness: ProviderHarness = {
+    request: options => {
+      requestSignal = options?.signal
+      return requestUntilAborted(options)
+    },
+  }
+  const providers = await loadMonacoProviders(harness)
+  providers.bindLanguageServerModels([{
+    agentId: 'agent-cpp',
+    file: { path: 'CompactRow.cpp' },
+    workspaceRoot: '/workspace-cpp',
+    dirty: false,
+    externalChanged: false,
+  }])
+  const cancellation = controllableCancellationToken()
+  const startedAt = Date.now()
+
+  const hover = await harness.hoverProvider?.provideHover({
+    uri: { toString: () => 'CompactRow.cpp' },
+  }, { lineNumber: 12, column: 8 }, cancellation.token)
+
+  assert.equal(hover, null)
+  assert.equal(requestSignal?.aborted, true, 'the slow HTTP request must be aborted')
+  assert.ok(
+    Date.now() - startedAt < 850,
+    'the provider must settle before Monaco adds its Loading message at roughly 900ms',
+  )
+})
+
+test('leaving a Language Server hover cancels its request immediately', async () => {
+  let requestSignal: AbortSignal | undefined
+  const harness: ProviderHarness = {
+    request: options => {
+      requestSignal = options?.signal
+      return requestUntilAborted(options)
+    },
+  }
+  const providers = await loadMonacoProviders(harness)
+  providers.bindLanguageServerModels([{
+    agentId: 'agent-cpp',
+    file: { path: 'CompactRow.cpp' },
+    workspaceRoot: '/workspace-cpp',
+    dirty: false,
+    externalChanged: false,
+  }])
+  const cancellation = controllableCancellationToken()
+  const hoverPromise = harness.hoverProvider?.provideHover({
+    uri: { toString: () => 'CompactRow.cpp' },
+  }, { lineNumber: 12, column: 8 }, cancellation.token)
+  await new Promise(resolve => setImmediate(resolve))
+  cancellation.cancel()
+
+  const completion = await Promise.race([
+    hoverPromise,
+    new Promise(resolve => setTimeout(() => resolve('still-pending'), 300)),
+  ])
+  assert.equal(completion, null)
+  assert.equal(requestSignal?.aborted, true)
 })
 
 test('disposing an old source cannot delete a target rebound by a live model', () => {
