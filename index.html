@@ -20,13 +20,13 @@
 
       html[data-appearance='paper'],
       html[data-appearance='paper'] body {
-        background: #f7f4ed;
+        background: #f7f4ec;
         color-scheme: light;
       }
     </style>
     <script>
       (() => {
-        const themes = {"light":{"canvas":"#ffffff","colorScheme":"light","themeColor":"#ffffff"},"dark":{"canvas":"#181818","colorScheme":"dark","themeColor":"#181818"},"paper":{"canvas":"#f7f4ed","colorScheme":"light","themeColor":"#f7f4ed"}}
+        const themes = {"light":{"canvas":"#ffffff","colorScheme":"light","themeColor":"#ffffff"},"dark":{"canvas":"#181818","colorScheme":"dark","themeColor":"#181818"},"paper":{"canvas":"#f7f4ec","colorScheme":"light","themeColor":"#f7f4ec"}}
         const root = document.documentElement
         const preference = Object.hasOwn(themes, root.dataset.appearancePreference)
           ? root.dataset.appearancePreference
