@@ -4,6 +4,15 @@ import { expect, fileEditorPosition, interceptTerminalCheckpoints, openFarming, 
 
 type ScenarioRunner = (name: string, fn: () => Promise<void>) => Promise<void>
 
+type DesktopScenarioGroup = 'recovery' | 'scrolling' | 'copyAndEditor' | 'ownershipAndFocus'
+
+const desktopScenarioGroups: ReadonlyArray<readonly [DesktopScenarioGroup, string]> = [
+  ['recovery', 'recovers authoritative terminal state'],
+  ['scrolling', 'preserves scroll and follow state'],
+  ['copyAndEditor', 'handles copy, links, and editor integration'],
+  ['ownershipAndFocus', 'isolates host ownership, input, and focus'],
+]
+
 type TerminalSnapshotCell = {
   char: string
   width: number
@@ -407,9 +416,11 @@ function hasWrappedPromptFragments(text: string) {
     text.includes('rv/example/\nprojects/ma')
 }
 
-test.describe('terminal regression matrix', () => {
-  test('covers 30+ desktop terminal, recovery, copy, and editor scenarios', async ({ page, workspaceRoot }) => {
-    test.setTimeout(180_000)
+async function runDesktopTerminalMatrix(
+  page: import('@playwright/test').Page,
+  workspaceRoot: string,
+  selectedGroup: DesktopScenarioGroup,
+) {
     if (process.platform === 'darwin') {
       await page.addInitScript(() => {
         Object.defineProperty(navigator, 'platform', {
@@ -420,7 +431,9 @@ test.describe('terminal regression matrix', () => {
     }
 
     const checked: string[] = []
+    let activeGroup: DesktopScenarioGroup = 'recovery'
     const scenario: ScenarioRunner = async (name, fn) => {
+      if (activeGroup !== selectedGroup) return
       await test.step(`${String(checked.length + 1).padStart(2, '0')} ${name}`, async () => {
         await fn()
         checked.push(name)
@@ -541,6 +554,28 @@ test.describe('terminal regression matrix', () => {
     const reconnectOutputAgentId = await createControlAgent(page, 'bash', projectDir)
     const codexAgentId = await createControlAgent(page, 'codex', projectDir)
     const secondCodexAgentId = await createControlAgent(page, 'codex', projectDir)
+
+    // Each domain test owns a fresh Agent set. Recovery intentionally starts
+    // from its intercepted bootstrap; the other domains begin with the same
+    // ready, active bash session rather than depending on an earlier test.
+    if (selectedGroup !== 'recovery') {
+      await selectAgent(page, bashAgentId)
+      await page.waitForFunction(
+        id => Boolean(window.__farmingTerminalTest?.isReady(id)),
+        bashAgentId,
+        { timeout: 15_000 },
+      )
+      if (selectedGroup === 'ownershipAndFocus') {
+        const project = page.getByTestId('code-project-group').filter({ hasText: 'matrix-project' })
+        const files = project.getByTestId('code-files-section')
+        const filesTitle = files.locator('.code-files-title').first()
+        await expect(filesTitle).toBeVisible()
+        if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
+        await files.locator('[data-testid="code-file-row"][data-file-path="README.md"]').click()
+        await expect(page.getByTestId('code-file-editor')).toBeVisible()
+        await selectAgent(page, bashAgentId)
+      }
+    }
 
     await scenario('recovered sessions use the required WebGL renderer', async () => {
       await selectAgent(page, recoveringAgentId)
@@ -740,6 +775,8 @@ test.describe('terminal regression matrix', () => {
       expect(checkpoint.cols).toBe(result.diagnostics?.cols)
       expect(checkpoint.rows).toBe(result.diagnostics?.rows)
     })
+
+    activeGroup = 'scrolling'
 
     await scenario('long output creates scrollback without moving the whole page', async () => {
       await page.evaluate(async id => {
@@ -951,6 +988,8 @@ test.describe('terminal regression matrix', () => {
       expect(visible.indexOf('QUEUE_WRITE_A')).toBeLessThan(visible.indexOf('QUEUE_WRITE_B'))
       expect(visible.indexOf('QUEUE_WRITE_B')).toBeLessThan(visible.indexOf('QUEUE_WRITE_C'))
     })
+
+    activeGroup = 'copyAndEditor'
 
     await scenario('plain terminal text can be double-click selected', async () => {
       await writeTerminalFixture(page, bashAgentId, 'matrix-copy-word\r\n')
@@ -1405,6 +1444,8 @@ test.describe('terminal regression matrix', () => {
       await expect(page.getByTestId('code-file-editor')).toBeHidden()
     })
 
+    activeGroup = 'ownershipAndFocus'
+
     await scenario('switching to Codex keeps bash terminal host parked and isolated', async () => {
       await selectAgent(page, codexAgentId)
       await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${codexAgentId}"] .terminal-session-host[data-agent-id="${codexAgentId}"]`))
@@ -1832,13 +1873,27 @@ test.describe('terminal regression matrix', () => {
       expect(metrics.workspaceScrollWidth).toBeLessThanOrEqual(metrics.workspaceClientWidth + 1)
     })
 
-    await scenario('desktop matrix scenario count reaches at least 30 executed cases', async () => {
-      expect(checked.length + 1).toBeGreaterThanOrEqual(30)
-    })
+    console.log(`terminal regression ${selectedGroup} matrix executed ${checked.length} scenarios`)
+}
 
-    await restoreWindowOpenProbe(page)
-    console.log(`terminal regression matrix executed ${checked.length} scenarios`)
-  })
+test.describe('terminal regression matrix', () => {
+  // Control Agents share one backend inventory, so each independent domain
+  // gets a fresh inventory in sequence instead of racing another domain's
+  // cleanup.
+  test.describe.configure({ mode: 'serial' })
+
+  for (const [group, title] of desktopScenarioGroups) {
+    test(`desktop terminal ${title}`, async ({ page, workspaceRoot }) => {
+      test.setTimeout(180_000)
+      await cleanupControlAgents(page.request)
+      try {
+        await runDesktopTerminalMatrix(page, workspaceRoot, group)
+      } finally {
+        await restoreWindowOpenProbe(page)
+        await cleanupControlAgents(page.request)
+      }
+    })
+  }
 
   test('page resume replaces buffered terminal history with one latest snapshot', async ({ page, workspaceRoot }) => {
     const projectDir = path.join(workspaceRoot, 'page-resume-terminal')

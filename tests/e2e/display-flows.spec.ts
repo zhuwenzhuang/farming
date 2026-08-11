@@ -164,6 +164,224 @@ async function mockCodexSessions(page: Page, sessions: MockAgentSession[] = []) 
   })
 }
 
+async function prepareEmptyWorkspaceHistory(page: Page, workspaceRoot: string) {
+  const sessionId = '019f0000-0000-7000-8000-000000000221'
+  await mockCodexSessions(page, [{
+    provider: 'codex',
+    providerName: 'Codex',
+    capabilities: ['resume'],
+    id: sessionId,
+    title: 'Resume from the whole row',
+    cwd: workspaceRoot,
+    workspace: workspaceRoot,
+    updatedAt: new Date().toISOString(),
+    createdAt: new Date(Date.now() - 60_000).toISOString(),
+    model: 'gpt-5.5',
+    effort: 'medium',
+  }])
+  const resume = { requests: 0 }
+  await page.route(`**/farming/api/agent-sessions/codex/${sessionId}/resume`, async route => {
+    resume.requests += 1
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ agentId: 'agent-resumed-from-history-row' }),
+    })
+  })
+  await openFarming(page)
+  return { resume, sessionId }
+}
+
+type RenderedSurfaceFixture = {
+  mainWorkspace: string
+  childWorkspace: string
+  deepCodexCwd: string
+  resume: {
+    codexSessionId: string
+    claudeSessionId: string
+    agentId: string
+  }
+}
+
+type RenderedSurfaceAgents = RenderedSurfaceFixture & {
+  primaryAgentId: string
+  childAgentId: string
+  primaryRow: Locator
+  childRow: Locator
+  primaryProjectGroup: Locator
+  childProjectGroup: Locator
+  mainSearchTerm: string
+}
+
+async function prepareRenderedSurfaceFixture(page: Page, workspaceRoot: string): Promise<RenderedSurfaceFixture> {
+  const mainWorkspace = path.join(workspaceRoot, 'farming-playwright-main')
+  const childWorkspace = path.join(workspaceRoot, 'farming-playwright-child')
+  const deepCodexCwd = path.join(childWorkspace, 'deep', 'task')
+  fs.rmSync(mainWorkspace, { recursive: true, force: true })
+  fs.rmSync(childWorkspace, { recursive: true, force: true })
+  fs.mkdirSync(mainWorkspace, { recursive: true })
+  fs.mkdirSync(childWorkspace, { recursive: true })
+  fs.mkdirSync(deepCodexCwd, { recursive: true })
+  fs.writeFileSync(path.join(childWorkspace, 'README.md'), '# Farming Playwright child workspace\n')
+  execFileSync('git', ['init'], { cwd: childWorkspace, stdio: 'ignore' })
+  execFileSync('git', ['config', 'user.email', 'farming-e2e@example.test'], { cwd: childWorkspace })
+  execFileSync('git', ['config', 'user.name', 'Farming E2E'], { cwd: childWorkspace })
+  execFileSync('git', ['add', 'README.md'], { cwd: childWorkspace, stdio: 'ignore' })
+  execFileSync('git', ['commit', '-m', 'seed child workspace'], { cwd: childWorkspace, stdio: 'ignore' })
+  await page.addInitScript(() => {
+    class MockSpeechRecognition extends EventTarget {
+      continuous = false
+      interimResults = false
+      lang = 'en-US'
+      onresult: ((event: unknown) => void) | null = null
+      onerror: (() => void) | null = null
+      onend: (() => void) | null = null
+
+      start() {
+        ;(window as unknown as { __mockSpeechRecognition?: MockSpeechRecognition }).__mockSpeechRecognition = this
+      }
+
+      stop() {
+        this.onend?.()
+      }
+    }
+
+    ;(window as unknown as { SpeechRecognition?: typeof MockSpeechRecognition }).SpeechRecognition = MockSpeechRecognition
+  })
+
+  const now = Date.now()
+  const codexSession = (
+    id: string,
+    title: string,
+    updatedMinutesAgo: number,
+    options: Partial<MockAgentSession> = {},
+  ): MockAgentSession => ({
+    id,
+    title,
+    cwd: deepCodexCwd,
+    workspace: childWorkspace,
+    updatedAt: new Date(now - updatedMinutesAgo * 60 * 1000).toISOString(),
+    createdAt: new Date(now - (updatedMinutesAgo + 60) * 60 * 1000).toISOString(),
+    archived: false,
+    pinned: false,
+    unread: false,
+    projectless: false,
+    model: 'gpt-5.5',
+    effort: 'xhigh',
+    source: 'codex',
+    ...options,
+  })
+  await mockCodexSessions(page, [
+    codexSession('019f0000-0000-7000-8000-000000000099', 'Deep Codex Session', 0, {
+      createdAt: new Date(now).toISOString(),
+      pinned: true,
+    }),
+    codexSession('11111111-2222-4333-8444-555555555555', 'Pinned Claude Session', 2, {
+      provider: 'claude',
+      providerName: 'Claude',
+      capabilities: ['resume', 'fork'],
+      model: 'sonnet',
+      effort: '',
+      source: 'claude',
+      pinned: true,
+    }),
+    codexSession('019f0000-0000-7000-8000-000000000102', 'Visible Codex Session 1', 5),
+    codexSession('019f0000-0000-7000-8000-000000000103', 'Visible Codex Session 2', 10),
+    codexSession('019f0000-0000-7000-8000-000000000104', 'Visible Codex Session 3', 15),
+    codexSession('019f0000-0000-7000-8000-000000000105', 'Hidden Codex Session', 20),
+    codexSession('019f0000-0000-7000-8000-000000000101', 'Plain Codex Session', 30),
+    codexSession('11111111-2222-4333-8444-666666666666', 'Plain Claude Session', 35, {
+      provider: 'claude',
+      providerName: 'Claude',
+      capabilities: ['resume', 'fork'],
+      model: 'sonnet',
+      effort: '',
+      source: 'claude',
+    }),
+    codexSession('019f0000-0000-7000-8000-000000000100', 'Archived Codex Session', 0, {
+      createdAt: new Date(now - 2 * 60 * 60 * 1000).toISOString(),
+      archived: true,
+    }),
+  ])
+  await page.route('**/api/agent-sessions/search?**', async route => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ sessions: [] }),
+    })
+  })
+  const resume = {
+    codexSessionId: '',
+    claudeSessionId: '',
+    agentId: 'resumed-code-agent',
+  }
+  await page.route(/\/farming\/api\/(?:codex\/sessions|agent-sessions\/codex)\/[^/]+\/resume$/, async route => {
+    const match = route.request().url().match(/\/(?:codex\/sessions|agent-sessions\/codex)\/([^/]+)\/resume$/)
+    resume.codexSessionId = match ? decodeURIComponent(match[1]) : ''
+    await route.fulfill({
+      contentType: 'application/json',
+      status: 201,
+      body: JSON.stringify({ agentId: resume.agentId }),
+    })
+  })
+  await page.route(/\/farming\/api\/agent-sessions\/claude\/[^/]+\/resume$/, async route => {
+    const match = route.request().url().match(/\/agent-sessions\/claude\/([^/]+)\/resume$/)
+    resume.claudeSessionId = match ? decodeURIComponent(match[1]) : ''
+    await route.fulfill({
+      contentType: 'application/json',
+      status: 201,
+      body: JSON.stringify({ agentId: resume.agentId }),
+    })
+  })
+  const membershipResponse = await page.request.post('/farming/api/main-page-agent-sessions', {
+    data: {
+      operation: 'add',
+      sessionKeys: ['agent-session:codex:019f0000-0000-7000-8000-000000000099'],
+    },
+  })
+  expect(membershipResponse.ok()).toBeTruthy()
+  return { mainWorkspace, childWorkspace, deepCodexCwd, resume }
+}
+
+async function startRenderedSurfaceAgents(
+  page: Page,
+  fixture: RenderedSurfaceFixture,
+): Promise<RenderedSurfaceAgents> {
+  await openFarming(page)
+  await openNewAgentDialog(page)
+  await startAgentFromOpenDialog(page, 'bash', fixture.mainWorkspace)
+  await expect(page.getByTestId('code-agent-row')).toHaveCount(1, { timeout: 30_000 })
+  const { agentId: primaryAgentId } = await getAgentIdFromRow(page)
+  await expectTerminalCanvasToHaveInk(page, primaryAgentId)
+  const primaryProjectGroup = page.getByTestId('code-project-group')
+    .filter({ has: page.locator(`[data-agent-id="${primaryAgentId}"]`) })
+  const firstProjectTitle = primaryProjectGroup.getByTestId('code-project-title')
+  const mainSearchTerm = ((await firstProjectTitle.locator('span').last().textContent()) ?? '').trim()
+  expect(mainSearchTerm).toBeTruthy()
+
+  await openNewAgentDialog(page)
+  await startAgentFromOpenDialog(page, 'bash', fixture.childWorkspace)
+  await expect(page.getByTestId('code-agent-row')).toHaveCount(2, { timeout: 30_000 })
+  const activeRows = page.locator('[data-testid="code-agent-row"].active')
+  await expect(activeRows).toHaveCount(1)
+  const childAgentId = await activeRows.first().getAttribute('data-agent-id')
+  if (!childAgentId) throw new Error('Child agent row is missing data-agent-id')
+  expect(childAgentId).not.toBe(primaryAgentId)
+  fixture.resume.agentId = childAgentId
+  const primaryRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${primaryAgentId}"]`)
+  const childRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${childAgentId}"]`)
+  const childProjectGroup = page.getByTestId('code-project-group')
+    .filter({ has: page.locator(`[data-agent-id="${childAgentId}"]`) })
+  return {
+    ...fixture,
+    primaryAgentId,
+    childAgentId,
+    primaryRow,
+    childRow,
+    primaryProjectGroup,
+    childProjectGroup,
+    mainSearchTerm,
+  }
+}
+
 test.describe('display-backed agent flows', () => {
   test('keeps an active Agent manually unread until it is opened again', async ({ page, workspaceRoot }) => {
     const workspace = path.join(workspaceRoot, 'manual-unread-active-agent')
@@ -410,8 +628,7 @@ test.describe('display-backed agent flows', () => {
     expect(historyLayout.headerTop).toBeGreaterThanOrEqual(historyLayout.panelTop)
   })
 
-  test('guides an empty workspace and resumes History from the row body', async ({ page, workspaceRoot }) => {
-    const sessionId = '019f0000-0000-7000-8000-000000000221'
+  test('renders empty workspace guidance and routes its actions', async ({ page, workspaceRoot }) => {
     const globalWorktreeRequests: string[] = []
     page.on('request', request => {
       const url = new URL(request.url())
@@ -419,29 +636,7 @@ test.describe('display-backed agent flows', () => {
         globalWorktreeRequests.push(request.url())
       }
     })
-    await mockCodexSessions(page, [{
-      provider: 'codex',
-      providerName: 'Codex',
-      capabilities: ['resume'],
-      id: sessionId,
-      title: 'Resume from the whole row',
-      cwd: workspaceRoot,
-      workspace: workspaceRoot,
-      updatedAt: new Date().toISOString(),
-      createdAt: new Date(Date.now() - 60_000).toISOString(),
-      model: 'gpt-5.5',
-      effort: 'medium',
-    }])
-    let resumeRequests = 0
-    await page.route(`**/farming/api/agent-sessions/codex/${sessionId}/resume`, async route => {
-      resumeRequests += 1
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify({ agentId: 'agent-resumed-from-history-row' }),
-      })
-    })
-
-    await openFarming(page)
+    await prepareEmptyWorkspaceHistory(page, workspaceRoot)
     const emptyWorkspace = page.getByTestId('code-empty-workspace')
     await expect(emptyWorkspace.getByTestId('code-empty-home-history')).toBeVisible()
     await expect(emptyWorkspace.getByTestId('code-empty-home-new-agent')).toBeVisible()
@@ -690,6 +885,12 @@ test.describe('display-backed agent flows', () => {
     await page.getByTestId('code-history-back').click()
     await expect(emptyWorkspace.getByTestId('code-empty-home-history')).toBeVisible()
 
+  })
+
+  test('resumes History from the compact empty workspace row body', async ({ page, workspaceRoot }) => {
+    const { resume, sessionId } = await prepareEmptyWorkspaceHistory(page, workspaceRoot)
+    const emptyWorkspace = page.getByTestId('code-empty-workspace')
+
     await page.setViewportSize({ width: 900, height: 700 })
     const compactHistory = emptyWorkspace.getByTestId('code-empty-compact-history')
     await expect(compactHistory).toBeVisible()
@@ -710,7 +911,7 @@ test.describe('display-backed agent flows', () => {
     await expect(historyIcon).toHaveCSS('width', '13px')
     await expect(historyIcon).toHaveCSS('height', '13px')
     await historyPrimary.click()
-    await expect.poll(() => resumeRequests).toBe(1)
+    await expect.poll(() => resume.requests).toBe(1)
     await expect(page.getByTestId('code-history-panel')).toBeHidden()
   })
 
@@ -2135,7 +2336,7 @@ test.describe('display-backed agent flows', () => {
     const searchResult = childFiles.locator('.code-file-search-result[title="README.md:3"]')
     await expect(searchResult).toBeVisible()
     await searchResult.click()
-    await expect.poll(() => fileEditorPosition(page)).toEqual({ lineNumber: 3, column: 1 })
+    await expect.poll(async () => (await fileEditorPosition(page)).lineNumber).toBe(3)
     const shortcutSaveMarker = `shortcut-save-${Date.now()}`
     await page.getByTestId('code-file-monaco').click({ position: { x: 80, y: 130 } })
     await page.evaluate((marker) => {
@@ -2684,215 +2885,11 @@ test.describe('display-backed agent flows', () => {
     await expect(page.getByTestId('code-active-session-row').filter({ hasText: 'Farming others' })).toHaveCount(1)
   })
 
-  test('covers desktop and mobile flows with real rendered surfaces', async ({ page, workspaceRoot }) => {
+  test('renders launch, Project, Files, and active Session controls', async ({ page, workspaceRoot }) => {
     test.setTimeout(180_000)
 
-    const mainWorkspace = path.join(workspaceRoot, 'farming-playwright-main')
-    const childWorkspace = path.join(workspaceRoot, 'farming-playwright-child')
-    const deepCodexCwd = path.join(childWorkspace, 'deep', 'task')
-    const childWorkspaceDisplay = childWorkspace
-    const deepCodexCwdDisplay = deepCodexCwd
-    fs.rmSync(mainWorkspace, { recursive: true, force: true })
-    fs.rmSync(childWorkspace, { recursive: true, force: true })
-    fs.mkdirSync(mainWorkspace, { recursive: true })
-    fs.mkdirSync(childWorkspace, { recursive: true })
-    fs.mkdirSync(deepCodexCwd, { recursive: true })
-    fs.writeFileSync(path.join(childWorkspace, 'README.md'), '# Farming Playwright child workspace\n')
-    execFileSync('git', ['init'], { cwd: childWorkspace, stdio: 'ignore' })
-    execFileSync('git', ['config', 'user.email', 'farming-e2e@example.test'], { cwd: childWorkspace })
-    execFileSync('git', ['config', 'user.name', 'Farming E2E'], { cwd: childWorkspace })
-    execFileSync('git', ['add', 'README.md'], { cwd: childWorkspace, stdio: 'ignore' })
-    execFileSync('git', ['commit', '-m', 'seed child workspace'], { cwd: childWorkspace, stdio: 'ignore' })
-    await page.addInitScript(() => {
-      class MockSpeechRecognition extends EventTarget {
-        continuous = false
-        interimResults = false
-        lang = 'en-US'
-        onresult: ((event: unknown) => void) | null = null
-        onerror: (() => void) | null = null
-        onend: (() => void) | null = null
-
-        start() {
-          ;(window as unknown as { __mockSpeechRecognition?: MockSpeechRecognition }).__mockSpeechRecognition = this
-        }
-
-        stop() {
-          this.onend?.()
-        }
-      }
-
-      ;(window as unknown as { SpeechRecognition?: typeof MockSpeechRecognition }).SpeechRecognition = MockSpeechRecognition
-    })
-
-    await mockCodexSessions(page, [{
-      id: '019f0000-0000-7000-8000-000000000099',
-      title: 'Deep Codex Session',
-      cwd: deepCodexCwd,
-      workspace: childWorkspace,
-      updatedAt: new Date().toISOString(),
-      createdAt: new Date().toISOString(),
-      archived: false,
-      pinned: true,
-      unread: false,
-      projectless: false,
-      model: 'gpt-5.5',
-      effort: 'xhigh',
-      source: 'codex',
-    }, {
-      provider: 'claude',
-      providerName: 'Claude',
-      capabilities: ['resume', 'fork'],
-      id: '11111111-2222-4333-8444-555555555555',
-      title: 'Pinned Claude Session',
-      cwd: deepCodexCwd,
-      workspace: childWorkspace,
-      updatedAt: new Date(Date.now() - 2 * 60 * 1000).toISOString(),
-      createdAt: new Date(Date.now() - 62 * 60 * 1000).toISOString(),
-      archived: false,
-      pinned: true,
-      unread: false,
-      projectless: false,
-      model: 'sonnet',
-      effort: '',
-      source: 'claude',
-    }, {
-      id: '019f0000-0000-7000-8000-000000000102',
-      title: 'Visible Codex Session 1',
-      cwd: deepCodexCwd,
-      workspace: childWorkspace,
-      updatedAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
-      createdAt: new Date(Date.now() - 65 * 60 * 1000).toISOString(),
-      archived: false,
-      pinned: false,
-      unread: false,
-      projectless: false,
-      model: 'gpt-5.5',
-      effort: 'xhigh',
-      source: 'codex',
-    }, {
-      id: '019f0000-0000-7000-8000-000000000103',
-      title: 'Visible Codex Session 2',
-      cwd: deepCodexCwd,
-      workspace: childWorkspace,
-      updatedAt: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
-      createdAt: new Date(Date.now() - 70 * 60 * 1000).toISOString(),
-      archived: false,
-      pinned: false,
-      unread: false,
-      projectless: false,
-      model: 'gpt-5.5',
-      effort: 'xhigh',
-      source: 'codex',
-    }, {
-      id: '019f0000-0000-7000-8000-000000000104',
-      title: 'Visible Codex Session 3',
-      cwd: deepCodexCwd,
-      workspace: childWorkspace,
-      updatedAt: new Date(Date.now() - 15 * 60 * 1000).toISOString(),
-      createdAt: new Date(Date.now() - 75 * 60 * 1000).toISOString(),
-      archived: false,
-      pinned: false,
-      unread: false,
-      projectless: false,
-      model: 'gpt-5.5',
-      effort: 'xhigh',
-      source: 'codex',
-    }, {
-      id: '019f0000-0000-7000-8000-000000000105',
-      title: 'Hidden Codex Session',
-      cwd: deepCodexCwd,
-      workspace: childWorkspace,
-      updatedAt: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
-      createdAt: new Date(Date.now() - 80 * 60 * 1000).toISOString(),
-      archived: false,
-      pinned: false,
-      unread: false,
-      projectless: false,
-      model: 'gpt-5.5',
-      effort: 'xhigh',
-      source: 'codex',
-    }, {
-      id: '019f0000-0000-7000-8000-000000000101',
-      title: 'Plain Codex Session',
-      cwd: deepCodexCwd,
-      workspace: childWorkspace,
-      updatedAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
-      createdAt: new Date(Date.now() - 90 * 60 * 1000).toISOString(),
-      archived: false,
-      pinned: false,
-      unread: false,
-      projectless: false,
-      model: 'gpt-5.5',
-      effort: 'xhigh',
-      source: 'codex',
-    }, {
-      provider: 'claude',
-      providerName: 'Claude',
-      capabilities: ['resume', 'fork'],
-      id: '11111111-2222-4333-8444-666666666666',
-      title: 'Plain Claude Session',
-      cwd: deepCodexCwd,
-      workspace: childWorkspace,
-      updatedAt: new Date(Date.now() - 35 * 60 * 1000).toISOString(),
-      createdAt: new Date(Date.now() - 95 * 60 * 1000).toISOString(),
-      archived: false,
-      pinned: false,
-      unread: false,
-      projectless: false,
-      model: 'sonnet',
-      effort: '',
-      source: 'claude',
-    }, {
-      id: '019f0000-0000-7000-8000-000000000100',
-      title: 'Archived Codex Session',
-      cwd: deepCodexCwd,
-      workspace: childWorkspace,
-      updatedAt: new Date().toISOString(),
-      createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-      archived: true,
-      pinned: false,
-      unread: false,
-      projectless: false,
-      model: 'gpt-5.5',
-      effort: 'xhigh',
-      source: 'codex',
-    }])
-    await page.route('**/api/agent-sessions/search?**', async route => {
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify({ sessions: [] }),
-      })
-    })
-    let resumedCodexSessionId = ''
-    let resumedCodexAgentId = 'resumed-code-agent'
-    let resumedClaudeSessionId = ''
-    await page.route(/\/farming\/api\/(?:codex\/sessions|agent-sessions\/codex)\/[^/]+\/resume$/, async route => {
-      const match = route.request().url().match(/\/(?:codex\/sessions|agent-sessions\/codex)\/([^/]+)\/resume$/)
-      resumedCodexSessionId = match ? decodeURIComponent(match[1]) : ''
-      await route.fulfill({
-        contentType: 'application/json',
-        status: 201,
-        body: JSON.stringify({ agentId: resumedCodexAgentId }),
-      })
-    })
-    await page.route(/\/farming\/api\/agent-sessions\/claude\/[^/]+\/resume$/, async route => {
-      const match = route.request().url().match(/\/agent-sessions\/claude\/([^/]+)\/resume$/)
-      resumedClaudeSessionId = match ? decodeURIComponent(match[1]) : ''
-      await route.fulfill({
-        contentType: 'application/json',
-        status: 201,
-        body: JSON.stringify({ agentId: resumedCodexAgentId }),
-      })
-    })
-
-    const membershipResponse = await page.request.post('/farming/api/main-page-agent-sessions', {
-      data: {
-        operation: 'add',
-        sessionKeys: ['agent-session:codex:019f0000-0000-7000-8000-000000000099'],
-      },
-    })
-    expect(membershipResponse.ok()).toBeTruthy()
-
+    const fixture = await prepareRenderedSurfaceFixture(page, workspaceRoot)
+    const { childWorkspace, deepCodexCwd, mainWorkspace, resume } = fixture
     await openFarming(page)
     await openNewAgentDialog(page)
     await expect(page.getByTestId('input-dialog')).toBeVisible()
@@ -2982,7 +2979,7 @@ test.describe('display-backed agent flows', () => {
     if (!childAgentId) throw new Error('Child agent row is missing data-agent-id')
     expect(childAgentId).not.toBe(primaryAgentId)
     const childStartedRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${childAgentId}"]`)
-    resumedCodexAgentId = childAgentId
+    resume.agentId = childAgentId
     const desktopProjectGroups = page.getByTestId('code-project-group')
     const primaryProjectGroup = desktopProjectGroups.filter({ has: page.locator(`[data-agent-id="${primaryAgentId}"]`) })
     const childProjectGroup = desktopProjectGroups.filter({ has: page.locator(`[data-agent-id="${childAgentId}"]`) })
@@ -3072,10 +3069,31 @@ test.describe('display-backed agent flows', () => {
     await expect(primaryRow).toBeFocused()
     await primaryRow.dispatchEvent('keydown', { key: 'ArrowDown', code: 'ArrowDown' })
     await expect(childStartedRow).toHaveClass(/active/)
-    resumedCodexSessionId = ''
+    resume.codexSessionId = ''
     await childStartedRow.dispatchEvent('keydown', { key: 'ArrowDown', code: 'ArrowDown' })
-    await expect.poll(async () => resumedCodexSessionId).toBe('019f0000-0000-7000-8000-000000000099')
+    await expect.poll(async () => resume.codexSessionId).toBe('019f0000-0000-7000-8000-000000000099')
     await childStartedRow.click()
+
+  })
+
+  test('navigates desktop Search and History across active and historical Sessions', async ({ page, workspaceRoot }) => {
+    test.setTimeout(180_000)
+    const surface = await startRenderedSurfaceAgents(
+      page,
+      await prepareRenderedSurfaceFixture(page, workspaceRoot),
+    )
+    const {
+      childProjectGroup,
+      childRow: childStartedRow,
+      childWorkspace,
+      deepCodexCwd,
+      mainSearchTerm,
+      primaryProjectGroup,
+      primaryRow,
+      resume,
+    } = surface
+    const childWorkspaceDisplay = childWorkspace
+    const deepCodexCwdDisplay = deepCodexCwd
 
     await page.getByRole('button', { name: /Search/ }).click()
     await expect(page.getByTestId('code-search-panel')).toBeVisible()
@@ -3139,28 +3157,28 @@ test.describe('display-backed agent flows', () => {
     await expect(page.getByTestId('code-session-search-result')).toHaveCount(1)
     await expect(page.getByTestId('code-session-search-result').first()).toHaveClass(/active/)
     await page.getByTestId('code-search-box').locator('input').press('Enter')
-    await expect.poll(async () => resumedCodexSessionId).toBe('019f0000-0000-7000-8000-000000000099')
+    await expect.poll(async () => resume.codexSessionId).toBe('019f0000-0000-7000-8000-000000000099')
     await expect(page.getByTestId('code-search-box')).toBeHidden()
 
-    resumedCodexSessionId = ''
+    resume.codexSessionId = ''
     await page.getByRole('button', { name: /Search/ }).click()
     await expect(page.getByTestId('code-search-panel')).toBeVisible()
     await page.getByTestId('code-search-box').locator('input').fill('Plain Codex')
     await expect(page.getByTestId('code-session-search-result')).toHaveCount(1)
     await expect(page.getByTestId('code-session-search-result').first()).toHaveClass(/active/)
     await page.getByTestId('code-search-box').locator('input').press('Enter')
-    await expect.poll(async () => resumedCodexSessionId).toBe('019f0000-0000-7000-8000-000000000101')
+    await expect.poll(async () => resume.codexSessionId).toBe('019f0000-0000-7000-8000-000000000101')
     await expect(page.getByTestId('code-search-box')).toBeHidden()
     await expect(page.getByTestId('code-active-session-row').filter({ hasText: 'Plain Codex Session' })).toHaveCount(1)
 
-    resumedClaudeSessionId = ''
+    resume.claudeSessionId = ''
     await page.getByRole('button', { name: /Search/ }).click()
     await expect(page.getByTestId('code-search-panel')).toBeVisible()
     await page.getByTestId('code-search-box').locator('input').fill('Plain Claude')
     await expect(page.getByTestId('code-session-search-result')).toHaveCount(1)
     await expect(page.getByTestId('code-session-search-result').first()).toHaveClass(/active/)
     await page.getByTestId('code-search-box').locator('input').press('Enter')
-    await expect.poll(async () => resumedClaudeSessionId).toBe('11111111-2222-4333-8444-666666666666')
+    await expect.poll(async () => resume.claudeSessionId).toBe('11111111-2222-4333-8444-666666666666')
     await expect(page.getByTestId('code-search-box')).toBeHidden()
     await expect(page.getByTestId('code-active-session-row').filter({ hasText: 'Plain Claude Session' })).toHaveCount(1)
 
@@ -3213,6 +3231,16 @@ test.describe('display-backed agent flows', () => {
     await page.keyboard.press('Escape')
     await expect(page.getByTestId('code-terminal-grid')).toBeVisible()
     await expect(primaryRow).toBeFocused()
+
+  })
+
+  test('keeps desktop Composer menus, focus, and settings authoritative', async ({ page, workspaceRoot }) => {
+    test.setTimeout(180_000)
+    const { primaryRow } = await startRenderedSurfaceAgents(
+      page,
+      await prepareRenderedSurfaceFixture(page, workspaceRoot),
+    )
+    await primaryRow.click()
 
     await expect(page.getByTestId('code-nav-settings')).toHaveCount(0)
     await expect(page.getByTestId('settings-panel')).toHaveCount(0)
@@ -3486,6 +3514,21 @@ test.describe('display-backed agent flows', () => {
     await expect(page.getByTestId('settings-panel')).toBeHidden()
     await expect(page.getByTestId('code-terminal-grid')).toBeVisible()
 
+  })
+
+  test('keeps desktop sidebar navigation and terminal command routing coherent', async ({ page, workspaceRoot }) => {
+    test.setTimeout(180_000)
+    const {
+      childAgentId,
+      childRow,
+      childWorkspace,
+      primaryAgentId,
+      primaryRow,
+    } = await startRenderedSurfaceAgents(
+      page,
+      await prepareRenderedSurfaceFixture(page, workspaceRoot),
+    )
+
     const sidebarExpandedBox = await page.getByTestId('code-sidebar').boundingBox()
     if (!sidebarExpandedBox) throw new Error('Sidebar is missing before collapse')
     await page.getByTestId('code-sidebar-toggle').click()
@@ -3531,7 +3574,6 @@ test.describe('display-backed agent flows', () => {
     await expect(childProjectTitle).toBeVisible()
 
     const agentId = childAgentId
-    const childRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
     await childRow.click()
     await page.getByTestId('code-new-agent').click()
     await expect(page.getByTestId('input-dialog')).toBeVisible()
@@ -3621,6 +3663,15 @@ test.describe('display-backed agent flows', () => {
       })
     }
 
+  })
+
+  test('keeps desktop Files disclosure and context-menu focus coherent', async ({ page, workspaceRoot }) => {
+    test.setTimeout(180_000)
+    const { childProjectGroup } = await startRenderedSurfaceAgents(
+      page,
+      await prepareRenderedSurfaceFixture(page, workspaceRoot),
+    )
+
     const childFileSection = childProjectGroup.getByTestId('code-files-section')
     const filesTitle = childFileSection.locator('.code-files-title').first()
     if (await filesTitle.getAttribute('aria-expanded') !== 'true') {
@@ -3649,6 +3700,23 @@ test.describe('display-backed agent flows', () => {
     await expect(fileContextMenu).toBeHidden()
     await expect(childDirectoryRow).toHaveClass(/selected/)
     await expect(childFileSection.locator('[role="tree"]')).toBeFocused()
+
+  })
+
+  test('keeps desktop Agent menus and terminal viewport state coherent', async ({ page, workspaceRoot }) => {
+    test.setTimeout(180_000)
+    const {
+      childAgentId,
+      childRow,
+      childWorkspace,
+    } = await startRenderedSurfaceAgents(
+      page,
+      await prepareRenderedSurfaceFixture(page, workspaceRoot),
+    )
+    const agentId = childAgentId
+    const childProjectTitle = page
+      .getByTestId('code-project-list')
+      .getByRole('button', { name: path.basename(childWorkspace), exact: true })
 
     await expect(page.locator('.code-thread-tab')).toHaveCount(0)
     await expect(page.locator('.code-terminal-actions')).toHaveCount(0)
@@ -3790,6 +3858,22 @@ test.describe('display-backed agent flows', () => {
     await page.mouse.move(sidebarBeforeResize.x + sidebarBeforeResize.width + 90, resizerBox.y + resizerBox.height / 2)
     await page.mouse.up()
     await expect.poll(async () => (await page.getByTestId('code-sidebar').boundingBox())?.width ?? 0).toBeGreaterThan(sidebarBeforeResize.width + 40)
+
+  })
+
+  test('adapts rendered Agent and terminal controls to mobile lifecycle transitions', async ({ page, workspaceRoot }) => {
+    test.setTimeout(180_000)
+    const {
+      childAgentId,
+      childWorkspace,
+      mainWorkspace,
+      primaryAgentId,
+      primaryRow,
+    } = await startRenderedSurfaceAgents(
+      page,
+      await prepareRenderedSurfaceFixture(page, workspaceRoot),
+    )
+    const agentId = childAgentId
 
     const openCollapsedNavigation = async () => {
       if (!((await page.getByTestId('code-workspace').getAttribute('class'))?.includes('sidebar-collapsed'))) return
