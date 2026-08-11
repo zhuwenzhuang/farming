@@ -25,10 +25,14 @@ function config(overrides = {}) {
     getTaskHistory: () => [],
     getDangerouslySkipAgentPermissionsByDefault: () => false,
     getAgentLaunchProfiles: () => ({}),
-    getCodexApprovalMode: () => 'full',
-    getCodexModel: () => 'gpt-5.5',
-    getCodexReasoningEffort: () => 'xhigh',
-    getCodexServiceTier: () => 'priority',
+    getAgentLaunchProfileForHome: provider => provider === 'codex'
+      ? {
+          approvalMode: 'full',
+          model: 'gpt-5.5',
+          reasoningEffort: 'xhigh',
+          serviceTier: 'priority',
+        }
+      : {},
     getCodexRuntimeMode: () => 'cli',
     getAgentHome: () => ({ id: 'default', path: path.join(process.env.HOME, '.codex') }),
     ...overrides,
@@ -1224,7 +1228,7 @@ async function run() {
     };
     try {
       const faultedRegistrationAgentId = await registrationManager.startAgent(
-        'claude',
+        'claude --resume registration-observer-failure-session',
         process.cwd(),
         (agentId, error) => assert.ifError(error),
         {

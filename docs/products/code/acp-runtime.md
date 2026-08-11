@@ -21,6 +21,12 @@ session/inventory policy. Browser and CRT surfaces consume projected
 capabilities from that boundary; they must not maintain provider-name
 allowlists or duplicate provider defaults.
 
+Provider launch and recovery profiles are projected through adapter policy.
+Permission keys, model and reasoning fields, resume-time inheritance, display
+names, and retired request aliases are Provider concerns; generic Agent
+lifecycle code consumes their normalized result and does not branch on a
+Provider name.
+
 Performance, correctness, reliability, recovery, isolation, and observability
 are provider-neutral ACP requirements. A cross-cutting improvement is complete
 only when every supported provider satisfies the same adapter contract and

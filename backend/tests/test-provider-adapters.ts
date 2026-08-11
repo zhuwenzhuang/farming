@@ -8,14 +8,18 @@ const {
   providerCapabilities,
   providerConversationForkCapability,
   providerForProgram,
+  providerAcpRuntimeProfile,
+  providerLaunchPermissionMode,
   providerPermissionRestartPolicy,
   providerRequiresStableTerminalSessionAfterInput,
   providerSessionResumeOptions,
+  providerSessionLaunchProfile,
   providerSessionIdentityRollbackArgs,
   providerSupportsSharedAcpRuntime,
   providerSupportsRuntime,
   providerTerminalStartupPolicy,
   providerTerminalNotificationUsesIdleFence,
+  providerTreatsLegacyAcpRequestAsChat,
 } = require('../provider-adapters.cjs');
 
 function run() {
@@ -59,6 +63,39 @@ function run() {
     { claudePermissionMode: 'plan' },
   );
   assert.deepStrictEqual(providerSessionResumeOptions('opencode', { permissionMode: 'full' }), {});
+  assert.deepStrictEqual(
+    providerSessionLaunchProfile(
+      'codex',
+      { model: 'gpt-5.5', modelPreset: 'fast', reasoningEffort: 'high', serviceTier: 'priority' },
+      true,
+    ),
+    { model: 'config', modelPreset: 'config', reasoningEffort: 'config', serviceTier: 'config' },
+  );
+  assert.deepStrictEqual(
+    providerSessionLaunchProfile('claude', { model: 'opus', effort: 'high' }, true),
+    { model: 'config', effort: 'config' },
+  );
+  assert.deepStrictEqual(
+    providerSessionLaunchProfile('claude', { model: 'opus', effort: 'high' }, false),
+    { model: 'opus', effort: 'high' },
+  );
+  assert.strictEqual(providerLaunchPermissionMode('codex', { approvalMode: 'full' }), 'full');
+  assert.strictEqual(providerLaunchPermissionMode('claude', { permissionMode: 'plan' }), 'plan');
+  assert.strictEqual(providerLaunchPermissionMode('opencode', { permissionMode: 'full' }), '');
+  assert.deepStrictEqual(
+    providerAcpRuntimeProfile('codex', {
+      model: 'gpt-5.5',
+      reasoningEffort: 'high',
+      serviceTier: 'priority',
+    }),
+    { model: 'gpt-5.5', reasoningEffort: 'high', serviceTier: 'priority' },
+  );
+  assert.deepStrictEqual(
+    providerAcpRuntimeProfile('claude', { model: 'opus', effort: 'high' }),
+    { model: 'opus', reasoningEffort: 'high', serviceTier: '' },
+  );
+  assert.strictEqual(providerTreatsLegacyAcpRequestAsChat('codex'), true);
+  assert.strictEqual(providerTreatsLegacyAcpRequestAsChat('claude'), false);
   assert.deepStrictEqual(providerPermissionRestartPolicy('codex', 'approve'), {
     displayName: 'Codex',
     freshCommand: 'codex',

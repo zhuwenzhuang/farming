@@ -16,6 +16,10 @@ Provider 特有的 Executable Discovery、Environment、Adapter Patch、可选�
 Input Behavior 及 Session/Inventory Policy 的唯一来源。Browser 与 CRT Surface 只消费
 该边界投影出的 Capability，不维护 Provider Name Allowlist，也不重复定义 Provider Default。
 
+Provider Launch 与 Recovery Profile 通过 Adapter Policy 投影。Permission Key、Model 与
+Reasoning Field、Resume 时的继承规则、Display Name 及已退役 Request Alias 都属于 Provider
+边界；通用 Agent Lifecycle 只消费归一化结果，不再根据 Provider Name 分支。
+
 性能、正确性、可靠性、恢复、隔离与可观测性都是 Provider-neutral 的 ACP 要求。
 横切改进只有在所有受支持 Provider 都满足同一 Adapter Contract 与等价验收标准后才算
 完成。Provider 集成可以用不同方式实现该 Contract，但不得绕过它，也不能把单一 Provider

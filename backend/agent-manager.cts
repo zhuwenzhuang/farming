@@ -151,16 +151,20 @@ import {
   getProviderAdapter,
   isFreshAcpSessionSource,
   providerCapabilities,
+  providerAcpRuntimeProfile,
   providerArgsContinueSession,
   providerConversationForkCapability,
   providerForProgram,
+  providerLaunchPermissionMode,
   providerPermissionRestartPolicy,
   providerRequiresStableTerminalSessionAfterInput,
   providerSessionResumeOptions,
+  providerSessionLaunchProfile,
   providerSessionIdentityRollbackArgs,
   providerSupportsRuntime,
   providerTerminalStartupPolicy,
   providerTerminalNotificationUsesIdleFence,
+  providerTreatsLegacyAcpRequestAsChat,
 } from './provider-adapters.cjs';
 import {
   agentTerminalRuntimeStatus,
@@ -512,11 +516,6 @@ interface AgentManagerConfigContract extends AgentManagerConfig {
   getAgentSessionRecordForProviderSessionKey(sessionKey: string): PersistedAgentPrivateMetadata | null;
   getAgentLaunchProfileForHome(provider: string, homeId?: string): UnknownRecord;
   getAgentLaunchProfiles(): UnknownRecord;
-  getCodexApprovalMode(): string;
-  getCodexModel(): string;
-  getCodexModelPreset(): string;
-  getCodexReasoningEffort(): string;
-  getCodexServiceTier(): string;
   getDangerouslySkipAgentPermissionsByDefault(): boolean;
   getHeartbeatInterval(): number;
   getTaskHistory?(): UnknownRecord[];
@@ -3387,11 +3386,15 @@ class AgentManager extends EventEmitter {
         const executable = executableResolution.path;
         agent.acpRuntimeMode = acpRuntimeMode;
         agent.acpRuntimeExecutable = executable;
-        const approvalMode = agent.launchPermissionMode || (
-          provider === 'codex' && this.configManager?.getCodexApprovalMode
-            ? this.configManager.getCodexApprovalMode()
-            : 'approve'
-        );
+        const recoveryLaunchProfile = this.configManager?.getAgentLaunchProfileForHome
+          ? this.configManager.getAgentLaunchProfileForHome(
+              provider,
+              agent.providerHomeId || record.providerHomeId || 'default',
+            )
+          : {};
+        const approvalMode = agent.launchPermissionMode
+          || providerLaunchPermissionMode(provider, recoveryLaunchProfile)
+          || 'approve';
         const launchEnv = this.buildAgentEnv(agentId, agent);
         const recoveryMcpSource = Array.isArray(record.acpMcpServers)
           ? record.acpMcpServers.filter(isRecord)
@@ -4709,30 +4712,22 @@ class AgentManager extends EventEmitter {
     const configuredLaunchProfiles = this.configManager && this.configManager.getAgentLaunchProfiles
       ? this.configManager.getAgentLaunchProfiles()
       : {};
+    const requestedLaunchProfile = {
+      ...homeLaunchProfile,
+      ...(typeof options.codexModelPreset === 'string' ? { modelPreset: options.codexModelPreset } : {}),
+      ...(typeof options.codexModel === 'string' ? { model: options.codexModel } : {}),
+      ...(typeof options.codexReasoningEffort === 'string' ? { reasoningEffort: options.codexReasoningEffort } : {}),
+      ...(typeof options.codexServiceTier === 'string' ? { serviceTier: options.codexServiceTier } : {}),
+    };
+    const launchProfile = providerSessionLaunchProfile(
+      launchProvider,
+      requestedLaunchProfile,
+      preserveProviderSessionProfile,
+    );
     if (launchProvider) {
-      configuredLaunchProfiles[launchProvider] = preserveProviderSessionProfile && launchProvider === 'claude'
-        ? { ...homeLaunchProfile, model: 'config', effort: 'config' }
-        : homeLaunchProfile;
+      configuredLaunchProfiles[launchProvider] = launchProfile;
     }
-    const codexModel = preserveProviderSessionProfile
-      ? 'config'
-      : (typeof options.codexModel === 'string'
-        ? options.codexModel
-        : (typeof homeLaunchProfile.model === 'string' ? homeLaunchProfile.model : 'config'));
-    const codexReasoningEffort = preserveProviderSessionProfile
-      ? 'config'
-      : (typeof options.codexReasoningEffort === 'string'
-        ? options.codexReasoningEffort
-        : (typeof homeLaunchProfile.reasoningEffort === 'string'
-          ? homeLaunchProfile.reasoningEffort
-          : 'config'));
-    const codexServiceTier = preserveProviderSessionProfile
-      ? 'config'
-      : (typeof options.codexServiceTier === 'string'
-        ? options.codexServiceTier
-        : (typeof homeLaunchProfile.serviceTier === 'string'
-          ? homeLaunchProfile.serviceTier
-          : 'config'));
+    const runtimeLaunchProfile = providerAcpRuntimeProfile(launchProvider, launchProfile);
     const launch = resolveLaunchCommand(command, {
       dangerouslySkipPermissions: dangerouslySkipPermissions === true,
       agentLaunchProfiles: configuredLaunchProfiles,
@@ -4744,12 +4739,6 @@ class AgentManager extends EventEmitter {
             : 'approve')
       ),
       claudePermissionMode: typeof options.claudePermissionMode === 'string' ? options.claudePermissionMode : undefined,
-      codexModelPreset: typeof homeLaunchProfile.modelPreset === 'string'
-        ? homeLaunchProfile.modelPreset
-        : 'config',
-      codexModel,
-      codexReasoningEffort,
-      codexServiceTier,
       farmingSystemPrompt: renderFarmingAgentBootstrap(),
       mainAgentSystemPrompt: wantsMain ? renderMainAgentBootstrap() : '',
     });
@@ -4899,16 +4888,16 @@ class AgentManager extends EventEmitter {
       : (providerHome ? providerHome.path : '');
     let resolvedProviderHomeId = providerHome ? providerHome.id : (providerHomeId || '');
     if (
-      homeProvider === 'codex'
+      homeProvider
       && !providerHomePath
       && this.configManager
       && typeof this.configManager.getAgentHome === 'function'
     ) {
-      const defaultCodexHome = this.configManager.getAgentHome('codex', 'default');
-      if (defaultCodexHome) {
-        providerHome = defaultCodexHome;
-        providerHomePath = defaultCodexHome.path;
-        resolvedProviderHomeId = defaultCodexHome.id || 'default';
+      const defaultProviderHome = this.configManager.getAgentHome(homeProvider, 'default');
+      if (defaultProviderHome) {
+        providerHome = defaultProviderHome;
+        providerHomePath = defaultProviderHome.path;
+        resolvedProviderHomeId = defaultProviderHome.id || 'default';
       }
     }
     const requestedRuntimeModeValue = (options as Record<string, unknown>).agentRuntimeMode;
@@ -4929,10 +4918,13 @@ class AgentManager extends EventEmitter {
       ? String(homeProvider || '')
       : providerSessionPlan.provider;
     // `chat` is the only browser-facing structured-runtime request. Treat the
-    // retired Codex ACP launch request as that intent too, so an old client
-    // cannot create a second Codex Chat implementation.
+    // retired provider-specific ACP launch requests as that intent too, so an
+    // old client cannot create a second Chat implementation.
     const requestedChatRuntime = isChatMode(requestedAgentRuntimeMode)
-      || (requestedAgentRuntimeMode === 'acp' && homeProvider === 'codex');
+      || (
+        requestedAgentRuntimeMode === 'acp'
+        && providerTreatsLegacyAcpRequestAsChat(homeProvider)
+      );
     const resolvedChatRuntime = requestedChatRuntime
       ? chatRuntimeForProvider(homeProvider)
       : (requestedAgentRuntimeMode === 'acp' ? 'acp' : '');
@@ -5060,9 +5052,8 @@ class AgentManager extends EventEmitter {
       && !this.skipExecutablePreflight
       && process.env.FARMING_E2E_FAKE_EXECUTABLES !== '1'
     ) {
-      const displayName = launch.spec.name === 'opencode'
-        ? 'OpenCode'
-        : launch.spec.name.charAt(0).toUpperCase() + launch.spec.name.slice(1);
+      const displayName = launch.spec.displayName
+        || launch.spec.name.charAt(0).toUpperCase() + launch.spec.name.slice(1);
       if (callback) {
         callback(
           null,
@@ -5331,9 +5322,9 @@ class AgentManager extends EventEmitter {
           providerHomeId: agentRecord.providerHomeId || 'default',
           providerHomePath: agentRecord.providerHomePath || '',
           approvalMode: agentRecord.launchPermissionMode || 'approve',
-          model: codexModel,
-          reasoningEffort: codexReasoningEffort,
-          serviceTier: codexServiceTier,
+          model: runtimeLaunchProfile.model,
+          reasoningEffort: runtimeLaunchProfile.reasoningEffort,
+          serviceTier: runtimeLaunchProfile.serviceTier,
           farmingSystemPrompt: renderFarmingAgentBootstrap(),
           additionalDirectories: requestedAdditionalDirectories,
           mcpServers: requestedMcpServers,
@@ -5529,13 +5520,9 @@ class AgentManager extends EventEmitter {
           providerHomeId: agentRecord.providerHomeId || 'default',
           providerHomePath: agentRecord.providerHomePath || '',
           approvalMode: agentRecord.launchPermissionMode || 'approve',
-          model: codexModel,
-          reasoningEffort: !preserveProviderSessionProfile
-            && structuredRuntimeProvider === 'claude'
-            && typeof homeLaunchProfile.effort === 'string'
-            ? homeLaunchProfile.effort
-            : codexReasoningEffort,
-          serviceTier: codexServiceTier,
+          model: runtimeLaunchProfile.model,
+          reasoningEffort: runtimeLaunchProfile.reasoningEffort,
+          serviceTier: runtimeLaunchProfile.serviceTier,
           farmingSystemPrompt: renderFarmingAgentBootstrap(),
           additionalDirectories,
           configOverrides,
@@ -7108,7 +7095,9 @@ class AgentManager extends EventEmitter {
       ? String(this.acpRuntime.bindingEpoch(agentId) || '')
       : String(agent.runtimeEpoch || '');
     const provider = agent.providerSessionProvider || '';
-    const nextMode = mode === 'acp' && provider === 'codex' ? 'chat' : mode;
+    const nextMode = mode === 'acp' && providerTreatsLegacyAcpRequestAsChat(provider)
+      ? 'chat'
+      : mode;
     const currentKind = runtimeKind(agent);
     const currentMode = currentKind === 'acp' ? 'chat' : 'terminal';
     const nextRuntimeKind = nextMode === 'chat' ? chatRuntimeForProvider(provider) : nextMode;

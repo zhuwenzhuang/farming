@@ -12,6 +12,7 @@ interface CliAgentSpec {
   category: AgentCategory;
   command?: string;
   description: string;
+  displayName?: string;
   interactive: boolean;
   name: string;
   permissions?: AgentPermissions;
@@ -211,6 +212,7 @@ const CLI_AGENTS: CliAgentSpec[] = [
   },
   {
     name: 'opencode',
+    displayName: 'OpenCode',
     description: 'OpenCode - AI coding assistant',
     category: 'coding',
     interactive: true,

@@ -21,11 +21,13 @@ interface ProviderTerminalStartupPolicy {
 }
 
 interface ProviderSessionPolicy {
+  launchProfilePermissionKey?: 'approvalMode' | 'permissionMode';
   permissionDisplayName?: string;
   permissionOption?: 'claudePermissionMode' | 'codexApprovalMode';
   permissionRestartModes?: readonly string[];
   preserveProfileOnResume?: boolean;
   preserveRequiredCliVersion?: boolean;
+  resumeLaunchProfileOverrides?: Readonly<Record<string, string>>;
   freshPermissionRestartCommand?: string;
   requiresStableTerminalSessionAfterInput?: boolean;
   terminalNotificationIdleFence?: boolean;
@@ -115,6 +117,7 @@ interface ProviderAcpConfigPolicy {
   coupleModelAndReasoning?: boolean;
   launchModelAndReasoning?: boolean;
   matchModelByName?: boolean;
+  reasoningProfileKey?: string;
   serviceTier?: {
     enabledValues: readonly string[];
   };
@@ -173,6 +176,7 @@ interface ProviderAdapter {
   homeEnvKey: string;
   interruptInput: string;
   runtimeObservationKind?: 'codex' | 'claude' | 'process';
+  legacyAcpRequestIsChat?: boolean;
   freshAcpSessionSources: readonly string[];
   commands: readonly string[];
   supportedRuntimes: readonly ProviderRuntime[];
@@ -456,6 +460,7 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
     homeEnvKey: 'CODEX_HOME',
     interruptInput: '\x1b',
     runtimeObservationKind: 'codex',
+    legacyAcpRequestIsChat: true,
     freshAcpSessionSources: ['codex-temporary'],
     commands: ['codex'],
     supportedRuntimes: ['terminal', 'acp'],
@@ -468,11 +473,18 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
       readiness: { kind: 'output-includes', value: '\u001b' },
     },
     sessionPolicy: {
+      launchProfilePermissionKey: 'approvalMode',
       permissionDisplayName: 'Codex',
       permissionOption: 'codexApprovalMode',
       permissionRestartModes: ['ask', 'approve', 'full', 'custom'],
       preserveProfileOnResume: true,
       preserveRequiredCliVersion: true,
+      resumeLaunchProfileOverrides: {
+        model: 'config',
+        modelPreset: 'config',
+        reasoningEffort: 'config',
+        serviceTier: 'config',
+      },
       freshPermissionRestartCommand: 'codex',
       requiresStableTerminalSessionAfterInput: true,
     },
@@ -531,9 +543,11 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
     )),
     planSession: (rawArgs, launchArgs) => explicitSessionPlan('claude', rawArgs, launchArgs),
     sessionPolicy: {
+      launchProfilePermissionKey: 'permissionMode',
       permissionDisplayName: 'Claude',
       permissionOption: 'claudePermissionMode',
       permissionRestartModes: ['acceptEdits', 'auto', 'bypassPermissions', 'default', 'dontAsk', 'plan'],
+      resumeLaunchProfileOverrides: { model: 'config', effort: 'config' },
     },
     acp: {
       executablePolicy: 'managed',
@@ -542,6 +556,7 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
       sharedRuntime: true,
       config: {
         launchModelAndReasoning: true,
+        reasoningProfileKey: 'effort',
       },
       sessionMetadata: ({ farmingSystemPrompt, sessionEnv }) => ({
         ...(farmingSystemPrompt
@@ -834,6 +849,41 @@ function providerSessionResumeOptions(
   return result;
 }
 
+function providerSessionLaunchProfile(
+  provider: unknown,
+  profile: Record<string, unknown>,
+  preserveProviderSessionProfile: boolean,
+): Record<string, unknown> {
+  const overrides = preserveProviderSessionProfile
+    ? getProviderAdapter(provider)?.sessionPolicy?.resumeLaunchProfileOverrides
+    : null;
+  return overrides ? { ...profile, ...overrides } : { ...profile };
+}
+
+function providerLaunchPermissionMode(
+  provider: unknown,
+  profile: Record<string, unknown>,
+): string {
+  const key = getProviderAdapter(provider)?.sessionPolicy?.launchProfilePermissionKey;
+  return key && typeof profile[key] === 'string' ? profile[key].trim() : '';
+}
+
+function providerAcpRuntimeProfile(
+  provider: unknown,
+  profile: Record<string, unknown>,
+): { model: string; reasoningEffort: string; serviceTier: string } {
+  const reasoningKey = getProviderAdapter(provider)?.acp.config?.reasoningProfileKey || 'reasoningEffort';
+  return {
+    model: typeof profile.model === 'string' ? profile.model : '',
+    reasoningEffort: typeof profile[reasoningKey] === 'string' ? String(profile[reasoningKey]) : '',
+    serviceTier: typeof profile.serviceTier === 'string' ? profile.serviceTier : '',
+  };
+}
+
+function providerTreatsLegacyAcpRequestAsChat(provider: unknown): boolean {
+  return getProviderAdapter(provider)?.legacyAcpRequestIsChat === true;
+}
+
 function providerPermissionRestartPolicy(
   provider: unknown,
   requestedMode: unknown,
@@ -933,14 +983,18 @@ export {
   providerCapabilities,
   providerForProgram,
   providerPermissionRestartPolicy,
+  providerAcpRuntimeProfile,
+  providerLaunchPermissionMode,
   providerRuntimeObservationKind,
   providerRequiresStableTerminalSessionAfterInput,
   providerSessionResumeOptions,
+  providerSessionLaunchProfile,
   providerSessionIdentityRollbackArgs,
   providerSupportsSharedAcpRuntime,
   providerSupportsRuntime,
   providerTerminalStartupPolicy,
   providerTerminalNotificationUsesIdleFence,
+  providerTreatsLegacyAcpRequestAsChat,
   type ProviderTerminalStartupPolicy,
   type ProviderPermissionRestartPolicy,
 };
