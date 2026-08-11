@@ -1,7 +1,32 @@
 #!/usr/bin/env node
+const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
 
 const bootstrapPackageRoot = path.resolve(__dirname, '..');
+
+function relaunchWithImageGlibc() {
+  if (process.platform !== 'linux' || process.env.FARMING_NODE_LD) return;
+  const loader = path.join(bootstrapPackageRoot, '.farming-glibc', 'lib', 'ld-2.28.so');
+  if (!fs.existsSync(loader)) return;
+  const libraryPath = path.dirname(loader);
+  const env = {
+    ...process.env,
+    FARMING_NODE_LD: loader,
+    FARMING_NODE_LIBRARY_PATH: libraryPath,
+    FARMING_NODE_BIN: process.execPath,
+  };
+  const args = [loader, '--library-path', libraryPath, process.execPath, __filename, ...process.argv.slice(2)];
+  if (typeof process.execve === 'function') {
+    process.execve(loader, args, env);
+  }
+  const relaunched = spawnSync(loader, args.slice(1), { env, stdio: 'inherit' });
+  if (relaunched.error) throw relaunched.error;
+  process.exit(relaunched.status === null ? 1 : relaunched.status);
+}
+
+relaunchWithImageGlibc();
+
 let activePackageRoot = bootstrapPackageRoot;
 
 if (!process.pkg) {

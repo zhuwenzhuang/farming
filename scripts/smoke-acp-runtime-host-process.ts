@@ -88,6 +88,7 @@ async function main(): Promise<void> {
   const socketPath = path.join(configDir, 'runtime-host.sock');
   const child = spawn(command, args, {
     cwd: process.cwd(),
+    detached: true,
     env: {
       ...process.env,
       FARMING_CONFIG_DIR: configDir,

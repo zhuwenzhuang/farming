@@ -5,11 +5,146 @@ const path = require('path');
 const { spawn } = require('child_process');
 
 const {
+  discoverLegacyConfigProcesses,
   hardStopConfigProcesses,
   registerConfigProcessGroup,
 } = require('../config-process-ownership.cjs');
 
+function writeProcFixture(procRoot, pid, options) {
+  const directory = path.join(procRoot, String(pid));
+  fs.mkdirSync(directory, { recursive: true });
+  fs.writeFileSync(path.join(directory, 'environ'), `${Object.entries(options.env)
+    .map(([key, value]) => `${key}=${value}`)
+    .join('\0')}\0`);
+  fs.writeFileSync(path.join(directory, 'cmdline'), `${options.args.join('\0')}\0`);
+  fs.writeFileSync(path.join(directory, 'status'), [
+    'Name:\ttest',
+    `Pid:\t${pid}`,
+    `PPid:\t${options.parentPid ?? 1}`,
+    `Uid:\t${options.uid}\t${options.uid}\t${options.uid}\t${options.uid}`,
+    '',
+  ].join('\n'));
+  fs.writeFileSync(
+    path.join(directory, 'stat'),
+    `${pid} (test carrier) S ${options.parentPid ?? 1} ${options.processGroupId ?? pid} ${options.processGroupId ?? pid} 0 -1 0\n`,
+  );
+}
+
 async function run() {
+  {
+    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-legacy-proc-config.'));
+    const otherConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-legacy-proc-other.'));
+    const procRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-legacy-proc-root.'));
+    const packageRoot = path.join(configDir, 'images', 'legacy-image');
+    const browserPath = path.join(configDir, 'runtimes', 'agentBrowser', '0.32.3', 'linux-x64', 'agent-browser');
+    const identities = new Map();
+    const add = (pid, options) => {
+      writeProcFixture(procRoot, pid, options);
+      identities.set(pid, {
+        pid,
+        processGroupId: options.processGroupId ?? pid,
+        startedAt: `identity-${pid}`,
+      });
+    };
+    try {
+      add(31001, {
+        uid: 505,
+        env: {
+          FARMING_CONFIG_DIR: configDir,
+          FARMING_ACTIVE_PACKAGE_ROOT: packageRoot,
+        },
+        args: [
+          path.join(packageRoot, '.farming-glibc', 'lib', 'ld-2.28.so'),
+          '--library-path', path.join(packageRoot, '.farming-glibc', 'lib'),
+          '/usr/local/bin/node',
+          path.join(packageRoot, 'backend', 'acp-runtime-host-process.cjs'),
+        ],
+      });
+      add(31002, {
+        uid: 505,
+        env: {
+          FARMING_CONFIG_DIR: configDir,
+          FARMING_AGENT_BROWSER_BIN: browserPath,
+        },
+        args: [browserPath],
+      });
+      add(31003, {
+        uid: 505,
+        env: {
+          FARMING_CONFIG_DIR: otherConfigDir,
+          FARMING_AGENT_BROWSER_BIN: browserPath,
+        },
+        args: [browserPath],
+      });
+      add(31004, {
+        uid: 506,
+        env: {
+          FARMING_CONFIG_DIR: configDir,
+          FARMING_ACTIVE_PACKAGE_ROOT: packageRoot,
+        },
+        args: ['/usr/local/bin/node', path.join(packageRoot, 'backend', 'acp-runtime-host-process.cjs')],
+      });
+      add(31005, {
+        uid: 505,
+        processGroupId: 31001,
+        env: {
+          FARMING_CONFIG_DIR: configDir,
+          FARMING_ACTIVE_PACKAGE_ROOT: packageRoot,
+        },
+        args: ['/usr/local/bin/node', path.join(packageRoot, 'backend', 'acp-runtime-host-process.cjs')],
+      });
+      const outsideBrowser = path.join(os.tmpdir(), 'agent-browser');
+      add(31006, {
+        uid: 505,
+        env: {
+          FARMING_CONFIG_DIR: configDir,
+          FARMING_AGENT_BROWSER_BIN: outsideBrowser,
+        },
+        args: [outsideBrowser],
+      });
+      add(31007, {
+        uid: 505,
+        env: {
+          FARMING_CONFIG_DIR: configDir,
+          FARMING_ACTIVE_PACKAGE_ROOT: packageRoot,
+        },
+        args: ['/usr/local/bin/node', path.join(configDir, 'spoof', 'backend', 'acp-runtime-host-process.cjs')],
+      });
+
+      const discovered = await discoverLegacyConfigProcesses(configDir, {
+        currentUid: 505,
+        procRoot,
+        readProcessIdentity: pid => identities.get(pid) || null,
+      });
+      assert.deepStrictEqual(
+        discovered.map(record => [record.pid, record.role]),
+        [
+          [31001, 'legacy-acp-runtime-host'],
+          [31002, 'legacy-browser'],
+        ],
+        'legacy discovery must require exact Config, uid, group leadership, and Farming carrier paths',
+      );
+
+      identities.set(31001, { pid: 31001, processGroupId: 31001, startedAt: 'reused-pid' });
+      const signals = [];
+      const stop = await hardStopConfigProcesses(configDir, {
+        discoverLegacyProcesses: async () => discovered,
+        readProcessIdentity: pid => identities.get(pid) || null,
+        signalProcessGroup(processGroupId, signal) {
+          signals.push({ processGroupId, signal });
+          identities.delete(processGroupId);
+        },
+        waitForProcessGroupExit: async () => true,
+      });
+      assert.deepStrictEqual(signals, [{ processGroupId: 31002, signal: 'SIGKILL' }]);
+      assert.strictEqual(stop.refused, 1, 'legacy PID reuse must fail closed before signaling');
+    } finally {
+      fs.rmSync(configDir, { recursive: true, force: true });
+      fs.rmSync(otherConfigDir, { recursive: true, force: true });
+      fs.rmSync(procRoot, { recursive: true, force: true });
+    }
+  }
+
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-config-hard-stop.'));
   const otherConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-config-hard-stop-other.'));
   try {

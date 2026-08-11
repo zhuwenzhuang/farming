@@ -21,6 +21,7 @@ type OwnershipRecord = ProcessIdentity & {
 };
 
 type HardStopOptions = {
+  discoverLegacyProcesses?: () => Promise<OwnershipRecord[]>;
   readProcessIdentity?: (pid: number) => ProcessIdentity | null | Promise<ProcessIdentity | null>;
   signalProcessGroup?: (processGroupId: number, signal: NodeJS.Signals) => void;
   waitForProcessGroupExit?: (processGroupId: number) => Promise<boolean>;
@@ -28,6 +29,7 @@ type HardStopOptions = {
 
 const PROCESS_OWNERSHIP_VERSION = 1;
 const HARD_STOP_WAIT_MS = 5_000;
+const PROC_READ_LIMIT = 256 * 1024;
 
 function ownershipDir(configDir: string): string {
   return path.join(canonicalConfigDir(configDir), '.farming-processes');
@@ -123,6 +125,161 @@ function processHasConfigEnvironment(pid: number, configDir: string): boolean {
   } catch {
     return process.platform !== 'linux';
   }
+}
+
+function readBoundedFile(file: string, limit = PROC_READ_LIMIT): Buffer | null {
+  let descriptor = -1;
+  try {
+    descriptor = fs.openSync(file, 'r');
+    const buffer = Buffer.allocUnsafe(limit + 1);
+    const bytes = fs.readSync(descriptor, buffer, 0, buffer.length, 0);
+    if (bytes > limit) return null;
+    return buffer.subarray(0, bytes);
+  } catch {
+    return null;
+  } finally {
+    if (descriptor >= 0) fs.closeSync(descriptor);
+  }
+}
+
+function procEnvironment(procDir: string): Map<string, string> | null {
+  const content = readBoundedFile(path.join(procDir, 'environ'));
+  if (!content) return null;
+  return new Map(content.toString('utf8').split('\0').filter(Boolean).map(entry => {
+    const separator = entry.indexOf('=');
+    return separator < 0 ? [entry, ''] : [entry.slice(0, separator), entry.slice(separator + 1)];
+  }));
+}
+
+function procCommandLine(procDir: string): string[] | null {
+  const content = readBoundedFile(path.join(procDir, 'cmdline'), 64 * 1024);
+  if (!content) return null;
+  const args = content.toString('utf8').split('\0').filter(Boolean);
+  return args.length > 0 ? args : null;
+}
+
+function procStatus(procDir: string): { parentPid: number; uid: number } | null {
+  const content = readBoundedFile(path.join(procDir, 'status'), 64 * 1024)?.toString('utf8') || '';
+  const uid = content.match(/^Uid:\s+(\d+)/m);
+  const parentPid = content.match(/^PPid:\s+(\d+)/m);
+  if (!uid || !parentPid) return null;
+  return { uid: Number(uid[1]), parentPid: Number(parentPid[1]) };
+}
+
+function procProcessGroupId(procDir: string, expectedPid: number): number | null {
+  const stat = readBoundedFile(path.join(procDir, 'stat'), 64 * 1024)?.toString('utf8') || '';
+  const commandEnd = stat.lastIndexOf(')');
+  if (commandEnd < 0) return null;
+  const prefix = stat.slice(0, stat.indexOf(' '));
+  const fields = stat.slice(commandEnd + 2).trim().split(/\s+/);
+  if (Number(prefix) !== expectedPid || fields.length < 3) return null;
+  const processGroupId = Number(fields[2]);
+  return Number.isSafeInteger(processGroupId) && processGroupId > 0 ? processGroupId : null;
+}
+
+function exactManagedRootCarrier(
+  args: string[],
+  environment: Map<string, string>,
+  relativeCarrier: string,
+): boolean {
+  const roots = [
+    environment.get('FARMING_ACTIVE_PACKAGE_ROOT'),
+    environment.get('FARMING_MANAGED_PACKAGE_ROOT'),
+  ].filter((value): value is string => Boolean(value));
+  return roots.some(root => args.includes(path.join(path.resolve(root), relativeCarrier)));
+}
+
+function legacyCarrierRole(
+  args: string[],
+  environment: Map<string, string>,
+  configDir: string,
+): string {
+  if (
+    exactManagedRootCarrier(args, environment, path.join('backend', 'acp-runtime-host-process.cjs'))
+    || (
+      args.includes('--acp-runtime-host')
+      && exactManagedRootCarrier(args, environment, path.join('bin', 'farming'))
+    )
+  ) return 'legacy-acp-runtime-host';
+  if (
+    exactManagedRootCarrier(args, environment, path.join('backend', 'native-pty-host.cjs'))
+    || (
+      args.includes('--native-pty-host')
+      && exactManagedRootCarrier(args, environment, path.join('bin', 'farming'))
+    )
+  ) return 'legacy-native-pty-host';
+
+  const expectedBrowser = environment.get('FARMING_AGENT_BROWSER_BIN')
+    || environment.get('FARMING_AGENT_BROWSER_EXECUTABLE')
+    || '';
+  let browserPath = '';
+  try {
+    browserPath = canonicalConfigDir(args[0] || '');
+  } catch {
+    return '';
+  }
+  let canonicalExpectedBrowser = '';
+  try {
+    canonicalExpectedBrowser = expectedBrowser ? canonicalConfigDir(expectedBrowser) : '';
+  } catch {
+    return '';
+  }
+  const browserRoot = path.join(canonicalConfigDir(configDir), 'runtimes', 'agentBrowser');
+  if (
+    expectedBrowser
+    && browserPath === canonicalExpectedBrowser
+    && path.basename(browserPath) === 'agent-browser'
+    && browserPath.startsWith(`${browserRoot}${path.sep}`)
+  ) return 'legacy-browser';
+  return '';
+}
+
+async function discoverLegacyConfigProcesses(
+  configDir: string,
+  options: {
+    currentUid?: number;
+    procRoot?: string;
+    readProcessIdentity?: (pid: number) => ProcessIdentity | null | Promise<ProcessIdentity | null>;
+  } = {},
+): Promise<OwnershipRecord[]> {
+  if (process.platform !== 'linux' && !options.procRoot) return [];
+  const procRoot = options.procRoot || '/proc';
+  const currentUid = options.currentUid ?? (process.geteuid ? process.geteuid() : process.getuid?.());
+  if (!Number.isSafeInteger(currentUid) || Number(currentUid) < 0) return [];
+  const canonicalDir = canonicalConfigDir(configDir);
+  const fingerprint = configInstanceFingerprint(canonicalDir);
+  const readIdentity = options.readProcessIdentity || readServerProcessIdentity;
+  let entries: string[] = [];
+  try {
+    entries = fs.readdirSync(procRoot).filter(entry => /^\d+$/.test(entry));
+  } catch {
+    return [];
+  }
+  const records: OwnershipRecord[] = [];
+  for (const entry of entries) {
+    const pid = Number(entry);
+    const procDir = path.join(procRoot, entry);
+    const status = procStatus(procDir);
+    if (!status || status.uid !== currentUid) continue;
+    const environment = procEnvironment(procDir);
+    if (!environment) continue;
+    const observedConfigDir = environment.get('FARMING_CONFIG_DIR') || '';
+    try {
+      if (!observedConfigDir || canonicalConfigDir(observedConfigDir) !== canonicalDir) continue;
+    } catch {
+      continue;
+    }
+    const args = procCommandLine(procDir);
+    if (!args) continue;
+    const role = legacyCarrierRole(args, environment, canonicalDir);
+    if (!role) continue;
+    const processGroupId = procProcessGroupId(procDir, pid);
+    if (processGroupId !== pid) continue;
+    const identity = await readIdentity(pid);
+    if (!identity || identity.pid !== pid || identity.processGroupId !== processGroupId) continue;
+    records.push({ ...identity, role, configInstanceFingerprint: fingerprint });
+  }
+  return records;
 }
 
 function requestHostPing(socketPath: string): Promise<Record<string, unknown> | null> {
@@ -239,10 +396,14 @@ async function hardStopConfigProcesses(configDir: string, options: HardStopOptio
   const waitForExit = options.waitForProcessGroupExit || defaultWaitForProcessGroupExit;
   const registered = readOwnershipRecords(configDir);
   const discovered = options.readProcessIdentity
+    && !options.discoverLegacyProcesses
     ? []
     : [
         ...await discoverConfigHostProcesses(configDir),
         ...persistedProcessRecords(configDir),
+        ...(options.discoverLegacyProcesses
+          ? await options.discoverLegacyProcesses()
+          : await discoverLegacyConfigProcesses(configDir)),
       ].map(record => ({ file: '', record }));
   const unique = new Map<number, Array<{ file: string; record: OwnershipRecord }>>();
   for (const item of [...registered, ...discovered]) {
@@ -350,6 +511,7 @@ function hardStopConfigComputerContainers(configDir: string): { stopped: number;
 export {
   hardStopConfigProcesses,
   hardStopConfigComputerContainers,
+  discoverLegacyConfigProcesses,
   registerConfigProcessGroup,
   unregisterConfigProcessGroup,
 };
