@@ -1,7 +1,33 @@
 const assert = require('assert');
 const { archiveCodexSession } = require('../codex-session-archive.cjs');
+const {
+  providerSessionHistoryMutationSupported,
+  runProviderSessionHistoryMutation,
+} = require('../provider-session-history-mutations.cjs');
 
 async function run() {
+  assert.strictEqual(providerSessionHistoryMutationSupported('codex', 'archive'), true);
+  assert.strictEqual(providerSessionHistoryMutationSupported('codex', 'unarchive'), true);
+  assert.strictEqual(providerSessionHistoryMutationSupported('claude', 'archive'), false);
+  assert.deepStrictEqual(await runProviderSessionHistoryMutation(
+    'codex',
+    'archive',
+    'registry-session',
+    { cwd: '/registry-worktree' },
+    {
+      archiveCodexSession: async (sessionId, session) => ({
+        archived: sessionId === 'registry-session' && session.cwd === '/registry-worktree',
+      }),
+    },
+  ), { archived: true });
+  assert.strictEqual(await runProviderSessionHistoryMutation(
+    'claude',
+    'archive',
+    'unsupported-session',
+    {},
+    {},
+  ), null);
+
   const calls = [];
   const result = await archiveCodexSession('019f0000-0000-7000-8000-000000000001', {
     cliVersion: '1.2.3',

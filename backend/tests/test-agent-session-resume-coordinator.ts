@@ -37,7 +37,7 @@ function basePorts(overrides: Partial<AgentSessionResumeCoordinatorPorts> = {}):
     canonicalProjectWorkspace: async workspace => workspace || '',
     configuredProviderHomes: () => ({ codex: [{ id: 'default', path: '/homes/codex' }] }),
     currentAgentSessions: async () => [],
-    ensureCodexSessionAvailable: async () => null,
+    ensureProviderSessionAvailable: async () => null,
     findAgentSession: async () => ({
       provider: 'codex',
       id: 'session-alpha',
@@ -947,7 +947,7 @@ async function testTerminalFailuresReleaseAdmission() {
 
   {
     const coordinator = new AgentSessionResumeCoordinator(basePorts({
-      ensureCodexSessionAvailable: async () => { throw new Error('unarchive crashed'); },
+      ensureProviderSessionAvailable: async () => { throw new Error('unarchive crashed'); },
     }));
     assert.deepStrictEqual(
       await coordinator.resumeHttp('codex', 'session-unarchive-crash', { unarchiveArchived: true }),
@@ -1007,7 +1007,8 @@ async function testArchivedAndUnarchiveSemantics() {
     const unarchiveCalls: Array<Record<string, unknown>> = [];
     let lookups = 0;
     const coordinator = new AgentSessionResumeCoordinator(basePorts({
-      ensureCodexSessionAvailable: async (sessionId, options) => {
+      ensureProviderSessionAvailable: async (provider, sessionId, options) => {
+        assert.strictEqual(provider, 'codex');
         unarchiveCalls.push({ sessionId, ...options, providerHomes: undefined });
         return null;
       },
@@ -1040,7 +1041,7 @@ async function testArchivedAndUnarchiveSemantics() {
   {
     let starts = 0;
     const coordinator = new AgentSessionResumeCoordinator(basePorts({
-      ensureCodexSessionAvailable: async () => ({ error: 'codex refused to unarchive' }),
+      ensureProviderSessionAvailable: async () => ({ error: 'codex refused to unarchive' }),
       findAgentSession: async () => ({
         provider: 'codex', id: 'session-unarchive-error', providerName: 'Codex', archived: true,
       }),

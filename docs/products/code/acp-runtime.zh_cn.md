@@ -20,6 +20,10 @@ Provider Launch 与 Recovery Profile 通过 Adapter Policy 投影。Permission K
 Reasoning Field、Resume 时的继承规则、Display Name 及已退役 Request Alias 都属于 Provider
 边界；通用 Agent Lifecycle 只消费归一化结果，不再根据 Provider Name 分支。
 
+Provider History Mutation 使用同一边界。Archive，以及 Resume 或 Fork 前的 Unarchive
+支持，由 Provider History Mutation Registry 声明并执行；通用 Resume、Fork、Recovery 与
+Archive Flow 只传递精确 Provider Identity，不直接调用 Provider-specific Command。
+
 性能、正确性、可靠性、恢复、隔离与可观测性都是 Provider-neutral 的 ACP 要求。
 横切改进只有在所有受支持 Provider 都满足同一 Adapter Contract 与等价验收标准后才算
 完成。Provider 集成可以用不同方式实现该 Contract，但不得绕过它，也不能把单一 Provider

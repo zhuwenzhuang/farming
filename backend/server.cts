@@ -1621,7 +1621,9 @@ const agentSessionResumeCoordinator = new AgentSessionResumeCoordinator({
   canonicalProjectWorkspace,
   configuredProviderHomes,
   currentAgentSessions,
-  ensureCodexSessionAvailable: (sessionId, options) => agentManager.ensureCodexSessionAvailable(sessionId, options),
+  ensureProviderSessionAvailable: (provider, sessionId, options) => (
+    agentManager.ensureProviderSessionAvailable(provider, sessionId, options)
+  ),
   findAgentSession: (provider, sessionId, options) => findAgentSession(provider, sessionId, options),
   getActiveAgents: () => agentManager.getState().agents,
   getMainPageSessionKeys: () => configManager.getMainPageSessionKeys(),

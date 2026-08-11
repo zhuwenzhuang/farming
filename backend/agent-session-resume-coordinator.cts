@@ -140,7 +140,7 @@ interface AgentSessionResumeCoordinatorPorts {
   canonicalProjectWorkspace(workspace: string | null): Promise<string>;
   configuredProviderHomes(): ProviderHomes;
   currentAgentSessions(): Promise<AgentSession[]>;
-  ensureCodexSessionAvailable(sessionId: string, options: {
+  ensureProviderSessionAvailable(provider: string, sessionId: string, options: {
     cwd: string;
     providerHomeId: string;
     providerHomePath: string;
@@ -406,7 +406,7 @@ class AgentSessionResumeCoordinator {
     if (options.allowUnarchiveArchived === true && providerHistorySupportsUnarchive(provider) && !requestedAsMain) {
       const configuredHomePath = (providerHomes[provider] || [])
         .find(home => home.id === providerHomeId)?.path || '';
-      const unarchiveResult = await this.ports.ensureCodexSessionAvailable(sessionId, {
+      const unarchiveResult = await this.ports.ensureProviderSessionAvailable(provider, sessionId, {
         providerHomeId,
         providerHomePath: session?.providerHomePath || configuredHomePath,
         providerHomes,

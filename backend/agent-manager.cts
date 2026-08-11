@@ -108,7 +108,11 @@ const { promisify } = require('util');
 import { SystemMonitor } from './system-monitor.cjs';
 import { SessionEngineBridge } from './session-engine-bridge.cjs';
 import { isSupportedHistoryAgent, parseCommand, resolveLaunchCommand } from './cli-agents.cjs';
-import { buildAgentSessionResumeCommand, findAgentSession } from './agent-session-history.cjs';
+import {
+  buildAgentSessionResumeCommand,
+  findAgentSession,
+  providerHistorySupportsUnarchive,
+} from './agent-session-history.cjs';
 import { archiveCodexSession, unarchiveCodexSession } from './codex-session-archive.cjs';
 import { buildAgentProviderSessionPlan, sessionFromExactResumeSource } from './agent-provider-session.cjs';
 import {
@@ -204,6 +208,10 @@ import { AgentStartAdmissionCoordinator } from './agent-start-admission-coordina
 import { ProjectOperationAdmissionCoordinator } from './project-operation-admission-coordinator.cjs';
 import { AgentRuntimeStopTracker } from './agent-runtime-stop-tracker.cjs';
 import { ProviderSessionMutationCoordinator } from './provider-session-mutation-coordinator.cjs';
+import {
+  providerSessionHistoryMutationSupported,
+  runProviderSessionHistoryMutation,
+} from './provider-session-history-mutations.cjs';
 import { TerminalProviderControlCoordinator } from './terminal-provider-control-coordinator.cjs';
 import { AgentTerminalProjectionTracker } from './agent-terminal-projection-tracker.cjs';
 import {
@@ -2737,7 +2745,7 @@ class AgentManager extends EventEmitter {
             },
           );
           this.mainPageSessionIndex.removeAgents([recoveredAgent]);
-          const providerArchive = await this.archiveCodexProviderSession(recoveredAgent);
+          const providerArchive = await this.archiveProviderSession(recoveredAgent);
           this.lifecycleJournalService.transition(
             recoveredAgent,
             operation.id,
@@ -3662,7 +3670,7 @@ class AgentManager extends EventEmitter {
             },
           );
           this.mainPageSessionIndex.removeAgents([staged]);
-          const providerArchive = await this.archiveCodexProviderSession(staged);
+          const providerArchive = await this.archiveProviderSession(staged);
           this.lifecycleJournalService.transition(
             staged,
             operation.id,
@@ -8272,8 +8280,8 @@ class AgentManager extends EventEmitter {
       && agent.providerSessionTemporary !== true
       ? { provider: agent.providerSessionProvider, providerHomeId: agent.providerHomeId || 'default', sessionId: String(agent.providerSessionId) }
       : resumedSessionFromSource(String(agent.source || ''));
-    if (resumedSession?.provider === 'codex') {
-      const availability = await this.ensureCodexSessionAvailableForFork(agent, resumedSession, sourceWorkspace);
+    if (resumedSession && providerHistorySupportsUnarchive(resumedSession.provider)) {
+      const availability = await this.ensureProviderSessionAvailableForFork(agent, resumedSession, sourceWorkspace);
       if (availability?.error) return availability;
     }
 
@@ -8612,14 +8620,19 @@ class AgentManager extends EventEmitter {
     return result;
   }
 
-  ensureCodexSessionAvailable(
+  ensureProviderSessionAvailable(
+    provider: string,
     sessionId: string,
     options: ProviderResumeOptions = {},
   ): Promise<{ error: string } | null> {
+    if (!providerSessionHistoryMutationSupported(provider, 'unarchive')) {
+      return Promise.resolve(null);
+    }
     const providerHomeId = String(options.providerHomeId || 'default').trim() || 'default';
     const providerHomePath = String(options.providerHomePath || '').trim();
+    const displayName = getProviderAdapter(provider)?.displayName || provider;
     return this.providerSessionMutationCoordinator.run({
-      provider: 'codex',
+      provider,
       homeId: providerHomeId,
       sessionId,
       type: 'unarchive',
@@ -8627,34 +8640,40 @@ class AgentManager extends EventEmitter {
       operation: async () => {
         let session: Awaited<ReturnType<typeof findAgentSession>>;
         try {
-          session = await findAgentSession('codex', sessionId, {
+          session = await findAgentSession(provider, sessionId, {
             limit: 1000,
             providerLimit: 1000,
             scanLimit: 5000,
             providerHomeId,
             providerHomes: options.providerHomes || (providerHomePath
-              ? { codex: [{ id: providerHomeId, path: providerHomePath }] }
+              ? { [provider]: [{ id: providerHomeId, path: providerHomePath }] }
               : undefined),
           });
         } catch (caughtError: unknown) {
       const error = caughtError as ErrorRecord;
           return {
-            error: `Failed to inspect Codex session before unarchiving: ${error && (error.message || error)}`,
+            error: `Failed to inspect ${displayName} session before unarchiving: ${error && (error.message || error)}`,
           };
         }
         if (!session || session.archived !== true) return null;
 
-        const result = await this.unarchiveCodexSession(sessionId, {
-          ...session,
-          cwd: options.cwd || session.cwd || session.workspace,
-          providerHomePath: session.providerHomePath || providerHomePath,
-        });
+        const result = await runProviderSessionHistoryMutation(
+          provider,
+          'unarchive',
+          sessionId,
+          {
+            ...session,
+            cwd: options.cwd || session.cwd || session.workspace,
+            providerHomePath: session.providerHomePath || providerHomePath,
+          },
+          { unarchiveCodexSession: (...args) => this.unarchiveCodexSession(...args) },
+        );
         return result?.error ? { error: result.error } : null;
       },
     });
   }
 
-  async ensureCodexSessionAvailableForFork(
+  async ensureProviderSessionAvailableForFork(
     agent: TypedAgentRecord,
     resumedSession: ExactResumeSession,
     sourceWorkspace: string,
@@ -8662,20 +8681,22 @@ class AgentManager extends EventEmitter {
     const providerHomeId = agent.providerHomeId || resumedSession.providerHomeId || 'default';
     const providerHomePath = agent.providerHomePath || '';
     const sessionId = resumedSession.sessionId;
-    const result = await this.ensureCodexSessionAvailable(sessionId, {
+    const provider = resumedSession.provider;
+    const displayName = getProviderAdapter(provider)?.displayName || provider;
+    const result = await this.ensureProviderSessionAvailable(provider, sessionId, {
       providerHomeId,
       providerHomePath,
       providerHomes: providerHomePath
-        ? { codex: [{ id: providerHomeId, path: providerHomePath }] }
+        ? { [provider]: [{ id: providerHomeId, path: providerHomePath }] }
         : undefined,
       // Fork is an action on the live Farming Agent. Its current workspace is
       // authoritative even when the older provider history cwd no longer exists.
       cwd: sourceWorkspace,
     });
     if (!result?.error) return null;
-    const detail = result.error.startsWith('Failed to inspect Codex session')
+    const detail = result.error.startsWith(`Failed to inspect ${displayName} session`)
       ? result.error.replace('before unarchiving', 'before forking')
-      : `Codex session ${sessionId} is archived and could not be unarchived before forking: ${result.error}`;
+      : `${displayName} session ${sessionId} is archived and could not be unarchived before forking: ${result.error}`;
     return { error: detail };
   }
 
@@ -8828,7 +8849,7 @@ class AgentManager extends EventEmitter {
     // external mutation reaches its terminal state.
     this.emitStateChange({ agentIds: [agentId], taskHistoryChanged: true });
     if (options.scheduleProviderArchive !== false) {
-      const providerArchive = await this.archiveCodexProviderSession(agent);
+      const providerArchive = await this.archiveProviderSession(agent);
       if (providerArchive?.error) {
         try {
           this.lifecycleJournalService.transition(agent, operationId, 'blocked', providerArchive.error, {
@@ -8896,10 +8917,11 @@ class AgentManager extends EventEmitter {
     };
   }
 
-  async archiveCodexProviderSession(agent: TypedAgentRecord) {
+  async archiveProviderSession(agent: TypedAgentRecord) {
+    const provider = String(agent?.providerSessionProvider || '');
     if (
       !agent
-      || agent.providerSessionProvider !== 'codex'
+      || !providerSessionHistoryMutationSupported(provider, 'archive')
       || !agent.providerSessionId
       || agent.providerSessionTemporary === true
       || (agent.providerSessionMaterialized === false && agent.terminalInputReceived !== true)
@@ -8916,12 +8938,18 @@ class AgentManager extends EventEmitter {
     };
     try {
       const result = await this.providerSessionMutationCoordinator.run({
-        provider: 'codex',
+        provider,
         homeId: agent.providerHomeId || 'default',
         sessionId,
         type: 'archive',
         joinSameType: true,
-        operation: () => this.archiveCodexSession(sessionId, session),
+        operation: () => runProviderSessionHistoryMutation(
+          provider,
+          'archive',
+          sessionId,
+          session,
+          { archiveCodexSession: (...args) => this.archiveCodexSession(...args) },
+        ),
       });
       return result?.error ? { error: result.error } : { archived: true };
     } catch (caughtError: unknown) {
