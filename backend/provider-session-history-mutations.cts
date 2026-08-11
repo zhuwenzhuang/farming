@@ -1,6 +1,6 @@
 type ProviderSessionHistoryMutationAction = 'archive' | 'unarchive';
 
-interface ProviderSessionHistoryMutationSession {
+interface ProviderSessionHistoryMutationSession extends Record<string, unknown> {
   cliVersion?: string;
   cwd?: string;
   providerHomePath?: string;

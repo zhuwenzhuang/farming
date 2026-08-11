@@ -69,7 +69,10 @@ function agentProgramName(command: unknown): string {
     .find(token => token !== 'env' && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(token)) || '';
 }
 
-function activeCodexTerminalProfile(agent: TypedAgentRecord, previewText: string) {
+function activeCodexTerminalProfile(
+  agent: TypedAgentRecord,
+  previewText: string,
+): Record<string, unknown> | null {
   if (!agent) return null;
   const provider = agent.providerSessionProvider
     || providerForProgram(agentProgramName(agent.forkCommand || agent.command || ''));
@@ -77,7 +80,13 @@ function activeCodexTerminalProfile(agent: TypedAgentRecord, previewText: string
 
   const outputProfile = codexTerminalProfileFromOutput(agent.output || '');
   const parsed = outputProfile || codexTerminalProfileFromPreview(previewText);
-  if (!parsed) return agent.codexTerminalProfile || null;
+  if (!parsed) {
+    return agent.codexTerminalProfile
+      && typeof agent.codexTerminalProfile === 'object'
+      && !Array.isArray(agent.codexTerminalProfile)
+      ? agent.codexTerminalProfile as Record<string, unknown>
+      : null;
+  }
   const previousProfile = agent.codexTerminalProfile
     && typeof agent.codexTerminalProfile === 'object'
     && !Array.isArray(agent.codexTerminalProfile)

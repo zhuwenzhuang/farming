@@ -457,7 +457,7 @@ function claudeAcpEnvironment(
   return env;
 }
 
-const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
+const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
   {
     id: 'codex',
     displayName: 'Codex',
