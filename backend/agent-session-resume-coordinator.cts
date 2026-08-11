@@ -793,7 +793,7 @@ class AgentSessionResumeCoordinator {
         });
         if (result.error) {
           if (providerHistoryAutoResumeErrorIsStale(session.provider, result.error)) {
-            this.ports.warn('Dropping stale provider session from auto-resume:', session.provider, session.sessionId, result.error);
+            this.ports.warn(`Dropping stale ${session.provider} session from auto-resume:`, session.provider, session.sessionId, result.error);
             this.ports.removeMainPageSession(session.provider, session.sessionId, providerHomeId);
             continue;
           }

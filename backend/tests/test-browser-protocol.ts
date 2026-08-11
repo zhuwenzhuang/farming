@@ -144,6 +144,7 @@ function wireAgent(id: string) {
       runtimeSwitch: true,
       terminalProfile: true,
       terminalComposerInput: 'bracketed-paste',
+      slashCommandDiscovery: true,
       goals: false,
       goalSubmission: { terminal: { kind: 'prompt' }, acp: { kind: 'prompt' } },
       terminalSessionFork: true,

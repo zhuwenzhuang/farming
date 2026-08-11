@@ -3,7 +3,6 @@ import test from 'node:test'
 import {
   requestClaudeSettings,
   requestSlashCommands,
-  slashCommandsSupportProvider,
 } from '../src/components/code/useComposerProviderCatalog'
 
 test('provider metadata requests preserve query encoding and normalize their payloads', async () => {
@@ -41,10 +40,4 @@ test('provider metadata requests preserve query encoding and normalize their pay
   assert.equal(claude.effectiveModel, 'opus')
   assert.equal(claude.available, true)
   assert.deepEqual(commands, [{ command: '/review' }])
-})
-
-test('only Codex and Claude expose slash commands', () => {
-  assert.equal(slashCommandsSupportProvider('codex'), true)
-  assert.equal(slashCommandsSupportProvider('claude'), true)
-  assert.equal(slashCommandsSupportProvider('shell'), false)
 })

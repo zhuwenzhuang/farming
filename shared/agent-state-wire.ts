@@ -14,6 +14,7 @@ export interface ProviderCapabilitiesWire {
   runtimeSwitch: boolean
   terminalProfile: boolean
   terminalComposerInput: 'plain-text' | 'bracketed-paste'
+  slashCommandDiscovery: boolean
   goals: boolean
   goalSubmission: {
     terminal: { kind: 'prompt' } | { kind: 'command'; prefix: string }
@@ -79,6 +80,7 @@ function providerCapabilitiesWire(value: unknown): value is ProviderCapabilities
     && typeof capabilities.runtimeSwitch === 'boolean'
     && typeof capabilities.terminalProfile === 'boolean'
     && (capabilities.terminalComposerInput === 'plain-text' || capabilities.terminalComposerInput === 'bracketed-paste')
+    && typeof capabilities.slashCommandDiscovery === 'boolean'
     && typeof capabilities.goals === 'boolean'
     && typeof capabilities.terminalSessionFork === 'boolean'
     && typeof capabilities.sessionFork === 'boolean'

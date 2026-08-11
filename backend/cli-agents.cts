@@ -55,6 +55,134 @@ interface ResolvedLaunchCommand {
   spec: CliAgentSpec | null;
 }
 
+interface AgentLaunchPolicyState {
+  explicitPermissionMode: boolean;
+  permissionMode: string;
+  permissionOverride: boolean;
+}
+
+interface AgentLaunchPolicy {
+  applyPermission(args: string[], permissionMode: string): void;
+  applyProfile(
+    args: string[],
+    options: ResolveLaunchOptions,
+    profile: AgentLaunchProfile,
+  ): AgentLaunchPolicyState;
+  applySystemPrompt?: (args: string[], systemPrompt: string) => void;
+  inferPermissionMode(args: string[], permissionMode: string): string;
+}
+
+const CODEX_APPROVAL_MODES = ['ask', 'approve', 'full', 'custom'];
+const CLAUDE_PERMISSION_MODES = ['acceptEdits', 'auto', 'bypassPermissions', 'default', 'dontAsk', 'plan'];
+
+const CODEX_LAUNCH_POLICY: AgentLaunchPolicy = {
+  applyProfile(launchArgs, options, profile) {
+    const explicitPermissionMode = typeof options.codexApprovalMode === 'string'
+      && CODEX_APPROVAL_MODES.includes(options.codexApprovalMode);
+    const permissionMode = explicitPermissionMode
+      ? (options.codexApprovalMode || '')
+      : (typeof profile.approvalMode === 'string' && CODEX_APPROVAL_MODES.includes(profile.approvalMode)
+        ? profile.approvalMode
+        : '');
+    const modelPreset = typeof options.codexModelPreset === 'string'
+      ? options.codexModelPreset
+      : (typeof profile.modelPreset === 'string' ? profile.modelPreset : '');
+    const configuredModel = typeof options.codexModel === 'string'
+      ? options.codexModel
+      : (typeof profile.model === 'string' ? profile.model : '');
+    const configuredEffort = typeof options.codexReasoningEffort === 'string'
+      ? options.codexReasoningEffort
+      : (typeof profile.reasoningEffort === 'string' ? profile.reasoningEffort : '');
+    const serviceTier = typeof options.codexServiceTier === 'string'
+      ? options.codexServiceTier
+      : (typeof profile.serviceTier === 'string' ? profile.serviceTier : '');
+    const permissionOverride = launchArgs.some((arg) => [
+      '-a',
+      '--ask-for-approval',
+      '-s',
+      '--sandbox',
+      '--dangerously-bypass-approvals-and-sandbox',
+    ].includes(arg));
+    const modelOverride = launchArgs.some((arg) => ['-m', '--model'].includes(arg))
+      || launchArgs.some((arg, index) => arg === '-c' && /^model=/.test(launchArgs[index + 1] || ''))
+      || launchArgs.some((arg) => arg.startsWith('-cmodel=') || arg.startsWith('--config=model='));
+    const effortOverride = launchArgs.some((arg, index) => arg === '-c' && /^model_reasoning_effort=/.test(launchArgs[index + 1] || ''))
+      || launchArgs.some((arg) => arg.startsWith('-cmodel_reasoning_effort=') || arg.startsWith('--config=model_reasoning_effort='));
+    const serviceTierOverride = launchArgs.some((arg, index) => arg === '-c' && /^service_tier=/.test(launchArgs[index + 1] || ''))
+      || launchArgs.some((arg) => arg.startsWith('-cservice_tier=') || arg.startsWith('--config=service_tier='));
+    const [presetModel, presetEffort] = modelPreset.split(':');
+    const model = configuredModel || presetModel;
+    const effort = configuredEffort || presetEffort;
+
+    if (model && !modelOverride && model !== 'config') launchArgs.unshift('--model', model);
+    if (effort && effort !== 'config' && !modelOverride && !effortOverride) {
+      launchArgs.unshift('-c', `model_reasoning_effort="${effort}"`);
+    }
+    if (serviceTier && serviceTier !== 'config' && !modelOverride && !serviceTierOverride) {
+      launchArgs.unshift('-c', `service_tier="${serviceTier}"`);
+    }
+    return { explicitPermissionMode, permissionMode, permissionOverride };
+  },
+  applyPermission(launchArgs, permissionMode) {
+    if (permissionMode === 'ask') {
+      launchArgs.unshift('--ask-for-approval', 'untrusted', '--sandbox', 'workspace-write');
+    } else if (permissionMode === 'approve') {
+      launchArgs.unshift('--ask-for-approval', 'on-request', '--sandbox', 'workspace-write');
+    } else if (permissionMode === 'full') {
+      launchArgs.unshift('--dangerously-bypass-approvals-and-sandbox');
+    }
+  },
+  applySystemPrompt(launchArgs, systemPrompt) {
+    launchArgs.unshift('-c', `developer_instructions=${JSON.stringify(systemPrompt)}`);
+  },
+  inferPermissionMode(launchArgs, permissionMode) {
+    if (launchArgs.includes('--dangerously-bypass-approvals-and-sandbox')) return 'full';
+    const approvalMode = argValue(launchArgs, ['-a', '--ask-for-approval']);
+    if (approvalMode === 'untrusted') return 'ask';
+    if (approvalMode === 'on-request') return 'approve';
+    if (approvalMode) return 'custom';
+    return permissionMode === 'custom' ? 'custom' : '';
+  },
+};
+
+const CLAUDE_LAUNCH_POLICY: AgentLaunchPolicy = {
+  applyProfile(launchArgs, options, profile) {
+    const explicitPermissionMode = typeof options.claudePermissionMode === 'string'
+      && CLAUDE_PERMISSION_MODES.includes(options.claudePermissionMode);
+    const permissionMode = explicitPermissionMode
+      ? (options.claudePermissionMode || 'default')
+      : (typeof profile.permissionMode === 'string' && CLAUDE_PERMISSION_MODES.includes(profile.permissionMode)
+        ? profile.permissionMode
+        : 'default');
+    const model = typeof profile.model === 'string' ? profile.model : '';
+    const effort = typeof profile.effort === 'string' ? profile.effort : '';
+    const permissionOverride = launchArgs.some((arg) => [
+      '--permission-mode',
+      '--dangerously-skip-permissions',
+      '--allow-dangerously-skip-permissions',
+    ].includes(arg) || arg.startsWith('--permission-mode='));
+    if (model && model !== 'config' && !hasArgValue(launchArgs, ['--model'])) {
+      launchArgs.unshift('--model', model);
+    }
+    if (effort && effort !== 'config' && !hasArgValue(launchArgs, ['--effort'])) {
+      launchArgs.unshift('--effort', effort);
+    }
+    return { explicitPermissionMode, permissionMode, permissionOverride };
+  },
+  applyPermission(launchArgs, permissionMode) {
+    if (permissionMode !== 'default') launchArgs.unshift('--permission-mode', permissionMode);
+  },
+  inferPermissionMode(launchArgs) {
+    if (launchArgs.includes('--dangerously-skip-permissions')) return 'bypassPermissions';
+    return argValue(launchArgs, ['--permission-mode']);
+  },
+};
+
+const AGENT_LAUNCH_POLICIES: Readonly<Record<string, AgentLaunchPolicy>> = {
+  codex: CODEX_LAUNCH_POLICY,
+  claude: CLAUDE_LAUNCH_POLICY,
+};
+
 const CLI_AGENTS: CliAgentSpec[] = [
   {
     name: 'codex',
@@ -388,26 +516,11 @@ function argValue(args: string[], names: string[]): string {
 function inferLaunchPermissionMode(
   spec: CliAgentSpec | null,
   launchArgs: string[],
-  options: Pick<ResolveLaunchOptions, 'codexApprovalMode'> = {},
+  policyPermissionMode = '',
 ): string {
   if (!spec) return '';
-
-  if (spec.name === 'codex') {
-    if (launchArgs.includes('--dangerously-bypass-approvals-and-sandbox')) return 'full';
-
-    const approvalMode = argValue(launchArgs, ['-a', '--ask-for-approval']);
-    if (approvalMode === 'untrusted') return 'ask';
-    if (approvalMode === 'on-request') return 'approve';
-    if (approvalMode) return 'custom';
-
-    if (options.codexApprovalMode === 'custom') return 'custom';
-    return '';
-  }
-
-  if (spec.name === 'claude') {
-    if (launchArgs.includes('--dangerously-skip-permissions')) return 'bypassPermissions';
-    return argValue(launchArgs, ['--permission-mode']);
-  }
+  const launchPolicy = AGENT_LAUNCH_POLICIES[spec.name];
+  if (launchPolicy) return launchPolicy.inferPermissionMode(launchArgs, policyPermissionMode);
 
   if (
     spec.permissions &&
@@ -448,83 +561,12 @@ function resolveLaunchCommand(
     launchArgs.push('-l');
   }
   const profile = spec ? getConfiguredProfile(options, spec.name) : {};
-  const explicitCodexApprovalMode = typeof options.codexApprovalMode === 'string'
-    && ['ask', 'approve', 'full', 'custom'].includes(options.codexApprovalMode);
-  const codexApprovalMode = explicitCodexApprovalMode
-    ? (options.codexApprovalMode || '')
-    : (typeof profile.approvalMode === 'string'
-      && ['ask', 'approve', 'full', 'custom'].includes(profile.approvalMode)
-      ? profile.approvalMode
-      : '');
-  const codexModelPreset = typeof options.codexModelPreset === 'string'
-    ? options.codexModelPreset
-    : (typeof profile.modelPreset === 'string' ? profile.modelPreset : '');
-  const codexModel = typeof options.codexModel === 'string'
-    ? options.codexModel
-    : (typeof profile.model === 'string' ? profile.model : '');
-  const codexReasoningEffort = typeof options.codexReasoningEffort === 'string'
-    ? options.codexReasoningEffort
-    : (typeof profile.reasoningEffort === 'string' ? profile.reasoningEffort : '');
-  const codexServiceTier = typeof options.codexServiceTier === 'string'
-    ? options.codexServiceTier
-    : (typeof profile.serviceTier === 'string' ? profile.serviceTier : '');
-  const explicitClaudePermissionMode = typeof options.claudePermissionMode === 'string'
-    && ['acceptEdits', 'auto', 'bypassPermissions', 'default', 'dontAsk', 'plan'].includes(options.claudePermissionMode);
-  const claudePermissionMode = explicitClaudePermissionMode
-    ? (options.claudePermissionMode || 'default')
-    : (typeof profile.permissionMode === 'string'
-      && ['acceptEdits', 'auto', 'bypassPermissions', 'default', 'dontAsk', 'plan'].includes(profile.permissionMode)
-      ? profile.permissionMode
-      : 'default');
-  const claudeModel = typeof profile.model === 'string' ? profile.model : '';
-  const claudeEffort = typeof profile.effort === 'string' ? profile.effort : '';
-  const hasCodexApprovalOverride = launchArgs.some((arg) => [
-    '-a',
-    '--ask-for-approval',
-    '-s',
-    '--sandbox',
-    '--dangerously-bypass-approvals-and-sandbox',
-  ].includes(arg));
-  const hasCodexModelOverride = launchArgs.some((arg) => ['-m', '--model'].includes(arg))
-    || launchArgs.some((arg, index) => arg === '-c' && /^model=/.test(launchArgs[index + 1] || ''))
-    || launchArgs.some((arg) => arg.startsWith('-cmodel=') || arg.startsWith('--config=model='));
-  const hasCodexEffortOverride = launchArgs.some((arg, index) => arg === '-c' && /^model_reasoning_effort=/.test(launchArgs[index + 1] || ''))
-    || launchArgs.some((arg) => arg.startsWith('-cmodel_reasoning_effort=') || arg.startsWith('--config=model_reasoning_effort='));
-  const hasCodexServiceTierOverride = launchArgs.some((arg, index) => arg === '-c' && /^service_tier=/.test(launchArgs[index + 1] || ''))
-    || launchArgs.some((arg) => arg.startsWith('-cservice_tier=') || arg.startsWith('--config=service_tier='));
-  const hasClaudePermissionOverride = launchArgs.some((arg) => [
-    '--permission-mode',
-    '--dangerously-skip-permissions',
-    '--allow-dangerously-skip-permissions',
-  ].includes(arg) || arg.startsWith('--permission-mode='));
-  const hasClaudeModelOverride = hasArgValue(launchArgs, ['--model']);
-  const hasClaudeEffortOverride = hasArgValue(launchArgs, ['--effort']);
-
-  if (spec && spec.name === 'codex') {
-    const [presetModel, presetEffort] = codexModelPreset.split(':');
-    const model = codexModel || presetModel;
-    const effort = codexReasoningEffort || presetEffort;
-    const shouldApplyModelProfile = !hasCodexModelOverride;
-
-    if (model && shouldApplyModelProfile) {
-      if (model !== 'config') launchArgs.unshift('--model', model);
-    }
-    if (effort && effort !== 'config' && shouldApplyModelProfile && !hasCodexEffortOverride) {
-      launchArgs.unshift('-c', `model_reasoning_effort="${effort}"`);
-    }
-    if (codexServiceTier && codexServiceTier !== 'config' && shouldApplyModelProfile && !hasCodexServiceTierOverride) {
-      launchArgs.unshift('-c', `service_tier="${codexServiceTier}"`);
-    }
-  }
-
-  if (spec && spec.name === 'claude') {
-    if (claudeModel && claudeModel !== 'config' && !hasClaudeModelOverride) {
-      launchArgs.unshift('--model', claudeModel);
-    }
-    if (claudeEffort && claudeEffort !== 'config' && !hasClaudeEffortOverride) {
-      launchArgs.unshift('--effort', claudeEffort);
-    }
-  }
+  const launchPolicy = spec ? AGENT_LAUNCH_POLICIES[spec.name] : undefined;
+  const launchPolicyState = launchPolicy?.applyProfile(launchArgs, options, profile) || {
+    explicitPermissionMode: false,
+    permissionMode: '',
+    permissionOverride: false,
+  };
 
   const dangerousSkipArgs = spec?.permissions?.supportsDangerousSkip === true
     && Array.isArray(spec.permissions.dangerousSkipArgs)
@@ -532,30 +574,19 @@ function resolveLaunchCommand(
     : null;
   const hasDangerousSkipArgs = dangerousSkipArgs !== null;
   const hasDangerousSkipOverride = dangerousSkipArgs?.some(arg => launchArgs.includes(arg)) ?? false;
-  const hasPermissionOverride = spec && spec.name === 'codex'
-    ? hasCodexApprovalOverride
-    : spec && spec.name === 'claude'
-      ? hasClaudePermissionOverride
-      : hasDangerousSkipOverride;
+  const hasPermissionOverride = launchPolicy
+    ? launchPolicyState.permissionOverride
+    : hasDangerousSkipOverride;
 
-  const hasExplicitFarmingPermissionMode = spec && spec.name === 'codex'
-    ? explicitCodexApprovalMode
-    : spec && spec.name === 'claude'
-      ? explicitClaudePermissionMode
-      : false;
-
-  if (options.dangerouslySkipPermissions === true && hasDangerousSkipArgs && !hasPermissionOverride && !hasExplicitFarmingPermissionMode) {
+  if (
+    options.dangerouslySkipPermissions === true
+    && hasDangerousSkipArgs
+    && !hasPermissionOverride
+    && !launchPolicyState.explicitPermissionMode
+  ) {
     launchArgs.unshift(...dangerousSkipArgs);
-  } else if (spec && spec.name === 'codex' && codexApprovalMode && codexApprovalMode !== 'custom' && !hasCodexApprovalOverride) {
-    if (codexApprovalMode === 'ask') {
-      launchArgs.unshift('--ask-for-approval', 'untrusted', '--sandbox', 'workspace-write');
-    } else if (codexApprovalMode === 'approve') {
-      launchArgs.unshift('--ask-for-approval', 'on-request', '--sandbox', 'workspace-write');
-    } else if (codexApprovalMode === 'full') {
-      launchArgs.unshift('--dangerously-bypass-approvals-and-sandbox');
-    }
-  } else if (spec && spec.name === 'claude' && claudePermissionMode !== 'default' && !hasClaudePermissionOverride) {
-    launchArgs.unshift('--permission-mode', claudePermissionMode);
+  } else if (launchPolicy && !hasPermissionOverride) {
+    launchPolicy.applyPermission(launchArgs, launchPolicyState.permissionMode);
   }
 
   const systemPrompt = [options.farmingSystemPrompt, options.mainAgentSystemPrompt]
@@ -563,15 +594,15 @@ function resolveLaunchCommand(
     .join('\n\n');
   if (systemPrompt && spec && typeof spec.systemPromptArg === 'string') {
     launchArgs.push(spec.systemPromptArg, systemPrompt);
-  } else if (systemPrompt && spec?.name === 'codex') {
-    launchArgs.unshift('-c', `developer_instructions=${JSON.stringify(systemPrompt)}`);
+  } else if (systemPrompt && launchPolicy?.applySystemPrompt) {
+    launchPolicy.applySystemPrompt(launchArgs, systemPrompt);
   }
 
   return {
     program,
     args: launchArgs,
     spec,
-    permissionMode: inferLaunchPermissionMode(spec, launchArgs, { codexApprovalMode })
+    permissionMode: inferLaunchPermissionMode(spec, launchArgs, launchPolicyState.permissionMode)
   };
 }
 

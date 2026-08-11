@@ -224,10 +224,39 @@ const CLAUDE_SLASH_COMMANDS: SlashCommandOption[] = [
   },
 ]
 
+const SLASH_COMMANDS_BY_AGENT_KIND: Partial<Record<NonNullable<ComposerAgentKind>, SlashCommandOption[]>> = {
+  codex: CODEX_SLASH_COMMANDS,
+  claude: CLAUDE_SLASH_COMMANDS,
+}
+
+interface ComposerCapabilityContext {
+  goalMode: boolean
+  terminalProfile: boolean
+}
+
+const COMPOSER_CAPABILITIES_BY_AGENT_KIND: Partial<Record<
+  NonNullable<ComposerAgentKind>,
+  (context: ComposerCapabilityContext) => AgentComposerCapabilities
+>> = {
+  codex: ({ goalMode, terminalProfile }) => ({
+    ...CODING_AGENT_COMPOSER_CAPABILITIES,
+    goalMode,
+    modelPicker: terminalProfile,
+    reasoningEffort: terminalProfile,
+    serviceTier: terminalProfile,
+  }),
+  claude: ({ goalMode }) => ({
+    ...CODING_AGENT_COMPOSER_CAPABILITIES,
+    goalMode,
+    // Claude Terminal currently has no verified live-profile adapter.
+    // ACP renders provider-advertised config options in AcpComposer.
+    modelPicker: false,
+    reasoningEffort: false,
+  }),
+}
+
 export function slashCommandsForAgentKind(kind: ComposerAgentKind): SlashCommandOption[] {
-  if (kind === 'codex') return CODEX_SLASH_COMMANDS
-  if (kind === 'claude') return CLAUDE_SLASH_COMMANDS
-  return []
+  return kind ? SLASH_COMMANDS_BY_AGENT_KIND[kind] || [] : []
 }
 
 export function mergeSlashCommands(commands: SlashCommandOption[]) {
@@ -277,27 +306,8 @@ export function capabilitiesForAgent(agent: Agent | null | undefined): AgentCapa
   )
   const canForkNewWorktree = !providerManaged
     || runtimeForkCapability?.worktreeModes.includes('new-worktree') === true
-  const composer = kind === 'codex'
-    ? {
-        ...CODING_AGENT_COMPOSER_CAPABILITIES,
-        goalMode,
-        modelPicker: terminalProfile,
-        reasoningEffort: terminalProfile,
-        serviceTier: terminalProfile,
-      }
-    : kind === 'claude'
-      ? {
-          ...CODING_AGENT_COMPOSER_CAPABILITIES,
-          goalMode,
-          // Claude Terminal currently has no verified live-profile adapter.
-          // ACP renders provider-advertised config options in AcpComposer.
-          modelPicker: false,
-          reasoningEffort: false,
-        }
-      : {
-          ...BASIC_COMPOSER_CAPABILITIES,
-          goalMode,
-        }
+  const composer = (kind && COMPOSER_CAPABILITIES_BY_AGENT_KIND[kind])?.({ goalMode, terminalProfile })
+    || { ...BASIC_COMPOSER_CAPABILITIES, goalMode }
 
   return {
     kind,

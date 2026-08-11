@@ -100,9 +100,9 @@ Extension Catalog 只属于一份精确 Home。Provider-owned Configuration 是 
 状态与默认值的权威来源；Farming 不建立平行 Enablement Database，也不把多个 Home 合并成
 一个 Provider-wide Identity。
 
-Provider-native Extension Discovery 通过唯一的 Provider Discovery Registry 选择。
-Provider 特有的 Parser 与 Filesystem Convention 留在注册定义内部；通用 Routing、Inventory
-与 Tab 只消费该 Registry，不通过散落的名称判断推断受支持 Provider。
+每一份 Provider-native Extension Discovery Contract 都通过唯一的 Provider Discovery
+Registry 选择。Provider 特有的 Parser 与 Filesystem Convention 留在注册定义内部；通用
+Routing、Inventory 与 Tab 只消费这些 Registry，不通过散落的名称判断推断受支持 Provider。
 
 Manifest Icon 只能在其精确的 Agent Home 内解析。经过校验的小图标可以包含在 Inventory
 Response 中；Production-sized Raster Icon 通过已授权的 Read-only File Path 加载，确保

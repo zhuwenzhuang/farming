@@ -151,12 +151,19 @@ interface ProviderCapabilitiesContract {
   runtimeSwitch: boolean;
   terminalProfile: boolean;
   terminalComposerInput: 'plain-text' | 'bracketed-paste';
+  slashCommandDiscovery: boolean;
   goals: boolean;
   goalSubmission: {
     terminal: GoalSubmission;
     acp: { kind: 'prompt' };
   };
   conversationFork: ProviderConversationForkContract;
+}
+
+interface ProviderLaunchEnvironmentOptions {
+  homePath?: string;
+  runtime: ProviderRuntime;
+  startupPromptFile?: string;
 }
 
 interface ProviderAdapter {
@@ -169,6 +176,10 @@ interface ProviderAdapter {
   freshAcpSessionSources: readonly string[];
   commands: readonly string[];
   supportedRuntimes: readonly ProviderRuntime[];
+  applyLaunchEnvironment?: (
+    env: NodeJS.ProcessEnv,
+    options: ProviderLaunchEnvironmentOptions,
+  ) => NodeJS.ProcessEnv;
   continuesSession?: (rawArgs: string[]) => boolean;
   planSession: (rawArgs: string[], launchArgs: string[]) => ProviderSessionPlan | null;
   sessionIdentityRollbackArgs?: (sessionId: string) => string[];
@@ -488,6 +499,7 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
       runtimeSwitch: true,
       terminalProfile: true,
       terminalComposerInput: 'bracketed-paste',
+      slashCommandDiscovery: true,
       goals: false,
       goalSubmission: { terminal: { kind: 'prompt' }, acp: { kind: 'prompt' } },
       conversationFork: {
@@ -551,6 +563,7 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
       runtimeSwitch: true,
       terminalProfile: false,
       terminalComposerInput: 'bracketed-paste',
+      slashCommandDiscovery: true,
       goals: false,
       goalSubmission: { terminal: { kind: 'command', prefix: '/goal' }, acp: { kind: 'prompt' } },
       conversationFork: {
@@ -572,6 +585,13 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
     freshAcpSessionSources: [],
     commands: ['opencode'],
     supportedRuntimes: ['terminal', 'acp'],
+    applyLaunchEnvironment: (env, options) => {
+      if (options.startupPromptFile) {
+        Object.assign(env, appendOpenCodeBootstrap(env, options.startupPromptFile));
+      }
+      if (options.runtime === 'terminal') env.OPENTUI_NOTIFICATION_PROTOCOL = 'osc99';
+      return env;
+    },
     planSession: openCodeSessionPlan,
     sessionIdentityRollbackArgs: sessionId => ['session', 'delete', sessionId],
     terminalResumeArgs: (args, sessionId) => {
@@ -588,10 +608,6 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
       executablePolicy: 'system',
       version: 'native',
       sharedRuntime: true,
-      historyReplay: {
-        restoreMissingCheckpointMedia: true,
-        waitForNotifications: true,
-      },
       normalizeModes: (modes, agentInfo) => {
         if (String(agentInfo.version || '') !== '1.0.43' || !modes || typeof modes !== 'object') return modes;
         const record = modes as Record<string, unknown>;
@@ -611,6 +627,7 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
       runtimeSwitch: true,
       terminalProfile: false,
       terminalComposerInput: 'plain-text',
+      slashCommandDiscovery: false,
       goals: false,
       goalSubmission: { terminal: { kind: 'prompt' }, acp: { kind: 'prompt' } },
       conversationFork: {
@@ -637,6 +654,10 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
       executablePolicy: 'system',
       version: 'native',
       sharedRuntime: true,
+      historyReplay: {
+        restoreMissingCheckpointMedia: true,
+        waitForNotifications: true,
+      },
       launch: options => ({
         command: options.executable || 'qodercli',
         args: [
@@ -651,6 +672,7 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
       runtimeSwitch: true,
       terminalProfile: false,
       terminalComposerInput: 'plain-text',
+      slashCommandDiscovery: false,
       goals: false,
       goalSubmission: { terminal: { kind: 'command', prefix: '/goal set' }, acp: { kind: 'prompt' } },
       conversationFork: {
@@ -712,6 +734,7 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
       runtimeSwitch: true,
       terminalProfile: false,
       terminalComposerInput: 'plain-text',
+      slashCommandDiscovery: false,
       goals: false,
       goalSubmission: { terminal: { kind: 'prompt' }, acp: { kind: 'prompt' } },
       conversationFork: {
@@ -754,6 +777,7 @@ function providerCapabilities(provider: unknown): ProviderCapabilitiesWire {
     runtimeSwitch: adapter?.capabilities?.runtimeSwitch === true,
     terminalProfile: adapter?.capabilities?.terminalProfile === true,
     terminalComposerInput: adapter?.capabilities?.terminalComposerInput || 'bracketed-paste',
+    slashCommandDiscovery: adapter?.capabilities?.slashCommandDiscovery === true,
     goals: adapter?.capabilities?.goals === true,
     goalSubmission: adapter?.capabilities?.goalSubmission || null,
     conversationFork: {
@@ -870,22 +894,12 @@ function clearProviderHomeEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv
 function applyProviderLaunchEnvironment(
   env: NodeJS.ProcessEnv,
   provider: unknown,
-  options: {
-    homePath?: string;
-    runtime: ProviderRuntime;
-    startupPromptFile?: string;
-  },
+  options: ProviderLaunchEnvironmentOptions,
 ): NodeJS.ProcessEnv {
   const adapter = getProviderAdapter(provider);
   if (!adapter) return env;
   if (options.homePath) env[adapter.homeEnvKey] = options.homePath;
-  if (adapter.id === 'opencode' && options.startupPromptFile) {
-    Object.assign(env, appendOpenCodeBootstrap(env, options.startupPromptFile));
-  }
-  if (adapter.id === 'opencode' && options.runtime === 'terminal') {
-    env.OPENTUI_NOTIFICATION_PROTOCOL = 'osc99';
-  }
-  return env;
+  return adapter.applyLaunchEnvironment?.(env, options) || env;
 }
 
 function isFreshAcpSessionSource(provider: unknown, source: string): boolean {

@@ -415,6 +415,7 @@ function run() {
     runtimeSwitch: true,
     terminalProfile: true,
     terminalComposerInput: 'bracketed-paste',
+    slashCommandDiscovery: true,
     goals: false,
     goalSubmission: { terminal: { kind: 'prompt' }, acp: { kind: 'prompt' } },
     conversationFork: {
@@ -444,6 +445,7 @@ function run() {
       runtimeSwitch: true,
       terminalProfile: false,
       terminalComposerInput: 'bracketed-paste',
+      slashCommandDiscovery: true,
       goals: false,
       goalSubmission: { terminal: { kind: 'command', prefix: '/goal' }, acp: { kind: 'prompt' } },
       conversationFork: {
@@ -474,6 +476,7 @@ function run() {
       runtimeSwitch: false,
       terminalProfile: false,
       terminalComposerInput: 'bracketed-paste',
+      slashCommandDiscovery: false,
       goals: false,
       goalSubmission: null,
       conversationFork: {

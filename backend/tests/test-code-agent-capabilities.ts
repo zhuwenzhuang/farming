@@ -20,6 +20,7 @@ function agent(provider, goalSubmission, overrides = {}) {
       runtimeSwitch: providerManaged,
       terminalProfile: provider === 'codex',
       terminalComposerInput: provider === 'qoder' ? 'plain-text' : 'bracketed-paste',
+      slashCommandDiscovery: provider === 'codex' || provider === 'claude',
       conversationFork: {
         terminal: {
           supported: providerManaged && provider !== 'qwen',
@@ -134,6 +135,7 @@ function run() {
       runtimeSwitch: true,
       terminalProfile: false,
       terminalComposerInput: 'bracketed-paste',
+      slashCommandDiscovery: false,
       terminalSessionFork: true,
       sessionFork: true,
       supportsChat: true,

@@ -10,10 +10,6 @@ import { LatestRequestFence } from './latest-request-fence'
 
 type JsonRequest = (url: string) => Promise<{ json(): Promise<unknown> }>
 
-export function slashCommandsSupportProvider(providerKind: string) {
-  return providerKind === 'codex' || providerKind === 'claude'
-}
-
 export async function requestClaudeSettings(homeId: string, request: JsonRequest = fetch) {
   const params = new URLSearchParams({ homeId })
   const response = await request(appPath(`/api/claude/settings?${params.toString()}`))
@@ -38,12 +34,14 @@ export interface ComposerProviderCatalogTarget {
   providerKind: string
   homeId: string
   workspace?: string
+  slashCommandDiscovery: boolean
 }
 
 export function useComposerProviderCatalog({
   providerKind,
   homeId,
   workspace,
+  slashCommandDiscovery,
 }: ComposerProviderCatalogTarget) {
   const [claudeSettings, setClaudeSettings] = useState<ClaudeSettingsSummary>(DEFAULT_CLAUDE_SETTINGS)
   const [discoveredSlashCommands, setDiscoveredSlashCommands] = useState<SlashCommandOption[]>([])
@@ -70,7 +68,7 @@ export function useComposerProviderCatalog({
   useEffect(() => {
     const requestFence = slashRequestFenceRef.current
     const lease = requestFence.begin()
-    if (!slashCommandsSupportProvider(providerKind)) {
+    if (!slashCommandDiscovery || !providerKind) {
       setDiscoveredSlashCommands([])
       return () => requestFence.invalidate()
     }
@@ -82,7 +80,7 @@ export function useComposerProviderCatalog({
         if (lease.isCurrent()) setDiscoveredSlashCommands([])
       })
     return () => requestFence.invalidate()
-  }, [homeId, providerKind, workspace])
+  }, [homeId, providerKind, slashCommandDiscovery, workspace])
 
   return { claudeSettings, discoveredSlashCommands }
 }

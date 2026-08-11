@@ -1100,6 +1100,7 @@ export function CodeWorkspace({
     providerKind: composerAgentKind || '',
     homeId: activeProviderHomeId,
     workspace: activeAgent?.cwd,
+    slashCommandDiscovery: activeAgent?.providerCapabilities?.slashCommandDiscovery === true,
   })
   const displayedCodexApprovalMode = useMemo(() => effectiveCodexApprovalModeForSession(
     Boolean(activeAgent && composerAgentKind === 'codex'),

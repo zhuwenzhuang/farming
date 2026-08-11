@@ -18,6 +18,7 @@ function providerCapabilitiesWire(value) {
         && typeof capabilities.runtimeSwitch === 'boolean'
         && typeof capabilities.terminalProfile === 'boolean'
         && (capabilities.terminalComposerInput === 'plain-text' || capabilities.terminalComposerInput === 'bracketed-paste')
+        && typeof capabilities.slashCommandDiscovery === 'boolean'
         && typeof capabilities.goals === 'boolean'
         && typeof capabilities.terminalSessionFork === 'boolean'
         && typeof capabilities.sessionFork === 'boolean'
