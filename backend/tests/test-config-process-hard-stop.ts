@@ -1,5 +1,6 @@
 const assert = require('assert');
 const fs = require('fs');
+const net = require('net');
 const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
@@ -10,6 +11,8 @@ const {
   registerConfigProcessGroup,
 } = require('../config-process-ownership.cjs');
 const { configInstanceFingerprint } = require('../config-instance.cjs');
+const { acpRuntimeHostSocketPath } = require('../acp-runtime-host-path.cjs');
+const { nativePtyHostSocketPath } = require('../native-pty-host-path.cjs');
 
 function writeProcFixture(procRoot, pid, options) {
   const directory = path.join(procRoot, String(pid));
@@ -302,6 +305,75 @@ async function run() {
   } finally {
     fs.rmSync(configDir, { recursive: true, force: true });
     fs.rmSync(otherConfigDir, { recursive: true, force: true });
+  }
+
+  if (process.platform !== 'win32') {
+    const socketHostCases = [
+      ['ACP', acpRuntimeHostSocketPath, true, true],
+      ['native PTY', nativePtyHostSocketPath, false, true],
+    ];
+    if (process.platform === 'linux') {
+      socketHostCases.push(['legacy native PTY', nativePtyHostSocketPath, false, false]);
+    }
+    for (const [role, socketPathForConfig, removeSocketDirectory, publishFingerprint] of socketHostCases) {
+      const socketConfig = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-config-hard-stop-socket.'));
+      const socketPath = socketPathForConfig(socketConfig);
+      const child = spawn(
+        process.execPath,
+        ['-e', 'setInterval(() => {}, 1000)'],
+        {
+          detached: true,
+          env: publishFingerprint ? process.env : { ...process.env, FARMING_CONFIG_DIR: socketConfig },
+          stdio: 'ignore',
+        },
+      );
+      const server = net.createServer(socket => {
+        socket.on('data', data => {
+          const request = JSON.parse(data.toString('utf8').trim());
+          socket.end(`${JSON.stringify({
+            id: request.id,
+            result: {
+              pid: child.pid,
+              ...(publishFingerprint
+                ? { configInstanceFingerprint: configInstanceFingerprint(socketConfig) }
+                : {}),
+            },
+          })}\n`);
+        });
+      });
+      try {
+        await new Promise((resolve, reject) => {
+          child.once('spawn', resolve);
+          child.once('error', reject);
+        });
+        fs.mkdirSync(path.dirname(socketPath), { recursive: true });
+        await new Promise((resolve, reject) => {
+          server.once('error', reject);
+          server.listen(socketPath, resolve);
+        });
+        assert.strictEqual(
+          (await hardStopConfigProcesses(socketConfig)).stopped,
+          1,
+          `a ${role} Host with no ownership file must remain discoverable through its Config fingerprint`,
+        );
+      } finally {
+        if (server.listening) await new Promise(resolve => server.close(resolve));
+        try {
+          process.kill(-child.pid, 'SIGKILL');
+        } catch {
+          // The exact test process group may already have exited.
+        }
+        fs.rmSync(socketPath, { force: true });
+        fs.rmSync(socketConfig, { recursive: true, force: true });
+        if (removeSocketDirectory) {
+          try {
+            fs.rmdirSync(path.dirname(socketPath));
+          } catch {
+            // The exact socket directory may already be absent or contain another live fixture.
+          }
+        }
+      }
+    }
   }
 
   if (process.platform !== 'win32') {

@@ -127,6 +127,22 @@ async function run() {
   const remoteDir = path.join(root, 'farming');
   const configDir = path.join(root, 'config');
   try {
+    const absentConfigDir = path.join(root, 'absent-config');
+    const absentConfigSnapshot = path.join(root, '.absent-config.farming-deploy-backup-old-image');
+    fs.mkdirSync(absentConfigSnapshot);
+    const absentConfigSha = '0'.repeat(40);
+    const blockedAbsentConfig = writeFixtureBundle(root, { gitSha: absentConfigSha });
+    const blockedAbsentConfigResult = activate(
+      blockedAbsentConfig,
+      absentConfigSha,
+      remoteDir,
+      absentConfigDir,
+    );
+    assert.notStrictEqual(blockedAbsentConfigResult.status, 0);
+    assert.match(blockedAbsentConfigResult.stderr, /Config snapshot from an earlier deployment/);
+    assert(!fs.existsSync(absentConfigDir), 'snapshot refusal must not recreate a missing Config directory');
+    fs.rmSync(absentConfigSnapshot, { recursive: true, force: true });
+
     const firstSha = '1'.repeat(40);
     const first = writeFixtureBundle(root, {
       gitSha: firstSha,
@@ -141,6 +157,28 @@ async function run() {
     assert.strictEqual(success.gitSha, firstSha);
     const firstImage = fs.realpathSync(remoteDir);
     assert.match(firstImage, /111111111111-/);
+
+    const unresolvedSnapshot = path.join(root, '.config.farming-deploy-backup-old-image');
+    fs.mkdirSync(unresolvedSnapshot);
+    const eventsBeforeSnapshotRefusal = fs.readFileSync(path.join(configDir, 'fixture-events.log'), 'utf8');
+    const blockedBySnapshotSha = 'a'.repeat(40);
+    const blockedBySnapshot = writeFixtureBundle(root, { gitSha: blockedBySnapshotSha });
+    const blockedBySnapshotResult = activate(
+      blockedBySnapshot,
+      blockedBySnapshotSha,
+      remoteDir,
+      configDir,
+    );
+    assert.notStrictEqual(blockedBySnapshotResult.status, 0);
+    assert.match(blockedBySnapshotResult.stderr, /Config snapshot from an earlier deployment/);
+    assert.strictEqual(fs.realpathSync(remoteDir), firstImage);
+    assert(fs.existsSync(unresolvedSnapshot), 'an unresolved earlier snapshot must remain untouched');
+    assert.strictEqual(
+      fs.readFileSync(path.join(configDir, 'fixture-events.log'), 'utf8'),
+      eventsBeforeSnapshotRefusal,
+      'an unresolved snapshot must block every Config mutation, including runtime preparation and stop',
+    );
+    fs.rmSync(unresolvedSnapshot, { recursive: true, force: true });
 
     const secondSha = '2'.repeat(40);
     const failingStart = writeFixtureBundle(root, {

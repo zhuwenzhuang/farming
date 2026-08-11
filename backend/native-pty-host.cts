@@ -234,6 +234,7 @@ import {
   registerConfigProcessGroup,
   unregisterConfigProcessGroup,
 } from './config-process-ownership.cjs';
+import { configInstanceFingerprint } from './config-instance.cjs';
 import { readServerProcessIdentity } from './server-process-identity.cjs';
 const { nativePtyHostRuntimeIdentity } = nativePtyHostIdentityModule;
 import * as runtimeGenerationModule from './native-pty-controller-generation.cjs';
@@ -625,6 +626,7 @@ class NativePtyHost {
         return {
           ok: true,
           pid: process.pid,
+          configInstanceFingerprint: configInstanceFingerprint(this.configDir),
           privateSocketPath: process.platform === 'win32' ? '' : this.boundSocketPath,
           runtimeIdentity: this.runtimeIdentity,
         };

@@ -373,9 +373,9 @@ export function AcpComposer({
     effectiveRuntimeState,
     session?.retryableReconnect === true,
   )
-  const displayedSessionError = authenticationRequired || deferredSessionError
-    ? ''
-    : sessionError || effectiveRuntimeError
+  const displayedSessionError = sessionError || (
+    authenticationRequired || deferredSessionError ? '' : effectiveRuntimeError
+  )
   const hasAcpRequest = active && Boolean(
     permissions.length
     || elicitations.length

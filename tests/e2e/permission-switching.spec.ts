@@ -430,6 +430,65 @@ test.describe('permission switching', () => {
     await expect(page.getByTestId('app-toast')).toContainText(warning)
   })
 
+  test('accepts a default-Home permission replacement after the PATCH response is lost', {
+    tag: ['@critical-behavior', '@behavior-CODE-RUNTIME-SWITCHING'],
+  }, async ({ page, workspaceRoot }) => {
+    const workspace = path.join(workspaceRoot, 'permission-default-home-reconciliation')
+    const sessionId = '019f0000-0000-7000-8000-00000000d00d'
+    const originalId = 'agent-permission-empty-home'
+    const replacementId = 'agent-permission-default-home'
+    const baseTime = Date.now() - 10_000
+    const original = runtimeSwitchAgent({
+      id: originalId,
+      workspace,
+      sessionId,
+      runtime: 'terminal',
+      startedAt: baseTime,
+    })
+    original.providerHomeId = ''
+    original.launchPermissionMode = 'approve'
+    const replacement = runtimeSwitchAgent({
+      id: replacementId,
+      workspace,
+      sessionId,
+      runtime: 'terminal',
+      startedAt: baseTime + 5_000,
+      restartedFromAgentId: originalId,
+    })
+    replacement.launchPermissionMode = 'full'
+    const state = (agents: Agent[]): SwitchState => ({
+      agents,
+      taskHistory: [],
+      mainPageSessionKeys: [`agent-session:codex:${sessionId}`],
+      mainAgentId: null,
+      systemStats: null,
+    })
+    await installSwitchStateSocket(page, state([original]))
+
+    let markPatchAborted = () => {}
+    const patchAborted = new Promise<void>(resolve => { markPatchAborted = resolve })
+    await page.route(`/farming/api/agents/${originalId}`, async route => {
+      const body = route.request().postDataJSON() as { launchPermissionMode?: string }
+      expect(body.launchPermissionMode).toBe('full')
+      await route.abort('failed')
+      markPatchAborted()
+    })
+
+    await openPermissionTestApp(page)
+    await agentRow(page, originalId).click()
+    await page.getByTestId('code-composer-approval').click()
+    await page.getByTestId('code-approval-menu').getByRole('menuitemradio', { name: /Full access/ }).click()
+    await patchAborted
+    await expect(page.getByTestId('code-permission-switching')).toBeVisible()
+    await page.waitForTimeout(100)
+
+    await page.evaluate(nextState => window.__farmingEmitSwitchState?.(nextState), state([replacement]))
+    await expect(agentRow(page, replacementId)).toHaveClass(/active/)
+    await expect(agentRow(page, originalId)).toHaveCount(0)
+    await expect(page.getByTestId('code-permission-switching')).toHaveCount(0)
+    await expect(page.getByTestId('app-toast')).toHaveCount(0)
+  })
+
   test('restarts a fresh Codex and never falls through to another agent', async ({ page, workspaceRoot }) => {
     const workspace = path.join(workspaceRoot, 'fresh-permission-switch')
     fs.mkdirSync(workspace, { recursive: true })

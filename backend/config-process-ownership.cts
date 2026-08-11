@@ -329,11 +329,12 @@ async function discoverConfigHostProcesses(configDir: string): Promise<Ownership
   const records: OwnershipRecord[] = [];
   for (const candidate of candidates) {
     const pid = Number(candidate.ping?.pid);
-    if (!Number.isSafeInteger(pid) || pid <= 0 || !processHasConfigEnvironment(pid, configDir)) continue;
-    if (
-      candidate.role === 'acp-runtime-host'
-      && candidate.ping?.configInstanceFingerprint !== fingerprint
-    ) continue;
+    if (!Number.isSafeInteger(pid) || pid <= 0) continue;
+    const claimedFingerprint = String(candidate.ping?.configInstanceFingerprint || '');
+    const configOwned = claimedFingerprint
+      ? claimedFingerprint === fingerprint
+      : candidate.role === 'native-pty-host' && processHasConfigEnvironment(pid, configDir);
+    if (!configOwned) continue;
     const identity = await readServerProcessIdentity(pid);
     if (!identity) continue;
     records.push({ ...identity, role: candidate.role, configInstanceFingerprint: fingerprint });

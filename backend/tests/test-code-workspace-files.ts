@@ -345,6 +345,8 @@ function run() {
       appSource.includes('agent.restartedFromAgentIds?.includes(ancestorAgentId)') &&
       appSource.includes('candidate.id !== original.id && !isRestartDescendantOf(candidate, original.id)') &&
       appSource.includes('agent.providerSessionId === expectedSession.providerSessionId') &&
+      appSource.includes("const expectedHomeId = expectedSession?.providerHomeId || 'default'") &&
+      appSource.includes("(agent.providerHomeId || 'default') === expectedHomeId") &&
       appSource.includes("const originalHomeId = original.providerHomeId || 'default'") &&
       appSource.includes("const candidateHomeId = candidate.providerHomeId || 'default'") &&
       appSource.includes('requestSettled: true') &&
@@ -1372,10 +1374,11 @@ function run() {
 	      !agentWorkPaneSource.includes('CodexAppServerTranscriptPane') &&
       !agentWorkPaneSource.includes('JsonCliTranscriptPane') &&
 	      agentWorkPaneSource.includes('AcpTranscriptPane') &&
+	      agentWorkPaneSource.includes('resumedAgentSessionSourceIdentity(agent.source)') &&
 	      agentWorkPaneSource.includes('const readLatestChat = useCallback') &&
 	      agentWorkPaneSource.includes('onReadLatest={readLatestChat}') &&
       agentWorkPaneSource.includes("runtimeState={acpRuntime?.state || ''}") &&
-      agentWorkPaneSource.includes("expectHistory={(agent.source || '').startsWith('codex-history:') || Number(acpRuntime?.sessionRevision || 0) > 0}") &&
+      agentWorkPaneSource.includes('expectHistory={Boolean(resumedAgentSessionSourceIdentity(agent.source)) || Number(acpRuntime?.sessionRevision || 0) > 0}') &&
       agentWorkPaneSource.includes('AgentTerminalPane') &&
       !agentWorkPaneSource.includes('resizeAgent') &&
 	      !agentWorkPaneSource.includes('isCodexAppServerAgent') &&
@@ -1538,6 +1541,8 @@ function run() {
       !terminalComposerSource.includes('AcpPermission') &&
       !terminalComposerSource.includes('acpPermission') &&
       acpComposerSource.includes('data-testid="code-acp-composer"') &&
+      acpComposerSource.includes("const displayedSessionError = sessionError || (") &&
+      acpComposerSource.includes("authenticationRequired || deferredSessionError ? '' : effectiveRuntimeError") &&
       acpComposerSource.includes('AcpPermissionCard') &&
       acpComposerSource.includes('data-testid="code-acp-command-menu"') &&
       acpComposerSource.includes('session?.availableCommands') &&

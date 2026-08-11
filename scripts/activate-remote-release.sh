@@ -95,7 +95,7 @@ if [[ "${BASE_PATH}" != /* ]] || [[ "${BASE_PATH}" == *[[:space:]]* ]]; then
   exit 1
 fi
 
-for command_name in node tar sha256sum flock curl find stat; do
+for command_name in node tar sha256sum flock curl find stat readlink; do
   command -v "${command_name}" >/dev/null || {
     echo "Remote deployment requires ${command_name}." >&2
     exit 1
@@ -104,8 +104,7 @@ done
 
 SYSTEM_NODE="$(command -v node)"
 CONFIG_DIR="${CONFIG_DIR:-${HOME}/.farming}"
-mkdir -p "${CONFIG_DIR}"
-CONFIG_DIR="$(readlink -f "${CONFIG_DIR}")"
+CONFIG_DIR="$(readlink -m "${CONFIG_DIR}")"
 if [ -z "${CONFIG_DIR}" ] || [ "${CONFIG_DIR}" = "/" ]; then
   echo "--config-dir must resolve to a dedicated Config directory." >&2
   exit 1
@@ -175,9 +174,21 @@ cleanup_staging() {
 }
 trap cleanup_staging EXIT
 
+ensure_no_unresolved_config_snapshot() {
+  local unresolved_snapshot
+  for unresolved_snapshot in \
+    "${CONFIG_PARENT}/.${CONFIG_NAME}.farming-deploy-backup-"* \
+    "${CONFIG_PARENT}/.${CONFIG_NAME}.farming-deploy-failed-"*; do
+    if [ -e "${unresolved_snapshot}" ] || [ -L "${unresolved_snapshot}" ]; then
+      echo "A Config snapshot from an earlier deployment still requires operator reconciliation." >&2
+      return 1
+    fi
+  done
+  return 0
+}
+
 stage_config_snapshot() {
-  if [ -e "${CONFIG_BACKUP}" ] || [ -L "${CONFIG_BACKUP}" ] || [ -e "${CONFIG_FAILED_COPY}" ] || [ -L "${CONFIG_FAILED_COPY}" ]; then
-    echo "A Config snapshot from an earlier deployment still requires operator reconciliation." >&2
+  if ! ensure_no_unresolved_config_snapshot; then
     return 1
   fi
   if ! mv "${CONFIG_DIR}" "${CONFIG_BACKUP}"; then
@@ -370,6 +381,10 @@ NODE
   mv "${prepared_root}" "${IMAGE_ROOT}"
 }
 
+if ! ensure_no_unresolved_config_snapshot; then
+  exit 1
+fi
+
 prepare_image
 
 (
@@ -377,6 +392,7 @@ prepare_image
   run_node "${IMAGE_ROOT}" -e 'require("node-pty"); process.stdout.write("node-pty ok\n")' \
     </dev/null >/dev/null
 )
+mkdir -p "${CONFIG_DIR}"
 run_cli "${IMAGE_ROOT}" "${IMAGE_ROOT}" runtime prepare --config-dir "${CONFIG_DIR}" --no-activate
 
 PREVIOUS_ROOT=""

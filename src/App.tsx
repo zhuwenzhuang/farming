@@ -105,6 +105,7 @@ function isRestartDescendantOf(agent: Agent, ancestorAgentId: string) {
 }
 
 function latestRestartDescendant(agents: Agent[], ancestorAgentId: string, expectedSession?: Agent | null) {
+  const expectedHomeId = expectedSession?.providerHomeId || 'default'
   return agents
     .filter(agent => (
       isOpenableAgent(agent)
@@ -118,7 +119,7 @@ function latestRestartDescendant(agents: Agent[], ancestorAgentId: string, expec
             expectedSession.providerSessionTemporary === true
             || agent.providerSessionId === expectedSession.providerSessionId
           )
-          && (agent.providerHomeId || '') === (expectedSession.providerHomeId || '')
+          && (agent.providerHomeId || 'default') === expectedHomeId
         )
       )
     ))

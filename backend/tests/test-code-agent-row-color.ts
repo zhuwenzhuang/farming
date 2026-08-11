@@ -47,7 +47,7 @@ assert.strictEqual(activeAgentRowActionSurface, '#e9e9e8');
 assert.strictEqual(selectedAgentRowActionSurface, '#e6e6e5');
 assert.strictEqual(hoveredAgentRowActionSurface, '#e8e8e7');
 assert.strictEqual(agentSectionBackground, 'var(--code-bg-chrome)');
-assert.match(projectRowBackground, /^var\(--code-(?:bg-inset|component-sidebar-project-section-background)\)$/);
+assert.strictEqual(projectRowBackground, 'var(--code-sidebar-project-row-background)');
 assert.strictEqual(projectRowActionSurface, projectRowBackground);
 assert.strictEqual(projectTitleColor, '#444444');
 assert.strictEqual(filesHeaderBackground, 'var(--code-bg-chrome)');
@@ -60,7 +60,7 @@ assert.strictEqual(openEditorColor, 'var(--code-text-muted)');
 assert.strictEqual(stickyStackBackground, 'var(--code-bg-inset)');
 assert.strictEqual(stickyRowColor, 'var(--code-text-muted)');
 assert.strictEqual(fileRowColor, 'var(--code-text-muted)');
-assert.strictEqual(agentRowFontSize, '14px');
+assert.strictEqual(agentRowFontSize, '13px');
 assert.strictEqual(fileRowFontSize, 'var(--code-file-entry-font-size)');
 
 console.log('test-code-agent-row-color passed');

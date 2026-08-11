@@ -61,6 +61,19 @@ test.describe('ACP human-like browser matrix', () => {
     const turn = page.locator('.code-agent-transcript-turn').filter({ hasText: 'authentication error' })
     await expect(turn.getByTestId('code-agent-transcript-process-summary')).toContainText('Authentication required')
     await expect(page.getByTestId('code-acp-error')).toHaveCount(0)
+
+    await page.route(`/farming/api/agents/${agentId}/acp-session?includeEntries=0`, async route => {
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'ACP session refresh failed' }),
+      })
+    })
+    const agentManagedAuth = page.getByTestId('code-acp-authentication')
+      .locator('.code-acp-authentication-method')
+      .filter({ hasText: 'Sign in to fake Agent' })
+    await agentManagedAuth.getByRole('button', { name: 'Authenticate' }).click()
+    await expect(page.getByTestId('code-acp-error')).toContainText('ACP session refresh failed')
   })
 
   test('shows a Qwen follow-up suggestion and copies it into the draft with Tab', async ({ page, workspaceRoot }) => {
@@ -1487,7 +1500,10 @@ test.describe('ACP human-like browser matrix', () => {
     const popupPromise = page.waitForEvent('popup')
     await lastCommitButton.click()
     const reviewPage = await popupPromise
-    await expect.poll(() => new URL(reviewPage.url()).searchParams.get('base')).toBe(lastCommitParent)
+    await expect.poll(() => {
+      const reviewUrl = reviewPage.url()
+      return reviewUrl ? new URL(reviewUrl).searchParams.get('base') : null
+    }).toBe(lastCommitParent)
     expect(new URL(reviewPage.url()).searchParams.get('head')).toBe(lastCommit)
     await reviewPage.close()
   })
