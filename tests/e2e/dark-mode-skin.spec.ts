@@ -384,7 +384,15 @@ test.describe('Farming Code appearance skins', () => {
     const searchBox = page.getByTestId('code-search-box')
     const searchInput = searchBox.locator('input')
     await searchInput.fill(path.basename(projectDir))
-    await expect(searchBox).toHaveCSS('border-color', 'rgb(51, 156, 255)')
+    await expect(searchInput).toBeFocused()
+    await expect.poll(() => searchBox.evaluate(element => {
+      const probe = document.createElement('span')
+      probe.style.color = 'var(--code-focus-ring)'
+      element.appendChild(probe)
+      const focusRing = getComputedStyle(probe).color
+      probe.remove()
+      return getComputedStyle(element).borderColor === focusRing
+    })).toBe(true)
     await expect(page.getByTestId('code-search-result').first()).toBeVisible()
     await expectDarkSurface(page.getByTestId('code-search-result').first(), 'search result')
     const searchTitle = page.getByTestId('code-search-panel').locator('.code-search-panel-header h2')
@@ -487,7 +495,11 @@ test.describe('Farming Code appearance skins', () => {
     await expect(page.getByTestId('code-pending-followup')).toBeHidden()
 
     await page.setViewportSize({ width: 390, height: 844 })
-    await page.waitForTimeout(250)
+    await expect.poll(() => page.evaluate(() => ({
+      width: window.innerWidth,
+      height: window.innerHeight,
+      layoutWidth: document.documentElement.clientWidth,
+    }))).toEqual({ width: 390, height: 844, layoutWidth: 390 })
     await page.evaluate(() => document.body.classList.add('code-compact-layout', 'code-mobile-touch'))
     await expect(page.getByTestId('code-mobile-topbar')).toBeVisible()
     await expectDarkSurface(page.getByTestId('code-mobile-topbar'), 'mobile topbar')

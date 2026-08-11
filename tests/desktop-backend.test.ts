@@ -497,6 +497,7 @@ test('local backend startup watchdog accepts active dependency progress but boun
   const temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-desktop-local-watchdog-'))
   const progressingCli = path.join(temporaryDir, 'progressing-cli.cjs')
   const stalledCli = path.join(temporaryDir, 'stalled-cli.cjs')
+  const cancellableCli = path.join(temporaryDir, 'cancellable-cli.cjs')
   fs.writeFileSync(progressingCli, `
 const fs = require('node:fs')
 const path = require('node:path')
@@ -515,6 +516,11 @@ setTimeout(() => {
 `)
   fs.writeFileSync(stalledCli, `
 if (process.argv[2] === 'stop') process.exit(0)
+setInterval(() => {}, 1000)
+`)
+  fs.writeFileSync(cancellableCli, `
+if (process.argv[2] === 'stop') process.exit(0)
+process.stdout.write('cancellable daemon started\\n')
 setInterval(() => {}, 1000)
 `)
   const policy = {
@@ -551,20 +557,27 @@ setInterval(() => {}, 1000)
     await assert.rejects(stalled.start(), /produced no command progress/)
     assert.equal(stalled.state(), 'failed')
 
+    let markCancellableDaemonStarted: (() => void) | undefined
+    const cancellableDaemonStarted = new Promise<void>(resolve => {
+      markCancellableDaemonStarted = resolve
+    })
     const cancellable = new DesktopLocalBackend({
       configDir: path.join(temporaryDir, 'cancelled-config'),
       electronExecutable: process.execPath,
       resourcesPath: temporaryDir,
       repositoryRoot: temporaryDir,
-      cliPath: stalledCli,
+      cliPath: cancellableCli,
       handshakeTimeoutMs: 100,
       commandPolicies: {
         daemon: { absoluteTimeoutMs: 5_000, idleTimeoutMs: 5_000, killGraceMs: 20 },
         stop: policy.stop,
       },
+      onProgress: message => {
+        if (message === 'cancellable daemon started') markCancellableDaemonStarted?.()
+      },
     })
     const starting = cancellable.start()
-    await new Promise(resolve => setTimeout(resolve, 30))
+    await cancellableDaemonStarted
     const stopping = cancellable.stop()
     await assert.rejects(starting, /was cancelled/)
     await stopping
@@ -907,6 +920,10 @@ test('desktop release download reports progress and has bounded cancellation and
   const sockets = new Set<import('node:net').Socket>()
   let writeFailureStreamsClosed = 0
   let activeWriteFailureStreams = 0
+  let markWriteFailureStreamsClosed: (() => void) | undefined
+  const writeFailureStreamsClosedPromise = new Promise<void>(resolve => {
+    markWriteFailureStreamsClosed = resolve
+  })
   const server = http.createServer((request, response) => {
     if (request.url === '/progress') {
       response.writeHead(200, { 'content-length': '12' })
@@ -933,6 +950,7 @@ test('desktop release download reports progress and has bounded cancellation and
         clearInterval(interval)
         activeWriteFailureStreams -= 1
         writeFailureStreamsClosed += 1
+        if (writeFailureStreamsClosed === 3) markWriteFailureStreamsClosed?.()
       })
       return
     }
@@ -1009,7 +1027,7 @@ test('desktop release download reports progress and has bounded cancellation and
       }),
       /failed after 3 attempts/,
     )
-    await new Promise(resolve => setTimeout(resolve, 20))
+    await writeFailureStreamsClosedPromise
     assert.equal(writeFailureStreamsClosed, 3)
     assert.equal(activeWriteFailureStreams, 0)
   } finally {

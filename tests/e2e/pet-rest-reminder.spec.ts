@@ -12,6 +12,14 @@ const RUNTIME_KEY = 'farmingPetRestReminderRuntime'
 const INVITATION_RUNTIME_KEY = 'farmingPetRestReminderInvitationRuntime'
 const PET_SETUP_SCREENSHOT_DIR = process.env.FARMING_PET_SETUP_SCREENSHOT_DIR
 
+function deferred() {
+  let resolve!: () => void
+  const promise = new Promise<void>(settle => {
+    resolve = settle
+  })
+  return { promise, resolve }
+}
+
 async function capturePetSetupStep(page: Page, name: string) {
   if (!PET_SETUP_SCREENSHOT_DIR) return
   await page.screenshot({
@@ -376,12 +384,19 @@ test('first-use Pet setup walks from invitation to explicit style selection', as
     runtimeKey: RUNTIME_KEY,
     invitationRuntimeKey: INVITATION_RUNTIME_KEY,
   })
+  const firstSettingsMutation = deferred()
+  let holdFirstSettingsMutation = true
+  let heldSettingsMutation = false
   await page.route('**/farming/api/settings', async route => {
     if (route.request().method() !== 'POST') {
       await route.continue()
       return
     }
-    await new Promise(resolve => setTimeout(resolve, 1000))
+    if (holdFirstSettingsMutation) {
+      holdFirstSettingsMutation = false
+      heldSettingsMutation = true
+      await firstSettingsMutation.promise
+    }
     await route.continue()
   })
 
@@ -395,6 +410,7 @@ test('first-use Pet setup walks from invitation to explicit style selection', as
 
   await invitation.getByRole('button', { name: '试用一下', exact: true }).click()
   const appearanceChoice = page.getByTestId('pet-appearance-choice')
+  await expect.poll(() => heldSettingsMutation).toBe(true)
   await expect(appearanceChoice).toBeVisible({ timeout: 500 })
   await expect(invitation).toHaveCount(0)
   await expect(appearanceChoice.getByRole('button', { name: /^柔光/ }))
@@ -405,11 +421,12 @@ test('first-use Pet setup walks from invitation to explicit style selection', as
   await expect(softGlowPreviewButton).toHaveText('')
   await expect(softGlowPreviewButton.locator('svg')).toHaveCount(1)
   await expect.poll(() => page.evaluate(key => (
-    JSON.parse(localStorage.getItem(key) ?? 'null')?.capabilities?.restReminder?.intervalSeconds
-  ), SETTINGS_KEY)).toBe(50 * 60)
-  await expect.poll(() => page.evaluate(key => (
     JSON.parse(localStorage.getItem(key) ?? 'null')?.appearance ?? null
   ), SETTINGS_KEY)).toBeNull()
+  firstSettingsMutation.resolve()
+  await expect.poll(() => page.evaluate(key => (
+    JSON.parse(localStorage.getItem(key) ?? 'null')?.capabilities?.restReminder?.intervalSeconds
+  ), SETTINGS_KEY)).toBe(50 * 60)
   const blackHoleIconAnimation = await appearanceChoice
     .locator('.code-pet-appearance-icon.black-hole')
     .evaluate(element => {

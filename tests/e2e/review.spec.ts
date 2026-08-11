@@ -1108,8 +1108,10 @@ test('does not silently fall back to working copy when a range URL is invalid', 
   await expect(review.getByRole('alert')).toHaveText('Could not load review target: base and head revisions are invalid')
   await expect(review.locator('[data-testid="review-file-row"]')).toHaveCount(0)
   await expect(review.getByText('Working copy', { exact: true })).toHaveCount(0)
-  await page.waitForTimeout(100)
-  expect(reviewApiRequests).toBe(0)
+  await page.evaluate(() => new Promise<void>(resolve => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+  }))
+  await expect.poll(() => reviewApiRequests).toBe(0)
 })
 
 test('restores an optimistic comment when the review API rejects it', async ({ page }) => {

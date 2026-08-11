@@ -645,7 +645,14 @@ async function runDesktopTerminalMatrix(
 
     await scenario('backend reconnect during bootstrap resumes from an authoritative checkpoint', async () => {
       await selectAgent(page, bootstrapReconnectAgentId)
-      await page.waitForTimeout(3_000)
+      await expect.poll(() => bootstrapReconnectCalls, { timeout: 15_000 }).toBeGreaterThan(0)
+      await page.waitForFunction(
+        id => Boolean(window.__farmingTerminalTest?.isReady(id)),
+        bootstrapReconnectAgentId,
+        { timeout: 15_000 },
+      )
+      await expect.poll(() => visibleTerminalText(page, bootstrapReconnectAgentId), { timeout: 15_000 })
+        .toContain('initial bootstrap')
       const callsBeforeGap = bootstrapReconnectCalls
       const state = await page.evaluate((id) => ({
         runtimeEpoch: window.__farmingTerminalTest?.getRuntimeEpoch(id) ?? '',
@@ -675,7 +682,12 @@ async function runDesktopTerminalMatrix(
 
     await scenario('restored Agent recovers from an initially unavailable HTTP checkpoint without a manual tab switch', async () => {
       await selectAgent(page, delayedCheckpointAgentId)
-      await page.waitForTimeout(3_000)
+      await expect.poll(() => delayedCheckpointCalls, { timeout: 15_000 }).toBeGreaterThan(0)
+      await page.waitForFunction(
+        id => Boolean(window.__farmingTerminalTest?.isReady(id)),
+        delayedCheckpointAgentId,
+        { timeout: 15_000 },
+      )
       const callsBeforeGap = delayedCheckpointCalls
       const state = await page.evaluate((id) => ({
         runtimeEpoch: window.__farmingTerminalTest?.getRuntimeEpoch(id) ?? '',
@@ -1627,7 +1639,7 @@ async function runDesktopTerminalMatrix(
 
     await scenario('focus and typing route to the active terminal only', async () => {
       await selectAgent(page, bashAgentId)
-      await page.waitForTimeout(1600)
+      await expectActiveTerminalFocus(page, bashAgentId)
       await page.getByTestId('code-composer').locator('textarea').fill('echo ACTIVE_BASH_ONLY')
       await page.getByTestId('code-composer-send').click()
       await expect.poll(async () => await visibleTerminalText(page, bashAgentId)).toContain('ACTIVE_BASH_ONLY')

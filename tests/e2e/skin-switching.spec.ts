@@ -428,6 +428,7 @@ test('keeps Code Usage to real token sources and renders a compact activity heat
   const dayRequestsBeforeQuickSweep = requestedDayDates.length
   await detailDailyHeatmap.locator(`[data-date="${emptyDailyPoint.date}"]`).hover()
   await detailDailyHeatmap.locator(`[data-date="${nextEmptyDailyPoint.date}"]`).hover()
+  // This is the product hover-suppression debounce boundary, not test settling.
   await page.waitForTimeout(250)
   expect(requestedDayDates).toHaveLength(dayRequestsBeforeQuickSweep)
   await expect(detail.getByTestId('code-usage-day-histogram-loading')).toHaveCount(0)
@@ -1582,8 +1583,14 @@ test('fences deferred Days response arriving after Live switch', async ({ page, 
   await page.keyboard.press('l')
   await expect(page.locator('#billing-live-view')).not.toHaveClass(/hidden/)
   await expect(page.locator('#billing-status')).toHaveText(/^LIVE \d{2}:\d{2}:\d{2}$/)
-  if (deferredFulfill) await deferredFulfill()
-  await page.waitForTimeout(200)
+  await expect.poll(() => deferredFulfill).not.toBeNull()
+  await deferredFulfill!()
+  await expect.poll(async () => page.evaluate(() => new Promise(resolve => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve({
+      daysHidden: document.querySelector('#billing-days-view')?.classList.contains('hidden'),
+      liveVisible: !document.querySelector('#billing-live-view')?.classList.contains('hidden'),
+    })))
+  }))).toEqual({ daysHidden: true, liveVisible: true })
   await expect(page.locator('#billing-live-view')).not.toHaveClass(/hidden/)
   await expect(page.locator('#billing-status')).toHaveText(/^LIVE \d{2}:\d{2}:\d{2}$/)
   await expect(page.locator('#billing-days-view')).toHaveClass(/hidden/)
@@ -1630,20 +1637,24 @@ test('fences stale billing completion after leave and re-show', async ({ page, w
   await expect(page.locator('#input-dialog')).not.toHaveClass(/active/)
   await page.getByRole('button', { name: '[$] BILLING', exact: true }).click()
   await expect(page.locator('#billing-area')).not.toHaveClass(/hidden/)
+  await expect.poll(() => heldRoute).not.toBeNull()
   await page.keyboard.press('Escape')
   await expect(page.locator('#billing-area')).toHaveClass(/hidden/)
-  if (heldRoute) {
-    await heldRoute.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(crtBillingUsageEnvelope({
-        daily: { points: dailyPoints, endDate: dailyPoints.at(-1)!.date, summary: { todayTokens: 99999 } },
-      })),
-    })
-  }
-  await page.waitForTimeout(200)
+  await heldRoute!.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify(crtBillingUsageEnvelope({
+      daily: { points: dailyPoints, endDate: dailyPoints.at(-1)!.date, summary: { todayTokens: 99999 } },
+    })),
+  })
+  await expect.poll(async () => page.evaluate(() => new Promise(resolve => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve(
+      document.querySelector('#billing-area')?.classList.contains('hidden'),
+    )))
+  }))).toBe(true)
   await expect(page.locator('#billing-area')).toHaveClass(/hidden/)
   await page.getByRole('button', { name: '[$] BILLING', exact: true }).click()
+  await expect.poll(() => requestCount).toBeGreaterThan(1)
   await expect(page.locator('#billing-area')).not.toHaveClass(/hidden/)
   await expect(page.locator('#billing-today-total')).not.toHaveText('99.9K')
 })

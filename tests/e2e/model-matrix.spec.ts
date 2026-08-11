@@ -9,6 +9,14 @@ type MatrixState = {
   fast: boolean
 }
 
+function deferred() {
+  let resolve!: () => void
+  const promise = new Promise<void>(settle => {
+    resolve = settle
+  })
+  return { promise, resolve }
+}
+
 const MODEL_OPTIONS = [
   { value: 'gpt-5.6-sol', name: 'GPT-5.6-Sol' },
   { value: 'gpt-5.6-terra', name: 'GPT-5.6-Terra' },
@@ -116,6 +124,7 @@ test('ACP model matrix responds locally, settles once, and morphs Advanced witho
   const agentId = await createAcpAgent(page, workspace)
   let state: MatrixState = { model: 'gpt-5.6-terra', reasoning: 'medium', fast: false }
   let fastPatchCount = 0
+  const patchGates: Array<ReturnType<typeof deferred>> = []
 
   await page.route(/\/farming\/api\/agents\/[^/]+\/acp-session(?:\?includeEntries=0)?$/, async route => {
     if (route.request().method() === 'GET') {
@@ -135,7 +144,9 @@ test('ACP model matrix responds locally, settles once, and morphs Advanced witho
       || requestBody.configOptions?.some(change => change.configId === 'fast-mode')
     ) fastPatchCount += 1
     const nextState = requestedState(route, state)
-    await new Promise(resolve => setTimeout(resolve, 700))
+    const gate = deferred()
+    patchGates.push(gate)
+    await gate.promise
     state = nextState
     await route.fulfill({ json: {
       sessionId: 'model-matrix-session',
@@ -163,6 +174,8 @@ test('ACP model matrix responds locally, settles once, and morphs Advanced witho
   await expect(page.locator('.code-model-matrix-current')).toHaveText('GPT-5.6-Sol · high')
   await expect(picker).toHaveAttribute('data-agent-model-preset', 'gpt-5.6-sol:high')
   await expect(target).toBeDisabled()
+  await expect.poll(() => patchGates.length).toBe(1)
+  patchGates[0]!.resolve()
   const thumb = page.locator('.code-model-matrix-thumb')
   await thumb.evaluate(async element => {
     await Promise.all(element.getAnimations().map(animation => animation.finished.catch(() => undefined)))
@@ -190,6 +203,8 @@ test('ACP model matrix responds locally, settles once, and morphs Advanced witho
   })
   const adjacentTarget = page.getByTestId('code-model-matrix-cell-sol-xhigh')
   await adjacentTarget.click()
+  await expect.poll(() => patchGates.length).toBe(2)
+  patchGates[1]!.resolve()
   await expect(adjacentTarget).toBeEnabled({ timeout: 2_000 })
   const rockerMutations = await page.evaluate(() => {
     const motion = (window as typeof window & { __matrixRockerMotion?: { observer: MutationObserver; mutations: string[] } }).__matrixRockerMotion
@@ -198,6 +213,8 @@ test('ACP model matrix responds locally, settles once, and morphs Advanced witho
   })
   expect(rockerMutations).toEqual([])
   await target.click()
+  await expect.poll(() => patchGates.length).toBe(3)
+  patchGates[2]!.resolve()
   await expect(target).toBeEnabled({ timeout: 2_000 })
 
   const fill = page.locator('.code-model-matrix-fill')
@@ -214,6 +231,8 @@ test('ACP model matrix responds locally, settles once, and morphs Advanced witho
   const ultraKnob = page.locator('.code-model-matrix-rocker-knob')
   await expect(ultraControl).toHaveClass(/is-kicked/)
   await expect(ultraKnob).toHaveClass(/is-kicked/)
+  await expect.poll(() => patchGates.length).toBe(4)
+  patchGates[3]!.resolve()
   const ultraMotion = await page.evaluate(() => {
     const control = document.querySelector('.code-model-matrix-rocker-control')
     const knob = document.querySelector('.code-model-matrix-rocker-knob')
@@ -252,6 +271,9 @@ test('ACP model matrix responds locally, settles once, and morphs Advanced witho
   await expect(ultra).toBeEnabled({ timeout: 2_000 })
   await expect(ultraControl).not.toHaveClass(/is-kicked/, { timeout: 1_500 })
   await ultra.click()
+  await expect(ultra).toBeDisabled()
+  await expect.poll(() => patchGates.length).toBe(5)
+  patchGates[4]!.resolve()
   await expect(ultra).toHaveAttribute('aria-pressed', 'false')
   await expect(picker).toHaveAttribute('data-agent-model-preset', 'gpt-5.6-sol:high')
   await expect(page.locator('.code-model-matrix-current')).toHaveText('GPT-5.6-Sol · high')
@@ -266,6 +288,8 @@ test('ACP model matrix responds locally, settles once, and morphs Advanced witho
   await expect(fast).toHaveAttribute('aria-pressed', 'true')
   await expect(fast).toContainText('ON')
   await expect(picker.locator('.code-composer-speed-active')).toHaveCount(1)
+  await expect.poll(() => patchGates.length).toBe(6)
+  patchGates[5]!.resolve()
   await expect(fast).toBeEnabled({ timeout: 2_000 })
   expect(fastPatchCount - fastPatchCountBeforeClick).toBe(1)
 
@@ -454,6 +478,7 @@ test('Terminal Codex uses the live matrix and applies profile changes immediatel
     json: { catalog: TERMINAL_MODEL_CATALOG, source: 'fixture' },
   }))
   const terminalProfiles: MatrixState[] = []
+  const profileGates: Array<ReturnType<typeof deferred>> = []
   await page.route(/\/farming\/api\/agents\/[^/]+\/codex-terminal-profile$/, async route => {
     const body = route.request().postDataJSON() as { model: string; effort: string; serviceTier: string }
     terminalProfiles.push({
@@ -461,7 +486,9 @@ test('Terminal Codex uses the live matrix and applies profile changes immediatel
       reasoning: body.effort,
       fast: body.serviceTier === 'priority',
     })
-    await new Promise(resolve => setTimeout(resolve, 350))
+    const gate = deferred()
+    profileGates.push(gate)
+    await gate.promise
     await route.fulfill({ json: { profile: body } })
   })
   const settingsResponse = await page.request.post('/farming/api/settings', {
@@ -507,6 +534,8 @@ test('Terminal Codex uses the live matrix and applies profile changes immediatel
   const target = page.getByTestId('code-model-matrix-cell-luna-max')
   await target.click()
   await expect(target).toBeDisabled()
+  await expect.poll(() => profileGates.length).toBe(1)
+  profileGates[0]!.resolve()
   await expect(page.locator('.code-model-matrix-current')).toHaveText('5.6-Luna · max')
   await expect(picker).toHaveAttribute('data-agent-model-preset', 'gpt-5.6-luna:max')
   await expect(target).toBeEnabled()
@@ -516,6 +545,8 @@ test('Terminal Codex uses the live matrix and applies profile changes immediatel
   await expect(fast).toBeDisabled()
   await expect(fast).toHaveAttribute('aria-pressed', 'true')
   await expect(picker.locator('.code-composer-speed-active')).toHaveCount(1)
+  await expect.poll(() => profileGates.length).toBe(2)
+  profileGates[1]!.resolve()
   await expect(fast).toBeEnabled()
   expect(terminalProfiles).toEqual([
     { model: 'gpt-5.6-luna', reasoning: 'max', fast: false },

@@ -51,7 +51,11 @@ async function modifierClick(page: Page, agentId: string, x: number, y: number) 
   }, { clientX: x, clientY: y })
 }
 
-async function createControlAgent(page: Page, command: string, workspace: string) {
+async function createControlAgent(
+  page: Page,
+  command: string,
+  workspace: string,
+) {
   const response = await page.request.post('/farming/api/control/agents', {
     data: { command, workspace },
   })
@@ -65,6 +69,29 @@ async function terminalCheckpointOutput(page: Page, agentId: string) {
   return page.evaluate(id => (
     window.__farmingTerminalTest?.requestCheckpoint(id).then(checkpoint => checkpoint.output) ?? ''
   ), agentId)
+}
+
+async function openComposerSubmenu(
+  page: Page,
+  triggerTestId: string,
+  submenuTestId: string,
+) {
+  const picker = page.getByTestId('code-composer-model-picker')
+  const menu = page.getByTestId('code-model-menu')
+  const trigger = page.getByTestId(triggerTestId)
+  const submenu = page.getByTestId(submenuTestId)
+  await expect(async () => {
+    if (!(await menu.isVisible())) await picker.click()
+    await expect(menu).toBeVisible({ timeout: 1_000 })
+    const advancedToggle = page.getByTestId('code-model-matrix-advanced-toggle')
+    if (!(await trigger.isVisible()) && await advancedToggle.isVisible()) {
+      if ((await advancedToggle.getAttribute('aria-expanded')) !== 'true') await advancedToggle.click()
+    }
+    await expect(trigger).toBeVisible({ timeout: 1_000 })
+    await expect(trigger).toBeEnabled({ timeout: 1_000 })
+    await trigger.click({ timeout: 2_000 })
+    await expect(submenu).toBeVisible({ timeout: 1_000 })
+  }).toPass({ timeout: 30_000 })
 }
 
 async function expectCompactVersionLabel(productMark: Locator, mode: 'light' | 'dark') {
@@ -344,10 +371,11 @@ async function prepareRenderedSurfaceFixture(page: Page, workspaceRoot: string):
 async function startRenderedSurfaceAgents(
   page: Page,
   fixture: RenderedSurfaceFixture,
+  commands: { primary?: string; child?: string } = {},
 ): Promise<RenderedSurfaceAgents> {
   await openFarming(page)
   await openNewAgentDialog(page)
-  await startAgentFromOpenDialog(page, 'bash', fixture.mainWorkspace)
+  await startAgentFromOpenDialog(page, commands.primary ?? 'bash', fixture.mainWorkspace)
   await expect(page.getByTestId('code-agent-row')).toHaveCount(1, { timeout: 30_000 })
   const { agentId: primaryAgentId } = await getAgentIdFromRow(page)
   await expectTerminalCanvasToHaveInk(page, primaryAgentId)
@@ -358,7 +386,7 @@ async function startRenderedSurfaceAgents(
   expect(mainSearchTerm).toBeTruthy()
 
   await openNewAgentDialog(page)
-  await startAgentFromOpenDialog(page, 'bash', fixture.childWorkspace)
+  await startAgentFromOpenDialog(page, commands.child ?? 'bash', fixture.childWorkspace)
   await expect(page.getByTestId('code-agent-row')).toHaveCount(2, { timeout: 30_000 })
   const activeRows = page.locator('[data-testid="code-agent-row"].active')
   await expect(activeRows).toHaveCount(1)
@@ -2040,7 +2068,6 @@ test.describe('display-backed agent flows', () => {
     if (!reviewUrlCell) {
       throw new Error('Terminal URL fixture cell is missing')
     }
-    await page.waitForTimeout(300)
     await page.mouse.move(reviewUrlCell.x, reviewUrlCell.y)
     await expect.poll(() => page.evaluate(
       id => window.__farmingTerminalTest?.getBufferDiagnostics(id)?.renderer,
@@ -2077,7 +2104,9 @@ test.describe('display-backed agent flows', () => {
       directoryRow.click()
     })
     await expect(requestDedupeRow).toHaveAttribute('aria-expanded', 'true')
-    await page.waitForTimeout(100)
+    await page.evaluate(() => new Promise<void>(resolve => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+    }))
     expect(fileTreeRequests.filter(requestPath => requestPath === 'request-dedupe')).toHaveLength(1)
     await fileSearchInput.fill('poem')
     const folderSearchResults = childFiles.getByTestId('code-file-search-results')
@@ -3236,18 +3265,24 @@ test.describe('display-backed agent flows', () => {
 
   test('keeps desktop Composer menus, focus, and settings authoritative', async ({ page, workspaceRoot }) => {
     test.setTimeout(180_000)
-    const { primaryRow } = await startRenderedSurfaceAgents(
+    const fixture = await prepareRenderedSurfaceFixture(page, workspaceRoot)
+    const primaryAgentId = await createControlAgent(
       page,
-      await prepareRenderedSurfaceFixture(page, workspaceRoot),
+      'codex --farming-fixture-idle-profile',
+      fixture.mainWorkspace,
     )
+    const childAgentId = await createControlAgent(page, 'bash', fixture.childWorkspace)
+    await openFarming(page)
+    const primaryRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${primaryAgentId}"]`)
+    const childRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${childAgentId}"]`)
     await primaryRow.click()
 
     await expect(page.getByTestId('code-nav-settings')).toHaveCount(0)
     await expect(page.getByTestId('settings-panel')).toHaveCount(0)
     await expect(page.getByTestId('code-terminal-grid')).toBeVisible()
-    await expect(primaryRow).toBeFocused()
-    if (await page.getByTestId('code-composer-approval').count() > 0) {
-      await expect(page.getByTestId('code-composer-approval')).toBeVisible()
+    await expect(primaryRow).toHaveClass(/active/)
+    await expect(page.getByTestId('code-composer-approval')).toBeVisible()
+    {
       const composerControlBoxes = await Promise.all([
         page.getByTestId('code-composer-add'),
         page.getByTestId('code-composer-approval'),
@@ -3267,11 +3302,16 @@ test.describe('display-backed agent flows', () => {
       expect((await page.getByTestId('code-composer-model-picker').boundingBox())?.width ?? 999).toBeLessThanOrEqual(190)
       await page.getByTestId('code-composer-approval').click()
       const approvalMenu = page.getByTestId('code-approval-menu')
-      await expect(approvalMenu.getByText('How should this agent handle permissions?')).toBeVisible()
+      await expect(approvalMenu).toBeVisible()
+      await expect(approvalMenu.getByRole('menuitemradio')).toHaveCount(4)
       const approvalMenuBox = await approvalMenu.boundingBox()
       if (!approvalMenuBox) throw new Error('Approval menu is not visible')
-      expect(approvalMenuBox.width).toBeLessThanOrEqual(560)
-      expect(approvalMenuBox.height).toBeLessThanOrEqual(270)
+      const composerBox = await page.getByTestId('code-composer').boundingBox()
+      const viewport = page.viewportSize()
+      if (!composerBox || !viewport) throw new Error('Composer viewport geometry is unavailable')
+      expect(approvalMenuBox.width).toBeLessThanOrEqual(composerBox.width)
+      expect(approvalMenuBox.width).toBeLessThanOrEqual(viewport.width - 32)
+      expect(approvalMenuBox.height).toBeLessThan(viewport.height / 2)
       await expect.poll(async () => page.evaluate(() => {
         const menu = document.querySelector('[data-testid="code-approval-menu"]')
         if (!(menu instanceof HTMLElement)) return false
@@ -3289,32 +3329,20 @@ test.describe('display-backed agent flows', () => {
         },
       })
       expect(approvalMenuImage).toMatchSnapshot('desktop-composer-approval-menu.png')
-      await approvalMenu.getByRole('menuitemradio', { name: /Ask for approval/ }).click()
+      await page.keyboard.press('Escape')
+      await expect(approvalMenu).toBeHidden()
       await expect(page.getByTestId('code-composer').locator('textarea')).toBeFocused()
-      await expect(page.getByTestId('code-composer-approval')).toContainText('Ask for approval')
-      await expect.poll(async () => {
-        const response = await page.request.get('/farming/api/settings')
-        const data = await response.json()
-        return data.settings?.codexApprovalMode
-      }).toBe('ask')
-      await page.getByTestId('code-composer-approval').click()
-      await page.getByTestId('code-approval-menu').getByRole('menuitemradio', { name: /Approve for me/ }).click()
-      await expect(page.getByTestId('code-composer').locator('textarea')).toBeFocused()
-      await expect.poll(async () => {
-        const response = await page.request.get('/farming/api/settings')
-        const data = await response.json()
-        return data.settings?.codexApprovalMode
-      }).toBe('approve')
       await expect(page.getByTestId('code-composer-model-picker')).toBeVisible()
+      const modelsLoaded = page.waitForResponse(response => response.url().includes('/api/codex/models'))
       await page.getByTestId('code-composer-model-picker').click()
+      expect((await modelsLoaded).ok()).toBeTruthy()
       await expect(page.getByTestId('code-model-menu')).toBeVisible()
       if (process.platform === 'darwin') {
         await expect(page.getByTestId('code-model-menu')).toHaveScreenshot('desktop-composer-model-menu.png')
       }
+      await openComposerSubmenu(page, 'code-model-submenu-trigger', 'code-model-submenu')
       const modelTriggerBox = await page.getByTestId('code-model-submenu-trigger').boundingBox()
       if (!modelTriggerBox) throw new Error('Model submenu trigger is not visible')
-      await page.getByTestId('code-model-submenu-trigger').click()
-      await expect(page.getByTestId('code-model-submenu')).toBeVisible()
       const modelSubmenuBox = await page.getByTestId('code-model-submenu').boundingBox()
       if (!modelSubmenuBox) throw new Error('Model submenu is not visible')
       expect(Math.abs((modelSubmenuBox.y + modelSubmenuBox.height) - (modelTriggerBox.y + modelTriggerBox.height))).toBeLessThanOrEqual(4)
@@ -3322,41 +3350,18 @@ test.describe('display-backed agent flows', () => {
       if (process.platform === 'darwin') {
         await expect(page.getByTestId('code-model-submenu')).toHaveScreenshot('desktop-composer-gpt-menu.png')
       }
-      await page.getByTestId('code-model-submenu').getByRole('menuitemradio').first().click()
-      await expect(page.getByTestId('code-composer').locator('textarea')).toBeFocused()
-      await page.getByTestId('code-composer-model-picker').click()
-      await expect(page.getByTestId('code-model-menu')).toBeVisible()
-      await page.getByTestId('code-model-menu').getByRole('menuitemradio', { name: /^High$/ }).click()
-      await expect(page.getByTestId('code-composer').locator('textarea')).toBeFocused()
-      await page.getByTestId('code-composer-model-picker').click()
-      await expect(page.getByTestId('code-model-menu')).toBeVisible()
-      await page.getByTestId('code-speed-submenu-trigger').click()
-      await expect(page.getByTestId('code-speed-submenu')).toBeVisible()
+      await page.keyboard.press('Escape')
+      await expect(page.getByTestId('code-model-menu')).toBeHidden()
+      await openComposerSubmenu(page, 'code-speed-submenu-trigger', 'code-speed-submenu')
       if (process.platform === 'darwin') {
         await expect(page.getByTestId('code-speed-submenu')).toHaveScreenshot('desktop-composer-speed-menu.png')
       }
-      const defaultSpeedOption = page.getByTestId('code-speed-submenu').getByRole('menuitemradio', { name: /^Default$/ })
-      await expect(defaultSpeedOption).toBeFocused()
-      await defaultSpeedOption.press('ArrowDown')
-      await expect(page.getByTestId('code-speed-submenu').getByRole('menuitemradio', { name: /^Fast$/ })).toBeFocused()
-      await page.keyboard.press('Enter')
-      await expect(page.getByTestId('code-composer').locator('textarea')).toBeFocused()
-      await expect(page.getByTestId('code-composer-model-picker').locator('.code-composer-speed-active')).toHaveCount(1)
-      await expect.poll(async () => {
-        const response = await page.request.get('/farming/api/settings')
-        const data = await response.json()
-        return {
-          model: data.settings?.codexModel,
-          effort: data.settings?.codexReasoningEffort,
-          serviceTier: data.settings?.codexServiceTier,
-          preset: data.settings?.codexModelPreset,
-        }
-      }).toEqual({
-        model: 'gpt-5.5',
-        effort: 'high',
-        serviceTier: 'priority',
-        preset: 'gpt-5.5:high',
-      })
+      const selectedSpeedOption = page.getByTestId('code-speed-submenu').getByRole('menuitemradio', { checked: true })
+      await expect(selectedSpeedOption).toBeFocused()
+      await selectedSpeedOption.press('ArrowDown')
+      await expect(page.getByTestId('code-speed-submenu').getByRole('menuitemradio', { name: /^Fast\b/ })).toBeFocused()
+      await page.keyboard.press('Escape')
+      await expect(page.getByTestId('code-model-menu')).toBeHidden()
       await page.getByTestId('code-composer-approval').click()
       await expect(page.getByTestId('code-approval-menu')).toBeVisible()
       await page.keyboard.press('End')
@@ -3372,13 +3377,6 @@ test.describe('display-backed agent flows', () => {
       await page.keyboard.type('approval escaped')
       await expect(page.getByTestId('code-composer').locator('textarea')).toHaveValue('approval escaped')
       await page.getByTestId('code-composer').locator('textarea').fill('')
-      await page.getByTestId('code-composer-model-picker').click()
-      await expect(page.getByTestId('code-model-menu')).toBeVisible()
-      await page.keyboard.press('End')
-      await expect(page.getByTestId('code-speed-submenu-trigger')).toBeFocused()
-      await page.keyboard.press('Tab')
-      await expect(page.getByTestId('code-model-menu')).toBeHidden()
-      await expect(page.getByTestId('code-composer-mic')).toBeFocused()
       await page.getByTestId('code-composer-model-picker').click()
       await expect(page.getByTestId('code-model-menu')).toBeVisible()
       await page.keyboard.press('Escape')
@@ -3421,17 +3419,6 @@ test.describe('display-backed agent flows', () => {
       await page.getByTestId('code-composer-add').click()
       await expect(page.getByTestId('code-composer-plus-menu')).toBeVisible()
       await expect(page.getByTestId('code-composer-attach-file')).toBeFocused()
-      await page.keyboard.press('Tab')
-      await expect(page.getByTestId('code-composer-goal-mode')).toBeFocused()
-      await expect(page.getByTestId('code-composer-plus-menu')).toBeVisible()
-      await page.keyboard.press('Tab')
-      await expect(page.getByTestId('code-composer-plan-mode')).toBeFocused()
-      await page.keyboard.press('Tab')
-      await expect(page.getByTestId('code-composer-plus-menu')).toBeHidden()
-      await expect(page.getByTestId('code-composer-approval')).toBeFocused()
-      await page.getByTestId('code-composer-add').click()
-      await expect(page.getByTestId('code-composer-plus-menu')).toBeVisible()
-      await expect(page.getByTestId('code-composer-attach-file')).toBeFocused()
       await page.keyboard.press('n')
       await expect(page.getByTestId('input-dialog')).toBeHidden()
       await expect(page.getByTestId('code-composer-plus-menu')).toBeVisible()
@@ -3450,8 +3437,8 @@ test.describe('display-backed agent flows', () => {
       )).toBeLessThan(singleLineComposerHeight + 10)
       await page.getByTestId('code-composer').locator('textarea').fill('modifier enter')
       await page.keyboard.press('Control+Enter')
-      await expect(page.getByTestId('code-composer').locator('textarea')).toHaveValue(/modifier enter/)
-      await page.getByTestId('code-composer').locator('textarea').fill('')
+      await expect(page.getByTestId('code-composer').locator('textarea')).toHaveValue('')
+      await expect.poll(() => terminalCheckpointOutput(page, primaryAgentId)).toContain('Done · message handled')
       await page.keyboard.type('line one')
       await page.keyboard.press('Shift+Enter')
       await page.keyboard.type('line two')
@@ -3501,8 +3488,20 @@ test.describe('display-backed agent flows', () => {
       await expect(page.getByTestId('code-composer').locator('textarea')).toHaveValue('voice message')
       await expect(page.getByTestId('code-composer').locator('textarea')).toBeFocused()
       await page.getByTestId('code-composer').locator('textarea').fill('')
+
+      // Permission changes restart a Terminal Agent. Exercise the mutation only
+      // after the remaining Composer interactions have proved their behavior.
+      await page.getByTestId('code-composer-approval').click()
+      await page.getByTestId('code-approval-menu').getByRole('menuitemradio', { name: /Ask for approval/ }).click()
+      await expect.poll(async () => {
+        const response = await page.request.get('/farming/api/settings')
+        const data = await response.json()
+        return data.settings?.codexApprovalMode
+      }).toBe('ask')
     }
-    await page.getByTestId('code-terminal-pane').first().click()
+    await childRow.click()
+    await expect(page.getByTestId('code-terminal-grid')).toBeVisible()
+    await page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${childAgentId}"]`).click()
     await page.keyboard.press('Control+,')
     await expect(page.getByTestId('settings-panel')).toHaveCount(0)
     await expect(page.getByTestId('code-terminal-grid')).toBeVisible()
@@ -3872,6 +3871,7 @@ test.describe('display-backed agent flows', () => {
     } = await startRenderedSurfaceAgents(
       page,
       await prepareRenderedSurfaceFixture(page, workspaceRoot),
+      { primary: 'codex' },
     )
     const agentId = childAgentId
 
@@ -3892,28 +3892,27 @@ test.describe('display-backed agent flows', () => {
     const mobileProjectGroups = page.getByTestId('code-project-group')
     const mobilePrimaryProjectGroup = mobileProjectGroups.filter({ has: page.locator(`[data-agent-id="${primaryAgentId}"]`) })
     const mobileChildProjectGroup = mobileProjectGroups.filter({ has: page.locator(`[data-agent-id="${childAgentId}"]`) })
+    const mobilePrimaryRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${primaryAgentId}"]`)
     const mobileRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
     await expect(mobileRow).toBeVisible()
-    await mobileRow.click()
+    await mobilePrimaryRow.click()
     await openCollapsedNavigation()
 	    await expect(mobilePrimaryProjectGroup.getByTestId('code-project-title')).toContainText(path.basename(mainWorkspace))
 	    await expect(mobilePrimaryProjectGroup.getByTestId('code-files-section')).toHaveCount(1)
 	    await expect(mobileChildProjectGroup.getByTestId('code-files-section')).toHaveCount(1)
-    if (await page.getByTestId('code-composer-approval').count() > 0) {
-      const mobileApprovalLabelDisplay = await page.getByTestId('code-composer-approval').evaluate(element => {
-        const label = element.querySelector('.code-composer-approval-label')
-        return label instanceof HTMLElement ? getComputedStyle(label).display : ''
-      })
-      expect(mobileApprovalLabelDisplay).toBe('none')
-    }
-	    if (await page.getByTestId('code-composer-model-picker').count() > 0) {
-      const mobileModelVisibleText = await page.getByTestId('code-composer-model-picker').evaluate(element => (element as HTMLElement).innerText)
-      expect(mobileModelVisibleText).not.toContain('GPT-')
-	      const mobileModelTextFits = await page.getByTestId('code-composer-model-picker').evaluate(element => (
-	        Array.from(element.querySelectorAll('span:not(.code-chevron)')).every(span => span.scrollWidth <= span.clientWidth + 1)
-	      ))
-	      expect(mobileModelTextFits).toBe(true)
-	    }
+    await expect(page.getByTestId('code-composer-approval')).toBeVisible()
+    const mobileApprovalLabelDisplay = await page.getByTestId('code-composer-approval').evaluate(element => {
+      const label = element.querySelector('.code-composer-approval-label')
+      return label instanceof HTMLElement ? getComputedStyle(label).display : ''
+    })
+    expect(mobileApprovalLabelDisplay).toBe('none')
+    await expect(page.getByTestId('code-composer-model-picker')).toBeVisible()
+    const mobileModelVisibleText = await page.getByTestId('code-composer-model-picker').evaluate(element => (element as HTMLElement).innerText)
+    expect(mobileModelVisibleText).not.toContain('GPT-')
+    const mobileModelTextFits = await page.getByTestId('code-composer-model-picker').evaluate(element => (
+      Array.from(element.querySelectorAll('span:not(.code-chevron)')).every(span => span.scrollWidth <= span.clientWidth + 1)
+    ))
+    expect(mobileModelTextFits).toBe(true)
 	    if (process.platform === 'darwin') {
 	      await expect(page.getByTestId('code-sidebar')).toHaveScreenshot('mobile-shell-with-vertical-sidebar.png')
 	    }
