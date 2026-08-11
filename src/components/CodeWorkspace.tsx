@@ -3025,7 +3025,6 @@ export function CodeWorkspace({
   }, [focusWorkspaceFilesSearch, openProjectFile, resolveWorkspaceFileIdentity, revealWorkspaceFileInExplorer, selectOpenWorkspaceFile])
 
   const openAgentHomeConfiguration = useCallback(async (target: AgentHomeFileTarget) => {
-    onWorkspaceViewChange('projects')
     try {
       const file: WorkspaceFile = target.exists
         ? await fetchWorkspaceFile(target.rootId, target.filePath)
@@ -3038,6 +3037,7 @@ export function CodeWorkspace({
           }
       closeContextMenu()
       clearSearch()
+      onWorkspaceViewChange('projects')
       setMainPaneMode('editor')
       workspaceOpenFiles.openFromRead(target.rootId, file, {
         workspaceRoot: target.homePath,

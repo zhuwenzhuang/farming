@@ -389,7 +389,26 @@ test('Plugins shows a read-only extension catalog from one exact Agent Home', {
     return element.scrollTop
   })
   expect(pluginScrollTop).toBeGreaterThan(0)
-  await detail.getByRole('button', { name: 'Open source file' }).click()
+  let releaseSourceRead = () => {}
+  let markSourceReadStarted = () => {}
+  const sourceReadGate = new Promise<void>(resolve => { releaseSourceRead = resolve })
+  const sourceReadStarted = new Promise<void>(resolve => { markSourceReadStarted = resolve })
+  await page.route(/\/farming\/api\/files\/file\?/, async route => {
+    const requestUrl = new URL(route.request().url())
+    if (requestUrl.searchParams.get('path') !== 'plugins/example/.codex-plugin/plugin.json') {
+      await route.continue()
+      return
+    }
+    markSourceReadStarted()
+    await sourceReadGate
+    await route.continue()
+  })
+  const openSource = detail.getByRole('button', { name: 'Open source file' }).click()
+  await sourceReadStarted
+  await expect(panel.getByTestId('code-plugin-detail-dialog')).toContainText('Example Plugin')
+  await expect(page.getByTestId('code-file-editor')).toHaveCount(0)
+  releaseSourceRead()
+  await openSource
   await expect(page.getByTestId('code-file-editor').getByRole('tab', { selected: true })).toContainText('plugin.json')
   await expect(page.locator('[data-file-path="plugins/example/.codex-plugin/plugin.json"].selected')).toBeVisible()
 
