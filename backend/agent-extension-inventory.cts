@@ -36,7 +36,7 @@ function extensionWatchPaths(provider: string, homePath: string): string[] {
 
 function inventoryKey(provider: string, homePath: string): string {
   return JSON.stringify({
-    version: 2,
+    version: 3,
     provider,
     homePath: path.resolve(homePath),
   });

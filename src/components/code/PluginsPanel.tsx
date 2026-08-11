@@ -8,16 +8,16 @@ import { getBackendConnectionSnapshot } from '@/lib/backend-live-status'
 import { RequestOwnershipFence } from '@/lib/request-ownership'
 import {
   ArrowLeftGlyph,
-  AgentChipGlyph,
-  AgentSmartToyGlyph,
   BrowserGlyph,
   CloseGlyph,
   ComputerUseGlyph,
-  ForkGlyph,
+  HookGlyph,
   LanguageServerGlyph,
+  McpGlyph,
   PencilGlyph,
   PlusGlyph,
   PuzzleGlyph,
+  SkillGlyph,
   TerminalSquareGlyph,
 } from '@/components/IconGlyphs'
 import { DesktopConnectionsPanel } from '@/components/DesktopConnectionsPanel'
@@ -103,14 +103,14 @@ export function defaultPluginsNavigationState(): PluginsNavigationState {
   return {
     activeTab: 'farming',
     activeExtensionHomeKey: '',
-    activeExtensionKind: 'skill',
+    activeExtensionKind: 'plugin',
     extensionQuery: '',
     selectedExtension: null,
     scrollTop: 0,
   }
 }
 
-const EXTENSION_KIND_ORDER = ['skill', 'mcp', 'hook', 'plugin', 'command']
+const EXTENSION_KIND_ORDER = ['plugin', 'skill', 'mcp', 'hook', 'command']
 const PLUGIN_TAB_DEFINITIONS = [
   { id: 'farming' },
   { id: 'homes' },
@@ -356,11 +356,11 @@ function agentDisplayName(agent: Pick<AgentExtensionGroup, 'id' | 'name'>) {
 }
 
 const EXTENSION_KIND_GLYPHS = {
-  skill: AgentSmartToyGlyph,
-  mcp: AgentChipGlyph,
-  hook: ForkGlyph,
-  command: TerminalSquareGlyph,
   plugin: PuzzleGlyph,
+  skill: SkillGlyph,
+  mcp: McpGlyph,
+  hook: HookGlyph,
+  command: TerminalSquareGlyph,
 } as const
 
 const FARMING_BUILTIN_EXTENSIONS = [

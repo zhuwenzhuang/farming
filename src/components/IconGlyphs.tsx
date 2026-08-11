@@ -130,6 +130,34 @@ export function BookGlyph(props: IconGlyphProps) {
   )
 }
 
+export function SkillGlyph(props: IconGlyphProps) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false" {...props}>
+      <path d="M2.25 3.5c0-.69.56-1.25 1.25-1.25h2.25A2.25 2.25 0 0 1 8 4.5v9.25a2.25 2.25 0 0 0-2.25-2.25H3.5c-.69 0-1.25.56-1.25 1.25V3.5Z" />
+      <path d="M13.75 3.5c0-.69-.56-1.25-1.25-1.25h-2.25A2.25 2.25 0 0 0 8 4.5v9.25a2.25 2.25 0 0 1 2.25-2.25h2.25c.69 0 1.25.56 1.25 1.25V3.5Z" />
+    </svg>
+  )
+}
+
+export function McpGlyph(props: IconGlyphProps) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false" {...props}>
+      <path d="M5.25 2v3M10.75 2v3M3.5 5h9v1.25A4.5 4.5 0 0 1 8 10.75v3.25" />
+      <path d="M5.75 14h4.5" />
+    </svg>
+  )
+}
+
+export function HookGlyph(props: IconGlyphProps) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false" {...props}>
+      <circle cx="10.5" cy="2.5" r="1.25" />
+      <path d="M10.5 3.75v5A3.75 3.75 0 0 1 3 8.75V7" />
+      <path d="m1.75 8.25 1.25-1.5 1.25 1.5" />
+    </svg>
+  )
+}
+
 export function ChecklistGlyph(props: IconGlyphProps) {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>

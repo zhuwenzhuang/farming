@@ -369,7 +369,7 @@ async function run() {
   await legacyExtensions.close();
   const legacySnapshot = JSON.parse(fs.readFileSync(migrationCacheFile, 'utf8'));
   const currentKey = Object.keys(legacySnapshot.entries)[0];
-  const legacyKey = JSON.stringify({ version: 1, provider: 'codex', homePath: path.resolve(codexHome) });
+  const legacyKey = JSON.stringify({ version: 2, provider: 'codex', homePath: path.resolve(codexHome) });
   legacySnapshot.entries[legacyKey] = legacySnapshot.entries[currentKey];
   delete legacySnapshot.entries[currentKey];
   fs.writeFileSync(migrationCacheFile, JSON.stringify(legacySnapshot));
@@ -396,7 +396,7 @@ async function run() {
   const migratedComputerUse = (await migratedExtensions.get('codex', codexHome)).extensions[0];
   assert.strictEqual(migratedComputerUse.name, 'Computer Use');
   assert.strictEqual(migratedComputerUse.iconPath, 'plugins/computer-use/assets/app-icon.png');
-  assert.strictEqual(migrationLoads, 1, 'Plugin icon schema changes must bypass legacy cached inventory');
+  assert.strictEqual(migrationLoads, 1, 'Plugin icon schema changes must bypass the previous cached inventory schema');
 
   console.log('test-agent-inventories passed');
   } finally {

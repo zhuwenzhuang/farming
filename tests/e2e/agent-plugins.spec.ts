@@ -344,6 +344,16 @@ test('Plugins shows a read-only extension catalog from one exact Agent Home', {
   await expect(panel.getByTestId('code-plugin-history-forward')).toHaveCount(0)
   await panel.getByTestId('code-plugin-tab-extensions').click()
   await expect(panel.getByTestId('code-plugin-extension-home-codex-catalog')).toHaveAttribute('aria-selected', 'true')
+  expect(await panel.locator('.code-plugin-extension-kind-tabs > button').evaluateAll(buttons => (
+    buttons.map(button => button.getAttribute('data-testid'))
+  ))).toEqual([
+    'code-plugin-extension-kind-plugin',
+    'code-plugin-extension-kind-skill',
+    'code-plugin-extension-kind-mcp',
+    'code-plugin-extension-kind-hook',
+    'code-plugin-extension-kind-command',
+  ])
+  await expect(panel.getByTestId('code-plugin-extension-kind-plugin')).toHaveAttribute('aria-selected', 'true')
 
   await panel.getByTestId('code-plugin-extension-kind-skill').click()
   await expect(panel.getByText('Home Skill', { exact: true })).toBeVisible()
