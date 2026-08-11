@@ -17,7 +17,7 @@ import {
 
 export type FileStickyContextItem = WorkspaceFileStickyContextItem
 
-const FILE_STICKY_CONTEXT_HEIGHT = 40
+const FILE_STICKY_CONTEXT_HEIGHT = 24
 const FILE_CONTEXT_DESKTOP_SHIFT = 14
 const FILE_CONTEXT_COMPACT_SHIFT = 6
 

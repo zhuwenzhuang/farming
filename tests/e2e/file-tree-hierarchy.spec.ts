@@ -255,7 +255,7 @@ test('preserves every visible directory level across sticky scroll, collapse, re
   await expect.poll(() => stickyHierarchyMatchesFirstUncoveredRow(restoredFiles)).toBe(true)
 })
 
-test('uses the last crossed sibling directory as the compact sticky prefix', async ({ page, workspaceRoot }) => {
+test('keeps compact sticky context on the real ancestor instead of a crossed sibling directory', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'sibling-directory-sticky-prefix')
   const codeDirectory = path.join(workspace, 'src', 'components', 'code')
   fs.mkdirSync(path.join(codeDirectory, 'acp'), { recursive: true })
@@ -280,6 +280,30 @@ test('uses the last crossed sibling directory as the compact sticky prefix', asy
   await expect(target).toBeVisible()
   await scrollFileRowIntoStickyRange(target)
   const stickyRow = files.getByTestId('code-file-sticky-stack').locator('.code-file-sticky-row')
-  await expect(stickyRow).toHaveAttribute('title', 'src/components/code/pet')
-  await expect(stickyRow.locator('.code-file-name')).toHaveText('pet')
+  await expect(stickyRow).toHaveAttribute('title', 'src/components/code')
+  await expect(stickyRow.locator('.code-file-name')).toHaveText('src/components/code')
+})
+
+test('does not pin a collapsed root sibling above root files', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'collapsed-root-sibling')
+  fs.mkdirSync(path.join(workspace, 'tests'), { recursive: true })
+  fs.writeFileSync(path.join(workspace, 'tests', 'fixture.ts'), 'export const fixture = true\n')
+  for (let index = 0; index < 30; index += 1) {
+    fs.writeFileSync(path.join(workspace, `root-${String(index).padStart(2, '0')}.ts`), `export const value${index} = ${index}\n`)
+  }
+
+  await openFarming(page)
+  await openNewAgentDialog(page)
+  await startAgentFromOpenDialog(page, 'bash', workspace)
+
+  const files = page.getByTestId('code-files-section')
+  const filesTitle = files.getByRole('button', { name: 'Files', exact: true })
+  if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
+
+  const testsDirectory = files.locator('[data-testid="code-file-row"][data-file-path="tests"]')
+  await expect(testsDirectory).toHaveAttribute('aria-expanded', 'false')
+  await scrollFileRowIntoStickyRange(files.locator('[data-testid="code-file-row"][data-file-path="root-29.ts"]'))
+
+  await expect(files.getByTestId('code-file-sticky-stack')).toHaveCount(0)
+  await expect(testsDirectory).toHaveAttribute('aria-expanded', 'false')
 })

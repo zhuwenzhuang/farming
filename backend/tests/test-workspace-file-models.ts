@@ -1273,7 +1273,20 @@ function run() {
       scrollerBottom: 160,
       rowHeight: 24,
     }),
-    ['odps-sql/optimizer/rules/util']
+    ['odps-sql/optimizer/rules']
+  );
+  assert.deepStrictEqual(
+    workspaceStickyDirectoryPathsForViewport({
+      rows: [
+        { path: 'tests', type: 'directory', depth: 0, top: 20, bottom: 44 },
+        { path: '.gitattributes', type: 'file', depth: 0, top: 44, bottom: 68 },
+        { path: '.gitignore', type: 'file', depth: 0, top: 68, bottom: 92 },
+      ],
+      stickyTop: 40,
+      scrollerBottom: 160,
+      rowHeight: 24,
+    }),
+    []
   );
   const indexedRows = [
     { path: 'module', type: 'directory', depth: 0, ancestors: [] },
@@ -1360,7 +1373,7 @@ function run() {
     scrollerBottom: 88,
     rowHeight: 24,
     stickyHeight: 40,
-  }), ['src/components/code/pet']);
+  }), ['src/components/code']);
   assert.strictEqual(workspaceFileIndentShiftDepthForViewport({
     rows: indexedRows,
     treeTop: -56,

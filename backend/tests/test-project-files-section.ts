@@ -751,10 +751,12 @@ function run() {
 	      fileTreeViewSource.includes('<FileStickyContext') &&
 	      !fileSectionSource.includes('<FileStickyContext') &&
       fileStickyContextSource.includes('data-testid="code-file-sticky-stack"') &&
-	      fileStickyContextSource.includes('className="code-file-row directory code-file-sticky-row"') &&
-	      fileStickyContextSource.includes('style={workspaceFileTreeDepthStyle(0)}') &&
-	      fileStickyContextSource.includes('workspaceStickyDirectoryPresentation(item.nodes)') &&
-	      fileStickyContextSource.includes('code-file-sticky-parent') &&
+		      fileStickyContextSource.includes('className="code-file-row code-file-sticky-row"') &&
+		      fileStickyContextSource.includes('style={workspaceFileTreeDepthStyle(0)}') &&
+		      fileStickyContextSource.includes('workspaceStickyDirectoryPresentation(item.nodes)') &&
+		      fileStickyContextSource.includes('<span className="code-file-name">{presentation.compactLabel}</span>') &&
+		      !fileStickyContextSource.includes('code-file-chevron') &&
+		      !fileStickyContextSource.includes('code-file-sticky-parent') &&
 	      stylesSource.includes('left: calc(0px - var(--file-context-shift, 0px));') &&
 	      stylesSource.includes('width: calc(100% + var(--file-context-shift, 0px)) !important;') &&
 	      !fileStickyContextSource.includes('code-file-sticky-expanded-rows') &&

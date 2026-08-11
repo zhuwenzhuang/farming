@@ -95,9 +95,12 @@ Four responsibilities remain separate:
 - **Editor and Viewers** own working copies, tabs, editor state, conflicts, and
   bounded previews.
 
-The single sticky directory context uses a fixed-height two-level label: a
-width-responsive compact path above a muted full path of at most two lines. Its
-rendered content must not determine its own identity or height.
+The single sticky directory context is a fixed one-row navigation control with
+a compact path. It appears only when the first uncovered visible row has a real
+expanded ancestor that has scrolled above the sticky boundary. A collapsed
+directory or a preceding sibling is never sticky. The control reveals its
+ancestor in the tree; it does not present an expansion chevron or pretend to be
+a second tree row.
 
 When the visible rows share a deep offscreen ancestor represented by that
 sticky context, the Explorer may reclaim the ancestor indentation with one

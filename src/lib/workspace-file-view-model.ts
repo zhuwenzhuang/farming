@@ -1,4 +1,4 @@
-import { ancestorDirectories, isDescendantPath, parentDirectory, type WorkspaceFileTreeNode } from './workspace-file-tree'
+import { ancestorDirectories, isDescendantPath, type WorkspaceFileTreeNode } from './workspace-file-tree'
 
 export const WORKSPACE_FILE_SEARCH_FOCUS_RETRY_DELAYS = [0, 80, 180, 300, 520, 900, 1200]
 export const WORKSPACE_FILE_TREE_FOCUS_RETRY_DELAYS = [80, 180, 360]
@@ -216,27 +216,7 @@ export function workspaceStickyDirectoryPathsForViewport(options: {
   ))
   if (firstUncoveredIndex < 0) return []
 
-  const firstUncoveredRow = options.rows[firstUncoveredIndex]!
-  let siblingFileGroupStart = firstUncoveredIndex
-  while (siblingFileGroupStart > 0) {
-    const previousRow = options.rows[siblingFileGroupStart - 1]!
-    if (
-      previousRow.type !== 'file'
-      || previousRow.depth !== firstUncoveredRow.depth
-      || parentDirectory(previousRow.path) !== parentDirectory(firstUncoveredRow.path)
-    ) break
-    siblingFileGroupStart -= 1
-  }
-  const precedingSiblingDirectory = firstUncoveredRow.type === 'file'
-    ? options.rows[siblingFileGroupStart - 1]
-    : undefined
-  const usesSiblingDirectoryPrefix = precedingSiblingDirectory?.type === 'directory'
-    && precedingSiblingDirectory.depth === firstUncoveredRow.depth
-    && parentDirectory(precedingSiblingDirectory.path) === parentDirectory(firstUncoveredRow.path)
-    && precedingSiblingDirectory.top < stickyBottom
-  if (usesSiblingDirectoryPrefix) return [precedingSiblingDirectory.path]
-
-  return workspaceStickyDirectoryPaths(firstUncoveredRow.path, options.rows, stickyBottom)
+  return workspaceStickyDirectoryPaths(options.rows[firstUncoveredIndex]!.path, options.rows, stickyBottom)
 }
 
 export function workspaceVisibleFileTreeRows(
@@ -279,24 +259,6 @@ export function workspaceStickyDirectoryPathsForIndexedViewport(options: {
   const firstUncoveredRow = options.rows[firstUncoveredIndex]
   if (!firstUncoveredRow) return []
   if (options.treeTop + firstUncoveredIndex * rowHeight >= options.scrollerBottom) return []
-
-  let siblingFileGroupStart = firstUncoveredIndex
-  while (siblingFileGroupStart > 0) {
-    const previousRow = options.rows[siblingFileGroupStart - 1]!
-    if (
-      previousRow.type !== 'file'
-      || previousRow.depth !== firstUncoveredRow.depth
-      || parentDirectory(previousRow.path) !== parentDirectory(firstUncoveredRow.path)
-    ) break
-    siblingFileGroupStart -= 1
-  }
-  const precedingSiblingDirectory = firstUncoveredRow.type === 'file'
-    ? options.rows[siblingFileGroupStart - 1]
-    : undefined
-  const usesSiblingDirectoryPrefix = precedingSiblingDirectory?.type === 'directory'
-    && precedingSiblingDirectory.depth === firstUncoveredRow.depth
-    && parentDirectory(precedingSiblingDirectory.path) === parentDirectory(firstUncoveredRow.path)
-  if (usesSiblingDirectoryPrefix) return [precedingSiblingDirectory.path]
 
   return firstUncoveredRow.ancestors.map(ancestor => ancestor.path)
 }
