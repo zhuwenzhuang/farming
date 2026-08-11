@@ -64,10 +64,9 @@ async function openHumanCaseChat(page: Page, workspace: string) {
   const agentId = await createAcpAgent(page, workspace)
   await openFarming(page)
   const compactLayout = await page.locator('body').evaluate(element => element.classList.contains('code-compact-layout'))
-  const mobileMenu = page.getByTestId('code-mobile-menu')
-  if (!await agentRow(page, agentId).isVisible().catch(() => false)
-    && await mobileMenu.isVisible().catch(() => false)) {
-    await mobileMenu.click()
+  if (compactLayout) {
+    await expect(page.getByTestId('code-mobile-menu')).toBeVisible()
+    await page.getByTestId('code-mobile-menu').click()
   }
   await expect(agentRow(page, agentId)).toBeVisible()
   await agentRow(page, agentId).click()
@@ -903,10 +902,12 @@ test.describe('ACP human-like browser matrix', () => {
       await expect(page.getByTestId('code-agent-chat-view')).toBeVisible()
     })
     await test.step('03 select the ACP Agent from the project list', async () => {
-      await expect(agentRow(page, agentId)).toBeVisible()
       if (compactLayout) {
+        await expect(page.getByTestId('code-workspace')).toHaveClass(/sidebar-collapsed/)
+        await expect(agentRow(page, agentId)).toBeHidden()
         await expect(page.getByTestId('code-agent-chat-view')).toBeVisible()
       } else {
+        await expect(agentRow(page, agentId)).toBeVisible()
         await expect(agentRow(page, agentId)).toHaveClass(/active/)
       }
     })
@@ -1294,7 +1295,9 @@ test.describe('ACP human-like browser matrix', () => {
 
     const modeToggle = page.getByTestId('code-terminal-mode-toggle')
     const openAgentRuntimeMenu = async () => {
-      if (!await agentRow(page, agentId).isVisible().catch(() => false)) {
+      if (compactLayout) {
+        await expect(page.getByTestId('code-workspace')).toHaveClass(/sidebar-collapsed/)
+        await expect(page.getByTestId('code-mobile-menu')).toBeVisible()
         await page.getByTestId('code-mobile-menu').click()
       }
       const row = agentRow(page, agentId)
@@ -1312,21 +1315,23 @@ test.describe('ACP human-like browser matrix', () => {
       await expect(page.getByText('Subagent inspection complete.', { exact: true })).toBeVisible({ timeout: 15_000 })
     })
     await test.step('42b keep Chat and Terminal switch icons visibly rendered', async () => {
-      if (await modeToggle.isVisible().catch(() => false)) {
+      if (compactLayout) {
+        await expect(modeToggle).toBeHidden()
+        const menu = await openAgentRuntimeMenu()
+        await expect(menu.getByRole('menuitem', { name: /Switch to Terminal|切换到终端/ })).toBeVisible()
+        await page.keyboard.press('Escape')
+        const backdrop = page.getByTestId('code-mobile-sidebar-backdrop')
+        await expect(backdrop).toBeVisible()
+        await backdrop.tap({ position: { x: 380, y: 400 } })
+        await expect(backdrop).toHaveCount(0)
+      } else {
+        await expect(modeToggle).toBeVisible()
         for (const name of ['Chat', 'Terminal']) {
           const icon = modeToggle.getByRole('button', { name }).locator('svg')
           await expect(icon).toBeVisible()
           await expect(icon).toHaveCSS('fill', /rgb\(/)
         }
         await expect(modeToggle).toHaveCSS('opacity', '0.82')
-      } else {
-        const menu = await openAgentRuntimeMenu()
-        await expect(menu.getByRole('menuitem', { name: /Switch to Terminal|切换到终端/ })).toBeVisible()
-        await page.keyboard.press('Escape')
-        const backdrop = page.getByTestId('code-mobile-sidebar-backdrop')
-        if (await backdrop.isVisible().catch(() => false)) {
-          await backdrop.tap({ position: { x: 380, y: 400 } })
-        }
       }
     })
     }
@@ -1433,11 +1438,12 @@ test.describe('ACP human-like browser matrix', () => {
           return false
         }
       })
-      if (await modeToggle.isVisible().catch(() => false)) {
-        await modeToggle.getByRole('button', { name: 'Terminal' }).click()
-      } else {
+      if (compactLayout) {
         const menu = await openAgentRuntimeMenu()
         await menu.getByRole('menuitem', { name: /Switch to Terminal|切换到终端/ }).click()
+      } else {
+        await expect(modeToggle).toBeVisible()
+        await modeToggle.getByRole('button', { name: 'Terminal' }).click()
       }
       await expect(page.getByTestId('code-permission-switching')).toBeVisible()
       const switchResponse = await switchResponsePromise
@@ -1449,14 +1455,21 @@ test.describe('ACP human-like browser matrix', () => {
       await expect(page.getByTestId('code-agent-terminal-view')).toBeVisible({ timeout: 30_000 })
       await expect(page.getByTestId('code-composer-input')).toBeVisible()
       await expect(page.getByTestId('code-acp-composer')).toHaveCount(0)
+      if (compactLayout) {
+        const backdrop = page.getByTestId('code-mobile-sidebar-backdrop')
+        await expect(backdrop).toBeVisible()
+        await backdrop.tap({ position: { x: 380, y: 400 } })
+        await expect(backdrop).toHaveCount(0)
+      }
     })
     await test.step('50 restart back to ACP Chat and preserve structured history', async () => {
       const currentModeToggle = page.getByTestId('code-terminal-mode-toggle')
-      if (await currentModeToggle.isVisible().catch(() => false)) {
-        await currentModeToggle.getByRole('button', { name: 'Chat' }).click()
-      } else {
+      if (compactLayout) {
         const menu = await openAgentRuntimeMenu()
         await menu.getByRole('menuitem', { name: /Switch to Chat|切换到对话/ }).click()
+      } else {
+        await expect(currentModeToggle).toBeVisible()
+        await currentModeToggle.getByRole('button', { name: 'Chat' }).click()
       }
       await expect(page.getByTestId('code-agent-chat-view')).toBeVisible({ timeout: 30_000 })
       await expect(page.getByTestId('code-acp-composer')).toBeVisible()

@@ -31,12 +31,25 @@ async function terminalCellCenter(page: import('@playwright/test').Page, agentId
 
 async function selectTerminalAgentOnCompactLayout(page: import('@playwright/test').Page, agentId: string) {
   const row = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
-  const mobileMenu = page.getByTestId('code-mobile-menu')
-  if (!await row.isVisible().catch(() => false) && await mobileMenu.isVisible().catch(() => false)) {
-    await mobileMenu.click()
+  const compactLayout = await page.locator('body').evaluate(element => element.classList.contains('code-compact-layout'))
+  if (compactLayout) {
+    await expect(page.getByTestId('code-mobile-menu')).toBeVisible()
+    await page.getByTestId('code-mobile-menu').click()
   }
   await expect(row).toBeVisible()
   await row.click()
+  await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"]`)).toBeVisible()
+}
+
+async function expectTerminalAgentSelected(page: import('@playwright/test').Page, agentId: string, compactLayout: boolean) {
+  const row = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
+  if (compactLayout) {
+    await expect(page.getByTestId('code-workspace')).toHaveClass(/sidebar-collapsed/)
+    await expect(row).toBeHidden()
+  } else {
+    await expect(row).toBeVisible()
+    await expect(row).toHaveClass(/active/)
+  }
   await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"]`)).toBeVisible()
 }
 
@@ -102,18 +115,21 @@ test.describe('human Farming Agent story', () => {
     await openNewAgentDialog(page)
     const secondAgentId = await startAgentFromOpenDialog(page, 'bash', workspaceRoot)
 
+    const compactLayout = await page.locator('body').evaluate(element => element.classList.contains('code-compact-layout'))
     await selectTerminalAgentOnCompactLayout(page, firstAgentId)
-    const firstAgentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${firstAgentId}"]`)
-    if (await firstAgentRow.isVisible().catch(() => false)) await expect(firstAgentRow).toHaveClass(/active/)
+    await expectTerminalAgentSelected(page, firstAgentId, compactLayout)
 
     await page.reload({ waitUntil: 'domcontentloaded' })
-    await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${firstAgentId}"]`)).toBeVisible()
     await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${secondAgentId}"]`)).toBeHidden()
-    if (await firstAgentRow.isVisible().catch(() => false)) await expect(firstAgentRow).toHaveClass(/active/)
+    await expectTerminalAgentSelected(page, firstAgentId, compactLayout)
 
     const terminalComposerInput = page.getByTestId('code-composer-input')
     await terminalComposerInput.fill('terminal draft survives composer collapse')
-    if (await page.locator('.code-composer-collapse-zone').count()) {
+    if (compactLayout) {
+      await expect(page.locator('.code-composer-collapse-zone')).toHaveCount(0)
+      await expect(page.getByTestId('code-composer-restore')).toHaveCount(0)
+    } else {
+      await expect(page.locator('.code-composer-collapse-zone')).toBeVisible()
       await page.locator('.code-composer-collapse-zone').hover()
       await page.getByTestId('code-composer-collapse').click()
       await expect(page.getByTestId('code-composer')).toHaveCount(0)
@@ -691,9 +707,8 @@ test.describe('human Farming Agent story', () => {
     await textarea.fill('/goal ship slash commands')
     await expect(textarea).toHaveValue('/goal ship slash commands')
     await page.getByTestId('code-composer-send').click()
-    if (await page.getByTestId('code-pending-followup').count() > 0) {
-      await page.getByTestId('code-pending-followup-send-next').first().click()
-    }
+    await expect(page.getByTestId('code-pending-followup')).toContainText('/goal ship slash commands')
+    await page.getByTestId('code-pending-followup-send-next').first().click()
     await expect.poll(() => sessionText(page, agentId)).toContain('/goal ship slash commands')
   })
 
