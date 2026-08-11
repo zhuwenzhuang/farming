@@ -44,7 +44,9 @@ Computer Container 必须通过持久化 Container ID 与精确 Config Ownership
 Docker `KILL` 信号。证明缺失或不匹配时显式失败；Stop 绝不能扫描或终止当前用户的所有进程。
 僵尸进程已经终止，不能继续执行，也无法接收有意义的信号。因此 Stop 会把精确匹配的僵尸
 身份收敛为已退出并删除其 Ownership Record，而不会要求读取已经不可用的进程环境或误报
-Ownership 拒绝。
+Ownership 拒绝。由于身份与环境检查是两次独立的操作系统观察，Stop 在拒绝表面不匹配前还
+必须复核一次：进程已经消失或成为僵尸时收敛为已退出；仍然存活且身份不匹配时才显式失败，
+并且绝不向它发送信号。
 
 ## Runtime 与鉴权隔离
 

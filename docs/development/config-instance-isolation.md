@@ -55,7 +55,11 @@ visible failure; stop never scans or signals every process owned by the user.
 A zombie process is already terminated and cannot execute or receive a useful
 signal. Stop therefore reconciles an exact zombie identity as exited and
 removes its ownership record instead of requiring the no-longer-readable
-process environment or reporting an ownership refusal.
+process environment or reporting an ownership refusal. Because identity and
+environment checks are separate operating-system observations, Stop also
+rechecks an apparent mismatch once before refusing: disappearance or zombie
+state is reconciled as exited, while a still-live mismatch remains a visible
+failure and is never signalled.
 
 ## Runtime And Authentication Isolation
 

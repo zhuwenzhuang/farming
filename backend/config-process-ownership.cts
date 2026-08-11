@@ -445,7 +445,21 @@ async function hardStopConfigProcesses(configDir: string, options: HardStopOptio
     }
     if (!record) {
       if (observedLiveIdentity) {
-        refused += 1;
+        let stillLive = false;
+        for (const item of items) {
+          const reconciled = await readIdentity(item.record.pid);
+          if (!reconciled || isZombie(item.record.pid)) continue;
+          stillLive = true;
+          break;
+        }
+        if (stillLive) {
+          refused += 1;
+        } else {
+          // Identity and environment reads are separate observations. A
+          // Config-owned process can finish exiting between them; reconcile
+          // that terminal state before treating it as an ownership refusal.
+          files.forEach(file => fs.rmSync(file, { force: true }));
+        }
       } else {
         // A persisted PID/PGID is only an ownership hint. Once the exact
         // process identity is gone, the numeric process group may be reused by

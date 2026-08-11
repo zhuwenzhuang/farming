@@ -232,6 +232,43 @@ async function run() {
 
     registerConfigProcessGroup(configDir, 'acp-provider', {
       format: 'test-v1',
+      pid: 43501,
+      processGroupId: 43501,
+      startedAt: 'exiting identity',
+    });
+    let exitingIdentityReads = 0;
+    const exitingSignals = [];
+    const exitedDuringReconciliation = await hardStopConfigProcesses(configDir, {
+      readProcessIdentity(pid) {
+        if (pid !== 43501) return null;
+        exitingIdentityReads += 1;
+        return exitingIdentityReads === 1
+          ? { pid: 43501, processGroupId: 43501, startedAt: 'exiting identity changed during shutdown' }
+          : null;
+      },
+      signalProcessGroup(processGroupId, signal) {
+        exitingSignals.push({ processGroupId, signal });
+      },
+      waitForProcessGroupExit: async () => true,
+    });
+    assert.deepStrictEqual(exitingSignals, [], 'an identity that disappears during reconciliation must never be signalled');
+    assert.deepStrictEqual(
+      exitedDuringReconciliation,
+      { stopped: 0, refused: 0 },
+      'an identity that finishes exiting must be reconciled as stopped instead of blocking hard-stop',
+    );
+    const cleanedExitedIdentity = await hardStopConfigProcesses(configDir, {
+      readProcessIdentity(pid) {
+        return pid === 43501
+          ? { pid: 43501, processGroupId: 43501, startedAt: 'later unrelated reuse' }
+          : null;
+      },
+      waitForProcessGroupExit: async () => true,
+    });
+    assert.strictEqual(cleanedExitedIdentity.refused, 0, 'reconciled ownership must not poison a later hard-stop');
+
+    registerConfigProcessGroup(configDir, 'acp-provider', {
+      format: 'test-v1',
       pid: 45001,
       processGroupId: 45001,
       startedAt: 'zombie identity',
