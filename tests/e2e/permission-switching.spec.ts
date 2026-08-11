@@ -188,7 +188,9 @@ async function openPermissionTestApp(page: Page) {
 }
 
 test.describe('permission switching', () => {
-  test('waits for the HTTP-owned Terminal to Chat replacement before selecting WS descendants', async ({ page, workspaceRoot }) => {
+  test('waits for the HTTP-owned Terminal to Chat replacement before selecting WS descendants', {
+    tag: ['@critical-behavior', '@behavior-CODE-RUNTIME-SWITCHING'],
+  }, async ({ page, workspaceRoot }) => {
     const workspace = path.join(workspaceRoot, 'historical-terminal-chat-identity')
     const sessionId = '019f0000-0000-7000-8000-00000000cafe'
     const originalId = 'agent-runtime-switch-original'
@@ -204,6 +206,7 @@ test.describe('permission switching', () => {
       startedAt: baseTime,
       title: 'Historical Terminal conversation',
     })
+    original.providerHomeId = ''
     const staleDescendant = runtimeSwitchAgent({
       id: staleDescendantId,
       workspace,

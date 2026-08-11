@@ -224,7 +224,7 @@ test('shows an Agent-owned Desktop only when present and switches Viewer control
   await expect(computerRow).toContainText('Agent Computer')
   const computerStatus = computerRow.locator('.farming-computer-resource-icon.running')
   await expect(computerStatus).toHaveCount(1)
-  await expect(computerStatus).toHaveCSS('color', 'rgb(31, 157, 85)')
+  await expect(computerStatus).toHaveCSS('color', 'rgb(26, 127, 55)')
   await expect(computerRow.locator('.farming-computer-status')).toHaveCount(0)
   await expect(computerActions).toHaveCSS('opacity', '0')
   const computerCopyBoxBeforeHover = await computerCopy.boundingBox()

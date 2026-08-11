@@ -2,7 +2,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { expect, openFarming, test } from './fixtures'
 
-test('renders intermediate commentary promptly during a dense live stream', async ({ page, workspaceRoot }) => {
+test('renders intermediate commentary promptly during a dense live stream', {
+  tag: ['@critical-behavior', '@behavior-CODE-LIVE-COMMENTARY-FEEDBACK'],
+}, async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'codex-acp-live-commentary')
   fs.mkdirSync(workspace, { recursive: true })
   const response = await page.request.post('/farming/api/control/agents', {

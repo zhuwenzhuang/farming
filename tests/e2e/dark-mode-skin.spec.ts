@@ -221,7 +221,7 @@ test.describe('Farming Code appearance skins', () => {
     await expect(page.locator('body')).toHaveAttribute('data-appearance', 'paper')
     await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(247, 244, 237)')
     await expect(page.getByTestId('app-shell')).toHaveCSS('background-color', 'rgb(247, 244, 237)')
-    await expect(page.getByTestId('code-sidebar')).toHaveCSS('background-color', 'rgb(247, 244, 237)')
+    await expect(page.getByTestId('code-sidebar')).toHaveCSS('background-color', 'rgb(241, 238, 231)')
     await expect(page.locator('meta[name="color-scheme"]')).toHaveAttribute('content', 'light')
     await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#f7f4ed')
 

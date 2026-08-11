@@ -161,11 +161,19 @@ instead of picking one, so a human must decide which record survives. Pinning or
 archiving an affected session on the older build likewise writes pre-v2 state
 that the v2 build must reconcile.
 
-Rollback is therefore supported for reading an affected instance, not for
-mutating it. A read-only rollback destroys nothing and the v2 build resolves
-membership and bindings from the same records when it runs again; a rollback that
-resumes or re-pins an affected session needs manual reconciliation first. Farming
-does not promise an unconditional restore across a downgrade.
+An operator-initiated downgrade of a live Config is therefore supported for
+reading an affected instance, not for mutating it. A read-only downgrade destroys
+nothing and the v2 build resolves membership and bindings from the same records
+when it runs again; a downgrade that resumes or re-pins an affected session needs
+manual reconciliation first. Farming does not promise an unconditional restore
+when an operator points an older build at state already committed by a newer one.
+
+Transactional remote deployment does not perform that kind of downgrade. It
+checkpoints the stopped Config before activating a new image and lets the new
+image migrate a working copy. A failed activation restores both the previous
+image and the pre-activation Config checkpoint, so the older image never reads
+v2 state created during the failed deployment. Readiness success commits the
+working copy and discards the checkpoint.
 
 Farming does not write a pre-v2 alias to make v2 state legible to an older
 build. The pre-v2 spelling is ambiguous, so double-writing it would reintroduce

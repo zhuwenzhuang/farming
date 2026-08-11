@@ -122,11 +122,11 @@ body.code-mode[data-appearance='dark'] {
 body.code-mode[data-appearance='paper'] {
   color-scheme: light;
   --code-bg-canvas: #f7f4ed;
-  --code-bg-surface: #f7f4ed;
-  --code-bg-raised: #fdfbf6;
-  --code-bg-chrome: #f7f4ed;
-  --code-bg-inset: #f3ead4;
-  --code-bg-muted: #eeebe3;
+  --code-bg-surface: #faf8f2;
+  --code-bg-raised: #fffdf8;
+  --code-bg-chrome: #f1eee7;
+  --code-bg-inset: #ede9e0;
+  --code-bg-muted: #e8e4db;
   --code-bg-hover: rgba(82, 75, 60, 0.055);
   --code-bg-hover-strong: rgba(82, 75, 60, 0.09);
   --code-bg-selected: rgba(58, 110, 74, 0.11);
@@ -161,9 +161,9 @@ body.code-mode[data-appearance='paper'] {
   --code-shadow-color: rgba(72, 63, 45, 0.16);
   --code-shadow-soft: 0 8px 28px rgba(72, 63, 45, 0.07);
   --code-shadow-raised: 0 14px 38px rgba(72, 63, 45, 0.16);
-  --code-terminal-bg: #f9f6ef;
-  --code-editor-bg: #f9f6ef;
-  --code-code-bg: #f3eee4;
+  --code-terminal-bg: #fbf9f4;
+  --code-editor-bg: #fbf9f4;
+  --code-code-bg: #f1ede4;
   --code-selection-bg: rgba(58, 110, 74, 0.22);
   --code-theme-light-display: block;
   --code-theme-dark-display: none;
@@ -173,8 +173,8 @@ body.code-mode[data-appearance='paper'] {
   --code-pet-actions-primary-hover: var(--code-accent-hover);
   --code-pet-actions-primary-border-color: var(--code-accent);
   --code-pet-actions-primary-background: var(--code-accent);
-  --code-worktree-count-bg: var(--code-accent-soft);
-  --code-worktree-count-text: var(--code-accent);
+  --code-worktree-count-bg: var(--code-bg-muted);
+  --code-worktree-count-text: var(--code-text-subtle);
   --code-sidebar-scrollbar-thumb: rgba(98, 99, 91, 0.22);
 }
 
@@ -1756,6 +1756,18 @@ body.code-mode[data-appearance='paper'] {
   --code-settings-agent-home-form-actions-focus-visible-background: var(--code-bg-muted);
   --code-settings-agent-home-form-actions-focus-visible-color: var(--code-text);
   --code-settings-segmented-active-color: var(--code-text);
+  --code-sidebar-history-toggle-sidebar-plugins-toggle-sidebar-options-background: transparent;
+  --code-component-settings-segmented-color: var(--code-text-muted);
+  --code-component-settings-segmented-active-background: var(--code-bg-raised);
+  --code-component-settings-segmented-active-box-shadow: 0 1px 2px rgba(72, 63, 45, 0.12);
+  --code-history-card-border-color: var(--code-border-subtle);
+  --code-core-instance-name-actions-primary-background: var(--code-accent);
+  --code-composer-approval-blue-color: var(--code-accent);
+  --code-composer-compact-layout-composer-approval-blue-color: var(--code-accent);
+  --code-files-file-search-ignored-action-hover-focus-visible-background: var(--code-accent-soft);
+  --code-markdown-mermaid-toolbar-background-79a10e: var(--code-accent-soft);
+  --code-terminal-search-focus-box-shadow: inset 0 0 0 1px var(--code-accent);
+  --code-transcript-agent-transcript-file-link-hover-focus-visible-background: var(--code-accent-soft);
   --code-core-selection-background: rgba(33, 110, 69, 0.22);
   --code-core-selection-color: var(--code-text);
   --code-mobile-sidebar-shadow: 0 20px 60px rgba(72, 63, 45, 0.2);
@@ -1801,11 +1813,11 @@ body.code-mode[data-appearance='paper'] {
   --code-component-project-header-hover-color: var(--code-text);
   --code-component-file-tree-row-hover-color: var(--code-text);
   --code-component-nav-item-active-background: var(--code-accent-soft);
-  --code-component-agent-row-active-background: var(--code-accent-soft);
+  --code-component-agent-row-active-background: var(--code-bg-hover);
   --code-component-file-tree-row-active-background: var(--code-accent-soft);
   --code-component-sidebar-resource-row-active-background: var(--code-accent-soft);
   --code-component-nav-item-active-color: var(--code-accent);
-  --code-component-agent-row-active-color: var(--code-accent);
+  --code-component-agent-row-active-color: var(--code-text);
   --code-component-file-tree-row-active-color: var(--code-accent);
   --code-component-sidebar-resource-row-active-color: var(--code-accent);
   --code-component-active-before-nav-item-background: var(--code-accent);

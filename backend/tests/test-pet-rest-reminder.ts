@@ -47,6 +47,10 @@ const path = require('path');
     path.join(__dirname, '../../src/styles/pet.css'),
     'utf8',
   );
+  const tokenCssSource = fs.readFileSync(
+    path.join(__dirname, '../../src/styles/tokens.css'),
+    'utf8',
+  );
   const mainCssSource = fs.readFileSync(
     path.join(__dirname, '../../src/styles/main.css'),
     'utf8',
@@ -443,19 +447,15 @@ const path = require('path');
   assert(!blackHoleRendererSource.includes('float radialRays'));
   assert(blackHoleSceneSource.includes('className="code-pet-black-hole-compositor"'));
   assert(
-    petCssSource.includes(
-      "body.code-mode[data-appearance='light'] .code-pet-black-hole-compositor",
-    )
-      && petCssSource.includes('filter: brightness(0.88) saturate(0.92);'),
+    petCssSource.includes('filter: var(--code-pet-compositor-filter);')
+      && tokenCssSource.includes('--code-pet-compositor-filter: brightness(0.88) saturate(0.92);'),
     'the light appearance should lower the frozen scene luminance so the white disk and Hawking radiation remain visible',
   );
   assert(
-    petCssSource.includes(
-      "body.code-mode[data-appearance='light'] .code-pet-black-hole-canvas",
-    )
-      && petCssSource.includes('brightness(0.84)')
-      && petCssSource.includes('saturate(1.28)')
-      && petCssSource.includes('drop-shadow(0 8px 20px rgba(8, 10, 9, 0.28))'),
+    petCssSource.includes('filter: var(--code-pet-canvas-filter);')
+      && tokenCssSource.includes('--code-pet-canvas-filter: brightness(0.84)')
+      && tokenCssSource.includes('saturate(1.28)')
+      && tokenCssSource.includes('drop-shadow(0 8px 20px rgba(8, 10, 9, 0.28))'),
     'the light appearance should retain a defined body silhouette without changing the dark preset',
   );
 

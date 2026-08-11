@@ -135,12 +135,13 @@ function isConfirmedRuntimeReplacement(
   confirmedAgentId: string,
   confirmedRuntimeMode: 'terminal' | 'chat' | 'acp' | undefined,
 ) {
+  const originalHomeId = original.providerHomeId || 'default'
+  const candidateHomeId = candidate.providerHomeId || 'default'
   if (
     candidate.id !== confirmedAgentId
-    || candidate.restartedFromAgentId !== original.id
+    || (candidate.id !== original.id && !isRestartDescendantOf(candidate, original.id))
     || candidate.providerSessionProvider !== original.providerSessionProvider
-    || (candidate.providerHomeId || '') !== (original.providerHomeId || '')
-    || (candidate.providerHomePath || '') !== (original.providerHomePath || '')
+    || candidateHomeId !== originalHomeId
     || projectWorkspaceForAgent(candidate) !== projectWorkspaceForAgent(original)
   ) return false
 
@@ -355,7 +356,7 @@ export function App() {
           current.confirmedRuntimeMode,
         )) ?? null
       : latestRestartDescendant(ws.agents, current.originalAgentId, current.agent)
-    if (!replacement || replacement.id === current.agent.id) return
+    if (!replacement || (current.kind !== 'runtime' && replacement.id === current.agent.id)) return
 
     const transitionFromAgentId = current.agent.id
     const next = {

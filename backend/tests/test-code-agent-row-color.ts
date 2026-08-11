@@ -42,24 +42,24 @@ const agentRowFontSize = propertyValue(ruleBody('.code-agent-row'), 'font-size')
 const fileRowFontSize = propertyValue(ruleBody('.code-file-row'), 'font-size');
 
 assert.strictEqual(agentRowColor, '#585858');
-assert.strictEqual(agentRowActionSurface, '#f7f7f6');
+assert.strictEqual(agentRowActionSurface, 'var(--code-bg-chrome)');
 assert.strictEqual(activeAgentRowActionSurface, '#e9e9e8');
 assert.strictEqual(selectedAgentRowActionSurface, '#e6e6e5');
 assert.strictEqual(hoveredAgentRowActionSurface, '#e8e8e7');
-assert.strictEqual(agentSectionBackground, '#f7f7f6');
-assert.strictEqual(projectRowBackground, '#f7f7f6');
-assert.strictEqual(projectRowActionSurface, '#f7f7f6');
+assert.strictEqual(agentSectionBackground, 'var(--code-bg-chrome)');
+assert.match(projectRowBackground, /^var\(--code-(?:bg-inset|component-sidebar-project-section-background)\)$/);
+assert.strictEqual(projectRowActionSurface, projectRowBackground);
 assert.strictEqual(projectTitleColor, '#444444');
-assert.strictEqual(filesHeaderBackground, '#f7f7f6');
-assert.strictEqual(filesHeaderColor, '#606060');
+assert.strictEqual(filesHeaderBackground, 'var(--code-bg-chrome)');
+assert.strictEqual(filesHeaderColor, 'var(--code-text-muted)');
 assert.strictEqual(gitHistoryHeaderBackground, filesHeaderBackground);
 assert.strictEqual(gitHistoryHeaderColor, filesHeaderColor);
-assert.strictEqual(openEditorActionSurface, '#f7f7f6');
-assert.strictEqual(activeOpenEditorActionSurface, '#e9e9e8');
-assert.strictEqual(openEditorColor, '#444444');
-assert.strictEqual(stickyStackBackground, '#f7f7f6');
-assert.strictEqual(stickyRowColor, '#3d3d3d');
-assert.strictEqual(fileRowColor, '#4a4a4a');
+assert.strictEqual(openEditorActionSurface, 'var(--code-bg-inset)');
+assert.strictEqual(activeOpenEditorActionSurface, 'var(--code-bg-hover)');
+assert.strictEqual(openEditorColor, 'var(--code-text-muted)');
+assert.strictEqual(stickyStackBackground, 'var(--code-bg-inset)');
+assert.strictEqual(stickyRowColor, 'var(--code-text-muted)');
+assert.strictEqual(fileRowColor, 'var(--code-text-muted)');
 assert.strictEqual(agentRowFontSize, '14px');
 assert.strictEqual(fileRowFontSize, 'var(--code-file-entry-font-size)');
 

@@ -62,7 +62,7 @@ function run() {
   assert(styles.includes('.code-agent-row.drop-before::before'));
   assert(styles.includes('.code-agent-row.drop-after::after'));
   assert(styles.includes('.code-project-row.drop-before::before'));
-  assert(styles.includes('background: #0969da'));
+  assert(styles.includes('background: var(--code-accent)'));
   assert(!styles.includes('background: #d97757'));
 
   console.log('agent order wiring assertions passed');

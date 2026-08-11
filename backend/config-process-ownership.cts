@@ -124,7 +124,7 @@ function processHasConfigEnvironment(pid: number, configDir: string): boolean {
       .find(value => value.startsWith('FARMING_CONFIG_DIR='));
     return Boolean(entry && canonicalConfigDir(entry.slice('FARMING_CONFIG_DIR='.length)) === canonicalConfigDir(configDir));
   } catch {
-    return process.platform !== 'linux';
+    return false;
   }
 }
 
@@ -370,8 +370,8 @@ function persistedProcessRecords(configDir: string): OwnershipRecord[] {
       const identity = normalizeIdentity(candidate.identity);
       if (!identity) continue;
       const persistedFingerprint = String((candidate.identity as Record<string, unknown>)?.configInstanceFingerprint || '');
-      if (persistedFingerprint && persistedFingerprint !== fingerprint) continue;
-      records.push({ ...identity, role: candidate.role, configInstanceFingerprint: fingerprint });
+      if (persistedFingerprint !== fingerprint) continue;
+      records.push({ ...identity, role: candidate.role, configInstanceFingerprint: persistedFingerprint });
     }
   }
   return records;
@@ -435,10 +435,7 @@ async function hardStopConfigProcesses(configDir: string, options: HardStopOptio
       // unowned live process creates a false refusal during hard-stop races.
       if (isZombie(item.record.pid)) continue;
       observedLiveIdentity = true;
-      const configMatches = options.readProcessIdentity
-        ? true
-        : processHasConfigEnvironment(item.record.pid, configDir);
-      if (matchingIdentity(item.record, actual) && configMatches) {
+      if (matchingIdentity(item.record, actual)) {
         record = item.record;
         break;
       }

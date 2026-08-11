@@ -121,6 +121,74 @@
           }
         ]
       }
+    },
+    {
+      "id": "RUNTIME-CONFIG-COPY-ISOLATION",
+      "surface": "runtime",
+      "promise": "A copied Config never inherits authority over the source Config's live process groups.",
+      "owner": "docs/development/config-instance-isolation.md",
+      "evidence": {
+        "node": [
+          "backend/tests/test-config-process-hard-stop.ts"
+        ]
+      }
+    },
+    {
+      "id": "CODE-RUNTIME-SWITCHING",
+      "surface": "ui",
+      "promise": "HTTP-confirmed Chat and Terminal replacements converge on desktop and mobile without selecting stale descendants or leaving controls blocked.",
+      "owner": "docs/products/code/terminal-state-protocol.md",
+      "evidence": {
+        "playwright": [
+          {
+            "file": "tests/e2e/permission-switching.spec.ts",
+            "title": "waits for the HTTP-owned Terminal to Chat replacement before selecting WS descendants"
+          },
+          {
+            "file": "tests/e2e/mobile-human-story.spec.ts",
+            "title": "switches Chat and Terminal from the Agent three-dot menu"
+          }
+        ]
+      }
+    },
+    {
+      "id": "CODE-ACP-STRUCTURED-ERRORS",
+      "surface": "ui",
+      "promise": "ACP authentication failures remain in the structured turn and authentication card without a duplicate generic session error.",
+      "owner": "docs/products/code/acp-runtime.md",
+      "evidence": {
+        "playwright": [
+          {
+            "file": "tests/e2e/acp-human-cases.spec.ts",
+            "title": "classifies ACP authentication without a duplicate session error"
+          }
+        ]
+      }
+    },
+    {
+      "id": "CODE-LIVE-COMMENTARY-FEEDBACK",
+      "surface": "ui",
+      "promise": "The first live commentary update appears promptly and keeps its reveal feedback while historical progress does not replay.",
+      "owner": "docs/products/code/acp-runtime.md",
+      "evidence": {
+        "playwright": [
+          {
+            "file": "tests/e2e/acp-steer.spec.ts",
+            "title": "renders intermediate commentary promptly during a dense live stream"
+          }
+        ]
+      }
+    },
+    {
+      "id": "DEPLOY-CONFIG-SCHEMA-ROLLBACK",
+      "surface": "runtime",
+      "promise": "A failed remote image activation restores both the previous image and its exact pre-activation Config state.",
+      "owner": "docs/development/remote-deployment-lifecycle.md",
+      "evidence": {
+        "node": [
+          "backend/tests/test-remote-deployment-transaction.ts"
+        ]
+      }
     }
   ]
 }

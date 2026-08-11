@@ -204,7 +204,9 @@ function runtimeMenuAgent(agentId: string, workspace: string, mode: 'terminal' |
 }
 
 test.describe('mobile Farming Code user story', () => {
-  test('switches Chat and Terminal from the Agent three-dot menu', async ({ page, workspaceRoot }) => {
+  test('switches Chat and Terminal from the Agent three-dot menu', {
+    tag: ['@critical-behavior', '@behavior-CODE-RUNTIME-SWITCHING'],
+  }, async ({ page, workspaceRoot }) => {
     const agentId = `agent-mobile-runtime-menu-${Date.now()}`
     const state = (mode: 'terminal' | 'chat'): FarmingState => ({
       agents: [runtimeMenuAgent(agentId, workspaceRoot, mode)],

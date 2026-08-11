@@ -51,6 +51,9 @@ if (command === 'stop') {
 }
 if (command === 'daemon') {
   fs.writeFileSync(path.join(configDir, 'farming-server.pid'), String(process.pid));
+  ${options.daemonStateValue === undefined
+    ? ''
+    : `fs.writeFileSync(path.join(configDir, 'durable-state.txt'), ${JSON.stringify(options.daemonStateValue)});`}
   process.stdout.write(${JSON.stringify(options.daemonStdout || '')});
   process.stderr.write(${JSON.stringify(options.daemonStderr || '')});
   process.exit(${options.startExitCode || 0});
@@ -161,12 +164,22 @@ async function run() {
     assert(eventsAfterStartRollback.split('\n').filter(line => line.startsWith(`daemon:${firstImage}`)).length >= 2);
 
     const thirdSha = '3'.repeat(40);
-    const failingSmoke = writeFixtureBundle(root, { gitSha: thirdSha, smokeExitCode: 7 });
+    fs.writeFileSync(path.join(configDir, 'durable-state.txt'), 'state-owned-by-previous-image');
+    const failingSmoke = writeFixtureBundle(root, {
+      gitSha: thirdSha,
+      smokeExitCode: 7,
+      daemonStateValue: 'state-migrated-by-failed-image',
+    });
     const failedResult = activate(failingSmoke, thirdSha, remoteDir, configDir);
     assert.notStrictEqual(failedResult.status, 0);
     assert.match(failedResult.stderr, /previous image was restored/i);
     assert.doesNotMatch(`${failedResult.stdout}\n${failedResult.stderr}`, new RegExp(daemonSecretSentinel));
     assert.strictEqual(fs.realpathSync(remoteDir), firstImage);
+    assert.strictEqual(
+      fs.readFileSync(path.join(configDir, 'durable-state.txt'), 'utf8'),
+      'state-owned-by-previous-image',
+      'rollback must restore Config state from before the failed image started',
+    );
     const eventsAfterRollback = fs.readFileSync(path.join(configDir, 'fixture-events.log'), 'utf8');
     assert(eventsAfterRollback.split('\n').filter(line => line.startsWith(`daemon:${firstImage}`)).length >= 2);
 

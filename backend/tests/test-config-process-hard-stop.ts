@@ -9,6 +9,7 @@ const {
   hardStopConfigProcesses,
   registerConfigProcessGroup,
 } = require('../config-process-ownership.cjs');
+const { configInstanceFingerprint } = require('../config-instance.cjs');
 
 function writeProcFixture(procRoot, pid, options) {
   const directory = path.join(procRoot, String(pid));
@@ -333,6 +334,57 @@ async function run() {
       }
       fs.rmSync(firstConfig, { recursive: true, force: true });
       fs.rmSync(secondConfig, { recursive: true, force: true });
+    }
+  }
+
+  if (process.platform !== 'win32') {
+    const sourceConfig = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-config-copy-source.'));
+    const copiedConfig = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-config-copy-target.'));
+    const child = spawn(
+      process.execPath,
+      ['-e', 'setInterval(() => {}, 1000)'],
+      { detached: true, env: { ...process.env, FARMING_CONFIG_DIR: sourceConfig }, stdio: 'ignore' },
+    );
+    try {
+      await new Promise((resolve, reject) => {
+        child.once('spawn', resolve);
+        child.once('error', reject);
+      });
+      const identity = require('../server-process-identity.cjs').readServerProcessIdentity(child.pid);
+      assert(identity, 'copied Config fixture must expose a process identity');
+      const resourcesDir = path.join(sourceConfig, 'browsers');
+      fs.mkdirSync(resourcesDir, { recursive: true });
+      fs.writeFileSync(path.join(resourcesDir, 'resources.json'), JSON.stringify({
+        version: 6,
+        resources: [{
+          id: 'browser_copy_isolation',
+          processIdentity: {
+            ...identity,
+            configInstanceFingerprint: configInstanceFingerprint(sourceConfig),
+          },
+        }],
+      }));
+      fs.cpSync(sourceConfig, copiedConfig, { recursive: true });
+
+      assert.deepStrictEqual(
+        await hardStopConfigProcesses(copiedConfig),
+        { stopped: 0, refused: 0 },
+        'a copied Config must not inherit authority over the source Browser process',
+      );
+      assert.doesNotThrow(() => process.kill(child.pid, 0), 'the source Browser process must remain live');
+      assert.strictEqual(
+        (await hardStopConfigProcesses(sourceConfig)).stopped,
+        1,
+        'the source Config must retain authority over its Browser process',
+      );
+    } finally {
+      try {
+        process.kill(-child.pid, 'SIGKILL');
+      } catch {
+        // The exact test process group may already have exited.
+      }
+      fs.rmSync(sourceConfig, { recursive: true, force: true });
+      fs.rmSync(copiedConfig, { recursive: true, force: true });
     }
   }
 }

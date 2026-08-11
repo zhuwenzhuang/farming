@@ -26,6 +26,8 @@ Protocol、Integrity、Recovery 与 Chat/Terminal Compatibility。
 Session 始终使用这套 Managed Runtime；Plugins 不再提供第二条 Executable Selection Path。
 已有 Session 保留创建时的精确 Launch Identity，使旧 Custom Binding 能恢复且不会被静默
 重绑。环境变量只作为兼容输入，不是普通用户配置的 Authority。
+加载设置时会移除已退役的 Agent Home 级 Custom Runtime 选择；如果已有 Session 的持久
+Launch Identity 仍引用该 Executable，则不会删除它。
 已有 Session 如果缺少创建时记录的精确 Executable，恢复必须 Fail Closed，且不得按当前
 机器环境重新发现 Executable。
 Terminal Session 尚未选择 ACP Executable。把同一个 Provider Session 切换到 Chat 时，

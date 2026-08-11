@@ -21,6 +21,7 @@ type BrowserResourceStatus = 'stopped' | 'starting' | 'running' | 'stopping' | '
 type BrowserResourceOwnerType = 'agent' | 'project';
 
 interface BrowserProcessIdentity {
+  configInstanceFingerprint?: string;
   format: string;
   pid: number;
   processGroupId: number;
@@ -118,7 +119,9 @@ function normalizeProcessIdentity(value: unknown): BrowserProcessIdentity | null
     || !String(identity.startedAt || '').trim()
     || !String(identity.format || '').trim()
   ) return null;
+  const configFingerprint = String(identity.configInstanceFingerprint || '').trim();
   return {
+    ...(configFingerprint ? { configInstanceFingerprint: configFingerprint } : {}),
     pid: Number(identity.pid),
     processGroupId: Number(identity.processGroupId),
     startedAt: String(identity.startedAt).trim(),

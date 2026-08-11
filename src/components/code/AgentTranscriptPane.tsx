@@ -3546,8 +3546,12 @@ export function AgentTranscriptPane({
     && !error
     && Boolean(transcript?.available)
     && turns.length > 0
+  if (initialProgressUpdateIdsRef.current === null && showFreshAcpEmpty) {
+    initialProgressUpdateIdsRef.current = new Set()
+  }
   if (
     initialProgressUpdateIdsRef.current === null
+    && expectHistory
     && !error
     && !loading
     && !awaitingAcpHistory

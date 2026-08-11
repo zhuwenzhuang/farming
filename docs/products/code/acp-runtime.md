@@ -34,6 +34,9 @@ managed runtime; Plugins does not expose a second executable-selection path.
 Existing Sessions retain the exact launch identity they were created with so
 legacy custom bindings can recover without being silently rebound. Environment
 variables are compatibility inputs, not the ordinary user configuration authority.
+Loading settings removes the retired Agent Home-level custom-runtime selection;
+it does not delete an executable still referenced by an existing Session's
+persisted launch identity.
 An existing Session without its exact recorded executable fails closed during
 recovery and is never rediscovered against the current machine.
 A Terminal Session has no ACP executable selection. Switching that same

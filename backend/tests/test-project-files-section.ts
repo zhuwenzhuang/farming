@@ -1769,7 +1769,7 @@ function run() {
 	      !stylesSource.includes('margin-left: -6px') &&
 	      stylesSource.includes('.code-file-row.active') &&
 	      stylesSource.includes('.code-file-row.active::after') &&
-	      stylesSource.includes('background: rgba(0, 0, 0, 0.055)') &&
+	      stylesSource.includes('background: var(--code-bg-hover-strong)') &&
 	      stylesSource.includes('border: 0 !important') &&
       stylesSource.includes('.code-file-row:focus-visible') &&
       stylesSource.includes('.code-file-row.focused') &&
@@ -1826,7 +1826,8 @@ function run() {
       stylesSource.includes('.code-file-sticky-stack') &&
       stylesSource.includes('.code-file-sticky-row') &&
 	      stylesSource.includes('@media (max-width: 980px)') &&
-	      stylesSource.includes('body.code-mode.code-compact-layout .code-workspace,\n  body.code-mode.code-compact-layout .code-workspace.sidebar-collapsed') &&
+	      stylesSource.includes('body.code-mode.code-compact-layout .code-workspace,') &&
+	      stylesSource.includes('body.code-mode.code-compact-layout .code-workspace.sidebar-collapsed') &&
 	      !stylesSource.includes('@media (min-width: 700px) and (max-width: 980px) and (any-pointer: coarse)') &&
       stylesSource.includes('.code-file-editor-tabs') &&
       stylesSource.includes('overflow-x: auto') &&
@@ -1932,30 +1933,34 @@ function run() {
       editorMonacoControllerSource.includes('const appearanceObserver = new MutationObserver(records => {') &&
       editorMonacoControllerSource.includes("record.attributeName === 'data-appearance'") &&
       editorMonacoControllerSource.includes('applyWorkspaceEditorMonacoTheme(editor)') &&
-	      darkStylesSource.includes("body.code-mode[data-appearance='dark'] .code-file-monaco") &&
-	      darkStylesSource.includes("body.code-mode[data-appearance='dark'] .code-file-editor-source-region") &&
-	      darkStylesSource.includes("body.code-mode[data-appearance='dark'] .code-file-diff-view") &&
-      darkStylesSource.includes(".code-file-diff-monaco,\nbody.code-mode[data-appearance='dark'] .code-file-preview-panel") &&
-      darkStylesSource.includes('.code-file-inline-blame') &&
+      stylesSource.includes('background: var(--code-component-file-monaco-background)') &&
+      stylesSource.includes('background: var(--code-component-file-editor-source-region-background)') &&
+      stylesSource.includes('background: var(--code-component-file-diff-view-background)') &&
+      stylesSource.includes('background: var(--code-component-file-preview-panel-background)') &&
+      stylesSource.includes('.code-file-inline-blame') &&
       !darkStylesSource.includes('.code-file-changes-header') &&
       !darkStylesSource.includes('.code-file-changes-title') &&
       !darkStylesSource.includes('.code-file-change-group-title') &&
-      darkStylesSource.includes('.code-file-change-row.active') &&
-      darkStylesSource.includes('.code-file-open-spinner') &&
-      darkStylesSource.includes('.code-file-change-status.modified') &&
-      darkStylesSource.includes('.code-file-row.ignored .code-file-name') &&
-      darkStylesSource.includes('.code-file-changed.external') &&
-      darkStylesSource.includes('.code-file-descendant-status.modified') &&
-      darkStylesSource.includes('.code-file-git-status.renamed') &&
-      darkStylesSource.includes('.code-file-row.selected:not(.active)') &&
-      darkStylesSource.includes('.code-file-row.active::after') &&
-      darkStylesSource.includes('.code-file-blame-toast') &&
-      darkStylesSource.includes('.code-file-blame-detail') &&
-      darkStylesSource.includes('.code-file-line-changes-panel') &&
-      darkStylesSource.includes('.code-file-line-changes-line.added') &&
-      darkStylesSource.includes('.code-file-line-changes-line.deleted') &&
-      darkStylesSource.includes('.code-editor-context-menu') &&
-      darkStylesSource.includes('.code-file-save-confirm-dialog'),
+      stylesSource.includes('.code-file-change-row.active') &&
+      stylesSource.includes('.code-file-open-spinner') &&
+      stylesSource.includes('.code-file-change-status.modified') &&
+      stylesSource.includes('.code-file-row.ignored .code-file-name') &&
+      stylesSource.includes('.code-file-changed.external') &&
+      stylesSource.includes('.code-file-descendant-status.modified') &&
+      stylesSource.includes('.code-file-git-status.renamed') &&
+      stylesSource.includes('.code-file-row.selected:not(.active)') &&
+      stylesSource.includes('.code-file-row.active::after') &&
+      stylesSource.includes('.code-file-blame-toast') &&
+      stylesSource.includes('.code-file-blame-detail') &&
+      stylesSource.includes('.code-file-line-changes-panel') &&
+      stylesSource.includes('.code-file-line-changes-line.added') &&
+      stylesSource.includes('.code-file-line-changes-line.deleted') &&
+      stylesSource.includes('.code-editor-context-menu') &&
+      stylesSource.includes('.code-file-save-confirm-dialog') &&
+      darkStylesSource.includes("body.code-mode[data-appearance='dark']") &&
+      darkStylesSource.includes('--code-bg-canvas: #181818;') &&
+      darkStylesSource.includes('--code-files-file-inline-blame-background: rgba(88, 166, 255, 0.22);') &&
+      darkStylesSource.includes('--code-files-file-line-changes-line-added-background: rgba(46, 160, 67, 0.18);'),
     'Project Files editor should keep Monaco and file-operation overlays synchronized with light/dark appearance changes'
   );
 

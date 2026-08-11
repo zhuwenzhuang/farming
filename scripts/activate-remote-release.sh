@@ -104,6 +104,12 @@ done
 
 SYSTEM_NODE="$(command -v node)"
 CONFIG_DIR="${CONFIG_DIR:-${HOME}/.farming}"
+mkdir -p "${CONFIG_DIR}"
+CONFIG_DIR="$(readlink -f "${CONFIG_DIR}")"
+if [ -z "${CONFIG_DIR}" ] || [ "${CONFIG_DIR}" = "/" ]; then
+  echo "--config-dir must resolve to a dedicated Config directory." >&2
+  exit 1
+fi
 STATE_ROOT="${REMOTE_DIR}.deploy"
 IMAGES_DIR="${STATE_ROOT}/images"
 STAGING_DIR="${STATE_ROOT}/staging/${EXPECTED_GIT_SHA}-${EXPECTED_CHECKSUM:0:16}"
@@ -112,6 +118,11 @@ IMAGE_ROOT="${IMAGES_DIR}/${IMAGE_ID}"
 LOCK_FILE="${STATE_ROOT}/deploy.lock"
 PREVIOUS_LINK="${STATE_ROOT}/previous"
 SMOKE_WORKSPACE="${STATE_ROOT}/smoke/${IMAGE_ID}"
+CONFIG_PARENT="$(dirname "${CONFIG_DIR}")"
+CONFIG_NAME="$(basename "${CONFIG_DIR}")"
+CONFIG_BACKUP="${CONFIG_PARENT}/.${CONFIG_NAME}.farming-deploy-backup-${IMAGE_ID}"
+CONFIG_FAILED_COPY="${CONFIG_PARENT}/.${CONFIG_NAME}.farming-deploy-failed-${IMAGE_ID}"
+CONFIG_SNAPSHOT_ACTIVE="0"
 
 mkdir -p "${IMAGES_DIR}" "${STATE_ROOT}/staging" "${STATE_ROOT}/smoke"
 exec 9>"${LOCK_FILE}"
@@ -163,6 +174,46 @@ cleanup_staging() {
   fi
 }
 trap cleanup_staging EXIT
+
+stage_config_snapshot() {
+  if [ -e "${CONFIG_BACKUP}" ] || [ -L "${CONFIG_BACKUP}" ] || [ -e "${CONFIG_FAILED_COPY}" ] || [ -L "${CONFIG_FAILED_COPY}" ]; then
+    echo "A Config snapshot from an earlier deployment still requires operator reconciliation." >&2
+    return 1
+  fi
+  if ! mv "${CONFIG_DIR}" "${CONFIG_BACKUP}"; then
+    echo "Could not checkpoint the stopped Config before activation." >&2
+    return 1
+  fi
+  mkdir -p "${CONFIG_DIR}"
+  if ! cp -a "${CONFIG_BACKUP}/." "${CONFIG_DIR}/"; then
+    rm -rf "${CONFIG_DIR}"
+    mv "${CONFIG_BACKUP}" "${CONFIG_DIR}" || true
+    echo "Could not prepare an isolated Config copy for activation." >&2
+    return 1
+  fi
+  CONFIG_SNAPSHOT_ACTIVE="1"
+}
+
+restore_config_snapshot() {
+  [ "${CONFIG_SNAPSHOT_ACTIVE}" = "1" ] || return 0
+  if ! mv "${CONFIG_DIR}" "${CONFIG_FAILED_COPY}"; then
+    echo "Could not isolate the failed image's Config state." >&2
+    return 1
+  fi
+  if ! mv "${CONFIG_BACKUP}" "${CONFIG_DIR}"; then
+    mv "${CONFIG_FAILED_COPY}" "${CONFIG_DIR}" || true
+    echo "Could not restore the pre-activation Config snapshot." >&2
+    return 1
+  fi
+  rm -rf "${CONFIG_FAILED_COPY}"
+  CONFIG_SNAPSHOT_ACTIVE="0"
+}
+
+commit_config_snapshot() {
+  [ "${CONFIG_SNAPSHOT_ACTIVE}" = "1" ] || return 0
+  rm -rf "${CONFIG_BACKUP}"
+  CONFIG_SNAPSHOT_ACTIVE="0"
+}
 
 ACTUAL_CHECKSUM="$(sha256sum "${ARTIFACT}" | awk '{print $1}')"
 if [ "${ACTUAL_CHECKSUM}" != "${EXPECTED_CHECKSUM}" ]; then
@@ -365,7 +416,16 @@ fs.writeFileSync(file, `${JSON.stringify({
 }, null, 2)}\n`, { mode: 0o600 });
 NODE
   fi
+  if ! stage_config_snapshot; then
+    if [ -n "${PREVIOUS_ROOT}" ]; then
+      PREVIOUS_RUNTIME="${PREVIOUS_ROOT}"
+      if [ ! -x "${PREVIOUS_RUNTIME}/.farming-glibc/lib/ld-2.28.so" ]; then PREVIOUS_RUNTIME="${IMAGE_ROOT}"; fi
+      start_server "${PREVIOUS_RUNTIME}" "${PREVIOUS_ROOT}" || true
+    fi
+    exit 1
+  fi
   if ! switch_current "${IMAGE_ROOT}"; then
+    restore_config_snapshot || true
     if [ -n "${PREVIOUS_ROOT}" ]; then
       switch_current "${PREVIOUS_ROOT}" || true
       start_server "${IMAGE_ROOT}" "${PREVIOUS_ROOT}" || true
@@ -399,11 +459,13 @@ fi
 
 if [ -n "${START_FAILURE:-}" ]; then
   stop_server "${IMAGE_ROOT}" "${IMAGE_ROOT}" || true
+  CONFIG_RESTORED="true"
+  if ! restore_config_snapshot; then CONFIG_RESTORED="false"; fi
   if [ -n "${PREVIOUS_ROOT}" ]; then
     switch_current "${PREVIOUS_ROOT}"
     PREVIOUS_RUNTIME="${PREVIOUS_ROOT}"
     if [ ! -x "${PREVIOUS_RUNTIME}/.farming-glibc/lib/ld-2.28.so" ]; then PREVIOUS_RUNTIME="${IMAGE_ROOT}"; fi
-    if start_server "${PREVIOUS_RUNTIME}" "${PREVIOUS_ROOT}"; then
+    if [ "${CONFIG_RESTORED}" = "true" ] && start_server "${PREVIOUS_RUNTIME}" "${PREVIOUS_ROOT}"; then
       echo "${START_FAILURE} The previous image was restored." >&2
     else
       echo "${START_FAILURE} Rollback also failed; operator action is required." >&2
@@ -414,6 +476,8 @@ if [ -n "${START_FAILURE:-}" ]; then
   fi
   exit 1
 fi
+
+commit_config_snapshot
 
 if [ -n "${PREVIOUS_ROOT}" ] && [ "${PREVIOUS_ROOT}" != "${IMAGE_ROOT}" ]; then
   ln -sfn "${PREVIOUS_ROOT}" "${PREVIOUS_LINK}"

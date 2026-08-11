@@ -24,6 +24,7 @@ const {
 const {
   createBrowserRouter,
 } = require('../../extensions/browser/backend/browser-router.cjs');
+const { configInstanceFingerprint } = require('../config-instance.cjs');
 
 class FakeBrowserRuntime extends EventEmitter {
   constructor(options) {
@@ -583,6 +584,11 @@ async function testBrowserResourceManager() {
     assert.strictEqual(running.generation, 1);
     assert.strictEqual(running.revision, 3);
     assert.strictEqual(running.collectionRevision, manager.store.revision);
+    assert.strictEqual(
+      manager.store.get(created.id).processIdentity.configInstanceFingerprint,
+      configInstanceFingerprint(configDir),
+      'Browser process ownership must persist the exact Config fingerprint',
+    );
     assert.strictEqual(manager.configDir, canonicalConfigDir);
     assert.strictEqual(
       runtimes[0].profileDir,

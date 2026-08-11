@@ -343,8 +343,10 @@ function run() {
       appSource.includes('return [...agents, permissionSwitch.agent]') &&
       appSource.includes('latestRestartDescendant(ws.agents, current.originalAgentId, current.agent)') &&
       appSource.includes('agent.restartedFromAgentIds?.includes(ancestorAgentId)') &&
+      appSource.includes('candidate.id !== original.id && !isRestartDescendantOf(candidate, original.id)') &&
       appSource.includes('agent.providerSessionId === expectedSession.providerSessionId') &&
-      appSource.includes("(agent.providerHomeId || '') === (expectedSession.providerHomeId || '')") &&
+      appSource.includes("const originalHomeId = original.providerHomeId || 'default'") &&
+      appSource.includes("const candidateHomeId = candidate.providerHomeId || 'default'") &&
       appSource.includes('requestSettled: true') &&
       appSource.includes("kind: runtimeSwitch ? 'runtime' : 'permission'") &&
       appSource.includes('startedAt: Date.now()') &&
@@ -361,7 +363,7 @@ function run() {
       workspaceSource.includes('active: Boolean(activeAgent) && !activeAgentPermissionSwitching') &&
       workspaceSource.includes('permissionModeDisabled: Boolean(permissionSwitchingAgentId)') &&
       workspaceSource.includes('message: copy.runtimeModeRestarting') &&
-      workspaceSource.includes("runtimeModeRestarting: 'Restarting Agent…'") &&
+      copySource.includes("runtimeModeRestarting: 'Restarting Agent…'") &&
       workspaceSource.includes('disabled={permissionModeDisabled}') &&
       workspaceSource.includes('const sourceAgentIds = Array.from(new Set([') &&
       workspaceSource.includes('...(replacementAgent?.restartedFromAgentIds ?? [])') &&
@@ -374,8 +376,7 @@ function run() {
       agentManagerSource.includes('restartedFromAgentIds: Array.from(new Set([') &&
       agentManagerSource.includes('runtimeStopTracker') &&
       agentManagerSource.includes('emitUpdate: false') &&
-      stylesSource.includes('.code-permission-switching') &&
-      darkStylesSource.includes('.code-permission-switching'),
+      stylesSource.includes('.code-permission-switching'),
     'Permission restarts should keep the old agent visible while pending, replace its runtime id in place, and avoid stealing the current agent or workspace view'
   );
 
@@ -1508,7 +1509,7 @@ function run() {
       copySource.includes("agentTranscriptForkedFromAgent: 'Forked from agent'") &&
       copySource.includes("agentTranscriptForkedFromAgent: '从 Agent 分叉'") &&
       stylesSource.includes('.code-agent-transcript-fork-origin') &&
-      darkStylesSource.includes('.code-agent-transcript-fork-origin'),
+      stylesSource.includes('--code-transcript-agent-transcript-fork-origin-background'),
     'ACP child Chat should show a localized presentation-only fork origin marker only from explicit Agent and provider lineage'
   );
 
@@ -1522,10 +1523,9 @@ function run() {
       messagesSource.includes('InterruptAgentMessage') &&
       stylesSource.includes('.code-composer-send.interrupt') &&
       stylesSource.includes('place-items: center') &&
-      stylesSource.includes('.code-composer-send:not(:disabled) {\n  background: #111;') &&
-      stylesSource.includes('background: #111') &&
-      stylesSource.includes('color: #fff') &&
-      stylesSource.includes('background: #8e9294') &&
+      stylesSource.includes('.code-composer-send:not(:disabled) {\n  background: var(--code-component-composer-send-disabled-background);') &&
+      stylesSource.includes('color: var(--code-component-composer-send-disabled-color)') &&
+      stylesSource.includes('background: var(--code-composer-send-disabled-background)') &&
       stylesSource.includes('.code-composer-send:disabled') &&
       stylesSource.includes('.code-composer-stop-icon'),
     'Codex composer should expose a real interrupt action with send/interrupt/disabled button states'
@@ -1754,7 +1754,7 @@ function run() {
 
   assert(
     /\.code-empty-workspace \.code-empty-home-card \{[\s\S]*?border: 0;/.test(stylesSource) &&
-      /\.code-empty-home-card-icon \{[\s\S]*?(?:\n|^) {2}color: #303831;/.test(stylesSource) &&
+      /\.code-empty-home-card-icon \{[\s\S]*?(?:\n|^) {2}color: var\(--code-text\);/.test(stylesSource) &&
       iconGlyphsSource.includes('export function NewAgentGlyph') &&
       iconGlyphsSource.includes('export function HistoryGlyph') &&
       iconGlyphsSource.includes('export function FocusModeGlyph') &&
@@ -1838,10 +1838,9 @@ function run() {
 	      stylesSource.includes('.code-agent-unread') &&
 	      stylesSource.includes('.code-agent-row-actions') &&
 	      stylesSource.includes('.code-agent-row:hover .code-agent-row-actions') &&
-	      stylesSource.includes('--code-agent-row-action-surface: #e8e8e7;') &&
+	      stylesSource.includes('--code-agent-row-action-surface: var(--code-bg-inset);') &&
+	      stylesSource.includes('--code-agent-row-action-surface: var(--code-bg-hover);') &&
 	      stylesSource.includes('background: linear-gradient(90deg, transparent 0, var(--code-agent-row-action-surface) 21px, var(--code-agent-row-action-surface) 100%);') &&
-	      darkStylesSource.includes('body.code-mode[data-appearance=\'dark\'] .code-agent-row:hover .code-agent-row-actions,') &&
-	      darkStylesSource.includes('--code-agent-row-action-surface: var(--code-dark-bg-hover);') &&
 	      stylesSource.includes('.code-agent-row-action.pin.active') &&
 	      stylesSource.includes('.code-agent-row-action svg') &&
 	      workspaceSource.includes('<HistoryGlyph />') &&
@@ -1851,7 +1850,7 @@ function run() {
 	      workspaceSource.includes('<AgentNewWorktreeForkIcon />') &&
 	      workspaceSource.includes('<AgentPinIcon />') &&
       workspaceSource.includes('<AgentArchiveIcon />') &&
-      darkStylesSource.includes("body.code-mode[data-appearance='dark'] .code-agent-row-action") &&
+	      stylesSource.includes('.code-agent-row-action') &&
 	      stylesSource.includes('.code-agent-hover-preview') &&
       stylesSource.includes('.code-usage-panel.collapsed') &&
       stylesSource.includes('.code-usage-summary') &&
@@ -1943,14 +1942,18 @@ function run() {
       stylesSource.includes('.code-sidebar.collapsed .code-agent-rail') &&
       stylesSource.includes('grid-auto-rows: 42px;') &&
       stylesSource.includes('width: 42px;\n  height: 42px;\n  flex: 0 0 42px;') &&
-      darkStylesSource.includes(".code-mode[data-appearance='dark'] .code-agent-rail-button") &&
+      stylesSource.includes('.code-agent-rail-button') &&
+      darkStylesSource.includes("body.code-mode[data-appearance='dark']") &&
       stylesSource.includes('@media (max-width: 980px)') &&
       !stylesSource.includes('@media (max-width: 980px) and (any-pointer: coarse)') &&
       stylesSource.includes('body.code-mode.code-compact-layout') &&
       stylesSource.includes('body.code-mode.code-compact-layout .code-workspace.sidebar-collapsed') &&
       stylesSource.includes('body.code-mode.code-compact-layout .code-sidebar.collapsed') &&
       stylesSource.includes('transform: translateX(calc(-100% - 18px));') &&
-      stylesSource.includes('body.code-mode.code-compact-layout #root,\n  body.code-mode.code-compact-layout .app-container,\n  body.code-mode.code-compact-layout .code-app-shell,\n  body.code-mode.code-compact-layout .code-workspace') &&
+      stylesSource.includes('body.code-mode.code-compact-layout #root,') &&
+      stylesSource.includes('body.code-mode.code-compact-layout .app-container,') &&
+      stylesSource.includes('body.code-mode.code-compact-layout .code-app-shell,') &&
+      stylesSource.includes('body.code-mode.code-compact-layout .code-workspace') &&
       stylesSource.includes('width: var(--app-visual-width, 100vw);') &&
       stylesSource.includes('height: var(--app-visual-height, 100dvh);') &&
       stylesSource.includes('top: var(--app-visual-offset-top, 0px);') &&
@@ -1962,14 +1965,16 @@ function run() {
   );
 
   assert(
-    darkStylesSource.includes(".code-agent-dot.turn-active {\n  background: transparent;") &&
-      darkStylesSource.includes('border-top-color: var(--code-dark-success);') &&
-      darkStylesSource.includes('.code-pending-followup') &&
-      darkStylesSource.includes('.code-copy-toast') &&
-      darkStylesSource.includes('.app-toast') &&
-      darkStylesSource.includes('.code-rename-dialog') &&
-      darkStylesSource.includes('.code-file-save-confirm-dialog') &&
-      darkStylesSource.includes('.code-editor-context-menu') &&
+    /\.code-agent-dot\.turn-active \{[\s\S]*?background: transparent;/.test(stylesSource) &&
+      stylesSource.includes('border-top-color: var(--code-success);') &&
+      stylesSource.includes('.code-pending-followup') &&
+      stylesSource.includes('.code-copy-toast') &&
+      stylesSource.includes('.app-toast') &&
+      stylesSource.includes('.code-rename-dialog') &&
+      stylesSource.includes('.code-file-save-confirm-dialog') &&
+      stylesSource.includes('.code-editor-context-menu') &&
+      darkStylesSource.includes("body.code-mode[data-appearance='dark']") &&
+      darkStylesSource.includes('--code-success: #40c977;') &&
       !darkStylesSource.includes(".code-agent-dot.running,\nbody.code-mode[data-appearance='dark'] .code-agent-dot.turn-active"),
     'Farming Code dark skin should cover transient operation surfaces and preserve the active-turn spinner shape'
   );

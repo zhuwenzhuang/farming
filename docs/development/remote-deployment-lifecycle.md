@@ -46,10 +46,10 @@ one install path may stop only the exact Server proven by the selected Config.
 | Building | An isolated Linux builder packages one committed SHA. | Build failure leaves the remote target unchanged. |
 | Staging | The checksum-matched archive is safely extracted to a unique staging path. | Invalid paths, metadata, platform, or identity remove only that staging path. |
 | Prepared | Native modules load through the artifact compatibility runtime and fixed runtimes are prepared with `--no-activate`. | Failure leaves the current Server live. |
-| Activating | The exact old Server stops, a symlink atomically selects the prepared image, and the new Server starts. | A stop failure leaves selection unchanged. A selection or start failure enters rollback. |
+| Activating | The exact old Server stops, its Config is checkpointed, a working copy is created on the same filesystem, a symlink atomically selects the prepared image, and the new Server starts against the working copy. | A stop or checkpoint failure leaves selection and durable Config state unchanged. A selection or start failure enters rollback. |
 | Verifying | Authenticated HTTP, versioned WebSocket, PTY Host, ACP Host, and one fresh empty Chat are exercised through internal smoke Agents that stay out of interactive browser inventories, then those exact Agents are removed. | Any failure enters rollback without replaying an uncertain mutation. |
 | Succeeded | Current and rollback selections are recorded and only safe old images outside retention are removed. | Cleanup failure does not invalidate the running image and remains visible. |
-| Rolling back | The failed image stops, the prior image is selected, and its Server starts from the same Config. | Success ends as a visible failed deployment with service restored; rollback failure requires operator action. |
+| Rolling back | The failed image stops, its working Config copy is isolated, the pre-activation Config checkpoint is restored, the prior image is selected, and its Server starts. | Success ends as a visible failed deployment with the prior image and its compatible Config state restored; rollback failure retains exact snapshots and requires operator action. |
 
 Only one activation owns a deployment root. Another activation fails immediately
 while the lock owner is live. Preparation is idempotent by artifact checksum;
@@ -66,9 +66,12 @@ Safety requires:
 3. no Server stop occurs before native dependency and runtime preflight passes;
 4. current selection changes atomically and exact prior selection remains
    available through verification;
-5. smoke Agents remain internal to readiness, while stop, smoke cleanup,
+5. a new image may migrate only its working Config copy until readiness succeeds;
+   rollback restores the exact pre-activation Config rather than asking an older
+   image to read state written by a newer schema;
+6. smoke Agents remain internal to readiness, while stop, smoke cleanup,
    rollback, and retention target exact Config, Agent, and image identities;
-6. private SSH or Farming credentials are neither printed nor copied into an
+7. private SSH or Farming credentials are neither printed nor copied into an
    image.
 
 Under normal filesystem, SSH, container-builder, provider, and process-control

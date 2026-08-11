@@ -3,7 +3,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { EventEmitter } = require('events');
 import * as storageLayout from '../../../backend/storage-layout.cjs';
-import { canonicalConfigDir } from '../../../backend/config-instance.cjs';
+import { canonicalConfigDir, configInstanceFingerprint } from '../../../backend/config-instance.cjs';
 import {
   matchingProcessIdentity,
   readServerProcessIdentity,
@@ -1784,7 +1784,12 @@ class BrowserResourceManager extends EventEmitter {
         || !owner
         || owner.sessionId && owner.sessionId !== session.id
       ) return;
-      const next = this.store.update(owner.id, { processIdentity });
+      const next = this.store.update(owner.id, {
+        processIdentity: {
+          ...processIdentity,
+          configInstanceFingerprint: configInstanceFingerprint(this.configDir),
+        },
+      });
       this.emitResource(next);
     });
     runtime.on('frame', (frame: BrowserMessage) => {
