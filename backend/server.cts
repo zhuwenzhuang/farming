@@ -226,7 +226,13 @@ import { getAgentLaunchMetadata } from './cli-agents.cjs';
 import { readClaudeSettingsSummary } from './claude-settings.cjs';
 import { listCodexModelOptions } from './codex-models.cjs';
 import { readProviderHomeConfiguration } from './provider-home-configuration.cjs';
-import { applyProviderHomeEnvironment, getProviderAdapter, providerCapabilities } from './provider-adapters.cjs';
+import {
+  applyProviderHomeEnvironment,
+  getProviderAdapter,
+  listProviderDescriptors,
+  providerCapabilities,
+  type ProviderId,
+} from './provider-adapters.cjs';
 import { listCodexSessions } from './codex-session-history.cjs';
 import { findAgentSession } from './agent-session-history.cjs';
 import { mainPageAgentSessionKey } from './main-page-session.cjs';
@@ -630,6 +636,14 @@ const workspaceDiscoveryCache = new AsyncCache((key: string) => {
 });
 const slashCommandDiscoveryCache = createSlashCommandDiscoveryCache({ ttlMs: 30_000 });
 
+const FAKE_PROVIDER_DESCRIPTIONS: Readonly<Record<ProviderId, string>> = {
+  codex: 'Codex CLI - OpenAI coding assistant',
+  claude: 'Claude CLI - Anthropic assistant',
+  opencode: 'OpenCode - AI coding assistant',
+  qoder: 'Qoder - AI coding assistant',
+  qwen: 'Qwen Code - AI coding assistant',
+};
+
 const frontendDir = path.join(__dirname, '../frontend');
 const crtFrontendDir = path.join(frontendDir, 'skins', 'crt');
 const distDir = path.join(__dirname, '../dist');
@@ -648,46 +662,14 @@ const materialIconDir = path.join(__dirname, '..', 'node_modules', 'material-ico
 function getAvailableAgentsForRequest() {
   if (process.env.FARMING_E2E_FAKE_EXECUTABLES === '1') {
     return withLaunchCapabilities([
-      {
-        name: 'codex',
-        command: 'codex',
-        description: 'Codex CLI - OpenAI coding assistant',
+      ...listProviderDescriptors().map(descriptor => ({
+        name: descriptor.id,
+        command: descriptor.executable,
+        description: FAKE_PROVIDER_DESCRIPTIONS[descriptor.id],
         category: 'coding',
         supported: true,
         interactive: true,
-      },
-      {
-        name: 'claude',
-        command: 'claude',
-        description: 'Claude CLI - Anthropic assistant',
-        category: 'coding',
-        supported: true,
-        interactive: true,
-      },
-      {
-        name: 'opencode',
-        command: 'opencode',
-        description: 'OpenCode - AI coding assistant',
-        category: 'coding',
-        supported: true,
-        interactive: true,
-      },
-      {
-        name: 'qoder',
-        command: 'qodercli',
-        description: 'Qoder - AI coding assistant',
-        category: 'coding',
-        supported: true,
-        interactive: true,
-      },
-      {
-        name: 'qwen',
-        command: 'qwen',
-        description: 'Qwen Code - AI coding assistant',
-        category: 'coding',
-        supported: true,
-        interactive: true,
-      },
+      })),
       {
         name: 'bash',
         command: 'bash',

@@ -11,6 +11,74 @@ function run() {
   const supported = getSupportedAgents();
   const supportedNames = supported.map((agent) => agent.name);
 
+  assert.deepStrictEqual(CLI_AGENTS.slice(0, 5), [
+    {
+      name: 'codex',
+      description: 'Codex CLI - OpenAI coding assistant',
+      category: 'coding',
+      interactive: true,
+      supported: true,
+      preferredEngine: 'native',
+      permissions: {
+        supportsDangerousSkip: true,
+        dangerousSkipArgs: ['--dangerously-bypass-approvals-and-sandbox'],
+      },
+    },
+    {
+      name: 'claude',
+      description: 'Claude CLI - Anthropic assistant',
+      category: 'coding',
+      interactive: true,
+      supported: true,
+      preferredEngine: 'native',
+      permissions: {
+        supportsDangerousSkip: true,
+        dangerousSkipArgs: ['--dangerously-skip-permissions'],
+      },
+      systemPromptArg: '--append-system-prompt',
+    },
+    {
+      name: 'opencode',
+      displayName: 'OpenCode',
+      description: 'OpenCode - AI coding assistant',
+      category: 'coding',
+      interactive: true,
+      supported: true,
+      preferredEngine: 'native',
+      permissions: {
+        supportsDangerousSkip: true,
+        dangerousSkipArgs: ['--auto'],
+      },
+    },
+    {
+      name: 'qoder',
+      command: 'qodercli',
+      description: 'Qoder - AI coding assistant',
+      category: 'coding',
+      interactive: true,
+      supported: true,
+      preferredEngine: 'native',
+      permissions: {
+        supportsDangerousSkip: true,
+        dangerousSkipArgs: ['--dangerously-skip-permissions'],
+      },
+      systemPromptArg: '--append-system-prompt',
+    },
+    {
+      name: 'qwen',
+      description: 'Qwen Code coding assistant',
+      category: 'coding',
+      interactive: true,
+      supported: true,
+      preferredEngine: 'native',
+      permissions: {
+        supportsDangerousSkip: true,
+        dangerousSkipArgs: ['--yolo'],
+      },
+      systemPromptArg: '--append-system-prompt',
+    },
+  ], 'Provider CLI specs must preserve their complete public shape and order');
+
   assert(supported.length > 0, 'there should be supported coding agents');
   assert.deepStrictEqual(
     supportedNames.slice(0, 7),

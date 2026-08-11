@@ -1,4 +1,5 @@
 const path = require('path') as typeof import('path');
+import { listProviderDescriptors, type ProviderId } from './provider-adapters.cjs';
 
 type AgentCategory = 'coding' | 'gui-launcher' | 'other';
 type PreferredEngine = 'native' | 'none';
@@ -24,6 +25,10 @@ interface CliAgentSpec {
 interface CliAgentLaunchMetadata {
   launchOrder: number;
 }
+
+type ProviderCliAgentDetails = Omit<CliAgentSpec, 'command' | 'displayName' | 'name'> & {
+  exposeDisplayName?: true;
+};
 
 interface AgentLaunchProfile extends Record<string, unknown> {
   approvalMode?: unknown;
@@ -184,9 +189,8 @@ const AGENT_LAUNCH_POLICIES: Readonly<Record<string, AgentLaunchPolicy>> = {
   claude: CLAUDE_LAUNCH_POLICY,
 };
 
-const CLI_AGENTS: CliAgentSpec[] = [
-  {
-    name: 'codex',
+const PROVIDER_CLI_AGENT_DETAILS: Readonly<Record<ProviderId, ProviderCliAgentDetails>> = {
+  codex: {
     description: 'Codex CLI - OpenAI coding assistant',
     category: 'coding',
     interactive: true,
@@ -197,8 +201,7 @@ const CLI_AGENTS: CliAgentSpec[] = [
       dangerousSkipArgs: ['--dangerously-bypass-approvals-and-sandbox']
     }
   },
-  {
-    name: 'claude',
+  claude: {
     description: 'Claude CLI - Anthropic assistant',
     category: 'coding',
     interactive: true,
@@ -210,9 +213,8 @@ const CLI_AGENTS: CliAgentSpec[] = [
     },
     systemPromptArg: '--append-system-prompt'
   },
-  {
-    name: 'opencode',
-    displayName: 'OpenCode',
+  opencode: {
+    exposeDisplayName: true,
     description: 'OpenCode - AI coding assistant',
     category: 'coding',
     interactive: true,
@@ -223,9 +225,7 @@ const CLI_AGENTS: CliAgentSpec[] = [
       dangerousSkipArgs: ['--auto']
     }
   },
-  {
-    name: 'qoder',
-    command: 'qodercli',
+  qoder: {
     description: 'Qoder - AI coding assistant',
     category: 'coding',
     interactive: true,
@@ -237,8 +237,7 @@ const CLI_AGENTS: CliAgentSpec[] = [
     },
     systemPromptArg: '--append-system-prompt'
   },
-  {
-    name: 'qwen',
+  qwen: {
     description: 'Qwen Code coding assistant',
     category: 'coding',
     interactive: true,
@@ -250,6 +249,20 @@ const CLI_AGENTS: CliAgentSpec[] = [
     },
     systemPromptArg: '--append-system-prompt'
   },
+};
+
+const PROVIDER_CLI_AGENTS: CliAgentSpec[] = listProviderDescriptors().map((descriptor) => {
+  const { exposeDisplayName, ...details } = PROVIDER_CLI_AGENT_DETAILS[descriptor.id];
+  return {
+    name: descriptor.id,
+    ...(exposeDisplayName ? { displayName: descriptor.displayName } : {}),
+    ...(descriptor.executable !== descriptor.id ? { command: descriptor.executable } : {}),
+    ...details,
+  };
+});
+
+const CLI_AGENTS: CliAgentSpec[] = [
+  ...PROVIDER_CLI_AGENTS,
   {
     name: 'bash',
     description: 'Bash shell',

@@ -1,0 +1,81 @@
+import { expect, test } from './fixtures'
+
+test('fake executable inventory preserves Provider and shell API rows', async ({ page }) => {
+  const response = await page.request.get('/farming/api/executables')
+  expect(response.ok()).toBe(true)
+  expect(await response.json()).toEqual({
+    agents: [
+      {
+        name: 'codex',
+        command: 'codex',
+        description: 'Codex CLI - OpenAI coding assistant',
+        category: 'coding',
+        supported: true,
+        interactive: true,
+        launchOrder: 0,
+        capabilities: { supportsChat: true },
+      },
+      {
+        name: 'claude',
+        command: 'claude',
+        description: 'Claude CLI - Anthropic assistant',
+        category: 'coding',
+        supported: true,
+        interactive: true,
+        launchOrder: 1,
+        capabilities: { supportsChat: true },
+      },
+      {
+        name: 'opencode',
+        command: 'opencode',
+        description: 'OpenCode - AI coding assistant',
+        category: 'coding',
+        supported: true,
+        interactive: true,
+        launchOrder: 2,
+        capabilities: { supportsChat: true },
+      },
+      {
+        name: 'qoder',
+        command: 'qodercli',
+        description: 'Qoder - AI coding assistant',
+        category: 'coding',
+        supported: true,
+        interactive: true,
+        launchOrder: 3,
+        capabilities: { supportsChat: true },
+      },
+      {
+        name: 'qwen',
+        command: 'qwen',
+        description: 'Qwen Code - AI coding assistant',
+        category: 'coding',
+        supported: true,
+        interactive: true,
+        launchOrder: 4,
+        capabilities: { supportsChat: true },
+      },
+      {
+        name: 'bash',
+        command: 'bash',
+        description: 'Shell session',
+        category: 'shell',
+        supported: true,
+        interactive: true,
+        launchOrder: 5,
+        capabilities: { supportsChat: false },
+      },
+      {
+        name: 'zsh',
+        command: 'zsh',
+        description: 'Z shell',
+        category: 'shell',
+        supported: true,
+        interactive: true,
+        launchOrder: 6,
+        capabilities: { supportsChat: false },
+      },
+    ],
+    total: 7,
+  })
+})
