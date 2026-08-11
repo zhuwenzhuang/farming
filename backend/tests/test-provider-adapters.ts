@@ -9,11 +9,13 @@ const {
   providerConversationForkCapability,
   providerForProgram,
   providerAcpRuntimeProfile,
+  providerLaunchCommandOptions,
   providerLaunchPermissionMode,
   providerPermissionRestartPolicy,
   providerRequiresStableTerminalSessionAfterInput,
   providerSessionResumeOptions,
   providerSessionLaunchProfile,
+  providerRequestedLaunchProfile,
   providerSessionIdentityRollbackArgs,
   providerSupportsSharedAcpRuntime,
   providerSupportsRuntime,
@@ -96,6 +98,42 @@ function run() {
   );
   assert.strictEqual(providerTreatsLegacyAcpRequestAsChat('codex'), true);
   assert.strictEqual(providerTreatsLegacyAcpRequestAsChat('claude'), false);
+  assert.deepStrictEqual(
+    providerRequestedLaunchProfile(
+      'codex',
+      { model: 'home-model', reasoningEffort: 'medium' },
+      { codexModel: 'requested-model', codexServiceTier: 'priority' },
+    ),
+    { model: 'requested-model', reasoningEffort: 'medium', serviceTier: 'priority' },
+  );
+  assert.deepStrictEqual(
+    providerRequestedLaunchProfile(
+      'claude',
+      { model: 'claude-home-model', effort: 'high' },
+      { codexModel: 'must-not-leak' },
+    ),
+    { model: 'claude-home-model', effort: 'high' },
+  );
+  assert.deepStrictEqual(
+    providerLaunchCommandOptions('codex', {}, { approvalMode: 'full' }, false),
+    { codexApprovalMode: 'full' },
+  );
+  assert.deepStrictEqual(
+    providerLaunchCommandOptions('codex', { codexApprovalMode: 'ask' }, { approvalMode: 'full' }, false),
+    { codexApprovalMode: 'ask' },
+  );
+  assert.deepStrictEqual(
+    providerLaunchCommandOptions('codex', {}, { approvalMode: 'full' }, true),
+    {},
+  );
+  assert.deepStrictEqual(
+    providerLaunchCommandOptions('claude', { claudePermissionMode: 'plan' }, { permissionMode: 'default' }, false),
+    { claudePermissionMode: 'plan' },
+  );
+  assert.deepStrictEqual(
+    providerLaunchCommandOptions('claude', {}, { permissionMode: 'plan' }, false),
+    {},
+  );
   assert.deepStrictEqual(providerPermissionRestartPolicy('codex', 'approve'), {
     displayName: 'Codex',
     freshCommand: 'codex',

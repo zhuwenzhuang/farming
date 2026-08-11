@@ -13,7 +13,10 @@ const {
   resolveCodexTerminalSessionId,
   newCodexServiceTierConfirmation,
 } = require('../codex-terminal-profile.cjs');
-const { providerTerminalIdentityControl } = require('../provider-terminal-controls.cjs');
+const {
+  providerTerminalIdentityControl,
+  providerTerminalProfileControl,
+} = require('../provider-terminal-controls.cjs');
 
 const IDLE_55 = [
   '› Improve documentation in @filename',
@@ -75,6 +78,12 @@ async function run() {
     providerTerminalIdentityControl('claude'),
     null,
     'providers with launch-time session ids must not inherit the Codex /status probe',
+  );
+  assert(providerTerminalProfileControl('codex'), 'Codex must publish its native Terminal profile control');
+  assert.strictEqual(
+    providerTerminalProfileControl('claude'),
+    null,
+    'providers without a native Terminal profile transaction must not inherit Codex menus',
   );
   const borderedStatusPreview = [
     '╭────────────────────────────────────────────────────────────────────────╮',

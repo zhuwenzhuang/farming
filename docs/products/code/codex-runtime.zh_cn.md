@@ -40,6 +40,10 @@ Startup Coordinator 拥有有界串行、就绪、失败与清理；Codex Adapte
 共享同一精确 Agent Home 的 Native Start 必须串行到 TUI 发出就绪信号，因为这些进程共享
 该 Home 的本地 Store。其他 Provider 继续并发，除非其 Adapter 声明等价的资源约束。
 
+Provider Terminal Control 还负责 Codex 的延迟 Session Identity Probe，以及 Native Model、
+Reasoning 与 Speed Transaction。通用 Agent Manager 负责有序 Input、Runtime Fence 与 State
+Publication，但不识别 Codex，也不解释其 Menu。
+
 ## Session 连续性
 
 Provider Session ID 是 Codex Conversation 的权威身份。Chat/Terminal 切换是真实 Runtime

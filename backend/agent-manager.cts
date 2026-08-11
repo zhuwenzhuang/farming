@@ -158,11 +158,13 @@ import {
   providerArgsContinueSession,
   providerConversationForkCapability,
   providerForProgram,
+  providerLaunchCommandOptions,
   providerLaunchPermissionMode,
   providerPermissionRestartPolicy,
   providerRequiresStableTerminalSessionAfterInput,
   providerSessionResumeOptions,
   providerSessionLaunchProfile,
+  providerRequestedLaunchProfile,
   providerSessionIdentityRollbackArgs,
   providerSupportsRuntime,
   providerTerminalStartupPolicy,
@@ -184,12 +186,10 @@ import {
 import { chatRuntimeForProvider, isChatMode } from './chat-runtime.cjs';
 import { acpTranscriptMedia, acpToolChanges, acpToolDetail, acpToolReviewChanges } from './acp-transcript.cjs';
 import {
-  activeCodexTerminalProfile,
-  applyCodexTerminalProfile,
-  codexTerminalProfileEqual,
-} from './codex-terminal-profile.cjs';
-import {
+  activeProviderTerminalProfile,
   providerTerminalIdentityControl,
+  providerTerminalProfileControlForAgent,
+  providerTerminalProfilesEqual,
   type ProviderTerminalIdentityControl,
 } from './provider-terminal-controls.cjs';
 import { AgentOrderAllocator, finiteOrder, reorderedPinnedAgentOrders, reorderedProjectAgentOrders } from './agent-order.cjs';
@@ -2031,7 +2031,11 @@ class AgentManager extends EventEmitter {
           terminalBusy: typeof agent.terminalBusy === 'boolean' ? agent.terminalBusy : null,
         });
         const runtimeObservation = deriveRuntimeObservation({ ...agent, terminalStatus });
-        const codexTerminalProfile = activeCodexTerminalProfile(agent, agent.previewText) || null;
+        const codexTerminalProfile = activeProviderTerminalProfile(
+          agent.providerSessionProvider,
+          agent,
+          agent.previewText,
+        );
         this.terminalProjectionTracker.update(agent, terminalStatus, codexTerminalProfile);
         this.emit('session-preview-update', {
           agentId: sessionId,
@@ -2048,7 +2052,11 @@ class AgentManager extends EventEmitter {
           patch.terminalStatus = terminalStatus;
           patch.runtimeObservation = runtimeObservation;
         }
-        if (!titleChanged && !codexTerminalProfileEqual(previousCodexTerminalProfile, codexTerminalProfile)) {
+        if (!titleChanged && !providerTerminalProfilesEqual(
+          agent.providerSessionProvider,
+          previousCodexTerminalProfile,
+          codexTerminalProfile,
+        )) {
           patch.codexTerminalProfile = codexTerminalProfile;
         }
         if (Object.keys(patch).length > 0) {
@@ -4719,13 +4727,11 @@ class AgentManager extends EventEmitter {
     const configuredLaunchProfiles = this.configManager && this.configManager.getAgentLaunchProfiles
       ? this.configManager.getAgentLaunchProfiles()
       : {};
-    const requestedLaunchProfile = {
-      ...homeLaunchProfile,
-      ...(typeof options.codexModelPreset === 'string' ? { modelPreset: options.codexModelPreset } : {}),
-      ...(typeof options.codexModel === 'string' ? { model: options.codexModel } : {}),
-      ...(typeof options.codexReasoningEffort === 'string' ? { reasoningEffort: options.codexReasoningEffort } : {}),
-      ...(typeof options.codexServiceTier === 'string' ? { serviceTier: options.codexServiceTier } : {}),
-    };
+    const requestedLaunchProfile = providerRequestedLaunchProfile(
+      launchProvider,
+      homeLaunchProfile,
+      options,
+    );
     const launchProfile = providerSessionLaunchProfile(
       launchProvider,
       requestedLaunchProfile,
@@ -4738,14 +4744,12 @@ class AgentManager extends EventEmitter {
     const launch = resolveLaunchCommand(command, {
       dangerouslySkipPermissions: dangerouslySkipPermissions === true,
       agentLaunchProfiles: configuredLaunchProfiles,
-      codexApprovalMode: options.codexApprovalMode || (
-        dangerouslySkipPermissions
-          ? undefined
-          : (typeof homeLaunchProfile.approvalMode === 'string'
-            ? homeLaunchProfile.approvalMode
-            : 'approve')
+      ...providerLaunchCommandOptions(
+        launchProvider,
+        options,
+        homeLaunchProfile,
+        dangerouslySkipPermissions === true,
       ),
-      claudePermissionMode: typeof options.claudePermissionMode === 'string' ? options.claudePermissionMode : undefined,
       farmingSystemPrompt: renderFarmingAgentBootstrap(),
       mainAgentSystemPrompt: wantsMain ? renderMainAgentBootstrap() : '',
     });
@@ -6108,8 +6112,9 @@ class AgentManager extends EventEmitter {
   ): Promise<unknown> {
     const agent = this.agents.get(agentId);
     if (!agent) throw new Error('Agent not found');
+    const profileControl = providerTerminalProfileControlForAgent(agent);
     if (
-      agentProgramName(agent.command).toLowerCase() !== 'codex'
+      !profileControl
       || runtimeKind(agent) !== 'terminal'
     ) {
       throw new Error('This Agent is not using Codex Terminal');
@@ -6121,7 +6126,7 @@ class AgentManager extends EventEmitter {
       throw new Error('Wait for the active Codex Terminal turn to finish before changing its model');
     }
 
-    const applied = await applyCodexTerminalProfile({
+    const applied = await profileControl.apply({
       profile,
       timeoutMs: options.timeoutMs,
       signal: options.signal,
@@ -9609,7 +9614,11 @@ class AgentManager extends EventEmitter {
       output: (sessionState && typeof sessionState.output === 'string') ? sessionState.output : fallbackOutput,
       renderOutput: (sessionState && typeof sessionState.renderOutput === 'string') ? sessionState.renderOutput : fallbackOutput,
       previewText,
-      codexTerminalProfile: activeCodexTerminalProfile(agent, previewText),
+      codexTerminalProfile: activeProviderTerminalProfile(
+        agent.providerSessionProvider,
+        agent,
+        previewText,
+      ),
       previewSnapshot: (sessionState && sessionState.previewSnapshot) || agent.previewSnapshot || null,
       previewCols: (sessionState && Number.isFinite(sessionState.previewCols) && sessionState.previewCols > 0)
         ? sessionState.previewCols
@@ -9682,7 +9691,11 @@ class AgentManager extends EventEmitter {
       title: agent.sessionTitle || '',
       previewText: agent.previewText || '',
     });
-    const codexTerminalProfile = activeCodexTerminalProfile(agent, agent.previewText || '') || null;
+    const codexTerminalProfile = activeProviderTerminalProfile(
+      agent.providerSessionProvider,
+      agent,
+      agent.previewText || '',
+    );
     this.terminalProjectionTracker.update(agent, terminalStatus, codexTerminalProfile);
 
     return {
@@ -9884,7 +9897,11 @@ class AgentManager extends EventEmitter {
       cols: agent.previewCols || 80,
       rows: agent.previewRows || 30,
       previewSnapshot: agent.previewSnapshot || null,
-      codexTerminalProfile: activeCodexTerminalProfile(agent, agent.previewText || ''),
+      codexTerminalProfile: activeProviderTerminalProfile(
+        agent.providerSessionProvider,
+        agent,
+        agent.previewText || '',
+      ),
       terminalStatus,
       runtimeObservation: deriveRuntimeObservation({ ...agent, terminalStatus }),
     };

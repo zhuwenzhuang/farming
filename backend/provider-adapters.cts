@@ -21,13 +21,17 @@ interface ProviderTerminalStartupPolicy {
 }
 
 interface ProviderSessionPolicy {
+  defaultLaunchPermissionMode?: string;
+  launchPermissionFallback?: 'profile-or-default';
   launchProfilePermissionKey?: 'approvalMode' | 'permissionMode';
+  launchProfileOptionKeys?: Readonly<Record<string, string>>;
   permissionDisplayName?: string;
   permissionOption?: 'claudePermissionMode' | 'codexApprovalMode';
   permissionRestartModes?: readonly string[];
   preserveProfileOnResume?: boolean;
   preserveRequiredCliVersion?: boolean;
   resumeLaunchProfileOverrides?: Readonly<Record<string, string>>;
+  suppressPermissionOptionWhenDangerousSkip?: boolean;
   freshPermissionRestartCommand?: string;
   requiresStableTerminalSessionAfterInput?: boolean;
   terminalNotificationIdleFence?: boolean;
@@ -473,7 +477,15 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
       readiness: { kind: 'output-includes', value: '\u001b' },
     },
     sessionPolicy: {
+      defaultLaunchPermissionMode: 'approve',
+      launchPermissionFallback: 'profile-or-default',
       launchProfilePermissionKey: 'approvalMode',
+      launchProfileOptionKeys: {
+        model: 'codexModel',
+        modelPreset: 'codexModelPreset',
+        reasoningEffort: 'codexReasoningEffort',
+        serviceTier: 'codexServiceTier',
+      },
       permissionDisplayName: 'Codex',
       permissionOption: 'codexApprovalMode',
       permissionRestartModes: ['ask', 'approve', 'full', 'custom'],
@@ -485,6 +497,7 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
         reasoningEffort: 'config',
         serviceTier: 'config',
       },
+      suppressPermissionOptionWhenDangerousSkip: true,
       freshPermissionRestartCommand: 'codex',
       requiresStableTerminalSessionAfterInput: true,
     },
@@ -860,6 +873,44 @@ function providerSessionLaunchProfile(
   return overrides ? { ...profile, ...overrides } : { ...profile };
 }
 
+function providerRequestedLaunchProfile(
+  provider: unknown,
+  profile: Record<string, unknown>,
+  requestedOptions: Record<string, unknown>,
+): Record<string, unknown> {
+  const optionKeys = getProviderAdapter(provider)?.sessionPolicy?.launchProfileOptionKeys || {};
+  const requestedProfile = { ...profile };
+  for (const [profileKey, optionKey] of Object.entries(optionKeys)) {
+    if (typeof requestedOptions[optionKey] === 'string') {
+      requestedProfile[profileKey] = requestedOptions[optionKey];
+    }
+  }
+  return requestedProfile;
+}
+
+function providerLaunchCommandOptions(
+  provider: unknown,
+  requestedOptions: Record<string, unknown>,
+  profile: Record<string, unknown>,
+  dangerouslySkipPermissions: boolean,
+): Record<string, unknown> {
+  const policy = getProviderAdapter(provider)?.sessionPolicy;
+  const optionKey = policy?.permissionOption;
+  if (!policy || !optionKey) return {};
+  const requestedMode = typeof requestedOptions[optionKey] === 'string'
+    ? String(requestedOptions[optionKey])
+    : '';
+  if (requestedMode) return { [optionKey]: requestedMode };
+  if (
+    dangerouslySkipPermissions
+    && policy.suppressPermissionOptionWhenDangerousSkip === true
+  ) return {};
+  if (policy.launchPermissionFallback !== 'profile-or-default') return {};
+  const profileMode = providerLaunchPermissionMode(provider, profile);
+  const fallbackMode = profileMode || policy.defaultLaunchPermissionMode || '';
+  return fallbackMode ? { [optionKey]: fallbackMode } : {};
+}
+
 function providerLaunchPermissionMode(
   provider: unknown,
   profile: Record<string, unknown>,
@@ -985,10 +1036,12 @@ export {
   providerPermissionRestartPolicy,
   providerAcpRuntimeProfile,
   providerLaunchPermissionMode,
+  providerLaunchCommandOptions,
   providerRuntimeObservationKind,
   providerRequiresStableTerminalSessionAfterInput,
   providerSessionResumeOptions,
   providerSessionLaunchProfile,
+  providerRequestedLaunchProfile,
   providerSessionIdentityRollbackArgs,
   providerSupportsSharedAcpRuntime,
   providerSupportsRuntime,

@@ -49,6 +49,11 @@ its readiness signal, because those processes share the Home's local store. Othe
 providers remain concurrent unless their adapters declare an equivalent
 resource constraint.
 
+Provider Terminal Control also owns Codex's delayed Session identity probe and
+native model, reasoning, and speed transaction. The generic Agent manager owns
+ordered input, runtime fencing, and state publication, but does not identify
+Codex or interpret its menus.
+
 ## Session Continuity
 
 The provider Session id is the authoritative Codex conversation identity.
