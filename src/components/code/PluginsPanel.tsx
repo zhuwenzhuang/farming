@@ -42,6 +42,8 @@ type AgentExtension = {
   rootId: string
   icon?: string
   iconDark?: string
+  iconPath?: string
+  iconDarkPath?: string
 }
 
 type AgentExtensionGroup = {
@@ -422,6 +424,19 @@ function safeExtensionIcon(value: unknown) {
   return /^data:image\/(?:svg\+xml|png|webp|jpeg);base64,[A-Za-z0-9+/=]+$/.test(icon) ? icon : ''
 }
 
+function extensionRasterIconUrl(rootIdValue: unknown, pathValue: unknown) {
+  const rootId = typeof rootIdValue === 'string' ? rootIdValue.trim() : ''
+  const filePath = typeof pathValue === 'string' ? pathValue.trim().replace(/\\/g, '/') : ''
+  if (
+    !rootId
+    || !filePath
+    || filePath.startsWith('/')
+    || filePath.split('/').includes('..')
+    || !/\.(?:png|webp|jpe?g)$/i.test(filePath)
+  ) return ''
+  return appPath(`/api/files/raw?${new URLSearchParams({ rootId, path: filePath }).toString()}`)
+}
+
 function normalizeAgentExtensionGroups(rawGroups: AgentExtensionGroup[]): AgentExtensionGroup[] {
   let fallbackOrder = 0
   return rawGroups.map(provider => ({
@@ -448,6 +463,7 @@ function normalizeAgentExtensionGroups(rawGroups: AgentExtensionGroup[]): AgentE
         const status: AgentExtension['status'] = extension.status === 'enabled' || extension.status === 'disabled'
           ? extension.status
           : 'configured'
+        const rootId = String(extension.rootId || home.configuration?.rootId || '')
         return {
           ...extension,
           id: String(extension.id || ''),
@@ -457,9 +473,9 @@ function normalizeAgentExtensionGroups(rawGroups: AgentExtensionGroup[]): AgentE
           scope: String(extension.scope || ''),
           status,
           sourceFile: String(extension.sourceFile || ''),
-          rootId: String(extension.rootId || home.configuration?.rootId || ''),
-          icon: safeExtensionIcon(extension.icon),
-          iconDark: safeExtensionIcon(extension.iconDark),
+          rootId,
+          icon: safeExtensionIcon(extension.icon) || extensionRasterIconUrl(rootId, extension.iconPath),
+          iconDark: safeExtensionIcon(extension.iconDark) || extensionRasterIconUrl(rootId, extension.iconDarkPath),
         }
       }) : [],
     })),

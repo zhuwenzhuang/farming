@@ -100,6 +100,10 @@ Extension Catalog 只属于一份精确 Home。Provider-owned Configuration 是 
 状态与默认值的权威来源；Farming 不建立平行 Enablement Database，也不把多个 Home 合并成
 一个 Provider-wide Identity。
 
+Manifest Icon 只能在其精确的 Agent Home 内解析。经过校验的小图标可以包含在 Inventory
+Response 中；Production-sized Raster Icon 通过已授权的 Read-only File Path 加载，确保
+Catalog Refresh 保持有界。
+
 ## Browser 与 Computer
 
 Browser 和 Computer 是同一 Resource Contract 上的 Built-in Extension：

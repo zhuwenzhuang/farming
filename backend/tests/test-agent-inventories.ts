@@ -351,6 +351,53 @@ async function run() {
     'The active-handle probe must observe a real non-History filesystem watcher',
   );
 
+  const migrationCacheFile = path.join(root, 'cache', 'migration-extensions.json');
+  const legacyExtensions = new AgentExtensionInventory({
+    cacheFile: migrationCacheFile,
+    discoverExtensions: () => [{
+      id: 'plugin:computer-use',
+      name: 'Legacy Computer Use',
+      description: '',
+      kind: 'plugin',
+      scope: 'Plugin',
+      status: 'configured',
+      sourceFile: 'plugins/computer-use/.codex-plugin/plugin.json',
+    }],
+    readConfiguration: () => ({ exists: false, filePath: 'config.toml', summary: [] }),
+  });
+  assert.strictEqual((await legacyExtensions.get('codex', codexHome)).extensions[0].name, 'Legacy Computer Use');
+  await legacyExtensions.close();
+  const legacySnapshot = JSON.parse(fs.readFileSync(migrationCacheFile, 'utf8'));
+  const currentKey = Object.keys(legacySnapshot.entries)[0];
+  const legacyKey = JSON.stringify({ version: 1, provider: 'codex', homePath: path.resolve(codexHome) });
+  legacySnapshot.entries[legacyKey] = legacySnapshot.entries[currentKey];
+  delete legacySnapshot.entries[currentKey];
+  fs.writeFileSync(migrationCacheFile, JSON.stringify(legacySnapshot));
+
+  let migrationLoads = 0;
+  const migratedExtensions = new AgentExtensionInventory({
+    cacheFile: migrationCacheFile,
+    discoverExtensions: () => {
+      migrationLoads += 1;
+      return [{
+        id: 'plugin:computer-use',
+        name: 'Computer Use',
+        description: '',
+        kind: 'plugin',
+        scope: 'Plugin',
+        status: 'configured',
+        sourceFile: 'plugins/computer-use/.codex-plugin/plugin.json',
+        iconPath: 'plugins/computer-use/assets/app-icon.png',
+      }];
+    },
+    readConfiguration: () => ({ exists: false, filePath: 'config.toml', summary: [] }),
+  });
+  caches.push(migratedExtensions);
+  const migratedComputerUse = (await migratedExtensions.get('codex', codexHome)).extensions[0];
+  assert.strictEqual(migratedComputerUse.name, 'Computer Use');
+  assert.strictEqual(migratedComputerUse.iconPath, 'plugins/computer-use/assets/app-icon.png');
+  assert.strictEqual(migrationLoads, 1, 'Plugin icon schema changes must bypass legacy cached inventory');
+
   console.log('test-agent-inventories passed');
   } finally {
     const closeResults = await Promise.allSettled(caches.map(cache => cache.close()));

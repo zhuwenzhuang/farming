@@ -282,7 +282,10 @@ test('Plugins shows a read-only extension catalog from one exact Agent Home', {
   fs.mkdirSync(path.join(pluginRoot, 'skills', 'plugin-skill'), { recursive: true })
   fs.mkdirSync(path.join(pluginRoot, 'hooks'), { recursive: true })
   fs.mkdirSync(path.join(pluginRoot, 'assets'), { recursive: true })
-  fs.writeFileSync(path.join(pluginRoot, 'assets', 'logo.svg'), '<svg xmlns="http://www.w3.org/2000/svg"><rect width="24" height="24" rx="6" /></svg>')
+  fs.copyFileSync(
+    path.join(process.cwd(), 'frontend', 'skins', 'crt', 'assets', 'branding', 'farming-crt-logo-v1.png'),
+    path.join(pluginRoot, 'assets', 'app-icon.png'),
+  )
   fs.writeFileSync(path.join(codexHome, 'config.toml'), [
     '[mcp_servers.read-only-mcp]',
     'command = "node"',
@@ -301,7 +304,7 @@ test('Plugins shows a read-only extension catalog from one exact Agent Home', {
     skills: './skills',
     mcpServers: './mcp.json',
     hooks: './hooks/hooks.json',
-    interface: { logo: './assets/logo.svg' },
+    interface: { logo: './assets/app-icon.png' },
   }))
   for (let index = 0; index < 10; index += 1) {
     const extraRoot = path.join(codexHome, 'plugins', `extra-${index}`)
@@ -361,6 +364,10 @@ test('Plugins shows a read-only extension catalog from one exact Agent Home', {
   await expect(panel.locator('.code-plugin-extension-group')).toHaveAttribute('data-kind', 'plugin')
   const examplePlugin = panel.getByRole('button', { name: /Example Plugin/ })
   await expect(examplePlugin.locator('.code-plugin-manifest-icon')).toBeVisible()
+  await expect.poll(() => examplePlugin.locator('.code-plugin-manifest-icon').evaluate(
+    (image: HTMLImageElement) => image.complete && image.naturalWidth > 0,
+  )).toBe(true)
+  await expect(examplePlugin.locator('.code-plugin-manifest-icon')).toHaveAttribute('src', /\/api\/files\/raw\?/)
   const filterScrollTop = await page.locator('.code-plugins-view').evaluate(element => {
     element.scrollTop = Math.min(180, element.scrollHeight - element.clientHeight)
     element.dispatchEvent(new Event('scroll'))
@@ -383,6 +390,9 @@ test('Plugins shows a read-only extension catalog from one exact Agent Home', {
   const detail = panel.getByTestId('code-plugin-detail-dialog')
   await expect(detail).toContainText('plugins/example/.codex-plugin/plugin.json')
   await expect(detail.locator('.code-plugin-manifest-icon')).toBeVisible()
+  await expect.poll(() => detail.locator('.code-plugin-manifest-icon').evaluate(
+    (image: HTMLImageElement) => image.complete && image.naturalWidth > 0,
+  )).toBe(true)
   const pluginScrollTop = await page.locator('.code-plugins-view').evaluate(element => {
     element.scrollTop = Math.min(240, element.scrollHeight - element.clientHeight)
     element.dispatchEvent(new Event('scroll'))

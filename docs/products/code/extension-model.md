@@ -117,6 +117,10 @@ remains authoritative for enabled/configured state and defaults; Farming does
 not create a parallel enablement database or merge several Homes into one
 provider-wide identity.
 
+Manifest icons resolve only inside their exact Agent Home. Small validated
+icons may be included in the inventory response; production-sized raster icons
+use the authorized read-only file path so catalog refresh stays bounded.
+
 ## Browser And Computer
 
 Browser and Computer are built-in Extensions over the same Resource contract:

@@ -94,7 +94,7 @@
     {
       "id": "CODE-PLUGINS-SOURCE-NAVIGATION",
       "surface": "ui",
-      "promise": "Plugin kind filters are exclusive, icons render, opening source reveals the exact file, and the editor's general Back action restores plugin detail and scroll without plugin-only navigation controls.",
+      "promise": "Plugin kind filters are exclusive, small inline and production-sized raster icons render, opening source reveals the exact file, and the editor's general Back action restores plugin detail and scroll without plugin-only navigation controls.",
       "owner": "docs/products/code/project-files-section-design.md",
       "evidence": {
         "node": [

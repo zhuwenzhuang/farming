@@ -9,6 +9,7 @@ const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-agent-exten
 const codexHome = path.join(temporaryRoot, 'codex');
 const pluginRoot = path.join(codexHome, 'plugins', 'example');
 const standardPluginRoot = path.join(codexHome, 'plugins', 'standard');
+const rasterPluginRoot = path.join(codexHome, 'plugins', 'computer-use');
 
 try {
   fs.mkdirSync(path.join(codexHome, 'skills', 'personal-skill'), { recursive: true });
@@ -82,6 +83,17 @@ try {
     $schema: 'https://agent-plugins.org/schemas/1.0.0/mcp.schema.json',
     mcpServers: { standard: { title: 'Standard MCP', url: 'https://example.test/mcp' } },
   }));
+  fs.mkdirSync(path.join(rasterPluginRoot, '.codex-plugin'), { recursive: true });
+  fs.mkdirSync(path.join(rasterPluginRoot, 'assets'), { recursive: true });
+  fs.writeFileSync(path.join(rasterPluginRoot, 'assets', 'app-icon.png'), Buffer.concat([
+    Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=', 'base64'),
+    Buffer.alloc(70 * 1024),
+  ]));
+  fs.writeFileSync(path.join(rasterPluginRoot, '.codex-plugin', 'plugin.json'), JSON.stringify({
+    name: 'computer-use',
+    description: 'Production-sized raster icon fixture.',
+    interface: { logo: './assets/app-icon.png' },
+  }));
 
   const items = discoverAgentExtensions({ provider: 'codex', providerHomePath: codexHome });
   assert(items.some((item: any) => item.kind === 'skill' && item.name === 'Personal Skill'));
@@ -89,6 +101,9 @@ try {
   assert(items.some((item: any) => item.kind === 'plugin' && item.name === 'Example Plugin'));
   const pluginItem = items.find((item: any) => item.kind === 'plugin' && item.name === 'Example Plugin');
   assert(pluginItem?.icon?.startsWith('data:image/svg+xml;base64,'));
+  const rasterPluginItem = items.find((item: any) => item.kind === 'plugin' && item.name === 'Computer Use');
+  assert.strictEqual(rasterPluginItem?.icon, undefined);
+  assert.strictEqual(rasterPluginItem?.iconPath, 'plugins/computer-use/assets/app-icon.png');
   assert(items.some((item: any) => item.kind === 'mcp' && item.name === 'Example MCP'));
   assert(items.some((item: any) => item.kind === 'mcp' && item.name === 'Standard MCP'));
   assert.strictEqual(items.find((item: any) => item.name === 'Standard Plugin')?.icon, undefined);
