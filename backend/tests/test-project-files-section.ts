@@ -1788,6 +1788,8 @@ function run() {
 	      stylesSource.includes('.code-file-row.ignored') &&
 	      stylesSource.includes('.code-file-row.directory') &&
 	      stylesSource.includes('grid-template-columns: 14px minmax(0, 1fr) auto') &&
+	      stylesSource.includes('grid-template-columns: 14px minmax(32px, 1fr) minmax(0, auto)') &&
+	      !stylesSource.includes('grid-template-columns: 14px 16px minmax(32px, 1fr) minmax(0, auto)') &&
       !stylesSource.includes('.code-files-header-chevron') &&
       stylesSource.includes('.code-file-chevron svg') &&
       stylesSource.includes('.code-file-chevron.loading::before') &&

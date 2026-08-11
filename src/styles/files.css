@@ -1843,7 +1843,7 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   body.code-mode.code-compact-layout .code-file-row {
       min-height: 24px;
       min-width: 0;
-      grid-template-columns: 14px 16px minmax(32px, 1fr) minmax(0, auto);
+      grid-template-columns: 14px minmax(32px, 1fr) minmax(0, auto);
       gap: 4px;
       padding: 2px 4px 2px min(var(--file-indent, 16px), 22px);
       border-radius: 5px;

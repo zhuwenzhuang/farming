@@ -127,8 +127,8 @@ Issue Reference 遵循 Workspace `.idea/vcs.xml` 内的 IntelliJ
 ## 视觉与交互规则
 
 - Row 保持紧凑、稳定、支持键盘且单行展示。
-- 同一 Tree Depth 中，File Icon 与 Directory Chevron 使用同一个前导 Slot；文件不能额外
-  保留一列空 Chevron。
+- 在所有 Layout Width 下，同一 Tree Depth 中的 File Icon 与 Directory Chevron 使用同一个
+  前导 Slot；文件不能额外保留一列空 Chevron。
 - 在 Pointer Layout 中，Files Search 与 Refresh Control 在 Header Hover 时渐进显示；
   Search 获得焦点或内容非空时继续保持可见，Compact Touch Layout 不依赖 Hover 并常显 Search。
 - Open Editors 只在需要时出现，并与 Tree 分离。

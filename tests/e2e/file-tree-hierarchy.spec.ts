@@ -360,6 +360,17 @@ test('keeps a deeply scrolled directory anchored while pointer expansion loads i
     files.locator('[data-file-path="velox/fixture.ts"] .code-file-name').evaluate(element => element.getBoundingClientRect().left),
   ])
   expect(Math.abs(sameDepthLabelLeft[0] - sameDepthLabelLeft[1])).toBeLessThanOrEqual(1)
+  const desktopViewport = page.viewportSize()
+  await page.setViewportSize({ width: 720, height: 900 })
+  await page.locator('body').evaluate(element => element.classList.add('code-compact-layout'))
+  await page.locator('.code-sidebar').evaluate(element => element.classList.remove('collapsed'))
+  const compactFileName = files.locator('[data-file-path="velox/fixture.ts"] .code-file-name')
+  await expect(compactFileName).toBeVisible()
+  const compactFileNameWidth = await compactFileName
+    .evaluate(element => element.getBoundingClientRect().width)
+  expect(compactFileNameWidth).toBeGreaterThan(100)
+  await page.locator('body').evaluate(element => element.classList.remove('code-compact-layout'))
+  if (desktopViewport) await page.setViewportSize(desktopViewport)
   await page.waitForTimeout(40)
   const intentionalScrollTop = await velox.evaluate(element => {
     const scroller = element.closest<HTMLElement>('.code-project-list')
