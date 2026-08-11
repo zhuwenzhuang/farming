@@ -59,6 +59,44 @@ const DEFAULT_CODEX_APP_BIN = '/Applications/Codex.app/Contents/Resources/codex'
 const DEFAULT_CHATGPT_APP_CODEX_BIN = '/Applications/ChatGPT.app/Contents/Resources/codex';
 const executableVersionCache = new Map<string, string>();
 
+interface ExecutableDiscoveryDefinition {
+  acpEnvironmentKey?: string;
+  configuredEnvironmentKey?: string;
+  managedDependencyId?: string;
+  packageCandidates?: () => string[];
+  preferredEnvironmentKeys?: string[];
+  systemCandidates?: string[];
+}
+
+const EXECUTABLE_DISCOVERY_DEFINITIONS: Record<string, ExecutableDiscoveryDefinition> = {
+  codex: {
+    acpEnvironmentKey: 'FARMING_ACP_CODEX_BIN',
+    configuredEnvironmentKey: 'FARMING_CODEX_BIN',
+    managedDependencyId: 'codex',
+    packageCandidates: () => [path.join(
+      path.resolve(__dirname, '..'),
+      'node_modules',
+      '.bin',
+      process.platform === 'win32' ? 'codex.cmd' : 'codex',
+    )],
+    preferredEnvironmentKeys: ['FARMING_CODEX_BIN'],
+    systemCandidates: [DEFAULT_CODEX_APP_BIN, DEFAULT_CHATGPT_APP_CODEX_BIN],
+  },
+  claude: {
+    acpEnvironmentKey: 'FARMING_ACP_CLAUDE_BIN',
+    configuredEnvironmentKey: 'FARMING_CLAUDE_BIN',
+    managedDependencyId: 'claude',
+    packageCandidates: () => [path.join(
+      path.resolve(__dirname, '..'),
+      'node_modules',
+      '@anthropic-ai',
+      `claude-agent-sdk-${process.platform}-${process.arch}`,
+      process.platform === 'win32' ? 'claude.exe' : 'claude',
+    )],
+    preferredEnvironmentKeys: ['FARMING_CLAUDE_BIN', 'CLAUDE_CODE_EXECUTABLE'],
+  },
+};
+
 function getPathDirectories(pathEnv = process.env.PATH || ''): string[] {
   return String(pathEnv)
     .split(path.delimiter)
@@ -153,6 +191,8 @@ function dedupeExecutableCandidates(candidates: string[]): string[] {
 }
 
 function activeManagedExecutable(agentName: string, env: NodeJS.ProcessEnv): string {
+  const dependencyId = EXECUTABLE_DISCOVERY_DEFINITIONS[agentName]?.managedDependencyId;
+  if (!dependencyId) return '';
   const configDir = String(env.FARMING_CONFIG_DIR || '').trim();
   if (!configDir) return '';
   try {
@@ -160,8 +200,7 @@ function activeManagedExecutable(agentName: string, env: NodeJS.ProcessEnv): str
     const active = JSON.parse(fs.readFileSync(activePath, 'utf8')) as {
       dependencies?: Record<string, { source?: string; executablePath?: string }>;
     };
-    const dependencyId = agentName === 'claude' ? 'claude' : agentName === 'codex' ? 'codex' : '';
-    const dependency = dependencyId ? active.dependencies?.[dependencyId] : undefined;
+    const dependency = active.dependencies?.[dependencyId];
     return dependency?.source === 'managed' && dependency.executablePath
       ? path.resolve(dependency.executablePath)
       : '';
@@ -171,25 +210,7 @@ function activeManagedExecutable(agentName: string, env: NodeJS.ProcessEnv): str
 }
 
 function packageOwnedExecutableCandidates(agentName: string): string[] {
-  const packageRoot = path.resolve(__dirname, '..');
-  if (agentName === 'codex') {
-    return [path.join(
-      packageRoot,
-      'node_modules',
-      '.bin',
-      process.platform === 'win32' ? 'codex.cmd' : 'codex',
-    )];
-  }
-  if (agentName === 'claude') {
-    return [path.join(
-      packageRoot,
-      'node_modules',
-      '@anthropic-ai',
-      `claude-agent-sdk-${process.platform}-${process.arch}`,
-      process.platform === 'win32' ? 'claude.exe' : 'claude',
-    )];
-  }
-  return [];
+  return EXECUTABLE_DISCOVERY_DEFINITIONS[agentName]?.packageCandidates?.() || [];
 }
 
 function isFarmingOwnedPath(candidate: string, env: NodeJS.ProcessEnv): boolean {
@@ -251,16 +272,9 @@ function getFarmingOwnedExecutableCandidates(
   agentName: string,
   env: NodeJS.ProcessEnv = process.env,
 ): string[] {
-  const configuredKey = agentName === 'codex'
-    ? 'FARMING_CODEX_BIN'
-    : agentName === 'claude'
-      ? 'FARMING_CLAUDE_BIN'
-      : '';
-  const acpKey = agentName === 'codex'
-    ? 'FARMING_ACP_CODEX_BIN'
-    : agentName === 'claude'
-      ? 'FARMING_ACP_CLAUDE_BIN'
-      : '';
+  const definition = EXECUTABLE_DISCOVERY_DEFINITIONS[agentName];
+  const configuredKey = definition?.configuredEnvironmentKey || '';
+  const acpKey = definition?.acpEnvironmentKey || '';
   const explicitAcp = acpKey ? String(env[acpKey] || '').trim() : '';
   const configured = configuredKey ? String(env[configuredKey] || '').trim() : '';
   return dedupeExecutableCandidates([
@@ -277,9 +291,7 @@ function getSystemExecutableCandidates(
   env: NodeJS.ProcessEnv = process.env,
 ): string[] {
   const owned = new Set(getFarmingOwnedExecutableCandidates(agentName, env).map(candidate => path.resolve(candidate)));
-  const defaults = agentName === 'codex'
-    ? [DEFAULT_CODEX_APP_BIN, DEFAULT_CHATGPT_APP_CODEX_BIN]
-    : [];
+  const defaults = EXECUTABLE_DISCOVERY_DEFINITIONS[agentName]?.systemCandidates || [];
   return dedupeExecutableCandidates([
     ...defaults,
     ...getPathDirectories(pathEnv).map(dir => path.join(dir, agentName)),
@@ -356,19 +368,10 @@ function getPreferredExecutableCandidates(
   pathEnv = process.env.PATH || '',
 ): string[] {
   const pathCandidates = getPathDirectories(pathEnv).map((dir) => path.join(dir, agentName));
-  if (agentName === 'claude') {
-    return [
-      process.env.FARMING_CLAUDE_BIN || '',
-      process.env.CLAUDE_CODE_EXECUTABLE || '',
-      ...pathCandidates,
-    ].filter(Boolean);
-  }
-  if (agentName !== 'codex') return pathCandidates;
-
+  const definition = EXECUTABLE_DISCOVERY_DEFINITIONS[agentName];
   return [
-    process.env.FARMING_CODEX_BIN || '',
-    DEFAULT_CODEX_APP_BIN,
-    DEFAULT_CHATGPT_APP_CODEX_BIN,
+    ...(definition?.preferredEnvironmentKeys || []).map(key => process.env[key] || ''),
+    ...(definition?.systemCandidates || []),
     ...pathCandidates,
   ].filter(Boolean);
 }

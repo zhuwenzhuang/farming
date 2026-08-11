@@ -677,11 +677,6 @@ export function InputDialog({
       .slice()
       .sort((left, right) => (left.order ?? Number.MAX_SAFE_INTEGER) - (right.order ?? Number.MAX_SAFE_INTEGER))
     if (homes.length > 0) return homes
-    if (selectedAgent.name === 'codex') return [{ id: 'default', path: '~/.codex' }]
-    if (selectedAgent.name === 'claude') return [{ id: 'default', path: '~/.claude' }]
-    if (selectedAgent.name === 'opencode') return [{ id: 'default', path: '~/.opencode' }]
-    if (selectedAgent.name === 'qoder') return [{ id: 'default', path: '~/.qoder' }]
-    if (selectedAgent.name === 'qwen') return [{ id: 'default', path: '~/.qwen' }]
     return [{ id: 'default', path: `~/.${selectedAgent.name}` }]
   }, [agentHomes, selectedAgent])
 

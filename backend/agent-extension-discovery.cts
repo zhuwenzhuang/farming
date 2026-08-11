@@ -48,6 +48,11 @@ interface PluginSource {
   nativeStatus?: AgentExtensionStatus;
 }
 
+interface ProviderExtensionDiscoveryDefinition {
+  discoverConfiguration(items: AgentExtensionItem[], homePath: string): void;
+  pluginSources(homePath: string, settings: Record<string, unknown>): PluginSource[];
+}
+
 function recordValue(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -595,6 +600,22 @@ function discoverCodexTomlMcp(items: AgentExtensionItem[], homePath: string): vo
   }
 }
 
+const DEFAULT_PROVIDER_EXTENSION_DISCOVERY: ProviderExtensionDiscoveryDefinition = {
+  discoverConfiguration: () => {},
+  pluginSources: providerPluginSources,
+};
+
+const PROVIDER_EXTENSION_DISCOVERY: Record<string, ProviderExtensionDiscoveryDefinition> = {
+  codex: {
+    discoverConfiguration: discoverCodexTomlMcp,
+    pluginSources: providerPluginSources,
+  },
+  claude: {
+    discoverConfiguration: () => {},
+    pluginSources: claudePluginSources,
+  },
+};
+
 function discoverAgentExtensions({ provider, providerHomePath }: DiscoveryOptions = {}): AgentExtensionItem[] {
   const normalizedProvider = stringValue(provider, 64).toLowerCase();
   const rawHomePath = stringValue(providerHomePath, 2000);
@@ -616,11 +637,11 @@ function discoverAgentExtensions({ provider, providerHomePath }: DiscoveryOption
   const mcpFile = path.join(homePath, 'mcp.json');
   if (fs.existsSync(mcpFile)) discoverMcpFile(items, homePath, mcpFile, 'Home');
 
-  if (normalizedProvider === 'codex') discoverCodexTomlMcp(items, homePath);
+  const discovery = PROVIDER_EXTENSION_DISCOVERY[normalizedProvider]
+    || DEFAULT_PROVIDER_EXTENSION_DISCOVERY;
+  discovery.discoverConfiguration(items, homePath);
 
-  const pluginSources = normalizedProvider === 'claude'
-    ? claudePluginSources(homePath, settings)
-    : providerPluginSources(homePath, settings);
+  const pluginSources = discovery.pluginSources(homePath, settings);
   const seenPluginRoots = new Set<string>();
   pluginSources.forEach(source => {
     let canonicalRoot = source.pluginRoot;
