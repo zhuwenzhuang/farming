@@ -62,8 +62,9 @@ interface SkillMentionOptions {
 
 function normalizeProvider(provider: unknown): SupportedProvider | '' {
   const value = String(provider || '').trim().toLowerCase();
-  if (value === 'codex' || value === 'claude') return value;
-  return '';
+  return Object.prototype.hasOwnProperty.call(PROVIDER_EXTENSION_DISCOVERY, value)
+    ? value as SupportedProvider
+    : '';
 }
 
 function normalizeWorkspace(workspace: unknown, homeDir = os.homedir()): string {
@@ -473,6 +474,55 @@ async function discoverCodexSkillMentions({
   return commands.slice(0, MAX_DISCOVERED_SKILLS);
 }
 
+async function discoverClaudeAgentExtensions(
+  homePath: string,
+  workspace: string | undefined,
+): Promise<DiscoveredCommand[]> {
+  const commands: DiscoveredCommand[] = [];
+  const normalizedWorkspace = normalizeWorkspace(workspace);
+  if (normalizedWorkspace) {
+    await discoverClaudeSkillCommands(commands, path.join(normalizedWorkspace, '.claude', 'skills'), 'workspace');
+    await discoverClaudeCustomCommands(commands, path.join(normalizedWorkspace, '.claude', 'commands'), 'workspace');
+  }
+  await discoverClaudeSkillCommands(commands, path.join(homePath, 'skills'), 'home');
+  await discoverClaudeCustomCommands(commands, path.join(homePath, 'commands'), 'home');
+  await discoverClaudeInstalledPlugins(commands, homePath);
+  return commands.slice(0, MAX_DISCOVERED_SKILLS);
+}
+
+async function discoverCodexAgentExtensions(
+  homePath: string,
+  workspace: string | undefined,
+  homeDir: string,
+): Promise<DiscoveredCommand[]> {
+  const commands: DiscoveredCommand[] = [];
+  for (const root of await workspaceSkillRoots(workspace, homeDir)) {
+    await discoverDirectCodexSkills(commands, root, 'Repo');
+  }
+  await discoverDirectCodexSkills(commands, path.join(homeDir, '.agents', 'skills'), 'Personal');
+  await discoverDirectCodexSkills(commands, path.join(homePath, 'skills'), 'Personal');
+  await discoverDirectCodexSkills(commands, path.join(homePath, 'skills', '.system'), 'System');
+  await discoverDirectCodexSkills(commands, path.join('/etc', 'codex', 'skills'), 'Admin');
+  await discoverCodexPluginSkillsAt(commands, path.join(homePath, 'plugins', 'cache'));
+  return commands.slice(0, MAX_DISCOVERED_SKILLS);
+}
+
+interface ProviderExtensionDiscoveryDefinition {
+  discoverAtHome(homePath: string, workspace: string | undefined, homeDir: string): Promise<DiscoveredCommand[]>;
+  discoverLegacy(options: DiscoveryOptions): Promise<DiscoveredCommand[]>;
+}
+
+const PROVIDER_EXTENSION_DISCOVERY = {
+  codex: {
+    discoverAtHome: discoverCodexAgentExtensions,
+    discoverLegacy: discoverCodexSkillMentions,
+  },
+  claude: {
+    discoverAtHome: discoverClaudeAgentExtensions,
+    discoverLegacy: discoverClaudeSlashCommands,
+  },
+} satisfies Record<SupportedProvider, ProviderExtensionDiscoveryDefinition>;
+
 async function discoverAgentExtensions({
   provider,
   providerHomePath,
@@ -484,28 +534,11 @@ async function discoverAgentExtensions({
   const normalizedHomeDir = normalizeWorkspace(homeDir) || os.homedir();
   if (!normalizedProvider || !homePath) return [];
 
-  const commands: DiscoveredCommand[] = [];
-  if (normalizedProvider === 'claude') {
-    const normalizedWorkspace = normalizeWorkspace(workspace);
-    if (normalizedWorkspace) {
-      await discoverClaudeSkillCommands(commands, path.join(normalizedWorkspace, '.claude', 'skills'), 'workspace');
-      await discoverClaudeCustomCommands(commands, path.join(normalizedWorkspace, '.claude', 'commands'), 'workspace');
-    }
-    await discoverClaudeSkillCommands(commands, path.join(homePath, 'skills'), 'home');
-    await discoverClaudeCustomCommands(commands, path.join(homePath, 'commands'), 'home');
-    await discoverClaudeInstalledPlugins(commands, homePath);
-    return commands.slice(0, MAX_DISCOVERED_SKILLS);
-  }
-
-  for (const root of await workspaceSkillRoots(workspace, normalizedHomeDir)) {
-    await discoverDirectCodexSkills(commands, root, 'Repo');
-  }
-  await discoverDirectCodexSkills(commands, path.join(normalizedHomeDir, '.agents', 'skills'), 'Personal');
-  await discoverDirectCodexSkills(commands, path.join(homePath, 'skills'), 'Personal');
-  await discoverDirectCodexSkills(commands, path.join(homePath, 'skills', '.system'), 'System');
-  await discoverDirectCodexSkills(commands, path.join('/etc', 'codex', 'skills'), 'Admin');
-  await discoverCodexPluginSkillsAt(commands, path.join(homePath, 'plugins', 'cache'));
-  return commands.slice(0, MAX_DISCOVERED_SKILLS);
+  return PROVIDER_EXTENSION_DISCOVERY[normalizedProvider].discoverAtHome(
+    homePath,
+    workspace,
+    normalizedHomeDir,
+  );
 }
 
 async function discoverSlashCommands({
@@ -523,13 +556,9 @@ async function discoverSlashCommands({
       homeDir,
     });
   }
-  if (normalizedProvider === 'codex') {
-    return await discoverCodexSkillMentions({ homeDir, workspace });
-  }
-  if (normalizedProvider === 'claude') {
-    return await discoverClaudeSlashCommands({ homeDir, workspace });
-  }
-  return [];
+  return normalizedProvider
+    ? PROVIDER_EXTENSION_DISCOVERY[normalizedProvider].discoverLegacy({ homeDir, workspace })
+    : [];
 }
 
 export {

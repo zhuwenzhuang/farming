@@ -12,6 +12,10 @@ Provider 特有的 Executable Discovery、Environment、Adapter Patch、可选�
 行为都属于 Provider Adapter。通用 Lifecycle 与 Chat 只使用实时协商的 ACP Capability，
 不得根据 Provider 名称猜测支持情况。
 
+稳定的 Provider Catalog 与 Adapter 也是 Launch Metadata、Runtime Switching、Terminal
+Input Behavior 及 Session/Inventory Policy 的唯一来源。Browser 与 CRT Surface 只消费
+该边界投影出的 Capability，不维护 Provider Name Allowlist，也不重复定义 Provider Default。
+
 性能、正确性、可靠性、恢复、隔离与可观测性都是 Provider-neutral 的 ACP 要求。
 横切改进只有在所有受支持 Provider 都满足同一 Adapter Contract 与等价验收标准后才算
 完成。Provider 集成可以用不同方式实现该 Contract，但不得绕过它，也不能把单一 Provider

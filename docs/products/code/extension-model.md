@@ -117,6 +117,11 @@ remains authoritative for enabled/configured state and defaults; Farming does
 not create a parallel enablement database or merge several Homes into one
 provider-wide identity.
 
+Provider-native extension discovery is selected through one provider discovery
+registry. Provider-specific parsers and filesystem conventions stay inside the
+registered definitions; generic routing, inventory, and tabs consume the
+registry and must not infer supported providers from scattered name checks.
+
 Manifest icons resolve only inside their exact Agent Home. Small validated
 icons may be included in the inventory response; production-sized raster icons
 use the authorized read-only file path so catalog refresh stays bounded.

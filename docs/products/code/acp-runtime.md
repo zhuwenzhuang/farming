@@ -15,6 +15,12 @@ methods, and history behavior belong in Provider Adapters. Generic lifecycle and
 Chat code use negotiated ACP capabilities and must not infer support from a
 provider name.
 
+The stable provider catalog and adapters are also the source of truth for
+launch metadata, runtime switching, Terminal input behavior, and
+session/inventory policy. Browser and CRT surfaces consume projected
+capabilities from that boundary; they must not maintain provider-name
+allowlists or duplicate provider defaults.
+
 Performance, correctness, reliability, recovery, isolation, and observability
 are provider-neutral ACP requirements. A cross-cutting improvement is complete
 only when every supported provider satisfies the same adapter contract and
