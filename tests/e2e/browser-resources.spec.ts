@@ -549,6 +549,41 @@ test('deletes a Browser directly without a confirmation dialog', async ({
   expect(dialogs).toEqual([])
 })
 
+test('places Project Browser resources after Agents and before Files', async ({
+  page,
+  workspaceRoot,
+}) => {
+  const workspace = path.join(workspaceRoot, 'browser-project-resource-order')
+  fs.mkdirSync(workspace, { recursive: true })
+  const enableResponse = await page.request.post('/farming/api/settings', {
+    data: { browserExtensionEnabled: true },
+  })
+  expect(enableResponse.ok()).toBeTruthy()
+  await page.request.post('/farming/api/projects/mount', { data: { workspace } })
+  const agentResponse = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'bash', workspace },
+  })
+  expect(agentResponse.ok()).toBeTruthy()
+  const createResponse = await page.request.post('/farming/api/browsers', {
+    data: { rootId: projectFilesWorkspaceId(workspace) },
+  })
+  expect(createResponse.ok()).toBeTruthy()
+
+  await openFarming(page)
+  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspace) })
+  await expect(project.getByTestId('code-agent-row')).toHaveCount(1)
+  await expect(project.getByTestId('farming-browser-section')).toHaveCount(1)
+  await expect(project.getByTestId('code-files-section')).toHaveCount(1)
+  expect(await project.evaluate(element => {
+    const agents = element.querySelector('[data-testid="code-agents-section"]')
+    const browser = element.querySelector('[data-testid="farming-browser-section"]')
+    const files = element.querySelector('[data-testid="code-files-section"]')
+    if (!agents || !browser || !files) return false
+    return Boolean(agents.compareDocumentPosition(browser) & Node.DOCUMENT_POSITION_FOLLOWING)
+      && Boolean(browser.compareDocumentPosition(files) & Node.DOCUMENT_POSITION_FOLLOWING)
+  })).toBe(true)
+})
+
 test('offers explicit isolated Browser preparation when no local browser is available', async ({
   page,
 }, testInfo) => {

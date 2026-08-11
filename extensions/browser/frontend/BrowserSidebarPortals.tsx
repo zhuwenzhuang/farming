@@ -321,12 +321,12 @@ function AgentResourceToggle({
   )
 }
 
-function findProjectExpandedElement(projectId: string) {
+function findProjectResourceElement(projectId: string) {
   const titles = document.querySelectorAll<HTMLElement>('[data-testid="code-project-title"]')
   for (const title of titles) {
     if (title.dataset.projectId !== projectId) continue
     return title.closest<HTMLElement>('[data-testid="code-project-group"]')
-      ?.querySelector<HTMLElement>('.code-project-expanded') ?? null
+      ?.querySelector<HTMLElement>(`[data-testid="code-project-resource-slot"][data-project-id="${CSS.escape(projectId)}"]`) ?? null
   }
   return null
 }
@@ -364,6 +364,8 @@ export function BrowserSidebarPortals({
 }) {
   const copy = browserCopy(language)
   const browserAvailable = controller.capability?.available === true
+  const projectBrowserAvailable = browserAvailable
+    && controller.capability?.browser?.kind !== 'isolated-computer'
   const available = forceAvailable || browserAvailable
   const [targets, setTargets] = useState(new Map<string, HTMLElement>())
   const [collapsed, setCollapsed] = useState(readCollapsed)
@@ -372,7 +374,7 @@ export function BrowserSidebarPortals({
     const next = new Map<string, HTMLElement>()
     for (const project of projects) {
       if (collapsedProjectIds.has(project.id)) continue
-      const target = findProjectExpandedElement(project.id)
+      const target = findProjectResourceElement(project.id)
       if (target) next.set(project.id, target)
       for (const agent of project.agents) {
         const action = findAgentElement(agent.id, 'code-agent-resource-action-slot')
@@ -451,7 +453,7 @@ export function BrowserSidebarPortals({
   return (
     <>
       {projects.map(project => {
-        if (!browserAvailable) return null
+        if (!projectBrowserAvailable) return null
         const target = targets.get(project.id)
         if (!target || !project.workspace) return null
         const resources = (controller.byWorkspace.get(project.workspace) ?? [])

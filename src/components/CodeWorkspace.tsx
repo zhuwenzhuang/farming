@@ -895,7 +895,6 @@ export function CodeWorkspace({
     [activeAgents, decoratedAgentSessions, mainPageSessionKeys, visibleAgents]
   )
   const mainPageAgentSessions = agentListState.mainPageAgentSessions
-  const sidebarAgentSessions = agentListState.sidebarAgentSessions
   const unclaimedSearchableAgentSessions = agentListState.searchableAgentSessions
   const historyAgentSessions = agentListState.historyAgentSessions
   const visibleLiveAgents = agentListState.liveAgents
@@ -922,7 +921,7 @@ export function CodeWorkspace({
   const projectListProjects = useMemo(
     () => projectListProjectsForAgents(
       visibleLiveAgents,
-      sidebarAgentSessions,
+      mainPageAgentSessions,
       projectNames,
       openWorkspaceFiles,
       visibleAgents,
@@ -930,13 +929,14 @@ export function CodeWorkspace({
       pinnedProjectWorkspaces,
       incompleteProjectAgentSummaries,
     ),
-    [incompleteProjectAgentSummaries, openWorkspaceFiles, pinnedProjectWorkspaces, projectNames, projectWorkspaces, sidebarAgentSessions, visibleAgents, visibleLiveAgents]
+    [incompleteProjectAgentSummaries, mainPageAgentSessions, openWorkspaceFiles, pinnedProjectWorkspaces, projectNames, projectWorkspaces, visibleAgents, visibleLiveAgents]
   )
   const projects = useMemo(() => limitProjectAgentSessions(
     projectListProjects,
     expandedSessionProjectIds,
-    false
-  ), [expandedSessionProjectIds, projectListProjects])
+    false,
+    agentListState.claimedAgentSessionKeys
+  ), [agentListState.claimedAgentSessionKeys, expandedSessionProjectIds, projectListProjects])
   const computerSectionAgentIds = existingComputerResourceAgentIds
   const searchableProjects = useMemo(
     () => projectListProjectsForAgents(

@@ -185,6 +185,13 @@ fails, affected Terminal rows become explicit recovery errors while the elected
 Main identity remains reserved; an uncertain live runtime is never replaced by
 guessing.
 
+Collapsed Project session pagination is cut before claimed Provider Sessions
+are replaced by their live Agent rows. A user resume therefore replaces the
+selected Session row in the existing window; it does not backfill another
+history row or grow the Project list. Only the explicit Show more control may
+expand that window. Hidden counts exclude every Session already represented by
+a live Agent, whether that claim falls inside or outside the current window.
+
 Main identity is singular. When legacy records contain more than one
 `wantsMain` marker, startup deterministically elects one non-indexed durable
 Main and treats indexed provider Sessions as ordinary rows without deleting

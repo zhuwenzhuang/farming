@@ -196,12 +196,17 @@ export function claimedAgentSessionHandle(agent: Pick<Agent, 'providerSessionKey
 export function limitProjectAgentSessions(
   projects: ProjectGroup[],
   expandedProjectIds: ReadonlySet<string>,
-  showAll: boolean
+  showAll: boolean,
+  claimedSessionKeys: ReadonlySet<string> = new Set()
 ) {
   return projects.map(project => {
+    const isUnclaimed = (session: AgentSessionHistoryItem) => (
+      !claimedSessionKeys.has(agentSessionId(session))
+    )
     if (showAll || expandedProjectIds.has(project.id) || project.agentSessions.length <= DEFAULT_PROJECT_SESSION_LIMIT) {
       return {
         ...project,
+        agentSessions: project.agentSessions.filter(isUnclaimed),
         hiddenAgentSessionCount: 0,
         agentSessionsExpanded: expandedProjectIds.has(project.id),
       }
@@ -212,14 +217,16 @@ export function limitProjectAgentSessions(
     const ordinarySessions = project.agentSessions.filter(session => !priorityKeys.has(agentSessionId(session)))
     const ordinaryLimit = Math.max(0, DEFAULT_PROJECT_SESSION_LIMIT - prioritySessions.length)
     const visibleOrdinarySessions = ordinarySessions.slice(0, ordinaryLimit)
-    const hiddenAgentSessionCount = ordinarySessions.length - visibleOrdinarySessions.length
+    const selectedSessions = [
+      ...prioritySessions,
+      ...visibleOrdinarySessions,
+    ]
+    const visibleSessions = selectedSessions.filter(isUnclaimed)
+    const hiddenAgentSessionCount = project.agentSessions.filter(isUnclaimed).length - visibleSessions.length
 
     return {
       ...project,
-      agentSessions: [
-        ...prioritySessions,
-        ...visibleOrdinarySessions,
-      ],
+      agentSessions: visibleSessions,
       hiddenAgentSessionCount,
       agentSessionsExpanded: false,
     }

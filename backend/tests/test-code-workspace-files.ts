@@ -888,7 +888,7 @@ function run() {
       workspaceSource.includes('const agentListState = useMemo(') &&
       workspaceSource.includes('const mainPageAgentSessions = agentListState.mainPageAgentSessions') &&
       workspaceSource.includes('const unclaimedSearchableAgentSessions = agentListState.searchableAgentSessions') &&
-      workspaceSource.includes('const sidebarAgentSessions = agentListState.sidebarAgentSessions') &&
+      !workspaceSource.includes('const sidebarAgentSessions = agentListState.sidebarAgentSessions') &&
       workspaceSource.includes('const visibleLiveAgents = agentListState.liveAgents') &&
       workspaceSource.includes('claimedAgentSessionKeyByAgentId={agentListState.claimedAgentSessionKeyByAgentId}') &&
       !workspaceSource.includes('visibleProjectAgentSessions') &&
@@ -899,6 +899,7 @@ function run() {
       !workspaceSource.includes('fileAgentId') &&
       workspaceSource.includes('code-project-worktree') &&
       workspaceSource.includes('limitProjectAgentSessions(\n    projectListProjects') &&
+      workspaceSource.includes('agentListState.claimedAgentSessionKeys') &&
       workspaceSource.includes('historyAgentSessions') &&
       workspaceSource.includes('historyAgentSessionsForSessions(sessions, mainPageSessionKeys, claimedAgentSessionKeys)') &&
       workspaceSource.includes('function historySessionMeta(session: AgentSessionHistoryItem)') &&

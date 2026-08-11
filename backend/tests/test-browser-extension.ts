@@ -526,6 +526,17 @@ async function testBrowserResourceManager() {
       await isolatedManager.init();
       assert.strictEqual(isolatedManager.capability().browser.kind, 'isolated-computer');
       assert.strictEqual(isolatedManager.capability().selection.source, 'isolated');
+      assert.throws(() => isolatedManager.create({
+        projectRootId: 'wroot_isolated',
+        workspace: projectWorkspace,
+        ownerType: 'project',
+        ownerAgentId: '',
+        name: 'Invalid Project Browser',
+        url: 'https://example.com',
+      }), error => (
+        error?.code === 'ISOLATED_BROWSER_AGENT_OWNER_REQUIRED'
+        && error?.status === 409
+      ), 'isolated Browser creation must reject a Project owner before persisting an unusable row');
       const isolatedResource = isolatedManager.create({
         projectRootId: 'wroot_isolated',
         workspace: projectWorkspace,
@@ -1584,6 +1595,7 @@ function testBrowserUiAndPackagingWiring() {
     'utf8',
   );
   const sidebarSource = fs.readFileSync(path.join(projectRoot, 'extensions', 'browser', 'frontend', 'BrowserSidebarPortals.tsx'), 'utf8');
+  const codeSidebarSource = fs.readFileSync(path.join(projectRoot, 'src', 'components', 'code', 'CodeSidebar.tsx'), 'utf8');
   const sidebarResourceCss = fs.readFileSync(path.join(projectRoot, 'src', 'styles', 'sidebar-resources.css'), 'utf8');
   const serverSource = fs.readFileSync(path.join(projectRoot, 'backend', 'server.cts'), 'utf8');
   const packageJson = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8'));
@@ -1610,6 +1622,21 @@ function testBrowserUiAndPackagingWiring() {
   assert(serverSource.includes('await browserResourceManager.reconcileAgentLifecycle'));
   assert(sidebarSource.includes('code-agent-resources-toggle'));
   assert(sidebarSource.includes('controller.byAgentId'));
+  assert(
+    sidebarSource.includes("controller.capability?.browser?.kind !== 'isolated-computer'"),
+    'Project-owned Browser rows must stay hidden when the selected runtime requires an Agent-owned Computer',
+  );
+  const projectResourceSlot = codeSidebarSource.indexOf('data-testid="code-project-resource-slot"');
+  assert(
+    projectResourceSlot > codeSidebarSource.lastIndexOf('data-testid="code-agents-section"', projectResourceSlot)
+      && projectResourceSlot < codeSidebarSource.indexOf('<ProjectFilesSection', projectResourceSlot),
+    'Project Resource sections must use an explicit slot after Agents and before Files',
+  );
+  assert(
+    sidebarSource.includes('findProjectResourceElement')
+      && sidebarSource.includes('code-project-resource-slot'),
+    'Browser portals must target the ordered Project Resource slot instead of the whole expanded Project container',
+  );
   assert(
     sidebarSource.includes('if (!activeBrowserId || !activeBrowserOwnerAgentId) return')
       && sidebarSource.includes('next.add(activeBrowserOwnerAgentId)')

@@ -2192,6 +2192,11 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
               </div>
             </div>
           )}
+          <div
+            className="code-project-resource-slot"
+            data-testid="code-project-resource-slot"
+            data-project-id={project.id}
+          />
           {showProjectFiles && (
             <Suspense fallback={null}>
               <ProjectFilesSection

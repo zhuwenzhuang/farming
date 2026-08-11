@@ -42,6 +42,11 @@ Identity，让 Client 只创建一个替代者；它不能作为 Pending Main Pl
 如果 Native Host 枚举本身失败，受影响的 Terminal Row 会进入明确的 Recovery Error，同时保留
 当选 Main Identity；系统不能靠猜测替换一个结果不确定的 Live Runtime。
 
+折叠状态下的 Project Session 分页必须先切出窗口，再把已由 Live Agent 认领的 Provider Session
+替换为对应 Agent Row。因此用户 Resume 只会替换当前窗口中的所选 Session Row，不会回填另一条
+History Row 或让 Project 列表自动增长；只有显式的“显示更多”操作可以扩大窗口。隐藏数量会排除
+所有已经由 Live Agent 表示的 Session，无论该 Claim 位于当前窗口内还是窗口外。
+
 Main Identity 必须唯一。旧版本 Record 含有多个 `wantsMain` Marker 时，启动流程会确定性选出
 一个未进入普通 Session Index 的持久化 Main；已经进入 Index 的 Provider Session 仍投影为普通
 Agent Row，且不会删除或批量改写历史数据。Main-page Membership 只证明该行属于 Inventory，

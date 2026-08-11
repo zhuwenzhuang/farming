@@ -766,6 +766,13 @@ class BrowserResourceManager extends EventEmitter {
   create(input: Record<string, unknown>) {
     this.requireAvailable();
     if (this.disposed) throw browserError('Browser manager is stopping', 503, 'BROWSER_MANAGER_STOPPING');
+    if (this.runtimeCapability?.kind === 'isolated-computer' && input.ownerType !== 'agent') {
+      throw browserError(
+        'The isolated Browser requires an active Agent owner; create it from an Agent',
+        409,
+        'ISOLATED_BROWSER_AGENT_OWNER_REQUIRED',
+      );
+    }
     const resource = this.store.create({
       projectRootId: input.projectRootId,
       workspace: input.workspace,
@@ -826,6 +833,13 @@ class BrowserResourceManager extends EventEmitter {
         });
         this.emitResource(failed);
         throw browserError(failed.error, 503, 'BROWSER_EXECUTABLE_NOT_FOUND');
+      }
+      if (executable.kind === 'isolated-computer' && resource.ownerType !== 'agent') {
+        throw browserError(
+          'The isolated Browser requires an active Agent owner; create it from an Agent',
+          409,
+          'ISOLATED_BROWSER_AGENT_OWNER_REQUIRED',
+        );
       }
 
       const generation = resource.generation + 1;

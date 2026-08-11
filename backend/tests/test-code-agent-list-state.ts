@@ -44,6 +44,7 @@ function run() {
     claimedAgentSessionKeysForAgents,
     isAgentListLiveAgent,
   } = importTsModule('src/components/code/agent-list-state.ts');
+  const { limitProjectAgentSessions } = importTsModule('src/components/code/session-display.ts');
 
   const agents = [
     agent({ id: 'main', isMain: true, command: 'bash' }),
@@ -152,6 +153,48 @@ function run() {
     ], sessions)),
     [],
     'stopped resumed runtime rows should not claim provider sessions; history/session rows own resume'
+  );
+
+  const paginatedSessions = Array.from({ length: 7 }, (_, index) => session({
+    id: `pagination-${index + 1}`,
+    updatedAt: new Date(700_000 - index * 1_000).toISOString(),
+  }));
+  const project = {
+    id: '/repo',
+    name: 'repo',
+    workspace: '/repo',
+    agents: [],
+    agentSessions: paginatedSessions,
+    hasMain: false,
+    hasProjectAgent: false,
+    hasAgentSession: true,
+    gitWorktree: null,
+  };
+  const sessionKey = id => encodeProviderSessionKey('codex', id, 'default');
+  const beforeClaims = new Set([sessionKey('pagination-7')]);
+  const beforeResume = limitProjectAgentSessions([project], new Set(), false, beforeClaims)[0];
+  const afterClaims = new Set([
+    ...beforeClaims,
+    sessionKey('pagination-2'),
+    sessionKey('pagination-3'),
+    sessionKey('pagination-4'),
+  ]);
+  const afterResume = limitProjectAgentSessions([project], new Set(), false, afterClaims)[0];
+  assert.deepStrictEqual(
+    beforeResume.agentSessions.map(item => item.id),
+    ['pagination-1', 'pagination-2', 'pagination-3', 'pagination-4', 'pagination-5'],
+  );
+  assert.deepStrictEqual(
+    afterResume.agentSessions.map(item => item.id),
+    ['pagination-1', 'pagination-5'],
+    'resumed sessions inside the visible window must be replaced by their live Agent rows without backfilling more history rows',
+  );
+  assert.strictEqual(beforeResume.hiddenAgentSessionCount, 1);
+  assert.strictEqual(afterResume.hiddenAgentSessionCount, 1);
+  assert.strictEqual(
+    beforeClaims.size + beforeResume.agentSessions.length,
+    afterClaims.size + afterResume.agentSessions.length,
+    'clicking visible session rows must not grow the combined live Agent and session list',
   );
 
   console.log('test-code-agent-list-state passed');
