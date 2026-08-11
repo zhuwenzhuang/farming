@@ -9,7 +9,13 @@ import {
   type UsageHistoryResult,
 } from './usage-history-client.cjs';
 import { attachQuotaForecasts } from './usage-forecast.cjs';
-import { getProviderAdapter, listProviderAdapters } from './provider-adapters.cjs';
+import {
+  getProviderAdapter,
+  listProviderAdapters,
+  type ProviderAdapter,
+  type ProviderId,
+  type ProviderUsageLiveCollector,
+} from './provider-adapters.cjs';
 
 type DataRecord = Record<string, unknown>;
 type ProviderHomes = Record<string, Array<string | { path?: unknown }> | undefined>;
@@ -33,8 +39,7 @@ interface UsageHistoryClientLike {
   collect(options: {
     now: number;
     retentionDays: number;
-    codexRoots: string[];
-    claudeRoots: string[];
+    roots: Record<string, string[]>;
     fresh?: boolean;
   }): Promise<CCStatisticsResult>;
 }
@@ -319,26 +324,46 @@ function providerHomePaths(
   }).filter(Boolean)));
 }
 
-function ccStatisticsRoots(options: CCStatisticsOptions = {}) {
-  const codexHomes = providerHomePaths(
-    options.providerHomes,
-    'codex',
-    options.codexHome || path.join(os.homedir(), '.codex'),
-  );
-  const claudeHomes = providerHomePaths(
-    options.providerHomes,
-    'claude',
-    options.claudeHome || path.join(os.homedir(), '.claude'),
-  );
-  return {
-    codexHomes,
-    claudeHomes,
-    codexRoots: codexHomes.flatMap(home => [
-      path.join(home, 'sessions'),
-      path.join(home, 'archived_sessions'),
-    ]),
-    claudeRoots: claudeHomes.map(home => path.join(home, 'projects')),
+function providerHomeOverride(
+  options: CCStatisticsOptions & Pick<CollectionOptions, 'openCodeHome' | 'qoderHome'>,
+  provider: ProviderId,
+): string | undefined {
+  const legacyOverrides: Partial<Record<ProviderId, string | undefined>> = {
+    codex: options.codexHome,
+    claude: options.claudeHome,
+    opencode: options.openCodeHome,
+    qoder: options.qoderHome,
   };
+  return legacyOverrides[provider];
+}
+
+function usageProviderHomePaths(
+  options: CCStatisticsOptions & Pick<CollectionOptions, 'openCodeHome' | 'qoderHome'>,
+): Map<ProviderId, string[]> {
+  return new Map(listProviderAdapters().map(adapter => [
+    adapter.id,
+    providerHomePaths(
+      options.providerHomes,
+      adapter.id,
+      providerHomeOverride(options, adapter.id)
+        || path.join(os.homedir(), adapter.usage.defaultHomeDirectory),
+    ),
+  ]));
+}
+
+function ccStatisticsRoots(options: CCStatisticsOptions = {}): Record<string, string[]> {
+  const homePaths = usageProviderHomePaths(options);
+  return Object.fromEntries(listProviderAdapters().flatMap(adapter => {
+    const collection = adapter.usage.collection;
+    if (collection.kind !== 'local-history') return [];
+    const homes = homePaths.get(adapter.id) || [];
+    return [[
+      adapter.id,
+      homes.flatMap(home => collection.rootDirectories.map(directory => (
+        path.join(home, directory)
+      ))),
+    ]];
+  }));
 }
 
 function ccStatisticsClient(options: CCStatisticsOptions = {}): UsageHistoryClientLike {
@@ -353,10 +378,11 @@ function unavailableCCStatisticsResult(error: unknown, now: number): CCStatistic
     schemaVersion: 1,
     source: 'local usage history unavailable',
     sampledAt: now,
-    providers: {
-      codex: { events: [], quotaCandidates: [], available: false, reason, fileCount: 0 },
-      claude: { events: [], quotaCandidates: [], available: false, reason, fileCount: 0 },
-    },
+    providers: Object.fromEntries(listProviderAdapters().flatMap(adapter => (
+      adapter.usage.collection.kind === 'local-history'
+        ? [[adapter.id, { events: [], quotaCandidates: [], available: false, reason, fileCount: 0 }]]
+        : []
+    ))),
     cache: { errors: 1 },
   };
 }
@@ -368,8 +394,7 @@ async function collectCCStatistics(options: CCStatisticsOptions = {}) {
     const result = await ccStatisticsClient(options).collect({
       now,
       retentionDays: options.retentionDays ?? USAGE_DAILY_DAYS,
-      codexRoots: roots.codexRoots,
-      claudeRoots: roots.claudeRoots,
+      roots,
       fresh: options.fresh,
     });
     return { result, roots };
@@ -380,9 +405,10 @@ async function collectCCStatistics(options: CCStatisticsOptions = {}) {
 
 function ccStatisticsProviderEvents(
   result: CCStatisticsResult,
-  provider: 'codex' | 'claude',
+  provider: string,
 ): UsageEvent[] {
-  return (result?.providers?.[provider]?.events || []).map(event => attributeUsageEvent(
+  const providers = result?.providers as Record<string, UsageHistoryProvider | undefined>;
+  return (providers?.[provider]?.events || []).map(event => attributeUsageEvent(
     event,
     provider,
     String(event.sessionId || 'unattributed'),
@@ -869,103 +895,135 @@ async function collectOpenCodeDailyEvents(
   };
 }
 
+type UsageProviderAdapter = ProviderAdapter;
+type SessionExportResult = Awaited<ReturnType<typeof collectOpenCodeDailyEvents>>;
+type SessionUsageExportCollectorId = Extract<
+  ProviderAdapter['usage']['collection'],
+  { kind: 'session-export' }
+>['collector'];
+
+type SessionUsageExportCollector = (
+    homePaths: string[],
+    options: { cutoffMs: number; now: number; openCodeCommandRunner?: OpenCodeCommandRunner },
+  ) => Promise<SessionExportResult>;
+
+const SESSION_USAGE_EXPORT_COLLECTORS: Readonly<
+  Record<SessionUsageExportCollectorId, SessionUsageExportCollector>
+> = Object.freeze({
+  'opencode-session-export': (homePaths: string[], options: OpenCodeCollectOptions) => (
+      collectOpenCodeDailyEvents(homePaths, options)
+  ),
+});
+
+function sessionUsageExportCollector(
+  id: SessionUsageExportCollectorId,
+): SessionUsageExportCollector {
+  return SESSION_USAGE_EXPORT_COLLECTORS[id];
+}
+
+function providerUsageCoverage(
+  adapter: UsageProviderAdapter,
+  context: {
+    homePaths: ReadonlyMap<ProviderId, string[]>;
+    localHistory: CCStatisticsResult;
+    sessionExports: ReadonlyMap<ProviderId, SessionExportResult>;
+  },
+): UsageProviderCoverage {
+  const policy = adapter.usage;
+  const homeCount = context.homePaths.get(adapter.id)?.length || 0;
+  if (policy.collection.kind === 'local-history') {
+    const providers = context.localHistory.providers as Record<string, UsageHistoryProvider | undefined>;
+    const provider = providers[adapter.id];
+    return {
+      provider: adapter.id,
+      providerName: policy.coverageName || adapter.displayName,
+      available: provider?.available === true,
+      homeCount,
+      fileCount: provider?.fileCount || 0,
+      source: provider?.source || context.localHistory.source || policy.source,
+      ...(provider?.reason
+        ? { reason: provider.reason }
+        : !provider
+          ? { reason: `${adapter.displayName} local history parser is unavailable.` }
+          : {}),
+    };
+  }
+  if (policy.collection.kind === 'session-export') {
+    const exported = context.sessionExports.get(adapter.id);
+    return {
+      provider: adapter.id,
+      providerName: policy.coverageName || adapter.displayName,
+      available: exported?.available === true,
+      homeCount,
+      sessionCount: exported?.sessionCount || 0,
+      exportCount: exported?.exportCount || 0,
+      partial: exported?.partial === true,
+      source: policy.source,
+      ...(exported?.reason ? { reason: exported.reason } : {}),
+    };
+  }
+  return {
+    provider: adapter.id,
+    providerName: policy.coverageName || adapter.displayName,
+    available: false,
+    homeCount,
+    source: policy.coverageSource || policy.source,
+    reason: policy.tokenUnavailableReason || `${adapter.displayName} usage telemetry is unavailable.`,
+  };
+}
+
 async function collectUsageHistory(options: CollectionOptions = {}) {
   const now = options.now ?? Date.now();
   const days = options.days ?? USAGE_DAILY_DAYS;
   const cutoff = new Date(now);
   cutoff.setHours(0, 0, 0, 0);
   cutoff.setDate(cutoff.getDate() - days);
-  const openCodeHomes = providerHomePaths(
-    options.providerHomes,
-    'opencode',
-    options.openCodeHome || path.join(os.homedir(), '.opencode'),
-  );
-  const qoderHomes = providerHomePaths(
-    options.providerHomes,
-    'qoder',
-    options.qoderHome || path.join(os.homedir(), '.qoder'),
-  );
-  const qwenHomes = providerHomePaths(
-    options.providerHomes,
-    'qwen',
-    path.join(os.homedir(), '.qwen'),
-  );
-  const [ccStatistics, openCode] = await Promise.all([
+  const homePaths = usageProviderHomePaths(options);
+  const exportAdapters = listProviderAdapters().filter(adapter => (
+    adapter.usage.collection.kind === 'session-export'
+  ));
+  const [ccStatistics, sessionExportEntries] = await Promise.all([
     collectCCStatistics({ ...options, now, days }),
-    collectOpenCodeDailyEvents(openCodeHomes, {
-      now,
-      cutoffMs: cutoff.getTime(),
-      openCodeCommandRunner: options.openCodeCommandRunner,
-    }),
+    Promise.all(exportAdapters.map(async adapter => {
+      if (adapter.usage.collection.kind !== 'session-export') {
+        throw new Error(`Invalid usage export adapter: ${adapter.id}`);
+      }
+      const collector = sessionUsageExportCollector(adapter.usage.collection.collector);
+      return [
+        adapter.id,
+        await collector(homePaths.get(adapter.id) || [], {
+          now,
+          cutoffMs: cutoff.getTime(),
+          openCodeCommandRunner: options.openCodeCommandRunner,
+        }),
+      ] as const;
+    })),
   ]);
-  const codex = ccStatistics.result.providers.codex;
-  const claude = ccStatistics.result.providers.claude;
-  const codexEvents = ccStatisticsProviderEvents(ccStatistics.result, 'codex');
-  const claudeEvents = ccStatisticsProviderEvents(ccStatistics.result, 'claude');
-  const providerEvents = {
-    codex: codexEvents,
-    claude: claudeEvents,
-    opencode: openCode.events,
-  };
-  const coverageByProvider = new Map<string, UsageProviderCoverage>([
-    ['codex', {
-      provider: 'codex',
-      providerName: 'Codex',
-      available: codex.available === true,
-      homeCount: ccStatistics.roots.codexHomes.length,
-      fileCount: codex.fileCount,
-      source: codex.source || ccStatistics.result.source,
-      ...(codex.reason ? { reason: codex.reason } : {}),
-    }],
-    ['claude', {
-      provider: 'claude',
-      providerName: 'Claude',
-      available: claude.available === true,
-      homeCount: ccStatistics.roots.claudeHomes.length,
-      fileCount: claude.fileCount,
-      source: claude.source || ccStatistics.result.source,
-      ...(claude.reason ? { reason: claude.reason } : {}),
-    }],
-    ['opencode', {
-      provider: 'opencode',
-      providerName: 'OpenCode',
-      available: openCode.available,
-      homeCount: openCodeHomes.length,
-      sessionCount: openCode.sessionCount,
-      exportCount: openCode.exportCount,
-      partial: openCode.partial,
-      source: 'opencode session export',
-      ...(openCode.reason ? { reason: openCode.reason } : {}),
-    }],
-    ['qoder', {
-      provider: 'qoder',
-      providerName: 'Qoder',
-      available: false,
-      homeCount: qoderHomes.length,
-      source: 'local Qoder sessions',
-      reason: 'Qoder session files do not expose model token usage.',
-    }],
-    ['qwen', {
-      provider: 'qwen',
-      providerName: 'Qwen Code',
-      available: false,
-      homeCount: qwenHomes.length,
-      source: 'local Qwen sessions',
-      reason: 'Qwen session files do not expose model token usage.',
-    }],
-  ]);
-  const coverage = listProviderAdapters().map(adapter => coverageByProvider.get(adapter.id) || ({
-    provider: adapter.id,
-    providerName: adapter.displayName,
-    available: false,
-    homeCount: providerHomePaths(options.providerHomes, adapter.id, '').length,
-    source: `local ${adapter.displayName} sessions`,
-    reason: `${adapter.displayName} usage telemetry is unavailable.`,
+  const sessionExports = new Map<ProviderId, SessionExportResult>(sessionExportEntries);
+  const providerEvents: ProviderEvents = {};
+  for (const adapter of listProviderAdapters()) {
+    if (adapter.usage.collection.kind === 'local-history') {
+      providerEvents[adapter.id] = ccStatisticsProviderEvents(ccStatistics.result, adapter.id);
+    } else if (adapter.usage.collection.kind === 'session-export') {
+      providerEvents[adapter.id] = sessionExports.get(adapter.id)?.events || [];
+    }
+  }
+  const coverage = listProviderAdapters().map(adapter => providerUsageCoverage(adapter, {
+    homePaths,
+    localHistory: ccStatistics.result,
+    sessionExports,
   }));
+  const coverageByProvider = new Map(coverage.map(entry => [entry.provider, entry]));
+  const partial = listProviderAdapters().some(adapter => {
+    const providerCoverage = coverageByProvider.get(adapter.id);
+    return adapter.usage.collection.kind === 'local-history'
+      ? providerCoverage?.available !== true
+      : adapter.usage.collection.kind === 'session-export' && providerCoverage?.partial === true;
+  });
   return {
     daily: {
       ...buildDailyUsage(providerEvents, { now, days }),
-      partial: codex.available !== true || claude.available !== true || openCode.partial,
+      partial,
       syncing: ccStatistics.result.cache?.scan_complete === false,
       coverage,
       ccStatisticsCache: ccStatistics.result.cache,
@@ -1106,6 +1164,30 @@ async function collectClaudeUsage(options: CollectionOptions = {}) {
   };
 }
 
+interface LiveProviderUsageCollector {
+  collect(options: CollectionOptions): Promise<{ quota: unknown; tokenUsage: unknown }>;
+  readAuth(commandRunner: CommandRunner): Promise<unknown>;
+}
+
+const LIVE_PROVIDER_USAGE_COLLECTORS: Readonly<
+  Record<ProviderUsageLiveCollector, LiveProviderUsageCollector>
+> = Object.freeze({
+  'codex-cli': Object.freeze({
+    collect: collectCodexUsage,
+    readAuth: readCodexAuthStatus,
+  }),
+  'claude-cli': Object.freeze({
+    collect: collectClaudeUsage,
+    readAuth: readClaudeAuthStatus,
+  }),
+});
+
+function liveProviderUsageCollector(
+  id: ProviderUsageLiveCollector,
+): LiveProviderUsageCollector {
+  return LIVE_PROVIDER_USAGE_COLLECTORS[id];
+}
+
 type CollectedUsageHistory = Awaited<ReturnType<typeof collectUsageHistory>>;
 type UsageDayDetail = ReturnType<typeof buildUsageDayDetail>;
 
@@ -1120,6 +1202,89 @@ interface LiveDayCache {
   value: UsageDayDetail | null;
   fetchedAt: number;
   pending: Promise<UsageDayDetail> | null;
+}
+
+interface ProviderUsageObservation {
+  auth: unknown;
+  quota: unknown;
+  tokenUsage: unknown;
+}
+
+function providerUsageSummary(
+  adapter: UsageProviderAdapter,
+  context: {
+    coverage: UsageProviderCoverage | undefined;
+    events: UsageEvent[];
+    historyWindowMs: number;
+    now: number;
+    observation: ProviderUsageObservation | undefined;
+    windowMs: number;
+  },
+): DataRecord {
+  if (context.observation) {
+    return {
+      provider: adapter.id,
+      providerName: adapter.displayName,
+      ...context.observation,
+    };
+  }
+
+  const policy = adapter.usage;
+  const reason = context.coverage?.reason
+    || policy.tokenUnavailableReason
+    || `${adapter.displayName} usage telemetry is unavailable.`;
+  if (policy.collection.kind === 'session-export') {
+    const usage = providerUsageFromEvents(context.events, {
+      now: context.now,
+      windowMs: context.windowMs,
+      historyWindowMs: context.historyWindowMs,
+      source: policy.source,
+    });
+    return {
+      provider: adapter.id,
+      providerName: adapter.displayName,
+      auth: {
+        available: context.coverage?.available === true,
+        status: context.coverage?.available === true
+          ? policy.authStatus || 'Local session export'
+          : reason,
+        source: policy.source,
+      },
+      quota: {
+        available: false,
+        source: policy.source,
+        reason: policy.quotaUnavailableReason || reason,
+      },
+      tokenUsage: context.coverage?.available === true
+        ? usage.tokenUsage
+        : { ...usage.tokenUsage, available: false, reason },
+    };
+  }
+
+  return {
+    provider: adapter.id,
+    providerName: adapter.displayName,
+    auth: {
+      available: true,
+      status: policy.authStatus || 'Local sessions',
+      source: policy.source,
+    },
+    quota: {
+      available: false,
+      source: policy.source,
+      reason,
+    },
+    tokenUsage: {
+      available: false,
+      windowMs: context.windowMs,
+      source: policy.source,
+      totalTokens: null,
+      tokensPerMinute: null,
+      eventCount: 0,
+      sampledAt: context.now,
+      reason,
+    },
+  };
 }
 
 class UsageMonitor {
@@ -1296,46 +1461,36 @@ class UsageMonitor {
     const historyWindowMs = options.historyWindowMs ?? USAGE_TIMELINE_WINDOW_MS;
 
     const providerHomes = this.getProviderHomes ? this.getProviderHomes() : undefined;
-    const [
-      codexAuth,
-      claudeAuth,
-      codexUsage,
-      claudeUsage,
-      history,
-      systemStats,
-    ] = await Promise.all([
-      readCodexAuthStatus(this.commandRunner),
-      readClaudeAuthStatus(this.commandRunner),
-      collectCodexUsage({
-        codexHome: this.codexHome,
-        claudeHome: this.claudeHome,
-        providerHomes,
-        configDir: this.configDir,
-        ccStatisticsClient: this.ccStatisticsClient,
-        now,
-        windowMs,
-        historyWindowMs,
-      }),
-      collectClaudeUsage({
-        codexHome: this.codexHome,
-        claudeHome: this.claudeHome,
-        providerHomes,
-        configDir: this.configDir,
-        ccStatisticsClient: this.ccStatisticsClient,
-        now,
-        windowMs,
-        historyWindowMs,
-      }),
+    const liveUsageOptions: CollectionOptions = {
+      codexHome: this.codexHome,
+      claudeHome: this.claudeHome,
+      providerHomes,
+      configDir: this.configDir,
+      ccStatisticsClient: this.ccStatisticsClient,
+      now,
+      windowMs,
+      historyWindowMs,
+    };
+    const liveAdapters = listProviderAdapters().filter(adapter => adapter.usage.liveCollector);
+    const [observationEntries, history, systemStats] = await Promise.all([
+      Promise.all(liveAdapters.map(async adapter => {
+        const collectorId = adapter.usage.liveCollector;
+        if (!collectorId) throw new Error(`Missing live usage collector policy: ${adapter.id}`);
+        const collector = liveProviderUsageCollector(collectorId);
+        const [auth, usage] = await Promise.all([
+          collector.readAuth(this.commandRunner),
+          collector.collect(liveUsageOptions),
+        ]);
+        return [adapter.id, {
+          auth,
+          quota: usage.quota,
+          tokenUsage: usage.tokenUsage,
+        }] as const;
+      })),
       this.getDailyUsage({ now, force: options.fresh === true }),
       this.systemMonitor?.getSystemStats ? this.systemMonitor.getSystemStats().catch(() => null) : Promise.resolve(null),
     ]);
 
-    const openCodeUsage = providerUsageFromEvents(history.providerEvents.opencode, {
-      now,
-      windowMs,
-      historyWindowMs,
-      source: 'opencode session export',
-    });
     const timeline = buildUsageTimeline(history.providerEvents, {
       now,
       windowMs: historyWindowMs,
@@ -1347,91 +1502,18 @@ class UsageMonitor {
       bucketCount: USAGE_LIVE_TIMELINE_BUCKET_COUNT,
       alignToBucket: true,
     });
-    const openCodeCoverage = history.coverage.find(entry => entry.provider === 'opencode');
-    const qoderCoverage = history.coverage.find(entry => entry.provider === 'qoder');
-    const providerSummaries = [
-      {
-        provider: 'codex',
-        providerName: 'Codex',
-        auth: codexAuth,
-        quota: codexUsage.quota,
-        tokenUsage: codexUsage.tokenUsage,
-      },
-      {
-        provider: 'claude',
-        providerName: 'Claude Code',
-        auth: claudeAuth,
-        quota: claudeUsage.quota,
-        tokenUsage: claudeUsage.tokenUsage,
-      },
-      {
-        provider: 'opencode',
-        providerName: 'OpenCode',
-        auth: {
-          available: openCodeCoverage?.available === true,
-          status: openCodeCoverage?.available === true
-            ? 'Local session export'
-            : openCodeCoverage?.reason || 'OpenCode unavailable',
-          source: 'opencode session export',
-        },
-        quota: {
-          available: false,
-          source: 'opencode session export',
-          reason: 'OpenCode session exports do not expose quota remaining.',
-        },
-        tokenUsage: openCodeCoverage?.available === true
-          ? openCodeUsage.tokenUsage
-          : {
-              ...openCodeUsage.tokenUsage,
-              available: false,
-              reason: openCodeCoverage?.reason || 'OpenCode token usage is unavailable.',
-            },
-      },
-      {
-        provider: 'qoder',
-        providerName: 'Qoder',
-        auth: { available: true, status: 'Local sessions', source: 'Qoder session files' },
-        quota: {
-          available: false,
-          source: 'Qoder session files',
-          reason: qoderCoverage?.reason || 'Qoder quota telemetry is unavailable.',
-        },
-        tokenUsage: {
-          available: false,
-          windowMs,
-          source: 'Qoder session files',
-          totalTokens: null,
-          tokensPerMinute: null,
-          eventCount: 0,
-          sampledAt: now,
-          reason: qoderCoverage?.reason || 'Qoder session files do not expose model token usage.',
-        },
-      },
-    ];
-    const providerSummariesById = new Map(providerSummaries.map(summary => [summary.provider, summary] as const));
-    const providers = listProviderAdapters().map(adapter => {
-      const summary = providerSummariesById.get(adapter.id);
-      if (summary) return summary;
-      const coverage = history.coverage.find(entry => entry.provider === adapter.id);
-      const source = `local ${adapter.displayName} sessions`;
-      const reason = coverage?.reason || `${adapter.displayName} usage telemetry is unavailable.`;
-      return {
-        provider: adapter.id,
-        providerName: adapter.displayName,
-        auth: { available: true, status: 'Local sessions', source },
-        quota: { available: false, source, reason },
-        tokenUsage: {
-          available: false,
-          windowMs,
-          source,
-          totalTokens: null,
-          tokensPerMinute: null,
-          eventCount: 0,
-          sampledAt: now,
-          reason,
-        },
-      };
-    });
+    const observations = new Map<string, ProviderUsageObservation>(observationEntries);
+    const coverageByProvider = new Map(
+      history.coverage.map(entry => [entry.provider, entry]),
+    );
+    const providers = listProviderAdapters().map(adapter => providerUsageSummary(adapter, {
+      coverage: coverageByProvider.get(adapter.id),
+      events: history.providerEvents[adapter.id] || [],
+      historyWindowMs,
+      now,
+      observation: observations.get(adapter.id),
+      windowMs,
+    }));
 
     return {
       sampledAt: now,

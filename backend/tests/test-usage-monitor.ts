@@ -470,6 +470,7 @@ async function run() {
   assert.strictEqual(summary.daily.points.at(-1).cacheWriteTokens, 40);
   assert.strictEqual(summary.daily.points.at(-1).providers.opencode.totalTokens, 300);
   assert.strictEqual(summary.daily.coverage.find(entry => entry.provider === 'codex').homeCount, 2);
+  assert.strictEqual(summary.daily.coverage.find(entry => entry.provider === 'claude').providerName, 'Claude');
   assert.strictEqual(summary.daily.coverage.find(entry => entry.provider === 'qoder').available, false);
   assert.strictEqual(summary.providers.find(entry => entry.provider === 'opencode').tokenUsage.totalTokens, 300);
   assert.strictEqual(summary.providers.find(entry => entry.provider === 'opencode').tokenUsage.available, true);

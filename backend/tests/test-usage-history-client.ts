@@ -172,8 +172,10 @@ async function run() {
   const client = new UsageHistoryClient({ configDir });
   const request = {
     now,
-    codexRoots: [codexRoot],
-    claudeRoots: [claudeRoot],
+    roots: {
+      codex: [codexRoot],
+      claude: [claudeRoot],
+    },
     scanBudgetMs: 30_000,
     fresh: true,
   };

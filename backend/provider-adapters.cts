@@ -169,6 +169,33 @@ interface ProviderCapabilitiesContract {
   conversationFork: ProviderConversationForkContract;
 }
 
+type ProviderUsageCollection =
+  | {
+      kind: 'local-history';
+      rootDirectories: readonly string[];
+    }
+  | {
+      collector: 'opencode-session-export';
+      kind: 'session-export';
+    }
+  | {
+      kind: 'unavailable';
+    };
+
+type ProviderUsageLiveCollector = 'codex-cli' | 'claude-cli';
+
+interface ProviderUsageContract {
+  collection: ProviderUsageCollection;
+  coverageName?: string;
+  defaultHomeDirectory: string;
+  liveCollector?: ProviderUsageLiveCollector;
+  source: string;
+  coverageSource?: string;
+  authStatus?: string;
+  quotaUnavailableReason?: string;
+  tokenUnavailableReason?: string;
+}
+
 interface ProviderLaunchEnvironmentOptions {
   homePath?: string;
   runtime: ProviderRuntime;
@@ -203,6 +230,7 @@ interface ProviderAdapter {
   acp: ProviderAcpContract;
   prepareAcpEnvironment?: (options?: ProviderEnvironmentOptions) => NodeJS.ProcessEnv;
   capabilities: ProviderCapabilitiesContract;
+  usage: ProviderUsageContract;
 }
 
 const CODEX_VALUE_OPTIONS = new Set([
@@ -522,6 +550,15 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
       },
     },
     prepareAcpEnvironment: codexAcpEnvironment,
+    usage: {
+      collection: {
+        kind: 'local-history',
+        rootDirectories: ['sessions', 'archived_sessions'],
+      },
+      defaultHomeDirectory: '.codex',
+      liveCollector: 'codex-cli',
+      source: 'Farming local history',
+    },
     capabilities: {
       runtimeSwitch: true,
       contextWindow: true,
@@ -590,6 +627,17 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
       }),
     },
     prepareAcpEnvironment: claudeAcpEnvironment,
+    usage: {
+      collection: {
+        kind: 'local-history',
+        rootDirectories: ['projects'],
+      },
+      coverageName: 'Claude',
+      defaultHomeDirectory: '.claude',
+      liveCollector: 'claude-cli',
+      source: 'Farming local history',
+      quotaUnavailableReason: 'Claude Code auth/status output does not expose usage remaining.',
+    },
     capabilities: {
       runtimeSwitch: true,
       contextWindow: false,
@@ -658,6 +706,17 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
         args: ['acp', '--cwd', path.resolve(options.projectWorkspace || options.cwd || process.cwd())],
       }),
     },
+    usage: {
+      collection: {
+        collector: 'opencode-session-export',
+        kind: 'session-export',
+      },
+      defaultHomeDirectory: '.opencode',
+      source: 'opencode session export',
+      authStatus: 'Local session export',
+      quotaUnavailableReason: 'OpenCode session exports do not expose quota remaining.',
+      tokenUnavailableReason: 'OpenCode token usage is unavailable.',
+    },
     capabilities: {
       runtimeSwitch: true,
       contextWindow: false,
@@ -703,6 +762,15 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
           '--acp',
         ],
       }),
+    },
+    usage: {
+      collection: { kind: 'unavailable' },
+      defaultHomeDirectory: '.qoder',
+      source: 'Qoder session files',
+      coverageSource: 'local Qoder sessions',
+      authStatus: 'Local sessions',
+      quotaUnavailableReason: 'Qoder quota telemetry is unavailable.',
+      tokenUnavailableReason: 'Qoder session files do not expose model token usage.',
     },
     capabilities: {
       runtimeSwitch: true,
@@ -766,6 +834,15 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
         if (!sessionId || !text || text.length > 500 || !promptId) return null;
         return { kind: 'prompt-suggestion', sessionId, text, promptId };
       },
+    },
+    usage: {
+      collection: { kind: 'unavailable' },
+      defaultHomeDirectory: '.qwen',
+      source: 'local Qwen Code sessions',
+      coverageSource: 'local Qwen sessions',
+      authStatus: 'Local sessions',
+      quotaUnavailableReason: 'Qwen quota telemetry is unavailable.',
+      tokenUnavailableReason: 'Qwen session files do not expose model token usage.',
     },
     capabilities: {
       runtimeSwitch: true,
@@ -1068,4 +1145,8 @@ export {
   providerTreatsLegacyAcpRequestAsChat,
   type ProviderTerminalStartupPolicy,
   type ProviderPermissionRestartPolicy,
+  type ProviderAdapter,
+  type ProviderId,
+  type ProviderUsageCollection,
+  type ProviderUsageLiveCollector,
 };

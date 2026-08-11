@@ -149,8 +149,13 @@ Runtime Port 与 Provider Policy
   命令形状也归 Adapter，避免 Manager 与 ACP Host
   Cleanup 分叉。通用生命周期代码不解释 Provider 名称。共享 Terminal Startup
   Coordinator 拥有可变的排序和就绪状态；Adapter 只提供无状态的资源作用域和就绪策略。
-  Terminal Notification 的 Idle Stability 是 Adapter 声明的时长；共享 Attention
-  Tracker 拥有 Timer、Runtime Fence 与 Cleanup。
+  Provider 可以声明 Terminal Notification 必须等待权威 Terminal Observer 离开活跃
+  Turn；共享 Attention Tracker 消费该状态转换，不再使用经过时长来猜测完成。
+- Provider Adapter 还声明 Usage Home 发现、History 采集类型、可选的 Live/Export
+  Collector、来源归属和显式不可用语义。Usage Scanner Registry 负责 Provider 专属的
+  Record 解析与 Candidate 准备；通用发现、聚合、Coverage 和 Summary 代码只通过这些
+  契约分派，不解释 Provider 名称。真正不同的 Provider Parser 仍是 Adapter 实现，
+  而不是共享 Pipeline 中的分支。
 - Code Composer 内部只保存一种 Provider-neutral Launch Profile。Composer Provider
   Profile Adapter 负责 Settings 字段兼容、选项归一化、权限文案、模型/Reasoning/
   Service Tier 转换、Live Terminal Profile Projection 和 Provider 专属启动参数。
@@ -204,7 +209,8 @@ Session Identity、Usage、Adaptive Title、Settings、部分 WebSocket Delivery
 3. Stylesheet Domain 已有明确的 Base/Dark Owner，后续修改继续以全局 Cascade、
    Specificity 与 Import Order 证据作为门禁；
 4. Server 现在只通过 Host Facade 访问 ACP；通用权限重启、Resume Profile、Idle Fence
-   和恢复约束均来自有类型的 Provider Adapter Policy。
+   和恢复约束均来自有类型的 Provider Adapter Policy；Usage 的发现、解析、Export、
+   Live Observation、Coverage 和 Summary 选择也遵循同一个有类型的 Provider 边界。
 
 Resume 保留两张内部 Admission Map，因为 HTTP Resume 是完整 Operation，而
 Direct/Auto Resume 是 Effect 级入口；二者能否合并为一个 Admission 尚未证明，

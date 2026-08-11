@@ -166,7 +166,40 @@ function run() {
     assert(adapter.acp, `${adapter.id} must declare its ACP launch contract`);
     assert(adapter.acp.version);
     assert(['managed', 'system'].includes(adapter.acp.executablePolicy));
+    assert(adapter.usage, `${adapter.id} must declare its usage collection contract`);
+    assert(adapter.usage.defaultHomeDirectory.startsWith('.'));
+    assert(adapter.usage.source);
   }
+  assert.deepStrictEqual(
+    Object.fromEntries(adapters.map(adapter => [adapter.id, adapter.usage.collection])),
+    {
+      codex: {
+        kind: 'local-history',
+        rootDirectories: ['sessions', 'archived_sessions'],
+      },
+      claude: {
+        kind: 'local-history',
+        rootDirectories: ['projects'],
+      },
+      opencode: {
+        collector: 'opencode-session-export',
+        kind: 'session-export',
+      },
+      qoder: { kind: 'unavailable' },
+      qwen: { kind: 'unavailable' },
+    },
+  );
+  assert.deepStrictEqual(
+    Object.fromEntries(adapters.map(adapter => [adapter.id, adapter.usage.liveCollector || null])),
+    {
+      codex: 'codex-cli',
+      claude: 'claude-cli',
+      opencode: null,
+      qoder: null,
+      qwen: null,
+    },
+  );
+  assert.strictEqual(getProviderAdapter('claude').usage.coverageName, 'Claude');
   assert.strictEqual(getProviderAdapter('codex').acp.executablePolicy, 'managed');
   assert.strictEqual(getProviderAdapter('claude').acp.executablePolicy, 'managed');
   assert.strictEqual(getProviderAdapter('opencode').acp.executablePolicy, 'system');

@@ -36,10 +36,7 @@ export interface UsageHistoryProvider extends Record<string, unknown> {
 
 export interface UsageHistoryResult extends Record<string, unknown> {
   cache: UsageHistoryCache;
-  providers: {
-    claude: UsageHistoryProvider;
-    codex: UsageHistoryProvider;
-  };
+  providers: Record<string, UsageHistoryProvider>;
   source: string;
   sampledAt?: unknown;
 }
@@ -99,6 +96,7 @@ interface UsageHistoryCollectOptions {
   now?: number;
   recentRawMs?: number;
   retentionDays?: number;
+  roots?: Record<string, string[]>;
   scanBudgetMs?: number;
 }
 
@@ -399,10 +397,14 @@ class UsageHistoryClient {
   collect(options: UsageHistoryCollectOptions = {}): Promise<UsageHistoryResult> {
     const now = options.now ?? Date.now();
     const retentionDays = options.retentionDays ?? DEFAULT_RETENTION_DAYS;
-    const roots = {
-      codex: Array.from(new Set(options.codexRoots || [])).sort(),
-      claude: Array.from(new Set(options.claudeRoots || [])).sort(),
+    const requestedRoots = options.roots || {
+      codex: options.codexRoots || [],
+      claude: options.claudeRoots || [],
     };
+    const roots = Object.fromEntries(Object.entries(requestedRoots).map(([provider, entries]) => [
+      provider,
+      Array.from(new Set(entries)).sort(),
+    ]));
     const recentRawMs = options.recentRawMs ?? DEFAULT_RECENT_RAW_MS;
     const cacheKey = JSON.stringify({ roots, retentionDays, recentRawMs });
     if (this.cacheKey && this.cacheKey !== cacheKey) {

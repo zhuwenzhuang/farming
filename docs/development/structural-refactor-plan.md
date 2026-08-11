@@ -194,6 +194,13 @@ HTTP, WebSocket, persistence, and runtime-host boundaries.
   authoritative Terminal observer to leave the active turn. The shared
   Attention tracker consumes that state transition without an elapsed-time
   completion heuristic.
+- Provider adapters also declare Usage home discovery, history collection
+  kind, optional live/export collector, source attribution, and explicit
+  unavailable semantics. The Usage scanner registry owns Provider-specific
+  record parsing and candidate preparation; generic discovery, aggregation,
+  coverage, and summary code dispatch through those contracts and does not
+  interpret Provider names. A genuinely different Provider parser remains an
+  adapter implementation, not a branch in the shared pipeline.
 - The Code Composer stores one provider-neutral launch profile shape. Composer
   provider profile adapters own settings-field compatibility, option
   normalization, permission labels, model/reasoning/service-tier transitions,
@@ -256,7 +263,9 @@ The former priority structural problems have converged:
    specificity, and import-order proof as a continuing change gate;
 4. the Server now reaches ACP through the Host facade only, and generic
    permission restart, resume-profile, notification-ordering, and recovery
-   constraints come from typed Provider Adapter policy.
+   constraints come from typed Provider Adapter policy; Usage discovery,
+   parsing, export, live observation, coverage, and summary selection follow
+   the same typed Provider boundary.
 
 Resume keeps two internal admission maps because an HTTP resume is a complete
 operation while direct and auto resume are effect-level entries; whether they

@@ -20,7 +20,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 
-const SCHEMA_VERSION = 11;
+const SCHEMA_VERSION = 12;
 const SOURCE_VERSION = 'farming-usage-ts-1-codexbar-v0.45.2';
 const PREFIX_BYTES = 64 * 1024;
 const READ_CHUNK_BYTES = 1024 * 1024;
@@ -96,6 +96,31 @@ type CollectRequest = {
   recentRawMs?: number;
   scanBudgetMs?: number;
   roots?: Partial<Record<Provider, string[]>>;
+};
+type QueuePreparation = 'defer' | 'ready' | 'skip';
+type ParentBaselineCache = Map<string, Totals | null>;
+type UsageScannerProvider = {
+  id: Provider;
+  source: string;
+  createState(candidate: SourceCandidate): ParserState;
+  interesting(buffer: Buffer): boolean;
+  processRecord(
+    database: DatabaseSync,
+    candidate: SourceCandidate,
+    state: ParserState,
+    record: Record<string, unknown>,
+    lineEnd: number,
+    recentBoundary: number,
+    metrics: Metrics,
+  ): void;
+  candidateFromPath(database: DatabaseSync, filePath: string): SourceCandidate;
+  prepareQueuedCandidate(
+    database: DatabaseSync,
+    candidate: SourceCandidate,
+    parentCache: ParentBaselineCache,
+    metrics: Metrics,
+  ): QueuePreparation;
+  quotaCandidates(database: DatabaseSync): unknown[];
 };
 
 const ZERO: Totals = { input: 0, cached: 0, output: 0, cacheWrite: 0 };
@@ -174,10 +199,6 @@ CREATE INDEX IF NOT EXISTS codex_quota_candidates_latest
   ON codex_quota_candidates(timestamp_ms DESC);
 CREATE TABLE IF NOT EXISTS cache_stats (
   singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
-  codex_files INTEGER NOT NULL,
-  claude_files INTEGER NOT NULL,
-  codex_incomplete INTEGER NOT NULL,
-  claude_incomplete INTEGER NOT NULL,
   committed_bytes INTEGER NOT NULL,
   hourly_rows INTEGER NOT NULL,
   recent_rows INTEGER NOT NULL,
@@ -185,7 +206,7 @@ CREATE TABLE IF NOT EXISTS cache_stats (
   pending_directories INTEGER NOT NULL,
   queued_sources INTEGER NOT NULL
 );
-INSERT OR IGNORE INTO cache_stats VALUES(1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+INSERT OR IGNORE INTO cache_stats VALUES(1, 0, 0, 0, 0, 0, 0);
 CREATE TABLE IF NOT EXISTS usage_hourly (
   source_path TEXT NOT NULL,
   provider TEXT NOT NULL,
@@ -242,34 +263,18 @@ CREATE INDEX IF NOT EXISTS claude_messages_time
 CREATE TRIGGER IF NOT EXISTS source_files_stats_insert
 AFTER INSERT ON source_files BEGIN
   UPDATE cache_stats SET
-    codex_files = codex_files + (NEW.provider = 'codex'),
-    claude_files = claude_files + (NEW.provider = 'claude'),
-    codex_incomplete = codex_incomplete + (NEW.provider = 'codex' AND NEW.scan_complete = 0),
-    claude_incomplete = claude_incomplete + (NEW.provider = 'claude' AND NEW.scan_complete = 0),
     committed_bytes = committed_bytes + NEW.committed_offset
   WHERE singleton = 1;
 END;
 CREATE TRIGGER IF NOT EXISTS source_files_stats_delete
 AFTER DELETE ON source_files BEGIN
   UPDATE cache_stats SET
-    codex_files = codex_files - (OLD.provider = 'codex'),
-    claude_files = claude_files - (OLD.provider = 'claude'),
-    codex_incomplete = codex_incomplete - (OLD.provider = 'codex' AND OLD.scan_complete = 0),
-    claude_incomplete = claude_incomplete - (OLD.provider = 'claude' AND OLD.scan_complete = 0),
     committed_bytes = committed_bytes - OLD.committed_offset
   WHERE singleton = 1;
 END;
 CREATE TRIGGER IF NOT EXISTS source_files_stats_update
 AFTER UPDATE OF provider, scan_complete, committed_offset ON source_files BEGIN
   UPDATE cache_stats SET
-    codex_files = codex_files - (OLD.provider = 'codex') + (NEW.provider = 'codex'),
-    claude_files = claude_files - (OLD.provider = 'claude') + (NEW.provider = 'claude'),
-    codex_incomplete = codex_incomplete
-      - (OLD.provider = 'codex' AND OLD.scan_complete = 0)
-      + (NEW.provider = 'codex' AND NEW.scan_complete = 0),
-    claude_incomplete = claude_incomplete
-      - (OLD.provider = 'claude' AND OLD.scan_complete = 0)
-      + (NEW.provider = 'claude' AND NEW.scan_complete = 0),
     committed_bytes = committed_bytes - OLD.committed_offset + NEW.committed_offset
   WHERE singleton = 1;
 END;
@@ -543,25 +548,19 @@ function claudeOwnerSession(filePath: string): string {
   return path.basename(filePath, '.jsonl');
 }
 
-function defaultState(provider: Provider, filePath: string): ParserState {
-  if (provider === 'claude') {
-    return {
-      sessionId: claudeOwnerSession(filePath),
-      projectPath: '',
-    };
-  }
+function createCodexState(candidate: SourceCandidate): CodexState {
   return {
-    sessionId: path.basename(filePath, '.jsonl'),
+    sessionId: candidate.sessionId,
     leafSessionId: null,
-    parentSessionId: null,
-    forkTimestamp: null,
+    parentSessionId: candidate.parentSessionId,
+    forkTimestamp: candidate.forkTimestamp,
     projectPath: '',
     lastAssistantTimestamp: null,
-    copiedPrefix: false,
+    copiedPrefix: candidate.copiedPrefix,
     isSubagent: false,
     ownBoundarySeen: false,
     pendingOwnedBoundary: false,
-    inheritedRaw: null,
+    inheritedRaw: cloneTotals(candidate.parentBaseline),
     counted: null,
     rawBaseline: null,
     watermark: null,
@@ -570,6 +569,13 @@ function defaultState(provider: Provider, filePath: string): ParserState {
     interleaved: false,
     skippedUnresolvedForkTotal: false,
     quotas: {},
+  };
+}
+
+function createClaudeState(candidate: SourceCandidate): ClaudeState {
+  return {
+    sessionId: candidate.sessionId,
+    projectPath: '',
   };
 }
 
@@ -662,8 +668,7 @@ function parseLargeJsonEdge(first: Buffer, tail: Buffer): Record<string, unknown
   };
 }
 
-function interesting(provider: Provider, buffer: Buffer): boolean {
-  if (provider === 'claude') return buffer.includes(Buffer.from('"assistant"'));
+function codexRecordInteresting(buffer: Buffer): boolean {
   return [
     '"session_meta"',
     '"token_count"',
@@ -675,6 +680,10 @@ function interesting(provider: Provider, buffer: Buffer): boolean {
   ].some(marker => buffer.includes(Buffer.from(marker)));
 }
 
+function claudeRecordInteresting(buffer: Buffer): boolean {
+  return buffer.includes(Buffer.from('"assistant"'));
+}
+
 function parseRecord(
   provider: Provider,
   fullLine: Buffer | null,
@@ -682,7 +691,7 @@ function parseRecord(
   tail: Buffer,
 ): Record<string, unknown> | null {
   const searchable = fullLine || Buffer.concat([first, tail]);
-  if (!interesting(provider, searchable)) return null;
+  if (!usageScannerProvider(provider).interesting(searchable)) return null;
   if (fullLine) {
     try {
       const parsed = JSON.parse(fullLine.toString('utf8'));
@@ -1254,7 +1263,7 @@ function deleteSource(database: DatabaseSync, filePath: string): void {
   database.prepare('DELETE FROM source_files WHERE path = ?').run(filePath);
 }
 
-function processRecord(
+function processCodexRecord(
   database: DatabaseSync,
   candidate: SourceCandidate,
   state: ParserState,
@@ -1263,58 +1272,65 @@ function processRecord(
   recentBoundary: number,
   metrics: Metrics,
 ): void {
-  if (candidate.provider === 'codex') {
-    const codexState = state as CodexState;
-    const result = codexRecord(record, codexState);
-    if (result.quota && typeof result.quota === 'object') {
-      const quota = result.quota as Record<string, unknown>;
-      const key = String(quota.limit_id || quota.limitId || '');
-      const previous = codexState.quotas[key];
-      const observedAt = timestampMs(record.timestamp);
-      if (!previous || observedAt === null || previous.timestamp === null || observedAt >= previous.timestamp) {
-        codexState.quotas[key] = { timestamp: observedAt, rateLimits: result.quota };
-        database.prepare(`
-          INSERT INTO codex_quota_candidates(
-            source_path, limit_id, timestamp_ms, rate_limits_json
-          ) VALUES(?, ?, ?, ?)
-          ON CONFLICT(source_path, limit_id) DO UPDATE SET
-            timestamp_ms = excluded.timestamp_ms,
-            rate_limits_json = excluded.rate_limits_json
-          WHERE excluded.timestamp_ms IS NULL
-             OR codex_quota_candidates.timestamp_ms IS NULL
-             OR excluded.timestamp_ms >= codex_quota_candidates.timestamp_ms
-        `).run(
-          candidate.filePath,
-          key,
-          observedAt,
-          JSON.stringify(result.quota),
-        );
-      }
+  const codexState = state as CodexState;
+  const result = codexRecord(record, codexState);
+  if (result.quota && typeof result.quota === 'object') {
+    const quota = result.quota as Record<string, unknown>;
+    const key = String(quota.limit_id || quota.limitId || '');
+    const previous = codexState.quotas[key];
+    const observedAt = timestampMs(record.timestamp);
+    if (!previous || observedAt === null || previous.timestamp === null || observedAt >= previous.timestamp) {
+      codexState.quotas[key] = { timestamp: observedAt, rateLimits: result.quota };
+      database.prepare(`
+        INSERT INTO codex_quota_candidates(
+          source_path, limit_id, timestamp_ms, rate_limits_json
+        ) VALUES(?, ?, ?, ?)
+        ON CONFLICT(source_path, limit_id) DO UPDATE SET
+          timestamp_ms = excluded.timestamp_ms,
+          rate_limits_json = excluded.rate_limits_json
+        WHERE excluded.timestamp_ms IS NULL
+           OR codex_quota_candidates.timestamp_ms IS NULL
+           OR excluded.timestamp_ms >= codex_quota_candidates.timestamp_ms
+      `).run(
+        candidate.filePath,
+        key,
+        observedAt,
+        JSON.stringify(result.quota),
+      );
     }
-    if (!result.usage || !result.timestamp) return;
-    hourlyAdd(
+  }
+  if (!result.usage || !result.timestamp) return;
+  hourlyAdd(
+    database,
+    candidate.filePath,
+    candidate.provider,
+    codexState.sessionId,
+    result.timestamp,
+    result.usage,
+  );
+  if (result.timestamp >= recentBoundary) {
+    recentUpsert(
       database,
       candidate.filePath,
-      'codex',
+      `offset:${lineEnd}`,
+      candidate.provider,
       codexState.sessionId,
       result.timestamp,
       result.usage,
     );
-    if (result.timestamp >= recentBoundary) {
-      recentUpsert(
-        database,
-        candidate.filePath,
-        `offset:${lineEnd}`,
-        'codex',
-        codexState.sessionId,
-        result.timestamp,
-        result.usage,
-      );
-    }
-    metrics.parsed_events = Number(metrics.parsed_events) + 1;
-    return;
   }
+  metrics.parsed_events = Number(metrics.parsed_events) + 1;
+}
 
+function processClaudeRecord(
+  database: DatabaseSync,
+  candidate: SourceCandidate,
+  state: ParserState,
+  record: Record<string, unknown>,
+  lineEnd: number,
+  recentBoundary: number,
+  metrics: Metrics,
+): void {
   const claudeState = state as ClaudeState;
   const result = claudeRecord(record, claudeState);
   if (!result.usage || !result.timestamp) return;
@@ -1332,7 +1348,7 @@ function processRecord(
     hourlyAdd(
       database,
       candidate.filePath,
-      'claude',
+      candidate.provider,
       claudeState.sessionId,
       result.timestamp,
       result.usage,
@@ -1342,7 +1358,7 @@ function processRecord(
         database,
         candidate.filePath,
         `offset:${lineEnd}`,
-        'claude',
+        candidate.provider,
         claudeState.sessionId,
         result.timestamp,
         result.usage,
@@ -1350,6 +1366,26 @@ function processRecord(
     }
   }
   metrics.parsed_events = Number(metrics.parsed_events) + 1;
+}
+
+function processRecord(
+  database: DatabaseSync,
+  candidate: SourceCandidate,
+  state: ParserState,
+  record: Record<string, unknown>,
+  lineEnd: number,
+  recentBoundary: number,
+  metrics: Metrics,
+): void {
+  usageScannerProvider(candidate.provider).processRecord(
+    database,
+    candidate,
+    state,
+    record,
+    lineEnd,
+    recentBoundary,
+    metrics,
+  );
 }
 
 function isCompleteJsonValue(
@@ -1487,15 +1523,7 @@ function scanFile(
       deleteSource(database, candidate.filePath);
       metrics[`${candidate.provider}_cache_rebuilt`] = true;
     }
-    const state = defaultState(candidate.provider, candidate.filePath);
-    if (candidate.provider === 'codex') {
-      const codexState = state as CodexState;
-      codexState.sessionId = candidate.sessionId;
-      codexState.parentSessionId = candidate.parentSessionId;
-      codexState.forkTimestamp = candidate.forkTimestamp;
-      codexState.copiedPrefix = candidate.copiedPrefix;
-      codexState.inheritedRaw = cloneTotals(candidate.parentBaseline);
-    }
+    const state = usageScannerProvider(candidate.provider).createState(candidate);
     insertSource(database, candidate, state, prefixHash(candidate.filePath));
     row = sourceRow(database, candidate.filePath);
     metrics.rebuilt_files = Number(metrics.rebuilt_files) + 1;
@@ -1850,7 +1878,7 @@ function configuredRoots(roots: Partial<Record<Provider, string[]>>): Array<{
   rootPath: string;
 }> {
   const configured: Array<{ provider: Provider; rootPath: string }> = [];
-  for (const provider of ['codex', 'claude'] as const) {
+  for (const provider of USAGE_SCANNER_PROVIDER_IDS) {
     for (const root of Array.from(new Set(roots[provider] || [])).sort()) {
       configured.push({ provider, rootPath: path.resolve(root) });
     }
@@ -2283,42 +2311,47 @@ function auditSources(
   }
 }
 
-function candidateFromPath(
-  database: DatabaseSync,
-  provider: Provider,
-  filePath: string,
-): SourceCandidate {
+function codexCandidateFromPath(database: DatabaseSync, filePath: string): SourceCandidate {
   const stat = fs.statSync(filePath);
   const cached = sourceRow(database, filePath);
-  if (provider === 'codex') {
-    let probe: ReturnType<typeof probeCodex>;
-    if (cached?.provider === 'codex') {
-      try {
-        const state = JSON.parse(String(cached.parser_state)) as CodexState;
-        probe = {
-          sessionId: state.sessionId,
-          parentSessionId: state.parentSessionId,
-          forkTimestamp: state.forkTimestamp,
-          copiedPrefix: state.copiedPrefix,
-        };
-      } catch {
-        probe = probeCodex(filePath);
-      }
-    } else {
+  let probe: ReturnType<typeof probeCodex>;
+  if (cached?.provider === 'codex') {
+    try {
+      const state = JSON.parse(String(cached.parser_state)) as CodexState;
+      probe = {
+        sessionId: state.sessionId,
+        parentSessionId: state.parentSessionId,
+        forkTimestamp: state.forkTimestamp,
+        copiedPrefix: state.copiedPrefix,
+      };
+    } catch {
       probe = probeCodex(filePath);
     }
-    return { provider, filePath, stat, ...probe, parentBaseline: null };
+  } else {
+    probe = probeCodex(filePath);
   }
+  return { provider: 'codex', filePath, stat, ...probe, parentBaseline: null };
+}
+
+function claudeCandidateFromPath(_database: DatabaseSync, filePath: string): SourceCandidate {
   return {
-    provider,
+    provider: 'claude',
     filePath,
-    stat,
+    stat: fs.statSync(filePath),
     sessionId: claudeOwnerSession(filePath),
     parentSessionId: null,
     forkTimestamp: null,
     copiedPrefix: false,
     parentBaseline: null,
   };
+}
+
+function candidateFromPath(
+  database: DatabaseSync,
+  provider: Provider,
+  filePath: string,
+): SourceCandidate {
+  return usageScannerProvider(provider).candidateFromPath(database, filePath);
 }
 
 function moveSource(
@@ -2413,6 +2446,80 @@ function resolveParentBaselineFromDatabase(
   return baseline;
 }
 
+function prepareCodexQueuedCandidate(
+  database: DatabaseSync,
+  candidate: SourceCandidate,
+  parentCache: ParentBaselineCache,
+  metrics: Metrics,
+): QueuePreparation {
+  if (!prepareCodexCandidate(database, candidate, metrics)) return 'skip';
+  if (
+    !sourceRow(database, candidate.filePath)
+    && candidate.parentSessionId
+    && !database.prepare(
+      "SELECT 1 FROM source_files WHERE provider = 'codex' AND session_id = ? LIMIT 1",
+    ).get(candidate.parentSessionId)
+  ) {
+    const otherUpsert = database.prepare(
+      "SELECT 1 FROM discovery_source_queue "
+        + "WHERE action = 'upsert' AND path != ? LIMIT 1",
+    ).get(candidate.filePath);
+    if (otherUpsert) {
+      const row = database.prepare(
+        "SELECT priority + 1 AS priority FROM discovery_source_queue "
+          + "WHERE action = 'upsert' ORDER BY priority DESC LIMIT 1",
+      ).get() as { priority: number };
+      database.prepare(
+        'UPDATE discovery_source_queue SET priority = ?, queued_at_ms = ? WHERE path = ?',
+      ).run(Number(row.priority), Date.now(), candidate.filePath);
+      return 'defer';
+    }
+  }
+  if (!sourceRow(database, candidate.filePath) && candidate.parentSessionId) {
+    candidate.parentBaseline = resolveParentBaselineFromDatabase(
+      database,
+      candidate,
+      parentCache,
+      metrics,
+    );
+  }
+  return 'ready';
+}
+
+function prepareClaudeQueuedCandidate(): QueuePreparation {
+  return 'ready';
+}
+
+const USAGE_SCANNER_PROVIDERS: Readonly<Record<Provider, UsageScannerProvider>> = Object.freeze({
+  codex: Object.freeze({
+    id: 'codex',
+    source: 'Farming local history · CodexBar 0.45.2-derived',
+    createState: createCodexState,
+    interesting: codexRecordInteresting,
+    processRecord: processCodexRecord,
+    candidateFromPath: codexCandidateFromPath,
+    prepareQueuedCandidate: prepareCodexQueuedCandidate,
+    quotaCandidates: latestQuotas,
+  }),
+  claude: Object.freeze({
+    id: 'claude',
+    source: 'Farming local history · cc-statistics 1.1.0-derived',
+    createState: createClaudeState,
+    interesting: claudeRecordInteresting,
+    processRecord: processClaudeRecord,
+    candidateFromPath: claudeCandidateFromPath,
+    prepareQueuedCandidate: prepareClaudeQueuedCandidate,
+    quotaCandidates: () => [],
+  }),
+});
+const USAGE_SCANNER_PROVIDER_IDS = Object.freeze(
+  Object.keys(USAGE_SCANNER_PROVIDERS) as Provider[],
+);
+
+function usageScannerProvider(provider: Provider): UsageScannerProvider {
+  return USAGE_SCANNER_PROVIDERS[provider];
+}
+
 function processSourceQueue(
   database: DatabaseSync,
   recentBoundary: number,
@@ -2478,43 +2585,18 @@ function processSourceQueue(
       database.exec('BEGIN IMMEDIATE');
       let complete = false;
       try {
-        if (candidate.provider === 'codex') {
-          if (!prepareCodexCandidate(database, candidate, metrics)) {
+        const preparation = usageScannerProvider(candidate.provider).prepareQueuedCandidate(
+          database,
+          candidate,
+          parentCache,
+          metrics,
+        );
+        if (preparation !== 'ready') {
+          if (preparation === 'skip') {
             database.prepare('DELETE FROM discovery_source_queue WHERE path = ?').run(filePath);
-            database.exec('COMMIT');
-            continue;
           }
-          if (
-            !sourceRow(database, filePath)
-            && candidate.parentSessionId
-            && !database.prepare(
-              "SELECT 1 FROM source_files WHERE provider = 'codex' AND session_id = ? LIMIT 1",
-            ).get(candidate.parentSessionId)
-          ) {
-            const otherUpsert = database.prepare(
-              "SELECT 1 FROM discovery_source_queue "
-                + "WHERE action = 'upsert' AND path != ? LIMIT 1",
-            ).get(filePath);
-            if (otherUpsert) {
-              const row = database.prepare(
-                "SELECT priority + 1 AS priority FROM discovery_source_queue "
-                  + "WHERE action = 'upsert' ORDER BY priority DESC LIMIT 1",
-              ).get() as { priority: number };
-              database.prepare(
-                'UPDATE discovery_source_queue SET priority = ?, queued_at_ms = ? WHERE path = ?',
-              ).run(Number(row.priority), Date.now(), filePath);
-              database.exec('COMMIT');
-              continue;
-            }
-          }
-          if (!sourceRow(database, filePath) && candidate.parentSessionId) {
-            candidate.parentBaseline = resolveParentBaselineFromDatabase(
-              database,
-              candidate,
-              parentCache,
-              metrics,
-            );
-          }
+          database.exec('COMMIT');
+          continue;
         }
         complete = scanFile(database, candidate, recentBoundary, deadline, metrics);
         database.exec('COMMIT');
@@ -2587,10 +2669,13 @@ export function collectUsage(request: CollectRequest): Record<string, unknown> {
     removed_files: 0,
     moved_files: 0,
     errors: 0,
-    errors_by_provider: { codex: 0, claude: 0 },
+    errors_by_provider: Object.fromEntries(
+      USAGE_SCANNER_PROVIDER_IDS.map(provider => [provider, 0]),
+    ) as Record<Provider, number>,
     cache_rebuilt: rebuilt,
-    codex_cache_rebuilt: false,
-    claude_cache_rebuilt: false,
+    ...Object.fromEntries(
+      USAGE_SCANNER_PROVIDER_IDS.map(provider => [`${provider}_cache_rebuilt`, false]),
+    ),
   };
   let completed = false;
 
@@ -2638,21 +2723,41 @@ export function collectUsage(request: CollectRequest): Record<string, unknown> {
     const stats = database.prepare(
       'SELECT * FROM cache_stats WHERE singleton = 1',
     ).get() as Record<string, number>;
+    const providerStats = Object.fromEntries(
+      USAGE_SCANNER_PROVIDER_IDS.map(provider => [provider, { files: 0, incomplete: 0 }]),
+    ) as Record<Provider, { files: number; incomplete: number }>;
+    const providerStatRows = database.prepare(`
+      SELECT provider, COUNT(*) AS files,
+             SUM(CASE WHEN scan_complete = 0 THEN 1 ELSE 0 END) AS incomplete
+      FROM source_files
+      GROUP BY provider
+    `).all() as Array<{ provider: string; files: number; incomplete: number }>;
+    for (const row of providerStatRows) {
+      if (!(row.provider in providerStats)) continue;
+      providerStats[row.provider as Provider] = {
+        files: Number(row.files),
+        incomplete: Number(row.incomplete),
+      };
+    }
     const pendingDirectories = Number(stats.pending_directories);
     const pendingFiles = Number(stats.queued_sources);
-    const incompleteFiles = Number(stats.codex_incomplete)
-      + Number(stats.claude_incomplete);
+    const incompleteFiles = USAGE_SCANNER_PROVIDER_IDS.reduce(
+      (total, provider) => total + providerStats[provider].incomplete,
+      0,
+    );
     const scanComplete = pendingDirectories === 0
       && pendingFiles === 0
       && incompleteFiles === 0
       && Number(metrics.errors) === 0;
     if (scanComplete) setMetadataValue(database, 'discovery_ready', '1');
     const discoveryReady = metadataValue(database, 'discovery_ready') === '1';
-    const discovered = {
-      codex: Number(stats.codex_files),
-      claude: Number(stats.claude_files),
-    };
-    metrics.discovered_files = discovered.codex + discovered.claude;
+    const discovered = Object.fromEntries(
+      USAGE_SCANNER_PROVIDER_IDS.map(provider => [provider, providerStats[provider].files]),
+    ) as Record<Provider, number>;
+    metrics.discovered_files = USAGE_SCANNER_PROVIDER_IDS.reduce(
+      (total, provider) => total + discovered[provider],
+      0,
+    );
     metrics.scan_complete = scanComplete;
     metrics.pending_files = pendingFiles;
     metrics.pending_directories = pendingDirectories;
@@ -2664,26 +2769,24 @@ export function collectUsage(request: CollectRequest): Record<string, unknown> {
     metrics.codex_fingerprint_rows = 0;
     metrics.codex_session_rows = discovered.codex;
     metrics.codex_session_cache_rows = 0;
-    const providerComplete = {
-      codex: discoveryReady && Number(stats.codex_incomplete) === 0,
-      claude: discoveryReady && Number(stats.claude_incomplete) === 0,
-    };
+    const providerComplete = Object.fromEntries(
+      USAGE_SCANNER_PROVIDER_IDS.map(provider => [
+        provider,
+        discoveryReady && providerStats[provider].incomplete === 0,
+      ]),
+    ) as Record<Provider, boolean>;
 
-    const providers: Record<Provider, Record<string, unknown>> = {
-      codex: {},
-      claude: {},
-    };
-    for (const provider of ['codex', 'claude'] as const) {
+    const providers = {} as Record<Provider, Record<string, unknown>>;
+    for (const provider of USAGE_SCANNER_PROVIDER_IDS) {
+      const scannerProvider = usageScannerProvider(provider);
       const providerErrors = (metrics.errors_by_provider as Record<Provider, number>)[provider];
       const available = discovered[provider] > 0 && providerErrors === 0;
       providers[provider] = {
-        source: provider === 'codex'
-          ? 'Farming local history · CodexBar 0.45.2-derived'
-          : 'Farming local history · cc-statistics 1.1.0-derived',
+        source: scannerProvider.source,
         events: !providerComplete[provider]
           ? []
           : providerEvents(database, provider, retentionCutoff, recentBoundary),
-        quotaCandidates: provider === 'codex' ? latestQuotas(database) : [],
+        quotaCandidates: scannerProvider.quotaCandidates(database),
         fileCount: discovered[provider],
         available,
         partial: !providerComplete[provider],
