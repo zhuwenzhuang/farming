@@ -26,6 +26,8 @@ function agent(overrides: Partial<Agent> = {}): Agent {
       supportedRuntimes: ['terminal', 'acp'],
       runtimeSwitch: true,
       terminalProfile: true,
+      terminalComposerInput: 'bracketed-paste',
+      slashCommandDiscovery: true,
       goals: true,
       goalSubmission: null,
       terminalSessionFork: true,
