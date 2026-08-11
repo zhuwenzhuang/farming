@@ -815,7 +815,6 @@ test('remote bootstrap TERM cleans its exact wget process and temporary files', 
   Object.entries(commands).forEach(([name, target]) => fs.symlinkSync(target, path.join(binaryDir, name)))
   const fakeWget = path.join(binaryDir, 'wget')
   fs.writeFileSync(fakeWget, `#!/bin/sh
-trap 'exit 0' HUP INT TERM
 while :; do
   printf 'download-in-progress'
   /bin/sleep 0.02
@@ -844,10 +843,10 @@ done
       && Date.now() < deadline
     ) await new Promise(resolve => setTimeout(resolve, 10))
     assert.ok(fs.existsSync(installDir) && fs.readdirSync(installDir).length > 0, stderr)
-    process.kill(-child.pid!, 'SIGTERM')
     const exitCode = await new Promise<number | null>((resolve, reject) => {
       child.once('error', reject)
       child.once('exit', resolve)
+      process.kill(-child.pid!, 'SIGTERM')
     })
     assert.notEqual(exitCode, 0)
     assert.deepEqual(fs.readdirSync(installDir), [])

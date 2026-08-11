@@ -17,9 +17,10 @@ const {
 
 function run() {
   const previousConfigDir = process.env.FARMING_CONFIG_DIR;
-  const tmpBase = path.resolve(__dirname, '..', '..', '.tmp');
-  fs.mkdirSync(tmpBase, { recursive: true });
-  const tmpRoot = fs.mkdtempSync(path.join(tmpBase, 'farming-config-manager-'));
+  // Workspace history deliberately excludes paths under the operating system's
+  // temporary roots. Keep the fixture under the user's home so this contract is
+  // exercised identically when the repository itself is checked out in /tmp.
+  const tmpRoot = fs.mkdtempSync(path.join(os.homedir(), '.farming-test-config-manager-'));
   const farmingDir = path.join(tmpRoot, '.farming');
   const projectA = path.join(tmpRoot, 'project-a');
   const projectB = path.join(tmpRoot, 'project-b');
