@@ -159,6 +159,13 @@ Focused Terminal output and authoritative screen state take priority over
 low-frequency activity or preview metadata. Selecting an existing Agent is a
 local view change and must not trigger a full Agent-state refresh.
 
+The generic terminal state machine owns lifecycle and shell precedence. Coding
+Agent screen evidence, nested-process titles, input readiness, and activity
+parsing are supplied by the Provider Terminal Observer registry. Generic
+terminal code must not select parsing behavior by inspecting Provider names;
+adding or changing a Provider parser is an observer-boundary change with
+focused parser and runtime-observation tests.
+
 ## Recovery And Failure
 
 A compatible Server restart reconnects to the live PTY host. An incompatible

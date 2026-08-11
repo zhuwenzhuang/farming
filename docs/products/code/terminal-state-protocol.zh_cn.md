@@ -122,6 +122,12 @@ Replacement 会轮换 Title Authority；User Rename 最高优先；Title Failure
 Focused Terminal 的 Output 与权威 Screen State 优先于低频 Activity 或 Preview Metadata。选择
 Existing Agent 只是本地 View Change，不能触发 Full Agent-state Refresh。
 
+通用 Terminal State Machine 负责 Lifecycle 与 Shell 的优先级；Coding Agent 的 Screen
+Evidence、Nested-process Title、Input Readiness 与 Activity Parsing 由 Provider Terminal
+Observer Registry 提供。通用 Terminal 代码不能通过判断 Provider Name 来选择 Parser；新增或
+修改 Provider Parser 必须作为 Observer Boundary 变更，并由聚焦的 Parser 与 Runtime-observation
+Test 验证。
+
 ## Recovery 与 Failure
 
 兼容 Server Restart 会重连 Live PTY Host。不兼容 Host Replacement 在可能时先保留 Final
