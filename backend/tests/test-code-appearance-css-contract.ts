@@ -77,11 +77,10 @@ for (const appearance of appearances) {
     : `body.code-mode[data-appearance='${appearance}']`
   const rule = tokenRoot.nodes.find(node => node.type === 'rule' && node.selector === selector)
   assert(rule && rule.type === 'rule', `generated CSS must contain one ${appearance} rule`)
-  const declarations = Object.fromEntries(
-    (rule.nodes ?? [])
-      .filter(node => node.type === 'decl' && node.prop.startsWith('--code-'))
-      .map(declaration => [declaration.prop, declaration.value]),
-  )
+  const declarations: Record<string, string> = {}
+  rule.walkDecls(/^--code-/, declaration => {
+    declarations[declaration.prop] = declaration.value
+  })
   assert.deepEqual(declarations, theme.css, `generated ${appearance} CSS must exactly match the registry`)
 }
 assert.equal(
@@ -141,7 +140,9 @@ const allCssSources = [...cssFilesBelow('src'), ...cssFilesBelow('extensions')]
 const declaredCodeRoles = new Set(lightRoles)
 for (const sourcePath of allCssSources) {
   const root = postcss.parse(fs.readFileSync(path.join(projectRoot, sourcePath), 'utf8'), { from: sourcePath })
-  root.walkDecls(/^--code-/, declaration => declaredCodeRoles.add(declaration.prop))
+  root.walkDecls(/^--code-/, declaration => {
+    declaredCodeRoles.add(declaration.prop)
+  })
 }
 for (const sourcePath of allCssSources) {
   const root = postcss.parse(fs.readFileSync(path.join(projectRoot, sourcePath), 'utf8'), { from: sourcePath })

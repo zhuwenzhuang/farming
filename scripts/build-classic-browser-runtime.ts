@@ -11,6 +11,9 @@ const sharedRoot = path.join(projectRoot, 'shared');
 const generatedHeader = '// Generated from TypeScript. Do not edit.';
 const crtAppPath = path.join(frontendRoot, 'skins', 'crt', 'app.ts');
 const browserProtocolVersionMarker = "Number('__FARMING_BROWSER_PROTOCOL_VERSION__')";
+const backendRuntimeOwnedSharedSources = new Set([
+  path.join(sharedRoot, 'appearance-themes.ts'),
+]);
 
 function collectTypeScriptFiles(directory: string): string[] {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -62,6 +65,7 @@ function main(): void {
     transpileRuntime(filePath, ts.ModuleKind.None);
   }
   for (const filePath of collectTypeScriptFiles(sharedRoot).sort()) {
+    if (backendRuntimeOwnedSharedSources.has(filePath)) continue;
     transpileRuntime(filePath, ts.ModuleKind.CommonJS);
   }
 }

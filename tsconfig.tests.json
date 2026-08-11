@@ -6,6 +6,9 @@
     "moduleDetection": "force",
     "moduleResolution": "Bundler",
     "noEmit": true,
+    "paths": {
+      "@/*": ["./src/*"]
+    },
     "skipLibCheck": true,
     "strict": false,
     "strictNullChecks": false,
