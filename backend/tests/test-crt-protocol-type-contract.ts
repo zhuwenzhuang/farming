@@ -3,6 +3,7 @@
 import type {
   AgentActivityLevel,
   AgentLifecycleStatus,
+  AgentStateWire,
   ProviderCapabilitiesWire,
   RuntimeObservationWire,
 } from '../../shared/agent-state-wire.js';
@@ -14,6 +15,13 @@ import type {
 } from '../../shared/browser-protocol.js';
 
 type Assert<Condition extends true> = Condition;
+type SplitDiscriminants<Message extends { type: PropertyKey }> = Message extends unknown
+  ? Message['type'] extends infer Type
+    ? Type extends PropertyKey
+      ? Message & { type: Type }
+      : never
+    : never
+  : never;
 type Exact<Left, Right> =
   (<Value>() => Value extends Left ? 1 : 2) extends
   (<Value>() => Value extends Right ? 1 : 2)
@@ -70,6 +78,9 @@ type _RuntimeObservationParity = Assert<Exact<
   Pick<CrtProtocolRuntimeObservation, keyof RuntimeObservationWire>,
   RuntimeObservationWire
 >>;
+type _CrtAgentProvidesTheCanonicalWireState = Assert<
+  CrtProtocolAgent extends AgentStateWire ? true : false
+>;
 type _SnapshotCursorParity = Assert<Exact<
   Pick<CrtProtocolStateServerMessage, keyof AgentStateCursor>,
   AgentStateCursor
@@ -92,6 +103,15 @@ type _DeclaredClientMessagesAreCanonical = Assert<
 type _ConsumedClientMessagesRetainTheDeclaration = Assert<Exact<
   CrtWebSocketClientMessage['type'],
   CrtProtocolDeclaredClientMessage['type']
+>>;
+type _SentClientPayloadsAreCanonical = Assert<
+  Exclude<SplitDiscriminants<CrtProtocolDeclaredClientMessage>, ClientMessage> extends never
+    ? true
+    : false
+>;
+type _PermissionOptionIdRemainsRequired = Assert<Exact<
+  CrtProtocolPermissionResponseClientMessage['optionId'],
+  string
 >>;
 type _DeclaredServerMessagesAreStable = Assert<Exact<
   CrtProtocolDeclaredServerMessage['type'],

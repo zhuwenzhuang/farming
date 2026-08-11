@@ -95,6 +95,8 @@ interface CrtProtocolAgent extends CrtProtocolRecord {
   isMain: boolean;
   activityLevel: CrtProtocolActivityLevel;
   lastActivity: number;
+  attentionScore: number;
+  isZombie: boolean;
   runtimeBinding: CrtProtocolRuntimeBinding;
   runtimeObservation: CrtProtocolRuntimeObservation;
   providerCapabilities: CrtProtocolProviderCapabilities;
@@ -228,7 +230,7 @@ interface CrtProtocolPermissionResponseClientMessage extends CrtProtocolRecord {
   type: 'acp-permission-response';
   agentId: string;
   requestId: string;
-  optionId?: string;
+  optionId: string;
   cancelled?: boolean;
 }
 
