@@ -1,6 +1,8 @@
 import type { WebSocketRoute } from '@playwright/test'
+import type { AgentStateWire } from '../../shared/agent-state-wire'
 import {
   PROTOCOL_VERSION,
+  validateServerMessage,
   type ProtocolServerHelloMessage,
   type StateDeltaMessage,
   type StateMessage,
@@ -8,34 +10,7 @@ import {
 } from '../../shared/browser-protocol'
 import { expect, test } from './fixtures'
 
-type CrtTestAgent = {
-  id: string
-  command: string
-  cwd: string
-  output: string
-  status: 'running'
-  isMain: false
-  activityLevel: 'cold'
-  lastActivity: number
-  runtimeBinding: { kind: 'terminal' }
-  runtimeObservation: {
-    kind: 'shell'
-    phase: 'idle'
-    confidence: 'high'
-    source: 'shell-marker'
-    observerVersion: string
-    observedAt: number
-  }
-  providerCapabilities: {
-    supportedRuntimes: ['terminal']
-    runtimeSwitch: false
-    terminalProfile: false
-    terminalSessionFork: false
-    sessionFork: false
-    chatRuntime: ''
-    supportsChat: false
-    supportsSteer: false
-  }
+type CrtTestAgent = AgentStateWire & {
   customTitle: string
   projectWorkspace: string
 }
@@ -61,6 +36,8 @@ function testAgent(id: string, customTitle: string): CrtTestAgent {
     isMain: false,
     activityLevel: 'cold',
     lastActivity: 1,
+    attentionScore: 0,
+    isZombie: false,
     runtimeBinding: { kind: 'terminal' },
     runtimeObservation: {
       kind: 'shell',
@@ -74,6 +51,10 @@ function testAgent(id: string, customTitle: string): CrtTestAgent {
       supportedRuntimes: ['terminal'],
       runtimeSwitch: false,
       terminalProfile: false,
+      terminalComposerInput: 'bracketed-paste',
+      slashCommandDiscovery: false,
+      goals: false,
+      goalSubmission: null,
       terminalSessionFork: false,
       sessionFork: false,
       chatRuntime: '',
@@ -86,6 +67,9 @@ function testAgent(id: string, customTitle: string): CrtTestAgent {
 }
 
 function send(socket: WebSocketRoute, message: ProtocolServerHelloMessage | CrtTestStateMessage | CrtTestDeltaMessage) {
+  if (message.type === 'state' || message.type === 'state-delta') {
+    expect(validateServerMessage(message)).toMatchObject({ ok: true })
+  }
   socket.send(JSON.stringify(message))
 }
 
