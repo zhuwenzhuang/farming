@@ -169,6 +169,12 @@ notifications, unread state, keyboard focus restoration, menu dismissal,
 accessible names, phone navigation, software-keyboard behavior, refresh, and
 remote reconnect. Missing telemetry is omitted or explained; it is not invented.
 
+Visible Code changes also produce deterministic Linux Chromium base/head
+captures for Light, Dark, and Paper across the Settings, Search, History, and
+Plugins views. Computed-style assertions protect semantic roles and contrast;
+the cross-appearance captures protect composition, hierarchy, spacing, borders,
+and other visual relationships that remain individually valid CSS values.
+
 ### Scale And Soak
 
 Exercise many live and historical Agents, including at least one 100+ Session

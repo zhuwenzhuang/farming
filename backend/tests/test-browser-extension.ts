@@ -418,6 +418,14 @@ async function testBrowserResourceManager() {
   assert.strictEqual(missingBrowserManager.capability().browser, null);
   assert.strictEqual(missingBrowserManager.capability().selection.executablePath, '/missing/chrome');
   await missingBrowserManager.dispose();
+  type ViewerResizeTimer = { callback: () => void; unref(): void };
+  const viewerResizeTimers = new Set<ViewerResizeTimer>();
+  const scheduleViewerResize = (callback: () => void): ViewerResizeTimer => {
+    const timer = { callback, unref() {} };
+    viewerResizeTimers.add(timer);
+    return timer;
+  };
+  const cancelViewerResize = (timer: ViewerResizeTimer) => { viewerResizeTimers.delete(timer); };
   const manager = new BrowserResourceManager({
     configDir,
     isEnabled: () => enabled,
@@ -431,7 +439,15 @@ async function testBrowserResourceManager() {
       runtimes.push(runtime);
       return runtime;
     },
+    scheduleTimeout: scheduleViewerResize,
+    cancelTimeout: cancelViewerResize,
   });
+  const flushViewerResize = async () => {
+    const timers = [...viewerResizeTimers];
+    viewerResizeTimers.clear();
+    for (const timer of timers) timer.callback();
+    await manager.sessions.values().next().value.actionChain;
+  };
   try {
     await manager.init();
     assert.strictEqual(
@@ -774,7 +790,7 @@ async function testBrowserResourceManager() {
       height: 720,
       deviceScaleFactor: 2,
     })));
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await flushViewerResize();
     assert.strictEqual(runtimes[0].resizeCalls, 1, 'Rapid primary Viewer resizes must coalesce');
     assert.deepStrictEqual(runtimes[0].resizeValues, [{ width: 1280, height: 720, deviceScaleFactor: 2 }]);
 
@@ -786,7 +802,7 @@ async function testBrowserResourceManager() {
       width: 390,
       height: 800,
     })));
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await flushViewerResize();
     assert.strictEqual(
       runtimes[0].resizeCalls,
       1,
@@ -799,7 +815,7 @@ async function testBrowserResourceManager() {
       height: 800,
       claim: true,
     })));
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await flushViewerResize();
     assert.deepStrictEqual(
       runtimes[0].resizeValues,
       [
@@ -814,14 +830,14 @@ async function testBrowserResourceManager() {
       width: 1300,
       height: 730,
     })));
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await flushViewerResize();
     assert.strictEqual(
       runtimes[0].resizeCalls,
       2,
       'The old Viewer must become passive after ownership transfers',
     );
     mobileViewer.emit('close');
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await flushViewerResize();
     assert.deepStrictEqual(
       runtimes[0].resizeValues,
       [

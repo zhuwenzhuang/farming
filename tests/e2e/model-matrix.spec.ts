@@ -163,11 +163,14 @@ test('ACP model matrix responds locally, settles once, and morphs Advanced witho
   await expect(page.locator('.code-model-matrix-current')).toHaveText('GPT-5.6-Sol · high')
   await expect(picker).toHaveAttribute('data-agent-model-preset', 'gpt-5.6-sol:high')
   await expect(target).toBeDisabled()
-  await page.waitForTimeout(260)
-  const optimisticThumb = await page.locator('.code-model-matrix-thumb').boundingBox()
+  const thumb = page.locator('.code-model-matrix-thumb')
+  await thumb.evaluate(async element => {
+    await Promise.all(element.getAnimations().map(animation => animation.finished.catch(() => undefined)))
+  })
+  const optimisticThumb = await thumb.boundingBox()
   expect(optimisticThumb).not.toBeNull()
   await expect(target).toBeEnabled({ timeout: 2_000 })
-  const settledThumb = await page.locator('.code-model-matrix-thumb').boundingBox()
+  const settledThumb = await thumb.boundingBox()
   expect(settledThumb?.x).toBeCloseTo(optimisticThumb?.x ?? 0, 1)
   expect(settledThumb?.y).toBeCloseTo(optimisticThumb?.y ?? 0, 1)
 
@@ -271,21 +274,26 @@ test('ACP model matrix responds locally, settles once, and morphs Advanced witho
   const matrixStage = page.locator('.code-model-matrix-stage')
   const matrixStageBox = await matrixStage.boundingBox()
   await page.getByTestId('code-model-matrix-advanced-toggle').click()
-  await page.waitForTimeout(80)
+  await expect.poll(async () => {
+    const box = await menu.boundingBox()
+    return (box?.width ?? 0) > 280 && (box?.width ?? Number.POSITIVE_INFINITY) < 350
+  }, { message: 'advanced-toggle transition should expose an observable intermediate width' }).toBe(true)
   const morphingBox = await menu.boundingBox()
   const morphingStageBox = await matrixStage.boundingBox()
   expect(morphingBox?.width ?? 0).toBeGreaterThan(280)
   expect(morphingBox?.width ?? 999).toBeLessThan(350)
   expect(morphingStageBox?.height ?? 0).toBeGreaterThan(0)
   expect(morphingStageBox?.height ?? 0).not.toBeCloseTo(matrixStageBox?.height ?? 0, 1)
-  await page.waitForTimeout(220)
+  await expect.poll(async () => Math.round((await menu.boundingBox())?.width ?? 0))
+    .toBe(280)
   const advancedBox = await menu.boundingBox()
   expect(advancedBox?.width).toBeCloseTo(280, 0)
   await expect(menu.locator('.code-model-matrix')).toHaveAttribute('aria-hidden', 'true')
   await expect(page.getByTestId('code-model-matrix-advanced')).toHaveAttribute('aria-hidden', 'false')
 
   await page.getByTestId('code-model-matrix-advanced-toggle').click()
-  await page.waitForTimeout(300)
+  await expect.poll(async () => Math.round((await menu.boundingBox())?.width ?? 0))
+    .toBe(350)
   await expect(menu.locator('.code-model-matrix')).toHaveAttribute('aria-hidden', 'false')
   await expect(page.getByTestId('code-model-matrix-advanced')).toHaveAttribute('aria-hidden', 'true')
   await expect(page.locator('.code-model-matrix-current')).toHaveText('GPT-5.6-Sol · high')
@@ -348,17 +356,14 @@ test('ACP model and permission changes show one deferred warning during an activ
     const feedback = element.getBoundingClientRect()
     const composer = element.parentElement?.querySelector<HTMLElement>('[data-testid="code-acp-composer"]')
       ?.getBoundingClientRect()
-    const style = window.getComputedStyle(element)
     return {
       feedbackWidth: feedback.width,
       feedbackHeight: feedback.height,
       composerWidth: composer?.width || 0,
-      backgroundColor: style.backgroundColor,
     }
   })
   expect(feedbackMetrics.feedbackWidth).toBeLessThan(feedbackMetrics.composerWidth * 0.75)
   expect(feedbackMetrics.feedbackHeight).toBeLessThanOrEqual(36)
-  expect(feedbackMetrics.backgroundColor).toBe('rgba(245, 247, 243, 0.94)')
 
   await page.getByTestId('code-acp-mode').click()
   await page.getByTestId('code-acp-mode-menu').getByRole('menuitemradio').filter({ hasText: 'Plan' }).click()

@@ -3,6 +3,7 @@ import path from 'node:path'
 import {
   expect,
   interceptTerminalCheckpoints,
+  terminalCheckpointOutput,
   terminalRows,
   terminalViewport,
   test,
@@ -81,6 +82,24 @@ async function authoritativeTerminalState(
   }
 }
 
+async function nextRenderedFrame(page: import('@playwright/test').Page) {
+  await page.evaluate(() => new Promise<void>(resolve => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+  }))
+}
+
+async function expectStableCount(
+  read: () => number,
+  expected: number,
+  windowMs: number,
+) {
+  const startedAt = Date.now()
+  await expect.poll(
+    () => read() === expected && Date.now() - startedAt >= windowMs,
+    { timeout: windowMs + 1_000, intervals: [50, 100, 200] },
+  ).toBe(true)
+}
+
 function successfulCheckpointResult(
   message: TerminalCheckpointTestResult,
   payload: ReturnType<typeof checkpoint>,
@@ -100,9 +119,9 @@ async function waitForProtocolIdle(
   agentId: string,
 ) {
   let stableCuts = 0
-  for (let attempt = 0; attempt < 40; attempt += 1) {
+  await expect.poll(async () => {
     const first = await terminalState(page, agentId)
-    await page.waitForTimeout(75)
+    await nextRenderedFrame(page)
     const second = await terminalState(page, agentId)
     const authoritative = await authoritativeTerminalState(page, agentId)
     if (
@@ -114,12 +133,11 @@ async function waitForProtocolIdle(
       second.stateRevision === authoritative.stateRevision
     ) {
       stableCuts += 1
-      if (stableCuts >= 3) return
     } else {
       stableCuts = 0
     }
-  }
-  throw new Error('terminal protocol did not reach an authoritative idle cut')
+    return stableCuts >= 3
+  }, { timeout: 10_000, intervals: [50, 100, 200] }).toBe(true)
 }
 
 function checkpoint(
@@ -265,7 +283,8 @@ test.describe('terminal state protocol', () => {
       },
     })
     expect(input.ok()).toBeTruthy()
-    await page.waitForTimeout(250)
+    await expect.poll(() => terminalCheckpointOutput(page, agentId), { timeout: 10_000 })
+      .toContain(marker)
 
     await page.evaluate(async id => window.__farmingTerminalTest?.resumeLive(id), agentId)
     await page.waitForFunction(
@@ -592,7 +611,7 @@ test.describe('terminal state protocol', () => {
         stateRevision,
       )
     }, { id: agentId, epoch: initial.runtimeEpoch, ...initial })
-    await page.waitForTimeout(100)
+    await nextRenderedFrame(page)
     expect(await visibleText(page, agentId)).not.toContain('DUPLICATE_POISON')
     expect(await visibleText(page, agentId)).not.toContain('STALE_POISON')
     expect(requests).toBe(0)
@@ -979,9 +998,7 @@ test.describe('terminal state protocol', () => {
         checkpointHalted?: boolean
       } | null
     )?.checkpointHalted === true, agentId), { timeout: 10_000 }).toBe(true)
-    expect(requests).toBe(3)
-    await page.waitForTimeout(2_000)
-    expect(requests).toBe(3)
+    await expectStableCount(() => requests, 3, 2_000)
     await expect(page.getByTestId('code-terminal-status-card')).toBeVisible()
     expect(await visibleText(page, agentId)).not.toContain('GAP_MUST_NOT_RENDER')
   })
@@ -1032,9 +1049,7 @@ test.describe('terminal state protocol', () => {
     })
 
     await expect(page.getByTestId('code-terminal-status-card')).toBeVisible({ timeout: 10_000 })
-    expect(requests).toBe(3)
-    await page.waitForTimeout(1_000)
-    expect(requests).toBe(3)
+    await expectStableCount(() => requests, 3, 1_000)
 
     transportAvailable = true
     await page.getByTestId('code-terminal-status-card').locator('button').click()
@@ -1127,8 +1142,7 @@ test.describe('terminal state protocol', () => {
     })
     expect(requests).toBeLessThanOrEqual(3)
     const requestsAfterRecovery = requests
-    await page.waitForTimeout(500)
-    expect(requests).toBe(requestsAfterRecovery)
+    await expectStableCount(() => requests, requestsAfterRecovery, 500)
     await expect(page.getByTestId('code-terminal-status-card')).toHaveCount(0)
 
     const requestsBeforeRetiredPoison = requests
@@ -1141,7 +1155,7 @@ test.describe('terminal state protocol', () => {
         2,
       )
     }, { id: agentId, epoch: epochB })
-    await page.waitForTimeout(200)
+    await nextRenderedFrame(page)
     expect(await visibleText(page, agentId)).not.toContain('RETIRED_EPOCH_POISON')
     expect(requests).toBe(requestsBeforeRetiredPoison)
     expect(await page.evaluate(id => (
@@ -1223,8 +1237,7 @@ test.describe('terminal state protocol', () => {
     })
     expect(requests).toBeLessThanOrEqual(2)
     const requestsAfterRecovery = requests
-    await page.waitForTimeout(500)
-    expect(requests).toBe(requestsAfterRecovery)
+    await expectStableCount(() => requests, requestsAfterRecovery, 500)
     await expect(page.locator('.crt-terminal-sync-status')).toBeHidden()
     await expect.poll(() => page.evaluate(() => (
       (window as typeof window & {

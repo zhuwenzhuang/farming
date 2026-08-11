@@ -179,7 +179,7 @@ async function run() {
   };
   const cold = await client.collect(request);
   assert.strictEqual(cold.source, 'farming-usage-ts-1-codexbar-v0.45.2');
-  assert.strictEqual(cold.schemaVersion, 11);
+  assert.strictEqual(cold.schemaVersion, 12);
   assert.strictEqual(cold.cache.scan_complete, true);
   assert.strictEqual(cold.providers.codex.events.length, 1);
   assert.strictEqual(sum(cold.providers.codex.events), 110);
@@ -870,6 +870,8 @@ async function run() {
     claudeRoots: [],
     fresh: true,
   });
+  // The negative half of the retry-cap contract needs to span the configured
+  // retry window: a fourth automatic retry must not appear after the third.
   await new Promise(resolve => setTimeout(resolve, 50));
   assert.strictEqual(persistentErrorCalls, 3,
     'a persistent scanner error must stop automatic retries after a bounded audit');

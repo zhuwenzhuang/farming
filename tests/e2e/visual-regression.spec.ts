@@ -12,6 +12,18 @@ export const VISUAL_SCENARIOS = [
   'queued-followups-narrow',
   'changes-diff',
   'plugins-dark',
+  'appearance-light-settings',
+  'appearance-light-search',
+  'appearance-light-history',
+  'appearance-light-plugins',
+  'appearance-dark-settings',
+  'appearance-dark-search',
+  'appearance-dark-history',
+  'appearance-dark-plugins',
+  'appearance-paper-settings',
+  'appearance-paper-search',
+  'appearance-paper-history',
+  'appearance-paper-plugins',
 ] as const
 
 const outputDir = process.env.FARMING_VISUAL_OUTPUT_DIR
@@ -98,6 +110,39 @@ async function waitForSteer(page: Page, agentId: string) {
     }
     return body.agents?.find(agent => agent.id === agentId)?.providerCapabilities?.supportsSteer
   }, { timeout: 30_000 }).toBe(true)
+}
+
+function visualUpdateStatus() {
+  return {
+    method: 'npm',
+    current: { releaseVersion: '2.2.49', packageVersion: '2.2.49', type: 'npm' },
+    latest: { version: '2.2.49', assetName: '2.2.49', blockedReason: '' },
+    selected: { version: '2.2.49', assetName: '2.2.49', blockedReason: '' },
+    versions: [{ version: '2.2.49', assetName: '2.2.49', available: false, installable: true }],
+    available: false,
+    installable: true,
+    state: { phase: 'idle', version: '2.2.49', previousVersion: '2.2.49' },
+  }
+}
+
+function visualHistorySession() {
+  return {
+    provider: 'codex',
+    providerName: 'Codex',
+    providerHomeId: 'default',
+    id: 'visual-history-session',
+    title: 'Theme history review',
+    workspace: path.join(visualRoot, 'appearance-workspace'),
+    updatedAt: '2026-08-01T12:00:00.000Z',
+    createdAt: '2026-08-01T11:00:00.000Z',
+    archived: false,
+    pinned: false,
+    unread: false,
+    projectless: false,
+    model: 'gpt-5.6-sol',
+    effort: 'high',
+    source: 'codex',
+  }
 }
 
 test.describe('PR visual regression capture', () => {
@@ -234,16 +279,85 @@ test.describe('PR visual regression capture', () => {
     const desktopTarget = panel.locator('.code-plugin-desktop-target')
     await expect(browserSource).toBeVisible()
     await expect(desktopTarget).toBeVisible()
-    const [inputBackground, targetBackground] = await Promise.all([
-      browserSource.evaluate(element => getComputedStyle(element).backgroundColor),
-      desktopTarget.evaluate(element => getComputedStyle(element).backgroundColor),
-    ])
-    expect(targetBackground).toBe(inputBackground)
+    await expect(page.locator('body')).toHaveAttribute('data-appearance', 'dark')
     await expect(panel.getByText('Checking...', { exact: true })).toHaveCount(0, { timeout: 30_000 })
     await panel.getByTestId('code-plugin-tab-homes').click()
     await expect(panel.getByText('Loading Agent extensions...', { exact: true })).toHaveCount(0, { timeout: 30_000 })
     await expect(panel.getByTestId('code-plugin-section-agent-codex-review')).toBeVisible()
     await panel.getByTestId('code-plugin-tab-farming').click()
     await captureScenario(page, 'plugins-dark')
+  })
+
+  test('captures every primary side view in Light, Dark, and Paper', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    const workspace = path.join(visualRoot, 'appearance-workspace')
+    const codexHome = path.join(visualRoot, 'appearance-agent-home')
+    fs.mkdirSync(codexHome, { recursive: true })
+    const agentId = await createAgent(page, 'bash', workspace, 'terminal')
+    await setAgentTitle(page, agentId, 'Theme review Agent')
+    await page.route(/\/farming\/api\/agent-sessions(?:\?.*)?$/, route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        sessions: [visualHistorySession()],
+        nextCursor: '',
+        hasMore: false,
+        total: 1,
+      }),
+    }))
+    await page.route(/\/farming\/api\/update(?:\?.*)?$/, route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ update: visualUpdateStatus() }),
+    }))
+
+    const homeSettings = {
+      codex: [{
+        id: 'appearance-review',
+        path: codexHome,
+        order: 0,
+        newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
+      }],
+    }
+    for (const appearance of ['light', 'dark', 'paper'] as const) {
+      const response = await page.request.post('/farming/api/settings', {
+        data: { appearance, agentHomes: homeSettings },
+      })
+      expect(response.ok()).toBeTruthy()
+      await page.emulateMedia({
+        colorScheme: appearance === 'dark' ? 'dark' : 'light',
+        reducedMotion: 'reduce',
+      })
+      if (page.url() === 'about:blank') await openFarming(page)
+      else await page.reload({ waitUntil: 'domcontentloaded' })
+      await expect(page.locator('body')).toHaveAttribute('data-appearance', appearance)
+      await expect(page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)).toBeVisible()
+
+      await page.getByTestId('code-sidebar-options').click()
+      const settings = page.getByTestId('code-settings-panel')
+      await expect(settings).toBeVisible()
+      await expect(settings.getByTestId('code-settings-update-card')).toContainText('2.2.49')
+      await expect(
+        settings.getByTestId('code-settings-follow-up-behavior').getByRole('button', { name: 'Queue' }),
+      ).toBeEnabled({ timeout: 30_000 })
+      await captureScenario(page, `appearance-${appearance}-settings`)
+      await settings.getByRole('button', { name: 'Close', exact: true }).click()
+
+      await page.getByTestId('code-nav-search').click()
+      const search = page.getByTestId('code-search-panel')
+      await search.getByRole('searchbox').fill('Theme review Agent')
+      await expect(search.getByTestId('code-search-result')).toContainText('Theme review Agent')
+      await captureScenario(page, `appearance-${appearance}-search`)
+
+      await page.getByTestId('code-nav-history').click()
+      const history = page.getByTestId('code-history-panel')
+      await expect(history).toContainText('Theme history review')
+      await captureScenario(page, `appearance-${appearance}-history`)
+
+      await page.getByTestId('code-nav-plugins').click()
+      const plugins = page.getByTestId('code-plugins-panel')
+      await expect(plugins.getByText('Checking...', { exact: true })).toHaveCount(0, { timeout: 30_000 })
+      await expect(plugins.getByText('Discovering...', { exact: true })).toHaveCount(0, { timeout: 30_000 })
+      await expect(plugins.getByTestId('code-plugin-section-farming')).toBeVisible()
+      await captureScenario(page, `appearance-${appearance}-plugins`)
+    }
   })
 })

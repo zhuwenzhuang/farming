@@ -1,10 +1,6 @@
 const assert = require('assert');
 const { TerminalScreenWorkerPool } = require('../terminal-screen-worker-pool.cjs');
 
-function delay(ms: number) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
 class FakeScreenWorker {
   static created = 0;
   static disposed = 0;
@@ -24,7 +20,8 @@ class FakeScreenWorker {
   }
 
   async getState() {
-    await delay(5);
+    // Expose concurrency across one scheduler turn without a timer race.
+    await new Promise(resolve => setImmediate(resolve));
     return {
       cols: this.cols,
       rows: this.rows,

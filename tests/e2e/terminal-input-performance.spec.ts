@@ -65,6 +65,23 @@ async function openTerminal(page: Page, agentId: string) {
   await page.waitForFunction(id => Boolean(window.__farmingTerminalTest?.isReady(id)), agentId)
 }
 
+async function waitForEstablishedTerminal(page: Page, agentId: string) {
+  await expect.poll(() => page.evaluate(id => {
+    const diagnostics = window.__farmingTerminalTest?.getBufferDiagnostics(id) as unknown as {
+      checkpointRequestInFlight?: boolean
+      pendingSnapshotReplay?: boolean
+      replayInProgress?: boolean
+    } | null
+    return Boolean(
+      window.__farmingTerminalTest?.isReady(id)
+      && diagnostics
+      && (diagnostics.checkpointRequestInFlight ?? false) === false
+      && (diagnostics.pendingSnapshotReplay ?? false) === false
+      && (diagnostics.replayInProgress ?? false) === false,
+    )
+  }, agentId), { timeout: 15_000, intervals: [25, 50, 100, 200] }).toBe(true)
+}
+
 function trackTerminalWire(page: Page) {
   const messages: TerminalWireMessage[] = []
   page.on('websocket', socket => {
@@ -123,14 +140,21 @@ test('terminal typing stays small and direct after switching an existing agent',
   await openFarming(page)
   await openTerminal(page, firstAgentId)
   await openTerminal(page, secondAgentId)
-  // Let the two fresh PTYs finish their initial state/snapshot publication.
-  // The assertion below is about an established Agent switch, not startup.
-  await page.waitForTimeout(1_000)
+  // Measure a genuine Agent switch only after both PTYs have reached their
+  // authoritative idle state, never during their initial snapshot traffic.
+  await Promise.all([
+    waitForEstablishedTerminal(page, firstAgentId),
+    waitForEstablishedTerminal(page, secondAgentId),
+  ])
 
   const focusStart = messages.length
   await codeAgentRow(page, firstAgentId).click()
   await expect(terminalHost(page, firstAgentId)).toBeVisible({ timeout: 15_000 })
-  await page.waitForTimeout(350)
+  await expect.poll(() => messages.slice(focusStart).some(message => (
+    message.direction === 'sent'
+    && message.type === 'focus-agent'
+    && message.agentId === firstAgentId
+  )), { timeout: 1_000, intervals: [10, 20, 40, 80] }).toBe(true)
 
   const afterFocus = messages.slice(focusStart)
   expect(afterFocus.filter(message => message.direction === 'sent' && message.type === 'focus-agent'))
@@ -176,11 +200,15 @@ test('terminal typing stays small and direct after switching an existing agent',
   })
   console.log(`terminal-input-performance key-to-session-output p95=${keyToOutputP95Ms}ms samples=${samples.join(',')}ms`)
   expect(keyToOutputP95Ms).toBeLessThanOrEqual(LOCAL_KEY_TO_OUTPUT_P95_MS)
-  await page.waitForTimeout(600)
+  await expect.poll(() => messages.slice(typingStart).filter(message => (
+    message.direction === 'received'
+    && message.type === 'session-preview'
+    && message.preview?.agentId === firstAgentId
+  )).length, { timeout: 1_000, intervals: [10, 20, 40, 80] }).toBeGreaterThan(0)
   const focusedPreviews = messages.slice(typingStart).filter(message => (
     message.direction === 'received'
-      && message.type === 'session-preview'
-      && message.preview?.agentId === firstAgentId
+    && message.type === 'session-preview'
+    && message.preview?.agentId === firstAgentId
   ))
   expect(focusedPreviews.length).toBeGreaterThan(0)
   focusedPreviews.forEach(preview => {

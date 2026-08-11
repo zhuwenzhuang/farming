@@ -1468,10 +1468,25 @@ class AcpRuntime extends EventEmitter {
     }
   }
 
-  claimRuntimeSession(binding: AcpBinding, sessionId: string) {
+  claimRuntimeSession(
+    binding: AcpBinding,
+    sessionId: string,
+    options: { isolatedRuntimeSource?: boolean } = {},
+  ) {
     const runtime = binding.runtime;
     const id = String(sessionId || '').trim();
     if (!runtime || !id) return;
+    if (options.isolatedRuntimeSource) {
+      if (runtime.shared) {
+        throw new Error('ACP isolated fork source requires a private runtime');
+      }
+      const owner = runtime.sessionOwners.get(id);
+      if (owner && owner !== binding && this.isOpenBinding(owner)) {
+        throw new Error(`ACP session ${id} is already active in another Agent`);
+      }
+      runtime.sessionOwners.set(id, binding);
+      return;
+    }
     const ownershipKey = this.sessionOwnershipKey(binding, id);
     const activeOwner = this.activeSessionOwners.get(ownershipKey);
     if (activeOwner && activeOwner !== binding && this.isOpenBinding(activeOwner)) {
@@ -1763,7 +1778,7 @@ class AcpRuntime extends EventEmitter {
           throw new Error(`${provider} ACP Agent cannot release the loaded fork source`);
         }
         binding.sessionId = forkSourceSessionId;
-        this.claimRuntimeSession(binding, forkSourceSessionId);
+        this.claimRuntimeSession(binding, forkSourceSessionId, { isolatedRuntimeSource: true });
         binding.sessionState = new AcpSessionState({
           provider,
           sessionId: forkSourceSessionId,

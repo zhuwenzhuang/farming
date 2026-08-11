@@ -101,10 +101,12 @@ test('reveals more Agent row information as the sidebar widens', async ({ page, 
   await page.keyboard.press('ArrowDown')
   await expect(pinProject).toBeFocused()
   await row.hover()
+  // The preview must remain suppressed for the menu's full hover-suppression window.
   await page.waitForTimeout(1700)
   await expect(page.getByTestId('code-agent-hover-title-card')).toHaveCount(0)
   await expect(page.getByTestId('code-agent-hover-preview')).toHaveCount(0)
   await projectRow.hover()
+  // The project preview uses the same deliberate hover-suppression window.
   await page.waitForTimeout(1700)
   await expect(page.getByTestId('code-project-hover-preview')).toHaveCount(0)
   await page.keyboard.press('Escape')

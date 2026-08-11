@@ -70,6 +70,8 @@ assert.strictEqual(
 );
 
 async function runHydrationStateTests() {
+  // These cases intentionally exercise the public declaration deadline and its
+  // cancellation semantics, so they retain real timers rather than a sync wait.
   const waitForTimer = () => new Promise(resolve => setTimeout(resolve, 20));
 
   const legacy: HydrationState = {};

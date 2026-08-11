@@ -585,7 +585,7 @@ async function run() {
       queuedPromptSettled = true;
       return result;
     });
-    await new Promise(resolve => setTimeout(resolve, 30));
+    await new Promise(resolve => setImmediate(resolve));
     assert.strictEqual(
       queuedPromptSettled,
       false,

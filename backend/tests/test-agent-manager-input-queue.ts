@@ -2,8 +2,10 @@ const assert = require('assert');
 const { AgentManager } = require('../agent-manager.cjs');
 const { createTestAgentManager } = require('./helpers/test-acp-runtime.ts');
 
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+function deferred() {
+  let resolve;
+  const promise = new Promise(resolvePromise => { resolve = resolvePromise; });
+  return { promise, resolve };
 }
 
 async function run() {
@@ -17,11 +19,14 @@ async function run() {
   });
 
   const calls = [];
+  const firstInputStarted = deferred();
+  const releaseFirstInput = deferred();
   manager.engineBridge.getEngine = () => ({
     async sendInput(agentId, input) {
       calls.push({ agentId, input });
       if (calls.length === 1) {
-        await sleep(20);
+        firstInputStarted.resolve();
+        await releaseFirstInput.promise;
       }
     },
   });
@@ -35,10 +40,12 @@ async function run() {
       status: 'running',
     });
 
-    await Promise.all([
-      manager.sendInput('agent-input', [{ type: 'paste', text: 'A' }, '\r']),
-      manager.sendInput('agent-input', [{ type: 'paste', text: 'B' }, '\r']),
-    ]);
+    const firstInput = manager.sendInput('agent-input', [{ type: 'paste', text: 'A' }, '\r']);
+    await firstInputStarted.promise;
+    const secondInput = manager.sendInput('agent-input', [{ type: 'paste', text: 'B' }, '\r']);
+    assert.strictEqual(calls.length, 1, 'the second input must remain queued until the first input completes');
+    releaseFirstInput.resolve();
+    await Promise.all([firstInput, secondInput]);
 
     assert.deepStrictEqual(calls, [
       { agentId: 'agent-input', input: [{ type: 'paste', text: 'A' }, '\r'] },
@@ -223,10 +230,12 @@ async function run() {
 
     const profileUpdateOrder = [];
     let finishFirstProfile;
+    const firstProfileStarted = deferred();
     manager.setCodexTerminalProfileNow = async (agentId, profile, options) => {
       profileUpdateOrder.push(`start:${profile.model}`);
       options.onInputSafe();
       if (profile.model === 'first') {
+        firstProfileStarted.resolve();
         await new Promise(resolve => {
           finishFirstProfile = resolve;
         });
@@ -235,8 +244,8 @@ async function run() {
       return profile;
     };
     const firstProfile = manager.setCodexTerminalProfile('agent-profile', { model: 'first' });
+    await firstProfileStarted.promise;
     const secondProfile = manager.setCodexTerminalProfile('agent-profile', { model: 'second' });
-    await sleep(0);
     assert.deepStrictEqual(profileUpdateOrder, [
       'start:first',
     ], 'a second profile transaction must not start while the first confirmation is pending');

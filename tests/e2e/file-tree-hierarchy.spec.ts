@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
-import type { Locator } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 import {
   expect,
   openFarming,
@@ -87,6 +87,12 @@ async function scrollFileRowIntoStickyRange(row: Locator) {
     const desiredTop = scroller.getBoundingClientRect().top + scroller.clientHeight * 0.55
     scroller.scrollTop += element.getBoundingClientRect().top - desiredTop
   })
+}
+
+async function settleLayout(page: Page) {
+  await page.evaluate(() => new Promise<void>(resolve => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+  }))
 }
 
 async function stickyContextClearsPinnedAgents(section: Locator) {
@@ -380,22 +386,22 @@ test('keeps a deeply scrolled directory anchored while pointer expansion loads i
   expect(Math.abs(compactSameDepthLabelLeft[0] - compactSameDepthLabelLeft[1])).toBeLessThanOrEqual(1)
   if (desktopViewport) await page.setViewportSize(desktopViewport)
   await expect(page.locator('body')).not.toHaveClass(/code-compact-layout/)
-  await page.waitForTimeout(40)
+  await settleLayout(page)
   const intentionalScrollTop = await velox.evaluate(element => {
     const scroller = element.closest<HTMLElement>('.code-project-list')
     if (!scroller) return -1
     scroller.scrollTop = Math.max(0, scroller.scrollTop - 48)
     return scroller.scrollTop
   })
-  await page.waitForTimeout(220)
-  expect(Math.abs((await readAnchor()).scrollTop - intentionalScrollTop)).toBeLessThanOrEqual(1)
+  await expect.poll(async () => Math.abs((await readAnchor()).scrollTop - intentionalScrollTop))
+    .toBeLessThanOrEqual(1)
 
   await scrollFileRowIntoStickyRange(velox)
   let previousAnchor = await readAnchor()
   for (const expanded of ['false', 'true']) {
     await velox.click()
     await expect(velox).toHaveAttribute('aria-expanded', expanded)
-    await page.waitForTimeout(600)
+    await settleLayout(page)
     const nextAnchor = await readAnchor()
     expect(Math.abs(nextAnchor.scrollTop - previousAnchor.scrollTop)).toBeLessThanOrEqual(1)
     expect(Math.abs(nextAnchor.rowTop - previousAnchor.rowTop)).toBeLessThanOrEqual(1)
@@ -404,7 +410,7 @@ test('keeps a deeply scrolled directory anchored while pointer expansion loads i
   for (const expanded of ['false', 'true']) {
     await page.keyboard.press('Enter')
     await expect(velox).toHaveAttribute('aria-expanded', expanded)
-    await page.waitForTimeout(600)
+    await settleLayout(page)
     const nextAnchor = await readAnchor()
     expect(Math.abs(nextAnchor.scrollTop - previousAnchor.scrollTop)).toBeLessThanOrEqual(1)
     expect(Math.abs(nextAnchor.rowTop - previousAnchor.rowTop)).toBeLessThanOrEqual(1)
@@ -413,7 +419,7 @@ test('keeps a deeply scrolled directory anchored while pointer expansion loads i
   for (const expanded of ['false', 'true']) {
     await page.keyboard.press('Space')
     await expect(velox).toHaveAttribute('aria-expanded', expanded)
-    await page.waitForTimeout(600)
+    await settleLayout(page)
     const nextAnchor = await readAnchor()
     expect(Math.abs(nextAnchor.scrollTop - previousAnchor.scrollTop)).toBeLessThanOrEqual(1)
     expect(Math.abs(nextAnchor.rowTop - previousAnchor.rowTop)).toBeLessThanOrEqual(1)
@@ -427,7 +433,7 @@ test('keeps a deeply scrolled directory anchored while pointer expansion loads i
   previousAnchor = nextAnchor
   await page.keyboard.press('ArrowRight')
   await expect(velox).toHaveAttribute('aria-expanded', 'true')
-  await page.waitForTimeout(600)
+  await settleLayout(page)
   nextAnchor = await readAnchor()
   expect(Math.abs(nextAnchor.scrollTop - previousAnchor.scrollTop)).toBeLessThanOrEqual(1)
   expect(Math.abs(nextAnchor.rowTop - previousAnchor.rowTop)).toBeLessThanOrEqual(1)
@@ -440,7 +446,7 @@ test('keeps a deeply scrolled directory anchored while pointer expansion loads i
   }))
   await nestedDirectory.click()
   await expect(nestedDirectory).toHaveAttribute('aria-expanded', 'true')
-  await page.waitForTimeout(600)
+  await settleLayout(page)
   const expandedNestedAnchor = await nestedDirectory.evaluate(element => ({
     rowTop: element.getBoundingClientRect().top,
     scrollTop: element.closest<HTMLElement>('.code-project-list')?.scrollTop ?? -1,
@@ -502,7 +508,6 @@ test('continues first expansion through a bounded compact directory chain', asyn
   await compactedDirectory.click()
   await expect(compactedDirectory).toHaveAttribute('aria-expanded', 'false')
   await expect(files.locator('[data-file-path="chain/level-one/level-two/first.ts"]')).toHaveCount(0)
-  await page.waitForTimeout(200)
   await expect(compactedDirectory).toHaveAttribute('aria-expanded', 'false')
 
   const linkedDirectory = files.locator('[data-testid="code-file-row"][data-file-path="linked-chain"]')

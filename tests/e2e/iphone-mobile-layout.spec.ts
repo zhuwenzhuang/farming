@@ -548,7 +548,6 @@ test.describe('iPhone mobile layout', () => {
     await expect.poll(async () => {
       return terminalCheckpointOutput(page, agentId)
     }, { timeout: 30_000 }).toContain(readyMarker)
-    await page.waitForTimeout(400)
 
     await captureIphoneAudit(page, `${testInfo.project.name}-390px-compact-parity.png`)
   })
@@ -720,11 +719,13 @@ test.describe('iPhone mobile layout', () => {
 
       dispatch('pointerdown', 181, startY)
       for (let step = 1; step <= 6; step += 1) {
+        // Preserve real touch-event cadence so the momentum calculation sees a velocity.
         await new Promise(resolve => window.setTimeout(resolve, 12))
         dispatch('pointermove', 181, startY + step * 16)
       }
       dispatch('pointerup', 181, startY + 96)
       const afterRelease = window.__farmingTerminalTest?.getViewport(id)
+      // This is the product momentum interval, not a UI readiness delay.
       await new Promise(resolve => window.setTimeout(resolve, 220))
       const afterMomentum = window.__farmingTerminalTest?.getViewport(id)
 
@@ -735,6 +736,7 @@ test.describe('iPhone mobile layout', () => {
       const afterEdge = window.__farmingTerminalTest?.getViewport(id)
       const edgeTransform = surface.style.transform
       dispatch('pointerup', 182, startY + 3_044)
+      // Wait for the bounded momentum animation to finish before asserting its final transform.
       await new Promise(resolve => window.setTimeout(resolve, 300))
       return {
         afterRelease,
@@ -800,7 +802,9 @@ test.describe('iPhone mobile layout', () => {
       root.style.setProperty('--app-visual-offset-top', '0px')
       root.style.setProperty('--app-visual-offset-left', '0px')
       root.style.setProperty('--mobile-keyboard-offset', '520px')
-      await new Promise(resolve => window.setTimeout(resolve, 220))
+      await new Promise<void>(resolve => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+      })
       const rect = (element as HTMLElement).getBoundingClientRect()
       const visualBottom = Number.parseFloat(root.style.getPropertyValue('--app-visual-height')) || 0
       return {

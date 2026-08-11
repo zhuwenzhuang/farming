@@ -397,7 +397,9 @@ async function run() {
       screenshotPaths.push(command[1]);
       screenshotCommandsInFlight += 1;
       maxScreenshotCommandsInFlight = Math.max(maxScreenshotCommandsInFlight, screenshotCommandsInFlight);
-      await new Promise(resolve => setTimeout(resolve, 10));
+      // One event-loop turn gives a competing command a deterministic chance
+      // to overlap without introducing a wall-clock race into the test.
+      await new Promise(resolve => setImmediate(resolve));
       fs.mkdirSync(path.dirname(command[1]), { recursive: true });
       fs.writeFileSync(command[1], `image-${screenshotPaths.length}`);
       if (oversizedScreenshot) fs.truncateSync(command[1], (32 * 1024 * 1024) + 1);
@@ -431,7 +433,7 @@ async function run() {
       commandsInFlight += 1;
       maxCommandsInFlight = Math.max(maxCommandsInFlight, commandsInFlight);
       commandOrder.push(`start:${name}`);
-      await new Promise(resolve => setTimeout(resolve, 10));
+      await new Promise(resolve => setImmediate(resolve));
       commandOrder.push(`end:${name}`);
       commandsInFlight -= 1;
       return { success: true, data: {} };

@@ -179,6 +179,7 @@ test('notifies once for a background Agent completion and opens that Agent on cl
   await expect(completedRow).toHaveClass(/active/)
   await expect(page.getByTestId('code-settings-panel')).toBeHidden()
   await expect(page.getByText('Streaming thought complete.', { exact: true })).toBeVisible()
+  // Keep the silence window: this proves the click cannot schedule a duplicate completion notification.
   await page.waitForTimeout(500)
   expect(await page.evaluate(() => (
     window as Window & { __farmingNotifications?: Array<unknown> }
@@ -197,6 +198,7 @@ test('uses Terminal-native notification requests instead of inferred command com
     data: { input: "printf 'ordinary completion\\n'\r" },
   })
   expect(ordinaryCommand.ok()).toBeTruthy()
+  // Terminal output settles asynchronously; this is the negative-notification silence boundary.
   await page.waitForTimeout(600)
   expect(await page.evaluate(() => (
     window as Window & { __farmingNotifications?: Array<unknown> }

@@ -48,6 +48,7 @@ async function run(): Promise<void> {
   const results = new Map<string, Record<string, unknown>>();
   let recoveryFailure: Error | null = null;
   let lifecycleIdleRelease: (() => void) | null = null;
+  let lifecycleIdleEntered: (() => void) | null = null;
   const result = (method: string, fallback: Record<string, unknown>): Record<string, unknown> => (
     results.has(method) ? results.get(method) as Record<string, unknown> : fallback
   );
@@ -59,6 +60,7 @@ async function run(): Promise<void> {
     },
     async whenAgentLifecycleIdle(agentId: string): Promise<void> {
       calls.push({ method: 'lifecycle-idle', value: agentId });
+      lifecycleIdleEntered?.();
       if (lifecycleIdleRelease) {
         await new Promise<void>(resolve => {
           lifecycleIdleRelease = resolve;
@@ -388,9 +390,11 @@ async function run(): Promise<void> {
     }
     calls.splice(0);
 
+    const lifecycleIdleReached = new Promise<void>(resolve => { lifecycleIdleEntered = resolve; });
     lifecycleIdleRelease = () => {};
     const pending = patchAgent(baseUrl, '/agent-1', { customTitle: 'Renamed' });
-    await new Promise<void>(resolve => { setTimeout(resolve, 50); });
+    await lifecycleIdleReached;
+    lifecycleIdleEntered = null;
     assert.deepStrictEqual(calls.map(call => call.method), ['recovered', 'lifecycle-idle']);
     const release = lifecycleIdleRelease;
     lifecycleIdleRelease = null;

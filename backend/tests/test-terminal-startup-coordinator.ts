@@ -47,7 +47,8 @@ async function run() {
     resourceKey: '/tmp/farming-shared-provider-home',
     start: () => { starts.push('second'); },
   });
-  await new Promise(resolve => setTimeout(resolve, 10));
+  // Flush the queued Promise continuation without depending on elapsed time.
+  await new Promise(resolve => setImmediate(resolve));
   assert.deepStrictEqual(starts, ['first'], 'the same resource must serialize startup');
   assert.strictEqual(coordinator.appendOutput('first', 'ready\u001b'), true);
   await waitFor(() => starts.length === 2, 'second startup did not follow the first');

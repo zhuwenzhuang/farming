@@ -1154,6 +1154,10 @@ async function run() {
     }
 
     let slowGitStatusCalls = 0;
+    let releaseSlowGitStatus!: () => void;
+    let slowGitStatusCompleted!: () => void;
+    const slowGitStatusGate = new Promise<void>(resolve => { releaseSlowGitStatus = resolve; });
+    const slowGitStatusDone = new Promise<void>(resolve => { slowGitStatusCompleted = resolve; });
     const slowStatusService = new WorkspaceFileService({
       gitStatusCacheTtlMs: 5000,
       gitStatusInlineTimeoutMs: 1,
@@ -1161,7 +1165,8 @@ async function run() {
         run: async (command, args) => {
           if (command === 'git' && args.includes('status')) {
             slowGitStatusCalls += 1;
-            await new Promise(resolve => setTimeout(resolve, 30));
+            await slowGitStatusGate;
+            slowGitStatusCompleted();
             return { stdout: '?? cached.txt\0', stderr: '' };
           }
           return { stdout: '', stderr: '' };
@@ -1172,7 +1177,8 @@ async function run() {
       const pendingTree = await slowStatusService.listTree(cacheWorkspace, '');
       assert.strictEqual(pendingTree.gitStatusPending, true);
       assert.strictEqual(pendingTree.items.find(item => item.path === 'cached.txt')?.gitStatus, undefined);
-      await new Promise(resolve => setTimeout(resolve, 60));
+      releaseSlowGitStatus();
+      await slowGitStatusDone;
       const readyTree = await slowStatusService.listTree(cacheWorkspace, '');
       assert.strictEqual(readyTree.gitStatusPending, false);
       assert.strictEqual(readyTree.items.find(item => item.path === 'cached.txt')?.gitStatus, 'untracked');

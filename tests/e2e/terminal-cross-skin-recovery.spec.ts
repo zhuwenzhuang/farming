@@ -167,6 +167,18 @@ function trackTerminalInputs(page: Page) {
   return inputs
 }
 
+async function expectStableCount(
+  read: () => number,
+  expected: number,
+  windowMs: number,
+) {
+  const startedAt = Date.now()
+  await expect.poll(
+    () => read() === expected && Date.now() - startedAt >= windowMs,
+    { timeout: windowMs + 1_000, intervals: [50, 100, 200] },
+  ).toBe(true)
+}
+
 test('CRT reload restores one checkpoint and keeps accepting input', async ({
   page,
   context,
@@ -186,9 +198,9 @@ test('CRT reload restores one checkpoint and keeps accepting input', async ({
     await openFarming(page)
     await openCrtTerminal(crtPage, agentId)
     await waitForCrtReady(crtPage)
-    await crtPage.waitForTimeout(3_000)
-    // Each visible CRT attachment hydrates from one authoritative checkpoint.
-    expect(checkpointRequests()).toBe(1)
+    // A three-second quiet window is intentional: a visible CRT attachment
+    // must hydrate once and must not schedule a duplicate checkpoint later.
+    await expectStableCount(checkpointRequests, 1, 3_000)
 
     const historyCommand = `printf '${historyMarker}\\n'`
     const historyInputStart = inputs.length
@@ -203,8 +215,7 @@ test('CRT reload restores one checkpoint and keeps accepting input', async ({
     await crtPage.reload({ waitUntil: 'domcontentloaded' })
     await expect(crtPage.locator('#session-modal')).toHaveClass(/active/, { timeout: 30_000 })
     await waitForCrtReady(crtPage)
-    await crtPage.waitForTimeout(3_000)
-    expect(checkpointRequests()).toBe(requestsBeforeReload + 1)
+    await expectStableCount(checkpointRequests, requestsBeforeReload + 1, 3_000)
 
     const reloadCommand = "printf 'reload-input-ok\\n' > after-reload.txt"
     const reloadInputStart = inputs.length

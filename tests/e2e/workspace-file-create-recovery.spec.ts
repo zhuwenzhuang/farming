@@ -117,6 +117,7 @@ test('submits each file operation once and keeps newer operation UI when an olde
     releaseLateSuccess = resolve
   })
   let lateErrorCount = 0
+  let lateErrorSettled = false
   let releaseLateError!: () => void
   const lateErrorGate = new Promise<void>(resolve => {
     releaseLateError = resolve
@@ -147,6 +148,7 @@ test('submits each file operation once and keeps newer operation UI when an olde
         contentType: 'application/json',
         body: JSON.stringify({ error: 'simulated late create conflict' }),
       })
+      lateErrorSettled = true
       return
     }
     await route.continue()
@@ -168,7 +170,6 @@ test('submits each file operation once and keeps newer operation UI when an olde
     form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
   })
   await expect.poll(() => singleSubmitCount).toBe(1)
-  await page.waitForTimeout(100)
   expect(singleSubmitCount).toBe(1)
   await expect(singleSubmitInput).toBeDisabled()
   releaseSingleSubmit()
@@ -198,7 +199,7 @@ test('submits each file operation once and keeps newer operation UI when an olde
 
   const latestInput = await startNewFile('latest-operation.txt')
   releaseLateError()
-  await page.waitForTimeout(100)
+  await expect.poll(() => lateErrorSettled).toBe(true)
   await expect(latestInput).toHaveValue('latest-operation.txt')
   await expect(latestInput).toBeFocused()
   await expect(files.getByTestId('code-file-open-error')).toHaveCount(0)

@@ -826,7 +826,10 @@ async function run() {
       metadata: { command: 'bash', cwd: process.cwd() },
     });
 
-    await delay(300);
+    await waitFor(async () => {
+      const current = await engine.getSessionState('native-smoke');
+      return current?.status === 'running' ? current : null;
+    }, 'native pty startup');
     let terminalOptions = await runtimeEpochOptions(engine, 'native-smoke');
     await engine.sendInput(
       'native-smoke',

@@ -131,7 +131,9 @@ async function run() {
     });
     assert(trailingExitListener);
     trailingExitListener({ exitCode: 0 });
-    await new Promise(resolve => setTimeout(resolve, 1));
+    // Flush immediate Promise settlement: a broken implementation that resolves
+    // on PTY exit is observable without sleeping through the real flush window.
+    await Promise.resolve();
     assert.strictEqual(trailingExitResolved, false, 'PTY exit must wait for trailing output quiescence');
     assert(trailingDataListener);
     trailingDataListener('trailing-output');

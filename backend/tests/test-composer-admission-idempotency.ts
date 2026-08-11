@@ -465,7 +465,7 @@ async function run() {
       lastSettledTurnHandle: 'binding-1:4',
       lastSettledTurnSummary: 'Fourth exact summary',
     });
-    await new Promise(resolve => setTimeout(resolve, 20));
+    await manager.acpTurnFinalizationCoordinator.whenIdle();
     assert.strictEqual(
       agent.attentionSeq,
       attentionAfterConflictFallback + 1,

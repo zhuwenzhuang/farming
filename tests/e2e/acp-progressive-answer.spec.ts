@@ -169,6 +169,8 @@ test('does not replay an in-progress ACP answer after switching agents', async (
   await expect.poll(async () => (await currentAnswerSamples(page))[0]?.text).toBe(PROGRESSIVE_INITIAL_ANSWER)
 
   await otherAgentRow.click()
+  // This is the sampled mid-stream interval under test: the Agent must keep
+  // progressing while its pane is inactive, before the final answer settles.
   await page.waitForTimeout(1_500)
   const firstInProgressSwitchText = await firstAnswerAfterAgentClick(page, agentId)
   expect(firstInProgressSwitchText.startsWith(PROGRESSIVE_INITIAL_ANSWER)).toBe(true)

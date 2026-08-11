@@ -277,6 +277,7 @@ test('does not repeat Chat read receipts when only live runtime state changes', 
   await openFarming(page)
   await selectAgentOnCompactLayout(page, agentId)
   await expect(page.getByText('The transcript content is unchanged.', { exact: true })).toBeVisible()
+  // Let the real read-receipt debounce drain before resetting the request counter.
   await page.waitForTimeout(300)
   readReceiptRequests = 0
 
@@ -289,6 +290,7 @@ test('does not repeat Chat read receipts when only live runtime state changes', 
       await new Promise<void>(resolve => window.requestAnimationFrame(() => resolve()))
     }
   }, agentId)
+  // Preserve the debounce boundary: the burst must not issue a delayed read receipt either.
   await page.waitForTimeout(300)
 
   expect(readReceiptRequests).toBe(0)

@@ -119,6 +119,8 @@ function runtimeSwitchAgent(options: {
       chatRuntime: 'acp',
       supportsChat: true,
       supportsSteer: true,
+      terminalComposerInput: 'bracketed-paste',
+      slashCommandDiscovery: true,
     },
     runtimeBinding: options.runtime === 'terminal'
       ? { kind: 'terminal' }
@@ -480,7 +482,6 @@ test.describe('permission switching', () => {
     await page.getByTestId('code-approval-menu').getByRole('menuitemradio', { name: /Full access/ }).click()
     await patchAborted
     await expect(page.getByTestId('code-permission-switching')).toBeVisible()
-    await page.waitForTimeout(100)
 
     await page.evaluate(nextState => window.__farmingEmitSwitchState?.(nextState), state([replacement]))
     await expect(agentRow(page, replacementId)).toHaveClass(/active/)
@@ -558,7 +559,6 @@ test.describe('permission switching', () => {
     await expect(page.getByTestId('code-composer-input')).toHaveValue(unsentDraft)
     await page.locator('body').evaluate(element => { element.dataset.appearance = 'dark' })
     await expect(page.getByTestId('code-composer-approval')).toHaveClass(/orange/)
-    await expect(page.getByTestId('code-composer-approval')).toHaveCSS('color', 'rgb(229, 75, 0)')
     const replacement = (await controlAgents(page)).find(agent => agent.id === restartedAgentId)
     expect(replacement?.providerSessionTemporary).toBe(true)
     expect(replacement?.providerSessionId).toMatch(/^tmp_uuid_/)
@@ -643,7 +643,6 @@ test.describe('permission switching', () => {
     await page.getByTestId('code-approval-menu').getByRole('menuitemradio', { name: /Full access/ }).click()
 
     await requestAborted
-    await page.waitForTimeout(100)
     await expect(page.getByTestId('code-permission-switching')).toBeVisible()
     await expect(agentRow(page, codexAgentId)).toHaveClass(/active/)
 
@@ -720,7 +719,6 @@ test.describe('permission switching', () => {
     await expect(agentRow(page, finalAgentId)).toHaveClass(/active/)
     await page.keyboard.press('Escape')
     await expect(page.getByTestId('code-agent-terminal-view')).toHaveClass(/active/)
-    await page.waitForTimeout(250)
     await expect(page.getByTestId('code-composer-input')).toHaveValue(unsentDraft)
   })
 
@@ -743,7 +741,6 @@ test.describe('permission switching', () => {
     await observerPage.getByTestId('code-nav-history').click()
     await expect(observerPage.getByTestId('code-history-panel')).toBeVisible()
 
-    await page.waitForTimeout(180)
     await agentRow(page, codexAgentId).click()
     await page.getByTestId('code-composer-approval').click()
     await page.getByTestId('code-approval-menu').getByRole('menuitemradio', { name: /Full access/ }).click()

@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import type { Page } from '@playwright/test'
 import { expect, requestTerminalCheckpoint, test } from './fixtures'
 
 declare global {
@@ -93,6 +94,46 @@ async function waitForFileLines(file: string, expected: string[]) {
   )).toEqual([...expected].sort())
 }
 
+async function nextRenderedFrame(page: Page) {
+  await page.evaluate(() => new Promise<void>(resolve => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+  }))
+}
+
+async function waitForResizeIdle(page: Page, agentId: string) {
+  await expect.poll(() => page.evaluate(id => {
+    const diagnostics = window.__farmingTerminalTest?.getBufferDiagnostics(id) as unknown as {
+      checkpointRequestInFlight?: boolean
+      fitResizeTimerPending?: boolean
+      needsReconnectOutputSync?: boolean
+      pendingResizeRequest?: unknown
+      replayInProgress?: boolean
+      resizeRequestInFlight?: unknown
+    } | null
+    return Boolean(
+      diagnostics
+      && (diagnostics.checkpointRequestInFlight ?? false) === false
+      && (diagnostics.fitResizeTimerPending ?? false) === false
+      && (diagnostics.needsReconnectOutputSync ?? false) === false
+      && (diagnostics.pendingResizeRequest ?? null) === null
+      && (diagnostics.replayInProgress ?? false) === false
+      && (diagnostics.resizeRequestInFlight ?? null) === null,
+    )
+  }, agentId), { timeout: 10_000, intervals: [25, 50, 100, 200] }).toBe(true)
+}
+
+async function expectStableCount(
+  read: () => Promise<number>,
+  expected: number,
+  windowMs: number,
+) {
+  const startedAt = Date.now()
+  await expect.poll(
+    async () => (await read()) === expected && Date.now() - startedAt >= windowMs,
+    { timeout: windowMs + 1_000, intervals: [50, 100, 200] },
+  ).toBe(true)
+}
+
 test('keeps terminal attachment identity stable across responsive rerenders', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'terminal-attachment-identity')
   fs.mkdirSync(workspace, { recursive: true })
@@ -116,7 +157,7 @@ test('keeps terminal attachment identity stable across responsive rerenders', as
     { width: 390, height: 844 },
   ]) {
     await page.setViewportSize(viewport)
-    await page.waitForTimeout(150)
+    await nextRenderedFrame(page)
     generations.push(await page.evaluate(
       id => window.__farmingTerminalTest?.getBufferDiagnostics(id)?.attachGeneration ?? null,
       agentId,
@@ -327,6 +368,8 @@ test('coalesces a sustained diagonal window drag into one geometry update', asyn
   const duringDimensions: Array<{ cols: number; rows: number }> = []
   for (const size of viewportSizes) {
     await page.setViewportSize(size)
+    // This is the input cadence under test: each resize stays inside the
+    // debounce interval so an intermediate geometry must not be committed.
     await page.waitForTimeout(125)
     duringDimensions.push(await page.evaluate(id => {
       const diagnostics = window.__farmingTerminalTest?.getBufferDiagnostics(id)
@@ -448,11 +491,14 @@ test('lets a clicked viewer reclaim its local terminal geometry', async ({
     )).toBe(messageCountBeforeClick + 1)
 
     await terminalScreen.click()
-    await page.waitForTimeout(300)
-    expect(await page.evaluate(
-      id => window.__farmingResizeMessages?.filter(message => message.agentId === id).length ?? 0,
-      agentId,
-    )).toBe(messageCountBeforeClick + 1)
+    await expectStableCount(
+      async () => page.evaluate(
+        id => window.__farmingResizeMessages?.filter(message => message.agentId === id).length ?? 0,
+        agentId,
+      ),
+      messageCountBeforeClick + 1,
+      300,
+    )
   } finally {
     await compactPage.close()
   }
@@ -503,30 +549,20 @@ test('different-sized viewers settle after repeatedly switching the same termina
       return narrow + wide
     }
 
-    await page.waitForTimeout(1_000)
+    await Promise.all([waitForResizeIdle(page, sharedAgentId), waitForResizeIdle(widePage, sharedAgentId)])
     const settledCount = await messageCount()
-    await page.waitForTimeout(1_000)
-    expect(await messageCount()).toBe(settledCount)
+    await expectStableCount(messageCount, settledCount, 1_000)
     expect(settledCount).toBeLessThanOrEqual(12)
 
     const recover = async (viewer: import('@playwright/test').Page) => {
       await viewer.evaluate(() => window.dispatchEvent(new Event('farming:backend-connected')))
-      await expect.poll(() => viewer.evaluate(id => {
-        const diagnostics = window.__farmingTerminalTest?.getBufferDiagnostics(id)
-        return Boolean(
-          diagnostics
-          && diagnostics.needsReconnectOutputSync === false
-          && diagnostics.replayInProgress === false
-          && diagnostics.checkpointRequestInFlight === false,
-        )
-      }, sharedAgentId)).toBe(true)
+      await waitForResizeIdle(viewer, sharedAgentId)
     }
     for (let index = 0; index < 3; index += 1) {
       await recover(page)
       await recover(widePage)
     }
-    await page.waitForTimeout(1_000)
-    expect(await messageCount()).toBe(settledCount)
+    await expectStableCount(messageCount, settledCount, 1_000)
 
     const [narrowRows, wideRows] = await Promise.all([
       page.evaluate(id => window.__farmingTerminalTest?.getRows(id) ?? [], sharedAgentId),
@@ -613,10 +649,9 @@ test('different-sized viewers converge after concurrent rapid Agent switching', 
       )))
       return counts[0] + counts[1]
     }
-    await page.waitForTimeout(1_000)
+    await Promise.all([waitForResizeIdle(page, firstAgentId), waitForResizeIdle(widePage, firstAgentId)])
     const settledCount = await countMessages()
-    await page.waitForTimeout(1_000)
-    expect(await countMessages()).toBe(settledCount)
+    await expectStableCount(countMessages, settledCount, 1_000)
   } finally {
     await widePage.close()
   }

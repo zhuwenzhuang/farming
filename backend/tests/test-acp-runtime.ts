@@ -1721,6 +1721,15 @@ async function run() {
       patchDecisions: [['exact-fork-tool\nREADME.md', 'kept']],
       providerProof: { token: 'source-only-proof' },
     };
+    const liveForkSource = await runtime.prepareAgent({
+      agentId: 'agent-acp-owned-fork-source',
+      provider: 'claude',
+      cwd: process.cwd(),
+      env: process.env,
+      approvalMode: 'full',
+      sessionId: 'existing-session',
+    });
+    assert.strictEqual(liveForkSource.sessionId, 'existing-session');
     let announcedOwnedForkSessionId = '';
     const ownedFork = await runtime.prepareAgent({
       agentId: 'agent-acp-owned-fork',
@@ -1737,6 +1746,11 @@ async function run() {
     assert.strictEqual(ownedFork.sessionId, 'acp-fork-session');
     assert.strictEqual(announcedOwnedForkSessionId, 'acp-fork-session');
     assert.strictEqual(ownedFork.historyMode, 'fork');
+    assert.strictEqual(
+      runtime.getSession('agent-acp-owned-fork-source').sessionId,
+      'existing-session',
+      'an isolated target-process fork must not displace the live source Agent',
+    );
     const ownedForkSession = runtime.getSession('agent-acp-owned-fork');
     const ownedForkBinding = runtime.bindings.get('agent-acp-owned-fork');
     assert.strictEqual(ownedForkSession.sessionId, 'acp-fork-session');
@@ -2766,7 +2780,9 @@ async function run() {
       serializedFastCalls += 1;
       concurrentFastCalls += 1;
       maxConcurrentFastCalls = Math.max(maxConcurrentFastCalls, concurrentFastCalls);
-      await new Promise(resolve => setTimeout(resolve, 15));
+      // Yield one event-loop turn so a missing serialization fence would
+      // overlap calls, without relying on wall-clock timing.
+      await new Promise(resolve => setImmediate(resolve));
       serializedFastValue = params.value;
       concurrentFastCalls -= 1;
       return {

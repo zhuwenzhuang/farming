@@ -160,6 +160,8 @@ async function run() {
       }),
     });
     const firstAgent = await waitForValue(() => agents.get('agent-1'));
+    // This negative assertion spans the former startup-delay window: creating
+    // an Agent alone must never cause task input before authoritative readiness.
     await delay(10);
     assert.strictEqual(
       calls.filter(call => call.type === 'sendInput').length,

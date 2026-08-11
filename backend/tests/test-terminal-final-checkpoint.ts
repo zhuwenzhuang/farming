@@ -188,7 +188,8 @@ async function runTrailingDataCase(label, EngineClass) {
   const exit = EngineClass === NativePtyHost
     ? engine.handleSessionExit(session.id, 0, session)
     : engine.handleSessionExit(session, 0);
-  await new Promise(resolve => setTimeout(resolve, 1));
+  // Deliver trailing data in the same deterministic turn after exit handling
+  // has started, before its asynchronous final-checkpoint phase settles.
   engine.handleSessionData(session.id, 'TRAILING_DATA', session);
   await exit;
   assert.strictEqual(session.finalCheckpoint.outputSeq, 3);

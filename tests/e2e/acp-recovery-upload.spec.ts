@@ -27,6 +27,7 @@ test('keeps a fresh Chat in its empty state when the startup transcript read fai
   await expect(page.locator('.code-agent-transcript-blank')).toHaveText('No conversation yet.')
   await expect(page.getByText('Chat history is unavailable for this session.', { exact: true })).toHaveCount(0)
 
+  // Keep a retry-silence interval: a fresh Chat must stay empty after its startup read failure.
   await page.waitForTimeout(1_200)
   await expect(page.locator('.code-agent-transcript-blank')).toHaveText('No conversation yet.')
   await expect(page.getByText('Chat history is unavailable for this session.', { exact: true })).toHaveCount(0)
