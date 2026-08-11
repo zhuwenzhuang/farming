@@ -13,6 +13,19 @@ Identity 与 Restart Continuity。Farming Server 控制 Lifecycle 并发布状�
 一次 PTY Lifetime 对应一个 Runtime Epoch。Epoch 内的有序 Output 与 State Revision 标识一份
 权威 Cut；它们只是 Transport Cursor，不是第二套 Agent Lifecycle。
 
+## Provider Activity 与 Attention
+
+对于持久运行的 Coding CLI，Process 存活不等于 Turn 正在执行。Provider Terminal Observer 从
+Provider 当前的权威 Screen Projection 推导 `busy`、`idle` 或 `unknown`。`busy` 到 `idle` 的
+转换可以立即完成 Attention；持续静默时间不能作为完成证据。
+
+Qwen Code 使用自身渲染出来的 Streaming-state Contract。Responding Screen 会包含 Loading Row
+或带 `Ctrl+Q` 的 Queue Footer；当这些 Marker 从当前 Ink Screen 中移除时，说明 Qwen 已离开
+Responding，进入 Idle 或需要用户输入的状态。Farming 直接消费该 Output Transition。Parent Turn
+仍处于 Responding 时收到的 Terminal Notification 先保持 Pending，因为 Child Work 可能早于
+Parent Turn 结束发出 Notification。Screen Evidence 缺失或有歧义时保持 `unknown`，不启动基于
+时间的 Fallback。
+
 ## Checkpoint 与 Delta
 
 Terminal Checkpoint 包含 Runtime Epoch、State Revision、Output Sequence、Serialized Screen、

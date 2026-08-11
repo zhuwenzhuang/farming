@@ -35,7 +35,7 @@ interface ProviderSessionPolicy {
   freshPermissionRestartCommand?: string;
   identityScope?: 'provider' | 'provider-home';
   requiresStableTerminalSessionAfterInput?: boolean;
-  terminalNotificationIdleFenceMs?: number;
+  terminalNotificationRequiresIdle?: boolean;
 }
 
 interface ProviderPermissionRestartPolicy {
@@ -733,7 +733,7 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
     supportedRuntimes: ['terminal', 'acp'],
     planSession: (rawArgs, launchArgs) => explicitSessionPlan('qwen', rawArgs, launchArgs),
     sessionPolicy: {
-      terminalNotificationIdleFenceMs: 3_000,
+      terminalNotificationRequiresIdle: true,
     },
     terminalResumeArgs: (args, sessionId) => {
       const delimiterIndex = args.indexOf('--');
@@ -971,11 +971,8 @@ function providerRequiresStableTerminalSessionAfterInput(provider: unknown): boo
   return getProviderAdapter(provider)?.sessionPolicy?.requiresStableTerminalSessionAfterInput === true;
 }
 
-function providerTerminalNotificationIdleFenceMs(provider: unknown): number {
-  const value = getProviderAdapter(provider)?.sessionPolicy?.terminalNotificationIdleFenceMs;
-  return typeof value === 'number' && Number.isFinite(value) && value > 0
-    ? Math.floor(value)
-    : 0;
+function providerTerminalNotificationRequiresIdle(provider: unknown): boolean {
+  return getProviderAdapter(provider)?.sessionPolicy?.terminalNotificationRequiresIdle === true;
 }
 
 function providerSupportsSharedAcpRuntime(provider: unknown): boolean {
@@ -1067,7 +1064,7 @@ export {
   providerSupportsSharedAcpRuntime,
   providerSupportsRuntime,
   providerTerminalStartupPolicy,
-  providerTerminalNotificationIdleFenceMs,
+  providerTerminalNotificationRequiresIdle,
   providerTreatsLegacyAcpRequestAsChat,
   type ProviderTerminalStartupPolicy,
   type ProviderPermissionRestartPolicy,

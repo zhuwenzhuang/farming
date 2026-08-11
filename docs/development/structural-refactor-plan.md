@@ -183,15 +183,17 @@ HTTP, WebSocket, persistence, and runtime-host boundaries.
   projection, but it does not store the selected identity or an in-flight start
   reservation separately.
 - Provider adapters expose typed decisions such as permission restart,
-  Terminal identity/startup constraints, idle stability, and conversation Fork
-  policy. Provider Session id scope, session-continuation detection, and
-  pre-created session rollback command shapes also live in the adapter,
+  Terminal identity/startup constraints, notification ordering, and
+  conversation Fork policy. Provider Session id scope, session-continuation
+  detection, and pre-created session rollback command shapes also live in the adapter,
   so Manager and ACP Host cleanup cannot drift. Generic lifecycle code does not
   interpret provider names. A shared
   Terminal startup coordinator owns mutable ordering and readiness state;
   adapters contribute stateless resource-scope and readiness policy only.
-  Terminal-notification idle stability is a duration declared by the adapter;
-  the shared Attention tracker owns the timer, runtime fence, and cleanup.
+  A Provider may declare that a Terminal notification must wait for its
+  authoritative Terminal observer to leave the active turn. The shared
+  Attention tracker consumes that state transition without an elapsed-time
+  completion heuristic.
 - The Code Composer stores one provider-neutral launch profile shape. Composer
   provider profile adapters own settings-field compatibility, option
   normalization, permission labels, model/reasoning/service-tier transitions,
@@ -253,8 +255,8 @@ The former priority structural problems have converged:
 3. stylesheet domains have explicit base/dark owners and keep global cascade,
    specificity, and import-order proof as a continuing change gate;
 4. the Server now reaches ACP through the Host facade only, and generic
-   permission restart, resume-profile, idle-fence, and recovery constraints
-   come from typed Provider Adapter policy.
+   permission restart, resume-profile, notification-ordering, and recovery
+   constraints come from typed Provider Adapter policy.
 
 Resume keeps two internal admission maps because an HTTP resume is a complete
 operation while direct and auto resume are effect-level entries; whether they
@@ -495,8 +497,8 @@ Server-facing path; `AgentManager` no longer constructs an in-process
 `AcpRuntime`. Tests use explicit runtime doubles or the Host harness. Engine
 session projection remains separate from Host controller and operation state,
 and generic lifecycle code consumes typed Provider Adapter policies for
-permission restart, resume-profile options, idle fences, recovery constraints,
-startup ordering, and Fork capability.
+permission restart, resume-profile options, notification ordering, recovery
+constraints, startup ordering, and Fork capability.
 
 This lane requires real-provider smoke verification for every supported
 provider whose runtime behavior is touched.

@@ -16,6 +16,22 @@ One PTY lifetime has one runtime epoch. Within that epoch, ordered output and
 state revisions identify an authoritative cut. These values are transport
 cursors, not another Agent lifecycle.
 
+## Provider Activity And Attention
+
+For a persistent coding CLI, process liveness is not turn activity. Provider
+terminal observers derive `busy`, `idle`, or `unknown` from the provider's
+current authoritative screen projection. A `busy` to `idle` transition may
+complete attention immediately; elapsed silence is not completion evidence.
+
+Qwen Code follows its own rendered streaming-state contract. The Responding
+screen contains its loading row or `Ctrl+Q` queue footer; when those markers are
+removed from the current Ink screen, Qwen has left Responding for Idle or an
+input-required state. Farming uses that output transition directly. A terminal
+notification received while the parent turn is still Responding remains
+pending until this transition, because child work can notify before the parent
+turn ends. Missing or ambiguous screen evidence remains `unknown` rather than
+starting a time-based fallback.
+
 ## Checkpoint And Delta
 
 A terminal checkpoint contains the runtime epoch, state revision, output

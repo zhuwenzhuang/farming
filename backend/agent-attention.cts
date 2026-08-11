@@ -6,14 +6,13 @@
  * cursor requests. Guards exclude the Main Agent and ephemeral shell
  * completions, require new output after recovery, and keep read cursors
  * monotonic. Successful transitions update the record, then persist and
- * publish through the narrow host port. Provider idle detection has one timer per
- * Agent, revalidates identity/runtime/activity before firing, cancels when the
- * Agent becomes active, and is fully drained on Manager disposal.
+ * publish through the narrow host port. Provider terminal observers own the
+ * evidence that a turn is busy or idle; this tracker consumes only their
+ * resulting state transitions and never guesses completion from elapsed time.
  */
 
 import type { AgentId, AgentRecord as TypedAgentRecord } from './agent-manager-record-types.js';
 import { deriveAgentTerminalStatus } from './agent-terminal-status.cjs';
-import { providerForProgram, providerTerminalNotificationIdleFenceMs } from './provider-adapters.cjs';
 
 const path = require('path');
 
@@ -77,16 +76,15 @@ function isEphemeralShellAgent(agent: TypedAgentRecord): boolean {
   return ['bash', 'zsh', 'sh', 'fish'].includes(program);
 }
 
-function agentAttentionProvider(agent: TypedAgentRecord): string {
-  return agent.providerSessionProvider
-    || providerForProgram(agentProgramName(agent.forkCommand || agent.command || ''));
-}
-
 function agentAttentionTurnActive(agent: TypedAgentRecord | null | undefined): boolean {
   if (!agent) return false;
   if (agent.status === 'pending') return true;
   if (agent.status !== 'running') return false;
-  return deriveAgentTerminalStatus(agent).activity === 'busy';
+  return deriveAgentTerminalStatus(agent, {
+    // Attention follows the current reducer-owned screen. Falling back to the
+    // append-only output log can reintroduce rows that Ink has already erased.
+    previewText: agent.previewText || '',
+  }).activity === 'busy';
 }
 
 function agentAttentionUnread(agent: TypedAgentRecord | null | undefined) {
@@ -203,52 +201,9 @@ function applyAgentReadRequest(
 
 class AgentAttentionTracker {
   private readonly host: AgentAttentionHost;
-  private readonly terminalIdleCandidates = new Map<AgentId, ReturnType<typeof setTimeout>>();
 
   constructor(host: AgentAttentionHost) {
     this.host = host;
-  }
-
-  hasTerminalIdleCandidate(agentId: AgentId): boolean {
-    return this.terminalIdleCandidates.has(agentId);
-  }
-
-  cancelTerminalIdleCandidate(agentId: AgentId) {
-    const candidate = this.terminalIdleCandidates.get(agentId);
-    if (!candidate) return false;
-    clearTimeout(candidate);
-    this.terminalIdleCandidates.delete(agentId);
-    return true;
-  }
-
-  cancelAllTerminalIdleCandidates() {
-    for (const candidate of this.terminalIdleCandidates.values()) clearTimeout(candidate);
-    this.terminalIdleCandidates.clear();
-  }
-
-  scheduleTerminalIdleCandidate(agent: TypedAgentRecord) {
-    if (this.terminalIdleCandidates.has(agent.id)) return;
-    const idleFenceMs = providerTerminalNotificationIdleFenceMs(agentAttentionProvider(agent));
-    if (idleFenceMs <= 0) return;
-    const runtimeEpoch = agent.runtimeEpoch;
-    const candidate = setTimeout(() => {
-      if (this.terminalIdleCandidates.get(agent.id) !== candidate) return;
-      this.terminalIdleCandidates.delete(agent.id);
-      const current = this.host.getAgent(agent.id);
-      if (
-        this.host.isDisposed()
-        || current !== agent
-        || current.runtimeEpoch !== runtimeEpoch
-        || providerTerminalNotificationIdleFenceMs(agentAttentionProvider(current)) <= 0
-        || current.lastObservedTurnActive === true
-        || agentAttentionTurnActive(current)
-      ) {
-        return;
-      }
-      this.completeAgentAttentionTransition(current);
-    }, idleFenceMs);
-    candidate.unref?.();
-    this.terminalIdleCandidates.set(agent.id, candidate);
   }
 
   completeAgentAttentionTransition(agent: TypedAgentRecord) {
@@ -302,18 +257,8 @@ class AgentAttentionTracker {
 
     const wasTurnActive = agent.lastObservedTurnActive === true;
     agent.lastObservedTurnActive = turnActive;
-    const provider = agentAttentionProvider(agent);
-
-    const terminalIdleFenceMs = providerTerminalNotificationIdleFenceMs(provider);
-    if (turnActive && terminalIdleFenceMs > 0) {
-      this.cancelTerminalIdleCandidate(agent.id);
-    }
 
     if (wasTurnActive && !turnActive) {
-      if (terminalIdleFenceMs > 0 && agent.status === 'running') {
-        this.scheduleTerminalIdleCandidate(agent);
-        return false;
-      }
       return this.completeAgentAttentionTransition(agent);
     }
 
@@ -438,7 +383,6 @@ class AgentAttentionTracker {
 export {
   AgentAttentionTracker,
   applyAgentReadRequest,
-  agentAttentionProvider,
   agentAttentionTurnActive,
   agentAttentionUnread,
   hasAgentOutputAfterAttentionBaseline,

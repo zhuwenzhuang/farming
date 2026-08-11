@@ -233,20 +233,6 @@ async function run() {
   assert.strictEqual(legacyShellAgent.readAttentionSeq, 1);
   assert.strictEqual(legacyShellAgent.unread, false);
 
-  const qwenHost = createFakeHost();
-  const qwenTracker = new AgentAttentionTracker(qwenHost);
-  const qwenAgent = createAgent({
-    id: 'qwen-agent',
-    providerSessionProvider: 'qwen',
-    runtimeEpoch: 'qwen-epoch',
-  });
-  qwenHost.agents.set(qwenAgent.id, qwenAgent);
-  qwenTracker.scheduleTerminalIdleCandidate(qwenAgent);
-  assert.strictEqual(qwenTracker.hasTerminalIdleCandidate(qwenAgent.id), true);
-  assert.strictEqual(qwenTracker.cancelTerminalIdleCandidate(qwenAgent.id), true);
-  assert.strictEqual(qwenTracker.hasTerminalIdleCandidate(qwenAgent.id), false);
-  qwenTracker.cancelAllTerminalIdleCandidates();
-
   assert.deepStrictEqual(tracker.markAgentReadCursor('missing'), { error: 'Agent not found' });
   assert.deepStrictEqual(tracker.markAgentUnreadCursor('missing'), { error: 'Agent not found' });
 

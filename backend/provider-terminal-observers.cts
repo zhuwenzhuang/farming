@@ -175,6 +175,30 @@ function inferQoderLikeActivity({ title, previewText, commandName }: ProviderTer
   return lines.length > 0 || normalizedTitle ? 'idle' : 'unknown';
 }
 
+function inferQwenActivity({ previewText }: ProviderTerminalObserverInput): ProviderTerminalActivity {
+  const lines = terminalLines(previewText);
+  const tail = lines.slice(-10);
+
+  // Qwen Code renders this footer only while StreamingState.Responding.
+  // Ctrl+Q is intentionally left untranslated in every locale.
+  if (tail.some(line => /\bctrl\+q\b/.test(line))) return 'busy';
+
+  // LoadingIndicator is absent in Idle. Its normal and narrow layouts both
+  // keep the spinner, elapsed duration, and Esc cancellation affordance, even
+  // when those pieces wrap onto adjacent lines.
+  const active = tail.some((_line, index) => {
+    const loadingWindow = tail.slice(index, index + 3).join(' ');
+    return /\besc\b/.test(loadingWindow)
+      && /\b\d+(?:\.\d+)?\s*(?:ms|s|m|h)\b/.test(loadingWindow);
+  });
+  if (active) return 'busy';
+
+  // The current screen is an authoritative Ink projection. Once a previously
+  // rendered Responding marker is gone, Qwen has left Responding (Idle or an
+  // input-required state); both are attention boundaries for Farming.
+  return lines.length > 0 ? 'idle' : 'unknown';
+}
+
 const PROVIDER_TERMINAL_OBSERVERS: readonly ProviderTerminalObserver[] = [
   {
     activityPriority: 'provider-first',
@@ -217,10 +241,11 @@ const PROVIDER_TERMINAL_OBSERVERS: readonly ProviderTerminalObserver[] = [
     inferActivity: inferQoderLikeActivity,
   },
   {
+    activityPriority: 'provider-first',
     commands: ['qwen'],
     kind: 'process',
     nestedTitlePattern: /^qwen\b/i,
-    inferActivity: inferQoderLikeActivity,
+    inferActivity: inferQwenActivity,
   },
 ];
 

@@ -257,6 +257,42 @@ function run() {
 
   assert.deepStrictEqual(
     pickStatus(deriveTerminalStatus({
+      command: 'qwen',
+      cwd: '/repo',
+      title: 'Qwen - repo',
+      previewText: '.. Reading files (2s · esc to cancel)',
+      terminalBusy: null,
+    })),
+    { kind: 'process', activity: 'busy', busy: true },
+    'Qwen tmux loading rows should not depend on the default Braille spinner'
+  );
+
+  assert.deepStrictEqual(
+    pickStatus(deriveTerminalStatus({
+      command: 'qwen',
+      cwd: '/repo',
+      title: 'Qwen - repo',
+      previewText: 'Enter to steer · Ctrl+Q to queue',
+      terminalBusy: true,
+    })),
+    { kind: 'process', activity: 'busy', busy: true },
+    'Qwen Responding footer should be authoritative over the persistent CLI process state'
+  );
+
+  assert.deepStrictEqual(
+    pickStatus(deriveTerminalStatus({
+      command: 'qwen',
+      cwd: '/repo',
+      title: 'Qwen - repo',
+      previewText: '? for shortcuts',
+      terminalBusy: true,
+    })),
+    { kind: 'process', activity: 'idle', busy: false },
+    'Qwen Idle output should be authoritative over the persistent CLI process state'
+  );
+
+  assert.deepStrictEqual(
+    pickStatus(deriveTerminalStatus({
       command: 'codex',
       cwd: '/repo',
       previewText: [

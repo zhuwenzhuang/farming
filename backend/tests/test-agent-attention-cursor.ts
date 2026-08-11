@@ -14,10 +14,6 @@ function createManager() {
   });
 }
 
-function wait(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
 async function run() {
   const manager = createManager();
 
@@ -418,42 +414,31 @@ async function run() {
     assert.strictEqual(agent.unread, false);
     assert.strictEqual(agent.pendingTerminalNotificationSummary, 'Qwen has a result.');
 
-    manager.engineBridge.router.engines.local.emit('session-busy-state', {
+    manager.engineBridge.router.engines.local.emit('session-preview', {
       sessionId: qwenAgentId,
-      terminalBusy: false,
+      previewText: '⣙ Coordinating agents (9s · esc to cancel)\nEnter to steer · Ctrl+Q to queue',
       runtimeEpoch: qwenRuntimeEpoch,
     });
     agent = manager.agents.get(qwenAgentId);
-    assert.strictEqual(agent.attentionSeq, 0, 'the first Qwen idle edge should only start stability confirmation');
+    assert.strictEqual(agent.attentionSeq, 0, 'Qwen Responding output must keep the parent turn active');
     assert.strictEqual(agent.unread, false);
     assert.strictEqual(agent.pendingTerminalNotificationSummary, 'Qwen has a result.');
 
-    manager.engineBridge.router.engines.local.emit('session-busy-state', {
+    manager.engineBridge.router.engines.local.emit('session-preview', {
       sessionId: qwenAgentId,
-      terminalBusy: true,
+      previewText: '? for shortcuts',
       runtimeEpoch: qwenRuntimeEpoch,
     });
     agent = manager.agents.get(qwenAgentId);
-    assert.strictEqual(agent.attentionSeq, 0, 'Qwen becoming active again must cancel same-turn idle flicker');
-    assert.strictEqual(agent.unread, false);
-    assert.strictEqual(agent.pendingTerminalNotificationSummary, 'Qwen has a result.');
-
-    manager.engineBridge.router.engines.local.emit('session-busy-state', {
-      sessionId: qwenAgentId,
-      terminalBusy: false,
-      runtimeEpoch: qwenRuntimeEpoch,
-    });
-    await wait(3200);
-    agent = manager.agents.get(qwenAgentId);
-    assert.strictEqual(agent.attentionSeq, 1, 'Qwen notifications should become attention after sustained parent idle');
+    assert.strictEqual(agent.attentionSeq, 1, 'Qwen Idle output should complete attention without a time heuristic');
     assert.strictEqual(agent.attentionReason, 'terminal-notification');
     assert.strictEqual(agent.attentionSummary, 'Qwen has a result.');
     assert.strictEqual(agent.unread, true);
     assert.strictEqual(agent.pendingTerminalNotificationSummary, undefined);
 
-    manager.engineBridge.router.engines.local.emit('session-busy-state', {
+    manager.engineBridge.router.engines.local.emit('session-preview', {
       sessionId: qwenAgentId,
-      terminalBusy: true,
+      previewText: '⣙ Starting another turn (0s · esc to cancel)',
       runtimeEpoch: qwenRuntimeEpoch,
     });
     agent = manager.agents.get(qwenAgentId);
