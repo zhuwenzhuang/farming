@@ -184,6 +184,30 @@ test('reveals Project Agents in progressive batches', {
   await expect(showMore).toHaveAttribute('aria-label', 'Show 5 more Agents')
 })
 
+test('keeps Agent pagination size stable while selecting rows', {
+  tag: ['@critical-behavior', '@behavior-CODE-SIDEBAR-SELECTION-STABILITY'],
+}, async ({ page, workspaceRoot }) => {
+  const projectDir = path.join(workspaceRoot, 'agent-selection-stability')
+  fs.mkdirSync(projectDir, { recursive: true })
+
+  await openFarming(page)
+  for (let index = 0; index < 6; index += 1) {
+    await createControlAgent(page, projectDir)
+  }
+
+  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(projectDir) })
+  const rows = project.getByTestId('code-agent-row')
+  const showMore = project.getByTestId('code-agent-show-more')
+  await expect(rows).toHaveCount(5)
+  await expect(showMore).toHaveAttribute('aria-label', 'Show 1 more Agent')
+
+  for (const index of [4, 2, 0, 4]) {
+    await rows.nth(index).click()
+    await expect(rows).toHaveCount(5)
+    await expect(showMore).toHaveAttribute('aria-label', 'Show 1 more Agent')
+  }
+})
+
 test('keeps the Files header below a resized sticky Agent section without ResizeObserver', async ({ page, workspaceRoot }) => {
   const projectDir = path.join(workspaceRoot, 'agent-sticky-height-sync')
   fs.mkdirSync(projectDir, { recursive: true })

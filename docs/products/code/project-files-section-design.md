@@ -27,7 +27,9 @@ ownership.
 Project Agent rows use progressive disclosure to keep large Agent groups
 scannable. A Project initially shows five Agents, the first Show more action
 reveals up to five more, later actions reveal up to ten more, and Show less
-returns to the initial five.
+returns to the initial five. Selection, search, and active-Agent changes may
+replace a row within the current capacity, but only Show more and Show less may
+change that capacity.
 
 ## Project And Workspace Identity
 

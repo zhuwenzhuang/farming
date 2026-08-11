@@ -36,6 +36,20 @@
       }
     },
     {
+      "id": "CODE-SIDEBAR-SELECTION-STABILITY",
+      "surface": "ui",
+      "promise": "Selecting Agent rows never reveals additional rows; only explicit Show more and Show less actions change pagination capacity.",
+      "owner": "docs/products/code/project-files-section-design.md",
+      "evidence": {
+        "playwright": [
+          {
+            "file": "tests/e2e/agent-ordering.spec.ts",
+            "title": "keeps Agent pagination size stable while selecting rows"
+          }
+        ]
+      }
+    },
+    {
       "id": "CODE-SIDEBAR-BROWSER-NESTING",
       "surface": "ui",
       "promise": "Agent-owned Browsers stay nested under their Agent without adding Project-level layout noise.",
