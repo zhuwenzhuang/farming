@@ -77,6 +77,7 @@ function run() {
   const preparedTranscriptCacheSource = read('backend/acp-prepared-transcript-cache.cts');
   const acpTranscriptServiceSource = read('backend/acp-transcript-service.cts');
   const mainPageSessionSource = read('backend/main-page-session.cts');
+  const providerAdaptersSource = read('backend/provider-adapters.cts');
   const resumeCoordinatorSource = read('backend/agent-session-resume-coordinator.cts');
   const inputPartsSource = read('backend/input-parts.cts');
   const websocketHandshakeHealthHandlersSource = read('backend/websocket-handshake-health-handlers.cts');
@@ -206,8 +207,9 @@ function run() {
   );
   assert(
     websocketHandshakeHealthHandlersSource.includes('ports.sendResourceSnapshots(client);')
-      && serverSource.includes("browserResourceManager.on('resource'")
-      && serverSource.includes("computerResourceManager.on('resource'")
+      && serverSource.includes('const resourceBroadcastManagers = [')
+      && serverSource.includes("manager.on('resource'")
+      && serverSource.includes("manager.on('deleted'")
       && serverSource.includes('createWebSocketResourceBroadcastController<WebSocketClient>({')
       && websocketResourceBroadcastsSource.includes('client.resourceSnapshotPending = true;')
       && serverSource.includes('recoverResourceSnapshotIfReady(ws);'),
@@ -1261,7 +1263,7 @@ function run() {
       agentLifecycleSource.includes('await ports.startAgent(command, null') &&
       serverSource.includes("import { AgentSessionResumeCoordinator } from './agent-session-resume-coordinator.cjs';") &&
       serverSource.includes('const agentSessionResumeCoordinator = new AgentSessionResumeCoordinator({') &&
-      mainPageSessionSource.includes("const AUTO_RESUME_AGENT_SESSION_PROVIDERS = new Set(['codex', 'claude', 'opencode', 'qoder', 'qwen'])") &&
+      mainPageSessionSource.includes("return getProviderAdapter(normalized)?.id || '';") &&
       mainPageSessionSource.includes('function mainPageAgentSessionFromKey(key: unknown)') &&
       resumeCoordinatorSource.includes('return findActiveAgentClaimingSession(this.ports.getActiveAgents()') &&
       mainPageSessionSource.includes('return claimedProviderSessionTupleKeys(agent).has(tupleKey);') &&
@@ -1587,7 +1589,8 @@ function run() {
       acpSessionControlsSource.includes("modeId === 'agent-full-access'") &&
       acpSessionControlsSource.includes("option.id === 'mode' || option.category === 'mode'") &&
       acpSessionControlsSource.includes('usesConfigOption && modeConfig') &&
-      acpSessionControlsSource.includes("session.provider === 'qoder' && session.agentInfo?.version === '1.0.43'") &&
+      providerAdaptersSource.includes("String(agentInfo.version || '') !== '1.0.43'") &&
+      !acpSessionControlsSource.includes("session.provider === 'qoder'") &&
       acpSessionControlsSource.includes('copy.acpModeDescription(mode.id, mode.description)') &&
       acpSessionControlsSource.includes('className="code-composer-model-picker"') &&
       acpSessionControlsSource.includes("Boolean(updatingId) || session.state === 'connecting'") &&
@@ -1597,7 +1600,7 @@ function run() {
       capabilitiesSource.includes('if (!agent?.providerCapabilities) return false') &&
       capabilitiesSource.includes('providerCapabilities.runtimeSwitch') &&
       capabilitiesSource.includes('providerCapabilities.supportsChat') &&
-      inputDialogSource.includes("['codex', 'claude', 'opencode', 'qoder', 'qwen'].includes(selectedAgent.name)") &&
+      inputDialogSource.includes('selectedAgent.capabilities?.supportsChat === true') &&
       acpPermissionSource.includes('code-acp-permission-details') &&
       agentWorkPaneSource.includes('refreshSignal={acpRuntime?.sessionRevision || (acpRuntime?.sessionUpdatedAt ? Date.parse(acpRuntime.sessionUpdatedAt) : 0)}') &&
       transcriptPaneSource.includes("if (source !== 'acp') pollTimer = window.setInterval(load, 3000)") &&
@@ -1719,7 +1722,7 @@ function run() {
       inputDialogSource.includes('lockStartClick') &&
       inputDialogSource.includes('settingsLoaded') &&
       inputDialogSource.includes('defaultLaunchAgent') &&
-      inputDialogSource.includes("if (agentName === 'opencode') return 'opencode'") &&
+      inputDialogSource.includes("agentName.trim() ? agentName.trim() : 'codex'") &&
       inputDialogSource.includes('effectiveDefaultLaunchAgent') &&
 	      inputDialogSource.includes('agent-option-${effectiveDefaultLaunchAgent}') &&
 	      inputDialogSource.includes("fetch(appPath('/api/executables'), { cache: 'no-store' })") &&

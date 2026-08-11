@@ -8,7 +8,6 @@ import {
 } from '../../../shared/provider-session-identity.js'
 import type { ProjectMembership } from './useProjectMembershipController'
 
-const CHAT_RESUME_PROVIDERS = new Set(['codex', 'claude', 'opencode', 'qoder', 'qwen'])
 const RESUME_AGENT_SESSION_TIMEOUT_MS = 60_000
 
 export type ResumeAgentCandidate = {
@@ -213,7 +212,8 @@ export class ResumeAgentSessionController {
           body: JSON.stringify({
             unarchiveArchived: true,
             providerHomeId: identity.providerHomeId,
-            ...(CHAT_RESUME_PROVIDERS.has(identity.provider) ? { agentRuntimeMode: 'chat', acpHistoryMode: 'load' } : {}),
+            agentRuntimeMode: 'chat',
+            acpHistoryMode: 'load',
             ...(customTitle ? { customTitle } : {}),
           }),
         },

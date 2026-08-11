@@ -13,7 +13,7 @@
 
 import type { AgentId, AgentRecord as TypedAgentRecord } from './agent-manager-record-types.js';
 import { deriveAgentTerminalStatus } from './agent-terminal-status.cjs';
-import { providerForProgram } from './provider-adapters.cjs';
+import { providerForProgram, providerTerminalNotificationUsesIdleFence } from './provider-adapters.cjs';
 
 const path = require('path');
 
@@ -304,12 +304,13 @@ class AgentAttentionTracker {
     agent.lastObservedTurnActive = turnActive;
     const provider = agentAttentionProvider(agent);
 
-    if (turnActive && provider === 'qwen') {
+    const usesTerminalIdleFence = providerTerminalNotificationUsesIdleFence(provider);
+    if (turnActive && usesTerminalIdleFence) {
       this.cancelQwenTerminalIdleCandidate(agent.id);
     }
 
     if (wasTurnActive && !turnActive) {
-      if (provider === 'qwen' && agent.status === 'running') {
+      if (usesTerminalIdleFence && agent.status === 'running') {
         this.scheduleQwenTerminalIdleCandidate(agent);
         return false;
       }

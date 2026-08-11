@@ -5,37 +5,33 @@ export interface AgentLaunchOption {
   category?: string
   supported?: boolean
   interactive?: boolean
+  launchOrder?: number
   capabilities?: {
     supportsChat?: boolean
   }
 }
 
-const PREFERRED_AGENT_ORDER = ['codex', 'claude', 'opencode', 'qoder', 'qwen', 'bash', 'zsh']
-const PREFERRED_AGENT_NAMES = new Set(PREFERRED_AGENT_ORDER)
-
-function agentLaunchRank(agentName: string) {
-  const preferredIndex = PREFERRED_AGENT_ORDER.indexOf(agentName)
-  return preferredIndex === -1 ? PREFERRED_AGENT_ORDER.length : preferredIndex
-}
-
 export function normalizeAgentLaunchOptions(rawOptions: AgentLaunchOption[]) {
   const seen = new Set<string>()
   return rawOptions
-    .filter(option => (
+    .map((option, sourceOrder) => ({ option, sourceOrder }))
+    .filter(({ option }) => (
       option
-      && PREFERRED_AGENT_NAMES.has(option.name)
+      && typeof option.name === 'string'
+      && option.name.trim().length > 0
       && option.supported !== false
       && option.interactive !== false
     ))
-    .filter(option => {
+    .filter(({ option }) => {
       if (seen.has(option.name)) return false
       seen.add(option.name)
       return true
     })
     .sort((left, right) => {
-      const leftRank = agentLaunchRank(left.name)
-      const rightRank = agentLaunchRank(right.name)
+      const leftRank = left.option.launchOrder ?? Number.MAX_SAFE_INTEGER
+      const rightRank = right.option.launchOrder ?? Number.MAX_SAFE_INTEGER
       if (leftRank !== rightRank) return leftRank - rightRank
-      return left.name.localeCompare(right.name)
+      return left.sourceOrder - right.sourceOrder
     })
+    .map(({ option }) => option)
 }

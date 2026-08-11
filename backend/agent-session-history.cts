@@ -21,9 +21,9 @@ const CLAUDE_HISTORY_TAIL_BYTES = 2 * 1024 * 1024;
 const QODER_HISTORY_TAIL_BYTES = 2 * 1024 * 1024;
 const QWEN_HISTORY_TAIL_BYTES = 2 * 1024 * 1024;
 const MAX_RECENT_FILE_SCAN_DIRECTORIES = 2000;
-const PROVIDERS = new Set(['codex', 'claude', 'opencode', 'qoder', 'qwen']);
-
-type AgentProvider = 'claude' | 'codex' | 'opencode' | 'qoder' | 'qwen';
+const AGENT_PROVIDER_IDS = ['codex', 'claude', 'opencode', 'qoder', 'qwen'] as const;
+type AgentProvider = typeof AGENT_PROVIDER_IDS[number];
+const PROVIDERS = new Set<string>(AGENT_PROVIDER_IDS);
 
 interface HistoryRecord extends Record<string, unknown> {
   automation?: HistoryRecord;
@@ -202,6 +202,21 @@ interface ResumeCommandOptions {
 
 type ProviderListFunction = (options?: ProviderListOptions) => Promise<AgentSession[]>;
 type SessionNormalizer = (session: AgentSession) => AgentSession;
+type ProviderHomeOptionKey = 'claudeHome' | 'codexHome' | 'qoderHome' | 'qwenHome';
+
+interface ProviderHistoryListContext {
+  limit: number;
+  options: AgentSessionHistoryOptions;
+  providerHomes: Partial<Record<AgentProvider, ProviderHome[]>>;
+}
+
+interface ProviderHistoryDefinition {
+  id: AgentProvider;
+  buildResumeCommand: (sessionId: string, options: ResumeCommandOptions) => string;
+  listSessions: (context: ProviderHistoryListContext) => Promise<AgentSession[]>;
+  staleAutoResumeErrorPatterns?: readonly RegExp[];
+  supportsUnarchive?: boolean;
+}
 
 function isHistoryRecord(value: unknown): value is HistoryRecord {
   return typeof value === 'object' && value !== null;
@@ -1231,6 +1246,177 @@ function normalizeCodexSession(session: AgentSession): AgentSession {
   };
 }
 
+async function listHomeBackedProviderSessions(
+  context: ProviderHistoryListContext,
+  definition: {
+    id: AgentProvider;
+    fallbackHomeKey: ProviderHomeOptionKey;
+    homeOptionKey: ProviderHomeOptionKey;
+    list: ProviderListFunction;
+    normalize?: SessionNormalizer;
+  },
+): Promise<AgentSession[]> {
+  const { limit, options, providerHomes } = context;
+  const homes = providerHomes[definition.id];
+  const configuredHomes = Array.isArray(homes) && homes.length > 0
+    ? homes
+    : [{ id: 'default', path: options[definition.fallbackHomeKey] }];
+  const perHomeLimit = typeof options.providerLimit === 'number' && Number.isFinite(options.providerLimit)
+    ? Math.max(0, Math.min(MAX_AGENT_SESSION_HISTORY_LIMIT, Math.floor(options.providerLimit)))
+    : limit;
+  const sessions: AgentSession[] = [];
+  for (const home of configuredHomes) {
+    const providerHomeId = String(home && home.id || 'default').trim() || 'default';
+    const providerHomePath = String(home && home.path || '').trim();
+    const listOptions: ProviderListOptions = {
+      limit: perHomeLimit,
+      scanLimit: options.scanLimit,
+      opencodeBin: options.opencodeBin,
+      runOpenCodeSessionList: options.runOpenCodeSessionList,
+    };
+    if (providerHomePath) listOptions[definition.homeOptionKey] = providerHomePath;
+    const homeSessions = await definition.list(listOptions);
+    const normalize = definition.normalize || ((session: AgentSession) => session);
+    sessions.push(...homeSessions.map(session => normalize({
+      ...session,
+      providerHomeId,
+      providerHomePath,
+    })).filter(isVisibleAgentSession));
+  }
+  return sessions;
+}
+
+async function listOpenCodeProviderSessions(
+  context: ProviderHistoryListContext,
+): Promise<AgentSession[]> {
+  const { limit, options, providerHomes } = context;
+  const configuredHomes = Array.isArray(providerHomes.opencode) && providerHomes.opencode.length > 0
+    ? providerHomes.opencode
+    : [{ id: 'default', path: options.opencodeHome }];
+  const home = configuredHomes.find(candidate => String(candidate?.id || '') === 'default') || configuredHomes[0];
+  const providerHomeId = String(home?.id || 'default').trim() || 'default';
+  const providerHomePath = String(home?.path || '').trim();
+  const homeSessions = await listOpenCodeSessions({
+    limit: typeof options.providerLimit === 'number' && Number.isFinite(options.providerLimit)
+      ? options.providerLimit
+      : limit,
+    scanLimit: options.scanLimit,
+    opencodeBin: options.opencodeBin,
+    opencodeHome: providerHomePath,
+    runOpenCodeSessionList: options.runOpenCodeSessionList,
+  });
+  const bindingsBySession = new Map<string, ProviderSessionHomeBinding[]>();
+  for (const binding of options.providerSessionBindings || []) {
+    if (normalizeProvider(binding?.provider) !== 'opencode') continue;
+    const sessionId = String(binding?.providerSessionId || '').trim();
+    if (!sessionId) continue;
+    const bindings = bindingsBySession.get(sessionId) || [];
+    bindings.push(binding);
+    bindingsBySession.set(sessionId, bindings);
+  }
+  return homeSessions.map(session => {
+    const bindings = bindingsBySession.get(String(session.id || '')) || [];
+    const exactBindings = new Map(bindings.map(binding => [
+      `${binding.providerHomeId}\0${binding.providerHomePath}`,
+      binding,
+    ]));
+    const binding = exactBindings.size === 1 ? [...exactBindings.values()][0] : null;
+    return {
+      ...session,
+      providerHomeId: binding?.providerHomeId || providerHomeId,
+      providerHomePath: binding?.providerHomePath || providerHomePath,
+    };
+  });
+}
+
+const PROVIDER_HISTORY_DEFINITIONS: readonly ProviderHistoryDefinition[] = [
+  {
+    id: 'codex',
+    supportsUnarchive: true,
+    buildResumeCommand: (sessionId, options) => {
+      const cwd = normalizePathValue(options.cwd);
+      const modelProvider = String(
+        options.modelProvider
+        || (Object.prototype.hasOwnProperty.call(options, 'providerHomePath')
+          ? resolveCodexResumeModelProvider(options.providerHomePath)
+          : '')
+      ).trim();
+      const providerArgs = modelProvider
+        ? ` -c ${quoteCommandArg(`model_provider=${JSON.stringify(modelProvider)}`)}`
+        : '';
+      const cwdArgs = cwd ? ` -C ${quoteCommandArg(cwd)}` : '';
+      return `codex ${options.fork === true ? 'fork' : 'resume'}${providerArgs}${cwdArgs} ${sessionId}`;
+    },
+    listSessions: context => listHomeBackedProviderSessions(context, {
+      id: 'codex',
+      fallbackHomeKey: 'codexHome',
+      homeOptionKey: 'codexHome',
+      list: listCodexSessions,
+      normalize: normalizeCodexSession,
+    }),
+  },
+  {
+    id: 'claude',
+    buildResumeCommand: (sessionId, options) => options.fork === true
+      ? `claude --resume ${sessionId} --fork-session`
+      : `claude --resume ${sessionId}`,
+    listSessions: context => listHomeBackedProviderSessions(context, {
+      id: 'claude',
+      fallbackHomeKey: 'claudeHome',
+      homeOptionKey: 'claudeHome',
+      list: listClaudeSessions,
+    }),
+  },
+  {
+    id: 'opencode',
+    buildResumeCommand: (sessionId, options) => (
+      `opencode --session ${sessionId}${options.fork === true ? ' --fork' : ''}`
+    ),
+    listSessions: listOpenCodeProviderSessions,
+  },
+  {
+    id: 'qoder',
+    staleAutoResumeErrorPatterns: [/invalid session identifier/i],
+    buildResumeCommand: (sessionId, options) => options.fork === true
+      ? `qodercli --resume ${sessionId} --fork-session`
+      : `qodercli --resume ${sessionId}`,
+    listSessions: context => listHomeBackedProviderSessions(context, {
+      id: 'qoder',
+      fallbackHomeKey: 'qoderHome',
+      homeOptionKey: 'qoderHome',
+      list: listQoderSessions,
+    }),
+  },
+  {
+    id: 'qwen',
+    buildResumeCommand: (sessionId, options) => options.fork === true ? '' : `qwen --resume ${sessionId}`,
+    listSessions: context => listHomeBackedProviderSessions(context, {
+      id: 'qwen',
+      fallbackHomeKey: 'qwenHome',
+      homeOptionKey: 'qwenHome',
+      list: listQwenSessions,
+    }),
+  },
+];
+
+const PROVIDER_HISTORY_BY_ID = new Map(
+  PROVIDER_HISTORY_DEFINITIONS.map(definition => [definition.id, definition] as const),
+);
+
+function providerHistorySupportsUnarchive(provider: unknown): boolean {
+  const normalized = normalizeProvider(provider);
+  return Boolean(normalized && PROVIDER_HISTORY_BY_ID.get(normalized)?.supportsUnarchive === true);
+}
+
+function providerHistoryAutoResumeErrorIsStale(provider: unknown, error: unknown): boolean {
+  const normalized = normalizeProvider(provider);
+  const patterns = normalized
+    ? PROVIDER_HISTORY_BY_ID.get(normalized)?.staleAutoResumeErrorPatterns || []
+    : [];
+  const message = String(error || '');
+  return patterns.some(pattern => pattern.test(message));
+}
+
 function normalizeProvider(provider: unknown): AgentProvider | '' {
   const normalized = String(provider || '').trim().toLowerCase();
   return isAgentProvider(normalized) ? normalized : '';
@@ -1248,43 +1434,7 @@ function buildAgentSessionResumeCommand(
   const normalizedProvider = normalizeProvider(provider);
   const normalizedSessionId = String(sessionId || '').trim();
   if (!normalizedProvider || !isSafeSessionId(normalizedSessionId)) return '';
-
-  if (normalizedProvider === 'codex') {
-    const cwd = normalizePathValue(options.cwd);
-    const modelProvider = String(
-      options.modelProvider
-      || (Object.prototype.hasOwnProperty.call(options, 'providerHomePath')
-        ? resolveCodexResumeModelProvider(options.providerHomePath)
-        : '')
-    ).trim();
-    const providerArgs = modelProvider
-      ? ` -c ${quoteCommandArg(`model_provider=${JSON.stringify(modelProvider)}`)}`
-      : '';
-    const cwdArgs = cwd ? ` -C ${quoteCommandArg(cwd)}` : '';
-    return `codex ${options.fork === true ? 'fork' : 'resume'}${providerArgs}${cwdArgs} ${normalizedSessionId}`;
-  }
-
-  if (normalizedProvider === 'claude') {
-    return options.fork === true
-      ? `claude --resume ${normalizedSessionId} --fork-session`
-      : `claude --resume ${normalizedSessionId}`;
-  }
-
-  if (normalizedProvider === 'qoder') {
-    return options.fork === true
-      ? `qodercli --resume ${normalizedSessionId} --fork-session`
-      : `qodercli --resume ${normalizedSessionId}`;
-  }
-
-  if (normalizedProvider === 'qwen') {
-    return options.fork === true ? '' : `qwen --resume ${normalizedSessionId}`;
-  }
-
-  if (normalizedProvider === 'opencode') {
-    return `opencode --session ${normalizedSessionId}${options.fork === true ? ' --fork' : ''}`;
-  }
-
-  return '';
+  return PROVIDER_HISTORY_BY_ID.get(normalizedProvider)?.buildResumeCommand(normalizedSessionId, options) || '';
 }
 
 async function listAgentSessions(
@@ -1297,7 +1447,7 @@ async function listAgentSessions(
     ? options.providers
       .map(normalizeProvider)
       .filter((provider): provider is AgentProvider => Boolean(provider))
-    : (['codex', 'claude', 'opencode', 'qoder', 'qwen'] satisfies AgentProvider[]);
+    : [...AGENT_PROVIDER_IDS];
   const providers = Array.from(new Set(requestedProviders));
   const sessions: AgentSession[] = [];
 
@@ -1305,92 +1455,10 @@ async function listAgentSessions(
     ? options.providerHomes
     : {};
 
-  async function listForHomes(
-    homes: ProviderHome[] | undefined,
-    fallbackHomeKey: 'claudeHome' | 'codexHome' | 'qoderHome' | 'qwenHome',
-    listFn: ProviderListFunction,
-    homeOptionKey: 'claudeHome' | 'codexHome' | 'qoderHome' | 'qwenHome',
-    normalize: SessionNormalizer = session => session,
-  ): Promise<void> {
-    const configuredHomes = Array.isArray(homes) && homes.length > 0
-      ? homes
-      : [{ id: 'default', path: options[fallbackHomeKey] }];
-    const perHomeLimit = typeof options.providerLimit === 'number' && Number.isFinite(options.providerLimit)
-      ? Math.max(0, Math.min(MAX_AGENT_SESSION_HISTORY_LIMIT, Math.floor(options.providerLimit)))
-      : limit;
-    for (const home of configuredHomes) {
-      const providerHomeId = String(home && home.id || 'default').trim() || 'default';
-      const providerHomePath = String(home && home.path || '').trim();
-      const listOptions: ProviderListOptions = {
-        limit: perHomeLimit,
-        scanLimit: options.scanLimit,
-        opencodeBin: options.opencodeBin,
-        runOpenCodeSessionList: options.runOpenCodeSessionList,
-      };
-      if (providerHomePath) listOptions[homeOptionKey] = providerHomePath;
-      const homeSessions = await listFn(listOptions);
-      sessions.push(...homeSessions.map(session => normalize({
-        ...session,
-        providerHomeId,
-        providerHomePath,
-      })).filter(isVisibleAgentSession));
-    }
-  }
-
-  if (providers.includes('codex')) {
-    await listForHomes(providerHomes.codex, 'codexHome', listCodexSessions, 'codexHome', normalizeCodexSession);
-  }
-
-  if (providers.includes('claude')) {
-    await listForHomes(providerHomes.claude, 'claudeHome', listClaudeSessions, 'claudeHome');
-  }
-
-  if (providers.includes('qoder')) {
-    await listForHomes(providerHomes.qoder, 'qoderHome', listQoderSessions, 'qoderHome');
-  }
-
-  if (providers.includes('qwen')) {
-    await listForHomes(providerHomes.qwen, 'qwenHome', listQwenSessions, 'qwenHome');
-  }
-
-  if (providers.includes('opencode')) {
-    const configuredHomes = Array.isArray(providerHomes.opencode) && providerHomes.opencode.length > 0
-      ? providerHomes.opencode
-      : [{ id: 'default', path: options.opencodeHome }];
-    const home = configuredHomes.find(candidate => String(candidate?.id || '') === 'default') || configuredHomes[0];
-    const providerHomeId = String(home?.id || 'default').trim() || 'default';
-    const providerHomePath = String(home?.path || '').trim();
-    const homeSessions = await listOpenCodeSessions({
-      limit: typeof options.providerLimit === 'number' && Number.isFinite(options.providerLimit)
-        ? options.providerLimit
-        : limit,
-      scanLimit: options.scanLimit,
-      opencodeBin: options.opencodeBin,
-      opencodeHome: providerHomePath,
-      runOpenCodeSessionList: options.runOpenCodeSessionList,
-    });
-    const bindingsBySession = new Map<string, ProviderSessionHomeBinding[]>();
-    for (const binding of options.providerSessionBindings || []) {
-      if (normalizeProvider(binding?.provider) !== 'opencode') continue;
-      const sessionId = String(binding?.providerSessionId || '').trim();
-      if (!sessionId) continue;
-      const bindings = bindingsBySession.get(sessionId) || [];
-      bindings.push(binding);
-      bindingsBySession.set(sessionId, bindings);
-    }
-    sessions.push(...homeSessions.map(session => {
-      const bindings = bindingsBySession.get(String(session.id || '')) || [];
-      const exactBindings = new Map(bindings.map(binding => [
-        `${binding.providerHomeId}\0${binding.providerHomePath}`,
-        binding,
-      ]));
-      const binding = exactBindings.size === 1 ? [...exactBindings.values()][0] : null;
-      return {
-        ...session,
-        providerHomeId: binding?.providerHomeId || providerHomeId,
-        providerHomePath: binding?.providerHomePath || providerHomePath,
-      };
-    }));
+  const context = { limit, options, providerHomes };
+  for (const definition of PROVIDER_HISTORY_DEFINITIONS) {
+    if (!providers.includes(definition.id)) continue;
+    sessions.push(...await definition.listSessions(context));
   }
 
   return dedupeAgentSessions(sessions)
@@ -1434,6 +1502,8 @@ export {
   listQwenSessions,
   normalizeProvider,
   paginateAgentSessions,
+  providerHistoryAutoResumeErrorIsStale,
+  providerHistorySupportsUnarchive,
   resolveCodexResumeModelProvider,
   searchAgentSessions,
 };

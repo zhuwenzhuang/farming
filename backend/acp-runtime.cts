@@ -714,6 +714,14 @@ function sharedAcpProcessEnvironment(
     : env;
 }
 
+function providerAcpConfigPolicy(provider: string) {
+  return getProviderAdapter(provider)?.acp.config;
+}
+
+function providerAcpHistoryReplayPolicy(provider: string) {
+  return getProviderAdapter(provider)?.acp.historyReplay;
+}
+
 function acpSessionRequestOptions(options: PrepareAgentOptions = {}, cwd: string = process.cwd()): AcpSessionRequestOptions {
   const root = path.resolve(cwd || process.cwd());
   const additionalDirectories = Array.isArray(options.additionalDirectories)
@@ -729,24 +737,17 @@ function acpSessionRequestOptions(options: PrepareAgentOptions = {}, cwd: string
   if (Object.keys(sessionEnv).length > 0) {
     result._meta = { farming: { env: sessionEnv } };
   }
-  if (options.provider === 'claude') {
-    const farmingSystemPrompt = typeof options.farmingSystemPrompt === 'string'
-      ? options.farmingSystemPrompt.trim()
-      : '';
+  const farmingSystemPrompt = typeof options.farmingSystemPrompt === 'string'
+    ? options.farmingSystemPrompt.trim()
+    : '';
+  const providerMetadata = getProviderAdapter(options.provider)?.acp.sessionMetadata?.({
+    farmingSystemPrompt,
+    sessionEnv,
+  });
+  if (providerMetadata && Object.keys(providerMetadata).length > 0) {
     result._meta = {
       ...(result._meta || {}),
-      ...(farmingSystemPrompt
-        ? {
-            systemPrompt: {
-              type: 'preset',
-              preset: 'claude_code',
-              append: farmingSystemPrompt,
-            },
-          }
-        : {}),
-      ...(Object.keys(sessionEnv).length > 0
-        ? { claudeCode: { options: { env: sessionEnv } } }
-        : {}),
+      ...providerMetadata,
     };
   }
   return result;
@@ -1779,7 +1780,9 @@ class AcpRuntime extends EventEmitter {
             'ACP fork source session/load',
           );
           this.requireOpenBinding(binding);
-          if (provider === 'qoder') await this.waitForHistoryReplay(binding);
+          if (providerAcpHistoryReplayPolicy(provider)?.waitForNotifications) {
+            await this.waitForHistoryReplay(binding);
+          }
           this.requireOpenBinding(binding);
         } finally {
           binding.historyReplayActive = false;
@@ -1912,14 +1915,16 @@ class AcpRuntime extends EventEmitter {
               'ACP session/load'
             );
             this.requireOpenBinding(binding);
-            if (provider === 'qoder') await this.waitForHistoryReplay(binding);
+            if (providerAcpHistoryReplayPolicy(provider)?.waitForNotifications) {
+              await this.waitForHistoryReplay(binding);
+            }
             this.requireOpenBinding(binding);
           } finally {
             binding.historyReplayActive = false;
           }
           binding.sessionState.finishHistoryReplay();
           binding.codexInlineVisualizationStreams.clear();
-          if (provider === 'qoder' && restoredCheckpointState) {
+          if (providerAcpHistoryReplayPolicy(provider)?.restoreMissingCheckpointMedia && restoredCheckpointState) {
             restoreMissingHistoryMedia(binding.sessionState, restoredCheckpointState);
           }
           this.restorePatchDecisions(binding, restoredCheckpoint?.patchDecisions);
@@ -1962,12 +1967,16 @@ class AcpRuntime extends EventEmitter {
         binding.sessionState = new AcpSessionState({ provider, sessionId: binding.sessionId, cwd: binding.cwd, maxUpdates: this.maxUpdates });
       }
       this.requireOpenBinding(binding);
-      binding.modes = sessionResponse?.modes || null;
+      const normalizeModes = getProviderAdapter(provider)?.acp.normalizeModes;
+      binding.modes = (normalizeModes
+        ? normalizeModes(sessionResponse?.modes || null, recordValue(binding.initializeResponse.agentInfo))
+        : sessionResponse?.modes) as SessionResponse['modes'] || null;
       binding.configOptions = sessionResponse?.configOptions || [];
       const initializedSessionState = this.requireSessionState(binding);
       initializedSessionState.currentModeId = String(binding.modes?.currentModeId || '');
       initializedSessionState.configOptions = JSON.parse(JSON.stringify(binding.configOptions));
-      if (['codex', 'claude'].includes(provider)) {
+      const configPolicy = providerAcpConfigPolicy(provider);
+      if (configPolicy?.launchModelAndReasoning) {
         const changes: SessionConfigChange[] = [];
         if (options.model && options.model !== 'config') {
           const modelOption = binding.configOptions.find(option => (
@@ -1997,12 +2006,8 @@ class AcpRuntime extends EventEmitter {
         }
         if (changes.length > 0) await this.applySessionConfigOptionsNow(binding, changes);
       }
-      if (provider === 'codex') {
-        const modeId = {
-          ask: 'read-only',
-          approve: 'agent',
-          full: 'agent-full-access',
-        }[binding.approvalMode];
+      if (configPolicy?.approvalModes) {
+        const modeId = configPolicy.approvalModes[binding.approvalMode];
         const availableModes = Array.isArray(binding.modes?.availableModes)
           ? binding.modes.availableModes
           : [];
@@ -2014,12 +2019,12 @@ class AcpRuntime extends EventEmitter {
           await this.setSessionModeNow(binding, modeId);
         }
       }
-      if (provider === 'codex' && options.serviceTier && options.serviceTier !== 'config') {
+      if (configPolicy?.serviceTier && options.serviceTier && options.serviceTier !== 'config') {
         const fastOption = binding.configOptions.find(option => (
           option.type === 'boolean'
           && /fast/i.test(`${option.id || ''} ${option.name || ''} ${option.category || ''}`)
         ));
-        const fastEnabled = ['fast', 'priority'].includes(options.serviceTier);
+        const fastEnabled = configPolicy.serviceTier.enabledValues.includes(options.serviceTier);
         if (fastOption && fastOption.currentValue !== fastEnabled) {
           await this.applySessionConfigOption(binding, fastOption.id, fastEnabled, { emit: false });
         }
@@ -2791,10 +2796,10 @@ class AcpRuntime extends EventEmitter {
         };
         const update = notification.update as UnknownRecord | undefined;
         const content = update?.content as UnknownRecord | undefined;
-        const isCodexAgentText = binding.provider === 'codex'
+        const shouldNormalizeHostMessage = getProviderAdapter(binding.provider)?.acp.normalizeHostMessageChunks === true
           && update?.sessionUpdate === 'agent_message_chunk'
           && content?.type === 'text';
-        if (!isCodexAgentText) return applyNotification(notification);
+        if (!shouldNormalizeHostMessage) return applyNotification(notification);
         return normalizeCodexHostMessageUpdate(binding, notification).then(normalized => {
           for (const item of normalized) applyNotification(item);
         });
@@ -3834,7 +3839,7 @@ class AcpRuntime extends EventEmitter {
     this.requireOpenBinding(binding);
     const option = binding.configOptions?.find(candidate => candidate.id === String(configId || ''));
     if (
-      binding.provider === 'codex'
+      providerAcpConfigPolicy(binding.provider)?.coupleModelAndReasoning === true
       && option?.type === 'select'
       && /(^|[\s_-])model([\s_-]|$)/i.test(`${option.id} ${option.name || ''} ${option.category || ''}`)
     ) {
@@ -3924,7 +3929,7 @@ class AcpRuntime extends EventEmitter {
       const isModel = option?.type === 'select' && (
         option.category === 'model'
         || (
-          binding.provider === 'codex'
+          providerAcpConfigPolicy(binding.provider)?.matchModelByName === true
           && /(^|[\s_-])model([\s_-]|$)/i.test(`${option.id} ${option.name || ''}`)
         )
       );
@@ -4068,7 +4073,7 @@ class AcpRuntime extends EventEmitter {
 
     let response;
     const handled = new Set();
-    if (binding.provider === 'codex' && modelChange && reasoningChange) {
+    if (providerAcpConfigPolicy(binding.provider)?.coupleModelAndReasoning && modelChange && reasoningChange) {
       await this.applySessionConfigOption(binding, modelChange.configId, modelChange.value, { emit: false });
       await this.applySessionConfigOption(binding, reasoningChange.configId, reasoningChange.value, { emit: false });
       const currentReasoning = binding.configOptions?.find(candidate => (

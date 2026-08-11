@@ -20,6 +20,10 @@ interface CliAgentSpec {
   systemPromptArg?: string;
 }
 
+interface CliAgentLaunchMetadata {
+  launchOrder: number;
+}
+
 interface AgentLaunchProfile extends Record<string, unknown> {
   approvalMode?: unknown;
   effort?: unknown;
@@ -333,6 +337,13 @@ function getUserLaunchAgents(): CliAgentSpec[] {
   return getSupportedAgents();
 }
 
+function getAgentLaunchMetadata(agentName: unknown): CliAgentLaunchMetadata {
+  const launchOrder = CLI_AGENTS.findIndex(agent => agent.name === String(agentName || ''));
+  return {
+    launchOrder: launchOrder === -1 ? CLI_AGENTS.length : launchOrder,
+  };
+}
+
 function getConfiguredProfile(
   options: ResolveLaunchOptions,
   agentName: string,
@@ -566,6 +577,7 @@ function resolveLaunchCommand(
 
 export {
   CLI_AGENTS,
+  getAgentLaunchMetadata,
   getAgentSpec,
   getSupportedAgents,
   getUserLaunchAgents,
@@ -575,6 +587,7 @@ export {
 };
 export type {
   AgentCategory,
+  CliAgentLaunchMetadata,
   AgentLaunchProfile,
   AgentPermissions,
   CliAgentSpec,

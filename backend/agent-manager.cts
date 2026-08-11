@@ -245,6 +245,7 @@ import {
   AGENT_USAGE_RATE_WINDOW_MS,
   agentUsageRateWindowMs,
 } from './agent-usage-rate.cjs';
+import type { AgentStateWire } from '../shared/agent-state-wire.js';
 import type {
   AgentUsageRate,
   UsageRateOptions,
@@ -433,9 +434,7 @@ function cloneAcpConfigOverrides(value: unknown): AcpConfigChange[] {
   }));
 }
 
-export interface AgentPublicState extends UnknownRecord {
-  id: AgentId;
-}
+export interface AgentPublicState extends AgentStateWire, UnknownRecord {}
 
 export interface AgentManagerState {
   agents: AgentPublicState[];

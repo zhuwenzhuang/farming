@@ -1,4 +1,6 @@
 import { PROJECT_ATTENTION_SCORE_MAX as projectAttentionScoreMax } from './agent-state-semantics.js'
+import { isAgentStateWire } from './agent-state-wire.js'
+import type { AgentStateWire } from './agent-state-wire.js'
 
 export const PROTOCOL_VERSION = 10
 export const MIN_PROTOCOL_VERSION = 10
@@ -13,6 +15,8 @@ interface ExtensibleMessage extends ObjectMessage {
 export interface AgentStateRecord extends ObjectMessage {
   id: string
 }
+
+export type { AgentStateWire }
 
 export interface AgentStateCursor {
   generation: string
@@ -517,7 +521,7 @@ function stateMessage(value: ObjectMessage): boolean {
     || !revisionField(value, 'sequence')
     || !objectMessage(state)
     || !Array.isArray(agents)
-    || !agents.every(agent => objectMessage(agent) && stringField(agent, 'id'))
+    || !agents.every(isAgentStateWire)
     || new Set(agents.map(agent => agent.id)).size !== agents.length
     || !agentInventoryMetadata(state)
     || !optionalField(state, 'projectAgentSummaries', () => projectAgentSummaries(state))
@@ -715,7 +719,7 @@ export function validateServerMessage(value: unknown): ValidationResult<ServerMe
       valid = stringField(value, 'generation')
         && revisionField(value, 'sequence')
         && Array.isArray(value.upserts)
-        && value.upserts.every(agent => objectMessage(agent) && stringField(agent, 'id'))
+        && value.upserts.every(isAgentStateWire)
         && Array.isArray(value.removedAgentIds)
         && value.removedAgentIds.every(agentId => typeof agentId === 'string')
         && optionalField(value, 'state', () => (

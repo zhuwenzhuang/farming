@@ -37,6 +37,7 @@ import {
 import { appPath } from '@/lib/base-path'
 import { isAcpRuntime } from '@/lib/agent-runtime'
 import { agentDisplayName, formatRelativeAge } from '@/lib/format'
+import { agentIconName, agentIconNameFromCommand, type AgentIconName } from '@/lib/agent-presentation'
 import { GLOBAL_WORKSPACE_FILES_AGENT_ID } from '@/lib/global-workspace-files'
 import { workspaceOpenFileKey } from '@/lib/workspace-open-files'
 import type { OpenWorkspaceFile } from '@/lib/workspace-open-files'
@@ -103,7 +104,7 @@ type AgentPreviewTarget = {
   title: string
   project: string
   lastActive: number
-  provider?: PreviewAgentIconName
+  provider?: AgentIconName
   workspaceRootId?: string
   browserCount?: number
   desktopCount?: number
@@ -126,24 +127,8 @@ type ProjectPreviewTarget = {
   pinned: boolean
 }
 
-type PreviewAgentIconName = 'codex' | 'claude' | 'opencode' | 'qoder' | 'qwen' | 'bash' | 'zsh'
-
-function previewAgentIconName(value?: string): PreviewAgentIconName | undefined {
-  const normalized = value?.trim().toLowerCase() || ''
-  if (normalized === 'claude-code') return 'claude'
-  if (['codex', 'claude', 'opencode', 'qoder', 'qwen', 'bash', 'zsh'].includes(normalized)) {
-    return normalized as PreviewAgentIconName
-  }
-  return undefined
-}
-
-function previewAgentIconNameForAgent(agent: Agent): PreviewAgentIconName | undefined {
-  const provider = previewAgentIconName(agent.providerSessionProvider)
-  if (provider) return provider
-  const command = agent.command.trim().split(/\s+/).find(token => (
-    token !== 'env' && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(token)
-  ))
-  return previewAgentIconName(command?.split('/').pop())
+function previewAgentIconNameForAgent(agent: Agent): AgentIconName | undefined {
+  return agentIconName(agent.providerSessionProvider) || agentIconNameFromCommand(agent.command)
 }
 
 type PinnedSidebarItem =
@@ -2292,7 +2277,7 @@ function previewTargetForSession(session: AgentSessionHistoryItem, rowState: Ret
     title: rowState.title,
     project: agentSessionProjectName(session),
     lastActive: agentSessionUpdatedAt(session),
-    provider: previewAgentIconName(session.provider),
+    provider: agentIconName(session.provider),
   }
 }
 
@@ -2541,7 +2526,7 @@ function AgentRow({
   const rowTestId = requiresResume ? 'code-active-session-row' : 'code-agent-row'
   const providerIcon = liveAgent
     ? previewAgentIconNameForAgent(liveAgent)
-    : previewAgentIconName(session?.provider)
+    : agentIconName(session?.provider)
   const prepareLiveChat = () => {
     if (!liveAgent || !isAcpRuntime(liveAgent)) return
     void fetch(appPath(`/api/agents/${encodeURIComponent(liveAgent.id)}/acp-transcript/prepare`), {

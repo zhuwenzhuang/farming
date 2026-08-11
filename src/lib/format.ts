@@ -7,6 +7,7 @@ const AGENT_DISPLAY_NAMES: Record<string, string> = {
   aider: 'Aider',
   'github-copilot-cli': 'GitHub Copilot CLI',
   claude: 'Claude Code',
+  'claude-code': 'Claude Code',
   'amazon-q': 'Amazon Q',
   bash: 'bash',
   zsh: 'zsh',
@@ -59,9 +60,9 @@ export function formatRelativeAge(timestamp?: number | null, now = Date.now()): 
 }
 
 /** Get the short display name from a command string */
-export function agentDisplayName(command: string): string {
+export function agentDisplayName(command: string, fallback = ''): string {
   const program = commandProgram(command)
-  return AGENT_DISPLAY_NAMES[program] ?? program
+  return AGENT_DISPLAY_NAMES[program] ?? (fallback || program)
 }
 
 function workspaceBasenames(agent: { cwd?: string; projectWorkspace?: string }) {

@@ -20,10 +20,48 @@ const { validateServerMessage } = require('../../shared/browser-protocol.js');
 
 const generation = 'server-wire-contract';
 const tracker = createAgentStateBroadcastTracker();
+
+function wireAgent(id: string, status: 'running' | 'stopped', title: string) {
+  return {
+    id,
+    command: 'codex',
+    cwd: '/workspace/alpha',
+    output: '',
+    status,
+    isMain: id === 'agent-a',
+    activityLevel: 'warm' as const,
+    lastActivity: 1,
+    attentionScore: 0,
+    isZombie: false,
+    providerCapabilities: {
+      supportedRuntimes: ['terminal', 'acp'] as Array<'terminal' | 'acp'>,
+      runtimeSwitch: true,
+      terminalProfile: true,
+      goals: false,
+      goalSubmission: { terminal: { kind: 'prompt' as const }, acp: { kind: 'prompt' as const } },
+      terminalSessionFork: true,
+      sessionFork: true,
+      chatRuntime: 'acp' as const,
+      supportsChat: true,
+      supportsSteer: false,
+    },
+    runtimeBinding: { kind: 'terminal' as const },
+    runtimeObservation: {
+      kind: 'codex' as const,
+      phase: 'idle' as const,
+      confidence: 'high' as const,
+      source: 'terminal-observer' as const,
+      observerVersion: 'test',
+      observedAt: 1,
+    },
+    title,
+  };
+}
+
 const initialState: AgentStatePayload = {
   agents: [
-    { id: 'agent-a', status: 'running', title: 'Alpha' },
-    { id: 'agent-b', status: 'waiting', title: 'Beta' },
+    wireAgent('agent-a', 'running', 'Alpha'),
+    wireAgent('agent-b', 'stopped', 'Beta'),
   ],
   mainAgentId: 'agent-a',
   mainPageSessionKeys: ['agent-session:codex:alpha'],
@@ -67,8 +105,8 @@ assert.deepStrictEqual(browserState, initialState);
 
 const updatedState: AgentStatePayload = {
   agents: [
-    { id: 'agent-a', status: 'waiting', title: 'Alpha' },
-    { id: 'agent-c', status: 'running', title: 'Gamma' },
+    wireAgent('agent-a', 'stopped', 'Alpha'),
+    wireAgent('agent-c', 'running', 'Gamma'),
   ],
   mainAgentId: 'agent-c',
   mainPageSessionKeys: ['agent-session:codex:gamma'],

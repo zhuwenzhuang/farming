@@ -1,5 +1,14 @@
+import type {
+  AgentActivityLevel,
+  AgentLifecycleStatus,
+  AgentStateWire,
+  ProviderCapabilitiesWire,
+  ProviderConversationForkCapability as ProviderConversationForkCapabilityWire,
+  RuntimeObservationWire,
+} from '../../shared/agent-state-wire'
+
 /** Activity level from time since last session activity (see `docs/products/crt/base_layout.md` §4.2) */
-export type ActivityLevel = 'hot' | 'warm' | 'cool' | 'cold'
+export type ActivityLevel = AgentActivityLevel
 
 export interface TerminalPreviewCell {
   char: string
@@ -20,7 +29,7 @@ export interface TerminalPreviewSnapshot {
 }
 
 /** Agent lifecycle status */
-export type AgentStatus = 'pending' | 'running' | 'stopped' | 'dead'
+export type AgentStatus = AgentLifecycleStatus
 
 export interface AgentUsageRate {
   windowMs: number
@@ -203,14 +212,7 @@ export type AgentRuntimeBinding =
   | TerminalRuntimeBinding
   | AcpRuntimeBinding
 
-export interface RuntimeObservation {
-  kind: 'codex' | 'claude' | 'shell' | 'process' | 'unknown'
-  phase: 'starting' | 'working' | 'waiting' | 'idle' | 'exited' | 'unknown'
-  confidence: 'authoritative' | 'high' | 'heuristic'
-  source: 'structured-runtime' | 'shell-marker' | 'terminal-observer'
-  observerVersion: string
-  observedAt: number
-}
+export type RuntimeObservation = RuntimeObservationWire
 
 export interface WorkspaceRoot {
   rootId: string
@@ -224,36 +226,11 @@ export interface WorkspaceRoot {
   }
 }
 
-export interface ProviderCapabilities {
-  supportedRuntimes: Array<'terminal' | 'acp'>
-  runtimeSwitch: boolean
-  terminalProfile: boolean
-  goals: boolean
-  goalSubmission: {
-    terminal: { kind: 'prompt' } | { kind: 'command'; prefix: string }
-    acp: { kind: 'prompt' }
-  } | null
-  conversationFork?: {
-    terminal: ProviderConversationForkCapability
-    acp: ProviderConversationForkCapability
-  }
-  /** Compatibility fields derived from conversationFork. */
-  terminalSessionFork: boolean
-  sessionFork: boolean
-  chatRuntime: 'acp' | ''
-  supportsChat: boolean
-  supportsSteer: boolean
-}
-
-export interface ProviderConversationForkCapability {
-  supported: boolean
-  strategy: 'source-session' | 'target-process' | null
-  worktreeModes: Array<'same-worktree' | 'new-worktree'>
-  requiresRuntimeCapability: boolean
-}
+export type ProviderCapabilities = ProviderCapabilitiesWire
+export type ProviderConversationForkCapability = ProviderConversationForkCapabilityWire
 
 /** A single CLI agent instance */
-export interface Agent {
+export interface Agent extends AgentStateWire {
   id: string
   command: string
   engineName?: string

@@ -5,7 +5,6 @@ import type {
   AcpSessionConfigOption,
   AcpSessionConfigSelect,
   AcpSessionConfigSelectOption,
-  AcpSessionMode,
   AcpSessionSnapshot,
 } from './types'
 import { ModelMatrixPicker, modelMatrixFamily } from '../ModelMatrixPicker'
@@ -86,13 +85,6 @@ function sessionModeConfig(session: AcpSessionSnapshot) {
   ))
 }
 
-function supportedModes(session: AcpSessionSnapshot, modes: AcpSessionMode[]) {
-  if (session.provider === 'qoder' && session.agentInfo?.version === '1.0.43') {
-    return modes.filter(mode => mode.id !== 'plan')
-  }
-  return modes
-}
-
 function SelectOptions({
   option,
   currentValue,
@@ -141,11 +133,11 @@ export function AcpModeControl({
   const advertisedModes = session.modes?.availableModes || []
   const modeConfig = sessionModeConfig(session)
   const usesConfigOption = advertisedModes.length === 0 && Boolean(modeConfig)
-  const modes = supportedModes(session, advertisedModes.length > 0
+  const modes = advertisedModes.length > 0
     ? advertisedModes
     : modeConfig
       ? selectOptions(modeConfig).map(mode => ({ id: mode.value, name: mode.name, description: mode.description }))
-      : [])
+      : []
   if (modes.length === 0) return null
   const currentModeId = session.currentModeId || session.modes?.currentModeId || modeConfig?.currentValue || ''
   const currentMode = modes.find(mode => mode.id === currentModeId) || modes[0]

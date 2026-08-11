@@ -9,6 +9,7 @@ import {
   type UsageHistoryResult,
 } from './usage-history-client.cjs';
 import { attachQuotaForecasts } from './usage-forecast.cjs';
+import { getProviderAdapter, listProviderAdapters } from './provider-adapters.cjs';
 
 type DataRecord = Record<string, unknown>;
 type ProviderHomes = Record<string, Array<string | { path?: unknown }> | undefined>;
@@ -140,6 +141,19 @@ interface TokenUsageSummary {
   eventCount: number;
   sampledAt: number;
   reason?: string;
+}
+
+interface UsageProviderCoverage extends DataRecord {
+  available: boolean;
+  homeCount: number;
+  provider: string;
+  providerName: string;
+  source: string;
+  exportCount?: number;
+  fileCount?: number;
+  partial?: boolean;
+  reason?: string;
+  sessionCount?: number;
 }
 
 interface DailyUsagePoint extends TokenBreakdown {
@@ -393,12 +407,7 @@ function addTokenBreakdown(
 }
 
 function usageAgentLabel(provider: string, agentId: string): string {
-  const providerName = ({
-    codex: 'Codex',
-    claude: 'Claude',
-    opencode: 'OpenCode',
-    qoder: 'Qoder',
-  } as Record<string, string>)[provider] || provider;
+  const providerName = getProviderAdapter(provider)?.displayName || provider;
   if (!agentId || agentId === 'unattributed') return providerName;
   const shortId = agentId.length > 12 ? `…${agentId.slice(-6)}` : agentId;
   return `${providerName} · ${shortId}`;
@@ -876,6 +885,11 @@ async function collectUsageHistory(options: CollectionOptions = {}) {
     'qoder',
     options.qoderHome || path.join(os.homedir(), '.qoder'),
   );
+  const qwenHomes = providerHomePaths(
+    options.providerHomes,
+    'qwen',
+    path.join(os.homedir(), '.qwen'),
+  );
   const [ccStatistics, openCode] = await Promise.all([
     collectCCStatistics({ ...options, now, days }),
     collectOpenCodeDailyEvents(openCodeHomes, {
@@ -893,8 +907,8 @@ async function collectUsageHistory(options: CollectionOptions = {}) {
     claude: claudeEvents,
     opencode: openCode.events,
   };
-  const coverage = [
-    {
+  const coverageByProvider = new Map<string, UsageProviderCoverage>([
+    ['codex', {
       provider: 'codex',
       providerName: 'Codex',
       available: codex.available === true,
@@ -902,8 +916,8 @@ async function collectUsageHistory(options: CollectionOptions = {}) {
       fileCount: codex.fileCount,
       source: codex.source || ccStatistics.result.source,
       ...(codex.reason ? { reason: codex.reason } : {}),
-    },
-    {
+    }],
+    ['claude', {
       provider: 'claude',
       providerName: 'Claude',
       available: claude.available === true,
@@ -911,8 +925,8 @@ async function collectUsageHistory(options: CollectionOptions = {}) {
       fileCount: claude.fileCount,
       source: claude.source || ccStatistics.result.source,
       ...(claude.reason ? { reason: claude.reason } : {}),
-    },
-    {
+    }],
+    ['opencode', {
       provider: 'opencode',
       providerName: 'OpenCode',
       available: openCode.available,
@@ -922,16 +936,32 @@ async function collectUsageHistory(options: CollectionOptions = {}) {
       partial: openCode.partial,
       source: 'opencode session export',
       ...(openCode.reason ? { reason: openCode.reason } : {}),
-    },
-    {
+    }],
+    ['qoder', {
       provider: 'qoder',
       providerName: 'Qoder',
       available: false,
       homeCount: qoderHomes.length,
       source: 'local Qoder sessions',
       reason: 'Qoder session files do not expose model token usage.',
-    },
-  ];
+    }],
+    ['qwen', {
+      provider: 'qwen',
+      providerName: 'Qwen Code',
+      available: false,
+      homeCount: qwenHomes.length,
+      source: 'local Qwen sessions',
+      reason: 'Qwen session files do not expose model token usage.',
+    }],
+  ]);
+  const coverage = listProviderAdapters().map(adapter => coverageByProvider.get(adapter.id) || ({
+    provider: adapter.id,
+    providerName: adapter.displayName,
+    available: false,
+    homeCount: providerHomePaths(options.providerHomes, adapter.id, '').length,
+    source: `local ${adapter.displayName} sessions`,
+    reason: `${adapter.displayName} usage telemetry is unavailable.`,
+  }));
   return {
     daily: {
       ...buildDailyUsage(providerEvents, { now, days }),
@@ -1319,6 +1349,89 @@ class UsageMonitor {
     });
     const openCodeCoverage = history.coverage.find(entry => entry.provider === 'opencode');
     const qoderCoverage = history.coverage.find(entry => entry.provider === 'qoder');
+    const providerSummaries = [
+      {
+        provider: 'codex',
+        providerName: 'Codex',
+        auth: codexAuth,
+        quota: codexUsage.quota,
+        tokenUsage: codexUsage.tokenUsage,
+      },
+      {
+        provider: 'claude',
+        providerName: 'Claude Code',
+        auth: claudeAuth,
+        quota: claudeUsage.quota,
+        tokenUsage: claudeUsage.tokenUsage,
+      },
+      {
+        provider: 'opencode',
+        providerName: 'OpenCode',
+        auth: {
+          available: openCodeCoverage?.available === true,
+          status: openCodeCoverage?.available === true
+            ? 'Local session export'
+            : openCodeCoverage?.reason || 'OpenCode unavailable',
+          source: 'opencode session export',
+        },
+        quota: {
+          available: false,
+          source: 'opencode session export',
+          reason: 'OpenCode session exports do not expose quota remaining.',
+        },
+        tokenUsage: openCodeCoverage?.available === true
+          ? openCodeUsage.tokenUsage
+          : {
+              ...openCodeUsage.tokenUsage,
+              available: false,
+              reason: openCodeCoverage?.reason || 'OpenCode token usage is unavailable.',
+            },
+      },
+      {
+        provider: 'qoder',
+        providerName: 'Qoder',
+        auth: { available: true, status: 'Local sessions', source: 'Qoder session files' },
+        quota: {
+          available: false,
+          source: 'Qoder session files',
+          reason: qoderCoverage?.reason || 'Qoder quota telemetry is unavailable.',
+        },
+        tokenUsage: {
+          available: false,
+          windowMs,
+          source: 'Qoder session files',
+          totalTokens: null,
+          tokensPerMinute: null,
+          eventCount: 0,
+          sampledAt: now,
+          reason: qoderCoverage?.reason || 'Qoder session files do not expose model token usage.',
+        },
+      },
+    ];
+    const providerSummariesById = new Map(providerSummaries.map(summary => [summary.provider, summary] as const));
+    const providers = listProviderAdapters().map(adapter => {
+      const summary = providerSummariesById.get(adapter.id);
+      if (summary) return summary;
+      const coverage = history.coverage.find(entry => entry.provider === adapter.id);
+      const source = `local ${adapter.displayName} sessions`;
+      const reason = coverage?.reason || `${adapter.displayName} usage telemetry is unavailable.`;
+      return {
+        provider: adapter.id,
+        providerName: adapter.displayName,
+        auth: { available: true, status: 'Local sessions', source },
+        quota: { available: false, source, reason },
+        tokenUsage: {
+          available: false,
+          windowMs,
+          source,
+          totalTokens: null,
+          tokensPerMinute: null,
+          eventCount: 0,
+          sampledAt: now,
+          reason,
+        },
+      };
+    });
 
     return {
       sampledAt: now,
@@ -1326,65 +1439,7 @@ class UsageMonitor {
       timeline,
       liveTimeline,
       daily: history.daily,
-      providers: [
-        {
-          provider: 'codex',
-          providerName: 'Codex',
-          auth: codexAuth,
-          quota: codexUsage.quota,
-          tokenUsage: codexUsage.tokenUsage,
-        },
-        {
-          provider: 'claude',
-          providerName: 'Claude',
-          auth: claudeAuth,
-          quota: claudeUsage.quota,
-          tokenUsage: claudeUsage.tokenUsage,
-        },
-        {
-          provider: 'opencode',
-          providerName: 'OpenCode',
-          auth: {
-            available: openCodeCoverage?.available === true,
-            status: openCodeCoverage?.available === true
-              ? 'Local session export'
-              : openCodeCoverage?.reason || 'OpenCode unavailable',
-            source: 'opencode session export',
-          },
-          quota: {
-            available: false,
-            source: 'opencode session export',
-            reason: 'OpenCode session exports do not expose quota remaining.',
-          },
-          tokenUsage: openCodeCoverage?.available === true
-            ? openCodeUsage.tokenUsage
-            : {
-                ...openCodeUsage.tokenUsage,
-                available: false,
-                reason: openCodeCoverage?.reason || 'OpenCode token usage is unavailable.',
-              },
-        },
-        {
-          provider: 'qoder',
-          providerName: 'Qoder',
-          auth: { available: true, status: 'Local sessions', source: 'Qoder session files' },
-          quota: {
-            available: false,
-            source: 'Qoder session files',
-            reason: qoderCoverage?.reason || 'Qoder quota telemetry is unavailable.',
-          },
-          tokenUsage: {
-            available: false,
-            windowMs,
-            source: 'Qoder session files',
-            totalTokens: null,
-            tokensPerMinute: null,
-            eventCount: 0,
-            sampledAt: now,
-            reason: qoderCoverage?.reason || 'Qoder session files do not expose model token usage.',
-          },
-        },
-      ],
+      providers,
       agentUsage: this.agentManager?.getAgentUsageSnapshots
         ? this.agentManager.getAgentUsageSnapshots({ now, windowMs })
         : null,

@@ -1,6 +1,7 @@
 import { deriveTerminalStatus } from './terminal-status.cjs';
 
 import { runtimeKind, runtimeState } from './agent-runtime-binding.cjs';
+import { providerRuntimeObservationKind } from './provider-adapters.cjs';
 
 const WORKING_STATES = new Set(['working', 'interrupting']);
 const WAITING_STATES = new Set(['waiting-for-input', 'waiting-for-permission']);
@@ -40,8 +41,7 @@ interface RuntimeObservation {
 
 function providerObservationKind(agent: RuntimeObservationAgent): string {
   const provider = String(agent?.providerSessionProvider || '').toLowerCase();
-  if (provider === 'codex' || provider === 'claude') return provider;
-  return provider ? 'process' : 'unknown';
+  return providerRuntimeObservationKind(provider);
 }
 
 function structuredPhase(agent: RuntimeObservationAgent): RuntimeObservationPhase {

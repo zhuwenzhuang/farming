@@ -126,6 +126,43 @@ assert.strictEqual(validateClientMessage({ type: 'state-resync', generation: 'se
 assert.strictEqual(validateClientMessage({ type: 'state-resync', afterSequence: -1 }).ok, false);
 assert.strictEqual(validateClientMessage({ type: 'unknown' }).ok, false);
 assert.strictEqual(validateClientMessage(null).ok, false);
+
+function wireAgent(id: string) {
+  return {
+    id,
+    command: 'codex',
+    cwd: '/workspace',
+    output: '',
+    status: 'running',
+    isMain: false,
+    activityLevel: 'warm',
+    lastActivity: 1,
+    attentionScore: 0,
+    isZombie: false,
+    providerCapabilities: {
+      supportedRuntimes: ['terminal', 'acp'],
+      runtimeSwitch: true,
+      terminalProfile: true,
+      goals: false,
+      goalSubmission: { terminal: { kind: 'prompt' }, acp: { kind: 'prompt' } },
+      terminalSessionFork: true,
+      sessionFork: true,
+      chatRuntime: 'acp',
+      supportsChat: true,
+      supportsSteer: false,
+    },
+    runtimeBinding: { kind: 'terminal' },
+    runtimeObservation: {
+      kind: 'codex',
+      phase: 'idle',
+      confidence: 'high',
+      source: 'terminal-observer',
+      observerVersion: 'test',
+      observedAt: 1,
+    },
+  };
+}
+
 assert.strictEqual(validateServerMessage({
   type: 'state',
   generation: 'server-1',
@@ -138,7 +175,7 @@ assert.strictEqual(validateServerMessage({
   sequence: 0,
   snapshot: { complete: true, id: 'snapshot-projects', offset: 0, total: 1 },
   state: {
-    agents: [{ id: 'a' }],
+    agents: [wireAgent('a')],
     agentInventoryScope: 'focused',
     agentInventoryRunning: 8,
     agentInventoryTotal: 10,
@@ -158,7 +195,7 @@ assert.strictEqual(validateServerMessage({
   sequence: 0,
   snapshot: { complete: true, id: 'snapshot-inventory-invalid', offset: 0, total: 1 },
   state: {
-    agents: [{ id: 'a' }],
+    agents: [wireAgent('a')],
     agentInventoryScope: 'focused',
     agentInventoryRunning: 11,
     agentInventoryTotal: 10,
@@ -193,7 +230,7 @@ assert.strictEqual(validateServerMessage({
   sequence: 0,
   snapshot: { complete: true, id: 'snapshot-projects-invalid', offset: 0, total: 1 },
   state: {
-    agents: [{ id: 'a' }],
+    agents: [wireAgent('a')],
     projectAgentSummaries: [{
       workspace: '/alpha',
       agentCount: 1,
@@ -210,7 +247,7 @@ assert.strictEqual(validateServerMessage({
   sequence: 0,
   snapshot: { complete: true, id: 'snapshot-projects-late', offset: 1, total: 2 },
   state: {
-    agents: [{ id: 'b' }],
+    agents: [wireAgent('b')],
     projectAgentSummaries: [{
       workspace: '/alpha',
       agentCount: 2,
@@ -226,28 +263,28 @@ assert.strictEqual(validateServerMessage({
   generation: 'server-1',
   sequence: 0,
   snapshot: { complete: false, id: 'snapshot-1', offset: 0, total: 3 },
-  state: { agents: [{ id: 'a' }, { id: 'b' }] },
+  state: { agents: [wireAgent('a'), wireAgent('b')] },
 }).ok, true);
 assert.strictEqual(validateServerMessage({
   type: 'state',
   generation: 'server-1',
   sequence: 0,
   snapshot: { complete: true, id: 'snapshot-1', offset: 0, total: 3 },
-  state: { agents: [{ id: 'a' }, { id: 'b' }] },
+  state: { agents: [wireAgent('a'), wireAgent('b')] },
 }).ok, false);
 assert.strictEqual(validateServerMessage({
   type: 'state',
   generation: 'server-1',
   sequence: 0,
   snapshot: { complete: true, id: 'snapshot-1', offset: 2, total: 3 },
-  state: { agents: [{ id: 'c' }] },
+  state: { agents: [wireAgent('c')] },
 }).ok, true);
 assert.strictEqual(validateServerMessage({
   type: 'state',
   generation: 'server-1',
   sequence: 0,
   snapshot: { complete: true, id: 'snapshot-1', offset: 0, total: 2 },
-  state: { agents: [{ id: 'a' }, { id: 'a' }] },
+  state: { agents: [wireAgent('a'), wireAgent('a')] },
 }).ok, false);
 assert.strictEqual(validateServerMessage({
   type: 'state',
@@ -261,14 +298,14 @@ assert.strictEqual(validateServerMessage({
   generation: 'server-1',
   sequence: 0,
   snapshot: { complete: true, id: 'snapshot-1', offset: 2, total: 2 },
-  state: { agents: [{ id: 'c' }] },
+  state: { agents: [wireAgent('c')] },
 }).ok, false);
 assert.strictEqual(validateServerMessage({ type: 'state', generation: 'server-1', sequence: 0, state: {} }).ok, false);
 assert.strictEqual(validateServerMessage({
   type: 'state-delta',
   generation: 'server-1',
   sequence: 1,
-  upserts: [{ id: 'a', status: 'running' }],
+  upserts: [wireAgent('a')],
   removedAgentIds: [],
 }).ok, true);
 assert.strictEqual(validateServerMessage({

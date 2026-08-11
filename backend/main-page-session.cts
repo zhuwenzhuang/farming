@@ -1,6 +1,7 @@
 'use strict';
 
 import { isSafeProviderSessionId } from './provider-session-id.cjs';
+import { getProviderAdapter } from './provider-adapters.cjs';
 import {
   DEFAULT_PROVIDER_HOME_ID,
   canonicalProviderSessionKey,
@@ -12,8 +13,6 @@ import {
   providerSessionIdentityTupleKey,
   type ProviderSessionIdentity,
 } from '../shared/provider-session-identity.js';
-
-const AUTO_RESUME_AGENT_SESSION_PROVIDERS = new Set(['codex', 'claude', 'opencode', 'qoder', 'qwen']);
 
 interface MainPageAgentSession {
   provider: string;
@@ -48,7 +47,7 @@ interface ProviderSessionCandidate {
 
 function normalizeMainPageSessionProvider(provider: unknown): string {
   const normalized = String(provider || '').trim().toLowerCase();
-  return AUTO_RESUME_AGENT_SESSION_PROVIDERS.has(normalized) ? normalized : '';
+  return getProviderAdapter(normalized)?.id || '';
 }
 
 function isSafeSessionId(sessionId: unknown): boolean {
@@ -156,7 +155,6 @@ function findActiveAgentClaimingSession(
 }
 
 export {
-  AUTO_RESUME_AGENT_SESSION_PROVIDERS,
   canonicalProviderSessionKey,
   findActiveAgentClaimingSession,
   mainPageAgentSessionFromKey,

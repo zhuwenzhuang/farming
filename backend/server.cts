@@ -222,6 +222,7 @@ import { TokenAuth } from './auth.cjs';
 import { readOnlyClientMessageAllowed } from './read-only-access.cjs';
 import { getLocalIPs, getPrimaryLocalIP } from './network.cjs';
 import { listAvailableAgents, resolveTerminalCodexExecutable } from './executable-discovery.cjs';
+import { getAgentLaunchMetadata } from './cli-agents.cjs';
 import { readClaudeSettingsSummary } from './claude-settings.cjs';
 import { listCodexModelOptions } from './codex-models.cjs';
 import { readProviderHomeConfiguration } from './provider-home-configuration.cjs';
@@ -716,6 +717,7 @@ function getAvailableAgentsForRequest() {
 function withLaunchCapabilities<T extends { name: string }>(agents: T[]) {
   return agents.map(agent => ({
     ...agent,
+    ...getAgentLaunchMetadata(agent.name),
     capabilities: {
       supportsChat: providerCapabilities(agent.name).supportsChat === true,
     },
@@ -2335,18 +2337,25 @@ function recoverResourceSnapshotIfReady(client: WebSocketClient) {
   websocketResourceBroadcasts.recoverSnapshotIfReady(client);
 }
 
-function scheduleResourceUpdate(domain: 'browser' | 'computer', resource: unknown) {
+type ResourceBroadcastDomain = 'browser' | 'computer';
+
+function scheduleResourceUpdate(domain: ResourceBroadcastDomain, resource: unknown) {
   websocketResourceBroadcasts.scheduleUpdate(domain, resource);
 }
 
-function scheduleResourceDeletion(domain: 'browser' | 'computer', deletion: unknown) {
+function scheduleResourceDeletion(domain: ResourceBroadcastDomain, deletion: unknown) {
   websocketResourceBroadcasts.scheduleDeletion(domain, deletion);
 }
 
-browserResourceManager.on('resource', (resource: unknown) => scheduleResourceUpdate('browser', resource));
-browserResourceManager.on('deleted', (deletion: unknown) => scheduleResourceDeletion('browser', deletion));
-computerResourceManager.on('resource', (resource: unknown) => scheduleResourceUpdate('computer', resource));
-computerResourceManager.on('deleted', (deletion: unknown) => scheduleResourceDeletion('computer', deletion));
+const resourceBroadcastManagers = [
+  { domain: 'browser', manager: browserResourceManager },
+  { domain: 'computer', manager: computerResourceManager },
+] as const;
+
+for (const { domain, manager } of resourceBroadcastManagers) {
+  manager.on('resource', (resource: unknown) => scheduleResourceUpdate(domain, resource));
+  manager.on('deleted', (deletion: unknown) => scheduleResourceDeletion(domain, deletion));
+}
 
 function deferUntilAgentStateSnapshotCompletes(
   client: WebSocketClient,

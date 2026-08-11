@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Dispatch, KeyboardEvent as ReactKeyboardEvent, SetStateAction } from 'react'
 import { CodeSelect } from '@/components/CodeSelect'
 import { appPath } from '@/lib/base-path'
+import { agentDisplayName as formatAgentDisplayName } from '@/lib/format'
 import type { WorkspacePluginsNavigationState } from '@/lib/workspace-navigation-history'
 import { getBackendConnectionSnapshot } from '@/lib/backend-live-status'
 import {
@@ -345,16 +346,25 @@ function sameLanguageServerPath(left: string, right: string) {
 }
 
 function agentDisplayName(agent: Pick<AgentExtensionGroup, 'id' | 'name'>) {
-  if (agent.id === 'codex') return 'Codex'
-  if (agent.id === 'claude') return 'Claude Code'
-  if (agent.id === 'opencode') return 'OpenCode'
-  if (agent.id === 'qoder') return 'Qoder'
-  if (agent.id === 'qwen') return 'Qwen Code'
-  return agent.name || agent.id
+  return formatAgentDisplayName(agent.id, agent.name || agent.id)
+}
+
+const EXTENSION_KIND_GLYPHS = {
+  skill: AgentSmartToyGlyph,
+  mcp: AgentChipGlyph,
+  hook: ForkGlyph,
+  command: TerminalSquareGlyph,
+  plugin: PuzzleGlyph,
+} as const
+
+const FARMING_BUILTIN_EXTENSION_IDS = ['browser', 'computer', 'language-server'] as const
+
+function knownExtensionKind(kind: string): kind is keyof typeof EXTENSION_KIND_GLYPHS {
+  return Object.prototype.hasOwnProperty.call(EXTENSION_KIND_GLYPHS, kind)
 }
 
 function extensionKindLabel(kind: string, copy: ReturnType<typeof pluginCopy>) {
-  if (kind === 'skill' || kind === 'mcp' || kind === 'hook' || kind === 'plugin' || kind === 'command') {
+  if (knownExtensionKind(kind)) {
     return copy.kind[kind]
   }
   return kind
@@ -365,11 +375,8 @@ function extensionKindLabel(kind: string, copy: ReturnType<typeof pluginCopy>) {
 }
 
 function extensionKindGlyph(kind: string) {
-  if (kind === 'skill') return <AgentSmartToyGlyph />
-  if (kind === 'mcp') return <AgentChipGlyph />
-  if (kind === 'hook') return <ForkGlyph />
-  if (kind === 'command') return <TerminalSquareGlyph />
-  return <PuzzleGlyph />
+  const Glyph = knownExtensionKind(kind) ? EXTENSION_KIND_GLYPHS[kind] : PuzzleGlyph
+  return <Glyph />
 }
 
 function ExtensionIcon({ extension }: { extension: Pick<AgentExtension, 'icon' | 'iconDark' | 'kind'> }) {
@@ -399,7 +406,7 @@ function configurationSummaryLabel(
 }
 
 function extensionKindTabLabel(kind: string, copy: ReturnType<typeof pluginCopy>) {
-  if (kind === 'skill' || kind === 'mcp' || kind === 'hook' || kind === 'plugin' || kind === 'command') {
+  if (knownExtensionKind(kind)) {
     return copy.kindTabs[kind]
   }
   return extensionKindLabel(kind, copy)
@@ -1174,7 +1181,7 @@ export function PluginsPanel({
       <div className="code-plugin-tabs" role="tablist" aria-label={copy.title}>
         {PLUGINS_TABS.map(tab => {
           let count: number | string
-          if (tab === 'farming') count = 3 + (window.farmingDesktop ? 1 : 0)
+          if (tab === 'farming') count = FARMING_BUILTIN_EXTENSION_IDS.length + (window.farmingDesktop ? 1 : 0)
           else if (agentGroupsError) count = '!'
           else if (agentGroupsLoading && agentGroups.length === 0) count = '…'
           else if (tab === 'homes') count = agentConfigurations.length

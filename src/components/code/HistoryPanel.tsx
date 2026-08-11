@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import type { Agent, TaskHistoryEntry } from '@/types/agent'
 import { agentTitle, formatRelativeAge } from '@/lib/format'
+import { agentIconName, agentIconNameFromCommand, type AgentIconName } from '@/lib/agent-presentation'
 import { formatWorkspaceForDisplay } from '@/lib/workspace-options'
 import {
   ArrowLeftGlyph,
@@ -54,33 +55,15 @@ interface HistoryPanelProps {
 
 const HISTORY_SEARCH_DEBOUNCE_MS = 150
 const HISTORY_PAGE_SIZE = 12
-type HistoryAgentIconName = 'codex' | 'claude' | 'opencode' | 'qoder' | 'qwen' | 'bash' | 'zsh'
-
-function historyAgentIconName(value?: string): HistoryAgentIconName | undefined {
-  const normalized = String(value || '').trim().toLowerCase()
-  if (normalized === 'claude-code') return 'claude'
-  if (['codex', 'claude', 'opencode', 'qoder', 'qwen', 'bash', 'zsh'].includes(normalized)) {
-    return normalized as HistoryAgentIconName
-  }
-  return undefined
-}
-
-function historyCommandIconName(command?: string) {
-  const executable = String(command || '').trim().split(/\s+/).find(token => (
-    token !== 'env' && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(token)
-  ))
-  return historyAgentIconName(executable?.split('/').pop())
-}
-
 function historyRunIconName(entry: TaskHistoryEntry) {
-  return historyAgentIconName(resumedAgentSessionSourceIdentity(entry.source)?.provider)
-    || historyCommandIconName(entry.command)
+  return agentIconName(resumedAgentSessionSourceIdentity(entry.source)?.provider)
+    || agentIconNameFromCommand(entry.command)
 }
 
 function historyArchivedAgentIconName(agent: Agent) {
-  return historyAgentIconName(agent.providerSessionProvider)
-    || historyAgentIconName(agent.engineName)
-    || historyCommandIconName(agent.command)
+  return agentIconName(agent.providerSessionProvider)
+    || agentIconName(agent.engineName)
+    || agentIconNameFromCommand(agent.command)
 }
 
 function HistoryMeta({
@@ -90,7 +73,7 @@ function HistoryMeta({
   openOnMainPageLabel,
   children,
 }: {
-  iconName?: HistoryAgentIconName
+  iconName?: AgentIconName
   resumeId?: string
   openOnMainPage?: boolean
   openOnMainPageLabel: string
@@ -642,7 +625,7 @@ export function HistoryPanel({
                     <span className="code-history-card-copy">
                       <span className="code-history-card-title">{sessionTitle}</span>
                       <HistoryMeta
-                        iconName={historyAgentIconName(session.provider)}
+                        iconName={agentIconName(session.provider)}
                         resumeId={session.id}
                         openOnMainPage={openOnMainPage}
                         openOnMainPageLabel={copy.openOnMainPage}

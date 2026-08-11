@@ -12,7 +12,7 @@ import {
 } from '../shared/provider-session-identity.js';
 import { FarmingSessionStore, MAX_MAIN_PAGE_SESSION_KEYS } from './farming-session-store.cjs';
 import { RunHistoryStore } from './run-history-store.cjs';
-import { isSupportedHistoryAgent } from './cli-agents.cjs';
+import { getUserLaunchAgents, isSupportedHistoryAgent } from './cli-agents.cjs';
 import * as storageLayout from './storage-layout.cjs';
 import { COMPUTER_IMAGE } from '../extensions/computer/backend/computer-constants.cjs';
 import type {
@@ -236,7 +236,9 @@ const DEFAULT_AGENT_LAUNCH_PROFILES: AgentLaunchProfiles = {
   claude: DEFAULT_CLAUDE_LAUNCH_PROFILE,
 };
 
-const DEFAULT_LAUNCH_AGENT_NAMES = new Set(['codex', 'claude', 'opencode', 'qoder', 'qwen', 'bash', 'zsh']);
+const DEFAULT_LAUNCH_AGENT_NAMES = new Set(
+  getUserLaunchAgents().filter(agent => agent.interactive).map(agent => agent.name),
+);
 
 const DEFAULT_AGENT_HOMES: AgentHomes = {
   codex: [{
@@ -654,6 +656,65 @@ class ConfigManager {
     };
   }
 
+  normalizePersistedSettings(
+    settings: Settings,
+    rawSettings: JsonRecord,
+    previousMainWorkspace: string,
+  ): void {
+    settings.workspace = this.farmingDir;
+    settings.lastMainWorkspace = this.normalizeMainWorkspace(settings.lastMainWorkspace, previousMainWorkspace);
+    settings.workspaceHistory = this.normalizeWorkspaceHistory(settings.workspaceHistory);
+    settings.projectWorkspaces = this.normalizeProjectWorkspaces(settings.projectWorkspaces);
+    settings.pinnedProjectWorkspaces = this.normalizeProjectWorkspaces(settings.pinnedProjectWorkspaces);
+    settings.projectNames = this.normalizeProjectNames(settings.projectNames);
+    settings.projectOperations = this.normalizeProjectOperations(settings.projectOperations);
+    settings.instanceName = this.normalizeInstanceName(settings.instanceName);
+    settings.agentHomes = this.normalizeAgentHomes(settings.agentHomes);
+    this.assertAgentHomeBindings(settings.agentHomes);
+    settings.searchTimeoutMs = this.normalizeSearchTimeoutMs(settings.searchTimeoutMs);
+    settings.appearance = this.normalizeAppearance(settings.appearance);
+    settings.language = this.normalizeLanguage(settings.language);
+    settings.restReminderIntervalSeconds = this.normalizeRestReminderIntervalSeconds(
+      settings.restReminderIntervalSeconds,
+    );
+    settings.browserExtensionEnabled = settings.browserExtensionEnabled === true;
+    settings.browserSource = this.normalizeBrowserSource(settings.browserSource);
+    settings.browserExecutablePath = this.normalizeBrowserSetting(settings.browserExecutablePath);
+    settings.browserExternalCdpUrl = this.normalizeBrowserSetting(settings.browserExternalCdpUrl)
+      || 'http://127.0.0.1:9222';
+    settings.computerExtensionEnabled = settings.computerExtensionEnabled === true;
+    if (settings.browserExtensionEnabled && settings.browserSource === 'isolated') {
+      settings.computerExtensionEnabled = true;
+    }
+    settings.computerCompatibilityMode = settings.computerCompatibilityMode === true;
+    settings.computerImage = this.normalizeBrowserSetting(settings.computerImage) || COMPUTER_IMAGE;
+    settings.codeContentFontSize = this.normalizeContentFontSize(
+      settings.codeContentFontSize,
+      DEFAULT_CODE_CONTENT_FONT_SIZE,
+    );
+    settings.composerFollowUpBehavior = this.normalizeComposerFollowUpBehavior(
+      settings.composerFollowUpBehavior,
+    );
+    const crtContentFontSize = Object.prototype.hasOwnProperty.call(rawSettings, 'crtContentFontSize')
+      ? rawSettings.crtContentFontSize
+      : Object.prototype.hasOwnProperty.call(rawSettings, 'crtTerminalFontSize')
+        ? Number(rawSettings.crtTerminalFontSize) - 1
+        : settings.crtContentFontSize;
+    settings.crtContentFontSize = this.normalizeContentFontSize(
+      crtContentFontSize,
+      DEFAULT_CRT_CONTENT_FONT_SIZE,
+    );
+    settings.crtSkinEffectsEnabled = settings.crtSkinEffectsEnabled !== false;
+    settings.crtDynamicHeatEnabled = settings.crtDynamicHeatEnabled === true;
+    settings.crtTerminalFontSize = this.crtTerminalFontSizeFromContent(settings.crtContentFontSize);
+    delete settings.updateUrl;
+    delete settings.codexRuntimeMode;
+    delete settings.mainPageSessionKeys;
+    delete settings.taskHistory;
+    this.normalizeAgentLaunchSettings(rawSettings, settings);
+    this.pruneUnknownSettings(settings);
+  }
+
   init(): void {
     if (!fs.existsSync(this.farmingDir)) {
       fs.mkdirSync(this.farmingDir, { recursive: true });
@@ -689,62 +750,11 @@ class ConfigManager {
       this.settings.codexApprovalMode = 'full';
       launchRawSettings.codexApprovalMode = 'full';
     }
-    this.settings.workspace = this.farmingDir;
-    this.settings.lastMainWorkspace = this.normalizeMainWorkspace(this.settings.lastMainWorkspace, this.farmingDir);
-    this.settings.workspaceHistory = this.normalizeWorkspaceHistory(this.settings.workspaceHistory);
-    this.settings.projectWorkspaces = this.normalizeProjectWorkspaces(this.settings.projectWorkspaces);
-    this.settings.pinnedProjectWorkspaces = this.normalizeProjectWorkspaces(this.settings.pinnedProjectWorkspaces);
-    this.settings.projectNames = this.normalizeProjectNames(this.settings.projectNames);
-    this.settings.projectOperations = this.normalizeProjectOperations(this.settings.projectOperations);
-    this.settings.instanceName = this.normalizeInstanceName(this.settings.instanceName);
-    this.settings.agentHomes = this.normalizeAgentHomes(this.settings.agentHomes);
-    delete this.settings.updateUrl;
-    this.settings.searchTimeoutMs = this.normalizeSearchTimeoutMs(this.settings.searchTimeoutMs);
-    delete this.settings.codexRuntimeMode;
     const legacyMainPageSessionKeys = this.normalizeMainPageSessionKeys(this.settings.mainPageSessionKeys);
-    delete this.settings.mainPageSessionKeys;
     this.sessionStore.init({ legacyMainPageSessionKeys });
-    this.assertAgentHomeBindings(this.settings.agentHomes);
     const legacyTaskHistory = this.normalizeTaskHistory(this.settings.taskHistory);
-    delete this.settings.taskHistory;
     this.runHistoryStore.init({ legacyTaskHistory });
-    this.settings.appearance = this.normalizeAppearance(this.settings.appearance);
-    this.settings.language = this.normalizeLanguage(this.settings.language);
-    this.settings.restReminderIntervalSeconds = this.normalizeRestReminderIntervalSeconds(
-      this.settings.restReminderIntervalSeconds,
-    );
-    this.settings.browserExtensionEnabled = this.settings.browserExtensionEnabled === true;
-    this.settings.browserSource = this.normalizeBrowserSource(this.settings.browserSource);
-    this.settings.browserExecutablePath = this.normalizeBrowserSetting(this.settings.browserExecutablePath);
-    this.settings.browserExternalCdpUrl = this.normalizeBrowserSetting(this.settings.browserExternalCdpUrl)
-      || 'http://127.0.0.1:9222';
-    this.settings.computerExtensionEnabled = this.settings.computerExtensionEnabled === true;
-    if (
-      this.settings.browserExtensionEnabled
-      && this.settings.browserSource === 'isolated'
-    ) {
-      this.settings.computerExtensionEnabled = true;
-    }
-    this.settings.computerCompatibilityMode = this.settings.computerCompatibilityMode === true;
-    this.settings.computerImage = this.normalizeBrowserSetting(this.settings.computerImage) || COMPUTER_IMAGE;
-    this.settings.codeContentFontSize = this.normalizeContentFontSize(
-      this.settings.codeContentFontSize,
-      DEFAULT_CODE_CONTENT_FONT_SIZE,
-    );
-    this.settings.composerFollowUpBehavior = this.normalizeComposerFollowUpBehavior(
-      this.settings.composerFollowUpBehavior,
-    );
-    this.settings.crtContentFontSize = this.normalizeContentFontSize(
-      rawSettings.crtContentFontSize === undefined
-        ? Number(this.settings.crtTerminalFontSize) - 1
-        : this.settings.crtContentFontSize,
-      DEFAULT_CRT_CONTENT_FONT_SIZE,
-    );
-    this.settings.crtSkinEffectsEnabled = this.settings.crtSkinEffectsEnabled !== false;
-    this.settings.crtDynamicHeatEnabled = this.settings.crtDynamicHeatEnabled === true;
-    this.settings.crtTerminalFontSize = this.crtTerminalFontSizeFromContent(this.settings.crtContentFontSize);
-    this.normalizeAgentLaunchSettings(launchRawSettings);
-    this.pruneUnknownSettings();
+    this.normalizePersistedSettings(this.settings, launchRawSettings, this.farmingDir);
     ensureMainAgentSkillFiles(this.farmingDir);
     ensureFarmingAgentBootstrapFile(this.farmingDir);
     this.writeSettingsFile();
@@ -1665,67 +1675,13 @@ class ConfigManager {
       agentLaunchProfiles: this.mergeAgentLaunchProfiles(previousProfiles, incomingProfiles),
       workspace: this.farmingDir
     } as Settings;
-    nextSettings.lastMainWorkspace = this.normalizeMainWorkspace(nextSettings.lastMainWorkspace, previousMainWorkspace);
-    nextSettings.workspaceHistory = this.normalizeWorkspaceHistory(nextSettings.workspaceHistory);
-    nextSettings.projectWorkspaces = this.normalizeProjectWorkspaces(nextSettings.projectWorkspaces);
-    nextSettings.pinnedProjectWorkspaces = this.normalizeProjectWorkspaces(nextSettings.pinnedProjectWorkspaces);
-    nextSettings.projectNames = this.normalizeProjectNames(nextSettings.projectNames);
-    nextSettings.projectOperations = this.normalizeProjectOperations(nextSettings.projectOperations);
-    nextSettings.instanceName = this.normalizeInstanceName(nextSettings.instanceName);
-    nextSettings.agentHomes = this.normalizeAgentHomes(nextSettings.agentHomes);
-    this.assertAgentHomeBindings(nextSettings.agentHomes);
-    delete nextSettings.updateUrl;
-    nextSettings.searchTimeoutMs = this.normalizeSearchTimeoutMs(nextSettings.searchTimeoutMs);
-    delete nextSettings.codexRuntimeMode;
-    delete nextSettings.mainPageSessionKeys;
-    delete nextSettings.taskHistory;
     if (incomingMainPageSessionKeys !== undefined) {
       this.setMainPageSessionKeys(incomingMainPageSessionKeys);
     }
     if (incomingTaskHistory !== undefined && this.runHistoryStore) {
       this.runHistoryStore.setEntries(incomingTaskHistory);
     }
-    nextSettings.appearance = this.normalizeAppearance(nextSettings.appearance);
-    nextSettings.language = this.normalizeLanguage(nextSettings.language);
-    nextSettings.restReminderIntervalSeconds = this.normalizeRestReminderIntervalSeconds(
-      nextSettings.restReminderIntervalSeconds,
-    );
-    nextSettings.browserExtensionEnabled = nextSettings.browserExtensionEnabled === true;
-    nextSettings.browserSource = this.normalizeBrowserSource(nextSettings.browserSource);
-    nextSettings.browserExecutablePath = this.normalizeBrowserSetting(nextSettings.browserExecutablePath);
-    nextSettings.browserExternalCdpUrl = this.normalizeBrowserSetting(nextSettings.browserExternalCdpUrl)
-      || 'http://127.0.0.1:9222';
-    nextSettings.computerExtensionEnabled = nextSettings.computerExtensionEnabled === true;
-    if (
-      nextSettings.browserExtensionEnabled
-      && nextSettings.browserSource === 'isolated'
-    ) {
-      nextSettings.computerExtensionEnabled = true;
-    }
-    nextSettings.computerCompatibilityMode = nextSettings.computerCompatibilityMode === true;
-    nextSettings.computerImage = this.normalizeBrowserSetting(nextSettings.computerImage) || COMPUTER_IMAGE;
-    nextSettings.codeContentFontSize = this.normalizeContentFontSize(
-      nextSettings.codeContentFontSize,
-      DEFAULT_CODE_CONTENT_FONT_SIZE,
-    );
-    nextSettings.composerFollowUpBehavior = this.normalizeComposerFollowUpBehavior(
-      nextSettings.composerFollowUpBehavior,
-    );
-    nextSettings.crtContentFontSize = this.normalizeContentFontSize(
-      Object.prototype.hasOwnProperty.call(settingsPatch, 'crtContentFontSize')
-        ? settingsPatch.crtContentFontSize
-        : (
-            Object.prototype.hasOwnProperty.call(settingsPatch, 'crtTerminalFontSize')
-              ? Number(settingsPatch.crtTerminalFontSize) - 1
-              : nextSettings.crtContentFontSize
-          ),
-      DEFAULT_CRT_CONTENT_FONT_SIZE,
-    );
-    nextSettings.crtSkinEffectsEnabled = nextSettings.crtSkinEffectsEnabled !== false;
-    nextSettings.crtDynamicHeatEnabled = nextSettings.crtDynamicHeatEnabled === true;
-    nextSettings.crtTerminalFontSize = this.crtTerminalFontSizeFromContent(nextSettings.crtContentFontSize);
-    this.normalizeAgentLaunchSettings(settingsPatch, nextSettings);
-    this.pruneUnknownSettings(nextSettings);
+    this.normalizePersistedSettings(nextSettings, settingsPatch, previousMainWorkspace);
     this.writeSettingsFile(nextSettings);
     this.settings = nextSettings;
   }

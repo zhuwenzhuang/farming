@@ -3,7 +3,8 @@ import {
   buildAgentSessionResumeCommand,
   isSafeSessionId,
   normalizeProvider,
-  resolveCodexResumeModelProvider,
+  providerHistoryAutoResumeErrorIsStale,
+  providerHistorySupportsUnarchive,
 } from './agent-session-history.cjs';
 import {
   findActiveAgentClaimingSession,
@@ -11,7 +12,7 @@ import {
   mainPageAgentSessionsToAutoResume,
   resumedAgentSource,
 } from './main-page-session.cjs';
-import { providerConversationForkCapability } from './provider-adapters.cjs';
+import { providerConversationForkCapability, providerSessionResumeOptions } from './provider-adapters.cjs';
 
 interface ResumeOptions {
   acpHistoryMode?: string;
@@ -108,7 +109,7 @@ interface ResumeStartOptions extends Record<string, unknown> {
   persistentSessionId: string;
   pinned: boolean;
   pinnedOrder?: unknown;
-  preserveProviderSessionProfile: boolean;
+  preserveProviderSessionProfile?: boolean;
   projectOrder?: unknown;
   projectWorkspace: string;
   providerHomeId: string;
@@ -118,7 +119,7 @@ interface ResumeStartOptions extends Record<string, unknown> {
   readAttentionSeq: number;
   readOutputEpoch?: unknown;
   readOutputSeq?: unknown;
-  requiredCliVersion: string;
+  requiredCliVersion?: string;
   source: string;
   task: string;
   wantsMain: boolean;
@@ -402,8 +403,8 @@ class AgentSessionResumeCoordinator {
     const requestedAsMain = options.asMain === true && !shouldFork;
     const providerHomes = this.ports.configuredProviderHomes();
     let session = await this.#lookupSession(provider, sessionId, providerHomeId, providerHomes);
-    if (options.allowUnarchiveArchived === true && provider === 'codex' && !requestedAsMain) {
-      const configuredHomePath = (providerHomes.codex || [])
+    if (options.allowUnarchiveArchived === true && providerHistorySupportsUnarchive(provider) && !requestedAsMain) {
+      const configuredHomePath = (providerHomes[provider] || [])
         .find(home => home.id === providerHomeId)?.path || '';
       const unarchiveResult = await this.ports.ensureCodexSessionAvailable(sessionId, {
         providerHomeId,
@@ -453,9 +454,7 @@ class AgentSessionResumeCoordinator {
     const command = buildAgentSessionResumeCommand(provider, sessionId, {
       fork: shouldFork,
       cwd: workingDirectory,
-      modelProvider: provider === 'codex'
-        ? resolveCodexResumeModelProvider(session?.providerHomePath || '')
-        : '',
+      providerHomePath: session?.providerHomePath || '',
     });
     if (!command) return { error: 'invalid session id', status: 400 };
 
@@ -469,7 +468,6 @@ class AgentSessionResumeCoordinator {
         ? (typeof options.customTitle === 'string' ? options.customTitle : '')
         : stringValue(savedSession?.customTitle),
       customTitleExplicit: hasRequestedCustomTitle,
-      requiredCliVersion: provider === 'codex' && session ? session.cliVersion || '' : '',
       projectWorkspace,
       source: shouldFork ? resumeSource.replace('-history:', '-history-fork:') : resumeSource,
       agentRuntimeMode: options.agentRuntimeMode === 'chat' || options.agentRuntimeMode === 'acp' ? 'chat' : 'terminal',
@@ -491,7 +489,10 @@ class AgentSessionResumeCoordinator {
       readOutputEpoch: savedSession?.readOutputEpoch,
       readOutputSeq: savedSession?.readOutputSeq,
       autoReadInitialAttention: options.autoReadInitialAttention === true && savedAttentionSeq <= savedReadAttentionSeq,
-      preserveProviderSessionProfile: provider === 'codex' || provider === 'claude',
+      ...providerSessionResumeOptions(provider, {
+        preserveProfile: true,
+        requiredCliVersion: session?.cliVersion || '',
+      }),
     };
 
     return new Promise<ResumeAgentResult>((resolve) => {
@@ -791,9 +792,8 @@ class AgentSessionResumeCoordinator {
           autoReadInitialAttention: true,
         });
         if (result.error) {
-          const message = result.error.toLowerCase();
-          if (session.provider === 'qoder' && message.includes('invalid session identifier')) {
-            this.ports.warn('Dropping stale qoder session from auto-resume:', session.provider, session.sessionId, result.error);
+          if (providerHistoryAutoResumeErrorIsStale(session.provider, result.error)) {
+            this.ports.warn('Dropping stale provider session from auto-resume:', session.provider, session.sessionId, result.error);
             this.ports.removeMainPageSession(session.provider, session.sessionId, providerHomeId);
             continue;
           }

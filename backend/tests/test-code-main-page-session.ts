@@ -198,9 +198,9 @@ async function run() {
   const projectWorkspaceCanonicalizerSource = fs.readFileSync(path.join(__dirname, '..', 'project-workspace-canonicalizer.cts'), 'utf8');
   const resumeCoordinatorSource = fs.readFileSync(path.join(__dirname, '..', 'agent-session-resume-coordinator.cts'), 'utf8');
   assert(
-    mainPageSessionSource.includes("const AUTO_RESUME_AGENT_SESSION_PROVIDERS = new Set(['codex', 'claude', 'opencode', 'qoder', 'qwen'])") &&
+    mainPageSessionSource.includes("import { getProviderAdapter } from './provider-adapters.cjs';") &&
       mainPageSessionSource.includes('function mainPageAgentSessionFromKey(key: unknown)') &&
-      mainPageSessionSource.includes('AUTO_RESUME_AGENT_SESSION_PROVIDERS.has(normalized)') &&
+      mainPageSessionSource.includes("return getProviderAdapter(normalized)?.id || '';") &&
       serverSource.includes("import { AgentSessionResumeCoordinator } from './agent-session-resume-coordinator.cjs';") &&
       serverSource.includes('const agentSessionResumeCoordinator = new AgentSessionResumeCoordinator({') &&
       serverSource.includes("resumeHttp('codex', req.params.sessionId, req.body)") &&

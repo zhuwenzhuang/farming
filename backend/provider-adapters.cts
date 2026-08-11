@@ -2,6 +2,7 @@ const path = require('path');
 import { chatCapabilitiesForProvider } from './chat-runtime.cjs';
 import { appendOpenCodeBootstrap } from './farming-agent-bootstrap.cjs';
 import { createProviderSessionId, createTemporaryProviderSessionId, isSafeProviderSessionId } from './provider-session-id.cjs';
+import type { ProviderCapabilitiesWire } from '../shared/agent-state-wire.js';
 
 type ProviderId = 'codex' | 'claude' | 'opencode' | 'qoder' | 'qwen';
 type ProviderRuntime = 'terminal' | 'acp';
@@ -109,16 +110,41 @@ interface ProviderAcpPromptSuggestion {
 
 type ProviderAcpExtensionEvent = ProviderAcpPromptSuggestion;
 
+interface ProviderAcpConfigPolicy {
+  approvalModes?: Readonly<Record<string, string>>;
+  coupleModelAndReasoning?: boolean;
+  launchModelAndReasoning?: boolean;
+  matchModelByName?: boolean;
+  serviceTier?: {
+    enabledValues: readonly string[];
+  };
+}
+
+interface ProviderAcpHistoryReplayPolicy {
+  restoreMissingCheckpointMedia?: boolean;
+  waitForNotifications?: boolean;
+}
+
+interface ProviderAcpSessionMetadataOptions {
+  farmingSystemPrompt: string;
+  sessionEnv: Record<string, string>;
+}
+
 interface ProviderAcpContract {
   executablePolicy: 'managed' | 'system';
   packageName?: string;
   version: string;
   sharedRuntime?: boolean;
+  config?: ProviderAcpConfigPolicy;
+  historyReplay?: ProviderAcpHistoryReplayPolicy;
   launch?: (options: ProviderAcpLaunchOptions) => ProviderAcpLaunch;
+  normalizeModes?: (modes: unknown, agentInfo: Record<string, unknown>) => unknown;
+  sessionMetadata?: (options: ProviderAcpSessionMetadataOptions) => Record<string, unknown>;
   normalizeExtensionNotification?: (
     method: string,
     params: Record<string, unknown>,
   ) => ProviderAcpExtensionEvent | null;
+  normalizeHostMessageChunks?: boolean;
 }
 
 interface ProviderCapabilitiesContract {
@@ -138,6 +164,7 @@ interface ProviderAdapter {
   executable: string;
   homeEnvKey: string;
   interruptInput: string;
+  runtimeObservationKind?: 'codex' | 'claude' | 'process';
   freshAcpSessionSources: readonly string[];
   commands: readonly string[];
   supportedRuntimes: readonly ProviderRuntime[];
@@ -154,24 +181,6 @@ interface ProviderAdapter {
   acp: ProviderAcpContract;
   prepareAcpEnvironment?: (options?: ProviderEnvironmentOptions) => NodeJS.ProcessEnv;
   capabilities: ProviderCapabilitiesContract;
-}
-
-interface PublicProviderCapabilities {
-  supportedRuntimes: ProviderRuntime[];
-  runtimeSwitch: boolean;
-  terminalProfile: boolean;
-  goals: boolean;
-  goalSubmission: ProviderCapabilitiesContract['goalSubmission'] | null;
-  conversationFork: {
-    terminal: ProviderConversationForkCapability;
-    acp: ProviderConversationForkCapability;
-  };
-  /** Compatibility fields derived from conversationFork. */
-  terminalSessionFork: boolean;
-  sessionFork: boolean;
-  chatRuntime: string;
-  supportsChat: boolean;
-  supportsSteer: boolean;
 }
 
 const CODEX_VALUE_OPTIONS = new Set([
@@ -430,10 +439,11 @@ function claudeAcpEnvironment(
 const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
   {
     id: 'codex',
-    displayName: 'codex',
+    displayName: 'Codex',
     executable: 'codex',
     homeEnvKey: 'CODEX_HOME',
     interruptInput: '\x1b',
+    runtimeObservationKind: 'codex',
     freshAcpSessionSources: ['codex-temporary'],
     commands: ['codex'],
     supportedRuntimes: ['terminal', 'acp'],
@@ -459,6 +469,18 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
       packageName: '@agentclientprotocol/codex-acp',
       version: '1.1.14',
       sharedRuntime: true,
+      normalizeHostMessageChunks: true,
+      config: {
+        approvalModes: {
+          ask: 'read-only',
+          approve: 'agent',
+          full: 'agent-full-access',
+        },
+        coupleModelAndReasoning: true,
+        launchModelAndReasoning: true,
+        matchModelByName: true,
+        serviceTier: { enabledValues: ['fast', 'priority'] },
+      },
     },
     prepareAcpEnvironment: codexAcpEnvironment,
     capabilities: {
@@ -478,10 +500,11 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
   },
   {
     id: 'claude',
-    displayName: 'claude code',
+    displayName: 'Claude Code',
     executable: 'claude',
     homeEnvKey: 'CLAUDE_CONFIG_DIR',
     interruptInput: '\x1b',
+    runtimeObservationKind: 'claude',
     freshAcpSessionSources: ['claude-session-id'],
     commands: ['claude'],
     supportedRuntimes: ['terminal', 'acp'],
@@ -503,6 +526,23 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
       packageName: '@agentclientprotocol/claude-agent-acp',
       version: '0.66.0',
       sharedRuntime: true,
+      config: {
+        launchModelAndReasoning: true,
+      },
+      sessionMetadata: ({ farmingSystemPrompt, sessionEnv }) => ({
+        ...(farmingSystemPrompt
+          ? {
+              systemPrompt: {
+                type: 'preset',
+                preset: 'claude_code',
+                append: farmingSystemPrompt,
+              },
+            }
+          : {}),
+        ...(Object.keys(sessionEnv).length > 0
+          ? { claudeCode: { options: { env: sessionEnv } } }
+          : {}),
+      }),
     },
     prepareAcpEnvironment: claudeAcpEnvironment,
     capabilities: {
@@ -522,7 +562,7 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
   },
   {
     id: 'opencode',
-    displayName: 'opencode',
+    displayName: 'OpenCode',
     executable: 'opencode',
     homeEnvKey: 'OPENCODE_CONFIG_DIR',
     interruptInput: '\x03',
@@ -545,6 +585,20 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
       executablePolicy: 'system',
       version: 'native',
       sharedRuntime: true,
+      historyReplay: {
+        restoreMissingCheckpointMedia: true,
+        waitForNotifications: true,
+      },
+      normalizeModes: (modes, agentInfo) => {
+        if (String(agentInfo.version || '') !== '1.0.43' || !modes || typeof modes !== 'object') return modes;
+        const record = modes as Record<string, unknown>;
+        const availableModes = Array.isArray(record.availableModes)
+          ? record.availableModes.filter(mode => (
+              !mode || typeof mode !== 'object' || String((mode as Record<string, unknown>).id || '') !== 'plan'
+            ))
+          : record.availableModes;
+        return { ...record, availableModes };
+      },
       launch: options => ({
         command: options.executable || 'opencode',
         args: ['acp', '--cwd', path.resolve(options.projectWorkspace || options.cwd || process.cwd())],
@@ -567,7 +621,7 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
   },
   {
     id: 'qoder',
-    displayName: 'qoder',
+    displayName: 'Qoder',
     executable: 'qodercli',
     homeEnvKey: 'QODER_CONFIG_DIR',
     interruptInput: '\x1b',
@@ -606,7 +660,7 @@ const PROVIDER_ADAPTERS: readonly ProviderAdapter[] = Object.freeze([
   },
   {
     id: 'qwen',
-    displayName: 'qwen code',
+    displayName: 'Qwen Code',
     executable: 'qwen',
     homeEnvKey: 'QWEN_HOME',
     interruptInput: '\x1b',
@@ -685,7 +739,7 @@ function listProviderAdapters(): readonly ProviderAdapter[] {
   return [...PROVIDER_ADAPTERS];
 }
 
-function providerCapabilities(provider: unknown): PublicProviderCapabilities {
+function providerCapabilities(provider: unknown): ProviderCapabilitiesWire {
   const adapter = getProviderAdapter(provider);
   const terminalFork = conversationForkCapability(adapter, 'terminal');
   const acpFork = conversationForkCapability(adapter, 'acp');
@@ -709,6 +763,11 @@ function providerCapabilities(provider: unknown): PublicProviderCapabilities {
 
 function providerSupportsRuntime(provider: unknown, runtime: ProviderRuntime): boolean {
   return getProviderAdapter(provider)?.supportedRuntimes.includes(runtime) === true;
+}
+
+function providerRuntimeObservationKind(provider: unknown): 'codex' | 'claude' | 'process' | 'unknown' {
+  const adapter = getProviderAdapter(provider);
+  return adapter?.runtimeObservationKind || (adapter ? 'process' : 'unknown');
 }
 
 function providerArgsContinueSession(provider: unknown, rawArgs: string[]): boolean {
@@ -853,6 +912,7 @@ export {
   providerCapabilities,
   providerForProgram,
   providerPermissionRestartPolicy,
+  providerRuntimeObservationKind,
   providerRequiresStableTerminalSessionAfterInput,
   providerSessionResumeOptions,
   providerSessionIdentityRollbackArgs,
