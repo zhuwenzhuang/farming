@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { appPath } from '@/lib/base-path'
+import { RequestOwnershipFence } from '@/lib/request-ownership'
 import type { AcpSessionSnapshot } from './types'
 
 type AcpConfigChange = {
@@ -79,14 +80,22 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
   const [loggingOut, setLoggingOut] = useState(false)
   const [configDeferred, setConfigDeferred] = useState(false)
   const sessionRef = useRef<AcpSessionSnapshot | null>(null)
-  const scopeRef = useRef({ agentId, active })
-  const refreshRequestRef = useRef(0)
+  const refreshOwnershipRef = useRef(new RequestOwnershipFence(agentId))
+  const mutationOwnershipRef = useRef(new RequestOwnershipFence(agentId))
+  const accountMutationOwnershipRef = useRef(new RequestOwnershipFence(agentId))
   const mutationRef = useRef<{ agentId: string; id: string; sequence: number } | null>(null)
   const mutationSequenceRef = useRef(0)
   const accountMutationRef = useRef<{ agentId: string; sequence: number } | null>(null)
   const accountMutationSequenceRef = useRef(0)
 
-  scopeRef.current = { agentId, active }
+  for (const ownership of [
+    refreshOwnershipRef.current,
+    mutationOwnershipRef.current,
+    accountMutationOwnershipRef.current,
+  ]) {
+    ownership.setScope(agentId)
+    ownership.setActive(active)
+  }
 
   useEffect(() => {
     sessionRef.current = session
@@ -94,18 +103,14 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     if (!agentId || !active) return
-    const requestAgentId = agentId
     const requestMutationSequence = mutationSequenceRef.current
-    const requestId = refreshRequestRef.current + 1
-    refreshRequestRef.current = requestId
+    const lease = refreshOwnershipRef.current.begin()
     try {
       const response = await fetch(appPath(`/api/agents/${encodeURIComponent(agentId)}/acp-session?includeEntries=0`), { signal })
       const body = await response.json().catch(() => null) as { session?: AcpSessionSnapshot; error?: string } | null
       if (!response.ok || !body?.session) throw new Error(body?.error || `Failed to read ACP session (${response.status})`)
       if (
-        scopeRef.current.agentId !== requestAgentId
-        || !scopeRef.current.active
-        || refreshRequestRef.current !== requestId
+        !lease.isCurrent()
         || mutationRef.current
         || mutationSequenceRef.current !== requestMutationSequence
       ) return
@@ -120,9 +125,7 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
     } catch (nextError) {
       if (nextError instanceof DOMException && nextError.name === 'AbortError') return
       if (
-        scopeRef.current.agentId !== requestAgentId
-        || !scopeRef.current.active
-        || refreshRequestRef.current !== requestId
+        !lease.isCurrent()
         || mutationRef.current
         || mutationSequenceRef.current !== requestMutationSequence
       ) return
@@ -131,9 +134,11 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
   }, [active, agentId])
 
   useEffect(() => {
-    refreshRequestRef.current += 1
+    refreshOwnershipRef.current.invalidate()
+    mutationOwnershipRef.current.invalidate()
     mutationSequenceRef.current += 1
     mutationRef.current = null
+    accountMutationOwnershipRef.current.invalidate()
     accountMutationSequenceRef.current += 1
     accountMutationRef.current = null
     sessionRef.current = null
@@ -163,6 +168,7 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
   const patchSession = useCallback(async (id: string, patch: Record<string, unknown>) => {
     if (!agentId || mutationRef.current) return false
     const requestAgentId = agentId
+    const lease = mutationOwnershipRef.current.begin()
     const sequence = ++mutationSequenceRef.current
     mutationRef.current = { agentId: requestAgentId, id, sequence }
     const rollbackSession = sessionRef.current
@@ -191,7 +197,7 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
       if (body?.deferred !== true && !configChangesConfirmed(body?.configOptions, configChanges)) {
         throw new Error('ACP Agent did not confirm the requested configuration')
       }
-      if (scopeRef.current.agentId !== requestAgentId || mutationRef.current?.sequence !== sequence) {
+      if (!lease.isCurrent() || mutationRef.current?.sequence !== sequence) {
         return false
       }
       setSession(current => {
@@ -217,15 +223,14 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
     } catch (nextError) {
       if (
         rollbackSession
-        && scopeRef.current.agentId === requestAgentId
+        && lease.isCurrent()
         && mutationRef.current?.sequence === sequence
       ) {
         sessionRef.current = rollbackSession
         setSession(rollbackSession)
       }
       if (
-        scopeRef.current.agentId === requestAgentId
-        && scopeRef.current.active
+        lease.isCurrent()
         && mutationRef.current?.sequence === sequence
       ) {
         setError(nextError instanceof Error ? nextError.message : 'Failed to update ACP session')
@@ -258,6 +263,7 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
   const authenticate = useCallback(async (methodId: string) => {
     if (!agentId || !active || accountMutationRef.current) return false
     const requestAgentId = agentId
+    const lease = accountMutationOwnershipRef.current.begin()
     const sequence = ++accountMutationSequenceRef.current
     accountMutationRef.current = { agentId: requestAgentId, sequence }
     setAuthenticatingId(methodId)
@@ -270,19 +276,16 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
       const body = await response.json().catch(() => null) as { error?: string } | null
       if (!response.ok) throw new Error(body?.error || `Failed to authenticate ACP Agent (${response.status})`)
       if (
-        scopeRef.current.agentId !== requestAgentId
-        || !scopeRef.current.active
+        !lease.isCurrent()
         || accountMutationRef.current?.sequence !== sequence
       ) return false
       setError('')
       await refresh()
-      return scopeRef.current.agentId === requestAgentId
-        && scopeRef.current.active
+      return lease.isCurrent()
         && accountMutationRef.current?.sequence === sequence
     } catch (nextError) {
       if (
-        scopeRef.current.agentId === requestAgentId
-        && scopeRef.current.active
+        lease.isCurrent()
         && accountMutationRef.current?.sequence === sequence
       ) setError(nextError instanceof Error ? nextError.message : 'Failed to authenticate ACP Agent')
       return false
@@ -297,6 +300,7 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
   const logout = useCallback(async () => {
     if (!agentId || !active || accountMutationRef.current) return false
     const requestAgentId = agentId
+    const lease = accountMutationOwnershipRef.current.begin()
     const sequence = ++accountMutationSequenceRef.current
     accountMutationRef.current = { agentId: requestAgentId, sequence }
     setLoggingOut(true)
@@ -307,19 +311,16 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
       const body = await response.json().catch(() => null) as { error?: string } | null
       if (!response.ok) throw new Error(body?.error || `Failed to log out ACP Agent (${response.status})`)
       if (
-        scopeRef.current.agentId !== requestAgentId
-        || !scopeRef.current.active
+        !lease.isCurrent()
         || accountMutationRef.current?.sequence !== sequence
       ) return false
       setError('')
       await refresh()
-      return scopeRef.current.agentId === requestAgentId
-        && scopeRef.current.active
+      return lease.isCurrent()
         && accountMutationRef.current?.sequence === sequence
     } catch (nextError) {
       if (
-        scopeRef.current.agentId === requestAgentId
-        && scopeRef.current.active
+        lease.isCurrent()
         && accountMutationRef.current?.sequence === sequence
       ) setError(nextError instanceof Error ? nextError.message : 'Failed to log out ACP Agent')
       return false

@@ -1,6 +1,4 @@
 const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
 const {
   currentWorkspaceSurface,
   planWorkspaceSurfaceRestore,
@@ -246,24 +244,6 @@ function run() {
     activeAgents,
     openWorkspaceFile: openFile,
   }), undefined);
-
-  const workspaceSource = fs.readFileSync(
-    path.join(__dirname, '../../src/components/CodeWorkspace.tsx'),
-    'utf8',
-  );
-  assert(workspaceSource.includes('useWorkspaceFileIdentityController({'));
-  assert(workspaceSource.includes('useWorkspaceSurfaceController({'));
-  for (const leakedOwner of [
-    'workspaceSurfaceRestoreStartedRef',
-    'workspaceSurfaceRestoredRef',
-    'initialWorkspaceSurface',
-  ]) {
-    assert.strictEqual(
-      workspaceSource.includes(leakedOwner),
-      false,
-      `CodeWorkspace must not regain workspace surface lifecycle ownership: ${leakedOwner}`,
-    );
-  }
 
   console.log('test-workspace-surface-controller passed');
 }

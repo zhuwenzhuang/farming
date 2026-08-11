@@ -1,6 +1,4 @@
 const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
 const { projectAcpTranscript: acpSessionTranscript } = require('../../src/components/code/acp/acp-entry-projection.ts');
 const {
   acpTranscriptEntries,
@@ -1124,45 +1122,5 @@ assert.match(
   'explicit tool output media should render in the answer area by default'
 );
 assert.strictEqual(projectedExplicitOutputTranscript.turns[0].processItems[0].images, undefined);
-
-const serverSource = fs.readFileSync(path.join(__dirname, '..', 'server.cts'), 'utf8');
-const transcriptPaneSource = fs.readFileSync(
-  path.join(__dirname, '..', '..', 'src', 'components', 'code', 'AgentTranscriptPane.tsx'),
-  'utf8'
-);
-const transcriptStylesSource = fs.readFileSync(
-  path.join(__dirname, '..', '..', 'src', 'styles', 'transcript.css'),
-  'utf8'
-);
-const appearanceTokensSource = fs.readFileSync(
-  path.join(__dirname, '..', '..', 'src', 'styles', 'tokens.css'),
-  'utf8'
-);
-assert(
-  serverSource.includes("req.query.media === 'external-v1'")
-    && transcriptPaneSource.includes("params.set('media', 'external-v1')"),
-  'media externalization must stay explicitly negotiated for rolling-upgrade compatibility'
-);
-assert(
-  transcriptPaneSource.includes('ACP_TRANSCRIPT_FETCH_RETRY_DELAYS_MS = [250, 1000]')
-    && transcriptPaneSource.includes("source === 'acp' && !responseReceived && reason instanceof TypeError")
-    && transcriptPaneSource.includes("const suppressFreshAcpResponseError = source === 'acp'")
-    && transcriptPaneSource.includes('transcriptRef.current?.available || suppressFreshAcpResponseError'),
-  'only read-only ACP transcript network failures should receive bounded retries and localized final errors'
-);
-assert(
-  transcriptPaneSource.includes("const activePlan = active")
-    && transcriptPaneSource.includes("&& turns[turns.length - 1]?.status === 'inProgress'")
-    && transcriptPaneSource.includes("&& sessionPlan?.status !== 'completed'")
-    && transcriptPaneSource.includes('onActivePlanChange?.(activePlan)')
-    && transcriptPaneSource.includes('onActivePlanChange?.(undefined)'),
-  'the transcript should publish only the authoritative incomplete plan from the latest active turn to the shared activity dock'
-);
-assert(
-  transcriptStylesSource.includes('.code-agent-transcript-plan-driver')
-    && !transcriptStylesSource.includes('data-appearance')
-    && appearanceTokensSource.includes('--code-transcript-agent-transcript-plan-driver-background'),
-  'the plan driver should consume the shared appearance palette'
-);
 
 console.log('ACP transcript tests passed');

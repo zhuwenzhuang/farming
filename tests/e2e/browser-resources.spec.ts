@@ -211,6 +211,58 @@ test('does not show a Browser section before the first Browser is created', asyn
   await expect(project.getByTestId('farming-browser-section')).toHaveCount(0)
 })
 
+test('hides project Browser tabs when the selected runtime is Agent-owned', async ({
+  page,
+  workspaceRoot,
+}) => {
+  const workspace = path.join(workspaceRoot, 'isolated-browser-project')
+  fs.mkdirSync(workspace, { recursive: true })
+  const projectRootId = projectFilesWorkspaceId(workspace)
+  await page.route('**/api/browsers/capability', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      enabled: true,
+      available: true,
+      browser: { kind: 'isolated-computer', path: '' },
+      selection: {
+        source: 'isolated',
+        executablePath: '',
+        externalCdpUrl: '',
+      },
+      message: 'Isolated Browser is available',
+    }),
+  }))
+  await page.route('**/api/browsers', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      collectionRevision: 1,
+      resources: [{
+        id: 'browser_project',
+        ownerType: 'project',
+        ownerAgentId: '',
+        projectRootId,
+        workspace,
+        name: 'Legacy project tab',
+        status: 'stopped',
+        generation: 1,
+        revision: 1,
+        collectionRevision: 1,
+        url: 'about:blank',
+        title: '',
+        browserKind: 'isolated-computer',
+        error: '',
+        createdAt: 1,
+        updatedAt: 1,
+      }],
+    }),
+  }))
+  await page.request.post('/farming/api/projects/mount', { data: { workspace } })
+  await openFarming(page)
+
+  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspace) })
+  await expect(project.getByTestId('farming-browser-section')).toHaveCount(0)
+})
+
 test('mounts Agent-owned Browsers behind nested resource controls without layout noise', {
   tag: ['@critical-behavior', '@behavior-CODE-SIDEBAR-BROWSER-NESTING'],
 }, async ({
@@ -389,6 +441,44 @@ test('mounts Agent-owned Browsers behind nested resource controls without layout
   await expect(agentDetailResources).toBeVisible()
   await expect(agentDetailResources.getByTestId('code-agent-hover-preview-browser-count')).toHaveText('2')
   await expect(agentDetailResources.getByTestId('code-agent-hover-preview-desktop-count')).toHaveCount(0)
+})
+
+test('reclaims Agent-owned Browser resources after the Server removes their Agent', async ({
+  page,
+  workspaceRoot,
+}) => {
+  const workspace = path.join(workspaceRoot, 'agent-browser-reclaim')
+  fs.mkdirSync(workspace, { recursive: true })
+  const enableResponse = await page.request.post('/farming/api/settings', {
+    data: { browserExtensionEnabled: true },
+  })
+  expect(enableResponse.ok()).toBeTruthy()
+  await openFarming(page)
+
+  const agentResponse = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'bash', workspace },
+  })
+  const agent = await agentResponse.json() as { agentId?: string, error?: string }
+  expect(agentResponse.ok(), agent.error || 'Failed to create Agent').toBeTruthy()
+  const agentId = agent.agentId as string
+  const createResponse = await page.request.post('/farming/api/browsers', {
+    data: {
+      rootId: projectFilesWorkspaceId(workspace),
+      agentId,
+      name: 'Cleanup with owner',
+    },
+  })
+  expect(createResponse.ok()).toBeTruthy()
+  const browser = await createResponse.json() as { id: string }
+
+  const deleteResponse = await page.request.delete(`/farming/api/control/agents/${agentId}`)
+  expect(deleteResponse.ok()).toBeTruthy()
+  await expect.poll(async () => {
+    const response = await page.request.get('/farming/api/browsers')
+    expect(response.ok()).toBeTruthy()
+    const snapshot = await response.json() as { resources: Array<{ id: string }> }
+    return snapshot.resources.some(resource => resource.id === browser.id)
+  }, { timeout: 30_000 }).toBe(false)
 })
 
 test('folds active-Agent Browser previews into the shared activity dock and opens the selected Viewer on demand', async ({

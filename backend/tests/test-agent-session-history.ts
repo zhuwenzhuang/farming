@@ -21,41 +21,6 @@ const {
 } = require('../agent-session-history.cjs');
 
 async function run() {
-  const serverSource = fs.readFileSync(path.resolve(__dirname, '../server.cts'), 'utf8');
-  const routerSource = fs.readFileSync(path.resolve(__dirname, '../agent-session-router.cts'), 'utf8');
-  const settingsRouterSource = fs.readFileSync(path.resolve(__dirname, '../settings-mutation-router.cts'), 'utf8');
-  assert(
-    serverSource.includes('const agentSessionInventory = new AgentSessionInventory({')
-      && serverSource.includes('return agentSessionInventory.list(')
-      && serverSource.includes("import { createAgentSessionRouter } from './agent-session-router.cjs';")
-      && serverSource.includes("app.use(routePath(BASE_PATH, '/api'), createAgentSessionRouter({")
-      && routerSource.includes("if (req.query.force === '1') service.invalidate();")
-      && routerSource.includes("router.get('/agent-sessions/search', async"),
-    'Agent session list and search APIs should use the authoritative inventory and expose explicit force refreshes'
-  );
-  assert(
-    !serverSource.includes("app.patch(routePath(BASE_PATH, '/api/agent-sessions/:provider/:sessionId')")
-      && !serverSource.includes("app.post(routePath(BASE_PATH, '/api/main-page-agent-sessions')"),
-    'Agent session display and main-page membership routes must be owned by the Agent session router',
-  );
-  const routerRouteOffsets = [
-    "router.get('/agent-sessions',",
-    "router.get('/agent-sessions/search',",
-    "router.patch('/agent-sessions/:provider/:sessionId', expressFactory.json(),",
-    "router.post('/main-page-agent-sessions', expressFactory.json(),",
-  ].map(route => routerSource.indexOf(route));
-  assert(
-    routerRouteOffsets.every((offset, index) => offset >= 0 && (index === 0 || offset > routerRouteOffsets[index - 1])),
-    'Agent session router must declare list, search, display, and membership routes in that order with route-local JSON parsing',
-  );
-  assert(
-    settingsRouterSource.includes("const changesAgentHomes = owns(settingsPatch, 'agentHomes');")
-      && settingsRouterSource.includes('if (changesAgentHomes) {')
-      && settingsRouterSource.includes('this.ports.invalidateAgentSessionInventory();')
-      && settingsRouterSource.includes('this.ports.invalidateAgentExtensionInventory();'),
-    'Unrelated Settings writes must not invalidate Agent Home inventories',
-  );
-
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-agent-session-history-'));
   try {
   const codexHome = path.join(root, 'codex');

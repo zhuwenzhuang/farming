@@ -12,6 +12,7 @@ import { ArrowDownGlyph, ArrowUpGlyph, CheckGlyph, ChevronDownGlyph, CloseGlyph,
 import { WorkspaceDirectoryBrowser } from '@/components/WorkspaceDirectoryBrowser'
 import { mergeTaskWithWorkflow, WORKFLOW_TEMPLATE_OPTIONS } from '@/lib/workflow-templates'
 import { prepareWorkspaceDirectory } from '@/lib/workspace-directory'
+import { LatestRequestFence } from '@/components/code/latest-request-fence'
 import {
   buildWorkspaceHistory,
   buildWorkspaceOptions,
@@ -173,7 +174,7 @@ export function InputDialog({
   const workspaceTouchedRef = useRef(false)
   const workspaceHistoryRef = useRef<string[]>([])
   const workspaceHistorySaveTailRef = useRef<Promise<void>>(Promise.resolve())
-  const workspaceHistorySaveGenerationRef = useRef(0)
+  const workspaceHistorySaveFenceRef = useRef(new LatestRequestFence())
   const workspaceHistorySaveSettledGenerationRef = useRef(0)
   const startClickLockedRef = useRef(false)
   const startClickUnlockTimerRef = useRef<number | null>(null)
@@ -268,7 +269,7 @@ export function InputDialog({
         const history = buildWorkspaceHistory(null, settings.workspaceHistory ?? [])
         setMainWorkspaceDefault(nextMainWorkspaceDefault)
         setDefaultLaunchAgent(normalizeDefaultLaunchAgent(settings.defaultLaunchAgent))
-        if (workspaceHistorySaveSettledGenerationRef.current === workspaceHistorySaveGenerationRef.current) {
+        if (workspaceHistorySaveSettledGenerationRef.current === workspaceHistorySaveFenceRef.current.currentGeneration) {
           workspaceHistoryRef.current = history
           setWorkspaceHistory(history)
         }
@@ -280,7 +281,7 @@ export function InputDialog({
       })
       .catch(() => {
         if (cancelled) return
-        if (workspaceHistorySaveSettledGenerationRef.current === workspaceHistorySaveGenerationRef.current) {
+        if (workspaceHistorySaveSettledGenerationRef.current === workspaceHistorySaveFenceRef.current.currentGeneration) {
           workspaceHistoryRef.current = []
           setWorkspaceHistory([])
         }
@@ -503,8 +504,7 @@ export function InputDialog({
 
     workspaceHistoryRef.current = nextHistory
     setWorkspaceHistory(nextHistory)
-    const generation = workspaceHistorySaveGenerationRef.current + 1
-    workspaceHistorySaveGenerationRef.current = generation
+    const lease = workspaceHistorySaveFenceRef.current.begin()
     const save = workspaceHistorySaveTailRef.current
       .catch(() => {})
       .then(async () => {
@@ -519,8 +519,8 @@ export function InputDialog({
         const data = response?.ok
           ? await response.json().catch(() => null) as { workspaceHistory?: string[] } | null
           : null
-        workspaceHistorySaveSettledGenerationRef.current = generation
-        if (generation !== workspaceHistorySaveGenerationRef.current) return
+        workspaceHistorySaveSettledGenerationRef.current = lease.generation
+        if (!lease.isCurrent()) return
         let savedHistory = data?.workspaceHistory
         if (!savedHistory) {
           const reconcileController = new AbortController()
@@ -535,7 +535,7 @@ export function InputDialog({
           const settingsData = settingsResponse?.ok
             ? await settingsResponse.json().catch(() => null) as { settings?: { workspaceHistory?: string[] } } | null
             : null
-          if (generation !== workspaceHistorySaveGenerationRef.current) return
+          if (!lease.isCurrent()) return
           savedHistory = settingsData?.settings?.workspaceHistory
         }
         if (!savedHistory) return

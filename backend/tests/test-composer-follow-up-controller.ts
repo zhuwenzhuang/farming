@@ -1,6 +1,4 @@
 const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
 const {
   ComposerFollowUpAdmissions,
   failQueuedAcpFollowUp,
@@ -21,24 +19,6 @@ function message(id, text = id) {
 }
 
 async function run() {
-  const workspaceSource = fs.readFileSync(
-    path.join(__dirname, '../../src/components/CodeWorkspace.tsx'),
-    'utf8',
-  );
-  assert(workspaceSource.includes('useComposerFollowUpController({'));
-  for (const leakedOwner of [
-    'pendingFollowUpAutoFlushRef',
-    'acpSubmissionAdmissionsRef',
-    'reconcileAcpPromptStartFence',
-    'flushPendingFollowUps',
-  ]) {
-    assert.strictEqual(
-      workspaceSource.includes(leakedOwner),
-      false,
-      `CodeWorkspace must not regain Composer follow-up owner state: ${leakedOwner}`,
-    );
-  }
-
   const admissions = new ComposerFollowUpAdmissions();
   assert.strictEqual(admissions.beginPending('acp:one', 'message-1'), true);
   assert.strictEqual(

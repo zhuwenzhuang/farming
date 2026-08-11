@@ -1,6 +1,4 @@
 const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
 const { importTsModule } = require('./helpers/import-ts-module');
 const {
   encodeProviderSessionKey,
@@ -191,42 +189,6 @@ async function run() {
     ], 'codex', sessions[1]),
     null,
     'Server auto-resume should not claim by command/workspace/time-window heuristics'
-  );
-
-  const serverSource = fs.readFileSync(path.join(__dirname, '..', 'server.cts'), 'utf8');
-  const mainPageSessionSource = fs.readFileSync(path.join(__dirname, '..', 'main-page-session.cts'), 'utf8');
-  const projectWorkspaceCanonicalizerSource = fs.readFileSync(path.join(__dirname, '..', 'project-workspace-canonicalizer.cts'), 'utf8');
-  const resumeCoordinatorSource = fs.readFileSync(path.join(__dirname, '..', 'agent-session-resume-coordinator.cts'), 'utf8');
-  assert(
-    mainPageSessionSource.includes("import { getProviderAdapter } from './provider-adapters.cjs';") &&
-      mainPageSessionSource.includes('function mainPageAgentSessionFromKey(key: unknown)') &&
-      mainPageSessionSource.includes("return getProviderAdapter(normalized)?.id || '';") &&
-      serverSource.includes("import { AgentSessionResumeCoordinator } from './agent-session-resume-coordinator.cjs';") &&
-      serverSource.includes('const agentSessionResumeCoordinator = new AgentSessionResumeCoordinator({') &&
-      serverSource.includes("resumeHttp('codex', req.params.sessionId, req.body)") &&
-      resumeCoordinatorSource.includes('await this.ports.waitForAgentRecovery();') &&
-      resumeCoordinatorSource.includes("'Skipping main-page Agent session auto-resume after failed lifecycle recovery:'") &&
-      resumeCoordinatorSource.includes('const knownByKey = new Map(knownSessions.map(session => [') &&
-      resumeCoordinatorSource.includes('knownByKey.get(mainPageAgentSessionKey(') &&
-      resumeCoordinatorSource.includes('return findActiveAgentClaimingSession(this.ports.getActiveAgents()') &&
-      mainPageSessionSource.includes('return claimedProviderSessionTupleKeys(agent).has(tupleKey);') &&
-      resumeCoordinatorSource.includes('claimed: true') &&
-      resumeCoordinatorSource.includes('rememberMainPageSession: false') &&
-      resumeCoordinatorSource.includes('autoReadInitialAttention: true') &&
-      resumeCoordinatorSource.includes('const savedSession = shouldFork') &&
-      resumeCoordinatorSource.includes('persistentSessionId: stringValue(savedSession?.id)') &&
-      resumeCoordinatorSource.includes('customTitleExplicit: hasRequestedCustomTitle') &&
-      resumeCoordinatorSource.includes("return { status: 400, body: { error: 'customTitle must be a string' } };") &&
-      resumeCoordinatorSource.includes('const workingDirectory = session?.cwd || session?.workspace || null') &&
-      resumeCoordinatorSource.includes('savedSession?.projectWorkspace || session?.workspace || session?.cwd || workingDirectory') &&
-      serverSource.includes('const canonicalProjectWorkspaceCandidate = createProjectWorkspaceCanonicalizer({') &&
-      serverSource.includes("inspectWorkspace: async candidate => (await inspectGitWorktree(candidate))?.workspace || ''") &&
-      projectWorkspaceCanonicalizerSource.includes('const existing = pending.get(candidate)') &&
-      projectWorkspaceCanonicalizerSource.includes('if (inspectedWorkspace) return inspectedWorkspace') &&
-      !serverSource.includes('void autoResumeMainPageAgentSessions()') &&
-      !serverSource.includes('const pendingResumeStarts = new Map') &&
-      !serverSource.includes('async function resumeAgentSessionById('),
-    'Server restart should materialize main-page history without automatically starting provider runtimes'
   );
 
   console.log('✓ Main page session promotion helpers preserve launched coding-agent sessions');

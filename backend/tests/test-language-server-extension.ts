@@ -15,27 +15,6 @@ const {
 } = require('../../extensions/language-server/backend/language-server-registry.cjs');
 
 async function run() {
-  const iconGlyphsSource = fs.readFileSync(path.join(__dirname, '../../src/components/IconGlyphs.tsx'), 'utf8');
-  const pluginsPanelSource = fs.readFileSync(path.join(__dirname, '../../src/components/code/PluginsPanel.tsx'), 'utf8');
-  const languageServerClientSource = fs.readFileSync(path.join(__dirname, '../../extensions/language-server/frontend/client.ts'), 'utf8');
-  assert.ok(
-    iconGlyphsSource.includes('export function LanguageServerGlyph')
-      && iconGlyphsSource.includes('M9.80307 3.0431C10.0554 3.15525')
-      && pluginsPanelSource.includes('<LanguageServerGlyph />'),
-    'The Language Server plugin card should use its dedicated code glyph',
-  );
-  assert.ok(
-    pluginsPanelSource.includes('languageServerReady')
-      && pluginsPanelSource.includes('languageServerHasActiveConnections')
-      && pluginsPanelSource.includes('code-plugin-language-server-connections'),
-    'The Language Server plugin card should distinguish idle readiness from active project connections',
-  );
-  assert.ok(
-    languageServerClientSource.includes('const REQUEST_TIMEOUT_MS = 60_000')
-      && languageServerClientSource.includes("'LANGUAGE_SERVER_REQUEST_TIMEOUT'"),
-    'Language Server requests should cover initialization and report frontend timeouts explicitly',
-  );
-
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-language-server-'));
   try {
     const workspaceInput = path.join(tempDir, 'workspace');

@@ -1584,75 +1584,13 @@ async function testBrowserRouterAgentOwnership() {
   }
 }
 
-function testBrowserUiAndPackagingWiring() {
+function testBrowserPackagingAndExternalCdpGuidance() {
   const projectRoot = path.join(__dirname, '..', '..');
   const externalCdpGuides = [
     'external-cdp-browser.md',
     'external-cdp-browser.zh_cn.md',
   ].map(name => fs.readFileSync(path.join(projectRoot, 'docs', 'products', 'code', name), 'utf8'));
-  const workspaceSource = fs.readFileSync(path.join(projectRoot, 'src', 'components', 'CodeWorkspace.tsx'), 'utf8');
-  const resourcePaneControllerSource = fs.readFileSync(
-    path.join(projectRoot, 'src', 'components', 'code', 'useResourcePaneController.ts'),
-    'utf8',
-  );
-  const mainAreaSource = fs.readFileSync(path.join(projectRoot, 'src', 'components', 'code', 'CodeMainArea.tsx'), 'utf8');
-  const activityPreviewSource = fs.readFileSync(
-    path.join(projectRoot, 'extensions', 'browser', 'frontend', 'BrowserActivityPreview.tsx'),
-    'utf8',
-  );
-  const sidebarSource = fs.readFileSync(path.join(projectRoot, 'extensions', 'browser', 'frontend', 'BrowserSidebarPortals.tsx'), 'utf8');
-  const codeSidebarSource = fs.readFileSync(path.join(projectRoot, 'src', 'components', 'code', 'CodeSidebar.tsx'), 'utf8');
-  const sidebarResourceCss = fs.readFileSync(path.join(projectRoot, 'src', 'styles', 'sidebar-resources.css'), 'utf8');
-  const serverSource = fs.readFileSync(path.join(projectRoot, 'backend', 'server.cts'), 'utf8');
   const packageJson = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8'));
-  assert(workspaceSource.includes('<BrowserSidebarPortals'));
-  assert(
-    workspaceSource.includes('useResourcePaneController({')
-      && workspaceSource.includes('showBrowser(resource.id, returnAgentId)')
-      && resourcePaneControllerSource.includes("case 'show-browser':")
-      && resourcePaneControllerSource.includes("mainPaneMode: 'browser'"),
-    'Opening a Browser resource must select the Browser pane through its state owner',
-  );
-  assert(mainAreaSource.includes('<BrowserViewer'));
-  assert(mainAreaSource.includes('<BrowserActivityPreview'));
-  assert(activityPreviewSource.includes('new WebSocket('));
-  assert(
-    !activityPreviewSource.includes('.send('),
-    'the passive Agent Browser preview must never claim or resize the interactive Viewer viewport',
-  );
-  assert(!sidebarSource.includes('window.confirm'), 'Browser row close must remove directly without a redundant confirmation');
-  assert(sidebarSource.includes("if (resource.status === 'failed') return copy.stopped"));
-  assert(serverSource.includes("createBrowserRouter("));
-  assert(serverSource.includes("browserResourceManager,"));
-  assert(serverSource.includes("agentManager.on('update', reconcileAgentResourceLifecycle)"));
-  assert(serverSource.includes('await browserResourceManager.reconcileAgentLifecycle'));
-  assert(sidebarSource.includes('code-agent-resources-toggle'));
-  assert(sidebarSource.includes('controller.byAgentId'));
-  assert(
-    sidebarSource.includes("controller.capability?.browser?.kind !== 'isolated-computer'"),
-    'Project-owned Browser rows must stay hidden when the selected runtime requires an Agent-owned Computer',
-  );
-  const projectResourceSlot = codeSidebarSource.indexOf('data-testid="code-project-resource-slot"');
-  assert(
-    projectResourceSlot > codeSidebarSource.lastIndexOf('data-testid="code-agents-section"', projectResourceSlot)
-      && projectResourceSlot < codeSidebarSource.indexOf('<ProjectFilesSection', projectResourceSlot),
-    'Project Resource sections must use an explicit slot after Agents and before Files',
-  );
-  assert(
-    sidebarSource.includes('findProjectResourceElement')
-      && sidebarSource.includes('code-project-resource-slot'),
-    'Browser portals must target the ordered Project Resource slot instead of the whole expanded Project container',
-  );
-  assert(
-    sidebarSource.includes('if (!activeBrowserId || !activeBrowserOwnerAgentId) return')
-      && sidebarSource.includes('next.add(activeBrowserOwnerAgentId)')
-      && sidebarSource.includes('next.delete(sectionId)'),
-    'Opening an Agent-owned Browser Viewer must reveal its Resource row and expand its Browser section',
-  );
-  assert(
-    sidebarResourceCss.includes('margin: 2px 4px 2px 14px;'),
-    'Agent Desktop and Browser sections must share the same core-owned resource hierarchy alignment',
-  );
   assert.strictEqual(packageJson.dependencies['playwright-core'], undefined);
   assert.strictEqual(packageJson.bin['farming-browser'], 'extensions/browser/bin/farming-browser');
   assert(packageJson.files.includes('extensions/browser/backend/*.cjs'));
@@ -1674,7 +1612,7 @@ Promise.resolve()
   .then(testAgentBrowserRestartRecovery)
   .then(testBrowserResourceRevisionOrdering)
   .then(testBrowserRouterAgentOwnership)
-  .then(testBrowserUiAndPackagingWiring)
+  .then(testBrowserPackagingAndExternalCdpGuidance)
   .then(() => console.log('browser extension tests passed'))
   .catch(error => {
     console.error(error);

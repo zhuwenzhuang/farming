@@ -210,5 +210,12 @@ npm run test:behavior
 npm run test:e2e:playwright
 ```
 
+`test:behavior:contracts` 还会校验源码检查的归属。产品行为测试必须执行真实产品路径，
+不得通过读取生产源码并断言私有字符串来证明行为。仅允许少量且有文档说明的静态契约检查：
+架构边界、包组装、生成产物或安全约束。既有的实现文本债务冻结在
+`tests/source-inspection-allowlist.json` 会区分允许的静态 allowlist 与既有行为测试债务。
+Allowlist 仅限架构边界、包组装、生成产物或安全约束；既有债务条目不代表新测试可获准使用。
+每项都有精确计数和 Owner。迁移时必须移除或降低对应条目；所有基线变更都需要 Review。
+
 Purpose-built Release 或 Remote Smoke Command 应记录在所属子系统旁。未实现 Runner 不应先写进
 本 Runbook；命令真正存在且可持续使用后再加入。

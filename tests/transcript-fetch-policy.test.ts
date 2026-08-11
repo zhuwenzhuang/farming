@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  ACP_TRANSCRIPT_FETCH_RETRY_DELAYS_MS,
   ACP_TRANSCRIPT_REFRESH_COALESCE_MS,
   ACP_TRANSCRIPT_UNSETTLED_RETRY_DELAYS_MS,
   ACP_TRANSCRIPT_UNSETTLED_SLOW_RETRY_MS,
@@ -9,11 +10,8 @@ import {
   acpTranscriptUnsettledRetryDelayMs,
 } from '../src/lib/transcript-fetch-policy'
 
-// Mirrors the ladder declared in AgentTranscriptPane, whose literal value is
-// pinned by backend/tests/test-acp-transcript.ts.
-const ACP_TRANSCRIPT_FETCH_RETRY_DELAYS_MS = [250, 1000] as const
-
 test('transcript retry policy constants keep the pinned schedule', () => {
+  assert.deepEqual([...ACP_TRANSCRIPT_FETCH_RETRY_DELAYS_MS], [250, 1000])
   assert.deepEqual(
     [...ACP_TRANSCRIPT_UNSETTLED_RETRY_DELAYS_MS],
     [100, 250, 500, 1000, 2000, 3000, 5000, 5000, 5000, 5000],
@@ -23,10 +21,10 @@ test('transcript retry policy constants keep the pinned schedule', () => {
 })
 
 test('fetch retries walk the bounded ladder and then give up', () => {
-  assert.equal(acpTranscriptFetchRetryDelayMs(ACP_TRANSCRIPT_FETCH_RETRY_DELAYS_MS, 0), 250)
-  assert.equal(acpTranscriptFetchRetryDelayMs(ACP_TRANSCRIPT_FETCH_RETRY_DELAYS_MS, 1), 1000)
-  assert.equal(acpTranscriptFetchRetryDelayMs(ACP_TRANSCRIPT_FETCH_RETRY_DELAYS_MS, 2), undefined)
-  assert.equal(acpTranscriptFetchRetryDelayMs(ACP_TRANSCRIPT_FETCH_RETRY_DELAYS_MS, 5), undefined)
+  assert.equal(acpTranscriptFetchRetryDelayMs(0), 250)
+  assert.equal(acpTranscriptFetchRetryDelayMs(1), 1000)
+  assert.equal(acpTranscriptFetchRetryDelayMs(2), undefined)
+  assert.equal(acpTranscriptFetchRetryDelayMs(5), undefined)
 })
 
 test('unsettled retries use the ladder before switching to a slow poll', () => {

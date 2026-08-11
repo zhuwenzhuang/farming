@@ -1,9 +1,4 @@
 const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
-
-const workspaceSource = fs.readFileSync(path.join(__dirname, '../../src/components/CodeWorkspace.tsx'), 'utf8');
-const controllerSource = fs.readFileSync(path.join(__dirname, '../../src/components/code/useMainPageSessionMembershipController.ts'), 'utf8');
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -27,13 +22,6 @@ async function run() {
     receiveMainPageSessionKeysBaseline,
     settleMainPageSessionKeyMutation,
   } = imported;
-  assert(
-    controllerSource.includes('const MAIN_PAGE_SESSION_MUTATION_TIMEOUT_MS = 15_000')
-      && controllerSource.includes("appPath('/api/main-page-agent-sessions')")
-      && controllerSource.includes("appPath('/api/settings')"),
-    'main-page mutation and authoritative reconciliation requests must both have a bounded wait',
-  );
-
   const one = 'agent-session:codex:one';
   const two = 'agent-session:codex:two';
   const remote = 'agent-session:codex:remote';
@@ -343,13 +331,6 @@ async function run() {
     failedController.getSnapshot().projectedKeys,
     [one],
     'the controller must preserve active-session observation after mutation and reconciliation both fail',
-  );
-
-  assert(
-    workspaceSource.includes('useMainPageSessionMembershipController')
-      && !workspaceSource.includes('mainPageSessionKeysPendingMutationsRef')
-      && !workspaceSource.includes('mainPageSessionKeysAuthoritativeRevisionRef'),
-    'CodeWorkspace must consume the controller instead of retaining a second membership owner',
   );
 
   console.log('✓ Main-page membership reducer and controller preserve ordered authoritative reconciliation');

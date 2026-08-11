@@ -13,6 +13,10 @@ export interface LatestRequestLease {
 export class LatestRequestFence {
   private generation = 0
 
+  get currentGeneration(): number {
+    return this.generation
+  }
+
   begin(): LatestRequestLease {
     const generation = ++this.generation
     return {

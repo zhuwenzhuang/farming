@@ -14,6 +14,7 @@
     "scripts/build-classic-browser-runtime.ts",
     "scripts/build-runtime-dependency-manifest.ts",
     "scripts/build-usage-history-scanner.ts",
+    "scripts/check-source-inspection-contracts.ts",
     "scripts/bundle-cli-runtime.ts",
     "scripts/discover-unit-tests.ts",
     "scripts/prepare-claude-acp-vendor.ts",

@@ -54,7 +54,7 @@ function writeExpandedResources(values: Set<string>) {
   }
 }
 
-function browserCopy(language: UiPreferences['language']) {
+export function browserCopy(language: UiPreferences['language']) {
   const zh = language === 'zh'
   return {
     browsers: zh ? '浏览器' : 'Browsers',
@@ -88,7 +88,7 @@ function BrowserPlayGlyph() {
   )
 }
 
-function resourceStatusLabel(resource: BrowserResource, copy: BrowserCopy) {
+export function resourceStatusLabel(resource: BrowserResource, copy: BrowserCopy) {
   if (resource.status === 'running') return resource.url.replace(/^https?:\/\//, '') || 'about:blank'
   // Failures stay actionable in the Browser view; in the Agent sidebar they
   // are only a noisy transport detail, so present them as a neutral stopped tab.

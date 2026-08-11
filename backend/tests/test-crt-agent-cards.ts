@@ -1,7 +1,5 @@
 const assert = require('assert');
 const { encodeProviderSessionKey } = require('../../shared/provider-session-identity.js');
-const fs = require('fs');
-const path = require('path');
 
 const {
   buildCrtHistoryItems,
@@ -42,36 +40,6 @@ const {
 } = require('../../frontend/skins/crt/app.js');
 
 function run() {
-  const crtSource = fs.readFileSync(path.resolve(__dirname, '../../frontend/skins/crt/app.js'), 'utf8');
-  assert(
-    crtSource.includes("data.type === 'agent-started'")
-      && crtSource.includes('selectCrtStartedAgent(data.agentId)'),
-    'CRT should select the Agent confirmed by the agent-started message',
-  );
-  const newAgentDialogSource = crtSource.slice(
-    crtSource.indexOf('function showInputDialog'),
-    crtSource.indexOf('function hideInputDialog'),
-  );
-  assert(
-    newAgentDialogSource.includes('void loadAgents();')
-      && crtSource.includes("fetch(farmingApiPath('/executables'), { cache: 'no-store' })"),
-    'Opening the CRT New Agent dialog should rediscover executable agents without an HTTP cache',
-  );
-  assert(
-    crtSource.includes("fetch(farmingApiPath('/agent-sessions?limit=60&fresh=1'), { cache: 'no-store' })"),
-    'Opening CRT History should request a bounded current backend session scan',
-  );
-  assert(
-    crtSource.includes("farmingApiPath(`/agent-sessions/search?${params.toString()}`)")
-      && crtSource.includes("fresh: '1'")
-      && crtSource.includes("cache: 'no-store'"),
-    'CRT Search should reuse the bounded Farming Code Agent session search API',
-  );
-  assert(
-    crtSource.includes("e.key === 'f' || e.key === 'F'")
-      && crtSource.includes('showCrtSearch()'),
-    'CRT Search should be reachable from its F keyboard shortcut',
-  );
   assert.strictEqual(normalizeCrtTerminalFontSize(10), 10);
   assert.strictEqual(normalizeCrtTerminalFontSize(15.6), 16);
   assert.strictEqual(normalizeCrtTerminalFontSize(100), 20);

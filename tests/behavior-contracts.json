@@ -137,6 +137,23 @@
       }
     },
     {
+      "id": "CODE-BACKEND-CONNECTION-RECOVERY",
+      "surface": "ui",
+      "promise": "A closed backend transport progresses from a bounded reconnecting state to an explicit unavailable state instead of remaining in initial loading forever.",
+      "owner": "docs/products/code/test/acceptance-dogfood-plan.md",
+      "evidence": {
+        "node": [
+          "tests/backend-connection-status.test.ts"
+        ],
+        "playwright": [
+          {
+            "file": "tests/e2e/backend-connection-status.spec.ts",
+            "title": "failed reconnects eventually leave the initial loading state"
+          }
+        ]
+      }
+    },
+    {
       "id": "RUNTIME-CONFIG-COPY-ISOLATION",
       "surface": "runtime",
       "promise": "A copied Config never inherits authority over the source Config's live process groups.",

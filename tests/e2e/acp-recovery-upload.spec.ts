@@ -33,6 +33,35 @@ test('keeps a fresh Chat in its empty state when the startup transcript read fai
   await page.unroute(transcriptRoute)
 })
 
+test('retries a transient ACP transcript transport failure before restoring an existing Chat', async ({ page, workspaceRoot }) => {
+  const agentId = await createCodexChat(page, path.join(workspaceRoot, 'acp-transcript-transport-retry'))
+  const emptyAgentId = await createCodexChat(page, path.join(workspaceRoot, 'acp-transcript-transport-retry-empty'))
+  await openFarming(page)
+  const agentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
+  await agentRow.click()
+  await page.getByTestId('code-acp-composer-input').fill('rich timeline')
+  await page.getByTestId('code-acp-composer-send').click()
+  await expect(page.getByText('Rich ACP timeline complete.', { exact: true })).toBeVisible({ timeout: 20_000 })
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${emptyAgentId}"]`).click()
+
+  let transcriptRequests = 0
+  const transcriptRoute = new RegExp(`/farming/api/agents/${agentId}/acp-transcript(?:\\?.*)?$`)
+  await page.route(transcriptRoute, async route => {
+    transcriptRequests += 1
+    if (transcriptRequests <= 2) {
+      await route.abort('failed')
+      return
+    }
+    await route.continue()
+  })
+
+  await agentRow.click()
+  await expect.poll(() => transcriptRequests, { timeout: 5_000 }).toBe(3)
+  await expect(page.getByText('Rich ACP timeline complete.', { exact: true })).toBeVisible()
+  await expect(page.getByText('Chat history is unavailable for this session.', { exact: true })).toHaveCount(0)
+  await page.unroute(transcriptRoute)
+})
+
 test('retries an unsettled authoritative transcript when returning to and refreshing an existing Chat', async ({ page, workspaceRoot }) => {
   const agentId = await createCodexChat(page, path.join(workspaceRoot, 'acp-existing-chat-recovery'))
   const emptyAgentId = await createCodexChat(page, path.join(workspaceRoot, 'acp-existing-chat-recovery-empty'))

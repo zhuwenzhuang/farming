@@ -54,25 +54,17 @@ import {
 } from '../../extensions/computer/frontend/computer-resource-state'
 import type { ComputerResource, ComputerResourceDeletion } from '../../extensions/computer/frontend/types'
 import { refreshLanguageServerProviders } from '../../extensions/language-server/frontend/monaco-providers'
+import {
+  outgoingWebSocketMessageDisposition,
+  replayableWebSocketMessage,
+  type WebSocketAccessMode,
+} from '@/lib/websocket-access'
 
 const LAST_MESSAGE_STATE_THROTTLE_MS = 1000
 const BUSINESS_HEALTH_INTERVAL_MS = 10_000
 const BUSINESS_HEALTH_DEADLINE_MS = 8_000
 const BUSINESS_HEALTH_RETRY_MS = 2_000
 const AGENT_STATE_SNAPSHOT_PAGE_DEADLINE_MS = 30_000
-const READ_ONLY_CLIENT_MESSAGE_TYPES = new Set<ClientMessage['type']>([
-  'business-health-probe',
-  'focus-agent',
-  'protocol-hello',
-  'state-resync',
-  'terminal-checkpoint-request',
-  'unwatch-workspace-files',
-  'watch-workspace-files',
-])
-const READ_ONLY_SILENT_MESSAGE_TYPES = new Set<ClientMessage['type']>(['resize-agent'])
-
-type WebSocketAccessMode = 'unknown' | 'owner' | 'read-only'
-
 export interface WebSocketState {
   accessMode: WebSocketAccessMode
   agents: Agent[]
@@ -209,14 +201,12 @@ export function useWebSocket() {
   const sendMessage = useCallback((msg: ClientMessage) => {
     const ws = wsRef.current
     if (ws && ws.readyState === WebSocket.OPEN) {
-      if (accessModeRef.current === 'unknown') {
+      const disposition = outgoingWebSocketMessageDisposition(accessModeRef.current, msg)
+      if (disposition === 'queue') {
         pendingAccessMessagesRef.current.push(msg)
         return true
       }
-      if (
-        accessModeRef.current === 'read-only'
-        && READ_ONLY_SILENT_MESSAGE_TYPES.has(msg.type)
-      ) return true
+      if (disposition === 'silent') return true
       ws.send(JSON.stringify(msg))
       return true
     }
@@ -641,7 +631,7 @@ export function useWebSocket() {
                 const pendingMessages = pendingAccessMessagesRef.current
                 pendingAccessMessagesRef.current = []
                 pendingMessages.forEach(message => {
-                  if (accessMode === 'owner' || READ_ONLY_CLIENT_MESSAGE_TYPES.has(message.type)) {
+                  if (replayableWebSocketMessage(accessMode, message)) {
                     ws.send(JSON.stringify(message))
                   }
                 })

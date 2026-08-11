@@ -1,9 +1,7 @@
 const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
 const { readOnlyClientMessageAllowed } = require('../read-only-access.cjs');
 
-function run() {
+async function run() {
   for (const type of [
     'business-health-probe',
     'focus-agent',
@@ -30,15 +28,25 @@ function run() {
     assert.strictEqual(readOnlyClientMessageAllowed(type), false, `${type} must be rejected`);
   }
 
-  const webSocketSource = fs.readFileSync(path.join(__dirname, '../../src/hooks/useWebSocket.ts'), 'utf8');
-  assert(webSocketSource.includes("type WebSocketAccessMode = 'unknown' | 'owner' | 'read-only'"));
-  assert(webSocketSource.includes("accessMode: 'unknown'"));
-  assert(webSocketSource.includes('pendingAccessMessagesRef.current.push(msg)'));
-  assert(webSocketSource.includes("READ_ONLY_SILENT_MESSAGE_TYPES = new Set<ClientMessage['type']>(['resize-agent'])"));
-  assert(webSocketSource.includes('READ_ONLY_SILENT_MESSAGE_TYPES.has(msg.type)'));
-  assert(webSocketSource.includes("accessMode === 'owner' || READ_ONLY_CLIENT_MESSAGE_TYPES.has(message.type)"));
+  const {
+    outgoingWebSocketMessageDisposition,
+    replayableWebSocketMessage,
+  } = await import('../../src/lib/websocket-access.ts');
+  const mutation = { type: 'start-agent' } as never;
+  const readOnlyProbe = { type: 'business-health-probe' } as never;
+  const resize = { type: 'resize-agent' } as never;
+  assert.strictEqual(outgoingWebSocketMessageDisposition('unknown', mutation), 'queue');
+  assert.strictEqual(outgoingWebSocketMessageDisposition('owner', mutation), 'send');
+  assert.strictEqual(outgoingWebSocketMessageDisposition('read-only', mutation), 'send');
+  assert.strictEqual(outgoingWebSocketMessageDisposition('read-only', resize), 'silent');
+  assert.strictEqual(replayableWebSocketMessage('read-only', readOnlyProbe), true);
+  assert.strictEqual(replayableWebSocketMessage('read-only', mutation), false);
+  assert.strictEqual(replayableWebSocketMessage('owner', mutation), true);
 
   console.log('read-only access assertions passed');
 }
 
-run();
+run().catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});

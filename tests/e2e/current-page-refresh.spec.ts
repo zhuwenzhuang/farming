@@ -121,3 +121,59 @@ test('entry pages preserve cached capabilities and History while refreshing curr
   await expect(page.getByTestId('code-history-refresh-error')).toContainText('Failed to load current information')
   await expect(page.getByTestId('code-history-panel')).toContainText('Current provider session')
 })
+
+test('CRT History, Search, and New Agent controls request current backend inventories', async ({ page }) => {
+  let executableRequests = 0
+  const historyRequests: URL[] = []
+  const searchRequests: URL[] = []
+
+  await page.route('**/api/executables', async route => {
+    executableRequests += 1
+    await route.continue()
+  })
+  await page.route('**/api/agent-sessions/search?**', async route => {
+    searchRequests.push(new URL(route.request().url()))
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ sessions: [providerSession('crt-search', 'CRT current search result')] }),
+    })
+  })
+  await page.route('**/api/agent-sessions?**', async route => {
+    const url = new URL(route.request().url())
+    if (url.searchParams.get('fresh') !== '1') {
+      await route.continue()
+      return
+    }
+    historyRequests.push(url)
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ sessions: [providerSession('crt-history', 'CRT current history result')] }),
+    })
+  })
+
+  await openFarming(page)
+  await page.goto('/farming/crt/', { waitUntil: 'domcontentloaded' })
+
+  await page.keyboard.press('h')
+  await expect(page.locator('#history-area')).not.toHaveClass(/hidden/)
+  await expect(page.locator('#history-list')).toContainText('CRT current history result')
+  expect(historyRequests).toHaveLength(1)
+  expect(historyRequests[0].searchParams.get('limit')).toBe('60')
+  expect(historyRequests[0].searchParams.get('fresh')).toBe('1')
+
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('f')
+  const search = page.locator('#crt-search-input')
+  await expect(search).toBeFocused()
+  await search.fill('current')
+  await expect(page.locator('#search-list')).toContainText('CRT current search result')
+  expect(searchRequests).toHaveLength(1)
+  expect(searchRequests[0].searchParams.get('q')).toBe('current')
+  expect(searchRequests[0].searchParams.get('fresh')).toBe('1')
+
+  await page.keyboard.press('Escape')
+  const requestsBeforeDialog = executableRequests
+  await page.keyboard.press('n')
+  await expect(page.locator('#input-dialog')).toHaveClass(/active/)
+  await expect.poll(() => executableRequests).toBeGreaterThan(requestsBeforeDialog)
+})

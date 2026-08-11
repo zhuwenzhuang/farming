@@ -23,7 +23,8 @@ test('check gate runs typecheck, then lint, then the test suite', () => {
 })
 
 test('critical behavior contracts stay wired into local checks and named CI evidence', () => {
-  assert.equal(scripts['test:behavior:contracts'], 'tsx scripts/check-behavior-contracts.ts')
+  assert.match(scripts['test:behavior:contracts'], /^tsx scripts\/check-behavior-contracts\.ts/)
+  assert.match(scripts['test:behavior:contracts'], /tsx scripts\/check-source-inspection-contracts\.ts$/)
   assert.match(scripts['test:behavior:node'], /run-behavior-node-tests\.ts/)
   assert.match(scripts['test:behavior:e2e'], /run-behavior-e2e\.ts/)
   const browserRunner = fs.readFileSync(path.join(repoRoot, 'scripts', 'run-behavior-e2e.ts'), 'utf8')

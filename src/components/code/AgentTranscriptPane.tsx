@@ -198,7 +198,6 @@ const TRANSCRIPT_TURN_PAGE_SIZE = 80
 const INITIAL_ACP_TRANSCRIPT_TURN_LIMIT = 5
 const ACP_TRANSCRIPT_TURN_PAGE_SIZE = 10
 const MAX_TRANSCRIPT_TURN_LIMIT = 1000
-const ACP_TRANSCRIPT_FETCH_RETRY_DELAYS_MS = [250, 1000] as const
 const INITIAL_TRANSCRIPT_REVEAL_QUIET_MS = 120
 const INITIAL_TRANSCRIPT_REVEAL_MAX_MS = 400
 const LIVE_ACTIVITY_SWEEP_SPEED_PX_PER_SECOND = 130
@@ -3438,7 +3437,7 @@ export function AgentTranscriptPane({
         .catch(reason => {
           if (stopped || generation !== requestGeneration || reason?.name === 'AbortError') return
           const retryDelay = source === 'acp' && !responseReceived && reason instanceof TypeError
-            ? acpTranscriptFetchRetryDelayMs(ACP_TRANSCRIPT_FETCH_RETRY_DELAYS_MS, retryAttempt)
+            ? acpTranscriptFetchRetryDelayMs(retryAttempt)
             : undefined
           if (retryDelay !== undefined) {
             retryAttempt += 1

@@ -243,6 +243,17 @@ npm run test:behavior
 npm run test:e2e:playwright
 ```
 
+`test:behavior:contracts` also validates source-inspection ownership. Product
+behavior tests must execute the product path; they must not read production
+source and assert private strings. The only permitted source inspections are
+small, documented static contracts for architecture, package assembly,
+generated output, or security. Existing implementation-text debt is frozen in
+`tests/source-inspection-allowlist.json`, which separates the permitted static
+allowlist from legacy behavior-test debt. Allowlist entries are limited to
+architecture, package assembly, generated output, or security; legacy entries
+are not permissions for new tests. Each record has an exact count and owner.
+A migration must remove or lower its entry; any baseline change is reviewed.
+
 Purpose-built release or remote smoke commands remain documented beside the
 subsystem they validate. Do not add an unimplemented runner proposal to this
 runbook; add the command when it exists and is continuously usable.

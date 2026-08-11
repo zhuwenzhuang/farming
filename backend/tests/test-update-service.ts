@@ -156,20 +156,6 @@ async function run() {
   assert.deepStrictEqual(await secondSingleFlightStart, { phase: 'installing', version: 'single-flight' });
   assert.strictEqual(singleFlightService.installStartPromise, null, 'the start reservation should clear after completion');
 
-  const serverSource = fs.readFileSync(path.join(process.cwd(), 'backend/server.cts'), 'utf8');
-  const updateRouterSource = fs.readFileSync(path.join(process.cwd(), 'backend/update-router.cts'), 'utf8');
-  const updateRegistration = "app.use(routePath(BASE_PATH, '/api/update'), createUpdateRouter(updateService));";
-  assert(serverSource.includes("import { createUpdateRouter } from './update-router.cjs';"));
-  assert(serverSource.includes(updateRegistration));
-  assert(serverSource.indexOf(updateRegistration) > serverSource.indexOf("'/api/codex/context-windows'"));
-  assert(serverSource.indexOf(updateRegistration) < serverSource.indexOf('function warmCodexExecutableVersionCache()'));
-  assert(!serverSource.includes("app.get(routePath(BASE_PATH, '/api/update')"));
-  assert(!serverSource.includes("app.post(routePath(BASE_PATH, '/api/update/install')"));
-  assert(!serverSource.includes("app.post(routePath(BASE_PATH, '/api/update/restart')"));
-  assert(updateRouterSource.includes("router.get('/', async"));
-  assert(updateRouterSource.includes("router.post('/install', expressFactory.json(), async"));
-  assert(updateRouterSource.includes("router.post('/restart', expressFactory.json(), async"));
-  assert(!serverSource.includes('getUpdateUrl'));
   await verifyUpdateRouterBehavior();
 
   assert.strictEqual(normalizeVersion('v2.0.5'), '2.0.5');

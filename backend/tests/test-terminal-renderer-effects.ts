@@ -1,6 +1,4 @@
 const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
 const { importTsModule } = require('./helpers/import-ts-module');
 
 const {
@@ -172,29 +170,6 @@ function run() {
     subsequentlyReplaced.first.renderer.render,
     laterExternalRender,
     'dispose cannot overwrite a renderer wrapper replaced after the last owner checkpoint',
-  );
-
-  const poolSource = fs.readFileSync(
-    path.join(__dirname, '../../src/lib/terminal-session-pool.ts'),
-    'utf8',
-  );
-  const outputSource = fs.readFileSync(
-    path.join(__dirname, '../../src/lib/terminal-output.ts'),
-    'utf8',
-  );
-  assert(
-    poolSource.includes('rendererEffects: TerminalRendererEffectController') &&
-      poolSource.includes('record.rendererEffects.dispose()') &&
-      !poolSource.includes('originalRender:') &&
-      !poolSource.includes('suspendRendering:') &&
-      !poolSource.includes('rendererCursorWasVisible:'),
-    'terminal session pool should retain no renderer-effect mirror state',
-  );
-  assert(
-    outputSource.includes('record.rendererEffects.acquireRenderSuspension()') &&
-      outputSource.includes('releaseRenderSuspension()') &&
-      outputSource.includes('}, () => {\n    releaseRenderSuspension()\n    callback?.()\n  })'),
-    'terminal writes should release their exact renderer lease on completion and destroy cancellation',
   );
 
   console.log('terminal renderer effects keep exact effect ownership across reorder and disposal');

@@ -107,17 +107,6 @@ async function verifyUsageRouterBehavior() {
 }
 
 async function run() {
-  const serverSource = fs.readFileSync(path.join(process.cwd(), 'backend/server.cts'), 'utf8');
-  const routerSource = fs.readFileSync(path.join(process.cwd(), 'backend/usage-router.cts'), 'utf8');
-  const registration = "app.use(routePath(BASE_PATH, '/api/usage'), createUsageRouter({";
-  assert(serverSource.includes("import { createUsageRouter } from './usage-router.cjs';"));
-  assert(serverSource.includes(registration));
-  assert(serverSource.indexOf(registration) > serverSource.indexOf("'/api/claude/settings'"));
-  assert(serverSource.indexOf(registration) < serverSource.indexOf("'/api/codex/context-windows'"));
-  assert(!serverSource.includes("app.get(routePath(BASE_PATH, '/api/usage')"));
-  assert(!serverSource.includes("app.get(routePath(BASE_PATH, '/api/usage/day')"));
-  assert(routerSource.includes("router.get('/', async"));
-  assert(routerSource.includes("router.get('/day', async"));
   await verifyUsageRouterBehavior();
 
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-usage-monitor-'));

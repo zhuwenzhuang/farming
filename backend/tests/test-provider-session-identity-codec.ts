@@ -899,13 +899,6 @@ function assertForkedHistorySourceNeverResumesOrigin(): void {
     'the display parser still exposes the origin tuple a fork was started from',
   );
 
-  const workspaceSource = fs.readFileSync('src/components/CodeWorkspace.tsx', 'utf8');
-  assert.ok(
-    workspaceSource.includes('function resumedSessionFromHistoryRunSource(source?: string) {\n  return claimedAgentSessionFromSource(source)')
-      && !workspaceSource.includes('resumedAgentSessionSourceIdentity'),
-    'Continue Run must resolve its target through the claim helper, not the display parser',
-  );
-
   assert.strictEqual(
     crtHistoryItemResumeSession({ kind: 'run', historyKey: 'run:run-failed-fork', entry: archivedRun('run-failed-fork', forkSource) }),
     null,
@@ -924,11 +917,6 @@ function assertForkedHistorySourceNeverResumesOrigin(): void {
     crtHistoryItemResumeSession({ kind: 'run', historyKey: 'run:run-resumed', entry: archivedRun('run-resumed', resumeSource) }),
     { provider: 'codex', providerHomeId: HOME_SCOPED_HOME_ID, sessionId: HOME_SCOPED_SESSION_ID },
     'CRT keeps resuming an ordinary History run',
-  );
-  const crtSource = fs.readFileSync('frontend/skins/crt/app.ts', 'utf8');
-  assert.ok(
-    crtSource.includes('function continueCrtHistoryRun(entry: CrtHistoryRun) {\n  const resumed = crtClaimedSessionFromSource(entry.source);'),
-    'CRT Continue Run must resolve its target through the claim helper',
   );
 }
 

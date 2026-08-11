@@ -22,6 +22,7 @@ import {
   type WorkspaceEditorLanguageMetadata,
 } from './workspace-editor-model'
 import type { OpenWorkspaceFile } from './workspace-open-files'
+import { createWorkspaceEditorLanguagePreloader } from './workspace-editor-preload'
 
 declare global {
   interface Window {
@@ -32,23 +33,6 @@ declare global {
 }
 
 const NARROW_EDITOR_MEDIA = '(max-width: 980px)'
-const WORKSPACE_EDITOR_PRELOAD_LANGUAGE_IDS = [
-  'typescript',
-  'javascript',
-  'json',
-  'css',
-  'html',
-  'markdown',
-  'python',
-  'shell',
-  'java',
-  'cpp',
-  'csharp',
-  'go',
-  'rust',
-  'sql',
-  'yaml',
-] as const
 const WORKSPACE_EDITOR_SYNTAX_ONLY_DIAGNOSTICS = {
   noSemanticValidation: true,
   noSyntaxValidation: false,
@@ -67,7 +51,9 @@ let monacoEnvironmentConfigured = false
 let monacoLanguageMetadata: WorkspaceEditorLanguageMetadata[] | null = null
 let codexMonacoThemesDefined = false
 const scheduledEditorLayouts = new WeakMap<object, { frame: number; timeout: number }>()
-let workspaceEditorPreloadPromise: Promise<void> | null = null
+const preloadWorkspaceEditorLanguages = createWorkspaceEditorLanguagePreloader(languageId => (
+  monaco.editor.colorize('', languageId, { tabSize: 2 })
+))
 
 export function configureWorkspaceEditorMonacoEnvironment() {
   if (monacoEnvironmentConfigured) return
@@ -87,14 +73,7 @@ export function configureWorkspaceEditorMonacoEnvironment() {
 
 export function preloadWorkspaceEditorMonaco() {
   configureWorkspaceEditorMonacoEnvironment()
-  if (!workspaceEditorPreloadPromise) {
-    workspaceEditorPreloadPromise = Promise.allSettled(
-      WORKSPACE_EDITOR_PRELOAD_LANGUAGE_IDS.map(languageId => (
-        monaco.editor.colorize('', languageId, { tabSize: 2 })
-      )),
-    ).then(() => undefined)
-  }
-  return workspaceEditorPreloadPromise
+  return preloadWorkspaceEditorLanguages()
 }
 
 function defineCodexMonacoThemes() {

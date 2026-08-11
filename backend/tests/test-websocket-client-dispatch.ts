@@ -1,8 +1,6 @@
 import type { ClientMessage } from '../../shared/browser-protocol.js';
 
 const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
 const {
   createClientMessageRegistration,
   defineClientMessageDispatchTable,
@@ -264,43 +262,6 @@ async function run(): Promise<void> {
   } finally {
     process.off('unhandledRejection', onUnhandled);
   }
-
-  const serverSource = fs.readFileSync(path.join(__dirname, '..', 'server.cts'), 'utf8');
-  const agentLifecycleSource = fs.readFileSync(
-    path.join(__dirname, '..', 'websocket-agent-lifecycle-handlers.cts'),
-    'utf8',
-  );
-  const acpHandlersSource = fs.readFileSync(
-    path.join(__dirname, '..', 'websocket-acp-handlers.cts'),
-    'utf8',
-  );
-  assert(
-    serverSource.includes("from './websocket-agent-lifecycle-handlers.cjs'")
-      && serverSource.includes("'interrupt-agent': registerClientMessage('interrupt-agent', websocketAgentLifecycleHandlers.interruptAgent)")
-      && agentLifecycleSource.includes('Promise.resolve(ports.interruptAgent(message.agentId)).catch((error: unknown) => {')
-      && agentLifecycleSource.includes('reportWebSocketAdmissionFailure(client, error, {')
-      && agentLifecycleSource.includes("fallbackMessage: 'Failed to interrupt Agent'"),
-    'the production interrupt dispatch must terminally observe rejected admission and report it through the guarded socket helper',
-  );
-  assert(
-    serverSource.includes("'start-agent': registerClientMessage('start-agent', websocketAgentLifecycleHandlers.startAgent)")
-      && agentLifecycleSource.includes('let startCallbackReported = false;')
-      && agentLifecycleSource.includes('const startResult = ports.startAgent(message.command, workspace, (agentId, error) => {')
-      && agentLifecycleSource.includes('startCallbackReported = true;')
-      && agentLifecycleSource.includes('observeWebSocketCallbackRejection(client, startResult, () => startCallbackReported, {')
-      && agentLifecycleSource.includes("fallbackMessage: 'Failed to start Agent'")
-      && agentLifecycleSource.includes("const fallbackMessage = 'Failed to resolve Project workspace'"),
-    'the production start dispatch must observe a rejected start promise without duplicating callback-reported failures',
-  );
-  assert(
-    serverSource.includes("from './websocket-acp-handlers.cjs'")
-      && serverSource.includes("'composer-input': registerClientMessage('composer-input', websocketAcpHandlers.composerInput)")
-      && serverSource.includes("'acp-permission-response': registerClientMessage('acp-permission-response', websocketAcpHandlers.acpPermissionResponse)")
-      && acpHandlersSource.includes('await ports.sendComposerMessage(targetAgentId, content, { requestId, delivery })')
-      && acpHandlersSource.includes('void Promise.resolve(result).catch((error: unknown) => {')
-      && acpHandlersSource.includes("fallbackMessage: 'Failed to respond to ACP permission'"),
-    'the production ACP dispatch must keep Composer acknowledgements and permission rejection observation in one narrow handler owner',
-  );
 
   context.throwOnRestart = true;
   assert.throws(

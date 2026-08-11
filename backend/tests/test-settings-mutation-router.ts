@@ -179,6 +179,14 @@ async function run(): Promise<void> {
         codex: [{ id: 'legacy', acpRuntime: { mode: 'managed', executable: '' } }],
       },
     }], 'the settings boundary must commit only the normalized managed runtime');
+    assert.deepStrictEqual(state.calls, [
+      'get-settings',
+      'normalize-homes',
+      'commit',
+      'invalidate-sessions',
+      'invalidate-extensions',
+      'get-settings',
+    ], 'a successful Agent Home mutation must invalidate both derived inventories after persisting settings');
   }
 
   {

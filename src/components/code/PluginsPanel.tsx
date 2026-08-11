@@ -5,6 +5,7 @@ import { appPath } from '@/lib/base-path'
 import { agentDisplayName as formatAgentDisplayName } from '@/lib/format'
 import type { WorkspacePluginsNavigationState } from '@/lib/workspace-navigation-history'
 import { getBackendConnectionSnapshot } from '@/lib/backend-live-status'
+import { RequestOwnershipFence } from '@/lib/request-ownership'
 import {
   ArrowLeftGlyph,
   AgentChipGlyph,
@@ -601,11 +602,11 @@ export function PluginsPanel({
   const [languageServerCapability, setLanguageServerCapability] = useState<LanguageServerCapability | null>(null)
   const [languageServerLoading, setLanguageServerLoading] = useState(true)
   const [languageServerError, setLanguageServerError] = useState('')
-  const agentGroupsRequestRef = useRef(0)
   const agentSaveRequestRef = useRef<number | null>(null)
   const agentSaveSequenceRef = useRef(0)
   const retryOnReconnectRef = useRef(false)
-  const agentPanelScopeRef = useRef({ mounted: true, generation: 0 })
+  const agentLoadOwnershipRef = useRef(new RequestOwnershipFence('agent-home-panel'))
+  const agentSaveOwnershipRef = useRef(new RequestOwnershipFence('agent-home-panel'))
 
   useEffect(() => {
     const scroller = panelRef.current?.closest<HTMLElement>('.code-plugins-view')
@@ -661,10 +662,8 @@ export function PluginsPanel({
   }, [computerCapability])
 
   const loadAgentGroups = useCallback(async (options: { preserveError?: boolean } = {}) => {
-    if (!agentPanelScopeRef.current.mounted || agentSaveRequestRef.current) return
-    const generation = agentPanelScopeRef.current.generation
-    const requestId = agentGroupsRequestRef.current + 1
-    agentGroupsRequestRef.current = requestId
+    if (!agentLoadOwnershipRef.current.available || agentSaveRequestRef.current) return
+    const lease = agentLoadOwnershipRef.current.begin()
     retryOnReconnectRef.current = false
     setAgentGroupsLoading(true)
     if (!options.preserveError) setAgentGroupsError('')
@@ -678,9 +677,7 @@ export function PluginsPanel({
       }
       if (!response.ok) throw new Error(data.error || copy.agentExtensionsFailed)
       if (
-        agentGroupsRequestRef.current !== requestId
-        || agentPanelScopeRef.current.generation !== generation
-        || !agentPanelScopeRef.current.mounted
+        !lease.isCurrent()
         || agentSaveRequestRef.current
       ) return
       retryOnReconnectRef.current = false
@@ -688,9 +685,7 @@ export function PluginsPanel({
       setAgentGroups(nextGroups)
     } catch (loadError) {
       if (
-        agentGroupsRequestRef.current !== requestId
-        || agentPanelScopeRef.current.generation !== generation
-        || !agentPanelScopeRef.current.mounted
+        !lease.isCurrent()
         || agentSaveRequestRef.current
       ) return
       const disconnected = !getBackendConnectionSnapshot().connected
@@ -700,16 +695,17 @@ export function PluginsPanel({
         : loadError instanceof Error ? loadError.message : copy.agentExtensionsFailed)
     } finally {
       if (
-        agentGroupsRequestRef.current === requestId
-        && agentPanelScopeRef.current.generation === generation
-        && agentPanelScopeRef.current.mounted
+        lease.isCurrent()
         && !agentSaveRequestRef.current
       ) setAgentGroupsLoading(false)
     }
   }, [copy.agentExtensionsDisconnected, copy.agentExtensionsFailed])
 
   useEffect(() => {
-    agentPanelScopeRef.current.mounted = true
+    const loadOwnership = agentLoadOwnershipRef.current
+    const saveOwnership = agentSaveOwnershipRef.current
+    loadOwnership.setMounted(true)
+    saveOwnership.setMounted(true)
     const retryLoad = () => {
       if (!retryOnReconnectRef.current) return
       retryOnReconnectRef.current = false
@@ -717,11 +713,8 @@ export function PluginsPanel({
     }
     window.addEventListener('farming:backend-connected', retryLoad)
     return () => {
-      agentPanelScopeRef.current = {
-        mounted: false,
-        generation: agentPanelScopeRef.current.generation + 1,
-      }
-      agentGroupsRequestRef.current += 1
+      loadOwnership.setMounted(false)
+      saveOwnership.setMounted(false)
       retryOnReconnectRef.current = false
       window.removeEventListener('farming:backend-connected', retryLoad)
     }
@@ -732,12 +725,12 @@ export function PluginsPanel({
   }, [loadAgentGroups])
 
   const saveAgentGroups = useCallback(async (nextGroups: AgentExtensionGroup[]) => {
-    if (!agentPanelScopeRef.current.mounted || agentSaveRequestRef.current) return false
-    const generation = agentPanelScopeRef.current.generation
+    if (!agentSaveOwnershipRef.current.available || agentSaveRequestRef.current) return false
+    const lease = agentSaveOwnershipRef.current.begin()
     const requestId = agentSaveSequenceRef.current + 1
     agentSaveSequenceRef.current = requestId
     agentSaveRequestRef.current = requestId
-    agentGroupsRequestRef.current += 1
+    agentLoadOwnershipRef.current.invalidate()
     setAgentSaving(true)
     setAgentGroupsLoading(false)
     setAgentGroupsError('')
@@ -752,8 +745,7 @@ export function PluginsPanel({
       if (!response.ok) throw new Error(data.error || copy.saveAgentFailed)
       if (
         agentSaveRequestRef.current !== requestId
-        || agentPanelScopeRef.current.generation !== generation
-        || !agentPanelScopeRef.current.mounted
+        || !lease.isCurrent()
       ) return false
       setAgentGroups(nextGroups)
       window.dispatchEvent(new CustomEvent('farming-agent-homes-saved'))
@@ -764,15 +756,13 @@ export function PluginsPanel({
       reconcileAfterSave = true
       if (
         agentSaveRequestRef.current === requestId
-        && agentPanelScopeRef.current.generation === generation
-        && agentPanelScopeRef.current.mounted
+        && lease.isCurrent()
       ) setAgentGroupsError(saveError instanceof Error ? saveError.message : copy.saveAgentFailed)
       return false
     } finally {
       if (agentSaveRequestRef.current === requestId) agentSaveRequestRef.current = null
       if (
-        agentPanelScopeRef.current.generation === generation
-        && agentPanelScopeRef.current.mounted
+        lease.isCurrent()
       ) {
         setAgentSaving(false)
         if (reconcileAfterSave) void loadAgentGroups({ preserveError: true })

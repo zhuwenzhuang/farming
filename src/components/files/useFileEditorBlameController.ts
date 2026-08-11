@@ -11,6 +11,7 @@ import {
   WorkspaceFileApiError,
   type WorkspaceFileBlame,
 } from '@/lib/workspace-files'
+import { RequestOwnershipFence } from '@/lib/request-ownership'
 
 export type FileEditorBlameLine = WorkspaceFileBlame['lines'][number]
 type BlameCapability = 'unknown' | 'available' | 'unavailable'
@@ -34,19 +35,19 @@ export function useFileEditorBlameController({
   disabled,
   onRevealLine,
 }: UseFileEditorBlameControllerOptions) {
-  const blameRequestRef = useRef(0)
-  const blameCapabilityRequestRef = useRef(0)
   const currentOpenFileKey = openFileKey(openFile)
-  const openFileKeyRef = useRef(currentOpenFileKey)
-  const disabledRef = useRef(disabled)
+  const blameRequestFenceRef = useRef(new RequestOwnershipFence(currentOpenFileKey))
+  const blameCapabilityRequestFenceRef = useRef(new RequestOwnershipFence(currentOpenFileKey))
   const [blameOpen, setBlameOpen] = useState(false)
   const [blameLoading, setBlameLoading] = useState(false)
   const [blame, setBlame] = useState<WorkspaceFileBlame | null>(null)
   const [blameError, setBlameError] = useState<string | null>(null)
   const [blameCapability, setBlameCapability] = useState<BlameCapability>('unknown')
   const [blameDetail, setBlameDetail] = useState<BlameDetailState | null>(null)
-  openFileKeyRef.current = currentOpenFileKey
-  disabledRef.current = disabled
+  blameRequestFenceRef.current.setScope(currentOpenFileKey)
+  blameRequestFenceRef.current.setActive(!disabled)
+  blameCapabilityRequestFenceRef.current.setScope(currentOpenFileKey)
+  blameCapabilityRequestFenceRef.current.setActive(!disabled)
 
   const blameLabelWidths = useMemo(() => {
     const lines = blame?.lines ?? []
@@ -65,60 +66,44 @@ export function useFileEditorBlameController({
       setBlameCapability('unavailable')
       return null
     }
-    const requestedFileKey = currentOpenFileKey
-    const requestId = blameRequestRef.current + 1
-    blameRequestRef.current = requestId
+    const lease = blameRequestFenceRef.current.begin()
     setBlameLoading(true)
     setBlameError(null)
     try {
       const nextBlame = await fetchWorkspaceBlame(openFile.agentId, openFile.file.path)
-      if (
-        blameRequestRef.current !== requestId
-        || openFileKeyRef.current !== requestedFileKey
-        || disabledRef.current
-      ) return null
+      if (!lease.isCurrent()) return null
       setBlame(nextBlame)
       setBlameCapability(nextBlame.isGitRepo && nextBlame.lines.length > 0 ? 'available' : 'unavailable')
       return nextBlame
     } catch (error) {
-      if (
-        blameRequestRef.current !== requestId
-        || openFileKeyRef.current !== requestedFileKey
-        || disabledRef.current
-      ) return null
+      if (!lease.isCurrent()) return null
       setBlame(null)
       setBlameError(error instanceof Error ? error.message : 'Failed to load blame')
       setBlameCapability(isPermanentBlameFailure(error) ? 'unavailable' : 'unknown')
       return null
     } finally {
-      if (
-        blameRequestRef.current === requestId
-        && openFileKeyRef.current === requestedFileKey
-        && !disabledRef.current
-      ) setBlameLoading(false)
+      if (lease.isCurrent()) setBlameLoading(false)
     }
-  }, [currentOpenFileKey, disabled, openFile.agentId, openFile.file.path])
+  }, [disabled, openFile.agentId, openFile.file.path])
 
   const checkBlameCapability = useCallback(async (): Promise<BlameCapability | null> => {
     if (disabled) {
       setBlameCapability('unavailable')
       return 'unavailable'
     }
-    const checkedFileKey = openFileKey(openFile)
-    const requestId = blameCapabilityRequestRef.current + 1
-    blameCapabilityRequestRef.current = requestId
+    const lease = blameCapabilityRequestFenceRef.current.begin()
     try {
       const capability = await fetchWorkspaceBlameCapability(openFile.agentId, openFile.file.path)
-      if (blameCapabilityRequestRef.current !== requestId || openFileKeyRef.current !== checkedFileKey) return null
+      if (!lease.isCurrent()) return null
       const nextCapability = capability.available ? 'available' : 'unavailable'
       setBlameCapability(nextCapability)
       return nextCapability
     } catch {
-      if (blameCapabilityRequestRef.current !== requestId || openFileKeyRef.current !== checkedFileKey) return null
+      if (!lease.isCurrent()) return null
       setBlameCapability('unavailable')
       return 'unavailable'
     }
-  }, [disabled, openFile])
+  }, [disabled, openFile.agentId, openFile.file.path])
 
   const toggleBlame = useCallback(async () => {
     if (disabled) return
@@ -128,19 +113,17 @@ export function useFileEditorBlameController({
       return
     }
 
-    const requestedFileKey = openFileKey(openFile)
     const capability = blameCapability === 'unknown'
       ? await checkBlameCapability()
       : blameCapability
     if (
       capability !== null
       && capability !== 'unavailable'
-      && openFileKeyRef.current === requestedFileKey
-      && !disabledRef.current
+      && !disabled
     ) {
       setBlameOpen(true)
     }
-  }, [blameCapability, blameOpen, checkBlameCapability, disabled, openFile])
+  }, [blameCapability, blameOpen, checkBlameCapability, disabled])
 
   const showBlameDetail = useCallback((line: FileEditorBlameLine) => {
     onRevealLine(line.lineNumber, { focusEditor: false })

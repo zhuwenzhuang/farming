@@ -1,6 +1,4 @@
 const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
 
 const sessionModalBridge = require('../../frontend/session-modal-bridge.js');
 
@@ -56,24 +54,6 @@ function run() {
   assert.strictEqual(typeof sessionModalBridge.resetTerminalShell, 'function');
   assert.strictEqual(typeof sessionModalBridge.createRuntime, 'function');
   assert.strictEqual(typeof sessionModalBridge.closeShell, 'function');
-  const bridgeSource = fs.readFileSync(
-    path.join(__dirname, '../../frontend/session-modal-bridge.ts'),
-    'utf8',
-  );
-  const generatedBridgeSource = fs.readFileSync(
-    path.join(__dirname, '../../frontend/session-modal-bridge.js'),
-    'utf8',
-  );
-  const crtSource = fs.readFileSync(
-    path.join(__dirname, '../../frontend/skins/crt/app.ts'),
-    'utf8',
-  );
-  for (const source of [bridgeSource, generatedBridgeSource, crtSource]) {
-    assert(!source.includes('shouldPollSessionView'));
-    assert(!source.includes('startSessionViewPolling'));
-    assert(!source.includes('stopSessionViewPolling'));
-  }
-
   const modalState = sessionModalBridge.createModalState(
     { id: 'agent-1', command: 'claude', sessionSource: 'live-text' },
     'terminal',

@@ -9,6 +9,7 @@ import {
   WorkspaceFileApiError,
   type WorkspaceFile,
 } from '@/lib/workspace-files'
+import { RequestOwnershipFence, type RequestOwnershipLease } from '@/lib/request-ownership'
 
 const FILE_OPEN_PENDING_DELAY_MS = 220
 
@@ -25,12 +26,11 @@ export function useWorkspaceFileOpenController({
   onOpenFile,
   onSelectOpenFile,
 }: UseWorkspaceFileOpenControllerOptions) {
-  const fileOpenRequestRef = useRef(0)
-  const fileOpenScopeRef = useRef({ agentId, mounted: true })
+  const fileOpenRequestFenceRef = useRef(new RequestOwnershipFence(agentId))
   const fileOpenPendingTimerRef = useRef<number | null>(null)
   const [openFileError, setOpenFileError] = useState<string | null>(null)
   const [openFilePendingPath, setOpenFilePendingPath] = useState<string | null>(null)
-  fileOpenScopeRef.current.agentId = agentId
+  fileOpenRequestFenceRef.current.setScope(agentId)
 
   const clearOpenFilePending = useCallback(() => {
     if (fileOpenPendingTimerRef.current !== null) {
@@ -40,26 +40,19 @@ export function useWorkspaceFileOpenController({
     setOpenFilePendingPath(null)
   }, [])
 
-  const scheduleOpenFilePending = useCallback((requestId: number, requestAgentId: string, filePath: string) => {
+  const scheduleOpenFilePending = useCallback((lease: RequestOwnershipLease, filePath: string) => {
     clearOpenFilePending()
     fileOpenPendingTimerRef.current = window.setTimeout(() => {
-      if (
-        fileOpenRequestRef.current === requestId
-        && fileOpenScopeRef.current.agentId === requestAgentId
-        && fileOpenScopeRef.current.mounted
-      ) setOpenFilePendingPath(filePath)
+      if (lease.isCurrent()) setOpenFilePendingPath(filePath)
       fileOpenPendingTimerRef.current = null
     }, FILE_OPEN_PENDING_DELAY_MS)
   }, [clearOpenFilePending])
 
   useEffect(() => {
-    // The scope object is created once by useRef and only mutated, so this is the
-    // same object the mount flag must be cleared on.
-    const fileOpenScope = fileOpenScopeRef.current
-    fileOpenScope.mounted = true
+    const requestFence = fileOpenRequestFenceRef.current
+    requestFence.setMounted(true)
     return () => {
-      fileOpenScope.mounted = false
-      fileOpenRequestRef.current += 1
+      requestFence.setMounted(false)
       if (fileOpenPendingTimerRef.current !== null) {
         window.clearTimeout(fileOpenPendingTimerRef.current)
         fileOpenPendingTimerRef.current = null
@@ -68,7 +61,7 @@ export function useWorkspaceFileOpenController({
   }, [])
 
   useEffect(() => {
-    fileOpenRequestRef.current += 1
+    fileOpenRequestFenceRef.current.invalidate()
     clearOpenFilePending()
     setOpenFileError(null)
   }, [agentId, clearOpenFilePending])
@@ -76,31 +69,22 @@ export function useWorkspaceFileOpenController({
   const openFilePath = useCallback(async (filePath: string, target?: WorkspaceFileOpenTarget) => {
     if (!agentId) return
     const requestAgentId = agentId
-    const requestId = fileOpenRequestRef.current + 1
-    fileOpenRequestRef.current = requestId
+    const lease = fileOpenRequestFenceRef.current.begin()
     setOpenFileError(null)
     if (onSelectOpenFile?.(agentId, filePath, target)) {
       clearOpenFilePending()
       onClearSearch()
       return
     }
-    scheduleOpenFilePending(requestId, requestAgentId, filePath)
+    scheduleOpenFilePending(lease, filePath)
     try {
       const file = await fetchWorkspaceFile(requestAgentId, filePath)
-      if (
-        fileOpenRequestRef.current !== requestId
-        || fileOpenScopeRef.current.agentId !== requestAgentId
-        || !fileOpenScopeRef.current.mounted
-      ) return
+      if (!lease.isCurrent()) return
       clearOpenFilePending()
       onOpenFile(requestAgentId, file, target)
       onClearSearch()
     } catch (error) {
-      if (
-        fileOpenRequestRef.current !== requestId
-        || fileOpenScopeRef.current.agentId !== requestAgentId
-        || !fileOpenScopeRef.current.mounted
-      ) return
+      if (!lease.isCurrent()) return
       clearOpenFilePending()
       if (target && error instanceof WorkspaceFileApiError && error.status === 404 && shouldOpenMissingWorkspaceFileAsDiff(target)) {
         onOpenFile(requestAgentId, deletedWorkspaceDiffPlaceholderFile(filePath, target), target)

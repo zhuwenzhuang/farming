@@ -1,6 +1,4 @@
 const assert = require('assert');
-const fs = require('fs');
-const path = require('path');
 const {
   QrShareTicketStore,
   SHARE_TICKET_ALPHABET,
@@ -55,44 +53,6 @@ function run() {
   const revoked = store.create('revoked-token', { now: 3000 });
   assert.strictEqual(store.revoke(revoked.code), true);
   assert.strictEqual(store.consume(revoked.code, { now: 3001 }), null);
-
-  const serverSource = fs.readFileSync(path.join(__dirname, '..', 'server.cts'), 'utf8');
-  const routerSource = fs.readFileSync(path.join(__dirname, '..', 'qr-share-router.cts'), 'utf8');
-  const routerMount = "app.use(routePath(BASE_PATH, '/api/share/qr-ticket'), createQrShareRouter(";
-  assert(
-    serverSource.indexOf("app.get(routePath(BASE_PATH, '/j/:code')") <
-      serverSource.indexOf('app.use(tokenAuth.middleware())'),
-    'short share-code redemption should be available before token auth middleware'
-  );
-  assert(
-    serverSource.indexOf('app.use(tokenAuth.middleware())') < serverSource.indexOf(routerMount),
-    'share ticket creation and revocation must remain behind token authentication'
-  );
-  assert(serverSource.includes(routerMount));
-  assert(routerSource.includes("router.post('/', expressFactory.json({ limit: '8kb' })"));
-  assert(routerSource.includes("router.delete('/:code'"));
-  assert(routerSource.includes('function shareTargetQueryFromBody'));
-  assert(routerSource.includes("params.set('ftarget', kind)"));
-  assert(routerSource.includes("targetRecord.kind === 'folder'"));
-  assert(routerSource.includes("params.set('folder', folderPath)"));
-  assert(!serverSource.includes('function shareTargetQueryFromBody'));
-  assert(serverSource.includes('res.redirect(302, entryPathWithQuery(ticket.targetQuery, {'));
-  assert(routerSource.includes('auth.createReadOnlyToken'));
-  assert(serverSource.includes('tokenAuth.accessForToken(ticket.token)'));
-  assert(serverSource.includes('tokenAuth.setAccessCookie(res, ticket.token)'));
-  assert(routerSource.includes('shortUrlAccessMode: requesterAccessMode'));
-  assert(routerSource.includes("longUrlAccessMode: 'read-only'"));
-  assert(routerSource.includes("tokenLabel: requesterAccessMode === 'owner' ? auth.getToken() : ''"));
-  assert(routerSource.includes("const fullAccessPath = requesterAccessMode === 'owner'"));
-  assert(routerSource.includes("? { fullAccessUrl: absoluteClientUrl(req, fullAccessPath, options.fallbackPort) }"));
-  assert(routerSource.includes("const qrToken = requesterAccessMode === 'owner' ? auth.getToken() : readOnlyToken"));
-  assert(routerSource.includes('requesterExpiresAt || Number.POSITIVE_INFINITY'));
-  assert(serverSource.includes('accessMode,'), 'the WebSocket hello should disclose the authoritative access mode');
-  assert(routerSource.includes('const longPath = entryPathWithToken(ticket.targetQuery, readOnlyToken)'));
-  assert(serverSource.includes('rejectReadOnlyClientMutation'));
-  assert(serverSource.includes('Computer Viewer is unavailable in read-only shares'));
-  assert(routerSource.includes('longUrl: absoluteClientUrl(req, longPath, options.fallbackPort)'));
-  assert(routerSource.includes('shortUrl: absoluteClientUrl(req, shortPath, options.fallbackPort)'));
 
   console.log('qr share ticket assertions passed');
 }
