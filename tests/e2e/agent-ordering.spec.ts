@@ -256,6 +256,46 @@ test('keeps the Files header below a resized sticky Agent section without Resize
   expect(layout!.filesTop).toBeGreaterThanOrEqual(layout!.agentsBottom - 1)
 })
 
+test('keeps the active Agent snapshot pseudo inert until drag insertion', async ({ page, workspaceRoot }) => {
+  const projectDir = path.join(workspaceRoot, 'active-agent-pseudo')
+  fs.mkdirSync(projectDir, { recursive: true })
+
+  await openFarming(page)
+  const sourceAgentId = await createControlAgent(page, projectDir)
+  const targetAgentId = await createControlAgent(page, projectDir)
+  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(projectDir) })
+  const sourceRow = project.locator(`[data-testid="code-agent-row"][data-agent-id="${sourceAgentId}"]`)
+  const targetRow = project.locator(`[data-testid="code-agent-row"][data-agent-id="${targetAgentId}"]`)
+
+  await targetRow.click()
+  await expect(targetRow).toHaveClass(/active/)
+  await expect.poll(() => targetRow.evaluate(element => {
+    const before = getComputedStyle(element, '::before')
+    return {
+      backgroundColor: before.backgroundColor,
+      content: before.content,
+    }
+  })).toEqual({
+    backgroundColor: 'rgba(0, 0, 0, 0)',
+    content: 'none',
+  })
+
+  const dataTransfer = await page.evaluateHandle(() => new DataTransfer())
+  const targetBox = await targetRow.boundingBox()
+  expect(targetBox).toBeTruthy()
+  await sourceRow.dispatchEvent('dragstart', { dataTransfer })
+  await targetRow.dispatchEvent('dragover', {
+    dataTransfer,
+    clientY: targetBox!.y + 1,
+  })
+  await expect.poll(() => targetRow.evaluate(element => (
+    ['rgb(9, 105, 218)', 'rgb(88, 166, 255)'].includes(
+      getComputedStyle(element, '::before').backgroundColor,
+    )
+  ))).toBe(true)
+  await sourceRow.dispatchEvent('dragend', { dataTransfer })
+})
+
 test('keeps persistent project and pinned Agent order', async ({ page, workspaceRoot }) => {
   const projectDir = path.join(workspaceRoot, 'agent-ordering')
   fs.mkdirSync(projectDir, { recursive: true })
