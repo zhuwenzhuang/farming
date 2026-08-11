@@ -3,6 +3,7 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import {
   expect,
+  fileEditorPosition,
   openFarming,
   openNewAgentDialog,
   PLAYWRIGHT_WORKSPACE_ROOT,
@@ -49,6 +50,7 @@ test('keeps TypeScript diagnostics syntax-only without project language service 
 
   const markers = await page.evaluate(() => window.__farmingFileEditorTest?.getMarkers() ?? [])
   expect(markers.some(marker => marker.message.includes('Cannot find module'))).toBe(false)
+  await expect(page.getByTestId('code-file-editor-statusbar')).toBeVisible()
 })
 
 test('shows Language Server readiness without inventing a connected project', async ({ page }) => {
@@ -184,8 +186,11 @@ test('renders document highlights, semantic tokens, and inlay hints only for the
   await files.locator('.code-files-title').first().click()
   await files.locator('[data-testid="code-file-row"][data-file-path="Demo.java"]').click()
   await expect(page.getByTestId('code-file-monaco')).toBeVisible()
-  await expect(page.getByTestId('code-file-editor-language')).toHaveText('Java')
+  await expect.poll(async () => page.evaluate(() => (
+    window.__farmingFileEditorTest?.getLanguageId() ?? null
+  ))).toBe('java')
   await expect(page.getByTestId('code-file-editor-diagnostics')).toHaveCount(0)
+  await expect(page.getByTestId('code-file-editor-statusbar')).toHaveCount(0)
 
   await expect.poll(() => requestCounts.get('semanticTokens') || 0).toBeGreaterThan(0)
   await expect.poll(() => requestCounts.get('inlayHints') || 0).toBeGreaterThan(0)
@@ -417,6 +422,7 @@ test('shows nested, cached, and retryable call/type hierarchy trees for a saved 
     window.__farmingFileEditorTest?.getMarkers().some(marker => marker.message === 'stale diagnostic must stay cleared') ?? false
   ))).toBe(false)
   await expect(page.getByTestId('code-file-editor-diagnostics')).toHaveCount(0)
+  await expect(page.getByTestId('code-file-editor-statusbar')).toHaveCount(0)
   await page.getByRole('button', { name: 'Save file' }).click()
   await expect(page.getByRole('button', { name: 'Save file' })).toHaveCount(0)
   await expect.poll(async () => page.evaluate(() => (
@@ -424,6 +430,7 @@ test('shows nested, cached, and retryable call/type hierarchy trees for a saved 
   ))).toBe(true)
   await expect(page.getByTestId('code-file-editor-language')).toHaveText('TypeScript')
   await expect(page.getByTestId('code-file-editor-diagnostics')).toHaveText('1 warning')
+  await expect(page.getByTestId('code-file-editor-statusbar')).toBeVisible()
 
   await page.locator('.monaco-editor .view-line').first().hover({ position: { x: 100, y: 8 } })
   await expect(page.locator('.monaco-hover').filter({ hasText: 'Farming hover' })).toBeVisible()
@@ -437,7 +444,8 @@ test('shows nested, cached, and retryable call/type hierarchy trees for a saved 
   await runEditorAction('Go to Definition')
   await expect.poll(() => hierarchyRequestCounts.get('definition:') || 0).toBe(1)
   await expect(page.getByRole('tab', { name: /Other\.ts/ })).toHaveAttribute('aria-selected', 'true')
-  await expect(page.getByTestId('code-file-editor-statusbar')).toContainText('Ln 1, Col 14')
+  await expect.poll(() => fileEditorPosition(page)).toEqual({ lineNumber: 1, column: 14 })
+  await expect(page.getByTestId('code-file-editor-statusbar')).toHaveCount(0)
   await expect(page.getByTestId('code-file-editor-diagnostics')).toHaveCount(0)
   await page.getByRole('tab', { name: /App\.ts/ }).click()
   await expect(page.getByTestId('code-file-editor-diagnostics')).toHaveText('1 warning')
@@ -450,7 +458,8 @@ test('shows nested, cached, and retryable call/type hierarchy trees for a saved 
 
   await runEditorAction('Go to Implementation')
   await expect(page.getByRole('tab', { name: /Other\.ts/ })).toHaveAttribute('aria-selected', 'true')
-  await expect(page.getByTestId('code-file-editor-statusbar')).toContainText('Ln 2, Col 17')
+  await expect.poll(() => fileEditorPosition(page)).toEqual({ lineNumber: 2, column: 17 })
+  await expect(page.getByTestId('code-file-editor-statusbar')).toHaveCount(0)
   await page.getByRole('tab', { name: /App\.ts/ }).click()
 
   await page.getByTestId('code-file-monaco').click({ button: 'right', position: { x: 220, y: 38 } })
@@ -566,7 +575,7 @@ test('shows nested, cached, and retryable call/type hierarchy trees for a saved 
   await panel.getByRole('button', { name: 'Expand Base' }).click()
   await expect(panel.getByText('Object', { exact: true })).toBeVisible()
   await panel.getByText('Object', { exact: true }).click()
-  await expect(page.getByTestId('code-file-editor-statusbar')).toContainText('Ln 5, Col 1')
+  await expect.poll(() => fileEditorPosition(page)).toEqual({ lineNumber: 5, column: 1 })
 
   await files.locator('[data-testid="code-file-row"][data-file-path="Other.ts"]').click()
   await expect(panel).toHaveCount(0)
@@ -595,6 +604,6 @@ test('shows nested, cached, and retryable call/type hierarchy trees for a saved 
   await expect(panel).toContainText('Other.ts:2')
   expect(workspaceSymbolRequest).toEqual({ filePath: 'App.ts', query: 'Plan' })
   await panel.getByText('Planner', { exact: true }).click()
-  await expect(page.getByTestId('code-file-editor-statusbar')).toContainText('Ln 2, Col 17')
+  await expect.poll(() => fileEditorPosition(page)).toEqual({ lineNumber: 2, column: 17 })
   await expect(page.locator('.monaco-editor textarea.inputarea')).toHaveAttribute('aria-label', 'Editor for Other.ts')
 })

@@ -98,7 +98,7 @@
   border-radius: 6px;
   outline: 2px solid var(--code-focus-ring);
   outline-offset: 2px;
-  outline-color: var(--code-accent-soft);
+  outline-color: var(--code-focus-ring);
 }
 
 .code-agent-transcript-plan-driver-chevron {

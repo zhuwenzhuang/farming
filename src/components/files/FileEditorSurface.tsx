@@ -126,7 +126,9 @@ export function FileEditorSurface({
     visualPreview: editorMode.visualPreview,
   })
   const markdownPreviewRef = useRef<HTMLElement | null>(null)
-  const showEditorStatusbar = surface.showEditorOverlays || surface.showMarkdownPreview
+  const hasEditorDiagnostics = modelStatus.errors > 0 || modelStatus.warnings > 0
+  const showEditorStatusbar = hasEditorDiagnostics
+    && (surface.showEditorOverlays || surface.showMarkdownPreview)
   const previewIdentity = `${openFile.agentId}:${openFile.file.path}`
   const previewResetKey = filePreviewResetKey(openFile)
 
@@ -261,16 +263,14 @@ export function FileEditorSurface({
             >
               {modelStatus.languageLabel}
             </span>
-            {modelStatus.errors > 0 || modelStatus.warnings > 0 ? (
-              <span className="code-file-editor-diagnostics" data-testid="code-file-editor-diagnostics">
-                {modelStatus.errors > 0 ? (
-                  <span className="code-file-editor-problem error">{copy.editorErrorCount(modelStatus.errors)}</span>
-                ) : null}
-                {modelStatus.warnings > 0 ? (
-                  <span className="code-file-editor-problem warning">{copy.editorWarningCount(modelStatus.warnings)}</span>
-                ) : null}
-              </span>
-            ) : null}
+            <span className="code-file-editor-diagnostics" data-testid="code-file-editor-diagnostics">
+              {modelStatus.errors > 0 ? (
+                <span className="code-file-editor-problem error">{copy.editorErrorCount(modelStatus.errors)}</span>
+              ) : null}
+              {modelStatus.warnings > 0 ? (
+                <span className="code-file-editor-problem warning">{copy.editorWarningCount(modelStatus.warnings)}</span>
+              ) : null}
+            </span>
           </div>
           <span className="code-file-editor-cursor-position">{copy.cursorPosition(cursorPosition.lineNumber, cursorPosition.column)}</span>
         </div>

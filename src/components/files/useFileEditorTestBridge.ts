@@ -10,6 +10,8 @@ declare global {
       insertText: (text: string) => boolean
       undo: () => boolean
       getValue: () => string
+      getLanguageId: () => string | null
+      getPosition: () => { lineNumber: number; column: number } | null
       getScrollTop: () => number
       getMarkers: () => Array<{ code: string; message: string; severity: number }>
       getTypeScriptDiagnosticsOptions: () => {
@@ -73,6 +75,12 @@ export function useFileEditorTestBridge({
       },
       getValue() {
         return editorRef.current?.getValue() ?? ''
+      },
+      getLanguageId() {
+        return editorRef.current?.getModel()?.getLanguageId() ?? null
+      },
+      getPosition() {
+        return editorRef.current?.getPosition() ?? null
       },
       getScrollTop() {
         return editorRef.current?.getScrollTop() ?? 0

@@ -31,6 +31,8 @@ declare global {
       insertText: (text: string) => boolean
       undo: () => boolean
       getValue: () => string
+      getLanguageId: () => string | null
+      getPosition: () => { lineNumber: number; column: number } | null
       getScrollTop: () => number
       getMarkers: () => Array<{ code: string; message: string; severity: number }>
       getTypeScriptDiagnosticsOptions: () => {
@@ -511,6 +513,12 @@ export async function terminalViewport(page: Page, agentId: string) {
   const viewport = await page.evaluate((id) => window.__farmingTerminalTest?.getViewport(id) ?? null, agentId)
   if (!viewport) throw new Error(`Terminal viewport is missing for ${agentId}`)
   return viewport
+}
+
+export async function fileEditorPosition(page: Page) {
+  const position = await page.evaluate(() => window.__farmingFileEditorTest?.getPosition() ?? null)
+  if (!position) throw new Error('File editor position is unavailable')
+  return position
 }
 
 export async function terminalHostDiagnostics(page: Page) {

@@ -14,6 +14,28 @@ async function createAgent(page: Page, workspace: string, agentRuntimeMode: 'cha
 }
 
 test.describe('workspace sharing', () => {
+  test('keeps the idle share control on the same toolbar surface in every appearance', async ({ page }) => {
+    await openFarming(page)
+
+    const sidebar = page.locator('.code-sidebar')
+    const shareButton = page.getByTestId('code-share-button')
+    const siblingButton = page.getByTestId('code-sidebar-focus-toggle')
+    const appearances = {
+      light: 'rgb(247, 247, 246)',
+      dark: 'rgb(36, 36, 36)',
+      paper: 'rgb(247, 244, 236)',
+    } as const
+
+    for (const [appearance, background] of Object.entries(appearances)) {
+      await page.locator('body').evaluate((body, value) => {
+        body.dataset.appearance = value
+      }, appearance)
+      await expect(sidebar).toHaveCSS('background-color', background)
+      await expect(shareButton).toHaveCSS('background-color', background)
+      await expect(siblingButton).toHaveCSS('background-color', background)
+    }
+  })
+
   test('keeps read-only and full-control copy actions distinct', async ({ page }) => {
     const readOnlyUrl = 'https://share.example.test/workspace?token=read-only'
     const fullAccessUrl = 'https://share.example.test/workspace?token=full-control'
@@ -42,11 +64,12 @@ test.describe('workspace sharing', () => {
 
     await page.setViewportSize({ width: 1000, height: 900 })
     await openFarming(page)
+    await page.evaluate(() => document.body.setAttribute('data-appearance', 'paper'))
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(page.url()).origin })
     await page.getByTestId('code-share-button').click()
 
     const popover = page.getByTestId('code-share-popover')
-    await expect(popover).toHaveCSS('color', 'rgb(38, 51, 39)')
+    await expect(popover).toHaveCSS('color', 'rgb(40, 41, 34)')
     await page.evaluate(() => document.body.setAttribute('data-appearance', 'dark'))
     await expect(popover).toHaveCSS('color', 'rgb(255, 255, 255)')
 

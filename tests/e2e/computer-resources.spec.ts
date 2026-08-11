@@ -256,7 +256,7 @@ test('shows an Agent-owned Desktop only when present and switches Viewer control
   const appearanceSurfaces = {
     light: { canvas: 'rgb(255, 255, 255)', inset: 'rgb(246, 248, 250)' },
     dark: { canvas: 'rgb(24, 24, 24)', inset: 'rgb(28, 28, 28)' },
-    paper: { canvas: 'rgb(247, 244, 237)', inset: 'rgb(237, 233, 224)' },
+    paper: { canvas: 'rgb(247, 244, 236)', inset: 'rgb(239, 237, 231)' },
   } as const
   for (const appearance of ['light', 'dark', 'paper', 'light'] as const) {
     await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)

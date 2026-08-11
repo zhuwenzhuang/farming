@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { expect, interceptTerminalCheckpoints, openFarming, requestTerminalCheckpoint, terminalCheckpointOutput, terminalHostDiagnostics, terminalRows, terminalViewport, test, writeTerminalFixture, writeTerminalRaw } from './fixtures'
+import { expect, fileEditorPosition, interceptTerminalCheckpoints, openFarming, requestTerminalCheckpoint, terminalCheckpointOutput, terminalHostDiagnostics, terminalRows, terminalViewport, test, writeTerminalFixture, writeTerminalRaw } from './fixtures'
 
 type ScenarioRunner = (name: string, fn: () => Promise<void>) => Promise<void>
 
@@ -1271,7 +1271,7 @@ test.describe('terminal regression matrix', () => {
       await page.mouse.click(cell.x, cell.y)
       await expect(page.getByTestId('code-file-editor')).toBeVisible()
       await expect(page.getByTestId('code-file-editor').getByRole('tab', { selected: true })).toContainText('README.md')
-      await expect(page.getByTestId('code-file-editor-statusbar')).toContainText('Ln 3, Col 1')
+      await expect.poll(() => fileEditorPosition(page)).toEqual({ lineNumber: 3, column: 1 })
       await page.getByTestId('code-file-editor-back').click()
       await expect(page.getByTestId('code-terminal-grid')).toBeVisible()
     })

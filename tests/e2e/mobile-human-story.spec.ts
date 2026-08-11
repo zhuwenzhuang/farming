@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import {
   expect,
+  fileEditorPosition,
   openFarming,
   openNewAgentDialog,
   terminalCheckpointOutput,
@@ -630,7 +631,7 @@ test.describe('mobile Farming Code user story', () => {
     await expect(page.getByTestId('code-file-editor')).toBeVisible()
     await expect(page.getByTestId('code-mobile-topbar')).toContainText('README.md')
     await expect(page.getByTestId('code-workspace')).toHaveClass(/sidebar-collapsed/)
-    await expect(page.getByTestId('code-file-editor-statusbar')).toContainText('Ln 2, Col 1')
+    await expect.poll(() => fileEditorPosition(page)).toEqual({ lineNumber: 2, column: 1 })
     await expectNoPageOverflow(page)
 
     const sourcePreviewToggle = page.getByRole('button', { name: 'Show Markdown source' })

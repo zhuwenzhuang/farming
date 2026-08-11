@@ -5,6 +5,7 @@ import type { Locator, Page } from '@playwright/test'
 import {
   expect,
   expectTerminalCanvasToHaveInk,
+  fileEditorPosition,
   getAgentIdFromRow,
   openFarming,
   openNewAgentDialog,
@@ -1724,7 +1725,7 @@ test.describe('display-backed agent flows', () => {
     await expect(page.getByTestId('code-file-editor')).toBeVisible()
     await expect(activeFileTabName(page)).toHaveText('README.md')
     await expect(page.getByTestId('code-file-editor').getByRole('tab').filter({ hasText: 'README.md' })).toHaveCount(1)
-    await expect(page.getByTestId('code-file-editor-statusbar')).toContainText('Ln 4, Col 1')
+    await expect.poll(() => fileEditorPosition(page)).toEqual({ lineNumber: 4, column: 1 })
     const openEditors = childProject.getByTestId('code-open-editors')
     await expect(openEditors).toBeVisible()
     const openEditorsTitle = openEditors.locator('.code-open-editors-title')
@@ -1795,7 +1796,7 @@ test.describe('display-backed agent flows', () => {
     await expect(page.getByTestId('code-file-editor')).toBeVisible()
     await expect(activeFileTabName(page)).toHaveText('README.md')
     await expect(page.getByTestId('code-file-editor').getByRole('tab').filter({ hasText: 'README.md' })).toHaveCount(1)
-    await expect(page.getByTestId('code-file-editor-statusbar')).toContainText('Ln 3, Col 1')
+    await expect.poll(() => fileEditorPosition(page)).toEqual({ lineNumber: 3, column: 1 })
 
     await page.getByTestId('code-file-editor-back').click()
     await expect(page.getByTestId('code-terminal-grid')).toBeVisible()
@@ -1955,14 +1956,14 @@ test.describe('display-backed agent flows', () => {
     await expect(page.getByTestId('code-file-image-preview')).toHaveAttribute('src', /\/api\/files\/raw\?.*path=icon\.svg/)
     await page.getByRole('button', { name: 'Show source' }).click()
     await expect(page.getByTestId('code-file-monaco')).toBeVisible()
-    await expect(page.getByTestId('code-file-editor-statusbar')).toBeVisible()
+    await expect(page.getByTestId('code-file-editor-statusbar')).toHaveCount(0)
     await page.getByRole('button', { name: 'Open preview' }).click()
     await expect(page.getByTestId('code-file-preview-panel')).toBeVisible()
     await expect(page.getByTestId('code-file-image-preview')).toHaveAttribute('src', /\/api\/files\/raw\?.*path=icon\.svg/)
     await expect(page.getByTestId('code-file-editor-statusbar')).toHaveCount(0)
     await page.getByRole('button', { name: 'Show source' }).click()
     await expect(page.getByTestId('code-file-monaco')).toBeVisible()
-    await expect(page.getByTestId('code-file-editor-statusbar')).toBeVisible()
+    await expect(page.getByTestId('code-file-editor-statusbar')).toHaveCount(0)
     const previewSessionRequests: string[] = []
     page.on('request', request => {
       if (!request.url().includes('/api/files/previews')) return
@@ -2004,7 +2005,7 @@ test.describe('display-backed agent flows', () => {
     await expect(page.getByTestId('code-file-monaco')).toBeVisible()
     await expect.poll(async () => page.evaluate(() => window.__farmingFileEditorTest?.getValue() ?? '')).toContain('large text line')
     await expect(childFiles.getByTestId('code-file-open-error')).toHaveCount(0)
-    await expect(page.getByTestId('code-file-editor-statusbar')).toContainText('Ln 1, Col 1')
+    await expect.poll(() => fileEditorPosition(page)).toEqual({ lineNumber: 1, column: 1 })
     await expect.poll(async () => childFiles.locator('.code-file-tree-viewport').evaluate(viewport => {
       const tree = viewport.querySelector<HTMLElement>('.code-file-tree')
       if (!tree) return false
@@ -2044,7 +2045,7 @@ test.describe('display-backed agent flows', () => {
     await expect(page.getByRole('button', { name: 'Show Markdown source' })).toBeVisible()
     await page.getByRole('button', { name: 'Show Markdown source' }).click()
     await expect(page.getByTestId('code-file-monaco')).toBeVisible()
-    await expect(page.getByTestId('code-file-editor-statusbar')).toContainText('Ln 4, Col 1')
+    await expect.poll(() => fileEditorPosition(page)).toEqual({ lineNumber: 4, column: 1 })
     await page.getByTestId('code-file-monaco').click()
     await page.keyboard.press(process.platform === 'darwin' ? 'Meta+P' : 'Control+P')
     await expect(fileSearchInput).toBeFocused()
@@ -2078,7 +2079,7 @@ test.describe('display-backed agent flows', () => {
     await expect(childFiles.locator('[data-testid="code-file-row"][data-file-path=".idea"]')).toHaveCount(0)
     await expect(blameDetail.getByText('Farming E2E', { exact: true })).toBeVisible()
     await expect(blameDetail.getByRole('button', { name: 'Close blame details' })).toBeVisible()
-    await expect(page.getByTestId('code-file-editor-statusbar')).not.toContainText('Seed README blame')
+    await expect(page.getByTestId('code-file-editor-statusbar')).toHaveCount(0)
     await page.evaluate(() => {
       const ok = window.__farmingFileEditorTest?.insertText('\nlocal unsaved edit')
       if (!ok) throw new Error('Failed to dirty README.md before conflict save')
@@ -2113,7 +2114,7 @@ test.describe('display-backed agent flows', () => {
     await fileSearchInput.press('Enter')
     await expect(page.getByTestId('code-file-editor')).toBeVisible()
     await expect(activeFileTabName(page)).toHaveText('blame-multi.py')
-    await expect(page.getByTestId('code-file-editor-statusbar')).toContainText('Ln 1, Col 1')
+    await expect.poll(() => fileEditorPosition(page)).toEqual({ lineNumber: 1, column: 1 })
     await page.getByTestId('code-file-monaco').click({ button: 'right', position: { x: 42, y: 38 } })
     await expect(editorContextMenu).toBeVisible()
     await editorContextMenu.getByRole('menuitem', { name: 'Annotate with Blame' }).click()
@@ -2123,8 +2124,8 @@ test.describe('display-backed agent flows', () => {
     await expect(multiInlineBlame.nth(1)).toContainText('Farming E2E')
     await multiInlineBlame.nth(1).click()
     await expect(blameDetail).toContainText('Change multi blame line')
-    await expect(page.getByTestId('code-file-editor-statusbar')).toContainText('Ln 2, Col 1')
-    await expect(page.getByTestId('code-file-editor-statusbar')).not.toContainText('Change multi blame line')
+    await expect.poll(() => fileEditorPosition(page)).toEqual({ lineNumber: 2, column: 1 })
+    await expect(page.getByTestId('code-file-editor-statusbar')).toHaveCount(0)
     await page.getByTestId('code-file-monaco').click({ button: 'right', position: { x: 42, y: 38 } })
     await expect(editorContextMenu).toBeVisible()
     await editorContextMenu.getByRole('menuitem', { name: 'Hide Blame' }).click()
@@ -2134,7 +2135,7 @@ test.describe('display-backed agent flows', () => {
     const searchResult = childFiles.locator('.code-file-search-result[title="README.md:3"]')
     await expect(searchResult).toBeVisible()
     await searchResult.click()
-    await expect(page.getByTestId('code-file-editor-statusbar')).toContainText('Ln 3, Col 1')
+    await expect.poll(() => fileEditorPosition(page)).toEqual({ lineNumber: 3, column: 1 })
     const shortcutSaveMarker = `shortcut-save-${Date.now()}`
     await page.getByTestId('code-file-monaco').click({ position: { x: 80, y: 130 } })
     await page.evaluate((marker) => {
@@ -2381,7 +2382,7 @@ test.describe('display-backed agent flows', () => {
     await fileSearchInput.fill('deep/nested/inner/file-35.txt:1')
     await fileSearchInput.press('Enter')
     await expect(activeFileTabName(page)).toHaveText('file-35.txt')
-    await expect(page.getByTestId('code-file-editor-statusbar')).toContainText('Ln 1, Col 1')
+    await expect.poll(() => fileEditorPosition(page)).toEqual({ lineNumber: 1, column: 1 })
     const deepActiveRow = childFiles.locator('[data-testid="code-file-row"].active[data-file-path="deep/nested/inner/file-35.txt"]')
     await expect(deepActiveRow).toBeVisible()
     await expect.poll(async () => page.getByTestId('code-project-list').evaluate((projectList, filePath) => {
@@ -2568,7 +2569,7 @@ test.describe('display-backed agent flows', () => {
     await files.locator('.code-file-search-result.jump').first().click()
     await expect(page.getByTestId('code-file-editor')).toBeVisible()
     await expect(activeFileTabName(page)).toHaveText('App.tsx')
-    await expect(page.getByTestId('code-file-editor-statusbar')).toContainText('Ln 2, Col 1')
+    await expect.poll(() => fileEditorPosition(page)).toEqual({ lineNumber: 2, column: 1 })
 
     const editorContextMenu = page.getByTestId('code-editor-context-menu')
     await page.getByTestId('code-file-monaco').click({ button: 'right', position: { x: 42, y: 38 } })
@@ -2584,7 +2585,7 @@ test.describe('display-backed agent flows', () => {
 
     await fileSearchInput.fill('src/App.tsx:1')
     await files.locator('.code-file-search-result.jump').first().click()
-    await expect(page.getByTestId('code-file-editor-statusbar')).toContainText('Ln 1, Col 1')
+    await expect.poll(() => fileEditorPosition(page)).toEqual({ lineNumber: 1, column: 1 })
     await page.getByTestId('code-file-monaco').click({ button: 'right', position: { x: 42, y: 20 } })
     await expect(editorContextMenu).toBeVisible()
     await editorContextMenu.getByRole('menuitem', { name: 'Open Line Changes with Working File' }).click()

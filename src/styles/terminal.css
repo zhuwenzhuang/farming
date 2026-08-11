@@ -76,9 +76,9 @@
 
 .code-terminal-mode-toggle:hover,
 .code-terminal-mode-toggle:focus-within {
-  border-color: var(--code-focus-ring);
+  border-color: var(--code-panel-border);
   background: var(--code-bg-hover);
-  box-shadow: var(--code-shadow-focus);
+  box-shadow: none;
   opacity: 1;
 }
 
@@ -725,7 +725,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
 }
 
 .code-terminal-mode-toggle {
-  border-color: var(--code-border);
+  border-color: var(--code-panel-border);
 }
 
 .terminal-context-menu-pooled .terminal-context-menu-item {

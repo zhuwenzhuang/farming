@@ -8,7 +8,7 @@ import { selectCodeOption } from './code-select'
 const appearanceExpectations = {
   light: { canvas: 'rgb(255, 255, 255)', text: 'rgb(36, 41, 47)', added: 'rgb(26, 127, 55)' },
   dark: { canvas: 'rgb(24, 24, 24)', text: 'rgb(255, 255, 255)', added: 'rgb(64, 201, 119)' },
-  paper: { canvas: 'rgb(247, 244, 237)', text: 'rgb(40, 41, 34)', added: 'rgb(58, 110, 74)' },
+  paper: { canvas: 'rgb(247, 244, 236)', text: 'rgb(40, 41, 34)', added: 'rgb(58, 110, 74)' },
 } as const
 
 function git(root: string, ...args: string[]) {

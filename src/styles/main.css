@@ -1325,7 +1325,7 @@ body.code-mode .workspace-directory-picker:hover:not(:disabled) {
 
 body.code-mode .workspace-directory-picker:focus-visible {
   outline: none;
-  border-color: var(--code-accent);
+  border-color: var(--code-focus-ring);
   box-shadow: 0 0 0 3px var(--code-focus-ring);
 }
 
@@ -1418,7 +1418,7 @@ body.code-mode .workspace-directory-browser-parent:focus-visible,
 body.code-mode .workspace-directory-browser-go:focus-visible,
 body.code-mode .workspace-directory-browser-location input:focus {
   outline: none;
-  border-color: var(--code-accent);
+  border-color: var(--code-focus-ring);
   box-shadow: 0 0 0 3px var(--code-focus-ring);
 }
 
@@ -1603,7 +1603,7 @@ body.code-mode .workspace-home-trigger {
 
 body.code-mode .workspace-home-trigger:focus-visible {
   outline: none;
-  border-color: var(--code-accent);
+  border-color: var(--code-focus-ring);
   box-shadow: 0 0 0 3px var(--code-focus-ring);
 }
 
@@ -1739,7 +1739,7 @@ body.code-mode .workspace-runtime-options button span {
 }
 
 body.code-mode .workspace-input input:focus {
-  border-color: var(--code-accent);
+  border-color: var(--code-focus-ring);
   box-shadow: 0 0 0 3px var(--code-focus-ring);
 }
 
@@ -3904,13 +3904,13 @@ body.code-mode.code-mobile-markdown-reading .code-mobile-topbar-button {
   border-color: var(--code-border);
 }
 .code-composer:focus-within {
-  border-color: var(--code-focus-ring);
+  border-color: var(--code-border);
 }
 .code-composer:focus-within {
-  box-shadow: var(--code-shadow-focus);
+  box-shadow: var(--code-composer-shadow);
 }
 .code-composer.menu-open {
-  box-shadow: var(--code-shadow-focus);
+  box-shadow: var(--code-composer-shadow);
 }
 .code-acp-request-actions button.approve:hover {
   background: var(--code-bg-hover);

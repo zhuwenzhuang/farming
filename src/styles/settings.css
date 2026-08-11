@@ -756,7 +756,7 @@
 }
 
 .code-settings-panel .code-settings-section + .code-settings-section {
-  border-top: 1px solid var(--code-border);
+  border-top: 1px solid var(--code-panel-divider);
 }
 
 .code-settings-card,
@@ -764,9 +764,13 @@
 .code-settings-choice-row.dangerous,
 .code-agent-home-provider {
   overflow: hidden;
-  border: 1px solid var(--code-border);
+  border: 1px solid var(--code-panel-border);
   border-radius: 10px;
-  background: var(--code-bg-surface);
+  background: var(--code-panel-surface);
+}
+
+.code-settings-card > .code-settings-choice-row {
+  background: transparent;
 }
 
 .code-settings-choice-row,
@@ -786,8 +790,8 @@
 }
 
 .code-settings-card > .code-settings-choice-row + .code-settings-choice-row {
-  border-top: 1px solid var(--code-border-subtle);
-  border-color: var(--code-border);
+  border-top: 1px solid var(--code-panel-divider);
+  border-color: var(--code-panel-divider);
 }
 
 .code-settings-runtime-row,
@@ -1078,9 +1082,9 @@
   gap: 0;
   padding: 0;
   overflow: hidden;
-  border: 1px solid var(--code-border);
+  border: 1px solid var(--code-panel-border);
   border-radius: 10px;
-  background: var(--code-bg-surface);
+  background: var(--code-panel-surface);
 }
 
 .code-settings-inline-choice {
@@ -1094,7 +1098,7 @@
 }
 
 .code-settings-language-choice {
-  border-top: 1px solid var(--code-border);
+  border-top: 1px solid var(--code-panel-divider);
 }
 
 .code-settings-inline-label {
@@ -1694,11 +1698,16 @@ body.code-mode.code-compact-layout .code-settings-pet-rest-value {
 }
 
 .code-settings-inline-preferences {
-  border-color: var(--code-border);
+  border-color: var(--code-panel-border);
 }
 
 .code-settings-card {
-  border-color: var(--code-border);
+  border-color: var(--code-panel-border);
+  background: var(--code-panel-surface);
+}
+
+.code-settings-segmented {
+  border-color: var(--code-panel-border);
 }
 
 .code-settings-choice-row.dangerous {

@@ -15,7 +15,7 @@
   height: 24px;
   border: 0;
   border-radius: 7px;
-  background: var(--code-bg-surface);
+  background: var(--code-bg-chrome);
   color: var(--code-text-subtle);
   cursor: pointer;
   display: inline-grid;
@@ -48,7 +48,7 @@
   max-width: calc(100vw - 24px);
   border: 1px solid var(--code-border);
   border-radius: 999px;
-  background: var(--code-bg-surface);
+  background: var(--code-bg-chrome);
   box-shadow: 0 4px 16px var(--code-shadow-color);
   color: var(--code-text);
   font-size: 11px;

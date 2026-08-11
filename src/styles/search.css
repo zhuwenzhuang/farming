@@ -60,7 +60,7 @@
 }
 
 .code-search-panel-input:focus-within {
-  border-color: var(--code-accent);
+  border-color: var(--code-focus-ring);
   box-shadow: var(--code-shadow-focus);
 }
 

@@ -303,7 +303,7 @@
 }
 
 .code-plugin-extension-search input:focus {
-  border-color: var(--code-accent);
+  border-color: var(--code-focus-ring);
   box-shadow: 0 0 0 3px var(--code-focus-ring);
 }
 

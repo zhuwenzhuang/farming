@@ -235,9 +235,6 @@ function FileEditorFallback({
         data-form-type="other"
         aria-label={copy.editorFor(openFile.file.path)}
       />
-      <footer className="code-file-editor-statusbar">
-        <span className="code-file-editor-cursor-position">{copy.cursorPosition(1, 1)}</span>
-      </footer>
     </section>
   )
 }

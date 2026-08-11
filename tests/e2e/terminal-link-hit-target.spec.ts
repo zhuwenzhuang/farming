@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { expect, openFarming, terminalRows, test, writeTerminalFixture } from './fixtures'
+import { expect, fileEditorPosition, openFarming, terminalRows, test, writeTerminalFixture } from './fixtures'
 
 async function createControlAgent(page: import('@playwright/test').Page, command: string, workspace: string) {
   const response = await page.request.post('/farming/api/control/agents', {
@@ -249,5 +249,5 @@ test('terminal multiline diagnostics bind numeric results to the preceding file'
   await page.mouse.click(diagnosticCell.x, diagnosticCell.y)
   await expect(page.getByTestId('code-file-editor')).toBeVisible()
   await expect(page.getByTestId('code-file-editor').getByRole('tab', { selected: true })).toContainText(fileName)
-  await expect(page.getByTestId('code-file-editor-statusbar')).toContainText('Ln 2, Col 3')
+  await expect.poll(() => fileEditorPosition(page)).toEqual({ lineNumber: 2, column: 3 })
 })
