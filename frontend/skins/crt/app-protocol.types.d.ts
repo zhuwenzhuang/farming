@@ -1,7 +1,9 @@
 type CrtProtocolRecord = Record<string, unknown>;
 
-type CrtProtocolAgentStatus = 'pending' | 'running' | 'stopped' | 'dead';
-type CrtProtocolActivityLevel = 'hot' | 'warm' | 'cool' | 'cold';
+type CrtProtocolAgentStatus = import('../../../shared/agent-state-wire.js').AgentLifecycleStatus;
+type CrtProtocolActivityLevel = import('../../../shared/agent-state-wire.js').AgentActivityLevel;
+type CrtProtocolAgentStateCursor = import('../../../shared/browser-protocol.js').AgentStateCursor;
+type CrtProtocolAgentStateSnapshotPage = import('../../../shared/browser-protocol.js').AgentStateSnapshotPage;
 
 interface CrtProtocolTerminalStatus extends CrtProtocolRecord {
   kind: 'codex' | 'claude' | 'shell' | 'process' | 'unknown';
@@ -12,26 +14,12 @@ interface CrtProtocolTerminalStatus extends CrtProtocolRecord {
   lastExitCode?: number | null;
 }
 
-interface CrtProtocolRuntimeObservation extends CrtProtocolRecord {
-  kind: 'codex' | 'claude' | 'shell' | 'process' | 'unknown';
-  phase: 'starting' | 'working' | 'waiting' | 'idle' | 'exited' | 'unknown';
-  confidence: 'authoritative' | 'high' | 'heuristic';
-  source: 'structured-runtime' | 'shell-marker' | 'terminal-observer';
-  observerVersion: string;
-  observedAt: number;
-}
-
-interface CrtProtocolProviderCapabilities extends CrtProtocolRecord {
-  supportedRuntimes: Array<'terminal' | 'acp' | 'json'>;
-  runtimeSwitch: boolean;
-  contextWindow?: boolean;
-  terminalProfile: boolean;
-  terminalSessionFork: boolean;
-  sessionFork: boolean;
-  chatRuntime: 'acp' | '';
-  supportsChat: boolean;
-  supportsSteer: boolean;
-}
+type CrtProtocolRuntimeObservation =
+  & import('../../../shared/agent-state-wire.js').RuntimeObservationWire
+  & CrtProtocolRecord;
+type CrtProtocolProviderCapabilities =
+  & import('../../../shared/agent-state-wire.js').ProviderCapabilitiesWire
+  & CrtProtocolRecord;
 
 interface CrtProtocolPermissionOption extends CrtProtocolRecord {
   optionId: string;
@@ -250,7 +238,7 @@ interface CrtProtocolStateResyncClientMessage extends CrtProtocolRecord {
   afterSequence?: number;
 }
 
-type CrtWebSocketClientMessage =
+type CrtProtocolDeclaredClientMessage =
   | CrtProtocolHelloClientMessage
   | CrtProtocolStartAgentClientMessage
   | CrtProtocolInputClientMessage
@@ -260,6 +248,10 @@ type CrtWebSocketClientMessage =
   | CrtProtocolResizeAgentClientMessage
   | CrtProtocolPermissionResponseClientMessage
   | CrtProtocolStateResyncClientMessage;
+type CrtWebSocketClientMessage = Extract<
+  CrtProtocolDeclaredClientMessage,
+  { type: import('../../../shared/browser-protocol.js').ClientMessage['type'] }
+>;
 
 interface CrtProtocolHelloServerMessage extends CrtProtocolRecord {
   type: 'protocol-hello';
@@ -272,23 +264,14 @@ interface CrtProtocolErrorServerMessage extends CrtProtocolRecord {
   message: string;
 }
 
-interface CrtProtocolStateServerMessage extends CrtProtocolRecord {
+interface CrtProtocolStateServerMessage extends CrtProtocolRecord, CrtProtocolAgentStateCursor {
   type: 'state';
-  generation: string;
-  sequence: number;
-  snapshot?: {
-    complete: boolean;
-    id: string;
-    offset: number;
-    total: number;
-  };
+  snapshot?: CrtProtocolAgentStateSnapshotPage;
   state: Partial<Omit<CrtProtocolWorkspaceState, 'agents'>> & { agents: CrtProtocolAgent[] };
 }
 
-interface CrtProtocolStateDeltaServerMessage extends CrtProtocolRecord {
+interface CrtProtocolStateDeltaServerMessage extends CrtProtocolRecord, CrtProtocolAgentStateCursor {
   type: 'state-delta';
-  generation: string;
-  sequence: number;
   upserts: CrtProtocolAgent[];
   removedAgentIds: string[];
   state?: Partial<Omit<CrtProtocolWorkspaceState, 'agents'>>;
@@ -426,7 +409,7 @@ interface CrtProtocolResourceMetadataServerMessage extends CrtProtocolRecord {
     | 'computer-resource-deleted';
 }
 
-type CrtWebSocketServerMessage =
+type CrtProtocolDeclaredServerMessage =
   | CrtProtocolHelloServerMessage
   | CrtProtocolErrorServerMessage
   | CrtProtocolStateServerMessage
@@ -442,6 +425,10 @@ type CrtWebSocketServerMessage =
   | CrtProtocolSystemStatsServerMessage
   | CrtProtocolResourceMetadataServerMessage
   | CrtComposerInputResult;
+type CrtWebSocketServerMessage = Extract<
+  CrtProtocolDeclaredServerMessage,
+  { type: import('../../../shared/browser-protocol.js').ServerMessage['type'] }
+>;
 
 interface CrtProtocolStructuredCommand extends CrtProtocolRecord {
   name: string;
