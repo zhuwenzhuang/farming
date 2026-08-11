@@ -252,7 +252,10 @@ generated output, or security. Existing implementation-text debt is frozen in
 allowlist from legacy behavior-test debt. Allowlist entries are limited to
 architecture, package assembly, generated output, or security; legacy entries
 are not permissions for new tests. Each record has an exact count and owner.
-A migration must remove or lower its entry; any baseline change is reviewed.
+The validator follows local test helpers, including multi-hop imports, so moving
+source inspection behind a shared assertion helper does not turn it into
+behavioral evidence. A migration must remove or lower its entry; any baseline
+change is reviewed.
 
 Purpose-built release or remote smoke commands remain documented beside the
 subsystem they validate. Do not add an unimplemented runner proposal to this

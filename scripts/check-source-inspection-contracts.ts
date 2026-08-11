@@ -38,6 +38,9 @@ interface Inspection {
   target: string;
 }
 
+type HelperSummaries = ReadonlyMap<string, readonly string[]>;
+type LocalModuleReader = (relativePath: string) => string | null;
+
 function discoverTestFiles(): string[] {
   const files: string[] = [];
   for (const root of testRoots) {
@@ -107,7 +110,11 @@ function inspectedTarget(node: ts.CallExpression, allowBarePackage = false): str
   return null;
 }
 
-export function inspectSourceText(relativePath: string, sourceText: string): Inspection[] {
+export function inspectSourceText(
+  relativePath: string,
+  sourceText: string,
+  helperSummaries: HelperSummaries = new Map(),
+): Inspection[] {
   const sourceFile = ts.createSourceFile(relativePath, sourceText, ts.ScriptTarget.ES2023, true);
   const sourceReaders = new Set<string>();
   const readerDefaultTargets = new Map<string, string>();
@@ -257,6 +264,11 @@ export function inspectSourceText(relativePath: string, sourceText: string): Ins
   const stringMethods = new Set(['includes', 'indexOf', 'startsWith', 'endsWith', 'match', 'search']);
   const assertionComparators = new Set(['equal', 'strictEqual', 'notEqual', 'notStrictEqual']);
   const collectAssertions = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+      for (const target of helperSummaries.get(node.expression.text) || []) {
+        assertedInspections.push(inspectionAt(node, target));
+      }
+    }
     if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
       const method = node.expression.name.text;
       if (stringMethods.has(method)) {
@@ -291,8 +303,104 @@ export function inspectSourceText(relativePath: string, sourceText: string): Ins
   return unique(assertedInspections);
 }
 
+function localHelperSummaries(
+  relativePath: string,
+  sourceText: string,
+  readLocalModule: LocalModuleReader,
+  cache: Map<string, Map<string, string[]>>,
+  visiting: Set<string>,
+): Map<string, string[]> {
+  const sourceFile = ts.createSourceFile(relativePath, sourceText, ts.ScriptTarget.ES2023, true);
+  const summaries = new Map<string, string[]>();
+  for (const statement of sourceFile.statements) {
+    if (!ts.isImportDeclaration(statement)
+      || !ts.isStringLiteral(statement.moduleSpecifier)
+      || !statement.importClause?.namedBindings
+      || !ts.isNamedImports(statement.importClause.namedBindings)) continue;
+    const helper = resolveLocalModule(relativePath, statement.moduleSpecifier.text, readLocalModule);
+    if (!helper) continue;
+    const helperSummaries = exportedHelperSummaries(helper.path, helper.source, readLocalModule, cache, visiting);
+    for (const element of statement.importClause.namedBindings.elements) {
+      const importedName = element.propertyName?.text || element.name.text;
+      const targets = helperSummaries.get(importedName);
+      if (targets) summaries.set(element.name.text, targets);
+    }
+  }
+  return summaries;
+}
+
+function exportedHelperSummaries(
+  relativePath: string,
+  sourceText: string,
+  readLocalModule: LocalModuleReader,
+  cache: Map<string, Map<string, string[]>>,
+  visiting: Set<string>,
+): Map<string, string[]> {
+  const cached = cache.get(relativePath);
+  if (cached) return cached;
+  if (visiting.has(relativePath)) return new Map();
+  visiting.add(relativePath);
+  const sourceFile = ts.createSourceFile(relativePath, sourceText, ts.ScriptTarget.ES2023, true);
+  const importedSummaries = localHelperSummaries(relativePath, sourceText, readLocalModule, cache, visiting);
+  const inspections = inspectSourceText(relativePath, sourceText, importedSummaries);
+  const summaries = new Map<string, string[]>();
+  const exportedName = (node: ts.FunctionDeclaration | ts.VariableStatement): string | null => {
+    const isExported = node.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword) || false;
+    if (!isExported) return null;
+    if (ts.isFunctionDeclaration(node)) return node.name?.text || null;
+    if (node.declarationList.declarations.length !== 1) return null;
+    const declaration = node.declarationList.declarations[0];
+    return ts.isIdentifier(declaration.name) ? declaration.name.text : null;
+  };
+  for (const statement of sourceFile.statements) {
+    if (!ts.isFunctionDeclaration(statement) && !ts.isVariableStatement(statement)) continue;
+    const name = exportedName(statement);
+    if (!name) continue;
+    const startLine = sourceFile.getLineAndCharacterOfPosition(statement.getStart(sourceFile)).line + 1;
+    const endLine = sourceFile.getLineAndCharacterOfPosition(statement.getEnd()).line + 1;
+    const targets = [...new Set(
+      inspections
+        .filter(inspection => inspection.line >= startLine && inspection.line <= endLine)
+        .map(inspection => inspection.target),
+    )];
+    if (targets.length > 0) summaries.set(name, targets);
+  }
+  visiting.delete(relativePath);
+  cache.set(relativePath, summaries);
+  return summaries;
+}
+
+function resolveLocalModule(
+  fromRelativePath: string,
+  specifier: string,
+  readLocalModule: LocalModuleReader,
+): { path: string; source: string } | null {
+  if (!specifier.startsWith('.')) return null;
+  const base = path.normalize(path.join(path.dirname(fromRelativePath), specifier));
+  for (const candidate of [base, `${base}.ts`, `${base}.tsx`, `${base}.cts`, `${base}.js`, path.join(base, 'index.ts')]) {
+    const source = readLocalModule(candidate);
+    if (source !== null) return { path: candidate, source };
+  }
+  return null;
+}
+
+export function inspectSourceTextWithLocalHelpers(
+  relativePath: string,
+  sourceText: string,
+  readLocalModule: LocalModuleReader,
+): Inspection[] {
+  const summaries = localHelperSummaries(relativePath, sourceText, readLocalModule, new Map(), new Set());
+  return inspectSourceText(relativePath, sourceText, summaries);
+}
+
 function inspectionsInFile(relativePath: string): Inspection[] {
-  return inspectSourceText(relativePath, fs.readFileSync(path.join(projectRoot, relativePath), 'utf8'));
+  const sourceText = fs.readFileSync(path.join(projectRoot, relativePath), 'utf8');
+  return inspectSourceTextWithLocalHelpers(relativePath, sourceText, candidate => {
+    const absolutePath = path.join(projectRoot, candidate);
+    return fs.existsSync(absolutePath) && fs.statSync(absolutePath).isFile()
+      ? fs.readFileSync(absolutePath, 'utf8')
+      : null;
+  });
 }
 
 function readAllowlist(): Allowlist {

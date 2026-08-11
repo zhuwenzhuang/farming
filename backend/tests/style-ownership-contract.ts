@@ -49,20 +49,12 @@ export interface DomainStyleOwnershipContract {
   prefixes: string[]
   /** Prefixes that would match an owned prefix pattern but belong to another owner. */
   excludePrefixes?: string[]
-  /** Legacy extraction snapshot retained at call sites until those fixtures are simplified. */
-  expected: {
-    combined: [number, string]
-    base: [number, string]
-    dark: [number, string]
-  }
   /** Component sources whose owned class names must resolve to an owner rule. */
   componentSources: string[]
   /** Owned class names that are semantic/test hooks with intentionally no rule. */
   unstyledClassNames?: string[]
   /** Representative selectors that must stay in the base owner. */
   mustHaveBase: string[]
-  /** Legacy dark selectors; the new contract verifies a domain token palette instead. */
-  mustHaveDark: string[]
 }
 
 export function assertDomainStyleOwnership(contract: DomainStyleOwnershipContract) {
@@ -108,18 +100,21 @@ export function assertDomainStyleOwnership(contract: DomainStyleOwnershipContrac
   const baseFile = `src/styles/${contract.domain}.css` as CodeStyleSourcePath
   const main = orderedRuleRecords(readCodeStyleSource('src/styles/main.css'))
   const ownerBase = orderedRuleRecords(readCodeStyleSource(baseFile))
-  const palette = readCodeStyleSource('src/styles/tokens.css')
+  const ownerStyles = readCodeStyleSource(baseFile)
 
   assert.equal(main.owned.length, 0, `main.css must not retain ${contract.domain}-owned selectors or keyframes`)
   assert.equal(ownerBase.remaining.length, 0, `${baseFile} must contain only ${contract.domain}-owned rules`)
   assert(ownerBase.owned.length > 0, `${baseFile} must retain its domain rules`)
   assert(!/data-appearance/.test(readCodeStyleSource(baseFile)), `${baseFile} must stay appearance-neutral`)
   assert(
-    palette.includes(`--code-${contract.domain}-`),
-    `tokens.css must provide the ${contract.domain} component palette`,
+    ownerStyles.includes('var(--code-'),
+    `${baseFile} must consume the shared semantic color palette`,
+  )
+  assert(
+    !/(?:#[\da-f]{3,8}\b|\brgba?\(|\bhsla?\()/i.test(ownerStyles),
+    `${baseFile} must not hard-code color values outside the shared semantic palette`,
   )
 
-  const ownerStyles = readCodeStyleSource(baseFile)
   const classNameNeedle = new RegExp(`(?:${contract.prefixes.join('|')})[a-z0-9-]*`, 'g')
   const ownedClassNames = new Set<string>()
   for (const relativePath of contract.componentSources) {

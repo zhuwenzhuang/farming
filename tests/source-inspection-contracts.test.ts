@@ -2,7 +2,10 @@ import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 import test from 'node:test'
-import { inspectSourceText } from '../scripts/check-source-inspection-contracts'
+import {
+  inspectSourceText,
+  inspectSourceTextWithLocalHelpers,
+} from '../scripts/check-source-inspection-contracts'
 
 const repoRoot = path.join(__dirname, '..')
 
@@ -45,4 +48,61 @@ test('source reads used to execute product code are not implementation-string in
     vm.runInContext(code, sandbox)
   `)
   assert.deepEqual(inspections, [])
+})
+
+test('source-inspection scanner attributes arbitrary local helper assertions to the importing test', () => {
+  const modules = new Map<string, string>([
+    ['tests/source-helper.ts', `
+      export function assertImplementationContract() {
+        const contents = fs.readFileSync(path.join(repoRoot, 'src/components/Example.tsx'), 'utf8')
+        const code = contents
+        assert.ok(code.includes('privateImplementation'))
+      }
+    `],
+  ])
+  const inspections = inspectSourceTextWithLocalHelpers('tests/example.test.ts', `
+    import { assertImplementationContract as verify } from './source-helper'
+    verify()
+  `, candidate => modules.get(candidate) ?? null)
+  assert.deepEqual(inspections, [{ file: 'tests/example.test.ts', line: 3, target: 'src' }])
+})
+
+test('local helpers which only execute product source do not create inspection summaries', () => {
+  const modules = new Map<string, string>([
+    ['tests/runtime-helper.ts', `
+      export function executeRuntime() {
+        const code = fs.readFileSync(path.join(repoRoot, 'frontend/skins/crt/app.js'), 'utf8')
+        vm.runInContext(code, sandbox)
+      }
+    `],
+  ])
+  const inspections = inspectSourceTextWithLocalHelpers('tests/example.test.ts', `
+    import { executeRuntime } from './runtime-helper'
+    executeRuntime()
+  `, candidate => modules.get(candidate) ?? null)
+  assert.deepEqual(inspections, [])
+})
+
+test('source-inspection summaries cross two helper hops and stop circular imports', () => {
+  const modules = new Map<string, string>([
+    ['tests/helper-a.ts', `
+      import { assertNestedContract } from './helper-b'
+      export function assertSharedContract() {
+        assertNestedContract()
+      }
+    `],
+    ['tests/helper-b.ts', `
+      import { assertSharedContract } from './helper-a'
+      export function assertNestedContract() {
+        const contents = fs.readFileSync(path.join(repoRoot, 'backend/server.cts'), 'utf8')
+        assert.ok(contents.includes('privateImplementation'))
+      }
+      export const circularReference = assertSharedContract
+    `],
+  ])
+  const inspections = inspectSourceTextWithLocalHelpers('tests/example.test.ts', `
+    import { assertSharedContract } from './helper-a'
+    assertSharedContract()
+  `, candidate => modules.get(candidate) ?? null)
+  assert.deepEqual(inspections, [{ file: 'tests/example.test.ts', line: 3, target: 'backend' }])
 })

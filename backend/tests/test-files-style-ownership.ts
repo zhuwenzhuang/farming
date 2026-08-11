@@ -14,11 +14,6 @@ assertDomainStyleOwnership({
     'code-file-pdf-preview',
     'code-file-metadata-preview-icon',
   ],
-  expected: {
-    combined: [468, 'ebcd0dc4c1de73e7840ab28d5a3e988a2115dc10fa19a36ba0b9d9c49c7a573a'],
-    base: [316, 'b3031d2ba9a2f07dd2f1e4a68f43a77e8002fc1262c784ee9ad8ca1ec8f682a8'],
-    dark: [152, '699373a3446972e4ea08470242c0527b2326d9cc394281fb1e1a81191081661b'],
-  },
   componentSources: [
     'src/components/code/CodeMainArea.tsx',
     'src/components/files/FileChangesSection.tsx',
@@ -53,7 +48,6 @@ assertDomainStyleOwnership({
     'code-file-operation-title',
   ],
   mustHaveBase: ['.code-file-row', '.code-file-tree', '.code-open-editor-row', '.code-files-header'],
-  mustHaveDark: ['.code-file-row', '.code-open-editor-main'],
 })
 
 console.log('test-files-style-ownership passed')

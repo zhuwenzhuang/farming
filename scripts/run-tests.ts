@@ -45,15 +45,7 @@ const SOURCE_REVISION_IGNORED_DIRECTORIES = new Set([
   'dist',
   '.tmp',
 ]);
-const serverBackedTests = new Set([
-  'test-final.ts',
-  'test-session-terminal-input-e2e.ts',
-]);
 const exclusiveTestFiles = new Set([
-  // This browser test drives a complete external Server and native Terminal.
-  // Run it after the shared worker pool so process pressure cannot turn its
-  // bounded UI waits into unrelated startup failures.
-  'test-session-terminal-input-e2e.ts',
   // This suite exercises cancellation and cleanup against real child-process
   // timing. Parallel process suites can exhaust its outer 45-second budget
   // even though every bounded subtest completes normally in isolation.
@@ -89,7 +81,6 @@ const TEST_TIMEOUT_OVERRIDES_MS = new Map<string, number>([
 ]);
 const testFiles = fs.readdirSync(testsDir)
   .filter(f => f.startsWith('test-') && f.endsWith('.ts'))
-  .filter(f => process.env.FARMING_INCLUDE_SERVER_TESTS === '1' || !serverBackedTests.has(f))
   .sort();
 const unitTestFiles = discoverUnitTestFiles(path.join(projectRoot, 'tests'));
 
