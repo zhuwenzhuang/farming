@@ -4,6 +4,9 @@ import { ref } from 'vue'
 
 // Re-keying the CRT panel restarts every CSS ident animation.
 const replayKey = ref(0)
+
+const glyphDelay = (startSeconds: number, index: number, stepSeconds = 0.07) =>
+  `${startSeconds + index * stepSeconds}s`
 </script>
 
 <template>
@@ -64,20 +67,20 @@ _</span>
       <div class="farming-home-crt-lockup">
         <div class="farming-home-crt-mark" aria-hidden="true">
           <svg viewBox="0 0 64 52" focusable="false">
-            <rect class="farming-home-crt-case" x="2" y="2" width="60" height="43" rx="8" />
+            <rect class="farming-home-crt-case" x="2" y="2" width="60" height="43" rx="8" pathLength="1" />
             <rect class="farming-home-crt-pane farming-home-crt-pane-main" x="9" y="9" width="19" height="29" rx="3" />
             <rect class="farming-home-crt-pane farming-home-crt-pane-worker-a" x="33" y="9" width="22" height="12" rx="3" />
             <rect class="farming-home-crt-pane farming-home-crt-pane-worker-b" x="33" y="26" width="22" height="12" rx="3" />
             <path class="farming-home-crt-prompt farming-home-crt-prompt-main" d="M13 17l4 3-4 3m6 0h4" />
             <path class="farming-home-crt-prompt farming-home-crt-prompt-worker-a" d="M37 13l3 2-3 2m5 0h4" />
             <path class="farming-home-crt-prompt farming-home-crt-prompt-worker-b" d="M37 30l3 2-3 2m5 0h4" />
-            <path class="farming-home-crt-stand" d="M11 50h38m5 0h2" />
+            <path class="farming-home-crt-stand" d="M11 50h38m5 0h2" pathLength="1" />
           </svg>
         </div>
 
         <div class="farming-home-crt-wordmark" aria-hidden="true">
           <span class="farming-home-crt-name"><span>F</span><span>A</span><span>R</span><span>M</span><span>I</span><span>N</span><span>G</span></span>
-          <span class="farming-home-crt-model">CRT</span>
+          <span class="farming-home-crt-model"><span>C</span><span>R</span><span>T</span></span>
         </div>
       </div>
 
@@ -93,38 +96,54 @@ _</span>
             </filter>
           </defs>
           <g filter="url(#farming-home-keyboard-soft-phosphor)">
-            <text class="farming-home-keyboard-hint" x="2" y="9">USE</text>
-            <text class="farming-home-keyboard-hint" x="2" y="27">KEYBOARD</text>
+            <text class="farming-home-keyboard-hint" x="2" y="9"><tspan
+              v-for="(glyph, index) in 'USE'"
+              :key="index"
+              :style="{ animationDelay: glyphDelay(2.68, index) }"
+            >{{ glyph }}</tspan></text>
+            <text class="farming-home-keyboard-hint" x="2" y="27"><tspan
+              v-for="(glyph, index) in 'KEYBOARD'"
+              :key="index"
+              :style="{ animationDelay: glyphDelay(2.92, index, 0.06) }"
+            >{{ glyph }}</tspan></text>
             <g transform="translate(92 2)">
               <rect class="farming-home-keycap-side" x="0.5" y="2.5" width="18" height="14" rx="1.5" />
               <rect class="farming-home-keycap-top" x="0.5" y="0.5" width="18" height="14" rx="1.5" />
-              <text class="farming-home-keycap-label" x="9.5" y="7.5">↑</text>
+              <text class="farming-home-keycap-label" x="9.5" y="7.5"><tspan style="animation-delay: 3.58s">↑</tspan></text>
             </g>
             <g transform="translate(73 20)">
               <rect class="farming-home-keycap-side" x="0.5" y="2.5" width="18" height="14" rx="1.5" />
               <rect class="farming-home-keycap-top" x="0.5" y="0.5" width="18" height="14" rx="1.5" />
-              <text class="farming-home-keycap-label" x="9.5" y="7.5">←</text>
+              <text class="farming-home-keycap-label" x="9.5" y="7.5"><tspan style="animation-delay: 3.7s">←</tspan></text>
             </g>
             <g transform="translate(92 20)">
               <rect class="farming-home-keycap-side" x="0.5" y="2.5" width="18" height="14" rx="1.5" />
               <rect class="farming-home-keycap-top" x="0.5" y="0.5" width="18" height="14" rx="1.5" />
-              <text class="farming-home-keycap-label" x="9.5" y="7.5">↓</text>
+              <text class="farming-home-keycap-label" x="9.5" y="7.5"><tspan style="animation-delay: 3.78s">↓</tspan></text>
             </g>
             <g transform="translate(111 20)">
               <rect class="farming-home-keycap-side" x="0.5" y="2.5" width="18" height="14" rx="1.5" />
               <rect class="farming-home-keycap-top" x="0.5" y="0.5" width="18" height="14" rx="1.5" />
-              <text class="farming-home-keycap-label" x="9.5" y="7.5">→</text>
+              <text class="farming-home-keycap-label" x="9.5" y="7.5"><tspan style="animation-delay: 3.86s">→</tspan></text>
             </g>
             <g transform="translate(62 2)">
               <rect class="farming-home-keycap-side" x="0.5" y="2.5" width="28" height="14" rx="1.5" />
               <rect class="farming-home-keycap-top" x="0.5" y="0.5" width="28" height="14" rx="1.5" />
-              <text class="farming-home-keycap-label farming-home-keycap-label-small" x="14.5" y="7.5">ESC</text>
+              <text class="farming-home-keycap-label farming-home-keycap-label-small" x="14.5" y="7.5"><tspan
+                v-for="(glyph, index) in 'ESC'"
+                :key="index"
+                :style="{ animationDelay: glyphDelay(3.38, index) }"
+              >{{ glyph }}</tspan></text>
             </g>
             <g transform="translate(113 2)">
               <path class="farming-home-keycap-side" d="M.5 2.5h56v32h-18v-18h-38z" />
               <path class="farming-home-keycap-top" d="M.5.5h56v32h-18v-18h-38z" />
-              <text class="farming-home-keycap-label farming-home-keycap-label-small" x="25" y="7.5">ENTER</text>
-              <text class="farming-home-keycap-label farming-home-keycap-return" x="47.5" y="24">↵</text>
+              <text class="farming-home-keycap-label farming-home-keycap-label-small" x="25" y="7.5"><tspan
+                v-for="(glyph, index) in 'ENTER'"
+                :key="index"
+                :style="{ animationDelay: glyphDelay(3.94, index, 0.06) }"
+              >{{ glyph }}</tspan></text>
+              <text class="farming-home-keycap-label farming-home-keycap-return" x="47.5" y="24"><tspan style="animation-delay: 4.28s">↵</tspan></text>
             </g>
           </g>
         </svg>

@@ -332,22 +332,21 @@
 .farming-home-crt-case,
 .farming-home-crt-stand {
   stroke: var(--crt-phosphor);
-  stroke-width: 2;
+  /* Keep dash distances in the normalized SVG path coordinate system. */
+  stroke-width: 1;
+  vector-effect: none;
   filter: drop-shadow(0 0 3px rgba(12, 204, 104, 0.65));
 }
 
 .dark .farming-home-crt-case {
-  /* vector-effect: non-scaling-stroke makes Chrome resolve dash units in
-     screen pixels; the case renders at ~444px, so the dash must exceed that
-     or the outline shows a gap. */
-  --farming-crt-stroke-length: 470;
-  stroke-dasharray: 470;
+  --farming-crt-stroke-length: 1;
+  stroke-dasharray: 1;
   animation: farming-crt-outline-draw 720ms 260ms cubic-bezier(0.2, 0.78, 0.2, 1) both;
 }
 
 .dark .farming-home-crt-stand {
-  --farming-crt-stroke-length: 110;
-  stroke-dasharray: 110;
+  --farming-crt-stroke-length: 1;
+  stroke-dasharray: 1;
   animation: farming-crt-outline-draw 420ms 780ms cubic-bezier(0.2, 0.78, 0.2, 1) both;
 }
 
@@ -447,7 +446,7 @@
 .dark .farming-home-crt-name span:nth-child(7) { --farming-crt-letter-delay: 1.89s; }
 
 .farming-home-crt-model {
-  display: block;
+  display: flex;
   width: max-content;
   margin-top: 14px;
   padding: 2px 6px 2px 11px;
@@ -465,6 +464,18 @@
 .dark .farming-home-crt-model {
   animation: farming-crt-model-slam 340ms 2.05s cubic-bezier(0.2, 0.85, 0.3, 1) both;
 }
+
+.farming-home-crt-model span {
+  display: inline-block;
+}
+
+.dark .farming-home-crt-model span {
+  animation: farming-crt-letter-hit 180ms ease-out both;
+}
+
+.dark .farming-home-crt-model span:nth-child(1) { animation-delay: 2.16s; }
+.dark .farming-home-crt-model span:nth-child(2) { animation-delay: 2.25s; }
+.dark .farming-home-crt-model span:nth-child(3) { animation-delay: 2.34s; }
 
 .farming-home-crt-keyboard {
   position: relative;
@@ -523,6 +534,10 @@
 
 .farming-home-keycap-return {
   font-size: 12px;
+}
+
+.dark .farming-home-crt-keyboard text > tspan {
+  animation: farming-crt-ui-glyph-hit 180ms ease-out both;
 }
 
 
@@ -629,6 +644,13 @@
     transform: scaleX(1);
     filter: brightness(1);
   }
+}
+
+@keyframes farming-crt-ui-glyph-hit {
+  0% { opacity: 0; }
+  24% { opacity: 1; filter: brightness(2.2) drop-shadow(0 0 2px currentColor); }
+  52% { opacity: 0.42; }
+  100% { opacity: 1; filter: none; }
 }
 
 @keyframes farming-crt-keyboard-trace {
@@ -1218,7 +1240,9 @@
   .dark .farming-home-crt-name span,
   .dark .farming-home-crt-name span::after,
   .dark .farming-home-crt-model,
+  .dark .farming-home-crt-model span,
   .dark .farming-home-crt-keyboard,
+  .dark .farming-home-crt-keyboard text > tspan,
   .dark .farming-home-crt-streams span {
     animation: none;
   }
