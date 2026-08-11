@@ -13,6 +13,7 @@ import {
 import { FarmingSessionStore, MAX_MAIN_PAGE_SESSION_KEYS } from './farming-session-store.cjs';
 import { RunHistoryStore } from './run-history-store.cjs';
 import { getUserLaunchAgents, isSupportedHistoryAgent } from './cli-agents.cjs';
+import { listProviderDescriptors } from './provider-adapters.cjs';
 import * as storageLayout from './storage-layout.cjs';
 import { COMPUTER_IMAGE } from '../extensions/computer/backend/computer-constants.cjs';
 import type {
@@ -253,43 +254,15 @@ const DEFAULT_LAUNCH_AGENT_NAMES = new Set(
   getUserLaunchAgents().filter(agent => agent.interactive).map(agent => agent.name),
 );
 
-const DEFAULT_AGENT_HOMES: AgentHomes = {
-  codex: [{
+const DEFAULT_AGENT_HOMES: AgentHomes = Object.fromEntries(
+  listProviderDescriptors().map((provider, order) => [provider.id, [{
     id: 'default',
-    path: '~/.codex',
-    order: 0,
+    path: `~/${provider.defaultHomeDirectory}`,
+    order,
     acpRuntime: { mode: 'managed', executable: '' },
     newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
-  }],
-  claude: [{
-    id: 'default',
-    path: '~/.claude',
-    order: 1,
-    acpRuntime: { mode: 'managed', executable: '' },
-    newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
-  }],
-  opencode: [{
-    id: 'default',
-    path: '~/.opencode',
-    order: 2,
-    acpRuntime: { mode: 'managed', executable: '' },
-    newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
-  }],
-  qoder: [{
-    id: 'default',
-    path: '~/.qoder',
-    order: 3,
-    acpRuntime: { mode: 'managed', executable: '' },
-    newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
-  }],
-  qwen: [{
-    id: 'default',
-    path: '~/.qwen',
-    order: 4,
-    acpRuntime: { mode: 'managed', executable: '' },
-    newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
-  }],
-};
+  }]]),
+);
 
 const LEGACY_DEFAULT_WORKSPACE_FILE_SEARCH_TIMEOUT_MS = 3000;
 const DEFAULT_SEARCH_TIMEOUT_MS = 15000;

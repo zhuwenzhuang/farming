@@ -14,6 +14,7 @@ const {
   MAX_CRT_TERMINAL_FONT_SIZE,
   MIN_CONTENT_FONT_SIZE,
 } = require('../config-manager.cjs');
+const { listProviderDescriptors } = require('../provider-adapters.cjs');
 
 function run() {
   const previousConfigDir = process.env.FARMING_CONFIG_DIR;
@@ -103,12 +104,48 @@ function run() {
     assert.strictEqual(settings.codexModel, 'config');
     assert.strictEqual(settings.codexReasoningEffort, 'config');
     assert.strictEqual(settings.codexServiceTier, 'config');
-    assert.deepStrictEqual(settings.agentHomes.codex[0], {
-      id: 'default',
-      path: '~/.codex',
-      order: 0,
-      acpRuntime: { mode: 'managed', executable: '' },
-      newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
+    assert.deepStrictEqual(settings.agentHomes, {
+      codex: [{
+        id: 'default',
+        path: '~/.codex',
+        order: 0,
+        acpRuntime: { mode: 'managed', executable: '' },
+        newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
+      }],
+      claude: [{
+        id: 'default',
+        path: '~/.claude',
+        order: 1,
+        acpRuntime: { mode: 'managed', executable: '' },
+        newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
+      }],
+      opencode: [{
+        id: 'default',
+        path: '~/.opencode',
+        order: 2,
+        acpRuntime: { mode: 'managed', executable: '' },
+        newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
+      }],
+      qoder: [{
+        id: 'default',
+        path: '~/.qoder',
+        order: 3,
+        acpRuntime: { mode: 'managed', executable: '' },
+        newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
+      }],
+      qwen: [{
+        id: 'default',
+        path: '~/.qwen',
+        order: 4,
+        acpRuntime: { mode: 'managed', executable: '' },
+        newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
+      }],
+    });
+    const providerDescriptors = listProviderDescriptors();
+    assert.deepStrictEqual(Object.keys(settings.agentHomes), providerDescriptors.map(provider => provider.id));
+    providerDescriptors.forEach((provider, order) => {
+      assert.strictEqual(settings.agentHomes[provider.id][0].path, `~/${provider.defaultHomeDirectory}`);
+      assert.strictEqual(settings.agentHomes[provider.id][0].order, order);
     });
     assert.strictEqual(settings.codexRuntimeMode, undefined);
     assert.strictEqual(settings.updateUrl, undefined);
