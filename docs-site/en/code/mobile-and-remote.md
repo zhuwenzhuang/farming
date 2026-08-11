@@ -22,6 +22,8 @@ To print the current address on the Host:
 farming url
 ```
 
+When another device only needs to observe the current workspace, prefer a read-only link from [Sharing and read-only access](./sharing). You can also open the page-level share panel and scan its QR code with the phone camera or system QR scanner. A QR code created by an Owner grants full control, so scan it only on a trusted receiving device.
+
 ## Security boundary
 
 Do not expose Farming directly to an uncontrolled public network. Use a VPN, SSH tunnel, HTTPS reverse proxy, or equivalent protection across untrusted networks.

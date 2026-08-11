@@ -27,6 +27,10 @@ Files is intended for small, explicit edits. Before saving:
 - rerun relevant checks after saving;
 - edit authoritative source files instead of generated output.
 
+## Share the current reading position
+
+The share button in the File Viewer toolbar copies a temporary read-only link. It records the current file, Editor or Diff view, and reading line and column. See [Sharing and read-only access](./sharing) for the complete behavior.
+
 ## Changes and Diff View
 
 When the worktree changes, Files lists tracked and untracked files. Open a file for a quick view, or choose **Review changes** for a full Diff View with context and comments.

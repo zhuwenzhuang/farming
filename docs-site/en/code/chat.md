@@ -34,6 +34,10 @@ Broader permissions reduce confirmation steps but increase possible impact. Use 
 
 If the direction is clearly wrong, stop the current Turn and send a more precise request. A network timeout does not prove that an operation failed; inspect files, Git state, and the current result before resending anything that could duplicate changes.
 
+## Share one answer
+
+The action row of a completed answer includes copy and share buttons. Share copies a temporary read-only link and positions the recipient at that exact answer. See [Sharing and read-only access](./sharing) for permissions, expiry, and fallback behavior.
+
 ## Switch to Terminal
 
 Switch to [Terminal](./terminal) when you need native CLI interaction or complete PTY output. Supported Providers keep the same Agent identity and Workspace.

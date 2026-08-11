@@ -43,6 +43,9 @@ const publicCodeScreenshotSpecs = new Map<string, PublicScreenshotSpec>([
   ['17-code-pet-black-hole.png', { fileName: 'pet-black-hole.png' }],
   ['18-code-desktop-connections.png', { fileName: 'desktop-connections.png' }],
   ['19-code-agent-homes.png', { fileName: 'agent-homes.png' }],
+  ['20-code-share-chat.png', { fileName: 'share-chat.png', clip: { x: 300, y: 0, width: 1140, height: 810 } }],
+  ['21-code-share-file.png', { fileName: 'share-file.png', clip: { x: 300, y: 0, width: 1140, height: 810 } }],
+  ['22-code-share-qr.png', { fileName: 'share-qr.png', clip: { x: 0, y: 0, width: 650, height: 620 } }],
 ]);
 const publicCrtScreenshotSpecs = new Map<string, PublicScreenshotSpec>([
   ['01-crt-dashboard.png', { fileName: 'crt-dashboard.png' }],
@@ -750,6 +753,32 @@ async function installUsageRoutes(page, fixture) {
   });
 }
 
+async function installShareRoutes(page) {
+  let ticketSequence = 0;
+  await page.route(`**${basePath}/api/share/qr-ticket**`, async route => {
+    if (route.request().method() === 'DELETE') {
+      await route.fulfill({ json: { revoked: true } });
+      return;
+    }
+    ticketSequence += 1;
+    const code = `DEMO${String(ticketSequence).padStart(6, '0')}`;
+    await route.fulfill({
+      json: {
+        code,
+        expiresAt: Date.now() + 5 * 60 * 1000,
+        ttlMs: 5 * 60 * 1000,
+        shortPath: `/j/${code}`,
+        shortUrl: `https://demo.example.invalid/j/${code}`,
+        longUrl: `https://demo.example.invalid/farming?share=read-only-${ticketSequence}`,
+        fullAccessUrl: 'https://demo.example.invalid/farming?token=full-control-demo',
+        shortUrlAccessMode: 'owner',
+        longUrlAccessMode: 'read-only',
+        tokenLabel: 'spring-rain-softly-falls',
+      },
+    });
+  });
+}
+
 async function captureDesktopConnections(browser, baseUrl) {
   const context = await browser.newContext({
     baseURL: baseUrl,
@@ -1085,6 +1114,7 @@ async function main() {
       baseURL: baseUrl,
       viewport: { width: 1440, height: 810 },
       deviceScaleFactor: 1,
+      permissions: ['clipboard-read', 'clipboard-write'],
     });
     await context.addInitScript(() => {
       window.__FARMING_E2E__ = true;
@@ -1095,6 +1125,7 @@ async function main() {
     await page.route(`**${basePath}/api/codex/models`, route => route.fulfill({
       json: { catalog: matrixCatalog, source: 'fixture' },
     }));
+    await installShareRoutes(page);
     await installSessionSearchRoute(page);
     await installUsageRoutes(page, usageFixture);
     await ensureApp(page);
@@ -1265,6 +1296,24 @@ async function main() {
     await page.getByTestId('code-agent-transcript-scroll').evaluate((element) => {
       element.scrollTop = 0;
     });
+
+    if (requestedScreenshotFiles.size === 0 || requestedScreenshotFiles.has('20-code-share-chat.png')) {
+      await page.getByTestId('code-agent-transcript-share-answer').last().click();
+      await page.getByTestId('code-copy-toast').waitFor({ state: 'visible', timeout: 20_000 });
+      await screenshot(page, '20-code-share-chat.png');
+      if (requestedScreenshotsComplete()) return;
+    }
+
+    if (requestedScreenshotFiles.size === 0 || requestedScreenshotFiles.has('22-code-share-qr.png')) {
+      await page.getByTestId('code-share-button').click();
+      const sharePopover = page.getByTestId('code-share-popover');
+      await sharePopover.waitFor({ state: 'visible', timeout: 20_000 });
+      await sharePopover.locator('svg[aria-label="QR code"]').waitFor({ state: 'visible', timeout: 20_000 });
+      await screenshot(page, '22-code-share-qr.png');
+      if (requestedScreenshotsComplete()) return;
+      await page.getByTestId('code-share-button').click();
+    }
+
     await screenshot(page, '01-code-workspace.png');
     if (requestedScreenshotsComplete()) return;
 
@@ -1349,6 +1398,12 @@ async function main() {
     ].map(agentId => updateAgent(page, baseUrl, agentId, { unread: false })));
     await page.waitForFunction(() => !document.querySelector('.code-agent-unread, .code-project-agent-compact-unread'));
     await waitForStableUi(page, 1000);
+    if (requestedScreenshotFiles.size === 0 || requestedScreenshotFiles.has('21-code-share-file.png')) {
+      await page.getByTestId('code-file-editor-share').click();
+      await page.getByTestId('code-copy-toast').waitFor({ state: 'visible', timeout: 20_000 });
+      await screenshot(page, '21-code-share-file.png');
+      if (requestedScreenshotsComplete()) return;
+    }
     await screenshot(page, '04-files-markdown-preview.png');
     if (requestedScreenshotsComplete()) return;
 

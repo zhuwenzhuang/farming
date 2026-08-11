@@ -47,6 +47,7 @@ const zhSidebar = [
     { text: 'Terminal', link: '/cn/code/terminal' },
     { text: 'Token 使用', link: '/cn/code/usage' },
     { text: '搜索与 History', link: '/cn/code/search-and-history' },
+    { text: '分享与只读访问', link: '/cn/code/sharing' },
     { text: '手机与远程使用', link: '/cn/code/mobile-and-remote' },
   ] },
   { text: 'Farming CRT', items: [
@@ -98,6 +99,7 @@ const enSidebar = [
     { text: 'Terminal', link: '/en/code/terminal' },
     { text: 'Token usage', link: '/en/code/usage' },
     { text: 'Search and History', link: '/en/code/search-and-history' },
+    { text: 'Sharing and read-only access', link: '/en/code/sharing' },
     { text: 'Mobile and remote use', link: '/en/code/mobile-and-remote' },
   ] },
   { text: 'Farming CRT', items: [
