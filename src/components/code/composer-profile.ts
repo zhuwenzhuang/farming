@@ -29,15 +29,20 @@ export interface ClaudeSettingsSummary {
   effortOptions?: CodexReasoningOption[]
 }
 
-export interface ComposerLaunchProfileState {
-  codexApprovalMode: CodexApprovalMode
-  codexModel: string
-  codexReasoningEffort: string
-  codexServiceTier: string
-  claudePermissionMode: ClaudePermissionMode
-  claudeModel: string
-  claudeEffort: string
+export type ComposerProfileProvider = 'codex' | 'claude'
+
+export interface ComposerProviderProfile {
+  permissionMode: string
+  model: string
+  reasoningEffort: string
+  serviceTier: string
 }
+
+export type ComposerProviderProfiles = Record<ComposerProfileProvider, ComposerProviderProfile>
+export type ComposerLaunchProfileState = ComposerProviderProfiles
+
+export type ComposerProfileSettingsPatch = Record<string, string>
+export type ComposerProfileSettingsScope = 'all' | 'permission' | 'model'
 
 export interface CodexComposerProfile {
   model: string
@@ -64,6 +69,26 @@ export interface ComposerControlState {
   currentPermissionOption: PermissionModeOption | undefined
   currentPermissionLabel: string
   currentPermissionColor: PermissionModeColor
+}
+
+interface ComposerProviderProfileAdapter {
+  defaultProfile: ComposerProviderProfile
+  fromSettings(settings: GlobalSettings): ComposerProviderProfile
+  normalizePermissionMode(mode: string | undefined): string
+  effectivePermissionMode(hasActiveAgent: boolean, launchPermissionMode: string | undefined, fallback: string): string
+  modelOptions(profile: ComposerProviderProfile, codexOptions: CodexModelOption[], claudeSettings: ClaudeSettingsSummary): CodexModelOption[]
+  resolvedModel(profile: ComposerProviderProfile, claudeSettings: ClaudeSettingsSummary): string
+  resolvedReasoningEffort(profile: ComposerProviderProfile, claudeSettings: ClaudeSettingsSummary): string
+  reasoningOptions(profile: ComposerProviderProfile, model: CodexModelOption | undefined, claudeSettings: ClaudeSettingsSummary): CodexReasoningOption[]
+  serviceTierOptions(model: CodexModelOption | undefined): CodexServiceTierOption[]
+  permissionOptions: PermissionModeOption[]
+  settingsPatch(profile: ComposerProviderProfile, scope: ComposerProfileSettingsScope): ComposerProfileSettingsPatch
+  selectModel(profile: ComposerProviderProfile, model: string, options: CodexModelOption[]): ComposerProviderProfile
+  selectReasoningEffort(profile: ComposerProviderProfile, effort: string): ComposerProviderProfile
+  selectServiceTier(profile: ComposerProviderProfile, tier: string): ComposerProviderProfile | null
+  selectModelProfile(profile: ComposerProviderProfile, model: string, effort: string, options: CodexModelOption[]): ComposerProviderProfile | null
+  startOptions(profile: ComposerProviderProfile, options: Record<string, unknown>): Record<string, unknown>
+  applyLiveProfile(profile: ComposerProviderProfile, liveProfile: CodexComposerProfile | null | undefined): ComposerProviderProfile
 }
 
 const CODEX_APPROVAL_MODE_LABELS: Record<CodexApprovalMode, string> = {
@@ -335,24 +360,286 @@ export function codexModelOptionsWithCurrent(
   ]
 }
 
-export function normalizeLaunchProfiles(settings: GlobalSettings): ComposerLaunchProfileState {
-  const codexProfile = settings.agentLaunchProfiles?.codex ?? {}
-  const mode = codexProfile.approvalMode ?? settings.codexApprovalMode
-  const preset = codexProfile.modelPreset ?? settings.codexModelPreset
-  const splitPreset = splitModelPreset(preset)
-  const codexModel = codexProfile.model || settings.codexModel || splitPreset.model
-  const codexReasoningEffort = codexProfile.reasoningEffort || settings.codexReasoningEffort || splitPreset.effort
+const DEFAULT_CODEX_PROFILE: ComposerProviderProfile = {
+  permissionMode: 'approve',
+  model: 'gpt-5.5',
+  reasoningEffort: 'xhigh',
+  serviceTier: 'default',
+}
 
-  const claudeProfile = settings.agentLaunchProfiles?.claude ?? {}
+const DEFAULT_CLAUDE_PROFILE: ComposerProviderProfile = {
+  permissionMode: 'default',
+  model: 'config',
+  reasoningEffort: 'config',
+  serviceTier: '',
+}
+
+function codexProfileFromSettings(settings: GlobalSettings): ComposerProviderProfile {
+  const profile = settings.agentLaunchProfiles?.codex ?? {}
+  const mode = profile.approvalMode ?? settings.codexApprovalMode
+  const preset = profile.modelPreset ?? settings.codexModelPreset
+  const splitPreset = splitModelPreset(preset)
   return {
-    codexApprovalMode: isCodexApprovalMode(mode) ? mode : 'approve',
-    codexModel,
-    codexReasoningEffort,
-    codexServiceTier: codexProfile.serviceTier || settings.codexServiceTier || 'default',
-    claudePermissionMode: isClaudePermissionMode(claudeProfile.permissionMode) ? claudeProfile.permissionMode : 'default',
-    claudeModel: normalizeClaudeModel(claudeProfile.model),
-    claudeEffort: normalizeClaudeEffort(claudeProfile.effort),
+    permissionMode: isCodexApprovalMode(mode) ? mode : DEFAULT_CODEX_PROFILE.permissionMode,
+    model: profile.model || settings.codexModel || splitPreset.model,
+    reasoningEffort: profile.reasoningEffort || settings.codexReasoningEffort || splitPreset.effort,
+    serviceTier: profile.serviceTier || settings.codexServiceTier || DEFAULT_CODEX_PROFILE.serviceTier,
   }
+}
+
+function claudeProfileFromSettings(settings: GlobalSettings): ComposerProviderProfile {
+  const profile = settings.agentLaunchProfiles?.claude ?? {}
+  return {
+    permissionMode: isClaudePermissionMode(profile.permissionMode)
+      ? profile.permissionMode
+      : DEFAULT_CLAUDE_PROFILE.permissionMode,
+    model: normalizeClaudeModel(profile.model),
+    reasoningEffort: normalizeClaudeEffort(profile.effort),
+    serviceTier: '',
+  }
+}
+
+function codexReasoningOptions(profile: ComposerProviderProfile, model: CodexModelOption | undefined) {
+  if (model?.reasoningLevels?.length) return model.reasoningLevels
+  return profile.reasoningEffort
+    ? [{
+        value: profile.reasoningEffort,
+        effort: profile.reasoningEffort,
+        label: effortLabel(profile.reasoningEffort),
+      }]
+    : []
+}
+
+function codexServiceTierOptions(model: CodexModelOption | undefined): CodexServiceTierOption[] {
+  return model?.serviceTiers?.length
+    ? model.serviceTiers
+    : [{ value: 'default', label: 'Standard', description: 'Default speed' }]
+}
+
+const COMPOSER_PROVIDER_PROFILE_ADAPTERS: Record<ComposerProfileProvider, ComposerProviderProfileAdapter> = {
+  codex: {
+    defaultProfile: DEFAULT_CODEX_PROFILE,
+    fromSettings: codexProfileFromSettings,
+    normalizePermissionMode: mode => isCodexApprovalMode(mode) ? mode : DEFAULT_CODEX_PROFILE.permissionMode,
+    effectivePermissionMode: (hasActiveAgent, launchPermissionMode, fallback) => effectiveCodexApprovalModeForSession(
+      hasActiveAgent,
+      launchPermissionMode,
+      isCodexApprovalMode(fallback) ? fallback : 'approve',
+    ),
+    modelOptions: (profile, options) => codexModelOptionsWithCurrent(
+      profile.model,
+      profile.reasoningEffort,
+      profile.serviceTier,
+      options,
+    ),
+    resolvedModel: profile => profile.model,
+    resolvedReasoningEffort: profile => profile.reasoningEffort,
+    reasoningOptions: (profile, model) => codexReasoningOptions(profile, model),
+    serviceTierOptions: codexServiceTierOptions,
+    permissionOptions: CODEX_PERMISSION_OPTIONS,
+    settingsPatch: (profile, scope) => ({
+      ...(scope !== 'model' ? { approvalMode: profile.permissionMode } : {}),
+      ...(scope !== 'permission'
+        ? {
+            model: profile.model,
+            reasoningEffort: profile.reasoningEffort,
+            serviceTier: profile.serviceTier,
+          }
+        : {}),
+    }),
+    selectModel: (profile, model, options) => {
+      const option = options.find(item => item.value === model)
+      const reasoningLevels = option?.reasoningLevels ?? []
+      const serviceTiers = option?.serviceTiers ?? []
+      return {
+        ...profile,
+        model,
+        reasoningEffort: reasoningLevels.some(level => level.value === profile.reasoningEffort)
+          ? profile.reasoningEffort
+          : (option?.defaultEffort || reasoningLevels[0]?.value || profile.reasoningEffort),
+        serviceTier: serviceTiers.some(tier => tier.value === profile.serviceTier)
+          ? profile.serviceTier
+          : 'default',
+      }
+    },
+    selectReasoningEffort: (profile, effort) => ({ ...profile, reasoningEffort: effort }),
+    selectServiceTier: (profile, tier) => ({ ...profile, serviceTier: tier }),
+    selectModelProfile: (profile, model, effort, options) => {
+      const option = options.find(item => item.value === model)
+      if (!option) return null
+      return {
+        ...profile,
+        model,
+        reasoningEffort: option.reasoningLevels?.some(level => level.value === effort)
+          ? effort
+          : (option.defaultEffort || option.reasoningLevels?.[0]?.value || effort),
+        serviceTier: option.serviceTiers?.some(tier => tier.value === profile.serviceTier)
+          ? profile.serviceTier
+          : 'default',
+      }
+    },
+    startOptions: (profile, options) => {
+      const requestedMode = typeof options.codexApprovalMode === 'string'
+        ? options.codexApprovalMode
+        : profile.permissionMode
+      const approvalMode = isCodexApprovalMode(requestedMode) ? requestedMode : 'approve'
+      return {
+        ...options,
+        codexApprovalMode: approvalMode,
+        ...(approvalMode === 'full' ? { dangerouslySkipPermissions: true } : {}),
+      }
+    },
+    applyLiveProfile: (profile, liveProfile) => ({
+      ...profile,
+      ...resolveCodexComposerProfile(liveProfile, profile),
+    }),
+  },
+  claude: {
+    defaultProfile: DEFAULT_CLAUDE_PROFILE,
+    fromSettings: claudeProfileFromSettings,
+    normalizePermissionMode: mode => isClaudePermissionMode(mode) ? mode : DEFAULT_CLAUDE_PROFILE.permissionMode,
+    effectivePermissionMode: (hasActiveAgent, launchPermissionMode, fallback) => effectiveClaudePermissionModeForSession(
+      hasActiveAgent,
+      launchPermissionMode,
+      isClaudePermissionMode(fallback) ? fallback : 'default',
+    ),
+    modelOptions: (profile, _options, settings) => claudeModelOptionsWithCurrent(profile.model, settings),
+    resolvedModel: (profile, settings) => resolveClaudeModel(profile.model, settings),
+    resolvedReasoningEffort: (profile, settings) => resolveClaudeEffort(profile.reasoningEffort, settings),
+    reasoningOptions: (profile, _model, settings) => claudeReasoningOptionsWithCurrent(
+      resolveClaudeEffort(profile.reasoningEffort, settings),
+      settings,
+    ),
+    serviceTierOptions: () => [],
+    permissionOptions: CLAUDE_PERMISSION_OPTIONS,
+    settingsPatch: (profile, scope) => ({
+      ...(scope !== 'model' ? { permissionMode: profile.permissionMode } : {}),
+      ...(scope !== 'permission'
+        ? { model: profile.model, effort: profile.reasoningEffort }
+        : {}),
+    }),
+    selectModel: (profile, model) => ({ ...profile, model: normalizeClaudeModel(model) }),
+    selectReasoningEffort: (profile, effort) => ({
+      ...profile,
+      reasoningEffort: normalizeClaudeEffort(effort),
+    }),
+    selectServiceTier: () => null,
+    selectModelProfile: () => null,
+    startOptions: (_profile, options) => options,
+    applyLiveProfile: profile => profile,
+  },
+}
+
+function providerProfileAdapter(provider: string | null | undefined): ComposerProviderProfileAdapter | undefined {
+  return provider ? COMPOSER_PROVIDER_PROFILE_ADAPTERS[provider as ComposerProfileProvider] : undefined
+}
+
+export function isComposerProfileProvider(provider: string | null | undefined): provider is ComposerProfileProvider {
+  return Boolean(providerProfileAdapter(provider))
+}
+
+export function normalizeLaunchProfiles(settings: GlobalSettings): ComposerLaunchProfileState {
+  return {
+    codex: COMPOSER_PROVIDER_PROFILE_ADAPTERS.codex.fromSettings(settings),
+    claude: COMPOSER_PROVIDER_PROFILE_ADAPTERS.claude.fromSettings(settings),
+  }
+}
+
+export function defaultComposerProviderProfiles(): ComposerProviderProfiles {
+  return {
+    codex: { ...COMPOSER_PROVIDER_PROFILE_ADAPTERS.codex.defaultProfile },
+    claude: { ...COMPOSER_PROVIDER_PROFILE_ADAPTERS.claude.defaultProfile },
+  }
+}
+
+export function resolveComposerProviderControlProfile({
+  provider,
+  profiles,
+  hasActiveAgent,
+  launchPermissionMode,
+  liveProfile,
+}: {
+  provider: ComposerProfileProvider
+  profiles: ComposerProviderProfiles
+  hasActiveAgent: boolean
+  launchPermissionMode?: string
+  liveProfile?: CodexComposerProfile | null
+}): ComposerProviderProfile {
+  const adapter = COMPOSER_PROVIDER_PROFILE_ADAPTERS[provider]
+  const profile = adapter.applyLiveProfile(profiles[provider], liveProfile)
+  return {
+    ...profile,
+    permissionMode: adapter.effectivePermissionMode(
+      hasActiveAgent,
+      launchPermissionMode,
+      profile.permissionMode,
+    ),
+  }
+}
+
+export function composerProfileSettingsPatch(
+  provider: ComposerProfileProvider,
+  profile: ComposerProviderProfile,
+  scope: ComposerProfileSettingsScope = 'all',
+) {
+  return COMPOSER_PROVIDER_PROFILE_ADAPTERS[provider].settingsPatch(profile, scope)
+}
+
+export function selectComposerProviderPermissionMode(
+  provider: ComposerProfileProvider,
+  profile: ComposerProviderProfile,
+  mode: string,
+) {
+  return {
+    ...profile,
+    permissionMode: COMPOSER_PROVIDER_PROFILE_ADAPTERS[provider].normalizePermissionMode(mode),
+  }
+}
+
+export function selectComposerProviderModel(
+  provider: ComposerProfileProvider,
+  profile: ComposerProviderProfile,
+  model: string,
+  options: CodexModelOption[],
+) {
+  return COMPOSER_PROVIDER_PROFILE_ADAPTERS[provider].selectModel(profile, model, options)
+}
+
+export function selectComposerProviderReasoningEffort(
+  provider: ComposerProfileProvider,
+  profile: ComposerProviderProfile,
+  effort: string,
+) {
+  return COMPOSER_PROVIDER_PROFILE_ADAPTERS[provider].selectReasoningEffort(profile, effort)
+}
+
+export function selectComposerProviderServiceTier(
+  provider: ComposerProfileProvider,
+  profile: ComposerProviderProfile,
+  tier: string,
+) {
+  return COMPOSER_PROVIDER_PROFILE_ADAPTERS[provider].selectServiceTier(profile, tier)
+}
+
+export function selectComposerProviderModelProfile(
+  provider: ComposerProfileProvider,
+  profile: ComposerProviderProfile,
+  model: string,
+  effort: string,
+  options: CodexModelOption[],
+) {
+  return COMPOSER_PROVIDER_PROFILE_ADAPTERS[provider].selectModelProfile(profile, model, effort, options)
+}
+
+export function composerAgentStartOptions(
+  provider: string | null | undefined,
+  profiles: ComposerProviderProfiles,
+  options?: Record<string, unknown>,
+) {
+  const adapter = providerProfileAdapter(provider)
+  return adapter && isComposerProfileProvider(provider)
+    ? adapter.startOptions(profiles[provider], options || {})
+    : options
 }
 
 export function resolveCodexComposerProfile(
@@ -369,57 +656,31 @@ export function resolveCodexComposerProfile(
 
 export function buildComposerControlState({
   agentKind,
-  codexModel,
-  codexReasoningEffort,
-  codexServiceTier,
+  profile,
   codexModelOptions,
-  codexApprovalMode,
-  claudeModel,
-  claudeEffort,
   claudeSettings,
-  claudePermissionMode,
 }: {
   agentKind: 'codex' | 'claude' | 'shell' | 'agent' | null
-  codexModel: string
-  codexReasoningEffort: string
-  codexServiceTier: string
+  profile: ComposerProviderProfile
   codexModelOptions: CodexModelOption[]
-  codexApprovalMode: CodexApprovalMode
-  claudeModel: string
-  claudeEffort: string
   claudeSettings: ClaudeSettingsSummary
-  claudePermissionMode: ClaudePermissionMode
 }): ComposerControlState {
-  const resolvedClaudeModel = resolveClaudeModel(claudeModel, claudeSettings)
-  const resolvedClaudeEffort = resolveClaudeEffort(claudeEffort, claudeSettings)
-  const agentModelOptions = agentKind === 'claude'
-    ? claudeModelOptionsWithCurrent(claudeModel, claudeSettings)
-    : agentKind === 'codex'
-      ? codexModelOptionsWithCurrent(codexModel, codexReasoningEffort, codexServiceTier, codexModelOptions)
-      : codexModelOptions
-  const agentModel = agentKind === 'claude' ? resolvedClaudeModel : codexModel
-  const agentReasoningEffort = agentKind === 'claude' ? resolvedClaudeEffort : codexReasoningEffort
-  const agentServiceTier = agentKind === 'claude' ? '' : codexServiceTier
+  const adapter = providerProfileAdapter(agentKind) ?? COMPOSER_PROVIDER_PROFILE_ADAPTERS.codex
+  const agentModelOptions = adapter.modelOptions(profile, codexModelOptions, claudeSettings)
+  const agentModel = adapter.resolvedModel(profile, claudeSettings)
+  const agentReasoningEffort = adapter.resolvedReasoningEffort(profile, claudeSettings)
+  const agentServiceTier = profile.serviceTier
   const agentModelPreset = `${agentModel}:${agentReasoningEffort}`
   const currentModelOption = agentModelOptions.find(option => option.value === agentModel) ?? agentModelOptions[0]
-  const currentReasoningOptions = agentKind === 'claude'
-    ? claudeReasoningOptionsWithCurrent(agentReasoningEffort, claudeSettings)
-    : (currentModelOption?.reasoningLevels?.length
-      ? currentModelOption.reasoningLevels
-      : agentReasoningEffort
-        ? [{ value: agentReasoningEffort, effort: agentReasoningEffort, label: effortLabel(agentReasoningEffort) }]
-        : [])
-  const currentServiceTierOptions = agentKind === 'claude'
-    ? []
-    : currentModelOption?.serviceTiers?.length
-      ? currentModelOption.serviceTiers
-      : [{ value: 'default', label: 'Standard', description: 'Default speed' }]
+  const resolvedProfile = { ...profile, model: agentModel, reasoningEffort: agentReasoningEffort }
+  const currentReasoningOptions = adapter.reasoningOptions(resolvedProfile, currentModelOption, claudeSettings)
+  const currentServiceTierOptions = adapter.serviceTierOptions(currentModelOption)
   const currentReasoningOption = currentReasoningOptions.find(option => option.value === agentReasoningEffort)
     ?? currentReasoningOptions[0]
   const currentServiceTierOption = currentServiceTierOptions.find(option => option.value === agentServiceTier)
     ?? currentServiceTierOptions[0]
-  const permissionModeOptions = agentKind === 'claude' ? CLAUDE_PERMISSION_OPTIONS : CODEX_PERMISSION_OPTIONS
-  const currentPermissionMode = agentKind === 'claude' ? claudePermissionMode : codexApprovalMode
+  const permissionModeOptions = adapter.permissionOptions
+  const currentPermissionMode = profile.permissionMode
   const currentPermissionOption = permissionModeOptions.find(option => option.value === currentPermissionMode)
     ?? permissionModeOptions[0]
 

@@ -2054,6 +2054,7 @@ class AgentManager extends EventEmitter {
         }
         if (!titleChanged && !providerTerminalProfilesEqual(
           agent.providerSessionProvider,
+          agent,
           previousCodexTerminalProfile,
           codexTerminalProfile,
         )) {

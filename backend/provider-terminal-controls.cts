@@ -122,10 +122,12 @@ function activeProviderTerminalProfile(
 
 function providerTerminalProfilesEqual(
   provider: unknown,
+  agent: Pick<TypedAgentRecord, 'command' | 'providerSessionProvider'>,
   left: unknown,
   right: unknown,
 ): boolean {
-  const control = providerTerminalProfileControl(provider);
+  const control = providerTerminalProfileControl(provider)
+    || providerTerminalProfileControlForAgent(agent);
   return control ? control.equal(left, right) : left == null && right == null;
 }
 

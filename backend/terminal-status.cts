@@ -118,7 +118,12 @@ function inferKindFromText(
 ): TerminalKind {
   const commandName = executableName(command).toLowerCase();
   if (commandName && !SHELL_COMMANDS.has(commandName)) {
-    return providerTerminalKindForCommand(commandName) || 'process';
+    const providerKind = providerTerminalKindForCommand(commandName);
+    if (providerKind === 'process') return 'process';
+    if (providerKind) {
+      return latestTerminalKindFromText(title, previewText) || providerKind;
+    }
+    return 'process';
   }
   const terminalKind = latestTerminalKindFromText(title, previewText);
   if (terminalKind) return terminalKind;

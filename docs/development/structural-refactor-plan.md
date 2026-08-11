@@ -190,6 +190,12 @@ HTTP, WebSocket, persistence, and runtime-host boundaries.
   interpret provider names. A shared
   Terminal startup coordinator owns mutable ordering and readiness state;
   adapters contribute stateless resource-scope and readiness policy only.
+- The Code Composer stores one provider-neutral launch profile shape. Composer
+  provider profile adapters own settings-field compatibility, option
+  normalization, permission labels, model/reasoning/service-tier transitions,
+  live Terminal profile projection, and provider-specific launch flags. React
+  composition code selects an adapter by Provider identity and must not mirror
+  those decisions in paired Provider-name branches.
 
 ### ACP ownership
 

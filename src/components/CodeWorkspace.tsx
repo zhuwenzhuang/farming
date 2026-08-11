@@ -163,18 +163,22 @@ import { codeCopyForLanguage } from './code/copy'
 import { scheduleFocusRetries, scheduleFocusUntil } from './code/focus-retry'
 import {
   buildComposerControlState,
-  effectiveClaudePermissionModeForSession,
-  effectiveCodexApprovalModeForSession,
-  isClaudePermissionMode,
-  isCodexApprovalMode,
-  normalizeClaudeEffort,
-  normalizeClaudeModel,
+  composerAgentStartOptions,
+  composerProfileSettingsPatch,
+  defaultComposerProviderProfiles,
+  isComposerProfileProvider,
   normalizeLaunchProfiles,
-  resolveCodexComposerProfile,
+  resolveComposerProviderControlProfile,
+  selectComposerProviderModel,
+  selectComposerProviderModelProfile,
+  selectComposerProviderPermissionMode,
+  selectComposerProviderReasoningEffort,
+  selectComposerProviderServiceTier,
+  type ComposerProfileProvider,
+  type ComposerProfileSettingsScope,
+  type ComposerProviderProfile,
 } from './code/composer-profile'
 import type {
-  ClaudePermissionMode,
-  CodexApprovalMode,
   ComposerMode,
   GlobalSettings,
   SearchTarget,
@@ -639,16 +643,10 @@ export function CodeWorkspace({
     captureInitialSettingsGuard: captureMainPageSessionKeysInitialGuard,
     receiveInitialSettings: receiveInitialMainPageSessionKeys,
   } = useMainPageSessionMembershipController(remoteMainPageSessionKeys)
-  const [codexApprovalMode, setCodexApprovalMode] = useState<CodexApprovalMode>('approve')
-  const [codexModel, setCodexModel] = useState('gpt-5.5')
-  const [codexReasoningEffort, setCodexReasoningEffort] = useState('xhigh')
-  const [codexServiceTier, setCodexServiceTier] = useState('default')
+  const [composerProviderProfiles, setComposerProviderProfiles] = useState(defaultComposerProviderProfiles)
   const [codexTerminalProfileApplyingAgentIds, setCodexTerminalProfileApplyingAgentIds] = useState<Set<string>>(() => new Set())
   const [pendingCodexTerminalProfiles, setPendingCodexTerminalProfiles] = useState<Map<string, CodexTerminalProfile>>(() => new Map())
   const codexTerminalProfileRequestAgentIdsRef = useRef(new Set<string>())
-  const [claudePermissionMode, setClaudePermissionMode] = useState<ClaudePermissionMode>('default')
-  const [claudeModel, setClaudeModel] = useState('config')
-  const [claudeEffort, setClaudeEffort] = useState('config')
   const [agentSessionPinnedOverrides, setAgentSessionPinnedOverrides] = useState<Record<string, boolean>>(
     () => loadSessionDisplayState().pinnedOverrides
   )
@@ -1102,36 +1100,29 @@ export function CodeWorkspace({
     workspace: activeAgent?.cwd,
     slashCommandDiscovery: activeAgent?.providerCapabilities?.slashCommandDiscovery === true,
   })
-  const displayedCodexApprovalMode = useMemo(() => effectiveCodexApprovalModeForSession(
-    Boolean(activeAgent && composerAgentKind === 'codex'),
-    activeAgent?.launchPermissionMode,
-    codexApprovalMode,
-  ), [activeAgent, codexApprovalMode, composerAgentKind])
-  const displayedClaudePermissionMode = useMemo(() => effectiveClaudePermissionModeForSession(
-    Boolean(activeAgent && composerAgentKind === 'claude'),
-    activeAgent?.launchPermissionMode,
-    claudePermissionMode,
-  ), [activeAgent, claudePermissionMode, composerAgentKind])
   const pendingCodexTerminalProfile = activeAgent
     ? pendingCodexTerminalProfiles.get(activeAgent.id) || null
     : null
-  const displayedCodexProfile = useMemo(() => resolveCodexComposerProfile(
-    pendingCodexTerminalProfile || activeAgent?.codexTerminalProfile,
-    {
-      model: codexModel,
-      reasoningEffort: codexReasoningEffort,
-      serviceTier: codexServiceTier,
-    },
-  ), [
-    activeAgent?.codexTerminalProfile,
-    codexModel,
-    codexReasoningEffort,
-    codexServiceTier,
+  const composerProfileProvider: ComposerProfileProvider = isComposerProfileProvider(composerAgentKind)
+    ? composerAgentKind
+    : 'codex'
+  const displayedComposerProfile = useMemo(() => resolveComposerProviderControlProfile({
+    provider: composerProfileProvider,
+    profiles: composerProviderProfiles,
+    hasActiveAgent: Boolean(activeAgent && composerAgentKind === composerProfileProvider),
+    launchPermissionMode: activeAgent?.launchPermissionMode,
+    liveProfile: pendingCodexTerminalProfile || activeAgent?.codexTerminalProfile,
+  }), [
+    activeAgent,
+    composerAgentKind,
+    composerProfileProvider,
+    composerProviderProfiles,
     pendingCodexTerminalProfile,
   ])
-  const displayedCodexModel = displayedCodexProfile.model
-  const displayedCodexReasoningEffort = displayedCodexProfile.reasoningEffort
-  const displayedCodexServiceTier = displayedCodexProfile.serviceTier
+  const editableComposerProfile = useMemo(() => ({
+    ...displayedComposerProfile,
+    permissionMode: composerProviderProfiles[composerProfileProvider].permissionMode,
+  }), [composerProfileProvider, composerProviderProfiles, displayedComposerProfile])
   const activeTerminalCanInterrupt = Boolean(
     activeAgent
     && activeAgent.status === 'running'
@@ -1412,25 +1403,13 @@ export function CodeWorkspace({
   ])
   const composerControlState = useMemo(() => buildComposerControlState({
     agentKind: composerAgentKind,
-    codexModel: displayedCodexModel,
-    codexReasoningEffort: displayedCodexReasoningEffort,
-    codexServiceTier: displayedCodexServiceTier,
+    profile: displayedComposerProfile,
     codexModelOptions,
-    codexApprovalMode: displayedCodexApprovalMode,
-    claudeModel,
-    claudeEffort,
     claudeSettings,
-    claudePermissionMode: displayedClaudePermissionMode,
   }), [
-    claudeEffort,
-    claudeModel,
     claudeSettings,
-    displayedClaudePermissionMode,
-    displayedCodexApprovalMode,
-    displayedCodexModel,
     codexModelOptions,
-    displayedCodexReasoningEffort,
-    displayedCodexServiceTier,
+    displayedComposerProfile,
     composerAgentKind,
   ])
   const {
@@ -1511,14 +1490,7 @@ export function CodeWorkspace({
     focusComposerTextarea()
   }, [activeAcpRuntime, activeTerminalId, focusComposerTextarea, terminalFocusRequest])
   const applyLaunchSettings = useCallback((settings: GlobalSettings) => {
-    const profile = normalizeLaunchProfiles(settings)
-    setCodexApprovalMode(profile.codexApprovalMode)
-    setCodexModel(profile.codexModel)
-    setCodexReasoningEffort(profile.codexReasoningEffort)
-    setCodexServiceTier(profile.codexServiceTier)
-    setClaudePermissionMode(profile.claudePermissionMode)
-    setClaudeModel(profile.claudeModel)
-    setClaudeEffort(profile.claudeEffort)
+    setComposerProviderProfiles(normalizeLaunchProfiles(settings))
   }, [])
   const loadGlobalSettings = useCallback(() => {
     let cancelled = false
@@ -2136,18 +2108,10 @@ export function CodeWorkspace({
     setMainPaneMode('terminal')
     onWorkspaceViewChange('projects')
 
-    if (agentKindForCommand(command) !== 'codex') {
-      onStartAgent(command, workspace, options)
-      return
-    }
-
-    const selectedApprovalMode = options?.codexApprovalMode || codexApprovalMode
-    onStartAgent(command, workspace, {
-      ...options,
-      codexApprovalMode: selectedApprovalMode,
-      ...(selectedApprovalMode === 'full' ? { dangerouslySkipPermissions: true } : {}),
-    })
-  }, [codexApprovalMode, onStartAgent, onWorkspaceViewChange, setMainPaneMode])
+    const provider = agentKindForCommand(command)
+    const startOptions = composerAgentStartOptions(provider, composerProviderProfiles, options)
+    onStartAgent(command, workspace, startOptions)
+  }, [composerProviderProfiles, onStartAgent, onWorkspaceViewChange, setMainPaneMode])
 
   useEffect(() => {
     let cancelled = false
@@ -3737,43 +3701,70 @@ export function CodeWorkspace({
     updateLanguagePreference,
   ])
 
-  const persistAgentLaunchProfile = useCallback((agentName: 'codex' | 'claude', updates: Record<string, string>) => {
+  const persistAgentLaunchProfile = useCallback((provider: ComposerProfileProvider, updates: Record<string, string>) => {
     fetch(appPath('/api/settings'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         agentLaunchProfiles: {
-          [agentName]: updates,
+          [provider]: updates,
         },
       }),
     }).catch(() => {})
   }, [])
 
-  const updatePermissionMode = useCallback((mode: string) => {
-    if (permissionSwitchingAgentId) return
-    if (composerAgentKind === 'claude') {
-      const nextMode = isClaudePermissionMode(mode) ? mode : 'default'
-      setClaudePermissionMode(nextMode)
-      persistAgentLaunchProfile('claude', { permissionMode: nextMode })
-      if (activeAgent) {
-        setCopyNotice({ id: Date.now(), kind: 'success', message: copy.permissionProfileRestarting })
-        void onUpdateAgentFlags(activeAgent.id, { launchPermissionMode: nextMode })
-      }
-      closeActiveComposerMenus()
-      focusComposerTextarea()
+  const commitComposerProviderProfile = useCallback((
+    provider: ComposerProfileProvider,
+    profile: ComposerProviderProfile,
+    scope: ComposerProfileSettingsScope,
+  ) => {
+    setComposerProviderProfiles(current => ({
+      ...current,
+      [provider]: profile,
+    }))
+    persistAgentLaunchProfile(provider, composerProfileSettingsPatch(provider, profile, scope))
+  }, [persistAgentLaunchProfile])
+
+  const commitOrApplyComposerProviderProfile = useCallback((
+    provider: ComposerProfileProvider,
+    profile: ComposerProviderProfile,
+  ) => {
+    if (
+      activeAgent
+      && composerAgentKind === provider
+      && activeAgent.runtimeBinding.kind === 'terminal'
+      && activeAgent.providerCapabilities?.terminalProfile === true
+    ) {
+      void applyCodexTerminalProfile(
+        activeAgent,
+        profile.model,
+        profile.reasoningEffort,
+        profile.serviceTier,
+      ).then(applied => {
+        if (applied) commitComposerProviderProfile(provider, profile, 'model')
+      })
       return
     }
+    commitComposerProviderProfile(provider, profile, 'model')
+  }, [activeAgent, applyCodexTerminalProfile, commitComposerProviderProfile, composerAgentKind])
 
-    const nextMode = isCodexApprovalMode(mode) ? mode : 'approve'
-    setCodexApprovalMode(nextMode)
-    persistAgentLaunchProfile('codex', { approvalMode: nextMode })
-    if (activeAgent && composerAgentKind === 'codex') {
+  const updatePermissionMode = useCallback((mode: string) => {
+    if (permissionSwitchingAgentId) return
+    if (!isComposerProfileProvider(composerAgentKind)) return
+    const provider = composerAgentKind
+    const profile = selectComposerProviderPermissionMode(
+      provider,
+      composerProviderProfiles[provider],
+      mode,
+    )
+    commitComposerProviderProfile(provider, profile, 'permission')
+    if (activeAgent) {
       setCopyNotice({ id: Date.now(), kind: 'success', message: copy.permissionProfileRestarting })
-      void onUpdateAgentFlags(activeAgent.id, { launchPermissionMode: nextMode })
+      void onUpdateAgentFlags(activeAgent.id, { launchPermissionMode: profile.permissionMode })
     }
     closeActiveComposerMenus()
     focusComposerTextarea()
-  }, [activeAgent, closeActiveComposerMenus, composerAgentKind, copy.permissionProfileRestarting, focusComposerTextarea, onUpdateAgentFlags, permissionSwitchingAgentId, persistAgentLaunchProfile])
+  }, [activeAgent, closeActiveComposerMenus, commitComposerProviderProfile, composerAgentKind, composerProviderProfiles, copy.permissionProfileRestarting, focusComposerTextarea, onUpdateAgentFlags, permissionSwitchingAgentId])
 
   const updateAgentRuntimeMode = useCallback((agentId: string, mode: 'terminal' | 'chat') => {
     if (permissionSwitchingAgentId) return
@@ -3788,118 +3779,55 @@ export function CodeWorkspace({
     updateAgentRuntimeMode(agentId, mode)
   }, [activeAgents, closeContextMenu, permissionSwitchingAgentId, updateAgentRuntimeMode])
 
-  const commitCodexProfile = useCallback((model: string, effort: string, serviceTier: string) => {
-    setCodexModel(model)
-    setCodexReasoningEffort(effort)
-    setCodexServiceTier(serviceTier)
-    persistAgentLaunchProfile('codex', {
-      model,
-      reasoningEffort: effort,
-      serviceTier,
-    })
-  }, [persistAgentLaunchProfile])
-
   const updateAgentModel = useCallback((model: string) => {
-    if (composerAgentKind === 'claude') {
-      const nextModel = normalizeClaudeModel(model)
-      setClaudeModel(nextModel)
-      closeActiveComposerMenus()
-      focusComposerTextarea()
-      persistAgentLaunchProfile('claude', {
-        model: nextModel,
-        effort: claudeEffort,
-      })
-      return
-    }
-
-    const option = codexModelOptions.find(item => item.value === model)
-    const reasoningLevels = option?.reasoningLevels ?? []
-    const serviceTiers = option?.serviceTiers ?? []
-    const nextEffort = reasoningLevels.some(level => level.value === displayedCodexReasoningEffort)
-      ? displayedCodexReasoningEffort
-      : (option?.defaultEffort || reasoningLevels[0]?.value || displayedCodexReasoningEffort)
-    const nextServiceTier = serviceTiers.some(tier => tier.value === displayedCodexServiceTier)
-      ? displayedCodexServiceTier
-      : 'default'
-
+    if (!isComposerProfileProvider(composerAgentKind)) return
+    const provider = composerAgentKind
+    const profile = selectComposerProviderModel(provider, editableComposerProfile, model, codexModelOptions)
     closeActiveComposerMenus()
     focusComposerTextarea()
-    if (activeAgent && isCodexTerminalAgent(activeAgent)) {
-      void applyCodexTerminalProfile(activeAgent, model, nextEffort, nextServiceTier).then(applied => {
-        if (applied) commitCodexProfile(model, nextEffort, nextServiceTier)
-      })
-      return
-    }
-    commitCodexProfile(model, nextEffort, nextServiceTier)
-  }, [activeAgent, applyCodexTerminalProfile, claudeEffort, closeActiveComposerMenus, codexModelOptions, displayedCodexReasoningEffort, displayedCodexServiceTier, commitCodexProfile, composerAgentKind, focusComposerTextarea, persistAgentLaunchProfile])
+    commitOrApplyComposerProviderProfile(provider, profile)
+  }, [closeActiveComposerMenus, codexModelOptions, commitOrApplyComposerProviderProfile, composerAgentKind, editableComposerProfile, focusComposerTextarea])
 
   const updateAgentModelProfile = useCallback((model: string, effort: string) => {
-    if (composerAgentKind !== 'codex') return
-    const option = codexModelOptions.find(item => item.value === model)
-    if (!option) return
-    const nextEffort = option.reasoningLevels?.some(level => level.value === effort)
-      ? effort
-      : (option.defaultEffort || option.reasoningLevels?.[0]?.value || effort)
-    const nextServiceTier = option.serviceTiers?.some(tier => tier.value === displayedCodexServiceTier)
-      ? displayedCodexServiceTier
-      : 'default'
-    if (activeAgent && isCodexTerminalAgent(activeAgent)) {
-      void applyCodexTerminalProfile(activeAgent, model, nextEffort, nextServiceTier).then(applied => {
-        if (applied) commitCodexProfile(model, nextEffort, nextServiceTier)
-      })
-      return
-    }
-    commitCodexProfile(model, nextEffort, nextServiceTier)
-  }, [activeAgent, applyCodexTerminalProfile, codexModelOptions, displayedCodexServiceTier, commitCodexProfile, composerAgentKind])
+    if (!isComposerProfileProvider(composerAgentKind)) return
+    const provider = composerAgentKind
+    const profile = selectComposerProviderModelProfile(
+      provider,
+      editableComposerProfile,
+      model,
+      effort,
+      codexModelOptions,
+    )
+    if (!profile) return
+    commitOrApplyComposerProviderProfile(provider, profile)
+  }, [codexModelOptions, commitOrApplyComposerProviderProfile, composerAgentKind, editableComposerProfile])
 
   const updateAgentReasoningEffort = useCallback((effort: string) => {
-    if (composerAgentKind === 'claude') {
-      const nextEffort = normalizeClaudeEffort(effort)
-      setClaudeEffort(nextEffort)
-      closeActiveComposerMenus()
-      focusComposerTextarea()
-      persistAgentLaunchProfile('claude', {
-        model: claudeModel,
-        effort: nextEffort,
-      })
-      return
-    }
-
+    if (!isComposerProfileProvider(composerAgentKind)) return
+    const provider = composerAgentKind
+    const profile = selectComposerProviderReasoningEffort(provider, editableComposerProfile, effort)
     closeActiveComposerMenus()
     focusComposerTextarea()
-    if (activeAgent && isCodexTerminalAgent(activeAgent)) {
-      void applyCodexTerminalProfile(activeAgent, displayedCodexModel, effort, displayedCodexServiceTier).then(applied => {
-        if (applied) commitCodexProfile(displayedCodexModel, effort, displayedCodexServiceTier)
-      })
-      return
-    }
-    commitCodexProfile(displayedCodexModel, effort, displayedCodexServiceTier)
-  }, [activeAgent, applyCodexTerminalProfile, claudeModel, closeActiveComposerMenus, displayedCodexModel, displayedCodexServiceTier, commitCodexProfile, composerAgentKind, focusComposerTextarea, persistAgentLaunchProfile])
+    commitOrApplyComposerProviderProfile(provider, profile)
+  }, [closeActiveComposerMenus, commitOrApplyComposerProviderProfile, composerAgentKind, editableComposerProfile, focusComposerTextarea])
 
   const updateAgentServiceTier = useCallback((tier: string) => {
-    if (composerAgentKind === 'claude') return
-
+    if (!isComposerProfileProvider(composerAgentKind)) return
+    const provider = composerAgentKind
+    const profile = selectComposerProviderServiceTier(provider, editableComposerProfile, tier)
+    if (!profile) return
     closeActiveComposerMenus()
     focusComposerTextarea()
-    if (activeAgent && isCodexTerminalAgent(activeAgent)) {
-      void applyCodexTerminalProfile(activeAgent, displayedCodexModel, displayedCodexReasoningEffort, tier).then(applied => {
-        if (applied) commitCodexProfile(displayedCodexModel, displayedCodexReasoningEffort, tier)
-      })
-      return
-    }
-    commitCodexProfile(displayedCodexModel, displayedCodexReasoningEffort, tier)
-  }, [activeAgent, applyCodexTerminalProfile, closeActiveComposerMenus, displayedCodexModel, displayedCodexReasoningEffort, commitCodexProfile, composerAgentKind, focusComposerTextarea])
+    commitOrApplyComposerProviderProfile(provider, profile)
+  }, [closeActiveComposerMenus, commitOrApplyComposerProviderProfile, composerAgentKind, editableComposerProfile, focusComposerTextarea])
 
   const updateAgentServiceTierInline = useCallback((tier: string) => {
-    if (composerAgentKind !== 'codex') return
-    if (activeAgent && isCodexTerminalAgent(activeAgent)) {
-      void applyCodexTerminalProfile(activeAgent, displayedCodexModel, displayedCodexReasoningEffort, tier).then(applied => {
-        if (applied) commitCodexProfile(displayedCodexModel, displayedCodexReasoningEffort, tier)
-      })
-      return
-    }
-    commitCodexProfile(displayedCodexModel, displayedCodexReasoningEffort, tier)
-  }, [activeAgent, applyCodexTerminalProfile, displayedCodexModel, displayedCodexReasoningEffort, commitCodexProfile, composerAgentKind])
+    if (!isComposerProfileProvider(composerAgentKind)) return
+    const provider = composerAgentKind
+    const profile = selectComposerProviderServiceTier(provider, editableComposerProfile, tier)
+    if (!profile) return
+    commitOrApplyComposerProviderProfile(provider, profile)
+  }, [commitOrApplyComposerProviderProfile, composerAgentKind, editableComposerProfile])
 
   const toggleSpeechInput = useCallback(() => {
     if (speechListening) {

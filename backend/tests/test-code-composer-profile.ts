@@ -1,9 +1,15 @@
 const assert = require('assert');
 const {
   buildComposerControlState,
+  composerAgentStartOptions,
+  composerProfileSettingsPatch,
+  defaultComposerProviderProfiles,
   effectiveClaudePermissionModeForSession,
   effectiveCodexApprovalModeForSession,
+  normalizeLaunchProfiles,
   resolveCodexComposerProfile,
+  selectComposerProviderModel,
+  selectComposerProviderPermissionMode,
 } = require('../../src/components/code/composer-profile.ts');
 const { normalizeModelCatalog } = require('../../src/components/code/model.ts');
 
@@ -47,15 +53,14 @@ function run() {
 
   const pendingCatalogState = buildComposerControlState({
     agentKind: 'codex',
-    codexModel: 'gpt-5.6-sol',
-    codexReasoningEffort: 'ultra',
-    codexServiceTier: 'priority',
+    profile: {
+      permissionMode: 'approve',
+      model: 'gpt-5.6-sol',
+      reasoningEffort: 'ultra',
+      serviceTier: 'priority',
+    },
     codexModelOptions: [],
-    codexApprovalMode: 'approve',
-    claudeModel: 'config',
-    claudeEffort: 'config',
     claudeSettings: {},
-    claudePermissionMode: 'default',
   });
   assert.strictEqual(pendingCatalogState.currentModelLabel, '5.6-sol');
   assert.strictEqual(pendingCatalogState.currentReasoningLabel, 'Ultra');
@@ -89,6 +94,74 @@ function run() {
     ),
     { model: 'gpt-5.5', reasoningEffort: 'xhigh', serviceTier: 'default' },
     'the composer should use launch defaults only when no live Terminal profile exists'
+  );
+
+  const profiles = normalizeLaunchProfiles({
+    agentLaunchProfiles: {
+      codex: {
+        approvalMode: 'full',
+        model: 'gpt-5.6-sol',
+        reasoningEffort: 'high',
+        serviceTier: 'priority',
+      },
+      claude: {
+        permissionMode: 'plan',
+        model: 'opus',
+        effort: 'max',
+      },
+    },
+  });
+  assert.deepStrictEqual(profiles.codex, {
+    permissionMode: 'full',
+    model: 'gpt-5.6-sol',
+    reasoningEffort: 'high',
+    serviceTier: 'priority',
+  });
+  assert.deepStrictEqual(profiles.claude, {
+    permissionMode: 'plan',
+    model: 'opus',
+    reasoningEffort: 'max',
+    serviceTier: '',
+  });
+  assert.deepStrictEqual(composerProfileSettingsPatch('codex', profiles.codex), {
+    approvalMode: 'full',
+    model: 'gpt-5.6-sol',
+    reasoningEffort: 'high',
+    serviceTier: 'priority',
+  });
+  assert.deepStrictEqual(composerProfileSettingsPatch('claude', profiles.claude), {
+    permissionMode: 'plan',
+    model: 'opus',
+    effort: 'max',
+  });
+  assert.deepStrictEqual(
+    composerProfileSettingsPatch('codex', profiles.codex, 'model'),
+    { model: 'gpt-5.6-sol', reasoningEffort: 'high', serviceTier: 'priority' },
+    'changing a model must not overwrite the saved permission mode with a session projection'
+  );
+  assert.deepStrictEqual(
+    composerProfileSettingsPatch('claude', profiles.claude, 'permission'),
+    { permissionMode: 'plan' },
+    'changing permissions must not rewrite unrelated provider model settings'
+  );
+  assert.deepStrictEqual(
+    composerAgentStartOptions('codex', profiles, { providerHomeId: 'work' }),
+    { providerHomeId: 'work', codexApprovalMode: 'full', dangerouslySkipPermissions: true },
+    'Codex launch flags should be emitted by its profile adapter'
+  );
+  assert.deepStrictEqual(
+    composerAgentStartOptions('claude', profiles, { providerHomeId: 'work' }),
+    { providerHomeId: 'work' },
+    'providers without extra launch flags should preserve common launch options'
+  );
+
+  const defaults = defaultComposerProviderProfiles();
+  const selectedClaude = selectComposerProviderModel('claude', defaults.claude, ' sonnet ', []);
+  assert.strictEqual(selectedClaude.model, 'sonnet');
+  assert.strictEqual(
+    selectComposerProviderPermissionMode('claude', selectedClaude, 'invalid').permissionMode,
+    'default',
+    'permission normalization belongs to the selected provider adapter'
   );
 
   console.log('test-code-composer-profile passed');
