@@ -195,6 +195,14 @@ body.code-mode[data-appearance='dark'] {
   --code-agent-list-agent-hover-preview-agent-hover-title-card-box-shadow: 0 16px 36px rgba(0, 0, 0, 0.36);
 }
 
+body.code-mode[data-appearance='paper'] {
+  --code-agent-list-agent-row-action-hover-focus-visible-background: var(--code-bg-hover-strong);
+  --code-agent-list-agent-row-action-pin-active-color: var(--code-warning);
+  --code-agent-list-agent-hover-preview-agent-hover-title-card-background: rgba(255, 253, 248, 0.98);
+  --code-agent-list-agent-hover-preview-agent-hover-title-card-box-shadow: 0 12px 28px rgba(72, 63, 45, 0.12),
+    0 1px 3px rgba(72, 63, 45, 0.06);
+}
+
 /* code */
 body.code-mode {
   --code-core-selection-background: transparent;
@@ -332,6 +340,39 @@ body.code-mode[data-appearance='dark'] {
   --code-core-mobile-markdown-reading-mobile-topbar-button-compact-layout-backdrop-filter: blur(18px) saturate(1.12);
   --code-core-mobile-markdown-reading-mobile-topbar-button-compact-layout-webkit-backdrop-filter: blur(18px) saturate(1.12);
   --code-core-connection-status-lost-business-unavailable-border-color: rgba(248, 81, 73, 0.46);
+}
+
+body.code-mode[data-appearance='paper'] {
+  --code-core-app-mode-dialog-background: rgba(255, 253, 248, 0.98);
+  --code-core-app-mode-dialog-box-shadow: 0 24px 68px rgba(72, 63, 45, 0.2);
+  --code-core-app-mode-choice-background: var(--code-bg-surface);
+  --code-core-app-mode-choice-recommended-border-color: var(--code-success-ring);
+  --code-core-app-mode-choice-recommended-background: var(--code-success-soft);
+  --code-core-app-mode-recommended-color: var(--code-success);
+  --code-core-app-mode-choice-temporary-background: var(--code-bg-surface);
+  --code-core-brand-dialog-background: rgba(255, 253, 248, 0.98);
+  --code-core-brand-dialog-box-shadow: 0 24px 68px rgba(72, 63, 45, 0.2);
+  --code-core-brand-github-color: var(--code-text-muted);
+  --code-core-mode-compact-layout-options-menu-background: rgba(255, 253, 248, 0.94);
+  --code-core-permission-switching-background: rgba(255, 253, 248, 0.76);
+  --code-core-permission-switching-spinner-border-color: var(--code-border);
+  --code-core-copy-toast-app-toast-background: rgba(255, 253, 248, 0.98);
+  --code-core-copy-toast-error-app-toast-border-color: var(--code-danger-soft);
+  --code-core-dialog-overlay-background: var(--code-bg-backdrop);
+  --code-core-focus-visible-task-input-focus-border-color: rgba(58, 110, 74, 0.54);
+  --code-core-focus-visible-task-input-focus-box-shadow: 0 0 0 3px var(--code-focus-ring);
+  --code-core-workspace-home-trigger-focus-visible-border-color: rgba(58, 110, 74, 0.54);
+  --code-core-workspace-home-trigger-focus-visible-box-shadow: 0 0 0 3px var(--code-focus-ring);
+  --code-core-workspace-home-menu-box-shadow: 0 12px 28px rgba(72, 63, 45, 0.16);
+  --code-core-workspace-history-list-webkit-scrollbar-thumb-background: rgba(98, 99, 91, 0.22);
+  --code-core-workspace-directory-prompt-error-border-color: rgba(180, 35, 47, 0.32);
+  --code-core-workspace-directory-prompt-error-background: var(--code-danger-soft);
+  --code-core-workspace-directory-prompt-error-workspace-directory-prompt-icon-background: var(--code-danger-soft);
+  --code-core-workspace-directory-prompt-actions-color: var(--code-text-on-emphasis);
+  --code-core-workspace-directory-prompt-actions-hover-disabled-border-color: var(--code-accent-hover);
+  --code-core-workspace-directory-prompt-actions-hover-disabled-background: var(--code-accent-hover);
+  --code-core-workspace-directory-prompt-actions-focus-visible-box-shadow: 0 0 0 3px var(--code-focus-ring);
+  --code-core-connection-status-lost-business-unavailable-border-color: rgba(180, 35, 47, 0.38);
 }
 
 /* composer */
@@ -621,6 +662,16 @@ body.code-mode[data-appearance='dark'] {
   --code-file-editor-hover-disabled-focus-visible-background: rgba(240, 246, 252, 0.09);
 }
 
+body.code-mode[data-appearance='paper'] {
+  --code-file-editor-tabs-webkit-scrollbar-thumb-background: rgba(98, 99, 91, 0.18);
+  --code-file-editor-bar-border-color: var(--code-border);
+  --code-file-editor-tab-active-after-background: var(--code-bg-hover);
+  --code-file-editor-file-preview-panel-metadata-background: linear-gradient(180deg, rgba(241, 238, 231, 0.78), rgba(255, 253, 248, 0.92));
+  --code-file-editor-markdown-reading-file-editor-action-source-preview-color: var(--code-text-muted);
+  --code-file-editor-action-source-preview-active-color: var(--code-text-muted);
+  --code-file-editor-hover-disabled-focus-visible-background: var(--code-bg-hover-strong);
+}
+
 /* files */
 body.code-mode {
   --code-files-file-tree-webkit-scrollbar-thumb-file-search-results-background: transparent;
@@ -696,6 +747,34 @@ body.code-mode[data-appearance='dark'] {
   --code-files-file-operation-dialog-rename-actions-primary-color: #ffffff;
 }
 
+body.code-mode[data-appearance='paper'] {
+  --code-files-file-tree-webkit-scrollbar-thumb-file-search-results-background: rgba(98, 99, 91, 0.18);
+  --code-files-file-search-results-background: rgba(255, 253, 248, 0.98);
+  --code-files-file-search-results-box-shadow: 0 14px 34px rgba(72, 63, 45, 0.18);
+  --code-files-file-search-ignored-action-hover-focus-visible-background: var(--code-accent-soft);
+  --code-files-refresh-background: var(--code-success-soft);
+  --code-files-file-row-ignored-color: var(--code-text-quiet);
+  --code-files-file-row-ignored-file-chevron-color: var(--code-text-quiet);
+  --code-files-file-open-spinner-border-color: var(--code-border);
+  --code-files-file-change-review-color: var(--code-accent);
+  --code-files-file-change-review-hover-focus-visible-color: var(--code-accent-hover);
+  --code-files-file-inline-blame-background: rgba(58, 110, 74, 0.12);
+  --code-files-file-inline-blame-hover-focus-visible-background: rgba(58, 110, 74, 0.18);
+  --code-files-file-inline-blame-uncommitted-background: var(--code-warning-soft);
+  --code-files-file-inline-blame-uncommitted-color: var(--code-warning);
+  --code-files-file-blame-toast-background: rgba(255, 253, 248, 0.96);
+  --code-files-file-blame-toast-error-border-color: rgba(180, 35, 47, 0.28);
+  --code-files-file-blame-detail-box-shadow: inset 0 1px 0 rgba(255, 253, 248, 0.82);
+  --code-files-file-line-changes-panel-background: rgba(250, 248, 242, 0.96);
+  --code-files-file-line-changes-panel-box-shadow: inset 0 1px 0 rgba(255, 253, 248, 0.82);
+  --code-files-file-line-changes-patch-background: rgba(255, 253, 248, 0.72);
+  --code-files-file-line-changes-line-meta-background: rgba(58, 110, 74, 0.07);
+  --code-files-file-line-changes-line-added-background: var(--code-diff-added-soft);
+  --code-files-file-line-changes-line-deleted-background: var(--code-diff-removed-soft);
+  --code-files-file-save-confirm-actions-primary-color: var(--code-text-on-emphasis);
+  --code-files-file-operation-dialog-rename-actions-primary-color: var(--code-text-on-emphasis);
+}
+
 /* git-history */
 body.code-mode {
   --code-git-history-scope-menu-background: rgba(255, 255, 255, 0.98);
@@ -719,6 +798,17 @@ body.code-mode[data-appearance='dark'] {
   --code-git-history-review-color: #8faed8;
   --code-git-history-load-more-color: #8faed8;
   --code-git-history-review-hover-focus-visible-color: #b7cff0;
+}
+
+body.code-mode[data-appearance='paper'] {
+  --code-git-history-scope-menu-background: rgba(255, 253, 248, 0.98);
+  --code-git-history-reference-color: var(--code-accent);
+  --code-git-history-scope-color: var(--code-text-muted);
+  --code-git-history-reference-tag-color: var(--code-warning);
+  --code-git-history-reference-remote-branch-color: #397f79;
+  --code-git-history-review-color: var(--code-accent);
+  --code-git-history-load-more-color: var(--code-accent-hover);
+  --code-git-history-review-hover-focus-visible-color: var(--code-accent-hover);
 }
 
 /* history */
@@ -924,6 +1014,9 @@ body.code-mode[data-appearance='dark'] {
 
 /* plugin */
 body.code-mode {
+  --code-plugin-detail-backdrop-background: rgba(31, 35, 40, 0.18);
+  --code-plugin-detail-dialog-background: rgba(255, 255, 255, 0.98);
+  --code-plugin-detail-dialog-box-shadow: 0 24px 68px rgba(31, 35, 40, 0.2);
   --code-plugin-extension-home-tabs-box-shadow: 0 1px 3px rgba(31, 35, 40, 0.08);
   --code-plugin-extension-kind-tabs-box-shadow: 0 1px 3px rgba(31, 35, 40, 0.09);
   --code-plugin-extension-meta-plugin-extension-status-enabled-color: #31713f;
@@ -942,6 +1035,9 @@ body.code-mode {
 }
 
 body.code-mode[data-appearance='dark'] {
+  --code-plugin-detail-backdrop-background: rgba(1, 4, 9, 0.64);
+  --code-plugin-detail-dialog-background: rgba(22, 27, 34, 0.98);
+  --code-plugin-detail-dialog-box-shadow: 0 24px 68px rgba(1, 4, 9, 0.52);
   --code-plugin-extension-home-tabs-box-shadow: none;
   --code-plugin-extension-kind-tabs-box-shadow: none;
   --code-plugin-extension-meta-plugin-extension-status-enabled-color: #71c782;
@@ -959,9 +1055,35 @@ body.code-mode[data-appearance='dark'] {
   --code-plugin-error-color: #ff8a80;
 }
 
+body.code-mode[data-appearance='paper'] {
+  --code-plugin-detail-backdrop-background: var(--code-bg-backdrop);
+  --code-plugin-detail-dialog-background: rgba(255, 253, 248, 0.98);
+  --code-plugin-detail-dialog-box-shadow: 0 24px 68px rgba(72, 63, 45, 0.2);
+  --code-plugin-extension-home-tabs-box-shadow: inset 0 0 0 1px var(--code-border-subtle);
+  --code-plugin-extension-kind-tabs-box-shadow: inset 0 0 0 1px var(--code-border-subtle);
+  --code-plugin-extension-meta-plugin-extension-status-enabled-color: var(--code-success);
+  --code-plugin-extension-meta-plugin-extension-status-disabled-color: var(--code-text-quiet);
+  --code-plugin-card-icon-background: var(--code-bg-chrome);
+  --code-plugin-status-enabled-color: var(--code-success);
+  --code-plugin-toggle-background: var(--code-bg-chrome);
+  --code-plugin-desktop-target-border-color: var(--code-border);
+  --code-plugin-desktop-target-color: var(--code-text);
+  --code-plugin-desktop-target-color-87ab46: var(--code-text-subtle);
+  --code-plugin-browser-settings-plugin-browser-apply-plugin-browser-install-background: var(--code-bg-surface);
+  --code-plugin-toggle-active-border-color: var(--code-success-ring);
+  --code-plugin-toggle-active-background: var(--code-success-soft);
+  --code-plugin-toggle-active-color: var(--code-success);
+  --code-plugin-error-color: var(--code-danger);
+}
+
 /* search */
 body.code-mode {
   --code-search-panel-input-background: rgba(255, 255, 255, 0.7);
+  --code-search-panel-input-focus-border-color: #bdc3b8;
+  --code-search-panel-input-focus-box-shadow: 0 0 0 3px rgba(122, 132, 118, 0.1);
+  --code-search-panel-icon-color: #7a8178;
+  --code-search-panel-clear-hover-background: rgba(36, 41, 47, 0.05);
+  --code-search-panel-clear-hover-color: #4f564e;
   --code-search-result-hover-active-border-color: transparent;
 }
 
@@ -970,12 +1092,26 @@ body.code-mode[data-appearance='dark'] {
   --code-search-result-hover-active-border-color: rgba(88, 166, 255, 0.42);
 }
 
+body.code-mode[data-appearance='paper'] {
+  --code-search-panel-input-background: var(--code-bg-raised);
+  --code-search-panel-input-focus-border-color: rgba(58, 110, 74, 0.54);
+  --code-search-panel-input-focus-box-shadow: 0 0 0 3px var(--code-focus-ring);
+  --code-search-panel-icon-color: var(--code-text-subtle);
+  --code-search-panel-clear-hover-background: var(--code-bg-hover-strong);
+  --code-search-panel-clear-hover-color: var(--code-text);
+  --code-search-result-hover-active-border-color: var(--code-border-subtle);
+}
+
 /* settings */
 body.code-mode {
   --code-settings-panel-overlay-background: rgba(15, 23, 42, 0.1);
   --code-settings-panel-background: var(--code-bg-inset);
   --code-settings-panel-border-left-color: var(--code-border);
   --code-settings-panel-box-shadow: -8px 0 28px rgba(31, 35, 40, 0.08);
+  --code-settings-range-accent-color: #69716c;
+  --code-settings-permission-toggle-active-border-color: var(--code-text-muted);
+  --code-settings-permission-toggle-active-background: var(--code-text-muted);
+  --code-settings-permission-toggle-active-color: var(--code-bg-inset);
   --code-settings-panel-header-background: var(--code-bg-inset);
   --code-settings-panel-header-border-bottom-color: var(--code-border);
   --code-settings-choice-row-border-color: var(--code-border);
@@ -1032,14 +1168,14 @@ body.code-mode {
   --code-settings-agent-home-provider-background: var(--code-bg-muted);
   --code-settings-agent-home-row-border-color: var(--code-border);
   --code-settings-inline-preferences-border-color: var(--code-border);
-  --code-settings-choice-row-border-color: var(--code-settings-choice-row-border-color);
-  --code-settings-update-card-border-color: var(--code-settings-update-card-border-color);
-  --code-settings-agent-home-form-border-color: var(--code-settings-agent-home-form-border-color);
-  --code-settings-inline-preferences-border-color: var(--code-settings-inline-preferences-border-color);
-  --code-settings-agent-home-row-border-color: var(--code-settings-agent-home-row-border-color);
+  --code-settings-choice-row-border-color: var(--code-border);
+  --code-settings-update-card-border-color: var(--code-border);
+  --code-settings-agent-home-form-border-color: var(--code-border);
+  --code-settings-inline-preferences-border-color: var(--code-border);
+  --code-settings-agent-home-row-border-color: var(--code-border);
   --code-settings-card-border-color: var(--code-border);
   --code-settings-choice-row-dangerous-border-color: var(--code-border);
-  --code-settings-agent-home-provider-border-color: var(--code-settings-agent-home-provider-border-color);
+  --code-settings-agent-home-provider-border-color: var(--code-border);
   --code-settings-update-card-available-border-color: #c8ddce;
   --code-settings-update-actions-border-color: var(--code-settings-agent-home-actions-agent-home-form-actions-settings-update-actions-border-color);
   --code-settings-hover-disabled-focus-visible-border-color: #bdc3ba;
@@ -1051,7 +1187,7 @@ body.code-mode {
   --code-settings-search-timeout-row-background: transparent;
   --code-settings-content-font-size-row-background: transparent;
   --code-settings-pet-rest-row-background: transparent;
-  --code-settings-agent-home-form-border-color-8f6538: var(--code-settings-agent-home-form-border-color-8f6538);
+  --code-settings-agent-home-form-border-color-8f6538: var(--code-border);
   --code-settings-search-timeout-row-border-color: var(--code-border);
   --code-settings-content-font-size-row-border-color: var(--code-border);
   --code-settings-pet-rest-row-border-color: var(--code-border);
@@ -1070,22 +1206,22 @@ body.code-mode {
   --code-settings-mode-compact-layout-settings-panel-background: rgba(247, 247, 244, 0.96);
   --code-settings-mode-compact-layout-settings-panel-box-shadow: 16px 0 44px rgba(31, 35, 40, 0.18);
   --code-settings-panel-color: var(--code-text-strong);
-  --code-settings-panel-border-left-color: var(--code-settings-panel-border-left-color);
+  --code-settings-panel-border-left-color: var(--code-border);
   --code-settings-panel-header-agent-home-provider-header-border-color: var(--code-border);
   --code-settings-section-agent-home-id-agent-home-provider-header-color: var(--code-text-strong);
   --code-settings-choice-row-background: var(--code-bg-muted);
-  --code-settings-agent-home-provider-background: var(--code-settings-agent-home-provider-background);
+  --code-settings-agent-home-provider-background: var(--code-bg-muted);
   --code-settings-agent-home-form-background-51e594: var(--code-bg-muted);
-  --code-settings-choice-row-border-color: var(--code-settings-choice-row-border-color);
-  --code-settings-agent-home-provider-border-color: var(--code-settings-agent-home-provider-border-color);
-  --code-settings-agent-home-form-border-color: var(--code-settings-agent-home-form-border-color);
-  --code-settings-segmented-border-color: var(--code-settings-segmented-border-color);
+  --code-settings-choice-row-border-color: var(--code-border);
+  --code-settings-agent-home-provider-border-color: var(--code-border);
+  --code-settings-agent-home-form-border-color: var(--code-border);
+  --code-settings-segmented-border-color: var(--code-border);
   --code-settings-agent-home-provider-header-border-color: var(--code-settings-agent-home-actions-agent-home-form-actions-settings-update-actions-border-color);
   --code-settings-agent-home-actions-border-color: var(--code-settings-agent-home-actions-agent-home-form-actions-settings-update-actions-border-color);
   --code-settings-agent-home-form-actions-border-color: var(--code-settings-agent-home-actions-agent-home-form-actions-settings-update-actions-border-color);
-  --code-settings-agent-home-form-border-color-8f6538: var(--code-settings-agent-home-form-border-color-8f6538);
+  --code-settings-agent-home-form-border-color-8f6538: var(--code-border);
   --code-settings-panel-close-border-color: var(--code-border);
-  --code-settings-agent-home-form-background: var(--code-settings-agent-home-form-background);
+  --code-settings-agent-home-form-background: var(--code-bg-inset);
   --code-settings-agent-home-form-color: var(--code-text-strong);
   --code-settings-segmented-active-color: var(--code-text-strong);
   --code-settings-segmented-hover-color: var(--code-settings-agent-home-form-actions-focus-visible-color);
@@ -1093,16 +1229,16 @@ body.code-mode {
   --code-settings-agent-home-provider-header-hover-color: var(--code-settings-agent-home-form-actions-focus-visible-color);
   --code-settings-agent-home-provider-header-focus-visible-color: var(--code-settings-agent-home-form-actions-focus-visible-color);
   --code-settings-agent-home-actions-hover-color: var(--code-settings-agent-home-actions-focus-visible-color);
-  --code-settings-agent-home-actions-focus-visible-color: var(--code-settings-agent-home-actions-focus-visible-color);
+  --code-settings-agent-home-actions-focus-visible-color: var(--code-text-strong);
   --code-settings-agent-home-form-actions-hover-color: var(--code-settings-agent-home-form-actions-focus-visible-color);
-  --code-settings-agent-home-form-actions-focus-visible-color: var(--code-settings-agent-home-form-actions-focus-visible-color);
+  --code-settings-agent-home-form-actions-focus-visible-color: var(--code-text-strong);
   --code-settings-panel-close-hover-color: var(--code-settings-panel-close-focus-visible-color);
-  --code-settings-panel-close-focus-visible-color: var(--code-settings-panel-close-focus-visible-color);
+  --code-settings-panel-close-focus-visible-color: var(--code-text-strong);
   --code-settings-agent-home-form-actions-primary-background: var(--code-settings-agent-home-form-actions-primary-settings-update-actions-background);
-  --code-settings-panel-overlay-background: var(--code-settings-panel-overlay-background);
+  --code-settings-panel-overlay-background: rgba(15, 23, 42, 0.1);
   --code-settings-segmented-background: var(--code-bg-inset);
-  --code-settings-segmented-active-color: var(--code-settings-segmented-active-color);
-  --code-settings-error-border-color: var(--code-settings-error-border-color);
+  --code-settings-segmented-active-color: var(--code-text-strong);
+  --code-settings-error-border-color: #f1c2c0;
 }
 
 body.code-mode[data-appearance='dark'] {
@@ -1282,10 +1418,30 @@ body.code-mode[data-appearance='dark'] {
   --code-share-mobile-install-control-background: rgba(240, 246, 252, 0.09);
 }
 
+body.code-mode[data-appearance='paper'] {
+  --code-share-button-background: var(--code-bg-hover);
+  --code-share-read-only-share-banner-background: rgba(255, 253, 248, 0.94);
+  --code-share-read-only-share-banner-color: var(--code-text-muted);
+  --code-share-popover-background: rgba(255, 253, 248, 0.98);
+  --code-share-token-card-background: rgba(255, 253, 248, 0.8);
+  --code-share-qr-access-note-share-passphrase-warning-color: var(--code-warning);
+  --code-share-refresh-background: rgba(255, 253, 248, 0.92);
+  --code-share-copy-status-background: var(--code-success-soft);
+  --code-share-copy-status-icon-color: var(--code-success);
+  --code-share-mobile-share-backdrop-background: var(--code-bg-backdrop);
+  --code-share-mobile-share-sheet-background: rgba(255, 253, 248, 0.97);
+  --code-share-mobile-share-sheet-box-shadow: 0 20px 56px rgba(72, 63, 45, 0.2);
+  --code-share-mobile-share-link-row-background: var(--code-bg-hover);
+  --code-share-mobile-share-link-row-background-d612d6: var(--code-bg-hover-strong);
+  --code-share-mobile-install-step-background: var(--code-bg-hover);
+  --code-share-mobile-install-control-background: var(--code-bg-hover-strong);
+}
+
 /* sidebar */
 body.code-mode {
   --code-sidebar-history-toggle-sidebar-plugins-toggle-sidebar-options-background: rgba(0, 0, 0, 0.04);
   --code-sidebar-project-title-action-hover-focus-visible-background: rgba(0, 0, 0, 0.08);
+  --code-sidebar-project-row-background: var(--code-bg-inset);
   --code-sidebar-project-list-hover-scrollbar-color: rgba(95, 103, 94, 0.28) transparent;
   --code-sidebar-project-hover-preview-background: rgba(255, 255, 255, 0.98);
   --code-sidebar-project-hover-preview-box-shadow: 0 12px 28px rgba(31, 35, 40, 0.10), 0 1px 3px rgba(31, 35, 40, 0.06);
@@ -1315,6 +1471,20 @@ body.code-mode[data-appearance='dark'] {
   --code-sidebar-project-context-menu-project-launch-menu-webkit-backdrop-filter: blur(18px) saturate(1.06);
   --code-sidebar-rename-dialog-focus-border-color: rgba(88, 166, 255, 0.58);
   --code-sidebar-rename-dialog-focus-box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.16);
+}
+
+body.code-mode[data-appearance='paper'] {
+  --code-sidebar-project-row-background: var(--code-bg-chrome);
+  --code-sidebar-project-title-action-hover-focus-visible-background: var(--code-bg-hover-strong);
+  --code-sidebar-project-hover-preview-background: rgba(255, 253, 248, 0.98);
+  --code-sidebar-project-hover-preview-box-shadow: 0 12px 28px rgba(72, 63, 45, 0.12), 0 1px 3px rgba(72, 63, 45, 0.06);
+  --code-sidebar-worktree-popover-background: rgba(255, 253, 248, 0.98);
+  --code-sidebar-project-context-menu-project-launch-menu-background: rgba(255, 253, 248, 0.94);
+  --code-sidebar-project-context-menu-project-launch-menu-border-color: var(--code-border-subtle);
+  --code-sidebar-project-context-menu-project-launch-menu-box-shadow: 0 18px 48px rgba(72, 63, 45, 0.16),
+    inset 0 1px 0 rgba(255, 253, 248, 0.78);
+  --code-sidebar-rename-dialog-focus-border-color: rgba(58, 110, 74, 0.54);
+  --code-sidebar-rename-dialog-focus-box-shadow: 0 0 0 3px var(--code-focus-ring);
 }
 
 /* terminal */
@@ -1388,6 +1558,33 @@ body.code-mode[data-appearance='dark'] {
   --code-terminal-mode-toggle-active-background: rgba(139, 148, 158, 0.14);
   --code-terminal-context-menu-item-terminal-context-menu-pooled-background: transparent;
   --code-terminal-hover-disabled-focus-visible-outline: 0;
+}
+
+body.code-mode[data-appearance='paper'] {
+  --code-terminal-session-host-xterm-xterm-selection-background-color: var(--code-selection-bg);
+  --code-terminal-session-host-xterm-viewport-scrollbar-color: rgba(98, 99, 91, 0.18) transparent;
+  --code-terminal-session-host-xterm-viewport-webkit-scrollbar-thumb-border-color: var(--code-border);
+  --code-terminal-jump-bottom-background: rgba(255, 253, 248, 0.96);
+  --code-terminal-jump-bottom-border-color: var(--code-border);
+  --code-terminal-jump-bottom-color: var(--code-text);
+  --code-terminal-jump-bottom-box-shadow: 0 8px 24px rgba(72, 63, 45, 0.14);
+  --code-terminal-jump-bottom-hover-background: var(--code-bg-raised);
+  --code-terminal-jump-bottom-hover-border-color: var(--code-border-strong);
+  --code-terminal-jump-bottom-hover-color: var(--code-text);
+  --code-terminal-search-background: rgba(255, 253, 248, 0.96);
+  --code-terminal-search-focus-background: rgba(250, 248, 242, 0.94);
+  --code-terminal-search-focus-box-shadow: inset 0 0 0 1px var(--code-accent);
+  --code-terminal-recovery-background: rgba(255, 253, 248, 0.94);
+  --code-terminal-status-card-background: rgba(255, 253, 248, 0.96);
+  --code-terminal-status-card-background-a28db5: var(--code-bg-chrome);
+  --code-terminal-status-card-hover-focus-visible-background: var(--code-bg-muted);
+  --code-terminal-mode-toggle-background: rgba(255, 253, 248, 0.72);
+  --code-terminal-mode-toggle-border-color: var(--code-border);
+  --code-terminal-mode-toggle-box-shadow: 0 8px 22px rgba(72, 63, 45, 0.05);
+  --code-terminal-mode-toggle-hover-focus-within-background: rgba(255, 253, 248, 0.86);
+  --code-terminal-mode-toggle-hover-focus-within-border-color: var(--code-border-strong);
+  --code-terminal-mode-toggle-hover-focus-within-box-shadow: 0 10px 24px rgba(72, 63, 45, 0.08);
+  --code-terminal-mode-toggle-active-background: var(--code-bg-muted);
 }
 
 /* transcript */
@@ -1481,6 +1678,44 @@ body.code-mode[data-appearance='dark'] {
   --code-transcript-agent-transcript-jump-bottom-hover-color: #ffffff;
 }
 
+body.code-mode[data-appearance='paper'] {
+  --code-transcript-agent-transcript-scroll-scrollbar-color: rgba(98, 99, 91, 0.18) transparent;
+  --code-transcript-agent-transcript-scroll-webkit-scrollbar-thumb-background: rgba(98, 99, 91, 0.16);
+  --code-transcript-agent-transcript-fork-origin-background: var(--code-bg-muted);
+  --code-transcript-agent-transcript-subagent-error-border-color: rgba(180, 35, 47, 0.28);
+  --code-transcript-agent-transcript-collaboration-group-border-color: var(--code-border-subtle);
+  --code-transcript-agent-transcript-collaboration-agent-tone-0-color: #397f79;
+  --code-transcript-agent-transcript-collaboration-agent-tone-1-color: #95625e;
+  --code-transcript-agent-transcript-collaboration-agent-tone-2-color: var(--code-skill);
+  --code-transcript-agent-transcript-collaboration-agent-tone-3-color: #887b68;
+  --code-transcript-hover-focus-visible-agent-transcript-collaboration-earlier-background: var(--code-bg-hover);
+  --code-transcript-agent-transcript-copy-after-agent-transcript-answer-action-background: rgba(255, 253, 248, 0.98);
+  --code-transcript-agent-transcript-copy-after-agent-transcript-answer-action-box-shadow: 0 6px 18px rgba(72, 63, 45, 0.14);
+  --code-transcript-agent-transcript-process-item-background: rgba(255, 253, 248, 0.78);
+  --code-transcript-agent-transcript-file-link-background: var(--code-bg-muted);
+  --code-transcript-agent-transcript-file-link-hover-focus-visible-background: var(--code-accent-soft);
+  --code-transcript-agent-transcript-plan-driver-background: rgba(255, 253, 248, 0.78);
+  --code-transcript-agent-transcript-result-summary-added-color: var(--code-success);
+  --code-transcript-agent-transcript-result-summary-hover-focus-visible-background: var(--code-bg-hover-strong);
+  --code-transcript-agent-transcript-result-details-background: rgba(255, 253, 248, 0.94);
+  --code-transcript-agent-transcript-result-details-box-shadow: 0 8px 28px rgba(72, 63, 45, 0.09);
+  --code-transcript-agent-transcript-result-card-expanded-agent-transcript-result-header-background: rgba(241, 238, 231, 0.88);
+  --code-transcript-agent-transcript-result-error-border-color: rgba(180, 35, 47, 0.24);
+  --code-transcript-agent-transcript-result-file-hover-background: var(--code-bg-hover-strong);
+  --code-transcript-agent-transcript-result-review-hover-background: var(--code-bg-muted);
+  --code-transcript-agent-transcript-result-review-focus-visible-background: var(--code-bg-muted);
+  --code-transcript-agent-transcript-result-show-more-hover-background: var(--code-bg-hover-strong);
+  --code-transcript-agent-transcript-result-show-more-focus-visible-background: var(--code-bg-hover-strong);
+  --code-transcript-agent-transcript-result-review-background: var(--code-bg-surface);
+  --code-transcript-agent-transcript-jump-bottom-border-color: var(--code-border);
+  --code-transcript-agent-transcript-jump-bottom-background: rgba(255, 253, 248, 0.96);
+  --code-transcript-agent-transcript-jump-bottom-color: var(--code-text);
+  --code-transcript-agent-transcript-jump-bottom-box-shadow: 0 8px 24px rgba(72, 63, 45, 0.14);
+  --code-transcript-agent-transcript-jump-bottom-hover-background: var(--code-bg-raised);
+  --code-transcript-agent-transcript-jump-bottom-hover-border-color: var(--code-border-strong);
+  --code-transcript-agent-transcript-jump-bottom-hover-color: var(--code-text);
+}
+
 /* usage */
 body.code-mode {
   --code-usage-heatmap-cell-background: rgba(76, 128, 67, 0.24);
@@ -1548,6 +1783,40 @@ body.code-mode[data-appearance='dark'] {
     transparent 34px
   );
   --code-usage-day-histogram-segment-box-shadow: inset 0 1px rgba(13, 17, 23, 0.42);
+}
+
+body.code-mode[data-appearance='paper'] {
+  --code-usage-heatmap-cell-background: rgba(58, 110, 74, 0.2);
+  --code-usage-heatmap-cell-background-a784d7: rgba(58, 110, 74, 0.34);
+  --code-usage-heatmap-cell-background-b103b2: rgba(58, 110, 74, 0.52);
+  --code-usage-heatmap-cell-background-1eb049: rgba(58, 110, 74, 0.7);
+  --code-usage-heatmap-cell-background-96c25f: rgba(45, 93, 60, 0.9);
+  --code-usage-heatmap-cell-hover-outline-color: var(--code-accent);
+  --code-usage-sparkline-color: var(--code-accent);
+  --code-usage-daily-heatmap-cell-box-shadow: inset 0 0 0 1px var(--code-success-ring);
+  --code-usage-detail-backdrop-background: var(--code-bg-backdrop);
+  --code-usage-detail-dialog-background: rgba(255, 253, 248, 0.98);
+  --code-usage-detail-dialog-box-shadow: 0 24px 80px rgba(72, 63, 45, 0.22);
+  --code-usage-detail-close-hover-focus-visible-background: var(--code-bg-hover-strong);
+  --code-usage-detail-chart-background: rgba(241, 238, 231, 0.62);
+  --code-usage-detail-day-highlight-color: var(--code-accent);
+  --code-usage-daily-heatmap-cell-filter: drop-shadow(0 0 1px rgba(255, 253, 248, 0.94))
+    drop-shadow(0 0 1px rgba(58, 110, 74, 0.62));
+  --code-usage-detail-chart-usage-daily-heatmap-cell-outline-color: var(--code-accent);
+  --code-usage-detail-chart-usage-daily-heatmap-cell-filter: drop-shadow(0 0 1px rgba(255, 253, 248, 0.96))
+    drop-shadow(0 0 2px rgba(58, 110, 74, 0.74));
+  --code-usage-detail-stat-background: var(--code-bg-hover);
+  --code-usage-mobile-open-usage-mobile-date-picker-background: var(--code-bg-hover);
+  --code-usage-mobile-date-picker-background: var(--code-bg-hover-strong);
+  --code-usage-mode-compact-layout-usage-detail-header-background: rgba(255, 253, 248, 0.98);
+  --code-usage-day-histogram-bars-background: repeating-linear-gradient(
+    to bottom,
+    rgba(82, 75, 60, 0.07) 0,
+    rgba(82, 75, 60, 0.07) 1px,
+    transparent 1px,
+    transparent 34px
+  );
+  --code-usage-day-histogram-segment-box-shadow: inset 0 1px rgba(255, 253, 248, 0.36);
 }
 
 /* Shared component assignments. Palette-specific values override these below. */
@@ -1728,8 +1997,8 @@ body.code-mode {
   --code-component-share-panel-plugin-card-git-history-popover-color: inherit;
   --code-component-settings-section-settings-row-border-color: var(--code-border);
   --code-component-settings-segmented-color: var(--code-text-subtle);
-  --code-component-settings-segmented-active-background: var(--code-border);
-  --code-component-settings-segmented-active-box-shadow: none;
+  --code-component-settings-segmented-active-background: var(--code-bg-raised);
+  --code-component-settings-segmented-active-box-shadow: inset 0 0 0 1px var(--code-border);
   --code-component-focus-visible-outline-color: var(--code-focus-ring);
 }
 
@@ -1746,20 +2015,26 @@ body.code-mode[data-appearance='paper'] {
   --code-terminal-search-background: rgba(255, 253, 248, 0.98);
   --code-settings-panel-overlay-background: rgba(60, 53, 40, 0.2);
   --code-settings-panel-background: var(--code-bg-canvas);
+  --code-settings-panel-box-shadow: -8px 0 28px rgba(72, 63, 45, 0.12);
   --code-settings-panel-header-background: var(--code-bg-canvas);
   --code-settings-panel-color: var(--code-text);
   --code-settings-panel-header-agent-home-provider-header-border-color: var(--code-border);
   --code-settings-card-border-color: var(--code-border);
   --code-settings-segmented-border-color: var(--code-border);
   --code-settings-agent-home-provider-background: var(--code-bg-raised);
-  --code-settings-segmented-background: var(--code-bg-raised);
+  --code-settings-agent-home-form-background-51e594: transparent;
+  --code-settings-segmented-background: var(--code-bg-chrome);
+  --code-settings-range-accent-color: var(--code-accent);
+  --code-settings-permission-toggle-active-border-color: var(--code-accent);
+  --code-settings-permission-toggle-active-background: var(--code-accent);
+  --code-settings-permission-toggle-active-color: var(--code-text-on-emphasis);
   --code-settings-agent-home-form-actions-focus-visible-background: var(--code-bg-muted);
   --code-settings-agent-home-form-actions-focus-visible-color: var(--code-text);
   --code-settings-segmented-active-color: var(--code-text);
   --code-sidebar-history-toggle-sidebar-plugins-toggle-sidebar-options-background: transparent;
   --code-component-settings-segmented-color: var(--code-text-muted);
   --code-component-settings-segmented-active-background: var(--code-bg-raised);
-  --code-component-settings-segmented-active-box-shadow: 0 1px 2px rgba(72, 63, 45, 0.12);
+  --code-component-settings-segmented-active-box-shadow: inset 0 0 0 1px var(--code-border);
   --code-history-card-border-color: var(--code-border-subtle);
   --code-core-instance-name-actions-primary-background: var(--code-accent);
   --code-composer-approval-blue-color: var(--code-accent);
@@ -1948,8 +2223,8 @@ body.code-mode[data-appearance='paper'] {
   --code-component-share-panel-plugin-card-git-history-popover-color: var(--code-text);
   --code-component-settings-section-settings-row-border-color: var(--code-border);
   --code-component-settings-segmented-color: var(--code-text-muted);
-  --code-component-settings-segmented-active-background: #e9e7df;
-  --code-component-settings-segmented-active-box-shadow: inset 0 0 0 1px rgba(104, 104, 95, 0.08);
+  --code-component-settings-segmented-active-background: var(--code-bg-raised);
+  --code-component-settings-segmented-active-box-shadow: inset 0 0 0 1px var(--code-border);
   --code-component-focus-visible-outline-color: var(--code-accent);
 }
 

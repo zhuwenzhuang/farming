@@ -1743,8 +1743,7 @@ body.code-mode .workspace-input input:focus {
   box-shadow: 0 0 0 3px var(--code-focus-ring);
 }
 
-body.code-mode .workspace-actions button,
-body.code-mode .close-btn {
+body.code-mode .workspace-actions button {
   background: var(--code-emphasis);
   color: var(--code-text-on-emphasis);
   border-radius: 8px;
@@ -1756,8 +1755,7 @@ body.code-mode .close-btn {
   padding: 8px 13px;
 }
 
-body.code-mode .workspace-actions button:hover,
-body.code-mode .close-btn:hover {
+body.code-mode .workspace-actions button:hover {
   background: var(--code-emphasis-hover);
 }
 
@@ -1766,9 +1764,24 @@ body.code-mode .close-btn {
   height: 34px;
   min-height: 34px;
   padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: var(--code-bg-hover);
+  color: var(--code-text-muted);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
   line-height: 1;
   display: inline-grid;
   place-items: center;
+}
+
+body.code-mode .close-btn:hover,
+body.code-mode .close-btn:focus-visible {
+  background: var(--code-bg-hover-strong);
+  color: var(--code-text);
+  outline: none;
 }
 
 body.code-mode .close-btn svg {

@@ -31,6 +31,29 @@
   color: var(--code-text);
 }
 
+.code-side-view-panel .code-empty-workspace:not(.code-empty-home-state) {
+  min-height: 220px;
+  justify-content: center;
+  gap: 6px;
+}
+
+.code-side-view-panel .code-empty-workspace:not(.code-empty-home-state) h2 {
+  margin: 0;
+  color: var(--code-text-muted);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 20px;
+  letter-spacing: 0;
+}
+
+.code-side-view-panel .code-empty-workspace:not(.code-empty-home-state) p {
+  max-width: 420px;
+  margin: 0;
+  color: var(--code-text-subtle);
+  font-size: 13px;
+  line-height: 19px;
+}
+
 .code-empty-workspace button {
   background: var(--code-emphasis);
   color: var(--code-text-on-emphasis);

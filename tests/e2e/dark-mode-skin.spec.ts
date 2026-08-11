@@ -79,6 +79,12 @@ async function expectDarkSeparator(locator: import('@playwright/test').Locator, 
   expect(borderLum, `${name} separator should stay dark (${borderTopColor})`).toBeLessThan(0.12)
 }
 
+async function expectPageTitleStyle(locator: import('@playwright/test').Locator) {
+  await expect(locator).toHaveCSS('font-size', '18px')
+  await expect(locator).toHaveCSS('font-weight', '600')
+  await expect(locator).toHaveCSS('line-height', '24px')
+}
+
 async function chooseAppearance(page: import('@playwright/test').Page, appearance: 'Light' | 'Dark' | 'Paper') {
   await page.getByTestId('code-sidebar-options').click()
   const settingsPanel = page.getByTestId('code-settings-panel')
@@ -226,9 +232,12 @@ test.describe('Farming Code appearance skins', () => {
     await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#f7f4ed')
 
     await page.getByTestId('code-sidebar-options').click()
-    const appearanceGroup = page.getByTestId('code-settings-panel').getByRole('group', { name: 'Appearance' })
+    const settingsPanel = page.getByTestId('code-settings-panel')
+    const appearanceGroup = settingsPanel.getByRole('group', { name: 'Appearance' })
     await expect(appearanceGroup.getByRole('button', { name: 'Paper', exact: true })).toHaveClass(/active/)
-    await page.getByTestId('code-settings-panel').getByRole('button', { name: 'Close' }).click()
+    await expect(settingsPanel.locator('.code-settings-inline-choice')).toHaveCount(2)
+    await expect(settingsPanel.locator('.code-settings-appearance-swatch')).toHaveCount(4)
+    await settingsPanel.getByRole('button', { name: 'Close' }).click()
 
     const agentId = await createControlAgent(page, 'bash', projectDir)
     await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
@@ -296,7 +305,7 @@ test.describe('Farming Code appearance skins', () => {
     await expectReadableDarkText(settingsPanel.locator('.code-settings-row-copy strong').first(), 'settings row label')
     await expectReadableMutedDarkText(settingsPanel.locator('.code-settings-search-timeout-row output'), 'search timeout value')
     await expectReadableMutedDarkText(settingsPanel.locator('.code-settings-row-copy small').first(), 'settings row hint')
-    await expectReadableDarkGlyph(settingsPanel.locator('.code-settings-inline-choice > svg').first(), 'appearance glyph')
+    await expectReadableDarkGlyph(settingsPanel.locator('.code-settings-inline-label svg').first(), 'appearance glyph')
     await expectDarkSeparator(settingsPanel.locator('.code-settings-section + .code-settings-section').first(), 'settings section')
     await saveScreenshot(testInfo, 'options-menu.png', page.locator('.code-settings-panel'))
     await page.keyboard.press('Escape')
@@ -345,7 +354,9 @@ test.describe('Farming Code appearance skins', () => {
     await searchInput.fill(path.basename(projectDir))
     await expect(page.getByTestId('code-search-result').first()).toBeVisible()
     await expectDarkSurface(page.getByTestId('code-search-result').first(), 'search result')
-    await expectReadableDarkText(page.getByTestId('code-search-panel').locator('.code-search-panel-header h2'), 'search header')
+    const searchTitle = page.getByTestId('code-search-panel').locator('.code-search-panel-header h2')
+    await expectReadableDarkText(searchTitle, 'search header')
+    await expectPageTitleStyle(searchTitle)
     await saveScreenshot(testInfo, 'search-view.png', page.getByTestId('code-side-view-panel'))
     await page.getByTestId('code-search-result').first().click()
     await expect(page.getByTestId('code-search-panel')).toHaveCount(0)
@@ -353,11 +364,21 @@ test.describe('Farming Code appearance skins', () => {
     await page.getByTestId('code-nav-history').click()
     await expect(page.getByTestId('code-history-panel')).toBeVisible()
     await expectDarkSurface(page.getByTestId('code-side-view-panel'), 'history side view')
-    await expectReadableDarkText(page.getByTestId('code-history-panel').locator('.code-history-panel-header h2'), 'history header')
+    const historyTitle = page.getByTestId('code-history-panel').locator('.code-history-panel-header h2')
+    await expectReadableDarkText(historyTitle, 'history header')
+    await expectPageTitleStyle(historyTitle)
     await expectReadableDarkText(page.getByTestId('code-history-panel').locator('.code-empty-workspace h2, .code-history-card-title').first(), 'history content')
     await saveScreenshot(testInfo, 'history-view.png', page.getByTestId('code-side-view-panel'))
     await page.keyboard.press('Escape')
     await expect(page.getByTestId('code-history-panel')).toHaveCount(0)
+
+    await page.getByTestId('code-nav-plugins').click()
+    await expect(page.getByTestId('code-plugins-panel')).toBeVisible()
+    const pluginsTitle = page.getByTestId('code-plugins-panel').locator('.code-plugins-panel-header h2')
+    await expectReadableDarkText(pluginsTitle, 'plugins header')
+    await expectPageTitleStyle(pluginsTitle)
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('code-plugins-panel')).toHaveCount(0)
 
     const filesSection = page.getByTestId('code-files-section').first()
     const filesTitle = filesSection.locator('.code-files-title').first()

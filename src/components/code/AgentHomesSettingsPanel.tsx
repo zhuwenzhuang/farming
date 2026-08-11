@@ -734,18 +734,37 @@ export function AgentHomesSettingsPanel({
           <section className="code-settings-section compact">
             <div className="code-settings-inline-preferences">
               <div className="code-settings-inline-choice">
-                <ColorModeGlyph aria-hidden="true" />
+                <span className="code-settings-inline-label">
+                  <ColorModeGlyph aria-hidden="true" />
+                  <strong>{copy.appearance}</strong>
+                </span>
                 <div className="code-settings-segmented" role="group" aria-label={copy.appearance}>
-                  <button type="button" className={uiPreferences.appearance === 'system' ? 'active' : ''} onClick={() => onUpdateUiPreferences({ appearance: 'system' })}>{copy.system}</button>
-                  <button type="button" className={uiPreferences.appearance === 'light' ? 'active' : ''} onClick={() => onUpdateUiPreferences({ appearance: 'light' })}>{copy.light}</button>
-                  <button type="button" className={uiPreferences.appearance === 'dark' ? 'active' : ''} onClick={() => onUpdateUiPreferences({ appearance: 'dark' })}>{copy.dark}</button>
-                  <button type="button" className={uiPreferences.appearance === 'paper' ? 'active' : ''} onClick={() => onUpdateUiPreferences({ appearance: 'paper' })}>{copy.paper}</button>
+                  {(['system', 'light', 'dark', 'paper'] as const).map(appearance => (
+                    <button
+                      key={appearance}
+                      type="button"
+                      className={uiPreferences.appearance === appearance ? 'active' : ''}
+                      data-theme-choice={appearance}
+                      aria-pressed={uiPreferences.appearance === appearance}
+                      onClick={() => onUpdateUiPreferences({ appearance })}
+                    >
+                      <span className="code-settings-appearance-swatch" aria-hidden="true" />
+                      <span>{appearance === 'system'
+                        ? copy.system
+                        : appearance === 'light'
+                          ? copy.light
+                          : appearance === 'dark'
+                            ? copy.dark
+                            : copy.paper}</span>
+                    </button>
+                  ))}
                 </div>
               </div>
               <div className="code-settings-inline-choice code-settings-language-choice">
+                <span className="code-settings-inline-label"><strong>{copy.language}</strong></span>
                 <div className="code-settings-segmented" role="group" aria-label={copy.language}>
-                  <button type="button" className={uiPreferences.language === 'en' ? 'active' : ''} onClick={() => onUpdateUiPreferences({ language: 'en' })}>{copy.english}</button>
-                  <button type="button" className={uiPreferences.language === 'zh' ? 'active' : ''} onClick={() => onUpdateUiPreferences({ language: 'zh' })}>{copy.chinese}</button>
+                  <button type="button" className={uiPreferences.language === 'en' ? 'active' : ''} aria-pressed={uiPreferences.language === 'en'} onClick={() => onUpdateUiPreferences({ language: 'en' })}>{copy.english}</button>
+                  <button type="button" className={uiPreferences.language === 'zh' ? 'active' : ''} aria-pressed={uiPreferences.language === 'zh'} onClick={() => onUpdateUiPreferences({ language: 'zh' })}>{copy.chinese}</button>
                 </div>
               </div>
             </div>

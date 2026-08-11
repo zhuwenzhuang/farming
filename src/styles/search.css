@@ -5,7 +5,7 @@
   display: block;
   background: var(--code-component-search-view-background);
   overflow-y: auto;
-  padding: clamp(32px, 6vh, 64px) 32px 32px;
+  padding: 42px 32px 32px;
 }
 
 .code-search-panel {
@@ -24,8 +24,10 @@
 }
 
 .code-search-panel-header h2 {
-  font-size: 14px;
-  font-weight: 500;
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 24px;
   letter-spacing: 0;
   color: var(--code-text);
 }
@@ -33,8 +35,9 @@
 .code-search-panel .code-empty-workspace h2 {
   margin: 0;
   color: var(--code-text-subtle);
-  font-size: 16px;
-  font-weight: 500;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 20px;
   letter-spacing: 0;
 }
 
@@ -58,14 +61,14 @@
 }
 
 .code-search-panel-input:focus-within {
-  border-color: #bdc3b8;
-  box-shadow: 0 0 0 3px rgba(122, 132, 118, 0.1);
+  border-color: var(--code-search-panel-input-focus-border-color);
+  box-shadow: var(--code-search-panel-input-focus-box-shadow);
 }
 
 .code-search-panel-icon {
   display: inline-grid;
   place-items: center;
-  color: #7a8178;
+  color: var(--code-search-panel-icon-color);
 }
 
 .code-search-panel-icon svg {
@@ -101,8 +104,8 @@
 }
 
 .code-search-panel-input button:hover {
-  background: rgba(36, 41, 47, 0.05);
-  color: #4f564e;
+  background: var(--code-search-panel-clear-hover-background);
+  color: var(--code-search-panel-clear-hover-color);
 }
 
 .code-search-panel-input button svg {

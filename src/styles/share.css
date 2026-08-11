@@ -6,15 +6,15 @@
 
 .code-share-root {
   position: relative;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
 }
 
 .code-share-button {
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   border: 0;
-  border-radius: 999px;
+  border-radius: 7px;
   background: var(--code-share-button-background);
   color: var(--code-text-subtle);
   cursor: pointer;
@@ -72,9 +72,9 @@
   width: 264px;
   padding: 9px;
   border: 1px solid rgba(145, 149, 136, 0.28);
-  border-radius: 8px;
+  border-radius: 12px;
   background: var(--code-share-popover-background);
-  box-shadow: 0 18px 54px var(--code-shadow-color);
+  box-shadow: var(--code-shadow-raised);
   color: var(--code-text);
   border-color: var(--code-border);
 }

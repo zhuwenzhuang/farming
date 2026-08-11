@@ -15,14 +15,15 @@
 .code-plugins-panel-header {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
+  gap: 8px;
 }
 
 .code-plugins-panel-header > button {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 7px;
   background: transparent;
   color: var(--code-text-muted);
   display: inline-grid;
@@ -36,7 +37,7 @@
 }
 
 .code-plugins-panel-header h2 {
-  margin: 3px 0 4px;
+  margin: 0 0 4px;
   font-size: 18px;
   font-weight: 600;
   line-height: 24px;
@@ -932,10 +933,15 @@
 }
 
 .code-plugin-empty {
-  padding: 12px 14px;
+  min-height: 72px;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  border: 1px solid var(--code-border-subtle);
   border-radius: 10px;
-  background: var(--code-bg-inset);
+  background: transparent;
   color: var(--code-text-subtle);
+  text-align: center;
 }
 
 .code-plugin-detail-backdrop {
@@ -945,7 +951,7 @@
   display: grid;
   place-items: center;
   padding: 24px;
-  background: rgba(31, 35, 40, 0.18);
+  background: var(--code-plugin-detail-backdrop-background);
   backdrop-filter: blur(7px);
   -webkit-backdrop-filter: blur(7px);
 }
@@ -957,11 +963,11 @@
   gap: 16px;
   overflow: auto;
   padding: 22px;
-  border: 1px solid rgba(95, 103, 94, 0.12);
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid var(--code-border);
+  border-radius: 16px;
+  background: var(--code-plugin-detail-dialog-background);
   color: var(--code-text);
-  box-shadow: 0 24px 68px rgba(31, 35, 40, 0.2);
+  box-shadow: var(--code-plugin-detail-dialog-box-shadow);
 }
 
 .code-plugin-detail-dialog > header {

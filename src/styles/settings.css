@@ -696,6 +696,7 @@
 }
 
 .code-settings-panel-header {
+  flex: 0 0 auto;
   align-items: center;
   padding: 16px 18px 6px;
   background: var(--code-settings-panel-header-background);
@@ -745,7 +746,7 @@
 
 .code-settings-section.compact {
   margin: 0;
-  padding: 0 0 20px;
+  padding: 0 0 18px;
   border-top: 0;
 }
 
@@ -945,7 +946,7 @@
   min-width: 84px;
   height: 16px;
   margin: 0;
-  accent-color: #69716c;
+  accent-color: var(--code-settings-range-accent-color);
   cursor: pointer;
 }
 
@@ -1032,8 +1033,8 @@
 }
 
 .code-settings-permission-toggle {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   display: inline-grid;
   place-items: center;
   padding: 0;
@@ -1045,16 +1046,16 @@
 }
 
 .code-settings-permission-toggle svg {
-  width: 12px;
-  height: 12px;
+  width: 13px;
+  height: 13px;
   fill: currentColor;
   opacity: 0;
 }
 
 .code-settings-permission-toggle.active {
-  border-color: var(--code-text-muted);
-  background: var(--code-text-muted);
-  color: var(--code-bg-inset);
+  border-color: var(--code-settings-permission-toggle-active-border-color);
+  background: var(--code-settings-permission-toggle-active-background);
+  color: var(--code-settings-permission-toggle-active-color);
 }
 
 .code-settings-permission-toggle.active svg {
@@ -1073,34 +1074,59 @@
 }
 
 .code-settings-inline-preferences {
-  gap: 14px;
+  display: grid;
+  gap: 0;
   padding: 0;
-  font-size: 14px;
-  line-height: 20px;
+  overflow: hidden;
+  border: 1px solid var(--code-settings-card-border-color);
+  border-radius: 10px;
+  background: var(--code-settings-agent-home-provider-background);
 }
 
 .code-settings-inline-choice {
-  gap: 5px;
-  min-height: 28px;
+  min-width: 0;
+  min-height: 52px;
+  display: grid;
+  grid-template-columns: minmax(84px, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px 8px 12px;
 }
 
 .code-settings-language-choice {
-  padding-left: 14px;
-  border-left: 1px solid #e3e4e1;
-  border-color: var(--code-border);
+  border-top: 1px solid var(--code-border);
 }
 
-.code-settings-inline-choice > svg {
+.code-settings-inline-label {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--code-text-muted);
+}
+
+.code-settings-inline-label strong {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.code-settings-inline-label svg {
   width: 15px;
   height: 15px;
+  flex: 0 0 15px;
   color: var(--code-text-subtle);
 }
 
 .code-settings-segmented {
-  gap: 0;
-  padding: 0;
+  max-width: 100%;
+  gap: 2px;
+  padding: 2px;
   border: 0;
-  border-radius: 0;
+  border-radius: 8px;
   background: var(--code-settings-segmented-background);
 }
 
@@ -1125,6 +1151,35 @@
 .code-settings-segmented button.active {
   background: var(--code-component-settings-segmented-active-background);
   box-shadow: var(--code-component-settings-segmented-active-box-shadow);
+}
+
+.code-settings-segmented button[data-theme-choice] {
+  display: inline-flex;
+  gap: 5px;
+}
+
+.code-settings-appearance-swatch {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 10px;
+  border: 1px solid rgba(31, 35, 40, 0.16);
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28);
+}
+
+.code-settings-segmented button[data-theme-choice='system'] .code-settings-appearance-swatch {
+  background: linear-gradient(135deg, #ffffff 0 48%, #26282d 52% 100%);
+}
+
+.code-settings-segmented button[data-theme-choice='dark'] .code-settings-appearance-swatch {
+  border-color: rgba(255, 255, 255, 0.22);
+  background: #26282d;
+}
+
+.code-settings-segmented button[data-theme-choice='paper'] .code-settings-appearance-swatch {
+  border-color: rgba(82, 75, 60, 0.2);
+  background: #f2eee4;
 }
 
 .code-settings-update-card {
@@ -1410,6 +1465,16 @@
 }
 
 @media (max-width: 520px) {
+  .code-settings-inline-choice {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+
+  .code-settings-inline-choice .code-settings-segmented {
+    justify-self: start;
+    overflow-x: auto;
+  }
+
   .code-settings-search-timeout-row {
     grid-template-columns: minmax(130px, 0.85fr) minmax(72px, 1fr) auto;
     gap: 10px;

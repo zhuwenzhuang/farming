@@ -26,9 +26,11 @@
 
 .code-history-panel-header h2 {
   flex: 0 0 auto;
-  font-size: 15px;
-  font-weight: 400;
-  letter-spacing: -0.01em;
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 24px;
+  letter-spacing: 0;
   color: var(--code-text);
 }
 
