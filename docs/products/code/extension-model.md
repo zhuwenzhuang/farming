@@ -62,10 +62,9 @@ Extension, while Farming core requires:
 - deletion of only the Resource and external objects that owner can prove.
 
 Agent-owned Resources may survive Chat/Terminal replacement. When an Agent is
-stopped or archived, its Browser Resources are deleted by exact id so temporary
-Browser rows and profiles do not accumulate. Other Resource types retain the
-lifecycle defined by their owning Extension. Deleting the Agent removes only
-Resources it exactly owns.
+stopped or archived, its Browser and Computer Resources are deleted by exact id
+so temporary rows, profiles, and containers do not accumulate. Deleting the
+Agent removes only Resources it exactly owns.
 
 For Browser Resources, `stop` retains the row and persistent profile for later
 reuse, while `delete` stops the runtime and removes both. The Agent-facing CLI

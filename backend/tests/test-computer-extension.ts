@@ -766,6 +766,36 @@ async function run() {
       error => error.code === 'COMPUTER_NOT_FOUND',
     );
 
+    const lifecycleCandidate = manager.create({
+      ownerAgentId: 'agent_other',
+      projectRootId: 'root_project',
+      workspace,
+      name: 'Lifecycle Candidate',
+    });
+    await manager.start(lifecycleCandidate.id);
+    await manager.reconcileAgentLifecycle([
+      { id: 'agent_owner', status: 'running' },
+      {
+        id: 'agent_other',
+        status: 'stopped',
+        lifecycleOperation: { type: 'runtime-switch' },
+      },
+    ]);
+    assert.strictEqual(
+      manager.get(lifecycleCandidate.id).status,
+      'running',
+      'a runtime switch must preserve the exact Agent-owned Computer',
+    );
+    await manager.reconcileAgentLifecycle([
+      { id: 'agent_owner', status: 'running' },
+      { id: 'agent_other', status: 'stopped' },
+    ]);
+    assert.throws(
+      () => manager.get(lifecycleCandidate.id),
+      error => error.code === 'COMPUTER_NOT_FOUND',
+      'an inactive owner must delete its Computer row and container instead of leaving an orphan',
+    );
+
     const app = express();
     let ownerStatus = 'running';
     let ownerLifecycleOperation: { type: string } | undefined;

@@ -56,8 +56,8 @@ Resource Section 也能判断资源使用规模。
 - 只删除 Owner 能精确证明归属的 Resource 与 External Object。
 
 Agent-owned Resource 可以跨 Chat/Terminal Replacement 保留。停止或归档 Agent 时，其
-Browser Resource 会按精确 ID 删除，避免临时 Browser Row 与 Profile 累积；其他 Resource
-类型继续遵循所属 Extension 定义的生命周期。删除 Agent 只删除它精确拥有的 Resource。
+Browser 和 Computer Resource 会按精确 ID 删除，避免临时 Row、Profile 与 Container 累积。
+删除 Agent 只删除它精确拥有的 Resource。
 
 对于 Browser Resource，`stop` 保留 Row 与持久化 Profile 以便后续复用；`delete` 会先停止
 Runtime，再同时删除 Row 与 Profile。面向 Agent 的 CLI 必须同时暴露这两个操作，使临时验证

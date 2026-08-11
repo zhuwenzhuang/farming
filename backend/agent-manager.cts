@@ -2348,7 +2348,14 @@ class AgentManager extends EventEmitter {
       });
     }
 
-    const recovered = await this.engineBridge.recoverSessions();
+    let recovered: RecoveredEngineSession[];
+    try {
+      recovered = await this.engineBridge.recoverSessions();
+    } catch (caughtError: unknown) {
+      const error = caughtError as ErrorRecord;
+      this.failTerminalRecoveryEnumeration(materializedAgentIds, error);
+      throw error;
+    }
     if (!mainRecoveryAgentId) {
       mainRecoveryAgentId = persistedMainRecoveryAgentId((recovered || []).map(entry => ({
         ...(entry.metadata || {}),
@@ -2524,7 +2531,6 @@ class AgentManager extends EventEmitter {
     )) {
       changed = true;
     }
-
     if (changed) {
       this.emitStateChange({
         agentIds: [...this.agents.keys()],
@@ -2541,8 +2547,40 @@ class AgentManager extends EventEmitter {
     }
 
     await this.recoverAcpSessions();
-    if (this.reconcileDetachedPersistedAgentUpdates()) {
+    const detachedUpdatesChanged = this.reconcileDetachedPersistedAgentUpdates();
+    persistedRecords = listPersistedRecords();
+    const missingTerminalsChanged = this.settleMissingTerminalRecoveryPlaceholders(
+      materializedAgentIds,
+      recoveredRuntimeAgentIds,
+      persistedRecords,
+    );
+    if (detachedUpdatesChanged || missingTerminalsChanged) {
       this.emitStateChange({ agentIds: [...this.agents.keys()] });
+    }
+  }
+
+  failTerminalRecoveryEnumeration(
+    materializedAgentIds: string[],
+    cause: ErrorRecord,
+  ) {
+    const reason = `Terminal recovery enumeration failed: ${cause?.message || cause}`;
+    for (const agentId of materializedAgentIds) {
+      const agent = this.agents.get(agentId);
+      if (
+        !agent
+        || runtimeKind(agent) !== 'terminal'
+        || agent.engineStarted !== false
+        || agent.status !== 'pending'
+      ) {
+        continue;
+      }
+      agent.status = 'error';
+      agent.engineStatus = 'recovery-failed';
+      agent.terminalBusy = false;
+      agent.output = trimSessionOutput(`${agent.output || ''}\n${reason}`);
+    }
+    if (materializedAgentIds.length > 0) {
+      this.emitStateChange({ agentIds: materializedAgentIds });
     }
   }
 
@@ -2556,6 +2594,7 @@ class AgentManager extends EventEmitter {
       : `Agent ${operation.type} operation ${operation.id} must be resolved before restart`;
     agent.status = 'error';
     agent.engineStatus = 'lifecycle-blocked';
+    agent.output = trimSessionOutput(`${agent.output || ''}\n${reason}`);
     const runtime = runtimeBindingOf(agent);
     if (runtime && Object.prototype.hasOwnProperty.call(runtime, 'state')) {
       runtime.state = 'error';
@@ -2709,11 +2748,75 @@ class AgentManager extends EventEmitter {
         changed = true;
       } catch (caughtError: unknown) {
       const error = caughtError as ErrorRecord;
+        const existingAgent = this.agents.get(agentId);
+        if (existingAgent?.engineStarted === false) {
+          this.markRecoveredAgentLifecycleBlocked(existingAgent, operation, error);
+          changed = true;
+        }
         console.warn(
           `Failed to reconcile missing Terminal Agent ${agentId} ${operation.type}:`,
           error && (error.message || error),
         );
       }
+    }
+    return changed;
+  }
+
+  settleMissingTerminalRecoveryPlaceholders(
+    materializedAgentIds: string[],
+    recoveredRuntimeAgentIds: Set<string>,
+    records: PersistedAgentPrivateMetadata[],
+  ) {
+    let changed = false;
+    const persistedByRuntimeAgentId = new Map(records
+      .filter(record => typeof record.runtimeAgentId === 'string' && Boolean(record.runtimeAgentId))
+      .map(record => [record.runtimeAgentId as string, record]));
+    for (const agentId of materializedAgentIds) {
+      if (recoveredRuntimeAgentIds.has(agentId)) continue;
+      const placeholder = this.agents.get(agentId);
+      const persisted = persistedByRuntimeAgentId.get(agentId);
+      if (
+        !placeholder
+        || !persisted
+        || runtimeKind(persisted) !== 'terminal'
+        || placeholder.engineStarted !== false
+        || placeholder.status !== 'pending'
+        || activeLifecycleOperation(persisted)
+      ) {
+        continue;
+      }
+
+      const agent = this.recoveredAgentRecord(
+        agentId,
+        persisted.engine || 'native',
+        { ...persisted, persistentSessionId: persisted.id || persisted.persistentSessionId || '' },
+        { status: 'exited' },
+      );
+      setAgentRecordId(agent, persisted.id || persisted.persistentSessionId || '');
+      const wasMain = this.mainAgentIdentity.isCurrent(agentId) || placeholder.wantsMain === true;
+      const reason = 'Terminal runtime was not present in the authoritative native-host recovery set';
+      agent.status = wasMain ? 'dead' : 'stopped';
+      agent.engineStatus = 'recovery-failed';
+      agent.engineStarted = false;
+      agent.terminalBusy = false;
+      agent.exitedAt = Date.now();
+      agent.output = trimSessionOutput(`${agent.output || ''}\n${reason}`);
+      if (wasMain) {
+        agent.wantsMain = false;
+        this.mainAgentIdentity.clearIf(agentId);
+      }
+      this.registerAgentRecord(agentId, agent);
+      this.providerSessionService.stop(agentId);
+      try {
+        this.sessionPersistence.persist(agent);
+      } catch (caughtError: unknown) {
+        const error = caughtError as ErrorRecord;
+        console.warn(
+          `Failed to persist missing Terminal Agent ${agentId} recovery failure:`,
+          error && (error.message || error),
+        );
+      }
+      changed = true;
     }
     return changed;
   }

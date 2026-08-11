@@ -174,9 +174,16 @@ explicit `stopped` placeholder. Runtime recovery then updates existing rows
 instead of adding them one at a time. A real user activation of a stopped
 provider-backed row sends one exact Session resume mutation; background reads,
 preview hydration, and Server readiness never resume it. Opening a Chat row
-whose binding is still pending waits on that same authoritative recovery. A row
-whose runtime cannot be recovered remains visible with an explicit failure
-state rather than disappearing into Provider history.
+whose binding is still pending waits on that same authoritative recovery. A
+Terminal runtime absent from the authoritative native-host result leaves
+`pending` in the same bounded recovery pass and remains visible with an
+explicit stopped or failed state rather than disappearing into Provider
+history. A missing elected Main Terminal is marked dead and relinquishes Main
+identity so the client can create one replacement; it cannot remain a pending
+Main placeholder that blocks recovery. If native-host enumeration itself
+fails, affected Terminal rows become explicit recovery errors while the elected
+Main identity remains reserved; an uncertain live runtime is never replaced by
+guessing.
 
 Main identity is singular. When legacy records contain more than one
 `wantsMain` marker, startup deterministically elects one non-indexed durable

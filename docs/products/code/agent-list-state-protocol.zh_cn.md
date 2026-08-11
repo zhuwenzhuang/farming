@@ -35,8 +35,12 @@ Server 启动时必须在等待 Terminal Host 枚举、ACP Binding 或 Transcrip
 Membership、没有 Live Host 证据的 Terminal 是明确的 `stopped` Placeholder。后续 Runtime 恢复
 只更新已有行，不能逐个新增。只有用户真实点击 Stopped Provider-backed 行时，Client 才发送
 一次精确 Session Resume Mutation；后台读取、Preview Hydration 和 Server Ready 都不得触发恢复。
-打开 Binding 尚未恢复的 Chat 行时，读取会等待同一次权威恢复。Runtime 无法恢复的行继续以
-明确失败状态可见，不能消失并退回 Provider History。
+打开 Binding 尚未恢复的 Chat 行时，读取会等待同一次权威恢复。权威 Native Host 结果中不存在
+的 Terminal Runtime 必须在同一轮有界恢复中离开 `pending`，并继续以明确的 Stopped 或失败状态
+可见，不能消失并退回 Provider History。缺失的当选 Main Terminal 会被标记为 Dead 并释放 Main
+Identity，让 Client 只创建一个替代者；它不能作为 Pending Main Placeholder 永久阻断恢复。
+如果 Native Host 枚举本身失败，受影响的 Terminal Row 会进入明确的 Recovery Error，同时保留
+当选 Main Identity；系统不能靠猜测替换一个结果不确定的 Live Runtime。
 
 Main Identity 必须唯一。旧版本 Record 含有多个 `wantsMain` Marker 时，启动流程会确定性选出
 一个未进入普通 Session Index 的持久化 Main；已经进入 Index 的 Provider Session 仍投影为普通

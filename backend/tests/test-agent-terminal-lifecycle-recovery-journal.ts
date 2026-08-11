@@ -202,6 +202,11 @@ async function run() {
     const missingUpdateRecord = store.readRecord(missingUpdate.persistentSessionId);
     assert.strictEqual(latestLifecycleOperation(missingUpdateRecord).state, 'succeeded');
     assert.strictEqual(missingUpdateRecord.customTitle, 'Recovered title');
+    const missingUpdateAgent = manager.agents.get(missingUpdate.id);
+    assert(missingUpdateAgent, 'a detached Update must retain one stopped inventory row');
+    assert.strictEqual(missingUpdateAgent.status, 'stopped');
+    assert.strictEqual(missingUpdateAgent.engineStatus, 'recovery-failed');
+    assert.strictEqual(activeLifecycleOperation(missingUpdateAgent), null);
   } finally {
     await manager.dispose();
     fs.rmSync(configDir, { recursive: true, force: true });
@@ -402,6 +407,47 @@ async function runHiddenForkRecovery() {
   console.log('hidden Terminal Fork sources recover as blocked and stay resolvable');
 }
 
+async function runMissingCreatePersistFailure() {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-terminal-create-recovery-fail-'));
+  const store = new FarmingSessionStore(configDir);
+  store.init();
+  const missingCreate = terminalAgent('agent-missing-create-persist-fail', configDir, 'create');
+  missingCreate.persistentSessionId = store.ensureRecordForAgent(missingCreate, {
+    visibleOnMainPage: true,
+    archived: false,
+  });
+  const config = configForStore(store, configDir);
+  const originalEnsure = config.ensureAgentSessionRecord;
+  config.ensureAgentSessionRecord = (agent, patch) => {
+    if (agent?.id === missingCreate.id) {
+      throw new Error('simulated missing Create recovery persistence failure');
+    }
+    return originalEnsure(agent, patch);
+  };
+  const manager = createTestAgentManager(AgentManager, config, {});
+  await manager.engineBridge.dispose();
+  manager.engineBridge = engineBridgeForFixture([missingCreate], new Set());
+
+  try {
+    await manager.recoverEngineSessions();
+    const failed = manager.agents.get(missingCreate.id);
+    assert(failed, 'a missing Create persistence failure must retain a resolvable Agent row');
+    assert.strictEqual(failed.status, 'error');
+    assert.strictEqual(failed.engineStatus, 'lifecycle-blocked');
+    assert.match(failed.output || '', /persistence failure/);
+    assert.strictEqual(
+      activeLifecycleOperation(store.readRecord(missingCreate.persistentSessionId)).state,
+      'pending',
+      'failed durable reconciliation must not claim that the Create outcome was committed',
+    );
+  } finally {
+    await manager.dispose();
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+
+  console.log('missing Terminal Create persistence failure leaves an explicit blocked row');
+}
+
 async function runHiddenForkPersistFailure() {
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-fork-hidden-persist-fail-'));
   const store = new FarmingSessionStore(configDir);
@@ -483,6 +529,7 @@ async function runHiddenForkPersistFailure() {
 
 async function main() {
   await run();
+  await runMissingCreatePersistFailure();
   await runHiddenForkRecovery();
   await runHiddenForkPersistFailure();
 }

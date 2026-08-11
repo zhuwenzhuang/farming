@@ -936,8 +936,8 @@ class ComputerResourceManager extends EventEmitter {
       const preservesRuntime = ['permission-restart', 'runtime-switch'].includes(operation);
       const stopped = owner.archived === true
         || (!preservesRuntime && INACTIVE_AGENT_STATUSES.has(String(owner.status || '')));
-      if (stopped && resource.status !== 'stopped') {
-        await this.stop(resource.id, true);
+      if (stopped) {
+        await this.delete(resource.id, true);
       }
     }
   }

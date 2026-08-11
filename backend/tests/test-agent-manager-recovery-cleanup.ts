@@ -332,6 +332,138 @@ async function run() {
     await manager.dispose({ preserveTerminalHost: true });
   }
 
+  const missingTerminalRecords = [
+    {
+      id: 'fsess_missing_main',
+      runtimeAgentId: 'missing-main-bash',
+      command: 'bash',
+      cwd: '/main',
+      projectWorkspace: '/main',
+      category: 'shell',
+      source: 'ui',
+      wantsMain: true,
+      agentRuntimeMode: 'terminal',
+      visibleOnMainPage: true,
+      archived: false,
+      updatedAt: 200,
+    },
+    {
+      id: 'fsess_missing_visible',
+      runtimeAgentId: 'missing-visible-bash',
+      command: 'bash',
+      cwd: '/repo',
+      projectWorkspace: '/repo',
+      category: 'shell',
+      source: 'ui',
+      wantsMain: false,
+      agentRuntimeMode: 'terminal',
+      visibleOnMainPage: true,
+      archived: false,
+      updatedAt: 100,
+    },
+  ];
+  const persistedMissingStatuses = new Map();
+  const missingTerminalManager = createTestAgentManager(AgentManager, {
+    ...configManager(),
+    getMainPageSessionKeys() {
+      return [];
+    },
+    listAgentSessionRecords() {
+      return missingTerminalRecords;
+    },
+    ensureAgentSessionRecord(agent) {
+      persistedMissingStatuses.set(agent.id, {
+        status: agent.status,
+        engineStatus: agent.engineStatus,
+        wantsMain: agent.wantsMain,
+      });
+      return agent.persistentSessionId;
+    },
+  });
+  missingTerminalManager.engineBridge = {
+    async recoverSessions() {
+      return [];
+    },
+    consumeRuntimeRotations() {
+      return [];
+    },
+    getEngine() {
+      return null;
+    },
+    dispose() {},
+  };
+
+  try {
+    await missingTerminalManager.recoverEngineSessions();
+
+    const missingMain = missingTerminalManager.agents.get('missing-main-bash');
+    assert(missingMain, 'a missing Main Terminal must remain visible as a failed row');
+    assert.strictEqual(missingMain.status, 'dead');
+    assert.strictEqual(missingMain.engineStatus, 'recovery-failed');
+    assert.strictEqual(missingTerminalManager.mainAgentIdentity.currentId(), null);
+    assert.strictEqual(
+      missingTerminalManager.findActiveMainAgentStart(),
+      null,
+      'a missing Main Terminal must not block creation of its replacement',
+    );
+
+    const missingVisible = missingTerminalManager.agents.get('missing-visible-bash');
+    assert(missingVisible, 'a missing visible Terminal must remain in the Agent inventory');
+    assert.strictEqual(missingVisible.status, 'stopped');
+    assert.strictEqual(missingVisible.engineStatus, 'recovery-failed');
+    assert.match(missingVisible.output, /not present in the authoritative native-host recovery set/);
+    assert.deepStrictEqual(persistedMissingStatuses.get('missing-main-bash'), {
+      status: 'dead',
+      engineStatus: 'recovery-failed',
+      wantsMain: false,
+    });
+    assert.deepStrictEqual(persistedMissingStatuses.get('missing-visible-bash'), {
+      status: 'stopped',
+      engineStatus: 'recovery-failed',
+      wantsMain: false,
+    });
+  } finally {
+    await missingTerminalManager.dispose({ preserveTerminalHost: true });
+  }
+
+  const failedEnumerationManager = createTestAgentManager(AgentManager, {
+    ...configManager(),
+    getMainPageSessionKeys() {
+      return [];
+    },
+    listAgentSessionRecords() {
+      return missingTerminalRecords;
+    },
+  });
+  failedEnumerationManager.engineBridge = {
+    async recoverSessions() {
+      throw new Error('simulated native-host enumeration failure');
+    },
+    dispose() {},
+  };
+
+  try {
+    await assert.rejects(
+      () => failedEnumerationManager.recoverEngineSessions(),
+      /simulated native-host enumeration failure/,
+    );
+    const uncertainMain = failedEnumerationManager.agents.get('missing-main-bash');
+    const uncertainVisible = failedEnumerationManager.agents.get('missing-visible-bash');
+    assert.strictEqual(uncertainMain.status, 'error');
+    assert.strictEqual(uncertainMain.engineStatus, 'recovery-failed');
+    assert.match(uncertainMain.output, /recovery enumeration failed/);
+    assert.strictEqual(
+      failedEnumerationManager.mainAgentIdentity.currentId(),
+      uncertainMain.id,
+      'an uncertain enumeration must retain Main identity and prevent an unsafe duplicate start',
+    );
+    assert.strictEqual(failedEnumerationManager.findActiveMainAgentStart(), uncertainMain);
+    assert.strictEqual(uncertainVisible.status, 'error');
+    assert.strictEqual(uncertainVisible.engineStatus, 'recovery-failed');
+  } finally {
+    await failedEnumerationManager.dispose({ preserveTerminalHost: true });
+  }
+
   const providerSessionId = '11111111-1111-4111-8111-111111111111';
   const providerSessionKey = `agent-session:codex:${providerSessionId}`;
   const rotationRecord = {
