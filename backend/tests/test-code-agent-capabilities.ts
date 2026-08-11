@@ -54,6 +54,16 @@ function run() {
   assert.strictEqual(codexTerminalCapabilities.reasoningEffort, true);
   assert.strictEqual(codexTerminalCapabilities.serviceTier, true);
 
+  const returnedToShell = capabilitiesForAgent(agent('codex', null, {
+    runtimeObservation: { kind: 'shell', phase: 'idle' },
+  }));
+  assert.strictEqual(returnedToShell.kind, 'shell');
+  assert.strictEqual(
+    returnedToShell.composer.modelPicker,
+    false,
+    'an explicit shell observation must override stale provider capabilities',
+  );
+
   for (const provider of ['opencode', 'qoder']) {
     const capabilities = capabilitiesForAgent(agent(provider, {
       terminal: { kind: 'prompt' },

@@ -221,7 +221,6 @@ import {
   useWorkspaceSurfaceController,
 } from './code/useWorkspaceSurfaceController'
 import { useAgentComposerState } from './code/useAgentComposerState'
-import { useCodexModelCatalog } from './code/useCodexModelCatalog'
 import { useComposerProviderCatalog } from './code/useComposerProviderCatalog'
 import { useMainPageSessionMembershipController } from './code/useMainPageSessionMembershipController'
 import {
@@ -406,11 +405,11 @@ function isPlainTextComposerAgent(agent: Agent) {
   return agent.providerCapabilities?.terminalComposerInput === 'plain-text'
 }
 
-function isCodexTerminalAgent(agent: Agent | null | undefined) {
+function hasTerminalProfileControl(agent: Agent | null | undefined) {
   return Boolean(
     agent
-    && agentKindForCommand(agent.command) === 'codex'
     && agent.runtimeBinding.kind === 'terminal'
+    && agent.providerCapabilities?.terminalProfile === true
   )
 }
 
@@ -1089,16 +1088,17 @@ export function CodeWorkspace({
   const reportCodexModelCatalogError = useCallback((message: string) => {
     setCopyNotice({ id: Date.now(), kind: 'error', message })
   }, [])
-  const codexModelOptions = useCodexModelCatalog({
-    providerHomeId: activeProviderHomeId,
-    enabled: modelMenuOpen && composerAgentKind === 'codex',
-    onError: reportCodexModelCatalogError,
-  })
-  const { claudeSettings, discoveredSlashCommands } = useComposerProviderCatalog({
+  const {
+    claudeSettings,
+    discoveredSlashCommands,
+    modelOptions: codexModelOptions,
+  } = useComposerProviderCatalog({
     providerKind: composerAgentKind || '',
     homeId: activeProviderHomeId,
     workspace: activeAgent?.cwd,
     slashCommandDiscovery: activeAgent?.providerCapabilities?.slashCommandDiscovery === true,
+    modelCatalogOpen: modelMenuOpen,
+    onModelCatalogError: reportCodexModelCatalogError,
   })
   const pendingCodexTerminalProfile = activeAgent
     ? pendingCodexTerminalProfiles.get(activeAgent.id) || null
@@ -1766,7 +1766,7 @@ export function CodeWorkspace({
     effort: string,
     serviceTier: string,
   ) => {
-    if (!isCodexTerminalAgent(agent)) return true
+    if (!hasTerminalProfileControl(agent)) return true
     if (codexTerminalProfileRequestAgentIdsRef.current.has(agent.id)) return false
     codexTerminalProfileRequestAgentIdsRef.current.add(agent.id)
     const pendingProfile: CodexTerminalProfile = {
@@ -4926,7 +4926,7 @@ export function CodeWorkspace({
           permissionModeDisabled: Boolean(permissionSwitchingAgentId),
           modelProfileDisabled: activeCodexTerminalProfileApplying || Boolean(
             activeAgent
-            && isCodexTerminalAgent(activeAgent)
+            && hasTerminalProfileControl(activeAgent)
             && activeAgent.terminalStatus?.activity === 'busy'
           ),
           currentPermissionLabel,

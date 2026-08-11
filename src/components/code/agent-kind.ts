@@ -9,6 +9,11 @@ const AGENT_KIND_BY_EXECUTABLE: Readonly<Record<string, Exclude<ComposerAgentKin
   fish: 'shell',
 }
 
+const AGENT_KIND_BY_PROVIDER: Readonly<Record<string, Exclude<ComposerAgentKind, null>>> = {
+  codex: 'codex',
+  claude: 'claude',
+}
+
 export function agentKindForCommand(command?: string): ComposerAgentKind {
   const executable = (command || '')
     .trim()
@@ -16,4 +21,8 @@ export function agentKindForCommand(command?: string): ComposerAgentKind {
     .find(token => token !== 'env' && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(token))
   const basename = executable?.split('/').pop() || ''
   return AGENT_KIND_BY_EXECUTABLE[basename] || (executable ? 'agent' : null)
+}
+
+export function agentKindForProvider(provider?: string): ComposerAgentKind {
+  return AGENT_KIND_BY_PROVIDER[(provider || '').trim().toLowerCase()] || null
 }

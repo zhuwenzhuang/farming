@@ -7,6 +7,7 @@ import {
   type ClaudeSettingsSummary,
 } from './composer-profile'
 import { LatestRequestFence } from './latest-request-fence'
+import { useCodexModelCatalog } from './useCodexModelCatalog'
 
 type JsonRequest = (url: string) => Promise<{ json(): Promise<unknown> }>
 
@@ -35,6 +36,18 @@ export interface ComposerProviderCatalogTarget {
   homeId: string
   workspace?: string
   slashCommandDiscovery: boolean
+  modelCatalogOpen: boolean
+  onModelCatalogError: (message: string) => void
+}
+
+interface ComposerProviderCatalogAdapter {
+  codexModelCatalog?: boolean
+  loadSettings?: (homeId: string) => Promise<ClaudeSettingsSummary>
+}
+
+const COMPOSER_PROVIDER_CATALOG_ADAPTERS: Record<string, ComposerProviderCatalogAdapter> = {
+  codex: { codexModelCatalog: true },
+  claude: { loadSettings: requestClaudeSettings },
 }
 
 export function useComposerProviderCatalog({
@@ -42,7 +55,15 @@ export function useComposerProviderCatalog({
   homeId,
   workspace,
   slashCommandDiscovery,
+  modelCatalogOpen,
+  onModelCatalogError,
 }: ComposerProviderCatalogTarget) {
+  const adapter = COMPOSER_PROVIDER_CATALOG_ADAPTERS[providerKind]
+  const modelOptions = useCodexModelCatalog({
+    providerHomeId: homeId,
+    enabled: modelCatalogOpen && adapter?.codexModelCatalog === true,
+    onError: onModelCatalogError,
+  })
   const [claudeSettings, setClaudeSettings] = useState<ClaudeSettingsSummary>(DEFAULT_CLAUDE_SETTINGS)
   const [discoveredSlashCommands, setDiscoveredSlashCommands] = useState<SlashCommandOption[]>([])
   const claudeRequestFenceRef = useRef(new LatestRequestFence())
@@ -51,11 +72,11 @@ export function useComposerProviderCatalog({
   useEffect(() => {
     const requestFence = claudeRequestFenceRef.current
     const lease = requestFence.begin()
-    if (providerKind !== 'claude') {
+    if (!adapter?.loadSettings) {
       setClaudeSettings(DEFAULT_CLAUDE_SETTINGS)
       return () => requestFence.invalidate()
     }
-    void requestClaudeSettings(homeId)
+    void adapter.loadSettings(homeId)
       .then(settings => {
         if (lease.isCurrent()) setClaudeSettings(settings)
       })
@@ -63,7 +84,7 @@ export function useComposerProviderCatalog({
         if (lease.isCurrent()) setClaudeSettings(DEFAULT_CLAUDE_SETTINGS)
       })
     return () => requestFence.invalidate()
-  }, [homeId, providerKind])
+  }, [adapter, homeId])
 
   useEffect(() => {
     const requestFence = slashRequestFenceRef.current
@@ -82,5 +103,5 @@ export function useComposerProviderCatalog({
     return () => requestFence.invalidate()
   }, [homeId, providerKind, slashCommandDiscovery, workspace])
 
-  return { claudeSettings, discoveredSlashCommands }
+  return { claudeSettings, discoveredSlashCommands, modelOptions }
 }

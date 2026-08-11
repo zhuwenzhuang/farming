@@ -252,7 +252,7 @@ export function CodeComposer({
       label: copy.reasoningOptionLabel(reasoning.value, reasoning.label),
     })),
   }))
-  const hasModelMatrix = agentKind === 'codex' && Boolean(modelMatrixFamily(matrixModels, agentModel))
+  const hasModelMatrix = Boolean(modelMatrixFamily(matrixModels, agentModel))
   const [mobileComposerViewport, setMobileComposerViewport] = useState(isMobileComposerViewport)
   const [recordingElapsedSeconds, setRecordingElapsedSeconds] = useState(0)
   const [textareaFocused, setTextareaFocused] = useState(false)

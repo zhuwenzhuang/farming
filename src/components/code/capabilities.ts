@@ -3,6 +3,8 @@ import type { ProjectGroup } from './types'
 import type { ComposerAgentKind } from './agent-kind'
 import { inferAgentTerminalState } from './agent-terminal-inference'
 
+import { agentKindForProvider } from './agent-kind'
+
 export { agentKindForCommand, type ComposerAgentKind } from './agent-kind'
 export { inferAgentTerminalState, isAgentTurnActive, isCodexAgentWorking } from './agent-working-state'
 
@@ -273,13 +275,11 @@ export function capabilitiesForAgent(agent: Agent | null | undefined): AgentCapa
   const inferredKind = inferAgentTerminalState(agent).kind
   const runtimeKind = agent?.runtimeBinding.kind || 'terminal'
   const providerCapabilities = agent?.providerCapabilities
-  // Terminal text is a heuristic observation of the current screen. It may
-  // briefly fall back to the generic `process` kind while Codex redraws its
-  // composer, but that must not hide a capability the backend's exact provider
-  // adapter has already advertised.
-  const kind = runtimeKind === 'terminal'
-    && providerCapabilities?.terminalProfile === true
-    ? 'codex'
+  // A generic process observation may occur while a provider redraws its
+  // composer. In that one ambiguous state the authoritative provider identity
+  // selects the UI adapter. Explicit shell/provider observations still win.
+  const kind = runtimeKind === 'terminal' && inferredKind === 'agent'
+    ? agentKindForProvider(agent?.providerSessionProvider) || inferredKind
     : inferredKind
   const goalMode = Boolean(providerCapabilities?.goalSubmission)
   const terminalProfile = runtimeKind === 'terminal'
