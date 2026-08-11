@@ -1130,8 +1130,12 @@ const transcriptPaneSource = fs.readFileSync(
   path.join(__dirname, '..', '..', 'src', 'components', 'code', 'AgentTranscriptPane.tsx'),
   'utf8'
 );
-const darkStylesSource = fs.readFileSync(
-  path.join(__dirname, '..', '..', 'src', 'styles', 'transcript-dark.css'),
+const transcriptStylesSource = fs.readFileSync(
+  path.join(__dirname, '..', '..', 'src', 'styles', 'transcript.css'),
+  'utf8'
+);
+const appearanceTokensSource = fs.readFileSync(
+  path.join(__dirname, '..', '..', 'src', 'styles', 'tokens.css'),
   'utf8'
 );
 assert(
@@ -1155,11 +1159,10 @@ assert(
   'the transcript should publish only the authoritative incomplete plan from the latest active turn to the shared activity dock'
 );
 assert(
-  darkStylesSource.includes("body.code-mode[data-appearance='dark'] .code-agent-transcript-plan-driver {")
-    && darkStylesSource.includes('background: rgba(38, 38, 38, 0.86);')
-    && darkStylesSource.includes("body.code-mode[data-appearance='dark'] .code-agent-transcript-plan-driver-summary > span")
-    && darkStylesSource.includes('color: var(--code-dark-text);'),
-  'the plan driver should use the established dark appearance surface and readable title color'
+  transcriptStylesSource.includes('.code-agent-transcript-plan-driver')
+    && !transcriptStylesSource.includes('data-appearance')
+    && appearanceTokensSource.includes('--code-transcript-agent-transcript-plan-driver-background'),
+  'the plan driver should consume the shared appearance palette'
 );
 
 console.log('ACP transcript tests passed');

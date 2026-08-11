@@ -3,7 +3,7 @@ import {
   normalizeContentFontSize,
 } from '@/lib/content-font-size'
 
-export type UiAppearance = 'system' | 'light' | 'dark'
+export type UiAppearance = 'system' | 'light' | 'dark' | 'paper'
 export type ResolvedUiAppearance = Exclude<UiAppearance, 'system'>
 export type UiLanguage = 'en' | 'zh'
 export type ComposerFollowUpBehavior = 'queue' | 'steer'
@@ -23,7 +23,7 @@ export const DEFAULT_UI_PREFERENCES: UiPreferences = {
 }
 
 export function normalizeUiAppearance(value: unknown): UiAppearance {
-  return value === 'system' || value === 'light' || value === 'dark'
+  return value === 'system' || value === 'light' || value === 'dark' || value === 'paper'
     ? value
     : DEFAULT_UI_PREFERENCES.appearance
 }

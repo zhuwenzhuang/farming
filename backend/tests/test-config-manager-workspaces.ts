@@ -303,6 +303,8 @@ function run() {
     manager.updateSettings({ appearance: 'dark', language: 'zh' });
     assert.strictEqual(manager.getSettings().appearance, 'dark');
     assert.strictEqual(manager.getSettings().language, 'zh');
+    manager.updateSettings({ appearance: 'paper' });
+    assert.strictEqual(manager.getSettings().appearance, 'paper');
     manager.updateSettings({ appearance: 'system' });
     assert.strictEqual(manager.getSettings().appearance, 'system');
     manager.updateSettings({ appearance: 'sepia', language: 'jp' });

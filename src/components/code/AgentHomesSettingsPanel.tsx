@@ -125,6 +125,7 @@ function panelCopy(language: UiPreferences['language']) {
     system: zh ? '跟随系统' : 'System',
     light: zh ? '浅色' : 'Light',
     dark: zh ? '深色' : 'Dark',
+    paper: zh ? '纸张' : 'Paper',
     interface: zh ? '界面' : 'Interface',
     interfaceSkin: zh ? '界面皮肤' : 'Interface skin',
     contentTextSize: zh ? '正文字号' : 'Content text size',
@@ -738,6 +739,7 @@ export function AgentHomesSettingsPanel({
                   <button type="button" className={uiPreferences.appearance === 'system' ? 'active' : ''} onClick={() => onUpdateUiPreferences({ appearance: 'system' })}>{copy.system}</button>
                   <button type="button" className={uiPreferences.appearance === 'light' ? 'active' : ''} onClick={() => onUpdateUiPreferences({ appearance: 'light' })}>{copy.light}</button>
                   <button type="button" className={uiPreferences.appearance === 'dark' ? 'active' : ''} onClick={() => onUpdateUiPreferences({ appearance: 'dark' })}>{copy.dark}</button>
+                  <button type="button" className={uiPreferences.appearance === 'paper' ? 'active' : ''} onClick={() => onUpdateUiPreferences({ appearance: 'paper' })}>{copy.paper}</button>
                 </div>
               </div>
               <div className="code-settings-inline-choice code-settings-language-choice">

@@ -15,7 +15,8 @@ function run() {
   const api = read('src/lib/workspace-files.ts');
   const router = read('backend/workspace-file-router.cts');
   const copy = read('src/components/code/copy.ts');
-  const styles = `${readCodeStyleSource('src/styles/git-history.css')}\n${readCodeStyleSource('src/styles/git-history-dark.css')}`;
+  const styles = readCodeStyleSource('src/styles/git-history.css');
+  const appearanceTokens = readCodeStyleSource('src/styles/tokens.css');
   const notices = read('THIRD_PARTY_NOTICES.md');
 
   assert(projectFiles.includes("import { GitHistorySection } from './GitHistorySection'"));
@@ -56,7 +57,8 @@ function run() {
   assert(styles.includes('.code-git-history-section'));
   assert(styles.includes('.code-files-section > .code-git-history-section'));
   assert(styles.includes('.code-git-history-graph-placeholder'));
-  assert(styles.includes("[data-appearance='dark'] .code-git-history-section"));
+  assert(!styles.includes('data-appearance'));
+  assert(appearanceTokens.includes('--code-git-history-'));
   assert(notices.includes('Visual Studio Code SCM history graph'));
 
   console.log('test-git-history-section passed');

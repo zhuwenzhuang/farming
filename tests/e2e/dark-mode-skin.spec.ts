@@ -79,7 +79,7 @@ async function expectDarkSeparator(locator: import('@playwright/test').Locator, 
   expect(borderLum, `${name} separator should stay dark (${borderTopColor})`).toBeLessThan(0.12)
 }
 
-async function chooseAppearance(page: import('@playwright/test').Page, appearance: 'Light' | 'Dark') {
+async function chooseAppearance(page: import('@playwright/test').Page, appearance: 'Light' | 'Dark' | 'Paper') {
   await page.getByTestId('code-sidebar-options').click()
   const settingsPanel = page.getByTestId('code-settings-panel')
   await expect(settingsPanel).toBeVisible()
@@ -91,7 +91,7 @@ async function chooseAppearance(page: import('@playwright/test').Page, appearanc
 async function expectSurfaceBackground(
   locator: import('@playwright/test').Locator,
   name: string,
-  appearance: 'light' | 'dark'
+  appearance: 'light' | 'dark' | 'paper'
 ) {
   await expect(locator).toHaveCount(1)
   const luminanceExpectation = expect.poll(async () => {
@@ -105,14 +105,14 @@ async function expectSurfaceBackground(
   }
 }
 
-async function expectTerminalAppearance(page: import('@playwright/test').Page, agentId: string, appearance: 'light' | 'dark') {
+async function expectTerminalAppearance(page: import('@playwright/test').Page, agentId: string, appearance: 'light' | 'dark' | 'paper') {
   const terminalPane = page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"]`)
   await expect(terminalPane).toBeVisible()
   await expectSurfaceBackground(terminalPane.locator('.terminal-session-host .xterm-screen').first(), 'terminal screen', appearance)
   await expectSurfaceBackground(terminalPane.locator('.terminal-session-host .xterm-viewport').first(), 'terminal viewport', appearance)
 }
 
-async function expectMonacoAppearance(page: import('@playwright/test').Page, appearance: 'light' | 'dark') {
+async function expectMonacoAppearance(page: import('@playwright/test').Page, appearance: 'light' | 'dark' | 'paper') {
   await expect(page.getByTestId('code-file-editor')).toBeVisible()
   await expectSurfaceBackground(page.locator('.monaco-editor-background').first(), 'Monaco editor background', appearance)
 }
@@ -136,7 +136,7 @@ async function saveScreenshot(testInfo: import('@playwright/test').TestInfo, nam
   return filePath
 }
 
-test.describe('Farming Code dark skin', () => {
+test.describe('Farming Code appearance skins', () => {
   test('paints the saved dark appearance before application modules execute', async ({ page }) => {
     const settingsResponse = await page.request.post('/farming/api/settings', {
       data: { appearance: 'dark' },
@@ -205,6 +205,38 @@ test.describe('Farming Code dark skin', () => {
     } finally {
       releaseSettings()
     }
+  })
+
+  test('applies Paper across the browser canvas, workbench, settings, and terminal', async ({ page, workspaceRoot }) => {
+    const projectDir = path.join(workspaceRoot, 'paper-project')
+    fs.mkdirSync(projectDir, { recursive: true })
+
+    const settingsResponse = await page.request.post('/farming/api/settings', {
+      data: { appearance: 'paper' },
+    })
+    expect(settingsResponse.ok()).toBeTruthy()
+
+    await openFarming(page)
+    await expect(page.locator('html')).toHaveAttribute('data-appearance', 'paper')
+    await expect(page.locator('body')).toHaveAttribute('data-appearance', 'paper')
+    await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(247, 244, 237)')
+    await expect(page.getByTestId('app-shell')).toHaveCSS('background-color', 'rgb(247, 244, 237)')
+    await expect(page.getByTestId('code-sidebar')).toHaveCSS('background-color', 'rgb(247, 244, 237)')
+    await expect(page.locator('meta[name="color-scheme"]')).toHaveAttribute('content', 'light')
+    await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#f7f4ed')
+
+    await page.getByTestId('code-sidebar-options').click()
+    const appearanceGroup = page.getByTestId('code-settings-panel').getByRole('group', { name: 'Appearance' })
+    await expect(appearanceGroup.getByRole('button', { name: 'Paper', exact: true })).toHaveClass(/active/)
+    await page.getByTestId('code-settings-panel').getByRole('button', { name: 'Close' }).click()
+
+    const agentId = await createControlAgent(page, 'bash', projectDir)
+    await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+    await expectTerminalAppearance(page, agentId, 'paper')
+    await chooseAppearance(page, 'Light')
+    await expectTerminalAppearance(page, agentId, 'light')
+    await chooseAppearance(page, 'Paper')
+    await expectTerminalAppearance(page, agentId, 'paper')
   })
 
   test('applies and verifies the dark Codex skin across core surfaces', async ({ page, workspaceRoot }, testInfo) => {

@@ -972,7 +972,7 @@ class ConfigManager {
   }
 
   normalizeAppearance(appearance: unknown): string {
-    return typeof appearance === 'string' && ['system', 'light', 'dark'].includes(appearance)
+    return typeof appearance === 'string' && ['system', 'light', 'dark', 'paper'].includes(appearance)
       ? appearance
       : 'system';
   }

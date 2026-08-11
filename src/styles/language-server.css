@@ -9,7 +9,7 @@
   flex-direction: column;
   overflow: hidden;
   border: 0;
-  background: #ffffff;
+  background: var(--code-language-server-panel-background);
   color: #30362f;
   font-size: 12px;
 }
@@ -33,7 +33,7 @@
 .code-language-server-resizer:hover,
 .code-language-server-resizer:focus-visible,
 body.code-resizing-language-server-dock .code-language-server-resizer {
-  background: #aeb3aa;
+  background: var(--code-text-subtle);
   outline: 0;
 }
 
@@ -44,16 +44,20 @@ body.code-resizing-language-server-dock .code-language-server-resizer {
   justify-content: space-between;
   padding: 0 8px 0 12px;
   border-bottom: 1px solid rgba(36, 41, 47, 0.1);
-  background: #f6f7f3;
+  background: var(--code-bg-muted);
+  border-color: var(--code-border);
 }
 
 @container code-file-editor-workbench (max-width: 980px) {
   .code-language-server-panel {
       border-top: 1px solid rgba(36, 41, 47, 0.14);
+      border-color: var(--code-border);
+      color: var(--code-component-language-server-panel-color);
     }
 
   .code-language-server-resizer {
       display: none;
+      background: var(--code-border);
     }
 }
 
@@ -85,11 +89,12 @@ body.code-resizing-language-server-dock .code-language-server-resizer {
   gap: 3px;
   padding: 6px 8px;
   border-bottom: 1px solid rgba(36, 41, 47, 0.08);
+  border-color: var(--code-border);
 }
 
 .code-language-server-directions button {
   padding: 5px 8px;
-  color: #666d64;
+  color: var(--code-text-subtle);
 }
 
 .code-language-server-directions button.active,
@@ -99,7 +104,7 @@ body.code-resizing-language-server-dock .code-language-server-resizer {
 }
 
 .code-language-server-directions button.active {
-  color: #30362f;
+  color: var(--code-text);
   font-weight: 600;
 }
 
@@ -109,6 +114,7 @@ body.code-resizing-language-server-dock .code-language-server-resizer {
   gap: 6px;
   padding: 7px 8px;
   border-bottom: 1px solid rgba(36, 41, 47, 0.08);
+  border-color: var(--code-border);
 }
 
 .code-language-server-search input {
@@ -116,9 +122,10 @@ body.code-resizing-language-server-dock .code-language-server-resizer {
   padding: 5px 7px;
   border: 1px solid rgba(36, 41, 47, 0.18);
   border-radius: 5px;
-  background: #fff;
-  color: inherit;
+  background: var(--code-bg-canvas);
+  color: var(--code-text);
   font: inherit;
+  border-color: var(--code-border);
 }
 
 .code-language-server-search button {
@@ -141,12 +148,12 @@ body.code-resizing-language-server-dock .code-language-server-resizer {
 
 .code-language-server-results > p {
   margin: 12px;
-  color: #7b8078;
+  color: var(--code-text-subtle);
 }
 
 .code-language-server-results > p.error,
 .code-language-server-node-error {
-  color: #9d2f2f;
+  color: var(--code-diff-removed);
 }
 
 .code-language-server-results > p.code-language-server-truncated {
@@ -179,7 +186,7 @@ body.code-resizing-language-server-dock .code-language-server-resizer {
 }
 
 .code-language-server-node.root {
-  background: rgba(82, 99, 135, 0.035);
+  background: var(--code-accent-soft);
 }
 
 .code-language-server-node[aria-selected="true"] {
@@ -200,7 +207,7 @@ body.code-resizing-language-server-dock .code-language-server-resizer {
   padding: 0;
   border: 0;
   background: transparent;
-  color: #7b8078;
+  color: var(--code-text-subtle);
   cursor: pointer;
 }
 
@@ -274,8 +281,8 @@ body.code-resizing-language-server-dock .code-language-server-resizer {
   flex: 0 0 auto;
   padding: 1px 4px;
   border-radius: 4px;
-  background: rgba(82, 99, 135, 0.1);
-  color: #626b7a;
+  background: var(--code-accent-soft);
+  color: var(--code-text-muted);
   font-size: 9px;
   font-style: normal;
   font-weight: 600;
@@ -292,8 +299,8 @@ body.code-resizing-language-server-dock .code-language-server-resizer {
   display: inline-grid;
   place-items: center;
   border-radius: 4px;
-  background: rgba(82, 99, 135, 0.11);
-  color: #596a87;
+  background: var(--code-accent-soft);
+  color: var(--code-accent-hover);
   font-family: var(--font-mono, "SF Mono", Menlo, Consolas, monospace);
   font-size: 10px;
   font-weight: 700;
@@ -302,19 +309,19 @@ body.code-resizing-language-server-dock .code-language-server-resizer {
 
 .code-language-server-symbol-kind.interface,
 .code-language-server-symbol-kind.class {
-  background: rgba(130, 94, 57, 0.12);
-  color: #8a633b;
+  background: var(--code-language-server-symbol-kind-interface-class-background);
+  color: var(--code-warning);
 }
 
 .code-language-server-symbol-kind.function {
-  background: rgba(103, 76, 152, 0.12);
-  color: #6f519f;
+  background: var(--code-language-server-symbol-kind-function-background);
+  color: var(--code-skill);
 }
 
 .code-language-server-symbol-kind.property,
 .code-language-server-symbol-kind.variable {
-  background: rgba(53, 120, 115, 0.11);
-  color: #397c77;
+  background: var(--code-language-server-symbol-kind-property-variable-background);
+  color: var(--code-success);
 }
 
 .code-language-server-node-state {
@@ -323,7 +330,7 @@ body.code-resizing-language-server-dock .code-language-server-resizer {
   padding-top: 2px;
   padding-right: 12px;
   padding-bottom: 4px;
-  color: #7b8078;
+  color: var(--code-text-subtle);
   font-size: 11px;
 }
 
@@ -360,4 +367,24 @@ body.code-resizing-language-server-dock .code-language-server-resizer {
   color: inherit;
   cursor: pointer;
   font: inherit;
+}
+
+.code-language-server-location span {
+  color: var(--code-text-subtle);
+}
+
+.code-language-server-location small {
+  color: var(--code-text-subtle);
+}
+
+.code-language-server-panel {
+  box-shadow: var(--code-language-server-panel-box-shadow);
+}
+
+.code-language-server-toolbar {
+  background: var(--code-component-file-editor-toolbar-language-server-toolbar-terminal-toolbar-background);
+}
+
+.code-language-server-toolbar {
+  border-color: var(--code-component-file-editor-toolbar-language-server-toolbar-terminal-toolbar-border-color);
 }

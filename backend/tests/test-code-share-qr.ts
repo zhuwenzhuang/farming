@@ -16,9 +16,8 @@ function run() {
   const webSocketSource = read('src/hooks/useWebSocket.ts');
   const stylesSource = readCodeStyles();
   const shareStylesSource = readCodeStyleSource('src/styles/share.css');
-  const shareDarkStylesSource = readCodeStyleSource('src/styles/share-dark.css');
+  const appearanceTokensSource = readCodeStyleSource('src/styles/tokens.css');
   const mainStylesSource = readCodeStyleSource('src/styles/main.css');
-  const darkStylesSource = readCodeStyleSource('src/styles/code-dark.css');
   const packageSource = read('package.json');
 
   assert(packageSource.includes('"qrcode-generator"'), 'QR rendering should use the mature qrcode-generator matrix library');
@@ -124,12 +123,9 @@ function run() {
   assert(!shareStylesSource.includes('.code-share-meta'));
   assert(shareStylesSource.includes('.code-share-token-card'));
   assert(shareStylesSource.includes('.code-share-copy-status'));
-  assert(shareDarkStylesSource.includes('.code-share-popover'));
-  assert(shareDarkStylesSource.includes('.code-share-countdown'));
-  assert(shareDarkStylesSource.includes('.code-share-token-card'));
-  assert(shareDarkStylesSource.includes('.code-share-copy-status'));
+  assert(appearanceTokensSource.includes('--code-share-'));
+  assert(!shareStylesSource.includes('data-appearance'));
   assert(!mainStylesSource.includes('.code-share-popover'));
-  assert(!darkStylesSource.includes('.code-share-popover'));
 
   assert(!mobileShareSource.includes('MobileSharePlatform'));
   assert(!mobileShareSource.includes('navigator.userAgent'));
@@ -150,7 +146,7 @@ function run() {
   assert(stylesSource.includes('.code-mobile-install-control'));
   assert(stylesSource.includes('.code-mobile-install-more'));
   assert(stylesSource.includes('.code-mobile-share-link-row'));
-  assert(shareDarkStylesSource.includes('.code-mobile-install-control'));
+  assert(shareStylesSource.includes('.code-mobile-install-control'));
 
   console.log('code share QR assertions passed');
 }

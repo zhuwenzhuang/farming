@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict'
-import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import postcss, { type AtRule, type Container, type Rule } from 'postcss'
@@ -43,18 +42,14 @@ function normalize(value: string) {
   return value.replace(/\s+/g, ' ').trim()
 }
 
-function digest(records: string[]) {
-  return crypto.createHash('sha256').update(JSON.stringify(records)).digest('hex')
-}
-
 export interface DomainStyleOwnershipContract {
-  /** Product-domain name; owner files are src/styles/<domain>.css and <domain>-dark.css. */
+  /** Product-domain name; structural rules are owned by src/styles/<domain>.css. */
   domain: string
   /** Class-name prefixes owned by the domain, without the leading dot. */
   prefixes: string[]
   /** Prefixes that would match an owned prefix pattern but belong to another owner. */
   excludePrefixes?: string[]
-  /** Ordered [count, sha256] captured from the pre-extraction monoliths. */
+  /** Legacy extraction snapshot retained at call sites until those fixtures are simplified. */
   expected: {
     combined: [number, string]
     base: [number, string]
@@ -66,7 +61,7 @@ export interface DomainStyleOwnershipContract {
   unstyledClassNames?: string[]
   /** Representative selectors that must stay in the base owner. */
   mustHaveBase: string[]
-  /** Representative selectors that must stay in the dark owner. */
+  /** Legacy dark selectors; the new contract verifies a domain token palette instead. */
   mustHaveDark: string[]
 }
 
@@ -111,38 +106,20 @@ export function assertDomainStyleOwnership(contract: DomainStyleOwnershipContrac
   }
 
   const baseFile = `src/styles/${contract.domain}.css` as CodeStyleSourcePath
-  const darkFile = `src/styles/${contract.domain}-dark.css` as CodeStyleSourcePath
   const main = orderedRuleRecords(readCodeStyleSource('src/styles/main.css'))
-  const dark = orderedRuleRecords(readCodeStyleSource('src/styles/code-dark.css'))
   const ownerBase = orderedRuleRecords(readCodeStyleSource(baseFile))
-  const ownerDark = orderedRuleRecords(readCodeStyleSource(darkFile))
+  const palette = readCodeStyleSource('src/styles/tokens.css')
 
   assert.equal(main.owned.length, 0, `main.css must not retain ${contract.domain}-owned selectors or keyframes`)
-  assert.equal(dark.owned.length, 0, `code-dark.css must not retain ${contract.domain}-owned selectors`)
   assert.equal(ownerBase.remaining.length, 0, `${baseFile} must contain only ${contract.domain}-owned rules`)
-  assert.equal(ownerDark.remaining.length, 0, `${darkFile} must contain only ${contract.domain}-owned rules`)
-
-  // The expected ordered hashes were captured from the two monolithic source
-  // files before extraction, with comma groups split into individual selectors,
-  // proving specificity, declaration bodies, media context, and relative order
-  // survived on both sides of the ownership boundary.
-  assert.deepEqual(
-    [ownerBase.owned.length + ownerDark.owned.length, digest([...ownerBase.owned, ...ownerDark.owned])],
-    contract.expected.combined,
-    `the ${contract.domain} owners must preserve the ordered rule set from main.css and code-dark.css`,
-  )
-  assert.deepEqual(
-    [ownerBase.owned.length, digest(ownerBase.owned)],
-    contract.expected.base,
-    `${baseFile} must preserve the ordered appearance-neutral rules`,
-  )
-  assert.deepEqual(
-    [ownerDark.owned.length, digest(ownerDark.owned)],
-    contract.expected.dark,
-    `${darkFile} must preserve the ordered dark rules`,
+  assert(ownerBase.owned.length > 0, `${baseFile} must retain its domain rules`)
+  assert(!/data-appearance/.test(readCodeStyleSource(baseFile)), `${baseFile} must stay appearance-neutral`)
+  assert(
+    palette.includes(`--code-${contract.domain}-`),
+    `tokens.css must provide the ${contract.domain} component palette`,
   )
 
-  const ownerStyles = readCodeStyleSource(baseFile) + readCodeStyleSource(darkFile)
+  const ownerStyles = readCodeStyleSource(baseFile)
   const classNameNeedle = new RegExp(`(?:${contract.prefixes.join('|')})[a-z0-9-]*`, 'g')
   const ownedClassNames = new Set<string>()
   for (const relativePath of contract.componentSources) {
@@ -173,8 +150,5 @@ export function assertDomainStyleOwnership(contract: DomainStyleOwnershipContrac
 
   for (const selector of contract.mustHaveBase) {
     assert(readCodeStyleSource(baseFile).includes(selector), `Missing ${contract.domain} base rule: ${selector}`)
-  }
-  for (const selector of contract.mustHaveDark) {
-    assert(readCodeStyleSource(darkFile).includes(selector), `Missing dark ${contract.domain} rule: ${selector}`)
   }
 }

@@ -17,11 +17,10 @@
   padding: 13px 34px 12px 13px;
   border: 1px solid rgba(93, 103, 94, 0.2);
   border-radius: 12px;
-  background: rgba(250, 251, 248, 0.74);
+  background: var(--code-pet-bubble-background);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.62),
-    0 12px 30px rgba(31, 35, 40, 0.13);
-  color: #343b34;
+    var(--code-pet-bubble-box-shadow);
+  color: var(--code-text-strong);
   font-family: -apple-system, system-ui, "SF Pro Text", "Segoe UI", sans-serif;
   -webkit-backdrop-filter: blur(14px) saturate(0.9);
   backdrop-filter: blur(14px) saturate(0.9);
@@ -35,14 +34,10 @@
   place-items: center;
   padding: 24px;
   box-sizing: border-box;
-  background: linear-gradient(
-    145deg,
-    rgba(247, 249, 246, 0.18),
-    rgba(235, 240, 236, 0.26)
-  );
+  background: var(--code-pet-glass-rest-overlay-background);
   -webkit-backdrop-filter: blur(7px) saturate(0.82) brightness(1.02);
   backdrop-filter: blur(7px) saturate(0.82) brightness(1.02);
-  color: #303730;
+  color: var(--code-pet-glass-rest-overlay-color);
   font-family: -apple-system, system-ui, "SF Pro Text", "Segoe UI", sans-serif;
   animation: code-pet-glass-rest-appear 320ms ease-out both;
 }
@@ -56,14 +51,14 @@
 }
 
 .code-pet-glass-rest-time {
-  color: #2e3530;
+  color: var(--code-pet-glass-rest-time-color);
   font-family: -apple-system, system-ui, "SF Pro Display", "Segoe UI", sans-serif;
   font-size: clamp(64px, 8.5vw, 104px);
   font-variant-numeric: tabular-nums;
   font-weight: 300;
   letter-spacing: 0.025em;
   line-height: 1;
-  text-shadow: 0 1px 18px rgba(255, 255, 255, 0.72);
+  text-shadow: var(--code-pet-glass-rest-time-text-shadow);
 }
 
 .code-pet-glass-rest-content strong {
@@ -75,7 +70,7 @@
 
 .code-pet-glass-rest-content p {
   margin: 0;
-  color: rgba(48, 55, 48, 0.68);
+  color: var(--code-pet-glass-rest-content-color);
   font-size: 13px;
   line-height: 20px;
 }
@@ -94,9 +89,9 @@
   padding: 6px 13px;
   border: 1px solid rgba(75, 84, 76, 0.18);
   border-radius: 999px;
-  background: rgba(255, 255, 253, 0.4);
+  background: var(--code-pet-glass-rest-content-background);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4);
-  color: rgba(48, 55, 48, 0.76);
+  color: var(--code-pet-glass-rest-content-color-375988);
   cursor: pointer;
   font: inherit;
   font-size: 12px;
@@ -104,9 +99,9 @@
 
 .code-pet-glass-rest-content button:hover,
 .code-pet-glass-rest-content button:focus-visible {
-  border-color: rgba(75, 84, 76, 0.32);
-  background: rgba(255, 255, 253, 0.52);
-  color: #303730;
+  border-color: var(--code-pet-glass-rest-content-hover-focus-visible-border-color);
+  background: var(--code-pet-glass-rest-content-hover-focus-visible-background);
+  color: var(--code-pet-glass-rest-content-hover-focus-visible-color);
   outline: 0;
 }
 
@@ -148,25 +143,13 @@
   height: 100%;
   opacity: 0;
   will-change: opacity;
+  filter: var(--code-pet-compositor-filter);
 }
 
 .code-pet-black-hole-canvas {
   z-index: 221;
   will-change: left, top, width, height, opacity;
-  filter: drop-shadow(0 7px 16px rgba(8, 10, 9, 0.16));
-}
-
-body.code-mode[data-appearance='light'] .code-pet-black-hole-compositor {
-  filter: brightness(0.88) saturate(0.92);
-}
-
-body.code-mode[data-appearance='light'] .code-pet-black-hole-canvas {
-  filter:
-    brightness(0.84)
-    contrast(1.08)
-    saturate(1.28)
-    drop-shadow(0 8px 20px rgba(8, 10, 9, 0.28))
-    drop-shadow(0 0 1px rgba(8, 10, 9, 0.24));
+  filter: var(--code-pet-canvas-filter);
 }
 
 .code-pet-black-hole-status {
@@ -186,13 +169,10 @@ body.code-mode[data-appearance='light'] .code-pet-black-hole-canvas {
   border: 1px solid rgba(225, 232, 227, 0.3);
   border-radius: 999px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.01)),
-    rgba(24, 29, 27, 0.035);
+    var(--code-pet-black-hole-status-background);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.42),
-    inset 0 -1px 0 rgba(18, 23, 21, 0.14),
-    0 10px 34px rgba(13, 17, 16, 0.16);
-  color: rgba(31, 37, 34, 0.84);
+    var(--code-pet-black-hole-status-box-shadow);
+  color: var(--code-pet-black-hole-status-color);
   pointer-events: auto;
   transform: translateX(-50%);
   -webkit-backdrop-filter:
@@ -238,7 +218,7 @@ body.code-mode[data-appearance='light'] .code-pet-black-hole-canvas {
   position: relative;
   z-index: 1;
   overflow: hidden;
-  color: rgba(39, 46, 42, 0.7);
+  color: var(--code-pet-black-hole-status-label-color);
   font-size: 12px;
   font-weight: 590;
   letter-spacing: 0.06em;
@@ -257,8 +237,8 @@ body.code-mode[data-appearance='light'] .code-pet-black-hole-canvas {
   z-index: 1;
   display: flex;
   justify-content: center;
-  color: #242b28;
-  filter: drop-shadow(0 0 4px rgba(245, 196, 120, 0.18));
+  color: var(--code-pet-seven-segment-time-color);
+  filter: var(--code-pet-seven-segment-time-filter);
 }
 
 .code-pet-seven-segment-digits {
@@ -371,12 +351,10 @@ body.code-mode[data-appearance='light'] .code-pet-black-hole-canvas {
   border: 1px solid rgba(38, 48, 43, 0.32);
   border-radius: 999px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.76), rgba(242, 246, 243, 0.48)),
-    rgba(235, 240, 237, 0.42);
+    var(--code-pet-black-hole-status-background-a5dd74);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.82),
-    0 3px 10px rgba(15, 20, 18, 0.14);
-  color: rgba(27, 35, 31, 0.92);
+    var(--code-pet-black-hole-status-box-shadow-9dff7a);
+  color: var(--code-pet-black-hole-status-color-11e735);
   cursor: pointer;
   font: inherit;
   font-size: 12px;
@@ -385,11 +363,10 @@ body.code-mode[data-appearance='light'] .code-pet-black-hole-canvas {
 
 .code-pet-black-hole-status button:hover,
 .code-pet-black-hole-status button:focus-visible {
-  border-color: rgba(31, 41, 36, 0.48);
+  border-color: var(--code-pet-black-hole-status-hover-focus-visible-border-color);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(239, 244, 241, 0.64)),
-    rgba(230, 236, 232, 0.54);
-  color: rgb(20, 27, 23);
+    var(--code-pet-black-hole-status-hover-focus-visible-background);
+  color: var(--code-text-on-emphasis);
   outline: 0;
 }
 
@@ -459,7 +436,7 @@ body.code-mode[data-appearance='light'] .code-pet-black-hole-canvas {
   left: 8px;
   border-right: 1px solid rgba(93, 103, 94, 0.2);
   border-bottom: 1px solid rgba(93, 103, 94, 0.2);
-  background: rgba(250, 251, 248, 0.86);
+  background: var(--code-pet-bubble-after-background);
   transform: rotate(45deg);
 }
 
@@ -478,7 +455,7 @@ body.code-mode[data-appearance='light'] .code-pet-black-hole-canvas {
 
 .code-pet-bubble p {
   margin: 0;
-  color: #687068;
+  color: var(--code-pet-bubble-color);
   font-size: 13px;
   line-height: 18px;
 }
@@ -512,7 +489,7 @@ body.code-mode[data-appearance='light'] .code-pet-black-hole-canvas {
 }
 
 .code-pet-error {
-  color: #9b4f43;
+  color: var(--code-pet-error-color);
   font-size: 12px;
   line-height: 17px;
 }
@@ -534,7 +511,7 @@ body.code-mode[data-appearance='light'] .code-pet-black-hole-canvas {
   border: 0;
   border-radius: 7px;
   background: transparent;
-  color: #7b827a;
+  color: var(--code-text-subtle);
   cursor: pointer;
   font-size: 19px;
   line-height: 1;
@@ -542,8 +519,8 @@ body.code-mode[data-appearance='light'] .code-pet-black-hole-canvas {
 
 .code-pet-close:hover,
 .code-pet-close:focus-visible {
-  background: #f0f2ed;
-  color: #394139;
+  background: var(--code-border);
+  color: var(--code-text-strong);
   outline: 0;
 }
 
@@ -558,8 +535,8 @@ body.code-mode[data-appearance='light'] .code-pet-black-hole-canvas {
   padding: 5px 9px;
   border: 1px solid #d7dbd4;
   border-radius: 7px;
-  background: #f8f9f6;
-  color: #4c554c;
+  background: var(--code-bg-muted);
+  color: var(--code-text-muted);
   cursor: pointer;
   font: inherit;
   font-size: 12px;
@@ -568,21 +545,21 @@ body.code-mode[data-appearance='light'] .code-pet-black-hole-canvas {
 
 .code-pet-actions button:hover,
 .code-pet-actions button:focus-visible {
-  border-color: #aeb5aa;
-  background: #f0f2ed;
+  border-color: var(--code-border-strong);
+  background: var(--code-border);
   outline: 0;
 }
 
 .code-pet-actions button.primary {
-  border-color: #53647f;
-  background: #53647f;
-  color: #ffffff;
+  border-color: var(--code-pet-actions-primary-border-color);
+  background: var(--code-pet-actions-primary-background);
+  color: var(--code-text-on-emphasis);
 }
 
 .code-pet-actions button.primary:hover,
 .code-pet-actions button.primary:focus-visible {
-  border-color: #405170;
-  background: #405170;
+  border-color: var(--code-pet-actions-primary-hover);
+  background: var(--code-pet-actions-primary-hover);
 }
 
 .code-pet-appearance-icon {
@@ -691,8 +668,8 @@ body.code-mode[data-appearance='light'] .code-pet-black-hole-canvas {
   padding: 10px;
   border: 1px solid rgba(93, 103, 94, 0.16);
   border-radius: 10px;
-  background: rgba(255, 255, 253, 0.34);
-  color: #3d453e;
+  background: var(--code-pet-appearance-select-background);
+  color: var(--code-text-muted);
   cursor: pointer;
   font: inherit;
   text-align: left;
@@ -701,8 +678,8 @@ body.code-mode[data-appearance='light'] .code-pet-black-hole-canvas {
 .code-pet-appearance-select:hover,
 .code-pet-appearance-select:focus-visible,
 .code-pet-appearance-select.selected {
-  border-color: rgba(83, 100, 127, 0.48);
-  background: rgba(247, 249, 246, 0.72);
+  border-color: var(--code-border-strong);
+  background: var(--code-pet-appearance-select-selected-background);
   outline: 0;
 }
 
@@ -719,7 +696,7 @@ body.code-mode[data-appearance='light'] .code-pet-black-hole-canvas {
 }
 
 .code-pet-appearance-options small {
-  color: #737b73;
+  color: var(--code-pet-appearance-options-color);
   font-size: 10px;
   font-weight: 400;
   line-height: 14px;
@@ -749,8 +726,8 @@ body.code-mode[data-appearance='light'] .code-pet-black-hole-canvas {
   padding: 0;
   border: 1px solid transparent;
   border-radius: 50%;
-  background: transparent;
-  color: #596983;
+  background: var(--code-pet-appearance-preview-background);
+  color: var(--code-text-muted);
   cursor: pointer;
 }
 
@@ -761,7 +738,59 @@ body.code-mode[data-appearance='light'] .code-pet-black-hole-canvas {
 
 .code-pet-appearance-preview:hover,
 .code-pet-appearance-preview:focus-visible {
-  border-color: rgba(83, 100, 127, 0.58);
-  background: rgba(255, 255, 255, 0.82);
+  border-color: var(--code-border-strong);
+  background: var(--code-pet-appearance-preview-focus-visible-background);
   outline: 0;
+}
+
+.code-pet-appearance-select {
+  border-color: var(--code-pet-appearance-select-pet-appearance-preview-border-color);
+}
+
+.code-pet-appearance-preview {
+  border-color: var(--code-pet-appearance-select-pet-appearance-preview-border-color);
+}
+
+.code-pet-appearance-select:hover {
+  color: var(--code-pet-focus-visible-selected-pet-appearance-preview-color);
+}
+
+.code-pet-appearance-select:focus-visible {
+  color: var(--code-pet-focus-visible-selected-pet-appearance-preview-color);
+}
+
+.code-pet-appearance-select.selected {
+  color: var(--code-pet-focus-visible-selected-pet-appearance-preview-color);
+}
+
+.code-pet-appearance-preview:hover {
+  color: var(--code-pet-focus-visible-selected-pet-appearance-preview-color);
+}
+
+.code-pet-appearance-preview:focus-visible {
+  color: var(--code-pet-focus-visible-selected-pet-appearance-preview-color);
+}
+
+.code-pet-bubble {
+  border-color: var(--code-pet-bubble-border-color);
+}
+
+.code-pet-glass-rest-content button {
+  border-color: var(--code-pet-glass-rest-content-border-color);
+}
+
+.code-pet-bubble::after {
+  border-color: var(--code-pet-bubble-after-border-color);
+}
+
+.code-pet-actions button {
+  border-color: var(--code-pet-actions-border-color);
+}
+
+.code-pet-black-hole-status {
+  border-color: var(--code-pet-black-hole-status-border-color);
+}
+
+.code-pet-black-hole-status button {
+  border-color: var(--code-pet-black-hole-status-border-color-962a94);
 }

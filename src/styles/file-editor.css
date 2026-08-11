@@ -7,7 +7,7 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  background: #ffffff;
+  background: var(--code-bg-surface);
 }
 
 .code-file-editor-workbench-shell {
@@ -64,7 +64,8 @@
   display: flex;
   align-items: stretch;
   border-bottom: 1px solid rgba(36, 41, 47, 0.08);
-  background: #fafaf9;
+  background: var(--code-bg-inset);
+  border-color: var(--code-border);
 }
 
 .code-file-editor-tab-strip > .code-file-editor-actions {
@@ -113,14 +114,15 @@
   border-right: 1px solid rgba(36, 41, 47, 0.08);
   border-top: 1px solid transparent;
   background: transparent;
-  color: #24292f;
+  color: var(--code-text);
   cursor: pointer;
   font-size: 13px;
 }
 
 .code-file-editor-tab.active {
   border-top-color: transparent;
-  background: #ffffff;
+  background: var(--code-component-file-editor-tab-active-background);
+  color: var(--code-text);
 }
 
 .code-file-editor-tab.active::after {
@@ -131,7 +133,7 @@
   bottom: -1px;
   left: 0;
   z-index: 1;
-  background: rgba(36, 41, 47, 0.025);
+  background: var(--code-file-editor-tab-active-after-background);
 }
 
 .code-file-editor-tab[data-dragging='true'] {
@@ -139,15 +141,15 @@
 }
 
 .code-file-editor-tab[data-drop-position='before'] {
-  box-shadow: inset 2px 0 #7f8f7a;
+  box-shadow: inset 2px 0 var(--code-text-subtle);
 }
 
 .code-file-editor-tab[data-drop-position='after'] {
-  box-shadow: inset -2px 0 #7f8f7a;
+  box-shadow: inset -2px 0 var(--code-text-subtle);
 }
 
 .code-file-editor-tab:hover:not(.active) {
-  background: rgba(255, 255, 255, 0.34);
+  background: var(--code-bg-hover);
 }
 
 .code-file-editor-tab:focus-visible {
@@ -187,7 +189,7 @@
   border: 0;
   border-radius: 4px;
   background: transparent;
-  color: #6d736b;
+  color: var(--code-text-subtle);
   cursor: pointer;
   opacity: 0;
   pointer-events: none;
@@ -219,7 +221,8 @@
 }
 
 .code-file-editor-close:hover {
-  background: rgba(31, 35, 40, 0.08);
+  background: var(--code-bg-hover);
+  color: var(--code-text);
 }
 
 .code-file-editor-dirty {
@@ -240,7 +243,7 @@
   display: flex;
   align-items: center;
   padding: 3px 12px;
-  background: #ffffff;
+  background: var(--code-bg-surface);
 }
 
 .code-file-editor-breadcrumbs {
@@ -262,7 +265,7 @@
   padding: 0;
   border: 0;
   background: transparent;
-  color: inherit;
+  color: var(--code-component-file-editor-breadcrumb-color);
   cursor: pointer;
   font: inherit;
 }
@@ -278,8 +281,9 @@
 
 .code-file-editor-breadcrumb:hover,
 .code-file-editor-breadcrumb:focus-visible {
-  color: #394866;
+  color: var(--code-component-file-editor-breadcrumb-hover-color);
   outline: 0;
+  background: var(--code-component-file-editor-breadcrumb-hover-background);
 }
 
 .code-file-editor-breadcrumb-name {
@@ -330,17 +334,18 @@
   border: 0;
   border-radius: 4px;
   background: transparent;
-  color: #5d655b;
+  color: var(--code-component-file-editor-action-color);
   cursor: pointer;
 }
 
 .code-file-editor-action:hover:not(:disabled) {
-  background: rgba(31, 35, 40, 0.075);
+  background: var(--code-component-file-editor-action-hover-disabled-background);
+  color: var(--code-component-file-editor-action-hover-disabled-color);
 }
 
 .code-file-editor-action.active {
-  background: rgba(82, 99, 135, 0.12);
-  color: #394866;
+  background: var(--code-component-file-editor-action-active-background);
+  color: var(--code-component-file-editor-action-active-color);
 }
 
 .code-file-editor-action:disabled {
@@ -354,6 +359,7 @@
   display: inline-flex;
   align-items: center;
   border-right: 1px solid rgba(36, 41, 47, 0.08);
+  border-color: var(--code-border-subtle);
 }
 
 .code-file-editor-navigation .code-file-editor-action {
@@ -378,7 +384,7 @@
   height: 20px;
   margin: 0 3px;
   flex: 0 0 auto;
-  background: rgba(36, 41, 47, 0.08);
+  background: var(--code-border-subtle);
 }
 
 .code-file-editor-action.save::before {
@@ -456,7 +462,7 @@
   flex: 1;
   min-height: 0;
   width: 100%;
-  background: #ffffff;
+  background: var(--code-bg-surface);
   overflow: hidden;
 }
 
@@ -468,11 +474,13 @@
   flex: 1;
   min-height: 0;
   min-width: 0;
-  background: #ffffff;
+  background: var(--code-bg-surface);
 }
 
 .code-file-editor-source-region {
   display: flex;
+  background: var(--code-component-file-editor-source-region-background);
+  color: var(--code-component-file-editor-source-region-color);
 }
 
 .code-file-editor-source-region.hidden {
@@ -491,6 +499,7 @@
   min-width: 0;
   height: 100%;
   border-right: 1px solid rgba(36, 41, 47, 0.08);
+  border-color: var(--code-border);
 }
 
 .code-file-editor-source-region.markdown-split .code-file-preview-panel.markdown {
@@ -503,7 +512,8 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: #ffffff;
+  background: var(--code-component-file-diff-view-background);
+  color: var(--code-component-file-diff-view-color);
 }
 
 .code-file-diff-header {
@@ -515,7 +525,9 @@
   gap: 10px;
   padding: 0 10px 0 12px;
   border-bottom: 1px solid rgba(36, 41, 47, 0.08);
-  background: #fbfbf8;
+  background: var(--code-bg-muted);
+  border-color: var(--code-border);
+  color: var(--code-text-muted);
 }
 
 .code-file-diff-title {
@@ -523,7 +535,7 @@
   display: flex;
   align-items: center;
   gap: 9px;
-  color: #3f453e;
+  color: var(--code-text);
   font-size: 12px;
 }
 
@@ -538,7 +550,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #70776e;
+  color: var(--code-text-subtle);
 }
 
 .code-file-diff-close {
@@ -548,7 +560,7 @@
   border: 0;
   border-radius: 4px;
   background: transparent;
-  color: #6d736b;
+  color: var(--code-text-subtle);
   cursor: pointer;
 }
 
@@ -574,29 +586,32 @@
 
 .code-file-diff-close:hover,
 .code-file-diff-close:focus-visible {
-  background: rgba(31, 35, 40, 0.08);
+  background: var(--code-bg-hover);
   outline: 0;
+  color: var(--code-text);
 }
 
 .code-file-diff-state {
   flex: 0 0 auto;
   padding: 8px 12px;
   border-bottom: 1px solid rgba(36, 41, 47, 0.08);
-  background: #f6f7f3;
-  color: #5f675e;
+  background: var(--code-bg-muted);
+  color: var(--code-text-muted);
   font-size: 13px;
+  border-color: var(--code-border);
 }
 
 .code-file-diff-state.error {
-  color: #9f2323;
+  color: var(--code-diff-removed);
 }
 
 .code-file-diff-monaco {
   flex: 1;
   min-height: 0;
   width: 100%;
-  background: #ffffff;
+  background: var(--code-bg-canvas);
   overflow: hidden;
+  color: var(--code-text);
 }
 
 .code-file-diff-monaco.hidden {
@@ -609,8 +624,8 @@ body.code-mode .code-file-editor-fallback-textarea {
   width: 100%;
   padding: 8px 14px;
   border: 0;
-  background: #ffffff;
-  color: #24292f;
+  background: var(--code-bg-surface);
+  color: var(--code-text);
   font-family: var(--font-mono, "SF Mono", Menlo, Consolas, monospace);
   font-size: var(--code-editor-font-size);
   line-height: var(--code-editor-line-height);
@@ -626,8 +641,9 @@ body.code-mode .code-file-editor-fallback-textarea {
   display: grid;
   place-items: center;
   padding: 20px;
-  background: #ffffff;
+  background: var(--code-component-file-preview-panel-background);
   overflow: auto;
+  color: var(--code-component-file-preview-panel-color);
 }
 
 .code-file-image-preview-frame {
@@ -653,7 +669,7 @@ body.code-mode .code-file-editor-fallback-textarea {
   min-height: calc(100vh - 180px);
   border: 0;
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--code-bg-surface);
 }
 
 .code-file-preview-panel.html {
@@ -670,12 +686,12 @@ body.code-mode .code-file-editor-fallback-textarea {
   width: 100%;
   height: 100%;
   border: 0;
-  background: #ffffff;
+  background: var(--code-bg-surface);
 }
 
 .code-file-preview-panel.metadata {
   background:
-    linear-gradient(180deg, rgba(246, 247, 243, 0.78), rgba(255, 255, 255, 0.92));
+    var(--code-file-editor-file-preview-panel-metadata-background);
 }
 
 .code-file-preview-panel.markdown {
@@ -723,7 +739,7 @@ body.code-mode .code-file-editor-fallback-textarea {
 .code-file-editor-language {
   flex: 0 1 auto;
   overflow: hidden;
-  color: #4f584f;
+  color: var(--code-text);
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -751,11 +767,11 @@ body.code-mode .code-file-editor-fallback-textarea {
 }
 
 .code-file-editor-problem.error {
-  color: #b4232d;
+  color: var(--code-diff-removed);
 }
 
 .code-file-editor-problem.warning {
-  color: #965f12;
+  color: var(--code-warning);
 }
 
 .code-file-editor-cursor-position {
@@ -776,6 +792,8 @@ body.code-mode .code-file-editor-fallback-textarea {
   .code-file-editor {
     min-width: 0;
     overflow: hidden;
+    background: var(--code-component-file-editor-background);
+    color: var(--code-component-file-editor-color);
   }
 }
 
@@ -785,6 +803,9 @@ body.code-mode .code-file-editor-fallback-textarea {
 .code-file-editor-bar,
 .code-file-editor-statusbar {
     min-width: 0;
+    background: var(--code-bg-muted);
+    border-color: var(--code-file-editor-bar-border-color);
+    color: var(--code-text-muted);
   }
 }
 
@@ -792,6 +813,8 @@ body.code-mode .code-file-editor-fallback-textarea {
 
   .code-file-editor-tab {
     max-width: min(280px, 76vw);
+    border-color: var(--code-component-file-editor-tab-border-color);
+    color: var(--code-text-muted);
   }
 }
 
@@ -800,6 +823,8 @@ body.code-mode .code-file-editor-fallback-textarea {
   .code-file-editor-bar {
     gap: 6px;
     padding: 3px 6px;
+    background: var(--code-bg-canvas);
+    color: var(--code-text-muted);
   }
 }
 
@@ -825,6 +850,8 @@ body.code-mode .code-file-editor-fallback-textarea {
 
   .code-file-monaco {
     overflow: hidden;
+    background: var(--code-component-file-monaco-background);
+    color: var(--code-component-file-monaco-color);
   }
 }
 
@@ -840,6 +867,8 @@ body.code-mode .code-file-editor-fallback-textarea {
   .code-file-editor-fallback-textarea {
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+    background: var(--code-bg-canvas);
+    color: var(--code-text);
   }
 }
 
@@ -916,11 +945,11 @@ body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file
     height: 40px;
     border: 0;
     border-radius: 999px;
-    background: transparent;
-    color: rgba(31, 35, 40, 0.72);
-    box-shadow: none;
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
+    background: var(--code-file-editor-markdown-reading-file-editor-action-source-preview-background);
+    color: var(--code-file-editor-markdown-reading-file-editor-action-source-preview-color);
+    box-shadow: var(--code-file-editor-markdown-reading-file-editor-action-source-preview-box-shadow);
+    backdrop-filter: var(--code-file-editor-markdown-reading-file-editor-action-source-preview-backdrop-filter);
+    -webkit-backdrop-filter: var(--code-file-editor-markdown-reading-file-editor-action-source-preview-webkit-backdrop-filter);
   }
 }
 
@@ -928,8 +957,8 @@ body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file
 
   body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.source-preview.active {
     border-color: transparent;
-    background: transparent;
-    color: rgba(31, 35, 40, 0.72);
+    background: var(--code-file-editor-action-source-preview-active-background);
+    color: var(--code-file-editor-action-source-preview-active-color);
   }
 }
 
@@ -944,7 +973,7 @@ body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file
 
   body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.source-preview:hover:not(:disabled),
 body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.source-preview:focus-visible {
-    background: rgba(31, 35, 40, 0.055);
+    background: var(--code-file-editor-hover-disabled-focus-visible-background);
     outline: 0;
   }
 }
@@ -995,4 +1024,16 @@ body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file
     left: 0 !important;
     width: 100% !important;
   }
+}
+
+.code-file-editor-tabs::-webkit-scrollbar-track {
+  background: var(--code-bg-inset);
+}
+
+.code-file-editor-tabs::-webkit-scrollbar-thumb {
+  background: var(--code-file-editor-tabs-webkit-scrollbar-thumb-background);
+}
+
+body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.source-preview.active {
+  box-shadow: var(--code-file-editor-action-source-preview-active-box-shadow);
 }

@@ -3,7 +3,7 @@
 
 .code-search-view {
   display: block;
-  background: #ffffff;
+  background: var(--code-component-search-view-background);
   overflow-y: auto;
   padding: clamp(32px, 6vh, 64px) 32px 32px;
 }
@@ -27,19 +27,19 @@
   font-size: 14px;
   font-weight: 500;
   letter-spacing: 0;
-  color: #24292f;
+  color: var(--code-text);
 }
 
 .code-search-panel .code-empty-workspace h2 {
   margin: 0;
-  color: #5d635b;
+  color: var(--code-text-subtle);
   font-size: 16px;
   font-weight: 500;
   letter-spacing: 0;
 }
 
 .code-search-panel-header span {
-  color: #6e7681;
+  color: var(--code-text-subtle);
   font-size: 12px;
 }
 
@@ -52,8 +52,9 @@
   padding: 5px 9px;
   border: 1px solid #e1e3dc;
   border-radius: 9px;
-  background: rgba(255, 255, 255, 0.7);
-  color: #7a8178;
+  background: var(--code-search-panel-input-background);
+  color: var(--code-text-subtle);
+  border-color: var(--code-border);
 }
 
 .code-search-panel-input:focus-within {
@@ -77,13 +78,13 @@
   border: 0;
   outline: 0;
   background: transparent;
-  color: #24292f;
+  color: var(--code-text);
   font: inherit;
   font-size: 14px;
 }
 
 .code-search-panel-input input::placeholder {
-  color: #8d938a;
+  color: var(--code-text-quiet);
 }
 
 .code-search-panel-input button {
@@ -91,8 +92,8 @@
   height: 24px;
   border: 0;
   border-radius: 6px;
-  background: transparent;
-  color: #858a83;
+  background: var(--code-bg-hover);
+  color: var(--code-text-subtle);
   cursor: pointer;
   display: inline-grid;
   place-items: center;
@@ -122,7 +123,7 @@
 }
 
 .code-search-result-group h3 {
-  color: #6e7681;
+  color: var(--code-text-subtle);
   font-size: 12px;
   font-weight: 650;
   margin: 4px 0 2px;
@@ -132,8 +133,8 @@
   width: 100%;
   border: 1px solid transparent;
   border-radius: 8px;
-  background: transparent;
-  color: #24292f;
+  background: var(--code-bg-muted);
+  color: var(--code-text);
   cursor: pointer;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -141,6 +142,7 @@
   min-height: 48px;
   padding: 7px 8px;
   text-align: left;
+  border-color: var(--code-border);
 }
 
 .code-search-result.no-status {
@@ -149,8 +151,8 @@
 
 .code-search-result:hover,
 .code-search-result.active {
-  background: #f1f2ec;
-  border-color: transparent;
+  background: var(--code-bg-hover);
+  border-color: var(--code-search-result-hover-active-border-color);
 }
 
 .code-search-result:focus-visible {
@@ -166,7 +168,7 @@
 }
 
 .code-search-result-copy strong {
-  color: #24292f;
+  color: var(--code-text);
   font-size: 14px;
   font-weight: 500;
   line-height: 1.25;
@@ -176,7 +178,7 @@
 }
 
 .code-search-result-copy span {
-  color: #6e7681;
+  color: var(--code-text-subtle);
   font-size: 12px;
   line-height: 1.25;
   overflow: hidden;
@@ -227,4 +229,12 @@
   body.code-mode.code-compact-layout .code-search-panel-input input {
       font-size: 15px;
     }
+}
+
+.code-search-result-project {
+  color: var(--code-text-subtle);
+}
+
+.code-search-view {
+  color: var(--code-component-search-view-color);
 }

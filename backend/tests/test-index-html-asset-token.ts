@@ -71,6 +71,22 @@ function run() {
     darkEntry.includes('<meta name="theme-color" content="#181818">'),
     'the browser chrome should receive the saved dark color with the entry document'
   );
+  const paperEntry = applyIndexHtmlAppearance(
+    '<html data-appearance-preference="system"><head><meta name="color-scheme" content="light dark"><meta name="theme-color" content="#ffffff"></head>',
+    'paper'
+  );
+  assert(
+    paperEntry.includes('data-appearance-preference="paper"'),
+    'the entry document should receive the saved Paper appearance before its first paint'
+  );
+  assert(
+    paperEntry.includes('<meta name="color-scheme" content="light">'),
+    'Paper should keep native browser controls in their light color scheme'
+  );
+  assert(
+    paperEntry.includes('<meta name="theme-color" content="#f7f4ed">'),
+    'the browser chrome should receive the Paper canvas color with the entry document'
+  );
   assert(
     applyIndexHtmlAppearance('<html>', 'unexpected')
       .includes('data-appearance-preference="system"'),

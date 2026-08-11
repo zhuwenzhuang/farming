@@ -17,8 +17,8 @@
   gap: 8px;
   padding: 0 10px;
   border-bottom: 1px solid #d8d8d5;
-  background: #f7f7f5;
-  color: #343836;
+  background: var(--code-desktop-backend-bar-background);
+  color: var(--code-desktop-backend-bar-color);
   font-size: 12px;
 }
 
@@ -30,8 +30,8 @@
   min-height: 28px;
   border: 1px solid #cfd2ce;
   border-radius: 5px;
-  background: #ffffff;
-  color: inherit;
+  background: var(--code-desktop-backend-bar-desktop-backend-dialog-background);
+  color: var(--code-desktop-backend-bar-desktop-backend-dialog-color);
   font: inherit;
 }
 
@@ -77,7 +77,7 @@
 }
 
 .desktop-backend-status-label {
-  color: #686e69;
+  color: var(--code-desktop-backend-status-label-color);
 }
 
 .desktop-backend-inline-error {
@@ -107,7 +107,7 @@
   padding: 20px;
   border: 1px solid #cfd2ce;
   border-radius: 9px;
-  background: #ffffff;
+  background: var(--code-desktop-backend-dialog-background);
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
 }
 
@@ -134,7 +134,7 @@
 
 .desktop-backend-dialog p,
 .desktop-backend-dialog small {
-  color: #6d736e;
+  color: var(--code-desktop-backend-dialog-color-a1558a);
   font-size: 11px;
   line-height: 1.45;
 }
@@ -236,7 +236,7 @@
   padding: 8px 10px;
   border: 1px solid #e5bbb9;
   border-radius: 5px;
-  background: #fff3f2;
+  background: var(--code-desktop-backend-form-error-background);
   font-size: 12px;
 }
 
@@ -244,4 +244,52 @@
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.desktop-backend-bar {
+  border-color: var(--code-desktop-backend-bar-desktop-backend-dialog-border-color);
+}
+
+.desktop-backend-dialog {
+  border-color: var(--code-desktop-backend-bar-desktop-backend-dialog-border-color);
+}
+
+.desktop-backend-dialog {
+  color: var(--code-desktop-backend-dialog-color);
+}
+
+.desktop-backend-bar select {
+  border-color: var(--code-desktop-backend-bar-desktop-backend-dialog-border-color-77b26c);
+}
+
+.desktop-backend-bar button {
+  border-color: var(--code-desktop-backend-bar-desktop-backend-dialog-border-color-77b26c);
+}
+
+.desktop-backend-dialog button {
+  border-color: var(--code-desktop-backend-bar-desktop-backend-dialog-border-color-77b26c);
+}
+
+.desktop-backend-dialog input {
+  border-color: var(--code-desktop-backend-bar-desktop-backend-dialog-border-color-77b26c);
+}
+
+.desktop-backend-dialog select {
+  border-color: var(--code-desktop-backend-bar-desktop-backend-dialog-border-color-77b26c);
+}
+
+.desktop-backend-list {
+  border-color: var(--code-desktop-backend-list-desktop-backend-row-desktop-backend-form-border-color);
+}
+
+.desktop-backend-row {
+  border-color: var(--code-desktop-backend-list-desktop-backend-row-desktop-backend-form-border-color);
+}
+
+.desktop-backend-form {
+  border-color: var(--code-desktop-backend-list-desktop-backend-row-desktop-backend-form-border-color);
+}
+
+.desktop-backend-form-error {
+  border-color: var(--code-desktop-backend-form-error-border-color);
 }

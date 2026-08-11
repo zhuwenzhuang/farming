@@ -117,6 +117,7 @@ export interface CodeCopy {
   appearanceSystem: string
   appearanceLight: string
   appearanceDark: string
+  appearancePaper: string
   languageEnglish: string
   languageChinese: string
   pinAgent: string
@@ -650,6 +651,7 @@ const EN_COPY: CodeCopy = {
   appearanceSystem: 'Appearance: System',
   appearanceLight: 'Appearance: Light',
   appearanceDark: 'Appearance: Dark',
+  appearancePaper: 'Appearance: Paper',
   languageEnglish: 'Language: English',
   languageChinese: 'Language: 中文',
   pinAgent: 'Pin Agent',
@@ -1209,6 +1211,7 @@ const ZH_COPY: CodeCopy = {
   appearanceSystem: '外观：跟随系统',
   appearanceLight: '外观：浅色',
   appearanceDark: '外观：深色',
+  appearancePaper: '外观：纸张',
   languageEnglish: '语言：English',
   languageChinese: '语言：中文',
   pinAgent: '置顶 Agent',

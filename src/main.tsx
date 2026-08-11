@@ -21,7 +21,7 @@ function errorPreviewRouteEnabled() {
 
 function errorPreviewAppearance() {
   const value = new URLSearchParams(window.location.search).get(ERROR_PREVIEW_PARAM)
-  return value === 'light' || value === 'dark' ? value : null
+  return value === 'light' || value === 'dark' || value === 'paper' ? value : null
 }
 
 async function loadErrorPreviewAppearance() {
@@ -31,7 +31,7 @@ async function loadErrorPreviewAppearance() {
     if (!response.ok) return
     const data = await response.json() as { settings?: { appearance?: unknown } }
     const appearance = data.settings?.appearance
-    if (appearance === 'light' || appearance === 'dark') {
+    if (appearance === 'light' || appearance === 'dark' || appearance === 'paper') {
       document.body.dataset.appearance = appearance
     }
   } catch {
@@ -42,7 +42,7 @@ async function loadErrorPreviewAppearance() {
 function errorPreviewEnabled() {
   if (errorPreviewRouteEnabled()) return true
   const value = new URLSearchParams(window.location.search).get(ERROR_PREVIEW_PARAM)
-  return value === '1' || value === 'light' || value === 'dark'
+  return value === '1' || value === 'light' || value === 'dark' || value === 'paper'
 }
 
 function failureCopy() {
@@ -111,6 +111,7 @@ function previewFailureError() {
 
 function failurePalette() {
   const previewAppearance = errorPreviewAppearance()
+  const paper = previewAppearance === 'paper' || document.body.dataset.appearance === 'paper'
   const dark = previewAppearance === 'dark'
     || (previewAppearance !== 'light' && (
       document.body.dataset.appearance === 'dark'
@@ -118,6 +119,8 @@ function failurePalette() {
     ))
   return dark
     ? { background: '#181818', foreground: '#ffffff', muted: '#9b9b9b', border: '#383838', button: '#262626' }
+    : paper
+      ? { background: '#f9f6ef', foreground: '#282922', muted: '#68685f', border: '#ddd6c8', button: '#eeebe3' }
     : { background: '#ffffff', foreground: '#1a1c1f', muted: '#6e7781', border: '#d8d8d5', button: '#ffffff' }
 }
 
@@ -286,10 +289,10 @@ async function renderApplication() {
 
   const initialAppearance = document.documentElement.dataset.appearance
   const initialAppearancePreference = document.documentElement.dataset.appearancePreference
-  if (initialAppearance === 'light' || initialAppearance === 'dark') {
+  if (initialAppearance === 'light' || initialAppearance === 'dark' || initialAppearance === 'paper') {
     document.body.dataset.appearance = initialAppearance
   }
-  if (initialAppearancePreference === 'system' || initialAppearancePreference === 'light' || initialAppearancePreference === 'dark') {
+  if (initialAppearancePreference === 'system' || initialAppearancePreference === 'light' || initialAppearancePreference === 'dark' || initialAppearancePreference === 'paper') {
     document.body.dataset.appearancePreference = initialAppearancePreference
   }
   document.body.classList.add('code-mode')
@@ -315,26 +318,6 @@ async function renderApplication() {
   await import('./styles/sidebar.css')
   await import('./styles/transcript.css')
   await import('./styles/agent-list.css')
-  await import('./styles/code-dark.css')
-  await import('./styles/file-editor-dark.css')
-  await import('./styles/pet-dark.css')
-  await import('./styles/git-history-dark.css')
-  await import('./styles/composer-dark.css')
-  await import('./styles/plugin-dark.css')
-  await import('./styles/settings-dark.css')
-  await import('./styles/share-dark.css')
-  await import('./styles/usage-dark.css')
-  await import('./styles/markdown-dark.css')
-  await import('./styles/search-dark.css')
-  await import('./styles/history-dark.css')
-  await import('./styles/empty-dark.css')
-  await import('./styles/language-server-dark.css')
-  await import('./styles/desktop-backend-dark.css')
-  await import('./styles/terminal-dark.css')
-  await import('./styles/files-dark.css')
-  await import('./styles/sidebar-dark.css')
-  await import('./styles/transcript-dark.css')
-  await import('./styles/agent-list-dark.css')
   const { App } = await import('./App')
   root.render(<ApplicationErrorBoundary><App /></ApplicationErrorBoundary>)
 }

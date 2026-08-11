@@ -3633,6 +3633,14 @@ export function CodeWorkspace({
       checked: uiPreferences.appearance === 'dark',
       onSelect: () => updateAppearancePreference('dark'),
     },
+    {
+      type: 'item',
+      id: 'options-appearance-paper',
+      label: appearanceOptionDisplayLabel(copy.appearancePaper),
+      ariaLabel: copy.appearancePaper,
+      checked: uiPreferences.appearance === 'paper',
+      onSelect: () => updateAppearancePreference('paper'),
+    },
     { type: 'separator', id: 'options-appearance-language-separator' },
     {
       type: 'item',
@@ -3662,6 +3670,7 @@ export function CodeWorkspace({
   }, [
     copy.appearanceDark,
     copy.appearanceLight,
+    copy.appearancePaper,
     copy.appearanceSystem,
     copy.languageChinese,
     copy.languageEnglish,

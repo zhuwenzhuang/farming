@@ -33,6 +33,7 @@ declare global {
 const NARROW_EDITOR_MEDIA = '(max-width: 980px)'
 const CODEX_LIGHT_MONACO_THEME = 'farming-code-light'
 const CODEX_DARK_MONACO_THEME = 'farming-code-dark'
+const CODEX_PAPER_MONACO_THEME = 'farming-code-paper'
 const WORKSPACE_EDITOR_PRELOAD_LANGUAGE_IDS = [
   'typescript',
   'javascript',
@@ -88,6 +89,23 @@ const WORKSPACE_EDITOR_DARK_SEMANTIC_TOKEN_RULES: monaco.editor.ITokenThemeRule[
   { token: 'annotationMember', foreground: '9CDCFE' },
   { token: 'recordComponent', foreground: '9CDCFE' },
   { token: 'enumMember', foreground: '4FC1FF' },
+]
+const WORKSPACE_EDITOR_PAPER_SEMANTIC_TOKEN_RULES: monaco.editor.ITokenThemeRule[] = [
+  { token: 'namespace', foreground: '7A3E9D' },
+  { token: 'type', foreground: '7A3E9D' },
+  { token: 'class', foreground: '7A3E9D' },
+  { token: 'enum', foreground: '7A3E9D' },
+  { token: 'interface', foreground: '7A3E9D' },
+  { token: 'struct', foreground: '7A3E9D' },
+  { token: 'typeParameter', foreground: '7A3E9D' },
+  { token: 'record', foreground: '7A3E9D' },
+  { token: 'function', foreground: 'AA3731' },
+  { token: 'method', foreground: 'AA3731' },
+  { token: 'parameter', foreground: '216E45' },
+  { token: 'property', foreground: '216E45' },
+  { token: 'annotationMember', foreground: '216E45' },
+  { token: 'recordComponent', foreground: '216E45' },
+  { token: 'enumMember', foreground: '9C5D27' },
 ]
 const WORKSPACE_EDITOR_CONTEXT_MENU_IGNORE_SELECTOR = [
   '.code-editor-context-menu',
@@ -173,12 +191,32 @@ function defineCodexMonacoThemes() {
       'editorGutter.background': '#181818',
     },
   })
+  monaco.editor.defineTheme(CODEX_PAPER_MONACO_THEME, {
+    base: 'vs',
+    inherit: true,
+    rules: WORKSPACE_EDITOR_PAPER_SEMANTIC_TOKEN_RULES,
+    colors: {
+      'editor.background': '#f9f6ef',
+      'editor.foreground': '#282922',
+      'editorLineNumber.foreground': '#8b887e',
+      'editorLineNumber.activeForeground': '#3f4039',
+      'editor.lineHighlightBackground': '#eeebe3',
+      'editor.selectionBackground': '#ccddcf',
+      'editor.inactiveSelectionBackground': '#e1e9e1',
+      'editorCursor.foreground': '#3a6e4a',
+      'editorWhitespace.foreground': '#ddd6c8',
+      'editorIndentGuide.background1': '#e2dccf',
+      'editorIndentGuide.activeBackground1': '#a9a08f',
+      'editorGutter.background': '#f9f6ef',
+    },
+  })
 }
 
 export function workspaceEditorMonacoThemeForAppearance() {
-  return typeof document !== 'undefined' && document.body.dataset.appearance === 'dark'
-    ? CODEX_DARK_MONACO_THEME
-    : CODEX_LIGHT_MONACO_THEME
+  if (typeof document === 'undefined') return CODEX_LIGHT_MONACO_THEME
+  if (document.body.dataset.appearance === 'dark') return CODEX_DARK_MONACO_THEME
+  if (document.body.dataset.appearance === 'paper') return CODEX_PAPER_MONACO_THEME
+  return CODEX_LIGHT_MONACO_THEME
 }
 
 export function applyWorkspaceEditorMonacoTheme(editor?: monaco.editor.IStandaloneCodeEditor | monaco.editor.IStandaloneDiffEditor | null) {

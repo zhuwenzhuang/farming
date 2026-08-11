@@ -18,17 +18,11 @@ export function readCodeStyleSources() {
 }
 
 export function readCodeBaseStyles() {
-  return readCodeStyleSources()
-    .filter(({ path: sourcePath }) => sourcePath !== 'src/styles/code-dark.css' && !sourcePath.endsWith('-dark.css'))
-    .map(source => source.source)
-    .join('\n')
+  return readCodeStyles()
 }
 
 export function readCodeDarkStyles() {
-  return readCodeStyleSources()
-    .filter(({ path: sourcePath }) => sourcePath === 'src/styles/code-dark.css' || sourcePath.endsWith('-dark.css'))
-    .map(source => source.source)
-    .join('\n')
+  return readCodeStyleSource('src/styles/tokens.css')
 }
 
 export function readCodeStyles() {

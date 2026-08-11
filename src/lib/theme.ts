@@ -23,10 +23,13 @@ export function applyThemeAppearance(
   body.dataset.crtEffects = crtEnabled ? 'on' : 'off'
   body.dataset.appearancePreference = appearancePreference
   body.dataset.appearance = appearance
-  document.querySelector('meta[name="color-scheme"]')?.setAttribute('content', appearance)
+  document.querySelector('meta[name="color-scheme"]')?.setAttribute(
+    'content',
+    appearance === 'paper' ? 'light' : appearance,
+  )
   document.querySelector('meta[name="theme-color"]')?.setAttribute(
     'content',
-    appearance === 'dark' ? '#181818' : '#ffffff',
+    appearance === 'dark' ? '#181818' : appearance === 'paper' ? '#f7f4ed' : '#ffffff',
   )
 
   if (crtEnabled) {

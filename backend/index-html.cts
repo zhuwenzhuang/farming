@@ -45,7 +45,7 @@ function appendIndexHtmlAssetToken(html: unknown, token: unknown): string {
 
 function applyIndexHtmlAppearance(html: unknown, appearance: unknown): string {
   const appearanceValue = typeof appearance === 'string' ? appearance : '';
-  const normalizedAppearance = ['light', 'dark'].includes(appearanceValue)
+  const normalizedAppearance = ['light', 'dark', 'paper'].includes(appearanceValue)
     ? appearanceValue
     : 'system';
   let source = String(html || '');
@@ -63,8 +63,10 @@ function applyIndexHtmlAppearance(html: unknown, appearance: unknown): string {
 
   const colorScheme = normalizedAppearance === 'system'
     ? 'light dark'
-    : normalizedAppearance;
-  const themeColor = normalizedAppearance === 'dark' ? '#181818' : '#ffffff';
+    : normalizedAppearance === 'paper' ? 'light' : normalizedAppearance;
+  const themeColor = normalizedAppearance === 'dark'
+    ? '#181818'
+    : normalizedAppearance === 'paper' ? '#f7f4ed' : '#ffffff';
   return source
     .replace(
       /(<meta\s+name="color-scheme"\s+content=")[^"]*(")/i,

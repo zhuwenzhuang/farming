@@ -28,26 +28,6 @@ const expectedSources = [
   'src/styles/sidebar.css',
   'src/styles/transcript.css',
   'src/styles/agent-list.css',
-  'src/styles/code-dark.css',
-  'src/styles/file-editor-dark.css',
-  'src/styles/pet-dark.css',
-  'src/styles/git-history-dark.css',
-  'src/styles/composer-dark.css',
-  'src/styles/plugin-dark.css',
-  'src/styles/settings-dark.css',
-  'src/styles/share-dark.css',
-  'src/styles/usage-dark.css',
-  'src/styles/markdown-dark.css',
-  'src/styles/search-dark.css',
-  'src/styles/history-dark.css',
-  'src/styles/empty-dark.css',
-  'src/styles/language-server-dark.css',
-  'src/styles/desktop-backend-dark.css',
-  'src/styles/terminal-dark.css',
-  'src/styles/files-dark.css',
-  'src/styles/sidebar-dark.css',
-  'src/styles/transcript-dark.css',
-  'src/styles/agent-list-dark.css',
 ];
 
 assert.deepStrictEqual(
@@ -77,26 +57,6 @@ assert.strictEqual(
   CODE_STYLE_SOURCES.indexOf('src/styles/composer.css'),
   CODE_STYLE_SOURCES.indexOf('src/styles/git-history.css') + 1,
   'Composer base styles must load immediately after Git History',
-);
-assert.strictEqual(
-  CODE_STYLE_SOURCES.indexOf('src/styles/file-editor-dark.css'),
-  CODE_STYLE_SOURCES.indexOf('src/styles/code-dark.css') + 1,
-  'File Editor dark styles must load immediately after code-dark.css',
-);
-assert.strictEqual(
-  CODE_STYLE_SOURCES.indexOf('src/styles/pet-dark.css'),
-  CODE_STYLE_SOURCES.indexOf('src/styles/file-editor-dark.css') + 1,
-  'Pet dark styles must load immediately after dark File Editor',
-);
-assert.strictEqual(
-  CODE_STYLE_SOURCES.indexOf('src/styles/git-history-dark.css'),
-  CODE_STYLE_SOURCES.indexOf('src/styles/pet-dark.css') + 1,
-  'Git History dark styles must load immediately after dark Pet',
-);
-assert.strictEqual(
-  CODE_STYLE_SOURCES.indexOf('src/styles/composer-dark.css'),
-  CODE_STYLE_SOURCES.indexOf('src/styles/git-history-dark.css') + 1,
-  'Composer dark styles must load immediately after dark Git History',
 );
 assert.strictEqual(new Set(CODE_STYLE_SOURCES).size, CODE_STYLE_SOURCES.length, 'Code style sources must be unique');
 

@@ -1,3 +1,1946 @@
+/* Farming Code appearance palette.
+ *
+ * Domain styles consume these functional tokens and must not branch on an
+ * appearance. Light, Dark, and Paper only assign values here. Component-level
+ * tokens may alias these roles when a surface needs a more specific contract.
+ */
+body.code-mode {
+  color-scheme: light;
+  --code-bg-canvas: #ffffff;
+  --code-bg-surface: #ffffff;
+  --code-bg-raised: #ffffff;
+  --code-bg-chrome: #f7f7f6;
+  --code-bg-inset: #f6f8fa;
+  --code-bg-muted: #f1f2ed;
+  --code-bg-hover: rgba(31, 35, 40, 0.055);
+  --code-bg-hover-strong: rgba(31, 35, 40, 0.08);
+  --code-bg-selected: rgba(9, 105, 218, 0.1);
+  --code-bg-backdrop: rgba(15, 23, 42, 0.18);
+  --code-text: #24292f;
+  --code-text-strong: #1f2328;
+  --code-text-muted: #57606a;
+  --code-text-subtle: #6e7781;
+  --code-text-quiet: #8c959f;
+  --code-text-on-emphasis: #ffffff;
+  --code-border-subtle: rgba(31, 35, 40, 0.08);
+  --code-border: rgba(31, 35, 40, 0.12);
+  --code-border-strong: rgba(31, 35, 40, 0.18);
+  --code-accent: #0969da;
+  --code-accent-hover: #0757b6;
+  --code-accent-soft: rgba(9, 105, 218, 0.1);
+  --code-focus-ring: rgba(9, 105, 218, 0.24);
+  --code-emphasis: #24292f;
+  --code-emphasis-hover: #343a40;
+  --code-success: #1a7f37;
+  --code-success-soft: rgba(45, 164, 78, 0.12);
+  --code-success-ring: rgba(45, 164, 78, 0.26);
+  --code-warning: #9a6700;
+  --code-warning-soft: rgba(210, 153, 34, 0.14);
+  --code-danger: #cf222e;
+  --code-danger-soft: rgba(207, 34, 46, 0.1);
+  --code-skill: #8250df;
+  --code-diff-added: #1a7f37;
+  --code-diff-added-soft: rgba(45, 164, 78, 0.12);
+  --code-diff-removed: #b4232d;
+  --code-diff-removed-soft: rgba(207, 34, 46, 0.1);
+  --code-shadow-color: rgba(31, 35, 40, 0.16);
+  --code-shadow-soft: 0 8px 28px rgba(31, 35, 40, 0.08);
+  --code-shadow-raised: 0 14px 38px rgba(31, 35, 40, 0.16);
+  --code-terminal-bg: #ffffff;
+  --code-editor-bg: #ffffff;
+  --code-code-bg: #f6f8fa;
+  --code-selection-bg: rgba(9, 105, 218, 0.2);
+  --code-theme-light-display: block;
+  --code-theme-dark-display: none;
+  --code-mobile-sidebar-shadow: 16px 0 44px rgba(31, 35, 40, 0.16);
+  --code-pet-compositor-filter: brightness(0.88) saturate(0.92);
+  --code-pet-canvas-filter: brightness(0.84) contrast(1.08) saturate(1.28) drop-shadow(0 8px 20px rgba(8, 10, 9, 0.28)) drop-shadow(0 0 1px rgba(8, 10, 9, 0.24));
+  --code-pet-actions-primary-hover: #405170;
+  --code-worktree-count-bg: rgba(82, 99, 135, 0.08);
+  --code-worktree-count-text: #687388;
+  --code-sidebar-scrollbar-thumb: rgba(95, 103, 94, 0.28);
+}
+
+body.code-mode[data-appearance='dark'] {
+  color-scheme: dark;
+  --code-bg-canvas: #181818;
+  --code-bg-surface: #181818;
+  --code-bg-raised: #262626;
+  --code-bg-chrome: #242424;
+  --code-bg-inset: #1c1c1c;
+  --code-bg-muted: #212121;
+  --code-bg-hover: #2d2d2d;
+  --code-bg-hover-strong: #343434;
+  --code-bg-selected: rgba(51, 156, 255, 0.18);
+  --code-bg-backdrop: rgba(1, 4, 9, 0.58);
+  --code-text: #ffffff;
+  --code-text-strong: #ffffff;
+  --code-text-muted: #d8d8d8;
+  --code-text-subtle: #9b9b9b;
+  --code-text-quiet: #7d8590;
+  --code-text-on-emphasis: #ffffff;
+  --code-border-subtle: #2a2a2a;
+  --code-border: #383838;
+  --code-border-strong: #484848;
+  --code-accent: #339cff;
+  --code-accent-hover: #79c0ff;
+  --code-accent-soft: rgba(51, 156, 255, 0.18);
+  --code-focus-ring: rgba(51, 156, 255, 0.34);
+  --code-emphasis: #339cff;
+  --code-emphasis-hover: #79c0ff;
+  --code-success: #40c977;
+  --code-success-soft: rgba(64, 201, 119, 0.16);
+  --code-success-ring: rgba(63, 185, 80, 0.24);
+  --code-warning: #d29922;
+  --code-warning-soft: rgba(210, 153, 34, 0.16);
+  --code-danger: #fa423e;
+  --code-danger-soft: rgba(250, 66, 62, 0.14);
+  --code-skill: #ad7bf9;
+  --code-diff-added: #40c977;
+  --code-diff-added-soft: rgba(64, 201, 119, 0.16);
+  --code-diff-removed: #ff7b72;
+  --code-diff-removed-soft: rgba(248, 81, 73, 0.16);
+  --code-shadow-color: rgba(0, 0, 0, 0.46);
+  --code-shadow-soft: 0 8px 28px rgba(0, 0, 0, 0.28);
+  --code-shadow-raised: 0 14px 38px rgba(0, 0, 0, 0.46);
+  --code-terminal-bg: #181818;
+  --code-editor-bg: #181818;
+  --code-code-bg: #161b22;
+  --code-selection-bg: rgba(51, 156, 255, 0.34);
+  --code-theme-light-display: none;
+  --code-theme-dark-display: block;
+  --code-mobile-sidebar-shadow: 16px 0 44px rgba(0, 0, 0, 0.36);
+  --code-pet-compositor-filter: none;
+  --code-pet-canvas-filter: drop-shadow(0 7px 16px rgba(8, 10, 9, 0.16));
+  --code-pet-actions-primary-hover: var(--code-accent-hover);
+  --code-worktree-count-bg: var(--code-bg-hover);
+  --code-worktree-count-text: var(--code-text-subtle);
+  --code-sidebar-scrollbar-thumb: rgba(139, 148, 158, 0.32);
+
+}
+
+body.code-mode[data-appearance='paper'] {
+  color-scheme: light;
+  --code-bg-canvas: #f7f4ed;
+  --code-bg-surface: #f7f4ed;
+  --code-bg-raised: #fdfbf6;
+  --code-bg-chrome: #f7f4ed;
+  --code-bg-inset: #f3ead4;
+  --code-bg-muted: #eeebe3;
+  --code-bg-hover: rgba(82, 75, 60, 0.055);
+  --code-bg-hover-strong: rgba(82, 75, 60, 0.09);
+  --code-bg-selected: rgba(58, 110, 74, 0.11);
+  --code-bg-backdrop: rgba(60, 53, 40, 0.2);
+  --code-text: #282922;
+  --code-text-strong: #23251f;
+  --code-text-muted: #68685f;
+  --code-text-subtle: #77776d;
+  --code-text-quiet: #88877d;
+  --code-text-on-emphasis: #fdfbf6;
+  --code-border-subtle: rgba(82, 75, 60, 0.1);
+  --code-border: #ddd6c8;
+  --code-border-strong: #c8bda9;
+  --code-accent: #3a6e4a;
+  --code-accent-hover: #2d5d3c;
+  --code-accent-soft: rgba(58, 110, 74, 0.11);
+  --code-focus-ring: rgba(58, 110, 74, 0.22);
+  --code-emphasis: #3a6e4a;
+  --code-emphasis-hover: #2d5d3c;
+  --code-success: #3a6e4a;
+  --code-success-soft: rgba(58, 110, 74, 0.11);
+  --code-success-ring: rgba(58, 110, 74, 0.24);
+  --code-warning: #8b5a18;
+  --code-warning-soft: #f3ead4;
+  --code-danger: #b4232f;
+  --code-danger-soft: rgba(180, 35, 47, 0.09);
+  --code-skill: #6f4a8e;
+  --code-diff-added: #3a6e4a;
+  --code-diff-added-soft: rgba(58, 110, 74, 0.11);
+  --code-diff-removed: #a33a3f;
+  --code-diff-removed-soft: rgba(163, 58, 63, 0.09);
+  --code-shadow-color: rgba(72, 63, 45, 0.16);
+  --code-shadow-soft: 0 8px 28px rgba(72, 63, 45, 0.07);
+  --code-shadow-raised: 0 14px 38px rgba(72, 63, 45, 0.16);
+  --code-terminal-bg: #f9f6ef;
+  --code-editor-bg: #f9f6ef;
+  --code-code-bg: #f3eee4;
+  --code-selection-bg: rgba(58, 110, 74, 0.22);
+  --code-theme-light-display: block;
+  --code-theme-dark-display: none;
+  --code-mobile-sidebar-shadow: 16px 0 44px rgba(72, 63, 45, 0.16);
+  --code-pet-compositor-filter: brightness(0.88) saturate(0.92);
+  --code-pet-canvas-filter: brightness(0.84) contrast(1.08) saturate(1.28) drop-shadow(0 8px 20px rgba(72, 63, 45, 0.22));
+  --code-pet-actions-primary-hover: var(--code-accent-hover);
+  --code-pet-actions-primary-border-color: var(--code-accent);
+  --code-pet-actions-primary-background: var(--code-accent);
+  --code-worktree-count-bg: var(--code-accent-soft);
+  --code-worktree-count-text: var(--code-accent);
+  --code-sidebar-scrollbar-thumb: rgba(98, 99, 91, 0.22);
+}
+
+/* Component palette contracts. Domain rules consume these tokens; appearances only assign values. */
+
+/* agent-list */
+body.code-mode {
+  --code-agent-list-agent-row-action-hover-focus-visible-background: rgba(0, 0, 0, 0.08);
+  --code-agent-list-agent-row-action-pin-active-color: #5d5124;
+  --code-agent-list-agent-hover-preview-agent-hover-title-card-background: rgba(255, 255, 255, 0.98);
+  --code-agent-list-agent-hover-preview-agent-hover-title-card-box-shadow: 0 12px 28px rgba(31, 35, 40, 0.10), 0 1px 3px rgba(31, 35, 40, 0.06);
+}
+
+body.code-mode[data-appearance='dark'] {
+  --code-agent-list-agent-row-action-hover-focus-visible-background: rgba(255, 255, 255, 0.1);
+  --code-agent-list-agent-row-action-pin-active-color: #d7c66f;
+  --code-agent-list-agent-hover-preview-agent-hover-title-card-background: rgba(22, 27, 34, 0.98);
+  --code-agent-list-agent-hover-preview-agent-hover-title-card-box-shadow: 0 16px 36px rgba(0, 0, 0, 0.36);
+}
+
+/* code */
+body.code-mode {
+  --code-core-selection-background: transparent;
+  --code-core-selection-color: inherit;
+  --code-core-workspace-directory-browser-row-selected-background: transparent;
+  --code-core-workspace-directory-browser-actions-secondary-color: inherit;
+  --code-core-product-mark-hover-focus-visible-background: transparent;
+  --code-core-instance-name-actions-primary-background: #526387;
+  --code-core-product-mark-badge-border-color: var(--code-border);
+  --code-core-product-mark-badge-hover-focus-visible-background: transparent;
+  --code-core-product-mark-badge-hover-focus-visible-border-color: var(--code-border);
+  --code-core-app-mode-dialog-background: rgba(255, 255, 255, 0.98);
+  --code-core-app-mode-dialog-box-shadow: 0 24px 68px rgba(31, 35, 40, 0.2);
+  --code-core-app-mode-choice-background: #fafaf8;
+  --code-core-app-mode-choice-recommended-border-color: rgba(67, 99, 153, 0.22);
+  --code-core-app-mode-choice-recommended-background: rgba(68, 105, 166, 0.055);
+  --code-core-app-mode-recommended-color: #526b98;
+  --code-core-app-mode-choice-temporary-background: var(--code-bg-surface);
+  --code-core-brand-dialog-background: rgba(255, 255, 255, 0.97);
+  --code-core-brand-dialog-box-shadow: 0 24px 68px rgba(31, 35, 40, 0.2);
+  --code-core-brand-github-color: #3f4c68;
+  --code-core-mode-compact-layout-options-menu-background: rgba(255, 255, 255, 0.88);
+  --code-core-permission-switching-background: rgba(255, 255, 255, 0.7);
+  --code-core-permission-switching-spinner-border-color: var(--code-border);
+  --code-core-copy-toast-app-toast-background: rgba(251, 251, 248, 0.98);
+  --code-core-copy-toast-error-app-toast-border-color: #e0b4b4;
+  --code-core-context-menu-options-menu-editor-context-menu-background: transparent;
+  --code-core-context-menu-hover-outline: none;
+  --code-core-context-menu-focus-visible-outline: 2px solid #9aa597;
+  --code-core-options-menu-hover-outline: none;
+  --code-core-options-menu-focus-visible-outline: none;
+  --code-core-editor-context-menu-hover-disabled-outline: 0;
+  --code-core-editor-context-menu-focus-visible-outline: 0;
+  --code-core-dialog-overlay-background: rgba(0, 0, 0, 0.9);
+  --code-core-agent-launch-icon-monochrome-filter: none;
+  --code-core-focus-visible-task-input-focus-border-color: var(--theme-border-info, #00ffff);
+  --code-core-focus-visible-task-input-focus-box-shadow: none;
+  --code-core-workspace-home-trigger-focus-visible-border-color: var(--code-border);
+  --code-core-workspace-home-trigger-focus-visible-box-shadow: none;
+  --code-core-workspace-home-menu-box-shadow: none;
+  --code-core-workspace-history-list-webkit-scrollbar-thumb-background: transparent;
+  --code-core-workspace-history-item-workspace-path-suggestion-border-color: var(--code-border);
+  --code-core-workspace-history-item-workspace-path-suggestion-box-shadow: none;
+  --code-core-workspace-history-item-first-child-border-top-color: var(--code-border);
+  --code-core-agent-item-hover-box-shadow: none;
+  --code-core-agent-item-focus-visible-box-shadow: none;
+  --code-core-workspace-history-item-hover-box-shadow: none;
+  --code-core-workspace-history-item-active-box-shadow: inset 0 0 0 1px #2fdc2f;
+  --code-core-workspace-path-suggestion-hover-box-shadow: none;
+  --code-core-workspace-path-suggestion-active-box-shadow: none;
+  --code-core-workspace-directory-prompt-error-border-color: var(--code-border);
+  --code-core-workspace-directory-prompt-error-background: transparent;
+  --code-core-workspace-directory-prompt-error-workspace-directory-prompt-icon-background: transparent;
+  --code-core-workspace-directory-prompt-actions-color: inherit;
+  --code-core-workspace-directory-prompt-actions-hover-disabled-border-color: var(--code-border);
+  --code-core-workspace-directory-prompt-actions-hover-disabled-background: transparent;
+  --code-core-workspace-directory-prompt-actions-focus-visible-box-shadow: none;
+  --code-core-kill-btn-color: var(--code-text);
+  --code-core-kill-btn-color: var(--code-core-kill-btn-color);
+  --code-core-mode-mobile-markdown-reading-mobile-topbar-background: transparent;
+  --code-core-mode-mobile-markdown-reading-mobile-topbar-border-color: var(--code-border);
+  --code-core-mobile-markdown-reading-mobile-topbar-button-compact-layout-background: transparent;
+  --code-core-mode-mobile-markdown-reading-mobile-topbar-button-color: inherit;
+  --code-core-mode-compact-layout-mobile-topbar-button-color: rgba(31, 35, 40, 0.72);
+  --code-core-mobile-markdown-reading-mobile-topbar-button-compact-layout-box-shadow: none;
+  --code-core-mobile-markdown-reading-mobile-topbar-button-compact-layout-backdrop-filter: none;
+  --code-core-mobile-markdown-reading-mobile-topbar-button-compact-layout-webkit-backdrop-filter: none;
+  --code-core-connection-status-lost-business-unavailable-border-color: #e4b7ad;
+}
+
+body.code-mode[data-appearance='dark'] {
+  --code-core-selection-background: rgba(51, 156, 255, 0.34);
+  --code-core-selection-color: #ffffff;
+  --code-core-workspace-directory-browser-row-selected-background: rgba(121, 186, 255, 0.14);
+  --code-core-workspace-directory-browser-actions-secondary-color: #ffffff;
+  --code-core-product-mark-hover-focus-visible-background: transparent;
+  --code-core-instance-name-actions-primary-background: #1f6feb;
+  --code-core-product-mark-badge-border-color: transparent;
+  --code-core-product-mark-badge-hover-focus-visible-background: transparent;
+  --code-core-product-mark-badge-hover-focus-visible-border-color: transparent;
+  --code-core-app-mode-dialog-background: rgba(22, 27, 34, 0.98);
+  --code-core-app-mode-dialog-box-shadow: 0 24px 68px rgba(1, 4, 9, 0.52);
+  --code-core-app-mode-choice-background: rgba(13, 17, 23, 0.72);
+  --code-core-app-mode-choice-recommended-border-color: rgba(140, 188, 255, 0.25);
+  --code-core-app-mode-choice-recommended-background: rgba(56, 96, 158, 0.13);
+  --code-core-app-mode-recommended-color: #8cbcff;
+  --code-core-app-mode-choice-temporary-background: rgba(240, 246, 252, 0.06);
+  --code-core-brand-dialog-background: rgba(22, 27, 34, 0.98);
+  --code-core-brand-dialog-box-shadow: 0 24px 68px rgba(1, 4, 9, 0.52);
+  --code-core-brand-github-color: #8cbcff;
+  --code-core-mode-compact-layout-options-menu-background: rgba(22, 27, 34, 0.94);
+  --code-core-permission-switching-background: rgba(13, 17, 23, 0.72);
+  --code-core-permission-switching-spinner-border-color: rgba(201, 209, 217, 0.24);
+  --code-core-copy-toast-app-toast-background: rgba(28, 33, 41, 0.98);
+  --code-core-copy-toast-error-app-toast-border-color: rgba(248, 81, 73, 0.36);
+  --code-core-context-menu-options-menu-editor-context-menu-background: transparent;
+  --code-core-context-menu-hover-outline: 0;
+  --code-core-context-menu-focus-visible-outline: 0;
+  --code-core-options-menu-hover-outline: 0;
+  --code-core-options-menu-focus-visible-outline: 0;
+  --code-core-editor-context-menu-hover-disabled-outline: 0;
+  --code-core-editor-context-menu-focus-visible-outline: 0;
+  --code-core-dialog-overlay-background: rgba(1, 4, 9, 0.72);
+  --code-core-agent-launch-icon-monochrome-filter: grayscale(1) invert(1) brightness(1.25);
+  --code-core-focus-visible-task-input-focus-border-color: rgba(88, 166, 255, 0.58);
+  --code-core-focus-visible-task-input-focus-box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.16);
+  --code-core-workspace-home-trigger-focus-visible-border-color: rgba(88, 166, 255, 0.58);
+  --code-core-workspace-home-trigger-focus-visible-box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.16);
+  --code-core-workspace-home-menu-box-shadow: 0 12px 28px rgba(1, 4, 9, 0.42);
+  --code-core-workspace-history-list-webkit-scrollbar-thumb-background: rgba(139, 148, 158, 0.32);
+  --code-core-workspace-history-item-workspace-path-suggestion-border-color: transparent;
+  --code-core-workspace-history-item-workspace-path-suggestion-box-shadow: none;
+  --code-core-workspace-history-item-first-child-border-top-color: transparent;
+  --code-core-agent-item-hover-box-shadow: none;
+  --code-core-agent-item-focus-visible-box-shadow: none;
+  --code-core-workspace-history-item-hover-box-shadow: none;
+  --code-core-workspace-history-item-active-box-shadow: none;
+  --code-core-workspace-path-suggestion-hover-box-shadow: none;
+  --code-core-workspace-path-suggestion-active-box-shadow: none;
+  --code-core-workspace-directory-prompt-error-border-color: rgba(248, 81, 73, 0.42);
+  --code-core-workspace-directory-prompt-error-background: rgba(248, 81, 73, 0.08);
+  --code-core-workspace-directory-prompt-error-workspace-directory-prompt-icon-background: rgba(248, 81, 73, 0.15);
+  --code-core-workspace-directory-prompt-actions-color: #ffffff;
+  --code-core-workspace-directory-prompt-actions-hover-disabled-border-color: #79b8ff;
+  --code-core-workspace-directory-prompt-actions-hover-disabled-background: #79b8ff;
+  --code-core-workspace-directory-prompt-actions-focus-visible-box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.22);
+  --code-core-kill-btn-color: #ffffff;
+  --code-core-kill-btn-color: #ffffff;
+  --code-core-mode-mobile-markdown-reading-mobile-topbar-background: transparent;
+  --code-core-mode-mobile-markdown-reading-mobile-topbar-border-color: transparent;
+  --code-core-mobile-markdown-reading-mobile-topbar-button-compact-layout-background: rgba(22, 27, 34, 0.74);
+  --code-core-mode-mobile-markdown-reading-mobile-topbar-button-color: rgba(240, 246, 252, 0.84);
+  --code-core-mode-compact-layout-mobile-topbar-button-color: rgba(240, 246, 252, 0.84);
+  --code-core-mobile-markdown-reading-mobile-topbar-button-compact-layout-box-shadow: 0 10px 24px rgba(1, 4, 9, 0.28);
+  --code-core-mobile-markdown-reading-mobile-topbar-button-compact-layout-backdrop-filter: blur(18px) saturate(1.12);
+  --code-core-mobile-markdown-reading-mobile-topbar-button-compact-layout-webkit-backdrop-filter: blur(18px) saturate(1.12);
+  --code-core-connection-status-lost-business-unavailable-border-color: rgba(248, 81, 73, 0.46);
+}
+
+/* composer */
+body.code-mode {
+  --code-composer-approval-blue-color: var(--code-accent);
+  --code-composer-dictation-hint-background: rgba(255, 255, 255, 0.86);
+  --code-composer-dictation-hint-box-shadow: 0 8px 22px rgba(31, 35, 40, 0.08);
+  --code-composer-composer-background: var(--code-bg-surface);
+  --code-composer-composer-border-color: var(--code-border);
+  --code-composer-composer-box-shadow: none;
+  --code-composer-composer-backdrop-filter: none;
+  --code-composer-composer-webkit-backdrop-filter: none;
+  --code-composer-collapse-composer-restore-background: rgba(255, 255, 255, 0.88);
+  --code-composer-collapse-composer-restore-box-shadow: 0 8px 22px rgba(31, 35, 40, 0.08);
+  --code-composer-hover-focus-visible-composer-restore-border-color: #ccd3c7;
+  --code-composer-menu-open-border-color: var(--code-border);
+  --code-composer-send-disabled-background: #8e9294;
+  --code-composer-send-disabled-color: var(--code-text-on-emphasis);
+  --code-composer-context-window-context-window-ring-background: conic-gradient(#bf8700 calc(var(--context-percent) * 1%), #efe5c5 0);
+  --code-composer-context-window-context-window-ring-background-7dc4ae: conic-gradient(#cf222e calc(var(--context-percent) * 1%), #f4c7ca 0);
+  --code-composer-context-window-popover-box-shadow: 0 10px 22px rgba(31, 35, 40, 0.1);
+  --code-composer-attachment-image-composer-attachment-status-background: rgba(251, 252, 248, 0.88);
+  --code-composer-attachment-image-composer-attachment-remove-background: #111;
+  --code-composer-attachment-image-composer-attachment-remove-color: var(--code-text-on-emphasis);
+  --code-composer-attachment-remove-hover-focus-visible-color: var(--code-text-on-emphasis);
+  --code-composer-attachment-image-composer-attachment-remove-border: 0;
+  --code-composer-image-composer-attachment-remove-hover-border: 0;
+  --code-composer-image-composer-attachment-remove-focus-visible-border: 0;
+  --code-composer-attachment-remove-hover-focus-visible-background: transparent;
+  --code-composer-attachment-remove-hover-focus-visible-box-shadow: none;
+  --code-composer-attachment-remove-hover-focus-visible-color-cbfc06: inherit;
+  --code-composer-image-composer-attachment-remove-before-background: #111;
+  --code-composer-acp-composer-stack-code-acp-composer-surface: var(--code-bg-raised);
+  --code-composer-acp-composer-stack-code-acp-composer-border: #d9ddd4;
+  --code-composer-acp-submission-failed-acp-submission-status-color: #a4665f;
+  --code-composer-acp-feedback-before-background: #778673;
+  --code-composer-acp-feedback-error-border-color: rgba(166, 102, 95, 0.3);
+  --code-composer-acp-feedback-error-background: rgba(250, 245, 244, 0.94);
+  --code-composer-acp-feedback-error-color: #855c57;
+  --code-composer-acp-feedback-error-before-background: #a4665f;
+  --code-composer-acp-session-error-color: #9b7772;
+  --code-composer-acp-session-error-hover-focus-visible-background: rgba(164, 102, 95, 0.09);
+  --code-composer-model-nested-trigger-plus-menu-slash-command-background: transparent;
+  --code-composer-menu-hover-outline: none;
+  --code-composer-menu-focus-visible-outline: none;
+  --code-composer-approval-option-hover-outline: 0;
+  --code-composer-approval-option-focus-visible-outline: 0;
+  --code-composer-model-option-hover-outline: 0;
+  --code-composer-model-option-focus-visible-outline: 0;
+  --code-composer-model-nested-trigger-hover-outline: 0;
+  --code-composer-model-nested-trigger-focus-visible-outline: 0;
+  --code-composer-model-nested-trigger-selected-outline: 0;
+  --code-composer-plus-menu-hover-outline: 0;
+  --code-composer-plus-menu-focus-visible-outline: 0;
+  --code-composer-slash-command-hover-outline: 0;
+  --code-composer-slash-command-focus-visible-outline: 0;
+  --code-composer-slash-command-active-outline: 0;
+  --code-composer-model-matrix-stage-border-color: var(--code-border);
+  --code-composer-model-matrix-shell-model-matrix-stage-border-color: var(--code-border);
+  --code-composer-model-matrix-surface-border-color: var(--code-border);
+  --code-composer-model-matrix-surface-background: radial-gradient(circle at 2px 2px, rgba(31, 35, 40, .055) 0 .7px, transparent .9px) 0 0 / 7px 7px,
+    linear-gradient(145deg, rgba(255, 255, 255, .24), transparent 42%),
+    #dededb;
+  --code-composer-model-matrix-surface-box-shadow: inset 0 1px 1px rgba(31, 35, 40, .09),
+    inset 0 -1px 0 rgba(255, 255, 255, .52),
+    0 1px 0 rgba(255, 255, 255, .46);
+  --code-composer-model-matrix-cells-before-background: #62666a;
+  --code-composer-model-matrix-rocker-control-border-color: var(--code-border);
+  --code-composer-model-matrix-rocker-control-background: radial-gradient(circle at 2px 2px, rgba(31, 35, 40, .09) 0 1px, transparent 1.2px) 0 0 / 6px 6px,
+    #dededb;
+  --code-composer-model-matrix-rocker-control-box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .45);
+  --code-composer-model-matrix-rocker-button-model-matrix-rocker-control-focus-visible-box-shadow: inset 0 0 0 5px #efefed, 0 0 0 2px #fff, 0 0 0 4px var(--rocker-accent);
+  --code-composer-model-matrix-fast-is-active-border-color: var(--code-border);
+  --code-composer-model-matrix-fast-is-active-background: transparent;
+  --code-composer-model-matrix-fast-is-active-box-shadow: none;
+  --code-composer-model-matrix-fast-is-active-border-color-05b781: rgba(209, 141, 0, .36);
+  --code-composer-model-matrix-fast-is-disabled-background: rgba(31, 35, 40, .045);
+  --code-composer-model-matrix-advanced-toggle-background: transparent;
+  --code-composer-model-matrix-advanced-toggle-hover-focus-visible-background: rgba(31, 35, 40, 0.09);
+  --code-composer-mode-compact-layout-composer-background: rgba(255, 255, 255, 0.74);
+  --code-composer-mode-compact-layout-composer-border-color: rgba(255, 255, 255, 0.62);
+  --code-composer-mode-compact-layout-composer-box-shadow: inset 0 0 0 1px rgba(31, 35, 40, 0.08),
+      0 12px 34px rgba(31, 35, 40, 0.08);
+  --code-composer-mode-compact-layout-acp-composer-stack-code-acp-composer-surface: rgba(255, 255, 255, 0.74);
+  --code-composer-mode-compact-layout-acp-composer-stack-code-acp-composer-border: rgba(255, 255, 255, 0.62);
+  --code-composer-focus-within-menu-open-background: transparent;
+  --code-composer-focus-within-menu-open-border-color: var(--code-border);
+  --code-composer-focus-within-menu-open-box-shadow: none;
+  --code-composer-mode-compact-layout-composer-color: inherit;
+  --code-composer-mode-compact-layout-composer-caret-color: inherit;
+  --code-composer-compact-layout-composer-placeholder-color: inherit;
+  --code-composer-context-window-composer-model-picker-composer-mode-chip-color: inherit;
+  --code-composer-mode-compact-layout-composer-send-background: transparent;
+  --code-composer-mode-compact-layout-composer-send-color: inherit;
+  --code-composer-compact-layout-composer-approval-blue-color: inherit;
+  --code-composer-compact-layout-composer-approval-orange-color: inherit;
+  --code-composer-compact-layout-composer-send-disabled-background: transparent;
+  --code-composer-compact-layout-composer-send-disabled-color: inherit;
+}
+
+body.code-mode[data-appearance='dark'] {
+  --code-composer-approval-blue-color: #0969da;
+  --code-composer-dictation-hint-background: rgba(28, 31, 34, 0.9);
+  --code-composer-dictation-hint-box-shadow: 0 10px 24px rgba(0, 0, 0, 0.26);
+  --code-composer-composer-background: rgba(22, 27, 34, 0.82);
+  --code-composer-composer-border-color: rgba(240, 246, 252, 0.1);
+  --code-composer-composer-box-shadow: 0 12px 30px rgba(1, 4, 9, 0.2),
+    inset 0 0 0 1px rgba(240, 246, 252, 0.06);
+  --code-composer-composer-backdrop-filter: blur(20px) saturate(1.12);
+  --code-composer-composer-webkit-backdrop-filter: blur(20px) saturate(1.12);
+  --code-composer-collapse-composer-restore-background: rgba(22, 27, 34, 0.86);
+  --code-composer-collapse-composer-restore-box-shadow: 0 12px 30px rgba(1, 4, 9, 0.28);
+  --code-composer-hover-focus-visible-composer-restore-border-color: rgba(139, 148, 158, 0.34);
+  --code-composer-menu-open-border-color: rgba(88, 166, 255, 0.42);
+  --code-composer-send-disabled-background: rgba(240, 246, 252, 0.12);
+  --code-composer-send-disabled-color: rgba(240, 246, 252, 0.38);
+  --code-composer-context-window-context-window-ring-background: conic-gradient(#d29922 calc(var(--context-percent) * 1%), rgba(210, 153, 34, 0.25) 0);
+  --code-composer-context-window-context-window-ring-background-7dc4ae: conic-gradient(#f85149 calc(var(--context-percent) * 1%), rgba(248, 81, 73, 0.25) 0);
+  --code-composer-context-window-popover-box-shadow: 0 16px 36px rgba(1, 4, 9, 0.42);
+  --code-composer-attachment-image-composer-attachment-status-background: rgba(22, 27, 34, 0.86);
+  --code-composer-attachment-image-composer-attachment-remove-background: #f0f3f6;
+  --code-composer-attachment-image-composer-attachment-remove-color: #111;
+  --code-composer-attachment-remove-hover-focus-visible-color: #111;
+  --code-composer-attachment-image-composer-attachment-remove-border: 0;
+  --code-composer-image-composer-attachment-remove-hover-border: 0;
+  --code-composer-image-composer-attachment-remove-focus-visible-border: 0;
+  --code-composer-attachment-remove-hover-focus-visible-background: transparent;
+  --code-composer-attachment-remove-hover-focus-visible-box-shadow: none;
+  --code-composer-attachment-remove-hover-focus-visible-color-cbfc06: #111;
+  --code-composer-image-composer-attachment-remove-before-background: #f0f3f6;
+  --code-composer-acp-composer-stack-code-acp-composer-surface: rgba(22, 27, 34, 0.82);
+  --code-composer-acp-composer-stack-code-acp-composer-border: rgba(240, 246, 252, 0.1);
+  --code-composer-acp-submission-failed-acp-submission-status-color: #d59a91;
+  --code-composer-acp-feedback-before-background: #81907d;
+  --code-composer-acp-feedback-error-border-color: rgba(250, 66, 62, 0.28);
+  --code-composer-acp-feedback-error-background: rgba(62, 35, 35, 0.82);
+  --code-composer-acp-feedback-error-color: #e2aaa5;
+  --code-composer-acp-feedback-error-before-background: #d17870;
+  --code-composer-acp-session-error-color: #ba8d88;
+  --code-composer-acp-session-error-hover-focus-visible-background: rgba(226, 170, 165, 0.1);
+  --code-composer-model-nested-trigger-plus-menu-slash-command-background: transparent;
+  --code-composer-menu-hover-outline: 0;
+  --code-composer-menu-focus-visible-outline: 0;
+  --code-composer-approval-option-hover-outline: 0;
+  --code-composer-approval-option-focus-visible-outline: 0;
+  --code-composer-model-option-hover-outline: 0;
+  --code-composer-model-option-focus-visible-outline: 0;
+  --code-composer-model-nested-trigger-hover-outline: 0;
+  --code-composer-model-nested-trigger-focus-visible-outline: 0;
+  --code-composer-model-nested-trigger-selected-outline: 0;
+  --code-composer-plus-menu-hover-outline: 0;
+  --code-composer-plus-menu-focus-visible-outline: 0;
+  --code-composer-slash-command-hover-outline: 0;
+  --code-composer-slash-command-focus-visible-outline: 0;
+  --code-composer-slash-command-active-outline: 0;
+  --code-composer-model-matrix-stage-border-color: transparent;
+  --code-composer-model-matrix-shell-model-matrix-stage-border-color: transparent;
+  --code-composer-model-matrix-surface-border-color: rgba(255, 255, 255, 0.04);
+  --code-composer-model-matrix-surface-background: radial-gradient(circle at 2px 2px, rgba(255, 255, 255, .045) 0 .7px, transparent .9px) 0 0 / 7px 7px,
+    linear-gradient(145deg, rgba(255, 255, 255, .035), transparent 42%),
+    #34373a;
+  --code-composer-model-matrix-surface-box-shadow: inset 0 1px 2px rgba(0, 0, 0, .42), inset 0 -1px 0 rgba(255, 255, 255, .04);
+  --code-composer-model-matrix-cells-before-background: #70757a;
+  --code-composer-model-matrix-rocker-control-border-color: rgba(255, 255, 255, 0.08);
+  --code-composer-model-matrix-rocker-control-background: radial-gradient(circle at 2px 2px, rgba(255, 255, 255, .08) 0 1px, transparent 1.2px) 0 0 / 6px 6px, #242628;
+  --code-composer-model-matrix-rocker-control-box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08);
+  --code-composer-model-matrix-rocker-button-model-matrix-rocker-control-focus-visible-box-shadow: inset 0 0 0 1px #282a2c, 0 0 0 2px #111315, 0 0 0 4px var(--rocker-accent);
+  --code-composer-model-matrix-fast-is-active-border-color: rgba(255, 255, 255, .09);
+  --code-composer-model-matrix-fast-is-active-background: rgba(255, 255, 255, .055);
+  --code-composer-model-matrix-fast-is-active-box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05);
+  --code-composer-model-matrix-fast-is-active-border-color-05b781: rgba(255, 199, 45, .48);
+  --code-composer-model-matrix-fast-is-disabled-background: rgba(255, 255, 255, .04);
+  --code-composer-model-matrix-advanced-toggle-background: rgba(255, 255, 255, 0.06);
+  --code-composer-model-matrix-advanced-toggle-hover-focus-visible-background: rgba(255, 255, 255, 0.1);
+  --code-composer-mode-compact-layout-composer-background: rgba(22, 27, 34, 0.78);
+  --code-composer-mode-compact-layout-composer-border-color: rgba(240, 246, 252, 0.08);
+  --code-composer-mode-compact-layout-composer-box-shadow: 0 16px 42px rgba(1, 4, 9, 0.22),
+    inset 0 0 0 1px rgba(240, 246, 252, 0.045);
+  --code-composer-mode-compact-layout-acp-composer-stack-code-acp-composer-surface: rgba(22, 27, 34, 0.78);
+  --code-composer-mode-compact-layout-acp-composer-stack-code-acp-composer-border: rgba(240, 246, 252, 0.08);
+  --code-composer-focus-within-menu-open-background: rgba(22, 27, 34, 0.86);
+  --code-composer-focus-within-menu-open-border-color: rgba(240, 246, 252, 0.1);
+  --code-composer-focus-within-menu-open-box-shadow: 0 14px 38px rgba(1, 4, 9, 0.24),
+    inset 0 0 0 1px rgba(240, 246, 252, 0.055);
+  --code-composer-mode-compact-layout-composer-color: rgba(240, 246, 252, 0.92);
+  --code-composer-mode-compact-layout-composer-caret-color: rgba(240, 246, 252, 0.96);
+  --code-composer-compact-layout-composer-placeholder-color: rgba(240, 246, 252, 0.46);
+  --code-composer-context-window-composer-model-picker-composer-mode-chip-color: rgba(240, 246, 252, 0.74);
+  --code-composer-mode-compact-layout-composer-send-background: rgba(240, 246, 252, 0.92);
+  --code-composer-mode-compact-layout-composer-send-color: #0d1117;
+  --code-composer-compact-layout-composer-approval-blue-color: #0969da;
+  --code-composer-compact-layout-composer-approval-orange-color: #e54b00;
+  --code-composer-compact-layout-composer-send-disabled-background: rgba(240, 246, 252, 0.12);
+  --code-composer-compact-layout-composer-send-disabled-color: rgba(240, 246, 252, 0.38);
+}
+
+/* desktop-backend */
+body.code-mode {
+  --code-desktop-backend-bar-desktop-backend-dialog-border-color: var(--code-border);
+  --code-desktop-backend-bar-background: #f7f7f5;
+  --code-desktop-backend-dialog-background: var(--code-bg-surface);
+  --code-desktop-backend-bar-color: #343836;
+  --code-desktop-backend-dialog-color: inherit;
+  --code-desktop-backend-bar-desktop-backend-dialog-border-color-77b26c: var(--code-border);
+  --code-desktop-backend-bar-desktop-backend-dialog-background: var(--code-bg-surface);
+  --code-desktop-backend-bar-desktop-backend-dialog-color: inherit;
+  --code-desktop-backend-list-desktop-backend-row-desktop-backend-form-border-color: var(--code-border);
+  --code-desktop-backend-status-label-color: #686e69;
+  --code-desktop-backend-dialog-color-1f3362: #6d736e;
+  --code-desktop-backend-dialog-color-a1558a: #6d736e;
+  --code-desktop-backend-form-error-border-color: var(--code-border);
+  --code-desktop-backend-form-error-background: #fff3f2;
+}
+
+body.code-mode[data-appearance='dark'] {
+  --code-desktop-backend-bar-desktop-backend-dialog-border-color: #383b39;
+  --code-desktop-backend-bar-background: #202220;
+  --code-desktop-backend-dialog-background: #202220;
+  --code-desktop-backend-bar-color: #f1f3f1;
+  --code-desktop-backend-dialog-color: #f1f3f1;
+  --code-desktop-backend-bar-desktop-backend-dialog-border-color-77b26c: #474b48;
+  --code-desktop-backend-bar-desktop-backend-dialog-background: #292c2a;
+  --code-desktop-backend-bar-desktop-backend-dialog-color: #f1f3f1;
+  --code-desktop-backend-list-desktop-backend-row-desktop-backend-form-border-color: #3c403d;
+  --code-desktop-backend-status-label-color: #a9afaa;
+  --code-desktop-backend-dialog-color-1f3362: #a9afaa;
+  --code-desktop-backend-dialog-color-a1558a: #a9afaa;
+  --code-desktop-backend-form-error-border-color: #6b3b39;
+  --code-desktop-backend-form-error-background: #372321;
+}
+
+/* empty */
+body.code-mode {
+  --code-empty-workspace-empty-home-card-primary-background: rgba(244, 246, 242, 0.42);
+  --code-empty-workspace-empty-home-card-utility-background: rgba(244, 246, 242, 0.42);
+  --code-empty-workspace-empty-home-card-compact-primary-background: rgba(244, 246, 242, 0.42);
+  --code-empty-home-connector-color: rgba(142, 151, 139, 0.3);
+  --code-empty-home-brace-color: rgba(142, 151, 139, 0.46);
+  --code-empty-home-target-brace-color: rgba(142, 151, 139, 0.56);
+}
+
+body.code-mode[data-appearance='dark'] {
+  --code-empty-workspace-empty-home-card-primary-background: rgba(22, 27, 34, 0.68);
+  --code-empty-workspace-empty-home-card-utility-background: rgba(22, 27, 34, 0.68);
+  --code-empty-workspace-empty-home-card-compact-primary-background: rgba(22, 27, 34, 0.68);
+  --code-empty-home-connector-color: rgba(139, 148, 158, 0.28);
+  --code-empty-home-brace-color: rgba(139, 148, 158, 0.5);
+  --code-empty-home-target-brace-color: rgba(139, 148, 158, 0.62);
+}
+
+/* file-editor */
+body.code-mode {
+  --code-file-editor-tabs-webkit-scrollbar-thumb-background: transparent;
+  --code-file-editor-bar-border-color: var(--code-border);
+  --code-file-editor-tab-active-after-background: rgba(36, 41, 47, 0.025);
+  --code-file-editor-file-preview-panel-metadata-background: linear-gradient(180deg, rgba(246, 247, 243, 0.78), rgba(255, 255, 255, 0.92));
+  --code-file-editor-markdown-reading-file-editor-action-source-preview-background: transparent;
+  --code-file-editor-markdown-reading-file-editor-action-source-preview-color: rgba(31, 35, 40, 0.72);
+  --code-file-editor-markdown-reading-file-editor-action-source-preview-box-shadow: none;
+  --code-file-editor-markdown-reading-file-editor-action-source-preview-backdrop-filter: none;
+  --code-file-editor-markdown-reading-file-editor-action-source-preview-webkit-backdrop-filter: none;
+  --code-file-editor-markdown-reading-file-editor-action-source-preview-background: var(--code-file-editor-markdown-reading-file-editor-action-source-preview-background);
+  --code-file-editor-action-source-preview-active-background: transparent;
+  --code-file-editor-markdown-reading-file-editor-action-source-preview-color: var(--code-file-editor-markdown-reading-file-editor-action-source-preview-color);
+  --code-file-editor-action-source-preview-active-color: rgba(31, 35, 40, 0.72);
+  --code-file-editor-markdown-reading-file-editor-action-source-preview-box-shadow: var(--code-file-editor-markdown-reading-file-editor-action-source-preview-box-shadow);
+  --code-file-editor-action-source-preview-active-box-shadow: none;
+  --code-file-editor-hover-disabled-focus-visible-background: var(--code-bg-hover);
+}
+
+body.code-mode[data-appearance='dark'] {
+  --code-file-editor-tabs-webkit-scrollbar-thumb-background: rgba(139, 148, 158, 0.32);
+  --code-file-editor-bar-border-color: transparent;
+  --code-file-editor-tab-active-after-background: rgba(240, 246, 252, 0.035);
+  --code-file-editor-file-preview-panel-metadata-background: linear-gradient(180deg, rgba(22, 27, 34, 0.88), rgba(13, 17, 23, 0.96));
+  --code-file-editor-markdown-reading-file-editor-action-source-preview-background: rgba(22, 27, 34, 0.74);
+  --code-file-editor-markdown-reading-file-editor-action-source-preview-color: rgba(240, 246, 252, 0.84);
+  --code-file-editor-markdown-reading-file-editor-action-source-preview-box-shadow: 0 10px 24px rgba(1, 4, 9, 0.28);
+  --code-file-editor-markdown-reading-file-editor-action-source-preview-backdrop-filter: blur(18px) saturate(1.12);
+  --code-file-editor-markdown-reading-file-editor-action-source-preview-webkit-backdrop-filter: blur(18px) saturate(1.12);
+  --code-file-editor-markdown-reading-file-editor-action-source-preview-background: transparent;
+  --code-file-editor-action-source-preview-active-background: transparent;
+  --code-file-editor-markdown-reading-file-editor-action-source-preview-color: rgba(240, 246, 252, 0.82);
+  --code-file-editor-action-source-preview-active-color: rgba(240, 246, 252, 0.82);
+  --code-file-editor-markdown-reading-file-editor-action-source-preview-box-shadow: none;
+  --code-file-editor-action-source-preview-active-box-shadow: none;
+  --code-file-editor-hover-disabled-focus-visible-background: rgba(240, 246, 252, 0.09);
+}
+
+/* files */
+body.code-mode {
+  --code-files-file-tree-webkit-scrollbar-thumb-file-search-results-background: transparent;
+  --code-files-file-search-results-background: rgba(253, 253, 250, 0.98);
+  --code-files-file-search-results-box-shadow: 0 14px 34px rgba(31, 35, 40, 0.18);
+  --code-files-file-search-ignored-action-hover-focus-visible-background: rgba(9, 105, 218, 0.16);
+  --code-files-refresh-background: rgba(45, 164, 78, 0.12);
+  --code-files-file-row-ignored-color: #9a9a9a;
+  --code-files-file-row-ignored-file-name-color: inherit;
+  --code-files-file-row-ignored-file-chevron-color: #a7a7a7;
+  --code-files-located-selected-focus-within-background: transparent;
+  --code-files-located-selected-focus-within-box-shadow: none;
+  --code-files-located-selected-focus-within-color: inherit;
+  --code-files-file-descendant-status-renamed-background: transparent;
+  --code-files-file-git-status-renamed-color: inherit;
+  --code-files-file-change-status-renamed-color: var(--code-text-muted);
+  --code-files-file-open-spinner-border-color: var(--code-border);
+  --code-files-file-change-review-color: #6d7f9e;
+  --code-files-file-change-review-hover-focus-visible-color: #315f9f;
+  --code-files-file-inline-blame-background: rgba(191, 213, 255, 0.52);
+  --code-files-file-inline-blame-hover-focus-visible-background: rgba(154, 187, 246, 0.68);
+  --code-files-file-inline-blame-uncommitted-background: rgba(244, 215, 166, 0.58);
+  --code-files-file-inline-blame-uncommitted-color: #765417;
+  --code-files-file-blame-toast-background: rgba(250, 251, 248, 0.96);
+  --code-files-file-blame-toast-error-border-color: var(--code-border);
+  --code-files-file-blame-detail-box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+  --code-files-file-line-changes-panel-background: rgba(248, 249, 245, 0.96);
+  --code-files-file-line-changes-panel-box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+  --code-files-file-line-changes-patch-background: rgba(255, 255, 255, 0.68);
+  --code-files-file-line-changes-line-meta-background: rgba(84, 104, 153, 0.08);
+  --code-files-file-line-changes-line-added-background: rgba(46, 160, 67, 0.12);
+  --code-files-file-line-changes-line-deleted-background: rgba(248, 81, 73, 0.12);
+  --code-files-file-context-menu-background: transparent;
+  --code-files-file-context-menu-hover-focus-visible-outline: none;
+  --code-files-file-save-confirm-actions-primary-color: white;
+  --code-files-file-operation-dialog-rename-actions-primary-color: inherit;
+}
+
+body.code-mode[data-appearance='dark'] {
+  --code-files-file-tree-webkit-scrollbar-thumb-file-search-results-background: rgba(139, 148, 158, 0.32);
+  --code-files-file-search-results-background: rgba(22, 27, 34, 0.98);
+  --code-files-file-search-results-box-shadow: 0 16px 36px rgba(0, 0, 0, 0.42);
+  --code-files-file-search-ignored-action-hover-focus-visible-background: rgba(88, 166, 255, 0.26);
+  --code-files-refresh-background: rgba(63, 185, 80, 0.14);
+  --code-files-file-row-ignored-color: #6e7681;
+  --code-files-file-row-ignored-file-name-color: #6e7681;
+  --code-files-file-row-ignored-file-chevron-color: #6e7681;
+  --code-files-located-selected-focus-within-background: rgba(217, 119, 87, 0.24);
+  --code-files-located-selected-focus-within-box-shadow: inset 3px 0 0 rgba(229, 138, 107, 0.88);
+  --code-files-located-selected-focus-within-color: #ffd8cc;
+  --code-files-file-descendant-status-renamed-background: #a371f7;
+  --code-files-file-git-status-renamed-color: #a371f7;
+  --code-files-file-change-status-renamed-color: #a371f7;
+  --code-files-file-open-spinner-border-color: rgba(139, 148, 158, 0.28);
+  --code-files-file-change-review-color: #8faed8;
+  --code-files-file-change-review-hover-focus-visible-color: #b7cff0;
+  --code-files-file-inline-blame-background: rgba(88, 166, 255, 0.22);
+  --code-files-file-inline-blame-hover-focus-visible-background: rgba(88, 166, 255, 0.32);
+  --code-files-file-inline-blame-uncommitted-background: rgba(210, 153, 34, 0.22);
+  --code-files-file-inline-blame-uncommitted-color: #f0c674;
+  --code-files-file-blame-toast-background: rgba(28, 33, 41, 0.96);
+  --code-files-file-blame-toast-error-border-color: rgba(248, 81, 73, 0.36);
+  --code-files-file-blame-detail-box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --code-files-file-line-changes-panel-background: rgba(22, 27, 34, 0.96);
+  --code-files-file-line-changes-panel-box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --code-files-file-line-changes-patch-background: rgba(13, 17, 23, 0.68);
+  --code-files-file-line-changes-line-meta-background: rgba(121, 134, 203, 0.14);
+  --code-files-file-line-changes-line-added-background: rgba(46, 160, 67, 0.18);
+  --code-files-file-line-changes-line-deleted-background: rgba(248, 81, 73, 0.16);
+  --code-files-file-context-menu-background: transparent;
+  --code-files-file-context-menu-hover-focus-visible-outline: 0;
+  --code-files-file-save-confirm-actions-primary-color: #ffffff;
+  --code-files-file-operation-dialog-rename-actions-primary-color: #ffffff;
+}
+
+/* git-history */
+body.code-mode {
+  --code-git-history-scope-menu-background: rgba(255, 255, 255, 0.98);
+  --code-git-history-reference-color: #315f9f;
+  --code-git-history-branch-color: inherit;
+  --code-git-history-scope-color: #65718a;
+  --code-git-history-reference-tag-color: #776a58;
+  --code-git-history-reference-remote-branch-color: #397f79;
+  --code-git-history-review-color: #6d7f9e;
+  --code-git-history-load-more-color: #315f9f;
+  --code-git-history-review-hover-focus-visible-color: #315f9f;
+}
+
+body.code-mode[data-appearance='dark'] {
+  --code-git-history-scope-menu-background: rgba(22, 27, 34, 0.98);
+  --code-git-history-reference-color: #8faed8;
+  --code-git-history-branch-color: #8faed8;
+  --code-git-history-scope-color: #8faed8;
+  --code-git-history-reference-tag-color: #d2b47c;
+  --code-git-history-reference-remote-branch-color: #69c5bd;
+  --code-git-history-review-color: #8faed8;
+  --code-git-history-load-more-color: #8faed8;
+  --code-git-history-review-hover-focus-visible-color: #b7cff0;
+}
+
+/* history */
+body.code-mode {
+  --code-history-card-border-color: var(--code-border);
+  --code-history-card-primary-focus-visible-outline-color: var(--code-focus-ring);
+  --code-history-actions-border-color: var(--code-border);
+}
+
+body.code-mode[data-appearance='dark'] {
+  --code-history-card-border-color: transparent;
+  --code-history-card-primary-focus-visible-outline-color: rgba(88, 166, 255, 0.34);
+  --code-history-actions-border-color: transparent;
+}
+
+/* language-server */
+body.code-mode {
+  --code-language-server-panel-background: var(--code-bg-surface);
+  --code-language-server-panel-box-shadow: none;
+  --code-language-server-symbol-kind-interface-class-background: rgba(130, 94, 57, 0.12);
+  --code-language-server-symbol-kind-function-background: rgba(103, 76, 152, 0.12);
+  --code-language-server-symbol-kind-property-variable-background: rgba(53, 120, 115, 0.11);
+}
+
+body.code-mode[data-appearance='dark'] {
+  --code-language-server-panel-background: rgba(22, 27, 34, 0.98);
+  --code-language-server-panel-box-shadow: none;
+  --code-language-server-symbol-kind-interface-class-background: rgba(210, 153, 34, 0.14);
+  --code-language-server-symbol-kind-function-background: rgba(188, 140, 255, 0.14);
+  --code-language-server-symbol-kind-property-variable-background: rgba(86, 211, 100, 0.12);
+}
+
+/* markdown */
+body.code-mode {
+  --code-markdown-agent-transcript-assistant-markdown-preview-background: transparent;
+  --code-markdown-agent-transcript-assistant-markdown-preview-box-shadow: none;
+  --code-markdown-agent-transcript-assistant-markdown-preview-background-679676: rgba(246, 248, 250, 0.86);
+  --code-markdown-preview-border-color: var(--code-border);
+  --code-markdown-preview-background: rgba(175, 184, 193, 0.22);
+  --code-markdown-preview-hljs-doctag-hljs-string-color: #0a3069;
+  --code-markdown-preview-hljs-built-in-hljs-symbol-color: #953800;
+  --code-markdown-preview-markdown-frontmatter-border-color: var(--code-border);
+  --code-markdown-preview-markdown-frontmatter-border-color-ed424b: var(--code-border);
+  --code-markdown-preview-markdown-frontmatter-error-border-color: var(--code-border);
+  --code-markdown-preview-markdown-frontmatter-error-background: rgba(255, 248, 248, 0.82);
+  --code-markdown-mermaid-border-color: var(--code-border);
+  --code-markdown-mermaid-toolbar-border-color: var(--code-border);
+  --code-markdown-mermaid-toolbar-background: rgba(255, 255, 255, 0.92);
+  --code-markdown-mermaid-toolbar-box-shadow: 0 8px 24px rgba(31, 35, 40, 0.08);
+  --code-markdown-hover-disabled-focus-visible-background: rgba(175, 184, 193, 0.22);
+  --code-markdown-mermaid-toolbar-background-79a10e: rgba(9, 105, 218, 0.14);
+  --code-markdown-mermaid-error-border-color: rgba(207, 34, 46, 0.32);
+  --code-markdown-mermaid-error-background: rgba(255, 248, 248, 0.82);
+  --code-markdown-mermaid-error-message-border-color: var(--code-border);
+  --code-markdown-mermaid-error-message-background: rgba(255, 255, 255, 0.78);
+  --code-markdown-preview-border-color-aa1678: var(--code-border);
+  --code-markdown-preview-nth-child-background: rgba(246, 248, 250, 0.78);
+}
+
+body.code-mode[data-appearance='dark'] {
+  --code-markdown-agent-transcript-assistant-markdown-preview-background: rgba(255, 255, 255, 0.09);
+  --code-markdown-agent-transcript-assistant-markdown-preview-box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.035),
+    0 1px 1px rgba(0, 0, 0, 0.16);
+  --code-markdown-agent-transcript-assistant-markdown-preview-background-679676: rgba(13, 17, 23, 0.82);
+  --code-markdown-preview-border-color: #30363d;
+  --code-markdown-preview-background: rgba(110, 118, 129, 0.32);
+  --code-markdown-preview-hljs-doctag-hljs-string-color: #a5d6ff;
+  --code-markdown-preview-hljs-built-in-hljs-symbol-color: #ffa657;
+  --code-markdown-preview-markdown-frontmatter-border-color: #30363d;
+  --code-markdown-preview-markdown-frontmatter-border-color-ed424b: #30363d;
+  --code-markdown-preview-markdown-frontmatter-error-border-color: rgba(248, 81, 73, 0.42);
+  --code-markdown-preview-markdown-frontmatter-error-background: rgba(22, 27, 34, 0.9);
+  --code-markdown-mermaid-border-color: #30363d;
+  --code-markdown-mermaid-toolbar-border-color: #30363d;
+  --code-markdown-mermaid-toolbar-background: rgba(22, 27, 34, 0.92);
+  --code-markdown-mermaid-toolbar-box-shadow: 0 8px 24px rgba(1, 4, 9, 0.32);
+  --code-markdown-hover-disabled-focus-visible-background: rgba(110, 118, 129, 0.24);
+  --code-markdown-mermaid-toolbar-background-79a10e: rgba(56, 139, 253, 0.2);
+  --code-markdown-mermaid-error-border-color: rgba(248, 81, 73, 0.42);
+  --code-markdown-mermaid-error-background: rgba(22, 27, 34, 0.9);
+  --code-markdown-mermaid-error-message-border-color: rgba(248, 81, 73, 0.28);
+  --code-markdown-mermaid-error-message-background: rgba(13, 17, 23, 0.76);
+  --code-markdown-preview-border-color-aa1678: #30363d;
+  --code-markdown-preview-nth-child-background: rgba(22, 27, 34, 0.76);
+}
+
+/* pet */
+body.code-mode {
+  --code-pet-appearance-select-pet-appearance-preview-border-color: var(--code-border);
+  --code-pet-appearance-select-background: rgba(255, 255, 253, 0.34);
+  --code-pet-appearance-preview-background: transparent;
+  --code-pet-appearance-select-hover-background: rgba(247, 249, 246, 0.72);
+  --code-pet-appearance-select-focus-visible-background: rgba(247, 249, 246, 0.72);
+  --code-pet-appearance-select-selected-background: rgba(247, 249, 246, 0.72);
+  --code-pet-appearance-preview-hover-background: rgba(255, 255, 255, 0.82);
+  --code-pet-appearance-preview-focus-visible-background: rgba(255, 255, 255, 0.82);
+  --code-pet-focus-visible-selected-pet-appearance-preview-color: inherit;
+  --code-pet-appearance-options-color: #737b73;
+  --code-pet-bubble-border-color: var(--code-border);
+  --code-pet-bubble-background: rgba(250, 251, 248, 0.74);
+  --code-pet-bubble-box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.62),
+    0 12px 30px rgba(31, 35, 40, 0.13);
+  --code-pet-glass-rest-overlay-background: linear-gradient(
+    145deg,
+    rgba(247, 249, 246, 0.18),
+    rgba(235, 240, 236, 0.26)
+  );
+  --code-pet-glass-rest-overlay-color: #303730;
+  --code-pet-glass-rest-time-color: #2e3530;
+  --code-pet-glass-rest-time-text-shadow: 0 1px 18px rgba(255, 255, 255, 0.72);
+  --code-pet-glass-rest-content-color: rgba(48, 55, 48, 0.68);
+  --code-pet-glass-rest-content-border-color: var(--code-border);
+  --code-pet-glass-rest-content-background: rgba(255, 255, 253, 0.4);
+  --code-pet-glass-rest-content-color-375988: rgba(48, 55, 48, 0.76);
+  --code-pet-glass-rest-content-hover-focus-visible-border-color: rgba(75, 84, 76, 0.32);
+  --code-pet-glass-rest-content-hover-focus-visible-background: rgba(255, 255, 253, 0.52);
+  --code-pet-glass-rest-content-hover-focus-visible-color: #303730;
+  --code-pet-bubble-after-border-color: var(--code-border);
+  --code-pet-bubble-after-background: rgba(250, 251, 248, 0.86);
+  --code-pet-bubble-color: #687068;
+  --code-pet-error-color: #9b4f43;
+  --code-pet-actions-border-color: var(--code-border);
+  --code-pet-actions-primary-border-color: #53647f;
+  --code-pet-actions-primary-background: #53647f;
+  --code-pet-black-hole-status-border-color: var(--code-border);
+  --code-pet-black-hole-status-background: linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.01)),
+    rgba(24, 29, 27, 0.035);
+  --code-pet-black-hole-status-box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42),
+    inset 0 -1px 0 rgba(18, 23, 21, 0.14),
+    0 10px 34px rgba(13, 17, 16, 0.16);
+  --code-pet-black-hole-status-color: rgba(31, 37, 34, 0.84);
+  --code-pet-black-hole-status-label-color: rgba(39, 46, 42, 0.7);
+  --code-pet-seven-segment-time-color: #242b28;
+  --code-pet-seven-segment-time-filter: drop-shadow(0 0 4px rgba(245, 196, 120, 0.18));
+  --code-pet-black-hole-status-border-color-962a94: var(--code-border);
+  --code-pet-black-hole-status-background-a5dd74: linear-gradient(180deg, rgba(255, 255, 255, 0.76), rgba(242, 246, 243, 0.48)),
+    rgba(235, 240, 237, 0.42);
+  --code-pet-black-hole-status-color-11e735: rgba(27, 35, 31, 0.92);
+  --code-pet-black-hole-status-box-shadow-9dff7a: inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 3px 10px rgba(15, 20, 18, 0.14);
+  --code-pet-black-hole-status-hover-focus-visible-border-color: rgba(31, 41, 36, 0.48);
+  --code-pet-black-hole-status-hover-focus-visible-background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(239, 244, 241, 0.64)),
+    rgba(230, 236, 232, 0.54);
+}
+
+body.code-mode[data-appearance='dark'] {
+  --code-pet-appearance-select-pet-appearance-preview-border-color: #30363d;
+  --code-pet-appearance-select-background: rgba(22, 27, 34, 0.62);
+  --code-pet-appearance-preview-background: rgba(22, 27, 34, 0.62);
+  --code-pet-appearance-select-hover-background: rgba(48, 54, 61, 0.72);
+  --code-pet-appearance-select-focus-visible-background: rgba(48, 54, 61, 0.72);
+  --code-pet-appearance-select-selected-background: rgba(48, 54, 61, 0.72);
+  --code-pet-appearance-preview-hover-background: rgba(48, 54, 61, 0.72);
+  --code-pet-appearance-preview-focus-visible-background: rgba(48, 54, 61, 0.72);
+  --code-pet-focus-visible-selected-pet-appearance-preview-color: #f0f6fc;
+  --code-pet-appearance-options-color: #9da7b1;
+  --code-pet-bubble-border-color: rgba(214, 222, 230, 0.14);
+  --code-pet-bubble-background: rgba(25, 31, 37, 0.72);
+  --code-pet-bubble-box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 12px 34px rgba(0, 0, 0, 0.34);
+  --code-pet-glass-rest-overlay-background: linear-gradient(
+    145deg,
+    rgba(9, 13, 18, 0.28),
+    rgba(18, 24, 30, 0.36)
+  );
+  --code-pet-glass-rest-overlay-color: #e3e9e5;
+  --code-pet-glass-rest-time-color: #edf2ef;
+  --code-pet-glass-rest-time-text-shadow: 0 1px 20px rgba(0, 0, 0, 0.45);
+  --code-pet-glass-rest-content-color: rgba(227, 233, 229, 0.62);
+  --code-pet-glass-rest-content-border-color: rgba(229, 235, 231, 0.16);
+  --code-pet-glass-rest-content-background: rgba(31, 38, 44, 0.34);
+  --code-pet-glass-rest-content-color-375988: rgba(227, 233, 229, 0.74);
+  --code-pet-glass-rest-content-hover-focus-visible-border-color: rgba(229, 235, 231, 0.28);
+  --code-pet-glass-rest-content-hover-focus-visible-background: rgba(45, 53, 60, 0.5);
+  --code-pet-glass-rest-content-hover-focus-visible-color: #f0f6f2;
+  --code-pet-bubble-after-border-color: rgba(214, 222, 230, 0.14);
+  --code-pet-bubble-after-background: rgba(25, 31, 37, 0.86);
+  --code-pet-bubble-color: #9da7b1;
+  --code-pet-error-color: #f0a39a;
+  --code-pet-actions-border-color: #3c444d;
+  --code-pet-actions-primary-border-color: #526387;
+  --code-pet-actions-primary-background: #526387;
+  --code-pet-black-hole-status-border-color: rgba(226, 235, 229, 0.38);
+  --code-pet-black-hole-status-background: linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.018)),
+    rgba(8, 12, 11, 0.24);
+  --code-pet-black-hole-status-box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.46),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.34),
+    0 10px 34px rgba(0, 0, 0, 0.32);
+  --code-pet-black-hole-status-color: rgba(238, 245, 240, 0.94);
+  --code-pet-black-hole-status-label-color: rgba(226, 235, 229, 0.82);
+  --code-pet-seven-segment-time-color: #e7eee9;
+  --code-pet-seven-segment-time-filter: drop-shadow(0 0 5px rgba(245, 196, 120, 0.2));
+  --code-pet-black-hole-status-border-color-962a94: rgba(226, 235, 229, 0.4);
+  --code-pet-black-hole-status-background-a5dd74: linear-gradient(180deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.035)),
+    rgba(8, 12, 11, 0.22);
+  --code-pet-black-hole-status-color-11e735: rgba(238, 245, 240, 0.9);
+  --code-pet-black-hole-status-box-shadow-9dff7a: inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 3px 10px rgba(0, 0, 0, 0.22);
+  --code-pet-black-hole-status-hover-focus-visible-border-color: rgba(238, 245, 240, 0.64);
+  --code-pet-black-hole-status-hover-focus-visible-background: linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.06)),
+    rgba(8, 12, 11, 0.28);
+}
+
+/* plugin */
+body.code-mode {
+  --code-plugin-extension-home-tabs-box-shadow: 0 1px 3px rgba(31, 35, 40, 0.08);
+  --code-plugin-extension-kind-tabs-box-shadow: 0 1px 3px rgba(31, 35, 40, 0.09);
+  --code-plugin-extension-meta-plugin-extension-status-enabled-color: #31713f;
+  --code-plugin-extension-meta-plugin-extension-status-disabled-color: #826464;
+  --code-plugin-card-icon-background: #f0f2ee;
+  --code-plugin-status-enabled-color: #24824a;
+  --code-plugin-toggle-background: var(--code-bg-surface);
+  --code-plugin-desktop-target-border-color: var(--code-border);
+  --code-plugin-desktop-target-color: inherit;
+  --code-plugin-desktop-target-color-87ab46: inherit;
+  --code-plugin-browser-settings-plugin-browser-apply-plugin-browser-install-background: var(--code-bg-surface);
+  --code-plugin-toggle-active-border-color: #c9d7cc;
+  --code-plugin-toggle-active-background: #eef6ef;
+  --code-plugin-toggle-active-color: #216e3d;
+  --code-plugin-error-color: #b42318;
+}
+
+body.code-mode[data-appearance='dark'] {
+  --code-plugin-extension-home-tabs-box-shadow: none;
+  --code-plugin-extension-kind-tabs-box-shadow: none;
+  --code-plugin-extension-meta-plugin-extension-status-enabled-color: #71c782;
+  --code-plugin-extension-meta-plugin-extension-status-disabled-color: #c69494;
+  --code-plugin-card-icon-background: rgba(22, 27, 34, 0.72);
+  --code-plugin-status-enabled-color: #56c277;
+  --code-plugin-toggle-background: rgba(22, 27, 34, 0.66);
+  --code-plugin-desktop-target-border-color: #30363d;
+  --code-plugin-desktop-target-color: #e6edf3;
+  --code-plugin-desktop-target-color-87ab46: #8b949e;
+  --code-plugin-browser-settings-plugin-browser-apply-plugin-browser-install-background: rgba(22, 27, 34, 0.66);
+  --code-plugin-toggle-active-border-color: rgba(86, 194, 119, 0.36);
+  --code-plugin-toggle-active-background: rgba(35, 134, 54, 0.16);
+  --code-plugin-toggle-active-color: #7ee197;
+  --code-plugin-error-color: #ff8a80;
+}
+
+/* search */
+body.code-mode {
+  --code-search-panel-input-background: rgba(255, 255, 255, 0.7);
+  --code-search-result-hover-active-border-color: transparent;
+}
+
+body.code-mode[data-appearance='dark'] {
+  --code-search-panel-input-background: rgba(22, 27, 34, 0.78);
+  --code-search-result-hover-active-border-color: rgba(88, 166, 255, 0.42);
+}
+
+/* settings */
+body.code-mode {
+  --code-settings-panel-overlay-background: rgba(15, 23, 42, 0.1);
+  --code-settings-panel-background: var(--code-bg-inset);
+  --code-settings-panel-border-left-color: var(--code-border);
+  --code-settings-panel-box-shadow: -8px 0 28px rgba(31, 35, 40, 0.08);
+  --code-settings-panel-header-background: var(--code-bg-inset);
+  --code-settings-panel-header-border-bottom-color: var(--code-border);
+  --code-settings-choice-row-border-color: var(--code-border);
+  --code-settings-agent-home-provider-border-color: var(--code-border);
+  --code-settings-agent-home-form-border-color: var(--code-border);
+  --code-settings-update-card-border-color: var(--code-border);
+  --code-settings-agent-home-provider-header-border-bottom-color: var(--code-border);
+  --code-settings-agent-home-row-border-top-color: var(--code-border);
+  --code-settings-segmented-border-color: var(--code-border);
+  --code-settings-agent-home-actions-agent-home-form-actions-settings-update-actions-background: var(--code-bg-muted);
+  --code-settings-agent-home-actions-agent-home-form-actions-settings-update-actions-border-color: var(--code-border);
+  --code-settings-segmented-hover-background: var(--code-border);
+  --code-settings-segmented-focus-visible-background: var(--code-border);
+  --code-settings-agent-home-provider-header-hover-background: var(--code-border);
+  --code-settings-agent-home-provider-header-focus-visible-background: var(--code-border);
+  --code-settings-agent-home-actions-hover-background: var(--code-border);
+  --code-settings-agent-home-actions-focus-visible-background: var(--code-border);
+  --code-settings-agent-home-form-actions-hover-background: var(--code-border);
+  --code-settings-agent-home-form-actions-focus-visible-background: var(--code-border);
+  --code-settings-update-actions-hover-background: transparent;
+  --code-settings-update-actions-focus-visible-background: var(--code-border);
+  --code-settings-panel-close-hover-background: var(--code-border);
+  --code-settings-panel-close-focus-visible-background: var(--code-border);
+  --code-settings-segmented-hover-color: var(--code-diff-removed);
+  --code-settings-segmented-focus-visible-color: var(--code-diff-removed);
+  --code-settings-agent-home-provider-header-hover-color: var(--code-diff-removed);
+  --code-settings-agent-home-provider-header-focus-visible-color: var(--code-diff-removed);
+  --code-settings-agent-home-actions-hover-color: var(--code-diff-removed);
+  --code-settings-agent-home-actions-focus-visible-color: var(--code-diff-removed);
+  --code-settings-agent-home-form-actions-hover-color: var(--code-diff-removed);
+  --code-settings-agent-home-form-actions-focus-visible-color: var(--code-diff-removed);
+  --code-settings-update-actions-hover-color: inherit;
+  --code-settings-update-actions-focus-visible-color: var(--code-text-strong);
+  --code-settings-panel-close-hover-color: var(--code-text-strong);
+  --code-settings-panel-close-focus-visible-color: var(--code-text-strong);
+  --code-settings-agent-home-form-border-color-8f6538: var(--code-border);
+  --code-settings-agent-home-form-placeholder-color: inherit;
+  --code-settings-agent-home-form-focus-box-shadow: none;
+  --code-settings-agent-home-form-actions-primary-settings-update-actions-background: transparent;
+  --code-settings-agent-home-form-actions-primary-border-color: var(--code-text-strong);
+  --code-settings-update-actions-primary-border-color: var(--code-border);
+  --code-settings-agent-home-form-actions-primary-color: var(--code-bg-inset);
+  --code-settings-update-actions-primary-color: inherit;
+  --code-settings-agent-home-form-actions-primary-hover-background: #3b424a;
+  --code-settings-agent-home-form-actions-primary-focus-visible-background: #3b424a;
+  --code-settings-update-actions-primary-hover-background: transparent;
+  --code-settings-update-actions-primary-focus-visible-background: transparent;
+  --code-settings-hover-focus-visible-settings-update-actions-border-color: var(--code-border);
+  --code-settings-agent-home-form-actions-primary-hover-color: var(--code-text-on-emphasis);
+  --code-settings-agent-home-form-actions-primary-focus-visible-color: var(--code-text-on-emphasis);
+  --code-settings-update-actions-primary-hover-color: inherit;
+  --code-settings-update-actions-primary-focus-visible-color: inherit;
+  --code-settings-error-border-color: #f1c2c0;
+  --code-settings-agent-home-provider-background: var(--code-bg-muted);
+  --code-settings-agent-home-row-border-color: var(--code-border);
+  --code-settings-inline-preferences-border-color: var(--code-border);
+  --code-settings-choice-row-border-color: var(--code-settings-choice-row-border-color);
+  --code-settings-update-card-border-color: var(--code-settings-update-card-border-color);
+  --code-settings-agent-home-form-border-color: var(--code-settings-agent-home-form-border-color);
+  --code-settings-inline-preferences-border-color: var(--code-settings-inline-preferences-border-color);
+  --code-settings-agent-home-row-border-color: var(--code-settings-agent-home-row-border-color);
+  --code-settings-card-border-color: var(--code-border);
+  --code-settings-choice-row-dangerous-border-color: var(--code-border);
+  --code-settings-agent-home-provider-border-color: var(--code-settings-agent-home-provider-border-color);
+  --code-settings-update-card-available-border-color: #c8ddce;
+  --code-settings-update-actions-border-color: var(--code-settings-agent-home-actions-agent-home-form-actions-settings-update-actions-border-color);
+  --code-settings-hover-disabled-focus-visible-border-color: #bdc3ba;
+  --code-settings-update-actions-primary-border-color-97cff3: #176d3b;
+  --code-settings-update-actions-primary-background: #176d3b;
+  --code-settings-hover-disabled-focus-visible-border-color-694a6f: #105c30;
+  --code-settings-hover-disabled-focus-visible-background: #105c30;
+  --code-settings-agent-home-form-background: var(--code-bg-inset);
+  --code-settings-search-timeout-row-background: transparent;
+  --code-settings-content-font-size-row-background: transparent;
+  --code-settings-pet-rest-row-background: transparent;
+  --code-settings-agent-home-form-border-color-8f6538: var(--code-settings-agent-home-form-border-color-8f6538);
+  --code-settings-search-timeout-row-border-color: var(--code-border);
+  --code-settings-content-font-size-row-border-color: var(--code-border);
+  --code-settings-pet-rest-row-border-color: var(--code-border);
+  --code-settings-pet-rest-custom-border-color: var(--code-border);
+  --code-settings-pet-appearance-select-settings-pet-appearance-preview-border-color: var(--code-border);
+  --code-settings-pet-appearance-select-background: #f8f9f6;
+  --code-settings-pet-appearance-preview-background: transparent;
+  --code-settings-pet-appearance-select-hover-background: #f0f2ed;
+  --code-settings-pet-appearance-select-focus-visible-background: #f0f2ed;
+  --code-settings-pet-appearance-select-selected-background: #f0f2ed;
+  --code-settings-pet-appearance-preview-hover-background: rgba(255, 255, 255, 0.82);
+  --code-settings-pet-appearance-preview-focus-visible-background: rgba(255, 255, 255, 0.82);
+  --code-settings-permission-toggle-border-color: var(--code-border);
+  --code-settings-language-choice-border-left-color: var(--code-border);
+  --code-settings-mode-compact-layout-settings-panel-overlay-background: rgba(247, 247, 243, 0.24);
+  --code-settings-mode-compact-layout-settings-panel-background: rgba(247, 247, 244, 0.96);
+  --code-settings-mode-compact-layout-settings-panel-box-shadow: 16px 0 44px rgba(31, 35, 40, 0.18);
+  --code-settings-panel-color: var(--code-text-strong);
+  --code-settings-panel-border-left-color: var(--code-settings-panel-border-left-color);
+  --code-settings-panel-header-agent-home-provider-header-border-color: var(--code-border);
+  --code-settings-section-agent-home-id-agent-home-provider-header-color: var(--code-text-strong);
+  --code-settings-choice-row-background: var(--code-bg-muted);
+  --code-settings-agent-home-provider-background: var(--code-settings-agent-home-provider-background);
+  --code-settings-agent-home-form-background-51e594: var(--code-bg-muted);
+  --code-settings-choice-row-border-color: var(--code-settings-choice-row-border-color);
+  --code-settings-agent-home-provider-border-color: var(--code-settings-agent-home-provider-border-color);
+  --code-settings-agent-home-form-border-color: var(--code-settings-agent-home-form-border-color);
+  --code-settings-segmented-border-color: var(--code-settings-segmented-border-color);
+  --code-settings-agent-home-provider-header-border-color: var(--code-settings-agent-home-actions-agent-home-form-actions-settings-update-actions-border-color);
+  --code-settings-agent-home-actions-border-color: var(--code-settings-agent-home-actions-agent-home-form-actions-settings-update-actions-border-color);
+  --code-settings-agent-home-form-actions-border-color: var(--code-settings-agent-home-actions-agent-home-form-actions-settings-update-actions-border-color);
+  --code-settings-agent-home-form-border-color-8f6538: var(--code-settings-agent-home-form-border-color-8f6538);
+  --code-settings-panel-close-border-color: var(--code-border);
+  --code-settings-agent-home-form-background: var(--code-settings-agent-home-form-background);
+  --code-settings-agent-home-form-color: var(--code-text-strong);
+  --code-settings-segmented-active-color: var(--code-text-strong);
+  --code-settings-segmented-hover-color: var(--code-settings-agent-home-form-actions-focus-visible-color);
+  --code-settings-segmented-focus-visible-color: var(--code-settings-agent-home-form-actions-focus-visible-color);
+  --code-settings-agent-home-provider-header-hover-color: var(--code-settings-agent-home-form-actions-focus-visible-color);
+  --code-settings-agent-home-provider-header-focus-visible-color: var(--code-settings-agent-home-form-actions-focus-visible-color);
+  --code-settings-agent-home-actions-hover-color: var(--code-settings-agent-home-actions-focus-visible-color);
+  --code-settings-agent-home-actions-focus-visible-color: var(--code-settings-agent-home-actions-focus-visible-color);
+  --code-settings-agent-home-form-actions-hover-color: var(--code-settings-agent-home-form-actions-focus-visible-color);
+  --code-settings-agent-home-form-actions-focus-visible-color: var(--code-settings-agent-home-form-actions-focus-visible-color);
+  --code-settings-panel-close-hover-color: var(--code-settings-panel-close-focus-visible-color);
+  --code-settings-panel-close-focus-visible-color: var(--code-settings-panel-close-focus-visible-color);
+  --code-settings-agent-home-form-actions-primary-background: var(--code-settings-agent-home-form-actions-primary-settings-update-actions-background);
+  --code-settings-panel-overlay-background: var(--code-settings-panel-overlay-background);
+  --code-settings-segmented-background: var(--code-bg-inset);
+  --code-settings-segmented-active-color: var(--code-settings-segmented-active-color);
+  --code-settings-error-border-color: var(--code-settings-error-border-color);
+}
+
+body.code-mode[data-appearance='dark'] {
+  --code-settings-panel-overlay-background: rgba(1, 4, 9, 0.54);
+  --code-settings-panel-background: #16181d;
+  --code-settings-panel-border-left-color: #30363d;
+  --code-settings-panel-box-shadow: -18px 0 54px rgba(1, 4, 9, 0.52);
+  --code-settings-panel-header-background: #16181d;
+  --code-settings-panel-header-border-bottom-color: #30363d;
+  --code-settings-choice-row-border-color: #30363d;
+  --code-settings-agent-home-provider-border-color: #30363d;
+  --code-settings-agent-home-form-border-color: #30363d;
+  --code-settings-update-card-border-color: #30363d;
+  --code-settings-agent-home-provider-header-border-bottom-color: #30363d;
+  --code-settings-agent-home-row-border-top-color: rgba(48, 54, 61, 0.72);
+  --code-settings-segmented-border-color: #30363d;
+  --code-settings-agent-home-actions-agent-home-form-actions-settings-update-actions-background: transparent;
+  --code-settings-agent-home-actions-agent-home-form-actions-settings-update-actions-border-color: #30363d;
+  --code-settings-segmented-hover-background: #30363d;
+  --code-settings-segmented-focus-visible-background: #30363d;
+  --code-settings-agent-home-provider-header-hover-background: #30363d;
+  --code-settings-agent-home-provider-header-focus-visible-background: #30363d;
+  --code-settings-agent-home-actions-hover-background: #30363d;
+  --code-settings-agent-home-actions-focus-visible-background: #30363d;
+  --code-settings-agent-home-form-actions-hover-background: #30363d;
+  --code-settings-agent-home-form-actions-focus-visible-background: #30363d;
+  --code-settings-update-actions-hover-background: #30363d;
+  --code-settings-update-actions-focus-visible-background: #30363d;
+  --code-settings-panel-close-hover-background: #30363d;
+  --code-settings-panel-close-focus-visible-background: #30363d;
+  --code-settings-segmented-hover-color: #f0f6fc;
+  --code-settings-segmented-focus-visible-color: #f0f6fc;
+  --code-settings-agent-home-provider-header-hover-color: #f0f6fc;
+  --code-settings-agent-home-provider-header-focus-visible-color: #f0f6fc;
+  --code-settings-agent-home-actions-hover-color: #f0f6fc;
+  --code-settings-agent-home-actions-focus-visible-color: #f0f6fc;
+  --code-settings-agent-home-form-actions-hover-color: #f0f6fc;
+  --code-settings-agent-home-form-actions-focus-visible-color: #f0f6fc;
+  --code-settings-update-actions-hover-color: #f0f6fc;
+  --code-settings-update-actions-focus-visible-color: #f0f6fc;
+  --code-settings-panel-close-hover-color: #f0f6fc;
+  --code-settings-panel-close-focus-visible-color: #f0f6fc;
+  --code-settings-agent-home-form-border-color-8f6538: #30363d;
+  --code-settings-agent-home-form-placeholder-color: #6e7681;
+  --code-settings-agent-home-form-focus-box-shadow: 0 0 0 3px rgba(110, 118, 129, 0.22);
+  --code-settings-agent-home-form-actions-primary-settings-update-actions-background: #f0f6fc;
+  --code-settings-agent-home-form-actions-primary-border-color: #f0f6fc;
+  --code-settings-update-actions-primary-border-color: #f0f6fc;
+  --code-settings-agent-home-form-actions-primary-color: #0d1117;
+  --code-settings-update-actions-primary-color: #0d1117;
+  --code-settings-agent-home-form-actions-primary-hover-background: #d8dee4;
+  --code-settings-agent-home-form-actions-primary-focus-visible-background: #d8dee4;
+  --code-settings-update-actions-primary-hover-background: #d8dee4;
+  --code-settings-update-actions-primary-focus-visible-background: #d8dee4;
+  --code-settings-hover-focus-visible-settings-update-actions-border-color: #d8dee4;
+  --code-settings-agent-home-form-actions-primary-hover-color: #0d1117;
+  --code-settings-agent-home-form-actions-primary-focus-visible-color: #0d1117;
+  --code-settings-update-actions-primary-hover-color: #0d1117;
+  --code-settings-update-actions-primary-focus-visible-color: #0d1117;
+  --code-settings-error-border-color: rgba(248, 81, 73, 0.36);
+  --code-settings-agent-home-provider-background: transparent;
+  --code-settings-agent-home-row-border-color: #30363d;
+  --code-settings-inline-preferences-border-color: #30363d;
+  --code-settings-choice-row-border-color: #30363d;
+  --code-settings-update-card-border-color: #30363d;
+  --code-settings-agent-home-form-border-color: #30363d;
+  --code-settings-inline-preferences-border-color: #30363d;
+  --code-settings-agent-home-row-border-color: #30363d;
+  --code-settings-card-border-color: #30363d;
+  --code-settings-choice-row-dangerous-border-color: #30363d;
+  --code-settings-agent-home-provider-border-color: #30363d;
+  --code-settings-update-card-available-border-color: rgba(46, 160, 67, 0.52);
+  --code-settings-update-actions-border-color: #30363d;
+  --code-settings-hover-disabled-focus-visible-border-color: #484f58;
+  --code-settings-update-actions-primary-border-color-97cff3: #238636;
+  --code-settings-update-actions-primary-background: #238636;
+  --code-settings-hover-disabled-focus-visible-border-color-694a6f: #2ea043;
+  --code-settings-hover-disabled-focus-visible-background: #2ea043;
+  --code-settings-agent-home-form-background: transparent;
+  --code-settings-search-timeout-row-background: transparent;
+  --code-settings-content-font-size-row-background: transparent;
+  --code-settings-pet-rest-row-background: transparent;
+  --code-settings-agent-home-form-border-color-8f6538: #30363d;
+  --code-settings-search-timeout-row-border-color: #30363d;
+  --code-settings-content-font-size-row-border-color: #30363d;
+  --code-settings-pet-rest-row-border-color: #30363d;
+  --code-settings-pet-rest-custom-border-color: #3c444d;
+  --code-settings-pet-appearance-select-settings-pet-appearance-preview-border-color: #30363d;
+  --code-settings-pet-appearance-select-background: rgba(22, 27, 34, 0.62);
+  --code-settings-pet-appearance-preview-background: rgba(22, 27, 34, 0.62);
+  --code-settings-pet-appearance-select-hover-background: rgba(48, 54, 61, 0.72);
+  --code-settings-pet-appearance-select-focus-visible-background: rgba(48, 54, 61, 0.72);
+  --code-settings-pet-appearance-select-selected-background: rgba(48, 54, 61, 0.72);
+  --code-settings-pet-appearance-preview-hover-background: rgba(48, 54, 61, 0.72);
+  --code-settings-pet-appearance-preview-focus-visible-background: rgba(48, 54, 61, 0.72);
+  --code-settings-permission-toggle-border-color: #6e7681;
+  --code-settings-language-choice-border-left-color: #30363d;
+  --code-settings-mode-compact-layout-settings-panel-overlay-background: rgba(1, 4, 9, 0.28);
+  --code-settings-mode-compact-layout-settings-panel-background: rgba(13, 17, 23, 0.97);
+  --code-settings-mode-compact-layout-settings-panel-box-shadow: 16px 0 44px rgba(0, 0, 0, 0.36);
+  --code-settings-panel-color: #d8dee9;
+  --code-settings-panel-border-left-color: #30363d;
+  --code-settings-panel-header-agent-home-provider-header-border-color: #30363d;
+  --code-settings-section-agent-home-id-agent-home-provider-header-color: #f0f3f6;
+  --code-settings-choice-row-background: #1d2229;
+  --code-settings-agent-home-provider-background: #1d2229;
+  --code-settings-agent-home-form-background-51e594: #1d2229;
+  --code-settings-choice-row-border-color: #30363d;
+  --code-settings-agent-home-provider-border-color: #30363d;
+  --code-settings-agent-home-form-border-color: #30363d;
+  --code-settings-segmented-border-color: #30363d;
+  --code-settings-agent-home-provider-header-border-color: #30363d;
+  --code-settings-agent-home-actions-border-color: #30363d;
+  --code-settings-agent-home-form-actions-border-color: #30363d;
+  --code-settings-agent-home-form-border-color-8f6538: #30363d;
+  --code-settings-panel-close-border-color: #30363d;
+  --code-settings-agent-home-form-background: #11151a;
+  --code-settings-agent-home-form-color: #d8dee9;
+  --code-settings-segmented-active-color: #f0f3f6;
+  --code-settings-segmented-hover-color: #f0f3f6;
+  --code-settings-segmented-focus-visible-color: #f0f3f6;
+  --code-settings-agent-home-provider-header-hover-color: #f0f3f6;
+  --code-settings-agent-home-provider-header-focus-visible-color: #f0f3f6;
+  --code-settings-agent-home-actions-hover-color: #f0f3f6;
+  --code-settings-agent-home-actions-focus-visible-color: #f0f3f6;
+  --code-settings-agent-home-form-actions-hover-color: #f0f3f6;
+  --code-settings-agent-home-form-actions-focus-visible-color: #f0f3f6;
+  --code-settings-panel-close-hover-color: #f0f3f6;
+  --code-settings-panel-close-focus-visible-color: #f0f3f6;
+  --code-settings-agent-home-form-actions-primary-background: #f0f3f6;
+  --code-settings-panel-overlay-background: rgba(1, 4, 9, 0.42);
+  --code-settings-segmented-background: #11151a;
+  --code-settings-segmented-active-color: #f0f3f6;
+  --code-settings-error-border-color: rgba(248, 81, 73, 0.32);
+}
+
+/* share */
+body.code-mode {
+  --code-share-button-background: rgba(0, 0, 0, 0.04);
+  --code-share-read-only-share-banner-background: rgba(247, 250, 245, 0.94);
+  --code-share-read-only-share-banner-color: #53644f;
+  --code-share-popover-background: rgba(255, 254, 248, 0.98);
+  --code-share-qr-frame-background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(251, 250, 242, 0.92)),
+    #fbfaf2;
+  --code-share-token-card-background: rgba(255, 255, 255, 0.72);
+  --code-share-qr-access-note-share-passphrase-warning-color: #9b5f35;
+  --code-share-refresh-background: rgba(255, 255, 255, 0.92);
+  --code-share-copy-status-background: rgba(109, 138, 99, 0.08);
+  --code-share-copy-status-icon-color: #5d7458;
+  --code-share-mobile-share-backdrop-background: rgba(31, 35, 40, 0.2);
+  --code-share-mobile-share-sheet-background: rgba(255, 255, 255, 0.96);
+  --code-share-mobile-share-sheet-box-shadow: 0 20px 56px rgba(31, 35, 40, 0.2);
+  --code-share-mobile-share-link-row-background: rgba(31, 35, 40, 0.045);
+  --code-share-mobile-share-link-row-background-d612d6: var(--code-bg-hover-strong);
+  --code-share-mobile-install-step-background: rgba(31, 35, 40, 0.045);
+  --code-share-mobile-install-control-background: rgba(31, 35, 40, 0.07);
+}
+
+body.code-mode[data-appearance='dark'] {
+  --code-share-button-background: rgba(22, 27, 34, 0.66);
+  --code-share-read-only-share-banner-background: rgba(28, 33, 41, 0.94);
+  --code-share-read-only-share-banner-color: #a7c0a0;
+  --code-share-popover-background: rgba(28, 33, 41, 0.98);
+  --code-share-qr-frame-background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(251, 250, 242, 0.95)),
+    #fbfaf2;
+  --code-share-token-card-background: rgba(22, 27, 34, 0.72);
+  --code-share-qr-access-note-share-passphrase-warning-color: #d39a6a;
+  --code-share-refresh-background: rgba(22, 27, 34, 0.9);
+  --code-share-copy-status-background: rgba(140, 165, 133, 0.08);
+  --code-share-copy-status-icon-color: #8ca585;
+  --code-share-mobile-share-backdrop-background: rgba(1, 4, 9, 0.54);
+  --code-share-mobile-share-sheet-background: rgba(22, 27, 34, 0.97);
+  --code-share-mobile-share-sheet-box-shadow: 0 20px 56px rgba(1, 4, 9, 0.48);
+  --code-share-mobile-share-link-row-background: rgba(240, 246, 252, 0.055);
+  --code-share-mobile-share-link-row-background-d612d6: rgba(240, 246, 252, 0.09);
+  --code-share-mobile-install-step-background: rgba(240, 246, 252, 0.055);
+  --code-share-mobile-install-control-background: rgba(240, 246, 252, 0.09);
+}
+
+/* sidebar */
+body.code-mode {
+  --code-sidebar-history-toggle-sidebar-plugins-toggle-sidebar-options-background: rgba(0, 0, 0, 0.04);
+  --code-sidebar-project-title-action-hover-focus-visible-background: rgba(0, 0, 0, 0.08);
+  --code-sidebar-project-list-hover-scrollbar-color: rgba(95, 103, 94, 0.28) transparent;
+  --code-sidebar-project-hover-preview-background: rgba(255, 255, 255, 0.98);
+  --code-sidebar-project-hover-preview-box-shadow: 0 12px 28px rgba(31, 35, 40, 0.10), 0 1px 3px rgba(31, 35, 40, 0.06);
+  --code-sidebar-worktree-popover-background: rgba(255, 255, 255, 0.98);
+  --code-sidebar-project-context-menu-project-launch-menu-background: rgba(255, 255, 255, 0.92);
+  --code-sidebar-project-context-menu-project-launch-menu-border-color: rgba(36, 41, 47, 0.13);
+  --code-sidebar-project-context-menu-project-launch-menu-box-shadow: 0 18px 48px rgba(31, 35, 40, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  --code-sidebar-project-context-menu-project-launch-menu-backdrop-filter: blur(18px) saturate(1.08);
+  --code-sidebar-project-context-menu-project-launch-menu-webkit-backdrop-filter: blur(18px) saturate(1.08);
+  --code-sidebar-rename-dialog-focus-border-color: #9aa597;
+  --code-sidebar-rename-dialog-focus-box-shadow: 0 0 0 3px rgba(154, 165, 151, 0.24);
+}
+
+body.code-mode[data-appearance='dark'] {
+  --code-sidebar-history-toggle-sidebar-plugins-toggle-sidebar-options-background: rgba(22, 27, 34, 0.66);
+  --code-sidebar-project-title-action-hover-focus-visible-background: rgba(255, 255, 255, 0.1);
+  --code-sidebar-project-list-hover-scrollbar-color: rgba(139, 148, 158, 0.32) transparent;
+  --code-sidebar-project-hover-preview-background: rgba(22, 27, 34, 0.98);
+  --code-sidebar-project-hover-preview-box-shadow: 0 16px 36px rgba(0, 0, 0, 0.36);
+  --code-sidebar-worktree-popover-background: rgba(22, 27, 34, 0.98);
+  --code-sidebar-project-context-menu-project-launch-menu-background: rgba(22, 27, 34, 0.92);
+  --code-sidebar-project-context-menu-project-launch-menu-border-color: rgba(139, 148, 158, 0.18);
+  --code-sidebar-project-context-menu-project-launch-menu-box-shadow: 0 18px 48px rgba(1, 4, 9, 0.42),
+    inset 0 1px 0 rgba(240, 246, 252, 0.05);
+  --code-sidebar-project-context-menu-project-launch-menu-backdrop-filter: blur(18px) saturate(1.06);
+  --code-sidebar-project-context-menu-project-launch-menu-webkit-backdrop-filter: blur(18px) saturate(1.06);
+  --code-sidebar-rename-dialog-focus-border-color: rgba(88, 166, 255, 0.58);
+  --code-sidebar-rename-dialog-focus-box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.16);
+}
+
+/* terminal */
+body.code-mode {
+  --code-terminal-grid-webkit-scrollbar-thumb-background: transparent;
+  --code-terminal-pane-border-color: var(--code-border);
+  --code-terminal-session-host-xterm-xterm-selection-background-color: rgba(31, 35, 40, 0.18);
+  --code-terminal-xterm-xterm-rows-selection-background: transparent;
+  --code-terminal-session-host-xterm-viewport-scrollbar-color: rgba(87, 96, 106, 0.16) transparent;
+  --code-terminal-session-host-xterm-viewport-webkit-scrollbar-thumb-background-color: transparent;
+  --code-terminal-session-host-xterm-viewport-webkit-scrollbar-thumb-border-color: var(--code-border);
+  --code-terminal-xterm-viewport-webkit-scrollbar-thumb-hover-background-color: transparent;
+  --code-terminal-jump-bottom-background: rgba(255, 255, 255, 0.96);
+  --code-terminal-jump-bottom-border-color: var(--code-border);
+  --code-terminal-jump-bottom-color: var(--code-text);
+  --code-terminal-jump-bottom-box-shadow: 0 8px 24px rgba(31, 35, 40, 0.12);
+  --code-terminal-jump-bottom-backdrop-filter: none;
+  --code-terminal-jump-bottom-webkit-backdrop-filter: none;
+  --code-terminal-jump-bottom-hover-background: #f6f7f3;
+  --code-terminal-jump-bottom-hover-border-color: var(--code-border);
+  --code-terminal-jump-bottom-hover-color: inherit;
+  --code-terminal-search-background: rgba(255, 255, 255, 0.96);
+  --code-terminal-search-focus-background: rgba(246, 248, 250, 0.9);
+  --code-terminal-search-focus-box-shadow: inset 0 0 0 1px rgba(9, 105, 218, 0.42);
+  --code-terminal-recovery-background: rgba(255, 255, 255, 0.94);
+  --code-terminal-status-card-background: rgba(255, 255, 255, 0.96);
+  --code-terminal-status-card-background-a28db5: var(--code-bg-inset);
+  --code-terminal-status-card-hover-focus-visible-background: #eef1f4;
+  --code-terminal-mode-toggle-background: rgba(255, 255, 255, 0.68);
+  --code-terminal-mode-toggle-border-color: var(--code-border);
+  --code-terminal-mode-toggle-box-shadow: 0 8px 22px rgba(31, 35, 40, 0.035);
+  --code-terminal-mode-toggle-hover-focus-within-background: rgba(255, 255, 255, 0.82);
+  --code-terminal-mode-toggle-hover-focus-within-border-color: rgba(31, 35, 40, 0.1);
+  --code-terminal-mode-toggle-hover-focus-within-box-shadow: 0 10px 24px rgba(31, 35, 40, 0.065);
+  --code-terminal-mode-toggle-active-background: var(--code-bg-hover);
+  --code-terminal-context-menu-item-terminal-context-menu-pooled-background: transparent;
+  --code-terminal-hover-disabled-focus-visible-outline: none;
+}
+
+body.code-mode[data-appearance='dark'] {
+  --code-terminal-grid-webkit-scrollbar-thumb-background: rgba(139, 148, 158, 0.32);
+  --code-terminal-pane-border-color: transparent;
+  --code-terminal-session-host-xterm-xterm-selection-background-color: rgba(88, 166, 255, 0.32);
+  --code-terminal-xterm-xterm-rows-selection-background: rgba(88, 166, 255, 0.32);
+  --code-terminal-session-host-xterm-viewport-scrollbar-color: rgba(139, 148, 158, 0.18) transparent;
+  --code-terminal-session-host-xterm-viewport-webkit-scrollbar-thumb-background-color: rgba(139, 148, 158, 0.18);
+  --code-terminal-session-host-xterm-viewport-webkit-scrollbar-thumb-border-color: transparent;
+  --code-terminal-xterm-viewport-webkit-scrollbar-thumb-hover-background-color: rgba(139, 148, 158, 0.3);
+  --code-terminal-jump-bottom-background: rgba(255, 255, 255, 0.055);
+  --code-terminal-jump-bottom-border-color: rgba(240, 246, 252, 0.13);
+  --code-terminal-jump-bottom-color: rgba(255, 255, 255, 0.92);
+  --code-terminal-jump-bottom-box-shadow: none;
+  --code-terminal-jump-bottom-backdrop-filter: blur(12px);
+  --code-terminal-jump-bottom-webkit-backdrop-filter: blur(12px);
+  --code-terminal-jump-bottom-hover-background: rgba(255, 255, 255, 0.085);
+  --code-terminal-jump-bottom-hover-border-color: rgba(240, 246, 252, 0.2);
+  --code-terminal-jump-bottom-hover-color: #ffffff;
+  --code-terminal-search-background: rgba(22, 27, 34, 0.96);
+  --code-terminal-search-focus-background: rgba(33, 38, 45, 0.95);
+  --code-terminal-search-focus-box-shadow: inset 0 0 0 1px rgba(88, 166, 255, 0.5);
+  --code-terminal-recovery-background: rgba(22, 27, 34, 0.94);
+  --code-terminal-status-card-background: rgba(22, 27, 34, 0.96);
+  --code-terminal-status-card-background-a28db5: rgba(33, 38, 45, 0.95);
+  --code-terminal-status-card-hover-focus-visible-background: rgba(48, 54, 61, 0.95);
+  --code-terminal-mode-toggle-background: rgba(22, 27, 34, 0.4);
+  --code-terminal-mode-toggle-border-color: rgba(139, 148, 158, 0.08);
+  --code-terminal-mode-toggle-box-shadow: 0 8px 22px rgba(1, 4, 9, 0.2);
+  --code-terminal-mode-toggle-hover-focus-within-background: rgba(22, 27, 34, 0.82);
+  --code-terminal-mode-toggle-hover-focus-within-border-color: rgba(139, 148, 158, 0.2);
+  --code-terminal-mode-toggle-hover-focus-within-box-shadow: 0 10px 26px rgba(1, 4, 9, 0.32);
+  --code-terminal-mode-toggle-active-background: rgba(139, 148, 158, 0.14);
+  --code-terminal-context-menu-item-terminal-context-menu-pooled-background: transparent;
+  --code-terminal-hover-disabled-focus-visible-outline: 0;
+}
+
+/* transcript */
+body.code-mode {
+  --code-transcript-agent-transcript-scroll-scrollbar-color: rgba(87, 96, 106, 0.16) transparent;
+  --code-transcript-agent-transcript-scroll-webkit-scrollbar-thumb-background: rgba(87, 96, 106, 0.14);
+  --code-transcript-agent-transcript-fork-origin-background: rgba(208, 215, 222, 0.88);
+  --code-transcript-agent-transcript-user-border: 0;
+  --code-transcript-agent-transcript-subagent-error-border-color: var(--code-border);
+  --code-transcript-agent-transcript-collaboration-group-border-color: var(--code-border);
+  --code-transcript-agent-transcript-collaboration-agent-tone-0-color: #397f79;
+  --code-transcript-agent-transcript-collaboration-agent-tone-1-color: #9d6a66;
+  --code-transcript-agent-transcript-collaboration-agent-tone-2-color: #8067a5;
+  --code-transcript-agent-transcript-collaboration-agent-tone-3-color: #918675;
+  --code-transcript-hover-focus-visible-agent-transcript-collaboration-earlier-background: var(--code-bg-hover);
+  --code-transcript-agent-transcript-copy-after-agent-transcript-answer-action-background: rgba(255, 255, 255, 0.98);
+  --code-transcript-agent-transcript-copy-after-agent-transcript-answer-action-box-shadow: 0 6px 18px rgba(31, 35, 40, 0.12);
+  --code-transcript-agent-transcript-process-item-border: 0;
+  --code-transcript-agent-transcript-process-item-background: rgba(246, 248, 250, 0.86);
+  --code-transcript-agent-transcript-file-link-background: rgba(175, 184, 193, 0.2);
+  --code-transcript-agent-transcript-file-link-hover-focus-visible-background: rgba(9, 105, 218, 0.14);
+  --code-transcript-agent-transcript-plan-driver-background: rgba(255, 255, 255, 0.82);
+  --code-transcript-agent-transcript-result-summary-background: transparent;
+  --code-transcript-agent-transcript-result-summary-box-shadow: none;
+  --code-transcript-agent-transcript-progress-border-color: var(--code-border);
+  --code-transcript-agent-transcript-result-summary-added-color: #1f883d;
+  --code-transcript-agent-transcript-result-summary-hover-focus-visible-background: rgba(234, 238, 242, 0.96);
+  --code-transcript-agent-transcript-result-details-background: rgba(255, 255, 255, 0.94);
+  --code-transcript-agent-transcript-result-details-box-shadow: 0 8px 28px rgba(31, 35, 40, 0.08);
+  --code-transcript-agent-transcript-result-card-expanded-agent-transcript-result-header-background: rgba(246, 248, 250, 0.9);
+  --code-transcript-agent-transcript-result-error-border-color: var(--code-border-subtle);
+  --code-transcript-agent-transcript-result-file-hover-background: rgba(234, 238, 242, 0.66);
+  --code-transcript-agent-transcript-result-review-hover-background: var(--code-bg-inset);
+  --code-transcript-agent-transcript-result-review-focus-visible-background: var(--code-bg-inset);
+  --code-transcript-agent-transcript-result-show-more-hover-background: rgba(234, 238, 242, 0.66);
+  --code-transcript-agent-transcript-result-show-more-focus-visible-background: rgba(234, 238, 242, 0.66);
+  --code-transcript-agent-transcript-result-review-background: var(--code-bg-surface);
+  --code-transcript-agent-transcript-jump-bottom-border-color: var(--code-border);
+  --code-transcript-agent-transcript-jump-bottom-background: rgba(255, 255, 255, 0.96);
+  --code-transcript-agent-transcript-jump-bottom-color: var(--code-text);
+  --code-transcript-agent-transcript-jump-bottom-box-shadow: 0 8px 24px rgba(31, 35, 40, 0.12);
+  --code-transcript-agent-transcript-jump-bottom-backdrop-filter: none;
+  --code-transcript-agent-transcript-jump-bottom-webkit-backdrop-filter: none;
+  --code-transcript-agent-transcript-jump-bottom-hover-background: #f6f7f3;
+  --code-transcript-agent-transcript-jump-bottom-hover-border-color: var(--code-border);
+  --code-transcript-agent-transcript-jump-bottom-hover-color: inherit;
+}
+
+body.code-mode[data-appearance='dark'] {
+  --code-transcript-agent-transcript-scroll-scrollbar-color: rgba(139, 148, 158, 0.18) transparent;
+  --code-transcript-agent-transcript-scroll-webkit-scrollbar-thumb-background: rgba(139, 148, 158, 0.18);
+  --code-transcript-agent-transcript-fork-origin-background: rgba(48, 54, 61, 0.92);
+  --code-transcript-agent-transcript-user-border: 1px solid rgba(139, 148, 158, 0.12);
+  --code-transcript-agent-transcript-subagent-error-border-color: rgba(248, 81, 73, 0.34);
+  --code-transcript-agent-transcript-collaboration-group-border-color: transparent;
+  --code-transcript-agent-transcript-collaboration-agent-tone-0-color: #69c5bd;
+  --code-transcript-agent-transcript-collaboration-agent-tone-1-color: #c69494;
+  --code-transcript-agent-transcript-collaboration-agent-tone-2-color: #a371f7;
+  --code-transcript-agent-transcript-collaboration-agent-tone-3-color: #d2b47c;
+  --code-transcript-hover-focus-visible-agent-transcript-collaboration-earlier-background: rgba(255, 255, 255, 0.08);
+  --code-transcript-agent-transcript-copy-after-agent-transcript-answer-action-background: rgba(22, 27, 34, 0.98);
+  --code-transcript-agent-transcript-copy-after-agent-transcript-answer-action-box-shadow: 0 8px 24px rgba(1, 4, 9, 0.45);
+  --code-transcript-agent-transcript-process-item-border: 1px solid var(--code-border-subtle);
+  --code-transcript-agent-transcript-process-item-background: rgba(13, 17, 23, 0.82);
+  --code-transcript-agent-transcript-file-link-background: rgba(88, 166, 255, 0.14);
+  --code-transcript-agent-transcript-file-link-hover-focus-visible-background: rgba(88, 166, 255, 0.18);
+  --code-transcript-agent-transcript-plan-driver-background: rgba(38, 38, 38, 0.86);
+  --code-transcript-agent-transcript-result-summary-background: transparent;
+  --code-transcript-agent-transcript-result-summary-box-shadow: none;
+  --code-transcript-agent-transcript-progress-border-color: transparent;
+  --code-transcript-agent-transcript-result-summary-added-color: #3fb950;
+  --code-transcript-agent-transcript-result-summary-hover-focus-visible-background: rgba(139, 148, 158, 0.18);
+  --code-transcript-agent-transcript-result-details-background: rgba(22, 27, 34, 0.96);
+  --code-transcript-agent-transcript-result-details-box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
+  --code-transcript-agent-transcript-result-card-expanded-agent-transcript-result-header-background: rgba(22, 27, 34, 0.96);
+  --code-transcript-agent-transcript-result-error-border-color: rgba(248, 81, 73, 0.42);
+  --code-transcript-agent-transcript-result-file-hover-background: rgba(139, 148, 158, 0.14);
+  --code-transcript-agent-transcript-result-review-hover-background: rgba(139, 148, 158, 0.14);
+  --code-transcript-agent-transcript-result-review-focus-visible-background: rgba(139, 148, 158, 0.14);
+  --code-transcript-agent-transcript-result-show-more-hover-background: rgba(139, 148, 158, 0.14);
+  --code-transcript-agent-transcript-result-show-more-focus-visible-background: rgba(139, 148, 158, 0.14);
+  --code-transcript-agent-transcript-result-review-background: rgba(22, 27, 34, 0.9);
+  --code-transcript-agent-transcript-jump-bottom-border-color: rgba(240, 246, 252, 0.13);
+  --code-transcript-agent-transcript-jump-bottom-background: rgba(255, 255, 255, 0.055);
+  --code-transcript-agent-transcript-jump-bottom-color: rgba(255, 255, 255, 0.92);
+  --code-transcript-agent-transcript-jump-bottom-box-shadow: none;
+  --code-transcript-agent-transcript-jump-bottom-backdrop-filter: blur(12px);
+  --code-transcript-agent-transcript-jump-bottom-webkit-backdrop-filter: blur(12px);
+  --code-transcript-agent-transcript-jump-bottom-hover-background: rgba(255, 255, 255, 0.085);
+  --code-transcript-agent-transcript-jump-bottom-hover-border-color: rgba(240, 246, 252, 0.2);
+  --code-transcript-agent-transcript-jump-bottom-hover-color: #ffffff;
+}
+
+/* usage */
+body.code-mode {
+  --code-usage-heatmap-cell-background: rgba(76, 128, 67, 0.24);
+  --code-usage-heatmap-cell-background-a784d7: rgba(67, 126, 57, 0.42);
+  --code-usage-heatmap-cell-background-b103b2: rgba(55, 119, 45, 0.64);
+  --code-usage-heatmap-cell-background-1eb049: rgba(43, 107, 34, 0.72);
+  --code-usage-heatmap-cell-background-96c25f: rgba(34, 91, 28, 0.94);
+  --code-usage-heatmap-cell-hover-outline-color: var(--code-focus-ring);
+  --code-usage-sparkline-color: #2b6b22;
+  --code-usage-daily-heatmap-cell-box-shadow: inset 0 0 0 1px rgba(34, 91, 28, 0.28);
+  --code-usage-detail-backdrop-background: rgba(28, 33, 28, 0.22);
+  --code-usage-detail-dialog-background: rgba(249, 250, 247, 0.98);
+  --code-usage-detail-dialog-box-shadow: 0 24px 80px rgba(28, 38, 27, 0.24);
+  --code-usage-detail-close-hover-focus-visible-background: rgba(41, 51, 40, 0.07);
+  --code-usage-detail-chart-background: rgba(255, 255, 255, 0.5);
+  --code-usage-detail-day-highlight-color: #2b6b22;
+  --code-usage-daily-heatmap-cell-filter: drop-shadow(0 0 1px rgba(255, 255, 255, 0.92))
+    drop-shadow(0 0 1px rgba(28, 78, 24, 0.72));
+  --code-usage-detail-chart-usage-daily-heatmap-cell-outline-color: var(--code-focus-ring);
+  --code-usage-detail-chart-usage-daily-heatmap-cell-filter: drop-shadow(0 0 1px rgba(255, 255, 255, 0.96))
+    drop-shadow(0 0 2px rgba(43, 107, 34, 0.84));
+  --code-usage-detail-stat-background: rgba(78, 96, 74, 0.065);
+  --code-usage-mobile-open-usage-mobile-date-picker-background: transparent;
+  --code-usage-mobile-date-picker-background: transparent;
+  --code-usage-mode-compact-layout-usage-detail-header-background: rgba(249, 250, 247, 0.98);
+  --code-usage-day-histogram-bars-background: repeating-linear-gradient(
+    to bottom,
+    rgba(74, 91, 71, 0.07) 0,
+    rgba(74, 91, 71, 0.07) 1px,
+    transparent 1px,
+    transparent 34px
+  );
+  --code-usage-day-histogram-segment-box-shadow: inset 0 1px rgba(255, 255, 255, 0.32);
+}
+
+body.code-mode[data-appearance='dark'] {
+  --code-usage-heatmap-cell-background: rgba(88, 166, 255, 0.24);
+  --code-usage-heatmap-cell-background-a784d7: rgba(88, 166, 255, 0.42);
+  --code-usage-heatmap-cell-background-b103b2: rgba(88, 166, 255, 0.64);
+  --code-usage-heatmap-cell-background-1eb049: rgba(88, 166, 255, 0.72);
+  --code-usage-heatmap-cell-background-96c25f: rgba(88, 166, 255, 0.94);
+  --code-usage-heatmap-cell-hover-outline-color: rgba(121, 186, 255, 0.7);
+  --code-usage-sparkline-color: #79baff;
+  --code-usage-daily-heatmap-cell-box-shadow: inset 0 0 0 1px rgba(121, 186, 255, 0.42);
+  --code-usage-detail-backdrop-background: rgba(2, 6, 10, 0.58);
+  --code-usage-detail-dialog-background: rgba(22, 27, 34, 0.98);
+  --code-usage-detail-dialog-box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
+  --code-usage-detail-close-hover-focus-visible-background: rgba(255, 255, 255, 0.08);
+  --code-usage-detail-chart-background: rgba(13, 17, 23, 0.55);
+  --code-usage-detail-day-highlight-color: #79baff;
+  --code-usage-daily-heatmap-cell-filter: drop-shadow(0 0 1px rgba(13, 17, 23, 0.96))
+    drop-shadow(0 0 1px rgba(121, 186, 255, 0.88));
+  --code-usage-detail-chart-usage-daily-heatmap-cell-outline-color: rgba(121, 186, 255, 0.9);
+  --code-usage-detail-chart-usage-daily-heatmap-cell-filter: drop-shadow(0 0 1px rgba(13, 17, 23, 0.96))
+    drop-shadow(0 0 2px rgba(121, 186, 255, 0.92));
+  --code-usage-detail-stat-background: rgba(255, 255, 255, 0.055);
+  --code-usage-mobile-open-usage-mobile-date-picker-background: rgba(255, 255, 255, 0.065);
+  --code-usage-mobile-date-picker-background: rgba(255, 255, 255, 0.08);
+  --code-usage-mode-compact-layout-usage-detail-header-background: rgba(22, 27, 34, 0.98);
+  --code-usage-day-histogram-bars-background: repeating-linear-gradient(
+    to bottom,
+    rgba(139, 148, 158, 0.09) 0,
+    rgba(139, 148, 158, 0.09) 1px,
+    transparent 1px,
+    transparent 34px
+  );
+  --code-usage-day-histogram-segment-box-shadow: inset 0 1px rgba(13, 17, 23, 0.42);
+}
+
+/* Shared component assignments. Palette-specific values override these below. */
+body.code-mode {
+  --code-component-mode-background: var(--code-bg-surface);
+  --code-component-app-shell-background: var(--code-bg-canvas);
+  --code-component-workspace-background: var(--code-bg-canvas);
+  --code-component-main-background: var(--code-bg-canvas);
+  --code-component-agent-work-view-background: transparent;
+  --code-component-app-shell-color: var(--code-text);
+  --code-component-workspace-color: var(--code-text);
+  --code-component-main-color: var(--code-text);
+  --code-component-agent-work-view-color: inherit;
+  --code-component-sidebar-background: var(--code-bg-chrome);
+  --code-component-sidebar-project-section-background: transparent;
+  --code-component-files-panel-background: transparent;
+  --code-component-git-history-section-background: transparent;
+  --code-component-sidebar-color: var(--code-text);
+  --code-component-sidebar-project-section-color: inherit;
+  --code-component-files-panel-color: inherit;
+  --code-component-git-history-section-color: var(--code-text);
+  --code-component-sidebar-resizer-background: var(--code-border-subtle);
+  --code-component-sidebar-resizer-hover-background: var(--code-accent);
+  --code-component-sidebar-resizer-active-background: transparent;
+  --code-component-sidebar-toggle-color: var(--code-text-subtle);
+  --code-component-nav-item-color: var(--code-text-muted);
+  --code-component-agent-row-color: var(--code-text-muted);
+  --code-component-project-header-color: inherit;
+  --code-component-files-toolbar-color: inherit;
+  --code-component-file-tree-row-color: inherit;
+  --code-component-sidebar-toggle-hover-background: var(--code-bg-hover);
+  --code-component-sidebar-toggle-focus-visible-background: var(--code-bg-hover);
+  --code-component-nav-item-hover-background: var(--code-bg-hover);
+  --code-component-nav-item-focus-visible-background: transparent;
+  --code-component-agent-row-hover-background: var(--code-bg-hover);
+  --code-component-project-header-hover-background: transparent;
+  --code-component-file-tree-row-hover-background: transparent;
+  --code-component-sidebar-toggle-hover-color: var(--code-text);
+  --code-component-sidebar-toggle-focus-visible-color: var(--code-text);
+  --code-component-nav-item-hover-color: var(--code-text);
+  --code-component-nav-item-focus-visible-color: inherit;
+  --code-component-agent-row-hover-color: var(--code-text);
+  --code-component-project-header-hover-color: inherit;
+  --code-component-file-tree-row-hover-color: inherit;
+  --code-component-nav-item-active-background: var(--code-bg-hover);
+  --code-component-agent-row-active-background: var(--code-bg-hover);
+  --code-component-file-tree-row-active-background: transparent;
+  --code-component-sidebar-resource-row-active-background: var(--code-bg-hover-strong);
+  --code-component-nav-item-active-color: var(--code-text);
+  --code-component-agent-row-active-color: var(--code-text);
+  --code-component-file-tree-row-active-color: inherit;
+  --code-component-sidebar-resource-row-active-color: var(--code-text);
+  --code-component-active-before-nav-item-background: transparent;
+  --code-component-agent-dot-running-background: var(--code-success);
+  --code-component-agent-rail-status-running-background: #2da44e;
+  --code-component-sidebar-resource-icon-running-background: transparent;
+  --code-component-agent-dot-running-color: inherit;
+  --code-component-agent-rail-status-running-color: inherit;
+  --code-component-sidebar-resource-icon-running-color: var(--code-success);
+  --code-component-agent-transcript-background: var(--code-bg-canvas);
+  --code-component-file-editor-background: var(--code-bg-canvas);
+  --code-component-file-editor-source-region-background: var(--code-bg-canvas);
+  --code-component-file-preview-panel-background: var(--code-bg-canvas);
+  --code-component-file-monaco-background: var(--code-bg-canvas);
+  --code-component-file-diff-view-background: var(--code-bg-canvas);
+  --code-component-terminal-pane-background: var(--code-bg-canvas);
+  --code-component-terminal-grid-background: var(--code-bg-canvas);
+  --code-component-terminal-container-background: var(--code-bg-canvas);
+  --code-component-terminal-session-host-background: var(--code-bg-canvas);
+  --code-component-search-view-background: var(--code-bg-surface);
+  --code-component-history-view-background: var(--code-bg-surface);
+  --code-component-plugin-view-background: transparent;
+  --code-component-agent-transcript-color: var(--code-text);
+  --code-component-file-editor-color: var(--code-text);
+  --code-component-file-editor-source-region-color: var(--code-text);
+  --code-component-file-preview-panel-color: var(--code-text);
+  --code-component-file-monaco-color: var(--code-text);
+  --code-component-file-diff-view-color: var(--code-text);
+  --code-component-terminal-pane-color: var(--code-text);
+  --code-component-terminal-grid-color: var(--code-text);
+  --code-component-terminal-container-color: var(--code-text);
+  --code-component-terminal-session-host-color: var(--code-text);
+  --code-component-search-view-color: inherit;
+  --code-component-history-view-color: inherit;
+  --code-component-plugin-view-color: inherit;
+  --code-component-language-server-panel-color: var(--code-text);
+  --code-component-terminal-session-host-xterm-screen-background: var(--code-bg-canvas);
+  --code-component-terminal-session-host-xterm-viewport-background: var(--code-bg-canvas);
+  --code-component-compact-layout-terminal-session-host-xterm-screen-background: var(--code-terminal-bg);
+  --code-component-compact-layout-terminal-session-host-xterm-viewport-background: var(--code-terminal-bg);
+  --code-component-file-editor-toolbar-language-server-toolbar-terminal-toolbar-background: transparent;
+  --code-component-file-editor-toolbar-language-server-toolbar-terminal-toolbar-border-color: var(--code-border);
+  --code-component-file-editor-tab-border-color: var(--code-border-subtle);
+  --code-component-file-editor-tab-active-background: var(--code-bg-canvas);
+  --code-component-file-editor-action-color: var(--code-text-muted);
+  --code-component-file-editor-breadcrumb-color: var(--code-text-muted);
+  --code-component-terminal-toolbar-color: inherit;
+  --code-component-file-editor-action-hover-disabled-background: var(--code-bg-hover);
+  --code-component-file-editor-action-active-background: var(--code-bg-hover);
+  --code-component-file-editor-breadcrumb-hover-background: var(--code-bg-hover);
+  --code-component-terminal-toolbar-hover-background: transparent;
+  --code-component-file-editor-action-hover-disabled-color: var(--code-text);
+  --code-component-file-editor-action-active-color: var(--code-text);
+  --code-component-file-editor-breadcrumb-hover-color: var(--code-text);
+  --code-component-terminal-toolbar-hover-color: inherit;
+  --code-component-agent-transcript-result-acp-request-pending-followup-border-color: var(--code-border);
+  --code-component-agent-transcript-process-item-background: transparent;
+  --code-component-agent-transcript-tool-background: transparent;
+  --code-component-agent-transcript-result-background: transparent;
+  --code-component-acp-request-background: var(--code-bg-raised);
+  --code-component-pending-followup-background: var(--code-bg-raised);
+  --code-component-agent-transcript-plan-driver-color: var(--code-text-muted);
+  --code-component-agent-transcript-process-item-color: var(--code-text-subtle);
+  --code-component-agent-transcript-tool-color: inherit;
+  --code-component-agent-transcript-result-color: inherit;
+  --code-component-acp-request-color: var(--code-text-muted);
+  --code-component-pending-followup-color: var(--code-text-muted);
+  --code-component-agent-transcript-plan-driver-box-shadow: 0 8px 28px var(--code-shadow-color);
+  --code-component-agent-transcript-process-item-box-shadow: none;
+  --code-component-agent-transcript-tool-box-shadow: none;
+  --code-component-agent-transcript-result-box-shadow: none;
+  --code-component-acp-request-box-shadow: none;
+  --code-component-pending-followup-box-shadow: none;
+  --code-component-agent-transcript-user-message-background: transparent;
+  --code-component-agent-transcript-user-message-color: inherit;
+  --code-component-agent-transcript-markdown-file-preview-panel-color: inherit;
+  --code-component-markdown-agent-transcript-markdown-color: inherit;
+  --code-component-markdown-agent-transcript-markdown-border-color: var(--code-border);
+  --code-component-markdown-agent-transcript-markdown-color-1e3935: inherit;
+  --code-component-markdown-agent-transcript-markdown-background: transparent;
+  --code-component-markdown-agent-transcript-markdown-agent-transcript-code-block-border-color: var(--code-border);
+  --code-component-markdown-agent-transcript-markdown-agent-transcript-code-block-background: transparent;
+  --code-component-markdown-agent-transcript-markdown-border-color-8326e0: var(--code-border);
+  --code-component-composer-focus-within-border-color: var(--code-border);
+  --code-component-composer-focus-within-menu-open-box-shadow: none;
+  --code-component-slash-menu-header-approval-menu-header-model-menu-header-color: var(--code-text-subtle);
+  --code-component-composer-approval-composer-model-picker-composer-mode-chip-background: var(--code-bg-hover);
+  --code-component-composer-send-disabled-background: #111;
+  --code-component-acp-request-actions-approve-background: #6f816b;
+  --code-component-composer-send-disabled-color: inherit;
+  --code-component-acp-request-actions-approve-color: var(--code-text-on-emphasis);
+  --code-component-composer-send-disabled-hover-background: var(--code-text);
+  --code-component-acp-request-actions-approve-hover-background: transparent;
+  --code-component-editor-context-menu-terminal-search-git-history-menu-border-color: var(--code-border);
+  --code-component-composer-menu-background: var(--code-bg-raised);
+  --code-component-model-submenu-background: var(--code-bg-raised);
+  --code-component-speed-submenu-background: var(--code-bg-raised);
+  --code-component-context-menu-background: var(--code-bg-raised);
+  --code-component-editor-context-menu-background: var(--code-bg-raised);
+  --code-component-git-history-menu-background: transparent;
+  --code-component-composer-menu-color: var(--code-text);
+  --code-component-model-submenu-color: var(--code-text);
+  --code-component-speed-submenu-color: var(--code-text);
+  --code-component-context-menu-color: var(--code-text);
+  --code-component-editor-context-menu-color: var(--code-text);
+  --code-component-terminal-search-color: var(--code-text);
+  --code-component-git-history-menu-color: inherit;
+  --code-component-composer-menu-box-shadow: 0 18px 48px var(--code-shadow-color);
+  --code-component-model-submenu-box-shadow: 0 18px 48px var(--code-shadow-color);
+  --code-component-speed-submenu-box-shadow: 0 18px 48px var(--code-shadow-color);
+  --code-component-context-menu-box-shadow: 0 18px 48px var(--code-shadow-color);
+  --code-component-editor-context-menu-box-shadow: 0 18px 48px var(--code-shadow-color);
+  --code-component-terminal-search-box-shadow: 0 12px 32px var(--code-shadow-color);
+  --code-component-git-history-menu-box-shadow: none;
+  --code-component-plus-menu-slash-command-context-menu-background: var(--code-bg-hover);
+  --code-component-settings-panel-header-color: inherit;
+  --code-component-settings-panel-border-color: var(--code-border);
+  --code-component-settings-input-border-color: var(--code-border);
+  --code-component-dialog-border-color: var(--code-border);
+  --code-component-share-panel-border-color: var(--code-border);
+  --code-component-plugin-card-border-color: var(--code-border);
+  --code-component-git-history-popover-border-color: var(--code-border);
+  --code-component-settings-input-background: transparent;
+  --code-component-dialog-background: transparent;
+  --code-component-share-panel-background: transparent;
+  --code-component-plugin-card-background: var(--code-bg-inset);
+  --code-component-git-history-popover-background: transparent;
+  --code-component-share-panel-plugin-card-git-history-popover-color: inherit;
+  --code-component-settings-section-settings-row-border-color: var(--code-border);
+  --code-component-settings-segmented-color: var(--code-text-subtle);
+  --code-component-settings-segmented-active-background: var(--code-border);
+  --code-component-settings-segmented-active-box-shadow: none;
+  --code-component-focus-visible-outline-color: var(--code-focus-ring);
+}
+
+body.code-mode[data-appearance='paper'] {
+  --code-language-server-panel-background: var(--code-terminal-bg);
+  --code-transcript-agent-transcript-scroll-scrollbar-color: rgba(98, 99, 91, 0.22) transparent;
+  --code-transcript-agent-transcript-plan-driver-background: rgba(255, 253, 248, 0.78);
+  --code-composer-acp-composer-stack-code-acp-composer-surface: var(--code-bg-raised);
+  --code-composer-acp-composer-stack-code-acp-composer-border: var(--code-border);
+  --code-composer-composer-border-color: var(--code-border);
+  --code-composer-composer-background: var(--code-bg-raised);
+  --code-composer-composer-box-shadow: 0 10px 30px rgba(72, 63, 45, 0.09);
+  --code-composer-menu-open-border-color: rgba(33, 110, 69, 0.54);
+  --code-terminal-search-background: rgba(255, 253, 248, 0.98);
+  --code-settings-panel-overlay-background: rgba(60, 53, 40, 0.2);
+  --code-settings-panel-background: var(--code-bg-canvas);
+  --code-settings-panel-header-background: var(--code-bg-canvas);
+  --code-settings-panel-color: var(--code-text);
+  --code-settings-panel-header-agent-home-provider-header-border-color: var(--code-border);
+  --code-settings-card-border-color: var(--code-border);
+  --code-settings-segmented-border-color: var(--code-border);
+  --code-settings-agent-home-provider-background: var(--code-bg-raised);
+  --code-settings-segmented-background: var(--code-bg-raised);
+  --code-settings-agent-home-form-actions-focus-visible-background: var(--code-bg-muted);
+  --code-settings-agent-home-form-actions-focus-visible-color: var(--code-text);
+  --code-settings-segmented-active-color: var(--code-text);
+  --code-core-selection-background: rgba(33, 110, 69, 0.22);
+  --code-core-selection-color: var(--code-text);
+  --code-mobile-sidebar-shadow: 0 20px 60px rgba(72, 63, 45, 0.2);
+  --code-settings-mode-compact-layout-settings-panel-box-shadow: 0 20px 60px rgba(72, 63, 45, 0.2);
+  --code-component-mode-background: var(--code-bg-canvas);
+  --code-component-app-shell-background: var(--code-bg-canvas);
+  --code-component-workspace-background: var(--code-bg-canvas);
+  --code-component-main-background: var(--code-bg-canvas);
+  --code-component-agent-work-view-background: var(--code-bg-canvas);
+  --code-component-app-shell-color: var(--code-text);
+  --code-component-workspace-color: var(--code-text);
+  --code-component-main-color: var(--code-text);
+  --code-component-agent-work-view-color: var(--code-text);
+  --code-component-sidebar-background: var(--code-bg-chrome);
+  --code-component-sidebar-project-section-background: var(--code-bg-chrome);
+  --code-component-files-panel-background: var(--code-bg-chrome);
+  --code-component-git-history-section-background: var(--code-bg-chrome);
+  --code-component-sidebar-color: var(--code-text);
+  --code-component-sidebar-project-section-color: var(--code-text);
+  --code-component-files-panel-color: var(--code-text);
+  --code-component-git-history-section-color: var(--code-text);
+  --code-component-sidebar-resizer-background: var(--code-border);
+  --code-component-sidebar-resizer-hover-background: var(--code-border-strong);
+  --code-component-sidebar-resizer-active-background: var(--code-border-strong);
+  --code-component-sidebar-toggle-color: var(--code-text-muted);
+  --code-component-nav-item-color: var(--code-text-muted);
+  --code-component-agent-row-color: var(--code-text-muted);
+  --code-component-project-header-color: var(--code-text-muted);
+  --code-component-files-toolbar-color: var(--code-text-muted);
+  --code-component-file-tree-row-color: var(--code-text-muted);
+  --code-component-sidebar-toggle-hover-background: var(--code-bg-muted);
+  --code-component-sidebar-toggle-focus-visible-background: var(--code-bg-muted);
+  --code-component-nav-item-hover-background: var(--code-bg-muted);
+  --code-component-nav-item-focus-visible-background: var(--code-bg-muted);
+  --code-component-agent-row-hover-background: var(--code-bg-muted);
+  --code-component-project-header-hover-background: var(--code-bg-muted);
+  --code-component-file-tree-row-hover-background: var(--code-bg-muted);
+  --code-component-sidebar-toggle-hover-color: var(--code-text);
+  --code-component-sidebar-toggle-focus-visible-color: var(--code-text);
+  --code-component-nav-item-hover-color: var(--code-text);
+  --code-component-nav-item-focus-visible-color: var(--code-text);
+  --code-component-agent-row-hover-color: var(--code-text);
+  --code-component-project-header-hover-color: var(--code-text);
+  --code-component-file-tree-row-hover-color: var(--code-text);
+  --code-component-nav-item-active-background: var(--code-accent-soft);
+  --code-component-agent-row-active-background: var(--code-accent-soft);
+  --code-component-file-tree-row-active-background: var(--code-accent-soft);
+  --code-component-sidebar-resource-row-active-background: var(--code-accent-soft);
+  --code-component-nav-item-active-color: var(--code-accent);
+  --code-component-agent-row-active-color: var(--code-accent);
+  --code-component-file-tree-row-active-color: var(--code-accent);
+  --code-component-sidebar-resource-row-active-color: var(--code-accent);
+  --code-component-active-before-nav-item-background: var(--code-accent);
+  --code-component-agent-dot-running-background: var(--code-accent);
+  --code-component-agent-rail-status-running-background: var(--code-accent);
+  --code-component-sidebar-resource-icon-running-background: var(--code-accent);
+  --code-component-agent-dot-running-color: var(--code-accent);
+  --code-component-agent-rail-status-running-color: var(--code-accent);
+  --code-component-sidebar-resource-icon-running-color: var(--code-accent);
+  --code-component-agent-transcript-background: var(--code-terminal-bg);
+  --code-component-file-editor-background: var(--code-terminal-bg);
+  --code-component-file-editor-source-region-background: var(--code-terminal-bg);
+  --code-component-file-preview-panel-background: var(--code-terminal-bg);
+  --code-component-file-monaco-background: var(--code-terminal-bg);
+  --code-component-file-diff-view-background: var(--code-terminal-bg);
+  --code-component-terminal-pane-background: var(--code-terminal-bg);
+  --code-component-terminal-grid-background: var(--code-terminal-bg);
+  --code-component-terminal-container-background: var(--code-terminal-bg);
+  --code-component-terminal-session-host-background: var(--code-terminal-bg);
+  --code-component-search-view-background: var(--code-terminal-bg);
+  --code-component-history-view-background: var(--code-terminal-bg);
+  --code-component-plugin-view-background: var(--code-terminal-bg);
+  --code-component-agent-transcript-color: var(--code-text);
+  --code-component-file-editor-color: var(--code-text);
+  --code-component-file-editor-source-region-color: var(--code-text);
+  --code-component-file-preview-panel-color: var(--code-text);
+  --code-component-file-monaco-color: var(--code-text);
+  --code-component-file-diff-view-color: var(--code-text);
+  --code-component-terminal-pane-color: var(--code-text);
+  --code-component-terminal-grid-color: var(--code-text);
+  --code-component-terminal-container-color: var(--code-text);
+  --code-component-terminal-session-host-color: var(--code-text);
+  --code-component-search-view-color: var(--code-text);
+  --code-component-history-view-color: var(--code-text);
+  --code-component-plugin-view-color: var(--code-text);
+  --code-component-language-server-panel-color: var(--code-text);
+  --code-component-terminal-session-host-xterm-screen-background: var(--code-terminal-bg);
+  --code-component-terminal-session-host-xterm-viewport-background: var(--code-terminal-bg);
+  --code-component-compact-layout-terminal-session-host-xterm-screen-background: var(--code-terminal-bg);
+  --code-component-compact-layout-terminal-session-host-xterm-viewport-background: var(--code-terminal-bg);
+  --code-component-file-editor-toolbar-language-server-toolbar-terminal-toolbar-background: var(--code-bg-chrome);
+  --code-component-file-editor-toolbar-language-server-toolbar-terminal-toolbar-border-color: var(--code-border);
+  --code-component-file-editor-tab-border-color: var(--code-border);
+  --code-component-file-editor-tab-active-background: var(--code-terminal-bg);
+  --code-component-file-editor-action-color: var(--code-text-muted);
+  --code-component-file-editor-breadcrumb-color: var(--code-text-muted);
+  --code-component-terminal-toolbar-color: var(--code-text-muted);
+  --code-component-file-editor-action-hover-disabled-background: var(--code-bg-muted);
+  --code-component-file-editor-action-active-background: var(--code-bg-muted);
+  --code-component-file-editor-breadcrumb-hover-background: var(--code-bg-muted);
+  --code-component-terminal-toolbar-hover-background: var(--code-bg-muted);
+  --code-component-file-editor-action-hover-disabled-color: var(--code-text);
+  --code-component-file-editor-action-active-color: var(--code-text);
+  --code-component-file-editor-breadcrumb-hover-color: var(--code-text);
+  --code-component-terminal-toolbar-hover-color: var(--code-text);
+  --code-component-agent-transcript-result-acp-request-pending-followup-border-color: var(--code-border);
+  --code-component-agent-transcript-process-item-background: rgba(255, 253, 248, 0.78);
+  --code-component-agent-transcript-tool-background: rgba(255, 253, 248, 0.78);
+  --code-component-agent-transcript-result-background: rgba(255, 253, 248, 0.78);
+  --code-component-acp-request-background: rgba(255, 253, 248, 0.78);
+  --code-component-pending-followup-background: rgba(255, 253, 248, 0.78);
+  --code-component-agent-transcript-plan-driver-color: var(--code-text);
+  --code-component-agent-transcript-process-item-color: var(--code-text);
+  --code-component-agent-transcript-tool-color: var(--code-text);
+  --code-component-agent-transcript-result-color: var(--code-text);
+  --code-component-acp-request-color: var(--code-text);
+  --code-component-pending-followup-color: var(--code-text);
+  --code-component-agent-transcript-plan-driver-box-shadow: 0 8px 28px rgba(72, 63, 45, 0.07);
+  --code-component-agent-transcript-process-item-box-shadow: 0 8px 28px rgba(72, 63, 45, 0.07);
+  --code-component-agent-transcript-tool-box-shadow: 0 8px 28px rgba(72, 63, 45, 0.07);
+  --code-component-agent-transcript-result-box-shadow: 0 8px 28px rgba(72, 63, 45, 0.07);
+  --code-component-acp-request-box-shadow: 0 8px 28px rgba(72, 63, 45, 0.07);
+  --code-component-pending-followup-box-shadow: 0 8px 28px rgba(72, 63, 45, 0.07);
+  --code-component-agent-transcript-user-message-background: var(--code-bg-muted);
+  --code-component-agent-transcript-user-message-color: var(--code-text);
+  --code-component-agent-transcript-markdown-file-preview-panel-color: var(--code-accent);
+  --code-component-markdown-agent-transcript-markdown-color: var(--code-text);
+  --code-component-markdown-agent-transcript-markdown-border-color: var(--code-border-strong);
+  --code-component-markdown-agent-transcript-markdown-color-1e3935: var(--code-text-muted);
+  --code-component-markdown-agent-transcript-markdown-background: var(--code-bg-chrome);
+  --code-component-markdown-agent-transcript-markdown-agent-transcript-code-block-border-color: var(--code-border);
+  --code-component-markdown-agent-transcript-markdown-agent-transcript-code-block-background: #f1ede4;
+  --code-component-markdown-agent-transcript-markdown-border-color-8326e0: var(--code-border);
+  --code-component-composer-focus-within-border-color: rgba(33, 110, 69, 0.54);
+  --code-component-composer-focus-within-menu-open-box-shadow: 0 0 0 3px var(--code-focus-ring), 0 10px 30px rgba(72, 63, 45, 0.09);
+  --code-component-slash-menu-header-approval-menu-header-model-menu-header-color: var(--code-text-quiet);
+  --code-component-composer-approval-composer-model-picker-composer-mode-chip-background: var(--code-bg-muted);
+  --code-component-composer-send-disabled-background: var(--code-accent);
+  --code-component-acp-request-actions-approve-background: var(--code-accent);
+  --code-component-composer-send-disabled-color: #fffdf8;
+  --code-component-acp-request-actions-approve-color: #fffdf8;
+  --code-component-composer-send-disabled-hover-background: var(--code-accent-hover);
+  --code-component-acp-request-actions-approve-hover-background: var(--code-accent-hover);
+  --code-component-editor-context-menu-terminal-search-git-history-menu-border-color: var(--code-border);
+  --code-component-composer-menu-background: rgba(255, 253, 248, 0.98);
+  --code-component-model-submenu-background: rgba(255, 253, 248, 0.98);
+  --code-component-speed-submenu-background: rgba(255, 253, 248, 0.98);
+  --code-component-context-menu-background: rgba(255, 253, 248, 0.98);
+  --code-component-editor-context-menu-background: rgba(255, 253, 248, 0.98);
+  --code-component-git-history-menu-background: rgba(255, 253, 248, 0.98);
+  --code-component-composer-menu-color: var(--code-text);
+  --code-component-model-submenu-color: var(--code-text);
+  --code-component-speed-submenu-color: var(--code-text);
+  --code-component-context-menu-color: var(--code-text);
+  --code-component-editor-context-menu-color: var(--code-text);
+  --code-component-terminal-search-color: var(--code-text);
+  --code-component-git-history-menu-color: var(--code-text);
+  --code-component-composer-menu-box-shadow: 0 14px 38px rgba(72, 63, 45, 0.16);
+  --code-component-model-submenu-box-shadow: 0 14px 38px rgba(72, 63, 45, 0.16);
+  --code-component-speed-submenu-box-shadow: 0 14px 38px rgba(72, 63, 45, 0.16);
+  --code-component-context-menu-box-shadow: 0 14px 38px rgba(72, 63, 45, 0.16);
+  --code-component-editor-context-menu-box-shadow: 0 14px 38px rgba(72, 63, 45, 0.16);
+  --code-component-terminal-search-box-shadow: 0 14px 38px rgba(72, 63, 45, 0.16);
+  --code-component-git-history-menu-box-shadow: 0 14px 38px rgba(72, 63, 45, 0.16);
+  --code-component-plus-menu-slash-command-context-menu-background: var(--code-bg-muted);
+  --code-component-settings-panel-header-color: var(--code-text);
+  --code-component-settings-panel-border-color: var(--code-border);
+  --code-component-settings-input-border-color: var(--code-border);
+  --code-component-dialog-border-color: var(--code-border);
+  --code-component-share-panel-border-color: var(--code-border);
+  --code-component-plugin-card-border-color: var(--code-border);
+  --code-component-git-history-popover-border-color: var(--code-border);
+  --code-component-settings-input-background: var(--code-bg-raised);
+  --code-component-dialog-background: var(--code-bg-raised);
+  --code-component-share-panel-background: var(--code-bg-raised);
+  --code-component-plugin-card-background: var(--code-bg-raised);
+  --code-component-git-history-popover-background: var(--code-bg-raised);
+  --code-component-share-panel-plugin-card-git-history-popover-color: var(--code-text);
+  --code-component-settings-section-settings-row-border-color: var(--code-border);
+  --code-component-settings-segmented-color: var(--code-text-muted);
+  --code-component-settings-segmented-active-background: #e9e7df;
+  --code-component-settings-segmented-active-box-shadow: inset 0 0 0 1px rgba(104, 104, 95, 0.08);
+  --code-component-focus-visible-outline-color: var(--code-accent);
+}
+
 body[data-theme='terminal'] {
   --font-terminal: 'Courier New', monospace;
 

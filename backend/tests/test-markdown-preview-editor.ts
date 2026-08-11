@@ -25,11 +25,7 @@ function run() {
     readCodeStyleSource('src/styles/file-editor.css'),
     readCodeStyleSource('src/styles/markdown.css'),
   ].join('\n');
-  const darkStylesSource = [
-    readCodeStyleSource('src/styles/code-dark.css'),
-    readCodeStyleSource('src/styles/file-editor-dark.css'),
-    readCodeStyleSource('src/styles/markdown-dark.css'),
-  ].join('\n');
+  const appearanceTokensSource = readCodeStyleSource('src/styles/tokens.css');
 
   assert(
     packageSource.includes('"react-markdown"') &&
@@ -213,14 +209,9 @@ function run() {
       stylesSource.includes('.code-markdown-mermaid-viewport') &&
       stylesSource.includes('.code-markdown-mermaid.fullscreen .code-markdown-mermaid-canvas') &&
       stylesSource.includes('.code-markdown-mermaid.error') &&
-      darkStylesSource.includes('.code-markdown-preview .katex') &&
-      darkStylesSource.includes('.code-markdown-preview .hljs-keyword') &&
-      darkStylesSource.includes('.code-markdown-preview .code-markdown-frontmatter') &&
-      darkStylesSource.includes('.code-mobile-markdown-reading .code-mobile-topbar') &&
-      darkStylesSource.includes('.code-markdown-mermaid') &&
-      darkStylesSource.includes('.code-markdown-mermaid-toolbar') &&
-      darkStylesSource.includes('.code-markdown-preview'),
-    'Markdown preview should have toolbar copy plus light/dark editor-panel, mobile reading mode, math, code-label/highlight, front-matter, heading-anchor, and Mermaid interaction styling'
+      appearanceTokensSource.includes('--code-markdown-') &&
+      !stylesSource.includes('data-appearance'),
+    'Markdown preview should have toolbar copy plus appearance-neutral editor-panel, mobile reading mode, math, code-label/highlight, front-matter, heading-anchor, and Mermaid interaction styling'
   );
 }
 

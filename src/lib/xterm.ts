@@ -69,9 +69,40 @@ const DARK_THEME = {
   scrollbarSliderActiveBackground: 'rgba(139, 148, 158, 0.56)',
 }
 
+const PAPER_THEME = {
+  background: '#f9f6ef',
+  foreground: '#30312b',
+  cursor: '#3a6e4a',
+  cursorAccent: '#f9f6ef',
+  selectionBackground: 'rgba(58, 110, 74, 0.22)',
+  selectionInactiveBackground: 'rgba(58, 110, 74, 0.14)',
+  black: '#3f4039',
+  red: '#aa3731',
+  green: '#448c27',
+  yellow: '#9c5d27',
+  blue: '#4b69c6',
+  magenta: '#7a3e9d',
+  cyan: '#267f99',
+  white: '#d5cebf',
+  brightBlack: '#77776e',
+  brightRed: '#c44b45',
+  brightGreen: '#568f3b',
+  brightYellow: '#b57432',
+  brightBlue: '#637ed3',
+  brightMagenta: '#9158ae',
+  brightCyan: '#3d91a8',
+  brightWhite: '#fffdf8',
+  scrollbarSliderBackground: 'rgba(98, 99, 91, 0.22)',
+  scrollbarSliderHoverBackground: 'rgba(98, 99, 91, 0.32)',
+  scrollbarSliderActiveBackground: 'rgba(98, 99, 91, 0.42)',
+}
+
 function xtermThemeForCurrentAppearance() {
   if (typeof document !== 'undefined' && document.body?.dataset.appearance === 'dark') {
     return DARK_THEME
+  }
+  if (typeof document !== 'undefined' && document.body?.dataset.appearance === 'paper') {
+    return PAPER_THEME
   }
   return {
     ...DEFAULT_THEME,
@@ -253,6 +284,17 @@ function xtermSearchDecorations() {
       activeMatchBackground: '#8a5a12',
       activeMatchBorder: '#d29922',
       activeMatchColorOverviewRuler: '#d29922',
+    }
+  }
+
+  if (typeof document !== 'undefined' && document.body?.dataset.appearance === 'paper') {
+    return {
+      matchBackground: '#f6e8bc',
+      matchBorder: '#b58128',
+      matchOverviewRuler: '#b58128',
+      activeMatchBackground: '#e9c96f',
+      activeMatchBorder: '#8b5a18',
+      activeMatchColorOverviewRuler: '#8b5a18',
     }
   }
 

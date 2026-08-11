@@ -16,21 +16,30 @@
         background: #181818;
         color-scheme: dark;
       }
+
+      html[data-appearance='paper'],
+      html[data-appearance='paper'] body {
+        background: #f7f4ed;
+        color-scheme: light;
+      }
     </style>
     <script>
       (() => {
         const root = document.documentElement
-        const preference = ['light', 'dark'].includes(root.dataset.appearancePreference)
+        const preference = ['light', 'dark', 'paper'].includes(root.dataset.appearancePreference)
           ? root.dataset.appearancePreference
           : 'system'
         const appearance = preference === 'system'
           ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
           : preference
         root.dataset.appearance = appearance
-        document.querySelector('meta[name="color-scheme"]')?.setAttribute('content', appearance)
+        document.querySelector('meta[name="color-scheme"]')?.setAttribute(
+          'content',
+          appearance === 'paper' ? 'light' : appearance,
+        )
         document.querySelector('meta[name="theme-color"]')?.setAttribute(
           'content',
-          appearance === 'dark' ? '#181818' : '#ffffff',
+          appearance === 'dark' ? '#181818' : appearance === 'paper' ? '#f7f4ed' : '#ffffff',
         )
       })()
     </script>
