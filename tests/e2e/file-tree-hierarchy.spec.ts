@@ -319,6 +319,9 @@ test('keeps a deeply scrolled directory anchored while pointer expansion loads i
   for (let index = 0; index < 24; index += 1) {
     fs.mkdirSync(path.join(workspace, 'velox', `child-${String(index).padStart(2, '0')}`), { recursive: true })
   }
+  for (let index = 0; index < 12; index += 1) {
+    fs.writeFileSync(path.join(workspace, 'velox', 'child-12', `nested-${String(index).padStart(2, '0')}.ts`), `export const nested${index} = true\n`)
+  }
   fs.writeFileSync(path.join(workspace, 'velox', 'fixture.ts'), 'export const fixture = true\n')
 
   await openFarming(page)
@@ -387,7 +390,25 @@ test('keeps a deeply scrolled directory anchored while pointer expansion loads i
     expect(Math.abs(nextAnchor.rowTop - previousAnchor.rowTop)).toBeLessThanOrEqual(1)
     previousAnchor = nextAnchor
   }
-  await expect.poll(() => page.evaluate(() => (
+  const nestedDirectory = files.locator('[data-testid="code-file-row"][data-file-path="velox/child-12"]')
+  await scrollFileRowIntoStickyRange(nestedDirectory)
+  await expect(files.getByTestId('code-file-sticky-stack').locator('.code-file-sticky-row')).toHaveAttribute('title', 'velox')
+  const nestedAnchor = await nestedDirectory.evaluate(element => ({
+    rowTop: element.getBoundingClientRect().top,
+    scrollTop: element.closest<HTMLElement>('.code-project-list')?.scrollTop ?? -1,
+  }))
+  await nestedDirectory.click()
+  await expect(nestedDirectory).toHaveAttribute('aria-expanded', 'true')
+  await page.waitForTimeout(600)
+  const expandedNestedAnchor = await nestedDirectory.evaluate(element => ({
+    rowTop: element.getBoundingClientRect().top,
+    scrollTop: element.closest<HTMLElement>('.code-project-list')?.scrollTop ?? -1,
+  }))
+  expect(Math.abs(expandedNestedAnchor.scrollTop - nestedAnchor.scrollTop)).toBeLessThanOrEqual(1)
+  expect(Math.abs(expandedNestedAnchor.rowTop - nestedAnchor.rowTop)).toBeLessThanOrEqual(1)
+  const revealedPaths = await page.evaluate(() => (
     (window as Window & { __fileTreeScrollIntoViewPaths?: string[] }).__fileTreeScrollIntoViewPaths ?? []
-  ))).not.toContain('velox')
+  ))
+  expect(revealedPaths).not.toContain('velox')
+  expect(revealedPaths).not.toContain('velox/child-12')
 })
