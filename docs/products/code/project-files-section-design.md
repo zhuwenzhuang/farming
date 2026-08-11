@@ -54,6 +54,9 @@ cannot commit data or leave a loading state that blocks retry.
 Directory expansion is browser-local navigation state scoped to the workspace.
 Each accepted pointer or keyboard action changes the desired expansion state
 once; a later directory response cannot reopen a directory the user closed.
+Pointer expansion keeps the clicked row anchored in the single Project scroll
+surface. The tree toggle owns any required scroll preservation and must not
+start a competing reveal operation for a row the user already clicked.
 
 The Explorer keeps active file, keyboard focus, and selection as distinct
 concepts. Opening a file from Chat, Terminal, search, History, Plugins, or a URL

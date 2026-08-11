@@ -307,3 +307,78 @@ test('does not pin a collapsed root sibling above root files', async ({ page, wo
   await expect(files.getByTestId('code-file-sticky-stack')).toHaveCount(0)
   await expect(testsDirectory).toHaveAttribute('aria-expanded', 'false')
 })
+
+test('keeps a deeply scrolled directory anchored while pointer expansion loads its children', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'stable-pointer-directory-expansion')
+  for (let index = 0; index < 120; index += 1) {
+    fs.mkdirSync(path.join(workspace, `module-${String(index).padStart(3, '0')}`), { recursive: true })
+  }
+  for (let index = 0; index < 24; index += 1) {
+    fs.mkdirSync(path.join(workspace, 'velox', `child-${String(index).padStart(2, '0')}`), { recursive: true })
+  }
+
+  await openFarming(page)
+  await openNewAgentDialog(page)
+  await startAgentFromOpenDialog(page, 'bash', workspace)
+
+  const files = page.getByTestId('code-files-section')
+  const filesTitle = files.getByRole('button', { name: 'Files', exact: true })
+  if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
+
+  const velox = files.locator('[data-testid="code-file-row"][data-file-path="velox"]')
+  await scrollFileRowIntoStickyRange(velox)
+  await page.evaluate(() => {
+    const testWindow = window as Window & { __fileTreeScrollIntoViewPaths?: string[] }
+    testWindow.__fileTreeScrollIntoViewPaths = []
+    const originalScrollIntoView = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = function (...args) {
+      if (this instanceof HTMLElement && this.dataset.filePath) {
+        testWindow.__fileTreeScrollIntoViewPaths?.push(this.dataset.filePath)
+      }
+      return originalScrollIntoView.apply(this, args)
+    }
+  })
+  const readAnchor = () => velox.evaluate(element => {
+    const scroller = element.closest<HTMLElement>('.code-project-list')
+    return {
+      rowTop: element.getBoundingClientRect().top,
+      scrollTop: scroller?.scrollTop ?? -1,
+    }
+  })
+
+  await velox.click()
+  await expect(velox).toHaveAttribute('aria-expanded', 'true')
+  await page.waitForTimeout(40)
+  const intentionalScrollTop = await velox.evaluate(element => {
+    const scroller = element.closest<HTMLElement>('.code-project-list')
+    if (!scroller) return -1
+    scroller.scrollTop = Math.max(0, scroller.scrollTop - 48)
+    return scroller.scrollTop
+  })
+  await page.waitForTimeout(220)
+  expect(Math.abs((await readAnchor()).scrollTop - intentionalScrollTop)).toBeLessThanOrEqual(1)
+
+  await scrollFileRowIntoStickyRange(velox)
+  let previousAnchor = await readAnchor()
+  for (const expanded of ['false', 'true']) {
+    await velox.click()
+    await expect(velox).toHaveAttribute('aria-expanded', expanded)
+    await page.waitForTimeout(600)
+    const nextAnchor = await readAnchor()
+    expect(Math.abs(nextAnchor.scrollTop - previousAnchor.scrollTop)).toBeLessThanOrEqual(1)
+    expect(Math.abs(nextAnchor.rowTop - previousAnchor.rowTop)).toBeLessThanOrEqual(1)
+    previousAnchor = nextAnchor
+  }
+  for (const expanded of ['false', 'true']) {
+    await page.keyboard.press('Enter')
+    await expect(velox).toHaveAttribute('aria-expanded', expanded)
+    await page.waitForTimeout(600)
+    const nextAnchor = await readAnchor()
+    expect(Math.abs(nextAnchor.scrollTop - previousAnchor.scrollTop)).toBeLessThanOrEqual(1)
+    expect(Math.abs(nextAnchor.rowTop - previousAnchor.rowTop)).toBeLessThanOrEqual(1)
+    previousAnchor = nextAnchor
+  }
+  await expect.poll(() => page.evaluate(() => (
+    (window as Window & { __fileTreeScrollIntoViewPaths?: string[] }).__fileTreeScrollIntoViewPaths ?? []
+  ))).not.toContain('velox')
+})

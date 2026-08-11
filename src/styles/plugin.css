@@ -183,7 +183,7 @@
   min-height: 36px;
   padding: 3px;
   border-radius: 10px;
-  background: #f3f4f1;
+  background: var(--code-bg-inset);
 }
 
 .code-plugin-extension-kind-tabs > button {

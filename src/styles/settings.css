@@ -1148,6 +1148,10 @@
   font-weight: 400;
 }
 
+.code-settings-segmented button {
+  background: transparent;
+}
+
 .code-settings-segmented button.active {
   background: var(--code-component-settings-segmented-active-background);
   box-shadow: var(--code-component-settings-segmented-active-box-shadow);

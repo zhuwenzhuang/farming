@@ -12,9 +12,9 @@ test('Plugin style owners preserve the light, dark, and narrow runtime cascade',
 
   await expect(panel).toBeVisible()
   await expect(pluginView).toHaveCSS('background-color', 'rgb(255, 255, 255)')
-  await expect(tabs).toHaveCSS('background-color', 'rgb(243, 244, 241)')
+  await expect(tabs).toHaveCSS('background-color', 'rgb(246, 248, 250)')
   await expect(selectedTab).toHaveCSS('background-color', 'rgb(255, 255, 255)')
-  await expect(firstCard).toHaveCSS('background-color', 'rgb(255, 255, 255)')
+  await expect(firstCard).toHaveCSS('background-color', 'rgb(246, 248, 250)')
 
   await page.locator('body').evaluate(body => { body.dataset.appearance = 'dark' })
   await expect(tabs).toHaveCSS('background-color', 'rgb(28, 28, 28)')

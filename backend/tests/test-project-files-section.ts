@@ -875,7 +875,7 @@ function run() {
 	      fileFocusHookSource.includes('treeRef.current?.get(filePath)?.select()') &&
 	      fileFocusHookSource.includes("row?.closest<HTMLElement>('[role=\"tree\"]')") &&
 	      fileViewModelSource.includes('function preserveWorkspaceFileScrollPosition') &&
-	      fileTreeRowInteractionsSource.includes('preserveWorkspaceFileScrollPosition') &&
+	      !fileTreeRowInteractionsSource.includes('preserveWorkspaceFileScrollPosition') &&
 	      fileTreeControllerHookSource.includes('preserveWorkspaceFileScrollPosition') &&
 	      fileTreeKeyboardHookSource.includes('preserveWorkspaceFileScrollPosition') &&
 	      !fileSectionSource.includes('preserveWorkspaceFileScrollPosition') &&

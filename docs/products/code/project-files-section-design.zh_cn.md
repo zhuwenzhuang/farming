@@ -46,6 +46,8 @@ Load 失效；旧 Workspace Generation 的响应不能提交数据，也不能�
 
 Directory Expansion 是按 Workspace 隔离的 Browser-local Navigation State。每次鼠标或键盘
 操作只改变一次期望展开状态；迟到 Directory Response 不能重新打开用户已经关闭的目录。
+鼠标展开时，被点击的行必须锚定在唯一的 Project Scroll Surface 中。Tree Toggle 统一拥有所需的
+Scroll Preservation，不能对用户已经点击的行再启动一套互相竞争的 Reveal Operation。
 
 Explorer 区分 Active File、Keyboard Focus 与 Selection。从 Chat、Terminal、Search、History、
 Plugins 或 URL 打开文件时只有一个 Reveal Owner，避免 Tree 与 Project List 争夺 Focus 或

@@ -1730,7 +1730,7 @@ export function PluginsPanel({
                 <button
                   type="button"
                   className="code-plugin-extension"
-                  key={`${extension.agentName}:${extension.id}`}
+                  key={`${extension.homeKey}:${extension.id}:${extension.sourceFile}`}
                   onClick={event => {
                     selectedExtensionTriggerRef.current = event.currentTarget
                     updateNavigationState({

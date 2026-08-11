@@ -1089,6 +1089,8 @@ body.code-mode {
 
 body.code-mode[data-appearance='dark'] {
   --code-search-panel-input-background: rgba(22, 27, 34, 0.78);
+  --code-search-panel-input-focus-border-color: var(--code-accent);
+  --code-search-panel-input-focus-box-shadow: 0 0 0 3px var(--code-focus-ring);
   --code-search-result-hover-active-border-color: rgba(88, 166, 255, 0.42);
 }
 

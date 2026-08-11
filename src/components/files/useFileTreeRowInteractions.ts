@@ -1,9 +1,6 @@
 import { useCallback, type MouseEvent as ReactMouseEvent, type MutableRefObject, type RefObject } from 'react'
 import type { NodeRendererProps } from 'react-arborist'
-import {
-  preserveWorkspaceFileScrollPosition,
-  workspaceFileTreeRowClickIntent,
-} from '@/lib/workspace-file-view-model'
+import { workspaceFileTreeRowClickIntent } from '@/lib/workspace-file-view-model'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-open-files'
 import type { WorkspaceFileTreeNode } from '@/lib/workspace-file-tree'
 
@@ -69,10 +66,6 @@ export function useFileTreeRowInteractions({
       ctrlKey: event.ctrlKey,
       shiftKey: event.shiftKey,
     })
-    const restoreProjectScroll = isDirectory
-      ? preserveWorkspaceFileScrollPosition(treeViewportRef.current?.closest<HTMLElement>('.code-project-list'))
-      : null
-
     if (clickIntent === 'toggle-directory') {
       event.preventDefault()
       event.stopPropagation()
@@ -85,8 +78,6 @@ export function useFileTreeRowInteractions({
       } else {
         node.close()
       }
-      onFocusFileTreeTarget(item)
-      restoreProjectScroll?.()
       return
     }
 
@@ -98,14 +89,11 @@ export function useFileTreeRowInteractions({
     focusTree()
     if (event.shiftKey) {
       focusWithoutScrolling(event.currentTarget)
-      restoreProjectScroll?.()
       return
     }
     onFocusFileTreeTarget(item)
-    restoreProjectScroll?.()
   }, [
     focusTree,
-    isDirectory,
     item,
     lastFocusedFilePathRef,
     node,
@@ -113,7 +101,6 @@ export function useFileTreeRowInteractions({
     onFocusFileTreeTarget,
     onOpenFilePath,
     onToggleDirectory,
-    treeViewportRef,
   ])
 
   return {

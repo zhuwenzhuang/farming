@@ -755,6 +755,15 @@ test('keeps extension cards compact and opens the full description on demand', a
             description: longDescription,
             kind: 'skill',
             scope: 'Personal',
+            sourceFile: '/tmp/skills/long/SKILL.md',
+          }, {
+            id: '$long',
+            command: '$long-copy',
+            name: 'Long skill copy',
+            description: 'A second source can legitimately expose the same extension id.',
+            kind: 'skill',
+            scope: 'Plugin',
+            sourceFile: '/tmp/plugins/example/skills/long/SKILL.md',
           }, {
             id: 'plugin:sample',
             command: 'plugin:sample',
@@ -799,7 +808,7 @@ test('keeps extension cards compact and opens the full description on demand', a
   const cards = page.locator('.code-plugin-extension')
   await expect(page.getByTestId('code-plugin-extension-home-codex-default')).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByTestId('code-plugin-extension-kind-skill')).toHaveAttribute('aria-selected', 'true')
-  await expect(cards).toHaveCount(2)
+  await expect(cards).toHaveCount(3)
   const geometry = await cards.evaluateAll(elements => elements.map(element => {
     const description = element.querySelector('.code-plugin-extension-description')
     return {
@@ -815,13 +824,19 @@ test('keeps extension cards compact and opens the full description on demand', a
   await expect(page.getByTestId('code-plugin-extension-kind-plugin')).toContainText('Plugins')
   await expect(page.getByTestId('code-plugin-extension-kind-command')).toContainText('Commands')
 
+  await page.getByTestId('code-plugin-extension-kind-plugin').click()
+  await expect(cards).toHaveCount(1)
+  await expect(cards).toContainText('Sample plugin')
+  await page.getByTestId('code-plugin-extension-kind-skill').click()
+  await expect(cards).toHaveCount(3)
+
   await page.getByTestId('code-plugin-extension-home-codex-work').click()
   await expect(cards).toHaveCount(1)
   await expect(cards).toContainText('Work-only skill')
   await expect(page.getByTestId('code-plugin-extension-kind-plugin')).toBeDisabled()
   await page.getByTestId('code-plugin-extension-home-codex-default').click()
 
-  await page.getByLabel('Search extensions').fill('Long skill')
+  await page.getByLabel('Search extensions').fill('deliberately long extension')
   await expect(cards).toHaveCount(1)
   const longSkillCard = cards.filter({ hasText: 'Long skill' })
   await longSkillCard.click()

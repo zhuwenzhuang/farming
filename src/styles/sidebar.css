@@ -31,7 +31,7 @@
   z-index: 30;
   cursor: col-resize;
   touch-action: none;
-  background: #dededb;
+  background: var(--code-component-sidebar-resizer-background);
 }
 
 .code-sidebar-resizer::before {
@@ -197,7 +197,7 @@ body.code-resizing-sidebar .code-sidebar-resizer {
   align-items: center;
   gap: 5px;
   padding: 6px 4px;
-  color: #333833;
+  color: var(--code-component-nav-item-color);
   text-align: left;
   font-size: 14px;
   font-weight: 400;

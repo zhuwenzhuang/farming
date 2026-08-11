@@ -716,9 +716,9 @@ body.code-mode .code-file-editor-fallback-textarea {
   align-items: center;
   gap: 10px;
   padding: 0 10px;
-  border-top: 1px solid rgba(36, 41, 47, 0.08);
-  background: #f6f7f3;
-  color: #5f675e;
+  border-top: 1px solid var(--code-border-subtle);
+  background: var(--code-bg-muted);
+  color: var(--code-text-muted);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
