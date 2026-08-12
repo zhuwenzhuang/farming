@@ -1271,6 +1271,18 @@ test.describe('display-backed agent flows', () => {
     await expect(page.getByTestId('code-file-diff-view')).toBeVisible()
     await expect(page.getByTestId('code-file-diff-monaco')).toBeVisible()
     await expect(changeRow).toHaveClass(/active/)
+    const refreshedDiffFile = page.waitForResponse(response => (
+      response.url().includes('/api/files/file')
+      && response.url().includes('review-target.txt')
+      && response.request().method() === 'GET'
+    ))
+    const diffRefreshButton = filesSection.getByTestId('code-files-refresh')
+    await filesSection.locator('.code-files-header').hover()
+    await expect(diffRefreshButton).toHaveCSS('opacity', '1')
+    await diffRefreshButton.click()
+    await refreshedDiffFile
+    await expect(page.getByTestId('code-file-diff-view')).toBeVisible()
+    await expect(page.getByTestId('code-file-monaco').locator('..')).toHaveClass(/hidden/)
     const trackedDirectory = trackedGroup.locator(
       '[data-testid="code-file-change-directory-row"][data-file-path="tracked/deep"]',
     )

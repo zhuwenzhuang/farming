@@ -5,6 +5,7 @@ assertDomainStyleOwnership({
   prefixes: ['code-agent', 'code-agents'],
   // Transcript rendering and sidebar resource slots have their own owners.
   excludePrefixes: ['code-agent-transcript', 'code-agent-resource'],
+  mainIntegrationSelectors: ['.code-main.resource-agent-side-open > .code-agent-activity-dock'],
   componentSources: [
     'src/components/code/AgentLaunchSubmenu.tsx',
     'src/components/code/AgentWorkPane.tsx',

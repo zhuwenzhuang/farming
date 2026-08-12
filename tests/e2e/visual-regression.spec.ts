@@ -7,9 +7,17 @@ import { expect, openFarming, test } from './fixtures'
 
 export const VISUAL_SCENARIOS = [
   'sidebar-agent-hover',
+  'sidebar-agent-hover-dark',
+  'sidebar-agent-hover-paper',
   'sidebar-project-hover',
+  'sidebar-project-hover-dark',
+  'sidebar-project-hover-paper',
   'queued-followups-wide',
+  'queued-followups-wide-dark',
+  'queued-followups-wide-paper',
   'queued-followups-narrow',
+  'queued-followups-narrow-dark',
+  'queued-followups-narrow-paper',
   'changes-diff',
   'plugins-dark',
   'appearance-light-settings',
@@ -31,6 +39,27 @@ const visualRoot = path.join(os.tmpdir(), 'farming-visual-regression')
 
 type ScreenshotOptions = {
   mask?: Locator[]
+}
+
+type Appearance = 'light' | 'dark' | 'paper'
+
+async function setVisualAppearance(page: Page, appearance: Appearance) {
+  await page.emulateMedia({
+    colorScheme: appearance === 'dark' ? 'dark' : 'light',
+    reducedMotion: 'reduce',
+  })
+  await page.evaluate((nextAppearance) => {
+    document.documentElement.dataset.appearance = nextAppearance
+    document.body.dataset.appearance = nextAppearance
+  }, appearance)
+  await expect(page.locator('body')).toHaveAttribute('data-appearance', appearance)
+}
+
+function themedScenario(
+  base: 'sidebar-agent-hover' | 'sidebar-project-hover' | 'queued-followups-wide' | 'queued-followups-narrow',
+  appearance: Appearance,
+): typeof VISUAL_SCENARIOS[number] {
+  return appearance === 'light' ? base : `${base}-${appearance}`
 }
 
 async function settleVisualState(page: Page) {
@@ -168,13 +197,19 @@ test.describe('PR visual regression capture', () => {
     const mainMask = page.getByTestId('code-main')
     await alphaRow.hover()
     await expect(alphaRow.getByTestId('code-agent-row-archive')).toBeVisible()
-    await captureScenario(page, 'sidebar-agent-hover', { mask: [mainMask] })
+    for (const appearance of ['light', 'dark', 'paper'] as const) {
+      await setVisualAppearance(page, appearance)
+      await captureScenario(page, themedScenario('sidebar-agent-hover', appearance), { mask: [mainMask] })
+    }
 
     const alphaProject = page.getByTestId('code-project-group').filter({ has: alphaRow })
     const alphaTitle = alphaProject.getByTestId('code-project-title')
     await alphaTitle.hover()
     await expect(alphaProject.getByTestId('code-project-actions')).toBeVisible()
-    await captureScenario(page, 'sidebar-project-hover', { mask: [mainMask] })
+    for (const appearance of ['light', 'dark', 'paper'] as const) {
+      await setVisualAppearance(page, appearance)
+      await captureScenario(page, themedScenario('sidebar-project-hover', appearance), { mask: [mainMask] })
+    }
 
     await expect(page.locator(`[data-testid="code-agent-row"][data-agent-id="${betaAgentId}"]`)).toBeVisible()
   })
@@ -198,12 +233,18 @@ test.describe('PR visual regression capture', () => {
     await page.getByTestId('code-acp-composer-send').click()
     await expect(page.getByTestId('code-acp-pending-followup-row')).toHaveCount(2)
     const transcript = page.getByTestId('code-agent-transcript-scroll')
-    await captureScenario(page, 'queued-followups-wide', { mask: [transcript] })
+    for (const appearance of ['light', 'dark', 'paper'] as const) {
+      await setVisualAppearance(page, appearance)
+      await captureScenario(page, themedScenario('queued-followups-wide', appearance), { mask: [transcript] })
+    }
 
     await page.setViewportSize({ width: 390, height: 844 })
     await expect(page.locator('body')).toHaveClass(/code-compact-layout/)
     await expect(page.getByTestId('code-acp-pending-followup-row')).toHaveCount(2)
-    await captureScenario(page, 'queued-followups-narrow', { mask: [transcript] })
+    for (const appearance of ['light', 'dark', 'paper'] as const) {
+      await setVisualAppearance(page, appearance)
+      await captureScenario(page, themedScenario('queued-followups-narrow', appearance), { mask: [transcript] })
+    }
   })
 
   test('captures Changes hierarchy with its diff open', async ({ page }) => {
@@ -246,7 +287,16 @@ test.describe('PR visual regression capture', () => {
     await expect(componentsDirectory).toBeVisible()
     await componentsDirectory.click()
     const changedFile = trackedGroup.locator('[data-testid="code-file-change-row"][data-file-path="src/components/QueuePanel.tsx"]')
+    const diffResponse = page.waitForResponse(response => (
+      response.url().includes('/api/files/diff') && response.request().method() === 'GET'
+    ))
     await changedFile.click()
+    const diffPayload = await (await diffResponse).json() as {
+      diff?: { patch?: string; originalContent?: string; modifiedContent?: string }
+    }
+    expect(diffPayload.diff?.patch).toContain('queuedMessages')
+    expect(diffPayload.diff?.originalContent).toContain('label = "before"')
+    expect(diffPayload.diff?.modifiedContent).toContain('label = "after"')
     await expect(page.getByTestId('code-file-diff-view')).toBeVisible({ timeout: 30_000 })
     await expect(page.getByTestId('code-file-diff-monaco')).toBeVisible()
     await captureScenario(page, 'changes-diff')
@@ -338,6 +388,8 @@ test.describe('PR visual regression capture', () => {
       await expect(
         settings.getByTestId('code-settings-follow-up-behavior').getByRole('button', { name: 'Queue' }),
       ).toBeEnabled({ timeout: 30_000 })
+      const reminderInterval = settings.getByRole('spinbutton', { name: 'Custom reminder interval in minutes' })
+      await expect(reminderInterval).toHaveCSS('width', '88px')
       await captureScenario(page, `appearance-${appearance}-settings`)
       await settings.getByRole('button', { name: 'Close', exact: true }).click()
 

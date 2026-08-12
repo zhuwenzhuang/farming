@@ -3,6 +3,7 @@ import { assertDomainStyleOwnership } from './style-ownership-contract'
 assertDomainStyleOwnership({
   domain: 'terminal',
   prefixes: ['code-terminal', 'terminal-session', 'terminal-context'],
+  mainIntegrationSelectors: ['.code-main.resource-agent-side-open > .code-terminal-grid'],
   componentSources: [
     'src/components/AgentTerminalPane.tsx',
     'src/components/code/AgentWorkPane.tsx',

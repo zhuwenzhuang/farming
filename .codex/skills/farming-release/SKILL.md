@@ -20,6 +20,13 @@ Before acting, read:
 Preserve unrelated worktree changes. Bind every decision to an exact version,
 commit SHA, workflow run, and artifact digest.
 
+Treat a user-provided release `alias`, `codename`, or `version alias` as the
+human-facing Release codename recorded in the bilingual release notes and
+Release title. It is not an npm version and must not create or change an npm
+dist-tag. Only manage an npm dist-tag when the user explicitly asks for an
+`npm dist-tag` or names a package tag such as `latest`, `next`, or `beta` in
+that npm context.
+
 ## Start The Campaign
 
 1. Record the start timestamp immediately.

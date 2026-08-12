@@ -212,11 +212,15 @@ assert.deepStrictEqual(structuredTranscriptTurns({
 	}), [{
 	  id: 'user-0',
 	  userMessage: 'First request',
+	  userImages: [],
 	  finalMessage: 'First answer',
+	  resultImages: [],
 	}, {
 	  id: 'user-1',
 	  userMessage: 'Second request',
+	  userImages: [],
 	  finalMessage: 'Second answer',
+	  resultImages: [],
 	}]);
 
 assert.deepStrictEqual(structuredTranscriptTurns({

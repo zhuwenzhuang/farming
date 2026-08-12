@@ -81,8 +81,8 @@
 
 .code-file-editor-tabs {
   min-width: 0;
-  min-height: var(--code-file-editor-tab-height);
-  margin-block: var(--code-file-editor-tab-margin-block);
+  min-height: 32px;
+  margin-block: 0;
   flex: 1 1 auto;
   display: flex;
   align-items: flex-end;
@@ -115,7 +115,7 @@
   padding: 0 6px 0 10px;
   border-right: 1px solid var(--code-border);
   border-top: 1px solid transparent;
-  border-radius: var(--code-file-editor-active-tab-radius);
+  border-radius: 0;
   background: transparent;
   color: var(--code-file-editor-tab-color);
   cursor: pointer;

@@ -356,7 +356,7 @@
   text-decoration: underline;
 }
 
-body.code-mode[data-appearance='paper'] .code-markdown-preview a:not(.code-markdown-heading-anchor) {
+.code-markdown-preview a:not(.code-markdown-heading-anchor) {
   text-decoration: underline;
   text-underline-offset: 2px;
 }

@@ -369,6 +369,16 @@ function run() {
     }),
     draft: 'local draft\n',
   };
+  const diffOpenFile = {
+    ...workingCopy({
+      agentId: stableFilesId,
+      workspaceRoot: '/repo',
+      file: workspaceFile('src/Diff.tsx', { content: 'old diff\n', sha1: 'diff-old' }),
+    }),
+    draft: 'old diff\n',
+    diffRequestId: 23,
+    diffOnly: true,
+  };
   const otherWorkspaceOpenFile = {
     ...workingCopy({
       agentId: stableFilesId,
@@ -379,11 +389,12 @@ function run() {
   };
   const refreshedOpenFiles = refreshWorkspaceOpenFilesFromReads({
     activeFile: dirtyOpenFile,
-    files: [cleanOpenFile, dirtyOpenFile, otherWorkspaceOpenFile],
+    files: [cleanOpenFile, dirtyOpenFile, diffOpenFile, otherWorkspaceOpenFile],
     closedFileCache: new Map(),
   }, '/repo', [
     workspaceFile('src/Clean.tsx', { content: 'new clean\n', sha1: 'clean-new' }),
     workspaceFile('src/Dirty.tsx', { content: 'new dirty\n', sha1: 'dirty-new' }),
+    workspaceFile('src/Diff.tsx', { content: 'new diff\n', sha1: 'diff-new' }),
   ]);
   assert.strictEqual(refreshedOpenFiles.activeFile.file.path, 'src/Dirty.tsx');
   assert.strictEqual(refreshedOpenFiles.files[0].draft, 'new clean\n');
@@ -391,7 +402,10 @@ function run() {
   assert.strictEqual(refreshedOpenFiles.files[1].draft, 'local draft\n');
   assert.strictEqual(refreshedOpenFiles.files[1].dirty, true);
   assert.strictEqual(refreshedOpenFiles.files[1].externalChanged, true);
-  assert.strictEqual(refreshedOpenFiles.files[2], otherWorkspaceOpenFile);
+  assert.strictEqual(refreshedOpenFiles.files[2].draft, 'new diff\n');
+  assert.strictEqual(refreshedOpenFiles.files[2].diffRequestId, 23);
+  assert.strictEqual(refreshedOpenFiles.files[2].diffOnly, true);
+  assert.strictEqual(refreshedOpenFiles.files[3], otherWorkspaceOpenFile);
 
   assert.strictEqual(workspaceWorkingCopyState(workingCopy()), 'saved');
   assert.strictEqual(workspaceWorkingCopyState(workingCopy({ dirty: true })), 'dirty');

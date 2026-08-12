@@ -487,7 +487,8 @@ test.describe('ACP human-like browser matrix', () => {
     expect(metrics.inlineCodeShadow).toBe('none')
 
     const safeLink = turn.getByRole('link', { name: 'Safe docs' })
-    await expect(safeLink).toHaveCSS('text-decoration-line', 'none')
+    await expect(safeLink).toHaveCSS('text-decoration-line', 'underline')
+    await expect(safeLink).toHaveCSS('text-underline-offset', '2px')
     await page.evaluate(() => {
       document.body.dataset.appearance = 'paper'
     })

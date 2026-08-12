@@ -27,8 +27,13 @@ test('renders intermediate commentary promptly during a dense live stream', {
   await page.getByTestId('code-acp-composer-send').click()
 
   const firstCommentary = page.getByText('Live commentary 1: checking the current implementation.', { exact: true })
-  await expect(firstCommentary).toBeVisible({ timeout: 1_300 })
-  expect(Date.now() - submittedAt).toBeLessThan(1_300)
+  await expect(firstCommentary).toBeVisible({ timeout: 5_000 })
+  const commentaryLatencyMs = Date.now() - submittedAt
+  test.info().annotations.push({
+    type: 'performance-budget',
+    description: `First live commentary rendered in ${commentaryLatencyMs}ms`,
+  })
+  expect(commentaryLatencyMs).toBeLessThan(1_300)
   await expect(page.getByText('Live commentary stream complete.', { exact: true })).toHaveCount(0)
   const firstProgress = firstCommentary.locator('xpath=ancestor::*[@data-testid="code-acp-progress-update"]')
   await expect(firstProgress).toHaveCSS('animation-name', 'code-acp-progress-fill')
@@ -248,9 +253,9 @@ test('queues a follow-up and explicitly sends negotiated Codex ACP steer', async
       const stopIcon = element.querySelector<HTMLElement>('.code-composer-stop-icon')
       return {
         backgroundMatches: style.backgroundColor === resolveColor(bodyStyle.getPropertyValue('--code-danger')),
-        colorMatches: style.color === resolveColor(bodyStyle.getPropertyValue('--code-text')),
+        colorMatches: style.color === resolveColor(bodyStyle.getPropertyValue('--code-text-on-emphasis')),
         stopIconMatches: stopIcon
-          ? getComputedStyle(stopIcon).backgroundColor === resolveColor(bodyStyle.getPropertyValue('--code-text'))
+          ? getComputedStyle(stopIcon).backgroundColor === resolveColor(bodyStyle.getPropertyValue('--code-text-on-emphasis'))
           : false,
       }
     })).toEqual({ backgroundMatches: true, colorMatches: true, stopIconMatches: true })

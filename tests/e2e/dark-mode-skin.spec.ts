@@ -111,6 +111,16 @@ async function expectSurfaceBackground(
   }
 }
 
+async function expectStickySurface(locator: import('@playwright/test').Locator, name: string, expected: string) {
+  await expect.poll(() => locator.evaluate((element, color) => (
+    window.getComputedStyle(element).backgroundImage.includes(color)
+  ), expected), { message: `${name} sticky surface should resolve to ${expected}` }).toBe(true)
+}
+
+async function expectProjectRowSurface(page: import('@playwright/test').Page, expected: string) {
+  await expectStickySurface(page.locator('.code-project-row').first(), 'project row', expected)
+}
+
 async function expectTerminalAppearance(page: import('@playwright/test').Page, agentId: string, appearance: 'light' | 'dark' | 'paper') {
   const terminalPane = page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"]`)
   await expect(terminalPane).toBeVisible()
@@ -276,13 +286,13 @@ test.describe('Farming Code appearance skins', () => {
 
     const agentId = await createControlAgent(page, 'bash', projectDir)
     await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
-    await expect(page.locator('.code-project-row').first()).toHaveCSS('background-color', 'rgb(249, 248, 244)')
+    await expectProjectRowSurface(page, 'rgb(249, 248, 244)')
     await expectTerminalAppearance(page, agentId, 'paper')
     await chooseAppearance(page, 'Light')
-    await expect(page.locator('.code-project-row').first()).toHaveCSS('background-color', 'rgb(244, 245, 242)')
+    await expectProjectRowSurface(page, 'rgb(244, 245, 242)')
     await expectTerminalAppearance(page, agentId, 'light')
     await chooseAppearance(page, 'Paper')
-    await expect(page.locator('.code-project-row').first()).toHaveCSS('background-color', 'rgb(249, 248, 244)')
+    await expectProjectRowSurface(page, 'rgb(249, 248, 244)')
     await expectTerminalAppearance(page, agentId, 'paper')
   })
 
@@ -354,10 +364,10 @@ test.describe('Farming Code appearance skins', () => {
     await expectDarkSurface(page.getByTestId('code-sidebar'), 'sidebar')
     await expect(page.getByTestId('code-main')).toHaveCSS('background-color', 'rgb(24, 24, 24)')
     await expect(page.getByTestId('code-sidebar')).toHaveCSS('background-color', 'rgb(32, 32, 32)')
-    await expect(page.locator('.code-project-row').first()).toHaveCSS('background-color', 'rgb(32, 32, 32)')
+    await expectProjectRowSurface(page, 'rgb(32, 32, 32)')
     await expect(page.getByTestId('code-sidebar-resizer')).toHaveCSS('background-color', 'rgb(42, 42, 42)')
     await expectReadableMutedDarkText(page.getByTestId('code-new-agent'), 'new Agent action')
-    await expect(page.getByTestId('code-agents-section').first()).toHaveCSS('background-color', 'rgb(32, 32, 32)')
+    await expectStickySurface(page.getByTestId('code-agents-section').first(), 'Agent section', 'rgb(32, 32, 32)')
     const projectList = page.getByTestId('code-project-list')
     await expect.poll(() => projectList.evaluate(element => (
       getComputedStyle(element, '::-webkit-scrollbar-thumb').backgroundColor

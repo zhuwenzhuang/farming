@@ -22,7 +22,6 @@ assertDomainStyleOwnership({
     'code-project-agent-visibility',
     'code-project-new-agent',
     'code-project-new-agent-menu',
-    'code-project-resource-slot',
     'code-project-worktree-menu',
     'code-session-show-less',
   ],

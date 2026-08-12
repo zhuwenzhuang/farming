@@ -20,16 +20,19 @@ test.describe('workspace sharing', () => {
     const sidebar = page.locator('.code-sidebar')
     const shareButton = page.getByTestId('code-share-button')
     const siblingButton = page.getByTestId('code-sidebar-focus-toggle')
-    const appearances = {
-      light: 'rgb(247, 247, 246)',
-      dark: 'rgb(36, 36, 36)',
-      paper: 'rgb(249, 248, 244)',
-    } as const
-
-    for (const [appearance, background] of Object.entries(appearances)) {
-      await page.locator('body').evaluate((body, value) => {
-        body.dataset.appearance = value
+    for (const appearance of ['light', 'dark', 'paper']) {
+      await page.evaluate((value) => {
+        document.documentElement.dataset.appearance = value
+        document.body.dataset.appearance = value
       }, appearance)
+      const background = await page.locator('body').evaluate((body) => {
+        const probe = document.createElement('span')
+        probe.style.backgroundColor = 'var(--code-bg-chrome)'
+        body.append(probe)
+        const resolved = getComputedStyle(probe).backgroundColor
+        probe.remove()
+        return resolved
+      })
       await expect(sidebar).toHaveCSS('background-color', background)
       await expect(shareButton).toHaveCSS('background-color', background)
       await expect(siblingButton).toHaveCSS('background-color', background)

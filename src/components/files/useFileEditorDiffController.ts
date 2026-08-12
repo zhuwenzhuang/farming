@@ -27,15 +27,21 @@ export function useFileEditorDiffController({
   onClearBlameDetail,
 }: UseFileEditorDiffControllerOptions) {
   const diffRequestRef = useRef(0)
-  const handledDiffRequestRef = useRef<number | undefined>(undefined)
-  const openFileKeyRef = useRef(openFileKey(openFile))
+  const handledDiffRequestRef = useRef<string | null>(null)
+  const currentOpenFileKey = openFileKey(openFile)
+  const requestedDiffKey = openFile.diffRequestId
+    ? `${currentOpenFileKey}:${openFile.diffRequestId}`
+    : null
+  const openFileAgentId = openFile.agentId
+  const openFilePath = openFile.file.path
+  const openFileKeyRef = useRef(currentOpenFileKey)
   const [diffState, setDiffState] = useState<FileEditorDiffState>({
     open: false,
     loading: false,
     error: null,
     diff: null,
   })
-  openFileKeyRef.current = openFileKey(openFile)
+  openFileKeyRef.current = currentOpenFileKey
 
   const closeDiff = useCallback(() => {
     diffRequestRef.current += 1
@@ -50,7 +56,7 @@ export function useFileEditorDiffController({
   const openDiff = useCallback(async () => {
     if (diffDisabled) return
     const requestId = diffRequestRef.current + 1
-    const checkedFileKey = openFileKey(openFile)
+    const checkedFileKey = currentOpenFileKey
     diffRequestRef.current = requestId
     onClearBlameDetail()
     setDiffState({
@@ -60,7 +66,7 @@ export function useFileEditorDiffController({
       diff: null,
     })
     try {
-      const diff = await fetchWorkspaceDiff(openFile.agentId, openFile.file.path)
+      const diff = await fetchWorkspaceDiff(openFileAgentId, openFilePath)
       if (diffRequestRef.current !== requestId || openFileKeyRef.current !== checkedFileKey) return
       setDiffState({
         open: true,
@@ -77,7 +83,7 @@ export function useFileEditorDiffController({
         diff: null,
       })
     }
-  }, [diffDisabled, onClearBlameDetail, openFile])
+  }, [currentOpenFileKey, diffDisabled, onClearBlameDetail, openFileAgentId, openFilePath])
 
   const toggleDiff = useCallback(() => {
     if (diffState.open) {
@@ -95,13 +101,13 @@ export function useFileEditorDiffController({
       error: null,
       diff: null,
     })
-  }, [diffDisabled, openFile.agentId, openFile.file])
+  }, [currentOpenFileKey, diffDisabled])
 
   useEffect(() => {
-    if (!openFile.diffRequestId || diffDisabled || handledDiffRequestRef.current === openFile.diffRequestId) return
-    handledDiffRequestRef.current = openFile.diffRequestId
+    if (!requestedDiffKey || diffDisabled || handledDiffRequestRef.current === requestedDiffKey) return
+    handledDiffRequestRef.current = requestedDiffKey
     void openDiff()
-  }, [diffDisabled, openDiff, openFile.diffRequestId])
+  }, [diffDisabled, openDiff, requestedDiffKey])
 
   return {
     diffState,

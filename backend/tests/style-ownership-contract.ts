@@ -49,6 +49,8 @@ export interface DomainStyleOwnershipContract {
   prefixes: string[]
   /** Prefixes that would match an owned prefix pattern but belong to another owner. */
   excludePrefixes?: string[]
+  /** Exact cross-domain layout selectors intentionally owned by main.css. */
+  mainIntegrationSelectors?: string[]
   /** Component sources whose owned class names must resolve to an owner rule. */
   componentSources: string[]
   /** Owned class names that are semantic/test hooks with intentionally no rule. */
@@ -132,7 +134,16 @@ export function assertDomainStyleOwnership(contract: DomainStyleOwnershipContrac
   const ownerBase = orderedRuleRecords(readCodeStyleSource(baseFile))
   const ownerStyles = readCodeStyleSource(baseFile)
 
-  assert.equal(main.owned.length, 0, `main.css must not retain ${contract.domain}-owned selectors or keyframes`)
+  const integrationSelectors = new Set((contract.mainIntegrationSelectors ?? []).map(normalize))
+  const mainOwnedSelector = (record: string) => record.split('|')[1] ?? ''
+  const unexpectedMainOwned = main.owned.filter(record => !integrationSelectors.has(mainOwnedSelector(record)))
+  assert.equal(unexpectedMainOwned.length, 0, `main.css must not retain ${contract.domain}-owned selectors or keyframes`)
+  for (const selector of integrationSelectors) {
+    assert(
+      main.owned.some(record => mainOwnedSelector(record) === selector),
+      `main.css is missing declared ${contract.domain} integration selector: ${selector}`,
+    )
+  }
   assert.equal(ownerBase.remaining.length, 0, `${baseFile} must contain only ${contract.domain}-owned rules`)
   assert(ownerBase.owned.length > 0, `${baseFile} must retain its domain rules`)
   assert(!/data-appearance/.test(readCodeStyleSource(baseFile)), `${baseFile} must stay appearance-neutral`)

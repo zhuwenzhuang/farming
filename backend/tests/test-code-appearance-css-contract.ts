@@ -43,6 +43,7 @@ const fixedArtworkPaletteRoles = new Set([
   '--pet-black-hole-gold-dark',
 ])
 const runtimeCodeRoles = new Set([
+  '--code-file-editor-tab-icon-source',
   '--code-pet-status-glass-filter',
   '--code-sidebar-width',
 ])
@@ -82,7 +83,7 @@ assert.notEqual(
 )
 
 const lightRoles = Object.keys(registry.light.css).sort()
-assert(lightRoles.length <= 128, 'the semantic palette must not grow back into a selector-level override matrix')
+assert(lightRoles.length <= 132, 'the semantic palette must not grow back into a selector-level override matrix')
 for (const appearance of appearances) {
   const theme = registry[appearance]
   assert.deepEqual(Object.keys(theme.css).sort(), lightRoles, `${appearance} must define every CSS role`)

@@ -73,7 +73,7 @@ test('Settings segmented choices use neutral text and a tonal selected surface i
 
     await expect.poll(() => activeChoices.evaluateAll((elements) => {
       const probe = document.createElement('span')
-      probe.style.color = 'var(--code-text)'
+      probe.style.color = 'var(--code-text-strong)'
       document.body.append(probe)
       const expected = getComputedStyle(probe).color
       probe.remove()
@@ -89,7 +89,7 @@ test('Settings segmented choices use neutral text and a tonal selected surface i
     })).toBe(true)
     await expect.poll(() => activeChoices.evaluateAll((elements) => {
       const probe = document.createElement('span')
-      probe.style.backgroundColor = 'var(--code-bg-muted)'
+      probe.style.backgroundColor = 'var(--code-bg-selected)'
       document.body.append(probe)
       const expected = getComputedStyle(probe).backgroundColor
       probe.remove()
