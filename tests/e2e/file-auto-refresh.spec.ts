@@ -48,11 +48,17 @@ test('automatically refreshes every open file viewer while preserving dirty draf
   fs.mkdirSync(workspace, { recursive: true })
   fs.writeFileSync(path.join(workspace, 'plain.txt'), 'plain before\n')
   fs.writeFileSync(path.join(workspace, 'guide.md'), '# Markdown before\n')
-  fs.writeFileSync(path.join(workspace, 'index.html'), '<h1>HTML before</h1>\n')
+  fs.writeFileSync(path.join(workspace, 'index.html'), '<h1>HTML before</h1><img src="asset.svg" alt="linked asset">\n')
+  fs.writeFileSync(
+    path.join(workspace, 'asset.svg'),
+    '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="orange"/></svg>\n',
+  )
   fs.writeFileSync(
     path.join(workspace, 'icon.svg'),
     '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="red"/></svg>\n',
   )
+  const burstPaths = Array.from({ length: 8 }, (_, index) => `burst-${index}.txt`)
+  burstPaths.forEach(filePath => fs.writeFileSync(path.join(workspace, filePath), 'before\n'))
   await createControlAgent(page, workspace)
 
   let watchedPaths: string[] = []
@@ -82,8 +88,21 @@ test('automatically refreshes every open file viewer while preserving dirty draf
   await expect.poll(() => watchedPaths).toEqual(['guide.md', 'index.html', 'plain.txt'])
   const htmlFrame = page.frameLocator('[data-testid="code-file-html-preview"]')
   await expect(htmlFrame.getByRole('heading', { name: 'HTML before' })).toBeVisible()
-  fs.writeFileSync(path.join(workspace, 'index.html'), '<h1>HTML after</h1>\n')
+  fs.writeFileSync(path.join(workspace, 'index.html'), '<h1>HTML after</h1><img src="asset.svg" alt="linked asset">\n')
   await expect(htmlFrame.getByRole('heading', { name: 'HTML after' })).toBeVisible()
+
+  const htmlPreview = page.getByTestId('code-file-html-preview')
+  const previewDocumentBeforeDependencyReload = await htmlPreview.getAttribute('srcdoc')
+  fs.writeFileSync(
+    path.join(workspace, 'asset.svg'),
+    '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="green"/></svg>\n',
+  )
+  await expect.poll(() => watchedPaths).toEqual(['guide.md', 'index.html', 'plain.txt'])
+  await page.getByTestId('code-file-editor').getByRole('button', { name: 'Reload file' }).click()
+  await expect.poll(() => htmlPreview.getAttribute('srcdoc')).not.toBe(previewDocumentBeforeDependencyReload)
+  await expect.poll(() => htmlFrame.getByRole('img', { name: 'linked asset' }).evaluate(
+    (image: HTMLImageElement) => image.naturalWidth,
+  )).toBeGreaterThan(0)
 
   await openProjectFile(page, 'file-auto-refresh', 'icon.svg')
   await expect.poll(() => watchedPaths).toEqual(['guide.md', 'icon.svg', 'index.html', 'plain.txt'])
@@ -96,4 +115,40 @@ test('automatically refreshes every open file viewer while preserving dirty draf
   )
   await expect.poll(() => imagePreview.getAttribute('src')).not.toBe(originalSource)
   await expect.poll(() => imagePreview.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0)
+
+  for (const filePath of burstPaths) await openProjectFile(page, 'file-auto-refresh', filePath)
+  await expect.poll(() => watchedPaths).toEqual([
+    ...burstPaths,
+    'guide.md',
+    'icon.svg',
+    'index.html',
+    'plain.txt',
+  ].sort())
+  await page.waitForTimeout(250)
+  const burstPathSet = new Set(burstPaths)
+  let activeRefreshReads = 0
+  let maxActiveRefreshReads = 0
+  let completedRefreshReads = 0
+  await page.route('**/api/files/file?*', async route => {
+    const requestUrl = new URL(route.request().url())
+    const filePath = requestUrl.searchParams.get('path') || ''
+    if (route.request().method() !== 'GET' || !burstPathSet.has(filePath)) {
+      await route.continue()
+      return
+    }
+    activeRefreshReads += 1
+    maxActiveRefreshReads = Math.max(maxActiveRefreshReads, activeRefreshReads)
+    try {
+      const response = await route.fetch()
+      await new Promise(resolve => setTimeout(resolve, 100))
+      await route.fulfill({ response })
+      completedRefreshReads += 1
+    } finally {
+      activeRefreshReads -= 1
+    }
+  })
+  burstPaths.forEach(filePath => fs.writeFileSync(path.join(workspace, filePath), 'after\n'))
+  await expect.poll(() => completedRefreshReads).toBe(burstPaths.length)
+  expect(maxActiveRefreshReads).toBeGreaterThan(1)
+  expect(maxActiveRefreshReads).toBeLessThanOrEqual(4)
 })

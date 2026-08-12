@@ -478,7 +478,7 @@ const workspaceRootRegistry = new WorkspaceRootRegistry(
 const workspaceFileWatchController = createWorkspaceFileWatchController({
   openState: WebSocket.OPEN,
   resolveRoot: agentId => resolveWorkspaceRoot(agentManager, agentId),
-  subscribe: (root, paths, onEvent) => workspaceFileService.subscribe(root, event => onEvent({ ...event }), paths),
+  subscribe: (root, paths, onEvent) => workspaceFileService.subscribeExactFiles(root, paths, event => onEvent({ ...event })),
   logCleanupError: error => {
     console.error('Failed to clear workspace file watch:', error);
   },

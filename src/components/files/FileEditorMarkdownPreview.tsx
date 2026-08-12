@@ -38,6 +38,7 @@ interface FileEditorMarkdownPreviewProps {
   openFile: OpenWorkspaceFile
   onOpenFilePath: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
   copy: CodeCopy
+  previewRefreshRevision?: number
 }
 
 type MermaidBindFunctions = (element: Element) => void
@@ -57,6 +58,7 @@ type MarkdownPreviewContextValue = {
   onOpenFilePath: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
   copy: CodeCopy
   nextHeadingId: (children: ReactNode) => string
+  previewRefreshRevision: number
 }
 
 const MERMAID_FONT = 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
@@ -96,10 +98,12 @@ function normalizeWorkspaceResourcePath(basePath: string, value: string) {
   return nextSegments.join('/')
 }
 
-function markdownImageUrl(openFile: OpenWorkspaceFile, src: string) {
+function markdownImageUrl(openFile: OpenWorkspaceFile, src: string, previewRefreshRevision: number) {
   if (!src || src.startsWith('#') || isExternalResource(src) || src.startsWith('data:')) return src
   const workspacePath = normalizeWorkspaceResourcePath(openFile.file.path, src)
-  return workspacePath ? rawWorkspaceFileUrl(openFile.agentId, workspacePath) : src
+  return workspacePath
+    ? `${rawWorkspaceFileUrl(openFile.agentId, workspacePath)}&previewRefresh=${previewRefreshRevision}`
+    : src
 }
 
 function markdownWorkspaceLinkPath(openFile: OpenWorkspaceFile, href: string) {
@@ -324,8 +328,8 @@ const MarkdownLink: Components['a'] = ({ href, children, onClick, ...props }) =>
 }
 
 const MarkdownImage: Components['img'] = ({ src, alt, ...props }) => {
-  const { openFile } = useMarkdownPreviewContext()
-  const nextSrc = src ? markdownImageUrl(openFile, src) : undefined
+  const { openFile, previewRefreshRevision } = useMarkdownPreviewContext()
+  const nextSrc = src ? markdownImageUrl(openFile, src, previewRefreshRevision) : undefined
   return (
     <img
       {...props}
@@ -774,11 +778,12 @@ export const FileEditorMarkdownPreview = forwardRef<HTMLElement, FileEditorMarkd
   openFile,
   onOpenFilePath,
   copy,
+  previewRefreshRevision = 0,
 }, ref) {
   const source = openFile.draft ?? openFile.file.content ?? ''
   const markdownDocument = splitMarkdownFrontMatter(source)
   const nextHeadingId = createHeadingIdFactory()
-  const contextValue = { openFile, onOpenFilePath, copy, nextHeadingId }
+  const contextValue = { openFile, onOpenFilePath, copy, nextHeadingId, previewRefreshRevision }
   const previewIdentity = `${openFile.agentId}:${openFile.file.path}`
 
   return (

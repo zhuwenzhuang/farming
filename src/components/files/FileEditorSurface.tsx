@@ -43,6 +43,7 @@ interface FileEditorSurfaceProps {
   markdownSplitOpen: boolean
   markdownPreviewOpen: boolean
   sourcePreviewOpen: boolean
+  previewRefreshRevision: number
   openFile: OpenWorkspaceFile
   onClearBlameDetail: () => void
   onCloseLineChanges: () => void
@@ -110,6 +111,7 @@ export function FileEditorSurface({
   markdownSplitOpen,
   markdownPreviewOpen,
   sourcePreviewOpen,
+  previewRefreshRevision,
   openFile,
   onClearBlameDetail,
   onCloseLineChanges,
@@ -170,6 +172,7 @@ export function FileEditorSurface({
                 openFile={openFile}
                 onOpenFilePath={onOpenFilePath}
                 copy={copy}
+                previewRefreshRevision={previewRefreshRevision}
               />
             </LocalRenderFault>
           </LocalErrorBoundary>
@@ -200,6 +203,7 @@ export function FileEditorSurface({
               openFile={openFile}
               onOpenFilePath={onOpenFilePath}
               copy={copy}
+              previewRefreshRevision={previewRefreshRevision}
             />
           </LocalRenderFault>
         </LocalErrorBoundary>
@@ -227,6 +231,7 @@ export function FileEditorSurface({
               activeTabDomId={activeTabDomId}
               copy={copy}
               sourcePreviewOpen={surface.showSourcePreview}
+              previewRefreshRevision={previewRefreshRevision}
             />
           </LocalRenderFault>
         </LocalErrorBoundary>

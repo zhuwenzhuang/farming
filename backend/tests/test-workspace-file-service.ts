@@ -1251,14 +1251,15 @@ async function run() {
     await fsp.writeFile(exactWatchedPath, 'before\n');
     await fsp.writeFile(exactIgnoredPath, 'before\n');
     const exactWatchEvents = [];
-    const unsubscribeExact = await service.subscribe(
+    const exactSubscription = await service.subscribeExactFiles(
       workspace,
-      event => exactWatchEvents.push(event),
       ['src/ExactWatched.ts'],
+      event => exactWatchEvents.push(event),
     );
-    const exactWatcher = Array.from((service.watchers as Map<string, {
+    const exactRecord = Array.from((service.exactWatchers as Map<string, {
       watcher: { getWatched(): Record<string, string[]> } | null;
-    }>).values())[0]?.watcher;
+    }>).values())[0];
+    const exactWatcher = exactRecord?.watcher;
     const exactWatchedEntries = Object.entries(exactWatcher?.getWatched() ?? {});
     assert.strictEqual(exactWatchedEntries.length, 1);
     assert.strictEqual(
@@ -1267,12 +1268,84 @@ async function run() {
       'exact subscriptions must not hand the workspace root to chokidar',
     );
     assert.deepStrictEqual(exactWatchedEntries[0][1], ['ExactWatched.ts']);
+    await fsp.writeFile(exactIgnoredPath, 'not watched\n');
+    await new Promise(resolve => setTimeout(resolve, 150));
+    assert(!exactWatchEvents.some(event => event.path === 'src/ExactIgnored.ts'));
+    await exactSubscription.update(['src/ExactIgnored.ts', 'src/ExactWatched.ts']);
+    assert.strictEqual(
+      Array.from(service.exactWatchers.values())[0],
+      exactRecord,
+      'path updates must reuse the workspace watcher record',
+    );
+    assert.deepStrictEqual(
+      Object.values(exactWatcher?.getWatched() ?? {}).flat().sort(),
+      ['ExactIgnored.ts', 'ExactWatched.ts'],
+    );
     await fsp.writeFile(exactIgnoredPath, 'after\n');
     await fsp.writeFile(exactWatchedPath, 'after\n');
     await waitFor(() => exactWatchEvents.some(event => event.path === 'src/ExactWatched.ts'));
-    await new Promise(resolve => setTimeout(resolve, 150));
-    await unsubscribeExact();
-    assert(!exactWatchEvents.some(event => event.path === 'src/ExactIgnored.ts'));
+    await waitFor(() => exactWatchEvents.some(event => event.path === 'src/ExactIgnored.ts'));
+    const secondExactEvents = [];
+    const secondExactSubscription = await service.subscribeExactFiles(
+      workspace,
+      ['src/ExactIgnored.ts'],
+      event => secondExactEvents.push(event),
+    );
+    assert.strictEqual(service.exactWatchers.size, 1, 'clients must share one exact watcher per workspace');
+    await new Promise(resolve => setTimeout(resolve, 100));
+    await fsp.writeFile(exactIgnoredPath, 'shared\n');
+    await waitFor(() => secondExactEvents.some(event => event.path === 'src/ExactIgnored.ts'));
+    await exactSubscription.close();
+    assert.strictEqual(service.exactWatchers.size, 1, 'closing one client must preserve shared paths');
+    await secondExactSubscription.close();
+    assert.strictEqual(service.exactWatchers.size, 0);
+
+    await assertRejectsWithStatus(
+      service.subscribeExactFiles(workspace, ['src'], () => {}),
+      400,
+    );
+    await assertRejectsWithStatus(
+      service.subscribeExactFiles(
+        workspace,
+        Array.from({ length: 257 }, (_, index) => `src/too-many-${index}.ts`),
+        () => {},
+      ),
+      400,
+    );
+    if (fs.existsSync(path.join(workspace, 'external-directory-link'))) {
+      await assertRejectsWithStatus(
+        service.subscribeExactFiles(workspace, ['external-directory-link'], () => {}),
+        403,
+      );
+    }
+
+    const disposalRaceService = new WorkspaceFileService({
+      watchOptions: { usePolling: true, interval: 20 },
+    });
+    let releaseWatchResolution;
+    let markWatchResolutionStarted;
+    const watchResolutionGate = new Promise(resolve => { releaseWatchResolution = resolve; });
+    const watchResolutionStarted = new Promise(resolve => { markWatchResolutionStarted = resolve; });
+    const originalResolveExactWatchTargets = disposalRaceService.resolveExactWatchTargets.bind(disposalRaceService);
+    disposalRaceService.resolveExactWatchTargets = async (...args) => {
+      markWatchResolutionStarted();
+      await watchResolutionGate;
+      return originalResolveExactWatchTargets(...args);
+    };
+    const disposalRaceSubscription = disposalRaceService.subscribeExactFiles(
+      workspace,
+      ['src/ExactWatched.ts'],
+      () => {},
+    );
+    await watchResolutionStarted;
+    await disposalRaceService.dispose();
+    releaseWatchResolution();
+    await assertRejectsWithStatus(disposalRaceSubscription, 503);
+    assert.strictEqual(
+      disposalRaceService.exactWatchers.size,
+      0,
+      'an in-flight exact subscription must not recreate a watcher after dispose',
+    );
 
     console.log('✓ Workspace file service safely reads, writes, searches, diffs, and watches files');
   } finally {

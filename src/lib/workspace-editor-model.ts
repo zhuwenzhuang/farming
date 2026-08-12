@@ -285,7 +285,11 @@ export function workspaceEditorActionState(
   const showMarkdownPreview = Boolean(options.canPreviewMarkdown)
   const showSourcePreview = Boolean(options.canPreviewSource)
   const showWordWrap = !mode.visualPreview && !mode.diffOnly
-  const showReload = !mode.diffOnly && shouldShowWorkspaceWorkingCopyReloadAction(file)
+  const showReload = !mode.diffOnly && (
+    shouldShowWorkspaceWorkingCopyReloadAction(file)
+    || Boolean(options.canPreviewMarkdown)
+    || Boolean(options.canPreviewSource)
+  )
   const showOverwrite = mode.canEditText && shouldShowWorkspaceWorkingCopyOverwriteAction(file)
   return {
     showBar: options.showBreadcrumbs || showStatus || showSave || showDiff || showMarkdownPreview || showSourcePreview || showWordWrap || showReload || showOverwrite,

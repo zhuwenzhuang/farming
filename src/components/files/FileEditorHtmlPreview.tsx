@@ -15,9 +15,10 @@ interface FileEditorHtmlPreviewProps {
   activeTabDomId: string
   copy: CodeCopy
   openFile: OpenWorkspaceFile
+  previewRefreshRevision?: number
 }
 
-export function FileEditorHtmlPreview({ activeTabDomId, copy, openFile }: FileEditorHtmlPreviewProps) {
+export function FileEditorHtmlPreview({ activeTabDomId, copy, openFile, previewRefreshRevision = 0 }: FileEditorHtmlPreviewProps) {
   const [previewId, setPreviewId] = useState('')
   const [sessionGeneration, setSessionGeneration] = useState(0)
   const [error, setError] = useState('')
@@ -58,7 +59,7 @@ export function FileEditorHtmlPreview({ activeTabDomId, copy, openFile }: FileEd
       window.clearTimeout(refreshTimeout)
       if (ownedPreviewId) void deleteWorkspaceHtmlPreview(ownedPreviewId)
     }
-  }, [openFile.agentId, openFile.exactExternal, openFile.file.path, sessionGeneration])
+  }, [openFile.agentId, openFile.exactExternal, openFile.file.path, previewRefreshRevision, sessionGeneration])
 
   const previewDocument = useMemo(() => {
     if (!previewId) return ''

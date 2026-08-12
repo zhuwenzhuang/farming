@@ -175,6 +175,7 @@ export function FileEditorPane({
   const [sourcePreviewByFileKey, setSourcePreviewByFileKey] = useState<Record<string, boolean>>({})
   const [markdownSplitByFileKey, setMarkdownSplitByFileKey] = useState<Record<string, boolean>>({})
   const [wordWrapEnabled, setWordWrapEnabled] = useState(readWordWrapPreference)
+  const [previewRefreshRevision, setPreviewRefreshRevision] = useState(0)
   const [languageServerDockWidth, setLanguageServerDockWidth] = useState<number | null>(
     readLanguageServerDockWidthPreference
   )
@@ -206,6 +207,10 @@ export function FileEditorPane({
     readOnly,
     onUpdateOpenFile,
   })
+  const reloadFileAndPreview = useCallback(async () => {
+    if (!openFile.dirty || openFile.externalChanged || openFile.error) await reloadFile()
+    setPreviewRefreshRevision(revision => revision + 1)
+  }, [openFile.dirty, openFile.error, openFile.externalChanged, reloadFile])
 
   const {
     tabContextMenu,
@@ -578,7 +583,7 @@ export function FileEditorPane({
               onRevealInExplorer={onRevealInExplorer}
               onSave={saveFile}
               onCopyReadOnlyShareLink={copyReadOnlyShareLink}
-              onReload={reloadFile}
+              onReload={() => { void reloadFileAndPreview() }}
               onToggleSourcePreview={toggleSourcePreview}
               onToggleMarkdownSplit={toggleMarkdownSplit}
               onToggleWordWrap={toggleWordWrap}
@@ -616,6 +621,7 @@ export function FileEditorPane({
               markdownSplitOpen={markdownSplitOpen}
               markdownPreviewOpen={markdownPreviewOpen}
               sourcePreviewOpen={sourceVisualPreviewOpen}
+              previewRefreshRevision={previewRefreshRevision}
               openFile={openFile}
               onClearBlameDetail={clearBlameDetail}
               onCloseDiff={closeDiff}

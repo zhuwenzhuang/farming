@@ -17,10 +17,14 @@ interface TestClient {
 }
 
 interface SubscriptionAttempt {
-  deferred: Deferred<() => void | Promise<void>>;
+  deferred: Deferred<{
+    update(paths: readonly string[]): Promise<void>;
+    close(): void | Promise<void>;
+  }>;
   events: (event: Record<string, unknown>) => void;
   paths: readonly string[];
   root: string;
+  updates: string[][];
 }
 
 const OPEN = 1;
@@ -63,6 +67,7 @@ function createHarness() {
         events,
         paths,
         root,
+        updates: [],
       };
       attempts.push(attempt);
       return attempt.deferred.promise;
@@ -79,6 +84,19 @@ function createHarness() {
   return { attempts, cleanupErrors, controller };
 }
 
+function resolveAttempt(
+  attempt: SubscriptionAttempt,
+  close: () => void | Promise<void> = () => {},
+  update: (paths: readonly string[]) => Promise<void> = async paths => {
+    attempt.updates.push([...paths]);
+  },
+) {
+  attempt.deferred.resolve({
+    update,
+    close,
+  });
+}
+
 async function flushPromises(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
@@ -88,12 +106,54 @@ async function run(): Promise<void> {
   {
     const { attempts, controller } = createHarness();
     const socket = client();
+    const initial = controller.watch(socket, 'agent-initial-update', ['a.ts']);
+    const changed = controller.watch(socket, 'agent-initial-update', ['b.ts']);
+    resolveAttempt(attempts[0]);
+    await Promise.all([initial, changed]);
+    assert.deepStrictEqual(attempts[0].updates, [['b.ts']]);
+    assert.deepStrictEqual(
+      socket.messages.filter(message => message.type === 'workspace-file-watch'),
+      [{ type: 'workspace-file-watch', agentId: 'agent-initial-update', paths: ['b.ts'], watching: true }],
+      'an initial subscription must not acknowledge a newer desired path before the update applies',
+    );
+    controller.close(socket);
+  }
+
+  {
+    const { attempts, controller } = createHarness();
+    const socket = client();
+    const initial = controller.watch(socket, 'agent-update-retry', ['a.ts']);
+    let updateCalls = 0;
+    resolveAttempt(attempts[0], () => {}, async paths => {
+      attempts[0].updates.push([...paths]);
+      updateCalls += 1;
+      if (updateCalls === 1) throw new WorkspaceFileError('update failed', 503);
+    });
+    await initial;
+    await controller.watch(socket, 'agent-update-retry', ['b.ts']);
+    assert(!socket.messages.some(message => (
+      message.type === 'workspace-file-watch' && JSON.stringify(message.paths) === JSON.stringify(['b.ts'])
+    )), 'failed path updates must not be acknowledged');
+    await controller.watch(socket, 'agent-update-retry', ['b.ts']);
+    assert.deepStrictEqual(attempts[0].updates, [['b.ts'], ['b.ts']]);
+    assert.deepStrictEqual(socket.messages.at(-1), {
+      type: 'workspace-file-watch',
+      agentId: 'agent-update-retry',
+      paths: ['b.ts'],
+      watching: true,
+    });
+    controller.close(socket);
+  }
+
+  {
+    const { attempts, controller } = createHarness();
+    const socket = client();
     let unsubscribeCalls = 0;
     const watching = controller.watch(socket, 'agent-a', ['src/index.ts']);
     assert.strictEqual(attempts.length, 1);
     assert.strictEqual(attempts[0].root, '/workspace/agent-a');
     assert.deepStrictEqual(attempts[0].paths, ['src/index.ts']);
-    attempts[0].deferred.resolve(async () => {
+    resolveAttempt(attempts[0], async () => {
       unsubscribeCalls += 1;
     });
     await watching;
@@ -128,7 +188,7 @@ async function run(): Promise<void> {
     const first = controller.watch(socket, 'agent-duplicate', ['same.ts']);
     const second = controller.watch(socket, 'agent-duplicate', ['same.ts']);
     assert.strictEqual(attempts.length, 1, 'duplicate watch requests must share one subscription attempt');
-    attempts[0].deferred.resolve(() => {
+    resolveAttempt(attempts[0], () => {
       unsubscribeCalls += 1;
     });
     await Promise.all([first, second]);
@@ -138,17 +198,14 @@ async function run(): Promise<void> {
       'each duplicate request must retain the existing acknowledgement behavior',
     );
     const replacement = controller.watch(socket, 'agent-duplicate', ['new.ts']);
-    assert.strictEqual(attempts.length, 2, 'a changed path set must replace the active subscription');
-    attempts[1].deferred.resolve(() => {
-      unsubscribeCalls += 1;
-    });
+    assert.strictEqual(attempts.length, 1, 'a changed path set must update the active subscription');
     await replacement;
     await flushPromises();
-    assert.strictEqual(unsubscribeCalls, 1, 'replacing paths must release the previous subscription');
-    assert.deepStrictEqual(attempts[1].paths, ['new.ts']);
+    assert.strictEqual(unsubscribeCalls, 0, 'updating paths must keep the shared subscription alive');
+    assert.deepStrictEqual(attempts[0].updates, [['new.ts']]);
     controller.close(socket);
     await flushPromises();
-    assert.strictEqual(unsubscribeCalls, 2);
+    assert.strictEqual(unsubscribeCalls, 1);
   }
 
   {
@@ -161,10 +218,10 @@ async function run(): Promise<void> {
     const currentWatch = controller.watch(socket, 'agent-replaced', ['current.ts']);
     assert.strictEqual(attempts.length, 2, 'watch after unwatch must create a fresh lease');
 
-    attempts[0].deferred.resolve(() => {
+    resolveAttempt(attempts[0], () => {
       staleUnsubscribeCalls += 1;
     });
-    attempts[1].deferred.resolve(() => {
+    resolveAttempt(attempts[1], () => {
       currentUnsubscribeCalls += 1;
     });
     await Promise.all([staleWatch, currentWatch]);
@@ -196,10 +253,10 @@ async function run(): Promise<void> {
     const firstWatch = controller.watch(firstClient, 'shared-agent', ['first.ts']);
     const secondWatch = controller.watch(secondClient, 'shared-agent', ['second.ts']);
     assert.strictEqual(attempts.length, 2, 'leases must be isolated by exact connection identity');
-    attempts[0].deferred.resolve(() => {
+    resolveAttempt(attempts[0], () => {
       firstUnsubscribeCalls += 1;
     });
-    attempts[1].deferred.resolve(() => {
+    resolveAttempt(attempts[1], () => {
       secondUnsubscribeCalls += 1;
     });
     await Promise.all([firstWatch, secondWatch]);
@@ -222,11 +279,11 @@ async function run(): Promise<void> {
     const second = controller.watch(socket, 'agent-two', ['two.ts']);
     let firstUnsubscribeCalls = 0;
     let secondUnsubscribeCalls = 0;
-    attempts[0].deferred.resolve(() => {
+    resolveAttempt(attempts[0], () => {
       firstUnsubscribeCalls += 1;
       return Promise.reject(new Error('first cleanup failed'));
     });
-    attempts[1].deferred.resolve(() => {
+    resolveAttempt(attempts[1], () => {
       secondUnsubscribeCalls += 1;
     });
     await Promise.all([first, second]);
@@ -254,7 +311,7 @@ async function run(): Promise<void> {
     );
     const retry = controller.watch(socket, 'agent-reject', ['retry.ts']);
     assert.strictEqual(attempts.length, 2, 'failed subscriptions must leave a live retry path');
-    attempts[1].deferred.resolve(() => {});
+    resolveAttempt(attempts[1]);
     await retry;
     assert.strictEqual(socket.messages.at(-1)?.type, 'workspace-file-watch');
     controller.close(socket);
@@ -284,7 +341,7 @@ async function run(): Promise<void> {
     let unsubscribeCalls = 0;
     const pending = controller.watch(socket, 'agent-closing', ['closing.ts']);
     controller.close(socket);
-    attempts[0].deferred.resolve(() => {
+    resolveAttempt(attempts[0], () => {
       unsubscribeCalls += 1;
     });
     await pending;

@@ -4,7 +4,10 @@ interface WorkspaceFileWatchClient {
 }
 
 type WorkspaceFileWatchEvent = Record<string, unknown>;
-type WorkspaceFileWatchUnsubscribe = () => void | Promise<void>;
+interface WorkspaceFileWatchSubscription {
+  update(paths: readonly string[]): Promise<void>;
+  close(): void | Promise<void>;
+}
 
 interface WorkspaceFileWatchControllerOptions {
   openState: number;
@@ -13,20 +16,26 @@ interface WorkspaceFileWatchControllerOptions {
     root: string,
     paths: readonly string[],
     onEvent: (event: WorkspaceFileWatchEvent) => void,
-  ): Promise<WorkspaceFileWatchUnsubscribe>;
+  ): Promise<WorkspaceFileWatchSubscription>;
   logCleanupError(error: unknown): void;
   watchErrorMessage(error: unknown): string | null;
 }
 
 interface WorkspaceFileWatchLease {
+  appliedPaths: string[];
   cancelled: boolean;
   cleanupStarted: boolean;
-  paths: string[];
-  ready: Promise<boolean> | null;
-  unsubscribe: WorkspaceFileWatchUnsubscribe | null;
+  desiredPaths: string[];
+  ready: Promise<WorkspaceFileWatchSubscription | null>;
+  subscription: WorkspaceFileWatchSubscription | null;
+  updateQueue: Promise<void>;
 }
 
 type WorkspaceFileWatchLeases = Map<string, WorkspaceFileWatchLease>;
+
+function samePaths(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((filePath, index) => filePath === right[index]);
+}
 
 interface WorkspaceFileWatchController<Client extends WorkspaceFileWatchClient = WorkspaceFileWatchClient> {
   watch(client: Client, agentId: string, paths: readonly string[]): Promise<void>;
@@ -55,10 +64,10 @@ function createWorkspaceFileWatchController<Client extends WorkspaceFileWatchCli
 
   function closeLease(lease: WorkspaceFileWatchLease): void {
     lease.cancelled = true;
-    if (!lease.unsubscribe || lease.cleanupStarted) return;
+    if (!lease.subscription || lease.cleanupStarted) return;
     lease.cleanupStarted = true;
     try {
-      void Promise.resolve(lease.unsubscribe()).catch(options.logCleanupError);
+      void Promise.resolve(lease.subscription.close()).catch(options.logCleanupError);
     } catch (error: unknown) {
       options.logCleanupError(error);
     }
@@ -125,15 +134,27 @@ function createWorkspaceFileWatchController<Client extends WorkspaceFileWatchCli
       }
 
       const existing = leasesByClient.get(client)?.get(agentId);
-      if (existing && existing.paths.length === normalizedPaths.length
-        && existing.paths.every((filePath, index) => filePath === normalizedPaths[index])) {
-        const watching = await existing.ready;
-        if (watching && isCurrentLease(client, agentId, existing) && isOpen(client)) {
-          sendWatching(client, agentId, existing.paths);
+      if (existing) {
+        if (!samePaths(existing.desiredPaths, normalizedPaths)) {
+          existing.desiredPaths = normalizedPaths;
         }
+        const requestedPaths = existing.desiredPaths;
+        const update = existing.updateQueue.then(async () => {
+          const subscription = await existing.ready;
+          if (!subscription || !isCurrentLease(client, agentId, existing)) return;
+          if (existing.desiredPaths !== requestedPaths) return;
+          if (!samePaths(existing.appliedPaths, requestedPaths)) {
+            await subscription.update(requestedPaths);
+            existing.appliedPaths = requestedPaths;
+          }
+          if (existing.desiredPaths === requestedPaths && isCurrentLease(client, agentId, existing) && isOpen(client)) {
+            sendWatching(client, agentId, existing.appliedPaths);
+          }
+        });
+        existing.updateQueue = update.catch(() => {});
+        await update;
         return;
       }
-      if (existing) unwatch(client, agentId);
 
       const root = options.resolveRoot(agentId);
       let leases = leasesByClient.get(client);
@@ -142,14 +163,16 @@ function createWorkspaceFileWatchController<Client extends WorkspaceFileWatchCli
         leasesByClient.set(client, leases);
       }
       const lease: WorkspaceFileWatchLease = {
+        appliedPaths: [],
         cancelled: false,
         cleanupStarted: false,
-        paths: normalizedPaths,
-        ready: null,
-        unsubscribe: null,
+        desiredPaths: normalizedPaths,
+        ready: Promise.resolve(null),
+        subscription: null,
+        updateQueue: Promise.resolve(),
       };
       lease.ready = (async () => {
-        const unsubscribe = await options.subscribe(root, normalizedPaths, (event) => {
+        const subscription = await options.subscribe(root, normalizedPaths, (event) => {
           if (!isCurrentLease(client, agentId, lease) || !isOpen(client)) return;
           client.send(JSON.stringify({
             type: 'workspace-file-event',
@@ -159,19 +182,25 @@ function createWorkspaceFileWatchController<Client extends WorkspaceFileWatchCli
             },
           }));
         });
-        lease.unsubscribe = unsubscribe;
+        lease.subscription = subscription;
+        lease.appliedPaths = normalizedPaths;
         if (!isCurrentLease(client, agentId, lease) || !isOpen(client)) {
           closeLease(lease);
-          return false;
+          return null;
         }
-        return true;
+        return subscription;
       })();
       leases.set(agentId, lease);
 
       try {
-        const watching = await lease.ready;
-        if (watching && isCurrentLease(client, agentId, lease) && isOpen(client)) {
-          sendWatching(client, agentId, lease.paths);
+        const subscription = await lease.ready;
+        if (
+          subscription
+          && lease.desiredPaths === lease.appliedPaths
+          && isCurrentLease(client, agentId, lease)
+          && isOpen(client)
+        ) {
+          sendWatching(client, agentId, lease.appliedPaths);
         }
       } catch (error: unknown) {
         if (leases.get(agentId) === lease) leases.delete(agentId);
@@ -199,5 +228,5 @@ export {
   type WorkspaceFileWatchController,
   type WorkspaceFileWatchControllerOptions,
   type WorkspaceFileWatchEvent,
-  type WorkspaceFileWatchUnsubscribe,
+  type WorkspaceFileWatchSubscription,
 };

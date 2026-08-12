@@ -28,6 +28,9 @@ const MAX_GIT_HISTORY_LIMIT = 100;
 const DEFAULT_GIT_HISTORY_TIMEOUT_MS = 5000;
 const DEFAULT_GIT_HISTORY_MAX_BUFFER = 8 * 1024 * 1024;
 const DEFAULT_WATCH_DEPTH = 1;
+const MAX_EXACT_WATCH_PATHS_PER_SUBSCRIPTION = 256;
+const MAX_EXACT_WATCH_TARGETS_PER_WORKSPACE = 1_024;
+const EXACT_WATCH_PATH_RESOLVE_CONCURRENCY = 16;
 const SEARCH_FILE_LIST_MAX_BUFFER = 16 * 1024 * 1024;
 const BINARY_SNIFF_BYTES = 8192;
 const PATH_SEARCH_MIN_CANDIDATES = 120;
@@ -155,10 +158,13 @@ interface WorkspaceFileEvent {
 type WorkspaceFileSubscriber = (event: WorkspaceFileEvent) => void;
 
 interface ChokidarWatcher {
+  add(paths: string | string[]): ChokidarWatcher;
   close(): void | Promise<void>;
   getWatched(): Record<string, string[]>;
   on(event: string, callback: (...args: unknown[]) => void): ChokidarWatcher;
+  off(event: string, callback: (...args: unknown[]) => void): ChokidarWatcher;
   once(event: string, callback: (...args: unknown[]) => void): ChokidarWatcher;
+  unwatch(paths: string | string[]): ChokidarWatcher;
 }
 
 interface ChokidarModule {
@@ -172,6 +178,23 @@ interface WorkspaceWatcherRecord {
   generation: number;
   ready: Promise<boolean> | null;
   subscribers: Set<WorkspaceFileSubscriber>;
+  watcher: ChokidarWatcher | null;
+}
+
+interface ExactWorkspaceFileSubscription {
+  update(paths: readonly string[]): Promise<void>;
+  close(): Promise<void>;
+}
+
+interface ExactWorkspaceWatcherRecord {
+  closePromise: Promise<void> | null;
+  pathSubscribers: Map<string, Set<WorkspaceFileSubscriber>>;
+  pathTargets: Map<string, string>;
+  ready: Promise<boolean>;
+  root: string;
+  subscribers: Map<WorkspaceFileSubscriber, Set<string>>;
+  targetPaths: Map<string, Set<string>>;
+  updateQueue: Promise<void>;
   watcher: ChokidarWatcher | null;
 }
 
@@ -400,11 +423,67 @@ function isPackagedRuntime() {
 
 let chokidarPromise: Promise<ChokidarModule> | null = null;
 
-async function loadChokidar() {
+async function loadChokidar(): Promise<ChokidarModule> {
   if (!chokidarPromise) {
-    chokidarPromise = import('chokidar').then(module => module.default || module);
+    chokidarPromise = import('chokidar').then(module => (module.default || module) as ChokidarModule);
   }
-  return chokidarPromise;
+  return await chokidarPromise;
+}
+
+function watcherHasTarget(watcher: ChokidarWatcher, target: string): boolean {
+  const targetDirectory = path.dirname(target);
+  const targetName = path.basename(target);
+  return Object.entries(watcher.getWatched()).some(([directory, entries]) => (
+    path.resolve(directory) === targetDirectory && entries.includes(targetName)
+  ));
+}
+
+async function waitForWatcherTargets(watcher: ChokidarWatcher, targets: readonly string[]): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  while (!targets.every(target => watcherHasTarget(watcher, target))) {
+    if (Date.now() >= deadline) {
+      throw new WorkspaceFileError('timed out while watching open files', 504);
+    }
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+}
+
+async function waitForWatcherReady(watcher: ChokidarWatcher): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const finish = (error?: WorkspaceFileError) => {
+      clearTimeout(timeout);
+      watcher.off('ready', onReady);
+      watcher.off('error', onError);
+      if (error) reject(error);
+      else resolve();
+    };
+    const onReady = () => finish();
+    const onError = (caught: unknown) => {
+      const error = processError(caught);
+      finish(new WorkspaceFileError(`failed to watch open files: ${error.message}`, 503));
+    };
+    const timeout = setTimeout(() => {
+      finish(new WorkspaceFileError('timed out while watching open files', 504));
+    }, 2_000);
+    watcher.once('ready', onReady);
+    watcher.once('error', onError);
+  });
+}
+
+async function mapWithConcurrency<T, Result>(
+  values: readonly T[],
+  concurrency: number,
+  mapper: (value: T) => Promise<Result>,
+): Promise<Result[]> {
+  const results = new Array<Result>(values.length);
+  let nextIndex = 0;
+  await Promise.all(Array.from({ length: Math.min(concurrency, values.length) }, async () => {
+    while (nextIndex < values.length) {
+      const index = nextIndex++;
+      results[index] = await mapper(values[index]);
+    }
+  }));
+  return results;
 }
 
 class CommandRunner implements WorkspaceCommandRunner {
@@ -1506,6 +1585,7 @@ class WorkspaceFileService {
   diffMaxBuffer: number;
   diffTimeoutMs: number;
   disposed: boolean;
+  exactWatchers: Map<string, ExactWorkspaceWatcherRecord>;
   flushWorkspaceWrites: boolean;
   gitHistoryMaxBuffer: number;
   gitHistoryTimeoutMs: number;
@@ -1551,6 +1631,7 @@ class WorkspaceFileService {
     this.gitStatusCache = new Map();
     this.mutationQueues = new Map();
     this.flushWorkspaceWrites = options.flushWorkspaceWrites !== false;
+    this.exactWatchers = new Map();
     this.watchers = new Map();
     this.watcherSubscriptionGeneration = 0;
     this.watcherLifecycleGeneration = 0;
@@ -3670,6 +3751,296 @@ class WorkspaceFileService {
     }
   }
 
+  normalizeExactWatchPaths(filePaths: readonly string[]): string[] {
+    const normalizedPaths = Array.from(new Set(filePaths.map(filePath => normalizeUserPath(filePath)))).sort();
+    if (normalizedPaths.length === 0 || normalizedPaths.length > MAX_EXACT_WATCH_PATHS_PER_SUBSCRIPTION) {
+      throw new WorkspaceFileError(
+        `between 1 and ${MAX_EXACT_WATCH_PATHS_PER_SUBSCRIPTION} file paths are required`,
+        400,
+      );
+    }
+    return normalizedPaths;
+  }
+
+  async resolveExactWatchTargets(
+    root: string,
+    filePaths: readonly string[],
+  ): Promise<Map<string, string>> {
+    const normalizedPaths = this.normalizeExactWatchPaths(filePaths);
+    const entries = await mapWithConcurrency(
+      normalizedPaths,
+      EXACT_WATCH_PATH_RESOLVE_CONCURRENCY,
+      async relativePath => {
+      try {
+        const resolved = await this.resolvePath(root, relativePath);
+        const stat = await fsp.stat(resolved.target);
+        if (!stat.isFile()) throw new WorkspaceFileError('watched path must be a file', 400, { path: relativePath });
+        return [relativePath, resolved.target] as const;
+      } catch (caught: unknown) {
+        const error = processError(caught);
+        if (!(caught instanceof WorkspaceFileError) || caught.statusCode !== 404) throw caught;
+        const missing = await this.resolvePath(root, relativePath, { allowMissing: true });
+        const entry = await fsp.lstat(missing.target).catch(() => null);
+        if (entry) throw error;
+        return [relativePath, missing.target] as const;
+      }
+      },
+    );
+    return new Map(entries);
+  }
+
+  attachExactWatchPaths(
+    record: ExactWorkspaceWatcherRecord,
+    subscriber: WorkspaceFileSubscriber,
+    targets: ReadonlyMap<string, string>,
+  ): string[] {
+    const addedTargets: string[] = [];
+    targets.forEach((target, relativePath) => {
+      let pathSubscribers = record.pathSubscribers.get(relativePath);
+      if (!pathSubscribers) {
+        pathSubscribers = new Set();
+        record.pathSubscribers.set(relativePath, pathSubscribers);
+        record.pathTargets.set(relativePath, target);
+        let targetPaths = record.targetPaths.get(target);
+        if (!targetPaths) {
+          targetPaths = new Set();
+          record.targetPaths.set(target, targetPaths);
+          addedTargets.push(target);
+        }
+        targetPaths.add(relativePath);
+      }
+      pathSubscribers.add(subscriber);
+    });
+    return addedTargets;
+  }
+
+  detachExactWatchPaths(
+    record: ExactWorkspaceWatcherRecord,
+    subscriber: WorkspaceFileSubscriber,
+    relativePaths: Iterable<string>,
+  ): string[] {
+    const removedTargets: string[] = [];
+    for (const relativePath of relativePaths) {
+      const pathSubscribers = record.pathSubscribers.get(relativePath);
+      if (!pathSubscribers) continue;
+      pathSubscribers.delete(subscriber);
+      if (pathSubscribers.size > 0) continue;
+      record.pathSubscribers.delete(relativePath);
+      const target = record.pathTargets.get(relativePath);
+      record.pathTargets.delete(relativePath);
+      if (!target) continue;
+      const targetPaths = record.targetPaths.get(target);
+      targetPaths?.delete(relativePath);
+      if (targetPaths && targetPaths.size === 0) {
+        record.targetPaths.delete(target);
+        removedTargets.push(target);
+      }
+    }
+    return removedTargets;
+  }
+
+  enqueueExactWatchUpdate(record: ExactWorkspaceWatcherRecord, operation: () => Promise<void>): Promise<void> {
+    const update = record.updateQueue.then(operation);
+    record.updateQueue = update.catch(() => {});
+    return update;
+  }
+
+  async updateExactWatchSubscription(
+    record: ExactWorkspaceWatcherRecord,
+    subscriber: WorkspaceFileSubscriber,
+    targets: ReadonlyMap<string, string>,
+  ): Promise<void> {
+    await this.enqueueExactWatchUpdate(record, async () => {
+      if (this.exactWatchers.get(record.root) !== record || !record.watcher) {
+        throw new WorkspaceFileError('workspace file watcher is no longer active', 409);
+      }
+      const previousPaths = record.subscribers.get(subscriber) ?? new Set<string>();
+      const added = new Map(Array.from(targets).filter(([relativePath, target]) => (
+        !previousPaths.has(relativePath) || record.pathTargets.get(relativePath) !== target
+      )));
+      const removedPaths = Array.from(previousPaths).filter(relativePath => (
+        !targets.has(relativePath) || record.pathTargets.get(relativePath) !== targets.get(relativePath)
+      ));
+      const finalTargetPaths = new Map(Array.from(record.targetPaths, ([target, paths]) => [target, new Set(paths)]));
+      removedPaths.forEach(relativePath => {
+        if (record.pathSubscribers.get(relativePath)?.size !== 1) return;
+        const target = record.pathTargets.get(relativePath);
+        if (!target) return;
+        const paths = finalTargetPaths.get(target);
+        paths?.delete(relativePath);
+        if (paths?.size === 0) finalTargetPaths.delete(target);
+      });
+      added.forEach((target, relativePath) => {
+        const paths = finalTargetPaths.get(target) ?? new Set<string>();
+        paths.add(relativePath);
+        finalTargetPaths.set(target, paths);
+      });
+      if (finalTargetPaths.size > MAX_EXACT_WATCH_TARGETS_PER_WORKSPACE) {
+        throw new WorkspaceFileError(
+          `workspace file auto-refresh is limited to ${MAX_EXACT_WATCH_TARGETS_PER_WORKSPACE} open files`,
+          413,
+        );
+      }
+      const addedTargets = this.attachExactWatchPaths(record, subscriber, added);
+      try {
+        if (addedTargets.length > 0) {
+          record.watcher.add(addedTargets);
+          await waitForWatcherTargets(record.watcher, addedTargets);
+        }
+      } catch (error: unknown) {
+        const rollbackTargets = this.detachExactWatchPaths(record, subscriber, added.keys());
+        if (rollbackTargets.length > 0) await record.watcher.unwatch(rollbackTargets);
+        throw error;
+      }
+      const removedTargets = this.detachExactWatchPaths(record, subscriber, removedPaths);
+      record.subscribers.set(subscriber, new Set(targets.keys()));
+      if (removedTargets.length > 0) await record.watcher.unwatch(removedTargets);
+    });
+  }
+
+  async subscribeExactFiles(
+    root: string,
+    filePaths: readonly string[],
+    callback: WorkspaceFileSubscriber,
+  ): Promise<ExactWorkspaceFileSubscription> {
+    if (this.disposed) throw new WorkspaceFileError('workspace file watcher is unavailable', 503);
+    const lifecycleGeneration = this.watcherLifecycleGeneration;
+    const normalizedPaths = this.normalizeExactWatchPaths(filePaths);
+    let record = this.exactWatchers.get(root);
+    const observedRecord = record;
+    const retainedTargets = new Map<string, string>();
+    if (record) {
+      normalizedPaths.forEach(relativePath => {
+        const target = record?.pathTargets.get(relativePath);
+        if (target) retainedTargets.set(relativePath, target);
+      });
+    }
+    const unresolvedPaths = normalizedPaths.filter(relativePath => !retainedTargets.has(relativePath));
+    const targets = new Map([
+      ...retainedTargets,
+      ...(unresolvedPaths.length > 0
+        ? await this.resolveExactWatchTargets(root, unresolvedPaths)
+        : new Map<string, string>()),
+    ]);
+    if (this.disposed || this.watcherLifecycleGeneration !== lifecycleGeneration) {
+      throw new WorkspaceFileError('workspace file watcher is unavailable', 503);
+    }
+    if (this.exactWatchers.get(root) !== observedRecord) {
+      return await this.subscribeExactFiles(root, filePaths, callback);
+    }
+    let initialSubscriber = false;
+    if (!record) {
+      initialSubscriber = true;
+      record = {
+        closePromise: null,
+        pathSubscribers: new Map(),
+        pathTargets: new Map(),
+        ready: Promise.resolve(false),
+        root,
+        subscribers: new Map([[callback, new Set(targets.keys())]]),
+        targetPaths: new Map(),
+        updateQueue: Promise.resolve(),
+        watcher: null,
+      };
+      this.attachExactWatchPaths(record, callback, targets);
+      this.exactWatchers.set(root, record);
+      const initializingRecord = record;
+      record.ready = (async () => {
+        const chokidar = await loadChokidar();
+        if (this.exactWatchers.get(root) !== initializingRecord) return false;
+        const watcher = chokidar.watch(Array.from(initializingRecord.targetPaths.keys()), {
+          ignoreInitial: true,
+          ...this.watchOptions,
+          depth: 0,
+          followSymlinks: false,
+        });
+        initializingRecord.watcher = watcher;
+        const emit = (eventType: string, absolutePath: unknown) => {
+          const watchedPaths = initializingRecord.targetPaths.get(path.resolve(String(absolutePath)));
+          if (!watchedPaths) return;
+          this.invalidateGitStatus(root);
+          watchedPaths.forEach(relativePath => {
+            initializingRecord.pathSubscribers.get(relativePath)?.forEach(subscriber => subscriber({
+              type: eventType,
+              path: relativePath,
+            }));
+          });
+        };
+        ['add', 'change', 'unlink'].forEach(eventType => {
+          watcher.on(eventType, (filePath: unknown) => emit(eventType, filePath));
+        });
+        watcher.on('error', (caught: unknown) => {
+          const error = processError(caught);
+          initializingRecord.subscribers.forEach((_, subscriber) => subscriber({
+            type: 'error',
+            message: error.message,
+          }));
+        });
+        await waitForWatcherReady(watcher);
+        return this.exactWatchers.get(root) === initializingRecord;
+      })();
+    }
+    try {
+      const initialized = await record.ready;
+      if (!initialized) throw new WorkspaceFileError('workspace file watcher is no longer active', 409);
+      if (!initialSubscriber) {
+        await this.updateExactWatchSubscription(record, callback, targets);
+      }
+    } catch (error: unknown) {
+      if (initialSubscriber && this.exactWatchers.get(root) === record) {
+        this.exactWatchers.delete(root);
+        if (record.watcher) await record.watcher.close();
+      }
+      if (!initialSubscriber && this.exactWatchers.get(root) !== record) {
+        return await this.subscribeExactFiles(root, filePaths, callback);
+      }
+      throw error;
+    }
+
+    const subscriptionRecord = record;
+    let closed = false;
+    return {
+      update: async paths => {
+        if (closed) return;
+        const normalizedPaths = this.normalizeExactWatchPaths(paths);
+        const normalizedPathSet = new Set(normalizedPaths);
+        const previousPaths = subscriptionRecord.subscribers.get(callback) ?? new Set<string>();
+        const retainedTargets = new Map(Array.from(previousPaths)
+          .filter(relativePath => normalizedPathSet.has(relativePath))
+          .map(relativePath => [relativePath, subscriptionRecord.pathTargets.get(relativePath)] as const)
+          .filter((entry): entry is [string, string] => Boolean(entry[1])));
+        const addedPaths = normalizedPaths.filter(relativePath => !retainedTargets.has(relativePath));
+        const addedTargets = addedPaths.length > 0
+          ? await this.resolveExactWatchTargets(root, addedPaths)
+          : new Map<string, string>();
+        const nextTargets = new Map([
+          ...retainedTargets,
+          ...addedTargets,
+        ]);
+        await this.updateExactWatchSubscription(subscriptionRecord, callback, nextTargets);
+      },
+      close: async () => {
+        if (closed) return;
+        closed = true;
+        await subscriptionRecord.ready.catch(() => false);
+        await this.enqueueExactWatchUpdate(subscriptionRecord, async () => {
+          const paths = subscriptionRecord.subscribers.get(callback) ?? new Set<string>();
+          subscriptionRecord.subscribers.delete(callback);
+          const removedTargets = this.detachExactWatchPaths(subscriptionRecord, callback, paths);
+          if (subscriptionRecord.watcher && removedTargets.length > 0) {
+            await subscriptionRecord.watcher.unwatch(removedTargets);
+          }
+          if (subscriptionRecord.subscribers.size > 0) return;
+          if (this.exactWatchers.get(root) === subscriptionRecord) this.exactWatchers.delete(root);
+          if (subscriptionRecord.watcher && !subscriptionRecord.closePromise) {
+            subscriptionRecord.closePromise = Promise.resolve(subscriptionRecord.watcher.close()).then(() => {});
+          }
+          await subscriptionRecord.closePromise;
+        });
+      },
+    };
+  }
+
   async subscribe(
     workspaceRoot: unknown,
     callback: WorkspaceFileSubscriber,
@@ -3679,21 +4050,13 @@ class WorkspaceFileService {
     const lifecycleGeneration = this.watcherLifecycleGeneration;
     const root = await this.resolveRoot(workspaceRoot);
     if (this.disposed || this.watcherLifecycleGeneration !== lifecycleGeneration) return async () => {};
-    const watchRoot = root;
-    const normalizedPaths = filePaths
-      ? Array.from(new Set(filePaths.map(filePath => normalizeUserPath(filePath)))).sort()
-      : null;
-    if (normalizedPaths && (normalizedPaths.length === 0 || normalizedPaths.length > 256)) {
-      throw new WorkspaceFileError('between 1 and 256 file paths are required', 400);
+    if (filePaths) {
+      const subscription = await this.subscribeExactFiles(root, filePaths, callback);
+      return () => subscription.close();
     }
-    const watchTargets = normalizedPaths
-      ? await Promise.all(normalizedPaths.map(async filePath => (
-        await this.resolvePath(root, filePath, { allowMissing: true })
-      ).target))
-      : watchRoot;
-    const allowedPaths = normalizedPaths ? new Set(normalizedPaths) : null;
-    const watcherKey = normalizedPaths ? `${root}\0${JSON.stringify(normalizedPaths)}` : root;
-    let record = this.watchers.get(watcherKey);
+    const watchRoot = root;
+    const watcherKey = root;
+    let record = this.watchers.get(root);
 
     if (!record) {
       const subscribers = new Set<WorkspaceFileSubscriber>();
@@ -3702,7 +4065,7 @@ class WorkspaceFileService {
 
       const emit = (eventType: string, absolutePath: unknown) => {
         const relative = relativeFromRoot(watchRoot, String(absolutePath));
-        if (shouldHidePath(relative) || (allowedPaths && !allowedPaths.has(relative))) return;
+        if (shouldHidePath(relative)) return;
         this.invalidateGitStatus(root);
         subscribers.forEach((subscriber) => {
           subscriber({
@@ -3753,11 +4116,10 @@ class WorkspaceFileService {
           initializingRecord.cancelled
           || this.watchers.get(watcherKey)?.generation !== generation
         ) return false;
-        const watcher = chokidar.watch(watchTargets, {
+        const watcher = chokidar.watch(watchRoot, {
           ignoreInitial: true,
           depth: this.watchDepth,
           ...this.watchOptions,
-          ...(normalizedPaths ? { depth: 0 } : {}),
           ignored,
         });
         initializingRecord.watcher = watcher;
@@ -3827,11 +4189,19 @@ class WorkspaceFileService {
 
   async dispose() {
     const watchers = Array.from(this.watchers.values());
+    const exactWatchers = Array.from(this.exactWatchers.values());
     this.watchers.clear();
+    this.exactWatchers.clear();
     this.disposed = true;
     this.watcherLifecycleGeneration += 1;
     this.gitStatusCache.clear();
-    await Promise.all(watchers.map(record => this.closeWorkspaceWatcherRecord(record)));
+    await Promise.all([
+      ...watchers.map(record => this.closeWorkspaceWatcherRecord(record)),
+      ...exactWatchers.map(async record => {
+        await record.ready.catch(() => false);
+        if (record.watcher) await record.watcher.close();
+      }),
+    ]);
     if (this.ownsCommandRunner) {
       this.commandRunner.dispose();
     }

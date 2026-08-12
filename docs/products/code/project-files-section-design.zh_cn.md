@@ -64,9 +64,12 @@ Revision 完成时，不能把更新 Draft 错误标成 Clean。Unsaved Draft �
 恢复，但不能成为第二套文件系统权威。
 
 已打开文件只监听其精确的 Workspace Relative Path，并由文件系统事件触发权威重读；打开文件
-不能引入递归 Project Watcher。Clean Working Copy 自动采用最新磁盘内容，使 Source 与所有
-Viewer 一起刷新；Dirty Working Copy 保留 Draft，并进入明确的 External Change Conflict。
-事件突发需要合并，迟到读取不能覆盖更新的已接受 Baseline。
+不能引入递归 Project Watcher。精确路径在每个 Workspace 内共享一个增量更新的 Watcher，重读
+使用有界并发和超时。Clean Working Copy 自动采用最新磁盘内容，使 Source 与所有 Viewer 一起
+刷新；Dirty Working Copy 保留 Draft，并进入明确的 External Change Conflict。事件突发需要
+合并，迟到读取不能覆盖更新的已接受 Baseline。Markdown、HTML 或 SVG 引用的资源，以及
+External 或 Symbolic-link 文件不会加入监听集合；这些文件和 Preview Dependency 由显式
+Reload 操作刷新。
 
 Save、Create、Rename、Move 与 Delete 都校验精确 Workspace 和预期 Object/Content Version。
 发生冲突时保留用户 Draft，并展示 Reload 或 Overwrite 选择，不能静默覆盖外部变化。

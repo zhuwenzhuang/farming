@@ -80,10 +80,14 @@ second filesystem authority.
 
 Open files watch only their exact workspace-relative paths and use filesystem
 events to trigger an authoritative re-read. Opening files must not introduce a
-recursive Project watcher. A clean working copy adopts the new disk content so
-source and every Viewer refresh together. A dirty working copy preserves its
-draft and becomes an explicit external-change conflict. Event bursts are
-coalesced, and a stale read cannot replace a newer accepted baseline.
+recursive Project watcher. Exact paths share one incrementally updated watcher
+per workspace, while re-reads use bounded concurrency and timeouts. A clean
+working copy adopts the new disk content so source and every Viewer refresh
+together. A dirty working copy preserves its draft and becomes an explicit
+external-change conflict. Event bursts are coalesced, and a stale read cannot
+replace a newer accepted baseline. Resources referenced by Markdown, HTML, or
+SVG, as well as external or symbolic-link files, are not added to the watch
+set; the explicit reload action refreshes those files or preview dependencies.
 
 Save, create, rename, move, and delete validate the exact workspace and expected
 object or content version. Conflicts preserve the user's draft and present

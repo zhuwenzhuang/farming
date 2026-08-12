@@ -377,7 +377,12 @@ interface CodeWorkspaceProps {
     options?: { awaitResult?: boolean; requestId?: string; delivery?: 'prompt' | 'steer' },
   ) => boolean | Promise<boolean>
   onSessionOutput: (agentId: string, handler: (data: string, replace?: boolean, outputSeq?: number | null, runtimeEpoch?: string, stateRevision?: number | null, cols?: number, rows?: number, kind?: 'output' | 'resize' | 'clear') => void) => () => void
-  onWatchWorkspaceFiles: (agentId: string, paths: readonly string[], handler: (event: WorkspaceFileEventMessage['event']) => void) => () => void
+  onWatchWorkspaceFiles: (
+    agentId: string,
+    paths: readonly string[],
+    handler: (event: WorkspaceFileEventMessage['event']) => void,
+    onReady?: (paths: readonly string[]) => void,
+  ) => { update(paths: readonly string[]): void; close(): void }
   onBrowserResource: (resource: BrowserResource) => void
   onBrowserResourceDeletion: (deletion: BrowserResourceDeletion) => void
   onComputerResource: (resource: ComputerResource) => void
@@ -599,7 +604,11 @@ export function CodeWorkspace({
   const openWorkspaceFileWatchTargets = useMemo(() => {
     const pathsByRoot = new Map<string, Set<string>>()
     openWorkspaceFiles.forEach(file => {
-      if (isGlobalWorkspaceFilesAgentId(file.agentId)) return
+      if (
+        isGlobalWorkspaceFilesAgentId(file.agentId)
+        || file.file.external
+        || file.file.symbolicLink
+      ) return
       const paths = pathsByRoot.get(file.agentId) ?? new Set<string>()
       paths.add(file.file.path)
       pathsByRoot.set(file.agentId, paths)
@@ -609,16 +618,47 @@ export function CodeWorkspace({
       .sort(([left], [right]) => left.localeCompare(right)))
   }, [openWorkspaceFiles])
   const scheduleOpenFileRefresh = workspaceOpenFiles.scheduleOpenFileRefresh
+  const setOpenFileWatchError = workspaceOpenFiles.setWatchError
+  const workspaceFileWatchRegistrationsRef = useRef(new Map<string, {
+    pathsKey: string
+    registration: { update(paths: readonly string[]): void; close(): void }
+  }>())
 
   useEffect(() => {
     const targets = JSON.parse(openWorkspaceFileWatchTargets) as Array<[string, string[]]>
-    const unsubscribe = targets.map(([rootId, paths]) => onWatchWorkspaceFiles(rootId, paths, event => {
-      if ((event.type === 'change' || event.type === 'add' || event.type === 'unlink') && event.path) {
-        scheduleOpenFileRefresh(rootId, event.path)
+    const desiredRoots = new Set(targets.map(([rootId]) => rootId))
+    targets.forEach(([rootId, paths]) => {
+      const pathsKey = JSON.stringify(paths)
+      const existing = workspaceFileWatchRegistrationsRef.current.get(rootId)
+      if (existing) {
+        if (existing.pathsKey !== pathsKey) {
+          existing.pathsKey = pathsKey
+          existing.registration.update(paths)
+        }
+        return
       }
-    }))
-    return () => unsubscribe.forEach(stopWatching => stopWatching())
-  }, [onWatchWorkspaceFiles, openWorkspaceFileWatchTargets, scheduleOpenFileRefresh])
+      const registration = onWatchWorkspaceFiles(rootId, paths, event => {
+        if (event.type === 'error') {
+          setOpenFileWatchError(rootId, event.message || 'File auto-refresh stopped')
+          return
+        }
+        if ((event.type === 'change' || event.type === 'add' || event.type === 'unlink') && event.path) {
+          scheduleOpenFileRefresh(rootId, event.path)
+        }
+      }, readyPaths => readyPaths.forEach(filePath => scheduleOpenFileRefresh(rootId, filePath)))
+      workspaceFileWatchRegistrationsRef.current.set(rootId, { pathsKey, registration })
+    })
+    workspaceFileWatchRegistrationsRef.current.forEach((entry, rootId) => {
+      if (desiredRoots.has(rootId)) return
+      entry.registration.close()
+      workspaceFileWatchRegistrationsRef.current.delete(rootId)
+    })
+  }, [onWatchWorkspaceFiles, openWorkspaceFileWatchTargets, scheduleOpenFileRefresh, setOpenFileWatchError])
+
+  useEffect(() => () => {
+    workspaceFileWatchRegistrationsRef.current.forEach(entry => entry.registration.close())
+    workspaceFileWatchRegistrationsRef.current.clear()
+  }, [])
   const activeBrowserResource = activeBrowserId
     ? browserResources.resources.find(resource => resource.id === activeBrowserId) ?? null
     : null

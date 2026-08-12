@@ -10,6 +10,7 @@ interface FileEditorPreviewPanelProps {
   activeTabDomId: string
   copy: CodeCopy
   sourcePreviewOpen?: boolean
+  previewRefreshRevision?: number
 }
 
 export function FileEditorPreviewPanel({
@@ -17,6 +18,7 @@ export function FileEditorPreviewPanel({
   activeTabDomId,
   copy,
   sourcePreviewOpen,
+  previewRefreshRevision = 0,
 }: FileEditorPreviewPanelProps) {
   const filePreview = openFile.file.preview ?? null
   const sourceImagePreview = sourcePreviewOpen && isWorkspaceSvgFile(openFile.file.path)
@@ -32,6 +34,7 @@ export function FileEditorPreviewPanel({
         activeTabDomId={activeTabDomId}
         copy={copy}
         openFile={openFile}
+        previewRefreshRevision={previewRefreshRevision}
       />
     )
   }
@@ -49,7 +52,7 @@ export function FileEditorPreviewPanel({
           <img
             className="code-file-image-preview"
             data-testid="code-file-image-preview"
-            src={rawWorkspaceFileUrl(openFile.agentId, openFile.file.path, openFile.file.sha1, { exactExternal: openFile.exactExternal })}
+            src={`${rawWorkspaceFileUrl(openFile.agentId, openFile.file.path, openFile.file.sha1, { exactExternal: openFile.exactExternal })}&previewRefresh=${previewRefreshRevision}`}
             alt={basename(openFile.file.path)}
             draggable={false}
           />
@@ -70,7 +73,7 @@ export function FileEditorPreviewPanel({
         <iframe
           className="code-file-pdf-preview"
           data-testid="code-file-pdf-preview"
-          src={rawWorkspaceFileUrl(openFile.agentId, openFile.file.path, openFile.file.sha1, { exactExternal: openFile.exactExternal })}
+          src={`${rawWorkspaceFileUrl(openFile.agentId, openFile.file.path, openFile.file.sha1, { exactExternal: openFile.exactExternal })}&previewRefresh=${previewRefreshRevision}`}
           title={copy.previewFor(openFile.file.path)}
         />
       </section>

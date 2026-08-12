@@ -6,7 +6,7 @@ export type WorkspaceWorkingCopyChangeIndicator = 'dirty' | 'external'
 export interface WorkspaceFileReference {
   agentId: string
   workspaceRoot?: string
-  file: Pick<WorkspaceFile, 'path' | 'preview'>
+  file: Pick<WorkspaceFile, 'external' | 'path' | 'preview' | 'symbolicLink'>
 }
 
 export interface WorkspaceWorkingCopyReference extends WorkspaceFileReference {
@@ -99,7 +99,10 @@ export function shouldPromptBeforeClosingWorkspaceWorkingCopy(file: WorkspaceWor
 }
 
 export function shouldShowWorkspaceWorkingCopyReloadAction(file: WorkspaceWorkingCopyReference) {
-  return file.externalChanged || Boolean(file.error)
+  return file.externalChanged
+    || Boolean(file.error)
+    || Boolean(file.file.external)
+    || Boolean(file.file.symbolicLink)
 }
 
 export function shouldShowWorkspaceWorkingCopySaveAction(file: WorkspaceWorkingCopyReference) {

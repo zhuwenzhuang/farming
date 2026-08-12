@@ -37,6 +37,7 @@ import {
 const OPEN_FILE_REFRESH_CONCURRENCY = 4
 const OPEN_FILE_REFRESH_TIMEOUT_MS = 15_000
 const OPEN_FILE_AUTO_REFRESH_DELAY_MS = 75
+const OPEN_FILE_AUTO_REFRESH_CONCURRENCY = 4
 
 function openFileAutoRefreshKey(rootId: string, filePath: string) {
   return JSON.stringify([rootId, filePath])
@@ -101,6 +102,11 @@ export function useWorkspaceOpenFiles() {
   const draftBackupWriteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const autoRefreshTimersRef = useRef(new Map<string, number>())
   const autoRefreshControllersRef = useRef(new Map<string, AbortController>())
+  const autoRefreshQueueRef = useRef(new Map<string, { filePath: string; rootId: string }>())
+  const autoRefreshActiveKeysRef = useRef(new Set<string>())
+  const autoRefreshActiveRef = useRef(0)
+  const autoRefreshDisposedRef = useRef(false)
+  const pumpAutoRefreshRef = useRef<() => void>(() => {})
   if (draftBackupsRef.current === null) {
     const storage = browserDraftBackupStorage()
     draftBackupsRef.current = storage ? loadWorkspaceDraftBackups(storage) : new Map()
@@ -226,6 +232,11 @@ export function useWorkspaceOpenFiles() {
     const controller = new AbortController()
     autoRefreshControllersRef.current.set(requestKey, controller)
     const requestedBaseSha1 = requestedFile.file.sha1
+    let timedOut = false
+    const timeout = window.setTimeout(() => {
+      timedOut = true
+      controller.abort()
+    }, OPEN_FILE_REFRESH_TIMEOUT_MS)
 
     try {
       const file = await fetchWorkspaceFile(rootId, filePath, {
@@ -243,21 +254,50 @@ export function useWorkspaceOpenFiles() {
         refreshOpenWorkspaceFileFromRead(currentFile, file),
       ))
     } catch (error) {
-      if (controller.signal.aborted || autoRefreshControllersRef.current.get(requestKey) !== controller) return
+      if (autoRefreshControllersRef.current.get(requestKey) !== controller) return
       const currentFile = stateRef.current.files.find(openFile => (
         openFile.agentId === rootId && openFile.file.path === filePath
       ))
       if (!currentFile) return
+      if (controller.signal.aborted && !timedOut) return
       commitState(updateWorkspaceOpenFile(stateRef.current, {
         ...currentFile,
-        error: error instanceof Error ? error.message : 'Failed to refresh changed file',
+        error: timedOut
+          ? 'Timed out while refreshing changed file'
+          : error instanceof Error ? error.message : 'Failed to refresh changed file',
       }))
     } finally {
+      window.clearTimeout(timeout)
       if (autoRefreshControllersRef.current.get(requestKey) === controller) {
         autoRefreshControllersRef.current.delete(requestKey)
       }
     }
   }, [commitState])
+
+  pumpAutoRefreshRef.current = () => {
+    if (autoRefreshDisposedRef.current) return
+    while (
+      autoRefreshActiveRef.current < OPEN_FILE_AUTO_REFRESH_CONCURRENCY
+      && autoRefreshQueueRef.current.size > 0
+    ) {
+      const next = Array.from(autoRefreshQueueRef.current.entries()).find(([requestKey]) => (
+        !autoRefreshActiveKeysRef.current.has(requestKey)
+      )) as [
+        string,
+        { filePath: string; rootId: string },
+      ] | undefined
+      if (!next) return
+      const [requestKey, target] = next
+      autoRefreshQueueRef.current.delete(requestKey)
+      autoRefreshActiveKeysRef.current.add(requestKey)
+      autoRefreshActiveRef.current += 1
+      void refreshOpenFileFromDisk(target.rootId, target.filePath).finally(() => {
+        autoRefreshActiveKeysRef.current.delete(requestKey)
+        autoRefreshActiveRef.current -= 1
+        pumpAutoRefreshRef.current()
+      })
+    }
+  }
 
   const scheduleOpenFileRefresh = useCallback((rootId: string, filePath: string) => {
     if (!stateRef.current.files.some(openFile => (
@@ -268,9 +308,27 @@ export function useWorkspaceOpenFiles() {
     if (pendingTimer !== undefined) window.clearTimeout(pendingTimer)
     autoRefreshTimersRef.current.set(requestKey, window.setTimeout(() => {
       autoRefreshTimersRef.current.delete(requestKey)
-      void refreshOpenFileFromDisk(rootId, filePath)
+      autoRefreshQueueRef.current.set(requestKey, { filePath, rootId })
+      pumpAutoRefreshRef.current()
     }, OPEN_FILE_AUTO_REFRESH_DELAY_MS))
-  }, [refreshOpenFileFromDisk])
+  }, [])
+
+  const setWatchError = useCallback((rootId: string, message: string) => {
+    let changed = false
+    const files = stateRef.current.files.map(openFile => {
+      if (openFile.agentId !== rootId || openFile.error === message) return openFile
+      changed = true
+      return { ...openFile, error: message }
+    })
+    if (!changed) return
+    commitState({
+      ...stateRef.current,
+      files,
+      activeFile: stateRef.current.activeFile?.agentId === rootId
+        ? files.find(file => workspaceOpenFileKey(file) === workspaceOpenFileKey(stateRef.current.activeFile!)) ?? stateRef.current.activeFile
+        : stateRef.current.activeFile,
+    })
+  }, [commitState])
 
   const updateDraft = useCallback((nextDraft: string) => {
     const activeFile = stateRef.current.activeFile
@@ -314,11 +372,21 @@ export function useWorkspaceOpenFiles() {
     }
   }, [flushDraftBackups])
 
-  useEffect(() => () => {
-    autoRefreshTimersRef.current.forEach(timer => window.clearTimeout(timer))
-    autoRefreshTimersRef.current.clear()
-    autoRefreshControllersRef.current.forEach(controller => controller.abort())
-    autoRefreshControllersRef.current.clear()
+  useEffect(() => {
+    autoRefreshDisposedRef.current = false
+    const timers = autoRefreshTimersRef.current
+    const queue = autoRefreshQueueRef.current
+    const controllers = autoRefreshControllersRef.current
+    const activeKeys = autoRefreshActiveKeysRef.current
+    return () => {
+      autoRefreshDisposedRef.current = true
+      timers.forEach(timer => window.clearTimeout(timer))
+      timers.clear()
+      queue.clear()
+      activeKeys.clear()
+      controllers.forEach(controller => controller.abort())
+      controllers.clear()
+    }
   }, [])
 
   return useMemo(() => ({
@@ -333,9 +401,10 @@ export function useWorkspaceOpenFiles() {
     refreshFromReads,
     refreshProject,
     scheduleOpenFileRefresh,
+    setWatchError,
     updateDraft,
     reorder,
     move,
     deleteEntries,
-  }), [closedFiles, close, deleteEntries, move, openFromRead, refreshFromReads, refreshProject, reorder, reopenLastClosed, scheduleOpenFileRefresh, select, state.activeFile, state.files, update, updateDraft])
+  }), [closedFiles, close, deleteEntries, move, openFromRead, refreshFromReads, refreshProject, reorder, reopenLastClosed, scheduleOpenFileRefresh, select, setWatchError, state.activeFile, state.files, update, updateDraft])
 }

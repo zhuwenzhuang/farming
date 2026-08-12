@@ -752,9 +752,19 @@ function run() {
 	    showMarkdownPreview: true,
 	    showSourcePreview: false,
 	    showWordWrap: true,
-	    showReload: false,
+	    showReload: true,
 	    showOverwrite: false,
 	  });
+	  assert.strictEqual(workspaceEditorActionState(
+	    workingCopy({ file: workspaceFile('link.txt', { symbolicLink: true }) }),
+	    workspaceEditorFileMode(workingCopy({ file: workspaceFile('link.txt', { symbolicLink: true }) })),
+	    { statusText: null, showBreadcrumbs: true }
+	  ).showReload, true);
+	  assert.strictEqual(workspaceEditorActionState(
+	    workingCopy({ file: workspaceFile('external.txt', { external: true }) }),
+	    workspaceEditorFileMode(workingCopy({ file: workspaceFile('external.txt', { external: true }) })),
+	    { statusText: null, showBreadcrumbs: true }
+	  ).showReload, true);
 	  assert.deepStrictEqual(workspaceEditorActionState(
 	    workingCopy(),
 	    workspaceEditorFileMode(workingCopy()),
@@ -767,7 +777,7 @@ function run() {
 	    showMarkdownPreview: false,
 	    showSourcePreview: true,
 	    showWordWrap: true,
-	    showReload: false,
+	    showReload: true,
 	    showOverwrite: false,
 	  });
 	  assert.strictEqual(workspaceEditorStatusKind(workingCopy()), null);
