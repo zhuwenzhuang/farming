@@ -16,7 +16,7 @@ const FILE_OPEN_PENDING_DELAY_MS = 220
 interface UseWorkspaceFileOpenControllerOptions {
   agentId: string | null
   onClearSearch: () => void
-  onOpenFile: (agentId: string, file: WorkspaceFile, target?: WorkspaceFileOpenTarget) => void
+  onOpenFile: (agentId: string, file: WorkspaceFile, target?: WorkspaceFileOpenTarget) => void | Promise<void>
   onSelectOpenFile?: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
 }
 
@@ -81,13 +81,15 @@ export function useWorkspaceFileOpenController({
       const file = await fetchWorkspaceFile(requestAgentId, filePath)
       if (!lease.isCurrent()) return
       clearOpenFilePending()
-      onOpenFile(requestAgentId, file, target)
+      await onOpenFile(requestAgentId, file, target)
+      if (!lease.isCurrent()) return
       onClearSearch()
     } catch (error) {
       if (!lease.isCurrent()) return
       clearOpenFilePending()
       if (target && error instanceof WorkspaceFileApiError && error.status === 404 && shouldOpenMissingWorkspaceFileAsDiff(target)) {
-        onOpenFile(requestAgentId, deletedWorkspaceDiffPlaceholderFile(filePath, target), target)
+        await onOpenFile(requestAgentId, deletedWorkspaceDiffPlaceholderFile(filePath, target), target)
+        if (!lease.isCurrent()) return
         onClearSearch()
         return
       }

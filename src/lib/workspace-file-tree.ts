@@ -77,9 +77,14 @@ export function visibleWorkspaceDirectoryPathsToOpenForTarget(
   openTargetDirectory = false
 ): string[] {
   const pathsToOpen = visibleWorkspaceDirectoryPathsForTarget(nodes, targetPath)
+  const visibleTargetPath = findVisibleWorkspaceTreePath(nodes, targetPath) ?? targetPath
   if (openTargetDirectory) {
-    const visibleTargetPath = findVisibleWorkspaceTreePath(nodes, targetPath) ?? targetPath
     if (visibleTargetPath) pathsToOpen.push(visibleTargetPath)
+  } else {
+    const targetNode = findWorkspaceFileTreeNode(nodes, targetPath)
+    if (targetNode?.type === 'directory') {
+      return Array.from(new Set(pathsToOpen.filter(path => path && path !== visibleTargetPath)))
+    }
   }
   return Array.from(new Set(pathsToOpen.filter(Boolean)))
 }

@@ -64,7 +64,7 @@ interface UseWorkspaceFileOperationControllerOptions {
   focusFileTreePath: (filePath: string | null) => void
   onDeleteEntries: (agentId: string, deletions: WorkspaceFileDeleteResult[]) => void
   onMoveEntries: (agentId: string, moves: WorkspaceFileMove[]) => void
-  onOpenFile: (agentId: string, file: WorkspaceFile) => void
+  onOpenFile: (agentId: string, file: WorkspaceFile) => void | Promise<void>
   onWorkspaceChange?: () => void
   refreshDirectories: (directoryPaths: Array<string | null | undefined>) => void
   setOpenFileError: (error: string | null) => void
@@ -175,7 +175,11 @@ export function useWorkspaceFileOperationController({
       : { ...ownedOperation.operation, name: fileOperationNameRef.current }
     const name = workspaceFileOperationSubmitName(operation)
     if (operation.kind !== 'delete' && !name) return
-    ownedOperation.operation = { ...operation, submitting: true }
+    const submittedOperation = operation.kind === 'delete'
+      ? operation
+      : { ...operation, name }
+    fileOperationNameRef.current = name
+    ownedOperation.operation = { ...submittedOperation, submitting: true }
     ownedOperation.submitted = true
     setFileOperation(current => isCurrentFileOperation(ownedOperation)
       ? ownedOperation.operation
@@ -199,7 +203,7 @@ export function useWorkspaceFileOperationController({
             focusFileTreePath(created.entry.path)
           }
           if (created.file) {
-            onOpenFile(ownedOperation.rootId, created.file)
+            await onOpenFile(ownedOperation.rootId, created.file)
           }
           clearFileOperationIfCurrent(ownedOperation)
         }
@@ -273,7 +277,7 @@ export function useWorkspaceFileOperationController({
                   { signal },
                 ))
                 if (isCurrentFileOperation(ownedOperation)) {
-                  onOpenFile(ownedOperation.rootId, createdFile)
+                  await onOpenFile(ownedOperation.rootId, createdFile)
                 }
               } catch {
                 // Creation is already proven; a later click can retry opening the file.

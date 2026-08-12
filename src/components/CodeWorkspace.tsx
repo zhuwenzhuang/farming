@@ -713,6 +713,7 @@ export function CodeWorkspace({
   const manuallyUnreadActiveAgentIdRef = useRef<string | null>(null)
   const workspaceFileRevealRequestRef = useRef(0)
   const workspaceFileSearchFocusRequestRef = useRef(0)
+  const workspaceFileOpenRequestRef = useRef(new LatestRequestFence())
   const terminalPathOpenRequestRef = useRef(new LatestRequestFence())
   const mobileShareRequestFenceRef = useRef(new LatestRequestFence())
   const directShareRequestFenceRef = useRef(new LatestRequestFence())
@@ -2662,6 +2663,7 @@ export function CodeWorkspace({
   }, [activeAgent, agents, computerReturnAgentId, openTerminalFromWorkspace, setMainPaneMode])
 
   const openTerminalFromSidebar = useCallback((agentId: string) => {
+    workspaceFileOpenRequestRef.current.invalidate()
     if (!resumeColdAgentFromUserActivation(agentId)) {
       openTerminalFromWorkspace(agentId)
     }
@@ -2669,16 +2671,19 @@ export function CodeWorkspace({
   }, [closeSidebarForMobile, openTerminalFromWorkspace, resumeColdAgentFromUserActivation])
 
   const openProjectFile = useCallback(async (agentId: string, file: OpenWorkspaceFile['file'], target?: WorkspaceFileOpenTarget) => {
+    const requestLease = workspaceFileOpenRequestRef.current.begin()
     let identity = resolveWorkspaceFileIdentity(agentId, target?.sourceAgentId)
     let projectWorkspace = projectWorkspaceFromFilesId(identity.filesId)
     if (identity.workspaceRoot) {
       try {
         const mountedWorkspace = await mountProject(identity.workspaceRoot)
+        if (!requestLease.isCurrent()) return
         if (mountedWorkspace && mountedWorkspace !== identity.workspaceRoot) {
           identity = resolveWorkspaceFileIdentity(projectFilesWorkspaceId(mountedWorkspace), target?.sourceAgentId)
           projectWorkspace = projectWorkspaceFromFilesId(identity.filesId)
         }
       } catch (error) {
+        if (!requestLease.isCurrent()) return
         setCopyNotice({
           id: Date.now(),
           kind: 'error',
@@ -2916,6 +2921,7 @@ export function CodeWorkspace({
   }, [focusWorkspaceFilesSearch, openProjectFile, resolveWorkspaceFileIdentity, revealWorkspaceFileInExplorer, setCopyNotice])
 
   const selectOpenWorkspaceFile = useCallback((agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => {
+    workspaceFileOpenRequestRef.current.invalidate()
     const identity = resolveWorkspaceFileIdentity(agentId, target?.sourceAgentId)
     const projectWorkspace = projectWorkspaceFromFilesId(identity.filesId)
     if (projectWorkspace || identity.sourceAgent) {
@@ -3276,6 +3282,7 @@ export function CodeWorkspace({
   }, [beginWorkspaceNavigation, finishWorkspaceNavigation, restoreWorkspaceNavigationEntry])
 
   const backToAgentFromFile = useCallback((agentId: string) => {
+    workspaceFileOpenRequestRef.current.invalidate()
     terminalPathOpenRequestRef.current.invalidate()
     setMainPaneMode('terminal')
     onWorkspaceViewChange('projects')
@@ -3284,6 +3291,7 @@ export function CodeWorkspace({
   }, [closeSidebarForMobile, onOpenTerminal, onWorkspaceViewChange, setMainPaneMode])
 
   const closeOpenWorkspaceFiles = useCallback((targets: WorkspaceOpenFileTarget[]) => {
+    workspaceFileOpenRequestRef.current.invalidate()
     const nextState = workspaceOpenFiles.close(targets)
     if (nextState.closedFiles.length === 0) return
     if (nextState.activeFileClosed) {

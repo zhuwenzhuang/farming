@@ -227,7 +227,7 @@ interface CodeSidebarProps {
   onOpenAgentMenu: (event: ContextMenuTriggerEvent, agentId: string) => void
   onResumeAgentSession: (provider: string, sessionId: string, providerHomeId?: string) => void
   onOpenAgentSessionMenu: (event: ContextMenuTriggerEvent, provider: string, sessionId: string) => void
-  onOpenProjectFile: (agentId: string, file: OpenWorkspaceFile['file'], target?: WorkspaceFileOpenTarget) => void
+  onOpenProjectFile: (agentId: string, file: OpenWorkspaceFile['file'], target?: WorkspaceFileOpenTarget) => void | Promise<void>
   onSelectOpenWorkspaceFile: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
   onCloseOpenWorkspaceFile: (agentId: string, filePath: string, workspaceRoot?: string) => void
   onMoveWorkspaceEntries: (agentId: string, moves: WorkspaceFileMove[]) => void
@@ -1481,7 +1481,7 @@ interface ProjectSectionProps {
   onOpenAgentSessionMenu: (event: ContextMenuTriggerEvent, provider: string, sessionId: string) => void
   onShowAgentPreview: (event: AgentPreviewAnchorEvent, target: AgentPreviewTarget, compact?: boolean) => void
   onHideAgentPreview: () => void
-  onOpenProjectFile: (agentId: string, file: OpenWorkspaceFile['file'], target?: WorkspaceFileOpenTarget) => void
+  onOpenProjectFile: (agentId: string, file: OpenWorkspaceFile['file'], target?: WorkspaceFileOpenTarget) => void | Promise<void>
   onSelectOpenWorkspaceFile: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
   onCloseOpenWorkspaceFile: (agentId: string, filePath: string, workspaceRoot?: string) => void
   onMoveWorkspaceEntries: (agentId: string, moves: WorkspaceFileMove[]) => void
@@ -1714,7 +1714,7 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
   }, [projectSourceAgent?.id])
 
   const openProjectWorkspaceFile = useCallback((filesId: string, file: OpenWorkspaceFile['file'], target?: WorkspaceFileOpenTarget) => {
-    onOpenProjectFile(filesId, file, withProjectSourceAgent(target))
+    return onOpenProjectFile(filesId, file, withProjectSourceAgent(target))
   }, [onOpenProjectFile, withProjectSourceAgent])
 
   const selectOpenProjectWorkspaceFile = useCallback((filesId: string, filePath: string, target?: WorkspaceFileOpenTarget) => (

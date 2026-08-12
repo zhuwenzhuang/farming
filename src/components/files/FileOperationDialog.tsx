@@ -43,6 +43,7 @@ export function FileOperationDialog({
         className="code-file-operation-dialog"
         data-testid="code-file-operation-dialog"
         role="dialog"
+        aria-modal={fileOperation.kind === 'delete' ? true : undefined}
         aria-busy={fileOperation.submitting}
         aria-labelledby="code-file-operation-title"
         autoComplete="off"
@@ -109,7 +110,7 @@ export function FileOperationDialog({
           />
         )}
         <div className="code-rename-actions">
-          <button type="button" onClick={onCancel}>{copy.cancel}</button>
+          <button type="button" autoFocus={fileOperation.kind === 'delete'} onClick={onCancel}>{copy.cancel}</button>
           <button
             type="submit"
             className={fileOperation.kind === 'delete' ? 'danger' : 'primary'}

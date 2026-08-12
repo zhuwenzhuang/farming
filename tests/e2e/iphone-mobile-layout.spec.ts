@@ -639,6 +639,105 @@ test.describe('iPhone mobile layout', () => {
     await expect(mobileShareSheet).toHaveCount(0)
   })
 
+  test('completes file creation, rename, and deletion through compact touch actions', async ({ page, workspaceRoot }, testInfo) => {
+    test.skip(testInfo.project.name !== 'iphone-webkit', 'Runs only in the iPhone WebKit project')
+    testInfo.setTimeout(120_000)
+    const projectDir = path.join(workspaceRoot, 'iphone-file-actions')
+    fs.mkdirSync(projectDir, { recursive: true })
+    fs.writeFileSync(path.join(projectDir, 'README.md'), '# Touch file operations\n')
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'maxTouchPoints', { value: 5, configurable: true })
+    })
+
+    await openFarming(page)
+    await createControlAgent(page, 'bash', projectDir)
+    page.setDefaultTimeout(10_000)
+    await page.getByTestId('code-mobile-menu').tap()
+    const project = page.getByTestId('code-project-group').filter({ hasText: 'iphone-file-actions' })
+    const files = project.getByTestId('code-files-section')
+    const filesToggle = files.getByRole('button', { name: /^Files$/ })
+    if (await filesToggle.getAttribute('aria-expanded') === 'false') await filesToggle.tap()
+
+    const readmeRow = files.locator('[data-testid="code-file-row"][data-file-path="README.md"]')
+    await readmeRow.getByRole('button', { name: /File actions for README\.md|README\.md 的文件操作/ }).tap()
+    const menu = page.getByTestId('code-file-context-menu')
+    await menu.getByRole('menuitem', { name: /New File|新建文件/ }).tap()
+    const createDialog = page.getByTestId('code-file-operation-dialog')
+    const createInput = createDialog.getByTestId('code-file-operation-input')
+    await createInput.fill('touch-created.txt')
+    await captureIphoneAudit(page, 'file-create-dialog.png')
+    await createDialog.getByRole('button', { name: /Save|保存/ }).tap()
+    await expect.poll(() => fs.existsSync(path.join(projectDir, 'touch-created.txt'))).toBe(true)
+    await expect(createDialog).toHaveCount(0)
+
+    await expect(page.getByTestId('code-mobile-back')).toBeVisible()
+    await page.getByTestId('code-mobile-back').tap()
+    const mobileMenu = page.getByTestId('code-mobile-menu')
+    await expect(mobileMenu).toBeVisible()
+    await expect(page.getByTestId('code-sidebar')).toHaveClass(/collapsed/)
+    await mobileMenu.click()
+    await expect(page.getByTestId('code-sidebar')).not.toHaveClass(/collapsed/)
+    const createdRow = files.locator('[data-testid="code-file-row"][data-file-path="touch-created.txt"]')
+    await expect(createdRow).toBeVisible()
+    await createdRow.getByRole('button', { name: /File actions for touch-created\.txt|touch-created\.txt 的文件操作/ }).tap()
+    await menu.getByRole('menuitem', { name: /Rename|重命名/ }).tap()
+    const renameInput = createdRow.getByTestId('code-file-operation-input')
+    await expect(renameInput).toBeFocused()
+    await renameInput.fill('touch-renamed.txt')
+    await captureIphoneAudit(page, 'file-rename-inline.png')
+    await renameInput.press('Enter')
+    const renamedRow = files.locator('[data-testid="code-file-row"][data-file-path="touch-renamed.txt"]')
+    await expect(renamedRow).toBeVisible()
+    expect(fs.existsSync(path.join(projectDir, 'touch-created.txt'))).toBe(false)
+    expect(fs.existsSync(path.join(projectDir, 'touch-renamed.txt'))).toBe(true)
+
+    await expect.poll(() => renamedRow.evaluate(element => {
+      const testWindow = window as Window & {
+        __farmingStableTouchRow?: { element: Element | null; samples: number }
+      }
+      const previous = testWindow.__farmingStableTouchRow
+      const samples = previous?.element === element ? previous.samples + 1 : 1
+      testWindow.__farmingStableTouchRow = { element, samples }
+      return samples
+    }), { message: 'renamed touch row should settle after the authoritative tree refresh' }).toBeGreaterThanOrEqual(3)
+    await renamedRow.getByRole('button', { name: /File actions for touch-renamed\.txt|touch-renamed\.txt 的文件操作/ }).tap({ timeout: 10_000 })
+    await menu.getByRole('menuitem', { name: /Delete|删除/ }).tap()
+    const deleteDialog = page.getByTestId('code-file-operation-dialog')
+    await expect(deleteDialog).toContainText('touch-renamed.txt')
+    await captureIphoneAudit(page, 'file-delete-confirmation.png')
+    await deleteDialog.getByRole('button', { name: /Delete|删除/ }).tap()
+    await expect(renamedRow).toHaveCount(0)
+    expect(fs.existsSync(path.join(projectDir, 'touch-renamed.txt'))).toBe(false)
+
+    await readmeRow.getByRole('button', { name: /File actions for README\.md|README\.md 的文件操作/ }).tap()
+    await menu.getByRole('menuitem', { name: /New Folder|新建文件夹/ }).tap()
+    const folderCreateDialog = page.getByTestId('code-file-operation-dialog')
+    await folderCreateDialog.getByTestId('code-file-operation-input').fill('touch-folder')
+    await folderCreateDialog.getByRole('button', { name: /Save|保存/ }).tap()
+    const folderRow = files.locator('[data-testid="code-file-row"][data-file-path="touch-folder"]')
+    await expect(folderRow).toBeVisible()
+    expect(fs.existsSync(path.join(projectDir, 'touch-folder'))).toBe(true)
+
+    await folderRow.getByRole('button', { name: /File actions for touch-folder|touch-folder 的文件操作/ }).tap()
+    await menu.getByRole('menuitem', { name: /Rename|重命名/ }).tap()
+    const folderRenameInput = folderRow.getByTestId('code-file-operation-input')
+    await expect(folderRenameInput).toBeFocused()
+    await folderRenameInput.fill('touch-folder-renamed')
+    await captureIphoneAudit(page, 'folder-rename-inline.png')
+    await folderRenameInput.press('Enter')
+    const renamedFolderRow = files.locator('[data-testid="code-file-row"][data-file-path="touch-folder-renamed"]')
+    await expect(renamedFolderRow).toBeVisible()
+    expect(fs.existsSync(path.join(projectDir, 'touch-folder'))).toBe(false)
+    expect(fs.existsSync(path.join(projectDir, 'touch-folder-renamed'))).toBe(true)
+
+    await renamedFolderRow.getByRole('button', { name: /File actions for touch-folder-renamed|touch-folder-renamed 的文件操作/ }).tap()
+    await menu.getByRole('menuitem', { name: /Delete|删除/ }).tap()
+    await expect(deleteDialog).toContainText('touch-folder-renamed')
+    await deleteDialog.getByRole('button', { name: /Delete|删除/ }).tap()
+    await expect(renamedFolderRow).toHaveCount(0)
+    expect(fs.existsSync(path.join(projectDir, 'touch-folder-renamed'))).toBe(false)
+  })
+
   test('keeps composer, mic, and terminal surfaces usable under iPhone WebKit emulation', async ({ page, workspaceRoot }, testInfo) => {
     test.skip(testInfo.project.name !== 'iphone-webkit', 'Runs only in the iPhone WebKit project')
 

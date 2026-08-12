@@ -1284,7 +1284,7 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
 }
 
 .code-file-operation-shell.delete-confirm .code-file-operation-dialog {
-  width: min(420px, calc(100vw - 36px));
+  width: min(420px, calc(100% - 36px));
   grid-template-columns: minmax(0, 1fr);
   gap: 10px;
   padding: 12px;

@@ -949,6 +949,7 @@ function run() {
   assert.strictEqual(findWorkspaceFileTreeNode(tree, 'src'), tree[0]);
   assert.strictEqual(findVisibleWorkspaceTreePath(tree, 'src'), 'src/components');
   assert.deepStrictEqual(visibleWorkspaceDirectoryPathsForTarget(tree, 'src/components/App.tsx'), ['src/components']);
+  assert.deepStrictEqual(visibleWorkspaceDirectoryPathsToOpenForTarget(tree, 'src'), []);
   assert.deepStrictEqual(visibleWorkspaceDirectoryPathsToOpenForTarget(tree, 'src', true), ['src/components']);
   assert.strictEqual(countVisibleWorkspaceTreeRows(tree, new Set()), 2);
   assert.strictEqual(countVisibleWorkspaceTreeRows(tree, new Set(['src/components'])), 4);
@@ -971,6 +972,10 @@ function run() {
     'reference/poem': { items: [workspaceFile('reference/poem/hidden.txt')] },
   };
   const nestedRevealTree = buildWorkspaceFileTreeNodes(nestedRevealDirectories[''].items, nestedRevealDirectories);
+  assert.deepStrictEqual(
+    visibleWorkspaceDirectoryPathsToOpenForTarget(nestedRevealTree, 'reference/poem'),
+    ['reference']
+  );
   assert.deepStrictEqual(
     visibleWorkspaceDirectoryPathsToOpenForTarget(nestedRevealTree, 'reference/poem', true),
     ['reference', 'reference/poem']

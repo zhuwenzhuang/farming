@@ -81,27 +81,31 @@ export function useWorkspaceFileMenuController({
 
   const refreshFileMenuTarget = useCallback(() => {
     if (!agentId) return
-    const directoryPath = workspaceFileOperationTargetDirectory(fileMenu?.item ?? null)
+    const item = fileMenu?.item ?? null
+    const directoryPath = workspaceFileOperationTargetDirectory(item)
     refreshDirectories([directoryPath])
     setFileMenu(null)
-  }, [agentId, fileMenu?.item, refreshDirectories])
+    focusFileTreeTarget(item)
+  }, [agentId, fileMenu?.item, focusFileTreeTarget, refreshDirectories])
 
   const copyFileMenuPath = useCallback(async () => {
     const item = fileMenu?.item
     if (!item) return
     setFileMenu(null)
+    focusFileTreeTarget(item)
     setOpenFileError(null)
     try {
-      await navigator.clipboard?.writeText(item.path)
+      if (!await writeClipboardText(item.path)) throw new Error('Copy failed')
     } catch {
       setOpenFileError('Copy failed')
     }
-  }, [fileMenu?.item, setOpenFileError])
+  }, [fileMenu?.item, focusFileTreeTarget, setOpenFileError])
 
   const copyFileMenuShareUrl = useCallback(async () => {
     const item = fileMenu?.item
     if (!agentId || !item || (item.type !== 'file' && item.type !== 'directory')) return
     setFileMenu(null)
+    focusFileTreeTarget(item)
     setOpenFileError(null)
     try {
       const target = item.type === 'directory'
@@ -119,7 +123,7 @@ export function useWorkspaceFileMenuController({
     } catch (error) {
       setOpenFileError(error instanceof Error ? error.message : shareLinkFailed)
     }
-  }, [agentId, fileMenu?.item, projectWorkspace, setOpenFileError, shareLinkFailed])
+  }, [agentId, fileMenu?.item, focusFileTreeTarget, projectWorkspace, setOpenFileError, shareLinkFailed])
 
   const fileMenuTargetDirectory = useCallback((item: WorkspaceFileTreeNode | null = fileMenu?.item ?? null) => (
     workspaceFileOperationTargetDirectory(item)

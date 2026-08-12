@@ -54,7 +54,7 @@ interface ProjectFilesSectionProps {
   editorDirtyFilePaths?: ReadonlySet<string>
   editorExternalChangedFilePaths?: ReadonlySet<string>
   openFiles?: OpenProjectFileSummary[]
-  onOpenFile: (agentId: string, file: WorkspaceFile, target?: WorkspaceFileOpenTarget) => void
+  onOpenFile: (agentId: string, file: WorkspaceFile, target?: WorkspaceFileOpenTarget) => void | Promise<void>
   onSelectOpenFile?: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
   onCloseOpenFile?: (agentId: string, filePath: string, workspaceRoot?: string) => void
   onNewAgent?: (workspace?: string, command?: string, returnFocusTarget?: HTMLElement | null) => void
@@ -413,10 +413,17 @@ export function ProjectFilesSection({
       lastAutoRevealedActivePathRef.current = activeFilePath
       return
     }
+    // A successful tree operation already owns selection and focus for this
+    // path. Its bounded reveal must not be superseded by the passive active-tab
+    // reveal that runs after the moved open-file state renders.
+    if (lastFocusedFilePathRef.current === activeFilePath) {
+      lastAutoRevealedActivePathRef.current = activeFilePath
+      return
+    }
     if (lastAutoRevealedActivePathRef.current === activeFilePath) return
     lastAutoRevealedActivePathRef.current = activeFilePath
     void revealFilePath(activeFilePath)
-  }, [activeFilePath, activeFileRevealInTree, directories, filesCollapsed, revealFilePath])
+  }, [activeFilePath, activeFileRevealInTree, directories, filesCollapsed, lastFocusedFilePathRef, revealFilePath])
 
   const {
     focusStickyDirectory,

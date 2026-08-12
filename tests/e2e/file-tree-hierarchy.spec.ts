@@ -28,6 +28,16 @@ const TARGET_FILE = [
   'meta',
   'AbstractVectorIndexDataClient.java',
 ].join('/')
+const FILE_OPERATION_AUDIT_DIR = path.resolve('.tmp/file-operation-visual-audit')
+
+async function captureFileOperationAudit(page: Page, name: string) {
+  fs.mkdirSync(FILE_OPERATION_AUDIT_DIR, { recursive: true })
+  await page.locator('.code-sidebar').screenshot({
+    path: path.join(FILE_OPERATION_AUDIT_DIR, name),
+    animations: 'disabled',
+    scale: 'css',
+  })
+}
 
 async function stickyHierarchyMatchesFirstUncoveredRow(section: Locator) {
   return section.evaluate(element => {
@@ -583,6 +593,8 @@ test('keeps file row slots stable for rename, links, statuses, loading, and comp
   releaseFolderLoad()
   await expect(folderRow).not.toHaveClass(/loading/)
   await expect(folderRow).toHaveAttribute('aria-expanded', 'false')
+  await page.waitForTimeout(500)
+  await expect(folderRow).toHaveAttribute('aria-expanded', 'false')
 
   const linkedRow = files.locator('[data-testid="code-file-row"][data-file-path="linked.ts"]')
   await expect(linkedRow.locator('.code-file-git-status')).toHaveText('M')
@@ -641,11 +653,13 @@ test('keeps file row slots stable for rename, links, statuses, loading, and comp
     expect(renameGeometry.inputWidth).toBeGreaterThan(renameGeometry.rowWidth * 0.6)
     expect(renameGeometry.verticallyCentered).toBe(true)
     await renameInput.press('Escape')
+    await expect(renameInput).toHaveCount(0)
   }
   const regularRow = files.locator('[data-testid="code-file-row"][data-file-path="regular.ts"]')
   await assertRenameKeepsLabelOrigin(regularRow)
   await assertRenameKeepsLabelOrigin(folderRow)
 
+  await expect(folderRow).toHaveAttribute('aria-expanded', 'false')
   await folderRow.click()
   await expect(folderRow).toHaveAttribute('aria-expanded', 'true')
   const deepFileRow = files.locator('[data-testid="code-file-row"][data-file-path="folder/child.ts"]')
@@ -757,6 +771,33 @@ test('keeps file row slots stable for rename, links, statuses, loading, and comp
   await expect(page.locator('.monaco-editor textarea.inputarea')).toBeFocused()
   await page.unroute('**/api/files/file?**')
 
+  let releaseSlowMount = () => {}
+  let markSlowMountStarted = () => {}
+  let delayNextMount = false
+  const slowMountGate = new Promise<void>(resolve => { releaseSlowMount = resolve })
+  const slowMountStarted = new Promise<void>(resolve => { markSlowMountStarted = resolve })
+  await page.route('**/api/projects/mount', async route => {
+    const response = await route.fetch()
+    if (!delayNextMount) {
+      await route.fulfill({ response })
+      return
+    }
+    delayNextMount = false
+    markSlowMountStarted()
+    await slowMountGate
+    await route.fulfill({ response })
+  })
+  delayNextMount = true
+  await slowFileRow.click()
+  await slowMountStarted
+  await latestFileRow.click()
+  await expect(page.getByTestId('code-file-editor').getByRole('tab', { name: /target-b\.ts/ })).toHaveAttribute('aria-selected', 'true')
+  releaseSlowMount()
+  await page.waitForTimeout(500)
+  await expect(page.getByTestId('code-file-editor').getByRole('tab', { name: /target-b\.ts/ })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.locator('.monaco-editor textarea.inputarea')).toBeFocused()
+  await page.unroute('**/api/projects/mount')
+
   await page.setViewportSize({ width: 720, height: 900 })
   await expect(page.locator('body')).toHaveClass(/code-compact-layout/)
   await page.locator('.code-sidebar').evaluate(element => element.classList.remove('collapsed'))
@@ -853,12 +894,218 @@ test('keeps directory mutations and keyboard file operations authoritative', asy
   await page.keyboard.press('Delete')
   const keyboardDeleteDialog = page.getByTestId('code-file-operation-dialog')
   await expect(keyboardDeleteDialog).toContainText('keyboard/gamma.ts')
-  await keyboardDeleteDialog.getByRole('button', { name: 'Cancel' }).click()
+  const keyboardCancelDelete = keyboardDeleteDialog.getByRole('button', { name: 'Cancel' })
+  await expect(keyboardCancelDelete).toBeFocused()
+  await keyboardCancelDelete.press('Enter')
   await expect(gammaRow).toBeVisible()
   await expect(tree).toBeFocused()
   await page.keyboard.press('Delete')
-  await page.getByTestId('code-file-operation-dialog').getByRole('button', { name: 'Delete' }).click()
+  await expect(keyboardCancelDelete).toBeFocused()
+  await page.keyboard.press('Tab')
+  const keyboardConfirmDelete = keyboardDeleteDialog.getByRole('button', { name: 'Delete' })
+  await expect(keyboardConfirmDelete).toBeFocused()
+  await keyboardConfirmDelete.press('Enter')
   await expect(gammaRow).toHaveCount(0)
   await expect(page.locator('.code-file-editor-tab[title="keyboard/gamma.ts"]')).toHaveCount(0)
   await expect.poll(() => fs.existsSync(path.join(workspace, 'keyboard', 'gamma.ts'))).toBe(false)
+})
+
+test('keeps file operation states distinguishable across light, dark, and paper', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'file-operation-appearance')
+  fs.mkdirSync(workspace, { recursive: true })
+  fs.writeFileSync(path.join(workspace, '.gitignore'), '*.ignored\n')
+  fs.writeFileSync(path.join(workspace, 'normal.txt'), 'normal file\n')
+  fs.writeFileSync(path.join(workspace, 'hidden.ignored'), 'ignored file\n')
+  execFileSync('git', ['init', '-q'], { cwd: workspace })
+  execFileSync('git', ['config', 'user.email', 'farming@example.test'], { cwd: workspace })
+  execFileSync('git', ['config', 'user.name', 'Farming Test'], { cwd: workspace })
+  execFileSync('git', ['add', '.'], { cwd: workspace })
+  execFileSync('git', ['commit', '-qm', 'fixture'], { cwd: workspace })
+
+  await openFarming(page)
+  await openNewAgentDialog(page)
+  await startAgentFromOpenDialog(page, 'bash', workspace)
+  const files = page.getByTestId('code-files-section')
+  const filesTitle = files.getByRole('button', { name: 'Files', exact: true })
+  if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
+  const normalRow = files.locator('[data-testid="code-file-row"][data-file-path="normal.txt"]')
+  const ignoredRow = files.locator('[data-testid="code-file-row"][data-file-path="hidden.ignored"]')
+  await expect(ignoredRow).toHaveClass(/ignored/)
+
+  for (const appearance of ['light', 'dark', 'paper'] as const) {
+    await page.locator('body').evaluate((body, value) => {
+      body.dataset.appearance = value
+    }, appearance)
+    await normalRow.click({ button: 'right' })
+    const menu = page.getByTestId('code-file-context-menu')
+    const refreshItem = menu.getByRole('menuitem', { name: 'Refresh' })
+    const restingMenuItemBackground = await refreshItem.evaluate(element => getComputedStyle(element).backgroundColor)
+    await refreshItem.hover()
+    const hoveredMenuItemBackground = await refreshItem.evaluate(element => getComputedStyle(element).backgroundColor)
+    expect(hoveredMenuItemBackground).not.toBe(restingMenuItemBackground)
+    await captureFileOperationAudit(page, `${appearance}-file-menu.png`)
+
+    await menu.getByRole('menuitem', { name: 'Rename' }).click()
+    const renameInput = normalRow.getByTestId('code-file-operation-input')
+    await expect(renameInput).toBeFocused()
+    const palette = await files.evaluate(element => {
+      const normal = element.querySelector<HTMLElement>('[data-file-path="normal.txt"]')
+      const ignored = element.querySelector<HTMLElement>('[data-file-path="hidden.ignored"]')
+      const input = normal?.querySelector<HTMLInputElement>('[data-testid="code-file-operation-input"]')
+      if (!normal || !ignored || !input) return null
+      return {
+        normalColor: getComputedStyle(normal).color,
+        ignoredColor: getComputedStyle(ignored).color,
+        rowBackground: getComputedStyle(normal).backgroundColor,
+        inputBackground: getComputedStyle(input).backgroundColor,
+      }
+    })
+    expect(palette).not.toBeNull()
+    expect(palette?.ignoredColor).not.toBe(palette?.normalColor)
+    expect(palette?.inputBackground).not.toBe(palette?.rowBackground)
+    await captureFileOperationAudit(page, `${appearance}-file-rename.png`)
+    await renameInput.press('Escape')
+    await expect(renameInput).toHaveCount(0)
+  }
+})
+
+test('copies relative file and directory paths when the Clipboard API is unavailable', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'copy-relative-path')
+  fs.mkdirSync(path.join(workspace, 'nested'), { recursive: true })
+  fs.writeFileSync(path.join(workspace, 'root-file.txt'), 'copy me\n')
+
+  await openFarming(page)
+  await openNewAgentDialog(page)
+  await startAgentFromOpenDialog(page, 'bash', workspace)
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: undefined,
+    })
+    document.execCommand = command => {
+      if (command !== 'copy') return false
+      const activeElement = document.activeElement
+      ;(window as Window & { __farmingFallbackCopyText?: string }).__farmingFallbackCopyText =
+        activeElement instanceof HTMLTextAreaElement ? activeElement.value : ''
+      return true
+    }
+  })
+
+  const files = page.getByTestId('code-files-section')
+  const filesTitle = files.getByRole('button', { name: 'Files', exact: true })
+  if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
+  const menu = page.getByTestId('code-file-context-menu')
+
+  const copyRelativePath = async (filePath: string) => {
+    const row = files.locator(`[data-testid="code-file-row"][data-file-path="${filePath}"]`)
+    await row.click({ button: 'right' })
+    await menu.getByRole('menuitem', { name: 'Copy Relative Path' }).click()
+    await expect(menu).toHaveCount(0)
+    await expect(files.getByTestId('code-file-open-error')).toHaveCount(0)
+    await expect.poll(() => page.evaluate(() => (
+      window as Window & { __farmingFallbackCopyText?: string }
+    ).__farmingFallbackCopyText)).toBe(filePath)
+  }
+
+  await copyRelativePath('root-file.txt')
+  await copyRelativePath('nested')
+})
+
+test('completes file-menu copy, share, and refresh actions with focus recovery', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'file-menu-utility-actions')
+  fs.mkdirSync(path.join(workspace, 'nested'), { recursive: true })
+  fs.writeFileSync(path.join(workspace, 'nested', 'fixture.txt'), 'file menu fixture\n')
+  const shareTargets: Array<{
+    kind?: string
+    filePath?: string
+    folderPath?: string
+    absolutePath?: string
+    projectLabel?: string
+  }> = []
+  let failShare = false
+  await page.route('**/api/share/qr-ticket', async route => {
+    const body = route.request().postDataJSON() as { target?: typeof shareTargets[number] }
+    const target = body.target ?? {}
+    shareTargets.push(target)
+    if (failShare) {
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'simulated share failure' }),
+      })
+      return
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ longUrl: `https://share.example.test/${target.kind ?? 'unknown'}` }),
+    })
+  })
+
+  await openFarming(page)
+  await openNewAgentDialog(page)
+  await startAgentFromOpenDialog(page, 'bash', workspace)
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(page.url()).origin })
+
+  const files = page.getByTestId('code-files-section')
+  const filesTitle = files.getByRole('button', { name: 'Files', exact: true })
+  if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
+  const tree = files.locator('[role="tree"]')
+  const directoryRow = files.locator('[data-testid="code-file-row"][data-file-path="nested"]')
+  await directoryRow.click()
+  const fileRow = files.locator('[data-testid="code-file-row"][data-file-path="nested/fixture.txt"]')
+  await expect(fileRow).toBeVisible()
+  const menu = page.getByTestId('code-file-context-menu')
+
+  await fileRow.click({ button: 'right' })
+  await menu.getByRole('menuitem', { name: 'Copy Relative Path' }).click()
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('nested/fixture.txt')
+  await expect(tree).toBeFocused()
+  const composer = page.getByTestId('code-composer-input')
+  await composer.click()
+  await composer.press('Control+V')
+  await expect(composer).toHaveValue('nested/fixture.txt')
+
+  await fileRow.click({ button: 'right' })
+  await menu.getByRole('menuitem', { name: 'Copy Share URL' }).click()
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('https://share.example.test/file')
+  await expect(tree).toBeFocused()
+  expect(shareTargets[0]).toMatchObject({
+    kind: 'file',
+    filePath: 'nested/fixture.txt',
+    absolutePath: path.join(workspace, 'nested', 'fixture.txt'),
+    projectLabel: path.basename(workspace),
+  })
+
+  await directoryRow.click({ button: 'right' })
+  await menu.getByRole('menuitem', { name: 'Copy Share URL' }).click()
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('https://share.example.test/folder')
+  await expect(tree).toBeFocused()
+  expect(shareTargets[1]).toMatchObject({
+    kind: 'folder',
+    folderPath: 'nested',
+    absolutePath: path.join(workspace, 'nested'),
+    projectLabel: path.basename(workspace),
+  })
+
+  failShare = true
+  await fileRow.click({ button: 'right' })
+  await menu.getByRole('menuitem', { name: 'Copy Share URL' }).click()
+  await expect(files.getByTestId('code-file-open-error')).toContainText('simulated share failure')
+  await expect(tree).toBeFocused()
+  failShare = false
+  await fileRow.click({ button: 'right' })
+  await expect(files.getByTestId('code-file-open-error')).toHaveCount(0)
+  await menu.getByRole('menuitem', { name: 'Copy Share URL' }).click()
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('https://share.example.test/file')
+  await expect(files.getByTestId('code-file-open-error')).toHaveCount(0)
+  await expect(tree).toBeFocused()
+
+  fs.writeFileSync(path.join(workspace, 'nested', 'refreshed.txt'), 'appears after refresh\n')
+  const refreshedRow = files.locator('[data-testid="code-file-row"][data-file-path="nested/refreshed.txt"]')
+  await expect(refreshedRow).toHaveCount(0)
+  await fileRow.click({ button: 'right' })
+  await menu.getByRole('menuitem', { name: 'Refresh' }).click()
+  await expect(refreshedRow).toBeVisible()
+  await expect(tree).toBeFocused()
 })

@@ -250,3 +250,135 @@ test('times out a lost create response and converges from a fresh authoritative 
   await expect(page.getByTestId('code-file-editor').getByRole('tab').filter({ hasText: 'timeout-recovered.txt' })).toHaveCount(1)
   releaseResponse()
 })
+
+test('converges uncertain rename and delete outcomes from the authoritative parent', async ({ page }) => {
+  const workspaceRoot = path.join(PLAYWRIGHT_WORKSPACE_ROOT, 'workspace-mutation-recovery')
+  const parentPath = path.join(workspaceRoot, 'existing')
+  fs.rmSync(workspaceRoot, { recursive: true, force: true })
+  fs.mkdirSync(parentPath, { recursive: true })
+  fs.writeFileSync(path.join(parentPath, 'rename-me.txt'), 'rename recovery\n')
+  fs.writeFileSync(path.join(parentPath, 'delete-me.txt'), 'delete recovery\n')
+
+  const files = await openWorkspaceFiles(page, workspaceRoot)
+  const parentRow = files.locator('[data-testid="code-file-row"][data-file-path="existing"]')
+  await parentRow.click()
+  const renameRow = files.locator('[data-testid="code-file-row"][data-file-path="existing/rename-me.txt"]')
+  const deleteRow = files.locator('[data-testid="code-file-row"][data-file-path="existing/delete-me.txt"]')
+  await expect(renameRow).toBeVisible()
+  await expect(deleteRow).toBeVisible()
+  await renameRow.click()
+  const originalRenameTab = page.locator('.code-file-editor-tab[title="existing/rename-me.txt"]')
+  await expect(originalRenameTab).toHaveCount(1)
+  await originalRenameTab.dblclick()
+  await expect(originalRenameTab).not.toHaveAttribute('data-preview', 'true')
+  await deleteRow.click()
+  const originalDeleteTab = page.locator('.code-file-editor-tab[title="existing/delete-me.txt"]')
+  await expect(originalDeleteTab).toHaveCount(1)
+  await originalDeleteTab.dblclick()
+  await expect(originalDeleteTab).not.toHaveAttribute('data-preview', 'true')
+
+  const uncertainMethods = new Set(['PATCH', 'DELETE'])
+  await page.route('**/farming/api/files/entry**', async route => {
+    const request = route.request()
+    if (!uncertainMethods.has(request.method())) {
+      await route.continue()
+      return
+    }
+    const response = await route.fetch()
+    expect(response.ok()).toBeTruthy()
+    uncertainMethods.delete(request.method())
+    await route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: `simulated response loss after ${request.method()} commit` }),
+    })
+  })
+
+  await renameRow.click({ button: 'right' })
+  await page.getByTestId('code-file-context-menu').getByRole('menuitem', { name: 'Rename' }).click()
+  const renameInput = renameRow.getByTestId('code-file-operation-input')
+  await renameInput.fill('renamed-after-loss.txt')
+  await renameInput.press('Enter')
+  const renamedRow = files.locator('[data-testid="code-file-row"][data-file-path="existing/renamed-after-loss.txt"]')
+  await expect(renamedRow).toBeVisible()
+  await expect(renameRow).toHaveCount(0)
+  await expect(page.locator('.code-file-editor-tab[title="existing/renamed-after-loss.txt"]')).toHaveCount(1)
+  expect(fs.existsSync(path.join(parentPath, 'rename-me.txt'))).toBe(false)
+  expect(fs.existsSync(path.join(parentPath, 'renamed-after-loss.txt'))).toBe(true)
+
+  await deleteRow.click({ button: 'right' })
+  await page.getByTestId('code-file-context-menu').getByRole('menuitem', { name: 'Delete' }).click()
+  await page.getByTestId('code-file-operation-dialog').getByRole('button', { name: 'Delete' }).click()
+  await expect(deleteRow).toHaveCount(0)
+  await expect(page.locator('.code-file-editor-tab[title="existing/delete-me.txt"]')).toHaveCount(0)
+  expect(fs.existsSync(path.join(parentPath, 'delete-me.txt'))).toBe(false)
+  expect(uncertainMethods.size).toBe(0)
+})
+
+test('keeps conflicting rename and delete operations available for an explicit retry', async ({ page }) => {
+  const workspaceRoot = path.join(PLAYWRIGHT_WORKSPACE_ROOT, 'workspace-mutation-retry')
+  fs.rmSync(workspaceRoot, { recursive: true, force: true })
+  fs.mkdirSync(workspaceRoot, { recursive: true })
+  fs.writeFileSync(path.join(workspaceRoot, 'rename-conflict.txt'), 'rename retry\n')
+  fs.writeFileSync(path.join(workspaceRoot, 'delete-conflict.txt'), 'delete retry\n')
+
+  const files = await openWorkspaceFiles(page, workspaceRoot)
+  const renameRow = files.locator('[data-testid="code-file-row"][data-file-path="rename-conflict.txt"]')
+  const deleteRow = files.locator('[data-testid="code-file-row"][data-file-path="delete-conflict.txt"]')
+  let rejectRename = true
+  let rejectDelete = true
+  let renameRequestCount = 0
+  let deleteRequestCount = 0
+  await page.route('**/farming/api/files/entry**', async route => {
+    const request = route.request()
+    if (request.method() === 'PATCH') {
+      renameRequestCount += 1
+      if (rejectRename) {
+        rejectRename = false
+        await route.fulfill({
+          status: 409,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'simulated rename conflict' }),
+        })
+        return
+      }
+    }
+    if (request.method() === 'DELETE') {
+      deleteRequestCount += 1
+      if (rejectDelete) {
+        rejectDelete = false
+        await route.fulfill({
+          status: 409,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'simulated delete conflict' }),
+        })
+        return
+      }
+    }
+    await route.continue()
+  })
+
+  await renameRow.click({ button: 'right' })
+  await page.getByTestId('code-file-context-menu').getByRole('menuitem', { name: 'Rename' }).click()
+  const renameInput = renameRow.getByTestId('code-file-operation-input')
+  await renameInput.fill('renamed-after-retry.txt')
+  await renameInput.press('Enter')
+  await expect(files.getByTestId('code-file-open-error')).toContainText('simulated rename conflict')
+  await expect(renameInput).toBeEnabled()
+  await expect(renameInput).toHaveValue('renamed-after-retry.txt')
+  await renameInput.press('Enter')
+  await expect(files.locator('[data-testid="code-file-row"][data-file-path="renamed-after-retry.txt"]')).toBeVisible()
+  expect(renameRequestCount).toBe(2)
+
+  await deleteRow.click({ button: 'right' })
+  await page.getByTestId('code-file-context-menu').getByRole('menuitem', { name: 'Delete' }).click()
+  const deleteDialog = page.getByTestId('code-file-operation-dialog')
+  const deleteButton = deleteDialog.getByRole('button', { name: 'Delete' })
+  await deleteButton.click()
+  await expect(files.getByTestId('code-file-open-error')).toContainText('simulated delete conflict')
+  await expect(deleteDialog).toBeVisible()
+  await expect(deleteButton).toBeEnabled()
+  await deleteButton.click()
+  await expect(deleteRow).toHaveCount(0)
+  expect(deleteRequestCount).toBe(2)
+})
