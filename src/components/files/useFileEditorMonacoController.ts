@@ -338,7 +338,9 @@ export function useFileEditorMonacoController({
       editor.setModel(model)
     }
     const previousSyncedVersion = syncedModelVersionRef.current.get(nextModelKey)
-    const shouldApplyExternalContent = previousModelId !== nextModelKey || previousSyncedVersion !== nextModelVersion
+    const shouldApplyExternalContent = previousModelId !== nextModelKey
+      || previousSyncedVersion !== nextModelVersion
+      || (!openFile.dirty && model.getValue() !== openFile.draft)
     if (shouldApplyExternalContent && model.getValue() !== openFile.draft) {
       suppressEditorChangeRef.current += 1
       try {

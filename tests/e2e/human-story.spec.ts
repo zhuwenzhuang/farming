@@ -669,7 +669,8 @@ test.describe('human Farming Agent story', () => {
   })
 
   test('inserts Codex slash commands from the composer and sends them through the terminal', async ({ page, workspaceRoot }) => {
-    const skillDir = path.join(workspaceRoot, '.agents', 'skills', 'pdf')
+    const slashWorkspace = path.join(workspaceRoot, 'slash-commands')
+    const skillDir = path.join(slashWorkspace, '.agents', 'skills', 'pdf')
     fs.mkdirSync(skillDir, { recursive: true })
     fs.writeFileSync(path.join(skillDir, 'SKILL.md'), [
       '---',
@@ -682,7 +683,7 @@ test.describe('human Farming Agent story', () => {
 
     await openFarming(page)
     await openNewAgentDialog(page)
-    const expectedSlashWorkspace = path.resolve(workspaceRoot)
+    const expectedSlashWorkspace = path.resolve(slashWorkspace)
     let expectedSlashTarget = ''
     const slashCommandsResponsePromise = page.waitForResponse(response => {
       const url = new URL(response.url())
@@ -702,7 +703,7 @@ test.describe('human Farming Agent story', () => {
       }
       return matches
     })
-    const agentId = await startAgentFromOpenDialog(page, 'codex', workspaceRoot)
+    const agentId = await startAgentFromOpenDialog(page, 'codex', slashWorkspace)
     await slashCommandsResponsePromise
 
     const textarea = page.getByTestId('code-composer').locator('textarea')

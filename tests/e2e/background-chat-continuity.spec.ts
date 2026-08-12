@@ -300,7 +300,7 @@ test('does not repeat Chat read receipts when only live runtime state changes', 
   await expect(page.getByTestId('app-error-fallback')).toHaveCount(0)
 })
 
-test('unmounts inactive Chat transcript trees and restores them from a settled checkpoint', async ({ page, workspaceRoot }) => {
+test('unmounts inactive Chat trees while preserving the active Chat behind resources', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'agent-chat-view-cache')
   fs.mkdirSync(workspace, { recursive: true })
   fs.writeFileSync(path.join(workspace, 'cache-target.txt'), 'retained Chat file target\n')
@@ -392,7 +392,9 @@ test('unmounts inactive Chat transcript trees and restores them from a settled c
   await firstProcessSummary.click()
   await expect(firstProcessSummary).toHaveAttribute('aria-expanded', 'true')
   const savedScrollTop = await firstScroll.evaluate(element => {
-    element.closest<HTMLElement>('[data-testid="code-agent-work-pane"]')!.dataset.cacheProbe = 'retained'
+    const pane = element.closest<HTMLElement>('[data-testid="code-agent-work-pane"]')!
+    pane.dataset.cacheProbe = 'retained'
+    pane.querySelector<HTMLElement>('[data-testid="code-agent-transcript"]')!.dataset.cacheTranscript = 'retained'
     const sentinel = Array.from(element.querySelectorAll<HTMLElement>('.code-agent-transcript-assistant'))
       .find(candidate => candidate.textContent?.includes('FIRST cached answer 19.'))
     if (!sentinel) throw new Error('Cached transcript sentinel is missing')
@@ -499,7 +501,8 @@ test('unmounts inactive Chat transcript trees and restores them from a settled c
   await expect(page.getByTestId('code-file-editor')).toBeVisible()
   await expect(firstPane).toBeAttached()
   await expect(firstPane).toBeHidden()
-  await expect(firstPane.getByTestId('code-agent-transcript')).toHaveCount(0)
+  await expect(firstPane.getByTestId('code-agent-transcript')).toHaveCount(1)
+  await expect(firstPane.getByTestId('code-agent-transcript')).toHaveAttribute('data-cache-transcript', 'retained')
   expect(await firstPane.getAttribute('data-cache-probe')).toBe('retained')
 
   await page.getByTestId('code-file-editor-back').click()
