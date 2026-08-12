@@ -50,7 +50,7 @@
 
 .code-history-card {
   appearance: none;
-  border: 1px solid transparent;
+  border: 0;
   border-radius: 6px;
   background: transparent;
   color: inherit;
@@ -199,7 +199,7 @@ body.code-mode .code-history-agent-icon .agent-launch-icon,
 }
 
 .code-history-pagination {
-  border-top: 1px solid var(--code-border-subtle);
+  border-top: 1px solid var(--code-panel-divider);
   color: var(--code-text-subtle);
   display: flex;
   align-items: center;
@@ -208,21 +208,20 @@ body.code-mode .code-history-agent-icon .agent-launch-icon,
   margin-top: 8px;
   padding-top: 10px;
   font-size: 12px;
-  border-top-color: var(--code-border);
+  border-top-color: var(--code-panel-divider);
 }
 
 .code-history-pagination button {
   align-items: center;
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 6px;
-  background: transparent;
+  background: var(--code-bg-inset);
   color: var(--code-text-subtle);
   cursor: pointer;
   display: inline-flex;
   height: 28px;
   justify-content: center;
   width: 30px;
-  border-color: var(--code-border);
 }
 
 .code-history-pagination button:hover:not(:disabled) {
@@ -245,10 +244,6 @@ body.code-mode .code-history-agent-icon .agent-launch-icon,
       align-items: stretch;
       color: var(--code-text);
     }
-}
-
-.code-history-card {
-  border-color: var(--code-border);
 }
 
 .code-history-card-primary:focus-visible {

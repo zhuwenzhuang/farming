@@ -41,7 +41,7 @@
   border: 1px solid var(--code-composer-border);
   border-radius: 12px;
   background: var(--code-composer-surface);
-  box-shadow: var(--code-composer-shadow);
+  box-shadow: none;
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
   gap: 6px;
@@ -93,9 +93,9 @@
 .code-composer-restore {
   width: 30px;
   height: 24px;
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 999px;
-  background: var(--code-bg-surface);
+  background: var(--code-bg-raised);
   color: var(--code-text-muted);
   display: inline-grid;
   place-items: center;
@@ -299,11 +299,10 @@
   display: grid;
   gap: 9px;
   padding: 11px 12px;
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 16px;
-  background: var(--code-bg-surface);
+  background: var(--code-bg-inset);
   color: var(--code-text);
-  border-color: var(--code-border);
 }
 
 .code-acp-feedback {
@@ -316,11 +315,10 @@
   gap: 7px;
   margin: 0 12px 6px;
   padding: 6px 9px;
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 9px;
   background: var(--code-bg-raised);
   color: var(--code-text-subtle);
-  border-color: var(--code-border);
 }
 
 .code-acp-feedback::before {
@@ -3226,7 +3224,7 @@ body.code-mode.code-compact-layout .code-acp-composer-stack {
 }
 
 .code-composer {
-  border-color: var(--code-border);
+  border-color: var(--code-composer-border);
 }
 
 .code-composer {
@@ -3238,7 +3236,7 @@ body.code-mode.code-compact-layout .code-acp-composer-stack {
 }
 
 .code-composer.menu-open {
-  border-color: var(--code-border);
+  border-color: var(--code-composer-border);
 }
 
 body.code-mode.code-compact-layout .code-composer-attachment.image .code-composer-attachment-remove:hover {
@@ -3322,11 +3320,11 @@ body.code-mode.code-compact-layout .code-composer.menu-open {
 }
 
 body.code-mode.code-compact-layout .code-composer:focus-within {
-  border-color: var(--code-border) !important;
+  border-color: var(--code-composer-border) !important;
 }
 
 body.code-mode.code-compact-layout .code-composer.menu-open {
-  border-color: var(--code-border) !important;
+  border-color: var(--code-composer-border) !important;
 }
 
 body.code-mode.code-compact-layout .code-composer:focus-within {

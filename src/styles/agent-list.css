@@ -170,7 +170,6 @@
 .code-agent-row.search-selected {
   --code-agent-row-action-surface: var(--code-bg-hover);
   background: var(--code-bg-hover);
-  box-shadow: inset 0 0 0 1px var(--code-border);
   color: var(--code-text);
 }
 
@@ -230,14 +229,14 @@
   flex-direction: column;
   gap: 7px;
   padding: 12px 14px 13px;
-  border: 1px solid var(--code-border);
+  border: 1px solid var(--code-panel-border);
   border-radius: 16px;
   background: var(--code-bg-raised);
   box-shadow: var(--code-shadow-raised);
   color: var(--code-text);
   font-size: 14px;
   line-height: 1.25;
-  border-color: var(--code-border);
+  border-color: var(--code-panel-border);
 }
 
 .code-agent-hover-title-card {
@@ -245,7 +244,7 @@
   z-index: 121;
   box-sizing: border-box;
   padding: 12px 14px;
-  border: 1px solid var(--code-border);
+  border: 1px solid var(--code-panel-border);
   border-radius: 14px;
   background: var(--code-bg-raised);
   box-shadow: var(--code-shadow-raised);
@@ -255,7 +254,7 @@
   line-height: 1.4;
   overflow-wrap: anywhere;
   pointer-events: none;
-  border-color: var(--code-border);
+  border-color: var(--code-panel-border);
 }
 
 .code-agent-hover-preview-header {
@@ -331,9 +330,9 @@
   gap: 14px;
   padding-top: 4px;
   margin-top: 1px;
-  border-top: 1px solid var(--code-border);
+  border-top: 1px solid var(--code-panel-divider);
   color: var(--code-text);
-  border-color: var(--code-border);
+  border-color: var(--code-panel-divider);
 }
 
 .code-agent-hover-preview-resource {

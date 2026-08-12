@@ -63,6 +63,24 @@ assert(!tokenSource.includes('--code-paper-'), 'appearance names must not leak i
 assert(!/--code-[\w-]+-[\da-f]{6}\b/i.test(tokenSource), 'mechanically hashed selector tokens must not return')
 assert(!CODE_STYLE_SOURCES.some(source => source.endsWith('-dark.css')), 'dark component styles must not return')
 
+for (const appearance of appearances) {
+  const roles = registry[appearance].css
+  assert.equal(roles['--code-panel-border'], 'transparent', `${appearance} passive panels must use tonal separation`)
+  assert.equal(roles['--code-panel-divider'], 'transparent', `${appearance} passive panel rows must use tonal separation`)
+  assert.equal(roles['--code-composer-border'], 'transparent', `${appearance} composer must use tonal separation`)
+}
+
+assert.notEqual(
+  registry.light.css['--code-bg-canvas'],
+  registry.light.css['--code-bg-inset'],
+  'light inset surfaces must remain distinct from the canvas',
+)
+assert.notEqual(
+  registry.dark.css['--code-bg-canvas'],
+  registry.dark.css['--code-bg-inset'],
+  'dark inset surfaces must remain distinct from the canvas',
+)
+
 const lightRoles = Object.keys(registry.light.css).sort()
 assert(lightRoles.length <= 128, 'the semantic palette must not grow back into a selector-level override matrix')
 for (const appearance of appearances) {

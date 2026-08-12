@@ -53,9 +53,9 @@
   gap: 7px;
   min-height: 38px;
   padding: 5px 9px;
-  border: 1px solid var(--code-border);
+  border: 1px solid transparent;
   border-radius: 9px;
-  background: var(--code-bg-raised);
+  background: var(--code-bg-inset);
   color: var(--code-text-subtle);
 }
 
@@ -133,7 +133,7 @@
 
 .code-search-result {
   width: 100%;
-  border: 1px solid transparent;
+  border: 0;
   border-radius: 8px;
   background: var(--code-bg-muted);
   color: var(--code-text);
@@ -144,7 +144,6 @@
   min-height: 48px;
   padding: 7px 8px;
   text-align: left;
-  border-color: var(--code-border);
 }
 
 .code-search-result.no-status {
@@ -153,8 +152,7 @@
 
 .code-search-result:hover,
 .code-search-result.active {
-  background: var(--code-bg-hover);
-  border-color: var(--code-focus-ring);
+  background: var(--code-bg-hover-strong);
 }
 
 .code-search-result:focus-visible {

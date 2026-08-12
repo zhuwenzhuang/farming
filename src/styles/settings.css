@@ -1158,7 +1158,7 @@
 
 .code-settings-segmented button.active {
   background: var(--code-bg-raised);
-  box-shadow: inset 0 0 0 1px var(--code-border);
+  box-shadow: none;
 }
 
 .code-settings-segmented button[data-theme-choice] {
