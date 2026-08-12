@@ -51,6 +51,14 @@
   font-size: 13px;
 }
 
+.code-files-header::before {
+  content: '';
+  position: absolute;
+  inset: auto 0 100%;
+  height: 6px;
+  background: inherit;
+}
+
 .code-files-heading {
   flex: 0 0 auto;
   display: inline-flex;

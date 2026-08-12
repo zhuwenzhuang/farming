@@ -278,6 +278,52 @@ test('preserves every visible directory level across sticky scroll, collapse, re
   await expect.poll(() => stickyHierarchyMatchesFirstUncoveredRow(restoredFiles)).toBe(true)
 })
 
+test('keeps the sticky Files seam opaque over scrolled file rows', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'opaque-files-sticky-seam')
+  fs.mkdirSync(workspace, { recursive: true })
+  for (let index = 0; index < 40; index += 1) {
+    fs.writeFileSync(path.join(workspace, `file-${String(index).padStart(2, '0')}.ts`), `export const value = ${index}\n`)
+  }
+
+  await openFarming(page)
+  await openNewAgentDialog(page)
+  await startAgentFromOpenDialog(page, 'bash', workspace)
+
+  const project = page.getByTestId('code-project-group').filter({
+    has: page.locator('[data-agent-id]'),
+  }).first()
+  const files = project.getByTestId('code-files-section')
+  const filesTitle = files.getByRole('button', { name: 'Files', exact: true })
+  if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
+  const search = files.getByPlaceholder('Search or path:line')
+  await search.fill('file-39.ts:1')
+  await search.press('Enter')
+
+  const openEditorsTitle = project.locator('.code-open-editors-title')
+  await expect(openEditorsTitle).toBeVisible()
+  if (await openEditorsTitle.getAttribute('aria-expanded') !== 'false') await openEditorsTitle.click()
+
+  await project.evaluate(element => {
+    const scroller = element.closest<HTMLElement>('.code-project-list')
+    if (scroller) scroller.scrollTop = scroller.scrollHeight
+  })
+  await settleLayout(page)
+
+  await expect.poll(() => project.evaluate(element => {
+    const filesHeader = element.querySelector<HTMLElement>('.code-files-header')
+    if (!filesHeader) return null
+    const headerBox = filesHeader.getBoundingClientRect()
+    const target = document.elementFromPoint(headerBox.left + 40, headerBox.top - 1)
+    return {
+      coveredFileRow: Boolean(target?.closest('[data-testid="code-file-row"]')),
+      seamOwner: Boolean(target?.closest('.code-files-header')),
+    }
+  })).toEqual({
+    coveredFileRow: false,
+    seamOwner: true,
+  })
+})
+
 test('keeps compact sticky context on the real ancestor instead of a crossed sibling directory', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'sibling-directory-sticky-prefix')
   const codeDirectory = path.join(workspace, 'src', 'components', 'code')
