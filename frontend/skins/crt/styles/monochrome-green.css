@@ -51,10 +51,18 @@
     padding: 7px 4px 8px;
     overflow: hidden;
     border-top: 1px solid rgba(12, 204, 104, 0.22);
+    border-right: 0;
     border-bottom: 1px solid rgba(12, 204, 104, 0.34);
+    border-left: 0;
+    border-radius: 0;
     background: radial-gradient(ellipse at 24% 50%, rgba(12, 204, 104, 0.075), transparent 62%);
     filter: drop-shadow(0 0 3px rgba(12, 204, 104, 0.18));
     animation: crt-brand-power-on 680ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    appearance: none;
 }
 
 #farming-crt .crt-keyboard-guide {
@@ -224,9 +232,113 @@
     text-shadow: 0 0 5px rgba(85, 245, 155, 0.45);
 }
 
-#farming-crt .crt-brand-lockup:hover {
+#farming-crt .crt-brand-lockup:hover,
+#farming-crt .crt-brand-lockup:focus-visible,
+#farming-crt .crt-brand-lockup.crt-nav-selected {
     border-color: rgba(85, 245, 155, 0.72);
     filter: drop-shadow(0 0 5px rgba(12, 204, 104, 0.34));
+    outline: none;
+    box-shadow: inset 0 0 0 1px rgba(85, 245, 155, 0.22);
+}
+
+#farming-crt .crt-about-dialog {
+    width: min(92vw, 620px);
+    height: auto;
+    max-height: calc(100vh - 32px);
+}
+
+#farming-crt .crt-about-body {
+    display: grid;
+    grid-template-columns: 78px minmax(0, 1fr);
+    gap: 18px 22px;
+    padding: 26px 28px 24px;
+    overflow-y: auto;
+}
+
+#farming-crt .crt-about-logo {
+    grid-row: 1 / span 2;
+    width: 78px;
+    height: 78px;
+    filter: drop-shadow(0 0 7px rgba(12, 204, 104, 0.36));
+}
+
+#farming-crt .crt-about-heading {
+    align-self: center;
+    min-width: 0;
+}
+
+#farming-crt .crt-about-heading span {
+    display: block;
+    margin-bottom: 7px;
+    color: var(--crt-phosphor-muted);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+}
+
+#farming-crt .crt-about-heading h2 {
+    margin: 0;
+    color: #f5e8bd;
+    font-size: 24px;
+    font-weight: 400;
+    letter-spacing: 0.06em;
+    text-shadow: 0 0 7px rgba(245, 232, 189, 0.34);
+}
+
+#farming-crt .crt-about-story {
+    grid-column: 1 / -1;
+    display: grid;
+    gap: 12px;
+    color: #72d99d;
+    font-family: var(--crt-terminal-font);
+    font-size: 13px;
+    line-height: 1.65;
+    text-shadow: none;
+}
+
+#farming-crt .crt-about-story p {
+    margin: 0;
+}
+
+#farming-crt .crt-about-story strong {
+    color: var(--crt-phosphor-bright);
+    font-family: var(--crt-font);
+    font-weight: 400;
+    letter-spacing: 0.04em;
+}
+
+#farming-crt .crt-about-links {
+    grid-column: 1 / -1;
+    color: var(--crt-phosphor-muted);
+    font-size: 11px;
+}
+
+#farming-crt .crt-about-links a {
+    color: var(--crt-phosphor-bright);
+    text-decoration: none;
+}
+
+#farming-crt .crt-about-links a:hover,
+#farming-crt .crt-about-links a:focus-visible {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    outline: none;
+}
+
+@media (max-width: 560px) {
+    #farming-crt .crt-about-body {
+        grid-template-columns: 58px minmax(0, 1fr);
+        gap: 16px;
+        padding: 20px;
+    }
+
+    #farming-crt .crt-about-logo {
+        width: 58px;
+        height: 58px;
+    }
+
+    #farming-crt .crt-about-heading h2 {
+        font-size: 20px;
+    }
 }
 
 @keyframes crt-brand-power-on {

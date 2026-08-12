@@ -558,6 +558,9 @@ function getCrtNavigationScope() {
     const sessionModal = document.getElementById('session-modal');
     if (sessionModal && sessionModal.classList.contains('active'))
         return sessionModal;
+    const aboutModal = document.getElementById('crt-about-modal');
+    if (aboutModal && aboutModal.classList.contains('active'))
+        return aboutModal;
     const settingsModal = document.getElementById('settings-modal');
     if (settingsModal && settingsModal.classList.contains('active'))
         return settingsModal;
@@ -3002,6 +3005,25 @@ function showSettings() {
 function hideSettings() {
     document.getElementById('settings-modal').classList.remove('active');
     clearCrtNavigationSelection();
+}
+let crtAboutReturnFocus = null;
+function showCrtAbout() {
+    const brand = document.getElementById('crt-brand-lockup');
+    crtAboutReturnFocus = document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : brand;
+    clearCrtNavigationSelection();
+    document.getElementById('crt-about-modal').classList.add('active');
+    document.getElementById('crt-about-close').focus({ preventScroll: true });
+}
+function hideCrtAbout() {
+    const modal = document.getElementById('crt-about-modal');
+    if (!modal.classList.contains('active'))
+        return;
+    modal.classList.remove('active');
+    clearCrtNavigationSelection();
+    crtAboutReturnFocus?.focus({ preventScroll: true });
+    crtAboutReturnFocus = null;
 }
 function loadAgents() {
     return fetch(farmingApiPath('/executables'), { cache: 'no-store' })
@@ -7241,6 +7263,7 @@ if (typeof document !== 'undefined') {
     document.addEventListener('keydown', (e) => {
         const dialogActive = document.getElementById('input-dialog').classList.contains('active');
         const sessionActive = document.getElementById('session-modal').classList.contains('active');
+        const aboutActive = document.getElementById('crt-about-modal').classList.contains('active');
         const settingsActive = document.getElementById('settings-modal').classList.contains('active');
         const workspaceInputVisible = document.getElementById('workspace-input-container').style.display !== 'none';
         const workspaceInputFocused = document.activeElement === document.getElementById('workspace-input');
@@ -7317,6 +7340,13 @@ if (typeof document !== 'undefined') {
             && e.key === 'Enter'
             && activateCrtNavigationSelection()) {
             e.preventDefault();
+            return;
+        }
+        if (aboutActive) {
+            if (e.key === 'Escape') {
+                hideCrtAbout();
+                e.preventDefault();
+            }
             return;
         }
         if (settingsActive) {
@@ -7655,6 +7685,7 @@ if (typeof module !== 'undefined' && module.exports) {
 else {
     requireCrtAgentStateBridge();
     installCrtTerminalTestApi();
+    document.getElementById('crt-brand-lockup').addEventListener('click', showCrtAbout);
     setupWorkspaceHistoryControls();
     setupCrtSearchControls();
     document.addEventListener('visibilitychange', () => {

@@ -49,6 +49,33 @@ async function openCrtFarming(page: Page) {
   await expect(page.locator('#farming-crt')).toHaveCount(1)
 }
 
+test('opens the distinct Farming CRT introduction from its product mark', async ({ page, workspaceRoot }) => {
+  await openFarming(page)
+  await openNewAgentDialog(page)
+  await startAgentFromOpenDialog(page, 'bash', workspaceRoot)
+  await openCrtFarming(page)
+
+  const productMark = page.getByRole('button', { name: 'About Farming CRT', exact: true })
+  await productMark.click()
+
+  const dialog = page.getByRole('dialog', { name: 'FARMING CRT', exact: true })
+  await expect(dialog).toBeVisible()
+  await expect(dialog).toContainText('ENGINEERING IS BECOMING FARMING.')
+  await expect(dialog).toContainText('Every action can stay on the keyboard')
+  await expect(dialog.getByRole('link', { name: 'CRT GUIDE', exact: true })).toHaveAttribute(
+    'href',
+    'https://zhuwenzhuang.github.io/farming/en/crt/overview',
+  )
+  await expect(page.getByRole('button', { name: 'Close Farming CRT introduction', exact: true })).toBeFocused()
+
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+  await expect(productMark).toBeFocused()
+
+  await page.keyboard.press('Enter')
+  await expect(dialog).toBeVisible()
+})
+
 test('shows the quota reset countdown in the collapsed Code Usage summary', async ({ page }) => {
   await page.route(/\/api\/usage(?:\?|$)/, async route => {
     const sampledAt = Date.now()

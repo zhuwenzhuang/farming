@@ -47,6 +47,12 @@ Focus, Escape, confirmation, cancellation, and return-to-opener behavior must be
 consistent across dashboard, Search, History, Settings, New Agent, and opened
 Sessions.
 
+The Farming CRT wordmark opens a compact product introduction. It presents CRT
+as the original keyboard-first Agent control room, grounded in Farming's online
+Agent-farm vision: human attention is scarce, Agents carry the work, and the
+operator surveys the field and intervenes where judgment matters. Closing the
+introduction returns focus to the wordmark.
+
 Dialogs use compact headers, visible focus, keyboard-confirmable actions, and
 minimal nesting.
 

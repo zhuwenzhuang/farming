@@ -39,6 +39,10 @@ Primary Action 必须支持键盘，并以简洁 Hint 保持可见。Focus、Esc
 Return-to-opener 行为在 Dashboard、Search、History、Settings、New Agent 与 Opened Session
 之间保持一致。
 
+Farming CRT Wordmark 打开一份紧凑的产品介绍。它将 CRT 表达为 Farming 最初的键盘优先 Agent
+控制室，并延续“在线 Agent 牧场”的愿景：人的注意力有限，Agent 持续工作，Operator 纵览全局，
+只在需要判断的位置介入。关闭介绍后，Focus 回到 Wordmark。
+
 Dialog 使用紧凑 Header、明确 Focus、Keyboard-confirmable Action 与最少 Nesting。
 
 ## 视觉契约

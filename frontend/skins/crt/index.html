@@ -1761,7 +1761,7 @@
                 </div>
             </div>
 
-            <div class="crt-brand-lockup" id="crt-brand-lockup" role="img" aria-label="Farming CRT multi-agent terminal monitor">
+            <button class="crt-brand-lockup" id="crt-brand-lockup" type="button" tabindex="-1" data-crt-nav-key="sidebar:about" aria-label="About Farming CRT">
                 <div class="crt-brand-mark" aria-hidden="true">
                     <svg viewBox="0 0 64 52" focusable="false">
                         <rect class="crt-brand-case" x="2" y="2" width="60" height="43" rx="8"></rect>
@@ -1778,7 +1778,7 @@
                     <span class="crt-brand-name">FARMING</span>
                     <span class="crt-brand-model">CRT</span>
                 </div>
-            </div>
+            </button>
 
             <div class="crt-keyboard-guide" role="img" aria-label="Arrow keys move, Enter selects, Escape goes back">
                 <svg viewBox="0 0 172 38" focusable="false" aria-hidden="true">
@@ -1933,6 +1933,32 @@
                 <div class="crt-structured-composer-status" id="crt-structured-composer-status"></div>
             </form>
         </div>
+    </div>
+
+    <div class="modal" id="crt-about-modal" role="presentation" onclick="hideCrtAbout()">
+        <section class="modal-content crt-about-dialog" role="dialog" aria-modal="true" aria-labelledby="crt-about-title" aria-describedby="crt-about-story" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <span>ABOUT // FARMING CRT</span>
+                <button class="close-btn" id="crt-about-close" data-crt-nav-key="about:close" data-crt-nav-default="true" aria-label="Close Farming CRT introduction" onclick="hideCrtAbout()">Esc</button>
+            </div>
+            <div class="crt-about-body">
+                <img class="crt-about-logo" src="assets/branding/farming-crt-icon.svg" alt="">
+                <div class="crt-about-heading">
+                    <span>KEYBOARD-FIRST AGENT CONTROL ROOM</span>
+                    <h2 id="crt-about-title">FARMING CRT</h2>
+                </div>
+                <div class="crt-about-story" id="crt-about-story">
+                    <p>Farming CRT is Farming's original control-room interface: a keyboard-first place to supervise many coding agents without turning their work into another wall of tabs, alerts, and detail.</p>
+                    <p><strong>ENGINEERING IS BECOMING FARMING.</strong> Agents do the work; the operator shapes the environment, scans the field, notices what needs care, and intervenes where human judgment matters.</p>
+                    <p>Stable panels, restrained signals, and visible motion keep the system alive without competing for scarce attention. Every action can stay on the keyboard, so the human remains in command.</p>
+                </div>
+                <div class="crt-about-links">
+                    <a href="https://zhuwenzhuang.github.io/farming/en/crt/overview" target="_blank" rel="noreferrer">CRT GUIDE</a>
+                    <span aria-hidden="true"> // </span>
+                    <a href="https://github.com/zhuwenzhuang/farming" target="_blank" rel="noreferrer">GITHUB</a>
+                </div>
+            </div>
+        </section>
     </div>
 
     <div class="modal" id="settings-modal">
