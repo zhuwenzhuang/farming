@@ -421,6 +421,11 @@ test.describe('Farming Code appearance skins', () => {
     await expectDarkSurface(page.getByTestId('code-agent-context-menu'), 'agent context menu')
     await saveScreenshot(testInfo, 'agent-context-menu.png', page.getByTestId('code-agent-context-menu'))
     await page.keyboard.press('Escape')
+    await chooseAppearance(page, 'Paper')
+    await agentRow.click({ button: 'right' })
+    await expect(page.getByTestId('code-agent-context-menu')).toHaveCSS('background-color', 'rgb(239, 237, 231)')
+    await page.keyboard.press('Escape')
+    await chooseAppearance(page, 'Dark')
 
     await page.getByTestId('code-nav-search').click()
     await expect(page.getByTestId('code-search-panel')).toBeVisible()

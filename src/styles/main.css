@@ -831,7 +831,7 @@ body.code-resizing-language-server-dock {
   padding: 5px;
   border: 1px solid var(--code-border);
   border-radius: 8px;
-  background: var(--code-bg-raised);
+  background: var(--code-context-menu-surface);
   box-shadow: var(--code-shadow-raised);
   color: var(--code-text);
   border-color: var(--code-border);
