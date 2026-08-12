@@ -350,7 +350,7 @@
 }
 
 .code-settings-update-card.available {
-  border-color: var(--code-border);
+  border-color: color-mix(in srgb, var(--code-success) 34%, transparent);
 }
 
 .code-settings-update-version {
@@ -688,10 +688,10 @@
 
 .code-settings-panel {
   width: min(460px, 94vw);
-  background: var(--code-bg-chrome);
+  background: var(--code-settings-surface);
   border-left: 0;
   box-shadow: var(--code-shadow-soft);
-  color: var(--code-text);
+  color: var(--code-settings-text);
   font-family: -apple-system, system-ui, "SF Pro Text", "Segoe UI", sans-serif;
 }
 
@@ -699,7 +699,7 @@
   flex: 0 0 auto;
   align-items: center;
   padding: 16px 18px 6px;
-  background: var(--code-bg-chrome);
+  background: transparent;
   border-bottom: 0;
 }
 
@@ -872,7 +872,7 @@
   padding: 0;
   border: 1px solid transparent;
   border-radius: 50%;
-  background: var(--code-info-soft);
+  background: var(--code-accent-soft);
   color: var(--code-text-muted);
   cursor: pointer;
   transform: translateY(-50%);
@@ -886,7 +886,7 @@
 .code-settings-pet-appearance-preview:hover,
 .code-settings-pet-appearance-preview:focus-visible {
   border-color: var(--code-border-strong);
-  background: var(--code-info-soft);
+  background: var(--code-accent-soft);
   color: var(--code-text-strong);
   outline: 0;
 }
@@ -1158,7 +1158,7 @@
 
 .code-settings-segmented button.active {
   background: var(--code-bg-raised);
-  box-shadow: var(--code-shadow-soft);
+  box-shadow: inset 0 0 0 1px var(--code-border);
 }
 
 .code-settings-segmented button[data-theme-choice] {
@@ -1531,7 +1531,7 @@ body.code-mode.code-compact-layout .code-settings-pet-rest-value {
     margin-top: var(--app-visual-offset-top, 0px);
     border: 0;
     border-radius: 0 18px 18px 0;
-    background: var(--code-bg-chrome);
+    background: var(--code-settings-compact-surface);
     box-shadow: var(--code-shadow-soft);
     animation: code-settings-mobile-enter 180ms cubic-bezier(0.2, 0.72, 0.25, 1);
   }

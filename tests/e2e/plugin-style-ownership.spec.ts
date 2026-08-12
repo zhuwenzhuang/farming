@@ -40,8 +40,8 @@ test('Plugin style owners preserve the light, dark, and narrow runtime cascade',
   await panel.getByTestId('code-plugin-tab-farming').click()
   const selectTrigger = panel.locator('.code-select-trigger').first()
   await expect(selectTrigger).toBeVisible()
-  await expect(selectTrigger).toHaveCSS('background-color', 'rgb(255, 253, 248)')
-  await expect(selectTrigger).toHaveCSS('border-color', 'rgb(221, 214, 200)')
+  await expect(selectTrigger).toHaveCSS('background-color', 'rgb(255, 254, 250)')
+  await expect(selectTrigger).toHaveCSS('border-color', 'rgba(0, 0, 0, 0)')
   await expect(selectTrigger).toHaveCSS('color', 'rgb(40, 41, 34)')
 
   await panel.getByTestId('code-plugin-tab-homes').click()
@@ -68,7 +68,7 @@ test('Plugin style owners preserve the light, dark, and narrow runtime cascade',
       warningBackground: 'rgba(210, 153, 34, 0.16)',
     },
     paper: {
-      border: 'rgb(221, 214, 200)',
+      border: 'rgba(0, 0, 0, 0)',
       title: 'rgb(40, 41, 34)',
       muted: 'rgb(104, 104, 95)',
       subtle: 'rgb(119, 119, 109)',

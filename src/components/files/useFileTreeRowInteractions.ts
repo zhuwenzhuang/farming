@@ -54,8 +54,17 @@ export function useFileTreeRowInteractions({
       || event.ctrlKey
       || event.shiftKey
     ) return
-    void onOpenFilePath(item.path, { transient: event.detail < 2 })
-  }, [isDirectory, item.path, onOpenFilePath])
+    event.preventDefault()
+    // Finish the tree-focus transition in this discrete pointer event. Doing
+    // it later in click batches treeBlur with the active-file render, so a
+    // virtualized row can still observe stale treeFocused state and reclaim
+    // focus after Monaco opens.
+    node.tree.onBlur()
+    const activeElement = document.activeElement
+    if (activeElement instanceof HTMLElement && treeViewportRef.current?.contains(activeElement)) {
+      activeElement.blur()
+    }
+  }, [isDirectory, node.tree, treeViewportRef])
 
   const handleRowClick = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
     onCancelPendingFileFocus()
@@ -81,9 +90,20 @@ export function useFileTreeRowInteractions({
       return
     }
 
-    if (clickIntent === 'open-file' && event.detail === 0) {
-      void onOpenFilePath(item.path, { transient: true })
+    if (clickIntent === 'open-file') {
+      // Pointer activation hands keyboard ownership to the editor after the
+      // file read completes. Selecting through react-arborist here would
+      // focus the hidden tree target and steal Ctrl/Cmd shortcuts from Monaco.
+      event.preventDefault()
+      event.stopPropagation()
+      node.tree.select(node, { focus: false })
+      void onOpenFilePath(item.path, {
+        transient: event.detail < 2,
+        focusEditor: true,
+      })
+      return
     }
+
     node.handleClick(event)
     node.focus()
     focusTree()

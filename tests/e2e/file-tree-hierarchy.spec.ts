@@ -617,21 +617,145 @@ test('keeps file row slots stable for rename, links, statuses, loading, and comp
     await page.getByTestId('code-file-context-menu').getByRole('menuitem', { name: 'Rename' }).click()
     const renameInput = row.getByTestId('code-file-operation-input')
     await expect(renameInput).toBeFocused()
-    const renameOrigin = await row.evaluate(element => {
+    const renameGeometry = await row.evaluate(element => {
       const leading = element.querySelector<HTMLElement>('.code-file-chevron, .code-file-type-icon')
       const input = element.querySelector<HTMLElement>('[data-testid="code-file-operation-input"]')
-      const gap = Number.parseFloat(getComputedStyle(element).columnGap) || 0
+      const rowStyle = getComputedStyle(element)
+      const rowRect = element.getBoundingClientRect()
+      const inputRect = input?.getBoundingClientRect()
+      const gap = Number.parseFloat(rowStyle.columnGap) || 0
       return {
         expected: (leading?.getBoundingClientRect().right ?? 0) + gap,
-        input: input?.getBoundingClientRect().left ?? -1,
+        expectedRight: rowRect.right - (Number.parseFloat(rowStyle.paddingRight) || 0),
+        input: inputRect?.left ?? -1,
+        inputRight: inputRect?.right ?? -1,
+        inputWidth: inputRect?.width ?? 0,
+        rowWidth: rowRect.width,
+        verticallyCentered: inputRect
+          ? Math.abs((inputRect.top + inputRect.bottom) / 2 - (rowRect.top + rowRect.bottom) / 2) <= 1
+          : false,
       }
     })
-    expect(Math.abs(renameOrigin.input - renameOrigin.expected)).toBeLessThanOrEqual(1)
+    expect(Math.abs(renameGeometry.input - renameGeometry.expected)).toBeLessThanOrEqual(1)
+    expect(Math.abs(renameGeometry.inputRight - renameGeometry.expectedRight)).toBeLessThanOrEqual(1)
+    expect(renameGeometry.inputWidth).toBeGreaterThan(renameGeometry.rowWidth * 0.6)
+    expect(renameGeometry.verticallyCentered).toBe(true)
     await renameInput.press('Escape')
   }
   const regularRow = files.locator('[data-testid="code-file-row"][data-file-path="regular.ts"]')
   await assertRenameKeepsLabelOrigin(regularRow)
   await assertRenameKeepsLabelOrigin(folderRow)
+
+  await folderRow.click()
+  await expect(folderRow).toHaveAttribute('aria-expanded', 'true')
+  const deepFileRow = files.locator('[data-testid="code-file-row"][data-file-path="folder/child.ts"]')
+  await expect(deepFileRow).toBeVisible()
+  await expect.poll(() => deepFileRow.evaluate(element => (
+    Number.parseFloat(getComputedStyle(element).getPropertyValue('--file-depth'))
+  ))).toBeGreaterThan(0)
+
+  await page.evaluate(() => {
+    const testWindow = window as Window & {
+      __fileTreeHorizontalSamples?: Array<{
+        documentLeft: number
+        projectLeft: number
+        projectScrollLeft: number
+        treeLeft: number
+      }>
+      __fileTreeScrollIntoViewPaths?: string[]
+    }
+    testWindow.__fileTreeHorizontalSamples = []
+    testWindow.__fileTreeScrollIntoViewPaths = []
+    const originalScrollIntoView = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = function (...args) {
+      if (this instanceof HTMLElement && this.dataset.filePath) {
+        testWindow.__fileTreeScrollIntoViewPaths?.push(this.dataset.filePath)
+      }
+      return originalScrollIntoView.apply(this, args)
+    }
+    let frames = 0
+    const sample = () => {
+      const project = document.querySelector<HTMLElement>('.code-project-list')
+      const tree = document.querySelector<HTMLElement>('.code-file-tree')
+      if (project && tree) {
+        testWindow.__fileTreeHorizontalSamples?.push({
+          documentLeft: document.scrollingElement?.scrollLeft ?? 0,
+          projectLeft: project.getBoundingClientRect().left,
+          projectScrollLeft: project.scrollLeft,
+          treeLeft: tree.getBoundingClientRect().left,
+        })
+      }
+      frames += 1
+      if (frames < 48) requestAnimationFrame(sample)
+    }
+    requestAnimationFrame(sample)
+  })
+  await deepFileRow.click()
+  await expect.poll(() => page.evaluate(() => (
+    window.__farmingFileEditorTest?.getFocusEditorRequestId() ?? null
+  ))).toBeGreaterThan(0)
+  await expect(page.locator('.monaco-editor textarea.inputarea')).toBeFocused()
+  await page.waitForTimeout(800)
+  const pointerOpenStability = await page.evaluate(() => {
+    const testWindow = window as Window & {
+      __fileTreeHorizontalSamples?: Array<{
+        documentLeft: number
+        projectLeft: number
+        projectScrollLeft: number
+        treeLeft: number
+      }>
+      __fileTreeScrollIntoViewPaths?: string[]
+    }
+    const samples = testWindow.__fileTreeHorizontalSamples ?? []
+    const spread = (values: number[]) => values.length > 0 ? Math.max(...values) - Math.min(...values) : Infinity
+    return {
+      calls: testWindow.__fileTreeScrollIntoViewPaths ?? [],
+      documentLeft: spread(samples.map(sample => sample.documentLeft)),
+      projectLeft: spread(samples.map(sample => sample.projectLeft)),
+      projectScrollLeft: spread(samples.map(sample => sample.projectScrollLeft)),
+      treeLeft: spread(samples.map(sample => sample.treeLeft)),
+    }
+  })
+  expect(pointerOpenStability.calls).toEqual([])
+  expect(pointerOpenStability.documentLeft).toBeLessThanOrEqual(0.5)
+  expect(pointerOpenStability.projectLeft).toBeLessThanOrEqual(0.5)
+  expect(pointerOpenStability.projectScrollLeft).toBeLessThanOrEqual(0.5)
+  expect(pointerOpenStability.treeLeft).toBeLessThanOrEqual(0.5)
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A')
+  await page.keyboard.insertText('replacement from editor focus')
+  await expect.poll(() => page.evaluate(() => window.__farmingFileEditorTest?.getValue())).toBe('replacement from editor focus')
+
+  let releaseSlowRead = () => {}
+  let markSlowReadStarted = () => {}
+  const slowReadGate = new Promise<void>(resolve => { releaseSlowRead = resolve })
+  const slowReadStarted = new Promise<void>(resolve => { markSlowReadStarted = resolve })
+  await page.route('**/api/files/file?**', async route => {
+    const requestUrl = new URL(route.request().url())
+    if (requestUrl.searchParams.get('path') !== 'target-a.ts') {
+      await route.continue()
+      return
+    }
+    const response = await route.fetch()
+    markSlowReadStarted()
+    await slowReadGate
+    await route.fulfill({ response })
+  })
+  const slowFileRow = files.locator('[data-testid="code-file-row"][data-file-path="target-a.ts"]')
+  const latestFileRow = files.locator('[data-testid="code-file-row"][data-file-path="target-b.ts"]')
+  await slowFileRow.click()
+  await slowReadStarted
+  await latestFileRow.click()
+  await expect(page.getByTestId('code-file-editor').getByRole('tab', { name: /target-b\.ts/ })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.locator('.monaco-editor textarea.inputarea')).toBeFocused()
+  const latestFocusRequestId = await page.evaluate(() => window.__farmingFileEditorTest?.getFocusEditorRequestId() ?? null)
+  expect(latestFocusRequestId).not.toBeNull()
+  releaseSlowRead()
+  await expect.poll(() => page.getByTestId('code-file-editor').getByRole('tab', { name: /target-b\.ts/ })
+    .getAttribute('aria-selected')).toBe('true')
+  await expect.poll(() => page.evaluate(() => window.__farmingFileEditorTest?.getFocusEditorRequestId() ?? null))
+    .toBe(latestFocusRequestId)
+  await expect(page.locator('.monaco-editor textarea.inputarea')).toBeFocused()
+  await page.unroute('**/api/files/file?**')
 
   await page.setViewportSize({ width: 720, height: 900 })
   await expect(page.locator('body')).toHaveClass(/code-compact-layout/)

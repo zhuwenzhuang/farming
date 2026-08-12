@@ -18,7 +18,7 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: var(--code-terminal-bg);
+  background: var(--code-bg-canvas);
   color: var(--code-text);
   overflow: hidden;
   user-select: text;
@@ -50,7 +50,7 @@
   border: 1px solid var(--code-border);
   border-radius: 13px;
   background: var(--code-bg-surface);
-  box-shadow: var(--code-shadow-soft);
+  box-shadow: none;
   backdrop-filter: blur(14px) saturate(1.08);
   -webkit-backdrop-filter: blur(14px) saturate(1.08);
   border-color: var(--code-border);
@@ -144,7 +144,7 @@
 
 .code-agent-transcript-fork-origin > span[aria-hidden='true'] {
   height: 1px;
-  background: var(--code-bg-surface);
+  background: var(--code-border-strong);
 }
 
 .code-agent-transcript-fork-origin-label {
@@ -169,7 +169,7 @@
 
 .code-agent-transcript-scroll::-webkit-scrollbar-thumb {
   border-radius: 999px;
-  background: var(--code-bg-surface);
+  background: var(--code-scrollbar-thumb);
 }
 
 .code-agent-transcript-state {
@@ -1454,7 +1454,7 @@
 .code-agent-transcript-terminal-sync-error button {
   flex: 0 0 auto;
   padding: 2px 7px;
-  border: 1px solid var(--code-warning);
+  border: 1px solid color-mix(in srgb, var(--code-warning) 28%, transparent);
   border-radius: 5px;
   background: transparent;
   color: inherit;
@@ -1783,7 +1783,7 @@
   padding: 1px 6px;
   border: 0;
   border-radius: 6px;
-  background: var(--code-info-soft);
+  background: var(--code-accent-soft);
   color: var(--code-accent);
   font: inherit;
   font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
@@ -1866,7 +1866,7 @@
 
 .code-agent-transcript-file-link:hover,
 .code-agent-transcript-file-link:focus-visible {
-  background: var(--code-info-soft);
+  background: var(--code-accent-soft);
   color: var(--code-accent);
   outline: none;
 }
@@ -1961,7 +1961,7 @@
   padding: 5px 7px 5px 12px;
   border: 1px solid var(--code-border);
   border-radius: 14px;
-  background: var(--code-bg-muted);
+  background: var(--code-bg-inset);
   border-color: var(--code-border);
 }
 
@@ -1979,7 +1979,7 @@
   border: 1px solid var(--code-border);
   border-bottom: 0;
   border-radius: 14px 14px 0 0;
-  background: var(--code-bg-selected);
+  background: var(--code-bg-inset);
   border-color: var(--code-border);
 }
 
@@ -1992,7 +1992,7 @@
   justify-content: flex-start;
   gap: 7px;
   padding: 5px 4px;
-  color: var(--code-text-subtle);
+  color: var(--code-text);
   font: inherit;
   font-size: 14px;
   font-weight: 500;
@@ -2169,7 +2169,7 @@ button.code-agent-transcript-result-summary:focus-visible {
   border: 1px solid var(--code-border);
   border-radius: 14px;
   background: var(--code-bg-surface);
-  box-shadow: var(--code-shadow-soft);
+  box-shadow: none;
   border-color: var(--code-border);
 }
 
@@ -2178,7 +2178,7 @@ button.code-agent-transcript-result-summary:focus-visible {
   min-width: 0;
   border-top: 0;
   border-radius: 0 0 14px 14px;
-  box-shadow: var(--code-shadow-soft);
+  box-shadow: none;
 }
 
 .code-agent-transcript-result-files {
@@ -2375,7 +2375,7 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-age
   padding: 6px 11px;
   border: 1px solid var(--code-border);
   border-radius: 8px;
-  background: var(--code-info-soft);
+  background: var(--code-bg-raised);
   color: var(--code-text);
   font: inherit;
   font-size: 12px;
@@ -2385,7 +2385,7 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-age
 
 .code-agent-transcript-result-review:hover,
 .code-agent-transcript-result-review:focus-visible {
-  background: var(--code-info-soft);
+  background: var(--code-bg-muted);
 }
 
 .code-agent-transcript-result-review.agent-review-commit {
@@ -2646,15 +2646,15 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-age
 }
 
 .code-agent-transcript-process-item {
-  background: var(--code-bg-surface);
+  background: transparent;
 }
 
 .code-agent-transcript-tool {
-  background: var(--code-bg-surface);
+  background: transparent;
 }
 
 .code-agent-transcript-result {
-  background: var(--code-bg-surface);
+  background: transparent;
 }
 
 .code-agent-transcript-tool {
@@ -2666,15 +2666,15 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-age
 }
 
 .code-agent-transcript-process-item {
-  box-shadow: var(--code-shadow-soft);
+  box-shadow: none;
 }
 
 .code-agent-transcript-tool {
-  box-shadow: var(--code-shadow-soft);
+  box-shadow: none;
 }
 
 .code-agent-transcript-result {
-  box-shadow: var(--code-shadow-soft);
+  box-shadow: none;
 }
 
 .code-agent-transcript-user-message {
@@ -2686,7 +2686,7 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-age
 }
 
 .code-agent-transcript a {
-  color: var(--code-info);
+  color: var(--code-accent);
 }
 
 .code-agent-transcript-markdown {

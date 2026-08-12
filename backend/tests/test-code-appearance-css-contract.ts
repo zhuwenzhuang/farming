@@ -172,4 +172,31 @@ for (const sourcePath of allCssSources) {
   })
 }
 
+const semanticShadowContracts = [
+  ['src/styles/markdown.css', '.code-agent-transcript-assistant.code-markdown-preview code', 'none'],
+  ['src/styles/transcript.css', '.code-agent-transcript-process-item', 'none'],
+  ['src/styles/transcript.css', '.code-agent-transcript-tool', 'none'],
+  ['src/styles/transcript.css', '.code-agent-transcript-result', 'none'],
+  ['src/styles/transcript.css', '.code-agent-transcript-plan-driver', 'none'],
+  ['src/styles/transcript.css', '.code-agent-transcript-result-details', 'none'],
+  ['src/styles/main.css', '.code-acp-request', 'none'],
+  ['src/styles/main.css', '.code-pending-followup', 'none'],
+  ['src/styles/main.css', '.workspace-history-item.active', 'none'],
+  ['src/styles/files.css', '.code-file-blame-detail', 'none'],
+  ['src/styles/files.css', '.code-file-line-changes-panel', 'none'],
+  ['src/styles/composer.css', ".code-model-matrix-fast:not(.is-active)", 'none'],
+] as const
+for (const [sourcePath, selector, expectedShadow] of semanticShadowContracts) {
+  const root = postcss.parse(fs.readFileSync(path.join(projectRoot, sourcePath), 'utf8'), { from: sourcePath })
+  const matchingDeclarations = root.nodes.flatMap(node => (
+    node.type === 'rule' && node.selector === selector ? node.nodes : []
+  ))
+  const shadow = matchingDeclarations
+    .find(node => node.type === 'decl' && node.prop === 'box-shadow')
+  assert(
+    shadow?.type === 'decl' && shadow.value === expectedShadow,
+    `${sourcePath} ${selector} must keep its in-flow content shadow at ${expectedShadow}`,
+  )
+}
+
 console.log('test-code-appearance-css-contract passed')

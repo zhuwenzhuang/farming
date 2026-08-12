@@ -272,7 +272,7 @@
   place-items: center;
   border: 1.25px solid currentColor;
   border-radius: 999px;
-  color: var(--code-text);
+  color: var(--code-success);
 }
 
 .code-share-copy-status-icon svg {
@@ -399,7 +399,7 @@
   gap: 7px;
   padding: 5px 5px 5px 10px;
   border-radius: 12px;
-  background: var(--code-info-soft);
+  background: var(--code-accent-soft);
 }
 
 .code-mobile-share-link {
@@ -420,7 +420,7 @@
   padding: 0 11px;
   border: 0;
   border-radius: 10px;
-  background: var(--code-info-soft);
+  background: var(--code-accent-soft);
   color: var(--code-text);
   font: inherit;
   font-size: 12px;

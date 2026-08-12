@@ -296,6 +296,35 @@ test.describe('Farming Code appearance skins', () => {
     const suggestionParent = path.join(workspaceRoot, 'dark-suggestions')
     const suggestedWorkspace = path.join(suggestionParent, 'alpha-workspace')
     fs.mkdirSync(suggestedWorkspace, { recursive: true })
+    await page.route('**/api/agent-extensions', route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        agents: [{
+          id: 'codex',
+          name: 'codex',
+          description: 'Codex CLI',
+          discoverySupported: true,
+          homes: [{
+            id: 'default',
+            extensions: [{
+              id: '$dark-surface',
+              command: '$dark-surface',
+              name: 'Dark surface fixture',
+              description: 'Deterministic appearance fixture.',
+              kind: 'skill',
+              scope: 'Personal',
+            }, {
+              id: '$dark-surface-secondary',
+              command: '$dark-surface-secondary',
+              name: 'Secondary dark surface fixture',
+              description: 'Keeps list separators deterministic.',
+              kind: 'skill',
+              scope: 'Personal',
+            }],
+          }],
+        }],
+      }),
+    }))
 
     await openFarming(page)
     await expect(page.locator('body')).toHaveAttribute('data-appearance', 'light')

@@ -106,6 +106,7 @@ export function useWorkspaceFileIdentityController({
 }: UseWorkspaceFileIdentityControllerOptions) {
   const cursorRequestIdRef = useRef(0)
   const diffRequestIdRef = useRef(0)
+  const focusEditorRequestIdRef = useRef(0)
   const resolveWorkspaceFileIdentity = useCallback((
     candidateId: string,
     requestedSourceAgentId?: string,
@@ -146,6 +147,9 @@ export function useWorkspaceFileIdentityController({
     diffRequestId: target?.view === 'diff'
       ? (diffRequestIdRef.current += 1)
       : diffRequestIdRef.current,
+    focusEditorRequestId: target?.focusEditor
+      ? (focusEditorRequestIdRef.current += 1)
+      : focusEditorRequestIdRef.current,
   }), [])
 
   return { resolveWorkspaceFileIdentity, createWorkspaceOpenFileRequest }

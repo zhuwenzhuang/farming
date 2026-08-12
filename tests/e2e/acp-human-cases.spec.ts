@@ -468,6 +468,7 @@ test.describe('ACP human-like browser matrix', () => {
         headerLineHeight: getComputedStyle(header).lineHeight,
         quoteFontSize: getComputedStyle(quote).fontSize,
         inlineCodeFontSize: Number.parseFloat(getComputedStyle(inlineCode).fontSize),
+        inlineCodeShadow: getComputedStyle(inlineCode).boxShadow,
       }
     })
     expect(metrics).toMatchObject({
@@ -483,6 +484,7 @@ test.describe('ACP human-like browser matrix', () => {
     })
     expect(metrics.inlineCodeFontSize).toBeGreaterThanOrEqual(12)
     expect(metrics.inlineCodeFontSize).toBeLessThan(14)
+    expect(metrics.inlineCodeShadow).toBe('none')
   })
 
   test('hides an incomplete ACP plan when its Turn ends', async ({ page, workspaceRoot }) => {
@@ -1539,6 +1541,7 @@ test.describe('ACP human-like browser matrix', () => {
 
     fs.writeFileSync(path.join(workspace, 'display-fixture.txt'), 'after\n')
     await page.reload()
+    await page.locator('body').evaluate(element => { element.dataset.appearance = 'paper' })
     await agentRow(page, agentId).click()
     const dirtyTurn = page.locator(`[data-testid="code-agent-work-pane"][data-agent-id="${agentId}"]`)
       .locator('.code-agent-transcript-turn')
@@ -1547,29 +1550,58 @@ test.describe('ACP human-like browser matrix', () => {
     const dirtyReviewButton = dirtyTurn.getByRole('button', { name: /^Review:/ })
     const dirtyGitDiffButton = dirtyTurn.getByRole('button', { name: 'Git diff', exact: true })
     await expect(dirtyGitDiffButton).toBeVisible()
+    const resultHeaderStyle = await dirtyTurn.locator('.code-agent-transcript-result-header').evaluate(element => {
+      const probe = document.createElement('span')
+      probe.style.background = 'var(--code-bg-inset)'
+      document.body.append(probe)
+      const insetBackground = getComputedStyle(probe).backgroundColor
+      probe.remove()
+      const style = getComputedStyle(element)
+      return {
+        backgroundColor: style.backgroundColor,
+        borderColor: style.borderColor,
+        insetBackground,
+      }
+    })
+    expect(resultHeaderStyle.backgroundColor).toBe(resultHeaderStyle.insetBackground)
+    expect(resultHeaderStyle.borderColor).toBe('rgba(0, 0, 0, 0)')
     const [dirtyReviewStyle, dirtyGitDiffStyle] = await Promise.all([
       dirtyReviewButton.evaluate(element => {
         const style = getComputedStyle(element)
+        const probe = document.createElement('span')
+        probe.style.background = 'var(--code-bg-raised)'
+        document.body.append(probe)
+        const raisedBackground = getComputedStyle(probe).backgroundColor
+        probe.remove()
         return {
           backgroundColor: style.backgroundColor,
           borderColor: style.borderColor,
           borderRadius: style.borderRadius,
           color: style.color,
           padding: style.padding,
+          raisedBackground,
         }
       }),
       dirtyGitDiffButton.evaluate(element => {
         const style = getComputedStyle(element)
+        const probe = document.createElement('span')
+        probe.style.background = 'var(--code-bg-raised)'
+        document.body.append(probe)
+        const raisedBackground = getComputedStyle(probe).backgroundColor
+        probe.remove()
         return {
           backgroundColor: style.backgroundColor,
           borderColor: style.borderColor,
           borderRadius: style.borderRadius,
           color: style.color,
           padding: style.padding,
+          raisedBackground,
         }
       }),
     ])
     expect(dirtyGitDiffStyle).toEqual(dirtyReviewStyle)
+    expect(dirtyReviewStyle.backgroundColor).toBe(dirtyReviewStyle.raisedBackground)
+    expect(dirtyReviewStyle.borderColor).toBe('rgba(0, 0, 0, 0)')
 
     execFileSync('git', ['add', 'display-fixture.txt'], { cwd: workspace, stdio: 'ignore' })
     execFileSync('git', ['commit', '-m', 'commit ACP file change'], { cwd: workspace, stdio: 'ignore' })

@@ -357,7 +357,7 @@
 
 .code-git-history-reference.remote-branch {
   background: var(--code-success-soft);
-  color: var(--code-git-ref-remote);
+  color: var(--code-collaboration-tone-1);
 }
 
 .code-git-history-reference-more {
@@ -491,7 +491,7 @@
   border: 0;
   border-radius: 4px;
   background: transparent;
-  color: var(--code-info);
+  color: var(--code-accent);
   font-size: 10px;
   font-weight: 500;
   line-height: 16px;
@@ -501,7 +501,7 @@
 .code-git-history-review:hover,
 .code-git-history-review:focus-visible {
   background: var(--code-bg-hover);
-  color: var(--code-info);
+  color: var(--code-accent);
   outline: 0;
 }
 

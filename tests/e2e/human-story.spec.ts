@@ -682,7 +682,13 @@ test.describe('human Farming Agent story', () => {
 
     await openFarming(page)
     await openNewAgentDialog(page)
+    const slashCommandsResponsePromise = page.waitForResponse(response => (
+      response.request().method() === 'GET'
+      && response.url().includes('/api/slash-commands?')
+      && response.ok()
+    ))
     const agentId = await startAgentFromOpenDialog(page, 'codex', workspaceRoot)
+    await slashCommandsResponsePromise
 
     const textarea = page.getByTestId('code-composer').locator('textarea')
     await textarea.fill('Use $pd')

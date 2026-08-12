@@ -65,7 +65,7 @@
 }
 
 .code-agent-rail-status.running {
-  background: var(--code-success-soft);
+  background: var(--code-success);
 }
 
 .code-agent-rail-status.turn-active {
@@ -835,7 +835,7 @@ body.code-mode:not(.code-compact-layout) .code-agent-row.requires-resume .code-a
     }
 
   body.code-mode.code-compact-layout .code-agent-work-pane {
-      background: var(--code-terminal-bg) !important;
+      background: var(--code-bg-canvas) !important;
     }
 
   body.code-mode.code-compact-layout .code-agent-row {

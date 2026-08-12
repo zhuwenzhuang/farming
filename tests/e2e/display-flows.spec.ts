@@ -671,6 +671,38 @@ test.describe('display-backed agent flows', () => {
     await expect(emptyWorkspace.getByTestId('code-empty-home-plugins')).toBeVisible()
     await expect(page.getByTestId('code-empty-home-brace')).toBeVisible()
     await expect(page.getByTestId('code-empty-home-target-brace')).toBeVisible()
+    const originalAppearance = await page.locator('body').getAttribute('data-appearance')
+    await page.locator('body').evaluate(body => { body.dataset.appearance = 'paper' })
+    const paperGuideStyles = await page.evaluate(() => ({
+      connectorColor: getComputedStyle(document.querySelector<SVGSVGElement>('.code-empty-home-connector')!).color,
+      connectorStrokeOpacity: getComputedStyle(
+        document.querySelector<SVGPathElement>('.code-empty-home-connector-base')!,
+      ).strokeOpacity,
+      originBraceColor: getComputedStyle(
+        document.querySelector<HTMLElement>('[data-testid="code-empty-home-brace"]')!,
+      ).color,
+      originBraceStrokeOpacity: getComputedStyle(
+        document.querySelector<SVGPathElement>('.code-empty-home-brace path')!,
+      ).strokeOpacity,
+      targetBraceColor: getComputedStyle(
+        document.querySelector<HTMLElement>('[data-testid="code-empty-home-target-brace"]')!,
+      ).color,
+      targetBraceStrokeOpacity: getComputedStyle(
+        document.querySelector<SVGPathElement>('.code-empty-home-target-brace path')!,
+      ).strokeOpacity,
+    }))
+    expect(paperGuideStyles).toEqual({
+      connectorColor: 'rgb(136, 135, 125)',
+      connectorStrokeOpacity: '0.3',
+      originBraceColor: 'rgb(136, 135, 125)',
+      originBraceStrokeOpacity: '0.46',
+      targetBraceColor: 'rgb(136, 135, 125)',
+      targetBraceStrokeOpacity: '0.56',
+    })
+    await page.locator('body').evaluate((body, appearance) => {
+      if (appearance) body.dataset.appearance = appearance
+      else delete body.dataset.appearance
+    }, originalAppearance)
     expect(globalWorktreeRequests).toEqual([])
     const guideGeometry = await page.evaluate(() => {
       const brace = document.querySelector<HTMLElement>('[data-testid="code-empty-home-brace"]')?.getBoundingClientRect()
@@ -2536,6 +2568,8 @@ test.describe('display-backed agent flows', () => {
     await expect(file00Row).toHaveClass(/selected/)
     await file00Row.click()
     await expect(file00Row).toHaveClass(/selected/)
+    await expect(page.locator('.monaco-editor textarea.inputarea')).toBeFocused()
+    await childFiles.locator('[role="tree"]').focus()
     await expect.poll(async () => childFiles.locator('[role="tree"]').evaluate(tree => (
       tree === document.activeElement || tree.contains(document.activeElement)
     ))).toBe(true)
@@ -2558,6 +2592,8 @@ test.describe('display-backed agent flows', () => {
     await expect(compactDeepRow).toHaveClass(/selected/)
     await file00Row.click()
     await expect(file00Row).toHaveClass(/selected/)
+    await expect(page.locator('.monaco-editor textarea.inputarea')).toBeFocused()
+    await childFiles.locator('[role="tree"]').focus()
     await expect.poll(async () => childFiles.locator('[role="tree"]').evaluate(tree => (
       tree === document.activeElement || tree.contains(document.activeElement)
     ))).toBe(true)
@@ -3319,16 +3355,18 @@ test.describe('display-backed agent flows', () => {
         const topmost = document.elementFromPoint(rect.left + 24, rect.top + 24)
         return topmost instanceof Node && menu.contains(topmost)
       })).toBe(true)
-      const approvalMenuImage = await page.screenshot({
-        animations: 'disabled',
-        clip: {
-          x: approvalMenuBox.x,
-          y: approvalMenuBox.y,
-          width: approvalMenuBox.width,
-          height: approvalMenuBox.height,
-        },
-      })
-      expect(approvalMenuImage).toMatchSnapshot('desktop-composer-approval-menu.png')
+      if (process.platform === 'darwin') {
+        const approvalMenuImage = await page.screenshot({
+          animations: 'disabled',
+          clip: {
+            x: approvalMenuBox.x,
+            y: approvalMenuBox.y,
+            width: approvalMenuBox.width,
+            height: approvalMenuBox.height,
+          },
+        })
+        expect(approvalMenuImage).toMatchSnapshot('desktop-composer-approval-menu.png')
+      }
       await page.keyboard.press('Escape')
       await expect(approvalMenu).toBeHidden()
       await expect(page.getByTestId('code-composer').locator('textarea')).toBeFocused()

@@ -13,6 +13,7 @@ declare global {
       getLanguageId: () => string | null
       getPosition: () => { lineNumber: number; column: number } | null
       getScrollTop: () => number
+      getFocusEditorRequestId: () => number | null
       getMarkers: () => Array<{ code: string; message: string; severity: number }>
       getTypeScriptDiagnosticsOptions: () => {
         noSemanticValidation?: boolean
@@ -25,11 +26,13 @@ declare global {
 
 interface UseFileEditorTestBridgeOptions {
   editorRef: MutableRefObject<monaco.editor.IStandaloneCodeEditor | null>
+  focusEditorRequestId?: number
   onFocusEditor: () => void
 }
 
 export function useFileEditorTestBridge({
   editorRef,
+  focusEditorRequestId,
   onFocusEditor,
 }: UseFileEditorTestBridgeOptions) {
   useEffect(() => {
@@ -85,6 +88,9 @@ export function useFileEditorTestBridge({
       getScrollTop() {
         return editorRef.current?.getScrollTop() ?? 0
       },
+      getFocusEditorRequestId() {
+        return focusEditorRequestId ?? null
+      },
       getMarkers() {
         const model = editorRef.current?.getModel()
         if (!model) return []
@@ -105,5 +111,5 @@ export function useFileEditorTestBridge({
         delete window.__farmingFileEditorTest
       }
     }
-  }, [editorRef, onFocusEditor])
+  }, [editorRef, focusEditorRequestId, onFocusEditor])
 }

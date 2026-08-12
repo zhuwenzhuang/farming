@@ -12,6 +12,7 @@ export async function codeSelectOptions(trigger: Locator) {
 }
 
 export async function selectCodeOption(trigger: Locator, value: string) {
+  if (await trigger.getAttribute('data-value') === value) return
   const options = await codeSelectOptions(trigger)
   const index = options.findIndex(option => option.value === value)
   expect(index, `CodeSelect option ${value} should exist`).toBeGreaterThanOrEqual(0)

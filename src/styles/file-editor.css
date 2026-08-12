@@ -121,7 +121,7 @@
 
 .code-file-editor-tab.active {
   border-top-color: transparent;
-  background: var(--code-terminal-bg);
+  background: var(--code-bg-canvas);
   color: var(--code-text);
 }
 
@@ -479,7 +479,7 @@
 
 .code-file-editor-source-region {
   display: flex;
-  background: var(--code-terminal-bg);
+  background: var(--code-bg-canvas);
   color: var(--code-text);
 }
 
@@ -512,7 +512,7 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: var(--code-terminal-bg);
+  background: var(--code-bg-canvas);
   color: var(--code-text);
 }
 
@@ -641,7 +641,7 @@ body.code-mode .code-file-editor-fallback-textarea {
   display: grid;
   place-items: center;
   padding: 20px;
-  background: var(--code-terminal-bg);
+  background: var(--code-bg-canvas);
   overflow: auto;
   color: var(--code-text);
 }
@@ -792,7 +792,7 @@ body.code-mode .code-file-editor-fallback-textarea {
   .code-file-editor {
     min-width: 0;
     overflow: hidden;
-    background: var(--code-terminal-bg);
+    background: var(--code-bg-canvas);
     color: var(--code-text);
   }
 }
@@ -850,7 +850,7 @@ body.code-mode .code-file-editor-fallback-textarea {
 
   .code-file-monaco {
     overflow: hidden;
-    background: var(--code-terminal-bg);
+    background: var(--code-bg-canvas);
     color: var(--code-text);
   }
 }
@@ -945,8 +945,8 @@ body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file
     height: 40px;
     border: 0;
     border-radius: 999px;
-    background: var(--code-info-soft);
-    color: var(--code-info);
+    background: var(--code-accent-soft);
+    color: var(--code-accent);
     box-shadow: var(--code-shadow-raised);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
@@ -958,7 +958,7 @@ body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file
   body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.source-preview.active {
     border-color: transparent;
     background: transparent;
-    color: var(--code-info);
+    color: var(--code-accent);
   }
 }
 
@@ -1031,7 +1031,7 @@ body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file
 }
 
 .code-file-editor-tabs::-webkit-scrollbar-thumb {
-  background: var(--code-bg-inset);
+  background: var(--code-scrollbar-thumb);
 }
 
 body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.source-preview.active {

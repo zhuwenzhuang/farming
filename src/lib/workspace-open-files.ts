@@ -21,6 +21,7 @@ export interface WorkspaceFileOpenTarget {
   revealInTree?: boolean
   sourceAgentId?: string
   transient?: boolean
+  focusEditor?: boolean
   suppressSearchOnMiss?: boolean
   gitStatus?: WorkspaceFile['gitStatus']
   gitStatusLabel?: string
@@ -42,6 +43,7 @@ export interface WorkspaceOpenFileRequest {
   workspaceRoot?: string
   sourceAgentId?: string
   transient?: boolean
+  focusEditorRequestId?: number
   exactExternal?: boolean
 }
 
@@ -72,6 +74,7 @@ export interface OpenWorkspaceFile {
   diffOnly?: boolean
   revealInTree?: boolean
   transient?: boolean
+  focusEditorRequestId?: number
   exactExternal?: boolean
 }
 
@@ -152,7 +155,7 @@ export function workspaceFileDiffOnlyForTarget(target: WorkspaceFileOpenTarget |
 
 export function workspaceOpenFileRequestForTarget(
   target: WorkspaceFileOpenTarget | undefined,
-  requestIds: { cursorRequestId: number; diffRequestId: number }
+  requestIds: { cursorRequestId: number; diffRequestId: number; focusEditorRequestId: number }
 ): WorkspaceOpenFileRequest {
   return {
     cursor: workspaceFileCursorForTarget(target, requestIds.cursorRequestId),
@@ -160,6 +163,7 @@ export function workspaceOpenFileRequestForTarget(
     diffOnly: workspaceFileDiffOnlyForTarget(target),
     revealInTree: target?.revealInTree,
     transient: target?.transient,
+    focusEditorRequestId: target?.focusEditor ? requestIds.focusEditorRequestId : undefined,
     exactExternal: target?.exactExternal,
   }
 }
@@ -181,7 +185,9 @@ export function shouldOpenMissingWorkspaceFileAsDiff(target?: WorkspaceFileOpenT
 }
 
 export function shouldRevealSelectedWorkspaceOpenFile(target?: WorkspaceFileOpenTarget) {
-  return target?.revealInTree !== false && target?.gitStatus !== 'deleted'
+  return target?.revealInTree !== false
+    && target?.focusEditor !== true
+    && target?.gitStatus !== 'deleted'
 }
 
 export function workspaceFileOpenTargetForChange(change: WorkspaceFileChange): WorkspaceFileOpenTarget {
@@ -394,6 +400,7 @@ export function createWorkspaceOpenFile(
     diffOnly: request.diffOnly,
     revealInTree: request.revealInTree,
     transient: request.transient,
+    focusEditorRequestId: request.focusEditorRequestId,
     exactExternal: request.exactExternal,
   }
 }
@@ -439,6 +446,7 @@ export function openWorkspaceFileFromRead(
     diffOnly: request.diffOnly === true,
     revealInTree: request.revealInTree,
     transient: nextTransient,
+    focusEditorRequestId: request.focusEditorRequestId,
     exactExternal: request.exactExternal ?? baseFile.exactExternal,
   }
 
@@ -471,6 +479,7 @@ export function selectWorkspaceOpenFile(
     || request.diffRequestId
     || request.diffOnly !== undefined
     || request.revealInTree !== undefined
+    || request.focusEditorRequestId !== undefined
     || nextFile.diffRequestId
     || nextFile.revealInTree !== undefined
   )
@@ -489,6 +498,7 @@ export function selectWorkspaceOpenFile(
         diffOnly: request.diffOnly ?? nextFile.diffOnly,
         revealInTree: request.revealInTree,
         transient: request.transient ?? nextFile.transient,
+        focusEditorRequestId: request.focusEditorRequestId,
       }
     : nextFile
   return {

@@ -34,6 +34,7 @@ declare global {
       getLanguageId: () => string | null
       getPosition: () => { lineNumber: number; column: number } | null
       getScrollTop: () => number
+      getFocusEditorRequestId: () => number | null
       getMarkers: () => Array<{ code: string; message: string; severity: number }>
       getTypeScriptDiagnosticsOptions: () => {
         noSemanticValidation?: boolean

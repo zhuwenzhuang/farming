@@ -309,18 +309,18 @@ body.code-resizing-language-server-dock .code-language-server-resizer {
 
 .code-language-server-symbol-kind.interface,
 .code-language-server-symbol-kind.class {
-  background: var(--code-bg-surface);
+  background: color-mix(in srgb, var(--code-warning) 13%, transparent);
   color: var(--code-warning);
 }
 
 .code-language-server-symbol-kind.function {
-  background: var(--code-bg-surface);
+  background: color-mix(in srgb, var(--code-skill) 13%, transparent);
   color: var(--code-skill);
 }
 
 .code-language-server-symbol-kind.property,
 .code-language-server-symbol-kind.variable {
-  background: var(--code-bg-surface);
+  background: color-mix(in srgb, var(--code-success) 12%, transparent);
   color: var(--code-success);
 }
 

@@ -165,7 +165,7 @@
   overflow: hidden;
   border: 1px solid var(--code-border);
   border-radius: 8px;
-  background: var(--code-info-soft);
+  background: var(--code-accent-soft);
   font-size: inherit;
   line-height: inherit;
   white-space: pre-wrap;
@@ -365,7 +365,7 @@
 .code-markdown-preview code {
   padding: 0.16em 0.34em;
   border-radius: 4px;
-  background: var(--code-info-soft);
+  background: var(--code-accent-soft);
   color: var(--code-text);
   font-family: ui-monospace, SFMono-Regular, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   font-size: 0.92em;
@@ -423,7 +423,7 @@
 
 .code-markdown-preview .hljs-doctag,
 .code-markdown-preview .hljs-string {
-  color: var(--code-info);
+  color: var(--code-accent);
 }
 
 .code-markdown-preview .hljs-section,
@@ -443,7 +443,7 @@
 
 .code-markdown-preview .hljs-built_in,
 .code-markdown-preview .hljs-symbol {
-  color: var(--code-info);
+  color: var(--code-accent);
 }
 
 .code-markdown-preview .katex-display {
@@ -673,7 +673,7 @@
 }
 
 .code-markdown-preview tr:nth-child(2n) {
-  background: var(--code-info-soft);
+  background: var(--code-accent-soft);
 }
 
 .code-markdown-preview img {
@@ -724,11 +724,11 @@
 }
 
 .code-agent-transcript-assistant.code-markdown-preview code {
-  background: var(--code-info-soft);
+  background: var(--code-accent-soft);
 }
 
 .code-agent-transcript-assistant.code-markdown-preview code {
-  box-shadow: var(--code-shadow-raised);
+  box-shadow: none;
 }
 
 .code-markdown-preview blockquote {

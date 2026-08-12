@@ -322,7 +322,7 @@
   text-align: center;
 }
 
-.review-file-change[data-change-kind='added'] .review-file-status { color: var(--code-diff-added); }
+.review-file-change[data-change-kind='added'] .review-file-status { color: var(--code-success); }
 .review-file-change[data-change-kind='deleted'] .review-file-status { color: var(--code-diff-removed); }
 .review-file-change[data-change-kind='renamed'] .review-file-status { color: var(--code-text); }
 
@@ -366,7 +366,7 @@
   display: inline-block;
 }
 
-.review-change-bar .added { background: var(--code-diff-added-soft); }
+.review-change-bar .added { background: var(--code-success-soft); }
 .review-change-bar .deleted { background: var(--code-diff-removed-soft); }
 .review-change-bar.binary::before {
   width: 18px;
@@ -388,7 +388,7 @@
   white-space: nowrap;
 }
 .review-file-stats.binary { color: var(--code-text); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.review-file-stats .added { color: var(--code-diff-added); }
+.review-file-stats .added { color: var(--code-success); }
 .review-file-stats .removed { color: var(--code-diff-removed); font-style: normal; }
 
 .review-review-status {
@@ -434,7 +434,7 @@
   border-bottom: 1px solid var(--code-border);
   background: var(--code-bg-raised);
 }
-.review-file-change.reviewing > .review-file-change-header { box-shadow: var(--code-shadow-soft); }
+.review-file-change.reviewing > .review-file-change-header { box-shadow: inset 3px 0 0 var(--code-accent); }
 
 .review-file-expand {
   width: 30px;
@@ -551,7 +551,7 @@
 
 .review-diff-row code[data-review-line] { cursor: text; }
 .review-diff-row code[data-review-line]:hover {
-  box-shadow: var(--code-shadow-soft);
+  box-shadow: inset 3px 0 0 var(--code-accent);
 }
 
 .review-inline-diff.fit-to-screen .review-diff-row code {
@@ -579,7 +579,7 @@
 
 .review-diff-row.added .review-intraline,
 .review-diff-row.changed code:nth-child(4) .review-intraline {
-  background: var(--code-diff-added-soft);
+  background: var(--code-success-soft);
 }
 
 .review-diff-row.deleted .review-intraline,
@@ -609,7 +609,7 @@
 .review-diff-row .hljs-property { color: var(--code-syntax-variable); }
 
 .review-diff-row.added > :nth-child(3),
-.review-diff-row.added > :nth-child(4) { background: var(--code-diff-added-soft); }
+.review-diff-row.added > :nth-child(4) { background: var(--code-success-soft); }
 .review-diff-row.deleted > :nth-child(1),
 .review-diff-row.deleted > :nth-child(2) { background: var(--code-diff-removed-soft); }
 .review-diff-row.changed > :nth-child(1),
@@ -620,7 +620,7 @@
 .review-diff-row.context > :nth-child(3) { background: var(--code-bg-inset); }
 
 .review-diff-row.unified { grid-template-columns: 42px minmax(0, 1fr); }
-.review-diff-row.unified.added > * { background: var(--code-diff-added-soft); }
+.review-diff-row.unified.added > * { background: var(--code-success-soft); }
 .review-diff-row.unified.deleted > * { background: var(--code-diff-removed-soft); }
 
 .review-line-attachment {

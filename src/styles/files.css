@@ -161,7 +161,7 @@
 }
 
 .code-files-refresh[data-refresh-status='success'] {
-  background: var(--code-bg-surface);
+  background: var(--code-success-soft);
   color: var(--code-success);
 }
 
@@ -372,7 +372,7 @@
   padding: 2px 3px;
   border: 0;
   background: transparent;
-  color: var(--code-info);
+  color: var(--code-accent);
   font: inherit;
   font-size: 11px;
   font-weight: 500;
@@ -382,7 +382,7 @@
 
 .code-file-change-review:hover,
 .code-file-change-review:focus-visible {
-  color: var(--code-info);
+  color: var(--code-accent);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -515,11 +515,9 @@ body.code-mode .code-file-change-group-toggle {
   font-weight: 600;
 }
 
-.code-file-change-status.modified,
-.code-file-change-status.renamed,
-.code-file-change-status.untracked {
-  color: var(--code-text);
-}
+.code-file-change-status.modified { color: var(--code-warning); }
+.code-file-change-status.renamed { color: var(--code-skill); }
+.code-file-change-status.untracked { color: var(--code-accent); }
 
 .code-file-change-status.added {
   color: var(--code-success);
@@ -1000,11 +998,11 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
 }
 
 .code-file-row.ignored {
-  color: var(--code-text);
+  color: var(--code-text-quiet);
 }
 
 .code-file-row.ignored .code-file-chevron {
-  color: var(--code-text);
+  color: var(--code-text-quiet);
 }
 
 .code-file-row.code-file-sticky-row {
@@ -1362,7 +1360,7 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   padding: 0 8px;
   border: 0;
   border-radius: 0;
-  background: var(--code-bg-surface);
+  background: var(--code-accent-soft);
   color: var(--code-text-muted);
   cursor: pointer;
   pointer-events: auto;
@@ -1382,8 +1380,8 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
 }
 
 .code-file-inline-blame.uncommitted {
-  background: var(--code-bg-surface);
-  color: var(--code-text);
+  background: var(--code-warning-soft);
+  color: var(--code-warning);
 }
 
 .code-file-blame-toast {
@@ -1420,7 +1418,7 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   border-bottom: 1px solid var(--code-border-subtle);
   background: var(--code-code-bg);
   color: var(--code-text);
-  box-shadow: var(--code-shadow-soft);
+  box-shadow: none;
   font-size: 12px;
 }
 
@@ -1562,7 +1560,7 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   border-bottom: 1px solid var(--code-border-subtle);
   background: var(--code-bg-chrome);
   color: var(--code-text);
-  box-shadow: var(--code-shadow-soft);
+  box-shadow: none;
   font-size: 12px;
   border-color: var(--code-border);
 }
@@ -1623,7 +1621,7 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
 
 .code-file-line-changes-line.meta {
   color: var(--code-text-subtle);
-  background: var(--code-bg-surface);
+  background: var(--code-accent-soft);
 }
 
 .code-file-line-changes-line.added {
@@ -1958,15 +1956,15 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
 }
 
 .code-file-tree::-webkit-scrollbar-thumb {
-  background: var(--code-bg-surface);
+  background: var(--code-scrollbar-thumb);
 }
 
 .code-file-search-results::-webkit-scrollbar-thumb {
-  background: var(--code-bg-surface);
+  background: var(--code-scrollbar-thumb);
 }
 
 .code-file-row.ignored .code-file-name {
-  color: var(--code-text);
+  color: var(--code-text-quiet);
 }
 
 .code-file-tree-viewport:focus-within .code-file-row.located.selected {
@@ -1982,11 +1980,11 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
 }
 
 .code-file-descendant-status.renamed {
-  background: var(--code-bg-surface);
+  background: var(--code-skill);
 }
 
 .code-file-git-status.renamed {
-  color: var(--code-text);
+  color: var(--code-skill);
 }
 
 .code-file-open-spinner {

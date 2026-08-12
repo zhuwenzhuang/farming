@@ -100,6 +100,7 @@ export function useFileEditorMonacoController({
   const wordWrapEnabledRef = useRef(wordWrapEnabled)
   const editorLabelRef = useRef(editorLabel)
   const lastCursorRequestRef = useRef<number | null>(null)
+  const lastFocusEditorRequestRef = useRef<number | null>(null)
   const suppressEditorChangeRef = useRef(0)
   const suppressNavigationCursorRef = useRef(0)
   const [cursorPosition, setCursorPosition] = useState({ lineNumber: 1, column: 1 })
@@ -175,6 +176,7 @@ export function useFileEditorMonacoController({
 
   useFileEditorTestBridge({
     editorRef,
+    focusEditorRequestId: openFile.focusEditorRequestId,
     onFocusEditor: focusEditor,
   })
 
@@ -404,6 +406,13 @@ export function useFileEditorMonacoController({
       column: selection.startColumn,
     })
   }, [openFile.cursor, openFile.file.path])
+
+  useEffect(() => {
+    const requestId = openFile.focusEditorRequestId
+    if (requestId === undefined || lastFocusEditorRequestRef.current === requestId) return
+    lastFocusEditorRequestRef.current = requestId
+    focusEditor()
+  }, [focusEditor, openFile.focusEditorRequestId])
 
   useEffect(() => {
     const editor = editorRef.current

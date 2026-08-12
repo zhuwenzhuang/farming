@@ -70,7 +70,7 @@
 
 .code-pet-glass-rest-content p {
   margin: 0;
-  color: var(--code-text);
+  color: var(--code-text-subtle);
   font-size: 13px;
   line-height: 20px;
 }
@@ -89,9 +89,9 @@
   padding: 6px 13px;
   border: 1px solid var(--code-border);
   border-radius: 999px;
-  background: var(--code-bg-surface);
+  background: color-mix(in srgb, var(--code-bg-raised) 40%, transparent);
   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--code-bg-raised) 40%, transparent);
-  color: var(--code-text);
+  color: var(--code-text-subtle);
   cursor: pointer;
   font: inherit;
   font-size: 12px;
@@ -551,7 +551,7 @@
 }
 
 .code-pet-actions button.primary {
-  border-color: var(--code-pet-actions-primary-border-color);
+  border-color: var(--code-pet-actions-primary-background);
   background: var(--code-pet-actions-primary-background);
   color: var(--code-text-on-emphasis);
 }
@@ -582,7 +582,7 @@
   border: 1px solid var(--code-border-strong);
   background:
     radial-gradient(circle at 34% 28%, color-mix(in srgb, var(--code-bg-raised) 95%, transparent) 0 16%, transparent 34%),
-    linear-gradient(145deg, color-mix(in srgb, var(--code-bg-inset) 90%, transparent), color-mix(in srgb, var(--code-info) 18%, transparent));
+    linear-gradient(145deg, color-mix(in srgb, var(--code-bg-inset) 90%, transparent), color-mix(in srgb, var(--code-accent) 18%, transparent));
   box-shadow:
     inset 0 0 0 3px color-mix(in srgb, var(--code-bg-raised) 34%, transparent),
     0 3px 9px var(--code-shadow-color);
@@ -714,8 +714,8 @@
   right: 8px;
   padding: 1px 5px;
   border-radius: 999px;
-  background: var(--code-info-soft);
-  color: var(--code-info);
+  background: var(--code-accent-soft);
+  color: var(--code-accent);
   font-size: 9px;
   font-style: normal;
   line-height: 14px;
@@ -732,7 +732,7 @@
   padding: 0;
   border: 1px solid transparent;
   border-radius: 50%;
-  background: var(--code-info-soft);
+  background: var(--code-accent-soft);
   color: var(--code-text-muted);
   cursor: pointer;
 }
@@ -745,7 +745,7 @@
 .code-pet-appearance-preview:hover,
 .code-pet-appearance-preview:focus-visible {
   border-color: var(--code-border-strong);
-  background: var(--code-info-soft);
+  background: var(--code-accent-soft);
   outline: 0;
 }
 
@@ -758,23 +758,23 @@
 }
 
 .code-pet-appearance-select:hover {
-  color: var(--code-info);
+  color: var(--code-accent);
 }
 
 .code-pet-appearance-select:focus-visible {
-  color: var(--code-info);
+  color: var(--code-accent);
 }
 
 .code-pet-appearance-select.selected {
-  color: var(--code-info);
+  color: var(--code-accent);
 }
 
 .code-pet-appearance-preview:hover {
-  color: var(--code-info);
+  color: var(--code-accent);
 }
 
 .code-pet-appearance-preview:focus-visible {
-  color: var(--code-info);
+  color: var(--code-accent);
 }
 
 .code-pet-bubble {

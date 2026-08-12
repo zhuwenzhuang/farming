@@ -213,13 +213,13 @@
   border-color: var(--code-border-strong);
   background: var(--code-bg-canvas);
   color: var(--code-text);
-  box-shadow: var(--code-shadow-soft);
+  box-shadow: inset 0 0 0 1px var(--code-border-subtle);
 }
 
 .code-plugin-extension-kind-tabs > button[aria-selected='true'] {
   background: var(--code-bg-canvas);
   color: var(--code-text);
-  box-shadow: var(--code-shadow-soft);
+  box-shadow: inset 0 0 0 1px var(--code-border-subtle);
   border-color: var(--code-border-strong);
 }
 

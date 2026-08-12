@@ -1,4 +1,4 @@
-import { createElement, useCallback, useEffect, useRef } from 'react'
+import { createElement, useCallback, useEffect, useRef, type FocusEvent } from 'react'
 import type { RowRendererProps, TreeApi } from 'react-arborist'
 import type { WorkspaceFileTreeNode } from '@/lib/workspace-file-tree'
 
@@ -124,6 +124,10 @@ export function useWorkspaceFileTreeController({
         width: '100%',
       },
       className: `code-file-tree-row-frame ${className ?? ''}`.trim(),
+      // Match react-arborist's default row contract: a virtual row restoring
+      // its DOM focus must not bubble into the tree container and reassert
+      // treeFocused after the editor has taken keyboard ownership.
+      onFocus: (event: FocusEvent<HTMLDivElement>) => event.stopPropagation(),
     }, children)
   }, [])
 

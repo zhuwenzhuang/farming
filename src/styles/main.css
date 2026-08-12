@@ -37,9 +37,13 @@ body.code-mode {
   --code-light-surface: var(--code-bg-canvas);
   --code-light-ink: var(--code-text);
   --code-light-accent: var(--code-accent);
-  --code-light-diff-added: var(--code-diff-added);
+  --code-light-diff-added: var(--code-success);
   --code-light-diff-removed: var(--code-diff-removed);
   --code-light-skill: var(--code-skill);
+  /* Canvas and ordinary surfaces intentionally resolve to the same color in
+     every appearance. Keep the semantic alias without spending another
+     bounded registry entry. */
+  --code-bg-surface: var(--code-bg-canvas);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
   font-size: 14px;
   background: var(--code-bg-canvas);
@@ -221,8 +225,8 @@ body.code-resizing-sidebar {
 }
 
 .code-app-mode-choice.recommended {
-  border-color: var(--code-border);
-  background: var(--code-bg-surface);
+  border-color: color-mix(in srgb, var(--code-accent) 24%, transparent);
+  background: color-mix(in srgb, var(--code-accent) 8%, transparent);
 }
 
 .code-app-mode-choice h3 {
@@ -232,7 +236,7 @@ body.code-resizing-sidebar {
 
 .code-app-mode-recommended {
   justify-self: start;
-  color: var(--code-text);
+  color: var(--code-accent);
   font-size: 10px;
   font-weight: 650;
   letter-spacing: 0.05em;
@@ -1443,7 +1447,7 @@ body.code-mode .workspace-directory-browser-list {
   padding: 4px;
   border: 1px solid var(--code-border);
   border-radius: 10px;
-  background: var(--code-bg-raised);
+  background: var(--code-workspace-directory-surface);
 }
 
 body.code-mode .workspace-directory-browser-row {
@@ -1653,7 +1657,7 @@ body.code-mode .workspace-home-menu {
   padding: 4px;
   border: 1px solid var(--code-border);
   border-radius: 10px;
-  background: var(--code-bg-surface);
+  background: var(--code-workspace-menu-surface);
   box-shadow: var(--code-shadow-raised);
 }
 
@@ -1700,7 +1704,7 @@ body.code-mode .workspace-runtime-options {
   overflow: hidden;
   border: 1px solid var(--code-border);
   border-radius: 8px;
-  background: var(--code-bg-surface);
+  background: var(--code-workspace-menu-surface);
 }
 
 body.code-mode .workspace-runtime-options button {
@@ -1888,7 +1892,7 @@ body.code-mode .workspace-directory-prompt {
   padding: 13px;
   border: 1px solid var(--code-border);
   border-radius: 10px;
-  background: var(--code-bg-inset);
+  background: var(--code-workspace-prompt-surface);
   color: var(--code-text);
 }
 
@@ -1942,7 +1946,7 @@ body.code-mode .workspace-directory-prompt-copy code {
   padding: 6px 8px;
   border: 1px solid var(--code-border);
   border-radius: 6px;
-  background: var(--code-bg-surface);
+  background: var(--code-workspace-prompt-code-surface);
   color: var(--code-text-muted);
   font-family: "SF Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 11px;
@@ -2504,7 +2508,7 @@ body.code-mode .workspace-directory-prompt-actions button:focus-visible {
 
 .workspace-history-item.active {
   border-color: var(--code-border);
-  box-shadow: var(--code-shadow-soft);
+  box-shadow: none;
   background: var(--code-bg-hover);
   color: var(--code-text);
 }
@@ -3419,7 +3423,7 @@ body.code-mode .input-dialog .dialog-header {
     padding: 4px;
     border: 0;
     border-radius: 14px;
-    background: var(--code-bg-raised);
+    background: var(--code-mobile-options-surface);
     box-shadow: var(--code-shadow-raised);
     backdrop-filter: blur(18px) saturate(1.1);
     -webkit-backdrop-filter: blur(18px) saturate(1.1);
@@ -3431,7 +3435,7 @@ body.code-mode .input-dialog .dialog-header {
     width: 100%;
     padding: 5px 10px;
     border-radius: 9px;
-    color: var(--code-text-muted);
+    color: var(--code-mobile-options-text);
     font-size: 13px;
     font-weight: 400;
     line-height: 20px;
@@ -3447,7 +3451,7 @@ body.code-mode.code-compact-layout .code-options-menu button:active {
 body.code-mode.code-compact-layout .code-options-menu button:focus-visible {
     outline: 0;
     background: transparent;
-    color: var(--code-text-muted);
+    color: var(--code-mobile-options-text);
   }
 
   body.code-mode.code-compact-layout .code-options-menu .code-context-menu-separator {
@@ -3706,7 +3710,7 @@ body.code-mode.code-compact-layout .code-options-menu button:focus-visible {
   color: var(--code-text);
 }
 ::selection {
-  background: var(--code-bg-surface);
+  background: var(--code-selection-bg);
 }
 ::selection {
   color: var(--code-text);
@@ -3775,7 +3779,7 @@ body.code-mode.code-compact-layout .code-options-menu button:focus-visible {
   box-shadow: var(--code-shadow-raised);
 }
 .workspace-history-list::-webkit-scrollbar-thumb {
-  background: var(--code-bg-surface);
+  background: var(--code-scrollbar-thumb);
 }
 .workspace-history-item {
   border-color: var(--code-border);
@@ -3865,16 +3869,16 @@ body.code-mode.code-mobile-markdown-reading .code-mobile-topbar-button {
   border-color: var(--code-border);
 }
 .code-acp-request {
-  box-shadow: var(--code-shadow-soft);
+  box-shadow: none;
 }
 .code-pending-followup {
-  box-shadow: var(--code-shadow-soft);
+  box-shadow: none;
 }
 .code-markdown a {
-  color: var(--code-info);
+  color: var(--code-accent);
 }
 .code-file-preview-panel a {
-  color: var(--code-info);
+  color: var(--code-accent);
 }
 .code-markdown {
   color: var(--code-text);

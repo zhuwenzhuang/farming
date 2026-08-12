@@ -343,7 +343,7 @@
   touch-action: none;
   box-sizing: border-box;
   padding-right: 4px;
-  background: var(--code-terminal-bg);
+  background: var(--code-bg-canvas);
   color: var(--code-text);
 }
 
@@ -366,12 +366,12 @@
 
 .terminal-session-host .xterm-screen,
 .terminal-session-host .xterm-viewport {
-  background: var(--code-terminal-bg) !important;
+  background: var(--code-bg-canvas) !important;
 }
 
 .terminal-session-host .xterm-screen {
   touch-action: none;
-  background: var(--code-terminal-bg) !important;
+  background: var(--code-bg-canvas) !important;
   color: var(--code-text);
 }
 
@@ -391,7 +391,7 @@
   overscroll-behavior: contain;
   scrollbar-color: var(--code-scrollbar-thumb) transparent;
   scrollbar-width: thin;
-  background: var(--code-terminal-bg) !important;
+  background: var(--code-bg-canvas) !important;
   color: var(--code-text);
 }
 
@@ -417,7 +417,7 @@
 }
 
 .terminal-session-host .xterm .xterm-selection div {
-  background-color: var(--code-bg-inset) !important;
+  background-color: var(--code-selection-bg) !important;
 }
 
 .terminal-session-host.terminal-renderer-cursor-suppressed .xterm .xterm-cursor {
@@ -549,7 +549,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
       overflow-x: hidden;
       overscroll-behavior: none;
       -webkit-overflow-scrolling: touch;
-      background: var(--code-terminal-bg);
+      background: var(--code-bg-canvas);
       color: var(--code-text);
     }
 
@@ -560,7 +560,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
       min-height: 260px;
       max-height: 100%;
       resize: none;
-      background: var(--code-terminal-bg);
+      background: var(--code-bg-canvas);
       color: var(--code-text);
     }
 
@@ -568,7 +568,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
       max-width: 100%;
       overflow: hidden;
       padding: 4px 6px 6px;
-      background: var(--code-terminal-bg);
+      background: var(--code-bg-canvas);
       color: var(--code-text);
     }
 
@@ -652,7 +652,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
   body.code-mode.code-compact-layout .terminal-session-host .xterm,
   body.code-mode.code-compact-layout .terminal-session-host .xterm-screen,
   body.code-mode.code-compact-layout .terminal-session-host .xterm-viewport {
-      background: var(--code-terminal-bg) !important;
+      background: var(--code-bg-canvas) !important;
     }
 
   body.code-mode.code-compact-layout .code-terminal-mode-toggle {
@@ -681,7 +681,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
 }
 
 .code-terminal-grid::-webkit-scrollbar-thumb {
-  background: var(--code-bg-inset);
+  background: var(--code-scrollbar-thumb);
 }
 
 .code-terminal-pane {
@@ -689,11 +689,11 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
 }
 
 .terminal-session-host .xterm .xterm-rows ::selection {
-  background: var(--code-bg-inset);
+  background: var(--code-selection-bg);
 }
 
 .terminal-session-host .xterm-viewport::-webkit-scrollbar-thumb {
-  background-color: var(--code-bg-inset) !important;
+  background-color: var(--code-scrollbar-thumb) !important;
 }
 
 .terminal-session-host .xterm-viewport::-webkit-scrollbar-thumb {
@@ -701,7 +701,7 @@ body.code-mode .terminal-context-menu-pooled .terminal-context-menu-item:focus-v
 }
 
 .terminal-session-host .xterm-viewport::-webkit-scrollbar-thumb:hover {
-  background-color: var(--code-bg-hover) !important;
+  background-color: var(--code-text-quiet) !important;
 }
 
 .code-terminal-jump-bottom {

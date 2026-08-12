@@ -402,7 +402,7 @@ function run() {
     lineNumber: 12,
     column: 3,
     endColumn: 8,
-  }, { cursorRequestId: 7, diffRequestId: 9 }), {
+  }, { cursorRequestId: 7, diffRequestId: 9, focusEditorRequestId: 11 }), {
     cursor: {
       lineNumber: 12,
       column: 3,
@@ -413,6 +413,7 @@ function run() {
     diffOnly: undefined,
     revealInTree: undefined,
     transient: undefined,
+    focusEditorRequestId: undefined,
     exactExternal: undefined,
   });
   assert.deepStrictEqual(workspaceOpenFileRequestForTarget({
@@ -420,23 +421,26 @@ function run() {
     diffOnly: true,
     revealInTree: false,
     gitStatus: 'deleted',
-  }, { cursorRequestId: 7, diffRequestId: 9 }), {
+  }, { cursorRequestId: 7, diffRequestId: 9, focusEditorRequestId: 11 }), {
     cursor: undefined,
     diffRequestId: 9,
     diffOnly: true,
     revealInTree: false,
     transient: undefined,
+    focusEditorRequestId: undefined,
     exactExternal: undefined,
   });
   assert.deepStrictEqual(workspaceOpenFileRequestForTarget({
     transient: true,
+    focusEditor: true,
     exactExternal: true,
-  }, { cursorRequestId: 7, diffRequestId: 9 }), {
+  }, { cursorRequestId: 7, diffRequestId: 9, focusEditorRequestId: 11 }), {
     cursor: undefined,
     diffRequestId: undefined,
     diffOnly: undefined,
     revealInTree: undefined,
     transient: true,
+    focusEditorRequestId: 11,
     exactExternal: true,
   });
   assert.deepStrictEqual(deletedWorkspaceDiffPlaceholderFile('src/deleted.ts', {
@@ -466,6 +470,7 @@ function run() {
   assert.strictEqual(shouldRevealSelectedWorkspaceOpenFile({ gitStatus: 'deleted' }), false);
   assert.strictEqual(shouldRevealSelectedWorkspaceOpenFile({ gitStatus: 'modified' }), true);
   assert.strictEqual(shouldRevealSelectedWorkspaceOpenFile({ gitStatus: 'modified', revealInTree: false }), false);
+  assert.strictEqual(shouldRevealSelectedWorkspaceOpenFile({ gitStatus: 'modified', focusEditor: true }), false);
   assert.deepStrictEqual(workspaceFileOpenTargetForChange({
     path: 'src/App.tsx',
     name: 'App.tsx',

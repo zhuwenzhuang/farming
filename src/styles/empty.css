@@ -236,7 +236,7 @@
   position: absolute;
   z-index: 0;
   display: block;
-  color: var(--code-text);
+  color: var(--code-empty-guide-connector);
   overflow: visible;
   pointer-events: none;
 }
@@ -266,7 +266,7 @@
   width: 10px;
   height: 22px;
   display: block;
-  color: var(--code-text);
+  color: var(--code-empty-guide-origin);
   filter: drop-shadow(0 0 2px var(--code-bg-canvas));
   pointer-events: none;
 }
@@ -290,7 +290,7 @@
   min-height: 0;
   display: block;
   align-self: stretch;
-  color: var(--code-text);
+  color: var(--code-empty-guide-target);
   filter: drop-shadow(0 0 2px var(--code-bg-canvas));
   pointer-events: none;
 }

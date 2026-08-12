@@ -208,7 +208,6 @@ export function useWorkspaceFileFocus({
       const row = Array.from(treeViewportRef.current?.querySelectorAll<HTMLElement>('[data-file-path]') ?? [])
         .find(element => element.dataset.filePath === filePath)
       if (!row) return false
-      row.scrollIntoView({ block: 'nearest', inline: 'nearest' })
       revealRowInProjectScroller(row, emphasizeLocation)
       if (shouldFocusTree) focusWithoutScrolling(row.closest<HTMLElement>('[role="tree"]'))
       return true
@@ -244,7 +243,8 @@ export function useWorkspaceFileFocus({
     filePath: string,
     attempt = 0,
     openTargetDirectory = false,
-    generation?: number
+    generation?: number,
+    focusRow = true
   ) => {
     const revealGeneration = generation ?? (fileTreeRevealGenerationRef.current + 1)
     if (generation === undefined) fileTreeRevealGenerationRef.current = revealGeneration
@@ -289,7 +289,7 @@ export function useWorkspaceFileFocus({
       const retryTimeoutId = window.setTimeout(() => {
         fileTreeRevealTimeoutsRef.current = fileTreeRevealTimeoutsRef.current.filter(id => id !== retryTimeoutId)
         if (!revealIsCurrent()) return
-        revealFilePathInTree(filePath, attempt + 1, openTargetDirectory, revealGeneration)
+        revealFilePathInTree(filePath, attempt + 1, openTargetDirectory, revealGeneration, focusRow)
       }, FILE_TREE_REVEAL_RETRY_DELAY_MS)
       fileTreeRevealTimeoutsRef.current.push(retryTimeoutId)
       return
@@ -300,7 +300,7 @@ export function useWorkspaceFileFocus({
       directoryPathsToOpen.forEach(directoryPath => treeRef.current?.open(directoryPath))
       refreshTreeLayout(directoryPathsToOpen)
       queueRevealFrame(() => {
-        scrollFileTreeToPath(visibleTargetPath, true, openTargetDirectory)
+        scrollFileTreeToPath(visibleTargetPath, focusRow, openTargetDirectory)
       })
     }
     const queueRevealFrame = (callback: () => void) => {
@@ -325,7 +325,7 @@ export function useWorkspaceFileFocus({
   const revealFilePath = useCallback(async (filePath: string) => {
     const ancestors = ancestorDirectories(filePath)
     await loadMissingDirectories(['', ...ancestors])
-    revealFilePathInTree(filePath)
+    revealFilePathInTree(filePath, 0, false, undefined, false)
   }, [loadMissingDirectories, revealFilePathInTree])
 
   const revealExplorerPath = useCallback(async (filePath: string, kind: 'directory' | 'file') => {
@@ -414,7 +414,6 @@ export function useWorkspaceFileFocus({
           ?? treeViewportRef.current?.querySelector<HTMLElement>('[role="tree"]')
         if (!preserveMonacoFocus) focusWithoutScrolling(targetTree)
         if (row) {
-          row.scrollIntoView({ block: 'nearest' })
           revealRowInProjectScroller(row)
           return
         }

@@ -908,6 +908,7 @@ test('keeps extension cards compact and opens the full description on demand', a
   await openFarming(page)
   await page.getByTestId('code-nav-plugins').click()
   await page.getByTestId('code-plugin-tab-extensions').click()
+  await page.getByTestId('code-plugin-extension-kind-skill').click()
 
   const cards = page.locator('.code-plugin-extension')
   await expect(page.getByTestId('code-plugin-extension-home-codex-default')).toHaveAttribute('aria-selected', 'true')
