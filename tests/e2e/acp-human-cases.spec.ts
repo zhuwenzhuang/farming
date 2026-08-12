@@ -485,6 +485,14 @@ test.describe('ACP human-like browser matrix', () => {
     expect(metrics.inlineCodeFontSize).toBeGreaterThanOrEqual(12)
     expect(metrics.inlineCodeFontSize).toBeLessThan(14)
     expect(metrics.inlineCodeShadow).toBe('none')
+
+    const safeLink = turn.getByRole('link', { name: 'Safe docs' })
+    await expect(safeLink).toHaveCSS('text-decoration-line', 'none')
+    await page.evaluate(() => {
+      document.body.dataset.appearance = 'paper'
+    })
+    await expect(safeLink).toHaveCSS('text-decoration-line', 'underline')
+    await expect(safeLink).toHaveCSS('text-underline-offset', '2px')
   })
 
   test('hides an incomplete ACP plan when its Turn ends', async ({ page, workspaceRoot }) => {

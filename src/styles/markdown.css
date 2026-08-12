@@ -356,6 +356,11 @@
   text-decoration: underline;
 }
 
+body.code-mode[data-appearance='paper'] .code-markdown-preview a:not(.code-markdown-heading-anchor) {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .code-markdown-preview blockquote {
   padding: 0 0 0 14px;
   border-left: 3px solid var(--code-border);
