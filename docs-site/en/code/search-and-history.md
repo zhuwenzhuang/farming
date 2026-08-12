@@ -6,7 +6,7 @@ Search finds current Projects, Agents, and files. History finds Sessions that ha
 
 Search by Agent title, Project name, or related terms. Results distinguish current Agents from History.
 
-<ThemeImage light="/cn/assets/search.png" dark="/cn/assets/search-dark.png" alt="Search current work" />
+<ThemeImage light="/cn/assets/search.png" dark="/cn/assets/search-dark.png" paper="/cn/assets/search-paper.png" alt="Search current work" />
 
 Opening Search triggers a fresh read of available data. A timeout or failure is shown explicitly instead of presenting stale results as current.
 
@@ -14,7 +14,7 @@ Opening Search triggers a fresh read of available data. A timeout or failure is 
 
 History can filter earlier work by title, command, Provider, or Workspace.
 
-<ThemeImage light="/cn/assets/history.png" dark="/cn/assets/history-dark.png" alt="Search History" />
+<ThemeImage light="/cn/assets/history.png" dark="/cn/assets/history-dark.png" paper="/cn/assets/history-paper.png" alt="Search History" />
 
 Whether a Session can resume depends on its Provider and type:
 

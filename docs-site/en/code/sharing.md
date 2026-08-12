@@ -12,7 +12,7 @@ Sharing requires token authentication. When authentication is disabled, Farming 
 
 Select the share button below a completed answer. Farming copies a read-only link and confirms that the link is view-only and expires automatically. The link records the answer's durable Turn identity so the recipient opens at that exact answer.
 
-<ThemeImage light="/cn/assets/share-chat.png" dark="/cn/assets/share-chat-dark.png" alt="Copy a read-only link to an exact Chat answer" />
+<ThemeImage light="/cn/assets/share-chat.png" dark="/cn/assets/share-chat-dark.png" paper="/cn/assets/share-chat-paper.png" alt="Copy a read-only link to an exact Chat answer" />
 
 When the answer is in an older history page, Farming loads earlier pages as needed. If the target still cannot be found, it falls back to the latest Chat position and reports the location failure. Access remains read-only.
 
@@ -24,7 +24,7 @@ Open a file and select the share button in the viewer toolbar. The link records:
 - the Editor or Diff view;
 - the current reading line and column.
 
-<ThemeImage light="/cn/assets/share-file.png" dark="/cn/assets/share-file-dark.png" alt="Copy a read-only link to the current File Viewer position" />
+<ThemeImage light="/cn/assets/share-file.png" dark="/cn/assets/share-file-dark.png" paper="/cn/assets/share-file-paper.png" alt="Copy a read-only link to the current File Viewer position" />
 
 When the link opens, an out-of-range line or column is clamped to the current file. If the file has moved or been deleted, Farming reconciles the bounded Project inventory, opens the nearest available parent folder, and reports the fallback. If the Agent or Project cannot be resolved, it keeps the default workspace without expanding access.
 
@@ -32,7 +32,7 @@ When the link opens, an out-of-range line or column is clamped to the current fi
 
 Select **Share current page** at the top of the sidebar. Farming copies the read-only long link for the current page and opens the QR panel. Point another device's camera or system QR scanner at the code to open Farming; Farming does not need camera access on the device showing the code.
 
-<ThemeImage light="/cn/assets/share-qr.png" dark="/cn/assets/share-qr-dark.png" alt="A Farming page share QR code ready to scan on a phone" />
+<ThemeImage light="/cn/assets/share-qr.png" dark="/cn/assets/share-qr-dark.png" paper="/cn/assets/share-qr-paper.png" alt="A Farming page share QR code ready to scan on a phone" />
 
 ::: warning An Owner QR code grants full control
 The QR code opened by an Owner contains a one-use full-control ticket. Scan it only on a trusted device, and do not put it in screenshots, issues, or public chat. When a read-only visitor re-shares, the QR code remains read-only and no Owner passphrase is shown.

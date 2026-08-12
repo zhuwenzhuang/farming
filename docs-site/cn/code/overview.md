@@ -2,7 +2,7 @@
 
 Farming Code 是默认的浏览器工作区。你可以在这里启动或继续 Agent，并在同一个界面中查看 Files、Chat、Terminal 与 History。
 
-<ThemeImage light="/cn/assets/welcome.png" dark="/cn/assets/welcome-dark.png" alt="Farming Code 完整欢迎页" />
+<ThemeImage light="/cn/assets/welcome.png" dark="/cn/assets/welcome-dark.png" paper="/cn/assets/welcome-paper.png" alt="Farming Code 完整欢迎页" />
 
 第一次接触这些名称时，可以随时查看[术语表](../help/glossary)。
 

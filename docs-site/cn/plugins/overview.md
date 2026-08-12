@@ -16,7 +16,7 @@ description: 了解 Farming 插件页面中的内置能力、Agent Homes、Agent
 
 同一种 Coding Agent 可以配置多个 Home，例如工作账号、个人账号或不同团队环境。创建 Agent 时选择对应 Home，就可以使用那套独立的登录状态、配置和扩展目录。
 
-<ThemeImage light="/cn/assets/agent-homes.png" dark="/cn/assets/agent-homes-dark.png" alt="插件页面中的多个 Agent Homes" />
+<ThemeImage light="/cn/assets/agent-homes.png" dark="/cn/assets/agent-homes-dark.png" paper="/cn/assets/agent-homes-paper.png" alt="插件页面中的多个 Agent Homes" />
 
 继续阅读：[管理多个 Agent Homes](./agent-homes)。
 

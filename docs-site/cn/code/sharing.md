@@ -12,7 +12,7 @@ Farming 可以分享一个具体工作位置，而不只是工作区首页。Cha
 
 在已完成回复下方点击分享按钮。Farming 会复制只读链接，并显示“只读分享链接已复制；只能查看，链接会自动过期”。链接记录这条回复的 Turn 标识，接收者打开后会直接定位到该回复。
 
-<ThemeImage light="/cn/assets/share-chat.png" dark="/cn/assets/share-chat-dark.png" alt="从 Chat 回复复制精确位置的只读分享链接" />
+<ThemeImage light="/cn/assets/share-chat.png" dark="/cn/assets/share-chat-dark.png" paper="/cn/assets/share-chat-paper.png" alt="从 Chat 回复复制精确位置的只读分享链接" />
 
 如果回复位于较早的历史分页中，Farming 会按需向前加载。仍找不到目标时回退到 Chat 最新位置，并报告定位失败；权限始终保持只读。
 
@@ -24,7 +24,7 @@ Farming 可以分享一个具体工作位置，而不只是工作区首页。Cha
 - Editor 或 Diff 视图；
 - 当前阅读行列。
 
-<ThemeImage light="/cn/assets/share-file.png" dark="/cn/assets/share-file-dark.png" alt="从文件查看器复制当前阅读位置的只读分享链接" />
+<ThemeImage light="/cn/assets/share-file.png" dark="/cn/assets/share-file-dark.png" paper="/cn/assets/share-file-paper.png" alt="从文件查看器复制当前阅读位置的只读分享链接" />
 
 打开链接时，超出文件边界的行列会被限制到有效范围。如果文件已经移动或删除，Farming 会在有界清单对齐后打开最近的可用父目录并报告回退。Agent 或 Project 无法解析时会保留默认工作区，不会扩大访问权限。
 
@@ -32,7 +32,7 @@ Farming 可以分享一个具体工作位置，而不只是工作区首页。Cha
 
 点击侧边栏顶部的“分享当前页面”按钮会同时执行两件事：复制当前页面的只读长链接，并打开二维码面板。使用另一台设备的相机或系统二维码扫描器对准二维码即可打开 Farming；Farming 本身不需要调用当前设备的摄像头。
 
-<ThemeImage light="/cn/assets/share-qr.png" dark="/cn/assets/share-qr-dark.png" alt="可用手机扫描的 Farming 页面分享二维码" />
+<ThemeImage light="/cn/assets/share-qr.png" dark="/cn/assets/share-qr-dark.png" paper="/cn/assets/share-qr-paper.png" alt="可用手机扫描的 Farming 页面分享二维码" />
 
 ::: warning Owner 二维码会授予完整控制
 Owner 打开的二维码包含一次性完整控制票据。只在可信设备上扫描，也不要把二维码放进截图、Issue 或公开聊天。只读访问者再次分享时，二维码仍然只读，而且不会展示 Owner 口令。

@@ -45,7 +45,7 @@ The browser shows Farming Code with **New Agent** in the upper-left corner.
 3. Select the Workspace that contains your repository.
 4. Choose Chat or Terminal, then create the Agent.
 
-<ThemeImage light="/cn/assets/start-agent.png" dark="/cn/assets/start-agent-dark.png" alt="Select a coding Agent" />
+<ThemeImage light="/cn/assets/start-agent.png" dark="/cn/assets/start-agent-dark.png" paper="/cn/assets/start-agent-paper.png" alt="Select a coding Agent" />
 
 Chat is best for reading structured progress and results. Terminal is best for direct interaction with the native CLI. Both run on the Farming Host, not in the browser.
 

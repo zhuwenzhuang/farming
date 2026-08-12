@@ -6,7 +6,18 @@ description: Browse, search, edit, and inspect project files and Git changes in 
 
 Files lets you browse, search, and lightly edit Project files. Use it to verify code, configuration, and test evidence mentioned by an Agent.
 
-<ThemeImage light="/cn/assets/files-relational-operators-20260806.png" dark="/cn/assets/files-relational-operators-20260806-dark.png" alt="Relational operator Markdown preview in Files" />
+<ThemeImage light="/cn/assets/files-relational-operators-20260806.png" dark="/cn/assets/files-relational-operators-20260806-dark.png" paper="/cn/assets/files-relational-operators-20260806-paper.png" alt="Relational operator Markdown preview in Files" />
+
+## Observe the page while working with an Agent
+
+Open an HTML file and Files renders it in a restricted preview. Open the Agent from the File Viewer toolbar to keep the page on the left and the current Agent Chat on the right. The Agent can continue changing HTML, CSS, or documentation while you watch the rendered result and request the next adjustment without switching among an editor, browser, and Chat.
+
+<ThemeImage
+  light="/cn/assets/files-html-preview-chat.png"
+  dark="/cn/assets/files-html-preview-chat-dark.png"
+  paper="/cn/assets/files-html-preview-chat-paper.png"
+  alt="Farming documentation home page HTML preview in Files with Agent Chat open beside it"
+/>
 
 ## Browse files
 

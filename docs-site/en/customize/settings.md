@@ -6,7 +6,7 @@ description: Configure Farming Code appearance, Agent behavior, search, Farming 
 
 Settings manages appearance, Agent behavior, search, Farming Pet, and updates. Options appear only when supported by the current installation and runtime.
 
-<ThemeImage light="/cn/assets/settings.png" dark="/cn/assets/settings-dark.png" alt="Farming Settings" />
+<ThemeImage light="/cn/assets/settings.png" dark="/cn/assets/settings-dark.png" paper="/cn/assets/settings-paper.png" alt="Farming Settings" />
 
 > Documentation screenshots use the English product interface so automated captures remain stable. You can switch the product UI language at the top of Settings.
 
@@ -43,7 +43,7 @@ It measures foreground use of the current Farming tab and does not pause or alte
 
 ### Soft glow
 
-<ThemeImage light="/cn/assets/pet-soft-glow.png" dark="/cn/assets/pet-soft-glow-dark.png" alt="Farming Pet soft-glow rest screen" />
+<ThemeImage light="/cn/assets/pet-soft-glow.png" dark="/cn/assets/pet-soft-glow-dark.png" paper="/cn/assets/pet-soft-glow-paper.png" alt="Farming Pet soft-glow rest screen" />
 
 ### Black hole
 

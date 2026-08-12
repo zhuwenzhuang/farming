@@ -11,7 +11,7 @@ Farming 以代码仓库为中心组织工作。一个 Project 可以包含当前
 3. **交互方式**：Chat 或 Terminal。
 4. **初始任务**：清楚说明目标、范围和验收方式。
 
-<ThemeImage light="/cn/assets/start-agent.png" dark="/cn/assets/start-agent-dark.png" alt="启动 Agent" />
+<ThemeImage light="/cn/assets/start-agent.png" dark="/cn/assets/start-agent-dark.png" paper="/cn/assets/start-agent-paper.png" alt="启动 Agent" />
 
 Provider 必须已经在 Farming Host 上完成登录。Farming 只负责发现和启动它，不会替你绕过 Provider 的认证要求。
 

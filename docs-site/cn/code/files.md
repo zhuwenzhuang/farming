@@ -6,7 +6,18 @@ description: 在 Farming Code 中浏览、搜索、编辑和检查项目文件�
 
 Files 让你在 Farming 工作区中浏览、搜索和轻量编辑 Project 文件。它适合快速核对 Agent 提到的代码、配置和测试证据。
 
-<ThemeImage light="/cn/assets/files-relational-operators-20260806.png" dark="/cn/assets/files-relational-operators-20260806-dark.png" alt="Files 中的关系算子 Markdown 预览" />
+<ThemeImage light="/cn/assets/files-relational-operators-20260806.png" dark="/cn/assets/files-relational-operators-20260806-dark.png" paper="/cn/assets/files-relational-operators-20260806-paper.png" alt="Files 中的关系算子 Markdown 预览" />
+
+## 边看页面，边和 Agent 协作
+
+打开 HTML 文件后，Files 会在受限预览中渲染页面。再从文件查看器右上角打开 Agent，页面会留在左侧，当前 Agent 的 Chat 会出现在右侧。这样 Agent 可以继续修改 HTML、CSS 或文档页面，你可以一边观察实际效果，一边直接提出下一轮调整，不需要在编辑器、浏览器和 Chat 之间反复切换。
+
+<ThemeImage
+  light="/cn/assets/files-html-preview-chat.png"
+  dark="/cn/assets/files-html-preview-chat-dark.png"
+  paper="/cn/assets/files-html-preview-chat-paper.png"
+  alt="Files 中打开 Farming 文档首页 HTML 预览，并在右侧继续 Agent Chat"
+/>
 
 ## 浏览文件
 

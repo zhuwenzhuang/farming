@@ -25,7 +25,7 @@
 
 在 Chat 中折叠不重要的过程，保留关键文件和命令证据。
 
-<ThemeImage light="/cn/assets/chat.png" dark="/cn/assets/chat-dark.png" alt="阅读 Agent 的结构化过程" />
+<ThemeImage light="/cn/assets/chat.png" dark="/cn/assets/chat-dark.png" paper="/cn/assets/chat-paper.png" alt="阅读 Agent 的结构化过程" />
 
 ## 用 Files 核对
 

@@ -14,7 +14,7 @@ Use Files to confirm that the authoritative source changed, unrelated formatting
 
 Confirm exact commands and exit results in Chat activity or Terminal.
 
-<ThemeImage light="/cn/assets/terminal-20260806.png" dark="/cn/assets/terminal-20260806-dark.png" alt="Verify command results in Terminal" />
+<ThemeImage light="/cn/assets/terminal-20260806.png" dark="/cn/assets/terminal-20260806-dark.png" paper="/cn/assets/terminal-20260806-paper.png" alt="Verify command results in Terminal" />
 
 Match verification to risk:
 

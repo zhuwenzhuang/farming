@@ -2,7 +2,7 @@
 
 Chat arranges coding Agent messages, progress, and tool activity into a readable timeline. Use it to follow work, inspect evidence, and continue the conversation without losing context.
 
-<ThemeImage light="/cn/assets/chat.png" dark="/cn/assets/chat-dark.png" alt="Structured Chat" />
+<ThemeImage light="/cn/assets/chat.png" dark="/cn/assets/chat-dark.png" paper="/cn/assets/chat-paper.png" alt="Structured Chat" />
 
 ## Read Agent progress
 
@@ -26,7 +26,7 @@ Follow-ups should name a concrete gap, such as “add the cancellation test,” 
 
 Providers expose different models, reasoning levels, service tiers, and permission controls. Farming shows only options supported by the current Provider and Session.
 
-<ThemeImage light="/cn/assets/model-controls.png" dark="/cn/assets/model-controls-dark.png" alt="Model and runtime controls" />
+<ThemeImage light="/cn/assets/model-controls.png" dark="/cn/assets/model-controls-dark.png" paper="/cn/assets/model-controls-paper.png" alt="Model and runtime controls" />
 
 Broader permissions reduce confirmation steps but increase possible impact. Use the minimum permissions that can complete the task, especially in unfamiliar repositories.
 

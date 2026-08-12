@@ -25,7 +25,7 @@ Ask the Agent to:
 
 Collapse routine activity in Chat while keeping important file and command evidence.
 
-<ThemeImage light="/cn/assets/chat.png" dark="/cn/assets/chat-dark.png" alt="Read structured Agent progress" />
+<ThemeImage light="/cn/assets/chat.png" dark="/cn/assets/chat-dark.png" paper="/cn/assets/chat-paper.png" alt="Read structured Agent progress" />
 
 ## Verify with Files
 

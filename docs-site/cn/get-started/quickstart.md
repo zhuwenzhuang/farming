@@ -45,7 +45,7 @@ URL 中的 Token 可以访问 Farming。不要把它放进公开日志、截图�
 3. 选择代码仓库所在的 Workspace。
 4. 选择 Chat 或 Terminal，然后创建 Agent。
 
-<ThemeImage light="/cn/assets/start-agent.png" dark="/cn/assets/start-agent-dark.png" alt="选择 Coding Agent" />
+<ThemeImage light="/cn/assets/start-agent.png" dark="/cn/assets/start-agent-dark.png" paper="/cn/assets/start-agent-paper.png" alt="选择 Coding Agent" />
 
 Chat 适合阅读结构化过程和结果；Terminal 适合直接使用原生 CLI。二者都运行在 Farming Host 上，而不是浏览器里。
 

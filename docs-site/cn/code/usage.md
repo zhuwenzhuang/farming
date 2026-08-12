@@ -9,6 +9,7 @@ Farming Code 的 Usage 面板汇总本机能够读取到的 Provider Token 活�
 <ThemeImage
   light="/cn/assets/usage-activity.png"
   dark="/cn/assets/usage-activity-dark.png"
+  paper="/cn/assets/usage-activity-paper.png"
   alt="Farming Code Token 使用详情"
 />
 

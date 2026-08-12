@@ -6,7 +6,7 @@ description: Inspect Token activity and historical trends for Providers and Agen
 
 Farming Code's Usage panel summarizes Provider Token activity available on the local machine. It is useful for current speed, daily trends, and unusual peaks; it does not replace a Provider billing page.
 
-<ThemeImage light="/cn/assets/usage-activity.png" dark="/cn/assets/usage-activity-dark.png" alt="Farming Code Token usage details" />
+<ThemeImage light="/cn/assets/usage-activity.png" dark="/cn/assets/usage-activity-dark.png" paper="/cn/assets/usage-activity-paper.png" alt="Farming Code Token usage details" />
 
 ## Current activity
 

@@ -6,7 +6,7 @@ description: 使用实验性的 Farming Desktop 连接并切换本机与多个�
 
 Farming Desktop 把同一套 Farming Code 界面封装为桌面应用。它默认连接这台 Mac 上的 Farming，也可以保存多个受信任的远程 Farming 后端，并在它们之间切换。
 
-<ThemeImage light="/cn/assets/desktop-connections.png" dark="/cn/assets/desktop-connections-dark.png" alt="Farming Desktop 的多后端连接面板" />
+<ThemeImage light="/cn/assets/desktop-connections.png" dark="/cn/assets/desktop-connections-dark.png" paper="/cn/assets/desktop-connections-paper.png" alt="Farming Desktop 的多后端连接面板" />
 
 ## 多个后端，一个界面
 

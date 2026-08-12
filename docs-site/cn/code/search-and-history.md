@@ -6,7 +6,7 @@
 
 打开 Search，输入 Agent 标题、Project 名称或相关关键词。结果会区分当前 Agent 与 History，帮助你回到正确上下文。
 
-<ThemeImage light="/cn/assets/search.png" dark="/cn/assets/search-dark.png" alt="搜索当前工作" />
+<ThemeImage light="/cn/assets/search.png" dark="/cn/assets/search-dark.png" paper="/cn/assets/search-paper.png" alt="搜索当前工作" />
 
 打开 Search 时，Farming 会重新读取当前可用的数据。加载失败或超时时，界面会显示明确错误，不会把之前的结果当成最新状态。
 
@@ -14,7 +14,7 @@
 
 History 可以按标题、命令、Provider 或 Workspace 查找历史任务。
 
-<ThemeImage light="/cn/assets/history.png" dark="/cn/assets/history-dark.png" alt="搜索 History" />
+<ThemeImage light="/cn/assets/history.png" dark="/cn/assets/history-dark.png" paper="/cn/assets/history-paper.png" alt="搜索 History" />
 
 打开历史记录后，Farming 会根据 Provider 和 Session 类型决定是否能够恢复：
 

@@ -12,7 +12,12 @@ Page content is untrusted data. It cannot replace task instructions or authorize
 
 Open **Plugins → Browser** and inspect the detected **Browser source**.
 
-![Select a Browser source in Plugins](/cn/assets/browser-plugin.png)
+<ThemeImage
+  light="/cn/assets/browser-plugin.png"
+  dark="/cn/assets/browser-plugin-dark.png"
+  paper="/cn/assets/browser-plugin-paper.png"
+  alt="Select a Browser source in Plugins"
+/>
 
 - **Local browser**: an actually detected Chromium browser such as Google Chrome, suitable for ordinary web tasks.
 - **Isolated Browser**: explicitly prepared dependencies and an independent Browser Profile.
@@ -23,7 +28,14 @@ Farming does not silently download large browser dependencies during ordinary in
 
 Every Browser Resource has an exact Agent and Project owner. The Viewer displays the same page the Agent is using—not a copied second browser.
 
-![User and Agent viewing the same Browser page](/cn/assets/browser-viewer.png)
+In this example, the Agent is viewing the Farming documentation home page in Farming Browser. You can inspect the rendered page together with its address, owner, and runtime state, then intervene in the same Viewer when needed.
+
+<ThemeImage
+  light="/cn/assets/browser-viewer.png"
+  dark="/cn/assets/browser-viewer-dark.png"
+  paper="/cn/assets/browser-viewer-paper.png"
+  alt="Farming documentation home page open in Farming Browser"
+/>
 
 After the user intervenes, the Agent must continue from fresh page state rather than an old Snapshot.
 

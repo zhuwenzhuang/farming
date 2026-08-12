@@ -6,7 +6,7 @@ description: Use experimental Farming Desktop to connect to and switch among loc
 
 Farming Desktop packages the same Farming Code interface as a desktop application. It connects to Farming on this Mac by default and can save several trusted remote Farming backends.
 
-<ThemeImage light="/cn/assets/desktop-connections.png" dark="/cn/assets/desktop-connections-dark.png" alt="Multiple backend connections in Farming Desktop" />
+<ThemeImage light="/cn/assets/desktop-connections.png" dark="/cn/assets/desktop-connections-dark.png" paper="/cn/assets/desktop-connections-paper.png" alt="Multiple backend connections in Farming Desktop" />
 
 ## Several backends, one interface
 

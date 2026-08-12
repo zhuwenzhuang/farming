@@ -2,7 +2,7 @@
 
 Terminal connects to a real PTY on the Farming Host. It is not a simulated command box in the browser; it is where coding CLIs, shells, and development tools actually run.
 
-<ThemeImage light="/cn/assets/terminal-20260806.png" dark="/cn/assets/terminal-20260806-dark.png" alt="Terminal Session" />
+<ThemeImage light="/cn/assets/terminal-20260806.png" dark="/cn/assets/terminal-20260806-dark.png" paper="/cn/assets/terminal-20260806-paper.png" alt="Terminal Session" />
 
 ## Good Terminal tasks
 

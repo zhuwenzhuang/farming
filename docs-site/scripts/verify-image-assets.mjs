@@ -23,11 +23,18 @@ for (const sourceRoot of sourceRoots) {
     if (/\.\.\/assets\//.test(source)) {
       failures.push(`${path.relative(siteRoot, file)} uses a relative screenshot path; use the locale's /<locale>/assets/... path`)
     }
-    const references = Array.from(source.matchAll(/(?:\]\(|(?:src|light|dark)=['"])(\/[a-z-]+\/assets\/[^)'"\s>]+)/g), match => match[1])
+    const references = Array.from(source.matchAll(/(?:\]\(|(?:src|light|dark|paper)=['"])(\/[a-z-]+\/assets\/[^)'"\s>]+)/g), match => match[1])
     for (const reference of references) {
       const target = path.join(publicRoot, reference.slice(1))
       if (!fs.existsSync(target) || !fs.statSync(target).isFile()) {
         failures.push(`${path.relative(siteRoot, file)} references missing ${reference}`)
+      }
+    }
+    for (const match of source.matchAll(/<ThemeImage\b[\s\S]*?\/>/g)) {
+      for (const appearance of ['light', 'dark', 'paper']) {
+        if (!new RegExp(`\\b${appearance}=['"][^'"]+['"]`).test(match[0])) {
+          failures.push(`${path.relative(siteRoot, file)} has a ThemeImage without ${appearance}`)
+        }
       }
     }
   }

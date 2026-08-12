@@ -1103,15 +1103,21 @@
   display: block;
 }
 
-.theme-image-dark {
+.theme-image-dark,
+.theme-image-paper {
   display: none !important;
 }
 
-.dark .theme-image-light {
+.dark .theme-image-light,
+:root[data-appearance="paper"] .theme-image-light {
   display: none !important;
 }
 
 .dark .theme-image-dark {
+  display: block !important;
+}
+
+:root[data-appearance="paper"] .theme-image-paper {
   display: block !important;
 }
 

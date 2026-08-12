@@ -3,6 +3,7 @@ export {};
 
 const { execFileSync, spawn } = require('node:child_process');
 const fs = require('node:fs');
+const http = require('node:http');
 const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
@@ -16,6 +17,7 @@ const screenshotTmpRoot = process.env.FARMING_SCREENSHOT_TMP_ROOT
 const demoRoot = path.join(screenshotTmpRoot, 'farming-product-demo');
 const configDir = path.join(demoRoot, 'config');
 const homeDir = path.join(demoRoot, 'home');
+const agentBrowserSocketDir = path.join(screenshotTmpRoot, `fb${process.pid}`);
 const customWorkspace = Boolean(process.env.FARMING_SCREENSHOT_WORKSPACE);
 const workspaceDir = path.resolve(process.env.FARMING_SCREENSHOT_WORKSPACE || path.join(homeDir, 'Projects', 'atlas-control-plane'));
 const screenshotDir = path.join(repoRoot, 'docs', 'products', 'code', 'assets');
@@ -24,6 +26,7 @@ const publicScreenshotDir = path.join(repoRoot, 'docs-site', 'public', 'cn', 'as
 type PublicScreenshotSpec = {
   fileName: string;
   clip?: { x: number; y: number; width: number; height: number };
+  publicOnly?: boolean;
 };
 const publicCodeScreenshotSpecs = new Map<string, PublicScreenshotSpec>([
   ['00-code-welcome.png', { fileName: 'welcome.png' }],
@@ -46,6 +49,9 @@ const publicCodeScreenshotSpecs = new Map<string, PublicScreenshotSpec>([
   ['20-code-share-chat.png', { fileName: 'share-chat.png', clip: { x: 300, y: 0, width: 1140, height: 810 } }],
   ['21-code-share-file.png', { fileName: 'share-file.png', clip: { x: 300, y: 0, width: 1140, height: 810 } }],
   ['22-code-share-qr.png', { fileName: 'share-qr.png', clip: { x: 0, y: 0, width: 650, height: 620 } }],
+  ['23-code-files-html-chat.png', { fileName: 'files-html-preview-chat.png', publicOnly: true }],
+  ['24-code-browser-docs.png', { fileName: 'browser-viewer.png', publicOnly: true }],
+  ['25-code-browser-plugin.png', { fileName: 'browser-plugin.png', publicOnly: true, clip: { x: 300, y: 0, width: 1140, height: 650 } }],
 ]);
 const publicCrtScreenshotSpecs = new Map<string, PublicScreenshotSpec>([
   ['01-crt-dashboard.png', { fileName: 'crt-dashboard.png' }],
@@ -53,10 +59,16 @@ const publicCrtScreenshotSpecs = new Map<string, PublicScreenshotSpec>([
   ['03-crt-terminal.png', { fileName: 'crt-terminal-20260806.png' }],
   ['06-crt-billing-days.png', { fileName: 'crt-usage-20260806.png' }],
 ]);
-const screenshotAppearance = process.env.FARMING_SCREENSHOT_APPEARANCE === 'dark' ? 'dark' : 'light';
+const screenshotAppearance = ['dark', 'paper'].includes(process.env.FARMING_SCREENSHOT_APPEARANCE || '')
+  ? process.env.FARMING_SCREENSHOT_APPEARANCE as 'dark' | 'paper'
+  : 'light';
 const nativeDarkCodeScreenshots = new Set([
   '09-dark-workspace.png',
   '17-code-pet-black-hole.png',
+]);
+const browserDocumentationScreenshots = new Set([
+  '24-code-browser-docs.png',
+  '25-code-browser-plugin.png',
 ]);
 const requestedScreenshotFiles = new Set(
   String(process.env.FARMING_SCREENSHOT_FILES || '')
@@ -69,6 +81,17 @@ const basePath = '/farming';
 const localChromePath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const executablePath = process.env.FARMING_PLAYWRIGHT_CHROME_PATH
   || (fs.existsSync(localChromePath) ? localChromePath : undefined);
+const agentBrowserPlatformKey = `${process.platform}-${process.arch === 'x64' ? 'x64' : 'arm64'}`;
+const localAgentBrowserPath = process.env.FARMING_AGENT_BROWSER_BIN
+  || path.join(
+    repoRoot,
+    '.farming-runtime-seed',
+    'runtimes',
+    'agentBrowser',
+    '0.32.3',
+    agentBrowserPlatformKey,
+    process.platform === 'win32' ? 'agent-browser.exe' : 'agent-browser',
+  );
 const matrixReasoning = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
 const matrixCatalog = ['sol', 'terra', 'luna'].map(variant => ({
   value: `gpt-5.6-${variant}`,
@@ -158,6 +181,66 @@ function getFreePort() {
   });
 }
 
+function createDocsHomeFixture(appearance = screenshotAppearance) {
+  const palette = appearance === 'dark'
+    ? {
+        canvas: '#181818', chrome: '#202020', surface: '#282828', text: '#f3f3ef',
+        muted: '#a3a39c', accent: '#62d790', accentText: '#0d2516', line: '#383838',
+      }
+    : appearance === 'paper'
+      ? {
+          canvas: '#f9f8f4', chrome: '#f9f8f4', surface: '#efede7', text: '#282922',
+          muted: '#6f7067', accent: '#3a6e4a', accentText: '#ffffff', line: 'transparent',
+        }
+      : {
+          canvas: '#ffffff', chrome: '#ffffff', surface: '#f0f2ef', text: '#242722',
+          muted: '#6d746d', accent: '#217a45', accentText: '#ffffff', line: '#e3e6e1',
+        };
+  const cardShadow = appearance === 'paper' ? 'none' : appearance === 'dark'
+    ? '0 16px 44px rgba(0, 0, 0, .24)'
+    : '0 16px 44px rgba(35, 48, 38, .08)';
+  return [
+    '<!doctype html>',
+    `<html lang="zh-CN" data-appearance="${appearance}">`,
+    '<head>',
+    '<meta charset="utf-8">',
+    '<meta name="viewport" content="width=device-width, initial-scale=1">',
+    '<title>Farming 文档</title>',
+    '<style>',
+    `:root { --canvas:${palette.canvas};--chrome:${palette.chrome};--surface:${palette.surface};--text:${palette.text};--muted:${palette.muted};--accent:${palette.accent};--accent-text:${palette.accentText};--line:${palette.line}; }`,
+    '*{box-sizing:border-box} body{margin:0;background:var(--canvas);color:var(--text);font:16px/1.5 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}',
+    'header{height:68px;display:flex;align-items:center;padding:0 42px;background:var(--chrome);border-bottom:1px solid var(--line);gap:28px}',
+    '.brand{display:flex;align-items:center;gap:12px;font-weight:750;font-size:19px;white-space:nowrap}.mark{display:grid;place-items:center;width:34px;height:34px;border-radius:10px;background:#f5e6ae;color:#244f31;font-weight:900}',
+    '.search{height:38px;min-width:245px;padding:8px 16px;border-radius:11px;background:var(--surface);color:var(--muted)}',
+    'nav{margin-left:auto;display:flex;gap:26px;font-weight:650} nav span:last-child{color:var(--accent)}',
+    'main{max-width:1160px;margin:0 auto;padding:76px 58px 64px}.eyebrow{color:var(--accent);font-weight:750;letter-spacing:.12em;text-transform:uppercase}',
+    'h1{font-family:Georgia,"Noto Serif SC",serif;font-size:76px;line-height:1.02;margin:16px 0 18px;letter-spacing:-.04em}.lead{max-width:760px;font-size:25px;color:var(--muted);margin:0 0 30px}',
+    '.actions{display:flex;gap:12px;margin-bottom:66px}.button{padding:12px 20px;border-radius:999px;background:var(--accent);color:var(--accent-text);font-weight:750}.button.secondary{background:var(--surface);color:var(--text)}',
+    '.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}.card{min-height:148px;padding:24px;border:1px solid var(--line);border-radius:18px;background:var(--surface);box-shadow:' + cardShadow + '}.card strong{display:block;font-size:20px;margin-bottom:10px}.card p{margin:0;color:var(--muted)}',
+    '</style>',
+    '</head>',
+    '<body>',
+    '<header><div class="brand"><span class="mark">F</span><span>Farming 文档</span></div><div class="search">⌕&nbsp;&nbsp;搜索文档</div><nav><span>Farming Code</span><span>Farming CRT</span><span>插件</span><span>安装</span><span>GitHub</span></nav></header>',
+    '<main><div class="eyebrow">Engineering Is Becoming Farming</div><h1>Farming</h1><p class="lead">浏览器中的 AI Coding Agent 工作区。观察 Agent 的工作，核对文件和页面，并在需要时直接介入。</p><div class="actions"><span class="button">快速开始</span><span class="button secondary">了解两种界面</span></div>',
+    '<section class="grid"><article class="card"><strong>Farming Code</strong><p>现代、轻量的 Agent 工作区，适合日常使用。</p></article><article class="card"><strong>Files</strong><p>浏览、预览和检查 Agent 正在修改的项目文件。</p></article><article class="card"><strong>Farming Browser</strong><p>和 Agent 查看同一个页面，随时检查并接管。</p></article></section></main>',
+    '</body></html>',
+  ].join('\n');
+}
+
+async function startDocsDemoServer() {
+  const server = http.createServer((_request, response) => {
+    response.setHeader('content-type', 'text/html; charset=utf-8');
+    response.end(createDocsHomeFixture());
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('documentation demo server did not allocate a port');
+  return { server, url: `http://127.0.0.1:${address.port}/?theme=${screenshotAppearance}` };
+}
+
 async function waitForServer(url: string, timeoutMs = 45_000): Promise<void> {
   const startedAt = Date.now();
   let lastError: Error | null = null;
@@ -176,6 +259,7 @@ async function waitForServer(url: string, timeoutMs = 45_000): Promise<void> {
 
 function prepareRuntimeDirectories() {
   fs.rmSync(demoRoot, { recursive: true, force: true });
+  fs.rmSync(agentBrowserSocketDir, { recursive: true, force: true });
   fs.mkdirSync(configDir, { recursive: true });
   fs.mkdirSync(homeDir, { recursive: true });
   fs.mkdirSync(screenshotDir, { recursive: true });
@@ -248,6 +332,10 @@ function prepareRuntimeDirectories() {
       'These properties provide the guards for equivalence rules such as predicate pushdown, projection pruning, and join reordering.',
       '',
     ].join('\n'));
+    fs.writeFileSync(
+      path.join(workspaceDir, 'docs', 'farming-home.html'),
+      createDocsHomeFixture(),
+    );
     fs.writeFileSync(path.join(workspaceDir, 'src', 'components', 'Dashboard.tsx'), [
       "type Metric = { label: string; value: string }",
       '',
@@ -398,12 +486,14 @@ function prepareRuntimeDirectories() {
   }
   for (const directory of [screenshotDir, crtScreenshotDir]) {
     for (const entry of fs.readdirSync(directory)) {
-      const requestedEntry = screenshotAppearance === 'dark' && directory === screenshotDir
-        ? entry.replace(/-dark(?=\.(?:png|jpg|jpeg)$)/i, '')
+      const appearanceSuffix = screenshotAppearance === 'light' ? null : screenshotAppearance;
+      const requestedEntry = appearanceSuffix && directory === screenshotDir
+        ? entry.replace(new RegExp(`-${appearanceSuffix}(?=\\.(?:png|jpg|jpeg)$)`, 'i'), '')
         : entry;
-      const isSelectedAppearance = screenshotAppearance === 'dark'
-        ? directory !== screenshotDir || /-dark\.(?:png|jpg|jpeg)$/i.test(entry) || nativeDarkCodeScreenshots.has(entry)
-        : !/-dark\.(?:png|jpg|jpeg)$/i.test(entry);
+      const themedSuffix = /-(?:dark|paper)\.(?:png|jpg|jpeg)$/i;
+      const isSelectedAppearance = appearanceSuffix
+        ? directory !== screenshotDir || new RegExp(`-${appearanceSuffix}\\.(?:png|jpg|jpeg)$`, 'i').test(entry) || nativeDarkCodeScreenshots.has(entry)
+        : !themedSuffix.test(entry);
       if (/^\d{2}-.*\.(?:png|jpg|jpeg)$/i.test(entry)
         && isSelectedAppearance
         && (requestedScreenshotFiles.size === 0 || requestedScreenshotFiles.has(requestedEntry))) {
@@ -414,12 +504,12 @@ function prepareRuntimeDirectories() {
 }
 
 function themedScreenshotFileName(fileName: string, directory: string) {
-  if (screenshotAppearance !== 'dark'
+  if (screenshotAppearance === 'light'
     || directory !== screenshotDir
     || nativeDarkCodeScreenshots.has(fileName)) {
     return fileName;
   }
-  return fileName.replace(/(\.[^.]+)$/, '-dark$1');
+  return fileName.replace(/(\.[^.]+)$/, `-${screenshotAppearance}$1`);
 }
 
 async function ensureApp(page, { hideUsagePanel = true } = {}) {
@@ -437,6 +527,8 @@ async function ensureApp(page, { hideUsagePanel = true } = {}) {
 }
 
 async function setDemoSettings(page, baseUrl) {
+  const captureBrowserDocumentation = requestedScreenshotFiles.size === 0
+    || Array.from(browserDocumentationScreenshots).some(fileName => requestedScreenshotFiles.has(fileName));
   await page.request.post(`${baseUrl}${basePath}/api/settings`, {
     data: {
       lastMainWorkspace: workspaceDir,
@@ -466,6 +558,11 @@ async function setDemoSettings(page, baseUrl) {
         },
       },
       agentHomes: defaultAgentHomeSettings,
+      ...(captureBrowserDocumentation ? {
+        browserExtensionEnabled: true,
+        browserSource: 'system',
+        browserExecutablePath: executablePath || '',
+      } : {}),
     },
   });
 }
@@ -639,21 +736,26 @@ async function screenshot(page, fileName, directory = screenshotDir) {
     });
   }
   const outputFileName = themedScreenshotFileName(fileName, directory);
-  const screenshotPath = path.join(directory, outputFileName);
-  await page.screenshot({
-    path: screenshotPath,
-    fullPage: false,
-  });
   const publicSpec = directory === screenshotDir
     ? publicCodeScreenshotSpecs.get(fileName)
     : directory === crtScreenshotDir
       ? publicCrtScreenshotSpecs.get(fileName)
       : undefined;
+  const publicOnly = directory === screenshotDir
+    && (screenshotAppearance === 'paper' || publicSpec?.publicOnly === true);
+  const screenshotPath = publicOnly
+    ? path.join(demoRoot, 'public-screenshot-staging', outputFileName)
+    : path.join(directory, outputFileName);
+  fs.mkdirSync(path.dirname(screenshotPath), { recursive: true });
+  await page.screenshot({
+    path: screenshotPath,
+    fullPage: false,
+  });
   if (publicSpec) {
-    const publicFileName = screenshotAppearance === 'dark'
+    const publicFileName = screenshotAppearance !== 'light'
       && directory === screenshotDir
       && !nativeDarkCodeScreenshots.has(fileName)
-      ? publicSpec.fileName.replace(/(\.[^.]+)$/, '-dark$1')
+      ? publicSpec.fileName.replace(/(\.[^.]+)$/, `-${screenshotAppearance}$1`)
       : publicSpec.fileName;
     const publicPath = path.join(publicScreenshotDir, publicFileName);
     if (publicSpec.clip) {
@@ -667,6 +769,35 @@ async function screenshot(page, fileName, directory = screenshotDir) {
     }
   }
   capturedScreenshotFiles.add(fileName);
+}
+
+async function waitForBrowserPage(page, baseUrl, browserId, expectedTitle) {
+  const startedAt = Date.now();
+  let lastTitle = '';
+  while (Date.now() - startedAt < 30_000) {
+    const response = await page.request.post(`${baseUrl}${basePath}/api/browsers/${encodeURIComponent(browserId)}/action`, {
+      data: { kind: 'snapshot' },
+    });
+    if (response.ok()) {
+      const snapshot = await response.json();
+      lastTitle = String(snapshot.title || '');
+      if (lastTitle === expectedTitle) return;
+    }
+    await new Promise(resolve => setTimeout(resolve, 200));
+  }
+  throw new Error(`Browser did not load ${expectedTitle}; last title was ${lastTitle || '(empty)'}`);
+}
+
+async function projectRootId(page) {
+  const response = await page.request.get(`${basePath}/api/files/roots`);
+  if (!response.ok()) throw new Error(`failed to read screenshot workspace roots: ${response.status()}`);
+  const body = await response.json();
+  const canonicalWorkspace = fs.realpathSync(workspaceDir);
+  const root = Array.isArray(body.roots)
+    ? body.roots.find(candidate => candidate.canonicalPath === canonicalWorkspace)
+    : null;
+  if (!root?.rootId) throw new Error(`screenshot workspace root was not registered: ${canonicalWorkspace}`);
+  return root.rootId;
 }
 
 function requestedScreenshotsComplete() {
@@ -1051,6 +1182,37 @@ async function projectNorthstarChat(page, { mobile = false } = {}) {
   }, { version: packageVersion, mobileLayout: mobile });
 }
 
+async function projectDocsPreviewChat(page) {
+  await page.evaluate(() => {
+    const turn = document.querySelector('.code-agent-transcript-turn');
+    const userMessage = turn?.querySelector('.code-agent-transcript-user > div');
+    if (userMessage) {
+      userMessage.textContent = 'Refine the Farming documentation home page and keep the Paper palette restrained.';
+    }
+    const answer = turn?.querySelector('.code-agent-transcript-assistant');
+    if (answer) {
+      answer.innerHTML = [
+        '<h2>Documentation home updated</h2>',
+        '<p>The rendered page now has a quieter Paper hierarchy while keeping the primary action clear.</p>',
+        '<h3>What changed</h3>',
+        '<ul>',
+        '<li>Aligned the hero and navigation spacing.</li>',
+        '<li>Used one neutral surface for the capability cards.</li>',
+        '<li>Kept green for links and the primary action only.</li>',
+        '</ul>',
+        '<p><strong>Verification:</strong> the HTML preview is ready for visual review.</p>',
+      ].join('');
+    }
+    const changeSummary = document.querySelector('[data-testid="code-agent-transcript-result-summary"]');
+    const summaryLabel = changeSummary?.querySelector(':scope > span');
+    const added = changeSummary?.querySelector('.added');
+    const removed = changeSummary?.querySelector('.removed');
+    if (summaryLabel) summaryLabel.textContent = '2 files changed';
+    if (added) added.textContent = '+28';
+    if (removed) removed.textContent = '-12';
+  });
+}
+
 async function stabilizeCrtDashboard(page) {
   await page.addStyleTag({
     content: [
@@ -1084,6 +1246,15 @@ async function main() {
       FARMING_DISABLE_AUTH: '1',
       FARMING_E2E_FAKE_EXECUTABLES: '1',
       FARMING_E2E_FAKE_ACP_AGENT: '1',
+      ...((requestedScreenshotFiles.size === 0
+        || Array.from(browserDocumentationScreenshots).some(fileName => requestedScreenshotFiles.has(fileName)))
+        && fs.existsSync(localAgentBrowserPath)
+        ? {
+            FARMING_AGENT_BROWSER_BIN: localAgentBrowserPath,
+            FARMING_AGENT_BROWSER_EXECUTABLE: localAgentBrowserPath,
+          }
+        : {}),
+      AGENT_BROWSER_SOCKET_DIR: agentBrowserSocketDir,
       FARMING_NATIVE_PTY_HOST_PERSIST: '0',
       FARMING_ANONYMIZE_SHELL_PROMPT: '1',
       HOME: homeDir,
@@ -1175,7 +1346,7 @@ async function main() {
       await screenshot(page, '19-code-agent-homes.png');
       if (requestedScreenshotsComplete()) return;
       await setDemoSettings(page, baseUrl);
-      await page.getByTestId('code-plugins-panel').getByRole('button', { name: 'Back to workspace' }).click();
+      await page.getByTestId('code-plugins-panel').getByRole('button', { name: 'Back', exact: true }).click();
     }
 
     const codexAgentId = await startAgent(page, baseUrl, {
@@ -1406,6 +1577,106 @@ async function main() {
     }
     await screenshot(page, '04-files-markdown-preview.png');
     if (requestedScreenshotsComplete()) return;
+
+    if (requestedScreenshotFiles.size === 0 || requestedScreenshotFiles.has('23-code-files-html-chat.png')) {
+      await openAgent(page, codexAgentId);
+      const farmingHomeFile = filesSection.locator('[data-testid="code-file-row"][data-file-path="docs/farming-home.html"]');
+      await farmingHomeFile.waitFor({ state: 'visible', timeout: 20_000 });
+      await farmingHomeFile.click();
+      const htmlPreview = page.getByTestId('code-file-html-preview');
+      await htmlPreview.waitFor({ state: 'visible', timeout: 20_000 });
+      const htmlFrame = page.frameLocator('[data-testid="code-file-html-preview"]');
+      await htmlFrame.getByRole('heading', { name: 'Farming' }).waitFor({ state: 'visible', timeout: 20_000 });
+      const fileEditor = page.getByTestId('code-file-editor');
+      await fileEditor.getByRole('button', { name: 'Show Agent beside resource' }).click();
+      await page.getByTestId('code-main').waitFor({ state: 'visible', timeout: 20_000 });
+      await page.waitForFunction(() => document.querySelector('[data-testid="code-main"]')?.classList.contains('resource-agent-side-open'));
+      await page.getByTestId('code-agent-chat-view').waitFor({ state: 'visible', timeout: 20_000 });
+      await projectDocsPreviewChat(page);
+      await page.getByRole('heading', { name: 'Documentation home updated' })
+        .waitFor({ state: 'visible', timeout: 20_000 });
+      await screenshot(page, '23-code-files-html-chat.png');
+      if (requestedScreenshotsComplete()) return;
+      await fileEditor.getByRole('button', { name: 'Hide Agent beside resource' }).click();
+    }
+
+    const shouldCaptureBrowserDocumentation = requestedScreenshotFiles.size === 0
+      || Array.from(browserDocumentationScreenshots).some(fileName => requestedScreenshotFiles.has(fileName));
+    if (shouldCaptureBrowserDocumentation) {
+      if (!fs.existsSync(localAgentBrowserPath)) {
+        throw new Error(`agent-browser ${localAgentBrowserPath} is required for documentation screenshots`);
+      }
+      if (!executablePath) throw new Error('A local Chromium browser is required for documentation screenshots');
+      if (requestedScreenshotFiles.size === 0 || requestedScreenshotFiles.has('25-code-browser-plugin.png')) {
+        await page.getByTestId('code-nav-plugins').click();
+        const pluginsPanel = page.getByTestId('code-plugins-panel');
+        await pluginsPanel.waitFor({ state: 'visible', timeout: 20_000 });
+        await pluginsPanel.getByTestId('code-plugin-tab-farming').click();
+        const browserPlugin = pluginsPanel.getByTestId('code-plugin-browser');
+        await browserPlugin.waitFor({ state: 'visible', timeout: 20_000 });
+        await browserPlugin.getByRole('button', { name: 'Disable' }).waitFor({ state: 'visible', timeout: 20_000 });
+        await screenshot(page, '25-code-browser-plugin.png');
+        if (requestedScreenshotsComplete()) return;
+        await pluginsPanel.getByRole('button', { name: 'Back', exact: true }).click();
+      }
+
+      if (requestedScreenshotFiles.size === 0 || requestedScreenshotFiles.has('24-code-browser-docs.png')) {
+        const docsDemo = await startDocsDemoServer();
+        await updateAgent(page, baseUrl, codexAgentId, { customTitle: 'Review Farming documentation' });
+        try {
+          const rootId = await projectRootId(page);
+          const createResponse = await page.request.post(`${baseUrl}${basePath}/api/browsers`, {
+            data: {
+              rootId,
+              agentId: codexAgentId,
+              name: 'Farming documentation',
+              url: docsDemo.url,
+            },
+          });
+          if (!createResponse.ok()) {
+            throw new Error(`failed to create documentation Browser: ${createResponse.status()} ${await createResponse.text()}`);
+          }
+          const createdBrowser = await createResponse.json();
+          const startResponse = await page.request.post(`${baseUrl}${basePath}/api/browsers/${encodeURIComponent(createdBrowser.id)}/start`);
+          if (!startResponse.ok()) {
+            throw new Error(`failed to start documentation Browser: ${startResponse.status()} ${await startResponse.text()}`);
+          }
+          await waitForBrowserPage(page, baseUrl, createdBrowser.id, 'Farming 文档');
+          await ensureApp(page);
+          await openAgent(page, codexAgentId);
+          const agentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${codexAgentId}"]`).first();
+          const resourcesToggle = agentRow.getByTestId('code-agent-resources-toggle');
+          await resourcesToggle.waitFor({ state: 'visible', timeout: 20_000 });
+          if (await resourcesToggle.getAttribute('aria-expanded') !== 'true') {
+            await resourcesToggle.evaluate(element => (element as HTMLButtonElement).click());
+          }
+          const resourceSlot = page.locator(`[data-testid="code-agent-resource-slot"][data-agent-id="${codexAgentId}"]`);
+          const browserRow = resourceSlot.getByTestId('farming-browser-row').filter({ hasText: 'Farming documentation' });
+          await browserRow.waitFor({ state: 'visible', timeout: 20_000 });
+          await browserRow.click();
+          const viewer = page.getByTestId('farming-browser-viewer');
+          await viewer.waitFor({ state: 'visible', timeout: 20_000 });
+          await viewer.locator('canvas').waitFor({ state: 'visible', timeout: 20_000 });
+          const addressInput = viewer.getByRole('textbox', { name: 'Browser address' });
+          await addressInput.waitFor({ state: 'visible', timeout: 20_000 });
+          const publicDisplayUrl = `https://docs.farming.dev/?theme=${screenshotAppearance}`;
+          await addressInput.evaluate((element, value) => {
+            const input = element as HTMLInputElement;
+            input.value = value;
+            input.setAttribute('value', value);
+          }, publicDisplayUrl);
+          await browserRow.evaluate((element, value) => {
+            const subtitle = element.querySelector('.farming-browser-row-detail');
+            if (subtitle) subtitle.textContent = value;
+          }, `docs.farming.dev/?theme=${screenshotAppearance}`);
+          await screenshot(page, '24-code-browser-docs.png');
+          if (requestedScreenshotsComplete()) return;
+        } finally {
+          await updateAgent(page, baseUrl, codexAgentId, { customTitle: 'Fix duplicate page items' }).catch(() => {});
+          await new Promise<void>(resolve => docsDemo.server.close(() => resolve()));
+        }
+      }
+    }
 
     await openAgent(page, terminalAgentId);
     await writeTerminalFixture(page, terminalAgentId, `\u001b[2J\u001b[H${createWorkspaceTerminalTranscript()}`);
@@ -1696,6 +1967,7 @@ async function main() {
   } finally {
     if (browser) await browser.close();
     serverProcess.kill('SIGTERM');
+    fs.rmSync(agentBrowserSocketDir, { recursive: true, force: true });
   }
 }
 

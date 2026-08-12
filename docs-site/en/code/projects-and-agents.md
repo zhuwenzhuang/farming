@@ -11,7 +11,7 @@ After choosing **New Agent**, confirm:
 3. **Interaction**: Chat or Terminal.
 4. **Initial task**: a clear result, scope, and acceptance method.
 
-<ThemeImage light="/cn/assets/start-agent.png" dark="/cn/assets/start-agent-dark.png" alt="Start an Agent" />
+<ThemeImage light="/cn/assets/start-agent.png" dark="/cn/assets/start-agent-dark.png" paper="/cn/assets/start-agent-paper.png" alt="Start an Agent" />
 
 The Provider must already be authenticated on the Farming Host. Farming discovers and starts it; it does not bypass Provider authentication.
 

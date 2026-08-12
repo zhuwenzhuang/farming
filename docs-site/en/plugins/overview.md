@@ -16,7 +16,7 @@ Opening Plugins performs a fresh read of capability and configuration state. Mis
 
 One coding Agent can have separate Homes for work, personal, or team accounts. Select a Home when starting an Agent to use its isolated authentication, configuration, and extensions.
 
-<ThemeImage light="/cn/assets/agent-homes.png" dark="/cn/assets/agent-homes-dark.png" alt="Multiple Agent Homes in Plugins" />
+<ThemeImage light="/cn/assets/agent-homes.png" dark="/cn/assets/agent-homes-dark.png" paper="/cn/assets/agent-homes-paper.png" alt="Multiple Agent Homes in Plugins" />
 
 Continue with [Manage multiple Agent Homes](./agent-homes).
 
