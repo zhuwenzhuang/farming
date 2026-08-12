@@ -18,7 +18,7 @@ import type {
 } from '@/types/agent'
 import { CheckGlyph } from '@/components/IconGlyphs'
 import { appPath } from '@/lib/base-path'
-import { writeClipboardText } from '@/lib/clipboard'
+import { readRecentClipboardWrite, writeClipboardText } from '@/lib/clipboard'
 import { isAcpRuntime, isStructuredRuntime } from '@/lib/agent-runtime'
 import {
   agentWithCurrentLiveState,
@@ -1655,13 +1655,46 @@ export function CodeWorkspace({
     void appendAttachmentFiles(files)
   }, [appendAttachmentFiles])
 
+  const pasteEventSequenceRef = useRef(0)
+  const insertRecentClipboardWrite = useCallback((textarea: HTMLTextAreaElement) => {
+    const fallbackText = readRecentClipboardWrite()
+    if (!activeComposerKey || !fallbackText) return
+
+    const selectionStart = textarea.selectionStart ?? textarea.value.length
+    const selectionEnd = textarea.selectionEnd ?? selectionStart
+    const nextDraft = `${textarea.value.slice(0, selectionStart)}${fallbackText}${textarea.value.slice(selectionEnd)}`
+    const nextCursor = selectionStart + fallbackText.length
+    updateComposerStateForKey(activeComposerKey, state => ({ ...state, draft: nextDraft }))
+    window.requestAnimationFrame(() => {
+      textarea.focus({ preventScroll: true })
+      textarea.setSelectionRange(nextCursor, nextCursor)
+    })
+  }, [activeComposerKey, updateComposerStateForKey])
+
   const handlePasteAttachment = useCallback((event: ReactClipboardEvent<HTMLElement>) => {
+    pasteEventSequenceRef.current += 1
     const files = clipboardMediaFiles(event.clipboardData)
-    if (files.length === 0) return
+    if (files.length > 0) {
+      event.preventDefault()
+      void appendAttachmentFiles(files)
+      return
+    }
+
+    if (event.clipboardData.getData('text/plain')) return
+    const textarea = event.currentTarget
+    if (!(textarea instanceof HTMLTextAreaElement) || !readRecentClipboardWrite()) return
 
     event.preventDefault()
-    void appendAttachmentFiles(files)
-  }, [appendAttachmentFiles])
+    insertRecentClipboardWrite(textarea)
+  }, [appendAttachmentFiles, insertRecentClipboardWrite])
+
+  const handlePasteShortcutFallback = useCallback((textarea: HTMLTextAreaElement) => {
+    const pasteEventSequence = pasteEventSequenceRef.current
+    window.setTimeout(() => {
+      if (pasteEventSequenceRef.current !== pasteEventSequence) return
+      insertRecentClipboardWrite(textarea)
+    }, 0)
+  }, [insertRecentClipboardWrite])
 
   useEffect(() => {
     const input = attachmentInputRef.current
@@ -4904,6 +4937,7 @@ export function CodeWorkspace({
           onDiscardSubmission: discardAcpSubmission,
           onToggleSpeechInput: toggleSpeechInput,
           onPasteAttachment: handlePasteAttachment,
+          onPasteShortcutFallback: handlePasteShortcutFallback,
           onAttachmentFiles: handleAttachmentFiles,
           onChooseAttachmentFile: chooseAttachmentFile,
           onActivateComposerMode: activateComposerMode,
@@ -4970,6 +5004,7 @@ export function CodeWorkspace({
           onDiscardPendingFollowUp: discardPendingFollowUp,
           onEditPendingFollowUp: editPendingFollowUp,
           onPasteAttachment: handlePasteAttachment,
+          onPasteShortcutFallback: handlePasteShortcutFallback,
           onAttachmentFiles: handleAttachmentFiles,
           onChooseAttachmentFile: chooseAttachmentFile,
           onActivateComposerMode: activateComposerMode,

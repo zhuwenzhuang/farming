@@ -3,6 +3,14 @@ export interface TerminalClipboardProvider {
   writeText: (selection: string, text: string) => Promise<void> | undefined
 }
 
+const RECENT_CLIPBOARD_WRITE_TTL_MS = 2 * 60 * 1000
+let recentClipboardWrite: { text: string, writtenAt: number } | null = null
+
+export function readRecentClipboardWrite(now = Date.now()) {
+  if (!recentClipboardWrite || now - recentClipboardWrite.writtenAt > RECENT_CLIPBOARD_WRITE_TTL_MS) return ''
+  return recentClipboardWrite.text
+}
+
 export async function readClipboardText() {
   try {
     if (typeof navigator !== 'undefined' && navigator.clipboard?.readText) {
@@ -61,13 +69,16 @@ export async function writeClipboardText(text: string) {
   try {
     if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(text)
+      recentClipboardWrite = { text, writtenAt: Date.now() }
       return true
     }
   } catch {
     // Fall through to the textarea copy path.
   }
 
-  return fallbackCopyText(text)
+  const copied = fallbackCopyText(text)
+  if (copied) recentClipboardWrite = { text, writtenAt: Date.now() }
+  return copied
 }
 
 export function createTerminalClipboardProvider(): TerminalClipboardProvider {

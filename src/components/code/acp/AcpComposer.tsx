@@ -98,6 +98,7 @@ export interface AcpComposerProps {
   onDiscardSubmission: (messageId: string) => void
   onToggleSpeechInput: () => void
   onPasteAttachment: (event: ClipboardEvent<HTMLElement>) => void
+  onPasteShortcutFallback: (textarea: HTMLTextAreaElement) => void
   onAttachmentFiles: (event: ChangeEvent<HTMLInputElement>) => void
   onChooseAttachmentFile: () => void
   onActivateComposerMode: (mode: Exclude<ComposerMode, 'default'>) => void
@@ -141,6 +142,7 @@ export function AcpComposer({
   onDiscardSubmission,
   onToggleSpeechInput,
   onPasteAttachment,
+  onPasteShortcutFallback,
   onAttachmentFiles,
   onChooseAttachmentFile,
   onActivateComposerMode,
@@ -245,6 +247,9 @@ export function AcpComposer({
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (isComposerImeCompositionEvent(event, compositionActiveRef.current)) return
+    if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === 'v') {
+      onPasteShortcutFallback(event.currentTarget)
+    }
     if (shouldSuppressComposerEnterAfterComposition(event, lastCompositionEndAtRef.current)) {
       event.preventDefault()
       event.stopPropagation()

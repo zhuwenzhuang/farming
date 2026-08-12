@@ -151,6 +151,7 @@ interface CodeComposerProps {
   onDiscardPendingFollowUp: (messageId: string) => void
   onEditPendingFollowUp: (messageId: string) => boolean
   onPasteAttachment: (event: ClipboardEvent<HTMLElement>) => void
+  onPasteShortcutFallback: (textarea: HTMLTextAreaElement) => void
   onAttachmentFiles: (event: ChangeEvent<HTMLInputElement>) => void
   onChooseAttachmentFile: () => void
   onActivateComposerMode: (mode: Exclude<ComposerMode, 'default'>) => void
@@ -220,6 +221,7 @@ export function CodeComposer({
   onDiscardPendingFollowUp,
   onEditPendingFollowUp,
   onPasteAttachment,
+  onPasteShortcutFallback,
   onAttachmentFiles,
   onChooseAttachmentFile,
   onActivateComposerMode,
@@ -573,6 +575,9 @@ export function CodeComposer({
           onKeyDown={event => {
             const compositionActive = compositionActiveRef.current
             if (isComposerImeCompositionEvent(event, compositionActive)) return
+            if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === 'v') {
+              onPasteShortcutFallback(event.currentTarget)
+            }
             if (shouldSuppressComposerEnterAfterComposition(event, lastCompositionEndAtRef.current)) {
               event.preventDefault()
               event.stopPropagation()

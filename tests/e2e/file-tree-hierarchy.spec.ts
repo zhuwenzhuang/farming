@@ -995,6 +995,7 @@ test('copies relative file and directory paths when the Clipboard API is unavail
   const filesTitle = files.getByRole('button', { name: 'Files', exact: true })
   if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
   const menu = page.getByTestId('code-file-context-menu')
+  const composer = page.getByTestId('code-composer-input')
 
   const copyRelativePath = async (filePath: string) => {
     const row = files.locator(`[data-testid="code-file-row"][data-file-path="${filePath}"]`)
@@ -1005,6 +1006,10 @@ test('copies relative file and directory paths when the Clipboard API is unavail
     await expect.poll(() => page.evaluate(() => (
       window as Window & { __farmingFallbackCopyText?: string }
     ).__farmingFallbackCopyText)).toBe(filePath)
+    await composer.click()
+    await composer.press('Control+V')
+    await expect(composer).toHaveValue(filePath)
+    await composer.fill('')
   }
 
   await copyRelativePath('root-file.txt')
