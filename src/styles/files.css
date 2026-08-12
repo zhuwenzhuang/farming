@@ -1123,6 +1123,30 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   gap: 4px;
 }
 
+.code-file-row-actions {
+  width: 24px;
+  height: 24px;
+  display: none;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--code-text-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 8px;
+  letter-spacing: -1px;
+  line-height: 1;
+}
+
+.code-file-row-actions:hover,
+.code-file-row-actions:focus-visible {
+  background: var(--code-bg-hover);
+  color: var(--code-text);
+  outline: 0;
+}
+
 .code-file-symbolic-link {
   flex: 0 0 auto;
   color: var(--code-text-quiet);
@@ -1865,7 +1889,7 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
       min-width: 0;
       grid-template-columns: 14px minmax(32px, 1fr) minmax(0, auto);
       gap: 4px;
-      padding: 2px 4px 2px min(var(--file-indent, 16px), 22px);
+      padding: 0 4px 0 min(var(--file-indent, 16px), 22px);
       border-radius: 5px;
       font-size: 14px;
     }
@@ -1894,6 +1918,10 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
       justify-self: end;
       max-width: 18px;
       overflow: hidden;
+    }
+
+  body.code-mode.code-compact-layout .code-file-row-actions {
+      display: grid;
     }
 
   body.code-mode.code-compact-layout .code-file-row.active::after {

@@ -375,6 +375,7 @@ export interface CodeCopy {
   unsavedChanges: string
   gitStatus: (status: string) => string
   renameEntry: (name: string) => string
+  fileActions: (name: string) => string
   newFile: string
   newFolder: string
   refreshFiles: string
@@ -938,6 +939,7 @@ const EN_COPY: CodeCopy = {
   unsavedChanges: 'Unsaved changes',
   gitStatus: status => `Git status: ${status}`,
   renameEntry: name => `Rename ${name}`,
+  fileActions: name => `File actions for ${name}`,
   newFile: 'New File',
   newFolder: 'New Folder',
   refreshFiles: 'Refresh files',
@@ -1537,6 +1539,7 @@ const ZH_COPY: CodeCopy = {
   unsavedChanges: '未保存改动',
   gitStatus: status => `Git 状态：${status}`,
   renameEntry: name => `重命名 ${name}`,
+  fileActions: name => `${name} 的文件操作`,
   newFile: '新建文件',
   newFolder: '新建文件夹',
   refreshFiles: '刷新文件',

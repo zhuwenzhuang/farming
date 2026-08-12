@@ -3707,7 +3707,7 @@ body.code-mode.code-compact-layout .code-options-menu button:focus-visible {
 .kill-btn {
   background: var(--code-danger);
   border-color: var(--code-danger);
-  color: var(--code-text);
+  color: var(--code-text-on-emphasis);
 }
 ::selection {
   background: var(--code-selection-bg);
@@ -3819,15 +3819,6 @@ body.code-mode.code-compact-layout .code-options-menu button:focus-visible {
 }
 .workspace-directory-prompt.error .workspace-directory-prompt-icon {
   background: var(--code-danger-soft);
-}
-.workspace-directory-prompt-actions button {
-  color: var(--code-accent);
-}
-.workspace-directory-prompt-actions button:hover:not(:disabled) {
-  border-color: var(--code-border);
-}
-.workspace-directory-prompt-actions button:hover:not(:disabled) {
-  background: var(--code-bg-disabled);
 }
 .workspace-directory-prompt-actions button:focus-visible {
   box-shadow: var(--code-shadow-focus);

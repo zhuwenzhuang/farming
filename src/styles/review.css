@@ -60,7 +60,7 @@
 }
 
 .review-patch-info {
-  color: var(--code-text);
+  color: var(--code-text-muted);
   font-size: 13px;
   white-space: nowrap;
 }
@@ -89,7 +89,7 @@
 .review-patch-select .code-select-menu {
   min-width: 150px;
 }
-.review-patch-info > svg { width: 15px; height: 15px; fill: var(--code-text); }
+.review-patch-info > svg { width: 15px; height: 15px; fill: var(--code-text-quiet); }
 
 .review-patch-static {
   display: inline-flex;
@@ -216,7 +216,7 @@
   padding: 18px 20px;
   border-bottom: 1px solid var(--code-border);
   background: var(--code-bg-inset);
-  color: var(--code-text);
+  color: var(--code-text-subtle);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
 }
@@ -272,7 +272,7 @@
   margin: 0;
   padding: 18px;
   border-bottom: 1px solid var(--code-border);
-  color: var(--code-text);
+  color: var(--code-text-subtle);
   font-size: 13px;
 }
 
@@ -316,7 +316,7 @@
 }
 
 .review-file-status {
-  color: var(--code-text);
+  color: var(--code-text-muted);
   font-size: 12px;
   font-weight: 600;
   text-align: center;
@@ -324,7 +324,7 @@
 
 .review-file-change[data-change-kind='added'] .review-file-status { color: var(--code-success); }
 .review-file-change[data-change-kind='deleted'] .review-file-status { color: var(--code-diff-removed); }
-.review-file-change[data-change-kind='renamed'] .review-file-status { color: var(--code-text); }
+.review-file-change[data-change-kind='renamed'] .review-file-status { color: var(--code-skill); }
 
 .review-file-paths {
   min-width: 0;
@@ -341,13 +341,13 @@
 }
 
 .review-file-name {
-  color: var(--code-text);
+  color: var(--code-accent);
   font-size: 13px;
   line-height: 17px;
 }
 
 .review-file-previous-path {
-  color: var(--code-text-strong);
+  color: var(--code-text-quiet);
   font-size: 11px;
   line-height: 14px;
 }
@@ -366,14 +366,14 @@
   display: inline-block;
 }
 
-.review-change-bar .added { background: var(--code-success-soft); }
-.review-change-bar .deleted { background: var(--code-diff-removed-soft); }
+.review-change-bar .added { background: var(--code-success); }
+.review-change-bar .deleted { background: var(--code-diff-removed); }
 .review-change-bar.binary::before {
   width: 18px;
   height: 4px;
   display: inline-block;
   border-radius: 999px;
-  background: var(--code-bg-inset);
+  background: var(--code-text-quiet);
   content: '';
 }
 
@@ -396,7 +396,7 @@
   grid-template-columns: 72px 146px;
   align-items: center;
   column-gap: 14px;
-  color: var(--code-text);
+  color: var(--code-text-subtle);
   font-size: 12px;
   white-space: nowrap;
 }
@@ -410,7 +410,7 @@
   justify-self: start;
   padding: 4px 0;
   background: transparent;
-  color: var(--code-text);
+  color: var(--code-accent);
   cursor: pointer;
   font-size: 12px;
   opacity: 0;
@@ -419,7 +419,7 @@
 
 .review-review-status button:hover { color: var(--code-accent); text-decoration: underline; }
 .review-review-status.pending button {
-  color: var(--code-text);
+  color: var(--code-text-muted);
   cursor: wait;
   text-decoration: none;
 }
@@ -442,7 +442,7 @@
   display: grid;
   place-items: center;
   background: transparent;
-  color: var(--code-text);
+  color: var(--code-text-quiet);
   cursor: pointer;
 }
 
@@ -461,7 +461,7 @@
   grid-template-columns: 1fr 1fr;
   border-bottom: 1px solid var(--code-border);
   background: var(--code-bg-canvas);
-  color: var(--code-text);
+  color: var(--code-text-muted);
   font-family: "Roboto Mono", "SF Mono", "Lucida Console", Monaco, monospace;
   font-size: 11px;
 }
@@ -476,8 +476,8 @@
   gap: 10px;
   padding: 2px 12px;
   border-bottom: 1px solid var(--code-border);
-  background: var(--code-bg-inset);
-  color: var(--code-text);
+  background: var(--code-warning-soft);
+  color: var(--code-text-muted);
   font-family: "Roboto Mono", "SF Mono", "Lucida Console", Monaco, monospace;
   font-size: 12px;
 }
@@ -495,14 +495,14 @@
   align-items: center;
   gap: 5px;
   margin-inline: auto;
-  color: var(--code-text);
+  color: var(--code-text-muted);
 }
 .review-context-controls button {
   padding: 1px 4px;
   border: 0;
   border-radius: 2px;
   background: transparent;
-  color: var(--code-text);
+  color: var(--code-text-muted);
   cursor: pointer;
   font: inherit;
 }
@@ -535,7 +535,7 @@
   padding: 2px 8px;
   border-right: 1px solid var(--code-border);
   background: var(--code-bg-canvas);
-  color: var(--code-text);
+  color: var(--code-text-quiet);
   text-align: right;
   user-select: none;
 }
@@ -562,13 +562,13 @@
 .review-tab-marker {
   display: inline-block;
   min-width: 1.2em;
-  color: var(--code-text);
+  color: var(--code-text-muted);
   font-size: 0.9em;
   user-select: none;
 }
 
 .review-trailing-whitespace {
-  color: var(--code-text);
+  color: var(--code-text-quiet);
   letter-spacing: 0.08em;
   user-select: none;
 }
@@ -635,14 +635,14 @@
   margin: 0;
   padding: 10px 18px;
   border: 0;
-  border-left: 3px solid var(--code-border);
+  border-left: 3px solid var(--code-accent);
   border-radius: 0;
   background: var(--code-bg-raised);
   color: var(--code-text);
   font-family: Roboto, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 12px;
 }
-.review-comment-editor > header { color: var(--code-text); font-weight: 500; }
+.review-comment-editor > header { color: var(--code-accent); font-weight: 500; }
 .review-comment-editor textarea {
   min-height: 72px;
   resize: vertical;
@@ -667,7 +667,7 @@
   padding: 4px 7px;
   border: 0;
   background: transparent;
-  color: var(--code-text);
+  color: var(--code-accent);
   cursor: pointer;
   font: inherit;
   font-size: 11px;
@@ -825,7 +825,7 @@
   height: 26px;
   justify-self: start;
   margin: 0;
-  accent-color: var(--code-text);
+  accent-color: var(--code-accent);
 }
 
 .review-preferences > footer {
@@ -841,12 +841,12 @@
 .review-preferences > footer button {
   padding: 6px 0;
   background: transparent;
-  color: var(--code-text);
+  color: var(--code-accent);
   cursor: pointer;
   font-size: 17px;
 }
 
-.review-preferences > footer button:last-child { color: var(--code-text); }
+.review-preferences > footer button:last-child { color: var(--code-text-muted); }
 
 .review-source-control { position: relative; }
 .review-source-trigger {
@@ -911,7 +911,7 @@
   white-space: nowrap;
 }
 .review-source-menu button svg { width: 15px; height: 15px; fill: currentColor; }
-.review-source-menu p { margin: 6px 8px; color: var(--code-text); font-size: 12px; line-height: 1.45; }
+.review-source-menu p { margin: 6px 8px; color: var(--code-text-subtle); font-size: 12px; line-height: 1.45; }
 .review-source-menu p.error { color: var(--code-danger); }
 .review-source-submenu > summary {
   min-height: 30px;
@@ -944,8 +944,8 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.review-total-stats b { color: var(--code-text); font-weight: 500; }
-.review-total-stats i { color: var(--code-text); font-style: normal; font-weight: 500; }
+.review-total-stats b { color: var(--code-success); font-weight: 500; }
+.review-total-stats i { color: var(--code-diff-removed); font-style: normal; font-weight: 500; }
 
 @media (max-width: 740px) {
   .review-files-toolbar { align-items: flex-start; flex-direction: column; gap: 7px; padding-block: 9px; }

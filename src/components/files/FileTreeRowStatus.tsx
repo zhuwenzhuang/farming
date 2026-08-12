@@ -1,3 +1,4 @@
+import type { MouseEvent as ReactMouseEvent } from 'react'
 import {
   workspaceFileTreeStatusTitle,
   type WorkspaceFileTreeRowViewState,
@@ -9,12 +10,14 @@ interface FileTreeRowStatusProps {
   copy: CodeCopy
   item: FileExplorerNode
   viewState: WorkspaceFileTreeRowViewState
+  onOpenActions: (event: ReactMouseEvent<HTMLButtonElement>) => void
 }
 
 export function FileTreeRowStatus({
   copy,
   item,
   viewState,
+  onOpenActions,
 }: FileTreeRowStatusProps) {
   const {
     directoryDotClassName,
@@ -58,6 +61,16 @@ export function FileTreeRowStatus({
             title={workspaceFileTreeStatusTitle(fileChangedTitleKind, copy)}
           />
         )}
+        <button
+          type="button"
+          className="code-file-row-actions"
+          aria-label={copy.fileActions(item.displayName ?? item.name)}
+          aria-haspopup="menu"
+          onMouseDown={event => event.stopPropagation()}
+          onClick={onOpenActions}
+        >
+          <span aria-hidden="true">•••</span>
+        </button>
       </span>
     </>
   )

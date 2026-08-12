@@ -205,8 +205,56 @@ test('queues a follow-up and explicitly sends negotiated Codex ACP steer', async
   await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
   await expect(input).toHaveValue('unsent ACP draft survives reload')
   await input.fill('hold for steer without user echo with post-steer commentary')
-  await page.getByTestId('code-acp-composer-send').click()
-  await expect(page.getByTestId('code-acp-composer-send')).toHaveAttribute('data-action', 'interrupt')
+  const interruptButton = page.getByTestId('code-acp-composer-send')
+  for (const appearance of ['light', 'dark', 'paper'] as const) {
+    await page.locator('body').evaluate((body, nextAppearance) => {
+      body.setAttribute('data-appearance', nextAppearance)
+    }, appearance)
+    await expect.poll(async () => interruptButton.evaluate(element => {
+      const bodyStyle = getComputedStyle(document.body)
+      const resolveColor = (value: string) => {
+        const probe = document.createElement('span')
+        probe.style.color = value
+        document.body.append(probe)
+        const resolved = getComputedStyle(probe).color
+        probe.remove()
+        return resolved
+      }
+      const style = getComputedStyle(element)
+      return {
+        backgroundMatches: style.backgroundColor === resolveColor(bodyStyle.getPropertyValue('--code-emphasis')),
+        colorMatches: style.color === resolveColor(bodyStyle.getPropertyValue('--code-text-on-emphasis')),
+      }
+    })).toEqual({ backgroundMatches: true, colorMatches: true })
+  }
+  await interruptButton.click()
+  await expect(interruptButton).toHaveAttribute('data-action', 'interrupt')
+  await page.mouse.move(0, 0)
+  for (const appearance of ['light', 'dark', 'paper'] as const) {
+    await page.locator('body').evaluate((body, nextAppearance) => {
+      body.setAttribute('data-appearance', nextAppearance)
+    }, appearance)
+    await expect.poll(async () => interruptButton.evaluate(element => {
+      const bodyStyle = getComputedStyle(document.body)
+      const resolveColor = (value: string) => {
+        const probe = document.createElement('span')
+        probe.style.color = value
+        document.body.append(probe)
+        const resolved = getComputedStyle(probe).color
+        probe.remove()
+        return resolved
+      }
+      const style = getComputedStyle(element)
+      const stopIcon = element.querySelector<HTMLElement>('.code-composer-stop-icon')
+      return {
+        backgroundMatches: style.backgroundColor === resolveColor(bodyStyle.getPropertyValue('--code-danger')),
+        colorMatches: style.color === resolveColor(bodyStyle.getPropertyValue('--code-text-on-emphasis')),
+        stopIconMatches: stopIcon
+          ? getComputedStyle(stopIcon).backgroundColor === resolveColor(bodyStyle.getPropertyValue('--code-text-on-emphasis'))
+          : false,
+      }
+    })).toEqual({ backgroundMatches: true, colorMatches: true, stopIconMatches: true })
+  }
   const liveProcessSummary = page.getByTestId('code-agent-transcript-process-summary')
   await expect(liveProcessSummary).toContainText(/Working for \d+s/, { timeout: 3_000 })
   await expect(page.getByText('Waiting for steering.', { exact: true })).toBeVisible({ timeout: 3_000 })

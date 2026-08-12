@@ -624,9 +624,9 @@
 }
 
 .code-acp-request-actions button.approve {
-  border-color: var(--code-emphasis);
-  background: var(--code-bg-surface);
-  color: var(--code-accent);
+  border-color: var(--code-success);
+  background: color-mix(in srgb, var(--code-success) 58%, var(--code-bg-canvas));
+  color: var(--code-text);
 }
 
 .code-acp-request-actions button:disabled {
@@ -1018,7 +1018,7 @@
 }
 
 .code-composer-approval.blue {
-  color: var(--code-text);
+  color: var(--code-accent);
 }
 
 .code-composer-approval.orange {
@@ -1305,7 +1305,7 @@
 
 .code-plus-menu button:hover,
 .code-plus-menu button:focus-visible {
-  background: var(--code-bg-raised);
+  background: var(--code-bg-hover);
   outline: 0;
   color: var(--code-text);
 }
@@ -1715,7 +1715,7 @@
   width: 4px;
   height: 4px;
   border-radius: 50%;
-  background: var(--code-bg-surface);
+  background: var(--code-text-quiet);
   transform: translate(-50%, -50%);
   transition: transform 180ms ease, background 180ms ease;
 }
@@ -2519,7 +2519,7 @@ body.code-mode .code-composer textarea::placeholder {
 .code-composer-send {
   display: inline-grid;
   place-items: center;
-  background: var(--code-text-quiet);
+  background: var(--code-emphasis);
   color: var(--code-text-on-emphasis);
   box-shadow: none;
   line-height: 1;
@@ -2534,11 +2534,12 @@ body.code-mode .code-composer textarea::placeholder {
 }
 
 .code-composer-send:not(:disabled) {
-  background: var(--code-bg-disabled);
+  background: var(--code-emphasis);
+  color: var(--code-text-on-emphasis);
 }
 
 .code-composer-send:not(:disabled):hover {
-  background: var(--code-bg-disabled);
+  background: var(--code-emphasis-hover);
 }
 
 .code-composer-send.interrupt {
@@ -2549,7 +2550,7 @@ body.code-mode .code-composer textarea::placeholder {
 }
 
 .code-composer-send.interrupt:not(:disabled):hover {
-  background: var(--code-emphasis-hover);
+  background: color-mix(in srgb, var(--code-danger) 82%, var(--code-text));
 }
 
 .code-composer-stop-icon {
@@ -2782,8 +2783,6 @@ body.code-mode .code-composer textarea:disabled {
     width: 32px;
     height: 32px;
     font-size: 18px;
-    background: var(--code-text-muted);
-    color: var(--code-bg-canvas);
   }
 }
 
@@ -3093,14 +3092,6 @@ body.code-mode.code-compact-layout .code-acp-composer-stack {
     transform: translateX(-50%);
   }
 
-  body.code-mode.code-compact-layout .code-composer-send:not(:disabled) {
-    background: var(--code-emphasis);
-  }
-
-  body.code-mode.code-compact-layout .code-composer-send:not(:disabled):hover {
-    background: var(--code-emphasis-hover);
-  }
-
   body.code-mode.code-compact-layout .code-model-picker-menu {
     width: min(300px, calc(var(--app-visual-width, 100vw) - 28px));
     max-width: calc(var(--app-visual-width, 100vw) - 28px);
@@ -3382,30 +3373,10 @@ body.code-mode.code-compact-layout .code-composer-mode-chip {
   color: var(--code-text);
 }
 
-body.code-mode.code-compact-layout .code-composer-send {
-  background: var(--code-accent);
-}
-
-body.code-mode.code-compact-layout .code-composer-send {
-  color: var(--code-text-on-emphasis);
-}
-
 body.code-mode.code-compact-layout .code-composer-approval.blue {
-  color: var(--code-text);
+  color: var(--code-accent);
 }
 
 body.code-mode.code-compact-layout .code-composer-approval.orange {
-  color: var(--code-text);
-}
-
-body.code-mode.code-compact-layout .code-composer-send:disabled {
-  background: var(--code-bg-disabled);
-}
-
-body.code-mode.code-compact-layout .code-composer-send:disabled {
-  color: var(--code-text-disabled);
-}
-
-.code-composer-send:not(:disabled) {
-  color: var(--code-text-disabled);
+  color: var(--code-warning);
 }

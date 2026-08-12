@@ -549,7 +549,7 @@
 
 .code-markdown-mermaid-toolbar button:hover:not(:disabled),
 .code-markdown-mermaid-toolbar button:focus-visible {
-  background: var(--code-bg-disabled);
+  background: var(--code-bg-hover);
   color: var(--code-text);
   outline: none;
 }

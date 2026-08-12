@@ -42,7 +42,7 @@
 
 .code-sidebar-resizer:hover,
 body.code-resizing-sidebar .code-sidebar-resizer {
-  background: var(--code-bg-hover);
+  background: var(--code-accent);
 }
 
 .code-sidebar-toggle,
@@ -55,7 +55,7 @@ body.code-resizing-sidebar .code-sidebar-resizer {
   border: 0;
   border-radius: 7px;
   background: var(--code-bg-chrome);
-  color: var(--code-text);
+  color: var(--code-text-subtle);
   cursor: pointer;
   font-size: 12px;
   line-height: 1;

@@ -3318,6 +3318,10 @@ test.describe('display-backed agent flows', () => {
     await expect(page.getByTestId('code-terminal-grid')).toBeVisible()
     await expect(primaryRow).toHaveClass(/active/)
     await expect(page.getByTestId('code-composer-approval')).toBeVisible()
+    await page.locator('body').evaluate(body => { body.dataset.appearance = 'light' })
+    const approvalColor = await page.getByTestId('code-composer-approval').evaluate(element => getComputedStyle(element).color)
+    const bodyColor = await page.locator('body').evaluate(element => getComputedStyle(element).color)
+    expect(approvalColor, 'light selected permission color').toBe(bodyColor)
     {
       const composerControlBoxes = await Promise.all([
         page.getByTestId('code-composer-add'),

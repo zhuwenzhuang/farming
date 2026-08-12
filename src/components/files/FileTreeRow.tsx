@@ -87,6 +87,7 @@ export function FileTreeRow({
     handleRowClick,
     handleRowContextMenu,
     handleRowMouseDown,
+    handleRowActions,
   } = useFileTreeRowInteractions({
     isDirectory,
     item,
@@ -140,6 +141,7 @@ export function FileTreeRow({
           copy={copy}
           item={item}
           viewState={viewState}
+          onOpenActions={handleRowActions}
         />
       )}
     </div>

@@ -403,22 +403,14 @@ export function useWorkspaceFileFocus({
   }, [cancelPendingFileFocus, fileSearchInputRef, lastFocusedFilePathRef, treeRef, treeViewportRef])
 
   const focusFileTreePath = useCallback((filePath: string | null) => {
-    cancelPendingFileTreeScrollFocus()
+    cancelPendingFileTreeFocus()
+    if (filePath) {
+      lastFocusedFilePathRef.current = filePath
+      revealFilePathInTree(filePath, 0, false, undefined, true)
+      return
+    }
     const focusTarget = () => {
-      const preserveMonacoFocus = shouldPreserveMonacoFocus()
-      if (filePath) {
-        treeRef.current?.get(filePath)?.select()
-        const row = Array.from(treeViewportRef.current?.querySelectorAll<HTMLElement>('[data-file-path]') ?? [])
-          .find(element => element.dataset.filePath === filePath)
-        const targetTree = row?.closest<HTMLElement>('[role="tree"]')
-          ?? treeViewportRef.current?.querySelector<HTMLElement>('[role="tree"]')
-        if (!preserveMonacoFocus) focusWithoutScrolling(targetTree)
-        if (row) {
-          revealRowInProjectScroller(row)
-          return
-        }
-      }
-      if (!preserveMonacoFocus) {
+      if (!shouldPreserveMonacoFocus()) {
         focusWithoutScrolling(treeViewportRef.current?.querySelector<HTMLElement>('[role="tree"]'))
       }
     }
@@ -431,7 +423,7 @@ export function useWorkspaceFileFocus({
       const timeoutId = window.setTimeout(focusTarget, delay)
       fileTreeFocusTimeoutsRef.current.push(timeoutId)
     })
-  }, [cancelPendingFileTreeScrollFocus, treeRef, treeViewportRef])
+  }, [cancelPendingFileTreeFocus, lastFocusedFilePathRef, revealFilePathInTree, treeViewportRef])
 
   const focusFileTreeTarget = useCallback((item: WorkspaceFileTreeNode | null) => {
     focusFileTreePath(item?.path ?? null)

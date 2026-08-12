@@ -270,8 +270,8 @@ body.code-mode[data-appearance='paper'] {
   --code-accent-hover: #10110e;
   --code-accent-soft: rgba(40, 41, 34, 0.07);
   --code-bg-backdrop: rgba(60, 53, 40, 0.2);
-  --code-bg-canvas: #f7f4ec;
-  --code-bg-chrome: #f7f4ec;
+  --code-bg-canvas: #f9f8f4;
+  --code-bg-chrome: #f9f8f4;
   --code-bg-disabled: rgba(98, 99, 91, 0.1);
   --code-bg-hover: rgba(82, 75, 60, 0.055);
   --code-bg-hover-strong: rgba(82, 75, 60, 0.09);

@@ -199,4 +199,30 @@ for (const [sourcePath, selector, expectedShadow] of semanticShadowContracts) {
   )
 }
 
+const semanticStateContracts = [
+  ['src/styles/composer.css', '.code-composer-send:not(:disabled)', 'background', 'var(--code-emphasis)'],
+  ['src/styles/composer.css', '.code-composer-send:not(:disabled)', 'color', 'var(--code-text-on-emphasis)'],
+  ['src/styles/composer.css', '.code-composer-send:disabled', 'background', 'var(--code-bg-disabled)'],
+  ['src/styles/composer.css', '.code-composer-send:disabled', 'color', 'var(--code-text-disabled)'],
+  ['src/styles/composer.css', '.code-composer-send.interrupt', 'background', 'var(--code-danger)'],
+  ['src/styles/composer.css', '.code-composer-send.interrupt', 'color', 'var(--code-text-on-emphasis)'],
+  ['src/styles/composer.css', '.code-composer-send.interrupt:not(:disabled):hover', 'background', 'color-mix(in srgb, var(--code-danger) 82%, var(--code-text))'],
+  ['src/styles/main.css', '.kill-btn', 'color', 'var(--code-text-on-emphasis)'],
+  ['src/styles/share.css', '.code-mobile-install-step', 'background', 'var(--code-bg-hover)'],
+  ['src/styles/share.css', '.code-mobile-install-control', 'background', 'var(--code-bg-hover-strong)'],
+  ['src/styles/file-editor.css', '.code-file-editor-action:hover:not(:disabled)', 'background', 'var(--code-bg-hover)'],
+  ['src/styles/settings.css', '.code-settings-update-actions button.primary:hover:not(:disabled),\n.code-settings-update-actions button.primary:focus-visible', 'background', 'var(--code-accent-hover)'],
+  ['src/styles/markdown.css', ".code-markdown-mermaid-toolbar button:hover:not(:disabled),\n.code-markdown-mermaid-toolbar button:focus-visible", 'background', 'var(--code-bg-hover)'],
+] as const
+for (const [sourcePath, selector, property, expectedValue] of semanticStateContracts) {
+  const root = postcss.parse(fs.readFileSync(path.join(projectRoot, sourcePath), 'utf8'), { from: sourcePath })
+  const declaration = root.nodes.flatMap(node => (
+    node.type === 'rule' && node.selector === selector ? node.nodes : []
+  )).find(node => node.type === 'decl' && node.prop === property)
+  assert(
+    declaration?.type === 'decl' && declaration.value === expectedValue,
+    `${sourcePath} ${selector} must use ${expectedValue} for ${property}`,
+  )
+}
+
 console.log('test-code-appearance-css-contract passed')

@@ -58,7 +58,7 @@ test('Paper ACP composer matches the reading surface without a container focus r
   await expect(composer).toHaveCSS('background-color', 'rgb(255, 254, 250)')
   await expect(composer).toHaveCSS('border-top-color', 'rgba(0, 0, 0, 0)')
   await expect(composer).toHaveCSS('box-shadow', 'none')
-  await expect(page.locator('.code-main')).toHaveCSS('background-color', 'rgb(247, 244, 236)')
+  await expect(page.locator('.code-main')).toHaveCSS('background-color', 'rgb(249, 248, 244)')
 
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
   const idleStyle = await composer.evaluate(element => {

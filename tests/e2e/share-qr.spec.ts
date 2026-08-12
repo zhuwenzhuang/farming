@@ -23,7 +23,7 @@ test.describe('workspace sharing', () => {
     const appearances = {
       light: 'rgb(247, 247, 246)',
       dark: 'rgb(36, 36, 36)',
-      paper: 'rgb(247, 244, 236)',
+      paper: 'rgb(249, 248, 244)',
     } as const
 
     for (const [appearance, background] of Object.entries(appearances)) {

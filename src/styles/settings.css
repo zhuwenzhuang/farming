@@ -950,7 +950,7 @@
   min-width: 84px;
   height: 16px;
   margin: 0;
-  accent-color: var(--code-text);
+  accent-color: var(--code-accent);
   cursor: pointer;
 }
 
@@ -1316,8 +1316,8 @@
 
 .code-settings-update-actions button.primary:hover:not(:disabled),
 .code-settings-update-actions button.primary:focus-visible {
-  border-color: var(--code-focus-ring);
-  background: var(--code-bg-disabled);
+  border-color: var(--code-accent-hover);
+  background: var(--code-accent-hover);
   color: var(--code-text-on-emphasis);
 }
 

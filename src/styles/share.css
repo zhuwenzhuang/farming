@@ -260,7 +260,7 @@
   padding: 8px 9px;
   border: 1px solid var(--code-border);
   border-radius: 8px;
-  background: var(--code-bg-surface);
+  background: var(--code-success-soft);
   color: var(--code-text);
   border-color: var(--code-border);
 }
@@ -460,7 +460,7 @@
   align-items: center;
   padding: 7px 9px;
   border-radius: 13px;
-  background: var(--code-accent);
+  background: var(--code-bg-hover);
   color: var(--code-text);
   font-size: 13px;
   line-height: 18px;
@@ -487,7 +487,7 @@
   place-items: center;
   flex: 0 0 auto;
   border-radius: 999px;
-  background: var(--code-accent);
+  background: var(--code-bg-hover-strong);
   color: var(--code-text);
 }
 

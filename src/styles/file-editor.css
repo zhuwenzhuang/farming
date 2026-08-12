@@ -339,7 +339,7 @@
 }
 
 .code-file-editor-action:hover:not(:disabled) {
-  background: var(--code-bg-disabled);
+  background: var(--code-bg-hover);
   color: var(--code-text);
 }
 
@@ -973,7 +973,7 @@ body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file
 
   body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.source-preview:hover:not(:disabled),
 body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.source-preview:focus-visible {
-    background: var(--code-bg-disabled);
+    background: var(--code-bg-hover);
     outline: 0;
   }
 }

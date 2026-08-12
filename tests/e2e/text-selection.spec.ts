@@ -67,10 +67,10 @@ test('keeps mouse selection and clipboard copy working in Chat and text inputs',
   await composer.fill('mouse selectable composer text')
   await dragSelectInput(page, composer)
 
-  await composer.fill('mouse selectable transcript text')
+  await composer.fill('usage warning mouse selectable transcript text')
   await page.getByTestId('code-acp-composer-send').click()
-  const transcriptText = 'mouse selectable transcript text'
-  const userMessage = page.locator('.code-agent-transcript-user-message')
+  const transcriptText = 'usage warning mouse selectable transcript text'
+  const userMessage = page.locator('.code-agent-transcript-user')
     .filter({ hasText: transcriptText })
   await expect(userMessage).toBeVisible({ timeout: 20_000 })
   await dragSelectText(page, userMessage, transcriptText)
