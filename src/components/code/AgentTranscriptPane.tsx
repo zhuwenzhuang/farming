@@ -3595,6 +3595,22 @@ export function AgentTranscriptPane({
     if (nearBottom) onReadLatest?.()
   }, [active, onReadLatest, transcript?.available, transcript?.updatedAt, turns.length])
 
+  useEffect(() => {
+    if (!active) return undefined
+    const readVisibleLatest = () => {
+      if (!isPageActive()) return
+      const element = scrollRef.current
+      if (!element || textSelectionGestureRef.current || hasTextSelectionWithin(element)) return
+      if (isTranscriptNearBottom(element)) onReadLatest?.()
+    }
+    document.addEventListener('visibilitychange', readVisibleLatest)
+    window.addEventListener('focus', readVisibleLatest)
+    return () => {
+      document.removeEventListener('visibilitychange', readVisibleLatest)
+      window.removeEventListener('focus', readVisibleLatest)
+    }
+  }, [active, onReadLatest])
+
   useLayoutEffect(() => {
     if (loading || !initialRevealReady || !transcript?.available || turns.length === 0) return
     const element = scrollRef.current

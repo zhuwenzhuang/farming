@@ -224,10 +224,13 @@ test('keeps ACP Chat live while the browser page is hidden', { tag: '@iphone-hum
   ).toBe(1)
   expect(await page.evaluate(() => document.visibilityState)).toBe('hidden')
   expect(backendSocketClosed).toBe(0)
+  const row = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
+  await expect(row).toHaveClass(/unread/)
 
   await setPageVisibility(page, 'visible')
   expect(await page.evaluate(() => document.visibilityState)).toBe('visible')
   await expect(page.getByText('Streaming thought complete.', { exact: true })).toBeVisible()
+  await expect(row).not.toHaveClass(/unread/)
   await expect(page.getByTestId('connection-status')).toHaveCount(0)
   expect(backendSocketClosed).toBe(0)
 })

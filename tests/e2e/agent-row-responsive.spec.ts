@@ -78,6 +78,14 @@ test('reveals more Agent row information as the sidebar widens', async ({ page, 
   await expect(titleCard).toHaveText(longTitle)
   await expect(titleCard).toHaveCSS('font-size', '14px')
   await expect(titleCard).toHaveCSS('font-weight', '400')
+  expect(await agentPreview.evaluate(element => {
+    const probe = document.createElement('span')
+    probe.style.color = getComputedStyle(element).getPropertyValue('--code-bg-raised')
+    element.append(probe)
+    const expected = getComputedStyle(probe).color
+    probe.remove()
+    return getComputedStyle(element).backgroundColor === expected
+  })).toBe(true)
   const previewBox = await agentPreview.boundingBox()
   const titleCardBox = await titleCard.boundingBox()
   expect(previewBox).not.toBeNull()
@@ -195,6 +203,14 @@ test('reveals more Agent row information as the sidebar widens', async ({ page, 
   await expect(projectPreview).toContainText(path.basename(projectDir))
   await expect(projectPreview).toContainText('1 Agent · 0 unread · 1 running')
   await expect(projectPreview).toContainText(projectDir)
+  expect(await projectPreview.evaluate(element => {
+    const probe = document.createElement('span')
+    probe.style.color = getComputedStyle(element).getPropertyValue('--code-bg-raised')
+    element.append(probe)
+    const expected = getComputedStyle(probe).color
+    probe.remove()
+    return getComputedStyle(element).backgroundColor === expected
+  })).toBe(true)
   await expect(projectPreview.locator('.code-project-hover-preview-workspace')).toHaveCSS('font-size', '12px')
   await page.mouse.move(1000, 100)
   await expect(projectPreview).toHaveCount(0)

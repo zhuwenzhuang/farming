@@ -232,7 +232,7 @@
   padding: 12px 14px 13px;
   border: 1px solid var(--code-border);
   border-radius: 16px;
-  background: var(--code-info-soft);
+  background: var(--code-bg-raised);
   box-shadow: var(--code-shadow-raised);
   color: var(--code-text);
   font-size: 14px;
@@ -247,7 +247,7 @@
   padding: 12px 14px;
   border: 1px solid var(--code-border);
   border-radius: 14px;
-  background: var(--code-info-soft);
+  background: var(--code-bg-raised);
   box-shadow: var(--code-shadow-raised);
   color: var(--code-text);
   font-size: 14px;

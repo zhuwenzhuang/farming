@@ -362,6 +362,8 @@ test('keeps persistent project and pinned Agent order', async ({ page, workspace
   }
   const pinned = page.getByTestId('code-pinned-section')
   await expect.poll(() => projectAgentIds(pinned)).toEqual([secondAgentId, firstAgentId])
+  await expect(pinned).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+  await expect(pinned.getByTestId('code-pinned-title')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
   await expect(pinned.locator('[draggable="true"]')).toHaveCount(2)
   await pinned
     .locator(`[data-testid="code-agent-row"][data-agent-id="${firstAgentId}"]`)

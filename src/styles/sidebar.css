@@ -312,7 +312,7 @@ body.code-resizing-sidebar .code-sidebar-resizer {
   gap: 4px;
   margin: 0 2px 6px 0;
   padding: 0 0 2px 0;
-  background: var(--code-bg-inset);
+  background: transparent;
   color: var(--code-text-muted);
 }
 
@@ -326,7 +326,7 @@ body.code-resizing-sidebar .code-sidebar-resizer {
   font-size: 13px;
   font-weight: 400;
   text-align: left;
-  background: var(--code-bg-inset);
+  background: transparent;
 }
 
 .code-pinned-title:hover,
@@ -648,7 +648,7 @@ body.code-resizing-sidebar .code-sidebar-resizer {
   box-sizing: border-box;
   border: 1px solid var(--code-border);
   border-radius: 16px;
-  background: var(--code-info-soft);
+  background: var(--code-bg-raised);
   box-shadow: var(--code-shadow-raised);
   color: var(--code-text);
   font-size: 14px;
