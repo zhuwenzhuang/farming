@@ -69,13 +69,6 @@ float wrappedNoise(vec2 p, float periodY) {
   );
 }
 
-float filteredWrappedNoise(vec2 p, float periodY) {
-  float value = wrappedNoise(p, periodY);
-  float footprint = max(length(dFdx(p)), length(dFdy(p)));
-  float retainedDetail = 1.0 - smoothstep(0.30, 0.95, footprint);
-  return mix(0.5, value, retainedDetail);
-}
-
 vec2 rotate2d(vec2 value, float angle) {
   float c = cos(angle);
   float s = sin(angle);
@@ -303,11 +296,11 @@ void main() {
         // Cartesian disk-plane sampling avoids periodic annular troughs without
         // changing the approved density/brightness range.
         vec2 diskPlane = vec2(diskPoint.x, dot(diskPoint, diskAxis));
-        float fineFilament = filteredWrappedNoise(
+        float fineFilament = wrappedNoise(
           rotate2d(diskPlane, swirl * 0.18) * vec2(1.9, 3.4),
           4096.0
         );
-        float broadFilament = filteredWrappedNoise(
+        float broadFilament = wrappedNoise(
           rotate2d(diskPlane, 1.7 + swirl * 0.10) * vec2(0.85, 1.55),
           4096.0
         );
@@ -489,6 +482,7 @@ uniform vec2 uResolution;
 uniform vec2 uCenter;
 uniform float uScale;
 uniform float uOpacity;
+uniform float uPixelRatio;
 uniform sampler2D uScene;
 uniform sampler2D uHigh;
 uniform sampler2D uLow;
@@ -503,9 +497,13 @@ vec4 sceneBase(vec2 pixel) {
   return textureLod(uScene, uv, 0.0);
 }
 
-vec4 sceneRefracted(vec2 pixel) {
-  vec2 uv = sceneUv(pixel);
-  return texture(uScene, uv);
+vec2 lensDisplacement(vec2 relative) {
+  vec2 mapUv = relative / (${FILTER_SIZE.toFixed(1)} * uScale) + 0.5;
+  vec2 packed = texture(uHigh, mapUv).rg * 255.0 * 256.0
+    + texture(uLow, mapUv).rg * 255.0;
+  vec2 displacement =
+    (packed / 65535.0 - 0.5) * ${MAP_SCALE.toFixed(1)} * uScale * uOpacity;
+  return vec2(displacement.x, -displacement.y);
 }
 
 void main() {
@@ -517,15 +515,36 @@ void main() {
     outColor = original;
     return;
   }
-  vec2 mapUv = relative / (${FILTER_SIZE.toFixed(1)} * uScale) + 0.5;
-  vec4 high = texture(uHigh, mapUv);
-  vec4 low = texture(uLow, mapUv);
-  vec2 packed = high.rg * 255.0 * 256.0 + low.rg * 255.0;
-  vec2 displacement =
-    (packed / 65535.0 - 0.5) * ${MAP_SCALE.toFixed(1)} * uScale * uOpacity;
-  displacement.y = -displacement.y;
+  vec2 displacement = lensDisplacement(relative);
   vec2 samplePixel = fragment + displacement;
-  outColor = sceneRefracted(samplePixel);
+
+  // Reconstruct the radial lens Jacobian so compressed page details select a
+  // matching mip level instead of collapsing into repeated lines.
+  float pixels = max(length(relative), 1.0);
+  vec2 radial = relative / pixels;
+  vec2 tangent = vec2(-radial.y, radial.x);
+  float stride = max(1.0, uPixelRatio);
+  float delta = dot(displacement, radial);
+  float deltaAhead = dot(
+    lensDisplacement(relative + radial * stride),
+    radial
+  );
+  float radialScale = 1.0 + (deltaAhead - delta) / stride;
+  float tangentScale = 1.0 + delta / pixels;
+  vec2 dSdx =
+    radialScale * radial.x * radial + tangentScale * tangent.x * tangent;
+  vec2 dSdy =
+    radialScale * radial.y * radial + tangentScale * tangent.y * tangent;
+  vec4 refracted = textureGrad(
+    uScene,
+    sceneUv(samplePixel),
+    dSdx / uResolution,
+    dSdy / uResolution
+  );
+  // The displacement field already reaches zero at FIELD_OUTER. Keep one
+  // scene sample throughout the lens; blending original and refracted samples
+  // duplicates high-contrast page text and is perceived as ghosting.
+  outColor = refracted;
 }`
 
 interface BlackHoleRendererElements {
@@ -654,7 +673,7 @@ function createDisplayRenderer(canvas: HTMLCanvasElement): DisplayRenderer {
   })
   if (!glContext) throw new Error('WebGL 2 is required for the black-hole appearance.')
   const gl = glContext
-  canvas.dataset.filamentSampling = 'screen-space'
+  canvas.dataset.filamentSampling = 'cartesian-value-noise'
 
   const program = createProgram(gl, DISPLAY_SHADER)
   const resolution = gl.getUniformLocation(program, 'uResolution')
@@ -1065,6 +1084,7 @@ function createCompositorRenderer(
   const center = gl.getUniformLocation(program, 'uCenter')
   const scale = gl.getUniformLocation(program, 'uScale')
   const opacity = gl.getUniformLocation(program, 'uOpacity')
+  const pixelRatioUniform = gl.getUniformLocation(program, 'uPixelRatio')
   const textures: WebGLTexture[] = []
 
   const texture = (unit: number, source: TexImageSource) => {
@@ -1154,7 +1174,8 @@ function createCompositorRenderer(
       canvas.dataset.captureHeight = image instanceof HTMLCanvasElement
         ? String(image.height)
         : ''
-      canvas.dataset.sceneSampling = 'one-to-one-base-filtered-lens'
+      canvas.dataset.sceneSampling = 'single-sample-gradient-filtered-lens'
+      canvas.dataset.sceneComposition = 'single-refracted-sample'
       canvas.dataset.excludedPetElements = image instanceof HTMLCanvasElement
         ? (image.dataset.excludedPetElements ?? '')
         : ''
@@ -1188,6 +1209,7 @@ function createCompositorRenderer(
       )
       gl.uniform1f(scale, pose.scale * pose.mass * pixelRatio)
       gl.uniform1f(opacity, pose.lensOpacity)
+      gl.uniform1f(pixelRatioUniform, pixelRatio)
       gl.drawArrays(gl.TRIANGLES, 0, 3)
     },
     destroy() {

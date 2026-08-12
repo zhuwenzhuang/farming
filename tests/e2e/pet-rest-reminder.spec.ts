@@ -710,14 +710,16 @@ test('dark black-hole status stays readable and manual exit fully evaporates in 
   expect(captureState.engine).toBe('snapdom')
   expect(captureState.scale).toBeGreaterThanOrEqual(1)
   expect(captureState.scale).toBeLessThanOrEqual(2)
-  expect(captureState.sampling).toBe('one-to-one-base-filtered-lens')
+  expect(captureState.sampling).toBe('single-sample-gradient-filtered-lens')
   expect(captureState.backing).toEqual({
     width: captureState.captureWidth,
     height: captureState.captureHeight,
   })
   expect(captureState.luminance).toBeLessThan(80)
   await expect(scene.locator('.code-pet-black-hole-canvas'))
-    .toHaveAttribute('data-filament-sampling', 'screen-space')
+    .toHaveAttribute('data-filament-sampling', 'cartesian-value-noise')
+  await expect(compositor)
+    .toHaveAttribute('data-scene-composition', 'single-refracted-sample')
   await expect(label).toHaveCSS('color', 'rgba(226, 235, 229, 0.82)')
   await expect(clock).toHaveCSS('color', 'rgb(231, 238, 233)')
   await expect(endBreak).toHaveCSS('color', 'rgba(238, 245, 240, 0.9)')
@@ -1194,8 +1196,10 @@ test('black-hole waits for its initial snapshot and refreshes after a resize', a
   await expect(compositor).toHaveAttribute('data-capture-engine', 'snapdom')
   await expect(compositor).toHaveAttribute(
     'data-scene-sampling',
-    'one-to-one-base-filtered-lens',
+    'single-sample-gradient-filtered-lens',
   )
+  await expect(compositor)
+    .toHaveAttribute('data-scene-composition', 'single-refracted-sample')
 
   const initialGeneration = Number(
     await compositor.getAttribute('data-scene-generation') ?? '0',
