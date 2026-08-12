@@ -739,8 +739,11 @@ export function AgentHomesSettingsPanel({
         </header>
 
         <div className="code-settings-panel-body">
-          <section className="code-settings-section compact">
-            <div className="code-settings-inline-preferences">
+          <section className="code-settings-section code-settings-group" data-testid="code-settings-interface-section">
+            <div className="code-settings-section-heading">
+              <div><h3>{copy.interface}</h3></div>
+            </div>
+            <div className="code-settings-card">
               <div className="code-settings-inline-choice">
                 <span className="code-settings-inline-label">
                   <ColorModeGlyph aria-hidden="true" />
@@ -779,14 +782,6 @@ export function AgentHomesSettingsPanel({
                   <button type="button" className={uiPreferences.language === 'zh' ? 'active' : ''} aria-pressed={uiPreferences.language === 'zh'} onClick={() => onUpdateUiPreferences({ language: 'zh' })}>{copy.chinese}</button>
                 </div>
               </div>
-            </div>
-          </section>
-
-          <section className="code-settings-section code-settings-group">
-            <div className="code-settings-section-heading">
-              <div><h3>{copy.interface}</h3></div>
-            </div>
-            <div className="code-settings-card">
               <div className="code-settings-choice-row code-settings-runtime-row">
                 <div className="code-settings-row-copy">
                   <strong>{copy.interfaceSkin}</strong>

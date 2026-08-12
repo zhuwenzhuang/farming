@@ -795,6 +795,11 @@
   border-color: var(--code-panel-divider);
 }
 
+.code-settings-card > .code-settings-inline-choice + .code-settings-choice-row {
+  border-top: 1px solid var(--code-panel-divider);
+  border-color: var(--code-panel-divider);
+}
+
 .code-settings-runtime-row,
 .code-settings-search-timeout-row,
 .code-settings-pet-appearance-row,

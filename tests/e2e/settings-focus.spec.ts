@@ -17,6 +17,21 @@ test('Settings restores focus to its trigger after Escape', async ({ page }) => 
   await expect(settingsTrigger).toBeFocused()
 })
 
+test('Settings keeps all interface preferences in one section and card', async ({ page }) => {
+  await openFarming(page)
+  await page.getByTestId('code-sidebar-options').click()
+
+  const settings = page.getByTestId('code-settings-panel')
+  const interfaceSection = settings.getByTestId('code-settings-interface-section')
+  await expect(interfaceSection.getByRole('heading', { name: 'Interface' })).toBeVisible()
+  await expect(interfaceSection.getByRole('group', { name: 'Appearance' })).toBeVisible()
+  await expect(interfaceSection.getByRole('group', { name: 'Language' })).toBeVisible()
+  await expect(interfaceSection.getByRole('group', { name: 'Interface skin' })).toBeVisible()
+  await expect(interfaceSection.getByRole('slider', { name: 'Content text size' })).toBeVisible()
+  await expect(interfaceSection.locator('.code-settings-card')).toHaveCount(1)
+  await expect(settings.locator('.code-settings-section.compact')).toHaveCount(0)
+})
+
 test('Settings keeps its light, dark, and narrow surface contract after stylesheet extraction', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 })
   await openFarming(page)
