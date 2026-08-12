@@ -180,6 +180,12 @@ Generated and local-only paths such as `dist/`, `dist-release/`, `.tmp/`,
 
 Update documentation in the same change when behavior or structure changes:
 
+- Keep documentation edits minimal and local to the requested behavior. Unless
+  the user explicitly asks for a redesign or rewrite, do not opportunistically
+  reorganize information architecture, replace page structure or visual design,
+  or substantially rewrite existing content while adding a feature or release
+  note.
+
 - `README.md`: top-level product promise, primary setup, and first-use path;
 - `docs/README.md`: short public documentation index;
 - `docs/products/*/README.md`: short product landing pages;
