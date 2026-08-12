@@ -646,9 +646,9 @@ body.code-resizing-sidebar .code-sidebar-resizer {
   position: fixed;
   z-index: 120;
   box-sizing: border-box;
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 16px;
-  background: var(--code-bg-raised);
+  background: var(--code-context-menu-surface);
   box-shadow: var(--code-shadow-raised);
   color: var(--code-text);
   font-size: 14px;

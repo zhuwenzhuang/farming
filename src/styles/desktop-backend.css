@@ -35,6 +35,12 @@
   font: inherit;
 }
 
+.desktop-backend-bar button,
+.desktop-backend-dialog button {
+  border: 0;
+  background: var(--code-bg-inset);
+}
+
 .desktop-backend-bar select {
   min-width: 160px;
   padding: 3px 26px 3px 8px;
@@ -105,7 +111,7 @@
   display: grid;
   gap: 18px;
   padding: 20px;
-  border: 1px solid var(--code-border-strong);
+  border: 0;
   border-radius: 9px;
   background: var(--code-bg-raised);
   box-shadow: var(--code-shadow-raised);
@@ -148,9 +154,10 @@
 
 .desktop-backend-list {
   display: grid;
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 7px;
   overflow: hidden;
+  background: var(--code-bg-inset);
 }
 
 .desktop-backend-row {
@@ -159,7 +166,7 @@
   align-items: center;
   gap: 8px;
   padding: 9px 10px;
-  border-bottom: 1px solid var(--code-border-subtle);
+  border-bottom: 1px solid var(--code-panel-divider);
 }
 
 .desktop-backend-row:last-child {

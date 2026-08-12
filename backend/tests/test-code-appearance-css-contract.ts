@@ -217,6 +217,24 @@ for (const [sourcePath, selector, expectedShadow] of semanticShadowContracts) {
   )
 }
 
+const borderPurposeContracts = [
+  ['src/styles/search.css', '.code-search-panel-input:focus-within', 'border-color', 'var(--code-focus-ring)'],
+  ['src/styles/main.css', '.connection-status.lost,\n.connection-status.business-unavailable', 'border', '1px solid var(--code-border-danger)'],
+  ['src/styles/transcript.css', '.code-agent-transcript-result-error', 'border', '1px solid var(--code-border-danger)'],
+  ['src/styles/sidebar.css', '.code-sidebar-resizer', 'background', 'var(--code-border-subtle)'],
+  ['src/styles/review.css', '.review-diff-columns span + span', 'border-left', '1px solid var(--code-border)'],
+] as const
+for (const [sourcePath, selector, property, expectedValue] of borderPurposeContracts) {
+  const root = postcss.parse(fs.readFileSync(path.join(projectRoot, sourcePath), 'utf8'), { from: sourcePath })
+  const rule = root.nodes.find(node => node.type === 'rule' && node.selector === selector)
+  assert(rule && rule.type === 'rule', `${sourcePath} must retain the functional boundary for ${selector}`)
+  const declaration = rule.nodes.find(node => node.type === 'decl' && node.prop === property)
+  assert(
+    declaration && declaration.type === 'decl' && declaration.value === expectedValue,
+    `${sourcePath} must keep ${property}: ${expectedValue} for ${selector}`,
+  )
+}
+
 const semanticStateContracts = [
   ['src/styles/composer.css', '.code-composer-send:not(:disabled)', 'background', 'var(--code-emphasis)'],
   ['src/styles/composer.css', '.code-composer-send:not(:disabled)', 'color', 'var(--code-text-on-emphasis)'],

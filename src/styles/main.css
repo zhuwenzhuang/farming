@@ -289,17 +289,16 @@ body.code-resizing-sidebar {
 
 .code-app-mode-choice.temporary button {
   padding: 0 13px;
-  border: 1px solid var(--code-border);
-  background: var(--code-bg-surface);
+  border: 0;
+  background: var(--code-bg-inset);
   color: var(--code-text-muted);
-  border-color: var(--code-border);
 }
 
 .code-app-mode-choice.temporary button:hover,
 .code-app-mode-choice.temporary button:focus-visible {
-  border-color: var(--code-border-strong);
-  background: var(--code-bg-hover);
-  outline: 0;
+  background: var(--code-bg-muted);
+  outline: 2px solid var(--code-focus-ring);
+  outline-offset: 1px;
 }
 
 .code-brand-backdrop {
@@ -322,12 +321,11 @@ body.code-resizing-sidebar {
   justify-items: center;
   gap: 16px;
   padding: 30px 32px 28px;
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 22px;
   background: var(--code-brand-dialog-bg);
   color: var(--code-text);
   box-shadow: var(--code-brand-dialog-shadow);
-  border-color: var(--code-border);
 }
 
 .code-brand-close {
@@ -666,18 +664,16 @@ body.code-mode .code-instance-name {
 }
 
 .code-instance-name-actions button {
-  border: 1px solid var(--code-border-strong);
+  border: 0;
   border-radius: 6px;
   padding: 6px 10px;
-  background: var(--code-bg-canvas);
+  background: var(--code-bg-inset);
   color: var(--code-text);
   font: inherit;
   cursor: pointer;
-  border-color: var(--code-border);
 }
 
 .code-instance-name-actions button.primary {
-  border-color: var(--code-accent);
   background: var(--code-accent);
   color: var(--code-text-on-emphasis);
 }
@@ -775,13 +771,12 @@ body.code-mode .code-instance-name {
   z-index: 10006;
   width: 210px;
   padding: 5px;
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 7px;
-  background: var(--code-bg-raised);
+  background: var(--code-context-menu-surface);
   box-shadow: var(--code-shadow-raised);
   max-height: calc(100vh - 16px);
   overflow-y: auto;
-  border-color: var(--code-border);
   color: var(--code-text);
 }
 
@@ -829,12 +824,11 @@ body.code-resizing-language-server-dock {
   min-width: 132px;
   max-width: min(280px, calc(100vw - 24px));
   padding: 5px;
-  border: 1px solid var(--code-panel-border);
+  border: 0;
   border-radius: 8px;
   background: var(--code-context-menu-surface);
   box-shadow: var(--code-shadow-raised);
   color: var(--code-text);
-  border-color: var(--code-panel-border);
 }
 
 .code-context-menu button {
@@ -975,17 +969,17 @@ body.code-resizing-language-server-dock {
   align-items: center;
   justify-content: center;
   padding: 7px 13px;
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 8px;
   background: var(--code-bg-raised);
   box-shadow: 0 12px 32px var(--code-shadow-color);
   color: var(--code-text);
   font-size: 13px;
   transform: translateX(-50%);
-  border-color: var(--code-border);
 }
 
 .code-copy-toast.error {
+  border: 1px solid var(--code-border-danger);
   border-color: var(--code-border-danger);
   color: var(--code-diff-removed);
 }
@@ -1001,24 +995,23 @@ body.code-resizing-language-server-dock {
   align-items: center;
   justify-content: center;
   padding: 7px 13px;
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 8px;
   background: var(--code-bg-raised);
   box-shadow: 0 12px 32px var(--code-shadow-color);
   color: var(--code-text);
   font-size: 13px;
   transform: translateX(-50%);
-  border-color: var(--code-border);
 }
 
 .app-toast.error {
+  border: 1px solid var(--code-border-danger);
   border-color: var(--code-border-danger);
   color: var(--code-diff-removed);
 }
 
 .app-toast.recovering {
-  border-color: var(--code-border);
-  background: var(--code-bg-raised);
+  background: var(--code-bg-inset);
   box-shadow: var(--code-shadow-soft);
   color: var(--code-text-subtle);
 }
@@ -1082,7 +1075,7 @@ body.code-mode .dialog-overlay {
 body.code-mode .input-dialog {
   background: var(--code-bg-surface);
   color: var(--code-text);
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 16px;
   box-shadow: var(--code-shadow-raised);
   text-shadow: none;
@@ -1154,7 +1147,7 @@ body.code-mode .main-agent-resume-option,
 body.code-mode .workspace-history,
 body.code-mode .workspace-path-suggestions {
   background: var(--code-bg-raised);
-  border: 1px solid var(--code-border);
+  border: 0;
   color: var(--code-text);
   border-radius: 8px;
   text-shadow: none;
@@ -1316,9 +1309,9 @@ body.code-mode .workspace-path-field {
 body.code-mode .workspace-directory-picker {
   width: 40px;
   min-width: 40px;
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 8px;
-  background: var(--code-bg-surface);
+  background: var(--code-bg-inset);
   color: var(--code-text-muted);
 }
 
@@ -1328,8 +1321,8 @@ body.code-mode .workspace-directory-picker:hover:not(:disabled) {
 }
 
 body.code-mode .workspace-directory-picker:focus-visible {
-  outline: none;
-  border-color: var(--code-focus-ring);
+  outline: 2px solid var(--code-focus-ring);
+  outline-offset: 1px;
   box-shadow: 0 0 0 3px var(--code-focus-ring);
 }
 
@@ -1373,9 +1366,9 @@ body.code-mode .workspace-directory-browser-go {
   align-items: center;
   justify-content: center;
   padding: 0;
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 8px;
-  background: var(--code-bg-surface);
+  background: var(--code-bg-inset);
   color: var(--code-text-muted);
   cursor: pointer;
 }
@@ -1421,8 +1414,8 @@ body.code-mode .workspace-directory-browser-close:focus-visible,
 body.code-mode .workspace-directory-browser-parent:focus-visible,
 body.code-mode .workspace-directory-browser-go:focus-visible,
 body.code-mode .workspace-directory-browser-location input:focus {
-  outline: none;
-  border-color: var(--code-focus-ring);
+  outline: 2px solid var(--code-focus-ring);
+  outline-offset: 1px;
   box-shadow: 0 0 0 3px var(--code-focus-ring);
 }
 
@@ -1445,7 +1438,7 @@ body.code-mode .workspace-directory-browser-list {
   min-height: 210px;
   overflow-y: auto;
   padding: 4px;
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 10px;
   background: var(--code-workspace-directory-surface);
 }
@@ -1561,8 +1554,8 @@ body.code-mode .workspace-directory-browser-actions button {
 }
 
 body.code-mode .workspace-directory-browser-actions button.secondary {
-  border: 1px solid var(--code-border);
-  background: var(--code-bg-surface);
+  border: 0;
+  background: var(--code-bg-inset);
   color: var(--code-text);
 }
 
@@ -1596,9 +1589,9 @@ body.code-mode .workspace-home-trigger {
   justify-content: space-between;
   gap: 10px;
   padding: 8px 10px;
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 8px;
-  background: var(--code-bg-surface);
+  background: var(--code-bg-inset);
   color: var(--code-text);
   cursor: pointer;
   font: inherit;
@@ -1606,8 +1599,8 @@ body.code-mode .workspace-home-trigger {
 }
 
 body.code-mode .workspace-home-trigger:focus-visible {
-  outline: none;
-  border-color: var(--code-focus-ring);
+  outline: 2px solid var(--code-focus-ring);
+  outline-offset: 1px;
   box-shadow: 0 0 0 3px var(--code-focus-ring);
 }
 
@@ -1655,9 +1648,9 @@ body.code-mode .workspace-home-menu {
   max-height: min(220px, 34dvh);
   overflow-y: auto;
   padding: 4px;
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 10px;
-  background: var(--code-context-menu-surface);
+  background: var(--code-bg-raised);
   box-shadow: var(--code-shadow-raised);
 }
 
@@ -1702,16 +1695,16 @@ body.code-mode .workspace-runtime-options {
   width: max-content;
   max-width: 100%;
   overflow: hidden;
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 8px;
-  background: var(--code-context-menu-surface);
+  background: var(--code-bg-inset);
 }
 
 body.code-mode .workspace-runtime-options button {
   min-height: 34px;
   padding: 6px 10px;
   border: 0;
-  border-left: 1px solid var(--code-border);
+  border-left: 0;
   background: transparent;
   color: var(--code-text-subtle);
   cursor: pointer;
@@ -1890,13 +1883,14 @@ body.code-mode .workspace-directory-prompt {
   gap: 10px 12px;
   margin-top: 4px;
   padding: 13px;
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 10px;
   background: var(--code-workspace-prompt-surface);
   color: var(--code-text);
 }
 
 body.code-mode .workspace-directory-prompt.error {
+  border: 1px solid var(--code-danger);
   border-color: var(--code-danger);
   background: var(--code-danger-soft);
 }
@@ -2562,7 +2556,7 @@ body.code-mode .workspace-directory-prompt-actions button:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 999px;
   background: var(--code-bg-raised);
   box-shadow: var(--code-shadow-soft);
@@ -2575,6 +2569,7 @@ body.code-mode .workspace-directory-prompt-actions button:focus-visible {
 
 .connection-status.lost,
 .connection-status.business-unavailable {
+  border: 1px solid var(--code-border-danger);
   border-color: var(--code-border-danger);
   background: var(--code-danger-soft);
   color: var(--code-diff-removed);

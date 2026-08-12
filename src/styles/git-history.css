@@ -142,9 +142,9 @@
   width: 132px;
   box-sizing: border-box;
   padding: 4px;
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 8px;
-  background: var(--code-bg-raised);
+  background: var(--code-context-menu-surface);
   box-shadow: var(--code-shadow-raised);
   color: var(--code-text-muted);
 }

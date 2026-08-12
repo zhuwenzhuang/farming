@@ -15,7 +15,7 @@
   display: grid;
   gap: 8px;
   padding: 13px 34px 12px 13px;
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 12px;
   background: var(--code-bg-raised);
   box-shadow:
@@ -87,7 +87,7 @@
   min-height: 34px;
   margin: 0;
   padding: 6px 13px;
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 999px;
   background: color-mix(in srgb, var(--code-bg-raised) 40%, transparent);
   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--code-bg-raised) 40%, transparent);
@@ -99,7 +99,6 @@
 
 .code-pet-glass-rest-content button:hover,
 .code-pet-glass-rest-content button:focus-visible {
-  border-color: var(--code-focus-ring);
   background: var(--code-bg-hover);
   color: var(--code-accent);
   outline: 0;
@@ -533,7 +532,7 @@
 .code-pet-actions button {
   min-height: 30px;
   padding: 5px 9px;
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 7px;
   background: var(--code-bg-muted);
   color: var(--code-text-muted);
@@ -545,20 +544,17 @@
 
 .code-pet-actions button:hover,
 .code-pet-actions button:focus-visible {
-  border-color: var(--code-border-strong);
-  background: var(--code-border);
+  background: var(--code-bg-hover-strong);
   outline: 0;
 }
 
 .code-pet-actions button.primary {
-  border-color: var(--code-pet-actions-primary-background);
   background: var(--code-pet-actions-primary-background);
   color: var(--code-text-on-emphasis);
 }
 
 .code-pet-actions button.primary:hover,
 .code-pet-actions button.primary:focus-visible {
-  border-color: var(--code-pet-actions-primary-hover);
   background: var(--code-pet-actions-primary-hover);
 }
 
@@ -672,9 +668,9 @@
   align-content: start;
   gap: 7px;
   padding: 10px;
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 10px;
-  background: var(--code-bg-surface);
+  background: var(--code-bg-inset);
   color: var(--code-text-muted);
   cursor: pointer;
   font: inherit;
@@ -684,7 +680,6 @@
 .code-pet-appearance-select:hover,
 .code-pet-appearance-select:focus-visible,
 .code-pet-appearance-select.selected {
-  border-color: var(--code-border-strong);
   background: var(--code-bg-selected);
   outline: 0;
 }

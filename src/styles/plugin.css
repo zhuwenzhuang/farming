@@ -330,14 +330,13 @@
 .code-plugin-agent-form-actions button {
   min-height: 30px;
   padding: 0 11px;
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 8px;
-  background: var(--code-bg-canvas);
+  background: var(--code-bg-inset);
   color: var(--code-text);
   font: inherit;
   font-size: 13px;
   cursor: pointer;
-  border-color: var(--code-border);
 }
 
 .code-plugin-agent-actions button {
@@ -346,8 +345,7 @@
   display: inline-grid;
   place-items: center;
   padding: 0;
-  border-color: var(--code-border);
-  background: var(--code-bg-canvas);
+  background: var(--code-bg-inset);
   color: var(--code-text);
 }
 
@@ -361,8 +359,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  border-color: var(--code-border);
-  background: var(--code-bg-canvas);
+  background: var(--code-bg-inset);
   color: var(--code-text);
 }
 
@@ -379,9 +376,9 @@
 .code-plugin-agent-path-edit button:focus-visible:not(:disabled),
 .code-plugin-agent-form-actions button:hover:not(:disabled),
 .code-plugin-agent-form-actions button:focus-visible:not(:disabled) {
-  border-color: var(--code-border-strong);
   background: var(--code-bg-hover);
-  outline: 0;
+  outline: 2px solid var(--code-focus-ring);
+  outline-offset: 1px;
 }
 
 .code-plugin-agent-actions button:hover:not(:disabled),
@@ -404,7 +401,7 @@
   align-items: end;
   gap: 10px;
   padding: 14px;
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 12px;
   background: var(--code-bg-raised);
 }
@@ -928,9 +925,9 @@
   display: grid;
   place-items: center;
   padding: 16px;
-  border: 1px solid var(--code-border-subtle);
+  border: 0;
   border-radius: 10px;
-  background: transparent;
+  background: var(--code-bg-inset);
   color: var(--code-text-subtle);
   text-align: center;
 }
@@ -954,7 +951,7 @@
   gap: 16px;
   overflow: auto;
   padding: 22px;
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 16px;
   background: var(--code-bg-raised);
   color: var(--code-text);
@@ -1240,20 +1237,18 @@
   justify-content: center;
   gap: 6px;
   padding: 0 11px;
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 8px;
-  background: var(--code-bg-canvas);
+  background: var(--code-bg-inset);
   color: var(--code-text);
   font: inherit;
   font-size: 13px;
   cursor: pointer;
-  border-color: var(--code-border);
 }
 
 .desktop-connections-add:hover:not(:disabled),
 .desktop-connection-actions button:hover:not(:disabled),
 .desktop-connections-form button:hover:not(:disabled) {
-  border-color: var(--code-border-strong);
   background: var(--code-bg-hover);
 }
 
@@ -1266,10 +1261,9 @@
 
 .desktop-connections-list {
   overflow: hidden;
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 12px;
   background: var(--code-bg-canvas);
-  border-color: var(--code-border);
   color: var(--code-text);
 }
 
@@ -1280,7 +1274,7 @@
   align-items: center;
   gap: 10px;
   padding: 12px 14px;
-  border-bottom: 1px solid var(--code-border);
+  border-bottom: 1px solid var(--code-panel-divider);
 }
 
 .desktop-connection-row:last-child {
@@ -1368,11 +1362,10 @@
 
 .desktop-connections-empty {
   padding: 18px;
-  border: 1px dashed var(--code-border);
+  border: 0;
   border-radius: 12px;
   text-align: center;
-  border-color: var(--code-border);
-  background: var(--code-bg-canvas);
+  background: var(--code-bg-inset);
   color: var(--code-text-subtle);
 }
 
@@ -1381,7 +1374,7 @@
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 12px 14px;
   padding: 18px;
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 12px;
   background: var(--code-bg-raised);
 }
@@ -1546,7 +1539,7 @@
   display: flex;
   align-items: center;
   padding: 9px 10px;
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 8px;
   background: var(--code-bg-inset);
 }
@@ -1571,10 +1564,10 @@
 .code-plugin-computer-settings button {
   justify-self: start;
   min-height: 30px;
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 7px;
   padding: 0 10px;
-  background: transparent;
+  background: var(--code-bg-inset);
   color: inherit;
 }
 
@@ -1606,14 +1599,13 @@
 .code-plugin-browser-install {
   height: 32px;
   padding: 0 12px;
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 7px;
-  background: var(--code-bg-surface);
+  background: var(--code-bg-inset);
   color: var(--code-text-muted);
   cursor: pointer;
   font: inherit;
   font-size: 13px;
-  border-color: var(--code-border);
 }
 
 .code-plugin-browser-apply:hover:not(:disabled),
@@ -1663,11 +1655,10 @@
   min-width: 0;
   gap: 2px;
   padding: 7px 9px;
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 8px;
   background: var(--code-bg-inset);
   font-size: 12px;
-  border-color: var(--code-border);
 }
 
 .code-plugin-language-server-server {
@@ -1688,14 +1679,13 @@
   min-width: 64px;
   height: 32px;
   padding: 0 13px;
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 8px;
-  background: var(--code-bg-surface);
+  background: var(--code-bg-inset);
   color: var(--code-text-muted);
   cursor: pointer;
   font: inherit;
   font-size: 13px;
-  border-color: var(--code-border);
 }
 
 .code-plugin-toggle:hover:not(:disabled),
@@ -1704,7 +1694,6 @@
 }
 
 .code-plugin-toggle.active {
-  border-color: var(--code-success-ring);
   background: var(--code-success-soft);
   color: var(--code-success);
 }

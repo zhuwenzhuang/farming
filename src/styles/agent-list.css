@@ -229,14 +229,13 @@
   flex-direction: column;
   gap: 7px;
   padding: 12px 14px 13px;
-  border: 1px solid var(--code-panel-border);
+  border: 0;
   border-radius: 16px;
-  background: var(--code-bg-raised);
+  background: var(--code-context-menu-surface);
   box-shadow: var(--code-shadow-raised);
   color: var(--code-text);
   font-size: 14px;
   line-height: 1.25;
-  border-color: var(--code-panel-border);
 }
 
 .code-agent-hover-title-card {
@@ -244,9 +243,9 @@
   z-index: 121;
   box-sizing: border-box;
   padding: 12px 14px;
-  border: 1px solid var(--code-panel-border);
+  border: 0;
   border-radius: 14px;
-  background: var(--code-bg-raised);
+  background: var(--code-context-menu-surface);
   box-shadow: var(--code-shadow-raised);
   color: var(--code-text);
   font-size: 14px;
@@ -254,7 +253,6 @@
   line-height: 1.4;
   overflow-wrap: anywhere;
   pointer-events: none;
-  border-color: var(--code-panel-border);
 }
 
 .code-agent-hover-preview-header {
@@ -766,9 +764,9 @@ body.code-mode:not(.code-compact-layout) .code-agent-row.requires-resume .code-a
   min-width: 112px;
   max-width: min(220px, calc(100vw - 24px));
   padding: 5px;
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 8px;
-  background: var(--code-bg-raised);
+  background: var(--code-context-menu-surface);
   box-shadow: 0 18px 48px var(--code-shadow-color);
   color: var(--code-text);
 }

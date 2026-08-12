@@ -479,7 +479,7 @@ test.describe('Farming Code appearance skins', () => {
     await page.locator('.code-plugin-extension').first().click()
     const pluginDetailDialog = page.getByTestId('code-plugin-detail-dialog')
     await expect(pluginDetailDialog).toHaveCSS('background-color', 'rgb(48, 48, 48)')
-    await expect(pluginDetailDialog).toHaveCSS('border-color', 'rgb(56, 56, 56)')
+    await expect(pluginDetailDialog).toHaveCSS('border-width', '0px')
     await pluginDetailDialog.getByRole('button').first().click()
     await page.keyboard.press('Escape')
     await expect(page.getByTestId('code-plugins-panel')).toHaveCount(0)

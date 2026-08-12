@@ -133,7 +133,7 @@
 .code-agent-home-form,
 .code-settings-update-card,
 .code-settings-error {
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 12px;
   background: var(--code-danger-soft);
   color: var(--code-diff-removed);
@@ -154,7 +154,7 @@
   display: inline-flex;
   gap: 2px;
   padding: 2px;
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 10px;
   background: var(--code-bg-inset);
 }
@@ -181,7 +181,7 @@
 }
 
 .code-settings-segmented button.active {
-  background: var(--code-border);
+  background: var(--code-bg-raised);
   color: var(--code-accent);
   box-shadow: 0 1px 2px var(--code-shadow-color);
 }
@@ -200,6 +200,7 @@
 }
 
 .code-settings-error {
+  border: 1px solid var(--code-border-danger);
   padding: 9px 10px;
   border-color: var(--code-border-danger);
   background: var(--code-danger-soft);
@@ -222,7 +223,7 @@
   justify-content: space-between;
   gap: 12px;
   padding: 11px 12px;
-  border-bottom: 1px solid var(--code-border-subtle);
+  border-bottom: 1px solid var(--code-panel-divider);
 }
 
 .code-agent-home-provider-header strong {
@@ -235,8 +236,8 @@
 .code-agent-home-actions button,
 .code-agent-home-form-actions button {
   padding: 5px 9px;
-  border: 1px solid var(--code-border);
-  background: var(--code-bg-surface);
+  border: 0;
+  background: var(--code-bg-inset);
 }
 
 .code-agent-home-row {
@@ -245,7 +246,7 @@
   gap: 10px;
   align-items: center;
   padding: 10px 12px;
-  border-top: 1px solid var(--code-border-subtle);
+  border-top: 1px solid var(--code-panel-divider);
   font-size: 13px;
 }
 
@@ -376,13 +377,13 @@
 
 .code-settings-update-actions button {
   padding: 5px 10px;
-  border: 1px solid var(--code-border);
+  border: 0;
   background: var(--code-bg-muted);
 }
 
 .code-settings-update-actions button:hover:not(:disabled),
 .code-settings-update-actions button:focus-visible {
-  background: var(--code-border);
+  background: var(--code-bg-hover-strong);
   color: var(--code-text-strong);
   outline: none;
 }
@@ -627,13 +628,13 @@
 
 .code-agent-home-row {
   margin: 0 8px 6px;
-  border: 1px solid var(--code-border-subtle);
+  border: 0;
   border-radius: 8px;
   background: var(--code-bg-muted);
 }
 
 .code-agent-home-row + .code-agent-home-row {
-  border-top: 1px solid var(--code-border-subtle);
+  border-top: 0;
 }
 
 .code-agent-home-actions button {
@@ -660,7 +661,7 @@
   gap: 10px;
   align-items: center;
   padding: 7px 9px;
-  border: 1px solid var(--code-border-subtle);
+  border: 0;
   border-radius: 10px;
   background: var(--code-bg-muted);
 }
@@ -843,9 +844,9 @@
   align-items: center;
   gap: 7px;
   padding: 5px 34px 5px 8px;
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 7px;
-  background: var(--code-bg-surface);
+  background: var(--code-bg-inset);
   color: var(--code-text-muted);
   cursor: pointer;
   font: inherit;
@@ -855,7 +856,6 @@
 .code-settings-pet-appearance-select:hover,
 .code-settings-pet-appearance-select:focus-visible,
 .code-settings-pet-appearance-select.selected {
-  border-color: var(--code-border-strong);
   background: var(--code-bg-selected);
   color: var(--code-text-strong);
   outline: 0;
@@ -1281,9 +1281,9 @@
   align-items: center;
   justify-content: center;
   padding: 5px 10px;
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 7px;
-  background: var(--code-bg-surface);
+  background: var(--code-bg-inset);
   color: var(--code-text-muted);
   font-size: 13px;
   line-height: 20px;
@@ -1300,7 +1300,6 @@
 .code-settings-update-actions button.primary {
   min-width: 88px;
   padding-inline: 13px;
-  border-color: var(--code-border);
   background: var(--code-accent);
   color: var(--code-text-on-emphasis);
   font-weight: 600;

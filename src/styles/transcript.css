@@ -1238,9 +1238,9 @@
   z-index: 20;
   min-width: max-content;
   padding: 6px 10px;
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 12px;
-  background: var(--code-bg-surface);
+  background: var(--code-context-menu-surface);
   box-shadow: var(--code-shadow-soft);
   color: var(--code-text);
   font-size: 13px;
@@ -1252,7 +1252,6 @@
   transform: translate(-50%, 2px);
   transition: opacity 120ms ease, transform 120ms ease;
   white-space: nowrap;
-  border-color: var(--code-border-subtle);
 }
 
 .code-agent-transcript-copy:hover::after,
@@ -1697,11 +1696,10 @@
   width: min(920px, 100%);
   max-height: min(760px, calc(100vh - 64px));
   overflow: hidden;
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 12px;
   background: var(--code-bg-muted);
   box-shadow: var(--code-shadow-raised);
-  border-color: var(--code-border);
 }
 
 .code-agent-transcript-subagent-dialog > header {
@@ -2044,11 +2042,10 @@ button.code-agent-transcript-result-summary:focus-visible {
   width: min(960px, 100%);
   max-height: min(760px, calc(100vh - 64px));
   overflow: hidden;
-  border: 1px solid var(--code-border);
+  border: 0;
   border-radius: 12px;
   background: var(--code-bg-muted);
   box-shadow: var(--code-shadow-raised);
-  border-color: var(--code-border);
 }
 
 .code-agent-transcript-change-review-dialog > header,
@@ -2439,7 +2436,7 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-age
   width: 34px;
   height: 34px;
   border-radius: 50%;
-  border: 1px solid var(--code-border);
+  border: 0;
   background: var(--code-bg-surface);
   color: var(--code-text);
   box-shadow: var(--code-shadow-soft);
@@ -2608,7 +2605,7 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-age
 }
 
 .code-agent-transcript-jump-bottom {
-  border-color: var(--code-border);
+  border-color: transparent;
 }
 
 .code-agent-transcript-jump-bottom {
@@ -2620,7 +2617,7 @@ button.code-agent-transcript-result-summary:is(:hover, :focus-visible) .code-age
 }
 
 .code-agent-transcript-jump-bottom:hover {
-  border-color: var(--code-border);
+  border-color: transparent;
 }
 
 .code-agent-transcript-jump-bottom:hover {
