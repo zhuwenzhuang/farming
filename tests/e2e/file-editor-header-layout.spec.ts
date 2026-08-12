@@ -217,4 +217,27 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
     }
   })
   expect(darkBackgrounds.breadcrumb).toBe(darkBackgrounds.content)
+
+  const paperHeader = await page.evaluate(() => {
+    document.body.dataset.appearance = 'paper'
+    const tabStrip = document.querySelector<HTMLElement>('.code-file-editor-tab-strip')!
+    const activeTab = document.querySelector<HTMLElement>('.code-file-editor-tab.active')!
+    const breadcrumbBar = document.querySelector<HTMLElement>('.code-file-editor-bar')!
+    const content = document.querySelector<HTMLElement>('.code-file-monaco')!
+    return {
+      tabStripBackground: getComputedStyle(tabStrip).backgroundColor,
+      activeTabBackground: getComputedStyle(activeTab).backgroundColor,
+      activeTabBorderRadius: getComputedStyle(activeTab).borderRadius,
+      activeTabBoxShadow: getComputedStyle(activeTab).boxShadow,
+      activeTabSeamColor: getComputedStyle(activeTab, '::after').backgroundColor,
+      breadcrumbBackground: getComputedStyle(breadcrumbBar).backgroundColor,
+      contentBackground: getComputedStyle(content).backgroundColor,
+    }
+  })
+  expect(paperHeader.tabStripBackground).toBe(paperHeader.contentBackground)
+  expect(paperHeader.breadcrumbBackground).toBe(paperHeader.contentBackground)
+  expect(paperHeader.activeTabBackground).not.toBe(paperHeader.contentBackground)
+  expect(paperHeader.activeTabBorderRadius).toBe('7px')
+  expect(paperHeader.activeTabBoxShadow).toBe('none')
+  expect(colorAlpha(paperHeader.activeTabSeamColor)).toBe(0)
 })

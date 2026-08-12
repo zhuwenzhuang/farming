@@ -1154,11 +1154,18 @@
 
 .code-settings-segmented button {
   background: transparent;
+  color: var(--code-text-muted);
 }
 
 .code-settings-segmented button.active {
-  background: var(--code-bg-raised);
+  background: var(--code-bg-muted);
+  color: var(--code-text);
   box-shadow: none;
+}
+
+.code-settings-segmented button:hover,
+.code-settings-segmented button:focus-visible {
+  color: var(--code-text);
 }
 
 .code-settings-segmented button[data-theme-choice] {

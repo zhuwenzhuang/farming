@@ -146,6 +146,8 @@ Issue Reference 遵循 Workspace `.idea/vcs.xml` 内的 IntelliJ
 - 单子目录链可以合并成一个稳定 Row。
 - Dirty、External Change 与 Git State 保持可见，但不把整棵 Tree 变成高噪音警告面。
 - Preview 与 Pinned Tab 保留各自 Editor Position，并区分临时查看与有意多文件工作。
+- 纸张外观让 Tab Strip、Breadcrumb 与 Editor 共用一张连续纸面；只有 Active Tab 使用局部
+  色块，选中态不增加整条 Chrome 色带、边框、阴影或接缝线。
 - 窄屏优先查看与短编辑；长时间手机编码不是目标。
 
 ## 性能边界

@@ -41,3 +41,47 @@ test('Settings keeps its light, dark, and narrow surface contract after styleshe
     return rect.left === 0 && rect.width < window.innerWidth
   })).toBe(true)
 })
+
+test('Settings segmented choices use neutral text and a tonal selected surface in every appearance', async ({ page }) => {
+  await openFarming(page)
+  await page.getByTestId('code-sidebar-options').click()
+
+  const settings = page.getByTestId('code-settings-panel')
+  const activeChoices = settings.locator('.code-settings-segmented button.active')
+  const inactiveChoices = settings.locator('.code-settings-segmented button:not(.active)')
+
+  for (const appearance of ['light', 'dark', 'paper']) {
+    await page.evaluate((value) => {
+      document.documentElement.setAttribute('data-appearance', value)
+      document.body.setAttribute('data-appearance', value)
+    }, appearance)
+
+    await expect.poll(() => activeChoices.evaluateAll((elements) => {
+      const probe = document.createElement('span')
+      probe.style.color = 'var(--code-text)'
+      document.body.append(probe)
+      const expected = getComputedStyle(probe).color
+      probe.remove()
+      return elements.length > 0 && elements.every(element => getComputedStyle(element).color === expected)
+    })).toBe(true)
+    await expect.poll(() => inactiveChoices.evaluateAll((elements) => {
+      const probe = document.createElement('span')
+      probe.style.color = 'var(--code-text-muted)'
+      document.body.append(probe)
+      const expected = getComputedStyle(probe).color
+      probe.remove()
+      return elements.length > 0 && elements.every(element => getComputedStyle(element).color === expected)
+    })).toBe(true)
+    await expect.poll(() => activeChoices.evaluateAll((elements) => {
+      const probe = document.createElement('span')
+      probe.style.backgroundColor = 'var(--code-bg-muted)'
+      document.body.append(probe)
+      const expected = getComputedStyle(probe).backgroundColor
+      probe.remove()
+      return elements.length > 0 && elements.every(element => getComputedStyle(element).backgroundColor === expected)
+    })).toBe(true)
+    await expect.poll(() => activeChoices.evaluateAll(elements => (
+      elements.length > 0 && elements.every(element => getComputedStyle(element).boxShadow === 'none')
+    ))).toBe(true)
+  }
+})

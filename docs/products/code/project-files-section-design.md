@@ -190,6 +190,9 @@ non-HTTP(S), or invalid rules remain plain text.
   into a high-noise warning surface.
 - Preview and pinned tabs preserve per-file editor position and distinguish
   transient inspection from intentional multi-file work.
+- Paper appearance keeps the tab strip, breadcrumbs, and editor on one
+  continuous paper surface. Only the active tab receives a local tonal fill;
+  selection does not add a full-width chrome band, border, shadow, or seam.
 - Narrow layouts prioritize viewing and short edits; long-form mobile coding is
   not a goal.
 
