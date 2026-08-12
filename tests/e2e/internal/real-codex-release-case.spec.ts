@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import type { Page, TestInfo } from '@playwright/test'
 import { expect, openFarming, test } from '../fixtures'
@@ -23,7 +24,14 @@ const RUNNING_SWITCH_END = 'RUNNING_SWITCH_END_7F3A'
 const ANCHOR_SUFFIX = '7F3A'
 const NORMAL_VIEWPORT = { width: 1440, height: 900 }
 const COMPACT_VIEWPORT = { width: 1080, height: 650 }
-const REAL_CODEX_WORKSPACE = path.join(process.cwd(), '.tmp', 'real-codex-release-case-e2e')
+// Runtime switching verifies the provider session through the normal history
+// inventory, which intentionally excludes temporary-directory workspaces.
+// Keep this explicit release fixture under the user's home and remove this
+// exact process-owned directory in afterAll.
+const REAL_CODEX_WORKSPACE = path.join(
+  os.homedir(),
+  `.farming-release-e2e-real-codex-${process.pid}`,
+)
 
 type PublicAgent = {
   id: string
@@ -223,45 +231,61 @@ async function waitForCodeTerminal(page: Page, agentId: string) {
 }
 
 async function continueWithoutUntrustedHooks(page: Page, agentId: string) {
-  let startupState = 'waiting'
-  await expect.poll(async () => {
-    const rendered = (await codeRows(page, agentId)).join('\n')
-    const current = await agent(page, agentId)
-    startupState = current?.terminalStatus?.activity === 'idle'
-      ? 'ready'
-      : rendered.includes('Hooks need review') ? 'hooks' : 'waiting'
-    return startupState
-  }, { timeout: 60_000 }).toMatch(/^(ready|hooks)$/)
-  if (startupState === 'ready') return
-
-  const options = ['Review hooks', 'Trust all and continue', 'Continue without trusting']
-  const selectedOption = async () => {
-    const rows = await codeRows(page, agentId)
-    return options.find(option => rows.some(row => row.includes('›') && row.includes(option))) || ''
-  }
-  const targetIndex = options.indexOf('Continue without trusting')
-  let currentIndex = options.indexOf(await selectedOption())
-  if (currentIndex < 0) {
-    await expect.poll(async () => {
-      const rows = await codeRows(page, agentId)
-      return options.every(option => rows.some(row => row.includes(option)))
-    }, { timeout: 5_000 }).toBe(true)
-    currentIndex = 0
-  }
-  expect(currentIndex, 'Codex hook review must expose a selected rendered option').toBeGreaterThanOrEqual(0)
   const input = page.locator(
     `[data-testid="code-terminal-pane"][data-agent-id="${agentId}"] .terminal-session-host[data-agent-id="${agentId}"] .xterm-helper-textarea`,
   )
-  await input.focus()
-  while (currentIndex !== targetIndex) {
-    const direction = currentIndex < targetIndex ? 1 : -1
-    const nextIndex = currentIndex + direction
-    await page.keyboard.press(direction > 0 ? 'ArrowDown' : 'ArrowUp')
-    await expect.poll(selectedOption, { timeout: 5_000 }).toBe(options[nextIndex])
-    currentIndex = nextIndex
+  for (let transition = 0; transition < 3; transition += 1) {
+    let startupState = 'waiting'
+    await expect.poll(async () => {
+      const rendered = (await codeRows(page, agentId)).join('\n')
+      const current = await agent(page, agentId)
+      startupState = current?.terminalStatus?.activity === 'idle'
+        ? 'ready'
+        : rendered.includes('Do you trust the contents of this directory?')
+          ? 'directory-trust'
+          : rendered.includes('Hooks need review') ? 'hooks' : 'waiting'
+      return startupState
+    }, { timeout: 60_000 }).toMatch(/^(ready|directory-trust|hooks)$/)
+    if (startupState === 'ready') return
+
+    await input.focus()
+    if (startupState === 'directory-trust') {
+      await expect.poll(async () => {
+        const rendered = (await codeRows(page, agentId)).join('\n')
+        return rendered.includes('Yes, continue') && rendered.includes('No, quit')
+      }, { timeout: 5_000 }).toBe(true)
+      // The trust prompt has exactly two choices. ArrowUp deterministically
+      // selects the first even if the terminal renderer omits its cursor glyph.
+      await page.keyboard.press('ArrowUp')
+      await page.keyboard.press('Enter')
+      continue
+    }
+
+    const options = ['Review hooks', 'Trust all and continue', 'Continue without trusting']
+    const selectedOption = async () => {
+      const rows = await codeRows(page, agentId)
+      return options.find(option => rows.some(row => row.includes('›') && row.includes(option))) || ''
+    }
+    const targetIndex = options.indexOf('Continue without trusting')
+    let currentIndex = options.indexOf(await selectedOption())
+    if (currentIndex < 0) {
+      await expect.poll(async () => {
+        const rows = await codeRows(page, agentId)
+        return options.every(option => rows.some(row => row.includes(option)))
+      }, { timeout: 5_000 }).toBe(true)
+      currentIndex = 0
+    }
+    expect(currentIndex, 'Codex hook review must expose a selected rendered option').toBeGreaterThanOrEqual(0)
+    while (currentIndex !== targetIndex) {
+      const direction = currentIndex < targetIndex ? 1 : -1
+      const nextIndex = currentIndex + direction
+      await page.keyboard.press(direction > 0 ? 'ArrowDown' : 'ArrowUp')
+      await expect.poll(selectedOption, { timeout: 5_000 }).toBe(options[nextIndex])
+      currentIndex = nextIndex
+    }
+    await page.keyboard.press('Enter')
   }
-  await page.keyboard.press('Enter')
-  await waitForAgent(page, agentId, current => current.terminalStatus?.activity === 'idle', 60_000)
+  throw new Error('Codex Terminal did not settle after the bounded startup prompts')
 }
 
 async function continueCrtWithoutUntrustedHooks(page: Page, readyAnchor: string) {
