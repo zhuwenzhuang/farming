@@ -2,6 +2,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { buildSync } from 'esbuild';
 import ts from 'typescript';
 import { PROTOCOL_VERSION } from '../shared/browser-protocol';
 
@@ -10,7 +11,9 @@ const frontendRoot = path.join(projectRoot, 'frontend');
 const sharedRoot = path.join(projectRoot, 'shared');
 const generatedHeader = '// Generated from TypeScript. Do not edit.';
 const crtAppPath = path.join(frontendRoot, 'skins', 'crt', 'app.ts');
+const agentStateBridgePath = path.join(frontendRoot, 'agent-state-bridge.ts');
 const browserProtocolVersionMarker = "Number('__FARMING_BROWSER_PROTOCOL_VERSION__')";
+const bundledFrontendSources = new Set([agentStateBridgePath]);
 const sourceOnlySharedSources = new Set([
   path.join(sharedRoot, 'appearance-themes.ts'),
 ]);
@@ -62,12 +65,23 @@ function transpileRuntime(filePath: string, module: ts.ModuleKind): void {
 
 function main(): void {
   for (const filePath of collectTypeScriptFiles(frontendRoot).sort()) {
+    if (bundledFrontendSources.has(filePath)) continue;
     transpileRuntime(filePath, ts.ModuleKind.None);
   }
   for (const filePath of collectTypeScriptFiles(sharedRoot).sort()) {
     if (sourceOnlySharedSources.has(filePath)) continue;
     transpileRuntime(filePath, ts.ModuleKind.CommonJS);
   }
+  buildSync({
+    banner: { js: generatedHeader },
+    bundle: true,
+    entryPoints: [agentStateBridgePath],
+    format: 'iife',
+    minify: true,
+    outfile: agentStateBridgePath.replace(/\.ts$/, '.js'),
+    platform: 'browser',
+    target: 'es2022',
+  });
 }
 
 try {

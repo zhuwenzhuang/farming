@@ -4,7 +4,7 @@ import {
   advanceAgentStateSnapshot,
   agentStateDeltaDisposition,
   applyAgentStateDelta,
-} from '../src/lib/agent-state-delta'
+} from '../shared/agent-state-reducer.js'
 
 test('Agent state deltas require one continuous generation sequence', () => {
   const cursor = { generation: 'server-1', sequence: 7 }
@@ -36,6 +36,28 @@ test('Agent removals win over same-batch upserts', () => {
     ['a'],
   )
   assert.deepEqual(result.map(agent => agent.id), ['b', 'c'])
+})
+
+test('Agent state delta reduction preserves the original array when nothing changes', () => {
+  const first = { id: 'a' }
+  const agents = [first]
+
+  assert.equal(applyAgentStateDelta(agents, [], []), agents)
+  assert.equal(applyAgentStateDelta(agents, [first], []), agents)
+})
+
+test('Agent state delta reduction appends each new Agent identity at most once using its latest value', () => {
+  const result = applyAgentStateDelta(
+    [{ id: 'a', title: 'Alpha' }],
+    [
+      { id: 'b', title: 'Beta first' },
+      { id: 'b', title: 'Beta last' },
+    ],
+    [],
+  )
+
+  assert.deepEqual(result.map(agent => agent.id), ['a', 'b'])
+  assert.equal(result[1].title, 'Beta last')
 })
 
 test('Agent state snapshot pages replace once, append contiguously, and finish exactly', () => {

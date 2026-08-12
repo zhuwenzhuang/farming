@@ -3,7 +3,7 @@ import {
   advanceAgentStateSnapshot,
   agentStateDeltaDisposition,
   applyAgentStateDelta,
-} from '../../src/lib/agent-state-delta';
+} from '../../shared/agent-state-reducer.js';
 import type {
   AgentStatePayload,
   StateDeltaMessage,
@@ -219,6 +219,19 @@ const deltaMessage: StateDeltaMessage = {
   ...projectedDelta,
 };
 assert.strictEqual(validateServerMessage(deltaMessage).ok, true);
+assert.strictEqual(validateServerMessage({
+  ...deltaMessage,
+  upserts: [deltaMessage.upserts[0], deltaMessage.upserts[0]],
+}).ok, false, 'state deltas must reject duplicate upsert identities');
+assert.strictEqual(validateServerMessage({
+  ...deltaMessage,
+  removedAgentIds: [deltaMessage.removedAgentIds[0], deltaMessage.removedAgentIds[0]],
+}).ok, false, 'state deltas must reject duplicate removal identities');
+assert.strictEqual(validateServerMessage({
+  ...deltaMessage,
+  upserts: [wireAgent('agent-overlap', 'running', 'Overlap')],
+  removedAgentIds: ['agent-overlap'],
+}).ok, false, 'state deltas must reject identities that are both upserted and removed');
 assert.strictEqual(
   agentStateDeltaDisposition(
     { generation, sequence: deltaMessage.sequence - 1 },

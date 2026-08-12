@@ -124,5 +124,10 @@ type _ConsumedServerMessagesRetainTheDeclaration = Assert<Exact<
   CrtWebSocketServerMessage['type'],
   CrtProtocolDeclaredServerMessage['type']
 >>;
+type _ConsumedServerPayloadsAreCanonical = Assert<
+  Exclude<SplitDiscriminants<CrtProtocolDeclaredServerMessage>, ServerMessage> extends never
+    ? true
+    : false
+>;
 
 console.log('CRT protocol declarations stay assignable to canonical shared wire types');

@@ -1559,49 +1559,49 @@ test.describe('ACP human-like browser matrix', () => {
       const style = getComputedStyle(element)
       return {
         backgroundColor: style.backgroundColor,
-        borderColor: style.borderColor,
+        borderWidth: style.borderWidth,
         insetBackground,
       }
     })
     expect(resultHeaderStyle.backgroundColor).toBe(resultHeaderStyle.insetBackground)
-    expect(resultHeaderStyle.borderColor).toBe('rgba(0, 0, 0, 0)')
+    expect(resultHeaderStyle.borderWidth).toBe('0px')
     const [dirtyReviewStyle, dirtyGitDiffStyle] = await Promise.all([
       dirtyReviewButton.evaluate(element => {
         const style = getComputedStyle(element)
         const probe = document.createElement('span')
-        probe.style.background = 'var(--code-bg-raised)'
+        probe.style.background = 'var(--code-bg-muted)'
         document.body.append(probe)
-        const raisedBackground = getComputedStyle(probe).backgroundColor
+        const mutedBackground = getComputedStyle(probe).backgroundColor
         probe.remove()
         return {
           backgroundColor: style.backgroundColor,
-          borderColor: style.borderColor,
+          borderWidth: style.borderWidth,
           borderRadius: style.borderRadius,
           color: style.color,
           padding: style.padding,
-          raisedBackground,
+          mutedBackground,
         }
       }),
       dirtyGitDiffButton.evaluate(element => {
         const style = getComputedStyle(element)
         const probe = document.createElement('span')
-        probe.style.background = 'var(--code-bg-raised)'
+        probe.style.background = 'var(--code-bg-muted)'
         document.body.append(probe)
-        const raisedBackground = getComputedStyle(probe).backgroundColor
+        const mutedBackground = getComputedStyle(probe).backgroundColor
         probe.remove()
         return {
           backgroundColor: style.backgroundColor,
-          borderColor: style.borderColor,
+          borderWidth: style.borderWidth,
           borderRadius: style.borderRadius,
           color: style.color,
           padding: style.padding,
-          raisedBackground,
+          mutedBackground,
         }
       }),
     ])
     expect(dirtyGitDiffStyle).toEqual(dirtyReviewStyle)
-    expect(dirtyReviewStyle.backgroundColor).toBe(dirtyReviewStyle.raisedBackground)
-    expect(dirtyReviewStyle.borderColor).toBe('rgba(0, 0, 0, 0)')
+    expect(dirtyReviewStyle.backgroundColor).toBe(dirtyReviewStyle.mutedBackground)
+    expect(dirtyReviewStyle.borderWidth).toBe('0px')
 
     execFileSync('git', ['add', 'display-fixture.txt'], { cwd: workspace, stdio: 'ignore' })
     execFileSync('git', ['commit', '-m', 'commit ACP file change'], { cwd: workspace, stdio: 'ignore' })

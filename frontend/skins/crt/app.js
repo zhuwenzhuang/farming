@@ -126,6 +126,18 @@ const CRT_SETTINGS_REQUEST_TIMEOUT_MS = 15_000;
 const CRT_TERMINAL_RESIZE_SETTLE_MS = 250;
 const CRT_TERMINAL_MIN_COLS = 40;
 const CRT_TERMINAL_MIN_ROWS = 10;
+function requireCrtAgentStateBridge() {
+    const bridge = typeof window === 'undefined' ? null : window.FarmingAgentState;
+    if (!bridge)
+        throw new Error('Farming Agent state bridge is unavailable');
+    return bridge;
+}
+function isCrtAgentStateMessageCandidate(value) {
+    return value !== null
+        && typeof value === 'object'
+        && ('type' in value)
+        && (value.type === 'state' || value.type === 'state-delta');
+}
 const CRT_AGENT_DISPLAY_NAMES = {
     qwen: 'Qwen Code',
     codex: 'Codex',
@@ -4219,22 +4231,7 @@ function applyCrtAgentStateDelta(data) {
         return null;
     if (data.upserts.length === 0 && data.removedAgentIds.length === 0 && !data.state)
         return state;
-    const removals = new Set(data.removedAgentIds);
-    const replacements = new Map(data.upserts.map((agent) => [agent.id, agent]));
-    const retainedAgentIds = new Set();
-    const nextAgents = [];
-    state.agents.forEach((agent) => {
-        if (removals.has(agent.id))
-            return;
-        const replacement = replacements.get(agent.id);
-        nextAgents.push(replacement || agent);
-        retainedAgentIds.add(agent.id);
-    });
-    data.upserts.forEach((agent) => {
-        if (removals.has(agent.id) || retainedAgentIds.has(agent.id))
-            return;
-        nextAgents.push(agent);
-    });
+    const nextAgents = requireCrtAgentStateBridge().applyAgentStateDelta(state.agents, data.upserts, data.removedAgentIds);
     return {
         ...state,
         ...(data.state || {}),
@@ -4252,31 +4249,18 @@ function applyCrtAgentStateSnapshotPage(data) {
             ? data.state
             : null;
     }
-    const nextOffset = page.offset + data.state.agents.length;
     const pageAgentIds = data.state.agents.map(agent => agent.id);
-    const validPage = Boolean(page.id)
-        && Number.isInteger(page.offset)
-        && page.offset >= 0
-        && Number.isInteger(page.total)
-        && page.total >= 0
-        && nextOffset <= page.total
-        && pageAgentIds.every(agentId => typeof agentId === 'string' && agentId.length > 0)
-        && new Set(pageAgentIds).size === pageAgentIds.length
-        && page.complete === (nextOffset === page.total);
-    if (!validPage)
+    const snapshotTransition = requireCrtAgentStateBridge().advanceAgentStateSnapshot(agentStateSnapshotCursor, data.generation, data.sequence, page, data.state.agents.length);
+    if (snapshotTransition.disposition === 'resync'
+        || !pageAgentIds.every(agentId => typeof agentId === 'string' && agentId.length > 0)
+        || new Set(pageAgentIds).size !== pageAgentIds.length)
         return null;
-    if (page.offset === 0) {
+    if (snapshotTransition.disposition === 'replace') {
         if (!Object.prototype.hasOwnProperty.call(data.state, 'mainAgentId')
             || !Array.isArray(data.state.taskHistory))
             return null;
         agentStateSnapshotAgents = page.complete ? [] : [...data.state.agents];
-        agentStateSnapshotCursor = page.complete ? null : {
-            generation: data.generation,
-            id: page.id,
-            nextOffset,
-            sequence: data.sequence,
-            total: page.total,
-        };
+        agentStateSnapshotCursor = snapshotTransition.cursor;
         if (page.complete || !state)
             return data.state;
         const replacements = new Map(data.state.agents.map(agent => [agent.id, agent]));
@@ -4296,12 +4280,6 @@ function applyCrtAgentStateSnapshotPage(data) {
         };
     }
     if (!state
-        || !agentStateSnapshotCursor
-        || agentStateSnapshotCursor.generation !== data.generation
-        || agentStateSnapshotCursor.sequence !== data.sequence
-        || agentStateSnapshotCursor.id !== page.id
-        || agentStateSnapshotCursor.nextOffset !== page.offset
-        || agentStateSnapshotCursor.total !== page.total
         || agentStateSnapshotAgents.length !== page.offset)
         return null;
     const existingAgentIds = new Set(agentStateSnapshotAgents.map(agent => agent.id));
@@ -4309,9 +4287,7 @@ function applyCrtAgentStateSnapshotPage(data) {
         return null;
     const completedAgents = [...agentStateSnapshotAgents, ...data.state.agents];
     agentStateSnapshotAgents = page.complete ? [] : completedAgents;
-    agentStateSnapshotCursor = page.complete
-        ? null
-        : { ...agentStateSnapshotCursor, nextOffset };
+    agentStateSnapshotCursor = snapshotTransition.cursor;
     if (page.complete) {
         return {
             ...state,
@@ -4373,6 +4349,7 @@ function connect() {
     }
     loadThemes();
     loadGlobalSettings();
+    const agentStateBridge = requireCrtAgentStateBridge();
     const socket = new WebSocket(farmingWebSocketUrl());
     ws = socket;
     socket.onopen = () => {
@@ -4415,11 +4392,31 @@ function connect() {
     socket.onmessage = (event) => {
         if (ws !== socket)
             return;
-        const data = JSON.parse(event.data);
+        let parsed;
+        try {
+            parsed = JSON.parse(event.data);
+        }
+        catch (error) {
+            console.error(error instanceof Error ? error.message : 'Invalid Farming backend message');
+            return;
+        }
+        let data;
+        if (isCrtAgentStateMessageCandidate(parsed)) {
+            const validation = agentStateBridge.validateServerMessage(parsed);
+            if (!validation.ok) {
+                console.error(validation.error);
+                requestCrtAgentStateResync(socket, true);
+                return;
+            }
+            data = validation.value;
+        }
+        else {
+            data = parsed;
+        }
         if (getSessionClient()?.handleServerMessage(data))
             return;
         if (data.type === 'protocol-hello') {
-            if (data.protocolVersion !== CRT_PROTOCOL_VERSION) {
+            if (!agentStateBridge.protocolCompatible(data.protocolVersion)) {
                 if (data.protocolVersion > CRT_PROTOCOL_VERSION) {
                     showCrtProtocolMismatchNotice('FARMING CRT PAGE OUT OF DATE', 'Reload this page to load the updated Farming CRT interface.');
                 }
@@ -4460,11 +4457,12 @@ function connect() {
                 requestCrtAgentStateResync(socket, true);
                 return;
             }
-            if (data.generation === agentStateGeneration && data.sequence <= agentStateSequence)
+            const disposition = agentStateBridge.agentStateDeltaDisposition(agentStateGeneration
+                ? { generation: agentStateGeneration, sequence: agentStateSequence }
+                : null, data.generation, data.sequence);
+            if (disposition === 'ignore')
                 return;
-            if (!agentStateGeneration
-                || data.generation !== agentStateGeneration
-                || data.sequence !== agentStateSequence + 1) {
+            if (disposition === 'resync') {
                 requestCrtAgentStateResync(socket);
                 return;
             }
@@ -7641,6 +7639,7 @@ if (typeof module !== 'undefined' && module.exports) {
     };
 }
 else {
+    requireCrtAgentStateBridge();
     installCrtTerminalTestApi();
     setupWorkspaceHistoryControls();
     setupCrtSearchControls();

@@ -401,15 +401,18 @@ interface CrtComposerInputResult extends CrtProtocolRecord {
   uncertain?: boolean;
 }
 
-interface CrtProtocolResourceMetadataServerMessage extends CrtProtocolRecord {
-  type:
-    | 'browser-resource-snapshot'
-    | 'browser-resource-updated'
-    | 'browser-resource-deleted'
-    | 'computer-resource-snapshot'
-    | 'computer-resource-updated'
-    | 'computer-resource-deleted';
-}
+type CrtProtocolResourceMetadataServerMessage = Extract<
+  import('../../../shared/browser-protocol.js').ServerMessage,
+  {
+    type:
+      | 'browser-resource-snapshot'
+      | 'browser-resource-updated'
+      | 'browser-resource-deleted'
+      | 'computer-resource-snapshot'
+      | 'computer-resource-updated'
+      | 'computer-resource-deleted';
+  }
+>;
 
 type CrtProtocolDeclaredServerMessage =
   | CrtProtocolHelloServerMessage

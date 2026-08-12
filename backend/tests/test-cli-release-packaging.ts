@@ -136,6 +136,7 @@ function run() {
     npmSmokeScript.includes('--ignore-scripts')
       && npmSmokeScript.includes("grep -q '^npm warn allow-scripts'")
       && npmSmokeScript.includes('frontend/skins/crt/index.html')
+      && npmSmokeScript.includes('/farming/crt/shared/agent-state-bridge.js')
       && npmSmokeScript.includes('/farming/crt/shared/runtime-paths.js')
       && npmSmokeScript.includes('/farming/crt/styles/monochrome-green.css')
       && npmSmokeScript.includes('node --import tsx "${PROJECT_ROOT}/scripts/assert-no-bundled-agent-clis.ts"')

@@ -531,6 +531,28 @@ function stateMessage(value: ObjectMessage): boolean {
   return optionalField(value, 'snapshot', () => stateSnapshotPage(value, agents.length))
 }
 
+function stateDeltaMessage(value: ObjectMessage): boolean {
+  const upserts = value.upserts
+  const removedAgentIds = value.removedAgentIds
+  if (
+    !Array.isArray(upserts)
+    || !upserts.every(isAgentStateWire)
+    || !Array.isArray(removedAgentIds)
+    || !removedAgentIds.every(agentId => typeof agentId === 'string')
+  ) return false
+  const upsertIds = upserts.map(agent => agent.id)
+  return new Set(upsertIds).size === upsertIds.length
+    && new Set(removedAgentIds).size === removedAgentIds.length
+    && !upsertIds.some(agentId => removedAgentIds.includes(agentId))
+    && stringField(value, 'generation')
+    && revisionField(value, 'sequence')
+    && optionalField(value, 'state', () => (
+      objectMessage(value.state)
+      && !Object.prototype.hasOwnProperty.call(value.state, 'agents')
+      && agentInventoryMetadata(value.state)
+    ))
+}
+
 function agentReadState(value: unknown): boolean {
   return objectMessage(value)
     && stringField(value, 'agentId')
@@ -715,19 +737,7 @@ export function validateServerMessage(value: unknown): ValidationResult<ServerMe
     case 'error': valid = stringField(value, 'message'); break
     case 'command-ack': valid = stringField(value, 'requestId') && stringField(value, 'command'); break
     case 'state': valid = stateMessage(value); break
-    case 'state-delta':
-      valid = stringField(value, 'generation')
-        && revisionField(value, 'sequence')
-        && Array.isArray(value.upserts)
-        && value.upserts.every(isAgentStateWire)
-        && Array.isArray(value.removedAgentIds)
-        && value.removedAgentIds.every(agentId => typeof agentId === 'string')
-        && optionalField(value, 'state', () => (
-          objectMessage(value.state)
-          && !Object.prototype.hasOwnProperty.call(value.state, 'agents')
-          && agentInventoryMetadata(value.state)
-        ))
-      break
+    case 'state-delta': valid = stateDeltaMessage(value); break
     case 'composer-input-result': valid = stringField(value, 'requestId') && stringField(value, 'agentId') && typeof value.accepted === 'boolean' && stringField(value, 'message', true) && (!Object.prototype.hasOwnProperty.call(value, 'uncertain') || typeof value.uncertain === 'boolean'); break
     case 'agent-started': valid = stringField(value, 'agentId'); break
     case 'session-output': valid = objectMessage(value.stream) && stringField(value.stream, 'agentId'); break

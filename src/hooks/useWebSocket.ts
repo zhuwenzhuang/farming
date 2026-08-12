@@ -30,7 +30,7 @@ import {
   applyAgentStateDelta,
   type AgentStateCursor,
   type AgentStateSnapshotCursor,
-} from '@/lib/agent-state-delta'
+} from '../../shared/agent-state-reducer.js'
 import {
   MIN_PROTOCOL_VERSION,
   PROTOCOL_VERSION,

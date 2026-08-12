@@ -14,7 +14,7 @@ import {
   applyAgentStateDelta,
   type AgentStateCursor,
   type AgentStateSnapshotCursor,
-} from '../src/lib/agent-state-delta';
+} from '../shared/agent-state-reducer.js';
 
 const PROJECT_ROOT = path.join(__dirname, '..');
 const DEFAULT_BASE_PATH = '/farming';

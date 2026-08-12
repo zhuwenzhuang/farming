@@ -1,12 +1,12 @@
 import type {
   AgentStateCursor,
   AgentStateSnapshotPage,
-} from '../../shared/browser-protocol'
+} from './browser-protocol.js'
 
 export type {
   AgentStateCursor,
   AgentStateSnapshotPage,
-} from '../../shared/browser-protocol'
+} from './browser-protocol.js'
 
 export interface AgentStateSnapshotCursor extends AgentStateCursor {
   id: string
@@ -105,7 +105,7 @@ export function applyAgentStateDelta<Agent extends { id: string }>(
     retainedIds.add(agent.id)
   }
 
-  for (const agent of upserts) {
+  for (const agent of replacements.values()) {
     if (removals.has(agent.id) || retainedIds.has(agent.id)) continue
     nextAgents.push(agent)
     retainedIds.add(agent.id)

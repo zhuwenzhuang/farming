@@ -19,7 +19,9 @@ type CrtTestStateMetadata = {
   agentInventoryRunning?: number
   agentInventoryScope?: 'all'
   agentInventoryTotal?: number
+  mainPageSessionKeys?: string[]
   mainAgentId?: null
+  projectWorkspaces?: string[]
   taskHistory?: []
 }
 
@@ -76,6 +78,8 @@ function send(socket: WebSocketRoute, message: ProtocolServerHelloMessage | CrtT
 test('CRT reduces paged Agent state and resyncs sequence and generation gaps', async ({ page }) => {
   let socket: WebSocketRoute | null = null
   const clientMessages: Array<Record<string, unknown>> = []
+  const pageErrors: string[] = []
+  page.on('pageerror', error => pageErrors.push(error.message))
   await page.routeWebSocket(/\/farming\/ws(?:\?|$)/, route => {
     socket = route
     route.onMessage(message => {
@@ -135,15 +139,40 @@ test('CRT reduces paged Agent state and resyncs sequence and generation gaps', a
   await expect(page.locator('[data-agent-id="agent-alpha"] .agent-header')).toHaveText('Alpha')
   await expect(page.locator('[data-agent-id="agent-beta"] .agent-header')).toHaveText('Beta')
 
-  const updatedAlpha = testAgent('agent-alpha', 'Alpha updated')
-  send(socket, {
+  socket.send('{invalid-json')
+  socket.send(JSON.stringify({
     type: 'state-delta',
     generation: 'crt-generation-1',
     sequence: 2,
-    upserts: [updatedAlpha],
+    upserts: 'invalid',
     removedAgentIds: [],
+  }))
+
+  await expect.poll(() => clientMessages.filter(message => message.type === 'state-resync').length).toBe(1)
+  expect(clientMessages.filter(message => message.type === 'state-resync')[0]).toEqual({ type: 'state-resync' })
+
+  const updatedAlpha = testAgent('agent-alpha', 'Alpha updated')
+  send(socket, {
+    type: 'state',
+    generation: 'crt-generation-1',
+    sequence: 2,
+    snapshot: {
+      complete: true,
+      id: 'crt-snapshot-recovered-after-invalid-delta',
+      offset: 0,
+      total: 2,
+    },
+    state: {
+      agents: [updatedAlpha, beta],
+      agentInventoryRunning: 2,
+      agentInventoryScope: 'all',
+      agentInventoryTotal: 2,
+      mainAgentId: null,
+      taskHistory: [],
+    },
   })
   await expect(page.locator('[data-agent-id="agent-alpha"] .agent-header')).toHaveText('Alpha updated')
+  expect(pageErrors).toEqual([])
 
   send(socket, {
     type: 'state-delta',
@@ -168,8 +197,8 @@ test('CRT reduces paged Agent state and resyncs sequence and generation gaps', a
     upserts: [testAgent('agent-alpha', 'Sequence gap must not paint')],
     removedAgentIds: [],
   })
-  await expect.poll(() => clientMessages.filter(message => message.type === 'state-resync').length).toBe(1)
-  expect(clientMessages.filter(message => message.type === 'state-resync')[0] as StateResyncMessage).toMatchObject({
+  await expect.poll(() => clientMessages.filter(message => message.type === 'state-resync').length).toBe(2)
+  expect(clientMessages.filter(message => message.type === 'state-resync')[1] as StateResyncMessage).toMatchObject({
     type: 'state-resync',
     generation: 'crt-generation-1',
     afterSequence: 2,
@@ -204,11 +233,159 @@ test('CRT reduces paged Agent state and resyncs sequence and generation gaps', a
     upserts: [testAgent('agent-alpha', 'Generation gap must not paint')],
     removedAgentIds: [],
   })
-  await expect.poll(() => clientMessages.filter(message => message.type === 'state-resync').length).toBe(2)
-  expect(clientMessages.filter(message => message.type === 'state-resync')[1] as StateResyncMessage).toMatchObject({
+  await expect.poll(() => clientMessages.filter(message => message.type === 'state-resync').length).toBe(3)
+  expect(clientMessages.filter(message => message.type === 'state-resync')[2] as StateResyncMessage).toMatchObject({
     type: 'state-resync',
     generation: 'crt-generation-1',
     afterSequence: 4,
   })
   await expect(page.locator('[data-agent-id="agent-alpha"] .agent-header')).toHaveText('Alpha recovered')
+})
+
+test('CRT requests a full resync after a malformed initial Agent snapshot', async ({ page }) => {
+  let socket: WebSocketRoute | null = null
+  const clientMessages: Array<Record<string, unknown>> = []
+  await page.routeWebSocket(/\/farming\/ws(?:\?|$)/, route => {
+    socket = route
+    route.onMessage(message => {
+      clientMessages.push(JSON.parse(String(message)) as Record<string, unknown>)
+    })
+  })
+
+  await page.goto('/farming/crt/', { waitUntil: 'domcontentloaded' })
+  await expect.poll(() => clientMessages.some(message => message.type === 'protocol-hello')).toBe(true)
+  if (!socket) throw new Error('CRT WebSocket route was not created')
+
+  send(socket, {
+    type: 'protocol-hello',
+    protocolVersion: PROTOCOL_VERSION,
+    minProtocolVersion: PROTOCOL_VERSION,
+  })
+  socket.send(JSON.stringify({
+    type: 'state',
+    generation: 'crt-malformed-generation',
+    sequence: 1,
+    snapshot: {
+      complete: true,
+      id: 'crt-malformed-snapshot',
+      offset: 0,
+      total: 1,
+    },
+    state: { agents: 'invalid' },
+  }))
+
+  await expect.poll(() => clientMessages.filter(message => message.type === 'state-resync').length).toBe(1)
+  expect(clientMessages.find(message => message.type === 'state-resync')).toEqual({ type: 'state-resync' })
+
+  const recovered = testAgent('agent-recovered', 'Recovered from malformed snapshot')
+  send(socket, {
+    type: 'state',
+    generation: 'crt-recovered-generation',
+    sequence: 1,
+    snapshot: {
+      complete: true,
+      id: 'crt-recovered-snapshot',
+      offset: 0,
+      total: 1,
+    },
+    state: {
+      agents: [recovered],
+      agentInventoryRunning: 1,
+      agentInventoryScope: 'all',
+      agentInventoryTotal: 1,
+      mainAgentId: null,
+      taskHistory: [],
+    },
+  })
+
+  await expect(page.locator('[data-agent-id="agent-recovered"] .agent-header')).toHaveText(
+    'Recovered from malformed snapshot',
+  )
+})
+
+test('Code consumes the same paged Agent state and delta sequence contract', async ({ page }) => {
+  let socket: WebSocketRoute | null = null
+  const clientMessages: Array<Record<string, unknown>> = []
+  await page.routeWebSocket(/\/farming\/ws(?:\?|$)/, route => {
+    socket = route
+    route.onMessage(message => {
+      clientMessages.push(JSON.parse(String(message)) as Record<string, unknown>)
+    })
+  })
+
+  await page.goto('/farming/', { waitUntil: 'domcontentloaded' })
+  await expect.poll(() => clientMessages.some(message => message.type === 'protocol-hello')).toBe(true)
+  if (!socket) throw new Error('Code WebSocket route was not created')
+
+  send(socket, {
+    type: 'protocol-hello',
+    protocolVersion: PROTOCOL_VERSION,
+    minProtocolVersion: PROTOCOL_VERSION,
+  })
+
+  const workspace = '/tmp/code-agent-state'
+  const alpha = { ...testAgent('code-agent-alpha', 'Code Alpha'), cwd: workspace, projectWorkspace: workspace }
+  const beta = { ...testAgent('code-agent-beta', 'Code Beta'), cwd: workspace, projectWorkspace: workspace }
+  send(socket, {
+    type: 'state',
+    generation: 'code-generation-1',
+    sequence: 1,
+    snapshot: {
+      complete: false,
+      id: 'code-snapshot-1',
+      offset: 0,
+      total: 2,
+    },
+    state: {
+      agents: [alpha],
+      agentInventoryRunning: 2,
+      agentInventoryScope: 'all',
+      agentInventoryTotal: 2,
+      mainAgentId: null,
+      mainPageSessionKeys: [],
+      projectWorkspaces: [workspace],
+      taskHistory: [],
+    },
+  })
+  send(socket, {
+    type: 'state',
+    generation: 'code-generation-1',
+    sequence: 1,
+    snapshot: {
+      complete: true,
+      id: 'code-snapshot-1',
+      offset: 1,
+      total: 2,
+    },
+    state: { agents: [beta] },
+  })
+
+  const alphaRow = page.locator('[data-testid="code-agent-row"][data-agent-id="code-agent-alpha"]')
+  const betaRow = page.locator('[data-testid="code-agent-row"][data-agent-id="code-agent-beta"]')
+  await expect(alphaRow).toContainText('Code Alpha')
+  await expect(betaRow).toContainText('Code Beta')
+
+  send(socket, {
+    type: 'state-delta',
+    generation: 'code-generation-1',
+    sequence: 2,
+    upserts: [{ ...alpha, customTitle: 'Code Alpha updated' }],
+    removedAgentIds: [],
+  })
+  await expect(alphaRow).toContainText('Code Alpha updated')
+
+  send(socket, {
+    type: 'state-delta',
+    generation: 'code-generation-1',
+    sequence: 4,
+    upserts: [{ ...alpha, customTitle: 'Code sequence gap must not paint' }],
+    removedAgentIds: [],
+  })
+  await expect.poll(() => clientMessages.filter(message => message.type === 'state-resync').length).toBe(1)
+  expect(clientMessages.find(message => message.type === 'state-resync')).toMatchObject({
+    type: 'state-resync',
+    generation: 'code-generation-1',
+    afterSequence: 2,
+  })
+  await expect(alphaRow).toContainText('Code Alpha updated')
 })

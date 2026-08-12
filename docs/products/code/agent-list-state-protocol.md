@@ -165,6 +165,12 @@ After a restart, sequence gap, or uncertain delivery, it requests a fresh
 authoritative snapshot instead of guessing, replaying mutations, or requiring
 per-message acknowledgements.
 
+Farming Code and Farming CRT keep separate presentation state, rendering, and
+page-lifecycle policies, but they share the browser-side protocol reducer. Both
+interfaces validate canonical Agent-state Server messages at ingress and use the same
+snapshot cursor, delta sequence, and Agent-list merge rules. Interface-specific
+projection and rendering must remain outside that shared protocol state machine.
+
 Server startup materializes every durable main-page Agent row in one aggregate
 state transition before awaiting Terminal-host enumeration, ACP binding, or
 transcript loading. Those rows retain their persisted identity, runtime kind,

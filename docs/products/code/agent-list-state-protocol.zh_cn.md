@@ -29,6 +29,8 @@ Adaptive Agent Title 会先发布 Agent-scoped Optimistic Patch，同一 Agent �
 
 每个快照和增量都带有后端 generation 与递增 sequence。客户端只应用当前 generation 中紧接着的 sequence。遇到后端重启、序号缺口或不确定传输时，客户端请求新的权威快照，而不是自行猜测、重放 mutation 或引入逐消息确认。
 
+Farming Code 与 Farming CRT 保留各自的展示状态、渲染方式和页面生命周期策略，但共用浏览器侧协议 Reducer。两个界面都必须在消息入口校验规范的 Agent 状态 Server 消息，并使用同一套 Snapshot Cursor、Delta Sequence 与 Agent 列表合并规则。界面专属的投影与渲染必须留在这套共享协议状态机之外。
+
 Server 启动时必须在等待 Terminal Host 枚举、ACP Binding 或 Transcript 加载之前，通过一次
 聚合状态转换物化全部持久化 Main-page Agent 行。这些行保留持久化 Identity、Runtime Kind、
 顺序和 Attention Cursor。有精确恢复证据的 Runtime 为 `pending` 或 `connecting`；只有 Indexed

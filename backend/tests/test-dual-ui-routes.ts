@@ -30,6 +30,35 @@ function run() {
   assert.strictEqual(window.FarmingRuntimePaths.apiPath('/settings'), '/farming/api/settings');
   assert.strictEqual(window.FarmingRuntimePaths.webSocketUrl(), 'wss://example.test/farming/ws');
 
+  const agentStateContext: {
+    FarmingAgentState?: {
+      PROTOCOL_VERSION: number;
+      applyAgentStateDelta(
+        agents: Array<{ id: string }>,
+        upserts: Array<{ id: string }>,
+        removedAgentIds: string[],
+      ): Array<{ id: string }>;
+      protocolCompatible(version: unknown): boolean;
+      validateServerMessage(message: unknown): { ok: boolean };
+    };
+  } = {};
+  vm.runInNewContext(read('frontend/agent-state-bridge.js'), agentStateContext);
+  const agentState = agentStateContext.FarmingAgentState;
+  assert(agentState, 'Agent state bridge must be installed for Farming CRT');
+  assert(Object.isFrozen(agentState), 'Agent state bridge API must be immutable');
+  assert(agentState.protocolCompatible(agentState.PROTOCOL_VERSION));
+  assert(agentState.validateServerMessage({
+    type: 'session-output',
+    stream: { agentId: 'agent-a' },
+  }).ok);
+  assert.deepStrictEqual(
+    Array.from(
+      agentState.applyAgentStateDelta([{ id: 'agent-a' }], [{ id: 'agent-b' }], []),
+      agent => agent.id,
+    ),
+    ['agent-a', 'agent-b'],
+  );
+
   const root = path.join(__dirname, '../..');
   const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
   const packageFiles = new Set(packageJson.files);
@@ -42,6 +71,7 @@ function run() {
     assert(packageFiles.has(requiredPattern), `npm package files are missing ${requiredPattern}`);
   }
   for (const requiredFile of [
+    'frontend/agent-state-bridge.js',
     'frontend/runtime-paths.js',
     'frontend/skins/crt/app.js',
     'frontend/skins/crt/index.html',

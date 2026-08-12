@@ -354,7 +354,18 @@ interface FarmingSessionSkin {
   terminalTheme: Record<string, string> | null;
 }
 
+interface FarmingAgentStateBridge {
+  MIN_PROTOCOL_VERSION: number;
+  PROTOCOL_VERSION: number;
+  advanceAgentStateSnapshot: typeof import('../../../shared/agent-state-reducer.js').advanceAgentStateSnapshot;
+  agentStateDeltaDisposition: typeof import('../../../shared/agent-state-reducer.js').agentStateDeltaDisposition;
+  applyAgentStateDelta: typeof import('../../../shared/agent-state-reducer.js').applyAgentStateDelta;
+  protocolCompatible: typeof import('../../../shared/browser-protocol.js').protocolCompatible;
+  validateServerMessage: typeof import('../../../shared/browser-protocol.js').validateServerMessage;
+}
+
 interface Window {
+  FarmingAgentState: FarmingAgentStateBridge;
   FarmingRuntimePaths?: {
     basePath: string;
     path(suffix?: string): string;

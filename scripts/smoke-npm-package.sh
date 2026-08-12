@@ -99,6 +99,7 @@ PACKAGE_ROOT="${PREFIX}/lib/node_modules/farming-code"
 CODEX_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/codex-acp-1.1.14.mjs"
 CLAUDE_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/claude-agent-acp-0.66.0.mjs"
 for packaged_ui_file in \
+  frontend/agent-state-bridge.js \
   frontend/runtime-paths.js \
   frontend/skins/crt/app.js \
   frontend/skins/crt/index.html \
@@ -289,6 +290,7 @@ curl --fail --silent --show-error "http://127.0.0.1:${PORT_VALUE}/farming/api/au
 for crt_path in \
   /farming/crt/ \
   /farming/crt/app.js \
+  /farming/crt/shared/agent-state-bridge.js \
   /farming/crt/shared/runtime-paths.js \
   /farming/crt/styles/monochrome-green.css
 do
