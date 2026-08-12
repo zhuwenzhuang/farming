@@ -372,6 +372,9 @@ test.describe('Farming Code appearance skins', () => {
     ))).toBe('rgba(0, 0, 0, 0)')
     await expectDarkSurface(page.getByTestId('code-composer'), 'composer')
     await saveScreenshot(testInfo, 'desktop-shell.png', page)
+    await chooseAppearance(page, 'Light')
+    await saveScreenshot(testInfo, 'light-desktop-shell.png', page)
+    await chooseAppearance(page, 'Dark')
 
     await page.getByTestId('code-sidebar-options').click()
     const settingsPanel = page.getByTestId('code-settings-panel')
