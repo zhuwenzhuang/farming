@@ -1,6 +1,6 @@
 import type { OpenWorkspaceFile } from '@/lib/workspace-open-files'
 import type { WorkspaceEditorActionState } from '@/lib/workspace-editor-model'
-import { ChatBubblesGlyph, ErrorGlyph, ShareGlyph } from '@/components/IconGlyphs'
+import { ChatBubblesGlyph, ErrorGlyph, RefreshGlyph, ShareGlyph } from '@/components/IconGlyphs'
 import type { CodeCopy } from '../code/copy'
 
 function MarkdownPreviewIcon({ previewOpen }: { previewOpen: boolean }) {
@@ -233,7 +233,9 @@ export function FileEditorActions({
           disabled={openFile.saving}
           aria-label={copy.reloadFile}
           title={copy.reloadFile}
-        />
+        >
+          <RefreshGlyph className="code-file-editor-action-svg" />
+        </button>
       )}
       {actions.showOverwrite && (
         <button

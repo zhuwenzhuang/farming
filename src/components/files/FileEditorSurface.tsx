@@ -1,5 +1,6 @@
 import { useRef, type RefObject } from 'react'
 import { LocalErrorBoundary, LocalRenderFault } from '@/components/LocalErrorBoundary'
+import { RefreshGlyph } from '@/components/IconGlyphs'
 import {
   workspaceEditorSurfaceState,
   type WorkspaceEditorFileMode,
@@ -87,7 +88,9 @@ function FilePreviewRenderError({
           aria-label={copy.retry}
           title={copy.retry}
           onClick={onRetry}
-        />
+        >
+          <RefreshGlyph className="code-file-editor-action-svg" />
+        </button>
       </div>
     </section>
   )

@@ -24,6 +24,7 @@ import remarkMath from 'remark-math'
 import { parse as parseYaml } from 'yaml'
 import 'katex/dist/katex.min.css'
 import { LocalErrorBoundary, LocalRenderFault } from '@/components/LocalErrorBoundary'
+import { RefreshGlyph } from '@/components/IconGlyphs'
 import { writeClipboardText } from '@/lib/clipboard'
 import { rawWorkspaceFileUrl } from '@/lib/workspace-files'
 import { decodeMermaidCharacterReferences } from '@/lib/mermaid-source'
@@ -360,7 +361,9 @@ const MarkdownPre: Components['pre'] = ({ children, ...props }) => {
                 aria-label={copy.retry}
                 title={copy.retry}
                 onClick={retry}
-              />
+              >
+                <RefreshGlyph className="code-file-editor-action-svg" />
+              </button>
             </div>
             <pre className="code-markdown-mermaid-fallback">
               <code className="language-mermaid">{mermaidSource}</code>
@@ -814,7 +817,9 @@ export const FileEditorMarkdownPreview = forwardRef<HTMLElement, FileEditorMarkd
                     aria-label={copy.retry}
                     title={copy.retry}
                     onClick={retry}
-                  />
+                  >
+                    <RefreshGlyph className="code-file-editor-action-svg" />
+                  </button>
                 </div>
                 <pre>{markdownDocument.body}</pre>
               </>

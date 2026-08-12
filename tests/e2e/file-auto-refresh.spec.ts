@@ -98,7 +98,10 @@ test('automatically refreshes every open file viewer while preserving dirty draf
     '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="green"/></svg>\n',
   )
   await expect.poll(() => watchedPaths).toEqual(['guide.md', 'index.html', 'plain.txt'])
-  await page.getByTestId('code-file-editor').getByRole('button', { name: 'Reload file' }).click()
+  const reloadButton = page.getByTestId('code-file-editor').getByRole('button', { name: 'Reload file' })
+  await expect(reloadButton.locator('svg')).toBeVisible()
+  await expect(reloadButton.locator('path')).toHaveCount(2)
+  await reloadButton.click()
   await expect.poll(() => htmlPreview.getAttribute('srcdoc')).not.toBe(previewDocumentBeforeDependencyReload)
   await expect.poll(() => htmlFrame.getByRole('img', { name: 'linked asset' }).evaluate(
     (image: HTMLImageElement) => image.naturalWidth,

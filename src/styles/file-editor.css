@@ -409,28 +409,6 @@
   border-bottom: 1.4px solid currentColor;
 }
 
-.code-file-editor-action.reload::before {
-  content: '';
-  width: 12px;
-  height: 12px;
-  border: 1.6px solid currentColor;
-  border-left-color: transparent;
-  border-radius: 999px;
-  transform: rotate(-38deg);
-}
-
-.code-file-editor-action.reload::after {
-  content: '';
-  width: 5px;
-  height: 5px;
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  border-top: 1.6px solid currentColor;
-  border-right: 1.6px solid currentColor;
-  transform: rotate(18deg);
-}
-
 .code-file-editor-action.overwrite {
   color: var(--code-warning);
 }
