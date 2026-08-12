@@ -12,12 +12,14 @@ interface FileStickyContextProps {
   copy: CodeCopy
   items: FileStickyContextItem[]
   onFocusDirectory: (node: FileExplorerNode) => void
+  onOpenFileContextMenu: (x: number, y: number, node: FileExplorerNode) => void
 }
 
 function renderDirectoryStickyItem(
   item: Extract<FileStickyContextItem, { kind: 'directory' }>,
   copy: CodeCopy,
-  onFocusDirectory: (node: FileExplorerNode) => void
+  onFocusDirectory: (node: FileExplorerNode) => void,
+  onOpenFileContextMenu: (x: number, y: number, node: FileExplorerNode) => void,
 ) {
   const descendantStatusClassName = workspaceFileTreeDescendantGitStatusClassName(item.node.descendantGitStatus)
   const presentation = workspaceStickyDirectoryPresentation(item.nodes)
@@ -26,6 +28,8 @@ function renderDirectoryStickyItem(
       key={item.key}
       type="button"
       className="code-file-row code-file-sticky-row"
+      data-testid="code-file-sticky-row"
+      data-sticky-file-path={item.node.path}
       style={workspaceFileTreeDepthStyle(0)}
       title={item.node.path}
       aria-label={item.node.path}
@@ -33,6 +37,11 @@ function renderDirectoryStickyItem(
         event.preventDefault()
         event.stopPropagation()
         onFocusDirectory(item.node)
+      }}
+      onContextMenu={event => {
+        event.preventDefault()
+        event.stopPropagation()
+        onOpenFileContextMenu(event.clientX, event.clientY, item.node)
       }}
     >
       <span className="code-file-name">{presentation.compactLabel}</span>
@@ -50,6 +59,7 @@ export function FileStickyContext({
   copy,
   items,
   onFocusDirectory,
+  onOpenFileContextMenu,
 }: FileStickyContextProps) {
   const item = items[0]
   if (!item) return null
@@ -57,7 +67,7 @@ export function FileStickyContext({
   return (
     <div className="code-file-sticky-shell">
       <div className="code-file-sticky-stack" data-testid="code-file-sticky-stack" aria-label={copy.stickyFolderPath}>
-        {renderDirectoryStickyItem(item, copy, onFocusDirectory)}
+        {renderDirectoryStickyItem(item, copy, onFocusDirectory, onOpenFileContextMenu)}
       </div>
     </div>
   )

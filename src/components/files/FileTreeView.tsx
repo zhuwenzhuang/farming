@@ -144,6 +144,7 @@ export function FileTreeView({
         copy={copy}
         items={stickyContextItems}
         onFocusDirectory={onFocusStickyDirectory}
+        onOpenFileContextMenu={onOpenFileContextMenu}
       />
       <FileNodeRendererContext.Provider value={nodeRendererContext}>
         <Tree<FileExplorerNode>

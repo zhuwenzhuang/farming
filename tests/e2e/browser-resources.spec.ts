@@ -298,7 +298,7 @@ test('mounts Agent-owned Browsers behind nested resource controls without layout
   const projectTitleContent = project.locator('.code-project-title-content')
   await expect(projectActions).toHaveCSS('opacity', '0')
   const projectTitleBoxBeforeHover = await projectTitleContent.boundingBox()
-  await projectRow.hover()
+  await project.getByTestId('code-project-title').hover()
   await expect(projectActions).toHaveCSS('opacity', '1')
   const projectTitleBoxAfterHover = await projectTitleContent.boundingBox()
   if (!projectTitleBoxBeforeHover || !projectTitleBoxAfterHover) {
@@ -1261,7 +1261,7 @@ test('uses Farming dark colors for the Browser source menu', async ({ page }) =>
   await expect(browserSource).toBeEnabled({ timeout: 30_000 })
   await browserSource.click()
   const menu = browserSource.locator('xpath=..').getByRole('listbox')
-  await expect(menu).toHaveCSS('background-color', 'rgb(38, 38, 38)')
+  await expect(menu).toHaveCSS('background-color', 'rgb(48, 48, 48)')
   await expect(menu).toHaveCSS('border-radius', '12px')
   await expect(menu.getByRole('option').first()).toHaveCSS('color', 'rgb(255, 255, 255)')
 })

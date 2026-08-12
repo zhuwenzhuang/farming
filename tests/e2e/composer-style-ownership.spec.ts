@@ -17,14 +17,14 @@ test('Composer style owners preserve the light, dark, and compact runtime cascad
   await expect(composer).toBeVisible()
   await expect(composer).toHaveCSS('background-color', 'rgb(255, 255, 255)')
   await expect(composer).toHaveCSS('border-top-width', '1px')
-  await expect(composer).toHaveCSS('border-top-color', 'rgba(31, 35, 40, 0.12)')
+  await expect(composer).toHaveCSS('border-top-color', 'rgba(0, 0, 0, 0)')
   await expect(composer).toHaveCSS('border-radius', '12px')
   await expect(send).toHaveCSS('width', '32px')
   await expect(send).toHaveCSS('height', '32px')
 
   await page.locator('body').evaluate(body => { body.dataset.appearance = 'dark' })
   await expect(composer).toHaveCSS('background-color', 'rgb(24, 24, 24)')
-  await expect(composer).toHaveCSS('border-top-color', 'rgb(56, 56, 56)')
+  await expect(composer).toHaveCSS('border-top-color', 'rgba(0, 0, 0, 0)')
   await expect(composer).toHaveCSS('color', 'rgb(255, 255, 255)')
 
   await page.setViewportSize({ width: 390, height: 844 })

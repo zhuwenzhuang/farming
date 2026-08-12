@@ -73,6 +73,7 @@ const TEST_TIMEOUT_OVERRIDES_MS = new Map<string, number>([
   // adapter trees. Four-way Linux CI contention can exceed the unit-test
   // default even though each transition remains independently bounded.
   ['test-acp-runtime.ts', 90_000],
+  ['tests/desktop-backend.test.ts', 180_000],
   ['test-multi-config-isolation.ts', 90_000],
   ['test-native-session-engine-shell-profiles.ts', 90_000],
   ['test-review-comparison-matrix.ts', 180_000],

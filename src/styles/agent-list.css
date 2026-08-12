@@ -655,6 +655,11 @@ body.code-mode:not(.code-compact-layout) .code-agent-row.requires-resume .code-a
   background: linear-gradient(to bottom, var(--code-bg-chrome) 0 var(--code-agents-sticky-height), transparent var(--code-agents-sticky-height));
   clip-path: inset(0 0 var(--code-agents-sticky-tail-height) 0);
   border-radius: 0 0 6px 6px;
+  pointer-events: none;
+}
+
+.code-agents-section > .code-agent-list {
+  pointer-events: auto;
 }
 
 .code-agent-work-pane {

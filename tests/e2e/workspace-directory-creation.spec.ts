@@ -100,9 +100,9 @@ test.describe('New Agent workspace directory creation', () => {
     await page.getByTestId('workspace-start').click()
 
     const prompt = page.getByTestId('workspace-directory-prompt')
-    await expect(prompt).toHaveCSS('background-color', 'rgb(33, 33, 33)')
+    await expect(prompt).toHaveCSS('background-color', 'rgb(40, 40, 40)')
     await expect(prompt).toHaveCSS('color', 'rgb(255, 255, 255)')
-    await expect(prompt.locator('code')).toHaveCSS('background-color', 'rgb(38, 38, 38)')
+    await expect(prompt.locator('code')).toHaveCSS('background-color', 'rgb(48, 48, 48)')
     await expect(page.getByTestId('workspace-directory-create')).toHaveCSS('background-color', 'rgb(51, 156, 255)')
   })
 

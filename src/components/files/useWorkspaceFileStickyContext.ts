@@ -182,8 +182,9 @@ export function useWorkspaceFileStickyContext({
 
   const focusStickyDirectory = useCallback((node: FileExplorerNode) => {
     lastFocusedFilePathRef.current = node.path
+    treeRef.current?.get(node.path)?.select()
     focusFileTreePath(node.path)
-  }, [focusFileTreePath, lastFocusedFilePathRef])
+  }, [focusFileTreePath, lastFocusedFilePathRef, treeRef])
 
   useEffect(() => {
     clearStickyContext()

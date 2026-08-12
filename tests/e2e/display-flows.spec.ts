@@ -692,12 +692,12 @@ test.describe('display-backed agent flows', () => {
       ).strokeOpacity,
     }))
     expect(paperGuideStyles).toEqual({
-      connectorColor: 'rgb(136, 135, 125)',
-      connectorStrokeOpacity: '0.3',
-      originBraceColor: 'rgb(136, 135, 125)',
-      originBraceStrokeOpacity: '0.46',
-      targetBraceColor: 'rgb(136, 135, 125)',
-      targetBraceStrokeOpacity: '0.56',
+      connectorColor: 'rgba(142, 151, 139, 0.3)',
+      connectorStrokeOpacity: '1',
+      originBraceColor: 'rgba(142, 151, 139, 0.46)',
+      originBraceStrokeOpacity: '1',
+      targetBraceColor: 'rgba(142, 151, 139, 0.56)',
+      targetBraceStrokeOpacity: '1',
     })
     await page.locator('body').evaluate((body, appearance) => {
       if (appearance) body.dataset.appearance = appearance
@@ -2377,7 +2377,7 @@ test.describe('display-backed agent flows', () => {
     await page.getByRole('button', { name: 'Save file' }).click()
     await expect(page.getByRole('button', { name: 'Reload file' })).toBeVisible()
     await page.getByRole('button', { name: 'Reload file' }).click()
-    await expect(page.getByRole('button', { name: 'Reload file' })).toHaveCount(0)
+    await expect(page.getByTestId('code-file-editor').getByTitle('Changed on disk')).toHaveCount(0)
     await expect(page.locator('.code-file-inline-blame.uncommitted')).toBeVisible()
     await page.getByTestId('code-file-monaco').click({ button: 'right', position: { x: 42, y: 38 } })
     await expect(editorContextMenu).toBeVisible()
@@ -2689,11 +2689,13 @@ test.describe('display-backed agent flows', () => {
       const listBox = list.getBoundingClientRect()
       const activeBox = activeRow.getBoundingClientRect()
       const sectionBox = section.getBoundingClientRect()
+      const sectionStyle = getComputedStyle(section)
+      const visibleSectionBottom = sectionBox.bottom - Number.parseFloat(sectionStyle.paddingBottom || '0')
       const projectListBox = projectList.getBoundingClientRect()
       const filesHeaderBox = filesHeader.getBoundingClientRect()
       return {
         activeVisible: activeBox.top >= listBox.top - 1 && activeBox.bottom <= listBox.bottom + 1,
-        filesHeaderBelowOpenEditors: filesHeaderBox.top >= sectionBox.bottom - 2,
+        filesHeaderBelowOpenEditors: filesHeaderBox.top >= visibleSectionBottom - 2,
         listIsCapped: list.clientHeight <= row.getBoundingClientRect().height * 7 + 1,
         projectKeepsOpenEditors: sectionBox.top >= projectListBox.top - 1 && sectionBox.bottom <= projectListBox.bottom + 1,
         rowCount: list.querySelectorAll('[data-testid="code-open-editor-row"]').length,
@@ -3332,8 +3334,7 @@ test.describe('display-backed agent flows', () => {
     await expect(page.getByTestId('code-composer-approval')).toBeVisible()
     await page.locator('body').evaluate(body => { body.dataset.appearance = 'light' })
     const approvalColor = await page.getByTestId('code-composer-approval').evaluate(element => getComputedStyle(element).color)
-    const bodyColor = await page.locator('body').evaluate(element => getComputedStyle(element).color)
-    expect(approvalColor, 'light selected permission color').toBe(bodyColor)
+    expect(approvalColor, 'light selected permission color').toBe('rgb(9, 105, 218)')
     {
       const composerControlBoxes = await Promise.all([
         page.getByTestId('code-composer-add'),

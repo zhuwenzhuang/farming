@@ -6,10 +6,8 @@
 }
 
 .farming-computer-more-menu {
-  position: absolute;
-  z-index: 3;
-  top: calc(100% + 4px);
-  right: 0;
+  position: fixed;
+  z-index: 10020;
   width: max-content;
   min-width: 116px;
   display: grid;

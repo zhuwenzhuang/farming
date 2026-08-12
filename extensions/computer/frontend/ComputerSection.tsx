@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   ChevronDownGlyph,
   ChevronRightGlyph,
@@ -87,6 +88,7 @@ export function ComputerSection({
   const [renaming, setRenaming] = useState(false)
   const [name, setName] = useState(resource?.name || 'Desktop')
   const [moreOpen, setMoreOpen] = useState(false)
+  const [moreMenuPosition, setMoreMenuPosition] = useState({ left: 0, top: 0 })
   const [operation, setOperation] = useState<'start' | 'stop' | 'remove' | null>(null)
   const [operationError, setOperationError] = useState('')
   const moreButtonRef = useRef<HTMLButtonElement>(null)
@@ -267,13 +269,31 @@ export function ComputerSection({
                   disabled={busy}
                   onClick={event => {
                     event.stopPropagation()
-                    setMoreOpen(current => !current)
+                    if (moreOpen) {
+                      setMoreOpen(false)
+                      return
+                    }
+                    const rect = event.currentTarget.getBoundingClientRect()
+                    const menuWidth = 132
+                    const menuHeight = 68
+                    setMoreMenuPosition({
+                      left: Math.max(8, Math.min(window.innerWidth - menuWidth - 8, rect.right - menuWidth)),
+                      top: rect.bottom + 4 + menuHeight <= window.innerHeight - 8
+                        ? rect.bottom + 4
+                        : Math.max(8, rect.top - menuHeight - 4),
+                    })
+                    setMoreOpen(true)
                   }}
                 >
                   <MoreGlyph />
                 </button>
-                {moreOpen && (
-                  <div ref={moreMenuRef} className="farming-computer-more-menu" role="menu">
+                {moreOpen && typeof document !== 'undefined' && createPortal(
+                  <div
+                    ref={moreMenuRef}
+                    className="farming-computer-more-menu"
+                    role="menu"
+                    style={{ left: moreMenuPosition.left, top: moreMenuPosition.top }}
+                  >
                     <button
                       type="button"
                       role="menuitem"
@@ -299,7 +319,8 @@ export function ComputerSection({
                     >
                       {copy.remove}
                     </button>
-                  </div>
+                  </div>,
+                  document.body,
                 )}
               </span>
             </span>

@@ -379,6 +379,12 @@ body.code-resizing-sidebar .code-sidebar-resizer {
   background: linear-gradient(to bottom, var(--code-bg-chrome) 0 var(--code-project-sticky-height), transparent var(--code-project-sticky-height));
   clip-path: inset(0 0 var(--code-project-sticky-tail-height) 0);
   color: var(--code-text-muted);
+  pointer-events: none;
+}
+
+.code-project-title-content,
+.code-project-title-actions {
+  pointer-events: auto;
 }
 
 .code-project-row.dragging {

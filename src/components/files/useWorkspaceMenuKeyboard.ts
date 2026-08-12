@@ -65,17 +65,21 @@ export function useWorkspaceMenuKeyboard({
       onClose()
     }
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onCloseWithFocusRestore()
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      event.stopPropagation()
+      event.stopImmediatePropagation()
+      onCloseWithFocusRestore()
     }
 
     document.addEventListener('pointerdown', closeMenu)
-    document.addEventListener('keydown', closeOnEscape)
+    document.addEventListener('keydown', closeOnEscape, true)
     return () => {
       if (frameId !== undefined) window.cancelAnimationFrame(frameId)
       if (timeoutId !== undefined) window.clearTimeout(timeoutId)
       if (lateTimeoutId !== undefined) window.clearTimeout(lateTimeoutId)
       document.removeEventListener('pointerdown', closeMenu)
-      document.removeEventListener('keydown', closeOnEscape)
+      document.removeEventListener('keydown', closeOnEscape, true)
     }
   }, [focusFirstItem, menuOpen, menuRef, onClose, onCloseWithFocusRestore])
 
