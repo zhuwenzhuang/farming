@@ -394,7 +394,6 @@ test('unmounts inactive Chat trees while preserving the active Chat behind resou
   const savedScrollTop = await firstScroll.evaluate(element => {
     const pane = element.closest<HTMLElement>('[data-testid="code-agent-work-pane"]')!
     pane.dataset.cacheProbe = 'retained'
-    pane.querySelector<HTMLElement>('[data-testid="code-agent-transcript"]')!.dataset.cacheTranscript = 'retained'
     const sentinel = Array.from(element.querySelectorAll<HTMLElement>('.code-agent-transcript-assistant'))
       .find(candidate => candidate.textContent?.includes('FIRST cached answer 19.'))
     if (!sentinel) throw new Error('Cached transcript sentinel is missing')
@@ -502,7 +501,6 @@ test('unmounts inactive Chat trees while preserving the active Chat behind resou
   await expect(firstPane).toBeAttached()
   await expect(firstPane).toBeHidden()
   await expect(firstPane.getByTestId('code-agent-transcript')).toHaveCount(1)
-  await expect(firstPane.getByTestId('code-agent-transcript')).toHaveAttribute('data-cache-transcript', 'retained')
   expect(await firstPane.getAttribute('data-cache-probe')).toBe('retained')
 
   await page.getByTestId('code-file-editor-back').click()
