@@ -39,6 +39,14 @@ authority.
 Opening an Agent-owned Resource Viewer reveals that Agent's Resource rows in the
 sidebar and expands the selected Resource section so ownership stays visible.
 
+File, Browser, and Computer viewers may show their exact owning Agent in a
+narrow right-side pane. The pane reuses the existing Agent Chat or Terminal and
+Composer; opening or closing it changes presentation only and does not create a
+Session, copy Resource context, or change Resource lifecycle. The standard
+return action remains the way to leave the viewer for the full Agent surface.
+Project-owned Resources and files without a live source Agent do not offer this
+pane, and compact layouts retain the existing single-surface navigation.
+
 Live Agent activity such as the current Plan and Browser previews shares one
 core-owned right-side dock. Every activity keeps a compact identifiable header,
 while at most one activity body is expanded. Selecting another activity folds

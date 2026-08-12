@@ -74,6 +74,22 @@ test('renders Markdown files by default and keeps preview, source, and split con
   await expect(preview.locator('script')).toHaveCount(0)
   expect(await page.evaluate(() => (window as typeof window & { markdownPreviewUnsafe?: boolean }).markdownPreviewUnsafe)).toBeUndefined()
 
+  const main = page.getByTestId('code-main')
+  const agentToggle = editor.getByRole('button', { name: 'Show Agent beside resource' })
+  await expect(agentToggle).toBeVisible()
+  await agentToggle.click()
+  await expect(main).toHaveClass(/resource-agent-side-open/)
+  await expect(page.getByTestId('code-agent-terminal-view')).toBeVisible()
+  const editorBox = await editor.boundingBox()
+  const agentBox = await page.getByTestId('code-terminal-grid').boundingBox()
+  if (!editorBox || !agentBox) throw new Error('Resource and Agent panes must have measurable bounds')
+  expect(agentBox.width).toBeGreaterThanOrEqual(360)
+  expect(agentBox.width).toBeLessThanOrEqual(480)
+  expect(editorBox.width).toBeGreaterThan(agentBox.width)
+  await editor.getByRole('button', { name: 'Hide Agent beside resource' }).click()
+  await expect(main).not.toHaveClass(/resource-agent-side-open/)
+  await expect(page.getByTestId('code-terminal-grid')).toBeHidden()
+
   await editor.getByRole('button', { name: 'Show Markdown source' }).click()
   await expect(editor.getByTestId('code-file-markdown-preview')).toHaveCount(0)
   await expect(editor.getByTestId('code-file-monaco')).toBeVisible()
@@ -85,4 +101,32 @@ test('renders Markdown files by default and keeps preview, source, and split con
   await preview.getByRole('link', { name: 'Open next document' }).click()
   await expect(editor.getByRole('tab', { selected: true })).toContainText('next.md')
   await expect(editor.getByTestId('code-file-markdown-preview').getByRole('heading', { name: 'Next document' })).toBeVisible()
+})
+
+test('reuses the existing Agent Chat beside a file', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'file-agent-chat-side-panel')
+  fs.rmSync(workspace, { recursive: true, force: true })
+  fs.mkdirSync(workspace, { recursive: true })
+  fs.writeFileSync(path.join(workspace, 'notes.txt'), 'Keep the resource visible while chatting.\n')
+
+  const response = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'codex', workspace, agentRuntimeMode: 'chat' },
+  })
+  expect(response.ok()).toBeTruthy()
+  const { agentId } = await response.json() as { agentId: string }
+  await openFarming(page)
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+  await expect(page.getByTestId('code-agent-chat-view')).toBeVisible({ timeout: 30_000 })
+  await openProjectFile(page, 'file-agent-chat-side-panel', 'notes.txt')
+
+  const editor = page.getByTestId('code-file-editor')
+  await editor.getByRole('button', { name: 'Show Agent beside resource' }).click()
+  await expect(page.getByTestId('code-main')).toHaveClass(/resource-agent-side-open/)
+  await expect(page.getByTestId('code-agent-chat-view')).toBeVisible()
+  await expect(editor).toBeVisible()
+  await expect(page.getByTestId('code-acp-composer-input')).toBeVisible()
+
+  await editor.getByRole('button', { name: 'Hide Agent beside resource' }).click()
+  await expect(page.getByTestId('code-main')).not.toHaveClass(/resource-agent-side-open/)
+  await expect(editor).toBeVisible()
 })

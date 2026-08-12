@@ -379,6 +379,20 @@ test('mounts Agent-owned Browsers behind nested resource controls without layout
   await browserSection.getByTestId('farming-browser-row').click()
   const viewer = page.getByTestId('farming-browser-viewer')
   await expect(viewer).toBeVisible()
+  const agentToggle = viewer.getByRole('button', { name: 'Show Agent beside resource' })
+  await expect(agentToggle).toBeVisible()
+  await agentToggle.click()
+  await expect(page.getByTestId('code-main')).toHaveClass(/resource-agent-side-open/)
+  await expect(page.getByTestId('code-agent-terminal-view')).toBeVisible()
+  const agentSideScreenshot = testInfo.outputPath('browser-agent-side-panel.png')
+  await page.getByTestId('code-main').screenshot({ path: agentSideScreenshot })
+  await testInfo.attach('browser-agent-side-panel', {
+    path: agentSideScreenshot,
+    contentType: 'image/png',
+  })
+  await viewer.getByRole('button', { name: 'Hide Agent beside resource' }).click()
+  await expect(page.getByTestId('code-main')).not.toHaveClass(/resource-agent-side-open/)
+  await expect(page.getByTestId('code-terminal-grid')).toBeHidden()
   const appearanceSurfaces = {
     light: { canvas: 'rgb(255, 255, 255)', inset: 'rgb(246, 248, 250)', surface: 'rgb(255, 255, 255)' },
     dark: { canvas: 'rgb(24, 24, 24)', inset: 'rgb(28, 28, 28)', surface: 'rgb(24, 24, 24)' },

@@ -1,6 +1,6 @@
 import type { OpenWorkspaceFile } from '@/lib/workspace-open-files'
 import type { WorkspaceEditorActionState } from '@/lib/workspace-editor-model'
-import { ErrorGlyph, ShareGlyph } from '@/components/IconGlyphs'
+import { ChatBubblesGlyph, ErrorGlyph, ShareGlyph } from '@/components/IconGlyphs'
 import type { CodeCopy } from '../code/copy'
 
 function MarkdownPreviewIcon({ previewOpen }: { previewOpen: boolean }) {
@@ -102,6 +102,7 @@ interface FileEditorActionsProps {
   sourcePreviewOpen: boolean
   wordWrapEnabled: boolean
   statusText: string | null
+  agentSidePanelOpen: boolean
   onReload: () => void
   onSave: (overwrite?: boolean) => void
   onCopyReadOnlyShareLink: () => void
@@ -109,6 +110,7 @@ interface FileEditorActionsProps {
   onToggleSourcePreview: () => void
   onToggleWordWrap: () => void
   onToggleDiff: () => void
+  onToggleAgentSidePanel?: () => void
 }
 
 export function FileEditorActions({
@@ -120,6 +122,7 @@ export function FileEditorActions({
   sourcePreviewOpen,
   wordWrapEnabled,
   statusText,
+  agentSidePanelOpen,
   onReload,
   onSave,
   onCopyReadOnlyShareLink,
@@ -127,6 +130,7 @@ export function FileEditorActions({
   onToggleSourcePreview,
   onToggleWordWrap,
   onToggleDiff,
+  onToggleAgentSidePanel,
 }: FileEditorActionsProps) {
   const showSourcePreviewAction = actions.showMarkdownPreview || actions.showSourcePreview
   const previewLabel = sourcePreviewLabel(actions, copy, sourcePreviewOpen)
@@ -149,6 +153,19 @@ export function FileEditorActions({
       >
         <ShareGlyph className="code-file-editor-action-svg" />
       </button>
+      {onToggleAgentSidePanel ? (
+        <button
+          type="button"
+          className={`code-file-editor-action code-resource-agent-toggle ${agentSidePanelOpen ? 'active' : ''}`.trim()}
+          data-testid="code-resource-agent-toggle"
+          onClick={onToggleAgentSidePanel}
+          aria-label={agentSidePanelOpen ? copy.hideAgentSidePanel : copy.showAgentSidePanel}
+          title={agentSidePanelOpen ? copy.hideAgentSidePanel : copy.showAgentSidePanel}
+          aria-pressed={agentSidePanelOpen}
+        >
+          <ChatBubblesGlyph className="code-file-editor-action-svg" />
+        </button>
+      ) : null}
       {actions.showSave && (
         <button
           type="button"

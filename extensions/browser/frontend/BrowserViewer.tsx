@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeftGlyph, ArrowRightGlyph, BackToAgentGlyph, CopyGlyph, SquareGlyph } from '@/components/IconGlyphs'
+import { ArrowLeftGlyph, ArrowRightGlyph, BackToAgentGlyph, ChatBubblesGlyph, CopyGlyph, SquareGlyph } from '@/components/IconGlyphs'
 import { appPath } from '@/lib/base-path'
 import type { UiPreferences } from '@/lib/ui-preferences'
 import {
@@ -21,6 +21,8 @@ function viewerCopy(language: UiPreferences['language']) {
   return {
     back: zh ? '后退' : 'Back',
     backToAgent: zh ? '返回 Agent' : 'Back to Agent',
+    showAgent: zh ? '在右侧显示 Agent' : 'Show Agent beside resource',
+    hideAgent: zh ? '关闭右侧 Agent' : 'Hide Agent beside resource',
     forward: zh ? '前进' : 'Forward',
     reload: zh ? '重新加载' : 'Reload',
     address: zh ? '浏览器地址' : 'Browser address',
@@ -98,6 +100,8 @@ export function BrowserViewer({
   onResource,
   onOpenResource,
   onBackToAgent,
+  agentSidePanelOpen,
+  onToggleAgentSidePanel,
 }: {
   resource: BrowserResource
   controller: BrowserResourcesController
@@ -106,6 +110,8 @@ export function BrowserViewer({
   onResource: (resource: BrowserResource) => void
   onOpenResource: (resource: BrowserResource) => void
   onBackToAgent: () => void
+  agentSidePanelOpen: boolean
+  onToggleAgentSidePanel?: () => void
 }) {
   const copy = viewerCopy(language)
   const viewportRef = useRef<HTMLDivElement>(null)
@@ -472,6 +478,19 @@ export function BrowserViewer({
             <span aria-hidden="true" />
             <strong>{copy.sharedControl(ownerName)}</strong>
           </span>
+        ) : null}
+        {onToggleAgentSidePanel ? (
+          <button
+            type="button"
+            className={`farming-browser-toolbar-icon code-resource-agent-toggle ${agentSidePanelOpen ? 'active' : ''}`.trim()}
+            data-testid="code-resource-agent-toggle"
+            aria-label={agentSidePanelOpen ? copy.hideAgent : copy.showAgent}
+            title={agentSidePanelOpen ? copy.hideAgent : copy.showAgent}
+            aria-pressed={agentSidePanelOpen}
+            onClick={onToggleAgentSidePanel}
+          >
+            <ChatBubblesGlyph />
+          </button>
         ) : null}
         <div className="farming-browser-more-wrap">
           <button

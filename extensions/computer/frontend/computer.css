@@ -97,6 +97,10 @@
   padding: 0 10px;
 }
 
+.farming-computer-toolbar .code-resource-agent-toggle.align-end {
+  margin-left: auto;
+}
+
 .farming-computer-viewport {
   position: relative;
   flex: 1;

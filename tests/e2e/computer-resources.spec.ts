@@ -252,6 +252,14 @@ test('shows an Agent-owned Desktop only when present and switches Viewer control
   await computerRow.click()
   const viewer = page.getByTestId('farming-computer-viewer')
   await expect(viewer).toBeVisible()
+  const agentToggle = viewer.getByRole('button', { name: 'Show Agent beside resource' })
+  await expect(agentToggle).toBeVisible()
+  await agentToggle.click()
+  await expect(page.getByTestId('code-main')).toHaveClass(/resource-agent-side-open/)
+  await expect(page.getByTestId('code-agent-terminal-view')).toBeVisible()
+  await viewer.getByRole('button', { name: 'Hide Agent beside resource' }).click()
+  await expect(page.getByTestId('code-main')).not.toHaveClass(/resource-agent-side-open/)
+  await expect(page.getByTestId('code-terminal-grid')).toBeHidden()
   const frame = viewer.locator('iframe')
   const appearanceSurfaces = {
     light: { canvas: 'rgb(255, 255, 255)', inset: 'rgb(246, 248, 250)' },

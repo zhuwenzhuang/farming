@@ -1380,6 +1380,17 @@ export function CodeWorkspace({
     ? lastProjectWorkspace ?? projects[0]?.workspace
     : activeProjectWorkspace ?? lastProjectWorkspace ?? projects[0]?.workspace
   const showFileEditor = mainPaneMode === 'editor' && Boolean(openWorkspaceFile)
+  const requestedResourceAgentId = mainPaneMode === 'browser' && activeBrowserResource?.ownerType === 'agent'
+    ? activeBrowserResource.ownerAgentId
+    : mainPaneMode === 'computer' && activeComputerResource
+      ? activeComputerResource.ownerAgentId
+      : showFileEditor && openWorkspaceFile
+        ? openWorkspaceFile.sourceAgentId
+        : null
+  const resourceAgentId = requestedResourceAgentId
+    && activeAgents.some(agent => agent.id === requestedResourceAgentId)
+    ? requestedResourceAgentId
+    : null
   const shareTarget = useMemo<WorkspaceShareTarget | null>(() => {
     // Field-level guard keeps the deps below field-level; the record identity changes on every edit.
     if (showFileEditor && openWorkspaceFile?.file.path) {
@@ -4892,6 +4903,7 @@ export function CodeWorkspace({
         openAgentsCount={openAgents.length}
         openAgents={mountedOpenAgents}
         activeTerminalId={activeTerminalId}
+        resourceAgentId={resourceAgentId}
         permissionSwitchingAgentId={permissionSwitchingAgentId}
         agentSwitchingKind={agentSwitchingKind}
         terminalFocusRequest={terminalFocusRequest}

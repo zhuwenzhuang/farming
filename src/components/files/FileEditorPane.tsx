@@ -71,6 +71,8 @@ interface FileEditorPaneProps {
   onFocusFilesSearch: (agentId: string) => void
   onRecordNavigationCursor?: (input: WorkspaceNavigationFileInput) => void
   onBackToAgent: (agentId: string) => void
+  agentSidePanelOpen: boolean
+  onToggleAgentSidePanel?: () => void
   copy: CodeCopy
 }
 
@@ -158,6 +160,8 @@ export function FileEditorPane({
   onFocusFilesSearch,
   onRecordNavigationCursor,
   onBackToAgent,
+  agentSidePanelOpen,
+  onToggleAgentSidePanel,
   copy,
 }: FileEditorPaneProps) {
   const openEditorContextMenuRef = useRef<(event: monaco.editor.IEditorMouseEvent) => void>(() => {})
@@ -579,6 +583,8 @@ export function FileEditorPane({
               onToggleMarkdownSplit={toggleMarkdownSplit}
               onToggleWordWrap={toggleWordWrap}
               onToggleDiff={toggleDiff}
+              agentSidePanelOpen={agentSidePanelOpen}
+              onToggleAgentSidePanel={onToggleAgentSidePanel}
               canPreviewMarkdown={canPreviewMarkdown}
               canPreviewSource={canPreviewSource}
               diffOpen={diffState.open}

@@ -522,6 +522,8 @@ export interface CodeCopy {
   start: string
   back: string
   backToAgent: string
+  showAgentSidePanel: string
+  hideAgentSidePanel: string
   goBack: string
   goForward: string
   backendConnecting: string
@@ -1086,6 +1088,8 @@ const EN_COPY: CodeCopy = {
   start: 'Start',
   back: 'Back',
   backToAgent: 'Back to Agent',
+  showAgentSidePanel: 'Show Agent beside resource',
+  hideAgentSidePanel: 'Hide Agent beside resource',
   goBack: 'Go Back',
   goForward: 'Go Forward',
   backendConnecting: 'Loading...',
@@ -1686,6 +1690,8 @@ const ZH_COPY: CodeCopy = {
   start: '启动',
   back: '返回',
   backToAgent: '返回 Agent',
+  showAgentSidePanel: '在右侧显示 Agent',
+  hideAgentSidePanel: '关闭右侧 Agent',
   goBack: '后退',
   goForward: '前进',
   backendConnecting: '加载中…',

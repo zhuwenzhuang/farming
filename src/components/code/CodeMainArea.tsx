@@ -256,6 +256,7 @@ interface CodeMainAreaProps {
   openAgentsCount: number
   openAgents: Agent[]
   activeTerminalId: string | null
+  resourceAgentId: string | null
   permissionSwitchingAgentId: string | null
   agentSwitchingKind: 'permission' | 'runtime' | null
   terminalFocusRequest: { agentId: string; nonce: number } | null
@@ -546,6 +547,7 @@ export function CodeMainArea({
   openAgentsCount,
   openAgents,
   activeTerminalId,
+  resourceAgentId,
   permissionSwitchingAgentId,
   agentSwitchingKind,
   terminalFocusRequest,
@@ -627,6 +629,7 @@ export function CodeMainArea({
     plan: AgentTranscriptProcessItem
   } | null>(null)
   const [expandedAgentActivity, setExpandedAgentActivity] = useState<string | null>(null)
+  const [resourceAgentPanelOpen, setResourceAgentPanelOpen] = useState(false)
   const previousActiveRuntimeRef = useRef<{ agentId: string | null; kind: 'acp' | 'terminal' | null }>({
     agentId: null,
     kind: null,
@@ -669,10 +672,18 @@ export function CodeMainArea({
   activeAgentRef.current = activeAgent
   const browserWorkspaceVisible = activeView === 'projects' && activeBrowserResource !== null
   const computerWorkspaceVisible = activeView === 'projects' && activeComputerResource !== null
+  const resourceWorkspaceVisible = browserWorkspaceVisible
+    || computerWorkspaceVisible
+    || (activeView === 'projects' && showFileEditor && openWorkspaceFile !== null)
   const agentWorkspaceVisible = activeView === 'projects'
     && !browserWorkspaceVisible
     && !computerWorkspaceVisible
     && !(showFileEditor && openWorkspaceFile)
+  const resourceAgentPanelVisible = resourceWorkspaceVisible
+    && resourceAgentPanelOpen
+    && resourceAgentId !== null
+    && activeTerminalId === resourceAgentId
+  const agentSurfaceVisible = agentWorkspaceVisible || resourceAgentPanelVisible
   const acpComposerActive = isAcpRuntime(activeAgent)
   const activeBrowserPreviews = activeAgent
     ? (browserController.byAgentId.get(activeAgent.id) ?? [])
@@ -703,6 +714,25 @@ export function CodeMainArea({
     && !showFileEditor
     && openAgentsCount > 0
   const composerCollapsed = canCollapseComposer && composerCollapseRequested
+
+  const toggleResourceAgentPanel = useCallback(() => {
+    if (!resourceAgentId) return
+    if (!resourceAgentPanelOpen && activeTerminalId !== resourceAgentId) {
+      onOpenTerminal(resourceAgentId, { focusTerminal: false })
+    }
+    setResourceAgentPanelOpen(current => !current)
+  }, [activeTerminalId, onOpenTerminal, resourceAgentId, resourceAgentPanelOpen])
+
+  useEffect(() => {
+    if (!resourceAgentPanelOpen) return
+    if (activeView !== 'projects' || !resourceAgentId) {
+      setResourceAgentPanelOpen(false)
+      return
+    }
+    if (activeTerminalId !== resourceAgentId) {
+      onOpenTerminal(resourceAgentId, { focusTerminal: false })
+    }
+  }, [activeTerminalId, activeView, onOpenTerminal, resourceAgentId, resourceAgentPanelOpen])
 
   useLayoutEffect(() => {
     const previous = previousActiveRuntimeRef.current
@@ -806,7 +836,7 @@ export function CodeMainArea({
 
   return (
     <main
-      className="code-main"
+      className={`code-main ${resourceAgentPanelVisible ? 'resource-agent-side-open' : ''}`.trim()}
       data-testid="code-main"
       inert={inert ? true : undefined}
       onPointerDownCapture={dismissComposerKeyboardOnMainPress}
@@ -886,6 +916,8 @@ export function CodeMainArea({
           onResource={browserController.mergeResource}
           onOpenResource={onOpenBrowserResource}
           onBackToAgent={onBackFromBrowser}
+          agentSidePanelOpen={resourceAgentPanelOpen}
+          onToggleAgentSidePanel={resourceAgentId ? toggleResourceAgentPanel : undefined}
         />
       ) : computerWorkspaceVisible ? (
         <ComputerViewer
@@ -893,6 +925,8 @@ export function CodeMainArea({
           controller={computerController}
           language={language}
           onBackToAgent={onBackFromComputer}
+          agentSidePanelOpen={resourceAgentPanelOpen}
+          onToggleAgentSidePanel={resourceAgentId ? toggleResourceAgentPanel : undefined}
         />
       ) : showFileEditor && openWorkspaceFile ? (
         ReadyFileEditorPane ? (
@@ -914,6 +948,8 @@ export function CodeMainArea({
             onFocusFilesSearch={onFocusWorkspaceFilesSearch}
             onRecordNavigationCursor={onRecordWorkspaceNavigationCursor}
             onBackToAgent={onBackToAgentFromFile}
+            agentSidePanelOpen={resourceAgentPanelOpen}
+            onToggleAgentSidePanel={resourceAgentId ? toggleResourceAgentPanel : undefined}
             copy={copy}
           />
         ) : (
@@ -924,7 +960,7 @@ export function CodeMainArea({
       <div
         className="code-terminal-grid panes-1"
         data-testid="code-terminal-grid"
-        hidden={!agentWorkspaceVisible}
+        hidden={!agentSurfaceVisible}
       >
         {openAgentsCount === 0 ? (
           <div className="code-empty-workspace code-empty-home-state" data-testid="code-empty-workspace">
@@ -986,8 +1022,8 @@ export function CodeMainArea({
             <AgentWorkPane
               key={agent.id}
               agent={agent}
-              active={agentWorkspaceVisible && agent.id === activeTerminalId}
-              viewportLayoutKey={composerCollapsed ? 'composer-collapsed' : 'composer-expanded'}
+              active={agentSurfaceVisible && agent.id === activeTerminalId}
+              viewportLayoutKey={`${resourceAgentPanelVisible ? 'agent-side' : 'agent-full'}:${composerCollapsed ? 'composer-collapsed' : 'composer-expanded'}`}
               switching={agent.id === permissionSwitchingAgentId}
               switchingKind={agent.id === permissionSwitchingAgentId ? agentSwitchingKind : null}
               onActivate={onOpenTerminal}
@@ -1011,7 +1047,7 @@ export function CodeMainArea({
         )}
       </div>
 
-      {agentWorkspaceVisible && (visibleActivePlan || activeBrowserPreviews.length > 0) ? (
+      {agentSurfaceVisible && (visibleActivePlan || activeBrowserPreviews.length > 0) ? (
         <section
           className="code-agent-activity-dock"
           data-testid="code-agent-activity-dock"
@@ -1049,7 +1085,7 @@ export function CodeMainArea({
         </section>
       ) : null}
 
-      {agentWorkspaceVisible ? (
+      {agentSurfaceVisible ? (
         composerCollapsed ? (
           <div className="code-composer-restore-bar" data-testid="code-composer-restore-bar">
             <button

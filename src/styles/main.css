@@ -719,6 +719,44 @@ body.code-mode .code-instance-name {
   background: var(--code-bg-surface);
 }
 
+.code-main.resource-agent-side-open {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(360px, 32vw, 480px);
+  grid-template-rows: minmax(0, 1fr) auto auto;
+  column-gap: 1px;
+  background: var(--code-border);
+}
+
+.code-main.resource-agent-side-open > .farming-browser-viewer,
+.code-main.resource-agent-side-open > .farming-computer-viewer,
+.code-main.resource-agent-side-open > .code-file-editor {
+  grid-column: 1;
+  grid-row: 1 / -1;
+  min-width: 0;
+}
+
+.code-main.resource-agent-side-open > .code-terminal-grid {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+}
+
+.code-main.resource-agent-side-open > .code-agent-activity-dock {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.code-main.resource-agent-side-open > .code-composer-shell,
+.code-main.resource-agent-side-open > .code-composer-restore-bar {
+  grid-column: 2;
+  grid-row: 3;
+}
+
+.code-resource-agent-toggle.active {
+  color: var(--code-text-strong);
+  background: var(--code-bg-hover);
+}
+
 .code-permission-switching {
   position: absolute;
   inset: 0;
@@ -3058,6 +3096,22 @@ body.code-mode .code-workspace {
 }
 
 @media (max-width: 980px) {
+  .code-resource-agent-toggle {
+    display: none !important;
+  }
+
+  .code-main.resource-agent-side-open {
+    display: flex;
+    background: var(--code-bg-surface);
+  }
+
+  .code-main.resource-agent-side-open > .code-terminal-grid,
+  .code-main.resource-agent-side-open > .code-agent-activity-dock,
+  .code-main.resource-agent-side-open > .code-composer-shell,
+  .code-main.resource-agent-side-open > .code-composer-restore-bar {
+    display: none;
+  }
+
   body.code-mode.code-compact-layout {
     position: fixed;
     inset: 0;

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { BackToAgentGlyph, SquareGlyph } from '@/components/IconGlyphs'
+import { BackToAgentGlyph, ChatBubblesGlyph, SquareGlyph } from '@/components/IconGlyphs'
 import { appPath } from '@/lib/base-path'
 import type { UiPreferences } from '@/lib/ui-preferences'
 import type { ComputerResource } from './types'
@@ -9,6 +9,8 @@ function copyFor(language: UiPreferences['language']) {
   const zh = language === 'zh'
   return {
     back: zh ? '返回 Agent' : 'Back to Agent',
+    showAgent: zh ? '在右侧显示 Agent' : 'Show Agent beside resource',
+    hideAgent: zh ? '关闭右侧 Agent' : 'Hide Agent beside resource',
     takeControl: zh ? '接管' : 'Take control',
     returnControl: zh ? '交还 Agent' : 'Return to Agent',
     stop: zh ? '停止' : 'Stop',
@@ -61,11 +63,15 @@ export function ComputerViewer({
   controller,
   language,
   onBackToAgent,
+  agentSidePanelOpen,
+  onToggleAgentSidePanel,
 }: {
   resource: ComputerResource
   controller: ComputerResourcesController
   language: UiPreferences['language']
   onBackToAgent: () => void
+  agentSidePanelOpen: boolean
+  onToggleAgentSidePanel?: () => void
 }) {
   const copy = copyFor(language)
   const [config, setConfig] = useState<ViewerConfig | null>(null)
@@ -160,6 +166,19 @@ export function ComputerViewer({
             </button>
           </>
         )}
+        {onToggleAgentSidePanel ? (
+          <button
+            type="button"
+            className={`code-resource-agent-toggle ${resource.status === 'running' ? '' : 'align-end'} ${agentSidePanelOpen ? 'active' : ''}`.trim()}
+            data-testid="code-resource-agent-toggle"
+            title={agentSidePanelOpen ? copy.hideAgent : copy.showAgent}
+            aria-label={agentSidePanelOpen ? copy.hideAgent : copy.showAgent}
+            aria-pressed={agentSidePanelOpen}
+            onClick={onToggleAgentSidePanel}
+          >
+            <ChatBubblesGlyph />
+          </button>
+        ) : null}
       </header>
       <div className="farming-computer-viewport">
         {resource.status === 'running' && src ? (
