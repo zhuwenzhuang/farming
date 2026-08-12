@@ -7,7 +7,6 @@ import {
   isWorkspaceStickyContextVisible,
   workspaceFileIndentShiftDepthForViewport,
   workspaceStickyContentTop,
-  workspaceStickyContextRevealProgress,
   workspaceStickyContextItems,
   workspaceStickyDirectoryPathsForViewport,
   type WorkspaceFileRowSnapshot,
@@ -99,11 +98,12 @@ export function useWorkspaceFileStickyContext({
     treeViewportRef.current?.style.setProperty('--file-indent-shift', `${roundedShift}px`)
   }, [treeViewportRef])
 
-  const updateContextShift = useCallback((progress: number) => {
-    const maximumShift = document.body.classList.contains('code-compact-layout')
-      ? FILE_CONTEXT_COMPACT_SHIFT
-      : FILE_CONTEXT_DESKTOP_SHIFT
-    const shift = Math.round(Math.min(1, Math.max(0, progress)) * maximumShift * 100) / 100
+  const updateContextShift = useCallback((visible: boolean) => {
+    const shift = visible
+      ? (document.body.classList.contains('code-compact-layout')
+          ? FILE_CONTEXT_COMPACT_SHIFT
+          : FILE_CONTEXT_DESKTOP_SHIFT)
+      : 0
     if (shift === contextShiftRef.current) return
     contextShiftRef.current = shift
     treeViewportRef.current?.style.setProperty('--file-context-shift', `${shift}px`)
@@ -112,7 +112,7 @@ export function useWorkspaceFileStickyContext({
   const clearStickyContext = useCallback(() => {
     setStickyDirectoryPaths(current => current.length === 0 ? current : [])
     updateIndentShift(0)
-    updateContextShift(0)
+    updateContextShift(false)
   }, [updateContextShift, updateIndentShift])
 
   const refreshStickyAncestors = useCallback(() => {
@@ -161,7 +161,7 @@ export function useWorkspaceFileStickyContext({
       return
     }
 
-    updateContextShift(workspaceStickyContextRevealProgress(viewportRect.top, stickyTop, rowHeight))
+    updateContextShift(true)
 
     const indentShiftDepth = workspaceFileIndentShiftDepthForViewport({
       rows: visibleRows,

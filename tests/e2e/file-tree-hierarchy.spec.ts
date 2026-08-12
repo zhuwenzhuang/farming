@@ -242,6 +242,105 @@ test('preserves every visible directory level across sticky scroll, collapse, re
   await expect(files.locator(`[data-file-path="${implPath}/pangu"]`)).toHaveCount(1)
   await expect(files.locator(`[data-file-path="${implPath}/vpc"]`)).toHaveCount(1)
   await expect(files.getByTestId('code-file-sticky-stack').locator('.code-file-sticky-row')).toHaveCount(1)
+  const stickyResizeBaseline = await files.evaluate(element => {
+    const viewport = element.querySelector<HTMLElement>('.code-file-tree-viewport')
+    const tree = element.querySelector<HTMLElement>('.code-file-tree')
+    const sticky = element.querySelector<HTMLElement>('[data-testid="code-file-sticky-stack"]')
+    if (!viewport || !tree || !sticky) return null
+    return {
+      shift: Number.parseFloat(getComputedStyle(viewport).getPropertyValue('--file-context-shift')),
+      stickyPath: sticky.querySelector<HTMLElement>('[data-sticky-file-path]')?.dataset.stickyFilePath ?? '',
+      treeOffset: viewport.getBoundingClientRect().left - tree.getBoundingClientRect().left,
+      stickyOffset: viewport.getBoundingClientRect().left - sticky.getBoundingClientRect().left,
+    }
+  })
+  expect(stickyResizeBaseline).not.toBeNull()
+  expect(stickyResizeBaseline!.shift).toBe(14)
+  expect(stickyResizeBaseline!.treeOffset).toBeCloseTo(14, 0)
+  expect(stickyResizeBaseline!.stickyOffset).toBeCloseTo(14, 0)
+
+  await files.evaluate(element => {
+    const testWindow = window as Window & {
+      __fileTreeStickyResizeAudit?: {
+        observer: MutationObserver
+        removedStickyStacks: number
+      }
+    }
+    const audit = {
+      observer: null as unknown as MutationObserver,
+      removedStickyStacks: 0,
+    }
+    audit.observer = new MutationObserver(mutations => {
+      for (const mutation of mutations) {
+        for (const removedNode of mutation.removedNodes) {
+          if (!(removedNode instanceof HTMLElement)) continue
+          if (
+            removedNode.matches('[data-testid="code-file-sticky-stack"]')
+            || removedNode.querySelector('[data-testid="code-file-sticky-stack"]')
+          ) {
+            audit.removedStickyStacks += 1
+          }
+        }
+      }
+    })
+    audit.observer.observe(element, { childList: true, subtree: true })
+    testWindow.__fileTreeStickyResizeAudit = audit
+  })
+
+  const sidebarResizer = page.getByTestId('code-sidebar-resizer')
+  const resizerBox = await sidebarResizer.boundingBox()
+  if (!resizerBox) throw new Error('Sidebar resizer must be measurable')
+  const resizeY = resizerBox.y + Math.min(160, resizerBox.height / 2)
+  const resizeStartX = resizerBox.x + resizerBox.width / 2
+  await page.mouse.move(resizeStartX, resizeY)
+  await page.mouse.down()
+  const stickyResizeSamples = []
+  for (const delta of [32, 64, 96, 128, 104, 80, 56, 32, 56, 80, 104, 128]) {
+    await page.mouse.move(resizeStartX + delta, resizeY)
+    const sample = await files.evaluate(element => new Promise<{
+      shift: number
+      stickyPath: string
+      treeOffset: number
+      stickyOffset: number
+    }>(resolve => requestAnimationFrame(() => {
+      const viewport = element.querySelector<HTMLElement>('.code-file-tree-viewport')
+      const tree = element.querySelector<HTMLElement>('.code-file-tree')
+      const sticky = element.querySelector<HTMLElement>('[data-testid="code-file-sticky-stack"]')
+      resolve({
+        shift: viewport
+          ? Number.parseFloat(getComputedStyle(viewport).getPropertyValue('--file-context-shift'))
+          : Number.NaN,
+        stickyPath: sticky?.querySelector<HTMLElement>('[data-sticky-file-path]')?.dataset.stickyFilePath ?? '',
+        treeOffset: viewport && tree
+          ? viewport.getBoundingClientRect().left - tree.getBoundingClientRect().left
+          : Number.NaN,
+        stickyOffset: viewport && sticky
+          ? viewport.getBoundingClientRect().left - sticky.getBoundingClientRect().left
+          : Number.NaN,
+      })
+    })))
+    stickyResizeSamples.push(sample)
+  }
+  await page.mouse.up()
+  const stickyDetachCount = await files.evaluate(() => {
+    const testWindow = window as Window & {
+      __fileTreeStickyResizeAudit?: {
+        observer: MutationObserver
+        removedStickyStacks: number
+      }
+    }
+    const audit = testWindow.__fileTreeStickyResizeAudit
+    audit?.observer.disconnect()
+    delete testWindow.__fileTreeStickyResizeAudit
+    return audit?.removedStickyStacks ?? -1
+  })
+  expect(stickyDetachCount).toBe(0)
+  for (const sample of stickyResizeSamples) {
+    expect(sample.shift).toBe(stickyResizeBaseline!.shift)
+    expect(sample.stickyPath).toBe(stickyResizeBaseline!.stickyPath)
+    expect(sample.treeOffset).toBeCloseTo(stickyResizeBaseline!.treeOffset, 1)
+    expect(sample.stickyOffset).toBeCloseTo(stickyResizeBaseline!.stickyOffset, 1)
+  }
   const openEditors = page.getByTestId('code-open-editors')
   const openEditorsTitle = openEditors.locator('.code-open-editors-title')
   if (await openEditorsTitle.getAttribute('aria-expanded') !== 'true') await openEditorsTitle.click()
