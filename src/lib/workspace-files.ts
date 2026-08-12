@@ -265,7 +265,10 @@ export async function fetchWorkspaceTree(rootId: string, directoryPath = '', opt
 export async function fetchWorkspaceFile(rootId: string, filePath: string, options: { signal?: AbortSignal; exactExternal?: boolean } = {}) {
   const params = new URLSearchParams({ rootId, path: filePath })
   if (options.exactExternal) params.set('exact', '1')
-  const response = await fetch(appPath(`/api/files/file?${params.toString()}`), { signal: options.signal })
+  const response = await fetch(appPath(`/api/files/file?${params.toString()}`), {
+    cache: 'no-store',
+    signal: options.signal,
+  })
   const body = await readJson<{ file: WorkspaceFile }>(response)
   return body.file
 }

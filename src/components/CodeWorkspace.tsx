@@ -16,6 +16,7 @@ import type {
   TaskHistoryEntry,
   UsageSummary,
 } from '@/types/agent'
+import type { WorkspaceFileEventMessage } from '@/types/messages'
 import { CheckGlyph } from '@/components/IconGlyphs'
 import { appPath } from '@/lib/base-path'
 import { readRecentClipboardWrite, writeClipboardText } from '@/lib/clipboard'
@@ -376,6 +377,7 @@ interface CodeWorkspaceProps {
     options?: { awaitResult?: boolean; requestId?: string; delivery?: 'prompt' | 'steer' },
   ) => boolean | Promise<boolean>
   onSessionOutput: (agentId: string, handler: (data: string, replace?: boolean, outputSeq?: number | null, runtimeEpoch?: string, stateRevision?: number | null, cols?: number, rows?: number, kind?: 'output' | 'resize' | 'clear') => void) => () => void
+  onWatchWorkspaceFiles: (agentId: string, handler: (event: WorkspaceFileEventMessage['event']) => void) => () => void
   onBrowserResource: (resource: BrowserResource) => void
   onBrowserResourceDeletion: (deletion: BrowserResourceDeletion) => void
   onComputerResource: (resource: ComputerResource) => void
@@ -528,6 +530,7 @@ export function CodeWorkspace({
   onInterruptAgent,
   sendComposerInput,
   onSessionOutput,
+  onWatchWorkspaceFiles,
   onBrowserResource,
   onBrowserResourceDeletion,
   onComputerResource,
@@ -593,6 +596,22 @@ export function CodeWorkspace({
   } = useWorkspaceNavigationHistory()
   const openWorkspaceFile = workspaceOpenFiles.activeFile
   const openWorkspaceFiles = workspaceOpenFiles.files
+  const openWorkspaceFileWatchRoots = useMemo(() => JSON.stringify(Array.from(new Set(
+    openWorkspaceFiles
+      .map(file => file.agentId)
+      .filter(agentId => !isGlobalWorkspaceFilesAgentId(agentId)),
+  )).sort()), [openWorkspaceFiles])
+  const scheduleOpenFileRefresh = workspaceOpenFiles.scheduleOpenFileRefresh
+
+  useEffect(() => {
+    const rootIds = JSON.parse(openWorkspaceFileWatchRoots) as string[]
+    const unsubscribe = rootIds.map(rootId => onWatchWorkspaceFiles(rootId, event => {
+      if ((event.type === 'change' || event.type === 'add' || event.type === 'unlink') && event.path) {
+        scheduleOpenFileRefresh(rootId, event.path)
+      }
+    }))
+    return () => unsubscribe.forEach(stopWatching => stopWatching())
+  }, [onWatchWorkspaceFiles, openWorkspaceFileWatchRoots, scheduleOpenFileRefresh])
   const activeBrowserResource = activeBrowserId
     ? browserResources.resources.find(resource => resource.id === activeBrowserId) ?? null
     : null

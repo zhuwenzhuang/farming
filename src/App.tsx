@@ -1386,6 +1386,7 @@ export function App() {
         onInterruptAgent={handleInterruptAgent}
         sendComposerInput={ws.sendComposerInput}
         onSessionOutput={ws.onSessionOutput}
+        onWatchWorkspaceFiles={ws.watchWorkspaceFiles}
         onBrowserResource={ws.mergeBrowserResource}
         onBrowserResourceDeletion={ws.deleteBrowserResource}
         onComputerResource={ws.mergeComputerResource}

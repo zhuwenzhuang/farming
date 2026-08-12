@@ -459,7 +459,7 @@ function createWorkspaceFileRouter(
       }
       const { root, rootId } = resolveRequestRoot(req.query);
       const file = await fileService.readFile(root, requestPath, readOptionsForAgent(agentManager, rootRef));
-      res.json({ rootId, root, file });
+      res.set('Cache-Control', 'no-store').json({ rootId, root, file });
     } catch (error: unknown) {
       sendWorkspaceFileError(res, error);
     }

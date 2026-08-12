@@ -210,6 +210,7 @@ async function run() {
 
       const read = await fetchJson(baseUrl, '/api/files/file?agentId=agent-main&path=README.md');
       assert.strictEqual(read.response.status, 200);
+      assert.strictEqual(read.response.headers.get('cache-control'), 'no-store');
       assert.strictEqual(read.body.file.content, 'hello farming\n');
       const globalReadPath = globalReadFile.replace(/^\/+/, '');
       const globalRead = await fetchJson(baseUrl, `/api/files/file?agentId=${GLOBAL_WORKSPACE_FILES_AGENT_ID}&path=${encodeURIComponent(globalReadPath)}`);

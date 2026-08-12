@@ -78,6 +78,12 @@ a draft, and a revision. Saving one revision must not mark a newer draft clean.
 Unsaved drafts may have bounded browser-local recovery, but they do not become a
 second filesystem authority.
 
+Open files follow bounded Project filesystem events with an authoritative
+re-read. A clean working copy adopts the new disk content so source and every
+Viewer refresh together. A dirty working copy preserves its draft and becomes
+an explicit external-change conflict. Event bursts are coalesced, and a stale
+read cannot replace a newer accepted baseline.
+
 Save, create, rename, move, and delete validate the exact workspace and expected
 object or content version. Conflicts preserve the user's draft and present
 reload or overwrite choices rather than silently replacing external changes.

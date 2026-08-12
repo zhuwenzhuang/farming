@@ -63,6 +63,10 @@ Scroll。Workspace 前进/返回把 Plugins Location 作为一等 History Entry�
 Revision 完成时，不能把更新 Draft 错误标成 Clean。Unsaved Draft 可以有界地在 Browser Local
 恢复，但不能成为第二套文件系统权威。
 
+已打开文件通过有界的 Project 文件系统事件触发权威重读。Clean Working Copy 自动采用最新
+磁盘内容，使 Source 与所有 Viewer 一起刷新；Dirty Working Copy 保留 Draft，并进入明确的
+External Change Conflict。事件突发需要合并，迟到读取不能覆盖更新的已接受 Baseline。
+
 Save、Create、Rename、Move 与 Delete 都校验精确 Workspace 和预期 Object/Content Version。
 发生冲突时保留用户 Draft，并展示 Reload 或 Overwrite 选择，不能静默覆盖外部变化。
 
