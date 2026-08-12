@@ -12,7 +12,7 @@ Settings manages appearance, Agent behavior, search, Farming Pet, and updates. O
 
 ## Appearance and language
 
-Choose system, light, dark, or Paper appearance and switch the product interface between Chinese and English. Paper uses warm low-glare surfaces, ink-like text, and restrained green accents for sustained reading.
+Choose system, Light, Dark, or Paper appearance and switch the product interface between Chinese and English. Paper uses one warm canvas and neutral surface fills, relying on whitespace instead of unnecessary borders and shadows; accents are reserved for actions, links, and a few statuses. System follows Light or Dark only, while Paper always requires an explicit selection.
 
 ## Interface
 

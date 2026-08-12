@@ -10,10 +10,17 @@ const routeFromRelativePath = (relativePath: string) => relativePath
   .replace(/index\.md$/, '')
   .replace(/\.md$/, '')
 const themeFromUrlScript = `;(() => {
-  const theme = new URLSearchParams(location.search).get('theme')
-  if (theme !== 'dark' && theme !== 'light') return
-  localStorage.setItem('vitepress-theme-appearance', theme)
-  document.documentElement.classList.toggle('dark', theme === 'dark')
+  const supported = new Set(['light', 'dark', 'paper'])
+  const fromUrl = new URLSearchParams(location.search).get('theme')
+  const stored = localStorage.getItem('farming-docs-appearance')
+  const explicit = supported.has(fromUrl) ? fromUrl : supported.has(stored) ? stored : null
+  const theme = explicit || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+  if (supported.has(fromUrl)) localStorage.setItem('farming-docs-appearance', theme)
+  const root = document.documentElement
+  root.dataset.appearance = theme
+  root.dataset.appearancePreference = explicit || 'system'
+  root.classList.toggle('dark', theme === 'dark')
+  root.style.colorScheme = theme === 'dark' ? 'dark' : 'light'
 })()`
 
 const zhNav = [
@@ -218,6 +225,7 @@ export default defineConfig({
   base,
   cleanUrls: true,
   lastUpdated: true,
+  appearance: false,
   locales: {
     cn: {
       label: '简体中文',
