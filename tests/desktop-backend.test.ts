@@ -456,7 +456,7 @@ test('local backend lifecycle coalesces start and makes stop idempotent', async 
   assert.equal(runtime.state(), 'stopped')
 })
 
-test('desktop local startup is pinned to the npm-prepared runtime seed and forbids downloads', async () => {
+test('desktop local startup allows source runtime preparation without weakening packaged startup', async () => {
   const temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-desktop-local-seed-'))
   const cli = path.join(temporaryDir, 'seed-cli.cjs')
   const observedEnv = path.join(temporaryDir, 'runtime-env.json')
@@ -484,10 +484,26 @@ process.exit(0)
   try {
     await runtime.start()
     assert.deepEqual(JSON.parse(fs.readFileSync(observedEnv, 'utf8')), {
-      policy: 'forbid',
       seed: path.join(temporaryDir, '.farming-runtime-seed'),
     })
     await runtime.stop()
+
+    const packagedRoot = path.join(temporaryDir, 'resources', 'farming')
+    const packagedCli = path.join(packagedRoot, 'bin', 'farming')
+    fs.mkdirSync(path.dirname(packagedCli), { recursive: true })
+    fs.copyFileSync(cli, packagedCli)
+    const packagedRuntime = new DesktopLocalBackend({
+      configDir: path.join(temporaryDir, 'packaged-config'),
+      electronExecutable: process.execPath,
+      resourcesPath: path.join(temporaryDir, 'resources'),
+      repositoryRoot: temporaryDir,
+    })
+    await packagedRuntime.start()
+    assert.deepEqual(JSON.parse(fs.readFileSync(observedEnv, 'utf8')), {
+      policy: 'forbid',
+      seed: path.join(packagedRoot, '.farming-runtime-seed'),
+    })
+    await packagedRuntime.stop()
   } finally {
     fs.rmSync(temporaryDir, { recursive: true, force: true })
   }

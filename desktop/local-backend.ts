@@ -277,6 +277,7 @@ export class DesktopLocalBackend {
     const packageRoot = fs.existsSync(path.join(this.options.resourcesPath, 'farming', 'bin', 'farming'))
       ? path.join(this.options.resourcesPath, 'farming')
       : this.options.repositoryRoot
+    const packagedRuntime = packageRoot !== this.options.repositoryRoot
     const runtimeSeedDir = path.join(packageRoot, '.farming-runtime-seed')
     return runCommand(this.options.electronExecutable, [
       cli,
@@ -287,7 +288,7 @@ export class DesktopLocalBackend {
       ...process.env,
       ELECTRON_RUN_AS_NODE: '1',
       FARMING_NODE_BIN: this.options.electronExecutable,
-      FARMING_RUNTIME_DOWNLOAD_POLICY: 'forbid',
+      ...(packagedRuntime ? { FARMING_RUNTIME_DOWNLOAD_POLICY: 'forbid' } : {}),
       FARMING_RUNTIME_SEED_DIR: runtimeSeedDir,
     }, policy, signal, command === 'daemon' ? this.options.onProgress : undefined)
   }
