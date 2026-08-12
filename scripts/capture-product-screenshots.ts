@@ -3,7 +3,6 @@ export {};
 
 const { execFileSync, spawn } = require('node:child_process');
 const fs = require('node:fs');
-const http = require('node:http');
 const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
@@ -22,7 +21,8 @@ const customWorkspace = Boolean(process.env.FARMING_SCREENSHOT_WORKSPACE);
 const workspaceDir = path.resolve(process.env.FARMING_SCREENSHOT_WORKSPACE || path.join(homeDir, 'Projects', 'atlas-control-plane'));
 const screenshotDir = path.join(repoRoot, 'docs', 'products', 'code', 'assets');
 const crtScreenshotDir = path.join(repoRoot, 'docs', 'products', 'crt', 'assets');
-const publicScreenshotDir = path.join(repoRoot, 'docs-site', 'public', 'cn', 'assets');
+const screenshotLocale = process.env.FARMING_SCREENSHOT_LOCALE === 'en' ? 'en' : 'cn';
+const publicScreenshotDir = path.join(repoRoot, 'docs-site', 'public', screenshotLocale, 'assets');
 type PublicScreenshotSpec = {
   fileName: string;
   clip?: { x: number; y: number; width: number; height: number };
@@ -69,6 +69,10 @@ const nativeDarkCodeScreenshots = new Set([
 const browserDocumentationScreenshots = new Set([
   '24-code-browser-docs.png',
   '25-code-browser-plugin.png',
+]);
+const documentationHomeScreenshots = new Set([
+  '23-code-files-html-chat.png',
+  '24-code-browser-docs.png',
 ]);
 const requestedScreenshotFiles = new Set(
   String(process.env.FARMING_SCREENSHOT_FILES || '')
@@ -181,64 +185,74 @@ function getFreePort() {
   });
 }
 
-function createDocsHomeFixture(appearance = screenshotAppearance) {
-  const palette = appearance === 'dark'
-    ? {
-        canvas: '#181818', chrome: '#202020', surface: '#282828', text: '#f3f3ef',
-        muted: '#a3a39c', accent: '#62d790', accentText: '#0d2516', line: '#383838',
-      }
-    : appearance === 'paper'
-      ? {
-          canvas: '#f9f8f4', chrome: '#f9f8f4', surface: '#efede7', text: '#282922',
-          muted: '#6f7067', accent: '#3a6e4a', accentText: '#ffffff', line: 'transparent',
-        }
-      : {
-          canvas: '#ffffff', chrome: '#ffffff', surface: '#f0f2ef', text: '#242722',
-          muted: '#6d746d', accent: '#217a45', accentText: '#ffffff', line: '#e3e6e1',
-        };
-  const cardShadow = appearance === 'paper' ? 'none' : appearance === 'dark'
-    ? '0 16px 44px rgba(0, 0, 0, .24)'
-    : '0 16px 44px rgba(35, 48, 38, .08)';
-  return [
-    '<!doctype html>',
-    `<html lang="zh-CN" data-appearance="${appearance}">`,
-    '<head>',
-    '<meta charset="utf-8">',
-    '<meta name="viewport" content="width=device-width, initial-scale=1">',
-    '<title>Farming 文档</title>',
-    '<style>',
-    `:root { --canvas:${palette.canvas};--chrome:${palette.chrome};--surface:${palette.surface};--text:${palette.text};--muted:${palette.muted};--accent:${palette.accent};--accent-text:${palette.accentText};--line:${palette.line}; }`,
-    '*{box-sizing:border-box} body{margin:0;background:var(--canvas);color:var(--text);font:16px/1.5 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}',
-    'header{height:68px;display:flex;align-items:center;padding:0 42px;background:var(--chrome);border-bottom:1px solid var(--line);gap:28px}',
-    '.brand{display:flex;align-items:center;gap:12px;font-weight:750;font-size:19px;white-space:nowrap}.mark{display:grid;place-items:center;width:34px;height:34px;border-radius:10px;background:#f5e6ae;color:#244f31;font-weight:900}',
-    '.search{height:38px;min-width:245px;padding:8px 16px;border-radius:11px;background:var(--surface);color:var(--muted)}',
-    'nav{margin-left:auto;display:flex;gap:26px;font-weight:650} nav span:last-child{color:var(--accent)}',
-    'main{max-width:1160px;margin:0 auto;padding:76px 58px 64px}.eyebrow{color:var(--accent);font-weight:750;letter-spacing:.12em;text-transform:uppercase}',
-    'h1{font-family:Georgia,"Noto Serif SC",serif;font-size:76px;line-height:1.02;margin:16px 0 18px;letter-spacing:-.04em}.lead{max-width:760px;font-size:25px;color:var(--muted);margin:0 0 30px}',
-    '.actions{display:flex;gap:12px;margin-bottom:66px}.button{padding:12px 20px;border-radius:999px;background:var(--accent);color:var(--accent-text);font-weight:750}.button.secondary{background:var(--surface);color:var(--text)}',
-    '.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}.card{min-height:148px;padding:24px;border:1px solid var(--line);border-radius:18px;background:var(--surface);box-shadow:' + cardShadow + '}.card strong{display:block;font-size:20px;margin-bottom:10px}.card p{margin:0;color:var(--muted)}',
-    '</style>',
-    '</head>',
-    '<body>',
-    '<header><div class="brand"><span class="mark">F</span><span>Farming 文档</span></div><div class="search">⌕&nbsp;&nbsp;搜索文档</div><nav><span>Farming Code</span><span>Farming CRT</span><span>插件</span><span>安装</span><span>GitHub</span></nav></header>',
-    '<main><div class="eyebrow">Engineering Is Becoming Farming</div><h1>Farming</h1><p class="lead">浏览器中的 AI Coding Agent 工作区。观察 Agent 的工作，核对文件和页面，并在需要时直接介入。</p><div class="actions"><span class="button">快速开始</span><span class="button secondary">了解两种界面</span></div>',
-    '<section class="grid"><article class="card"><strong>Farming Code</strong><p>现代、轻量的 Agent 工作区，适合日常使用。</p></article><article class="card"><strong>Files</strong><p>浏览、预览和检查 Agent 正在修改的项目文件。</p></article><article class="card"><strong>Farming Browser</strong><p>和 Agent 查看同一个页面，随时检查并接管。</p></article></section></main>',
-    '</body></html>',
-  ].join('\n');
+async function startDocumentationSite() {
+  run('npm', ['run', 'build'], {
+    cwd: path.join(repoRoot, 'docs-site'),
+    env: processEnvWithoutColor(),
+    stdio: 'inherit',
+  });
+  const port = await getFreePort();
+  const origin = `http://127.0.0.1:${port}`;
+  const url = `${origin}/farming/${screenshotLocale}/?theme=${screenshotAppearance}`;
+  const process = spawn('npm', ['run', 'preview', '--', '--host', '127.0.0.1', '--port', String(port)], {
+    cwd: path.join(repoRoot, 'docs-site'),
+    env: processEnvWithoutColor(),
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  process.stdout.on('data', chunk => process.stdout.write(chunk));
+  process.stderr.on('data', chunk => process.stderr.write(chunk));
+  await waitForServer(url);
+  return {
+    origin,
+    process,
+    title: documentationSiteTitle(),
+    url,
+    publicUrl: `https://zhuwenzhuang.github.io/farming/${screenshotLocale}/?theme=${screenshotAppearance}`,
+  };
 }
 
-async function startDocsDemoServer() {
-  const server = http.createServer((_request, response) => {
-    response.setHeader('content-type', 'text/html; charset=utf-8');
-    response.end(createDocsHomeFixture());
+function processEnvWithoutColor() {
+  return { ...process.env, NO_COLOR: '1' };
+}
+
+async function writeDocumentationHomeFixture(documentationSite: { url: string }, browser) {
+  const context = await browser.newContext({
+    viewport: { width: 960, height: 640 },
+    deviceScaleFactor: 1,
   });
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', resolve);
-  });
-  const address = server.address();
-  if (!address || typeof address === 'string') throw new Error('documentation demo server did not allocate a port');
-  return { server, url: `http://127.0.0.1:${address.port}/?theme=${screenshotAppearance}` };
+  try {
+    const page = await context.newPage();
+    await page.goto(documentationSite.url, { waitUntil: 'networkidle' });
+    await page.locator('.VPHero .name').filter({ hasText: 'Farming' })
+      .waitFor({ state: 'visible', timeout: 20_000 });
+    await page.addStyleTag({
+      content: '*,*::before,*::after{animation:none!important;transition:none!important}',
+    });
+    await page.evaluate(async () => {
+      await document.fonts.ready;
+      await Promise.all(Array.from(document.images).map(image => image.complete
+        ? Promise.resolve()
+        : new Promise(resolve => image.addEventListener('load', resolve, { once: true }))));
+    });
+    const background = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+    const screenshot = await page.screenshot({ type: 'jpeg', quality: 72, fullPage: false });
+    const html = [
+      '<!doctype html>',
+      `<html lang="${screenshotLocale === 'en' ? 'en' : 'zh-CN'}">`,
+      '<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">',
+      `<title>${documentationSiteTitle()}</title>`,
+      `<style>html,body{margin:0;min-height:100%;background:${background}}img{display:block;width:100%;height:auto}</style></head>`,
+      `<body><img src="data:image/jpeg;base64,${screenshot.toString('base64')}" alt="${documentationSiteTitle()}"></body>`,
+      '</html>',
+    ].join('');
+    fs.writeFileSync(path.join(workspaceDir, 'docs', 'farming-home.html'), html);
+  } finally {
+    await context.close();
+  }
+}
+
+function documentationSiteTitle() {
+  return screenshotLocale === 'en' ? 'Farming Documentation' : 'Farming 文档';
 }
 
 async function waitForServer(url: string, timeoutMs = 45_000): Promise<void> {
@@ -332,10 +346,6 @@ function prepareRuntimeDirectories() {
       'These properties provide the guards for equivalence rules such as predicate pushdown, projection pruning, and join reordering.',
       '',
     ].join('\n'));
-    fs.writeFileSync(
-      path.join(workspaceDir, 'docs', 'farming-home.html'),
-      createDocsHomeFixture(),
-    );
     fs.writeFileSync(path.join(workspaceDir, 'src', 'components', 'Dashboard.tsx'), [
       "type Metric = { label: string; value: string }",
       '',
@@ -771,9 +781,10 @@ async function screenshot(page, fileName, directory = screenshotDir) {
   capturedScreenshotFiles.add(fileName);
 }
 
-async function waitForBrowserPage(page, baseUrl, browserId, expectedTitle) {
+async function waitForBrowserPage(page, baseUrl, browserId, expectedTitle, expectedContent) {
   const startedAt = Date.now();
   let lastTitle = '';
+  let lastContent = '';
   while (Date.now() - startedAt < 30_000) {
     const response = await page.request.post(`${baseUrl}${basePath}/api/browsers/${encodeURIComponent(browserId)}/action`, {
       data: { kind: 'snapshot' },
@@ -781,11 +792,14 @@ async function waitForBrowserPage(page, baseUrl, browserId, expectedTitle) {
     if (response.ok()) {
       const snapshot = await response.json();
       lastTitle = String(snapshot.title || '');
-      if (lastTitle === expectedTitle) return;
+      lastContent = String(snapshot.accessibilityTree || '');
+      if (lastTitle === expectedTitle && lastContent.includes(expectedContent)) return;
     }
     await new Promise(resolve => setTimeout(resolve, 200));
   }
-  throw new Error(`Browser did not load ${expectedTitle}; last title was ${lastTitle || '(empty)'}`);
+  throw new Error(
+    `Browser did not load ${expectedTitle} with ${expectedContent}; last title was ${lastTitle || '(empty)'}`,
+  );
 }
 
 async function projectRootId(page) {
@@ -1183,24 +1197,47 @@ async function projectNorthstarChat(page, { mobile = false } = {}) {
 }
 
 async function projectDocsPreviewChat(page) {
-  await page.evaluate(() => {
+  await page.evaluate((locale) => {
+    const copy = locale === 'en'
+      ? {
+          user: 'Refine the Farming documentation home page and keep the Paper palette restrained.',
+          heading: 'Documentation home updated',
+          intro: 'The rendered page now uses the current documentation home and keeps the primary action clear.',
+          changes: 'What changed',
+          bullets: [
+            'Aligned the hero and navigation spacing.',
+            'Kept the existing documentation content and structure.',
+            'Verified the page in the selected appearance.',
+          ],
+          verification: 'Verification: the HTML preview is ready for visual review.',
+        }
+      : {
+          user: '调整 Farming 文档首页，并保持 Paper 配色克制。',
+          heading: '文档首页已更新',
+          intro: '渲染后的页面沿用当前文档首页，并保持主要操作清晰。',
+          changes: '本轮调整',
+          bullets: [
+            '对齐 Hero 与导航间距。',
+            '保留现有文档内容和结构。',
+            '在当前外观下核对页面效果。',
+          ],
+          verification: '验证：HTML 预览已可用于视觉检查。',
+        };
     const turn = document.querySelector('.code-agent-transcript-turn');
     const userMessage = turn?.querySelector('.code-agent-transcript-user > div');
     if (userMessage) {
-      userMessage.textContent = 'Refine the Farming documentation home page and keep the Paper palette restrained.';
+      userMessage.textContent = copy.user;
     }
     const answer = turn?.querySelector('.code-agent-transcript-assistant');
     if (answer) {
       answer.innerHTML = [
-        '<h2>Documentation home updated</h2>',
-        '<p>The rendered page now has a quieter Paper hierarchy while keeping the primary action clear.</p>',
-        '<h3>What changed</h3>',
+        `<h2>${copy.heading}</h2>`,
+        `<p>${copy.intro}</p>`,
+        `<h3>${copy.changes}</h3>`,
         '<ul>',
-        '<li>Aligned the hero and navigation spacing.</li>',
-        '<li>Used one neutral surface for the capability cards.</li>',
-        '<li>Kept green for links and the primary action only.</li>',
+        ...copy.bullets.map(item => `<li>${item}</li>`),
         '</ul>',
-        '<p><strong>Verification:</strong> the HTML preview is ready for visual review.</p>',
+        `<p><strong>${copy.verification}</strong></p>`,
       ].join('');
     }
     const changeSummary = document.querySelector('[data-testid="code-agent-transcript-result-summary"]');
@@ -1210,7 +1247,7 @@ async function projectDocsPreviewChat(page) {
     if (summaryLabel) summaryLabel.textContent = '2 files changed';
     if (added) added.textContent = '+28';
     if (removed) removed.textContent = '-12';
-  });
+  }, screenshotLocale);
 }
 
 async function stabilizeCrtDashboard(page) {
@@ -1225,6 +1262,10 @@ async function stabilizeCrtDashboard(page) {
 
 async function main() {
   prepareRuntimeDirectories();
+
+  const needsDocumentationHome = requestedScreenshotFiles.size === 0
+    || Array.from(documentationHomeScreenshots).some(fileName => requestedScreenshotFiles.has(fileName));
+  let documentationSite: Awaited<ReturnType<typeof startDocumentationSite>> | null = null;
 
   console.log('Building Farming Code front-end...');
   run('npm', ['run', 'build'], {
@@ -1268,12 +1309,16 @@ async function main() {
 
   let browser;
   try {
+    if (needsDocumentationHome) {
+      documentationSite = await startDocumentationSite();
+    }
     await waitForServer(`${baseUrl}${basePath}/`);
     browser = await chromium.launch({
       headless: true,
       executablePath,
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--proxy-server=direct://', '--proxy-bypass-list=*'],
     });
+    if (documentationSite) await writeDocumentationHomeFixture(documentationSite, browser);
     if (
       requestedScreenshotFiles.size === 1
       && requestedScreenshotFiles.has('18-code-desktop-connections.png')
@@ -1586,14 +1631,15 @@ async function main() {
       const htmlPreview = page.getByTestId('code-file-html-preview');
       await htmlPreview.waitFor({ state: 'visible', timeout: 20_000 });
       const htmlFrame = page.frameLocator('[data-testid="code-file-html-preview"]');
-      await htmlFrame.getByRole('heading', { name: 'Farming' }).waitFor({ state: 'visible', timeout: 20_000 });
+      await htmlFrame.getByRole('img', { name: documentationSiteTitle(), exact: true })
+        .waitFor({ state: 'visible', timeout: 20_000 });
       const fileEditor = page.getByTestId('code-file-editor');
       await fileEditor.getByRole('button', { name: 'Show Agent beside resource' }).click();
       await page.getByTestId('code-main').waitFor({ state: 'visible', timeout: 20_000 });
       await page.waitForFunction(() => document.querySelector('[data-testid="code-main"]')?.classList.contains('resource-agent-side-open'));
       await page.getByTestId('code-agent-chat-view').waitFor({ state: 'visible', timeout: 20_000 });
       await projectDocsPreviewChat(page);
-      await page.getByRole('heading', { name: 'Documentation home updated' })
+      await page.getByRole('heading', { name: screenshotLocale === 'en' ? 'Documentation home updated' : '文档首页已更新' })
         .waitFor({ state: 'visible', timeout: 20_000 });
       await screenshot(page, '23-code-files-html-chat.png');
       if (requestedScreenshotsComplete()) return;
@@ -1621,7 +1667,7 @@ async function main() {
       }
 
       if (requestedScreenshotFiles.size === 0 || requestedScreenshotFiles.has('24-code-browser-docs.png')) {
-        const docsDemo = await startDocsDemoServer();
+        if (!documentationSite) throw new Error('documentation site was not started');
         await updateAgent(page, baseUrl, codexAgentId, { customTitle: 'Review Farming documentation' });
         try {
           const rootId = await projectRootId(page);
@@ -1630,7 +1676,7 @@ async function main() {
               rootId,
               agentId: codexAgentId,
               name: 'Farming documentation',
-              url: docsDemo.url,
+              url: documentationSite.url,
             },
           });
           if (!createResponse.ok()) {
@@ -1641,7 +1687,15 @@ async function main() {
           if (!startResponse.ok()) {
             throw new Error(`failed to start documentation Browser: ${startResponse.status()} ${await startResponse.text()}`);
           }
-          await waitForBrowserPage(page, baseUrl, createdBrowser.id, 'Farming 文档');
+          await waitForBrowserPage(
+            page,
+            baseUrl,
+            createdBrowser.id,
+            documentationSite.title,
+            screenshotLocale === 'en'
+              ? 'A browser workspace for AI coding agents'
+              : '浏览器中的 AI Coding Agent 工作区',
+          );
           await ensureApp(page);
           await openAgent(page, codexAgentId);
           const agentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${codexAgentId}"]`).first();
@@ -1659,7 +1713,7 @@ async function main() {
           await viewer.locator('canvas').waitFor({ state: 'visible', timeout: 20_000 });
           const addressInput = viewer.getByRole('textbox', { name: 'Browser address' });
           await addressInput.waitFor({ state: 'visible', timeout: 20_000 });
-          const publicDisplayUrl = `https://docs.farming.dev/?theme=${screenshotAppearance}`;
+          const publicDisplayUrl = documentationSite.publicUrl;
           await addressInput.evaluate((element, value) => {
             const input = element as HTMLInputElement;
             input.value = value;
@@ -1668,12 +1722,11 @@ async function main() {
           await browserRow.evaluate((element, value) => {
             const subtitle = element.querySelector('.farming-browser-row-detail');
             if (subtitle) subtitle.textContent = value;
-          }, `docs.farming.dev/?theme=${screenshotAppearance}`);
+          }, new URL(documentationSite.publicUrl).host + new URL(documentationSite.publicUrl).pathname + new URL(documentationSite.publicUrl).search);
           await screenshot(page, '24-code-browser-docs.png');
           if (requestedScreenshotsComplete()) return;
         } finally {
           await updateAgent(page, baseUrl, codexAgentId, { customTitle: 'Fix duplicate page items' }).catch(() => {});
-          await new Promise<void>(resolve => docsDemo.server.close(() => resolve()));
         }
       }
     }
@@ -1967,6 +2020,7 @@ async function main() {
   } finally {
     if (browser) await browser.close();
     serverProcess.kill('SIGTERM');
+    documentationSite?.process.kill('SIGTERM');
     fs.rmSync(agentBrowserSocketDir, { recursive: true, force: true });
   }
 }

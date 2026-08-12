@@ -13,9 +13,9 @@ Files lets you browse, search, and lightly edit Project files. Use it to verify 
 Open an HTML file and Files renders it in a restricted preview. Open the Agent from the File Viewer toolbar to keep the page on the left and the current Agent Chat on the right. The Agent can continue changing HTML, CSS, or documentation while you watch the rendered result and request the next adjustment without switching among an editor, browser, and Chat.
 
 <ThemeImage
-  light="/cn/assets/files-html-preview-chat.png"
-  dark="/cn/assets/files-html-preview-chat-dark.png"
-  paper="/cn/assets/files-html-preview-chat-paper.png"
+  light="/en/assets/files-html-preview-chat.png"
+  dark="/en/assets/files-html-preview-chat-dark.png"
+  paper="/en/assets/files-html-preview-chat-paper.png"
   alt="Farming documentation home page HTML preview in Files with Agent Chat open beside it"
 />
 

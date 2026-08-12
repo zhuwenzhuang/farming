@@ -31,9 +31,9 @@ Every Browser Resource has an exact Agent and Project owner. The Viewer displays
 In this example, the Agent is viewing the Farming documentation home page in Farming Browser. You can inspect the rendered page together with its address, owner, and runtime state, then intervene in the same Viewer when needed.
 
 <ThemeImage
-  light="/cn/assets/browser-viewer.png"
-  dark="/cn/assets/browser-viewer-dark.png"
-  paper="/cn/assets/browser-viewer-paper.png"
+  light="/en/assets/browser-viewer.png"
+  dark="/en/assets/browser-viewer-dark.png"
+  paper="/en/assets/browser-viewer-paper.png"
   alt="Farming documentation home page open in Farming Browser"
 />
 
