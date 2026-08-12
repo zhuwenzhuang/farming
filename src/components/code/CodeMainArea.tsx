@@ -1091,6 +1091,7 @@ export function CodeMainArea({
               key={agent.id}
               agent={agent}
               active={(agentSurfaceVisible || resourceWorkspaceVisible) && agent.id === activeTerminalId}
+              runtimeSwitchVisible={!resourceAgentPanelVisible}
               viewportLayoutKey={`${resourceAgentPanelVisible ? 'agent-side' : 'agent-full'}:${composerCollapsed ? 'composer-collapsed' : 'composer-expanded'}`}
               switching={agent.id === permissionSwitchingAgentId}
               switchingKind={agent.id === permissionSwitchingAgentId ? agentSwitchingKind : null}

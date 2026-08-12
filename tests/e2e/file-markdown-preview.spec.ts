@@ -80,6 +80,7 @@ test('renders Markdown files by default and keeps preview, source, and split con
   await agentToggle.click()
   await expect(main).toHaveClass(/resource-agent-side-open/)
   await expect(page.getByTestId('code-agent-terminal-view')).toBeVisible()
+  await expect(page.getByTestId('code-terminal-mode-toggle')).toHaveCount(0)
   const agentResizer = page.getByTestId('code-resource-agent-resizer')
   await expect(agentResizer).toBeVisible()
   const editorBox = await editor.boundingBox()
@@ -203,6 +204,7 @@ test('reuses the existing Agent Chat beside a file', async ({ page, workspaceRoo
   await openFarming(page)
   await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
   await expect(page.getByTestId('code-agent-chat-view')).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByTestId('code-terminal-mode-toggle')).toBeVisible()
   await expect(page.getByText('The existing Chat is ready.', { exact: true })).toBeVisible()
   await expect.poll(() => transcriptRequests).toBe(1)
   await page.getByTestId('code-agent-chat-view').evaluate(element => {
@@ -215,6 +217,7 @@ test('reuses the existing Agent Chat beside a file', async ({ page, workspaceRoo
   await editor.getByRole('button', { name: 'Show Agent beside resource' }).click()
   await expect(page.getByTestId('code-main')).toHaveClass(/resource-agent-side-open/)
   await expect(page.getByTestId('code-agent-chat-view')).toBeVisible()
+  await expect(page.getByTestId('code-terminal-mode-toggle')).toHaveCount(0)
   await expect(page.getByTestId('code-agent-chat-view')).toHaveAttribute('data-preserved-chat', 'true')
   await expect(page.getByText('The existing Chat is ready.', { exact: true })).toBeVisible()
   await expect(page.locator('.code-agent-transcript-state.subtle')).toHaveCount(0)

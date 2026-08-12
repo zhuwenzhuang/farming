@@ -2540,7 +2540,7 @@ body.code-mode .code-composer textarea::placeholder {
 
 .code-composer-send.interrupt {
   background: var(--code-danger);
-  color: var(--code-text-on-emphasis);
+  color: var(--code-text);
   box-shadow: none;
   font-size: 0;
 }

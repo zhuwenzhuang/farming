@@ -35,11 +35,12 @@ Viewer Access 必须经过同一个已授权 Resource Identity。Preview 或 Str
 打开 Agent 所拥有的 Resource Viewer 时，Sidebar 必须显示该 Agent 的 Resource Row，
 并展开所选 Resource Section，使 Ownership 保持可见。
 
-File、Browser 和 Computer Viewer 可在右侧窄栏中显示其精确归属的 Agent。
-窄栏直接复用现有 Agent Chat 或 Terminal 与 Composer；打开或关闭只改变展示，
-不创建 Session、不复制 Resource Context，也不改变 Resource Lifecycle。现有返回操作
-仍用于离开 Viewer 并回到完整 Agent 界面。Project-owned Resource 和没有存活 Source Agent
-的文件不提供该窄栏；Compact Layout 保留现有单 Surface 导航。
+File、Browser 和 Computer Viewer 可在右侧窄栏中显示其精确归属的 Agent。窄栏直接复用
+该 Agent 现有的 Chat 或 Terminal 与 Composer，但不提供 Chat/Terminal Runtime 切换；
+Runtime Replacement 仍只在完整 Agent 界面中提供。打开或关闭窄栏只改变展示，不创建
+Session、不复制 Resource Context，也不改变 Resource Lifecycle。现有返回操作仍用于离开
+Viewer 并回到完整 Agent 界面。Project-owned Resource 和没有存活 Source Agent 的文件不提供
+该窄栏；Compact Layout 保留现有单 Surface 导航。
 
 Current Plan、Browser Preview 等 Live Agent Activity 共享一个由 Core 拥有的右侧 Dock。
 每项 Activity 始终保留可识别的紧凑 Header，但同一时刻最多只展开一个 Activity Body；

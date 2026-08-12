@@ -6,7 +6,6 @@ import {
   PET_SETTINGS_EVENT,
   REST_REMINDER_CUSTOM_MINUTES_MAX,
   REST_REMINDER_CUSTOM_MINUTES_MIN,
-  REST_REMINDER_IDLE_RESET_MINUTES,
   REST_REMINDER_SLIDER_MAX_POSITION,
   REST_REMINDER_TEST_INTERVAL_SECONDS,
   isPetSettingsStorageKey,
@@ -150,9 +149,6 @@ function panelCopy(language: UiPreferences['language']) {
       return zh ? `预览${appearanceName}效果` : `Preview ${appearanceName}`
     },
     breakReminder: zh ? '休息提醒' : 'Break reminder',
-    breakReminderHint: zh
-      ? `按本页前台可见时间计时，离开 ${REST_REMINDER_IDLE_RESET_MINUTES} 分钟后重置；90 分钟及以上休息 10 分钟。`
-      : `Counts foreground time in this tab; resets after ${REST_REMINDER_IDLE_RESET_MINUTES} minutes away. Intervals of 90 min or longer use a 10 min break.`,
     breakReminderValue: (seconds: number | null) => {
       if (seconds === null) return zh ? '待定' : 'Pending'
       if (seconds <= 0) return zh ? '关闭' : 'Off'
@@ -166,11 +162,7 @@ function panelCopy(language: UiPreferences['language']) {
       }
       return zh ? `每 ${minutes} 分钟` : `Every ${minutes} min`
     },
-    breakReminderOffMarker: zh ? '关闭' : 'Off',
-    breakReminderPendingMarker: zh ? '待定' : 'Pending',
-    customBreakReminder: zh ? '自定义' : 'Custom',
     customBreakReminderMinutes: zh ? '自定义提醒间隔（分钟）' : 'Custom reminder interval in minutes',
-    customBreakReminderUnit: zh ? '分钟' : 'min',
     language: zh ? '语言' : 'Language',
     english: 'English',
     chinese: '中文',
@@ -955,7 +947,6 @@ export function AgentHomesSettingsPanel({
               <div className="code-settings-choice-row code-settings-pet-rest-row">
                 <div className="code-settings-row-copy">
                   <strong>{copy.breakReminder}</strong>
-                  <small>{copy.breakReminderHint}</small>
                 </div>
                 <div className="code-settings-pet-rest-control">
                   <input
@@ -973,27 +964,25 @@ export function AgentHomesSettingsPanel({
                     onBlur={event => commitRestReminderSliderValue(Number(event.currentTarget.value))}
                   />
                   <div className="code-settings-pet-rest-markers" aria-hidden="true">
-                    <span className="code-settings-pet-rest-off-marker">{copy.breakReminderOffMarker}</span>
-                    <span className="code-settings-pet-rest-pending-marker">{copy.breakReminderPendingMarker}</span>
+                    {Array.from({ length: 5 }, (_, index) => <span key={index} />)}
                   </div>
                 </div>
                 <div className="code-settings-pet-rest-value">
-                  <output>{copy.breakReminderValue(displayedRestReminderIntervalSeconds)}</output>
                   <label className="code-settings-pet-rest-custom">
-                    <span>{copy.customBreakReminder}</span>
                     <input
                       type="number"
                       min={REST_REMINDER_CUSTOM_MINUTES_MIN}
                       max={REST_REMINDER_CUSTOM_MINUTES_MAX}
                       step="1"
-                      value={restReminderIntervalSeconds && restReminderIntervalSeconds >= 60
-                        ? restReminderIntervalSeconds / 60
+                      value={displayedRestReminderIntervalSeconds
+                        && displayedRestReminderIntervalSeconds >= 60
+                        ? displayedRestReminderIntervalSeconds / 60
                         : ''}
-                      placeholder={`${REST_REMINDER_CUSTOM_MINUTES_MIN}–${REST_REMINDER_CUSTOM_MINUTES_MAX}`}
+                      placeholder={copy.breakReminderValue(displayedRestReminderIntervalSeconds)}
                       aria-label={copy.customBreakReminderMinutes}
+                      title={copy.breakReminderValue(displayedRestReminderIntervalSeconds)}
                       onChange={event => setCustomRestReminderMinutes(event.currentTarget.value)}
                     />
-                    <span>{copy.customBreakReminderUnit}</span>
                   </label>
                 </div>
               </div>

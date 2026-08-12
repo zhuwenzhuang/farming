@@ -248,9 +248,9 @@ test('queues a follow-up and explicitly sends negotiated Codex ACP steer', async
       const stopIcon = element.querySelector<HTMLElement>('.code-composer-stop-icon')
       return {
         backgroundMatches: style.backgroundColor === resolveColor(bodyStyle.getPropertyValue('--code-danger')),
-        colorMatches: style.color === resolveColor(bodyStyle.getPropertyValue('--code-text-on-emphasis')),
+        colorMatches: style.color === resolveColor(bodyStyle.getPropertyValue('--code-text')),
         stopIconMatches: stopIcon
-          ? getComputedStyle(stopIcon).backgroundColor === resolveColor(bodyStyle.getPropertyValue('--code-text-on-emphasis'))
+          ? getComputedStyle(stopIcon).backgroundColor === resolveColor(bodyStyle.getPropertyValue('--code-text'))
           : false,
       }
     })).toEqual({ backgroundMatches: true, colorMatches: true, stopIconMatches: true })

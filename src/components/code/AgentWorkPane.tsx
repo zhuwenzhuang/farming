@@ -22,6 +22,7 @@ type TerminalFollowState = {
 interface AgentWorkPaneProps {
   agent: Agent
   active: boolean
+  runtimeSwitchVisible: boolean
   viewportLayoutKey: string
   switching: boolean
   switchingKind: 'permission' | 'runtime' | null
@@ -54,6 +55,7 @@ export function agentWorkPaneModeStorageIdentity(agent: Agent) {
 export function AgentWorkPane({
   agent,
   active,
+  runtimeSwitchVisible,
   viewportLayoutKey,
   switching,
   switchingKind,
@@ -81,7 +83,7 @@ export function AgentWorkPane({
   }, [onReviewAndCommit])
   const acpChat = Boolean(acpRuntime)
   const chatMode = acpChat
-  const canSwitchRuntime = canSwitchAgentRuntime(agent)
+  const canSwitchRuntime = runtimeSwitchVisible && canSwitchAgentRuntime(agent)
   const runtimeSwitchDisabled = switching || isAgentTurnActive(agent)
   const canForkConversation = canForkAgentConversation(agent) && !isAgentTurnActive(agent)
   const readLatestChat = useCallback(() => {

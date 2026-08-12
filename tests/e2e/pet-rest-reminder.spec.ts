@@ -107,7 +107,7 @@ test('unconfigured reminder shows its invitation in narrow layouts', async ({ pa
   await expect(page.getByTestId('pet-rest-invitation')).toBeVisible()
 })
 
-test('mobile reminder settings keep long values clear of the slider', async ({ page }) => {
+test('mobile reminder settings keep the value input clear of the slider', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.request.post('/farming/api/settings', {
     data: {
@@ -122,8 +122,8 @@ test('mobile reminder settings keep long values clear of the slider', async ({ p
   await page.getByTestId('code-sidebar-options').click()
   const settings = page.getByTestId('code-settings-panel')
   const slider = settings.getByRole('slider', { name: '休息提醒' })
-  const value = settings.locator('.code-settings-pet-rest-value output')
-  await expect(value).toHaveText('5 秒（仅用于观察效果）')
+  const value = settings.getByRole('spinbutton', { name: '自定义提醒间隔（分钟）' })
+  await expect(value).toHaveAttribute('placeholder', '5 秒（仅用于观察效果）')
   const [sliderBox, valueBox] = await Promise.all([
     slider.boundingBox(),
     value.boundingBox(),
@@ -219,12 +219,13 @@ test('settings sliders stage locally and save only the released value', async ({
   }
 
   await dragToMaximum(slider, async () => {
-    await expect(settings.locator('.code-settings-pet-rest-value output'))
-      .toHaveText('每 30 分钟')
+    await expect(settings.getByRole('spinbutton', { name: '自定义提醒间隔（分钟）' }))
+      .toHaveValue('30')
     expect(writes.reminder).toBe(0)
   })
 
-  await expect(settings.locator('.code-settings-pet-rest-value output')).toHaveText('每 90 分钟')
+  await expect(settings.getByRole('spinbutton', { name: '自定义提醒间隔（分钟）' }))
+    .toHaveValue('90')
   await expect.poll(() => writes.reminder).toBe(1)
   await expect.poll(async () => {
     const response = await page.request.get('/farming/api/settings')
@@ -246,7 +247,7 @@ test('settings sliders stage locally and save only the released value', async ({
   }).toBe(180_000)
 })
 
-test('pending reminder is next to off and restores the setup invitation', async ({ page }) => {
+test('reminder uses compact tick markers and pending restores the setup invitation', async ({ page }) => {
   await page.request.post('/farming/api/settings', {
     data: {
       appearance: 'light',
@@ -258,23 +259,25 @@ test('pending reminder is next to off and restores the setup invitation', async 
   await page.getByTestId('code-sidebar-options').click()
   const settings = page.getByTestId('code-settings-panel')
   const slider = settings.getByRole('slider', { name: '休息提醒' })
-  const offMarker = settings.locator('.code-settings-pet-rest-off-marker')
-  const pendingMarker = settings.locator('.code-settings-pet-rest-pending-marker')
+  const markerTicks = settings.locator('.code-settings-pet-rest-markers span')
 
-  await expect(offMarker).toHaveText('关闭')
-  await expect(pendingMarker).toHaveText('待定')
-  const [offBox, pendingBox] = await Promise.all([
-    offMarker.boundingBox(),
-    pendingMarker.boundingBox(),
-  ])
-  expect(offBox).not.toBeNull()
-  expect(pendingBox).not.toBeNull()
-  expect(pendingBox!.x).toBeGreaterThan(offBox!.x)
+  await expect(markerTicks).toHaveCount(5)
+  await expect(settings.locator('.code-settings-pet-rest-markers')).toHaveText('')
 
-  await slider.fill('1')
-  await expect(settings.locator('.code-settings-pet-rest-value output')).toHaveText('待定')
+  await slider.focus()
+  await slider.evaluate(element => {
+    const input = element as HTMLInputElement
+    const valueSetter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      'value',
+    )?.set
+    valueSetter?.call(input, '1')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await expect(settings.getByRole('spinbutton', { name: '自定义提醒间隔（分钟）' }))
+    .toHaveAttribute('placeholder', '待定')
   await expect(slider).toHaveAttribute('aria-valuetext', '待定')
-  await slider.blur()
+  await slider.dispatchEvent('pointerup')
   await expect.poll(async () => {
     const response = await page.request.get('/farming/api/settings')
     return (await response.json()).settings?.restReminderIntervalSeconds

@@ -57,7 +57,7 @@ test.describe('workspace sharing', () => {
           fullAccessUrl,
           shortUrlAccessMode: 'owner',
           longUrlAccessMode: 'read-only',
-          tokenLabel: '春风轻拂长堤岸边-轻落庭前幽静深处-一枝梅花悄然盛开',
+          tokenLabel: '春风轻拂柳-细雨静落庭前树-一枝梅初开',
         }),
       })
     })
@@ -78,7 +78,13 @@ test.describe('workspace sharing', () => {
 
     const fullAccessButton = page.getByTestId('code-share-copy-link')
     await expect(fullAccessButton).toBeVisible()
-    await expect(fullAccessButton.locator('.code-share-token-line')).toHaveCount(3)
+    const token = fullAccessButton.locator('.code-share-token')
+    const copyAction = fullAccessButton.locator('.code-share-copy-action')
+    await expect(fullAccessButton.locator('.code-share-token-line')).toHaveCount(1)
+    const [tokenBox, copyActionBox] = await Promise.all([token.boundingBox(), copyAction.boundingBox()])
+    expect(tokenBox).not.toBeNull()
+    expect(copyActionBox).not.toBeNull()
+    expect(tokenBox!.y + tokenBox!.height).toBeLessThanOrEqual(copyActionBox!.y)
     await expect(fullAccessButton).toContainText(/Copy full-control passphrase link|复制完整控制口令链接/)
     await fullAccessButton.click()
 

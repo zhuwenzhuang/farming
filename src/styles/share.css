@@ -183,23 +183,15 @@
 
 .code-share-token-card-main {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-}
-
-.code-share-token-card-main.non-segmented {
   grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+  gap: 4px;
 }
 
 .code-share-token-card-main.non-segmented .code-share-token {
   overflow: hidden;
   overflow-wrap: normal;
   text-overflow: ellipsis;
-}
-
-.code-share-token-card-main.non-segmented .code-share-copy-action {
-  text-align: right;
 }
 
 .code-share-token {
@@ -234,6 +226,7 @@
   color: var(--code-text-subtle);
   font-size: 11px;
   font-weight: 600;
+  text-align: right;
   white-space: nowrap;
 }
 
