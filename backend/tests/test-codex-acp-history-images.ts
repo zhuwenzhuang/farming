@@ -5,7 +5,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 
 const projectRoot = path.join(__dirname, '..', '..');
-const adapterPath = path.join(projectRoot, 'dist', 'acp', 'codex-acp-1.1.14.mjs');
+const adapterPath = path.join(projectRoot, 'dist', 'acp', 'codex-acp-1.2.0.mjs');
 const fakeCodexPath = path.join(__dirname, 'fixtures', 'fake-codex-app-server.ts');
 const imageData = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=';
 const sessionId = '019f0000-0000-7000-8000-000000000999';

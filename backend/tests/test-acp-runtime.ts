@@ -21,7 +21,7 @@ async function run() {
   assert.strictEqual(acpErrorKind(new Error('429 rate limit exceeded')), 'rate-limit');
   assert.strictEqual(acpErrorKind(new Error('socket connection timed out')), 'network');
   assert.strictEqual(acpErrorKind(new Error('unexpected failure')), 'unknown');
-  assert.strictEqual(resolveAcpLaunch('codex').version, '1.1.14');
+  assert.strictEqual(resolveAcpLaunch('codex').version, '1.2.0');
   assert.strictEqual(resolveAcpLaunch('claude').version, '0.66.0');
   assert.strictEqual(resolveAcpLaunch('qwen').version, 'native');
   const codexAcpSource = fs.readFileSync(
@@ -929,7 +929,7 @@ async function run() {
     '/opt/farming/lib',
     '/opt/farming/node',
   ]);
-  assert.match(compatibleCodexLaunch.args[3], /(?:dist\/acp\/codex-acp-1\.1\.14\.mjs|codex-acp\/dist\/index\.js)$/);
+    assert.match(compatibleCodexLaunch.args[3], /(?:dist\/acp\/codex-acp-1\.2\.0\.mjs|codex-acp\/dist\/index\.js)$/);
   const compatibleClaudeLaunch = resolveAcpLaunch('claude');
   assert.match(
     compatibleClaudeLaunch.args.at(-1),

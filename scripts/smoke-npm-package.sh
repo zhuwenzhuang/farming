@@ -96,7 +96,7 @@ if grep -q '^npm warn allow-scripts' "${INSTALL_LOG}"; then
   exit 1
 fi
 PACKAGE_ROOT="${PREFIX}/lib/node_modules/farming-code"
-CODEX_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/codex-acp-1.1.14.mjs"
+CODEX_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/codex-acp-1.2.0.mjs"
 CLAUDE_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/claude-agent-acp-0.66.0.mjs"
 for packaged_ui_file in \
   frontend/agent-state-bridge.js \

@@ -60,7 +60,7 @@ files under `dist/acp/`:
 
 | Package | Version | License | Purpose |
 | --- | --- | --- | --- |
-| `@agentclientprotocol/codex-acp` | 1.1.14 | Apache-2.0 | Reviewed and patched Codex ACP adapter |
+| `@agentclientprotocol/codex-acp` | 1.2.0 | Apache-2.0 | Reviewed and patched Codex ACP adapter |
 | `@openai/codex` | 0.147.0 | Apache-2.0 | Codex executable discovery and launch bridge; platform CLI binaries are excluded |
 | `@agentclientprotocol/claude-agent-acp` | 0.66.0 | Apache-2.0 | Claude Code ACP adapter |
 | `@anthropic-ai/claude-agent-sdk` | 0.3.220 | Anthropic commercial terms | Claude Agent SDK bridge; platform CLI binaries are excluded |
