@@ -8,8 +8,8 @@ exports.validateServerMessage = validateServerMessage;
 exports.protocolCompatible = protocolCompatible;
 const agent_state_semantics_js_1 = require("./agent-state-semantics.js");
 const agent_state_wire_js_1 = require("./agent-state-wire.js");
-exports.PROTOCOL_VERSION = 10;
-exports.MIN_PROTOCOL_VERSION = 10;
+exports.PROTOCOL_VERSION = 11;
+exports.MIN_PROTOCOL_VERSION = 11;
 exports.PROJECT_ATTENTION_SCORE_MAX = agent_state_semantics_js_1.PROJECT_ATTENTION_SCORE_MAX;
 const SERVER_MESSAGE_TYPES = new Set([
     'protocol-hello',
@@ -299,9 +299,16 @@ function validateClientMessage(value) {
             valid = stringField(value, 'generation', true)
                 && optionalField(value, 'afterSequence', () => revisionField(value, 'afterSequence'));
             break;
+        case 'watch-workspace-files':
+            valid = stringField(value, 'agentId')
+                && Array.isArray(value.paths)
+                && value.paths.length > 0
+                && value.paths.length <= 256
+                && value.paths.every(filePath => typeof filePath === 'string' && filePath.length > 0 && filePath.length <= 4096)
+                && new Set(value.paths).size === value.paths.length;
+            break;
         case 'interrupt-agent':
         case 'clear-terminal':
-        case 'watch-workspace-files':
         case 'archive-agent':
             valid = stringField(value, 'agentId');
             break;
@@ -388,7 +395,10 @@ function validateServerMessage(value) {
             valid = agentReadState(value.read);
             break;
         case 'workspace-file-watch':
-            valid = stringField(value, 'agentId') && typeof value.watching === 'boolean';
+            valid = stringField(value, 'agentId')
+                && Array.isArray(value.paths)
+                && value.paths.every(filePath => typeof filePath === 'string')
+                && typeof value.watching === 'boolean';
             break;
         case 'workspace-file-event':
             valid = objectMessage(value.event) && stringField(value.event, 'agentId');

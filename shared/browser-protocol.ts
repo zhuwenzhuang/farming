@@ -2,8 +2,8 @@ import { PROJECT_ATTENTION_SCORE_MAX as projectAttentionScoreMax } from './agent
 import { isAgentStateWire } from './agent-state-wire.js'
 import type { AgentStateWire } from './agent-state-wire.js'
 
-export const PROTOCOL_VERSION = 10
-export const MIN_PROTOCOL_VERSION = 10
+export const PROTOCOL_VERSION = 11
+export const MIN_PROTOCOL_VERSION = 11
 export const PROJECT_ATTENTION_SCORE_MAX = projectAttentionScoreMax
 
 type ObjectMessage = Record<string, unknown>
@@ -99,7 +99,6 @@ export interface ResizeAgentMessage extends ExtensibleMessage {
 type AgentScopedClientMessageType =
   | 'interrupt-agent'
   | 'clear-terminal'
-  | 'watch-workspace-files'
   | 'archive-agent'
 
 export interface AgentScopedClientMessage<Type extends AgentScopedClientMessageType> extends ExtensibleMessage {
@@ -110,6 +109,12 @@ export interface AgentScopedClientMessage<Type extends AgentScopedClientMessageT
 export interface UnwatchWorkspaceFilesMessage extends ExtensibleMessage {
   type: 'unwatch-workspace-files'
   agentId?: string
+}
+
+export interface WatchWorkspaceFilesMessage extends ExtensibleMessage {
+  type: 'watch-workspace-files'
+  agentId: string
+  paths: string[]
 }
 
 export interface RestartMainAgentMessage extends ExtensibleMessage {
@@ -135,7 +140,7 @@ export type ClientMessage =
   | ResizeAgentMessage
   | AgentScopedClientMessage<'interrupt-agent'>
   | AgentScopedClientMessage<'clear-terminal'>
-  | AgentScopedClientMessage<'watch-workspace-files'>
+  | WatchWorkspaceFilesMessage
   | AgentScopedClientMessage<'archive-agent'>
   | UnwatchWorkspaceFilesMessage
   | RestartMainAgentMessage
@@ -304,6 +309,7 @@ export interface AgentReadMessage extends ExtensibleMessage {
 export interface WorkspaceFileWatchMessage extends ExtensibleMessage {
   type: 'workspace-file-watch'
   agentId: string
+  paths: string[]
   watching: boolean
 }
 
@@ -687,9 +693,16 @@ export function validateClientMessage(value: unknown): ValidationResult<ClientMe
       valid = stringField(value, 'generation', true)
         && optionalField(value, 'afterSequence', () => revisionField(value, 'afterSequence'))
       break
+    case 'watch-workspace-files':
+      valid = stringField(value, 'agentId')
+        && Array.isArray(value.paths)
+        && value.paths.length > 0
+        && value.paths.length <= 256
+        && value.paths.every(filePath => typeof filePath === 'string' && filePath.length > 0 && filePath.length <= 4096)
+        && new Set(value.paths).size === value.paths.length
+      break
     case 'interrupt-agent':
     case 'clear-terminal':
-    case 'watch-workspace-files':
     case 'archive-agent':
       valid = stringField(value, 'agentId')
       break
@@ -748,7 +761,12 @@ export function validateServerMessage(value: unknown): ValidationResult<ServerMe
     case 'agent-update': valid = objectMessage(value.update) && stringField(value.update, 'agentId') && sanitizeAgentUpdatePatch(value.update.patch) !== null; break
     case 'acp-session-revision': valid = objectMessage(value.session) && stringField(value.session, 'agentId') && Number.isInteger(value.session.revision) && typeof value.session.revision === 'number' && value.session.revision >= 0 && stringField(value.session, 'updatedAt'); break
     case 'agent-read': valid = agentReadState(value.read); break
-    case 'workspace-file-watch': valid = stringField(value, 'agentId') && typeof value.watching === 'boolean'; break
+    case 'workspace-file-watch':
+      valid = stringField(value, 'agentId')
+        && Array.isArray(value.paths)
+        && value.paths.every(filePath => typeof filePath === 'string')
+        && typeof value.watching === 'boolean'
+      break
     case 'workspace-file-event': valid = objectMessage(value.event) && stringField(value.event, 'agentId'); break
     case 'language-server-refresh':
       valid = stringField(value, 'serverEpoch')

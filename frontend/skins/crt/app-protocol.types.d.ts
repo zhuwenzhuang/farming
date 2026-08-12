@@ -205,8 +205,14 @@ interface CrtProtocolComposerInputClientMessage extends CrtProtocolRecord {
 }
 
 interface CrtProtocolAgentCommandClientMessage extends CrtProtocolRecord {
-  type: 'interrupt-agent' | 'clear-terminal' | 'watch-workspace-files' | 'archive-agent';
+  type: 'interrupt-agent' | 'clear-terminal' | 'archive-agent';
   agentId: string;
+}
+
+interface CrtProtocolWatchWorkspaceFilesClientMessage extends CrtProtocolRecord {
+  type: 'watch-workspace-files';
+  agentId: string;
+  paths: string[];
 }
 
 interface CrtProtocolFocusAgentClientMessage extends CrtProtocolRecord {
@@ -246,6 +252,7 @@ type CrtProtocolDeclaredClientMessage =
   | CrtProtocolInputClientMessage
   | CrtProtocolComposerInputClientMessage
   | CrtProtocolAgentCommandClientMessage
+  | CrtProtocolWatchWorkspaceFilesClientMessage
   | CrtProtocolFocusAgentClientMessage
   | CrtProtocolResizeAgentClientMessage
   | CrtProtocolPermissionResponseClientMessage

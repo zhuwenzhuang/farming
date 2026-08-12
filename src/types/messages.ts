@@ -135,6 +135,7 @@ export interface StateResyncMessage {
 export interface WatchWorkspaceFilesMessage {
   type: 'watch-workspace-files'
   agentId: string
+  paths: string[]
 }
 
 export interface UnwatchWorkspaceFilesMessage {
@@ -328,6 +329,7 @@ export interface SessionPreviewMessage {
 export interface WorkspaceFileWatchMessage {
   type: 'workspace-file-watch'
   agentId: string
+  paths: string[]
   watching: boolean
 }
 

@@ -97,6 +97,12 @@ function sameJsonValue(left: unknown, right: unknown) {
   return JSON.stringify(left) === JSON.stringify(right)
 }
 
+type WorkspaceFileListener = (event: WorkspaceFileEventMessage['event']) => void
+
+function workspaceFileListenerPaths(listeners: Map<WorkspaceFileListener, readonly string[]>) {
+  return Array.from(new Set(Array.from(listeners.values()).flat())).sort()
+}
+
 function normalizeStateAgent(agent: Agent, mainAgentId: string | null, previous?: Agent): Agent {
   const normalizedAgent = {
     ...agent,
@@ -196,7 +202,7 @@ export function useWebSocket() {
     rows?: number,
     kind?: 'output' | 'resize' | 'clear',
   ) => void>>(new Map())
-  const workspaceFileListenersRef = useRef<Map<string, Set<(event: WorkspaceFileEventMessage['event']) => void>>>(new Map())
+  const workspaceFileListenersRef = useRef<Map<string, Map<WorkspaceFileListener, readonly string[]>>>(new Map())
 
   const sendMessage = useCallback((msg: ClientMessage) => {
     const ws = wsRef.current
@@ -407,14 +413,16 @@ export function useWebSocket() {
     return () => { outputListenersRef.current.delete(agentId) }
   }, [])
 
-  const watchWorkspaceFiles = useCallback((agentId: string, handler: (event: WorkspaceFileEventMessage['event']) => void) => {
+  const watchWorkspaceFiles = useCallback((agentId: string, paths: readonly string[], handler: WorkspaceFileListener) => {
+    const normalizedPaths = Array.from(new Set(paths)).sort()
+    if (normalizedPaths.length === 0) return () => {}
     let listeners = workspaceFileListenersRef.current.get(agentId)
     if (!listeners) {
-      listeners = new Set()
+      listeners = new Map()
       workspaceFileListenersRef.current.set(agentId, listeners)
-      sendMessage({ type: 'watch-workspace-files', agentId })
     }
-    listeners.add(handler)
+    listeners.set(handler, normalizedPaths)
+    sendMessage({ type: 'watch-workspace-files', agentId, paths: workspaceFileListenerPaths(listeners) })
     return () => {
       const currentListeners = workspaceFileListenersRef.current.get(agentId)
       if (!currentListeners) return
@@ -423,6 +431,8 @@ export function useWebSocket() {
       if (currentListeners.size === 0) {
         workspaceFileListenersRef.current.delete(agentId)
         sendMessage({ type: 'unwatch-workspace-files', agentId })
+      } else {
+        sendMessage({ type: 'watch-workspace-files', agentId, paths: workspaceFileListenerPaths(currentListeners) })
       }
     }
   }, [sendMessage])
@@ -600,7 +610,11 @@ export function useWebSocket() {
         window.dispatchEvent(new Event('farming:backend-connected'))
         workspaceFileListenersRef.current.forEach((listeners, agentId) => {
           if (listeners.size > 0) {
-            ws.send(JSON.stringify({ type: 'watch-workspace-files', agentId }))
+            ws.send(JSON.stringify({
+              type: 'watch-workspace-files',
+              agentId,
+              paths: workspaceFileListenerPaths(listeners),
+            }))
           }
         })
       }
@@ -993,7 +1007,9 @@ export function useWebSocket() {
             case 'workspace-file-watch':
               break
             case 'workspace-file-event':
-              workspaceFileListenersRef.current.get(msg.event.agentId)?.forEach(listener => listener(msg.event))
+              workspaceFileListenersRef.current.get(msg.event.agentId)?.forEach((paths, listener) => {
+                if (msg.event.path && paths.includes(msg.event.path)) listener(msg.event)
+              })
               break
             case 'language-server-refresh':
               refreshLanguageServerProviders(msg)

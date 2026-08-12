@@ -35,7 +35,7 @@ const validClientMessages = {
   'focus-agent': { type: 'focus-agent', agentId: 'agent-1' },
   'resize-agent': { type: 'resize-agent', agentId: 'agent-1', cols: 80, rows: 24 },
   'clear-terminal': { type: 'clear-terminal', agentId: 'agent-1' },
-  'watch-workspace-files': { type: 'watch-workspace-files', agentId: 'agent-1' },
+  'watch-workspace-files': { type: 'watch-workspace-files', agentId: 'agent-1', paths: ['src/App.tsx'] },
   'unwatch-workspace-files': { type: 'unwatch-workspace-files', agentId: 'agent-1' },
   'archive-agent': { type: 'archive-agent', agentId: 'agent-1' },
   'restart-main-agent': { type: 'restart-main-agent', command: 'codex' },
@@ -77,6 +77,10 @@ assert.strictEqual(validateClientMessage({
 }).ok, false);
 assert.strictEqual(validateClientMessage({ type: 'resize-agent', agentId: 'a', cols: 80, rows: 24 }).ok, true);
 assert.strictEqual(validateClientMessage({ type: 'resize-agent', agentId: 'a', cols: '80', rows: 24 }).ok, false);
+assert.strictEqual(validateClientMessage({ type: 'watch-workspace-files', agentId: 'a', paths: ['src/App.tsx'] }).ok, true);
+assert.strictEqual(validateClientMessage({ type: 'watch-workspace-files', agentId: 'a' }).ok, false);
+assert.strictEqual(validateClientMessage({ type: 'watch-workspace-files', agentId: 'a', paths: [] }).ok, false);
+assert.strictEqual(validateClientMessage({ type: 'watch-workspace-files', agentId: 'a', paths: ['same.ts', 'same.ts'] }).ok, false);
 assert.strictEqual(validateClientMessage({ type: 'composer-input', agentId: 'a', message: 'steer', requestId: 'request-1' }).ok, true);
 assert.strictEqual(validateClientMessage({ type: 'composer-input', agentId: 'a', message: 'steer', requestId: 'request-1', delivery: 'steer' }).ok, true);
 assert.strictEqual(validateClientMessage({ type: 'composer-input', agentId: 'a', message: 'steer', requestId: 'request-1', delivery: 'next' }).ok, false);

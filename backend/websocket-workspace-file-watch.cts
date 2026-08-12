@@ -11,6 +11,7 @@ interface WorkspaceFileWatchControllerOptions {
   resolveRoot(agentId: string): string;
   subscribe(
     root: string,
+    paths: readonly string[],
     onEvent: (event: WorkspaceFileWatchEvent) => void,
   ): Promise<WorkspaceFileWatchUnsubscribe>;
   logCleanupError(error: unknown): void;
@@ -20,6 +21,7 @@ interface WorkspaceFileWatchControllerOptions {
 interface WorkspaceFileWatchLease {
   cancelled: boolean;
   cleanupStarted: boolean;
+  paths: string[];
   ready: Promise<boolean> | null;
   unsubscribe: WorkspaceFileWatchUnsubscribe | null;
 }
@@ -27,7 +29,7 @@ interface WorkspaceFileWatchLease {
 type WorkspaceFileWatchLeases = Map<string, WorkspaceFileWatchLease>;
 
 interface WorkspaceFileWatchController<Client extends WorkspaceFileWatchClient = WorkspaceFileWatchClient> {
-  watch(client: Client, agentId: string): Promise<void>;
+  watch(client: Client, agentId: string, paths: readonly string[]): Promise<void>;
   unwatch(client: Client, agentId?: string | null): void;
   close(client: Client): void;
 }
@@ -71,10 +73,11 @@ function createWorkspaceFileWatchController<Client extends WorkspaceFileWatchCli
     }
   }
 
-  function sendWatching(client: Client, agentId: string): void {
+  function sendWatching(client: Client, agentId: string, paths: readonly string[]): void {
     client.send(JSON.stringify({
       type: 'workspace-file-watch',
       agentId,
+      paths,
       watching: true,
     }));
   }
@@ -109,21 +112,28 @@ function createWorkspaceFileWatchController<Client extends WorkspaceFileWatchCli
     releaseEmptyLeaseMap(client, leases);
   }
 
-  async function watch(client: Client, agentId: string): Promise<void> {
+  async function watch(client: Client, agentId: string, paths: readonly string[]): Promise<void> {
     try {
       if (!agentId) {
         sendErrorMessage(client, 'agentId is required');
         return;
       }
+      const normalizedPaths = Array.from(new Set(paths)).sort();
+      if (normalizedPaths.length === 0) {
+        sendErrorMessage(client, 'at least one file path is required');
+        return;
+      }
 
       const existing = leasesByClient.get(client)?.get(agentId);
-      if (existing) {
+      if (existing && existing.paths.length === normalizedPaths.length
+        && existing.paths.every((filePath, index) => filePath === normalizedPaths[index])) {
         const watching = await existing.ready;
         if (watching && isCurrentLease(client, agentId, existing) && isOpen(client)) {
-          sendWatching(client, agentId);
+          sendWatching(client, agentId, existing.paths);
         }
         return;
       }
+      if (existing) unwatch(client, agentId);
 
       const root = options.resolveRoot(agentId);
       let leases = leasesByClient.get(client);
@@ -134,11 +144,12 @@ function createWorkspaceFileWatchController<Client extends WorkspaceFileWatchCli
       const lease: WorkspaceFileWatchLease = {
         cancelled: false,
         cleanupStarted: false,
+        paths: normalizedPaths,
         ready: null,
         unsubscribe: null,
       };
       lease.ready = (async () => {
-        const unsubscribe = await options.subscribe(root, (event) => {
+        const unsubscribe = await options.subscribe(root, normalizedPaths, (event) => {
           if (!isCurrentLease(client, agentId, lease) || !isOpen(client)) return;
           client.send(JSON.stringify({
             type: 'workspace-file-event',
@@ -160,7 +171,7 @@ function createWorkspaceFileWatchController<Client extends WorkspaceFileWatchCli
       try {
         const watching = await lease.ready;
         if (watching && isCurrentLease(client, agentId, lease) && isOpen(client)) {
-          sendWatching(client, agentId);
+          sendWatching(client, agentId, lease.paths);
         }
       } catch (error: unknown) {
         if (leases.get(agentId) === lease) leases.delete(agentId);

@@ -47,7 +47,7 @@ const validClientMessages = {
   'focus-agent': { type: 'focus-agent', agentId: 'agent-1' },
   'resize-agent': { type: 'resize-agent', agentId: 'agent-1', cols: 80, rows: 24 },
   'clear-terminal': { type: 'clear-terminal', agentId: 'agent-1' },
-  'watch-workspace-files': { type: 'watch-workspace-files', agentId: 'agent-1' },
+  'watch-workspace-files': { type: 'watch-workspace-files', agentId: 'agent-1', paths: ['src/App.tsx'] },
   'unwatch-workspace-files': { type: 'unwatch-workspace-files', agentId: 'agent-1' },
   'archive-agent': { type: 'archive-agent', agentId: 'agent-1' },
   'restart-main-agent': { type: 'restart-main-agent', command: 'codex' },

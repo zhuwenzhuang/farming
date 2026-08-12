@@ -156,8 +156,13 @@ type WorkspaceFileSubscriber = (event: WorkspaceFileEvent) => void;
 
 interface ChokidarWatcher {
   close(): void | Promise<void>;
+  getWatched(): Record<string, string[]>;
   on(event: string, callback: (...args: unknown[]) => void): ChokidarWatcher;
   once(event: string, callback: (...args: unknown[]) => void): ChokidarWatcher;
+}
+
+interface ChokidarModule {
+  watch(path: string | string[], options: Record<string, unknown>): ChokidarWatcher;
 }
 
 interface WorkspaceWatcherRecord {
@@ -393,7 +398,7 @@ function isPackagedRuntime() {
     || process.env.FARMING_PACKAGED_RUNTIME === '1';
 }
 
-let chokidarPromise: Promise<{ watch(path: string, options: Record<string, unknown>): ChokidarWatcher }> | null = null;
+let chokidarPromise: Promise<ChokidarModule> | null = null;
 
 async function loadChokidar() {
   if (!chokidarPromise) {
@@ -3665,13 +3670,30 @@ class WorkspaceFileService {
     }
   }
 
-  async subscribe(workspaceRoot: unknown, callback: WorkspaceFileSubscriber): Promise<() => Promise<void>> {
+  async subscribe(
+    workspaceRoot: unknown,
+    callback: WorkspaceFileSubscriber,
+    filePaths?: readonly string[],
+  ): Promise<() => Promise<void>> {
     if (this.disposed) return async () => {};
     const lifecycleGeneration = this.watcherLifecycleGeneration;
     const root = await this.resolveRoot(workspaceRoot);
     if (this.disposed || this.watcherLifecycleGeneration !== lifecycleGeneration) return async () => {};
-    const watchRoot = path.resolve(workspaceRoot);
-    let record = this.watchers.get(root);
+    const watchRoot = root;
+    const normalizedPaths = filePaths
+      ? Array.from(new Set(filePaths.map(filePath => normalizeUserPath(filePath)))).sort()
+      : null;
+    if (normalizedPaths && (normalizedPaths.length === 0 || normalizedPaths.length > 256)) {
+      throw new WorkspaceFileError('between 1 and 256 file paths are required', 400);
+    }
+    const watchTargets = normalizedPaths
+      ? await Promise.all(normalizedPaths.map(async filePath => (
+        await this.resolvePath(root, filePath, { allowMissing: true })
+      ).target))
+      : watchRoot;
+    const allowedPaths = normalizedPaths ? new Set(normalizedPaths) : null;
+    const watcherKey = normalizedPaths ? `${root}\0${JSON.stringify(normalizedPaths)}` : root;
+    let record = this.watchers.get(watcherKey);
 
     if (!record) {
       const subscribers = new Set<WorkspaceFileSubscriber>();
@@ -3680,7 +3702,7 @@ class WorkspaceFileService {
 
       const emit = (eventType: string, absolutePath: unknown) => {
         const relative = relativeFromRoot(watchRoot, String(absolutePath));
-        if (shouldHidePath(relative)) return;
+        if (shouldHidePath(relative) || (allowedPaths && !allowedPaths.has(relative))) return;
         this.invalidateGitStatus(root);
         subscribers.forEach((subscriber) => {
           subscriber({
@@ -3709,7 +3731,7 @@ class WorkspaceFileService {
         closePromise: null,
         ready: null,
       };
-      this.watchers.set(root, record);
+      this.watchers.set(watcherKey, record);
       const initializingRecord = record;
       record.ready = (async (): Promise<boolean> => {
         const configuredIgnored = this.watchOptions.ignored;
@@ -3729,12 +3751,13 @@ class WorkspaceFileService {
         const chokidar = await loadChokidar();
         if (
           initializingRecord.cancelled
-          || this.watchers.get(root)?.generation !== generation
+          || this.watchers.get(watcherKey)?.generation !== generation
         ) return false;
-        const watcher = chokidar.watch(watchRoot, {
+        const watcher = chokidar.watch(watchTargets, {
           ignoreInitial: true,
           depth: this.watchDepth,
           ...this.watchOptions,
+          ...(normalizedPaths ? { depth: 0 } : {}),
           ignored,
         });
         initializingRecord.watcher = watcher;
@@ -3756,7 +3779,7 @@ class WorkspaceFileService {
         initializingRecord.cancelInitialization = null;
         return initialized
           && !initializingRecord.cancelled
-          && this.watchers.get(root)?.generation === generation;
+          && this.watchers.get(watcherKey)?.generation === generation;
       })();
     }
 
@@ -3767,8 +3790,8 @@ class WorkspaceFileService {
     } catch (caught: unknown) {
       const error = processError(caught);
       record.subscribers.delete(callback);
-      if (record.subscribers.size === 0 && this.watchers.get(root)?.generation === record.generation) {
-        this.watchers.delete(root);
+      if (record.subscribers.size === 0 && this.watchers.get(watcherKey)?.generation === record.generation) {
+        this.watchers.delete(watcherKey);
         await this.closeWorkspaceWatcherRecord(record);
       }
       throw error;
@@ -3781,9 +3804,9 @@ class WorkspaceFileService {
       if (!record.subscribers.delete(callback)) return;
       if (
         record.subscribers.size === 0
-        && this.watchers.get(root)?.generation === record.generation
+        && this.watchers.get(watcherKey)?.generation === record.generation
       ) {
-        this.watchers.delete(root);
+        this.watchers.delete(watcherKey);
         await this.closeWorkspaceWatcherRecord(record);
       }
     };

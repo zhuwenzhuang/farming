@@ -377,7 +377,7 @@ interface CodeWorkspaceProps {
     options?: { awaitResult?: boolean; requestId?: string; delivery?: 'prompt' | 'steer' },
   ) => boolean | Promise<boolean>
   onSessionOutput: (agentId: string, handler: (data: string, replace?: boolean, outputSeq?: number | null, runtimeEpoch?: string, stateRevision?: number | null, cols?: number, rows?: number, kind?: 'output' | 'resize' | 'clear') => void) => () => void
-  onWatchWorkspaceFiles: (agentId: string, handler: (event: WorkspaceFileEventMessage['event']) => void) => () => void
+  onWatchWorkspaceFiles: (agentId: string, paths: readonly string[], handler: (event: WorkspaceFileEventMessage['event']) => void) => () => void
   onBrowserResource: (resource: BrowserResource) => void
   onBrowserResourceDeletion: (deletion: BrowserResourceDeletion) => void
   onComputerResource: (resource: ComputerResource) => void
@@ -596,22 +596,29 @@ export function CodeWorkspace({
   } = useWorkspaceNavigationHistory()
   const openWorkspaceFile = workspaceOpenFiles.activeFile
   const openWorkspaceFiles = workspaceOpenFiles.files
-  const openWorkspaceFileWatchRoots = useMemo(() => JSON.stringify(Array.from(new Set(
-    openWorkspaceFiles
-      .map(file => file.agentId)
-      .filter(agentId => !isGlobalWorkspaceFilesAgentId(agentId)),
-  )).sort()), [openWorkspaceFiles])
+  const openWorkspaceFileWatchTargets = useMemo(() => {
+    const pathsByRoot = new Map<string, Set<string>>()
+    openWorkspaceFiles.forEach(file => {
+      if (isGlobalWorkspaceFilesAgentId(file.agentId)) return
+      const paths = pathsByRoot.get(file.agentId) ?? new Set<string>()
+      paths.add(file.file.path)
+      pathsByRoot.set(file.agentId, paths)
+    })
+    return JSON.stringify(Array.from(pathsByRoot.entries())
+      .map(([rootId, paths]) => [rootId, Array.from(paths).sort()] as const)
+      .sort(([left], [right]) => left.localeCompare(right)))
+  }, [openWorkspaceFiles])
   const scheduleOpenFileRefresh = workspaceOpenFiles.scheduleOpenFileRefresh
 
   useEffect(() => {
-    const rootIds = JSON.parse(openWorkspaceFileWatchRoots) as string[]
-    const unsubscribe = rootIds.map(rootId => onWatchWorkspaceFiles(rootId, event => {
+    const targets = JSON.parse(openWorkspaceFileWatchTargets) as Array<[string, string[]]>
+    const unsubscribe = targets.map(([rootId, paths]) => onWatchWorkspaceFiles(rootId, paths, event => {
       if ((event.type === 'change' || event.type === 'add' || event.type === 'unlink') && event.path) {
         scheduleOpenFileRefresh(rootId, event.path)
       }
     }))
     return () => unsubscribe.forEach(stopWatching => stopWatching())
-  }, [onWatchWorkspaceFiles, openWorkspaceFileWatchRoots, scheduleOpenFileRefresh])
+  }, [onWatchWorkspaceFiles, openWorkspaceFileWatchTargets, scheduleOpenFileRefresh])
   const activeBrowserResource = activeBrowserId
     ? browserResources.resources.find(resource => resource.id === activeBrowserId) ?? null
     : null

@@ -1246,6 +1246,34 @@ async function run() {
     assert(watchEvents.some(event => event.path === 'src/Watched.ts'));
     assert(!watchEvents.some(event => event.path === 'reference/IgnoredWatch.ts'));
 
+    const exactWatchedPath = path.join(srcDir, 'ExactWatched.ts');
+    const exactIgnoredPath = path.join(srcDir, 'ExactIgnored.ts');
+    await fsp.writeFile(exactWatchedPath, 'before\n');
+    await fsp.writeFile(exactIgnoredPath, 'before\n');
+    const exactWatchEvents = [];
+    const unsubscribeExact = await service.subscribe(
+      workspace,
+      event => exactWatchEvents.push(event),
+      ['src/ExactWatched.ts'],
+    );
+    const exactWatcher = Array.from((service.watchers as Map<string, {
+      watcher: { getWatched(): Record<string, string[]> } | null;
+    }>).values())[0]?.watcher;
+    const exactWatchedEntries = Object.entries(exactWatcher?.getWatched() ?? {});
+    assert.strictEqual(exactWatchedEntries.length, 1);
+    assert.strictEqual(
+      await fsp.realpath(exactWatchedEntries[0][0]),
+      await fsp.realpath(srcDir),
+      'exact subscriptions must not hand the workspace root to chokidar',
+    );
+    assert.deepStrictEqual(exactWatchedEntries[0][1], ['ExactWatched.ts']);
+    await fsp.writeFile(exactIgnoredPath, 'after\n');
+    await fsp.writeFile(exactWatchedPath, 'after\n');
+    await waitFor(() => exactWatchEvents.some(event => event.path === 'src/ExactWatched.ts'));
+    await new Promise(resolve => setTimeout(resolve, 150));
+    await unsubscribeExact();
+    assert(!exactWatchEvents.some(event => event.path === 'src/ExactIgnored.ts'));
+
     console.log('✓ Workspace file service safely reads, writes, searches, diffs, and watches files');
   } finally {
     await service.dispose();

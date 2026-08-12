@@ -30,11 +30,13 @@ async function openProjectFile(page: Page, projectName: string, filePath: string
   await file.dblclick()
 }
 
-function recordWorkspaceWatchReady(socket: PlaywrightWebSocket, onReady: () => void) {
+function recordWorkspaceWatchReady(socket: PlaywrightWebSocket, onReady: (paths: string[]) => void) {
   socket.on('framereceived', frame => {
     try {
-      const message = JSON.parse(String(frame.payload)) as { type?: string; watching?: boolean }
-      if (message.type === 'workspace-file-watch' && message.watching === true) onReady()
+      const message = JSON.parse(String(frame.payload)) as { type?: string; paths?: string[]; watching?: boolean }
+      if (message.type === 'workspace-file-watch' && message.watching === true && Array.isArray(message.paths)) {
+        onReady(message.paths)
+      }
     } catch {
       // Ignore terminal and other non-JSON websocket frames.
     }
@@ -53,12 +55,12 @@ test('automatically refreshes every open file viewer while preserving dirty draf
   )
   await createControlAgent(page, workspace)
 
-  let workspaceWatchReady = false
-  page.on('websocket', socket => recordWorkspaceWatchReady(socket, () => { workspaceWatchReady = true }))
+  let watchedPaths: string[] = []
+  page.on('websocket', socket => recordWorkspaceWatchReady(socket, paths => { watchedPaths = paths }))
   await openFarming(page)
 
   await openProjectFile(page, 'file-auto-refresh', 'plain.txt')
-  await expect.poll(() => workspaceWatchReady).toBe(true)
+  await expect.poll(() => watchedPaths).toEqual(['plain.txt'])
   await expect.poll(() => page.evaluate(() => window.__farmingFileEditorTest?.getValue() ?? '')).toBe('plain before\n')
   fs.writeFileSync(path.join(workspace, 'plain.txt'), 'plain after\n')
   await expect.poll(() => page.evaluate(() => window.__farmingFileEditorTest?.getValue() ?? '')).toBe('plain after\n')
@@ -70,18 +72,21 @@ test('automatically refreshes every open file viewer while preserving dirty draf
   await expect(page.getByTestId('code-file-editor').getByTitle('Changed on disk')).toBeVisible()
 
   await openProjectFile(page, 'file-auto-refresh', 'guide.md')
+  await expect.poll(() => watchedPaths).toEqual(['guide.md', 'plain.txt'])
   const markdownPreview = page.getByTestId('code-file-markdown-preview')
   await expect(markdownPreview.getByRole('heading', { name: 'Markdown before' })).toBeVisible()
   fs.writeFileSync(path.join(workspace, 'guide.md'), '# Markdown after\n')
   await expect(markdownPreview.getByRole('heading', { name: 'Markdown after' })).toBeVisible()
 
   await openProjectFile(page, 'file-auto-refresh', 'index.html')
+  await expect.poll(() => watchedPaths).toEqual(['guide.md', 'index.html', 'plain.txt'])
   const htmlFrame = page.frameLocator('[data-testid="code-file-html-preview"]')
   await expect(htmlFrame.getByRole('heading', { name: 'HTML before' })).toBeVisible()
   fs.writeFileSync(path.join(workspace, 'index.html'), '<h1>HTML after</h1>\n')
   await expect(htmlFrame.getByRole('heading', { name: 'HTML after' })).toBeVisible()
 
   await openProjectFile(page, 'file-auto-refresh', 'icon.svg')
+  await expect.poll(() => watchedPaths).toEqual(['guide.md', 'icon.svg', 'index.html', 'plain.txt'])
   const imagePreview = page.getByTestId('code-file-image-preview')
   const originalSource = await imagePreview.getAttribute('src')
   expect(originalSource).toBeTruthy()

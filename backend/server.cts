@@ -478,7 +478,7 @@ const workspaceRootRegistry = new WorkspaceRootRegistry(
 const workspaceFileWatchController = createWorkspaceFileWatchController({
   openState: WebSocket.OPEN,
   resolveRoot: agentId => resolveWorkspaceRoot(agentManager, agentId),
-  subscribe: (root, onEvent) => workspaceFileService.subscribe(root, event => onEvent({ ...event })),
+  subscribe: (root, paths, onEvent) => workspaceFileService.subscribe(root, event => onEvent({ ...event }), paths),
   logCleanupError: error => {
     console.error('Failed to clear workspace file watch:', error);
   },
@@ -1923,7 +1923,7 @@ const clientMessageDispatchTable = defineClientMessageDispatchTable<WebSocketCli
   'resize-agent': registerClientMessage('resize-agent', websocketTerminalHandlers.resizeAgent),
   'clear-terminal': registerClientMessage('clear-terminal', websocketTerminalHandlers.clearTerminal),
   'watch-workspace-files': registerClientMessage('watch-workspace-files', (ws, data) => {
-    void workspaceFileWatchController.watch(ws, data.agentId);
+    void workspaceFileWatchController.watch(ws, data.agentId, data.paths);
   }),
   'unwatch-workspace-files': registerClientMessage('unwatch-workspace-files', (ws, data) => {
     workspaceFileWatchController.unwatch(ws, data.agentId);
