@@ -208,9 +208,9 @@ export function FileEditorPane({
     onUpdateOpenFile,
   })
   const reloadFileAndPreview = useCallback(async () => {
-    if (!openFile.dirty || openFile.externalChanged || openFile.error) await reloadFile()
+    await reloadFile()
     setPreviewRefreshRevision(revision => revision + 1)
-  }, [openFile.dirty, openFile.error, openFile.externalChanged, reloadFile])
+  }, [reloadFile])
 
   const {
     tabContextMenu,

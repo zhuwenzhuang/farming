@@ -9,7 +9,20 @@ import {
 import { LatestRequestFence } from './latest-request-fence'
 import { useCodexModelCatalog } from './useCodexModelCatalog'
 
-type JsonRequest = (url: string) => Promise<{ json(): Promise<unknown> }>
+export type SlashCatalogStatus = 'disabled' | 'loading' | 'ready' | 'error'
+
+interface SlashCatalogState {
+  targetKey: string
+  status: SlashCatalogStatus
+  commands: SlashCommandOption[]
+}
+
+type JsonRequest = (
+  url: string,
+  init?: RequestInit,
+) => Promise<{ ok?: boolean; json(): Promise<unknown> }>
+
+export const SLASH_COMMAND_REQUEST_TIMEOUT_MS = 8_000
 
 export async function requestClaudeSettings(homeId: string, request: JsonRequest = fetch) {
   const params = new URLSearchParams({ homeId })
@@ -23,12 +36,28 @@ export async function requestSlashCommands(
   homeId: string,
   workspace?: string,
   request: JsonRequest = fetch,
+  timeoutMs = SLASH_COMMAND_REQUEST_TIMEOUT_MS,
+  signal?: AbortSignal,
 ) {
   const params = new URLSearchParams({ provider, homeId })
   if (workspace) params.set('workspace', workspace)
-  const response = await request(appPath(`/api/slash-commands?${params.toString()}`))
-  const data = await response.json() as { commands?: SlashCommandOption[] }
-  return Array.isArray(data.commands) ? data.commands : []
+  const controller = new AbortController()
+  const abortFromCaller = () => controller.abort()
+  if (signal?.aborted) controller.abort()
+  else signal?.addEventListener('abort', abortFromCaller, { once: true })
+  const timeout = globalThis.setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const response = await request(
+      appPath(`/api/slash-commands?${params.toString()}`),
+      { signal: controller.signal },
+    )
+    if (response.ok === false) throw new Error('Slash command discovery failed')
+    const data = await response.json() as { commands?: SlashCommandOption[] }
+    return Array.isArray(data.commands) ? data.commands : []
+  } finally {
+    globalThis.clearTimeout(timeout)
+    signal?.removeEventListener('abort', abortFromCaller)
+  }
 }
 
 export interface ComposerProviderCatalogTarget {
@@ -65,7 +94,13 @@ export function useComposerProviderCatalog({
     onError: onModelCatalogError,
   })
   const [claudeSettings, setClaudeSettings] = useState<ClaudeSettingsSummary>(DEFAULT_CLAUDE_SETTINGS)
-  const [discoveredSlashCommands, setDiscoveredSlashCommands] = useState<SlashCommandOption[]>([])
+  const slashCatalogTargetKey = JSON.stringify([providerKind, homeId, workspace || ''])
+  const slashCatalogEnabled = Boolean(slashCommandDiscovery && providerKind)
+  const [slashCatalog, setSlashCatalog] = useState<SlashCatalogState>({
+    targetKey: '',
+    status: 'disabled',
+    commands: [],
+  })
   const claudeRequestFenceRef = useRef(new LatestRequestFence())
   const slashRequestFenceRef = useRef(new LatestRequestFence())
 
@@ -89,19 +124,52 @@ export function useComposerProviderCatalog({
   useEffect(() => {
     const requestFence = slashRequestFenceRef.current
     const lease = requestFence.begin()
-    if (!slashCommandDiscovery || !providerKind) {
-      setDiscoveredSlashCommands([])
-      return () => requestFence.invalidate()
+    const controller = new AbortController()
+    if (!slashCatalogEnabled) {
+      setSlashCatalog({ targetKey: slashCatalogTargetKey, status: 'disabled', commands: [] })
+      return () => {
+        controller.abort()
+        requestFence.invalidate()
+      }
     }
-    void requestSlashCommands(providerKind, homeId, workspace)
+    setSlashCatalog({ targetKey: slashCatalogTargetKey, status: 'loading', commands: [] })
+    void requestSlashCommands(
+      providerKind,
+      homeId,
+      workspace,
+      fetch,
+      SLASH_COMMAND_REQUEST_TIMEOUT_MS,
+      controller.signal,
+    )
       .then(commands => {
-        if (lease.isCurrent()) setDiscoveredSlashCommands(commands)
+        if (lease.isCurrent()) {
+          setSlashCatalog({ targetKey: slashCatalogTargetKey, status: 'ready', commands })
+        }
       })
       .catch(() => {
-        if (lease.isCurrent()) setDiscoveredSlashCommands([])
+        if (lease.isCurrent()) {
+          setSlashCatalog({ targetKey: slashCatalogTargetKey, status: 'error', commands: [] })
+        }
       })
-    return () => requestFence.invalidate()
-  }, [homeId, providerKind, slashCommandDiscovery, workspace])
+    return () => {
+      controller.abort()
+      requestFence.invalidate()
+    }
+  }, [homeId, providerKind, slashCatalogEnabled, slashCatalogTargetKey, workspace])
 
-  return { claudeSettings, discoveredSlashCommands, modelOptions }
+  const currentSlashCatalog = slashCatalog.targetKey === slashCatalogTargetKey
+    ? slashCatalog
+    : {
+        targetKey: slashCatalogTargetKey,
+        status: slashCatalogEnabled ? 'loading' as const : 'disabled' as const,
+        commands: [],
+      }
+
+  return {
+    claudeSettings,
+    discoveredSlashCommands: currentSlashCatalog.commands,
+    slashCatalogStatus: currentSlashCatalog.status,
+    slashCatalogTargetKey,
+    modelOptions,
+  }
 }

@@ -3273,6 +3273,10 @@ export function AgentTranscriptPane({
     return () => window.removeEventListener('pagehide', handlePageHide)
   }, [active, flushPendingReadingAnchor, readingAnchorAgentId])
 
+  // The pane's mounted lifetime owns transcript synchronization. Visibility
+  // only owns attention effects (read receipts, focus, and scroll following).
+  // Keeping those lifetimes separate preserves the current Chat while a file
+  // temporarily occupies the workspace without marking hidden work as read.
   useEffect(() => {
     if (!active) return undefined
 
@@ -3313,8 +3317,6 @@ export function AgentTranscriptPane({
   }, [active, finishUserScrollGesture])
 
   useEffect(() => {
-    if (!active) return undefined
-
     let stopped = false
     let pollTimer: number | null = null
     let retryTimer: number | null = null
@@ -3532,13 +3534,13 @@ export function AgentTranscriptPane({
       if (refreshTimer !== null) window.clearTimeout(refreshTimer)
       if (pollTimer !== null) window.clearInterval(pollTimer)
     }
-  }, [active, agentId, copy.agentTranscriptUnavailable, revealInitialTranscript, scheduleInitialTranscriptReveal, source, turnLimit])
+  }, [agentId, copy.agentTranscriptUnavailable, revealInitialTranscript, scheduleInitialTranscriptReveal, source, turnLimit])
 
   useEffect(() => {
-    if (!active || handledRefreshSignalRef.current === refreshSignal) return
+    if (handledRefreshSignalRef.current === refreshSignal) return
     handledRefreshSignalRef.current = refreshSignal
     transcriptRefreshRef.current?.()
-  }, [active, refreshSignal])
+  }, [refreshSignal])
 
   const turns = useMemo(() => transcript?.turns || [], [transcript])
   const latestTurn = turns[turns.length - 1]

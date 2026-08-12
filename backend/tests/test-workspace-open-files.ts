@@ -2,6 +2,7 @@ const assert = require('assert');
 const {
   beginWorkspaceOpenFileSave,
   closeWorkspaceOpenFiles,
+  completeWorkspaceOpenFileReload,
   completeWorkspaceOpenFileSave,
   createWorkspaceOpenFile,
   deleteWorkspaceOpenFiles,
@@ -374,6 +375,29 @@ function run() {
   assert.strictEqual(completedWithoutMoreEdits.draft, 'new draft');
   assert.strictEqual(completedWithoutMoreEdits.dirty, false);
   assert.strictEqual(completedWithoutMoreEdits.saving, false);
+
+  const reloading = beginWorkspaceOpenFileSave(drafted, 13);
+  const reloadingWithEquivalentDraftRevision = {
+    ...reloading,
+    revision: reloading.revision + 1,
+  };
+  const reloaded = completeWorkspaceOpenFileReload(
+    reloadingWithEquivalentDraftRevision,
+    13,
+    reloading.draft,
+    workspaceFile('src/App.tsx', 'disk reload', 'reload-sha'),
+  );
+  assert.strictEqual(reloaded.draft, 'disk reload');
+  assert.strictEqual(reloaded.dirty, false);
+  const editedDuringReload = updateWorkspaceOpenFileDraft(reloading, 'edit during reload');
+  const reloadedAfterEdit = completeWorkspaceOpenFileReload(
+    editedDuringReload,
+    13,
+    reloading.draft,
+    workspaceFile('src/App.tsx', 'disk reload', 'reload-sha'),
+  );
+  assert.strictEqual(reloadedAfterEdit.draft, 'edit during reload');
+  assert.strictEqual(reloadedAfterEdit.dirty, true);
 
   const staleCompletion = completeWorkspaceOpenFileSave(savingWithoutMoreEdits, 99, savedRevision);
   assert.strictEqual(staleCompletion, savingWithoutMoreEdits);

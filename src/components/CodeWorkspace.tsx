@@ -1158,6 +1158,8 @@ export function CodeWorkspace({
   const {
     claudeSettings,
     discoveredSlashCommands,
+    slashCatalogStatus,
+    slashCatalogTargetKey,
     modelOptions: codexModelOptions,
   } = useComposerProviderCatalog({
     providerKind: composerAgentKind || '',
@@ -5030,6 +5032,8 @@ export function CodeWorkspace({
           agentKind: composerAgentKind,
           capabilities: activeAgentCapabilities.composer,
           slashCommands: composerSlashCommands,
+          slashCatalogStatus,
+          slashCatalogTargetKey,
           draft,
           attachments: composerAttachments,
           composerMode,

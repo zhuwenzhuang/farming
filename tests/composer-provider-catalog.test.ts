@@ -39,8 +39,10 @@ test('provider metadata requests preserve query encoding and normalize their pay
       },
     }
   })
-  const commands = await requestSlashCommands('codex', 'home /one', '/repo path', async url => {
+  let slashRequestSignal: AbortSignal | undefined
+  const commands = await requestSlashCommands('codex', 'home /one', '/repo path', async (url, init) => {
     urls.push(url)
+    slashRequestSignal = init?.signal as AbortSignal | undefined
     return { async json() { return { commands: [pluginCommand] } } }
   })
   await requestSlashCommands('claude', 'default', undefined, async url => {
@@ -55,5 +57,6 @@ test('provider metadata requests preserve query encoding and normalize their pay
   ])
   assert.equal(claude.effectiveModel, 'opus')
   assert.equal(claude.available, true)
+  assert.equal(slashRequestSignal instanceof AbortSignal, true)
   assert.deepEqual(commands, [pluginCommand])
 })

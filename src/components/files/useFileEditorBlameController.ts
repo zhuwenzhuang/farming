@@ -135,7 +135,7 @@ export function useFileEditorBlameController({
     setBlameLoading(false)
     setBlameError(null)
     setBlameCapability(disabled ? 'unavailable' : 'unknown')
-  }, [disabled, openFile.agentId, openFile.file])
+  }, [currentOpenFileKey, disabled])
 
   useEffect(() => {
     if (!disabled) return

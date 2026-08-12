@@ -657,6 +657,31 @@ export function completeWorkspaceOpenFileSave(
   }
 }
 
+export function completeWorkspaceOpenFileReload(
+  file: OpenWorkspaceFile,
+  reloadRequestId: number,
+  requestedDraft: string,
+  loadedFile: WorkspaceFile
+): OpenWorkspaceFile {
+  if (!file.saving || file.saveRequestId !== reloadRequestId) return file
+  const committedFile = loadedFile.path === file.file.path
+    ? loadedFile
+    : { ...loadedFile, path: file.file.path }
+  const changedWhileReloading = file.draft !== requestedDraft
+  const draft = changedWhileReloading ? file.draft : committedFile.content
+  return {
+    ...file,
+    file: committedFile,
+    draft,
+    dirty: draft !== committedFile.content,
+    externalChanged: false,
+    saving: false,
+    saveRequestId: undefined,
+    saveRevision: undefined,
+    error: null,
+  }
+}
+
 export function failWorkspaceOpenFileSave(
   file: OpenWorkspaceFile,
   saveRequestId: number,

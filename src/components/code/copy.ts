@@ -343,6 +343,7 @@ export interface CodeCopy {
   searchFilesOrJump: string
   openEditors: string
   loading: string
+  slashCatalogUnavailable: string
   currentInfoLoadFailed: string
   searching: string
   noMatches: string
@@ -910,6 +911,7 @@ const EN_COPY: CodeCopy = {
   searchFilesOrJump: 'Search files or jump to path line',
   openEditors: 'OPEN EDITORS',
   loading: 'Loading...',
+  slashCatalogUnavailable: 'Skills are temporarily unavailable.',
   currentInfoLoadFailed: 'Failed to load current information.',
   searching: 'Searching...',
   noMatches: 'No matches',
@@ -1513,6 +1515,7 @@ const ZH_COPY: CodeCopy = {
   searchFilesOrJump: '搜索文件或跳转到路径行号',
   openEditors: '打开的编辑器',
   loading: '加载中...',
+  slashCatalogUnavailable: 'Skills 暂时不可用。',
   currentInfoLoadFailed: '当前信息加载失败。',
   searching: '搜索中...',
   noMatches: '无匹配',

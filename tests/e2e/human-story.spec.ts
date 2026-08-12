@@ -682,15 +682,33 @@ test.describe('human Farming Agent story', () => {
 
     await openFarming(page)
     await openNewAgentDialog(page)
-    const slashCommandsResponsePromise = page.waitForResponse(response => (
+    const expectedSlashWorkspace = path.resolve(workspaceRoot)
+    let expectedSlashTarget = ''
+    const slashCommandsResponsePromise = page.waitForResponse(response => {
+      const url = new URL(response.url())
+      const matches = (
       response.request().method() === 'GET'
-      && response.url().includes('/api/slash-commands?')
+      && url.pathname.endsWith('/api/slash-commands')
+      && url.searchParams.get('provider') === 'codex'
+      && url.searchParams.get('workspace') === expectedSlashWorkspace
       && response.ok()
-    ))
+      )
+      if (matches) {
+        expectedSlashTarget = JSON.stringify([
+          'codex',
+          url.searchParams.get('homeId') || '',
+          expectedSlashWorkspace,
+        ])
+      }
+      return matches
+    })
     const agentId = await startAgentFromOpenDialog(page, 'codex', workspaceRoot)
     await slashCommandsResponsePromise
 
     const textarea = page.getByTestId('code-composer').locator('textarea')
+    const composer = page.getByTestId('code-composer')
+    await expect(composer).toHaveAttribute('data-slash-catalog-target', expectedSlashTarget)
+    await expect(composer).toHaveAttribute('data-slash-catalog-status', 'ready')
     await textarea.fill('Use $pd')
     await expect(page.getByTestId('code-slash-menu')).toBeVisible()
     await expect(page.getByTestId('code-slash-menu')).toContainText('Skills')

@@ -1,6 +1,7 @@
 import { useCallback } from 'react'
 import {
   beginWorkspaceOpenFileSave,
+  completeWorkspaceOpenFileReload,
   completeWorkspaceOpenFileSave,
   failWorkspaceOpenFileSave,
   type OpenWorkspaceFile,
@@ -108,11 +109,12 @@ export function useFileEditorWorkingCopyController({
     })
     if (!reloadingFile || reloadingFile.saveRequestId !== reloadRequestId) return
     const requestTarget = { ...target, saveRequestId: reloadRequestId }
+    const requestedDraft = reloadingFile.draft
 
     try {
       const file = await fetchWorkspaceFile(reloadingFile.agentId, reloadingFile.file.path, { exactExternal: reloadingFile.exactExternal })
       onUpdateOpenFile(requestTarget, currentFile => (
-        completeWorkspaceOpenFileSave(currentFile, reloadRequestId, file)
+        completeWorkspaceOpenFileReload(currentFile, reloadRequestId, requestedDraft, file)
       ))
     } catch (error) {
       onUpdateOpenFile(requestTarget, currentFile => (

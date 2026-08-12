@@ -2338,7 +2338,7 @@ test.describe('display-backed agent flows', () => {
     const editorContextMenu = page.getByTestId('code-editor-context-menu')
     await page.getByTestId('code-file-monaco').click({ button: 'right', position: { x: 42, y: 38 } })
     await expect(editorContextMenu).toBeVisible()
-    await editorContextMenu.getByRole('menuitem', { name: 'Annotate with Blame' }).click()
+    await editorContextMenu.getByRole('menuitem', { name: 'Annotate with Blame' }).click({ timeout: 5_000 })
     const inlineBlame = page.locator('.code-file-inline-blame')
     await expect(inlineBlame).toHaveCount(4)
     await expect(inlineBlame.nth(0)).toContainText('Farming E2E')
@@ -2374,10 +2374,39 @@ test.describe('display-backed agent flows', () => {
     const changedTime = new Date(Date.now() + 2000)
     fs.utimesSync(readmePath, changedTime, changedTime)
     await expect(page.getByRole('button', { name: 'Save file' })).toBeVisible()
+    const conflictResponse = page.waitForResponse(response => (
+      new URL(response.url()).pathname.endsWith('/api/files/file')
+      && response.request().method() === 'PUT'
+      && (response.request().postDataJSON() as { path?: string } | null)?.path === 'README.md'
+      && response.status() === 409
+    ), { timeout: 5_000 })
     await page.getByRole('button', { name: 'Save file' }).click()
-    await expect(page.getByRole('button', { name: 'Reload file' })).toBeVisible()
+    await conflictResponse
+    await expect(page.getByTestId('code-file-editor').getByTitle('Changed on disk')).toBeVisible()
+    const reloadResponse = page.waitForResponse(response => {
+      const url = new URL(response.url())
+      return (
+      url.pathname.endsWith('/api/files/file')
+      && url.searchParams.get('path') === 'README.md'
+      && response.request().method() === 'GET'
+      && response.ok()
+      )
+    }, { timeout: 5_000 })
+    const blameResponse = page.waitForResponse(response => {
+      const url = new URL(response.url())
+      return (
+      url.pathname.endsWith('/api/files/blame')
+      && url.searchParams.get('path') === 'README.md'
+      && response.request().method() === 'GET'
+      && response.ok()
+      )
+    }, { timeout: 5_000 })
     await page.getByRole('button', { name: 'Reload file' }).click()
+    await reloadResponse
+    await blameResponse
     await expect(page.getByTestId('code-file-editor').getByTitle('Changed on disk')).toHaveCount(0)
+    await expect.poll(async () => page.evaluate(() => window.__farmingFileEditorTest?.getValue() ?? ''))
+      .toContain('blame reload refresh marker')
     await expect(page.locator('.code-file-inline-blame.uncommitted')).toBeVisible()
     await page.getByTestId('code-file-monaco').click({ button: 'right', position: { x: 42, y: 38 } })
     await expect(editorContextMenu).toBeVisible()
@@ -2391,7 +2420,7 @@ test.describe('display-backed agent flows', () => {
     await expect.poll(() => fileEditorPosition(page)).toEqual({ lineNumber: 1, column: 1 })
     await page.getByTestId('code-file-monaco').click({ button: 'right', position: { x: 42, y: 38 } })
     await expect(editorContextMenu).toBeVisible()
-    await editorContextMenu.getByRole('menuitem', { name: 'Annotate with Blame' }).click()
+    await editorContextMenu.getByRole('menuitem', { name: 'Annotate with Blame' }).click({ timeout: 5_000 })
     const multiInlineBlame = page.locator('.code-file-inline-blame')
     await expect(multiInlineBlame).toHaveCount(2)
     await expect(multiInlineBlame.nth(0)).toContainText('Farming E2E')

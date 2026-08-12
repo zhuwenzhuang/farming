@@ -55,6 +55,7 @@ import type {
 } from './composer-history'
 import { ComposerMicIcon, formatContextTokens } from './composer-presentation'
 import type { AgentComposerPendingFollowUp } from './composer-state'
+import type { SlashCatalogStatus } from './useComposerProviderCatalog'
 
 function composerModeLabel(copy: CodeCopy, mode: ComposerMode) {
   if (mode === 'goal') return copy.goalMode
@@ -108,6 +109,8 @@ interface CodeComposerProps {
   agentKind: ComposerAgentKind
   capabilities: AgentComposerCapabilities
   slashCommands: SlashCommandOption[]
+  slashCatalogStatus: SlashCatalogStatus
+  slashCatalogTargetKey: string
   draft: string
   attachments: ComposerAttachmentView[]
   composerMode: ComposerMode
@@ -178,6 +181,8 @@ export function CodeComposer({
   agentKind,
   capabilities,
   slashCommands,
+  slashCatalogStatus,
+  slashCatalogTargetKey,
   draft,
   attachments,
   composerMode,
@@ -300,7 +305,19 @@ export function CodeComposer({
     && Boolean(slashTrigger)
     && slashTriggerId !== dismissedSlashTriggerId
     && filteredSlashCommands.length > 0
-  const composerMenuOpen = baseComposerMenuOpen || showSlashMenu
+  const showSlashCatalogLoading = active
+    && textareaFocused
+    && !baseComposerMenuOpen
+    && slashTrigger?.trigger === '$'
+    && slashTriggerId !== dismissedSlashTriggerId
+    && slashCatalogStatus === 'loading'
+  const showSlashCatalogError = active
+    && textareaFocused
+    && !baseComposerMenuOpen
+    && slashTrigger?.trigger === '$'
+    && slashTriggerId !== dismissedSlashTriggerId
+    && slashCatalogStatus === 'error'
+  const composerMenuOpen = baseComposerMenuOpen || showSlashMenu || showSlashCatalogLoading || showSlashCatalogError
   const selectedSlashCommand = filteredSlashCommands[activeSlashIndex] ?? filteredSlashCommands[0] ?? null
   const displayedPermissionLabel = copy.permissionModeLabel(currentPermissionMode, currentPermissionLabel)
   const displayedReasoningLabel = copy.reasoningOptionLabel(agentReasoningEffort, currentReasoningLabel)
@@ -451,6 +468,8 @@ export function CodeComposer({
       ref={composerRef}
       className={composerClasses}
       data-testid="code-composer"
+      data-slash-catalog-status={slashCatalogStatus}
+      data-slash-catalog-target={slashCatalogTargetKey}
       onClick={handleComposerClick}
     >
       {pendingFollowUp && active && (
@@ -491,7 +510,7 @@ export function CodeComposer({
           ))}
         </div>
       )}
-      {showSlashMenu && (
+      {(showSlashMenu || showSlashCatalogLoading || showSlashCatalogError) && (
         <div
           className="code-slash-menu code-composer-menu"
           data-testid="code-slash-menu"
@@ -499,6 +518,12 @@ export function CodeComposer({
           aria-label={commandMenuTitle}
         >
           <div className="code-slash-menu-header">{commandMenuTitle}</div>
+          {showSlashCatalogLoading && (
+            <div className="code-slash-command-loading" role="status">{copy.loading}</div>
+          )}
+          {showSlashCatalogError && (
+            <div className="code-slash-command-loading" role="alert">{copy.slashCatalogUnavailable}</div>
+          )}
           {filteredSlashCommands.map((command, index) => (
             <button
               key={command.command}

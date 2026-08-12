@@ -21,6 +21,7 @@ type TerminalFollowState = {
 
 interface AgentWorkPaneProps {
   agent: Agent
+  mounted: boolean
   active: boolean
   runtimeSwitchVisible: boolean
   viewportLayoutKey: string
@@ -54,6 +55,7 @@ export function agentWorkPaneModeStorageIdentity(agent: Agent) {
 
 export function AgentWorkPane({
   agent,
+  mounted,
   active,
   runtimeSwitchVisible,
   viewportLayoutKey,
@@ -131,12 +133,12 @@ export function AgentWorkPane({
           </button>
         </div>
       ) : null}
-      {!chatMode && active ? (
+      {!chatMode && mounted ? (
         <div
           key="terminal"
-          className="code-agent-work-view terminal active"
+          className={`code-agent-work-view terminal ${active ? 'active' : ''}`}
           data-testid="code-agent-terminal-view"
-          aria-hidden={false}
+          aria-hidden={!active}
         >
           <AgentTerminalPane
             agent={agent}
@@ -154,12 +156,12 @@ export function AgentWorkPane({
           />
         </div>
       ) : null}
-      {chatMode && active ? (
+      {chatMode && mounted ? (
         <div
           key="chat"
-          className="code-agent-work-view transcript active"
+          className={`code-agent-work-view transcript ${active ? 'active' : ''}`}
           data-testid="code-agent-chat-view"
-          aria-hidden={false}
+          aria-hidden={!active}
           onPointerDown={activateChatView}
         >
           <AcpTranscriptPane agentId={agent.id} readingIdentity={agentWorkPaneModeStorageIdentity(agent)} workspaceRoot={agent.projectWorkspace || agent.cwd} active={active} viewportLayoutKey={viewportLayoutKey} runtimeState={acpRuntime?.state || ''} expectHistory={Boolean(resumedAgentSessionSourceIdentity(agent.source)) || Number(acpRuntime?.sessionRevision || 0) > 0} forkedFromAgent={Boolean(agent.parentAgentId && agent.forkedFromProviderSessionId)} refreshSignal={acpRuntime?.sessionRevision || (acpRuntime?.sessionUpdatedAt ? Date.parse(acpRuntime.sessionUpdatedAt) : 0)} onOpenWorkspaceFilePath={onOpenWorkspaceFilePath} onCopyReadOnlyShareLink={onCopyReadOnlyShareLink} onOpenUrlInFarming={onOpenUrlInFarming ? openChatUrlInFarming : undefined} onReadLatest={readLatestChat} onForkLatest={canForkConversation ? forkLatestChat : undefined} onReviewAndCommit={onReviewAndCommit && !isAgentTurnActive(agent) ? reviewAndCommitChat : undefined} onActivePlanChange={publishActivePlan} copy={copy} />
