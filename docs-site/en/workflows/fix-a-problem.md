@@ -23,8 +23,6 @@ A useful reproduction states the trigger, current state, incorrect output or UI,
 
 Use Files to search state owners, request entry points, and existing tests. Distinguish where the symptom appears, where incorrect state is written, and which boundary owns concurrency, cancellation, or recovery.
 
-<ThemeImage light="/cn/assets/files-relational-operators-20260806.png" dark="/cn/assets/files-relational-operators-20260806-dark.png" paper="/cn/assets/files-relational-operators-20260806-paper.png" alt="Inspect a relational operator Markdown document in Files" />
-
 ## Make the smallest direct fix
 
 The change should correspond to the root cause and preserve unrelated behavior. For concurrency, timeout, and reconnect issues, prove both safety and liveness: reject illegal state and give transient state a bounded terminal path.

@@ -39,8 +39,6 @@ History 搜索在输入第二个关键词后偶尔保留上一次结果。
 - 真正写入错误状态的位置；
 - 负责并发、取消或恢复的边界。
 
-<ThemeImage light="/cn/assets/files-relational-operators-20260806.png" dark="/cn/assets/files-relational-operators-20260806-dark.png" paper="/cn/assets/files-relational-operators-20260806-paper.png" alt="在 Files 中检查关系算子 Markdown 文档" />
-
 ## 实施最小修复
 
 修复应直接对应根因，并保持无关行为不变。对并发、超时、重连等问题，同时检查安全性和活性：非法状态要被拒绝，临时状态也要有明确的结束路径。
