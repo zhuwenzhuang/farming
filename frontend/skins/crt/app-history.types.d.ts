@@ -249,7 +249,9 @@ interface CrtStructuredProcessItem extends CrtHistoryOpenRecord {
 interface CrtStructuredTurn extends CrtHistoryOpenRecord {
   id?: string;
   userMessage?: string;
+  userImages?: CrtStructuredImageBlock[];
   finalMessage?: string;
+  resultImages?: CrtStructuredImageBlock[];
   processItems?: CrtStructuredProcessItem[];
 }
 

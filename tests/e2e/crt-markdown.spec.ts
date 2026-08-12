@@ -76,6 +76,27 @@ test('renders CRT Agent replies as safe GFM while keeping user messages literal'
   expect(colors.keyword).not.toBe(colors.answer)
 })
 
+test('renders native user image blocks without exposing base64 transcript text', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'crt-image-attachment')
+  fs.mkdirSync(workspace, { recursive: true })
+  const imagePath = path.join(workspace, 'attachment.png')
+  fs.writeFileSync(imagePath, Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=',
+    'base64',
+  ))
+  const input = await openCrtAcpAgent(page, workspace)
+  await page.locator('#crt-structured-file-input').setInputFiles(imagePath)
+  await input.fill('image attachment')
+  await input.press('Enter')
+
+  const userMessage = page.locator('.crt-structured-message.user').filter({ hasText: 'image attachment' })
+  const image = userMessage.locator('.crt-structured-images img')
+  await expect(image).toBeVisible({ timeout: 20_000 })
+  await expect(image).toHaveAttribute('src', /\/acp-media\//)
+  await expect(userMessage).not.toContainText('data:image/png;base64')
+  await expect(page.getByText('Received 1 image.', { exact: true })).toBeVisible({ timeout: 20_000 })
+})
+
 test('renders KaTeX and lazily loaded Mermaid with a bounded diagram error state', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'crt-math-mermaid')
   fs.mkdirSync(workspace, { recursive: true })

@@ -1341,6 +1341,31 @@ async function run() {
   assert.deepStrictEqual(historyImageEntry.content[1], {
     type: 'image', mimeType: 'image/png', data: historyImageData,
   });
+  historyImageState.apply({ sessionId: 'history-image', update: {
+    sessionUpdate: 'user_message_chunk',
+    content: {
+      type: 'text',
+      text: `[@image](data:image/png;base64,${historyImageData})`,
+    },
+  } });
+  assert.strictEqual(
+    historyImageState.snapshot().entries.length,
+    1,
+    'Codex history must not duplicate a native image as a base64 Markdown user message',
+  );
+  historyImageState.apply({ sessionId: 'history-image', update: {
+    sessionUpdate: 'user_message_chunk',
+    content: {
+      type: 'text',
+      text: `[@image](data:image/png;base64,${historyImageData})`,
+    },
+    _meta: { codex: { steer: true, turnId: 'history-image-turn' } },
+  } });
+  assert.strictEqual(
+    historyImageState.snapshot().entries.length,
+    2,
+    'an explicit image-only Steer must remain a distinct user mutation',
+  );
   const phasedState = new AcpSessionState({ provider: 'codex', sessionId: 'phased', cwd: '/tmp' });
   phasedState.apply({ sessionId: 'phased', update: {
     sessionUpdate: 'agent_message_chunk',

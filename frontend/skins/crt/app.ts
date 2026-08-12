@@ -6636,6 +6636,17 @@ function structuredTranscriptContentText(content: unknown) {
     .trim();
 }
 
+function structuredTranscriptContentImages(content: unknown) {
+  return (Array.isArray(content) ? content as CrtStructuredContentBlock[] : [])
+    .filter((block): block is CrtStructuredImageBlock => (
+      block?.type === 'image'
+      && (
+        (typeof block.url === 'string' && block.url.length > 0)
+        || (typeof block.data === 'string' && block.data.length > 0)
+      )
+    ));
+}
+
 function structuredTranscriptTurns(transcript: CrtStructuredTranscript | null | undefined): CrtStructuredTurn[] {
   if (transcript && Array.isArray(transcript.turns)) return transcript.turns;
   const entries = transcript && Array.isArray(transcript.entries) ? transcript.entries : [];
@@ -6644,9 +6655,16 @@ function structuredTranscriptTurns(transcript: CrtStructuredTranscript | null | 
   entries.forEach((entry) => {
     if (!entry || entry.internal === true || entry.type !== 'message') return;
     const text = structuredTranscriptContentText(entry.content);
-    if (!text) return;
+    const images = structuredTranscriptContentImages(entry.content);
+    if (!text && images.length === 0) return;
     if (entry.role === 'user') {
-      current = { id: entry.id || `user-${turns.length}`, userMessage: text, finalMessage: '' };
+      current = {
+        id: entry.id || `user-${turns.length}`,
+        userMessage: text,
+        userImages: images,
+        finalMessage: '',
+        resultImages: [],
+      };
       turns.push(current);
       return;
     }
@@ -6656,6 +6674,7 @@ function structuredTranscriptTurns(transcript: CrtStructuredTranscript | null | 
       turns.push(current);
     }
     current.finalMessage = text;
+    current.resultImages = images;
   });
   return turns;
 }

@@ -682,6 +682,26 @@
             color: #72f7c1;
         }
 
+        .crt-structured-message.user > p {
+            margin: 0;
+        }
+
+        .crt-structured-images {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 8px;
+        }
+
+        .crt-structured-images img {
+            display: block;
+            max-width: min(100%, 720px);
+            max-height: 480px;
+            object-fit: contain;
+            border: 1px solid rgba(85, 245, 155, 0.35);
+            background: #001008;
+        }
+
         .crt-structured-message::before {
             display: block;
             margin-bottom: 5px;

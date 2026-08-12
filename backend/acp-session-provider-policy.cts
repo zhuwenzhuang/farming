@@ -12,6 +12,12 @@ type InternalUserScope = 'entry' | 'turn' | null;
 interface AcpSessionProviderPolicy {
   contextCompactionText(content: unknown): boolean;
   isInternalEntry(entries: AcpEntry[], targetEntry: AcpEntry | null | undefined): boolean;
+  isMirroredUserMessage(
+    existing: AcpEntry | null | undefined,
+    update: AcpUpdate,
+    role: string,
+    type: string,
+  ): boolean;
   isMirroredAssistantMessage(
     existing: AcpEntry | null | undefined,
     update: AcpUpdate,
@@ -75,6 +81,26 @@ function isCodexMirroredAssistantMessage(
   const existingText = stripCodexInternalContextBlocks(contentText(existing.content));
   const incomingText = stripCodexInternalContextBlocks(contentText([update?.content]));
   return Boolean(existingText) && existingText === incomingText;
+}
+
+function isCodexMirroredUserMessage(
+  existing: AcpEntry | null | undefined,
+  update: AcpUpdate,
+  role: string,
+  type: string,
+): boolean {
+  if (role !== 'user' || type !== 'message') return false;
+  if (!existing || existing.type !== type || existing.role !== role) return false;
+  if (update?._meta?.farming?.steer === true || update?._meta?.codex?.steer === true) return false;
+  if (String(update.messageId || '')) return false;
+  const renderedAttachmentKinds = (existing.content || [])
+    .filter(content => content?.type === 'image')
+    .map(() => 'image');
+  if (renderedAttachmentKinds.length === 0 || update.content?.type !== 'text') return false;
+  const incomingText = contentText([update.content]);
+  return Boolean(incomingText) && visibleUserMessageText(incomingText, {
+    renderedAttachmentKinds,
+  }) === '';
 }
 
 function sanitizeCodexEntries(
@@ -142,6 +168,7 @@ function isCodexInternalEntry(
 const DEFAULT_ACP_SESSION_PROVIDER_POLICY: AcpSessionProviderPolicy = {
   contextCompactionText: () => false,
   isInternalEntry: () => false,
+  isMirroredUserMessage: () => false,
   isMirroredAssistantMessage: () => false,
   messagePhase: () => '',
   sanitizeEntries: entries => entries,
@@ -152,6 +179,7 @@ const ACP_SESSION_PROVIDER_POLICIES: Readonly<Record<string, AcpSessionProviderP
   codex: {
     contextCompactionText: content => isCodexContextCompactionMessage(contentText(content)),
     isInternalEntry: isCodexInternalEntry,
+    isMirroredUserMessage: isCodexMirroredUserMessage,
     isMirroredAssistantMessage: isCodexMirroredAssistantMessage,
     messagePhase: codexMessagePhase,
     sanitizeEntries: sanitizeCodexEntries,

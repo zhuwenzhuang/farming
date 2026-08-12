@@ -20,7 +20,15 @@ import { mermaidCodeBlockSource } from '@/lib/react-markdown-content'
 type CrtTranscriptTurn = {
   id?: string | null
   userMessage?: string | null
+  userImages?: CrtTranscriptImage[] | null
   finalMessage?: string | null
+  resultImages?: CrtTranscriptImage[] | null
+}
+
+type CrtTranscriptImage = {
+  data?: string | null
+  mimeType?: string | null
+  url?: string | null
 }
 
 type CrtMarkdownRenderer = {
@@ -50,6 +58,30 @@ function markdownUrlTransform(value: string, key: string) {
     return value
   }
   return defaultUrlTransform(value)
+}
+
+function transcriptImageSource(image: CrtTranscriptImage) {
+  const url = String(image.url || '')
+  if (/^(?:https?:\/\/|\/)/i.test(url)) return url
+  if (/^data:image\/(?:png|gif|jpe?g|webp);base64,[a-z0-9+/=]+$/i.test(url)) return url
+  const mimeType = String(image.mimeType || '').toLowerCase()
+  const data = String(image.data || '')
+  if (!/^image\/(?:png|gif|jpe?g|webp)$/.test(mimeType) || !/^[a-z0-9+/=]+$/i.test(data)) return ''
+  return `data:${mimeType};base64,${data}`
+}
+
+function TranscriptImages({ images, label }: { images?: CrtTranscriptImage[] | null, label: string }) {
+  const visibleImages = (Array.isArray(images) ? images : [])
+    .map((image, index) => ({ key: `${index}:${String(image.url || '').slice(-80)}`, src: transcriptImageSource(image) }))
+    .filter((image) => image.src)
+  if (visibleImages.length === 0) return null
+  return (
+    <div className="crt-structured-images">
+      {visibleImages.map((image, index) => (
+        <img key={image.key} src={image.src} alt={`${label} ${index + 1}`} loading="lazy" />
+      ))}
+    </div>
+  )
 }
 
 const markdownComponents: Components = {
@@ -216,7 +248,12 @@ function readingAnchorId(turn: CrtTranscriptTurn) {
 const CrtTranscriptTurnView = memo(function CrtTranscriptTurnView({ turn }: { turn: CrtTranscriptTurn }) {
   return (
     <section className="crt-structured-turn" data-reading-anchor-id={readingAnchorId(turn)}>
-      {turn.userMessage ? <p className="crt-structured-message user">{turn.userMessage}</p> : null}
+      {turn.userMessage || (turn.userImages?.length ?? 0) > 0 ? (
+        <div className="crt-structured-message user">
+          {turn.userMessage ? <p>{turn.userMessage}</p> : null}
+          <TranscriptImages images={turn.userImages} label="User image" />
+        </div>
+      ) : null}
       {turn.finalMessage ? (
         <div className="crt-structured-message assistant crt-markdown">
           <ReactMarkdown
@@ -228,6 +265,11 @@ const CrtTranscriptTurnView = memo(function CrtTranscriptTurnView({ turn }: { tu
           >
             {turn.finalMessage}
           </ReactMarkdown>
+          <TranscriptImages images={turn.resultImages} label="Agent image" />
+        </div>
+      ) : (turn.resultImages?.length ?? 0) > 0 ? (
+        <div className="crt-structured-message assistant">
+          <TranscriptImages images={turn.resultImages} label="Agent image" />
         </div>
       ) : null}
     </section>

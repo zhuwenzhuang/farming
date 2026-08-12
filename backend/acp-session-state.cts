@@ -602,6 +602,11 @@ class AcpSessionState {
       return;
     }
 
+    if (providerPolicy.isMirroredUserMessage(last, update, role, type)) {
+      this.touchEntry(last);
+      return;
+    }
+
     // Farming inserts the local prompt optimistically. ACP Agents may echo the
     // same prompt during live updates; attach its protocol id without rendering
     // the user message twice.
