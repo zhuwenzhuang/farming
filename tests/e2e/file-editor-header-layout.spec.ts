@@ -133,9 +133,18 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
   await actions.locator('.markdown-split').click()
   await expect(breadcrumbBar).toHaveCount(0)
 
-  await actions.locator('.source-preview').click()
+  const sourcePreview = actions.locator('.source-preview')
+  await expect(sourcePreview).toHaveClass(/active/)
+  await expect(sourcePreview).toHaveAttribute('aria-pressed', 'true')
+  await sourcePreview.click()
   await expect(breadcrumbBar).toBeVisible()
   await expect(editor.locator('.code-file-monaco')).toBeVisible()
+  await expect(sourcePreview).not.toHaveClass(/active/)
+  await expect(sourcePreview).toHaveAttribute('aria-pressed', 'false')
+  const wordWrap = actions.locator('.word-wrap')
+  await wordWrap.click()
+  await expect(wordWrap).toHaveClass(/active/)
+  await expect(wordWrap).toHaveAttribute('aria-pressed', 'true')
   const breadcrumbs = editor.locator('.code-file-editor-breadcrumbs')
   await expect(actions).toHaveCount(1)
   await expect(actions).toBeVisible()
@@ -157,9 +166,13 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
     const content = element.querySelector<HTMLElement>('.code-file-monaco')!
     for (let index = 0; index < 12; index += 1) {
       const overflowTab = activeTab.cloneNode(true) as HTMLElement
+      overflowTab.classList.remove('active')
+      overflowTab.setAttribute('aria-selected', 'false')
       overflowTab.querySelector<HTMLElement>('.code-file-editor-tab-name')!.textContent = `very-long-document-name-${index}.md`
       tabs.append(overflowTab)
     }
+    tabs.append(activeTab)
+    tabs.scrollLeft = tabs.scrollWidth
     const tabRect = tabStrip.getBoundingClientRect()
     const actionRect = actions.getBoundingClientRect()
     const tabsRect = tabs.getBoundingClientRect()
@@ -184,6 +197,7 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
       agentToggleIsLast: actions.lastElementChild?.matches('[data-testid="code-resource-agent-toggle"]') === true,
       actionBackground: getComputedStyle(actions).backgroundColor,
       tabStripBackground: getComputedStyle(tabStrip).backgroundColor,
+      tabStripBorderBottomWidth: getComputedStyle(tabStrip).borderBottomWidth,
       tabStripBorderColor: getComputedStyle(tabStrip).borderBottomColor,
       activeTabSeamColor: getComputedStyle(activeTab, '::after').backgroundColor,
       headerBorderBottomWidth: getComputedStyle(header).borderBottomWidth,
@@ -194,8 +208,10 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
 
   expect(headerLayout.actionsInsideTabStrip).toBe(true)
   expect(headerLayout.actionsAfterTabs).toBe(true)
-  expect(headerLayout.actionTop).toBeGreaterThanOrEqual(headerLayout.tabTop)
-  expect(headerLayout.actionBottom).toBeLessThanOrEqual(headerLayout.tabBottom)
+  expect(headerLayout.actionTop).toBe(headerLayout.tabTop)
+  expect(headerLayout.actionBottom).toBe(
+    headerLayout.tabBottom - Number.parseFloat(headerLayout.tabStripBorderBottomWidth),
+  )
   expect(headerLayout.actionLeft).toBeLessThan(headerLayout.tabsRight)
   expect(headerLayout.actionRight).toBeLessThanOrEqual(headerLayout.tabsRight)
   expect(Number.parseFloat(headerLayout.tabsRightPadding)).toBeGreaterThanOrEqual(headerLayout.actionWidth)
@@ -223,12 +239,26 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
   const paperHeader = await page.evaluate(() => {
     document.body.dataset.appearance = 'paper'
     const tabStrip = document.querySelector<HTMLElement>('.code-file-editor-tab-strip')!
+    const tabs = document.querySelector<HTMLElement>('.code-file-editor-tabs')!
     const activeTab = document.querySelector<HTMLElement>('.code-file-editor-tab.active')!
+    const inactiveTab = document.querySelector<HTMLElement>('.code-file-editor-tab:not(.active)')!
+    const activeIcon = activeTab.querySelector<HTMLElement>('.code-file-editor-tab-icon')!
+    const inactiveIcon = inactiveTab.querySelector<HTMLElement>('.code-file-editor-tab-icon')!
+    const activeAction = document.querySelector<HTMLElement>('.code-file-editor-action.active')!
+    const inactiveAction = document.querySelector<HTMLElement>('.code-file-editor-actions .code-file-editor-action:not(.active):not(:disabled)')!
     const breadcrumbBar = document.querySelector<HTMLElement>('.code-file-editor-bar')!
     const content = document.querySelector<HTMLElement>('.code-file-monaco')!
     return {
       tabStripBackground: getComputedStyle(tabStrip).backgroundColor,
+      tabsBackground: getComputedStyle(tabs).backgroundColor,
       activeTabBackground: getComputedStyle(activeTab).backgroundColor,
+      activeTabColor: getComputedStyle(activeTab).color,
+      activeIconColor: getComputedStyle(activeIcon).backgroundColor,
+      inactiveTabBackground: getComputedStyle(inactiveTab).backgroundColor,
+      inactiveTabColor: getComputedStyle(inactiveTab).color,
+      inactiveIconColor: getComputedStyle(inactiveIcon).backgroundColor,
+      activeActionBackground: getComputedStyle(activeAction).backgroundColor,
+      inactiveActionBackground: getComputedStyle(inactiveAction).backgroundColor,
       activeTabBorderRadius: getComputedStyle(activeTab).borderRadius,
       activeTabBoxShadow: getComputedStyle(activeTab).boxShadow,
       activeTabSeamColor: getComputedStyle(activeTab, '::after').backgroundColor,
@@ -237,8 +267,14 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
     }
   })
   expect(paperHeader.tabStripBackground).toBe(paperHeader.contentBackground)
+  expect(colorAlpha(paperHeader.tabsBackground)).toBe(0)
   expect(paperHeader.breadcrumbBackground).toBe(paperHeader.contentBackground)
-  expect(paperHeader.activeTabBackground).toBe(paperHeader.contentBackground)
+  expect(colorAlpha(paperHeader.inactiveTabBackground)).toBe(0)
+  expect(paperHeader.activeTabBackground).not.toBe(paperHeader.tabStripBackground)
+  expect(paperHeader.activeIconColor).toBe(paperHeader.activeTabColor)
+  expect(paperHeader.inactiveIconColor).toBe(paperHeader.inactiveTabColor)
+  expect(colorAlpha(paperHeader.inactiveActionBackground)).toBe(0)
+  expect(colorAlpha(paperHeader.activeActionBackground)).toBeGreaterThan(0)
   expect(paperHeader.activeTabBorderRadius).toBe('0px')
   expect(paperHeader.activeTabBoxShadow).toBe('none')
   expect(colorAlpha(paperHeader.activeTabSeamColor)).toBe(0)

@@ -1,4 +1,4 @@
-import { useCallback, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type MutableRefObject, type RefObject } from 'react'
+import { createContext, useCallback, useContext, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type MutableRefObject, type RefObject } from 'react'
 import { Tree, type NodeRendererProps, type TreeApi } from 'react-arborist'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-file-search'
 import type { WorkspaceFileOperationState } from '@/lib/workspace-file-operation-model'
@@ -43,6 +43,30 @@ export interface FileTreeViewProps {
   onUpdateFileOperationName: (name: string) => void
 }
 
+type FileNodeRendererContextValue = Omit<
+  FileTreeViewProps,
+  | 'handleTreeKeyDownCapture'
+  | 'renderFileTreeRow'
+  | 'rowHeight'
+  | 'stickyContextItems'
+  | 'treeData'
+  | 'treeHeight'
+  | 'treeRef'
+  | 'visibleTreeRowCount'
+  | 'onFocusStickyDirectory'
+  | 'onToggleTreeNode'
+  | 'onTreeFocus'
+  | 'onTreeSelect'
+>
+
+const FileNodeRendererContext = createContext<FileNodeRendererContextValue | null>(null)
+
+function FileNodeRenderer({ node }: NodeRendererProps<FileExplorerNode>) {
+  const props = useContext(FileNodeRendererContext)
+  if (!props) return null
+  return <FileTreeRow {...props} node={node} />
+}
+
 export function FileTreeView({
   activeFilePath,
   agentId,
@@ -84,33 +108,28 @@ export function FileTreeView({
     onOpenFileContextMenu(event.clientX, event.clientY, null)
   }, [onCancelPendingFileFocus, onOpenFileContextMenu])
 
-  const FileNodeRenderer = useCallback(({
-    node,
-  }: NodeRendererProps<FileExplorerNode>) => (
-    <FileTreeRow
-      activeFilePath={activeFilePath}
-      agentId={agentId}
-      copy={copy}
-      editorDirtyFilePaths={editorDirtyFilePaths}
-      editorExternalChangedFilePaths={editorExternalChangedFilePaths}
-      fileOperation={fileOperation}
-      fileOperationInputRef={fileOperationInputRef}
-      lastFocusedFilePathRef={lastFocusedFilePathRef}
-      locatedFilePath={locatedFilePath}
-      node={node}
-      openFilePendingPath={openFilePendingPath}
-      treeViewportRef={treeViewportRef}
-      onCancelPendingFileFocus={onCancelPendingFileFocus}
-      onCloseFileOperation={onCloseFileOperation}
-      onFocusFileTreeTarget={onFocusFileTreeTarget}
-      onOpenFileContextMenu={onOpenFileContextMenu}
-      onOpenFilePath={onOpenFilePath}
-      onRememberFileOperationName={onRememberFileOperationName}
-      onToggleDirectory={onToggleDirectory}
-      onSubmitFileOperation={onSubmitFileOperation}
-      onUpdateFileOperationName={onUpdateFileOperationName}
-    />
-  ), [activeFilePath, agentId, copy, editorDirtyFilePaths, editorExternalChangedFilePaths, fileOperation, fileOperationInputRef, lastFocusedFilePathRef, locatedFilePath, onCancelPendingFileFocus, onCloseFileOperation, onFocusFileTreeTarget, onOpenFileContextMenu, onOpenFilePath, onRememberFileOperationName, onSubmitFileOperation, onToggleDirectory, onUpdateFileOperationName, openFilePendingPath, treeViewportRef])
+  const nodeRendererContext: FileNodeRendererContextValue = {
+    activeFilePath,
+    agentId,
+    copy,
+    editorDirtyFilePaths,
+    editorExternalChangedFilePaths,
+    fileOperation,
+    fileOperationInputRef,
+    lastFocusedFilePathRef,
+    locatedFilePath,
+    openFilePendingPath,
+    treeViewportRef,
+    onCancelPendingFileFocus,
+    onCloseFileOperation,
+    onFocusFileTreeTarget,
+    onOpenFileContextMenu,
+    onOpenFilePath,
+    onRememberFileOperationName,
+    onToggleDirectory,
+    onSubmitFileOperation,
+    onUpdateFileOperationName,
+  }
 
   return (
     <div
@@ -126,30 +145,32 @@ export function FileTreeView({
         items={stickyContextItems}
         onFocusDirectory={onFocusStickyDirectory}
       />
-      <Tree<FileExplorerNode>
-        ref={treeRef}
-        data={treeData}
-        idAccessor="id"
-        childrenAccessor="children"
-        rowHeight={rowHeight}
-        indent={0}
-        height={treeHeight}
-        width="100%"
-        overscanCount={visibleTreeRowCount}
-        openByDefault={false}
-        selectionFollowsFocus
-        className="code-file-tree"
-        rowClassName="code-file-tree-row"
-        renderRow={renderFileTreeRow}
-        onToggle={onToggleTreeNode}
-        onFocus={onTreeFocus}
-        onSelect={onTreeSelect}
-        disableDrag
-        disableEdit
-        disableDrop
-      >
-        {FileNodeRenderer}
-      </Tree>
+      <FileNodeRendererContext.Provider value={nodeRendererContext}>
+        <Tree<FileExplorerNode>
+          ref={treeRef}
+          data={treeData}
+          idAccessor="id"
+          childrenAccessor="children"
+          rowHeight={rowHeight}
+          indent={0}
+          height={treeHeight}
+          width="100%"
+          overscanCount={visibleTreeRowCount}
+          openByDefault={false}
+          selectionFollowsFocus
+          className="code-file-tree"
+          rowClassName="code-file-tree-row"
+          renderRow={renderFileTreeRow}
+          onToggle={onToggleTreeNode}
+          onFocus={onTreeFocus}
+          onSelect={onTreeSelect}
+          disableDrag
+          disableEdit
+          disableDrop
+        >
+          {FileNodeRenderer}
+        </Tree>
+      </FileNodeRendererContext.Provider>
     </div>
   )
 }

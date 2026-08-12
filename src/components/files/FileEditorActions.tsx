@@ -178,9 +178,10 @@ export function FileEditorActions({
       {showSourcePreviewAction && (
         <button
           type="button"
-          className="code-file-editor-action source-preview"
+          className={`code-file-editor-action source-preview ${sourcePreviewOpen ? 'active' : ''}`.trim()}
           onClick={onToggleSourcePreview}
           disabled={openFile.saving}
+          aria-pressed={sourcePreviewOpen}
           aria-label={previewLabel}
           title={previewLabel}
         >

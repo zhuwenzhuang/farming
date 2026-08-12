@@ -70,12 +70,13 @@
 
 .code-file-editor-tab-strip > .code-file-editor-actions {
   position: absolute;
-  top: 50%;
+  top: 0;
+  bottom: 0;
   right: 0;
   z-index: 2;
   padding: 0 6px;
   background: inherit;
-  transform: translateY(-50%);
+  transform: none;
 }
 
 .code-file-editor-tabs {
@@ -124,7 +125,7 @@
 .code-file-editor-tab.active {
   border-top-color: transparent;
   background: var(--code-file-editor-active-tab-surface);
-  color: var(--code-text);
+  color: var(--code-text-strong);
 }
 
 .code-file-editor-tab.active::after {
@@ -163,6 +164,22 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.code-file-editor-tab-icon {
+  width: 14px;
+  height: 14px;
+  display: block;
+  flex-shrink: 0;
+  background: currentColor;
+  -webkit-mask-image: var(--code-file-editor-tab-icon-source);
+  mask-image: var(--code-file-editor-tab-icon-source);
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+  mask-size: contain;
 }
 
 .code-file-editor-tab.preview .code-file-editor-tab-name {

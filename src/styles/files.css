@@ -24,7 +24,6 @@
   --code-file-entry-line-height: 16px;
 }
 
-.code-open-editors.collapsed,
 .code-files-section.collapsed {
   padding-bottom: 2px;
 }
@@ -45,6 +44,9 @@
 }
 
 .code-files-header {
+  position: sticky;
+  top: calc(var(--code-project-sticky-height) + var(--code-agents-sticky-height, 0px) + var(--code-open-editors-sticky-height, 0px));
+  z-index: 10;
   min-height: var(--code-files-header-height);
   font-size: 13px;
 }
@@ -263,10 +265,19 @@
 
 .code-open-editors {
   margin-top: 3px;
+  padding-bottom: var(--code-open-editors-sticky-tail-height);
+  position: sticky;
+  top: calc(var(--code-project-sticky-height) + var(--code-agents-sticky-height, 0px));
+  z-index: 18;
   flex-shrink: 0;
-  background: var(--code-bg-chrome);
+  background: linear-gradient(to bottom, var(--code-bg-chrome) 0 var(--code-open-editors-sticky-height), transparent var(--code-open-editors-sticky-height));
+  clip-path: inset(0 0 var(--code-open-editors-sticky-tail-height) 0);
   border-radius: 0 0 6px 6px;
   box-shadow: 0 10px 14px -18px var(--code-shadow-color);
+}
+
+.code-open-editors + .code-files-section {
+  margin-top: calc(2px - var(--code-open-editors-sticky-tail-height));
 }
 
 .code-file-changes-section {
@@ -866,7 +877,7 @@ body.code-mode .code-file-change-group-toggle {
 
 .code-file-sticky-shell {
   position: sticky;
-  top: 0;
+  top: calc(var(--code-project-sticky-height) + var(--code-agents-sticky-height, 0px) + var(--code-open-editors-sticky-height, 0px) + var(--code-files-header-height, 25px));
   height: 0;
   z-index: 11;
   pointer-events: none;

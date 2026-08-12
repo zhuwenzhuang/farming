@@ -1047,7 +1047,7 @@
   display: inline-grid;
   place-items: center;
   padding: 0;
-  border: 1px solid var(--code-border-strong);
+  border: 1px solid var(--code-text-quiet);
   border-radius: 3px;
   background: transparent;
   color: transparent;
@@ -1136,7 +1136,7 @@
   padding: 2px;
   border: 0;
   border-radius: 8px;
-  background: var(--code-bg-surface);
+  background: var(--code-bg-inset);
 }
 
 .code-settings-segmented button,
@@ -1163,8 +1163,8 @@
 }
 
 .code-settings-segmented button.active {
-  background: var(--code-bg-muted);
-  color: var(--code-text);
+  background: var(--code-bg-selected);
+  color: var(--code-text-strong);
   box-shadow: none;
 }
 
@@ -1758,10 +1758,6 @@ body.code-mode.code-compact-layout .code-settings-pet-rest-value {
 }
 
 .code-settings-pet-appearance-preview {
-  border-color: var(--code-border);
-}
-
-.code-settings-permission-toggle {
   border-color: var(--code-border);
 }
 

@@ -1552,6 +1552,7 @@ function ProjectSection(props: ProjectSectionProps) {
     <section
       className="code-project-group"
       data-testid="code-project-group"
+      data-collapsed={props.collapsed ? 'true' : 'false'}
       data-project-agent-count={metrics.agentCount}
       data-project-active-count={metrics.activeCount}
       data-project-unread-count={metrics.unreadCount}
@@ -1613,6 +1614,8 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
 }: ProjectSectionProps) {
   recordPerformanceTestRender('projectSectionContent')
   const projectDraggedRef = useRef(false)
+  const projectRowRef = useRef<HTMLDivElement | null>(null)
+  const agentsSectionRef = useRef<HTMLDivElement | null>(null)
   const launchButtonRef = useRef<HTMLButtonElement | null>(null)
   const launchMenuRef = useRef<HTMLDivElement | null>(null)
   const worktreeButtonRef = useRef<HTMLButtonElement | null>(null)
@@ -1757,6 +1760,60 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
     })
   }, [lastProjectAgentId])
 
+  useLayoutEffect(() => {
+    const projectGroup = projectRowRef.current?.closest<HTMLElement>('.code-project-group')
+    if (!projectGroup) return
+
+    const visibleStickyHeight = (element: HTMLElement | null) => {
+      if (!element) return 0
+      const style = getComputedStyle(element)
+      return Math.max(0, element.getBoundingClientRect().height - Number.parseFloat(style.paddingBottom || '0'))
+    }
+    const setStickyMetrics = () => {
+      const projectRow = projectRowRef.current
+      projectGroup.style.setProperty(
+        '--code-project-sticky-height',
+        projectRow ? `${Math.ceil(visibleStickyHeight(projectRow))}px` : '',
+      )
+      const agentsSection = agentsSectionRef.current
+      projectGroup.style.setProperty(
+        '--code-agents-sticky-height',
+        agentsSection ? `${Math.ceil(visibleStickyHeight(agentsSection))}px` : '0px',
+      )
+    }
+
+    setStickyMetrics()
+    const projectRow = projectRowRef.current
+    const agentsSection = agentsSectionRef.current
+    const observer = typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver(setStickyMetrics)
+      : null
+    if (projectRow) {
+      observer?.observe(projectRow)
+    }
+    if (agentsSection) {
+      observer?.observe(agentsSection)
+    }
+    window.addEventListener('resize', setStickyMetrics)
+
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener('resize', setStickyMetrics)
+    }
+  }, [
+    agentListCollapsed,
+    collapsed,
+    compactProjectAgents,
+    hiddenProjectAgentCount,
+    project.agentSessionsExpanded,
+    project.hiddenAgentSessionCount,
+    project.id,
+    projectAgentsExpanded,
+    showAgentsSection,
+    visibleAgentSessions.length,
+    visibleProjectAgents.length,
+  ])
+
   useDismissiblePopover(
     launchMenu !== null,
     launchMenuRef,
@@ -1807,6 +1864,7 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
   return (
     <>
       <div
+        ref={projectRowRef}
         className={`code-project-row ${dragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''}`}
         onDragOver={event => onProjectDragOver(event, project.id)}
         onDrop={event => onProjectDrop(event, project.id)}
@@ -1992,7 +2050,7 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
       {!collapsed && (
         <div className="code-project-expanded">
           {showAgentsSection && (
-            <div className="code-agents-section" data-testid="code-agents-section" data-project-id={project.id}>
+            <div ref={agentsSectionRef} className="code-agents-section" data-testid="code-agents-section" data-project-id={project.id}>
               <div className="code-agent-list">
                 {!agentListCollapsed && (
                   <>

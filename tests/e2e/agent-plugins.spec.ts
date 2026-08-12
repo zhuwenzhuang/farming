@@ -343,7 +343,9 @@ test('Plugins shows a read-only extension catalog from one exact Agent Home', {
   const panel = page.getByTestId('code-plugins-panel')
   await expect(panel.getByTestId('code-plugin-history-forward')).toHaveCount(0)
   await panel.getByTestId('code-plugin-tab-extensions').click()
-  await expect(panel.getByTestId('code-plugin-extension-home-codex-catalog')).toHaveAttribute('aria-selected', 'true')
+  const selectedHome = panel.getByTestId('code-plugin-extension-home-codex-catalog')
+  const selectedKind = panel.getByTestId('code-plugin-extension-kind-plugin')
+  await expect(selectedHome).toHaveAttribute('aria-selected', 'true')
   expect(await panel.locator('.code-plugin-extension-kind-tabs > button').evaluateAll(buttons => (
     buttons.map(button => button.getAttribute('data-testid'))
   ))).toEqual([
@@ -353,7 +355,15 @@ test('Plugins shows a read-only extension catalog from one exact Agent Home', {
     'code-plugin-extension-kind-hook',
     'code-plugin-extension-kind-command',
   ])
-  await expect(panel.getByTestId('code-plugin-extension-kind-plugin')).toHaveAttribute('aria-selected', 'true')
+  await expect(selectedKind).toHaveAttribute('aria-selected', 'true')
+  const selectedTabStyle = await panel.locator('.code-plugin-tabs > button[aria-selected="true"]').evaluate(element => {
+    const style = getComputedStyle(element)
+    return { backgroundColor: style.backgroundColor, color: style.color }
+  })
+  for (const selectedOption of [selectedHome, selectedKind]) {
+    await expect(selectedOption).toHaveCSS('background-color', selectedTabStyle.backgroundColor)
+    await expect(selectedOption).toHaveCSS('color', selectedTabStyle.color)
+  }
 
   await panel.getByTestId('code-plugin-extension-kind-skill').click()
   await expect(panel.getByText('Home Skill', { exact: true })).toBeVisible()

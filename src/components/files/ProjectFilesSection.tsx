@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { getBackendConnectionSnapshot } from '@/lib/backend-live-status'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-file-search'
 import type { WorkspaceFileTreeNode } from '@/lib/workspace-file-tree'
@@ -131,6 +131,7 @@ export function ProjectFilesSection({
   } = useWorkspaceFileExplorer(agentId, projectId)
 
   const fileOperationActiveRef = useRef(false)
+  const filesSectionRef = useRef<HTMLDivElement | null>(null)
   const fileSearchInputRef = useRef<HTMLInputElement | null>(null)
   const fileSearchResultsRef = useRef<HTMLDivElement | null>(null)
   const lastAutoRevealedActivePathRef = useRef<string | null>(null)
@@ -391,6 +392,39 @@ export function ProjectFilesSection({
   useEffect(() => {
     onFilesCollapsedChange?.(filesCollapsed)
   }, [filesCollapsed, onFilesCollapsedChange])
+  useLayoutEffect(() => {
+    const projectGroup = filesSectionRef.current?.closest<HTMLElement>('.code-project-group')
+    if (!projectGroup) return
+
+    const openEditors = projectGroup.querySelector<HTMLElement>('[data-testid="code-open-editors"]')
+    const publishHeight = () => {
+      if (!openEditors) {
+        projectGroup.style.setProperty('--code-open-editors-sticky-height', '0px')
+        return
+      }
+      const style = getComputedStyle(openEditors)
+      const visibleHeight = Math.max(
+        0,
+        openEditors.getBoundingClientRect().height - Number.parseFloat(style.paddingBottom || '0'),
+      )
+      const marginHeight = Number.parseFloat(style.marginTop || '0') + Number.parseFloat(style.marginBottom || '0')
+      projectGroup.style.setProperty(
+        '--code-open-editors-sticky-height',
+        `${Math.ceil(visibleHeight + marginHeight)}px`,
+      )
+    }
+
+    publishHeight()
+    const observer = openEditors && typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver(publishHeight)
+      : null
+    if (openEditors) observer?.observe(openEditors)
+    return () => {
+      observer?.disconnect()
+      projectGroup.style.setProperty('--code-open-editors-sticky-height', '0px')
+    }
+  }, [openEditorsCollapsed, openFiles.length, projectId])
+
   useEffect(() => {
     if (!activeFilePath || filesCollapsed || !directories['']) return
     if (activeFileRevealInTree === false) {
@@ -540,6 +574,7 @@ export function ProjectFilesSection({
         onOpenFileContextMenu={openEditorContextMenu}
       />
       <div
+        ref={filesSectionRef}
         className={`code-files-section ${filesCollapsed ? 'collapsed' : ''}`}
         data-testid="code-files-section"
         data-project-id={projectId}

@@ -111,7 +111,36 @@ test('requests notification permission only from the explicit Settings toggle', 
   const agentSection = row.locator('xpath=ancestor::section')
   await expect(agentSection.getByRole('heading', { name: 'Agent' })).toBeVisible()
   await expect(agentSection.getByTestId('code-settings-follow-up-behavior')).toBeVisible()
-  await expect(agentSection.getByRole('checkbox', { name: 'Skip all agent permission checks by default' })).toBeVisible()
+  const permissionToggle = agentSection.getByRole('checkbox', { name: 'Skip all agent permission checks by default' })
+  await expect(permissionToggle).toBeVisible()
+  await page.locator('body').evaluate(body => { body.dataset.appearance = 'paper' })
+  await expect(permissionToggle).not.toHaveClass(/active/)
+  await expect(permissionToggle).toHaveCSS('border-top-style', 'solid')
+  await expect(permissionToggle).toHaveCSS('border-top-width', '1px')
+  await expect(permissionToggle).toHaveCSS('border-top-color', 'rgb(136, 135, 125)')
+  const selectedReminderStyle = await page.locator('.code-settings-pet-appearance-select.selected').evaluate(element => {
+    const style = getComputedStyle(element)
+    return { backgroundColor: style.backgroundColor, color: style.color }
+  })
+  const unselectedReminderBackground = await page.locator('.code-settings-pet-appearance-select:not(.selected)').evaluate(
+    element => getComputedStyle(element).backgroundColor,
+  )
+  const preferenceGroupBackgrounds = await page.locator('.code-settings-segmented').evaluateAll(
+    elements => elements.map(element => getComputedStyle(element).backgroundColor),
+  )
+  const selectedPreferenceStyles = await page.locator('.code-settings-segmented button.active').evaluateAll(elements => (
+    elements.map(element => {
+      const style = getComputedStyle(element)
+      return { backgroundColor: style.backgroundColor, color: style.color }
+    })
+  ))
+  expect(selectedPreferenceStyles.length).toBeGreaterThan(0)
+  expect(preferenceGroupBackgrounds).toEqual(
+    Array.from({ length: preferenceGroupBackgrounds.length }, () => unselectedReminderBackground),
+  )
+  expect(selectedPreferenceStyles).toEqual(
+    Array.from({ length: selectedPreferenceStyles.length }, () => selectedReminderStyle),
+  )
   const toggle = row.getByRole('switch', { name: 'Allow message notifications' })
   await expect(toggle).toHaveAttribute('aria-checked', 'false')
   expect(await page.evaluate(() => (

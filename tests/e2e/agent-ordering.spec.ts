@@ -208,41 +208,132 @@ test('keeps Agent pagination size stable while selecting rows', {
   }
 })
 
-test('scrolls Project, Agent, and Files rows together without layered pinning', async ({ page, workspaceRoot }) => {
-  const projectDir = path.join(workspaceRoot, 'project-summary-natural-scroll')
+test('keeps the Files header below a resized sticky Agent section without ResizeObserver', async ({ page, workspaceRoot }, testInfo) => {
+  const projectDir = path.join(workspaceRoot, 'agent-sticky-height-sync')
   fs.mkdirSync(projectDir, { recursive: true })
   for (let index = 0; index < 40; index += 1) {
     fs.writeFileSync(path.join(projectDir, `file-${index}.txt`), `${index}\n`)
   }
+  const followingProjectDir = path.join(workspaceRoot, 'agent-sticky-height-following-project')
+  fs.mkdirSync(followingProjectDir, { recursive: true })
+  for (let index = 0; index < 40; index += 1) {
+    fs.writeFileSync(path.join(followingProjectDir, `file-${index}.txt`), `${index}\n`)
+  }
+  await createControlAgent(page, followingProjectDir)
   await createControlAgent(page, projectDir)
+  await page.addInitScript(() => {
+    class DisabledResizeObserver {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    Object.defineProperty(window, 'ResizeObserver', {
+      configurable: true,
+      value: DisabledResizeObserver,
+    })
+  })
 
   await openFarming(page)
-  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(projectDir) })
+  const projects = page.getByTestId('code-project-group')
+  await expect(projects).toHaveCount(2)
+  const project = projects.first()
+  const followingProject = projects.nth(1)
   const filesTitle = project.locator('.code-files-title')
   await filesTitle.click()
   await expect(project.getByTestId('code-file-row').first()).toBeVisible()
+  const followingFilesTitle = followingProject.locator('.code-files-title')
+  await followingFilesTitle.click()
+  await expect(followingProject.getByTestId('code-file-row').first()).toBeVisible()
 
   await createControlAgent(page, projectDir)
+  await createControlAgent(page, followingProjectDir)
   await expect(project.getByTestId('code-agent-row')).toHaveCount(2)
+  const filesHeader = project.locator('.code-files-header')
+  await filesHeader.evaluate(element => element.scrollIntoView({ block: 'start' }))
+
   const layout = await project.evaluate(element => {
+    const agents = element.querySelector<HTMLElement>('[data-testid="code-agents-section"]')
+    const files = element.querySelector<HTMLElement>('.code-files-header')
+    if (!agents || !files) return null
+    const agentsRect = agents.getBoundingClientRect()
+    const filesRect = files.getBoundingClientRect()
+    const agentsStyle = getComputedStyle(agents)
+    const visibleAgentsHeight = agentsRect.height - Number.parseFloat(agentsStyle.paddingBottom || '0')
+    return {
+      agentsHeight: visibleAgentsHeight,
+      agentsBottom: agentsRect.top + visibleAgentsHeight,
+      filesTop: filesRect.top,
+      stickyHeight: Number.parseFloat(getComputedStyle(element).getPropertyValue('--code-agents-sticky-height')),
+    }
+  })
+  expect(layout).not.toBeNull()
+  expect(layout!.stickyHeight).toBeGreaterThanOrEqual(layout!.agentsHeight - 1)
+  expect(layout!.filesTop).toBeGreaterThanOrEqual(layout!.agentsBottom - 1)
+
+  for (const appearance of ['light', 'dark', 'paper'] as const) {
+    await page.locator('body').evaluate((body, value) => {
+      body.dataset.appearance = value
+    }, appearance)
+    await project.evaluate(async element => {
+      const scroller = element.closest<HTMLElement>('.code-project-list')
+      const files = element.querySelector<HTMLElement>('.code-files-header')
+      if (!scroller || !files) return
+      const style = getComputedStyle(element)
+      const stickyStackHeight = Number.parseFloat(style.getPropertyValue('--code-project-sticky-height'))
+        + Number.parseFloat(style.getPropertyValue('--code-agents-sticky-height'))
+        + files.getBoundingClientRect().height
+      const desiredGroupBottom = scroller.getBoundingClientRect().top + stickyStackHeight - 8
+      scroller.scrollTop += element.getBoundingClientRect().bottom - desiredGroupBottom
+      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    })
+    await page.mouse.move(1000, 100)
+    if (appearance === 'paper') {
+      const rowStates = await project.evaluate(element => {
+        const active = element.querySelector<HTMLElement>('.code-agent-row.active')
+        const inactive = element.querySelector<HTMLElement>('.code-agent-row:not(.active)')
+        if (!active || !inactive) return null
+        return {
+          active: getComputedStyle(active).backgroundColor,
+          inactive: getComputedStyle(inactive).backgroundColor,
+        }
+      })
+      expect(rowStates).not.toBeNull()
+      expect(rowStates!.inactive).toBe('rgba(0, 0, 0, 0)')
+      expect(rowStates!.active).not.toBe(rowStates!.inactive)
+    }
+    const screenshotPath = testInfo.outputPath(`sidebar-sticky-release-${appearance}.png`)
+    await page.getByTestId('code-sidebar').screenshot({ path: screenshotPath })
+    await testInfo.attach(`sidebar-sticky-release-${appearance}`, {
+      path: screenshotPath,
+      contentType: 'image/png',
+    })
+  }
+
+  const releaseMotion = await project.evaluate(async element => {
     const scroller = element.closest<HTMLElement>('.code-project-list')
     const projectRow = element.querySelector<HTMLElement>('.code-project-row')
     const agents = element.querySelector<HTMLElement>('[data-testid="code-agents-section"]')
     const files = element.querySelector<HTMLElement>('.code-files-header')
     if (!scroller || !projectRow || !agents || !files) return null
 
-    scroller.scrollTop += element.getBoundingClientRect().top - scroller.getBoundingClientRect().top
+    const projectHeight = Number.parseFloat(
+      getComputedStyle(element).getPropertyValue('--code-project-sticky-height')
+    )
+    const agentsHeight = Number.parseFloat(
+      getComputedStyle(element).getPropertyValue('--code-agents-sticky-height')
+    )
+    const stickyStackHeight = projectHeight + agentsHeight + files.getBoundingClientRect().height
+    const desiredGroupBottom = scroller.getBoundingClientRect().top + stickyStackHeight - 8
+    scroller.scrollTop += element.getBoundingClientRect().bottom - desiredGroupBottom
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+
     const before = [projectRow, agents, files].map(row => row.getBoundingClientRect().top)
-    scroller.scrollTop += 48
+    scroller.scrollTop += 12
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
     const after = [projectRow, agents, files].map(row => row.getBoundingClientRect().top)
-    return {
-      deltas: after.map((top, index) => top - before[index]!),
-      positions: [projectRow, agents, files].map(row => getComputedStyle(row).position),
-    }
+    return after.map((top, index) => Math.round(top - before[index]!))
   })
-  expect(layout).not.toBeNull()
-  expect(layout!.deltas).toEqual([-48, -48, -48])
-  expect(layout!.positions).toEqual(['relative', 'static', 'static'])
+  expect(releaseMotion).toEqual([-12, -12, -12])
 })
 
 test('keeps the active Agent snapshot pseudo inert until drag insertion', async ({ page, workspaceRoot }) => {
@@ -415,7 +506,13 @@ test('keeps persistent project and pinned Agent order', async ({ page, workspace
 
   const newestRow = project.locator(`[data-testid="code-agent-row"][data-agent-id="${newestAgentId}"]`)
   await newestRow.click()
+  await expect(newestRow).toHaveClass(/active/)
+  const endReorderResponse = page.waitForResponse(response => (
+    response.request().method() === 'POST'
+    && response.url().includes(`/farming/api/agents/${firstAgentId}/reorder`)
+  ))
   await sourceRow.dragTo(project.getByTestId('code-agent-show-more'))
+  expect((await endReorderResponse).ok()).toBeTruthy()
   await expect(project.getByTestId('code-agent-row')).toHaveCount(5)
   await expect(project.getByTestId('code-agent-show-more')).toBeVisible()
   await expect(sourceRow).toHaveCount(0)

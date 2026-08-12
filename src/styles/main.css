@@ -787,7 +787,7 @@ body.code-resizing-resource-agent .code-resource-agent-resizer {
 
 .code-resource-agent-toggle.active {
   color: var(--code-text-strong);
-  background: var(--code-bg-hover);
+  background: var(--code-bg-selected);
 }
 
 .code-permission-switching {
@@ -3931,7 +3931,7 @@ body.code-mode.code-mobile-markdown-reading .code-mobile-topbar-button {
   background: var(--code-bg-surface);
 }
 .code-file-editor-tabs {
-  background: var(--code-bg-inset);
+  background: transparent;
 }
 .code-file-editor-toolbar {
   background: var(--code-bg-inset);

@@ -49,8 +49,13 @@ function shouldPreserveMonacoFocus() {
 
 function visibleFileTreeRectForReveal(scroller: HTMLElement, row: HTMLElement) {
   const scrollerRect = scroller.getBoundingClientRect()
+  const projectGroup = row.closest<HTMLElement>('.code-project-group')
   const filesSection = row.closest<HTMLElement>('.code-files-section')
   const stickyElements = [
+    projectGroup?.querySelector<HTMLElement>('.code-project-row'),
+    projectGroup?.querySelector<HTMLElement>('.code-agents-section'),
+    projectGroup?.querySelector<HTMLElement>('[data-testid="code-open-editors"]'),
+    filesSection?.querySelector<HTMLElement>('.code-files-header'),
     filesSection?.querySelector<HTMLElement>('.code-file-sticky-stack'),
   ]
   const top = stickyElements.reduce((nextTop, element) => {

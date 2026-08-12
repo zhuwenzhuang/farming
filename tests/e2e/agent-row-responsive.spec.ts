@@ -72,6 +72,15 @@ test('reveals more Agent row information as the sidebar widens', async ({ page, 
   expect(compact.detailDisplay).toBe('none')
 
   await row.hover()
+  const actionCover = await row.locator('.code-agent-row-actions').evaluate(element => {
+    const style = getComputedStyle(element)
+    return {
+      backgroundImage: style.backgroundImage,
+      maskImage: style.maskImage || style.getPropertyValue('-webkit-mask-image'),
+    }
+  })
+  expect(actionCover.backgroundImage.match(/linear-gradient/g)).toHaveLength(2)
+  expect(actionCover.maskImage).toContain('linear-gradient')
   const titleCard = page.getByTestId('code-agent-hover-title-card')
   const agentPreview = page.getByTestId('code-agent-hover-preview')
   await expect(titleCard).toBeVisible()
@@ -99,7 +108,7 @@ test('reveals more Agent row information as the sidebar widens', async ({ page, 
 
   const projectGroup = page.getByTestId('code-project-group').filter({ has: row })
   const projectRow = projectGroup.locator('.code-project-row')
-  await projectRow.hover()
+  await projectGroup.getByTestId('code-project-title').hover()
   await projectGroup.getByTestId('code-project-actions').click()
   const projectMenu = page.getByTestId('code-project-context-menu')
   await expect(projectMenu).toBeVisible()
@@ -113,7 +122,7 @@ test('reveals more Agent row information as the sidebar widens', async ({ page, 
   await page.waitForTimeout(1700)
   await expect(page.getByTestId('code-agent-hover-title-card')).toHaveCount(0)
   await expect(page.getByTestId('code-agent-hover-preview')).toHaveCount(0)
-  await projectRow.hover()
+  await projectGroup.getByTestId('code-project-title').hover()
   // The project preview uses the same deliberate hover-suppression window.
   await page.waitForTimeout(1700)
   await expect(page.getByTestId('code-project-hover-preview')).toHaveCount(0)
@@ -197,7 +206,7 @@ test('reveals more Agent row information as the sidebar widens', async ({ page, 
   expect(hoverActionLayers.actionsZIndex).toBe('3')
   expect(hoverActionLayers.dotOpacity).toBe('0')
   await page.mouse.move(1000, 100)
-  await projectRow.hover()
+  await projectGroup.getByTestId('code-project-title').hover()
   const projectPreview = page.getByTestId('code-project-hover-preview')
   await expect(projectPreview).toBeVisible()
   await expect(projectPreview).toContainText(path.basename(projectDir))

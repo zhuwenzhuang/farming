@@ -20,6 +20,12 @@ Project, file, or terminal state.
   keep their semantic meaning instead of being recolored.
 - Paper is flat color, not a texture filter. Repeated grain or global opacity
   effects reduce code legibility and are not part of the theme.
+- Paper file tabs keep inactive labels and icons in the same muted ink on the
+  tab-strip paper. The active label and icon use the same strong ink together,
+  with one restrained tonal fill behind only the active tab.
+- Paper icon buttons rest directly on their parent paper surface. Only a
+  selected or pressed toggle keeps the deeper selected fill; hover fill is
+  temporary and an idle unselected button has no local background.
 - Workbench regions remain legible without becoming separate color blocks.
   Paper panels, inputs, and grouped controls use a subtle neutral fill instead
   of decorative outlines, focus rings, or selected boundaries. Text, cursor,

@@ -2,6 +2,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type CSSProperties,
   type DragEvent as ReactDragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
@@ -140,6 +141,7 @@ export function FileEditorTabs({
       <div className="code-file-editor-tabs" role="tablist">
         {openFiles.map((file, index) => {
           const tabKey = openFileKey(file)
+          const tabIconUrl = iconForFilePath(file.file.path)
           const active = tabKey === openFileKey(openFile)
           const tabStateClass = workspaceWorkingCopyTabClass(file)
           const changeIndicator = workspaceWorkingCopyChangeIndicator(file)
@@ -199,7 +201,11 @@ export function FileEditorTabs({
               onAuxClick={event => onTabAuxClick(event, index)}
               onKeyDown={event => onTabKeyDown(event, index)}
             >
-              <img className="code-file-type-icon file" src={iconForFilePath(file.file.path)} alt="" aria-hidden="true" />
+              <span
+                className="code-file-editor-tab-icon"
+                style={{ '--code-file-editor-tab-icon-source': `url(${JSON.stringify(tabIconUrl)})` } as CSSProperties}
+                aria-hidden="true"
+              />
               <span className="code-file-editor-tab-name">{basename(file.file.path)}</span>
               <span className="code-file-editor-tab-tail">
                 {changeIndicator && (

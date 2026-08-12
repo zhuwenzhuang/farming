@@ -92,8 +92,8 @@
 }
 
 .code-plugin-tabs > button[aria-selected='true'] {
-  background: var(--code-bg-canvas);
-  color: var(--code-text);
+  background: var(--code-bg-selected);
+  color: var(--code-text-strong);
 }
 
 .code-plugin-tabs small {
@@ -207,13 +207,13 @@
 }
 
 .code-plugin-extension-home-tabs > button[aria-selected='true'] {
-  background: var(--code-bg-canvas);
-  color: var(--code-text);
+  background: var(--code-bg-selected);
+  color: var(--code-text-strong);
 }
 
 .code-plugin-extension-kind-tabs > button[aria-selected='true'] {
-  background: var(--code-bg-canvas);
-  color: var(--code-text);
+  background: var(--code-bg-selected);
+  color: var(--code-text-strong);
 }
 
 .code-plugin-extension-home-tabs small,
