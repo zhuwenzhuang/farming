@@ -365,7 +365,7 @@
   border-color: var(--code-pet-black-hole-button-hover-border);
   background:
     var(--code-pet-black-hole-button-hover-bg);
-  color: var(--code-text-on-emphasis);
+  color: var(--code-pet-black-hole-button-text);
   outline: 0;
 }
 
