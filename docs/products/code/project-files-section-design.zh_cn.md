@@ -22,6 +22,9 @@ Project Sidebar 只有一个外层 Scroll Surface。Files、Open Editors、Chang
 Directory Tree 不能创建互相竞争的 Project 级滚动条。深层目录可以显示紧凑 Ancestor Context，
 但不能改变滚动所有权。
 
+Project、Agent、Open Editors 和 Files 标题必须保持在同一个自然滚动流中。它们都不能独立粘连或
+覆盖前一行；Project 内唯一允许粘连的元素是目录祖先上下文。
+
 Project Agent 行采用渐进展示，避免大型 Agent 分组难以浏览。Project 初始显示 5 个 Agent，
 第一次“显示更多”最多再显示 5 个，之后每次最多再显示 10 个；“显示较少”恢复为初始 5 个。
 Selection、Search 与 Active Agent 变化可以替换当前容量内的行，但只有“显示更多”和
@@ -150,8 +153,8 @@ Issue Reference 遵循 Workspace `.idea/vcs.xml` 内的 IntelliJ
 - 单子目录链可以合并成一个稳定 Row。
 - Dirty、External Change 与 Git State 保持可见，但不把整棵 Tree 变成高噪音警告面。
 - Preview 与 Pinned Tab 保留各自 Editor Position，并区分临时查看与有意多文件工作。
-- 纸张外观让 Tab Strip、Breadcrumb 与 Editor 共用一张连续纸面；只有 Active Tab 使用局部
-  色块，选中态不增加整条 Chrome 色带、边框、阴影或接缝线。
+- 纸张外观让 Tab Strip、Active Tab、Action、Breadcrumb 与 Editor 共用一张连续纸面；
+  Active State 只通过内容表达，不增加 Chrome 色带、局部色块、边框、阴影或接缝线。
 - 窄屏优先查看与短编辑；长时间手机编码不是目标。
 
 ## 性能边界

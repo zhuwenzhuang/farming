@@ -172,6 +172,7 @@ export function ComputerSection({
             : copy.stopped
   const busy = operation !== null || resource?.status === 'starting' || resource?.status === 'stopping'
   const stopBlocked = resource?.status === 'running' && isolatedBrowserCount > 0
+  if (controller.capability?.enabled !== true) return null
   return (
     <section className="farming-computer-section code-sidebar-resource-section" data-testid="farming-computer-section">
       <header className="code-sidebar-resource-header">

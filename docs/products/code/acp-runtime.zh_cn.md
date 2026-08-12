@@ -198,6 +198,10 @@ Interrupted 状态不能成为 Session 的最终状态。
 普通启动不会替换仍拥有 Live Chat Session 的不兼容 Host。显式全量重启可以主动接管该
 Host、终止其 Live Session，并从持久化 Session Record 启动新的 Host。
 
+全量重启选中的进程集合必须包含 ACP Runtime Host 及其全部 Provider 进程。如果停止后
+仍能连接到旧 Host，新 Server 即使发现其协议与 Build 兼容也必须替换它；全量重启绝不能
+重新接管旧 Host 代际。只有普通的 Server-only 重启可以接管兼容 Host 并保留 Live Session。
+
 冷恢复会先一次性物化全部可恢复 Agent Inventory，再按持久优先级以有界并发准备 Provider
 Session；单个 Session 失败不能阻断其余恢复。多个 Record 指向同一持久进程身份时，Farming
 只对该身份执行一次精确 Hard-stop 证明，并让这些 Record 共享结果。并发完成顺序不得改变

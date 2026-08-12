@@ -24,6 +24,10 @@ History, and the directory tree must not create competing project-level
 scrollbars. Deep trees may show compact ancestor context without changing that
 ownership.
 
+Project, Agent, Open Editors, and Files headers remain in the same natural
+scroll flow. None of them may pin independently or cover an earlier row; the
+directory ancestor context is the only sticky element inside a Project.
+
 Project Agent rows use progressive disclosure to keep large Agent groups
 scannable. A Project initially shows five Agents, the first Show more action
 reveals up to five more, later actions reveal up to ten more, and Show less
@@ -195,9 +199,9 @@ non-HTTP(S), or invalid rules remain plain text.
   into a high-noise warning surface.
 - Preview and pinned tabs preserve per-file editor position and distinguish
   transient inspection from intentional multi-file work.
-- Paper appearance keeps the tab strip, breadcrumbs, and editor on one
-  continuous paper surface. Only the active tab receives a local tonal fill;
-  selection does not add a full-width chrome band, border, shadow, or seam.
+- Paper appearance keeps the tab strip, active tab, actions, breadcrumbs, and
+  editor on one continuous paper surface. Active state is expressed through
+  content, without a chrome band, local fill, border, shadow, or seam.
 - Narrow layouts prioritize viewing and short edits; long-form mobile coding is
   not a goal.
 

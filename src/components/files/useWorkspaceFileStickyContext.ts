@@ -34,17 +34,8 @@ interface UseWorkspaceFileStickyContextOptions {
   treeViewportRef: RefObject<HTMLDivElement | null>
 }
 
-function stickyContentTop(scroller: HTMLElement, viewport: HTMLElement) {
-  const projectGroup = viewport.closest<HTMLElement>('.code-project-group')
-  const projectRow = projectGroup?.querySelector<HTMLElement>('.code-project-row')
-  const agentsSection = projectGroup?.querySelector<HTMLElement>('.code-agents-section')
-  const openEditorsSection = projectGroup?.querySelector<HTMLElement>('[data-testid="code-open-editors"]')
-  return workspaceStickyContentTop(
-    scroller.getBoundingClientRect().top,
-    projectRow?.getBoundingClientRect().height ?? 30,
-    (agentsSection?.getBoundingClientRect().height ?? 0) + (openEditorsSection?.getBoundingClientRect().height ?? 0),
-    25
-  )
+function stickyContentTop(scroller: HTMLElement) {
+  return workspaceStickyContentTop(scroller.getBoundingClientRect().top)
 }
 
 export function useWorkspaceFileStickyContext({
@@ -127,7 +118,7 @@ export function useWorkspaceFileStickyContext({
     const renderedStickyTop = viewport
       .querySelector<HTMLElement>('[data-testid="code-file-sticky-stack"]')
       ?.getBoundingClientRect().top
-    const stickyTop = renderedStickyTop ?? stickyContentTop(scroller, viewport)
+    const stickyTop = renderedStickyTop ?? stickyContentTop(scroller)
     const viewportRect = viewport.getBoundingClientRect()
     if (!isWorkspaceStickyContextVisible(viewportRect.top, stickyTop)) {
       clearStickyContext()

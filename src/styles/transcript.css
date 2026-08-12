@@ -171,6 +171,31 @@
   background: var(--code-scrollbar-thumb);
 }
 
+@container (max-width: 480px) {
+  .code-agent-transcript-scroll {
+    padding: 8px 12px 6px;
+    scroll-padding-top: 6px;
+    scroll-padding-bottom: 3px;
+  }
+
+  .code-agent-transcript-turn {
+    width: 100%;
+    max-width: none;
+    margin-bottom: 18px;
+  }
+
+  .code-agent-transcript-answer,
+  .code-agent-transcript-assistant {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .code-agent-transcript-user {
+    max-width: calc(100% - 20px);
+    margin-right: 0;
+  }
+}
+
 .code-agent-transcript-state {
   height: 100%;
   display: grid;

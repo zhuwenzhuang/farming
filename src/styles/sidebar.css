@@ -263,7 +263,6 @@ body.code-resizing-sidebar .code-sidebar-resizer {
 }
 
 .code-project-list {
-  --code-project-sticky-height: 32px;
   flex: 1 1 0;
   min-height: 0;
   overflow-y: auto;
@@ -348,11 +347,9 @@ body.code-resizing-sidebar .code-sidebar-resizer {
 }
 
 .code-project-group {
-  --code-agents-sticky-height: 0px;
   --code-open-editors-header-height: 25px;
   --code-files-header-height: 25px;
   --code-open-editor-row-height: 28px;
-  --code-open-editors-sticky-height: 0px;
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -360,13 +357,11 @@ body.code-resizing-sidebar .code-sidebar-resizer {
 
 .code-project-row {
   --code-project-row-action-surface: var(--code-bg-chrome);
-  position: sticky;
-  top: 0;
-  z-index: 12;
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   align-items: center;
-  min-height: var(--code-project-sticky-height);
+  min-height: 32px;
   background: var(--code-bg-chrome);
   color: var(--code-text-muted);
 }
@@ -1205,10 +1200,6 @@ body.code-resizing-sidebar .code-sidebar-resizer {
       color: var(--code-text-muted);
     }
 
-  .code-project-list {
-      --code-project-sticky-height: 32px;
-    }
-
   .code-session-show-more {
       grid-template-columns: minmax(0, 1fr) auto;
       color: var(--code-text-muted);
@@ -1273,10 +1264,6 @@ body.code-resizing-sidebar .code-sidebar-resizer {
 
   body.code-mode.code-compact-layout .code-nav-item kbd {
       display: none;
-    }
-
-  body.code-mode.code-compact-layout .code-project-list {
-      --code-project-sticky-height: 32px;
     }
 
   body.code-mode.code-compact-layout .code-project-title-actions {

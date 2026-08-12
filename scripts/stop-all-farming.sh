@@ -64,6 +64,7 @@ collect_targets() {
 
     function is_internal_script(value) {
       return path_ends_with(value, "backend/command-runner-child.cjs") \
+        || path_ends_with(value, "backend/acp-runtime-host-process.cjs") \
         || path_ends_with(value, "backend/native-pty-host.cjs") \
         || value ~ /(^|\/)dist\/acp\/[^\/[:space:]]+-acp-[^\/[:space:]]+\.mjs$/
     }

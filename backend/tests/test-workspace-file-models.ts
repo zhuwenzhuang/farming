@@ -1200,8 +1200,7 @@ function run() {
     lastFocusedPath: null,
     rows: [],
   }), null);
-  assert.strictEqual(workspaceStickyContentTop(10, 30, 12), 77);
-  assert.strictEqual(workspaceStickyContentTop(10, 30, 12, 0), 52);
+  assert.strictEqual(workspaceStickyContentTop(10), 10);
   assert.strictEqual(isWorkspaceStickyContextVisible(40, 41), true);
   assert.strictEqual(isWorkspaceStickyContextVisible(43, 41), false);
   assert.strictEqual(workspaceStickyContextRevealProgress(40, 40, 24), 0);

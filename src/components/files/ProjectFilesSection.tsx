@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { getBackendConnectionSnapshot } from '@/lib/backend-live-status'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-file-search'
 import type { WorkspaceFileTreeNode } from '@/lib/workspace-file-tree'
@@ -18,9 +18,6 @@ import { FileSectionOverlays } from './FileSectionOverlays'
 import { GitHistorySection } from './GitHistorySection'
 import {
   OpenEditorsSection,
-  OPEN_EDITOR_ROW_HEIGHT,
-  OPEN_EDITORS_HEADER_HEIGHT,
-  OPEN_EDITORS_VISIBLE_ROW_LIMIT,
   type OpenProjectFileSummary,
 } from './OpenEditorsSection'
 import { useProjectFilesSectionViewModel } from './useProjectFilesSectionViewModel'
@@ -394,19 +391,6 @@ export function ProjectFilesSection({
   useEffect(() => {
     onFilesCollapsedChange?.(filesCollapsed)
   }, [filesCollapsed, onFilesCollapsedChange])
-  const filesSectionStyle = useMemo(() => {
-    if (openFiles.length === 0) {
-      return { '--code-open-editors-sticky-height': '0px' } as CSSProperties
-    }
-    if (openEditorsCollapsed) {
-      return { '--code-open-editors-sticky-height': `${OPEN_EDITORS_HEADER_HEIGHT}px` } as CSSProperties
-    }
-    const visibleOpenEditorRows = Math.min(openFiles.length, OPEN_EDITORS_VISIBLE_ROW_LIMIT)
-    return {
-      '--code-open-editors-sticky-height': `${OPEN_EDITORS_HEADER_HEIGHT + visibleOpenEditorRows * OPEN_EDITOR_ROW_HEIGHT}px`,
-    } as CSSProperties
-  }, [openEditorsCollapsed, openFiles.length])
-
   useEffect(() => {
     if (!activeFilePath || filesCollapsed || !directories['']) return
     if (activeFileRevealInTree === false) {
@@ -559,7 +543,6 @@ export function ProjectFilesSection({
         className={`code-files-section ${filesCollapsed ? 'collapsed' : ''}`}
         data-testid="code-files-section"
         data-project-id={projectId}
-        style={filesSectionStyle}
       >
         <FileSectionHeader
           {...viewModel.sectionHeader}

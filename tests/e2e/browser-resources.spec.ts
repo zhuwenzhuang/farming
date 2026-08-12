@@ -384,6 +384,12 @@ test('mounts Agent-owned Browsers behind nested resource controls without layout
   await agentToggle.click()
   await expect(page.getByTestId('code-main')).toHaveClass(/resource-agent-side-open/)
   await expect(page.getByTestId('code-agent-terminal-view')).toBeVisible()
+  const viewerBox = await viewer.boundingBox()
+  const agentPanelBox = await page.getByTestId('code-terminal-grid').boundingBox()
+  if (!viewerBox || !agentPanelBox) throw new Error('Browser and Agent panes must have measurable bounds')
+  expect(agentPanelBox.width).toBeGreaterThanOrEqual(360)
+  expect(agentPanelBox.width).toBeLessThanOrEqual(480)
+  expect(viewerBox.width).toBeGreaterThan(agentPanelBox.width)
   const agentSideScreenshot = testInfo.outputPath('browser-agent-side-panel.png')
   await page.getByTestId('code-main').screenshot({ path: agentSideScreenshot })
   await testInfo.attach('browser-agent-side-panel', {
@@ -394,8 +400,8 @@ test('mounts Agent-owned Browsers behind nested resource controls without layout
   await expect(page.getByTestId('code-main')).not.toHaveClass(/resource-agent-side-open/)
   await expect(page.getByTestId('code-terminal-grid')).toBeHidden()
   const appearanceSurfaces = {
-    light: { canvas: 'rgb(255, 255, 255)', inset: 'rgb(246, 248, 250)', surface: 'rgb(255, 255, 255)' },
-    dark: { canvas: 'rgb(24, 24, 24)', inset: 'rgb(28, 28, 28)', surface: 'rgb(24, 24, 24)' },
+    light: { canvas: 'rgb(255, 255, 255)', inset: 'rgb(240, 242, 239)', surface: 'rgb(255, 255, 255)' },
+    dark: { canvas: 'rgb(24, 24, 24)', inset: 'rgb(34, 34, 34)', surface: 'rgb(24, 24, 24)' },
     paper: { canvas: 'rgb(249, 248, 244)', inset: 'rgb(239, 237, 231)', surface: 'rgb(249, 248, 244)' },
   } as const
   for (const appearance of ['light', 'dark', 'paper', 'light'] as const) {

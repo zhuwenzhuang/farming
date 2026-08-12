@@ -105,17 +105,12 @@ async function settleLayout(page: Page) {
   }))
 }
 
-async function stickyContextClearsPinnedAgents(section: Locator) {
+async function stickyContextUsesOuterScrollBoundary(section: Locator) {
   return section.evaluate(element => {
-    const project = element.closest<HTMLElement>('.code-project-group')
-    const agents = project?.querySelector<HTMLElement>('.code-agents-section')
+    const scroller = element.closest<HTMLElement>('.code-project-list')
     const sticky = element.querySelector<HTMLElement>('[data-testid="code-file-sticky-stack"]')
-    if (!project || !agents || !sticky) return false
-    const publishedHeight = Number.parseFloat(
-      getComputedStyle(project).getPropertyValue('--code-agents-sticky-height')
-    )
-    return Math.round(publishedHeight) === Math.ceil(agents.getBoundingClientRect().height)
-      && sticky.getBoundingClientRect().top >= agents.getBoundingClientRect().bottom - 1
+    if (!scroller || !sticky) return false
+    return Math.abs(sticky.getBoundingClientRect().top - scroller.getBoundingClientRect().top) <= 1
   })
 }
 
@@ -233,7 +228,7 @@ test('preserves every visible directory level across sticky scroll, collapse, re
   await expect(target).toBeVisible()
   await scrollFileRowIntoStickyRange(target)
   await expect.poll(() => stickyHierarchyMatchesFirstUncoveredRow(files)).toBe(true)
-  await expect.poll(() => stickyContextClearsPinnedAgents(files)).toBe(true)
+  await expect.poll(() => stickyContextUsesOuterScrollBoundary(files)).toBe(true)
   const implPath = TARGET_FILE.slice(0, TARGET_FILE.indexOf('/meta/'))
   await expect(files.locator(`[data-file-path="${implPath}/meta"]`)).toHaveCount(1)
   await expect(files.locator(`[data-file-path="${implPath}/pangu"]`)).toHaveCount(1)

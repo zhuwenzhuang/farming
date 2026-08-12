@@ -358,6 +358,7 @@ function TokenUsageSparkline({
   onInspect: (inspection: UsageHeatmapInspection) => void
 }) {
   const timeline = usageSummary.timeline
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
 
   const total = points.reduce((sum, point) => sum + Number(point.totalTokens), 0)
   const windowLabel = formatUsageWindow(Number(timeline.windowMs) / 60_000).toLowerCase()
@@ -377,6 +378,7 @@ function TokenUsageSparkline({
     const midpoint = (previous.x + point.x) / 2
     return `${value} C ${midpoint} ${previous.y}, ${midpoint} ${point.y}, ${point.x} ${point.y}`
   }, '')
+  const hoveredCoordinate = hoveredIndex === null ? null : coordinates[hoveredIndex] ?? null
 
   return (
     <>
@@ -387,8 +389,17 @@ function TokenUsageSparkline({
         preserveAspectRatio="none"
         role="img"
         aria-label={`Token activity over the last ${windowLabel}, ${formatCompactNumber(total)} tokens`}
+        onMouseLeave={() => setHoveredIndex(null)}
       >
         <path className="code-usage-sparkline-line" d={path} vectorEffect="non-scaling-stroke" />
+        {hoveredCoordinate ? (
+          <path
+            className="code-usage-sparkline-point"
+            data-testid="code-usage-sparkline-point"
+            d={`M ${hoveredCoordinate.x} ${hoveredCoordinate.y} h 0.001`}
+            vectorEffect="non-scaling-stroke"
+          />
+        ) : null}
         {points.map((point, index) => {
           const tokens = Number(point.totalTokens)
           const label = `${formatHeatmapTime(point.startedAt)}–${formatHeatmapTime(point.endedAt)}`
@@ -403,7 +414,10 @@ function TokenUsageSparkline({
               width={width / points.length}
               height={height}
               aria-label={title}
-              onMouseEnter={() => onInspect({ label, tokens })}
+              onMouseEnter={() => {
+                setHoveredIndex(index)
+                onInspect({ label, tokens })
+              }}
             />
           )
         })}

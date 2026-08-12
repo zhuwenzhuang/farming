@@ -110,6 +110,11 @@ body.code-resizing-sidebar {
   user-select: none;
 }
 
+body.code-resizing-resource-agent {
+  cursor: col-resize;
+  user-select: none;
+}
+
 .code-mobile-topbar,
 .code-mobile-sidebar-backdrop {
   display: none;
@@ -721,10 +726,9 @@ body.code-mode .code-instance-name {
 
 .code-main.resource-agent-side-open {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) clamp(360px, 32vw, 480px);
+  grid-template-columns: minmax(0, 1fr) 1px minmax(0, var(--code-resource-agent-width, 420px));
   grid-template-rows: minmax(0, 1fr) auto auto;
-  column-gap: 1px;
-  background: var(--code-border);
+  background: var(--code-bg-surface);
 }
 
 .code-main.resource-agent-side-open > .farming-browser-viewer,
@@ -736,20 +740,49 @@ body.code-mode .code-instance-name {
 }
 
 .code-main.resource-agent-side-open > .code-terminal-grid {
-  grid-column: 2;
+  grid-column: 3;
   grid-row: 1;
   min-width: 0;
+  container-type: inline-size;
 }
 
 .code-main.resource-agent-side-open > .code-agent-activity-dock {
-  grid-column: 2;
+  grid-column: 3;
   grid-row: 2;
 }
 
 .code-main.resource-agent-side-open > .code-composer-shell,
 .code-main.resource-agent-side-open > .code-composer-restore-bar {
-  grid-column: 2;
+  grid-column: 3;
   grid-row: 3;
+  background: var(--code-bg-surface);
+}
+
+.code-main.resource-agent-side-open > .code-composer-shell {
+  container-type: inline-size;
+}
+
+.code-resource-agent-resizer {
+  grid-column: 2;
+  grid-row: 1 / -1;
+  width: 1px;
+  min-width: 1px;
+  position: relative;
+  z-index: 30;
+  cursor: col-resize;
+  touch-action: none;
+  background: var(--code-border-subtle);
+}
+
+.code-resource-agent-resizer::before {
+  content: '';
+  position: absolute;
+  inset: 0 -4px;
+}
+
+.code-resource-agent-resizer:hover,
+body.code-resizing-resource-agent .code-resource-agent-resizer {
+  background: var(--code-accent);
 }
 
 .code-resource-agent-toggle.active {
@@ -3108,7 +3141,8 @@ body.code-mode .code-workspace {
   .code-main.resource-agent-side-open > .code-terminal-grid,
   .code-main.resource-agent-side-open > .code-agent-activity-dock,
   .code-main.resource-agent-side-open > .code-composer-shell,
-  .code-main.resource-agent-side-open > .code-composer-restore-bar {
+  .code-main.resource-agent-side-open > .code-composer-restore-bar,
+  .code-main.resource-agent-side-open > .code-resource-agent-resizer {
     display: none;
   }
 

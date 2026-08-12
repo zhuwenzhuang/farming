@@ -111,6 +111,7 @@ export interface CodeCopy {
   openNavigation: string
   closeNavigation: string
   resizeNavigation: string
+  resizeAgentSidePanel: string
   openOptions: string
   openSettings: string
   agentActions: string
@@ -651,6 +652,7 @@ const EN_COPY: CodeCopy = {
   openNavigation: 'Open navigation',
   closeNavigation: 'Close navigation',
   resizeNavigation: 'Resize navigation',
+  resizeAgentSidePanel: 'Resize Agent panel',
   openOptions: 'Open options',
   openSettings: 'Settings',
   agentActions: 'Agent actions',
@@ -1217,6 +1219,7 @@ const ZH_COPY: CodeCopy = {
   openNavigation: '打开导航',
   closeNavigation: '关闭导航',
   resizeNavigation: '调整导航宽度',
+  resizeAgentSidePanel: '调整 Agent 面板宽度',
   openOptions: '打开选项',
   openSettings: '设置',
   agentActions: 'Agent 操作',

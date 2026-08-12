@@ -35,7 +35,7 @@ interface AcpRuntimeHostClientOptions {
   hostScript?: string;
   requestTimeoutMs?: number;
   socketPath?: string;
-  spawnHost?: () => void;
+  spawnHost?: () => number | void;
 }
 
 type ControllerCallback = (...args: unknown[]) => unknown | Promise<unknown>;
@@ -110,7 +110,7 @@ class AcpRuntimeHostClient extends EventEmitter {
   readonly controllerId: string;
   readonly expectedBuildId: string;
   readonly forceReplaceActiveHost: boolean;
-  readonly spawnHostOverride: (() => void) | null;
+  readonly spawnHostOverride: (() => number | void) | null;
   controllerGeneration: number;
   socket: net.Socket | null;
   buffer: string;
@@ -162,8 +162,8 @@ class AcpRuntimeHostClient extends EventEmitter {
     this.poisonedError = null;
   }
 
-  spawnHost(): void {
-    if (this.spawnHostOverride) return this.spawnHostOverride();
+  spawnHost(): number {
+    if (this.spawnHostOverride) return Number(this.spawnHostOverride()) || 0;
     const env = {
       ...process.env,
       FARMING_CONFIG_DIR: this.configDir,
@@ -177,6 +177,7 @@ class AcpRuntimeHostClient extends EventEmitter {
       windowsHide: true,
     });
     child.unref();
+    return Number(child.pid) || 0;
   }
 
   async connectOnce(): Promise<void> {
@@ -398,6 +399,8 @@ class AcpRuntimeHostClient extends EventEmitter {
   async connectAndRegister(): Promise<void> {
     this.controllerGeneration = await allocateAcpRuntimeHostControllerGeneration(this.configDir);
     let spawned = false;
+    let spawnedHostPid = 0;
+    let forceReplacementPending = this.forceReplaceActiveHost;
     let lastError: unknown = null;
     for (let attempt = 0; attempt < this.connectRetries; attempt += 1) {
       let registrationAttempted = false;
@@ -415,18 +418,28 @@ class AcpRuntimeHostClient extends EventEmitter {
           error.code = 'ACP_RUNTIME_HOST_CONFIG_MISMATCH';
           throw error;
         }
+        if (forceReplacementPending && spawnedHostPid > 0 && Number(ping.pid) === spawnedHostPid) {
+          forceReplacementPending = false;
+        }
+        if (forceReplacementPending) {
+          registrationAttempted = true;
+          forceReplacementPending = false;
+          await this.request('registerController', {
+            identity: { id: this.controllerId, generation: this.controllerGeneration },
+          }, { timeoutMs: 3000 });
+          await this.request('shutdownHost', {}, { timeoutMs: 3000 });
+          const rotated = new Error('Replaced an existing ACP runtime Host for a full restart') as Error & { code?: string };
+          rotated.code = 'ACP_RUNTIME_HOST_ROTATED';
+          throw rotated;
+        }
         if (runtimeIdentity.buildId !== this.expectedBuildId) {
-          if (Number(ping.bindingCount) === 0 || this.forceReplaceActiveHost) {
+          if (Number(ping.bindingCount) === 0) {
             registrationAttempted = true;
             await this.request('registerController', {
               identity: { id: this.controllerId, generation: this.controllerGeneration },
             }, { timeoutMs: 3000 });
             await this.request('shutdownHost', {}, { timeoutMs: 3000 });
-            const rotated = new Error(
-              this.forceReplaceActiveHost
-                ? 'Replaced an active incompatible ACP runtime Host for a forced restart'
-                : 'Replaced an idle incompatible ACP runtime Host',
-            ) as Error & { code?: string };
+            const rotated = new Error('Replaced an idle incompatible ACP runtime Host') as Error & { code?: string };
             rotated.code = 'ACP_RUNTIME_HOST_ROTATED';
             throw rotated;
           }
@@ -460,9 +473,14 @@ class AcpRuntimeHostClient extends EventEmitter {
         if (registrationAttempted) {
           this.controllerGeneration = await allocateAcpRuntimeHostControllerGeneration(this.configDir);
         }
-        if (!spawned) {
+        if (!spawned || errorCode(error) === 'ACP_RUNTIME_HOST_ROTATED') {
           spawned = true;
-          this.spawnHost();
+          if (errorCode(error) === 'ACP_RUNTIME_HOST_ROTATED') {
+            // shutdownHost replies before the old listener has completely
+            // closed and released its socket path.
+            await delay(this.connectRetryMs);
+          }
+          spawnedHostPid = this.spawnHost();
         }
         await delay(this.connectRetryMs);
       }

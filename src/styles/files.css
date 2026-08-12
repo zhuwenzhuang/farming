@@ -45,9 +45,6 @@
 }
 
 .code-files-header {
-  position: sticky;
-  top: calc(var(--code-project-sticky-height) + var(--code-agents-sticky-height, 0px) + var(--code-open-editors-sticky-height, 0px));
-  z-index: 10;
   min-height: var(--code-files-header-height);
   font-size: 13px;
 }
@@ -266,9 +263,6 @@
 
 .code-open-editors {
   margin-top: 3px;
-  position: sticky;
-  top: calc(var(--code-project-sticky-height) + var(--code-agents-sticky-height, 0px));
-  z-index: 18;
   flex-shrink: 0;
   background: var(--code-bg-chrome);
   border-radius: 0 0 6px 6px;
@@ -872,7 +866,7 @@ body.code-mode .code-file-change-group-toggle {
 
 .code-file-sticky-shell {
   position: sticky;
-  top: calc(var(--code-project-sticky-height) + var(--code-agents-sticky-height, 0px) + var(--code-open-editors-sticky-height, 0px) + var(--code-files-header-height, 25px));
+  top: 0;
   height: 0;
   z-index: 11;
   pointer-events: none;

@@ -5,7 +5,9 @@ const path = require('path');
 const { EventEmitter } = require('events');
 
 const { AcpRuntimeHostClient, acpRuntimeHostSpawnCommand } = require('../acp-runtime-host-client.cts');
+const { acpRuntimeHostIdentity } = require('../acp-runtime-host-identity.cts');
 const { AcpRuntimeHostProcess } = require('../acp-runtime-host-process.cts');
+const { acpRuntimeHostSocketPath } = require('../acp-runtime-host-path.cts');
 const { promptContentHash } = require('../acp-runtime-host-service.cts');
 const { configInstanceFingerprint } = require('../config-instance.cts');
 
@@ -145,7 +147,7 @@ async function main() {
       configDir: forcedConfigDir,
       socketPath,
       connectRetries: 1,
-      expectedBuildId: '1'.repeat(64),
+      expectedBuildId: acpRuntimeHostIdentity().buildId,
       forceReplaceActiveHost: true,
       spawnHost: () => {},
     });
@@ -155,7 +157,7 @@ async function main() {
       forcedMethods.push(method);
       if (method === 'ping') {
         return {
-          runtimeIdentity: { protocolVersion: 1, buildId: '2'.repeat(64) },
+          runtimeIdentity: { protocolVersion: 1, buildId: acpRuntimeHostIdentity().buildId },
           configInstanceFingerprint: configInstanceFingerprint(forcedConfigDir),
           bindingCount: 1,
           pid: process.pid,
@@ -165,15 +167,59 @@ async function main() {
     };
     await assert.rejects(
       forcedRotation.ensureConnected(),
-      /Replaced an active incompatible ACP runtime Host for a forced restart/,
+      /Replaced an existing ACP runtime Host for a full restart/,
     );
     assert.deepStrictEqual(
       forcedMethods,
       ['ping', 'registerController', 'shutdownHost'],
-      'a forced restart must take ownership and close an incompatible Host with active Chats',
+      'a full restart must replace even a compatible Host with active Chats',
     );
     forcedRotation.disconnect();
     fs.rmSync(forcedConfigDir, { recursive: true, force: true });
+    const absentConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-acp-force-absent-'));
+    const absentSocketPath = path.join(absentConfigDir, 'host.sock');
+    const absentMethods: string[] = [];
+    let absentSpawnCalls = 0;
+    const absentRotation = new AcpRuntimeHostClient({
+      configDir: absentConfigDir,
+      socketPath: absentSocketPath,
+      connectRetries: 3,
+      connectRetryMs: 1,
+      forceReplaceActiveHost: true,
+      spawnHost: () => { absentSpawnCalls += 1; return 4242; },
+    });
+    let absentConnectCalls = 0;
+    absentRotation.connectOnce = async () => {
+      absentConnectCalls += 1;
+      if (absentConnectCalls === 1) {
+        const error = new Error('Host absent') as Error & { code?: string };
+        error.code = 'ENOENT';
+        throw error;
+      }
+    };
+    absentRotation.request = async (method: string) => {
+      absentMethods.push(method);
+      if (method === 'ping') {
+        return {
+          runtimeIdentity: acpRuntimeHostIdentity(),
+          configInstanceFingerprint: configInstanceFingerprint(absentConfigDir),
+          bindingCount: 0,
+          pid: 4242,
+        };
+      }
+      return method === 'recover'
+        ? { replace: true, eventSeq: 0, bindings: [], promptOperations: [], cancelOperations: [] }
+        : {};
+    };
+    await absentRotation.ensureConnected();
+    assert.strictEqual(absentSpawnCalls, 1, 'a missing Host must spawn exactly one fresh generation');
+    assert.deepStrictEqual(
+      absentMethods,
+      ['ping', 'registerController', 'recover'],
+      'a Host spawned by this full restart must not be rotated again',
+    );
+    absentRotation.disconnect();
+    fs.rmSync(absentConfigDir, { recursive: true, force: true });
     const original = first.request('submitPrompt', {
       agentId: 'agent-1',
       bindingEpoch: 'binding-1',
@@ -205,6 +251,64 @@ async function main() {
     second?.disconnect();
     await host.dispose();
     fs.rmSync(configDir, { recursive: true, force: true });
+  }
+
+  const fullRestartConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-acp-full-restart-'));
+  const fullRestartSocketPath = acpRuntimeHostSocketPath(fullRestartConfigDir);
+  const oldRuntime = new FakeRuntime();
+  const oldHost = new AcpRuntimeHostProcess({
+    configDir: fullRestartConfigDir,
+    socketPath: fullRestartSocketPath,
+    runtime: oldRuntime,
+    exitOnShutdown: false,
+  });
+  let oldController;
+  let fullRestartController;
+  try {
+    await oldHost.start();
+    oldController = new AcpRuntimeHostClient({
+      configDir: fullRestartConfigDir,
+      socketPath: fullRestartSocketPath,
+      connectRetries: 10,
+      connectRetryMs: 10,
+    });
+    await oldController.ensureConnected();
+    await oldController.request('prepareAgent', {
+      options: {
+        agentId: 'agent-full-restart',
+        capabilityRuntimeEpoch: 'binding-full-restart',
+        sessionId: 'session-full-restart',
+      },
+    });
+    const oldHostEpoch = oldController.hostEpoch;
+    oldController.disconnect();
+    oldController = null;
+
+    fullRestartController = new AcpRuntimeHostClient({
+      configDir: fullRestartConfigDir,
+      socketPath: fullRestartSocketPath,
+      connectRetries: 100,
+      connectRetryMs: 20,
+      forceReplaceActiveHost: true,
+    });
+    await fullRestartController.ensureConnected();
+    assert.strictEqual(oldHost.disposed, true, 'full restart must dispose a compatible old Host');
+    assert.notStrictEqual(
+      fullRestartController.hostEpoch,
+      oldHostEpoch,
+      'full restart must attach a new Host generation',
+    );
+    assert.strictEqual(
+      fullRestartController.bindings.has('agent-full-restart'),
+      false,
+      'a fresh Host must not expose the old generation binding',
+    );
+    await fullRestartController.request('shutdownHost', {}, { timeoutMs: 5_000 });
+  } finally {
+    oldController?.disconnect();
+    fullRestartController?.disconnect();
+    await oldHost.dispose();
+    fs.rmSync(fullRestartConfigDir, { recursive: true, force: true });
   }
 
   const raceClient = new AcpRuntimeHostClient({ configDir: os.tmpdir(), socketPath: '/unused' });

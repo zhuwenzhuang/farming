@@ -153,19 +153,6 @@ export function FileEditorActions({
       >
         <ShareGlyph className="code-file-editor-action-svg" />
       </button>
-      {onToggleAgentSidePanel ? (
-        <button
-          type="button"
-          className={`code-file-editor-action code-resource-agent-toggle ${agentSidePanelOpen ? 'active' : ''}`.trim()}
-          data-testid="code-resource-agent-toggle"
-          onClick={onToggleAgentSidePanel}
-          aria-label={agentSidePanelOpen ? copy.hideAgentSidePanel : copy.showAgentSidePanel}
-          title={agentSidePanelOpen ? copy.hideAgentSidePanel : copy.showAgentSidePanel}
-          aria-pressed={agentSidePanelOpen}
-        >
-          <ChatBubblesGlyph className="code-file-editor-action-svg" />
-        </button>
-      ) : null}
       {actions.showSave && (
         <button
           type="button"
@@ -249,6 +236,19 @@ export function FileEditorActions({
           <ErrorGlyph className="code-file-editor-action-svg" />
         </button>
       )}
+      {onToggleAgentSidePanel ? (
+        <button
+          type="button"
+          className={`code-file-editor-action code-resource-agent-toggle ${agentSidePanelOpen ? 'active' : ''}`.trim()}
+          data-testid="code-resource-agent-toggle"
+          onClick={onToggleAgentSidePanel}
+          aria-label={agentSidePanelOpen ? copy.hideAgentSidePanel : copy.showAgentSidePanel}
+          title={agentSidePanelOpen ? copy.hideAgentSidePanel : copy.showAgentSidePanel}
+          aria-pressed={agentSidePanelOpen}
+        >
+          <ChatBubblesGlyph className="code-file-editor-action-svg" />
+        </button>
+      ) : null}
     </div>
   )
 }

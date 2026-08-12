@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ComponentProps, type Dispatch, type KeyboardEvent as ReactKeyboardEvent, type RefObject, type SetStateAction, type SyntheticEvent as ReactSyntheticEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ComponentProps, type CSSProperties, type Dispatch, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type RefObject, type SetStateAction, type SyntheticEvent as ReactSyntheticEvent } from 'react'
 import type { Agent, TaskHistoryEntry } from '@/types/agent'
 import { isAcpRuntime } from '@/lib/agent-runtime'
 import { agentTitle } from '@/lib/format'
@@ -49,6 +49,10 @@ type TerminalFollowState = {
 }
 
 const TERMINAL_COMPOSER_COLLAPSED_STORAGE_KEY = 'farming.code.terminalComposerCollapsed.v1'
+const DEFAULT_RESOURCE_AGENT_WIDTH = 420
+const MIN_RESOURCE_AGENT_WIDTH = 360
+const MAX_RESOURCE_AGENT_WIDTH = 640
+const MIN_RESOURCE_WORKSPACE_WIDTH = 320
 
 function readTerminalComposerCollapsed() {
   try {
@@ -630,6 +634,9 @@ export function CodeMainArea({
   } | null>(null)
   const [expandedAgentActivity, setExpandedAgentActivity] = useState<string | null>(null)
   const [resourceAgentPanelOpen, setResourceAgentPanelOpen] = useState(false)
+  const [resourceAgentWidth, setResourceAgentWidth] = useState(DEFAULT_RESOURCE_AGENT_WIDTH)
+  const mainAreaRef = useRef<HTMLElement | null>(null)
+  const resizingResourceAgentRef = useRef(false)
   const previousActiveRuntimeRef = useRef<{ agentId: string | null; kind: 'acp' | 'terminal' | null }>({
     agentId: null,
     kind: null,
@@ -722,6 +729,49 @@ export function CodeMainArea({
     }
     setResourceAgentPanelOpen(current => !current)
   }, [activeTerminalId, onOpenTerminal, resourceAgentId, resourceAgentPanelOpen])
+
+  const updateResourceAgentWidth = useCallback((clientX: number) => {
+    const mainRect = mainAreaRef.current?.getBoundingClientRect()
+    if (!mainRect) return
+    const availableMax = mainRect.width - MIN_RESOURCE_WORKSPACE_WIDTH - 1
+    const maxWidth = Math.max(
+      MIN_RESOURCE_AGENT_WIDTH,
+      Math.min(MAX_RESOURCE_AGENT_WIDTH, availableMax),
+    )
+    const rawWidth = mainRect.right - clientX
+    setResourceAgentWidth(Math.max(MIN_RESOURCE_AGENT_WIDTH, Math.min(maxWidth, rawWidth)))
+  }, [])
+
+  const beginResourceAgentResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    resizingResourceAgentRef.current = true
+    document.body.classList.add('code-resizing-resource-agent')
+    updateResourceAgentWidth(event.clientX)
+  }, [updateResourceAgentWidth])
+
+  useEffect(() => {
+    function handlePointerMove(event: PointerEvent) {
+      if (!resizingResourceAgentRef.current) return
+      event.preventDefault()
+      updateResourceAgentWidth(event.clientX)
+    }
+
+    function stopResourceAgentResize() {
+      if (!resizingResourceAgentRef.current) return
+      resizingResourceAgentRef.current = false
+      document.body.classList.remove('code-resizing-resource-agent')
+    }
+
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', stopResourceAgentResize)
+    window.addEventListener('pointercancel', stopResourceAgentResize)
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', stopResourceAgentResize)
+      window.removeEventListener('pointercancel', stopResourceAgentResize)
+      document.body.classList.remove('code-resizing-resource-agent')
+    }
+  }, [updateResourceAgentWidth])
 
   useEffect(() => {
     if (!resourceAgentPanelOpen) return
@@ -836,8 +886,12 @@ export function CodeMainArea({
 
   return (
     <main
+      ref={mainAreaRef}
       className={`code-main ${resourceAgentPanelVisible ? 'resource-agent-side-open' : ''}`.trim()}
       data-testid="code-main"
+      style={resourceAgentPanelVisible ? {
+        '--code-resource-agent-width': `${resourceAgentWidth}px`,
+      } as CSSProperties : undefined}
       inert={inert ? true : undefined}
       onPointerDownCapture={dismissComposerKeyboardOnMainPress}
       onTouchStartCapture={dismissComposerKeyboardOnMainPress}
@@ -957,6 +1011,20 @@ export function CodeMainArea({
         )
       ) : null}
 
+      {resourceAgentPanelVisible ? (
+        <div
+          className="code-resource-agent-resizer"
+          data-testid="code-resource-agent-resizer"
+          role="separator"
+          aria-label={copy.resizeAgentSidePanel}
+          aria-orientation="vertical"
+          aria-valuemin={MIN_RESOURCE_AGENT_WIDTH}
+          aria-valuemax={MAX_RESOURCE_AGENT_WIDTH}
+          aria-valuenow={Math.round(resourceAgentWidth)}
+          onPointerDown={beginResourceAgentResize}
+        />
+      ) : null}
+
       <div
         className="code-terminal-grid panes-1"
         data-testid="code-terminal-grid"
@@ -1022,7 +1090,7 @@ export function CodeMainArea({
             <AgentWorkPane
               key={agent.id}
               agent={agent}
-              active={agentSurfaceVisible && agent.id === activeTerminalId}
+              active={(agentSurfaceVisible || resourceWorkspaceVisible) && agent.id === activeTerminalId}
               viewportLayoutKey={`${resourceAgentPanelVisible ? 'agent-side' : 'agent-full'}:${composerCollapsed ? 'composer-collapsed' : 'composer-expanded'}`}
               switching={agent.id === permissionSwitchingAgentId}
               switchingKind={agent.id === permissionSwitchingAgentId ? agentSwitchingKind : null}

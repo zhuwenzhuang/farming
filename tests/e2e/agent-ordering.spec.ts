@@ -208,24 +208,13 @@ test('keeps Agent pagination size stable while selecting rows', {
   }
 })
 
-test('keeps the Files header below a resized sticky Agent section without ResizeObserver', async ({ page, workspaceRoot }) => {
-  const projectDir = path.join(workspaceRoot, 'agent-sticky-height-sync')
+test('scrolls Project, Agent, and Files rows together without layered pinning', async ({ page, workspaceRoot }) => {
+  const projectDir = path.join(workspaceRoot, 'project-summary-natural-scroll')
   fs.mkdirSync(projectDir, { recursive: true })
   for (let index = 0; index < 40; index += 1) {
     fs.writeFileSync(path.join(projectDir, `file-${index}.txt`), `${index}\n`)
   }
   await createControlAgent(page, projectDir)
-  await page.addInitScript(() => {
-    class DisabledResizeObserver {
-      observe() {}
-      unobserve() {}
-      disconnect() {}
-    }
-    Object.defineProperty(window, 'ResizeObserver', {
-      configurable: true,
-      value: DisabledResizeObserver,
-    })
-  })
 
   await openFarming(page)
   const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(projectDir) })
@@ -235,25 +224,25 @@ test('keeps the Files header below a resized sticky Agent section without Resize
 
   await createControlAgent(page, projectDir)
   await expect(project.getByTestId('code-agent-row')).toHaveCount(2)
-  const filesHeader = project.locator('.code-files-header')
-  await filesHeader.evaluate(element => element.scrollIntoView({ block: 'start' }))
-
   const layout = await project.evaluate(element => {
+    const scroller = element.closest<HTMLElement>('.code-project-list')
+    const projectRow = element.querySelector<HTMLElement>('.code-project-row')
     const agents = element.querySelector<HTMLElement>('[data-testid="code-agents-section"]')
     const files = element.querySelector<HTMLElement>('.code-files-header')
-    if (!agents || !files) return null
-    const agentsRect = agents.getBoundingClientRect()
-    const filesRect = files.getBoundingClientRect()
+    if (!scroller || !projectRow || !agents || !files) return null
+
+    scroller.scrollTop += element.getBoundingClientRect().top - scroller.getBoundingClientRect().top
+    const before = [projectRow, agents, files].map(row => row.getBoundingClientRect().top)
+    scroller.scrollTop += 48
+    const after = [projectRow, agents, files].map(row => row.getBoundingClientRect().top)
     return {
-      agentsHeight: agentsRect.height,
-      agentsBottom: agentsRect.bottom,
-      filesTop: filesRect.top,
-      stickyHeight: Number.parseFloat(getComputedStyle(element).getPropertyValue('--code-agents-sticky-height')),
+      deltas: after.map((top, index) => top - before[index]!),
+      positions: [projectRow, agents, files].map(row => getComputedStyle(row).position),
     }
   })
   expect(layout).not.toBeNull()
-  expect(layout!.stickyHeight).toBeGreaterThanOrEqual(layout!.agentsHeight - 1)
-  expect(layout!.filesTop).toBeGreaterThanOrEqual(layout!.agentsBottom - 1)
+  expect(layout!.deltas).toEqual([-48, -48, -48])
+  expect(layout!.positions).toEqual(['relative', 'static', 'static'])
 })
 
 test('keeps the active Agent snapshot pseudo inert until drag insertion', async ({ page, workspaceRoot }) => {

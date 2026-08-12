@@ -257,13 +257,19 @@ test('shows an Agent-owned Desktop only when present and switches Viewer control
   await agentToggle.click()
   await expect(page.getByTestId('code-main')).toHaveClass(/resource-agent-side-open/)
   await expect(page.getByTestId('code-agent-terminal-view')).toBeVisible()
+  const viewerBox = await viewer.boundingBox()
+  const agentPanelBox = await page.getByTestId('code-terminal-grid').boundingBox()
+  if (!viewerBox || !agentPanelBox) throw new Error('Computer and Agent panes must have measurable bounds')
+  expect(agentPanelBox.width).toBeGreaterThanOrEqual(360)
+  expect(agentPanelBox.width).toBeLessThanOrEqual(480)
+  expect(viewerBox.width).toBeGreaterThan(agentPanelBox.width)
   await viewer.getByRole('button', { name: 'Hide Agent beside resource' }).click()
   await expect(page.getByTestId('code-main')).not.toHaveClass(/resource-agent-side-open/)
   await expect(page.getByTestId('code-terminal-grid')).toBeHidden()
   const frame = viewer.locator('iframe')
   const appearanceSurfaces = {
-    light: { canvas: 'rgb(255, 255, 255)', inset: 'rgb(246, 248, 250)' },
-    dark: { canvas: 'rgb(24, 24, 24)', inset: 'rgb(28, 28, 28)' },
+    light: { canvas: 'rgb(255, 255, 255)', inset: 'rgb(240, 242, 239)' },
+    dark: { canvas: 'rgb(24, 24, 24)', inset: 'rgb(34, 34, 34)' },
     paper: { canvas: 'rgb(249, 248, 244)', inset: 'rgb(239, 237, 231)' },
   } as const
   for (const appearance of ['light', 'dark', 'paper', 'light'] as const) {

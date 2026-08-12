@@ -163,6 +163,14 @@
   stroke-width: 1.6px;
 }
 
+.code-usage-sparkline-point {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 5px;
+  pointer-events: none;
+}
+
 .code-usage-sparkline-hit {
   fill: transparent;
 }

@@ -638,10 +638,6 @@ body.code-mode:not(.code-compact-layout) .code-agent-row.requires-resume .code-a
 }
 
 .code-agents-section {
-  position: sticky;
-  top: var(--code-project-sticky-height);
-  z-index: 24;
-  isolation: isolate;
   box-sizing: border-box;
   margin-left: 0;
   margin-right: 2px;

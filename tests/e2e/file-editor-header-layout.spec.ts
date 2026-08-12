@@ -62,7 +62,7 @@ test('uses one italic preview tab and pins it on double click', async ({ page })
   await expect(editor.getByRole('tab')).toHaveCount(2)
 })
 
-test('overlays right-side file actions on overflowing tabs and shows a seamless breadcrumb', async ({ page }) => {
+test('overlays right-side file actions on overflowing tabs and shows a seamless breadcrumb', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   const workspaceRoot = path.join(PLAYWRIGHT_WORKSPACE_ROOT, 'editor-header-project')
   const docsDir = path.join(workspaceRoot, 'docs')
@@ -181,6 +181,7 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
       breadcrumbTop: breadcrumbRect.top,
       actionBorderWidth: getComputedStyle(firstAction).borderTopWidth,
       actionGap: getComputedStyle(actions).gap,
+      agentToggleIsLast: actions.lastElementChild?.matches('[data-testid="code-resource-agent-toggle"]') === true,
       actionBackground: getComputedStyle(actions).backgroundColor,
       tabStripBackground: getComputedStyle(tabStrip).backgroundColor,
       tabStripBorderColor: getComputedStyle(tabStrip).borderBottomColor,
@@ -202,6 +203,7 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
   expect(headerLayout.breadcrumbTop).toBeGreaterThanOrEqual(headerLayout.tabBottom)
   expect(headerLayout.actionBorderWidth).toBe('0px')
   expect(headerLayout.actionGap).toBe('2px')
+  expect(headerLayout.agentToggleIsLast).toBe(true)
   expect(headerLayout.actionBackground).toBe(headerLayout.tabStripBackground)
   expect(colorAlpha(headerLayout.activeTabSeamColor)).toBeLessThan(colorAlpha(headerLayout.tabStripBorderColor))
   expect(headerLayout.headerBorderBottomWidth).toBe('0px')
@@ -236,8 +238,14 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
   })
   expect(paperHeader.tabStripBackground).toBe(paperHeader.contentBackground)
   expect(paperHeader.breadcrumbBackground).toBe(paperHeader.contentBackground)
-  expect(paperHeader.activeTabBackground).not.toBe(paperHeader.contentBackground)
-  expect(paperHeader.activeTabBorderRadius).toBe('7px')
+  expect(paperHeader.activeTabBackground).toBe(paperHeader.contentBackground)
+  expect(paperHeader.activeTabBorderRadius).toBe('0px')
   expect(paperHeader.activeTabBoxShadow).toBe('none')
   expect(colorAlpha(paperHeader.activeTabSeamColor)).toBe(0)
+  const paperHeaderScreenshot = testInfo.outputPath('paper-file-editor-header.png')
+  await editor.screenshot({ path: paperHeaderScreenshot })
+  await testInfo.attach('paper-file-editor-header', {
+    path: paperHeaderScreenshot,
+    contentType: 'image/png',
+  })
 })

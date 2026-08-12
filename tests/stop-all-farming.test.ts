@@ -87,6 +87,7 @@ test('stop-all matcher keeps supported Farming roots and their descendants', () 
     psLine(101, 1, 'node /repo/backend/farming-app-cli.cjs start'),
     psLine(102, 1, '/opt/node/bin/node /repo/backend/command-runner-child.cjs'),
     psLine(103, 1, 'node /repo/backend/native-pty-host.cjs'),
+    psLine(114, 1, 'node /repo/backend/acp-runtime-host-process.cjs'),
     psLine(104, 1, 'node /repo/dist/acp/codex-acp-1.1.14.mjs --stdio'),
     psLine(105, 1, 'node /repo/bin/farming start'),
     psLine(106, 1, 'node /repo/bin/farming daemon'),
@@ -100,8 +101,8 @@ test('stop-all matcher keeps supported Farming roots and their descendants', () 
   ])
 
   assert.equal(result.status, 0, result.stderr)
-  assert.match(result.stdout, /Matched 12 Farming process\(es\):/)
-  for (const pid of [101, 102, 103, 104, 105, 106, 108, 109, 110, 111, 112, 113]) {
+  assert.match(result.stdout, /Matched 13 Farming process\(es\):/)
+  for (const pid of [101, 102, 103, 104, 105, 106, 108, 109, 110, 111, 112, 113, 114]) {
     assert.match(result.stdout, new RegExp(`pid=${pid}\\b`))
   }
   assert.doesNotMatch(
@@ -117,6 +118,7 @@ test('stop-all matcher classifies relative and absolute server roots for gracefu
     psLine(122, 1, '/opt/node/bin/node /repo/backend/farming-app-cli.cjs daemon'),
     psLine(123, 1, '/opt/glibc/lib/ld-2.28.so --library-path /opt/glibc/lib /opt/node/bin/node bin/farming daemon'),
     psLine(124, 1, 'node backend/native-pty-host.cjs'),
+    psLine(125, 1, 'node backend/acp-runtime-host-process.cjs'),
   ])
 
   assert.equal(result.status, 0, result.stderr)
@@ -125,6 +127,8 @@ test('stop-all matcher classifies relative and absolute server roots for gracefu
   }
   assert.match(result.stdout, /pid=124\b/)
   assert.doesNotMatch(result.stdout, /pid=124\b[^\n]*shutdown=graceful/)
+  assert.match(result.stdout, /pid=125\b/)
+  assert.doesNotMatch(result.stdout, /pid=125\b[^\n]*shutdown=graceful/)
 })
 
 test('stop-all matcher ignores Farming paths used only as unrelated arguments', () => {

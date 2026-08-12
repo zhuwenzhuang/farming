@@ -344,6 +344,7 @@ test('keeps Code Usage to real token sources and renders a compact activity heat
   await expect(panel.getByText('1h buckets', { exact: true })).toBeVisible()
   await expect(sparkline.locator('.code-usage-sparkline-line')).toHaveCount(1)
   await expect(sparkline.locator('.code-usage-sparkline-hit')).toHaveCount(24)
+  await expect(sparkline.getByTestId('code-usage-sparkline-point')).toHaveCount(0)
   await expect(sparkline.locator('.code-usage-sparkline-line')).toHaveAttribute('d', /^M .+ C /)
   await expect(panel.getByTestId('code-usage-time-axis').locator('span')).toHaveCount(5)
   await expect(panel.getByTestId('code-usage-time-axis').locator('span')).toHaveText([
@@ -359,7 +360,10 @@ test('keeps Code Usage to real token sources and renders a compact activity heat
   const peakHourHit = sparkline.locator(`[data-start="${points[18]!.startedAt}"]`)
   await expect(peakHourHit).toHaveAttribute('aria-label', /1,500,000,000 tokens/)
   await peakHourHit.hover()
+  await expect(sparkline.getByTestId('code-usage-sparkline-point')).toHaveAttribute('d', /^M 78\.2608\d* 2 h 0\.001$/)
   await expect(panel.getByTestId('code-usage-activity-readout')).toContainText('1.5B tokens')
+  await panel.getByText('1d · activity', { exact: true }).hover()
+  await expect(sparkline.getByTestId('code-usage-sparkline-point')).toHaveCount(0)
 
   const dailyHeatmap = panel.getByTestId('code-usage-daily-heatmap')
   await expect(dailyHeatmap).toBeVisible()

@@ -2599,6 +2599,77 @@ body.code-mode .code-composer textarea:disabled {
   display: none;
 }
 
+@container (max-width: 480px) {
+  .code-composer {
+    margin: 0 8px 8px;
+    min-height: 102px;
+    gap: 6px;
+    padding: 8px;
+  }
+
+  .code-composer-toolbar {
+    align-items: flex-end;
+    gap: 6px;
+  }
+
+  .code-composer-left-tools,
+  .code-composer-right-tools {
+    gap: 4px;
+  }
+
+  .code-composer-left-tools {
+    flex: 1 1 0;
+  }
+
+  .code-composer-approval {
+    width: 34px;
+    min-width: 34px;
+    max-width: 34px;
+    height: 34px;
+    flex: 0 0 34px;
+    justify-content: center;
+    padding: 0;
+    border-radius: 999px;
+  }
+
+  .code-composer-approval-label,
+  .code-composer-approval > .code-chevron {
+    display: none;
+  }
+
+  .code-composer-approval .code-tool-icon,
+  .code-composer-approval .code-tool-icon svg {
+    width: 21px;
+    height: 21px;
+  }
+
+  .code-composer-right-tools > .code-composer-menu-anchor.model-picker {
+    min-width: 0;
+    max-width: 128px;
+    flex: 0 1 128px;
+    overflow: hidden;
+  }
+
+  .code-composer-model-picker {
+    min-width: 0;
+    max-width: 100%;
+    height: 34px;
+    overflow: hidden;
+  }
+
+  .code-composer-model-label.desktop,
+  .code-composer-model-picker-muted.desktop {
+    display: none;
+  }
+
+  .code-composer-model-label.mobile,
+  .code-composer-model-picker-muted.mobile {
+    min-width: 0;
+    display: inline-flex;
+    flex: 1 1 auto;
+  }
+}
+
 .code-main:has(.code-composer textarea:focus) .terminal-session-host .xterm:not(:focus-within) .xterm-cursor {
   background-color: transparent !important;
   border-color: transparent !important;

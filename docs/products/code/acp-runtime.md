@@ -97,6 +97,13 @@ must therefore be correct against hard stop. The repository's `npm restart`
 command performs a full Farming stop followed by a fresh start; its performance
 work must optimize cold inventory and Session recovery.
 
+A full restart must include the ACP Runtime Host and every Provider process in
+the selected process set. If a reachable Host remains despite that stop, the
+fresh Server replaces it even when its protocol and build identity are
+compatible; full restart must never attach an old Host generation. An ordinary
+Server-only restart continues to attach a compatible Host and preserve its live
+Sessions.
+
 ACP has no fixed Agent, Session, process, thread, or concurrency cap. Resource
 protection must come from bounded queues, payloads, caches, and backpressure,
 not from an arbitrary limit on how many Agents may exist.

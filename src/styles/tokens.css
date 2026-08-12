@@ -327,9 +327,9 @@ body.code-mode[data-appearance='paper'] {
   --code-empty-guide-connector: rgba(142, 151, 139, 0.3);
   --code-empty-guide-origin: rgba(142, 151, 139, 0.46);
   --code-empty-guide-target: rgba(142, 151, 139, 0.56);
-  --code-file-editor-active-tab-radius: 7px;
+  --code-file-editor-active-tab-radius: 0px;
   --code-file-editor-active-tab-seam: transparent;
-  --code-file-editor-active-tab-surface: var(--code-bg-muted);
+  --code-file-editor-active-tab-surface: var(--code-bg-canvas);
   --code-file-editor-tab-color: var(--code-text-muted);
   --code-file-editor-tab-height: 28px;
   --code-file-editor-tab-margin-block: 2px;

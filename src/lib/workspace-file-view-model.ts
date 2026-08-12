@@ -170,8 +170,8 @@ export function workspaceFileTreeActivationIntent(options: {
   return 'none'
 }
 
-export function workspaceStickyContentTop(scrollerTop: number, projectRowHeight = 30, precedingSectionHeight = 0, filesHeaderHeight = 25) {
-  return scrollerTop + projectRowHeight + precedingSectionHeight + filesHeaderHeight
+export function workspaceStickyContentTop(scrollerTop: number) {
+  return scrollerTop
 }
 
 export function isWorkspaceStickyContextVisible(viewportTop: number, stickyTop: number, margin = 1) {
