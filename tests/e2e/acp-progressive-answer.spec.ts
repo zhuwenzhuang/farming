@@ -138,9 +138,14 @@ test('shows authoritative live ACP snapshots without delaying send confirmation 
   await expect.poll(async () => (await currentAnswerSamples(page))[0]?.text).toBe(PROGRESSIVE_INITIAL_ANSWER)
   await expect(answer).toHaveText(PROGRESSIVE_ANSWER, { timeout: 20_000 })
   const samples = await answerSamples(page)
-  expect(samples).toHaveLength(2)
+  expect(samples.length).toBeGreaterThan(2)
+  expect(samples.length).toBeLessThanOrEqual(PROGRESSIVE_SEGMENTS.length)
   expect(samples[0]?.text).toBe(PROGRESSIVE_INITIAL_ANSWER)
   expect(samples[samples.length - 1]?.text).toBe(PROGRESSIVE_ANSWER)
+  expect((samples[1]?.elapsedMs || 0) - (samples[0]?.elapsedMs || 0)).toBeLessThan(3_000)
+  expect(samples.slice(1).every((sample, index) => (
+    sample.text.startsWith(samples[index]?.text || '')
+  ))).toBe(true)
 
   await otherAgentRow.click()
   const firstSwitchText = await firstAnswerAfterAgentClick(page, agentId)

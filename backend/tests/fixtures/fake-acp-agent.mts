@@ -1463,7 +1463,11 @@ class FakeAgent implements Agent {
       await new Promise(resolve => setTimeout(resolve, 700));
       await client.sessionUpdate({
         sessionId: params.sessionId,
-        update: { sessionUpdate: 'agent_thought_chunk', messageId: 'streaming-thought-1', content: { type: 'text', text: 'Checking the strongest one.' } },
+        update: {
+          sessionUpdate: 'agent_thought_chunk',
+          messageId: 'streaming-thought-1',
+          content: { type: 'text', text: '**Detailing filter support in analyzers**\n\nChecking the strongest one.' },
+        },
       });
       await new Promise(resolve => setTimeout(resolve, 700));
       await client.sessionUpdate({

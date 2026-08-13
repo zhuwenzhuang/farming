@@ -209,33 +209,6 @@ function initialTranscriptTurnLimit(source: AgentTranscriptPaneProps['source']) 
 }
 const TRANSCRIPT_LOAD_MORE_THRESHOLD = 72
 
-function useLiveTranscriptSnapshot(targetText: string, holdGrowingSnapshot: boolean) {
-  const [visibleText, setVisibleText] = useState(targetText)
-  const visibleTextRef = useRef(targetText)
-  const [reducedMotion, setReducedMotion] = useState(false)
-
-  useEffect(() => {
-    const preference = window.matchMedia('(prefers-reduced-motion: reduce)')
-    const reconcile = () => setReducedMotion(preference.matches)
-    reconcile()
-    preference.addEventListener('change', reconcile)
-    return () => preference.removeEventListener('change', reconcile)
-  }, [])
-
-  useEffect(() => {
-    const visible = visibleTextRef.current
-    const shouldPublish = reducedMotion
-      || !holdGrowingSnapshot
-      || !visible
-      || !targetText.startsWith(visible)
-    if (!shouldPublish || targetText === visible) return
-    visibleTextRef.current = targetText
-    setVisibleText(targetText)
-  }, [holdGrowingSnapshot, reducedMotion, targetText])
-
-  return visibleText
-}
-
 function durationLabel(durationMs: number | null | undefined) {
   // ACP does not carry historical turn timestamps. Farming only measures a
   // turn while it is connected, so sub-second work should stay visually quiet
@@ -370,6 +343,19 @@ function agentTranscriptUrlTransform(value: string, key: string) {
     return normalizeTranscriptHref(value)
   }
   return defaultUrlTransform(value)
+}
+
+function AgentTranscriptReasoningMarkdown({ text }: { text: string }) {
+  return (
+    <ReactMarkdown
+      disallowedElements={['img']}
+      skipHtml
+      unwrapDisallowed
+      urlTransform={agentTranscriptUrlTransform}
+    >
+      {text}
+    </ReactMarkdown>
+  )
 }
 
 function TranscriptLocalErrorFallback({
@@ -1641,6 +1627,7 @@ function AgentTranscriptProcessItemView({
     : displayDetail
   const hasCopyableDetail = !!copyableDetail || locations.length > 0
   const hasDetail = !!visibleDetail
+  const markdownDetail = ['thought', 'reasoning'].includes(item.type)
   const planItems = item.type === 'plan' && visibleDetail ? planDetailItems(visibleDetail) : null
   const expandable = hasExpandableProcessItemContent(item, visibleDetail, planItems)
   const displayTitle = title || item.title
@@ -1692,7 +1679,11 @@ function AgentTranscriptProcessItemView({
         />
       ) : null}
       {!planItems && hasDetail && shouldRenderDetailAsProse(item) ? (
-        <div className="code-agent-transcript-process-detail">{plainTextBlock(visibleDetail)}</div>
+        <div className={`code-agent-transcript-process-detail ${markdownDetail ? 'code-markdown-preview' : ''}`}>
+          {markdownDetail
+            ? <AgentTranscriptReasoningMarkdown text={visibleDetail} />
+            : plainTextBlock(visibleDetail)}
+        </div>
       ) : !planItems && hasDetail ? <pre>{visibleDetail}</pre> : null}
     </>
   )
@@ -2296,7 +2287,6 @@ function AgentTranscriptTurnView({
   onFork,
   onShare,
   showLiveActivity,
-  holdGrowingAnswerSnapshot,
   initialProgressIds,
 }: {
   turn: AgentTranscriptTurn
@@ -2325,7 +2315,6 @@ function AgentTranscriptTurnView({
   onFork?: () => Promise<void> | void
   onShare?: (turnId: string) => Promise<void> | void
   showLiveActivity: boolean
-  holdGrowingAnswerSnapshot: boolean
   initialProgressIds?: Set<string> | null
 }) {
   recordPerformanceTestRender(turn.status === 'inProgress'
@@ -2402,12 +2391,10 @@ function AgentTranscriptTurnView({
       .find(item => item.type === 'compaction' && isProcessItemRunning(item))
     : undefined
   const compactViewport = isCompactViewport()
+  // The revision fetch policy already coalesces rapid ACP updates. Render every
+  // authoritative snapshot that crosses that boundary so live text cannot sit
+  // hidden until the Turn completes.
   const answerMessage = useMemo(() => stripRawMemoryCitation(turn.finalMessage), [turn.finalMessage])
-  // Transcript revisions own the authoritative text. Keep the first growing
-  // prefix stable while the user reads the active live turn, then publish the
-  // final snapshot once the turn settles. Inactive panes reconcile immediately
-  // so returning to one never replays already received text.
-  const visibleAnswerMessage = useLiveTranscriptSnapshot(answerMessage, holdGrowingAnswerSnapshot)
   const shouldShowWaiting = turn.status === 'inProgress'
     && !answerMessage
     && compactProcess.items.length === 0
@@ -2925,13 +2912,13 @@ function AgentTranscriptTurnView({
         </div>
       ) : null}
 
-      {visibleAnswerMessage || resultImages.length > 0 || resultAudios.length > 0 || resultFiles.length > 0 ? (
+      {answerMessage || resultImages.length > 0 || resultAudios.length > 0 || resultFiles.length > 0 ? (
         <div className="code-agent-transcript-answer">
-          {visibleAnswerMessage ? (
+          {answerMessage ? (
             <div className="code-agent-transcript-assistant code-markdown-preview">
               <LocalErrorBoundary
                 label="transcript answer Markdown"
-                resetKey={visibleAnswerMessage}
+                resetKey={answerMessage}
                 fallback={(_error, retry) => (
                   <>
                     <TranscriptLocalErrorFallback
@@ -2939,7 +2926,7 @@ function AgentTranscriptTurnView({
                       onRetry={retry}
                       testId="code-agent-transcript-markdown-render-error"
                     />
-                    <pre>{visibleAnswerMessage}</pre>
+                    <pre>{answerMessage}</pre>
                   </>
                 )}
               >
@@ -2947,7 +2934,7 @@ function AgentTranscriptTurnView({
                   <PerformanceObservedTranscriptMarkdown
                     live={turn.status === 'inProgress'}
                     components={markdownComponents}
-                  >{visibleAnswerMessage}</PerformanceObservedTranscriptMarkdown>
+                  >{answerMessage}</PerformanceObservedTranscriptMarkdown>
                 </LocalRenderFault>
               </LocalErrorBoundary>
             </div>
@@ -4066,12 +4053,6 @@ export function AgentTranscriptPane({
                       && index === turns.length - 1
                       && turn.status === 'inProgress'
                       && transcript?.state === 'working'
-                    }
-                    holdGrowingAnswerSnapshot={
-                      source === 'acp'
-                      && active
-                      && index === turns.length - 1
-                      && turn.status === 'inProgress'
                     }
                     onFork={index === turns.length - 1 && turn.status !== 'inProgress' ? onForkLatest : undefined}
                     onShare={onCopyReadOnlyShareLink ? copyTurnShareLink : undefined}

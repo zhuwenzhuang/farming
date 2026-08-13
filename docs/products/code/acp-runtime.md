@@ -366,13 +366,15 @@ render identities across these reads, so unchanged Markdown is not parsed
 again. Newly visible intermediate messages
 use a short, bounded reveal; multiple arrivals reveal in parallel and
 reduced-motion preferences disable the effect. Expanded reasoning omits a
-leading line that already serves as its folded title.
+leading line that already serves as its folded title and renders the remaining
+text as safe Markdown, so provider-authored emphasis is presented instead of
+exposing its source markers.
 
-The latest live answer mounts its first authoritative text in full. While its
-Agent remains active, later prefix-extending revisions drain only their new
-suffix at a bounded reading cadence. Navigation, an inactive pane, completion,
-recovery, reduced motion, a hidden page, or a non-prefix correction immediately
-publishes the current authoritative result instead of replaying buffered text.
+The latest live answer mounts every authoritative snapshot that crosses the
+bounded revision-read cadence. Farming must not hold prefix-extending text until
+Turn completion: readers see ordered intermediate progress without per-token
+render churn. Navigation, recovery, and completion reconcile directly to the
+current authoritative result instead of replaying already received text.
 
 The bottom Live Activity uses one motion cue at a time: processing keeps its
 spinner without a sweep, while non-spinning activity uses a slower linear sweep.

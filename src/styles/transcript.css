@@ -1315,6 +1315,28 @@
   overflow-wrap: anywhere;
 }
 
+.code-agent-transcript-process-detail.code-markdown-preview {
+  width: auto;
+  margin: 3px 0 2px;
+  padding: 0;
+  color: var(--code-text-subtle);
+  font-size: 13px;
+  line-height: 1.48;
+}
+
+.code-agent-transcript-process-detail.code-markdown-preview strong {
+  color: var(--code-text);
+  font-weight: 600;
+}
+
+.code-agent-transcript-process-detail.code-markdown-preview p,
+.code-agent-transcript-process-detail.code-markdown-preview blockquote,
+.code-agent-transcript-process-detail.code-markdown-preview ul,
+.code-agent-transcript-process-detail.code-markdown-preview ol,
+.code-agent-transcript-process-detail.code-markdown-preview pre {
+  margin-bottom: 6px;
+}
+
 .code-agent-transcript-process-images {
   display: flex;
   flex-wrap: wrap;

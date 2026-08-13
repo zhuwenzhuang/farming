@@ -1699,6 +1699,9 @@ test.describe('ACP human-like browser matrix', () => {
     await expect(thoughtToggle).toBeFocused()
     await expect(thoughtChevron).toHaveCSS('opacity', '0.9')
     await thoughtToggle.click()
+    const thoughtDetail = thought.locator('.code-agent-transcript-process-detail')
+    await expect(thoughtDetail.locator('strong')).toHaveText('Detailing filter support in analyzers')
+    await expect(thoughtDetail).not.toContainText('**Detailing filter support in analyzers**')
     await expect(thought.locator('.code-agent-transcript-process-detail')).toContainText(
       'Checking the strongest one.',
       { timeout: 10_000 },

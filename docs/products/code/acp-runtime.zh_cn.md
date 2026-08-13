@@ -269,11 +269,12 @@ Live Transcript Revision 在已有读取进行中时进入合并队列，而不�
 读取节奏；最新 Revision 必须最终执行，而重连与 Runtime State 转换仍立即处理。已完成 Turn
 在这些读取之间保持稳定渲染身份，不重新解析未变化的 Markdown。新出现的中间消息使用短促且
 有上限的揭示动画；多条消息并行揭示，Reduced Motion 会关闭动画。
-Reasoning 展开内容不再重复已经作为折叠标题的首行。
+Reasoning 展开内容不再重复已经作为折叠标题的首行，并用安全 Markdown 渲染剩余正文，
+让 Provider 输出的强调样式正常呈现，而不是暴露其源标记。
 
-最新 Live Answer 的首份权威正文直接完整挂载。仅当用户仍停留在该 Agent 时，后续保持前缀
-关系的 Revision 才按有界阅读节奏释放新增后缀。Navigation、Pane 非活动、Turn 完成、
-Recovery、Reduced Motion、页面隐藏或非前缀修正都立即显示当前权威全文，不重播缓冲正文。
+最新 Live Answer 会挂载每一份跨过有界 Revision 读取节奏的权威快照。Farming 不得把保持
+前缀关系的正文一直扣留到 Turn 完成；用户应持续看到有序的中间进展，同时避免逐 Token
+重绘。Navigation、Recovery 与 Turn 完成直接对齐当前权威结果，不重播已经收到的正文。
 
 底部 Live Activity 同一时刻只使用一种动态提示：Processing 保留旋转圆圈且不显示扫光，
 非旋转活动则使用速度较慢的匀速扫光。
