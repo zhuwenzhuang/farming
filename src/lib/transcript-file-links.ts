@@ -1,4 +1,5 @@
 import { terminalTargetFilePath } from '@/components/code/workspace-file-view'
+import { decodeFileUrlPath } from './file-url-path'
 import { normalizeGlobalWorkspaceFilePath } from './global-workspace-files'
 import { collectTerminalPathLinkMatches } from './terminal-links'
 
@@ -97,26 +98,24 @@ function transcriptFileBasenameLooksValid(pathText: string) {
   return TRANSCRIPT_FILE_EXTENSIONS.has((extensionMatch[1] || '').toLowerCase())
 }
 
-function safeDecodeTranscriptHref(text: string) {
-  try {
-    return decodeURI(text)
-  } catch {
-    return text
-  }
-}
-
 function exactTranscriptPathTarget(text: string) {
-  const decoded = safeDecodeTranscriptHref(text.trim())
-  const matches = collectTerminalPathLinkMatches(decoded)
+  // Markdown hrefs encode spaces, while inline-code literals may keep them.
+  // Preserve the whole structured value through lexical path parsing, then
+  // decode exactly once before resolving it against the filesystem.
+  const encoded = text.trim().replace(/ /g, '%20')
+  const matches = collectTerminalPathLinkMatches(encoded)
   const exact = matches.find(match => (
     match.startIndex === 0
-    && match.length === decoded.length
+    && match.length === encoded.length
     && match.pathTarget
-    && transcriptFileBasenameLooksValid(match.pathTarget.path)
   ))
-  return exact?.pathTarget ?? null
+  if (!exact?.pathTarget) return null
+  const decodedPath = decodeFileUrlPath(exact.pathTarget.path)
+  if (!transcriptFileBasenameLooksValid(decodedPath)) return null
+  return { ...exact.pathTarget, path: decodedPath }
 }
 
+/** Resolve one already-bounded Markdown href or inline-code literal, not free-form prose. */
 export function transcriptFileTargetFromText(text: string, workspaceRoot?: string) {
   const trimmed = text.trim()
   if (!trimmed || trimmed.startsWith('#') || isBareDomainTranscriptHref(trimmed)) return null

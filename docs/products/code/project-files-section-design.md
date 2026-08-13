@@ -61,6 +61,12 @@ that worktree and opens the repository-relative file through the normal Project
 path, including Git blame; when no repository exists, the bounded read-only
 global-file path remains the fallback.
 
+Filesystem paths are decoded internal identities. Structured URI boundaries such
+as Markdown links, preview resources, share URLs, and file APIs encode a path once
+and decode it once before workspace resolution. Free-form Terminal text remains a
+separate lexical boundary: whitespace is not globally reinterpreted as part of a
+path unless an explicit link or literal already establishes that identity.
+
 Files identity is derived from the canonical workspace, never from whichever
 Agent currently happens to reference it. An optional source-Agent association
 may cross Project boundaries to support returning from a file to its originating

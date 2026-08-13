@@ -64,6 +64,14 @@ test('transcript file targets resolve absolute paths inside the workspace', () =
     filePath: 'src/app.ts',
     target: {},
   })
+  assert.deepEqual(transcriptFileTargetFromText('/repo/io%20proxy%E5%8F%91%E5%B8%83/ue_projects_export.txt', WORKSPACE_ROOT), {
+    filePath: 'io proxy发布/ue_projects_export.txt',
+    target: {},
+  })
+  assert.deepEqual(transcriptFileTargetFromText('/repo/io proxy发布/ue_projects_export.txt', WORKSPACE_ROOT), {
+    filePath: 'io proxy发布/ue_projects_export.txt',
+    target: {},
+  })
 })
 
 test('transcript file targets fall back to global workspace files outside the workspace', () => {
@@ -104,7 +112,7 @@ test('transcript file targets accept bare names and special filenames', () => {
   })
 })
 
-test('transcript file targets reject external, unknown, and ambiguous references', () => {
+test('transcript file targets reject external, unknown, and unqualified references', () => {
   assert.equal(transcriptFileTargetFromText('https://example.com/x.ts', WORKSPACE_ROOT), null)
   assert.equal(transcriptFileTargetFromText('example.com/x.ts', WORKSPACE_ROOT), null)
   assert.equal(transcriptFileTargetFromText('sub.example.com:8080/page?q=1', WORKSPACE_ROOT), null)
@@ -112,8 +120,6 @@ test('transcript file targets reject external, unknown, and ambiguous references
   assert.equal(transcriptFileTargetFromText('../outside/x.ts', WORKSPACE_ROOT), null)
   assert.equal(transcriptFileTargetFromText('~/notes.md', WORKSPACE_ROOT), null)
   assert.equal(transcriptFileTargetFromText('foo.unknownext', WORKSPACE_ROOT), null)
-  assert.equal(transcriptFileTargetFromText('src dir/file.ts', WORKSPACE_ROOT), null)
-  assert.equal(transcriptFileTargetFromText('src%20dir/file.ts', WORKSPACE_ROOT), null)
   assert.equal(transcriptFileTargetFromText('#anchor', WORKSPACE_ROOT), null)
   assert.equal(transcriptFileTargetFromText('', WORKSPACE_ROOT), null)
   assert.equal(transcriptFileTargetFromText('   ', WORKSPACE_ROOT), null)
@@ -181,6 +187,7 @@ test('external transcript hrefs keep file-line references internal', () => {
 test('file-line transcript hrefs require a recognized path with a line number', () => {
   assert.equal(isTranscriptFileLineHref('src/foo.ts:12'), true)
   assert.equal(isTranscriptFileLineHref('notes.txt:1'), true)
+  assert.equal(isTranscriptFileLineHref('/repo/io%20proxy%E5%8F%91%E5%B8%83/notes.txt:2'), true)
   assert.equal(isTranscriptFileLineHref('path/to/BUILD:5'), true)
   assert.equal(isTranscriptFileLineHref('src/foo.ts'), false)
   assert.equal(isTranscriptFileLineHref('example.com/x:12'), false)

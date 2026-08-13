@@ -33,7 +33,8 @@ test('renders Markdown files by default and keeps preview, source, and split con
   const workspace = path.join(workspaceRoot, 'file-markdown-preview')
   fs.rmSync(workspace, { recursive: true, force: true })
   fs.mkdirSync(path.join(workspace, 'docs'), { recursive: true })
-  fs.writeFileSync(path.join(workspace, 'docs', 'next.md'), '# Next document\n')
+  fs.writeFileSync(path.join(workspace, 'docs', 'next document.md'), '# Next document\n')
+  fs.writeFileSync(path.join(workspace, 'docs', 'preview image.svg'), '<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8"/></svg>\n')
   fs.writeFileSync(path.join(workspace, 'docs', 'guide.md'), [
     '---',
     'title: Markdown guide',
@@ -53,7 +54,9 @@ test('renders Markdown files by default and keeps preview, source, and split con
     '  Plan --> Build',
     '```',
     '',
-    '[Open next document](next.md)',
+    '[Open next document](next%20document.md)',
+    '',
+    '![Preview asset](preview%20image.svg)',
     '',
     '<script>window.markdownPreviewUnsafe = true</script>',
     '',
@@ -72,6 +75,7 @@ test('renders Markdown files by default and keeps preview, source, and split con
   await expect(preview.locator('table').nth(1)).toContainText('Preview')
   await expect(preview.locator('.katex')).toBeVisible()
   await expect(preview.locator('.code-markdown-mermaid-canvas > svg')).toBeVisible({ timeout: 20_000 })
+  await expect.poll(() => preview.getByRole('img', { name: 'Preview asset' }).evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(8)
   await expect(preview.locator('script')).toHaveCount(0)
   expect(await page.evaluate(() => (window as typeof window & { markdownPreviewUnsafe?: boolean }).markdownPreviewUnsafe)).toBeUndefined()
 
@@ -143,7 +147,7 @@ test('renders Markdown files by default and keeps preview, source, and split con
   await expect(editor.getByTestId('code-file-monaco')).toBeVisible()
 
   await preview.getByRole('link', { name: 'Open next document' }).click()
-  await expect(editor.getByRole('tab', { selected: true })).toContainText('next.md')
+  await expect(editor.getByRole('tab', { selected: true })).toContainText('next document.md')
   await expect(editor.getByTestId('code-file-markdown-preview').getByRole('heading', { name: 'Next document' })).toBeVisible()
 
   await editor.getByRole('button', { name: 'Show Agent beside resource' }).click()

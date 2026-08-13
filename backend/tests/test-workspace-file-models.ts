@@ -230,6 +230,24 @@ function run() {
     workspaceShareTargetFromSearch('?ftarget=folder&path=%2FUsers%2Fdemo%2Fgit%2Ffarming%2Freference%2Flobe-icons'),
     { kind: 'folder', folderPath: '', absolutePath: '/Users/demo/git/farming/reference/lobe-icons' }
   );
+  const spacedFileTarget = {
+    kind: 'file' as const,
+    filePath: 'docs/release list.md',
+    absolutePath: '/Users/demo/io proxy发布/docs/release list.md',
+  };
+  const spacedFileSearch = workspaceShareTargetSearchParams(spacedFileTarget).toString();
+  assert.strictEqual(
+    spacedFileSearch,
+    'ftarget=file&path=%2FUsers%2Fdemo%2Fio+proxy%E5%8F%91%E5%B8%83%2Fdocs%2Frelease+list.md'
+  );
+  assert.deepStrictEqual(workspaceShareTargetFromSearch(`?${spacedFileSearch}`), {
+    ...spacedFileTarget,
+    filePath: '',
+    view: 'editor',
+    lineNumber: undefined,
+    column: undefined,
+    endColumn: undefined,
+  });
   assert.strictEqual(workspaceShareAbsolutePath('/Users/demo/git/farming', 'reference/lobe-icons'), '/Users/demo/git/farming/reference/lobe-icons');
   assert.strictEqual(workspaceRelativePath('/Users/demo/git/farming/src/App.tsx', '/Users/demo/git/farming'), 'src/App.tsx');
   assert.strictEqual(workspaceRelativePath('/Users/demo/git/farming-copy/src/App.tsx', '/Users/demo/git/farming'), null);

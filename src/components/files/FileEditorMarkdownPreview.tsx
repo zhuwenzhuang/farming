@@ -26,6 +26,7 @@ import 'katex/dist/katex.min.css'
 import { LocalErrorBoundary, LocalRenderFault } from '@/components/LocalErrorBoundary'
 import { RefreshGlyph } from '@/components/IconGlyphs'
 import { writeClipboardText } from '@/lib/clipboard'
+import { decodeFileUrlPath } from '@/lib/file-url-path'
 import { rawWorkspaceFileUrl } from '@/lib/workspace-files'
 import { decodeMermaidCharacterReferences } from '@/lib/mermaid-source'
 import { markdownTextContent, mermaidCodeBlockSource } from '@/lib/react-markdown-content'
@@ -82,7 +83,8 @@ function isExternalResource(value: string) {
 }
 
 function normalizeWorkspaceResourcePath(basePath: string, value: string) {
-  const [pathPart] = value.split(/[?#]/, 1)
+  const [encodedPathPart] = value.split(/[?#]/, 1)
+  const pathPart = decodeFileUrlPath(encodedPathPart || '')
   if (!pathPart || pathPart.startsWith('/') || pathPart.startsWith('#') || isExternalResource(pathPart)) return null
   const baseSegments = dirname(basePath).split('/').filter(Boolean)
   const resourceSegments = pathPart.split('/')

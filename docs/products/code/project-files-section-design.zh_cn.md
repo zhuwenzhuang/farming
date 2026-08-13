@@ -49,6 +49,11 @@ Git 拥有 Repository 与 Worktree Identity。Farming 把每个 Worktree 展示�
 查找成功后挂载该 Worktree，并按 Repository Relative Path 走普通 Project 文件链路（包括
 Git Blame）。找不到 Repository 时，才回退到有界、只读的 Global File Path。
 
+文件系统路径在内部使用解码后的 Identity。Markdown Link、Preview Resource、Share URL 与
+File API 等结构化 URI 边界只编码一次，并在 Workspace Resolution 前只解码一次。自由格式的
+Terminal Text 属于另一条词法边界：除非显式 Link 或 Literal 已经确定 Path Identity，否则不能
+在全局把空格重新解释为路径的一部分。
+
 Files Identity 来自 Canonical Workspace，不能依赖当前碰巧引用它的 Agent。可选 Source Agent
 Association 可以跨 Project 保留，以支持从文件返回来源 Agent，但不属于文件 Ownership。
 

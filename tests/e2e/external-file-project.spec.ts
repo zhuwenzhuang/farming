@@ -173,7 +173,7 @@ test('promotes an external terminal file link to its nearest Git Project', async
 test('promotes an external Chat file link to its nearest Git Project', async ({ page, workspaceRoot }) => {
   const launcherWorkspace = path.join(workspaceRoot, 'chat-link-launcher')
   fs.mkdirSync(launcherWorkspace, { recursive: true })
-  const { filePath, repository } = createRepositoryFile(workspaceRoot, 'chat-link-git-project')
+  const { filePath, repository } = createRepositoryFile(workspaceRoot, 'chat link git project 发布')
   const agentId = await createChatAgent(page, launcherWorkspace)
   let forceGlobalFallback = true
 
@@ -205,7 +205,7 @@ test('promotes an external Chat file link to its nearest Git Project', async ({ 
               type: 'message',
               role: 'assistant',
               _meta: { codex: { phase: 'final_answer' } },
-              content: [{ type: 'text', text: `[SmartOpen.java:2](${filePath}:2)` }],
+              content: [{ type: 'text', text: `[SmartOpen.java:2](${encodeURI(filePath)}:2)` }],
             },
           ],
         },
