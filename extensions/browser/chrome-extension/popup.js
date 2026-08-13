@@ -1,9 +1,26 @@
+import { pairCurrentFarmingPage } from "./modules/farming-page-pairing.js";
+
 const statusLine = document.getElementById("status");
 const pairedDetails = document.getElementById("pairedDetails");
 const accessMode = document.getElementById("accessMode");
 const tabAction = document.getElementById("tabAction");
 const settings = document.getElementById("settings");
 const errorLine = document.getElementById("error");
+let automaticPairingStarted = false;
+
+async function pairFromCurrentPage() {
+  automaticPairingStarted = true;
+  statusLine.textContent = "Connecting this Farming page…";
+  errorLine.classList.add("hidden");
+  try {
+    await pairCurrentFarmingPage();
+    await refresh();
+  } catch (error) {
+    statusLine.textContent = "Not connected";
+    errorLine.textContent = error instanceof Error ? error.message : String(error);
+    errorLine.classList.remove("hidden");
+  }
+}
 
 async function activeTab() {
   const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
@@ -33,8 +50,11 @@ async function refresh() {
     return;
   }
   if (!status.paired) {
-    statusLine.textContent = unpairedLabel(status.nativeBootstrap);
+    statusLine.textContent = automaticPairingStarted
+      ? unpairedLabel(status.nativeBootstrap)
+      : "Connecting this Farming page…";
     tabAction.classList.add("hidden");
+    if (!automaticPairingStarted) void pairFromCurrentPage();
     return;
   }
   statusLine.textContent =

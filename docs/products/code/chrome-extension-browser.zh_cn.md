@@ -8,27 +8,32 @@ Farming Browser Connector 让 Farming 操作用户已经登录的有头 Chrome �
 
 ## 安装与配对
 
-运行：
+首次使用只需要三步：
+
+1. 打开 Farming 的**插件 → 浏览器**，选择**用户自己的 Chrome（Farming 插件）**，复制
+   页面显示的**内置扩展目录**。扩展已经包含在 Farming 软件包中，不需要另外下载。
+2. 打开 `chrome://extensions`，开启**开发者模式**，点击**加载已解压的扩展程序**，选择
+   上一步的目录；macOS 文件选择器可按 `⌘⇧G` 粘贴完整目录。Chrome 要求用户亲自完成
+   这一步授权。
+3. 回到已打开的 Farming 页面，点击 Chrome 工具栏里的 Farming 扩展图标。扩展会从当前
+   Farming Owner 页面安全取得配对信息、自动连接，并把浏览器来源切换为
+   **用户自己的 Chrome（Farming 插件）**。
+
+不需要复制密钥、不需要打开 Settings，也不需要再点“应用”。首次配对默认采用权限更小的
+**Selected tabs**。以后 Chrome 和 Farming 同时运行时会自动重连，不再重复授权。
+
+Farming 启动时会自动把软件包内的扩展准备到稳定目录。CLI 仍可重新准备或显示该目录；扩展
+无法识别当前 Farming 页面时，Settings 中保留高级手工配对作为故障恢复路径：
 
 ```bash
 farming browser extension install
-```
-
-保持输出目录不变。打开 `chrome://extensions`，开启**开发者模式**，点击
-**加载已解压的扩展程序**，选择该目录。Chrome 不允许 Farming 静默完成这一步用户授权。
-
-然后打开 **插件 → 浏览器**，选择**用户自己的 Chrome（Farming 插件）**，复制页面展示的
-配对字符串。打开 Farming Browser Connector 的 Settings，将字符串粘贴到手动配对区域并保存。
-CLI 也可以输出相同信息：
-
-```bash
 farming browser extension pair
 farming browser extension status
 ```
 
-完整配对字符串等同密码。首次配对后，扩展把它保存在自身独立的 Chrome Extension Storage
-中；Chrome 与 Farming 同时运行时会自动重连。插件页显示已连接后，应用
-**用户自己的 Chrome（Farming 插件）**作为浏览器来源。
+一键配对只会在用户主动点击扩展时读取当前活动标签页，并要求该页面具有 Farming Owner 权限；
+只读分享页面和普通网站不能提供配对信息。完整配对密钥保存在扩展自己的 Chrome Extension
+Storage 中，不写入内置扩展目录。
 
 扩展保留 OpenClaw 上游的两种授权模式：
 

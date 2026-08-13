@@ -64,9 +64,45 @@ const manifestPath = path.join(destinationRoot, 'manifest.json');
 const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 manifest.name = 'Farming Browser Connector';
 manifest.description = 'Securely relay eligible signed-in Chrome tabs to Farming Browser.';
+manifest.permissions = [...new Set([...manifest.permissions, 'activeTab', 'scripting'])];
 delete manifest.icons;
 delete manifest.action?.default_icon;
 fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+const popupScriptPath = path.join(destinationRoot, 'popup.js');
+const popupScript = fs.readFileSync(popupScriptPath, 'utf8');
+fs.writeFileSync(popupScriptPath, [
+  'import { pairCurrentFarmingPage } from "./modules/farming-page-pairing.js";',
+  '',
+  popupScript
+    .replace(
+      'const errorLine = document.getElementById("error");',
+      `const errorLine = document.getElementById("error");
+let automaticPairingStarted = false;
+
+async function pairFromCurrentPage() {
+  automaticPairingStarted = true;
+  statusLine.textContent = "Connecting this Farming page…";
+  errorLine.classList.add("hidden");
+  try {
+    await pairCurrentFarmingPage();
+    await refresh();
+  } catch (error) {
+    statusLine.textContent = "Not connected";
+    errorLine.textContent = error instanceof Error ? error.message : String(error);
+    errorLine.classList.remove("hidden");
+  }
+}`,
+    )
+    .replace(
+      'statusLine.textContent = unpairedLabel(status.nativeBootstrap);\n    tabAction.classList.add("hidden");',
+      `statusLine.textContent = automaticPairingStarted
+      ? unpairedLabel(status.nativeBootstrap)
+      : "Connecting this Farming page…";
+    tabAction.classList.add("hidden");
+    if (!automaticPairingStarted) void pairFromCurrentPage();`,
+    ),
+].join('\n'));
 
 const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: sourceRoot, encoding: 'utf8' }).trim();
 const upstreamDirectory = path.join(destinationRoot, 'upstream');

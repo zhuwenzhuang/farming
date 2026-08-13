@@ -233,12 +233,12 @@ function pluginCopy(language: UiLanguage) {
     extensionConnected: zh ? 'Farming 浏览器插件已连接。' : 'Farming Browser Connector is connected.',
     extensionWaiting: zh ? '等待 Farming 浏览器插件连接。' : 'Waiting for Farming Browser Connector.',
     extensionInstall: zh
-      ? '运行 farming browser extension install，按输出路径在 chrome://extensions 中“加载已解压的扩展”，再把下面的配对字符串粘贴到插件 Settings。'
-      : 'Run farming browser extension install, load the printed path from chrome://extensions, then paste the pairing string below into the extension Settings.',
-    extensionPairing: zh ? '配对字符串（等同密码）' : 'Pairing string (treat as a password)',
+      ? '在 chrome://extensions 开启开发者模式并“加载已解压的扩展程序”，选择下面的内置扩展目录（macOS 文件选择器可按 ⌘⇧G 粘贴目录）。然后回到此页面点击 Chrome 工具栏中的 Farming 扩展；它会自动配对并启用。'
+      : 'At chrome://extensions, enable Developer mode and choose Load unpacked, then select the bundled extension directory below (press Cmd+Shift+G to paste it in the macOS picker). Return here and click the Farming extension in Chrome; it pairs and enables itself.',
+    extensionPath: zh ? '内置扩展目录' : 'Bundled extension directory',
+    copyExtensionPath: zh ? '复制目录' : 'Copy directory',
+    copiedExtensionPath: zh ? '已复制' : 'Copied',
     extensionStatusFailed: zh ? '浏览器插件配对信息加载失败' : 'Failed to load Browser extension pairing',
-    copyPairing: zh ? '复制配对字符串' : 'Copy pairing string',
-    copiedPairing: zh ? '已复制' : 'Copied',
     externalCdpAddress: zh ? 'CDP 地址' : 'CDP address',
     externalCdpPlaceholder: 'http://127.0.0.1:9222',
     isolatedBrowser: zh ? '隔离浏览器' : 'Isolated Browser',
@@ -599,9 +599,9 @@ export function PluginsPanel({
   const [error, setError] = useState('')
   const [browserChoice, setBrowserChoice] = useState('system:')
   const [externalCdpUrl, setExternalCdpUrl] = useState('http://127.0.0.1:9222')
-  const [browserExtensionPairing, setBrowserExtensionPairing] = useState('')
+  const [browserExtensionPath, setBrowserExtensionPath] = useState('')
   const [browserExtensionStatusError, setBrowserExtensionStatusError] = useState('')
-  const [browserExtensionPairingCopied, setBrowserExtensionPairingCopied] = useState(false)
+  const [browserExtensionPathCopied, setBrowserExtensionPathCopied] = useState(false)
   const [browserExtensionConnected, setBrowserExtensionConnected] = useState(
     capability?.extension?.connected === true,
   )
@@ -697,12 +697,12 @@ export function PluginsPanel({
         const data = await response.json().catch(() => ({})) as {
           connected?: boolean
           error?: string
-          pairingString?: string
+          extensionPath?: string
         }
         if (!response.ok) throw new Error(data.error || copy.extensionStatusFailed)
         if (!active) return
-        setBrowserExtensionPairing(String(data.pairingString || ''))
         setBrowserExtensionStatusError('')
+        setBrowserExtensionPath(String(data.extensionPath || ''))
         const connected = data.connected === true
         setBrowserExtensionConnected(connected)
         if (browserExtensionConnectedRef.current !== connected) {
@@ -1379,42 +1379,44 @@ export function PluginsPanel({
                     : copy.extensionWaiting}</span>
                   <small>{copy.extensionInstall}</small>
                   <label>
-                    <span>{copy.extensionPairing}</span>
+                    <span>{copy.extensionPath}</span>
                     <input
                       type="text"
                       readOnly
-                      value={browserExtensionPairing}
-                      aria-label={copy.extensionPairing}
+                      value={browserExtensionPath}
+                      aria-label={copy.extensionPath}
                     />
                   </label>
                   <button
                     type="button"
-                    disabled={!browserExtensionPairing}
+                    disabled={!browserExtensionPath}
                     onClick={() => {
-                      void navigator.clipboard.writeText(browserExtensionPairing).then(() => {
-                        setBrowserExtensionPairingCopied(true)
-                        window.setTimeout(() => setBrowserExtensionPairingCopied(false), 1500)
+                      void navigator.clipboard.writeText(browserExtensionPath).then(() => {
+                        setBrowserExtensionPathCopied(true)
+                        window.setTimeout(() => setBrowserExtensionPathCopied(false), 1500)
                       })
                     }}
                   >
-                    {browserExtensionPairingCopied ? copy.copiedPairing : copy.copyPairing}
+                    {browserExtensionPathCopied ? copy.copiedExtensionPath : copy.copyExtensionPath}
                   </button>
                 </div>
               ) : null}
-              <button
-                type="button"
-                className="code-plugin-browser-apply"
-                disabled={
-                  saving
-                  || loading
-                  || preparingIsolatedBrowser
-                  || !browserChoiceDirty
-                  || (browserChoice === 'isolated' && !isolatedBrowserReady)
-                }
-                onClick={() => void saveBrowserChoice()}
-              >
-                {copy.applyBrowser}
-              </button>
+              {browserChoice !== 'extension' || browserExtensionConnected ? (
+                <button
+                  type="button"
+                  className="code-plugin-browser-apply"
+                  disabled={
+                    saving
+                    || loading
+                    || preparingIsolatedBrowser
+                    || !browserChoiceDirty
+                    || (browserChoice === 'isolated' && !isolatedBrowserReady)
+                  }
+                  onClick={() => void saveBrowserChoice()}
+                >
+                  {copy.applyBrowser}
+                </button>
+              ) : null}
               {showIsolatedBrowserPrepare ? (
                 <button
                   type="button"

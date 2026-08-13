@@ -9,30 +9,40 @@ commands and Browser Resource ownership model.
 
 ## Install And Pair
 
-Run:
+First use takes three steps:
+
+1. Open **Plugins → Browser**, choose **Your Chrome (Farming extension)**, and
+   copy the displayed **Bundled extension directory**. The extension is already
+   included with Farming and does not need another download.
+2. Open `chrome://extensions`, enable **Developer mode**, choose **Load
+   unpacked**, and select that directory. In the macOS picker, press
+   `Cmd+Shift+G` to paste the full path. Chrome requires the user to perform this
+   approval step.
+3. Return to the open Farming page and click the Farming extension in Chrome's
+   toolbar. It securely reads pairing information from the current Farming
+   owner page, connects, and selects **Your Chrome (Farming extension)** as the
+   Browser source.
+
+There is no key to copy, Settings page to visit, or separate Apply action. The
+first pairing defaults to the narrower **Selected tabs** access mode. Later
+Chrome and Farming sessions reconnect automatically without another approval.
+
+Farming prepares the packaged extension at a stable location during startup.
+The CLI can prepare or print that directory again. Advanced manual pairing
+remains in Settings as a recovery path when the extension cannot identify the
+current Farming page:
 
 ```bash
-farming browser extension install
-```
-
-Keep the printed directory stable. Open `chrome://extensions`, enable
-**Developer mode**, choose **Load unpacked**, and select that directory. Chrome
-does not allow Farming to silently perform this user approval step.
-
-Then open **Plugins → Browser**, choose **Your Chrome (Farming extension)**,
-and copy the displayed pairing string. Open the Farming Browser Connector
-Settings, paste it under manual pairing, and save. The same string is available
-from the CLI:
-
-```bash
+farming browser extension path
 farming browser extension pair
 farming browser extension status
 ```
 
-Treat the complete pairing string as a password. After the first pairing, the
-extension stores it in its own Chrome extension storage and reconnects whenever
-Chrome and Farming are both running. Once Plugins reports the connector as
-connected, apply **Your Chrome (Farming extension)** as the Browser source.
+One-click pairing reads the active tab only after the user clicks the extension
+and requires that page to have Farming owner access. Read-only shares and
+ordinary websites cannot return pairing information. The complete pairing key
+is stored in the extension's own Chrome storage and is not embedded in the
+bundled extension directory.
 
 The extension offers the same access modes as its OpenClaw upstream:
 

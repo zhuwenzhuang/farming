@@ -1285,8 +1285,10 @@ test('shows explicit Browser sources without an Automatic choice', async ({ page
 
   await selectCodeOption(browserSource, 'extension')
   await expect(pluginsPanel.getByText('Waiting for Farming Browser Connector.')).toBeVisible()
-  await expect(pluginsPanel.getByRole('textbox', { name: 'Pairing string (treat as a password)' }))
-    .toHaveValue(/^ws:\/\/.*\/farming\/browser\/extension#[0-9a-f]{64}$/)
+  await expect(pluginsPanel.getByRole('textbox', { name: 'Bundled extension directory' }))
+    .toHaveValue(/browser-extension\/chrome$/)
+  await expect(pluginsPanel.getByRole('button', { name: 'Copy directory' })).toBeEnabled()
+  await expect(apply).toHaveCount(0)
 })
 
 test('matches the focused Viewer viewport and restores the previous Viewer on close', async ({

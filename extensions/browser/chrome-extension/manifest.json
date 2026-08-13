@@ -7,6 +7,8 @@
     "debugger",
     "tabs",
     "tabGroups",
+    "activeTab",
+    "scripting",
     "storage",
     "alarms",
     "nativeMessaging"

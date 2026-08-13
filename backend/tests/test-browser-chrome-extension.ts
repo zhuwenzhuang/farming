@@ -48,20 +48,71 @@ async function run() {
   const manifest = JSON.parse(read(path.join(extensionRoot, 'manifest.json')));
   assert.strictEqual(manifest.name, 'Farming Browser Connector');
   assert.strictEqual(manifest.permissions.includes('debugger'), true);
+  assert.strictEqual(manifest.permissions.includes('activeTab'), true);
+  assert.strictEqual(manifest.permissions.includes('scripting'), true);
+  assert.strictEqual(manifest.host_permissions, undefined);
 
   const relayCore = read(path.join(extensionRoot, 'modules/relay-core.js'));
   const nativeBootstrap = read(path.join(extensionRoot, 'modules/native-bootstrap.js'));
   const background = read(path.join(extensionRoot, 'background.js'));
+  const pagePairing = read(path.join(extensionRoot, 'modules/farming-page-pairing.js'));
   assert.match(relayCore, /farming-extension-relay\.v2/);
   assert.match(relayCore, /FARMING_TAB_GROUP_TITLE = "Farming"/);
   assert.match(relayCore, /endsWith\("\/browser\/extension"\)/);
   assert.match(nativeBootstrap, /ai\.farming\.browser_bootstrap/);
+  assert.match(pagePairing, /world: "MAIN"/);
+  assert.match(pagePairing, /browserSource: "extension"/);
+  assert.match(pagePairing, /accessMode: "selected"/);
   assert.doesNotMatch(`${relayCore}\n${nativeBootstrap}\n${background}`, /OpenClaw|openclaw|OPENCLAW/);
 
-  const bridge = new ExtensionRelayBridge();
+  const pageRequests = [];
   const extensionMessages = [];
+  const globals = globalThis as Record<string, unknown>;
+  const previousChrome = globals.chrome;
+  const previousFetch = globals.fetch;
+  const previousWindow = globals.window;
+  globals.window = { __FARMING_BASE_PATH__: '/farming' };
+  globals.fetch = async (url, options = {}) => {
+    pageRequests.push({ url, options });
+    return {
+      ok: true,
+      json: async () => url.endsWith('/api/browsers/extension')
+        ? { pairingString: `ws://127.0.0.1/farming/browser/extension#${'a'.repeat(64)}` }
+        : { settings: { browserSource: 'extension' } },
+    };
+  };
+  globals.chrome = {
+    tabs: { query: async () => [{ id: 7, url: 'http://127.0.0.1:3000/farming/' }] },
+    scripting: {
+      executeScript: async options => [{ result: await options.func(...options.args) }],
+    },
+    runtime: {
+      sendMessage: async message => {
+        extensionMessages.push(message);
+        return { ok: true };
+      },
+    },
+  };
+  try {
+    const pairingModule = await import(`data:text/javascript,${encodeURIComponent(pagePairing)}`);
+    await pairingModule.pairCurrentFarmingPage();
+    assert.strictEqual(pageRequests[0].url, '/farming/api/browsers/extension');
+    assert.strictEqual(pageRequests[1].url, '/farming/api/settings');
+    assert.deepStrictEqual(extensionMessages[0].accessMode, 'selected');
+    assert.deepStrictEqual(JSON.parse(pageRequests[1].options.body), {
+      browserExtensionEnabled: true,
+      browserSource: 'extension',
+    });
+  } finally {
+    globals.chrome = previousChrome;
+    globals.fetch = previousFetch;
+    globals.window = previousWindow;
+  }
+
+  const bridge = new ExtensionRelayBridge();
+  const relayMessages = [];
   const extensionSocket = {
-    send: message => extensionMessages.push(JSON.parse(message)),
+    send: message => relayMessages.push(JSON.parse(message)),
     close: () => {},
   };
   const extension = bridge.attachExtensionSocket(extensionSocket);
@@ -97,6 +148,9 @@ async function run() {
     const capability = relay.capability();
     assert.strictEqual(capability.installed, true);
     assert.strictEqual(capability.connected, false);
+    assert.strictEqual(capability.extensionPath, path.join(configDir, 'browser-extension', 'chrome'));
+    assert.strictEqual(fs.existsSync(path.join(capability.extensionPath, 'manifest.json')), true);
+    assert.match(read(path.join(capability.extensionPath, '.farming-content-sha256')), /^[0-9a-f]{64}\n$/);
     assert.match(relay.pairingString('ws://127.0.0.1:3000/farming/browser/extension'), /^ws:.*#[0-9a-f]{64}$/);
     assert.strictEqual(await getStatus(`${relay.cdpUrl()}/json/version`), 503);
     const secret = path.join(configDir, 'credentials', 'farming-browser-extension-relay.secret');
