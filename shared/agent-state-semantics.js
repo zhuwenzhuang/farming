@@ -8,11 +8,22 @@ exports.PROJECT_ATTENTION_SCORE_MAX = 100;
 function agentStateLike(value) {
     return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
+function sameOrDescendantPath(parent, candidate) {
+    const normalizedParent = parent.replace(/\\/g, '/').replace(/\/+$/, '');
+    const normalizedCandidate = candidate.replace(/\\/g, '/').replace(/\/+$/, '');
+    return normalizedCandidate === normalizedParent
+        || normalizedCandidate.startsWith(`${normalizedParent}/`);
+}
 function projectWorkspaceFromAgentState(value) {
     if (!agentStateLike(value))
         return '';
     const gitWorktree = agentStateLike(value.gitWorktree) ? value.gitWorktree : null;
-    return String(gitWorktree?.workspace || value.projectWorkspace || value.cwd || '');
+    const projectWorkspace = String(value.projectWorkspace || '');
+    const gitWorkspace = String(gitWorktree?.workspace || '');
+    if (projectWorkspace && (!gitWorkspace || sameOrDescendantPath(gitWorkspace, projectWorkspace))) {
+        return projectWorkspace;
+    }
+    return gitWorkspace || projectWorkspace || String(value.cwd || '');
 }
 function agentTurnActiveFromState(value) {
     if (!agentStateLike(value))

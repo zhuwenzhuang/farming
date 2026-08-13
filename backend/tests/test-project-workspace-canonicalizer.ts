@@ -13,14 +13,13 @@ function deferred<T>() {
 }
 
 async function run(): Promise<void> {
-  const inspectGate = deferred<string>();
   const realpathGate = deferred<string>();
   let inspectCalls = 0;
   let realpathCalls = 0;
   const resolveWorkspace = createProjectWorkspaceCanonicalizer({
     async inspectWorkspace() {
       inspectCalls += 1;
-      return inspectGate.promise;
+      return '/must-not-promote';
     },
     async realpath() {
       realpathCalls += 1;
@@ -32,11 +31,8 @@ async function run(): Promise<void> {
   const first = resolveWorkspace('/candidate');
   const second = resolveWorkspace('/candidate');
   await Promise.resolve();
-  assert.strictEqual(inspectCalls, 1, 'same-candidate inspect must be singleflight');
-  inspectGate.resolve('');
-  await Promise.resolve();
-  await Promise.resolve();
-  assert.strictEqual(realpathCalls, 1, 'fallback realpath remains inside the same singleflight');
+  assert.strictEqual(realpathCalls, 1, 'same-candidate realpath must be singleflight');
+  assert.strictEqual(inspectCalls, 0, 'an existing directory must keep its exact real path without Git-root promotion');
   const third = resolveWorkspace('/candidate');
   assert.strictEqual(realpathCalls, 1);
   realpathGate.resolve('/canonical');
@@ -44,28 +40,29 @@ async function run(): Promise<void> {
 
   const afterCompletion = resolveWorkspace('/candidate');
   await Promise.resolve();
-  assert.strictEqual(inspectCalls, 2, 'terminal resolution must release its pending entry');
+  assert.strictEqual(realpathCalls, 2, 'terminal resolution must release its pending entry');
+  assert.strictEqual(inspectCalls, 0);
   assert.strictEqual(await afterCompletion, '/canonical');
 
-  let successfulRealpathCalls = 0;
-  const inspectWins = createProjectWorkspaceCanonicalizer({
-    inspectWorkspace: async () => '/registered-worktree',
-    realpath: async () => {
-      successfulRealpathCalls += 1;
-      return '/must-not-run';
+  let fallbackInspectCalls = 0;
+  const inspectFallback = createProjectWorkspaceCanonicalizer({
+    inspectWorkspace: async () => {
+      fallbackInspectCalls += 1;
+      return '/registered-worktree';
     },
+    realpath: async () => { throw new Error('realpath unavailable'); },
     warnInspectFailure: () => {},
   });
-  assert.strictEqual(await inspectWins('/candidate'), '/registered-worktree');
-  assert.strictEqual(successfulRealpathCalls, 0, 'authoritative worktree identity keeps precedence');
+  assert.strictEqual(await inspectFallback('/candidate'), '/registered-worktree');
+  assert.strictEqual(fallbackInspectCalls, 1, 'Git inspection remains a fallback for an unavailable real path');
 
   const warnings: Array<{ candidate: string; error: unknown }> = [];
   const inspectFailureFallsBack = createProjectWorkspaceCanonicalizer({
     inspectWorkspace: async () => { throw new Error('inspect unavailable'); },
-    realpath: async () => '/realpath-fallback',
+    realpath: async () => { throw new Error('realpath unavailable'); },
     warnInspectFailure: (candidate, error) => warnings.push({ candidate, error }),
   });
-  assert.strictEqual(await inspectFailureFallsBack('/candidate'), '/realpath-fallback');
+  assert.strictEqual(await inspectFailureFallsBack('/candidate'), '/candidate');
   assert.strictEqual(warnings.length, 1);
   assert.strictEqual(warnings[0].candidate, '/candidate');
 

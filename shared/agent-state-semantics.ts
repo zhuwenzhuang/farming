@@ -6,10 +6,22 @@ function agentStateLike(value: unknown): value is AgentStateLike {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value))
 }
 
+function sameOrDescendantPath(parent: string, candidate: string): boolean {
+  const normalizedParent = parent.replace(/\\/g, '/').replace(/\/+$/, '')
+  const normalizedCandidate = candidate.replace(/\\/g, '/').replace(/\/+$/, '')
+  return normalizedCandidate === normalizedParent
+    || normalizedCandidate.startsWith(`${normalizedParent}/`)
+}
+
 export function projectWorkspaceFromAgentState(value: unknown): string {
   if (!agentStateLike(value)) return ''
   const gitWorktree = agentStateLike(value.gitWorktree) ? value.gitWorktree : null
-  return String(gitWorktree?.workspace || value.projectWorkspace || value.cwd || '')
+  const projectWorkspace = String(value.projectWorkspace || '')
+  const gitWorkspace = String(gitWorktree?.workspace || '')
+  if (projectWorkspace && (!gitWorkspace || sameOrDescendantPath(gitWorkspace, projectWorkspace))) {
+    return projectWorkspace
+  }
+  return gitWorkspace || projectWorkspace || String(value.cwd || '')
 }
 
 export function agentTurnActiveFromState(value: unknown): boolean {

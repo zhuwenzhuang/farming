@@ -45,6 +45,13 @@ opening, restored Project sessions, and Git worktree selection all refer to that
 same workspace identity. Losing the last Agent or editor does not silently
 remove the Project; explicit removal is the unmount action.
 
+When a user explicitly selects a repository subdirectory while creating an
+Agent, that directory is the Project boundary. The containing Git worktree
+remains authoritative for repository operations, but it must not promote the
+Agent into a broader mounted Project. Launching from an existing Project surface
+may instead pass that Project workspace explicitly while using a deeper working
+directory.
+
 Git owns repository and worktree identity. Farming presents each worktree as an
 ordinary Project and owns only its membership and order in the workspace.
 Opening an absolute file outside mounted Projects first asks the backend for

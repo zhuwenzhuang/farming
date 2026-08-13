@@ -38,6 +38,7 @@ import {
   reconcileAgentViewCache,
   touchAgentViewCache,
 } from '@/components/code/agent-view-cache'
+import { projectWorkspaceFromAgentState } from '../shared/agent-state-semantics.js'
 
 type DialogState = 'none' | 'input'
 type AgentFlagPatch = Partial<{
@@ -90,9 +91,7 @@ const AGENT_SWITCH_OVERLAY_TIMEOUT_MS = 60_000
 
 function projectWorkspaceForAgent(agent: Pick<Agent, 'cwd' | 'projectWorkspace' | 'gitWorktree'> | null | undefined) {
   if (!agent) return undefined
-  if (agent.gitWorktree?.workspace) return agent.gitWorktree.workspace
-  if (agent.projectWorkspace) return agent.projectWorkspace
-  return agent.cwd
+  return projectWorkspaceFromAgentState(agent) || undefined
 }
 
 function isOpenableAgent(agent: Agent) {

@@ -1152,10 +1152,20 @@ function normalizePathValue(value: unknown) {
 }
 
 function effectiveAgentWorkspaceRoot(agent: TypedAgentRecord): string {
+  if (
+    agent
+    && agent.projectWorkspace
+    && (
+      !agent.gitWorktree?.workspace
+      || isSameOrDescendantPath(agent.gitWorktree.workspace, agent.projectWorkspace)
+    )
+  ) {
+    return agent.projectWorkspace;
+  }
   if (agent && agent.gitWorktree && agent.gitWorktree.workspace) {
     return agent.gitWorktree.workspace;
   }
-  return agent && (agent.projectWorkspace || agent.cwd) || '';
+  return agent && agent.cwd || '';
 }
 
 function publicAgentGitWorktree(agent: TypedAgentRecord) {

@@ -14,14 +14,14 @@ function createProjectWorkspaceCanonicalizer(ports: ProjectWorkspaceCanonicalize
 
     const resolution = (async () => {
       try {
-        const inspectedWorkspace = await ports.inspectWorkspace(candidate);
-        if (inspectedWorkspace) return inspectedWorkspace;
-      } catch (error) {
-        ports.warnInspectFailure(candidate, error);
-      }
-      try {
         return await ports.realpath(candidate);
       } catch {
+        try {
+          const inspectedWorkspace = await ports.inspectWorkspace(candidate);
+          if (inspectedWorkspace) return inspectedWorkspace;
+        } catch (error) {
+          ports.warnInspectFailure(candidate, error);
+        }
         return candidate;
       }
     })();

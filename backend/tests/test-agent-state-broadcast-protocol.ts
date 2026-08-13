@@ -28,6 +28,21 @@ const state = (agents, metadata = {}) => ({
   agents,
 });
 
+assert.deepStrictEqual(projectAgentSummaries([{
+  id: 'subdirectory-agent',
+  status: 'running',
+  projectWorkspace: '/repo/odps-sql',
+  cwd: '/repo/odps-sql',
+  gitWorktree: { workspace: '/repo' },
+}]), [{
+  activeCount: 0,
+  agentCount: 1,
+  maxAttentionScore: 0,
+  unreadCount: 0,
+  workspace: '/repo/odps-sql',
+  zombieCount: 0,
+}], 'An explicit Project subdirectory must take precedence over its containing Git worktree');
+
 const tracker = createAgentStateBroadcastTracker();
 assert.strictEqual(
   advanceAgentStateBroadcast(tracker, state([{ id: 'a', status: 'running' }])),

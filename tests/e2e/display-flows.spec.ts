@@ -1652,8 +1652,6 @@ test.describe('display-backed agent flows', () => {
     execFileSync('git', ['add', 'README.md'], { cwd: repo, stdio: 'ignore' })
     execFileSync('git', ['commit', '-m', 'seed linked worktree'], { cwd: repo, stdio: 'ignore' })
     execFileSync('git', ['worktree', 'add', '-b', 'feature/topic', linkedWorkspace], { cwd: repo, stdio: 'ignore' })
-    const nestedWorkspace = path.join(linkedWorkspace, 'nested', 'workspace')
-    fs.mkdirSync(nestedWorkspace, { recursive: true })
 
     let revealedProjectRootId = ''
     let createdWorktreeRootId = ''
@@ -1691,7 +1689,7 @@ test.describe('display-backed agent flows', () => {
       linkedWorkspace,
     ]
     await openNewAgentDialog(page)
-    const agentId = await startAgentFromOpenDialog(page, 'bash', nestedWorkspace)
+    const agentId = await startAgentFromOpenDialog(page, 'bash', linkedWorkspace)
     const project = page.getByTestId('code-project-group').filter({ hasText: 'linked-project' })
     await expect(project).toHaveCount(1)
     await expect.poll(async () => {

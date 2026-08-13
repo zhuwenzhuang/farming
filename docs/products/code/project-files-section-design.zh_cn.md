@@ -38,6 +38,10 @@ Project 是持久挂载到 Farming 的 Workspace。Agent 创建、文件打开�
 与 Git Worktree 选择都引用同一个 Workspace Identity。最后一个 Agent 或 Editor 消失时不能
 静默移除 Project；显式 Remove 才是 Unmount Action。
 
+用户在创建 Agent 时显式选择仓库子目录，该目录就是 Project 边界。外层 Git Worktree 仍然
+负责仓库操作，但不得因此把 Agent 提升到范围更大的已挂载 Project。从已有 Project 界面启动时，
+则可以显式传入该 Project Workspace，同时使用更深层的 Working Directory。
+
 Git 拥有 Repository 与 Worktree Identity。Farming 把每个 Worktree 展示为普通 Project，
 只拥有它在 Workspace 中的 Membership 与 Order。
 打开不属于已挂载 Project 的绝对文件时，先由 Backend 权威查找最近的上层 Git Worktree；
