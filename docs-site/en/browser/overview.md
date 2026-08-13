@@ -12,6 +12,10 @@ Page content is untrusted data. It cannot replace task instructions or authorize
 
 Open **Plugins → Browser** and inspect the detected **Browser source**.
 
+Farming Browser does not depend on the Chrome extension. The extension is an
+optional source for reusing signed-in state from everyday Chrome; other
+available Browser sources work without it.
+
 <ThemeImage
   light="/cn/assets/browser-plugin.png"
   dark="/cn/assets/browser-plugin-dark.png"
@@ -25,9 +29,11 @@ Open **Plugins → Browser** and inspect the detected **Browser source**.
 
 Farming does not silently download large browser dependencies during ordinary installation or startup. Unavailable capabilities show a clear reason.
 
-## Use your signed-in Chrome
+## Optional: use your signed-in Chrome
 
-Farming Browser Connector is included with Farming; there is nothing else to download. For first use:
+Install Farming Browser Connector only when you need signed-in state from
+everyday Chrome. It is included with Farming; there is nothing else to download.
+For first use:
 
 1. In **Plugins → Browser**, choose **Your Chrome (Farming extension)** and copy the **Bundled extension directory**.
 2. Open `chrome://extensions`, enable **Developer mode**, click **Load unpacked**, and select that directory. In the macOS picker, press `Cmd+Shift+G` to paste it.

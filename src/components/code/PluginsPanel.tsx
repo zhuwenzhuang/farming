@@ -237,8 +237,8 @@ function pluginCopy(language: UiLanguage) {
     extensionConnected: zh ? 'Farming 浏览器插件已连接。' : 'Farming Browser Connector is connected.',
     extensionWaiting: zh ? '等待 Farming 浏览器插件连接。' : 'Waiting for Farming Browser Connector.',
     extensionInstall: zh
-      ? '首次使用需要在 Chrome 中手动安装。'
-      : 'First use requires manual installation in Chrome.',
+      ? '使用这个浏览器来源前，需要在 Chrome 中手动安装扩展。'
+      : 'Install the extension in Chrome before using this Browser source.',
     extensionInstallGuide: zh ? '查看安装文档' : 'Read the installation guide',
     extensionPath: zh ? '内置扩展目录' : 'Bundled extension directory',
     copyExtensionPath: zh ? '复制目录' : 'Copy directory',

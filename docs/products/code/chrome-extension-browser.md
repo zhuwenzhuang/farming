@@ -2,8 +2,9 @@
 
 > 中文：[chrome-extension-browser.zh_cn.md](./chrome-extension-browser.zh_cn.md)
 
-Farming can operate the user's signed-in Chrome and show the same page in the
-Farming Viewer.
+Farming Browser does not depend on this extension. It is an optional Browser
+source that lets Farming operate the user's signed-in Chrome and show the same
+page in the Farming Viewer. Other Browser sources work without it.
 The extension is included with Farming; there is nothing else to download.
 
 ## First-Time Setup

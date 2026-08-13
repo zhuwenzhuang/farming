@@ -2,7 +2,8 @@
 
 > English: [chrome-extension-browser.md](./chrome-extension-browser.md)
 
-Farming 可以操作用户已登录的 Chrome，并在 Farming Viewer 中显示同一页面。
+Farming Browser 不依赖此扩展。此扩展只是一个可选浏览器来源，让 Farming 操作用户已登录的
+Chrome，并在 Farming Viewer 中显示同一页面。不安装扩展仍可使用其他 Browser 来源。
 扩展已包含在 Farming 软件包中，不需要下载。
 
 ## 首次安装

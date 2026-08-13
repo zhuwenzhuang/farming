@@ -18,6 +18,9 @@ Farming Browser 让 Agent 操作自己拥有的浏览器资源，同时用户可
 
 打开 **插件 → 浏览器**（英文界面为 **Plugins → Browser**），查看 Farming 当前检测到的 **浏览器来源 / Browser source**。
 
+Farming Browser 不依赖 Chrome 扩展。扩展只是一个可选来源，用于复用用户日常 Chrome 中
+已有的登录状态；不安装扩展仍可使用其他可用的 Browser 来源。
+
 <ThemeImage
   light="/cn/assets/browser-plugin.png"
   dark="/cn/assets/browser-plugin-dark.png"
@@ -31,9 +34,10 @@ Farming Browser 让 Agent 操作自己拥有的浏览器资源，同时用户可
 
 Farming 不会在普通安装或启动时静默下载大型浏览器依赖。能力不可用时会显示明确原因。
 
-## 使用已登录的 Chrome
+## 可选：使用已登录的 Chrome
 
-Farming Browser Connector 已包含在 Farming 中，不需要另外下载。首次使用：
+仅当需要复用用户日常 Chrome 的登录状态时，才需要安装 Farming Browser Connector。扩展已
+包含在 Farming 中，不需要另外下载。首次使用：
 
 1. 在 **插件 → 浏览器**选择**用户自己的 Chrome（Farming 插件）**，复制**内置扩展目录**。
 2. 打开 `chrome://extensions`，开启**开发者模式**，点击**加载已解压的扩展程序**并选择该目录。macOS 文件选择器可按 `⌘⇧G` 粘贴目录。
