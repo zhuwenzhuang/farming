@@ -622,6 +622,9 @@ test.describe('iPhone mobile layout', () => {
 
     const mobileShareSheet = page.getByTestId('code-mobile-share-sheet')
     await expect(mobileShareSheet).toBeVisible()
+    const mobileShareDialog = mobileShareSheet.getByRole('dialog')
+    const closeShareButton = mobileShareDialog.getByRole('button', { name: /Cancel|取消/ })
+    await expect(closeShareButton).toBeFocused()
     await expect(mobileShareSheet.getByRole('heading', { name: /Share page|分享页面/ })).toBeVisible()
     await expect(mobileShareSheet.getByRole('heading', { name: /Send this page|转发当前页面/ })).toBeVisible()
     await expect(mobileShareSheet.locator('.code-mobile-share-link')).toHaveText(readOnlyUrl)
@@ -637,6 +640,7 @@ test.describe('iPhone mobile layout', () => {
     await expect(mobileShareSheet.locator('.code-mobile-share-sheet')).toHaveCSS('color', 'rgb(255, 255, 255)')
     await page.keyboard.press('Escape')
     await expect(mobileShareSheet).toHaveCount(0)
+    await expect(page.getByTestId('code-mobile-more')).toBeFocused()
   })
 
   test('completes file creation, rename, and deletion through compact touch actions', async ({ page, workspaceRoot }, testInfo) => {

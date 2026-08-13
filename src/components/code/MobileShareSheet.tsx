@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { RefObject } from 'react'
 import { writeClipboardText } from '@/lib/clipboard'
-import { useEscapeKey } from '@/hooks/useKeyboard'
 import type { CodeCopy } from './copy'
 
 function isStandaloneWebApp() {
@@ -40,16 +41,62 @@ export function MobileShareSheet({
   title,
   url,
   onClose,
+  returnFocusRef,
 }: {
   copy: CodeCopy
   title: string
   url: string
   onClose: () => void
+  returnFocusRef: RefObject<HTMLElement | null>
 }) {
   const standalone = isStandaloneWebApp()
   const [copied, setCopied] = useState(false)
   const [copyFailed, setCopyFailed] = useState(false)
-  useEscapeKey(onClose)
+  const dialogRef = useRef<HTMLElement | null>(null)
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null)
+
+  useEffect(() => {
+    const appRoot = document.getElementById('root')
+    const returnFocusTarget = returnFocusRef.current
+    const previousInert = appRoot?.inert ?? false
+    const previousAriaHidden = appRoot?.getAttribute('aria-hidden') ?? null
+    if (appRoot) {
+      appRoot.inert = true
+      appRoot.setAttribute('aria-hidden', 'true')
+    }
+    const focusFrame = window.requestAnimationFrame(() => {
+      closeButtonRef.current?.focus({ preventScroll: true })
+    })
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        event.stopImmediatePropagation()
+        onClose()
+        return
+      }
+      if (event.key !== 'Tab') return
+      const buttons = Array.from(dialogRef.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [])
+      if (buttons.length === 0) return
+      const activeIndex = buttons.indexOf(document.activeElement as HTMLButtonElement)
+      const nextIndex = event.shiftKey
+        ? (activeIndex <= 0 ? buttons.length - 1 : activeIndex - 1)
+        : (activeIndex === -1 || activeIndex === buttons.length - 1 ? 0 : activeIndex + 1)
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      buttons[nextIndex]?.focus({ preventScroll: true })
+    }
+    window.addEventListener('keydown', handleKeyDown, true)
+    return () => {
+      window.cancelAnimationFrame(focusFrame)
+      window.removeEventListener('keydown', handleKeyDown, true)
+      if (appRoot) {
+        appRoot.inert = previousInert
+        if (previousAriaHidden === null) appRoot.removeAttribute('aria-hidden')
+        else appRoot.setAttribute('aria-hidden', previousAriaHidden)
+      }
+      if (returnFocusTarget?.isConnected) returnFocusTarget.focus({ preventScroll: true })
+    }
+  }, [onClose, returnFocusRef])
 
   useEffect(() => {
     if (!copied && !copyFailed) return undefined
@@ -66,9 +113,10 @@ export function MobileShareSheet({
     setCopyFailed(!success)
   }, [url])
 
-  return (
+  return createPortal(
     <div className="code-mobile-share-backdrop" data-testid="code-mobile-share-sheet" role="presentation" onPointerDown={onClose}>
       <section
+        ref={dialogRef}
         className="code-mobile-share-sheet"
         role="dialog"
         aria-modal="true"
@@ -77,7 +125,7 @@ export function MobileShareSheet({
       >
         <header className="code-mobile-share-header">
           <h2 id="code-mobile-share-title">{copy.mobileShareTitle}</h2>
-          <button type="button" aria-label={copy.cancel} onClick={onClose}>×</button>
+          <button ref={closeButtonRef} type="button" aria-label={copy.cancel} onClick={onClose}>×</button>
         </header>
         <section className="code-mobile-share-choice code-mobile-share-forward">
           <div className="code-mobile-share-choice-copy">
@@ -120,6 +168,7 @@ export function MobileShareSheet({
           )}
         </section>
       </section>
-    </div>
+    </div>,
+    document.body,
   )
 }

@@ -174,3 +174,68 @@ test('mobile navigation is a modal keyboard loop and desktop navigation remains 
   await expect(page.getByTestId('code-share-popover')).toBeVisible()
   expect(shareTicketPosts).toBe(2)
 })
+
+test('mobile share owns focus and Escape without closing the underlying view', async ({ page }) => {
+  await page.route('**/api/share/qr-ticket', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      longUrl: 'https://share.example.test/farming?token=read-only',
+    }),
+  }))
+  await page.setViewportSize({ width: 390, height: 844 })
+  await openFarming(page)
+
+  await page.getByTestId('code-mobile-menu').click()
+  await page.getByTestId('code-nav-history').click()
+  const history = page.getByTestId('code-history-panel')
+  await expect(history).toBeVisible()
+
+  const optionsTrigger = page.getByTestId('code-mobile-more')
+  await optionsTrigger.click()
+  const ticketResponse = page.waitForResponse(response => (
+    response.request().method() === 'POST'
+    && response.url().includes('/api/share/qr-ticket')
+  ))
+  await page.getByRole('menuitem', { name: /Share current page|分享当前页面/ }).click()
+  expect((await ticketResponse).status()).toBe(200)
+
+  const sheet = page.getByTestId('code-mobile-share-sheet')
+  const dialog = sheet.getByRole('dialog')
+  const closeButton = dialog.getByRole('button', { name: /Cancel|取消/ })
+  const copyButton = dialog.getByTestId('code-mobile-share-copy-action')
+  await expect(closeButton).toBeFocused()
+
+  await copyButton.focus()
+  await page.keyboard.press('Tab')
+  await expect(closeButton).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
+  await expect(copyButton).toBeFocused()
+
+  await page.keyboard.press('Escape')
+  await expect(sheet).toHaveCount(0)
+  await expect(history).toBeVisible()
+  await expect(optionsTrigger).toBeFocused()
+
+  await page.keyboard.press('Escape')
+  await expect(history).toHaveCount(0)
+
+  await page.getByTestId('code-mobile-menu').click()
+  await page.getByTestId('code-nav-search').click()
+  const search = page.getByTestId('code-search-panel')
+  await expect(search).toBeVisible()
+
+  await optionsTrigger.click()
+  await expect(search).toBeVisible()
+  const searchTicketResponse = page.waitForResponse(response => (
+    response.request().method() === 'POST'
+    && response.url().includes('/api/share/qr-ticket')
+  ))
+  await page.getByRole('menuitem', { name: /Share current page|分享当前页面/ }).click()
+  expect((await searchTicketResponse).status()).toBe(200)
+  await expect(sheet).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(sheet).toHaveCount(0)
+  await expect(search).toBeVisible()
+  await expect(optionsTrigger).toBeFocused()
+})

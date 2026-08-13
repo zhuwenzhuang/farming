@@ -798,6 +798,7 @@ export function CodeWorkspace({
   const mobileNavigationViewportRef = useRef(mobileNavigationViewport)
   const mobileNavigationDialogRef = useRef<HTMLElement>(null)
   const mobileNavigationTriggerRef = useRef<HTMLButtonElement>(null)
+  const mobileOptionsTriggerRef = useRef<HTMLButtonElement>(null)
   const restoreMobileNavigationFocusRef = useRef(false)
   const mobileNavigationFocusRestoreFrameRef = useRef<number | null>(null)
   const mobileNavigationModalOpen = mobileNavigationViewport && !sidebarCollapsed
@@ -2390,7 +2391,7 @@ export function CodeWorkspace({
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target
       if (!(target instanceof Element)) return
-      if (target.closest('.code-search-panel, [data-testid="code-nav-search"], [data-testid="code-mobile-menu"]')) return
+      if (target.closest('.code-search-panel, .code-options-menu, [data-testid="code-nav-search"], [data-testid="code-mobile-menu"], [data-testid="code-mobile-more"], [data-testid="code-mobile-share-sheet"]')) return
       closeSearchView()
     }
 
@@ -4439,6 +4440,8 @@ export function CodeWorkspace({
         return
       }
 
+      if (event.key === 'Escape' && mobileShareUrl) return
+
       if (event.key === 'Escape' && activeView !== 'projects') {
         event.preventDefault()
         closeContextMenu()
@@ -4476,7 +4479,7 @@ export function CodeWorkspace({
 
     window.addEventListener('keydown', handleKeyDown, true)
     return () => window.removeEventListener('keydown', handleKeyDown, true)
-  }, [activeView, approvalMenuOpen, archiveExitDialog, clearSearch, closeActiveComposerMenus, closeArchiveExitDialog, closeContextMenu, closeContextMenuAndRestoreFocus, closeDeleteWorktreeDialog, closeRenameDialog, contextMenu, contextMenuRef, deleteWorktreeDialog, dialogOpen, focusComposerTextarea, focusWorkspaceFilesSearch, handleContextMenuNavigation, keyboardShortcutsEnabled, mobileNavigationModalOpen, modelMenuOpen, navigateWorkspaceHistory, onWorkspaceViewChange, openSearch, plusMenuOpen, projectFileSearchId, projectFileSearchIdForShortcutTarget, renameDialog, reopenLastClosedWorkspaceFile, toggleSidebar])
+  }, [activeView, approvalMenuOpen, archiveExitDialog, clearSearch, closeActiveComposerMenus, closeArchiveExitDialog, closeContextMenu, closeContextMenuAndRestoreFocus, closeDeleteWorktreeDialog, closeRenameDialog, contextMenu, contextMenuRef, deleteWorktreeDialog, dialogOpen, focusComposerTextarea, focusWorkspaceFilesSearch, handleContextMenuNavigation, keyboardShortcutsEnabled, mobileNavigationModalOpen, mobileShareUrl, modelMenuOpen, navigateWorkspaceHistory, onWorkspaceViewChange, openSearch, plusMenuOpen, projectFileSearchId, projectFileSearchIdForShortcutTarget, renameDialog, reopenLastClosedWorkspaceFile, toggleSidebar])
 
   useEffect(() => {
     const dialog = renameDialogStateRef.current
@@ -4941,6 +4944,7 @@ export function CodeWorkspace({
           title={mobileHeaderTitle}
           url={mobileShareUrl}
           onClose={clearMobileShareLink}
+          returnFocusRef={mobileOptionsTriggerRef}
         />
       )}
 
@@ -5005,6 +5009,7 @@ export function CodeWorkspace({
           )}
         </div>
         <button
+          ref={mobileOptionsTriggerRef}
           type="button"
           className="code-mobile-topbar-button more"
           data-testid="code-mobile-more"
