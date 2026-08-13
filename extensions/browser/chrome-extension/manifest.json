@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Farming Browser Connector",
-  "version": "2.2.0",
-  "description": "Securely relay eligible signed-in Chrome tabs to Farming Browser.",
+  "version": "0.0.1",
+  "description": "Let Agents in Farming use your browser.",
   "permissions": [
     "debugger",
     "tabs",
@@ -17,8 +17,18 @@
     "service_worker": "background.js",
     "type": "module"
   },
+  "icons": {
+    "16": "icons/farming-16.png",
+    "32": "icons/farming-32.png",
+    "48": "icons/farming-48.png",
+    "128": "icons/farming-128.png"
+  },
   "action": {
     "default_title": "Farming",
+    "default_icon": {
+      "16": "icons/farming-16.png",
+      "32": "icons/farming-32.png"
+    },
     "default_popup": "popup.html"
   },
   "minimum_chrome_version": "125"

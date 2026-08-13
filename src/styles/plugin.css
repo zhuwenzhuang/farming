@@ -1515,6 +1515,61 @@
   margin-top: 5px;
 }
 
+.code-plugin-browser-sources {
+  display: grid;
+  gap: 7px;
+  margin-top: 8px;
+}
+
+.code-plugin-browser-source {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--code-bg-inset);
+}
+
+.code-plugin-browser-source > div {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.code-plugin-browser-source strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.code-plugin-browser-source button,
+.code-plugin-browser-connector-setup button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--code-bg-surface);
+  color: var(--code-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.code-plugin-browser-connector-setup {
+  display: grid;
+  gap: 7px;
+  padding: 2px 10px 8px;
+}
+
+.code-plugin-browser-connector-setup label {
+  display: grid;
+  gap: 4px;
+}
+
+.code-plugin-browser-connector-setup button {
+  justify-self: start;
+}
+
 .code-plugin-computer-settings {
   display: grid;
   gap: 7px;

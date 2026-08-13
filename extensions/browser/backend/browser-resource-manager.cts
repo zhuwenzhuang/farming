@@ -71,6 +71,7 @@ type BrowserSettings = {
   browserExternalCdpUrl?: string;
   browserSource?: string;
 };
+const BROWSER_SOURCES = new Set(['extension', 'external-cdp', 'isolated', 'system']);
 type BrowserOption = BrowserCandidate;
 type BrowserMessage = Record<string, unknown> & {
   claim?: boolean;
@@ -271,6 +272,7 @@ function publicResource(resource: BrowserResource, collectionRevision: number) {
     url: resource.url,
     title: resource.title,
     browserKind: resource.browserKind,
+    browserSource: resource.browserSource,
     error: resource.error,
     createdAt: resource.createdAt,
     updatedAt: resource.updatedAt,
@@ -608,10 +610,36 @@ class BrowserResourceManager extends EventEmitter {
     };
   }
 
+  async sourceCapabilities(): Promise<Array<Record<string, unknown>>> {
+    const settings = this.getBrowserSettings();
+    const systemOptions = this.discoverBrowserOptions();
+    const systemPath = String(settings.browserExecutablePath || systemOptions[0]?.path || '');
+    const isolatedCapability = this.isolatedBrowserProvider
+      ? await this.isolatedBrowserProvider.capability()
+      : null;
+    const selections: BrowserSelection[] = [
+      { source: 'system', executablePath: systemPath, externalCdpUrl: '' },
+      { source: 'extension', executablePath: '', externalCdpUrl: '' },
+      { source: 'isolated', executablePath: '', externalCdpUrl: '' },
+    ];
+    const probes = await Promise.all(selections.map(async selection => {
+      const probe = await this.probeCapability(selection, systemOptions, isolatedCapability);
+      const runtime = probe.runtimeCapability;
+      return {
+        source: selection.source,
+        available: Boolean(runtime && !runtime.error),
+        kind: String(runtime?.kind || ''),
+        path: String(runtime?.path || ''),
+        message: String(runtime?.error || ''),
+      };
+    }));
+    return probes;
+  }
+
   browserSelection(settings: BrowserSettings = this.getBrowserSettings()): BrowserSelection {
     const source = settings?.browserSource;
     return {
-      source: source && ['extension', 'external-cdp', 'isolated'].includes(source) ? source : 'system',
+      source: source && BROWSER_SOURCES.has(source) ? source : 'system',
       executablePath: String(settings?.browserExecutablePath || ''),
       externalCdpUrl: String(settings?.browserExternalCdpUrl || 'http://127.0.0.1:9222'),
     };
@@ -801,9 +829,23 @@ class BrowserResourceManager extends EventEmitter {
   }
 
   create(input: Record<string, unknown>) {
-    this.requireAvailable();
+    this.requireEnabled();
     if (this.disposed) throw browserError('Browser manager is stopping', 503, 'BROWSER_MANAGER_STOPPING');
-    if (this.runtimeCapability?.kind === 'isolated-computer' && input.ownerType !== 'agent') {
+    const requestedSource = String(input.browserSource || '').trim();
+    if (requestedSource && !BROWSER_SOURCES.has(requestedSource)) {
+      throw browserError(
+        `Unsupported Browser source: ${requestedSource}`,
+        400,
+        'BROWSER_INVALID_SOURCE',
+      );
+    }
+    const settings = this.getBrowserSettings();
+    const selection = this.browserSelection({
+      browserSource: requestedSource || settings.browserSource || 'system',
+      browserExecutablePath: String(input.browserExecutablePath || settings.browserExecutablePath || ''),
+      browserExternalCdpUrl: String(input.browserExternalCdpUrl || settings.browserExternalCdpUrl || ''),
+    });
+    if (selection.source === 'isolated' && input.ownerType !== 'agent') {
       throw browserError(
         'The isolated Browser requires an active Agent owner; create it from an Agent',
         409,
@@ -817,6 +859,9 @@ class BrowserResourceManager extends EventEmitter {
       ownerAgentId: input.ownerAgentId,
       name: input.name,
       url: normalizeUrl(input.url),
+      browserSource: selection.source,
+      browserExecutablePath: selection.executablePath,
+      browserExternalCdpUrl: selection.externalCdpUrl,
     });
     this.emitResource(resource);
     return publicResource(resource, this.store.revision);
@@ -861,7 +906,13 @@ class BrowserResourceManager extends EventEmitter {
           'BROWSER_RECOVERY_CLEANUP_REQUIRED',
         );
       }
-      const executable = await this.refreshCapability();
+      const selection = this.browserSelection({
+        browserSource: resource.browserSource,
+        browserExecutablePath: resource.browserExecutablePath,
+        browserExternalCdpUrl: resource.browserExternalCdpUrl,
+      });
+      const probe = await this.probeCapability(selection);
+      const executable = probe.runtimeCapability;
       if (!executable || executable.error || !executable.agentBrowserPath) {
         const failed = this.store.update(id, {
           status: 'failed',

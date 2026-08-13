@@ -250,7 +250,14 @@ function pluginCopy(language: UiLanguage) {
     isolatedBrowserRequiresDocker: zh ? '隔离浏览器（需要 Docker）' : 'Isolated Browser (requires Docker)',
     isolatedBrowserNotInstalled: zh ? '隔离浏览器（未安装）' : 'Isolated Browser (not installed)',
     isolatedBrowserUnavailable: zh ? '隔离浏览器（暂不可用）' : 'Isolated Browser (unavailable)',
-    browserChoice: zh ? '浏览器来源' : 'Browser source',
+    browserChoice: zh ? '可用浏览器' : 'Available browsers',
+    browserSourcesHint: zh
+      ? '这些浏览器可以同时使用。Agent 会按任务选择；创建 Browser 时也可显式指定。'
+      : 'These browsers can be used together. Agents choose for each task, or a source can be specified when creating a Browser.',
+    ready: zh ? '可用' : 'Available',
+    notReady: zh ? '未连接' : 'Not connected',
+    installConnector: zh ? '安装连接扩展' : 'Install connector',
+    configureCdp: zh ? '配置 CDP' : 'Configure CDP',
     applyBrowser: zh ? '应用' : 'Apply',
     prepareIsolatedBrowser: zh ? '准备隔离浏览器' : 'Prepare isolated Browser',
     preparingIsolatedBrowser: zh ? '正在下载并验证…' : 'Downloading and verifying…',
@@ -272,9 +279,7 @@ function pluginCopy(language: UiLanguage) {
     isolatedCompatibilityRequired: zh
       ? '这台旧版 Docker 需要显式启用兼容模式后再重试。'
       : 'This older Docker Engine requires compatibility mode before retrying.',
-    browserChangeHint: zh
-      ? '切换后，正在运行的浏览器会停止。'
-      : 'Changing this stops running Browsers.',
+    browserChangeHint: '',
     externalBrowserHint: zh
       ? '仅连接你显式开放在本机回环地址的可信 Chrome；Farming 会在其中创建自己的标签页并复用登录态。'
       : 'Connect only a trusted Chrome explicitly exposed on loopback; Farming creates its own tab there and reuses its login state.',
@@ -333,15 +338,6 @@ function pluginCopy(language: UiLanguage) {
     manage: zh ? '管理' : 'Manage',
     builtIn: zh ? '内置' : 'Built-in',
   }
-}
-
-function browserSource(capability: BrowserCapability | null, copy: ReturnType<typeof pluginCopy>) {
-  if (!capability?.browser) return ''
-  if (capability.browser.kind === 'chrome-extension') return copy.extensionBrowser
-  if (capability.browser.kind === 'external-cdp') return copy.externalBrowser
-  return capability.browser.kind === 'isolated-computer'
-    ? copy.isolatedBrowser
-    : browserKindName(capability.browser.kind)
 }
 
 function browserKindName(kind: string) {
@@ -602,8 +598,8 @@ export function PluginsPanel({
   const [preparingIsolatedBrowser, setPreparingIsolatedBrowser] = useState(false)
   const [isolatedCompatibilityRequired, setIsolatedCompatibilityRequired] = useState(false)
   const [error, setError] = useState('')
-  const [browserChoice, setBrowserChoice] = useState('system:')
   const [externalCdpUrl, setExternalCdpUrl] = useState('http://127.0.0.1:9222')
+  const [showExternalCdp, setShowExternalCdp] = useState(false)
   const [browserExtensionPath, setBrowserExtensionPath] = useState('')
   const [browserExtensionStatusError, setBrowserExtensionStatusError] = useState('')
   const [browserExtensionPathCopied, setBrowserExtensionPathCopied] = useState(false)
@@ -611,7 +607,6 @@ export function PluginsPanel({
     capability?.extension?.connected === true,
   )
   const browserExtensionConnectedRef = useRef(capability?.extension?.connected === true)
-  const browserChoiceDirtyRef = useRef(false)
   const [agentGroups, setAgentGroups] = useState<AgentExtensionGroup[]>([])
   const [agentGroupsLoading, setAgentGroupsLoading] = useState(true)
   const [agentGroupsError, setAgentGroupsError] = useState('')
@@ -678,21 +673,13 @@ export function PluginsPanel({
   }, [loadLanguageServerCapability])
 
   useEffect(() => {
-    if (!capability || browserChoiceDirtyRef.current) return
+    if (!capability) return
     setEnabled(capability.enabled)
     const selection = capability.selection
-    setBrowserChoice(selection?.source === 'external-cdp'
-      ? 'external-cdp'
-      : selection?.source === 'extension'
-        ? 'extension'
-      : selection?.source === 'isolated'
-        ? 'isolated'
-        : `system:${selection?.executablePath || ''}`)
     setExternalCdpUrl(selection?.externalCdpUrl || 'http://127.0.0.1:9222')
   }, [capability])
 
   useEffect(() => {
-    if (browserChoice !== 'extension') return
     let active = true
     let timer: number | undefined
     setBrowserExtensionStatusError('')
@@ -727,7 +714,7 @@ export function PluginsPanel({
       active = false
       if (timer !== undefined) window.clearTimeout(timer)
     }
-  }, [browserChoice, copy.extensionStatusFailed, onRefreshCapability])
+  }, [copy.extensionStatusFailed, onRefreshCapability])
 
   useEffect(() => {
     if (!computerCapability) return
@@ -965,16 +952,8 @@ export function PluginsPanel({
     }
   }
 
-  const saveBrowserChoice = async () => {
-    if (saving || !browserChoiceDirty) return
-    const source = browserChoice === 'extension'
-      ? 'extension'
-      : browserChoice === 'external-cdp'
-      ? 'external-cdp'
-      : browserChoice === 'isolated'
-        ? 'isolated'
-        : 'system'
-    const executablePath = source === 'system' ? browserChoice.slice('system:'.length) : ''
+  const saveExternalCdp = async () => {
+    if (saving || !externalCdpUrl.trim()) return
     setSaving(true)
     setError('')
     try {
@@ -982,14 +961,11 @@ export function PluginsPanel({
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({
-          browserSource: source,
-          browserExecutablePath: executablePath,
           browserExternalCdpUrl: externalCdpUrl,
         }),
       })
       const data = await response.json().catch(() => ({})) as { error?: string }
       if (!response.ok) throw new Error(data.error || copy.saveFailed)
-      browserChoiceDirtyRef.current = false
       onRefreshCapability()
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : copy.saveFailed)
@@ -1071,24 +1047,11 @@ export function PluginsPanel({
     }
   }
 
-  const browserReady = Boolean(capability?.browser)
-  const savedBrowserChoice = capability?.selection?.source === 'external-cdp'
-    ? 'external-cdp'
-    : capability?.selection?.source === 'extension'
-      ? 'extension'
-    : capability?.selection?.source === 'isolated'
-      ? 'isolated'
-      : `system:${capability?.selection?.executablePath || ''}`
-  const browserChoiceDirty = browserChoice !== savedBrowserChoice
-    || (
-      browserChoice === 'external-cdp'
-      && externalCdpUrl.trim() !== (capability?.selection?.externalCdpUrl || '').trim()
-    )
+  const browserReady = capability?.sources?.some(source => source.available)
+    ?? Boolean(capability?.browser)
   const isolatedBrowserReady = capability?.isolated?.imageReady === true
-  const isolatedBrowserSelected = browserChoice === 'isolated'
   const isolatedBrowserDockerAvailable = capability?.isolated?.dockerAvailable === true
-  const showIsolatedBrowserPrepare = isolatedBrowserSelected
-    && !isolatedBrowserReady
+  const showIsolatedBrowserPrepare = !isolatedBrowserReady
     && isolatedBrowserDockerAvailable
   const isolatedBrowserLabel = capability?.isolated?.dockerAvailable === false
     ? copy.isolatedBrowserRequiresDocker
@@ -1325,43 +1288,67 @@ export function PluginsPanel({
               <span className={`code-plugin-status ${browserReady && enabled ? 'enabled' : ''}`}>{status}</span>
             </div>
             <p>{copy.browserDescription}</p>
-            <div className="code-plugin-browser-settings">
-              <CodeSelect
-                className="code-plugin-select"
-                label={copy.browserChoice}
-                value={loading && capability === null ? 'system:' : browserChoice}
-                disabled={loading || saving || preparingIsolatedBrowser}
-                options={[
-                  ...((capability?.options || []).length === 0 ? [{
-                    value: 'system:',
-                    label: copy.noSystemBrowser,
-                    disabled: true,
-                  }] : []),
-                  ...(capability?.options || []).map(option => ({
-                    value: `system:${option.path}`,
-                    label: browserKindName(option.kind),
-                  })),
-                  {
-                    value: 'extension',
-                    label: copy.extensionBrowser,
-                  },
-                  {
-                    value: 'external-cdp',
-                    label: copy.externalBrowser,
-                  },
-                  {
-                    value: 'isolated',
-                    label: isolatedBrowserLabel,
-                    disabled: !isolatedBrowserDockerAvailable,
-                  },
-                ]}
-                onChange={value => {
-                  browserChoiceDirtyRef.current = true
-                  setBrowserChoice(value)
-                  setError('')
-                }}
-              />
-              {browserChoice === 'external-cdp' ? (
+            <div className="code-plugin-browser-sources" role="group" aria-label={copy.browserChoice}>
+              <small>{copy.browserSourcesHint}</small>
+              <div className="code-plugin-browser-source">
+                <div>
+                  <strong>{capability?.options?.[0]
+                    ? browserKindName(capability.options[0].kind)
+                    : copy.noSystemBrowser}</strong>
+                  <small>{(capability?.sources || []).find(source => source.source === 'system')?.available
+                    ? copy.ready
+                    : copy.unavailable}</small>
+                </div>
+              </div>
+              <div className="code-plugin-browser-source">
+                <div>
+                  <strong>{copy.extensionBrowser}</strong>
+                  <small>{browserExtensionConnected ? copy.ready : copy.notReady}</small>
+                </div>
+                {!browserExtensionConnected ? <a
+                  className="code-plugin-help-link"
+                  href={FARMING_BROWSER_DOCS_URL[language]}
+                  target="_blank"
+                  rel="noreferrer"
+                >{copy.installConnector}</a> : null}
+              </div>
+              {!browserExtensionConnected ? <div className="code-plugin-browser-connector-setup">
+                <small>{copy.extensionInstall}</small>
+                <label>
+                  <span>{copy.extensionPath}</span>
+                  <input type="text" readOnly value={browserExtensionPath} aria-label={copy.extensionPath} />
+                </label>
+                <button
+                  type="button"
+                  disabled={!browserExtensionPath}
+                  onClick={() => {
+                    void navigator.clipboard.writeText(browserExtensionPath).then(() => {
+                      setBrowserExtensionPathCopied(true)
+                      window.setTimeout(() => setBrowserExtensionPathCopied(false), 1500)
+                    })
+                  }}
+                >{browserExtensionPathCopied ? copy.copiedExtensionPath : copy.copyExtensionPath}</button>
+              </div> : null}
+              <div className="code-plugin-browser-source">
+                <div>
+                  <strong>{isolatedBrowserLabel}</strong>
+                  <small>{isolatedBrowserReady ? copy.ready : copy.unavailable}</small>
+                </div>
+                {showIsolatedBrowserPrepare ? <button
+                  type="button"
+                  className="code-plugin-browser-install"
+                  disabled={loading || preparingIsolatedBrowser}
+                  onClick={() => void prepareIsolatedBrowser()}
+                >{preparingIsolatedBrowser ? copy.preparingIsolatedBrowser : copy.prepareIsolatedBrowser}</button> : null}
+              </div>
+              <div className="code-plugin-browser-source">
+                <div>
+                  <strong>{copy.externalBrowser}</strong>
+                  <small>{showExternalCdp ? copy.configureCdp : copy.notReady}</small>
+                </div>
+                <button type="button" onClick={() => setShowExternalCdp(value => !value)}>{copy.configureCdp}</button>
+              </div>
+              {showExternalCdp ? (
                 <label className="code-plugin-browser-cdp">
                   <span>{copy.externalCdpAddress}</span>
                   <input
@@ -1370,90 +1357,27 @@ export function PluginsPanel({
                     placeholder={copy.externalCdpPlaceholder}
                     disabled={loading || saving || preparingIsolatedBrowser}
                     onChange={event => {
-                      browserChoiceDirtyRef.current = true
                       setExternalCdpUrl(event.target.value)
                       setError('')
                     }}
                   />
                 </label>
               ) : null}
-              {browserChoice === 'extension' ? (
-                <div className="code-plugin-browser-cdp">
-                  <span>{browserExtensionConnected
-                    ? copy.extensionConnected
-                    : copy.extensionWaiting}</span>
-                  <small>
-                    {copy.extensionInstall}{' '}
-                    <a
-                      className="code-plugin-help-link"
-                      href={FARMING_BROWSER_DOCS_URL[language]}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      {copy.extensionInstallGuide}
-                    </a>
-                  </small>
-                  <label>
-                    <span>{copy.extensionPath}</span>
-                    <input
-                      type="text"
-                      readOnly
-                      value={browserExtensionPath}
-                      aria-label={copy.extensionPath}
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    disabled={!browserExtensionPath}
-                    onClick={() => {
-                      void navigator.clipboard.writeText(browserExtensionPath).then(() => {
-                        setBrowserExtensionPathCopied(true)
-                        window.setTimeout(() => setBrowserExtensionPathCopied(false), 1500)
-                      })
-                    }}
-                  >
-                    {browserExtensionPathCopied ? copy.copiedExtensionPath : copy.copyExtensionPath}
-                  </button>
-                </div>
-              ) : null}
-              {browserChoice !== 'extension' || browserExtensionConnected ? (
+              {showExternalCdp ? (
                 <button
                   type="button"
                   className="code-plugin-browser-apply"
-                  disabled={
-                    saving
-                    || loading
-                    || preparingIsolatedBrowser
-                    || !browserChoiceDirty
-                    || (browserChoice === 'isolated' && !isolatedBrowserReady)
-                  }
-                  onClick={() => void saveBrowserChoice()}
+                  disabled={saving || loading || !externalCdpUrl.trim()}
+                  onClick={() => void saveExternalCdp()}
                 >
                   {copy.applyBrowser}
                 </button>
               ) : null}
-              {showIsolatedBrowserPrepare ? (
-                <button
-                  type="button"
-                  className="code-plugin-browser-install"
-                  disabled={loading || preparingIsolatedBrowser}
-                  onClick={() => void prepareIsolatedBrowser()}
-                >
-                  {preparingIsolatedBrowser
-                    ? copy.preparingIsolatedBrowser
-                    : copy.prepareIsolatedBrowser}
-                </button>
-              ) : null}
             </div>
-            {browserChoice === 'external-cdp' ? <small>{copy.externalBrowserHint}</small> : null}
-            {browserChoice === 'extension' && browserExtensionStatusError ? (
+            {showExternalCdp ? <small>{copy.externalBrowserHint}</small> : null}
+            {browserExtensionStatusError ? (
               <div className="code-plugin-error" role="alert">{browserExtensionStatusError}</div>
             ) : null}
-            <small>
-              {loading && capability === null
-                ? copy.checking
-                : <>{browserReady ? browserSource(capability, copy) : copy.unavailableHint}{' · '}{copy.browserChangeHint}</>}
-            </small>
             {showIsolatedBrowserPrepare ? <small>{copy.isolatedBrowserHint}</small> : null}
             {capability?.isolated?.dockerAvailable === false
               ? <small>

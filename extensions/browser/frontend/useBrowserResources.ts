@@ -55,7 +55,14 @@ export function useBrowserResources(options: {
 
   const create = useCallback(async (
     workspace: string,
-    options: { agentId?: string; name?: string; url?: string } = {},
+    options: {
+      agentId?: string
+      executablePath?: string
+      externalCdpUrl?: string
+      name?: string
+      source?: 'extension' | 'external-cdp' | 'isolated' | 'system'
+      url?: string
+    } = {},
   ) => {
     const resource = await browserRequest<BrowserResource>('/api/browsers', {
       method: 'POST',
@@ -63,6 +70,9 @@ export function useBrowserResources(options: {
         rootId: projectFilesWorkspaceId(workspace),
         agentId: options.agentId,
         name: options.name,
+        source: options.source,
+        executablePath: options.executablePath,
+        externalCdpUrl: options.externalCdpUrl,
         url: options.url,
       }),
     })

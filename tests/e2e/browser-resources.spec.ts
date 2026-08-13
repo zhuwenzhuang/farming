@@ -13,7 +13,6 @@ import {
   startAgentFromOpenDialog,
   test,
 } from './fixtures'
-import { codeSelectOptions, selectCodeOption } from './code-select'
 
 let targetServer: http.Server
 let targetUrl = ''
@@ -738,6 +737,17 @@ test('offers explicit isolated Browser preparation when no local browser is avai
         executablePath: '',
         externalCdpUrl: 'http://127.0.0.1:9222',
       },
+      sources: [
+        { source: 'system', available: false, kind: '', path: '', message: 'No system browser' },
+        { source: 'extension', available: false, kind: 'chrome-extension', path: '', message: 'Not connected' },
+        {
+          source: 'isolated',
+          available: prepared,
+          kind: prepared ? 'isolated-computer' : '',
+          path: '',
+          message: prepared ? '' : 'Not prepared',
+        },
+      ],
       options: [],
       isolated: {
         available: prepared,
@@ -785,23 +795,15 @@ test('offers explicit isolated Browser preparation when no local browser is avai
   await page.getByTestId('code-nav-plugins').click()
   const pluginsPanel = page.getByTestId('code-plugins-panel')
   await expect(pluginsPanel.getByRole('heading', { name: 'Browser', exact: true })).toBeVisible()
-  await expect(pluginsPanel.locator('small').filter({
-    hasText: 'Choose a local Chromium browser or prepare the Farming-managed isolated Browser.',
-  })).toBeVisible()
-  await expect(pluginsPanel.getByText('Not ready', { exact: true })).toBeVisible()
+  await expect(pluginsPanel.getByRole('group', { name: 'Available browsers' }))
+    .toContainText('These browsers can be used together.')
+  await expect(pluginsPanel.locator('.code-plugin-status').filter({ hasText: 'Not ready' })).toBeVisible()
   const browserPlugin = pluginsPanel.getByTestId('code-plugin-browser')
   await expect(browserPlugin.getByRole('button', { name: 'Enable' })).toBeDisabled()
-  await selectCodeOption(
-    pluginsPanel.getByRole('combobox', { name: 'Browser source' }),
-    'isolated',
-  )
   await pluginsPanel.getByRole('button', { name: 'Prepare isolated Browser' }).click()
-  const browserSource = pluginsPanel.getByRole('combobox', { name: 'Browser source' })
-  await browserSource.click()
-  await expect(pluginsPanel.getByRole('option', { name: 'Isolated Browser' })).toBeEnabled()
+  await expect(pluginsPanel.getByRole('group', { name: 'Available browsers' }))
+    .toContainText('Isolated BrowserAvailable')
   await expect(pluginsPanel.getByRole('button', { name: 'Prepare isolated Browser' })).toHaveCount(0)
-  await browserSource.click()
-  await pluginsPanel.getByRole('button', { name: 'Apply' }).click()
   await expect(browserPlugin.getByRole('button', { name: 'Enable' })).toBeEnabled()
   const screenshot = testInfo.outputPath('browser-plugin-prepare-required.png')
   await pluginsPanel.screenshot({ path: screenshot })
@@ -842,16 +844,9 @@ test('keeps Isolated Browser visible but disabled without Docker', async ({ page
   await openFarming(page)
   await page.getByTestId('code-nav-plugins').click()
   const browserPlugin = page.getByTestId('code-plugin-browser')
-  const browserSource = browserPlugin.getByRole('combobox', { name: 'Browser source' })
-
-  const options = await codeSelectOptions(browserSource)
-  const isolatedOption = options.find(option => option.value === 'isolated')
-  expect(isolatedOption?.label).toBe('Isolated Browser (requires Docker)')
-  expect(isolatedOption?.disabled).toBe(true)
-  await expect(browserPlugin.getByRole('option', { name: 'Isolated Browser (requires Docker)' })).toBeDisabled()
-  await expect(browserSource).toHaveAttribute('data-value', 'system:/mock/chrome')
+  await expect(browserPlugin.getByRole('group', { name: 'Available browsers' }))
+    .toContainText('Isolated Browser (requires Docker)')
   await expect(browserPlugin.getByRole('button', { name: 'Prepare isolated Browser' })).toHaveCount(0)
-  await expect(browserPlugin.getByRole('button', { name: 'Apply' })).toBeDisabled()
   await expect(browserPlugin.getByRole('link', { name: 'View Docker installation guide' }))
     .toHaveAttribute('href', 'https://docs.docker.com/engine/install/')
 })
@@ -1253,42 +1248,40 @@ test('uses Farming dark colors for the Browser source menu', async ({ page }) =>
   await openFarming(page)
   await page.getByTestId('code-nav-plugins').click()
   const pluginsPanel = page.getByTestId('code-plugins-panel')
-  const browserSource = pluginsPanel.getByRole('combobox', { name: 'Browser source' })
+  const browserSources = pluginsPanel.getByRole('group', { name: 'Available browsers' })
 
   await page.evaluate(() => {
     document.body.dataset.appearance = 'dark'
   })
-  await expect(browserSource).toBeEnabled({ timeout: 30_000 })
-  await browserSource.click()
-  const menu = browserSource.locator('xpath=..').getByRole('listbox')
-  await expect(menu).toHaveCSS('background-color', 'rgb(48, 48, 48)')
-  await expect(menu).toHaveCSS('border-radius', '12px')
-  await expect(menu.getByRole('option').first()).toHaveCSS('color', 'rgb(255, 255, 255)')
+  await expect(browserSources).toBeVisible({ timeout: 30_000 })
+  const firstSource = browserSources.locator('.code-plugin-browser-source').first()
+  await expect(firstSource).toHaveCSS('background-color', 'rgb(34, 34, 34)')
+  await expect(firstSource).toHaveCSS('border-radius', '8px')
+  await expect(firstSource.locator('strong')).toHaveCSS('color', 'rgb(255, 255, 255)')
 })
 
-test('shows explicit Browser sources without an Automatic choice', async ({ page }) => {
+test('shows concurrent Browser sources and existing Chrome setup', async ({ page }) => {
   await openFarming(page)
   await page.getByTestId('code-nav-plugins').click()
   const pluginsPanel = page.getByTestId('code-plugins-panel')
-  const browserSource = pluginsPanel.getByRole('combobox', { name: 'Browser source' })
-  const apply = pluginsPanel.getByRole('button', { name: 'Apply' })
+  const browserSources = pluginsPanel.getByRole('group', { name: 'Available browsers' })
 
   await expect(pluginsPanel.getByRole('combobox', { name: 'Browser permissions' })).toHaveCount(0)
-  await expect(browserSource).toBeEnabled({ timeout: 30_000 })
-  const options = await codeSelectOptions(browserSource)
-  expect(options.map(option => option.label)).not.toContain('Automatic (local first, then isolated)')
-  expect(options.find(option => option.value === 'extension')?.label).toBe('Your existing Chrome')
-  expect(options.filter(option => option.value === 'isolated')).toHaveLength(1)
-  expect(options.find(option => option.value === 'isolated')?.label).toMatch(/^Isolated Browser/)
+  await expect(browserSources).toContainText('These browsers can be used together.')
+  await expect(browserSources).toContainText('Your existing Chrome')
+  await expect(browserSources).toContainText('Isolated Browser')
   await expect(pluginsPanel.getByRole('textbox', { name: 'CDP address' })).toHaveCount(0)
-  await expect(apply).toBeDisabled()
-
-  await selectCodeOption(browserSource, 'extension')
-  await expect(pluginsPanel.getByText('Waiting for Farming Browser Connector.')).toBeVisible()
   await expect(pluginsPanel.getByRole('textbox', { name: 'Bundled extension directory' }))
     .toHaveValue(/browser-extension\/chrome$/)
   await expect(pluginsPanel.getByRole('button', { name: 'Copy directory' })).toBeEnabled()
-  await expect(apply).toHaveCount(0)
+  await expect(pluginsPanel.getByRole('link', { name: 'Install connector' })).toBeVisible()
+  await pluginsPanel.getByRole('button', { name: 'Configure CDP' }).click()
+  const cdpAddress = pluginsPanel.getByRole('textbox', { name: 'CDP address' })
+  await expect(cdpAddress).toHaveValue('http://127.0.0.1:9222')
+  await cdpAddress.fill('ws://127.0.0.1:9333/devtools/browser')
+  const apply = pluginsPanel.getByRole('button', { name: 'Apply' })
+  await apply.click()
+  await expect(browserSources).toContainText('Your existing Chrome')
 })
 
 test('matches the focused Viewer viewport and restores the previous Viewer on close', async ({

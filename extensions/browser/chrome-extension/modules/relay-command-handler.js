@@ -1,3 +1,25 @@
+async function waitForTabReady(tabId, timeoutMs = 5_000) {
+  if ((await chrome.tabs.get(tabId)).status === "complete") return;
+  await new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      chrome.tabs.onUpdated.removeListener(onUpdated);
+      resolve();
+    };
+    const onUpdated = (updatedTabId, changeInfo) => {
+      if (updatedTabId === tabId && changeInfo.status === "complete") finish();
+    };
+    const timer = setTimeout(finish, timeoutMs);
+    chrome.tabs.onUpdated.addListener(onUpdated);
+    void chrome.tabs.get(tabId).then((tab) => {
+      if (tab.status === "complete") finish();
+    }, finish);
+  });
+}
+
 /** Build the authenticated application-command dispatcher for the relay socket. */
 export function createRelayCommandHandler({
   send,
@@ -39,10 +61,14 @@ export function createRelayCommandHandler({
           return;
         }
         case "createTab": {
+          const url = message.url === "about:blank"
+            ? "data:text/html,<title>Farming</title>"
+            : message.url;
           const tab = await chrome.tabs.create({
-            url: message.url,
+            url,
             active: message.background !== true,
           });
+          await waitForTabReady(tab.id);
           await addTabToFarmingGroup(tab.id);
           if (message.focus === true) {
             await focusWindowForTab(tab);

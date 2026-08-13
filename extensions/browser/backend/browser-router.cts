@@ -161,7 +161,19 @@ function createBrowserRouter(
     try {
       requestAgentBinding(agentStateReader, _req);
       await manager.refreshCapability(undefined, { reuseVerified: true });
-      res.json(manager.capability());
+      const capability = manager.capability();
+      const sources = await manager.sourceCapabilities();
+      const anySourceAvailable = sources.some(source => source.available === true);
+      res.json({
+        ...capability,
+        available: capability.enabled === true && anySourceAvailable,
+        sources,
+        message: capability.enabled !== true
+          ? capability.message
+          : anySourceAvailable
+            ? ''
+            : capability.message,
+      });
     } catch (error) {
       sendError(res, error);
     }
@@ -256,6 +268,9 @@ function createBrowserRouter(
           return res.status(409).json({ error: 'Browser owner Agent is not running' });
         }
       }
+      const source = String(body.source || '').trim();
+      const executablePath = String(body.executablePath || '').trim();
+      const externalCdpUrl = String(body.externalCdpUrl || '').trim();
       const resource = manager.create({
         projectRootId: root.rootId,
         workspace: root.canonicalPath,
@@ -263,6 +278,9 @@ function createBrowserRouter(
         ownerAgentId,
         name: body.name,
         url: body.url,
+        ...(source ? { browserSource: source } : {}),
+        ...(executablePath ? { browserExecutablePath: executablePath } : {}),
+        ...(externalCdpUrl ? { browserExternalCdpUrl: externalCdpUrl } : {}),
       });
       res.status(201).json(resource);
     } catch (error) {

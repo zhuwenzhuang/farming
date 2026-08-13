@@ -49,6 +49,17 @@ async function run() {
   const popup = read(path.join(extensionRoot, 'popup.html'));
   const popupScript = read(path.join(extensionRoot, 'popup.js'));
   assert.strictEqual(manifest.name, 'Farming Browser Connector');
+  assert.strictEqual(manifest.version, '0.0.1');
+  assert.strictEqual(manifest.description, 'Let Agents in Farming use your browser.');
+  assert.deepStrictEqual(manifest.icons, {
+    16: 'icons/farming-16.png',
+    32: 'icons/farming-32.png',
+    48: 'icons/farming-48.png',
+    128: 'icons/farming-128.png',
+  });
+  for (const icon of Object.values(manifest.icons)) {
+    assert.strictEqual(fs.existsSync(path.join(extensionRoot, icon as string)), true);
+  }
   assert.strictEqual(manifest.permissions.includes('debugger'), true);
   assert.strictEqual(manifest.permissions.includes('activeTab'), true);
   assert.strictEqual(manifest.permissions.includes('scripting'), true);
@@ -70,7 +81,7 @@ async function run() {
   assert.match(relayCore, /endsWith\("\/browser\/extension"\)/);
   assert.match(nativeBootstrap, /ai\.farming\.browser_bootstrap/);
   assert.match(pagePairing, /world: "MAIN"/);
-  assert.match(pagePairing, /browserSource: "extension"/);
+  assert.doesNotMatch(pagePairing, /browserSource: "extension"/);
   assert.match(pagePairing, /accessMode: "all"/);
   assert.doesNotMatch(`${relayCore}\n${nativeBootstrap}\n${background}`, /OpenClaw|openclaw|OPENCLAW/);
 
@@ -118,7 +129,6 @@ async function run() {
     assert.deepStrictEqual(extensionMessages[0].accessMode, 'all');
     assert.deepStrictEqual(JSON.parse(pageRequests[3].options.body), {
       browserExtensionEnabled: true,
-      browserSource: 'extension',
     });
   } finally {
     globals.chrome = previousChrome;

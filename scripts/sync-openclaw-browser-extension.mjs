@@ -63,10 +63,23 @@ for (const file of moduleFiles) {
 const manifestPath = path.join(destinationRoot, 'manifest.json');
 const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 manifest.name = 'Farming Browser Connector';
-manifest.description = 'Securely relay eligible signed-in Chrome tabs to Farming Browser.';
+manifest.version = '0.0.1';
+manifest.description = 'Let Agents in Farming use your browser.';
 manifest.permissions = [...new Set([...manifest.permissions, 'activeTab', 'scripting'])];
-delete manifest.icons;
-delete manifest.action?.default_icon;
+manifest.icons = {
+  16: 'icons/farming-16.png',
+  32: 'icons/farming-32.png',
+  48: 'icons/farming-48.png',
+  128: 'icons/farming-128.png',
+};
+manifest.action = {
+  ...manifest.action,
+  default_title: 'Farming',
+  default_icon: {
+    16: 'icons/farming-16.png',
+    32: 'icons/farming-32.png',
+  },
+};
 delete manifest.options_ui;
 fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 

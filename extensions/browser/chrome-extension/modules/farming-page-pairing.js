@@ -24,7 +24,6 @@ async function requestFromCurrentFarming(operation) {
                 headers: { "Content-Type": "application/json", Accept: "application/json" },
                 body: JSON.stringify({
                   browserExtensionEnabled: true,
-                  browserSource: "extension",
                 }),
               }
             : { credentials: "same-origin", headers: { Accept: "application/json" } },

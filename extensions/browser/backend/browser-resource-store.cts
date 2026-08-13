@@ -6,7 +6,7 @@ import {
   browserResourcesFile,
 } from '../../../backend/storage-layout.cjs';
 
-const STORE_VERSION = 6;
+const STORE_VERSION = 7;
 const RESOURCE_ID_RE = /^browser_[A-Za-z0-9_-]+$/;
 const TAB_ID_RE = /^t\d+$/;
 const STATUSES = new Set<BrowserResourceStatus>([
@@ -31,6 +31,9 @@ interface BrowserProcessIdentity {
 interface BrowserResource {
   autoName: boolean;
   browserKind: string;
+  browserSource: string;
+  browserExecutablePath: string;
+  browserExternalCdpUrl: string;
   createdAt: number;
   error: string;
   generation: number;
@@ -55,6 +58,9 @@ interface BrowserResource {
 interface BrowserResourceCreateInput {
   autoName?: boolean;
   browserKind?: unknown;
+  browserSource?: unknown;
+  browserExecutablePath?: unknown;
+  browserExternalCdpUrl?: unknown;
   name?: unknown;
   ownerAgentId?: unknown;
   ownerType?: unknown;
@@ -141,6 +147,13 @@ function normalizeResource(value: unknown): BrowserResource | null {
   const ownerType: BrowserResourceOwnerType = resource.ownerType === 'agent' && ownerAgentId
     ? 'agent'
     : 'project';
+  const legacySource = resource.browserKind === 'chrome-extension'
+    ? 'extension'
+    : resource.browserKind === 'external-cdp'
+      ? 'external-cdp'
+      : resource.browserKind === 'isolated-computer'
+        ? 'isolated'
+        : 'system';
   return {
     id: String(resource.id),
     projectRootId,
@@ -159,6 +172,11 @@ function normalizeResource(value: unknown): BrowserResource | null {
     url: String(resource.url || 'about:blank').slice(0, 8_192) || 'about:blank',
     title: String(resource.title || '').slice(0, 512),
     browserKind: String(resource.browserKind || ''),
+    browserSource: ['extension', 'external-cdp', 'isolated', 'system'].includes(String(resource.browserSource || ''))
+      ? String(resource.browserSource)
+      : legacySource,
+    browserExecutablePath: String(resource.browserExecutablePath || '').slice(0, 4_096),
+    browserExternalCdpUrl: String(resource.browserExternalCdpUrl || '').slice(0, 8_192),
     runtimeKind: String(resource.runtimeKind || ''),
     sessionId: RESOURCE_ID_RE.test(String(resource.sessionId || ''))
       ? String(resource.sessionId)
@@ -238,6 +256,9 @@ class BrowserResourceStore {
       url: input.url || 'about:blank',
       title: '',
       browserKind: '',
+      browserSource: input.browserSource,
+      browserExecutablePath: input.browserExecutablePath,
+      browserExternalCdpUrl: input.browserExternalCdpUrl,
       sessionId: input.sessionId || '',
       sessionGeneration: input.sessionGeneration || 0,
       tabId: input.tabId || '',
