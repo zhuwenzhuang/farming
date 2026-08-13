@@ -429,6 +429,7 @@ export interface AgentForkResult extends Record<string, unknown> {
 
 export interface TargetProcessAcpForkOptions {
   agent: Record<string, unknown> & { id: string };
+  forkTitleBase: string;
   provider: ProviderId;
   sourceSessionId: string;
   workspace: string;

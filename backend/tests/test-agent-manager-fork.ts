@@ -115,10 +115,15 @@ async function run() {
       'an unsupported Provider Fork must not create a worktree',
     );
 
-    const sourceId = await startAgent(manager, 'bash', repo, { wantsMain: false });
+    const sourceId = await startAgent(manager, 'bash', repo, {
+      wantsMain: false,
+      customTitle: 'Review changes',
+      customTitleExplicit: true,
+    });
     const sourceAgent = manager.getState().agents.find(agent => agent.id === sourceId);
     assert.strictEqual(sourceAgent.canForkNewWorktree, true);
     assert.strictEqual(sourceAgent.command, 'bash');
+    assert.strictEqual(sourceAgent.customTitle, 'Review changes');
 
     const permanentWorktree = await manager.createPermanentWorktree(repo);
     assert.match(path.basename(permanentWorktree.workspace), /^repo-farming-worktree-\d{8}-\d{6}-[0-9a-f]{32}(?:-\d+)?$/);
@@ -148,7 +153,13 @@ async function run() {
     assert(sameAgent, 'same-worktree fork should appear in state');
     assert.strictEqual(sameAgent.parentAgentId, sourceId);
     assert.strictEqual(sameAgent.source, 'ui-fork-same-worktree');
+    assert.strictEqual(sameAgent.customTitle, 'Review changes(1)');
     assert.strictEqual(typeof sameAgent.startedAt, 'number');
+
+    const nestedFork = await manager.forkAgent(sameWorktree.agentId, 'same-worktree');
+    assert.strictEqual(nestedFork.error, undefined);
+    const nestedAgent = manager.getState().agents.find(agent => agent.id === nestedFork.agentId);
+    assert.strictEqual(nestedAgent.customTitle, 'Review changes(1)(1)');
 
     const newWorktree = await manager.forkAgent(sourceId, 'new-worktree');
     assert.strictEqual(newWorktree.error, undefined);
@@ -164,10 +175,15 @@ async function run() {
     });
     assert.strictEqual(newWorktreeAgent.gitWorktree.linked, true);
     assert.strictEqual(newWorktreeAgent.gitWorktree.mainWorkspace, fs.realpathSync(repo));
+    assert.strictEqual(newWorktreeAgent.customTitle, 'Review changes(2)');
     assert.strictEqual(manager.getAgentWorkspaceRoot(newWorktree.agentId), newWorktree.workspace);
 
     const cleanWorktree = await manager.forkAgent(sourceId, 'new-worktree');
     assert.strictEqual(cleanWorktree.error, undefined);
+    assert.strictEqual(
+      manager.getState().agents.find(agent => agent.id === cleanWorktree.agentId).customTitle,
+      'Review changes(3)',
+    );
     let releaseBlockedStart;
     const blockedStartEntered = new Promise(resolve => {
       blockedCreate = {
@@ -287,6 +303,7 @@ async function run() {
     }]);
 
     const sourceAcpAgent = manager.agents.get(resumedCodexId);
+    sourceAcpAgent.customTitle = 'Codex review';
     sourceAcpAgent.runtimeBinding = {
       kind: 'acp',
       state: 'idle',
@@ -350,6 +367,7 @@ async function run() {
     assert.strictEqual(acpChatForkAgent.runtimeBinding.kind, 'acp');
     assert.strictEqual(acpChatForkAgent.parentAgentId, resumedCodexId);
     assert.strictEqual(acpChatForkAgent.source, 'ui-fork-acp-chat');
+    assert.strictEqual(acpChatForkAgent.customTitle, 'Codex review(1)');
     assert.strictEqual(acpChatForkAgent.forkedFromProviderSessionId, codexSessionId);
     assert.strictEqual(fs.realpathSync(acpChatForkAgent.projectWorkspace), fs.realpathSync(repo));
 
@@ -398,6 +416,13 @@ async function run() {
     releaseConcurrentUnarchive();
     const concurrentForkResults = await Promise.all([concurrentForkOne, concurrentForkTwo]);
     assert(concurrentForkResults.every(result => !result.error));
+    assert.deepStrictEqual(
+      concurrentForkResults
+        .map(result => manager.agents.get(result.agentId).customTitle)
+        .sort(),
+      ['Codex review(2)', 'Codex review(3)'],
+      'concurrent child starts must reserve distinct incrementing Fork titles',
+    );
 
     manager.unarchiveCodexSession = async () => ({ error: 'simulated unarchive failure' });
     const worktreesBeforeFailedFork = execFileSync('git', ['-C', repo, 'worktree', 'list', '--porcelain'], { encoding: 'utf8' });
@@ -428,6 +453,7 @@ async function run() {
     assert.match(captured.at(-1).args[6], /FARMING_CLI_BIN_DIR\/farming" capabilities/);
 
     const sourceClaudeAgent = manager.agents.get(resumedClaudeId);
+    sourceClaudeAgent.customTitle = 'Claude review';
     sourceClaudeAgent.runtimeBinding = {
       kind: 'acp',
       state: 'idle',
@@ -502,6 +528,7 @@ async function run() {
     assert.strictEqual(ownedClaudePrepareOptions.forkSourceCheckpoint.sessionState, exactClaudeForkCheckpoint);
     const ownedClaudeForkAgent = manager.agents.get(ownedClaudeFork.agentId);
     assert.strictEqual(ownedClaudeForkAgent.parentAgentId, resumedClaudeId);
+    assert.strictEqual(ownedClaudeForkAgent.customTitle, 'Claude review(1)');
     assert.strictEqual(ownedClaudeForkAgent.providerSessionId, ownedClaudeForkSessionId);
     assert.strictEqual(ownedClaudeForkAgent.providerSessionSource, 'acp-fork');
     assert.strictEqual(ownedClaudeForkAgent.forkedFromProviderSessionId, claudeSessionId);

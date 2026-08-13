@@ -138,6 +138,12 @@ still the requesting Agent. The accepted result is acknowledged only after
 atomic publication. Failure rolls the visible title back when that failed
 value is still current, and shutdown drains every accepted title operation.
 
+A Fork child inherits the source Agent's current effective row title. The
+backend appends `(1)` and selects the lowest positive suffix not already used
+by another Agent or an admitted child start, then persists that result as the
+child's custom title. Provider title updates therefore cannot silently replace
+the inherited Fork identity.
+
 The backend updates the list projection from exact Agent and collection
 mutations. Mutations within the broadcast window are coalesced by Agent ID, so
 ordinary delta construction is proportional to the changed working set rather

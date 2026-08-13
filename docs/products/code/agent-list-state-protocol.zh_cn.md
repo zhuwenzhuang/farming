@@ -23,6 +23,8 @@ Activity Message 是可替换的绝对 Projection。慢速 `focused` Client 只�
 
 Adaptive Agent Title 会先发布 Agent-scoped Optimistic Patch，同一 Agent 的重复 Title 共用一个待完成的 Durability Result，并用最新排队值替换旧值。Admission 要求 Agent 的 Create Intent 已经建立持久化 Session Record，Title Update 不会隐式创建或认领 Record。持久化 Metadata Read、临时文件写入与 `fdatasync` 使用异步文件 I/O。Generation Check 会阻止已经准备好的旧 Title 覆盖并发 Lifecycle Metadata Commit；发生冲突时会在有界预算内重新读取最新 Record、重新解析 Provider Session 的 Canonical Record，并验证 Runtime Owner 仍是发起请求的 Agent。只有原子发布完成后才确认成功；失败时，如果该失败值仍是当前 Title，则回滚可见状态；Shutdown 会排空所有已接受的 Title Operation。
 
+Fork Child 继承 Source Agent 当前有效的 Row Title。Backend 追加 `(1)`，并选择尚未被其他 Agent 或已 Admission 的 Child Start 占用的最小正整数后缀，再把结果持久化为 Child 的 Custom Title。因此 Provider Title Update 不会静默覆盖继承得到的 Fork Identity。
+
 后端根据精确的 Agent 与集合 mutation 更新列表投影。同一广播窗口内的 mutation 按 Agent ID 合并，因此普通 delta 的构造成本与实际变化的工作集成正比，而不是与完整 Agent 数量成正比。只有首次连接和恢复快照才构建完整 Agent payload，并通过有界 Page 发送；恢复快照会用当前权威状态替换任何可能遗漏的 mutation。第一个 Page 必须包含 Main Agent，避免客户端在后续 Page 到达前误判 Main Runtime 缺失。
 
 权威 Agent Row 不会等待可选的 Git Worktree Decoration。Worktree Refresh 通过有界的后台队列执行；同一个精确 Agent 尚未开始的旧请求可以被最新请求替代。删除 Agent 会取消其 Pending Refresh；已经在执行的结果仍必须同时匹配同一 Agent Record 与 Refresh Generation，才能发布列表更新。Git Command Timeout 或探测失败只会省略或清除可选 Decoration，不会改变权威 Agent Lifecycle。这个资源边界限制的是后台进程突发量，而不是 Agent 数量。同一精确且规范化 Git Common Directory 的仓库级 Worktree 枚举会在一个短暂且有界的时间窗口内复用；Lifecycle Postcondition Check 使用 Fresh Read，不会消费缓存的枚举结果。

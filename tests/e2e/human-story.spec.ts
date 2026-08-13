@@ -775,7 +775,14 @@ test.describe('human Farming Agent story', () => {
     const secondBashAgentId = await startAgentFromOpenDialog(page, 'bash', projectDir)
     const beforeIds = new Set(await getAgentRowIds(page))
 
-    await page.locator(`[data-testid="code-agent-row"][data-agent-id="${bashAgentId}"]`).click({ button: 'right' })
+    const sourceRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${bashAgentId}"]`)
+    await sourceRow.click({ button: 'right' })
+    await page.getByRole('menuitem', { name: 'Rename Agent' }).click()
+    await page.getByTestId('code-rename-input').fill('Fork source')
+    await page.getByTestId('code-rename-input').press('Enter')
+    await expect(sourceRow).toContainText('Fork source')
+
+    await sourceRow.click({ button: 'right' })
     await page.getByRole('menuitem', { name: 'Fork into same worktree' }).click()
     await expect.poll(async () => (
       (await getAgentRowIds(page)).find(agentId => !beforeIds.has(agentId)) ?? ''
@@ -783,7 +790,9 @@ test.describe('human Farming Agent story', () => {
 
     const createdAgentId = (await getAgentRowIds(page)).find(agentId => !beforeIds.has(agentId))
     if (!createdAgentId) throw new Error('Forked agent row is missing')
-    await expect(page.locator(`[data-testid="code-agent-row"][data-agent-id="${createdAgentId}"]`)).toHaveClass(/active/)
+    const createdRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${createdAgentId}"]`)
+    await expect(createdRow).toHaveClass(/active/)
+    await expect(createdRow).toContainText('Fork source(1)')
     await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${createdAgentId}"]`)).toBeVisible()
     await expect(page.locator(`[data-testid="code-agent-row"][data-agent-id="${secondBashAgentId}"]`)).not.toHaveClass(/active/)
   })

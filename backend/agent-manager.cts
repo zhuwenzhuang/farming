@@ -1143,6 +1143,14 @@ function isGenericSessionTitle(agent: TypedAgentRecord, title: string): boolean 
   return agentWorkspaceTitleKeys(agent).includes(normalizedTitle);
 }
 
+function meaningfulForkSourceTitle(agent: TypedAgentRecord, value: unknown): string {
+  const title = typeof value === 'string' ? value.trim() : '';
+  if (!title || isGenericSessionTitle(agent, title)) return '';
+  const program = agentProgramName(agent.command || '').toLowerCase();
+  if ((program === 'qoder' || program === 'qodercli') && /^[◇✋✦⏲]/u.test(title)) return '';
+  return title.replace(/^[\s*＊✳✱✲✶·•◇✋✦⏲\u2800-\u28FF]+/u, '').trim() || title;
+}
+
 function interruptInputForAgent(agent: TypedAgentRecord) {
   const provider = agent?.providerSessionProvider || agentHomeProviderForProgram(agent?.command || '');
   return getProviderAdapter(provider)?.interruptInput || '\x03';
@@ -1247,6 +1255,7 @@ class AgentManager extends EventEmitter {
   declare cliBinDir: string;
   declare agentShellEnvResolver: AgentShellEnvResolver;
   declare agents: Map<AgentId, TypedAgentRecord>;
+  declare forkTitleReservations: Set<string>;
   declare agentOrderAllocator: AgentOrderAllocator;
   declare mainAgentIdentity: MainAgentIdentityOwner;
   declare activityTracker: AgentActivityTracker;
@@ -1308,6 +1317,50 @@ class AgentManager extends EventEmitter {
     return deleted;
   }
 
+  private agentTitleForFork(agent: TypedAgentRecord): string {
+    const customTitle = String(agent.customTitle || '').trim();
+    if (customTitle) return customTitle;
+    if (this.isMainAgentRecord(agent.id, agent)) return 'Main Agent';
+
+    const adaptiveTitle = meaningfulForkSourceTitle(agent, agent.adaptiveTitle);
+    if (adaptiveTitle) return adaptiveTitle;
+
+    if (/^[a-z]+-history(?:-fork)?:/.test(agent.source || '')) {
+      const historyTitle = meaningfulForkSourceTitle(agent, agent.providerSessionTitle)
+        || meaningfulForkSourceTitle(agent, agent.sessionTitle)
+        || meaningfulForkSourceTitle(agent, agent.task);
+      if (historyTitle) return historyTitle;
+    } else if (runtimeKind(agent) !== 'acp') {
+      const terminalTitle = meaningfulForkSourceTitle(agent, agent.providerSessionTitle)
+        || meaningfulForkSourceTitle(agent, agent.sessionTitle);
+      if (terminalTitle) return terminalTitle;
+    }
+
+    return agentDisplayName(agent.command || '') || 'Agent';
+  }
+
+  private reserveForkAgentTitle(baseTitle: string): { title: string; release: () => void } {
+    const occupied = new Set(
+      Array.from(this.agents.values()).map(agent => this.agentTitleForFork(agent)),
+    );
+    const base = String(baseTitle || '').trim() || 'Agent';
+    for (let index = 1; ; index += 1) {
+      const suffix = `(${index})`;
+      const title = `${base.slice(0, Math.max(0, 80 - suffix.length)).trimEnd()}${suffix}`;
+      if (occupied.has(title) || this.forkTitleReservations.has(title)) continue;
+      this.forkTitleReservations.add(title);
+      let released = false;
+      return {
+        title,
+        release: () => {
+          if (released) return;
+          released = true;
+          this.forkTitleReservations.delete(title);
+        },
+      };
+    }
+  }
+
   constructor(
     configManager: AgentManagerConfigContract | null | undefined,
     options: AgentManagerOptions = {},
@@ -1328,6 +1381,7 @@ class AgentManager extends EventEmitter {
         : (shell: string) => resolveUserShellEnvSync({ processEnv: process.env, shell }),
     });
     this.agents = new RuntimeAgentMap();
+    this.forkTitleReservations = new Set();
     this.agentOrderAllocator = new AgentOrderAllocator();
     this.mainAgentIdentity = new MainAgentIdentityOwner();
     this.activityTracker = new AgentActivityTracker({
@@ -8467,6 +8521,7 @@ class AgentManager extends EventEmitter {
     if (!['same-worktree', 'new-worktree'].includes(mode)) {
       return { error: 'Unsupported fork mode' };
     }
+    const forkTitleBase = this.agentTitleForFork(agent);
     const targetRuntime = forkTargetRuntime(agent, options.targetRuntime);
     const forkProvider = agent.providerSessionProvider
       || agentHomeProviderForProgram(agent.forkCommand || agent.command || '');
@@ -8514,6 +8569,7 @@ class AgentManager extends EventEmitter {
           options.lifecycleToken,
           options.forkRequestId || '',
           options.forkRequestSignature || '',
+          forkTitleBase,
         );
       }
       return this.runAgentLifecycleOperation(
@@ -8521,7 +8577,14 @@ class AgentManager extends EventEmitter {
         `conversation-fork:${expectedRevision}`,
         'conversation-fork',
         'conversation fork',
-        (lifecycleToken: symbol) => this.performAcpConversationFork(agentId, expectedRevision, lifecycleToken, ''),
+        (lifecycleToken: symbol) => this.performAcpConversationFork(
+          agentId,
+          expectedRevision,
+          lifecycleToken,
+          '',
+          '',
+          forkTitleBase,
+        ),
       );
     }
     const stabilization = await this.stabilizeForkSourceIdentity(agentId, options);
@@ -8579,6 +8642,7 @@ class AgentManager extends EventEmitter {
       })
       : String(agent.forkCommand || agent.command || '');
 
+    const forkTitle = this.reserveForkAgentTitle(forkTitleBase);
     const start = await settleForkChildStart(
       callback => this.startAgent(forkCommand, targetWorkspace, callback, {
         wantsMain: false,
@@ -8587,13 +8651,15 @@ class AgentManager extends EventEmitter {
         forkRequestSignature: options.forkRequestSignature || '',
         task: agent.task ? `Fork: ${agent.task}` : `Fork of ${agent.command}`,
         workflowTemplate: agent.workflowTemplate || '',
+        customTitle: forkTitle.title,
+        customTitleExplicit: true,
         source: mode === 'new-worktree' ? 'ui-fork-new-worktree' : 'ui-fork-same-worktree',
         providerHomeId: agent.providerHomeId || (resumedSession && resumedSession.providerHomeId) || '',
         providerHomePath: agent.providerHomePath || '',
         ...providerSessionResumeOptions(resumedSession?.provider, { preserveProfile: true }),
       }),
       'Failed to start forked agent',
-    );
+    ).finally(forkTitle.release);
     if (start.uncertain) {
       return {
         error: `Fork start outcome is uncertain: ${start.error}${forkWorktreeIdentity ? `; temporary worktree retained at ${targetWorkspace}` : ''}`,
@@ -8637,6 +8703,7 @@ class AgentManager extends EventEmitter {
     lifecycleToken: symbol,
     forkRequestId = '',
     forkRequestSignature = '',
+    forkTitleBase = '',
   ): Promise<AgentForkResult> {
     const agent = this.agents.get(agentId);
     if (!agent) return { error: 'Agent not found' };
@@ -8673,6 +8740,7 @@ class AgentManager extends EventEmitter {
         acpSessionOptions,
         forkRequestId,
         forkRequestSignature,
+        forkTitleBase,
       });
     }
 
@@ -8705,6 +8773,7 @@ class AgentManager extends EventEmitter {
       };
     }
 
+    const forkTitle = this.reserveForkAgentTitle(forkTitleBase || this.agentTitleForFork(agent));
     const start = await settleForkChildStart(
       callback => this.startAgent(command, workspace, callback, {
         wantsMain: false,
@@ -8713,6 +8782,8 @@ class AgentManager extends EventEmitter {
         forkRequestSignature,
         task: agent.task ? `Fork: ${agent.task}` : `Fork of ${agent.command}`,
         workflowTemplate: agent.workflowTemplate || '',
+        customTitle: forkTitle.title,
+        customTitleExplicit: true,
         source: 'ui-fork-acp-chat',
         providerHomeId: agent.providerHomeId || 'default',
         providerHomePath: agent.providerHomePath || '',
@@ -8731,7 +8802,7 @@ class AgentManager extends EventEmitter {
         }),
       }),
       'Failed to start forked ACP Chat Agent',
-    );
+    ).finally(forkTitle.release);
     if (start.uncertain) {
       return {
         error: `Fork start outcome is uncertain: ${start.error}`,
@@ -8781,6 +8852,7 @@ class AgentManager extends EventEmitter {
       acpSessionOptions,
       forkRequestId,
       forkRequestSignature,
+      forkTitleBase,
     } = options;
     const command = getProviderAdapter(provider)?.executable || provider;
     let preparedSessionId = '';
@@ -8794,6 +8866,9 @@ class AgentManager extends EventEmitter {
           if (!forkSourceCheckpoint?.sessionState) {
             throw new Error('ACP fork source transcript is unavailable');
           }
+          const forkTitle = this.reserveForkAgentTitle(
+            forkTitleBase || this.agentTitleForFork(agent as TypedAgentRecord),
+          );
           const start = await settleForkChildStart(
             callback => this.startAgent(command, workspace, callback, {
               wantsMain: false,
@@ -8802,6 +8877,8 @@ class AgentManager extends EventEmitter {
               forkRequestSignature,
               task: agent.task ? `Fork: ${agent.task}` : `Fork of ${agent.command}`,
               workflowTemplate: agent.workflowTemplate || '',
+              customTitle: forkTitle.title,
+              customTitleExplicit: true,
               source: 'ui-fork-acp-chat',
               providerHomeId: agent.providerHomeId || 'default',
               providerHomePath: agent.providerHomePath || '',
@@ -8826,7 +8903,7 @@ class AgentManager extends EventEmitter {
               }),
             }),
             'Failed to start forked ACP Chat Agent',
-          );
+          ).finally(forkTitle.release);
           if (start.uncertain) {
             return {
               error: `Fork start outcome is uncertain: ${start.error}`,
