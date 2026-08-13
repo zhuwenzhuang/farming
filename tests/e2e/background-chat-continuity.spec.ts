@@ -980,7 +980,7 @@ test('forks the latest ACP answer into a new Chat Agent in the same workspace', 
   await expect(forkedPane).toBeVisible()
   await expect(forkedPane.getByTestId('code-agent-chat-view')).toBeVisible()
   const forkOrigin = forkedPane.getByTestId('code-agent-transcript-fork-origin')
-  await expect(forkOrigin).toHaveText('Forked from agent')
+  await expect(forkOrigin).toHaveText('Continued from original Agent')
   await expect(forkedPane.getByTestId('code-agent-transcript-scroll').locator(
     ':scope > [data-testid="code-agent-transcript-fork-origin"]'
   )).toHaveCount(1)

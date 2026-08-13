@@ -783,7 +783,7 @@ test.describe('human Farming Agent story', () => {
     await expect(sourceRow).toContainText('Fork source')
 
     await sourceRow.click({ button: 'right' })
-    await page.getByRole('menuitem', { name: 'Fork into same worktree' }).click()
+    await page.getByRole('menuitem', { name: 'Continue in new Agent' }).click()
     await expect.poll(async () => (
       (await getAgentRowIds(page)).find(agentId => !beforeIds.has(agentId)) ?? ''
     ), { timeout: 30_000 }).not.toBe('')
