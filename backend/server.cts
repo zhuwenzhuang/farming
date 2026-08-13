@@ -772,6 +772,7 @@ app.use(routePath(BASE_PATH, '/api/share/qr-ticket'), createQrShareRouter({
   authEnabled,
   basePath: BASE_PATH,
   fallbackPort: PORT,
+  publicOrigin: process.env.FARMING_PUBLIC_ORIGIN,
 }));
 
 // Terminal assets remain available to the standalone CRT skin when React is served from dist.

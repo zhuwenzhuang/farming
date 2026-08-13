@@ -16,6 +16,7 @@ interface QrShareRequest {
 
 interface QrShareResponse {
   json(value: unknown): QrShareResponse;
+  set(name: string, value: string): QrShareResponse;
   status(code: number): QrShareResponse;
 }
 
@@ -24,9 +25,16 @@ type ExpressHandler = (
   response: QrShareResponse,
 ) => void;
 
+type ExpressMiddleware = (
+  request: QrShareRequest,
+  response: QrShareResponse,
+  next: () => void,
+) => void;
+
 interface ExpressRouter {
   delete(path: string, handler: ExpressHandler): ExpressRouter;
   post(path: string, middleware: unknown, handler: ExpressHandler): ExpressRouter;
+  use(handler: ExpressMiddleware): ExpressRouter;
 }
 
 interface ExpressFactory {
@@ -61,6 +69,7 @@ interface QrShareRouterOptions {
   basePath: string;
   fallbackPort: string | number;
   now?: () => number;
+  publicOrigin?: string;
 }
 
 interface EntryPathOptions {
@@ -153,12 +162,34 @@ function entryPathWithQuery(query = '', options: EntryPathOptions = {}) {
   return queryString ? `${entryPath}?${queryString}` : entryPath;
 }
 
-function absoluteClientUrl(request: QrShareRequest, urlPath: string, fallbackPort: string | number) {
-  const forwardedProto = String(request.headers['x-forwarded-proto'] || '').split(',')[0].trim();
-  const protocol = forwardedProto || request.protocol || 'http';
-  const forwardedHost = String(request.headers['x-forwarded-host'] || '').split(',')[0].trim();
-  const host = forwardedHost || request.headers.host || `127.0.0.1:${fallbackPort}`;
-  return `${protocol}://${host}${urlPath}`;
+function normalizedPublicOrigin(value: unknown) {
+  const candidate = String(value || '').trim();
+  if (!candidate) return '';
+  const parsed = new URL(candidate);
+  if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash) {
+    throw new Error('FARMING_PUBLIC_ORIGIN must be an HTTP(S) origin without a path, query, fragment, or credentials.');
+  }
+  return parsed.origin;
+}
+
+function requestOrigin(request: QrShareRequest, fallbackPort: string | number) {
+  const protocol = ['http', 'https'].includes(String(request.protocol || '').toLowerCase())
+    ? String(request.protocol).toLowerCase()
+    : 'http';
+  const fallbackHost = `127.0.0.1:${fallbackPort}`;
+  const candidateHost = String(request.headers.host || '').trim() || fallbackHost;
+  try {
+    const parsed = new URL(`${protocol}://${candidateHost}`);
+    if (parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash) return `${protocol}://${fallbackHost}`;
+    return parsed.origin;
+  } catch {
+    return `${protocol}://${fallbackHost}`;
+  }
+}
+
+function absoluteClientUrl(request: QrShareRequest, urlPath: string, options: QrShareRouterOptions) {
+  const origin = normalizedPublicOrigin(options.publicOrigin) || requestOrigin(request, options.fallbackPort);
+  return `${origin}${urlPath}`;
 }
 
 function createQrShareRouter(
@@ -168,6 +199,11 @@ function createQrShareRouter(
 ): ExpressRouter {
   const router = expressFactory.Router();
   const now = options.now || Date.now;
+  normalizedPublicOrigin(options.publicOrigin);
+  router.use((_req, res, next) => {
+    res.set('Cache-Control', 'no-store');
+    next();
+  });
   const entryPathWithToken = (targetQuery = '', token = '') => entryPathWithQuery(targetQuery, {
     authEnabled: options.authEnabled,
     basePath: options.basePath,
@@ -216,13 +252,13 @@ function createQrShareRouter(
         expiresAt: ticket.expiresAt,
         ttlMs: SHARE_TICKET_TTL_MS,
         shortPath,
-        shortUrl: absoluteClientUrl(req, shortPath, options.fallbackPort),
-        longUrl: absoluteClientUrl(req, longPath, options.fallbackPort),
+        shortUrl: absoluteClientUrl(req, shortPath, options),
+        longUrl: absoluteClientUrl(req, longPath, options),
         shortUrlAccessMode: requesterAccessMode,
         longUrlAccessMode: 'read-only',
         tokenLabel: requesterAccessMode === 'owner' ? auth.getToken() : '',
         ...(fullAccessPath
-          ? { fullAccessUrl: absoluteClientUrl(req, fullAccessPath, options.fallbackPort) }
+          ? { fullAccessUrl: absoluteClientUrl(req, fullAccessPath, options) }
           : {}),
       });
     } catch (caught) {

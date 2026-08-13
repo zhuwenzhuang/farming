@@ -48,7 +48,7 @@ async function assertJsonResponse(
   body: unknown,
 ): Promise<void> {
   assert.strictEqual(response.status, status);
-  assert.strictEqual(response.headers.get('cache-control'), null);
+  assert.strictEqual(response.headers.get('cache-control'), 'no-store');
   assert.deepStrictEqual(await response.json(), body);
 }
 
@@ -141,6 +141,7 @@ async function run(): Promise<void> {
     basePath: '/farm',
     fallbackPort: 9123,
     now: () => now,
+    publicOrigin: 'https://share.example.test',
   }));
   app.use((error: unknown, _req: unknown, res: ExpressErrorResponse, _next: unknown) => {
     res.status(middlewareErrorStatus(error)).json({ error: 'request body rejected' });
@@ -223,6 +224,39 @@ async function run(): Promise<void> {
       targetQuery,
     });
 
+    const spoofedOriginResponse = await postJson(endpoint, {}, {
+      'x-forwarded-host': 'attacker.example.test',
+      'x-forwarded-proto': 'https',
+      'x-test-token': 'owner-request-token',
+    });
+    const spoofedOriginBody = await spoofedOriginResponse.json() as { shortUrl: string; longUrl: string; fullAccessUrl: string };
+    assert.strictEqual(spoofedOriginResponse.headers.get('cache-control'), 'no-store');
+    assert.match(spoofedOriginBody.shortUrl, /^https:\/\/share\.example\.test\//);
+    assert.match(spoofedOriginBody.longUrl, /^https:\/\/share\.example\.test\//);
+    assert.match(spoofedOriginBody.fullAccessUrl, /^https:\/\/share\.example\.test\//);
+    assert(!JSON.stringify(spoofedOriginBody).includes('attacker.example.test'));
+
+    const directOriginApp = express();
+    directOriginApp.use('/api/share/qr-ticket', createQrShareRouter(auth, tickets, {
+      authEnabled: true,
+      basePath: '',
+      fallbackPort: 9123,
+      now: () => now,
+    }));
+    const directOriginServer = await listen(directOriginApp);
+    try {
+      const directEndpoint = `http://127.0.0.1:${serverPort(directOriginServer)}/api/share/qr-ticket`;
+      const directOriginResponse = await postJson(directEndpoint, {}, {
+        'x-forwarded-host': 'attacker.example.test',
+        'x-forwarded-proto': 'https',
+        'x-test-token': 'owner-request-token',
+      });
+      const directOriginBody = await directOriginResponse.json() as { shortUrl: string };
+      assert.strictEqual(new URL(directOriginBody.shortUrl).origin, `http://127.0.0.1:${serverPort(directOriginServer)}`);
+    } finally {
+      await closeServer(directOriginServer);
+    }
+
     callStart = calls.length;
     const delegatedResponse = await postJson(endpoint, {}, {
       'x-forwarded-host': 'share.example.test',
@@ -232,11 +266,11 @@ async function run(): Promise<void> {
     });
     const delegatedToken = `readonly-${delegatedExpiresAt}`;
     await assertJsonResponse(delegatedResponse, 200, {
-      code: 'SHARE2',
+      code: 'SHARE4',
       expiresAt: delegatedExpiresAt,
       ttlMs: SHARE_TICKET_TTL_MS,
-      shortPath: '/farm/j/SHARE2',
-      shortUrl: 'https://share.example.test/farm/j/SHARE2',
+      shortPath: '/farm/j/SHARE4',
+      shortUrl: 'https://share.example.test/farm/j/SHARE4',
       longUrl: `https://share.example.test/farm?token=${delegatedToken}`,
       shortUrlAccessMode: 'read-only',
       longUrlAccessMode: 'read-only',

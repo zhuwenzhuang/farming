@@ -26,6 +26,11 @@ Sharing requires token authentication. If authentication is disabled, Farming
 must refuse to present a share result because a recipient could bypass any
 restricted link and open the unprotected instance directly.
 
+Share responses that contain credentials are never cacheable. Farming derives
+links from the direct request origin and does not trust forwarded origin headers.
+An HTTPS reverse proxy or another deployment whose public origin differs from the
+request origin must set `FARMING_PUBLIC_ORIGIN` to its exact HTTP(S) origin.
+
 ## Authoritative State
 
 The backend assigns every authenticated HTTP request and WebSocket connection one

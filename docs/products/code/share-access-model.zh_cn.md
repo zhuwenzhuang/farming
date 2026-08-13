@@ -21,6 +21,10 @@
 分享依赖 Token 鉴权。关闭鉴权时必须拒绝生成分享结果，因为接收者可以绕过受限链接，
 直接打开未受保护的实例。
 
+包含凭证的分享响应明确禁止缓存。Farming 默认使用直接请求的 Origin 生成链接，不信任转发
+Origin 请求头。HTTPS 反向代理等公开 Origin 与直接请求不同的部署，必须把
+`FARMING_PUBLIC_ORIGIN` 设置为准确的 HTTP(S) Origin。
+
 ## 权威状态
 
 后端为每个已鉴权的 HTTP 请求和 WebSocket 连接分配唯一访问模式：
