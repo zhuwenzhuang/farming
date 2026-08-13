@@ -394,14 +394,14 @@ function AgentTranscriptImages({
   fallbackAlt: string
 }) {
   const [preview, setPreview] = useState<AgentTranscriptUserImage | null>(null)
-  useEffect(() => {
-    if (!preview) return undefined
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setPreview(null)
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [preview])
+  const triggerRef = useRef<HTMLButtonElement | null>(null)
+  const closeRef = useRef<HTMLButtonElement | null>(null)
+  const overlayRef = useModalFocusScope<HTMLDivElement>({
+    open: Boolean(preview),
+    initialFocusRef: closeRef,
+    returnFocusRef: triggerRef,
+    onEscape: () => setPreview(null),
+  })
   if (images.length <= 0) return null
   return (
     <>
@@ -412,7 +412,10 @@ function AgentTranscriptImages({
             type="button"
             className="code-agent-transcript-image-trigger"
             aria-label={`Open ${image.alt || fallbackAlt}`}
-            onClick={() => setPreview(image)}
+            onClick={event => {
+              triggerRef.current = event.currentTarget
+              setPreview(image)
+            }}
           >
             <img
               src={image.url}
@@ -425,6 +428,7 @@ function AgentTranscriptImages({
       </div>
       {preview ? createPortal(
         <div
+          ref={overlayRef}
           className="code-agent-transcript-image-overlay"
           data-testid="code-agent-transcript-image-overlay"
           role="dialog"
@@ -433,6 +437,7 @@ function AgentTranscriptImages({
           onClick={() => setPreview(null)}
         >
           <button
+            ref={closeRef}
             type="button"
             className="code-agent-transcript-image-close"
             aria-label="Close image preview"
@@ -461,17 +466,18 @@ function AgentTranscriptUserImages({ images }: { images: AgentTranscriptUserImag
 
 function AgentTranscriptMarkdownImage({ url, label }: { url: string; label: string }) {
   const [open, setOpen] = useState(false)
-  useEffect(() => {
-    if (!open) return undefined
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false)
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [open])
+  const triggerRef = useRef<HTMLButtonElement | null>(null)
+  const closeRef = useRef<HTMLButtonElement | null>(null)
+  const overlayRef = useModalFocusScope<HTMLDivElement>({
+    open,
+    initialFocusRef: closeRef,
+    returnFocusRef: triggerRef,
+    onEscape: () => setOpen(false),
+  })
   return (
     <>
       <button
+        ref={triggerRef}
         type="button"
         className="code-agent-transcript-markdown-image-link"
         aria-label={`Open ${label}`}
@@ -481,6 +487,7 @@ function AgentTranscriptMarkdownImage({ url, label }: { url: string; label: stri
       </button>
       {open ? createPortal(
         <div
+          ref={overlayRef}
           className="code-agent-transcript-image-overlay"
           data-testid="code-agent-transcript-image-overlay"
           role="dialog"
@@ -489,6 +496,7 @@ function AgentTranscriptMarkdownImage({ url, label }: { url: string; label: stri
           onClick={() => setOpen(false)}
         >
           <button
+            ref={closeRef}
             type="button"
             className="code-agent-transcript-image-close"
             aria-label="Close image preview"
@@ -964,14 +972,14 @@ function AgentTranscriptSubagentPreview({
   const [fullscreen, setFullscreen] = useState(false)
   const [stopping, setStopping] = useState(false)
   const [stopError, setStopError] = useState('')
-  useEffect(() => {
-    if (!fullscreen) return undefined
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setFullscreen(false)
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [fullscreen])
+  const fullscreenTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const fullscreenCloseRef = useRef<HTMLButtonElement | null>(null)
+  const fullscreenDialogRef = useModalFocusScope<HTMLDivElement>({
+    open: fullscreen,
+    initialFocusRef: fullscreenCloseRef,
+    returnFocusRef: fullscreenTriggerRef,
+    onEscape: () => setFullscreen(false),
+  })
   const entries = (
     <div className="code-agent-transcript-subagent-entries">
       {transcript.turns.map(turn => (
@@ -987,7 +995,7 @@ function AgentTranscriptSubagentPreview({
       {transcript.turns.length === 0 ? <div className="empty">No subagent output received yet</div> : null}
     </div>
   )
-  const header = (
+  const header = (dialog = false) => (
     <header>
       <span>{transcript.title || 'Subagent'}</span>
       <span className="code-agent-transcript-subagent-meta" title={transcript.sessionId}>
@@ -1015,6 +1023,7 @@ function AgentTranscriptSubagentPreview({
         </button>
       ) : null}
       <button
+        ref={dialog ? fullscreenCloseRef : fullscreenTriggerRef}
         type="button"
         className="code-agent-transcript-subagent-control"
         data-testid="code-acp-subagent-fullscreen"
@@ -1028,7 +1037,7 @@ function AgentTranscriptSubagentPreview({
   )
   const preview = (
     <section className="code-agent-transcript-subagent" data-testid="code-agent-transcript-subagent">
-      {header}
+      {header()}
       {transcript.error ? <div className="code-agent-transcript-subagent-error" role="status">{transcript.error}</div> : null}
       {stopError ? <div className="code-agent-transcript-subagent-error" role="alert">{stopError}</div> : null}
       {entries}
@@ -1037,15 +1046,16 @@ function AgentTranscriptSubagentPreview({
   return (
     <>
       {preview}
-      {fullscreen ? (
-        <div className="code-agent-transcript-subagent-overlay" role="dialog" aria-modal="true" aria-label="Subagent details">
+      {fullscreen ? createPortal(
+        <div ref={fullscreenDialogRef} className="code-agent-transcript-subagent-overlay" role="dialog" aria-modal="true" aria-label="Subagent details">
           <div className="code-agent-transcript-subagent-dialog">
-            {header}
+            {header(true)}
             {transcript.error ? <div className="code-agent-transcript-subagent-error" role="status">{transcript.error}</div> : null}
             {stopError ? <div className="code-agent-transcript-subagent-error" role="alert">{stopError}</div> : null}
             {entries}
           </div>
-        </div>
+        </div>,
+        document.body,
       ) : null}
     </>
   )
