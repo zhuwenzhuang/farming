@@ -50,7 +50,7 @@ Git 拥有 Repository 与 Worktree Identity。Farming 把每个 Worktree 展示�
 Git Blame）。找不到 Repository 时，才回退到有界、只读的 Global File Path。
 
 Files Identity 来自 Canonical Workspace，不能依赖当前碰巧引用它的 Agent。可选 Source Agent
-Association 可以支持从文件返回 Agent，但不属于文件 Ownership。
+Association 可以跨 Project 保留，以支持从文件返回来源 Agent，但不属于文件 Ownership。
 
 ## Directory 与 Navigation State
 

@@ -187,5 +187,11 @@ test('promotes an external Chat file link to its nearest Git Project', async ({ 
   const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(repository) })
   await expect(project).toBeVisible()
   await expect(activeTab).toHaveAttribute('title', 'compiler/src/SmartOpen.java')
+  await expect(page.getByTestId('code-file-editor-back')).toBeVisible()
+  await expect(page.getByTestId('code-resource-agent-toggle')).toBeVisible()
   await expectBlameAvailable(page)
+
+  await page.getByTestId('code-file-editor-back').click()
+  await expect(page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)).toHaveClass(/active/)
+  await expect(fileLink).toBeVisible()
 })

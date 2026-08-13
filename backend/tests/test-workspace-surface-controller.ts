@@ -49,8 +49,8 @@ function run() {
       activeAgents,
       mainAgent,
     ).sourceAgentId,
-    undefined,
-    'a requested source Agent from another workspace must not own the file surface',
+    otherAgent.id,
+    'a requested source Agent from another workspace must remain the file navigation origin',
   );
   assert.strictEqual(
     resolveWorkspaceFileIdentityForAgents(
@@ -141,7 +141,7 @@ function run() {
   );
   assert.deepStrictEqual(
     planWorkspaceSurfaceRestore({
-      surface: fileSurface,
+      surface: { ...fileSurface, sourceAgentId: otherAgent.id },
       activeAgents,
       agentInventoryComplete: true,
       projectWorkspaces: ['/repo/one'],
@@ -158,9 +158,10 @@ function run() {
         column: 3,
         endColumn: 9,
         revealInTree: true,
-        sourceAgentId: siblingAgent.id,
+        sourceAgentId: otherAgent.id,
       },
     },
+    'restoring a file must preserve its cross-Project navigation origin',
   );
   assert.deepStrictEqual(
     planWorkspaceSurfaceRestore({

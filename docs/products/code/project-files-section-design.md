@@ -63,7 +63,8 @@ global-file path remains the fallback.
 
 Files identity is derived from the canonical workspace, never from whichever
 Agent currently happens to reference it. An optional source-Agent association
-may support returning from a file to an Agent, but it is not file ownership.
+may cross Project boundaries to support returning from a file to its originating
+Agent, but it is not file ownership.
 
 ## Directory And Navigation State
 

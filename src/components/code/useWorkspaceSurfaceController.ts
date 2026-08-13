@@ -52,10 +52,7 @@ export function resolveWorkspaceFileIdentityForAgents(
 
   const projectWorkspace = projectWorkspaceFromFilesId(candidateId)
   if (projectWorkspace) {
-    const sourceAgent = activeAgents.find(agent => (
-      agent.id === requestedSourceAgentId
-      && projectFilesWorkspaceId(projectWorkspaceForAgent(agent)) === projectFilesWorkspaceId(projectWorkspace)
-    ))
+    const sourceAgent = sourceCandidates.find(agent => agent.id === requestedSourceAgentId)
     return {
       filesId: projectFilesWorkspaceId(projectWorkspace),
       workspaceRoot: projectWorkspace,
@@ -67,10 +64,7 @@ export function resolveWorkspaceFileIdentityForAgents(
   const candidateAgent = sourceCandidates.find(agent => agent.id === candidateId)
   if (candidateAgent && !candidateAgent.isMain) {
     const workspaceRoot = projectWorkspaceForAgent(candidateAgent)
-    const requestedSourceAgent = activeAgents.find(agent => (
-      agent.id === requestedSourceAgentId
-      && projectFilesWorkspaceId(projectWorkspaceForAgent(agent)) === projectFilesWorkspaceId(workspaceRoot)
-    ))
+    const requestedSourceAgent = sourceCandidates.find(agent => agent.id === requestedSourceAgentId)
     const sourceAgent = requestedSourceAgent ?? candidateAgent
     return {
       filesId: projectFilesWorkspaceId(workspaceRoot),
@@ -202,13 +196,7 @@ export function planWorkspaceSurfaceRestore({
   }
 
   if (!projectWorkspacesLoaded) return { kind: 'wait' }
-  const sourceAgent = activeAgents.find(agent => (
-    agent.id === surface.sourceAgentId
-    && (
-      surface.workspace === GLOBAL_WORKSPACE_FILES_ROOT
-      || projectFilesWorkspaceId(projectWorkspaceForAgent(agent)) === projectFilesWorkspaceId(surface.workspace)
-    )
-  ))
+  const sourceAgent = activeAgents.find(agent => agent.id === surface.sourceAgentId)
     ?? activeAgents.find(agent => (
       projectFilesWorkspaceId(projectWorkspaceForAgent(agent)) === projectFilesWorkspaceId(surface.workspace)
     ))
