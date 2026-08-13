@@ -49,7 +49,7 @@ function run() {
     assert.strictEqual(settings.appearance, 'system');
     assert.strictEqual(settings.language, 'en');
     assert.strictEqual(settings.crtSkinEffectsEnabled, true);
-    assert.strictEqual(settings.browserExtensionEnabled, false);
+    assert.strictEqual(settings.browserExtensionEnabled, true);
     assert.strictEqual(settings.browserSource, 'system');
     assert.strictEqual(settings.browserExecutablePath, '');
     assert.strictEqual(settings.browserExternalCdpUrl, 'http://127.0.0.1:9222');
@@ -82,6 +82,8 @@ function run() {
     assert.strictEqual(manager.getSettings().browserExtensionEnabled, false);
     manager.updateSettings({ computerExtensionEnabled: false });
     assert.strictEqual(manager.getSettings().computerExtensionEnabled, false);
+    manager.updateSettings({ browserSource: 'extension' });
+    assert.strictEqual(manager.getSettings().browserSource, 'extension');
     assert.strictEqual(
       fs
         .readFileSync(path.join(farmingDir, 'farming-agent-bootstrap.md'), 'utf8')

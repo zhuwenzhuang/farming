@@ -10,11 +10,15 @@ Farming Browser 让 Agent 操作自己拥有的 Browser，同时用户可以在 
 
 ## 启用 Browser
 
-打开**插件 → 浏览器**，选择可用的本机 Chromium 或**隔离浏览器**，按需显式准备隔离依赖，
-然后启用插件。普通 Farming 安装和 Server 启动不会静默下载 Chromium。
+存在兼容的本机 Chromium 时，Browser 默认启用。可在**插件 → 浏览器**中切换来源、关闭 Browser，
+或选择**隔离浏览器**并按需显式准备隔离依赖。普通 Farming 安装和 Server 启动不会静默下载 Chromium。
 
 本机 Chromium 是普通使用最简单的路径；Isolated Browser 适合需要独立 Linux Desktop 或
 Computer Use 的 Agent。跨浏览器内核测试应交给专门 Testing Service，不能成为自动 Fallback。
+**已有 Chrome（CDP）**用于连接用户显式开放在本机回环 CDP Endpoint 上的可信 Headed
+Chromium。Farming 会在该浏览器中创建并只管理自己的 Tab，复用其 Profile 登录态，
+并继续把当前页面流式传输到 Farming Viewer。Farming 不会接管任意已有 Tab，也不拥有外部浏览器进程。
+
 显式准备隔离 Runtime 时，优先使用 Farming 自有且固定版本的 `agent-browser` Installer；
 Primary Source 不可用时，Farming 可以从配置的 Mirror 下载由 Farming 固定的 Chromium Release，但在
 解压或执行前必须验证仓库固定的 SHA-256。摘要缺失或不匹配时，准备过程显式失败。

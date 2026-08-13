@@ -120,6 +120,17 @@ The corresponding license texts are stored beside the font files.
 
 ## Adapted Source Code
 
+Farming Browser Connector and its CDP relay adapt the OpenClaw Browser Chrome
+extension and extension-relay implementation from commit
+`57fabb2c9c35db79956c9aa1e9a1956b09d9a39e`. OpenClaw is licensed under the
+MIT License, Copyright (c) 2026 OpenClaw Foundation. Farming keeps the upstream
+revision and transformation scope at
+`extensions/browser/chrome-extension/upstream/upstream.json`; the retained MIT
+license is stored beside it as `LICENSE.openclaw`. Farming changes product,
+protocol, Native Messaging Host, alarm, and tab-group namespaces so the Farming
+and OpenClaw extensions can be installed together without sharing pairing data
+or browser authority.
+
 Farming's managed Language Server registry, root discovery, stdio client, and
 launch behavior adapt the OpenCode LSP implementation from commit
 `1882c33827cf0ce5c948b69ab5a87ed8f6790cf8`. OpenCode is licensed under the

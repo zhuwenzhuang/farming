@@ -5,6 +5,8 @@ import type { AgentSessionInventoryMetadata } from './agent-session-inventory.cj
 import type { ForkMode, KillAgentResult } from './agent-manager-lifecycle-types.js';
 import type { AcpConfigValue } from './agent-manager-provider-types.js';
 import type { AgentRecord, ProjectMembershipPatch } from './agent-manager-record-types.js';
+import type { WebSocket as NodeWebSocket } from 'ws';
+import type { IncomingMessage as NodeIncomingMessage } from 'node:http';
 
 type ServerClientMessage = ClientMessage;
 
@@ -248,6 +250,7 @@ import { WorkspaceFileService, WorkspaceFileError } from './workspace-file-servi
 import { createWorkspaceFileRouter, resolveWorkspaceRoot } from './workspace-file-router.cjs';
 import { WorkspaceRootRegistry, rootIdForPath } from './workspace-root-registry.cjs';
 import { BrowserResourceManager, createBrowserRouter } from '../extensions/browser/backend/index.cjs';
+import { BrowserExtensionRelay } from '../extensions/browser/backend/browser-extension-relay.cjs';
 import {
   ComputerResourceManager,
   IsolatedBrowserProvider,
@@ -353,6 +356,7 @@ const PORT = process.env.PORT || 3000;
 const tokenAuth = new TokenAuth({ basePath: BASE_PATH || '/' });
 const authEnabled = tokenAuth.isEnabled();
 const WS_PATH = routePath(BASE_PATH, '/ws');
+const BROWSER_EXTENSION_WS_PATH = routePath(BASE_PATH, '/browser/extension');
 const SERVER_EPOCH = crypto.randomUUID();
 const DEFAULT_TRANSCRIPT_MAX_TURNS = 240;
 const MIN_TRANSCRIPT_TURNS = 5;
@@ -395,6 +399,11 @@ const isolatedBrowserProvider = new IsolatedBrowserProvider({
   configDir: configManager.farmingDir,
   computerResourceManager,
 });
+let refreshBrowserExtensionCapability = () => {};
+const browserExtensionRelay = new BrowserExtensionRelay({
+  configDir: configManager.farmingDir,
+  onStateChange: () => refreshBrowserExtensionCapability(),
+});
 const browserResourceManager = new BrowserResourceManager({
   configDir: configManager.farmingDir,
   isEnabled: () => configManager.getSettings().browserExtensionEnabled === true,
@@ -404,6 +413,15 @@ const browserResourceManager = new BrowserResourceManager({
     browserExecutablePath: selection.executablePath,
   }),
   isolatedBrowserProvider,
+  browserExtensionRelay,
+});
+refreshBrowserExtensionCapability = () => {
+  void browserResourceManager.refreshCapability().catch((error: unknown) => {
+    console.warn('Failed to refresh Farming Browser Connector:', caughtError(error).message || error);
+  });
+};
+server.on('close', () => {
+  void browserExtensionRelay.close();
 });
 
 function broadcastLanguageServerRefresh(event: ManagedLanguageServerRefreshEvent) {
@@ -519,6 +537,7 @@ const computerRuntimeRecoveryPromise = computerResourceManager.init().catch((err
 });
 const browserRuntimeRecoveryPromise = computerRuntimeRecoveryPromise
   .then(() => Promise.all([
+    browserExtensionRelay.init(),
     isolatedBrowserProvider.recover(),
     browserResourceManager.init(),
   ]))
@@ -1719,6 +1738,14 @@ app.use(routePath(BASE_PATH, '/api/themes'), createThemeRouter({
 wss.on('connection', (ws, req) => {
   initializeWebSocketLiveness(ws);
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+  if (url.pathname === BROWSER_EXTENSION_WS_PATH) {
+    browserExtensionRelay.attachWebSocket(
+      ws as unknown as NodeWebSocket,
+      req as unknown as NodeIncomingMessage,
+      BROWSER_EXTENSION_WS_PATH,
+    );
+    return;
+  }
   const accessMode = tokenAuth.webSocketAccess(req);
   const computerViewerPrefix = routePath(BASE_PATH, '/api/computers/');
   if (url.pathname.startsWith(computerViewerPrefix) && url.pathname.endsWith('/viewer-websocket')) {

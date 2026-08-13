@@ -206,10 +206,16 @@ type IsolatedBrowserProvider = {
   prepare(): Promise<unknown>;
   release(leaseKey: string): Promise<void>;
 };
+type BrowserExtensionRelayProvider = {
+  capability(): Record<string, unknown>;
+  cdpUrl(): string;
+  pairingString(relayUrl: string): string;
+};
 type BrowserManagerOptions = Record<string, unknown> & {
   configDir: string;
   store?: BrowserResourceStoreLike;
   isolatedBrowserProvider?: IsolatedBrowserProvider;
+  browserExtensionRelay?: BrowserExtensionRelayProvider;
   discoverExecutable?: (
     selection: BrowserDiscoveryOptions,
   ) => Promise<BrowserCapability | null>;
@@ -381,6 +387,7 @@ class BrowserResourceManager extends EventEmitter {
   readonly configDir: string;
   readonly store: BrowserResourceStoreLike;
   readonly isolatedBrowserProvider: IsolatedBrowserProvider | null;
+  readonly browserExtensionRelay: BrowserExtensionRelayProvider | null;
   readonly discoverExecutable: (
     selection: BrowserDiscoveryOptions,
   ) => Promise<BrowserCapability | null>;
@@ -424,6 +431,7 @@ class BrowserResourceManager extends EventEmitter {
     this.configDir = canonicalConfigDir(options.configDir);
     this.store = options.store || new BrowserResourceStore(this.configDir);
     this.isolatedBrowserProvider = options.isolatedBrowserProvider || null;
+    this.browserExtensionRelay = options.browserExtensionRelay || null;
     this.discoverExecutable = options.discoverExecutable || (selection => discoverBrowserRuntime({
       ...options,
       ...selection,
@@ -591,6 +599,7 @@ class BrowserResourceManager extends EventEmitter {
       selection,
       options: this.browserOptions.map(option => ({ kind: option.kind, path: option.path })),
       ...(this.isolatedBrowserCapability ? { isolated: this.isolatedBrowserCapability } : {}),
+      ...(this.browserExtensionRelay ? { extension: this.browserExtensionRelay.capability() } : {}),
       message: !enabled
         ? 'Browser extension is disabled'
         : (executable?.error || (runnable
@@ -602,7 +611,7 @@ class BrowserResourceManager extends EventEmitter {
   browserSelection(settings: BrowserSettings = this.getBrowserSettings()): BrowserSelection {
     const source = settings?.browserSource;
     return {
-      source: source && ['external-cdp', 'isolated'].includes(source) ? source : 'system',
+      source: source && ['extension', 'external-cdp', 'isolated'].includes(source) ? source : 'system',
       executablePath: String(settings?.browserExecutablePath || ''),
       externalCdpUrl: String(settings?.browserExternalCdpUrl || 'http://127.0.0.1:9222'),
     };
@@ -629,6 +638,7 @@ class BrowserResourceManager extends EventEmitter {
         }
       }),
       isolatedBrowserCapability,
+      extension: this.browserExtensionRelay?.capability() || null,
     });
   }
 
@@ -654,6 +664,23 @@ class BrowserResourceManager extends EventEmitter {
       executableKind: selectedOption?.kind,
       externalCdpUrl: selection.externalCdpUrl,
     });
+    if (selection.source === 'extension') {
+      const extension = this.browserExtensionRelay?.capability() || {};
+      const cdpUrl = this.browserExtensionRelay?.cdpUrl() || '';
+      if (extension.connected === true && cdpUrl) {
+        const discovered = await this.discoverExecutable({
+          source: 'external-cdp',
+          externalCdpUrl: cdpUrl,
+        });
+        runtimeCapability = discovered ? { ...discovered, kind: 'chrome-extension' } : null;
+      } else {
+        runtimeCapability = {
+          kind: 'chrome-extension',
+          path: '',
+          error: 'Install and pair Farming Browser Connector, then keep Chrome running',
+        };
+      }
+    }
     if (
       selection.source === 'isolated'
       && isolatedBrowserCapability?.available === true
@@ -739,6 +766,16 @@ class BrowserResourceManager extends EventEmitter {
     await this.isolatedBrowserProvider.prepare();
     await this.refreshCapability();
     return this.capability();
+  }
+
+  browserExtensionStatus(relayUrl?: string) {
+    if (!this.browserExtensionRelay) {
+      throw browserError('Farming Browser Connector is unavailable', 503, 'BROWSER_EXTENSION_UNAVAILABLE');
+    }
+    return {
+      ...this.browserExtensionRelay.capability(),
+      ...(relayUrl ? { pairingString: this.browserExtensionRelay.pairingString(relayUrl) } : {}),
+    };
   }
 
   list() {

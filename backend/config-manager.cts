@@ -577,7 +577,7 @@ class ConfigManager {
       restReminderIntervalSeconds: null,
       heartbeatInterval: 1000,
       dangerouslySkipAgentPermissionsByDefault: false,
-      browserExtensionEnabled: false,
+      browserExtensionEnabled: true,
       browserSource: process.env.FARMING_BROWSER_CDP_URL ? 'external-cdp' : 'system',
       browserExecutablePath: process.env.FARMING_BROWSER_EXECUTABLE || '',
       browserExternalCdpUrl: process.env.FARMING_BROWSER_CDP_URL || 'http://127.0.0.1:9222',
@@ -627,7 +627,7 @@ class ConfigManager {
     settings.restReminderIntervalSeconds = this.normalizeRestReminderIntervalSeconds(
       settings.restReminderIntervalSeconds,
     );
-    settings.browserExtensionEnabled = settings.browserExtensionEnabled === true;
+    settings.browserExtensionEnabled = settings.browserExtensionEnabled !== false;
     settings.browserSource = this.normalizeBrowserSource(settings.browserSource);
     settings.browserExecutablePath = this.normalizeBrowserSetting(settings.browserExecutablePath);
     settings.browserExternalCdpUrl = this.normalizeBrowserSetting(settings.browserExternalCdpUrl)
@@ -943,7 +943,7 @@ class ConfigManager {
   }
 
   normalizeBrowserSource(source: unknown): string {
-    return typeof source === 'string' && ['external-cdp', 'isolated'].includes(source)
+    return typeof source === 'string' && ['extension', 'external-cdp', 'isolated'].includes(source)
       ? source
       : 'system';
   }

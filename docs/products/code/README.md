@@ -21,6 +21,7 @@ Maintainer contracts remain in this directory. Important entry points include:
 - [Provider Session durable identity](provider-session-identity.md)
 - [Terminal state protocol](terminal-state-protocol.md)
 - [Extension and Resource model](extension-model.md)
+- [Use your Chrome with Farming Browser](chrome-extension-browser.md)
 - [Project Files design](project-files-section-design.md)
 - [Share access model](share-access-model.md)
 - [Review foundation](review-foundation.md)

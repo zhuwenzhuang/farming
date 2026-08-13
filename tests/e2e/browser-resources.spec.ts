@@ -1277,10 +1277,16 @@ test('shows explicit Browser sources without an Automatic choice', async ({ page
   await expect(browserSource).toBeEnabled({ timeout: 30_000 })
   const options = await codeSelectOptions(browserSource)
   expect(options.map(option => option.label)).not.toContain('Automatic (local first, then isolated)')
+  expect(options.find(option => option.value === 'extension')?.label).toBe('Your Chrome (Farming extension)')
   expect(options.filter(option => option.value === 'isolated')).toHaveLength(1)
   expect(options.find(option => option.value === 'isolated')?.label).toMatch(/^Isolated Browser/)
   await expect(pluginsPanel.getByRole('textbox', { name: 'CDP address' })).toHaveCount(0)
   await expect(apply).toBeDisabled()
+
+  await selectCodeOption(browserSource, 'extension')
+  await expect(pluginsPanel.getByText('Waiting for Farming Browser Connector.')).toBeVisible()
+  await expect(pluginsPanel.getByRole('textbox', { name: 'Pairing string (treat as a password)' }))
+    .toHaveValue(/^ws:\/\/.*\/farming\/browser\/extension#[0-9a-f]{64}$/)
 })
 
 test('matches the focused Viewer viewport and restores the previous Viewer on close', async ({

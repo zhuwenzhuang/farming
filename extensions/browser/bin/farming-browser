@@ -1,10 +1,13 @@
 #!/usr/bin/env node
+const fs = require('fs');
+const crypto = require('crypto');
 const path = require('path');
 const { requestJson } = require('../backend/farming-browser-client.cjs');
 const {
   canonicalWorkspacePath,
   rootIdForPath,
 } = require('../../../backend/workspace-root-registry.cjs');
+const { farmingConfigDir } = require('../../../backend/storage-layout.cjs');
 const {
   capabilityEnvelope,
   capabilityError,
@@ -22,6 +25,12 @@ Start here:
   delete <browser-id>        Permanently remove a stopped or running Resource
   help workflow              Read the recommended Agent workflow
   describe <command> --json  Read one machine-readable command contract
+
+User Chrome connector:
+  extension install          Print the unpacked extension path and install steps
+  extension path             Print the unpacked extension path
+  extension pair             Print a pairing string for this Farming instance
+  extension status           Read the current extension connection state
 
 Help topics:
   help lifecycle             Resource ownership and lifecycle
@@ -459,6 +468,39 @@ function writeResult(operation, value, warnings = []) {
   writeCapabilityJson(process.stdout, capabilityEnvelope('browser', operation, value, warnings));
 }
 
+function browserExtensionPaths() {
+  return {
+    source: path.resolve(__dirname, '..', 'chrome-extension'),
+    installed: path.join(farmingConfigDir(process.env), 'browser-extension', 'chrome'),
+  };
+}
+
+function installBrowserExtension() {
+  const { source, installed } = browserExtensionPaths();
+  if (!fs.existsSync(path.join(source, 'manifest.json'))) {
+    throw new Error('Farming Browser Connector is missing from this installation');
+  }
+  const parent = path.dirname(installed);
+  const staging = path.join(parent, `chrome.installing-${crypto.randomUUID()}`);
+  const backup = path.join(parent, `chrome.previous-${crypto.randomUUID()}`);
+  fs.mkdirSync(parent, { recursive: true, mode: 0o700 });
+  fs.cpSync(source, staging, { recursive: true, errorOnExist: true });
+  let previousMoved = false;
+  try {
+    if (fs.existsSync(installed)) {
+      fs.renameSync(installed, backup);
+      previousMoved = true;
+    }
+    fs.renameSync(staging, installed);
+    if (previousMoved) fs.rmSync(backup, { recursive: true, force: true });
+  } catch (error) {
+    if (!fs.existsSync(installed) && previousMoved) fs.renameSync(backup, installed);
+    fs.rmSync(staging, { recursive: true, force: true });
+    throw error;
+  }
+  return installed;
+}
+
 function boundWorkspace(requested, operation) {
   const agentWorkspace = String(process.env.FARMING_PROJECT_WORKSPACE || '').trim();
   const selected = String(requested || agentWorkspace).trim();
@@ -506,6 +548,32 @@ async function run(argv = process.argv.slice(2)) {
     if (!described) throw new Error('Usage: farming browser describe <command> --json');
     writeResult('describe', describeCommand(described));
     return 0;
+  }
+  if (command === 'extension') {
+    const operation = args[0] || 'status';
+    const paths = browserExtensionPaths();
+    if (operation === 'path') {
+      const extensionPath = fs.existsSync(path.join(paths.installed, 'manifest.json'))
+        ? paths.installed
+        : paths.source;
+      process.stdout.write(`${extensionPath}\n`);
+      return 0;
+    }
+    if (operation === 'install') {
+      const extensionPath = installBrowserExtension();
+      process.stdout.write(`Farming Browser Connector is ready at:\n${extensionPath}\n\nOpen chrome://extensions, enable Developer mode, choose Load unpacked, and select that path.\nThen run: farming browser extension pair\n`);
+      return 0;
+    }
+    if (operation === 'pair') {
+      const result = await requestJson('GET', '/api/browsers/extension');
+      process.stdout.write(`${result.pairingString || ''}\n`);
+      return 0;
+    }
+    if (operation === 'status') {
+      writeResult('extension-status', await requestJson('GET', '/api/browsers/extension'));
+      return 0;
+    }
+    throw new Error('Usage: farming browser extension <install|path|pair|status>');
   }
   if (command === 'capability') {
     const result = await requestJson('GET', '/api/browsers/capability');

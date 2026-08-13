@@ -27,6 +27,7 @@ the [documentation home](../README.md).
 - [Public documentation site](documentation-site.md)
 - [Farming Desktop MVP](../products/code/desktop-app.md)
 - [Extension and Resource model](../products/code/extension-model.md)
+- [Chrome extension Browser](../products/code/chrome-extension-browser.md)
 - [Language Server](../products/code/language-server.md)
 - [Project Files design](../products/code/project-files-section-design.md)
 - [Review foundation](../products/code/review-foundation.md)

@@ -1,0 +1,8 @@
+{
+  "repository": "https://github.com/openclaw/openclaw",
+  "commit": "57fabb2c9c35db79956c9aa1e9a1956b09d9a39e",
+  "license": "MIT",
+  "sourcePath": "extensions/browser/chrome-extension",
+  "relaySourcePath": "extensions/browser/src/browser/extension-relay",
+  "transform": "Farming identity namespaces plus Farming base-path pairing support"
+}

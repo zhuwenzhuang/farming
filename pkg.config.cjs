@@ -10,6 +10,7 @@ module.exports = {
       ...(process.env.FARMING_PKG_ENTRY ? [entry] : ['backend/*.js']),
       ...(workerEntry ? [workerEntry] : []),
       ...(usageWorkerEntry ? [usageWorkerEntry] : []),
+      'extensions/browser/backend/openclaw-relay/*.cjs',
     ],
     assets: [
       'dist/**/*',
@@ -17,6 +18,7 @@ module.exports = {
       'backend/data/**/*',
       'backend/farming-agent-bootstrap.md',
       'backend/vendor/usage-parsers/**/*',
+      'extensions/browser/chrome-extension/**/*',
       'frontend/*.js',
       'frontend/skins/**/*',
       'frontend/vendor/**/*',

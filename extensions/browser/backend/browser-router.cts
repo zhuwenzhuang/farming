@@ -18,8 +18,12 @@ interface AgentStateReader {
 }
 
 interface Request {
+  authAccessMode?: 'none' | 'owner' | 'read-only';
+  baseUrl: string;
   body: unknown;
+  headers: Record<string, string | string[] | undefined>;
   params: Record<string, string>;
+  protocol: string;
   get?(name: string): string | undefined;
 }
 
@@ -158,6 +162,26 @@ function createBrowserRouter(
       requestAgentBinding(agentStateReader, _req);
       await manager.refreshCapability(undefined, { reuseVerified: true });
       res.json(manager.capability());
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
+  router.get('/extension', (req, res) => {
+    try {
+      if (req.authAccessMode === 'read-only') {
+        return res.status(403).json({ error: 'Browser extension pairing requires owner access' });
+      }
+      requestAgentBinding(agentStateReader, req);
+      const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0]?.trim();
+      const protocol = forwardedProto || req.protocol;
+      const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0]?.trim();
+      if (!host) throw new Error('Farming public host is unavailable');
+      const basePath = req.baseUrl.endsWith('/api/browsers')
+        ? req.baseUrl.slice(0, -'/api/browsers'.length)
+        : '';
+      const relayUrl = `${protocol === 'https' ? 'wss' : 'ws'}://${host}${basePath}/browser/extension`;
+      res.json(manager.browserExtensionStatus(relayUrl));
     } catch (error) {
       sendError(res, error);
     }

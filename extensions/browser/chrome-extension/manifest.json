@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Farming Browser Connector",
+  "version": "2.2.0",
+  "description": "Securely relay eligible signed-in Chrome tabs to Farming Browser.",
+  "permissions": [
+    "debugger",
+    "tabs",
+    "tabGroups",
+    "storage",
+    "alarms",
+    "nativeMessaging"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Farming",
+    "default_popup": "popup.html"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "minimum_chrome_version": "125"
+}

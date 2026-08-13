@@ -34,11 +34,23 @@ export interface BrowserCapability {
   available: boolean
   browser: { kind: string; path: string } | null
   selection?: {
-    source: 'external-cdp' | 'isolated' | 'system'
+    source: 'extension' | 'external-cdp' | 'isolated' | 'system'
     executablePath: string
     externalCdpUrl: string
   }
   options?: Array<{ kind: string; path: string }>
+  extension?: {
+    installed?: boolean
+    extensionPath?: string
+    connected?: boolean
+    browser?: {
+      browserVersion?: string
+      extensionVersion?: string
+      userAgent?: string
+    } | null
+    accessibleTabs?: number
+    protocol?: string
+  } | null
   isolated?: {
     available?: boolean
     dockerAvailable?: boolean
