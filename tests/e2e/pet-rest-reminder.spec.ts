@@ -1,3 +1,5 @@
+import fs from 'node:fs'
+import path from 'node:path'
 import {
   expect,
   openFarming,
@@ -6,6 +8,7 @@ import {
   test,
 } from './fixtures'
 import type { Locator, Page, WebSocketRoute } from '@playwright/test'
+import { projectFilesWorkspaceId } from '../../src/lib/project-workspaces'
 
 const SETTINGS_KEY = 'farmingPetSettings'
 const RUNTIME_KEY = 'farmingPetRestReminderRuntime'
@@ -1412,6 +1415,73 @@ test('closing a due reminder cancels only the current break', async ({ page }) =
     settings?: { restReminderIntervalSeconds?: number | null }
   }
   expect(data.settings?.restReminderIntervalSeconds).toBe(60)
+})
+
+test('an overdue Browser click starts a fresh rest-entry countdown', async ({
+  page,
+  workspaceRoot,
+}) => {
+  const workspace = path.join(workspaceRoot, 'pet-overdue-browser-click')
+  fs.mkdirSync(workspace, { recursive: true })
+  const settingsResponse = await page.request.post('/farming/api/settings', {
+    data: {
+      browserExtensionEnabled: true,
+      restReminderIntervalSeconds: 60,
+    },
+  })
+  expect(settingsResponse.ok()).toBeTruthy()
+  const mountResponse = await page.request.post('/farming/api/projects/mount', {
+    data: { workspace },
+  })
+  expect(mountResponse.ok()).toBeTruthy()
+  const browserResponse = await page.request.post('/farming/api/browsers', {
+    data: { rootId: projectFilesWorkspaceId(workspace) },
+  })
+  expect(browserResponse.ok()).toBeTruthy()
+
+  await page.addInitScript(({ settingsKey, runtimeKey }) => {
+    const now = Date.now()
+    localStorage.setItem(settingsKey, JSON.stringify({
+      version: 1,
+      appearance: 'glass',
+      capabilities: { restReminder: { intervalSeconds: 60 } },
+    }))
+    sessionStorage.setItem(runtimeKey, JSON.stringify({
+      version: 2,
+      state: {
+        phase: 'working',
+        intervalSeconds: 60,
+        cycleStartedAt: now,
+        backgroundedAt: null,
+        snoozedUntil: null,
+        restStartsAt: null,
+        restUntil: null,
+        snoozeUsed: false,
+      },
+    }))
+  }, { settingsKey: SETTINGS_KEY, runtimeKey: RUNTIME_KEY })
+
+  await openFarming(page)
+  const project = page.getByTestId('code-project-group').filter({
+    hasText: path.basename(workspace),
+  })
+  const browserRow = project.getByTestId('farming-browser-row')
+  await expect(browserRow).toBeVisible()
+
+  const interactionAt = await page.evaluate(() => {
+    const overdueNow = Date.now() + 4 * 60_000
+    Date.now = () => overdueNow
+    return overdueNow
+  })
+  await browserRow.click()
+  await expect(page.getByTestId('pet-rest-reminder')).toBeVisible({ timeout: 3_000 })
+
+  const runtime = await page.evaluate(runtimeKey => (
+    JSON.parse(sessionStorage.getItem(runtimeKey) ?? 'null')?.state
+  ), RUNTIME_KEY)
+  expect(runtime.phase).toBe('due')
+  expect(runtime.restStartsAt).toBe(interactionAt + 30_000)
+  expect(runtime.restUntil).toBeNull()
 })
 
 test('appearance changes preserve the active cycle and reload restores it', async ({ page }) => {

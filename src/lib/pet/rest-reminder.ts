@@ -525,14 +525,24 @@ export function reduceRestReminder(
   state: RestReminderState,
   event: RestReminderEvent,
 ): RestReminderState {
-  // A concrete user action wins over a delayed countdown callback. This keeps
-  // the rest scene from appearing over a click or keystroke that is already
-  // being handled by the page.
-  if (event.type === 'interaction' && state.phase === 'due') {
-    return {
-      ...state,
-      restStartsAt: event.now
-        + restReminderEntryCountdownSeconds(state.intervalSeconds) * 1000,
+  // A concrete user action wins over a delayed countdown callback. If the
+  // working deadline passed before its callback ran, start a fresh entry
+  // countdown instead of backdating and partially consuming the break.
+  if (event.type === 'interaction') {
+    if (state.phase === 'due') {
+      return {
+        ...state,
+        restStartsAt: event.now
+          + restReminderEntryCountdownSeconds(state.intervalSeconds) * 1000,
+      }
+    }
+    const deadline = nextRestReminderDeadline(state)
+    if (
+      (state.phase === 'working' || state.phase === 'snoozed')
+      && deadline !== null
+      && event.now >= deadline
+    ) {
+      return beginRestCountdown(state, event.now)
     }
   }
 
@@ -559,14 +569,6 @@ export function reduceRestReminder(
   const advanced = advanceRestReminder(state, event.now)
 
   if (event.type === 'deadline') return advanced
-
-  if (event.type === 'interaction' && advanced.phase === 'due') {
-    return {
-      ...advanced,
-      restStartsAt: event.now
-        + restReminderEntryCountdownSeconds(advanced.intervalSeconds) * 1000,
-    }
-  }
 
   return advanced
 }

@@ -192,6 +192,31 @@ test('a late first deadline starts and finishes the full break from the correct 
   )
 })
 
+test('an overdue user interaction starts a fresh entry countdown', () => {
+  const start = 1_000_000
+  const interactionAt = start
+    + REST_REMINDER_TEST_INTERVAL_SECONDS * 1000
+    + REST_REMINDER_TEST_ENTRY_COUNTDOWN_SECONDS * 1000
+    + 3 * 60_000
+  let state = createRestReminderState(REST_REMINDER_TEST_INTERVAL_SECONDS)
+  state = reduceRestReminder(state, { type: 'foreground', now: start })
+  state = reduceRestReminder(state, { type: 'interaction', now: interactionAt })
+
+  assert.equal(state.phase, 'due')
+  assert.equal(
+    state.restStartsAt,
+    interactionAt + REST_REMINDER_TEST_ENTRY_COUNTDOWN_SECONDS * 1000,
+  )
+
+  const restStartsAt = state.restStartsAt!
+  state = reduceRestReminder(state, { type: 'deadline', now: restStartsAt })
+  assert.equal(state.phase, 'resting')
+  assert.equal(
+    state.restUntil,
+    restStartsAt + REST_REMINDER_BREAK_MINUTES * 60_000,
+  )
+})
+
 test('resumes runtime state, validates stored data, and reconfigures the active interval', () => {
   const { storage, values } = createStorage()
   const start = 1_000_000
