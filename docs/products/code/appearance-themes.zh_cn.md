@@ -20,9 +20,11 @@ Farming Code 支持跟随系统、浅色、深色和纸张四种外观。外观�
   标签与图标一起使用 Strong 墨色，并且只有当前 Tab 背后使用一块克制的色调填充。
 - Paper 图标按钮静止时直接使用父级纸面；只有 Selected 或 Pressed Toggle 持续使用更深的
   Selected 填充，Hover 填充只提供临时反馈，未选中的静止按钮不使用局部底色。
-- Sidebar、移动顶栏等结构性导航面使用 chrome 角色；inset 只用于嵌入表面内部的内容，
-  raised 只用于脱离普通文档流的浮层。静止控件继承结构性父级，不能再用 canvas 或
-  raised 背景替换父级表面。
+- 桌面常驻导航使用 chrome 角色；紧凑布局的固定顶栏和导航抽屉使用 panel-surface
+  角色，其中的 Project、Agent、Files Sticky 区域继承同一个表面。raised 只用于脱离
+  普通文档流的浮层。静止控件继承结构性父级，不能再用 canvas 或 raised 背景替换父级表面。
+- 当前 Agent 只使用一块 selected 填充，并完整包住前置 Provider 身份图标；Files 等未选中的
+  Section Header 保持 panel 表面，不能表现得像第二个选中项。
 - 工作台区域应保持可辨识，但不能变成割裂的色块。Paper 的面板和组合控件使用一档
   轻微的中性色块，而不使用装饰性描边、焦点外圈或选中边界；文字、光标、背景和交互
   状态已经提供足够反馈。语义状态色仍可在内容内部使用。主题颜色应按语义角色选择，

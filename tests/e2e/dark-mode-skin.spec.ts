@@ -121,6 +121,19 @@ async function expectProjectRowSurface(page: import('@playwright/test').Page, ex
   await expectStickySurface(page.locator('.code-project-row').first(), 'project row', expected)
 }
 
+async function expectProviderIconInsideAgentRow(row: import('@playwright/test').Locator) {
+  const icon = row.locator('.code-agent-row-provider-icon')
+  await expect(icon).toBeVisible()
+  await expect.poll(async () => {
+    const [rowBox, iconBox] = await Promise.all([row.boundingBox(), icon.boundingBox()])
+    if (!rowBox || !iconBox) return false
+    return iconBox.x >= rowBox.x
+      && iconBox.y >= rowBox.y
+      && iconBox.x + iconBox.width <= rowBox.x + rowBox.width
+      && iconBox.y + iconBox.height <= rowBox.y + rowBox.height
+  }, { message: 'provider icon should be contained by the Agent selection surface' }).toBe(true)
+}
+
 async function expectTerminalAppearance(page: import('@playwright/test').Page, agentId: string, appearance: 'light' | 'dark' | 'paper') {
   const terminalPane = page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"]`)
   await expect(terminalPane).toBeVisible()
@@ -299,13 +312,19 @@ test.describe('Farming Code appearance skins', () => {
     await page.evaluate(() => document.body.classList.add('code-compact-layout', 'code-mobile-touch'))
     const paperMobileTopbar = page.getByTestId('code-mobile-topbar')
     await expect(paperMobileTopbar).toBeVisible()
-    await expect(paperMobileTopbar).toHaveCSS('background-color', 'rgb(249, 248, 244)')
+    await expect(paperMobileTopbar).toHaveCSS('background-color', 'rgb(239, 237, 231)')
     await expect(page.getByTestId('code-mobile-menu')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
     await expect(page.getByTestId('code-mobile-more')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
     await saveScreenshot(testInfo, 'paper-mobile-workspace.png', page)
     await page.getByTestId('code-mobile-menu').click()
-    await expect(page.getByTestId('code-sidebar')).toHaveCSS('background-color', 'rgb(249, 248, 244)')
-    await expectProjectRowSurface(page, 'rgb(249, 248, 244)')
+    await expect(page.getByTestId('code-sidebar')).toHaveCSS('background-color', 'rgb(239, 237, 231)')
+    await expectProjectRowSurface(page, 'rgb(239, 237, 231)')
+    await expect(page.getByTestId('code-agents-section').first()).toHaveCSS('background-color', 'rgb(239, 237, 231)')
+    const paperAgentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
+    const paperProjectGroup = page.getByTestId('code-project-group').filter({ has: paperAgentRow })
+    await expect(paperAgentRow).toHaveCSS('background-color', 'rgba(40, 41, 34, 0.09)')
+    await expectProviderIconInsideAgentRow(paperAgentRow)
+    await expect(paperProjectGroup.locator('.code-files-header')).toHaveCSS('background-color', 'rgb(239, 237, 231)')
     await saveScreenshot(testInfo, 'paper-mobile-shell.png', page)
   })
 
@@ -578,12 +597,13 @@ test.describe('Farming Code appearance skins', () => {
     await page.evaluate(() => document.body.classList.add('code-compact-layout', 'code-mobile-touch'))
     await expect(page.getByTestId('code-mobile-topbar')).toBeVisible()
     await expectDarkSurface(page.getByTestId('code-mobile-topbar'), 'mobile topbar')
-    await expect(page.getByTestId('code-mobile-topbar')).toHaveCSS('background-color', 'rgb(32, 32, 32)')
+    await expect(page.getByTestId('code-mobile-topbar')).toHaveCSS('background-color', 'rgb(34, 34, 34)')
     await expect(page.getByTestId('code-mobile-menu')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
     await expect(page.getByTestId('code-mobile-more')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
     await page.getByTestId('code-mobile-menu').click()
-    await expect(page.getByTestId('code-sidebar')).toHaveCSS('background-color', 'rgb(32, 32, 32)')
-    await expectProjectRowSurface(page, 'rgb(32, 32, 32)')
+    await expect(page.getByTestId('code-sidebar')).toHaveCSS('background-color', 'rgb(34, 34, 34)')
+    await expectProjectRowSurface(page, 'rgb(34, 34, 34)')
+    await expect(page.locator('.code-files-header').first()).toHaveCSS('background-color', 'rgb(34, 34, 34)')
     await saveScreenshot(testInfo, 'mobile-shell.png', page)
   })
 })

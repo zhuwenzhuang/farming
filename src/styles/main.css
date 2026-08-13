@@ -3003,7 +3003,7 @@ body.code-mode .code-workspace {
     align-items: center;
     padding: 0 12px;
     pointer-events: none;
-    background: var(--code-bg-chrome);
+    background: var(--code-panel-surface);
     border-color: var(--code-border);
     color: var(--code-text);
   }

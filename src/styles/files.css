@@ -1821,7 +1821,7 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   .code-open-editors,
   .code-files-section {
       margin-left: 14px;
-      background: var(--code-bg-inset);
+      background: var(--code-panel-surface);
       color: var(--code-text-muted);
     }
 
@@ -1835,14 +1835,14 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
 
   .code-open-editors-header {
       grid-template-columns: minmax(0, 1fr);
-      background: var(--code-bg-inset);
+      background: var(--code-panel-surface);
       color: var(--code-text-muted);
       border-color: var(--code-border-subtle);
     }
 
   .code-files-header {
       grid-template-columns: minmax(0, 1fr) auto;
-      background: var(--code-bg-inset);
+      background: var(--code-panel-surface);
       color: var(--code-text-muted);
       border-color: var(--code-border-subtle);
     }

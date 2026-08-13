@@ -1360,6 +1360,15 @@ body.code-resizing-sidebar .code-sidebar-resizer {
       pointer-events: auto;
     }
 
+  body.code-mode.code-compact-layout .code-project-row {
+      --code-project-row-action-surface: var(--code-panel-surface);
+      background: linear-gradient(to bottom, var(--code-panel-surface) 0 var(--code-project-sticky-height), transparent var(--code-project-sticky-height));
+    }
+
+  body.code-mode.code-compact-layout .code-sidebar-project-section {
+      background: var(--code-panel-surface);
+    }
+
   body.code-mode.code-compact-layout .code-project-context-menu,
     body.code-mode.code-compact-layout .code-project-launch-menu {
       z-index: 10030;
@@ -1382,7 +1391,7 @@ body.code-resizing-sidebar .code-sidebar-resizer {
       padding: max(10px, env(safe-area-inset-top)) 10px max(8px, env(safe-area-inset-bottom));
       gap: 8px;
       border-right: 0;
-      background: var(--code-bg-chrome);
+      background: var(--code-panel-surface);
       box-shadow: var(--code-mobile-sidebar-shadow);
       backdrop-filter: blur(24px) saturate(1.16);
       -webkit-backdrop-filter: blur(24px) saturate(1.16);
@@ -1455,7 +1464,7 @@ body.code-resizing-sidebar .code-sidebar-resizer {
     }
 
   body.code-mode.code-compact-layout .code-sidebar {
-      background: var(--code-bg-chrome);
+      background: var(--code-panel-surface);
       box-shadow: var(--code-mobile-sidebar-shadow);
     }
 }

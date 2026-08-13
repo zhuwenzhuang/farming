@@ -237,10 +237,14 @@ for (const [sourcePath, selector, property, expectedValue] of borderPurposeContr
 }
 
 const structuralSurfaceContracts = [
-  ['src/styles/main.css', '.code-mobile-topbar', 'background', 'var(--code-bg-chrome)'],
+  ['src/styles/main.css', '.code-mobile-topbar', 'background', 'var(--code-panel-surface)'],
   ['src/styles/main.css', 'body.code-mode.code-compact-layout .code-mobile-topbar-button', 'background', 'transparent'],
   ['src/styles/main.css', 'body.code-mode.code-compact-layout .code-mobile-topbar-button', 'box-shadow', 'none'],
-  ['src/styles/sidebar.css', 'body.code-mode.code-compact-layout .code-sidebar', 'background', 'var(--code-bg-chrome)'],
+  ['src/styles/sidebar.css', 'body.code-mode.code-compact-layout .code-sidebar', 'background', 'var(--code-panel-surface)'],
+  ['src/styles/sidebar.css', 'body.code-mode.code-compact-layout .code-sidebar-project-section', 'background', 'var(--code-panel-surface)'],
+  ['src/styles/agent-list.css', 'body.code-mode.code-compact-layout .code-agents-section', 'background', 'var(--code-panel-surface)'],
+  ['src/styles/agent-list.css', '.code-agent-row.active', 'background', 'var(--code-bg-selected)'],
+  ['src/styles/agent-list.css', '.code-agent-row.search-selected', 'background', 'var(--code-bg-selected)'],
 ] as const
 for (const [sourcePath, selector, property, expectedValue] of structuralSurfaceContracts) {
   const root = postcss.parse(fs.readFileSync(path.join(projectRoot, sourcePath), 'utf8'), { from: sourcePath })

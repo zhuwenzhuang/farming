@@ -163,14 +163,14 @@
 }
 
 .code-agent-row.active {
-  --code-agent-row-action-overlay: var(--code-bg-hover);
-  background: var(--code-bg-hover);
+  --code-agent-row-action-overlay: var(--code-bg-selected);
+  background: var(--code-bg-selected);
   color: var(--code-text);
 }
 
 .code-agent-row.search-selected {
-  --code-agent-row-action-overlay: var(--code-bg-hover);
-  background: var(--code-bg-hover);
+  --code-agent-row-action-overlay: var(--code-bg-selected);
+  background: var(--code-bg-selected);
   color: var(--code-text);
 }
 
@@ -854,9 +854,15 @@ body.code-mode:not(.code-compact-layout) .code-agent-row.requires-resume .code-a
       font-size: 14px;
     }
 
+  body.code-mode.code-compact-layout .code-agent-row.has-provider {
+      width: calc(100% + 20px);
+      margin-left: -20px;
+      padding-left: 27px;
+    }
+
   body.code-mode.code-compact-layout .code-agent-row-provider-icon {
       position: absolute;
-      left: -17px;
+      left: 3px;
       top: 50%;
       width: 17px;
       height: 17px;
@@ -902,7 +908,7 @@ body.code-mode:not(.code-compact-layout) .code-agent-row.requires-resume .code-a
   body.code-mode.code-compact-layout .code-agents-section {
       margin-right: 0;
       padding-left: 12px;
-      background: var(--code-bg-chrome);
+      background: var(--code-panel-surface);
     }
 }
 
@@ -916,11 +922,11 @@ body.code-mode:not(.code-compact-layout) .code-agent-row.requires-resume .code-a
 }
 
 .code-agent-row.active .code-agent-row-actions {
-  --code-agent-row-action-overlay: var(--code-bg-hover);
+  --code-agent-row-action-overlay: var(--code-bg-selected);
 }
 
 .code-agent-row.search-selected .code-agent-row-actions {
-  --code-agent-row-action-overlay: var(--code-bg-hover);
+  --code-agent-row-action-overlay: var(--code-bg-selected);
 }
 
 .code-agent-work-view {
