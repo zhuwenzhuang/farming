@@ -383,6 +383,7 @@ export function ProjectFilesSection({
   } = useWorkspaceFileSectionController({
     agentId,
     workspaceKey: projectId,
+    cancelPendingFileFocus,
     clearFileMenu,
     clearFileOperation,
     clearFileSearch,

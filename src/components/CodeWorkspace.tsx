@@ -750,6 +750,7 @@ export function CodeWorkspace({
     showError: message => setCopyNotice({ id: Date.now(), kind: 'error', message }),
   })
   const [fileRevealRequest, setFileRevealRequest] = useState<{ agentId: string; path: string; kind: 'directory' | 'file'; requestId: number } | null>(null)
+  const [agentRevealRequest, setAgentRevealRequest] = useState<{ agentId: string; requestId: number } | null>(null)
   const [fileSearchFocusRequest, setFileSearchFocusRequest] = useState<{ agentId: string; requestId: number; query?: string } | null>(null)
   const renameDialogIdentity = renameDialog
     ? renameDialog.kind === 'agent'
@@ -780,6 +781,7 @@ export function CodeWorkspace({
   const activeTerminalIdRef = useRef<string | null>(activeTerminalId)
   const manuallyUnreadActiveAgentIdRef = useRef<string | null>(null)
   const workspaceFileRevealRequestRef = useRef(0)
+  const workspaceAgentRevealRequestRef = useRef(0)
   const workspaceFileSearchFocusRequestRef = useRef(0)
   const workspaceFileOpenRequestRef = useRef(new LatestRequestFence())
   const terminalPathOpenRequestRef = useRef(new LatestRequestFence())
@@ -3470,11 +3472,28 @@ export function CodeWorkspace({
   const backToAgentFromFile = useCallback((agentId: string) => {
     workspaceFileOpenRequestRef.current.invalidate()
     terminalPathOpenRequestRef.current.invalidate()
+    setFileRevealRequest(null)
+    const sourceAgent = agents.find(agent => agent.id === agentId)
+    if (sourceAgent) {
+      const projectId = sourceAgent.isMain
+        ? MAIN_AGENT_PROJECT_ID
+        : projectWorkspaceForAgent(sourceAgent)
+      setCollapsedProjectIds(previous => {
+        if (!previous.has(projectId)) return previous
+        const next = new Set(previous)
+        next.delete(projectId)
+        return next
+      })
+      setAgentRevealRequest({
+        agentId,
+        requestId: workspaceAgentRevealRequestRef.current += 1,
+      })
+    }
     setMainPaneMode('terminal')
     onWorkspaceViewChange('projects')
     onOpenTerminal(agentId, { focusTerminal: !isTouchInputViewport() })
     closeSidebarForMobile()
-  }, [closeSidebarForMobile, onOpenTerminal, onWorkspaceViewChange, setMainPaneMode])
+  }, [agents, closeSidebarForMobile, onOpenTerminal, onWorkspaceViewChange, setMainPaneMode])
 
   const closeOpenWorkspaceFiles = useCallback((targets: WorkspaceOpenFileTarget[]) => {
     workspaceFileOpenRequestRef.current.invalidate()
@@ -4821,6 +4840,7 @@ export function CodeWorkspace({
         agentCreationWorkspace={agentCreationWorkspace}
         openWorkspaceFile={openWorkspaceFile}
         openWorkspaceFiles={openWorkspaceFiles}
+        agentRevealRequest={agentRevealRequest}
         fileRevealRequest={fileRevealRequest}
         fileSearchFocusRequest={fileSearchFocusRequest}
         projectListRef={projectListRef}

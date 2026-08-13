@@ -59,13 +59,10 @@ export type WorkspaceFileTreeRowClickIntent = 'toggle-directory' | 'open-file' |
 export type WorkspaceFileTreeActivationIntent = 'open-directory' | 'close-directory' | 'open-file' | 'none'
 
 export function workspaceFileRevealScrollDelta(scrollerRect: WorkspaceFileViewRect, rowRect: WorkspaceFileViewRect) {
-  if (rowRect.top < scrollerRect.top) {
-    return rowRect.top - scrollerRect.top
-  }
-  if (rowRect.bottom > scrollerRect.bottom) {
-    return rowRect.bottom - scrollerRect.bottom
-  }
-  return 0
+  const visibleHeight = Math.max(0, scrollerRect.bottom - scrollerRect.top)
+  const rowCenter = rowRect.top + Math.max(0, rowRect.bottom - rowRect.top) / 2
+  const targetCenter = scrollerRect.top + visibleHeight * 0.35
+  return rowCenter - targetCenter
 }
 
 export function shouldFocusWorkspaceFileTree(options: {

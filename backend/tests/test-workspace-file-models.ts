@@ -1156,9 +1156,9 @@ function run() {
     mediumLabel: 'odps-sql/…/odps/lot/cbo/rules',
     fullLabel: 'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo/rules',
   });
-  assert.strictEqual(workspaceFileRevealScrollDelta({ top: 100, bottom: 200 }, { top: 80, bottom: 120 }), -20);
-  assert.strictEqual(workspaceFileRevealScrollDelta({ top: 100, bottom: 200 }, { top: 180, bottom: 220 }), 20);
-  assert.strictEqual(workspaceFileRevealScrollDelta({ top: 100, bottom: 200 }, { top: 120, bottom: 180 }), 0);
+  assert.strictEqual(workspaceFileRevealScrollDelta({ top: 100, bottom: 200 }, { top: 80, bottom: 120 }), -35);
+  assert.strictEqual(workspaceFileRevealScrollDelta({ top: 100, bottom: 200 }, { top: 180, bottom: 220 }), 65);
+  assert.strictEqual(workspaceFileRevealScrollDelta({ top: 100, bottom: 200 }, { top: 120, bottom: 180 }), 15);
   assert.strictEqual(shouldFocusWorkspaceFileTree({
     focusRow: true,
     operationActive: false,

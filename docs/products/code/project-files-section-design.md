@@ -88,9 +88,13 @@ a reveal operation; only navigation to a different target owns reveal.
 The Explorer keeps active file, keyboard focus, and selection as distinct
 concepts. Opening a file from Chat, Terminal, search, History, Plugins, or a URL
 has one reveal owner so the tree and Project list do not compete for focus or
-scroll. Workspace back/forward history treats a Plugins location as a first-class
-entry and restores its tab, Agent Home, extension kind, query, detail, and scroll
-position after opening a source file.
+scroll. A revealed file is anchored in the upper-middle of the visible file area
+rather than merely exposed at its lower edge. Returning from a file to its source
+Agent expands that Agent's Project and Agent group, then reveals the exact Agent
+row even when the file and source Agent belong to different Projects. Workspace
+back/forward history treats a Plugins location as a first-class entry and restores
+its tab, Agent Home, extension kind, query, detail, and scroll position after
+opening a source file.
 
 ## Working Copies And Mutations
 

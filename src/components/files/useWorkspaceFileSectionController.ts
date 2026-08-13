@@ -18,6 +18,7 @@ interface WorkspaceFileSearchFocusRequest {
 interface UseWorkspaceFileSectionControllerOptions {
   agentId: string | null
   workspaceKey: string
+  cancelPendingFileFocus: () => void
   clearFileMenu: () => void
   clearFileOperation: () => void
   clearFileSearch: () => void
@@ -37,6 +38,7 @@ interface UseWorkspaceFileSectionControllerOptions {
 export function useWorkspaceFileSectionController({
   agentId,
   workspaceKey,
+  cancelPendingFileFocus,
   clearFileMenu,
   clearFileOperation,
   clearFileSearch,
@@ -81,6 +83,11 @@ export function useWorkspaceFileSectionController({
     clearFileOperation()
     clearFileSearch()
   }, [agentId, clearFileMenu, clearFileOperation, clearFileSearch, setOpenFileError])
+
+  useEffect(() => {
+    if (revealRequest) return
+    cancelPendingFileFocus()
+  }, [cancelPendingFileFocus, revealRequest])
 
   useEffect(() => {
     if (!revealRequest) return

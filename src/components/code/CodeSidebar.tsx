@@ -73,6 +73,7 @@ import { projectFilesWorkspaceId } from '@/lib/project-workspaces'
 import { formatWorkspaceForDisplay } from '@/lib/workspace-options'
 import { recordPerformanceTestRender } from '@/lib/performance-test-observer'
 import { stableProjectSourceAgentId } from './workspace-derived'
+import { workspaceFileRevealScrollDelta } from '@/lib/workspace-file-view-model'
 import {
   agentWithCurrentLiveState,
   projectAgentLiveSummary,
@@ -84,6 +85,7 @@ import { useDismissiblePopover } from './useDismissiblePopover'
 import { UsagePanel } from './UsagePanel'
 import { FarmingPet } from './pet/FarmingPet'
 import type { UiAppearance, UiLanguage } from '@/lib/ui-preferences'
+import { scheduleFocusUntil } from './focus-retry'
 
 declare const __FARMING_PACKAGE_VERSION__: string
 
@@ -210,6 +212,7 @@ interface CodeSidebarProps {
   agentCreationWorkspace?: string
   openWorkspaceFile: OpenWorkspaceFile | null
   openWorkspaceFiles: OpenWorkspaceFile[]
+  agentRevealRequest: { agentId: string; requestId: number } | null
   fileRevealRequest: { agentId: string; path: string; kind: 'directory' | 'file'; requestId: number } | null
   fileSearchFocusRequest: { agentId: string; requestId: number; query?: string } | null
   projectListRef: RefObject<HTMLDivElement | null>
@@ -307,6 +310,7 @@ export function CodeSidebar({
   agentCreationWorkspace,
   openWorkspaceFile,
   openWorkspaceFiles,
+  agentRevealRequest,
   fileRevealRequest,
   fileSearchFocusRequest,
   projectListRef,
@@ -547,6 +551,39 @@ export function CodeSidebar({
       }
       return 0
     })
+  const revealedAgentIsPinned = Boolean(agentRevealRequest && displayedProjects.some(project => (
+    project.agents.some(agent => agent.id === agentRevealRequest.agentId && agent.pinned)
+  )))
+
+  useEffect(() => {
+    if (revealedAgentIsPinned) setPinnedCollapsed(false)
+  }, [agentRevealRequest?.requestId, revealedAgentIsPinned])
+
+  useEffect(() => {
+    if (!agentRevealRequest) return
+    return scheduleFocusUntil(() => {
+      const scroller = projectListRef.current
+      if (!scroller) return false
+      const rows = Array.from(scroller.querySelectorAll<HTMLElement>(
+        '[data-testid="code-agent-row"], [data-testid="code-project-agent-compact"], [data-testid="code-pinned-agent-compact"]',
+      ))
+      const row = rows.find(candidate => (
+        candidate.dataset.agentId === agentRevealRequest.agentId
+        && candidate.getClientRects().length > 0
+      ))
+      if (!row) return false
+
+      scroller.scrollTop += workspaceFileRevealScrollDelta(
+        scroller.getBoundingClientRect(),
+        row.getBoundingClientRect(),
+      )
+      return true
+    }, {
+      initialDelay: 0,
+      retryDelay: 80,
+      maxAttempts: 8,
+    })
+  }, [agentRevealRequest, projectListRef])
   const visibleProjectSections = displayedProjects.filter(project => (
     project.agents.some(agent => !agent.pinned || !agent.isMain)
     || project.agentSessions.some(session => !session.pinned)
@@ -779,6 +816,7 @@ export function CodeSidebar({
             openWorkspaceFile={openWorkspaceFile}
             openWorkspaceFiles={openWorkspaceFiles}
             agentLaunchOptions={agentLaunchOptions}
+            agentRevealRequest={agentRevealRequest}
             fileRevealRequest={fileRevealRequest}
             fileSearchFocusRequest={fileSearchFocusRequest}
             onToggleProject={onToggleProject}
@@ -1688,6 +1726,7 @@ interface ProjectSectionProps {
   openWorkspaceFile: OpenWorkspaceFile | null
   openWorkspaceFiles: OpenWorkspaceFile[]
   agentLaunchOptions: AgentLaunchOption[]
+  agentRevealRequest: { agentId: string; requestId: number } | null
   fileRevealRequest: { agentId: string; path: string; kind: 'directory' | 'file'; requestId: number } | null
   fileSearchFocusRequest: { agentId: string; requestId: number; query?: string } | null
   onToggleProject: (projectId: string) => void
@@ -1811,6 +1850,7 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
   openWorkspaceFile,
   openWorkspaceFiles,
   agentLaunchOptions,
+  agentRevealRequest,
   fileRevealRequest,
   fileSearchFocusRequest,
   onToggleProject,
@@ -1920,6 +1960,11 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
   )
   const projectAgentsExpanded = projectAgentVisibleLimit > PROJECT_AGENT_INITIAL_VISIBLE_LIMIT
   const agentListCollapsed = projectAgentsCollapsed && !forceAgentsExpanded
+
+  useEffect(() => {
+    if (!agentRevealRequest || !project.agents.some(agent => agent.id === agentRevealRequest.agentId)) return
+    setProjectAgentsCollapsed(false)
+  }, [agentRevealRequest, project.agents])
 
   useEffect(() => {
     if (projectSourceAgentId !== nextProjectSourceAgentId) {

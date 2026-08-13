@@ -79,6 +79,16 @@ test('promotes an external terminal file link to its nearest Git Project', async
   const launcherWorkspace = path.join(workspaceRoot, 'terminal-link-launcher')
   fs.mkdirSync(launcherWorkspace, { recursive: true })
   const { filePath, repository } = createRepositoryFile(workspaceRoot, 'terminal-link-git-project')
+  for (let index = 0; index < 24; index += 1) {
+    const beforeDirectory = path.join(repository, `a-before-${String(index).padStart(2, '0')}`)
+    const afterDirectory = path.join(repository, `z-after-${String(index).padStart(2, '0')}`)
+    fs.mkdirSync(beforeDirectory)
+    fs.mkdirSync(afterDirectory)
+    fs.writeFileSync(path.join(beforeDirectory, 'fixture.txt'), 'before target\n')
+    fs.writeFileSync(path.join(afterDirectory, 'fixture.txt'), 'after target\n')
+  }
+  git(repository, ['add', '.'])
+  git(repository, ['commit', '--amend', '--no-edit'])
 
   await openFarming(page)
   await openNewAgentDialog(page)
@@ -109,7 +119,55 @@ test('promotes an external terminal file link to its nearest Git Project', async
   const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(repository) })
   await expect(project).toBeVisible()
   await expect(page.getByRole('tab', { name: 'SmartOpen.java' })).toBeVisible()
+  const targetRow = project.locator('[data-testid="code-file-row"][data-file-path="compiler/src/SmartOpen.java"]')
+  await expect(targetRow).toBeVisible()
+  await expect.poll(async () => targetRow.evaluate(element => {
+    const scroller = element.closest<HTMLElement>('.code-project-list')
+    const projectGroup = element.closest<HTMLElement>('.code-project-group')
+    const filesSection = element.closest<HTMLElement>('.code-files-section')
+    if (!scroller || !projectGroup || !filesSection) return false
+    const scrollerRect = scroller.getBoundingClientRect()
+    const visibleTop = [
+      projectGroup.querySelector<HTMLElement>('.code-project-row'),
+      projectGroup.querySelector<HTMLElement>('.code-agents-section'),
+      projectGroup.querySelector<HTMLElement>('[data-testid="code-open-editors"]'),
+      filesSection.querySelector<HTMLElement>('.code-files-header'),
+      filesSection.querySelector<HTMLElement>('.code-file-sticky-stack'),
+    ].reduce((top, sticky) => {
+      if (!sticky) return top
+      const rect = sticky.getBoundingClientRect()
+      if (rect.height <= 0 || rect.bottom <= scrollerRect.top || rect.top >= scrollerRect.bottom) return top
+      return Math.max(top, rect.bottom)
+    }, scrollerRect.top)
+    const rowRect = element.getBoundingClientRect()
+    const ratio = (rowRect.top + rowRect.height / 2 - visibleTop) / (scrollerRect.bottom - visibleTop)
+    return ratio >= 0.3 && ratio <= 0.45
+  })).toBe(true)
   await expectBlameAvailable(page)
+
+  const sourceProject = page.getByTestId('code-project-group').filter({ hasText: path.basename(launcherWorkspace) })
+  await sourceProject.hover()
+  await sourceProject.getByTestId('code-project-agent-visibility').click({ force: true })
+  await expect(sourceProject.getByTestId('code-project-agent-visibility')).toHaveAttribute('aria-expanded', 'false')
+  await sourceProject.getByTestId('code-project-title').click({ force: true })
+  await expect(sourceProject).toHaveAttribute('data-collapsed', 'true')
+  await page.getByTestId('code-project-list').evaluate(scroller => {
+    scroller.scrollTop = scroller.scrollHeight
+  })
+
+  await page.getByTestId('code-file-editor-back').click()
+  await expect(sourceProject).toHaveAttribute('data-collapsed', 'false')
+  await expect(sourceProject.getByTestId('code-project-agent-visibility')).toHaveAttribute('aria-expanded', 'true')
+  const sourceAgentRow = sourceProject.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
+  await expect(sourceAgentRow).toBeVisible()
+  await expect(sourceAgentRow).toHaveClass(/active/)
+  await expect.poll(async () => sourceAgentRow.evaluate(element => {
+    const scroller = element.closest<HTMLElement>('.code-project-list')
+    if (!scroller) return false
+    const rowRect = element.getBoundingClientRect()
+    const scrollerRect = scroller.getBoundingClientRect()
+    return rowRect.top >= scrollerRect.top - 1 && rowRect.bottom <= scrollerRect.bottom + 1
+  })).toBe(true)
 })
 
 test('promotes an external Chat file link to its nearest Git Project', async ({ page, workspaceRoot }) => {

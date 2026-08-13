@@ -67,8 +67,11 @@ Project Scroll，也不能启动 Reveal Operation；只有导航到其它 Target
 
 Explorer 区分 Active File、Keyboard Focus 与 Selection。从 Chat、Terminal、Search、History、
 Plugins 或 URL 打开文件时只有一个 Reveal Owner，避免 Tree 与 Project List 争夺 Focus 或
-Scroll。Workspace 前进/返回把 Plugins Location 作为一等 History Entry；打开来源文件后返回时，
-恢复原来的 Tab、Agent Home、Extension Kind、Query、Detail 与 Scroll Position。
+Scroll。被 Reveal 的文件要锚定在文件可视区中间偏上的位置，而不是仅贴着下边缘露出。从文件
+返回 Source Agent 时，需要展开该 Agent 所在的 Project 和 Agent Group，再 Reveal 精确的 Agent
+Row；即使文件与 Source Agent 分属不同 Project 也必须成功。Workspace 前进/返回把 Plugins
+Location 作为一等 History Entry；打开来源文件后返回时，恢复原来的 Tab、Agent Home、
+Extension Kind、Query、Detail 与 Scroll Position。
 
 ## Working Copy 与 Mutation
 
