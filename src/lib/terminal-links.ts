@@ -1,4 +1,3 @@
-import { LinkComputer } from 'monaco-editor/esm/vs/editor/common/languages/linkComputer.js'
 import {
   detectTerminalPathLinks,
   type ParsedTerminalPathLink,
@@ -40,6 +39,7 @@ const MAX_TERMINAL_PATH_LINKS_PER_LINE = 10
 const MAX_TERMINAL_MULTILINE_SCAN_LINES = 100
 const MAX_TERMINAL_SEARCH_WORD_LENGTH = 100
 const TERMINAL_WORD_SEPARATOR_PATTERN = /[ ()[\]{}',"`─‘’“”|\uE0B0-\uE0BF]/gu
+const TERMINAL_URL_CANDIDATE_PATTERN = /https?:\/\/[^\s<>"'`，。；：！？]+/giu
 const TERMINAL_PATH_EXTENSIONLESS_NAMES = new Set([
   'Dockerfile',
   'Gemfile',
@@ -72,22 +72,34 @@ export function isValidTerminalUrl(url: string) {
 }
 
 function computeTerminalUrlLinkMatches(lineText: string): TerminalLinkMatch[] {
-  const links = LinkComputer.computeLinks({
-    getLineCount: () => 1,
-    getLineContent: () => lineText,
-  })
   const matches: TerminalLinkMatch[] = []
-  for (const link of links) {
-    const text = String(link.url || '')
-    if (text.length > MAX_TERMINAL_URL_LENGTH || !isValidTerminalUrl(text)) continue
+  for (const candidate of lineText.matchAll(TERMINAL_URL_CANDIDATE_PATTERN)) {
+    const startIndex = candidate.index ?? 0
+    const text = trimTerminalUrlCandidate(candidate[0] || '')
+    if (!text || text.length > MAX_TERMINAL_URL_LENGTH || !isValidTerminalUrl(text)) continue
     matches.push({
       kind: 'url',
-      startIndex: link.range.startColumn - 1,
-      length: link.range.endColumn - link.range.startColumn,
+      startIndex,
+      length: text.length,
       text,
     })
   }
   return matches
+}
+
+function trimTerminalUrlCandidate(candidate: string) {
+  let value = candidate
+  while (/[.,;:!?，。；：！？*_~]$/u.test(value)) value = value.slice(0, -1)
+  for (;;) {
+    const closing = value.charAt(value.length - 1)
+    const opening = closing === ')' ? '(' : closing === ']' ? '[' : closing === '}' ? '{' : ''
+    if (!opening) break
+    const openCount = value.split(opening).length - 1
+    const closeCount = value.split(closing).length - 1
+    if (closeCount <= openCount) break
+    value = value.slice(0, -1)
+  }
+  return value
 }
 
 function hasFileLikeSignal(filePath: string) {

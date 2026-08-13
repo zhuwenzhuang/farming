@@ -6,9 +6,11 @@ const {
 } = require('../../src/lib/workspace-viewer-registry.ts');
 const {
   buildWorkspaceHtmlPreviewDocument,
-  buildWorkspaceInlineVisualizationDocument,
   workspaceHtmlPreviewRefreshDelay,
 } = require('../../src/lib/workspace-html-preview.ts');
+const {
+  buildWorkspaceInlineVisualizationDocument,
+} = require('../../src/lib/workspace-inline-visualization.ts');
 
 assert.strictEqual(workspaceFileSupportsViewer('site/index.html', 'html.preview'), true);
 assert.strictEqual(workspaceFileSupportsViewer('site/index.htm', 'html.preview'), true);

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
 import type { Agent, ProjectAgentSummary, TaskHistoryEntry } from '@/types/agent'
-import type { ClientMessage, ComposerInputAttachment, ComposerInputMessage, ServerMessage, StartAgentMessage, WorkspaceFileEventMessage } from '@/types/messages'
+import type { ClientMessage, ComposerInputAttachment, ComposerInputMessage, LanguageServerRefreshMessage, ServerMessage, StartAgentMessage, WorkspaceFileEventMessage } from '@/types/messages'
 import { appWsUrl } from '@/lib/base-path'
 import {
   setTerminalSessionTransport,
@@ -53,7 +53,6 @@ import {
   type ComputerResourceState,
 } from '../../extensions/computer/frontend/computer-resource-state'
 import type { ComputerResource, ComputerResourceDeletion } from '../../extensions/computer/frontend/types'
-import { refreshLanguageServerProviders } from '../../extensions/language-server/frontend/monaco-providers'
 import {
   outgoingWebSocketMessageDisposition,
   replayableWebSocketMessage,
@@ -65,6 +64,15 @@ const BUSINESS_HEALTH_INTERVAL_MS = 10_000
 const BUSINESS_HEALTH_DEADLINE_MS = 8_000
 const BUSINESS_HEALTH_RETRY_MS = 2_000
 const AGENT_STATE_SNAPSHOT_PAGE_DEADLINE_MS = 30_000
+let languageServerRefreshModulePromise: Promise<typeof import('../../extensions/language-server/frontend/monaco-providers')> | null = null
+
+function refreshLanguageServerProvidersOnDemand(message: LanguageServerRefreshMessage) {
+  languageServerRefreshModulePromise ??= import('../../extensions/language-server/frontend/monaco-providers')
+  void languageServerRefreshModulePromise.then(module => {
+    module.refreshLanguageServerProviders(message)
+  })
+}
+
 export interface WebSocketState {
   accessMode: WebSocketAccessMode
   agents: Agent[]
@@ -1080,7 +1088,7 @@ export function useWebSocket() {
               })
               break
             case 'language-server-refresh':
-              refreshLanguageServerProviders(msg)
+              refreshLanguageServerProvidersOnDemand(msg)
               break
             case 'browser-resource-snapshot':
               setState(prev => {

@@ -71,6 +71,16 @@ async function run() {
     `${reviewUrl}/a(b)`,
     'terminal URL parsing should retain balanced URL parentheses and exclude the wrapper'
   );
+  assert.strictEqual(
+    parseTerminalUrlAtColumn(`[${reviewUrl}/a[b]]`, reviewUrl.indexOf('odps_src') + 4),
+    `${reviewUrl}/a[b]`,
+    'terminal URL parsing should retain balanced URL brackets and exclude the wrapper'
+  );
+  assert.strictEqual(
+    parseTerminalUrlAtColumn(`${reviewUrl}?next=https://example.test/a`, reviewUrl.indexOf('odps_src') + 3),
+    `${reviewUrl}?next=https://example.test/a`,
+    'terminal URL parsing should keep nested HTTP data in the same URL'
+  );
 
   const locationCases = [
     {

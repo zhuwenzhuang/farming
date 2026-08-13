@@ -122,12 +122,7 @@ function reloadAfterFileEditorChunkLoadFailure() {
 
 function loadFileEditorPaneModule() {
   if (!fileEditorPaneLoadPromise) {
-    fileEditorPaneLoadPromise = Promise.all([
-      import('../files/FileEditorPane'),
-      import('@/lib/workspace-editor-monaco').then(editorMonaco => {
-        void editorMonaco.preloadWorkspaceEditorMonaco()
-      }),
-    ]).then(([module]) => {
+    fileEditorPaneLoadPromise = import('../files/FileEditorPane').then(module => {
       try {
         window.sessionStorage.removeItem(FILE_EDITOR_CHUNK_RECOVERY_KEY)
       } catch {
@@ -138,14 +133,6 @@ function loadFileEditorPaneModule() {
     })
   }
   return fileEditorPaneLoadPromise
-}
-
-function preloadFileEditorPane(onLoad: (component: FileEditorPaneComponent) => void) {
-  void loadFileEditorPaneModule().then(module => {
-    onLoad(module.default)
-  }).catch(() => {
-    // Opening a file owns the existing bounded reload path for chunk failures.
-  })
 }
 
 function loadFileEditorPane() {
@@ -663,16 +650,6 @@ export function CodeMainArea({
   const [fileEditorPaneLoadError, setFileEditorPaneLoadError] = useState<unknown>(null)
   const ReadyFileEditorPane = fileEditorPane ?? loadedFileEditorPane
   const fileEditorRequested = showFileEditor && openWorkspaceFile !== null
-
-  useEffect(() => {
-    let active = true
-    preloadFileEditorPane(component => {
-      if (active) setFileEditorPane(() => component)
-    })
-    return () => {
-      active = false
-    }
-  }, [])
 
   useEffect(() => {
     if (!fileEditorRequested || ReadyFileEditorPane) return undefined

@@ -1,6 +1,8 @@
 import {
   createContext,
+  lazy,
   memo,
+  Suspense,
   useCallback,
   useContext,
   useEffect,
@@ -49,8 +51,6 @@ import {
   ToolsGlyph,
 } from '@/components/IconGlyphs'
 import { LocalErrorBoundary, LocalRenderFault } from '@/components/LocalErrorBoundary'
-import { MermaidBlock } from '@/components/files/FileEditorMarkdownPreview'
-import { buildWorkspaceInlineVisualizationDocument } from '@/lib/workspace-html-preview'
 import {
   createWorkspaceHtmlPreview,
   deleteWorkspaceHtmlPreview,
@@ -84,6 +84,7 @@ import {
   acpTranscriptRefreshCoalesceDelayMs,
   acpTranscriptUnsettledRetryDelayMs,
 } from '@/lib/transcript-fetch-policy'
+
 import {
   fileReferenceDisplayText,
   hasQualifiedTranscriptFileReference,
@@ -153,6 +154,10 @@ import {
   type TranscriptGitDiffTarget,
 } from './transcript-git-diff'
 import 'katex/dist/katex.min.css'
+
+const TranscriptMermaidBlock = lazy(() => import('@/components/files/FileEditorMarkdownPreview').then(module => ({
+  default: module.MermaidBlock,
+})))
 
 interface AgentTranscriptProcessPresentation {
   detail: string
@@ -630,6 +635,8 @@ function AgentTranscriptInlineVisualization({
         previewId = preview.id
         const baseUrl = new URL(workspaceHtmlPreviewUrl(preview.id, 'base'), window.location.href).toString()
         const rootUrl = new URL(workspaceHtmlPreviewUrl(preview.id, 'root'), window.location.href).toString()
+        const { buildWorkspaceInlineVisualizationDocument } = await import('@/lib/workspace-inline-visualization')
+        if (controller.signal.aborted) return
         setDocument(buildWorkspaceInlineVisualizationDocument(workspaceFile.content || '', baseUrl, rootUrl))
       })
       .catch(reason => {
@@ -2735,7 +2742,9 @@ function AgentTranscriptTurnView({
             )}
           >
             <LocalRenderFault surface="transcript-mermaid" identity={turn.id}>
-              <MermaidBlock source={mermaidSource} copy={copy} />
+              <Suspense fallback={<div className="code-markdown-mermaid-loading">{copy.mermaidRendering}</div>}>
+                <TranscriptMermaidBlock source={mermaidSource} copy={copy} />
+              </Suspense>
             </LocalRenderFault>
           </LocalErrorBoundary>
         )
