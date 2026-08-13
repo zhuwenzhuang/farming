@@ -26,6 +26,11 @@ Responding，进入 Idle 或需要用户输入的状态。Farming 直接消费�
 Parent Turn 结束发出 Notification。Screen Evidence 缺失或有歧义时保持 `unknown`，不启动基于
 时间的 Fallback。
 
+Pi 的默认 TUI 只有在 Current Screen 同时包含内置 Braille Activity Indicator，以及可识别的
+Working、Retry、Compaction 或 Branch-summary Status 时才是 `busy`；该 Current-screen Marker
+移除后回到 `idle`。Farming 不猜测 Extension 自定义的 Status Text；有歧义的 Custom Output
+保持 `unknown`。
+
 ## Checkpoint 与 Delta
 
 Terminal Checkpoint 包含 Runtime Epoch、State Revision、Output Sequence、Serialized Screen、

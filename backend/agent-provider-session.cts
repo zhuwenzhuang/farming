@@ -68,7 +68,12 @@ function buildAgentProviderSessionPlan(
       error: String(plan.error),
     };
   }
-  if (!plan || (!plan.id && plan.precreate !== true)) return emptyPlan(launchArgs);
+  if (!plan || (!plan.id && plan.precreate !== true)) {
+    const result = emptyPlan(launchArgs);
+    result.provider = provider;
+    result.source = 'untracked-command';
+    return result;
+  }
   return {
     provider,
     id: plan.id || '',

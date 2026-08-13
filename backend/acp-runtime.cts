@@ -21,6 +21,7 @@ import { AcpClientFileSystem, AcpClientTerminalManager } from './acp/client-serv
 import { isSameOrDescendantPath } from './path-containment.cjs';
 import { PACKAGED_CODEX_ACP_ARG } from './acp/packaged-codex-acp.cjs';
 import { PACKAGED_CLAUDE_ACP_ARG } from './acp/packaged-claude-acp.cjs';
+import { PACKAGED_PI_ACP_ARG } from './acp/packaged-pi-acp.cjs';
 import { permissionSecurityWarnings } from './acp/permission-security.cjs';
 import { patchBlock, rejectPatch } from './acp/patch-decisions.cjs';
 import {
@@ -243,7 +244,7 @@ interface AcpRuntimeOptions extends PrepareAgentOptions {
 }
 interface PrepareAgentOptions extends UnknownRecord {
   agentId?: string; provider?: string; providerHomeId?: string; providerHomePath?: string;
-  projectWorkspace?: string; cwd?: string; sessionId?: string;
+  configDir?: string; projectWorkspace?: string; cwd?: string; sessionId?: string;
   capabilityRuntimeEpoch?: string;
   forkSourceSessionId?: string; forkSourceCheckpoint?: UnknownRecord | null; revisionBase?: number;
   approvalMode?: string; historyMode?: string; model?: string; reasoningEffort?: string;
@@ -321,6 +322,9 @@ const CODEX_ACP_SHA256 = 'ef1b4d1876f11728e6f8695138a73d984af6491e7fd0a6a9c74923
 const CLAUDE_ACP_PACKAGE = '@agentclientprotocol/claude-agent-acp';
 const CLAUDE_ACP_VERSION = '0.66.0';
 const CLAUDE_ACP_SHA256 = '33e2379f1ed9e502f3442a19a0d575c2c6df912080db7fea197289e55b3fae2f';
+const PI_ACP_PACKAGE = 'pi-acp';
+const PI_ACP_VERSION = '0.0.33';
+const PI_ACP_SHA256 = '946255b69fdecd839d75f01906175206436dd44c8bc7e872b4321b8d719fe7d1';
 const CODEX_ACP_VENDOR_ENTRY = path.join(
   __dirname,
   '..',
@@ -334,6 +338,13 @@ const CLAUDE_ACP_VENDOR_ENTRY = path.join(
   'dist',
   'acp',
   `claude-agent-acp-${CLAUDE_ACP_VERSION}.mjs`,
+);
+const PI_ACP_VENDOR_ENTRY = path.join(
+  __dirname,
+  '..',
+  'dist',
+  'acp',
+  `pi-acp-${PI_ACP_VERSION}.mjs`,
 );
 const execFileAsync = promisify(execFile);
 
@@ -410,6 +421,20 @@ function adapterEntry(packageName: string) {
     }
     return CLAUDE_ACP_VENDOR_ENTRY;
   }
+  if (packageName === PI_ACP_PACKAGE && fs.existsSync(PI_ACP_VENDOR_ENTRY)) {
+    const actualSha256 = fileSha256(PI_ACP_VENDOR_ENTRY);
+    if (actualSha256 !== PI_ACP_SHA256) {
+      throw new Error(
+        `Pi ACP runtime failed integrity verification: expected ${PI_ACP_SHA256}, found ${actualSha256}`,
+      );
+    }
+    return PI_ACP_VENDOR_ENTRY;
+  }
+  if (packageName === PI_ACP_PACKAGE) {
+    throw new Error(
+      'The reviewed Pi ACP runtime is unavailable. Reinstall Farming or run npm run prepare:acp-vendor.',
+    );
+  }
   let sdkDirectory;
   try {
     sdkDirectory = path.dirname(runtimeRequire.resolve('@agentclientprotocol/sdk'));
@@ -453,9 +478,15 @@ function resolveAcpLaunch(provider: string, options: PrepareAgentOptions = {}) {
         ? PACKAGED_CODEX_ACP_ARG
         : adapter.acp.packageName === CLAUDE_ACP_PACKAGE
           ? PACKAGED_CLAUDE_ACP_ARG
-          : '',
+          : adapter.acp.packageName === PI_ACP_PACKAGE
+            ? PACKAGED_PI_ACP_ARG
+            : '',
     );
-    return { ...launch, version: adapter.acp.version };
+    return {
+      ...launch,
+      args: [...launch.args, ...(adapter.acp.launchArgs?.(options) || [])],
+      version: adapter.acp.version,
+    };
   }
   throw new Error(`Unsupported ACP provider: ${provider}`);
 }

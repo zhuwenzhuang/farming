@@ -324,6 +324,7 @@ function isCrtAgentStateMessageCandidate(value: unknown): value is CrtProtocolRe
 }
 const CRT_AGENT_DISPLAY_NAMES: Record<string, string> = {
   qwen: 'Qwen Code',
+  pi: 'Pi',
   codex: 'Codex',
   opencode: 'OpenCode',
   qoder: 'Qoder',

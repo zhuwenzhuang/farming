@@ -18,6 +18,11 @@ async function run() {
   writeFakeExecutable(path.join(binDir, 'opencode'), 'opencode 9.9.9\n');
   writeFakeExecutable(path.join(binDir, 'qodercli'), 'qodercli 9.9.9\n');
   writeFakeExecutable(path.join(binDir, 'qwen'), 'qwen 0.21.1\n');
+  writeFakeExecutable(
+    path.join(binDir, 'pi'),
+    'pi 0.84.1\n',
+    'pi - AI coding assistant with read, bash, edit, write tools\n',
+  );
 
   const previousPath = process.env.PATH;
   const previousCodexBin = process.env.FARMING_CODEX_BIN;
@@ -32,6 +37,7 @@ async function run() {
     opencode: [{ id: 'default', path: path.join(tmpRoot, '.opencode') }, { id: 'work', path: path.join(tmpRoot, '.opencode-work') }],
     qoder: [{ id: 'default', path: path.join(tmpRoot, '.qoder') }],
     qwen: [{ id: 'default', path: path.join(tmpRoot, '.qwen') }],
+    pi: [{ id: 'default', path: path.join(tmpRoot, '.pi', 'agent') }],
   };
   const settings = { mainPageSessionKeys: [], agentHomes: providerHomes };
   const captured = [];
@@ -480,6 +486,21 @@ async function run() {
     assert.strictEqual(captured.at(-1).env.QWEN_HOME, providerHomes.qwen[0].path);
     assert(settings.mainPageSessionKeys.includes(encodeProviderSessionKey('qwen', qwenAgent.providerSessionId, 'default')));
 
+    const piId = await startAgent(manager, 'pi', workspace, { wantsMain: false, providerHomeId: 'default' });
+    const piAgent = manager.getState().agents.find(agent => agent.id === piId);
+    const piSessionArgIndex = captured.at(-1).args.indexOf('--session-id');
+    assert(piSessionArgIndex >= 0, 'new Pi sessions should receive an explicit --session-id');
+    assert.strictEqual(captured.at(-1).args[piSessionArgIndex + 1], piAgent.providerSessionId);
+    assert.strictEqual(captured.at(-1).command, path.join(binDir, 'pi'));
+    assert.strictEqual(piAgent.command, 'pi');
+    assert.strictEqual(piAgent.providerSessionProvider, 'pi');
+    assert.strictEqual(piAgent.providerSessionTemporary, false);
+    assert.strictEqual(piAgent.providerCapabilities.supportsChat, true);
+    assert.strictEqual(piAgent.providerCapabilities.terminalSessionFork, true);
+    assert.strictEqual(piAgent.providerCapabilities.sessionFork, false);
+    assert.strictEqual(captured.at(-1).env.PI_CODING_AGENT_DIR, providerHomes.pi[0].path);
+    assert(settings.mainPageSessionKeys.includes(encodeProviderSessionKey('pi', piAgent.providerSessionId, 'default')));
+
     const liveQoderAgent = manager.agents.get(qoderId);
     liveQoderAgent.status = 'dead';
     liveQoderAgent.engineStatus = 'dead';
@@ -517,7 +538,7 @@ async function run() {
     assert.strictEqual(captured.at(-1).args[0], '--session-id');
     assert.strictEqual(captured.at(-1).args[1], forkedQoderAgent.providerSessionId);
 
-    console.log('✓ AgentManager assigns provider session identities for Codex, Claude, OpenCode, Qoder, and Qwen Code');
+    console.log('✓ AgentManager assigns provider session identities for Codex, Claude, OpenCode, Qoder, Qwen Code, and Pi');
   } finally {
     if (previousCodexBin === undefined) {
       delete process.env.FARMING_CODEX_BIN;
@@ -539,10 +560,12 @@ async function run() {
   }
 }
 
-function writeFakeExecutable(filePath, versionOutput) {
+function writeFakeExecutable(filePath, versionOutput, helpOutput = '') {
   fs.writeFileSync(filePath, `#!/usr/bin/env node
 if (process.argv.includes('--version')) {
   process.stdout.write(${JSON.stringify(versionOutput)});
+} else if (process.argv.includes('--help')) {
+  process.stdout.write(${JSON.stringify(helpOutput)});
 }
 `);
   fs.chmodSync(filePath, 0o755);

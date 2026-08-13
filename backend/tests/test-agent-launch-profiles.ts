@@ -222,15 +222,23 @@ function run() {
   assert.strictEqual(amazonQSkip.permissionMode, 'full');
 
   CLI_AGENTS
-    .filter(spec => spec.supported !== false && spec.interactive !== false && spec.category === 'coding')
+    .filter(spec => (
+      spec.supported !== false
+      && spec.interactive !== false
+      && spec.category === 'coding'
+      && spec.permissions?.supportsDangerousSkip === true
+    ))
     .forEach(spec => {
       assert(
-        spec.permissions?.supportsDangerousSkip === true && Array.isArray(spec.permissions.dangerousSkipArgs) && spec.permissions.dangerousSkipArgs.length > 0,
-        `${spec.name} should declare provider-specific dangerous skip args`
+        Array.isArray(spec.permissions.dangerousSkipArgs) && spec.permissions.dangerousSkipArgs.length > 0,
+        `${spec.name} should declare args for its advertised dangerous skip support`
       );
       const launch = resolveLaunchCommand(spec.name, { dangerouslySkipPermissions: true });
       spec.permissions.dangerousSkipArgs.forEach(arg => assert(launch.args.includes(arg), `${spec.name} should launch with ${arg}`));
     });
+
+  const piSkip = resolveLaunchCommand('pi', { dangerouslySkipPermissions: true });
+  assert.deepStrictEqual(piSkip.args, [], 'Pi must not invent an unsupported dangerous skip flag');
 
   const shellSkip = resolveLaunchCommand('bash', { dangerouslySkipPermissions: true });
   assert.deepStrictEqual(shellSkip.args, process.platform === 'darwin' ? ['-l'] : []);
@@ -282,6 +290,13 @@ function run() {
     farmingSystemPrompt,
   });
   assert.deepStrictEqual(qwenFarming.args, [
+    '--append-system-prompt',
+    farmingSystemPrompt,
+  ]);
+  const piFarming = resolveLaunchCommand('pi', {
+    farmingSystemPrompt,
+  });
+  assert.deepStrictEqual(piFarming.args, [
     '--append-system-prompt',
     farmingSystemPrompt,
   ]);

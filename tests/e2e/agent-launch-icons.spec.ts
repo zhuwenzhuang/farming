@@ -28,7 +28,7 @@ test.describe('agent launch icons', () => {
     await openFarming(page)
     await openNewAgentDialog(page)
 
-    for (const agentName of ['codex', 'claude', 'qoder', 'qwen', 'bash', 'zsh']) {
+    for (const agentName of ['codex', 'claude', 'qoder', 'qwen', 'pi', 'bash', 'zsh']) {
       await expect(page.getByTestId(`agent-option-${agentName}`).locator(`.agent-launch-icon-${agentName}`)).toBeVisible()
     }
     const launchOrder = await page.locator('[data-testid^="agent-option-"]').evaluateAll(options => (
@@ -38,6 +38,9 @@ test.describe('agent launch icons', () => {
     const qwenDialogIcon = page.getByTestId('agent-option-qwen').locator('.agent-launch-icon-qwen')
     await expect(qwenDialogIcon.locator('image')).toHaveCount(0)
     await expect(qwenDialogIcon.locator('path')).toBeAttached()
+    const piDialogIcon = page.getByTestId('agent-option-pi').locator('.agent-launch-icon-pi')
+    await expect(piDialogIcon.locator('image')).toHaveCount(0)
+    await expect(piDialogIcon.locator('path')).toHaveCount(2)
     const qoderDialogIcon = page.getByTestId('agent-option-qoder').locator('.agent-launch-icon-qoder')
     await expect(qoderDialogIcon.locator('image')).toHaveCount(0)
     await expect(qoderDialogIcon.locator('path').first()).toBeAttached()
@@ -64,10 +67,10 @@ test.describe('agent launch icons', () => {
     await projectGroup.getByTestId('code-project-new-agent').click({ force: true })
     const menu = page.getByTestId('code-project-new-agent-menu')
     await expect(menu).toBeVisible()
-    for (const agentName of ['codex', 'claude', 'qoder', 'qwen', 'bash', 'zsh']) {
+    for (const agentName of ['codex', 'claude', 'qoder', 'qwen', 'pi', 'bash', 'zsh']) {
       await expect(page.getByTestId(`code-project-agent-launch-${agentName}`).locator(`.agent-launch-icon-${agentName}`)).toBeVisible()
     }
-    for (const agentName of ['codex', 'claude', 'qoder', 'qwen']) {
+    for (const agentName of ['codex', 'claude', 'qoder', 'qwen', 'pi']) {
       await expect(page.getByTestId(`code-project-agent-launch-chat-${agentName}`)).toBeVisible()
     }
     for (const agentName of ['bash', 'zsh']) {

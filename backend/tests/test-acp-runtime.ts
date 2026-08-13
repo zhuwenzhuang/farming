@@ -14,6 +14,13 @@ async function run() {
     pkg?: { entrypoint?: string };
   };
   const farmingSystemPrompt = renderFarmingAgentBootstrap();
+  const piLaunchOptions = {
+    agentId: 'pi-runtime-test',
+    configDir: '/tmp/farming-config',
+    executable: '/opt/bin/pi',
+    providerHomePath: '/tmp/pi-agent-home',
+    farmingSystemPrompt: 'Farming bootstrap',
+  };
   assert.match(farmingSystemPrompt, /operational instructions do not express the user's preferred response language/);
   assert.doesNotMatch(farmingSystemPrompt, /<farming-agent-context>/);
   assert.strictEqual(acpErrorKind(new Error('401 Unauthorized: sign in required')), 'authentication');
@@ -23,6 +30,7 @@ async function run() {
   assert.strictEqual(acpErrorKind(new Error('unexpected failure')), 'unknown');
   assert.strictEqual(resolveAcpLaunch('codex').version, '1.2.0');
   assert.strictEqual(resolveAcpLaunch('claude').version, '0.66.0');
+  assert.strictEqual(resolveAcpLaunch('pi', piLaunchOptions).version, '0.0.33');
   assert.strictEqual(resolveAcpLaunch('qwen').version, 'native');
   const codexAcpSource = fs.readFileSync(
     path.join(path.dirname(require.resolve('@agentclientprotocol/codex-acp/package.json')), 'dist', 'index.js'),
@@ -935,6 +943,9 @@ async function run() {
     compatibleClaudeLaunch.args.at(-1),
     /(?:dist\/acp\/claude-agent-acp-0\.66\.0\.mjs|claude-agent-acp\/dist\/index\.js)$/,
   );
+  const compatiblePiLaunch = resolveAcpLaunch('pi', piLaunchOptions);
+  assert.match(compatiblePiLaunch.args[0], /dist\/acp\/pi-acp-0\.0\.33\.mjs$/);
+  assert.deepStrictEqual(compatiblePiLaunch.args.slice(1, 3), ['--farming-pi-command', '/opt/bin/pi']);
   const originalProcessPkg = packagedProcess.pkg;
   try {
     packagedProcess.pkg = { entrypoint: 'backend/farming-app-cli.pkg.js' };
@@ -944,6 +955,13 @@ async function run() {
     const packagedClaudeLaunch = resolveAcpLaunch('claude');
     assert.strictEqual(packagedClaudeLaunch.command, process.execPath);
     assert.deepStrictEqual(packagedClaudeLaunch.args, ['--farming-claude-acp']);
+    const packagedPiLaunch = resolveAcpLaunch('pi', piLaunchOptions);
+    assert.strictEqual(packagedPiLaunch.command, process.execPath);
+    assert.deepStrictEqual(packagedPiLaunch.args.slice(0, 3), [
+      '--farming-pi-acp',
+      '--farming-pi-command',
+      '/opt/bin/pi',
+    ]);
   } finally {
     if (originalProcessPkg === undefined) delete packagedProcess.pkg;
     else packagedProcess.pkg = originalProcessPkg;

@@ -45,7 +45,7 @@ Farming Code 是默认的桌面与手机界面。它按项目组织工作，把�
 
 ### Agent、Chat 与 Terminal
 
-启动或恢复 Codex、Claude Code、OpenCode、Qoder、Qwen Code 以及其他检测到的 Coding Agent。使用结构化 Chat 阅读结果和检查过程，或使用 Terminal 直接操作 CLI。
+启动或恢复 Codex、Claude Code、OpenCode、Qoder、Qwen Code、Pi 以及其他检测到的 Coding Agent。使用结构化 Chat 阅读结果和检查过程，或使用 Terminal 直接操作 CLI。
 
 ![Farming Code 结构化 Agent 过程](./docs/products/code/assets/11-code-agent-process.png)
 
@@ -66,6 +66,7 @@ Farming 让人和 Agent 使用同一个 Project Browser。详见 [Farming Browse
 | OpenCode | 是 | 是 | 是 |
 | Qoder | 是 | 是 | 是 |
 | Qwen Code | 是 | 是 | 是 |
+| Pi | 是 | 是 | 是 |
 | bash / zsh | — | 是 | 否 |
 
 使用 Provider 的 Agent 仍需要有效登录；其他被发现的 CLI 必须能在 Farming Host 上正常运行。

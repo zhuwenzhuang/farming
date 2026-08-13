@@ -50,6 +50,19 @@ Terminal Session 尚未选择 ACP Executable。把同一个 Provider Session 切
 Farming 从其精确 Agent Home 选择 Managed ACP Runtime，并在启动前持久化该 Launch Identity；后续 ACP
 恢复只能使用这份持久化 Executable。
 
+Pi 使用 ACP 官方 Registry 收录的 Adapter，并由 Farming 作为 Version 与 Integrity 固定的 Artifact
+持有。Adapter 启动精确发现到的 System Pi Executable；启动前会验证 Adapter 要求的 Pi 0.80.4
+最低版本，并独立持久化 Absolute Executable Identity。
+Farming 把 Adapter State Patch 到所选 Agent Home 下精确的 Config 与 Agent Namespace，并显式
+注入共享 Bootstrap；绝不使用上游的 Global State Path。由于 `pi-acp` 每条 Connection 只支持一个 Live Pi Subprocess，每个 Pi Chat
+拥有私有 ACP Adapter Process。Adapter 0.0.33 不转发 ACP MCP Server，不委托 Client Filesystem
+或 Terminal Operation，也不声明 Permission 或 Fork Capability。这些缺口保持为可见 Capability
+边界，不能推测为已支持。每轮结束后，Farming 把 Pi 的权威 Session Statistics 映射为 ACP
+Usage Update，因此 Chat 的 Context Usage 与 Cost 使用 Live Pi Session 的真实值。Pi Session History
+可以索引默认目录或已配置的绝对目录。Pi 会相对
+Launch Working Directory 解释 `settings.json` 中的相对 `sessionDir`，因此 Farming 不猜测该目录；
+需要 Farming Inventory 时，应在所选 Pi Agent Home 的 `settings.json` 中配置绝对 `sessionDir`。
+
 只有 Live Agent 明确声明时，Farming 才启用标准 ACP Session、Prompt、Cancel、Config、
 Authentication、Elicitation、Terminal、Media、Plan 与 Fork 能力。Provider Extension 必须
 带版本、可协商，并留在 Adapter 边界。
@@ -85,7 +98,7 @@ Session，且绝不重放结果不明确的 Prompt。
 Session 进入 `connecting` 后、Farming 获取 Provider Process 前，会在所选 Agent Home 不存在
 时创建它，并解析其 Canonical Identity。Home 准备失败会成为显式 Session Failure，绝不
 Fallback 到其它 Home 或 Executable。
-Codex、Claude、OpenCode、Qoder 与 Qwen 都使用该 Connection 边界。与 Zed 一致，只有
+Codex、Claude、OpenCode、Qoder、Qwen 与 Pi 都使用该 Connection 边界。与 Zed 一致，只有
 Provider 明确声明 `session/close` Capability 时才发送关闭请求；否则 Farming 只释放本地
 Session 引用，并在 Project Connection 的最后一个 Session 结束时回收 Provider Process。
 

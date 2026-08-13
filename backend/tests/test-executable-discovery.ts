@@ -8,11 +8,13 @@ const {
   getPreferredExecutableCandidates,
   clearExecutableVersionCache,
   isExecutable,
+  matchesExecutableIdentity,
   listAvailableAgents,
   parseCliVersion,
   resolveAgentExecutable,
   resolveCompatibleCodexExecutable,
   resolveFarmingOwnedExecutable,
+  resolveProviderAcpExecutable,
   resolveProviderTerminalExecutable,
   resolveTerminalCodexExecutable,
   resolveTerminalExecutable,
@@ -23,9 +25,9 @@ function makeTempDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'farming-exec-'));
 }
 
-function writeExecutable(dir, name) {
+function writeExecutable(dir, name, contents = '#!/usr/bin/env bash\n') {
   const filePath = path.join(dir, name);
-  fs.writeFileSync(filePath, '#!/usr/bin/env bash\n');
+  fs.writeFileSync(filePath, contents);
   fs.chmodSync(filePath, 0o755);
   return filePath;
 }
@@ -48,6 +50,19 @@ function run() {
     writeExecutable(tempDir, 'bash');
     writeExecutable(tempDir, 'qodercli');
     writeExecutable(tempDir, 'qwen');
+    const pi = writeExecutable(
+      tempDir,
+      'pi',
+      [
+        '#!/usr/bin/env bash',
+        'if [ "$1" = "--version" ]; then',
+        '  printf "%s\\n" "pi 0.84.1"',
+        'else',
+        '  printf "%s\\n" "pi - AI coding assistant with read, bash, edit, write tools"',
+        'fi',
+        '',
+      ].join('\n'),
+    );
     const preferredCodex = writeExecutable(tempDir, 'preferred-codex');
     const textPath = path.join(tempDir, 'notes.txt');
     fs.writeFileSync(textPath, 'plain text');
@@ -61,13 +76,25 @@ function run() {
     const codex = agents.find((agent) => agent.name === 'codex');
 
     assert.deepStrictEqual(
-      names.slice(0, 5),
-      ['codex', 'claude', 'qoder', 'qwen', 'bash'],
+      names.slice(0, 6),
+      ['codex', 'claude', 'qoder', 'qwen', 'pi', 'bash'],
       'available launch agents should keep the stable product order while omitting missing agents'
     );
     assert(names.includes('claude'), 'claude should be discovered from PATH');
     assert(names.includes('qoder'), 'qoder should be discovered from qodercli on PATH');
     assert(names.includes('qwen'), 'Qwen Code should be discovered from qwen on PATH');
+    assert(names.includes('pi'), 'Pi should be discovered only after its product help probe passes');
+    assert.strictEqual(matchesExecutableIdentity('pi', pi), true);
+    assert.strictEqual(
+      resolveAgentExecutable('pi', tempDir),
+      path.resolve(pi),
+      'Pi must resolve from the supplied shell PATH to an absolute persisted path',
+    );
+    assert.strictEqual(
+      resolveProviderAcpExecutable('pi', tempDir).path,
+      path.resolve(pi),
+      'Pi Chat must resolve the verified Pi executable from the supplied shell PATH',
+    );
     assert(names.includes('codex'), 'codex should be discovered from the preferred Codex.app-style binary');
     assert.strictEqual(codex.resolvedPath, preferredCodex, 'preferred codex binary should win over PATH');
     assert.strictEqual(agents.find((agent) => agent.name === 'qoder').command, 'qodercli');
@@ -180,6 +207,53 @@ function run() {
     });
     assert.strictEqual(providerClaude.path, systemCodex);
     assert.strictEqual(providerClaude.compatible, true, 'providers without a resume version policy remain compatible');
+    const compatiblePiAcp = resolveProviderAcpExecutable('pi', '', { candidates: [pi] });
+    assert.strictEqual(compatiblePiAcp.path, path.resolve(pi));
+    assert.strictEqual(compatiblePiAcp.version, '0.84.1');
+    assert.strictEqual(compatiblePiAcp.compatible, true);
+    const oldPi = writeExecutable(
+      tempDir,
+      'old-pi',
+      '#!/usr/bin/env bash\nprintf "%s\\n" "pi - AI coding assistant with read, bash, edit, write tools"\n',
+    );
+    const incompatiblePiAcp = resolveProviderAcpExecutable('pi', '', {
+      candidates: [oldPi],
+      readVersion: () => '0.79.9',
+    });
+    assert.strictEqual(incompatiblePiAcp.compatible, false);
+    assert.match(incompatiblePiAcp.error, /0\.80\.4 or newer/);
+    const unknownPiAcp = resolveProviderAcpExecutable('pi', '', {
+      candidates: [oldPi],
+      readVersion: () => '',
+      cacheVersions: false,
+    });
+    assert.strictEqual(unknownPiAcp.compatible, false);
+    assert.match(unknownPiAcp.error, /version could not be verified/);
+    const explicitOldPiAcp = resolveProviderAcpExecutable('pi', tempDir, {
+      candidates: [oldPi],
+      cacheVersions: false,
+      readVersion: () => '0.79.9',
+    });
+    assert.strictEqual(explicitOldPiAcp.path, path.resolve(oldPi));
+    assert.strictEqual(explicitOldPiAcp.compatible, false);
+    assert.match(explicitOldPiAcp.error, /0\.80\.4 or newer/);
+    const wrongExplicitPi = writeExecutable(
+      tempDir,
+      'not-really-pi',
+      '#!/usr/bin/env bash\nprintf "%s\\n" "unrelated executable"\n',
+    );
+    const wrongExplicitPiAcp = resolveProviderAcpExecutable('pi', tempDir, {
+      candidates: [wrongExplicitPi],
+    });
+    assert.strictEqual(wrongExplicitPiAcp.path, '');
+    assert.strictEqual(wrongExplicitPiAcp.compatible, false);
+    assert.match(wrongExplicitPiAcp.error, /not a recognized Pi CLI/);
+    const missingExplicitPiAcp = resolveProviderAcpExecutable('pi', tempDir, {
+      candidates: [path.join(tempDir, 'missing-pi')],
+    });
+    assert.strictEqual(missingExplicitPiAcp.path, '');
+    assert.strictEqual(missingExplicitPiAcp.compatible, false);
+    assert.match(missingExplicitPiAcp.error, /missing or not executable/);
     assert.strictEqual(
       resolveFarmingOwnedExecutable('codex', { farmingCandidates: [farmingCodex] }),
       farmingCodex,
@@ -221,8 +295,39 @@ function run() {
       { error: '', path: systemCodex },
       'system-policy ACP recovery should still reuse its exact persisted executable',
     );
+    assert.match(
+      validatePersistedAcpExecutable('pi', oldPi, {
+        cacheVersions: false,
+        readVersion: () => '0.79.9',
+      }).error,
+      /0\.80\.4 or newer/,
+      'Pi Chat recovery must reject a persisted CLI older than the adapter minimum',
+    );
+    assert.deepStrictEqual(
+      validatePersistedAcpExecutable('pi', pi, { cacheVersions: false }),
+      { error: '', path: pi },
+      'Pi Chat recovery should accept the exact persisted compatible CLI',
+    );
     assert(names.includes('bash'), 'bash should remain available as a launch option');
     assert(names.includes('qwen'), 'an installed qwen executable should be exposed as a launch option');
+
+    const unrelatedPiDir = makeTempDir();
+    try {
+      const unrelatedPi = writeExecutable(
+        unrelatedPiDir,
+        'pi',
+        '#!/usr/bin/env bash\nprintf "%s\\n" "Raspberry Pi utility"\n',
+      );
+      clearExecutableVersionCache();
+      assert.strictEqual(matchesExecutableIdentity('pi', unrelatedPi), false);
+      assert.strictEqual(
+        resolveAgentExecutable('pi', unrelatedPiDir),
+        '',
+        'an unrelated executable named pi must not be shown as the Pi coding agent',
+      );
+    } finally {
+      cleanup(unrelatedPiDir);
+    }
 
     console.log('✓ Executable discovery uses process PATH reliably');
   } finally {

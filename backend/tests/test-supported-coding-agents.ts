@@ -11,7 +11,7 @@ function run() {
   const supported = getSupportedAgents();
   const supportedNames = supported.map((agent) => agent.name);
 
-  assert.deepStrictEqual(CLI_AGENTS.slice(0, 5), [
+  assert.deepStrictEqual(CLI_AGENTS.slice(0, 6), [
     {
       name: 'codex',
       description: 'Codex CLI - OpenAI coding assistant',
@@ -77,12 +77,21 @@ function run() {
       },
       systemPromptArg: '--append-system-prompt',
     },
+    {
+      name: 'pi',
+      description: 'Pi - AI coding assistant',
+      category: 'coding',
+      interactive: true,
+      supported: true,
+      preferredEngine: 'native',
+      systemPromptArg: '--append-system-prompt',
+    },
   ], 'Provider CLI specs must preserve their complete public shape and order');
 
   assert(supported.length > 0, 'there should be supported coding agents');
   assert.deepStrictEqual(
-    supportedNames.slice(0, 7),
-    ['codex', 'claude', 'opencode', 'qoder', 'qwen', 'bash', 'zsh'],
+    supportedNames.slice(0, 8),
+    ['codex', 'claude', 'opencode', 'qoder', 'qwen', 'pi', 'bash', 'zsh'],
     'primary launch agents should keep the expected product order'
   );
   assert(!supportedNames.includes('cursor'), 'cursor should not be exposed as a supported agent');
@@ -91,6 +100,7 @@ function run() {
   assert(supportedNames.includes('codex'), 'codex should remain supported');
   assert(supportedNames.includes('qoder'), 'qoder should remain supported');
   assert(supportedNames.includes('qwen'), 'qwen should be available as a supported coding agent');
+  assert(supportedNames.includes('pi'), 'Pi should be available as a supported coding agent');
   assert(supportedNames.includes('bash'), 'bash should be available as a supported shell agent');
   assert(supportedNames.includes('zsh'), 'zsh should be available as a supported shell agent');
 
@@ -121,8 +131,13 @@ function run() {
   assert(qwenSpec, 'lookup should resolve Qwen Code by its executable name');
   assert.strictEqual(qwenSpec.name, 'qwen');
   assert.strictEqual(qwenSpec.systemPromptArg, '--append-system-prompt');
+  const piSpec = getAgentSpec('pi --help');
+  assert(piSpec, 'lookup should resolve Pi by its executable name');
+  assert.strictEqual(piSpec.name, 'pi');
+  assert.strictEqual(piSpec.systemPromptArg, '--append-system-prompt');
   assert.strictEqual(isSupportedHistoryAgent('codex resume session-1'), true);
   assert.strictEqual(isSupportedHistoryAgent('env TERM=xterm-256color /usr/local/bin/qodercli'), true);
+  assert.strictEqual(isSupportedHistoryAgent('env PI_CODING_AGENT_DIR=/tmp/pi /usr/local/bin/pi'), true);
   assert.strictEqual(isSupportedHistoryAgent('/bin/bash'), false);
   assert.strictEqual(isSupportedHistoryAgent('unknown-agent'), false);
 

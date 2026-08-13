@@ -1,5 +1,6 @@
 const AGENT_DISPLAY_NAMES: Record<string, string> = {
   qwen: 'Qwen Code',
+  pi: 'Pi',
   codex: 'Codex',
   opencode: 'OpenCode',
   qoder: 'Qoder',

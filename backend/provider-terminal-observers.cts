@@ -154,6 +154,17 @@ function inferOpenCodeActivity({ previewText }: ProviderTerminalObserverInput): 
     : 'idle';
 }
 
+function inferPiActivity({ previewText, title }: ProviderTerminalObserverInput): ProviderTerminalActivity {
+  const lines = terminalLines(previewText);
+  const tail = lines.slice(-12);
+  const piStatus = /\b(?:working|retrying|compacting context|auto-compacting|context overflow detected|summarizing branch)\b/i;
+  if (tail.some((line, index) => (
+    /^[\u2800-\u28ff](?:\s|$)/u.test(line)
+    && piStatus.test(tail.slice(index, index + 3).join(' '))
+  ))) return 'busy';
+  return lines.length > 0 || String(title || '').trim() ? 'idle' : 'unknown';
+}
+
 function inferQoderLikeActivity({ title, previewText, commandName }: ProviderTerminalObserverInput): ProviderTerminalActivity {
   const normalizedTitle = stripTerminalControlSequences(title).trim();
   if ((commandName === 'qoder' || commandName === 'qodercli') && /^✋/u.test(normalizedTitle)) return 'idle';
@@ -233,6 +244,13 @@ const PROVIDER_TERMINAL_OBSERVERS: readonly ProviderTerminalObserver[] = [
     kind: 'process',
     nestedTitlePattern: /^oc\s*\|/i,
     inferActivity: inferOpenCodeActivity,
+  },
+  {
+    activityPriority: 'provider-first',
+    commands: ['pi'],
+    kind: 'process',
+    nestedTitlePattern: /^π(?:\s+-|\s*$)/u,
+    inferActivity: inferPiActivity,
   },
   {
     commands: ['qoder', 'qodercli'],

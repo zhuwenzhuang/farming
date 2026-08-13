@@ -64,6 +64,9 @@ files under `dist/acp/`:
 | `@openai/codex` | 0.147.0 | Apache-2.0 | Codex executable discovery and launch bridge; platform CLI binaries are excluded |
 | `@agentclientprotocol/claude-agent-acp` | 0.66.0 | Apache-2.0 | Claude Code ACP adapter |
 | `@anthropic-ai/claude-agent-sdk` | 0.3.220 | Anthropic commercial terms | Claude Agent SDK bridge; platform CLI binaries are excluded |
+| `pi-acp` | 0.0.33 | MIT | Pi ACP adapter, with Farming Agent Home isolation and bootstrap patches |
+| `@agentclientprotocol/sdk` | 0.26.0 | Apache-2.0 | Protocol runtime bundled inside the Pi ACP adapter |
+| `zod` | 3.25.76 | MIT | Schema validation bundled inside the Pi ACP adapter |
 
 The npm distribution declares the exact Codex CLI 0.147.0 and Claude Agent SDK
 CLI package 0.3.220 platform carriers as optional dependencies and embeds the
@@ -83,6 +86,11 @@ Farming vendors `ghostty-web` distribution files under
 `frontend/vendor/ghostty-web` for the optional Ghostty debug renderer. The
 source package is `ghostty-web` 0.4.0, licensed under MIT. Its license is kept
 beside the vendored files at `frontend/vendor/ghostty-web/LICENSE`.
+
+Farming's monochrome Pi launch icon is copied from the `pi-acp` entry in the
+[ACP Registry](https://github.com/agentclientprotocol/registry/tree/0b3f7a7197452251a08d87ce8339fbbd707049f5/pi-acp),
+which declares the agent under the MIT License, Copyright (c) 2025 Sergii
+Kozak.
 
 If vendored assets are updated, keep this notice in sync with the package name,
 version, and license.

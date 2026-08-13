@@ -8,6 +8,8 @@ const {
 
 function agent(provider, goalSubmission, overrides = {}) {
   const providerManaged = provider !== 'shell';
+  const terminalFork = providerManaged && provider !== 'qwen';
+  const acpFork = providerManaged && provider !== 'pi';
   return {
     id: `agent-${provider}`,
     runtimeBinding: { kind: 'terminal' },
@@ -23,22 +25,22 @@ function agent(provider, goalSubmission, overrides = {}) {
       slashCommandDiscovery: provider === 'codex' || provider === 'claude',
       conversationFork: {
         terminal: {
-          supported: providerManaged && provider !== 'qwen',
-          strategy: providerManaged && provider !== 'qwen' ? 'target-process' : null,
-          worktreeModes: providerManaged && provider !== 'qwen'
+          supported: terminalFork,
+          strategy: terminalFork ? 'target-process' : null,
+          worktreeModes: terminalFork
             ? ['same-worktree', 'new-worktree']
             : [],
           requiresRuntimeCapability: false,
         },
         acp: {
-          supported: providerManaged,
-          strategy: providerManaged ? 'source-session' : null,
-          worktreeModes: providerManaged ? ['same-worktree'] : [],
-          requiresRuntimeCapability: providerManaged,
+          supported: acpFork,
+          strategy: acpFork ? 'source-session' : null,
+          worktreeModes: acpFork ? ['same-worktree'] : [],
+          requiresRuntimeCapability: acpFork,
         },
       },
-      terminalSessionFork: providerManaged && provider !== 'qwen',
-      sessionFork: providerManaged,
+      terminalSessionFork: terminalFork,
+      sessionFork: acpFork,
       supportsChat: providerManaged,
       supportsSteer: false,
     },
@@ -93,6 +95,13 @@ function run() {
   assert.strictEqual(qoderActions.forkSameWorktree, true);
   assert.strictEqual(qoderActions.forkNewWorktree, true);
 
+  const piActions = capabilitiesForAgent(agent('pi', {
+    terminal: { kind: 'prompt' },
+    acp: { kind: 'prompt' },
+  })).actions;
+  assert.strictEqual(piActions.forkSameWorktree, true);
+  assert.strictEqual(piActions.forkNewWorktree, true);
+
   const sameWorktreeOnlyActions = capabilitiesForAgent(agent('qoder', null, {
     providerCapabilities: {
       ...agent('qoder', null).providerCapabilities,
@@ -132,6 +141,9 @@ function run() {
   assert.strictEqual(canForkAgentConversation(agent('qoder', null, {
     runtimeBinding: { kind: 'acp', state: 'connecting', supportsFork: true },
   })), false);
+  assert.strictEqual(canForkAgentConversation(agent('pi', null, {
+    runtimeBinding: { kind: 'acp', state: 'idle', supportsFork: true },
+  })), false, 'Pi ACP does not expose a fork operation even if a runtime payload claims support');
 
   const chatActions = capabilitiesForAgent(agent('codex', null, {
     runtimeBinding: { kind: 'acp', state: 'idle', supportsFork: true },

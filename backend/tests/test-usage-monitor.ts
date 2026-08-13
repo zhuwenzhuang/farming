@@ -452,7 +452,7 @@ async function run() {
     },
   });
   const summary = await monitor.getUsageSummary({ now });
-  assert.strictEqual(summary.providers.length, 5);
+  assert.strictEqual(summary.providers.length, 6);
   assert.strictEqual(summary.timeline.points.length, 24);
   assert.strictEqual(summary.timeline.windowMs, 24 * 60 * 60 * 1000);
   assert.strictEqual(summary.timeline.bucketMs, 60 * 60 * 1000);
@@ -478,6 +478,7 @@ async function run() {
   assert.strictEqual(summary.providers.find(entry => entry.provider === 'opencode').auth.available, true);
   assert.strictEqual(summary.providers.find(entry => entry.provider === 'qoder').tokenUsage.available, false);
   assert.strictEqual(summary.providers.find(entry => entry.provider === 'qwen').tokenUsage.available, false);
+  assert.strictEqual(summary.providers.find(entry => entry.provider === 'pi').tokenUsage.available, false);
   assert.strictEqual(summary.agentUsage.estimatedTokensPerMinute, 2);
   assert.strictEqual(summary.systemStats.cpu, 12);
   const selectedDay = await monitor.getUsageDay(summary.daily.endDate, { now });

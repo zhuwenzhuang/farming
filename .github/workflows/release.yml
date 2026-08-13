@@ -205,6 +205,9 @@ jobs:
             cli)
               cp "releases/${FARMING_RELEASE_VERSION}/farming_${FARMING_RELEASE_VERSION}_linux_amd64" release-upload/
               cp "releases/${FARMING_RELEASE_VERSION}/farming_${FARMING_RELEASE_VERSION}_linux_arm64" release-upload/
+              for companion in LICENSE THIRD_PARTY_NOTICES.md LICENSE.pi-acp LICENSE.pi-acp-sdk LICENSE.pi-acp-zod; do
+                cp "releases/${FARMING_RELEASE_VERSION}/${companion}" release-upload/
+              done
               ;;
             app)
               archive="farming-${FARMING_RELEASE_VERSION}-linux-x64.tar.gz"

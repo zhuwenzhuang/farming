@@ -22,12 +22,21 @@ function run() {
     path.join(root, 'scripts/smoke-capability-cli-process.ts'),
     'utf8',
   );
+  const piAcpSmokeScript = fs.readFileSync(
+    path.join(root, 'scripts/smoke-pi-acp-process.ts'),
+    'utf8',
+  );
   const prepareCodexAcpVendorScript = fs.readFileSync(
     path.join(root, 'scripts/prepare-codex-acp-vendor.ts'),
     'utf8',
   );
+  const preparePiAcpVendorScript = fs.readFileSync(
+    path.join(root, 'scripts/prepare-pi-acp-vendor.ts'),
+    'utf8',
+  );
   const packagedAcpBridge = fs.readFileSync(path.join(root, 'backend/acp/packaged-codex-acp.cts'), 'utf8');
   const packagedClaudeAcpBridge = fs.readFileSync(path.join(root, 'backend/acp/packaged-claude-acp.cts'), 'utf8');
+  const packagedPiAcpBridge = fs.readFileSync(path.join(root, 'backend/acp/packaged-pi-acp.cts'), 'utf8');
   const previousEntry = process.env.FARMING_PKG_ENTRY;
   const previousWorkerEntry = process.env.FARMING_PKG_WORKER_ENTRY;
   const previousUsageWorkerEntry = process.env.FARMING_PKG_USAGE_WORKER_ENTRY;
@@ -66,7 +75,7 @@ function run() {
     packagedAcpBridge.includes("PACKAGED_CODEX_ACP_ARG = '--farming-codex-acp'")
       && packagedAcpBridge.includes('omitted its embedded Codex ACP runtime')
       && bundleCliScript.includes("'codex-acp-1.2.0.mjs'")
-      && bundleCliScript.includes('/packaged-(?:codex|claude)-acp\\.(?:cjs|cts)$/'),
+      && bundleCliScript.includes('/packaged-(?:codex|claude|pi)-acp\\.(?:cjs|cts)$/'),
     'standalone CLI must bundle a hidden entry for the pinned Codex ACP runtime',
   );
   assert(
@@ -78,6 +87,21 @@ function run() {
       && packagedClaudeAcpBridge.includes('omitted its embedded Claude ACP runtime')
       && bundleCliScript.includes("'claude-agent-acp-0.66.0.mjs'"),
     'standalone CLI must bundle a hidden entry for the pinned Claude ACP runtime',
+  );
+  assert(
+    packagedPiAcpBridge.includes("PACKAGED_PI_ACP_ARG = '--farming-pi-acp'")
+      && packagedPiAcpBridge.includes('omitted its embedded Pi ACP runtime')
+      && bundleCliScript.includes("'pi-acp-0.0.33.mjs'")
+      && preparePiAcpVendorScript.includes('--farming-pi-acp-state-dir')
+      && preparePiAcpVendorScript.includes('--farming-append-system-prompt')
+      && preparePiAcpVendorScript.includes('--farming-pi-command')
+      && preparePiAcpVendorScript.includes('PI_CODING_AGENT_SESSION_DIR')
+      && preparePiAcpVendorScript.includes('userAgentDir')
+      && preparePiAcpVendorScript.includes('getPiCommand(farmingPiCommand || undefined)')
+      && preparePiAcpVendorScript.includes('state.visited >= 5000')
+      && preparePiAcpVendorScript.includes('Farming keeps adapter-side history reads bounded')
+      && preparePiAcpVendorScript.includes('if (settingsSessionDir === false) return null;'),
+    'standalone CLI must bundle the isolated, pinned Pi ACP runtime',
   );
   assert(
     prepareCodexAcpVendorScript.includes('fs.copyFileSync(sourceEntry, temporaryEntry)')
@@ -107,8 +131,32 @@ function run() {
     packageScript.includes('smoke-codex-acp-process.ts')
       && packageScript.includes('--arg --farming-codex-acp')
       && packageScript.includes('smoke-claude-acp-process.ts')
-      && packageScript.includes('--arg --farming-claude-acp'),
-    'native CLI targets must complete Codex and Claude ACP initialize handshakes before their manifest is written',
+      && packageScript.includes('--arg --farming-claude-acp')
+      && packageScript.includes('smoke-pi-acp-process.ts')
+      && packageScript.includes('--arg --farming-pi-acp'),
+    'native CLI targets must complete Codex, Claude, and Pi ACP initialize handshakes before their manifest is written',
+  );
+  assert(
+    piAcpSmokeScript.includes("request(2, 'session/new'")
+      && piAcpSmokeScript.includes('FARMING_FAKE_PI_LOG')
+      && piAcpSmokeScript.includes('--farming-append-system-prompt')
+      && piAcpSmokeScript.includes('--farming-pi-command')
+      && !piAcpSmokeScript.includes('PI_ACP_PI_COMMAND')
+      && piAcpSmokeScript.includes("path.join(adapterState, 'session-map.json')")
+      && piAcpSmokeScript.includes("path.join(globalHome, '.pi', 'pi-acp', 'session-map.json')"),
+    'Pi ACP package smoke must open a real adapter-to-Pi RPC session and prove bootstrap and state isolation',
+  );
+  assert(
+    packageScript.includes('LICENSE.pi-acp LICENSE.pi-acp-sdk LICENSE.pi-acp-zod')
+      && packageScript.includes('Standalone CLI release omitted required Pi ACP license'),
+    'standalone CLI releases must ship every license embedded by the Pi ACP bundle',
+  );
+  assert(
+    releaseWorkflow.includes(
+      'for companion in LICENSE THIRD_PARTY_NOTICES.md LICENSE.pi-acp LICENSE.pi-acp-sdk LICENSE.pi-acp-zod',
+    )
+      && releaseWorkflow.includes('cp "releases/${FARMING_RELEASE_VERSION}/${companion}" release-upload/'),
+    'GitHub releases must publish the standalone CLI notices and every embedded Pi ACP license',
   );
   assert(
     packageScript.includes('smoke-capability-cli-process.ts')

@@ -56,13 +56,23 @@ test('fake executable inventory preserves Provider and shell API rows', async ({
         capabilities: { supportsChat: true },
       },
       {
+        name: 'pi',
+        command: 'pi',
+        description: 'Pi - AI coding assistant',
+        category: 'coding',
+        supported: true,
+        interactive: true,
+        launchOrder: 5,
+        capabilities: { supportsChat: true },
+      },
+      {
         name: 'bash',
         command: 'bash',
         description: 'Shell session',
         category: 'shell',
         supported: true,
         interactive: true,
-        launchOrder: 5,
+        launchOrder: 6,
         capabilities: { supportsChat: false },
       },
       {
@@ -72,10 +82,10 @@ test('fake executable inventory preserves Provider and shell API rows', async ({
         category: 'shell',
         supported: true,
         interactive: true,
-        launchOrder: 6,
+        launchOrder: 7,
         capabilities: { supportsChat: false },
       },
     ],
-    total: 7,
+    total: 8,
   })
 })

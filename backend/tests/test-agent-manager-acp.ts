@@ -739,6 +739,12 @@ async function run() {
 
   const providerFarmingDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-provider-bootstrap-'));
   const providerStartupPromptFile = ensureFarmingAgentBootstrapFile(providerFarmingDir);
+  const providerPiExecutable = path.join(providerFarmingDir, 'pi');
+  fs.writeFileSync(
+    providerPiExecutable,
+    '#!/usr/bin/env bash\nif [ "$1" = "--version" ]; then printf "%s\\n" "pi 0.84.1"; else printf "%s\\n" "pi - AI coding assistant with read, bash, edit, write tools"; fi\n',
+  );
+  fs.chmodSync(providerPiExecutable, 0o755);
   const providerRuntime = new AcpRuntime({
     ...TEST_PROCESS_IDENTITY,
     resolveLaunch: () => ({ command: process.execPath, args: ['--import', require.resolve('tsx'), fixture], version: 'test' }),
@@ -746,6 +752,10 @@ async function run() {
   const providerManager = new AgentManager(config({ farmingDir: providerFarmingDir }), {
     acpRuntime: providerRuntime,
     skipExecutablePreflight: true,
+    agentShellEnvProvider: () => ({
+      ...process.env,
+      PATH: `${providerFarmingDir}${path.delimiter}${process.env.PATH || ''}`,
+    }),
   });
   providerManager.providerSessionService.observe = () => {};
   try {
@@ -754,6 +764,7 @@ async function run() {
       { provider: 'opencode', command: 'opencode' },
       { provider: 'qoder', command: 'qoder' },
       { provider: 'qwen', command: 'qwen' },
+      { provider: 'pi', command: 'pi' },
     ]) {
       const providerAgentId = await new Promise(resolve => {
         providerManager.startAgent(command, process.cwd(), (id, error) => {
@@ -832,6 +843,54 @@ async function run() {
       assert.strictEqual(providerAgent.attentionReason, 'turn-complete');
       assert.match(providerAgent.attentionSummary, /^Phase-aware rich answer\./);
     }
+    const explicitPiSessionError = await new Promise(resolve => {
+      providerManager.startAgent('pi --session-id maybe-new', process.cwd(), (id, error) => {
+        assert.strictEqual(id, null);
+        resolve(error);
+      }, { agentRuntimeMode: 'chat', wantsMain: false });
+    });
+    assert.match(
+      String(explicitPiSessionError),
+      /Omit --session-id for a new Chat, or use --session <id>/,
+      'Pi Chat must reject the CLI flag whose fresh-or-resume meaning ACP cannot preserve',
+    );
+    const piPickerError = await new Promise(resolve => {
+      providerManager.startAgent('pi --continue', process.cwd(), (id, error) => {
+        assert.strictEqual(id, null);
+        resolve(error);
+      }, { agentRuntimeMode: 'chat', wantsMain: false });
+    });
+    assert.match(
+      String(piPickerError),
+      /Pi Chat cannot preserve --continue/,
+      'Pi Chat must not silently turn Terminal-only session selectors into a fresh Chat',
+    );
+    const piForkError = await new Promise(resolve => {
+      providerManager.startAgent('pi --fork existing-session', process.cwd(), (id, error) => {
+        assert.strictEqual(id, null);
+        resolve(error);
+      }, { agentRuntimeMode: 'chat', wantsMain: false });
+    });
+    assert.match(
+      String(piForkError),
+      /Pi Chat does not support the Pi CLI --fork flow/,
+      'Pi Chat must reject a Terminal-only fork before attempting ACP session/load',
+    );
+    const piMcpError = await new Promise(resolve => {
+      providerManager.startAgent('pi', process.cwd(), (id, error) => {
+        assert.strictEqual(id, null);
+        resolve(error);
+      }, {
+        agentRuntimeMode: 'chat',
+        mcpServers: [{ name: 'docs', command: '/bin/docs-mcp', args: [], env: [] }],
+        wantsMain: false,
+      });
+    });
+    assert.match(
+      String(piMcpError),
+      /Pi Chat does not support ACP MCP servers with pi-acp 0\.0\.33/,
+      'Pi Chat must reject MCP configuration that its pinned adapter would silently ignore',
+    );
   } finally {
     await providerManager.dispose();
     fs.rmSync(providerFarmingDir, { recursive: true, force: true });

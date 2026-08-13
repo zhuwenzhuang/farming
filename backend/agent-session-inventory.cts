@@ -4,12 +4,16 @@ import * as path from 'path';
 import {
   agentSessionHistoryProviders,
   compareAgentSessions,
+  isSafePiSessionId,
   listAgentSessions,
   normalizeProvider,
+  readPiSessionMetadata,
+  resolvePiSessionSource,
 } from './agent-session-history.cjs';
 import type {
   AgentProvider,
   AgentSession,
+  ProviderListOptions,
   ProviderHome,
   ProviderSessionHomeBinding,
 } from './agent-session-history.cjs';
@@ -49,12 +53,19 @@ function openCodeDataRoots(): string[] {
 }
 
 interface InventoryProviderPolicy {
+  applyActivity?: (
+    sessions: AgentSession[],
+    activity: Map<string, SessionActivity>,
+    previousActivity: Map<string, SessionActivity> | undefined,
+    sourceIdentityChanged: () => void,
+  ) => Promise<AgentSession[]>;
   activityDirectoryDepth: number;
   appendOnlyRoots: (homePath: string) => string[];
   appendTolerantPaths: (homePath: string) => string[];
   bindingsAffectSource?: boolean;
   enrichWithAppendOnlyActivity?: boolean;
   fingerprintDepth: number;
+  resolveSource?: (homePath: string) => Promise<ResolvedInventorySource>;
   loadPresentation?: (
     sessions: AgentSession[],
     homePath: string,
@@ -62,6 +73,22 @@ interface InventoryProviderPolicy {
   singleHome?: boolean;
   sourceMayChangeDuringLoad?: boolean;
   watchPaths: (homePath: string) => string[];
+}
+
+interface ResolvedInventorySource {
+  activityDirectoryDepth: number;
+  activityRoots: string[];
+  appendOnlyIdentityOnly?: boolean;
+  appendOnlyRoots: string[];
+  fingerprintDepth: number;
+  fingerprintPaths: string[];
+  listOptions?: Pick<ProviderListOptions, 'piSessionSource'>;
+}
+
+interface SessionActivity {
+  filePath: string;
+  mtimeMs: number;
+  size: number;
 }
 
 const INVENTORY_PROVIDER_POLICIES = {
@@ -108,6 +135,29 @@ const INVENTORY_PROVIDER_POLICIES = {
       path.join(dataRoot, 'storage'),
     ]),
   },
+  pi: {
+    applyActivity: applyPiSessionActivity,
+    activityDirectoryDepth: 1,
+    appendOnlyRoots: homePath => [path.join(homePath, 'sessions')],
+    appendTolerantPaths: () => [],
+    enrichWithAppendOnlyActivity: true,
+    fingerprintDepth: 2,
+    resolveSource: async homePath => {
+      const source = await resolvePiSessionSource(homePath);
+      const root = source?.root || '';
+      const custom = source?.layout === 'custom';
+      return {
+        activityDirectoryDepth: custom ? 0 : 1,
+        activityRoots: root ? [root] : [],
+        appendOnlyIdentityOnly: true,
+        appendOnlyRoots: root ? [root] : [],
+        fingerprintDepth: custom ? 1 : 2,
+        fingerprintPaths: [path.join(homePath, 'settings.json'), root].filter(Boolean),
+        listOptions: { piSessionSource: source },
+      };
+    },
+    watchPaths: homePath => [path.join(homePath, 'settings.json'), path.join(homePath, 'sessions')],
+  },
   qoder: {
     activityDirectoryDepth: 1,
     appendOnlyRoots: homePath => [path.join(homePath, 'projects')],
@@ -148,6 +198,21 @@ function historyFingerprintDepth(provider: AgentProvider): number {
 
 function historyActivityDirectoryDepth(provider: AgentProvider): number {
   return inventoryProviderPolicy(provider).activityDirectoryDepth;
+}
+
+async function resolveInventorySource(
+  provider: AgentProvider,
+  homePath: string,
+): Promise<ResolvedInventorySource> {
+  const policy = inventoryProviderPolicy(provider);
+  if (policy.resolveSource) return policy.resolveSource(homePath);
+  return {
+    activityDirectoryDepth: historyActivityDirectoryDepth(provider),
+    activityRoots: appendOnlyHistoryRoots(provider, homePath),
+    appendOnlyRoots: appendOnlyHistoryRoots(provider, homePath),
+    fingerprintDepth: historyFingerprintDepth(provider),
+    fingerprintPaths: historyWatchPaths(provider, homePath),
+  };
 }
 
 function stringSet(value: unknown): Set<string> {
@@ -214,12 +279,25 @@ function applyCodexSessionPresentation(
 
 const SESSION_FILE_ID = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i;
 
+function sessionIdFromHistoryFile(provider: AgentProvider, fileName: string): string {
+  if (provider === 'pi') {
+    const match = fileName.match(/^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z_(.+)\.jsonl$/);
+    const id = String(match?.[1] || '').trim();
+    return isSafePiSessionId(id) ? id : '';
+  }
+  return fileName.match(SESSION_FILE_ID)?.[1] || '';
+}
+
 async function appendOnlySessionActivity(
   provider: AgentProvider,
   homePath: string,
-): Promise<Map<string, number>> {
-  const activity = new Map<string, number>();
-  const maxDirectoryDepth = historyActivityDirectoryDepth(provider);
+  options: {
+    maxDirectoryDepth?: number;
+    roots?: string[];
+  } = {},
+): Promise<Map<string, SessionActivity>> {
+  const activity = new Map<string, SessionActivity>();
+  const maxDirectoryDepth = options.maxDirectoryDepth ?? historyActivityDirectoryDepth(provider);
   let visited = 0;
   const visit = async (directory: string, depth: number): Promise<void> => {
     if (depth > maxDirectoryDepth || visited >= 50_000) return;
@@ -240,31 +318,82 @@ async function appendOnlySessionActivity(
         continue;
       }
       if (!entry.isFile()) continue;
-      const id = entry.name.match(SESSION_FILE_ID)?.[1];
+      const id = sessionIdFromHistoryFile(provider, entry.name);
       if (!id) continue;
       try {
         const stat = await fsp.stat(candidate);
-        activity.set(id, Math.max(activity.get(id) || 0, stat.mtimeMs));
+        const current = activity.get(id);
+        if (!current || stat.mtimeMs >= current.mtimeMs) {
+          activity.set(id, { filePath: candidate, mtimeMs: stat.mtimeMs, size: stat.size });
+        }
       } catch (caught) {
         const error = caught as NodeJS.ErrnoException;
         if (error?.code !== 'ENOENT' && error?.code !== 'ENOTDIR') throw caught;
       }
     }
   };
-  await Promise.all(appendOnlyHistoryRoots(provider, homePath).map(root => visit(root, 0)));
+  await Promise.all((options.roots || appendOnlyHistoryRoots(provider, homePath)).map(root => visit(root, 0)));
   return activity;
 }
 
 function applySessionActivity(
   sessions: AgentSession[],
-  activity: Map<string, number>,
+  activity: Map<string, SessionActivity>,
 ): AgentSession[] {
   return sessions.map(session => {
     const id = String(session.id || '').trim();
-    const mtimeMs = activity.get(id) || 0;
+    const mtimeMs = activity.get(id)?.mtimeMs || 0;
     if (mtimeMs <= Date.parse(String(session.updatedAt || session.createdAt || ''))) return session;
     return { ...session, updatedAt: new Date(mtimeMs).toISOString() };
   }).sort(compareAgentSessions);
+}
+
+function activityChanged(
+  current: SessionActivity,
+  previous: SessionActivity | undefined,
+): boolean {
+  return Boolean(previous) && (
+    current.filePath !== previous?.filePath
+    || current.mtimeMs !== previous.mtimeMs
+    || current.size !== previous.size
+  );
+}
+
+async function applyPiSessionActivity(
+  sessions: AgentSession[],
+  activity: Map<string, SessionActivity>,
+  previousActivity: Map<string, SessionActivity> | undefined,
+  sourceIdentityChanged: () => void,
+): Promise<AgentSession[]> {
+  const updated = await Promise.all(sessions.map(async session => {
+    const id = String(session.id || '').trim();
+    const current = activity.get(id);
+    if (!current) return session;
+    const cachedUpdatedAt = Date.parse(String(session.updatedAt || session.createdAt || ''));
+    const shouldRefresh = activityChanged(current, previousActivity?.get(id))
+      || (!previousActivity && current.mtimeMs > (Number.isFinite(cachedUpdatedAt) ? cachedUpdatedAt : 0));
+    if (!shouldRefresh) return session;
+
+    const metadata = await readPiSessionMetadata(current.filePath);
+    if (!metadata || metadata.id !== id) {
+      sourceIdentityChanged();
+      return null;
+    }
+    const mtimeIso = current.mtimeMs > 0 ? new Date(current.mtimeMs).toISOString() : '';
+    const updatedAt = Date.parse(mtimeIso) > Date.parse(metadata.updatedAt)
+      ? mtimeIso
+      : (metadata.updatedAt || mtimeIso);
+    return {
+      ...session,
+      createdAt: metadata.createdAt,
+      cwd: metadata.cwd,
+      projectless: !metadata.workspace,
+      title: metadata.title,
+      updatedAt,
+      workspace: metadata.workspace,
+    };
+  }));
+  return updated.filter((session): session is AgentSession => session !== null).sort(compareAgentSessions);
 }
 
 function sourceKey(
@@ -322,6 +451,7 @@ function mergeSessions(groups: AgentSession[][]): AgentSession[] {
 }
 
 class AgentSessionInventory {
+  private readonly activitySnapshots = new Map<string, Map<string, SessionActivity>>();
   private readonly cache: AuthoritativeInventoryCache<AgentSession[]>;
   private readonly listSessions: typeof listAgentSessions;
   private pendingList: Promise<AgentSession[]> | null = null;
@@ -369,45 +499,68 @@ class AgentSessionInventory {
         selectedHomes(provider, current.providerHomes[provider]).map(home => ({ provider, home }))
       ));
       const activeKeys = new Set<string>();
+      let sourceIdentityChanged = false;
       const groups = await Promise.all(requests.map(({ provider, home }) => {
         const policy = inventoryProviderPolicy(provider);
         const key = sourceKey(provider, home, bindings);
         activeKeys.add(key);
-        const fingerprintPaths = historyWatchPaths(provider, home.path);
-        const cached = this.cache.get(key, {
-          backgroundRefresh: false,
-          fingerprintPaths,
-          fingerprintOptions: {
-            appendOnlyPrefixBytes: 64 * 1024,
-            appendOnlyRoots: appendOnlyHistoryRoots(provider, home.path),
-            appendTolerantPaths: appendTolerantHistoryPaths(provider, home.path),
-            maxDepth: historyFingerprintDepth(provider),
-          },
-          watchPaths: [],
-          sourceMayChangeDuringLoad: policy.sourceMayChangeDuringLoad === true,
-          validate: (value: unknown): value is AgentSession[] => Array.isArray(value),
-          load: () => this.listSessions({
-            providers: [provider],
-            providerHomes: { [provider]: [home] },
-            providerSessionBindings: bindings,
-            limit: INVENTORY_LIMIT,
-            providerLimit: INVENTORY_LIMIT,
-            scanLimit: INVENTORY_LIMIT,
-          }),
-        });
-        if (policy.enrichWithAppendOnlyActivity !== true) return cached;
-        return Promise.all([
-          cached,
-          appendOnlySessionActivity(provider, home.path),
-        ]).then(async ([sessions, activity]) => applySessionActivity(
-          policy.loadPresentation
+        return (async () => {
+          const source = await resolveInventorySource(provider, home.path);
+          const cached = this.cache.get(key, {
+            backgroundRefresh: false,
+            fingerprintPaths: source.fingerprintPaths,
+            fingerprintOptions: {
+              appendOnlyIdentityOnly: source.appendOnlyIdentityOnly,
+              appendOnlyPrefixBytes: 64 * 1024,
+              appendOnlyRoots: source.appendOnlyRoots,
+              appendTolerantPaths: appendTolerantHistoryPaths(provider, home.path),
+              maxDepth: source.fingerprintDepth,
+            },
+            watchPaths: [],
+            sourceMayChangeDuringLoad: policy.sourceMayChangeDuringLoad === true,
+            validate: (value: unknown): value is AgentSession[] => Array.isArray(value),
+            load: () => this.listSessions({
+              providers: [provider],
+              providerHomes: { [provider]: [home] },
+              providerSessionBindings: bindings,
+              limit: INVENTORY_LIMIT,
+              providerLimit: INVENTORY_LIMIT,
+              scanLimit: INVENTORY_LIMIT,
+              ...(source.listOptions || {}),
+            }),
+          });
+          if (policy.enrichWithAppendOnlyActivity !== true) return cached;
+          const [sessions, activity] = await Promise.all([
+            cached,
+            appendOnlySessionActivity(provider, home.path, {
+              maxDirectoryDepth: source.activityDirectoryDepth,
+              roots: source.activityRoots,
+            }),
+          ]);
+          const presented = policy.loadPresentation
             ? await policy.loadPresentation(sessions, home.path)
-            : sessions,
-          activity,
-        ));
+            : sessions;
+          const result = policy.applyActivity
+            ? await policy.applyActivity(
+              presented,
+              activity,
+              this.activitySnapshots.get(key),
+              () => {
+                sourceIdentityChanged = true;
+                this.cache.invalidate(key);
+              },
+            )
+            : applySessionActivity(presented, activity);
+          this.activitySnapshots.set(key, activity);
+          return result;
+        })();
       }));
+      if (sourceIdentityChanged) continue;
       if (revision !== this.revision) continue;
       await this.cache.retain(activeKeys);
+      for (const key of this.activitySnapshots.keys()) {
+        if (!activeKeys.has(key)) this.activitySnapshots.delete(key);
+      }
       return mergeSessions(groups);
     }
     throw new Error('Agent session inventory changed repeatedly while loading');

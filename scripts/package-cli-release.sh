@@ -149,6 +149,14 @@ mkdir -p "${RELEASE_DIR}"
 rm -f "${CHECKSUM_FILE}" "${MANIFEST_FILE}"
 cp "${PROJECT_ROOT}/LICENSE" "${RELEASE_DIR}/LICENSE"
 cp "${PROJECT_ROOT}/THIRD_PARTY_NOTICES.md" "${RELEASE_DIR}/THIRD_PARTY_NOTICES.md"
+for pi_license in LICENSE.pi-acp LICENSE.pi-acp-sdk LICENSE.pi-acp-zod; do
+  source_license="${PROJECT_ROOT}/dist/acp/${pi_license}"
+  if [ ! -f "${source_license}" ]; then
+    echo "Standalone CLI release omitted required Pi ACP license: ${source_license}" >&2
+    exit 1
+  fi
+  cp "${source_license}" "${RELEASE_DIR}/${pi_license}"
+done
 
 IFS=',' read -ra TARGET_ARRAY <<< "${TARGETS}"
 for target in "${TARGET_ARRAY[@]}"; do
@@ -204,6 +212,9 @@ for target in "${TARGET_ARRAY[@]}"; do
       node --import tsx scripts/smoke-claude-acp-process.ts \
         --command "${out_bin}" \
         --arg --farming-claude-acp
+      node --import tsx scripts/smoke-pi-acp-process.ts \
+        --command "${out_bin}" \
+        --arg --farming-pi-acp
       node --import tsx scripts/smoke-acp-runtime-host-process.ts \
         --command "${out_bin}"
       node --import tsx scripts/smoke-capability-cli-process.ts --command "${out_bin}"

@@ -642,6 +642,7 @@ const FAKE_PROVIDER_DESCRIPTIONS: Readonly<Record<ProviderId, string>> = {
   opencode: 'OpenCode - AI coding assistant',
   qoder: 'Qoder - AI coding assistant',
   qwen: 'Qwen Code - AI coding assistant',
+  pi: 'Pi - AI coding assistant',
 };
 
 const frontendDir = path.join(__dirname, '../frontend');

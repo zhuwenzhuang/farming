@@ -32,6 +32,12 @@ pending until this transition, because child work can notify before the parent
 turn ends. Missing or ambiguous screen evidence remains `unknown` rather than
 starting a time-based fallback.
 
+Pi's default TUI is `busy` only while its current screen contains the built-in
+braille activity indicator together with a recognized working, retry,
+compaction, or branch-summary status. Removing that current-screen marker
+returns the observer to `idle`. Extension-defined status text is not guessed;
+ambiguous custom output remains `unknown`.
+
 ## Checkpoint And Delta
 
 A terminal checkpoint contains the runtime epoch, state revision, output

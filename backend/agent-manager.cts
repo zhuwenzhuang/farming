@@ -119,6 +119,7 @@ import {
   getFarmingOwnedExecutableCandidates,
   resolveAgentExecutable,
   resolveFarmingOwnedExecutable,
+  resolveProviderAcpExecutable,
   resolveProviderTerminalExecutable,
   validatePersistedAcpExecutable,
 } from './executable-discovery.cjs';
@@ -153,6 +154,8 @@ import {
   clearProviderHomeEnvironment,
   getProviderAdapter,
   isFreshAcpSessionSource,
+  providerAcpMcpServersError,
+  providerAcpSessionSourceError,
   providerCapabilities,
   providerAcpRuntimeProfile,
   providerArgsContinueSession,
@@ -3483,6 +3486,8 @@ class AgentManager extends EventEmitter {
         const recoveryMcpSource = Array.isArray(record.acpMcpServers)
           ? record.acpMcpServers.filter(isRecord)
           : [];
+        const recoveryMcpServersError = providerAcpMcpServersError(provider, recoveryMcpSource);
+        if (recoveryMcpServersError) throw new Error(recoveryMcpServersError);
         const recoveryProjection = this.projectAcpMcpServersForRuntime(
           recoveryMcpSource,
           launchEnv,
@@ -3493,6 +3498,7 @@ class AgentManager extends EventEmitter {
           agentId,
           provider,
           executable,
+          configDir: this.configManager?.farmingDir || '',
           env: launchEnv,
           cwd: agent.cwd,
           projectWorkspace: effectiveAgentWorkspaceRoot(agent),
@@ -5013,6 +5019,20 @@ class AgentManager extends EventEmitter {
         process.env.FARMING_E2E_FAKE_EXECUTABLES !== '1'
         || process.env.FARMING_E2E_FAKE_ACP_AGENT === '1'
       );
+    const acpSessionSourceError = useAcp
+      ? providerAcpSessionSourceError(structuredRuntimeProvider, providerSessionPlan.source)
+      : '';
+    if (acpSessionSourceError) {
+      if (callback) callback(null, acpSessionSourceError);
+      return null;
+    }
+    const requestedAcpMcpServersError = useAcp
+      ? providerAcpMcpServersError(structuredRuntimeProvider, options.mcpServers)
+      : '';
+    if (requestedAcpMcpServersError) {
+      if (callback) callback(null, requestedAcpMcpServersError);
+      return null;
+    }
     const structuredRuntimeAdapter = getProviderAdapter(structuredRuntimeProvider);
     const existingProviderSessionKey = useAcp
       && providerSessionPlan.id
@@ -5085,6 +5105,16 @@ class AgentManager extends EventEmitter {
         if (callback) callback(null, `${structuredRuntimeProvider} custom ACP executable is not executable: ${resolvedExecutable}`);
         return null;
       }
+      if (structuredRuntimeAdapter?.acp.executablePolicy === 'system') {
+        const acpExecutable = resolveProviderAcpExecutable(structuredRuntimeProvider, '', {
+          candidates: [resolvedExecutable],
+        });
+        if (!acpExecutable.compatible) {
+          if (callback) callback(null, acpExecutable.error);
+          return null;
+        }
+        resolvedExecutable = acpExecutable.path;
+      }
     } else if (usesManagedAcpExecutable) {
       const ownershipEnvironment = executableOwnershipEnvironment(this.configManager?.farmingDir || '');
       resolvedExecutable = resolveFarmingOwnedExecutable(structuredRuntimeProvider, {
@@ -5095,7 +5125,16 @@ class AgentManager extends EventEmitter {
       });
     } else {
       if (useAcp) {
-        resolvedExecutable = resolveAgentExecutable(program, launchPathEnv);
+        const acpExecutable = resolveProviderAcpExecutable(
+          structuredRuntimeProvider,
+          launchPathEnv,
+          path.isAbsolute(program) ? { candidates: [program] } : {},
+        );
+        if (!acpExecutable.compatible) {
+          if (callback) callback(null, acpExecutable.error);
+          return null;
+        }
+        resolvedExecutable = acpExecutable.path;
       } else {
         const terminalResolution = resolveProviderTerminalExecutable(
           program,
@@ -5398,6 +5437,7 @@ class AgentManager extends EventEmitter {
         const created = await this.createProviderSessionIdentity({
           provider: providerSessionPlan.provider,
           executable: spawnProgram,
+          configDir: this.configManager?.farmingDir || '',
           env: identityEnv,
           cwd: identityWorkspace,
           projectWorkspace: effectiveAgentWorkspaceRoot(agentRecord),
@@ -5579,6 +5619,11 @@ class AgentManager extends EventEmitter {
         const requestedMcpServers = Array.isArray(options.mcpServers)
           ? options.mcpServers
           : rememberedSessionOptions.mcpServers || [];
+        const mcpServersError = providerAcpMcpServersError(
+          structuredRuntimeProvider,
+          requestedMcpServers,
+        );
+        if (mcpServersError) throw new Error(mcpServersError);
         const acpEnv = this.buildAgentEnv(agentId, agentRecord);
         const capabilityProjection = this.projectAcpMcpServersForRuntime(
           requestedMcpServers.filter(isRecord),
@@ -5590,6 +5635,7 @@ class AgentManager extends EventEmitter {
           capabilityRuntimeEpoch: capabilityProjection.capabilityRuntimeEpoch,
           provider: structuredRuntimeProvider,
           executable: spawnProgram,
+          configDir: this.configManager?.farmingDir || '',
           env: acpEnv,
           cwd: workspace,
           projectWorkspace: effectiveAgentWorkspaceRoot(agentRecord),

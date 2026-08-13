@@ -60,6 +60,14 @@ export function readManagedReleaseDependencies(projectRoot) {
       policy: 'latest',
     },
     {
+      name: 'pi-acp',
+      current: requireExactVersion(
+        packageJson.devDependencies?.['pi-acp'],
+        'Pi ACP version',
+      ),
+      policy: 'latest',
+    },
+    {
       name: '@agentclientprotocol/sdk',
       current: requireExactVersion(
         packageJson.dependencies?.['@agentclientprotocol/sdk'],

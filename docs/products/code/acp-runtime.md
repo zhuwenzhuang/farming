@@ -66,6 +66,25 @@ Provider Session into Chat selects the managed ACP runtime for its exact Agent
 Home and persists that launch identity before launch; later ACP recovery then
 uses only the persisted executable.
 
+Pi uses the ACP Registry-listed adapter as a Farming-owned, version- and
+integrity-pinned artifact. The adapter launches the exact discovered system Pi
+executable after verifying the adapter's Pi 0.80.4 minimum, and that absolute
+executable identity is persisted independently. Farming
+patches adapter state into the selected Agent Home under an exact Config and
+Agent namespace and injects the shared bootstrap explicitly; it never uses the
+adapter's upstream global state path.
+Each Pi Chat owns a private ACP adapter process because `pi-acp` supports only
+one live Pi subprocess per connection. Adapter version 0.0.33 does not forward
+ACP MCP servers or delegate client filesystem and terminal operations, and it
+does not advertise permission or fork capabilities. These omissions remain
+visible capability boundaries rather than inferred support. Farming maps Pi's
+authoritative session statistics to ACP usage updates after each settled turn,
+so Chat context usage and cost use the live Pi session values. Pi session history
+can index the default directory or an absolute configured directory. A relative
+`settings.json` `sessionDir` is interpreted by Pi against its launch working
+directory, so Farming does not guess that directory. Configure an absolute
+`sessionDir` in the selected Pi Agent Home when Farming must inventory it.
+
 Farming may support standard ACP session, prompt, cancellation, configuration,
 authentication, elicitation, terminal, media, plan, and fork capabilities when
 the live Agent advertises them. Provider extensions must be versioned,
@@ -121,7 +140,7 @@ After the Session enters `connecting` and before Farming acquires a Provider
 process, it creates the selected Agent Home when missing and resolves its
 canonical identity. A Home preparation failure becomes an explicit Session
 failure and never falls back to another Home or executable.
-Codex, Claude, OpenCode, Qoder, and Qwen use this connection boundary. As in
+Codex, Claude, OpenCode, Qoder, Qwen, and Pi use this connection boundary. As in
 Zed, Session release sends `session/close` only when the Provider advertises
 that capability; otherwise Farming releases its local Session reference and the
 Project connection reclaims the Provider process when its final Session ends.

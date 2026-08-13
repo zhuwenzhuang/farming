@@ -14,6 +14,7 @@ const {
   listAgentSessions,
   listClaudeSessions,
   listOpenCodeSessions,
+  listPiSessions,
   listQoderSessions,
   listQwenSessions,
   paginateAgentSessions,
@@ -22,11 +23,15 @@ const {
 } = require('../agent-session-history.cjs');
 
 async function run() {
+  const originalPiSessionDir = process.env.PI_CODING_AGENT_SESSION_DIR;
+  delete process.env.PI_CODING_AGENT_SESSION_DIR;
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-agent-session-history-'));
   try {
   const codexHome = path.join(root, 'codex');
   const codexAltHome = path.join(root, 'codex-alt');
   const claudeHome = path.join(root, 'claude');
+  const piHome = path.join(root, 'pi');
+  const piSessionsDir = path.join(root, 'pi-custom-sessions');
   const qoderHome = path.join(root, 'qoder');
   const qwenHome = path.join(root, 'qwen');
   const codexSessionsDir = path.join(codexHome, 'sessions', '2026', '06', '28');
@@ -40,6 +45,8 @@ async function run() {
   const qoderTempProjectDir = path.join(qoderHome, 'projects', '-private-tmp-farming-test');
   const qwenChatsDir = path.join(qwenHome, 'projects', '-repo-qwen', 'chats');
   const qwenArchiveDir = path.join(qwenChatsDir, 'archive');
+  fs.mkdirSync(path.join(piHome, 'sessions', '--ignored-default--'), { recursive: true });
+  fs.mkdirSync(piSessionsDir, { recursive: true });
   fs.mkdirSync(codexSessionsDir, { recursive: true });
   fs.mkdirSync(codexAltSessionsDir, { recursive: true });
   fs.mkdirSync(claudeProjectDir, { recursive: true });
@@ -61,6 +68,7 @@ async function run() {
   const defaultClaudeId = '11111111-2222-4333-8444-888888888888';
   const worktreeClaudeId = '11111111-2222-4333-8444-999999999999';
   const qoderId = '22222222-3333-4444-8555-666666666666';
+  const piId = 'pi_custom-session.1';
   const tempQoderId = '22222222-3333-4444-8555-777777777777';
   const qwenId = '33333333-4444-4555-8666-777777777777';
   const promptOnlyQwenId = '33333333-4444-4555-8666-999999999999';
@@ -366,6 +374,102 @@ async function run() {
     }),
   ].join('\n'));
 
+  fs.writeFileSync(path.join(piHome, 'settings.json'), JSON.stringify({ sessionDir: piSessionsDir }));
+  fs.writeFileSync(path.join(piHome, 'sessions', '--ignored-default--', 'ignored.jsonl'), [
+    JSON.stringify({
+      type: 'session',
+      version: 3,
+      id: 'pi-ignored-default',
+      timestamp: '2026-06-28T09:00:00.000Z',
+      cwd: '/repo/pi-ignored',
+    }),
+    JSON.stringify({
+      type: 'message',
+      id: 'ignored01',
+      parentId: null,
+      timestamp: '2026-06-28T09:00:01.000Z',
+      message: { role: 'user', content: 'Ignored default Pi session' },
+    }),
+  ].join('\n'));
+  const piSessionPath = path.join(piSessionsDir, `2026-06-28T10-52-00-000Z_${piId}.jsonl`);
+  fs.writeFileSync(piSessionPath, [
+    JSON.stringify({
+      type: 'session',
+      version: 3,
+      id: piId,
+      timestamp: '2026-06-28T10:52:00.000Z',
+      cwd: '/repo/pi/packages/agent',
+    }),
+    JSON.stringify({
+      type: 'message',
+      id: 'piuser01',
+      parentId: null,
+      timestamp: '2026-06-28T10:52:01.000Z',
+      message: { role: 'user', content: [{ type: 'text', text: 'Inspect Pi history' }] },
+    }),
+    JSON.stringify({ type: 'custom', data: 'x'.repeat(512 * 1024) }),
+    JSON.stringify({
+      type: 'message',
+      id: 'piassist',
+      parentId: 'piuser01',
+      timestamp: '2026-06-28T10:52:02.000Z',
+      message: { role: 'assistant', model: 'gpt-5.6-sol', content: [] },
+    }),
+    JSON.stringify({
+      type: 'model_change',
+      id: 'pimodel1',
+      parentId: 'piassist',
+      timestamp: '2026-06-28T10:52:02.100Z',
+      provider: 'openai',
+      modelId: 'abandoned-branch-model',
+    }),
+    JSON.stringify({
+      type: 'thinking_level_change',
+      id: 'pithink1',
+      parentId: 'pimodel1',
+      timestamp: '2026-06-28T10:52:02.200Z',
+      thinkingLevel: 'high',
+    }),
+    JSON.stringify({
+      type: 'session',
+      version: 3,
+      id: 'pi-tail-forgery',
+      timestamp: '2026-06-28T10:52:02.300Z',
+      cwd: '/repo/pi-forged-tail',
+    }),
+    JSON.stringify({
+      type: 'session_info',
+      id: 'piinfo01',
+      parentId: 'piassist',
+      timestamp: '2026-06-28T10:52:03.000Z',
+      name: 'Stale Pi history title',
+    }),
+    JSON.stringify({
+      type: 'session_info',
+      id: 'piinfo02',
+      parentId: 'piinfo01',
+      timestamp: '2026-06-28T10:52:03.100Z',
+      name: '',
+    }),
+  ].join('\n'));
+  fs.utimesSync(piSessionPath, new Date('2026-06-28T10:52:04.000Z'), new Date('2026-06-28T10:52:04.000Z'));
+  fs.writeFileSync(path.join(piSessionsDir, 'invalid-entry-order.jsonl'), [
+    JSON.stringify({
+      type: 'message',
+      id: 'invalid-user',
+      parentId: null,
+      timestamp: '2026-06-28T11:00:00.000Z',
+      message: { role: 'user', content: 'A message before the header is invalid' },
+    }),
+    JSON.stringify({
+      type: 'session',
+      version: 3,
+      id: 'pi-invalid-order',
+      timestamp: '2026-06-28T11:00:01.000Z',
+      cwd: '/repo/pi-invalid',
+    }),
+  ].join('\n'));
+
   assert.strictEqual(isTemporaryWorkspace('/private/tmp/claude-test'), true);
   assert.strictEqual(isTemporaryWorkspace('/tmp/codex-test'), true);
   assert.strictEqual(isTemporaryWorkspace('/var/folders/abc/workspace'), true);
@@ -427,6 +531,45 @@ async function run() {
     'Prompt-only Qwen title',
   );
 
+  const originalOpen = fsp.open;
+  const piReadLengths: number[] = [];
+  fsp.open = (async (...args: Parameters<typeof fsp.open>) => {
+    const handle = await originalOpen(...args);
+    if (path.resolve(String(args[0])) !== path.resolve(piSessionPath)) return handle;
+    const originalRead = handle.read.bind(handle);
+    (handle as unknown as { read: (...readArgs: unknown[]) => Promise<unknown> }).read = async (...readArgs: unknown[]) => {
+      if (typeof readArgs[2] === 'number') piReadLengths.push(readArgs[2]);
+      return Reflect.apply(originalRead, handle, readArgs);
+    };
+    return handle;
+  }) as typeof fsp.open;
+  let piSessions;
+  try {
+    piSessions = await listPiSessions({ piHome, limit: 5 });
+  } finally {
+    fsp.open = originalOpen;
+  }
+  assert.strictEqual(piSessions.length, 1);
+  assert.strictEqual(piSessions[0].provider, 'pi');
+  assert.strictEqual(piSessions[0].providerName, 'Pi');
+  assert.strictEqual(piSessions[0].id, piId);
+  assert.strictEqual(piSessions[0].title, 'Inspect Pi history');
+  assert.strictEqual(piSessions[0].workspace, '/repo/pi/packages/agent');
+  assert.strictEqual(piSessions[0].model, undefined);
+  assert.strictEqual(piSessions[0].effort, undefined);
+  assert.strictEqual(piSessions[0].updatedAt, '2026-06-28T10:52:04.000Z');
+  assert.deepStrictEqual(piSessions[0].capabilities, ['resume', 'fork']);
+  assert(piReadLengths.length >= 2);
+  assert(piReadLengths.every(length => length <= 256 * 1024), 'Pi History must bound every transcript read');
+
+  fs.writeFileSync(path.join(piHome, 'settings.json'), JSON.stringify({ sessionDir: './relative-sessions' }));
+  assert.deepStrictEqual(
+    await listPiSessions({ piHome, limit: 5 }),
+    [],
+    'Relative Pi sessionDir values are workspace-relative and must not be guessed from the provider Home',
+  );
+  fs.writeFileSync(path.join(piHome, 'settings.json'), JSON.stringify({ sessionDir: piSessionsDir }));
+
   const openCodeSessions = await listOpenCodeSessions({ limit: 5, runOpenCodeSessionList });
   assert.strictEqual(openCodeSessions.length, 1);
   assert.strictEqual(openCodeSessions[0].provider, 'opencode');
@@ -439,6 +582,7 @@ async function run() {
   const openCodeCallsBeforeUnifiedList = openCodeListCalls;
   const sessions = await listAgentSessions({
     claudeHome,
+    piHome,
     qoderHome,
     qwenHome,
     limit: 10,
@@ -456,6 +600,7 @@ async function run() {
         { id: 'zwz', path: codexAltHome },
       ],
       claude: [{ id: 'default', path: claudeHome }],
+      pi: [{ id: 'default', path: piHome }],
       qoder: [{ id: 'default', path: qoderHome }],
       qwen: [{ id: 'default', path: qwenHome }],
       opencode: [
@@ -474,7 +619,7 @@ async function run() {
   assert.strictEqual(sessions.some(session => session.id === tempQoderId), false);
   assert.strictEqual(sessions.some(session => session.id === tempOpenCodeId), false);
   assert.strictEqual(openCodeListCalls, openCodeCallsBeforeUnifiedList + 1, 'OpenCode session history is global and should not be duplicated across config homes');
-  assert.deepStrictEqual(new Set(sessions.map(session => session.provider)), new Set(['codex', 'claude', 'opencode', 'qoder', 'qwen']));
+  assert.deepStrictEqual(new Set(sessions.map(session => session.provider)), new Set(['codex', 'claude', 'opencode', 'pi', 'qoder', 'qwen']));
   assert.strictEqual(sessions.find(session => session.id === codexId).providerHomeId, 'default');
   assert.strictEqual(sessions.find(session => session.id === altCodexId).providerHomeId, 'zwz');
   assert.strictEqual(sessions.find(session => session.id === codexId).title, 'Codex title');
@@ -482,6 +627,7 @@ async function run() {
   assert.deepStrictEqual(sessions.find(session => session.id === codexId).capabilities, ['resume', 'fork']);
   assert.deepStrictEqual(sessions.find(session => session.provider === 'qoder').capabilities, ['resume', 'fork']);
   assert.deepStrictEqual(sessions.find(session => session.provider === 'qwen').capabilities, ['resume']);
+  assert.deepStrictEqual(sessions.find(session => session.provider === 'pi').capabilities, ['resume', 'fork']);
   assert.deepStrictEqual(sessions.find(session => session.provider === 'opencode').capabilities, ['resume', 'fork']);
   assert.strictEqual(sessions.find(session => session.provider === 'opencode').providerHomeId, 'work');
   assert.strictEqual(
@@ -490,6 +636,7 @@ async function run() {
   );
 
   const foundClaude = await findAgentSession('claude', claudeId, { claudeHome, limit: 10, providerHomes: { claude: [{ id: 'default', path: claudeHome }] } });
+  const foundPi = await findAgentSession('pi', piId, { piHome, limit: 10, providerHomes: { pi: [{ id: 'default', path: piHome }] } });
   const foundAltCodex = await findAgentSession('codex', altCodexId, { limit: 10, providerHomeId: 'zwz', providerHomes: { codex: [{ id: 'default', path: codexHome }, { id: 'zwz', path: codexAltHome }] } });
   const foundOpenCode = await findAgentSession('opencode', openCodeId, {
     limit: 10,
@@ -505,6 +652,7 @@ async function run() {
   });
   assert.strictEqual(foundAltCodex.providerHomeId, 'zwz');
   assert.strictEqual(foundClaude.id, claudeId);
+  assert.strictEqual(foundPi.id, piId);
   assert.strictEqual(foundOpenCode.id, openCodeId);
   assert.strictEqual(foundOpenCode.providerHomeId, 'work');
   assert.strictEqual(buildAgentSessionResumeCommand('codex', codexId), `codex resume ${codexId}`);
@@ -529,6 +677,9 @@ async function run() {
   assert.strictEqual(buildAgentSessionResumeCommand('qwen', qwenId, { fork: true }), '');
   assert.strictEqual(buildAgentSessionResumeCommand('opencode', openCodeId), `opencode --session ${openCodeId}`);
   assert.strictEqual(buildAgentSessionResumeCommand('opencode', openCodeId, { fork: true }), `opencode --session ${openCodeId} --fork`);
+  assert.strictEqual(buildAgentSessionResumeCommand('pi', piId), `pi --session ${piId}`);
+  assert.strictEqual(buildAgentSessionResumeCommand('pi', piId, { fork: true }), `pi --fork ${piId}`);
+  assert.strictEqual(buildAgentSessionResumeCommand('pi', 'invalid:id'), '');
   assert.strictEqual(buildAgentSessionResumeCommand('codex', 'tmp_uuid_11111111-2222-4333-8444-555555555555'), '');
   assert.strictEqual(buildAgentSessionResumeCommand('unknown', claudeId), '');
 
@@ -701,8 +852,10 @@ async function run() {
       + `${productionShapeDirectoryReads} directory reads in ${productionShapeElapsedMs.toFixed(1)}ms`
   );
 
-  console.log('✓ Agent session history unifies Codex, Claude, OpenCode, Qoder, and Qwen Code metadata');
+  console.log('✓ Agent session history unifies Codex, Claude, OpenCode, Pi, Qoder, and Qwen Code metadata');
   } finally {
+    if (originalPiSessionDir === undefined) delete process.env.PI_CODING_AGENT_SESSION_DIR;
+    else process.env.PI_CODING_AGENT_SESSION_DIR = originalPiSessionDir;
     fs.rmSync(root, { recursive: true, force: true });
   }
 }

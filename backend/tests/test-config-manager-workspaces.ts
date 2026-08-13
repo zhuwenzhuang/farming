@@ -140,6 +140,13 @@ function run() {
         acpRuntime: { mode: 'managed', executable: '' },
         newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
       }],
+      pi: [{
+        id: 'default',
+        path: '~/.pi/agent',
+        order: 5,
+        acpRuntime: { mode: 'managed', executable: '' },
+        newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
+      }],
     });
     const providerDescriptors = listProviderDescriptors();
     assert.deepStrictEqual(Object.keys(settings.agentHomes), providerDescriptors.map(provider => provider.id));

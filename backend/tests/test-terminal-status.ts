@@ -230,6 +230,66 @@ function run() {
     'OpenCode footer interrupt affordance should identify an active turn'
   );
 
+  assert.deepStrictEqual(
+    pickStatus(deriveTerminalStatus({
+      command: 'pi',
+      cwd: '/repo',
+      title: 'π - repo',
+      previewText: '⠹ Working...',
+      terminalBusy: false,
+    })),
+    { kind: 'process', activity: 'busy', busy: true },
+    'Pi Braille progress rows should override a stale idle PTY marker',
+  );
+
+  assert.deepStrictEqual(
+    pickStatus(deriveTerminalStatus({
+      command: 'pi',
+      cwd: '/repo',
+      title: 'π - repo',
+      previewText: 'Ready for the next message',
+      terminalBusy: true,
+    })),
+    { kind: 'process', activity: 'idle', busy: false },
+    'Pi rendered idle output should override its persistent process marker',
+  );
+
+  assert.deepStrictEqual(
+    pickStatus(deriveTerminalStatus({
+      command: 'bash',
+      cwd: '/repo',
+      title: 'π - repo',
+      previewText: '⠋ Working...',
+      terminalBusy: true,
+    })),
+    { kind: 'process', activity: 'busy', busy: true },
+    'Recovered nested Pi sessions should use their strong runtime title without shellCommand metadata',
+  );
+
+  assert.deepStrictEqual(
+    pickStatus(deriveTerminalStatus({
+      command: 'pi',
+      cwd: '/repo',
+      title: 'π - repo',
+      previewText: 'The symbol ⠋ appears later in ordinary prose.',
+      terminalBusy: null,
+    })),
+    { kind: 'process', activity: 'idle', busy: false },
+    'Pi prose containing a Braille glyph away from the progress-row boundary must stay idle',
+  );
+
+  assert.deepStrictEqual(
+    pickStatus(deriveTerminalStatus({
+      command: 'pi',
+      cwd: '/repo',
+      title: 'π - repo',
+      previewText: '⠋ ordinary assistant output',
+      terminalBusy: null,
+    })),
+    { kind: 'process', activity: 'idle', busy: false },
+    'Pi output beginning with a Braille glyph is not busy without a built-in status message',
+  );
+
   const qwenAuthStatus = deriveTerminalStatus({
     command: 'qwen',
     cwd: '/repo',

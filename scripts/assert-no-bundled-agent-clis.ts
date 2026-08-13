@@ -11,6 +11,7 @@ if (!process.argv[2] || !fs.existsSync(path.join(packageRoot, 'package.json'))) 
 const forbidden = [
   'node_modules/@agentclientprotocol/codex-acp',
   'node_modules/@agentclientprotocol/claude-agent-acp',
+  'node_modules/pi-acp',
   'node_modules/@openai/codex',
   'node_modules/@anthropic-ai/claude-agent-sdk',
   'node_modules/agent-browser',

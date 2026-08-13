@@ -59,13 +59,21 @@ interface PersistedAcpExecutableResolution {
 const DEFAULT_CODEX_APP_BIN = '/Applications/Codex.app/Contents/Resources/codex';
 const DEFAULT_CHATGPT_APP_CODEX_BIN = '/Applications/ChatGPT.app/Contents/Resources/codex';
 const executableVersionCache = new Map<string, string>();
+const executableIdentityCache = new Map<string, boolean>();
+
+interface ExecutableIdentityProbe {
+  args: string[];
+  outputIncludes: string;
+}
 
 interface ExecutableDiscoveryDefinition {
+  acpMinimumVersion?: string;
   acpEnvironmentKey?: string;
   configuredEnvironmentKey?: string;
   managedDependencyId?: string;
   packageCandidates?: () => string[];
   preferredEnvironmentKeys?: string[];
+  identityProbe?: ExecutableIdentityProbe;
   systemCandidates?: string[];
   terminalSessionCompatibility?: 'codex-version';
 }
@@ -97,6 +105,13 @@ const EXECUTABLE_DISCOVERY_DEFINITIONS: Record<string, ExecutableDiscoveryDefini
       process.platform === 'win32' ? 'claude.exe' : 'claude',
     )],
     preferredEnvironmentKeys: ['FARMING_CLAUDE_BIN', 'CLAUDE_CODE_EXECUTABLE'],
+  },
+  pi: {
+    acpMinimumVersion: '0.80.4',
+    identityProbe: {
+      args: ['--help'],
+      outputIncludes: 'AI coding assistant with read, bash, edit, write tools',
+    },
   },
 };
 
@@ -181,15 +196,46 @@ function readCachedExecutableCliVersion(
 
 function clearExecutableVersionCache(): void {
   executableVersionCache.clear();
+  executableIdentityCache.clear();
+}
+
+function matchesExecutableIdentity(
+  agentName: string,
+  filePath: string,
+  runner: ExecutableRunner = execFileSync as unknown as ExecutableRunner,
+): boolean {
+  const probe = EXECUTABLE_DISCOVERY_DEFINITIONS[agentName]?.identityProbe;
+  if (!probe) return true;
+  const cacheToken = `${getExecutableVersionCacheKey(filePath)}:${agentName}:identity`;
+  const cached = executableIdentityCache.get(cacheToken);
+  if (cached !== undefined) return cached;
+  let matches = false;
+  try {
+    matches = String(runner(filePath, probe.args, {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 2000,
+    })).includes(probe.outputIncludes);
+  } catch {
+    matches = false;
+  }
+  const prefix = `${filePath}:`;
+  Array.from(executableIdentityCache.keys())
+    .filter(key => key.startsWith(prefix) && key !== cacheToken)
+    .forEach(key => executableIdentityCache.delete(key));
+  executableIdentityCache.set(cacheToken, matches);
+  return matches;
 }
 
 function dedupeExecutableCandidates(candidates: string[]): string[] {
   const seen = new Set<string>();
-  return candidates.filter(candidate => {
-    const normalized = path.resolve(String(candidate || ''));
-    if (!normalized || seen.has(normalized)) return false;
-    seen.add(normalized);
-    return true;
+  return candidates.flatMap(candidate => {
+    const configured = String(candidate || '').trim();
+    if (!configured) return [];
+    const absolute = path.resolve(configured);
+    if (seen.has(absolute)) return [];
+    seen.add(absolute);
+    return [absolute];
   });
 }
 
@@ -238,7 +284,12 @@ function isFarmingOwnedPath(candidate: string, env: NodeJS.ProcessEnv): boolean 
 function validatePersistedAcpExecutable(
   provider: string,
   candidate: unknown,
-  options: { environment?: NodeJS.ProcessEnv; requireFarmingOwned?: boolean } = {},
+  options: {
+    cacheVersions?: boolean;
+    environment?: NodeJS.ProcessEnv;
+    readVersion?: ExecutableVersionReader;
+    requireFarmingOwned?: boolean;
+  } = {},
 ): PersistedAcpExecutableResolution {
   const executable = typeof candidate === 'string' ? candidate : '';
   if (!executable) {
@@ -258,6 +309,25 @@ function validatePersistedAcpExecutable(
       error: `${provider} ACP persisted executable is no longer usable: ${executable}`,
       path: '',
     };
+  }
+  if (!matchesExecutableIdentity(provider, executable)) {
+    return {
+      error: `${provider} ACP persisted executable no longer identifies as ${provider}: ${executable}`,
+      path: '',
+    };
+  }
+  const minimumVersion = EXECUTABLE_DISCOVERY_DEFINITIONS[provider]?.acpMinimumVersion || '';
+  if (minimumVersion) {
+    const readVersion = options.readVersion || readExecutableCliVersion;
+    const version = readCachedExecutableCliVersion(executable, readVersion, options);
+    if (!version || compareCliVersions(version, minimumVersion) < 0) {
+      return {
+        error: version
+          ? `${provider} ACP requires ${provider} CLI ${minimumVersion} or newer, but the persisted executable is ${version}: ${executable}`
+          : `${provider} ACP requires ${provider} CLI ${minimumVersion} or newer, but the persisted executable version could not be verified: ${executable}`,
+        path: '',
+      };
+    }
   }
   if (
     options.requireFarmingOwned === true
@@ -339,12 +409,14 @@ function resolveTerminalExecutable(
     ? options.readVersion
     : readExecutableCliVersion;
   const farming = inspectExecutableCandidates(
-    options.farmingCandidates || getFarmingOwnedExecutableCandidates(agentName),
+    (options.farmingCandidates || getFarmingOwnedExecutableCandidates(agentName))
+      .filter(candidate => matchesExecutableIdentity(agentName, candidate)),
     readVersion,
     options,
   );
   const system = inspectExecutableCandidates(
-    options.systemCandidates || getSystemExecutableCandidates(agentName, pathEnv),
+    (options.systemCandidates || getSystemExecutableCandidates(agentName, pathEnv))
+      .filter(candidate => matchesExecutableIdentity(agentName, candidate)),
     readVersion,
     options,
   );
@@ -380,7 +452,78 @@ function getPreferredExecutableCandidates(
 }
 
 function resolveAgentExecutable(agentName: string, pathEnv = process.env.PATH || ''): string {
-  return getPreferredExecutableCandidates(agentName, pathEnv).find(isExecutable) || '';
+  return dedupeExecutableCandidates(getPreferredExecutableCandidates(agentName, pathEnv))
+    .find(candidate => isExecutable(candidate) && matchesExecutableIdentity(agentName, candidate)) || '';
+}
+
+function resolveProviderAcpExecutable(
+  agentName: string,
+  pathEnv = process.env.PATH || '',
+  options: ExecutableResolutionOptions = {},
+): CodexExecutableResolution {
+  const configuredAgentName = String(agentName || '').trim();
+  const normalizedAgentName = path.basename(configuredAgentName);
+  const definition = EXECUTABLE_DISCOVERY_DEFINITIONS[normalizedAgentName];
+  const candidates = options.candidates
+    || (path.isAbsolute(configuredAgentName)
+      ? [configuredAgentName]
+      : getPreferredExecutableCandidates(normalizedAgentName, pathEnv));
+  const explicitAbsoluteCandidate = candidates.length === 1
+    ? path.resolve(candidates[0])
+    : '';
+  const executable = dedupeExecutableCandidates(candidates)
+    .find(candidate => (
+      isExecutable(candidate)
+      && matchesExecutableIdentity(normalizedAgentName, candidate)
+    )) || '';
+  const minimumVersion = definition?.acpMinimumVersion || '';
+  if (!minimumVersion) {
+    return {
+      compatible: true,
+      error: '',
+      path: executable,
+      requiredVersion: minimumVersion,
+      version: '',
+    };
+  }
+  if (!executable) {
+    const displayName = normalizedAgentName === 'pi' ? 'Pi' : normalizedAgentName;
+    const explicitIsExecutable = explicitAbsoluteCandidate
+      ? isExecutable(explicitAbsoluteCandidate)
+      : false;
+    return {
+      compatible: false,
+      error: explicitAbsoluteCandidate
+        ? (explicitIsExecutable
+          ? `${displayName} Chat executable is not a recognized ${displayName} CLI: ${explicitAbsoluteCandidate}. Select the real ${displayName} executable.`
+          : `${displayName} Chat executable is missing or not executable: ${explicitAbsoluteCandidate}. Install ${displayName} or select an executable file.`)
+        : `${displayName} Chat requires a verified ${displayName} CLI ${minimumVersion} or newer in the user shell PATH. Install or update ${displayName}, then refresh the Agent list.`,
+      path: '',
+      requiredVersion: minimumVersion,
+      version: '',
+    };
+  }
+  const readVersion = options.readVersion || readExecutableCliVersion;
+  const version = readCachedExecutableCliVersion(executable, readVersion, options);
+  if (!version || compareCliVersions(version, minimumVersion) < 0) {
+    const displayName = normalizedAgentName === 'pi' ? 'Pi' : normalizedAgentName;
+    return {
+      compatible: false,
+      error: version
+        ? `${displayName} Chat requires ${displayName} CLI ${minimumVersion} or newer, but found ${version}. Update ${displayName}, then refresh the Agent list.`
+        : `${displayName} Chat requires ${displayName} CLI ${minimumVersion} or newer, but its version could not be verified. Update ${displayName}, then refresh the Agent list.`,
+      path: executable,
+      requiredVersion: minimumVersion,
+      version,
+    };
+  }
+  return {
+    compatible: true,
+    error: '',
+    path: executable,
+    requiredVersion: minimumVersion,
+    version,
+  };
 }
 
 function resolveCompatibleCodexExecutable(
@@ -614,12 +757,14 @@ export {
   compareCliVersions,
   clearExecutableVersionCache,
   isExecutable,
+  matchesExecutableIdentity,
   listAvailableAgents,
   parseCliVersion,
   readExecutableCliVersion,
   resolveAgentExecutable,
   resolveCompatibleCodexExecutable,
   resolveFarmingOwnedExecutable,
+  resolveProviderAcpExecutable,
   resolveTerminalCodexExecutable,
   resolveProviderTerminalExecutable,
   resolveTerminalExecutable,

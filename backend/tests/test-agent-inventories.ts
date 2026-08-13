@@ -119,6 +119,107 @@ async function run() {
   );
   assert.strictEqual(historyLoads, 4, 'An append-only source should not exhaust reconciliation retries');
 
+  const piHome = path.join(root, 'pi');
+  const firstPiSessionsRoot = path.join(root, 'pi-custom-sessions-a');
+  const secondPiSessionsRoot = path.join(root, 'pi-custom-sessions-directory-b');
+  fs.mkdirSync(piHome, { recursive: true });
+  fs.mkdirSync(firstPiSessionsRoot, { recursive: true });
+  fs.mkdirSync(secondPiSessionsRoot, { recursive: true });
+  fs.writeFileSync(path.join(piHome, 'settings.json'), JSON.stringify({ sessionDir: firstPiSessionsRoot }));
+  const firstPiId = 'pi-inventory.custom-1';
+  const firstPiSession = path.join(firstPiSessionsRoot, `2026-08-01T00-00-00-000Z_${firstPiId}.jsonl`);
+  fs.writeFileSync(firstPiSession, [
+    JSON.stringify({
+      type: 'session',
+      version: 3,
+      id: firstPiId,
+      timestamp: '2026-08-01T00:00:00.000Z',
+      cwd: '/repo/pi-inventory',
+    }),
+    JSON.stringify({
+      type: 'message',
+      id: 'pi-user-1',
+      parentId: null,
+      timestamp: '2026-08-01T00:00:01.000Z',
+      message: { role: 'user', content: 'Pi inventory first title' },
+    }),
+  ].join('\n'));
+
+  const piHistory = new AgentSessionInventory({
+    cacheFile: path.join(root, 'cache', 'pi-history.json'),
+  });
+  caches.push(piHistory);
+  const piMetadata = () => ({
+    providerHomes: { pi: [{ id: 'default', path: piHome }] },
+    providerSessionBindings: [],
+  });
+  let piSessions = await piHistory.list(piMetadata);
+  assert.deepStrictEqual(piSessions.map(session => session.id), [firstPiId]);
+  assert.strictEqual(piSessions[0].title, 'Pi inventory first title');
+
+  fs.appendFileSync(firstPiSession, `\n${JSON.stringify({
+    type: 'session_info',
+    id: 'pi-info-1',
+    parentId: 'pi-user-1',
+    timestamp: '2026-08-01T00:00:02.000Z',
+    name: 'Pi inventory appended title',
+  })}`);
+  piSessions = await piHistory.list(piMetadata);
+  assert.strictEqual(
+    piSessions[0].title,
+    'Pi inventory appended title',
+    'Pi transcript appends must invalidate cached metadata even when the session id is not a UUID',
+  );
+
+  const rewrittenPiId = 'pi-inventory.rewritten-identity';
+  fs.writeFileSync(firstPiSession, [
+    JSON.stringify({
+      type: 'session',
+      version: 3,
+      id: rewrittenPiId,
+      timestamp: '2026-08-01T00:00:03.000Z',
+      cwd: '/repo/pi-inventory',
+    }),
+    JSON.stringify({
+      type: 'message',
+      id: 'pi-user-rewritten',
+      parentId: null,
+      timestamp: '2026-08-01T00:00:04.000Z',
+      message: { role: 'user', content: 'Pi inventory rewritten identity' },
+    }),
+  ].join('\n'));
+  piSessions = await piHistory.list(piMetadata);
+  assert.deepStrictEqual(
+    piSessions.map(session => session.id),
+    [rewrittenPiId],
+    'A changed Pi header identity must rebuild the base inventory instead of retaining stale cached identity',
+  );
+
+  const secondPiId = 'pi-inventory.custom-2';
+  fs.writeFileSync(path.join(secondPiSessionsRoot, `2026-08-01T00-01-00-000Z_${secondPiId}.jsonl`), [
+    JSON.stringify({
+      type: 'session',
+      version: 3,
+      id: secondPiId,
+      timestamp: '2026-08-01T00:01:00.000Z',
+      cwd: '/repo/pi-inventory',
+    }),
+    JSON.stringify({
+      type: 'message',
+      id: 'pi-user-2',
+      parentId: null,
+      timestamp: '2026-08-01T00:01:01.000Z',
+      message: { role: 'user', content: 'Pi inventory second root' },
+    }),
+  ].join('\n'));
+  fs.writeFileSync(path.join(piHome, 'settings.json'), JSON.stringify({ sessionDir: secondPiSessionsRoot }));
+  piSessions = await piHistory.list(piMetadata);
+  assert.deepStrictEqual(
+    piSessions.map(session => session.id),
+    [secondPiId],
+    'Pi inventory must follow settings.json sessionDir changes instead of fingerprinting only the default root',
+  );
+
   const scaleHome = path.join(root, 'scale-codex');
   const scaleSessionsRoot = path.join(scaleHome, 'sessions');
   const scaleSessionsDir = path.join(scaleSessionsRoot, '2026', '08', '01');

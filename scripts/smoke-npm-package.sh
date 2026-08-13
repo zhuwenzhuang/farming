@@ -98,6 +98,7 @@ fi
 PACKAGE_ROOT="${PREFIX}/lib/node_modules/farming-code"
 CODEX_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/codex-acp-1.2.0.mjs"
 CLAUDE_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/claude-agent-acp-0.66.0.mjs"
+PI_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/pi-acp-0.0.33.mjs"
 for packaged_ui_file in \
   frontend/agent-state-bridge.js \
   frontend/runtime-paths.js \
@@ -234,21 +235,29 @@ if [ ! -f "${CLAUDE_ACP_VENDOR}" ]; then
   echo "npm package omitted the version-locked Claude ACP runtime" >&2
   exit 1
 fi
+if [ ! -f "${PI_ACP_VENDOR}" ]; then
+  echo "npm package omitted the version-locked Pi ACP runtime" >&2
+  exit 1
+fi
 node --import tsx "${PROJECT_ROOT}/scripts/assert-no-bundled-agent-clis.ts" "${PACKAGE_ROOT}"
-node - "${PACKAGE_ROOT}" "${CODEX_ACP_VENDOR}" "${CLAUDE_ACP_VENDOR}" <<'NODE'
+node - "${PACKAGE_ROOT}" "${CODEX_ACP_VENDOR}" "${CLAUDE_ACP_VENDOR}" "${PI_ACP_VENDOR}" <<'NODE'
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
-const [packageRoot, codexVendorEntry, claudeVendorEntry] = process.argv.slice(2);
+const [packageRoot, codexVendorEntry, claudeVendorEntry, piVendorEntry] = process.argv.slice(2);
 const sha256 = filePath => crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
 const expectedCodexVendor = 'ef1b4d1876f11728e6f8695138a73d984af6491e7fd0a6a9c7492371bf5c108b';
 const expectedClaudeVendor = '33e2379f1ed9e502f3442a19a0d575c2c6df912080db7fea197289e55b3fae2f';
+const expectedPiVendor = '946255b69fdecd839d75f01906175206436dd44c8bc7e872b4321b8d719fe7d1';
 if (sha256(codexVendorEntry) !== expectedCodexVendor) {
   throw new Error('Packed Codex ACP runtime failed its SHA-256 verification');
 }
 if (sha256(claudeVendorEntry) !== expectedClaudeVendor) {
   throw new Error('Packed Claude ACP runtime failed its SHA-256 verification');
+}
+if (sha256(piVendorEntry) !== expectedPiVendor) {
+  throw new Error('Packed Pi ACP runtime failed its SHA-256 verification');
 }
 const { resolveAcpLaunch } = require(path.join(packageRoot, 'backend/acp-runtime.cjs'));
 const codexLaunch = resolveAcpLaunch('codex');
@@ -258,6 +267,15 @@ if (fs.realpathSync(codexLaunch.args.at(-1)) !== fs.realpathSync(codexVendorEntr
 const claudeLaunch = resolveAcpLaunch('claude');
 if (fs.realpathSync(claudeLaunch.args.at(-1)) !== fs.realpathSync(claudeVendorEntry)) {
   throw new Error(`Claude ACP launch did not select the packaged runtime: ${claudeLaunch.args.at(-1)}`);
+}
+const piLaunch = resolveAcpLaunch('pi', {
+  agentId: 'package-smoke',
+  configDir: path.join(packageRoot, '.farming-smoke'),
+  executable: '/opt/bin/pi',
+  providerHomePath: path.join(packageRoot, '.pi-agent-home'),
+});
+if (fs.realpathSync(piLaunch.args[0]) !== fs.realpathSync(piVendorEntry)) {
+  throw new Error(`Pi ACP launch did not select the packaged runtime: ${piLaunch.args[0]}`);
 }
 NODE
 (
@@ -273,6 +291,7 @@ NODE
 )" \
     node --import tsx scripts/smoke-codex-acp-process.ts --package-root "${PACKAGE_ROOT}"
   node --import tsx scripts/smoke-claude-acp-process.ts --package-root "${PACKAGE_ROOT}"
+  node --import tsx scripts/smoke-pi-acp-process.ts --package-root "${PACKAGE_ROOT}"
   node --import tsx scripts/smoke-capability-cli-process.ts --package-root "${PACKAGE_ROOT}"
 )
 "${PREFIX}/bin/farming" help >/dev/null

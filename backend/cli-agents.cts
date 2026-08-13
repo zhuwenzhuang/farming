@@ -249,6 +249,14 @@ const PROVIDER_CLI_AGENT_DETAILS: Readonly<Record<ProviderId, ProviderCliAgentDe
     },
     systemPromptArg: '--append-system-prompt'
   },
+  pi: {
+    description: 'Pi - AI coding assistant',
+    category: 'coding',
+    interactive: true,
+    supported: true,
+    preferredEngine: 'native',
+    systemPromptArg: '--append-system-prompt'
+  },
 };
 
 const PROVIDER_CLI_AGENTS: CliAgentSpec[] = listProviderDescriptors().map((descriptor) => {

@@ -1,10 +1,11 @@
 const path = require('path');
+const crypto = require('crypto');
 import { chatCapabilitiesForProvider } from './chat-runtime.cjs';
 import { appendOpenCodeBootstrap } from './farming-agent-bootstrap.cjs';
 import { createProviderSessionId, createTemporaryProviderSessionId, isSafeProviderSessionId } from './provider-session-id.cjs';
 import type { ProviderCapabilitiesWire } from '../shared/agent-state-wire.js';
 
-type ProviderId = 'codex' | 'claude' | 'opencode' | 'qoder' | 'qwen';
+type ProviderId = 'codex' | 'claude' | 'opencode' | 'qoder' | 'qwen' | 'pi';
 type ProviderRuntime = 'terminal' | 'acp';
 type ProviderForkWorktreeMode = 'same-worktree' | 'new-worktree';
 type ProviderConversationForkStrategy = 'source-session' | 'target-process';
@@ -97,8 +98,11 @@ interface ProviderEnvironmentOptions {
 }
 
 interface ProviderAcpLaunchOptions {
+  agentId?: string;
+  configDir?: string;
   executable?: string;
   cwd?: string;
+  providerHomePath?: string;
   projectWorkspace?: string;
   farmingSystemPrompt?: string;
 }
@@ -139,6 +143,7 @@ interface ProviderAcpSessionMetadataOptions {
 }
 
 interface ProviderAcpContract {
+  acceptsMcpServers?: boolean;
   executablePolicy: 'managed' | 'system';
   packageName?: string;
   version: string;
@@ -146,6 +151,7 @@ interface ProviderAcpContract {
   config?: ProviderAcpConfigPolicy;
   historyReplay?: ProviderAcpHistoryReplayPolicy;
   launch?: (options: ProviderAcpLaunchOptions) => ProviderAcpLaunch;
+  launchArgs?: (options: ProviderAcpLaunchOptions) => string[];
   normalizeModes?: (modes: unknown, agentInfo: Record<string, unknown>) => unknown;
   sessionMetadata?: (options: ProviderAcpSessionMetadataOptions) => Record<string, unknown>;
   normalizeExtensionNotification?: (
@@ -210,6 +216,7 @@ interface ProviderAdapter {
   interruptInput: string;
   runtimeObservationKind?: 'codex' | 'claude' | 'process';
   legacyAcpRequestIsChat?: boolean;
+  acpSessionSourceErrors?: Readonly<Record<string, string>>;
   freshAcpSessionSources: readonly string[];
   commands: readonly string[];
   supportedRuntimes: readonly ProviderRuntime[];
@@ -282,6 +289,13 @@ const OPENCODE_VALUE_OPTIONS = new Set([
   '-m', '-s', '--agent', '--hostname', '--log-level', '--mdns-domain',
   '--model', '--port', '--prompt', '--replay-limit', '--session',
 ]);
+const PI_VALUE_OPTIONS = new Set([
+  '--mode', '--provider', '--model', '--api-key', '--system-prompt',
+  '--append-system-prompt', '--name', '-n', '--session', '--session-id',
+  '--fork', '--session-dir', '--models', '--tools', '-t', '--exclude-tools',
+  '-xt', '--thinking', '--export', '--extension', '-e', '--skill',
+  '--prompt-template', '--theme', '--use-theme', '--tui-mode',
+]);
 const CODEX_SUBCOMMANDS = new Set([
   'exec', 'e', 'review', 'login', 'logout', 'mcp', 'plugin', 'mcp-server',
   'app-server', 'remote-control', 'app', 'completion', 'update', 'doctor',
@@ -293,7 +307,11 @@ const OPENCODE_SUBCOMMANDS = new Set([
   'agent', 'upgrade', 'uninstall', 'serve', 'web', 'models', 'stats', 'export',
   'import', 'github', 'pr', 'session', 'plugin', 'plug', 'db',
 ]);
+const PI_SUBCOMMANDS = new Set([
+  'install', 'remove', 'uninstall', 'update', 'list', 'config', 'auth',
+]);
 const CODEX_SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const PI_SESSION_ID_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/;
 const NO_CONVERSATION_FORK: ProviderConversationForkCapability = Object.freeze({
   supported: false,
   strategy: null,
@@ -482,6 +500,54 @@ function openCodeSessionPlan(rawArgs: string[], launchArgs: string[]): ProviderS
   };
 }
 
+function piSessionPlan(rawArgs: string[], launchArgs: string[]): ProviderSessionPlan | null {
+  const explicitSessionId = argValue(rawArgs, ['--session-id']);
+  const resumeSessionId = argValue(rawArgs, ['--session']);
+  const forkSourceId = argValue(rawArgs, ['--fork']);
+  if (explicitSessionId && PI_SESSION_ID_RE.test(explicitSessionId)) {
+    return {
+      id: explicitSessionId,
+      temporary: false,
+      source: 'pi-explicit-session-id',
+      forkedFromProviderSessionId: PI_SESSION_ID_RE.test(forkSourceId) ? forkSourceId : '',
+    };
+  }
+  if (resumeSessionId && PI_SESSION_ID_RE.test(resumeSessionId) && !forkSourceId) {
+    return { id: resumeSessionId, temporary: false, source: 'resume' };
+  }
+  if (forkSourceId && PI_SESSION_ID_RE.test(forkSourceId)) {
+    const id = createProviderSessionId();
+    return {
+      id,
+      temporary: false,
+      source: 'pi-fork-session-id',
+      forkedFromProviderSessionId: forkSourceId,
+      args: ['--session-id', id, ...launchArgs],
+    };
+  }
+  if (
+    hasArg(rawArgs, [
+      '--session', '--session-id', '--fork', '--continue', '-c', '--resume', '-r',
+      '--no-session', '--print', '-p', '--export', '--list-models', '--help', '-h',
+      '--version', '-v',
+    ])
+    || ['json', 'rpc'].includes(argValue(rawArgs, ['--mode']))
+  ) return null;
+  const positional = scanPositionals(rawArgs, PI_VALUE_OPTIONS);
+  if (
+    positional[0]
+    && positional[0].afterDelimiter !== true
+    && PI_SUBCOMMANDS.has(positional[0].value)
+  ) return null;
+  const id = createProviderSessionId();
+  return {
+    id,
+    temporary: false,
+    source: 'pi-session-id',
+    args: ['--session-id', id, ...launchArgs],
+  };
+}
+
 function codexAcpEnvironment(
   options: ProviderEnvironmentOptions = {},
 ): NodeJS.ProcessEnv {
@@ -523,6 +589,31 @@ function claudeAcpEnvironment(
     env.CLAUDE_CODE_EXECUTABLE = options.executable;
   }
   return env;
+}
+
+function piAcpLaunchArgs(options: ProviderAcpLaunchOptions = {}): string[] {
+  const executable = String(options.executable || '').trim();
+  const agentHome = String(options.providerHomePath || '').trim();
+  const agentIdentity = String(options.agentId || '').trim();
+  const configIdentity = String(options.configDir || '').trim();
+  if (!executable || !agentHome || !agentIdentity || !configIdentity) {
+    throw new Error('Pi ACP launch requires exact executable, Agent Home, Agent, and Config identities.');
+  }
+  const stateKey = crypto.createHash('sha256')
+    .update(`${path.resolve(configIdentity)}\0${agentIdentity}`)
+    .digest('hex')
+    .slice(0, 24);
+  const args = [
+    '--farming-pi-command',
+    executable,
+    '--farming-pi-acp-state-dir',
+    path.join(path.resolve(agentHome), '.farming', 'pi-acp', stateKey),
+  ];
+  const farmingSystemPrompt = String(options.farmingSystemPrompt || '').trim();
+  if (farmingSystemPrompt) {
+    args.push('--farming-append-system-prompt', farmingSystemPrompt);
+  }
+  return args;
 }
 
 const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
@@ -900,6 +991,72 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
       },
     },
   },
+  {
+    id: 'pi',
+    displayName: 'Pi',
+    executable: 'pi',
+    homeEnvKey: 'PI_CODING_AGENT_DIR',
+    interruptInput: '\x1b',
+    runtimeObservationKind: 'process',
+    freshAcpSessionSources: ['pi-session-id'],
+    acpSessionSourceErrors: {
+      'pi-explicit-session-id': 'Pi Chat cannot determine whether --session-id names a new or existing session. Omit --session-id for a new Chat, or use --session <id> to resume an existing session.',
+      'pi-fork-session-id': 'Pi Chat does not support the Pi CLI --fork flow with pi-acp 0.0.33. Fork the Terminal session, or start a new Chat.',
+      'untracked-command': 'Pi Chat cannot preserve --continue, --resume picker, session-file, fork-file, print, JSON/RPC, export, or package-management CLI semantics. Start a new Chat without those flags, or use --session <id> to resume an exact Pi session.',
+    },
+    commands: ['pi'],
+    supportedRuntimes: ['terminal', 'acp'],
+    continuesSession: args => args.some(arg => (
+      arg === '--session'
+      || arg.startsWith('--session=')
+      || arg === '--fork'
+      || arg.startsWith('--fork=')
+      || arg === '--continue'
+      || arg === '-c'
+      || arg === '--resume'
+      || arg === '-r'
+    )),
+    planSession: piSessionPlan,
+    terminalResumeArgs: (args, sessionId) => {
+      const delimiterIndex = args.indexOf('--');
+      const insertIndex = delimiterIndex >= 0 ? delimiterIndex : args.length;
+      return [
+        ...args.slice(0, insertIndex),
+        '--session',
+        sessionId,
+        ...args.slice(insertIndex),
+      ];
+    },
+    acp: {
+      acceptsMcpServers: false,
+      executablePolicy: 'system',
+      launchArgs: piAcpLaunchArgs,
+      packageName: 'pi-acp',
+      version: '0.0.33',
+      sharedRuntime: false,
+    },
+    usage: {
+      collection: { kind: 'unavailable' },
+      defaultHomeDirectory: '.pi/agent',
+      source: 'local Pi sessions',
+      coverageSource: 'local Pi sessions',
+      authStatus: 'Local sessions',
+      quotaUnavailableReason: 'Pi provider quota telemetry is unavailable.',
+      tokenUnavailableReason: 'Pi token usage is not yet aggregated by Farming.',
+    },
+    capabilities: {
+      runtimeSwitch: true,
+      contextWindow: false,
+      terminalProfile: false,
+      terminalComposerInput: 'bracketed-paste',
+      slashCommandDiscovery: false,
+      goals: false,
+      goalSubmission: { terminal: { kind: 'prompt' }, acp: { kind: 'prompt' } },
+      conversationFork: {
+        terminal: { strategy: 'target-process', worktreeModes: ['same-worktree', 'new-worktree'] },
+      },
+    },
+  },
 ]);
 
 assertProviderCatalogIntegrity(PROVIDER_ADAPTERS);
@@ -1161,6 +1318,18 @@ function isFreshAcpSessionSource(provider: unknown, source: string): boolean {
   return getProviderAdapter(provider)?.freshAcpSessionSources.includes(source) === true;
 }
 
+function providerAcpSessionSourceError(provider: unknown, source: unknown): string {
+  const normalizedSource = String(source || '').trim();
+  return getProviderAdapter(provider)?.acpSessionSourceErrors?.[normalizedSource] || '';
+}
+
+function providerAcpMcpServersError(provider: unknown, servers: unknown): string {
+  if (!Array.isArray(servers) || servers.length === 0) return '';
+  const adapter = getProviderAdapter(provider);
+  if (!adapter || adapter.acp.acceptsMcpServers !== false) return '';
+  return `${adapter.displayName} Chat does not support ACP MCP servers with ${adapter.acp.packageName || 'its current adapter'} ${adapter.acp.version}. Configure integrations through ${adapter.displayName} itself, or remove mcpServers.`;
+}
+
 function normalizeProviderAcpExtensionNotification(
   provider: unknown,
   method: unknown,
@@ -1182,6 +1351,8 @@ export {
   applyProviderLaunchEnvironment,
   clearProviderHomeEnvironment,
   isFreshAcpSessionSource,
+  providerAcpMcpServersError,
+  providerAcpSessionSourceError,
   listProviderAdapters,
   listProviderDescriptors,
   normalizeProviderAcpExtensionNotification,

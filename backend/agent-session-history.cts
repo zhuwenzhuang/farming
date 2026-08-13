@@ -20,8 +20,11 @@ const MAX_AGENT_SESSION_SCAN_LIMIT = 5000;
 const CLAUDE_HISTORY_TAIL_BYTES = 2 * 1024 * 1024;
 const QODER_HISTORY_TAIL_BYTES = 2 * 1024 * 1024;
 const QWEN_HISTORY_TAIL_BYTES = 2 * 1024 * 1024;
+const PI_HISTORY_HEAD_BYTES = 64 * 1024;
+const PI_HISTORY_TAIL_BYTES = 256 * 1024;
+const PI_SETTINGS_MAX_BYTES = 1024 * 1024;
 const MAX_RECENT_FILE_SCAN_DIRECTORIES = 2000;
-type AgentProvider = 'codex' | 'claude' | 'opencode' | 'qoder' | 'qwen';
+type AgentProvider = 'codex' | 'claude' | 'opencode' | 'pi' | 'qoder' | 'qwen';
 
 interface HistoryRecord extends Record<string, unknown> {
   automation?: HistoryRecord;
@@ -151,6 +154,23 @@ interface QwenSessionMetadata {
   workspace: string;
 }
 
+interface PiSessionMetadata {
+  createdAt: string;
+  cwd: string;
+  filePath: string;
+  firstPrompt: string;
+  id: string;
+  source: string;
+  title: string;
+  updatedAt: string;
+  workspace: string;
+}
+
+interface PiSessionSource {
+  layout: 'custom' | 'default';
+  root: string;
+}
+
 interface ProviderHome {
   id?: unknown;
   path?: unknown;
@@ -164,6 +184,8 @@ interface ProviderListOptions {
   limit?: number;
   opencodeBin?: string;
   opencodeHome?: string;
+  piHome?: string;
+  piSessionSource?: PiSessionSource | null;
   qoderHome?: string;
   qwenHome?: string;
   runOpenCodeSessionList?: OpenCodeListRunner;
@@ -200,7 +222,7 @@ interface ResumeCommandOptions {
 
 type ProviderListFunction = (options?: ProviderListOptions) => Promise<AgentSession[]>;
 type SessionNormalizer = (session: AgentSession) => AgentSession;
-type ProviderHomeOptionKey = 'claudeHome' | 'codexHome' | 'qoderHome' | 'qwenHome';
+type ProviderHomeOptionKey = 'claudeHome' | 'codexHome' | 'piHome' | 'qoderHome' | 'qwenHome';
 
 interface ProviderHistoryListContext {
   limit: number;
@@ -223,6 +245,12 @@ function isHistoryRecord(value: unknown): value is HistoryRecord {
 
 function isAgentProvider(value: string): value is AgentProvider {
   return PROVIDER_HISTORY_BY_ID.has(value as AgentProvider);
+}
+
+function isSafePiSessionId(value: unknown): boolean {
+  const id = String(value || '').trim();
+  return isSafeProviderSessionId(id)
+    && /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/.test(id);
 }
 
 function quoteCommandArg(value: unknown): string {
@@ -655,6 +683,23 @@ async function readTextTail(filePath: string, maxBytes: number): Promise<string>
     if (handle) {
       await handle.close().catch(() => {});
     }
+  }
+}
+
+async function readTextHead(filePath: string, maxBytes: number): Promise<string> {
+  let handle: fsp.FileHandle | null = null;
+  try {
+    const stat = await fsp.stat(filePath);
+    const length = Math.min(stat.size, maxBytes);
+    const buffer = Buffer.alloc(length);
+    handle = await fsp.open(filePath, 'r');
+    if (length > 0) await handle.read(buffer, 0, length, 0);
+    const text = buffer.toString('utf8');
+    return stat.size > length ? text.replace(/[^\n]*$/, '') : text;
+  } catch {
+    return '';
+  } finally {
+    if (handle) await handle.close().catch(() => {});
   }
 }
 
@@ -1162,6 +1207,197 @@ async function listQwenSessions(
     .slice(0, limit);
 }
 
+function expandPiSettingsPath(value: string): string | null {
+  if (value === '~') return os.homedir();
+  if (value.startsWith('~/') || (process.platform === 'win32' && value.startsWith('~\\'))) {
+    return path.join(os.homedir(), value.slice(2));
+  }
+  // Pi leaves relative sessionDir values relative to each launched process cwd.
+  // A global inventory cannot map one such value to a unique authoritative root.
+  return path.isAbsolute(value) ? path.resolve(value) : null;
+}
+
+async function resolvePiSessionSource(piHome: string): Promise<PiSessionSource | null> {
+  const resolvedHome = path.resolve(piHome);
+  const fallback = path.join(resolvedHome, 'sessions');
+  const source = (configuredRoot: string): PiSessionSource => ({
+    layout: path.resolve(configuredRoot) === path.resolve(fallback) ? 'default' : 'custom',
+    root: configuredRoot,
+  });
+  const environmentDirectory = String(process.env.PI_CODING_AGENT_SESSION_DIR || '').trim();
+  if (environmentDirectory) {
+    const root = expandPiSettingsPath(environmentDirectory);
+    return root ? source(root) : null;
+  }
+  const settingsPath = path.join(resolvedHome, 'settings.json');
+  try {
+    const stat = await fsp.stat(settingsPath);
+    if (!stat.isFile() || stat.size > PI_SETTINGS_MAX_BYTES) return null;
+    const parsed: unknown = JSON.parse(await fsp.readFile(settingsPath, 'utf8'));
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return source(fallback);
+    const configured = (parsed as Record<string, unknown>).sessionDir;
+    if (typeof configured !== 'string' || !configured.trim()) return source(fallback);
+    const root = expandPiSettingsPath(configured.trim());
+    return root ? source(root) : null;
+  } catch (caught) {
+    const error = caught as NodeJS.ErrnoException;
+    return error?.code === 'ENOENT' ? source(fallback) : null;
+  }
+}
+
+async function resolvePiSessionsDirectory(piHome: string): Promise<string | null> {
+  return (await resolvePiSessionSource(piHome))?.root || null;
+}
+
+function piMessageText(message: unknown): string {
+  if (!isHistoryRecord(message) || message.role !== 'user') return '';
+  if (typeof message.content === 'string') return message.content.trim();
+  if (!Array.isArray(message.content)) return '';
+  return message.content
+    .map(part => isHistoryRecord(part) && part.type === 'text' && typeof part.text === 'string' ? part.text : '')
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+}
+
+function piSessionTitle(value: unknown): string {
+  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 160);
+}
+
+function applyPiSessionEvent(
+  metadata: PiSessionMetadata,
+  event: HistoryRecord | null | undefined,
+  allowHeader = false,
+): void {
+  if (!event || typeof event !== 'object') return;
+  if (event.type === 'session' && !allowHeader) return;
+  const timestamp = isoTimestamp(event.timestamp);
+  if (timestamp && timestampMs(timestamp) > timestampMs(metadata.updatedAt)) metadata.updatedAt = timestamp;
+
+  if (event.type === 'session') {
+    const id = firstTrimmedString(event.id);
+    if (id && isSafePiSessionId(id)) metadata.id = id;
+    if (typeof event.cwd === 'string' && event.cwd.trim()) metadata.cwd = normalizePathValue(event.cwd);
+    metadata.createdAt = metadata.createdAt || timestamp;
+    return;
+  }
+  if (event.type === 'session_info') {
+    metadata.title = typeof event.name === 'string' ? piSessionTitle(event.name) : '';
+    return;
+  }
+  if (event.type !== 'message' || !isHistoryRecord(event.message)) return;
+  if (!metadata.firstPrompt) metadata.firstPrompt = piSessionTitle(piMessageText(event.message));
+}
+
+async function readPiSessionMetadata(filePath: string): Promise<PiSessionMetadata | null> {
+  const metadata: PiSessionMetadata = {
+    createdAt: '',
+    cwd: '',
+    filePath,
+    firstPrompt: '',
+    id: '',
+    source: 'pi',
+    title: '',
+    updatedAt: '',
+    workspace: '',
+  };
+  const head = await readTextHead(filePath, PI_HISTORY_HEAD_BYTES);
+  let foundHeader = false;
+  for (const line of head.split('\n')) {
+    if (!line.trim()) continue;
+    let event: unknown;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (!isHistoryRecord(event)) {
+      if (!foundHeader) return null;
+      continue;
+    }
+    if (!foundHeader) {
+      if (event.type !== 'session') return null;
+      applyPiSessionEvent(metadata, event, true);
+      foundHeader = true;
+      continue;
+    }
+    applyPiSessionEvent(metadata, event);
+  }
+  if (!foundHeader || !metadata.id || !isSafePiSessionId(metadata.id)) return null;
+
+  const tail = await readTextTail(filePath, PI_HISTORY_TAIL_BYTES);
+  for (const line of tail.split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      applyPiSessionEvent(metadata, JSON.parse(line));
+    } catch {
+      // Ignore individual corrupt or truncated session lines.
+    }
+  }
+  metadata.title = firstTrimmedString(metadata.title, metadata.firstPrompt, 'Pi session');
+  metadata.workspace = normalizePathValue(metadata.cwd);
+  return metadata;
+}
+
+async function listPiSessions(
+  options: ProviderListOptions = {},
+): Promise<AgentSession[]> {
+  const piHome = path.resolve(options.piHome || path.join(os.homedir(), '.pi', 'agent'));
+  const limit = typeof options.limit === 'number' && Number.isFinite(options.limit)
+    ? Math.max(0, Math.min(MAX_AGENT_SESSION_HISTORY_LIMIT, Math.floor(options.limit)))
+    : DEFAULT_LIMIT;
+  const scanLimit = typeof options.scanLimit === 'number' && Number.isFinite(options.scanLimit)
+    ? Math.max(limit, Math.min(MAX_AGENT_SESSION_SCAN_LIMIT, Math.floor(options.scanLimit)))
+    : DEFAULT_SCAN_LIMIT;
+  const source = Object.prototype.hasOwnProperty.call(options, 'piSessionSource')
+    ? options.piSessionSource || null
+    : await resolvePiSessionSource(piHome);
+  if (!source) return [];
+  const sessionsRoot = source.root;
+  const customRoot = source.layout === 'custom';
+  const sessionFiles = await collectRecentFiles(
+    sessionsRoot,
+    '.jsonl',
+    scanLimit,
+    filePath => {
+      const parts = path.relative(sessionsRoot, filePath).split(path.sep);
+      return customRoot ? parts.length === 1 : parts.length <= 2;
+    },
+    directoryPath => !customRoot && path.relative(sessionsRoot, directoryPath).split(path.sep).length === 1,
+  );
+
+  const sessions: AgentSession[] = [];
+  for (const { filePath, mtimeMs } of sessionFiles) {
+    const metadata = await readPiSessionMetadata(filePath);
+    if (!metadata) continue;
+    const mtimeIso = mtimeMs > 0 ? new Date(mtimeMs).toISOString() : '';
+    const updatedAt = timestampMs(mtimeIso) > timestampMs(metadata.updatedAt)
+      ? mtimeIso
+      : (metadata.updatedAt || mtimeIso);
+    const session: AgentSession = {
+      provider: 'pi',
+      providerName: 'Pi',
+      id: metadata.id,
+      title: metadata.title,
+      cwd: metadata.cwd,
+      workspace: metadata.workspace,
+      updatedAt,
+      createdAt: metadata.createdAt,
+      archived: false,
+      pinned: false,
+      unread: false,
+      projectless: !metadata.workspace,
+      source: metadata.source,
+      capabilities: ['resume', 'fork'],
+    };
+    if (isVisibleAgentSession(session)) sessions.push(session);
+  }
+
+  return dedupeAgentSessions(sessions)
+    .sort((a, b) => timestampMs(b.updatedAt) - timestampMs(a.updatedAt))
+    .slice(0, limit);
+}
+
 function runOpenCodeSessionList(options: OpenCodeListOptions = {}): Promise<string | Buffer> {
   const executable = options.opencodeBin || process.env.FARMING_OPENCODE_BIN || 'opencode';
   const maxCount = typeof options.maxCount === 'number' && Number.isFinite(options.maxCount)
@@ -1272,6 +1508,9 @@ async function listHomeBackedProviderSessions(
       opencodeBin: options.opencodeBin,
       runOpenCodeSessionList: options.runOpenCodeSessionList,
     };
+    if (Object.prototype.hasOwnProperty.call(options, 'piSessionSource')) {
+      listOptions.piSessionSource = options.piSessionSource;
+    }
     if (providerHomePath) listOptions[definition.homeOptionKey] = providerHomePath;
     const homeSessions = await definition.list(listOptions);
     const normalize = definition.normalize || ((session: AgentSession) => session);
@@ -1376,6 +1615,21 @@ const PROVIDER_HISTORY_DEFINITIONS: readonly ProviderHistoryDefinition[] = [
       `opencode --session ${sessionId}${options.fork === true ? ' --fork' : ''}`
     ),
     listSessions: listOpenCodeProviderSessions,
+  },
+  {
+    id: 'pi',
+    buildResumeCommand: (sessionId, options) => {
+      if (!isSafePiSessionId(sessionId)) return '';
+      return options.fork === true
+        ? `pi --fork ${sessionId}`
+        : `pi --session ${sessionId}`;
+    },
+    listSessions: context => listHomeBackedProviderSessions(context, {
+      id: 'pi',
+      fallbackHomeKey: 'piHome',
+      homeOptionKey: 'piHome',
+      list: listPiSessions,
+    }),
   },
   {
     id: 'qoder',
@@ -1501,17 +1755,22 @@ export {
   isAgentManagedWorktree,
   isDefaultClaudeSessionTitle,
   isSafeSessionId,
+  isSafePiSessionId,
   isTemporaryWorkspace,
   isVisibleAgentSession,
   listAgentSessions,
   listClaudeSessions,
   listOpenCodeSessions,
+  listPiSessions,
   listQoderSessions,
   listQwenSessions,
   normalizeProvider,
   paginateAgentSessions,
   providerHistoryAutoResumeErrorIsStale,
   providerHistorySupportsUnarchive,
+  readPiSessionMetadata,
+  resolvePiSessionSource,
+  resolvePiSessionsDirectory,
   resolveCodexResumeModelProvider,
   searchAgentSessions,
 };
@@ -1525,5 +1784,7 @@ export type {
   ProviderHome,
   ProviderListOptions,
   ProviderSessionHomeBinding,
+  PiSessionMetadata,
+  PiSessionSource,
   ResumeCommandOptions,
 };

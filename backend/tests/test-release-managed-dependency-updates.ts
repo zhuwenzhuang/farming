@@ -17,6 +17,7 @@ async function run() {
         '@agentclientprotocol/codex-acp': '1.1.4',
         '@agentclientprotocol/claude-agent-acp': '0.59.0',
         'agent-browser': '0.32.3',
+        'pi-acp': '0.0.33',
       },
       overrides: { '@openai/codex': '0.146.0' },
     }));
@@ -44,6 +45,7 @@ async function run() {
       [
         '@agentclientprotocol/codex-acp',
         '@agentclientprotocol/claude-agent-acp',
+        'pi-acp',
         '@agentclientprotocol/sdk',
         '@openai/codex',
         '@anthropic-ai/claude-agent-sdk',
@@ -66,6 +68,7 @@ async function run() {
     assert.strictEqual(current.reviews.length, 0);
 
     currentVersions.set('@agentclientprotocol/codex-acp', '1.1.14');
+    currentVersions.set('pi-acp', '0.0.34');
     currentVersions.set('@anthropic-ai/claude-agent-sdk', '0.3.226');
     const outdated = await checker.inspectManagedReleaseDependencies(dependencies, {
       fetchImpl: registryFetch,
@@ -73,7 +76,7 @@ async function run() {
     });
     assert.deepStrictEqual(
       outdated.mismatches.map(dependency => dependency.name),
-      ['@agentclientprotocol/codex-acp'],
+      ['@agentclientprotocol/codex-acp', 'pi-acp'],
     );
     assert.deepStrictEqual(
       outdated.reviews.map(dependency => dependency.name),

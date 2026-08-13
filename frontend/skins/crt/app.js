@@ -140,6 +140,7 @@ function isCrtAgentStateMessageCandidate(value) {
 }
 const CRT_AGENT_DISPLAY_NAMES = {
     qwen: 'Qwen Code',
+    pi: 'Pi',
     codex: 'Codex',
     opencode: 'OpenCode',
     qoder: 'Qoder',
