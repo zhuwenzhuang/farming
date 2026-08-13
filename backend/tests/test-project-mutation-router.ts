@@ -54,6 +54,11 @@ async function run(): Promise<void> {
       fail('canonical');
       return workspace ? `/canonical/${workspace}` : '';
     },
+    async gitWorkspaceForFile(filePath: string): Promise<string> {
+      calls.push({ method: 'git-file', value: filePath });
+      fail('git-file');
+      return filePath === '/repo/src/file.ts' ? '/repo' : '';
+    },
     mountWorkspace(workspace: string): unknown {
       calls.push({ method: 'mount', value: workspace });
       fail('mount');
@@ -117,6 +122,21 @@ async function run(): Promise<void> {
       { method: 'mount', value: '/canonical/project' },
       { method: 'publish-membership' },
     ]);
+
+    await assertJson(await jsonRequest(baseUrl, '/mount-file', { path: '/repo/src/file.ts' }), 200, {
+      ...membership,
+      workspace: '/repo',
+    });
+    assert.deepStrictEqual(calls.splice(0), [
+      { method: 'git-file', value: '/repo/src/file.ts' },
+      { method: 'mount', value: '/repo' },
+      { method: 'publish-membership' },
+    ]);
+
+    await assertJson(await jsonRequest(baseUrl, '/mount-file', { path: '/tmp/plain.txt' }), 404, {
+      error: 'No Git repository found for file',
+    });
+    assert.deepStrictEqual(calls.splice(0), [{ method: 'git-file', value: '/tmp/plain.txt' }]);
 
     await assertJson(await jsonRequest(baseUrl, '/remove', { workspace: 42 }), 200, membership);
     assert.deepStrictEqual(calls.splice(0), [
@@ -199,6 +219,7 @@ async function run(): Promise<void> {
 
     for (const [route, method] of [
       ['/mount', 'POST'],
+      ['/mount-file', 'POST'],
       ['/remove', 'POST'],
       ['/pin', 'POST'],
       ['/reorder', 'POST'],

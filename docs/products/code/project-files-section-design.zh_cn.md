@@ -40,6 +40,9 @@ Project 是持久挂载到 Farming 的 Workspace。Agent 创建、文件打开�
 
 Git 拥有 Repository 与 Worktree Identity。Farming 把每个 Worktree 展示为普通 Project，
 只拥有它在 Workspace 中的 Membership 与 Order。
+打开不属于已挂载 Project 的绝对文件时，先由 Backend 权威查找最近的上层 Git Worktree；
+查找成功后挂载该 Worktree，并按 Repository Relative Path 走普通 Project 文件链路（包括
+Git Blame）。找不到 Repository 时，才回退到有界、只读的 Global File Path。
 
 Files Identity 来自 Canonical Workspace，不能依赖当前碰巧引用它的 Agent。可选 Source Agent
 Association 可以支持从文件返回 Agent，但不属于文件 Ownership。

@@ -585,6 +585,7 @@ const EXPECTED_API_ROUTE_MANIFEST = [
   'POST /api/agents/:agentId/fork',
   'POST /api/projects/reveal',
   'POST /api/projects/mount',
+  'POST /api/projects/mount-file',
   'POST /api/projects/remove',
   'POST /api/projects/pin',
   'POST /api/projects/reorder',

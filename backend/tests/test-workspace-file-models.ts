@@ -155,6 +155,7 @@ const {
   clearWorkspaceShareTargetSearch,
   resolveWorkspaceSharePath,
   workspaceShareAbsolutePath,
+  workspaceRelativePath,
   workspaceShareTargetFromSearch,
   workspaceFolderPreviewFilePath,
   workspaceShareTargetKey,
@@ -230,6 +231,8 @@ function run() {
     { kind: 'folder', folderPath: '', absolutePath: '/Users/demo/git/farming/reference/lobe-icons' }
   );
   assert.strictEqual(workspaceShareAbsolutePath('/Users/demo/git/farming', 'reference/lobe-icons'), '/Users/demo/git/farming/reference/lobe-icons');
+  assert.strictEqual(workspaceRelativePath('/Users/demo/git/farming/src/App.tsx', '/Users/demo/git/farming'), 'src/App.tsx');
+  assert.strictEqual(workspaceRelativePath('/Users/demo/git/farming-copy/src/App.tsx', '/Users/demo/git/farming'), null);
   assert.strictEqual(workspaceShareProjectLabel('/Users/demo/git/farming'), 'farming');
   assert.deepStrictEqual(resolveWorkspaceSharePath(absoluteFolderTarget, [
     { agentId: 'agent-parent', workspace: '/Users/demo/git' },

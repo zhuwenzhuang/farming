@@ -104,6 +104,27 @@ export async function requestProjectMount(
   return projectMountResult(normalizedWorkspace, membership)
 }
 
+export async function requestProjectMountForFile(
+  filePath: string,
+  signal?: AbortSignal,
+  request: ProjectMountRequest = fetch,
+) {
+  throwIfProjectMountAborted(signal)
+  const normalizedPath = filePath.trim()
+  if (!normalizedPath) return { membership: null, workspace: '' }
+  const response = await request(appPath('/api/projects/mount-file'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: normalizedPath }),
+    signal,
+  })
+  const membership = await response.json().catch(() => null) as ProjectMountResponse | null
+  throwIfProjectMountAborted(signal)
+  if (response.status === 404) return { membership: null, workspace: '' }
+  if (!response.ok) throw new Error(membership?.error || `Project request failed (${response.status})`)
+  return projectMountResult('', membership)
+}
+
 export type ProjectNamesState = {
   latestRequestVersion: number
   names: Record<string, string>
@@ -243,11 +264,19 @@ export function useProjectMembershipController(
     return result.workspace
   }, [])
 
+  const mountProjectForFile = useCallback(async (filePath: string, signal?: AbortSignal) => {
+    const result = await requestProjectMountForFile(filePath, signal)
+    throwIfProjectMountAborted(signal)
+    if (result.membership) applyMembership(result.membership)
+    return result.workspace
+  }, [])
+
   return {
     ...state,
     projectNames: namesState.names,
     applyMembership,
     mountProject,
+    mountProjectForFile,
     replaceProjectName: namesController.replaceProjectName,
     captureProjectNamesInitialGuard: namesController.captureInitialSettingsGuard,
     receiveInitialProjectNames: namesController.receiveInitialSettings,

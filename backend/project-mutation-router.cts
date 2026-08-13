@@ -26,6 +26,7 @@ interface ExpressFactory {
 
 interface ProjectMutationRouterPort {
   canonicalWorkspace(workspace: string): Promise<string>;
+  gitWorkspaceForFile(filePath: string): Promise<string>;
   mountWorkspace(workspace: string): unknown;
   publishMembershipChange(): void;
   publishNameChange(): void;
@@ -51,6 +52,12 @@ function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
 function createProjectMutationRouter(port: ProjectMutationRouterPort): ExpressRouter {
   const router = expressFactory.Router();
 
@@ -65,6 +72,24 @@ function createProjectMutationRouter(port: ProjectMutationRouterPort): ExpressRo
     } catch (caught) {
       const error = caughtError(caught);
       res.status(400).json({ error: error.message || 'Failed to create Project' });
+    }
+  });
+
+  router.post('/mount-file', expressFactory.json(), async (req, res) => {
+    try {
+      const workspace = await port.gitWorkspaceForFile(
+        typeof req.body?.path === 'string' ? req.body.path : '',
+      );
+      if (!workspace) {
+        res.status(404).json({ error: 'No Git repository found for file' });
+        return;
+      }
+      const membership = port.mountWorkspace(workspace);
+      port.publishMembershipChange();
+      res.json({ ...recordValue(membership), workspace });
+    } catch (caught) {
+      const error = caughtError(caught);
+      res.status(400).json({ error: error.message || 'Failed to create Project for file' });
     }
   });
 

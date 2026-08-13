@@ -1515,6 +1515,7 @@ app.post(routePath(BASE_PATH, '/api/projects/reveal'), express.json(), async (re
 
 app.use(routePath(BASE_PATH, '/api/projects'), createProjectMutationRouter({
   canonicalWorkspace: workspace => canonicalProjectWorkspace(workspace),
+  gitWorkspaceForFile: filePath => gitProjectWorkspaceForFile(filePath),
   mountWorkspace: workspace => configManager.mountProjectWorkspace(workspace),
   removeWorkspace: workspace => configManager.removeProjectWorkspace(workspace),
   setWorkspacePinned: (workspace, pinned) => configManager.setProjectWorkspacePinned(workspace, pinned),
@@ -1596,6 +1597,18 @@ const canonicalProjectWorkspaceCandidate = createProjectWorkspaceCanonicalizer({
 async function canonicalProjectWorkspace(workspace: string | null) {
   const candidate = configManager.expandWorkspacePath(String(workspace || '').trim());
   return canonicalProjectWorkspaceCandidate(candidate);
+}
+async function gitProjectWorkspaceForFile(filePath: string | null) {
+  const candidate = configManager.expandWorkspacePath(String(filePath || '').trim());
+  if (!candidate) return '';
+  try {
+    const canonicalFile = await fs.promises.realpath(path.resolve(candidate));
+    const stat = await fs.promises.stat(canonicalFile);
+    if (!stat.isFile()) return '';
+    return (await inspectGitWorktree(path.dirname(canonicalFile), { cacheMs: 0 }))?.workspace || '';
+  } catch {
+    return '';
+  }
 }
 const agentSessionResumeCoordinator = new AgentSessionResumeCoordinator({
   archiveNewAgent: agentId => agentManager.archiveAgent(agentId, {

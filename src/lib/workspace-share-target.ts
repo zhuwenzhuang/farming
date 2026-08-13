@@ -58,6 +58,10 @@ function relativePathInsideWorkspace(absolutePath: string, workspace: string) {
   return target.slice(root.length + 1)
 }
 
+export function workspaceRelativePath(absolutePath: string, workspace: string) {
+  return relativePathInsideWorkspace(absolutePath, workspace)
+}
+
 export function workspaceShareAbsolutePath(workspaceRoot: string, relativePath: string) {
   const root = normalizePath(workspaceRoot)
   const relative = normalizePath(relativePath).replace(/^\/+/, '')

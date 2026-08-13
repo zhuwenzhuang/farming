@@ -47,6 +47,11 @@ remove the Project; explicit removal is the unmount action.
 
 Git owns repository and worktree identity. Farming presents each worktree as an
 ordinary Project and owns only its membership and order in the workspace.
+Opening an absolute file outside mounted Projects first asks the backend for
+the nearest containing Git worktree. A successful authoritative lookup mounts
+that worktree and opens the repository-relative file through the normal Project
+path, including Git blame; when no repository exists, the bounded read-only
+global-file path remains the fallback.
 
 Files identity is derived from the canonical workspace, never from whichever
 Agent currently happens to reference it. An optional source-Agent association
