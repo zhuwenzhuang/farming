@@ -117,6 +117,15 @@ test('promotes an external Chat file link to its nearest Git Project', async ({ 
   fs.mkdirSync(launcherWorkspace, { recursive: true })
   const { filePath, repository } = createRepositoryFile(workspaceRoot, 'chat-link-git-project')
   const agentId = await createChatAgent(page, launcherWorkspace)
+  let forceGlobalFallback = true
+
+  await page.route(/\/farming\/api\/projects\/mount-file$/, async route => {
+    if (forceGlobalFallback) {
+      await route.fulfill({ status: 404, json: { error: 'No Git repository found for file' } })
+      return
+    }
+    await route.continue()
+  })
 
   await page.route(new RegExp(`/farming/api/agents/${agentId}/acp-transcript(?:\\?.*)?$`), async route => {
     await route.fulfill({
@@ -150,15 +159,33 @@ test('promotes an external Chat file link to its nearest Git Project', async ({ 
   await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
   const fileLink = page.locator('.code-agent-transcript-markdown-file-link', { hasText: 'SmartOpen.java:2' })
   await expect(fileLink).toBeVisible()
+  await fileLink.click()
+  await expect(page.locator('[data-testid="code-project-title"][data-project-id="/"]')).toBeVisible()
+  const activeTab = page.locator('[role="tab"][aria-selected="true"]', { hasText: 'SmartOpen.java' })
+  await expect(activeTab).toHaveAttribute('title', filePath.replace(/^\/+/, ''))
+
+  forceGlobalFallback = false
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+  await expect(fileLink).toBeVisible()
   const mounted = page.waitForResponse(response => (
     response.request().method() === 'POST'
     && new URL(response.url()).pathname.endsWith('/api/projects/mount-file')
   ))
+  const projectFileRead = page.waitForResponse(response => (
+    new URL(response.url()).pathname.endsWith('/api/files/file')
+  ))
   await fileLink.click()
   expect((await (await mounted).json()).workspace).toBe(fs.realpathSync(repository))
+  const projectFileReadResponse = await projectFileRead
+  const projectFileReadUrl = new URL(projectFileReadResponse.url())
+  expect({
+    ok: projectFileReadResponse.ok(),
+    path: projectFileReadUrl.searchParams.get('path'),
+    exact: projectFileReadUrl.searchParams.get('exact'),
+  }).toEqual({ ok: true, path: 'compiler/src/SmartOpen.java', exact: null })
 
   const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(repository) })
   await expect(project).toBeVisible()
-  await expect(page.getByRole('tab', { name: 'SmartOpen.java' })).toBeVisible()
+  await expect(activeTab).toHaveAttribute('title', 'compiler/src/SmartOpen.java')
   await expectBlameAvailable(page)
 })

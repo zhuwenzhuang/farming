@@ -54,8 +54,9 @@ directory.
 
 Git owns repository and worktree identity. Farming presents each worktree as an
 ordinary Project and owns only its membership and order in the workspace.
-Opening an absolute file outside mounted Projects first asks the backend for
-the nearest containing Git worktree. A successful authoritative lookup mounts
+Every absolute-file open entry point, including Chat links, Terminal links, and
+shared URLs, first asks the backend for the nearest containing Git worktree through
+one shared resolution boundary. A successful authoritative lookup mounts
 that worktree and opens the repository-relative file through the normal Project
 path, including Git blame; when no repository exists, the bounded read-only
 global-file path remains the fallback.

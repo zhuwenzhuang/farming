@@ -2841,14 +2841,27 @@ export function CodeWorkspace({
     closeSidebarForMobile()
   }, [clearSearch, closeContextMenu, closeSidebarForMobile, createWorkspaceOpenFileRequest, mountProject, onOpenTerminal, onWorkspaceViewChange, resolveWorkspaceFileIdentity, setMainPaneMode, workspaceOpenFiles])
 
-  const resolveGitProjectFile = useCallback(async (absolutePath: string, sourceAgentId?: string) => {
-    const workspace = await requestProjectMountForFile(absolutePath)
-    if (!workspace) return null
-    const filePath = workspaceRelativePath(absolutePath, workspace)
+  const resolveAbsoluteWorkspaceFileTarget = useCallback(async (absolutePath: string, sourceAgentId?: string) => {
+    try {
+      const workspace = await requestProjectMountForFile(absolutePath)
+      const filePath = workspace ? workspaceRelativePath(absolutePath, workspace) : null
+      if (workspace && filePath) {
+        return {
+          identity: resolveWorkspaceFileIdentity(projectFilesWorkspaceId(workspace), sourceAgentId),
+          filePath,
+          globalRoot: false,
+        }
+      }
+    } catch {
+      // Preserve the bounded global-file fallback when Git repository discovery fails.
+    }
+    const filePath = normalizeGlobalWorkspaceFilePath(absolutePath)
     if (!filePath) return null
-    const identity = resolveWorkspaceFileIdentity(projectFilesWorkspaceId(workspace), sourceAgentId)
-    const file = await fetchWorkspaceFile(identity.filesId, filePath)
-    return { file, filePath, identity }
+    return {
+      identity: resolveWorkspaceFileIdentity(GLOBAL_WORKSPACE_FILES_AGENT_ID, sourceAgentId),
+      filePath,
+      globalRoot: true,
+    }
   }, [requestProjectMountForFile, resolveWorkspaceFileIdentity])
 
   const restoreWorkspaceAgent = useCallback((agentId: string) => {
@@ -2987,25 +3000,22 @@ export function CodeWorkspace({
 
     void (async () => {
       if (target.exactExternal) {
-        let resolvedProjectFile: Awaited<ReturnType<typeof resolveGitProjectFile>> = null
         try {
-          resolvedProjectFile = await resolveGitProjectFile(
+          const resolvedTarget = await resolveAbsoluteWorkspaceFileTarget(
             workspaceShareAbsolutePath('/', filePath),
             identity.sourceAgentId,
           )
-        } catch {
-          // Preserve the exact-file fallback when Git repository discovery fails.
-        }
-        if (!requestLease.isCurrent()) return
-        if (resolvedProjectFile) {
-          await openProjectFile(resolvedProjectFile.identity.filesId, resolvedProjectFile.file, {
+          if (!requestLease.isCurrent() || !resolvedTarget) return
+          const file = await fetchWorkspaceFile(resolvedTarget.identity.filesId, resolvedTarget.filePath, {
+            exactExternal: resolvedTarget.globalRoot,
+          })
+          if (!requestLease.isCurrent()) return
+          await openProjectFile(resolvedTarget.identity.filesId, file, {
             ...(requestedOpenTarget ?? {}),
-            sourceAgentId: resolvedProjectFile.identity.sourceAgentId,
+            ...(resolvedTarget.globalRoot ? { globalRoot: true, exactExternal: true } : {}),
+            sourceAgentId: resolvedTarget.identity.sourceAgentId,
           })
           return
-        }
-        try {
-          await openResolvedFile(filePath)
         } catch (error) {
           setCopyNotice({
             id: Date.now(),
@@ -3059,7 +3069,7 @@ export function CodeWorkspace({
 
       revealSearch()
     })()
-  }, [focusWorkspaceFilesSearch, openProjectFile, resolveGitProjectFile, resolveWorkspaceFileIdentity, revealWorkspaceFileInExplorer, setCopyNotice])
+  }, [focusWorkspaceFilesSearch, openProjectFile, resolveAbsoluteWorkspaceFileTarget, resolveWorkspaceFileIdentity, revealWorkspaceFileInExplorer, setCopyNotice])
 
   const selectOpenWorkspaceFile = useCallback((agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => {
     workspaceFileOpenRequestRef.current.invalidate()
@@ -3081,8 +3091,12 @@ export function CodeWorkspace({
       workspaceRoot: identity.workspaceRoot,
       filePath,
     })
-    const hasOpenFile = openWorkspaceFiles.some(file => workspaceOpenFileKey(file) === requestedKey)
-    if (!hasOpenFile) return false
+    const existingOpenFile = openWorkspaceFiles.find(file => workspaceOpenFileKey(file) === requestedKey)
+    if (!existingOpenFile) return false
+    if (
+      isGlobalWorkspaceFilesAgentId(existingOpenFile.agentId)
+      && !isGlobalWorkspaceFilesAgentId(identity.filesId)
+    ) return false
     const openRequest = {
       ...createWorkspaceOpenFileRequest(target),
       workspaceRoot: identity.workspaceRoot,
@@ -3110,34 +3124,32 @@ export function CodeWorkspace({
 
   const openWorkspaceFilePath = useCallback(async (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => {
     const requestedFilesId = target?.globalRoot ? GLOBAL_WORKSPACE_FILES_AGENT_ID : agentId
-    const identity = resolveWorkspaceFileIdentity(
+    let identity = resolveWorkspaceFileIdentity(
       requestedFilesId,
       target?.sourceAgentId ?? (target?.globalRoot ? agentId : undefined),
     )
-    const filesId = identity.filesId
-    const resolvedFilePath = target?.globalRoot ? normalizeGlobalWorkspaceFilePath(filePath) : filePath
-    const resolvedTarget = target
+    let filesId = identity.filesId
+    let resolvedFilePath = target?.globalRoot ? normalizeGlobalWorkspaceFilePath(filePath) : filePath
+    let resolvedTarget = target
       ? { ...target, sourceAgentId: identity.sourceAgentId }
       : identity.sourceAgentId
         ? { sourceAgentId: identity.sourceAgentId }
         : undefined
     if (target?.globalRoot) {
-      try {
-        const resolvedProjectFile = await resolveGitProjectFile(
-          workspaceShareAbsolutePath('/', resolvedFilePath),
-          identity.sourceAgentId,
-        )
-        if (resolvedProjectFile) {
-          await openProjectFile(resolvedProjectFile.identity.filesId, resolvedProjectFile.file, {
-            ...target,
-            globalRoot: false,
-            exactExternal: false,
-            sourceAgentId: resolvedProjectFile.identity.sourceAgentId,
-          })
-          return
+      const absoluteTarget = await resolveAbsoluteWorkspaceFileTarget(
+        workspaceShareAbsolutePath('/', resolvedFilePath),
+        identity.sourceAgentId,
+      )
+      if (absoluteTarget) {
+        identity = absoluteTarget.identity
+        filesId = identity.filesId
+        resolvedFilePath = absoluteTarget.filePath
+        resolvedTarget = {
+          ...target,
+          globalRoot: absoluteTarget.globalRoot,
+          exactExternal: absoluteTarget.globalRoot,
+          sourceAgentId: identity.sourceAgentId,
         }
-      } catch {
-        // Preserve the bounded global-file fallback when Git repository discovery fails.
       }
     }
     if (selectOpenWorkspaceFile(filesId, resolvedFilePath, resolvedTarget)) return
@@ -3187,7 +3199,7 @@ export function CodeWorkspace({
         }
       }
     }
-  }, [focusWorkspaceFilesSearch, openProjectFile, resolveGitProjectFile, resolveWorkspaceFileIdentity, revealWorkspaceFileInExplorer, selectOpenWorkspaceFile])
+  }, [focusWorkspaceFilesSearch, openProjectFile, resolveAbsoluteWorkspaceFileTarget, resolveWorkspaceFileIdentity, revealWorkspaceFileInExplorer, selectOpenWorkspaceFile])
 
   const openAgentHomeConfiguration = useCallback(async (target: AgentHomeFileTarget) => {
     try {
@@ -3254,22 +3266,19 @@ export function CodeWorkspace({
       GLOBAL_WORKSPACE_FILES_AGENT_ID,
     )
     if (!resolvedPath) return false
-    let resolvedProjectFile: Awaited<ReturnType<typeof resolveGitProjectFile>> = null
+    let absoluteFileTarget: Awaited<ReturnType<typeof resolveAbsoluteWorkspaceFileTarget>> = null
     if (target.kind === 'file' && resolvedPath.globalRoot && target.absolutePath) {
-      try {
-        resolvedProjectFile = await resolveGitProjectFile(target.absolutePath, target.agentId)
-        if (resolvedProjectFile) {
-          resolvedPath = {
-            agentId: resolvedProjectFile.identity.filesId,
-            filePath: resolvedProjectFile.filePath,
-            globalRoot: false,
-          }
+      absoluteFileTarget = await resolveAbsoluteWorkspaceFileTarget(target.absolutePath, target.agentId)
+      if (absoluteFileTarget) {
+        resolvedPath = {
+          agentId: absoluteFileTarget.identity.filesId,
+          filePath: absoluteFileTarget.filePath,
+          globalRoot: absoluteFileTarget.globalRoot,
         }
-      } catch {
-        // Preserve the exact-file fallback when Git repository discovery fails.
       }
     }
-    const identity = resolvedProjectFile?.identity
+    if (!resolvedPath) return false
+    const identity = absoluteFileTarget?.identity
       ?? resolveWorkspaceFileIdentity(resolvedPath.agentId, resolvedPath.agentId)
 
     if (target.kind === 'folder') {
@@ -3296,7 +3305,7 @@ export function CodeWorkspace({
     if (selectOpenWorkspaceFile(identity.filesId, resolvedPath.filePath, openTarget)) return true
 
     try {
-      const file = resolvedProjectFile?.file ?? await fetchWorkspaceFile(identity.filesId, resolvedPath.filePath, {
+      const file = await fetchWorkspaceFile(identity.filesId, resolvedPath.filePath, {
         exactExternal: resolvedPath.globalRoot,
       })
       await openProjectFile(identity.filesId, file, openTarget)
@@ -3325,7 +3334,7 @@ export function CodeWorkspace({
     openProjectFile,
     projectWorkspaces,
     revealWorkspaceFileInExplorer,
-    resolveGitProjectFile,
+    resolveAbsoluteWorkspaceFileTarget,
     resolveWorkspaceFileIdentity,
     selectOpenWorkspaceFile,
     copy,
