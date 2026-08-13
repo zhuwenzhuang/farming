@@ -51,7 +51,7 @@ type TerminalFollowState = {
 const TERMINAL_COMPOSER_COLLAPSED_STORAGE_KEY = 'farming.code.terminalComposerCollapsed.v1'
 const DEFAULT_RESOURCE_AGENT_WIDTH = 420
 const MIN_RESOURCE_AGENT_WIDTH = 360
-const MAX_RESOURCE_AGENT_WIDTH = 640
+const MAX_RESOURCE_AGENT_WIDTH = 800
 const MIN_RESOURCE_WORKSPACE_WIDTH = 320
 
 function readTerminalComposerCollapsed() {

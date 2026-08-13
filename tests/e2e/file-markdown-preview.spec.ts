@@ -29,6 +29,7 @@ async function openProjectFile(page: Parameters<typeof openFarming>[0], projectN
 }
 
 test('renders Markdown files by default and keeps preview, source, and split controls coherent', async ({ page, workspaceRoot }, testInfo) => {
+  await page.setViewportSize({ width: 1680, height: 900 })
   const workspace = path.join(workspaceRoot, 'file-markdown-preview')
   fs.rmSync(workspace, { recursive: true, force: true })
   fs.mkdirSync(path.join(workspace, 'docs'), { recursive: true })
@@ -103,6 +104,18 @@ test('renders Markdown files by default and keeps preview, source, and split con
   const resizedAgentBox = await page.getByTestId('code-terminal-grid').boundingBox()
   if (!resizedAgentBox) throw new Error('Resized Agent pane must have measurable bounds')
   expect(resizedAgentBox.width).toBeGreaterThan(agentBox.width + 60)
+  const mainBox = await main.boundingBox()
+  if (!mainBox) throw new Error('Main workspace must have measurable bounds')
+  await agentResizer.hover()
+  await page.mouse.down()
+  await page.mouse.move(mainBox.x, resizerBox.y + (resizerBox.height / 2))
+  await page.mouse.up()
+  const maximizedAgentBox = await page.getByTestId('code-terminal-grid').boundingBox()
+  const narrowedEditorBox = await editor.boundingBox()
+  if (!maximizedAgentBox || !narrowedEditorBox) throw new Error('Maximized Agent and resource panes must have measurable bounds')
+  expect(maximizedAgentBox.width).toBeGreaterThanOrEqual(798)
+  expect(maximizedAgentBox.width).toBeLessThanOrEqual(801)
+  expect(narrowedEditorBox.width).toBeGreaterThanOrEqual(320)
   await page.mouse.move(editorBox.x + 20, editorBox.y + 20)
   await expect(agentResizer).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
   const composerShell = main.locator(':scope > .code-composer-shell')
