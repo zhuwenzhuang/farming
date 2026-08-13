@@ -2539,14 +2539,17 @@ body.code-mode .code-composer textarea::placeholder {
 }
 
 .code-composer-send.interrupt {
-  background: var(--code-danger);
+  background: light-dark(var(--code-emphasis), var(--code-danger));
   color: var(--code-text-on-emphasis);
   box-shadow: none;
   font-size: 0;
 }
 
 .code-composer-send.interrupt:not(:disabled):hover {
-  background: color-mix(in srgb, var(--code-danger) 82%, var(--code-text));
+  background: light-dark(
+    var(--code-emphasis-hover),
+    color-mix(in srgb, var(--code-danger) 82%, var(--code-text))
+  );
 }
 
 .code-composer-stop-icon {

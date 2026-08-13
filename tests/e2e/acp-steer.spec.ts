@@ -251,8 +251,11 @@ test('queues a follow-up and explicitly sends negotiated Codex ACP steer', async
       }
       const style = getComputedStyle(element)
       const stopIcon = element.querySelector<HTMLElement>('.code-composer-stop-icon')
+      const expectedBackgroundRole = bodyStyle.colorScheme === 'dark'
+        ? '--code-danger'
+        : '--code-emphasis'
       return {
-        backgroundMatches: style.backgroundColor === resolveColor(bodyStyle.getPropertyValue('--code-danger')),
+        backgroundMatches: style.backgroundColor === resolveColor(bodyStyle.getPropertyValue(expectedBackgroundRole)),
         colorMatches: style.color === resolveColor(bodyStyle.getPropertyValue('--code-text-on-emphasis')),
         stopIconMatches: stopIcon
           ? getComputedStyle(stopIcon).backgroundColor === resolveColor(bodyStyle.getPropertyValue('--code-text-on-emphasis'))
