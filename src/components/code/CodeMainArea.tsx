@@ -49,6 +49,7 @@ type TerminalFollowState = {
 }
 
 const TERMINAL_COMPOSER_COLLAPSED_STORAGE_KEY = 'farming.code.terminalComposerCollapsed.v1'
+const RESOURCE_AGENT_PANEL_OPEN_STORAGE_KEY = 'farming.code.resourceAgentPanelOpen.v1'
 const DEFAULT_RESOURCE_AGENT_WIDTH = 420
 const MIN_RESOURCE_AGENT_WIDTH = 360
 const MAX_RESOURCE_AGENT_WIDTH = 800
@@ -66,6 +67,22 @@ function readTerminalComposerCollapsed() {
 function writeTerminalComposerCollapsed(collapsed: boolean) {
   try {
     window.localStorage.setItem(TERMINAL_COMPOSER_COLLAPSED_STORAGE_KEY, String(collapsed))
+  } catch {
+    // The in-memory preference still applies when local storage is unavailable.
+  }
+}
+
+function readResourceAgentPanelOpen() {
+  try {
+    return window.localStorage.getItem(RESOURCE_AGENT_PANEL_OPEN_STORAGE_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
+
+function writeResourceAgentPanelOpen(open: boolean) {
+  try {
+    window.localStorage.setItem(RESOURCE_AGENT_PANEL_OPEN_STORAGE_KEY, String(open))
   } catch {
     // The in-memory preference still applies when local storage is unavailable.
   }
@@ -633,7 +650,7 @@ export function CodeMainArea({
     plan: AgentTranscriptProcessItem
   } | null>(null)
   const [expandedAgentActivity, setExpandedAgentActivity] = useState<string | null>(null)
-  const [resourceAgentPanelOpen, setResourceAgentPanelOpen] = useState(false)
+  const [resourceAgentPanelOpen, setResourceAgentPanelOpen] = useState(readResourceAgentPanelOpen)
   const [resourceAgentWidth, setResourceAgentWidth] = useState(DEFAULT_RESOURCE_AGENT_WIDTH)
   const mainAreaRef = useRef<HTMLElement | null>(null)
   const resizingResourceAgentRef = useRef(false)
@@ -724,10 +741,12 @@ export function CodeMainArea({
 
   const toggleResourceAgentPanel = useCallback(() => {
     if (!resourceAgentId) return
-    if (!resourceAgentPanelOpen && activeTerminalId !== resourceAgentId) {
+    const nextOpen = !resourceAgentPanelOpen
+    writeResourceAgentPanelOpen(nextOpen)
+    if (nextOpen && activeTerminalId !== resourceAgentId) {
       onOpenTerminal(resourceAgentId, { focusTerminal: false })
     }
-    setResourceAgentPanelOpen(current => !current)
+    setResourceAgentPanelOpen(nextOpen)
   }, [activeTerminalId, onOpenTerminal, resourceAgentId, resourceAgentPanelOpen])
 
   const updateResourceAgentWidth = useCallback((clientX: number) => {
@@ -774,11 +793,7 @@ export function CodeMainArea({
   }, [updateResourceAgentWidth])
 
   useEffect(() => {
-    if (!resourceAgentPanelOpen) return
-    if (activeView !== 'projects' || !resourceAgentId) {
-      setResourceAgentPanelOpen(false)
-      return
-    }
+    if (!resourceAgentPanelOpen || activeView !== 'projects' || !resourceAgentId) return
     if (activeTerminalId !== resourceAgentId) {
       onOpenTerminal(resourceAgentId, { focusTerminal: false })
     }

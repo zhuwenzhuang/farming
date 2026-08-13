@@ -41,6 +41,8 @@ Runtime Replacement 仍只在完整 Agent 界面中提供。打开或关闭窄�
 Session、不复制 Resource Context，也不改变 Resource Lifecycle。现有返回操作仍用于离开
 Viewer 并回到完整 Agent 界面。Project-owned Resource 和没有存活 Source Agent 的文件不提供
 该窄栏；Compact Layout 保留现有单 Surface 导航。
+用户显式选择显示或隐藏后，该选择作为 Browser-local Preference，在进入其他具备展示条件的
+Viewer 时继续生效。不具备展示条件的 Viewer 只隐藏窄栏，不能清除该 Preference。
 
 Current Plan、Browser Preview 等 Live Agent Activity 共享一个由 Core 拥有的右侧 Dock。
 每项 Activity 始终保留可识别的紧凑 Header，但同一时刻最多只展开一个 Activity Body；
