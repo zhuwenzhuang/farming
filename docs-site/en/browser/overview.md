@@ -20,9 +20,26 @@ Open **Plugins → Browser** and inspect the detected **Browser source**.
 />
 
 - **Local browser**: an actually detected Chromium browser such as Google Chrome, suitable for ordinary web tasks.
+- **Your Chrome (Farming extension)**: reuse signed-in state from everyday Chrome for unattended web tasks.
 - **Isolated Browser**: explicitly prepared dependencies and an independent Browser Profile.
 
 Farming does not silently download large browser dependencies during ordinary installation or startup. Unavailable capabilities show a clear reason.
+
+## Use your signed-in Chrome
+
+Farming Browser Connector is included with Farming; there is nothing else to download. For first use:
+
+1. In **Plugins → Browser**, choose **Your Chrome (Farming extension)** and copy the **Bundled extension directory**.
+2. Open `chrome://extensions`, enable **Developer mode**, click **Load unpacked**, and select that directory. In the macOS picker, press `Cmd+Shift+G` to paste it.
+3. Return to the Farming page and click **Farming Browser Connector** in Chrome's **Extensions** menu.
+
+Installation is complete when the popup shows **Connected**. Later sessions reconnect automatically; there is no setup command, pairing command, or per-tab approval to repeat.
+
+To remove the extension, open `chrome://extensions`, find **Farming Browser Connector**, click **Remove**, and confirm. **Disconnect** in the extension popup only disconnects Farming; it does not remove the extension from Chrome.
+
+Chrome requires the user to confirm installation and removal. The CLI only provides `farming browser extension path` and `farming browser extension status` to show the bundled directory and current connection state.
+
+Once connected, Farming can operate supported ordinary pages in this Chrome. Connect only to a trusted Farming instance.
 
 ## Share one page
 

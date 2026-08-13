@@ -26,9 +26,26 @@ Farming Browser 让 Agent 操作自己拥有的浏览器资源，同时用户可
 />
 
 - **本机浏览器**：下拉框会显示实际检测到的名称，例如 **Google Chrome**。适合普通网页任务。
+- **用户自己的 Chrome（Farming 插件）**：复用日常 Chrome 中已有的登录状态，适合无人值守的网页任务。
 - **隔离浏览器 / Isolated Browser**：需要显式准备相关依赖，适合希望使用独立 Browser Profile 的任务。
 
 Farming 不会在普通安装或启动时静默下载大型浏览器依赖。能力不可用时会显示明确原因。
+
+## 使用已登录的 Chrome
+
+Farming Browser Connector 已包含在 Farming 中，不需要另外下载。首次使用：
+
+1. 在 **插件 → 浏览器**选择**用户自己的 Chrome（Farming 插件）**，复制**内置扩展目录**。
+2. 打开 `chrome://extensions`，开启**开发者模式**，点击**加载已解压的扩展程序**并选择该目录。macOS 文件选择器可按 `⌘⇧G` 粘贴目录。
+3. 回到 Farming 页面，从 Chrome 的**扩展程序**菜单点击 **Farming Browser Connector**。
+
+看到 **Connected** 后即安装完成。后续会自动重连，不需要再次设置、运行配对命令或逐个授权标签页。
+
+删除扩展时，打开 `chrome://extensions`，找到 **Farming Browser Connector**，点击**删除**并确认。扩展弹窗里的**断开连接**只会断开 Farming，不会从 Chrome 删除扩展。
+
+安装和删除必须由用户在 Chrome 中确认。CLI 仅提供 `farming browser extension path` 和 `farming browser extension status`，分别用于查看内置目录和连接状态。
+
+连接后，Farming 可以操作这个 Chrome 中支持的普通网页。只连接可信的 Farming 实例。
 
 ## 用户与 Agent 共用页面
 

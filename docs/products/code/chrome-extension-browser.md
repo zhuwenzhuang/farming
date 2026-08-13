@@ -18,11 +18,17 @@ The extension is included with Farming; there is nothing else to download.
 The extension pairs, enables Browser, and selects itself automatically. Later
 sessions reconnect without setup or per-tab approval.
 
-## Use And Disconnect
+## Use And Remove
 
 After pairing, Farming can operate ordinary pages in this Chrome. Incognito,
-`chrome://`, and other restricted pages remain unavailable. When access is no
-longer needed, click the extension and choose **Disconnect**.
+`chrome://`, and other restricted pages remain unavailable. To remove the
+extension, open `chrome://extensions`, find **Farming Browser Connector**, click
+**Remove**, and confirm. **Disconnect** only disconnects Farming; it does not
+remove the extension.
+
+Chrome requires the user to confirm installation and removal. The CLI
+`extension path` and `extension status` commands only show the bundled directory
+and current connection state.
 
 Pair only with a trusted Farming instance.
 

@@ -14,10 +14,14 @@ Farming 可以操作用户已登录的 Chrome，并在 Farming Viewer 中显示�
 
 扩展会自动配对、启用 Browser 并切换来源。以后会自动重连，无需再次设置或逐个授权标签页。
 
-## 使用与断开
+## 使用与删除
 
 配对后，Farming 可以操作这个 Chrome 中的普通网页。无痕页、`chrome://` 和其他受限页面
-不可用。不再使用时，点击扩展并选择**断开连接**。
+不可用。不再使用时，打开 `chrome://extensions`，找到 **Farming Browser Connector**，点击
+**删除**并确认。扩展弹窗里的**断开连接**只会断开 Farming，不会删除扩展。
+
+安装和删除必须由用户在 Chrome 中确认。CLI 的 `extension path` 和 `extension status` 只用于
+查看内置目录和连接状态。
 
 只连接可信的 Farming。
 

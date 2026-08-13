@@ -120,6 +120,10 @@ const PLUGINS_TABS = PLUGIN_TAB_DEFINITIONS.map(tab => tab.id)
 const AGENT_SETTINGS_REQUEST_TIMEOUT_MS = 15_000
 const DOCKER_DESKTOP_MAC_INSTALL_URL = 'https://docs.docker.com/desktop/setup/install/mac-install/'
 const DOCKER_ENGINE_INSTALL_URL = 'https://docs.docker.com/engine/install/'
+const FARMING_BROWSER_DOCS_URL: Record<UiLanguage, string> = {
+  en: 'https://zhuwenzhuang.github.io/farming/en/browser/overview',
+  zh: 'https://zhuwenzhuang.github.io/farming/cn/browser/overview',
+}
 
 async function fetchAgentSettings(url: string, init?: RequestInit) {
   const controller = new AbortController()
@@ -233,8 +237,9 @@ function pluginCopy(language: UiLanguage) {
     extensionConnected: zh ? 'Farming 浏览器插件已连接。' : 'Farming Browser Connector is connected.',
     extensionWaiting: zh ? '等待 Farming 浏览器插件连接。' : 'Waiting for Farming Browser Connector.',
     extensionInstall: zh
-      ? '在 chrome://extensions 开启开发者模式并“加载已解压的扩展程序”，选择下面的内置扩展目录（macOS 文件选择器可按 ⌘⇧G 粘贴目录）。然后回到此页面点击 Chrome 工具栏中的 Farming 扩展；它会自动配对并启用。'
-      : 'At chrome://extensions, enable Developer mode and choose Load unpacked, then select the bundled extension directory below (press Cmd+Shift+G to paste it in the macOS picker). Return here and click the Farming extension in Chrome; it pairs and enables itself.',
+      ? '首次使用需要在 Chrome 中手动安装。'
+      : 'First use requires manual installation in Chrome.',
+    extensionInstallGuide: zh ? '查看安装文档' : 'Read the installation guide',
     extensionPath: zh ? '内置扩展目录' : 'Bundled extension directory',
     copyExtensionPath: zh ? '复制目录' : 'Copy directory',
     copiedExtensionPath: zh ? '已复制' : 'Copied',
@@ -1377,7 +1382,17 @@ export function PluginsPanel({
                   <span>{browserExtensionConnected
                     ? copy.extensionConnected
                     : copy.extensionWaiting}</span>
-                  <small>{copy.extensionInstall}</small>
+                  <small>
+                    {copy.extensionInstall}{' '}
+                    <a
+                      className="code-plugin-help-link"
+                      href={FARMING_BROWSER_DOCS_URL[language]}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {copy.extensionInstallGuide}
+                    </a>
+                  </small>
                   <label>
                     <span>{copy.extensionPath}</span>
                     <input
