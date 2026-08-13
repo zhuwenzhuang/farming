@@ -2,7 +2,7 @@ import { assertDomainStyleOwnership } from './style-ownership-contract'
 
 assertDomainStyleOwnership({
   domain: 'sidebar',
-  prefixes: ['code-sidebar', 'code-project', 'code-worktree', 'code-pinned', 'code-session', 'code-nav', 'code-rename'],
+  prefixes: ['code-sidebar', 'code-project', 'code-worktree', 'code-branch', 'code-pinned', 'code-session', 'code-nav', 'code-rename'],
   // Sidebar resource slots have their own extracted owner.
   excludePrefixes: ['code-sidebar-resource'],
   componentSources: [
