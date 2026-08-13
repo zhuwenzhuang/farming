@@ -44,6 +44,8 @@ async function run() {
     format: 'test-v1',
   };
   let largeSnapshotOutput = false;
+  let currentUrl = 'https://example.test/';
+  let currentTitle = 'Example';
   const runCommand = async (_executable, args, options) => {
     calls.push(args);
     commandEnvironments.push(options.env);
@@ -64,12 +66,17 @@ async function run() {
           tabs: [{
             active: true,
             tabId: 't1',
-            title: 'Example',
+            title: currentTitle,
             type: 'page',
-            url: 'https://example.test/',
+            url: currentUrl,
           }],
         },
       };
+    }
+    if (command[0] === 'open' && command[1] && command[1] !== 'https://example.test/') {
+      currentUrl = command[1];
+      currentTitle = 'Navigated';
+      return { success: true, data: { url: currentUrl, title: currentTitle } };
     }
     if (command[0] === 'get' && command[1] === 'url') {
       return { success: true, data: { url: 'https://example.test/' } };
@@ -87,6 +94,16 @@ async function run() {
             : '- button "Run" [ref=e1]',
           origin: 'https://example.test/',
         },
+      };
+    }
+    if (
+      command[0] === 'eval'
+      && Buffer.from(String(command[2] || ''), 'base64').toString('utf8')
+        === '({url:location.href,title:document.title})'
+    ) {
+      return {
+        success: true,
+        data: { result: { url: 'https://example.test/', title: 'Example' } },
       };
     }
     if (command[0] === 'eval') {
@@ -136,6 +153,18 @@ async function run() {
   assert.match(expectedSession, /^fb-[a-f0-9]{16}$/);
   const metadata = await runtime.start('https://example.test/');
   assert.deepStrictEqual(metadata, { url: 'https://example.test/', title: 'Example' });
+  const metadataCommands = calls
+    .map(args => args.slice(4, -1))
+    .filter(command => command[0] === 'eval' || command[0] === 'get');
+  assert.deepStrictEqual(
+    metadataCommands,
+    [[
+      'eval',
+      '--base64',
+      Buffer.from('({url:location.href,title:document.title})').toString('base64'),
+    ]],
+    'metadata must read URL and title from one authoritative page state',
+  );
   assert.deepStrictEqual(calls[0].slice(0, 4), [
     '--namespace', namespaceForResource(configDir, 'browser_test', 7),
     '--session', expectedSession,
@@ -148,6 +177,17 @@ async function run() {
   assert.strictEqual(commandEnvironments[0].AGENT_BROWSER_PROFILE, profileDir);
   assert.strictEqual(commandEnvironments[0].AGENT_BROWSER_NO_AUTO_DIALOG, 'true');
   assert.strictEqual(commandEnvironments[0].AGENT_BROWSER_STREAM_QUALITY, '90');
+
+  const callsBeforeNavigation = calls.length;
+  assert.deepStrictEqual(
+    await runtime.navigate('https://navigation.example/'),
+    { url: 'https://navigation.example/', title: 'Navigated' },
+  );
+  assert.deepStrictEqual(
+    calls.slice(callsBeforeNavigation).map(args => args.slice(4, -1)),
+    [['open', 'https://navigation.example/']],
+    'navigation must return the authoritative metadata from the navigation command itself',
+  );
 
   const frames = [];
   runtime.on('frame', frame => frames.push(frame));
@@ -290,7 +330,12 @@ async function run() {
   assert(commands.some(command => (
     command.join(' ') === 'find role button click --name Continue --exact'
   )));
-  const evalCommand = commands.find(command => command[0] === 'eval');
+  const evalCommand = commands.find(command => (
+    command[0] === 'eval'
+    && Buffer.from(String(command[2] || ''), 'base64').toString('utf8')
+      === '({ title: document.title })'
+  ));
+  assert(evalCommand);
   assert.strictEqual(evalCommand[1], '--base64');
   assert.strictEqual(
     Buffer.from(evalCommand[2], 'base64').toString('utf8'),

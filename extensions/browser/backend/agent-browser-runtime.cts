@@ -661,13 +661,12 @@ class AgentBrowserRuntime extends EventEmitter {
   }
 
   async metadata(): Promise<{ url: string; title: string }> {
-    const [urlResult, titleResult] = await Promise.all([
-      this.command(['get', 'url']),
-      this.command(['get', 'title']),
-    ]);
+    const expression = Buffer.from('({url:location.href,title:document.title})').toString('base64');
+    const data = commandData(await this.command(['eval', '--base64', expression]));
+    const metadata = recordValue(data.result);
     return {
-      url: String(commandData(urlResult).url || 'about:blank'),
-      title: String(commandData(titleResult).title || ''),
+      url: String(metadata.url || 'about:blank'),
+      title: String(metadata.title || ''),
     };
   }
 
@@ -723,17 +722,24 @@ class AgentBrowserRuntime extends EventEmitter {
   }
 
   async navigate(url: string): Promise<{ url: string; title: string }> {
-    await this.command(['open', url]);
-    const metadata = await this.metadata();
-    this.emit('metadata', metadata);
-    return metadata;
+    const metadata = commandData(await this.command(['open', url]));
+    const result = {
+      url: String(metadata.url || url),
+      title: String(metadata.title || ''),
+    };
+    this.emit('metadata', result);
+    return result;
   }
 
   async navigationCommand(command: string): Promise<{ url: string; title: string }> {
-    await this.command([command]);
+    const navigation = commandData(await this.command([command]));
     const metadata = await this.metadata();
-    this.emit('metadata', metadata);
-    return metadata;
+    const result = {
+      url: String(metadata.url || navigation.url || 'about:blank'),
+      title: String(metadata.title || ''),
+    };
+    this.emit('metadata', result);
+    return result;
   }
 
   goBack() {
