@@ -9,6 +9,7 @@ const imagePath = process.env.FARMING_TEST_HISTORY_IMAGE_PATH || '';
 const dataUrl = process.env.FARMING_TEST_HISTORY_IMAGE_DATA_URL || '';
 const stallPrompt = process.env.FARMING_TEST_STALL_PROMPT === '1';
 const multiSession = process.env.FARMING_TEST_MULTI_SESSION === '1';
+const splitUtf8 = process.env.FARMING_TEST_SPLIT_UTF8 === '1';
 const requestLogFile = process.env.FARMING_TEST_REQUEST_LOG_FILE || '';
 let nextThread = 1;
 
@@ -40,7 +41,7 @@ function thread(id = sessionId) {
         id: 'user-history-image',
         type: 'userMessage',
         content: [
-          { type: 'text', text: '请检查历史图片', text_elements: [] },
+          { type: 'text', text: splitUtf8 ? '通用谓词解析器' : '请检查历史图片', text_elements: [] },
           { type: 'localImage', path: imagePath },
           { type: 'image', url: dataUrl },
           { type: 'localImage', path: `${imagePath}.missing` },
@@ -145,6 +146,29 @@ function resultFor(method, params) {
   throw new Error(`Unexpected fake Codex app-server request: ${method} ${JSON.stringify(params)}`);
 }
 
+async function writeResponse(message) {
+  const bytes = Buffer.from(`${JSON.stringify(message)}\n`);
+  if (!splitUtf8) {
+    process.stdout.write(bytes);
+    return;
+  }
+
+  const splitCharacter = Buffer.from('析');
+  const splitAt = bytes.indexOf(splitCharacter);
+  if (splitAt < 0) {
+    process.stdout.write(bytes);
+    return;
+  }
+
+  process.stdout.write(bytes.subarray(0, splitAt));
+  for (const byte of splitCharacter) {
+    await new Promise(resolve => setTimeout(resolve, 10));
+    process.stdout.write(Buffer.from([byte]));
+  }
+  await new Promise(resolve => setTimeout(resolve, 10));
+  process.stdout.write(bytes.subarray(splitAt + splitCharacter.length));
+}
+
 async function run() {
   const lines = readline.createInterface({ input: process.stdin });
   for await (const line of lines) {
@@ -158,15 +182,15 @@ async function run() {
           params: request.params,
         })}\n`);
       }
-      process.stdout.write(`${JSON.stringify({
+      await writeResponse({
         id: request.id,
         result: resultFor(request.method, request.params),
-      })}\n`);
+      });
     } catch (error) {
-      process.stdout.write(`${JSON.stringify({
+      await writeResponse({
         id: request.id,
         error: { code: -32601, message: error.message },
-      })}\n`);
+      });
     }
   }
 }

@@ -2,6 +2,25 @@ diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_mo
 index 8d55e01..ed4a7ce 100755
 --- a/node_modules/@agentclientprotocol/codex-acp/dist/index.js
 +++ b/node_modules/@agentclientprotocol/codex-acp/dist/index.js
+@@ -21937,6 +21937,7 @@ import { createRequire } from "node:module";
+ // src/StdUtils.ts
+ var import_node = __toESM(require_main(), 1);
+ import { Readable, Writable } from "node:stream";
++import { StringDecoder } from "node:string_decoder";
+ function createJSONRPCWriter(writable) {
+   return {
+     async write(msg) {
+@@ -21962,8 +21963,9 @@ function createJSONRPCReader(readable) {
+   return {
+     listen(callback) {
+       let buf = "";
++      const decoder = new StringDecoder("utf8");
+       const onData = (chunk) => {
+-        buf += chunk.toString();
++        buf += typeof chunk === "string" ? chunk : decoder.write(chunk);
+         for (; ; ) {
+           const i = buf.indexOf("\n");
+           if (i < 0) break;
 @@ -23561,6 +23561,10 @@ var GOAL_EXTENSION_VERSION = 1;
  var GOAL_CONTROL_METHOD = "_session/goal";
  var LEGACY_GOAL_CONTROL_METHOD = "_codex/session/goal_control";
