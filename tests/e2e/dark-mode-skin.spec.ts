@@ -223,7 +223,7 @@ test.describe('Farming Code appearance skins', () => {
     }
   })
 
-  test('applies Paper across the browser canvas, workbench, settings, and terminal', async ({ page, workspaceRoot }) => {
+  test('applies Paper across the browser canvas, workbench, settings, and terminal', async ({ page, workspaceRoot }, testInfo) => {
     const projectDir = path.join(workspaceRoot, 'paper-project')
     fs.mkdirSync(projectDir, { recursive: true })
 
@@ -294,6 +294,19 @@ test.describe('Farming Code appearance skins', () => {
     await chooseAppearance(page, 'Paper')
     await expectProjectRowSurface(page, 'rgb(249, 248, 244)')
     await expectTerminalAppearance(page, agentId, 'paper')
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.evaluate(() => document.body.classList.add('code-compact-layout', 'code-mobile-touch'))
+    const paperMobileTopbar = page.getByTestId('code-mobile-topbar')
+    await expect(paperMobileTopbar).toBeVisible()
+    await expect(paperMobileTopbar).toHaveCSS('background-color', 'rgb(249, 248, 244)')
+    await expect(page.getByTestId('code-mobile-menu')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    await expect(page.getByTestId('code-mobile-more')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    await saveScreenshot(testInfo, 'paper-mobile-workspace.png', page)
+    await page.getByTestId('code-mobile-menu').click()
+    await expect(page.getByTestId('code-sidebar')).toHaveCSS('background-color', 'rgb(249, 248, 244)')
+    await expectProjectRowSurface(page, 'rgb(249, 248, 244)')
+    await saveScreenshot(testInfo, 'paper-mobile-shell.png', page)
   })
 
   test('applies and verifies the dark Codex skin across core surfaces', async ({ page, workspaceRoot }, testInfo) => {
@@ -565,6 +578,12 @@ test.describe('Farming Code appearance skins', () => {
     await page.evaluate(() => document.body.classList.add('code-compact-layout', 'code-mobile-touch'))
     await expect(page.getByTestId('code-mobile-topbar')).toBeVisible()
     await expectDarkSurface(page.getByTestId('code-mobile-topbar'), 'mobile topbar')
+    await expect(page.getByTestId('code-mobile-topbar')).toHaveCSS('background-color', 'rgb(32, 32, 32)')
+    await expect(page.getByTestId('code-mobile-menu')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    await expect(page.getByTestId('code-mobile-more')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    await page.getByTestId('code-mobile-menu').click()
+    await expect(page.getByTestId('code-sidebar')).toHaveCSS('background-color', 'rgb(32, 32, 32)')
+    await expectProjectRowSurface(page, 'rgb(32, 32, 32)')
     await saveScreenshot(testInfo, 'mobile-shell.png', page)
   })
 })

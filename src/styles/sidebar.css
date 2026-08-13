@@ -1455,7 +1455,7 @@ body.code-resizing-sidebar .code-sidebar-resizer {
     }
 
   body.code-mode.code-compact-layout .code-sidebar {
-      background: var(--code-bg-inset);
+      background: var(--code-bg-chrome);
       box-shadow: var(--code-mobile-sidebar-shadow);
     }
 }

@@ -26,6 +26,11 @@ Project, file, or terminal state.
 - Paper icon buttons rest directly on their parent paper surface. Only a
   selected or pressed toggle keeps the deeper selected fill; hover fill is
   temporary and an idle unselected button has no local background.
+- Structural navigation surfaces such as the Sidebar and mobile top bar use
+  the chrome role. Inset is reserved for content embedded inside a surface,
+  while raised is reserved for overlays that leave the normal document flow.
+  Idle controls inherit their structural parent instead of substituting a
+  canvas or raised background.
 - Workbench regions remain legible without becoming separate color blocks.
   Paper panels, inputs, and grouped controls use a subtle neutral fill instead
   of decorative outlines, focus rings, or selected boundaries. Text, cursor,

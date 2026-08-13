@@ -3003,7 +3003,7 @@ body.code-mode .code-workspace {
     align-items: center;
     padding: 0 12px;
     pointer-events: none;
-    background: var(--code-bg-inset);
+    background: var(--code-bg-chrome);
     border-color: var(--code-border);
     color: var(--code-text);
   }
@@ -3500,8 +3500,8 @@ body.code-mode .input-dialog .dialog-header {
   }
 
   body.code-mode.code-compact-layout .code-mobile-topbar-button {
-    background: var(--code-bg-surface);
-    box-shadow: var(--code-shadow-soft);
+    background: transparent;
+    box-shadow: none;
   }
 
   /* Keep the phone overflow menu as a small action rail, not a desktop

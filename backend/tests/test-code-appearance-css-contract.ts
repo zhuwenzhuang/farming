@@ -236,6 +236,28 @@ for (const [sourcePath, selector, property, expectedValue] of borderPurposeContr
   )
 }
 
+const structuralSurfaceContracts = [
+  ['src/styles/main.css', '.code-mobile-topbar', 'background', 'var(--code-bg-chrome)'],
+  ['src/styles/main.css', 'body.code-mode.code-compact-layout .code-mobile-topbar-button', 'background', 'transparent'],
+  ['src/styles/main.css', 'body.code-mode.code-compact-layout .code-mobile-topbar-button', 'box-shadow', 'none'],
+  ['src/styles/sidebar.css', 'body.code-mode.code-compact-layout .code-sidebar', 'background', 'var(--code-bg-chrome)'],
+] as const
+for (const [sourcePath, selector, property, expectedValue] of structuralSurfaceContracts) {
+  const root = postcss.parse(fs.readFileSync(path.join(projectRoot, sourcePath), 'utf8'), { from: sourcePath })
+  const values: string[] = []
+  root.walkRules(rule => {
+    if (rule.selector !== selector) return
+    rule.walkDecls(property, declaration => {
+      values.push(declaration.value)
+    })
+  })
+  assert(values.length > 0, `${sourcePath} must declare ${property} for ${selector}`)
+  assert(
+    values.every(value => value === expectedValue),
+    `${sourcePath} ${selector} must keep every ${property} declaration at ${expectedValue}; found ${values.join(', ')}`,
+  )
+}
+
 const semanticStateContracts = [
   ['src/styles/composer.css', '.code-composer-send:not(:disabled)', 'background', 'var(--code-emphasis)'],
   ['src/styles/composer.css', '.code-composer-send:not(:disabled)', 'color', 'var(--code-text-on-emphasis)'],
