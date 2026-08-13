@@ -1,15 +1,15 @@
-# Use Your Chrome
+# Connect an Existing Chrome
 
 > 中文：[chrome-extension-browser.zh_cn.md](./chrome-extension-browser.zh_cn.md)
 
-Farming Browser does not depend on this extension. It is an optional Browser
-source that lets Farming operate the user's signed-in Chrome and show the same
-page in the Farming Viewer. Other Browser sources work without it.
+Farming Browser is the browser capability. Farming Browser Connector is the connection extension
+installed in Chrome. Install it only when Farming Browser should use pages and signed-in state from
+the user's current Chrome.
 The extension is included with Farming; there is nothing else to download.
 
 ## First-Time Setup
 
-1. In **Plugins → Browser**, choose **Your Chrome (Farming extension)** and copy
+1. In **Plugins → Browser**, choose **Your existing Chrome** and copy
    the **Bundled extension directory**.
 2. Open `chrome://extensions`, enable **Developer mode**, and choose **Load
    unpacked**. In the macOS picker, press `Cmd+Shift+G` to paste the path.

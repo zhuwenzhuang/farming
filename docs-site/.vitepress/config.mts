@@ -79,6 +79,7 @@ const zhSidebar = [
     { text: '插件概览', link: '/cn/plugins/overview' },
     { text: 'Agent Homes', link: '/cn/plugins/agent-homes' },
     { text: 'Farming Browser', link: '/cn/browser/overview' },
+    { text: '连接用户已有 Chrome', link: '/cn/browser/existing-chrome' },
     { text: 'Browser Agent 使用流程', link: '/cn/browser/agent-workflow' },
     { text: '实验性功能', collapsed: false, items: [
       { text: 'Farming Desktop', link: '/cn/experimental/desktop' },
@@ -131,6 +132,7 @@ const enSidebar = [
     { text: 'Plugin overview', link: '/en/plugins/overview' },
     { text: 'Agent Homes', link: '/en/plugins/agent-homes' },
     { text: 'Farming Browser', link: '/en/browser/overview' },
+    { text: 'Connect an existing Chrome', link: '/en/browser/existing-chrome' },
     { text: 'Agent Browser workflow', link: '/en/browser/agent-workflow' },
     { text: 'Experimental features', collapsed: false, items: [
       { text: 'Farming Desktop', link: '/en/experimental/desktop' },

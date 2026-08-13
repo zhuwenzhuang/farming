@@ -1277,7 +1277,7 @@ test('shows explicit Browser sources without an Automatic choice', async ({ page
   await expect(browserSource).toBeEnabled({ timeout: 30_000 })
   const options = await codeSelectOptions(browserSource)
   expect(options.map(option => option.label)).not.toContain('Automatic (local first, then isolated)')
-  expect(options.find(option => option.value === 'extension')?.label).toBe('Your Chrome (Farming extension)')
+  expect(options.find(option => option.value === 'extension')?.label).toBe('Your existing Chrome')
   expect(options.filter(option => option.value === 'isolated')).toHaveLength(1)
   expect(options.find(option => option.value === 'isolated')?.label).toMatch(/^Isolated Browser/)
   await expect(pluginsPanel.getByRole('textbox', { name: 'CDP address' })).toHaveCount(0)

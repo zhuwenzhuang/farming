@@ -121,8 +121,8 @@ const AGENT_SETTINGS_REQUEST_TIMEOUT_MS = 15_000
 const DOCKER_DESKTOP_MAC_INSTALL_URL = 'https://docs.docker.com/desktop/setup/install/mac-install/'
 const DOCKER_ENGINE_INSTALL_URL = 'https://docs.docker.com/engine/install/'
 const FARMING_BROWSER_DOCS_URL: Record<UiLanguage, string> = {
-  en: 'https://zhuwenzhuang.github.io/farming/en/browser/overview',
-  zh: 'https://zhuwenzhuang.github.io/farming/cn/browser/overview',
+  en: 'https://zhuwenzhuang.github.io/farming/en/browser/existing-chrome',
+  zh: 'https://zhuwenzhuang.github.io/farming/cn/browser/existing-chrome',
 }
 
 async function fetchAgentSettings(url: string, init?: RequestInit) {
@@ -233,17 +233,17 @@ function pluginCopy(language: UiLanguage) {
     computerCheckFailed: zh ? 'Computer Use 当前状态检查失败。' : 'Failed to check the current Computer Use status.',
     noSystemBrowser: zh ? '未发现系统 Chromium' : 'No system Chromium detected',
     externalBrowser: zh ? '已有 Chrome（CDP）' : 'Existing Chrome (CDP)',
-    extensionBrowser: zh ? '用户自己的 Chrome（Farming 插件）' : 'Your Chrome (Farming extension)',
-    extensionConnected: zh ? 'Farming 浏览器插件已连接。' : 'Farming Browser Connector is connected.',
-    extensionWaiting: zh ? '等待 Farming 浏览器插件连接。' : 'Waiting for Farming Browser Connector.',
+    extensionBrowser: zh ? '用户已有 Chrome' : 'Your existing Chrome',
+    extensionConnected: zh ? 'Farming Browser Connector 已连接。' : 'Farming Browser Connector is connected.',
+    extensionWaiting: zh ? '等待 Farming Browser Connector 连接。' : 'Waiting for Farming Browser Connector.',
     extensionInstall: zh
-      ? '使用这个浏览器来源前，需要在 Chrome 中手动安装扩展。'
-      : 'Install the extension in Chrome before using this Browser source.',
+      ? '连接用户已有 Chrome，需要安装 Farming Browser Connector Chrome 扩展。'
+      : 'Connecting an existing Chrome requires the Farming Browser Connector Chrome extension.',
     extensionInstallGuide: zh ? '查看安装文档' : 'Read the installation guide',
     extensionPath: zh ? '内置扩展目录' : 'Bundled extension directory',
     copyExtensionPath: zh ? '复制目录' : 'Copy directory',
     copiedExtensionPath: zh ? '已复制' : 'Copied',
-    extensionStatusFailed: zh ? '浏览器插件配对信息加载失败' : 'Failed to load Browser extension pairing',
+    extensionStatusFailed: zh ? 'Farming Browser Connector 状态加载失败' : 'Failed to load Farming Browser Connector status',
     externalCdpAddress: zh ? 'CDP 地址' : 'CDP address',
     externalCdpPlaceholder: 'http://127.0.0.1:9222',
     isolatedBrowser: zh ? '隔离浏览器' : 'Isolated Browser',

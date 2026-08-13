@@ -1,14 +1,14 @@
-# 使用自己的 Chrome
+# 连接用户已有 Chrome
 
 > English: [chrome-extension-browser.md](./chrome-extension-browser.md)
 
-Farming Browser 不依赖此扩展。此扩展只是一个可选浏览器来源，让 Farming 操作用户已登录的
-Chrome，并在 Farming Viewer 中显示同一页面。不安装扩展仍可使用其他 Browser 来源。
+Farming Browser 是浏览器能力；Farming Browser Connector 是安装在 Chrome 中的连接扩展。
+只有需要直接使用用户当前 Chrome 中已有的页面和登录状态时，才需要安装它。
 扩展已包含在 Farming 软件包中，不需要下载。
 
 ## 首次安装
 
-1. 在 **插件 → 浏览器**选择**用户自己的 Chrome（Farming 插件）**，复制**内置扩展目录**。
+1. 在 **插件 → 浏览器**选择**用户已有 Chrome**，复制**内置扩展目录**。
 2. 打开 `chrome://extensions`，开启**开发者模式**，选择**加载已解压的扩展程序**。macOS
    文件选择器可按 `⌘⇧G` 粘贴目录。
 3. 回到 Farming 页面，从 Chrome 的**扩展程序**菜单点击 **Farming Browser Connector**。
