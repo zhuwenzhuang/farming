@@ -68,7 +68,6 @@ async function run() {
   assert.match(relayCore, /farming-extension-relay\.v2/);
   assert.match(relayCore, /FARMING_TAB_GROUP_TITLE = "Farming"/);
   assert.match(relayCore, /endsWith\("\/browser\/extension"\)/);
-  assert.match(relayCore, /accessMode: pairing \? ACCESS_MODE_ALL : ACCESS_MODE_SELECTED/);
   assert.match(nativeBootstrap, /ai\.farming\.browser_bootstrap/);
   assert.match(pagePairing, /world: "MAIN"/);
   assert.match(pagePairing, /browserSource: "extension"/);

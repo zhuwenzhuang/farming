@@ -43,30 +43,7 @@ function transformIntegration(relativePath, source) {
       'isAllowedWebSocketUrl(relay) &&\n      relay.pathname !== "/browser/extension" &&\n      relay.pathname.endsWith("/browser/extension")',
       'isAllowedWebSocketUrl(relay) && !relay.pathname.endsWith("/browser/extension")',
     )
-    .replace('relay.pathname === "/browser/extension";', 'relay.pathname.endsWith("/browser/extension");')
-    .replace(
-      `// Pairings created before access modes promised group-only access.
-            // Unknown future/corrupt values fail closed without discarding the key.
-            if (
-              stored[ACCESS_MODE_KEY] !== ACCESS_MODE_ALL &&
-              stored[ACCESS_MODE_KEY] !== ACCESS_MODE_SELECTED
-            ) {
-              repairs[ACCESS_MODE_KEY] = ACCESS_MODE_SELECTED;
-            }`,
-      `// Farming uses one unattended access model. Upgrade older selected-tab
-            // pairings so removing the per-tab controls cannot strand the user.
-            if (stored[ACCESS_MODE_KEY] !== ACCESS_MODE_ALL) {
-              repairs[ACCESS_MODE_KEY] = ACCESS_MODE_ALL;
-            }`,
-    )
-    .replace(
-      `accessMode: pairing
-            ? stored[ACCESS_MODE_KEY] === ACCESS_MODE_ALL
-              ? ACCESS_MODE_ALL
-              : ACCESS_MODE_SELECTED
-            : ACCESS_MODE_SELECTED,`,
-      'accessMode: pairing ? ACCESS_MODE_ALL : ACCESS_MODE_SELECTED,',
-    );
+    .replace('relay.pathname === "/browser/extension";', 'relay.pathname.endsWith("/browser/extension");');
 }
 
 function syncFile(source, destination, relativePath) {
