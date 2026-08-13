@@ -71,13 +71,19 @@ async function run() {
   const previousChrome = globals.chrome;
   const previousFetch = globals.fetch;
   const previousWindow = globals.window;
+  let extensionStatusReads = 0;
   globals.window = { __FARMING_BASE_PATH__: '/farming' };
   globals.fetch = async (url, options = {}) => {
     pageRequests.push({ url, options });
+    const isExtensionStatus = url.endsWith('/api/browsers/extension');
+    if (isExtensionStatus) extensionStatusReads += 1;
     return {
       ok: true,
-      json: async () => url.endsWith('/api/browsers/extension')
-        ? { pairingString: `ws://127.0.0.1/farming/browser/extension#${'a'.repeat(64)}` }
+      json: async () => isExtensionStatus
+        ? {
+            connected: extensionStatusReads >= 3,
+            pairingString: `ws://127.0.0.1/farming/browser/extension#${'a'.repeat(64)}`,
+          }
         : { settings: { browserSource: 'extension' } },
     };
   };
@@ -97,9 +103,11 @@ async function run() {
     const pairingModule = await import(`data:text/javascript,${encodeURIComponent(pagePairing)}`);
     await pairingModule.pairCurrentFarmingPage();
     assert.strictEqual(pageRequests[0].url, '/farming/api/browsers/extension');
-    assert.strictEqual(pageRequests[1].url, '/farming/api/settings');
+    assert.strictEqual(pageRequests[1].url, '/farming/api/browsers/extension');
+    assert.strictEqual(pageRequests[2].url, '/farming/api/browsers/extension');
+    assert.strictEqual(pageRequests[3].url, '/farming/api/settings');
     assert.deepStrictEqual(extensionMessages[0].accessMode, 'selected');
-    assert.deepStrictEqual(JSON.parse(pageRequests[1].options.body), {
+    assert.deepStrictEqual(JSON.parse(pageRequests[3].options.body), {
       browserExtensionEnabled: true,
       browserSource: 'extension',
     });

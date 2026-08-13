@@ -31,7 +31,11 @@ async function requestFromCurrentFarming(operation) {
         );
         const result = await response.json().catch(() => ({}));
         return response.ok
-          ? { ok: true, pairingString: result.pairingString ?? "" }
+          ? {
+              ok: true,
+              connected: result.connected === true,
+              pairingString: result.pairingString ?? "",
+            }
           : { ok: false, error: result.error ?? `Farming returned HTTP ${response.status}` };
       } catch (error) {
         return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -44,6 +48,15 @@ async function requestFromCurrentFarming(operation) {
     throw new Error(result?.error ?? "This is not an available Farming owner page.");
   }
   return result;
+}
+
+async function waitForCurrentFarmingConnection() {
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const status = await requestFromCurrentFarming("status");
+    if (status.connected) return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error("Chrome paired, but Farming did not observe the connection in time.");
 }
 
 export async function pairCurrentFarmingPage() {
@@ -59,5 +72,6 @@ export async function pairCurrentFarmingPage() {
   if (!paired?.ok) {
     throw new Error(paired?.error ?? "Could not pair this Chrome with Farming.");
   }
+  await waitForCurrentFarmingConnection();
   await requestFromCurrentFarming("activate");
 }
