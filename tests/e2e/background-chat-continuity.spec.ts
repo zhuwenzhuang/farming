@@ -1051,6 +1051,23 @@ test('keeps following the bottom when a new ACP turn first grows', async ({ page
   await expect.poll(bottomDistance).toBeLessThanOrEqual(2)
 
   await transcript.evaluate(element => {
+    element.scrollTop = Math.max(0, element.scrollHeight - element.clientHeight - 240)
+    element.dispatchEvent(new PointerEvent('pointerdown', {
+      bubbles: true,
+      button: 0,
+      pointerType: 'mouse',
+    }))
+    element.scrollTop = element.scrollHeight
+    element.dispatchEvent(new Event('scroll', { bubbles: true }))
+    document.dispatchEvent(new PointerEvent('pointerup', {
+      bubbles: true,
+      button: 0,
+      pointerType: 'mouse',
+    }))
+  })
+  await expect.poll(bottomDistance).toBeLessThanOrEqual(2)
+
+  await transcript.evaluate(element => {
     const latestTurn = element.querySelector<HTMLElement>('.code-agent-transcript-turn:last-child')
     if (!latestTurn) throw new Error('Latest Chat turn is unavailable')
     const delayedContent = document.createElement('div')

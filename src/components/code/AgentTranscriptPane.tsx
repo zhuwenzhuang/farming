@@ -3878,7 +3878,7 @@ export function AgentTranscriptPane({
   const handleScroll = useCallback(() => {
     const element = scrollRef.current
     if (!element) return
-    const hasTextSelection = textSelectionGestureRef.current || hasTextSelectionWithin(element)
+    const hasTextSelection = hasTextSelectionWithin(element)
     if (pendingPrependAnchorRef.current && !userScrollGestureRef.current && !hasTextSelection) {
       return
     }
