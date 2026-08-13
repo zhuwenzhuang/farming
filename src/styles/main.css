@@ -91,6 +91,7 @@ body.code-mode input {
 }
 
 .code-workspace {
+  --code-navigation-surface: var(--code-bg-chrome);
   position: relative;
   width: 100%;
   height: 100%;
@@ -3003,7 +3004,7 @@ body.code-mode .code-workspace {
     align-items: center;
     padding: 0 12px;
     pointer-events: none;
-    background: var(--code-panel-surface);
+    background: var(--code-navigation-surface);
     border-color: var(--code-border);
     color: var(--code-text);
   }
@@ -3179,6 +3180,10 @@ body.code-mode.code-compact-layout .code-workspace {
   body.code-mode.code-compact-layout .app-container {
     position: fixed;
     inset: var(--app-visual-offset-top, 0px) auto auto var(--app-visual-offset-left, 0px);
+  }
+
+  body.code-mode.code-compact-layout .code-workspace {
+    --code-navigation-surface: var(--code-panel-surface);
   }
 
   body.code-mode.code-compact-layout .code-workspace,

@@ -34,6 +34,9 @@ Project, file, or terminal state.
 - A current Agent uses exactly one selected fill, including its leading
   provider identity icon. Unselected section headers such as Files remain on
   the panel surface and must not resemble a second selection.
+- Navigation descendants consume the inherited `--code-navigation-surface`.
+  The workspace maps that local role for each layout; responsive component
+  rules may change geometry but must not choose a separate theme surface.
 - Workbench regions remain legible without becoming separate color blocks.
   Paper panels, inputs, and grouped controls use a subtle neutral fill instead
   of decorative outlines, focus rings, or selected boundaries. Text, cursor,

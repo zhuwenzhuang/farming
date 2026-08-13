@@ -237,12 +237,22 @@ for (const [sourcePath, selector, property, expectedValue] of borderPurposeContr
 }
 
 const structuralSurfaceContracts = [
-  ['src/styles/main.css', '.code-mobile-topbar', 'background', 'var(--code-panel-surface)'],
+  ['src/styles/main.css', '.code-workspace', '--code-navigation-surface', 'var(--code-bg-chrome)'],
+  ['src/styles/main.css', 'body.code-mode.code-compact-layout .code-workspace', '--code-navigation-surface', 'var(--code-panel-surface)'],
+  ['src/styles/main.css', '.code-mobile-topbar', 'background', 'var(--code-navigation-surface)'],
   ['src/styles/main.css', 'body.code-mode.code-compact-layout .code-mobile-topbar-button', 'background', 'transparent'],
   ['src/styles/main.css', 'body.code-mode.code-compact-layout .code-mobile-topbar-button', 'box-shadow', 'none'],
-  ['src/styles/sidebar.css', 'body.code-mode.code-compact-layout .code-sidebar', 'background', 'var(--code-panel-surface)'],
-  ['src/styles/sidebar.css', 'body.code-mode.code-compact-layout .code-sidebar-project-section', 'background', 'var(--code-panel-surface)'],
-  ['src/styles/agent-list.css', 'body.code-mode.code-compact-layout .code-agents-section', 'background', 'var(--code-panel-surface)'],
+  ['src/styles/sidebar.css', '.code-sidebar', 'background', 'var(--code-navigation-surface)'],
+  ['src/styles/sidebar.css', '.code-project-row', 'background', 'linear-gradient(to bottom, var(--code-navigation-surface) 0 var(--code-project-sticky-height), transparent var(--code-project-sticky-height))'],
+  ['src/styles/sidebar.css', '.code-sidebar-project-section', 'background', 'var(--code-navigation-surface)'],
+  ['src/styles/sidebar.css', '.code-sidebar-options', 'background', 'transparent'],
+  ['src/styles/sidebar.css', '.code-sidebar-toggle,\n.code-sidebar-focus-toggle,\n.code-sidebar-search-toggle,\n.code-sidebar-history-toggle,\n.code-sidebar-plugins-toggle', 'background', 'transparent'],
+  ['src/styles/sidebar.css', '.code-sidebar-focus-toggle.active,\n.code-sidebar-search-toggle.active,\n.code-sidebar-history-toggle.active,\n.code-sidebar-plugins-toggle.active', 'background', 'var(--code-bg-selected)'],
+  ['src/styles/share.css', '.code-share-button', 'background', 'transparent'],
+  ['src/styles/files.css', '.code-open-editors-header,\n.code-files-header', 'background', 'var(--code-navigation-surface)'],
+  ['src/styles/agent-list.css', '.code-agent-row', '--code-agent-row-action-surface', 'var(--code-navigation-surface)'],
+  ['src/styles/agent-list.css', '.code-agent-row-actions', '--code-agent-row-action-surface', 'var(--code-navigation-surface)'],
+  ['src/styles/agent-list.css', 'body.code-mode.code-compact-layout .code-agents-section', 'background', 'var(--code-navigation-surface)'],
   ['src/styles/agent-list.css', '.code-agent-row.active', 'background', 'var(--code-bg-selected)'],
   ['src/styles/agent-list.css', '.code-agent-row.search-selected', 'background', 'var(--code-bg-selected)'],
 ] as const
@@ -260,6 +270,39 @@ for (const [sourcePath, selector, property, expectedValue] of structuralSurfaceC
     values.every(value => value === expectedValue),
     `${sourcePath} ${selector} must keep every ${property} declaration at ${expectedValue}; found ${values.join(', ')}`,
   )
+}
+
+const navigationSurfaceOwners = [
+  '.code-mobile-topbar',
+  '.code-sidebar',
+  '.code-project-row',
+  '.code-sidebar-project-section',
+  '.code-agents-section',
+  '.code-open-editors',
+  '.code-open-editors-header',
+  '.code-files-section',
+  '.code-files-header',
+]
+for (const sourcePath of [
+  'src/styles/main.css',
+  'src/styles/sidebar.css',
+  'src/styles/agent-list.css',
+  'src/styles/files.css',
+]) {
+  const root = postcss.parse(fs.readFileSync(path.join(projectRoot, sourcePath), 'utf8'), { from: sourcePath })
+  root.walkRules(rule => {
+    const ownsNavigationSurface = rule.selector.split(',').some(selector => (
+      navigationSurfaceOwners.some(owner => selector.trim().endsWith(owner))
+    ))
+    if (!ownsNavigationSurface) return
+    rule.walkDecls(/^background(?:-color)?$/, declaration => {
+      assert(
+        !declaration.value.includes('var(--code-bg-chrome)')
+          && !declaration.value.includes('var(--code-panel-surface)'),
+        `${sourcePath} ${rule.selector} must consume --code-navigation-surface instead of selecting a layout-specific theme surface`,
+      )
+    })
+  })
 }
 
 const semanticStateContracts = [

@@ -40,7 +40,7 @@
   font-weight: 500;
   letter-spacing: 0;
   text-transform: uppercase;
-  background: var(--code-bg-chrome);
+  background: var(--code-navigation-surface);
 }
 
 .code-files-header {
@@ -278,7 +278,7 @@
   top: calc(var(--code-project-sticky-height) + var(--code-agents-sticky-height, 0px));
   z-index: 18;
   flex-shrink: 0;
-  background: linear-gradient(to bottom, var(--code-bg-chrome) 0 var(--code-open-editors-sticky-height), transparent var(--code-open-editors-sticky-height));
+  background: linear-gradient(to bottom, var(--code-navigation-surface) 0 var(--code-open-editors-sticky-height), transparent var(--code-open-editors-sticky-height));
   clip-path: inset(0 0 var(--code-open-editors-sticky-tail-height) 0);
   border-radius: 0 0 6px 6px;
   box-shadow: 0 10px 14px -18px var(--code-shadow-color);
@@ -1821,7 +1821,7 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   .code-open-editors,
   .code-files-section {
       margin-left: 14px;
-      background: var(--code-panel-surface);
+      background: var(--code-navigation-surface);
       color: var(--code-text-muted);
     }
 
@@ -1835,14 +1835,14 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
 
   .code-open-editors-header {
       grid-template-columns: minmax(0, 1fr);
-      background: var(--code-panel-surface);
+      background: var(--code-navigation-surface);
       color: var(--code-text-muted);
       border-color: var(--code-border-subtle);
     }
 
   .code-files-header {
       grid-template-columns: minmax(0, 1fr) auto;
-      background: var(--code-panel-surface);
+      background: var(--code-navigation-surface);
       color: var(--code-text-muted);
       border-color: var(--code-border-subtle);
     }

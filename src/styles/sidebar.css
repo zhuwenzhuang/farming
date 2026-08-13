@@ -9,7 +9,7 @@
   box-sizing: border-box;
   container-name: code-sidebar;
   container-type: inline-size;
-  background: var(--code-bg-chrome);
+  background: var(--code-navigation-surface);
   border-right: 0;
   display: flex;
   flex-direction: column;
@@ -54,7 +54,7 @@ body.code-resizing-sidebar .code-sidebar-resizer {
   height: 24px;
   border: 0;
   border-radius: 7px;
-  background: var(--code-bg-chrome);
+  background: transparent;
   color: var(--code-text-subtle);
   cursor: pointer;
   font-size: 12px;
@@ -94,14 +94,18 @@ body.code-resizing-sidebar .code-sidebar-resizer {
 
 .code-sidebar-toggle:hover,
 .code-sidebar-focus-toggle:hover,
-.code-sidebar-focus-toggle.active,
 .code-sidebar-search-toggle:hover,
-.code-sidebar-search-toggle.active,
 .code-sidebar-history-toggle:hover,
-.code-sidebar-history-toggle.active,
-.code-sidebar-plugins-toggle:hover,
-.code-sidebar-plugins-toggle.active {
+.code-sidebar-plugins-toggle:hover {
   background: var(--code-bg-hover);
+  color: var(--code-text);
+}
+
+.code-sidebar-focus-toggle.active,
+.code-sidebar-search-toggle.active,
+.code-sidebar-history-toggle.active,
+.code-sidebar-plugins-toggle.active {
+  background: var(--code-bg-selected);
   color: var(--code-text);
 }
 
@@ -366,7 +370,7 @@ body.code-resizing-sidebar .code-sidebar-resizer {
 }
 
 .code-project-row {
-  --code-project-row-action-surface: var(--code-bg-chrome);
+  --code-project-row-action-surface: var(--code-navigation-surface);
   --code-project-row-action-overlay: transparent;
   position: sticky;
   top: 0;
@@ -376,7 +380,7 @@ body.code-resizing-sidebar .code-sidebar-resizer {
   align-items: center;
   min-height: var(--code-project-sticky-height);
   padding-bottom: var(--code-project-sticky-tail-height);
-  background: linear-gradient(to bottom, var(--code-bg-chrome) 0 var(--code-project-sticky-height), transparent var(--code-project-sticky-height));
+  background: linear-gradient(to bottom, var(--code-navigation-surface) 0 var(--code-project-sticky-height), transparent var(--code-project-sticky-height));
   clip-path: inset(0 0 var(--code-project-sticky-tail-height) 0);
   color: var(--code-text-muted);
   pointer-events: none;
@@ -650,10 +654,10 @@ body.code-resizing-sidebar .code-sidebar-resizer {
   top: 1px;
   right: 1px;
   z-index: 2;
-  border: 1.5px solid var(--code-bg-chrome);
+  border: 1.5px solid var(--code-navigation-surface);
   border-radius: 999px;
   background: var(--code-accent);
-  border-color: var(--code-bg-chrome);
+  border-color: var(--code-navigation-surface);
 }
 
 .code-project-expanded {
@@ -768,7 +772,7 @@ body.code-resizing-sidebar .code-sidebar-resizer {
   height: 26px;
   border: 0;
   border-radius: 999px;
-  background: var(--code-bg-chrome);
+  background: transparent;
   color: var(--code-text-subtle);
   cursor: pointer;
   font-size: 14px;
@@ -1214,7 +1218,6 @@ body.code-resizing-sidebar .code-sidebar-resizer {
 @media (max-width: 980px) {
   .code-sidebar-resizer {
       display: none;
-      background: var(--code-bg-chrome);
     }
 
   .code-sidebar {
@@ -1360,15 +1363,6 @@ body.code-resizing-sidebar .code-sidebar-resizer {
       pointer-events: auto;
     }
 
-  body.code-mode.code-compact-layout .code-project-row {
-      --code-project-row-action-surface: var(--code-panel-surface);
-      background: linear-gradient(to bottom, var(--code-panel-surface) 0 var(--code-project-sticky-height), transparent var(--code-project-sticky-height));
-    }
-
-  body.code-mode.code-compact-layout .code-sidebar-project-section {
-      background: var(--code-panel-surface);
-    }
-
   body.code-mode.code-compact-layout .code-project-context-menu,
     body.code-mode.code-compact-layout .code-project-launch-menu {
       z-index: 10030;
@@ -1391,7 +1385,6 @@ body.code-resizing-sidebar .code-sidebar-resizer {
       padding: max(10px, env(safe-area-inset-top)) 10px max(8px, env(safe-area-inset-bottom));
       gap: 8px;
       border-right: 0;
-      background: var(--code-panel-surface);
       box-shadow: var(--code-mobile-sidebar-shadow);
       backdrop-filter: blur(24px) saturate(1.16);
       -webkit-backdrop-filter: blur(24px) saturate(1.16);
@@ -1431,7 +1424,7 @@ body.code-resizing-sidebar .code-sidebar-resizer {
       width: 44px;
       height: 44px;
       border-radius: 999px;
-      background: var(--code-bg-hover);
+      background: transparent;
     }
 
   body.code-mode.code-compact-layout .code-project-list {
@@ -1460,11 +1453,10 @@ body.code-resizing-sidebar .code-sidebar-resizer {
   body.code-mode.code-compact-layout .code-sidebar-options {
       width: 44px;
       height: 44px;
-      background: var(--code-bg-hover);
+      background: transparent;
     }
 
   body.code-mode.code-compact-layout .code-sidebar {
-      background: var(--code-panel-surface);
       box-shadow: var(--code-mobile-sidebar-shadow);
     }
 }
@@ -1479,28 +1471,28 @@ body.code-resizing-sidebar .code-sidebar-resizer {
   color: var(--code-text);
 }
 
-.code-sidebar-focus-toggle:focus-visible {
+.code-sidebar-focus-toggle:focus-visible:not(.active) {
   background: var(--code-bg-hover);
   color: var(--code-text);
 }
 
-.code-sidebar-search-toggle:focus-visible {
+.code-sidebar-search-toggle:focus-visible:not(.active) {
   background: var(--code-bg-hover);
   color: var(--code-text);
 }
 
-.code-sidebar-history-toggle:focus-visible {
+.code-sidebar-history-toggle:focus-visible:not(.active) {
   background: var(--code-bg-hover);
   color: var(--code-text);
 }
 
-.code-sidebar-plugins-toggle:focus-visible {
+.code-sidebar-plugins-toggle:focus-visible:not(.active) {
   background: var(--code-bg-hover);
   color: var(--code-text);
 }
 
 .code-sidebar-project-section {
-  background: var(--code-bg-chrome);
+  background: var(--code-navigation-surface);
 }
 
 .code-sidebar-project-section {

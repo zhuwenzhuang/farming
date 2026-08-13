@@ -15,7 +15,7 @@
   height: 24px;
   border: 0;
   border-radius: 7px;
-  background: var(--code-bg-chrome);
+  background: transparent;
   color: var(--code-text-subtle);
   cursor: pointer;
   display: inline-grid;
@@ -24,9 +24,14 @@
 }
 
 .code-share-button:hover,
-.code-share-button:focus-visible,
-.code-share-root:has(.code-share-popover) .code-share-button {
+.code-share-button:focus-visible {
   background: var(--code-bg-hover);
+  color: var(--code-text);
+  box-shadow: none;
+}
+
+.code-share-root:has(.code-share-popover) .code-share-button {
+  background: var(--code-bg-selected);
   color: var(--code-text);
   box-shadow: none;
 }
@@ -34,9 +39,6 @@
 .code-share-button:focus-visible {
   outline: 2px solid var(--code-focus-ring);
   outline-offset: 2px;
-  background: var(--code-bg-hover);
-  color: var(--code-text);
-  box-shadow: none;
 }
 
 .code-read-only-share-banner {

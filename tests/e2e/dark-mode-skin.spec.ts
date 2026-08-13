@@ -322,6 +322,16 @@ test.describe('Farming Code appearance skins', () => {
     await expect(page.getByTestId('code-agents-section').first()).toHaveCSS('background-color', 'rgb(239, 237, 231)')
     const paperAgentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
     const paperProjectGroup = page.getByTestId('code-project-group').filter({ has: paperAgentRow })
+    for (const idleNavigationControl of [
+      page.getByTestId('code-new-agent'),
+      page.getByTestId('code-nav-search'),
+      page.getByTestId('code-nav-history'),
+      page.getByTestId('code-nav-plugins'),
+      page.getByTestId('code-sidebar-toggle'),
+      page.getByTestId('code-sidebar-options'),
+    ]) {
+      await expect(idleNavigationControl).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    }
     await expect(paperAgentRow).toHaveCSS('background-color', 'rgba(40, 41, 34, 0.09)')
     await expectProviderIconInsideAgentRow(paperAgentRow)
     await expect(paperProjectGroup.locator('.code-files-header')).toHaveCSS('background-color', 'rgb(239, 237, 231)')
