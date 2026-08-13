@@ -159,6 +159,7 @@ test('renders Markdown files by default and keeps preview, source, and split con
 })
 
 test('reuses the existing Agent Chat beside a file', async ({ page, workspaceRoot }, testInfo) => {
+  await page.setViewportSize({ width: 1680, height: 900 })
   const workspace = path.join(workspaceRoot, 'file-agent-chat-side-panel')
   fs.rmSync(workspace, { recursive: true, force: true })
   fs.mkdirSync(workspace, { recursive: true })
@@ -241,25 +242,56 @@ test('reuses the existing Agent Chat beside a file', async ({ page, workspaceRoo
   expect(transcriptRequests).toBe(1)
   await expect(editor).toBeVisible()
   await expect(page.getByTestId('code-acp-composer-input')).toBeVisible()
-  const transcriptScroll = page.getByTestId('code-agent-transcript-scroll')
-  await expect(transcriptScroll).toHaveCSS('padding-left', '12px')
-  await expect(transcriptScroll).toHaveCSS('padding-right', '12px')
   await expect(page.locator('.code-composer-approval-label')).toBeHidden()
   await expect(page.getByTestId('code-acp-mode')).toHaveCSS('width', '34px')
   await expect(page.locator('.code-composer-model-label.desktop')).toBeHidden()
   await expect(page.locator('.code-composer-model-label.mobile')).toBeVisible()
+  const main = page.getByTestId('code-main')
+  const resizer = page.getByTestId('code-resource-agent-resizer')
+  const mainBox = await main.boundingBox()
+  const resizerBox = await resizer.boundingBox()
+  if (!mainBox || !resizerBox) throw new Error('Agent side-panel resize geometry is unavailable')
+  await resizer.hover()
+  await page.mouse.down()
+  await page.mouse.move(mainBox.x, resizerBox.y + (resizerBox.height / 2))
+  await page.mouse.up()
+  const transcriptScroll = page.getByTestId('code-agent-transcript-scroll')
+  await expect(transcriptScroll).toHaveCSS('padding-left', '12px')
+  await expect(transcriptScroll).toHaveCSS('padding-right', '12px')
+  const transcriptGeometry = await transcriptScroll.evaluate(element => {
+    const scroller = element.getBoundingClientRect()
+    const turn = element.querySelector<HTMLElement>('.code-agent-transcript-turn')?.getBoundingClientRect()
+    const answer = element.querySelector<HTMLElement>('.code-agent-transcript-answer')?.getBoundingClientRect()
+    if (!turn || !answer) throw new Error('Agent side-panel transcript geometry is unavailable')
+    return {
+      scrollerWidth: scroller.width,
+      turnLeftGap: turn.left - scroller.left,
+      turnRightGap: scroller.right - turn.right,
+      answerLeftGap: answer.left - scroller.left,
+      answerRightGap: scroller.right - answer.right,
+    }
+  })
+  expect(transcriptGeometry.scrollerWidth).toBeGreaterThanOrEqual(760)
+  expect(transcriptGeometry.turnLeftGap).toBeGreaterThanOrEqual(11)
+  expect(transcriptGeometry.turnLeftGap).toBeLessThanOrEqual(13)
+  expect(transcriptGeometry.turnRightGap).toBeGreaterThanOrEqual(11)
+  expect(transcriptGeometry.turnRightGap).toBeLessThanOrEqual(13)
+  expect(transcriptGeometry.answerLeftGap).toBeGreaterThanOrEqual(11)
+  expect(transcriptGeometry.answerLeftGap).toBeLessThanOrEqual(13)
+  expect(transcriptGeometry.answerRightGap).toBeGreaterThanOrEqual(11)
+  expect(transcriptGeometry.answerRightGap).toBeLessThanOrEqual(13)
   const composerToolbarFits = await page.getByTestId('code-acp-composer-toolbar').evaluate(element => (
     element.scrollWidth <= element.clientWidth
   ))
   expect(composerToolbarFits).toBe(true)
   await page.locator('body').evaluate(body => { body.dataset.appearance = 'paper' })
-  const composerShell = page.getByTestId('code-main').locator(':scope > .code-composer-shell')
+  const composerShell = main.locator(':scope > .code-composer-shell')
   const composer = composerShell.locator('.code-composer')
   await expect(composerShell).toHaveCSS('background-color', 'rgb(249, 248, 244)')
-  await expect(composer).toHaveCSS('margin-bottom', '8px')
+  await expect(composer).toHaveCSS('margin-bottom', '12px')
   await expect(composer).toHaveCSS('border-bottom-right-radius', '12px')
   const paperSidePanelScreenshot = testInfo.outputPath('file-chat-agent-side-panel-paper.png')
-  await page.getByTestId('code-main').screenshot({ path: paperSidePanelScreenshot })
+  await main.screenshot({ path: paperSidePanelScreenshot })
   await testInfo.attach('file-chat-agent-side-panel-paper', {
     path: paperSidePanelScreenshot,
     contentType: 'image/png',

@@ -171,7 +171,7 @@
   background: var(--code-scrollbar-thumb);
 }
 
-@container (max-width: 480px) {
+@container (max-width: 800px) {
   .code-agent-transcript-scroll {
     padding: 8px 12px 6px;
     scroll-padding-top: 6px;
@@ -184,8 +184,8 @@
     margin-bottom: 18px;
   }
 
-  .code-agent-transcript-answer,
-  .code-agent-transcript-assistant {
+  .code-agent-transcript-turn .code-agent-transcript-answer,
+  .code-agent-transcript-turn .code-agent-transcript-assistant {
     width: 100%;
     max-width: 100%;
   }

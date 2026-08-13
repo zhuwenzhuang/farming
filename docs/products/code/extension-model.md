@@ -51,6 +51,9 @@ retain the existing single-surface navigation.
 The user's explicit show or hide choice is a browser-local preference reused
 when entering another eligible Viewer. An ineligible Viewer suppresses the pane
 without clearing that preference.
+Across the pane's supported width range, Transcript turns use the available
+content width with compact insets instead of retaining the full Agent surface's
+centered reading column.
 
 Live Agent activity such as the current Plan and Browser previews shares one
 core-owned right-side dock. Every activity keeps a compact identifiable header,
