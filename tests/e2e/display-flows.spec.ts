@@ -1651,6 +1651,7 @@ test.describe('display-backed agent flows', () => {
     execFileSync('git', ['config', 'user.name', 'Farming E2E'], { cwd: repo })
     execFileSync('git', ['add', 'README.md'], { cwd: repo, stdio: 'ignore' })
     execFileSync('git', ['commit', '-m', 'seed linked worktree'], { cwd: repo, stdio: 'ignore' })
+    execFileSync('git', ['branch', 'switch-target'], { cwd: repo, stdio: 'ignore' })
     execFileSync('git', ['worktree', 'add', '-b', 'feature/topic', linkedWorkspace], { cwd: repo, stdio: 'ignore' })
 
     let revealedProjectRootId = ''
@@ -1784,6 +1785,7 @@ test.describe('display-backed agent flows', () => {
     await expect(project.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)).not.toHaveClass(/unread/)
     const deleteOtherResponse = await page.request.delete(`/farming/api/control/agents/${otherAgentId}`)
     expect(deleteOtherResponse.ok()).toBeTruthy()
+    await expect(otherAgentRow).toHaveCount(0)
 
     await openProjectActions()
     await page.getByTestId('code-project-context-menu').getByRole('menuitem', { name: 'Reveal in Finder' }).click()
@@ -1796,13 +1798,67 @@ test.describe('display-backed agent flows', () => {
     await project.getByTestId('code-project-worktree').click()
     const worktreeMenu = page.getByTestId('code-project-worktree-menu')
     await expect(worktreeMenu).toBeVisible()
-    await expect(worktreeMenu.locator('.code-worktree-row')).toHaveCount(2)
-    await expect(worktreeMenu.locator('.code-worktree-row[data-current="true"]')).toContainText('feature/topic')
-    await expect(worktreeMenu.locator('.code-worktree-row[data-main="true"] .code-worktree-row-path')).toContainText('base-repo')
-    await worktreeMenu.locator('.code-worktree-row[data-main="true"]').click()
+    await expect(worktreeMenu.locator('.code-worktree-list .code-worktree-row')).toHaveCount(2)
+    await expect(worktreeMenu.locator('.code-worktree-list .code-worktree-row[data-current="true"]')).toContainText('feature/topic')
+    await expect(worktreeMenu.locator('.code-worktree-list .code-worktree-row[data-main="true"] .code-worktree-row-path')).toContainText('base-repo')
+    await expect(worktreeMenu.getByText('Branches', { exact: true })).toBeVisible()
+    await expect(worktreeMenu).toContainText('Finish or stop the Agents using this project before switching branches.')
+    await expect(worktreeMenu.getByTestId('code-project-branch-switch-target')).toBeDisabled()
+    await worktreeMenu.locator('.code-worktree-list .code-worktree-row[data-main="true"]').click()
 
     const mainProject = page.getByTestId('code-project-group').filter({ hasText: 'base-repo' })
     await expect(mainProject).toHaveCount(1)
+    const mainBranch = execFileSync('git', ['branch', '--show-current'], { cwd: repo, encoding: 'utf8' }).trim()
+    const repoHead = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim()
+    let returnUncertainSwitch = true
+    await page.route(/\/farming\/api\/files\/switch-branch$/, async route => {
+      if (!returnUncertainSwitch) {
+        await route.continue()
+        return
+      }
+      returnUncertainSwitch = false
+      const request = route.request().postDataJSON() as { requestId?: string }
+      await route.fulfill({
+        status: 504,
+        json: {
+          isGitRepo: true,
+          workspace: repo,
+          mainWorkspace: repo,
+          currentBranch: mainBranch,
+          head: repoHead,
+          dirtyCount: 0,
+          canSwitch: true,
+          blockedReason: '',
+          blockedReasonCode: '',
+          blockingAgentIds: [],
+          items: [
+            { name: mainBranch, head: repoHead, current: true, checkedOutWorkspace: repo },
+            { name: 'feature/topic', head: repoHead, current: false, checkedOutWorkspace: linkedWorkspace },
+            { name: 'switch-target', head: repoHead, current: false, checkedOutWorkspace: '' },
+          ],
+          truncated: false,
+          switched: false,
+          uncertain: true,
+          error: 'Synthetic uncertain switch result',
+          requestId: request.requestId || '',
+        },
+      })
+    })
+    const mainProjectWorktree = mainProject.getByTestId('code-project-worktree')
+    await mainProjectWorktree.click()
+    const mainWorktreeMenu = page.getByTestId('code-project-worktree-menu')
+    const switchTargetBranch = mainWorktreeMenu.getByTestId('code-project-branch-switch-target')
+    await expect(switchTargetBranch).toBeEnabled()
+    await switchTargetBranch.click()
+    await expect(mainWorktreeMenu).toContainText('The switch result is uncertain.')
+    await expect(mainWorktreeMenu.locator('.code-branch-row:enabled')).toHaveCount(0)
+    await mainWorktreeMenu.getByRole('button', { name: 'Refresh' }).click()
+    await expect(switchTargetBranch).toBeEnabled()
+    await switchTargetBranch.click()
+    await expect(mainWorktreeMenu).toContainText('Switched to switch-target')
+    await expect(mainProjectWorktree).toContainText('switch-target')
+    await expect(switchTargetBranch).toHaveAttribute('data-current', 'true')
+    await page.keyboard.press('Escape')
     await openProjectActions(mainProject)
     const mainProjectRemove = page.getByTestId('code-project-context-menu').getByRole('menuitem', { name: 'Remove Project' })
     await expect(mainProjectRemove.locator('svg')).toHaveCount(1)

@@ -188,7 +188,11 @@ function validProjectOperationEntry(
   const record = objectRecord(operation);
   return PROJECT_OPERATION_ID_PATTERN.test(id)
     && record !== null
-    && (record.type === 'create-worktree' || record.type === 'delete-worktree')
+    && (
+      record.type === 'create-worktree'
+      || record.type === 'delete-worktree'
+      || record.type === 'switch-branch'
+    )
     && (
       record.state === 'pending'
       || record.state === 'unknown'

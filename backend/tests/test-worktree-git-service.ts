@@ -5,6 +5,7 @@ const os = require('os');
 const path = require('path');
 
 const {
+  LOCAL_BRANCH_INVENTORY_LIMIT,
   WorktreeGitService,
   isFarmingForkWorktreePath,
   parseGitWorktreeList,
@@ -35,6 +36,195 @@ async function run() {
     { workspace: path.resolve('/repo-linked'), branch: 'feature/test' },
     { workspace: path.resolve('/repo-detached'), branch: '' },
   ]);
+
+  const branchShaA = 'a'.repeat(40);
+  const branchShaB = 'b'.repeat(40);
+  const branchShaC = 'c'.repeat(40);
+  const branchWorkspace = path.resolve('/projects/branch-repo');
+  const occupiedWorkspace = path.resolve('/projects/branch-repo-linked');
+  const nestedWorkspace = path.join(branchWorkspace, 'nested');
+  const createBranchState = () => ({
+    branch: 'feature/current',
+    dirty: '',
+    failInspectionAfterSwitch: false,
+    head: branchShaA,
+    mutationCalls: 0,
+    switchMode: 'success',
+  });
+  const createBranchService = (state: ReturnType<typeof createBranchState>, refs = [
+    { name: 'feature/current', head: branchShaA },
+    { name: 'main', head: branchShaB },
+    { name: 'topic/occupied', head: branchShaC },
+  ]) => new WorktreeGitService({
+    invalidateCache: () => {},
+    execFile: async (_executable, args) => {
+      const key = commandKey(args);
+      if (state.failInspectionAfterSwitch && state.mutationCalls > 0) {
+        throw new Error('fresh branch inspection unavailable');
+      }
+      if (key === 'rev-parse --show-toplevel') return { stdout: `${branchWorkspace}\n`, stderr: '' };
+      if (key === 'worktree list --porcelain') {
+        return {
+          stdout: [
+            `worktree ${branchWorkspace}`,
+            `branch refs/heads/${state.branch}`,
+            '',
+            `worktree ${occupiedWorkspace}`,
+            'branch refs/heads/topic/occupied',
+            '',
+          ].join('\n'),
+          stderr: '',
+        };
+      }
+      if (key === 'status --porcelain=v2 --branch --untracked-files=all') {
+        const dirty = String(state.dirty || '')
+          .split(/\r?\n/)
+          .filter(Boolean)
+          .map((line: string) => line.startsWith('?? ') ? `? ${line.slice(3)}` : `1 .M N... 100644 100644 100644 ${branchShaA} ${branchShaA} ${line.slice(3)}`)
+          .join('\n');
+        return {
+          stdout: `# branch.oid ${state.head}\n# branch.head ${state.branch}\n${dirty}${dirty ? '\n' : ''}`,
+          stderr: '',
+        };
+      }
+      if (key.startsWith('for-each-ref ')) {
+        return {
+          stdout: refs.map(item => `refs/heads/${item.name}\0${item.head}`).join('\n'),
+          stderr: '',
+        };
+      }
+      if (key === 'switch --no-guess -- main') {
+        state.mutationCalls += 1;
+        if (state.switchMode === 'success' || state.switchMode === 'timeout-success') {
+          state.branch = 'main';
+          state.head = branchShaB;
+        }
+        if (state.switchMode.startsWith('timeout')) {
+          throw Object.assign(new Error('synthetic branch switch timeout'), { code: 'ETIMEDOUT' });
+        }
+        return { stdout: '', stderr: '' };
+      }
+      throw new Error(`Unexpected Git command: ${key}`);
+    },
+  });
+
+  const inventoryState = createBranchState();
+  const inventory = await createBranchService(inventoryState).inspectLocalBranches(branchWorkspace);
+  assert.deepStrictEqual(inventory, {
+    isGitRepo: true,
+    workspace: branchWorkspace,
+    mainWorkspace: branchWorkspace,
+    currentBranch: 'feature/current',
+    head: branchShaA,
+    dirtyCount: 0,
+    canSwitch: true,
+    blockedReason: '',
+    blockedReasonCode: '',
+    blockingAgentIds: [],
+    items: [
+      { name: 'feature/current', head: branchShaA, current: true, checkedOutWorkspace: branchWorkspace },
+      { name: 'main', head: branchShaB, current: false, checkedOutWorkspace: '' },
+      { name: 'topic/occupied', head: branchShaC, current: false, checkedOutWorkspace: occupiedWorkspace },
+    ],
+    truncated: false,
+  });
+  const linkedInventory = await createBranchService(createBranchState())
+    .inspectLocalBranches(occupiedWorkspace);
+  assert.strictEqual(linkedInventory.canSwitch, false);
+  assert.strictEqual(linkedInventory.blockedReasonCode, 'not-main-worktree');
+  const nestedInventory = await createBranchService(createBranchState())
+    .inspectLocalBranches(nestedWorkspace);
+  assert.strictEqual(nestedInventory.canSwitch, false);
+  assert.strictEqual(nestedInventory.blockedReasonCode, 'not-main-worktree');
+  const nestedSwitchState = createBranchState();
+  const nestedSwitch = await createBranchService(nestedSwitchState).switchLocalBranch(nestedWorkspace, {
+    branch: 'main', expectedBranch: 'feature/current', expectedHead: branchShaA,
+  });
+  assert.strictEqual(nestedSwitch.switched, false);
+  assert.strictEqual(nestedSwitch.uncertain, false);
+  assert.strictEqual(nestedSwitch.inventory?.blockedReasonCode, 'not-main-worktree');
+  assert.strictEqual(nestedSwitchState.mutationCalls, 0);
+
+  const dirtyBranchState = createBranchState();
+  dirtyBranchState.dirty = ' M tracked.txt\n?? untracked.txt\n';
+  const dirtyBranchService = createBranchService(dirtyBranchState);
+  const dirtyInventory = await dirtyBranchService.inspectLocalBranches(branchWorkspace);
+  assert.strictEqual(dirtyInventory.dirtyCount, 2);
+  assert.strictEqual(dirtyInventory.canSwitch, false);
+  assert.strictEqual(dirtyInventory.blockedReasonCode, 'dirty-worktree');
+  const dirtySwitch = await dirtyBranchService.switchLocalBranch(branchWorkspace, {
+    branch: 'main', expectedBranch: 'feature/current', expectedHead: branchShaA,
+  });
+  assert.strictEqual(dirtySwitch.switched, false);
+  assert.strictEqual(dirtySwitch.uncertain, false);
+  assert.strictEqual(dirtyBranchState.mutationCalls, 0);
+
+  const occupiedState = createBranchState();
+  const occupiedResult = await createBranchService(occupiedState).switchLocalBranch(branchWorkspace, {
+    branch: 'topic/occupied', expectedBranch: 'feature/current', expectedHead: branchShaA,
+  });
+  assert.strictEqual(occupiedResult.switched, false);
+  assert.match(occupiedResult.error || '', new RegExp(occupiedWorkspace.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.strictEqual(occupiedState.mutationCalls, 0);
+
+  const staleState = createBranchState();
+  const staleResult = await createBranchService(staleState).switchLocalBranch(branchWorkspace, {
+    branch: 'main', expectedBranch: 'stale', expectedHead: branchShaC,
+  });
+  assert.strictEqual(staleResult.switched, false);
+  assert.match(staleResult.error || '', /state changed/i);
+  assert.strictEqual(staleState.mutationCalls, 0);
+
+  const successfulSwitchState = createBranchState();
+  const successfulSwitch = await createBranchService(successfulSwitchState).switchLocalBranch(branchWorkspace, {
+    branch: 'main', expectedBranch: 'feature/current', expectedHead: branchShaA,
+  });
+  assert.strictEqual(successfulSwitch.switched, true);
+  assert.strictEqual(successfulSwitch.uncertain, false);
+  assert.strictEqual(successfulSwitch.previousBranch, 'feature/current');
+  assert.strictEqual(successfulSwitch.previousHead, branchShaA);
+  assert.strictEqual(successfulSwitch.inventory?.currentBranch, 'main');
+  assert.strictEqual(successfulSwitch.inventory?.head, branchShaB);
+  assert.strictEqual(successfulSwitchState.mutationCalls, 1);
+
+  const reconciledTimeoutState = createBranchState();
+  reconciledTimeoutState.switchMode = 'timeout-success';
+  const reconciledTimeoutSwitch = await createBranchService(reconciledTimeoutState).switchLocalBranch(branchWorkspace, {
+    branch: 'main', expectedBranch: 'feature/current', expectedHead: branchShaA,
+  });
+  assert.strictEqual(reconciledTimeoutSwitch.switched, true);
+  assert.strictEqual(reconciledTimeoutSwitch.uncertain, false);
+  assert.strictEqual(reconciledTimeoutState.mutationCalls, 1);
+
+  const failedTimeoutState = createBranchState();
+  failedTimeoutState.switchMode = 'timeout-failed';
+  const failedTimeoutSwitch = await createBranchService(failedTimeoutState).switchLocalBranch(branchWorkspace, {
+    branch: 'main', expectedBranch: 'feature/current', expectedHead: branchShaA,
+  });
+  assert.strictEqual(failedTimeoutSwitch.switched, false);
+  assert.strictEqual(failedTimeoutSwitch.uncertain, false);
+  assert.match(failedTimeoutSwitch.error || '', /timeout/);
+  assert.strictEqual(failedTimeoutState.mutationCalls, 1);
+
+  const uncertainTimeoutState = createBranchState();
+  uncertainTimeoutState.switchMode = 'timeout-success';
+  uncertainTimeoutState.failInspectionAfterSwitch = true;
+  const uncertainTimeoutSwitch = await createBranchService(uncertainTimeoutState).switchLocalBranch(branchWorkspace, {
+    branch: 'main', expectedBranch: 'feature/current', expectedHead: branchShaA,
+  });
+  assert.strictEqual(uncertainTimeoutSwitch.switched, false);
+  assert.strictEqual(uncertainTimeoutSwitch.uncertain, true);
+  assert.strictEqual(uncertainTimeoutState.mutationCalls, 1);
+
+  const boundedRefs = Array.from({ length: LOCAL_BRANCH_INVENTORY_LIMIT + 1 }, (_, index) => ({
+    name: `branch-${String(index).padStart(3, '0')}`,
+    head: index % 2 === 0 ? branchShaA : branchShaB,
+  }));
+  boundedRefs[0] = { name: 'feature/current', head: branchShaA };
+  const boundedInventory = await createBranchService(createBranchState(), boundedRefs)
+    .inspectLocalBranches(branchWorkspace);
+  assert.strictEqual(boundedInventory.items.length, LOCAL_BRANCH_INVENTORY_LIMIT);
+  assert.strictEqual(boundedInventory.truncated, true);
 
   const allocationCalls: string[] = [];
   const allocationService = new WorktreeGitService({

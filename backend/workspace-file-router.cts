@@ -4,6 +4,11 @@ const os = require('os');
 const path = require('path');
 import { inspectGitWorktree } from './git-worktree-info.cjs';
 import { isSameOrDescendantPath } from './path-containment.cjs';
+import type {
+  LocalBranchInventory,
+  LocalBranchSwitchRequest,
+  LocalBranchSwitchResult,
+} from './worktree-git-service.cjs';
 interface WorkspaceFileApiError extends Error {
   details: Record<string, unknown>;
   statusCode: number;
@@ -27,6 +32,11 @@ interface AgentManager {
     agents?: InputRecord[];
     taskHistory?: InputRecord[];
   };
+  inspectProjectBranches(workspace: string): Promise<LocalBranchInventory>;
+  switchProjectBranch(
+    workspace: string,
+    request: LocalBranchSwitchRequest & { requestId: string },
+  ): Promise<LocalBranchSwitchResult>;
 }
 
 interface WorkspaceRoot {
@@ -63,6 +73,7 @@ interface WorkspaceFileServiceLike {
   gitBranch(root: string): Promise<unknown>;
   gitHistory(root: string, options?: InputRecord): Promise<unknown>;
   gitHistoryChanges(root: string, commit: unknown, parent: unknown, options?: InputRecord): Promise<unknown>;
+  invalidateGitStatus?(root: string): void;
   lineChanges(root: string, userPath: unknown, lineNumber: unknown, mode: unknown): Promise<unknown>;
   listTree(root: string, userPath: unknown, options?: ReadOptions): Promise<unknown>;
   moveEntry(root: string, sourcePath: unknown, targetDirectory: unknown, options?: MutationVersionOptions): Promise<unknown>;
@@ -403,6 +414,22 @@ function assertWritableWorkspaceAgent(agentId: unknown): void {
   }
 }
 
+function requiredBoundedString(
+  value: unknown,
+  field: string,
+  maxLength: number,
+  allowEmpty = false,
+): string {
+  if (typeof value !== 'string') {
+    throw new WorkspaceFileError(`${field} must be a string`, 400);
+  }
+  const normalized = value.trim();
+  if ((!allowEmpty && !normalized) || normalized.length > maxLength || /[\0\r\n]/.test(normalized)) {
+    throw new WorkspaceFileError(`${field} is invalid`, 400);
+  }
+  return normalized;
+}
+
 function readOptionsForAgent(agentManager: AgentManager, agentId: unknown): ReadOptions {
   return isGlobalWorkspaceFilesAgentId(agentId)
     ? {}
@@ -718,6 +745,69 @@ function createWorkspaceFileRouter(
       const { root, rootId } = resolveRequestRoot(req.query);
       const branch = await fileService.gitBranch(root);
       res.json({ rootId, root, branch });
+    } catch (error: unknown) {
+      sendWorkspaceFileError(res, error);
+    }
+  });
+
+  router.get('/branches', async (req: HttpRequest, res: HttpResponse) => {
+    try {
+      const rootRef = workspaceRef(req.query);
+      if (isGlobalWorkspaceFilesAgentId(rootRef)) {
+        throw new WorkspaceFileError('global files do not support git branches', 403);
+      }
+      const { root } = resolveRequestRoot(req.query);
+      res.json(await agentManager.inspectProjectBranches(root));
+    } catch (error: unknown) {
+      sendWorkspaceFileError(res, error);
+    }
+  });
+
+  router.post('/switch-branch', async (req: HttpRequest, res: HttpResponse) => {
+    try {
+      const body = isRecord(req.body) ? req.body : {};
+      const rootRef = workspaceRef(body);
+      assertWritableWorkspaceAgent(rootRef);
+      const { kind, root } = resolveRequestRoot(body);
+      if (kind !== 'directory') {
+        throw new WorkspaceFileError('branch switching requires a Project root', 403);
+      }
+      const branch = requiredBoundedString(body.branch, 'branch', 1024);
+      const expectedBranch = requiredBoundedString(body.expectedBranch, 'expectedBranch', 1024, true);
+      const expectedHead = requiredBoundedString(body.expectedHead, 'expectedHead', 64, true);
+      const requestId = requiredBoundedString(body.requestId, 'requestId', 160);
+      if (!/^[A-Za-z0-9._:-]+$/.test(requestId)) {
+        throw new WorkspaceFileError('requestId is invalid', 400);
+      }
+      if (expectedHead && !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(expectedHead)) {
+        throw new WorkspaceFileError('expectedHead is invalid', 400);
+      }
+      let result: LocalBranchSwitchResult;
+      try {
+        result = await agentManager.switchProjectBranch(root, {
+          branch,
+          expectedBranch,
+          expectedHead,
+          requestId,
+        });
+      } catch (caught) {
+        const error = caught instanceof Error ? caught : new Error(String(caught));
+        if (/^Project operation request .* was already used for different parameters$/.test(error.message)) {
+          throw new WorkspaceFileError(error.message, 409);
+        }
+        throw caught;
+      }
+      if (result.switched) fileService.invalidateGitStatus?.(root);
+      const response = {
+        ...(result.inventory || {}),
+        switched: result.switched,
+        uncertain: result.uncertain,
+        ...(result.error ? { error: result.error } : {}),
+        ...(result.previousBranch !== undefined ? { previousBranch: result.previousBranch } : {}),
+        ...(result.previousHead !== undefined ? { previousHead: result.previousHead } : {}),
+        requestId,
+      };
+      res.status(result.switched ? 200 : result.uncertain ? 504 : 409).json(response);
     } catch (error: unknown) {
       sendWorkspaceFileError(res, error);
     }

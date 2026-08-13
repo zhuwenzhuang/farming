@@ -13,6 +13,52 @@ interface WorktreeListRecord {
   workspace: string;
 }
 
+interface LocalBranchItem {
+  checkedOutWorkspace: string;
+  current: boolean;
+  head: string;
+  name: string;
+}
+
+interface LocalBranchInventory {
+  blockedReason: string;
+  blockedReasonCode: LocalBranchBlockedReasonCode;
+  blockingAgentIds: string[];
+  canSwitch: boolean;
+  currentBranch: string;
+  dirtyCount: number;
+  head: string;
+  isGitRepo: boolean;
+  items: LocalBranchItem[];
+  mainWorkspace: string;
+  truncated: boolean;
+  workspace: string;
+}
+
+type LocalBranchBlockedReasonCode =
+  | ''
+  | 'active-agents'
+  | 'dirty-worktree'
+  | 'no-switchable-branch'
+  | 'not-git-repository'
+  | 'not-main-worktree'
+  | 'pending-agent-starts';
+
+interface LocalBranchSwitchRequest {
+  branch: string;
+  expectedBranch: string;
+  expectedHead: string;
+}
+
+interface LocalBranchSwitchResult {
+  error?: string;
+  inventory?: LocalBranchInventory;
+  previousBranch?: string;
+  previousHead?: string;
+  switched: boolean;
+  uncertain: boolean;
+}
+
 interface WorktreePostcondition {
   branchExists: boolean;
   branchMatches: boolean;
@@ -113,6 +159,7 @@ interface WorktreeGitServicePort {
   createTemporaryWorktree(identity: TemporaryWorktreeIdentity): Promise<TemporaryWorktreeMutation>;
   deleteWorktree(identity: TemporaryWorktreeIdentity, force?: boolean): Promise<WorktreeDeleteMutation>;
   inspectForkWorktree(workspace: string): Promise<ForkWorktreeInspection>;
+  inspectLocalBranches(workspace: string): Promise<LocalBranchInventory>;
   inspectPostcondition(sourceWorkspace: string, workspace: string, branch?: string): Promise<WorktreePostcondition>;
   listWorktrees(sourceWorkspace: string): Promise<WorktreeListRecord[]>;
   releasePermanentWorktreeReservation(identity: PermanentWorktreeIdentity): void;
@@ -120,9 +167,14 @@ interface WorktreeGitServicePort {
   resolveSourceRoot(workspace: string): Promise<string>;
   rollbackPermanentWorktree(identity: PermanentWorktreeIdentity): Promise<{ error?: string; rolledBack: boolean }>;
   rollbackTemporaryWorktree(identity: TemporaryWorktreeIdentity): Promise<TemporaryWorktreeRollback>;
+  switchLocalBranch(workspace: string, request: LocalBranchSwitchRequest): Promise<LocalBranchSwitchResult>;
 }
 
 type CommandError = Error & { code?: string | number; stderr?: unknown };
+
+const LOCAL_BRANCH_INVENTORY_LIMIT = 200;
+const GIT_INSPECTION_MAX_BUFFER = 4 * 1024 * 1024;
+const GIT_INSPECTION_TIMEOUT_MS = 15_000;
 
 function commandError(value: unknown): CommandError {
   return value instanceof Error ? value as CommandError : new Error(String(value)) as CommandError;
@@ -136,6 +188,10 @@ function commandErrorMessage(value: unknown, fallback: string): string {
 function isAbsentFilesystemError(value: unknown): boolean {
   const code = commandError(value).code;
   return code === 'ENOENT' || code === 'ENOTDIR';
+}
+
+function isNotGitRepositoryError(value: unknown): boolean {
+  return /not a git repository/i.test(commandErrorMessage(value, ''));
 }
 
 function timestampSlug(now: Date): string {
@@ -176,6 +232,64 @@ function parseGitWorktreeList(output: unknown): WorktreeListRecord[] {
   }
   if (current) worktrees.push(current);
   return worktrees;
+}
+
+function parseLocalBranchRefs(output: unknown): Array<{ head: string; name: string }> {
+  return String(output || '')
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map(line => {
+      const separator = line.indexOf('\0');
+      if (separator <= 'refs/heads/'.length) {
+        throw new Error('Git returned an invalid local branch record');
+      }
+      const ref = line.slice(0, separator);
+      const head = line.slice(separator + 1).trim();
+      if (!ref.startsWith('refs/heads/') || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(head)) {
+        throw new Error('Git returned an invalid local branch record');
+      }
+      return { name: ref.slice('refs/heads/'.length), head };
+    });
+}
+
+function parseLocalBranchStatus(output: unknown): {
+  currentBranch: string;
+  dirtyCount: number;
+  head: string;
+} {
+  let currentBranch = '';
+  let dirtyCount = 0;
+  let head = '';
+  let sawBranchHead = false;
+  let sawBranchOid = false;
+  for (const line of String(output || '').split(/\r?\n/)) {
+    if (!line) continue;
+    if (line.startsWith('# branch.oid ')) {
+      const value = line.slice('# branch.oid '.length).trim();
+      head = value === '(initial)' ? '' : value;
+      if (head && !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(head)) {
+        throw new Error('Git returned an invalid HEAD object id');
+      }
+      sawBranchOid = true;
+      continue;
+    }
+    if (line.startsWith('# branch.head ')) {
+      const value = line.slice('# branch.head '.length).trim();
+      currentBranch = value === '(detached)' ? '' : value;
+      sawBranchHead = true;
+      continue;
+    }
+    if (line.startsWith('# ')) continue;
+    if (/^(?:1|2|u|\?|!) /.test(line)) {
+      dirtyCount += 1;
+      continue;
+    }
+    throw new Error('Git returned an invalid worktree status record');
+  }
+  if (!sawBranchHead || !sawBranchOid) {
+    throw new Error('Git did not return authoritative branch status');
+  }
+  return { currentBranch, dirtyCount, head };
 }
 
 class WorktreeGitService implements WorktreeGitServicePort {
@@ -269,6 +383,208 @@ class WorktreeGitService implements WorktreeGitServicePort {
       '-C', sourceWorkspace, 'worktree', 'list', '--porcelain',
     ], { timeout: 15_000, maxBuffer: 4 * 1024 * 1024 });
     return parseGitWorktreeList(stdout);
+  }
+
+  private emptyLocalBranchInventory(workspace: string): LocalBranchInventory {
+    return {
+      isGitRepo: false,
+      workspace: path.resolve(workspace),
+      mainWorkspace: '',
+      currentBranch: '',
+      head: '',
+      dirtyCount: 0,
+      canSwitch: false,
+      blockedReason: 'Workspace is not inside a Git repository',
+      blockedReasonCode: 'not-git-repository',
+      blockingAgentIds: [],
+      items: [],
+      truncated: false,
+    };
+  }
+
+  async inspectLocalBranches(workspace: string): Promise<LocalBranchInventory> {
+    if (!workspace) throw new Error('Workspace is empty');
+    const requestedWorkspace = path.resolve(workspace);
+    let canonicalRequestedWorkspace = requestedWorkspace;
+    try {
+      canonicalRequestedWorkspace = await fs.promises.realpath(requestedWorkspace);
+    } catch (caught) {
+      if (!isAbsentFilesystemError(caught)) throw caught;
+    }
+    let repositoryWorkspace = '';
+    try {
+      const { stdout } = await this.execFile('git', [
+        '-C', requestedWorkspace, 'rev-parse', '--show-toplevel',
+      ], { timeout: GIT_INSPECTION_TIMEOUT_MS, maxBuffer: 1024 * 1024 });
+      repositoryWorkspace = path.resolve(String(stdout).trim());
+    } catch (caught) {
+      if (isNotGitRepositoryError(caught)) return this.emptyLocalBranchInventory(requestedWorkspace);
+      throw new Error(commandErrorMessage(caught, 'Failed to inspect Git repository'), { cause: caught });
+    }
+
+    const [worktrees, branchStatusOutput, refsOutput] = await Promise.all([
+      this.listWorktrees(repositoryWorkspace),
+      this.execFile('git', [
+        '-C', repositoryWorkspace, 'status', '--porcelain=v2', '--branch', '--untracked-files=all',
+      ], { timeout: GIT_INSPECTION_TIMEOUT_MS, maxBuffer: GIT_INSPECTION_MAX_BUFFER })
+        .then(result => result.stdout),
+      this.execFile('git', [
+        '-C', repositoryWorkspace, 'for-each-ref',
+        `--count=${LOCAL_BRANCH_INVENTORY_LIMIT + 1}`,
+        '--sort=refname',
+        '--format=%(refname)%00%(objectname)',
+        'refs/heads',
+      ], { timeout: GIT_INSPECTION_TIMEOUT_MS, maxBuffer: GIT_INSPECTION_MAX_BUFFER })
+        .then(result => result.stdout),
+    ]);
+
+    const { currentBranch, dirtyCount, head } = parseLocalBranchStatus(branchStatusOutput);
+    const mainWorkspace = worktrees[0]?.workspace || '';
+    const checkedOutByBranch = new Map(
+      worktrees.filter(item => item.branch).map(item => [item.branch, item.workspace]),
+    );
+    const refs = parseLocalBranchRefs(refsOutput);
+    const truncated = refs.length > LOCAL_BRANCH_INVENTORY_LIMIT;
+    const visibleRefs = refs.slice(0, LOCAL_BRANCH_INVENTORY_LIMIT);
+    if (
+      currentBranch
+      && head
+      && !visibleRefs.some(item => item.name === currentBranch)
+    ) {
+      visibleRefs.splice(Math.max(0, LOCAL_BRANCH_INVENTORY_LIMIT - 1), 1, {
+        name: currentBranch,
+        head,
+      });
+    }
+    const items = visibleRefs.map(item => ({
+      ...item,
+      current: item.name === currentBranch,
+      checkedOutWorkspace: checkedOutByBranch.get(item.name) || '',
+    }));
+    let blockedReason = '';
+    let blockedReasonCode: LocalBranchBlockedReasonCode = '';
+    if (
+      canonicalRequestedWorkspace !== repositoryWorkspace
+      || !mainWorkspace
+      || repositoryWorkspace !== mainWorkspace
+    ) {
+      blockedReason = 'Branches can only be switched in the repository main worktree';
+      blockedReasonCode = 'not-main-worktree';
+    } else if (dirtyCount > 0) {
+      blockedReason = `Workspace has ${dirtyCount} uncommitted or untracked change${dirtyCount === 1 ? '' : 's'}`;
+      blockedReasonCode = 'dirty-worktree';
+    } else if (!items.some(item => !item.current && !item.checkedOutWorkspace)) {
+      blockedReason = truncated
+        ? 'No switchable branch is available in the bounded branch inventory'
+        : 'No other local branch is available';
+      blockedReasonCode = 'no-switchable-branch';
+    }
+    return {
+      isGitRepo: true,
+      workspace: repositoryWorkspace,
+      mainWorkspace,
+      currentBranch,
+      head,
+      dirtyCount,
+      canSwitch: !blockedReason,
+      blockedReason,
+      blockedReasonCode,
+      blockingAgentIds: [],
+      items,
+      truncated,
+    };
+  }
+
+  async switchLocalBranch(
+    workspace: string,
+    request: LocalBranchSwitchRequest,
+  ): Promise<LocalBranchSwitchResult> {
+    const branch = String(request.branch || '').trim();
+    const before = await this.inspectLocalBranches(workspace);
+    const rejected = (error: string): LocalBranchSwitchResult => ({
+      inventory: before,
+      switched: false,
+      uncertain: false,
+      error,
+    });
+    if (!before.isGitRepo) return rejected(before.blockedReason);
+    if (before.workspace !== before.mainWorkspace) {
+      return rejected('Branches can only be switched in the repository main worktree');
+    }
+    if (before.currentBranch !== request.expectedBranch || before.head !== request.expectedHead) {
+      return rejected('Branch state changed; refresh the branch list and try again');
+    }
+    if (!before.canSwitch) return rejected(before.blockedReason);
+    const target = before.items.find(item => item.name === branch);
+    if (!target) return rejected(`Local branch does not exist in the current inventory: ${branch}`);
+    if (target.current) return rejected(`Branch is already checked out: ${branch}`);
+    if (target.checkedOutWorkspace && target.checkedOutWorkspace !== before.workspace) {
+      return rejected(`Branch is already checked out in another worktree: ${target.checkedOutWorkspace}`);
+    }
+
+    let commandFailure: WorktreeCommandFailure | null = null;
+    try {
+      await this.execFile('git', [
+        '-C', before.workspace, 'switch', '--no-guess', '--', branch,
+      ], { timeout: 60_000, maxBuffer: GIT_INSPECTION_MAX_BUFFER });
+    } catch (caught) {
+      commandFailure = {
+        cause: caught,
+        message: commandErrorMessage(caught, `Failed to switch to branch ${branch}`),
+      };
+    } finally {
+      try {
+        this.invalidateCache();
+      } catch {
+        // The authoritative reconciliation below does not depend on the cache.
+      }
+    }
+
+    let after: LocalBranchInventory;
+    try {
+      after = await this.inspectLocalBranches(before.workspace);
+    } catch (caught) {
+      return {
+        switched: false,
+        uncertain: true,
+        previousBranch: before.currentBranch,
+        previousHead: before.head,
+        error: `${commandFailure?.message || 'Branch switch completed without a verifiable result'}; fresh Git state could not be inspected: ${commandErrorMessage(caught, 'unknown inspection error')}`,
+      };
+    }
+    const afterTarget = after.items.find(item => item.name === branch);
+    if (after.currentBranch === branch && after.head && afterTarget?.head === after.head) {
+      return {
+        inventory: after,
+        switched: true,
+        uncertain: false,
+        previousBranch: before.currentBranch,
+        previousHead: before.head,
+      };
+    }
+    if (
+      commandFailure
+      && after.currentBranch === before.currentBranch
+      && after.head === before.head
+      && after.dirtyCount === 0
+    ) {
+      return {
+        inventory: after,
+        switched: false,
+        uncertain: false,
+        previousBranch: before.currentBranch,
+        previousHead: before.head,
+        error: commandFailure.message,
+      };
+    }
+    return {
+      inventory: after,
+      switched: false,
+      uncertain: true,
+      previousBranch: before.currentBranch,
+      previousHead: before.head,
+      error: commandFailure?.message || `Git did not establish branch ${branch}`,
+    };
   }
 
   private async branchExists(sourceWorkspace: string, branch: string): Promise<boolean> {
@@ -660,11 +976,19 @@ class WorktreeGitService implements WorktreeGitServicePort {
 }
 
 export {
+  LOCAL_BRANCH_INVENTORY_LIMIT,
   WorktreeGitService,
   isFarmingForkWorktreePath,
   parseGitWorktreeList,
+  parseLocalBranchRefs,
+  parseLocalBranchStatus,
   statusEntriesFromPorcelain,
   type ForkWorktreeInspection,
+  type LocalBranchInventory,
+  type LocalBranchBlockedReasonCode,
+  type LocalBranchItem,
+  type LocalBranchSwitchRequest,
+  type LocalBranchSwitchResult,
   type PermanentWorktreeIdentity,
   type PermanentWorktreeMutation,
   type TemporaryWorktreeIdentity,

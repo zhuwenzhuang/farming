@@ -52,6 +52,59 @@ async function main() {
   assert.deepStrictEqual(order, ['a:start', 'a:end', 'b:start']);
   assert.deepStrictEqual(coordinator.pendingOperations(), []);
 
+  const overlaps = (left: string, right: string) => (
+    left === right || left.startsWith(`${right}/`) || right.startsWith(`${left}/`)
+  );
+  let releaseNested!: () => void;
+  const nestedGate = new Promise<void>(resolve => {
+    releaseNested = resolve;
+  });
+  const overlapOrder: string[] = [];
+  const nested = coordinator.runExclusive('/repo/a/nested', 'nested', async () => {
+    overlapOrder.push('nested:start');
+    await nestedGate;
+    overlapOrder.push('nested:end');
+  }, overlaps);
+  const ancestor = coordinator.runExclusive('/repo/a', 'ancestor', async () => {
+    overlapOrder.push('ancestor:start');
+  }, overlaps);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepStrictEqual(overlapOrder, ['nested:start']);
+  releaseNested();
+  await Promise.all([nested, ancestor]);
+  assert.deepStrictEqual(overlapOrder, ['nested:start', 'nested:end', 'ancestor:start']);
+  assert.deepStrictEqual(coordinator.pendingOperations(), []);
+
+  let releaseFirstKind!: () => void;
+  const firstKindGate = new Promise<void>(resolve => {
+    releaseFirstKind = resolve;
+  });
+  const firstKind = coordinator.runExclusive('/repo/a', 'shared-request', async () => {
+    await firstKindGate;
+    return 'switch';
+  }, overlaps, 'switch-signature');
+  const secondKind = coordinator.runExclusive('/repo/a', 'shared-request', async () => (
+    'delete'
+  ), overlaps, 'delete-signature');
+  await assert.rejects(secondKind, /different parameters/);
+  releaseFirstKind();
+  assert.strictEqual(await firstKind, 'switch');
+
+  let releaseDeleteKind!: () => void;
+  const deleteKindGate = new Promise<void>(resolve => {
+    releaseDeleteKind = resolve;
+  });
+  const deleteKind = coordinator.runExclusive('/repo/a', 'reverse-request', async () => {
+    await deleteKindGate;
+    return 'delete';
+  }, overlaps, 'delete-signature');
+  const reverseSwitchKind = coordinator.runExclusive('/repo/a/nested', 'reverse-request', async () => (
+    'switch'
+  ), overlaps, 'switch-signature');
+  await assert.rejects(reverseSwitchKind, /different parameters/);
+  releaseDeleteKind();
+  assert.strictEqual(await deleteKind, 'delete');
+
   console.log('Project operation admission coordinator tests passed');
 }
 

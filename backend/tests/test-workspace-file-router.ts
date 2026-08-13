@@ -79,7 +79,32 @@ async function run() {
   const mainWorkspace = path.join(projectWorkspace, '.farming');
   const externalWorkspace = path.join(tmpRoot, 'external-workspace');
   const liveProjectWorkspace = path.join(tmpRoot, 'live-project');
+  const agentHomeWorkspace = path.join(tmpRoot, 'agent-home');
   const projectWorkspaces = [projectWorkspace];
+  let branchSwitchRequest: Record<string, unknown> | null = null;
+  let branchSwitchCalls = 0;
+  const branchInventory = {
+    isGitRepo: true,
+    workspace: projectWorkspace,
+    mainWorkspace: projectWorkspace,
+    currentBranch: 'feature/current',
+    head: 'a'.repeat(40),
+    dirtyCount: 0,
+    canSwitch: true,
+    blockedReason: '',
+    blockedReasonCode: '',
+    blockingAgentIds: [],
+    items: [
+      {
+        name: 'feature/current',
+        head: 'a'.repeat(40),
+        current: true,
+        checkedOutWorkspace: projectWorkspace,
+      },
+      { name: 'main', head: 'b'.repeat(40), current: false, checkedOutWorkspace: '' },
+    ],
+    truncated: false,
+  };
   const service = new WorkspaceFileService({
     maxFileSize: 64,
     maxWriteSize: 1024 * 32,
@@ -88,8 +113,12 @@ async function run() {
 
   try {
     fs.mkdirSync(mainWorkspace, { recursive: true });
+    branchInventory.workspace = fs.realpathSync(projectWorkspace);
+    branchInventory.mainWorkspace = branchInventory.workspace;
+    branchInventory.items[0].checkedOutWorkspace = branchInventory.workspace;
     fs.mkdirSync(externalWorkspace, { recursive: true });
     fs.mkdirSync(liveProjectWorkspace, { recursive: true });
+    fs.mkdirSync(agentHomeWorkspace, { recursive: true });
     fs.writeFileSync(path.join(liveProjectWorkspace, 'live.txt'), 'live project\n');
     fs.writeFileSync(path.join(externalWorkspace, 'reference.md'), 'external router reference\n');
     fs.symlinkSync(externalWorkspace, path.join(projectWorkspace, 'reference-link'));
@@ -134,7 +163,11 @@ async function run() {
     const agentManager = {
       configManager: {
         getSettings() {
-          return { workspaceHistory: [externalWorkspace], projectWorkspaces };
+          return {
+            workspaceHistory: [externalWorkspace],
+            projectWorkspaces,
+            agentHomes: { codex: [{ id: 'test-home', path: agentHomeWorkspace }] },
+          };
         },
       },
       getAgentWorkspaceRoot(agentId) {
@@ -147,6 +180,52 @@ async function run() {
             { id: 'agent-main', cwd: mainWorkspace, projectWorkspace, isMain: true },
             { id: 'agent-live', cwd: liveProjectWorkspace, projectWorkspace: liveProjectWorkspace, isMain: false },
           ],
+        };
+      },
+      async inspectProjectBranches(workspace) {
+        assert.strictEqual(workspace, branchInventory.workspace);
+        return branchInventory;
+      },
+      async switchProjectBranch(workspace, request) {
+        assert.strictEqual(workspace, branchInventory.workspace);
+        branchSwitchCalls += 1;
+        branchSwitchRequest = request;
+        if (request.branch === 'blocked') {
+          return {
+            inventory: {
+              ...branchInventory,
+              canSwitch: false,
+              blockedReason: 'Workspace has one uncommitted change',
+              blockedReasonCode: 'dirty-worktree',
+              dirtyCount: 1,
+            },
+            switched: false,
+            uncertain: false,
+            error: 'Workspace has one uncommitted change',
+          };
+        }
+        if (request.branch === 'uncertain') {
+          return {
+            switched: false,
+            uncertain: true,
+            error: 'Fresh Git state could not be inspected',
+          };
+        }
+        return {
+          inventory: {
+            ...branchInventory,
+            currentBranch: 'main',
+            head: 'b'.repeat(40),
+            items: branchInventory.items.map(item => ({
+              ...item,
+              current: item.name === 'main',
+              checkedOutWorkspace: item.name === 'main' ? branchInventory.workspace : '',
+            })),
+          },
+          switched: true,
+          uncertain: false,
+          previousBranch: 'feature/current',
+          previousHead: 'a'.repeat(40),
         };
       },
     };
@@ -195,6 +274,85 @@ async function run() {
       const branch = await fetchJson(baseUrl, '/api/files/branch?agentId=agent-main');
       assert.strictEqual(branch.response.status, 200);
       assert.strictEqual(branch.body.branch, '');
+      const branches = await fetchJson(baseUrl, '/api/files/branches?agentId=agent-main');
+      assert.strictEqual(branches.response.status, 200);
+      assert.deepStrictEqual(branches.body, branchInventory);
+      const switchedBranch = await fetchJson(baseUrl, '/api/files/switch-branch', {
+        method: 'POST',
+        body: JSON.stringify({
+          agentId: 'agent-main',
+          branch: 'main',
+          expectedBranch: 'feature/current',
+          expectedHead: 'a'.repeat(40),
+          requestId: 'file-router-switch-branch',
+        }),
+      });
+      assert.strictEqual(switchedBranch.response.status, 200);
+      assert.strictEqual(switchedBranch.body.switched, true);
+      assert.strictEqual(switchedBranch.body.uncertain, false);
+      assert.strictEqual(switchedBranch.body.currentBranch, 'main');
+      assert.strictEqual(switchedBranch.body.requestId, 'file-router-switch-branch');
+      assert.deepStrictEqual(branchSwitchRequest, {
+        branch: 'main',
+        expectedBranch: 'feature/current',
+        expectedHead: 'a'.repeat(40),
+        requestId: 'file-router-switch-branch',
+      });
+      const roots = await fetchJson(baseUrl, '/api/files/roots');
+      const agentHomeRoot = roots.body.roots.find(root => root.kind === 'agent-home');
+      assert(agentHomeRoot);
+      const branchSwitchCallsBeforeAgentHome = branchSwitchCalls;
+      const agentHomeBranchSwitch = await fetchJson(baseUrl, '/api/files/switch-branch', {
+        method: 'POST',
+        body: JSON.stringify({
+          rootId: agentHomeRoot.rootId,
+          branch: 'main',
+          expectedBranch: 'feature/current',
+          expectedHead: 'a'.repeat(40),
+          requestId: 'file-router-agent-home-switch',
+        }),
+      });
+      assert.strictEqual(agentHomeBranchSwitch.response.status, 403);
+      assert.strictEqual(branchSwitchCalls, branchSwitchCallsBeforeAgentHome);
+      const invalidBranchSwitch = await fetchJson(baseUrl, '/api/files/switch-branch', {
+        method: 'POST',
+        body: JSON.stringify({
+          agentId: 'agent-main',
+          branch: 'main',
+          expectedBranch: 'feature/current',
+          expectedHead: 'a'.repeat(40),
+          requestId: 'invalid request id',
+        }),
+      });
+      assert.strictEqual(invalidBranchSwitch.response.status, 400);
+      const blockedBranchSwitch = await fetchJson(baseUrl, '/api/files/switch-branch', {
+        method: 'POST',
+        body: JSON.stringify({
+          agentId: 'agent-main',
+          branch: 'blocked',
+          expectedBranch: 'feature/current',
+          expectedHead: 'a'.repeat(40),
+          requestId: 'file-router-switch-branch-blocked',
+        }),
+      });
+      assert.strictEqual(blockedBranchSwitch.response.status, 409);
+      assert.strictEqual(blockedBranchSwitch.body.switched, false);
+      assert.strictEqual(blockedBranchSwitch.body.uncertain, false);
+      assert.strictEqual(blockedBranchSwitch.body.blockedReasonCode, 'dirty-worktree');
+      const uncertainBranchSwitch = await fetchJson(baseUrl, '/api/files/switch-branch', {
+        method: 'POST',
+        body: JSON.stringify({
+          agentId: 'agent-main',
+          branch: 'uncertain',
+          expectedBranch: 'feature/current',
+          expectedHead: 'a'.repeat(40),
+          requestId: 'file-router-switch-branch-uncertain',
+        }),
+      });
+      assert.strictEqual(uncertainBranchSwitch.response.status, 504);
+      assert.strictEqual(uncertainBranchSwitch.body.switched, false);
+      assert.strictEqual(uncertainBranchSwitch.body.uncertain, true);
+      assert.strictEqual(uncertainBranchSwitch.body.currentBranch, undefined);
       const nonRepositoryWorktrees = await fetchJson(baseUrl, '/api/files/worktrees?agentId=agent-main');
       assert.strictEqual(nonRepositoryWorktrees.response.status, 200);
       assert.strictEqual(nonRepositoryWorktrees.body.worktrees.isGitRepo, false);

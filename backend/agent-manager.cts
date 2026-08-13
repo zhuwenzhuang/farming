@@ -235,6 +235,9 @@ import { MainAgentIdentityOwner } from './main-agent-identity-owner.cjs';
 import { AgentAdaptiveTitlePersistenceCoordinator } from './agent-adaptive-title-persistence.cjs';
 import {
   WorktreeGitService,
+  type LocalBranchInventory,
+  type LocalBranchSwitchRequest,
+  type LocalBranchSwitchResult,
   type TemporaryWorktreeIdentity,
   type WorktreeGitServicePort,
 } from './worktree-git-service.cjs';
@@ -559,6 +562,7 @@ const UNCERTAIN_TERMINAL_STOP_TIMEOUT_MS = 5_000;
 const TERMINAL_STOP_STATE_READ_TIMEOUT_MS = 1_000;
 const TERMINAL_STOP_POLL_MS = 50;
 const WORKTREE_DELETE_START_DRAIN_TIMEOUT_MS = 30_000;
+const WORKTREE_BRANCH_SWITCH_START_DRAIN_TIMEOUT_MS = 30_000;
 const TERMINAL_NOTIFICATION_COMPLETION_SUPPRESS_MS = 10_000;
 const SHELL_PROMPT_ENV_KEYS: string[] = [
   'PS1',
@@ -1226,6 +1230,10 @@ function projectOperationSignature(value: unknown) {
   return crypto.createHash('sha256')
     .update(JSON.stringify(stableJsonValue(value)))
     .digest('hex');
+}
+
+function workspacePathsOverlap(left: string, right: string): boolean {
+  return isSameOrDescendantPath(left, right) || isSameOrDescendantPath(right, left);
 }
 
 class AgentManager extends EventEmitter {
@@ -4844,12 +4852,12 @@ class AgentManager extends EventEmitter {
 
     const projectWorkspaceKey = canonicalWorkspacePath(projectWorkspace);
     this.startAdmissionCoordinator.setWorkspace(options.startAdmissionToken, projectWorkspaceKey);
-    const deletingProjectWorkspace = this.projectAdmissionCoordinator.findExclusiveKey(
+    const unavailableProjectWorkspace = this.projectAdmissionCoordinator.findExclusiveKey(
       projectWorkspaceKey,
-      isSameOrDescendantPath,
+      workspacePathsOverlap,
     );
-    if (deletingProjectWorkspace) {
-      if (callback) callback(null, `Project worktree is being deleted: ${projectWorkspace}`);
+    if (unavailableProjectWorkspace) {
+      if (callback) callback(null, `Project is temporarily unavailable: ${projectWorkspace}`);
       return null;
     }
     
@@ -7653,6 +7661,235 @@ class AgentManager extends EventEmitter {
     return this.worktreeGitService.resolveSourceRoot(sourceWorkspace);
   }
 
+  private localBranchInventoryWithProjectAdmissions(
+    inventory: LocalBranchInventory,
+    workspaceKey: string,
+  ): LocalBranchInventory {
+    const blockingAgentIds = Array.from(this.agents.values())
+      .filter((value: unknown): value is TypedAgentRecord => isRecord(value) && typeof value.id === 'string')
+      .filter(agent => !agent.isMain && !['dead', 'stopped'].includes(String(agent.status || '')))
+      .filter(agent => {
+        const agentWorkspace = canonicalWorkspacePath(
+          this.expandWorkspacePath(effectiveAgentWorkspaceRoot(agent)),
+        );
+        return Boolean(agentWorkspace && workspacePathsOverlap(workspaceKey, agentWorkspace));
+      })
+      .map(agent => agent.id)
+      .sort();
+    const pendingAgentStarts = this.startAdmissionCoordinator.pendingForWorkspace(
+      workspaceKey,
+      workspacePathsOverlap,
+    ).length;
+    let blockedReason = inventory.blockedReason;
+    let blockedReasonCode = inventory.blockedReasonCode;
+    if (blockingAgentIds.length > 0) {
+      blockedReason = `Project has ${blockingAgentIds.length} active Agent${blockingAgentIds.length === 1 ? '' : 's'}`;
+      blockedReasonCode = 'active-agents';
+    } else if (pendingAgentStarts > 0) {
+      blockedReason = 'Project has Agent starts in progress';
+      blockedReasonCode = 'pending-agent-starts';
+    }
+    return {
+      ...inventory,
+      blockingAgentIds,
+      canSwitch: inventory.canSwitch && !blockedReason,
+      blockedReason,
+      blockedReasonCode,
+    };
+  }
+
+  async inspectProjectBranches(workspace: string): Promise<LocalBranchInventory> {
+    const expanded = this.expandWorkspacePath(workspace);
+    const workspaceKey = canonicalWorkspacePath(expanded);
+    const inventory = await this.worktreeGitService.inspectLocalBranches(expanded);
+    return this.localBranchInventoryWithProjectAdmissions(inventory, workspaceKey);
+  }
+
+  switchProjectBranch(
+    workspace: string,
+    request: LocalBranchSwitchRequest & { requestId: string },
+  ): Promise<LocalBranchSwitchResult> {
+    const expanded = this.expandWorkspacePath(workspace);
+    const workspaceKey = canonicalWorkspacePath(expanded);
+    const requestId = String(request.requestId || '').trim();
+    const signature = projectOperationSignature({
+      branch: request.branch,
+      expectedBranch: request.expectedBranch,
+      expectedHead: request.expectedHead,
+      type: 'switch-branch',
+      workspace: workspaceKey,
+    });
+    return this.projectAdmissionCoordinator.runRequest(
+      requestId,
+      signature,
+      () => this.projectAdmissionCoordinator.runExclusive(
+        workspaceKey,
+        requestId,
+        () => this.switchProjectBranchAdmitted(expanded, request, signature),
+        workspacePathsOverlap,
+        signature,
+      ),
+    );
+  }
+
+  private async switchProjectBranchAdmitted(
+    workspace: string,
+    request: LocalBranchSwitchRequest & { requestId: string },
+    signature: string,
+  ): Promise<LocalBranchSwitchResult> {
+    await this.recoveryGate.wait();
+    const requestId = String(request.requestId || '').trim();
+    const existingOperation = requestId && typeof this.configManager?.getProjectOperation === 'function'
+      ? this.configManager.getProjectOperation(requestId)
+      : null;
+    if (
+      existingOperation
+      && (
+        existingOperation.type !== 'switch-branch'
+        || existingOperation.signature !== signature
+      )
+    ) {
+      throw new Error(`Project operation request ${requestId} was already used for different parameters`);
+    }
+    if (existingOperation && existingOperation.state !== 'pending') {
+      const stored = existingOperation.result as unknown as LocalBranchSwitchResult | null;
+      if (stored && typeof stored.switched === 'boolean' && typeof stored.uncertain === 'boolean') {
+        return stored;
+      }
+      return {
+        switched: false,
+        uncertain: true,
+        error: existingOperation.error || 'Branch switch has an uncertain outcome and will not be replayed automatically',
+      };
+    }
+    if (existingOperation?.state === 'pending') {
+      let inventory: LocalBranchInventory | undefined;
+      try {
+        inventory = await this.inspectProjectBranches(workspace);
+      } catch {
+        // A persisted pending intent is never replayed without an authoritative postcondition.
+      }
+      const target = inventory?.items.find(item => item.name === request.branch);
+      const recovered: LocalBranchSwitchResult = (
+        inventory
+        && inventory.currentBranch === request.branch
+        && inventory.head
+        && target?.head === inventory.head
+      )
+        ? {
+          inventory,
+          switched: true,
+          uncertain: false,
+          previousBranch: request.expectedBranch,
+          previousHead: request.expectedHead,
+        }
+        : {
+          ...(inventory ? { inventory } : {}),
+          switched: false,
+          uncertain: true,
+          error: 'Branch switch has an uncertain outcome and will not be replayed automatically',
+        };
+      try {
+        this.commitPersistentProjectOperation(
+          existingOperation,
+          recovered.switched ? 'succeeded' : 'unknown',
+          JSON.parse(JSON.stringify(recovered)) as ProjectOperationResult,
+          recovered.error || '',
+        );
+      } catch {
+        // The existing pending intent still prevents blind replay on the next delivery.
+      }
+      return recovered;
+    }
+    const admission = this.persistentProjectOperation(requestId, 'switch-branch', signature, {
+      workspace: canonicalWorkspacePath(this.expandWorkspacePath(workspace)),
+      branch: request.branch,
+      expectedBranch: request.expectedBranch,
+      expectedHead: request.expectedHead,
+    });
+    if ('error' in admission) {
+      return { switched: false, uncertain: false, error: admission.error };
+    }
+    const operation = admission.operation || null;
+    const result = await this.switchProjectBranchMutationAdmitted(workspace, request);
+    if (operation) {
+      try {
+        this.commitPersistentProjectOperation(
+          operation,
+          result.uncertain ? 'unknown' : result.switched ? 'succeeded' : 'failed',
+          JSON.parse(JSON.stringify(result)) as ProjectOperationResult,
+          result.error || '',
+        );
+      } catch {
+        // The pending intent remains durable; a later delivery reconciles without replay.
+      }
+    }
+    return result;
+  }
+
+  private async switchProjectBranchMutationAdmitted(
+    workspace: string,
+    request: LocalBranchSwitchRequest & { requestId: string },
+  ): Promise<LocalBranchSwitchResult> {
+    await this.recoveryGate.wait();
+    const workspaceKey = canonicalWorkspacePath(this.expandWorkspacePath(workspace));
+    const relatedStarts = this.startAdmissionCoordinator.pendingForWorkspace(
+      workspaceKey,
+      workspacePathsOverlap,
+    );
+    try {
+      await withBoundedWait(
+        Promise.allSettled(relatedStarts),
+        WORKTREE_BRANCH_SWITCH_START_DRAIN_TIMEOUT_MS,
+        `Project ${workspaceKey} Agent start drain`,
+      );
+    } catch (caught) {
+      const error = caught as ErrorRecord;
+      let inventory: LocalBranchInventory | undefined;
+      try {
+        inventory = await this.inspectProjectBranches(workspace);
+      } catch {
+        // The drain failed before a Git mutation; inventory is best-effort diagnostic context.
+      }
+      return {
+        ...(inventory ? { inventory } : {}),
+        switched: false,
+        uncertain: false,
+        error: error.message || 'Agent start drain failed',
+      };
+    }
+    let inventory: LocalBranchInventory;
+    try {
+      inventory = await this.inspectProjectBranches(workspace);
+    } catch (caught) {
+      const error = caught as ErrorRecord;
+      return {
+        switched: false,
+        uncertain: false,
+        error: error.message || 'Fresh branch state could not be inspected',
+      };
+    }
+    if (inventory.blockedReasonCode === 'active-agents' || inventory.blockedReasonCode === 'pending-agent-starts') {
+      return {
+        inventory,
+        switched: false,
+        uncertain: false,
+        error: inventory.blockedReason,
+      };
+    }
+    try {
+      return await this.worktreeGitService.switchLocalBranch(workspace, request);
+    } catch (caught) {
+      const error = caught as ErrorRecord;
+      return {
+        inventory,
+        switched: false,
+        uncertain: false,
+        error: error.message || 'Fresh branch state could not be inspected',
+      };
+    }
+  }
+
   async createForkWorktreeIdentity(
     workspace: string,
     beforeEffect?: (identity: TemporaryWorktreeIdentity) => Promise<void> | void,
@@ -7909,14 +8146,14 @@ class AgentManager extends EventEmitter {
   }
 
   agentsForProjectWorkspace(workspace: string): TypedAgentRecord[] {
-    const resolvedWorkspace = path.resolve(workspace);
+    const resolvedWorkspace = canonicalWorkspacePath(workspace);
     return Array.from(this.agents.values())
       .filter((value: unknown): value is TypedAgentRecord => isRecord(value) && typeof value.id === 'string')
       .filter((agent: TypedAgentRecord) => {
       if (!agent || agent.isMain) return false;
       const agentWorkspace = this.expandWorkspacePath(effectiveAgentWorkspaceRoot(agent));
       if (!agentWorkspace) return false;
-      return path.resolve(agentWorkspace) === resolvedWorkspace;
+      return canonicalWorkspacePath(agentWorkspace) === resolvedWorkspace;
       });
   }
 
@@ -7926,10 +8163,17 @@ class AgentManager extends EventEmitter {
   ): Promise<DeleteProjectWorktreeResult | UnknownRecord> {
     const workspaceKey = canonicalWorkspacePath(this.expandWorkspacePath(workspace));
     const requestId = String(options.requestId || '').trim();
+    const signature = projectOperationSignature({
+      force: options.force === true,
+      type: 'delete-worktree',
+      workspace: workspaceKey,
+    });
     return this.projectAdmissionCoordinator.runExclusive(
       workspaceKey,
       requestId,
       () => this.deleteForkWorktreeProjectAdmitted(workspace, options),
+      workspacePathsOverlap,
+      signature,
     );
   }
 

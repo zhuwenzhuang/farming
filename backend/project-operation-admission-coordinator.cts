@@ -6,6 +6,7 @@ type ProjectRequestAdmission<Result> = {
 };
 
 type ProjectExclusiveAdmission<Result> = {
+  operationKey: string;
   promise: Promise<Result>;
   requestId: string;
 };
@@ -40,17 +41,26 @@ class ProjectOperationAdmissionCoordinator {
     key: string,
     requestId: string,
     operation: () => Promise<Result>,
+    matches: (left: string, right: string) => boolean = (left, right) => left === right,
+    operationKey: string = requestId,
   ): Promise<Result> {
     if (!key) return operation();
-    const current = this.exclusive.get(key) as ProjectExclusiveAdmission<Result> | undefined;
+    const currentEntry = [...this.exclusive.entries()]
+      .find(([currentKey]) => matches(currentKey, key));
+    const current = currentEntry?.[1] as ProjectExclusiveAdmission<Result> | undefined;
     if (current) {
-      if (requestId && current.requestId === requestId) return current.promise;
+      if (requestId && current.requestId === requestId) {
+        if (current.operationKey === operationKey) return current.promise;
+        return Promise.reject(
+          new Error(`Project operation request ${requestId} was already used for different parameters`),
+        );
+      }
       return current.promise
         .catch(() => {})
-        .then(() => this.runExclusive(key, requestId, operation));
+        .then(() => this.runExclusive(key, requestId, operation, matches, operationKey));
     }
     const promise = operation();
-    const admission: ProjectExclusiveAdmission<Result> = { requestId, promise };
+    const admission: ProjectExclusiveAdmission<Result> = { operationKey, requestId, promise };
     this.exclusive.set(key, admission);
     void promise.finally(() => {
       if (this.exclusive.get(key) === admission) this.exclusive.delete(key);

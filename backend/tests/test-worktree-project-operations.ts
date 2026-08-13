@@ -38,6 +38,227 @@ async function run() {
   });
   try {
     await manager.recoveryGate.wait();
+    const initialBranch = git(repository, 'branch', '--show-current');
+    const initialHead = git(repository, 'rev-parse', 'HEAD');
+    git(repository, 'branch', 'branch-switch-target');
+
+    manager.agents.set('branch-switch-active-agent', {
+      id: 'branch-switch-active-agent',
+      command: 'codex',
+      cwd: repository,
+      projectWorkspace: repository,
+      isMain: false,
+      status: 'running',
+    });
+    manager.agents.set('branch-switch-ancestor-active-agent', {
+      id: 'branch-switch-ancestor-active-agent',
+      command: 'codex',
+      cwd: root,
+      projectWorkspace: root,
+      isMain: false,
+      status: 'running',
+    });
+    fs.mkdirSync(path.join(repository, 'nested-agent'));
+    manager.agents.set('branch-switch-nested-active-agent', {
+      id: 'branch-switch-nested-active-agent',
+      command: 'codex',
+      cwd: path.join(repository, 'nested-agent'),
+      projectWorkspace: path.join(repository, 'nested-agent'),
+      isMain: false,
+      status: 'pending',
+    });
+    const activeAgentInventory = await manager.inspectProjectBranches(repository);
+    assert.strictEqual(activeAgentInventory.canSwitch, false);
+    assert.strictEqual(activeAgentInventory.blockedReasonCode, 'active-agents');
+    assert.deepStrictEqual(activeAgentInventory.blockingAgentIds, [
+      'branch-switch-active-agent',
+      'branch-switch-ancestor-active-agent',
+      'branch-switch-nested-active-agent',
+    ]);
+    const blockedByActiveAgent = await manager.switchProjectBranch(repository, {
+      branch: 'branch-switch-target',
+      expectedBranch: initialBranch,
+      expectedHead: initialHead,
+      requestId: 'branch-switch-active-agent-block',
+    });
+    assert.strictEqual(blockedByActiveAgent.switched, false);
+    assert.strictEqual(blockedByActiveAgent.uncertain, false);
+    assert.strictEqual(
+      configManager.getProjectOperation('branch-switch-active-agent-block').state,
+      'failed',
+      'deterministic guards must not consume the unresolved operation quota',
+    );
+    assert.strictEqual(git(repository, 'branch', '--show-current'), initialBranch);
+    manager.agents.delete('branch-switch-active-agent');
+    manager.agents.delete('branch-switch-ancestor-active-agent');
+    manager.agents.delete('branch-switch-nested-active-agent');
+    manager.agents.set('branch-switch-stopped-agent', {
+      id: 'branch-switch-stopped-agent',
+      command: 'codex',
+      cwd: repository,
+      projectWorkspace: repository,
+      isMain: false,
+      status: 'stopped',
+    });
+    const stoppedAgentInventory = await manager.inspectProjectBranches(repository);
+    assert.strictEqual(stoppedAgentInventory.canSwitch, true);
+    assert.deepStrictEqual(stoppedAgentInventory.blockingAgentIds, []);
+    manager.agents.delete('branch-switch-stopped-agent');
+
+    let releasePendingStart: (() => void) | null = null;
+    let pendingStartEntered: (() => void) | null = null;
+    const pendingStartGate = new Promise<void>(resolve => { releasePendingStart = resolve; });
+    const pendingStartReady = new Promise<void>(resolve => { pendingStartEntered = resolve; });
+    const pendingStart = manager.startAdmissionCoordinator.start({
+      requestId: 'branch-switch-pending-start',
+      signature: 'branch-switch-pending-start',
+      workspaceKey: root,
+      execute: async () => {
+        pendingStartEntered?.();
+        await pendingStartGate;
+        manager.agents.set('branch-switch-pending-agent', {
+          id: 'branch-switch-pending-agent',
+          command: 'codex',
+          cwd: root,
+          projectWorkspace: root,
+          isMain: false,
+          status: 'running',
+        });
+        return 'branch-switch-pending-agent';
+      },
+    });
+    await pendingStartReady;
+    let pendingSwitchSettled = false;
+    const blockedByPendingStartPromise = manager.switchProjectBranch(repository, {
+      branch: 'branch-switch-target',
+      expectedBranch: initialBranch,
+      expectedHead: initialHead,
+      requestId: 'branch-switch-pending-start-block',
+    }).finally(() => { pendingSwitchSettled = true; });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.strictEqual(pendingSwitchSettled, false, 'branch switching must drain an admitted Agent start');
+    releasePendingStart?.();
+    await pendingStart;
+    const blockedByPendingStart = await blockedByPendingStartPromise;
+    assert.strictEqual(blockedByPendingStart.switched, false);
+    assert.strictEqual(blockedByPendingStart.uncertain, false);
+    assert.strictEqual(blockedByPendingStart.inventory?.blockedReasonCode, 'active-agents');
+    assert.deepStrictEqual(blockedByPendingStart.inventory?.blockingAgentIds, ['branch-switch-pending-agent']);
+    assert.strictEqual(git(repository, 'branch', '--show-current'), initialBranch);
+    manager.agents.delete('branch-switch-pending-agent');
+
+    const originalSwitchLocalBranch = manager.worktreeGitService.switchLocalBranch.bind(manager.worktreeGitService);
+    let releaseExclusiveSwitch: (() => void) | null = null;
+    let exclusiveSwitchEntered: (() => void) | null = null;
+    const exclusiveSwitchGate = new Promise<void>(resolve => { releaseExclusiveSwitch = resolve; });
+    const exclusiveSwitchReady = new Promise<void>(resolve => { exclusiveSwitchEntered = resolve; });
+    manager.worktreeGitService.switchLocalBranch = async () => {
+      exclusiveSwitchEntered?.();
+      await exclusiveSwitchGate;
+      return {
+        switched: false,
+        uncertain: false,
+        error: 'synthetic held branch switch',
+      };
+    };
+    const heldSwitch = manager.switchProjectBranch(repository, {
+      branch: 'branch-switch-target',
+      expectedBranch: initialBranch,
+      expectedHead: initialHead,
+      requestId: 'branch-switch-exclusive-start-race',
+    });
+    await exclusiveSwitchReady;
+    let rejectedAncestorStartError = '';
+    const rejectedAncestorStart = await manager.startAgent('bash', root, (_agentId, error) => {
+      rejectedAncestorStartError = error || '';
+    }, { wantsMain: false });
+    assert.strictEqual(rejectedAncestorStart, null);
+    assert.match(rejectedAncestorStartError, /Project is temporarily unavailable/);
+    releaseExclusiveSwitch?.();
+    const heldSwitchResult = await heldSwitch;
+    assert.strictEqual(heldSwitchResult.switched, false);
+    assert.strictEqual(heldSwitchResult.uncertain, false);
+    manager.worktreeGitService.switchLocalBranch = originalSwitchLocalBranch;
+
+    let uncertainSwitchCalls = 0;
+    manager.worktreeGitService.switchLocalBranch = async () => {
+      uncertainSwitchCalls += 1;
+      return {
+        switched: false,
+        uncertain: true,
+        error: 'synthetic uncertain branch switch',
+      };
+    };
+    const uncertainSwitchRequest = {
+      branch: 'branch-switch-target',
+      expectedBranch: initialBranch,
+      expectedHead: initialHead,
+      requestId: 'branch-switch-uncertain-replay',
+    };
+    const uncertainBranchSwitch = await manager.switchProjectBranch(repository, uncertainSwitchRequest);
+    assert.strictEqual(uncertainBranchSwitch.uncertain, true);
+    assert.strictEqual(
+      configManager.getProjectOperation(uncertainSwitchRequest.requestId).state,
+      'unknown',
+      'an uncertain response must remain a non-evictable no-replay tombstone',
+    );
+    for (let index = 0; index < 40; index += 1) {
+      configManager.commitProjectOperation({
+        id: `branch-switch-terminal-pressure-${index}`,
+        type: 'switch-branch',
+        state: 'failed',
+        signature: `branch-switch-terminal-pressure-${index}`,
+        request: { workspace: repository, branch: initialBranch },
+        result: { switched: false, uncertain: false },
+        error: 'synthetic terminal pressure',
+        startedAt: index + 1,
+        updatedAt: index + 1,
+        finishedAt: index + 1,
+      });
+    }
+    assert.strictEqual(
+      configManager.getProjectOperation(uncertainSwitchRequest.requestId).state,
+      'unknown',
+      'terminal operation retention pressure must not evict an uncertain no-replay tombstone',
+    );
+    const replayedUncertainBranchSwitch = await manager.switchProjectBranch(repository, uncertainSwitchRequest);
+    assert.deepStrictEqual(replayedUncertainBranchSwitch, uncertainBranchSwitch);
+    assert.strictEqual(uncertainSwitchCalls, 1, 'a settled uncertain branch switch must never replay Git mutation');
+    await assert.rejects(
+      manager.switchProjectBranch(repository, {
+        ...uncertainSwitchRequest,
+        branch: initialBranch,
+      }),
+      /different parameters/,
+    );
+    manager.worktreeGitService.switchLocalBranch = originalSwitchLocalBranch;
+
+    const switchedBranch = await manager.switchProjectBranch(repository, {
+      branch: 'branch-switch-target',
+      expectedBranch: initialBranch,
+      expectedHead: initialHead,
+      requestId: 'branch-switch-success',
+    });
+    assert.strictEqual(switchedBranch.switched, true);
+    assert.strictEqual(switchedBranch.uncertain, false);
+    assert.strictEqual(switchedBranch.inventory?.currentBranch, 'branch-switch-target');
+    assert.strictEqual(switchedBranch.inventory?.head, git(repository, 'rev-parse', 'HEAD'));
+    assert.strictEqual(git(repository, 'branch', '--show-current'), 'branch-switch-target');
+    assert.strictEqual(configManager.getProjectOperation('branch-switch-success').state, 'succeeded');
+    git(repository, 'switch', initialBranch);
+    const replayedSwitchedBranch = await manager.switchProjectBranch(repository, {
+      branch: 'branch-switch-target',
+      expectedBranch: initialBranch,
+      expectedHead: initialHead,
+      requestId: 'branch-switch-success',
+    });
+    assert.deepStrictEqual(replayedSwitchedBranch, switchedBranch);
+    assert.strictEqual(
+      git(repository, 'branch', '--show-current'),
+      initialBranch,
+      'a settled successful request must return its stored result without another Git mutation',
+    );
+
     const createRequestId = 'create-worktree-request-1';
     const created = await manager.createPermanentWorktree(repository, { requestId: createRequestId });
     assert.strictEqual(fs.existsSync(created.workspace), true);
@@ -107,11 +328,14 @@ async function run() {
       releaseTemporaryWorktreeReservation: identity => realWorktreeGitService.releaseTemporaryWorktreeReservation(identity),
       deleteWorktree: (identity, force) => realWorktreeGitService.deleteWorktree(identity, force),
       inspectForkWorktree: workspace => realWorktreeGitService.inspectForkWorktree(workspace),
+      inspectLocalBranches: workspace => realWorktreeGitService.inspectLocalBranches(workspace),
       inspectPostcondition: async () => branchMissingPostcondition,
       listWorktrees: sourceWorkspace => realWorktreeGitService.listWorktrees(sourceWorkspace),
       releasePermanentWorktreeReservation() {},
       resolveSourceRoot: workspace => realWorktreeGitService.resolveSourceRoot(workspace),
       rollbackPermanentWorktree: identity => realWorktreeGitService.rollbackPermanentWorktree(identity),
+      rollbackTemporaryWorktree: identity => realWorktreeGitService.rollbackTemporaryWorktree(identity),
+      switchLocalBranch: (workspace, request) => realWorktreeGitService.switchLocalBranch(workspace, request),
     };
     try {
       await assert.rejects(
@@ -271,6 +495,7 @@ async function run() {
         };
       },
       inspectForkWorktree: workspace => serviceBeforeTimeout.inspectForkWorktree(workspace),
+      inspectLocalBranches: workspace => serviceBeforeTimeout.inspectLocalBranches(workspace),
       inspectPostcondition: (sourceWorkspace, workspace, branch) => (
         serviceBeforeTimeout.inspectPostcondition(sourceWorkspace, workspace, branch)
       ),
@@ -278,6 +503,8 @@ async function run() {
       releasePermanentWorktreeReservation: identity => serviceBeforeTimeout.releasePermanentWorktreeReservation(identity),
       resolveSourceRoot: workspace => serviceBeforeTimeout.resolveSourceRoot(workspace),
       rollbackPermanentWorktree: identity => serviceBeforeTimeout.rollbackPermanentWorktree(identity),
+      rollbackTemporaryWorktree: identity => serviceBeforeTimeout.rollbackTemporaryWorktree(identity),
+      switchLocalBranch: (workspace, request) => serviceBeforeTimeout.switchLocalBranch(workspace, request),
     };
     const uncertainDelete = await manager.deleteForkWorktreeProject(uncertainWorkspace, {
       force: true,

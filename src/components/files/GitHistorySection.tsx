@@ -25,6 +25,7 @@ interface GitHistorySectionProps {
   copy: CodeCopy
   projectId: string
   projectWorkspace: string
+  refreshToken?: number
 }
 
 function commitTimestamp(timestamp?: number) {
@@ -54,7 +55,13 @@ function commitMessageBody(commit: WorkspaceGitHistoryItem) {
   return message
 }
 
-export function GitHistorySection({ agentId, copy, projectId, projectWorkspace }: GitHistorySectionProps) {
+export function GitHistorySection({
+  agentId,
+  copy,
+  projectId,
+  projectWorkspace,
+  refreshToken = 0,
+}: GitHistorySectionProps) {
   const [collapsed, setCollapsed] = useState(true)
   const [history, setHistory] = useState<WorkspaceGitHistory | null>(null)
   const [historyScope, setHistoryScope] = useState<WorkspaceGitHistory['scope']>('current')
@@ -72,6 +79,7 @@ export function GitHistorySection({ agentId, copy, projectId, projectWorkspace }
   const changesCacheRef = useRef(new Map<string, WorkspaceGitHistoryChanges>())
   const scopeButtonRef = useRef<HTMLButtonElement | null>(null)
   const scopeMenuRef = useRef<HTMLDivElement | null>(null)
+  const externalRefreshTokenRef = useRef(0)
 
   const resetSelection = useCallback(() => {
     changesRequestRef.current?.abort()
@@ -148,6 +156,22 @@ export function GitHistorySection({ agentId, copy, projectId, projectWorkspace }
       }
     }
   }, [agentId, historyScope])
+
+  useEffect(() => {
+    if (!refreshToken || refreshToken === externalRefreshTokenRef.current) return
+    externalRefreshTokenRef.current = refreshToken
+    historyRequestRef.current?.abort()
+    historyRequestRef.current = null
+    changesCacheRef.current.clear()
+    resetSelection()
+    if (collapsed) {
+      setHistory(null)
+      setHistoryLoading(false)
+      setHistoryError('')
+      return
+    }
+    void loadHistoryPage(0, true)
+  }, [collapsed, loadHistoryPage, refreshToken, resetSelection])
 
   const loadCommitChanges = useCallback(async (commit: WorkspaceGitHistoryItem, parent: string) => {
     const cacheKey = `${commit.id}:${parent || 'root'}`

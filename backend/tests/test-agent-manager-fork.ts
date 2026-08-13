@@ -191,7 +191,10 @@ async function run() {
     const cleanDeletePromise = manager.deleteForkWorktreeProject(cleanWorktree.workspace);
     const rejectedStart = await startAgent(manager, 'bash', cleanWorktree.workspace, { wantsMain: false })
       .then(() => null, error => error);
-    assert.match(rejectedStart?.message || '', /worktree is being deleted/);
+    assert.match(rejectedStart?.message || '', /Project is temporarily unavailable/);
+    const rejectedAncestorStart = await startAgent(manager, 'bash', tmpRoot, { wantsMain: false })
+      .then(() => null, error => error);
+    assert.match(rejectedAncestorStart?.message || '', /Project is temporarily unavailable/);
     releaseBlockedStart();
     const admittedAgentId = await admittedStart;
     const cleanDelete = await cleanDeletePromise;

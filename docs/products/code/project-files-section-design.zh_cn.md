@@ -142,6 +142,15 @@ Review Identity。这是两种不同交互层级，不能挤进同一个狭窄 S
 Git Operation 使用确定、Path-safe Input；Truncation 或 Timeout 作为可见 Partial Result，
 不能被解释成 Clean Workspace。
 
+现有 Project Worktree Control 保持 Project Row 紧凑，并在 Popover 内承载两个明确操作：
+打开一个已注册 Worktree，以及把当前仓库主 Worktree 切换到已有 Local Branch。Worktree Row
+绝不暗示 Branch Switch。切换分支前，Server 必须 Fresh Read 并证明目标是同一个主
+Worktree、Workspace 为 Clean、目标 Branch 没有被其他 Worktree 检出，且该 Workspace
+没有 Live Farming Agent。该操作不会自动 Fetch、创建 Tracking Branch、Stash 或 Force。
+Server 将 Mutation 与其他 Project Operation 串行化，用 Expected Branch 与 HEAD 防止并发
+变化，并在 Timeout 或 Command Failure 后读取权威 Branch 对账，绝不自动重放切换。Blocked
+与 Uncertain Outcome 在 Popover 中保持可见；成功后刷新 Worktree、Files、Changes 与 History。
+
 Blame Annotation 使用有界 Git Porcelain Output，并保持 Commit Detail 可交互。能够安全映射
 Remote 时，Commit Hash 链接到 Repository Web View；符合账号形式的 GitLab Author 链接到
 同一 Remote Host 上的 Profile，含义不明确的 Display Name 保持普通文本；Commit Message 中的

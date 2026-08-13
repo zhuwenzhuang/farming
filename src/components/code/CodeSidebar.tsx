@@ -28,9 +28,15 @@ import type {
   UsageSummary,
 } from '@/types/agent'
 import {
+  fetchWorkspaceGitBranches,
   fetchWorkspaceGitWorktrees,
+  switchWorkspaceGitBranch,
+  WorkspaceFileApiError,
   type WorkspaceFileDeleteResult,
   type WorkspaceFileMove,
+  type WorkspaceGitBranch,
+  type WorkspaceGitBranches,
+  type WorkspaceGitBranchSwitchResult,
   type WorkspaceGitWorktree,
   type WorkspaceGitWorktrees,
 } from '@/lib/workspace-files'
@@ -126,6 +132,8 @@ type ProjectPreviewTarget = {
   worktreeCount: number
   pinned: boolean
 }
+
+const BRANCH_SWITCH_CLIENT_TIMEOUT_MS = 150_000
 
 function previewAgentIconNameForAgent(agent: Agent): AgentIconName | undefined {
   return agentIconName(agent.providerSessionProvider) || agentIconNameFromCommand(agent.command)
@@ -1318,9 +1326,12 @@ interface ProjectWorktreePopoverProps {
   anchorRef: RefObject<HTMLButtonElement | null>
   copy: CodeCopy
   fallback: WorkspaceGitWorktrees
+  hasDirtyEditors: boolean
   point: { x: number; y: number }
   onClose: () => void
   onMountProject: (workspace: string) => void
+  onRepositoryWorktreesChange: (worktrees: WorkspaceGitWorktrees) => void
+  onBranchSwitched: () => void
 }
 
 function worktreeDisplayName(item: WorkspaceGitWorktree, copy: CodeCopy) {
@@ -1329,46 +1340,196 @@ function worktreeDisplayName(item: WorkspaceGitWorktree, copy: CodeCopy) {
   return item.bare ? 'bare' : item.head.slice(0, 7)
 }
 
+function branchSwitchRequestId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `branch-switch-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+function branchBlockedMessage(branches: WorkspaceGitBranches, copy: CodeCopy) {
+  switch (branches.blockedReasonCode) {
+    case 'not-git-repository':
+      return copy.gitHistoryNotRepository
+    case 'not-main-worktree':
+      return copy.branchBlockedNotMainWorktree
+    case 'dirty-worktree':
+      return copy.branchBlockedDirtyWorktree(branches.dirtyCount)
+    case 'active-agents':
+      return copy.branchBlockedActiveAgents
+    case 'pending-agent-starts':
+      return copy.branchBlockedPendingStarts
+    case 'no-switchable-branch':
+      return copy.branchBlockedNoSwitchableBranch
+    default:
+      return branches.blockedReason
+  }
+}
+
+function branchSwitchErrorDetails(error: unknown) {
+  if (!(error instanceof WorkspaceFileApiError) || !error.details || typeof error.details !== 'object') {
+    return null
+  }
+  return error.details as Partial<WorkspaceGitBranchSwitchResult>
+}
+
 export function ProjectWorktreePopover({
   agentId,
   anchorRef,
   copy,
   fallback,
+  hasDirtyEditors,
   point,
   onClose,
   onMountProject,
+  onRepositoryWorktreesChange,
+  onBranchSwitched,
 }: ProjectWorktreePopoverProps) {
   const popoverRef = useRef<HTMLDivElement | null>(null)
   const requestControllerRef = useRef<AbortController | null>(null)
+  const switchControllerRef = useRef<AbortController | null>(null)
+  const requestGenerationRef = useRef(0)
+  const mountedRef = useRef(true)
   const [worktrees, setWorktrees] = useState(fallback)
+  const [branches, setBranches] = useState<WorkspaceGitBranches | null>(null)
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  const [worktreeError, setWorktreeError] = useState('')
+  const [branchError, setBranchError] = useState('')
+  const [branchStatus, setBranchStatus] = useState<{ kind: 'success' | 'error'; message: string } | null>(null)
+  const [branchInventoryTrusted, setBranchInventoryTrusted] = useState(false)
+  const [switchingBranch, setSwitchingBranch] = useState('')
 
-  const loadWorktrees = useCallback(() => {
+  const loadRepositoryState = useCallback(() => {
+    const generation = requestGenerationRef.current + 1
+    requestGenerationRef.current = generation
     requestControllerRef.current?.abort()
     const controller = new AbortController()
     requestControllerRef.current = controller
     setLoading(true)
-    setError('')
-    void fetchWorkspaceGitWorktrees(agentId, { signal: controller.signal })
-      .then(result => {
-        if (!controller.signal.aborted) setWorktrees(result)
-      })
-      .catch(loadError => {
-        if (controller.signal.aborted || loadError?.name === 'AbortError') return
-        setError(copy.worktreeLoadFailed)
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false)
-      })
-  }, [agentId, copy.worktreeLoadFailed])
+    setWorktreeError('')
+    setBranchError('')
+    setBranchStatus(null)
+    setBranchInventoryTrusted(false)
+    setBranches(null)
+    void Promise.allSettled([
+      fetchWorkspaceGitWorktrees(agentId, { signal: controller.signal }),
+      fetchWorkspaceGitBranches(agentId, { signal: controller.signal }),
+    ]).then(([worktreeResult, branchResult]) => {
+      if (controller.signal.aborted || requestGenerationRef.current !== generation) return
+      if (worktreeResult.status === 'fulfilled') {
+        setWorktrees(worktreeResult.value)
+        onRepositoryWorktreesChange(worktreeResult.value)
+      } else {
+        setWorktreeError(copy.worktreeLoadFailed)
+      }
+      if (branchResult.status === 'fulfilled') {
+        setBranches(branchResult.value)
+        setBranchInventoryTrusted(true)
+      } else {
+        setBranchError(copy.branchLoadFailed)
+      }
+    }).finally(() => {
+      if (!controller.signal.aborted && requestGenerationRef.current === generation) setLoading(false)
+    })
+  }, [agentId, copy.branchLoadFailed, copy.worktreeLoadFailed, onRepositoryWorktreesChange])
 
   useEffect(() => {
-    loadWorktrees()
-    return () => requestControllerRef.current?.abort()
-  }, [loadWorktrees])
+    mountedRef.current = true
+    loadRepositoryState()
+    return () => {
+      mountedRef.current = false
+      requestGenerationRef.current += 1
+      requestControllerRef.current?.abort()
+      switchControllerRef.current?.abort()
+    }
+  }, [loadRepositoryState])
 
-  useDismissiblePopover(true, popoverRef, anchorRef, onClose)
+  useDismissiblePopover(!switchingBranch, popoverRef, anchorRef, onClose)
+
+  const switchBranch = async (item: WorkspaceGitBranch) => {
+    if (!branches || !branchInventoryTrusted || switchingBranch || item.current || !branches.canSwitch || hasDirtyEditors) return
+    if (item.checkedOutWorkspace && item.checkedOutWorkspace !== branches.workspace) return
+    const generation = requestGenerationRef.current + 1
+    requestGenerationRef.current = generation
+    requestControllerRef.current?.abort()
+    switchControllerRef.current?.abort()
+    const controller = new AbortController()
+    switchControllerRef.current = controller
+    const timeoutId = window.setTimeout(() => controller.abort(), BRANCH_SWITCH_CLIENT_TIMEOUT_MS)
+    setSwitchingBranch(item.name)
+    setBranchError('')
+    setBranchStatus(null)
+    try {
+      const result = await switchWorkspaceGitBranch(
+        agentId,
+        item.name,
+        branches.currentBranch,
+        branches.head,
+        branchSwitchRequestId(),
+        { signal: controller.signal },
+      )
+      if (mountedRef.current && requestGenerationRef.current === generation) {
+        setBranches(result)
+        setBranchInventoryTrusted(true)
+        setBranchStatus({ kind: 'success', message: copy.branchSwitchSucceeded(item.name) })
+      }
+      try {
+        const nextWorktrees = await fetchWorkspaceGitWorktrees(agentId, { signal: controller.signal })
+        if (mountedRef.current && requestGenerationRef.current === generation) {
+          setWorktrees(nextWorktrees)
+          onRepositoryWorktreesChange(nextWorktrees)
+        }
+      } catch {
+        if (mountedRef.current) setWorktreeError(copy.worktreeLoadFailed)
+      }
+      if (mountedRef.current && requestGenerationRef.current === generation) onBranchSwitched()
+    } catch (error) {
+      const details = branchSwitchErrorDetails(error)
+      const hasFreshInventory = Boolean(
+        details?.items
+        && typeof details.currentBranch === 'string'
+        && typeof details.head === 'string',
+      )
+      const uncertain = controller.signal.aborted || details?.uncertain === true || !hasFreshInventory
+      if (hasFreshInventory && mountedRef.current && requestGenerationRef.current === generation) {
+        setBranches(details as WorkspaceGitBranches)
+      }
+      if (mountedRef.current && requestGenerationRef.current === generation) {
+        setBranchInventoryTrusted(!uncertain)
+        if (!uncertain && details?.blockedReasonCode) {
+          setBranchStatus(null)
+        } else {
+          const stateChanged = Boolean(
+            hasFreshInventory
+            && details
+            && typeof details.currentBranch === 'string'
+            && typeof details.head === 'string'
+            && (
+              details.currentBranch !== branches.currentBranch
+              || details.head !== branches.head
+            ),
+          )
+          const target = details?.items?.find(branch => branch.name === item.name)
+          const occupiedWorkspace = target?.checkedOutWorkspace
+            && target.checkedOutWorkspace !== details?.workspace
+            ? target.checkedOutWorkspace
+            : ''
+          const message = uncertain
+            ? copy.branchSwitchUncertain
+            : stateChanged
+              ? copy.branchStateChanged
+              : occupiedWorkspace
+                ? copy.branchCheckedOutElsewhere(occupiedWorkspace)
+                : error instanceof Error ? error.message : copy.branchSwitchFailed
+          setBranchStatus({ kind: 'error', message })
+        }
+      }
+    } finally {
+      window.clearTimeout(timeoutId)
+      if (switchControllerRef.current === controller) switchControllerRef.current = null
+      if (mountedRef.current && requestGenerationRef.current === generation) setSwitchingBranch('')
+    }
+  }
 
   return (
     <div
@@ -1385,14 +1546,14 @@ export function ProjectWorktreePopover({
         <button
           type="button"
           className={loading ? 'loading' : ''}
-          disabled={loading}
-          onClick={loadWorktrees}
+          disabled={loading || Boolean(switchingBranch)}
+          onClick={loadRepositoryState}
         >
           {copy.refresh}
         </button>
       </div>
-      {error && <div className="code-worktree-popover-status error">{error}</div>}
-      {!error && !worktrees.isGitRepo && (
+      {worktreeError && <div className="code-worktree-popover-status error">{worktreeError}</div>}
+      {!worktreeError && !worktrees.isGitRepo && (
         <div className="code-worktree-popover-status">{copy.gitHistoryNotRepository}</div>
       )}
       <div className="code-worktree-list">
@@ -1426,6 +1587,76 @@ export function ProjectWorktreePopover({
           </button>
         ))}
       </div>
+      {(branches?.isGitRepo || branchError) && (
+        <section className="code-branch-section" aria-label={copy.branches}>
+          <div className="code-worktree-popover-header code-worktree-popover-section-header">
+            <span>{copy.branches}</span>
+            {branches && <span className="code-worktree-popover-count">{branches.items.length}</span>}
+          </div>
+          {branchError && <div className="code-worktree-popover-status error">{branchError}</div>}
+          {!branchError && branches && (hasDirtyEditors || !branches.canSwitch) && (
+            <div className="code-worktree-popover-status">
+              {hasDirtyEditors ? copy.branchBlockedDirtyEditors : branchBlockedMessage(branches, copy)}
+            </div>
+          )}
+          {branches?.truncated && (
+            <div className="code-worktree-popover-status compact">{copy.branchInventoryTruncated}</div>
+          )}
+          {switchingBranch && (
+            <div className="code-worktree-popover-status compact" role="status" aria-live="polite">
+              {copy.branchSwitching}
+            </div>
+          )}
+          {branchStatus && (
+            <div
+              className={`code-worktree-popover-status compact ${branchStatus.kind}`}
+              role={branchStatus.kind === 'error' ? 'alert' : 'status'}
+              aria-live={branchStatus.kind === 'error' ? 'assertive' : 'polite'}
+            >
+              {branchStatus.message}
+            </div>
+          )}
+          {branches && (
+            <div className="code-branch-list">
+              {branches.items.map(item => {
+                const occupiedElsewhere = Boolean(
+                  item.checkedOutWorkspace && item.checkedOutWorkspace !== branches.workspace,
+                )
+                const disabled = Boolean(
+                  loading || !branchInventoryTrusted || Boolean(branchError) || Boolean(switchingBranch) || item.current || hasDirtyEditors || !branches.canSwitch || occupiedElsewhere,
+                )
+                const detail = occupiedElsewhere
+                  ? copy.branchCheckedOutElsewhere(item.checkedOutWorkspace)
+                  : ''
+                return (
+                  <button
+                    type="button"
+                    key={item.name}
+                    className={`code-worktree-row code-branch-row ${item.current ? 'current' : ''}`}
+                    data-testid={`code-project-branch-${item.name}`}
+                    data-current={item.current ? 'true' : undefined}
+                    disabled={disabled}
+                    title={detail || item.name}
+                    onClick={() => void switchBranch(item)}
+                  >
+                    <span className="code-worktree-row-marker" aria-hidden="true" />
+                    <span className="code-worktree-row-content">
+                      <span className="code-worktree-row-heading">
+                        <strong>{item.name}</strong>
+                        <span className="code-worktree-row-badges">
+                          {item.current && <span>{copy.worktreeCurrent}</span>}
+                        </span>
+                        <code>{item.head.slice(0, 7)}</code>
+                      </span>
+                      {detail && <span className="code-worktree-row-path">{detail}</span>}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </section>
+      )}
     </div>
   )
 }
@@ -1625,6 +1856,7 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
   const [repositoryWorktrees, setRepositoryWorktrees] = useState<WorkspaceGitWorktrees | null>(() => (
     agentWorktreeList(project.gitWorktree)
   ))
+  const [branchSwitchRevision, setBranchSwitchRevision] = useState(0)
   const [projectAgentVisibleLimit, setProjectAgentVisibleLimit] = useState(PROJECT_AGENT_INITIAL_VISIBLE_LIMIT)
   const [projectAgentsCollapsed, setProjectAgentsCollapsed] = useState(false)
   const [paginationExcludedAgentIds, setPaginationExcludedAgentIds] = useState<Set<string>>(() => new Set())
@@ -1854,7 +2086,7 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
     event.stopPropagation()
     const rect = event.currentTarget.getBoundingClientRect()
     const menuWidth = Math.min(440, Math.max(320, window.innerWidth - 24))
-    const menuHeight = Math.min(420, Math.max(132, (repositoryWorktrees?.items.length || 2) * 58 + 54))
+    const menuHeight = 420
     const point = isCompactViewport()
       ? mobileActionMenuPoint(rect, menuHeight, undefined, menuWidth)
       : outwardContextMenuPoint(rect, menuHeight, undefined, menuWidth)
@@ -2040,9 +2272,12 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
             anchorRef={worktreeButtonRef}
             copy={copy}
             fallback={repositoryWorktrees}
+            hasDirtyEditors={projectEditorDirtyFilePaths.size > 0}
             point={worktreeMenu}
             onClose={() => setWorktreeMenu(null)}
             onMountProject={onMountProject}
+            onRepositoryWorktreesChange={setRepositoryWorktrees}
+            onBranchSwitched={() => setBranchSwitchRevision(revision => revision + 1)}
           />,
           document.body
         )}
@@ -2220,6 +2455,7 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
                 onDeleteEntries={onDeleteWorkspaceEntries}
                 onRefreshOpenFiles={onRefreshProjectOpenFiles}
                 onFilesCollapsedChange={handleFilesCollapsedChange}
+                refreshToken={branchSwitchRevision}
                 readOnly={globalRootProject}
                 copy={copy}
               />

@@ -187,6 +187,19 @@ interaction levels and should not be collapsed into one narrow sidebar panel.
 Git operations use deterministic, path-safe input and treat truncation or
 timeouts as visible partial results, never as proof of a clean workspace.
 
+The existing Project worktree control keeps the Project row compact and owns
+two explicit operations inside its popover: opening an already registered
+worktree and switching the current repository main worktree to an existing
+local branch. Worktree rows never imply a branch switch. Branch switching
+requires a fresh server-side read that proves the exact main worktree is clean,
+the target branch is not checked out elsewhere, and no live Farming Agent owns
+that workspace. It never fetches, creates a tracking branch, stashes, or forces
+through changes. The server serializes the mutation with other Project
+operations, fences it with the expected branch and HEAD, and reconciles the
+authoritative branch after a timeout or command failure without automatically
+replaying the switch. Blocked and uncertain outcomes remain visible in the
+popover; success refreshes the worktree, Files, Changes, and History views.
+
 Blame annotations load bounded Git porcelain output and keep commit details
 interactive. Commit hashes link to the repository web view when the remote can
 be mapped safely. Handle-shaped GitLab authors link to their profile on the

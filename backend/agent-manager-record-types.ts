@@ -294,11 +294,13 @@ export interface MainPageSessionIndex {
   version: number;
 }
 
-export type ProjectOperationType = 'create-worktree' | 'delete-worktree';
+export type ProjectOperationType = 'create-worktree' | 'delete-worktree' | 'switch-branch';
 export type ProjectOperationState = 'pending' | 'unknown' | 'succeeded' | 'failed' | 'blocked';
 
 export interface ProjectOperationRequest extends Record<string, unknown> {
   branch?: string;
+  expectedBranch?: string;
+  expectedHead?: string;
   sourceWorkspace?: string;
   workspace?: string;
 }

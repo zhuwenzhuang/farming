@@ -142,6 +142,46 @@ export interface WorkspaceGitWorktrees {
   items: WorkspaceGitWorktree[]
 }
 
+export type WorkspaceGitBranchBlockedReason =
+  | ''
+  | 'not-git-repository'
+  | 'not-main-worktree'
+  | 'dirty-worktree'
+  | 'no-switchable-branch'
+  | 'active-agents'
+  | 'pending-agent-starts'
+
+export interface WorkspaceGitBranch {
+  name: string
+  head: string
+  current: boolean
+  checkedOutWorkspace: string
+}
+
+export interface WorkspaceGitBranches {
+  isGitRepo: boolean
+  workspace: string
+  mainWorkspace: string
+  currentBranch: string
+  head: string
+  dirtyCount: number
+  canSwitch: boolean
+  blockedReasonCode: WorkspaceGitBranchBlockedReason
+  blockedReason: string
+  blockingAgentIds: string[]
+  items: WorkspaceGitBranch[]
+  truncated: boolean
+}
+
+export interface WorkspaceGitBranchSwitchResult extends WorkspaceGitBranches {
+  switched: boolean
+  uncertain: boolean
+  requestId: string
+  previousBranch?: string
+  previousHead?: string
+  error?: string
+}
+
 export interface WorkspaceGitHistoryReference {
   id: string
   name: string
@@ -443,6 +483,37 @@ export async function fetchWorkspaceGitWorktrees(rootId: string, options: { sign
   const response = await fetch(appPath(`/api/files/worktrees?${params.toString()}`), { signal: options.signal })
   const body = await readJson<{ worktrees: WorkspaceGitWorktrees }>(response)
   return body.worktrees
+}
+
+export async function fetchWorkspaceGitBranches(rootId: string, options: { signal?: AbortSignal } = {}) {
+  const params = new URLSearchParams({ rootId })
+  const response = await fetch(appPath(`/api/files/branches?${params.toString()}`), { signal: options.signal })
+  return readJson<WorkspaceGitBranches>(response)
+}
+
+export async function switchWorkspaceGitBranch(
+  rootId: string,
+  branch: string,
+  expectedBranch: string,
+  expectedHead: string,
+  requestId: string,
+  options: { signal?: AbortSignal } = {},
+) {
+  const response = await fetch(appPath('/api/files/switch-branch'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rootId, branch, expectedBranch, expectedHead, requestId }),
+    signal: options.signal,
+  })
+  const body = await response.json().catch(() => ({})) as Partial<WorkspaceGitBranchSwitchResult> & { error?: string }
+  if (!response.ok) {
+    throw new WorkspaceFileApiError(
+      body.error || `Git branch switch failed (${response.status})`,
+      response.status,
+      body,
+    )
+  }
+  return body as WorkspaceGitBranchSwitchResult
 }
 
 export async function fetchWorkspaceGitHistory(rootId: string, options: { limit?: number; skip?: number; scope?: WorkspaceGitHistory['scope']; signal?: AbortSignal } = {}) {

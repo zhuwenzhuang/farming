@@ -323,6 +323,21 @@ export interface CodeCopy {
   worktreeLocked: string
   worktreePrunable: string
   worktreeLoadFailed: string
+  branches: string
+  branchLoadFailed: string
+  branchSwitching: string
+  branchSwitchSucceeded: (branch: string) => string
+  branchSwitchFailed: string
+  branchSwitchUncertain: string
+  branchStateChanged: string
+  branchCheckedOutElsewhere: (workspace: string) => string
+  branchInventoryTruncated: string
+  branchBlockedNotMainWorktree: string
+  branchBlockedDirtyWorktree: (count: number) => string
+  branchBlockedDirtyEditors: string
+  branchBlockedActiveAgents: string
+  branchBlockedPendingStarts: string
+  branchBlockedNoSwitchableBranch: string
   gitHistory: string
   gitHistoryEmpty: string
   gitHistoryNotRepository: string
@@ -891,6 +906,21 @@ const EN_COPY: CodeCopy = {
   worktreeLocked: 'locked',
   worktreePrunable: 'prunable',
   worktreeLoadFailed: 'Unable to load repository worktrees',
+  branches: 'Branches',
+  branchLoadFailed: 'Unable to load local branches',
+  branchSwitching: 'Switching branch…',
+  branchSwitchSucceeded: branch => `Switched to ${branch}`,
+  branchSwitchFailed: 'Unable to switch branch',
+  branchSwitchUncertain: 'The switch result is uncertain. Refresh and inspect the Git state before trying again.',
+  branchStateChanged: 'The current branch or commit changed. Review the refreshed branch list before trying again.',
+  branchCheckedOutElsewhere: workspace => `Checked out in ${workspace}`,
+  branchInventoryTruncated: 'Only the first 200 local branches are shown.',
+  branchBlockedNotMainWorktree: 'Branches can only be switched from the repository main worktree.',
+  branchBlockedDirtyWorktree: count => `${count} uncommitted or untracked ${count === 1 ? 'change' : 'changes'} must be handled first.`,
+  branchBlockedDirtyEditors: 'Save or discard unsaved editor changes before switching branches.',
+  branchBlockedActiveAgents: 'Finish or stop the Agents using this project before switching branches.',
+  branchBlockedPendingStarts: 'Wait for pending Agent starts to finish before switching branches.',
+  branchBlockedNoSwitchableBranch: 'No other available local branch can be switched to.',
   gitHistory: 'History',
   gitHistoryEmpty: 'No commits yet',
   gitHistoryNotRepository: 'This project is not a Git repository',
@@ -1495,6 +1525,21 @@ const ZH_COPY: CodeCopy = {
   worktreeLocked: '已锁定',
   worktreePrunable: '可清理',
   worktreeLoadFailed: '无法加载仓库工作树',
+  branches: '分支',
+  branchLoadFailed: '无法加载本地分支',
+  branchSwitching: '正在切换分支…',
+  branchSwitchSucceeded: branch => `已切换到 ${branch}`,
+  branchSwitchFailed: '无法切换分支',
+  branchSwitchUncertain: '无法确认切换结果。请先刷新并检查 Git 状态，再决定是否重试。',
+  branchStateChanged: '当前分支或提交已经变化。请检查刷新后的分支列表，再决定是否重试。',
+  branchCheckedOutElsewhere: workspace => `已在工作树 ${workspace} 中检出`,
+  branchInventoryTruncated: '仅显示前 200 个本地分支。',
+  branchBlockedNotMainWorktree: '只有仓库主工作树支持切换分支。',
+  branchBlockedDirtyWorktree: count => `当前有 ${count} 项未提交或未跟踪变更，请先处理这些变更。`,
+  branchBlockedDirtyEditors: '请先保存或放弃编辑器中尚未保存的修改，再切换分支。',
+  branchBlockedActiveAgents: '请先结束或停止正在使用此项目的 Agent，再切换分支。',
+  branchBlockedPendingStarts: '请等待正在启动的 Agent 完成后再切换分支。',
+  branchBlockedNoSwitchableBranch: '没有其他可切换的本地分支。',
   gitHistory: '历史',
   gitHistoryEmpty: '还没有提交',
   gitHistoryNotRepository: '当前项目不是 Git 仓库',

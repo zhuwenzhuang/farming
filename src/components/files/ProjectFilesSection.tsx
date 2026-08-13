@@ -60,6 +60,7 @@ interface ProjectFilesSectionProps {
   onDeleteEntries: (agentId: string, deletions: WorkspaceFileDeleteResult[]) => void
   onRefreshOpenFiles?: (filesId: string, workspaceRoot: string) => Promise<boolean>
   onFilesCollapsedChange?: (collapsed: boolean) => void
+  refreshToken?: number
   readOnly?: boolean
   copy: CodeCopy
 }
@@ -111,6 +112,7 @@ export function ProjectFilesSection({
   onDeleteEntries,
   onRefreshOpenFiles,
   onFilesCollapsedChange,
+  refreshToken = 0,
   readOnly = false,
   copy,
 }: ProjectFilesSectionProps) {
@@ -208,7 +210,7 @@ export function ProjectFilesSection({
   const [changesCollapsed, setChangesCollapsed] = useState(true)
 
   const refreshProjectFiles = useCallback(() => {
-    if (filesRefreshInFlightRef.current) return
+    if (filesRefreshInFlightRef.current) return false
     filesRefreshInFlightRef.current = true
     const requestId = filesRefreshRequestRef.current + 1
     filesRefreshRequestRef.current = requestId
@@ -253,7 +255,15 @@ export function ProjectFilesSection({
         filesRefreshResetTimerRef.current = null
       }, FILES_REFRESH_SUCCESS_VISIBLE_MS)
     })()
+    return true
   }, [agentId, onRefreshOpenFiles, openDirectoryPaths, projectWorkspace, refreshDirectories, refreshFileChanges, setOpenFileError])
+
+  const externalRefreshTokenRef = useRef(0)
+  useEffect(() => {
+    if (!refreshToken || refreshToken === externalRefreshTokenRef.current) return
+    if (filesRefreshStatus === 'refreshing') return
+    if (refreshProjectFiles()) externalRefreshTokenRef.current = refreshToken
+  }, [filesRefreshStatus, refreshProjectFiles, refreshToken])
 
   useEffect(() => {
     filesRefreshRequestRef.current += 1
@@ -605,6 +615,7 @@ export function ProjectFilesSection({
                 copy={copy}
                 projectId={projectId}
                 projectWorkspace={projectWorkspace}
+                refreshToken={refreshToken}
               />
             )}
             <FileSectionBody {...viewModel.sectionBody} />

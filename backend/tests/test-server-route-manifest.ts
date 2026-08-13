@@ -463,6 +463,8 @@ const EXPECTED_API_ROUTE_MANIFEST = [
   'GET /api/files/diff',
   'GET /api/files/changes',
   'GET /api/files/branch',
+  'GET /api/files/branches',
+  'POST /api/files/switch-branch',
   'GET /api/files/worktrees',
   'GET /api/files/history',
   'GET /api/files/history/changes',
