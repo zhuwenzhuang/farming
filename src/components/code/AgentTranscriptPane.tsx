@@ -76,6 +76,7 @@ import type { WorkspaceShareTarget } from '@/lib/workspace-share-target'
 import { isCompactViewport } from '@/lib/responsive-mode'
 import { useSharedNow } from '@/lib/shared-now'
 import { isPageActive } from '@/hooks/usePageVisibility'
+import { useModalFocusScope } from '@/hooks/useModalFocusScope'
 import { loadAcpReviewPreview, loadReviewComparisonSources } from '@/lib/review/api'
 import {
   ACP_TRANSCRIPT_UNSETTLED_RETRY_LADDER_LENGTH,
@@ -2085,6 +2086,14 @@ function AgentTranscriptPatchResultCard({
   const [reviewOpen, setReviewOpen] = useState(false)
   const [detailedChanges, setDetailedChanges] = useState<AgentTranscriptPatchChange[] | null>(null)
   const [detailError, setDetailError] = useState('')
+  const reviewTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const reviewCloseRef = useRef<HTMLButtonElement | null>(null)
+  const reviewDialogRef = useModalFocusScope<HTMLDivElement>({
+    open: reviewOpen,
+    initialFocusRef: reviewCloseRef,
+    returnFocusRef: reviewTriggerRef,
+    onEscape: () => setReviewOpen(false),
+  })
   const embeddedDecisions = useMemo(() => Object.fromEntries(items.flatMap(item => (
     (item.changes || []).flatMap(change => {
       if (!change.decision) return []
@@ -2166,6 +2175,7 @@ function AgentTranscriptPatchResultCard({
         {workspaceRoot && rows.length > 0 ? (
           <div className="code-agent-transcript-result-actions">
             <button
+              ref={reviewTriggerRef}
               type="button"
               className="code-agent-transcript-result-review"
               aria-label={`${copy.agentTranscriptReviewChanges}: ${reviewPaths.length} workspace ${reviewPaths.length === 1 ? 'file' : 'files'}`}
@@ -2200,13 +2210,13 @@ function AgentTranscriptPatchResultCard({
         ) : null}
       </div>
       {source === 'acp' && reviewOpen ? createPortal(
-        <div className="code-agent-transcript-change-review-overlay" role="dialog" aria-modal="true" aria-label={copy.agentTranscriptReviewChanges} onMouseDown={() => setReviewOpen(false)}>
+        <div ref={reviewDialogRef} className="code-agent-transcript-change-review-overlay" role="dialog" aria-modal="true" aria-label={copy.agentTranscriptReviewChanges} onMouseDown={() => setReviewOpen(false)}>
           <div className="code-agent-transcript-change-review-dialog" onMouseDown={event => event.stopPropagation()}>
             <header>
               <span>{summary}</span>
               {totalAdded ? <span className="added">+{totalAdded}</span> : null}
               {totalRemoved ? <span className="removed">-{totalRemoved}</span> : null}
-              <button type="button" aria-label={copy.close} title={copy.close} onClick={() => setReviewOpen(false)}><CloseGlyph /></button>
+              <button ref={reviewCloseRef} type="button" aria-label={copy.close} title={copy.close} onClick={() => setReviewOpen(false)}><CloseGlyph /></button>
             </header>
             <div className="code-agent-transcript-change-review-body" data-testid="code-agent-transcript-result-details">
               {!hasCompleteEmbeddedDiff && !detailedChanges && !detailError ? (
