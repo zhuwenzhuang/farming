@@ -4,7 +4,7 @@ Farming connects to different coding Agents. Providers continue to own authentic
 
 ## Supported interactions
 
-Common Providers include Codex, Claude Code, OpenCode, Qoder, Qwen Code, Pi, and other discovered coding CLIs. Depending on the Provider, Farming may offer structured Chat, native Terminal, Session resume, model and reasoning controls, and live Chat/Terminal switching.
+Common Providers include Codex, Claude Code, Pi, OpenCode, Qoder, Qwen Code, and other discovered coding CLIs. Depending on the Provider, Farming may offer structured Chat, native Terminal, Session resume, model and reasoning controls, and live Chat/Terminal switching.
 
 Pi Chat uses the release-pinned `pi-acp` adapter and an installed Pi executable.
 It requires Pi 0.80.4 or newer and Node.js 22.19 or newer. Farming verifies both

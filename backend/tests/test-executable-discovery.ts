@@ -77,7 +77,7 @@ function run() {
 
     assert.deepStrictEqual(
       names.slice(0, 6),
-      ['codex', 'claude', 'qoder', 'qwen', 'pi', 'bash'],
+      ['codex', 'claude', 'pi', 'qoder', 'qwen', 'bash'],
       'available launch agents should keep the stable product order while omitting missing agents'
     );
     assert(names.includes('claude'), 'claude should be discovered from PATH');

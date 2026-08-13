@@ -32,7 +32,7 @@ const {
 
 function run() {
   const adapters = listProviderAdapters();
-  assert.deepStrictEqual(adapters.map(adapter => adapter.id), ['codex', 'claude', 'opencode', 'qoder', 'qwen', 'pi']);
+  assert.deepStrictEqual(adapters.map(adapter => adapter.id), ['codex', 'claude', 'pi', 'opencode', 'qoder', 'qwen']);
   const descriptors = listProviderDescriptors();
   assert.deepStrictEqual(descriptors, [
     {
@@ -49,6 +49,14 @@ function run() {
       displayName: 'Claude Code',
       executable: 'claude',
       id: 'claude',
+      supportedRuntimes: ['terminal', 'acp'],
+    },
+    {
+      commands: ['pi'],
+      defaultHomeDirectory: '.pi/agent',
+      displayName: 'Pi',
+      executable: 'pi',
+      id: 'pi',
       supportedRuntimes: ['terminal', 'acp'],
     },
     {
@@ -73,14 +81,6 @@ function run() {
       displayName: 'Qwen Code',
       executable: 'qwen',
       id: 'qwen',
-      supportedRuntimes: ['terminal', 'acp'],
-    },
-    {
-      commands: ['pi'],
-      defaultHomeDirectory: '.pi/agent',
-      displayName: 'Pi',
-      executable: 'pi',
-      id: 'pi',
       supportedRuntimes: ['terminal', 'acp'],
     },
   ]);

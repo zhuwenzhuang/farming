@@ -5,7 +5,7 @@ import { appendOpenCodeBootstrap } from './farming-agent-bootstrap.cjs';
 import { createProviderSessionId, createTemporaryProviderSessionId, isSafeProviderSessionId } from './provider-session-id.cjs';
 import type { ProviderCapabilitiesWire } from '../shared/agent-state-wire.js';
 
-type ProviderId = 'codex' | 'claude' | 'opencode' | 'qoder' | 'qwen' | 'pi';
+type ProviderId = 'codex' | 'claude' | 'pi' | 'opencode' | 'qoder' | 'qwen';
 type ProviderRuntime = 'terminal' | 'acp';
 type ProviderForkWorktreeMode = 'same-worktree' | 'new-worktree';
 type ProviderConversationForkStrategy = 'source-session' | 'target-process';
@@ -787,6 +787,72 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
     },
   },
   {
+    id: 'pi',
+    displayName: 'Pi',
+    executable: 'pi',
+    homeEnvKey: 'PI_CODING_AGENT_DIR',
+    interruptInput: '\x1b',
+    runtimeObservationKind: 'process',
+    freshAcpSessionSources: ['pi-session-id'],
+    acpSessionSourceErrors: {
+      'pi-explicit-session-id': 'Pi Chat cannot determine whether --session-id names a new or existing session. Omit --session-id for a new Chat, or use --session <id> to resume an existing session.',
+      'pi-fork-session-id': 'Pi Chat does not support the Pi CLI --fork flow with pi-acp 0.0.33. Fork the Terminal session, or start a new Chat.',
+      'untracked-command': 'Pi Chat cannot preserve --continue, --resume picker, session-file, fork-file, print, JSON/RPC, export, or package-management CLI semantics. Start a new Chat without those flags, or use --session <id> to resume an exact Pi session.',
+    },
+    commands: ['pi'],
+    supportedRuntimes: ['terminal', 'acp'],
+    continuesSession: args => args.some(arg => (
+      arg === '--session'
+      || arg.startsWith('--session=')
+      || arg === '--fork'
+      || arg.startsWith('--fork=')
+      || arg === '--continue'
+      || arg === '-c'
+      || arg === '--resume'
+      || arg === '-r'
+    )),
+    planSession: piSessionPlan,
+    terminalResumeArgs: (args, sessionId) => {
+      const delimiterIndex = args.indexOf('--');
+      const insertIndex = delimiterIndex >= 0 ? delimiterIndex : args.length;
+      return [
+        ...args.slice(0, insertIndex),
+        '--session',
+        sessionId,
+        ...args.slice(insertIndex),
+      ];
+    },
+    acp: {
+      acceptsMcpServers: false,
+      executablePolicy: 'system',
+      launchArgs: piAcpLaunchArgs,
+      packageName: 'pi-acp',
+      version: '0.0.33',
+      sharedRuntime: false,
+    },
+    usage: {
+      collection: { kind: 'unavailable' },
+      defaultHomeDirectory: '.pi/agent',
+      source: 'local Pi sessions',
+      coverageSource: 'local Pi sessions',
+      authStatus: 'Local sessions',
+      quotaUnavailableReason: 'Pi provider quota telemetry is unavailable.',
+      tokenUnavailableReason: 'Pi token usage is not yet aggregated by Farming.',
+    },
+    capabilities: {
+      runtimeSwitch: true,
+      contextWindow: false,
+      terminalProfile: false,
+      terminalComposerInput: 'bracketed-paste',
+      slashCommandDiscovery: false,
+      goals: false,
+      goalSubmission: { terminal: { kind: 'prompt' }, acp: { kind: 'prompt' } },
+      conversationFork: {
+        terminal: { strategy: 'target-process', worktreeModes: ['same-worktree', 'new-worktree'] },
+      },
+    },
+  },
+  {
     id: 'opencode',
     displayName: 'OpenCode',
     executable: 'opencode',
@@ -988,72 +1054,6 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
           worktreeModes: ['same-worktree'],
           requiresRuntimeCapability: true,
         },
-      },
-    },
-  },
-  {
-    id: 'pi',
-    displayName: 'Pi',
-    executable: 'pi',
-    homeEnvKey: 'PI_CODING_AGENT_DIR',
-    interruptInput: '\x1b',
-    runtimeObservationKind: 'process',
-    freshAcpSessionSources: ['pi-session-id'],
-    acpSessionSourceErrors: {
-      'pi-explicit-session-id': 'Pi Chat cannot determine whether --session-id names a new or existing session. Omit --session-id for a new Chat, or use --session <id> to resume an existing session.',
-      'pi-fork-session-id': 'Pi Chat does not support the Pi CLI --fork flow with pi-acp 0.0.33. Fork the Terminal session, or start a new Chat.',
-      'untracked-command': 'Pi Chat cannot preserve --continue, --resume picker, session-file, fork-file, print, JSON/RPC, export, or package-management CLI semantics. Start a new Chat without those flags, or use --session <id> to resume an exact Pi session.',
-    },
-    commands: ['pi'],
-    supportedRuntimes: ['terminal', 'acp'],
-    continuesSession: args => args.some(arg => (
-      arg === '--session'
-      || arg.startsWith('--session=')
-      || arg === '--fork'
-      || arg.startsWith('--fork=')
-      || arg === '--continue'
-      || arg === '-c'
-      || arg === '--resume'
-      || arg === '-r'
-    )),
-    planSession: piSessionPlan,
-    terminalResumeArgs: (args, sessionId) => {
-      const delimiterIndex = args.indexOf('--');
-      const insertIndex = delimiterIndex >= 0 ? delimiterIndex : args.length;
-      return [
-        ...args.slice(0, insertIndex),
-        '--session',
-        sessionId,
-        ...args.slice(insertIndex),
-      ];
-    },
-    acp: {
-      acceptsMcpServers: false,
-      executablePolicy: 'system',
-      launchArgs: piAcpLaunchArgs,
-      packageName: 'pi-acp',
-      version: '0.0.33',
-      sharedRuntime: false,
-    },
-    usage: {
-      collection: { kind: 'unavailable' },
-      defaultHomeDirectory: '.pi/agent',
-      source: 'local Pi sessions',
-      coverageSource: 'local Pi sessions',
-      authStatus: 'Local sessions',
-      quotaUnavailableReason: 'Pi provider quota telemetry is unavailable.',
-      tokenUnavailableReason: 'Pi token usage is not yet aggregated by Farming.',
-    },
-    capabilities: {
-      runtimeSwitch: true,
-      contextWindow: false,
-      terminalProfile: false,
-      terminalComposerInput: 'bracketed-paste',
-      slashCommandDiscovery: false,
-      goals: false,
-      goalSubmission: { terminal: { kind: 'prompt' }, acp: { kind: 'prompt' } },
-      conversationFork: {
-        terminal: { strategy: 'target-process', worktreeModes: ['same-worktree', 'new-worktree'] },
       },
     },
   },

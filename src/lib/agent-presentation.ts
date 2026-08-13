@@ -1,12 +1,12 @@
-export type AgentIconName = 'codex' | 'claude' | 'opencode' | 'qoder' | 'qwen' | 'pi' | 'bash' | 'zsh'
+export type AgentIconName = 'codex' | 'claude' | 'pi' | 'opencode' | 'qoder' | 'qwen' | 'bash' | 'zsh'
 
 const AGENT_ICON_NAMES = new Set<AgentIconName>([
   'codex',
   'claude',
+  'pi',
   'opencode',
   'qoder',
   'qwen',
-  'pi',
   'bash',
   'zsh',
 ])

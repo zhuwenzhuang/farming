@@ -28,12 +28,14 @@ test.describe('agent launch icons', () => {
     await openFarming(page)
     await openNewAgentDialog(page)
 
-    for (const agentName of ['codex', 'claude', 'qoder', 'qwen', 'pi', 'bash', 'zsh']) {
+    for (const agentName of ['codex', 'claude', 'pi', 'qoder', 'qwen', 'bash', 'zsh']) {
       await expect(page.getByTestId(`agent-option-${agentName}`).locator(`.agent-launch-icon-${agentName}`)).toBeVisible()
     }
     const launchOrder = await page.locator('[data-testid^="agent-option-"]').evaluateAll(options => (
       options.map(option => option.getAttribute('data-testid')?.replace('agent-option-', '') || '')
     ))
+    expect(launchOrder.indexOf('pi')).toBe(launchOrder.indexOf('claude') + 1)
+    expect(launchOrder.indexOf('opencode')).toBe(launchOrder.indexOf('pi') + 1)
     expect(launchOrder.indexOf('qwen')).toBe(launchOrder.indexOf('qoder') + 1)
     const qwenDialogIcon = page.getByTestId('agent-option-qwen').locator('.agent-launch-icon-qwen')
     await expect(qwenDialogIcon.locator('image')).toHaveCount(0)
@@ -67,10 +69,10 @@ test.describe('agent launch icons', () => {
     await projectGroup.getByTestId('code-project-new-agent').click({ force: true })
     const menu = page.getByTestId('code-project-new-agent-menu')
     await expect(menu).toBeVisible()
-    for (const agentName of ['codex', 'claude', 'qoder', 'qwen', 'pi', 'bash', 'zsh']) {
+    for (const agentName of ['codex', 'claude', 'pi', 'qoder', 'qwen', 'bash', 'zsh']) {
       await expect(page.getByTestId(`code-project-agent-launch-${agentName}`).locator(`.agent-launch-icon-${agentName}`)).toBeVisible()
     }
-    for (const agentName of ['codex', 'claude', 'qoder', 'qwen', 'pi']) {
+    for (const agentName of ['codex', 'claude', 'pi', 'qoder', 'qwen']) {
       await expect(page.getByTestId(`code-project-agent-launch-chat-${agentName}`)).toBeVisible()
     }
     for (const agentName of ['bash', 'zsh']) {

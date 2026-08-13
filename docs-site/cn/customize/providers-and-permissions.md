@@ -4,7 +4,7 @@ Farming 连接不同的 Coding Agent。Provider 继续负责自己的登录、�
 
 ## 支持的交互
 
-当前常用 Provider 包括 Codex、Claude Code、OpenCode、Qoder、Qwen Code、Pi 和其他能够被 Farming 发现的 Coding CLI。
+当前常用 Provider 包括 Codex、Claude Code、Pi、OpenCode、Qoder、Qwen Code 和其他能够被 Farming 发现的 Coding CLI。
 
 Pi Chat 使用 Release 固定的 `pi-acp` Adapter 和已安装的 Pi Executable。Pi 当前要求
 0.80.4 或更高版本以及 Node.js 22.19 或更高版本。Farming 会在启动 Chat 前验证 Pi 产品身份与

@@ -38,6 +38,15 @@ function run() {
       systemPromptArg: '--append-system-prompt',
     },
     {
+      name: 'pi',
+      description: 'Pi - AI coding assistant',
+      category: 'coding',
+      interactive: true,
+      supported: true,
+      preferredEngine: 'native',
+      systemPromptArg: '--append-system-prompt',
+    },
+    {
       name: 'opencode',
       displayName: 'OpenCode',
       description: 'OpenCode - AI coding assistant',
@@ -77,21 +86,12 @@ function run() {
       },
       systemPromptArg: '--append-system-prompt',
     },
-    {
-      name: 'pi',
-      description: 'Pi - AI coding assistant',
-      category: 'coding',
-      interactive: true,
-      supported: true,
-      preferredEngine: 'native',
-      systemPromptArg: '--append-system-prompt',
-    },
   ], 'Provider CLI specs must preserve their complete public shape and order');
 
   assert(supported.length > 0, 'there should be supported coding agents');
   assert.deepStrictEqual(
     supportedNames.slice(0, 8),
-    ['codex', 'claude', 'opencode', 'qoder', 'qwen', 'pi', 'bash', 'zsh'],
+    ['codex', 'claude', 'pi', 'opencode', 'qoder', 'qwen', 'bash', 'zsh'],
     'primary launch agents should keep the expected product order'
   );
   assert(!supportedNames.includes('cursor'), 'cursor should not be exposed as a supported agent');
