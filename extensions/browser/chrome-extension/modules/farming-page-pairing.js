@@ -67,7 +67,7 @@ export async function pairCurrentFarmingPage() {
   const paired = await chrome.runtime.sendMessage({
     type: "pair",
     pairingString: pairing.pairingString,
-    accessMode: "selected",
+    accessMode: "all",
   });
   if (!paired?.ok) {
     throw new Error(paired?.error ?? "Could not pair this Chrome with Farming.");

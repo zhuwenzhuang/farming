@@ -12,7 +12,7 @@ if (!sourceRoot || !fs.existsSync(path.join(sourceRoot, '.git'))) {
 
 const upstreamRoot = path.join(sourceRoot, 'extensions', 'browser', 'chrome-extension');
 const destinationRoot = path.join(repoRoot, 'extensions', 'browser', 'chrome-extension');
-const rootFiles = ['background.js', 'manifest.json', 'options.html', 'options.js', 'popup.html', 'popup.js'];
+const rootFiles = ['background.js', 'manifest.json'];
 const moduleFiles = [
   'native-bootstrap.js',
   'popup-background.js',
@@ -43,7 +43,30 @@ function transformIntegration(relativePath, source) {
       'isAllowedWebSocketUrl(relay) &&\n      relay.pathname !== "/browser/extension" &&\n      relay.pathname.endsWith("/browser/extension")',
       'isAllowedWebSocketUrl(relay) && !relay.pathname.endsWith("/browser/extension")',
     )
-    .replace('relay.pathname === "/browser/extension";', 'relay.pathname.endsWith("/browser/extension");');
+    .replace('relay.pathname === "/browser/extension";', 'relay.pathname.endsWith("/browser/extension");')
+    .replace(
+      `// Pairings created before access modes promised group-only access.
+            // Unknown future/corrupt values fail closed without discarding the key.
+            if (
+              stored[ACCESS_MODE_KEY] !== ACCESS_MODE_ALL &&
+              stored[ACCESS_MODE_KEY] !== ACCESS_MODE_SELECTED
+            ) {
+              repairs[ACCESS_MODE_KEY] = ACCESS_MODE_SELECTED;
+            }`,
+      `// Farming uses one unattended access model. Upgrade older selected-tab
+            // pairings so removing the per-tab controls cannot strand the user.
+            if (stored[ACCESS_MODE_KEY] !== ACCESS_MODE_ALL) {
+              repairs[ACCESS_MODE_KEY] = ACCESS_MODE_ALL;
+            }`,
+    )
+    .replace(
+      `accessMode: pairing
+            ? stored[ACCESS_MODE_KEY] === ACCESS_MODE_ALL
+              ? ACCESS_MODE_ALL
+              : ACCESS_MODE_SELECTED
+            : ACCESS_MODE_SELECTED,`,
+      'accessMode: pairing ? ACCESS_MODE_ALL : ACCESS_MODE_SELECTED,',
+    );
 }
 
 function syncFile(source, destination, relativePath) {
@@ -67,42 +90,8 @@ manifest.description = 'Securely relay eligible signed-in Chrome tabs to Farming
 manifest.permissions = [...new Set([...manifest.permissions, 'activeTab', 'scripting'])];
 delete manifest.icons;
 delete manifest.action?.default_icon;
+delete manifest.options_ui;
 fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
-
-const popupScriptPath = path.join(destinationRoot, 'popup.js');
-const popupScript = fs.readFileSync(popupScriptPath, 'utf8');
-fs.writeFileSync(popupScriptPath, [
-  'import { pairCurrentFarmingPage } from "./modules/farming-page-pairing.js";',
-  '',
-  popupScript
-    .replace(
-      'const errorLine = document.getElementById("error");',
-      `const errorLine = document.getElementById("error");
-let automaticPairingStarted = false;
-
-async function pairFromCurrentPage() {
-  automaticPairingStarted = true;
-  statusLine.textContent = "Connecting this Farming page…";
-  errorLine.classList.add("hidden");
-  try {
-    await pairCurrentFarmingPage();
-    await refresh();
-  } catch (error) {
-    statusLine.textContent = "Not connected";
-    errorLine.textContent = error instanceof Error ? error.message : String(error);
-    errorLine.classList.remove("hidden");
-  }
-}`,
-    )
-    .replace(
-      'statusLine.textContent = unpairedLabel(status.nativeBootstrap);\n    tabAction.classList.add("hidden");',
-      `statusLine.textContent = automaticPairingStarted
-      ? unpairedLabel(status.nativeBootstrap)
-      : "Connecting this Farming page…";
-    tabAction.classList.add("hidden");
-    if (!automaticPairingStarted) void pairFromCurrentPage();`,
-    ),
-].join('\n'));
 
 const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: sourceRoot, encoding: 'utf8' }).trim();
 const upstreamDirectory = path.join(destinationRoot, 'upstream');
@@ -114,7 +103,7 @@ fs.writeFileSync(path.join(upstreamDirectory, 'upstream.json'), `${JSON.stringif
   license: 'MIT',
   sourcePath: 'extensions/browser/chrome-extension',
   relaySourcePath: 'extensions/browser/src/browser/extension-relay',
-  transform: 'Farming identity namespaces plus Farming base-path pairing support',
+  transform: 'Farming identity namespaces, Farming-owned popup, and Farming base-path pairing support',
 }, null, 2)}\n`);
 
 console.log(`Synchronized Farming Browser Connector from OpenClaw ${commit}.`);

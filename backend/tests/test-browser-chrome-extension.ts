@@ -46,11 +46,20 @@ async function waitFor(check, timeoutMs = 1000) {
 async function run() {
   const extensionRoot = path.resolve(__dirname, '../../extensions/browser/chrome-extension');
   const manifest = JSON.parse(read(path.join(extensionRoot, 'manifest.json')));
+  const popup = read(path.join(extensionRoot, 'popup.html'));
+  const popupScript = read(path.join(extensionRoot, 'popup.js'));
   assert.strictEqual(manifest.name, 'Farming Browser Connector');
   assert.strictEqual(manifest.permissions.includes('debugger'), true);
   assert.strictEqual(manifest.permissions.includes('activeTab'), true);
   assert.strictEqual(manifest.permissions.includes('scripting'), true);
   assert.strictEqual(manifest.host_permissions, undefined);
+  assert.strictEqual(manifest.options_ui, undefined);
+  assert.match(popup, />Connect</);
+  assert.match(popup, />Disconnect</);
+  assert.doesNotMatch(popup, /Settings|Selected tabs|All tabs/);
+  assert.doesNotMatch(popupScript, /toggleTabAccess|openOptionsPage|setAccessMode/);
+  assert.strictEqual(fs.existsSync(path.join(extensionRoot, 'options.html')), false);
+  assert.strictEqual(fs.existsSync(path.join(extensionRoot, 'options.js')), false);
 
   const relayCore = read(path.join(extensionRoot, 'modules/relay-core.js'));
   const nativeBootstrap = read(path.join(extensionRoot, 'modules/native-bootstrap.js'));
@@ -59,10 +68,11 @@ async function run() {
   assert.match(relayCore, /farming-extension-relay\.v2/);
   assert.match(relayCore, /FARMING_TAB_GROUP_TITLE = "Farming"/);
   assert.match(relayCore, /endsWith\("\/browser\/extension"\)/);
+  assert.match(relayCore, /accessMode: pairing \? ACCESS_MODE_ALL : ACCESS_MODE_SELECTED/);
   assert.match(nativeBootstrap, /ai\.farming\.browser_bootstrap/);
   assert.match(pagePairing, /world: "MAIN"/);
   assert.match(pagePairing, /browserSource: "extension"/);
-  assert.match(pagePairing, /accessMode: "selected"/);
+  assert.match(pagePairing, /accessMode: "all"/);
   assert.doesNotMatch(`${relayCore}\n${nativeBootstrap}\n${background}`, /OpenClaw|openclaw|OPENCLAW/);
 
   const pageRequests = [];
@@ -106,7 +116,7 @@ async function run() {
     assert.strictEqual(pageRequests[1].url, '/farming/api/browsers/extension');
     assert.strictEqual(pageRequests[2].url, '/farming/api/browsers/extension');
     assert.strictEqual(pageRequests[3].url, '/farming/api/settings');
-    assert.deepStrictEqual(extensionMessages[0].accessMode, 'selected');
+    assert.deepStrictEqual(extensionMessages[0].accessMode, 'all');
     assert.deepStrictEqual(JSON.parse(pageRequests[3].options.body), {
       browserExtensionEnabled: true,
       browserSource: 'extension',

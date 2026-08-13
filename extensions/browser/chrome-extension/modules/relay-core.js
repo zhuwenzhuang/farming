@@ -258,13 +258,10 @@ export function createPairingConfigStore(storage) {
             if (stored.authVersion === undefined) {
               repairs.authVersion = 2;
             }
-            // Pairings created before access modes promised group-only access.
-            // Unknown future/corrupt values fail closed without discarding the key.
-            if (
-              stored[ACCESS_MODE_KEY] !== ACCESS_MODE_ALL &&
-              stored[ACCESS_MODE_KEY] !== ACCESS_MODE_SELECTED
-            ) {
-              repairs[ACCESS_MODE_KEY] = ACCESS_MODE_SELECTED;
+            // Farming uses one unattended access model. Upgrade older selected-tab
+            // pairings so removing the per-tab controls cannot strand the user.
+            if (stored[ACCESS_MODE_KEY] !== ACCESS_MODE_ALL) {
+              repairs[ACCESS_MODE_KEY] = ACCESS_MODE_ALL;
             }
             if (Object.keys(repairs).length > 0) {
               await storage.set(repairs);
@@ -280,11 +277,7 @@ export function createPairingConfigStore(storage) {
           token: pairing?.token ?? "",
           gatewayUrl: pairing?.gatewayUrl ?? "",
           authVersion: pairing ? 2 : undefined,
-          accessMode: pairing
-            ? stored[ACCESS_MODE_KEY] === ACCESS_MODE_ALL
-              ? ACCESS_MODE_ALL
-              : ACCESS_MODE_SELECTED
-            : ACCESS_MODE_SELECTED,
+          accessMode: pairing ? ACCESS_MODE_ALL : ACCESS_MODE_SELECTED,
           groupColor: typeof stored.groupColor === "string" ? stored.groupColor : "orange",
           pairingStatusHint:
             pairingStatus === UNSUPPORTED_PROXY_PREFIX_STATUS ? UNSUPPORTED_PROXY_PREFIX_HINT : "",

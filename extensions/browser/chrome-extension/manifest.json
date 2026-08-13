@@ -21,9 +21,5 @@
     "default_title": "Farming",
     "default_popup": "popup.html"
   },
-  "options_ui": {
-    "page": "options.html",
-    "open_in_tab": true
-  },
   "minimum_chrome_version": "125"
 }

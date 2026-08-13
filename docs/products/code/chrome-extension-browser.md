@@ -16,16 +16,15 @@ The extension is included with Farming; there is nothing else to download.
    Chrome's **Extensions** menu.
 
 The extension pairs, enables Browser, and selects itself automatically. Later
-sessions reconnect without setup.
+sessions reconnect without setup or per-tab approval.
 
-## Tab Access
+## Use And Disconnect
 
-By default, only pages in the Farming tab group are allowed. Click the extension
-to allow or pause the current page. Settings can instead allow all ordinary
-pages. Incognito, `chrome://`, and other restricted pages remain unavailable.
+After pairing, Farming can operate ordinary pages in this Chrome. Incognito,
+`chrome://`, and other restricted pages remain unavailable. When access is no
+longer needed, click the extension and choose **Disconnect**.
 
-Pair only with a trusted Farming instance. Open extension Settings to disconnect
-or use advanced manual pairing.
+Pair only with a trusted Farming instance.
 
 ## Source
 

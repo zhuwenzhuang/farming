@@ -1,100 +1,108 @@
 import { pairCurrentFarmingPage } from "./modules/farming-page-pairing.js";
 
+const indicator = document.getElementById("indicator");
 const statusLine = document.getElementById("status");
-const pairedDetails = document.getElementById("pairedDetails");
-const accessMode = document.getElementById("accessMode");
-const tabAction = document.getElementById("tabAction");
-const settings = document.getElementById("settings");
+const detailLine = document.getElementById("detail");
 const errorLine = document.getElementById("error");
+const connect = document.getElementById("connect");
+const disconnect = document.getElementById("disconnect");
 let automaticPairingStarted = false;
+
+function showState({ status, detail, state = "", canConnect = false, canDisconnect = false }) {
+  statusLine.textContent = status;
+  detailLine.textContent = detail;
+  indicator.className = `dot${state ? ` ${state}` : ""}`;
+  connect.classList.toggle("hidden", !canConnect);
+  disconnect.classList.toggle("hidden", !canDisconnect);
+}
+
+function showError(error) {
+  errorLine.textContent = error instanceof Error ? error.message : String(error);
+  errorLine.classList.remove("hidden");
+}
 
 async function pairFromCurrentPage() {
   automaticPairingStarted = true;
-  statusLine.textContent = "Connecting this Farming page…";
   errorLine.classList.add("hidden");
+  showState({ status: "Connecting…", detail: "Keep this Farming page open." });
   try {
     await pairCurrentFarmingPage();
     await refresh();
   } catch (error) {
-    statusLine.textContent = "Not connected";
-    errorLine.textContent = error instanceof Error ? error.message : String(error);
-    errorLine.classList.remove("hidden");
+    showState({
+      status: "Not connected",
+      detail: "Open Farming in this tab, then try again.",
+      state: "error",
+      canConnect: true,
+    });
+    showError(error);
   }
-}
-
-async function activeTab() {
-  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-  return tab ?? null;
-}
-
-function unpairedLabel(nativeBootstrap) {
-  if (nativeBootstrap?.disabled) {
-    return "Automatic setup disabled";
-  }
-  if (nativeBootstrap?.state === "manual_required") {
-    return "Manual setup required";
-  }
-  return "Waiting for local Farming";
 }
 
 async function refresh() {
   const status = await chrome.runtime.sendMessage({ type: "getStatus" });
   if (status?.ok === false) {
-    statusLine.textContent = status.error ?? "Could not read browser status.";
+    showState({ status: "Connection unavailable", detail: "Try again.", state: "error" });
+    showError(status.error ?? "Could not read browser status.");
     return;
   }
-  pairedDetails.classList.toggle("hidden", !status.paired);
   if (status.retiredCopilotCustodyBlocked === true) {
-    statusLine.textContent = "Automation paused; open Settings";
-    tabAction.classList.add("hidden");
+    showState({
+      status: "Connection paused",
+      detail: "Disconnect, then connect again.",
+      state: "error",
+      canDisconnect: true,
+    });
     return;
   }
   if (!status.paired) {
-    statusLine.textContent = automaticPairingStarted
-      ? unpairedLabel(status.nativeBootstrap)
-      : "Connecting this Farming page…";
-    tabAction.classList.add("hidden");
-    if (!automaticPairingStarted) void pairFromCurrentPage();
+    if (!automaticPairingStarted) {
+      void pairFromCurrentPage();
+      return;
+    }
+    showState({
+      status: "Not connected",
+      detail: "Open Farming in this tab, then connect.",
+      canConnect: true,
+    });
     return;
   }
-  statusLine.textContent =
-    status.state === "on"
-      ? "Connected"
-      : status.state === "connecting"
-        ? "Connecting…"
-        : "Farming relay unavailable";
-  accessMode.textContent = status.accessMode === "selected" ? "Selected tabs" : "All tabs";
-  const tab = await activeTab();
-  if (tab?.id === undefined) {
-    tabAction.classList.add("hidden");
+  if (status.state === "on") {
+    showState({
+      status: "Connected",
+      detail: "Farming can use this Chrome.",
+      state: "connected",
+      canDisconnect: true,
+    });
     return;
   }
-  const access = await chrome.runtime.sendMessage({ type: "getTabAccess", tabId: tab.id });
-  tabAction.classList.toggle("hidden", !access.eligible);
-  tabAction.textContent = access.accessible ? "Pause on this tab" : "Allow on this tab";
-  tabAction.dataset.tabId = String(tab.id);
-  tabAction.dataset.mode = status.accessMode;
-  tabAction.dataset.grant = String(!access.accessible);
-}
-
-async function toggleActiveTabAccess() {
-  errorLine.classList.add("hidden");
-  const result = await chrome.runtime.sendMessage({
-    type: "toggleTabAccess",
-    tabId: Number(tabAction.dataset.tabId),
-    accessMode: tabAction.dataset.mode,
-    grant: tabAction.dataset.grant === "true",
+  showState({
+    status: status.state === "connecting" ? "Connecting…" : "Connection unavailable",
+    detail: "Farming will reconnect automatically.",
+    state: status.state === "connecting" ? "" : "error",
+    canDisconnect: true,
   });
-  if (!result?.ok) {
-    errorLine.textContent = result?.error ?? "Could not update tab access.";
-    errorLine.classList.remove("hidden");
-  }
-  await refresh();
 }
 
-tabAction.addEventListener("click", () => {
-  void toggleActiveTabAccess();
+connect.addEventListener("click", () => {
+  void pairFromCurrentPage();
 });
 
-settings.addEventListener("click", () => chrome.runtime.openOptionsPage());
+disconnect.addEventListener("click", () => {
+  void (async () => {
+    const result = await chrome.runtime.sendMessage({ type: "unpair" });
+    if (result?.ok === false) {
+      showError(result.error ?? "Could not disconnect.");
+      return;
+    }
+    automaticPairingStarted = true;
+    errorLine.classList.add("hidden");
+    showState({
+      status: "Not connected",
+      detail: "Open Farming in this tab when you want to reconnect.",
+      canConnect: true,
+    });
+  })();
+});
+
 void refresh();
