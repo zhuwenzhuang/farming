@@ -788,8 +788,14 @@ body.code-mode .code-instance-name {
 }
 
 .code-resource-agent-resizer:hover,
-body.code-resizing-resource-agent .code-resource-agent-resizer {
+body.code-resizing-resource-agent .code-resource-agent-resizer,
+.code-resource-agent-resizer:focus-visible {
   background: var(--code-accent);
+}
+
+.code-resource-agent-resizer:focus-visible {
+  outline: 2px solid var(--code-focus-ring);
+  outline-offset: -1px;
 }
 
 .code-resource-agent-toggle.active {

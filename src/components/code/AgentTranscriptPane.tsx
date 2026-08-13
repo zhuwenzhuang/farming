@@ -1752,7 +1752,6 @@ function AgentTranscriptProcessItemView({
             type="button"
             className={`code-agent-transcript-copy ${copied ? 'copied' : ''}`}
             aria-label={copied ? copy.agentTranscriptCopiedDetails : copy.agentTranscriptCopyDetails}
-            title={copied ? copy.agentTranscriptCopiedDetails : copy.agentTranscriptCopyDetails}
             data-tooltip={copied ? copy.agentTranscriptCopiedDetails : copy.agentTranscriptCopyDetails}
             onPointerDown={event => event.stopPropagation()}
             onMouseDown={event => event.stopPropagation()}
@@ -2977,7 +2976,6 @@ function AgentTranscriptTurnView({
               className={`code-agent-transcript-answer-action ${answerCopied ? 'copied' : ''}`}
               data-testid="code-agent-transcript-copy-answer"
               aria-label={answerCopied ? copy.agentTranscriptCopiedAnswer : copy.agentTranscriptCopyAnswer}
-              title={answerCopied ? copy.agentTranscriptCopiedAnswer : copy.agentTranscriptCopyAnswer}
               data-tooltip={answerCopied ? copy.agentTranscriptCopiedAnswer : copy.agentTranscriptCopyAnswer}
               onClick={handleCopyAnswer}
             >
@@ -2989,7 +2987,6 @@ function AgentTranscriptTurnView({
                 className="code-agent-transcript-answer-action"
                 data-testid="code-agent-transcript-share-answer"
                 aria-label={copy.copyReadOnlyShareLink}
-                title={copy.copyReadOnlyShareLink}
                 data-tooltip={copy.copyReadOnlyShareLink}
                 onClick={handleShare}
               >
@@ -3002,7 +2999,6 @@ function AgentTranscriptTurnView({
                 className="code-agent-transcript-answer-action code-agent-transcript-fork-action"
                 data-testid="code-agent-transcript-fork"
                 aria-label={copy.agentTranscriptFork}
-                title={copy.agentTranscriptFork}
                 data-tooltip={copy.agentTranscriptFork}
                 disabled={forking}
                 onClick={handleFork}

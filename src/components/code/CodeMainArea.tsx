@@ -88,6 +88,17 @@ function writeResourceAgentPanelOpen(open: boolean) {
   }
 }
 
+function maxResourceAgentWidth(mainWidth: number) {
+  return Math.max(
+    MIN_RESOURCE_AGENT_WIDTH,
+    Math.min(MAX_RESOURCE_AGENT_WIDTH, mainWidth - MIN_RESOURCE_WORKSPACE_WIDTH - 1),
+  )
+}
+
+function clampResourceAgentWidth(width: number, mainWidth: number) {
+  return Math.max(MIN_RESOURCE_AGENT_WIDTH, Math.min(maxResourceAgentWidth(mainWidth), width))
+}
+
 function supportsComposerCollapse() {
   return typeof window !== 'undefined'
     && window.matchMedia('(hover: hover) and (pointer: fine)').matches
@@ -639,6 +650,7 @@ export function CodeMainArea({
   const [expandedAgentActivity, setExpandedAgentActivity] = useState<string | null>(null)
   const [resourceAgentPanelOpen, setResourceAgentPanelOpen] = useState(readResourceAgentPanelOpen)
   const [resourceAgentWidth, setResourceAgentWidth] = useState(DEFAULT_RESOURCE_AGENT_WIDTH)
+  const [resourceAgentWidthMax, setResourceAgentWidthMax] = useState(MAX_RESOURCE_AGENT_WIDTH)
   const mainAreaRef = useRef<HTMLElement | null>(null)
   const resizingResourceAgentRef = useRef(false)
   const previousActiveRuntimeRef = useRef<{ agentId: string | null; kind: 'acp' | 'terminal' | null }>({
@@ -730,14 +742,22 @@ export function CodeMainArea({
   const updateResourceAgentWidth = useCallback((clientX: number) => {
     const mainRect = mainAreaRef.current?.getBoundingClientRect()
     if (!mainRect) return
-    const availableMax = mainRect.width - MIN_RESOURCE_WORKSPACE_WIDTH - 1
-    const maxWidth = Math.max(
-      MIN_RESOURCE_AGENT_WIDTH,
-      Math.min(MAX_RESOURCE_AGENT_WIDTH, availableMax),
-    )
+    const maxWidth = maxResourceAgentWidth(mainRect.width)
     const rawWidth = mainRect.right - clientX
-    setResourceAgentWidth(Math.max(MIN_RESOURCE_AGENT_WIDTH, Math.min(maxWidth, rawWidth)))
+    setResourceAgentWidthMax(maxWidth)
+    setResourceAgentWidth(clampResourceAgentWidth(rawWidth, mainRect.width))
   }, [])
+
+  const handleResourceAgentResizeKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
+    let nextWidth: number | null = null
+    if (event.key === 'ArrowLeft') nextWidth = resourceAgentWidth + 16
+    else if (event.key === 'ArrowRight') nextWidth = resourceAgentWidth - 16
+    else if (event.key === 'Home') nextWidth = MIN_RESOURCE_AGENT_WIDTH
+    else if (event.key === 'End') nextWidth = resourceAgentWidthMax
+    if (nextWidth === null) return
+    event.preventDefault()
+    setResourceAgentWidth(Math.max(MIN_RESOURCE_AGENT_WIDTH, Math.min(resourceAgentWidthMax, nextWidth)))
+  }, [resourceAgentWidth, resourceAgentWidthMax])
 
   const beginResourceAgentResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault()
@@ -769,6 +789,22 @@ export function CodeMainArea({
       document.body.classList.remove('code-resizing-resource-agent')
     }
   }, [updateResourceAgentWidth])
+
+  useLayoutEffect(() => {
+    if (!resourceAgentPanelVisible || typeof ResizeObserver === 'undefined') return undefined
+    const element = mainAreaRef.current
+    if (!element) return undefined
+    const reconcileWidth = () => {
+      const mainWidth = element.getBoundingClientRect().width
+      const maxWidth = maxResourceAgentWidth(mainWidth)
+      setResourceAgentWidthMax(maxWidth)
+      setResourceAgentWidth(current => clampResourceAgentWidth(current, mainWidth))
+    }
+    reconcileWidth()
+    const observer = new ResizeObserver(reconcileWidth)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [resourceAgentPanelVisible])
 
   useEffect(() => {
     if (!resourceAgentPanelOpen || activeView !== 'projects' || !resourceAgentId) return
@@ -1012,9 +1048,11 @@ export function CodeMainArea({
           aria-label={copy.resizeAgentSidePanel}
           aria-orientation="vertical"
           aria-valuemin={MIN_RESOURCE_AGENT_WIDTH}
-          aria-valuemax={MAX_RESOURCE_AGENT_WIDTH}
+          aria-valuemax={Math.round(resourceAgentWidthMax)}
           aria-valuenow={Math.round(resourceAgentWidth)}
+          tabIndex={0}
           onPointerDown={beginResourceAgentResize}
+          onKeyDown={handleResourceAgentResizeKeyDown}
         />
       ) : null}
 

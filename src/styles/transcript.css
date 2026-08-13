@@ -1258,7 +1258,6 @@
 .code-agent-transcript-answer-action::after {
   content: attr(data-tooltip);
   position: absolute;
-  left: 50%;
   bottom: calc(100% + 8px);
   z-index: 20;
   min-width: max-content;
@@ -1274,9 +1273,18 @@
   letter-spacing: 0;
   opacity: 0;
   pointer-events: none;
-  transform: translate(-50%, 2px);
   transition: opacity 120ms ease, transform 120ms ease;
   white-space: nowrap;
+}
+
+.code-agent-transcript-copy::after {
+  right: 0;
+  transform: translateY(2px);
+}
+
+.code-agent-transcript-answer-action::after {
+  left: 0;
+  transform: translateY(2px);
 }
 
 .code-agent-transcript-copy:hover::after,
@@ -1286,7 +1294,7 @@
 .code-agent-transcript-answer-action.copied::after,
 .code-agent-transcript-answer-action:focus-visible::after {
   opacity: 1;
-  transform: translate(-50%, 0);
+  transform: translateY(0);
 }
 
 .code-agent-transcript-process-item pre {

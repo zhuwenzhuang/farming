@@ -249,12 +249,48 @@ test('reuses the existing Agent Chat beside a file', async ({ page, workspaceRoo
   await expect(page.getByTestId('code-acp-composer')).toHaveCount(0)
   await page.getByTestId('code-composer-restore').click()
   await expect(page.getByTestId('code-acp-composer-input')).toBeVisible()
+  const copyAnswer = page.getByTestId('code-agent-transcript-copy-answer')
+  await expect(copyAnswer).not.toHaveAttribute('title')
+  await copyAnswer.hover()
+  const copyTooltipStyle = await copyAnswer.evaluate(element => {
+    const style = getComputedStyle(element, '::after')
+    return {
+      bottom: style.bottom,
+      content: style.content,
+      left: style.left,
+      opacity: style.opacity,
+      transform: style.transform,
+    }
+  })
+  expect(copyTooltipStyle).toMatchObject({
+    bottom: '28px',
+    content: '"Copy answer"',
+    left: '0px',
+  })
+  await copyAnswer.focus()
+  await expect.poll(() => copyAnswer.evaluate(element => (
+    getComputedStyle(element, '::after').opacity
+  ))).toBe('1')
   await expect(page.locator('.code-composer-approval-label')).toBeHidden()
   await expect(page.getByTestId('code-acp-mode')).toHaveCSS('width', '34px')
   await expect(page.locator('.code-composer-model-label.desktop')).toBeHidden()
   await expect(page.locator('.code-composer-model-label.mobile')).toBeVisible()
   const main = page.getByTestId('code-main')
   const resizer = page.getByTestId('code-resource-agent-resizer')
+  await resizer.focus()
+  await resizer.press('End')
+  await expect(page.getByTestId('code-terminal-grid')).toHaveCSS('width', '800px')
+  await page.setViewportSize({ width: 1200, height: 900 })
+  await expect.poll(async () => Number(await resizer.getAttribute('aria-valuemax'))).toBeLessThan(800)
+  const narrowedViewportEditorBox = await editor.boundingBox()
+  if (!narrowedViewportEditorBox) throw new Error('Narrowed Viewer geometry is unavailable')
+  expect(narrowedViewportEditorBox.width).toBeGreaterThanOrEqual(320)
+  await page.setViewportSize({ width: 1680, height: 900 })
+  await expect(resizer).toHaveAttribute('aria-valuemax', '800')
+  await resizer.press('Home')
+  await expect(page.getByTestId('code-terminal-grid')).toHaveCSS('width', '360px')
+  await resizer.press('ArrowLeft')
+  await expect(page.getByTestId('code-terminal-grid')).toHaveCSS('width', '376px')
   const mainBox = await main.boundingBox()
   const resizerBox = await resizer.boundingBox()
   if (!mainBox || !resizerBox) throw new Error('Agent side-panel resize geometry is unavailable')
