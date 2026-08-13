@@ -10,6 +10,7 @@ import {
   test,
   writeTerminalFixture,
 } from './fixtures'
+import type { Page } from '@playwright/test'
 
 function git(cwd: string, args: string[]) {
   execFileSync('git', args, { cwd, stdio: 'ignore' })
@@ -36,6 +37,16 @@ async function expectBlameAvailable(page: Parameters<typeof openFarming>[0]) {
   await menu.getByRole('menuitem', { name: 'Annotate with Blame' }).click()
   await expect(page.locator('.code-file-inline-blame')).toHaveCount(3)
   await expect(page.locator('.code-file-inline-blame').first()).toContainText('Farming E2E')
+}
+
+async function createChatAgent(page: Page, workspace: string) {
+  const response = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'codex', workspace, agentRuntimeMode: 'chat' },
+  })
+  expect(response.ok()).toBeTruthy()
+  const payload = await response.json() as { agentId?: string }
+  expect(payload.agentId).toBeTruthy()
+  return payload.agentId as string
 }
 
 test('opens an external repository file from its nearest Git Project with blame', async ({ page, workspaceRoot }) => {
@@ -95,6 +106,57 @@ test('promotes an external terminal file link to its nearest Git Project', async
   ))
   await page.mouse.click(cell.x, cell.y)
   expect((await (await mounted).json()).workspace).toBe(fs.realpathSync(repository))
+  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(repository) })
+  await expect(project).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'SmartOpen.java' })).toBeVisible()
+  await expectBlameAvailable(page)
+})
+
+test('promotes an external Chat file link to its nearest Git Project', async ({ page, workspaceRoot }) => {
+  const launcherWorkspace = path.join(workspaceRoot, 'chat-link-launcher')
+  fs.mkdirSync(launcherWorkspace, { recursive: true })
+  const { filePath, repository } = createRepositoryFile(workspaceRoot, 'chat-link-git-project')
+  const agentId = await createChatAgent(page, launcherWorkspace)
+
+  await page.route(new RegExp(`/farming/api/agents/${agentId}/acp-transcript(?:\\?.*)?$`), async route => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        transcript: {
+          sessionId: 'external-chat-file-link',
+          state: 'idle',
+          revision: 1,
+          entries: [
+            {
+              id: 'external-chat-file-link-user',
+              type: 'message',
+              role: 'user',
+              content: [{ type: 'text', text: 'Open the referenced file.' }],
+            },
+            {
+              id: 'external-chat-file-link-answer',
+              type: 'message',
+              role: 'assistant',
+              _meta: { codex: { phase: 'final_answer' } },
+              content: [{ type: 'text', text: `[SmartOpen.java:2](${filePath}:2)` }],
+            },
+          ],
+        },
+      }),
+    })
+  })
+
+  await openFarming(page)
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+  const fileLink = page.locator('.code-agent-transcript-markdown-file-link', { hasText: 'SmartOpen.java:2' })
+  await expect(fileLink).toBeVisible()
+  const mounted = page.waitForResponse(response => (
+    response.request().method() === 'POST'
+    && new URL(response.url()).pathname.endsWith('/api/projects/mount-file')
+  ))
+  await fileLink.click()
+  expect((await (await mounted).json()).workspace).toBe(fs.realpathSync(repository))
+
   const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(repository) })
   await expect(project).toBeVisible()
   await expect(page.getByRole('tab', { name: 'SmartOpen.java' })).toBeVisible()
