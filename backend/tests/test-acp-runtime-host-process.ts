@@ -4,6 +4,7 @@ const net = require('net');
 const os = require('os');
 const path = require('path');
 const { EventEmitter } = require('events');
+const { StringDecoder } = require('string_decoder');
 
 const { AcpRuntimeHostProcess } = require('../acp-runtime-host-process.cts');
 const { promptContentHash } = require('../acp-runtime-host-service.cts');
@@ -130,6 +131,45 @@ async function waitFor(predicate, message) {
 }
 
 async function main() {
+  const splitUtf8Host = new AcpRuntimeHostProcess({
+    configDir: os.tmpdir(),
+    socketPath: '/unused',
+    runtime: new FakeRuntime(),
+    exitOnShutdown: false,
+  });
+  const splitUtf8Requests: Record<string, unknown>[] = [];
+  splitUtf8Host.handleMessage = async (_client, line) => {
+    splitUtf8Requests.push(JSON.parse(line));
+  };
+  const splitUtf8Request = Buffer.from(`${JSON.stringify({
+    id: 1,
+    method: 'submitPrompt',
+    params: { prompt: [{ type: 'text', text: '通用谓词解析器' }] },
+  })}\n`);
+  const splitUtf8Character = Buffer.from('析');
+  const splitUtf8At = splitUtf8Request.indexOf(splitUtf8Character);
+  const splitUtf8Client = {
+    buffer: '',
+    controller: null,
+    decoder: new StringDecoder('utf8'),
+    disconnected: false,
+    socket: { destroy() {} },
+  };
+  splitUtf8Host.handleData(splitUtf8Client, splitUtf8Request.subarray(0, splitUtf8At));
+  for (const byte of splitUtf8Character) {
+    splitUtf8Host.handleData(splitUtf8Client, Buffer.from([byte]));
+  }
+  splitUtf8Host.handleData(
+    splitUtf8Client,
+    splitUtf8Request.subarray(splitUtf8At + splitUtf8Character.length),
+  );
+  assert.deepStrictEqual(splitUtf8Requests, [{
+    id: 1,
+    method: 'submitPrompt',
+    params: { prompt: [{ type: 'text', text: '通用谓词解析器' }] },
+  }]);
+  await splitUtf8Host.dispose();
+
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-acp-runtime-host-process-'));
   const socketPath = path.join(configDir, 'host.sock');
   const runtime = new FakeRuntime();

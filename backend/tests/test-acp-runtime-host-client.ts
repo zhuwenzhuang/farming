@@ -70,6 +70,28 @@ async function waitFor(predicate, message) {
 }
 
 async function main() {
+  const splitUtf8Client = new AcpRuntimeHostClient({
+    configDir: os.tmpdir(),
+    socketPath: '/unused',
+  });
+  const splitUtf8Messages: Record<string, unknown>[] = [];
+  splitUtf8Client.handleMessage = (message: Record<string, unknown>) => {
+    splitUtf8Messages.push(message);
+  };
+  const splitUtf8Response = Buffer.from(`${JSON.stringify({
+    id: 1,
+    ok: true,
+    result: '1174 行',
+  })}\n`);
+  const splitUtf8Character = Buffer.from('行');
+  const splitUtf8At = splitUtf8Response.indexOf(splitUtf8Character);
+  splitUtf8Client.handleData(splitUtf8Response.subarray(0, splitUtf8At));
+  for (const byte of splitUtf8Character) {
+    splitUtf8Client.handleData(Buffer.from([byte]));
+  }
+  splitUtf8Client.handleData(splitUtf8Response.subarray(splitUtf8At + splitUtf8Character.length));
+  assert.deepStrictEqual(splitUtf8Messages, [{ id: 1, ok: true, result: '1174 行' }]);
+
   assert.deepStrictEqual(
     acpRuntimeHostSpawnCommand('/opt/farming/backend/acp-runtime-host.cjs', {
       FARMING_NODE_BIN: '/opt/farming/node',

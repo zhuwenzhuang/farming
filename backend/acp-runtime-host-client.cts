@@ -6,6 +6,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as net from 'net';
 import * as path from 'path';
+import { StringDecoder } from 'node:string_decoder';
 import { allocateAcpRuntimeHostControllerGeneration } from './acp-runtime-host-controller.cjs';
 import { configInstanceFingerprint } from './config-instance.cjs';
 import {
@@ -114,6 +115,7 @@ class AcpRuntimeHostClient extends EventEmitter {
   controllerGeneration: number;
   socket: net.Socket | null;
   buffer: string;
+  decoder: StringDecoder;
   nextRequestId: number;
   pending: Map<number, PendingRequest>;
   connecting: Promise<void> | null;
@@ -145,6 +147,7 @@ class AcpRuntimeHostClient extends EventEmitter {
     this.controllerGeneration = 0;
     this.socket = null;
     this.buffer = '';
+    this.decoder = new StringDecoder('utf8');
     this.nextRequestId = 1;
     this.pending = new Map();
     this.connecting = null;
@@ -199,6 +202,7 @@ class AcpRuntimeHostClient extends EventEmitter {
   attachSocket(socket: net.Socket): void {
     this.socket = socket;
     this.buffer = '';
+    this.decoder = new StringDecoder('utf8');
     socket.on('data', chunk => this.handleData(chunk));
     socket.once('close', () => this.handleDisconnect(new Error('ACP runtime host connection closed')));
     socket.once('error', error => this.handleDisconnect(error));
@@ -222,7 +226,7 @@ class AcpRuntimeHostClient extends EventEmitter {
   }
 
   handleData(chunk: Buffer | string): void {
-    this.buffer += chunk.toString('utf8');
+    this.buffer += typeof chunk === 'string' ? chunk : this.decoder.write(chunk);
     let newline = this.buffer.indexOf('\n');
     while (newline >= 0) {
       const line = this.buffer.slice(0, newline);

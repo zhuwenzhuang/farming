@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as crypto from 'crypto';
 import * as net from 'net';
 import * as path from 'path';
+import { StringDecoder } from 'node:string_decoder';
 import { AcpRuntime } from './acp-runtime.cjs';
 import { AcpRuntimeHostService } from './acp-runtime-host-service.cjs';
 import { acpRuntimeHostIdentity } from './acp-runtime-host-identity.cjs';
@@ -21,6 +22,7 @@ type UnknownRecord = Record<string, unknown>;
 interface HostClient {
   buffer: string;
   controller: { id: string; generation: number } | null;
+  decoder: StringDecoder;
   disconnected: boolean;
   socket: net.Socket;
 }
@@ -205,7 +207,13 @@ class AcpRuntimeHostProcess {
       return;
     }
     this.cancelIdleExit();
-    const client: HostClient = { socket, buffer: '', controller: null, disconnected: false };
+    const client: HostClient = {
+      socket,
+      buffer: '',
+      controller: null,
+      decoder: new StringDecoder('utf8'),
+      disconnected: false,
+    };
     this.clients.add(client);
     socket.on('data', chunk => this.handleData(client, chunk));
     socket.on('close', () => this.removeClient(client));
@@ -263,7 +271,7 @@ class AcpRuntimeHostProcess {
   }
 
   handleData(client: HostClient, chunk: Buffer | string): void {
-    client.buffer += chunk.toString('utf8');
+    client.buffer += typeof chunk === 'string' ? chunk : client.decoder.write(chunk);
     let newline = client.buffer.indexOf('\n');
     while (newline >= 0) {
       if (newline > this.maxRequestBytes) {
