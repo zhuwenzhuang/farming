@@ -44,7 +44,9 @@ Viewer 并回到完整 Agent 界面。Project-owned Resource 和没有存活 Sou
 用户显式选择显示或隐藏后，该选择作为 Browser-local Preference，在进入其他具备展示条件的
 Viewer 时继续生效。不具备展示条件的 Viewer 只隐藏窄栏，不能清除该 Preference。
 在窄栏支持的全部宽度范围内，Transcript Turn 使用带紧凑 Inset 的可用内容宽度，不保留完整
-Agent Surface 的居中阅读栏宽度。
+Agent Surface 的居中阅读栏宽度。Composer 保留完整 Agent Surface 的收起交互。
+Activity Preview 参与窄栏的纵向布局，不得覆盖 Composer；已经在相邻 Viewer 中打开的
+Browser 不再重复显示为 Activity Preview。
 
 Current Plan、Browser Preview 等 Live Agent Activity 共享一个由 Core 拥有的右侧 Dock。
 每项 Activity 始终保留可识别的紧凑 Header，但同一时刻最多只展开一个 Activity Body；

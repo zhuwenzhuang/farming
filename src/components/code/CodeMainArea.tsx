@@ -712,6 +712,7 @@ export function CodeMainArea({
   const activeBrowserPreviews = activeAgent
     ? (browserController.byAgentId.get(activeAgent.id) ?? [])
       .filter(resource => resource.status === 'running')
+      .filter(resource => resource.id !== activeBrowserResource?.id)
       .filter(resource => !dismissedBrowserPreviewKeys.has(`${resource.id}:${resource.generation}`))
       .sort((left, right) => left.updatedAt - right.updatedAt)
     : []
@@ -735,7 +736,7 @@ export function CodeMainArea({
     : chatComposerCollapseRequested
   const canCollapseComposer = composerCollapseSupported
     && activeView === 'projects'
-    && !showFileEditor
+    && (!showFileEditor || resourceAgentPanelVisible)
     && openAgentsCount > 0
   const composerCollapsed = canCollapseComposer && composerCollapseRequested
 

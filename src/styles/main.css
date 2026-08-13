@@ -749,6 +749,12 @@ body.code-mode .code-instance-name {
 .code-main.resource-agent-side-open > .code-agent-activity-dock {
   grid-column: 3;
   grid-row: 2;
+  position: relative;
+  top: auto;
+  right: auto;
+  justify-self: end;
+  width: min(286px, calc(100% - 24px));
+  margin: 0 12px 6px;
 }
 
 .code-main.resource-agent-side-open > .code-composer-shell,
