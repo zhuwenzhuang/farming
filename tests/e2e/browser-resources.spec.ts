@@ -227,7 +227,7 @@ test('hides project Browser tabs when the selected runtime is Agent-owned', asyn
         source: 'isolated',
         executablePath: '',
       },
-      message: 'Isolated Browser is available',
+      message: 'Browser in Docker is available',
     }),
   }))
   await page.route('**/api/browsers', route => route.fulfill({
@@ -793,15 +793,15 @@ test('offers explicit isolated Browser preparation when no local browser is avai
   await page.getByTestId('code-nav-plugins').click()
   const pluginsPanel = page.getByTestId('code-plugins-panel')
   await expect(pluginsPanel.getByRole('heading', { name: 'Browser', exact: true })).toBeVisible()
-  await expect(pluginsPanel.getByRole('group', { name: 'Available browsers' }))
-    .toContainText('These browsers can be used together.')
+  await expect(pluginsPanel.getByRole('group', { name: 'Browser options' }))
+    .toContainText('New browser')
   await expect(pluginsPanel.locator('.code-plugin-status').filter({ hasText: 'Not ready' })).toBeVisible()
   const browserPlugin = pluginsPanel.getByTestId('code-plugin-browser')
   await expect(browserPlugin.getByRole('button', { name: 'Enable' })).toBeDisabled()
-  await pluginsPanel.getByRole('button', { name: 'Prepare isolated Browser' }).click()
-  await expect(pluginsPanel.getByRole('group', { name: 'Available browsers' }))
-    .toContainText('Isolated BrowserAvailable')
-  await expect(pluginsPanel.getByRole('button', { name: 'Prepare isolated Browser' })).toHaveCount(0)
+  await pluginsPanel.getByRole('button', { name: 'Install (about 2 GB)' }).click()
+  await expect(pluginsPanel.getByRole('group', { name: 'Browser options' }))
+    .toContainText('Browser in Docker (Experimental)Available')
+  await expect(pluginsPanel.getByRole('button', { name: 'Install (about 2 GB)' })).toHaveCount(0)
   await expect(browserPlugin.getByRole('button', { name: 'Enable' })).toBeEnabled()
   const screenshot = testInfo.outputPath('browser-plugin-prepare-required.png')
   await pluginsPanel.screenshot({ path: screenshot })
@@ -841,10 +841,10 @@ test('keeps Isolated Browser visible but disabled without Docker', async ({ page
   await openFarming(page)
   await page.getByTestId('code-nav-plugins').click()
   const browserPlugin = page.getByTestId('code-plugin-browser')
-  await expect(browserPlugin.getByRole('group', { name: 'Available browsers' }))
-    .toContainText('Isolated Browser (requires Docker)')
-  await expect(browserPlugin.getByRole('button', { name: 'Prepare isolated Browser' })).toHaveCount(0)
-  await expect(browserPlugin.getByRole('link', { name: 'View Docker installation guide' }))
+  await expect(browserPlugin.getByRole('group', { name: 'Browser options' }))
+    .toContainText('Browser in Docker (Experimental)Docker required')
+  await expect(browserPlugin.getByRole('button', { name: 'Install (about 2 GB)' })).toHaveCount(0)
+  await expect(browserPlugin.getByRole('link', { name: 'Install Docker' }))
     .toHaveAttribute('href', 'https://docs.docker.com/engine/install/')
 })
 
@@ -1245,7 +1245,7 @@ test('uses Farming dark colors for the Browser source menu', async ({ page }) =>
   await openFarming(page)
   await page.getByTestId('code-nav-plugins').click()
   const pluginsPanel = page.getByTestId('code-plugins-panel')
-  const browserSources = pluginsPanel.getByRole('group', { name: 'Available browsers' })
+  const browserSources = pluginsPanel.getByRole('group', { name: 'Browser options' })
 
   await page.evaluate(() => {
     document.body.dataset.appearance = 'dark'
@@ -1258,22 +1258,50 @@ test('uses Farming dark colors for the Browser source menu', async ({ page }) =>
 })
 
 test('shows concurrent Browser sources and existing Chrome setup', async ({ page }, testInfo) => {
+  let preparedConnector = false
+  await page.route('**/api/browsers/extension/prepare', async route => {
+    preparedConnector = true
+    await route.fulfill({
+      contentType: 'application/json',
+      status: 200,
+      body: JSON.stringify({ installed: true, connected: false }),
+    })
+  })
   await openFarming(page)
   await page.getByTestId('code-nav-plugins').click()
   const pluginsPanel = page.getByTestId('code-plugins-panel')
-  const browserSources = pluginsPanel.getByRole('group', { name: 'Available browsers' })
+  const browserSources = pluginsPanel.getByRole('group', { name: 'Browser options' })
 
   await expect(pluginsPanel.getByRole('combobox', { name: 'Browser permissions' })).toHaveCount(0)
-  await expect(browserSources).toContainText('These browsers can be used together.')
-  await expect(browserSources).toContainText('Your existing Chrome')
-  await expect(browserSources).toContainText('Isolated Browser')
+  await expect(browserSources).toContainText('New browser')
+  await expect(browserSources).toContainText('My Chrome')
+  await expect(browserSources).toContainText('Browser in Docker (Experimental)')
   await expect(browserSources.locator('.code-plugin-browser-source')).toHaveCount(3)
   await expect(pluginsPanel.getByRole('textbox', { name: 'CDP address' })).toHaveCount(0)
   await expect(pluginsPanel.getByRole('button', { name: 'Configure CDP' })).toHaveCount(0)
-  await expect(pluginsPanel.getByRole('textbox', { name: 'Bundled extension directory' }))
-    .toHaveValue(/browser-extension\/chrome$/)
-  await expect(pluginsPanel.getByRole('button', { name: 'Copy directory' })).toBeEnabled()
-  await expect(pluginsPanel.getByRole('link', { name: 'Install connector' })).toBeVisible()
+  await expect(pluginsPanel.getByRole('textbox', { name: 'Bundled extension directory' })).toHaveCount(0)
+  await expect(pluginsPanel.getByRole('button', { name: 'Copy directory' })).toHaveCount(0)
+  const myChrome = browserSources.locator('.code-plugin-browser-source').filter({ hasText: 'My Chrome' })
+  const prepareConnector = myChrome.getByRole('button', { name: 'Prepare extension folder' })
+  await expect(prepareConnector).toBeVisible()
+  await expect(myChrome.locator('.code-plugin-browser-source-actions > *')).toHaveText([
+    'Prepare extension folder',
+    'Installation steps',
+  ])
+  await page.evaluate(() => {
+    Object.assign(window, { __connectorGuideOpened: 0 })
+    window.open = () => {
+      Object.assign(window, { __connectorGuideOpened: 1 })
+      return null
+    }
+  })
+  await prepareConnector.click()
+  await expect.poll(() => preparedConnector).toBe(true)
+  await expect.poll(() => page.evaluate(() => (
+    window as typeof window & { __connectorGuideOpened?: number }
+  ).__connectorGuideOpened)).toBe(0)
+  await expect(myChrome.getByRole('button', { name: 'Extension folder ready' })).toBeDisabled()
+  await expect(myChrome.getByRole('link', { name: 'Installation steps' })).toBeVisible()
   const screenshot = testInfo.outputPath('browser-sources.png')
   await pluginsPanel.screenshot({ path: screenshot })
   await testInfo.attach('browser-sources', { path: screenshot, contentType: 'image/png' })
@@ -1307,11 +1335,11 @@ test('matches the focused Viewer viewport and restores the previous Viewer on cl
   const browserPlugin = pluginsPanel.getByTestId('code-plugin-browser')
   const browserToggle = browserPlugin.getByRole('button', { name: 'Disable' })
   const browserHint = pluginsPanel.getByText(
-    'Let Agents operate webpages and view the same browser in Farming.',
+    'Let Agents open and operate webpages.',
     { exact: true },
   )
   await expect(pluginsPanel.getByRole('heading', { name: 'Browser', exact: true })).toBeVisible()
-  await expect(pluginsPanel.locator('small').filter({ hasText: /System Chromium|Google Chrome|Chromium|Brave|Microsoft Edge/ })).toBeVisible()
+  await expect(browserPlugin.getByText('New browser', { exact: true })).toBeVisible()
   await expect(browserHint).toBeVisible()
   expect(await browserHint.evaluate(element => ({
     horizontallyClipped: element.scrollWidth > element.clientWidth,

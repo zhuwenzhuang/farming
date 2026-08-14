@@ -15,6 +15,10 @@ import {
   type ExtensionRelayHandle,
 } from './openclaw-relay/relay-server.cjs';
 import { isAllowedExtensionOrigin, requestProtocols } from './openclaw-relay/relay-request.cjs';
+import {
+  browserExtensionPath,
+  ensureBrowserExtensionLink,
+} from './browser-extension-location.cjs';
 
 const RELAY_SECRET_PATTERN = /^[0-9a-f]{64}$/u;
 const RELAY_SECRET_FILE = 'farming-browser-extension-relay.secret';
@@ -47,52 +51,9 @@ function ensureRelaySecret(configDir: string): string {
   return token;
 }
 
-function extensionDigest(root: string): string {
-  const hash = crypto.createHash('sha256');
-  const visit = (directory: string): void => {
-    for (const entry of fs.readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-      const absolute = path.join(directory, entry.name);
-      if (entry.isDirectory()) visit(absolute);
-      else if (entry.isFile()) {
-        hash.update(path.relative(root, absolute));
-        hash.update(fs.readFileSync(absolute));
-      }
-    }
-  };
-  visit(root);
-  return hash.digest('hex');
-}
-
-function prepareInstalledExtension(source: string, configDir: string): string {
-  const parent = path.join(configDir, 'browser-extension');
-  const installed = path.join(parent, 'chrome');
-  const stamp = '.farming-content-sha256';
-  const digest = extensionDigest(source);
-  try {
-    if (fs.readFileSync(path.join(installed, stamp), 'utf8').trim() === digest) return installed;
-  } catch {
-    // Missing or outdated installations are replaced atomically below.
-  }
-  fs.mkdirSync(parent, { recursive: true, mode: 0o700 });
-  const staging = path.join(parent, `chrome.installing-${crypto.randomUUID()}`);
-  const previous = path.join(parent, `chrome.previous-${crypto.randomUUID()}`);
-  fs.cpSync(source, staging, { recursive: true, errorOnExist: true });
-  fs.writeFileSync(path.join(staging, stamp), `${digest}\n`, { mode: 0o600 });
-  const hasPrevious = fs.existsSync(installed);
-  try {
-    if (hasPrevious) fs.renameSync(installed, previous);
-    fs.renameSync(staging, installed);
-    if (hasPrevious) fs.rmSync(previous, { recursive: true, force: true });
-  } catch (error) {
-    if (!fs.existsSync(installed) && hasPrevious) fs.renameSync(previous, installed);
-    fs.rmSync(staging, { recursive: true, force: true });
-    throw error;
-  }
-  return installed;
-}
-
 class BrowserExtensionRelay {
   readonly configDir: string;
+  readonly extensionSource: string;
   readonly extensionPath: string;
   readonly onStateChange: () => void;
   private handle: ExtensionRelayHandle | null = null;
@@ -100,11 +61,14 @@ class BrowserExtensionRelay {
 
   constructor(options: BrowserExtensionRelayOptions) {
     this.configDir = options.configDir;
-    this.extensionPath = prepareInstalledExtension(
-      path.resolve(__dirname, '..', 'chrome-extension'),
-      options.configDir,
-    );
+    this.extensionSource = path.resolve(__dirname, '..', 'chrome-extension');
+    this.extensionPath = browserExtensionPath(options.configDir);
     this.onStateChange = options.onStateChange || (() => {});
+  }
+
+  prepare() {
+    ensureBrowserExtensionLink(this.extensionSource, this.configDir);
+    return this.capability();
   }
 
   async init(): Promise<void> {

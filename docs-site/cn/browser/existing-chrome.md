@@ -5,16 +5,16 @@
 
 ## 安装
 
-1. 打开 Farming 的**插件 → 浏览器**，点击**安装连接扩展**，复制扩展目录。
+先在 Farming 的“插件 → 浏览器 → 我的 Chrome”中点击**准备插件目录**。
 
-   ![Farming 浏览器设置](/cn/assets/existing-chrome-plugin.jpg)
+![在 Farming 中准备连接扩展](/cn/assets/existing-chrome-install.png)
 
-2. 打开 `chrome://extensions`，开启**开发者模式**，点击**加载已解压的扩展程序**。
-   在文件选择器中选择刚才复制的扩展目录，然后点击**选择**。
+1. 打开 `chrome://extensions`，开启**开发者模式**，点击**加载已解压的扩展程序**。
+2. 在文件选择器中打开你的主目录，选择 **farming-browser-connector**，然后点击**选择**。
 
-   ![选择扩展目录](/cn/assets/existing-chrome-select-folder.jpg)
+   ![选择 farming-browser-connector](/cn/assets/existing-chrome-select-folder.jpg)
 
-3. 回到 Farming 页面，打开 Chrome 的**扩展程序**菜单，点击 **Farming Browser Connector**。
+3. 打开 Chrome 的**扩展程序**菜单，点击 **Farming Browser Connector**。
 
    ![打开连接扩展](/cn/assets/existing-chrome-menu.jpg)
 

@@ -18,7 +18,7 @@ Farming Browser 让 Agent 打开和操作网页。你可以在 Farming 中看到
   直接使用你当前 Chrome 中已经打开的页面。
 - **用户已有 Chrome**：让 Agent 直接使用你已经打开的 Chrome 页面。首次使用需要
   [安装 Chrome 扩展](./existing-chrome)。
-- **隔离浏览器**：为 Agent 提供独立的浏览器环境，不使用你日常浏览器里的页面和账号。
+- **Docker 中的浏览器（实验性）**：在 Docker 中为 Agent 打开浏览器，不使用你日常浏览器里的页面和账号。
 
 ## 查看和接手 Agent 的页面
 

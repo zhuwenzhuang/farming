@@ -13,10 +13,10 @@ and interacts with the same page in Farming.
 
 Browser is enabled by default when a compatible local Chromium source is
 available. Open **Plugins → Browser** to see the available sources, disable
-Browser, or prepare **Isolated Browser** when needed. Normal Farming
+Browser, or prepare **Browser in Docker (Experimental)** when needed. Normal Farming
 installation and Server startup do not silently download Chromium.
 
-Local Chromium is the simplest ordinary path. Isolated Browser is for an Agent
+Local Chromium is the simplest ordinary path. Browser in Docker is for an Agent
 that needs an independent Linux desktop or Computer Use. Cross-engine testing
 belongs in a dedicated testing service, not an automatic Browser fallback.
 The Farming Browser Connector lets an Agent use the user's current Chrome pages

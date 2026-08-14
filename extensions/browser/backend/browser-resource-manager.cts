@@ -209,6 +209,7 @@ type BrowserExtensionRelayProvider = {
   capability(): Record<string, unknown>;
   cdpUrl(): string;
   pairingString(relayUrl: string): string;
+  prepare(): Record<string, unknown>;
   tabs(): Array<{
     active: boolean;
     id: number;
@@ -795,6 +796,13 @@ class BrowserResourceManager extends EventEmitter {
     await this.isolatedBrowserProvider.prepare();
     await this.refreshCapability();
     return this.capability();
+  }
+
+  prepareBrowserExtension(): Record<string, unknown> {
+    if (!this.browserExtensionRelay) {
+      throw browserError('Farming Browser Connector is unavailable', 503, 'BROWSER_EXTENSION_UNAVAILABLE');
+    }
+    return this.browserExtensionRelay.prepare();
   }
 
   browserExtensionStatus(relayUrl?: string) {

@@ -20,8 +20,8 @@ together; the Agent chooses the one that best fits each task.
   in your current Chrome.
 - **Your existing Chrome**: lets the Agent directly use Chrome pages you already
   have open. First use requires [installing a Chrome extension](./existing-chrome).
-- **Isolated Browser**: gives the Agent a separate browser environment without
-  using pages or accounts from your everyday browser.
+- **Browser in Docker (Experimental)**: opens a browser for the Agent in Docker without using
+  pages or accounts from your everyday browser.
 
 ## Watch and take over the Agent's page
 

@@ -78,7 +78,7 @@ Runtime，再同时删除 Row 与 Profile。面向 Agent 的 CLI 必须同时暴
 Resource 能按精确 ID 删除，而不是长期累积为 Stopped Inventory。Agent 生命周期中的停止或
 归档使用删除；Chat/Terminal Replacement 明确不触发删除。
 
-Project-owned Browser Resource 由系统 Chromium 支持。Isolated Browser 会租用
+Project-owned Browser Resource 由系统 Chromium 支持。Docker 中的浏览器（实验性；内部 Source 为 `isolated`）会租用
 Agent-owned Computer，因此只接受活跃 Agent Owner；Project 创建会在持久化
 Resource Row 前被拒绝，已有 Project Row 在选择 Isolated 模式时保持隐藏。Project 侧栏中的
 Project Resource Section 使用位于 Agent 库存之后、Files 之前的显式插槽；Extension Portal
@@ -128,7 +128,7 @@ Browser 和 Computer 是同一 Resource Contract 上的 Built-in Extension：
 
 - Browser 拥有结构化网页操作与共享 Page Viewer；
 - Computer 拥有完整 Desktop 与控制权交接；
-- Isolated Browser 可以租用 Agent-owned Desktop，但 Browser Tab 与 Desktop Lifecycle 保持独立。
+- Docker 中的浏览器可以租用 Agent-owned Desktop，但 Browser Tab 与 Desktop Lifecycle 保持独立。
 
 Browser 也可以通过 Farming Browser Connector 中继用户已登录的有头 Chrome 标签页。
 Connector 复用同一个 Browser Runtime、Resource、Agent Tool 与 Viewer 通路，

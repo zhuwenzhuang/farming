@@ -154,7 +154,7 @@ Browser and Computer are built-in Extensions over the same Resource contract:
 
 - Browser owns structured webpage automation and a shared page Viewer.
 - Computer owns a full Desktop and its control handoff.
-- Isolated Browser may lease an Agent-owned Desktop, but Browser-tab and Desktop
+- Browser in Docker (Experimental) may lease an Agent-owned Desktop, but Browser-tab and Desktop
   lifecycles remain distinct.
 
 Browser may also use the Farming Browser Connector to relay eligible tabs from

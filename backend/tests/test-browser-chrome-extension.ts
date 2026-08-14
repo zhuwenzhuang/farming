@@ -5,6 +5,10 @@ const os = require('os');
 const path = require('path');
 const { WebSocket, WebSocketServer } = require('ws');
 const { BrowserExtensionRelay } = require('../../extensions/browser/backend/browser-extension-relay.cjs');
+const {
+  browserExtensionPath,
+  ensureBrowserExtensionLink,
+} = require('../../extensions/browser/backend/browser-extension-location.cjs');
 const { ExtensionRelayBridge } = require('../../extensions/browser/backend/openclaw-relay/relay-bridge.cjs');
 const {
   createRelayProof,
@@ -318,19 +322,58 @@ async function run() {
   extension.onClose();
   bridge.dispose();
 
-  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-browser-extension-'));
+  const extensionTestRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-browser-extension-'));
+  const configDir = path.join(extensionTestRoot, '.farming');
+  fs.mkdirSync(configDir);
   const relay = new BrowserExtensionRelay({ configDir });
   let publicServer;
   let publicWss;
   let extensionClient;
   try {
+    assert.strictEqual(relay.capability().installed, false);
+    assert.strictEqual(fs.existsSync(browserExtensionPath(configDir)), false);
     await relay.init();
-    const capability = relay.capability();
+    assert.strictEqual(relay.capability().installed, false);
+    assert.strictEqual(fs.existsSync(browserExtensionPath(configDir)), false);
+    const capability = relay.prepare();
     assert.strictEqual(capability.installed, true);
     assert.strictEqual(capability.connected, false);
-    assert.strictEqual(capability.extensionPath, path.join(configDir, 'browser-extension', 'chrome'));
+    assert.strictEqual(capability.extensionPath, path.join(extensionTestRoot, 'farming-browser-connector'));
+    assert.strictEqual(browserExtensionPath(configDir), capability.extensionPath);
+    assert.strictEqual(
+      browserExtensionPath(path.join(extensionTestRoot, '.farming-demo')),
+      path.join(extensionTestRoot, 'farming-browser-connector-farming-demo'),
+    );
     assert.strictEqual(fs.existsSync(path.join(capability.extensionPath, 'manifest.json')), true);
-    assert.match(read(path.join(capability.extensionPath, '.farming-content-sha256')), /^[0-9a-f]{64}\n$/);
+    assert.strictEqual(fs.lstatSync(capability.extensionPath).isSymbolicLink(), true);
+    assert.strictEqual(
+      fs.realpathSync(capability.extensionPath),
+      fs.realpathSync(path.join(__dirname, '../../extensions/browser/chrome-extension')),
+    );
+    const alternateSource = path.join(extensionTestRoot, 'alternate-extension');
+    fs.mkdirSync(alternateSource);
+    fs.writeFileSync(path.join(alternateSource, 'manifest.json'), '{}');
+    fs.unlinkSync(capability.extensionPath);
+    fs.symlinkSync(alternateSource, capability.extensionPath, 'dir');
+    assert.strictEqual(ensureBrowserExtensionLink(
+      path.join(__dirname, '../../extensions/browser/chrome-extension'),
+      configDir,
+    ), capability.extensionPath);
+    assert.strictEqual(
+      fs.realpathSync(capability.extensionPath),
+      fs.realpathSync(path.join(__dirname, '../../extensions/browser/chrome-extension')),
+    );
+    const unmanagedConfigDir = path.join(extensionTestRoot, '.farming-unmanaged');
+    fs.mkdirSync(unmanagedConfigDir);
+    const unmanagedPath = browserExtensionPath(unmanagedConfigDir);
+    fs.mkdirSync(unmanagedPath);
+    assert.throws(
+      () => ensureBrowserExtensionLink(
+        path.join(__dirname, '../../extensions/browser/chrome-extension'),
+        unmanagedConfigDir,
+      ),
+      /already exists and is not managed by Farming/,
+    );
     assert.match(relay.pairingString('ws://127.0.0.1:3000/farming/browser/extension'), /^ws:.*#[0-9a-f]{64}$/);
     assert.strictEqual(await getStatus(`${relay.cdpUrl()}/json/version`), 503);
     const secret = path.join(configDir, 'credentials', 'farming-browser-extension-relay.secret');
@@ -403,7 +446,7 @@ async function run() {
     publicWss?.close();
     if (publicServer) await new Promise(resolve => publicServer.close(resolve));
     await relay.close();
-    fs.rmSync(configDir, { recursive: true, force: true });
+    fs.rmSync(extensionTestRoot, { recursive: true, force: true });
   }
 
   const managerDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-browser-extension-manager-'));

@@ -222,8 +222,8 @@ function pluginCopy(language: UiLanguage) {
     },
     browser: zh ? '浏览器' : 'Browser',
     browserDescription: zh
-      ? '让 Agent 操作网页，并在 Farming 中查看同一个浏览器。'
-      : 'Let Agents operate webpages and view the same browser in Farming.',
+      ? '让 Agent 打开和操作网页。'
+      : 'Let Agents open and operate webpages.',
     enabled: zh ? '已启用' : 'Enabled',
     disabled: zh ? '已停用' : 'Disabled',
     unavailable: zh ? '未就绪' : 'Not ready',
@@ -231,53 +231,48 @@ function pluginCopy(language: UiLanguage) {
     checkFailed: zh ? '检查失败' : 'Check failed',
     browserCheckFailed: zh ? '浏览器当前状态检查失败。' : 'Failed to check the current Browser status.',
     computerCheckFailed: zh ? 'Computer Use 当前状态检查失败。' : 'Failed to check the current Computer Use status.',
-    noSystemBrowser: zh ? '未发现系统 Chromium' : 'No system Chromium detected',
-    extensionBrowser: zh ? '用户已有 Chrome' : 'Your existing Chrome',
+    newBrowser: zh ? '新浏览器' : 'New browser',
+    newBrowserDescription: zh
+      ? '新开网页，不使用你 Chrome 里的页面和登录状态。'
+      : 'Opens webpages separately without using pages or signed-in state from your Chrome.',
+    noSystemBrowser: zh ? '这台电脑未找到 Chrome 或 Chromium' : 'Chrome or Chromium was not found on this computer',
+    extensionBrowser: zh ? '我的 Chrome' : 'My Chrome',
+    extensionBrowserDescription: zh
+      ? '直接使用你已经打开的页面和登录状态。'
+      : 'Uses pages already open in your Chrome, including their signed-in state.',
     extensionConnected: zh ? 'Farming Browser Connector 已连接。' : 'Farming Browser Connector is connected.',
     extensionWaiting: zh ? '等待 Farming Browser Connector 连接。' : 'Waiting for Farming Browser Connector.',
-    extensionInstall: zh
-      ? '连接用户已有 Chrome，需要安装 Farming Browser Connector Chrome 扩展。'
-      : 'Connecting an existing Chrome requires the Farming Browser Connector Chrome extension.',
-    extensionInstallGuide: zh ? '查看安装文档' : 'Read the installation guide',
-    extensionPath: zh ? '内置扩展目录' : 'Bundled extension directory',
-    copyExtensionPath: zh ? '复制目录' : 'Copy directory',
-    copiedExtensionPath: zh ? '已复制' : 'Copied',
     extensionStatusFailed: zh ? 'Farming Browser Connector 状态加载失败' : 'Failed to load Farming Browser Connector status',
-    isolatedBrowser: zh ? '隔离浏览器' : 'Isolated Browser',
-    isolatedBrowserRequiresDocker: zh ? '隔离浏览器（需要 Docker）' : 'Isolated Browser (requires Docker)',
-    isolatedBrowserNotInstalled: zh ? '隔离浏览器（未安装）' : 'Isolated Browser (not installed)',
-    isolatedBrowserUnavailable: zh ? '隔离浏览器（暂不可用）' : 'Isolated Browser (unavailable)',
-    browserChoice: zh ? '可用浏览器' : 'Available browsers',
-    browserSourcesHint: zh
-      ? '这些浏览器可以同时使用。Agent 会按任务选择；创建 Browser 时也可显式指定。'
-      : 'These browsers can be used together. Agents choose for each task, or a source can be specified when creating a Browser.',
+    isolatedBrowser: zh ? 'Docker 中的浏览器（实验性）' : 'Browser in Docker (Experimental)',
+    isolatedBrowserDescription: zh
+      ? '在隔离环境中打开网页，适合需要隔离的任务。'
+      : 'Opens webpages in an isolated environment for tasks that need separation.',
+    browserChoice: zh ? '浏览器方式' : 'Browser options',
     ready: zh ? '可用' : 'Available',
     notReady: zh ? '未连接' : 'Not connected',
-    installConnector: zh ? '安装连接扩展' : 'Install connector',
-    prepareIsolatedBrowser: zh ? '准备隔离浏览器' : 'Prepare isolated Browser',
+    prepareConnectorDirectory: zh ? '准备插件目录' : 'Prepare extension folder',
+    connectorDirectoryReady: zh ? '插件目录已准备' : 'Extension folder ready',
+    connectorGuide: zh ? '安装步骤说明' : 'Installation steps',
+    preparingConnector: zh ? '正在准备目录…' : 'Preparing folder…',
+    connectorPrepareFailed: zh ? '连接扩展准备失败' : 'Failed to prepare the connector extension',
+    installDocker: zh ? '安装 Docker' : 'Install Docker',
+    notInstalled: zh ? '未安装' : 'Not installed',
+    dockerRequired: zh ? '需要 Docker' : 'Docker required',
+    prepareIsolatedBrowser: zh ? '安装（约 2 GB）' : 'Install (about 2 GB)',
     preparingIsolatedBrowser: zh ? '正在下载并验证…' : 'Downloading and verifying…',
-    isolatedBrowserHint: zh
-      ? '显式下载固定版本的 Computer/CUA 镜像和独立 Chromium 缓存（合计约 2 GB）；之后由 Farming 自动管理容器和 CDP，不需要配置端口。'
-      : 'Explicitly downloads the pinned Computer/CUA image and a separate Chromium cache (about 2 GB total); Farming then manages the container and CDP without port configuration.',
-    isolatedBrowserPrepareFailed: zh ? '隔离浏览器准备失败' : 'Failed to prepare isolated Browser',
-    isolatedBrowserDockerRequired: zh
-      ? '安装并启动 Docker 后，才能准备隔离浏览器。'
-      : 'Install and start Docker before preparing the isolated Browser.',
+    isolatedBrowserPrepareFailed: zh ? 'Docker 中的浏览器安装失败' : 'Failed to install Browser in Docker',
     dockerMacGuidance: zh
-      ? '普通网页操作直接使用本机浏览器即可。需要隔离浏览器、并行桌面或 CUA 时，建议安装并启动 Docker Desktop；完成后重新打开插件页。'
-      : 'Use a local browser for ordinary webpage work. Install and start Docker Desktop only when you need an isolated Browser, parallel desktops, or CUA; then reopen Plugins.',
+      ? '普通网页操作直接使用本机浏览器即可。需要 Docker 中的浏览器、Docker 中的桌面或 CUA 时，建议安装并启动 Docker Desktop；完成后重新打开插件页。'
+      : 'Use a local browser for ordinary webpage work. Install and start Docker Desktop only when you need a Browser or Desktop in Docker, or CUA; then reopen Plugins.',
     dockerHostGuidance: zh
-      ? '普通网页操作直接使用本机浏览器即可。需要隔离浏览器、并行桌面或 CUA 时，请安装并启动 Docker；完成后重新打开插件页。'
-      : 'Use a local browser for ordinary webpage work. Install and start Docker only when you need an isolated Browser, parallel desktops, or CUA; then reopen Plugins.',
+      ? '普通网页操作直接使用本机浏览器即可。需要 Docker 中的浏览器、Docker 中的桌面或 CUA 时，请安装并启动 Docker；完成后重新打开插件页。'
+      : 'Use a local browser for ordinary webpage work. Install and start Docker only when you need a Browser or Desktop in Docker, or CUA; then reopen Plugins.',
     installDockerDesktop: zh ? '安装 Docker Desktop' : 'Install Docker Desktop',
     viewDockerInstallGuide: zh ? '查看 Docker 安装说明' : 'View Docker installation guide',
     isolatedCompatibilityRequired: zh
       ? '这台旧版 Docker 需要显式启用兼容模式后再重试。'
       : 'This older Docker Engine requires compatibility mode before retrying.',
     browserChangeHint: '',
-    unavailableHint: zh
-      ? '可以选择本机 Chromium、连接已有 Chrome，或准备由 Farming 管理的隔离浏览器。'
-      : 'Choose a local Chromium browser, connect an existing Chrome, or prepare the Farming-managed isolated Browser.',
     enable: zh ? '启用' : 'Enable',
     disable: zh ? '停用' : 'Disable',
     saveFailed: zh ? '浏览器插件设置保存失败' : 'Failed to save Browser plugin settings',
@@ -286,14 +281,14 @@ function pluginCopy(language: UiLanguage) {
       ? '让 Agent 查看并操作桌面，你可以在 Farming 中观察或接管。'
       : 'Let Agents see and operate desktops that you can observe or take over in Farming.',
     dockerUnavailable: zh ? '未检测到 Docker' : 'Docker not available',
-    computerRuntimeReady: zh ? '隔离桌面已安装' : 'Isolated Desktop installed',
-    computerRuntimeMissing: zh ? '隔离桌面未安装' : 'Isolated Desktop not installed',
+    computerRuntimeReady: zh ? 'Docker 中的桌面已安装' : 'Desktop in Docker installed',
+    computerRuntimeMissing: zh ? 'Docker 中的桌面未安装' : 'Desktop in Docker not installed',
     desktopTargets: zh ? '桌面' : 'Desktops',
-    isolatedDesktop: zh ? '隔离桌面' : 'Isolated Desktop',
+    isolatedDesktop: zh ? 'Docker 中的桌面（实验性）' : 'Desktop in Docker (Experimental)',
     isolatedDesktopDescription: zh
       ? '独立的 Linux 桌面，适合并行任务。需要 Docker。'
       : 'An independent Linux desktop for parallel work. Requires Docker.',
-    prepareComputer: zh ? '安装隔离桌面' : 'Install isolated desktop',
+    prepareComputer: zh ? '安装 Docker 中的桌面' : 'Install Desktop in Docker',
     preparingComputer: zh ? '正在下载并验证…' : 'Downloading and verifying…',
     computerRuntimeHint: zh
       ? '显式下载固定版本的官方 CUA XFCE 镜像（下载约 472 MB，本地约 1.3 GB）。'
@@ -303,7 +298,7 @@ function pluginCopy(language: UiLanguage) {
       ? '仅在旧 Docker 的 seccomp 阻止 CUA 启动时启用；该模式会对隔离容器关闭 seccomp。'
       : 'Enable only when old Docker seccomp blocks CUA startup; this disables seccomp for the isolated container.',
     computerSaveFailed: zh ? 'Computer Use 插件设置保存失败' : 'Failed to save Computer Use plugin settings',
-    computerPrepareFailed: zh ? '隔离桌面安装失败' : 'Failed to install Isolated Desktop',
+    computerPrepareFailed: zh ? 'Docker 中的桌面安装失败' : 'Failed to install Desktop in Docker',
     languageServer: 'Language Server',
     languageServerDescription: zh
       ? '按文件类型自动启动语言服务，为文件编辑器提供跳转、引用、符号、层次结构和诊断。'
@@ -330,14 +325,6 @@ function pluginCopy(language: UiLanguage) {
     manage: zh ? '管理' : 'Manage',
     builtIn: zh ? '内置' : 'Built-in',
   }
-}
-
-function browserKindName(kind: string) {
-  if (kind === 'chrome') return 'Google Chrome'
-  if (kind === 'brave') return 'Brave'
-  if (kind === 'edge') return 'Microsoft Edge'
-  if (kind === 'chromium') return 'Chromium'
-  return 'Chromium'
 }
 
 function languageServerPath(value: string) {
@@ -587,12 +574,14 @@ export function PluginsPanel({
   const [computerPreparing, setComputerPreparing] = useState(false)
   const [computerError, setComputerError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [preparingBrowserExtension, setPreparingBrowserExtension] = useState(false)
   const [preparingIsolatedBrowser, setPreparingIsolatedBrowser] = useState(false)
   const [isolatedCompatibilityRequired, setIsolatedCompatibilityRequired] = useState(false)
   const [error, setError] = useState('')
-  const [browserExtensionPath, setBrowserExtensionPath] = useState('')
   const [browserExtensionStatusError, setBrowserExtensionStatusError] = useState('')
-  const [browserExtensionPathCopied, setBrowserExtensionPathCopied] = useState(false)
+  const [browserExtensionInstalled, setBrowserExtensionInstalled] = useState(
+    capability?.extension?.installed === true,
+  )
   const [browserExtensionConnected, setBrowserExtensionConnected] = useState(
     capability?.extension?.connected === true,
   )
@@ -676,13 +665,13 @@ export function PluginsPanel({
         const response = await fetch(appPath('/api/browsers/extension'), { headers: { Accept: 'application/json' } })
         const data = await response.json().catch(() => ({})) as {
           connected?: boolean
+          installed?: boolean
           error?: string
-          extensionPath?: string
         }
         if (!response.ok) throw new Error(data.error || copy.extensionStatusFailed)
         if (!active) return
         setBrowserExtensionStatusError('')
-        setBrowserExtensionPath(String(data.extensionPath || ''))
+        setBrowserExtensionInstalled(data.installed === true)
         const connected = data.connected === true
         setBrowserExtensionConnected(connected)
         if (browserExtensionConnectedRef.current !== connected) {
@@ -967,6 +956,26 @@ export function PluginsPanel({
     }
   }
 
+  const prepareBrowserExtension = async () => {
+    if (preparingBrowserExtension) return
+    setPreparingBrowserExtension(true)
+    setError('')
+    try {
+      const response = await fetch(appPath('/api/browsers/extension/prepare'), {
+        method: 'POST',
+        headers: { Accept: 'application/json' },
+      })
+      const data = await response.json().catch(() => ({})) as { error?: string; installed?: boolean }
+      if (!response.ok) throw new Error(data.error || copy.connectorPrepareFailed)
+      setBrowserExtensionInstalled(data.installed === true)
+      onRefreshCapability()
+    } catch (prepareError) {
+      setError(prepareError instanceof Error ? prepareError.message : copy.connectorPrepareFailed)
+    } finally {
+      setPreparingBrowserExtension(false)
+    }
+  }
+
   const saveComputerSettings = async (patch: {
     computerCompatibilityMode?: boolean
     computerExtensionEnabled?: boolean
@@ -1015,17 +1024,18 @@ export function PluginsPanel({
 
   const browserReady = capability?.sources?.some(source => source.available)
     ?? Boolean(capability?.browser)
+  const systemBrowserReady = (capability?.sources || []).some(source => (
+    source.source === 'system' && source.available
+  ))
   const isolatedBrowserReady = capability?.isolated?.imageReady === true
   const isolatedBrowserDockerAvailable = capability?.isolated?.dockerAvailable === true
   const showIsolatedBrowserPrepare = !isolatedBrowserReady
     && isolatedBrowserDockerAvailable
-  const isolatedBrowserLabel = capability?.isolated?.dockerAvailable === false
-    ? copy.isolatedBrowserRequiresDocker
-    : capability?.isolated?.dockerAvailable !== true
-      ? copy.isolatedBrowserUnavailable
-      : isolatedBrowserReady
-      ? copy.isolatedBrowser
-      : copy.isolatedBrowserNotInstalled
+  const isolatedBrowserStatus = isolatedBrowserReady
+    ? copy.ready
+    : capability?.isolated?.dockerAvailable === false
+      ? copy.dockerRequired
+      : copy.notInstalled
   const activeLanguageServerConnections = languageServerConnections(languageServerCapability)
   const languageServerHasActiveConnections = activeLanguageServerConnections.length > 0
   const languageServerStatus = languageServerLoading
@@ -1255,71 +1265,71 @@ export function PluginsPanel({
             </div>
             <p>{copy.browserDescription}</p>
             <div className="code-plugin-browser-sources" role="group" aria-label={copy.browserChoice}>
-              <small>{copy.browserSourcesHint}</small>
               <div className="code-plugin-browser-source">
-                <div>
-                  <strong>{capability?.options?.[0]
-                    ? browserKindName(capability.options[0].kind)
-                    : copy.noSystemBrowser}</strong>
-                  <small>{(capability?.sources || []).find(source => source.source === 'system')?.available
-                    ? copy.ready
-                    : copy.unavailable}</small>
+                <div className="code-plugin-browser-source-copy">
+                  <span className="code-plugin-browser-source-heading">
+                    <strong>{copy.newBrowser}</strong>
+                    <small>{systemBrowserReady ? copy.ready : copy.unavailable}</small>
+                  </span>
+                  <small>{systemBrowserReady ? copy.newBrowserDescription : copy.noSystemBrowser}</small>
                 </div>
               </div>
               <div className="code-plugin-browser-source">
-                <div>
-                  <strong>{copy.extensionBrowser}</strong>
-                  <small>{browserExtensionConnected ? copy.ready : copy.notReady}</small>
+                <div className="code-plugin-browser-source-copy">
+                  <span className="code-plugin-browser-source-heading">
+                    <strong>{copy.extensionBrowser}</strong>
+                    <small>{browserExtensionConnected ? copy.ready : copy.notReady}</small>
+                  </span>
+                  <small>{copy.extensionBrowserDescription}</small>
                 </div>
-                {!browserExtensionConnected ? <a
-                  className="code-plugin-help-link"
-                  href={FARMING_BROWSER_DOCS_URL[language]}
-                  target="_blank"
-                  rel="noreferrer"
-                >{copy.installConnector}</a> : null}
+                {!browserExtensionConnected ? <div className="code-plugin-browser-source-actions">
+                    <button
+                      type="button"
+                      className="code-plugin-browser-install"
+                      disabled={preparingBrowserExtension || browserExtensionInstalled}
+                      onClick={() => void prepareBrowserExtension()}
+                    >{preparingBrowserExtension
+                        ? copy.preparingConnector
+                        : browserExtensionInstalled
+                          ? copy.connectorDirectoryReady
+                          : copy.prepareConnectorDirectory}</button>
+                    <a
+                      className="code-plugin-browser-install"
+                      href={FARMING_BROWSER_DOCS_URL[language]}
+                      target="_blank"
+                      rel="noreferrer"
+                    >{copy.connectorGuide}</a>
+                </div> : null}
               </div>
-              {!browserExtensionConnected ? <div className="code-plugin-browser-connector-setup">
-                <small>{copy.extensionInstall}</small>
-                <label>
-                  <span>{copy.extensionPath}</span>
-                  <input type="text" readOnly value={browserExtensionPath} aria-label={copy.extensionPath} />
-                </label>
-                <button
-                  type="button"
-                  disabled={!browserExtensionPath}
-                  onClick={() => {
-                    void navigator.clipboard.writeText(browserExtensionPath).then(() => {
-                      setBrowserExtensionPathCopied(true)
-                      window.setTimeout(() => setBrowserExtensionPathCopied(false), 1500)
-                    })
-                  }}
-                >{browserExtensionPathCopied ? copy.copiedExtensionPath : copy.copyExtensionPath}</button>
-              </div> : null}
               <div className="code-plugin-browser-source">
-                <div>
-                  <strong>{isolatedBrowserLabel}</strong>
-                  <small>{isolatedBrowserReady ? copy.ready : copy.unavailable}</small>
+                <div className="code-plugin-browser-source-copy">
+                  <span className="code-plugin-browser-source-heading">
+                    <strong>{copy.isolatedBrowser}</strong>
+                    <small>{isolatedBrowserStatus}</small>
+                  </span>
+                  <small>{copy.isolatedBrowserDescription}</small>
                 </div>
-                {showIsolatedBrowserPrepare ? <button
-                  type="button"
-                  className="code-plugin-browser-install"
-                  disabled={loading || preparingIsolatedBrowser}
-                  onClick={() => void prepareIsolatedBrowser()}
-                >{preparingIsolatedBrowser ? copy.preparingIsolatedBrowser : copy.prepareIsolatedBrowser}</button> : null}
+                {showIsolatedBrowserPrepare || capability?.isolated?.dockerAvailable === false ? (
+                  <div className="code-plugin-browser-source-actions">
+                    {showIsolatedBrowserPrepare ? <button
+                      type="button"
+                      className="code-plugin-browser-install"
+                      disabled={loading || preparingIsolatedBrowser}
+                      onClick={() => void prepareIsolatedBrowser()}
+                    >{preparingIsolatedBrowser ? copy.preparingIsolatedBrowser : copy.prepareIsolatedBrowser}</button> : null}
+                    {capability?.isolated?.dockerAvailable === false ? <a
+                      className="code-plugin-browser-install"
+                      href={dockerInstallUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >{copy.installDocker}</a> : null}
+                  </div>
+                ) : null}
               </div>
             </div>
             {browserExtensionStatusError ? (
               <div className="code-plugin-error" role="alert">{browserExtensionStatusError}</div>
             ) : null}
-            {showIsolatedBrowserPrepare ? <small>{copy.isolatedBrowserHint}</small> : null}
-            {capability?.isolated?.dockerAvailable === false
-              ? <small>
-                  {copy.isolatedBrowserDockerRequired}{' '}
-                  <a className="code-plugin-help-link" href={dockerInstallUrl} target="_blank" rel="noreferrer">
-                    {dockerInstallLabel}
-                  </a>
-                </small>
-              : null}
             {isolatedCompatibilityRequired ? (
               <div className="code-plugin-computer-settings">
                 <small>{copy.isolatedCompatibilityRequired}</small>

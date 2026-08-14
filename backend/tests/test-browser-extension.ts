@@ -1095,6 +1095,7 @@ async function testExistingChromeTabManagement() {
       capability: () => ({ connected: true }),
       cdpUrl: () => 'http://127.0.0.1:19444',
       pairingString: url => `${url}#token`,
+      prepare: () => ({ installed: true, connected: true }),
       tabs: () => relayTabs.map(tab => ({ ...tab })),
     },
     discoverBrowserOptions: () => [],
@@ -1494,6 +1495,10 @@ async function testBrowserRouterAgentOwnership() {
     refreshCapability: async () => {},
     capability: () => ({ enabled: true }),
     sourceCapabilities: async () => [],
+    prepareBrowserExtension: () => {
+      calls.push({ kind: 'prepare-extension' });
+      return { installed: true, connected: false };
+    },
     extensionTabs: () => [{
       active: true,
       id: 42,
@@ -1592,6 +1597,11 @@ async function testBrowserRouterAgentOwnership() {
     const tabs = await request('/api/browsers/extension/tabs');
     assert.strictEqual(tabs.status, 200);
     assert.deepStrictEqual(tabs.body.tabs.map(tab => tab.id), [42]);
+
+    const prepared = await request('/api/browsers/extension/prepare', { method: 'POST' });
+    assert.strictEqual(prepared.status, 200);
+    assert.deepStrictEqual(prepared.body, { installed: true, connected: false });
+    assert.deepStrictEqual(calls.at(-1), { kind: 'prepare-extension' });
 
     const crossAgent = await request('/api/browsers/browser_agent_b/start', { method: 'POST' });
     assert.strictEqual(crossAgent.status, 403);

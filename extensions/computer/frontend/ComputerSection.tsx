@@ -15,8 +15,8 @@ function copyFor(language: UiPreferences['language']) {
   const zh = language === 'zh'
   return {
     title: zh ? '桌面' : 'Desktops',
-    create: zh ? '创建隔离桌面' : 'Create Isolated Desktop',
-    createFailed: zh ? '隔离桌面创建失败' : 'Failed to create Isolated Desktop',
+    create: zh ? '创建 Docker 中的桌面（实验性）' : 'Create Desktop in Docker (Experimental)',
+    createFailed: zh ? 'Docker 中的桌面创建失败' : 'Failed to create Desktop in Docker',
     start: zh ? '启动桌面' : 'Start Desktop',
     stop: zh ? '停止桌面' : 'Stop Desktop',
     remove: zh ? '删除桌面' : 'Delete Desktop',

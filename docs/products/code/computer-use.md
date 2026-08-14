@@ -13,7 +13,7 @@ information. Browser remains the structured webpage and DOM capability.
 
 - **Local Desktop** means the host's existing graphical desktop and requires a
   continuously verified native driver and single control owner.
-- **Isolated Desktop** gives an Agent an independent Linux desktop and is the
+- **Desktop in Docker (Experimental)** gives an Agent an independent Linux desktop and is the
   supported target when the required container runtime has been explicitly
   prepared.
 
@@ -22,7 +22,7 @@ prerequisites remain explicit rather than producing a low-quality fallback.
 
 ## Ownership And Lifecycle
 
-An Agent owns at most one Isolated Desktop and its exact runtime. Different
+An Agent owns at most one Desktop in Docker and its exact runtime. Different
 Agents do not share the desktop Session, credentials, profile, or private
 endpoint.
 

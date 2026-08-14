@@ -70,7 +70,7 @@ farming capabilities
 farming browser capability
 ```
 
-打开 **插件 → 浏览器** 查看当前 Browser Source 和依赖状态。普通安装不会自动下载隔离浏览器依赖。
+打开 **插件 → 浏览器** 查看当前 Browser Source 和依赖状态。普通安装不会自动下载 Docker 中的浏览器（实验性）依赖。
 
 本机 Chromium 路径失效时，确认浏览器仍安装在 Host 上。隔离 Browser 准备失败时，检查容器运行时是否可用、磁盘空间是否足够，以及日志中最早出现的准备错误。
 

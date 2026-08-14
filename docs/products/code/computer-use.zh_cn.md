@@ -11,14 +11,14 @@ Screenshot 与 Accessibility Information。Browser 继续负责结构化网页�
 ## Desktop Target
 
 - **Local Desktop** 表示 Host 现有图形桌面，需要持续验证的 Native Driver 与单一 Control Owner。
-- **Isolated Desktop** 为 Agent 提供独立 Linux Desktop；显式准备所需 Container Runtime 后，
+- **Docker 中的桌面（实验性）**为 Agent 提供独立 Linux Desktop；显式准备所需 Container Runtime 后，
   它是当前受支持目标。
 
 Farming 只展示拥有真实、已验证 Runtime 的 Target。前置条件缺失时显式说明，不提供低质量 Fallback。
 
 ## Ownership 与生命周期
 
-一个 Agent 最多拥有一台 Isolated Desktop 及其精确 Runtime。不同 Agent 不共享 Desktop
+一个 Agent 最多拥有一台 Docker 中的桌面及其精确 Runtime。不同 Agent 不共享 Desktop
 Session、Credential、Profile 或 Private Endpoint。
 
 - Chat/Terminal 与 Permission Replacement 保留 Desktop。
@@ -53,6 +53,6 @@ Action Timeout 属于结果不确定。Farming 必须先观察和对账，再决
 
 ## 安全与验收
 
-Isolated Desktop 不能获得 Host Container Socket 或其它 Agent 的 Mutable State。验证覆盖
+Docker 中的桌面不能获得 Host Container Socket 或其它 Agent 的 Mutable State。验证覆盖
 Installation Prerequisite、精确 Ownership、Browser Lease、Stop/Delete、Restart、Human Handoff、
-Uncertain Action、Authentication 与 Parallel Isolated Desktop。
+Uncertain Action、Authentication 与并行 Docker 中的桌面。

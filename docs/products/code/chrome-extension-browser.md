@@ -9,12 +9,12 @@ The extension is included with Farming; there is nothing else to download.
 
 ## First-Time Setup
 
-1. In **Plugins → Browser**, choose **Your existing Chrome** and copy
-   the **Bundled extension directory**.
-2. Open `chrome://extensions`, enable **Developer mode**, and choose **Load
-   unpacked**. Select the extension directory shown in Farming.
-3. Return to the Farming page and click **Farming Browser Connector** in
-   Chrome's **Extensions** menu.
+1. In Farming, open **Plugins → Browser → My Chrome** and click **Prepare extension folder**. Only then does
+   Farming prepare the **farming-browser-connector** directory; repeated clicks reuse the same
+   directory. **Installation steps** is a separate action and does not open automatically.
+2. Open `chrome://extensions`, enable **Developer mode**, and choose **Load unpacked**.
+3. Select **farming-browser-connector** in the user's home folder.
+4. Click **Farming Browser Connector** in Chrome's **Extensions** menu.
 
 The extension pairs and enables Browser automatically. Later sessions reconnect
 without setup or per-tab approval.
@@ -29,9 +29,10 @@ the Farming Browser Resource leaves the user's Chrome tab open. Incognito,
 To remove the extension, open `chrome://extensions`, find **Farming Browser
 Connector**, click **Remove**, and confirm.
 
-Chrome requires the user to confirm installation and removal. The CLI
-`extension path` and `extension status` commands only show the bundled directory
-and current connection state.
+Farming does not create this directory at startup. After the user clicks **Prepare extension folder**, Farming creates
+a visible link to the bundled extension without copying a second code tree. CLI `extension path`
+and `extension status` commands expose the path and connection state. Chrome installation and
+removal still require user confirmation.
 
 Pair only with a trusted Farming instance.
 
