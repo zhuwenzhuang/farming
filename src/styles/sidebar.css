@@ -523,6 +523,7 @@ body.code-resizing-sidebar .code-sidebar-resizer {
   height: 28px;
   box-sizing: border-box;
   padding-left: 21px;
+  border-radius: 0 8px 8px 0;
   background:
     linear-gradient(var(--code-project-row-action-overlay), var(--code-project-row-action-overlay)),
     linear-gradient(var(--code-project-row-action-surface), var(--code-project-row-action-surface));

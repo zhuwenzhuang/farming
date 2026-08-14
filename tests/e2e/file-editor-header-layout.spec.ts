@@ -236,6 +236,24 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
   })
   expect(darkBackgrounds.breadcrumb).toBe(darkBackgrounds.content)
 
+  const activeSelectionSurfaces = await page.evaluate(() => (
+    ['light', 'dark', 'paper'] as const
+  ).map(appearance => {
+    document.body.dataset.appearance = appearance
+    const activeTab = document.querySelector<HTMLElement>('.code-file-editor-tab.active')!
+    const activeFileRow = document.querySelector<HTMLElement>('.code-file-row.active')!
+    return {
+      appearance,
+      activeTabBackground: getComputedStyle(activeTab).backgroundColor,
+      activeFileRowBackground: getComputedStyle(activeFileRow).backgroundColor,
+      activeFileRowEdgeContent: getComputedStyle(activeFileRow, '::after').content,
+    }
+  }))
+  for (const selection of activeSelectionSurfaces) {
+    expect(selection.activeFileRowBackground, selection.appearance).toBe(selection.activeTabBackground)
+    expect(selection.activeFileRowEdgeContent, selection.appearance).toBe('none')
+  }
+
   const paperHeader = await page.evaluate(() => {
     document.body.dataset.appearance = 'paper'
     const tabStrip = document.querySelector<HTMLElement>('.code-file-editor-tab-strip')!
@@ -248,6 +266,7 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
     const inactiveAction = document.querySelector<HTMLElement>('.code-file-editor-actions .code-file-editor-action:not(.active):not(:disabled)')!
     const breadcrumbBar = document.querySelector<HTMLElement>('.code-file-editor-bar')!
     const content = document.querySelector<HTMLElement>('.code-file-monaco')!
+    const activeFileRow = document.querySelector<HTMLElement>('.code-file-row.active')!
     return {
       tabStripBackground: getComputedStyle(tabStrip).backgroundColor,
       tabsBackground: getComputedStyle(tabs).backgroundColor,
@@ -262,6 +281,8 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
       activeTabBorderRadius: getComputedStyle(activeTab).borderRadius,
       activeTabBoxShadow: getComputedStyle(activeTab).boxShadow,
       activeTabSeamColor: getComputedStyle(activeTab, '::after').backgroundColor,
+      activeFileRowBackground: getComputedStyle(activeFileRow).backgroundColor,
+      activeFileRowEdgeContent: getComputedStyle(activeFileRow, '::after').content,
       breadcrumbBackground: getComputedStyle(breadcrumbBar).backgroundColor,
       contentBackground: getComputedStyle(content).backgroundColor,
     }
@@ -271,6 +292,8 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
   expect(paperHeader.breadcrumbBackground).toBe(paperHeader.contentBackground)
   expect(colorAlpha(paperHeader.inactiveTabBackground)).toBe(0)
   expect(paperHeader.activeTabBackground).not.toBe(paperHeader.tabStripBackground)
+  expect(paperHeader.activeFileRowBackground).toBe(paperHeader.activeTabBackground)
+  expect(paperHeader.activeFileRowEdgeContent).toBe('none')
   expect(paperHeader.activeIconColor).toBe(paperHeader.activeTabColor)
   expect(paperHeader.inactiveIconColor).toBe(paperHeader.inactiveTabColor)
   expect(colorAlpha(paperHeader.inactiveActionBackground)).toBe(0)

@@ -47,6 +47,24 @@ Prefer:
 Preserve the existing visual style and product wording when fixing behavior
 unless the requested change has a clear visual or product-copy reason.
 
+Treat interaction-state styling as a product-wide contract, not a local
+component detail. Selected, active, focused, hovered, pressed, loading,
+disabled, success, warning, and error states must use a coherent visual
+language across related rows, lists, tabs, menus, editors, and appearances.
+Review the composed interface and simultaneous states before accepting a local
+style change; the same semantic state should share tokens and hierarchy unless
+a documented product reason requires otherwise.
+
+Do not use a left-side line, bar, border, rail, or equivalent edge marker to
+indicate a selected or active row. Use the shared selection surface, text, or
+icon treatment instead, and avoid stacking multiple competing selection cues
+on the same item.
+
+A visually continuous control or state surface must use one outer corner
+geometry. Its base, hover or selection fill, overlay, and action layers must
+preserve the same outer radius; do not leave one end square and the other
+rounded unless it is an explicitly designed joined-control group.
+
 ## Start With Canonical Context
 
 Before changing a subsystem, read its current code, tests, and canonical

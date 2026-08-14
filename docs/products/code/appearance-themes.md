@@ -34,6 +34,14 @@ Project, file, or terminal state.
 - A current Agent uses exactly one selected fill, including its leading
   provider identity icon. Unselected section headers such as Files remain on
   the panel surface and must not resemble a second selection.
+- Parallel representations of the same active item use the same selected fill;
+  for example, the active file row and its editor tab must match. Selected or
+  active rows never add a left-edge line, bar, border, or rail, and one item
+  must not stack competing selection cues.
+- A visually continuous control or state surface keeps one outer corner
+  geometry across its base, hover or selection fill, overlay, and action
+  layers. Asymmetric square and rounded ends require an explicit joined-control
+  design; they must not result accidentally from overlapping layers.
 - Navigation descendants consume the inherited `--code-navigation-surface`.
   The workspace maps that local role for each layout; responsive component
   rules may change geometry but must not choose a separate theme surface.

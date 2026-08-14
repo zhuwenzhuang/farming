@@ -998,20 +998,8 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   background: var(--code-bg-hover);
 }
 
-.code-file-row.active::after {
-  content: '';
-  width: 2px;
-  position: absolute;
-  top: 3px;
-  bottom: 3px;
-  left: 0;
-  border-radius: 0 999px 999px 0;
-  background: var(--code-accent);
-  pointer-events: none;
-}
-
 .code-file-row.active {
-  background: var(--code-bg-hover-strong);
+  background: var(--code-bg-selected);
   color: var(--code-text);
 }
 
@@ -1942,16 +1930,12 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
       display: grid;
     }
 
-  body.code-mode.code-compact-layout .code-file-row.active::after {
-      display: none;
-    }
-
   body.code-mode.code-compact-layout .code-file-row.active {
       background: var(--code-bg-selected);
     }
 }
 
-.code-file-row.selected {
+.code-file-row.selected:not(.active) {
   background: var(--code-bg-hover);
   color: var(--code-text);
 }
