@@ -33,6 +33,8 @@ type NewAgentDefaults = {
   fast: 'inherit' | 'on' | 'off'
 }
 
+type BrowserExtensionCapability = NonNullable<BrowserCapability['extension']>
+
 type AgentExtension = {
   id: string
   name: string
@@ -123,6 +125,14 @@ const DOCKER_ENGINE_INSTALL_URL = 'https://docs.docker.com/engine/install/'
 const FARMING_BROWSER_DOCS_URL: Record<UiLanguage, string> = {
   en: 'https://zhuwenzhuang.github.io/farming/en/browser/existing-chrome',
   zh: 'https://zhuwenzhuang.github.io/farming/cn/browser/existing-chrome',
+}
+const CHROME_EXTENSIONS_ADDRESS = 'chrome://extensions'
+
+function formatByteSize(value: number | undefined) {
+  if (!Number.isFinite(value) || value === undefined || value < 0) return '—'
+  if (value < 1024) return `${value} B`
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`
+  return `${(value / (1024 * 1024)).toFixed(1)} MiB`
 }
 
 async function fetchAgentSettings(url: string, init?: RequestInit) {
@@ -253,6 +263,21 @@ function pluginCopy(language: UiLanguage) {
     prepareConnectorDirectory: zh ? '准备插件目录' : 'Prepare extension folder',
     removeConnectorDirectory: zh ? '删除插件目录' : 'Remove extension folder',
     connectorGuide: zh ? '安装步骤说明' : 'Installation steps',
+    connectorDirectory: zh ? '插件目录' : 'Extension folder',
+    connectorExtensionsPage: zh ? 'Chrome 扩展程序页' : 'Chrome Extensions page',
+    connectorCopyAddress: zh ? '复制地址' : 'Copy address',
+    connectorAddressCopied: zh ? '已复制' : 'Copied',
+    connectorCopyFailed: zh ? '地址复制失败，请手动复制。' : 'Failed to copy the address. Copy it manually.',
+    connectorSize: zh ? '大小' : 'Size',
+    connectorIntegrity: zh ? '完整性' : 'Integrity',
+    connectorIntegrityValue: {
+      valid: zh ? '完整' : 'Complete',
+      missing: zh ? '未准备' : 'Not prepared',
+      invalid: zh ? '异常' : 'Invalid',
+    },
+    connectorReadyHint: zh
+      ? '复制下面地址并粘贴到 Chrome 地址栏。开启“开发者模式”，点击“加载已解压的扩展程序”，选择下面目录。'
+      : 'Copy the address below into Chrome\'s address bar. Enable Developer mode, click Load unpacked, and choose the folder below.',
     preparingConnector: zh ? '正在准备目录…' : 'Preparing folder…',
     removingConnector: zh ? '正在删除目录…' : 'Removing folder…',
     connectorPrepareFailed: zh ? '连接扩展准备失败' : 'Failed to prepare the connector extension',
@@ -587,6 +612,10 @@ export function PluginsPanel({
   const [browserExtensionConnected, setBrowserExtensionConnected] = useState(
     capability?.extension?.connected === true,
   )
+  const [browserExtensionInfo, setBrowserExtensionInfo] = useState<BrowserExtensionCapability>(
+    capability?.extension ?? {},
+  )
+  const [chromeExtensionsAddressCopied, setChromeExtensionsAddressCopied] = useState(false)
   const browserExtensionConnectedRef = useRef(capability?.extension?.connected === true)
   const [agentGroups, setAgentGroups] = useState<AgentExtensionGroup[]>([])
   const [agentGroupsLoading, setAgentGroupsLoading] = useState(true)
@@ -665,15 +694,12 @@ export function PluginsPanel({
     const load = async () => {
       try {
         const response = await fetch(appPath('/api/browsers/extension'), { headers: { Accept: 'application/json' } })
-        const data = await response.json().catch(() => ({})) as {
-          connected?: boolean
-          installed?: boolean
-          error?: string
-        }
+        const data = await response.json().catch(() => ({})) as BrowserExtensionCapability & { error?: string }
         if (!response.ok) throw new Error(data.error || copy.extensionStatusFailed)
         if (!active) return
         setBrowserExtensionStatusError('')
         setBrowserExtensionInstalled(data.installed === true)
+        setBrowserExtensionInfo(data)
         const connected = data.connected === true
         setBrowserExtensionConnected(connected)
         if (browserExtensionConnectedRef.current !== connected) {
@@ -968,11 +994,12 @@ export function PluginsPanel({
         method: remove ? 'DELETE' : 'POST',
         headers: { Accept: 'application/json' },
       })
-      const data = await response.json().catch(() => ({})) as { error?: string; installed?: boolean }
+      const data = await response.json().catch(() => ({})) as BrowserExtensionCapability & { error?: string }
       if (!response.ok) throw new Error(data.error || (
         remove ? copy.connectorRemoveFailed : copy.connectorPrepareFailed
       ))
       setBrowserExtensionInstalled(data.installed === true)
+      setBrowserExtensionInfo(data)
       onRefreshCapability()
     } catch (prepareError) {
       setError(prepareError instanceof Error ? prepareError.message : (
@@ -980,6 +1007,16 @@ export function PluginsPanel({
       ))
     } finally {
       setPreparingBrowserExtension(false)
+    }
+  }
+
+  const copyChromeExtensionsAddress = async () => {
+    try {
+      if (!navigator.clipboard) throw new Error(copy.connectorCopyFailed)
+      await navigator.clipboard.writeText(CHROME_EXTENSIONS_ADDRESS)
+      setChromeExtensionsAddressCopied(true)
+    } catch {
+      setError(copy.connectorCopyFailed)
     }
   }
 
@@ -1288,6 +1325,40 @@ export function PluginsPanel({
                     <small>{browserExtensionConnected ? copy.ready : copy.notReady}</small>
                   </span>
                   <small>{copy.extensionBrowserDescription}</small>
+                  {(browserExtensionInstalled || browserExtensionInfo.integrity === 'invalid')
+                    && browserExtensionInfo.extensionPath ? (
+                    <div className="code-plugin-browser-connector-details" data-testid="browser-connector-details">
+                      <small>{copy.connectorReadyHint}</small>
+                      <div>
+                        <span>{copy.connectorExtensionsPage}</span>
+                        <button
+                          type="button"
+                          className="code-plugin-browser-copy-address"
+                          onClick={() => void copyChromeExtensionsAddress()}
+                        >
+                          <code>{CHROME_EXTENSIONS_ADDRESS}</code>
+                          <span>{chromeExtensionsAddressCopied
+                            ? copy.connectorAddressCopied
+                            : copy.connectorCopyAddress}</span>
+                        </button>
+                      </div>
+                      <div>
+                        <span>{copy.connectorDirectory}</span>
+                        <code
+                          data-testid="browser-connector-directory"
+                          title={browserExtensionInfo.extensionPath}
+                        >{browserExtensionInfo.extensionPath}</code>
+                      </div>
+                      <div className="code-plugin-browser-connector-metadata">
+                        <span>{copy.connectorSize}</span>
+                        <strong>{formatByteSize(browserExtensionInfo.sizeBytes)}</strong>
+                        <span>{copy.connectorIntegrity}</span>
+                        <strong className={browserExtensionInfo.integrity === 'valid' ? 'valid' : 'invalid'}>
+                          {copy.connectorIntegrityValue[browserExtensionInfo.integrity ?? 'invalid']}
+                        </strong>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
                 {!browserExtensionConnected ? <div className="code-plugin-browser-source-actions">
                     <button

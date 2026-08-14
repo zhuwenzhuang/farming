@@ -6,6 +6,7 @@ your Chrome. Farming Browser can use its other browsers without this connector.
 ## Install
 
 First click **Prepare extension folder** under **Plugins → Browser → My Chrome** in Farming.
+Farming then shows the Chrome Extensions address, folder, size, and integrity. Click the address to copy it, then paste it into Chrome's address bar.
 
 ![Prepare the connector in Farming](/en/assets/existing-chrome-install.png)
 

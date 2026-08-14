@@ -388,7 +388,10 @@ async function run() {
   let publicWss;
   let extensionClient;
   try {
-    assert.strictEqual(relay.capability().installed, false);
+    const initialCapability = relay.capability();
+    assert.strictEqual(initialCapability.installed, false);
+    assert.strictEqual(initialCapability.integrity, 'missing');
+    assert.ok(initialCapability.sizeBytes > 0);
     assert.strictEqual(fs.existsSync(browserExtensionPath(configDir)), false);
     await relay.init();
     assert.strictEqual(relay.capability().installed, false);
@@ -396,6 +399,8 @@ async function run() {
     const capability = relay.prepare();
     assert.strictEqual(capability.installed, true);
     assert.strictEqual(capability.connected, false);
+    assert.strictEqual(capability.integrity, 'valid');
+    assert.strictEqual(capability.sizeBytes, initialCapability.sizeBytes);
     assert.strictEqual(capability.extensionPath, path.join(extensionTestRoot, 'farming-browser-connector'));
     assert.strictEqual(browserExtensionPath(configDir), capability.extensionPath);
     assert.strictEqual(
@@ -413,6 +418,8 @@ async function run() {
     fs.writeFileSync(path.join(alternateSource, 'manifest.json'), '{}');
     fs.unlinkSync(capability.extensionPath);
     fs.symlinkSync(alternateSource, capability.extensionPath, 'dir');
+    assert.strictEqual(relay.capability().installed, false);
+    assert.strictEqual(relay.capability().integrity, 'invalid');
     assert.throws(
       () => removeBrowserExtensionLink(
         path.join(__dirname, '../../extensions/browser/chrome-extension'),
@@ -446,7 +453,9 @@ async function run() {
       ),
       /already exists and is not managed by Farming/,
     );
-    assert.strictEqual(relay.remove().installed, false);
+    const removedCapability = relay.remove();
+    assert.strictEqual(removedCapability.installed, false);
+    assert.strictEqual(removedCapability.integrity, 'missing');
     assert.strictEqual(fs.existsSync(capability.extensionPath), false);
     assert.strictEqual(relay.remove().installed, false);
     assert.match(relay.pairingString('ws://127.0.0.1:3000/farming/browser/extension'), /^ws:.*#[0-9a-f]{64}$/);

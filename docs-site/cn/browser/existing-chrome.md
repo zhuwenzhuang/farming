@@ -6,6 +6,7 @@
 ## 安装
 
 先在 Farming 的“插件 → 浏览器 → 我的 Chrome”中点击**准备插件目录**。
+准备后，这里会显示 Chrome 扩展程序页地址、插件目录、大小和完整性。点击地址即可复制，再粘贴到 Chrome 地址栏打开。
 
 ![在 Farming 中准备连接扩展](/cn/assets/existing-chrome-install.png)
 

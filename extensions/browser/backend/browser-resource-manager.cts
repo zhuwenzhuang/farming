@@ -210,6 +210,7 @@ type BrowserExtensionRelayProvider = {
   cdpUrl(): string;
   pairingString(relayUrl: string): string;
   prepare(): Record<string, unknown>;
+  remove(): Record<string, unknown>;
   tabs(): Array<{
     active: boolean;
     id: number;

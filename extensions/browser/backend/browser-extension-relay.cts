@@ -29,6 +29,37 @@ type BrowserExtensionRelayOptions = {
   onStateChange?: () => void;
 };
 
+type BrowserExtensionIntegrity = 'invalid' | 'missing' | 'valid';
+
+function directorySizeBytes(directory: string): number {
+  let total = 0;
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      total += directorySizeBytes(entryPath);
+    } else if (entry.isFile()) {
+      total += fs.statSync(entryPath).size;
+    }
+  }
+  return total;
+}
+
+function extensionIntegrity(source: string, destination: string): BrowserExtensionIntegrity {
+  if (!fs.existsSync(path.join(source, 'manifest.json'))) return 'invalid';
+  let current: fs.Stats;
+  try {
+    current = fs.lstatSync(destination);
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'ENOENT' ? 'missing' : 'invalid';
+  }
+  if (!current.isSymbolicLink()) return 'invalid';
+  try {
+    return fs.realpathSync(destination) === fs.realpathSync(source) ? 'valid' : 'invalid';
+  } catch {
+    return 'invalid';
+  }
+}
+
 function secretPath(configDir: string): string {
   return path.join(configDir, 'credentials', RELAY_SECRET_FILE);
 }
@@ -100,9 +131,12 @@ class BrowserExtensionRelay {
   }
 
   capability() {
+    const integrity = extensionIntegrity(this.extensionSource, this.extensionPath);
     return {
-      installed: fs.existsSync(path.join(this.extensionPath, 'manifest.json')),
+      installed: integrity === 'valid',
       extensionPath: this.extensionPath,
+      sizeBytes: directorySizeBytes(this.extensionSource),
+      integrity,
       connected: this.handle?.bridge.extensionConnected === true,
       browser: this.handle?.bridge.identity || null,
       accessibleTabs: this.handle?.bridge.accessibleTabs().length || 0,

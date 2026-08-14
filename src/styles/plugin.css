@@ -1553,6 +1553,71 @@
   font-size: 12px;
 }
 
+.code-plugin-browser-connector-details {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  margin-top: 5px;
+  color: var(--code-text-subtle);
+  font-size: 12px;
+}
+
+.code-plugin-browser-connector-details > small {
+  line-height: 1.45;
+}
+
+.code-plugin-browser-connector-details > div {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 5px 8px;
+}
+
+.code-plugin-browser-connector-details code {
+  min-width: 0;
+  color: var(--code-text);
+  font-family: var(--code-mono-font, ui-monospace, SFMono-Regular, Menlo, monospace);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.code-plugin-browser-copy-address {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 3px 7px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--code-text-subtle);
+  background: var(--code-surface-hover);
+  cursor: pointer;
+}
+
+.code-plugin-browser-copy-address code {
+  color: var(--code-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.code-plugin-browser-copy-address:hover {
+  color: var(--code-text);
+}
+
+.code-plugin-browser-connector-metadata strong {
+  color: var(--code-text);
+  font-size: 12px;
+}
+
+.code-plugin-browser-connector-metadata strong.valid {
+  color: var(--code-success);
+}
+
+.code-plugin-browser-connector-metadata strong.invalid {
+  color: var(--code-danger);
+}
+
 .code-plugin-browser-source-actions {
   display: flex;
   align-items: center;

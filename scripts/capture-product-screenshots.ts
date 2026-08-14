@@ -1141,9 +1141,20 @@ async function captureExistingChromeDocumentationScreenshots(browser, baseUrl) {
       await browserPlugin.getByText(en ? 'Available' : '可用', { exact: true })
         .first()
         .waitFor({ state: 'visible', timeout: 20_000 });
-      await browserPlugin.getByRole('button', {
+      const prepareConnector = browserPlugin.getByRole('button', {
         name: en ? 'Prepare extension folder' : '准备插件目录',
+      });
+      await prepareConnector.waitFor({ state: 'visible', timeout: 20_000 });
+      await prepareConnector.click();
+      await browserPlugin.getByRole('button', {
+        name: en ? 'Remove extension folder' : '删除插件目录',
       }).waitFor({ state: 'visible', timeout: 20_000 });
+      const connectorPath = browserPlugin.getByTestId('browser-connector-directory');
+      await connectorPath.waitFor({ state: 'visible', timeout: 20_000 });
+      await connectorPath.evaluate(element => {
+        element.textContent = '~/farming-browser-connector';
+        element.setAttribute('title', '~/farming-browser-connector');
+      });
       await browserPlugin.screenshot({
         path: path.join(
           publicScreenshotDir,
