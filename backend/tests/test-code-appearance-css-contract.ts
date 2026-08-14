@@ -85,6 +85,11 @@ assert.notEqual(
 
 const lightRoles = Object.keys(registry.light.css).sort()
 assert(lightRoles.length <= 132, 'the semantic palette must not grow back into a selector-level override matrix')
+assert.equal(
+  registry.light.css['--code-active-item-surface'],
+  '#e3e4e2',
+  'light active items must remain neutral rather than use an accent-blue surface',
+)
 for (const appearance of appearances) {
   const theme = registry[appearance]
   assert.deepEqual(Object.keys(theme.css).sort(), lightRoles, `${appearance} must define every CSS role`)

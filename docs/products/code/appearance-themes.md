@@ -40,7 +40,8 @@ Project, file, or terminal state.
   must not stack competing selection cues. Active Agent rows, file rows, and
   editor tabs use the opaque `--code-active-item-surface` role so their final
   rendered color matches across different parent surfaces without changing the
-  generic `--code-bg-selected` role used by other controls.
+  generic `--code-bg-selected` role used by other controls. Light and Paper
+  keep this active-item surface neutral; they do not use an accent-blue fill.
 - A visually continuous control or state surface keeps one outer corner
   geometry across its base, hover or selection fill, overlay, and action
   layers. Asymmetric square and rounded ends require an explicit joined-control
