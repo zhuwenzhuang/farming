@@ -78,6 +78,7 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
 
   const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspaceRoot) })
   await expect(project).toHaveCount(1, { timeout: 30_000 })
+  const projectTitle = project.getByTestId('code-project-title')
   const files = project.getByTestId('code-files-section')
   const filesTitle = files.locator('.code-files-title').first()
   if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
@@ -257,6 +258,22 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
     expect(colorAlpha(selection.activeTabBackground), selection.appearance).toBe(1)
     expect(selection.activeFileRowEdgeContent, selection.appearance).toBe('none')
   }
+
+  const inactiveFileRow = files.locator('[data-testid="code-file-row"][data-file-path="docs/alpha.md"]')
+  const inactiveTab = editor.getByRole('tab', { name: /alpha\.md/ })
+  for (const appearance of ['light', 'dark', 'paper'] as const) {
+    await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+    const activeSurface = await editor.getByRole('tab', { selected: true }).evaluate(element => (
+      getComputedStyle(element).backgroundColor
+    ))
+    await projectTitle.hover()
+    await expect(projectTitle, `${appearance} Project hover`).toHaveCSS('background-color', activeSurface)
+    await inactiveFileRow.hover()
+    await expect(inactiveFileRow, `${appearance} file hover`).toHaveCSS('background-color', activeSurface)
+    await inactiveTab.hover()
+    await expect(inactiveTab, `${appearance} tab hover`).toHaveCSS('background-color', activeSurface)
+  }
+  await page.mouse.move(1000, 800)
 
   const compactActiveSelectionSurfaces = await page.evaluate(() => {
     document.body.classList.add('code-compact-layout')

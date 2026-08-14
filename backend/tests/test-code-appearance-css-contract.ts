@@ -87,7 +87,7 @@ const lightRoles = Object.keys(registry.light.css).sort()
 assert(lightRoles.length <= 132, 'the semantic palette must not grow back into a selector-level override matrix')
 assert.equal(
   registry.light.css['--code-active-item-surface'],
-  '#e3e4e2',
+  '#eeeeec',
   'light active items must remain neutral rather than use an accent-blue surface',
 )
 for (const appearance of appearances) {
@@ -259,10 +259,14 @@ const structuralSurfaceContracts = [
   ['src/styles/agent-list.css', '.code-agent-row', '--code-agent-row-action-surface', 'var(--code-navigation-surface)'],
   ['src/styles/agent-list.css', '.code-agent-row-actions', '--code-agent-row-action-surface', 'var(--code-navigation-surface)'],
   ['src/styles/agent-list.css', 'body.code-mode.code-compact-layout .code-agents-section', 'background', 'var(--code-navigation-surface)'],
+  ['src/styles/agent-list.css', '.code-agent-row:hover', 'background', 'var(--code-active-item-surface)'],
   ['src/styles/agent-list.css', '.code-agent-row.active', 'background', 'var(--code-active-item-surface)'],
-  ['src/styles/agent-list.css', '.code-agent-row.search-selected', 'background', 'var(--code-bg-selected)'],
+  ['src/styles/agent-list.css', '.code-agent-row.search-selected', 'background', 'var(--code-active-item-surface)'],
+  ['src/styles/files.css', '.code-file-row:hover', 'background', 'var(--code-active-item-surface)'],
+  ['src/styles/files.css', '.code-file-row.selected:not(.active)', 'background', 'var(--code-active-item-surface)'],
   ['src/styles/files.css', '.code-file-row.active', 'background', 'var(--code-active-item-surface)'],
   ['src/styles/files.css', 'body.code-mode.code-compact-layout .code-file-row.active', 'background', 'var(--code-active-item-surface)'],
+  ['src/styles/file-editor.css', '.code-file-editor-tab:hover:not(.active)', 'background', 'var(--code-active-item-surface)'],
   ['src/styles/file-editor.css', '.code-file-editor-tab.active', 'background', 'var(--code-active-item-surface)'],
 ] as const
 for (const [sourcePath, selector, property, expectedValue] of structuralSurfaceContracts) {

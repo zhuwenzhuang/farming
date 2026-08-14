@@ -42,6 +42,8 @@ Project, file, or terminal state.
   rendered color matches across different parent surfaces without changing the
   generic `--code-bg-selected` role used by other controls. Light and Paper
   keep this active-item surface neutral; they do not use an accent-blue fill.
+  Pointer hover on the same Project, Agent, file, and editor-tab collections
+  uses that same active-item surface instead of a second hover fill.
 - A visually continuous control or state surface keeps one outer corner
   geometry across its base, hover or selection fill, overlay, and action
   layers. Asymmetric square and rounded ends require an explicit joined-control

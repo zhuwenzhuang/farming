@@ -237,9 +237,13 @@ body.code-resizing-sidebar .code-sidebar-resizer {
   display: none;
 }
 
-.code-nav-item:hover,
-.code-project-row:hover:not(:has(.code-project-worktree:hover)) .code-project-title {
+.code-nav-item:hover {
   background: var(--code-bg-hover);
+  color: var(--code-text);
+}
+
+.code-project-row:hover:not(:has(.code-project-worktree:hover)) .code-project-title {
+  background: var(--code-active-item-surface);
   color: var(--code-text);
 }
 
@@ -544,7 +548,7 @@ body.code-resizing-sidebar .code-sidebar-resizer {
 }
 
 .code-project-row:hover {
-  --code-project-row-action-overlay: var(--code-bg-hover);
+  --code-project-row-action-overlay: var(--code-active-item-surface);
 }
 
 .code-project-title-action {
@@ -1463,7 +1467,7 @@ body.code-resizing-sidebar .code-sidebar-resizer {
 }
 
 .code-project-title:hover {
-  background: var(--code-bg-hover);
+  background: var(--code-active-item-surface);
   color: var(--code-text);
 }
 

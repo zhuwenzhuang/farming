@@ -101,7 +101,7 @@
 }
 
 .code-agent-row:hover {
-  background: var(--code-bg-hover);
+  background: var(--code-active-item-surface);
   color: var(--code-text);
 }
 
@@ -169,8 +169,8 @@
 }
 
 .code-agent-row.search-selected {
-  --code-agent-row-action-overlay: var(--code-bg-selected);
-  background: var(--code-bg-selected);
+  --code-agent-row-action-overlay: var(--code-active-item-surface);
+  background: var(--code-active-item-surface);
   color: var(--code-text);
 }
 
@@ -431,7 +431,7 @@ body.code-mode:not(.code-compact-layout) .code-agent-row:has(.code-agent-row-act
 }
 
 .code-agent-row:hover:not(.active):not(.search-selected) {
-  --code-agent-row-action-overlay: var(--code-bg-hover);
+  --code-agent-row-action-overlay: var(--code-active-item-surface);
 }
 
 .code-agent-row:hover .code-agent-age,

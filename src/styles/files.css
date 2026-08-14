@@ -975,7 +975,7 @@ body.code-mode .code-file-change-group-toggle {
 }
 
 .code-file-row:hover {
-  background: var(--code-bg-hover);
+  background: var(--code-active-item-surface);
   color: var(--code-text);
 }
 
@@ -985,7 +985,7 @@ body.code-mode .code-file-change-group-toggle {
 }
 
 .code-file-row.selected:not(.active) {
-  background: var(--code-accent-soft);
+  background: var(--code-active-item-surface);
 }
 
 body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.selected {
@@ -1936,7 +1936,7 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
 }
 
 .code-file-row.selected:not(.active) {
-  background: var(--code-bg-hover);
+  background: var(--code-active-item-surface);
   color: var(--code-text);
 }
 

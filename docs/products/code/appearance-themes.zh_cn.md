@@ -31,6 +31,8 @@ Farming Code 支持跟随系统、浅色、深色和纸张四种外观。外观�
   `--code-active-item-surface` 角色，使它们跨不同父级表面时最终渲染颜色仍保持一致，同时不
   改变其他控件使用的通用 `--code-bg-selected` 角色。Light 与 Paper 的 Active Item 表面
   保持中性，不使用强调蓝填充。
+  同一组 Project、Agent、文件和 Editor Tab 的鼠标 Hover 使用相同的 Active Item 表面，
+  不再引入第二种 Hover 填充色。
 - 视觉上连续的控件或状态表面，其基础层、Hover 或 Selected 填充层、覆盖层与操作层应保持
   同一套外轮廓圆角。方角与圆角的不对称组合只能来自明确的组合控件设计，不能由图层覆盖
   意外产生。

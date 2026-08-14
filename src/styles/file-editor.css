@@ -152,7 +152,7 @@
 }
 
 .code-file-editor-tab:hover:not(.active) {
-  background: var(--code-bg-hover);
+  background: var(--code-active-item-surface);
 }
 
 .code-file-editor-tab:focus-visible {

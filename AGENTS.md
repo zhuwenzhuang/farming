@@ -60,6 +60,10 @@ indicate a selected or active row. Use the shared selection surface, text, or
 icon treatment instead, and avoid stacking multiple competing selection cues
 on the same item.
 
+Within the same selectable Project, Agent, file, or tab collection, hovered
+and selected items use the same surface color. Do not introduce a second fill
+color merely to distinguish pointer hover from selection.
+
 A visually continuous control or state surface must use one outer corner
 geometry. Its base, hover or selection fill, overlay, and action layers must
 preserve the same outer radius; do not leave one end square and the other
