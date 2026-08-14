@@ -5,7 +5,7 @@ your Chrome. Farming Browser can use its other browsers without this connector.
 
 ## Install
 
-First click **Prepare extension folder** under **Plugins → Browser → My Chrome** in Farming.
+First click **Prepare Chrome extension folder** under **Plugins → Browser → My Chrome** in Farming.
 Farming then shows the Chrome Extensions address, folder, size, and integrity. Click the address to copy it, then paste it into Chrome's address bar.
 
 ![Prepare the connector in Farming](/en/assets/existing-chrome-install.png)
@@ -23,6 +23,8 @@ Farming then shows the Chrome Extensions address, folder, size, and integrity. C
 After connection, Agents can find and directly use any ordinary page already
 open in this Chrome. No per-page click is required. Stopping Farming Browser
 leaves the Chrome page open.
+While the Farming Plugins page is visible, My Chrome automatically shows **Available** or **Currently unavailable**;
+no manual test is needed.
 
 ## Remove
 
@@ -30,5 +32,6 @@ Open `chrome://extensions`, find **Farming Browser Connector**, click **Remove**
 
 ![Remove Farming Browser Connector](/en/assets/existing-chrome-remove.png)
 
-Return to **Plugins → Browser → My Chrome** in Farming and click **Remove extension folder** to clean up
-the prepared folder entry.
+Return to **Plugins → Browser → My Chrome** in Farming and click **Remove Chrome extension folder** to clean up
+the prepared folder entry. This is not a temporary folder: Chrome continues loading the extension from it. Remove the
+extension from Chrome before removing the folder.

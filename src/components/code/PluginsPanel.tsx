@@ -264,11 +264,14 @@ function pluginCopy(language: UiLanguage) {
       : 'Opens webpages in an isolated environment for tasks that need separation.',
     browserChoice: zh ? '浏览器方式' : 'Browser options',
     ready: zh ? '可用' : 'Available',
-    notReady: zh ? '未连接' : 'Not connected',
-    prepareConnectorDirectory: zh ? '准备插件目录' : 'Prepare extension folder',
-    removeConnectorDirectory: zh ? '删除插件目录' : 'Remove extension folder',
+    notReady: zh ? '当前不可用' : 'Currently unavailable',
+    prepareConnectorDirectory: zh ? '准备 Chrome 扩展目录' : 'Prepare Chrome extension folder',
+    removeConnectorDirectory: zh ? '删除 Chrome 扩展目录' : 'Remove Chrome extension folder',
+    confirmRemoveConnectorDirectory: zh
+      ? '删除后，Chrome 中已加载的 Farming Browser Connector 将无法继续使用。请先在 Chrome 扩展程序页删除扩展。仍要删除目录吗？'
+      : 'Removing this folder makes the loaded Farming Browser Connector unavailable in Chrome. Remove the extension from Chrome first. Remove the folder anyway?',
     connectorGuide: zh ? '安装步骤说明' : 'Installation steps',
-    connectorDirectory: zh ? '插件目录' : 'Extension folder',
+    connectorDirectory: zh ? 'Chrome 扩展目录' : 'Chrome extension folder',
     connectorExtensionsPage: zh ? 'Chrome 扩展程序页' : 'Chrome Extensions page',
     connectorCopyAddress: zh ? '复制地址' : 'Copy address',
     connectorAddressCopied: zh ? '已复制' : 'Copied',
@@ -308,7 +311,7 @@ function pluginCopy(language: UiLanguage) {
     enable: zh ? '启用' : 'Enable',
     disable: zh ? '停用' : 'Disable',
     saveFailed: zh ? '浏览器插件设置保存失败' : 'Failed to save Browser plugin settings',
-    computer: 'Computer Use',
+    computer: zh ? 'Computer Use（实验性）' : 'Computer Use (Experimental)',
     computerDescription: zh
       ? '让 Agent 查看并操作桌面，你可以在 Farming 中观察或接管。'
       : 'Let Agents see and operate desktops that you can observe or take over in Farming.',
@@ -769,10 +772,16 @@ export function PluginsPanel({
   }, [capability])
 
   useEffect(() => {
+    if (activeTab !== 'farming') return
     let active = true
     let timer: number | undefined
     setBrowserExtensionStatusError('')
+    const schedule = () => {
+      if (!active || document.visibilityState !== 'visible') return
+      timer = window.setTimeout(() => void load(), 2000)
+    }
     const load = async () => {
+      if (!active || document.visibilityState !== 'visible') return
       try {
         const response = await fetch(appPath('/api/browsers/extension'), { headers: { Accept: 'application/json' } })
         const data = await response.json().catch(() => ({})) as BrowserExtensionCapability & { error?: string }
@@ -792,15 +801,22 @@ export function PluginsPanel({
           caught instanceof Error ? caught.message : copy.extensionStatusFailed,
         )
       } finally {
-        if (active) timer = window.setTimeout(() => void load(), 2000)
+        schedule()
       }
     }
+    const handleVisibilityChange = () => {
+      if (timer !== undefined) window.clearTimeout(timer)
+      timer = undefined
+      if (document.visibilityState === 'visible') void load()
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
     void load()
     return () => {
       active = false
       if (timer !== undefined) window.clearTimeout(timer)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [copy.extensionStatusFailed, onRefreshCapability])
+  }, [activeTab, copy.extensionStatusFailed, onRefreshCapability])
 
   useEffect(() => {
     if (!computerCapability) return
@@ -1068,6 +1084,7 @@ export function PluginsPanel({
   const updateBrowserExtensionDirectory = async () => {
     if (preparingBrowserExtension) return
     const remove = browserExtensionInstalled
+    if (remove && !window.confirm(copy.confirmRemoveConnectorDirectory)) return
     setPreparingBrowserExtension(true)
     setError('')
     try {

@@ -186,7 +186,7 @@ test('shows an Agent-owned Desktop only when present and switches Viewer control
   await expect.poll(() => browserCapabilityRequests).toBeGreaterThan(browserRequestsBeforePlugins)
   await expect.poll(() => computerCapabilityRequests).toBeGreaterThan(computerRequestsBeforePlugins)
   const computerPlugin = page.getByTestId('code-plugin-computer')
-  await expect(computerPlugin.getByRole('heading', { name: 'Computer Use', exact: true })).toBeVisible()
+  await expect(computerPlugin.getByRole('heading', { name: 'Computer Use (Experimental)', exact: true })).toBeVisible()
   await expect(computerPlugin.locator('.code-plugin-card-icon svg')).toHaveCount(1)
   const computerPluginScreenshot = testInfo.outputPath('computer-use-plugin.png')
   await computerPlugin.screenshot({ path: computerPluginScreenshot })

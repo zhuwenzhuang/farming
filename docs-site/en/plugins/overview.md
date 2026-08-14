@@ -24,7 +24,7 @@ Continue with [Manage multiple Agent Homes](./agent-homes).
 
 <div class="docs-card-grid">
   <a class="docs-card" href="../browser/overview"><strong>Farming Browser</strong><span>Let a person and Agent view and operate the same web page.</span></a>
-  <a class="docs-card" href="../experimental/computer-use"><strong>Computer Use</strong><span>Experimental full-desktop operation and control handoff.</span></a>
+  <a class="docs-card" href="../experimental/computer-use"><strong>Computer Use (Experimental)</strong><span>Full-desktop operation and control handoff.</span></a>
   <a class="docs-card" href="../experimental/language-server"><strong>Language Server</strong><span>Experimental definitions, references, symbols, and diagnostics.</span></a>
   <a class="docs-card" href="../experimental/desktop"><strong>Farming Desktop</strong><span>Experimentally connect to and switch among trusted Farming backends.</span></a>
 </div>

@@ -1142,12 +1142,12 @@ async function captureExistingChromeDocumentationScreenshots(browser, baseUrl) {
         .first()
         .waitFor({ state: 'visible', timeout: 20_000 });
       const prepareConnector = browserPlugin.getByRole('button', {
-        name: en ? 'Prepare extension folder' : '准备插件目录',
+        name: en ? 'Prepare Chrome extension folder' : '准备 Chrome 扩展目录',
       });
       await prepareConnector.waitFor({ state: 'visible', timeout: 20_000 });
       await prepareConnector.click();
       await browserPlugin.getByRole('button', {
-        name: en ? 'Remove extension folder' : '删除插件目录',
+        name: en ? 'Remove Chrome extension folder' : '删除 Chrome 扩展目录',
       }).waitFor({ state: 'visible', timeout: 20_000 });
       const connectorPath = browserPlugin.getByTestId('browser-connector-directory');
       await connectorPath.waitFor({ state: 'visible', timeout: 20_000 });

@@ -5,7 +5,7 @@
 
 ## 安装
 
-先在 Farming 的“插件 → 浏览器 → 我的 Chrome”中点击**准备插件目录**。
+先在 Farming 的“插件 → 浏览器 → 我的 Chrome”中点击**准备 Chrome 扩展目录**。
 准备后，这里会显示 Chrome 扩展程序页地址、插件目录、大小和完整性。点击地址即可复制，再粘贴到 Chrome 地址栏打开。
 
 ![在 Farming 中准备连接扩展](/cn/assets/existing-chrome-install.png)
@@ -21,6 +21,7 @@
 
 连接后，Agent 可以查找并直接使用这个 Chrome 中任意已经打开的普通页面，无需逐页点击。
 停止 Farming Browser 不会关闭 Chrome 原页面。
+保持 Farming 插件页可见时，“我的 Chrome”会自动显示**可用**或**当前不可用**，不需要手动测试。
 
 ## 删除
 
@@ -28,4 +29,5 @@
 
 ![删除 Farming Browser Connector](/cn/assets/existing-chrome-remove.png)
 
-返回 Farming 的“插件 → 浏览器 → 我的 Chrome”，点击**删除插件目录**，即可清理准备好的目录入口。
+返回 Farming 的“插件 → 浏览器 → 我的 Chrome”，点击**删除 Chrome 扩展目录**，即可清理准备好的目录入口。
+这个目录不是临时目录；Chrome 会持续从中加载扩展文件。请先从 Chrome 删除扩展，再删除目录。

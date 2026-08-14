@@ -8,7 +8,7 @@ Farming Browser 是浏览器能力；Farming Browser Connector 是安装在 Chro
 
 ## 首次安装
 
-1. 在 Farming 的“插件 → 浏览器 → 我的 Chrome”中点击**准备插件目录**。Farming 只在此时准备
+1. 在 Farming 的“插件 → 浏览器 → 我的 Chrome”中点击**准备 Chrome 扩展目录**。Farming 只在此时准备
    **farming-browser-connector** 目录；重复点击不会创建重复目录。**安装步骤说明**是旁边的独立入口，
    不会自动打开。
 2. 打开 `chrome://extensions`，开启**开发者模式**，选择**加载已解压的扩展程序**。
@@ -24,14 +24,15 @@ Farming Browser 是浏览器能力；Farming Browser Connector 是安装在 Chro
 和其他受限页面不可用。
 
 不再使用时，打开 `chrome://extensions`，找到 **Farming Browser Connector**，点击**删除**并确认。
-然后返回“插件 → 浏览器 → 我的 Chrome”，点击**删除插件目录**。该操作只删除 Farming 创建的目录链接，
-以后仍可再次准备。
+然后返回“插件 → 浏览器 → 我的 Chrome”，点击**删除 Chrome 扩展目录**。该操作只删除 Farming 创建的目录链接，
+以后仍可再次准备。这个目录不是临时目录；Chrome 会持续从中加载扩展文件，因此必须先从 Chrome 删除扩展。
 
-Farming 不会在启动时创建这个目录。用户点击**准备插件目录**后，Farming 才会在可见目录建立指向
+Farming 不会在启动时创建这个目录。用户点击**准备 Chrome 扩展目录**后，Farming 才会在可见目录建立指向
 包内扩展的链接，不会复制第二份代码。CLI 的 `extension path` 和 `extension status` 用于
 查看目录和连接状态。准备完成后，“我的 Chrome”行显示可复制的 `chrome://extensions` 地址、
 插件目录、大小、完整性和简短安装提示。
-安装和删除必须由用户在 Chrome 中确认。
+安装和删除必须由用户在 Chrome 中确认。当 Farming 插件页可见时，页面每两秒检查一次 Connector 握手，
+自动将“我的 Chrome”更新为**可用**或**当前不可用**；页面进入后台或用户离开 Farming 标签页后停止检查。
 
 只连接可信的 Farming。
 

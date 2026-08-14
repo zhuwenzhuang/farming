@@ -28,7 +28,7 @@ description: 了解 Farming 插件页面中的内置能力、Agent Homes、Agent
     <span>让用户与 Agent 查看和操作同一个浏览器页面。</span>
   </a>
   <a class="docs-card" href="../experimental/computer-use">
-    <strong>Computer Use</strong>
+    <strong>Computer Use（实验性）</strong>
     <span>实验性完整桌面操作与控制权交接。</span>
   </a>
   <a class="docs-card" href="../experimental/language-server">

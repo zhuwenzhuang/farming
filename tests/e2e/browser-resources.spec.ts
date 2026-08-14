@@ -1260,9 +1260,10 @@ test('uses Farming dark colors for the Browser source menu', async ({ page }) =>
 test('shows concurrent Browser sources and existing Chrome setup', async ({ page }, testInfo) => {
   const connectorDirectoryActions: string[] = []
   let connectorDirectoryPrepared = false
+  let connectorConnected = false
   const connectorCapability = () => ({
     installed: connectorDirectoryPrepared,
-    connected: false,
+    connected: connectorConnected,
     extensionPath: '/Users/farming/farming-browser-connector',
     sizeBytes: 196_608,
     integrity: connectorDirectoryPrepared ? 'valid' : 'missing',
@@ -1301,10 +1302,10 @@ test('shows concurrent Browser sources and existing Chrome setup', async ({ page
   const myChrome = browserSources.locator('.code-plugin-browser-source').filter({ hasText: 'My Chrome' })
   const connectorDetails = myChrome.getByTestId('browser-connector-details')
   await expect(connectorDetails).toHaveCount(0)
-  const prepareConnector = myChrome.getByRole('button', { name: 'Prepare extension folder' })
+  const prepareConnector = myChrome.getByRole('button', { name: 'Prepare Chrome extension folder' })
   await expect(prepareConnector).toBeVisible()
   await expect(myChrome.locator('.code-plugin-browser-source-actions > *')).toHaveText([
-    'Prepare extension folder',
+    'Prepare Chrome extension folder',
     'Installation steps',
   ])
   await page.evaluate(() => {
@@ -1319,11 +1320,11 @@ test('shows concurrent Browser sources and existing Chrome setup', async ({ page
   await expect.poll(() => page.evaluate(() => (
     window as typeof window & { __connectorGuideOpened?: number }
   ).__connectorGuideOpened)).toBe(0)
-  const removeConnector = myChrome.getByRole('button', { name: 'Remove extension folder' })
+  const removeConnector = myChrome.getByRole('button', { name: 'Remove Chrome extension folder' })
   await expect(removeConnector).toBeEnabled()
   await expect(connectorDetails).toContainText('Copy the address below into Chrome\'s address bar')
   await expect(connectorDetails).toContainText('Chrome Extensions pagechrome://extensionsCopy address')
-  await expect(connectorDetails).toContainText('Extension folder/Users/farming/farming-browser-connector')
+  await expect(connectorDetails).toContainText('Chrome extension folder/Users/farming/farming-browser-connector')
   await expect(connectorDetails).toContainText('Size192.0 KiBIntegrityComplete')
   await page.evaluate(() => {
     Object.assign(window, { __copiedChromeExtensionsAddress: '' })
@@ -1342,9 +1343,19 @@ test('shows concurrent Browser sources and existing Chrome setup', async ({ page
     window as typeof window & { __copiedChromeExtensionsAddress?: string }
   ).__copiedChromeExtensionsAddress)).toBe('chrome://extensions')
   await expect(myChrome.getByRole('link', { name: 'Installation steps' })).toBeVisible()
+  await expect(myChrome.locator('.code-plugin-browser-source-heading')).toContainText('Currently unavailable')
+  connectorConnected = true
+  await expect(myChrome.locator('.code-plugin-browser-source-heading')).toContainText('Available', { timeout: 5_000 })
   const screenshot = testInfo.outputPath('browser-sources.png')
   await pluginsPanel.screenshot({ path: screenshot })
   await testInfo.attach('browser-sources', { path: screenshot, contentType: 'image/png' })
+  connectorConnected = false
+  await expect(myChrome.locator('.code-plugin-browser-source-heading')).toContainText(
+    'Currently unavailable',
+    { timeout: 5_000 },
+  )
+  await expect(removeConnector).toBeVisible()
+  page.once('dialog', dialog => dialog.accept())
   await removeConnector.click()
   await expect.poll(() => connectorDirectoryActions).toEqual(['POST', 'DELETE'])
   await expect(prepareConnector).toBeEnabled()

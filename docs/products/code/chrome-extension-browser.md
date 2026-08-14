@@ -9,7 +9,7 @@ The extension is included with Farming; there is nothing else to download.
 
 ## First-Time Setup
 
-1. In Farming, open **Plugins → Browser → My Chrome** and click **Prepare extension folder**. Only then does
+1. In Farming, open **Plugins → Browser → My Chrome** and click **Prepare Chrome extension folder**. Only then does
    Farming prepare the **farming-browser-connector** directory; repeated clicks reuse the same
    directory. **Installation steps** is a separate action and does not open automatically.
 2. Open `chrome://extensions`, enable **Developer mode**, and choose **Load unpacked**.
@@ -28,14 +28,17 @@ the Farming Browser Resource leaves the user's Chrome tab open. Incognito,
 
 To remove the extension, open `chrome://extensions`, find **Farming Browser
 Connector**, click **Remove**, and confirm.
-Then return to **Plugins → Browser → My Chrome** and click **Remove extension folder**. This removes only
-the Farming-created folder link; it is safe to prepare again later.
+Then return to **Plugins → Browser → My Chrome** and click **Remove Chrome extension folder**. This removes only
+the Farming-created folder link; it is safe to prepare again later. This is not a temporary folder: Chrome continues loading the
+extension from it, so remove the extension from Chrome first.
 
-Farming does not create this directory at startup. After the user clicks **Prepare extension folder**, Farming creates
+Farming does not create this directory at startup. After the user clicks **Prepare Chrome extension folder**, Farming creates
 a visible link to the bundled extension without copying a second code tree. CLI `extension path`
 and `extension status` commands expose the path and connection state. After preparation, the My Chrome row shows
 the copyable `chrome://extensions` address, folder path, size, integrity, and a short installation hint. Chrome installation and
-removal still require user confirmation.
+removal still require user confirmation. While the Farming plug-ins page is visible, it checks the Connector handshake every two
+seconds and automatically changes My Chrome between **Available** and **Currently unavailable**. The check pauses when the page is
+hidden or the user leaves the Farming tab.
 
 Pair only with a trusted Farming instance.
 
