@@ -256,26 +256,24 @@ const structuralSurfaceContracts = [
   ['src/styles/sidebar.css', '.code-sidebar-focus-toggle.active,\n.code-sidebar-search-toggle.active,\n.code-sidebar-history-toggle.active,\n.code-sidebar-plugins-toggle.active', 'background', 'var(--code-bg-selected)'],
   ['src/styles/share.css', '.code-share-button', 'background', 'transparent'],
   ['src/styles/files.css', '.code-open-editors-header,\n.code-files-header', 'background', 'var(--code-navigation-surface)'],
-  ['src/styles/agent-list.css', '.code-agent-row', '--code-agent-row-action-surface', 'var(--code-navigation-surface)'],
-  ['src/styles/agent-list.css', '.code-agent-row-actions', '--code-agent-row-action-surface', 'var(--code-navigation-surface)'],
+  ['src/styles/agent-list.css', '.code-agent-row', '--code-agent-row-surface', 'var(--code-navigation-surface)'],
+  ['src/styles/agent-list.css', '.code-agent-row-actions', 'background', 'linear-gradient(90deg, transparent 0, var(--code-agent-row-surface) 21px)'],
   ['src/styles/agent-list.css', 'body.code-mode.code-compact-layout .code-agents-section', 'background', 'var(--code-navigation-surface)'],
   ['src/styles/agent-list.css', '.code-agent-row:hover', 'background', 'var(--code-active-item-surface)'],
   ['src/styles/agent-list.css', '.code-agent-row.active', 'background', 'var(--code-active-item-surface)'],
   ['src/styles/agent-list.css', '.code-agent-row.search-selected', 'background', 'var(--code-active-item-surface)'],
   ['src/styles/agent-list.css', '.code-agent-row', 'border-radius', '8px'],
-  ['src/styles/agent-list.css', '.code-agent-row-actions', 'border-radius', '0 8px 8px 0'],
   ['src/styles/sidebar.css', '.code-project-title-actions', 'border-radius', '0 8px 8px 0'],
   ['src/styles/files.css', '.code-open-editor-row', 'border-radius', '8px'],
   ['src/styles/files.css', '.code-open-editor-main', 'border-radius', 'inherit'],
   ['src/styles/files.css', '.code-open-editor-actions', 'border-radius', '0 8px 8px 0'],
   ['src/styles/files.css', '.code-file-tree-row-frame', 'border-radius', '8px'],
-  ['src/styles/files.css', '.code-file-tree-row:hover', 'background', 'transparent'],
-  ['src/styles/files.css', '.code-file-tree-row.active', 'background', 'transparent'],
+  ['src/styles/files.css', '.code-file-tree-row-frame', 'background', 'transparent'],
+  ['src/styles/files.css', '.code-file-tree-row-frame', 'overflow', 'hidden'],
+  ['src/styles/files.css', '.code-file-tree-row-frame:hover', 'background', 'var(--code-active-item-surface)'],
+  ['src/styles/files.css', '.code-file-tree-row-frame.active,\n.code-file-tree-row-frame:has(.code-file-row.selected:not(.active)),\n.code-file-tree-row-frame:has(.code-file-row.active)', 'background', 'var(--code-active-item-surface)'],
   ['src/styles/files.css', '.code-file-row', 'border-radius', '8px'],
-  ['src/styles/files.css', '.code-file-row:hover', 'background', 'var(--code-active-item-surface)'],
-  ['src/styles/files.css', '.code-file-row.selected:not(.active)', 'background', 'var(--code-active-item-surface)'],
-  ['src/styles/files.css', '.code-file-row.active', 'background', 'var(--code-active-item-surface)'],
-  ['src/styles/files.css', 'body.code-mode.code-compact-layout .code-file-row.active', 'background', 'var(--code-active-item-surface)'],
+  ['src/styles/files.css', '.code-file-row', 'background', 'transparent'],
   ['src/styles/files.css', 'body.code-mode.code-compact-layout .code-file-row', 'border-radius', '8px'],
   ['src/styles/file-editor.css', '.code-file-editor-tab:hover:not(.active)', 'background', 'var(--code-active-item-surface)'],
   ['src/styles/file-editor.css', '.code-file-editor-tab.active', 'background', 'var(--code-active-item-surface)'],
@@ -295,6 +293,29 @@ for (const [sourcePath, selector, property, expectedValue] of structuralSurfaceC
     `${sourcePath} ${selector} must keep every ${property} declaration at ${expectedValue}; found ${values.join(', ')}`,
   )
 }
+
+const agentListSource = fs.readFileSync(path.join(projectRoot, 'src/styles/agent-list.css'), 'utf8')
+assert(!agentListSource.includes('--code-agent-row-action-surface'), 'Agent actions must not own a second base surface')
+assert(!agentListSource.includes('--code-agent-row-action-overlay'), 'Agent actions must not own a second state overlay')
+
+const fileStylesRoot = postcss.parse(
+  fs.readFileSync(path.join(projectRoot, 'src/styles/files.css'), 'utf8'),
+  { from: 'src/styles/files.css' },
+)
+const fileContentStateSelectors = new Set([
+  '.code-file-row:hover',
+  '.code-file-row.focused',
+  '.code-file-row.selected:not(.active)',
+  '.code-file-row.opening:not(.active)',
+  '.code-file-row.active',
+])
+fileStylesRoot.walkRules(rule => {
+  if (!fileContentStateSelectors.has(rule.selector)) return
+  assert(
+    !rule.nodes.some(node => node.type === 'decl' && node.prop === 'background'),
+    `${rule.selector} content must not own a state background`,
+  )
+})
 
 const navigationSurfaceOwners = [
   '.code-mobile-topbar',

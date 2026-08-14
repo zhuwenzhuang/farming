@@ -916,6 +916,27 @@ body.code-mode .code-file-change-group-toggle {
 .code-file-tree-row-frame {
   outline: 0;
   border-radius: 8px;
+  background: transparent;
+  overflow: hidden;
+}
+
+.code-file-tree-row-frame:hover {
+  background: var(--code-active-item-surface);
+}
+
+.code-file-tree-row-frame:has(.code-file-row.focused:not(.selected):not(.active)),
+.code-file-tree-row-frame:has(.code-file-row.opening:not(.selected):not(.active)) {
+  background: var(--code-bg-hover);
+}
+
+.code-file-tree-row-frame.active,
+.code-file-tree-row-frame:has(.code-file-row.selected:not(.active)),
+.code-file-tree-row-frame:has(.code-file-row.active) {
+  background: var(--code-active-item-surface);
+}
+
+.code-file-tree-viewport:focus-within .code-file-tree-row-frame:has(.code-file-row.located.selected:not(.active)) {
+  background: var(--code-bg-selected);
 }
 
 .code-file-row {
@@ -972,14 +993,6 @@ body.code-mode .code-file-change-group-toggle {
   z-index: 1;
 }
 
-.code-file-row:hover::before,
-.code-file-row.focused::before,
-.code-file-row.selected::before,
-.code-file-row.opening::before,
-.code-file-row.active::before {
-  opacity: 0;
-}
-
 .code-file-row:focus,
 .code-file-row:focus-visible {
   outline: 0 !important;
@@ -987,31 +1000,19 @@ body.code-mode .code-file-change-group-toggle {
 }
 
 .code-file-row:hover {
-  background: var(--code-active-item-surface);
   color: var(--code-text);
 }
 
 .code-file-row.focused {
-  background: var(--code-bg-hover);
   color: var(--code-text);
 }
 
-.code-file-row.selected:not(.active) {
-  background: var(--code-active-item-surface);
-}
-
-body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.selected {
-  background: var(--code-warning-soft);
+body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.selected:not(.active) {
   box-shadow: inset 3px 0 0 var(--code-warning);
   color: var(--code-warning);
 }
 
-.code-file-row.opening:not(.active) {
-  background: var(--code-bg-hover);
-}
-
 .code-file-row.active {
-  background: var(--code-active-item-surface);
   color: var(--code-text);
 }
 
@@ -1912,7 +1913,7 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
       font-size: 14px;
     }
 
-  body.code-mode.code-compact-layout .code-file-row:hover:not(.focused):not(.selected):not(.active) {
+  body.code-mode.code-compact-layout .code-file-tree-row-frame:hover:not(.active):not(:has(.code-file-row.focused, .code-file-row.selected, .code-file-row.opening, .code-file-row.active)) {
       background: transparent;
     }
 
@@ -1942,13 +1943,9 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
       display: grid;
     }
 
-  body.code-mode.code-compact-layout .code-file-row.active {
-      background: var(--code-active-item-surface);
-    }
 }
 
 .code-file-row.selected:not(.active) {
-  background: var(--code-active-item-surface);
   color: var(--code-text);
 }
 
@@ -2009,15 +2006,11 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   color: var(--code-text-quiet);
 }
 
-.code-file-tree-viewport:focus-within .code-file-row.located.selected {
-  background: var(--code-bg-selected);
-}
-
-.code-file-tree-viewport:focus-within .code-file-row.located.selected {
+.code-file-tree-viewport:focus-within .code-file-row.located.selected:not(.active) {
   box-shadow: var(--code-shadow-focus);
 }
 
-.code-file-tree-viewport:focus-within .code-file-row.located.selected {
+.code-file-tree-viewport:focus-within .code-file-row.located.selected:not(.active) {
   color: var(--code-accent);
 }
 
@@ -2074,15 +2067,7 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
 }
 
 .code-file-tree-row:hover {
-  background: transparent;
-}
-
-.code-file-tree-row:hover {
   color: var(--code-text);
-}
-
-.code-file-tree-row.active {
-  background: transparent;
 }
 
 .code-file-tree-row.active {

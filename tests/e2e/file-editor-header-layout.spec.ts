@@ -259,17 +259,18 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
   }))
   for (const selection of activeSelectionSurfaces) {
     expect(selection.activeAgentRowBackground, selection.appearance).toBe(selection.activeTabBackground)
-    expect(selection.activeFileRowBackground, selection.appearance).toBe(selection.activeTabBackground)
+    expect(selection.activeFileFrameBackground, selection.appearance).toBe(selection.activeTabBackground)
     expect(selection.activeAgentRowBorderRadius, selection.appearance).toBe('8px')
     expect(selection.activeFileRowBorderRadius, selection.appearance).toBe('8px')
-    expect(selection.activeFileRowGuideOpacity, selection.appearance).toBe('0')
-    expect(colorAlpha(selection.activeFileFrameBackground), selection.appearance).toBe(0)
+    expect(selection.activeFileRowGuideOpacity, selection.appearance).toBe('0.32')
+    expect(colorAlpha(selection.activeFileRowBackground), selection.appearance).toBe(0)
     expect(colorAlpha(selection.activeTabBackground), selection.appearance).toBe(1)
     expect(selection.activeFileRowEdgeContent, selection.appearance).toBe('none')
   }
 
   const inactiveFileRow = files.locator('[data-testid="code-file-row"][data-file-path="docs/alpha.md"]')
   const inactiveTab = editor.getByRole('tab', { name: /alpha\.md/ })
+  const activeAgentRow = project.locator('.code-agent-row.active')
   for (const appearance of ['light', 'dark', 'paper'] as const) {
     await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
     const activeSurface = await editor.getByRole('tab', { selected: true }).evaluate(element => (
@@ -278,15 +279,22 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
     await projectTitle.hover()
     await expect(projectTitle, `${appearance} Project hover`).toHaveCSS('background-color', activeSurface)
     await expect(projectTitle, `${appearance} Project radius`).toHaveCSS('border-radius', '8px')
+    await activeAgentRow.hover()
+    const activeAgentLayers = await activeAgentRow.evaluate(element => ({
+      actionBackground: getComputedStyle(element.querySelector<HTMLElement>('.code-agent-row-actions')!).backgroundImage,
+      rowBackground: getComputedStyle(element).backgroundColor,
+    }))
+    expect(activeAgentLayers.rowBackground, `${appearance} Agent row`).toBe(activeSurface)
+    expect(activeAgentLayers.actionBackground, `${appearance} Agent actions`).toContain(activeSurface)
     await inactiveFileRow.hover()
-    await expect(inactiveFileRow, `${appearance} file hover`).toHaveCSS('background-color', activeSurface)
+    await expect(inactiveFileRow, `${appearance} file content`).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
     await expect(inactiveFileRow, `${appearance} file radius`).toHaveCSS('border-radius', '8px')
     const hoveredFileLayers = await inactiveFileRow.evaluate(element => ({
       frameBackground: getComputedStyle(element.closest<HTMLElement>('.code-file-tree-row-frame')!).backgroundColor,
       guideOpacity: getComputedStyle(element, '::before').opacity,
     }))
-    expect(colorAlpha(hoveredFileLayers.frameBackground), `${appearance} file frame`).toBe(0)
-    expect(hoveredFileLayers.guideOpacity, `${appearance} file guide`).toBe('0')
+    expect(hoveredFileLayers.frameBackground, `${appearance} file frame`).toBe(activeSurface)
+    expect(hoveredFileLayers.guideOpacity, `${appearance} file guide`).toBe('0.32')
     await inactiveTab.hover()
     await expect(inactiveTab, `${appearance} tab hover`).toHaveCSS('background-color', activeSurface)
   }
@@ -296,12 +304,14 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
     document.body.classList.add('code-compact-layout')
     const surfaces = (['light', 'dark', 'paper'] as const).map(appearance => {
       document.body.dataset.appearance = appearance
+      const activeFileRow = document.querySelector<HTMLElement>('.code-file-row.active')!
       return {
         appearance,
         activeAgentRowBackground: getComputedStyle(document.querySelector<HTMLElement>('.code-agent-row.active')!).backgroundColor,
         activeAgentRowBorderRadius: getComputedStyle(document.querySelector<HTMLElement>('.code-agent-row.active')!).borderRadius,
-        activeFileRowBackground: getComputedStyle(document.querySelector<HTMLElement>('.code-file-row.active')!).backgroundColor,
-        activeFileRowBorderRadius: getComputedStyle(document.querySelector<HTMLElement>('.code-file-row.active')!).borderRadius,
+        activeFileRowBackground: getComputedStyle(activeFileRow).backgroundColor,
+        activeFileRowBorderRadius: getComputedStyle(activeFileRow).borderRadius,
+        activeFileFrameBackground: getComputedStyle(activeFileRow.closest<HTMLElement>('.code-file-tree-row-frame')!).backgroundColor,
         activeTabBackground: getComputedStyle(document.querySelector<HTMLElement>('.code-file-editor-tab.active')!).backgroundColor,
       }
     })
@@ -310,7 +320,8 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
   })
   for (const selection of compactActiveSelectionSurfaces) {
     expect(selection.activeAgentRowBackground, `${selection.appearance} compact`).toBe(selection.activeTabBackground)
-    expect(selection.activeFileRowBackground, `${selection.appearance} compact`).toBe(selection.activeTabBackground)
+    expect(selection.activeFileFrameBackground, `${selection.appearance} compact`).toBe(selection.activeTabBackground)
+    expect(colorAlpha(selection.activeFileRowBackground), `${selection.appearance} compact content`).toBe(0)
     expect(selection.activeAgentRowBorderRadius, `${selection.appearance} compact`).toBe('8px')
     expect(selection.activeFileRowBorderRadius, `${selection.appearance} compact`).toBe('8px')
     expect(colorAlpha(selection.activeTabBackground), `${selection.appearance} compact`).toBe(1)
@@ -329,6 +340,7 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
     const breadcrumbBar = document.querySelector<HTMLElement>('.code-file-editor-bar')!
     const content = document.querySelector<HTMLElement>('.code-file-monaco')!
     const activeFileRow = document.querySelector<HTMLElement>('.code-file-row.active')!
+    const activeFileFrame = activeFileRow.closest<HTMLElement>('.code-file-tree-row-frame')!
     return {
       tabStripBackground: getComputedStyle(tabStrip).backgroundColor,
       tabsBackground: getComputedStyle(tabs).backgroundColor,
@@ -343,7 +355,7 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
       activeTabBorderRadius: getComputedStyle(activeTab).borderRadius,
       activeTabBoxShadow: getComputedStyle(activeTab).boxShadow,
       activeTabSeamColor: getComputedStyle(activeTab, '::after').backgroundColor,
-      activeFileRowBackground: getComputedStyle(activeFileRow).backgroundColor,
+      activeFileRowBackground: getComputedStyle(activeFileFrame).backgroundColor,
       activeFileRowEdgeContent: getComputedStyle(activeFileRow, '::after').content,
       breadcrumbBackground: getComputedStyle(breadcrumbBar).backgroundColor,
       contentBackground: getComputedStyle(content).backgroundColor,
