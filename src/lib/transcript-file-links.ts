@@ -22,6 +22,8 @@ export const TRANSCRIPT_FILE_EXTENSIONS = new Set([
   'cjs',
   'json',
   'jsonl',
+  'csv',
+  'tsv',
   'py',
   'rb',
   'rs',

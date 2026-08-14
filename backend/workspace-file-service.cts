@@ -8,7 +8,7 @@ const readline = require('readline');
 const { pathToFileURL } = require('url');
 import { isSameOrDescendantPath as isInside } from './path-containment.cjs';
 
-const DEFAULT_MAX_FILE_SIZE = 1024 * 1024;
+const DEFAULT_MAX_FILE_SIZE = 10 * 1024 * 1024;
 const DEFAULT_MAX_WRITE_SIZE = 2 * 1024 * 1024;
 const DEFAULT_MAX_PREVIEW_FILE_SIZE = 8 * 1024 * 1024;
 const DEFAULT_SEARCH_LIMIT = 100;
@@ -2693,6 +2693,23 @@ class WorkspaceFileService {
     }
 
     const buffer = await fsp.readFile(target);
+    if (stat.size > this.maxWriteSize) {
+      return {
+        path: relativePath,
+        content: buffer.toString('utf8'),
+        size: stat.size,
+        mtimeMs: stat.mtimeMs,
+        sha1: sha1(buffer),
+        preview: {
+          kind: 'large-text',
+          mediaType: 'text/plain',
+          truncated: false,
+        },
+        ...(symbolicLink ? { symbolicLink: true } : {}),
+        ...(external ? { external: true } : {}),
+        ...(readOnly ? { readOnly: true } : {}),
+      };
+    }
     return {
       path: relativePath,
       content: buffer.toString('utf8'),

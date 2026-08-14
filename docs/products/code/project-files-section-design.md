@@ -258,6 +258,13 @@ demand. Background preparation may improve first open, but failure must fall
 back to the same authoritative path and must not reload the page or block Agent
 work.
 
+Subject to the existing workspace ownership and read-only constraints, text
+files up to 2 MiB open completely and remain editable. Text files between 2 MiB
+and 10 MiB open completely in a read-only viewer. Larger text files show only
+the first 10 MiB in that viewer. The interface must distinguish a complete
+read-only file from a truncated prefix; partial content is never presented as
+the complete file.
+
 ## Acceptance Criteria
 
 Verification must cover empty Projects, multiple Agents sharing a workspace,

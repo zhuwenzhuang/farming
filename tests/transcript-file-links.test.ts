@@ -18,7 +18,7 @@ import {
 const WORKSPACE_ROOT = '/repo'
 
 test('transcript file-link vocabulary keeps the pinned extension and filename sets', () => {
-  for (const extension of ['ts', 'tsx', 'md', 'py', 'jsonl', 'sql', 'webp']) {
+  for (const extension of ['ts', 'tsx', 'md', 'py', 'jsonl', 'csv', 'tsv', 'sql', 'webp']) {
     assert.equal(TRANSCRIPT_FILE_EXTENSIONS.has(extension), true)
   }
   assert.equal(TRANSCRIPT_FILE_EXTENSIONS.has('exe'), false)
@@ -48,6 +48,10 @@ test('transcript file targets resolve workspace-relative paths with locations', 
   assert.deepEqual(transcriptFileTargetFromText('notes.txt:41:7-9', WORKSPACE_ROOT), {
     filePath: 'notes.txt',
     target: { lineNumber: 41, column: 7, endColumn: 9 },
+  })
+  assert.deepEqual(transcriptFileTargetFromText('output/predicates.csv:1', WORKSPACE_ROOT), {
+    filePath: 'output/predicates.csv',
+    target: { lineNumber: 1, column: undefined, endColumn: undefined },
   })
   assert.deepEqual(transcriptFileTargetFromText('src\\win\\foo.ts', WORKSPACE_ROOT), {
     filePath: 'src/win/foo.ts',

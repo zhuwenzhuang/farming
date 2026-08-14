@@ -8,6 +8,8 @@ const { execFileSync } = require('child_process');
 const {
   WorkspaceFileService,
   WorkspaceFileError,
+  DEFAULT_MAX_FILE_SIZE,
+  DEFAULT_MAX_WRITE_SIZE,
   DEFAULT_WATCH_DEPTH,
   gitAuthorUrlTemplate,
   gitCommitUrlTemplate,
@@ -120,6 +122,8 @@ async function run() {
     flushWorkspaceWrites: false,
     watchOptions: { usePolling: true, interval: 50 },
   });
+  assert.strictEqual(DEFAULT_MAX_FILE_SIZE, 10 * 1024 * 1024);
+  assert.strictEqual(DEFAULT_MAX_WRITE_SIZE, 2 * 1024 * 1024);
   assert.strictEqual(DEFAULT_WATCH_DEPTH, 1);
   assert.strictEqual(service.watchDepth, DEFAULT_WATCH_DEPTH);
   const cacheWorkspace = path.join(tmpRoot, 'cache-repo');
@@ -238,6 +242,7 @@ async function run() {
     fs.writeFileSync(path.join(workspace, 'binary.bin'), Buffer.from([0, 1, 2, 3, 0]));
     fs.writeFileSync(path.join(workspace, 'preview.pdf'), Buffer.from('%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF\n'));
     fs.writeFileSync(path.join(workspace, 'large.log'), `${'large text line\n'.repeat(3000)}`);
+    fs.writeFileSync(path.join(workspace, 'predicates.csv'), 'id,value\n'.repeat(120000));
     fs.writeFileSync(path.join(workspace, 'preview.png'), Buffer.from(
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgF/2l2fLwAAAABJRU5ErkJggg==',
       'base64'
@@ -306,6 +311,28 @@ async function run() {
     assert.strictEqual(file.path, 'src/App.tsx');
     assert(file.sha1);
     assert(file.content.includes('Farming'));
+    const defaultSizeService = new WorkspaceFileService({ flushWorkspaceWrites: false });
+    try {
+      const csvFile = await defaultSizeService.readFile(workspace, 'predicates.csv');
+      assert.strictEqual(csvFile.content, fs.readFileSync(path.join(workspace, 'predicates.csv'), 'utf8'));
+      assert.strictEqual(csvFile.preview, undefined);
+      assert.strictEqual(csvFile.readOnly, undefined);
+    } finally {
+      await defaultSizeService.dispose();
+    }
+    const readOnlyLargeTextService = new WorkspaceFileService({
+      maxFileSize: 64 * 1024,
+      maxWriteSize: 32 * 1024,
+      flushWorkspaceWrites: false,
+    });
+    try {
+      const completeLargeTextFile = await readOnlyLargeTextService.readFile(workspace, 'large.log');
+      assert.strictEqual(completeLargeTextFile.content, fs.readFileSync(path.join(workspace, 'large.log'), 'utf8'));
+      assert.strictEqual(completeLargeTextFile.preview.kind, 'large-text');
+      assert.strictEqual(completeLargeTextFile.preview.truncated, false);
+    } finally {
+      await readOnlyLargeTextService.dispose();
+    }
     if (fs.existsSync(path.join(workspace, 'readme-link.md'))) {
       const symlinkFile = await service.readFile(workspace, 'readme-link.md');
       assert.strictEqual(symlinkFile.path, 'readme-link.md');

@@ -195,6 +195,9 @@ export function FileEditorPane({
   const markdownPreviewOpen = markdownReadingOpen && !markdownSplitOpen
   const sourceVisualPreviewOpen = canPreviewSource && sourcePreviewOpen
   const readOnly = !editorMode.canEditText || isGlobalWorkspaceFilesAgentId(openFile.agentId) || openFile.file.readOnly === true
+  const largeTextPreview = openFile.file.preview?.kind === 'large-text'
+    ? openFile.file.preview
+    : null
   const canShowBlame = editorMode.canShowBlame && openFile.file.external !== true
   const canShowLineChanges = editorMode.canShowLineChanges && openFile.file.external !== true
 
@@ -601,6 +604,11 @@ export function FileEditorPane({
             {openFile.error && (
               <div className="code-file-editor-alert" data-testid="code-file-editor-alert">
                 {openFile.error}
+              </div>
+            )}
+            {largeTextPreview && (
+              <div className="code-file-editor-alert" data-testid="code-file-large-text-alert" role="status">
+                {largeTextPreview.truncated ? copy.largeFileTruncated : copy.largeFileReadOnly}
               </div>
             )}
             <FileEditorSurface

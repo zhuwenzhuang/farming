@@ -194,6 +194,10 @@ File Read、Preview、Search、Git Output、Directory Load、History Page、Edit
 必须有界。Tree 和昂贵 Detail 按需加载。Background Preparation 可以改善首次打开，但失败时
 必须回退到同一权威路径，不能 Reload Page 或阻塞 Agent Work。
 
+在现有 Workspace 归属与只读约束之上，2 MiB 以内的文本文件完整打开且可编辑。2 MiB 到
+10 MiB 的文本文件在只读查看器中完整打开。更大的文本文件只显示前 10 MiB。界面必须明确区分
+完整的只读文件和被截断的文件前缀；不得将局部内容呈现为完整文件。
+
 ## 验收标准
 
 验证必须覆盖：Empty Project、多个 Agent 共享 Workspace、Git Worktree、Deep Tree、Keyboard

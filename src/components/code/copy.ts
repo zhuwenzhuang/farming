@@ -389,6 +389,8 @@ export interface CodeCopy {
   stickyFolderPath: string
   containsUncommittedChanges: string
   changedOnDisk: string
+  largeFileReadOnly: string
+  largeFileTruncated: string
   unsavedChanges: string
   gitStatus: (status: string) => string
   renameEntry: (name: string) => string
@@ -973,6 +975,8 @@ const EN_COPY: CodeCopy = {
   stickyFolderPath: 'Sticky folder path',
   containsUncommittedChanges: 'Contains uncommitted changes',
   changedOnDisk: 'Changed on disk',
+  largeFileReadOnly: 'This large file is shown completely in read-only mode.',
+  largeFileTruncated: 'Only the beginning of this large file is shown. Editing is disabled.',
   unsavedChanges: 'Unsaved changes',
   gitStatus: status => `Git status: ${status}`,
   renameEntry: name => `Rename ${name}`,
@@ -1593,6 +1597,8 @@ const ZH_COPY: CodeCopy = {
   stickyFolderPath: '固定文件夹路径',
   containsUncommittedChanges: '包含未提交改动',
   changedOnDisk: '磁盘上已变更',
+  largeFileReadOnly: '该大文件已完整打开，当前为只读模式。',
+  largeFileTruncated: '该大文件仅显示开头部分，内容不完整且不可编辑。',
   unsavedChanges: '未保存改动',
   gitStatus: status => `Git 状态：${status}`,
   renameEntry: name => `重命名 ${name}`,
