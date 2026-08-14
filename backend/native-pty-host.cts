@@ -10,6 +10,7 @@ import type {
   PtyProcess,
   ShellSessionOptions,
 } from './local-session-engine.cts';
+import type { ServerProcessIdentity } from './server-process-identity.cts';
 import {
   TerminalScreenWorkerPool,
   type TerminalScreenWorkerLike as ScreenWorker,
@@ -83,6 +84,7 @@ interface NativePtySession {
   previewSnapshot: unknown;
   previewText: string;
   process: PtyProcess;
+  processIdentity: ServerProcessIdentity | null;
   reducerCommitQueue: Promise<unknown>;
   reducerFlowControl: TerminalReducerFlowControl;
   renderOutput: string;
@@ -952,6 +954,7 @@ class NativePtyHost {
       cwd: normalized.cwd,
       metadata,
       process: ptyProcess,
+      processIdentity: null,
       output: trimOutput(restoredOutput),
       outputSeq: restoredOutput ? 1 : 0,
       stateRevision: restoredOutput ? 1 : 0,
@@ -985,6 +988,22 @@ class NativePtyHost {
       exitedAt: null,
       screenWorker,
     };
+
+    if (ptyProcess.pid && process.platform !== 'win32') {
+      const processIdentity = readServerProcessIdentity(ptyProcess.pid);
+      if (!processIdentity) {
+        try {
+          ptyProcess.kill('SIGKILL');
+        } catch {
+          // The process may already have exited while ownership was being verified.
+        }
+        cleanupShellBusyIntegration(normalized.shellBusyIntegration);
+        await screenWorker.dispose().catch(() => {});
+        throw new Error('Terminal process could not publish its exact process ownership');
+      }
+      session.processIdentity = processIdentity;
+      registerConfigProcessGroup(this.configDir, 'terminal', processIdentity);
+    }
 
     this.sessions.set(agentId, session);
     this.bindScreenWorker(session);
@@ -1232,6 +1251,9 @@ class NativePtyHost {
       session.status === 'exited'
     ) return Promise.resolve();
     if (session.exitFinalizationPromise) return session.exitFinalizationPromise;
+    if (session.processIdentity) {
+      unregisterConfigProcessGroup(this.configDir, 'terminal', session.processIdentity);
+    }
     const finalization = this.finalizeSessionExit(sessionId, code, session);
     session.exitFinalizationPromise = finalization;
     return finalization;
