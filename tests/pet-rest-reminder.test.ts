@@ -12,6 +12,7 @@ import {
   REST_REMINDER_TEST_ENTRY_COUNTDOWN_SECONDS,
   REST_REMINDER_TEST_INTERVAL_SECONDS,
   createRestReminderState,
+  loadRestReminderIntervalSeconds,
   nextRestReminderDeadline,
   normalizeRestReminderIntervalSeconds,
   readPetAppearance,
@@ -24,6 +25,7 @@ import {
   restReminderInvitationMs,
   restReminderSliderIntervalSeconds,
   restReminderSliderPosition,
+  persistRestReminderIntervalSeconds,
   savePetAppearance,
   saveRestReminderIntervalSeconds,
   saveRestReminderRuntimeState,
@@ -132,6 +134,55 @@ test('persists reminder and appearance settings without overwriting the other va
   assert.equal(saveRestReminderIntervalSeconds(2 * 60 * 60, storage, 'black-hole'), true)
   assert.equal(readPetAppearance(storage, 'black-hole'), 'glass')
   assert.equal(saveRestReminderIntervalSeconds(30, storage), false)
+})
+
+test('a stale reminder load cannot restore the value replaced by a newer write', async () => {
+  const originalWindow = globalThis.window
+  const originalFetch = globalThis.fetch
+  const { storage } = createStorage()
+  saveRestReminderIntervalSeconds(50 * 60, storage)
+
+  let resolveLoad!: (response: Response) => void
+  const pendingLoad = new Promise<Response>(resolve => {
+    resolveLoad = resolve
+  })
+  const writes: Array<number | null> = []
+
+  globalThis.window = {
+    localStorage: storage,
+    dispatchEvent() {
+      return true
+    },
+  } as unknown as Window & typeof globalThis
+  globalThis.fetch = (async (_input, init) => {
+    if (!init?.method || init.method === 'GET') return pendingLoad
+    const body = JSON.parse(String(init.body)) as { restReminderIntervalSeconds: number | null }
+    writes.push(body.restReminderIntervalSeconds)
+    return new Response(JSON.stringify({
+      settings: { restReminderIntervalSeconds: body.restReminderIntervalSeconds },
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }) as typeof fetch
+
+  try {
+    const load = loadRestReminderIntervalSeconds()
+    assert.equal(await persistRestReminderIntervalSeconds(null), true)
+    resolveLoad(new Response(JSON.stringify({
+      settings: { restReminderIntervalSeconds: null },
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+
+    assert.equal(await load, null)
+    assert.equal(readRestReminderIntervalSeconds(storage), null)
+    assert.deepEqual(writes, [null])
+  } finally {
+    globalThis.window = originalWindow
+    globalThis.fetch = originalFetch
+  }
 })
 
 test('advances a due reminder through countdown, late deadlines, and a user interaction', () => {

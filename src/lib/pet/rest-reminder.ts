@@ -273,6 +273,7 @@ type RestReminderServerSettings = {
 }
 
 let restReminderSettingWrite = Promise.resolve(true)
+let restReminderSettingWriteGeneration = 0
 
 async function postRestReminderIntervalSeconds(seconds: number | null) {
   const response = await fetch(appPath('/api/settings'), {
@@ -300,6 +301,7 @@ export function persistRestReminderIntervalSeconds(
 ) {
   const normalized = seconds === null ? null : normalizeRestReminderIntervalSeconds(seconds)
   if (seconds !== null && normalized === null) return Promise.resolve(false)
+  restReminderSettingWriteGeneration += 1
   const write = async () => {
     try {
       const saved = await postRestReminderIntervalSeconds(normalized)
@@ -317,11 +319,15 @@ export function persistRestReminderIntervalSeconds(
 export async function loadRestReminderIntervalSeconds(
   defaultAppearance: PetAppearance = 'glass',
 ) {
+  const writeGeneration = restReminderSettingWriteGeneration
   const localIntervalSeconds = readRestReminderIntervalSeconds()
   try {
     const response = await fetch(appPath('/api/settings'))
     if (!response.ok) return localIntervalSeconds
     const data = await response.json() as { settings?: RestReminderServerSettings }
+    if (writeGeneration !== restReminderSettingWriteGeneration) {
+      return readRestReminderIntervalSeconds()
+    }
     const persistedIntervalSeconds = normalizeRestReminderIntervalSeconds(
       data.settings?.restReminderIntervalSeconds,
     )
