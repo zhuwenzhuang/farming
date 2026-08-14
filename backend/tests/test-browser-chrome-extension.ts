@@ -46,8 +46,10 @@ async function waitFor(check, timeoutMs = 1000) {
 async function run() {
   const extensionRoot = path.resolve(__dirname, '../../extensions/browser/chrome-extension');
   const manifest = JSON.parse(read(path.join(extensionRoot, 'manifest.json')));
-  const popup = read(path.join(extensionRoot, 'popup.html'));
-  const popupScript = read(path.join(extensionRoot, 'popup.js'));
+  const background = read(path.join(extensionRoot, 'background.js'));
+  const sidePanel = read(path.join(extensionRoot, 'sidepanel.html'));
+  const sidePanelScript = read(path.join(extensionRoot, 'sidepanel.js'));
+  const sidePanelModule = read(path.join(extensionRoot, 'modules/farming-side-panel.js'));
   assert.strictEqual(manifest.name, 'Farming Browser Connector');
   assert.strictEqual(manifest.version, '0.0.1');
   assert.strictEqual(manifest.description, 'Let Agents in Farming use your browser.');
@@ -63,18 +65,37 @@ async function run() {
   assert.strictEqual(manifest.permissions.includes('debugger'), true);
   assert.strictEqual(manifest.permissions.includes('activeTab'), true);
   assert.strictEqual(manifest.permissions.includes('scripting'), true);
-  assert.strictEqual(manifest.host_permissions, undefined);
+  assert.deepStrictEqual(manifest.host_permissions, ['http://localhost/*', 'http://127.0.0.1/*']);
   assert.strictEqual(manifest.options_ui, undefined);
-  assert.match(popup, />Connect</);
-  assert.match(popup, />Disconnect</);
-  assert.doesNotMatch(popup, /Settings|Selected tabs|All tabs/);
-  assert.doesNotMatch(popupScript, /toggleTabAccess|openOptionsPage|setAccessMode/);
+  assert.strictEqual(manifest.action.default_popup, undefined);
+  assert.deepStrictEqual(manifest.side_panel, { default_path: 'sidepanel.html' });
+  assert.strictEqual(manifest.permissions.includes('sidePanel'), true);
+  assert.strictEqual(manifest.permissions.includes('cookies'), false);
+  assert.match(background, /registerFarmingSidePanel/);
+  assert.match(background, /handleFarmingSidePanelMessage/);
+  assert.match(sidePanel, />Farming</);
+  assert.match(sidePanel, /<iframe id="farming"/);
+  assert.match(sidePanelModule, /chromeApi\.sidePanel\.open/);
+  assert.match(sidePanelModule, /pairCurrentFarmingPage/);
+  assert.match(sidePanelModule, /applyPairing/);
+  assert.match(sidePanelModule, /openFarmingSidePanel/);
+  assert.match(sidePanelModule, /sidePanelUrlForFarmingTab\(farmingTab\.id\)/);
+  assert.match(sidePanelModule, /hostname === "localhost"/);
+  assert.match(sidePanelModule, /hostname === "127\.0\.0\.1"/);
+  assert.match(sidePanelModule, /lastAccessed/);
+  assert.match(sidePanelModule, /farmingSidePanelUrl: sidePanelUrl/);
+  assert.match(sidePanelScript, /chrome\.runtime\.sendMessage\(\{ type: "openFarmingSidePanel" \}\)/);
+  assert.match(sidePanelScript, /if \(!response\?\.ok\)/);
+  assert.match(sidePanelScript, /farming\.src = target/);
+  assert.doesNotMatch(`${sidePanel}\n${sidePanelScript}`, />Disconnect</);
+  assert.doesNotMatch(background, /text: "ON"|text: "…"|text: "!"/);
+  assert.strictEqual(fs.existsSync(path.join(extensionRoot, 'popup.html')), false);
+  assert.strictEqual(fs.existsSync(path.join(extensionRoot, 'popup.js')), false);
   assert.strictEqual(fs.existsSync(path.join(extensionRoot, 'options.html')), false);
   assert.strictEqual(fs.existsSync(path.join(extensionRoot, 'options.js')), false);
 
   const relayCore = read(path.join(extensionRoot, 'modules/relay-core.js'));
   const nativeBootstrap = read(path.join(extensionRoot, 'modules/native-bootstrap.js'));
-  const background = read(path.join(extensionRoot, 'background.js'));
   const pagePairing = read(path.join(extensionRoot, 'modules/farming-page-pairing.js'));
   assert.match(relayCore, /farming-extension-relay\.v2/);
   assert.match(relayCore, /FARMING_TAB_GROUP_TITLE = "Farming"/);
@@ -83,7 +104,10 @@ async function run() {
   assert.match(pagePairing, /world: "MAIN"/);
   assert.doesNotMatch(pagePairing, /browserSource: "extension"/);
   assert.match(pagePairing, /accessMode: "all"/);
-  assert.doesNotMatch(`${relayCore}\n${nativeBootstrap}\n${background}`, /OpenClaw|openclaw|OPENCLAW/);
+  assert.doesNotMatch(
+    `${relayCore}\n${nativeBootstrap}\n${background}\n${sidePanelModule}`,
+    /OpenClaw|openclaw|OPENCLAW/,
+  );
 
   const pageRequests = [];
   const extensionMessages = [];
@@ -92,19 +116,29 @@ async function run() {
   const previousFetch = globals.fetch;
   const previousWindow = globals.window;
   let extensionStatusReads = 0;
-  globals.window = { __FARMING_BASE_PATH__: '/farming' };
+  globals.window = {
+    __FARMING_BASE_PATH__: '/farming',
+    location: { href: 'http://127.0.0.1:3000/farming/' },
+  };
   globals.fetch = async (url, options = {}) => {
     pageRequests.push({ url, options });
     const isExtensionStatus = url.endsWith('/api/browsers/extension');
+    const isSidePanelTicket = url.endsWith('/api/share/qr-ticket');
     if (isExtensionStatus) extensionStatusReads += 1;
     return {
       ok: true,
-      json: async () => isExtensionStatus
-        ? {
+      json: async () => {
+        if (isExtensionStatus) {
+          return {
             connected: extensionStatusReads >= 3,
             pairingString: `ws://127.0.0.1/farming/browser/extension#${'a'.repeat(64)}`,
-          }
-        : { settings: { browserSource: 'extension' } },
+          };
+        }
+        if (isSidePanelTicket) {
+          return { shortUrl: 'http://127.0.0.1:3000/farming/j/TESTCODE' };
+        }
+        return { settings: { browserSource: 'extension' } };
+      },
     };
   };
   globals.chrome = {
@@ -130,11 +164,105 @@ async function run() {
     assert.deepStrictEqual(JSON.parse(pageRequests[3].options.body), {
       browserExtensionEnabled: true,
     });
+    assert.deepStrictEqual(await pairingModule.pairCurrentFarmingPage({ waitForConnection: false }), {
+      pageUrl: 'http://127.0.0.1:3000/farming/',
+    });
+    let directlyAppliedPairing;
+    assert.deepStrictEqual(await pairingModule.pairCurrentFarmingPage({
+      waitForConnection: false,
+      applyPairing: async request => {
+        directlyAppliedPairing = request;
+        return { ok: true };
+      },
+    }), {
+      pageUrl: 'http://127.0.0.1:3000/farming/',
+    });
+    assert.strictEqual(directlyAppliedPairing.accessMode, 'all');
+    assert.strictEqual(directlyAppliedPairing.source, 'manual');
+    assert.strictEqual(
+      await pairingModule.sidePanelUrlForFarmingTab(7),
+      'http://127.0.0.1:3000/farming/j/TESTCODE',
+    );
+    const sidePanelRequest = pageRequests.at(-1);
+    assert.strictEqual(sidePanelRequest.url, '/farming/api/share/qr-ticket');
+    assert.deepStrictEqual(JSON.parse(sidePanelRequest.options.body), {});
+    assert.strictEqual(sidePanelRequest.options.credentials, 'same-origin');
   } finally {
     globals.chrome = previousChrome;
     globals.fetch = previousFetch;
     globals.window = previousWindow;
   }
+
+  let sidePanelPairingOptions;
+  let sidePanelRequestedTabId;
+  globals.__testPairCurrentFarmingPage = async options => {
+    sidePanelPairingOptions = options;
+    return { pageUrl: 'http://127.0.0.1:3000/farming/' };
+  };
+  globals.__testSidePanelUrlForFarmingTab = async tabId => {
+    sidePanelRequestedTabId = tabId;
+    return 'http://127.0.0.1:3000/farming/j/FRESH';
+  };
+  const pairingStub = encodeURIComponent(`
+    export const pairCurrentFarmingPage = (...args) => globalThis.__testPairCurrentFarmingPage(...args);
+    export const sidePanelUrlForFarmingTab = (...args) => globalThis.__testSidePanelUrlForFarmingTab(...args);
+  `);
+  const testableSidePanelModule = sidePanelModule.replace(
+    './farming-page-pairing.js',
+    `data:text/javascript,${pairingStub}`,
+  );
+  const sidePanelModuleUnderTest = await import(
+    `data:text/javascript,${encodeURIComponent(testableSidePanelModule)}`
+  );
+  const storedSidePanelValues = [];
+  const removedSidePanelKeys = [];
+  const sidePanelChrome = {
+    tabs: {
+      query: async query => query.active
+        ? [{ id: 2, url: 'https://example.test/' }]
+        : [
+            { id: 3, url: 'https://example.test/farming/', lastAccessed: 300 },
+            { id: 4, url: 'http://localhost:3000/farming/', lastAccessed: 100 },
+            { id: 5, url: 'http://127.0.0.1:3000/farming/', lastAccessed: 200 },
+          ],
+    },
+    storage: {
+      session: {
+        set: async value => storedSidePanelValues.push(value),
+        remove: async key => removedSidePanelKeys.push(key),
+      },
+    },
+  };
+  const sidePanelReply = await new Promise(resolve => {
+    assert.strictEqual(sidePanelModuleUnderTest.handleFarmingSidePanelMessage(
+      { type: 'openFarmingSidePanel' },
+      resolve,
+      { chromeApi: sidePanelChrome, applyPairing: async () => ({ ok: true }) },
+    ), true);
+  });
+  assert.deepStrictEqual(sidePanelReply, { ok: true });
+  assert.strictEqual(sidePanelRequestedTabId, 5);
+  assert.deepStrictEqual(storedSidePanelValues, [{
+    farmingSidePanelUrl: 'http://127.0.0.1:3000/farming/j/FRESH',
+  }]);
+  await waitFor(() => sidePanelPairingOptions != null);
+  assert.strictEqual(sidePanelPairingOptions.tabId, 5);
+  assert.strictEqual(sidePanelPairingOptions.waitForConnection, false);
+
+  sidePanelChrome.tabs.query = async query => query.active
+    ? [{ id: 2, url: 'https://example.test/' }]
+    : [];
+  const missingFarmingReply = await new Promise(resolve => {
+    sidePanelModuleUnderTest.handleFarmingSidePanelMessage(
+      { type: 'openFarmingSidePanel' },
+      resolve,
+      { chromeApi: sidePanelChrome },
+    );
+  });
+  assert.deepStrictEqual(missingFarmingReply, { ok: false });
+  assert.deepStrictEqual(removedSidePanelKeys, ['farmingSidePanelUrl']);
+  delete globals.__testPairCurrentFarmingPage;
+  delete globals.__testSidePanelUrlForFarmingTab;
 
   const bridge = new ExtensionRelayBridge();
   const relayMessages = [];

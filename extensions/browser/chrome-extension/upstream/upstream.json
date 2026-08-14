@@ -4,5 +4,5 @@
   "license": "MIT",
   "sourcePath": "extensions/browser/chrome-extension",
   "relaySourcePath": "extensions/browser/src/browser/extension-relay",
-  "transform": "Farming identity namespaces, Farming-owned popup, and Farming base-path pairing support"
+  "transform": "Farming identity namespaces, Farming-owned side panel, and Farming base-path pairing support"
 }

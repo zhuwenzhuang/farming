@@ -11,7 +11,8 @@
     "scripting",
     "storage",
     "alarms",
-    "nativeMessaging"
+    "nativeMessaging",
+    "sidePanel"
   ],
   "background": {
     "service_worker": "background.js",
@@ -28,8 +29,14 @@
     "default_icon": {
       "16": "icons/farming-16.png",
       "32": "icons/farming-32.png"
-    },
-    "default_popup": "popup.html"
+    }
   },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "host_permissions": [
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
   "minimum_chrome_version": "125"
 }

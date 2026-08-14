@@ -35,6 +35,35 @@ function transform(source) {
 }
 
 function transformIntegration(relativePath, source) {
+  if (relativePath === 'background.js') {
+    return source
+      .replace(
+        'import { createPopupMessageHandler } from "./modules/popup-background.js";',
+        'import { createPopupMessageHandler } from "./modules/popup-background.js";\nimport { handleFarmingSidePanelMessage, registerFarmingSidePanel } from "./modules/farming-side-panel.js";',
+      )
+      .replace('connecting: { text: "…",', 'connecting: { text: "",')
+      .replace('on: { text: "ON",', 'on: { text: "",')
+      .replace('error: { text: "!",', 'error: { text: "",')
+      .replace(
+        'chrome.runtime.onMessage.addListener((msg, _sender, reply) => handlePopupMessage(msg, reply));',
+        'chrome.runtime.onMessage.addListener((msg, _sender, reply) => (\n  handleFarmingSidePanelMessage(msg, reply, {\n    applyPairing: handlePopupMessage.applyPairing,\n  }) || handlePopupMessage(msg, reply)\n));\nregisterFarmingSidePanel();',
+      )
+      .replace(
+        '    if (!retiredCopilotCustodyBlocked) {\n      await nativeBootstrap.attempt();\n    }\n    return await nativeBootstrap.status();',
+        '    return await nativeBootstrap.status();',
+      );
+  }
+  if (relativePath === 'modules/popup-background.js') {
+    return source
+      .replace(
+        'const { relayUrl, accessMode } = await getConfig();',
+        'const { relayUrl, gatewayUrl, accessMode } = await getConfig();',
+      )
+      .replace(
+        'relayUrl: relayUrl ?? "",',
+        'relayUrl: relayUrl ?? "",\n              gatewayUrl: gatewayUrl ?? "",',
+      );
+  }
   if (relativePath !== 'modules/relay-core.js') return source;
   return source
     .replace('relay.pathname !== "/browser/extension"', '!relay.pathname.endsWith("/browser/extension")')
@@ -66,6 +95,7 @@ manifest.name = 'Farming Browser Connector';
 manifest.version = '0.0.1';
 manifest.description = 'Let Agents in Farming use your browser.';
 manifest.permissions = [...new Set([...manifest.permissions, 'activeTab', 'scripting'])];
+manifest.permissions = [...new Set([...manifest.permissions, 'sidePanel'])];
 manifest.icons = {
   16: 'icons/farming-16.png',
   32: 'icons/farming-32.png',
@@ -80,8 +110,22 @@ manifest.action = {
     32: 'icons/farming-32.png',
   },
 };
+delete manifest.action.default_popup;
+manifest.side_panel = { default_path: 'sidepanel.html' };
+manifest.host_permissions = ['http://localhost/*', 'http://127.0.0.1/*'];
 delete manifest.options_ui;
 fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+for (const file of [
+  'sidepanel.html',
+  'sidepanel.js',
+  'modules/farming-page-pairing.js',
+  'modules/farming-side-panel.js',
+]) {
+  if (!fs.existsSync(path.join(destinationRoot, file))) {
+    throw new Error(`Farming-owned ${file} is missing after the upstream sync.`);
+  }
+}
 
 const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: sourceRoot, encoding: 'utf8' }).trim();
 const upstreamDirectory = path.join(destinationRoot, 'upstream');
@@ -93,7 +137,7 @@ fs.writeFileSync(path.join(upstreamDirectory, 'upstream.json'), `${JSON.stringif
   license: 'MIT',
   sourcePath: 'extensions/browser/chrome-extension',
   relaySourcePath: 'extensions/browser/src/browser/extension-relay',
-  transform: 'Farming identity namespaces, Farming-owned popup, and Farming base-path pairing support',
+  transform: 'Farming identity namespaces, Farming-owned side panel, and Farming base-path pairing support',
 }, null, 2)}\n`);
 
 console.log(`Synchronized Farming Browser Connector from OpenClaw ${commit}.`);

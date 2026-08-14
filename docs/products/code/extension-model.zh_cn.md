@@ -130,10 +130,12 @@ Browser 和 Computer 是同一 Resource Contract 上的 Built-in Extension：
 - Computer 拥有完整 Desktop 与控制权交接；
 - Isolated Browser 可以租用 Agent-owned Desktop，但 Browser Tab 与 Desktop Lifecycle 保持独立。
 
-Browser 也可以通过 Farming Browser Connector 中继用户已登录的有头 Chrome 中明确获准的
-标签页。Connector 复用同一个 Browser Runtime、Resource、Agent Tool 与 Viewer 通路，
+Browser 也可以通过 Farming Browser Connector 中继用户已登录的有头 Chrome 标签页。
+Connector 复用同一个 Browser Runtime、Resource、Agent Tool 与 Viewer 通路，
 不是第二套 Browser 实现。虽然实现持续跟随 MIT 许可的 OpenClaw 上游，但配对与标签页授权
 都与 OpenClaw 独立。
+Chrome 侧栏复用已打开的 Farming 页面的登录会话。Connector 配对后自动工作。常规界面只报告
+是否可用，不把“断开连接”作为日常操作；删除仍由 Chrome 的扩展程序管理页面负责。
 
 Browser 与 Computer 可以安全共享轻量 Backend Capability Service，同时使用独立 CLI
 携带的 Agent 名字，把 Resource Identity 与 Mutable Session State 路由到当前 Owner。该名字

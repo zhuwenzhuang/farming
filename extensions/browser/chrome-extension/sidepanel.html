@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Farming</title>
+    <style>
+      :root { color-scheme: light dark; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #fff; color: #24292f; }
+      main { max-width: 240px; padding: 24px; text-align: center; }
+      iframe { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; background: #fff; }
+      img { width: 64px; height: 64px; border-radius: 50%; }
+      h1 { margin: 12px 0 4px; font-size: 18px; }
+      p { margin: 0; color: #57606a; }
+      button { margin-top: 16px; min-height: 34px; padding: 0 14px; border: 1px solid #d0d7de; border-radius: 7px; background: #f6f8fa; color: inherit; cursor: pointer; }
+      @media (prefers-color-scheme: dark) { body { background: #0d1117; color: #e6edf3; } p { color: #8b949e; } button { border-color: #30363d; background: #21262d; } }
+    </style>
+  </head>
+  <body>
+    <main id="fallback">
+      <img src="icons/farming-128.png" alt="" />
+      <h1>Farming</h1>
+      <p id="status">Connecting to local Farming…</p>
+      <button id="retry" hidden type="button">Try again</button>
+    </main>
+    <iframe id="farming" hidden title="Farming"></iframe>
+    <script src="sidepanel.js"></script>
+  </body>
+</html>

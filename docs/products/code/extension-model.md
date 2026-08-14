@@ -157,11 +157,15 @@ Browser and Computer are built-in Extensions over the same Resource contract:
 - Isolated Browser may lease an Agent-owned Desktop, but Browser-tab and Desktop
   lifecycles remain distinct.
 
-Browser may also use the Farming Browser Connector to relay explicitly eligible
-tabs from the user's signed-in, headed Chrome. The connector composes the same
+Browser may also use the Farming Browser Connector to relay eligible tabs from
+the user's signed-in, headed Chrome. The connector composes the same
 Browser Runtime, Resource, Agent tool, and Viewer path; it is not a second
 Browser implementation. Its pairing and tab authorization are independent from
 OpenClaw even though the implementation tracks that MIT-licensed upstream.
+The Chrome side panel reuses an open Farming page's authenticated session.
+The connector works automatically after pairing. Its ordinary surfaces report
+availability without presenting disconnect as a routine action; removal remains
+owned by Chrome's extension management UI.
 
 Browser and Computer share lightweight backend capability services where safe,
 while the Agent name carried by the CLI resolves Resource identity and mutable

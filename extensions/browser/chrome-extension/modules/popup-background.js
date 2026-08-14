@@ -164,7 +164,7 @@ export function createPopupMessageHandler({
             await accessReady;
             const retiredCopilotCustodyBlocked = isRetiredCopilotCustodyBlocked();
             const nativeBootstrap = await getNativeBootstrapStatus();
-            const { relayUrl, accessMode } = await getConfig();
+            const { relayUrl, gatewayUrl, accessMode } = await getConfig();
             await reconcilePairingInvalidation();
             const accessible = await policy.listAccessibleTabs();
             const hint = getRelayStatusHint();
@@ -174,6 +174,7 @@ export function createPopupMessageHandler({
               accessMode,
               accessibleTabCount: accessible.length,
               relayUrl: relayUrl ?? "",
+              gatewayUrl: gatewayUrl ?? "",
               nativeBootstrap,
               retiredCopilotCustodyBlocked,
               ...(hint ? { hint } : {}),

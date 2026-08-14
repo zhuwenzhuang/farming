@@ -1,10 +1,13 @@
-async function requestFromCurrentFarming(operation) {
-  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-  if (!tab?.id || !/^https?:/u.test(tab.url ?? "")) {
+async function requestFromFarmingTab(operation, requestedTabId) {
+  const [activeTab] = requestedTabId
+    ? []
+    : await chrome.tabs.query({ active: true, currentWindow: true });
+  const tabId = requestedTabId ?? activeTab?.id;
+  if (!tabId) {
     throw new Error("Open your Farming page in this tab, then click the extension again.");
   }
   const [execution] = await chrome.scripting.executeScript({
-    target: { tabId: tab.id },
+    target: { tabId },
     world: "MAIN",
     func: async (requestedOperation) => {
       try {
@@ -15,8 +18,13 @@ async function requestFromCurrentFarming(operation) {
           ? configuredBase.replace(/\/+$/u, "")
           : "";
         const endpoint = `${basePath}/api/browsers/extension`;
+        const sidePanelEndpoint = `${basePath}/api/share/qr-ticket`;
         const response = await fetch(
-          requestedOperation === "activate" ? `${basePath}/api/settings` : endpoint,
+          requestedOperation === "activate"
+            ? `${basePath}/api/settings`
+            : requestedOperation === "side-panel"
+              ? sidePanelEndpoint
+              : endpoint,
           requestedOperation === "activate"
             ? {
                 method: "POST",
@@ -26,6 +34,13 @@ async function requestFromCurrentFarming(operation) {
                   browserExtensionEnabled: true,
                 }),
               }
+            : requestedOperation === "side-panel"
+              ? {
+                  method: "POST",
+                  credentials: "same-origin",
+                  headers: { "Content-Type": "application/json", Accept: "application/json" },
+                  body: "{}",
+                }
             : { credentials: "same-origin", headers: { Accept: "application/json" } },
         );
         const result = await response.json().catch(() => ({}));
@@ -34,6 +49,8 @@ async function requestFromCurrentFarming(operation) {
               ok: true,
               connected: result.connected === true,
               pairingString: result.pairingString ?? "",
+              pageUrl: window.location.href,
+              sidePanelUrl: result.shortUrl ?? "",
             }
           : { ok: false, error: result.error ?? `Farming returned HTTP ${response.status}` };
       } catch (error) {
@@ -49,28 +66,45 @@ async function requestFromCurrentFarming(operation) {
   return result;
 }
 
-async function waitForCurrentFarmingConnection() {
+async function waitForCurrentFarmingConnection(tabId) {
   for (let attempt = 0; attempt < 40; attempt += 1) {
-    const status = await requestFromCurrentFarming("status");
+    const status = await requestFromFarmingTab("status", tabId);
     if (status.connected) return;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   throw new Error("Chrome paired, but Farming did not observe the connection in time.");
 }
 
-export async function pairCurrentFarmingPage() {
-  const pairing = await requestFromCurrentFarming("pair");
+export async function pairCurrentFarmingPage({
+  waitForConnection = true,
+  applyPairing,
+  tabId,
+} = {}) {
+  const pairing = await requestFromFarmingTab("pair", tabId);
   if (!pairing.pairingString) {
     throw new Error("Farming did not return Browser pairing information.");
   }
-  const paired = await chrome.runtime.sendMessage({
-    type: "pair",
+  const pairRequest = {
     pairingString: pairing.pairingString,
     accessMode: "all",
-  });
+  };
+  const paired = typeof applyPairing === "function"
+    ? await applyPairing({ ...pairRequest, source: "manual" })
+    : await chrome.runtime.sendMessage({ type: "pair", ...pairRequest });
   if (!paired?.ok) {
     throw new Error(paired?.error ?? "Could not pair this Chrome with Farming.");
   }
-  await waitForCurrentFarmingConnection();
-  await requestFromCurrentFarming("activate");
+  if (waitForConnection) {
+    await waitForCurrentFarmingConnection(tabId);
+  }
+  await requestFromFarmingTab("activate", tabId);
+  return { pageUrl: pairing.pageUrl };
+}
+
+export async function sidePanelUrlForFarmingTab(tabId) {
+  const sidePanel = await requestFromFarmingTab("side-panel", tabId);
+  if (!sidePanel.sidePanelUrl) {
+    throw new Error("Farming did not return a side panel link.");
+  }
+  return sidePanel.sidePanelUrl;
 }

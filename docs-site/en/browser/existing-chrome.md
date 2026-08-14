@@ -10,31 +10,21 @@ your Chrome. Farming Browser can use its other browsers without this connector.
    ![Farming Browser settings](/en/assets/existing-chrome-plugin.jpg)
 
 2. Open `chrome://extensions`, enable **Developer mode**, and click **Load unpacked**.
-   In the macOS picker, press `Cmd+Shift+G`, paste the extension folder, and click **Select**.
+   In the file picker, select the extension folder shown in Farming, then click **Select**.
 
    ![Select the extension folder](/en/assets/existing-chrome-select-folder.jpg)
 
-3. Confirm that the extension is installed and shows version `0.0.1`.
-
-   ![Extension installed](/en/assets/existing-chrome-installed.jpg)
-
-4. Return to Farming, open Chrome's **Extensions** menu, and click
+3. Return to Farming, open Chrome's **Extensions** menu, and click
    **Farming Browser Connector**.
 
    ![Open the connector](/en/assets/existing-chrome-menu.jpg)
 
-The connection is ready when the popup shows **Connected**. It reconnects automatically when you
-open Farming again.
+Farming opens in Chrome's side panel. Clicking the extension icon opens this panel again.
 
 ![Connected](/en/assets/existing-chrome-connected.jpg)
 
 ## Remove
 
-Open `chrome://extensions`, find **Farming Browser Connector**, click **Remove**, and confirm.
+Open `chrome://extensions`, find **Farming Browser Connector**, click **Remove**, then confirm.
 
-The CLI can show the extension folder and connection status:
-
-```bash
-farming browser extension path
-farming browser extension status
-```
+![Remove Farming Browser Connector](/en/assets/existing-chrome-remove.jpg)

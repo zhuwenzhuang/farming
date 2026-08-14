@@ -4,6 +4,10 @@ import {
   prepareRetiredCopilotState,
 } from "./modules/native-bootstrap.js";
 import { createPopupMessageHandler } from "./modules/popup-background.js";
+import {
+  handleFarmingSidePanelMessage,
+  registerFarmingSidePanel,
+} from "./modules/farming-side-panel.js";
 import { createRelayCommandHandler } from "./modules/relay-command-handler.js";
 import { openAuthenticatedRelaySocket } from "./modules/relay-connection.js";
 // Farming extension service worker.
@@ -26,9 +30,9 @@ import { createTabAccessPolicy } from "./modules/tab-access.js";
 
 const BADGE = {
   off: { text: "", color: "#000000" },
-  connecting: { text: "…", color: "#F59E0B" },
-  on: { text: "ON", color: "#0F9D58" },
-  error: { text: "!", color: "#B91C1C" },
+  connecting: { text: "", color: "#F59E0B" },
+  on: { text: "", color: "#0F9D58" },
+  error: { text: "", color: "#B91C1C" },
 };
 const RELAY_WATCHDOG_ALARM = "farming-relay-watchdog";
 const RELAY_OPENING_DEADLINE_ALARM = "farming-relay-opening-deadline";
@@ -590,9 +594,6 @@ const handlePopupMessage = createPopupMessageHandler({
   getRelayStatusHint: () => relayStatusHint,
   getNativeBootstrapStatus: async () => {
     await tabAccessReady;
-    if (!retiredCopilotCustodyBlocked) {
-      await nativeBootstrap.attempt();
-    }
     return await nativeBootstrap.status();
   },
   enableNativeBootstrap: async (enabled) => {
@@ -636,7 +637,12 @@ nativeBootstrap = createNativeBootstrapController({
   getPairing: getConfig,
   applyPairing: async (request) => await handlePopupMessage.applyPairing(request),
 });
-chrome.runtime.onMessage.addListener((msg, _sender, reply) => handlePopupMessage(msg, reply));
+chrome.runtime.onMessage.addListener((msg, _sender, reply) => (
+  handleFarmingSidePanelMessage(msg, reply, {
+    applyPairing: handlePopupMessage.applyPairing,
+  }) || handlePopupMessage(msg, reply)
+));
+registerFarmingSidePanel();
 
 registerTabAccessEvents({
   accessReady: tabAccessReady,
