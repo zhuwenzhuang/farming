@@ -3,9 +3,10 @@
 Farming Browser lets an Agent open and operate webpages. You can watch the page
 the Agent is using in Farming and take over at any time.
 
-## Choose the browser the Agent will use
+## Available browsers
 
-Open **Plugins → Browser** and choose a Browser source.
+Open **Plugins → Browser** to see the available browsers. They can be used
+together; the Agent chooses the one that best fits each task.
 
 <ThemeImage
   light="/cn/assets/browser-plugin.png"

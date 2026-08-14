@@ -140,6 +140,15 @@ class BrowserExtensionRelay {
     };
   }
 
+  tabs() {
+    return (this.handle?.bridge.devtoolsTargetDescriptors() || []).map(tab => ({
+      active: tab.active,
+      id: tab.tabId,
+      title: tab.title,
+      url: tab.url,
+    }));
+  }
+
   pairingString(relayUrl: string): string {
     if (!this.token) throw new Error('Farming Browser extension relay is not ready');
     const url = new URL(relayUrl);

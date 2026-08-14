@@ -12,20 +12,22 @@ The extension is included with Farming; there is nothing else to download.
 1. In **Plugins → Browser**, choose **Your existing Chrome** and copy
    the **Bundled extension directory**.
 2. Open `chrome://extensions`, enable **Developer mode**, and choose **Load
-   unpacked**. In the macOS picker, press `Cmd+Shift+G` to paste the path.
+   unpacked**. Select the extension directory shown in Farming.
 3. Return to the Farming page and click **Farming Browser Connector** in
    Chrome's **Extensions** menu.
 
-The extension pairs, enables Browser, and selects itself automatically. Later
-sessions reconnect without setup or per-tab approval.
+The extension pairs and enables Browser automatically. Later sessions reconnect
+without setup or per-tab approval.
 
 ## Use And Remove
 
-After pairing, Farming can operate ordinary pages in this Chrome. Incognito,
-`chrome://`, and other restricted pages remain unavailable. To remove the
-extension, open `chrome://extensions`, find **Farming Browser Connector**, click
-**Remove**, and confirm. **Disconnect** only disconnects Farming; it does not
-remove the extension.
+After pairing, an Agent can list the ordinary pages already open in this Chrome,
+select the page that fits its task, and manage it directly. Stopping or deleting
+the Farming Browser Resource leaves the user's Chrome tab open. Incognito,
+`chrome://`, and other restricted pages remain unavailable.
+
+To remove the extension, open `chrome://extensions`, find **Farming Browser
+Connector**, click **Remove**, and confirm.
 
 Chrome requires the user to confirm installation and removal. The CLI
 `extension path` and `extension status` commands only show the bundled directory

@@ -29,6 +29,16 @@ farming browser list
 
 Prefer a matching Browser already owned by the current Agent. Create another Resource only for a separate page or Profile.
 
+If the task needs a page or signed-in session already open in the user's Chrome:
+
+```bash
+farming browser tabs
+farming browser attach <chrome-tab-id>
+```
+
+The Agent selects the matching page by its title and URL. Stopping or deleting
+the Resource leaves the user's Chrome tab open.
+
 ## Progressive help
 
 ```bash

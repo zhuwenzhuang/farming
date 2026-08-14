@@ -199,6 +199,15 @@ function createBrowserRouter(
     }
   });
 
+  router.get('/extension/tabs', (req, res) => {
+    try {
+      requestAgentBinding(agentStateReader, req);
+      res.json({ tabs: manager.extensionTabs() });
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
   router.post('/isolated/prepare', async (req, res) => {
     try {
       requestAgentBinding(agentStateReader, req);
@@ -279,6 +288,7 @@ function createBrowserRouter(
         url: body.url,
         ...(source ? { browserSource: source } : {}),
         ...(executablePath ? { browserExecutablePath: executablePath } : {}),
+        ...(body.existingTabId !== undefined ? { existingTabId: body.existingTabId } : {}),
       });
       res.status(201).json(resource);
     } catch (error) {

@@ -6,7 +6,7 @@ import {
   browserResourcesFile,
 } from '../../../backend/storage-layout.cjs';
 
-const STORE_VERSION = 8;
+const STORE_VERSION = 9;
 const RESOURCE_ID_RE = /^browser_[A-Za-z0-9_-]+$/;
 const TAB_ID_RE = /^t\d+$/;
 const STATUSES = new Set<BrowserResourceStatus>([
@@ -35,6 +35,7 @@ interface BrowserResource {
   browserExecutablePath: string;
   createdAt: number;
   error: string;
+  existingTabId: number | null;
   generation: number;
   id: string;
   name: string;
@@ -59,6 +60,7 @@ interface BrowserResourceCreateInput {
   browserKind?: unknown;
   browserSource?: unknown;
   browserExecutablePath?: unknown;
+  existingTabId?: unknown;
   name?: unknown;
   ownerAgentId?: unknown;
   ownerType?: unknown;
@@ -182,6 +184,10 @@ function normalizeResource(value: unknown): BrowserResource | null {
       : 0,
     tabId: TAB_ID_RE.test(String(resource.tabId || '')) ? String(resource.tabId) : '',
     error: String(resource.error || '').slice(0, 2_000),
+    existingTabId: Number.isSafeInteger(Number(resource.existingTabId))
+      && Number(resource.existingTabId) > 0
+      ? Number(resource.existingTabId)
+      : null,
     processIdentity: normalizeProcessIdentity(resource.processIdentity),
     createdAt: Number.isFinite(resource.createdAt) ? Number(resource.createdAt) : Date.now(),
     updatedAt: Number.isFinite(resource.updatedAt) ? Number(resource.updatedAt) : Date.now(),
@@ -257,6 +263,7 @@ class BrowserResourceStore {
       sessionGeneration: input.sessionGeneration || 0,
       tabId: input.tabId || '',
       error: '',
+      existingTabId: input.existingTabId,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });

@@ -34,6 +34,7 @@ class FakeBrowserRuntime extends EventEmitter {
     this.configDir = options.configDir;
     this.profileDir = options.profileDir;
     this.externalCdpUrl = options.externalCdpUrl || '';
+    this.selectInitialExternalTab = options.selectInitialExternalTab || null;
     this.startedUrl = '';
     this.closed = false;
     this.closeFailures = 0;
@@ -47,18 +48,26 @@ class FakeBrowserRuntime extends EventEmitter {
     this.activeTabId = '';
     this.streamTabId = '';
     this.ownedTabIds = new Set();
+    this.closedTabIds = [];
     this.emitStaleTabsBeforeCreate = false;
   }
 
   async start(url) {
     this.startedUrl = url;
-    const tab = {
+    const candidate = {
       active: true,
       label: null,
       tabId: `t${this.nextTab++}`,
-      title: 'Fake Browser',
+      title: url === 'https://account.example/' ? 'Signed in account' : 'Fake Browser',
       type: 'page',
       url,
+    };
+    const selected = this.selectInitialExternalTab
+      ? await this.selectInitialExternalTab([candidate])
+      : candidate;
+    const tab = {
+      ...selected,
+      active: true,
     };
     this.tabs = [tab];
     this.activeTabId = tab.tabId;
@@ -109,6 +118,7 @@ class FakeBrowserRuntime extends EventEmitter {
   }
 
   async closeTab(tabId) {
+    this.closedTabIds.push(tabId);
     this.tabs = this.tabs.filter(tab => tab.tabId !== tabId);
     if (this.activeTabId === tabId) {
       const next = this.tabs[0];
@@ -1067,6 +1077,119 @@ async function testBrowserResourceManager() {
   }
 }
 
+async function testExistingChromeTabManagement() {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-existing-chrome-tab-'));
+  const workspace = path.join(configDir, 'project');
+  fs.mkdirSync(workspace);
+  const runtimes = [];
+  const relayTabs = [{
+    active: true,
+    id: 42,
+    title: 'Signed in account',
+    url: 'https://account.example/',
+  }];
+  const manager = new BrowserResourceManager({
+    configDir,
+    getBrowserSettings: () => ({ browserSource: 'extension' }),
+    browserExtensionRelay: {
+      capability: () => ({ connected: true }),
+      cdpUrl: () => 'http://127.0.0.1:19444',
+      pairingString: url => `${url}#token`,
+      tabs: () => relayTabs.map(tab => ({ ...tab })),
+    },
+    discoverBrowserOptions: () => [],
+    discoverExecutable: async selection => selection.source === 'external-cdp'
+      ? {
+          kind: 'external-cdp',
+          path: '',
+          cdpUrl: selection.externalCdpUrl,
+          agentBrowserPath: '/fake/agent-browser',
+        }
+      : null,
+    createRuntime: options => {
+      const runtime = new FakeBrowserRuntime(options);
+      runtimes.push(runtime);
+      return runtime;
+    },
+  });
+  try {
+    await manager.init();
+    assert.deepStrictEqual(manager.extensionTabs(), [{
+      active: true,
+      id: 42,
+      managed: false,
+      title: 'Signed in account',
+      url: 'https://account.example/',
+    }]);
+    relayTabs.push({ ...relayTabs[0], id: 43 });
+    assert.strictEqual(manager.matchExtensionRuntimeTab([{
+      active: true,
+      tabId: 't1',
+      title: 'Signed in account',
+      type: 'page',
+      url: 'https://account.example/',
+    }, {
+      active: false,
+      tabId: 't2',
+      title: 'Signed in account',
+      type: 'page',
+      url: 'https://account.example/',
+    }], 43).tabId, 't2', 'duplicate pages must preserve their Chrome occurrence');
+    relayTabs.pop();
+    const borrowed = manager.create({
+      projectRootId: 'wroot_project',
+      workspace,
+      ownerType: 'agent',
+      ownerAgentId: 'agent_a',
+      browserSource: 'extension',
+      existingTabId: 42,
+    });
+    assert.strictEqual(borrowed.existingTabId, 42);
+    assert.strictEqual(borrowed.url, 'https://account.example/');
+    const runningBorrowed = await manager.start(borrowed.id);
+    assert.strictEqual(runningBorrowed.status, 'running');
+    assert.strictEqual(runtimes[0].activeTabId, 't1');
+    assert.strictEqual(runtimes[0].ownedTabIds.has('t1'), false);
+    assert.strictEqual(manager.extensionTabs()[0].managed, true);
+
+    const duplicate = manager.create({
+      projectRootId: 'wroot_project',
+      workspace,
+      ownerType: 'agent',
+      ownerAgentId: 'agent_b',
+      browserSource: 'extension',
+      existingTabId: 42,
+    });
+    await assert.rejects(
+      manager.start(duplicate.id),
+      error => error?.code === 'BROWSER_EXTENSION_TAB_IN_USE',
+    );
+
+    const created = manager.create({
+      projectRootId: 'wroot_project',
+      workspace,
+      ownerType: 'agent',
+      ownerAgentId: 'agent_a',
+      browserSource: 'extension',
+      url: 'https://fresh.example/',
+    });
+    await manager.start(created.id);
+    assert.strictEqual(manager.sessions.size, 1, 'one Agent should reuse its extension session');
+    await manager.stop(borrowed.id);
+    assert.deepStrictEqual(
+      runtimes[0].closedTabIds,
+      [],
+      'stopping a borrowed Chrome page must not close the user tab',
+    );
+    assert.strictEqual(manager.extensionTabs()[0].managed, false);
+    await manager.delete(borrowed.id);
+    assert.deepStrictEqual(runtimes[0].closedTabIds, []);
+  } finally {
+    await manager.dispose().catch(() => {});
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+}
+
 async function testAgentOwnedBrowserIsolationAndLifecycle() {
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-agent-browser-owner-'));
   const runtimes = [];
@@ -1370,6 +1493,14 @@ async function testBrowserRouterAgentOwnership() {
     requireEnabled() {},
     refreshCapability: async () => {},
     capability: () => ({ enabled: true }),
+    sourceCapabilities: async () => [],
+    extensionTabs: () => [{
+      active: true,
+      id: 42,
+      managed: false,
+      title: 'Signed in account',
+      url: 'https://account.example/',
+    }],
     snapshot: () => ({ collectionRevision: 1, resources }),
     get: id => {
       const resource = resources.find(candidate => candidate.id === id);
@@ -1458,6 +1589,10 @@ async function testBrowserRouterAgentOwnership() {
       'Agent-scoped Browser listing must be filtered by the Server',
     );
 
+    const tabs = await request('/api/browsers/extension/tabs');
+    assert.strictEqual(tabs.status, 200);
+    assert.deepStrictEqual(tabs.body.tabs.map(tab => tab.id), [42]);
+
     const crossAgent = await request('/api/browsers/browser_agent_b/start', { method: 'POST' });
     assert.strictEqual(crossAgent.status, 403);
     assert.strictEqual(crossAgent.body.code, 'BROWSER_OWNER_MISMATCH');
@@ -1473,6 +1608,8 @@ async function testBrowserRouterAgentOwnership() {
         rootId: 'wroot_project',
         agentId: 'agent_a',
         name: 'Owned',
+        source: 'extension',
+        existingTabId: 42,
         url: 'https://example.test/',
       }),
     });
@@ -1486,6 +1623,8 @@ async function testBrowserRouterAgentOwnership() {
         ownerAgentId: 'agent_a',
         name: 'Owned',
         url: 'https://example.test/',
+        browserSource: 'extension',
+        existingTabId: 42,
       },
     });
 
@@ -1528,6 +1667,7 @@ Promise.resolve()
   .then(testInternalCdpDiscoveryConfiguration)
   .then(testManagedAgentBrowserDiscovery)
   .then(testBrowserResourceManager)
+  .then(testExistingChromeTabManagement)
   .then(testAgentOwnedBrowserIsolationAndLifecycle)
   .then(testAgentBrowserRestartRecovery)
   .then(testBrowserResourceRevisionOrdering)

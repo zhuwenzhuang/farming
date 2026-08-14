@@ -166,6 +166,10 @@ The Chrome side panel reuses an open Farming page's authenticated session.
 The connector works automatically after pairing. Its ordinary surfaces report
 availability without presenting disconnect as a routine action; removal remains
 owned by Chrome's extension management UI.
+Agents can enumerate eligible existing tabs and attach the one that fits the
+task without a per-tab user click. The resulting Resource borrows the Chrome
+tab: stopping or deleting it disconnects Farming but must not close the user's
+page. A running attachment is exclusive to one Browser Resource.
 
 Browser and Computer share lightweight backend capability services where safe,
 while the Agent name carried by the CLI resolves Resource identity and mutable

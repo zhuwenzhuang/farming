@@ -22,6 +22,9 @@ Chrome 右侧打开 Farming 即可使用。以后点击扩展图标会直接打�
 
 ![连接成功](/cn/assets/existing-chrome-connected.jpg)
 
+连接后，Agent 可以查找并直接使用这个 Chrome 中任意已经打开的普通页面，无需逐页点击。
+停止 Farming Browser 不会关闭 Chrome 原页面。
+
 ## 删除
 
 打开 `chrome://extensions`，找到 **Farming Browser Connector**，点击**删除**，然后在确认框中再次点击**删除**。

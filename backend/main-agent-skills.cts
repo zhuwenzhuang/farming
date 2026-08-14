@@ -77,6 +77,8 @@ const MAIN_AGENT_SKILLS: MainAgentSkill[] = [
     commands: [
       'farming capabilities',
       'farming browser list',
+      'farming browser tabs',
+      'farming browser attach <chrome-tab-id>',
       'farming browser help workflow',
       'farming browser help <lifecycle|navigation|interaction|inspection|debugging|state|files>',
       'farming browser describe <command> --json',

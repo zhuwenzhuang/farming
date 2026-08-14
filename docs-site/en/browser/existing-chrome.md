@@ -23,6 +23,10 @@ Farming opens in Chrome's side panel. Clicking the extension icon opens this pan
 
 ![Connected](/en/assets/existing-chrome-connected.jpg)
 
+After connection, Agents can find and directly use any ordinary page already
+open in this Chrome. No per-page click is required. Stopping Farming Browser
+leaves the Chrome page open.
+
 ## Remove
 
 Open `chrome://extensions`, find **Farming Browser Connector**, click **Remove**, then confirm.

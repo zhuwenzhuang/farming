@@ -68,6 +68,11 @@ async function run() {
     openDescription.input.options.some(option => option.name === '--cdp-url'),
     false,
   );
+  assert.strictEqual(describeCommand('tabs').annotations.readOnly, true);
+  assert.deepStrictEqual(
+    describeCommand('attach').input.positionals.map(field => field.name),
+    ['chrome-tab-id'],
+  );
 
   const screenshotDescription = JSON.parse((await invoke(browserCli, [
     'describe', 'screenshot', '--json',
@@ -133,6 +138,12 @@ async function run() {
         }));
         return;
       }
+      if (request.method === 'GET' && request.url === '/api/browsers/extension/tabs') {
+        response.end(JSON.stringify({
+          tabs: [{ id: 42, title: 'Signed in', url: 'https://account.example/', active: true }],
+        }));
+        return;
+      }
       if (request.method === 'POST' && request.url === '/api/browsers') {
         response.end(JSON.stringify({ id: 'browser_created', received: body }));
         return;
@@ -182,6 +193,22 @@ async function run() {
     ], env)).stdout);
     assert.strictEqual(screenshot.artifacts[0].path, '.tmp/farming/browser/screenshot-test.png');
     assert(!JSON.stringify(screenshot).includes('base64'));
+
+    const tabs = JSON.parse((await invoke(browserCli, ['tabs'], env)).stdout);
+    assert.deepStrictEqual(tabs.result.tabs.map(tab => tab.id), [42]);
+
+    const attached = JSON.parse((await invoke(browserCli, ['attach', '42'], {
+      ...env,
+      FARMING_AGENT_ID: 'agent_test',
+      FARMING_PROJECT_WORKSPACE: '/project',
+    })).stdout);
+    assert.strictEqual(attached.result.status, 'running');
+    assert(requests.some(item => (
+      item.method === 'POST'
+      && item.url === '/api/browsers'
+      && item.body.source === 'extension'
+      && item.body.existingTabId === '42'
+    )));
 
     const opened = JSON.parse((await invoke(browserCli, ['open', '--url', 'https://example.test'], {
       ...env,

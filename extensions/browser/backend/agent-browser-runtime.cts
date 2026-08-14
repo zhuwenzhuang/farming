@@ -30,6 +30,12 @@ interface BrowserTab {
   active: boolean;
 }
 
+type ExternalTabCandidate = {
+  tabId: string;
+  title?: string;
+  url?: string;
+};
+
 interface ProcessIdentity {
   pid: number;
   processGroupId: number;
@@ -72,6 +78,9 @@ interface RuntimeOptions {
   requiredVersion?: string;
   executablePath?: string;
   externalCdpUrl?: string;
+  selectInitialExternalTab?: (
+    tabs: ExternalTabCandidate[]
+  ) => ExternalTabCandidate | Promise<ExternalTabCandidate>;
   namespace?: string;
   session?: string;
   tabLabel?: string;
@@ -402,6 +411,9 @@ class AgentBrowserRuntime extends EventEmitter {
   requiredVersion: string;
   executablePath: string;
   externalCdpUrl: string;
+  selectInitialExternalTab: ((
+    tabs: ExternalTabCandidate[]
+  ) => ExternalTabCandidate | Promise<ExternalTabCandidate>) | null;
   profileDir: string;
   namespace: string;
   session: string;
@@ -440,6 +452,7 @@ class AgentBrowserRuntime extends EventEmitter {
     this.requiredVersion = options.requiredVersion || AGENT_BROWSER_VERSION;
     this.executablePath = options.executablePath || '';
     this.externalCdpUrl = options.externalCdpUrl || '';
+    this.selectInitialExternalTab = options.selectInitialExternalTab || null;
     this.profileDir = options.profileDir;
     this.namespace = options.namespace || namespaceForResource(
       this.configDir,
@@ -512,13 +525,20 @@ class AgentBrowserRuntime extends EventEmitter {
       if (this.externalCdpUrl) {
         await this.command(['connect', this.externalCdpUrl]);
         this.connectedCdp = true;
-        const created = commandData(await this.command([
-          'tab', 'new', '--label', this.tabLabel, 'about:blank',
-        ]));
-        const tabId = String(created.tabId || created.id || created.targetId || this.tabLabel);
-        await this.command(['tab', tabId]);
-        this.ownedTabIds.add(tabId);
-        if (url !== 'about:blank') await this.command(['open', url]);
+        if (this.selectInitialExternalTab) {
+          const connectedTabs = await this.listTabs();
+          const selected = await this.selectInitialExternalTab(connectedTabs);
+          if (!selected?.tabId) throw new Error('The selected Chrome page is unavailable');
+          await this.command(['tab', selected.tabId]);
+        } else {
+          const created = commandData(await this.command([
+            'tab', 'new', '--label', this.tabLabel, 'about:blank',
+          ]));
+          const tabId = String(created.tabId || created.id || created.targetId || this.tabLabel);
+          await this.command(['tab', tabId]);
+          this.ownedTabIds.add(tabId);
+          if (url !== 'about:blank') await this.command(['open', url]);
+        }
       } else {
         if (!this.executablePath) throw new Error('A compatible system browser is required');
         await this.command(['open', url]);

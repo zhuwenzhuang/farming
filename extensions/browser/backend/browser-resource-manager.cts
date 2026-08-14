@@ -209,6 +209,12 @@ type BrowserExtensionRelayProvider = {
   capability(): Record<string, unknown>;
   cdpUrl(): string;
   pairingString(relayUrl: string): string;
+  tabs(): Array<{
+    active: boolean;
+    id: number;
+    title: string;
+    url: string;
+  }>;
 };
 type BrowserManagerOptions = Record<string, unknown> & {
   configDir: string;
@@ -271,6 +277,7 @@ function publicResource(resource: BrowserResource, collectionRevision: number) {
     title: resource.title,
     browserKind: resource.browserKind,
     browserSource: resource.browserSource,
+    existingTabId: resource.existingTabId,
     error: resource.error,
     createdAt: resource.createdAt,
     updatedAt: resource.updatedAt,
@@ -316,6 +323,15 @@ function normalizeUrl(value: unknown): string {
     if (error && typeof error === 'object' && 'status' in error) throw error;
     throw browserError('Invalid Browser URL');
   }
+}
+
+function normalizeExistingTabId(value: unknown): number | null {
+  if (value === undefined || value === null || value === '') return null;
+  const id = Number(value);
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    throw browserError('Chrome tab id must be a positive integer');
+  }
+  return id;
 }
 
 function tabResourceName(tab: BrowserTab): string {
@@ -400,6 +416,7 @@ class BrowserResourceManager extends EventEmitter {
   readonly sessions = new Map<string, BrowserSession>();
   readonly operations = new Map<string, Promise<unknown>>();
   readonly stopAdmissions = new Map<string, number>();
+  readonly existingTabReservations = new Map<number, string>();
   disposed = false;
   runtimeCapability: BrowserCapability | null = null;
   browserOptions: BrowserOption[] = [];
@@ -790,6 +807,72 @@ class BrowserResourceManager extends EventEmitter {
     };
   }
 
+  extensionTabs() {
+    this.requireEnabled();
+    if (!this.browserExtensionRelay?.capability().connected) {
+      throw browserError(
+        'Farming Browser Connector is not connected',
+        503,
+        'BROWSER_EXTENSION_NOT_CONNECTED',
+      );
+    }
+    const reservations = new Map(
+      this.store.list()
+        .filter(resource => (
+          resource.existingTabId !== null
+          && ['starting', 'running'].includes(resource.status)
+        ))
+        .map(resource => [resource.existingTabId as number, resource.id]),
+    );
+    return this.browserExtensionRelay.tabs().map(tab => ({
+      active: tab.active,
+      id: tab.id,
+      managed: reservations.has(tab.id),
+      title: tab.title,
+      url: tab.url,
+    }));
+  }
+
+  extensionTab(existingTabId: number) {
+    const tab = this.browserExtensionRelay?.tabs().find(candidate => candidate.id === existingTabId);
+    if (!tab) {
+      throw browserError(
+        'The selected Chrome page is no longer available',
+        404,
+        'BROWSER_EXTENSION_TAB_NOT_FOUND',
+      );
+    }
+    return tab;
+  }
+
+  matchExtensionRuntimeTab(tabs: BrowserTab[], existingTabId: number): BrowserTab {
+    const extensionTabs = this.browserExtensionRelay?.tabs() || [];
+    const selected = extensionTabs.find(tab => tab.id === existingTabId);
+    if (!selected) {
+      throw browserError(
+        'The selected Chrome page is no longer available',
+        404,
+        'BROWSER_EXTENSION_TAB_NOT_FOUND',
+      );
+    }
+    const samePage = (tab: Pick<BrowserTab, 'title' | 'url'>) => (
+      tab.url === selected.url && tab.title === selected.title
+    );
+    const matchingRuntimeTabs = tabs.filter(samePage);
+    if (matchingRuntimeTabs.length === 1) return matchingRuntimeTabs[0];
+    if (matchingRuntimeTabs.length > 1) {
+      const matchingExtensionTabs = extensionTabs.filter(samePage);
+      const occurrence = matchingExtensionTabs.findIndex(tab => tab.id === existingTabId);
+      const matched = matchingRuntimeTabs[occurrence];
+      if (matched) return matched;
+    }
+    throw browserError(
+      'The selected Chrome page changed while Farming was connecting',
+      409,
+      'BROWSER_EXTENSION_TAB_CHANGED',
+    );
+  }
+
   list() {
     this.requireEnabled();
     return this.store.list().map(resource => publicResource(resource, this.store.revision));
@@ -828,6 +911,24 @@ class BrowserResourceManager extends EventEmitter {
       browserSource: requestedSource || settings.browserSource || 'system',
       browserExecutablePath: String(input.browserExecutablePath || settings.browserExecutablePath || ''),
     });
+    const existingTabId = normalizeExistingTabId(input.existingTabId);
+    if (existingTabId !== null && selection.source !== 'extension') {
+      throw browserError(
+        'Existing Chrome pages require the extension Browser source',
+        400,
+        'BROWSER_INVALID_SOURCE',
+      );
+    }
+    const existingTab = existingTabId === null
+      ? null
+      : this.browserExtensionRelay?.tabs().find(tab => tab.id === existingTabId) || null;
+    if (existingTabId !== null && !existingTab) {
+      throw browserError(
+        'The selected Chrome page is no longer available',
+        404,
+        'BROWSER_EXTENSION_TAB_NOT_FOUND',
+      );
+    }
     if (selection.source === 'isolated' && input.ownerType !== 'agent') {
       throw browserError(
         'The isolated Browser requires an active Agent owner; create it from an Agent',
@@ -840,10 +941,11 @@ class BrowserResourceManager extends EventEmitter {
       workspace: input.workspace,
       ownerType: input.ownerType,
       ownerAgentId: input.ownerAgentId,
-      name: input.name,
-      url: normalizeUrl(input.url),
+      name: input.name || existingTab?.title || 'Browser',
+      url: existingTab?.url || normalizeUrl(input.url),
       browserSource: selection.source,
       browserExecutablePath: selection.executablePath,
+      existingTabId,
     });
     this.emitResource(resource);
     return publicResource(resource, this.store.revision);
@@ -887,6 +989,23 @@ class BrowserResourceManager extends EventEmitter {
           409,
           'BROWSER_RECOVERY_CLEANUP_REQUIRED',
         );
+      }
+      if (resource.existingTabId !== null) {
+        const conflicting = this.store.list().find(candidate => (
+          candidate.id !== resource.id
+          && candidate.existingTabId === resource.existingTabId
+          && ['starting', 'running'].includes(candidate.status)
+        ));
+        const reservedBy = this.existingTabReservations.get(resource.existingTabId);
+        if (conflicting || (reservedBy && reservedBy !== resource.id)) {
+          throw browserError(
+            'This Chrome page is already managed by another Browser Resource',
+            409,
+            'BROWSER_EXTENSION_TAB_IN_USE',
+          );
+        }
+        this.extensionTab(resource.existingTabId);
+        this.existingTabReservations.set(resource.existingTabId, resource.id);
       }
       const selection = this.browserSelection({
         browserSource: resource.browserSource,
@@ -935,12 +1054,17 @@ class BrowserResourceManager extends EventEmitter {
           const operation = (reusableSession.actionChain || Promise.resolve())
             .catch(() => {})
             .then(async () => {
-              const tab = await reusableSession.runtime.createTab(
-                resource.url,
-                executable.kind === 'isolated-computer'
-                  ? `farming-${resource.id}-g${generation}`
-                  : '',
-              );
+              const tab = resource.existingTabId === null
+                ? await reusableSession.runtime.createTab(
+                  resource.url,
+                  executable.kind === 'isolated-computer'
+                    ? `farming-${resource.id}-g${generation}`
+                    : '',
+                )
+                : await reusableSession.runtime.switchTab(this.matchExtensionRuntimeTab(
+                  await reusableSession.runtime.listTabs(),
+                  resource.existingTabId,
+                ).tabId);
               binding = this.createBinding(reusableSession, {
                 ...starting,
                 tabId: tab.tabId,
@@ -1020,6 +1144,12 @@ class BrowserResourceManager extends EventEmitter {
           agentBrowserPath: executable.agentBrowserPath,
           executablePath: executable.path,
           externalCdpUrl,
+          ...(resource.existingTabId !== null ? {
+            selectInitialExternalTab: tabs => this.matchExtensionRuntimeTab(
+              tabs,
+              resource.existingTabId as number,
+            ),
+          } : {}),
           profileDir: storageLayout.browserProfileDir(this.configDir, sessionId),
         });
       } catch (error) {
@@ -1117,6 +1247,17 @@ class BrowserResourceManager extends EventEmitter {
           'BROWSER_START_FAILED',
         );
       }
+    }).catch(error => {
+      const resource = this.store.get(id);
+      if (
+        resource?.existingTabId !== null
+        && resource?.existingTabId !== undefined
+        && resource.status !== 'running'
+        && this.existingTabReservations.get(resource.existingTabId) === id
+      ) {
+        this.existingTabReservations.delete(resource.existingTabId);
+      }
+      throw error;
     });
   }
 
@@ -1144,6 +1285,12 @@ class BrowserResourceManager extends EventEmitter {
           error: '',
           processIdentity: null,
         });
+        if (
+          resource.existingTabId !== null
+          && this.existingTabReservations.get(resource.existingTabId) === id
+        ) {
+          this.existingTabReservations.delete(resource.existingTabId);
+        }
         this.emitResource(stopped);
         return publicResource(stopped, this.store.revision);
       }
@@ -1156,11 +1303,15 @@ class BrowserResourceManager extends EventEmitter {
       try {
         const closeOperation = (session.actionChain || Promise.resolve())
           .catch(() => {})
-          .then(() => (
-            session.bindings.size > 1
-              ? session.runtime.closeTab(binding.tabId)
-              : session.runtime.close()
-          ));
+          .then(async () => {
+            if (session.bindings.size === 1) return session.runtime.close();
+            if (resource.existingTabId === null) return session.runtime.closeTab(binding.tabId);
+            if (session.runtime.activeTabId === binding.tabId) {
+              const next = [...session.bindings.values()].find(candidate => candidate.id !== id);
+              if (next) await session.runtime.switchTab(next.tabId);
+            }
+            return undefined;
+          });
         session.actionChain = closeOperation;
         await closeOperation;
         if (session.bindings.size === 1 && session.isolatedLeaseKey && this.isolatedBrowserProvider) {
@@ -1186,6 +1337,9 @@ class BrowserResourceManager extends EventEmitter {
         throw browserError(failed.error, 500, 'ISOLATED_BROWSER_RELEASE_FAILED');
       }
       session.bindings.delete(id);
+      if (session.activeResourceId === id) {
+        session.activeResourceId = session.bindings.values().next().value?.id || '';
+      }
       if (this.runtimes.get(id) === binding) this.runtimes.delete(id);
       if (session.bindings.size === 0 && this.sessions.get(session.id) === session) {
         this.sessions.delete(session.id);
@@ -1208,6 +1362,12 @@ class BrowserResourceManager extends EventEmitter {
         processIdentity: null,
         tabId: '',
       });
+      if (
+        resource.existingTabId !== null
+        && this.existingTabReservations.get(resource.existingTabId) === id
+      ) {
+        this.existingTabReservations.delete(resource.existingTabId);
+      }
       this.emitResource(stopped);
       this.broadcastRuntimeState(binding);
       this.releaseViewerState(binding);

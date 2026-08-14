@@ -29,6 +29,15 @@ farming browser list
 
 优先复用当前 Agent 已经拥有、且用途匹配的 Browser。需要独立页面或独立 Profile 时，再显式创建新资源。
 
+任务需要使用用户 Chrome 中已经打开的页面或登录状态时：
+
+```bash
+farming browser tabs
+farming browser attach <chrome-tab-id>
+```
+
+Agent 根据标题和 URL 选择匹配页面。停止或删除 Resource 不会关闭用户原来的 Chrome 标签页。
+
 ## 逐步披露命令
 
 Browser CLI 不要求 Agent 一次读取全部命令。先选择主题：

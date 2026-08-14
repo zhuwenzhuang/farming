@@ -425,6 +425,70 @@ async function run() {
   await external.close();
   assert(externalCalls.some(command => command[0] === 'tab' && command[1] === 'close'));
 
+  const borrowedCalls = [];
+  processActive = true;
+  const borrowedStream = new FakeStream();
+  const borrowed = new AgentBrowserRuntime({
+    id: 'browser_borrowed',
+    generation: 1,
+    configDir,
+    profileDir: path.join(configDir, 'borrowed-profile'),
+    agentBrowserPath: '/managed/agent-browser',
+    externalCdpUrl: 'http://127.0.0.1:9222',
+    selectInitialExternalTab: tabs => tabs[0],
+    runCommand: async (_executable, args) => {
+      const command = args.slice(4, -1);
+      borrowedCalls.push(command);
+      if (command[0] === 'session' && command[1] === 'info') {
+        return {
+          success: true,
+          data: { active: processActive, pid: identity.pid, version: AGENT_BROWSER_VERSION },
+        };
+      }
+      if (command[0] === 'tab' && command[1] === 'list') {
+        return {
+          success: true,
+          data: {
+            tabs: [{
+              active: true,
+              label: null,
+              tabId: 't1',
+              title: 'Signed in',
+              type: 'page',
+              url: 'https://account.example/',
+            }],
+          },
+        };
+      }
+      if (command[0] === 'stream' && command[1] === 'status') {
+        return { success: true, data: { port: 47_779 } };
+      }
+      if (command[0] === 'eval') {
+        return {
+          success: true,
+          data: { result: { url: 'https://account.example/', title: 'Signed in' } },
+        };
+      }
+      if (command[0] === 'close') processActive = false;
+      return { success: true, data: {} };
+    },
+    createWebSocket: url => {
+      assert.strictEqual(url, 'ws://127.0.0.1:47779');
+      return borrowedStream;
+    },
+    readProcessIdentity: async pid => (pid === identity.pid && processActive ? identity : null),
+    wait: async () => {},
+  });
+  assert.deepStrictEqual(
+    await borrowed.start('about:blank'),
+    { url: 'https://account.example/', title: 'Signed in' },
+  );
+  assert(borrowedCalls.some(command => command.join(' ') === 'tab t1'));
+  assert(!borrowedCalls.some(command => command[0] === 'tab' && command[1] === 'new'));
+  assert.strictEqual(borrowed.ownedTabIds.has('t1'), false);
+  await borrowed.close();
+  assert(!borrowedCalls.some(command => command[0] === 'tab' && command[1] === 'close'));
+
   const screenshotPaths = [];
   let oversizedScreenshot = false;
   let screenshotCommandsInFlight = 0;

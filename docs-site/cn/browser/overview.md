@@ -3,9 +3,9 @@
 Farming Browser 让 Agent 打开和操作网页。你可以在 Farming 中看到 Agent 正在使用的页面，
 并随时接手操作。
 
-## 选择 Agent 使用的浏览器
+## 可用浏览器
 
-打开 **插件 → 浏览器**，选择浏览器来源。
+打开**插件 → 浏览器**查看可用浏览器。它们可以同时使用，Agent 会根据任务选择最合适的浏览器。
 
 <ThemeImage
   light="/cn/assets/browser-plugin.png"

@@ -9,17 +9,19 @@ Farming Browser 是浏览器能力；Farming Browser Connector 是安装在 Chro
 ## 首次安装
 
 1. 在 **插件 → 浏览器**选择**用户已有 Chrome**，复制**内置扩展目录**。
-2. 打开 `chrome://extensions`，开启**开发者模式**，选择**加载已解压的扩展程序**。macOS
-   文件选择器可按 `⌘⇧G` 粘贴目录。
+2. 打开 `chrome://extensions`，开启**开发者模式**，选择**加载已解压的扩展程序**，然后选择
+   Farming 显示的扩展目录。
 3. 回到 Farming 页面，从 Chrome 的**扩展程序**菜单点击 **Farming Browser Connector**。
 
-扩展会自动配对、启用 Browser 并切换来源。以后会自动重连，无需再次设置或逐个授权标签页。
+扩展会自动配对并启用 Browser。以后会自动重连，无需再次设置或逐个授权标签页。
 
 ## 使用与删除
 
-配对后，Farming 可以操作这个 Chrome 中的普通网页。无痕页、`chrome://` 和其他受限页面
-不可用。不再使用时，打开 `chrome://extensions`，找到 **Farming Browser Connector**，点击
-**删除**并确认。扩展弹窗里的**断开连接**只会断开 Farming，不会删除扩展。
+配对后，Agent 可以查看这个 Chrome 中已经打开的普通页面，根据任务选择一个页面并直接管理。
+停止或删除 Farming Browser Resource 不会关闭用户原来的 Chrome 标签页。无痕页、`chrome://`
+和其他受限页面不可用。
+
+不再使用时，打开 `chrome://extensions`，找到 **Farming Browser Connector**，点击**删除**并确认。
 
 安装和删除必须由用户在 Chrome 中确认。CLI 的 `extension path` 和 `extension status` 只用于
 查看内置目录和连接状态。
