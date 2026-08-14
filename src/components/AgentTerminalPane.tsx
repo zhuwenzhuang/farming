@@ -186,6 +186,7 @@ export function AgentTerminalPane({
     containerRef: terminalContainerRef,
     onSessionOutput,
     inputDisabled: false,
+    manageReadingAnchor: agent.providerCapabilities?.terminalReadingAnchor !== false,
     suppressRendererCursor: shouldSuppressRendererCursorForAgent(agent.command),
     onFollowOutputChange: handleFollowOutputChange,
     onPathOpen: onOpenPath,

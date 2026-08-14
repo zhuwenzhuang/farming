@@ -173,6 +173,7 @@ interface CrtProviderCapabilities extends CrtUnknownRecord {
   supportsChat?: boolean;
   supportsTerminal?: boolean;
   supportsFork?: boolean;
+  terminalReadingAnchor?: boolean;
 }
 
 interface CrtPreviewSnapshot extends CrtUnknownRecord {

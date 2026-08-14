@@ -47,6 +47,7 @@ function providerCapabilitiesWire(value) {
         && typeof capabilities.runtimeSwitch === 'boolean'
         && (capabilities.contextWindow === undefined || typeof capabilities.contextWindow === 'boolean')
         && typeof capabilities.terminalProfile === 'boolean'
+        && (capabilities.terminalReadingAnchor === undefined || typeof capabilities.terminalReadingAnchor === 'boolean')
         && (capabilities.terminalComposerInput === 'plain-text' || capabilities.terminalComposerInput === 'bracketed-paste')
         && typeof capabilities.slashCommandDiscovery === 'boolean'
         && typeof capabilities.goals === 'boolean'

@@ -1662,6 +1662,10 @@ const CRT_READING_ANCHOR_LINE_COUNT = 3;
 function crtReadingAnchorApi() {
     return window.FarmingReadingAnchors || null;
 }
+function crtManagesTerminalReadingAnchor(agentId) {
+    return state?.agents.find((agent) => agent.id === agentId)
+        ?.providerCapabilities?.terminalReadingAnchor !== false;
+}
 function crtTerminalVisibleBufferBase(currentTerminal) {
     if (!currentTerminal)
         return 0;
@@ -1691,6 +1695,10 @@ function saveCrtTerminalReadingAnchor(agentId, currentTerminal = terminal) {
     if (!api || !agentId || !currentTerminal)
         return;
     const key = api.agentKey(agentId, 'terminal');
+    if (!crtManagesTerminalReadingAnchor(agentId)) {
+        api.remove(key);
+        return;
+    }
     const buffer = currentTerminal.buffer && currentTerminal.buffer.active;
     const base = crtTerminalVisibleBufferBase(currentTerminal);
     const maxRow = Math.max(0, Number(buffer && buffer.length) || 0);
@@ -1725,6 +1733,10 @@ function restoreCrtTerminalReadingAnchor(agentId, currentTerminal = terminal) {
     if (!api || !agentId || !currentTerminal)
         return false;
     const key = api.agentKey(agentId, 'terminal');
+    if (!crtManagesTerminalReadingAnchor(agentId)) {
+        api.remove(key);
+        return false;
+    }
     const anchor = api.read(key);
     if (!anchor || anchor.surface !== 'terminal')
         return false;

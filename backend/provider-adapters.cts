@@ -165,6 +165,7 @@ interface ProviderCapabilitiesContract {
   runtimeSwitch: boolean;
   contextWindow: boolean;
   terminalProfile: boolean;
+  terminalReadingAnchor: boolean;
   terminalComposerInput: 'plain-text' | 'bracketed-paste';
   slashCommandDiscovery: boolean;
   goals: boolean;
@@ -693,6 +694,7 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
       runtimeSwitch: true,
       contextWindow: true,
       terminalProfile: true,
+      terminalReadingAnchor: false,
       terminalComposerInput: 'bracketed-paste',
       slashCommandDiscovery: true,
       goals: false,
@@ -772,6 +774,7 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
       runtimeSwitch: true,
       contextWindow: false,
       terminalProfile: false,
+      terminalReadingAnchor: false,
       terminalComposerInput: 'bracketed-paste',
       slashCommandDiscovery: true,
       goals: false,
@@ -843,6 +846,7 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
       runtimeSwitch: true,
       contextWindow: false,
       terminalProfile: false,
+      terminalReadingAnchor: true,
       terminalComposerInput: 'bracketed-paste',
       slashCommandDiscovery: false,
       goals: false,
@@ -917,6 +921,7 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
       runtimeSwitch: true,
       contextWindow: false,
       terminalProfile: false,
+      terminalReadingAnchor: false,
       terminalComposerInput: 'plain-text',
       slashCommandDiscovery: false,
       goals: false,
@@ -972,6 +977,7 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
       runtimeSwitch: true,
       contextWindow: false,
       terminalProfile: false,
+      terminalReadingAnchor: true,
       terminalComposerInput: 'plain-text',
       slashCommandDiscovery: false,
       goals: false,
@@ -1044,6 +1050,7 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
       runtimeSwitch: true,
       contextWindow: false,
       terminalProfile: false,
+      terminalReadingAnchor: false,
       terminalComposerInput: 'plain-text',
       slashCommandDiscovery: false,
       goals: false,
@@ -1109,6 +1116,7 @@ function providerCapabilities(provider: unknown): ProviderCapabilitiesWire {
     runtimeSwitch: adapter?.capabilities?.runtimeSwitch === true,
     contextWindow: adapter?.capabilities?.contextWindow === true,
     terminalProfile: adapter?.capabilities?.terminalProfile === true,
+    terminalReadingAnchor: adapter?.capabilities?.terminalReadingAnchor !== false,
     terminalComposerInput: adapter?.capabilities?.terminalComposerInput || 'bracketed-paste',
     slashCommandDiscovery: adapter?.capabilities?.slashCommandDiscovery === true,
     goals: adapter?.capabilities?.goals === true,

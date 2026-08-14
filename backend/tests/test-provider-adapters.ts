@@ -658,6 +658,7 @@ function run() {
     runtimeSwitch: true,
     contextWindow: true,
     terminalProfile: true,
+    terminalReadingAnchor: false,
     terminalComposerInput: 'bracketed-paste',
     slashCommandDiscovery: true,
     goals: false,
@@ -689,6 +690,7 @@ function run() {
       runtimeSwitch: true,
       contextWindow: false,
       terminalProfile: false,
+      terminalReadingAnchor: false,
       terminalComposerInput: 'bracketed-paste',
       slashCommandDiscovery: true,
       goals: false,
@@ -721,6 +723,7 @@ function run() {
       runtimeSwitch: false,
       contextWindow: false,
       terminalProfile: false,
+      terminalReadingAnchor: true,
       terminalComposerInput: 'bracketed-paste',
       slashCommandDiscovery: false,
       goals: false,
@@ -750,10 +753,12 @@ function run() {
     terminal: { kind: 'prompt' },
     acp: { kind: 'prompt' },
   });
+  assert.strictEqual(providerCapabilities('opencode').terminalReadingAnchor, false);
   assert.deepStrictEqual(providerCapabilities('qoder').goalSubmission, {
     terminal: { kind: 'command', prefix: '/goal set' },
     acp: { kind: 'prompt' },
   });
+  assert.strictEqual(providerCapabilities('qoder').terminalReadingAnchor, true);
   assert.strictEqual(providerSupportsRuntime('opencode', 'json'), false);
   assert.strictEqual(providerSupportsRuntime('claude', 'json'), false);
   assert.deepStrictEqual(providerConversationForkCapability('claude', 'acp'), {
@@ -800,6 +805,7 @@ function run() {
     },
   );
   assert.strictEqual(providerCapabilities('qwen').terminalSessionFork, false);
+  assert.strictEqual(providerCapabilities('qwen').terminalReadingAnchor, false);
   assert.strictEqual(providerCapabilities('qwen').sessionFork, true);
   assert.deepStrictEqual(providerCapabilities('qwen').conversationFork, {
     terminal: {
@@ -918,6 +924,7 @@ function run() {
     runtimeSwitch: true,
     contextWindow: false,
     terminalProfile: false,
+    terminalReadingAnchor: true,
     terminalComposerInput: 'bracketed-paste',
     slashCommandDiscovery: false,
     goals: false,

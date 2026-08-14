@@ -193,7 +193,7 @@ test.describe('human Farming Agent story', () => {
   test('keeps terminal scroll anchored until the user jumps to latest output', { tag: '@iphone-human' }, async ({ page, workspaceRoot }) => {
     await openFarming(page)
     await openNewAgentDialog(page)
-    const agentId = await startAgentFromOpenDialog(page, 'codex', workspaceRoot)
+    const agentId = await startAgentFromOpenDialog(page, 'bash', workspaceRoot)
 
     await expect.poll(
       () => page.evaluate((id) => Boolean(window.__farmingTerminalTest?.getViewport(id)), agentId),
@@ -223,6 +223,44 @@ test.describe('human Farming Agent story', () => {
     const inputCountAfterJump = await page.evaluate((id) => window.__farmingTerminalTest?.getInputCount(id) ?? 0, agentId)
     expect(inputCountAfterJump).toBe(inputCountBeforeJump)
     await expect.poll(async () => (await terminalRows(page, agentId, 80)).join('\n')).toContain('new output while user is reading older terminal lines')
+  })
+
+  test('does not persist a host reading anchor for a provider-owned terminal viewport', async ({ page, workspaceRoot }) => {
+    await openFarming(page)
+    await openNewAgentDialog(page)
+    const agentId = await startAgentFromOpenDialog(page, 'qwen', workspaceRoot)
+
+    await expect.poll(
+      () => page.evaluate((id) => Boolean(window.__farmingTerminalTest?.getViewport(id)), agentId),
+      { timeout: 15_000 }
+    ).toBe(true)
+
+    const output = Array.from({ length: 120 }, (_, index) => `provider-viewport-line-${String(index).padStart(3, '0')}`).join('\r\n')
+    await writeTerminalRaw(page, agentId, `${output}\r\n`)
+    await expect.poll(async () => (await terminalViewport(page, agentId)).scrollbackLength).toBeGreaterThan(20)
+    await page.evaluate((id) => {
+      window.FarmingReadingAnchors?.save({
+        version: 1,
+        surface: 'terminal',
+        resource: { kind: 'agent', id },
+        locator: { kind: 'terminal-lines', id: 'stale-host-anchor', lineCount: 1 },
+        position: { unit: 'row', value: 0 },
+      })
+    }, agentId)
+
+    await scrollTerminalToLine(page, agentId, 20)
+    await expect.poll(() => page.evaluate((id) => {
+      const key = window.FarmingReadingAnchors?.agentKey(id, 'terminal')
+      return key ? window.FarmingReadingAnchors?.read(key) ?? null : null
+    }, agentId)).toBeNull()
+
+    await openNewAgentDialog(page)
+    await startAgentFromOpenDialog(page, 'bash', workspaceRoot)
+    await selectTerminalAgentOnCompactLayout(page, agentId)
+    await expect.poll(() => page.evaluate((id) => {
+      const key = window.FarmingReadingAnchors?.agentKey(id, 'terminal')
+      return key ? window.FarmingReadingAnchors?.read(key) ?? null : null
+    }, agentId)).toBeNull()
   })
 
   test('finds text inside the active terminal', async ({ page, workspaceRoot }) => {

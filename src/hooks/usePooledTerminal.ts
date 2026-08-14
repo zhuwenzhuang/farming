@@ -37,6 +37,7 @@ interface UsePooledTerminalOptions {
   onSessionOutput: (agentId: string, handler: (data: string, replace?: boolean, outputSeq?: number | null, runtimeEpoch?: string, stateRevision?: number | null, cols?: number, rows?: number, kind?: 'output' | 'resize' | 'clear') => void) => () => void
   suppressRendererCursor?: boolean
   inputDisabled?: boolean
+  manageReadingAnchor?: boolean
   onFollowOutputChange?: (state: TerminalFollowState) => void
   onPathOpen?: (agentId: string, target: TerminalPathOpenTarget) => void
   onPathResolve?: (agentId: string, target: TerminalPathOpenTarget) => Promise<TerminalPathOpenTarget | null> | TerminalPathOpenTarget | null
@@ -66,6 +67,7 @@ export function usePooledTerminal({
   onSessionOutput,
   suppressRendererCursor = false,
   inputDisabled = false,
+  manageReadingAnchor = true,
   onFollowOutputChange,
   onPathOpen,
   onPathResolve,
@@ -150,12 +152,14 @@ export function usePooledTerminal({
   })
   const latestLiveOptionsRef = useRef({
     inputDisabled,
+    manageReadingAnchor,
     suppressRendererCursor,
     farmingUrlOpenEnabled,
     linkHandlersRevision,
   })
   latestLiveOptionsRef.current = {
     inputDisabled,
+    manageReadingAnchor,
     suppressRendererCursor,
     farmingUrlOpenEnabled,
     linkHandlersRevision,
@@ -196,6 +200,7 @@ export function usePooledTerminal({
         onSessionOutput: attachmentHandlers.onSessionOutput,
         suppressRendererCursor: latestLiveOptionsRef.current.suppressRendererCursor,
         inputDisabled: latestLiveOptionsRef.current.inputDisabled,
+        manageReadingAnchor: latestLiveOptionsRef.current.manageReadingAnchor,
         onFollowOutputChange: attachmentHandlers.onFollowOutputChange,
         onPathOpen: attachmentHandlers.onPathOpen,
         onPathResolve: attachmentHandlers.onPathResolve,
@@ -232,12 +237,13 @@ export function usePooledTerminal({
     if (!agentId) return
     updateTerminalSessionLiveOptions(agentId, {
       inputDisabled,
+      manageReadingAnchor,
       suppressRendererCursor,
       onOpenUrlInFarming: farmingUrlOpenEnabled ? attachmentHandlers.onOpenUrlInFarming : undefined,
     }).catch((error) => {
       console.error('Failed to update terminal live options:', error)
     })
-  }, [agentId, attachmentHandlers, farmingUrlOpenEnabled, inputDisabled, suppressRendererCursor])
+  }, [agentId, attachmentHandlers, farmingUrlOpenEnabled, inputDisabled, manageReadingAnchor, suppressRendererCursor])
 
   useEffect(() => {
     // The field-level deps below are the intentional triggers: `bootstrapState` is an
@@ -273,6 +279,7 @@ export function usePooledTerminal({
         autoFocus: true,
         suppressRendererCursor: latestLiveOptionsRef.current.suppressRendererCursor,
         inputDisabled: latestLiveOptionsRef.current.inputDisabled,
+        manageReadingAnchor: latestLiveOptionsRef.current.manageReadingAnchor,
         onFollowOutputChange: attachmentHandlers.onFollowOutputChange,
         onPathOpen: attachmentHandlers.onPathOpen,
         onPathResolve: attachmentHandlers.onPathResolve,

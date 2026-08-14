@@ -158,6 +158,7 @@ interface AttachOptions {
   autoFocus?: boolean
   suppressRendererCursor?: boolean
   inputDisabled?: boolean
+  manageReadingAnchor?: boolean
   onFollowOutputChange?: (state: TerminalFollowState) => void
   onPathOpen?: (agentId: string, target: TerminalPathOpenTarget) => void
   onPathResolve?: (agentId: string, target: TerminalPathOpenTarget) => Promise<TerminalPathOpenTarget | null> | TerminalPathOpenTarget | null
@@ -180,6 +181,7 @@ export type TerminalLinkHandlerWrappers = Pick<AttachOptions, 'onPathOpen' | 'on
 
 export interface TerminalSessionLiveOptions {
   inputDisabled: boolean
+  manageReadingAnchor: boolean
   suppressRendererCursor: boolean
   onOpenUrlInFarming?: (agentId: string, url: string) => void
 }
@@ -211,6 +213,7 @@ interface SessionRecord extends TerminalSessionDiagnosticsSource {
   resizeEffects: TerminalResizeEffectController
   parkedViewportState: TerminalViewportRestoreState | null
   inputDisabled: boolean
+  manageReadingAnchor: boolean
   errorHandler: ((error: Error) => void) | null
   recoveryStatusHandler: ((status: TerminalRecoveryStatus) => void) | null
   recoveryStatus: TerminalRecoveryStatus
@@ -456,13 +459,16 @@ function terminalViewportStateForRestore(record: SessionRecord): TerminalViewpor
   if (record.parkedViewportState) {
     return {
       ...record.parkedViewportState,
+      readingAnchor: record.manageReadingAnchor ? record.parkedViewportState.readingAnchor : null,
       hasUnreadOutput: record.parkedViewportState.hasUnreadOutput || record.hasUnreadOutput,
       preserveUnreadOutputUntilJump:
         record.parkedViewportState.preserveUnreadOutputUntilJump
         || record.preserveUnreadOutputUntilJump,
     }
   }
-  const persistedAnchor = readReadingAnchor(readingAnchorAgentKey(record.agentId, 'terminal'))
+  const persistedAnchor = record.manageReadingAnchor
+    ? readReadingAnchor(readingAnchorAgentKey(record.agentId, 'terminal'))
+    : null
   const readingAnchor = persistedAnchor?.surface === 'terminal'
     ? persistedAnchor
     : captureTerminalReadingAnchor(record)
@@ -490,7 +496,11 @@ function restoreTerminalViewportFromAnchor(record: SessionRecord, viewportState:
     )
     return
   }
-  if (viewportState.readingAnchor && restoreTerminalReadingAnchor(record, viewportState.readingAnchor)) {
+  if (
+    record.manageReadingAnchor
+    && viewportState.readingAnchor
+    && restoreTerminalReadingAnchor(record, viewportState.readingAnchor)
+  ) {
     return
   }
   // A terminal screen is bounded. Once the logical-line fingerprint has been
@@ -596,7 +606,7 @@ const TERMINAL_READING_ANCHOR_LINE_COUNT = 3
 
 function captureTerminalReadingAnchor(record: SessionRecord): Extract<ReadingAnchor, { surface: 'terminal' }> | null {
   const key = readingAnchorAgentKey(record.agentId, 'terminal')
-  if (record.followOutput) {
+  if (!record.manageReadingAnchor || record.followOutput) {
     clearReadingAnchor(key)
     return null
   }
@@ -636,6 +646,7 @@ function restoreTerminalReadingAnchor(
   record: SessionRecord,
   anchor: Extract<ReadingAnchor, { surface: 'terminal' }>,
 ) {
+  if (!record.manageReadingAnchor) return false
   const buffer = record.terminal.buffer?.active
   if (!buffer || typeof buffer.getLine !== 'function') return false
 
@@ -1258,6 +1269,7 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     },
     parkedViewportState: null,
     inputDisabled: Boolean(options.inputDisabled),
+    manageReadingAnchor: options.manageReadingAnchor !== false,
     errorHandler: options.onError ?? null,
     recoveryStatusHandler: options.onRecoveryStatusChange ?? null,
     recoveryStatus: {
@@ -1440,6 +1452,11 @@ function fitAndFocus(record: SessionRecord, options: Pick<AttachOptions, 'autoFo
 function applyTerminalAttachmentOptions(record: SessionRecord, options: AttachOptions) {
   record.errorHandler = options.onError ?? null
   record.inputDisabled = Boolean(options.inputDisabled)
+  record.manageReadingAnchor = options.manageReadingAnchor !== false
+  if (!record.manageReadingAnchor) {
+    clearReadingAnchor(readingAnchorAgentKey(record.agentId, 'terminal'))
+    if (record.parkedViewportState) record.parkedViewportState.readingAnchor = null
+  }
   record.followOutputHandler = options.onFollowOutputChange ?? null
   const nextPathOpenHandler = options.onPathOpen ?? null
   const nextPathResolveHandler = options.onPathResolve ?? null
@@ -1608,6 +1625,11 @@ export async function updateTerminalSessionLiveOptions(
   if (record.disposed || !sessions.isCurrent(agentId, record)) return false
 
   record.inputDisabled = options.inputDisabled
+  record.manageReadingAnchor = options.manageReadingAnchor
+  if (!record.manageReadingAnchor) {
+    clearReadingAnchor(readingAnchorAgentKey(record.agentId, 'terminal'))
+    if (record.parkedViewportState) record.parkedViewportState.readingAnchor = null
+  }
   record.farmingUrlOpenHandler = options.onOpenUrlInFarming ?? null
   updateRendererCursorSuppression(record, options.suppressRendererCursor)
   return true

@@ -14,6 +14,7 @@ export interface ProviderCapabilitiesWire {
   runtimeSwitch: boolean
   contextWindow?: boolean
   terminalProfile: boolean
+  terminalReadingAnchor?: boolean
   terminalComposerInput: 'plain-text' | 'bracketed-paste'
   slashCommandDiscovery: boolean
   goals: boolean
@@ -126,6 +127,7 @@ function providerCapabilitiesWire(value: unknown): value is ProviderCapabilities
     && typeof capabilities.runtimeSwitch === 'boolean'
     && (capabilities.contextWindow === undefined || typeof capabilities.contextWindow === 'boolean')
     && typeof capabilities.terminalProfile === 'boolean'
+    && (capabilities.terminalReadingAnchor === undefined || typeof capabilities.terminalReadingAnchor === 'boolean')
     && (capabilities.terminalComposerInput === 'plain-text' || capabilities.terminalComposerInput === 'bracketed-paste')
     && typeof capabilities.slashCommandDiscovery === 'boolean'
     && typeof capabilities.goals === 'boolean'

@@ -78,6 +78,14 @@ function validatesProviderCapabilities(capabilities: unknown): boolean {
 
 const baseProviderCapabilities = wireAgent('base-provider', 'running', 'Base provider').providerCapabilities;
 assert.strictEqual(validatesProviderCapabilities(baseProviderCapabilities), true);
+assert.strictEqual(validatesProviderCapabilities({
+  ...baseProviderCapabilities,
+  terminalReadingAnchor: false,
+}), true);
+assert.strictEqual(validatesProviderCapabilities({
+  ...baseProviderCapabilities,
+  terminalReadingAnchor: 'provider-owned',
+}), false);
 assert.strictEqual(validatesProviderCapabilities({ ...baseProviderCapabilities, goalSubmission: null }), true);
 assert.strictEqual(validatesProviderCapabilities({
   ...baseProviderCapabilities,

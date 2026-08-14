@@ -74,6 +74,11 @@ Attachment Lease 处于 Detached、Attached 或 Release-pending。同一 Agent �
 取消 Pending Release。Stale Lease 不能释放更新 Attachment；Agent 或 Mount 真正变化时先释放
 旧 Owner，再 Attach 新 Owner。
 
+Provider Capability `terminalReadingAnchor` 声明 Terminal 阅读位置是否属于 Native
+Scrollback。Provider 自己拥有 Full-screen 或 Virtualized Viewport 时，该值为 False，Pool
+不会持久化 Terminal Reading Anchor，也不会按内容匹配恢复它。Checkpoint Recovery、
+Attachment、Resize 与普通 Follow-output 行为仍保持 Provider-neutral。
+
 Code 与 CRT 共用同一 Protocol Contract 与 Recovery Semantics。两套界面可以适配不同
 Layout 与 Renderer Integration，但不能各自维护第二套 Ordering 或 Checkpoint State Machine。
 

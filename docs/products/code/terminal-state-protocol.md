@@ -93,6 +93,12 @@ the same Agent and mount cancels a pending release. A stale lease cannot release
 a newer attachment, and a different Agent or mount releases the old owner before
 attaching the new one.
 
+The provider capability `terminalReadingAnchor` declares whether the terminal's
+reading position belongs to native scrollback. When it is false because the
+provider owns a full-screen or virtualized viewport, the pool neither persists
+nor content-matches a terminal reading anchor. Checkpoint recovery, attachment,
+resize, and ordinary follow-output behavior remain provider-neutral.
+
 Code and CRT share the same protocol contract and recovery semantics.
 Each interface may adapt layout and renderer integration, but must not maintain
 a second ordering or checkpoint state machine.
