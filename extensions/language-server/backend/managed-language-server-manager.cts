@@ -13,6 +13,7 @@ import path from 'node:path';
 import { execFile, execFileSync, spawnSync } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { extractZipArchive } from '../../../backend/zip-archive.cjs';
 import {
   ManagedLanguageServerClient,
   languageServerError,
@@ -29,8 +30,6 @@ type JsonRecord = Record<string, unknown>;
 const execFileAsync = promisify(execFile);
 const MAX_DOWNLOAD_BYTES = 512 * 1024 * 1024;
 const LANGUAGE_SERVER_METADATA_TIMEOUT_MS = 15_000;
-const extractZip = require('extract-zip') as (source: string, options: { dir: string }) => Promise<void>;
-
 type DownloadArtifact = {
   name: string;
   sha256: string;
@@ -382,7 +381,7 @@ class ManagedLanguageServerManager {
       const extractRoot = path.join(tempRoot, 'extract');
       await fs.promises.mkdir(extractRoot);
       await downloadFile(artifact.url, archive, artifact.sha256, { fetchImpl: this.fetchImpl });
-      await extractZip(archive, { dir: extractRoot });
+      await extractZipArchive(archive, { dir: extractRoot });
       const source = path.join(extractRoot, `clangd_${artifact.version}`);
       const finalPath = path.join(cacheRoot, `clangd_${artifact.version}`);
       if (!fs.existsSync(source)) {

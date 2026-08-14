@@ -172,7 +172,6 @@
     "compression": "^1.8.1",
     "diff": "^9.0.0",
     "express": "^4.22.2",
-    "extract-zip": "2.0.1",
     "highlight.js": "^11.11.1",
     "katex": "^0.17.0",
     "material-icon-theme": "^5.36.1",
@@ -194,6 +193,7 @@
     "vscode-languageserver-protocol": "3.18.2",
     "ws": "^8.21.0",
     "yaml": "^2.9.0",
+    "yauzl": "3.4.0",
     "zod": "^3.25.76"
   },
   "bundledDependencies": [
@@ -211,7 +211,6 @@
     "compression",
     "diff",
     "express",
-    "extract-zip",
     "highlight.js",
     "katex",
     "material-icon-theme",
@@ -233,6 +232,7 @@
     "vscode-languageserver-protocol",
     "ws",
     "yaml",
+    "yauzl",
     "zod"
   ],
   "devDependencies": {
@@ -309,7 +309,6 @@
     "compression",
     "diff",
     "express",
-    "extract-zip",
     "highlight.js",
     "katex",
     "material-icon-theme",
@@ -331,6 +330,7 @@
     "vscode-languageserver-protocol",
     "ws",
     "yaml",
+    "yauzl",
     "zod"
   ]
 }

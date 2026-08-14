@@ -4,8 +4,8 @@ import * as path from 'path';
 import { execFile, spawn, type ChildProcess } from 'child_process';
 import { Readable, Transform, type TransformCallback } from 'stream';
 import { pipeline } from 'stream/promises';
-import extractZip from 'extract-zip';
 import * as storageLayout from '../../../backend/storage-layout.cjs';
+import { extractZipArchive } from '../../../backend/zip-archive.cjs';
 import { runtimePlatformKey, verifyExecutable } from '../../../backend/runtime-dependency-manager.cjs';
 import { runtimeExecutableInvocation } from '../../../backend/runtime-executable-invocation.cjs';
 import { isSameOrDescendantPath } from '../../../backend/path-containment.cjs';
@@ -621,7 +621,7 @@ async function installFromNpmMirror(
     timeoutMs: INSTALL_TIMEOUT_MS,
   });
   try {
-    await (options.extractArchive || extractZip)(archivePath, { dir: destination });
+    await (options.extractArchive || extractZipArchive)(archivePath, { dir: destination });
   } finally {
     fs.rmSync(archivePath, { force: true });
   }
@@ -669,7 +669,7 @@ class ManagedChromiumInstaller {
       }));
     this.installFromMirror = options.installFromMirror || installFromNpmMirror;
     this.downloadFile = options.downloadFile || downloadFile;
-    this.extractArchive = options.extractArchive || (extractZip as ExtractArchive);
+    this.extractArchive = options.extractArchive || extractZipArchive;
     this.verifyBrowser = options.verifyBrowser || defaultVerifyBrowser;
     this.verifyAgentBrowser = options.verifyAgentBrowser
       || (executablePath => verifyExecutable(executablePath, this.agentBrowserVersion, {

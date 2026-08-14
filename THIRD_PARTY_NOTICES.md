@@ -28,7 +28,6 @@ preserved in bundled `node_modules` when bundled dependencies are enabled.
 | `compression` | 1.8.1 | MIT | HTTP response compression |
 | `diff` | 9.0.0 | BSD-3-Clause | Character-level diff ranges for code review |
 | `express` | 4.22.2 | MIT | HTTP API server |
-| `extract-zip` | 2.0.1 | BSD-2-Clause | Managed Chromium archive extraction |
 | `highlight.js` | 11.11.1 | BSD-3-Clause | Syntax highlighting |
 | `katex` | 0.17.0 | MIT | Mathematical notation rendering |
 | `material-icon-theme` | 5.36.1 | MIT | File and folder icons |
@@ -50,6 +49,7 @@ preserved in bundled `node_modules` when bundled dependencies are enabled.
 | `vscode-languageserver-protocol` | 3.18.2 | MIT | Language Server Protocol types and contracts |
 | `ws` | 8.21.0 | MIT | WebSocket server/client support |
 | `yaml` | 2.9.0 | ISC | YAML parsing |
+| `yauzl` | 3.4.0 | MIT | Validated managed ZIP archive parsing |
 | `zod` | 3.25.76 | MIT | MCP tool input schema validation |
 
 ## Vendored Assets
