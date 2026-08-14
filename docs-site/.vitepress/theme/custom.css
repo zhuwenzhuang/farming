@@ -28,6 +28,18 @@
   --vp-font-family-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
 
+:root:not(.dark):not([data-appearance="paper"]):has(.VPDoc) {
+  --vp-c-bg: #ffffff;
+  --vp-c-bg-alt: #f4f5f2;
+  --vp-c-bg-elv: #ffffff;
+  --vp-c-bg-soft: #f0f2ef;
+  --vp-c-text-1: #24292f;
+  --vp-c-text-2: #57606a;
+  --vp-c-text-3: #8c959f;
+  --vp-c-border: rgba(31, 35, 40, 0.18);
+  --vp-c-divider: rgba(31, 35, 40, 0.12);
+}
+
 .dark {
   --vp-c-brand-1: #69e69f;
   --vp-c-brand-2: #55f59b;
@@ -152,6 +164,15 @@
 :root:not(.dark) .VPSidebar {
   background-color: rgba(247, 244, 236, 0.74);
   backdrop-filter: blur(10px) saturate(0.9);
+}
+
+:root:not(.dark):not([data-appearance="paper"]):has(.VPDoc) .VPNav,
+:root:not(.dark):not([data-appearance="paper"]):has(.VPDoc) .VPNavBar {
+  background-color: rgba(244, 245, 242, 0.78);
+}
+
+:root:not(.dark):not([data-appearance="paper"]):has(.VPDoc) .VPSidebar {
+  background-color: rgba(244, 245, 242, 0.74);
 }
 
 :root:not(.dark) .VPNavBar.has-sidebar .content-body {
@@ -873,6 +894,11 @@
   backdrop-filter: blur(6px);
 }
 
+:root:not(.dark):not([data-appearance="paper"]):has(.VPDoc) .VPFeature,
+:root:not(.dark):not([data-appearance="paper"]):has(.VPDoc) .docs-card {
+  background-color: rgba(240, 242, 239, 0.82) !important;
+}
+
 .dark .VPFeature,
 .dark .docs-card {
   border-color: rgba(85, 245, 155, 0.22) !important;
@@ -910,6 +936,10 @@
   border: 1px solid var(--vp-c-border);
   border-radius: 12px;
   box-shadow: 0 16px 42px rgba(22, 35, 27, 0.08);
+}
+
+:root:not(.dark):not([data-appearance="paper"]):has(.VPDoc) .vp-doc img {
+  box-shadow: 0 16px 42px rgba(31, 35, 40, 0.08);
 }
 
 .VPDoc .vp-doc img[data-image-viewer] {
