@@ -58,6 +58,8 @@ type TabState = {
 type CdpClientState = {
   socket: BridgeSocket;
   autoAttach: boolean;
+  /** Null means the legacy all-tabs endpoint; scoped clients only see these tabs. */
+  allowedTabIds: Set<number> | null;
   /** Session ids this client has been told about (root and child sessions). */
   announcedSessions: Set<string>;
 };
@@ -140,15 +142,17 @@ export class ExtensionRelayBridge {
    * No per-target webSocketDebuggerUrl: all CDP traffic multiplexes over the
    * single browser endpoint (`/cdp`).
    */
-  devtoolsTargetDescriptors(): Array<RelayTabInfo & { id: string; type: string }> {
-    return [...this.tabs.values()].map((tab) => ({
+  devtoolsTargetDescriptors(allowedTabId?: number): Array<RelayTabInfo & { id: string; type: string }> {
+    return [...this.tabs.values()]
+      .filter((tab) => allowedTabId === undefined || tab.info.tabId === allowedTabId)
+      .map((tab) => ({
       tabId: tab.info.tabId,
       url: tab.info.url,
       title: tab.info.title,
       active: tab.info.active,
       id: tab.attached?.targetId ?? `tab-${tab.info.tabId}`,
       type: "page",
-    }));
+      }));
   }
 
   /** Number of connected CDP clients (diagnostics). */
@@ -372,7 +376,7 @@ export class ExtensionRelayBridge {
         this.tabs.set(info.tabId, { info });
         // Newly accessible tabs must reach auto-attach clients immediately;
         // an access-mode or pause change may happen mid-session.
-        if ([...this.clients].some((client) => client.autoAttach)) {
+        if ([...this.clients].some((client) => client.autoAttach && this.clientCanAccessTab(client, info.tabId))) {
           void this.ensureTabAttached(info.tabId)
             .then(({ targetId, sessionId }) => {
               this.announceAttachedTab(info.tabId, targetId, sessionId, { onlyAutoAttach: true });
@@ -459,6 +463,9 @@ export class ExtensionRelayBridge {
       ? [opts.onlyClient]
       : [...this.clients].filter((client) => !opts.onlyAutoAttach || client.autoAttach);
     for (const client of recipients) {
+      if (!this.clientCanAccessTab(client, tabId)) {
+        continue;
+      }
       if (client.announcedSessions.has(sessionId)) {
         continue;
       }
@@ -560,11 +567,23 @@ export class ExtensionRelayBridge {
   // ---------------------------------------------------------------------
 
   /** Wire up a newly accepted CDP client WebSocket. */
-  attachCdpClientSocket(socket: BridgeSocket): {
+  attachCdpClientSocket(
+    socket: BridgeSocket,
+    options: { allowedTabId?: number; newTabsOnly?: boolean } = {},
+  ): {
     onMessage: (raw: string) => void;
     onClose: () => void;
   } {
-    const client: CdpClientState = { socket, autoAttach: false, announcedSessions: new Set() };
+    const client: CdpClientState = {
+      socket,
+      autoAttach: false,
+      allowedTabIds: options.allowedTabId !== undefined
+        ? new Set([options.allowedTabId])
+        : options.newTabsOnly
+          ? new Set()
+          : null,
+      announcedSessions: new Set(),
+    };
     this.clients.add(client);
     const onMessage = (raw: string) => {
       let parsed: unknown;
@@ -642,6 +661,14 @@ export class ExtensionRelayBridge {
     client.socket.send(toErrorPayload(request.id, request.sessionId, message, code));
   }
 
+  private clientCanAccessTab(client: CdpClientState, tabId: number): boolean {
+    return client.allowedTabIds === null || client.allowedTabIds.has(tabId);
+  }
+
+  private clientTabIds(client: CdpClientState): number[] {
+    return [...this.tabs.keys()].filter((tabId) => this.clientCanAccessTab(client, tabId));
+  }
+
   private tabBySessionId(sessionId: string): { tabId: number; child: boolean } | null {
     for (const [tabId, tab] of this.tabs) {
       if (tab.attached?.sessionId === sessionId) {
@@ -695,7 +722,7 @@ export class ExtensionRelayBridge {
       return;
     }
     const route = this.tabBySessionId(sessionId);
-    if (!route) {
+    if (!route || !this.clientCanAccessTab(client, route.tabId)) {
       this.respondError(client, request, `Session not found: ${sessionId}`, -32001);
       return;
     }
@@ -754,7 +781,7 @@ export class ExtensionRelayBridge {
           return;
         }
         const found = this.tabByTargetId(targetId);
-        if (!found) {
+        if (!found || !this.clientCanAccessTab(client, found.tabId)) {
           this.respondError(client, request, `No target with given id found: ${targetId}`, -32602);
           return;
         }
@@ -769,7 +796,7 @@ export class ExtensionRelayBridge {
         // user's existing pages instead of concluding that the browser is
         // empty and creating an unrelated about:blank tab.
         const attachedTabs = await Promise.allSettled(
-          [...this.tabs.keys()].map(async (tabId) => {
+          this.clientTabIds(client).map(async (tabId) => {
             const attached = await this.ensureTabAttached(tabId);
             return { tabId, targetId: attached.targetId };
           }),
@@ -796,7 +823,7 @@ export class ExtensionRelayBridge {
         client.autoAttach = autoAttach;
         if (autoAttach) {
           const attachResults = await Promise.allSettled(
-            [...this.tabs.keys()].map(async (tabId) => {
+            this.clientTabIds(client).map(async (tabId) => {
               const { targetId, sessionId } = await this.ensureTabAttached(tabId);
               return { tabId, targetId, sessionId };
             }),
@@ -824,7 +851,7 @@ export class ExtensionRelayBridge {
         const targetId = request.params?.targetId as string | undefined;
         const found = targetId ? this.tabByTargetId(targetId) : null;
         // Also allow attach by tab that is accessible but not yet debugger-attached.
-        if (!found && targetId) {
+        if ((!found || !this.clientCanAccessTab(client, found.tabId)) && targetId) {
           this.respondError(client, request, `No target with given id found: ${targetId}`, -32602);
           return;
         }
@@ -876,6 +903,10 @@ export class ExtensionRelayBridge {
           return;
         }
         const route = sessionId ? this.tabBySessionId(sessionId) : null;
+        if (route && !this.clientCanAccessTab(client, route.tabId)) {
+          this.respondError(client, request, `Session not found: ${String(sessionId)}`, -32001);
+          return;
+        }
         if (route && !route.child) {
           const tab = this.tabs.get(route.tabId);
           if (tab?.attached) {
@@ -898,6 +929,7 @@ export class ExtensionRelayBridge {
           return;
         }
         const tabId = created.tabId;
+        client.allowedTabIds?.add(tabId);
         if (!this.tabs.has(tabId)) {
           this.tabs.set(tabId, { info: { tabId, url, title: "", active: false } });
         }
@@ -916,7 +948,7 @@ export class ExtensionRelayBridge {
       case "Target.closeTarget": {
         const targetId = request.params?.targetId as string | undefined;
         const found = targetId ? this.tabByTargetId(targetId) : null;
-        if (!found) {
+        if (!found || !this.clientCanAccessTab(client, found.tabId)) {
           this.respondError(
             client,
             request,
@@ -932,7 +964,7 @@ export class ExtensionRelayBridge {
       case "Target.activateTarget": {
         const targetId = request.params?.targetId as string | undefined;
         const found = targetId ? this.tabByTargetId(targetId) : null;
-        if (!found) {
+        if (!found || !this.clientCanAccessTab(client, found.tabId)) {
           this.respondError(
             client,
             request,

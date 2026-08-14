@@ -167,7 +167,9 @@ The connector works automatically after pairing. Its ordinary surfaces report
 availability without presenting disconnect as a routine action; removal remains
 owned by Chrome's extension management UI.
 Agents can enumerate eligible existing tabs and attach the one that fits the
-task without a per-tab user click. The resulting Resource borrows the Chrome
+task without a per-tab user click. Each attachment exposes only its selected
+tab to that Browser session, so an unrelated page cannot block initialization.
+The resulting Resource borrows the Chrome
 tab: stopping or deleting it disconnects Farming but must not close the user's
 page. A running attachment is exclusive to one Browser Resource.
 

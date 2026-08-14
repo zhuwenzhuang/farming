@@ -207,7 +207,7 @@ type IsolatedBrowserProvider = {
 };
 type BrowserExtensionRelayProvider = {
   capability(): Record<string, unknown>;
-  cdpUrl(): string;
+  cdpUrl(tabId?: number | 'new'): string;
   pairingString(relayUrl: string): string;
   prepare(): Record<string, unknown>;
   remove(): Record<string, unknown>;
@@ -1062,6 +1062,7 @@ class BrowserResourceManager extends EventEmitter {
         && session.ownerKey === browserOwnerKey(resource)
         && session.projectRootId === resource.projectRootId
         && session.browserKind === executable.kind
+        && (executable.kind !== 'chrome-extension' || resource.existingTabId === null)
       ));
       if (reusableSession) {
         try {
@@ -1125,6 +1126,9 @@ class BrowserResourceManager extends EventEmitter {
       const sessionGeneration = previousSessionGeneration + 1;
       let isolatedLeaseKey = '';
       let externalCdpUrl = executable.cdpUrl || '';
+      if (executable.kind === 'chrome-extension' && this.browserExtensionRelay) {
+        externalCdpUrl = this.browserExtensionRelay.cdpUrl(resource.existingTabId ?? 'new');
+      }
       if (executable.kind === 'isolated-computer') {
         try {
           if (!this.isolatedBrowserProvider) {

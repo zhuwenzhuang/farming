@@ -40,6 +40,18 @@ function getStatus(url) {
   });
 }
 
+function getJson(url): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    const request = http.get(url, response => {
+      let body = '';
+      response.setEncoding('utf8');
+      response.on('data', chunk => { body += chunk; });
+      response.on('end', () => resolve(JSON.parse(body)));
+    });
+    request.on('error', reject);
+  });
+}
+
 async function waitFor(check, timeoutMs = 1000) {
   const startedAt = Date.now();
   while (!check()) {
@@ -380,6 +392,56 @@ async function run() {
   discoveryExtension.onClose();
   discoveryBridge.dispose();
 
+  const scopedBridge = new ExtensionRelayBridge();
+  const scopedRelayMessages = [];
+  let scopedExtension;
+  const scopedExtensionSocket = {
+    send: message => {
+      const parsed = JSON.parse(message);
+      scopedRelayMessages.push(parsed);
+      if (parsed.type === 'attach') {
+        setImmediate(() => scopedExtension.onMessage(JSON.stringify({
+          type: 'result',
+          seq: parsed.seq,
+          result: { targetId: `target-${parsed.tabId}` },
+        })));
+      }
+    },
+    close: () => {},
+  };
+  scopedExtension = scopedBridge.attachExtensionSocket(scopedExtensionSocket);
+  scopedExtension.onMessage(JSON.stringify({
+    type: 'hello',
+    userAgent: 'Chrome Test',
+    browserVersion: 'Chrome/144.0.0.0',
+    extensionVersion: manifest.version,
+    tabs: [{ tabId: 41, url: 'https://unrelated.test/', title: 'Unrelated', active: false }, {
+      tabId: 42,
+      url: 'https://selected.test/',
+      title: 'Selected',
+      active: true,
+    }],
+  }));
+  const scopedCdpMessages = [];
+  const scopedCdp = scopedBridge.attachCdpClientSocket({
+    send: message => scopedCdpMessages.push(JSON.parse(message)),
+    close: () => {},
+  }, { allowedTabId: 42 });
+  scopedCdp.onMessage(JSON.stringify({ id: 3, method: 'Target.getTargets' }));
+  await waitFor(() => scopedCdpMessages.some(message => message.id === 3));
+  assert.deepStrictEqual(
+    scopedCdpMessages.find(message => message.id === 3).result.targetInfos.map(info => info.url),
+    ['https://selected.test/'],
+  );
+  assert.deepStrictEqual(
+    scopedRelayMessages.filter(message => message.type === 'attach').map(message => message.tabId),
+    [42],
+    'a scoped CDP client must not initialize unrelated Chrome pages',
+  );
+  scopedCdp.onClose();
+  scopedExtension.onClose();
+  scopedBridge.dispose();
+
   const extensionTestRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-browser-extension-'));
   const configDir = path.join(extensionTestRoot, '.farming');
   fs.mkdirSync(configDir);
@@ -525,6 +587,15 @@ async function run() {
     await waitFor(() => relay.capability().connected === true);
     assert.strictEqual(relay.capability().connected, true);
     assert.strictEqual(await getStatus(`${relay.cdpUrl()}/json/version`), 200);
+    assert.strictEqual(relay.cdpUrl(42).endsWith('?tabId=42'), true);
+    assert.strictEqual(relay.cdpUrl('new').endsWith('?tabId=new'), true);
+    const scopedVersionUrl = new URL(relay.cdpUrl(42));
+    scopedVersionUrl.pathname = '/json/version';
+    const scopedVersion = await getJson(scopedVersionUrl.toString());
+    assert.strictEqual(
+      String(scopedVersion.webSocketDebuggerUrl).endsWith('/cdp?tabId=42'),
+      true,
+    );
   } finally {
     extensionClient?.close();
     publicWss?.close();

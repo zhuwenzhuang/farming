@@ -136,8 +136,9 @@ Connector 复用同一个 Browser Runtime、Resource、Agent Tool 与 Viewer 通
 都与 OpenClaw 独立。
 Chrome 侧栏复用已打开的 Farming 页面的登录会话。Connector 配对后自动工作。常规界面只报告
 是否可用，不把“断开连接”作为日常操作；删除仍由 Chrome 的扩展程序管理页面负责。
-Agent 可以列出可用的已有标签页，并直接接入适合任务的页面，无需用户逐个点击授权。对应
-Resource 只借用 Chrome 标签页：停止或删除 Resource 只能解除 Farming 连接，不能关闭用户
+Agent 可以列出可用的已有标签页，并直接接入适合任务的页面，无需用户逐个点击授权。每次接入
+只向对应 Browser Session 暴露选中的标签页，其他无关页面不能阻塞初始化。对应 Resource 只借用
+Chrome 标签页：停止或删除 Resource 只能解除 Farming 连接，不能关闭用户
 页面；一个运行中的接入只属于一个 Browser Resource。
 
 Browser 与 Computer 可以安全共享轻量 Backend Capability Service，同时使用独立 CLI

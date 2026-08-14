@@ -1093,7 +1093,7 @@ async function testExistingChromeTabManagement() {
     getBrowserSettings: () => ({ browserSource: 'extension' }),
     browserExtensionRelay: {
       capability: () => ({ connected: true }),
-      cdpUrl: () => 'http://127.0.0.1:19444',
+      cdpUrl: tabId => `http://127.0.0.1:19444${tabId === undefined ? '' : `?tabId=${tabId}`}`,
       pairingString: url => `${url}#token`,
       prepare: () => ({ installed: true, connected: true }),
       tabs: () => relayTabs.map(tab => ({ ...tab })),
@@ -1152,6 +1152,7 @@ async function testExistingChromeTabManagement() {
     assert.strictEqual(runtimes[0].activeTabId, 't1');
     assert.strictEqual(runtimes[0].ownedTabIds.has('t1'), false);
     assert.strictEqual(manager.extensionTabs()[0].managed, true);
+    assert.strictEqual(runtimes[0].externalCdpUrl, 'http://127.0.0.1:19444?tabId=42');
 
     const duplicate = manager.create({
       projectRootId: 'wroot_project',

@@ -126,8 +126,10 @@ class BrowserExtensionRelay {
     if (handle) await handle.close();
   }
 
-  cdpUrl(): string {
-    return this.handle ? `http://127.0.0.1:${this.handle.port}` : '';
+  cdpUrl(tabId?: number | 'new'): string {
+    if (!this.handle) return '';
+    const base = `http://127.0.0.1:${this.handle.port}`;
+    return tabId === undefined ? base : `${base}?tabId=${tabId}`;
   }
 
   capability() {

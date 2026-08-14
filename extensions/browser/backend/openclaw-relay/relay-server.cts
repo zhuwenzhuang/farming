@@ -38,6 +38,16 @@ const MAX_AUTH_BODY_BYTES = 8 * 1024;
 
 export const EXTENSION_RELAY_MAX_PAYLOAD_BYTES = 64 * 1024 * 1024;
 
+type CdpTabSelector = number | "new" | undefined;
+
+function parseCdpTabSelector(rawUrl: string | undefined): CdpTabSelector | null {
+  const value = new URL(rawUrl ?? "/", "http://127.0.0.1").searchParams.get("tabId");
+  if (value === null || value === "") return undefined;
+  if (value === "new") return "new";
+  const tabId = Number(value);
+  return Number.isSafeInteger(tabId) && tabId > 0 ? tabId : null;
+}
+
 function rawDataToString(data: RawData): string {
   if (typeof data === "string") return data;
   if (Array.isArray(data)) return Buffer.concat(data).toString("utf8");
@@ -404,11 +414,13 @@ export async function startExtensionRelayServer(params: {
     return true;
   };
 
-  const versionPayload = () => ({
+  const versionPayload = (selector?: CdpTabSelector) => ({
     Browser: bridge.identity?.browserVersion ?? "Chrome/unknown",
     "Protocol-Version": "1.3",
     "User-Agent": bridge.identity?.userAgent ?? "unknown",
-    webSocketDebuggerUrl: `ws://127.0.0.1:${resolvedPort()}/cdp`,
+    webSocketDebuggerUrl: `ws://127.0.0.1:${resolvedPort()}/cdp${
+      selector === undefined ? "" : `?tabId=${selector}`
+    }`,
   });
 
   const server: Server = http.createServer((req, res) => {
@@ -426,15 +438,29 @@ export async function startExtensionRelayServer(params: {
       // existing agent-browser runtime connects here; extension authentication
       // remains connection-bound HMAC v2 on the public Browser route.
       if (req.method === "GET" && (path === "/json/version" || path === "/json/version/")) {
+        const selector = parseCdpTabSelector(req.url);
+        if (selector === null) {
+          rejectHttp(res, 400, "Invalid tabId");
+          return;
+        }
         if (!bridge.extensionConnected) {
           writeJson(res, 503, { error: "Farming Browser Connector is not connected" });
           return;
         }
-        writeJson(res, 200, versionPayload());
+        writeJson(res, 200, versionPayload(selector));
         return;
       }
       if (req.method === "GET" && (path === "/json" || path === "/json/list")) {
-        writeJson(res, 200, bridge.devtoolsTargetDescriptors());
+        const selector = parseCdpTabSelector(req.url);
+        if (selector === null) {
+          rejectHttp(res, 400, "Invalid tabId");
+          return;
+        }
+        writeJson(
+          res,
+          200,
+          bridge.devtoolsTargetDescriptors(typeof selector === "number" ? selector : undefined),
+        );
         return;
       }
 
@@ -673,7 +699,18 @@ export async function startExtensionRelayServer(params: {
       return;
     }
     if (path === "/cdp") {
-      wss.handleUpgrade(req, socket, head, (ws) => bindSocket(ws, bridge.attachCdpClientSocket(ws)));
+      const selector = parseCdpTabSelector(req.url);
+      if (selector === null) {
+        destroySocket(socket, "HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
+        return;
+      }
+      wss.handleUpgrade(req, socket, head, (ws) => bindSocket(
+        ws,
+        bridge.attachCdpClientSocket(ws, {
+          ...(typeof selector === "number" ? { allowedTabId: selector } : {}),
+          ...(selector === "new" ? { newTabsOnly: true } : {}),
+        }),
+      ));
       return;
     }
     destroySocket(socket, "HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
