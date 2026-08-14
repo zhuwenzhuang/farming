@@ -7,12 +7,15 @@ import {
   useContext,
   useEffect,
   useId,
+  useImperativeHandle,
   useMemo,
   useRef,
   useState,
+  type ChangeEvent,
   type HTMLAttributes,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent,
+  type RefObject,
   type ReactNode,
   type WheelEvent as ReactWheelEvent,
 } from 'react'
@@ -55,6 +58,15 @@ type MarkdownFrontMatter = {
   entries: MarkdownFrontMatterEntry[]
   error?: string
 }
+type MarkdownAstNode = {
+  type: string
+  depth?: number
+  children?: MarkdownAstNode[]
+  data?: {
+    hName?: string
+    hProperties?: Record<string, unknown>
+  }
+}
 type MarkdownPreviewContextValue = {
   openFile: OpenWorkspaceFile
   onOpenFilePath: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
@@ -64,6 +76,8 @@ type MarkdownPreviewContextValue = {
 }
 
 const MERMAID_FONT = 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+const LARGE_MARKDOWN_PREVIEW_CHARACTERS = 256 * 1024
+const LARGE_MARKDOWN_SECTION_BLOCKS = 40
 const MarkdownPreviewContext = createContext<MarkdownPreviewContextValue | null>(null)
 
 function useMarkdownPreviewContext() {
@@ -149,6 +163,44 @@ function createHeadingIdFactory() {
   }
 }
 
+function remarkLargeMarkdownSections(options?: { position?: number }) {
+  return (tree: MarkdownAstNode) => {
+    if (tree.type !== 'root' || !Array.isArray(tree.children)) return
+
+    const sections: MarkdownAstNode[][] = []
+    let currentSection: MarkdownAstNode[] = []
+    const flushSection = () => {
+      if (currentSection.length === 0) return
+      sections.push(currentSection)
+      currentSection = []
+    }
+
+    for (const child of tree.children) {
+      const startsMajorSection = child.type === 'heading' && (child.depth ?? 7) <= 2
+      if (currentSection.length >= LARGE_MARKDOWN_SECTION_BLOCKS || (startsMajorSection && currentSection.length > 0)) {
+        flushSection()
+      }
+      currentSection.push(child)
+    }
+    flushSection()
+
+    const targetIndex = Math.round(((options?.position ?? 0) / 1000) * Math.max(0, sections.length - 1))
+    const targetSection = sections[targetIndex]
+    tree.children = targetSection ? [{
+      type: 'largeMarkdownSection',
+      data: {
+        hName: 'section',
+        hProperties: {
+          className: ['code-markdown-large-section'],
+          'data-section-index': String(targetIndex),
+          'data-section-count': String(sections.length),
+        },
+      },
+      children: targetSection,
+    }] : []
+  }
+}
+
 function formatFrontMatterValue(value: unknown): string {
   if (value === null || value === undefined) return ''
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value)
@@ -223,6 +275,59 @@ function MarkdownFrontMatterTable({ frontMatter, copy }: { frontMatter: Markdown
         ))}
       </tbody>
     </table>
+  )
+}
+
+function LargeMarkdownPositionControl({
+  panelRef,
+  copy,
+  documentIdentity,
+  onPositionChange,
+}: {
+  panelRef: RefObject<HTMLElement | null>
+  copy: CodeCopy
+  documentIdentity: string
+  onPositionChange: (position: number) => void
+}) {
+  const controlId = useId()
+  const [position, setPosition] = useState(0)
+  const updateTimerRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    setPosition(0)
+    onPositionChange(0)
+    panelRef.current?.scrollTo({ top: 0 })
+    return () => {
+      if (updateTimerRef.current !== null) window.clearTimeout(updateTimerRef.current)
+    }
+  }, [documentIdentity, onPositionChange, panelRef])
+
+  const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const nextPosition = Number(event.currentTarget.value)
+    setPosition(nextPosition)
+    if (updateTimerRef.current !== null) window.clearTimeout(updateTimerRef.current)
+    updateTimerRef.current = window.setTimeout(() => {
+      updateTimerRef.current = null
+      panelRef.current?.scrollTo({ top: 0 })
+      onPositionChange(nextPosition)
+    }, 80)
+  }
+
+  return (
+    <div className="code-markdown-large-navigation" data-testid="code-markdown-large-navigation">
+      <label htmlFor={controlId}>{copy.markdownDocumentPosition}</label>
+      <input
+        id={controlId}
+        type="range"
+        min="0"
+        max="1000"
+        step="1"
+        value={position}
+        aria-label={copy.markdownDocumentPosition}
+        onChange={handleChange}
+      />
+      <output htmlFor={controlId}>{Math.round(position / 10)}%</output>
+    </div>
   )
 }
 
@@ -785,15 +890,19 @@ export const FileEditorMarkdownPreview = forwardRef<HTMLElement, FileEditorMarkd
   copy,
   previewRefreshRevision = 0,
 }, ref) {
+  const previewPanelRef = useRef<HTMLElement | null>(null)
+  useImperativeHandle(ref, () => previewPanelRef.current as HTMLElement, [])
+  const [largeDocumentPosition, setLargeDocumentPosition] = useState(0)
   const source = openFile.draft ?? openFile.file.content ?? ''
   const markdownDocument = splitMarkdownFrontMatter(source)
+  const isLargeDocument = markdownDocument.body.length > LARGE_MARKDOWN_PREVIEW_CHARACTERS
   const nextHeadingId = createHeadingIdFactory()
   const contextValue = { openFile, onOpenFilePath, copy, nextHeadingId, previewRefreshRevision }
   const previewIdentity = `${openFile.agentId}:${openFile.file.path}`
 
   return (
     <section
-      ref={ref}
+      ref={previewPanelRef}
       className="code-file-preview-panel markdown"
       data-testid="code-file-markdown-preview"
       role="tabpanel"
@@ -802,7 +911,18 @@ export const FileEditorMarkdownPreview = forwardRef<HTMLElement, FileEditorMarkd
       tabIndex={-1}
     >
       <MarkdownPreviewContext.Provider value={contextValue}>
-        <article className="code-markdown-preview">
+        {isLargeDocument && (
+          <LargeMarkdownPositionControl
+            panelRef={previewPanelRef}
+            copy={copy}
+            documentIdentity={`${previewIdentity}:${openFile.revision}`}
+            onPositionChange={setLargeDocumentPosition}
+          />
+        )}
+        <article
+          className={`code-markdown-preview${isLargeDocument ? ' large-document' : ''}`}
+          data-syntax-highlight={isLargeDocument ? 'disabled' : 'enabled'}
+        >
           {markdownDocument.frontMatter && (
             <MarkdownFrontMatterTable frontMatter={markdownDocument.frontMatter} copy={copy} />
           )}
@@ -829,8 +949,10 @@ export const FileEditorMarkdownPreview = forwardRef<HTMLElement, FileEditorMarkd
           >
             <LocalRenderFault surface="file-markdown" identity={previewIdentity}>
               <ReactMarkdown
-                remarkPlugins={[remarkGfm, remarkMath]}
-                rehypePlugins={[rehypeKatex, rehypeHighlight]}
+                remarkPlugins={isLargeDocument
+                  ? [remarkGfm, remarkMath, [remarkLargeMarkdownSections, { position: largeDocumentPosition }]]
+                  : [remarkGfm, remarkMath]}
+                rehypePlugins={isLargeDocument ? [rehypeKatex] : [rehypeKatex, rehypeHighlight]}
                 components={MARKDOWN_COMPONENTS}
                 skipHtml
               >

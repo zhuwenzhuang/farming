@@ -279,6 +279,41 @@
   margin-bottom: 0;
 }
 
+.code-markdown-large-section {
+  min-height: 1px;
+}
+
+.code-markdown-large-navigation {
+  width: min(100%, 860px);
+  min-height: 36px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: auto minmax(120px, 1fr) 36px;
+  align-items: center;
+  gap: 10px;
+  margin: 0 auto;
+  padding: 7px 36px;
+  border-bottom: 1px solid var(--code-border);
+  background: var(--code-bg-canvas);
+  color: var(--code-text-subtle);
+  font-size: 11px;
+}
+
+.code-markdown-large-navigation input {
+  min-width: 0;
+  width: 100%;
+  accent-color: var(--code-accent);
+  cursor: pointer;
+}
+
+.code-markdown-large-navigation output {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 .code-markdown-preview h1,
 .code-markdown-preview h2,
 .code-markdown-preview h3,

@@ -158,6 +158,51 @@ test('renders Markdown files by default and keeps preview, source, and split con
   await expect(page.getByTestId('code-terminal-grid')).toBeHidden()
 })
 
+test('keeps oversized Markdown responsive and provides proportional document navigation', async ({ page, workspaceRoot }) => {
+  await page.setViewportSize({ width: 1440, height: 800 })
+  const workspace = path.join(workspaceRoot, 'large-markdown-preview')
+  fs.rmSync(workspace, { recursive: true, force: true })
+  fs.mkdirSync(workspace, { recursive: true })
+  const source = [
+    '# Large report',
+    '',
+    ...Array.from({ length: 700 }, (_, index) => [
+      `## Section ${index + 1}`,
+      '',
+      'This section preserves the complete report while offscreen layout work stays bounded. '.repeat(4),
+      '',
+      '```sql',
+      `SELECT ${index + 1} AS section_id, '${'predicate '.repeat(8)}' AS detail;`,
+      '```',
+      '',
+    ].join('\n')),
+  ].join('\n')
+  expect(source.length).toBeGreaterThan(256 * 1024)
+  fs.writeFileSync(path.join(workspace, 'report.md'), source)
+
+  await openFarming(page)
+  await openNewAgentDialog(page)
+  await startAgentFromOpenDialog(page, 'bash', workspace)
+  await openProjectFile(page, 'large-markdown-preview', 'report.md')
+
+  const preview = page.getByTestId('code-file-markdown-preview')
+  const article = preview.locator('.code-markdown-preview')
+  const navigation = preview.getByTestId('code-markdown-large-navigation')
+  await expect(article).toHaveAttribute('data-syntax-highlight', 'disabled')
+  await expect(navigation).toBeVisible()
+  const renderedSection = article.locator('.code-markdown-large-section')
+  await expect(renderedSection).toHaveCount(1)
+  await expect(renderedSection).toHaveAttribute('data-section-count', '701')
+  await expect(article.locator('.hljs')).toHaveCount(0)
+
+  const position = navigation.getByRole('slider', { name: 'Document position' })
+  await position.fill('750')
+  await expect(navigation.locator('output')).toHaveText('75%')
+  await expect(renderedSection).toHaveAttribute('data-section-index', '525', { timeout: 3_000 })
+  await expect(renderedSection.getByRole('heading', { name: 'Section 525' })).toBeVisible()
+  expect(await preview.locator('*').count()).toBeLessThan(500)
+})
+
 test('reuses the existing Agent Chat beside a file', async ({ page, workspaceRoot }, testInfo) => {
   await page.setViewportSize({ width: 1680, height: 900 })
   const workspace = path.join(workspaceRoot, 'file-agent-chat-side-panel')

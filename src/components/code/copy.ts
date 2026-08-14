@@ -424,6 +424,7 @@ export interface CodeCopy {
   markdownPreviewFor: (path: string) => string
   markdownFrontMatter: string
   markdownHeadingAnchor: string
+  markdownDocumentPosition: string
   mermaidDiagram: string
   mermaidDiagramControls: string
   mermaidRendering: string
@@ -1007,6 +1008,7 @@ const EN_COPY: CodeCopy = {
   markdownPreviewFor: path => `Markdown preview for ${path}`,
   markdownFrontMatter: 'Front matter',
   markdownHeadingAnchor: 'Link to heading',
+  markdownDocumentPosition: 'Document position',
   mermaidDiagram: 'Mermaid diagram',
   mermaidDiagramControls: 'Mermaid diagram controls',
   mermaidRendering: 'Rendering diagram...',
@@ -1626,6 +1628,7 @@ const ZH_COPY: CodeCopy = {
   markdownPreviewFor: path => `${path} 的 Markdown 预览`,
   markdownFrontMatter: 'Front matter',
   markdownHeadingAnchor: '跳转到这个标题',
+  markdownDocumentPosition: '文档位置',
   mermaidDiagram: 'Mermaid 图表',
   mermaidDiagramControls: 'Mermaid 图表控制',
   mermaidRendering: '正在渲染图表...',

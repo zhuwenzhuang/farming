@@ -128,6 +128,10 @@ Farming Instance 都是同一文件系统的独立客户端。
 Preview。Image、PDF、Binary 与 Oversized Text 使用 Read-only Viewer。所有 Viewer 共用同一
 Project Authorization，不能形成独立 File Access Path。
 
+大型 Markdown Preview 按主要 Heading 与有界 Block 数分页，一次只渲染一页，并提供粘性的
+比例位置控件。大型文档不执行语法高亮，跳到远处时不会挂载或高亮整篇文档；Source View
+仍然可用。
+
 保留 Monaco 的语法诊断，但关闭 Monaco 隔离环境中的 Semantic 和 Suggestion Diagnostics。
 项目级诊断通过托管 Language Server 路径提供，并以已保存文件为准。
 

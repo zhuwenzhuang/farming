@@ -169,6 +169,11 @@ source and bounded preview within the same file identity. Images, PDFs, binary
 files, and oversized text use read-only viewers. Every Viewer uses the same
 Project authorization; it must not create a separate file-access path.
 
+Large Markdown preview is paged at major headings and a bounded block count.
+It renders one page at a time, exposes a sticky proportional position control,
+and omits syntax highlighting so moving to a distant part of the document does
+not mount or highlight the complete document. Source view remains available.
+
 Keep Monaco syntax diagnostics but disable Monaco's isolated semantic and
 suggestion diagnostics. Project-level diagnostics appear through the managed
 Language Server path for saved files.
