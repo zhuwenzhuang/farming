@@ -741,7 +741,21 @@ async function runDesktopTerminalMatrix(
       await installClipboardProbe(page)
       await installWindowOpenProbe(page)
       await selectAgent(page, bashAgentId)
-      await expect(page.locator(activeTerminalHostSelector(bashAgentId))).toBeVisible({ timeout: 20_000 })
+      try {
+        await expect(page.locator(activeTerminalHostSelector(bashAgentId))).toBeVisible({ timeout: 20_000 })
+      } catch (error) {
+        const diagnostics = await terminalDiagnostics(page, bashAgentId)
+        const hosts = await terminalHostDiagnostics(page)
+        const recovery = await page.getByTestId('code-terminal-recovery').evaluate(element => ({
+          phase: element.getAttribute('data-phase'),
+          attempt: element.getAttribute('data-attempt'),
+          text: element.textContent,
+        })).catch(() => null)
+        throw new Error(
+          `Reloaded terminal host did not attach: ${JSON.stringify({ diagnostics, hosts, recovery })}`,
+          { cause: error },
+        )
+      }
       try {
         await expect.poll(async () => page.evaluate((id) => {
           return window.__farmingTerminalTest?.isReady(id) ?? false

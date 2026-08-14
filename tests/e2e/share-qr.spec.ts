@@ -14,7 +14,7 @@ async function createAgent(page: Page, workspace: string, agentRuntimeMode: 'cha
 }
 
 test.describe('workspace sharing', () => {
-  test('keeps the idle share control on the same toolbar surface in every appearance', async ({ page }) => {
+  test('lets idle toolbar controls inherit the same surface in every appearance', async ({ page }) => {
     await openFarming(page)
 
     const sidebar = page.locator('.code-sidebar')
@@ -34,8 +34,8 @@ test.describe('workspace sharing', () => {
         return resolved
       })
       await expect(sidebar).toHaveCSS('background-color', background)
-      await expect(shareButton).toHaveCSS('background-color', background)
-      await expect(siblingButton).toHaveCSS('background-color', background)
+      await expect(shareButton).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+      await expect(siblingButton).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
     }
   })
 
@@ -225,7 +225,9 @@ test.describe('workspace sharing', () => {
     if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
     await files.locator('[data-testid="code-file-row"][data-file-path="notes.txt"]').click()
     await expect(page.getByTestId('code-file-editor')).toBeVisible()
-    expect(await page.evaluate(() => window.__farmingFileEditorTest?.revealLine(120, 6) === true)).toBe(true)
+    await expect.poll(() => page.evaluate(() => (
+      window.__farmingFileEditorTest?.revealLine(120, 6) === true
+    ))).toBe(true)
 
     await page.getByTestId('code-file-editor-share').click()
     await expect.poll(async () => page.evaluate(() => navigator.clipboard.readText())).toBe('https://share.example.test/file-position')

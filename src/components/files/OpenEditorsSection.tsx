@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, type CSSProperties } from 'react'
 import { iconForFilePath } from '@/lib/file-icons'
 import { ChevronDownGlyph, ChevronRightGlyph } from '@/components/IconGlyphs'
 import { parentDirectory } from '@/lib/workspace-file-tree'
+import type { WorkspaceFileOpenTarget } from '@/lib/workspace-file-search'
 import { workspaceWorkingCopyChangeIndicator } from '@/lib/workspace-working-copy'
 import type { CodeCopy } from '../code/copy'
 
@@ -26,7 +27,7 @@ interface OpenEditorsSectionProps {
   projectId: string
   onCloseOpenFile?: (agentId: string, filePath: string, workspaceRoot?: string) => void
   onOpenFileContextMenu?: (x: number, y: number, file: OpenProjectFileSummary) => void
-  onSelectOpenFile?: (agentId: string, filePath: string) => boolean
+  onSelectOpenFile?: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
   onToggleCollapsed: () => void
 }
 
@@ -114,7 +115,7 @@ export function OpenEditorsSection({
                 <button
                   type="button"
                   className="code-open-editor-main"
-                  onClick={() => onSelectOpenFile?.(file.agentId, file.path)}
+                  onClick={() => onSelectOpenFile?.(file.agentId, file.path, { revealInTree: false })}
                 >
                   <img className="code-file-type-icon file" src={iconForFilePath(file.path)} alt="" aria-hidden="true" />
                   <span className="code-open-editor-name">{basename(file.path)}</span>

@@ -974,7 +974,7 @@ test.describe('iPhone mobile layout', () => {
         copyLeft: copy?.left ?? Number.NEGATIVE_INFINITY,
       }
     })
-    expect(agentRowLayout.copyInset).toBe(7)
+    expect(agentRowLayout.copyInset).toBe(27)
     expect(agentRowLayout.iconRight).toBeLessThanOrEqual(agentRowLayout.copyLeft)
     await page.getByTestId('code-sidebar-options').click()
     const settingsPanel = page.getByTestId('code-settings-panel')

@@ -2,6 +2,7 @@ import { appPath } from '../base-path.ts'
 
 export const PET_SETTINGS_STORAGE_KEY = 'farmingPetSettings'
 export const PET_SETTINGS_EVENT = 'farming-pet-settings'
+export const PET_REST_REMINDER_INVITATION_READY_EVENT = 'farming-pet-rest-reminder-invitation-ready'
 export const PET_APPEARANCE_PREVIEW_EVENT = 'farming-pet-appearance-preview'
 export const PET_REST_REMINDER_RUNTIME_STORAGE_KEY = 'farmingPetRestReminderRuntime'
 export const PET_REST_REMINDER_INVITATION_STORAGE_KEY = 'farmingPetRestReminderInvitationRuntime'
@@ -208,6 +209,7 @@ export function markRestReminderInvitationReady() {
   } catch {
     // The reminder will use its normal invitation delay when session storage is unavailable.
   }
+  window.dispatchEvent(new Event(PET_REST_REMINDER_INVITATION_READY_EVENT))
 }
 
 export function saveRestReminderIntervalSeconds(

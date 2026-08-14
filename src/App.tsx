@@ -1198,6 +1198,7 @@ export function App() {
   }, [effectiveRetainedAgentViewIds])
 
   useEffect(() => {
+    if (!ws.agentInventoryComplete) return
     const liveIds = new Set(displayedAgents.filter(isOpenableAgent).map(agent => agent.id))
     setOpenTerminalIds(ids => {
       const nextIds = Array.from(new Set(ids.map(id => {
@@ -1216,7 +1217,7 @@ export function App() {
     }).filter(id => (
       liveIds.has(id) || permissionSwitchStateRef.current?.agent.id === id
     ))))
-  }, [displayedAgents])
+  }, [displayedAgents, ws.agentInventoryComplete])
 
   useEffect(() => {
     if (!ws.agentInventoryComplete) return

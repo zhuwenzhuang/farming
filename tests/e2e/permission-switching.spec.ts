@@ -270,10 +270,11 @@ test.describe('permission switching', () => {
     })
 
     const transcriptRequests: string[] = []
+    let captureTranscriptRequests = false
     await page.route(/\/farming\/api\/agents\/([^/]+)\/acp-transcript(?:\?.*)?$/, async route => {
       const match = new URL(route.request().url()).pathname.match(/\/api\/agents\/([^/]+)\/acp-transcript$/)
       const agentId = match?.[1] ?? ''
-      transcriptRequests.push(agentId)
+      if (captureTranscriptRequests) transcriptRequests.push(agentId)
       const marker = agentId === finalId
         ? 'CORRECT ORIGINAL CONVERSATION HISTORY'
         : agentId === staleDescendantId
@@ -328,6 +329,7 @@ test.describe('permission switching', () => {
     await openPermissionTestApp(page)
     await agentRow(page, originalId).click()
     await expect(agentRow(page, originalId)).toHaveClass(/active/)
+    captureTranscriptRequests = true
     await page.getByTestId('code-terminal-mode-toggle').getByRole('button', { name: 'Chat' }).click()
     await patchRequested
     await expect(page.getByTestId('code-permission-switching')).toBeVisible()
@@ -535,7 +537,7 @@ test.describe('permission switching', () => {
 
     await backendFinished
     await expect(page.getByTestId('code-permission-switching')).toBeVisible()
-    await expect(page.getByTestId('code-agent-work-pane')).toHaveAttribute('aria-busy', 'true')
+    await expect(page.locator('[data-testid="code-agent-work-pane"].active')).toHaveAttribute('aria-busy', 'true')
     await expect(page.getByTestId('code-composer-input')).toBeDisabled()
     await expect(page.getByTestId('code-composer-input')).toHaveValue(unsentDraft)
     expect(restartedAgentId).not.toBe('')

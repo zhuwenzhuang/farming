@@ -79,8 +79,8 @@ test('reveals more Agent row information as the sidebar widens', async ({ page, 
       maskImage: style.maskImage || style.getPropertyValue('-webkit-mask-image'),
     }
   })
-  expect(actionCover.backgroundImage.match(/linear-gradient/g)).toHaveLength(2)
-  expect(actionCover.maskImage).toContain('linear-gradient')
+  expect(actionCover.backgroundImage.match(/linear-gradient/g)).toHaveLength(1)
+  expect(actionCover.maskImage).toBe('none')
   const titleCard = page.getByTestId('code-agent-hover-title-card')
   const agentPreview = page.getByTestId('code-agent-hover-preview')
   await expect(titleCard).toBeVisible()

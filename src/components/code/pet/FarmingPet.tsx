@@ -14,6 +14,7 @@ import {
 import { CheckGlyph, PlayGlyph } from '@/components/IconGlyphs'
 import {
   PET_APPEARANCE_PREVIEW_EVENT,
+  PET_REST_REMINDER_INVITATION_READY_EVENT,
   PET_SETTINGS_EVENT,
   PET_REST_REMINDER_INVITATION_STORAGE_KEY,
   REST_REMINDER_DEFAULT_INTERVAL_SECONDS,
@@ -139,11 +140,17 @@ function useRestReminderInvitationReady(enabled: boolean) {
       }
       schedule()
     }
+    const onInvitationReady = () => {
+      runtime = readInvitationRuntime()
+      schedule()
+    }
 
     schedule()
     document.addEventListener('visibilitychange', onVisibilityChange)
+    window.addEventListener(PET_REST_REMINDER_INVITATION_READY_EVENT, onInvitationReady)
     return () => {
       document.removeEventListener('visibilitychange', onVisibilityChange)
+      window.removeEventListener(PET_REST_REMINDER_INVITATION_READY_EVENT, onInvitationReady)
       if (timeout !== null) window.clearTimeout(timeout)
       if (runtime.foregroundStartedAt !== null) {
         const now = Date.now()
