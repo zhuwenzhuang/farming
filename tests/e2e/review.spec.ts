@@ -204,6 +204,29 @@ test('keeps existing toolbar controls reflected in the rendered review', async (
   await expect(review.locator('[aria-label^="Diff for "]')).toHaveCount(0)
 })
 
+test('keeps keyboard focus inside Diff Preferences and restores its trigger', async ({ page }) => {
+  await page.goto('/farming/review?fixture=1')
+
+  const trigger = page.getByRole('button', { name: 'Diff preferences' })
+  await trigger.focus()
+  await page.keyboard.press('Enter')
+
+  const dialog = page.getByRole('dialog', { name: 'Diff Preferences' })
+  const cancel = dialog.getByRole('button', { name: 'CANCEL' })
+  const save = dialog.getByRole('button', { name: 'SAVE' })
+  await expect(cancel).toBeFocused()
+
+  await page.keyboard.press('Shift+Tab')
+  await expect(dialog.locator(':focus')).toHaveCount(1)
+  await save.focus()
+  await page.keyboard.press('Tab')
+  await expect(page.getByLabel('Context', { exact: true })).toBeFocused()
+
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  await expect(trigger).toBeFocused()
+})
+
 test('applies whitespace presentation preferences to the rendered diff', async ({ page }) => {
   await page.goto('/farming/review?fixture=1')
 

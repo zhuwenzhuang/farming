@@ -1,4 +1,5 @@
 import { Fragment, type ReactNode, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import hljs from 'highlight.js/lib/core'
 import bash from 'highlight.js/lib/languages/bash'
 import cpp from 'highlight.js/lib/languages/cpp'
@@ -22,6 +23,7 @@ import {
   SettingsGlyph,
 } from '@/components/IconGlyphs'
 import { CodeSelect } from '@/components/CodeSelect'
+import { useModalFocusScope } from '@/hooks/useModalFocusScope'
 import { completeReviewFileDiffLoad, failReviewFileDiffLoad } from '@/lib/review/effects'
 import { reviewFileRowModel, type ReviewFileRowAction, type ReviewFileRowModel } from '@/lib/review/file-list'
 import { acpReviewCaptureRequestFromSearch, reviewSnapshotRequestFromLocation } from '@/lib/review/route-target'
@@ -1064,6 +1066,14 @@ export function ReviewPage() {
   catalogRef.current = catalog
   const [draftPreferences, setDraftPreferences] = useState<DiffPreferences>(DEFAULT_DIFF_PREFERENCES)
   const [showPreferences, setShowPreferences] = useState(false)
+  const preferencesTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const preferencesCancelRef = useRef<HTMLButtonElement | null>(null)
+  const preferencesDialogRef = useModalFocusScope<HTMLElement>({
+    open: showPreferences,
+    initialFocusRef: preferencesCancelRef,
+    returnFocusRef: preferencesTriggerRef,
+    onEscape: () => setShowPreferences(false),
+  })
   const [commitCopied, setCommitCopied] = useState(false)
   const [reviewStatusError, setReviewStatusError] = useState('')
   const [reviewCommentError, setReviewCommentError] = useState('')
@@ -1752,7 +1762,7 @@ export function ReviewPage() {
               <button type="button" className={`review-icon-action ${diffMode === 'split' ? 'active' : ''}`} aria-label="Side-by-side diff" title="Side-by-side diff" onClick={() => applyReviewAction({ mode: 'split', type: 'set-diff-mode' })}><DiffSplitGlyph /></button>
               <button type="button" className={`review-icon-action ${diffMode === 'unified' ? 'active' : ''}`} aria-label="Unified diff" title="Unified diff" onClick={() => applyReviewAction({ mode: 'unified', type: 'set-diff-mode' })}><DiffUnifiedGlyph /></button>
             </> : null}
-            <button type="button" className="review-icon-action" aria-label="Diff preferences" title="Diff preferences" onClick={openPreferences}><SettingsGlyph /></button>
+            <button ref={preferencesTriggerRef} type="button" className="review-icon-action" aria-label="Diff preferences" title="Diff preferences" onClick={openPreferences}><SettingsGlyph /></button>
           </div>
           {reviewStatusError || reviewCommentError ? <span className="review-review-error" role="status">{reviewStatusError || reviewCommentError}</span> : null}
         </header>
@@ -1895,9 +1905,9 @@ export function ReviewPage() {
           })}
         </div>
       </section>
-      {showPreferences ? (
+      {showPreferences ? createPortal(
         <div className="review-preferences-backdrop" role="presentation" onMouseDown={() => setShowPreferences(false)}>
-          <section className="review-preferences" role="dialog" aria-modal="true" aria-labelledby="review-preferences-title" onMouseDown={event => event.stopPropagation()}>
+          <section ref={preferencesDialogRef} className="review-preferences" role="dialog" aria-modal="true" aria-labelledby="review-preferences-title" onMouseDown={event => event.stopPropagation()}>
             <header><h2 id="review-preferences-title">Diff Preferences</h2></header>
             <div className="review-preferences-form">
               <CodeSelect
@@ -1933,9 +1943,9 @@ export function ReviewPage() {
                 onChange={value => setDraftPreferences(current => ({ ...current, ignoreWhitespace: value as IgnoreWhitespace }))}
               />
             </div>
-            <footer><button type="button" onClick={() => setShowPreferences(false)}>CANCEL</button><button type="button" onClick={savePreferences}>SAVE</button></footer>
+            <footer><button ref={preferencesCancelRef} type="button" onClick={() => setShowPreferences(false)}>CANCEL</button><button type="button" onClick={savePreferences}>SAVE</button></footer>
           </section>
-        </div>
+        </div>, document.body,
       ) : null}
     </main>
   )
