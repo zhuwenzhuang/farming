@@ -348,7 +348,7 @@ test('preserves every visible directory level across sticky scroll, collapse, re
     projectTitle: 'rgb(87, 96, 106)',
     filesHeader: 'rgb(87, 96, 106)',
     fileRow: 'rgb(87, 96, 106)',
-    activeFileBackground: 'rgba(9, 105, 218, 0.1)',
+    activeFileBackground: 'rgb(221, 231, 240)',
     stickyRow: 'rgb(87, 96, 106)',
     openEditor: 'rgb(87, 96, 106)',
   })

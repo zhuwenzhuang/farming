@@ -242,16 +242,40 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
     document.body.dataset.appearance = appearance
     const activeTab = document.querySelector<HTMLElement>('.code-file-editor-tab.active')!
     const activeFileRow = document.querySelector<HTMLElement>('.code-file-row.active')!
+    const activeAgentRow = document.querySelector<HTMLElement>('.code-agent-row.active')!
     return {
       appearance,
+      activeAgentRowBackground: getComputedStyle(activeAgentRow).backgroundColor,
       activeTabBackground: getComputedStyle(activeTab).backgroundColor,
       activeFileRowBackground: getComputedStyle(activeFileRow).backgroundColor,
       activeFileRowEdgeContent: getComputedStyle(activeFileRow, '::after').content,
     }
   }))
   for (const selection of activeSelectionSurfaces) {
+    expect(selection.activeAgentRowBackground, selection.appearance).toBe(selection.activeTabBackground)
     expect(selection.activeFileRowBackground, selection.appearance).toBe(selection.activeTabBackground)
+    expect(colorAlpha(selection.activeTabBackground), selection.appearance).toBe(1)
     expect(selection.activeFileRowEdgeContent, selection.appearance).toBe('none')
+  }
+
+  const compactActiveSelectionSurfaces = await page.evaluate(() => {
+    document.body.classList.add('code-compact-layout')
+    const surfaces = (['light', 'dark', 'paper'] as const).map(appearance => {
+      document.body.dataset.appearance = appearance
+      return {
+        appearance,
+        activeAgentRowBackground: getComputedStyle(document.querySelector<HTMLElement>('.code-agent-row.active')!).backgroundColor,
+        activeFileRowBackground: getComputedStyle(document.querySelector<HTMLElement>('.code-file-row.active')!).backgroundColor,
+        activeTabBackground: getComputedStyle(document.querySelector<HTMLElement>('.code-file-editor-tab.active')!).backgroundColor,
+      }
+    })
+    document.body.classList.remove('code-compact-layout')
+    return surfaces
+  })
+  for (const selection of compactActiveSelectionSurfaces) {
+    expect(selection.activeAgentRowBackground, `${selection.appearance} compact`).toBe(selection.activeTabBackground)
+    expect(selection.activeFileRowBackground, `${selection.appearance} compact`).toBe(selection.activeTabBackground)
+    expect(colorAlpha(selection.activeTabBackground), `${selection.appearance} compact`).toBe(1)
   }
 
   const paperHeader = await page.evaluate(() => {

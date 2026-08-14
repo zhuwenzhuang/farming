@@ -163,8 +163,8 @@
 }
 
 .code-agent-row.active {
-  --code-agent-row-action-overlay: var(--code-bg-selected);
-  background: var(--code-bg-selected);
+  --code-agent-row-action-overlay: var(--code-active-item-surface);
+  background: var(--code-active-item-surface);
   color: var(--code-text);
 }
 

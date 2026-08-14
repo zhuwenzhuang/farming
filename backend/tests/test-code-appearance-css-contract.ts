@@ -66,6 +66,7 @@ assert(!CODE_STYLE_SOURCES.some(source => source.endsWith('-dark.css')), 'dark c
 
 for (const appearance of appearances) {
   const roles = registry[appearance].css
+  assert.match(roles['--code-active-item-surface'], /^#[0-9a-f]{6}$/i, `${appearance} active items must use an opaque final surface`)
   assert.equal(roles['--code-panel-border'], 'transparent', `${appearance} passive panels must use tonal separation`)
   assert.equal(roles['--code-panel-divider'], 'transparent', `${appearance} passive panel rows must use tonal separation`)
   assert.equal(roles['--code-composer-border'], 'transparent', `${appearance} composer must use tonal separation`)
@@ -253,8 +254,11 @@ const structuralSurfaceContracts = [
   ['src/styles/agent-list.css', '.code-agent-row', '--code-agent-row-action-surface', 'var(--code-navigation-surface)'],
   ['src/styles/agent-list.css', '.code-agent-row-actions', '--code-agent-row-action-surface', 'var(--code-navigation-surface)'],
   ['src/styles/agent-list.css', 'body.code-mode.code-compact-layout .code-agents-section', 'background', 'var(--code-navigation-surface)'],
-  ['src/styles/agent-list.css', '.code-agent-row.active', 'background', 'var(--code-bg-selected)'],
+  ['src/styles/agent-list.css', '.code-agent-row.active', 'background', 'var(--code-active-item-surface)'],
   ['src/styles/agent-list.css', '.code-agent-row.search-selected', 'background', 'var(--code-bg-selected)'],
+  ['src/styles/files.css', '.code-file-row.active', 'background', 'var(--code-active-item-surface)'],
+  ['src/styles/files.css', 'body.code-mode.code-compact-layout .code-file-row.active', 'background', 'var(--code-active-item-surface)'],
+  ['src/styles/file-editor.css', '.code-file-editor-tab.active', 'background', 'var(--code-active-item-surface)'],
 ] as const
 for (const [sourcePath, selector, property, expectedValue] of structuralSurfaceContracts) {
   const root = postcss.parse(fs.readFileSync(path.join(projectRoot, sourcePath), 'utf8'), { from: sourcePath })

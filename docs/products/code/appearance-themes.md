@@ -37,7 +37,10 @@ Project, file, or terminal state.
 - Parallel representations of the same active item use the same selected fill;
   for example, the active file row and its editor tab must match. Selected or
   active rows never add a left-edge line, bar, border, or rail, and one item
-  must not stack competing selection cues.
+  must not stack competing selection cues. Active Agent rows, file rows, and
+  editor tabs use the opaque `--code-active-item-surface` role so their final
+  rendered color matches across different parent surfaces without changing the
+  generic `--code-bg-selected` role used by other controls.
 - A visually continuous control or state surface keeps one outer corner
   geometry across its base, hover or selection fill, overlay, and action
   layers. Asymmetric square and rounded ends require an explicit joined-control

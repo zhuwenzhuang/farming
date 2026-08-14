@@ -5,6 +5,7 @@ body.code-mode {
   --code-accent: #0969da;
   --code-accent-hover: #0757b6;
   --code-accent-soft: rgba(9, 105, 218, 0.1);
+  --code-active-item-surface: #dde7f0;
   --code-bg-backdrop: rgba(15, 23, 42, 0.18);
   --code-bg-canvas: #ffffff;
   --code-bg-chrome: #f4f5f2;
@@ -50,7 +51,6 @@ body.code-mode {
   --code-empty-guide-origin: rgba(142, 151, 139, 0.46);
   --code-empty-guide-target: rgba(142, 151, 139, 0.56);
   --code-file-editor-active-tab-seam: var(--code-bg-selected);
-  --code-file-editor-active-tab-surface: var(--code-bg-selected);
   --code-file-editor-tab-color: var(--code-text);
   --code-file-editor-tab-strip-surface: var(--code-bg-inset);
   --code-file-metadata-bg: linear-gradient(180deg, rgba(246, 247, 243, 0.78), rgba(255, 255, 255, 0.92));
@@ -141,6 +141,7 @@ body.code-mode[data-appearance='dark'] {
   --code-accent: #339cff;
   --code-accent-hover: #79c0ff;
   --code-accent-soft: rgba(51, 156, 255, 0.18);
+  --code-active-item-surface: #233648;
   --code-bg-backdrop: rgba(1, 4, 9, 0.58);
   --code-bg-canvas: #181818;
   --code-bg-chrome: #202020;
@@ -186,7 +187,6 @@ body.code-mode[data-appearance='dark'] {
   --code-empty-guide-origin: rgba(139, 148, 158, 0.5);
   --code-empty-guide-target: rgba(139, 148, 158, 0.62);
   --code-file-editor-active-tab-seam: var(--code-bg-selected);
-  --code-file-editor-active-tab-surface: var(--code-bg-selected);
   --code-file-editor-tab-color: var(--code-text);
   --code-file-editor-tab-strip-surface: var(--code-bg-inset);
   --code-file-metadata-bg: linear-gradient(180deg, rgba(22, 27, 34, 0.88), rgba(13, 17, 23, 0.96));
@@ -277,6 +277,7 @@ body.code-mode[data-appearance='paper'] {
   --code-accent: #282922;
   --code-accent-hover: #10110e;
   --code-accent-soft: rgba(40, 41, 34, 0.07);
+  --code-active-item-surface: #e6e5e1;
   --code-bg-backdrop: rgba(60, 53, 40, 0.2);
   --code-bg-canvas: #f9f8f4;
   --code-bg-chrome: #f9f8f4;
@@ -322,7 +323,6 @@ body.code-mode[data-appearance='paper'] {
   --code-empty-guide-origin: rgba(142, 151, 139, 0.46);
   --code-empty-guide-target: rgba(142, 151, 139, 0.56);
   --code-file-editor-active-tab-seam: transparent;
-  --code-file-editor-active-tab-surface: var(--code-bg-selected);
   --code-file-editor-tab-color: var(--code-text-muted);
   --code-file-editor-tab-strip-surface: var(--code-bg-canvas);
   --code-file-metadata-bg: linear-gradient(180deg, rgba(40, 41, 34, 0.025), rgba(255, 255, 255, 0.12));

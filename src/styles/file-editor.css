@@ -124,7 +124,7 @@
 
 .code-file-editor-tab.active {
   border-top-color: transparent;
-  background: var(--code-file-editor-active-tab-surface);
+  background: var(--code-active-item-surface);
   color: var(--code-text-strong);
 }
 

@@ -27,7 +27,9 @@ Farming Code 支持跟随系统、浅色、深色和纸张四种外观。外观�
   Section Header 保持 panel 表面，不能表现得像第二个选中项。
 - 同一 Active 项在不同位置的表示使用相同的 Selected 填充，例如当前文件行必须与对应的
   Editor Tab 保持一致。Selected 或 Active 行不得增加左侧线、色条、边框或轨道，同一项也
-  不得叠加多个相互竞争的选中提示。
+  不得叠加多个相互竞争的选中提示。Active Agent 行、文件行与 Editor Tab 使用不透明的
+  `--code-active-item-surface` 角色，使它们跨不同父级表面时最终渲染颜色仍保持一致，同时不
+  改变其他控件使用的通用 `--code-bg-selected` 角色。
 - 视觉上连续的控件或状态表面，其基础层、Hover 或 Selected 填充层、覆盖层与操作层应保持
   同一套外轮廓圆角。方角与圆角的不对称组合只能来自明确的组合控件设计，不能由图层覆盖
   意外产生。
