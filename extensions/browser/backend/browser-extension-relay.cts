@@ -31,6 +31,19 @@ type BrowserExtensionRelayOptions = {
 
 type BrowserExtensionIntegrity = 'invalid' | 'missing' | 'valid';
 
+function directorySizeBytes(directory: string): number {
+  let total = 0;
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      total += directorySizeBytes(entryPath);
+    } else if (entry.isFile()) {
+      total += fs.statSync(entryPath).size;
+    }
+  }
+  return total;
+}
+
 function extensionIntegrity(source: string, destination: string): BrowserExtensionIntegrity {
   if (!fs.existsSync(path.join(source, 'manifest.json'))) return 'invalid';
   let current: fs.Stats;
@@ -122,6 +135,7 @@ class BrowserExtensionRelay {
     return {
       installed: integrity === 'valid',
       extensionPath: this.extensionPath,
+      sizeBytes: directorySizeBytes(this.extensionSource),
       integrity,
       connected: this.handle?.bridge.extensionConnected === true,
       browser: this.handle?.bridge.identity || null,

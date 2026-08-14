@@ -391,6 +391,7 @@ async function run() {
     const initialCapability = relay.capability();
     assert.strictEqual(initialCapability.installed, false);
     assert.strictEqual(initialCapability.integrity, 'missing');
+    assert.ok(initialCapability.sizeBytes > 0);
     assert.strictEqual(fs.existsSync(browserExtensionPath(configDir)), false);
     await relay.init();
     assert.strictEqual(relay.capability().installed, false);
@@ -399,6 +400,7 @@ async function run() {
     assert.strictEqual(capability.installed, true);
     assert.strictEqual(capability.connected, false);
     assert.strictEqual(capability.integrity, 'valid');
+    assert.strictEqual(capability.sizeBytes, initialCapability.sizeBytes);
     assert.strictEqual(capability.extensionPath, path.join(extensionTestRoot, 'farming-browser-connector'));
     assert.strictEqual(browserExtensionPath(configDir), capability.extensionPath);
     assert.strictEqual(

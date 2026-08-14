@@ -1264,6 +1264,7 @@ test('shows concurrent Browser sources and existing Chrome setup', async ({ page
     installed: connectorDirectoryPrepared,
     connected: false,
     extensionPath: '/Users/farming/farming-browser-connector',
+    sizeBytes: 196_608,
     integrity: connectorDirectoryPrepared ? 'valid' : 'missing',
   })
   await page.route(/\/api\/browsers\/extension(?:\?.*)?$/, async route => {
@@ -1320,10 +1321,26 @@ test('shows concurrent Browser sources and existing Chrome setup', async ({ page
   ).__connectorGuideOpened)).toBe(0)
   const removeConnector = myChrome.getByRole('button', { name: 'Remove extension folder' })
   await expect(removeConnector).toBeEnabled()
-  await expect(connectorDetails).toContainText(
-    'Load this folder on Chrome\'s Extensions page, then click Farming Browser Connector.',
-  )
+  await expect(connectorDetails).toContainText('Copy the address below into Chrome\'s address bar')
+  await expect(connectorDetails).toContainText('Chrome Extensions pagechrome://extensionsCopy address')
   await expect(connectorDetails).toContainText('Extension folder/Users/farming/farming-browser-connector')
+  await expect(connectorDetails).toContainText('Size192.0 KiBIntegrityComplete')
+  await page.evaluate(() => {
+    Object.assign(window, { __copiedChromeExtensionsAddress: '' })
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: async (value: string) => {
+          Object.assign(window, { __copiedChromeExtensionsAddress: value })
+        },
+      },
+    })
+  })
+  await myChrome.getByRole('button', { name: 'chrome://extensions Copy address' }).click()
+  await expect(myChrome.getByRole('button', { name: 'chrome://extensions Copied' })).toBeVisible()
+  await expect.poll(() => page.evaluate(() => (
+    window as typeof window & { __copiedChromeExtensionsAddress?: string }
+  ).__copiedChromeExtensionsAddress)).toBe('chrome://extensions')
   await expect(myChrome.getByRole('link', { name: 'Installation steps' })).toBeVisible()
   const screenshot = testInfo.outputPath('browser-sources.png')
   await pluginsPanel.screenshot({ path: screenshot })

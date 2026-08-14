@@ -29,7 +29,8 @@ Farming Browser 是浏览器能力；Farming Browser Connector 是安装在 Chro
 
 Farming 不会在启动时创建这个目录。用户点击**准备插件目录**后，Farming 才会在可见目录建立指向
 包内扩展的链接，不会复制第二份代码。CLI 的 `extension path` 和 `extension status` 用于
-查看目录和连接状态。准备完成后，“我的 Chrome”行只显示插件目录和简短的下一步提示。
+查看目录和连接状态。准备完成后，“我的 Chrome”行显示可复制的 `chrome://extensions` 地址、
+插件目录、大小、完整性和简短安装提示。
 安装和删除必须由用户在 Chrome 中确认。
 
 只连接可信的 Farming。
