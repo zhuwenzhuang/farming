@@ -7,6 +7,7 @@ import zshIcon from '../../../src/assets/agent-icons/color/zsh.svg'
 const providers = [
   { name: 'Codex', icon: 'codex' },
   { name: 'Claude Code', icon: 'claude-code' },
+  { name: 'Pi', icon: 'pi' },
   { name: 'OpenCode', icon: 'opencode' },
   { name: 'Qoder', icon: 'qoder' },
   { name: 'Qwen Code', icon: 'qwen' },
@@ -16,7 +17,7 @@ const providers = [
 </script>
 
 <template>
-  <span class="docs-card-provider-icons" aria-label="支持 Codex、Claude Code、OpenCode、Qoder、Qwen Code、Bash 和 Zsh">
+  <span class="docs-card-provider-icons" aria-label="支持 Codex、Claude Code、Pi、OpenCode、Qoder、Qwen Code、Bash 和 Zsh">
     <template v-for="provider in providers" :key="provider.icon">
       <img
         :class="`provider-icon provider-icon-${provider.icon} provider-icon-warm`"

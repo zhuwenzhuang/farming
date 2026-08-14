@@ -7,18 +7,18 @@ description: 用五个步骤安装 Farming、启动第一个 Coding Agent，并�
 
 按下面五个步骤安装 Farming、启动第一个 Coding Agent，并完成一次可验证的任务。
 
-## 准备开发机
+## 准备运行主机
 
 你需要：
 
 - macOS 或 Linux；
 - Node.js 22.13 LTS（22.x）或 Node.js 24+；
-- 至少一个已经可以正常启动的 Coding Agent，例如 Codex、Claude Code 或 OpenCode。
+- 至少一个已经可以正常启动的 Coding Agent，例如 Codex、Claude Code、Pi 或 OpenCode。
 
-Farming 不代替 Provider 登录。请先在运行 Farming 的开发机上完成相应 CLI 的登录，并确认它能独立启动。
+Farming 不代替 Provider 登录。请先在运行 Farming 的 Mac 或 Linux 主机上完成相应 CLI 的登录，并确认它能独立启动。
 
 ::: tip 完成标志
-在同一台开发机上，目标 Coding Agent 的 CLI 可以正常启动，不会卡在登录或初始配置。
+在运行 Farming 的同一台 Mac 或 Linux 主机上，目标 Coding Agent 的 CLI 可以正常启动，不会卡在登录或初始配置。
 :::
 
 ## 安装并打开 Farming

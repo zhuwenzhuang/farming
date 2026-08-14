@@ -4,7 +4,7 @@ layout: home
 hero:
   name: Farming
   text: A browser workspace for AI coding agents
-  tagline: Engineering Is Becoming Farming
+  tagline: 'Engineering Becomes Agent Farming<span class="farming-hero-description">Access Coding Agents running on your Mac or Linux host in real time from a browser, then open the same remote workspace on your phone or share it with others.</span>'
   image:
     src: /farming-hero.png
     alt: Farming Code
@@ -30,7 +30,7 @@ hero:
   </a>
   <a class="docs-card" href="./get-started/quickstart">
     <strong>Remote web access</strong>
-    <span>Run Farming on your development machine and connect from a desktop or phone browser.</span>
+    <span>Run Farming on a Mac or Linux host and connect from a desktop or phone browser.</span>
     <ProviderIcons />
   </a>
   <a class="docs-card" href="./code/files">

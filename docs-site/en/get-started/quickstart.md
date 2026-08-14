@@ -13,12 +13,12 @@ You need:
 
 - macOS or Linux;
 - Node.js 22.13 LTS (22.x) or Node.js 24+;
-- at least one coding Agent that already starts successfully, such as Codex, Claude Code, or OpenCode.
+- at least one coding Agent that already starts successfully, such as Codex, Claude Code, Pi, or OpenCode.
 
-Farming does not replace provider authentication. Sign in to the corresponding CLI on the development machine and confirm that it can start independently.
+Farming does not replace provider authentication. Sign in to the corresponding CLI on the Mac or Linux host running Farming and confirm that it can start independently.
 
 ::: tip Checkpoint
-On the same development machine, the target coding Agent CLI starts without waiting for sign-in or initial setup.
+On the same Mac or Linux host running Farming, the target coding Agent CLI starts without waiting for sign-in or initial setup.
 :::
 
 ## Install and open Farming

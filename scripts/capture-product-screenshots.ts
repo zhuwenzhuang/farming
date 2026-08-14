@@ -1573,6 +1573,7 @@ async function main() {
 
     await openNewAgentDialog(page);
     await screenshot(page, '02-start-agent-picker.png');
+    if (requestedScreenshotsComplete()) return;
     await closeNewAgentDialog(page);
 
     await openAgent(page, codexAgentId);

@@ -209,6 +209,17 @@
   letter-spacing: -0.01em;
 }
 
+.VPHero .tagline .farming-hero-description {
+  display: block;
+  margin-top: 14px;
+  color: var(--vp-c-text-1);
+  font-family: var(--farming-font-sans);
+  font-size: 16px;
+  font-weight: 450;
+  line-height: 1.65;
+  letter-spacing: 0;
+}
+
 .VPHero.has-image .text {
   margin-top: 28px !important;
 }

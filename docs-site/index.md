@@ -4,7 +4,7 @@ layout: home
 hero:
   name: Farming
   text: 浏览器中的 AI Coding Agent 工作区
-  tagline: Engineering Is Becoming Farming
+  tagline: 'Engineering Becomes Agent Farming<span class="farming-hero-description">通过浏览器实时访问运行在你的 Mac 或 Linux 主机上的 Coding Agent，并从手机接入或与他人分享同一远端工作区。</span>'
   image:
     src: /farming-hero.png
     alt: Farming Code
@@ -30,7 +30,7 @@ hero:
   </a>
   <a class="docs-card" href="./cn/get-started/quickstart">
     <strong>Web 远程托管</strong>
-    <span>运行在开发机上，通过桌面或手机浏览器访问。</span>
+    <span>运行在 Mac 或 Linux 主机上，通过桌面或手机浏览器访问。</span>
     <ProviderIcons />
   </a>
   <a class="docs-card" href="./cn/code/files">
