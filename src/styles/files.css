@@ -972,6 +972,14 @@ body.code-mode .code-file-change-group-toggle {
   z-index: 1;
 }
 
+.code-file-row:hover::before,
+.code-file-row.focused::before,
+.code-file-row.selected::before,
+.code-file-row.opening::before,
+.code-file-row.active::before {
+  opacity: 0;
+}
+
 .code-file-row:focus,
 .code-file-row:focus-visible {
   outline: 0 !important;
@@ -2066,7 +2074,7 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
 }
 
 .code-file-tree-row:hover {
-  background: var(--code-bg-hover);
+  background: transparent;
 }
 
 .code-file-tree-row:hover {
@@ -2074,7 +2082,7 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
 }
 
 .code-file-tree-row.active {
-  background: var(--code-bg-selected);
+  background: transparent;
 }
 
 .code-file-tree-row.active {

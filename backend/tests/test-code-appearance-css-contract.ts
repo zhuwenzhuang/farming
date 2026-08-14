@@ -269,6 +269,8 @@ const structuralSurfaceContracts = [
   ['src/styles/files.css', '.code-open-editor-main', 'border-radius', 'inherit'],
   ['src/styles/files.css', '.code-open-editor-actions', 'border-radius', '0 8px 8px 0'],
   ['src/styles/files.css', '.code-file-tree-row-frame', 'border-radius', '8px'],
+  ['src/styles/files.css', '.code-file-tree-row:hover', 'background', 'transparent'],
+  ['src/styles/files.css', '.code-file-tree-row.active', 'background', 'transparent'],
   ['src/styles/files.css', '.code-file-row', 'border-radius', '8px'],
   ['src/styles/files.css', '.code-file-row:hover', 'background', 'var(--code-active-item-surface)'],
   ['src/styles/files.css', '.code-file-row.selected:not(.active)', 'background', 'var(--code-active-item-surface)'],

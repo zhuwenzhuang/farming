@@ -243,6 +243,7 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
     document.body.dataset.appearance = appearance
     const activeTab = document.querySelector<HTMLElement>('.code-file-editor-tab.active')!
     const activeFileRow = document.querySelector<HTMLElement>('.code-file-row.active')!
+    const activeFileFrame = activeFileRow.closest<HTMLElement>('.code-file-tree-row-frame')!
     const activeAgentRow = document.querySelector<HTMLElement>('.code-agent-row.active')!
     return {
       appearance,
@@ -251,6 +252,8 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
       activeTabBackground: getComputedStyle(activeTab).backgroundColor,
       activeFileRowBackground: getComputedStyle(activeFileRow).backgroundColor,
       activeFileRowBorderRadius: getComputedStyle(activeFileRow).borderRadius,
+      activeFileRowGuideOpacity: getComputedStyle(activeFileRow, '::before').opacity,
+      activeFileFrameBackground: getComputedStyle(activeFileFrame).backgroundColor,
       activeFileRowEdgeContent: getComputedStyle(activeFileRow, '::after').content,
     }
   }))
@@ -259,6 +262,8 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
     expect(selection.activeFileRowBackground, selection.appearance).toBe(selection.activeTabBackground)
     expect(selection.activeAgentRowBorderRadius, selection.appearance).toBe('8px')
     expect(selection.activeFileRowBorderRadius, selection.appearance).toBe('8px')
+    expect(selection.activeFileRowGuideOpacity, selection.appearance).toBe('0')
+    expect(colorAlpha(selection.activeFileFrameBackground), selection.appearance).toBe(0)
     expect(colorAlpha(selection.activeTabBackground), selection.appearance).toBe(1)
     expect(selection.activeFileRowEdgeContent, selection.appearance).toBe('none')
   }
@@ -276,6 +281,12 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
     await inactiveFileRow.hover()
     await expect(inactiveFileRow, `${appearance} file hover`).toHaveCSS('background-color', activeSurface)
     await expect(inactiveFileRow, `${appearance} file radius`).toHaveCSS('border-radius', '8px')
+    const hoveredFileLayers = await inactiveFileRow.evaluate(element => ({
+      frameBackground: getComputedStyle(element.closest<HTMLElement>('.code-file-tree-row-frame')!).backgroundColor,
+      guideOpacity: getComputedStyle(element, '::before').opacity,
+    }))
+    expect(colorAlpha(hoveredFileLayers.frameBackground), `${appearance} file frame`).toBe(0)
+    expect(hoveredFileLayers.guideOpacity, `${appearance} file guide`).toBe('0')
     await inactiveTab.hover()
     await expect(inactiveTab, `${appearance} tab hover`).toHaveCSS('background-color', activeSurface)
   }
