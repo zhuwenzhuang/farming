@@ -232,7 +232,6 @@ function pluginCopy(language: UiLanguage) {
     browserCheckFailed: zh ? '浏览器当前状态检查失败。' : 'Failed to check the current Browser status.',
     computerCheckFailed: zh ? 'Computer Use 当前状态检查失败。' : 'Failed to check the current Computer Use status.',
     noSystemBrowser: zh ? '未发现系统 Chromium' : 'No system Chromium detected',
-    externalBrowser: zh ? '已有 Chrome（CDP）' : 'Existing Chrome (CDP)',
     extensionBrowser: zh ? '用户已有 Chrome' : 'Your existing Chrome',
     extensionConnected: zh ? 'Farming Browser Connector 已连接。' : 'Farming Browser Connector is connected.',
     extensionWaiting: zh ? '等待 Farming Browser Connector 连接。' : 'Waiting for Farming Browser Connector.',
@@ -244,8 +243,6 @@ function pluginCopy(language: UiLanguage) {
     copyExtensionPath: zh ? '复制目录' : 'Copy directory',
     copiedExtensionPath: zh ? '已复制' : 'Copied',
     extensionStatusFailed: zh ? 'Farming Browser Connector 状态加载失败' : 'Failed to load Farming Browser Connector status',
-    externalCdpAddress: zh ? 'CDP 地址' : 'CDP address',
-    externalCdpPlaceholder: 'http://127.0.0.1:9222',
     isolatedBrowser: zh ? '隔离浏览器' : 'Isolated Browser',
     isolatedBrowserRequiresDocker: zh ? '隔离浏览器（需要 Docker）' : 'Isolated Browser (requires Docker)',
     isolatedBrowserNotInstalled: zh ? '隔离浏览器（未安装）' : 'Isolated Browser (not installed)',
@@ -257,8 +254,6 @@ function pluginCopy(language: UiLanguage) {
     ready: zh ? '可用' : 'Available',
     notReady: zh ? '未连接' : 'Not connected',
     installConnector: zh ? '安装连接扩展' : 'Install connector',
-    configureCdp: zh ? '配置 CDP' : 'Configure CDP',
-    applyBrowser: zh ? '应用' : 'Apply',
     prepareIsolatedBrowser: zh ? '准备隔离浏览器' : 'Prepare isolated Browser',
     preparingIsolatedBrowser: zh ? '正在下载并验证…' : 'Downloading and verifying…',
     isolatedBrowserHint: zh
@@ -280,9 +275,6 @@ function pluginCopy(language: UiLanguage) {
       ? '这台旧版 Docker 需要显式启用兼容模式后再重试。'
       : 'This older Docker Engine requires compatibility mode before retrying.',
     browserChangeHint: '',
-    externalBrowserHint: zh
-      ? '仅连接你显式开放在本机回环地址的可信 Chrome；Farming 会在其中创建自己的标签页并复用登录态。'
-      : 'Connect only a trusted Chrome explicitly exposed on loopback; Farming creates its own tab there and reuses its login state.',
     unavailableHint: zh
       ? '可以选择本机 Chromium、连接已有 Chrome，或准备由 Farming 管理的隔离浏览器。'
       : 'Choose a local Chromium browser, connect an existing Chrome, or prepare the Farming-managed isolated Browser.',
@@ -598,8 +590,6 @@ export function PluginsPanel({
   const [preparingIsolatedBrowser, setPreparingIsolatedBrowser] = useState(false)
   const [isolatedCompatibilityRequired, setIsolatedCompatibilityRequired] = useState(false)
   const [error, setError] = useState('')
-  const [externalCdpUrl, setExternalCdpUrl] = useState('http://127.0.0.1:9222')
-  const [showExternalCdp, setShowExternalCdp] = useState(false)
   const [browserExtensionPath, setBrowserExtensionPath] = useState('')
   const [browserExtensionStatusError, setBrowserExtensionStatusError] = useState('')
   const [browserExtensionPathCopied, setBrowserExtensionPathCopied] = useState(false)
@@ -675,8 +665,6 @@ export function PluginsPanel({
   useEffect(() => {
     if (!capability) return
     setEnabled(capability.enabled)
-    const selection = capability.selection
-    setExternalCdpUrl(selection?.externalCdpUrl || 'http://127.0.0.1:9222')
   }, [capability])
 
   useEffect(() => {
@@ -944,28 +932,6 @@ export function PluginsPanel({
       }
       if (!response.ok) throw new Error(data.error || copy.saveFailed)
       setEnabled(data.settings?.browserExtensionEnabled === true)
-      onRefreshCapability()
-    } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : copy.saveFailed)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const saveExternalCdp = async () => {
-    if (saving || !externalCdpUrl.trim()) return
-    setSaving(true)
-    setError('')
-    try {
-      const response = await fetch(appPath('/api/settings'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({
-          browserExternalCdpUrl: externalCdpUrl,
-        }),
-      })
-      const data = await response.json().catch(() => ({})) as { error?: string }
-      if (!response.ok) throw new Error(data.error || copy.saveFailed)
       onRefreshCapability()
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : copy.saveFailed)
@@ -1341,40 +1307,7 @@ export function PluginsPanel({
                   onClick={() => void prepareIsolatedBrowser()}
                 >{preparingIsolatedBrowser ? copy.preparingIsolatedBrowser : copy.prepareIsolatedBrowser}</button> : null}
               </div>
-              <div className="code-plugin-browser-source">
-                <div>
-                  <strong>{copy.externalBrowser}</strong>
-                  <small>{showExternalCdp ? copy.configureCdp : copy.notReady}</small>
-                </div>
-                <button type="button" onClick={() => setShowExternalCdp(value => !value)}>{copy.configureCdp}</button>
-              </div>
-              {showExternalCdp ? (
-                <label className="code-plugin-browser-cdp">
-                  <span>{copy.externalCdpAddress}</span>
-                  <input
-                    type="url"
-                    value={externalCdpUrl}
-                    placeholder={copy.externalCdpPlaceholder}
-                    disabled={loading || saving || preparingIsolatedBrowser}
-                    onChange={event => {
-                      setExternalCdpUrl(event.target.value)
-                      setError('')
-                    }}
-                  />
-                </label>
-              ) : null}
-              {showExternalCdp ? (
-                <button
-                  type="button"
-                  className="code-plugin-browser-apply"
-                  disabled={saving || loading || !externalCdpUrl.trim()}
-                  onClick={() => void saveExternalCdp()}
-                >
-                  {copy.applyBrowser}
-                </button>
-              ) : null}
             </div>
-            {showExternalCdp ? <small>{copy.externalBrowserHint}</small> : null}
             {browserExtensionStatusError ? (
               <div className="code-plugin-error" role="alert">{browserExtensionStatusError}</div>
             ) : null}

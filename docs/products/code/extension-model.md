@@ -93,8 +93,8 @@ must expose both operations so temporary verification Resources can be deleted
 by exact id instead of accumulating as stopped inventory. An Agent lifecycle
 stop or archive uses deletion; Chat/Terminal replacement is explicitly exempt.
 
-Project-owned Browser Resources are supported by system Chromium and explicit
-external CDP selections. The isolated Browser leases an Agent-owned Computer,
+Project-owned Browser Resources are supported by system Chromium. The isolated
+Browser leases an Agent-owned Computer,
 so it accepts only an active Agent owner; Project creation is rejected before a
 row is persisted, and retained Project rows stay hidden while isolated mode is
 selected. In the Project sidebar, Project Resource sections have an explicit

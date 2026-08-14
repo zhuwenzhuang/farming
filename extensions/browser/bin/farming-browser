@@ -195,9 +195,8 @@ function commandInput(command) {
       inputField('--workspace', 'path', false),
       inputField('--name', 'string', false),
       inputField('--url', 'http-url', false),
-      inputField('--source', 'enum', false, ['system', 'extension', 'isolated', 'external-cdp']),
+      inputField('--source', 'enum', false, ['system', 'extension', 'isolated']),
       inputField('--executable', 'path', false),
-      inputField('--cdp-url', 'http-url', false),
     ],
   };
   if (['start', 'stop', 'delete', 'snapshot', 'screenshot', 'back', 'forward', 'reload'].includes(command)) {
@@ -348,7 +347,7 @@ function commandUsage(command) {
     return `Usage: farming browser ${command}${suffix ? ` ${suffix}` : ''}\n`;
   }
   if (command === 'open' || command === 'create') {
-    return `Usage: farming browser ${command} [--workspace <path>] [--name <name>] [--url <url>] [--source <system|extension|isolated|external-cdp>]
+    return `Usage: farming browser ${command} [--workspace <path>] [--name <name>] [--url <url>] [--source <system|extension|isolated>]
 
 ${command === 'open' ? 'Creates and starts' : 'Creates'} one Project-scoped Browser Resource. It is the Farming equivalent of
 opening another independently visible browser tab.${command === 'create' ? ' Run start before page operations.' : ''}
@@ -597,7 +596,6 @@ async function run(argv = process.argv.slice(2)) {
       name: option(args, '--name') || undefined,
       source: option(args, '--source') || undefined,
       executablePath: option(args, '--executable') || undefined,
-      externalCdpUrl: option(args, '--cdp-url') || undefined,
       url: option(args, '--url') || undefined,
     });
     if (command === 'open') {

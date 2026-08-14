@@ -28,7 +28,6 @@ interface SettingsRecord {
   agentHomes?: unknown;
   browserExecutablePath?: unknown;
   browserExtensionEnabled?: unknown;
-  browserExternalCdpUrl?: unknown;
   browserSource?: unknown;
   computerCompatibilityMode?: unknown;
   computerExtensionEnabled?: unknown;
@@ -52,7 +51,6 @@ interface SettingsMutationPorts {
   normalizeAgentHomes(value: unknown): SettingsRecord['agentHomes'];
   probeBrowser(settings: {
     browserExecutablePath?: string;
-    browserExternalCdpUrl?: string;
     browserSource?: string;
   }): Promise<BrowserProbe>;
   probeComputer(settings: SettingsRecord): Promise<ComputerProbe>;
@@ -92,7 +90,6 @@ const expressFactory = express as ExpressFactory;
 const BROWSER_CONFIGURATION_KEYS = [
   'browserSource',
   'browserExecutablePath',
-  'browserExternalCdpUrl',
 ] as const;
 const COMPUTER_CONFIGURATION_KEYS = [
   'computerImage',
@@ -201,8 +198,6 @@ class SettingsMutationCoordinator {
           ?? optionalString(currentSettings.browserSource),
         browserExecutablePath: optionalString(settingsPatch.browserExecutablePath)
           ?? optionalString(currentSettings.browserExecutablePath),
-        browserExternalCdpUrl: optionalString(settingsPatch.browserExternalCdpUrl)
-          ?? optionalString(currentSettings.browserExternalCdpUrl),
       });
       if (
         (changesBrowserConfiguration || desiredBrowserEnabled)

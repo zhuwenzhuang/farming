@@ -61,6 +61,14 @@ async function run() {
   assert(workflow.includes('take a snapshot'));
   assert(!workflow.includes('--sameSite'));
 
+  const openDescription = describeCommand('open');
+  const sourceOption = openDescription.input.options.find(option => option.name === '--source');
+  assert.deepStrictEqual(sourceOption.values, ['system', 'extension', 'isolated']);
+  assert.strictEqual(
+    openDescription.input.options.some(option => option.name === '--cdp-url'),
+    false,
+  );
+
   const screenshotDescription = JSON.parse((await invoke(browserCli, [
     'describe', 'screenshot', '--json',
   ])).stdout);

@@ -80,7 +80,6 @@ export interface PublicSettings extends JsonRecord {
   appearance: string;
   browserExecutablePath: string;
   browserExtensionEnabled: boolean;
-  browserExternalCdpUrl: string;
   browserSource: string;
   computerCompatibilityMode: boolean;
   computerExtensionEnabled: boolean;
@@ -578,9 +577,8 @@ class ConfigManager {
       heartbeatInterval: 1000,
       dangerouslySkipAgentPermissionsByDefault: false,
       browserExtensionEnabled: true,
-      browserSource: process.env.FARMING_BROWSER_CDP_URL ? 'external-cdp' : 'system',
+      browserSource: 'system',
       browserExecutablePath: process.env.FARMING_BROWSER_EXECUTABLE || '',
-      browserExternalCdpUrl: process.env.FARMING_BROWSER_CDP_URL || 'http://127.0.0.1:9222',
       computerExtensionEnabled: false,
       computerCompatibilityMode: false,
       computerImage: COMPUTER_IMAGE,
@@ -630,8 +628,6 @@ class ConfigManager {
     settings.browserExtensionEnabled = settings.browserExtensionEnabled !== false;
     settings.browserSource = this.normalizeBrowserSource(settings.browserSource);
     settings.browserExecutablePath = this.normalizeBrowserSetting(settings.browserExecutablePath);
-    settings.browserExternalCdpUrl = this.normalizeBrowserSetting(settings.browserExternalCdpUrl)
-      || 'http://127.0.0.1:9222';
     settings.computerExtensionEnabled = settings.computerExtensionEnabled === true;
     if (settings.browserExtensionEnabled && settings.browserSource === 'isolated') {
       settings.computerExtensionEnabled = true;
@@ -943,7 +939,7 @@ class ConfigManager {
   }
 
   normalizeBrowserSource(source: unknown): string {
-    return typeof source === 'string' && ['extension', 'external-cdp', 'isolated'].includes(source)
+    return typeof source === 'string' && ['extension', 'isolated'].includes(source)
       ? source
       : 'system';
   }

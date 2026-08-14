@@ -375,7 +375,6 @@ export interface AgentManagerSettings extends Record<string, unknown> {
   computerExtensionEnabled: boolean;
   computerCompatibilityMode: boolean;
   computerImage: string;
-  browserExternalCdpUrl: string;
   browserSource: string;
   codexApprovalMode: string;
   codexModel: string;

@@ -52,13 +52,12 @@ function run() {
     assert.strictEqual(settings.browserExtensionEnabled, true);
     assert.strictEqual(settings.browserSource, 'system');
     assert.strictEqual(settings.browserExecutablePath, '');
-    assert.strictEqual(settings.browserExternalCdpUrl, 'http://127.0.0.1:9222');
     manager.updateSettings({
       browserSource: 'external-cdp',
       browserExternalCdpUrl: 'http://127.0.0.1:9333',
     });
-    assert.strictEqual(manager.getSettings().browserSource, 'external-cdp');
-    assert.strictEqual(manager.getSettings().browserExternalCdpUrl, 'http://127.0.0.1:9333');
+    assert.strictEqual(manager.getSettings().browserSource, 'system');
+    assert.strictEqual('browserExternalCdpUrl' in manager.getSettings(), false);
     manager.updateSettings({ browserSource: 'invalid' });
     assert.strictEqual(manager.getSettings().browserSource, 'system');
     manager.updateSettings({ browserSource: 'managed' });

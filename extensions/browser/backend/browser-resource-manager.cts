@@ -60,7 +60,6 @@ type BrowserMetadata = { title?: string; url?: string };
 type BrowserCapability = BrowserExecutable;
 type BrowserSelection = {
   executablePath: string;
-  externalCdpUrl: string;
   source: string;
 };
 type CapabilityRefreshOptions = {
@@ -68,10 +67,9 @@ type CapabilityRefreshOptions = {
 };
 type BrowserSettings = {
   browserExecutablePath?: string;
-  browserExternalCdpUrl?: string;
   browserSource?: string;
 };
-const BROWSER_SOURCES = new Set(['extension', 'external-cdp', 'isolated', 'system']);
+const BROWSER_SOURCES = new Set(['extension', 'isolated', 'system']);
 type BrowserOption = BrowserCandidate;
 type BrowserMessage = Record<string, unknown> & {
   claim?: boolean;
@@ -292,16 +290,6 @@ function browserOwnerKey(resource: Pick<BrowserResource, 'ownerAgentId' | 'owner
     : `project:${resource.projectRootId}`;
 }
 
-function externalBrowserFailure(action: string, cause: unknown): BrowserError {
-  const error = browserError(
-    `${action}; verify the Browser plugin's external CDP address and the browser's /json/version endpoint`,
-    500,
-    'BROWSER_EXTERNAL_CDP_FAILED',
-  );
-  error.cause = cause;
-  return error;
-}
-
 function normalizeUrl(value: unknown): string {
   const input = String(value || '').trim();
   if (!input) return 'about:blank';
@@ -444,7 +432,7 @@ class BrowserResourceManager extends EventEmitter {
         : () => discoverBrowserExecutables());
     this.getBrowserSettings = typeof options.getBrowserSettings === 'function'
       ? options.getBrowserSettings
-      : () => ({ browserSource: 'system', browserExecutablePath: '', browserExternalCdpUrl: '' });
+      : () => ({ browserSource: 'system', browserExecutablePath: '' });
     this.saveBrowserSelection = typeof options.saveBrowserSelection === 'function'
       ? options.saveBrowserSelection
       : () => {};
@@ -532,11 +520,9 @@ class BrowserResourceManager extends EventEmitter {
     if (!expected) {
       this.store.update(resource.id, {
         status: 'failed',
-        error: resource.browserKind === 'external-cdp'
-          ? 'Farming restarted and disconnected from the external Browser'
-          : resource.browserKind === 'isolated-computer'
-            ? 'Farming restarted and stopped the isolated Browser runtime'
-            : 'Farming restarted before the Browser runtime identity was committed',
+        error: resource.browserKind === 'isolated-computer'
+          ? 'Farming restarted and stopped the isolated Browser runtime'
+          : 'Farming restarted before the Browser runtime identity was committed',
         processIdentity: null,
       });
       return;
@@ -618,9 +604,9 @@ class BrowserResourceManager extends EventEmitter {
       ? await this.isolatedBrowserProvider.capability()
       : null;
     const selections: BrowserSelection[] = [
-      { source: 'system', executablePath: systemPath, externalCdpUrl: '' },
-      { source: 'extension', executablePath: '', externalCdpUrl: '' },
-      { source: 'isolated', executablePath: '', externalCdpUrl: '' },
+      { source: 'system', executablePath: systemPath },
+      { source: 'extension', executablePath: '' },
+      { source: 'isolated', executablePath: '' },
     ];
     const probes = await Promise.all(selections.map(async selection => {
       const probe = await this.probeCapability(selection, systemOptions, isolatedCapability);
@@ -641,7 +627,6 @@ class BrowserResourceManager extends EventEmitter {
     return {
       source: source && BROWSER_SOURCES.has(source) ? source : 'system',
       executablePath: String(settings?.browserExecutablePath || ''),
-      externalCdpUrl: String(settings?.browserExternalCdpUrl || 'http://127.0.0.1:9222'),
     };
   }
 
@@ -690,7 +675,6 @@ class BrowserResourceManager extends EventEmitter {
       source: selection.source,
       executablePath: selection.executablePath,
       executableKind: selectedOption?.kind,
-      externalCdpUrl: selection.externalCdpUrl,
     });
     if (selection.source === 'extension') {
       const extension = this.browserExtensionRelay?.capability() || {};
@@ -843,7 +827,6 @@ class BrowserResourceManager extends EventEmitter {
     const selection = this.browserSelection({
       browserSource: requestedSource || settings.browserSource || 'system',
       browserExecutablePath: String(input.browserExecutablePath || settings.browserExecutablePath || ''),
-      browserExternalCdpUrl: String(input.browserExternalCdpUrl || settings.browserExternalCdpUrl || ''),
     });
     if (selection.source === 'isolated' && input.ownerType !== 'agent') {
       throw browserError(
@@ -861,7 +844,6 @@ class BrowserResourceManager extends EventEmitter {
       url: normalizeUrl(input.url),
       browserSource: selection.source,
       browserExecutablePath: selection.executablePath,
-      browserExternalCdpUrl: selection.externalCdpUrl,
     });
     this.emitResource(resource);
     return publicResource(resource, this.store.revision);
@@ -909,7 +891,6 @@ class BrowserResourceManager extends EventEmitter {
       const selection = this.browserSelection({
         browserSource: resource.browserSource,
         browserExecutablePath: resource.browserExecutablePath,
-        browserExternalCdpUrl: resource.browserExternalCdpUrl,
       });
       const probe = await this.probeCapability(selection);
       const executable = probe.runtimeCapability;
@@ -956,7 +937,7 @@ class BrowserResourceManager extends EventEmitter {
             .then(async () => {
               const tab = await reusableSession.runtime.createTab(
                 resource.url,
-                ['external-cdp', 'isolated-computer'].includes(executable.kind)
+                executable.kind === 'isolated-computer'
                   ? `farming-${resource.id}-g${generation}`
                   : '',
               );
@@ -1116,11 +1097,9 @@ class BrowserResourceManager extends EventEmitter {
         if (!cleanupError && this.runtimes.get(id) === binding) this.runtimes.delete(id);
         if (!cleanupError && this.sessions.get(sessionId) === session) this.sessions.delete(sessionId);
         const current = this.store.get(id);
-        const failureMessage = executable.kind === 'external-cdp'
-          ? externalBrowserFailure('External Browser connection failed', error).message
-          : executable.kind === 'isolated-computer'
-            ? `Isolated Browser connection failed: ${errorMessage(error)}`
-            : errorMessage(error) || 'Failed to start Browser';
+        const failureMessage = executable.kind === 'isolated-computer'
+          ? `Isolated Browser connection failed: ${errorMessage(error)}`
+          : errorMessage(error) || 'Failed to start Browser';
         const failed = current?.generation === generation
           ? this.store.update(id, {
             status: 'failed',
@@ -1194,9 +1173,6 @@ class BrowserResourceManager extends EventEmitter {
         }
       } catch (error) {
         session.closing = false;
-        if (resource.browserKind === 'external-cdp') {
-          throw externalBrowserFailure('External Browser targets could not be closed', error);
-        }
         throw error;
       }
       if (isolatedReleaseError) {
@@ -2065,11 +2041,9 @@ class BrowserResourceManager extends EventEmitter {
       if (!current) continue;
       const failed = this.store.update(binding.id, {
         status: 'failed',
-        error: current.browserKind === 'external-cdp'
-          ? 'External Browser connection exited'
-          : current.browserKind === 'isolated-computer'
-            ? 'Isolated Browser connection exited'
-            : message || 'Browser connection exited',
+        error: current.browserKind === 'isolated-computer'
+          ? 'Isolated Browser connection exited'
+          : message || 'Browser connection exited',
       });
       this.emitResource(failed);
       this.broadcastRuntimeState(binding);
@@ -2093,9 +2067,7 @@ class BrowserResourceManager extends EventEmitter {
         if (!current) continue;
         const cleanupFailed = this.store.update(binding.id, {
           status: 'failed',
-          error: current.browserKind === 'external-cdp'
-            ? `${current.error}; target cleanup failed`
-            : `${current.error}; cleanup failed: ${errorMessage(error)}`,
+          error: `${current.error}; cleanup failed: ${errorMessage(error)}`,
         });
         this.emitResource(cleanupFailed);
         this.broadcastRuntimeState(binding);
@@ -2107,6 +2079,5 @@ class BrowserResourceManager extends EventEmitter {
 export {
   BrowserResourceManager,
   browserError,
-  externalBrowserFailure,
   normalizeUrl,
 };

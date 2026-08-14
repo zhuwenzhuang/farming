@@ -12,19 +12,15 @@ and interacts with the same page in Farming.
 ## Enable Browser
 
 Browser is enabled by default when a compatible local Chromium source is
-available. Open **Plugins → Browser** to change the source, disable Browser,
-or select **Isolated Browser** and prepare any explicitly requested isolated
-dependency. Normal Farming installation and Server startup do not silently
-download Chromium.
+available. Open **Plugins → Browser** to see the available sources, disable
+Browser, or prepare **Isolated Browser** when needed. Normal Farming
+installation and Server startup do not silently download Chromium.
 
 Local Chromium is the simplest ordinary path. Isolated Browser is for an Agent
 that needs an independent Linux desktop or Computer Use. Cross-engine testing
 belongs in a dedicated testing service, not an automatic Browser fallback.
-**Existing Chrome (CDP)** connects a trusted headed Chromium browser that the
-user explicitly exposed on a loopback CDP endpoint. Farming creates and owns
-its own tabs in that browser, reuses the browser profile's login state, and
-continues to stream the active page into Farming Viewer. Farming does not adopt
-arbitrary pre-existing tabs or own the external browser process.
+The Farming Browser Connector lets an Agent use the user's current Chrome pages
+and sign-in state when that source best fits the task.
 
 Explicit isolated-runtime preparation uses the Farming-owned, pinned
 `agent-browser` installer. If its primary source is unavailable, Farming may
@@ -33,7 +29,7 @@ verifies a repository-pinned SHA-256 digest before extraction or execution.
 Missing or mismatched integrity metadata fails preparation visibly.
 
 Browser tools follow the coding Agent Session's permission policy. Operating-
-system device permissions and attachment to an external personal browser remain
+system device permissions and attachment to a personal browser remain
 separate security boundaries.
 
 ## Agent Workflow

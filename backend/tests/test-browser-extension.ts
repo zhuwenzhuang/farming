@@ -212,7 +212,7 @@ class FakeViewer extends EventEmitter {
   }
 }
 
-function testExternalCdpDiscoveryConfiguration() {
+function testInternalCdpDiscoveryConfiguration() {
   assert.deepStrictEqual(
     discoverBrowserExecutable({ source: 'isolated' }),
     { kind: 'isolated-computer', path: '' },
@@ -230,8 +230,8 @@ function testExternalCdpDiscoveryConfiguration() {
   assert.strictEqual(normalizeExternalCdpUrl('http://127.0.0.1:9222?token=secret'), '');
   assert.deepStrictEqual(
     discoverBrowserExecutable({
-      env: { FARMING_BROWSER_CDP_URL: 'http://127.0.0.1:9222' },
-      platform: 'linux',
+      source: 'external-cdp',
+      externalCdpUrl: 'http://127.0.0.1:9222',
     }),
     {
       kind: 'external-cdp',
@@ -241,8 +241,8 @@ function testExternalCdpDiscoveryConfiguration() {
   );
   assert.match(
     discoverBrowserExecutable({
-      env: { FARMING_BROWSER_CDP_URL: 'http://browser.example:9222' },
-      platform: 'linux',
+      source: 'external-cdp',
+      externalCdpUrl: 'http://browser.example:9222',
     }).error,
     /loopback/,
   );
@@ -252,9 +252,10 @@ async function testManagedAgentBrowserDiscovery() {
   const probed = [];
   const managedPath = '/farming/runtime/agent-browser';
   const runtime = await discoverBrowserRuntime({
+    source: 'external-cdp',
+    externalCdpUrl: 'http://127.0.0.1:9222',
     platform: 'linux',
     env: {
-      FARMING_BROWSER_CDP_URL: 'http://127.0.0.1:9222',
       FARMING_AGENT_BROWSER_BIN: managedPath,
       FARMING_NODE_LD: '/runtime/ld-linux.so',
       FARMING_NODE_LIBRARY_PATH: '/runtime/lib',
@@ -271,7 +272,6 @@ async function testManagedAgentBrowserDiscovery() {
     executablePath: '/runtime/ld-linux.so',
     args: ['--library-path', '/runtime/lib', managedPath, '--version'],
     env: {
-      FARMING_BROWSER_CDP_URL: 'http://127.0.0.1:9222',
       FARMING_AGENT_BROWSER_BIN: managedPath,
       FARMING_NODE_LD: '/runtime/ld-linux.so',
       FARMING_NODE_LIBRARY_PATH: '/runtime/lib',
@@ -281,9 +281,10 @@ async function testManagedAgentBrowserDiscovery() {
 
   probed.length = 0;
   const staticRuntime = await discoverBrowserRuntime({
+    source: 'external-cdp',
+    externalCdpUrl: 'http://127.0.0.1:9222',
     platform: 'linux',
     env: {
-      FARMING_BROWSER_CDP_URL: 'http://127.0.0.1:9222',
       FARMING_AGENT_BROWSER_BIN: managedPath,
       FARMING_AGENT_BROWSER_STATIC: '1',
       FARMING_NODE_LD: '/runtime/ld-linux.so',
@@ -300,8 +301,9 @@ async function testManagedAgentBrowserDiscovery() {
   assert.deepStrictEqual(probed[0].args, ['--version']);
 
   const missing = await discoverBrowserRuntime({
+    source: 'external-cdp',
+    externalCdpUrl: 'http://127.0.0.1:9222',
     env: {
-      FARMING_BROWSER_CDP_URL: 'http://127.0.0.1:9222',
       PATH: '/system/bin',
     },
     execFile() {
@@ -359,7 +361,6 @@ async function testBrowserResourceManager() {
     selection: {
       source: 'system',
       executablePath: '',
-      externalCdpUrl: 'http://127.0.0.1:9222',
     },
     options: [],
     message: 'Choose a local Chromium browser or prepare the isolated Browser runtime',
@@ -462,7 +463,6 @@ async function testBrowserResourceManager() {
       selection: {
         source: 'system',
         executablePath: '',
-        externalCdpUrl: 'http://127.0.0.1:9222',
       },
       options: [],
       message: 'Browser extension is disabled',
@@ -470,31 +470,11 @@ async function testBrowserResourceManager() {
     assert.throws(() => manager.list(), /disabled/);
     enabled = true;
     assert.strictEqual(manager.capability().available, true);
-    const externalManager = new BrowserResourceManager({
-      configDir,
-      getBrowserSettings: () => ({
-        browserSource: 'external-cdp',
-        browserExternalCdpUrl: 'http://127.0.0.1:9222',
-      }),
-      discoverExecutable: () => ({
-        kind: 'external-cdp',
-        path: '',
-        cdpUrl: 'http://127.0.0.1:9222/',
-      }),
-    });
-    await externalManager.init();
-    assert.deepStrictEqual(externalManager.capability(), {
-      enabled: true,
-      available: true,
-      browser: { kind: 'external-cdp', path: '' },
-      selection: {
-        source: 'external-cdp',
-        executablePath: '',
-        externalCdpUrl: 'http://127.0.0.1:9222',
-      },
-      options: [],
-      message: '',
-    });
+    assert.throws(() => manager.create({
+      projectRootId: 'wroot_project',
+      workspace: projectWorkspace,
+      browserSource: 'external-cdp',
+    }), error => error?.code === 'BROWSER_INVALID_SOURCE');
     const isolatedConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-isolated-browser-manager-'));
     const isolatedCalls = {
       acquired: 0,
@@ -1087,71 +1067,6 @@ async function testBrowserResourceManager() {
   }
 }
 
-async function testExternalBrowserErrorRedaction() {
-  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-external-browser-errors-'));
-  let failStart = true;
-  let failClose = false;
-  const manager = new BrowserResourceManager({
-    configDir,
-    discoverExecutable: () => ({
-      kind: 'external-cdp',
-      path: '',
-      cdpUrl: 'http://127.0.0.1:9222/',
-      agentBrowserPath: '/fake/agent-browser',
-    }),
-    createRuntime: options => {
-      const runtime = new EventEmitter();
-      runtime.id = options.id;
-      runtime.generation = options.generation;
-      runtime.start = async url => {
-        if (failStart) throw new Error('connect ECONNREFUSED 127.0.0.1:9222');
-        runtime.activeTabId = 't1';
-        runtime.streamTabId = 't1';
-        runtime.tabs = [{
-          active: true,
-          tabId: 't1',
-          title: 'External Browser',
-          type: 'page',
-          url,
-        }];
-        return { url, title: 'External Browser' };
-      };
-      runtime.listTabs = async () => runtime.tabs || [];
-      runtime.close = async () => {
-        if (failClose) throw new Error('connect ECONNREFUSED 127.0.0.1:9222');
-      };
-      return runtime;
-    },
-  });
-  try {
-    await manager.init();
-    const failed = manager.create({
-      projectRootId: 'wroot_external',
-      workspace: '/tmp/external',
-      name: 'External',
-      url: 'about:blank',
-    });
-    await assert.rejects(
-      manager.start(failed.id),
-      error => error.code === 'BROWSER_START_FAILED' && !error.message.includes('127.0.0.1'),
-    );
-    assert(!manager.get(failed.id).error.includes('127.0.0.1'));
-
-    failStart = false;
-    await manager.start(failed.id);
-    failClose = true;
-    await assert.rejects(
-      manager.stop(failed.id),
-      error => error.code === 'BROWSER_EXTERNAL_CDP_FAILED' && !error.message.includes('127.0.0.1'),
-    );
-    failClose = false;
-    await manager.stop(failed.id);
-  } finally {
-    await manager.dispose();
-    fs.rmSync(configDir, { recursive: true, force: true });
-  }
-}
-
 async function testAgentOwnedBrowserIsolationAndLifecycle() {
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-agent-browser-owner-'));
   const runtimes = [];
@@ -1256,9 +1171,8 @@ async function testAgentBrowserRestartRecovery() {
   const seed = new BrowserResourceManager({
     configDir,
     discoverExecutable: () => ({
-      kind: 'external-cdp',
-      path: '',
-      cdpUrl: 'http://127.0.0.1:9222/',
+      kind: 'chrome',
+      path: '/fake/chrome',
       agentBrowserPath: '/test/agent-browser',
     }),
   });
@@ -1273,7 +1187,7 @@ async function testAgentBrowserRestartRecovery() {
     seed.store.update(created.id, {
       status: 'starting',
       generation: 7,
-      browserKind: 'external-cdp',
+      browserKind: 'chrome',
       runtimeKind: 'agent-browser',
       processIdentity: null,
     });
@@ -1600,35 +1514,25 @@ async function testBrowserRouterAgentOwnership() {
   }
 }
 
-function testBrowserPackagingAndExternalCdpGuidance() {
+function testBrowserPackaging() {
   const projectRoot = path.join(__dirname, '..', '..');
-  const externalCdpGuides = [
-    'external-cdp-browser.md',
-    'external-cdp-browser.zh_cn.md',
-  ].map(name => fs.readFileSync(path.join(projectRoot, 'docs', 'products', 'code', name), 'utf8'));
   const packageJson = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8'));
   assert.strictEqual(packageJson.dependencies['playwright-core'], undefined);
   assert.strictEqual(packageJson.bin['farming-browser'], 'extensions/browser/bin/farming-browser');
   assert(packageJson.files.includes('extensions/browser/backend/*.cjs'));
   assert(packageJson.files.includes('extensions/browser/bin/'));
   assert(packageJson.files.includes('backend/farming-agent-bootstrap.md'));
-  for (const guide of externalCdpGuides) {
-    assert.doesNotMatch(guide, /^\s*--network host\b/m);
-    assert.doesNotMatch(guide, /^\s*--no-sandbox\b/m);
-    assert.match(guide, /--publish 127\.0\.0\.1:9222:9222/);
-  }
 }
 
 Promise.resolve()
-  .then(testExternalCdpDiscoveryConfiguration)
+  .then(testInternalCdpDiscoveryConfiguration)
   .then(testManagedAgentBrowserDiscovery)
   .then(testBrowserResourceManager)
   .then(testAgentOwnedBrowserIsolationAndLifecycle)
-  .then(testExternalBrowserErrorRedaction)
   .then(testAgentBrowserRestartRecovery)
   .then(testBrowserResourceRevisionOrdering)
   .then(testBrowserRouterAgentOwnership)
-  .then(testBrowserPackagingAndExternalCdpGuidance)
+  .then(testBrowserPackaging)
   .then(() => console.log('browser extension tests passed'))
   .catch(error => {
     console.error(error);

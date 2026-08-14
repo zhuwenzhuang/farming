@@ -14,7 +14,7 @@ export interface BrowserResource {
   url: string
   title: string
   browserKind: string
-  browserSource?: 'extension' | 'external-cdp' | 'isolated' | 'system'
+  browserSource?: 'extension' | 'isolated' | 'system'
   error: string
   createdAt: number
   updatedAt: number
@@ -35,13 +35,12 @@ export interface BrowserCapability {
   available: boolean
   browser: { kind: string; path: string } | null
   selection?: {
-    source: 'extension' | 'external-cdp' | 'isolated' | 'system'
+    source: 'extension' | 'isolated' | 'system'
     executablePath: string
-    externalCdpUrl: string
   }
   options?: Array<{ kind: string; path: string }>
   sources?: Array<{
-    source: 'extension' | 'external-cdp' | 'isolated' | 'system'
+    source: 'extension' | 'isolated' | 'system'
     available: boolean
     kind: string
     path: string

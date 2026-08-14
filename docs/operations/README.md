@@ -12,7 +12,6 @@ Repository documents continue to own operational and security contracts:
 
 - [Security and trusted-network guidance](../../SECURITY.md)
 - [Runtime dependency versions and update bindings](runtime-dependencies.md)
-- [Connect an external CDP browser](../products/code/external-cdp-browser.md)
 - [Config instance isolation](../development/config-instance-isolation.md)
 
 The common lifecycle remains `farming daemon`, `farming status`, `farming logs`,

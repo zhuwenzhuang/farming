@@ -270,7 +270,6 @@ function createBrowserRouter(
       }
       const source = String(body.source || '').trim();
       const executablePath = String(body.executablePath || '').trim();
-      const externalCdpUrl = String(body.externalCdpUrl || '').trim();
       const resource = manager.create({
         projectRootId: root.rootId,
         workspace: root.canonicalPath,
@@ -280,7 +279,6 @@ function createBrowserRouter(
         url: body.url,
         ...(source ? { browserSource: source } : {}),
         ...(executablePath ? { browserExecutablePath: executablePath } : {}),
-        ...(externalCdpUrl ? { browserExternalCdpUrl: externalCdpUrl } : {}),
       });
       res.status(201).json(resource);
     } catch (error) {

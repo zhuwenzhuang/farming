@@ -226,7 +226,6 @@ test('hides project Browser tabs when the selected runtime is Agent-owned', asyn
       selection: {
         source: 'isolated',
         executablePath: '',
-        externalCdpUrl: '',
       },
       message: 'Isolated Browser is available',
     }),
@@ -735,7 +734,6 @@ test('offers explicit isolated Browser preparation when no local browser is avai
       selection: {
         source: selectedSource,
         executablePath: '',
-        externalCdpUrl: 'http://127.0.0.1:9222',
       },
       sources: [
         { source: 'system', available: false, kind: '', path: '', message: 'No system browser' },
@@ -823,7 +821,6 @@ test('keeps Isolated Browser visible but disabled without Docker', async ({ page
       selection: {
         source: 'system',
         executablePath: '/mock/chrome',
-        externalCdpUrl: 'http://127.0.0.1:9222',
       },
       options: [{ kind: 'chrome', path: '/mock/chrome' }],
       isolated: {
@@ -1260,7 +1257,7 @@ test('uses Farming dark colors for the Browser source menu', async ({ page }) =>
   await expect(firstSource.locator('strong')).toHaveCSS('color', 'rgb(255, 255, 255)')
 })
 
-test('shows concurrent Browser sources and existing Chrome setup', async ({ page }) => {
+test('shows concurrent Browser sources and existing Chrome setup', async ({ page }, testInfo) => {
   await openFarming(page)
   await page.getByTestId('code-nav-plugins').click()
   const pluginsPanel = page.getByTestId('code-plugins-panel')
@@ -1270,18 +1267,16 @@ test('shows concurrent Browser sources and existing Chrome setup', async ({ page
   await expect(browserSources).toContainText('These browsers can be used together.')
   await expect(browserSources).toContainText('Your existing Chrome')
   await expect(browserSources).toContainText('Isolated Browser')
+  await expect(browserSources.locator('.code-plugin-browser-source')).toHaveCount(3)
   await expect(pluginsPanel.getByRole('textbox', { name: 'CDP address' })).toHaveCount(0)
+  await expect(pluginsPanel.getByRole('button', { name: 'Configure CDP' })).toHaveCount(0)
   await expect(pluginsPanel.getByRole('textbox', { name: 'Bundled extension directory' }))
     .toHaveValue(/browser-extension\/chrome$/)
   await expect(pluginsPanel.getByRole('button', { name: 'Copy directory' })).toBeEnabled()
   await expect(pluginsPanel.getByRole('link', { name: 'Install connector' })).toBeVisible()
-  await pluginsPanel.getByRole('button', { name: 'Configure CDP' }).click()
-  const cdpAddress = pluginsPanel.getByRole('textbox', { name: 'CDP address' })
-  await expect(cdpAddress).toHaveValue('http://127.0.0.1:9222')
-  await cdpAddress.fill('ws://127.0.0.1:9333/devtools/browser')
-  const apply = pluginsPanel.getByRole('button', { name: 'Apply' })
-  await apply.click()
-  await expect(browserSources).toContainText('Your existing Chrome')
+  const screenshot = testInfo.outputPath('browser-sources.png')
+  await pluginsPanel.screenshot({ path: screenshot })
+  await testInfo.attach('browser-sources', { path: screenshot, contentType: 'image/png' })
 })
 
 test('matches the focused Viewer viewport and restores the previous Viewer on close', async ({

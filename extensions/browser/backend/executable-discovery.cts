@@ -225,18 +225,6 @@ function discoverBrowserExecutable(
     return systemBrowser;
   }
   if (source) return null;
-  const externalCdpInput = String(options.externalCdpUrl || env.FARMING_BROWSER_CDP_URL || '').trim();
-  if (externalCdpInput) {
-    const cdpUrl = normalizeExternalCdpUrl(externalCdpInput);
-    return cdpUrl
-      ? { kind: 'external-cdp', path: '', cdpUrl }
-      : {
-          kind: 'external-cdp',
-          path: '',
-          cdpUrl: '',
-          error: 'FARMING_BROWSER_CDP_URL must be a loopback http(s) or ws(s) CDP endpoint without credentials or query parameters',
-        };
-  }
   const configured = String(options.executablePath || env.FARMING_BROWSER_EXECUTABLE || '').trim();
   if (configured) {
     return executable(path.resolve(configured), 'custom');

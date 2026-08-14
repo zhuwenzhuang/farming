@@ -58,9 +58,8 @@ export function useBrowserResources(options: {
     options: {
       agentId?: string
       executablePath?: string
-      externalCdpUrl?: string
       name?: string
-      source?: 'extension' | 'external-cdp' | 'isolated' | 'system'
+      source?: 'extension' | 'isolated' | 'system'
       url?: string
     } = {},
   ) => {
@@ -72,7 +71,6 @@ export function useBrowserResources(options: {
         name: options.name,
         source: options.source,
         executablePath: options.executablePath,
-        externalCdpUrl: options.externalCdpUrl,
         url: options.url,
       }),
     })

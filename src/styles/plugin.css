@@ -1645,12 +1645,6 @@
   border-color: var(--code-border);
 }
 
-.code-plugin-browser-settings .code-plugin-browser-cdp {
-  min-width: 260px;
-  flex: 1 1 260px;
-}
-
-.code-plugin-browser-apply,
 .code-plugin-browser-install {
   height: 32px;
   padding: 0 12px;
@@ -1663,14 +1657,11 @@
   font-size: 13px;
 }
 
-.code-plugin-browser-apply:hover:not(:disabled),
-.code-plugin-browser-apply:focus-visible:not(:disabled),
 .code-plugin-browser-install:hover:not(:disabled),
 .code-plugin-browser-install:focus-visible:not(:disabled) {
   background: var(--code-bg-hover);
 }
 
-.code-plugin-browser-apply:disabled,
 .code-plugin-browser-install:disabled {
   cursor: default;
   opacity: 0.48;
