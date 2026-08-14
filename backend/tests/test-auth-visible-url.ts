@@ -1,5 +1,16 @@
 const assert = require('assert');
-const { visibleUrlWithoutToken } = require('../../src/lib/auth-url.ts');
+const {
+  getStartupAccessToken,
+  rememberStartupAccessToken,
+  visibleUrlWithoutToken,
+} = require('../../src/lib/auth-url.ts');
+
+rememberStartupAccessToken('https://farming.example/farming/?token=private&view=code#agent');
+assert.strictEqual(
+  getStartupAccessToken(),
+  'private',
+  'the loaded application must retain its startup credential in memory for authenticated reconnects',
+);
 
 assert.strictEqual(
   visibleUrlWithoutToken('https://farming.example/farming/?token=private&view=code#agent'),

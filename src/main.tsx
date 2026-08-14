@@ -2,8 +2,9 @@ import '../frontend/reading-anchor.js'
 import { Component, type CSSProperties, type ErrorInfo, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { appPath } from './lib/base-path'
-import { visibleUrlWithoutToken } from './lib/auth-url'
+import { rememberStartupAccessToken, visibleUrlWithoutToken } from './lib/auth-url'
 
+rememberStartupAccessToken(window.location.href)
 const tokenFreeVisibleUrl = visibleUrlWithoutToken(window.location.href)
 if (tokenFreeVisibleUrl) {
   window.history.replaceState(window.history.state, '', tokenFreeVisibleUrl)

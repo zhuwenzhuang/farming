@@ -50,7 +50,7 @@ async function requestFromFarmingTab(operation, requestedTabId) {
               connected: result.connected === true,
               pairingString: result.pairingString ?? "",
               pageUrl: window.location.href,
-              sidePanelUrl: result.shortUrl ?? "",
+              sidePanelUrl: result.fullAccessUrl ?? "",
             }
           : { ok: false, error: result.error ?? `Farming returned HTTP ${response.status}` };
       } catch (error) {

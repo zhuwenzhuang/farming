@@ -157,7 +157,10 @@ async function run() {
           };
         }
         if (isSidePanelTicket) {
-          return { shortUrl: 'http://127.0.0.1:3000/farming/j/TESTCODE' };
+          return {
+            shortUrl: 'http://127.0.0.1:3000/farming/j/TESTCODE',
+            fullAccessUrl: 'http://127.0.0.1:3000/farming/?token=OWNER',
+          };
         }
         return { settings: { browserSource: 'extension' } };
       },
@@ -203,7 +206,7 @@ async function run() {
     assert.strictEqual(directlyAppliedPairing.source, 'manual');
     assert.strictEqual(
       await pairingModule.sidePanelUrlForFarmingTab(7),
-      'http://127.0.0.1:3000/farming/j/TESTCODE',
+      'http://127.0.0.1:3000/farming/?token=OWNER',
     );
     const sidePanelRequest = pageRequests.at(-1);
     assert.strictEqual(sidePanelRequest.url, '/farming/api/share/qr-ticket');

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
 import type { Agent, ProjectAgentSummary, TaskHistoryEntry } from '@/types/agent'
 import type { ClientMessage, ComposerInputAttachment, ComposerInputMessage, LanguageServerRefreshMessage, ServerMessage, StartAgentMessage, WorkspaceFileEventMessage } from '@/types/messages'
+import { getStartupAccessToken } from '@/lib/auth-url'
 import { appWsUrl } from '@/lib/base-path'
 import {
   setTerminalSessionTransport,
@@ -634,10 +635,10 @@ export function useWebSocket() {
       pendingAccessMessagesRef.current = []
       setState(prev => prev.accessMode === 'unknown' ? prev : { ...prev, accessMode: 'unknown' })
       let wsUrl = appWsUrl()
-      const queryToken = new URLSearchParams(location.search).get('token')
+      const startupToken = getStartupAccessToken()
       // Attach token from cookie for mobile WS compatibility
       const tokenMatch = document.cookie.match(/(?:^|;\s*)farming_token=([^;]+)/)
-      const token = queryToken || tokenMatch?.[1] || ''
+      const token = startupToken || tokenMatch?.[1] || ''
       if (token) {
         wsUrl += `?token=${token}`
       }
