@@ -599,7 +599,7 @@ body.code-mode .code-file-change-group-toggle {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   align-items: center;
-  border-radius: 4px;
+  border-radius: 8px;
 }
 
 .code-open-editor-row.active {
@@ -620,6 +620,7 @@ body.code-mode .code-file-change-group-toggle {
   gap: 6px;
   padding: 4px 3px 4px 22px;
   border: 0;
+  border-radius: inherit;
   background: transparent;
   color: var(--code-text-muted);
   text-align: left;
@@ -674,7 +675,9 @@ body.code-mode .code-file-change-group-toggle {
   align-items: center;
   justify-content: flex-end;
   padding-left: 21px;
+  border-radius: 0 8px 8px 0;
   background: linear-gradient(90deg, transparent 0, var(--code-open-editor-row-action-surface) 21px, var(--code-open-editor-row-action-surface) 100%);
+  overflow: hidden;
   opacity: 0;
   pointer-events: none;
   transform: translateY(-50%);
@@ -912,6 +915,7 @@ body.code-mode .code-file-change-group-toggle {
 
 .code-file-tree-row-frame {
   outline: 0;
+  border-radius: 8px;
 }
 
 .code-file-row {
@@ -928,7 +932,7 @@ body.code-mode .code-file-change-group-toggle {
   gap: 3px;
   padding: 2px 6px 2px var(--file-indent);
   border: 0 !important;
-  border-radius: 0;
+  border-radius: 8px;
   background: transparent;
   box-shadow: none !important;
   color: var(--code-text-muted);
@@ -1896,7 +1900,7 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
       grid-template-columns: 14px minmax(32px, 1fr) minmax(0, auto);
       gap: 4px;
       padding: 0 4px 0 min(var(--file-indent, 16px), 22px);
-      border-radius: 5px;
+      border-radius: 8px;
       font-size: 14px;
     }
 

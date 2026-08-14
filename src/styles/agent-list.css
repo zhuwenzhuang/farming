@@ -404,11 +404,13 @@
   height: 28px;
   box-sizing: border-box;
   padding-left: 21px;
+  border-radius: 0 8px 8px 0;
   background:
     linear-gradient(var(--code-agent-row-action-overlay), var(--code-agent-row-action-overlay)),
     linear-gradient(var(--code-agent-row-action-surface), var(--code-agent-row-action-surface));
   -webkit-mask-image: linear-gradient(90deg, transparent 0, var(--code-text) 21px);
   mask-image: linear-gradient(90deg, transparent 0, var(--code-text) 21px);
+  overflow: hidden;
   opacity: 0;
   pointer-events: none;
   transform: translateY(-50%);

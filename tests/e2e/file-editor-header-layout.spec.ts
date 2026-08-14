@@ -247,14 +247,18 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
     return {
       appearance,
       activeAgentRowBackground: getComputedStyle(activeAgentRow).backgroundColor,
+      activeAgentRowBorderRadius: getComputedStyle(activeAgentRow).borderRadius,
       activeTabBackground: getComputedStyle(activeTab).backgroundColor,
       activeFileRowBackground: getComputedStyle(activeFileRow).backgroundColor,
+      activeFileRowBorderRadius: getComputedStyle(activeFileRow).borderRadius,
       activeFileRowEdgeContent: getComputedStyle(activeFileRow, '::after').content,
     }
   }))
   for (const selection of activeSelectionSurfaces) {
     expect(selection.activeAgentRowBackground, selection.appearance).toBe(selection.activeTabBackground)
     expect(selection.activeFileRowBackground, selection.appearance).toBe(selection.activeTabBackground)
+    expect(selection.activeAgentRowBorderRadius, selection.appearance).toBe('8px')
+    expect(selection.activeFileRowBorderRadius, selection.appearance).toBe('8px')
     expect(colorAlpha(selection.activeTabBackground), selection.appearance).toBe(1)
     expect(selection.activeFileRowEdgeContent, selection.appearance).toBe('none')
   }
@@ -268,8 +272,10 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
     ))
     await projectTitle.hover()
     await expect(projectTitle, `${appearance} Project hover`).toHaveCSS('background-color', activeSurface)
+    await expect(projectTitle, `${appearance} Project radius`).toHaveCSS('border-radius', '8px')
     await inactiveFileRow.hover()
     await expect(inactiveFileRow, `${appearance} file hover`).toHaveCSS('background-color', activeSurface)
+    await expect(inactiveFileRow, `${appearance} file radius`).toHaveCSS('border-radius', '8px')
     await inactiveTab.hover()
     await expect(inactiveTab, `${appearance} tab hover`).toHaveCSS('background-color', activeSurface)
   }
@@ -282,7 +288,9 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
       return {
         appearance,
         activeAgentRowBackground: getComputedStyle(document.querySelector<HTMLElement>('.code-agent-row.active')!).backgroundColor,
+        activeAgentRowBorderRadius: getComputedStyle(document.querySelector<HTMLElement>('.code-agent-row.active')!).borderRadius,
         activeFileRowBackground: getComputedStyle(document.querySelector<HTMLElement>('.code-file-row.active')!).backgroundColor,
+        activeFileRowBorderRadius: getComputedStyle(document.querySelector<HTMLElement>('.code-file-row.active')!).borderRadius,
         activeTabBackground: getComputedStyle(document.querySelector<HTMLElement>('.code-file-editor-tab.active')!).backgroundColor,
       }
     })
@@ -292,6 +300,8 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
   for (const selection of compactActiveSelectionSurfaces) {
     expect(selection.activeAgentRowBackground, `${selection.appearance} compact`).toBe(selection.activeTabBackground)
     expect(selection.activeFileRowBackground, `${selection.appearance} compact`).toBe(selection.activeTabBackground)
+    expect(selection.activeAgentRowBorderRadius, `${selection.appearance} compact`).toBe('8px')
+    expect(selection.activeFileRowBorderRadius, `${selection.appearance} compact`).toBe('8px')
     expect(colorAlpha(selection.activeTabBackground), `${selection.appearance} compact`).toBe(1)
   }
 
