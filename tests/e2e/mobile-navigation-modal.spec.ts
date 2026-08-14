@@ -190,6 +190,7 @@ test('mobile share owns focus and Escape without closing the underlying view', a
   await page.getByTestId('code-nav-history').click()
   const history = page.getByTestId('code-history-panel')
   await expect(history).toBeVisible()
+  await expect(page.getByTestId('code-history-loading')).toBeHidden()
 
   const optionsTrigger = page.getByTestId('code-mobile-more')
   await optionsTrigger.click()
