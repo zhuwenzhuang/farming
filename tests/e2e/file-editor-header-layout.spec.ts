@@ -79,9 +79,12 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
   const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspaceRoot) })
   await expect(project).toHaveCount(1, { timeout: 30_000 })
   const projectTitle = project.getByTestId('code-project-title')
+  const agentsSection = project.getByTestId('code-agents-section')
+  const openEditorsSection = project.locator('.code-open-editors')
   const files = project.getByTestId('code-files-section')
   const filesTitle = files.locator('.code-files-title').first()
   if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
+  await expect(agentsSection).toHaveCSS('border-radius', '0px')
   await expect(filesTitle).toHaveAttribute('aria-expanded', 'true')
 
   const docsRow = files.locator('[data-testid="code-file-row"][data-file-path="docs"]')
@@ -103,6 +106,21 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
     await expect(editor.getByTestId('code-file-markdown-preview')).toBeVisible()
   }
   await pinMarkdownFile('docs/report.md')
+  await expect(openEditorsSection).toHaveCSS('border-radius', '0px')
+  const stickySurfaceGeometry = await project.evaluate(element => {
+    const left = (selector: string) => element.querySelector<HTMLElement>(selector)!.getBoundingClientRect().left
+    return {
+      agentsSurface: left('.code-agents-section'),
+      fileRowSurface: left('.code-file-tree-row-frame'),
+      filesHeaderSurface: left('.code-files-header'),
+      openEditorsSurface: left('.code-open-editors'),
+      openEditorsContent: left('.code-open-editors-header'),
+    }
+  })
+  expect(stickySurfaceGeometry.agentsSurface).toBe(stickySurfaceGeometry.fileRowSurface)
+  expect(stickySurfaceGeometry.filesHeaderSurface).toBe(stickySurfaceGeometry.fileRowSurface)
+  expect(stickySurfaceGeometry.openEditorsSurface).toBe(stickySurfaceGeometry.fileRowSurface)
+  expect(stickySurfaceGeometry.openEditorsContent).toBeGreaterThan(stickySurfaceGeometry.openEditorsSurface)
   await pinMarkdownFile('docs/alpha.md')
   await pinMarkdownFile('docs/beta.md')
 

@@ -47,7 +47,9 @@
   position: sticky;
   top: calc(var(--code-project-sticky-height) + var(--code-agents-sticky-height, 0px) + var(--code-open-editors-sticky-height, 0px));
   z-index: 10;
+  margin-left: -14px;
   min-height: var(--code-files-header-height);
+  padding-left: 14px;
   font-size: 13px;
 }
 
@@ -273,6 +275,8 @@
 
 .code-open-editors {
   margin-top: 3px;
+  margin-left: 0;
+  padding-left: 14px;
   padding-bottom: var(--code-open-editors-sticky-tail-height);
   position: sticky;
   top: calc(var(--code-project-sticky-height) + var(--code-agents-sticky-height, 0px));
@@ -280,7 +284,7 @@
   flex-shrink: 0;
   background: linear-gradient(to bottom, var(--code-navigation-surface) 0 var(--code-open-editors-sticky-height), transparent var(--code-open-editors-sticky-height));
   clip-path: inset(0 0 var(--code-open-editors-sticky-tail-height) 0);
-  border-radius: 0 0 6px 6px;
+  border-radius: 0;
   box-shadow: 0 10px 14px -18px var(--code-shadow-color);
   pointer-events: none;
 }

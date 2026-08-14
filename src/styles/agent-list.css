@@ -646,7 +646,7 @@ body.code-mode:not(.code-compact-layout) .code-agent-row.requires-resume .code-a
   padding-bottom: var(--code-agents-sticky-tail-height);
   background: linear-gradient(to bottom, var(--code-navigation-surface) 0 var(--code-agents-sticky-height), transparent var(--code-agents-sticky-height));
   clip-path: inset(0 0 var(--code-agents-sticky-tail-height) 0);
-  border-radius: 0 0 6px 6px;
+  border-radius: 0;
   pointer-events: none;
 }
 
