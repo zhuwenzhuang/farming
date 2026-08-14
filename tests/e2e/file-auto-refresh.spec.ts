@@ -28,6 +28,9 @@ async function openProjectFile(page: Page, projectName: string, filePath: string
   const file = files.locator(`[data-testid="code-file-row"][data-file-path="${filePath}"]`)
   await expect(file).toBeVisible()
   await file.dblclick()
+  const tab = page.locator(`.code-file-editor-tab[title="${filePath}"]`)
+  await expect(tab).toHaveAttribute('aria-selected', 'true')
+  await expect(tab).not.toHaveAttribute('data-preview', 'true')
 }
 
 function recordWorkspaceWatchReady(socket: PlaywrightWebSocket, onReady: (paths: string[]) => void) {
@@ -58,11 +61,33 @@ test('automatically refreshes every open file viewer while preserving dirty draf
     '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="red"/></svg>\n',
   )
   const burstPaths = Array.from({ length: 8 }, (_, index) => `burst-${index}.txt`)
+  const burstPathSet = new Set(burstPaths)
+  const expectedBurstWatchPaths = [
+    ...burstPaths,
+    'guide.md',
+    'icon.svg',
+    'index.html',
+    'plain.txt',
+  ].sort()
   burstPaths.forEach(filePath => fs.writeFileSync(path.join(workspace, filePath), 'before\n'))
   await createControlAgent(page, workspace)
 
   let watchedPaths: string[] = []
-  page.on('websocket', socket => recordWorkspaceWatchReady(socket, paths => { watchedPaths = paths }))
+  const watchedBurstPaths = new Set<string>()
+  const baselineBurstRefreshes = new Set<string>()
+  page.on('websocket', socket => recordWorkspaceWatchReady(socket, paths => {
+    watchedPaths = paths
+    paths.forEach(filePath => {
+      if (burstPathSet.has(filePath)) watchedBurstPaths.add(filePath)
+    })
+  }))
+  page.on('response', response => {
+    if (response.request().method() !== 'GET' || !response.ok()) return
+    const requestUrl = new URL(response.url())
+    if (!requestUrl.pathname.endsWith('/api/files/file')) return
+    const filePath = requestUrl.searchParams.get('path') || ''
+    if (watchedBurstPaths.has(filePath)) baselineBurstRefreshes.add(filePath)
+  })
   await openFarming(page)
 
   await openProjectFile(page, 'file-auto-refresh', 'plain.txt')
@@ -120,15 +145,8 @@ test('automatically refreshes every open file viewer while preserving dirty draf
   await expect.poll(() => imagePreview.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0)
 
   for (const filePath of burstPaths) await openProjectFile(page, 'file-auto-refresh', filePath)
-  await expect.poll(() => watchedPaths).toEqual([
-    ...burstPaths,
-    'guide.md',
-    'icon.svg',
-    'index.html',
-    'plain.txt',
-  ].sort())
-  await page.waitForTimeout(250)
-  const burstPathSet = new Set(burstPaths)
+  await expect.poll(() => watchedPaths).toEqual(expectedBurstWatchPaths)
+  await expect.poll(() => [...baselineBurstRefreshes].sort()).toEqual(burstPaths)
   let activeRefreshReads = 0
   let maxActiveRefreshReads = 0
   let completedRefreshReads = 0
