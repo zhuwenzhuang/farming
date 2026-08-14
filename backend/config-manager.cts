@@ -133,6 +133,7 @@ interface SessionStoreLike {
   removeMainPageSessionKey(sessionKey: string): boolean;
   removeMainPageSessionKeys(keys: unknown): string[];
   persistAgentAdaptiveTitle(agent: JsonRecord, title: unknown): Promise<string>;
+  purgeProviderSessionRecords?(keys: unknown): string[];
   persistAgentStatePatch?(
     agent: JsonRecord,
     patch: JsonRecord,
@@ -1504,6 +1505,10 @@ class ConfigManager {
 
   removeMainPageSessionKeys(keys: unknown): string[] {
     return this.sessionStore ? this.sessionStore.removeMainPageSessionKeys(keys) : [];
+  }
+
+  purgeProviderSessionRecords(keys: unknown): string[] {
+    return this.sessionStore?.purgeProviderSessionRecords?.(keys) || [];
   }
 
   ensureAgentSessionRecord(

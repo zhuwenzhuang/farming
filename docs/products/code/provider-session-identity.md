@@ -26,6 +26,18 @@ against the shared codec rather than trusting the copy.
 No other module may build or parse these strings by concatenating or splitting
 on `:`.
 
+## History Convergence
+
+Provider history governs removal. After lifecycle recovery completes,
+Farming may remove a saved Provider Session record when a complete, stable
+inventory of the available Provider Home no longer contains its tuple. A scan
+that fails, changes while loading, reaches its completeness limit, or targets
+an unavailable Provider Home is not deletion evidence. A live or transitional
+Agent, an unmaterialized identity, a pending lifecycle operation, or an
+unverified structured runtime also blocks removal. Confirmed removal deletes
+the stale main-page membership and Farming Session metadata; run history stays
+as an audit record and is not resumable Provider history.
+
 ## Encoded Forms
 
 Two durable strings carry the identity.

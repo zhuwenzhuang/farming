@@ -1612,6 +1612,7 @@ async function prepareStartupDependencies(
 
 async function startForeground(parsed: ParsedServerOperation): Promise<void> {
   const env = canonicalizeServerConfigDir(buildServerEnv(parsed.env));
+  assertServerProcessClaimAvailable(env.FARMING_CONFIG_DIR);
   await prepareStartupDependencies(env);
   await adaptServerPort(env, parsed);
   env[SERVER_MODE_ENV] = '1';
@@ -1656,16 +1657,12 @@ async function startDaemon(parsed: ParsedServerOperation): Promise<number> {
       );
       return 1;
     }
-    if (state.phase === 'starting') {
-      console.log(`Farming is already starting (PID ${existingPid})`);
-      return 0;
-    } else {
-      if (state.port) env.PORT = String(state.port);
-      if (state.basePath) env.FARMING_BASE_PATH = state.basePath;
-      console.log(`Farming is already running (PID ${existingPid})`);
-      console.log(entryUrl(env));
-      return 0;
-    }
+    const phase = state.phase === 'starting' ? 'starting' : 'running';
+    console.error(
+      `Refusing to start Farming: this config directory already has a live Server `
+      + `(PID ${existingPid}, ${phase}). Run farming stop before starting it again.`,
+    );
+    return 1;
   }
 
   await prepareStartupDependencies(env);
@@ -1999,6 +1996,7 @@ export {
   serverStartStabilityMs,
   serverStopTimeoutMs,
   splitControlArgs,
+  startDaemon,
   stopDaemon,
   run,
   serverStateFile,

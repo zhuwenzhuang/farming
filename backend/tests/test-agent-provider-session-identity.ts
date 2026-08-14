@@ -49,6 +49,8 @@ async function run() {
   const sessionStates = new Map();
   const statusIdsByAgent = new Map();
   const terminalInputs = [];
+  const authoritativeRecords = [];
+  const purgedProviderSessionKeys = [];
   const providerSessionIds = {
     codex: '019f1234-5678-7abc-8def-0123456789ab',
     opencode: 'ses_01K0FARMINGOPENCODE',
@@ -102,6 +104,18 @@ async function run() {
     },
     updateSettings(patch) {
       Object.assign(settings, patch);
+    },
+    listAgentSessionRecords() {
+      return authoritativeRecords.map(record => ({ ...record }));
+    },
+    purgeProviderSessionRecords(keys) {
+      purgedProviderSessionKeys.push(...keys);
+      for (let index = authoritativeRecords.length - 1; index >= 0; index -= 1) {
+        if (keys.includes(authoritativeRecords[index].providerSessionKey)) {
+          authoritativeRecords.splice(index, 1);
+        }
+      }
+      return [...keys];
     },
     ensureAgentSessionRecord(agent, patch) {
       persistedSessionPatches.push({
@@ -526,6 +540,91 @@ async function run() {
       'a newly launched Qoder session should not be marked dead during the native-host startup grace period'
     );
     assert.strictEqual(manager.agents.get(qoderStartupRaceId).status, 'running');
+
+    await manager.recoveryGate.wait();
+    const staleHistoryKey = encodeProviderSessionKey(
+      'codex',
+      '99999999-9999-4999-8999-999999999999',
+      'default',
+    );
+    authoritativeRecords.push({
+      id: 'agent_history_stale',
+      runtimeAgentId: 'runtime-history-stale',
+      providerSessionKey: staleHistoryKey,
+      providerSessionTemporary: false,
+      providerSessionMaterialized: true,
+      wantsMain: true,
+    });
+    manager.agents.set('runtime-history-stale', {
+      id: 'runtime-history-stale',
+      status: 'stopped',
+      providerSessionKey: staleHistoryKey,
+      providerSessionProvider: 'codex',
+      providerSessionId: '99999999-9999-4999-8999-999999999999',
+      providerHomeId: 'default',
+      providerSessionTemporary: false,
+      wantsMain: true,
+    });
+    assert.deepStrictEqual(
+      manager.reconcileAuthoritativeProviderSessions([], [{ provider: 'codex', homeId: 'default' }]),
+      [staleHistoryKey],
+    );
+    assert(purgedProviderSessionKeys.includes(staleHistoryKey));
+    assert.strictEqual(manager.agents.has('runtime-history-stale'), false);
+
+    const liveHistoryKey = encodeProviderSessionKey(
+      'codex',
+      'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      'default',
+    );
+    authoritativeRecords.push({
+      id: 'agent_history_live',
+      runtimeAgentId: 'runtime-history-live',
+      providerSessionKey: liveHistoryKey,
+      providerSessionTemporary: false,
+      providerSessionMaterialized: true,
+      wantsMain: true,
+    });
+    manager.agents.set('runtime-history-live', {
+      id: 'runtime-history-live',
+      status: 'running',
+      providerSessionKey: liveHistoryKey,
+      providerSessionProvider: 'codex',
+      providerSessionId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      providerHomeId: 'default',
+      providerSessionTemporary: false,
+      wantsMain: true,
+    });
+    assert.deepStrictEqual(
+      manager.reconcileAuthoritativeProviderSessions([], [{ provider: 'codex', homeId: 'default' }]),
+      [],
+      'a live Agent must survive an authoritative inventory that does not yet contain its Session',
+    );
+    assert(!purgedProviderSessionKeys.includes(liveHistoryKey));
+    manager.agents.delete('runtime-history-live');
+    authoritativeRecords.splice(
+      authoritativeRecords.findIndex(record => record.providerSessionKey === liveHistoryKey),
+      1,
+    );
+
+    const intermediateHistoryKey = encodeProviderSessionKey(
+      'codex',
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      'default',
+    );
+    authoritativeRecords.push({
+      id: 'agent_history_intermediate',
+      runtimeAgentId: 'runtime-history-intermediate',
+      providerSessionKey: intermediateHistoryKey,
+      providerSessionTemporary: false,
+      providerSessionMaterialized: false,
+    });
+    assert.deepStrictEqual(
+      manager.reconcileAuthoritativeProviderSessions([], [{ provider: 'codex', homeId: 'default' }]),
+      [],
+      'an intermediate unmaterialized identity must not be purged by a stable empty inventory',
+    );
+    assert(!purgedProviderSessionKeys.includes(intermediateHistoryKey));
 
     const sourceQoderSessionId = '66666666-7777-4888-9999-000000000000';
     const forkedQoderId = await startAgent(manager, `qodercli --resume ${sourceQoderSessionId} --fork-session`, workspace, {

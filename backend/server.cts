@@ -612,10 +612,21 @@ function requestedProviderHome(provider: string, rawHomeId: unknown) {
     : { error: `Unknown ${provider} Agent Home: ${homeId}`, home: null, status: 404 };
 }
 
-function currentAgentSessions(): Promise<AgentSession[]> {
-  return agentSessionInventory.list(
+async function currentAgentSessions(): Promise<AgentSession[]> {
+  const snapshot = await agentSessionInventory.snapshot(
     () => configuredProviderMetadata() as AgentSessionInventoryMetadata,
   );
+  try {
+    await agentManager.recoveryGate.wait();
+    agentManager.reconcileAuthoritativeProviderSessions(
+      snapshot.sessions,
+      snapshot.authoritativeHomes,
+    );
+  } catch {
+    // Provider history remains readable when lifecycle recovery is unavailable,
+    // but uncertain Farming metadata must not be removed in that state.
+  }
+  return snapshot.sessions;
 }
 
 const qrShareTickets = new QrShareTicketStore({ ttlMs: SHARE_TICKET_TTL_MS });

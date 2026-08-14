@@ -38,6 +38,11 @@ runtimes. A proven live owner rejects a second startup. A proven dead owner may
 be reclaimed. Malformed, unreadable, permission-ambiguous, or otherwise
 unprovable ownership fails closed and requires operator action.
 
+Every start surface uses that rejection as a visible failed start. In
+particular, `farming daemon` must not return success, reuse the old Server, or
+print the old URL as though the requested image had started. The operator must
+stop the live same-Config Server before starting another one.
+
 Age is not proof of death. The Server lifecycle is crash-only: persistence,
 ownership, and recovery must remain correct after abrupt termination and must
 not depend on graceful shutdown hooks. Stop, crash recovery, and cleanup may

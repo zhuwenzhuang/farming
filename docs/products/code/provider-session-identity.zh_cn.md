@@ -21,6 +21,15 @@ Code 与 Farming CRT 都通过它解析身份，因此同一个三元组在任�
 
 其他模块不得通过拼接或按 `:` 切分来构造或解析这些字符串。
 
+## History 收敛
+
+删除以 Provider History 为准。Agent Lifecycle 恢复完成后，只有在可用 Provider Home
+的一次完整、稳定 Inventory 中确认某个三元组已不存在，Farming 才能移除保存的 Provider
+Session 记录。扫描失败、加载期间源发生变化、达到完整性上限或 Provider Home 不可用，都不
+构成删除证据。Live 或过渡中的 Agent、尚未物化的身份、未完成 Lifecycle Operation 或无法
+验证的结构化 Runtime 也会阻止删除。确认删除后会移除过期的主页成员关系与 Farming Session
+元数据；Run History 仍作为审计记录保留，但不属于可恢复的 Provider History。
+
 ## 编码形态
 
 有两种持久字符串承载这个身份。

@@ -33,6 +33,10 @@ Server 必须在初始化 Config 自有 Runtime 前原子发布所有权。已�
 第二次启动；已证明死亡的 Owner 可以回收；格式损坏、不可读、权限结果不明确或其它无法
 证明的情况一律 fail closed，并要求运维者处理。
 
+所有启动入口都必须把该拒绝呈现为可见的启动失败。尤其是 `farming daemon` 不能返回成功、
+复用旧 Server，或打印旧 URL 让人误以为请求的 Image 已经启动。运维者必须先停止同 Config
+下仍存活的 Server，才能再次启动。
+
 时间久不能证明进程已死亡。Server 生命周期遵循 Crash-only：持久化、Ownership 与恢复在
 非优雅退出后仍必须正确，不能依赖 Graceful Shutdown Hook。停止、崩溃恢复和清理只能作用于
 仍能精确证明的进程与 Owner Claim。

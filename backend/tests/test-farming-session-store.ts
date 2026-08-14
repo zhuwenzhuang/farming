@@ -707,6 +707,33 @@ function run() {
   assert.strictEqual(fs.readFileSync(failedMembershipIndex, 'utf8'), removalIndexBytes);
   fs.rmSync(failedMembershipRoot, { recursive: true, force: true });
 
+  const purgeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-session-provider-purge-'));
+  const purgeStore = new FarmingSessionStore(purgeRoot, { normalizeMainPageSessionKeys });
+  purgeStore.init();
+  const staleKey = encodeProviderSessionKey('codex', '11111111-1111-4111-8111-111111111111', 'default');
+  purgeStore.rememberMainPageSessionKey(staleKey, {
+    runtimeAgentId: 'stale-runtime-owner',
+    providerSessionMaterialized: true,
+    wantsMain: true,
+  });
+  const staleRecordId = purgeStore.getRecordForProviderSessionKey(staleKey).id;
+  assert.deepStrictEqual(purgeStore.purgeProviderSessionRecords([staleKey]), [staleKey]);
+  assert.strictEqual(purgeStore.getRecordForProviderSessionKey(staleKey), null);
+  assert.strictEqual(fs.existsSync(path.join(purgeRoot, 'sessions', `${staleRecordId}.json`)), false);
+  assert.deepStrictEqual(purgeStore.getMainPageSessionKeys(), []);
+
+  const intermediateKey = encodeProviderSessionKey('codex', '22222222-2222-4222-8222-222222222222', 'default');
+  purgeStore.rememberMainPageSessionKey(intermediateKey, {
+    providerSessionMaterialized: false,
+  });
+  assert.deepStrictEqual(
+    purgeStore.purgeProviderSessionRecords([intermediateKey]),
+    [],
+    'an unmaterialized provider identity must survive inventory reconciliation',
+  );
+  assert(purgeStore.getRecordForProviderSessionKey(intermediateKey));
+  fs.rmSync(purgeRoot, { recursive: true, force: true });
+
   console.log('test-farming-session-store passed');
 }
 

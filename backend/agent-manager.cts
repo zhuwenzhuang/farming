@@ -112,6 +112,7 @@ import {
   buildAgentSessionResumeCommand,
   findAgentSession,
   providerHistorySupportsUnarchive,
+  type AgentSession,
 } from './agent-session-history.cjs';
 import { archiveCodexSession, unarchiveCodexSession } from './codex-session-archive.cjs';
 import { buildAgentProviderSessionPlan, sessionFromExactResumeSource } from './agent-provider-session.cjs';
@@ -130,6 +131,7 @@ import {
 import { canonicalProviderSessionKey, mainPageAgentSessionKey, resumedAgentSource } from './main-page-session.cjs';
 import * as storageLayout from './storage-layout.cjs';
 import { isSafeProviderSessionId, isTemporaryProviderSessionId } from './provider-session-id.cjs';
+import { decodeProviderSessionKey } from '../shared/provider-session-identity.js';
 import {
   ProviderSessionService,
   type ProviderSessionChange,
@@ -511,6 +513,11 @@ interface AgentResourceBinding {
   workspace: string;
 }
 
+interface AuthoritativeProviderHome {
+  homeId: string;
+  provider: string;
+}
+
 interface AcceptedKillAgentResult {
   accepted: true;
   agentId: AgentId;
@@ -534,6 +541,7 @@ interface AgentManagerConfigContract extends AgentManagerConfig {
   getHeartbeatInterval(): number;
   getTaskHistory?(): UnknownRecord[];
   getWorkspace(): string;
+  purgeProviderSessionRecords?(keys: unknown): string[];
 }
 
 type AcpRuntimeContract = DeclaredAcpRuntimeContract;
@@ -1318,6 +1326,55 @@ class AgentManager extends EventEmitter {
       this.agentWorktreeRefreshQueue.forget(agentId);
     }
     return deleted;
+  }
+
+  reconcileAuthoritativeProviderSessions(
+    sessions: readonly AgentSession[],
+    authoritativeHomes: readonly AuthoritativeProviderHome[],
+  ): string[] {
+    if (!this.recoveryGate.isComplete() || !this.configManager?.purgeProviderSessionRecords) return [];
+    const authority = new Set(authoritativeHomes.map(home => (
+      `${String(home.provider || '').trim().toLowerCase()}\0${String(home.homeId || 'default').trim() || 'default'}`
+    )));
+    const known = new Set(sessions.map(session => mainPageAgentSessionKey(
+      session.provider,
+      session.id,
+      session.providerHomeId || 'default',
+    )).filter(Boolean));
+    const candidates: string[] = [];
+    for (const record of this.configManager.listAgentSessionRecords()) {
+      const sessionKey = canonicalProviderSessionKey(record.providerSessionKey);
+      const identity = decodeProviderSessionKey(sessionKey);
+      if (
+        !identity
+        || !authority.has(`${identity.provider}\0${identity.providerHomeId}`)
+        || known.has(sessionKey)
+        || record.providerSessionTemporary === true
+        || record.providerSessionMaterialized === false
+        || Boolean(record.structuredRuntimeProcess)
+        || Boolean(activeLifecycleOperation(record))
+      ) continue;
+      const claimants = [...this.agents.values()].filter(agent => (
+        canonicalProviderSessionKey(agent.providerSessionKey) === sessionKey
+      ));
+      if (claimants.some(agent => (
+        !['dead', 'stopped'].includes(String(agent.status || ''))
+        || Boolean(activeLifecycleOperation(agent))
+        || Boolean(agent.structuredRuntimeProcess)
+      ))) continue;
+      candidates.push(sessionKey);
+    }
+    const purged = this.configManager.purgeProviderSessionRecords(candidates);
+    if (purged.length === 0) return [];
+    const purgedSet = new Set(purged);
+    const removedAgentIds: string[] = [];
+    for (const agent of [...this.agents.values()]) {
+      if (!purgedSet.has(canonicalProviderSessionKey(agent.providerSessionKey))) continue;
+      removedAgentIds.push(agent.id);
+      this.forgetStoppedAgentRecord(agent.id, { emitUpdate: false });
+    }
+    this.emitStateChange({ removedAgentIds });
+    return purged;
   }
 
   private agentTitleForFork(agent: TypedAgentRecord): string {

@@ -4,7 +4,7 @@ const path = require('path');
 const { isDeepStrictEqual } = require('util');
 import { atomicWriteJson, atomicWriteJsonAsync } from './atomic-json-store.cjs';
 import { legacyRuntimeMetadata } from './agent-runtime-binding.cjs';
-import { lifecycleJournal } from './agent-lifecycle-journal.cjs';
+import { activeLifecycleOperation, lifecycleJournal } from './agent-lifecycle-journal.cjs';
 import { getProviderAdapter, providerSessionIdentityScope } from './provider-adapters.cjs';
 import * as storageLayout from './storage-layout.cjs';
 import {
@@ -1052,6 +1052,52 @@ class FarmingSessionStore {
       ),
     });
     return removed;
+  }
+
+  purgeProviderSessionRecords(keys: unknown): string[] {
+    const requested = [...new Set(
+      (Array.isArray(keys) ? keys : [])
+        .map(key => canonicalProviderSessionKey(key))
+        .filter(Boolean),
+    )];
+    const purgeable = requested.flatMap(sessionKey => {
+      const record = this.getRecordForProviderSessionKey(sessionKey);
+      if (
+        !record
+        || record.providerSessionTemporary === true
+        || record.providerSessionMaterialized === false
+        || Boolean(record.structuredRuntimeProcess)
+        || Boolean(activeLifecycleOperation(record))
+      ) return [];
+      return [{ sessionKey, record }];
+    });
+    if (purgeable.length === 0) return [];
+
+    const purgedKeys = new Set(purgeable.map(entry => entry.sessionKey));
+    const index = this.ensureIndex();
+    this.writeIndex({
+      ...index,
+      mainPageSessionKeys: index.mainPageSessionKeys.filter(
+        key => !purgedKeys.has(canonicalProviderSessionKey(key)),
+      ),
+    });
+
+    for (const { sessionKey, record } of purgeable) {
+      const id = record.id;
+      this.metadataWriteGenerations.set(id, (this.metadataWriteGenerations.get(id) || 0) + 1);
+      this.stateWriteGenerations.set(id, (this.stateWriteGenerations.get(id) || 0) + 1);
+      for (const file of [this.sessionFile(id), this.agentStateFile(id)]) {
+        if (!file) continue;
+        try {
+          fs.unlinkSync(file);
+        } catch (caught) {
+          const error = caught as NodeJS.ErrnoException;
+          if (error?.code !== 'ENOENT') throw caught;
+        }
+      }
+      this.providerSessionRecords.delete(sessionKey);
+    }
+    return [...purgedKeys];
   }
 
   getMainPageSessionKeys(): string[] {

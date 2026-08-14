@@ -81,6 +81,12 @@ async function run() {
   assert.deepStrictEqual(concurrentHistory[1], concurrentHistory[0]);
   assert.deepStrictEqual(concurrentHistory[2], concurrentHistory[0]);
   assert.strictEqual(metadataReads, 1, 'Concurrent History readers should share one filesystem inventory pass');
+  const authoritativeSnapshot = await history.snapshot(metadata);
+  assert.deepStrictEqual(authoritativeSnapshot.authoritativeHomes, [{
+    provider: 'codex',
+    homeId: 'default',
+    homePath: codexHome,
+  }]);
   const originalOpen = fs.promises.open;
   let warmTranscriptOpens = 0;
   fs.promises.open = async (...args: Parameters<typeof fs.promises.open>) => {
@@ -351,6 +357,41 @@ async function run() {
     'every provider metadata stream must be closed before inventory resolves',
   );
   assert.strictEqual(searchAgentSessions(scaleSessions, 'Needle Codex scale tail').total, 1);
+
+  const unavailableHistory = new AgentSessionInventory({
+    cacheFile: path.join(root, 'cache', 'unavailable-history.json'),
+    listSessions: async () => [],
+  });
+  caches.push(unavailableHistory);
+  const unavailableSnapshot = await unavailableHistory.snapshot(() => ({
+    providerHomes: { qwen: [{ id: 'default', path: path.join(root, 'missing-qwen-home') }] },
+    providerSessionBindings: [],
+  }));
+  assert.deepStrictEqual(
+    unavailableSnapshot.authoritativeHomes,
+    [],
+    'an unavailable Agent Home must not authorize deletion of Farming metadata',
+  );
+
+  const disappearingHome = path.join(root, 'disappearing-qwen-home');
+  fs.mkdirSync(disappearingHome, { recursive: true });
+  const disappearingHistory = new AgentSessionInventory({
+    cacheFile: path.join(root, 'cache', 'disappearing-history.json'),
+    listSessions: async () => {
+      fs.rmSync(disappearingHome, { recursive: true, force: true });
+      return [];
+    },
+  });
+  caches.push(disappearingHistory);
+  const disappearingSnapshot = await disappearingHistory.snapshot(() => ({
+    providerHomes: { qwen: [{ id: 'default', path: disappearingHome }] },
+    providerSessionBindings: [],
+  }));
+  assert.deepStrictEqual(
+    disappearingSnapshot.authoritativeHomes,
+    [],
+    'a Provider Home that disappears during the scan must not authorize deletion',
+  );
 
   const originalWarmOpen = fs.promises.open;
   let repeatedTranscriptOpens = 0;

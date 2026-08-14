@@ -29,6 +29,17 @@ interface AgentSessionInventoryOptions {
   listSessions?: typeof listAgentSessions;
 }
 
+interface AuthoritativeProviderHome {
+  homeId: string;
+  homePath: string;
+  provider: AgentProvider;
+}
+
+interface AgentSessionInventorySnapshot {
+  authoritativeHomes: AuthoritativeProviderHome[];
+  sessions: AgentSession[];
+}
+
 interface ResolvedProviderHome {
   id: string;
   path: string;
@@ -450,11 +461,21 @@ function mergeSessions(groups: AgentSession[][]): AgentSession[] {
   return [...sessions.values()].sort(compareAgentSessions).slice(0, INVENTORY_LIMIT);
 }
 
+async function providerHomeAvailable(homePath: string): Promise<boolean> {
+  try {
+    return (await fsp.stat(homePath)).isDirectory();
+  } catch (caught) {
+    const error = caught as NodeJS.ErrnoException;
+    if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return false;
+    throw caught;
+  }
+}
+
 class AgentSessionInventory {
   private readonly activitySnapshots = new Map<string, Map<string, SessionActivity>>();
   private readonly cache: AuthoritativeInventoryCache<AgentSession[]>;
   private readonly listSessions: typeof listAgentSessions;
-  private pendingList: Promise<AgentSession[]> | null = null;
+  private pendingSnapshot: Promise<AgentSessionInventorySnapshot> | null = null;
   private revision = 0;
 
   constructor(options: AgentSessionInventoryOptions) {
@@ -478,11 +499,17 @@ class AgentSessionInventory {
   list(
     metadata: () => AgentSessionInventoryMetadata,
   ): Promise<AgentSession[]> {
-    if (this.pendingList) return this.pendingList;
+    return this.snapshot(metadata).then(snapshot => snapshot.sessions);
+  }
+
+  snapshot(
+    metadata: () => AgentSessionInventoryMetadata,
+  ): Promise<AgentSessionInventorySnapshot> {
+    if (this.pendingSnapshot) return this.pendingSnapshot;
     const pending = this.load(metadata);
-    this.pendingList = pending;
+    this.pendingSnapshot = pending;
     const clearPending = () => {
-      if (this.pendingList === pending) this.pendingList = null;
+      if (this.pendingSnapshot === pending) this.pendingSnapshot = null;
     };
     void pending.then(clearPending, clearPending);
     return pending;
@@ -490,7 +517,7 @@ class AgentSessionInventory {
 
   private async load(
     metadata: () => AgentSessionInventoryMetadata,
-  ): Promise<AgentSession[]> {
+  ): Promise<AgentSessionInventorySnapshot> {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const revision = this.revision;
       const current = metadata();
@@ -505,7 +532,10 @@ class AgentSessionInventory {
         const key = sourceKey(provider, home, bindings);
         activeKeys.add(key);
         return (async () => {
-          const source = await resolveInventorySource(provider, home.path);
+          const [source, homeAvailable] = await Promise.all([
+            resolveInventorySource(provider, home.path),
+            providerHomeAvailable(home.path),
+          ]);
           const cached = this.cache.get(key, {
             backgroundRefresh: false,
             fingerprintPaths: source.fingerprintPaths,
@@ -529,7 +559,16 @@ class AgentSessionInventory {
               ...(source.listOptions || {}),
             }),
           });
-          if (policy.enrichWithAppendOnlyActivity !== true) return cached;
+          if (policy.enrichWithAppendOnlyActivity !== true) {
+            const sessions = await cached;
+            const homeStillAvailable = homeAvailable && await providerHomeAvailable(home.path);
+            return {
+              authoritative: homeStillAvailable && sessions.length < INVENTORY_LIMIT,
+              home,
+              provider,
+              sessions,
+            };
+          }
           const [sessions, activity] = await Promise.all([
             cached,
             appendOnlySessionActivity(provider, home.path, {
@@ -552,7 +591,13 @@ class AgentSessionInventory {
             )
             : applySessionActivity(presented, activity);
           this.activitySnapshots.set(key, activity);
-          return result;
+          const homeStillAvailable = homeAvailable && await providerHomeAvailable(home.path);
+          return {
+            authoritative: homeStillAvailable && result.length < INVENTORY_LIMIT,
+            home,
+            provider,
+            sessions: result,
+          };
         })();
       }));
       if (sourceIdentityChanged) continue;
@@ -561,7 +606,17 @@ class AgentSessionInventory {
       for (const key of this.activitySnapshots.keys()) {
         if (!activeKeys.has(key)) this.activitySnapshots.delete(key);
       }
-      return mergeSessions(groups);
+      const sessions = mergeSessions(groups.map(group => group.sessions));
+      return {
+        authoritativeHomes: sessions.length < INVENTORY_LIMIT
+          ? groups.flatMap(group => group.authoritative ? [{
+              provider: group.provider,
+              homeId: group.home.id,
+              homePath: group.home.path,
+          }] : [])
+          : [],
+        sessions,
+      };
     }
     throw new Error('Agent session inventory changed repeatedly while loading');
   }
@@ -576,6 +631,8 @@ export {
   readCodexSessionPresentation,
 };
 export type {
+  AgentSessionInventorySnapshot,
   AgentSessionInventoryMetadata,
   AgentSessionInventoryOptions,
+  AuthoritativeProviderHome,
 };

@@ -27,6 +27,7 @@ const {
   serverStopTimeoutMs,
   serverStateFile,
   splitControlArgs,
+  startDaemon,
   stopDaemon,
   waitForDaemonStop,
 } = require('../farming-app-cli.cjs');
@@ -251,6 +252,39 @@ async function runTests() {
       );
     } finally {
       await stopTestProcess(owner);
+      fs.rmSync(configDir, { recursive: true, force: true });
+    }
+  }
+
+  {
+    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-daemon-live-server.'));
+    const previousConsoleError = console.error;
+    const errors: string[] = [];
+    try {
+      const identity = await readServerProcessIdentity(process.pid);
+      assert(identity);
+      fs.writeFileSync(storageLayout.serverPidFile(configDir), String(process.pid));
+      fs.writeFileSync(serverStateFile(configDir), JSON.stringify({
+        pid: process.pid,
+        port: await freePort(),
+        basePath: '/farming',
+        configDir,
+        processIdentity: identity,
+        phase: 'starting',
+      }));
+      console.error = (...args: unknown[]) => { errors.push(args.map(String).join(' ')); };
+      const result = await startDaemon(parseServerArgs([
+        'daemon',
+        '--config-dir',
+        configDir,
+        '--port',
+        String(await freePort()),
+        '--no-auth',
+      ]));
+      assert.strictEqual(result, 1, 'a repeated daemon start must fail instead of reusing the old Server');
+      assert.match(errors.join('\n'), /already has a live Server/);
+    } finally {
+      console.error = previousConsoleError;
       fs.rmSync(configDir, { recursive: true, force: true });
     }
   }
