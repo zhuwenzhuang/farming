@@ -72,6 +72,12 @@ function trackedOpenWorkspaceFiles(state: WorkspaceOpenFilesState) {
   return [...state.files, ...state.closedFileCache.values()]
 }
 
+export interface WorkspaceOpenFileRestoreRead {
+  agentId: string
+  file: WorkspaceFile
+  request: WorkspaceOpenFileRequest
+}
+
 async function refreshOpenWorkspaceFileReads(rootId: string, filePaths: readonly string[]) {
   const files: WorkspaceFile[] = []
   let successful = true
@@ -163,8 +169,13 @@ export function useWorkspaceOpenFiles() {
     return stateRef.current
   }, [syncDraftBackups])
 
-  const openFromRead = useCallback((agentId: string, file: WorkspaceFile, options?: WorkspaceOpenFileRequest) => {
-    let nextState = openWorkspaceFileFromRead(stateRef.current, agentId, file, options)
+  const stateFromRead = useCallback((
+    currentState: WorkspaceOpenFilesState,
+    agentId: string,
+    file: WorkspaceFile,
+    options?: WorkspaceOpenFileRequest,
+  ) => {
+    let nextState = openWorkspaceFileFromRead(currentState, agentId, file, options)
     const openedFile = nextState.activeFile
     const backup = openedFile ? draftBackupsRef.current?.get(workspaceOpenFileKey(openedFile)) : null
     if (openedFile && backup) {
@@ -173,8 +184,38 @@ export function useWorkspaceOpenFiles() {
         restoreWorkspaceOpenFileDraft(openedFile, backup)
       )
     }
+    return nextState
+  }, [])
+
+  const openFromRead = useCallback((agentId: string, file: WorkspaceFile, options?: WorkspaceOpenFileRequest) => {
+    const nextState = stateFromRead(stateRef.current, agentId, file, options)
     return commitState(nextState)
-  }, [commitState])
+  }, [commitState, stateFromRead])
+
+  const restoreFromReads = useCallback((reads: readonly WorkspaceOpenFileRestoreRead[]) => {
+    if (reads.length === 0) return stateRef.current
+    const previousActiveKey = stateRef.current.activeFile
+      ? workspaceOpenFileKey(stateRef.current.activeFile)
+      : null
+    let nextState = stateRef.current
+    const restoredKeys: string[] = []
+    reads.forEach(read => {
+      nextState = stateFromRead(nextState, read.agentId, read.file, read.request)
+      if (nextState.activeFile) restoredKeys.push(workspaceOpenFileKey(nextState.activeFile))
+    })
+    const byKey = new Map(nextState.files.map(file => [workspaceOpenFileKey(file), file]))
+    const orderedFiles = restoredKeys.flatMap(key => {
+      const file = byKey.get(key)
+      if (!file) return []
+      byKey.delete(key)
+      return [file]
+    })
+    orderedFiles.push(...byKey.values())
+    const activeFile = previousActiveKey
+      ? orderedFiles.find(file => workspaceOpenFileKey(file) === previousActiveKey) ?? nextState.activeFile
+      : nextState.activeFile
+    return commitState({ ...nextState, activeFile, files: orderedFiles })
+  }, [commitState, stateFromRead])
 
   const select = useCallback((agentId: string, filePath: string, options?: WorkspaceOpenFileRequest) => {
     const nextState = selectWorkspaceOpenFile(stateRef.current, agentId, filePath, options)
@@ -394,6 +435,7 @@ export function useWorkspaceOpenFiles() {
     files: state.files,
     closedFiles,
     openFromRead,
+    restoreFromReads,
     select,
     close,
     reopenLastClosed,
@@ -406,5 +448,5 @@ export function useWorkspaceOpenFiles() {
     reorder,
     move,
     deleteEntries,
-  }), [closedFiles, close, deleteEntries, move, openFromRead, refreshFromReads, refreshProject, reorder, reopenLastClosed, scheduleOpenFileRefresh, select, setWatchError, state.activeFile, state.files, update, updateDraft])
+  }), [closedFiles, close, deleteEntries, move, openFromRead, refreshFromReads, refreshProject, reorder, reopenLastClosed, restoreFromReads, scheduleOpenFileRefresh, select, setWatchError, state.activeFile, state.files, update, updateDraft])
 }

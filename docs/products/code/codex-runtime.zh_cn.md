@@ -64,6 +64,10 @@ Temporary。
 已确认的 Model、Reasoning、Speed 与 Permission Choice 在受支持的 Runtime Replacement 后保留。
 保存的选项不再可用时，优雅降级到 Provider 当前值，并显示可见警告。
 
+Codex Chat 声明支持 Active-Turn Conversation Fork。版本锁定的 Adapter 捕获当前 Codex Turn
+ID，并把它作为 app-server 的 `beforeTurnId` Boundary 发送；因此 Child 排除尚未完成的 Turn，
+同时 Source 继续运行。在 Codex 尚未分配该 Turn ID 的短暂窗口内，Fork 仍不可用。
+
 ## 失败与恢复
 
 Adapter 或 PTY 失败必须可见。Farming 可以在证明旧 Runtime Ownership 后恢复同一 Provider

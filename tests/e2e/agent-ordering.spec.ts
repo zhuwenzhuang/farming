@@ -208,6 +208,92 @@ test('keeps Agent pagination size stable while selecting rows', {
   }
 })
 
+test('reveals the active Agent in the sidebar after an Agent jump', async ({ page, workspaceRoot }) => {
+  const targetProjectDir = path.join(workspaceRoot, 'agent-jump-target')
+  const scrolledProjectDir = path.join(workspaceRoot, 'agent-jump-scrolled-project')
+  fs.mkdirSync(targetProjectDir, { recursive: true })
+  fs.mkdirSync(scrolledProjectDir, { recursive: true })
+  for (let index = 0; index < 80; index += 1) {
+    fs.writeFileSync(path.join(scrolledProjectDir, `file-${String(index).padStart(2, '0')}.txt`), `${index}\n`)
+  }
+
+  await openFarming(page)
+  const targetAgentId = await createControlAgent(page, targetProjectDir)
+  const scrolledAgentId = await createControlAgent(page, scrolledProjectDir)
+
+  const targetRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${targetAgentId}"]`)
+  const scrolledAgentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${scrolledAgentId}"]`)
+  const scrolledProject = page.getByTestId('code-project-group').filter({ hasText: path.basename(scrolledProjectDir) })
+  await scrolledAgentRow.click()
+  await expect(scrolledAgentRow).toHaveClass(/active/)
+  await scrolledProject.locator('.code-files-title').click()
+  await expect(scrolledProject.getByTestId('code-file-row').last()).toBeVisible()
+  await scrolledProject.getByTestId('code-file-row').last().evaluate(element => {
+    element.scrollIntoView({ block: 'end' })
+  })
+
+  await expect.poll(() => targetRow.evaluate(element => {
+    const scroller = element.closest<HTMLElement>('.code-project-list')
+    if (!scroller) return true
+    const rowRect = element.getBoundingClientRect()
+    const scrollerRect = scroller.getBoundingClientRect()
+    return rowRect.bottom > scrollerRect.top && rowRect.top < scrollerRect.bottom
+  })).toBe(false)
+
+  await targetRow.evaluate(element => (element as HTMLElement).click())
+  await expect(targetRow).toHaveClass(/active/)
+  await expect.poll(() => targetRow.evaluate(element => {
+    const scroller = element.closest<HTMLElement>('.code-project-list')
+    if (!scroller) return false
+    const rowRect = element.getBoundingClientRect()
+    const scrollerRect = scroller.getBoundingClientRect()
+    return rowRect.bottom > scrollerRect.top && rowRect.top < scrollerRect.bottom
+  })).toBe(true)
+})
+
+test('restores Project disclosure without letting late sidebar content hide the active Agent', async ({ page, workspaceRoot }) => {
+  const rememberedProjectDir = path.join(workspaceRoot, 'remembered-project-view')
+  const activeProjectDir = path.join(workspaceRoot, 'remembered-active-project')
+  fs.mkdirSync(rememberedProjectDir, { recursive: true })
+  fs.mkdirSync(activeProjectDir, { recursive: true })
+
+  await openFarming(page)
+  for (let index = 0; index < 6; index += 1) {
+    await createControlAgent(page, rememberedProjectDir)
+  }
+  const activeAgentId = await createControlAgent(page, activeProjectDir)
+  const rememberedProject = page.getByTestId('code-project-group').filter({
+    has: page.getByTestId('code-project-title').filter({ hasText: path.basename(rememberedProjectDir) }),
+  })
+  const activeRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${activeAgentId}"]`)
+
+  await rememberedProject.getByTestId('code-agent-show-more').click()
+  await expect(rememberedProject.getByTestId('code-agent-row')).toHaveCount(6)
+  await activeRow.click()
+  await expect(activeRow).toHaveClass(/active/)
+
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await expect(rememberedProject.getByTestId('code-agent-row')).toHaveCount(6)
+  await expect(activeRow).toHaveClass(/active/)
+  await expect(activeRow).toBeInViewport()
+
+  const agentVisibility = rememberedProject.getByTestId('code-project-agent-visibility')
+  await rememberedProject.getByTestId('code-project-title').hover({ position: { x: 40, y: 10 } })
+  await agentVisibility.click({ force: true })
+  await expect(agentVisibility).toHaveAttribute('data-collapsed', 'true')
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await expect(agentVisibility).toHaveAttribute('data-collapsed', 'true')
+  await expect(activeRow).toHaveClass(/active/)
+  await expect(activeRow).toBeInViewport()
+
+  await rememberedProject.getByTestId('code-project-title').click()
+  await expect(rememberedProject).toHaveAttribute('data-collapsed', 'true')
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await expect(rememberedProject).toHaveAttribute('data-collapsed', 'true')
+  await expect(activeRow).toHaveClass(/active/)
+  await expect(activeRow).toBeInViewport()
+})
+
 test('keeps the Files header below a resized sticky Agent section without ResizeObserver', async ({ page, workspaceRoot }, testInfo) => {
   const projectDir = path.join(workspaceRoot, 'agent-sticky-height-sync')
   fs.mkdirSync(projectDir, { recursive: true })
@@ -248,6 +334,8 @@ test('keeps the Files header below a resized sticky Agent section without Resize
   await createControlAgent(page, projectDir)
   await createControlAgent(page, followingProjectDir)
   await expect(project.getByTestId('code-agent-row')).toHaveCount(2)
+  await project.getByTestId('code-agent-row').first().click()
+  await expect(project.getByTestId('code-agent-row').first()).toHaveClass(/active/)
   const filesHeader = project.locator('.code-files-header')
   await filesHeader.evaluate(element => element.scrollIntoView({ block: 'start' }))
 

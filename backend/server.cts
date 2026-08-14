@@ -445,6 +445,7 @@ function languageServerRefreshMessage(event: ManagedLanguageServerRefreshEvent) 
 
 const managedLanguageServerManager = new ManagedLanguageServerManager({
   configDir: configManager.farmingDir,
+  isEnabled: () => configManager.getSettings().languageServerEnabled !== false,
   onRefresh: broadcastLanguageServerRefresh,
 });
 
@@ -1736,6 +1737,7 @@ app.use(routePath(BASE_PATH, '/api/settings'), createSettingsMutationRouter({
   resetAllComputerContainers: () => computerResourceManager.resetAllContainers(),
   stopAllBrowsers: () => browserResourceManager.stopAll(),
   stopAllComputers: () => computerResourceManager.stopAll(),
+  stopAllLanguageServers: () => languageServerService.dispose(),
   updateSettings: patch => configManager.updateSettings(patch),
 }));
 

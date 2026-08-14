@@ -63,18 +63,176 @@ test('shows Language Server readiness without inventing a connected project', as
       features: ['definition', 'diagnostics'],
       workspaces: [],
       connections: [],
+      languages: [
+        { id: 'missing-zeta', language: 'Zeta', server: 'zeta-ls', status: 'missing', projects: [] },
+        { id: 'typescript', language: 'TypeScript / JavaScript', server: 'typescript-language-server', status: 'available', projects: [] },
+        { id: 'jdtls', language: 'Java', server: 'jdtls', status: 'installable', projects: [] },
+        { id: 'missing-alpha', language: 'Alpha', server: 'alpha-ls', status: 'missing', projects: [] },
+        { id: 'deno', language: 'Deno', server: 'deno', status: 'available', projects: [] },
+        { id: 'clangd', language: 'C / C++', server: 'clangd', status: 'installable', projects: [] },
+        { id: 'vue', language: 'Vue', server: 'vue-language-server', status: 'missing', projects: [] },
+        { id: 'rust-analyzer', language: 'Rust', server: 'rust-analyzer', status: 'missing', projects: [] },
+        { id: 'pyright', language: 'Python', server: 'pyright-langserver', status: 'missing', projects: [] },
+      ],
     }),
   }))
 
   await openFarming(page)
   await page.getByTestId('code-nav-plugins').click()
   const card = page.getByTestId('code-plugin-language-server')
-  await expect(card.getByText('Ready on demand', { exact: true })).toBeVisible()
-  await expect(card.getByText('Connected', { exact: true })).toHaveCount(0)
-  await expect(card).toContainText('No project language server is running')
+  await expect(card.getByText('0 running · 2 available · 2 auto-installable · 5 not installed', { exact: true })).toBeVisible()
+  await expect(card.locator('thead')).toContainText('Language')
+  await expect(card.locator('thead')).toContainText('Status')
+  await expect(card.locator('tbody tr')).toHaveCount(7)
+  await expect.poll(() => card.locator('tbody tr').evaluateAll(rows => rows.map(row => row.getAttribute('data-testid')))).toEqual([
+    'code-plugin-language-server-language-deno',
+    'code-plugin-language-server-language-typescript',
+    'code-plugin-language-server-language-clangd',
+    'code-plugin-language-server-language-jdtls',
+    'code-plugin-language-server-language-missing-alpha',
+    'code-plugin-language-server-language-pyright',
+    'code-plugin-language-server-language-rust-analyzer',
+  ])
+  await expect(card.getByText('2 more languages', { exact: true })).toBeVisible()
+  await card.getByRole('button', { name: 'Show all' }).click()
+  await expect(card.locator('tbody tr')).toHaveCount(9)
+  await expect(card.getByRole('button', { name: 'Collapse' })).toBeVisible()
+  await expect(card.getByRole('button', { name: 'Retry' })).toHaveCount(0)
+  await expect(card.getByRole('button', { name: 'Disable' })).toHaveAttribute('aria-pressed', 'true')
 })
 
-test('lists live Language Server projects and roots', async ({ page }) => {
+test('defaults Language Server to enabled and persists explicit enable and disable actions', async ({ page }) => {
+  let enabled = true
+  const persistedValues: boolean[] = []
+  await page.route('**/api/language-server/capability**', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      enabled,
+      status: 'ready',
+      source: 'managed',
+      detail: enabled ? '1 built-in language definition' : 'Language Server is disabled',
+      features: ['definition', 'diagnostics'],
+      workspaces: [],
+      connections: [],
+      languages: [
+        { id: 'typescript', language: 'TypeScript / JavaScript', server: 'typescript-language-server', status: 'available', projects: [] },
+      ],
+    }),
+  }))
+  await page.route('**/api/settings', async route => {
+    if (route.request().method() !== 'POST') {
+      await route.continue()
+      return
+    }
+    const patch = route.request().postDataJSON() as { languageServerEnabled?: boolean }
+    enabled = patch.languageServerEnabled !== false
+    persistedValues.push(enabled)
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, settings: { languageServerEnabled: enabled } }),
+    })
+  })
+
+  await openFarming(page)
+  await page.getByTestId('code-nav-plugins').click()
+  const card = page.getByTestId('code-plugin-language-server')
+  const disable = card.getByRole('button', { name: 'Disable' })
+  await expect(disable).toHaveAttribute('aria-pressed', 'true')
+
+  await disable.click()
+  await expect(card.getByText('Disabled', { exact: true })).toBeVisible()
+  const enable = card.getByRole('button', { name: 'Enable' })
+  await expect(enable).toHaveAttribute('aria-pressed', 'false')
+  await expect(card.locator('tbody tr')).toHaveCount(1)
+
+  await enable.click()
+  await expect(card.getByRole('button', { name: 'Disable' })).toHaveAttribute('aria-pressed', 'true')
+  expect(persistedValues).toEqual([false, true])
+})
+
+test('asks for a restart when the backend does not provide language inventory', async ({ page }) => {
+  await page.route('**/api/language-server/capability**', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      status: 'ready',
+      source: 'managed',
+      detail: '33 built-in language definitions · servers start on demand',
+      features: ['definition', 'diagnostics'],
+      workspaces: [],
+      connections: [],
+    }),
+  }))
+
+  await openFarming(page)
+  await page.getByTestId('code-nav-plugins').click()
+  const card = page.getByTestId('code-plugin-language-server')
+  await expect(card.getByText('Restart Farming to load language status', { exact: true })).toBeVisible()
+  await expect(card.getByText('Unavailable', { exact: true })).toHaveCount(0)
+  await expect(card.getByRole('button', { name: 'Retry' })).toHaveCount(0)
+})
+
+test('keeps plugin scrolling local until the scroll burst settles', async ({ page }) => {
+  await page.route('**/api/language-server/capability**', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      status: 'ready',
+      source: 'managed',
+      detail: '33 built-in language definitions · servers start on demand',
+      features: ['definition', 'diagnostics'],
+      workspaces: [],
+      connections: [],
+      languages: Array.from({ length: 33 }, (_, index) => ({
+        id: `language-${index}`,
+        language: `Language ${String(index).padStart(2, '0')}`,
+        server: `language-server-${index}`,
+        status: 'missing',
+        projects: [],
+      })),
+    }),
+  }))
+
+  await openFarming(page)
+  await page.getByTestId('code-nav-plugins').click()
+  const panel = page.getByTestId('code-plugins-panel')
+  await panel.getByTestId('code-plugin-tab-extensions').click()
+  await expect(panel.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled()
+  await panel.getByTestId('code-plugin-tab-farming').click()
+  const card = page.getByTestId('code-plugin-language-server')
+  await card.getByRole('button', { name: 'Show all' }).click()
+  const scroller = page.locator('.code-plugins-view')
+  await expect.poll(() => scroller.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true)
+  await scroller.evaluate(element => {
+    element.scrollTop = 0
+    element.dispatchEvent(new Event('scroll'))
+  })
+  const persistedScrollTop = () => page.evaluate(() => {
+    const state = JSON.parse(localStorage.getItem('farming.code.workspaceViewState.v1') || '{}') as {
+      pluginsNavigationState?: { scrollTop?: number }
+    }
+    return state.pluginsNavigationState?.scrollTop ?? 0
+  })
+  await expect.poll(persistedScrollTop).toBe(0)
+
+  const burst = await scroller.evaluate(async element => {
+    const maxScrollTop = element.scrollHeight - element.clientHeight
+    for (let step = 1; step <= 12; step += 1) {
+      element.scrollTop = Math.round((maxScrollTop * step) / 12)
+      element.dispatchEvent(new Event('scroll'))
+      await new Promise(resolve => window.setTimeout(resolve, 16))
+    }
+    const state = JSON.parse(localStorage.getItem('farming.code.workspaceViewState.v1') || '{}') as {
+      pluginsNavigationState?: { scrollTop?: number }
+    }
+    return {
+      finalScrollTop: element.scrollTop,
+      persistedDuringBurst: state.pluginsNavigationState?.scrollTop ?? 0,
+    }
+  })
+  expect(burst.persistedDuringBurst).not.toBe(burst.finalScrollTop)
+  await expect.poll(persistedScrollTop).toBe(burst.finalScrollTop)
+})
+
+test('lists live Language Servers by language and Project', async ({ page }) => {
   const workspaceUri = pathToFileURL('/workspaces/managed-project').toString()
   const rootUri = pathToFileURL('/workspaces/managed-project/module').toString()
   await page.route('**/api/language-server/capability**', route => route.fulfill({
@@ -86,16 +244,24 @@ test('lists live Language Server projects and roots', async ({ page }) => {
       features: ['definition', 'diagnostics'],
       workspaces: [workspaceUri],
       connections: [{ id: 'typescript', root: rootUri, workspace: workspaceUri }],
+      languages: [
+        { id: 'gopls', language: 'Go', server: 'gopls', status: 'missing', projects: [] },
+        { id: 'clangd', language: 'C / C++', server: 'clangd', status: 'installable', projects: [] },
+        { id: 'pyright', language: 'Python', server: 'pyright-langserver', status: 'available', projects: [] },
+        { id: 'typescript', language: 'TypeScript / JavaScript', server: 'typescript-language-server', status: 'running', projects: [workspaceUri] },
+      ],
     }),
   }))
 
   await openFarming(page)
   await page.getByTestId('code-nav-plugins').click()
   const card = page.getByTestId('code-plugin-language-server')
-  await expect(card.getByText('Connected', { exact: true })).toBeVisible()
-  await expect(card).toContainText('typescript')
-  await expect(card).toContainText('/workspaces/managed-project')
-  await expect(card).toContainText('/workspaces/managed-project/module')
+  await expect(card.getByText('1 running · 1 available · 1 auto-installable · 1 not installed', { exact: true })).toBeVisible()
+  const typescript = card.getByTestId('code-plugin-language-server-language-typescript')
+  await expect(typescript).toContainText('TypeScript / JavaScript')
+  await expect(typescript).toContainText('typescript-language-server')
+  await expect(typescript).toContainText('Running')
+  await expect(typescript).toContainText('managed-project')
 })
 
 test('renders document highlights, semantic tokens, and inlay hints only for the current saved model', async ({ page }) => {

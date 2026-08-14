@@ -73,6 +73,9 @@ function harness(overrides: Partial<SettingsMutationPorts> = {}, initial: Settin
     async stopAllComputers() {
       calls.push('stop-computers');
     },
+    async stopAllLanguageServers() {
+      calls.push('stop-language-servers');
+    },
     updateSettings(patch) {
       calls.push('commit');
       patches.push({ ...patch });
@@ -284,6 +287,29 @@ async function run(): Promise<void> {
       });
       assert.strictEqual(state.calls.at(-1), 'publish-metadata');
     });
+  }
+
+  {
+    const state = harness({}, { languageServerEnabled: true });
+    const disabled = await new SettingsMutationCoordinator(state.ports).mutate({
+      languageServerEnabled: false,
+    });
+    assert.strictEqual(disabled.settings.languageServerEnabled, false);
+    assert.deepStrictEqual(state.patches, [{ languageServerEnabled: false }]);
+    assert.deepStrictEqual(state.calls, [
+      'get-settings',
+      'commit',
+      'stop-language-servers',
+      'get-settings',
+    ], 'disabling Language Server must close active runtimes after the persisted gate rejects new requests');
+
+    state.calls.length = 0;
+    await new SettingsMutationCoordinator(state.ports).mutate({ languageServerEnabled: true });
+    assert.deepStrictEqual(state.calls, [
+      'get-settings',
+      'commit',
+      'get-settings',
+    ], 'enabling Language Server should restore admission without eagerly starting a runtime');
   }
 
   console.log('settings mutation router tests passed');

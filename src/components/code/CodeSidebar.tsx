@@ -75,6 +75,12 @@ import { recordPerformanceTestRender } from '@/lib/performance-test-observer'
 import { stableProjectSourceAgentId } from './workspace-derived'
 import { workspaceFileRevealScrollDelta } from '@/lib/workspace-file-view-model'
 import {
+  loadCodeProjectFilesViewState,
+  loadCodeWorkspaceViewState,
+  saveCodeProjectFilesViewState,
+  saveCodeWorkspaceViewState,
+} from './workspace-view-state'
+import {
   agentWithCurrentLiveState,
   projectAgentLiveSummary,
   useAgentWithLiveState,
@@ -360,8 +366,9 @@ export function CodeSidebar({
   const previewTimerRef = useRef<number | null>(null)
   const previewBrowsingRef = useRef(false)
   const branchCacheRef = useRef(new Map<string, { branch: string; expiresAt: number }>())
-  const [usageCollapsed, setUsageCollapsed] = useState(true)
-  const [pinnedCollapsed, setPinnedCollapsed] = useState(false)
+  const [initialWorkspaceViewState] = useState(() => loadCodeWorkspaceViewState())
+  const [usageCollapsed, setUsageCollapsed] = useState(initialWorkspaceViewState.usageCollapsed ?? true)
+  const [pinnedCollapsed, setPinnedCollapsed] = useState(initialWorkspaceViewState.pinnedCollapsed ?? false)
   const [brandDialogOpen, setBrandDialogOpen] = useState(false)
   const [instanceNameDialogOpen, setInstanceNameDialogOpen] = useState(false)
   const productMarkRef = useRef<HTMLButtonElement | null>(null)
@@ -379,6 +386,14 @@ export function CodeSidebar({
     const remaining = element.scrollHeight - element.scrollTop - element.clientHeight
     if (remaining <= 240) onLoadMoreAgentSessions()
   }, [canLoadMoreAgentSessions, onLoadMoreAgentSessions])
+
+  useEffect(() => {
+    saveCodeWorkspaceViewState({ pinnedCollapsed })
+  }, [pinnedCollapsed])
+
+  useEffect(() => {
+    saveCodeWorkspaceViewState({ usageCollapsed })
+  }, [usageCollapsed])
   const clearPreviewTimer = useCallback(() => {
     if (previewTimerRef.current === null) return
     window.clearTimeout(previewTimerRef.current)
@@ -1897,8 +1912,13 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
     agentWorktreeList(project.gitWorktree)
   ))
   const [branchSwitchRevision, setBranchSwitchRevision] = useState(0)
-  const [projectAgentVisibleLimit, setProjectAgentVisibleLimit] = useState(PROJECT_AGENT_INITIAL_VISIBLE_LIMIT)
-  const [projectAgentsCollapsed, setProjectAgentsCollapsed] = useState(false)
+  const [initialProjectViewState] = useState(() => loadCodeProjectFilesViewState(project.id))
+  const [projectAgentVisibleLimit, setProjectAgentVisibleLimit] = useState(
+    initialProjectViewState.agentVisibleLimit ?? PROJECT_AGENT_INITIAL_VISIBLE_LIMIT,
+  )
+  const [projectAgentsCollapsed, setProjectAgentsCollapsed] = useState(
+    initialProjectViewState.agentsCollapsed ?? false,
+  )
   const [paginationExcludedAgentIds, setPaginationExcludedAgentIds] = useState<Set<string>>(() => new Set())
   const [projectFilesExpanded, setProjectFilesExpanded] = useState(false)
   const [projectSourceAgentId, setProjectSourceAgentId] = useState<string | null>(() => (
@@ -1965,6 +1985,14 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
     if (!agentRevealRequest || !project.agents.some(agent => agent.id === agentRevealRequest.agentId)) return
     setProjectAgentsCollapsed(false)
   }, [agentRevealRequest, project.agents])
+
+  useEffect(() => {
+    saveCodeProjectFilesViewState(project.id, { agentsCollapsed: projectAgentsCollapsed })
+  }, [project.id, projectAgentsCollapsed])
+
+  useEffect(() => {
+    saveCodeProjectFilesViewState(project.id, { agentVisibleLimit: projectAgentVisibleLimit })
+  }, [project.id, projectAgentVisibleLimit])
 
   useEffect(() => {
     if (projectSourceAgentId !== nextProjectSourceAgentId) {

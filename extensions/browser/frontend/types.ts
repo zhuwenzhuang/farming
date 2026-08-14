@@ -49,7 +49,6 @@ export interface BrowserCapability {
   extension?: {
     installed?: boolean
     extensionPath?: string
-    sizeBytes?: number
     integrity?: 'invalid' | 'missing' | 'valid'
     connected?: boolean
     browser?: {

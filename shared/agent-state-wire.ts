@@ -7,6 +7,7 @@ export interface ProviderConversationForkCapability {
   strategy: 'source-session' | 'target-process' | null
   worktreeModes: Array<'same-worktree' | 'new-worktree'>
   requiresRuntimeCapability: boolean
+  supportsActiveTurn?: boolean
 }
 
 export interface ProviderCapabilitiesWire {
@@ -104,6 +105,10 @@ function providerConversationForkCapabilityWire(
     && Array.isArray(capability.worktreeModes)
     && capability.worktreeModes.every(mode => mode === 'same-worktree' || mode === 'new-worktree')
     && typeof capability.requiresRuntimeCapability === 'boolean'
+    && (
+      capability.supportsActiveTurn === undefined
+      || typeof capability.supportsActiveTurn === 'boolean'
+    )
   )
 }
 

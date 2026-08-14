@@ -50,6 +50,7 @@ interface ProviderConversationForkCapability {
   strategy: ProviderConversationForkStrategy | null;
   worktreeModes: ProviderForkWorktreeMode[];
   requiresRuntimeCapability: boolean;
+  supportsActiveTurn: boolean;
 }
 
 interface ProviderConversationForkContract {
@@ -61,6 +62,7 @@ interface ProviderConversationForkContract {
     strategy: ProviderConversationForkStrategy;
     worktreeModes: readonly ProviderForkWorktreeMode[];
     requiresRuntimeCapability: true;
+    supportsActiveTurn?: true;
   };
 }
 
@@ -318,6 +320,7 @@ const NO_CONVERSATION_FORK: ProviderConversationForkCapability = Object.freeze({
   strategy: null,
   worktreeModes: [],
   requiresRuntimeCapability: false,
+  supportsActiveTurn: false,
 });
 
 function conversationForkCapability(
@@ -333,6 +336,9 @@ function conversationForkCapability(
     requiresRuntimeCapability: runtime === 'acp'
       && 'requiresRuntimeCapability' in declared
       && declared.requiresRuntimeCapability === true,
+    supportsActiveTurn: runtime === 'acp'
+      && 'supportsActiveTurn' in declared
+      && declared.supportsActiveTurn === true,
   };
 }
 
@@ -705,6 +711,7 @@ const PROVIDER_ADAPTERS = Object.freeze<ProviderAdapter[]>([
           strategy: 'source-session',
           worktreeModes: ['same-worktree'],
           requiresRuntimeCapability: true,
+          supportsActiveTurn: true,
         },
       },
     },

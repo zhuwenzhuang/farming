@@ -32,6 +32,7 @@ interface SettingsRecord {
   computerCompatibilityMode?: unknown;
   computerExtensionEnabled?: unknown;
   computerImage?: unknown;
+  languageServerEnabled?: unknown;
 }
 
 interface BrowserProbe {
@@ -60,6 +61,7 @@ interface SettingsMutationPorts {
   resetAllComputerContainers(): Promise<unknown>;
   stopAllBrowsers(): Promise<unknown>;
   stopAllComputers(): Promise<unknown>;
+  stopAllLanguageServers(): Promise<unknown>;
   updateSettings(patch: SettingsRecord): void;
 }
 
@@ -183,6 +185,7 @@ class SettingsMutationCoordinator {
     const changesBrowserConfiguration = BROWSER_CONFIGURATION_KEYS.some(key => owns(settingsPatch, key));
     let changesComputerExtension = owns(settingsPatch, 'computerExtensionEnabled');
     const changesComputerConfiguration = COMPUTER_CONFIGURATION_KEYS.some(key => owns(settingsPatch, key));
+    const changesLanguageServer = owns(settingsPatch, 'languageServerEnabled');
     const browserExtensionEnabled = settingsPatch.browserExtensionEnabled === true;
     const desiredBrowserEnabled = changesBrowserExtension
       ? browserExtensionEnabled
@@ -270,6 +273,14 @@ class SettingsMutationCoordinator {
         );
       }
       throw caught;
+    }
+
+    if (
+      changesLanguageServer
+      && currentSettings.languageServerEnabled !== false
+      && settingsPatch.languageServerEnabled !== true
+    ) {
+      await this.ports.stopAllLanguageServers();
     }
 
     if (changesBrowserExtension || changesBrowserConfiguration) {

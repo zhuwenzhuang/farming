@@ -31,12 +31,14 @@ function agent(provider, goalSubmission, overrides = {}) {
             ? ['same-worktree', 'new-worktree']
             : [],
           requiresRuntimeCapability: false,
+          supportsActiveTurn: false,
         },
         acp: {
           supported: acpFork,
           strategy: acpFork ? 'source-session' : null,
           worktreeModes: acpFork ? ['same-worktree'] : [],
           requiresRuntimeCapability: acpFork,
+          supportsActiveTurn: provider === 'codex',
         },
       },
       terminalSessionFork: terminalFork,
@@ -112,6 +114,7 @@ function run() {
           strategy: 'target-process',
           worktreeModes: ['same-worktree'],
           requiresRuntimeCapability: false,
+          supportsActiveTurn: false,
         },
       },
     },
@@ -135,6 +138,9 @@ function run() {
   assert.strictEqual(canForkAgentConversation(agent('qoder', null, {
     runtimeBinding: { kind: 'acp', state: 'working', supportsFork: true },
   })), false);
+  assert.strictEqual(canForkAgentConversation(agent('codex', null, {
+    runtimeBinding: { kind: 'acp', state: 'working', supportsFork: true },
+  })), true);
   assert.strictEqual(canForkAgentConversation(agent('qoder', null, {
     runtimeBinding: { kind: 'acp', state: 'error', supportsFork: true },
   })), true);

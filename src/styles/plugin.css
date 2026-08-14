@@ -1582,42 +1582,6 @@
   user-select: text;
 }
 
-.code-plugin-browser-copy-address {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  padding: 3px 7px;
-  border: 0;
-  border-radius: 6px;
-  color: var(--code-text-subtle);
-  background: var(--code-surface-hover);
-  cursor: pointer;
-}
-
-.code-plugin-browser-copy-address code {
-  color: var(--code-accent);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.code-plugin-browser-copy-address:hover {
-  color: var(--code-text);
-}
-
-.code-plugin-browser-connector-metadata strong {
-  color: var(--code-text);
-  font-size: 12px;
-}
-
-.code-plugin-browser-connector-metadata strong.valid {
-  color: var(--code-success);
-}
-
-.code-plugin-browser-connector-metadata strong.invalid {
-  color: var(--code-danger);
-}
-
 .code-plugin-browser-source-actions {
   display: flex;
   align-items: center;
@@ -1760,49 +1724,131 @@
   color: var(--code-success);
 }
 
-.code-plugin-language-server-connections {
-  display: grid;
-  gap: 6px;
-  margin-top: 2px;
+.code-plugin-language-server-card .code-plugin-card-copy {
+  gap: 10px;
 }
 
-.code-plugin-language-server-connections > strong {
-  color: var(--code-text-subtle);
-  font-size: 12px;
-  font-weight: 600;
+.code-plugin-language-server-card .code-plugin-card-title {
+  flex-wrap: wrap;
 }
 
-.code-plugin-language-server-connections ul {
-  display: grid;
-  gap: 5px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.code-plugin-language-server-connections li {
-  display: grid;
+.code-plugin-language-server-table-shell {
   min-width: 0;
-  gap: 2px;
-  padding: 7px 9px;
-  border: 0;
-  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--code-border);
+  border-radius: 10px;
+  background: var(--code-bg-surface);
+}
+
+.code-plugin-language-server-table-scroll {
+  overflow-x: auto;
+}
+
+.code-plugin-language-server-table {
+  width: 100%;
+  min-width: 620px;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 12px;
+}
+
+.code-plugin-language-server-table th,
+.code-plugin-language-server-table td {
+  padding: 9px 11px;
+  border-bottom: 1px solid var(--code-border);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.code-plugin-language-server-table th {
   background: var(--code-bg-inset);
-  font-size: 12px;
-}
-
-.code-plugin-language-server-server {
-  color: var(--code-text-muted);
+  color: var(--code-text-subtle);
   font-weight: 600;
 }
 
-.code-plugin-language-server-project,
-.code-plugin-language-server-root {
-  min-width: 0;
+.code-plugin-language-server-table th:nth-child(1) { width: 24%; }
+.code-plugin-language-server-table th:nth-child(2) { width: 29%; }
+.code-plugin-language-server-table th:nth-child(3) { width: 25%; }
+.code-plugin-language-server-table th:nth-child(4) { width: 22%; }
+
+.code-plugin-language-server-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.code-plugin-language-server-language {
+  color: var(--code-text);
+  font-weight: 600;
+}
+
+.code-plugin-language-server-command,
+.code-plugin-language-server-projects {
   overflow: hidden;
   color: var(--code-text-subtle);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.code-plugin-language-server-command {
+  font-family: var(--code-mono-font, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+.code-plugin-language-server-runtime-status {
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 7px;
+  border-radius: 6px;
+  background: var(--code-bg-inset);
+  color: var(--code-text-subtle);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.code-plugin-language-server-runtime-status.running {
+  background: var(--code-success-soft);
+  color: var(--code-success);
+}
+
+.code-plugin-language-server-runtime-status.running > span {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.code-plugin-language-server-runtime-status.installable {
+  background: var(--code-warning-soft);
+  color: var(--code-warning);
+}
+
+.code-plugin-language-server-table-footer {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 11px;
+  border-top: 1px solid var(--code-border);
+  color: var(--code-text-subtle);
+  font-size: 12px;
+}
+
+.code-plugin-language-server-table-footer button {
+  padding: 4px 7px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--code-text-muted);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+}
+
+.code-plugin-language-server-table-footer button:hover,
+.code-plugin-language-server-table-footer button:focus-visible {
+  background: var(--code-bg-hover);
 }
 
 .code-plugin-toggle {

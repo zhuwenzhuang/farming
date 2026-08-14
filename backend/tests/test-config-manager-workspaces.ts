@@ -50,6 +50,7 @@ function run() {
     assert.strictEqual(settings.language, 'en');
     assert.strictEqual(settings.crtSkinEffectsEnabled, true);
     assert.strictEqual(settings.browserExtensionEnabled, true);
+    assert.strictEqual(settings.languageServerEnabled, true);
     assert.strictEqual(settings.browserSource, 'system');
     assert.strictEqual(settings.browserExecutablePath, '');
     manager.updateSettings({
@@ -79,6 +80,10 @@ function run() {
     );
     manager.updateSettings({ browserExtensionEnabled: false });
     assert.strictEqual(manager.getSettings().browserExtensionEnabled, false);
+    manager.updateSettings({ languageServerEnabled: false });
+    assert.strictEqual(manager.getSettings().languageServerEnabled, false);
+    manager.updateSettings({ languageServerEnabled: true });
+    assert.strictEqual(manager.getSettings().languageServerEnabled, true);
     manager.updateSettings({ computerExtensionEnabled: false });
     assert.strictEqual(manager.getSettings().computerExtensionEnabled, false);
     manager.updateSettings({ browserSource: 'extension' });

@@ -128,15 +128,15 @@ async function sidebarRowPalette(section: Locator) {
     const projectTitle = project?.querySelector<HTMLElement>('.code-project-title')
     const header = element.querySelector<HTMLElement>('.code-files-header')
     const fileRow = element.querySelector<HTMLElement>('.code-file-row.directory:not(.code-file-sticky-row):not(.ignored)')
-    const activeFileRow = element.querySelector<HTMLElement>('.code-file-row.active')
+    const activeFileFrame = element.querySelector<HTMLElement>('.code-file-tree-row-frame:has(.code-file-row.active)')
     const stickyRow = element.querySelector<HTMLElement>('.code-file-sticky-row')
     const openEditor = project?.querySelector<HTMLElement>('.code-open-editor-main')
-    if (!projectTitle || !header || !fileRow || !activeFileRow || !stickyRow || !openEditor) return null
+    if (!projectTitle || !header || !fileRow || !activeFileFrame || !stickyRow || !openEditor) return null
     return {
       projectTitle: getComputedStyle(projectTitle).color,
       filesHeader: getComputedStyle(header).color,
       fileRow: getComputedStyle(fileRow).color,
-      activeFileBackground: getComputedStyle(activeFileRow).backgroundColor,
+      activeFileBackground: getComputedStyle(activeFileFrame).backgroundColor,
       stickyRow: getComputedStyle(stickyRow).color,
       openEditor: getComputedStyle(openEditor).color,
     }
@@ -297,6 +297,7 @@ test('preserves every visible directory level across sticky scroll, collapse, re
   const stickyResizeSamples = []
   for (const delta of [32, 64, 96, 128, 104, 80, 56, 32, 56, 80, 104, 128]) {
     await page.mouse.move(resizeStartX + delta, resizeY)
+    await settleLayout(page)
     const sample = await files.evaluate(element => new Promise<{
       shift: number
       stickyPath: string
@@ -375,6 +376,38 @@ test('preserves every visible directory level across sticky scroll, collapse, re
   await expect(restoredTarget).toBeVisible()
   await scrollFileRowIntoStickyRange(restoredTarget)
   await expect.poll(() => stickyHierarchyMatchesFirstUncoveredRow(restoredFiles)).toBe(true)
+})
+
+test('restores the open editor set, preview state, and Open Editors disclosure', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'remembered-open-editors')
+  fs.mkdirSync(workspace, { recursive: true })
+  fs.writeFileSync(path.join(workspace, 'pinned.ts'), 'export const pinned = true\n')
+  fs.writeFileSync(path.join(workspace, 'preview.ts'), 'export const preview = true\n')
+
+  await openFarming(page)
+  await openNewAgentDialog(page)
+  await startAgentFromOpenDialog(page, 'bash', workspace)
+
+  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspace) })
+  const files = project.getByTestId('code-files-section')
+  const filesTitle = files.getByRole('button', { name: 'Files', exact: true })
+  if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
+  const pinned = files.locator('[data-testid="code-file-row"][data-file-path="pinned.ts"]')
+  const preview = files.locator('[data-testid="code-file-row"][data-file-path="preview.ts"]')
+  await pinned.dblclick()
+  await preview.click()
+
+  const openEditors = project.getByTestId('code-open-editors')
+  const openEditorsTitle = openEditors.locator('.code-open-editors-title')
+  if (await openEditorsTitle.getAttribute('aria-expanded') !== 'true') await openEditorsTitle.click()
+  await expect(openEditors.getByTestId('code-open-editor-row')).toHaveCount(2)
+
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await expect(openEditors).toHaveAttribute('data-open-editor-count', '2')
+  await expect(openEditorsTitle).toHaveAttribute('aria-expanded', 'true')
+  await expect(openEditors.locator('[data-file-path="pinned.ts"]')).toBeVisible()
+  await expect(openEditors.locator('[data-file-path="preview.ts"]')).toBeVisible()
+  await expect(page.locator('.code-file-editor-tab[title="preview.ts"]')).toHaveAttribute('data-preview', 'true')
 })
 
 test('keeps the sticky Files seam opaque over scrolled file rows', async ({ page, workspaceRoot }) => {

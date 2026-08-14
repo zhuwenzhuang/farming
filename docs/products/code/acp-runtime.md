@@ -313,6 +313,13 @@ capability both support it. The source revision, child identity, ownership, and
 cleanup responsibility must be exact. Failure before the child is durable is
 visible and must not silently create a different fork.
 
+An active Turn remains a Fork barrier unless the Provider's adapter contract
+explicitly declares active-Turn Fork support. Such a Fork must use a
+Provider-owned stable boundary before the active Turn, leave the source Turn
+running, and avoid copying partial assistant or tool state. A moving transcript
+revision does not invalidate that stable boundary; Providers without this
+declaration retain the ordinary idle-only rule.
+
 Fork child launch has one settlement rule across runtime strategies: the first
 callback or Promise result is authoritative. A callback failure or resolved
 null is definitive and permits exact cleanup. A synchronous throw or rejected

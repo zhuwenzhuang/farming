@@ -6,7 +6,18 @@ export interface LanguageServerConnection {
   workspace: string
 }
 
+export type LanguageServerRuntimeStatus = 'running' | 'available' | 'installable' | 'missing'
+
+export interface LanguageServerRuntimeCapability {
+  id: string
+  language: string
+  server: string
+  status: LanguageServerRuntimeStatus
+  projects: string[]
+}
+
 export interface LanguageServerCapability {
+  enabled?: boolean
   status: LanguageServerStatus
   source: 'managed' | 'vscode'
   detail: string
@@ -14,6 +25,7 @@ export interface LanguageServerCapability {
   features: string[]
   workspaces: string[]
   connections: LanguageServerConnection[]
+  languages?: LanguageServerRuntimeCapability[]
 }
 
 export interface LanguageServerPosition {

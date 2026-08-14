@@ -215,7 +215,10 @@ import {
   compactContextMenuEntries,
   type ContextMenuEntry,
 } from './code/menu-model'
-import { useWorkspaceOpenFiles } from './code/useWorkspaceOpenFiles'
+import {
+  useWorkspaceOpenFiles,
+  type WorkspaceOpenFileRestoreRead,
+} from './code/useWorkspaceOpenFiles'
 import { useWorkspaceContextMenu } from './code/useWorkspaceContextMenu'
 import { useWorkspaceNavigationHistory } from './code/useWorkspaceNavigationHistory'
 import {
@@ -251,6 +254,11 @@ import {
   type AgentLaunchOption,
 } from './code/agent-launch-options'
 import { touchAgentViewCache } from './code/agent-view-cache'
+import {
+  loadCodeWorkspaceViewState,
+  saveCodeProjectFilesViewState,
+  saveCodeWorkspaceViewState,
+} from './code/workspace-view-state'
 
 export type { WorkspaceView } from './code/types'
 
@@ -402,6 +410,7 @@ const DESKTOP_AUTO_COLLAPSE_WIDTH = 900
 const TERMINAL_PATH_SEARCH_LIMIT = 12
 const EMPTY_PROJECT_AGENT_SUMMARIES: ProjectAgentSummary[] = []
 const CODEX_TERMINAL_PROFILE_REQUEST_TIMEOUT_MS = 35_000
+const WORKSPACE_OPEN_FILES_RESTORE_TIMEOUT_MS = 15_000
 
 
 function shouldUseNativeMobileDictation() {
@@ -545,6 +554,7 @@ export function CodeWorkspace({
   onUpdateUiPreferences,
 }: CodeWorkspaceProps) {
   recordPerformanceTestRender('codeWorkspace')
+  const [initialWorkspaceViewState] = useState(() => loadCodeWorkspaceViewState())
   const pageVisible = usePageVisibility()
   const {
     composerByAgentKey,
@@ -571,7 +581,9 @@ export function CodeWorkspace({
     showComputer,
     reconcileResources,
   } = resourcePane
-  const [collapsedComputerAgentIds, setCollapsedComputerAgentIds] = useState<Set<string>>(() => new Set())
+  const [collapsedComputerAgentIds, setCollapsedComputerAgentIds] = useState<Set<string>>(() => (
+    new Set(initialWorkspaceViewState.collapsedComputerAgentIds ?? [])
+  ))
   const browserResources = useBrowserResources({
     collection: browserResourceState,
     onResource: onBrowserResource,
@@ -589,6 +601,9 @@ export function CodeWorkspace({
   const refreshBrowserCapability = browserResources.refreshCapability
   const refreshComputerCapability = computerResources.refreshCapability
   const workspaceOpenFiles = useWorkspaceOpenFiles()
+  const restoreOpenFilesFromReads = workspaceOpenFiles.restoreFromReads
+  const [openFilesViewRestored, setOpenFilesViewRestored] = useState(false)
+  const openFilesViewRestoreStartedRef = useRef(false)
   const {
     canGoBack: canNavigateWorkspaceBack,
     canGoForward: canNavigateWorkspaceForward,
@@ -684,6 +699,23 @@ export function CodeWorkspace({
     return counts
   }, [browserResources.resources, computerResources.resources])
   const refreshProjectOpenFiles = workspaceOpenFiles.refreshProject
+
+  useEffect(() => {
+    saveCodeWorkspaceViewState({
+      collapsedComputerAgentIds: Array.from(collapsedComputerAgentIds),
+    })
+  }, [collapsedComputerAgentIds])
+
+  useEffect(() => {
+    const ownerAgentId = activeComputerResource?.ownerAgentId
+    if (!ownerAgentId) return
+    setCollapsedComputerAgentIds(current => {
+      if (!current.has(ownerAgentId)) return current
+      const next = new Set(current)
+      next.delete(ownerAgentId)
+      return next
+    })
+  }, [activeComputerResource?.ownerAgentId])
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchSelectionIndex, setSearchSelectionIndex] = useState(0)
@@ -720,13 +752,21 @@ export function CodeWorkspace({
   const [optimisticallyArchivedAgentIds, setOptimisticallyArchivedAgentIds] = useState<Set<string>>(() => new Set())
   const [speechSupported, setSpeechSupported] = useState(false)
   const [speechListening, setSpeechListening] = useState(false)
-  const [collapsedProjectIds, setCollapsedProjectIds] = useState<Set<string>>(() => new Set())
-  const [projectSessionLimits, setProjectSessionLimits] = useState<Map<string, number>>(() => new Map())
+  const [collapsedProjectIds, setCollapsedProjectIds] = useState<Set<string>>(() => (
+    new Set(initialWorkspaceViewState.collapsedProjectIds ?? [])
+  ))
+  const [projectSessionLimits, setProjectSessionLimits] = useState<Map<string, number>>(() => (
+    new Map(Object.entries(initialWorkspaceViewState.projectFiles ?? {}).flatMap(([projectId, state]) => (
+      typeof state.sessionVisibleLimit === 'number' ? [[projectId, state.sessionVisibleLimit]] : []
+    )))
+  ))
   const [pluginsNavigationState, setPluginsNavigationState] = useState<PluginsNavigationState>(
-    () => defaultPluginsNavigationState(),
+    () => initialWorkspaceViewState.pluginsNavigationState ?? defaultPluginsNavigationState(),
   )
-  const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH)
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => shouldCollapseSidebarInitially())
+  const [sidebarWidth, setSidebarWidth] = useState(initialWorkspaceViewState.sidebarWidth ?? DEFAULT_SIDEBAR_WIDTH)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => (
+    initialWorkspaceViewState.sidebarCollapsed === true || shouldCollapseSidebarInitially()
+  ))
   const [mobileNavigationViewport, setMobileNavigationViewport] = useState(() => isMobileNavigationViewport())
   const [emptyHomeSidebarActionRequest, setEmptyHomeSidebarActionRequest] = useState<EmptyHomeSidebarActionRequest | null>(null)
   const [pendingShareTarget, setPendingShareTarget] = useState<WorkspaceShareTarget | null>(() => (
@@ -776,6 +816,8 @@ export function CodeWorkspace({
   const deleteWorktreeDialogRef = useRef<HTMLDivElement>(null)
   const deleteWorktreeCancelButtonRef = useRef<HTMLButtonElement>(null)
   const projectListRef = useRef<HTMLDivElement>(null)
+  const projectListScrollSaveFrameRef = useRef<number | null>(null)
+  const projectListScrollRestoredRef = useRef(false)
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
   const resumeAgentSessionRef = useRef<(provider: string, sessionId: string, providerHomeId?: string) => void>(() => {})
   const activeTerminalIdRef = useRef<string | null>(activeTerminalId)
@@ -794,7 +836,10 @@ export function CodeWorkspace({
   const projectOperationRequestIdsRef = useRef(new Map<string, string>())
   const trackedMainPageAgentKeysRef = useRef<Set<string>>(new Set())
   const resizingSidebarRef = useRef(false)
-  const sidebarAutoCollapsedRef = useRef(sidebarCollapsed)
+  const sidebarUserCollapsedRef = useRef(initialWorkspaceViewState.sidebarCollapsed === true)
+  const sidebarAutoCollapsedRef = useRef(
+    initialWorkspaceViewState.sidebarCollapsed !== true && shouldCollapseSidebarInitially(),
+  )
   const mobileNavigationViewportRef = useRef(mobileNavigationViewport)
   const mobileNavigationDialogRef = useRef<HTMLElement>(null)
   const mobileNavigationTriggerRef = useRef<HTMLButtonElement>(null)
@@ -805,6 +850,8 @@ export function CodeWorkspace({
 
   const collapseSidebar = useCallback(() => {
     sidebarAutoCollapsedRef.current = false
+    sidebarUserCollapsedRef.current = true
+    saveCodeWorkspaceViewState({ sidebarCollapsed: true })
     setSidebarCollapsed(true)
   }, [])
 
@@ -817,12 +864,24 @@ export function CodeWorkspace({
 
   const expandSidebar = useCallback(() => {
     sidebarAutoCollapsedRef.current = false
+    sidebarUserCollapsedRef.current = false
+    saveCodeWorkspaceViewState({ sidebarCollapsed: false })
     setSidebarCollapsed(false)
+  }, [])
+
+  const restoreAutoCollapsedSidebar = useCallback(() => {
+    sidebarAutoCollapsedRef.current = false
+    setSidebarCollapsed(sidebarUserCollapsedRef.current)
   }, [])
 
   const toggleSidebar = useCallback(() => {
     sidebarAutoCollapsedRef.current = false
-    setSidebarCollapsed(collapsed => !collapsed)
+    setSidebarCollapsed(collapsed => {
+      const next = !collapsed
+      sidebarUserCollapsedRef.current = next
+      saveCodeWorkspaceViewState({ sidebarCollapsed: next })
+      return next
+    })
   }, [])
 
   const dismissMobileNavigation = useCallback(() => {
@@ -1101,7 +1160,7 @@ export function CodeWorkspace({
     [activeAgents, hiddenMainAgent, mountedAgentViewIds]
   )
   const structuralActiveOpenAgent = useMemo(
-    () => openAgents.find(agent => agent.id === activeTerminalId) ?? openAgents[0] ?? null,
+    () => openAgents.find(agent => agent.id === activeTerminalId) ?? null,
     [activeTerminalId, openAgents]
   )
   const structuralActiveAgent = useMemo(
@@ -1115,6 +1174,11 @@ export function CodeWorkspace({
     : structuralActiveOpenAgent
   const distinctActiveOpenAgent = useAgentWithLiveRuntimeState(distinctStructuralActiveOpenAgent)
   const activeOpenAgent = distinctStructuralActiveOpenAgent ? distinctActiveOpenAgent : activeAgent
+  const activeSidebarProjectId = activeAgent
+    ? activeAgent.isMain
+      ? MAIN_AGENT_PROJECT_ID
+      : projectWorkspaceForAgent(activeAgent)
+    : ''
   const mountedOpenAgents = useMemo(
     () => openAgents.map(agent => agent.id === activeOpenAgent?.id ? activeOpenAgent : agent),
     [activeOpenAgent, openAgents]
@@ -1217,6 +1281,69 @@ export function CodeWorkspace({
     if (!activeTerminalId || mainPaneMode !== 'terminal' || activeView !== 'projects') return
     recordWorkspaceNavigationAgent(activeTerminalId)
   }, [activeTerminalId, activeView, mainPaneMode, recordWorkspaceNavigationAgent])
+
+  useEffect(() => {
+    saveCodeWorkspaceViewState({ collapsedProjectIds: Array.from(collapsedProjectIds) })
+  }, [collapsedProjectIds])
+
+  useEffect(() => {
+    saveCodeWorkspaceViewState({ pluginsNavigationState })
+  }, [pluginsNavigationState])
+
+  useEffect(() => {
+    saveCodeWorkspaceViewState({ sidebarWidth })
+  }, [sidebarWidth])
+
+  useEffect(() => {
+    const projectList = projectListRef.current
+    if (!projectList) return
+    const saveScrollPosition = () => {
+      if (projectListScrollSaveFrameRef.current !== null) return
+      projectListScrollSaveFrameRef.current = window.requestAnimationFrame(() => {
+        projectListScrollSaveFrameRef.current = null
+        saveCodeWorkspaceViewState({ projectListScrollTop: projectList.scrollTop })
+      })
+    }
+    projectList.addEventListener('scroll', saveScrollPosition, { passive: true })
+    return () => {
+      projectList.removeEventListener('scroll', saveScrollPosition)
+      if (projectListScrollSaveFrameRef.current !== null) {
+        window.cancelAnimationFrame(projectListScrollSaveFrameRef.current)
+        projectListScrollSaveFrameRef.current = null
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    if (projectListScrollRestoredRef.current || !agentInventoryComplete) return
+    projectListScrollRestoredRef.current = true
+    const scrollTop = initialWorkspaceViewState.projectListScrollTop
+    if (scrollTop === undefined || initialWorkspaceViewState.surface) return
+    window.requestAnimationFrame(() => {
+      const projectList = projectListRef.current
+      if (projectList) projectList.scrollTop = scrollTop
+    })
+  }, [agentInventoryComplete, initialWorkspaceViewState.projectListScrollTop, initialWorkspaceViewState.surface])
+
+  useEffect(() => {
+    if (
+      !activeTerminalId
+      || !activeSidebarProjectId
+      || mainPaneMode !== 'terminal'
+      || activeView !== 'projects'
+    ) return
+
+    setCollapsedProjectIds(previous => {
+      if (!previous.has(activeSidebarProjectId)) return previous
+      const next = new Set(previous)
+      next.delete(activeSidebarProjectId)
+      return next
+    })
+    setAgentRevealRequest({
+      agentId: activeTerminalId,
+      requestId: workspaceAgentRevealRequestRef.current += 1,
+    })
+  }, [activeSidebarProjectId, activeTerminalId, activeView, mainPaneMode])
 
   useEffect(() => {
     if (activeView !== 'plugins') return
@@ -2458,9 +2585,12 @@ export function CodeWorkspace({
       const next = new Map(previous)
       if (direction === 'less') {
         next.delete(projectId)
+        saveCodeProjectFilesViewState(projectId, { sessionVisibleLimit: undefined })
       } else {
         const currentLimit = previous.get(projectId) ?? DEFAULT_PROJECT_SESSION_LIMIT
-        next.set(projectId, currentLimit + (currentLimit === DEFAULT_PROJECT_SESSION_LIMIT ? 5 : 10))
+        const nextLimit = currentLimit + (currentLimit === DEFAULT_PROJECT_SESSION_LIMIT ? 5 : 10)
+        next.set(projectId, nextLimit)
+        saveCodeProjectFilesViewState(projectId, { sessionVisibleLimit: nextLimit })
       }
       return next
     })
@@ -2870,7 +3000,7 @@ export function CodeWorkspace({
   const restoreWorkspaceAgent = useCallback((agentId: string) => {
     openTerminalFromWorkspace(agentId, { focusTerminal: false })
   }, [openTerminalFromWorkspace])
-  useWorkspaceSurfaceController({
+  const { restored: workspaceSurfaceRestored } = useWorkspaceSurfaceController({
     activeView,
     mainPaneMode,
     activeTerminalId,
@@ -2883,6 +3013,122 @@ export function CodeWorkspace({
     openAgent: restoreWorkspaceAgent,
     openFile: openProjectFile,
   })
+
+  useEffect(() => {
+    if (
+      openFilesViewRestoreStartedRef.current
+      || !workspaceSurfaceRestored
+      || !agentInventoryComplete
+      || !projectWorkspacesLoaded
+    ) return
+    openFilesViewRestoreStartedRef.current = true
+    const candidates = initialWorkspaceViewState.openFiles ?? []
+    if (candidates.length === 0) {
+      setOpenFilesViewRestored(true)
+      return
+    }
+
+    const controller = new AbortController()
+    let cancelled = false
+    let settled = false
+    const timeoutId = window.setTimeout(
+      () => controller.abort(),
+      WORKSPACE_OPEN_FILES_RESTORE_TIMEOUT_MS,
+    )
+    let nextIndex = 0
+    const reads: WorkspaceOpenFileRestoreRead[] = []
+    const workers = Array.from({ length: Math.min(4, candidates.length) }, async () => {
+      while (nextIndex < candidates.length) {
+        const candidateIndex = nextIndex
+        const candidate = candidates[candidateIndex]
+        nextIndex += 1
+        if (!candidate) continue
+        if (candidate.workspace !== '/' && !projectWorkspaces.includes(candidate.workspace)) continue
+        try {
+          const identity = resolveWorkspaceFileIdentity(
+            projectFilesWorkspaceId(candidate.workspace),
+            candidate.sourceAgentId,
+          )
+          const file = await fetchWorkspaceFile(identity.filesId, candidate.filePath, {
+            signal: controller.signal,
+          })
+          reads.push({
+            agentId: identity.filesId,
+            file,
+            request: {
+              cursor: candidate.lineNumber ? {
+                lineNumber: candidate.lineNumber,
+                column: candidate.column,
+                endLineNumber: candidate.endLineNumber,
+                endColumn: candidate.endColumn,
+                requestId: candidateIndex + 1,
+              } : undefined,
+              diffRequestId: candidate.view === 'diff' ? candidateIndex + 1 : undefined,
+              workspaceRoot: identity.workspaceRoot ?? candidate.workspace,
+              sourceAgentId: identity.sourceAgentId,
+              transient: candidate.transient,
+            },
+          })
+        } catch {
+          // Missing or no-longer-authorized files are omitted from the restored tab set.
+        }
+      }
+    })
+    void Promise.all(workers).then(() => {
+      window.clearTimeout(timeoutId)
+      if (cancelled) return
+      const readByIdentity = new Map(reads.map(read => [
+        JSON.stringify([read.request.workspaceRoot, read.file.path]),
+        read,
+      ]))
+      restoreOpenFilesFromReads(candidates.flatMap(candidate => {
+        const read = readByIdentity.get(JSON.stringify([candidate.workspace, candidate.filePath]))
+        return read ? [read] : []
+      }))
+      settled = true
+      setOpenFilesViewRestored(true)
+    })
+    return () => {
+      cancelled = true
+      window.clearTimeout(timeoutId)
+      controller.abort()
+      if (!settled) openFilesViewRestoreStartedRef.current = false
+    }
+  }, [
+    agentInventoryComplete,
+    initialWorkspaceViewState.openFiles,
+    projectWorkspaces,
+    projectWorkspacesLoaded,
+    resolveWorkspaceFileIdentity,
+    restoreOpenFilesFromReads,
+    workspaceSurfaceRestored,
+  ])
+
+  const openFilesViewState = useMemo(() => openWorkspaceFiles.flatMap(file => {
+    const workspace = file.workspaceRoot
+      || projectWorkspaceFromFilesId(file.agentId)
+      || activeAgents.find(agent => agent.id === file.agentId)?.projectWorkspace
+      || activeAgents.find(agent => agent.id === file.agentId)?.cwd
+      || ''
+    if (!workspace) return []
+    return [{
+      workspace,
+      filePath: file.file.path,
+      view: file.diffRequestId ? 'diff' as const : 'editor' as const,
+      lineNumber: file.cursor?.lineNumber,
+      column: file.cursor?.column,
+      endLineNumber: file.cursor?.endLineNumber,
+      endColumn: file.cursor?.endColumn,
+      sourceAgentId: file.sourceAgentId,
+      transient: file.transient,
+    }]
+  }), [activeAgents, openWorkspaceFiles])
+  const openFilesViewStateKey = JSON.stringify(openFilesViewState)
+
+  useEffect(() => {
+    if (!openFilesViewRestored) return
+    saveCodeWorkspaceViewState({ openFiles: JSON.parse(openFilesViewStateKey) })
+  }, [openFilesViewRestored, openFilesViewStateKey])
 
   const focusWorkspaceFilesSearch = useCallback((agentId: string, query?: string) => {
     const identity = resolveWorkspaceFileIdentity(agentId)
@@ -3474,27 +3720,11 @@ export function CodeWorkspace({
     workspaceFileOpenRequestRef.current.invalidate()
     terminalPathOpenRequestRef.current.invalidate()
     setFileRevealRequest(null)
-    const sourceAgent = agents.find(agent => agent.id === agentId)
-    if (sourceAgent) {
-      const projectId = sourceAgent.isMain
-        ? MAIN_AGENT_PROJECT_ID
-        : projectWorkspaceForAgent(sourceAgent)
-      setCollapsedProjectIds(previous => {
-        if (!previous.has(projectId)) return previous
-        const next = new Set(previous)
-        next.delete(projectId)
-        return next
-      })
-      setAgentRevealRequest({
-        agentId,
-        requestId: workspaceAgentRevealRequestRef.current += 1,
-      })
-    }
     setMainPaneMode('terminal')
     onWorkspaceViewChange('projects')
     onOpenTerminal(agentId, { focusTerminal: !isTouchInputViewport() })
     closeSidebarForMobile()
-  }, [agents, closeSidebarForMobile, onOpenTerminal, onWorkspaceViewChange, setMainPaneMode])
+  }, [closeSidebarForMobile, onOpenTerminal, onWorkspaceViewChange, setMainPaneMode])
 
   const closeOpenWorkspaceFiles = useCallback((targets: WorkspaceOpenFileTarget[]) => {
     workspaceFileOpenRequestRef.current.invalidate()
@@ -4709,7 +4939,7 @@ export function CodeWorkspace({
       }
 
       if (sidebarAutoCollapsedRef.current) {
-        expandSidebar()
+        restoreAutoCollapsedSidebar()
       }
     }
 
@@ -4721,7 +4951,7 @@ export function CodeWorkspace({
     observer.observe(workspace)
 
     return () => observer.disconnect()
-  }, [autoCollapseSidebar, expandSidebar])
+  }, [autoCollapseSidebar, restoreAutoCollapsedSidebar])
 
   useEffect(() => {
     const restoreTarget = restoreProjectListFocusRef.current

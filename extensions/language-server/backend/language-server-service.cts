@@ -7,7 +7,7 @@ class LanguageServerService {
     this.managed = managed;
   }
 
-  async capability(_options: { force?: boolean } = {}): Promise<ReturnType<ManagedLanguageServerManager['capability']>> {
+  async capability(_options: { force?: boolean } = {}): Promise<Awaited<ReturnType<ManagedLanguageServerManager['capability']>>> {
     return this.managed.capability();
   }
 

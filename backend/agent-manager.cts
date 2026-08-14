@@ -8652,7 +8652,9 @@ class AgentManager extends EventEmitter {
         if (!agent) return { error: 'Agent not found' };
         acpBinding = runtimeBindingOf(agent, 'acp');
       }
-      if (acpBinding?.state !== 'idle') {
+      const activeTurnFork = acpBinding?.state === 'working'
+        && forkCapability.supportsActiveTurn === true;
+      if (!acpBinding || (acpBinding.state !== 'idle' && !activeTurnFork)) {
         return { error: `ACP Agent is not ready for Conversation Fork (${acpBinding?.state || 'unavailable'})` };
       }
       if (

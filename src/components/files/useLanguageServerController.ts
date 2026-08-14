@@ -211,7 +211,7 @@ export function useLanguageServerController({
   }, [])
 
   useEffect(() => {
-    if (capability?.status !== 'connected' && capability?.status !== 'ready') return
+    if (capability?.enabled === false || (capability?.status !== 'connected' && capability?.status !== 'ready')) return
     let active = true
     const timeout = window.setTimeout(() => {
       void refreshLanguageServerDiagnostics(openFile).catch(() => {
@@ -222,10 +222,11 @@ export function useLanguageServerController({
       active = false
       window.clearTimeout(timeout)
     }
-  }, [capability?.status, openFile])
+  }, [capability?.enabled, capability?.status, openFile])
 
   const available = Boolean(
     (capability?.status === 'connected' || capability?.status === 'ready')
+    && capability.enabled !== false
     && capabilityIncludesWorkspace(capability, openFile.workspaceRoot)
     && !openFile.dirty
     && !openFile.externalChanged,

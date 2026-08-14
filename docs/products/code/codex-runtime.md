@@ -79,6 +79,12 @@ apply until the user confirms an explicit override. Confirmed model, reasoning,
 speed, and permission choices survive supported runtime replacement; unavailable
 saved choices degrade to the current Provider value with a visible warning.
 
+Codex Chat declares active-Turn Conversation Fork support. The pinned adapter
+captures the current Codex Turn id and sends it as the app-server
+`beforeTurnId` boundary, so the child excludes the unfinished Turn while the
+source continues. Fork remains temporarily unavailable until Codex has assigned
+that Turn id.
+
 ## Failure And Recovery
 
 Adapter or PTY failure must be visible. Farming may recover the same Provider

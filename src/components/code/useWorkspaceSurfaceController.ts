@@ -216,6 +216,7 @@ export function planWorkspaceSurfaceRestore({
       view: surface.view ?? 'editor',
       lineNumber: surface.lineNumber,
       column: surface.column,
+      endLineNumber: surface.endLineNumber,
       endColumn: surface.endColumn,
       revealInTree: true,
       sourceAgentId: identity.sourceAgentId,
@@ -306,6 +307,7 @@ export function currentWorkspaceSurface({
     view: openWorkspaceFile.diffRequestId ? 'diff' : 'editor',
     lineNumber: openWorkspaceFile.cursor?.lineNumber,
     column: openWorkspaceFile.cursor?.column,
+    endLineNumber: openWorkspaceFile.cursor?.endLineNumber,
     endColumn: openWorkspaceFile.cursor?.endColumn,
     sourceAgentId: openWorkspaceFile.sourceAgentId,
   }
@@ -431,4 +433,6 @@ export function useWorkspaceSurfaceController({
     })
     if (surface) saveCodeWorkspaceViewState({ surface })
   }, [activeAgents, activeTerminalId, activeView, mainPaneMode, openWorkspaceFile, restored])
+
+  return { restored }
 }

@@ -38,6 +38,7 @@ import {
   reconcileAgentViewCache,
   touchAgentViewCache,
 } from '@/components/code/agent-view-cache'
+import { isOpenableAgent, resolveActiveAgentId } from '@/components/code/agent-selection'
 import { projectWorkspaceFromAgentState } from '../shared/agent-state-semantics.js'
 
 type DialogState = 'none' | 'input'
@@ -92,10 +93,6 @@ const AGENT_SWITCH_OVERLAY_TIMEOUT_MS = 60_000
 function projectWorkspaceForAgent(agent: Pick<Agent, 'cwd' | 'projectWorkspace' | 'gitWorktree'> | null | undefined) {
   if (!agent) return undefined
   return projectWorkspaceFromAgentState(agent) || undefined
-}
-
-function isOpenableAgent(agent: Agent) {
-  return !agent.archived && agent.status !== 'dead' && agent.status !== 'stopped'
 }
 
 function isRestartDescendantOf(agent: Agent, ancestorAgentId: string) {
@@ -241,7 +238,6 @@ export function App() {
   const permissionSwitchStateRef = useRef<PermissionSwitchState | null>(null)
   const openTerminalIdsRef = useRef<string[]>([])
   const hiddenMainStartRequestedRef = useRef(false)
-  const didAutoOpenInitialTerminalRef = useRef(false)
   const didApplyAgentDeeplinkRef = useRef(false)
   const lastActiveWorkspaceRef = useRef<string | undefined>(undefined)
   const inputDialogReturnFocusRef = useRef<HTMLElement | null>(null)
@@ -1223,36 +1219,24 @@ export function App() {
   }, [displayedAgents])
 
   useEffect(() => {
-    const liveIds = new Set(displayedAgents.filter(isOpenableAgent).map(agent => agent.id))
-    setActiveTerminalId(current => {
-      if (current && (
-        liveIds.has(current)
-        || permissionSwitchStateRef.current?.agent.id === current
-      )) return current
-      return openTerminalIds[0] ?? null
-    })
-  }, [displayedAgents, openTerminalIds])
-
-  useEffect(() => {
-    if (!displayedAgents.some(agent => !agent.isMain && isOpenableAgent(agent))) {
-      didAutoOpenInitialTerminalRef.current = false
-    }
-  }, [displayedAgents])
-
-  useEffect(() => {
     if (!ws.agentInventoryComplete) return
-    if (openTerminalIds.length > 0) return
-    if (didAutoOpenInitialTerminalRef.current) return
-    const fallbackId = displayedAgents.find(agent => !agent.isMain && isOpenableAgent(agent))?.id
-    if (!fallbackId) return
-    didAutoOpenInitialTerminalRef.current = true
+    const fallbackId = resolveActiveAgentId(
+      displayedAgents,
+      activeTerminalId,
+      permissionSwitchStateRef.current?.agent.id ?? null,
+    )
+    if (fallbackId === activeTerminalId) return
+    if (!fallbackId) {
+      setActiveTerminalId(null)
+      return
+    }
     // Agent discovery synchronizes selection only. View navigation belongs to
     // explicit open actions through activateTerminal so background refreshes
     // cannot replace the user's current Search or History surface.
-    setOpenTerminalIds([fallbackId])
-    setRetainedAgentViewIds([fallbackId])
+    setOpenTerminalIds(ids => ids.includes(fallbackId) ? ids : [...ids, fallbackId])
+    setRetainedAgentViewIds(ids => touchAgentViewCache(ids, fallbackId))
     setActiveTerminalId(fallbackId)
-  }, [displayedAgents, openTerminalIds.length, ws.agentInventoryComplete, ws.mainAgentId])
+  }, [activeTerminalId, displayedAgents, ws.agentInventoryComplete])
 
   useEffect(() => {
     const pending = pendingMainRestartRef.current

@@ -10,7 +10,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFile, execFileSync, spawnSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { extractZipArchive } from '../../../backend/zip-archive.cjs';
@@ -55,6 +55,7 @@ interface ManagedLanguageServerManagerOptions {
   definitions?: LanguageServerDefinition[];
   env?: NodeJS.ProcessEnv;
   fetchImpl?: typeof fetch;
+  isEnabled?: () => boolean;
   onRefresh?: (event: ManagedLanguageServerRefreshEvent) => void;
   clientFactory?: (options: {
     id: string;
@@ -83,19 +84,40 @@ interface CachedRuntime {
   path: string;
 }
 
+type LanguageServerRuntimeStatus = 'running' | 'available' | 'installable' | 'missing';
+
+interface LanguageServerRuntimeCapability {
+  id: string;
+  language: string;
+  server: string;
+  status: LanguageServerRuntimeStatus;
+  projects: string[];
+}
+
 function recordValue(value: unknown): JsonRecord {
   return value && typeof value === 'object' ? value as JsonRecord : {};
 }
 
 function which(command: string, env: NodeJS.ProcessEnv): string {
+  const executableMode = process.platform === 'win32' ? fs.constants.F_OK : fs.constants.X_OK;
+  const executableExtensions = process.platform === 'win32' && !path.extname(command)
+    ? String(env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)
+    : [''];
+  const candidates = path.isAbsolute(command) || command.includes(path.sep)
+    ? [command]
+    : String(env.PATH || env.Path || env.path || '')
+      .split(path.delimiter)
+      .filter(Boolean)
+      .flatMap(directory => executableExtensions.map(extension => path.join(directory, `${command}${extension}`)));
   try {
-    const program = process.platform === 'win32' ? 'where.exe' : 'which';
-    return execFileSync(program, [command], {
-      encoding: 'utf8',
-      timeout: 1_000,
-      maxBuffer: 64 * 1024,
-      env,
-    }).split(/\r?\n/).map(value => value.trim()).find(Boolean) || '';
+    return candidates.find(candidate => {
+      try {
+        fs.accessSync(candidate, executableMode);
+        return fs.statSync(candidate).isFile();
+      } catch {
+        return false;
+      }
+    }) || '';
   } catch {
     return '';
   }
@@ -261,14 +283,18 @@ function cachedJdtls(cacheRoot: string): CachedRuntime | null {
   return null;
 }
 
-function javaMajorVersion(java: string): number {
-  const result = spawnSync(java, ['-version'], {
-    encoding: 'utf8',
-    timeout: 3_000,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  const match = `${result.stdout || ''}\n${result.stderr || ''}`.match(/version\s+"(?:1\.)?(\d+)/i);
-  return Number(match?.[1] || 0);
+async function javaMajorVersion(java: string): Promise<number> {
+  try {
+    const result = await execFileAsync(java, ['-version'], {
+      encoding: 'utf8',
+      timeout: 3_000,
+      maxBuffer: 64 * 1024,
+    });
+    const match = `${result.stdout || ''}\n${result.stderr || ''}`.match(/version\s+"(?:1\.)?(\d+)/i);
+    return Number(match?.[1] || 0);
+  } catch {
+    return 0;
+  }
 }
 
 class ManagedLanguageServerManager {
@@ -276,6 +302,7 @@ class ManagedLanguageServerManager {
   private readonly definitions: LanguageServerDefinition[];
   private readonly env: NodeJS.ProcessEnv;
   private readonly fetchImpl: typeof fetch;
+  private readonly isEnabled: NonNullable<ManagedLanguageServerManagerOptions['isEnabled']>;
   private readonly clientFactory: NonNullable<ManagedLanguageServerManagerOptions['clientFactory']>;
   private readonly onRefresh: NonNullable<ManagedLanguageServerManagerOptions['onRefresh']>;
   private readonly clients = new Map<string, ManagedClient>();
@@ -283,12 +310,14 @@ class ManagedLanguageServerManager {
   private readonly preparing = new Map<string, Promise<string>>();
   private readonly updateChecks = new Set<string>();
   private readonly refreshRevisions = new Map<string, number>();
+  private lifecycleEpoch = 0;
 
   constructor(options: ManagedLanguageServerManagerOptions) {
     this.configDir = options.configDir;
     this.definitions = options.definitions || LANGUAGE_SERVERS;
     this.env = options.env || process.env;
     this.fetchImpl = options.fetchImpl || fetch;
+    this.isEnabled = options.isEnabled || (() => true);
     this.clientFactory = options.clientFactory || (value => ManagedLanguageServerClient.create(value));
     this.onRefresh = options.onRefresh || (() => {});
   }
@@ -301,6 +330,7 @@ class ManagedLanguageServerManager {
   }
 
   refreshSnapshot(): ManagedLanguageServerRefreshEvent[] {
+    if (!this.isEnabled()) return [];
     const activeWorkspaces = new Set([...this.clients.values()].map(client => client.workspaceRoot));
     return [...this.refreshRevisions.entries()]
       .flatMap(([key, revision]) => {
@@ -319,8 +349,9 @@ class ManagedLanguageServerManager {
       ));
   }
 
-  capability() {
-    const connections = [...this.clients.values()]
+  async capability() {
+    const enabled = this.isEnabled();
+    const connections = (enabled ? [...this.clients.values()] : [])
       .sort((left, right) => `${left.workspaceRoot}\0${left.id}\0${left.root}`.localeCompare(`${right.workspaceRoot}\0${right.id}\0${right.root}`))
       .map(client => ({
         id: client.id,
@@ -329,10 +360,53 @@ class ManagedLanguageServerManager {
       }));
     const workspaces = [...new Set(connections.map(connection => connection.workspace))];
     const active = connections.length > 0;
+    const java = this.definitions.some(definition => definition.id === 'jdtls') ? which('java', this.env) : '';
+    const javaReady = Boolean(java && await javaMajorVersion(java) >= 21);
+    const runtimeStatusOrder: Record<LanguageServerRuntimeStatus, number> = {
+      running: 0,
+      available: 1,
+      installable: 2,
+      missing: 3,
+    };
+    const languages: LanguageServerRuntimeCapability[] = this.definitions.map(definition => {
+      const projects = [...new Set(connections
+        .filter(connection => connection.id === definition.id)
+        .map(connection => connection.workspace))];
+      const running = projects.length > 0;
+      const systemRuntime = Boolean(which(definition.command[0], this.env));
+      const cachedRuntime = definition.id === 'clangd'
+        ? Boolean(cachedClangd(this.cacheRoot('clangd')))
+        : definition.id === 'jdtls'
+          ? javaReady && Boolean(cachedJdtls(this.cacheRoot('jdtls')))
+          : false;
+      const installable = definition.id === 'clangd'
+        ? process.platform === 'darwin' || process.platform === 'linux' || process.platform === 'win32'
+        : definition.id === 'jdtls' && javaReady;
+      const status: LanguageServerRuntimeStatus = running
+        ? 'running'
+        : systemRuntime || cachedRuntime
+          ? 'available'
+          : installable
+            ? 'installable'
+            : 'missing';
+      return {
+        id: definition.id,
+        language: definition.language || definition.id,
+        server: definition.command[0],
+        status,
+        projects,
+      };
+    }).sort((left, right) => (
+      runtimeStatusOrder[left.status] - runtimeStatusOrder[right.status]
+      || left.language.localeCompare(right.language, 'en')
+    ));
     return {
+      enabled,
       status: active ? 'connected' as const : 'ready' as const,
       source: 'managed' as const,
-      detail: active
+      detail: !enabled
+        ? `${this.definitions.length} built-in language definitions · Language Server is disabled`
+        : active
         ? `${this.definitions.length} built-in language definitions · ${connections.length} active server${connections.length === 1 ? '' : 's'} · ${workspaces.length} project${workspaces.length === 1 ? '' : 's'}`
         : `${this.definitions.length} built-in language definitions · servers start on demand`,
       vscodeVersion: '',
@@ -343,6 +417,7 @@ class ManagedLanguageServerManager {
       ],
       workspaces,
       connections,
+      languages,
     };
   }
 
@@ -457,7 +532,7 @@ class ManagedLanguageServerManager {
       await fs.promises.mkdir(dataDir, { recursive: true });
       if (fromPath) return { command: fromPath, args: ['-data', dataDir] };
       const java = which('java', this.env);
-      if (!java || javaMajorVersion(java) < 21) {
+      if (!java || await javaMajorVersion(java) < 21) {
         throw languageServerError('Java 21 or newer is required to run JDTLS', 'LANGUAGE_SERVER_JAVA_UNAVAILABLE', 503);
       }
       const distPath = await this.prepareJdtls();
@@ -492,13 +567,16 @@ class ManagedLanguageServerManager {
     root: string,
     workspaceRoot: string,
   ): Promise<ManagedClient> {
+    this.assertEnabled();
     const key = `${definition.id}\0${root}`;
     const existing = this.clients.get(key);
     if (existing) return existing;
     const active = this.spawning.get(key);
     if (active) return active;
+    const lifecycleEpoch = this.lifecycleEpoch;
     const task = (async () => {
       const launch = await this.launchCommand(definition, root);
+      this.assertLifecycleCurrent(lifecycleEpoch);
       let created: ManagedClient | null = null;
       const client = await this.clientFactory({
         id: definition.id,
@@ -513,6 +591,10 @@ class ManagedLanguageServerManager {
         onRefresh: kind => this.emitRefresh(kind, workspaceRoot),
       });
       created = client;
+      if (lifecycleEpoch !== this.lifecycleEpoch || !this.isEnabled()) {
+        await Promise.allSettled([client.dispose()]);
+        this.assertLifecycleCurrent(lifecycleEpoch);
+      }
       const raced = this.clients.get(key);
       if (raced) {
         await client.dispose();
@@ -528,6 +610,7 @@ class ManagedLanguageServerManager {
   }
 
   async request(body: unknown): Promise<{ result: unknown; supported: boolean }> {
+    this.assertEnabled();
     const payload = recordValue(body);
     const workspaceUri = String(payload.workspace || '');
     let workspaceRoot = '';
@@ -583,10 +666,23 @@ class ManagedLanguageServerManager {
   }
 
   async dispose(): Promise<void> {
-    await Promise.allSettled([...this.clients.values()].map(client => client.dispose()));
+    this.lifecycleEpoch += 1;
+    const clients = [...this.clients.values()];
     this.clients.clear();
     this.spawning.clear();
     this.refreshRevisions.clear();
+    await Promise.allSettled(clients.map(client => client.dispose()));
+  }
+
+  private assertEnabled(): void {
+    if (this.isEnabled()) return;
+    throw languageServerError('Language Server is disabled', 'LANGUAGE_SERVER_DISABLED', 503);
+  }
+
+  private assertLifecycleCurrent(lifecycleEpoch: number): void {
+    if (!this.isEnabled()) this.assertEnabled();
+    if (lifecycleEpoch === this.lifecycleEpoch) return;
+    throw languageServerError('Language Server startup was cancelled', 'LANGUAGE_SERVER_START_CANCELLED', 503);
   }
 }
 

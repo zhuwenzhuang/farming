@@ -1,5 +1,5 @@
 diff --git a/node_modules/@agentclientprotocol/codex-acp/dist/index.js b/node_modules/@agentclientprotocol/codex-acp/dist/index.js
-index 8d55e01..ed4a7ce 100755
+index 8d55e01..6846335 100755
 --- a/node_modules/@agentclientprotocol/codex-acp/dist/index.js
 +++ b/node_modules/@agentclientprotocol/codex-acp/dist/index.js
 @@ -21937,6 +21937,7 @@ import { createRequire } from "node:module";
@@ -21,7 +21,7 @@ index 8d55e01..ed4a7ce 100755
          for (; ; ) {
            const i = buf.indexOf("\n");
            if (i < 0) break;
-@@ -23561,6 +23561,10 @@ var GOAL_EXTENSION_VERSION = 1;
+@@ -23561,6 +23563,10 @@ var GOAL_EXTENSION_VERSION = 1;
  var GOAL_CONTROL_METHOD = "_session/goal";
  var LEGACY_GOAL_CONTROL_METHOD = "_codex/session/goal_control";
  var GOAL_CONTROL_ACTIONS = ["set", "pause", "resume", "clear"];
@@ -32,7 +32,7 @@ index 8d55e01..ed4a7ce 100755
  
  // src/ThreadGoalSnapshot.ts
  function toGoalStatus(status) {
-@@ -26806,7 +26810,7 @@ var CodexAcpClient = class {
+@@ -26806,7 +26812,7 @@ var CodexAcpClient = class {
      const additionalDirectories = readAdditionalDirectories(request.cwd, request.additionalDirectories, request._meta);
      await this.refreshSkills(request.cwd, additionalDirectories);
      const response = await this.codexClient.threadResume({
@@ -41,7 +41,7 @@ index 8d55e01..ed4a7ce 100755
        cwd: request.cwd,
        modelProvider: await this.getResumeModelProvider(),
        threadId: request.sessionId
-@@ -26828,7 +26832,7 @@ var CodexAcpClient = class {
+@@ -26828,7 +26834,7 @@ var CodexAcpClient = class {
      const additionalDirectories = readAdditionalDirectories(request.cwd, request.additionalDirectories, request._meta);
      await this.refreshSkills(request.cwd, additionalDirectories);
      const response = await this.codexClient.threadResume({
@@ -50,18 +50,19 @@ index 8d55e01..ed4a7ce 100755
        cwd: request.cwd,
        modelProvider: await this.getResumeModelProvider(),
        threadId: request.sessionId
-@@ -26851,11 +26855,22 @@ var CodexAcpClient = class {
+@@ -26851,11 +26857,23 @@ var CodexAcpClient = class {
        additionalDirectories
      };
    }
-+  async forkSession(request) {
++  async forkSession(request, beforeTurnId = null) {
 +    const additionalDirectories = readAdditionalDirectories(request.cwd, request.additionalDirectories, request._meta);
 +    await this.refreshSkills(request.cwd, additionalDirectories);
 +    const response = await this.codexClient.threadFork({
 +      config: await this.createSessionConfig(request.cwd, additionalDirectories, request.mcpServers ?? [], request._meta),
 +      cwd: request.cwd,
 +      modelProvider: await this.getResumeModelProvider(),
-+      threadId: request.sessionId
++      threadId: request.sessionId,
++      ...(beforeTurnId ? { beforeTurnId } : {})
 +    });
 +    return { sessionId: response.thread.id };
 +  }
@@ -74,7 +75,7 @@ index 8d55e01..ed4a7ce 100755
        modelProvider: this.getModelProvider(),
        cwd: request.cwd
      });
-@@ -26882,7 +26897,13 @@ var CodexAcpClient = class {
+@@ -26882,7 +26900,13 @@ var CodexAcpClient = class {
      }
    }
    async deleteSession(sessionId) {
@@ -89,7 +90,7 @@ index 8d55e01..ed4a7ce 100755
    }
    async runReview(sessionId, target, onTurnStarted) {
      return await this.codexClient.runReview({
-@@ -26898,6 +26919,54 @@ var CodexAcpClient = class {
+@@ -26898,6 +26922,54 @@ var CodexAcpClient = class {
      const response = await this.codexClient.threadGoalGet({ threadId: sessionId });
      return response?.goal ?? null;
    }
@@ -144,7 +145,7 @@ index 8d55e01..ed4a7ce 100755
    async setGoal(sessionId, objective, onTurnStarted, onGoalSet) {
      const params = {
        threadId: sessionId,
-@@ -26941,10 +27010,28 @@ var CodexAcpClient = class {
+@@ -26941,10 +27013,28 @@ var CodexAcpClient = class {
    getMcpServerStartupVersion() {
      return this.codexClient.getMcpServerStartupVersion();
    }
@@ -174,7 +175,7 @@ index 8d55e01..ed4a7ce 100755
        projects: Object.fromEntries(sessionRoots.map((root) => [root, {
          trust_level: "trusted"
        }]))
-@@ -27115,6 +27202,14 @@ var CodexAcpClient = class {
+@@ -27115,6 +27205,14 @@ var CodexAcpClient = class {
        serviceTier
      }, onTurnStarted);
    }
@@ -189,7 +190,7 @@ index 8d55e01..ed4a7ce 100755
    async setCollaborationMode(sessionId, mode, currentModelId) {
      await this.codexClient.threadSettingsUpdate({
        threadId: sessionId,
-@@ -28202,6 +28297,53 @@ function imageBlocks(images) {
+@@ -28202,6 +28300,53 @@ function imageBlocks(images) {
      return path7 ? [{ type: "text", text: `[@image](${path7})` }] : [];
    });
  }
@@ -243,7 +244,7 @@ index 8d55e01..ed4a7ce 100755
  function contentBlocksFromResponseContent(content) {
    if (!Array.isArray(content)) {
      return [];
-@@ -28922,7 +29064,7 @@ function numberValue(value) {
+@@ -28922,7 +29067,7 @@ function numberValue(value) {
  var LEGACY_SET_SESSION_MODEL_METHOD = "session/set_model";
  var SESSION_STEERING_METHOD = "_session/steering";
  function isExtMethodRequest(request) {
@@ -252,7 +253,7 @@ index 8d55e01..ed4a7ce 100755
  }
  
  // src/FastModeConfig.ts
-@@ -29027,6 +29169,13 @@ var CodexAcpServer = class _CodexAcpServer {
+@@ -29027,6 +29172,13 @@ var CodexAcpServer = class _CodexAcpServer {
    sessionGenerations;
    sessionOpenGenerations;
    goalControlGenerations;
@@ -266,7 +267,7 @@ index 8d55e01..ed4a7ce 100755
    constructor(connection, codexAcpClient, defaultAuthRequest, getExitCode, getRecentStderr) {
      this.sessions = /* @__PURE__ */ new Map();
      this.pendingMcpStartupSessions = /* @__PURE__ */ new Map();
-@@ -29037,6 +29186,13 @@ var CodexAcpServer = class _CodexAcpServer {
+@@ -29037,6 +29189,13 @@ var CodexAcpServer = class _CodexAcpServer {
      this.sessionGenerations = /* @__PURE__ */ new Map();
      this.sessionOpenGenerations = /* @__PURE__ */ new Map();
      this.goalControlGenerations = /* @__PURE__ */ new Map();
@@ -280,7 +281,7 @@ index 8d55e01..ed4a7ce 100755
      this.connection = connection;
      this.codexAcpClient = codexAcpClient;
      this.defaultAuthRequest = defaultAuthRequest ?? null;
-@@ -29053,6 +29209,9 @@ var CodexAcpServer = class _CodexAcpServer {
+@@ -29053,6 +29212,9 @@ var CodexAcpServer = class _CodexAcpServer {
        (operation) => this.runWithProcessCheck(operation),
        () => this.refreshSessionsAuthState(null)
      );
@@ -290,7 +291,7 @@ index 8d55e01..ed4a7ce 100755
    }
    async initialize(_params) {
      logger.log("Initialize request received");
-@@ -29081,6 +29240,7 @@ var CodexAcpServer = class _CodexAcpServer {
+@@ -29081,6 +29243,7 @@ var CodexAcpServer = class _CodexAcpServer {
          sessionCapabilities: {
            resume: {},
            list: {},
@@ -298,7 +299,7 @@ index 8d55e01..ed4a7ce 100755
            close: {},
            delete: {},
            additionalDirectories: {}
-@@ -29089,6 +29249,12 @@ var CodexAcpServer = class _CodexAcpServer {
+@@ -29089,6 +29252,12 @@ var CodexAcpServer = class _CodexAcpServer {
            acp: false,
            http: true,
            sse: false
@@ -311,7 +312,7 @@ index 8d55e01..ed4a7ce 100755
          }
        },
        authMethods: getCodexAuthMethods(_params.clientCapabilities),
-@@ -29186,6 +29352,31 @@ var CodexAcpServer = class _CodexAcpServer {
+@@ -29186,6 +29355,31 @@ var CodexAcpServer = class _CodexAcpServer {
          }
          return {};
        }
@@ -343,7 +344,7 @@ index 8d55e01..ed4a7ce 100755
      }
    }
    async checkAuthorization() {
-@@ -29411,6 +29602,7 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -29411,6 +29605,7 @@ Check ${configPath} and project .codex directories, especially their config.toml
        thread
      } = await this.getOrCreateSessionWithHistory(params);
      await this.streamThreadHistory(sessionId, thread);
@@ -351,7 +352,7 @@ index 8d55e01..ed4a7ce 100755
      logger.log("Session loaded", {
        sessionId,
        modelId: modelState.currentModelId,
-@@ -29422,6 +29614,22 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -29422,6 +29617,24 @@ Check ${configPath} and project .codex directories, especially their config.toml
        ...this.createSessionConfigOptionsResponse(this.getSessionState(sessionId))
      };
    }
@@ -361,10 +362,12 @@ index 8d55e01..ed4a7ce 100755
 +    if (!sessionState) {
 +      throw RequestError.invalidParams(void 0, `Unknown session: ${params.sessionId}`);
 +    }
-+    if (this.activePrompts.has(sessionState.sessionId)) {
-+      throw RequestError.invalidRequest({ details: "Cannot fork an active Codex turn" });
++    const activePrompt = this.activePrompts.get(sessionState.sessionId);
++    const beforeTurnId = activePrompt ? sessionState.currentTurnId : null;
++    if (activePrompt && !beforeTurnId) {
++      throw RequestError.invalidRequest({ details: "Cannot fork before the active Codex turn has started" });
 +    }
-+    const response = await this.runWithProcessCheck(() => this.codexAcpClient.forkSession(params));
++    const response = await this.runWithProcessCheck(() => this.codexAcpClient.forkSession(params, beforeTurnId));
 +    logger.log("Session forked", {
 +      sourceSessionId: params.sessionId,
 +      sessionId: response.sessionId
@@ -374,7 +377,7 @@ index 8d55e01..ed4a7ce 100755
    async resumeSession(params) {
      logger.log("Resuming session...", { sessionId: params.sessionId });
      const [sessionId, modelState, modeState] = await this.getOrCreateSession(params);
-@@ -29430,6 +29638,7 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -29430,6 +29643,7 @@ Check ${configPath} and project .codex directories, especially their config.toml
        modelId: modelState.currentModelId,
        availableModelCount: modelState.availableModels.length
      });
@@ -382,7 +385,7 @@ index 8d55e01..ed4a7ce 100755
      return {
        models: modelState,
        modes: modeState,
-@@ -29471,6 +29680,7 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -29471,6 +29685,7 @@ Check ${configPath} and project .codex directories, especially their config.toml
          await activePrompt.completion;
        }
        await this.runWithProcessCheck(() => this.codexAcpClient.closeSession(params.sessionId));
@@ -390,7 +393,7 @@ index 8d55e01..ed4a7ce 100755
        logger.log("Session closed", { sessionId: params.sessionId });
      } finally {
        if (this.getSessionGeneration(params.sessionId) === closeGeneration) {
-@@ -29485,6 +29695,256 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -29485,6 +29700,256 @@ Check ${configPath} and project .codex directories, especially their config.toml
      }
      return {};
    }
@@ -647,7 +650,7 @@ index 8d55e01..ed4a7ce 100755
    async deleteSession(params) {
      logger.log("Deleting session...", { sessionId: params.sessionId });
      const sessionId = params.sessionId;
-@@ -30111,8 +30571,25 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -30111,8 +30576,25 @@ Check ${configPath} and project .codex directories, especially their config.toml
      );
      const threadUpdates = [];
      for (const turn of thread.turns) {
@@ -674,7 +677,7 @@ index 8d55e01..ed4a7ce 100755
          threadUpdates.push(...updates2);
        }
      }
-@@ -30214,11 +30691,11 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -30214,11 +30696,11 @@ Check ${configPath} and project .codex directories, especially their config.toml
          return item.text.length > 0 ? [this.createPlanHistoryUpdate(item)] : [];
      }
    }
@@ -688,7 +691,7 @@ index 8d55e01..ed4a7ce 100755
        for (const block of blocks) {
          updates.push(createUserMessageChunk(block, messageId));
        }
-@@ -30269,15 +30746,26 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -30269,15 +30751,26 @@ Check ${configPath} and project .codex directories, especially their config.toml
        createCodexMessagePhaseMeta("final_answer")
      );
    }
@@ -719,7 +722,7 @@ index 8d55e01..ed4a7ce 100755
        }
        case "skill":
          return [{ type: "text", text: `skill:${input.name} (${input.path})` }];
-@@ -30722,6 +31210,10 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -30722,6 +31215,10 @@ Check ${configPath} and project .codex directories, especially their config.toml
            logger.error(`Prompt for cancelled session ${params.sessionId} failed after prompt returned`, err);
          }
        });
@@ -730,7 +733,7 @@ index 8d55e01..ed4a7ce 100755
        let turnCompleted = await Promise.race([
          sendPromptPromise,
          activePrompt.closeSignal,
-@@ -30833,10 +31325,6 @@ Check ${configPath} and project .codex directories, especially their config.toml
+@@ -30833,10 +31330,6 @@ Check ${configPath} and project .codex directories, especially their config.toml
          }
        }
        await clearRecoveredSessionFailure(eventHandler);
@@ -741,7 +744,7 @@ index 8d55e01..ed4a7ce 100755
        return {
          stopReason: "end_turn",
          usage: this.buildPromptUsage(sessionState.lastTokenUsage),
-@@ -31197,6 +31685,9 @@ var CodexAppServerClient = class {
+@@ -31197,6 +31690,9 @@ var CodexAppServerClient = class {
    async turnStart(params) {
      return await this.sendRequest({ method: "turn/start", params });
    }
@@ -751,7 +754,7 @@ index 8d55e01..ed4a7ce 100755
    async runTurn(params, onTurnStarted) {
      const capturedCompletions = [];
      const releaseCapture = this.captureTurnCompletions(params.threadId, (event) => {
-@@ -31427,6 +31918,9 @@ var CodexAppServerClient = class {
+@@ -31427,6 +31923,9 @@ var CodexAppServerClient = class {
    async threadResume(params) {
      return await this.sendRequest({ method: "thread/resume", params });
    }
@@ -761,7 +764,7 @@ index 8d55e01..ed4a7ce 100755
    getThreadSettings(threadId) {
      return this.threadSettings.get(threadId);
    }
-@@ -31445,6 +31939,9 @@ var CodexAppServerClient = class {
+@@ -31445,6 +31944,9 @@ var CodexAppServerClient = class {
    async threadArchive(params) {
      return await this.sendRequest({ method: "thread/archive", params });
    }
@@ -771,7 +774,7 @@ index 8d55e01..ed4a7ce 100755
    async threadUnsubscribe(params) {
      return await this.sendRequest({ method: "thread/unsubscribe", params });
    }
-@@ -32004,6 +32501,11 @@ var goalControlParamsParser = external_exports.discriminatedUnion("action", [
+@@ -32004,6 +32506,11 @@ var goalControlParamsParser = external_exports.discriminatedUnion("action", [
      action: external_exports.enum(["pause", "resume", "clear"])
    }).passthrough()
  ]);
@@ -783,7 +786,7 @@ index 8d55e01..ed4a7ce 100755
  if (process.argv.includes("--version")) {
    console.log(`${package_default.name} ${package_default.version}`);
    process.exit(0);
-@@ -32076,5 +32578,5 @@ function startAcpServer() {
+@@ -32076,5 +32583,5 @@ function startAcpServer() {
          codexAcpServer = null;
        }
      });

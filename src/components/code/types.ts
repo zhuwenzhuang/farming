@@ -70,6 +70,7 @@ export interface GlobalSettings extends WorkspaceHistorySettings {
   computerExtensionEnabled?: boolean
   computerCompatibilityMode?: boolean
   computerImage?: string
+  languageServerEnabled?: boolean
   searchTimeoutMs?: number
   agentHomes?: AgentHomesSettings
   agentLaunchProfiles?: {

@@ -34,8 +34,7 @@ the Farming-created folder link; it is safe to prepare again later.
 Farming does not create this directory at startup. After the user clicks **Prepare extension folder**, Farming creates
 a visible link to the bundled extension without copying a second code tree. CLI `extension path`
 and `extension status` commands expose the path and connection state. After preparation, the My Chrome row shows
-the copyable `chrome://extensions` address, folder path, size, integrity, and a short installation hint. Chrome installation and
-removal still require user confirmation.
+the folder path and a short next-step hint. Chrome installation and removal still require user confirmation.
 
 Pair only with a trusted Farming instance.
 

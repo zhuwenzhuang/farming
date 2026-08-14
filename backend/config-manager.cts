@@ -84,6 +84,7 @@ export interface PublicSettings extends JsonRecord {
   computerCompatibilityMode: boolean;
   computerExtensionEnabled: boolean;
   computerImage: string;
+  languageServerEnabled: boolean;
   codexApprovalMode: string;
   codexModel: string;
   codexModelPreset: string;
@@ -583,6 +584,7 @@ class ConfigManager {
       computerExtensionEnabled: false,
       computerCompatibilityMode: false,
       computerImage: COMPUTER_IMAGE,
+      languageServerEnabled: true,
       codeContentFontSize: DEFAULT_CODE_CONTENT_FONT_SIZE,
       composerFollowUpBehavior: 'queue',
       crtContentFontSize: DEFAULT_CRT_CONTENT_FONT_SIZE,
@@ -635,6 +637,7 @@ class ConfigManager {
     }
     settings.computerCompatibilityMode = settings.computerCompatibilityMode === true;
     settings.computerImage = this.normalizeBrowserSetting(settings.computerImage) || COMPUTER_IMAGE;
+    settings.languageServerEnabled = settings.languageServerEnabled !== false;
     settings.codeContentFontSize = this.normalizeContentFontSize(
       settings.codeContentFontSize,
       DEFAULT_CODE_CONTENT_FONT_SIZE,

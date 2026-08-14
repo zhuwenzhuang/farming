@@ -102,6 +102,14 @@ back/forward history treats a Plugins location as a first-class entry and restor
 its tab, Agent Home, extension kind, query, detail, and scroll position after
 opening a source file.
 
+## Workspace View Memory
+
+Remember stable user choices that help a user continue where they left off.
+Do not remember transient interaction, loading, error, or responsive state.
+
+Authoritative Project and Agent state restores first. A valid active Agent or
+file owns the final reveal; stale remembered targets are ignored.
+
 ## Working Copies And Mutations
 
 The filesystem is authoritative. A browser working copy keeps a disk baseline,

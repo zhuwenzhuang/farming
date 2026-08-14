@@ -11,6 +11,10 @@ import {
 import { workspaceFileOpenTargetForChange } from '@/lib/workspace-open-files'
 import type { AgentLaunchOption } from '../code/agent-launch-options'
 import type { CodeCopy } from '../code/copy'
+import {
+  loadCodeProjectFilesViewState,
+  saveCodeProjectFilesViewState,
+} from '../code/workspace-view-state'
 import { FileChangesSection } from './FileChangesSection'
 import { FileSectionBody } from './FileSectionBody'
 import { FileSectionHeader, type FileSectionRefreshStatus } from './FileSectionHeader'
@@ -207,7 +211,9 @@ export function ProjectFilesSection({
   // The hook returns a fresh object each render, so hold the stable callback itself
   // instead of depending on `fileChanges` and rebuilding callbacks every render.
   const refreshFileChanges = fileChanges.refreshChanges
-  const [changesCollapsed, setChangesCollapsed] = useState(true)
+  const [changesCollapsed, setChangesCollapsed] = useState(() => (
+    loadCodeProjectFilesViewState(projectId).changesCollapsed ?? true
+  ))
 
   const refreshProjectFiles = useCallback(() => {
     if (filesRefreshInFlightRef.current) return false
@@ -283,8 +289,8 @@ export function ProjectFilesSection({
   }, [])
 
   useEffect(() => {
-    setChangesCollapsed(true)
-  }, [agentId])
+    saveCodeProjectFilesViewState(projectId, { changesCollapsed })
+  }, [changesCollapsed, projectId])
 
   const toggleChangesCollapsed = useCallback(() => {
     setChangesCollapsed(current => !current)

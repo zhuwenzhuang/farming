@@ -232,6 +232,11 @@ Conversation Fork 只有在 Adapter Contract 与 Live Capability 都支持时才
 Revision、Child Identity、Ownership 与 Cleanup Responsibility 必须精确；Child Durable 前
 失败时必须显式报告，不能静默创建另一个 Fork。
 
+Active Turn 默认仍是 Fork Barrier；只有 Provider Adapter Contract 显式声明支持 Active-Turn
+Fork 时才可放行。该 Fork 必须使用 Active Turn 之前由 Provider 拥有的稳定 Boundary，保持
+Source Turn 继续运行，并且不能复制不完整的 Assistant 或 Tool State。持续变化的 Transcript
+Revision 不会让这个稳定 Boundary 失效；未声明该能力的 Provider 继续使用 Idle-only 规则。
+
 不同 Runtime Strategy 共用一条 Fork Child Launch 落定规则：Callback 与 Promise
 结果中先到者为准。Callback 明确失败或 Promise resolve null 属于确定失败，可执行精确
 Cleanup；同步抛错或 Promise reject 属于不确定结果，Farming 必须保留精确的 Forked

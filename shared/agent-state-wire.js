@@ -31,7 +31,9 @@ function providerConversationForkCapabilityWire(value) {
             || capability.strategy === 'target-process')
         && Array.isArray(capability.worktreeModes)
         && capability.worktreeModes.every(mode => mode === 'same-worktree' || mode === 'new-worktree')
-        && typeof capability.requiresRuntimeCapability === 'boolean');
+        && typeof capability.requiresRuntimeCapability === 'boolean'
+        && (capability.supportsActiveTurn === undefined
+            || typeof capability.supportsActiveTurn === 'boolean'));
 }
 function providerConversationForkWire(value) {
     const conversationFork = record(value);

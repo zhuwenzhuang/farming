@@ -57,9 +57,12 @@ export function useWorkspaceFileSectionController({
   const [filesCollapsed, setFilesCollapsed] = useState(() => (
     loadCodeProjectFilesViewState(workspaceKey).filesCollapsed ?? true
   ))
-  const [openEditorsCollapsed, setOpenEditorsCollapsed] = useState(true)
+  const [openEditorsCollapsed, setOpenEditorsCollapsed] = useState(() => (
+    loadCodeProjectFilesViewState(workspaceKey).openEditorsCollapsed ?? true
+  ))
   const handledRevealRequestIdRef = useRef<number | null>(null)
   const filesCollapsedWorkspaceKeyRef = useRef(workspaceKey)
+  const previousOpenFilesCountRef = useRef(openFilesCount)
 
   const toggleFilesCollapsed = useCallback(() => {
     const nextCollapsed = !filesCollapsed
@@ -112,18 +115,23 @@ export function useWorkspaceFileSectionController({
   }, [focusFileSearchInput, focusSearchRequest, loadRootDirectory, rootDirectoryLoaded, setFileSearchQuery])
 
   useEffect(() => {
-    if (openFilesCount === 0) setOpenEditorsCollapsed(true)
+    if (previousOpenFilesCountRef.current > 0 && openFilesCount === 0) {
+      setOpenEditorsCollapsed(true)
+    }
+    previousOpenFilesCountRef.current = openFilesCount
   }, [openFilesCount])
 
   useEffect(() => {
     if (filesCollapsedWorkspaceKeyRef.current !== workspaceKey) return
-    saveCodeProjectFilesViewState(workspaceKey, { filesCollapsed })
-  }, [filesCollapsed, workspaceKey])
+    saveCodeProjectFilesViewState(workspaceKey, { filesCollapsed, openEditorsCollapsed })
+  }, [filesCollapsed, openEditorsCollapsed, workspaceKey])
 
   useEffect(() => {
     if (filesCollapsedWorkspaceKeyRef.current === workspaceKey) return
     filesCollapsedWorkspaceKeyRef.current = workspaceKey
-    setFilesCollapsed(loadCodeProjectFilesViewState(workspaceKey).filesCollapsed ?? true)
+    const state = loadCodeProjectFilesViewState(workspaceKey)
+    setFilesCollapsed(state.filesCollapsed ?? true)
+    setOpenEditorsCollapsed(state.openEditorsCollapsed ?? true)
   }, [workspaceKey])
 
   useEffect(() => {

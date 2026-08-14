@@ -102,12 +102,14 @@ assert.strictEqual(validatesProviderCapabilities({
       strategy: 'target-process',
       worktreeModes: ['same-worktree', 'new-worktree'],
       requiresRuntimeCapability: false,
+      supportsActiveTurn: false,
     },
     acp: {
       supported: true,
       strategy: 'source-session',
       worktreeModes: ['same-worktree'],
       requiresRuntimeCapability: true,
+      supportsActiveTurn: true,
     },
   },
 }), true);
@@ -131,6 +133,7 @@ assert.strictEqual(validatesProviderCapabilities({
       strategy: null,
       worktreeModes: [],
       requiresRuntimeCapability: false,
+      supportsActiveTurn: false,
     },
   },
 }), false);
@@ -142,12 +145,14 @@ assert.strictEqual(validatesProviderCapabilities({
       strategy: 'unsupported-strategy',
       worktreeModes: ['same-worktree'],
       requiresRuntimeCapability: false,
+      supportsActiveTurn: false,
     },
     acp: {
       supported: false,
       strategy: null,
       worktreeModes: ['unsupported-worktree-mode'],
       requiresRuntimeCapability: false,
+      supportsActiveTurn: false,
     },
   },
 }), false);

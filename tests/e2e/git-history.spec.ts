@@ -80,6 +80,7 @@ test('shows the VS Code-derived commit graph and opens commit changes in Review'
     const secondGap = (historyBox?.y ?? 0) - (untrackedBox?.y ?? 0)
     return Math.abs(firstGap - secondGap)
   }).toBeLessThan(1)
+  await expect(files.getByTestId('code-file-row').first()).toBeVisible()
   const fileSectionRhythm = await files.evaluate(element => {
     const changeToggles = Array.from(element.querySelectorAll<HTMLElement>('.code-file-change-group-toggle'))
     const historyTitle = element.querySelector<HTMLElement>('.code-git-history-title')
@@ -173,7 +174,7 @@ test('shows the VS Code-derived commit graph and opens commit changes in Review'
     page.waitForEvent('popup'),
     details.getByRole('button', { name: /topic\.txt/ }).click(),
   ])
-  await topicReview.waitForLoadState('domcontentloaded')
+  await topicReview.waitForURL(/\/farming\/review\?/)
   const topicReviewUrl = new URL(topicReview.url())
   expect(topicReviewUrl.pathname).toBe('/farming/review')
   expect(topicReviewUrl.searchParams.get('root')).toBe(workspaceRoot)
@@ -197,7 +198,7 @@ test('shows the VS Code-derived commit graph and opens commit changes in Review'
     page.waitForEvent('popup'),
     rootDetails.getByRole('button', { name: 'Review commit', exact: true }).click(),
   ])
-  await rootReview.waitForLoadState('domcontentloaded')
+  await rootReview.waitForURL(/\/farming\/review\?/)
   const rootReviewUrl = new URL(rootReview.url())
   expect(rootReviewUrl.searchParams.get('root')).toBe(workspaceRoot)
   expect(rootReviewUrl.searchParams.get('base')).toBe('4b825dc642cb6eb9a060e54bf8d69288fbee4904')
@@ -205,4 +206,52 @@ test('shows the VS Code-derived commit graph and opens commit changes in Review'
   await expect(rootReview.getByTestId('review-page')).toBeVisible()
   await expect(rootReview.locator('[data-file-path="base.txt"]')).toBeVisible()
   await rootReview.close()
+
+})
+
+test('restores Changes and Git History navigation after reload', async ({ page, workspaceRoot }) => {
+  git(workspaceRoot, 'init', '--quiet')
+  git(workspaceRoot, 'branch', '-m', 'main')
+  fs.mkdirSync(path.join(workspaceRoot, '.empty-hooks'))
+  git(workspaceRoot, 'config', 'core.hooksPath', '.empty-hooks')
+  git(workspaceRoot, 'config', 'user.email', 'history-restore@example.test')
+  git(workspaceRoot, 'config', 'user.name', 'History Restore Test')
+  const commit = commitFile(workspaceRoot, 'src/tracked.txt', 'base\n', 'remembered commit')
+  fs.appendFileSync(path.join(workspaceRoot, 'src/tracked.txt'), 'working change\n')
+  fs.mkdirSync(path.join(workspaceRoot, 'scratch'), { recursive: true })
+  fs.writeFileSync(path.join(workspaceRoot, 'scratch/untracked.txt'), 'untracked\n')
+
+  await openFarming(page)
+  await openNewAgentDialog(page)
+  await startAgentFromOpenDialog(page, 'bash', workspaceRoot)
+
+  const project = page.getByTestId('code-project-group').filter({
+    has: page.locator('[data-testid="code-agent-row"].active'),
+  })
+  const files = project.getByTestId('code-files-section')
+  await files.getByRole('button', { name: 'Files', exact: true }).click()
+  const changeToggles = files.locator('.code-file-change-group-toggle')
+  await changeToggles.first().click()
+  await changeToggles.nth(1).click()
+  await expect(changeToggles.first()).toHaveAttribute('aria-expanded', 'true')
+  await expect(changeToggles.nth(1)).toHaveAttribute('aria-expanded', 'true')
+
+  const history = files.getByTestId('code-git-history-section')
+  await history.getByRole('button', { name: 'History', exact: true }).click()
+  const scope = history.getByLabel('History view')
+  await scope.click()
+  await page.getByTestId('code-git-history-scope-menu').getByRole('menuitemradio', { name: 'All branches' }).click()
+  const rememberedCommit = history.locator(`[data-commit-id="${commit}"]`)
+  await rememberedCommit.getByRole('button', { expanded: false }).click()
+  await expect(rememberedCommit.getByTestId('code-git-history-details')).toBeVisible()
+
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  const restoredFiles = page.getByTestId('code-files-section')
+  const restoredHistory = restoredFiles.getByTestId('code-git-history-section')
+  await expect(restoredFiles.getByRole('button', { name: 'Files', exact: true })).toHaveAttribute('aria-expanded', 'true')
+  await expect(restoredFiles.locator('.code-file-change-group-toggle').first()).toHaveAttribute('aria-expanded', 'true')
+  await expect(restoredFiles.locator('.code-file-change-group-toggle').nth(1)).toHaveAttribute('aria-expanded', 'true')
+  await expect(restoredHistory.getByRole('button', { name: 'History', exact: true })).toHaveAttribute('aria-expanded', 'true')
+  await expect(restoredHistory.getByLabel('History view')).toContainText('All')
+  await expect(restoredHistory.locator(`[data-commit-id="${commit}"]`).getByTestId('code-git-history-details')).toBeVisible()
 })

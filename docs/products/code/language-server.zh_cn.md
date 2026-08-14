@@ -102,6 +102,12 @@ State 已清除的 Marker 再写回来。
 
 ## 生命周期与失败
 
+持久化的 `languageServerEnabled` 设置是权威的请求准入开关，默认启用；旧版
+设置未包含该字段时也按启用处理。停用时先持久化关闭准入，再关闭活跃 Connection
+并取消正在启动的 Server，因此并发 Request 不能在清理后重建 Server。停用期间
+Request 会显式失败，Capability Inventory 仍可查看。重新启用只恢复按需准入；
+在支持的已保存文件发出 Semantic Request 前，不会预先启动任何 Server。
+
 受管 Server 处于 Absent、Starting、Ready、Stopping 或 Failed。相同 Ownership Boundary 的
 并发启动加入同一转换。退出或失败的 Server 会从 Active State 移除；之后用户显式请求可以
 重新启动。Request 与 Shutdown 都必须有界；失败保持可见，不静默切换到另一 Provider。
@@ -112,10 +118,18 @@ Runtime 时立即启动缓存，同时在后台执行一次更新检查；更新
 Upstream Release 发布的 SHA-256，并在解压或执行前验证。摘要缺失或不匹配时返回可操作的显式
 错误。
 
+Capability Inventory 为每个内置语言定义返回一个权威 Runtime 状态：`running` 表示
+Manager 拥有活跃的 Project Connection；`available` 表示 Executable 已在 Backend
+`PATH` 中，或已有兼容的 Managed Runtime 缓存；`installable` 表示 Runtime 尚缺失，
+但 Farming 能在前置条件满足时自动准备；`missing` 表示其他缺失情况。Inventory 先按
+这个状态优先级排序，再按语言名字母序排序。Plugins 界面优先展示全部 Running、
+Available 和 Installable 项，再有界展示按字母序排列的 Missing 项，并提供显式入口展开完整列表。
+
 ## 验收标准
 
 验证必须覆盖：Project Root Discovery、Saved-file Semantics、Result Filtering、Process Reuse
-与 Restart、Concurrent Request、显式失败、Remote SSH Ownership、Stable Release Discovery、
+与 Restart、Concurrent Request、显式失败、默认启用持久化、停用清理、启动取消、重新启用后按需启动、
+Remote SSH Ownership、Stable Release Discovery、
 Cached Runtime Update Fallback、静态与动态 Capability Registration、Semantic Legend Mapping、
 有界且可取消的 Hover、Visible-range Inlay Request、按 Project 有序的 Provider Refresh、Dirty Model Refresh Rejection、
 Stale-result Fencing，以及代表性真实 Language Server。

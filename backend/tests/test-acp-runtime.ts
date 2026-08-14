@@ -46,6 +46,21 @@ async function run() {
     /async threadDelete\(params\)\s*{\s*return await this\.sendRequest\({ method: "thread\/delete", params }\);/,
     'the pinned Codex adapter must expose app-server thread/delete',
   );
+  assert.match(
+    codexAcpSource,
+    /async forkSession\(request, beforeTurnId = null\)[\s\S]*?threadFork\([\s\S]*?beforeTurnId/,
+    'the pinned Codex adapter must pass the active turn boundary to app-server thread/fork',
+  );
+  assert.match(
+    codexAcpSource,
+    /const activePrompt = this\.activePrompts\.get\(sessionState\.sessionId\);[\s\S]*?const beforeTurnId = activePrompt \? sessionState\.currentTurnId : null;/,
+    'the pinned Codex adapter must derive the Fork boundary from the exact active session',
+  );
+  assert.doesNotMatch(
+    codexAcpSource,
+    /Cannot fork an active Codex turn/,
+    'the pinned Codex adapter must not reject a turn after its stable boundary is known',
+  );
   const qwenAuthenticationRuntime = new AcpRuntime();
   assert.deepStrictEqual(
     qwenAuthenticationRuntime.terminalAuthenticationLaunch(
@@ -2774,6 +2789,24 @@ async function run() {
       (await runtime.forkSession('agent-acp-new', { expectedRevision: forkRevision })).sessionId,
       'acp-fork-session',
     );
+    forkCapabilityBinding.activeTurn = { phase: 'running' };
+    forkCapabilityBinding.state = 'working';
+    assert.strictEqual(
+      (await runtime.forkSession('agent-acp-new', {
+        expectedRevision: Math.max(0, forkRevision - 1),
+      })).sessionId,
+      'acp-fork-session',
+      'Codex may Fork before its active turn without waiting for a moving transcript revision',
+    );
+    forkCapabilityBinding.provider = 'qoder';
+    await assert.rejects(
+      runtime.forkSession('agent-acp-new', { expectedRevision: forkRevision }),
+      /not ready for fork \(working\)/,
+      'a provider without the active-turn capability must remain blocked',
+    );
+    forkCapabilityBinding.provider = 'codex';
+    forkCapabilityBinding.activeTurn = null;
+    forkCapabilityBinding.state = 'idle';
     forkCapabilityBinding.modes = {
       currentModeId: 'default',
       availableModes: [

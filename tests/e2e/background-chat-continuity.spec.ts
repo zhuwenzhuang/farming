@@ -914,6 +914,45 @@ test('starts a short ACP turn at the top with a compact copy affordance', { tag:
   })
 })
 
+test('keeps Codex Conversation Fork available while the next turn is running', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'codex-active-turn-fork')
+  fs.mkdirSync(workspace, { recursive: true })
+  const agentId = await createAcpAgent(page, workspace, 'codex')
+
+  await openFarming(page)
+  await selectAgentOnCompactLayout(page, agentId)
+  const input = page.getByTestId('code-acp-composer-input')
+  await input.fill('image attachment before active fork')
+  await page.getByTestId('code-acp-composer-send').click()
+  await expect(page.getByText('Received 0 image.', { exact: true })).toBeVisible()
+
+  const forkRequests: Array<{ targetRuntime?: string; expectedRevision?: number }> = []
+  await page.route(`/farming/api/agents/${agentId}/fork`, async route => {
+    forkRequests.push(route.request().postDataJSON() as {
+      targetRuntime?: string
+      expectedRevision?: number
+    })
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ agentId }),
+    })
+  })
+
+  await input.fill('grouped streaming tools during active fork')
+  await page.getByTestId('code-acp-composer-send').click()
+  const runningTurn = page.locator('.code-agent-transcript-turn.running')
+  await expect(runningTurn).toBeVisible()
+  const forkButton = page.getByTestId('code-agent-transcript-fork')
+  await expect(forkButton).toHaveCount(1)
+  await expect(forkButton.locator('xpath=ancestor::article[1]')).not.toHaveClass(/running/)
+  await forkButton.click()
+
+  await expect.poll(() => forkRequests.length).toBe(1)
+  expect(forkRequests[0].targetRuntime).toBe('chat')
+  expect(forkRequests[0].expectedRevision).toBeGreaterThan(0)
+  await expect(runningTurn).toBeVisible()
+})
+
 test('keeps narrow Chat copyable and wraps long user text inside its bubble', { tag: '@iphone-human' }, async ({ page, workspaceRoot }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   const workspace = path.join(workspaceRoot, 'narrow-chat-copy-wrap')

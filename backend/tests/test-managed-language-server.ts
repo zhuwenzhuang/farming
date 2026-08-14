@@ -18,14 +18,38 @@ const {
 async function run() {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-managed-lsp-'));
   const refreshEvents: Array<{ kind: string; workspaceRoot: string; revision: number }> = [];
+  let enabled = true;
   const manager = new ManagedLanguageServerManager({
     configDir: path.join(tempDir, 'config'),
-    definitions: [{
-      id: 'fake',
-      extensions: ['.fake'],
-      command: [process.execPath, path.join(__dirname, 'fixtures', 'fake-language-server.mjs')],
-      rootMarkers: ['project.marker'],
-    }],
+    definitions: [
+      {
+        id: 'fake',
+        language: 'Fake',
+        extensions: ['.fake'],
+        command: [process.execPath, path.join(__dirname, 'fixtures', 'fake-language-server.mjs')],
+        rootMarkers: ['project.marker'],
+      },
+      {
+        id: 'clangd',
+        language: 'C / C++',
+        extensions: ['.cpp'],
+        command: ['clangd'],
+      },
+      {
+        id: 'missing-zeta',
+        language: 'Zeta',
+        extensions: ['.zeta'],
+        command: ['missing-zeta-language-server'],
+      },
+      {
+        id: 'missing-alpha',
+        language: 'Alpha',
+        extensions: ['.alpha'],
+        command: ['missing-alpha-language-server'],
+      },
+    ],
+    env: { ...process.env, PATH: '' },
+    isEnabled: () => enabled,
     onRefresh: event => refreshEvents.push(event),
   });
   try {
@@ -184,11 +208,37 @@ async function run() {
       position: { line: 0, character: 1 },
     };
 
-    const idleCapability = manager.capability();
+    const idleCapability = await manager.capability();
+    assert.strictEqual(idleCapability.enabled, true);
     assert.strictEqual(idleCapability.source, 'managed');
     assert.strictEqual(idleCapability.status, 'ready');
     assert.deepStrictEqual(idleCapability.workspaces, []);
     assert.deepStrictEqual(idleCapability.connections, []);
+    assert.deepStrictEqual(idleCapability.languages, [{
+      id: 'fake',
+      language: 'Fake',
+      server: process.execPath,
+      status: 'available',
+      projects: [],
+    }, {
+      id: 'clangd',
+      language: 'C / C++',
+      server: 'clangd',
+      status: 'installable',
+      projects: [],
+    }, {
+      id: 'missing-alpha',
+      language: 'Alpha',
+      server: 'missing-alpha-language-server',
+      status: 'missing',
+      projects: [],
+    }, {
+      id: 'missing-zeta',
+      language: 'Zeta',
+      server: 'missing-zeta-language-server',
+      status: 'missing',
+      projects: [],
+    }], 'available and installable runtimes should sort before missing languages, with language names alphabetical inside each state');
     const initialSymbols = await manager.request({
       ...base,
       method: 'workspaceSymbols',
@@ -250,7 +300,7 @@ async function run() {
       revision: 4,
     }], 'a reconnecting page should receive the latest active Project refresh revisions');
 
-    const activeCapability = manager.capability();
+    const activeCapability = await manager.capability();
     assert.strictEqual(activeCapability.status, 'connected');
     assert.deepStrictEqual(activeCapability.workspaces, [pathToFileURL(workspace).toString()]);
     assert.deepStrictEqual(activeCapability.connections, [{
@@ -258,6 +308,13 @@ async function run() {
       root: pathToFileURL(workspace).toString(),
       workspace: pathToFileURL(workspace).toString(),
     }]);
+    assert.deepStrictEqual(activeCapability.languages[0], {
+      id: 'fake',
+      language: 'Fake',
+      server: process.execPath,
+      status: 'running',
+      projects: [pathToFileURL(workspace).toString()],
+    }, 'an active connection should promote its language to the first running state');
 
     const hover = await manager.request({ ...base, method: 'hover' });
     assert.deepStrictEqual(hover.result, [{ contents: ['**fake hover**'] }]);
@@ -319,6 +376,73 @@ async function run() {
       query: 'main',
     });
     assert.strictEqual((symbols.result as Array<{ name: string }>)[0].name, 'main');
+
+    enabled = false;
+    await manager.dispose();
+    const disabledCapability = await manager.capability();
+    assert.strictEqual(disabledCapability.enabled, false);
+    assert.strictEqual(disabledCapability.status, 'ready');
+    assert.match(disabledCapability.detail, /Language Server is disabled/);
+    assert.deepStrictEqual(disabledCapability.connections, []);
+    assert.deepStrictEqual(manager.refreshSnapshot(), []);
+    await assert.rejects(
+      manager.request({ ...base, method: 'definition' }),
+      (error: { code?: string; status?: number }) => (
+        error.code === 'LANGUAGE_SERVER_DISABLED' && error.status === 503
+      ),
+      'a disabled manager must reject requests before resolving or starting a runtime',
+    );
+
+    enabled = true;
+    const resumed = await manager.request({ ...base, method: 'definition' });
+    assert.strictEqual(resumed.supported, true, 're-enabling should restore on-demand startup');
+
+    let gatedEnabled = true;
+    let releaseClientFactory = () => {};
+    let markClientFactoryStarted = () => {};
+    let disposedStaleClient = 0;
+    const clientFactoryStarted = new Promise<void>(resolve => { markClientFactoryStarted = resolve; });
+    const clientFactoryRelease = new Promise<void>(resolve => { releaseClientFactory = resolve; });
+    const gatedManager = new ManagedLanguageServerManager({
+      configDir: path.join(tempDir, 'gated-config'),
+      definitions: [{
+        id: 'gated',
+        language: 'Gated',
+        extensions: ['.fake'],
+        command: [process.execPath],
+      }],
+      env: { ...process.env, PATH: '' },
+      isEnabled: () => gatedEnabled,
+      clientFactory: async (value: { id: string; root: string; workspaceRoot: string }) => {
+        markClientFactoryStarted();
+        await clientFactoryRelease;
+        return {
+          id: value.id,
+          root: value.root,
+          workspaceRoot: value.workspaceRoot,
+          execute: async () => ({ result: [], supported: true }),
+          ownsHierarchyHandle: () => false,
+          dispose: async () => { disposedStaleClient += 1; },
+        };
+      },
+    });
+    try {
+      const pendingRequest = gatedManager.request({ ...base, method: 'definition' });
+      await clientFactoryStarted;
+      gatedEnabled = false;
+      await gatedManager.dispose();
+      releaseClientFactory();
+      await assert.rejects(
+        pendingRequest,
+        (error: { code?: string }) => error.code === 'LANGUAGE_SERVER_DISABLED',
+        'disabling during startup must fence the stale client before it becomes active',
+      );
+      assert.strictEqual(disposedStaleClient, 1);
+      assert.deepStrictEqual((await gatedManager.capability()).connections, []);
+    } finally {
+      releaseClientFactory();
+      await gatedManager.dispose();
+    }
 
   } finally {
     await manager.dispose();

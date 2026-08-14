@@ -25,7 +25,11 @@ import type { UiLanguage } from '@/lib/ui-preferences'
 import type { BrowserCapability } from '../../../extensions/browser/frontend/types'
 import type { ComputerCapability } from '../../../extensions/computer/frontend/types'
 import { fetchLanguageServerCapability } from '../../../extensions/language-server/frontend/client'
-import type { LanguageServerCapability, LanguageServerConnection } from '../../../extensions/language-server/frontend/types'
+import type {
+  LanguageServerCapability,
+  LanguageServerRuntimeCapability,
+  LanguageServerRuntimeStatus,
+} from '../../../extensions/language-server/frontend/types'
 
 type NewAgentDefaults = {
   model: string
@@ -120,19 +124,12 @@ const PLUGIN_TAB_DEFINITIONS = [
 ] as const satisfies ReadonlyArray<{ id: PluginsTab }>
 const PLUGINS_TABS = PLUGIN_TAB_DEFINITIONS.map(tab => tab.id)
 const AGENT_SETTINGS_REQUEST_TIMEOUT_MS = 15_000
+const PLUGIN_SCROLL_SAVE_SETTLE_MS = 120
 const DOCKER_DESKTOP_MAC_INSTALL_URL = 'https://docs.docker.com/desktop/setup/install/mac-install/'
 const DOCKER_ENGINE_INSTALL_URL = 'https://docs.docker.com/engine/install/'
 const FARMING_BROWSER_DOCS_URL: Record<UiLanguage, string> = {
   en: 'https://zhuwenzhuang.github.io/farming/en/browser/existing-chrome',
   zh: 'https://zhuwenzhuang.github.io/farming/cn/browser/existing-chrome',
-}
-const CHROME_EXTENSIONS_ADDRESS = 'chrome://extensions'
-
-function formatByteSize(value: number | undefined) {
-  if (!Number.isFinite(value) || value === undefined || value < 0) return '—'
-  if (value < 1024) return `${value} B`
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`
-  return `${(value / (1024 * 1024)).toFixed(1)} MiB`
 }
 
 async function fetchAgentSettings(url: string, init?: RequestInit) {
@@ -264,20 +261,9 @@ function pluginCopy(language: UiLanguage) {
     removeConnectorDirectory: zh ? '删除插件目录' : 'Remove extension folder',
     connectorGuide: zh ? '安装步骤说明' : 'Installation steps',
     connectorDirectory: zh ? '插件目录' : 'Extension folder',
-    connectorExtensionsPage: zh ? 'Chrome 扩展程序页' : 'Chrome Extensions page',
-    connectorCopyAddress: zh ? '复制地址' : 'Copy address',
-    connectorAddressCopied: zh ? '已复制' : 'Copied',
-    connectorCopyFailed: zh ? '地址复制失败，请手动复制。' : 'Failed to copy the address. Copy it manually.',
-    connectorSize: zh ? '大小' : 'Size',
-    connectorIntegrity: zh ? '完整性' : 'Integrity',
-    connectorIntegrityValue: {
-      valid: zh ? '完整' : 'Complete',
-      missing: zh ? '未准备' : 'Not prepared',
-      invalid: zh ? '异常' : 'Invalid',
-    },
     connectorReadyHint: zh
-      ? '复制下面地址并粘贴到 Chrome 地址栏。开启“开发者模式”，点击“加载已解压的扩展程序”，选择下面目录。'
-      : 'Copy the address below into Chrome\'s address bar. Enable Developer mode, click Load unpacked, and choose the folder below.',
+      ? '在 Chrome 扩展程序页加载这个目录，然后点击 Farming Browser Connector。'
+      : 'Load this folder on Chrome\'s Extensions page, then click Farming Browser Connector.',
     preparingConnector: zh ? '正在准备目录…' : 'Preparing folder…',
     removingConnector: zh ? '正在删除目录…' : 'Removing folder…',
     connectorPrepareFailed: zh ? '连接扩展准备失败' : 'Failed to prepare the connector extension',
@@ -327,24 +313,28 @@ function pluginCopy(language: UiLanguage) {
     computerSaveFailed: zh ? 'Computer Use 插件设置保存失败' : 'Failed to save Computer Use plugin settings',
     computerPrepareFailed: zh ? 'Docker 中的桌面安装失败' : 'Failed to install Desktop in Docker',
     languageServer: 'Language Server',
-    languageServerDescription: zh
-      ? '按文件类型自动启动语言服务，为文件编辑器提供跳转、引用、符号、层次结构和诊断。'
-      : 'Start language servers automatically by file type for navigation, references, symbols, hierarchies, and diagnostics.',
-    languageServerConnected: zh ? '已连接' : 'Connected',
-    languageServerReady: zh ? '按需待命' : 'Ready on demand',
     languageServerUnavailable: zh ? '不可用' : 'Unavailable',
+    languageServerRestartRequired: zh ? '需重启 Farming 以加载语言状态' : 'Restart Farming to load language status',
     languageServerError: zh ? '错误' : 'Error',
+    languageServerSaveFailed: zh ? 'Language Server 设置保存失败' : 'Failed to save Language Server settings',
+    languageServerSaving: zh ? '正在保存…' : 'Saving…',
     languageServerChecking: zh ? '正在发现…' : 'Discovering…',
-    languageServerHint: zh
-      ? '优先使用 PATH 中的语言服务；C/C++ 与 Java 缺失时由 Farming 按需准备 clangd 或 JDTLS。'
-      : 'Uses language servers from PATH first; Farming prepares clangd or JDTLS on demand when C/C++ or Java needs one.',
-    languageServerNoProjects: zh
-      ? '当前没有运行中的项目级语言服务；打开支持的已保存文件后会按需启动。'
-      : 'No project language server is running; one starts on demand when you open a supported saved file.',
-    languageServerProjects: zh ? '已连接项目' : 'Connected projects',
+    languageServerSummary: (counts: Record<LanguageServerRuntimeStatus, number>) => zh
+      ? `${counts.running} 正在运行 · ${counts.available} 可用 · ${counts.installable} 可自动安装 · ${counts.missing} 未安装`
+      : `${counts.running} running · ${counts.available} available · ${counts.installable} auto-installable · ${counts.missing} not installed`,
+    languageServerLanguage: zh ? '语言' : 'Language',
+    languageServerStatus: zh ? '状态' : 'Status',
     languageServerProject: zh ? '项目' : 'Project',
-    languageServerRoot: zh ? '语言根目录' : 'Language root',
-    languageServerRetry: zh ? '重试' : 'Retry',
+    languageServerRuntimeStatus: {
+      running: zh ? '正在运行' : 'Running',
+      available: zh ? '可用' : 'Available',
+      installable: zh ? '可自动安装' : 'Auto-installable',
+      missing: zh ? '未安装' : 'Not installed',
+    } satisfies Record<LanguageServerRuntimeStatus, string>,
+    languageServerMore: (count: number) => zh ? `更多 ${count} 种语言` : `${count} more languages`,
+    languageServerTotal: (count: number) => zh ? `共 ${count} 种语言` : `${count} languages`,
+    languageServerShowAll: zh ? '查看全部' : 'Show all',
+    languageServerCollapse: zh ? '收起' : 'Collapse',
     remoteConnections: zh ? '远程连接' : 'Remote connections',
     remoteConnectionsDescription: zh
       ? '管理桌面应用的本机环境和 SSH 远端；仅在需要时切换。'
@@ -365,15 +355,36 @@ function languageServerPath(value: string) {
   }
 }
 
-function languageServerConnections(capability: LanguageServerCapability | null): LanguageServerConnection[] {
-  if (!capability) return []
-  if (capability.connections?.length) return capability.connections
-  return capability.workspaces.map(workspace => ({ id: '', root: workspace, workspace }))
+const LANGUAGE_SERVER_RUNTIME_STATUS_ORDER: Record<LanguageServerRuntimeStatus, number> = {
+  running: 0,
+  available: 1,
+  installable: 2,
+  missing: 3,
 }
 
-function sameLanguageServerPath(left: string, right: string) {
-  return languageServerPath(left).replace(/\\/g, '/').replace(/\/$/, '')
-    === languageServerPath(right).replace(/\\/g, '/').replace(/\/$/, '')
+function languageServerLanguages(capability: LanguageServerCapability | null): LanguageServerRuntimeCapability[] {
+  if (!capability) return []
+  const languages = capability.languages?.length
+    ? capability.languages
+    : [...new Set(capability.connections.map(connection => connection.id))].map(id => ({
+        id,
+        language: id,
+        server: id,
+        status: 'running' as const,
+        projects: capability.connections
+          .filter(connection => connection.id === id)
+          .map(connection => connection.workspace),
+      }))
+  return [...languages].sort((left, right) => (
+    LANGUAGE_SERVER_RUNTIME_STATUS_ORDER[left.status] - LANGUAGE_SERVER_RUNTIME_STATUS_ORDER[right.status]
+    || left.language.localeCompare(right.language, 'en')
+  ))
+}
+
+function languageServerProjectName(value: string) {
+  const projectPath = languageServerPath(value)
+  const segments = projectPath.split(/[\\/]/).filter(Boolean)
+  return segments[segments.length - 1] || projectPath
 }
 
 function agentDisplayName(agent: Pick<AgentExtensionGroup, 'id' | 'name'>) {
@@ -615,7 +626,6 @@ export function PluginsPanel({
   const [browserExtensionInfo, setBrowserExtensionInfo] = useState<BrowserExtensionCapability>(
     capability?.extension ?? {},
   )
-  const [chromeExtensionsAddressCopied, setChromeExtensionsAddressCopied] = useState(false)
   const browserExtensionConnectedRef = useRef(capability?.extension?.connected === true)
   const [agentGroups, setAgentGroups] = useState<AgentExtensionGroup[]>([])
   const [agentGroupsLoading, setAgentGroupsLoading] = useState(true)
@@ -638,6 +648,10 @@ export function PluginsPanel({
   const [languageServerCapability, setLanguageServerCapability] = useState<LanguageServerCapability | null>(null)
   const [languageServerLoading, setLanguageServerLoading] = useState(true)
   const [languageServerError, setLanguageServerError] = useState('')
+  const [languageServerExpanded, setLanguageServerExpanded] = useState(false)
+  const [languageServerEnabled, setLanguageServerEnabled] = useState(true)
+  const [languageServerSaving, setLanguageServerSaving] = useState(false)
+  const [languageServerSaveError, setLanguageServerSaveError] = useState('')
   const agentSaveRequestRef = useRef<number | null>(null)
   const agentSaveSequenceRef = useRef(0)
   const retryOnReconnectRef = useRef(false)
@@ -652,24 +666,46 @@ export function PluginsPanel({
     }
     restoreScroll()
     const frame = window.requestAnimationFrame(restoreScroll)
-    const handleScroll = () => {
+    return () => window.cancelAnimationFrame(frame)
+  }, [agentGroups.length, agentGroupsLoading, navigationState.scrollTop])
+
+  useEffect(() => {
+    const scroller = panelRef.current?.closest<HTMLElement>('.code-plugins-view')
+    if (!scroller || agentGroupsLoading) return undefined
+    let saveTimer: number | null = null
+    const saveScroll = () => {
+      saveTimer = null
       const scrollTop = scroller.scrollTop
       onNavigationStateChange(current => (
         scrollTop === current.scrollTop ? current : { ...current, scrollTop }
       ))
     }
-    scroller.addEventListener('scroll', handleScroll, { passive: true })
-    return () => {
-      window.cancelAnimationFrame(frame)
-      scroller.removeEventListener('scroll', handleScroll)
+    const handleScroll = () => {
+      if (saveTimer !== null) window.clearTimeout(saveTimer)
+      saveTimer = window.setTimeout(saveScroll, PLUGIN_SCROLL_SAVE_SETTLE_MS)
     }
-  }, [agentGroups.length, agentGroupsLoading, navigationState, onNavigationStateChange])
+    const finishScroll = () => {
+      if (saveTimer === null) return
+      window.clearTimeout(saveTimer)
+      saveScroll()
+    }
+    scroller.addEventListener('scroll', handleScroll, { passive: true })
+    window.addEventListener('pointerup', finishScroll, true)
+    return () => {
+      scroller.removeEventListener('scroll', handleScroll)
+      window.removeEventListener('pointerup', finishScroll, true)
+      if (saveTimer !== null) window.clearTimeout(saveTimer)
+      saveScroll()
+    }
+  }, [agentGroupsLoading, onNavigationStateChange])
 
-  const loadLanguageServerCapability = useCallback(async (refresh = false) => {
+  const loadLanguageServerCapability = useCallback(async () => {
     setLanguageServerLoading(true)
     setLanguageServerError('')
     try {
-      setLanguageServerCapability(await fetchLanguageServerCapability(refresh))
+      const nextCapability = await fetchLanguageServerCapability()
+      setLanguageServerCapability(nextCapability)
+      setLanguageServerEnabled(nextCapability.enabled !== false)
     } catch (loadError) {
       setLanguageServerCapability(null)
       setLanguageServerError(loadError instanceof Error ? loadError.message : copy.languageServerError)
@@ -677,6 +713,31 @@ export function PluginsPanel({
       setLanguageServerLoading(false)
     }
   }, [copy.languageServerError])
+
+  const toggleLanguageServer = async () => {
+    if (languageServerSaving) return
+    const nextEnabled = !languageServerEnabled
+    setLanguageServerSaving(true)
+    setLanguageServerSaveError('')
+    try {
+      const response = await fetch(appPath('/api/settings'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ languageServerEnabled: nextEnabled }),
+      })
+      const data = await response.json().catch(() => ({})) as {
+        error?: string
+        settings?: { languageServerEnabled?: boolean }
+      }
+      if (!response.ok) throw new Error(data.error || copy.languageServerSaveFailed)
+      setLanguageServerEnabled(data.settings?.languageServerEnabled !== false)
+      await loadLanguageServerCapability()
+    } catch (caught) {
+      setLanguageServerSaveError(caught instanceof Error ? caught.message : copy.languageServerSaveFailed)
+    } finally {
+      setLanguageServerSaving(false)
+    }
+  }
 
   useEffect(() => {
     void loadLanguageServerCapability()
@@ -1010,16 +1071,6 @@ export function PluginsPanel({
     }
   }
 
-  const copyChromeExtensionsAddress = async () => {
-    try {
-      if (!navigator.clipboard) throw new Error(copy.connectorCopyFailed)
-      await navigator.clipboard.writeText(CHROME_EXTENSIONS_ADDRESS)
-      setChromeExtensionsAddressCopied(true)
-    } catch {
-      setError(copy.connectorCopyFailed)
-    }
-  }
-
   const saveComputerSettings = async (patch: {
     computerCompatibilityMode?: boolean
     computerExtensionEnabled?: boolean
@@ -1080,17 +1131,34 @@ export function PluginsPanel({
     : capability?.isolated?.dockerAvailable === false
       ? copy.dockerRequired
       : copy.notInstalled
-  const activeLanguageServerConnections = languageServerConnections(languageServerCapability)
-  const languageServerHasActiveConnections = activeLanguageServerConnections.length > 0
+  const languageServerRuntimeLanguages = languageServerLanguages(languageServerCapability)
+  const languageServerHasRuntimeInventory = Array.isArray(languageServerCapability?.languages)
+  const languageServerCounts = languageServerRuntimeLanguages.reduce<Record<LanguageServerRuntimeStatus, number>>((counts, item) => {
+    counts[item.status] += 1
+    return counts
+  }, { running: 0, available: 0, installable: 0, missing: 0 })
+  const importantLanguageServerLanguages = languageServerRuntimeLanguages.filter(item => item.status !== 'missing')
+  const missingLanguageServerLanguages = languageServerRuntimeLanguages.filter(item => item.status === 'missing')
+  const collapsedLanguageServerLanguages = [
+    ...importantLanguageServerLanguages,
+    ...missingLanguageServerLanguages.slice(0, Math.max(0, 7 - importantLanguageServerLanguages.length)),
+  ]
+  const visibleLanguageServerLanguages = languageServerExpanded
+    ? languageServerRuntimeLanguages
+    : collapsedLanguageServerLanguages
+  const hiddenLanguageServerLanguageCount = languageServerRuntimeLanguages.length - visibleLanguageServerLanguages.length
+  const languageServerCanExpand = collapsedLanguageServerLanguages.length < languageServerRuntimeLanguages.length
   const languageServerStatus = languageServerLoading
     ? copy.languageServerChecking
     : languageServerError || languageServerCapability?.status === 'error'
       ? copy.languageServerError
-      : languageServerHasActiveConnections
-        ? copy.languageServerConnected
-        : languageServerCapability?.status === 'ready' || languageServerCapability?.status === 'connected'
-          ? copy.languageServerReady
-          : copy.languageServerUnavailable
+      : !languageServerEnabled
+        ? copy.disabled
+        : languageServerCapability && !languageServerHasRuntimeInventory
+          ? copy.languageServerRestartRequired
+          : languageServerRuntimeLanguages.length > 0
+            ? copy.languageServerSummary(languageServerCounts)
+            : copy.languageServerUnavailable
   const status = loading && capability === null
     ? copy.checking
     : capabilityError
@@ -1330,32 +1398,11 @@ export function PluginsPanel({
                     <div className="code-plugin-browser-connector-details" data-testid="browser-connector-details">
                       <small>{copy.connectorReadyHint}</small>
                       <div>
-                        <span>{copy.connectorExtensionsPage}</span>
-                        <button
-                          type="button"
-                          className="code-plugin-browser-copy-address"
-                          onClick={() => void copyChromeExtensionsAddress()}
-                        >
-                          <code>{CHROME_EXTENSIONS_ADDRESS}</code>
-                          <span>{chromeExtensionsAddressCopied
-                            ? copy.connectorAddressCopied
-                            : copy.connectorCopyAddress}</span>
-                        </button>
-                      </div>
-                      <div>
                         <span>{copy.connectorDirectory}</span>
                         <code
                           data-testid="browser-connector-directory"
                           title={browserExtensionInfo.extensionPath}
                         >{browserExtensionInfo.extensionPath}</code>
-                      </div>
-                      <div className="code-plugin-browser-connector-metadata">
-                        <span>{copy.connectorSize}</span>
-                        <strong>{formatByteSize(browserExtensionInfo.sizeBytes)}</strong>
-                        <span>{copy.connectorIntegrity}</span>
-                        <strong className={browserExtensionInfo.integrity === 'valid' ? 'valid' : 'invalid'}>
-                          {copy.connectorIntegrityValue[browserExtensionInfo.integrity ?? 'invalid']}
-                        </strong>
                       </div>
                     </div>
                   ) : null}
@@ -1522,75 +1569,84 @@ export function PluginsPanel({
             {computerLoading && computerCapability === null ? copy.checking : computerCapabilityError ? copy.checkFailed : computerEnabled ? copy.disable : copy.enable}
           </button>
         </article>
-        <article className="code-plugin-card" data-testid="code-plugin-language-server">
+        <article className="code-plugin-card code-plugin-language-server-card" data-testid="code-plugin-language-server">
           <span className="code-plugin-card-icon" aria-hidden="true">
             <LanguageServerGlyph />
           </span>
           <div className="code-plugin-card-copy">
             <div className="code-plugin-card-title">
               <h3>{copy.languageServer}</h3>
-              <span className={`code-plugin-status ${languageServerHasActiveConnections ? 'enabled' : ''}`}>
+              <span className="code-plugin-status">
                 {languageServerStatus}
               </span>
             </div>
-            <p>{copy.languageServerDescription}</p>
-            <small>{copy.languageServerHint}</small>
-            {languageServerCapability
-              && !languageServerError
-              && !languageServerHasActiveConnections
-              && (languageServerCapability.status === 'ready' || languageServerCapability.status === 'connected') ? (
-              <small>{copy.languageServerNoProjects}</small>
-            ) : null}
-            {languageServerCapability?.detail && !languageServerError && languageServerCapability.status !== 'error' ? (
-              <small>
-                {languageServerCapability.detail}
-                {languageServerCapability.vscodeVersion ? ` · VS Code ${languageServerCapability.vscodeVersion}` : ''}
-              </small>
-            ) : null}
-            {languageServerHasActiveConnections ? (
-              <div className="code-plugin-language-server-connections">
-                <strong>{copy.languageServerProjects}</strong>
-                <ul>
-                  {activeLanguageServerConnections.map((connection, index) => {
-                    const projectPath = languageServerPath(connection.workspace)
-                    const rootPath = languageServerPath(connection.root)
-                    return (
-                      <li
-                        key={`${connection.id}:${connection.workspace}:${connection.root}:${index}`}
-                        title={`${connection.id || copy.languageServer} · ${projectPath}`}
-                      >
-                        <span className="code-plugin-language-server-server">
-                          {connection.id || copy.languageServer}
-                        </span>
-                        <span className="code-plugin-language-server-project">
-                          {copy.languageServerProject}: {projectPath}
-                        </span>
-                        {!sameLanguageServerPath(connection.workspace, connection.root) ? (
-                          <span className="code-plugin-language-server-root">
-                            {copy.languageServerRoot}: {rootPath}
-                          </span>
-                        ) : null}
-                      </li>
-                    )
-                  })}
-                </ul>
+            {languageServerRuntimeLanguages.length > 0 && !languageServerError ? (
+              <div className="code-plugin-language-server-table-shell">
+                <div className="code-plugin-language-server-table-scroll">
+                  <table className="code-plugin-language-server-table">
+                    <thead>
+                      <tr>
+                        <th>{copy.languageServerLanguage}</th>
+                        <th>{copy.languageServer}</th>
+                        <th>{copy.languageServerStatus}</th>
+                        <th>{copy.languageServerProject}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {visibleLanguageServerLanguages.map(languageServer => {
+                        const projectPaths = languageServer.projects.map(languageServerPath)
+                        const projectNames = languageServer.projects.map(languageServerProjectName)
+                        return <tr
+                          key={languageServer.id}
+                          data-testid={`code-plugin-language-server-language-${languageServer.id}`}
+                        >
+                          <td className="code-plugin-language-server-language">{languageServer.language}</td>
+                          <td className="code-plugin-language-server-command">{languageServer.server}</td>
+                          <td>
+                            <span className={`code-plugin-language-server-runtime-status ${languageServer.status}`}>
+                              {languageServer.status === 'running' ? <span aria-hidden="true" /> : null}
+                              {copy.languageServerRuntimeStatus[languageServer.status]}
+                            </span>
+                          </td>
+                          <td
+                            className="code-plugin-language-server-projects"
+                            title={projectPaths.join('\n')}
+                          >{projectNames.join(', ') || '—'}</td>
+                        </tr>
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                {languageServerCanExpand ? (
+                  <div className="code-plugin-language-server-table-footer">
+                    <span>{languageServerExpanded
+                      ? copy.languageServerTotal(languageServerRuntimeLanguages.length)
+                      : copy.languageServerMore(hiddenLanguageServerLanguageCount)}</span>
+                    <button
+                      type="button"
+                      onClick={() => setLanguageServerExpanded(expanded => !expanded)}
+                    >{languageServerExpanded ? copy.languageServerCollapse : copy.languageServerShowAll}</button>
+                  </div>
+                ) : null}
               </div>
             ) : null}
             {(languageServerError
+              || languageServerSaveError
               || languageServerCapability?.status === 'error'
               || (languageServerCapability?.status === 'unavailable' && languageServerCapability.detail)) ? (
               <div className="code-plugin-error" role="alert">
-                {languageServerError || languageServerCapability?.detail}
+                {languageServerSaveError || languageServerError || languageServerCapability?.detail}
               </div>
             ) : null}
           </div>
           <button
             type="button"
-            className="code-plugin-toggle"
-            disabled={languageServerLoading}
-            onClick={() => void loadLanguageServerCapability(true)}
+            className={`code-plugin-toggle ${languageServerEnabled ? 'active' : ''}`}
+            aria-pressed={languageServerEnabled}
+            disabled={languageServerLoading || languageServerSaving}
+            onClick={() => void toggleLanguageServer()}
           >
-            {languageServerLoading ? copy.checking : copy.languageServerRetry}
+            {languageServerSaving ? copy.languageServerSaving : languageServerEnabled ? copy.disable : copy.enable}
           </button>
         </article>
       </section> : null}

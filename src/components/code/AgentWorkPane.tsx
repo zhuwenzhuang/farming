@@ -87,7 +87,7 @@ export function AgentWorkPane({
   const chatMode = acpChat
   const canSwitchRuntime = runtimeSwitchVisible && canSwitchAgentRuntime(agent)
   const runtimeSwitchDisabled = switching || isAgentTurnActive(agent)
-  const canForkConversation = canForkAgentConversation(agent) && !isAgentTurnActive(agent)
+  const canForkConversation = canForkAgentConversation(agent)
   const readLatestChat = useCallback(() => {
     const attentionSeq = Number.isFinite(agent.attentionSeq) ? Math.max(0, Number(agent.attentionSeq)) : 0
     const readAttentionSeq = Number.isFinite(agent.readAttentionSeq) ? Math.max(0, Number(agent.readAttentionSeq)) : 0

@@ -3555,6 +3555,13 @@ export function AgentTranscriptPane({
   }, [refreshSignal])
 
   const turns = useMemo(() => transcript?.turns || [], [transcript])
+  const latestSettledTurnIndex = useMemo(() => {
+    for (let index = turns.length - 1; index >= 0; index -= 1) {
+      const turn = turns[index]
+      if (turn && turn.status !== 'inProgress') return index
+    }
+    return -1
+  }, [turns])
   const latestTurn = turns[turns.length - 1]
   const latestProcessItem = latestTurn?.processItems[latestTurn.processItems.length - 1]
   const gitDiffRefreshKey = [
@@ -4079,7 +4086,7 @@ export function AgentTranscriptPane({
                       && turn.status === 'inProgress'
                       && transcript?.state === 'working'
                     }
-                    onFork={index === turns.length - 1 && turn.status !== 'inProgress' ? onForkLatest : undefined}
+                    onFork={index === latestSettledTurnIndex ? onForkLatest : undefined}
                     onShare={onCopyReadOnlyShareLink ? copyTurnShareLink : undefined}
                   />
                 </LocalRenderFault>

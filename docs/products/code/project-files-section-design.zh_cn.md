@@ -78,6 +78,13 @@ Row；即使文件与 Source Agent 分属不同 Project 也必须成功。Worksp
 Location 作为一等 History Entry；打开来源文件后返回时，恢复原来的 Tab、Agent Home、
 Extension Kind、Query、Detail 与 Scroll Position。
 
+## Workspace View Memory
+
+记住能帮助用户继续上次工作的稳定选择，不记住交互过程、加载、错误和响应式临时状态。
+
+先恢复权威的 Project 与 Agent 状态。有效的当前 Agent 或文件拥有最终定位权；失效的记忆目标
+直接忽略。
+
 ## Working Copy 与 Mutation
 
 文件系统是权威来源。Browser Working Copy 保留 Disk Baseline、Draft 与 Revision。保存某个

@@ -346,12 +346,13 @@ async function run() {
     assert.strictEqual(acpForkOptions, null, 'backend admission must reject before calling the provider');
     sourceAcpAgent.runtimeBinding.supportsFork = true;
     sourceAcpAgent.runtimeBinding.state = 'working';
-    const workingAcpFork = await manager.forkAgent(resumedCodexId, 'same-worktree', {
+    sourceAcpAgent.providerSessionProvider = 'qoder';
+    const unsupportedWorkingAcpFork = await manager.forkAgent(resumedCodexId, 'same-worktree', {
       expectedRevision: 17,
     });
-    assert.match(workingAcpFork.error, /not ready for Conversation Fork \(working\)/);
-    assert.strictEqual(acpForkOptions, null, 'a working source must not be interrupted to Fork');
-    sourceAcpAgent.runtimeBinding.state = 'idle';
+    assert.match(unsupportedWorkingAcpFork.error, /not ready for Conversation Fork \(working\)/);
+    assert.strictEqual(acpForkOptions, null, 'a provider without active-turn Fork must remain blocked');
+    sourceAcpAgent.providerSessionProvider = 'codex';
     const acpChatFork = await manager.forkAgent(resumedCodexId, 'same-worktree', {
       expectedRevision: 17,
     });
@@ -361,6 +362,7 @@ async function run() {
     assert.strictEqual(acpForkOptions.expectedRevision, 17);
     assert.strictEqual(acpForkOptions.requireLoad, true);
     assert.strictEqual(fs.realpathSync(acpForkOptions.cwd), fs.realpathSync(repo));
+    assert.strictEqual(sourceAcpAgent.runtimeBinding.state, 'working', 'Fork must not stop the source turn');
     assert.strictEqual(acpPreparedOptions.sessionId, acpForkSessionId);
     assert.strictEqual(acpPreparedOptions.historyMode, 'load');
     const acpChatForkAgent = manager.agents.get(acpChatFork.agentId);

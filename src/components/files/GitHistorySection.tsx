@@ -14,6 +14,10 @@ import {
   type WorkspaceGitHistoryItem,
 } from '@/lib/workspace-files'
 import type { CodeCopy } from '../code/copy'
+import {
+  loadCodeProjectFilesViewState,
+  saveCodeProjectFilesViewState,
+} from '../code/workspace-view-state'
 import { useDismissiblePopover } from '../code/useDismissiblePopover'
 import { GitHistoryGraph, GitHistoryGraphPlaceholder } from './GitHistoryGraph'
 
@@ -62,13 +66,20 @@ export function GitHistorySection({
   projectWorkspace,
   refreshToken = 0,
 }: GitHistorySectionProps) {
-  const [collapsed, setCollapsed] = useState(true)
+  const [initialProjectViewState] = useState(() => loadCodeProjectFilesViewState(projectId))
+  const [collapsed, setCollapsed] = useState(initialProjectViewState.gitHistoryCollapsed ?? true)
   const [history, setHistory] = useState<WorkspaceGitHistory | null>(null)
-  const [historyScope, setHistoryScope] = useState<WorkspaceGitHistory['scope']>('current')
+  const [historyScope, setHistoryScope] = useState<WorkspaceGitHistory['scope']>(
+    initialProjectViewState.gitHistoryScope ?? 'current',
+  )
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyError, setHistoryError] = useState('')
-  const [selectedCommitId, setSelectedCommitId] = useState('')
-  const [selectedParent, setSelectedParent] = useState('')
+  const [selectedCommitId, setSelectedCommitId] = useState(
+    initialProjectViewState.gitHistorySelectedCommitId ?? '',
+  )
+  const [selectedParent, setSelectedParent] = useState(
+    initialProjectViewState.gitHistorySelectedParent ?? '',
+  )
   const [selectedChanges, setSelectedChanges] = useState<WorkspaceGitHistoryChanges | null>(null)
   const [changesLoading, setChangesLoading] = useState(false)
   const [changesError, setChangesError] = useState('')
@@ -80,6 +91,7 @@ export function GitHistorySection({
   const scopeButtonRef = useRef<HTMLButtonElement | null>(null)
   const scopeMenuRef = useRef<HTMLDivElement | null>(null)
   const externalRefreshTokenRef = useRef(0)
+  const restoredSelectionKeyRef = useRef('')
 
   const resetSelection = useCallback(() => {
     changesRequestRef.current?.abort()
@@ -93,21 +105,23 @@ export function GitHistorySection({
   }, [])
 
   useEffect(() => {
+    const saved = loadCodeProjectFilesViewState(projectId)
     historyRequestRef.current?.abort()
     changesRequestRef.current?.abort()
     historyRequestRef.current = null
     changesRequestRef.current = null
     changesCacheRef.current.clear()
-    setCollapsed(true)
+    setCollapsed(saved.gitHistoryCollapsed ?? true)
     setHistory(null)
-    setHistoryScope('current')
+    setHistoryScope(saved.gitHistoryScope ?? 'current')
     setHistoryLoading(false)
     setHistoryError('')
-    setSelectedCommitId('')
-    setSelectedParent('')
+    setSelectedCommitId(saved.gitHistorySelectedCommitId ?? '')
+    setSelectedParent(saved.gitHistorySelectedParent ?? '')
     setSelectedChanges(null)
     setChangesLoading(false)
     setChangesError('')
+    restoredSelectionKeyRef.current = ''
     return () => {
       historyRequestRef.current?.abort()
       changesRequestRef.current?.abort()
@@ -125,6 +139,7 @@ export function GitHistorySection({
     skip: number,
     replace: boolean,
     scope: WorkspaceGitHistory['scope'] = historyScope,
+    limit = GIT_HISTORY_PAGE_SIZE,
   ) => {
     historyRequestRef.current?.abort()
     const controller = new AbortController()
@@ -133,7 +148,7 @@ export function GitHistorySection({
     setHistoryError('')
     try {
       const page = await fetchWorkspaceGitHistory(agentId, {
-        limit: GIT_HISTORY_PAGE_SIZE,
+        limit,
         skip,
         scope,
         signal: controller.signal,
@@ -156,6 +171,13 @@ export function GitHistorySection({
       }
     }
   }, [agentId, historyScope])
+
+  useEffect(() => {
+    if (collapsed || history || historyLoading) return
+    const visibleLimit = loadCodeProjectFilesViewState(projectId).gitHistoryVisibleLimit
+      ?? GIT_HISTORY_PAGE_SIZE
+    void loadHistoryPage(0, true, historyScope, visibleLimit)
+  }, [collapsed, history, historyLoading, historyScope, loadHistoryPage, projectId])
 
   useEffect(() => {
     if (!refreshToken || refreshToken === externalRefreshTokenRef.current) return
@@ -211,6 +233,33 @@ export function GitHistorySection({
       }
     }
   }, [agentId])
+
+  useEffect(() => {
+    if (!history || !selectedCommitId || selectedChanges || changesLoading) return
+    const commit = history.items.find(item => item.id === selectedCommitId)
+    if (!commit) {
+      resetSelection()
+      return
+    }
+    const parent = commit.parentIds.includes(selectedParent)
+      ? selectedParent
+      : commit.parentIds[0] || ''
+    const selectionKey = `${commit.id}:${parent || 'root'}`
+    if (restoredSelectionKeyRef.current === selectionKey) return
+    restoredSelectionKeyRef.current = selectionKey
+    setSelectedParent(parent)
+    void loadCommitChanges(commit, parent)
+  }, [changesLoading, history, loadCommitChanges, resetSelection, selectedChanges, selectedCommitId, selectedParent])
+
+  useEffect(() => {
+    saveCodeProjectFilesViewState(projectId, {
+      gitHistoryCollapsed: collapsed,
+      gitHistoryScope: historyScope,
+      gitHistorySelectedCommitId: selectedCommitId || undefined,
+      gitHistorySelectedParent: selectedParent || undefined,
+      gitHistoryVisibleLimit: Math.max(GIT_HISTORY_PAGE_SIZE, history?.items.length ?? 0),
+    })
+  }, [collapsed, history?.items.length, historyScope, projectId, selectedCommitId, selectedParent])
 
   const toggleCollapsed = () => {
     setCollapsed(current => {

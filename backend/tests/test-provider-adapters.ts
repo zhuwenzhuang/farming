@@ -669,12 +669,14 @@ function run() {
         strategy: 'target-process',
         worktreeModes: ['same-worktree', 'new-worktree'],
         requiresRuntimeCapability: false,
+        supportsActiveTurn: false,
       },
       acp: {
         supported: true,
         strategy: 'source-session',
         worktreeModes: ['same-worktree'],
         requiresRuntimeCapability: true,
+        supportsActiveTurn: true,
       },
     },
     terminalSessionFork: true,
@@ -701,12 +703,14 @@ function run() {
           strategy: 'target-process',
           worktreeModes: ['same-worktree', 'new-worktree'],
           requiresRuntimeCapability: false,
+          supportsActiveTurn: false,
         },
         acp: {
           supported: true,
           strategy: 'target-process',
           worktreeModes: ['same-worktree'],
           requiresRuntimeCapability: true,
+          supportsActiveTurn: false,
         },
       },
       terminalSessionFork: true,
@@ -734,12 +738,14 @@ function run() {
           strategy: null,
           worktreeModes: [],
           requiresRuntimeCapability: false,
+          supportsActiveTurn: false,
         },
         acp: {
           supported: false,
           strategy: null,
           worktreeModes: [],
           requiresRuntimeCapability: false,
+          supportsActiveTurn: false,
         },
       },
       terminalSessionFork: false,
@@ -766,12 +772,14 @@ function run() {
     strategy: 'target-process',
     worktreeModes: ['same-worktree'],
     requiresRuntimeCapability: true,
+    supportsActiveTurn: false,
   });
   assert.deepStrictEqual(providerConversationForkCapability('codex', 'acp'), {
     supported: true,
     strategy: 'source-session',
     worktreeModes: ['same-worktree'],
     requiresRuntimeCapability: true,
+    supportsActiveTurn: true,
   });
   assert.strictEqual(isFreshAcpSessionSource('qoder', 'qoder-session-id'), true);
   assert.deepStrictEqual(
@@ -813,12 +821,14 @@ function run() {
       strategy: null,
       worktreeModes: [],
       requiresRuntimeCapability: false,
+      supportsActiveTurn: false,
     },
     acp: {
       supported: true,
       strategy: 'source-session',
       worktreeModes: ['same-worktree'],
       requiresRuntimeCapability: true,
+      supportsActiveTurn: false,
     },
   });
   assert.deepStrictEqual(providerCapabilities('qwen').goalSubmission, {
@@ -935,12 +945,14 @@ function run() {
         strategy: 'target-process',
         worktreeModes: ['same-worktree', 'new-worktree'],
         requiresRuntimeCapability: false,
+        supportsActiveTurn: false,
       },
       acp: {
         supported: false,
         strategy: null,
         worktreeModes: [],
         requiresRuntimeCapability: false,
+        supportsActiveTurn: false,
       },
     },
     terminalSessionFork: true,

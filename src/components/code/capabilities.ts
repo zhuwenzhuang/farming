@@ -347,6 +347,7 @@ export function canForkAgentConversation(agent: Agent | null | undefined) {
   const declared = agent?.providerCapabilities.conversationFork?.acp
   const acpBinding = agent?.runtimeBinding.kind === 'acp' ? agent.runtimeBinding : null
   const runtimeStateReady = ['idle', 'error'].includes(acpBinding?.state || '')
+    || (acpBinding?.state === 'working' && declared?.supportsActiveTurn === true)
   const runtimeCapabilityReady = declared
     ? declared.requiresRuntimeCapability !== true || acpBinding?.supportsFork === true
     : acpBinding?.supportsFork === true

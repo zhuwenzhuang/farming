@@ -133,6 +133,14 @@ markers that the newer editor state cleared.
 
 ## Lifecycle And Failure
 
+A persisted `languageServerEnabled` setting is the authoritative admission
+gate and defaults to enabled, including legacy settings that omit it. Disabling
+commits that gate before closing active connections and cancelling starts in
+progress, so a concurrent request cannot recreate a server after shutdown.
+While disabled, requests fail explicitly and the capability inventory remains
+available for inspection. Re-enabling restores on-demand admission; it does not
+start any server until a supported saved file issues a semantic request.
+
 A managed server is absent, starting, ready, stopping, or failed. Concurrent
 starts for the same ownership boundary join one transition. An exited or failed
 server is removed from active state; a later explicit request may start it
@@ -148,10 +156,22 @@ SHA-256 digest published with the upstream release and are verified before
 extraction or execution. Missing or mismatched integrity metadata fails with an
 actionable error.
 
+The capability inventory reports one authoritative runtime state for every
+built-in language definition. `running` means that the manager owns an active
+Project connection; `available` means that the executable is in the Backend
+`PATH` or a compatible managed runtime is cached; `installable` means that the
+runtime is absent but Farming can prepare it with its required prerequisites;
+and `missing` covers every other absent runtime. The inventory is ordered by
+that state priority and then by language name. The Plugins surface shows all
+running, available, and installable entries before a bounded alphabetical
+preview of missing entries, with an explicit control to reveal the full list.
+
 ## Acceptance Criteria
 
 Verification must cover Project-root discovery, saved-file semantics, result
 filtering, process reuse and restart, concurrent requests, explicit failure,
+default-enabled persistence, disable cleanup, startup cancellation, on-demand
+re-enable,
 Remote SSH ownership, stable-release discovery, cached-runtime update fallback,
 static and dynamic capability registration, semantic legend mapping,
 bounded and cancellable Hover, visible-range inlay requests, ordered

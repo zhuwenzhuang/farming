@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { ChevronDownGlyph, ChevronRightGlyph } from '@/components/IconGlyphs'
 import { appPath } from '@/lib/base-path'
 import { iconForFilePath } from '@/lib/file-icons'
@@ -9,6 +9,10 @@ import {
 } from '@/lib/workspace-open-files'
 import type { WorkspaceFileChange } from '@/lib/workspace-files'
 import type { CodeCopy } from '../code/copy'
+import {
+  loadCodeProjectFilesViewState,
+  saveCodeProjectFilesViewState,
+} from '../code/workspace-view-state'
 import type { WorkspaceFileChangesController } from './useWorkspaceFileChanges'
 
 interface FileChangesSectionProps {
@@ -296,14 +300,27 @@ export function FileChangesSection({
   onOpenChange,
   onToggleCollapsed,
 }: FileChangesSectionProps) {
-  const [untrackedCollapsed, setUntrackedCollapsed] = useState(true)
-  const [openDirectoryIds, setOpenDirectoryIds] = useState<ReadonlySet<string>>(() => new Set())
+  const [initialProjectViewState] = useState(() => loadCodeProjectFilesViewState(projectId))
+  const [untrackedCollapsed, setUntrackedCollapsed] = useState(
+    initialProjectViewState.untrackedChangesCollapsed ?? true,
+  )
+  const [openDirectoryIds, setOpenDirectoryIds] = useState<ReadonlySet<string>>(() => (
+    new Set(initialProjectViewState.openChangeDirectoryIds ?? [])
+  ))
   const trackedChanges = useMemo(() => changes.items.filter(change => change.gitStatus !== 'untracked'), [changes.items])
   const untrackedChanges = useMemo(() => changes.items.filter(change => change.gitStatus === 'untracked'), [changes.items])
   const trackedTree = useMemo(() => buildChangeTree(trackedChanges, 'tracked'), [trackedChanges])
   const untrackedTree = useMemo(() => buildChangeTree(untrackedChanges, 'untracked'), [untrackedChanges])
   const countsRefreshing = refreshing || changes.loading
   const countRefreshState = countsRefreshing ? 'refreshing' : changes.error ? 'stale' : 'refreshed'
+
+  useEffect(() => {
+    saveCodeProjectFilesViewState(projectId, {
+      openChangeDirectoryIds: Array.from(openDirectoryIds),
+      untrackedChangesCollapsed: untrackedCollapsed,
+    })
+  }, [openDirectoryIds, projectId, untrackedCollapsed])
+
   if (changes.items.length === 0 && !changes.error) return null
 
   const toggleCollapsed = () => {

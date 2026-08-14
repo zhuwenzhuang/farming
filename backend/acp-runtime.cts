@@ -28,6 +28,7 @@ import {
   getProviderAdapter,
   listProviderAdapters,
   normalizeProviderAcpExtensionNotification,
+  providerConversationForkCapability,
   providerSessionIdentityRollbackArgs,
   providerSupportsSharedAcpRuntime,
 } from './provider-adapters.cjs';
@@ -318,7 +319,7 @@ const CODEX_STEER_METHOD = '_codex/session/steer';
 const SESSION_STEERING_METHOD = '_session/steering';
 const CODEX_ACP_PACKAGE = '@agentclientprotocol/codex-acp';
 const CODEX_ACP_VERSION = '1.2.0';
-const CODEX_ACP_SHA256 = 'ef1b4d1876f11728e6f8695138a73d984af6491e7fd0a6a9c7492371bf5c108b';
+const CODEX_ACP_SHA256 = '8671b54a046742bc092f192db54fc1f2767596b4cd11aea921109b588b5e7571';
 const CLAUDE_ACP_PACKAGE = '@agentclientprotocol/claude-agent-acp';
 const CLAUDE_ACP_VERSION = '0.66.0';
 const CLAUDE_ACP_SHA256 = '33e2379f1ed9e502f3442a19a0d575c2c6df912080db7fea197289e55b3fae2f';
@@ -2512,14 +2513,21 @@ class AcpRuntime extends EventEmitter {
     }
   }
 
-  beginSessionMutation(binding: AcpBinding, action: string) {
+  beginSessionMutation(
+    binding: AcpBinding,
+    action: string,
+    options: { allowActiveTurn?: boolean } = {},
+  ) {
     this.requireOpenBinding(binding);
+    const activeTurnAllowed = options.allowActiveTurn === true
+      && binding.activeTurn?.phase === 'running'
+      && binding.state === 'working';
     if (
       binding.sessionMutation
       || binding.configMutationTail
       || binding.patchDecisionInFlight.size > 0
-      || binding.activeTurn
-      || !['idle', 'error'].includes(binding.state)
+      || (binding.activeTurn && !activeTurnAllowed)
+      || (!['idle', 'error'].includes(binding.state) && !activeTurnAllowed)
     ) {
       throw new Error(`ACP Agent is not ready for ${action} (${binding.state})`);
     }
@@ -3738,15 +3746,25 @@ class AcpRuntime extends EventEmitter {
     operation: (binding: AcpBinding) => Promise<T> | T,
   ): Promise<T> {
     const binding = this.requireBinding(agentId);
-    const mutation = this.beginSessionMutation(binding, 'fork');
+    const supportsActiveTurn = providerConversationForkCapability(
+      binding.provider,
+      'acp',
+    ).supportsActiveTurn;
+    const mutation = this.beginSessionMutation(binding, 'fork', {
+      allowActiveTurn: supportsActiveTurn,
+    });
     try {
       const capabilities = binding.initializeResponse?.agentCapabilities?.sessionCapabilities;
       if (!capabilities?.fork) throw new Error(`${binding.provider} ACP Agent does not support session/fork`);
       if (options.requireLoad === true && !binding.initializeResponse?.agentCapabilities?.loadSession) {
         throw new Error(`${binding.provider} ACP Agent cannot load a forked conversation`);
       }
+      const activeTurnFork = supportsActiveTurn
+        && binding.activeTurn?.phase === 'running'
+        && binding.state === 'working';
       if (
-        typeof options.expectedRevision === 'number'
+        !activeTurnFork
+        && typeof options.expectedRevision === 'number'
         && Number.isFinite(options.expectedRevision)
         && Number(binding.sessionState?.revision || 0) !== Math.floor(options.expectedRevision)
       ) {
