@@ -33,6 +33,7 @@ export function useFileEditorLineChangesController({
   openFileKeyRef.current = openFileKey(openFile)
 
   const closeLineChanges = useCallback(() => {
+    lineChangesRequestRef.current += 1
     setLineChanges(null)
   }, [])
 

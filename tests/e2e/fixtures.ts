@@ -180,16 +180,23 @@ async function cleanupAgents(page: Page) {
     const response = await page.request.get('/farming/api/control/agents')
     if (!response.ok()) return
     const data = await response.json() as { agents?: CleanupAgent[] }
-    await Promise.all((data.agents ?? []).map(agent => cleanupAgent(page, agent)))
-    for (let attempt = 0; attempt < 20; attempt += 1) {
+    const cleanupRequested = new Set<string>()
+    const requestCleanup = async (agents: CleanupAgent[]) => {
+      const pending = agents.filter(agent => agent.id && !cleanupRequested.has(agent.id))
+      pending.forEach(agent => cleanupRequested.add(agent.id!))
+      await Promise.all(pending.map(agent => cleanupAgent(page, agent)))
+    }
+    await requestCleanup(data.agents ?? [])
+    for (let attempt = 0; attempt < 100; attempt += 1) {
       const nextResponse = await page.request.get('/farming/api/control/agents').catch(() => null)
       if (!nextResponse?.ok()) return
       const nextData = await nextResponse.json() as { agents?: CleanupAgent[] }
       const remainingAgents = nextData.agents ?? []
       if (remainingAgents.length === 0) return
-      await Promise.all(remainingAgents.map(agent => cleanupAgent(page, agent)))
+      await requestCleanup(remainingAgents)
       await delay(100)
     }
+    throw new Error(`Timed out cleaning up Farming E2E Agents: ${Array.from(cleanupRequested).join(', ')}`)
   } catch {
     // Best effort isolation; each test still asserts the visible starting state.
   }
@@ -284,6 +291,9 @@ export const test = base.extend<{ workspaceRoot: string }>({
     await cleanupAgents(page)
     await resetSettings(page)
     await use(page)
+    // Stop UI-owned state transitions (especially automatic main-Agent
+    // recovery) before asking the backend to remove this test's Agents.
+    await page.close()
     await cleanupAgents(page)
     await resetSettings(page)
   },
@@ -517,6 +527,7 @@ export async function terminalViewport(page: Page, agentId: string) {
 }
 
 export async function fileEditorPosition(page: Page) {
+  await page.waitForFunction(() => window.__farmingFileEditorTest?.getPosition() != null)
   const position = await page.evaluate(() => window.__farmingFileEditorTest?.getPosition() ?? null)
   if (!position) throw new Error('File editor position is unavailable')
   return position

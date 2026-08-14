@@ -177,6 +177,7 @@ function objectLiteralDescription(
 function routerMiddlewareDetail(
   expression: import('typescript').Expression,
 ): string | null {
+  if (ts.isIdentifier(expression)) return expression.text;
   if (
     !ts.isCallExpression(expression)
     || !ts.isPropertyAccessExpression(expression.expression)
@@ -444,6 +445,7 @@ const EXPECTED_API_ROUTE_MANIFEST = [
   'GET /j/:code',
   'MIDDLEWARE * [tokenAuth.middleware]',
   'GET /api/auth/status',
+  'MIDDLEWARE /api/share/qr-ticket [setNoStoreHeader]',
   'POST /api/share/qr-ticket',
   'DELETE /api/share/qr-ticket/:code',
   'MIDDLEWARE /api/files [express.json(limit=3mb)]',
@@ -473,6 +475,10 @@ const EXPECTED_API_ROUTE_MANIFEST = [
   'GET /api/files/blame-capability',
   'MIDDLEWARE /api/browsers [express.json(limit=2mb)]',
   'GET /api/browsers/capability',
+  'GET /api/browsers/extension',
+  'GET /api/browsers/extension/tabs',
+  'POST /api/browsers/extension/prepare',
+  'DELETE /api/browsers/extension/prepare',
   'POST /api/browsers/isolated/prepare',
   'GET /api/browsers',
   'POST /api/browsers',

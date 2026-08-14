@@ -108,7 +108,7 @@
       }
     },
     "claude": {
-      "version": "0.3.220",
+      "version": "0.3.232",
       "reportedVersion": "2.1.0",
       "managedProbe": false,
       "probe": {
@@ -118,98 +118,98 @@
       },
       "artifacts": {
         "darwin-arm64": {
-          "url": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-darwin-arm64/-/claude-agent-sdk-darwin-arm64-0.3.220.tgz",
-          "integrity": "sha512-7VxlbEosK7DODiOnsjoVd0DSJzbnaPrM2jelMHI0y8zx1UnLS3WC6EFUXbvy74F2sXqEznh2tzn7EKWInaRN6Q==",
+          "url": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-darwin-arm64/-/claude-agent-sdk-darwin-arm64-0.3.232.tgz",
+          "integrity": "sha512-+/4PX+dwmQAjlOlooocwa3kClulZfMo133xQH3LYDlK7D5bzze16lwlDGPVAYGEarpvXg7G5JK8QjfWAJ2HYbg==",
           "archive": "tgz",
           "archivePrefix": "package",
           "entry": "claude",
           "installedPackage": {
             "name": "@anthropic-ai/claude-agent-sdk-darwin-arm64",
-            "version": "0.3.220",
+            "version": "0.3.232",
             "entry": "claude"
           }
         },
         "darwin-x64": {
-          "url": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-darwin-x64/-/claude-agent-sdk-darwin-x64-0.3.220.tgz",
-          "integrity": "sha512-X9RwDsSmbF6ultKZroaip+DL8WRgC64gHbrAwrRlAFSPNZV7zmJyP2ur8rW7KrxqmtuehdMMkw8+SAC/6hD2PA==",
+          "url": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-darwin-x64/-/claude-agent-sdk-darwin-x64-0.3.232.tgz",
+          "integrity": "sha512-EHZ1Y3aGyZ2mFZ6QLR1bM3/HiIn2cLrPjU+k3/oCIW6omJFodfzf410aWjDPSnMj7CE4d6t7MSjBWekMUbcv0g==",
           "archive": "tgz",
           "archivePrefix": "package",
           "entry": "claude",
           "installedPackage": {
             "name": "@anthropic-ai/claude-agent-sdk-darwin-x64",
-            "version": "0.3.220",
+            "version": "0.3.232",
             "entry": "claude"
           }
         },
         "linux-arm64": {
-          "url": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-linux-arm64/-/claude-agent-sdk-linux-arm64-0.3.220.tgz",
-          "integrity": "sha512-WkROPwWskqhKR9XgnmseHQ6rLi9zM9qt57IWoToIjL/eXOqDWipp7JXZ1L5ud+LrA42dunHPZfBwD/vXZ+A7LA==",
+          "url": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-linux-arm64/-/claude-agent-sdk-linux-arm64-0.3.232.tgz",
+          "integrity": "sha512-wW2opwA5s7gLghjU6B2ADMAtoc7bAZMevUzi4g+1PXMJ8MGcPvbnx92EDYJrVDcZmAl1+fz19XyPsaShlisTzw==",
           "archive": "tgz",
           "archivePrefix": "package",
           "entry": "claude",
           "installedPackage": {
             "name": "@anthropic-ai/claude-agent-sdk-linux-arm64",
-            "version": "0.3.220",
+            "version": "0.3.232",
             "entry": "claude"
           }
         },
         "linux-arm64-musl": {
-          "url": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-linux-arm64-musl/-/claude-agent-sdk-linux-arm64-musl-0.3.220.tgz",
-          "integrity": "sha512-OHoZOZ8Cf2TBr6oXIXPwyvUxj9jrq2w8E4poA8dMpacXszcPSPiCQCMuuOh4aWJzfeJE1+TtWxhKMVb2csXyZQ==",
+          "url": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-linux-arm64-musl/-/claude-agent-sdk-linux-arm64-musl-0.3.232.tgz",
+          "integrity": "sha512-XkLcb9UT/l42Rtw7KBApzgxUe/kwoWJ9KCPcVEnYojzIvVR+AwBCl/QReNU5+6c72w48dYBMmLebI64gQbN0tg==",
           "archive": "tgz",
           "archivePrefix": "package",
           "entry": "claude",
           "installedPackage": {
             "name": "@anthropic-ai/claude-agent-sdk-linux-arm64-musl",
-            "version": "0.3.220",
+            "version": "0.3.232",
             "entry": "claude"
           }
         },
         "linux-x64": {
-          "url": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-linux-x64/-/claude-agent-sdk-linux-x64-0.3.220.tgz",
-          "integrity": "sha512-tkTJFnpR9VifvWX2fmkCAPkT6+8Wk/gVu8B5jsVekKZPiZoWRHmMXO30BnZn+f0TZhgYP+82PSX3S8crH1kn+w==",
+          "url": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-linux-x64/-/claude-agent-sdk-linux-x64-0.3.232.tgz",
+          "integrity": "sha512-6Px1xDiwQyLkSxwRQ34/kPA8WMXQ2rHYGkwockND7+9yMw+ShI3AfLkyi9G7JtJHObWFT6B82eSHjDS/Fy+9hQ==",
           "archive": "tgz",
           "archivePrefix": "package",
           "entry": "claude",
           "installedPackage": {
             "name": "@anthropic-ai/claude-agent-sdk-linux-x64",
-            "version": "0.3.220",
+            "version": "0.3.232",
             "entry": "claude"
           }
         },
         "linux-x64-musl": {
-          "url": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-linux-x64-musl/-/claude-agent-sdk-linux-x64-musl-0.3.220.tgz",
-          "integrity": "sha512-K+FWj+LcGhC1Z7wqeWoLxm1iemcba5xKpLLFVwYm4V6HyMx3ruYd/2r2TiQtjT+JWeNFWIys0ScHiItR6vWAiA==",
+          "url": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-linux-x64-musl/-/claude-agent-sdk-linux-x64-musl-0.3.232.tgz",
+          "integrity": "sha512-L1x2ge9NpXMLTczmT44TKPQ88PHE+gsCakQMVEOa8rXFvfBoqvcpxM0DT8wrqYWUHhQEYR8NXxQTP9a1NVRj8Q==",
           "archive": "tgz",
           "archivePrefix": "package",
           "entry": "claude",
           "installedPackage": {
             "name": "@anthropic-ai/claude-agent-sdk-linux-x64-musl",
-            "version": "0.3.220",
+            "version": "0.3.232",
             "entry": "claude"
           }
         },
         "win32-arm64": {
-          "url": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-win32-arm64/-/claude-agent-sdk-win32-arm64-0.3.220.tgz",
-          "integrity": "sha512-rIwgq0UwQExWl6KrHUyC4w5KwpL9l6nd95aUTx6RitexaAuEw//xtfTVLnuE4hDDQZFkzEwpdKc3nxDWoGcUbA==",
+          "url": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-win32-arm64/-/claude-agent-sdk-win32-arm64-0.3.232.tgz",
+          "integrity": "sha512-fDiuwL5dm1elOy7fNp4Qmdor8so4R8npj2pUGQA1G/xKfJhaK236aTWezvZid3L/O7cRdFeN9IVofOAlWLQcsw==",
           "archive": "tgz",
           "archivePrefix": "package",
           "entry": "claude.exe",
           "installedPackage": {
             "name": "@anthropic-ai/claude-agent-sdk-win32-arm64",
-            "version": "0.3.220",
+            "version": "0.3.232",
             "entry": "claude.exe"
           }
         },
         "win32-x64": {
-          "url": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-win32-x64/-/claude-agent-sdk-win32-x64-0.3.220.tgz",
-          "integrity": "sha512-MuOuXhbr66HlGaWXD2f3w0k2PsvmnbkwcUZ0dAe2poFLdl72GC2dapwwOBefxm9QmoNqk9+jmv/dSKGOVWyvLw==",
+          "url": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-win32-x64/-/claude-agent-sdk-win32-x64-0.3.232.tgz",
+          "integrity": "sha512-Hc/9uy1BI9mqKVyB1b/zoUnm3MFgtVNzQY6p5zgaq9DaIjCKDpR4a4L1aDZM4lMqUcWFMZM+u7juOhh+m39NBQ==",
           "archive": "tgz",
           "archivePrefix": "package",
           "entry": "claude.exe",
           "installedPackage": {
             "name": "@anthropic-ai/claude-agent-sdk-win32-x64",
-            "version": "0.3.220",
+            "version": "0.3.232",
             "entry": "claude.exe"
           }
         }
@@ -289,5 +289,5 @@
       }
     }
   },
-  "manifestId": "441df19875cb234c581f7237a6f66d0753b532eee72472afc06857f29f65aa9b"
+  "manifestId": "82e4690ae459cf550fe6343e010e894febe8120262d15befd5a64d62b21836a6"
 }

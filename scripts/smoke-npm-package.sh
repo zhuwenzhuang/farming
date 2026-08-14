@@ -96,8 +96,8 @@ if grep -q '^npm warn allow-scripts' "${INSTALL_LOG}"; then
   exit 1
 fi
 PACKAGE_ROOT="${PREFIX}/lib/node_modules/farming-code"
-CODEX_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/codex-acp-1.2.0.mjs"
-CLAUDE_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/claude-agent-acp-0.66.0.mjs"
+CODEX_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/codex-acp-1.3.0.mjs"
+CLAUDE_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/claude-agent-acp-0.68.0.mjs"
 PI_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/pi-acp-0.0.33.mjs"
 for packaged_ui_file in \
   frontend/agent-state-bridge.js \
@@ -247,8 +247,8 @@ const path = require('path');
 
 const [packageRoot, codexVendorEntry, claudeVendorEntry, piVendorEntry] = process.argv.slice(2);
 const sha256 = filePath => crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
-const expectedCodexVendor = '8671b54a046742bc092f192db54fc1f2767596b4cd11aea921109b588b5e7571';
-const expectedClaudeVendor = '33e2379f1ed9e502f3442a19a0d575c2c6df912080db7fea197289e55b3fae2f';
+const expectedCodexVendor = '698a3e72d04d8bdb7c302db9a25dde702017fb825492444a63597fa5d8eeb7ba';
+const expectedClaudeVendor = '15e14275d101a3025f2f8e23e9c93b5b18b49b37f76643977306bd60023c646b';
 const expectedPiVendor = '946255b69fdecd839d75f01906175206436dd44c8bc7e872b4321b8d719fe7d1';
 if (sha256(codexVendorEntry) !== expectedCodexVendor) {
   throw new Error('Packed Codex ACP runtime failed its SHA-256 verification');

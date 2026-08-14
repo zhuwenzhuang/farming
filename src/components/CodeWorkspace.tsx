@@ -3899,7 +3899,13 @@ export function CodeWorkspace({
       pendingArchivedFocusAgentRef.current = agentId
     }
     if (flags.archived === true) archiveAgentOptimistically(agentId)
-    else onUpdateAgentFlags(agentId, flags)
+    else {
+      const result = onUpdateAgentFlags(agentId, flags)
+      void Promise.resolve(result).then(
+        () => focusAgentRow(agentId),
+        () => focusAgentRow(agentId),
+      )
+    }
     if (flags.archived !== true) focusAgentRow(agentId)
   }, [activeView, archiveAgentOptimistically, closeContextMenu, contextMenuAgent, focusAgentRow, mainPaneMode, onUpdateAgentFlags, removeMainPageAgentSession])
 
@@ -3916,7 +3922,13 @@ export function CodeWorkspace({
       pendingArchivedFocusAgentRef.current = agentId
     }
     if (flags.archived === true) archiveAgentOptimistically(agentId)
-    else onUpdateAgentFlags(agentId, flags)
+    else {
+      const result = onUpdateAgentFlags(agentId, flags)
+      void Promise.resolve(result).then(
+        () => focusAgentRow(agentId),
+        () => focusAgentRow(agentId),
+      )
+    }
     if (flags.archived !== true) focusAgentRow(agentId)
   }, [archiveAgentOptimistically, closeContextMenu, focusAgentRow, onUpdateAgentFlags, removeMainPageAgentSession])
 

@@ -192,6 +192,11 @@ function absoluteClientUrl(request: QrShareRequest, urlPath: string, options: Qr
   return `${origin}${urlPath}`;
 }
 
+function setNoStoreHeader(_request: QrShareRequest, response: QrShareResponse, next: () => void) {
+  response.set('Cache-Control', 'no-store');
+  next();
+}
+
 function createQrShareRouter(
   auth: QrShareAuthPort,
   tickets: QrShareTicketPort,
@@ -200,10 +205,7 @@ function createQrShareRouter(
   const router = expressFactory.Router();
   const now = options.now || Date.now;
   normalizedPublicOrigin(options.publicOrigin);
-  router.use((_req, res, next) => {
-    res.set('Cache-Control', 'no-store');
-    next();
-  });
+  router.use(setNoStoreHeader);
   const entryPathWithToken = (targetQuery = '', token = '') => entryPathWithQuery(targetQuery, {
     authEnabled: options.authEnabled,
     basePath: options.basePath,

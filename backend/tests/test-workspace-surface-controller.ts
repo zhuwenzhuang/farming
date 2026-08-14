@@ -156,6 +156,7 @@ function run() {
         view: 'diff',
         lineNumber: 17,
         column: 3,
+        endLineNumber: undefined,
         endColumn: 9,
         revealInTree: true,
         sourceAgentId: otherAgent.id,
@@ -235,6 +236,7 @@ function run() {
     view: 'diff',
     lineNumber: 4,
     column: 2,
+    endLineNumber: undefined,
     endColumn: 5,
     sourceAgentId: sourceAgent.id,
   }, 'resource panes must preserve the last file surface exactly as the existing product does');

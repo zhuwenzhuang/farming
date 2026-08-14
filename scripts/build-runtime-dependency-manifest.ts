@@ -61,7 +61,7 @@ const lock = JSON.parse(
 const packages = lock.packages || {};
 
 const CODEX_VERSION = '0.147.0';
-const CLAUDE_VERSION = '0.3.220';
+const CLAUDE_VERSION = '0.3.232';
 const AGENT_BROWSER_VERSION = '0.32.3';
 
 const PLATFORM_TARGETS: Record<string, PlatformTarget> = {

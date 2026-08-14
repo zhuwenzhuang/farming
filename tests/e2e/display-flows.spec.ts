@@ -189,6 +189,17 @@ async function mockCodexSessions(page: Page, sessions: MockAgentSession[] = []) 
       body: JSON.stringify({ sessions: agentSessions, total: agentSessions.length }),
     })
   })
+  await page.route(/\/farming\/api\/agent-sessions\/search(?:\?.*)?$/, async route => {
+    const query = new URL(route.request().url()).searchParams.get('q')?.trim().toLowerCase() ?? ''
+    const sessions = query
+      ? agentSessions.filter(session => [session.id, session.title, session.workspace, session.cwd]
+          .some(value => String(value ?? '').toLowerCase().includes(query)))
+      : []
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ sessions, total: sessions.length }),
+    })
+  })
 }
 
 async function prepareEmptyWorkspaceHistory(page: Page, workspaceRoot: string) {
@@ -1473,12 +1484,8 @@ test.describe('display-backed agent flows', () => {
     }
 
     await openFarming(page)
-    const projectGroupWithAgent = page.getByTestId('code-project-group').filter({ has: page.locator(`[data-agent-id="${agentIds[0]}"]`) })
-    await expect(projectGroupWithAgent).toBeVisible({ timeout: 30_000 })
-    const projectId = await projectGroupWithAgent.getByTestId('code-project-title').getAttribute('data-project-id')
-    expect(projectId).toBeTruthy()
     const projectGroup = page.getByTestId('code-project-group').filter({
-      has: page.locator(`[data-testid="code-project-title"][data-project-id="${projectId}"]`),
+      has: page.locator(`[data-testid="code-project-title"][data-project-id="${projectDir}"]`),
     })
     await expect(projectGroup).toBeVisible({ timeout: 30_000 })
     await expect(projectGroup.getByTestId('code-project-agent-strip')).toHaveCount(0)

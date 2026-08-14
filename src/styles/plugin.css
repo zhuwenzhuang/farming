@@ -1591,7 +1591,7 @@
   border: 0;
   border-radius: 6px;
   color: var(--code-text-subtle);
-  background: var(--code-surface-hover);
+  background: var(--code-bg-hover);
   cursor: pointer;
 }
 

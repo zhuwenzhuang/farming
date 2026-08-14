@@ -234,30 +234,40 @@ async function continueWithoutUntrustedHooks(page: Page, agentId: string) {
   const input = page.locator(
     `[data-testid="code-terminal-pane"][data-agent-id="${agentId}"] .terminal-session-host[data-agent-id="${agentId}"] .xterm-helper-textarea`,
   )
+  let directoryTrustAccepted = false
+  let hooksAccepted = false
   for (let transition = 0; transition < 3; transition += 1) {
     let startupState = 'waiting'
     await expect.poll(async () => {
       const rendered = (await codeRows(page, agentId)).join('\n')
       const current = await agent(page, agentId)
-      startupState = current?.terminalStatus?.activity === 'idle'
-        ? 'ready'
-        : rendered.includes('Do you trust the contents of this directory?')
-          ? 'directory-trust'
-          : rendered.includes('Hooks need review') ? 'hooks' : 'waiting'
+      if (current?.terminalStatus?.activity === 'idle') {
+        startupState = 'ready'
+      } else if (!hooksAccepted && rendered.includes('Hooks need review')) {
+        startupState = 'hooks'
+      } else if (!directoryTrustAccepted && rendered.includes('Do you trust the contents of this directory?')) {
+        startupState = 'directory-trust'
+      } else {
+        startupState = 'waiting'
+      }
       return startupState
     }, { timeout: 60_000 }).toMatch(/^(ready|directory-trust|hooks)$/)
     if (startupState === 'ready') return
 
     await input.focus()
     if (startupState === 'directory-trust') {
-      await expect.poll(async () => {
-        const rendered = (await codeRows(page, agentId)).join('\n')
-        return rendered.includes('Yes, continue') && rendered.includes('No, quit')
-      }, { timeout: 5_000 }).toBe(true)
-      // The trust prompt has exactly two choices. ArrowUp deterministically
-      // selects the first even if the terminal renderer omits its cursor glyph.
-      await page.keyboard.press('ArrowUp')
-      await page.keyboard.press('Enter')
+      const options = ['Yes, continue', 'No, quit']
+      const selectedOption = async () => {
+        const rows = await codeRows(page, agentId)
+        return options.find(option => rows.some(row => row.includes('›') && row.includes(option))) || ''
+      }
+      await expect.poll(selectedOption, { timeout: 5_000 }).toMatch(/^(Yes, continue|No, quit)$/)
+      if (await selectedOption() !== 'Yes, continue') {
+        await input.press('ArrowUp')
+        await expect.poll(selectedOption, { timeout: 5_000 }).toBe('Yes, continue')
+      }
+      await input.press('Enter')
+      directoryTrustAccepted = true
       continue
     }
 
@@ -279,11 +289,12 @@ async function continueWithoutUntrustedHooks(page: Page, agentId: string) {
     while (currentIndex !== targetIndex) {
       const direction = currentIndex < targetIndex ? 1 : -1
       const nextIndex = currentIndex + direction
-      await page.keyboard.press(direction > 0 ? 'ArrowDown' : 'ArrowUp')
+      await input.press(direction > 0 ? 'ArrowDown' : 'ArrowUp')
       await expect.poll(selectedOption, { timeout: 5_000 }).toBe(options[nextIndex])
       currentIndex = nextIndex
     }
-    await page.keyboard.press('Enter')
+    await input.press('Enter')
+    hooksAccepted = true
   }
   throw new Error('Codex Terminal did not settle after the bounded startup prompts')
 }

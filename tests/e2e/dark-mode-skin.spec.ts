@@ -332,7 +332,7 @@ test.describe('Farming Code appearance skins', () => {
     ]) {
       await expect(idleNavigationControl).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
     }
-    await expect(paperAgentRow).toHaveCSS('background-color', 'rgba(40, 41, 34, 0.09)')
+    await expect(paperAgentRow).toHaveCSS('background-color', 'rgb(230, 229, 225)')
     await expectProviderIconInsideAgentRow(paperAgentRow)
     await expect(paperProjectGroup.locator('.code-files-header')).toHaveCSS('background-color', 'rgb(239, 237, 231)')
     await saveScreenshot(testInfo, 'paper-mobile-shell.png', page)

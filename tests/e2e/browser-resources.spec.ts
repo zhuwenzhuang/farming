@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process'
 import fs from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
-import type { AddressInfo } from 'node:net'
+import type { AddressInfo, Socket } from 'node:net'
 import { promisify } from 'node:util'
 import type { Locator, Page } from '@playwright/test'
 import { projectFilesWorkspaceId } from '../../src/lib/project-workspaces'
@@ -16,6 +16,7 @@ import {
 
 let targetServer: http.Server
 let targetUrl = ''
+const targetConnections = new Set<Socket>()
 const execFileAsync = promisify(execFile)
 
 test.beforeAll(async () => {
@@ -97,6 +98,10 @@ test.beforeAll(async () => {
         }, 16)
       </script>`)
   })
+  targetServer.on('connection', socket => {
+    targetConnections.add(socket)
+    socket.once('close', () => targetConnections.delete(socket))
+  })
   await new Promise<void>((resolve, reject) => {
     targetServer.once('error', reject)
     targetServer.listen(0, '127.0.0.1', resolve)
@@ -108,6 +113,10 @@ test.afterAll(async () => {
   if (!targetServer) return
   await new Promise<void>((resolve, reject) => {
     targetServer.close(error => error ? reject(error) : resolve())
+    // Browser Resources can keep exact test-server sockets alive after their
+    // tabs are removed. Stop accepting first, then destroy only those tracked
+    // sockets so teardown remains bounded and leaves no test process behind.
+    for (const socket of targetConnections) socket.destroy()
   })
 })
 

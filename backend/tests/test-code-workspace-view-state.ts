@@ -35,12 +35,25 @@ function run() {
     view: 'diff',
     lineNumber: 12,
     column: 3,
+    endLineNumber: undefined,
     endColumn: undefined,
     sourceAgentId: undefined,
   });
   assert.deepStrictEqual(normalized.projectFiles['/repo'], {
+    agentsCollapsed: undefined,
+    agentVisibleLimit: undefined,
+    changesCollapsed: undefined,
     filesCollapsed: false,
+    gitHistoryCollapsed: undefined,
+    gitHistoryScope: undefined,
+    gitHistorySelectedCommitId: undefined,
+    gitHistorySelectedParent: undefined,
+    gitHistoryVisibleLimit: undefined,
+    openChangeDirectoryIds: undefined,
+    openEditorsCollapsed: undefined,
     openDirectoryPaths: ['src', 'src/components'],
+    sessionVisibleLimit: undefined,
+    untrackedChangesCollapsed: undefined,
   });
 
   assert.strictEqual(normalizeCodeWorkspaceViewState({
