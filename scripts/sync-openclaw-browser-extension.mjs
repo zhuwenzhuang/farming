@@ -38,6 +38,27 @@ function transformIntegration(relativePath, source) {
   if (relativePath === 'background.js') {
     return source
       .replace(
+        '  FARMING_TAB_GROUP_TITLE,',
+        '  FARMING_TAB_GROUP_COLOR,\n  FARMING_TAB_GROUP_TITLE,',
+      )
+      .replace(
+        'async function addTabToFarmingGroup(tabId) {',
+        'async function updateFarmingTabGroup(groupId) {\n  await chrome.tabGroups.update(groupId, {\n    title: FARMING_TAB_GROUP_TITLE,\n    color: FARMING_TAB_GROUP_COLOR,\n  });\n}\n\nasync function syncFarmingTabGroupAppearance() {\n  const groups = await findFarmingGroups();\n  await Promise.all(groups.map((group) => updateFarmingTabGroup(group.id)));\n}\n\nasync function addTabToFarmingGroup(tabId) {',
+      )
+      .replace(
+        '    await chrome.tabs.group({ tabIds: [tabId], groupId: sameWindowGroup.id });\n    return;',
+        '    await chrome.tabs.group({ tabIds: [tabId], groupId: sameWindowGroup.id });\n    await updateFarmingTabGroup(sameWindowGroup.id);\n    return;',
+      )
+      .replace('  const { groupColor } = await getConfig();\n', '')
+      .replace(
+        '  await chrome.tabGroups.update(groupId, {\n    title: FARMING_TAB_GROUP_TITLE,\n    color: groupColor,\n  });',
+        '  await updateFarmingTabGroup(groupId);',
+      )
+      .replace(
+        'async function startAutomation() {\n  await tabAccessReady;',
+        'async function startAutomation() {\n  await tabAccessReady;\n  await syncFarmingTabGroupAppearance();',
+      )
+      .replace(
         'import { createPopupMessageHandler } from "./modules/popup-background.js";',
         'import { createPopupMessageHandler } from "./modules/popup-background.js";\nimport { handleFarmingSidePanelMessage, registerFarmingSidePanel } from "./modules/farming-side-panel.js";',
       )
@@ -55,6 +76,11 @@ function transformIntegration(relativePath, source) {
   }
   if (relativePath === 'modules/popup-background.js') {
     return source
+      .replace('nearestGroupColor,', 'FARMING_TAB_GROUP_COLOR,')
+      .replace(
+        'pairingConfigStore.save(parsed, nearestGroupColor(), normalizedMode)',
+        'pairingConfigStore.save(parsed, FARMING_TAB_GROUP_COLOR, normalizedMode)',
+      )
       .replace(
         'const { relayUrl, accessMode } = await getConfig();',
         'const { relayUrl, gatewayUrl, accessMode } = await getConfig();',
@@ -66,6 +92,14 @@ function transformIntegration(relativePath, source) {
   }
   if (relativePath !== 'modules/relay-core.js') return source;
   return source
+    .replace(
+      'export const FARMING_TAB_GROUP_TITLE = "Farming";',
+      'export const FARMING_TAB_GROUP_TITLE = "Farming";\nexport const FARMING_TAB_GROUP_COLOR = "green";',
+    )
+    .replace(
+      'groupColor: typeof stored.groupColor === "string" ? stored.groupColor : "orange",',
+      'groupColor: FARMING_TAB_GROUP_COLOR,',
+    )
     .replace('relay.pathname !== "/browser/extension"', '!relay.pathname.endsWith("/browser/extension")')
     .replace('gateway.pathname = "/";', 'gateway.pathname = relay.pathname.slice(0, -"/browser/extension".length) || "/";')
     .replace(

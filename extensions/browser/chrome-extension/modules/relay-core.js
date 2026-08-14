@@ -4,6 +4,7 @@
 
 /** Tab group shown to the user; an ACL in selected mode and an ownership marker in all mode. */
 export const FARMING_TAB_GROUP_TITLE = "Farming";
+export const FARMING_TAB_GROUP_COLOR = "green";
 export const ACCESS_MODE_ALL = "all";
 export const ACCESS_MODE_SELECTED = "selected";
 const EXTENSION_RELAY_PROTOCOL = "farming-extension-relay.v2";
@@ -285,7 +286,7 @@ export function createPairingConfigStore(storage) {
               ? ACCESS_MODE_ALL
               : ACCESS_MODE_SELECTED
             : ACCESS_MODE_SELECTED,
-          groupColor: typeof stored.groupColor === "string" ? stored.groupColor : "orange",
+          groupColor: FARMING_TAB_GROUP_COLOR,
           pairingStatusHint:
             pairingStatus === UNSUPPORTED_PROXY_PREFIX_STATUS ? UNSUPPORTED_PROXY_PREFIX_HINT : "",
         };

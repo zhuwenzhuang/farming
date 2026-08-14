@@ -19,6 +19,7 @@ import { openAuthenticatedRelaySocket } from "./modules/relay-connection.js";
 // in all-tabs mode.
 import {
   ACCESS_MODE_SELECTED,
+  FARMING_TAB_GROUP_COLOR,
   FARMING_TAB_GROUP_TITLE,
   createPairingConfigStore,
   reconnectDelayMs,
@@ -153,20 +154,29 @@ function runAccessMutation(task) {
 // Tab group management (selected-mode ACL; all-mode ownership marker)
 // ---------------------------------------------------------------------------
 
+async function updateFarmingTabGroup(groupId) {
+  await chrome.tabGroups.update(groupId, {
+    title: FARMING_TAB_GROUP_TITLE,
+    color: FARMING_TAB_GROUP_COLOR,
+  });
+}
+
+async function syncFarmingTabGroupAppearance() {
+  const groups = await findFarmingGroups();
+  await Promise.all(groups.map((group) => updateFarmingTabGroup(group.id)));
+}
+
 async function addTabToFarmingGroup(tabId) {
   const tab = await chrome.tabs.get(tabId);
   const groups = await findFarmingGroups();
   const sameWindowGroup = groups.find((group) => group.windowId === tab.windowId);
   if (sameWindowGroup) {
     await chrome.tabs.group({ tabIds: [tabId], groupId: sameWindowGroup.id });
+    await updateFarmingTabGroup(sameWindowGroup.id);
     return;
   }
-  const { groupColor } = await getConfig();
   const groupId = await chrome.tabs.group({ tabIds: [tabId] });
-  await chrome.tabGroups.update(groupId, {
-    title: FARMING_TAB_GROUP_TITLE,
-    color: groupColor,
-  });
+  await updateFarmingTabGroup(groupId);
 }
 
 async function focusWindowForTab(tab) {
@@ -574,6 +584,7 @@ function scheduleReconnect() {
 
 async function startAutomation() {
   await tabAccessReady;
+  await syncFarmingTabGroupAppearance();
   if (retiredCopilotCustodyBlocked) {
     return;
   }

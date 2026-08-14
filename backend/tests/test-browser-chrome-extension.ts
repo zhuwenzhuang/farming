@@ -73,6 +73,8 @@ async function run() {
   assert.strictEqual(manifest.permissions.includes('cookies'), false);
   assert.match(background, /registerFarmingSidePanel/);
   assert.match(background, /handleFarmingSidePanelMessage/);
+  assert.match(background, /color: FARMING_TAB_GROUP_COLOR/);
+  assert.match(background, /await syncFarmingTabGroupAppearance\(\)/);
   assert.match(sidePanel, />Farming</);
   assert.match(sidePanel, /<iframe id="farming"/);
   assert.match(sidePanelModule, /chromeApi\.sidePanel\.open/);
@@ -99,6 +101,26 @@ async function run() {
   const pagePairing = read(path.join(extensionRoot, 'modules/farming-page-pairing.js'));
   assert.match(relayCore, /farming-extension-relay\.v2/);
   assert.match(relayCore, /FARMING_TAB_GROUP_TITLE = "Farming"/);
+  assert.match(relayCore, /FARMING_TAB_GROUP_COLOR = "green"/);
+  assert.match(relayCore, /groupColor: FARMING_TAB_GROUP_COLOR/);
+  assert.match(
+    read(path.join(extensionRoot, 'modules/popup-background.js')),
+    /pairingConfigStore\.save\(parsed, FARMING_TAB_GROUP_COLOR, normalizedMode\)/,
+  );
+  const relayCoreModule = await import(`data:text/javascript,${encodeURIComponent(relayCore)}`);
+  const fixedColorConfig = await relayCoreModule.createPairingConfigStore({
+    get: async () => ({
+      relayUrl: 'ws://127.0.0.1:3000/farming/browser/extension',
+      gatewayUrl: 'ws://127.0.0.1:3000/farming',
+      token: 'a'.repeat(64),
+      authVersion: 2,
+      accessMode: 'all',
+      groupColor: 'orange',
+    }),
+    set: async () => {},
+    remove: async () => {},
+  }).read();
+  assert.strictEqual(fixedColorConfig.groupColor, 'green');
   assert.match(relayCore, /endsWith\("\/browser\/extension"\)/);
   assert.match(nativeBootstrap, /ai\.farming\.browser_bootstrap/);
   assert.match(pagePairing, /world: "MAIN"/);
