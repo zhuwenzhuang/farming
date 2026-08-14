@@ -18,6 +18,7 @@ import { isAllowedExtensionOrigin, requestProtocols } from './openclaw-relay/rel
 import {
   browserExtensionPath,
   ensureBrowserExtensionLink,
+  removeBrowserExtensionLink,
 } from './browser-extension-location.cjs';
 
 const RELAY_SECRET_PATTERN = /^[0-9a-f]{64}$/u;
@@ -68,6 +69,11 @@ class BrowserExtensionRelay {
 
   prepare() {
     ensureBrowserExtensionLink(this.extensionSource, this.configDir);
+    return this.capability();
+  }
+
+  remove() {
+    removeBrowserExtensionLink(this.extensionSource, this.configDir);
     return this.capability();
   }
 

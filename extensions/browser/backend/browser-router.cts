@@ -220,6 +220,18 @@ function createBrowserRouter(
     }
   });
 
+  router.delete('/extension/prepare', (req, res) => {
+    try {
+      if (req.authAccessMode === 'read-only') {
+        return res.status(403).json({ error: 'Removing the Browser Connector folder requires owner access' });
+      }
+      requestAgentBinding(agentStateReader, req);
+      res.json(manager.removeBrowserExtension());
+    } catch (error) {
+      sendError(res, error);
+    }
+  });
+
   router.post('/isolated/prepare', async (req, res) => {
     try {
       requestAgentBinding(agentStateReader, req);

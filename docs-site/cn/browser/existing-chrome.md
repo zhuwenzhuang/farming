@@ -12,15 +12,11 @@
 1. 打开 `chrome://extensions`，开启**开发者模式**，点击**加载已解压的扩展程序**。
 2. 在文件选择器中打开你的主目录，选择 **farming-browser-connector**，然后点击**选择**。
 
-   ![选择 farming-browser-connector](/cn/assets/existing-chrome-select-folder.jpg)
+   ![选择 farming-browser-connector](/cn/assets/existing-chrome-select-folder.png)
 
 3. 打开 Chrome 的**扩展程序**菜单，点击 **Farming Browser Connector**。
 
-   ![打开连接扩展](/cn/assets/existing-chrome-menu.jpg)
-
-Chrome 右侧打开 Farming 即可使用。以后点击扩展图标会直接打开这个侧栏。
-
-![连接成功](/cn/assets/existing-chrome-connected.jpg)
+   ![打开连接扩展](/cn/assets/existing-chrome-menu.png)
 
 连接后，Agent 可以查找并直接使用这个 Chrome 中任意已经打开的普通页面，无需逐页点击。
 停止 Farming Browser 不会关闭 Chrome 原页面。
@@ -29,4 +25,6 @@ Chrome 右侧打开 Farming 即可使用。以后点击扩展图标会直接打�
 
 打开 `chrome://extensions`，找到 **Farming Browser Connector**，点击**删除**，然后在确认框中再次点击**删除**。
 
-![删除 Farming Browser Connector](/cn/assets/existing-chrome-remove.jpg)
+![删除 Farming Browser Connector](/cn/assets/existing-chrome-remove.png)
+
+返回 Farming 的“插件 → 浏览器 → 我的 Chrome”，点击**删除插件目录**，即可清理准备好的目录入口。

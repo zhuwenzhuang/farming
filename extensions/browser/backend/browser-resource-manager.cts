@@ -805,6 +805,13 @@ class BrowserResourceManager extends EventEmitter {
     return this.browserExtensionRelay.prepare();
   }
 
+  removeBrowserExtension(): Record<string, unknown> {
+    if (!this.browserExtensionRelay) {
+      throw browserError('Farming Browser Connector is unavailable', 503, 'BROWSER_EXTENSION_UNAVAILABLE');
+    }
+    return this.browserExtensionRelay.remove();
+  }
+
   browserExtensionStatus(relayUrl?: string) {
     if (!this.browserExtensionRelay) {
       throw browserError('Farming Browser Connector is unavailable', 503, 'BROWSER_EXTENSION_UNAVAILABLE');

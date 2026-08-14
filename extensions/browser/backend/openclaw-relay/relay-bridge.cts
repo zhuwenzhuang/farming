@@ -764,9 +764,24 @@ export class ExtensionRelayBridge {
         return;
       }
       case "Target.getTargets": {
-        const targetInfos = [...this.tabs.values()]
-          .filter((tab) => tab.attached)
-          .map((tab) => this.targetInfoForTab(tab, tab.attached?.targetId ?? ""));
+        // Some CDP clients discover pages without first enabling auto-attach.
+        // Attach the extension's accessible tabs here so those clients see the
+        // user's existing pages instead of concluding that the browser is
+        // empty and creating an unrelated about:blank tab.
+        const attachedTabs = await Promise.allSettled(
+          [...this.tabs.keys()].map(async (tabId) => {
+            const attached = await this.ensureTabAttached(tabId);
+            return { tabId, targetId: attached.targetId };
+          }),
+        );
+        const targetInfos = attachedTabs.flatMap((result) => {
+          if (result.status !== "fulfilled") {
+            log.warn(`target discovery attach failed: ${String(result.reason)}`);
+            return [];
+          }
+          const tab = this.tabs.get(result.value.tabId);
+          return tab ? [this.targetInfoForTab(tab, result.value.targetId)] : [];
+        });
         this.respond(client, request, { targetInfos });
         return;
       }

@@ -24,6 +24,8 @@ Farming Browser 是浏览器能力；Farming Browser Connector 是安装在 Chro
 和其他受限页面不可用。
 
 不再使用时，打开 `chrome://extensions`，找到 **Farming Browser Connector**，点击**删除**并确认。
+然后返回“插件 → 浏览器 → 我的 Chrome”，点击**删除插件目录**。该操作只删除 Farming 创建的目录链接，
+以后仍可再次准备。
 
 Farming 不会在启动时创建这个目录。用户点击**准备插件目录**后，Farming 才会在可见目录建立指向
 包内扩展的链接，不会复制第二份代码。CLI 的 `extension path` 和 `extension status` 用于

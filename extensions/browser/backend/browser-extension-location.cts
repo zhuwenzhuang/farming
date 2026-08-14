@@ -64,3 +64,28 @@ export function ensureBrowserExtensionLink(source: string, configDir: string): s
   }
   return destination;
 }
+
+export function removeBrowserExtensionLink(source: string, configDir: string): string {
+  const destination = browserExtensionPath(configDir);
+  let current: fs.Stats;
+  try {
+    current = fs.lstatSync(destination);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return destination;
+    throw error;
+  }
+  if (!current.isSymbolicLink()) {
+    throw new Error(`${destination} already exists and is not managed by Farming`);
+  }
+  let linkedTarget = '';
+  try {
+    linkedTarget = fs.realpathSync(destination);
+  } catch {
+    throw new Error(`${destination} is not managed by this Farming installation`);
+  }
+  if (linkedTarget !== fs.realpathSync(source)) {
+    throw new Error(`${destination} is not managed by this Farming installation`);
+  }
+  fs.unlinkSync(destination);
+  return destination;
+}

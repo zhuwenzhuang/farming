@@ -251,10 +251,12 @@ function pluginCopy(language: UiLanguage) {
     ready: zh ? '可用' : 'Available',
     notReady: zh ? '未连接' : 'Not connected',
     prepareConnectorDirectory: zh ? '准备插件目录' : 'Prepare extension folder',
-    connectorDirectoryReady: zh ? '插件目录已准备' : 'Extension folder ready',
+    removeConnectorDirectory: zh ? '删除插件目录' : 'Remove extension folder',
     connectorGuide: zh ? '安装步骤说明' : 'Installation steps',
     preparingConnector: zh ? '正在准备目录…' : 'Preparing folder…',
+    removingConnector: zh ? '正在删除目录…' : 'Removing folder…',
     connectorPrepareFailed: zh ? '连接扩展准备失败' : 'Failed to prepare the connector extension',
+    connectorRemoveFailed: zh ? '插件目录删除失败' : 'Failed to remove the connector folder',
     installDocker: zh ? '安装 Docker' : 'Install Docker',
     notInstalled: zh ? '未安装' : 'Not installed',
     dockerRequired: zh ? '需要 Docker' : 'Docker required',
@@ -956,21 +958,26 @@ export function PluginsPanel({
     }
   }
 
-  const prepareBrowserExtension = async () => {
+  const updateBrowserExtensionDirectory = async () => {
     if (preparingBrowserExtension) return
+    const remove = browserExtensionInstalled
     setPreparingBrowserExtension(true)
     setError('')
     try {
       const response = await fetch(appPath('/api/browsers/extension/prepare'), {
-        method: 'POST',
+        method: remove ? 'DELETE' : 'POST',
         headers: { Accept: 'application/json' },
       })
       const data = await response.json().catch(() => ({})) as { error?: string; installed?: boolean }
-      if (!response.ok) throw new Error(data.error || copy.connectorPrepareFailed)
+      if (!response.ok) throw new Error(data.error || (
+        remove ? copy.connectorRemoveFailed : copy.connectorPrepareFailed
+      ))
       setBrowserExtensionInstalled(data.installed === true)
       onRefreshCapability()
     } catch (prepareError) {
-      setError(prepareError instanceof Error ? prepareError.message : copy.connectorPrepareFailed)
+      setError(prepareError instanceof Error ? prepareError.message : (
+        remove ? copy.connectorRemoveFailed : copy.connectorPrepareFailed
+      ))
     } finally {
       setPreparingBrowserExtension(false)
     }
@@ -1286,12 +1293,14 @@ export function PluginsPanel({
                     <button
                       type="button"
                       className="code-plugin-browser-install"
-                      disabled={preparingBrowserExtension || browserExtensionInstalled}
-                      onClick={() => void prepareBrowserExtension()}
+                      disabled={preparingBrowserExtension}
+                      onClick={() => void updateBrowserExtensionDirectory()}
                     >{preparingBrowserExtension
-                        ? copy.preparingConnector
+                        ? browserExtensionInstalled
+                          ? copy.removingConnector
+                          : copy.preparingConnector
                         : browserExtensionInstalled
-                          ? copy.connectorDirectoryReady
+                          ? copy.removeConnectorDirectory
                           : copy.prepareConnectorDirectory}</button>
                     <a
                       className="code-plugin-browser-install"

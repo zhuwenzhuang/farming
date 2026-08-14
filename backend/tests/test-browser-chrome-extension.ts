@@ -8,6 +8,7 @@ const { BrowserExtensionRelay } = require('../../extensions/browser/backend/brow
 const {
   browserExtensionPath,
   ensureBrowserExtensionLink,
+  removeBrowserExtensionLink,
 } = require('../../extensions/browser/backend/browser-extension-location.cjs');
 const { ExtensionRelayBridge } = require('../../extensions/browser/backend/openclaw-relay/relay-bridge.cjs');
 const {
@@ -322,6 +323,63 @@ async function run() {
   extension.onClose();
   bridge.dispose();
 
+  const discoveryBridge = new ExtensionRelayBridge();
+  const discoveryRelayMessages = [];
+  let discoveryExtension;
+  const discoveryExtensionSocket = {
+    send: message => {
+      const parsed = JSON.parse(message);
+      discoveryRelayMessages.push(parsed);
+      if (parsed.type === 'attach') {
+        setImmediate(() => discoveryExtension.onMessage(JSON.stringify({
+          type: 'result',
+          seq: parsed.seq,
+          result: { targetId: 'existing-page-target' },
+        })));
+      }
+    },
+    close: () => {},
+  };
+  discoveryExtension = discoveryBridge.attachExtensionSocket(discoveryExtensionSocket);
+  discoveryExtension.onMessage(JSON.stringify({
+    type: 'hello',
+    userAgent: 'Chrome Test',
+    browserVersion: 'Chrome/144.0.0.0',
+    extensionVersion: manifest.version,
+    tabs: [{
+      tabId: 42,
+      url: 'https://example.test/signed-in',
+      title: 'Existing signed-in page',
+      active: true,
+    }],
+  }));
+  const discoveryCdpMessages = [];
+  const discoveryCdp = discoveryBridge.attachCdpClientSocket({
+    send: message => discoveryCdpMessages.push(JSON.parse(message)),
+    close: () => {},
+  });
+  discoveryCdp.onMessage(JSON.stringify({ id: 2, method: 'Target.getTargets' }));
+  await waitFor(() => discoveryCdpMessages.some(message => message.id === 2));
+  assert.deepStrictEqual(
+    discoveryCdpMessages.find(message => message.id === 2).result.targetInfos,
+    [{
+      targetId: 'existing-page-target',
+      type: 'page',
+      title: 'Existing signed-in page',
+      url: 'https://example.test/signed-in',
+      browserContextId: 'farming-extension-context',
+      attached: true,
+      canAccessOpener: false,
+    }],
+  );
+  assert.strictEqual(
+    discoveryRelayMessages.some(message => message.type === 'createTab'),
+    false,
+  );
+  discoveryCdp.onClose();
+  discoveryExtension.onClose();
+  discoveryBridge.dispose();
+
   const extensionTestRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-browser-extension-'));
   const configDir = path.join(extensionTestRoot, '.farming');
   fs.mkdirSync(configDir);
@@ -355,6 +413,13 @@ async function run() {
     fs.writeFileSync(path.join(alternateSource, 'manifest.json'), '{}');
     fs.unlinkSync(capability.extensionPath);
     fs.symlinkSync(alternateSource, capability.extensionPath, 'dir');
+    assert.throws(
+      () => removeBrowserExtensionLink(
+        path.join(__dirname, '../../extensions/browser/chrome-extension'),
+        configDir,
+      ),
+      /is not managed by this Farming installation/,
+    );
     assert.strictEqual(ensureBrowserExtensionLink(
       path.join(__dirname, '../../extensions/browser/chrome-extension'),
       configDir,
@@ -374,6 +439,16 @@ async function run() {
       ),
       /already exists and is not managed by Farming/,
     );
+    assert.throws(
+      () => removeBrowserExtensionLink(
+        path.join(__dirname, '../../extensions/browser/chrome-extension'),
+        unmanagedConfigDir,
+      ),
+      /already exists and is not managed by Farming/,
+    );
+    assert.strictEqual(relay.remove().installed, false);
+    assert.strictEqual(fs.existsSync(capability.extensionPath), false);
+    assert.strictEqual(relay.remove().installed, false);
     assert.match(relay.pairingString('ws://127.0.0.1:3000/farming/browser/extension'), /^ws:.*#[0-9a-f]{64}$/);
     assert.strictEqual(await getStatus(`${relay.cdpUrl()}/json/version`), 503);
     const secret = path.join(configDir, 'credentials', 'farming-browser-extension-relay.secret');

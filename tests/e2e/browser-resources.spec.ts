@@ -1258,13 +1258,14 @@ test('uses Farming dark colors for the Browser source menu', async ({ page }) =>
 })
 
 test('shows concurrent Browser sources and existing Chrome setup', async ({ page }, testInfo) => {
-  let preparedConnector = false
+  const connectorDirectoryActions: string[] = []
   await page.route('**/api/browsers/extension/prepare', async route => {
-    preparedConnector = true
+    const method = route.request().method()
+    connectorDirectoryActions.push(method)
     await route.fulfill({
       contentType: 'application/json',
       status: 200,
-      body: JSON.stringify({ installed: true, connected: false }),
+      body: JSON.stringify({ installed: method === 'POST', connected: false }),
     })
   })
   await openFarming(page)
@@ -1296,15 +1297,19 @@ test('shows concurrent Browser sources and existing Chrome setup', async ({ page
     }
   })
   await prepareConnector.click()
-  await expect.poll(() => preparedConnector).toBe(true)
+  await expect.poll(() => connectorDirectoryActions).toEqual(['POST'])
   await expect.poll(() => page.evaluate(() => (
     window as typeof window & { __connectorGuideOpened?: number }
   ).__connectorGuideOpened)).toBe(0)
-  await expect(myChrome.getByRole('button', { name: 'Extension folder ready' })).toBeDisabled()
+  const removeConnector = myChrome.getByRole('button', { name: 'Remove extension folder' })
+  await expect(removeConnector).toBeEnabled()
   await expect(myChrome.getByRole('link', { name: 'Installation steps' })).toBeVisible()
   const screenshot = testInfo.outputPath('browser-sources.png')
   await pluginsPanel.screenshot({ path: screenshot })
   await testInfo.attach('browser-sources', { path: screenshot, contentType: 'image/png' })
+  await removeConnector.click()
+  await expect.poll(() => connectorDirectoryActions).toEqual(['POST', 'DELETE'])
+  await expect(prepareConnector).toBeEnabled()
 })
 
 test('matches the focused Viewer viewport and restores the previous Viewer on close', async ({

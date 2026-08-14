@@ -28,6 +28,8 @@ the Farming Browser Resource leaves the user's Chrome tab open. Incognito,
 
 To remove the extension, open `chrome://extensions`, find **Farming Browser
 Connector**, click **Remove**, and confirm.
+Then return to **Plugins → Browser → My Chrome** and click **Remove extension folder**. This removes only
+the Farming-created folder link; it is safe to prepare again later.
 
 Farming does not create this directory at startup. After the user clicks **Prepare extension folder**, Farming creates
 a visible link to the bundled extension without copying a second code tree. CLI `extension path`

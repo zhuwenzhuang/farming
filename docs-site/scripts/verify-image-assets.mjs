@@ -46,6 +46,33 @@ for (const sourceRoot of sourceRoots) {
   }
 }
 
+const highQualityScreenshotFiles = [
+  'existing-chrome-install.png',
+  'existing-chrome-select-folder.png',
+  'existing-chrome-menu.png',
+  'existing-chrome-remove.png',
+]
+const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+for (const locale of ['cn', 'en']) {
+  for (const fileName of highQualityScreenshotFiles) {
+    const file = path.join(publicRoot, locale, 'assets', fileName)
+    if (!fs.existsSync(file)) {
+      failures.push(`${locale}/assets/${fileName} is missing; regenerate the existing Chrome screenshots`)
+      continue
+    }
+    const image = fs.readFileSync(file)
+    if (image.length < 24 || !image.subarray(0, pngSignature.length).equals(pngSignature)) {
+      failures.push(`${locale}/assets/${fileName} must be a real lossless PNG`)
+      continue
+    }
+    const width = image.readUInt32BE(16)
+    const height = image.readUInt32BE(20)
+    if (width < 1600 || height < 500) {
+      failures.push(`${locale}/assets/${fileName} is only ${width}x${height}; regenerate it at 2x resolution`)
+    }
+  }
+}
+
 if (!fs.existsSync(outputRoot) || !fs.statSync(outputRoot).isDirectory()) {
   failures.push('production output is missing; run npm run build before verify:images')
 } else {

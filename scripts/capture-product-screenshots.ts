@@ -69,6 +69,16 @@ const nativeDarkCodeScreenshots = new Set([
 const browserDocumentationScreenshots = new Set([
   '24-code-browser-docs.png',
   '25-code-browser-plugin.png',
+  '26-existing-chrome-install.png',
+  '27-existing-chrome-select-folder.png',
+  '28-existing-chrome-menu.png',
+  '29-existing-chrome-remove.png',
+]);
+const existingChromeScreenshotFiles = new Map([
+  ['26-existing-chrome-install.png', 'existing-chrome-install.png'],
+  ['27-existing-chrome-select-folder.png', 'existing-chrome-select-folder.png'],
+  ['28-existing-chrome-menu.png', 'existing-chrome-menu.png'],
+  ['29-existing-chrome-remove.png', 'existing-chrome-remove.png'],
 ]);
 const documentationHomeScreenshots = new Set([
   '23-code-files-html-chat.png',
@@ -1035,6 +1045,180 @@ async function captureDesktopConnections(browser, baseUrl) {
   }
 }
 
+function existingChromeFixtureDocument(content: string, width: number, height: number): string {
+  return `<!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <style>
+          * { box-sizing: border-box; }
+          html, body { margin: 0; min-height: 100%; background: #eef1f5; }
+          body { padding: 32px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #202124; }
+          #shot { width: ${width}px; height: ${height}px; overflow: hidden; background: #fff; border: 1px solid #d8dce3; border-radius: 18px; box-shadow: 0 18px 55px rgba(31, 35, 41, .16); }
+          button { font: inherit; }
+        </style>
+      </head>
+      <body><main id="shot">${content}</main></body>
+    </html>`;
+}
+
+async function writeExistingChromeScreenshot(page, fileName: string): Promise<void> {
+  if (requestedScreenshotFiles.size > 0 && !requestedScreenshotFiles.has(fileName)) return;
+  const publicFileName = existingChromeScreenshotFiles.get(fileName);
+  if (!publicFileName) throw new Error(`unknown existing Chrome screenshot: ${fileName}`);
+  await page.locator('#shot').screenshot({
+    path: path.join(publicScreenshotDir, publicFileName),
+    animations: 'disabled',
+    type: 'png',
+  });
+  capturedScreenshotFiles.add(fileName);
+}
+
+async function captureExistingChromeDocumentationScreenshots(browser, baseUrl) {
+  const requested = requestedScreenshotFiles.size === 0
+    || Array.from(existingChromeScreenshotFiles.keys()).some(fileName => requestedScreenshotFiles.has(fileName));
+  if (!requested) return;
+
+  const context = await browser.newContext({
+    baseURL: baseUrl,
+    viewport: { width: 1280, height: 820 },
+    deviceScaleFactor: 2,
+  });
+  const page = await context.newPage();
+  const en = screenshotLocale === 'en';
+  const copy = en ? {
+    chooserTitle: 'Select the extension directory',
+    favorites: 'Favorites',
+    applications: 'Applications',
+    documents: 'Documents',
+    downloads: 'Downloads',
+    name: 'Name',
+    modified: 'Date Modified',
+    today: 'Today, 4:27 PM',
+    cancel: 'Cancel',
+    select: 'Select',
+    extensions: 'Extensions',
+    connectorDescription: 'Let Agents in Farming use your browser.',
+    details: 'Details',
+    remove: 'Remove',
+  } : {
+    chooserTitle: '选择扩展程序目录',
+    favorites: '个人收藏',
+    applications: '应用程序',
+    documents: '文稿',
+    downloads: '下载',
+    name: '名称',
+    modified: '修改日期',
+    today: '今天 16:27',
+    cancel: '取消',
+    select: '选择',
+    extensions: '扩展程序',
+    connectorDescription: '让 Farming 中的 Agent 使用你的浏览器。',
+    details: '详细信息',
+    remove: '删除',
+  };
+  const iconData = fs.readFileSync(
+    path.join(repoRoot, 'extensions', 'browser', 'chrome-extension', 'icons', 'farming-128.png'),
+  ).toString('base64');
+  const icon = `data:image/png;base64,${iconData}`;
+
+  try {
+    if (requestedScreenshotFiles.size === 0 || requestedScreenshotFiles.has('26-existing-chrome-install.png')) {
+      await setDemoSettings(page, baseUrl);
+      await page.request.post(`${baseUrl}${basePath}/api/settings`, {
+        data: { language: en ? 'en' : 'zh' },
+      });
+      await ensureApp(page);
+      await page.getByTestId('code-nav-plugins').click();
+      const pluginsPanel = page.getByTestId('code-plugins-panel');
+      await pluginsPanel.waitFor({ state: 'visible', timeout: 20_000 });
+      await pluginsPanel.getByTestId('code-plugin-tab-farming').click();
+      const browserPlugin = pluginsPanel.getByTestId('code-plugin-browser');
+      await browserPlugin.waitFor({ state: 'visible', timeout: 20_000 });
+      await browserPlugin.getByRole('button', {
+        name: en ? 'Disable' : '停用',
+      }).waitFor({ state: 'visible', timeout: 20_000 });
+      await browserPlugin.getByText(en ? 'Available' : '可用', { exact: true })
+        .first()
+        .waitFor({ state: 'visible', timeout: 20_000 });
+      await browserPlugin.getByRole('button', {
+        name: en ? 'Prepare extension folder' : '准备插件目录',
+      }).waitFor({ state: 'visible', timeout: 20_000 });
+      await browserPlugin.screenshot({
+        path: path.join(
+          publicScreenshotDir,
+          existingChromeScreenshotFiles.get('26-existing-chrome-install.png') as string,
+        ),
+        animations: 'disabled',
+        type: 'png',
+      });
+      capturedScreenshotFiles.add('26-existing-chrome-install.png');
+    }
+
+    await page.setContent(existingChromeFixtureDocument(`
+      <header style="height:88px;display:flex;align-items:center;justify-content:center;border-bottom:1px solid #dadde3;font-size:20px;font-weight:600;position:relative">
+        ${copy.chooserTitle}
+      </header>
+      <section style="display:grid;grid-template-columns:250px 1fr;height:530px">
+        <aside style="padding:26px 22px;background:#f4f5f7;border-right:1px solid #d8dce3">
+          <div style="font-size:14px;color:#737780;font-weight:600;margin-bottom:16px">${copy.favorites}</div>
+          <div style="display:grid;gap:18px;font-size:18px">
+            <div>▦&nbsp;&nbsp;${copy.applications}</div><div>▤&nbsp;&nbsp;${copy.documents}</div><div>⇩&nbsp;&nbsp;${copy.downloads}</div>
+          </div>
+        </aside>
+        <div style="padding:22px 26px">
+          <div style="display:grid;grid-template-columns:1fr 220px;color:#737780;font-size:15px;border-bottom:1px solid #d8dce3;padding:0 14px 12px">
+            <span>${copy.name}</span><span>${copy.modified}</span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 220px;align-items:center;margin-top:10px;padding:14px;border-radius:9px;background:#1a73e8;color:#fff;font-size:18px">
+            <strong>📁&nbsp;&nbsp;farming-browser-connector</strong><span>${copy.today}</span>
+          </div>
+        </div>
+      </section>
+      <footer style="height:92px;display:flex;align-items:center;justify-content:flex-end;gap:14px;padding:0 28px;border-top:1px solid #d8dce3;background:#fafafa">
+        <button style="padding:11px 24px;border:1px solid #c8ccd3;border-radius:9px;background:#fff">${copy.cancel}</button>
+        <button style="padding:11px 24px;border:0;border-radius:9px;background:#1a73e8;color:#fff;font-weight:600">${copy.select}</button>
+      </footer>
+    `, 1180, 710));
+    await writeExistingChromeScreenshot(page, '27-existing-chrome-select-folder.png');
+
+    await page.setContent(existingChromeFixtureDocument(`
+      <div style="height:72px;display:flex;align-items:center;gap:16px;padding:0 24px;border-bottom:1px solid #dadde3;background:#f8f9fa">
+        <span style="font-size:26px">←</span><div style="height:42px;flex:1;border-radius:21px;background:#eef1f5"></div><span style="font-size:22px">⋮</span>
+      </div>
+      <section style="width:560px;margin:34px 34px 0 auto;border:1px solid #d8dce3;border-radius:14px;box-shadow:0 16px 42px rgba(31,35,41,.18);overflow:hidden">
+        <h1 style="font-size:22px;margin:0;padding:22px 24px;border-bottom:1px solid #e4e7eb">${copy.extensions}</h1>
+        <div style="display:grid;grid-template-columns:56px 1fr 44px;align-items:center;gap:14px;padding:22px 24px">
+          <img src="${icon}" width="48" height="48" style="border-radius:50%">
+          <div><strong style="display:block;font-size:18px">Farming Browser Connector</strong><span style="display:block;margin-top:5px;color:#68707c">${copy.connectorDescription}</span></div>
+          <span style="font-size:24px;color:#5f6368">📌</span>
+        </div>
+      </section>
+    `, 1180, 520));
+    await writeExistingChromeScreenshot(page, '28-existing-chrome-menu.png');
+
+    await page.setContent(existingChromeFixtureDocument(`
+      <header style="height:92px;display:flex;align-items:center;padding:0 42px;border-bottom:1px solid #dadde3;font-size:28px">${copy.extensions}</header>
+      <section style="padding:46px">
+        <article style="width:720px;min-height:300px;border:1px solid #d8dce3;border-radius:16px;box-shadow:0 5px 16px rgba(31,35,41,.14);padding:30px">
+          <div style="display:grid;grid-template-columns:72px 1fr;gap:20px;align-items:center">
+            <img src="${icon}" width="64" height="64" style="border-radius:50%">
+            <div><strong style="font-size:22px">Farming Browser Connector</strong><p style="font-size:17px;color:#68707c;margin:8px 0 0">${copy.connectorDescription}</p></div>
+          </div>
+          <div style="display:flex;align-items:center;gap:14px;margin-top:58px">
+            <button style="padding:11px 24px;border:1px solid #aecbfa;border-radius:22px;background:#fff;color:#1967d2;font-weight:600">${copy.details}</button>
+            <button style="padding:11px 24px;border:1px solid #aecbfa;border-radius:22px;background:#fff;color:#1967d2;font-weight:600">${copy.remove}</button>
+            <span style="margin-left:auto;width:44px;height:24px;border-radius:12px;background:#1a73e8;position:relative"><i style="position:absolute;right:3px;top:3px;width:18px;height:18px;border-radius:50%;background:#fff"></i></span>
+          </div>
+        </article>
+      </section>
+    `, 1180, 520));
+    await writeExistingChromeScreenshot(page, '29-existing-chrome-remove.png');
+  } finally {
+    await context.close();
+  }
+}
+
 async function installSessionSearchRoute(page) {
   const sessions = [
     {
@@ -1318,6 +1502,8 @@ async function main() {
       executablePath,
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--proxy-server=direct://', '--proxy-bypass-list=*'],
     });
+    await captureExistingChromeDocumentationScreenshots(browser, baseUrl);
+    if (requestedScreenshotsComplete()) return;
     if (documentationSite) await writeDocumentationHomeFixture(documentationSite, browser);
     if (
       requestedScreenshotFiles.size === 1

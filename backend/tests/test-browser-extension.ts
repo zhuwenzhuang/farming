@@ -1499,6 +1499,10 @@ async function testBrowserRouterAgentOwnership() {
       calls.push({ kind: 'prepare-extension' });
       return { installed: true, connected: false };
     },
+    removeBrowserExtension: () => {
+      calls.push({ kind: 'remove-extension' });
+      return { installed: false, connected: false };
+    },
     extensionTabs: () => [{
       active: true,
       id: 42,
@@ -1602,6 +1606,11 @@ async function testBrowserRouterAgentOwnership() {
     assert.strictEqual(prepared.status, 200);
     assert.deepStrictEqual(prepared.body, { installed: true, connected: false });
     assert.deepStrictEqual(calls.at(-1), { kind: 'prepare-extension' });
+
+    const removed = await request('/api/browsers/extension/prepare', { method: 'DELETE' });
+    assert.strictEqual(removed.status, 200);
+    assert.deepStrictEqual(removed.body, { installed: false, connected: false });
+    assert.deepStrictEqual(calls.at(-1), { kind: 'remove-extension' });
 
     const crossAgent = await request('/api/browsers/browser_agent_b/start', { method: 'POST' });
     assert.strictEqual(crossAgent.status, 403);
