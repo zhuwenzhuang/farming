@@ -174,9 +174,15 @@ test('does not replay an in-progress ACP answer after switching agents', async (
   await expect.poll(async () => (await currentAnswerSamples(page))[0]?.text).toBe(PROGRESSIVE_INITIAL_ANSWER)
 
   await otherAgentRow.click()
-  // This is the sampled mid-stream interval under test: the Agent must keep
-  // progressing while its pane is inactive, before the final answer settles.
-  await page.waitForTimeout(1_500)
+  await expect.poll(async () => {
+    const response = await page.request.get(
+      `/farming/api/agents/${encodeURIComponent(agentId)}/acp-transcript?maxTurns=1000`,
+    )
+    if (!response.ok()) return false
+    const transcript = JSON.stringify(await response.json())
+    return transcript.includes(PROGRESSIVE_SEGMENTS[2] || '')
+      && !transcript.includes(PROGRESSIVE_SEGMENTS[9] || '')
+  }).toBe(true)
   const firstInProgressSwitchText = await firstAnswerAfterAgentClick(page, agentId)
   expect(firstInProgressSwitchText.startsWith(PROGRESSIVE_INITIAL_ANSWER)).toBe(true)
   expect(firstInProgressSwitchText.length).toBeGreaterThan(PROGRESSIVE_INITIAL_ANSWER.length)

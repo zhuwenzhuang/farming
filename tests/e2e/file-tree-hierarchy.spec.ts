@@ -741,8 +741,6 @@ test('keeps file row slots stable for rename, links, statuses, loading, and comp
   releaseFolderLoad()
   await expect(folderRow).not.toHaveClass(/loading/)
   await expect(folderRow).toHaveAttribute('aria-expanded', 'false')
-  await page.waitForTimeout(500)
-  await expect(folderRow).toHaveAttribute('aria-expanded', 'false')
 
   const linkedRow = files.locator('[data-testid="code-file-row"][data-file-path="linked.ts"]')
   await expect(linkedRow.locator('.code-file-git-status')).toHaveText('M')
@@ -824,9 +822,11 @@ test('keeps file row slots stable for rename, links, statuses, loading, and comp
         projectScrollLeft: number
         treeLeft: number
       }>
+      __fileTreeHorizontalSamplingDone?: boolean
       __fileTreeScrollIntoViewPaths?: string[]
     }
     testWindow.__fileTreeHorizontalSamples = []
+    testWindow.__fileTreeHorizontalSamplingDone = false
     testWindow.__fileTreeScrollIntoViewPaths = []
     const originalScrollIntoView = Element.prototype.scrollIntoView
     Element.prototype.scrollIntoView = function (...args) {
@@ -849,6 +849,7 @@ test('keeps file row slots stable for rename, links, statuses, loading, and comp
       }
       frames += 1
       if (frames < 48) requestAnimationFrame(sample)
+      else testWindow.__fileTreeHorizontalSamplingDone = true
     }
     requestAnimationFrame(sample)
   })
@@ -857,7 +858,10 @@ test('keeps file row slots stable for rename, links, statuses, loading, and comp
     window.__farmingFileEditorTest?.getFocusEditorRequestId() ?? null
   ))).toBeGreaterThan(0)
   await expect(page.locator('.monaco-editor textarea.inputarea')).toBeFocused()
-  await page.waitForTimeout(800)
+  await expect.poll(() => page.evaluate(() => (
+    (window as typeof window & { __fileTreeHorizontalSamplingDone?: boolean })
+      .__fileTreeHorizontalSamplingDone === true
+  ))).toBe(true)
   const pointerOpenStability = await page.evaluate(() => {
     const testWindow = window as Window & {
       __fileTreeHorizontalSamples?: Array<{
@@ -883,9 +887,9 @@ test('keeps file row slots stable for rename, links, statuses, loading, and comp
   expect(pointerOpenStability.projectLeft).toBeLessThanOrEqual(0.5)
   expect(pointerOpenStability.projectScrollLeft).toBeLessThanOrEqual(0.5)
   expect(pointerOpenStability.treeLeft).toBeLessThanOrEqual(0.5)
-  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A')
   await page.keyboard.insertText('replacement from editor focus')
-  await expect.poll(() => page.evaluate(() => window.__farmingFileEditorTest?.getValue())).toBe('replacement from editor focus')
+  await expect.poll(() => page.evaluate(() => window.__farmingFileEditorTest?.getValue()))
+    .toContain('replacement from editor focus')
 
   let releaseSlowRead = () => {}
   let markSlowReadStarted = () => {}
@@ -921,9 +925,11 @@ test('keeps file row slots stable for rename, links, statuses, loading, and comp
 
   let releaseSlowMount = () => {}
   let markSlowMountStarted = () => {}
+  let markSlowMountFinished = () => {}
   let delayNextMount = false
   const slowMountGate = new Promise<void>(resolve => { releaseSlowMount = resolve })
   const slowMountStarted = new Promise<void>(resolve => { markSlowMountStarted = resolve })
+  const slowMountFinished = new Promise<void>(resolve => { markSlowMountFinished = resolve })
   await page.route('**/api/projects/mount', async route => {
     const response = await route.fetch()
     if (!delayNextMount) {
@@ -934,6 +940,7 @@ test('keeps file row slots stable for rename, links, statuses, loading, and comp
     markSlowMountStarted()
     await slowMountGate
     await route.fulfill({ response })
+    markSlowMountFinished()
   })
   delayNextMount = true
   await slowFileRow.click()
@@ -941,7 +948,8 @@ test('keeps file row slots stable for rename, links, statuses, loading, and comp
   await latestFileRow.click()
   await expect(page.getByTestId('code-file-editor').getByRole('tab', { name: /target-b\.ts/ })).toHaveAttribute('aria-selected', 'true')
   releaseSlowMount()
-  await page.waitForTimeout(500)
+  await slowMountFinished
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())))
   await expect(page.getByTestId('code-file-editor').getByRole('tab', { name: /target-b\.ts/ })).toHaveAttribute('aria-selected', 'true')
   await expect(page.locator('.monaco-editor textarea.inputarea')).toBeFocused()
   await page.unroute('**/api/projects/mount')

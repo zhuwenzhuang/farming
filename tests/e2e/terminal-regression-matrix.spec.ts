@@ -78,6 +78,27 @@ async function cleanupControlAgents(request: import('@playwright/test').APIReque
     .map(id => request.delete(`/farming/api/control/agents/${id}`).catch(() => null)))
 }
 
+async function sendControlTerminalInput(
+  page: import('@playwright/test').Page,
+  agentId: string,
+  input: string,
+) {
+  await expect.poll(async () => {
+    const response = await page.request.get('/farming/api/control/agents')
+    if (!response.ok()) return false
+    const data = await response.json() as {
+      agents?: Array<{ id?: string; runtimeEpoch?: string; status?: string }>
+    }
+    const agent = data.agents?.find(candidate => candidate.id === agentId)
+    return agent?.status === 'running' && Boolean(agent.runtimeEpoch)
+  }).toBe(true)
+  const response = await page.request.post(
+    `/farming/api/control/agents/${agentId}/input`,
+    { data: { input } },
+  )
+  expect(response.ok()).toBeTruthy()
+}
+
 function agentListItem(page: import('@playwright/test').Page, agentId: string) {
   return page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"], [data-testid="code-project-agent-compact"][data-agent-id="${agentId}"], [data-testid="code-pinned-agent-compact"][data-agent-id="${agentId}"]`)
 }
@@ -2011,16 +2032,7 @@ test.describe('terminal regression matrix', () => {
         await terminalDiagnostics(page, agentId)
       )?.pageOutputSuspended).toBe(true)
 
-      let inputAccepted = false
-      for (let attempt = 0; attempt < 20 && !inputAccepted; attempt += 1) {
-        const response = await page.request.post(
-          `/farming/api/control/agents/${agentId}/input`,
-          { data: { input: 'printf "REAL_MISSED_RESUME_OUTPUT\\n"\r' } },
-        )
-        inputAccepted = response.ok()
-        if (!inputAccepted) await page.waitForTimeout(50)
-      }
-      expect(inputAccepted).toBe(true)
+      await sendControlTerminalInput(page, agentId, 'printf "REAL_MISSED_RESUME_OUTPUT\\n"\r')
 
       await expect.poll(async () => {
         return terminalCheckpointOutput(page, agentId)
@@ -2072,17 +2084,12 @@ test.describe('terminal regression matrix', () => {
       )?.pageOutputSuspended).toBe(true)
       releaseFirstRequest()
 
-      let inputAccepted = false
       const markerFile = path.join(projectDir, 'aborted-bootstrap-ready.txt')
-      for (let attempt = 0; attempt < 20 && !inputAccepted; attempt += 1) {
-        const response = await page.request.post(
-          `/farming/api/control/agents/${agentId}/input`,
-          { data: { input: 'printf "ABORTED_BOOTSTRAP_RESUME_OUTPUT\\n"; printf ready > aborted-bootstrap-ready.txt\r' } },
-        )
-        inputAccepted = response.ok()
-        if (!inputAccepted) await page.waitForTimeout(50)
-      }
-      expect(inputAccepted).toBe(true)
+      await sendControlTerminalInput(
+        page,
+        agentId,
+        'printf "ABORTED_BOOTSTRAP_RESUME_OUTPUT\\n"; printf ready > aborted-bootstrap-ready.txt\r',
+      )
       await expect.poll(() => fs.existsSync(markerFile) ? fs.readFileSync(markerFile, 'utf8') : '')
         .toBe('ready')
 
@@ -2332,8 +2339,13 @@ test.describe('terminal regression matrix', () => {
       await expect(terminalStatus).toHaveCount(0)
       await composer.fill('echo MOBILE_AFTER_COPY')
       await page.getByTestId('code-composer-send').click()
-      await page.waitForTimeout(100)
-      if (await terminalStatus.isVisible().catch(() => false)) {
+      let outcome: 'error' | 'output' | 'pending' = 'pending'
+      await expect.poll(async () => {
+        if (await terminalStatus.isVisible().catch(() => false)) outcome = 'error'
+        else if ((await visibleTerminalText(page, agentId)).includes('MOBILE_AFTER_COPY')) outcome = 'output'
+        return outcome
+      }).not.toBe('pending')
+      if (outcome === 'error') {
         const diagnostics = await terminalDiagnostics(page, agentId)
         throw new Error(
           `Mobile composer terminal input failed: ${await terminalStatus.getAttribute('title')}; `
