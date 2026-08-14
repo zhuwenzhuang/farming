@@ -11,6 +11,7 @@ import {
 } from '@/lib/pet/rest-reminder'
 
 const ACTIVITY_COMMIT_INTERVAL_MS = 1000
+const RESTING_DEADLINE_RECONCILE_INTERVAL_MS = 1000
 
 function enabledInterval(value: number | null) {
   const normalized = normalizeRestReminderIntervalSeconds(value)
@@ -224,17 +225,37 @@ export function useRestReminderCapability(
     if (entryBlocked && state.phase !== 'resting') return undefined
     const deadline = nextRestReminderDeadline(state)
     if (deadline === null) return undefined
-    const timeout = window.setTimeout(() => {
+    const reconcileDeadline = () => {
       clearInteractionTimer()
       const current = stateWithPendingInteraction()
       if (
         current
         && (current.phase === 'resting' || !entryBlockedRef.current)
       ) {
-        commit(reduceRestReminder(current, { type: 'deadline', now: Date.now() }))
+        const nextState = reduceRestReminder(current, {
+          type: 'deadline',
+          now: Date.now(),
+        })
+        if (nextState !== current) commit(nextState)
       }
-    }, Math.max(0, deadline - Date.now()))
-    return () => window.clearTimeout(timeout)
+    }
+    const timeout = window.setTimeout(
+      reconcileDeadline,
+      Math.max(0, deadline - Date.now()),
+    )
+    if (state.phase !== 'resting') return () => window.clearTimeout(timeout)
+
+    // The visible rest clock must remain live even if the one-shot deadline
+    // callback is throttled or lost. Reconcile against the absolute deadline
+    // once per displayed second without rewriting unchanged runtime state.
+    const reconcileInterval = window.setInterval(
+      reconcileDeadline,
+      RESTING_DEADLINE_RECONCILE_INTERVAL_MS,
+    )
+    return () => {
+      window.clearTimeout(timeout)
+      window.clearInterval(reconcileInterval)
+    }
   }, [
     clearInteractionTimer,
     commit,

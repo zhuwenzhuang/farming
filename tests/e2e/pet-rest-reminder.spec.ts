@@ -1721,6 +1721,56 @@ test('the soft-glow rest scene owns focus and Escape ends the break', async ({ p
   ))).toBe(0)
 })
 
+test('the soft-glow rest scene ends at zero without a user interaction', async ({ page }) => {
+  await page.clock.install()
+  await page.addInitScript(({ settingsKey, runtimeKey }) => {
+    const originalSetTimeout = window.setTimeout.bind(window)
+    window.setTimeout = ((handler: TimerHandler, timeout = 0) => {
+      if (timeout >= 4_000 && timeout <= 5_000) {
+        const testWindow = window as Window & { __petDeadlineTimeoutDropCount?: number }
+        testWindow.__petDeadlineTimeoutDropCount
+          = (testWindow.__petDeadlineTimeoutDropCount ?? 0) + 1
+        return originalSetTimeout(() => {}, timeout)
+      }
+      return originalSetTimeout(handler, timeout)
+    }) as typeof window.setTimeout
+
+    const now = Date.now()
+    localStorage.setItem(settingsKey, JSON.stringify({
+      version: 1,
+      appearance: 'glass',
+      capabilities: { restReminder: { intervalSeconds: 50 * 60 } },
+    }))
+    sessionStorage.setItem(runtimeKey, JSON.stringify({
+      version: 2,
+      state: {
+        phase: 'resting',
+        intervalSeconds: 50 * 60,
+        cycleStartedAt: null,
+        backgroundedAt: null,
+        snoozedUntil: null,
+        restStartsAt: null,
+        restUntil: now + 5_000,
+        snoozeUsed: false,
+      },
+    }))
+  }, { settingsKey: SETTINGS_KEY, runtimeKey: RUNTIME_KEY })
+
+  await openFarming(page)
+  const scene = page.getByTestId('pet-rest-scene')
+  await expect(scene).toBeVisible()
+  await expect.poll(() => page.evaluate(() => (
+    (window as Window & { __petDeadlineTimeoutDropCount?: number })
+      .__petDeadlineTimeoutDropCount ?? 0
+  ))).toBeGreaterThan(0)
+
+  await page.clock.fastForward(6_000)
+  await expect(scene).toHaveCount(0)
+  await expect.poll(() => page.evaluate(runtimeKey => (
+    JSON.parse(sessionStorage.getItem(runtimeKey) ?? 'null')?.state?.phase
+  ), RUNTIME_KEY)).toBe('working')
+})
+
 test('Escape commits a valid custom interval before closing Settings', async ({ page }) => {
   await page.addInitScript(settingsKey => {
     localStorage.setItem(settingsKey, JSON.stringify({
