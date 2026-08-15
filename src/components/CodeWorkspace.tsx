@@ -5059,7 +5059,7 @@ export function CodeWorkspace({
         normalizedSearch=""
         hasProjectListItems={hasProjectListItems}
         hasDisplayedProjectListItems={hasProjectListItems}
-        activeTerminalId={activeTerminalId}
+        activeTerminalId={activeView === 'projects' && mainPaneMode === 'terminal' ? activeTerminalId : null}
         selectedSearchAgentId={selectedSearchAgentId}
         selectedSearchSessionHandle={selectedSearchSessionHandle}
         claimedAgentSessionKeyByAgentId={agentListState.claimedAgentSessionKeyByAgentId}

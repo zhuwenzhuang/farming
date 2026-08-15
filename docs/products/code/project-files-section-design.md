@@ -97,8 +97,10 @@ has one reveal owner so the tree and Project list do not compete for focus or
 scroll. A revealed file is anchored in the upper-middle of the visible file area
 rather than merely exposed at its lower edge. Returning from a file to its source
 Agent expands that Agent's Project and Agent group, then reveals the exact Agent
-row even when the file and source Agent belong to different Projects. Workspace
-back/forward history treats a Plugins location as a first-class entry and restores
+row even when the file and source Agent belong to different Projects. While the
+file owns the main pane, that source association does not mark an Agent row as
+active. Workspace back/forward history treats a Plugins location as a first-class
+entry and restores
 its tab, Agent Home, extension kind, query, detail, and scroll position after
 opening a source file.
 
