@@ -22,6 +22,14 @@ const workspaceDir = path.resolve(process.env.FARMING_SCREENSHOT_WORKSPACE || pa
 const screenshotDir = path.join(repoRoot, 'docs', 'products', 'code', 'assets');
 const crtScreenshotDir = path.join(repoRoot, 'docs', 'products', 'crt', 'assets');
 const screenshotLocale = process.env.FARMING_SCREENSHOT_LOCALE === 'en' ? 'en' : 'cn';
+const screenshotDeviceScaleFactor = Number(process.env.FARMING_SCREENSHOT_DEVICE_SCALE_FACTOR || 2);
+if (!Number.isFinite(screenshotDeviceScaleFactor) || screenshotDeviceScaleFactor <= 0) {
+  throw new Error('FARMING_SCREENSHOT_DEVICE_SCALE_FACTOR must be a positive number');
+}
+const screenshotHeadless = process.env.FARMING_SCREENSHOT_HEADLESS === undefined
+  ? process.platform !== 'darwin'
+  : process.env.FARMING_SCREENSHOT_HEADLESS !== '0';
+const terminalScreenshotMinimumBytes = 25_000;
 const publicScreenshotDir = path.join(repoRoot, 'docs-site', 'public', screenshotLocale, 'assets');
 type PublicScreenshotSpec = {
   fileName: string;
@@ -227,8 +235,8 @@ function processEnvWithoutColor() {
 
 async function writeDocumentationHomeFixture(documentationSite: { url: string }, browser) {
   const context = await browser.newContext({
-    viewport: { width: 960, height: 640 },
-    deviceScaleFactor: 1,
+    viewport: { width: 1140, height: 720 },
+    deviceScaleFactor: screenshotDeviceScaleFactor,
   });
   try {
     const page = await context.newPage();
@@ -245,7 +253,7 @@ async function writeDocumentationHomeFixture(documentationSite: { url: string },
         : new Promise(resolve => image.addEventListener('load', resolve, { once: true }))));
     });
     const background = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-    const screenshot = await page.screenshot({ type: 'jpeg', quality: 72, fullPage: false });
+    const screenshot = await page.screenshot({ type: 'jpeg', quality: 92, fullPage: false });
     const html = [
       '<!doctype html>',
       `<html lang="${screenshotLocale === 'en' ? 'en' : 'zh-CN'}">`,
@@ -648,6 +656,26 @@ async function writeTerminalFixture(page, agentId, text) {
   );
 }
 
+async function waitForTerminalVisualContent(page, agentId, expectedText) {
+  const pane = page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"]`);
+  await pane.waitFor({ state: 'visible', timeout: 20_000 });
+  await pane.getByTestId('code-terminal-container').click({ position: { x: 24, y: 24 } });
+  await page.waitForFunction(
+    ({ id, expected }) => {
+      const terminal = (window as unknown as {
+        __farmingTerminalTest?: {
+          getRows: (agentId: string, rowCount?: number) => string[];
+          getCanvasInkPixelCount: (agentId: string) => number;
+        };
+      }).__farmingTerminalTest;
+      return (terminal?.getRows(id, 120).join('\n').includes(expected) ?? false)
+        && (terminal?.getCanvasInkPixelCount(id) ?? 0) > 100;
+    },
+    { id: agentId, expected: expectedText },
+    { timeout: 20_000 },
+  );
+}
+
 async function openSidebarOnMobile(page) {
   const workspace = page.getByTestId('code-workspace');
   const className = await workspace.getAttribute('class');
@@ -786,6 +814,13 @@ async function screenshot(page, fileName, directory = screenshotDir) {
       });
     } else {
       fs.copyFileSync(screenshotPath, publicPath);
+    }
+    if (fileName === '12-code-terminal-session.png'
+      && fs.statSync(publicPath).size < terminalScreenshotMinimumBytes) {
+      throw new Error(
+        `Terminal screenshot ${publicPath} is too small to contain the rendered transcript; `
+        + 'on macOS use the default headed capture path because headless Chromium omits the 2x WebGL canvas',
+      );
     }
   }
   capturedScreenshotFiles.add(fileName);
@@ -938,7 +973,7 @@ async function captureDesktopConnections(browser, baseUrl) {
   const context = await browser.newContext({
     baseURL: baseUrl,
     viewport: { width: 1440, height: 810 },
-    deviceScaleFactor: 1,
+    deviceScaleFactor: screenshotDeviceScaleFactor,
   });
   try {
     const page = await context.newPage();
@@ -1503,13 +1538,14 @@ async function main() {
   serverProcess.stderr.on('data', chunk => process.stderr.write(chunk));
 
   let browser;
+  const createdBrowserResourceIds = new Set<string>();
   try {
     if (needsDocumentationHome) {
       documentationSite = await startDocumentationSite();
     }
     await waitForServer(`${baseUrl}${basePath}/`);
     browser = await chromium.launch({
-      headless: true,
+      headless: screenshotHeadless,
       executablePath,
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--proxy-server=direct://', '--proxy-bypass-list=*'],
     });
@@ -1526,7 +1562,7 @@ async function main() {
     const context = await browser.newContext({
       baseURL: baseUrl,
       viewport: { width: 1440, height: 810 },
-      deviceScaleFactor: 1,
+      deviceScaleFactor: screenshotDeviceScaleFactor,
       permissions: ['clipboard-read', 'clipboard-write'],
     });
     await context.addInitScript(() => {
@@ -1574,8 +1610,20 @@ async function main() {
       return;
     }
 
+    if (screenshotLocale === 'cn') {
+      await page.request.post(`${baseUrl}${basePath}/api/settings`, {
+        data: { language: 'zh' },
+      });
+      await ensureApp(page);
+    }
     await screenshot(page, '00-code-welcome.png');
     if (requestedScreenshotsComplete()) return;
+    if (screenshotLocale === 'cn') {
+      await page.request.post(`${baseUrl}${basePath}/api/settings`, {
+        data: { language: 'en' },
+      });
+      await ensureApp(page);
+    }
 
     if (requestedScreenshotFiles.size === 0 || requestedScreenshotFiles.has('19-code-agent-homes.png')) {
       await page.request.post(`${baseUrl}${basePath}/api/settings`, {
@@ -1780,68 +1828,79 @@ async function main() {
       updateAgent(page, baseUrl, claudeAgentId, { unread: false }),
       updateAgent(page, baseUrl, shellAgentId, { unread: false }),
     ]);
-    const filesSection = page.getByTestId('code-files-section').first();
-    const filesToggle = filesSection.getByRole('button', { name: /^Files$/ });
-    if (await filesToggle.getAttribute('aria-expanded') === 'false') await filesToggle.click();
-    const docsDirectory = filesSection.locator('[data-testid="code-file-row"][data-file-path="docs"]');
-    await docsDirectory.waitFor({ state: 'visible', timeout: 20_000 });
-    if (await docsDirectory.getAttribute('aria-expanded') === 'false') await docsDirectory.click();
-    const relationalOperatorsFile = filesSection.locator('[data-testid="code-file-row"][data-file-path="docs/relational-operators.md"]');
-    await relationalOperatorsFile.waitFor({ state: 'visible', timeout: 20_000 });
-    await relationalOperatorsFile.click();
-    const markdownPreview = page.getByTestId('code-file-markdown-preview');
-    await page.getByTestId('code-file-editor').waitFor({ state: 'visible', timeout: 20_000 });
-    if (!await markdownPreview.isVisible()) {
-      await page.getByTestId('code-file-editor').locator('.code-file-editor-action.source-preview').click();
-    }
-    await markdownPreview.waitFor({ state: 'visible', timeout: 20_000 });
-    const operatorSummaryHeading = markdownPreview.getByRole('heading', { name: 'Relational Operator Definition Summary' });
-    await operatorSummaryHeading.waitFor({ state: 'visible', timeout: 20_000 });
-    await markdownPreview.locator('.katex-display').first().waitFor({ state: 'visible', timeout: 20_000 });
-    await markdownPreview.evaluate((panel: HTMLElement) => {
-      const heading = Array.from(panel.querySelectorAll<HTMLElement>('h2')).find(element => (
-        element.textContent?.includes('Relational Operator Definition Summary')
-      ));
-      if (heading instanceof HTMLElement) panel.scrollTop = Math.max(0, heading.offsetTop - 24);
-    });
-    await Promise.all([
-      codexAgentId,
-      terminalAgentId,
-      claudeAgentId,
-      shellAgentId,
-    ].map(agentId => updateAgent(page, baseUrl, agentId, { unread: false })));
-    await page.waitForFunction(() => !document.querySelector('.code-agent-unread, .code-project-agent-compact-unread'));
-    await waitForStableUi(page, 1000);
-    if (requestedScreenshotFiles.size === 0 || requestedScreenshotFiles.has('21-code-share-file.png')) {
-      await page.getByTestId('code-file-editor-share').click();
-      await page.getByTestId('code-copy-toast').waitFor({ state: 'visible', timeout: 20_000 });
-      await screenshot(page, '21-code-share-file.png');
-      if (requestedScreenshotsComplete()) return;
-    }
-    await screenshot(page, '04-files-markdown-preview.png');
-    if (requestedScreenshotsComplete()) return;
-
-    if (requestedScreenshotFiles.size === 0 || requestedScreenshotFiles.has('23-code-files-html-chat.png')) {
-      await openAgent(page, codexAgentId);
-      const farmingHomeFile = filesSection.locator('[data-testid="code-file-row"][data-file-path="docs/farming-home.html"]');
-      await farmingHomeFile.waitFor({ state: 'visible', timeout: 20_000 });
-      await farmingHomeFile.click();
-      const htmlPreview = page.getByTestId('code-file-html-preview');
-      await htmlPreview.waitFor({ state: 'visible', timeout: 20_000 });
-      const htmlFrame = page.frameLocator('[data-testid="code-file-html-preview"]');
-      await htmlFrame.getByRole('img', { name: documentationSiteTitle(), exact: true })
-        .waitFor({ state: 'visible', timeout: 20_000 });
+    const shouldCaptureFileScreenshots = requestedScreenshotFiles.size === 0
+      || ['04-files-markdown-preview.png', '21-code-share-file.png', '23-code-files-html-chat.png']
+        .some(fileName => requestedScreenshotFiles.has(fileName));
+    if (shouldCaptureFileScreenshots) {
+      const filesSection = page.getByTestId('code-files-section').first();
+      const filesToggle = filesSection.getByRole('button', { name: /^Files$/ });
+      if (await filesToggle.getAttribute('aria-expanded') === 'false') await filesToggle.click();
+      const docsDirectory = filesSection.locator('[data-testid="code-file-row"][data-file-path="docs"]');
+      await docsDirectory.waitFor({ state: 'visible', timeout: 20_000 });
+      if (await docsDirectory.getAttribute('aria-expanded') === 'false') await docsDirectory.click();
+      const relationalOperatorsFile = filesSection.locator('[data-testid="code-file-row"][data-file-path="docs/relational-operators.md"]');
+      await relationalOperatorsFile.waitFor({ state: 'visible', timeout: 20_000 });
+      await relationalOperatorsFile.click();
+      const markdownPreview = page.getByTestId('code-file-markdown-preview');
       const fileEditor = page.getByTestId('code-file-editor');
-      await fileEditor.getByRole('button', { name: 'Show Agent beside resource' }).click();
-      await page.getByTestId('code-main').waitFor({ state: 'visible', timeout: 20_000 });
-      await page.waitForFunction(() => document.querySelector('[data-testid="code-main"]')?.classList.contains('resource-agent-side-open'));
-      await page.getByTestId('code-agent-chat-view').waitFor({ state: 'visible', timeout: 20_000 });
-      await projectDocsPreviewChat(page);
-      await page.getByRole('heading', { name: screenshotLocale === 'en' ? 'Documentation home updated' : '文档首页已更新' })
-        .waitFor({ state: 'visible', timeout: 20_000 });
-      await screenshot(page, '23-code-files-html-chat.png');
+      await fileEditor.waitFor({ state: 'visible', timeout: 20_000 });
+      const previewToggle = fileEditor.locator('.code-file-editor-action.source-preview');
+      if (await previewToggle.getAttribute('aria-pressed') !== 'true') {
+        await previewToggle.click();
+      }
+      await markdownPreview.waitFor({ state: 'visible', timeout: 20_000 });
+      const operatorSummaryHeading = markdownPreview.getByRole('heading', { name: 'Relational Operator Definition Summary' });
+      await operatorSummaryHeading.waitFor({ state: 'visible', timeout: 20_000 });
+      await markdownPreview.locator('.katex-display').first().waitFor({ state: 'visible', timeout: 20_000 });
+      await markdownPreview.evaluate((panel: HTMLElement) => {
+        const heading = Array.from(panel.querySelectorAll<HTMLElement>('h2')).find(element => (
+          element.textContent?.includes('Relational Operator Definition Summary')
+        ));
+        if (heading instanceof HTMLElement) panel.scrollTop = Math.max(0, heading.offsetTop - 24);
+      });
+      await Promise.all([
+        codexAgentId,
+        terminalAgentId,
+        claudeAgentId,
+        shellAgentId,
+      ].map(agentId => updateAgent(page, baseUrl, agentId, { unread: false })));
+      await page.waitForFunction(() => !document.querySelector('.code-agent-unread, .code-project-agent-compact-unread'));
+      await waitForStableUi(page, 1000);
+      if (requestedScreenshotFiles.size === 0 || requestedScreenshotFiles.has('21-code-share-file.png')) {
+        await page.getByTestId('code-file-editor-share').click();
+        await page.getByTestId('code-copy-toast').waitFor({ state: 'visible', timeout: 20_000 });
+        await screenshot(page, '21-code-share-file.png');
+        if (requestedScreenshotsComplete()) return;
+      }
+      await screenshot(page, '04-files-markdown-preview.png');
       if (requestedScreenshotsComplete()) return;
-      await fileEditor.getByRole('button', { name: 'Hide Agent beside resource' }).click();
+
+      if (requestedScreenshotFiles.size === 0 || requestedScreenshotFiles.has('23-code-files-html-chat.png')) {
+        await openAgent(page, codexAgentId);
+        const farmingHomeFile = filesSection.locator('[data-testid="code-file-row"][data-file-path="docs/farming-home.html"]');
+        await farmingHomeFile.waitFor({ state: 'visible', timeout: 20_000 });
+        await farmingHomeFile.dblclick();
+        const htmlPreviewToggle = fileEditor.locator('.code-file-editor-action.source-preview');
+        await htmlPreviewToggle.waitFor({ state: 'visible', timeout: 20_000 });
+        if (await htmlPreviewToggle.getAttribute('aria-pressed') !== 'true') {
+          await htmlPreviewToggle.click();
+        }
+        const htmlPreview = page.getByTestId('code-file-html-preview');
+        await htmlPreview.waitFor({ state: 'visible', timeout: 20_000 });
+        const htmlFrame = page.frameLocator('[data-testid="code-file-html-preview"]');
+        await htmlFrame.getByRole('img', { name: documentationSiteTitle(), exact: true })
+          .waitFor({ state: 'visible', timeout: 20_000 });
+        await fileEditor.getByRole('button', { name: 'Show Agent beside resource' }).click();
+        await page.getByTestId('code-main').waitFor({ state: 'visible', timeout: 20_000 });
+        await page.waitForFunction(() => document.querySelector('[data-testid="code-main"]')?.classList.contains('resource-agent-side-open'));
+        await page.getByTestId('code-agent-chat-view').waitFor({ state: 'visible', timeout: 20_000 });
+        await projectDocsPreviewChat(page);
+        await page.getByRole('heading', { name: screenshotLocale === 'en' ? 'Documentation home updated' : '文档首页已更新' })
+          .waitFor({ state: 'visible', timeout: 20_000 });
+        await screenshot(page, '23-code-files-html-chat.png');
+        if (requestedScreenshotsComplete()) return;
+        await fileEditor.getByRole('button', { name: 'Hide Agent beside resource' }).click();
+      }
     }
 
     const shouldCaptureBrowserDocumentation = requestedScreenshotFiles.size === 0
@@ -1881,6 +1940,7 @@ async function main() {
             throw new Error(`failed to create documentation Browser: ${createResponse.status()} ${await createResponse.text()}`);
           }
           const createdBrowser = await createResponse.json();
+          createdBrowserResourceIds.add(String(createdBrowser.id));
           const startResponse = await page.request.post(`${baseUrl}${basePath}/api/browsers/${encodeURIComponent(createdBrowser.id)}/start`);
           if (!startResponse.ok()) {
             throw new Error(`failed to start documentation Browser: ${startResponse.status()} ${await startResponse.text()}`);
@@ -1912,11 +1972,7 @@ async function main() {
           const addressInput = viewer.getByRole('textbox', { name: 'Browser address' });
           await addressInput.waitFor({ state: 'visible', timeout: 20_000 });
           const publicDisplayUrl = documentationSite.publicUrl;
-          await addressInput.evaluate((element, value) => {
-            const input = element as HTMLInputElement;
-            input.value = value;
-            input.setAttribute('value', value);
-          }, publicDisplayUrl);
+          await addressInput.fill(publicDisplayUrl);
           await browserRow.evaluate((element, value) => {
             const subtitle = element.querySelector('.farming-browser-row-detail');
             if (subtitle) subtitle.textContent = value;
@@ -1931,6 +1987,7 @@ async function main() {
 
     await openAgent(page, terminalAgentId);
     await writeTerminalFixture(page, terminalAgentId, `\u001b[2J\u001b[H${createWorkspaceTerminalTranscript()}`);
+    await waitForTerminalVisualContent(page, terminalAgentId, '$ git status --short');
     await page.getByTestId('code-composer-model-picker').click();
     await page.getByTestId('code-model-matrix-picker').waitFor({ state: 'visible', timeout: 20_000 });
     await screenshot(page, '07-live-model-controls.png');
@@ -1939,6 +1996,7 @@ async function main() {
     const composerCollapse = page.getByTestId('code-composer-collapse');
     if (await composerCollapse.isVisible()) await composerCollapse.evaluate(element => element.click());
     await page.getByTestId('code-composer-restore-bar').waitFor({ state: 'visible', timeout: 20_000 });
+    await waitForTerminalVisualContent(page, terminalAgentId, '$ git status --short');
     await screenshot(page, '12-code-terminal-session.png');
 
     await page.getByTestId('code-nav-search').click();
@@ -2216,6 +2274,18 @@ async function main() {
     console.log(`Farming Code screenshots written to ${screenshotDir}`);
     console.log(`Farming CRT screenshots written to ${crtScreenshotDir}`);
   } finally {
+    for (const browserId of createdBrowserResourceIds) {
+      try {
+        const response = await fetch(`${baseUrl}${basePath}/api/browsers/${encodeURIComponent(browserId)}`, {
+          method: 'DELETE',
+        });
+        if (!response.ok) {
+          console.warn(`Failed to delete screenshot Browser ${browserId}: HTTP ${response.status}`);
+        }
+      } catch (error) {
+        console.warn(`Failed to delete screenshot Browser ${browserId}:`, error);
+      }
+    }
     if (browser) await browser.close();
     serverProcess.kill('SIGTERM');
     documentationSite?.process.kill('SIGTERM');

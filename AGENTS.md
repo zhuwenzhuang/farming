@@ -258,6 +258,12 @@ npm run test:e2e:playwright
   that combines the affected surfaces.
 - For visible interaction changes, verify the real UI and update focused
   Playwright screenshots when practical.
+- Capture product screenshots and videos through checked-in scripts or focused
+  automated scenarios, not by manually timing the UI. Wait for the exact
+  visible content, preserve pointer movement and clicks in interaction videos,
+  verify the produced dimensions and frames, and clean up the exact browser,
+  resource, process, and temporary state created by each run. Treat blank or
+  partial captures and leaked capture processes as bugs in the automation.
 
 See [Contributing](CONTRIBUTING.md) for the ordinary workflow and the canonical
 development and product documents for subsystem-specific gates.

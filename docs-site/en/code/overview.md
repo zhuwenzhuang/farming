@@ -2,7 +2,7 @@
 
 Farming Code is the default browser workspace. Start or continue Agents here, and inspect Files, Chat, Terminal, and History in one interface.
 
-<ThemeImage light="/cn/assets/welcome.png" dark="/cn/assets/welcome-dark.png" paper="/cn/assets/welcome-paper.png" alt="Complete Farming Code welcome screen" />
+<ThemeImage light="/en/assets/welcome.png" dark="/en/assets/welcome-dark.png" paper="/en/assets/welcome-paper.png" alt="Complete Farming Code welcome screen" />
 
 See the [glossary](../help/glossary) whenever a product term is unfamiliar.
 

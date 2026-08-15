@@ -52,24 +52,95 @@ const highQualityScreenshotFiles = [
   'existing-chrome-menu.png',
   'existing-chrome-remove.png',
 ]
+const cnRetinaScreenshotMinimums = new Map()
+const enRetinaScreenshotMinimums = new Map()
+
+function addThemeScreenshotMinimums(target, fileName, minimumWidth, minimumHeight) {
+  const stem = fileName.replace(/\.png$/, '')
+  target.set(`${stem}.png`, [minimumWidth, minimumHeight])
+  target.set(`${stem}-dark.png`, [minimumWidth, minimumHeight])
+  target.set(`${stem}-paper.png`, [minimumWidth, minimumHeight])
+}
+
+for (const [fileName, minimumWidth, minimumHeight] of [
+  ['agent-homes.png', 2880, 1620],
+  ['browser-plugin.png', 2280, 1300],
+  ['browser-viewer.png', 2880, 1620],
+  ['chat.png', 2280, 1620],
+  ['desktop-connections.png', 2880, 1620],
+  ['files-html-preview-chat.png', 2880, 1620],
+  ['files-relational-operators-20260806.png', 2880, 1620],
+  ['history.png', 2280, 1620],
+  ['mobile-chat.png', 780, 1688],
+  ['model-controls.png', 2280, 1620],
+  ['pet-soft-glow.png', 2880, 1620],
+  ['search.png', 2280, 1620],
+  ['settings.png', 1040, 860],
+  ['share-chat.png', 2280, 1620],
+  ['share-file.png', 2280, 1620],
+  ['share-qr.png', 1300, 1240],
+  ['start-agent.png', 2880, 1620],
+  ['terminal-20260806.png', 2280, 1620],
+  ['usage-activity.png', 2880, 1920],
+  ['welcome.png', 2880, 1620],
+]) {
+  addThemeScreenshotMinimums(cnRetinaScreenshotMinimums, fileName, minimumWidth, minimumHeight)
+}
+
+for (const [fileName, minimumWidth, minimumHeight] of [
+  ['browser-viewer.png', 2880, 1620],
+  ['files-html-preview-chat.png', 2880, 1620],
+  ['welcome.png', 2880, 1620],
+]) {
+  addThemeScreenshotMinimums(enRetinaScreenshotMinimums, fileName, minimumWidth, minimumHeight)
+}
+
+for (const [fileName, minimums] of [
+  ['crt-chat.png', [2880, 1620]],
+  ['crt-dashboard.png', [2880, 1620]],
+  ['crt-terminal-20260806.png', [2880, 1620]],
+  ['crt-usage-20260806.png', [2880, 1920]],
+  ['pet-black-hole.png', [2880, 1620]],
+  ['workspace.png', [2880, 1620]],
+  ['workspace-dark.png', [2880, 1620]],
+]) {
+  cnRetinaScreenshotMinimums.set(fileName, minimums)
+}
 const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+
+function verifyPngMinimum(locale, fileName, minimumWidth, minimumHeight, missingMessage) {
+  const file = path.join(publicRoot, locale, 'assets', fileName)
+  if (!fs.existsSync(file)) {
+    failures.push(`${locale}/assets/${fileName} is missing; ${missingMessage}`)
+    return
+  }
+  const image = fs.readFileSync(file)
+  if (image.length < 24 || !image.subarray(0, pngSignature.length).equals(pngSignature)) {
+    failures.push(`${locale}/assets/${fileName} must be a real lossless PNG`)
+    return
+  }
+  const width = image.readUInt32BE(16)
+  const height = image.readUInt32BE(20)
+  if (width < minimumWidth || height < minimumHeight) {
+    failures.push(`${locale}/assets/${fileName} is only ${width}x${height}; regenerate it at 2x resolution`)
+  }
+  if (fileName.startsWith('terminal-20260806') && image.length < 25_000) {
+    failures.push(`${locale}/assets/${fileName} is too small to contain the rendered terminal transcript; recapture the WebGL terminal`)
+  }
+}
+
 for (const locale of ['cn', 'en']) {
   for (const fileName of highQualityScreenshotFiles) {
-    const file = path.join(publicRoot, locale, 'assets', fileName)
-    if (!fs.existsSync(file)) {
-      failures.push(`${locale}/assets/${fileName} is missing; regenerate the existing Chrome screenshots`)
-      continue
-    }
-    const image = fs.readFileSync(file)
-    if (image.length < 24 || !image.subarray(0, pngSignature.length).equals(pngSignature)) {
-      failures.push(`${locale}/assets/${fileName} must be a real lossless PNG`)
-      continue
-    }
-    const width = image.readUInt32BE(16)
-    const height = image.readUInt32BE(20)
-    if (width < 1600 || height < 500) {
-      failures.push(`${locale}/assets/${fileName} is only ${width}x${height}; regenerate it at 2x resolution`)
-    }
+    verifyPngMinimum(locale, fileName, 1600, 500, 'regenerate the existing Chrome screenshots')
+  }
+}
+
+for (const [locale, minimums] of [
+  ['cn', cnRetinaScreenshotMinimums],
+  ['en', enRetinaScreenshotMinimums],
+]) {
+  for (const [fileName, [minimumWidth, minimumHeight]] of minimums) {
+    verifyPngMinimum(locale, fileName, minimumWidth, minimumHeight, 'regenerate the public product screenshots')
   }
 }
 
