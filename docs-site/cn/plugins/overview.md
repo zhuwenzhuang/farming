@@ -31,9 +31,9 @@ description: 了解 Farming 插件页面中的内置能力、Agent Homes、Agent
     <strong>Computer Use（实验性）</strong>
     <span>实验性完整桌面操作与控制权交接。</span>
   </a>
-  <a class="docs-card" href="../experimental/language-server">
+  <a class="docs-card" href="../code/language-server">
     <strong>Language Server</strong>
-    <span>实验性代码跳转、引用、符号与诊断。</span>
+    <span>代码跳转、引用、调用层次、符号与诊断。</span>
   </a>
   <a class="docs-card" href="../experimental/desktop">
     <strong>Farming Desktop</strong>
@@ -41,7 +41,7 @@ description: 了解 Farming 插件页面中的内置能力、Agent Homes、Agent
   </a>
 </div>
 
-实验性功能仍从插件页面进入，但文档会明确标出当前状态和限制。它们不会因为出现在插件列表中就自动启用。
+Computer Use 与 Farming Desktop 仍会明确标出实验状态。Language Server 默认启用，并在受支持的代码文件需要语义能力时按需启动。
 
 ## Agent 扩展
 

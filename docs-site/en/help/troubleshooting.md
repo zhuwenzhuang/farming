@@ -72,9 +72,13 @@ Restart Farming and confirm the actual version in Settings.
 
 Confirm that the path belongs to the current Project Workspace and does not escape through a symlink. Narrow large searches by path and query.
 
+## Language Server is unavailable
+
+Open **Plugins → Farming** and check the Server state and Project for that language. Save the file before retrying cross-file navigation or hierarchy queries.
+
 ## Experimental capability fails
 
-Desktop, Computer Use, and Language Server may fail because of dependencies, remote environments, toolchains, or limited real-world coverage. Mark the report as experimental and include prerequisites, steps, and visible errors.
+Desktop and Computer Use may be unavailable when dependencies or remote-environment prerequisites are missing. Mark the report as experimental and include prerequisites, steps, and visible errors.
 
 ## Report an issue
 

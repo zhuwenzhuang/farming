@@ -71,6 +71,8 @@ for (const [fileName, minimumWidth, minimumHeight] of [
   ['files-html-preview-chat.png', 2880, 1620],
   ['files-relational-operators-20260806.png', 2880, 1620],
   ['history.png', 2280, 1620],
+  ['language-server-call-hierarchy.png', 2880, 1620],
+  ['language-server-settings.png', 2880, 1620],
   ['mobile-chat.png', 780, 1688],
   ['model-controls.png', 2280, 1620],
   ['pet-soft-glow.png', 2880, 1620],
@@ -80,7 +82,7 @@ for (const [fileName, minimumWidth, minimumHeight] of [
   ['share-file.png', 2280, 1620],
   ['share-qr.png', 1300, 1240],
   ['start-agent.png', 2880, 1620],
-  ['terminal-20260806.png', 2280, 1620],
+  ['terminal-20260806.png', 2880, 1620],
   ['usage-activity.png', 2880, 1920],
   ['welcome.png', 2880, 1620],
 ]) {
@@ -90,6 +92,8 @@ for (const [fileName, minimumWidth, minimumHeight] of [
 for (const [fileName, minimumWidth, minimumHeight] of [
   ['browser-viewer.png', 2880, 1620],
   ['files-html-preview-chat.png', 2880, 1620],
+  ['language-server-call-hierarchy.png', 2880, 1620],
+  ['language-server-settings.png', 2880, 1620],
   ['welcome.png', 2880, 1620],
 ]) {
   addThemeScreenshotMinimums(enRetinaScreenshotMinimums, fileName, minimumWidth, minimumHeight)
@@ -124,7 +128,8 @@ function verifyPngMinimum(locale, fileName, minimumWidth, minimumHeight, missing
   if (width < minimumWidth || height < minimumHeight) {
     failures.push(`${locale}/assets/${fileName} is only ${width}x${height}; regenerate it at 2x resolution`)
   }
-  if (fileName.startsWith('terminal-20260806') && image.length < 25_000) {
+  if ((fileName.startsWith('terminal-20260806') || fileName.startsWith('crt-terminal-20260806'))
+    && image.length < 25_000) {
     failures.push(`${locale}/assets/${fileName} is too small to contain the rendered terminal transcript; recapture the WebGL terminal`)
   }
 }

@@ -50,6 +50,7 @@ const zhSidebar = [
     { text: '概览', link: '/cn/code/overview' },
     { text: '项目与 Agent', link: '/cn/code/projects-and-agents' },
     { text: 'Files', link: '/cn/code/files' },
+    { text: 'Language Server', link: '/cn/code/language-server' },
     { text: 'Chat', link: '/cn/code/chat' },
     { text: 'Terminal', link: '/cn/code/terminal' },
     { text: 'Token 使用', link: '/cn/code/usage' },
@@ -84,7 +85,6 @@ const zhSidebar = [
     { text: '实验性功能', collapsed: false, items: [
       { text: 'Farming Desktop', link: '/cn/experimental/desktop' },
       { text: 'Computer Use', link: '/cn/experimental/computer-use' },
-      { text: 'Language Server', link: '/cn/experimental/language-server' },
     ] },
   ] },
   { text: '帮助', items: [
@@ -103,6 +103,7 @@ const enSidebar = [
     { text: 'Overview', link: '/en/code/overview' },
     { text: 'Projects and Agents', link: '/en/code/projects-and-agents' },
     { text: 'Files', link: '/en/code/files' },
+    { text: 'Language Server', link: '/en/code/language-server' },
     { text: 'Chat', link: '/en/code/chat' },
     { text: 'Terminal', link: '/en/code/terminal' },
     { text: 'Token usage', link: '/en/code/usage' },
@@ -137,7 +138,6 @@ const enSidebar = [
     { text: 'Experimental features', collapsed: false, items: [
       { text: 'Farming Desktop', link: '/en/experimental/desktop' },
       { text: 'Computer Use', link: '/en/experimental/computer-use' },
-      { text: 'Language Server', link: '/en/experimental/language-server' },
     ] },
   ] },
   { text: 'Help', items: [

@@ -62,9 +62,9 @@ hero:
 - [Plugin overview](./plugins/overview): manage built-in Farming capabilities, Agent Homes, and Agent extensions.
 - [Agent Homes](./plugins/agent-homes): configure multiple Homes for one coding Agent and switch accounts or configurations cleanly.
 - [Farming Browser](./browser/overview): enable it when an Agent needs to operate a web page.
+- [Language Server](./code/language-server): add definitions, references, call hierarchy, and diagnostics to Files.
 - [Computer Use (experimental)](./experimental/computer-use): let an Agent operate an isolated graphical desktop.
 - [Farming Desktop (experimental)](./experimental/desktop): connect to and switch among several Farming backends.
-- [Language Server (experimental)](./experimental/language-server): add definitions, references, and diagnostics to Files.
 
 Experimental features may still change. Start with recoverable, non-critical tasks.
 

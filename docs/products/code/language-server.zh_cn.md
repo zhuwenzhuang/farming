@@ -2,7 +2,7 @@
 
 > English version: [language-server.md](./language-server.md)
 
-用户指南：[Language Server（实验性）](https://zhuwenzhuang.github.io/farming/cn/experimental/language-server)。
+用户指南：[Language Server](https://zhuwenzhuang.github.io/farming/cn/code/language-server)。
 本文继续作为后端权威性、生命周期和验收契约。
 
 状态：Farming 托管、面向代码查看的能力。

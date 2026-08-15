@@ -28,9 +28,11 @@ Chat 以结构化方式展示 Agent 过程和结果；Terminal 提供真实 PTY 
 
 取决于你选择的 Browser Source 和 Profile。只应把某个 Project 确实需要的账号交给 Agent，不同 Agent 不会默认共享 Cookie 和 Storage。
 
-## 为什么看不到 Computer Use 或 Language Server？
+## 为什么某种 Language Server 能力没有出现？
 
-它们是实验性功能，只在运行环境满足真实前置条件时显示。缺少依赖或初始化失败时，Farming 会明确说明，而不是提供未经验证的替代实现。
+Language Server 默认启用，但具体能力取决于语言、Project 和当前 Server。打开 **插件 → Farming** 查看 Server 是否正在运行、已经可用、可以自动安装或尚未安装。
+
+Computer Use 仍是实验性功能，只在远端 Docker 桌面等前置条件满足时显示。
 
 ## Farming 支持 Windows 吗？
 

@@ -90,9 +90,13 @@ npm install --global farming-code@latest
 
 确认路径属于当前 Project Workspace，没有通过符号链接逃出授权根目录。大型搜索应缩小路径和关键词。
 
+## Language Server 不可用
+
+打开 **插件 → Farming**，检查对应语言的 Server 状态和 Project。代码存在未保存修改时，先保存文件再重试跨文件跳转或层次查询。
+
 ## 实验性功能失败
 
-Farming Desktop、Computer Use 和 Language Server 可能因为依赖、远程环境、语言工具链或真实案例覆盖不足而不可用。问题报告中明确标注“实验性”，并提供环境、前置条件、复现步骤和可见错误。
+Farming Desktop 和 Computer Use 可能因为依赖或远程环境不满足而不可用。问题报告中明确标注“实验性”，并提供环境、前置条件、复现步骤和可见错误。
 
 ## 报告问题
 

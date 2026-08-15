@@ -65,4 +65,4 @@ Git History 与 Agent History 是两件事：前者来自项目的 Git 仓库，
 
 Blame 可以帮助理解一行代码来自何时、由谁修改。它是调查线索，不等于当前设计意图；需要结合代码、测试和当前文档判断。
 
-Files 展示的是 Farming Host 上的实际文件。实验性的 Language Server 语义能力另见 [Language Server](../experimental/language-server)。
+Files 展示的是 Farming Host 上的实际文件。代码跳转、引用、调用层次与诊断见 [Language Server](./language-server)。

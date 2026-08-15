@@ -28,9 +28,11 @@ Chat structures progress and results. Terminal provides a real PTY and native CL
 
 It depends on the Browser source and Profile. Give an Agent only accounts required by its Project. Agents do not share Cookies and Storage by default.
 
-## Why is Computer Use or Language Server missing?
+## Why is a Language Server action missing?
 
-They are experimental and appear only when real prerequisites are satisfied. Missing dependencies and initialization failures are shown explicitly.
+Language Server support is enabled by default, but available actions depend on the language, Project, and active Server. Open **Plugins → Farming** to see whether that Server is running, available, installable, or missing.
+
+Computer Use remains experimental and appears only when prerequisites such as a remote Docker desktop are satisfied.
 
 ## Does Farming support Windows?
 

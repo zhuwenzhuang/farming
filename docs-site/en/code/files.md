@@ -58,4 +58,4 @@ Git History comes from the repository; Agent History is used to find and resume 
 
 Blame is a useful investigation clue, not proof of current design intent. Combine it with code, tests, and current documentation.
 
-Files shows actual files on the Farming Host. Experimental semantic features are described under [Language Server](../experimental/language-server).
+Files shows actual files on the Farming Host. See [Language Server](./language-server) for definitions, references, call hierarchy, and diagnostics.

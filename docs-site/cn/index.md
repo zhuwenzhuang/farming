@@ -74,9 +74,9 @@ hero:
 - [插件概览](./plugins/overview)：统一管理 Farming 内置能力、Agent Homes 与 Agent 扩展。
 - [Agent Homes](./plugins/agent-homes)：为同一种 Coding Agent 配置多套 Home，更方便地切换账号与配置。
 - [Farming Browser](./browser/overview)：需要 Agent 操作网页时再启用。
+- [Language Server](./code/language-server)：在 Files 中提供代码跳转、引用、调用层次和诊断。
 - [Computer Use（实验性）](./experimental/computer-use)：让 Agent 操作隔离的图形桌面。
 - [Farming Desktop（实验性）](./experimental/desktop)：在桌面应用中连接并切换多个 Farming 后端。
-- [Language Server（实验性）](./experimental/language-server)：在 Files 中提供代码跳转、引用和诊断。
 
 实验性功能仍可能变化，建议先用于可恢复、非关键的任务。
 

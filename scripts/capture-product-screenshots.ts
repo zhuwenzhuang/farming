@@ -6,13 +6,15 @@ const fs = require('node:fs');
 const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
+const { pathToFileURL } = require('node:url');
 const { chromium } = require('@playwright/test');
 const tsxCliPath = require.resolve('tsx/cli');
 
 const repoRoot = path.resolve(__dirname, '..');
 const packageVersion = require(path.join(repoRoot, 'package.json')).version;
-const screenshotTmpRoot = process.env.FARMING_SCREENSHOT_TMP_ROOT
+const configuredScreenshotTmpRoot = process.env.FARMING_SCREENSHOT_TMP_ROOT
   || (process.platform === 'win32' ? os.tmpdir() : '/tmp');
+const screenshotTmpRoot = fs.realpathSync(configuredScreenshotTmpRoot);
 const demoRoot = path.join(screenshotTmpRoot, 'farming-product-demo');
 const configDir = path.join(demoRoot, 'config');
 const homeDir = path.join(demoRoot, 'home');
@@ -46,7 +48,7 @@ const publicCodeScreenshotSpecs = new Map<string, PublicScreenshotSpec>([
   ['08-history-search.png', { fileName: 'history.png', clip: { x: 300, y: 0, width: 1140, height: 810 } }],
   ['09-dark-workspace.png', { fileName: 'workspace-dark.png' }],
   ['11-code-agent-process.png', { fileName: 'chat.png', clip: { x: 300, y: 0, width: 1140, height: 810 } }],
-  ['12-code-terminal-session.png', { fileName: 'terminal-20260806.png', clip: { x: 300, y: 0, width: 1140, height: 810 } }],
+  ['12-code-terminal-session.png', { fileName: 'terminal-20260806.png' }],
   ['13-code-search.png', { fileName: 'search.png', clip: { x: 300, y: 0, width: 1140, height: 810 } }],
   ['14-code-settings.png', { fileName: 'settings.png', clip: { x: 920, y: 0, width: 520, height: 430 } }],
   ['15-code-usage-activity.png', { fileName: 'usage-activity.png' }],
@@ -60,6 +62,8 @@ const publicCodeScreenshotSpecs = new Map<string, PublicScreenshotSpec>([
   ['23-code-files-html-chat.png', { fileName: 'files-html-preview-chat.png', publicOnly: true }],
   ['24-code-browser-docs.png', { fileName: 'browser-viewer.png', publicOnly: true }],
   ['25-code-browser-plugin.png', { fileName: 'browser-plugin.png', publicOnly: true, clip: { x: 300, y: 0, width: 1140, height: 650 } }],
+  ['30-code-language-server-settings.png', { fileName: 'language-server-settings.png', publicOnly: true }],
+  ['31-code-language-server-call-hierarchy.png', { fileName: 'language-server-call-hierarchy.png', publicOnly: true }],
 ]);
 const publicCrtScreenshotSpecs = new Map<string, PublicScreenshotSpec>([
   ['01-crt-dashboard.png', { fileName: 'crt-dashboard.png' }],
@@ -91,6 +95,10 @@ const existingChromeScreenshotFiles = new Map([
 const documentationHomeScreenshots = new Set([
   '23-code-files-html-chat.png',
   '24-code-browser-docs.png',
+]);
+const languageServerDocumentationScreenshots = new Set([
+  '30-code-language-server-settings.png',
+  '31-code-language-server-call-hierarchy.png',
 ]);
 const requestedScreenshotFiles = new Set(
   String(process.env.FARMING_SCREENSHOT_FILES || '')
@@ -162,29 +170,34 @@ function run(command: string, args: string[], options: RunOptions = {}): void {
   });
 }
 
-function commandOutput(command: string, args: string[], cwd = workspaceDir): string {
-  return execFileSync(command, args, {
-    cwd,
-    env: process.env,
-    encoding: 'utf8',
-  }).trimEnd();
-}
-
-function createWorkspaceTerminalTranscript(): string {
+function createCodingAgentTerminalTranscript(): string {
   return [
-    '$ git log --oneline -3',
-    commandOutput('git', ['log', '--oneline', '-3']),
+    '\u001b[1m╭──────────────────────────────────────────────────────────────────────────────╮\u001b[0m',
+    '\u001b[1m│ >_ OpenAI Codex                                                             │\u001b[0m',
+    '│                                                                              │',
+    '│ model:     gpt-5.6-terra medium                                              │',
+    '│ directory: ~/Projects/atlas-control-plane                                    │',
+    '\u001b[1m╰──────────────────────────────────────────────────────────────────────────────╯\u001b[0m',
     '',
-    '$ git diff --stat',
-    commandOutput('git', ['diff', '--stat']),
+    '\u001b[1m› Fix duplicate results when adjacent API pages overlap. Keep the current retry\u001b[0m',
+    '\u001b[1m  policy and run the focused tests.\u001b[0m',
     '',
-    '$ git diff --check',
-    'no whitespace errors',
+    '• I’ll trace the page merge path and its tests first.',
+    '  └ Read src/pagination.ts',
+    '    Read tests/pagination.spec.ts',
     '',
-    '$ git status --short',
-    commandOutput('git', ['status', '--short']),
+    '• Updated src/pagination.ts \u001b[32m(+8 -2)\u001b[0m',
+    '  └ Skip IDs already seen before appending the next page.',
     '',
-    '$',
+    '• Ran npm test -- pagination',
+    '  └ \u001b[32m12 tests passed\u001b[0m in 1.8s',
+    '',
+    '• Adjacent pages now merge without duplicate records. The retry policy is',
+    '  unchanged, and the focused pagination suite passes.',
+    '',
+    '  Tests: npm test -- pagination',
+    '',
+    '\u001b[2m› Ask Codex to do anything\u001b[0m',
   ].join('\r\n');
 }
 
@@ -660,6 +673,10 @@ async function waitForTerminalVisualContent(page, agentId, expectedText) {
   const pane = page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${agentId}"]`);
   await pane.waitFor({ state: 'visible', timeout: 20_000 });
   await pane.getByTestId('code-terminal-container').click({ position: { x: 24, y: 24 } });
+  await waitForTerminalRowsAndInk(page, agentId, expectedText);
+}
+
+async function waitForTerminalRowsAndInk(page, agentId, expectedText) {
   await page.waitForFunction(
     ({ id, expected }) => {
       const terminal = (window as unknown as {
@@ -674,6 +691,66 @@ async function waitForTerminalVisualContent(page, agentId, expectedText) {
     { id: agentId, expected: expectedText },
     { timeout: 20_000 },
   );
+}
+
+async function switchCodeAgentRuntime(page, agentId, mode) {
+  const responsePromise = page.waitForResponse(response => (
+    response.request().method() === 'PATCH'
+    && response.url().includes(`/api/agents/${encodeURIComponent(agentId)}`)
+  ));
+  const pane = page.locator(`[data-testid="code-agent-work-pane"][data-agent-id="${agentId}"]`);
+  await pane.getByTestId('code-terminal-mode-toggle')
+    .getByRole('button', { name: mode === 'chat' ? 'Chat' : 'Terminal' })
+    .click();
+  const response = await responsePromise;
+  const data = await response.json();
+  if (!response.ok() || data.switchFailed) {
+    throw new Error(data.error || `failed to switch Agent ${agentId} to ${mode}`);
+  }
+  const restartedAgentId = data.restartedAgentId || agentId;
+  const restartedPane = page.locator(`[data-testid="code-agent-work-pane"][data-agent-id="${restartedAgentId}"]`);
+  await restartedPane.waitFor({ state: 'visible', timeout: 30_000 });
+  await restartedPane.getByTestId('code-permission-switching').waitFor({ state: 'hidden', timeout: 30_000 });
+  if (mode === 'terminal') {
+    await page.waitForFunction(id => {
+      const diagnostics = (window as unknown as {
+        __farmingTerminalTest?: {
+          getBufferDiagnostics: (agentId: string) => {
+            currentAttachment: boolean;
+            attachedMount: boolean;
+            replayInProgress: boolean;
+            bootstrappingSnapshot: boolean;
+            pendingSnapshotReplay: boolean;
+            queuedTransitions: number;
+          } | null;
+        };
+      }).__farmingTerminalTest?.getBufferDiagnostics(id);
+      return diagnostics?.currentAttachment === true
+        && diagnostics.attachedMount === true
+        && diagnostics.replayInProgress === false
+        && diagnostics.bootstrappingSnapshot === false
+        && diagnostics.pendingSnapshotReplay === false
+        && diagnostics.queuedTransitions === 0;
+    }, restartedAgentId, { timeout: 30_000 });
+  }
+  const restartingToast = page.getByText('Restarting Agent...', { exact: true });
+  await restartingToast.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+  await restartingToast.waitFor({ state: 'hidden', timeout: 30_000 });
+  return restartedAgentId;
+}
+
+async function switchCrtAgentToTerminal(page, agentId) {
+  const responsePromise = page.waitForResponse(response => (
+    response.request().method() === 'PATCH'
+    && response.url().includes(`/api/agents/${encodeURIComponent(agentId)}`)
+  ));
+  await page.getByRole('button', { name: 'Terminal view', exact: true }).click();
+  const response = await responsePromise;
+  const data = await response.json();
+  if (!response.ok() || data.switchFailed || data.agentRuntimeMode !== 'terminal') {
+    throw new Error(data.error || `failed to switch CRT Agent ${agentId} to Terminal`);
+  }
+  return data.restartedAgentId || agentId;
 }
 
 async function openSidebarOnMobile(page) {
@@ -716,6 +793,168 @@ async function openFile(page, query) {
   await waitForEditorReady(page);
 }
 
+async function captureLanguageServerDocumentationScreenshots(page, baseUrl) {
+  const releaseFilePath = path.join(workspaceDir, 'src', 'release.ts');
+  const workspaceUri = pathToFileURL(workspaceDir).toString();
+  let projectConnected = false;
+  const availableLanguages = [
+    { id: 'clangd', language: 'C / C++', server: 'clangd' },
+    { id: 'jdtls', language: 'Java', server: 'jdtls' },
+    { id: 'rust-analyzer', language: 'Rust', server: 'rust-analyzer' },
+    { id: 'sourcekit-lsp', language: 'Swift / Objective-C', server: 'sourcekit-lsp' },
+  ];
+  const missingLanguageNames = [
+    'Astro', 'C#', 'Clojure', 'Dart', 'Deno', 'Elixir', 'Erlang', 'F#', 'Go',
+    'Haskell', 'Julia', 'Kotlin', 'Lua', 'Nim', 'OCaml', 'Perl', 'PHP', 'PowerShell',
+    'Python', 'R', 'Ruby', 'Scala', 'SQL', 'Svelte', 'Terraform',
+    'TypeScript / JavaScript', 'Vue', 'YAML', 'Zig',
+  ];
+  const languageId = name => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+  await page.route(`**${basePath}/api/language-server/capability**`, route => {
+    const languages = [
+      ...availableLanguages.map(language => ({ ...language, status: 'available', projects: [] })),
+      ...missingLanguageNames.map(language => ({
+        id: languageId(language),
+        language,
+        server: language === 'TypeScript / JavaScript' ? 'typescript-language-server' : `${languageId(language)}-ls`,
+        status: projectConnected && language === 'TypeScript / JavaScript' ? 'running' : 'missing',
+        projects: projectConnected && language === 'TypeScript / JavaScript' ? [workspaceUri] : [],
+      })),
+    ];
+    return route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        enabled: true,
+        status: projectConnected ? 'connected' : 'ready',
+        source: 'managed',
+        detail: projectConnected
+          ? '33 built-in language definitions · 1 active server · 1 project'
+          : '33 built-in language definitions · servers start on demand',
+        features: ['definition', 'references', 'implementation', 'callHierarchy', 'typeHierarchy', 'diagnostics'],
+        workspaces: projectConnected ? [workspaceUri] : [],
+        connections: projectConnected
+          ? [{ id: 'typescript', root: workspaceUri, workspace: workspaceUri }]
+          : [],
+        languages,
+      }),
+    });
+  });
+
+  const hierarchyItem = (id, name, detail, line) => ({
+    id,
+    name,
+    detail,
+    kind: 12,
+    path: 'src/release.ts',
+    range: { start: { line, character: 0 }, end: { line, character: name.length } },
+    selectionRange: { start: { line, character: 0 }, end: { line, character: name.length } },
+  });
+  await page.route(`**${basePath}/api/language-server/request`, async route => {
+    const body = route.request().postDataJSON();
+    const result = body.method === 'prepareCallHierarchy'
+      ? [hierarchyItem('publish-release', 'publishRelease', 'async function', 0)]
+      : body.method === 'outgoingCalls' && body.itemId === 'publish-release'
+        ? [
+            { item: hierarchyItem('verify-documentation', 'verifyDocumentation', 'async function', 5), ranges: [] },
+            { item: hierarchyItem('verify-packages', 'verifyPackages', 'async function', 10), ranges: [] },
+          ]
+        : body.method === 'outgoingCalls' && body.itemId === 'verify-documentation'
+          ? [
+              { item: hierarchyItem('build-documentation', 'buildDocumentation', 'async function', 14), ranges: [] },
+              { item: hierarchyItem('verify-screenshots', 'verifyScreenshots', 'async function', 15), ranges: [] },
+            ]
+          : [];
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ result }) });
+  });
+
+  await page.request.post(`${baseUrl}${basePath}/api/settings`, {
+    data: { language: screenshotLocale === 'cn' ? 'zh' : 'en' },
+  });
+  await ensureApp(page);
+
+  if (requestedScreenshotFiles.size === 0
+    || requestedScreenshotFiles.has('30-code-language-server-settings.png')) {
+    await page.getByTestId('code-nav-plugins').click();
+    const card = page.getByTestId('code-plugin-language-server');
+    await card.waitFor({ state: 'visible', timeout: 20_000 });
+    await card.getByTestId('code-plugin-language-server-language-clojure').waitFor({ state: 'visible', timeout: 20_000 });
+    await positionLanguageServerSettingsScreenshot(page);
+    await screenshot(page, '30-code-language-server-settings.png');
+    if (requestedScreenshotsComplete()) return;
+  }
+
+  if (requestedScreenshotFiles.size === 0
+    || requestedScreenshotFiles.has('31-code-language-server-call-hierarchy.png')) {
+    fs.writeFileSync(releaseFilePath, [
+      'export async function publishRelease() {',
+      '  await verifyDocumentation()',
+      '  await verifyPackages()',
+      '}',
+      '',
+      'async function verifyDocumentation() {',
+      '  await buildDocumentation()',
+      '  await verifyScreenshots()',
+      '}',
+      '',
+      'async function verifyPackages() {',
+      '  await verifyChecksums()',
+      '}',
+      '',
+      'async function buildDocumentation() {}',
+      'async function verifyScreenshots() {}',
+      'async function verifyChecksums() {}',
+      '',
+    ].join('\n'));
+    projectConnected = true;
+    const agentId = await startAgent(page, baseUrl, {
+      command: 'bash',
+      workspace: workspaceDir,
+      task: '',
+      agentRuntimeMode: 'terminal',
+    });
+    await updateAgent(page, baseUrl, agentId, { customTitle: 'Prepare release' });
+    await ensureApp(page);
+    await openAgent(page, agentId);
+    const project = page.getByTestId('code-project-group').filter({ hasText: 'Northstar API' });
+    await project.waitFor({ state: 'visible', timeout: 20_000 });
+    const files = project.getByTestId('code-files-section');
+    const filesTitle = files.locator('.code-files-title').first();
+    if (await filesTitle.getAttribute('aria-expanded') === 'false') await filesTitle.click();
+    await waitForFileTree(page);
+    const srcDirectory = files.locator('[data-testid="code-file-row"][data-file-path="src"]');
+    if (await srcDirectory.getAttribute('aria-expanded') === 'false') await srcDirectory.click();
+    await files.locator('[data-testid="code-file-row"][data-file-path="src/release.ts"]').click();
+    const monaco = page.getByTestId('code-file-monaco');
+    await monaco.waitFor({ state: 'visible', timeout: 20_000 });
+    await monaco.click({ button: 'right', position: { x: 290, y: 34 } });
+    const contextMenu = page.getByTestId('code-editor-context-menu');
+    await contextMenu.getByRole('menuitem', {
+      name: screenshotLocale === 'cn' ? '调用层次结构' : 'Call Hierarchy',
+      exact: true,
+    }).click();
+    const panel = page.getByTestId('code-language-server-panel');
+    await panel.waitFor({ state: 'visible', timeout: 20_000 });
+    await panel.getByRole('button', {
+      name: screenshotLocale === 'cn' ? '传出调用' : 'Outgoing Calls',
+      exact: true,
+    }).click();
+    await panel.getByRole('button', {
+      name: screenshotLocale === 'cn' ? '展开 publishRelease' : 'Expand publishRelease',
+      exact: true,
+    }).click();
+    await panel.getByText('verifyDocumentation', { exact: true }).waitFor({ state: 'visible', timeout: 20_000 });
+    await panel.getByRole('button', {
+      name: screenshotLocale === 'cn' ? '展开 verifyDocumentation' : 'Expand verifyDocumentation',
+      exact: true,
+    }).click();
+    await panel.getByText('verifyScreenshots', { exact: true }).waitFor({ state: 'visible', timeout: 20_000 });
+    await screenshot(page, '31-code-language-server-call-hierarchy.png');
+    await page.request.delete(`${baseUrl}${basePath}/api/control/agents/${encodeURIComponent(agentId)}?recordHistory=0`);
+    fs.rmSync(releaseFilePath, { force: true });
+  }
+}
+
 async function waitForFileTree(page) {
   const filesSection = page.getByTestId('code-files-section').first();
   await filesSection.waitFor({ state: 'visible', timeout: 20_000 });
@@ -750,8 +989,25 @@ async function waitForStableUi(page, delayMs = 500) {
   if (delayMs > 0) await page.waitForTimeout(delayMs);
 }
 
+async function positionLanguageServerSettingsScreenshot(page) {
+  await page.evaluate(() => {
+    const card = document.querySelector('[data-testid="code-plugin-language-server"]');
+    const scroller = card?.closest('.code-plugins-view');
+    if (!(card instanceof HTMLElement) || !(scroller instanceof HTMLElement)) {
+      throw new Error('Language Server screenshot surface is unavailable');
+    }
+    const scrollerTop = scroller.getBoundingClientRect().top;
+    const cardTop = card.getBoundingClientRect().top;
+    scroller.scrollTop += cardTop - scrollerTop - 24;
+  });
+  await waitForStableUi(page, 100);
+}
+
 async function screenshot(page, fileName, directory = screenshotDir) {
   if (requestedScreenshotFiles.size > 0 && !requestedScreenshotFiles.has(fileName)) return;
+  if (fileName === '12-code-terminal-session.png' || fileName === '03-crt-terminal.png') {
+    await page.bringToFront();
+  }
   await waitForStableUi(page, 250);
   await page.evaluate(({ linuxPath, macPath }) => {
     const walker = document.createTreeWalker(document.body, window.NodeFilter.SHOW_TEXT);
@@ -782,6 +1038,9 @@ async function screenshot(page, fileName, directory = screenshotDir) {
         if (node) node.textContent = value;
       }
     });
+  }
+  if (fileName === '30-code-language-server-settings.png') {
+    await positionLanguageServerSettingsScreenshot(page);
   }
   const outputFileName = themedScreenshotFileName(fileName, directory);
   const publicSpec = directory === screenshotDir
@@ -815,7 +1074,7 @@ async function screenshot(page, fileName, directory = screenshotDir) {
     } else {
       fs.copyFileSync(screenshotPath, publicPath);
     }
-    if (fileName === '12-code-terminal-session.png'
+    if ((fileName === '12-code-terminal-session.png' || fileName === '03-crt-terminal.png')
       && fs.statSync(publicPath).size < terminalScreenshotMinimumBytes) {
       throw new Error(
         `Terminal screenshot ${publicPath} is too small to contain the rendered transcript; `
@@ -1547,7 +1806,15 @@ async function main() {
     browser = await chromium.launch({
       headless: screenshotHeadless,
       executablePath,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--proxy-server=direct://', '--proxy-bypass-list=*'],
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--proxy-server=direct://',
+        '--proxy-bypass-list=*',
+        '--disable-backgrounding-occluded-windows',
+        '--disable-renderer-backgrounding',
+        '--disable-background-timer-throttling',
+      ],
     });
     await captureExistingChromeDocumentationScreenshots(browser, baseUrl);
     if (requestedScreenshotsComplete()) return;
@@ -1580,6 +1847,16 @@ async function main() {
     await ensureApp(page);
     await setDemoSettings(page, baseUrl);
     await ensureApp(page);
+
+    const shouldCaptureLanguageServerDocumentation = requestedScreenshotFiles.size === 0
+      || Array.from(languageServerDocumentationScreenshots)
+        .some(fileName => requestedScreenshotFiles.has(fileName));
+    if (shouldCaptureLanguageServerDocumentation) {
+      await captureLanguageServerDocumentationScreenshots(page, baseUrl);
+      if (requestedScreenshotsComplete()) return;
+      await setDemoSettings(page, baseUrl);
+      await ensureApp(page);
+    }
 
     if (
       requestedScreenshotFiles.size === 1
@@ -1639,7 +1916,7 @@ async function main() {
       await page.getByTestId('code-plugins-panel').getByRole('button', { name: 'Back', exact: true }).click();
     }
 
-    const codexAgentId = await startAgent(page, baseUrl, {
+    let codexAgentId = await startAgent(page, baseUrl, {
       command: 'codex',
       workspace: workspaceDir,
       task: '',
@@ -1985,19 +2262,34 @@ async function main() {
       }
     }
 
-    await openAgent(page, terminalAgentId);
-    await writeTerminalFixture(page, terminalAgentId, `\u001b[2J\u001b[H${createWorkspaceTerminalTranscript()}`);
-    await waitForTerminalVisualContent(page, terminalAgentId, '$ git status --short');
-    await page.getByTestId('code-composer-model-picker').click();
-    await page.getByTestId('code-model-matrix-picker').waitFor({ state: 'visible', timeout: 20_000 });
-    await screenshot(page, '07-live-model-controls.png');
-    await page.keyboard.press('Escape');
-    await page.getByTestId('code-model-matrix-picker').waitFor({ state: 'hidden', timeout: 20_000 });
-    const composerCollapse = page.getByTestId('code-composer-collapse');
-    if (await composerCollapse.isVisible()) await composerCollapse.evaluate(element => element.click());
-    await page.getByTestId('code-composer-restore-bar').waitFor({ state: 'visible', timeout: 20_000 });
-    await waitForTerminalVisualContent(page, terminalAgentId, '$ git status --short');
-    await screenshot(page, '12-code-terminal-session.png');
+    if (requestedScreenshotFiles.size === 0 || requestedScreenshotFiles.has('07-live-model-controls.png')) {
+      await openAgent(page, terminalAgentId);
+      await writeTerminalFixture(page, terminalAgentId, `\u001b[2J\u001b[H${createCodingAgentTerminalTranscript()}`);
+      await waitForTerminalVisualContent(page, terminalAgentId, 'Ask Codex to do anything');
+      await page.getByTestId('code-composer-model-picker').click();
+      await page.getByTestId('code-model-matrix-picker').waitFor({ state: 'visible', timeout: 20_000 });
+      await screenshot(page, '07-live-model-controls.png');
+      await page.keyboard.press('Escape');
+      await page.getByTestId('code-model-matrix-picker').waitFor({ state: 'hidden', timeout: 20_000 });
+      const composerCollapse = page.getByTestId('code-composer-collapse');
+      if (await composerCollapse.isVisible()) await composerCollapse.evaluate(element => element.click());
+      await page.getByTestId('code-composer-restore-bar').waitFor({ state: 'visible', timeout: 20_000 });
+      await waitForTerminalVisualContent(page, terminalAgentId, 'Ask Codex to do anything');
+      if (requestedScreenshotsComplete()) return;
+    }
+    if (requestedScreenshotFiles.size === 0 || requestedScreenshotFiles.has('12-code-terminal-session.png')) {
+      await openAgent(page, codexAgentId);
+      codexAgentId = await switchCodeAgentRuntime(page, codexAgentId, 'terminal');
+      await openAgent(page, codexAgentId);
+      await writeTerminalFixture(page, codexAgentId, `\u001b[2J\u001b[H${createCodingAgentTerminalTranscript()}`);
+      await waitForTerminalVisualContent(page, codexAgentId, 'Ask Codex to do anything');
+      const codexComposerCollapse = page.getByTestId('code-composer-collapse');
+      if (await codexComposerCollapse.isVisible()) await codexComposerCollapse.evaluate(element => element.click());
+      await page.getByTestId('code-composer-restore-bar').waitFor({ state: 'visible', timeout: 20_000 });
+      await screenshot(page, '12-code-terminal-session.png');
+      codexAgentId = await switchCodeAgentRuntime(page, codexAgentId, 'chat');
+      if (requestedScreenshotsComplete()) return;
+    }
 
     await page.getByTestId('code-nav-search').click();
     await page.getByTestId('code-search-panel').waitFor({ state: 'visible', timeout: 20_000 });
@@ -2235,10 +2527,40 @@ async function main() {
     await page.locator('#terminal-output .crt-structured-transcript').waitFor({ state: 'visible', timeout: 30_000 });
     await screenshot(page, '02-crt-structured-chat.png', crtScreenshotDir);
 
-    await page.goto(`${basePath}/crt/?agent=${encodeURIComponent(shellAgentId)}`, { waitUntil: 'networkidle' });
+    codexAgentId = await switchCrtAgentToTerminal(page, codexAgentId);
     await page.locator('#session-modal.active').waitFor({ state: 'visible', timeout: 30_000 });
     await page.locator('#terminal-output .xterm').waitFor({ state: 'visible', timeout: 30_000 });
-    await page.getByText('no whitespace errors', { exact: false }).waitFor({ state: 'visible', timeout: 30_000 });
+    const crtFixtureAccepted = await page.evaluate(fixture => {
+      const api = (window as unknown as {
+        __farmingCrtTerminalTest?: {
+          getState: () => {
+            runtimeEpoch: string;
+            outputSeq: number;
+            stateRevision: number;
+            cols: number;
+            rows: number;
+          } | null;
+          replaceStream: (stream: Record<string, unknown>) => boolean;
+        };
+      }).__farmingCrtTerminalTest;
+      const state = api?.getState();
+      if (!api || !state) return false;
+      return api.replaceStream({
+        runtimeEpoch: state.runtimeEpoch,
+        outputSeq: state.outputSeq + 1,
+        stateRevision: state.stateRevision + 1,
+        cols: state.cols,
+        rows: state.rows,
+        data: `\u001b[2J\u001b[H${fixture}`,
+      });
+    }, createCodingAgentTerminalTranscript());
+    if (!crtFixtureAccepted) throw new Error('CRT Terminal fixture was rejected');
+    await page.waitForFunction(expected => {
+      const rows = (window as unknown as {
+        __farmingCrtTerminalTest?: { getRows: () => string[] };
+      }).__farmingCrtTerminalTest?.getRows() ?? [];
+      return rows.join('\n').includes(expected);
+    }, 'Ask Codex to do anything', { timeout: 20_000 });
     await screenshot(page, '03-crt-terminal.png', crtScreenshotDir);
     await page.getByRole('button', { name: 'Close session, Ctrl+Escape', exact: true }).click();
 
