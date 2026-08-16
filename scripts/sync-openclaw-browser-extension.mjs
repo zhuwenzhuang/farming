@@ -128,7 +128,8 @@ const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
 manifest.name = 'Farming Browser Connector';
 manifest.version = '0.0.1';
 manifest.description = 'Let Agents in Farming use your browser.';
-manifest.permissions = [...new Set([...manifest.permissions, 'activeTab', 'scripting'])];
+manifest.permissions = [...new Set([...manifest.permissions, 'scripting'])]
+  .filter(permission => permission !== 'activeTab');
 manifest.permissions = [...new Set([...manifest.permissions, 'sidePanel'])];
 manifest.icons = {
   16: 'icons/farming-16.png',
@@ -146,7 +147,7 @@ manifest.action = {
 };
 delete manifest.action.default_popup;
 manifest.side_panel = { default_path: 'sidepanel.html' };
-manifest.host_permissions = ['http://localhost/*', 'http://127.0.0.1/*'];
+manifest.host_permissions = ['<all_urls>'];
 delete manifest.options_ui;
 fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 

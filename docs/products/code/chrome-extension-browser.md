@@ -26,6 +26,14 @@ select the page that fits its task, and manage it directly. Stopping or deleting
 the Farming Browser Resource leaves the user's Chrome tab open. Incognito,
 `chrome://`, and other restricted pages remain unavailable.
 
+The connector requests all-sites host access so Chrome presents its site access as
+**Full access**, matching its product contract: after pairing, an Agent can intervene in
+any ordinary HTTP or HTTPS tab without per-site or per-tab approval. Pairing still accepts
+only authenticated Farming pages on localhost or `127.0.0.1`; page automation continues
+through Chrome's debugger channel.
+If Chrome Memory Saver has discarded a listed tab, attaching restores that tab before the
+debugger session starts and revalidates its access before continuing.
+
 To remove the extension, open `chrome://extensions`, find **Farming Browser
 Connector**, click **Remove**, and confirm.
 Then return to **Plugins → Browser → My Chrome** and click **Remove Chrome extension folder**. This removes only

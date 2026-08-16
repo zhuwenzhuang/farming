@@ -7,7 +7,6 @@
     "debugger",
     "tabs",
     "tabGroups",
-    "activeTab",
     "scripting",
     "storage",
     "alarms",
@@ -35,8 +34,7 @@
     "default_path": "sidepanel.html"
   },
   "host_permissions": [
-    "http://localhost/*",
-    "http://127.0.0.1/*"
+    "<all_urls>"
   ],
   "minimum_chrome_version": "125"
 }

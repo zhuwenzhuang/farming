@@ -23,6 +23,13 @@ Farming Browser 是浏览器能力；Farming Browser Connector 是安装在 Chro
 停止或删除 Farming Browser Resource 不会关闭用户原来的 Chrome 标签页。无痕页、`chrome://`
 和其他受限页面不可用。
 
+Connector 会申请所有网站的 Host Permission，因此 Chrome 会将它显示为 **Full access**，
+与产品契约一致：配对后，Agent 无需按网站或标签页逐个授权，即可介入任意普通 HTTP 或 HTTPS
+标签页。配对入口仍只接受 localhost 或 `127.0.0.1` 上已登录的 Farming 页面；页面自动化继续
+通过 Chrome Debugger 通道完成。
+如果 Chrome Memory Saver 已休眠列表中的标签页，附加操作会先恢复该标签页，并在继续建立
+Debugger 会话前重新校验访问权限。
+
 不再使用时，打开 `chrome://extensions`，找到 **Farming Browser Connector**，点击**删除**并确认。
 然后返回“插件 → 浏览器 → 我的 Chrome”，点击**删除 Chrome 扩展目录**。该操作只删除 Farming 创建的目录链接，
 以后仍可再次准备。这个目录不是临时目录；Chrome 会持续从中加载扩展文件，因此必须先从 Chrome 删除扩展。

@@ -882,6 +882,14 @@ class BrowserResourceManager extends EventEmitter {
       const matched = matchingRuntimeTabs[occurrence];
       if (matched) return matched;
     }
+    const matchingUrlTabs = tabs.filter(tab => tab.url === selected.url);
+    if (matchingUrlTabs.length === 1) {
+      // Existing-tab Chrome extension sessions are scoped to the exact tabId in
+      // their CDP URL. Chrome can temporarily report an empty or stale title
+      // while restoring a discarded tab, so a unique URL match inside that
+      // already-isolated session is still the selected page.
+      return matchingUrlTabs[0];
+    }
     throw browserError(
       'The selected Chrome page changed while Farming was connecting',
       409,

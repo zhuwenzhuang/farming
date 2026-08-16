@@ -1137,6 +1137,13 @@ async function testExistingChromeTabManagement() {
       url: 'https://account.example/',
     }], 43).tabId, 't2', 'duplicate pages must preserve their Chrome occurrence');
     relayTabs.pop();
+    assert.strictEqual(manager.matchExtensionRuntimeTab([{
+      active: false,
+      tabId: 'restoring',
+      title: '',
+      type: 'page',
+      url: 'https://account.example/',
+    }], 42).tabId, 'restoring', 'discarded tabs may have a transient title while Chrome restores them');
     const borrowed = manager.create({
       projectRootId: 'wroot_project',
       workspace,

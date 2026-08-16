@@ -488,6 +488,18 @@ async function connectRelay(isConnectionAllowed = () => true) {
   if (!connectionIsCurrent()) {
     return;
   }
+  if (!await relayIsReachable(relayUrl)) {
+    if (!connectionIsCurrent()) {
+      return;
+    }
+    relayStatusHint = "Waiting for Farming to become reachable.";
+    setBadge("error");
+    scheduleReconnect();
+    return;
+  }
+  if (!connectionIsCurrent()) {
+    return;
+  }
   setBadge("connecting");
   let ws;
   try {
@@ -578,8 +590,28 @@ function scheduleReconnect() {
   reconnectAttempt += 1;
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
-    void startAutomation();
+    startAutomationSafely();
   }, delay);
+}
+
+async function relayIsReachable(relayUrl, timeoutMs = 1_000) {
+  const probeUrl = new URL(relayUrl);
+  probeUrl.protocol = probeUrl.protocol === "wss:" ? "https:" : "http:";
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    await fetch(probeUrl, {
+      cache: "no-store",
+      credentials: "omit",
+      mode: "no-cors",
+      signal: controller.signal,
+    });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function startAutomation() {
@@ -590,6 +622,14 @@ async function startAutomation() {
   }
   await nativeBootstrap.attempt();
   await connectRelay();
+}
+
+function startAutomationSafely() {
+  void startAutomation().catch((error) => {
+    relayStatusHint = error instanceof Error ? error.message : String(error);
+    setBadge("error");
+    scheduleReconnect();
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -673,15 +713,15 @@ registerTabAccessEvents({
 chrome.alarms.create(RELAY_WATCHDOG_ALARM, { periodInMinutes: 0.5 });
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === RELAY_WATCHDOG_ALARM) {
-    void startAutomation();
+    startAutomationSafely();
   } else if (alarm.name === RELAY_OPENING_DEADLINE_ALARM) {
     handleRelayOpeningDeadline();
   }
 });
 chrome.runtime.onStartup.addListener(() => {
-  void startAutomation();
+  startAutomationSafely();
 });
 chrome.runtime.onInstalled.addListener(() => {
-  void startAutomation();
+  startAutomationSafely();
 });
-void startAutomation();
+startAutomationSafely();

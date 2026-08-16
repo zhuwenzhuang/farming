@@ -62,11 +62,13 @@ async function waitFor(check, timeoutMs = 1000) {
 
 async function run() {
   const extensionRoot = path.resolve(__dirname, '../../extensions/browser/chrome-extension');
+  const syncScript = read(path.resolve(__dirname, '../../scripts/sync-openclaw-browser-extension.mjs'));
   const manifest = JSON.parse(read(path.join(extensionRoot, 'manifest.json')));
   const background = read(path.join(extensionRoot, 'background.js'));
   const sidePanel = read(path.join(extensionRoot, 'sidepanel.html'));
   const sidePanelScript = read(path.join(extensionRoot, 'sidepanel.js'));
   const sidePanelModule = read(path.join(extensionRoot, 'modules/farming-side-panel.js'));
+  const relayCommandHandler = read(path.join(extensionRoot, 'modules/relay-command-handler.js'));
   assert.strictEqual(manifest.name, 'Farming Browser Connector');
   assert.strictEqual(manifest.version, '0.0.1');
   assert.strictEqual(manifest.description, 'Let Agents in Farming use your browser.');
@@ -80,9 +82,10 @@ async function run() {
     assert.strictEqual(fs.existsSync(path.join(extensionRoot, icon as string)), true);
   }
   assert.strictEqual(manifest.permissions.includes('debugger'), true);
-  assert.strictEqual(manifest.permissions.includes('activeTab'), true);
+  assert.strictEqual(manifest.permissions.includes('activeTab'), false);
+  assert.match(syncScript, /permission !== 'activeTab'/);
   assert.strictEqual(manifest.permissions.includes('scripting'), true);
-  assert.deepStrictEqual(manifest.host_permissions, ['http://localhost/*', 'http://127.0.0.1/*']);
+  assert.deepStrictEqual(manifest.host_permissions, ['<all_urls>']);
   assert.strictEqual(manifest.options_ui, undefined);
   assert.strictEqual(manifest.action.default_popup, undefined);
   assert.deepStrictEqual(manifest.side_panel, { default_path: 'sidepanel.html' });
@@ -92,6 +95,14 @@ async function run() {
   assert.match(background, /handleFarmingSidePanelMessage/);
   assert.match(background, /color: FARMING_TAB_GROUP_COLOR/);
   assert.match(background, /await syncFarmingTabGroupAppearance\(\)/);
+  assert.match(background, /await relayIsReachable\(relayUrl\)/);
+  assert.match(background, /mode: "no-cors"/);
+  assert.match(background, /function startAutomationSafely\(\)/);
+  assert.doesNotMatch(background, /^\s*void startAutomation\(\);\s*$/m);
+  assert.match(relayCommandHandler, /restoreDiscardedTab/);
+  assert.match(relayCommandHandler, /initialTab\?\.discarded !== true/);
+  assert.match(relayCommandHandler, /Subscribe before reload/);
+  assert.match(relayCommandHandler, /captureAccess\(message\.tabId\)/);
   assert.match(sidePanel, />Farming</);
   assert.match(sidePanel, /<iframe id="farming"/);
   assert.match(sidePanelModule, /chromeApi\.sidePanel\.open/);
@@ -112,6 +123,66 @@ async function run() {
   assert.strictEqual(fs.existsSync(path.join(extensionRoot, 'popup.js')), false);
   assert.strictEqual(fs.existsSync(path.join(extensionRoot, 'options.html')), false);
   assert.strictEqual(fs.existsSync(path.join(extensionRoot, 'options.js')), false);
+
+  const relayCommandHandlerModule = await import(
+    `data:text/javascript,${encodeURIComponent(relayCommandHandler)}`
+  );
+  const reloads = [];
+  let restoredTab = {
+    id: 17,
+    status: 'complete',
+    discarded: false,
+    url: 'https://account.example/',
+  };
+  const updatedListeners = new Set<(
+    tabId: number,
+    changeInfo: { status: string },
+    tab: typeof restoredTab,
+  ) => void>();
+  const discardedChrome = {
+    tabs: {
+      get: async () => restoredTab,
+      reload: async tabId => {
+        reloads.push(tabId);
+        restoredTab = {
+          id: tabId,
+          status: 'complete',
+          discarded: false,
+          url: 'https://account.example/',
+        };
+        for (const listener of updatedListeners) {
+          listener(tabId, { status: 'complete' }, restoredTab);
+        }
+      },
+      onUpdated: {
+        addListener: listener => updatedListeners.add(listener),
+        removeListener: listener => updatedListeners.delete(listener),
+      },
+    },
+  };
+  assert.deepStrictEqual(await relayCommandHandlerModule.restoreDiscardedTab({
+    chromeApi: discardedChrome,
+    tabId: 17,
+    initialTab: {
+      id: 17,
+      status: 'unloaded',
+      discarded: true,
+      url: 'https://account.example/',
+    },
+    revalidate: async () => restoredTab,
+    timeoutMs: 10,
+  }), restoredTab);
+  assert.deepStrictEqual(reloads, [17]);
+  await relayCommandHandlerModule.restoreDiscardedTab({
+    chromeApi: discardedChrome,
+    tabId: 18,
+    initialTab: { id: 18, status: 'complete', discarded: false },
+    revalidate: async () => {
+      throw new Error('non-discarded tabs must not be revalidated');
+    },
+    timeoutMs: 10,
+  });
+  assert.deepStrictEqual(reloads, [17]);
 
   const relayCore = read(path.join(extensionRoot, 'modules/relay-core.js'));
   const nativeBootstrap = read(path.join(extensionRoot, 'modules/native-bootstrap.js'));
@@ -183,10 +254,13 @@ async function run() {
       },
     };
   };
+  const pairingScriptTabIds = [];
   globals.chrome = {
-    tabs: { query: async () => [{ id: 7, url: 'http://127.0.0.1:3000/farming/' }] },
     scripting: {
-      executeScript: async options => [{ result: await options.func(...options.args) }],
+      executeScript: async options => {
+        pairingScriptTabIds.push(options.target.tabId);
+        return [{ result: await options.func(...options.args) }];
+      },
     },
     runtime: {
       sendMessage: async message => {
@@ -197,7 +271,11 @@ async function run() {
   };
   try {
     const pairingModule = await import(`data:text/javascript,${encodeURIComponent(pagePairing)}`);
-    await pairingModule.pairCurrentFarmingPage();
+    await assert.rejects(
+      () => pairingModule.pairCurrentFarmingPage(),
+      /Farming tab id is required/,
+    );
+    await pairingModule.pairCurrentFarmingPage({ tabId: 7 });
     assert.strictEqual(pageRequests[0].url, '/farming/api/browsers/extension');
     assert.strictEqual(pageRequests[1].url, '/farming/api/browsers/extension');
     assert.strictEqual(pageRequests[2].url, '/farming/api/browsers/extension');
@@ -206,12 +284,16 @@ async function run() {
     assert.deepStrictEqual(JSON.parse(pageRequests[3].options.body), {
       browserExtensionEnabled: true,
     });
-    assert.deepStrictEqual(await pairingModule.pairCurrentFarmingPage({ waitForConnection: false }), {
+    assert.deepStrictEqual(await pairingModule.pairCurrentFarmingPage({
+      waitForConnection: false,
+      tabId: 7,
+    }), {
       pageUrl: 'http://127.0.0.1:3000/farming/',
     });
     let directlyAppliedPairing;
     assert.deepStrictEqual(await pairingModule.pairCurrentFarmingPage({
       waitForConnection: false,
+      tabId: 7,
       applyPairing: async request => {
         directlyAppliedPairing = request;
         return { ok: true };
@@ -229,6 +311,8 @@ async function run() {
     assert.strictEqual(sidePanelRequest.url, '/farming/api/share/qr-ticket');
     assert.deepStrictEqual(JSON.parse(sidePanelRequest.options.body), {});
     assert.strictEqual(sidePanelRequest.options.credentials, 'same-origin');
+    assert(pairingScriptTabIds.length > 0);
+    assert.deepStrictEqual([...new Set(pairingScriptTabIds)], [7]);
   } finally {
     globals.chrome = previousChrome;
     globals.fetch = previousFetch;

@@ -1,11 +1,8 @@
 async function requestFromFarmingTab(operation, requestedTabId) {
-  const [activeTab] = requestedTabId
-    ? []
-    : await chrome.tabs.query({ active: true, currentWindow: true });
-  const tabId = requestedTabId ?? activeTab?.id;
-  if (!tabId) {
-    throw new Error("Open your Farming page in this tab, then click the extension again.");
+  if (!Number.isSafeInteger(requestedTabId) || requestedTabId < 0) {
+    throw new Error("Farming tab id is required for Browser Connector pairing.");
   }
+  const tabId = requestedTabId;
   const [execution] = await chrome.scripting.executeScript({
     target: { tabId },
     world: "MAIN",
