@@ -23,6 +23,8 @@ export function createPopupMessageHandler({
   getConfig,
   getRelayState,
   getRelayStatusHint,
+  getAutoReconnectEnabled,
+  setAutoReconnectEnabled,
   getNativeBootstrapStatus,
   enableNativeBootstrap,
   onManualPairing,
@@ -171,6 +173,7 @@ export function createPopupMessageHandler({
             sendResponse({
               paired: Boolean(relayUrl),
               state: getRelayState(),
+              autoReconnectEnabled: await getAutoReconnectEnabled(),
               accessMode,
               accessibleTabCount: accessible.length,
               relayUrl: relayUrl ?? "",
@@ -192,6 +195,16 @@ export function createPopupMessageHandler({
             return;
           case "unpair":
             sendResponse(await unpair());
+            return;
+          case "setAutoReconnectEnabled":
+            if (typeof msg.enabled !== "boolean") {
+              sendResponse({ ok: false, error: "Invalid automatic reconnect setting." });
+              return;
+            }
+            sendResponse({
+              ok: true,
+              autoReconnectEnabled: await setAutoReconnectEnabled(msg.enabled),
+            });
             return;
           case "setNativeBootstrapEnabled":
             if (typeof msg.enabled !== "boolean") {

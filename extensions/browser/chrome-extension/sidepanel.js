@@ -2,6 +2,7 @@ const statusLine = document.getElementById("status");
 const retryButton = document.getElementById("retry");
 const fallback = document.getElementById("fallback");
 const farming = document.getElementById("farming");
+const autoReconnect = document.getElementById("autoReconnect");
 
 function validFarmingUrl(raw) {
   try {
@@ -41,9 +42,31 @@ async function openFarming() {
 }
 
 retryButton.addEventListener("click", () => void openFarming());
+autoReconnect.addEventListener("change", () => {
+  const enabled = autoReconnect.checked;
+  autoReconnect.disabled = true;
+  void chrome.runtime.sendMessage({ type: "setAutoReconnectEnabled", enabled })
+    .then((response) => {
+      if (!response?.ok) throw new Error(response?.error ?? "Could not update automatic reconnect.");
+      autoReconnect.checked = response.autoReconnectEnabled === true;
+    })
+    .catch(() => {
+      autoReconnect.checked = !enabled;
+    })
+    .finally(() => {
+      autoReconnect.disabled = false;
+    });
+});
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "session" && changes.farmingSidePanelUrl?.newValue) {
     void showFarming(changes.farmingSidePanelUrl.newValue);
   }
 });
+void chrome.runtime.sendMessage({ type: "getStatus" })
+  .then((status) => {
+    autoReconnect.checked = status?.autoReconnectEnabled !== false;
+  })
+  .catch(() => {
+    autoReconnect.disabled = true;
+  });
 void openFarming();

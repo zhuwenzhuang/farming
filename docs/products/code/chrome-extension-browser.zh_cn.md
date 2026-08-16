@@ -15,7 +15,9 @@ Farming Browser 是浏览器能力；Farming Browser Connector 是安装在 Chro
 3. 在用户主目录中选择 **farming-browser-connector**。
 4. 从 Chrome 的**扩展程序**菜单点击 **Farming Browser Connector**。
 
-扩展会自动配对并启用 Browser。以后会自动重连，无需再次设置或逐个授权标签页。
+扩展会自动配对并启用 Browser。以后会自动重连，无需再次设置或逐个授权标签页；重连间隔会逐步
+退避，最长为五分钟。本机 Farming 不可用时，扩展侧边栏还会显示**自动重连**开关。关闭后会
+取消已计划的重试和重连 watchdog，直到重新开启；它不会清除配对，也不会中断当前已经建立的连接。
 
 ## 使用与删除
 

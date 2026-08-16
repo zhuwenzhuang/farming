@@ -323,10 +323,10 @@ export function buildRelayWsProtocols() {
   return [EXTENSION_RELAY_PROTOCOL];
 }
 
-/** Exponential reconnect backoff: 1s, 2s, 4s ... capped at 30s. */
+/** Exponential reconnect backoff: 1s, 2s, 4s ... capped at 5 minutes. */
 export function reconnectDelayMs(attempt) {
-  const capped = Math.min(Math.max(0, attempt), 5);
-  return Math.min(1000 * 2 ** capped, 30_000);
+  const capped = Math.min(Math.max(0, attempt), 9);
+  return Math.min(1000 * 2 ** capped, 300_000);
 }
 
 /** Map a hex color to the closest Chrome tab-group color name. */

@@ -17,7 +17,11 @@ The extension is included with Farming; there is nothing else to download.
 4. Click **Farming Browser Connector** in Chrome's **Extensions** menu.
 
 The extension pairs and enables Browser automatically. Later sessions reconnect
-without setup or per-tab approval.
+without setup or per-tab approval. The reconnect interval backs off to at most
+five minutes. When local Farming is unavailable, the extension side panel also
+offers a **Reconnect automatically** switch. Turning it off cancels scheduled
+retries and the reconnect watchdog until the switch is enabled again. It does
+not discard the pairing or interrupt an already connected relay.
 
 ## Use And Remove
 

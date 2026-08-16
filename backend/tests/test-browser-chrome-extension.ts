@@ -65,6 +65,8 @@ async function run() {
   const syncScript = read(path.resolve(__dirname, '../../scripts/sync-openclaw-browser-extension.mjs'));
   const manifest = JSON.parse(read(path.join(extensionRoot, 'manifest.json')));
   const background = read(path.join(extensionRoot, 'background.js'));
+  const popupBackground = read(path.join(extensionRoot, 'modules/popup-background.js'));
+  const relayCore = read(path.join(extensionRoot, 'modules/relay-core.js'));
   const sidePanel = read(path.join(extensionRoot, 'sidepanel.html'));
   const sidePanelScript = read(path.join(extensionRoot, 'sidepanel.js'));
   const sidePanelModule = read(path.join(extensionRoot, 'modules/farming-side-panel.js'));
@@ -99,12 +101,20 @@ async function run() {
   assert.match(background, /mode: "no-cors"/);
   assert.match(background, /function startAutomationSafely\(\)/);
   assert.doesNotMatch(background, /^\s*void startAutomation\(\);\s*$/m);
+  assert.match(background, /AUTO_RECONNECT_KEY = "autoReconnectEnabled"/);
+  assert.match(background, /stored\[AUTO_RECONNECT_KEY\] !== false/);
+  assert.match(background, /if \(!autoReconnectEnabled \|\| reconnectTimer\)/);
+  assert.match(background, /await chrome\.alarms\.clear\(RELAY_WATCHDOG_ALARM\)/);
+  assert.match(background, /void autoReconnectReady\.then/);
+  assert.match(popupBackground, /autoReconnectEnabled: await getAutoReconnectEnabled\(\)/);
+  assert.match(popupBackground, /case "setAutoReconnectEnabled"/);
   assert.match(relayCommandHandler, /restoreDiscardedTab/);
   assert.match(relayCommandHandler, /initialTab\?\.discarded !== true/);
   assert.match(relayCommandHandler, /Subscribe before reload/);
   assert.match(relayCommandHandler, /captureAccess\(message\.tabId\)/);
   assert.match(sidePanel, />Farming</);
   assert.match(sidePanel, /<iframe id="farming"/);
+  assert.match(sidePanel, /id="autoReconnect"[^>]*checked/);
   assert.match(sidePanelModule, /chromeApi\.sidePanel\.open/);
   assert.match(sidePanelModule, /pairCurrentFarmingPage/);
   assert.match(sidePanelModule, /applyPairing/);
@@ -117,7 +127,12 @@ async function run() {
   assert.match(sidePanelScript, /chrome\.runtime\.sendMessage\(\{ type: "openFarmingSidePanel" \}\)/);
   assert.match(sidePanelScript, /if \(!response\?\.ok\)/);
   assert.match(sidePanelScript, /farming\.src = target/);
+  assert.match(sidePanelScript, /type: "getStatus"/);
+  assert.match(sidePanelScript, /type: "setAutoReconnectEnabled"/);
   assert.doesNotMatch(`${sidePanel}\n${sidePanelScript}`, />Disconnect</);
+  assert.match(syncScript, /autoReconnectEnabled/);
+  assert.match(syncScript, /chrome\.alarms\.clear\(RELAY_WATCHDOG_ALARM\)/);
+  assert.match(syncScript, /300_000/);
   assert.doesNotMatch(background, /text: "ON"|text: "…"|text: "!"/);
   assert.strictEqual(fs.existsSync(path.join(extensionRoot, 'popup.html')), false);
   assert.strictEqual(fs.existsSync(path.join(extensionRoot, 'popup.js')), false);
@@ -184,7 +199,6 @@ async function run() {
   });
   assert.deepStrictEqual(reloads, [17]);
 
-  const relayCore = read(path.join(extensionRoot, 'modules/relay-core.js'));
   const nativeBootstrap = read(path.join(extensionRoot, 'modules/native-bootstrap.js'));
   const pagePairing = read(path.join(extensionRoot, 'modules/farming-page-pairing.js'));
   assert.match(relayCore, /farming-extension-relay\.v2/);
@@ -192,10 +206,15 @@ async function run() {
   assert.match(relayCore, /FARMING_TAB_GROUP_COLOR = "green"/);
   assert.match(relayCore, /groupColor: FARMING_TAB_GROUP_COLOR/);
   assert.match(
-    read(path.join(extensionRoot, 'modules/popup-background.js')),
+    popupBackground,
     /pairingConfigStore\.save\(parsed, FARMING_TAB_GROUP_COLOR, normalizedMode\)/,
   );
   const relayCoreModule = await import(`data:text/javascript,${encodeURIComponent(relayCore)}`);
+  assert.strictEqual(relayCoreModule.reconnectDelayMs(0), 1_000);
+  assert.strictEqual(relayCoreModule.reconnectDelayMs(5), 32_000);
+  assert.strictEqual(relayCoreModule.reconnectDelayMs(8), 256_000);
+  assert.strictEqual(relayCoreModule.reconnectDelayMs(9), 300_000);
+  assert.strictEqual(relayCoreModule.reconnectDelayMs(100), 300_000);
   const fixedColorConfig = await relayCoreModule.createPairingConfigStore({
     get: async () => ({
       relayUrl: 'ws://127.0.0.1:3000/farming/browser/extension',

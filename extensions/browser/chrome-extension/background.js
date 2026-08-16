@@ -38,6 +38,7 @@ const BADGE = {
 const RELAY_WATCHDOG_ALARM = "farming-relay-watchdog";
 const RELAY_OPENING_DEADLINE_ALARM = "farming-relay-opening-deadline";
 const RELAY_AUTH_TIMEOUT_MS = 10_000;
+const AUTO_RECONNECT_KEY = "autoReconnectEnabled";
 
 /** @type {WebSocket|null} */
 let relayWs = null;
@@ -52,6 +53,7 @@ let reconciledPairingInvalidationRevision = 0;
 let relayConnectionGeneration = 0;
 let relayConnectionsSuspended = false;
 let nativeBootstrap = null;
+let autoReconnectEnabled = true;
 // Start blocked: no runtime path may outrun the retired-state storage read.
 let retiredCopilotCustodyBlocked = true;
 /** Tab ids with an active chrome.debugger attachment. */
@@ -64,6 +66,9 @@ const attachingTabs = new Map();
 let tabsSyncTimer = null;
 let accessMutationChain = Promise.resolve();
 const pairingConfigStore = createPairingConfigStore(chrome.storage.local);
+const autoReconnectReady = chrome.storage.local.get(AUTO_RECONNECT_KEY).then((stored) => {
+  autoReconnectEnabled = stored[AUTO_RECONNECT_KEY] !== false;
+});
 const tabAccessPolicy = createTabAccessPolicy({ isSelectedTab: isTabSelected });
 const tabAccessReady = (async () => {
   const retiredState = await prepareRetiredCopilotState();
@@ -583,7 +588,7 @@ function handleRelayOpeningDeadline() {
 }
 
 function scheduleReconnect() {
-  if (reconnectTimer) {
+  if (!autoReconnectEnabled || reconnectTimer) {
     return;
   }
   const delay = reconnectDelayMs(reconnectAttempt);
@@ -592,6 +597,38 @@ function scheduleReconnect() {
     reconnectTimer = null;
     startAutomationSafely();
   }, delay);
+}
+
+function clearReconnectTimer() {
+  if (!reconnectTimer) {
+    return;
+  }
+  clearTimeout(reconnectTimer);
+  reconnectTimer = null;
+}
+
+function armRelayWatchdog() {
+  chrome.alarms.create(RELAY_WATCHDOG_ALARM, { periodInMinutes: 0.5 });
+}
+
+async function getAutoReconnectEnabled() {
+  await autoReconnectReady;
+  return autoReconnectEnabled;
+}
+
+async function setAutoReconnectEnabled(enabled) {
+  await autoReconnectReady;
+  await chrome.storage.local.set({ [AUTO_RECONNECT_KEY]: enabled });
+  autoReconnectEnabled = enabled;
+  if (!enabled) {
+    clearReconnectTimer();
+    await chrome.alarms.clear(RELAY_WATCHDOG_ALARM);
+    return false;
+  }
+  armRelayWatchdog();
+  reconnectAttempt = 0;
+  startAutomationSafely();
+  return true;
 }
 
 async function relayIsReachable(relayUrl, timeoutMs = 1_000) {
@@ -615,6 +652,10 @@ async function relayIsReachable(relayUrl, timeoutMs = 1_000) {
 }
 
 async function startAutomation() {
+  await autoReconnectReady;
+  if (!autoReconnectEnabled) {
+    return;
+  }
   await tabAccessReady;
   await syncFarmingTabGroupAppearance();
   if (retiredCopilotCustodyBlocked) {
@@ -643,6 +684,8 @@ const handlePopupMessage = createPopupMessageHandler({
   getConfig,
   getRelayState: () => relayState,
   getRelayStatusHint: () => relayStatusHint,
+  getAutoReconnectEnabled,
+  setAutoReconnectEnabled,
   getNativeBootstrapStatus: async () => {
     await tabAccessReady;
     return await nativeBootstrap.status();
@@ -710,7 +753,11 @@ registerTabAccessEvents({
 });
 
 // Watchdog: MV3 can stop this worker; the alarm revives it and re-connects.
-chrome.alarms.create(RELAY_WATCHDOG_ALARM, { periodInMinutes: 0.5 });
+void autoReconnectReady.then(() => {
+  if (autoReconnectEnabled) {
+    armRelayWatchdog();
+  }
+});
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === RELAY_WATCHDOG_ALARM) {
     startAutomationSafely();
