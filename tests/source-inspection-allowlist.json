@@ -4,6 +4,7 @@
     { "file": "backend/tests/test-acp-runtime.ts", "category": "package", "reason": "Pinned ACP package layout is a release compatibility contract.", "owner": "Runtime", "baselineCount": 1 },
     { "file": "backend/tests/test-agent-list-style-ownership.ts", "category": "architecture", "reason": "Agent list selectors must remain in one appearance-neutral style owner and consume semantic color roles.", "owner": "Code UI", "baselineCount": 1 },
     { "file": "backend/tests/test-agent-manager-acp-host-boundary.ts", "category": "architecture", "reason": "ACP host ownership must remain on the backend boundary.", "owner": "Runtime", "baselineCount": 1 },
+    { "file": "backend/tests/test-browser-chrome-extension.ts", "category": "package", "reason": "Chrome extension source and its sync script must retain one reviewed permissions and packaging contract.", "owner": "Extensions", "baselineCount": 1 },
     { "file": "backend/tests/test-browser-extension.ts", "category": "package", "reason": "Browser extension files and binaries are package assembly contracts.", "owner": "Extensions", "baselineCount": 1 },
     { "file": "backend/tests/test-capability-cli-only.ts", "category": "architecture", "reason": "Extension capability ownership must not leak into the core CLI path.", "owner": "Runtime", "baselineCount": 1 },
     { "file": "backend/tests/test-ci-node-version-gate.ts", "category": "package", "reason": "CI Node-version wiring is build infrastructure, not product behavior.", "owner": "Build", "baselineCount": 2 },
