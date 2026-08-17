@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useReducer, useRef, useState, useSyncExternalStore } from 'react'
 import { appPath } from '@/lib/base-path'
 import { normalizeProjectWorkspaces } from '@/lib/project-workspaces'
 
@@ -82,6 +82,25 @@ function normalizeMountWorkspace(workspace: string) {
 export function throwIfProjectMountAborted(signal?: AbortSignal) {
   if (!signal?.aborted) return
   throw new DOMException('Project mount was aborted', 'AbortError')
+}
+
+function awaitProjectMountResult<T>(request: Promise<T>, signal?: AbortSignal): Promise<T> {
+  throwIfProjectMountAborted(signal)
+  if (!signal) return request
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(new DOMException('Project mount was aborted', 'AbortError'))
+    signal.addEventListener('abort', abort, { once: true })
+    request.then(
+      result => {
+        signal.removeEventListener('abort', abort)
+        resolve(result)
+      },
+      error => {
+        signal.removeEventListener('abort', abort)
+        reject(error)
+      },
+    )
+  })
 }
 
 export async function requestProjectMount(
@@ -241,6 +260,7 @@ export function useProjectMembershipController(
     initialProjectMembershipState,
   )
   const [namesController] = useState(() => new ProjectNamesController())
+  const pendingProjectMountsRef = useRef(new Map<string, Promise<string>>())
   const namesState = useSyncExternalStore(
     namesController.subscribe,
     namesController.getSnapshot,
@@ -258,10 +278,22 @@ export function useProjectMembershipController(
   }, [remotePinnedProjectWorkspaces])
 
   const mountProject = useCallback(async (workspace: string, signal?: AbortSignal) => {
-    const result = await requestProjectMount(workspace, signal)
     throwIfProjectMountAborted(signal)
-    if (result.membership) applyMembership(result.membership)
-    return result.workspace
+    const normalizedWorkspace = normalizeMountWorkspace(workspace)
+    if (!normalizedWorkspace) return ''
+    let pendingMount = pendingProjectMountsRef.current.get(normalizedWorkspace)
+    if (!pendingMount) {
+      pendingMount = requestProjectMount(normalizedWorkspace).then(result => {
+        if (result.membership) applyMembership(result.membership)
+        return result.workspace
+      }).finally(() => {
+        if (pendingProjectMountsRef.current.get(normalizedWorkspace) === pendingMount) {
+          pendingProjectMountsRef.current.delete(normalizedWorkspace)
+        }
+      })
+      pendingProjectMountsRef.current.set(normalizedWorkspace, pendingMount)
+    }
+    return awaitProjectMountResult(pendingMount, signal)
   }, [])
 
   const mountProjectForFile = useCallback(async (filePath: string, signal?: AbortSignal) => {

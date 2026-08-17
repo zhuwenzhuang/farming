@@ -17,20 +17,23 @@ interface PendingWorkspaceFileOpen {
   agentId: string
   controller: AbortController
   filePath: string
+  intentLease?: RequestOwnershipLease
   promise: Promise<void>
-  target?: WorkspaceFileOpenTarget
+  target: WorkspaceFileOpenTarget
 }
 
 function mergeWorkspaceFileOpenTarget(
-  current: WorkspaceFileOpenTarget | undefined,
+  current: WorkspaceFileOpenTarget,
   next: WorkspaceFileOpenTarget | undefined,
 ) {
-  if (!current) return next ? { ...next } : undefined
-  if (!next) return current
-  const keepPinned = current.transient === false || next.transient === false
-  // Keep one target object so a second click can upgrade preview to pinned even
-  // after the first read has entered an asynchronous Project mount.
-  Object.assign(current, next)
+  const keepPinned = current.transient === false || next?.transient === false
+  // Keep one object so an intent arriving during an asynchronous Project mount
+  // updates the target already held by onOpenFile. Replace every other field:
+  // the latest click owns editor/diff, cursor, focus, and reveal semantics.
+  Object.keys(current).forEach(key => {
+    delete current[key as keyof WorkspaceFileOpenTarget]
+  })
+  if (next) Object.assign(current, next)
   if (keepPinned) current.transient = false
   return current
 }
@@ -43,7 +46,9 @@ interface UseWorkspaceFileOpenControllerOptions {
     file: WorkspaceFile,
     target?: WorkspaceFileOpenTarget,
     signal?: AbortSignal,
+    intentLease?: RequestOwnershipLease,
   ) => void | Promise<void>
+  onBeginOpenFileIntent?: () => RequestOwnershipLease
   onSelectOpenFile?: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
 }
 
@@ -51,6 +56,7 @@ export function useWorkspaceFileOpenController({
   agentId,
   onClearSearch,
   onOpenFile,
+  onBeginOpenFileIntent,
   onSelectOpenFile,
 }: UseWorkspaceFileOpenControllerOptions) {
   const fileOpenRequestFenceRef = useRef(new RequestOwnershipFence(agentId))
@@ -102,6 +108,18 @@ export function useWorkspaceFileOpenController({
     if (!agentId) return
     const requestAgentId = agentId
     setOpenFileError(null)
+    const currentPending = pendingFileOpenRef.current
+    if (
+      currentPending?.agentId === requestAgentId
+      && currentPending.filePath === filePath
+      && currentPending.intentLease?.isCurrent() !== false
+    ) {
+      // Repeated clicks on the same in-flight file are one transaction. Keeping
+      // its ownership lease avoids cancelling an open that has already advanced
+      // from the file read into an asynchronous Project mount.
+      mergeWorkspaceFileOpenTarget(currentPending.target, target)
+      return currentPending.promise
+    }
     if (onSelectOpenFile?.(agentId, filePath, target)) {
       pendingFileOpenRef.current?.controller.abort()
       pendingFileOpenRef.current = null
@@ -111,32 +129,28 @@ export function useWorkspaceFileOpenController({
       return
     }
 
-    const currentPending = pendingFileOpenRef.current
-    if (currentPending?.agentId === requestAgentId && currentPending.filePath === filePath) {
-      currentPending.target = mergeWorkspaceFileOpenTarget(currentPending.target, target)
-      return currentPending.promise
-    }
-
     currentPending?.controller.abort()
     const controller = new AbortController()
     const lease = fileOpenRequestFenceRef.current.begin()
+    const intentLease = onBeginOpenFileIntent?.()
     scheduleOpenFilePending(lease, filePath)
     const pending: PendingWorkspaceFileOpen = {
       agentId: requestAgentId,
       controller,
       filePath,
+      intentLease,
       promise: Promise.resolve(),
-      target,
+      target: mergeWorkspaceFileOpenTarget({}, target),
     }
     pending.promise = (async () => {
       try {
         const file = await fetchWorkspaceFile(requestAgentId, filePath, { signal: controller.signal })
-        if (!lease.isCurrent()) return
-        await onOpenFile(requestAgentId, file, pending.target, controller.signal)
-        if (!lease.isCurrent()) return
+        if (!lease.isCurrent() || pending.intentLease?.isCurrent() === false) return
+        await onOpenFile(requestAgentId, file, pending.target, controller.signal, pending.intentLease)
+        if (!lease.isCurrent() || pending.intentLease?.isCurrent() === false) return
         onClearSearch()
       } catch (error) {
-        if (!lease.isCurrent()) return
+        if (!lease.isCurrent() || pending.intentLease?.isCurrent() === false) return
         if (
           pending.target
           && error instanceof WorkspaceFileApiError
@@ -148,8 +162,9 @@ export function useWorkspaceFileOpenController({
             deletedWorkspaceDiffPlaceholderFile(filePath, pending.target),
             pending.target,
             controller.signal,
+            pending.intentLease,
           )
-          if (!lease.isCurrent()) return
+          if (!lease.isCurrent() || pending.intentLease?.isCurrent() === false) return
           onClearSearch()
           return
         }
@@ -163,7 +178,7 @@ export function useWorkspaceFileOpenController({
     })()
     pendingFileOpenRef.current = pending
     return pending.promise
-  }, [agentId, clearOpenFilePending, onClearSearch, onOpenFile, onSelectOpenFile, scheduleOpenFilePending])
+  }, [agentId, clearOpenFilePending, onBeginOpenFileIntent, onClearSearch, onOpenFile, onSelectOpenFile, scheduleOpenFilePending])
 
   return {
     openFileError,

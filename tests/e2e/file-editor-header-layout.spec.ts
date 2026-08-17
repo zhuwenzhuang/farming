@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { execFileSync } from 'node:child_process'
 import {
   expect,
   openFarming,
@@ -120,6 +121,223 @@ test('uses one italic preview tab and pins it on double click', async ({ page })
   await expect(fiveTab).not.toHaveAttribute('data-preview', 'true')
   expect(repeatedProjectMounts).toBe(0)
   page.off('request', countRepeatedProjectMounts)
+})
+
+test('lets the latest same-file intent replace a pending diff target', async ({ page }) => {
+  const workspaceRoot = path.join(PLAYWRIGHT_WORKSPACE_ROOT, 'editor-latest-same-file-intent')
+  fs.rmSync(workspaceRoot, { recursive: true, force: true })
+  fs.mkdirSync(workspaceRoot, { recursive: true })
+  fs.writeFileSync(path.join(workspaceRoot, 'target.txt'), 'before\n')
+  execFileSync('git', ['init', '-q'], { cwd: workspaceRoot })
+  execFileSync('git', ['config', 'user.email', 'farming@example.test'], { cwd: workspaceRoot })
+  execFileSync('git', ['config', 'user.name', 'Farming Test'], { cwd: workspaceRoot })
+  execFileSync('git', ['add', 'target.txt'], { cwd: workspaceRoot })
+  execFileSync('git', ['commit', '-qm', 'initial'], { cwd: workspaceRoot })
+  fs.writeFileSync(path.join(workspaceRoot, 'target.txt'), 'after\n')
+
+  await openFarming(page)
+  await openNewAgentDialog(page)
+  await startAgentFromOpenDialog(page, 'bash', workspaceRoot)
+
+  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspaceRoot) })
+  const files = project.getByTestId('code-files-section')
+  const filesTitle = files.locator('.code-files-title').first()
+  if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
+  const trackedGroup = files.getByTestId('code-file-change-tracked-group')
+  const changesTitle = trackedGroup.getByRole('button', { name: /Changes/ })
+  await expect(changesTitle).toBeVisible({ timeout: 30_000 })
+  if (await changesTitle.getAttribute('aria-expanded') !== 'true') await changesTitle.click()
+  const changeRow = trackedGroup.locator('[data-testid="code-file-change-row"][data-file-path="target.txt"]')
+  const treeRow = files.locator('[data-testid="code-file-row"][data-file-path="target.txt"]')
+  await expect(changeRow).toBeVisible()
+  await expect(treeRow).toBeVisible()
+
+  let targetReadCount = 0
+  let releaseTargetRead = () => {}
+  const targetReadGate = new Promise<void>(resolve => { releaseTargetRead = resolve })
+  await page.route('**/api/files/file?**', async route => {
+    const url = new URL(route.request().url())
+    if (url.searchParams.get('path') !== 'target.txt') {
+      await route.continue()
+      return
+    }
+    targetReadCount += 1
+    const response = await route.fetch()
+    await targetReadGate
+    await route.fulfill({ response })
+  })
+
+  await changeRow.click()
+  await expect.poll(() => targetReadCount).toBe(1)
+  await treeRow.click()
+  expect(targetReadCount).toBe(1)
+  releaseTargetRead()
+
+  const targetTab = page.getByTestId('code-file-editor').getByRole('tab').filter({ hasText: 'target.txt' })
+  await expect(targetTab).toHaveAttribute('aria-selected', 'true')
+  await expect(targetTab).toHaveAttribute('data-preview', 'true')
+  await expect(page.getByTestId('code-file-diff-view')).toHaveCount(0)
+  await page.unroute('**/api/files/file?**')
+})
+
+test('keeps the latest file intent across Project sections', async ({ page }) => {
+  const slowWorkspace = path.join(PLAYWRIGHT_WORKSPACE_ROOT, 'editor-cross-project-slow')
+  const fastWorkspace = path.join(PLAYWRIGHT_WORKSPACE_ROOT, 'editor-cross-project-fast')
+  for (const workspace of [slowWorkspace, fastWorkspace]) {
+    fs.rmSync(workspace, { recursive: true, force: true })
+    fs.mkdirSync(workspace, { recursive: true })
+  }
+  fs.writeFileSync(path.join(slowWorkspace, 'slow.txt'), 'slow\n')
+  fs.writeFileSync(path.join(fastWorkspace, 'fast.txt'), 'fast\n')
+
+  await openFarming(page)
+  for (const workspace of [slowWorkspace, fastWorkspace]) {
+    await openNewAgentDialog(page)
+    await startAgentFromOpenDialog(page, 'bash', workspace)
+  }
+
+  const slowProject = page.getByTestId('code-project-group').filter({ hasText: path.basename(slowWorkspace) })
+  const fastProject = page.getByTestId('code-project-group').filter({ hasText: path.basename(fastWorkspace) })
+  const slowFiles = slowProject.getByTestId('code-files-section')
+  const fastFiles = fastProject.getByTestId('code-files-section')
+  for (const files of [slowFiles, fastFiles]) {
+    const title = files.locator('.code-files-title').first()
+    if (await title.getAttribute('aria-expanded') !== 'true') await title.click()
+  }
+
+  let slowReadCount = 0
+  let releaseSlowRead = () => {}
+  const slowReadGate = new Promise<void>(resolve => { releaseSlowRead = resolve })
+  await page.route('**/api/files/file?**', async route => {
+    const url = new URL(route.request().url())
+    if (url.searchParams.get('path') !== 'slow.txt') {
+      await route.continue()
+      return
+    }
+    slowReadCount += 1
+    const response = await route.fetch()
+    await slowReadGate
+    await route.fulfill({ response })
+  })
+
+  await slowFiles.locator('[data-testid="code-file-row"][data-file-path="slow.txt"]').click()
+  await expect.poll(() => slowReadCount).toBe(1)
+  await fastFiles.locator('[data-testid="code-file-row"][data-file-path="fast.txt"]').click()
+  const editor = page.getByTestId('code-file-editor')
+  const fastTab = editor.getByRole('tab').filter({ hasText: 'fast.txt' })
+  await expect(fastTab).toHaveAttribute('aria-selected', 'true')
+
+  releaseSlowRead()
+  await expect(editor.getByRole('tab').filter({ hasText: 'slow.txt' })).toHaveCount(0)
+  await expect(fastTab).toHaveAttribute('aria-selected', 'true')
+  await page.unroute('**/api/files/file?**')
+})
+
+test('mounts an absent Project once and then reuses membership', async ({ page }) => {
+  const workspaceRoot = path.join(PLAYWRIGHT_WORKSPACE_ROOT, 'editor-project-mount-membership')
+  fs.rmSync(workspaceRoot, { recursive: true, force: true })
+  fs.mkdirSync(workspaceRoot, { recursive: true })
+  fs.writeFileSync(path.join(workspaceRoot, 'one.txt'), 'one\n')
+  fs.writeFileSync(path.join(workspaceRoot, 'two.txt'), 'two\n')
+
+  await openFarming(page)
+  await openNewAgentDialog(page)
+  await startAgentFromOpenDialog(page, 'bash', workspaceRoot)
+  const removeResponse = await page.request.post('/farming/api/projects/remove', {
+    data: { workspace: workspaceRoot },
+  })
+  expect(removeResponse.ok()).toBeTruthy()
+  await page.reload({ waitUntil: 'domcontentloaded' })
+
+  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspaceRoot) })
+  await expect(project).toBeVisible({ timeout: 30_000 })
+  const files = project.getByTestId('code-files-section')
+  const filesTitle = files.locator('.code-files-title').first()
+  if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
+
+  let mountCount = 0
+  let firstFileReadCount = 0
+  let releaseMount = () => {}
+  let markMountStarted = () => {}
+  const mountGate = new Promise<void>(resolve => { releaseMount = resolve })
+  const mountStarted = new Promise<void>(resolve => { markMountStarted = resolve })
+  await page.route('**/api/projects/mount', async route => {
+    mountCount += 1
+    const response = await route.fetch()
+    markMountStarted()
+    await mountGate
+    await route.fulfill({ response })
+  })
+  page.on('request', request => {
+    const url = new URL(request.url())
+    if (url.pathname.endsWith('/api/files/file') && url.searchParams.get('path') === 'one.txt') {
+      firstFileReadCount += 1
+    }
+  })
+  const oneRow = files.locator('[data-testid="code-file-row"][data-file-path="one.txt"]')
+  await oneRow.click()
+  await mountStarted
+  await oneRow.dblclick()
+  expect(mountCount).toBe(1)
+  expect(firstFileReadCount).toBe(1)
+  releaseMount()
+  const firstTab = page.getByTestId('code-file-editor').getByRole('tab').filter({ hasText: 'one.txt' })
+  await expect(firstTab).toBeVisible()
+  await expect(firstTab).not.toHaveAttribute('data-preview', 'true')
+
+  await files.locator('[data-testid="code-file-row"][data-file-path="two.txt"]').click()
+  await expect(page.getByTestId('code-file-editor').getByRole('tab').filter({ hasText: 'two.txt' })).toBeVisible()
+  expect(mountCount).toBe(1)
+  await page.unroute('**/api/projects/mount')
+})
+
+test('shares a pending Project mount across different file intents', async ({ page }) => {
+  const workspaceRoot = path.join(PLAYWRIGHT_WORKSPACE_ROOT, 'editor-shared-project-mount')
+  fs.rmSync(workspaceRoot, { recursive: true, force: true })
+  fs.mkdirSync(workspaceRoot, { recursive: true })
+  fs.writeFileSync(path.join(workspaceRoot, 'slow.txt'), 'slow\n')
+  fs.writeFileSync(path.join(workspaceRoot, 'latest.txt'), 'latest\n')
+
+  await openFarming(page)
+  await openNewAgentDialog(page)
+  await startAgentFromOpenDialog(page, 'bash', workspaceRoot)
+  const removeResponse = await page.request.post('/farming/api/projects/remove', {
+    data: { workspace: workspaceRoot },
+  })
+  expect(removeResponse.ok()).toBeTruthy()
+  await page.reload({ waitUntil: 'domcontentloaded' })
+
+  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspaceRoot) })
+  await expect(project).toBeVisible({ timeout: 30_000 })
+  const files = project.getByTestId('code-files-section')
+  const filesTitle = files.locator('.code-files-title').first()
+  if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
+
+  let mountCount = 0
+  let releaseMount = () => {}
+  let markMountStarted = () => {}
+  const mountGate = new Promise<void>(resolve => { releaseMount = resolve })
+  const mountStarted = new Promise<void>(resolve => { markMountStarted = resolve })
+  await page.route('**/api/projects/mount', async route => {
+    mountCount += 1
+    const response = await route.fetch()
+    markMountStarted()
+    await mountGate
+    await route.fulfill({ response })
+  })
+
+  await files.locator('[data-testid="code-file-row"][data-file-path="slow.txt"]').click()
+  await mountStarted
+  await files.locator('[data-testid="code-file-row"][data-file-path="latest.txt"]').click()
+  await expect.poll(() => mountCount).toBe(1)
+  releaseMount()
+
+  const editor = page.getByTestId('code-file-editor')
+  const latestTab = editor.getByRole('tab').filter({ hasText: 'latest.txt' })
+  await expect(latestTab).toHaveAttribute('aria-selected', 'true')
+  await expect(editor.getByRole('tab').filter({ hasText: 'slow.txt' })).toHaveCount(0)
+  expect(mountCount).toBe(1)
+  await page.unroute('**/api/projects/mount')
 })
 
 test('overlays right-side file actions on overflowing tabs and shows a seamless breadcrumb', async ({ page }, testInfo) => {

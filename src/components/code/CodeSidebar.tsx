@@ -92,6 +92,7 @@ import { UsagePanel } from './UsagePanel'
 import { FarmingPet } from './pet/FarmingPet'
 import type { UiAppearance, UiLanguage } from '@/lib/ui-preferences'
 import { scheduleFocusUntil } from './focus-retry'
+import type { RequestOwnershipLease } from '@/lib/request-ownership'
 
 declare const __FARMING_PACKAGE_VERSION__: string
 
@@ -248,7 +249,9 @@ interface CodeSidebarProps {
     file: OpenWorkspaceFile['file'],
     target?: WorkspaceFileOpenTarget,
     signal?: AbortSignal,
+    intentLease?: RequestOwnershipLease,
   ) => void | Promise<void>
+  onBeginProjectFileOpenIntent: () => RequestOwnershipLease
   onSelectOpenWorkspaceFile: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
   onCloseOpenWorkspaceFile: (agentId: string, filePath: string, workspaceRoot?: string) => void
   onMoveWorkspaceEntries: (agentId: string, moves: WorkspaceFileMove[]) => void
@@ -347,6 +350,7 @@ export function CodeSidebar({
   onResumeAgentSession,
   onOpenAgentSessionMenu,
   onOpenProjectFile,
+  onBeginProjectFileOpenIntent,
   onSelectOpenWorkspaceFile,
   onCloseOpenWorkspaceFile,
   onMoveWorkspaceEntries,
@@ -865,6 +869,7 @@ export function CodeSidebar({
             onShowAgentPreview={showAgentPreview}
             onHideAgentPreview={hideAgentPreview}
             onOpenProjectFile={onOpenProjectFile}
+            onBeginProjectFileOpenIntent={onBeginProjectFileOpenIntent}
             onSelectOpenWorkspaceFile={onSelectOpenWorkspaceFile}
             onCloseOpenWorkspaceFile={onCloseOpenWorkspaceFile}
             onMoveWorkspaceEntries={onMoveWorkspaceEntries}
@@ -1775,7 +1780,9 @@ interface ProjectSectionProps {
     file: OpenWorkspaceFile['file'],
     target?: WorkspaceFileOpenTarget,
     signal?: AbortSignal,
+    intentLease?: RequestOwnershipLease,
   ) => void | Promise<void>
+  onBeginProjectFileOpenIntent: () => RequestOwnershipLease
   onSelectOpenWorkspaceFile: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
   onCloseOpenWorkspaceFile: (agentId: string, filePath: string, workspaceRoot?: string) => void
   onMoveWorkspaceEntries: (agentId: string, moves: WorkspaceFileMove[]) => void
@@ -1900,6 +1907,7 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
   onShowAgentPreview,
   onHideAgentPreview,
   onOpenProjectFile,
+  onBeginProjectFileOpenIntent,
   onSelectOpenWorkspaceFile,
   onCloseOpenWorkspaceFile,
   onMoveWorkspaceEntries,
@@ -2031,7 +2039,11 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
 
   const withProjectSourceAgent = useCallback((target?: WorkspaceFileOpenTarget) => {
     if (!projectSourceAgent?.id || target?.sourceAgentId) return target
-    return { ...target, sourceAgentId: projectSourceAgent.id }
+    const contextualTarget = target ?? {}
+    // Project file opens keep this target object stable while a pending read is
+    // upgraded (for example preview to pinned). Preserve that identity here.
+    contextualTarget.sourceAgentId = projectSourceAgent.id
+    return contextualTarget
   }, [projectSourceAgent?.id])
 
   const openProjectWorkspaceFile = useCallback((
@@ -2039,8 +2051,9 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
     file: OpenWorkspaceFile['file'],
     target?: WorkspaceFileOpenTarget,
     signal?: AbortSignal,
+    intentLease?: RequestOwnershipLease,
   ) => {
-    return onOpenProjectFile(filesId, file, withProjectSourceAgent(target), signal)
+    return onOpenProjectFile(filesId, file, withProjectSourceAgent(target), signal, intentLease)
   }, [onOpenProjectFile, withProjectSourceAgent])
 
   const selectOpenProjectWorkspaceFile = useCallback((filesId: string, filePath: string, target?: WorkspaceFileOpenTarget) => (
@@ -2525,6 +2538,7 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
                 editorDirtyFilePaths={projectEditorDirtyFilePaths}
                 editorExternalChangedFilePaths={projectEditorExternalChangedFilePaths}
                 onOpenFile={openProjectWorkspaceFile}
+                onBeginOpenFileIntent={onBeginProjectFileOpenIntent}
                 onSelectOpenFile={selectOpenProjectWorkspaceFile}
                 onCloseOpenFile={onCloseOpenWorkspaceFile}
                 onNewAgent={onNewAgent}

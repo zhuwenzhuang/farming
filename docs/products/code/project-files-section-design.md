@@ -47,7 +47,11 @@ opening, restored Project sessions, and Git worktree selection all refer to that
 same workspace identity. Losing the last Agent or editor does not silently
 remove the Project; explicit removal is the unmount action. Opening another file
 inside an already mounted Project reuses that membership and must not replay the
-Project-mount mutation on the file-open critical path.
+Project-mount mutation on the file-open critical path. Concurrent opens that
+discover the same absent Project share one mount mutation. Cancelling an
+individual file-open waiter does not cancel or replay that mutation; its result
+still updates authoritative browser membership, while only the current file-open
+intent may commit the main pane.
 
 When a user explicitly selects a repository subdirectory while creating an
 Agent, that directory is the Project boundary. The containing Git worktree
@@ -144,6 +148,17 @@ requested end state can be proven. It does not automatically replay a mutation.
 
 Late browser responses may refresh authoritative data, but cannot close a newer
 dialog, move focus, open a replacement file, or overwrite a newer error.
+
+A file-open transaction moves through selected, reading, optional Project
+mounting, committed, cancelled, or failed. Project composition owns one
+browser-side open-intent generation across every Project Files section; a
+section-local request may own its loading feedback, but it cannot independently
+claim the main pane. Repeated opens of the same in-flight file share the read
+and transaction: the latest intent replaces view, cursor, focus, and reveal
+fields, while pinning is monotonic. A newer different-file intent revokes the
+older transaction even when it comes from another Project. Transport abort is
+best effort; the current intent lease is the final admission check before and
+after an optional mount and before committing the editor state.
 
 Farming does not claim transactions with arbitrary external writers. Shells,
 Agents, Git, editors, and other Farming instances remain independent clients of

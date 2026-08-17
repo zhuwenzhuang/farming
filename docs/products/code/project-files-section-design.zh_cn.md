@@ -38,7 +38,10 @@ Project 同一时间只显示一个“显示更多”操作，并先展示剩余
 Project 是持久挂载到 Farming 的 Workspace。Agent 创建、文件打开、恢复的 Project Session
 与 Git Worktree 选择都引用同一个 Workspace Identity。最后一个 Agent 或 Editor 消失时不能
 静默移除 Project；显式 Remove 才是 Unmount Action。在已挂载 Project 内打开其他文件时复用
-现有 Membership，不得在文件打开关键路径上重复执行 Project Mount Mutation。
+现有 Membership，不得在文件打开关键路径上重复执行 Project Mount Mutation。并发打开
+如果发现同一个 Project 尚未挂载，共用一次 Mount Mutation。取消某个 File-open Waiter
+不会取消或重放该 Mutation；其结果仍会更新 Browser 中的权威 Membership，而只有当前
+File-open Intent 可以提交 Main Pane。
 
 用户在创建 Agent 时显式选择仓库子目录，该目录就是 Project 边界。外层 Git Worktree 仍然
 负责仓库操作，但不得因此把 Agent 提升到范围更大的已挂载 Project。从已有 Project 界面启动时，
@@ -110,6 +113,14 @@ Timeout 或 Transport Failure 结果不明确时，Farming 重读权威文件或
 
 迟到 Browser Response 可以刷新权威数据，但不能关闭更新 Dialog、移动 Focus、打开替代文件，
 或覆盖更新 Error。
+
+File-open Transaction 依次处于 Selected、Reading、可选 Project Mounting、Committed、Cancelled
+或 Failed。Project Composition 在所有 Project Files Section 之上拥有唯一的 Browser-side
+Open-intent Generation；Section-local Request 可以拥有自己的 Loading Feedback，但不能独立
+抢占 Main Pane。同一个 In-flight File 的重复打开共用同一次 Read 与 Transaction：最新
+Intent 替换 View、Cursor、Focus 与 Reveal Field，而 Pin 只能单调升级。更新的不同文件
+Intent 会撤销旧 Transaction，即使它来自另一个 Project。Transport Abort 只是 Best Effort；
+当前 Intent Lease 才是可选 Mount 前后以及提交 Editor State 前的最终准入检查。
 
 Farming 不宣称与任意 External Writer 组成 Transaction。Shell、Agent、Git、Editor 与其它
 Farming Instance 都是同一文件系统的独立客户端。

@@ -91,6 +91,7 @@ import { MobileShareSheet } from './code/MobileShareSheet'
 import { CodeOverlays, ContextMenuIcon } from './code/CodeOverlays'
 import { CodeSidebar } from './code/CodeSidebar'
 import { LatestRequestFence } from './code/latest-request-fence'
+import type { RequestOwnershipLease } from '@/lib/request-ownership'
 import { BrowserSidebarPortals } from '../../extensions/browser/frontend/BrowserSidebarPortals'
 import { useBrowserResources } from '../../extensions/browser/frontend/useBrowserResources'
 import type { BrowserResourceState } from '../../extensions/browser/frontend/browser-resource-state'
@@ -2922,9 +2923,11 @@ export function CodeWorkspace({
     file: OpenWorkspaceFile['file'],
     target?: WorkspaceFileOpenTarget,
     signal?: AbortSignal,
+    intentLease?: RequestOwnershipLease,
   ) => {
     throwIfProjectMountAborted(signal)
-    const requestLease = workspaceFileOpenRequestRef.current.begin()
+    const requestLease = intentLease ?? workspaceFileOpenRequestRef.current.begin()
+    if (!requestLease.isCurrent()) return
     let identity = resolveWorkspaceFileIdentity(agentId, target?.sourceAgentId)
     let projectWorkspace = projectWorkspaceFromFilesId(identity.filesId)
     const projectAlreadyMounted = Boolean(
@@ -2987,6 +2990,10 @@ export function CodeWorkspace({
     }
     closeSidebarForMobile()
   }, [clearSearch, closeContextMenu, closeSidebarForMobile, createWorkspaceOpenFileRequest, mountProject, onOpenTerminal, onWorkspaceViewChange, projectWorkspaces, resolveWorkspaceFileIdentity, setMainPaneMode, workspaceOpenFiles])
+
+  const beginProjectFileOpenIntent = useCallback(() => (
+    workspaceFileOpenRequestRef.current.begin()
+  ), [])
 
   const resolveAbsoluteWorkspaceFileTarget = useCallback(async (absolutePath: string, sourceAgentId?: string) => {
     try {
@@ -5132,6 +5139,7 @@ export function CodeWorkspace({
         onResumeAgentSession={resumeAgentSession}
         onOpenAgentSessionMenu={openAgentSessionContextMenu}
         onOpenProjectFile={openProjectFile}
+        onBeginProjectFileOpenIntent={beginProjectFileOpenIntent}
         onSelectOpenWorkspaceFile={selectOpenWorkspaceFile}
         onCloseOpenWorkspaceFile={closeOpenWorkspaceFile}
         onMoveWorkspaceEntries={handleWorkspaceFileMove}
