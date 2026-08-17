@@ -2917,19 +2917,32 @@ export function CodeWorkspace({
     closeSidebarForMobile()
   }, [closeSidebarForMobile, openTerminalFromWorkspace, resumeColdAgentFromUserActivation])
 
-  const openProjectFile = useCallback(async (agentId: string, file: OpenWorkspaceFile['file'], target?: WorkspaceFileOpenTarget) => {
+  const openProjectFile = useCallback(async (
+    agentId: string,
+    file: OpenWorkspaceFile['file'],
+    target?: WorkspaceFileOpenTarget,
+    signal?: AbortSignal,
+  ) => {
+    throwIfProjectMountAborted(signal)
     const requestLease = workspaceFileOpenRequestRef.current.begin()
     let identity = resolveWorkspaceFileIdentity(agentId, target?.sourceAgentId)
     let projectWorkspace = projectWorkspaceFromFilesId(identity.filesId)
-    if (identity.workspaceRoot) {
+    const projectAlreadyMounted = Boolean(
+      identity.workspaceRoot
+      && projectWorkspaces.some(workspace => (
+        projectFilesWorkspaceId(workspace) === projectFilesWorkspaceId(identity.workspaceRoot!)
+      )),
+    )
+    if (identity.workspaceRoot && !projectAlreadyMounted) {
       try {
-        const mountedWorkspace = await mountProject(identity.workspaceRoot)
+        const mountedWorkspace = await mountProject(identity.workspaceRoot, signal)
         if (!requestLease.isCurrent()) return
         if (mountedWorkspace && mountedWorkspace !== identity.workspaceRoot) {
           identity = resolveWorkspaceFileIdentity(projectFilesWorkspaceId(mountedWorkspace), target?.sourceAgentId)
           projectWorkspace = projectWorkspaceFromFilesId(identity.filesId)
         }
       } catch (error) {
+        if (signal?.aborted) return
         if (!requestLease.isCurrent()) return
         setCopyNotice({
           id: Date.now(),
@@ -2939,6 +2952,7 @@ export function CodeWorkspace({
         throw error
       }
     }
+    throwIfProjectMountAborted(signal)
     if (projectWorkspace || identity.sourceAgent) {
       const projectId = projectWorkspace || (identity.sourceAgent?.isMain
         ? MAIN_AGENT_PROJECT_ID
@@ -2972,7 +2986,7 @@ export function CodeWorkspace({
       onOpenTerminal(identity.sourceAgentId, { focusTerminal: false })
     }
     closeSidebarForMobile()
-  }, [clearSearch, closeContextMenu, closeSidebarForMobile, createWorkspaceOpenFileRequest, mountProject, onOpenTerminal, onWorkspaceViewChange, resolveWorkspaceFileIdentity, setMainPaneMode, workspaceOpenFiles])
+  }, [clearSearch, closeContextMenu, closeSidebarForMobile, createWorkspaceOpenFileRequest, mountProject, onOpenTerminal, onWorkspaceViewChange, projectWorkspaces, resolveWorkspaceFileIdentity, setMainPaneMode, workspaceOpenFiles])
 
   const resolveAbsoluteWorkspaceFileTarget = useCallback(async (absolutePath: string, sourceAgentId?: string) => {
     try {
@@ -3067,6 +3081,7 @@ export function CodeWorkspace({
               workspaceRoot: identity.workspaceRoot ?? candidate.workspace,
               sourceAgentId: identity.sourceAgentId,
               transient: candidate.transient,
+              restoreTransient: true,
             },
           })
         } catch {

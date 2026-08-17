@@ -428,6 +428,21 @@ function run() {
   assert.strictEqual(refreshedOpenFiles.files[2].diffOnly, true);
   assert.strictEqual(refreshedOpenFiles.files[3], otherWorkspaceOpenFile);
 
+  const staleProjectRefresh = refreshWorkspaceOpenFilesFromReads({
+    activeFile: refreshedOpenFiles.files[0],
+    files: refreshedOpenFiles.files,
+    closedFileCache: new Map(),
+  }, '/repo', [
+    workspaceFile('src/Clean.tsx', { content: 'stale clean\n', sha1: 'clean-stale' }),
+  ], new Map([
+    ['src/Clean.tsx', 'clean-old'],
+  ]));
+  assert.strictEqual(
+    staleProjectRefresh.files[0],
+    refreshedOpenFiles.files[0],
+    'a late Project refresh must not replace a newer disk baseline',
+  );
+
   assert.strictEqual(workspaceWorkingCopyState(workingCopy()), 'saved');
   assert.strictEqual(workspaceWorkingCopyState(workingCopy({ dirty: true })), 'dirty');
   assert.strictEqual(workspaceWorkingCopyState(workingCopy({ saving: true, dirty: true })), 'saving');

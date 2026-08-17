@@ -21,6 +21,8 @@ test('uses one italic preview tab and pins it on double click', async ({ page })
   fs.writeFileSync(path.join(workspaceRoot, 'one.txt'), 'one\n')
   fs.writeFileSync(path.join(workspaceRoot, 'two.txt'), 'two\n')
   fs.writeFileSync(path.join(workspaceRoot, 'three.txt'), 'three\n')
+  fs.writeFileSync(path.join(workspaceRoot, 'four.txt'), 'four\n')
+  fs.writeFileSync(path.join(workspaceRoot, 'five.txt'), 'five\n')
 
   await openFarming(page)
   await openNewAgentDialog(page)
@@ -36,6 +38,8 @@ test('uses one italic preview tab and pins it on double click', async ({ page })
   const oneRow = files.locator('[data-testid="code-file-row"][data-file-path="one.txt"]')
   const twoRow = files.locator('[data-testid="code-file-row"][data-file-path="two.txt"]')
   const threeRow = files.locator('[data-testid="code-file-row"][data-file-path="three.txt"]')
+  const fourRow = files.locator('[data-testid="code-file-row"][data-file-path="four.txt"]')
+  const fiveRow = files.locator('[data-testid="code-file-row"][data-file-path="five.txt"]')
 
   await oneRow.click()
   await expect(project.locator('.code-agent-row.active')).toHaveCount(0)
@@ -58,10 +62,64 @@ test('uses one italic preview tab and pins it on double click', async ({ page })
   await expect(twoTab).toHaveCount(1)
   await expect(threeTab).toHaveAttribute('data-preview', 'true')
 
+  let repeatedTwoReads = 0
+  const countRepeatedTwoReads = (request: { url(): string }) => {
+    const url = new URL(request.url())
+    if (url.pathname.endsWith('/api/files/file') && url.searchParams.get('path') === 'two.txt') {
+      repeatedTwoReads += 1
+    }
+  }
+  page.on('request', countRepeatedTwoReads)
+  await twoRow.click()
+  await expect(twoTab).toHaveAttribute('aria-selected', 'true')
+  await expect(twoTab).not.toHaveAttribute('data-preview', 'true')
+  await expect(twoTab.locator('.code-file-editor-tab-name')).toHaveCSS('font-style', 'normal')
+  expect(repeatedTwoReads).toBe(0)
+  page.off('request', countRepeatedTwoReads)
+
   await threeRow.dblclick()
   await expect(threeTab).not.toHaveAttribute('data-preview', 'true')
   await expect(threeTab.locator('.code-file-editor-tab-name')).toHaveCSS('font-style', 'normal')
   await expect(editor.getByRole('tab')).toHaveCount(2)
+
+  let fourReadCount = 0
+  let releaseFourRead = () => {}
+  const fourReadGate = new Promise<void>(resolve => { releaseFourRead = resolve })
+  const delayFirstFourRead = async (route: import('@playwright/test').Route) => {
+    const url = new URL(route.request().url())
+    if (url.searchParams.get('path') !== 'four.txt') {
+      await route.continue()
+      return
+    }
+    fourReadCount += 1
+    if (fourReadCount > 1) {
+      await route.continue()
+      return
+    }
+    const response = await route.fetch()
+    await fourReadGate
+    await route.fulfill({ response })
+  }
+  await page.route('**/api/files/file?**', delayFirstFourRead)
+  await fourRow.dblclick()
+  await expect.poll(() => fourReadCount).toBe(1)
+  releaseFourRead()
+  const fourTab = editor.getByRole('tab').filter({ hasText: 'four.txt' })
+  await expect(fourTab).toHaveAttribute('aria-selected', 'true')
+  await expect(fourTab).not.toHaveAttribute('data-preview', 'true')
+  await page.unroute('**/api/files/file?**', delayFirstFourRead)
+
+  let repeatedProjectMounts = 0
+  const countRepeatedProjectMounts = (request: { url(): string }) => {
+    if (new URL(request.url()).pathname.endsWith('/api/projects/mount')) repeatedProjectMounts += 1
+  }
+  page.on('request', countRepeatedProjectMounts)
+  await fiveRow.dblclick()
+  const fiveTab = editor.getByRole('tab').filter({ hasText: 'five.txt' })
+  await expect(fiveTab).toHaveAttribute('aria-selected', 'true')
+  await expect(fiveTab).not.toHaveAttribute('data-preview', 'true')
+  expect(repeatedProjectMounts).toBe(0)
+  page.off('request', countRepeatedProjectMounts)
 })
 
 test('overlays right-side file actions on overflowing tabs and shows a seamless breadcrumb', async ({ page }, testInfo) => {

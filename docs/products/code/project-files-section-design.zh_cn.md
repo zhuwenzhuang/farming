@@ -30,13 +30,15 @@ Files Header 组成同一个分层 Sticky Summary；后一层 Offset 来自前�
 Project Agent 行采用渐进展示，避免大型 Agent 分组难以浏览。Project 初始显示 5 个 Agent，
 第一次“显示更多”最多再显示 5 个，之后每次最多再显示 10 个；“显示较少”恢复为初始 5 个。
 Selection、Search 与 Active Agent 变化可以替换当前容量内的行，但只有“显示更多”和
-“显示较少”可以改变这个容量。
+“显示较少”可以改变这个容量。当 Live Agent 行和可恢复 Session 行都还有更多条目时，
+Project 同一时间只显示一个“显示更多”操作，并先展示剩余的 Live Agent，再展示更多 Session。
 
 ## Project 与 Workspace 身份
 
 Project 是持久挂载到 Farming 的 Workspace。Agent 创建、文件打开、恢复的 Project Session
 与 Git Worktree 选择都引用同一个 Workspace Identity。最后一个 Agent 或 Editor 消失时不能
-静默移除 Project；显式 Remove 才是 Unmount Action。
+静默移除 Project；显式 Remove 才是 Unmount Action。在已挂载 Project 内打开其他文件时复用
+现有 Membership，不得在文件打开关键路径上重复执行 Project Mount Mutation。
 
 用户在创建 Agent 时显式选择仓库子目录，该目录就是 Project 边界。外层 Git Worktree 仍然
 负责仓库操作，但不得因此把 Agent 提升到范围更大的已挂载 Project。从已有 Project 界面启动时，
@@ -191,7 +193,10 @@ Issue Reference 遵循 Workspace `.idea/vcs.xml` 内的 IntelliJ
 - Open Editors 只在需要时出现，并与 Tree 分离。
 - 单子目录链可以合并成一个稳定 Row。
 - Dirty、External Change 与 Git State 保持可见，但不把整棵 Tree 变成高噪音警告面。
-- Preview 与 Pinned Tab 保留各自 Editor Position，并区分临时查看与有意多文件工作。
+- Preview 与 Pinned Tab 保留各自 Editor Position，并区分临时查看与有意多文件工作。单击可以
+  为新的 Clean File 创建 Preview，但选择已有 Pinned Tab 时不得把它降级成 Preview；双击执行
+  Pin。同一个 Pending File 的重复打开共用一次读取并合并最新 Intent；更新的不同文件 Intent
+  取消已被取代的打开操作，并让有界 Loading Feedback 保持到事务完成。
 - 纸张外观让 Tab Strip、Breadcrumb 与 Editor 共用一张连续纸面；只有 Active Tab 使用局部
   色块，选中态不增加整条 Chrome 色带、边框、阴影或接缝线。
 - 窄屏优先查看与短编辑；长时间手机编码不是目标。

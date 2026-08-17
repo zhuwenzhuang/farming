@@ -249,6 +249,38 @@ function run() {
   });
   assert(pinnedBySelection);
   assert.strictEqual(pinnedBySelection.activeFile.transient, false);
+  const pinnedAfterTreeSelection = selectWorkspaceOpenFile(pinnedBySelection, 'agent-1', 'src/One.tsx', {
+    workspaceRoot: '/repo',
+    transient: true,
+  });
+  assert(pinnedAfterTreeSelection);
+  assert.strictEqual(
+    pinnedAfterTreeSelection.activeFile.transient,
+    false,
+    'selecting an existing pinned editor with preview intent must preserve its pinned state',
+  );
+  const pinnedAfterRepeatedRead = openWorkspaceFileFromRead(
+    pinnedAfterTreeSelection,
+    'agent-1',
+    workspaceFile('src/One.tsx', 'one'),
+    { workspaceRoot: '/repo', transient: true },
+  );
+  assert.strictEqual(
+    pinnedAfterRepeatedRead.activeFile.transient,
+    false,
+    'a late preview read must not demote an editor that was pinned while the read was pending',
+  );
+  const restoredPreview = openWorkspaceFileFromRead(
+    pinnedAfterRepeatedRead,
+    'agent-1',
+    workspaceFile('src/One.tsx', 'one'),
+    { workspaceRoot: '/repo', transient: true, restoreTransient: true },
+  );
+  assert.strictEqual(
+    restoredPreview.activeFile.transient,
+    true,
+    'restoring persisted tab state must recover a preview opened earlier by surface restoration',
+  );
   const previewAfterPinned = openWorkspaceFileFromRead(pinnedBySelection, 'agent-1', workspaceFile('src/Two.tsx', 'two'), {
     workspaceRoot: '/repo',
     transient: true,

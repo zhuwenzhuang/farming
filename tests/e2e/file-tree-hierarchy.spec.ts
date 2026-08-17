@@ -943,6 +943,8 @@ test('keeps file row slots stable for rename, links, statuses, loading, and comp
   const latestFileRow = files.locator('[data-testid="code-file-row"][data-file-path="target-b.ts"]')
   await slowFileRow.click()
   await slowReadStarted
+  await expect(slowFileRow).toHaveClass(/opening/)
+  await expect(slowFileRow.locator('.code-file-open-spinner')).toBeVisible()
   await latestFileRow.click()
   await expect(page.getByTestId('code-file-editor').getByRole('tab', { name: /target-b\.ts/ })).toHaveAttribute('aria-selected', 'true')
   await expect(page.locator('.monaco-editor textarea.inputarea')).toBeFocused()
@@ -956,36 +958,18 @@ test('keeps file row slots stable for rename, links, statuses, loading, and comp
   await expect(page.locator('.monaco-editor textarea.inputarea')).toBeFocused()
   await page.unroute('**/api/files/file?**')
 
-  let releaseSlowMount = () => {}
-  let markSlowMountStarted = () => {}
-  let markSlowMountFinished = () => {}
-  let delayNextMount = false
-  const slowMountGate = new Promise<void>(resolve => { releaseSlowMount = resolve })
-  const slowMountStarted = new Promise<void>(resolve => { markSlowMountStarted = resolve })
-  const slowMountFinished = new Promise<void>(resolve => { markSlowMountFinished = resolve })
-  await page.route('**/api/projects/mount', async route => {
-    const response = await route.fetch()
-    if (!delayNextMount) {
-      await route.fulfill({ response })
-      return
-    }
-    delayNextMount = false
-    markSlowMountStarted()
-    await slowMountGate
-    await route.fulfill({ response })
-    markSlowMountFinished()
-  })
-  delayNextMount = true
+  let repeatedProjectMounts = 0
+  const countRepeatedProjectMounts = (request: { url(): string }) => {
+    if (new URL(request.url()).pathname.endsWith('/api/projects/mount')) repeatedProjectMounts += 1
+  }
+  page.on('request', countRepeatedProjectMounts)
   await slowFileRow.click()
-  await slowMountStarted
+  await expect(page.getByTestId('code-file-editor').getByRole('tab', { name: /target-a\.ts/ })).toHaveAttribute('aria-selected', 'true')
   await latestFileRow.click()
   await expect(page.getByTestId('code-file-editor').getByRole('tab', { name: /target-b\.ts/ })).toHaveAttribute('aria-selected', 'true')
-  releaseSlowMount()
-  await slowMountFinished
-  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())))
-  await expect(page.getByTestId('code-file-editor').getByRole('tab', { name: /target-b\.ts/ })).toHaveAttribute('aria-selected', 'true')
+  expect(repeatedProjectMounts).toBe(0)
   await expect(page.locator('.monaco-editor textarea.inputarea')).toBeFocused()
-  await page.unroute('**/api/projects/mount')
+  page.off('request', countRepeatedProjectMounts)
 
   await page.setViewportSize({ width: 720, height: 900 })
   await expect(page.locator('body')).toHaveClass(/code-compact-layout/)

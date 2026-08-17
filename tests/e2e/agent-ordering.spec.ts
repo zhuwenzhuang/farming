@@ -88,7 +88,7 @@ test('keeps Agent pagination controls out of arrow-key Agent navigation', async 
   await expect(page.locator(`[data-testid="code-agent-row"][data-agent-id="${activeAgentId}"]`)).toHaveClass(/active/)
 })
 
-test('distinguishes Agent and session pagination controls for assistive technology', async ({ page, workspaceRoot }) => {
+test('shows one progressive pagination action across Agents and sessions', async ({ page, workspaceRoot }) => {
   const projectDir = path.join(workspaceRoot, 'agent-pagination-labels')
   fs.mkdirSync(projectDir, { recursive: true })
   await mockPaginatedProjectSessions(page, projectDir)
@@ -102,10 +102,16 @@ test('distinguishes Agent and session pagination controls for assistive technolo
   const showMoreAgents = project.getByTestId('code-agent-show-more')
   const showMoreSessions = project.getByTestId('code-session-show-more')
   await expect(showMoreAgents).toBeVisible()
-  await expect(showMoreSessions).toBeVisible()
+  await expect(showMoreSessions).toHaveCount(0)
+  await expect(project.getByText('Show more', { exact: true })).toHaveCount(1)
   await expect(showMoreAgents).toHaveAttribute('aria-label', 'Show 1 more Agent')
-  await expect(showMoreSessions).toHaveAttribute('aria-label', 'Show 1 more Agent session')
   await expect(showMoreAgents.locator('.code-agent-name')).toHaveText('Show more')
+
+  await showMoreAgents.click()
+  await expect(showMoreAgents).toHaveCount(0)
+  await expect(showMoreSessions).toBeVisible()
+  await expect(project.getByText('Show more', { exact: true })).toHaveCount(1)
+  await expect(showMoreSessions).toHaveAttribute('aria-label', 'Show 1 more Agent session')
   await expect(showMoreSessions.locator('.code-agent-name')).toHaveText('Show more')
 })
 

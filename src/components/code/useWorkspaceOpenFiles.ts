@@ -248,17 +248,29 @@ export function useWorkspaceOpenFiles() {
     return nextFile
   }, [commitState])
 
-  const refreshFromReads = useCallback((workspaceRoot: string, files: readonly WorkspaceFile[]) => (
-    commitState(refreshWorkspaceOpenFilesFromReads(stateRef.current, workspaceRoot, files))
+  const refreshFromReads = useCallback((
+    workspaceRoot: string,
+    files: readonly WorkspaceFile[],
+    requestedBaseSha1ByPath?: ReadonlyMap<string, string>,
+  ) => (
+    commitState(refreshWorkspaceOpenFilesFromReads(
+      stateRef.current,
+      workspaceRoot,
+      files,
+      requestedBaseSha1ByPath,
+    ))
   ), [commitState])
 
   const refreshProject = useCallback(async (rootId: string, workspaceRoot: string) => {
-    const filePaths = Array.from(new Set(stateRef.current.files
-      .filter(file => file.workspaceRoot === workspaceRoot)
-      .map(file => file.file.path)))
+    const requestedFiles = stateRef.current.files.filter(file => file.workspaceRoot === workspaceRoot)
+    const filePaths = Array.from(new Set(requestedFiles.map(file => file.file.path)))
     if (filePaths.length === 0) return true
+    const requestedBaseSha1ByPath = new Map(requestedFiles.map(file => [
+      file.file.path,
+      file.file.sha1,
+    ]))
     const result = await refreshOpenWorkspaceFileReads(rootId, filePaths)
-    refreshFromReads(workspaceRoot, result.files)
+    refreshFromReads(workspaceRoot, result.files, requestedBaseSha1ByPath)
     return result.successful
   }, [refreshFromReads])
 

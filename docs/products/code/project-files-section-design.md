@@ -36,14 +36,18 @@ scannable. A Project initially shows five Agents, the first Show more action
 reveals up to five more, later actions reveal up to ten more, and Show less
 returns to the initial five. Selection, search, and active-Agent changes may
 replace a row within the current capacity, but only Show more and Show less may
-change that capacity.
+change that capacity. When both live Agent rows and resumable session rows have
+more entries, the Project shows one Show more action at a time and reveals the
+remaining live Agents before additional sessions.
 
 ## Project And Workspace Identity
 
 A Project is a persisted workspace mounted in Farming. Agent creation, file
 opening, restored Project sessions, and Git worktree selection all refer to that
 same workspace identity. Losing the last Agent or editor does not silently
-remove the Project; explicit removal is the unmount action.
+remove the Project; explicit removal is the unmount action. Opening another file
+inside an already mounted Project reuses that membership and must not replay the
+Project-mount mutation on the file-open critical path.
 
 When a user explicitly selects a repository subdirectory while creating an
 Agent, that directory is the Project boundary. The containing Git worktree
@@ -253,7 +257,11 @@ non-HTTP(S), or invalid rules remain plain text.
 - Dirty, external-change, and Git state remain visible without turning the tree
   into a high-noise warning surface.
 - Preview and pinned tabs preserve per-file editor position and distinguish
-  transient inspection from intentional multi-file work.
+  transient inspection from intentional multi-file work. A single click may
+  create a clean preview, but selecting an existing pinned tab never demotes it
+  to preview; double click pins. Repeated opens of the same pending file share
+  one read and merge the latest intent, while a newer different-file intent
+  cancels the superseded open and keeps bounded loading feedback until settle.
 - Paper appearance keeps the tab strip, breadcrumbs, and editor on one
   continuous paper surface. Only the active tab receives a local tonal fill;
   selection does not add a full-width chrome band, border, shadow, or seam.

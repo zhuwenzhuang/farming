@@ -95,7 +95,6 @@ import { scheduleFocusUntil } from './focus-retry'
 
 declare const __FARMING_PACKAGE_VERSION__: string
 
-const DEFAULT_PROJECT_SESSION_LIMIT = 5
 const PROJECT_AGENT_INITIAL_VISIBLE_LIMIT = 5
 const PROJECT_AGENT_FIRST_REVEAL_COUNT = 5
 const PROJECT_AGENT_NEXT_REVEAL_COUNT = 10
@@ -244,7 +243,12 @@ interface CodeSidebarProps {
   onOpenAgentMenu: (event: ContextMenuTriggerEvent, agentId: string) => void
   onResumeAgentSession: (provider: string, sessionId: string, providerHomeId?: string) => void
   onOpenAgentSessionMenu: (event: ContextMenuTriggerEvent, provider: string, sessionId: string) => void
-  onOpenProjectFile: (agentId: string, file: OpenWorkspaceFile['file'], target?: WorkspaceFileOpenTarget) => void | Promise<void>
+  onOpenProjectFile: (
+    agentId: string,
+    file: OpenWorkspaceFile['file'],
+    target?: WorkspaceFileOpenTarget,
+    signal?: AbortSignal,
+  ) => void | Promise<void>
   onSelectOpenWorkspaceFile: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
   onCloseOpenWorkspaceFile: (agentId: string, filePath: string, workspaceRoot?: string) => void
   onMoveWorkspaceEntries: (agentId: string, moves: WorkspaceFileMove[]) => void
@@ -1766,7 +1770,12 @@ interface ProjectSectionProps {
   onOpenAgentSessionMenu: (event: ContextMenuTriggerEvent, provider: string, sessionId: string) => void
   onShowAgentPreview: (event: AgentPreviewAnchorEvent, target: AgentPreviewTarget, compact?: boolean) => void
   onHideAgentPreview: () => void
-  onOpenProjectFile: (agentId: string, file: OpenWorkspaceFile['file'], target?: WorkspaceFileOpenTarget) => void | Promise<void>
+  onOpenProjectFile: (
+    agentId: string,
+    file: OpenWorkspaceFile['file'],
+    target?: WorkspaceFileOpenTarget,
+    signal?: AbortSignal,
+  ) => void | Promise<void>
   onSelectOpenWorkspaceFile: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
   onCloseOpenWorkspaceFile: (agentId: string, filePath: string, workspaceRoot?: string) => void
   onMoveWorkspaceEntries: (agentId: string, moves: WorkspaceFileMove[]) => void
@@ -1980,6 +1989,12 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
   )
   const projectAgentsExpanded = projectAgentVisibleLimit > PROJECT_AGENT_INITIAL_VISIBLE_LIMIT
   const agentListCollapsed = projectAgentsCollapsed && !forceAgentsExpanded
+  const canRevealProjectAgents = !forceAgentsExpanded && !compactProjectAgents && hiddenProjectAgentCount > 0
+  const canRevealProjectSessions = !canRevealProjectAgents && (project.hiddenAgentSessionCount ?? 0) > 0
+  const canCollapseProjectRows = (
+    (!forceAgentsExpanded && !compactProjectAgents && projectAgentsExpanded)
+    || project.agentSessionsExpanded === true
+  )
 
   useEffect(() => {
     if (!agentRevealRequest || !project.agents.some(agent => agent.id === agentRevealRequest.agentId)) return
@@ -2019,8 +2034,13 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
     return { ...target, sourceAgentId: projectSourceAgent.id }
   }, [projectSourceAgent?.id])
 
-  const openProjectWorkspaceFile = useCallback((filesId: string, file: OpenWorkspaceFile['file'], target?: WorkspaceFileOpenTarget) => {
-    return onOpenProjectFile(filesId, file, withProjectSourceAgent(target))
+  const openProjectWorkspaceFile = useCallback((
+    filesId: string,
+    file: OpenWorkspaceFile['file'],
+    target?: WorkspaceFileOpenTarget,
+    signal?: AbortSignal,
+  ) => {
+    return onOpenProjectFile(filesId, file, withProjectSourceAgent(target), signal)
   }, [onOpenProjectFile, withProjectSourceAgent])
 
   const selectOpenProjectWorkspaceFile = useCallback((filesId: string, filePath: string, target?: WorkspaceFileOpenTarget) => (
@@ -2415,72 +2435,57 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
                         copy={copy}
                       />
                     ))}
-                    {(project.hiddenAgentSessionCount ?? 0) > 0 && (
-                      <button
-                        type="button"
-                        className="code-agent-row code-session-show-more"
-                        data-testid="code-session-show-more"
-                        aria-label={copy.showMoreAgentSessions(project.agentSessionRevealCount ?? 0)}
-                        onClick={() => onToggleProjectSessions(project.id, 'more')}
-                      >
-                        <span className="code-agent-row-copy">
-                          <span className="code-agent-name">{copy.showMore}</span>
-                        </span>
-                        <span className="code-agent-row-trailing">
-                          <span className="code-agent-age">{project.agentSessionRevealCount}</span>
-                        </span>
-                      </button>
-                    )}
-                    {project.agentSessionsExpanded && project.agentSessions.length > DEFAULT_PROJECT_SESSION_LIMIT && (
-                      <button
-                        type="button"
-                        className="code-agent-row code-session-show-more"
-                        data-testid="code-session-show-less"
-                        onClick={() => onToggleProjectSessions(project.id, 'less')}
-                      >
-                        <span className="code-agent-row-copy">
-                          <span className="code-agent-name">{copy.showLess}</span>
-                        </span>
-                      </button>
-                    )}
                   </>
                 )}
-                {!forceAgentsExpanded && !agentListCollapsed && !compactProjectAgents && sortedAgents.length > PROJECT_AGENT_INITIAL_VISIBLE_LIMIT && (
+                {!agentListCollapsed && (canRevealProjectAgents || canRevealProjectSessions || canCollapseProjectRows) && (
                   <div
                     className="code-agent-list-controls"
                     data-testid="code-agent-list-controls"
                   >
-                    {hiddenProjectAgentCount > 0 && (
+                    {(canRevealProjectAgents || canRevealProjectSessions) && (
                       <button
                         type="button"
                         className={`code-agent-row code-session-show-more ${droppingAtProjectEnd ? 'drop-after' : ''}`}
-                        data-testid="code-agent-show-more"
-                        aria-label={copy.showMoreAgents(projectAgentRevealCount)}
-                        onClick={() => setProjectAgentVisibleLimit(current => Math.min(
-                          sortedAgents.length,
-                          current + (
-                            current === PROJECT_AGENT_INITIAL_VISIBLE_LIMIT
-                              ? PROJECT_AGENT_FIRST_REVEAL_COUNT
-                              : PROJECT_AGENT_NEXT_REVEAL_COUNT
-                          ),
-                        ))}
-                        onDragOver={updateProjectEndDropTarget}
-                        onDrop={dropAgentAtProjectEnd}
+                        data-testid={canRevealProjectAgents ? 'code-agent-show-more' : 'code-session-show-more'}
+                        aria-label={canRevealProjectAgents
+                          ? copy.showMoreAgents(projectAgentRevealCount)
+                          : copy.showMoreAgentSessions(project.agentSessionRevealCount ?? 0)}
+                        onClick={() => {
+                          if (canRevealProjectAgents) {
+                            setProjectAgentVisibleLimit(current => Math.min(
+                              sortedAgents.length,
+                              current + (
+                                current === PROJECT_AGENT_INITIAL_VISIBLE_LIMIT
+                                  ? PROJECT_AGENT_FIRST_REVEAL_COUNT
+                                  : PROJECT_AGENT_NEXT_REVEAL_COUNT
+                              ),
+                            ))
+                            return
+                          }
+                          onToggleProjectSessions(project.id, 'more')
+                        }}
+                        onDragOver={canRevealProjectAgents ? updateProjectEndDropTarget : undefined}
+                        onDrop={canRevealProjectAgents ? dropAgentAtProjectEnd : undefined}
                       >
                         <span className="code-agent-row-copy">
                           <span className="code-agent-name">{copy.showMore}</span>
                         </span>
                         <span className="code-agent-row-trailing">
-                          <span className="code-agent-age">{projectAgentRevealCount}</span>
+                          <span className="code-agent-age">
+                            {canRevealProjectAgents ? projectAgentRevealCount : project.agentSessionRevealCount}
+                          </span>
                         </span>
                       </button>
                     )}
-                    {projectAgentsExpanded && (
+                    {canCollapseProjectRows && (
                       <button
                         type="button"
                         className="code-agent-row code-session-show-more"
-                        data-testid="code-agent-show-less"
-                        onClick={() => setProjectAgentVisibleLimit(PROJECT_AGENT_INITIAL_VISIBLE_LIMIT)}
+                        data-testid={project.agentSessionsExpanded ? 'code-session-show-less' : 'code-agent-show-less'}
+                        onClick={() => {
+                          if (projectAgentsExpanded) setProjectAgentVisibleLimit(PROJECT_AGENT_INITIAL_VISIBLE_LIMIT)
+                          if (project.agentSessionsExpanded) onToggleProjectSessions(project.id, 'less')
+                        }}
                       >
                         <span className="code-agent-row-copy">
                           <span className="code-agent-name">{copy.showLess}</span>

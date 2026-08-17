@@ -43,6 +43,7 @@ export interface WorkspaceOpenFileRequest {
   workspaceRoot?: string
   sourceAgentId?: string
   transient?: boolean
+  restoreTransient?: boolean
   focusEditorRequestId?: number
   exactExternal?: boolean
 }
@@ -355,7 +356,8 @@ export function refreshOpenWorkspaceFileFromRead(openFile: OpenWorkspaceFile, fi
 export function refreshWorkspaceOpenFilesFromReads(
   state: WorkspaceOpenFilesState,
   workspaceRoot: string,
-  files: readonly WorkspaceFile[]
+  files: readonly WorkspaceFile[],
+  requestedBaseSha1ByPath?: ReadonlyMap<string, string>,
 ): WorkspaceOpenFilesState {
   if (files.length === 0) return state
   const fileByPath = new Map(files.map(file => [file.path, file]))
@@ -364,6 +366,12 @@ export function refreshWorkspaceOpenFilesFromReads(
     if (openFile.workspaceRoot !== workspaceRoot) return openFile
     const file = fileByPath.get(openFile.file.path)
     if (!file) return openFile
+    const requestedBaseSha1 = requestedBaseSha1ByPath?.get(openFile.file.path)
+    if (
+      requestedBaseSha1 !== undefined
+      && openFile.file.sha1 !== requestedBaseSha1
+      && openFile.file.sha1 !== file.sha1
+    ) return openFile
     const refreshedFile = refreshOpenWorkspaceFileFromRead(openFile, file)
     refreshedByOpenFile.set(openFile, refreshedFile)
     return refreshedFile
@@ -434,7 +442,11 @@ export function openWorkspaceFileFromRead(
   const baseFile = existingFile
     ? refreshOpenWorkspaceFileFromRead(existingFile, file)
     : restoredFile ?? createWorkspaceOpenFile(agentId, file)
-  const nextTransient = Boolean(request.transient ?? baseFile.transient) && isWorkspaceWorkingCopyClean(baseFile)
+  const nextTransient = Boolean(
+    request.restoreTransient ? request.transient : baseFile.transient ?? request.transient,
+  )
+    && request.transient !== false
+    && isWorkspaceWorkingCopyClean(baseFile)
   const nextFile = {
     ...baseFile,
     agentId,
@@ -486,7 +498,11 @@ export function selectWorkspaceOpenFile(
   const identityChanged = nextFile.agentId !== agentId
     || Boolean(request.workspaceRoot && request.workspaceRoot !== nextFile.workspaceRoot)
     || Boolean(request.sourceAgentId && request.sourceAgentId !== nextFile.sourceAgentId)
-  const transientChanged = request.transient !== undefined && request.transient !== nextFile.transient
+  // Preview is a creation-time default and pinning is one-way while a tab is
+  // open. Re-selecting a pinned file from the tree must not demote it back to
+  // an italic preview tab.
+  const selectedTransient = request.transient === false ? false : nextFile.transient
+  const transientChanged = selectedTransient !== nextFile.transient
   const selectedFile = hasViewRequest || identityChanged || transientChanged
     ? {
         ...nextFile,
@@ -497,7 +513,7 @@ export function selectWorkspaceOpenFile(
         diffRequestId: request.diffRequestId,
         diffOnly: request.diffOnly ?? nextFile.diffOnly,
         revealInTree: request.revealInTree,
-        transient: request.transient ?? nextFile.transient,
+        transient: selectedTransient,
         focusEditorRequestId: request.focusEditorRequestId,
       }
     : nextFile

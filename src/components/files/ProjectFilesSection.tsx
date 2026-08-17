@@ -55,7 +55,12 @@ interface ProjectFilesSectionProps {
   editorDirtyFilePaths?: ReadonlySet<string>
   editorExternalChangedFilePaths?: ReadonlySet<string>
   openFiles?: OpenProjectFileSummary[]
-  onOpenFile: (agentId: string, file: WorkspaceFile, target?: WorkspaceFileOpenTarget) => void | Promise<void>
+  onOpenFile: (
+    agentId: string,
+    file: WorkspaceFile,
+    target?: WorkspaceFileOpenTarget,
+    signal?: AbortSignal,
+  ) => void | Promise<void>
   onSelectOpenFile?: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
   onCloseOpenFile?: (agentId: string, filePath: string, workspaceRoot?: string) => void
   onNewAgent?: (workspace?: string, command?: string, returnFocusTarget?: HTMLElement | null) => void
