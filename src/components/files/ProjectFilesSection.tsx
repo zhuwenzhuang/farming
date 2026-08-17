@@ -9,6 +9,7 @@ import {
   type WorkspaceFileMove,
 } from '@/lib/workspace-files'
 import { workspaceFileOpenTargetForChange } from '@/lib/workspace-open-files'
+import type { WorkspaceFileResolveOptions } from '@/lib/workspace-file-model-manager'
 import type { RequestOwnershipLease } from '@/lib/request-ownership'
 import type { AgentLaunchOption } from '../code/agent-launch-options'
 import type { CodeCopy } from '../code/copy'
@@ -63,7 +64,12 @@ interface ProjectFilesSectionProps {
     signal?: AbortSignal,
     intentLease?: RequestOwnershipLease,
   ) => void | Promise<void>
-  onBeginOpenFileIntent?: () => RequestOwnershipLease
+  onResolveFile: (
+    agentId: string,
+    filePath: string,
+    options?: WorkspaceFileResolveOptions,
+  ) => Promise<WorkspaceFile>
+  onBeginOpenFileIntent: () => RequestOwnershipLease
   onSelectOpenFile?: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
   onCloseOpenFile?: (agentId: string, filePath: string, workspaceRoot?: string) => void
   onNewAgent?: (workspace?: string, command?: string, returnFocusTarget?: HTMLElement | null) => void
@@ -116,6 +122,7 @@ export function ProjectFilesSection({
   editorExternalChangedFilePaths = EMPTY_FILE_PATHS,
   openFiles = [],
   onOpenFile,
+  onResolveFile,
   onBeginOpenFileIntent,
   onSelectOpenFile,
   onCloseOpenFile,
@@ -212,6 +219,10 @@ export function ProjectFilesSection({
   } = useWorkspaceFileOpenController({
     agentId,
     onClearSearch: clearFileSearch,
+    onResolveFile: (filesId, filePath, options) => onResolveFile(filesId, filePath, {
+      ...options,
+      workspaceRoot: projectWorkspace,
+    }),
     onOpenFile,
     onBeginOpenFileIntent,
     onSelectOpenFile,

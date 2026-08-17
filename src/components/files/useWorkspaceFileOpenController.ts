@@ -5,10 +5,10 @@ import {
   type WorkspaceFileOpenTarget,
 } from '@/lib/workspace-open-files'
 import {
-  fetchWorkspaceFile,
   WorkspaceFileApiError,
   type WorkspaceFile,
 } from '@/lib/workspace-files'
+import type { WorkspaceFileResolveOptions } from '@/lib/workspace-file-model-manager'
 import { RequestOwnershipFence, type RequestOwnershipLease } from '@/lib/request-ownership'
 
 const FILE_OPEN_PENDING_DELAY_MS = 220
@@ -17,7 +17,7 @@ interface PendingWorkspaceFileOpen {
   agentId: string
   controller: AbortController
   filePath: string
-  intentLease?: RequestOwnershipLease
+  intentLease: RequestOwnershipLease
   promise: Promise<void>
   target: WorkspaceFileOpenTarget
 }
@@ -41,6 +41,11 @@ function mergeWorkspaceFileOpenTarget(
 interface UseWorkspaceFileOpenControllerOptions {
   agentId: string | null
   onClearSearch: () => void
+  onResolveFile: (
+    agentId: string,
+    filePath: string,
+    options?: WorkspaceFileResolveOptions,
+  ) => Promise<WorkspaceFile>
   onOpenFile: (
     agentId: string,
     file: WorkspaceFile,
@@ -48,13 +53,14 @@ interface UseWorkspaceFileOpenControllerOptions {
     signal?: AbortSignal,
     intentLease?: RequestOwnershipLease,
   ) => void | Promise<void>
-  onBeginOpenFileIntent?: () => RequestOwnershipLease
+  onBeginOpenFileIntent: () => RequestOwnershipLease
   onSelectOpenFile?: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
 }
 
 export function useWorkspaceFileOpenController({
   agentId,
   onClearSearch,
+  onResolveFile,
   onOpenFile,
   onBeginOpenFileIntent,
   onSelectOpenFile,
@@ -112,7 +118,7 @@ export function useWorkspaceFileOpenController({
     if (
       currentPending?.agentId === requestAgentId
       && currentPending.filePath === filePath
-      && currentPending.intentLease?.isCurrent() !== false
+      && currentPending.intentLease.isCurrent()
     ) {
       // Repeated clicks on the same in-flight file are one transaction. Keeping
       // its ownership lease avoids cancelling an open that has already advanced
@@ -132,7 +138,7 @@ export function useWorkspaceFileOpenController({
     currentPending?.controller.abort()
     const controller = new AbortController()
     const lease = fileOpenRequestFenceRef.current.begin()
-    const intentLease = onBeginOpenFileIntent?.()
+    const intentLease = onBeginOpenFileIntent()
     scheduleOpenFilePending(lease, filePath)
     const pending: PendingWorkspaceFileOpen = {
       agentId: requestAgentId,
@@ -144,13 +150,13 @@ export function useWorkspaceFileOpenController({
     }
     pending.promise = (async () => {
       try {
-        const file = await fetchWorkspaceFile(requestAgentId, filePath, { signal: controller.signal })
-        if (!lease.isCurrent() || pending.intentLease?.isCurrent() === false) return
+        const file = await onResolveFile(requestAgentId, filePath, { signal: controller.signal })
+        if (!lease.isCurrent() || !pending.intentLease.isCurrent()) return
         await onOpenFile(requestAgentId, file, pending.target, controller.signal, pending.intentLease)
-        if (!lease.isCurrent() || pending.intentLease?.isCurrent() === false) return
+        if (!lease.isCurrent() || !pending.intentLease.isCurrent()) return
         onClearSearch()
       } catch (error) {
-        if (!lease.isCurrent() || pending.intentLease?.isCurrent() === false) return
+        if (!lease.isCurrent() || !pending.intentLease.isCurrent()) return
         if (
           pending.target
           && error instanceof WorkspaceFileApiError
@@ -164,7 +170,7 @@ export function useWorkspaceFileOpenController({
             controller.signal,
             pending.intentLease,
           )
-          if (!lease.isCurrent() || pending.intentLease?.isCurrent() === false) return
+          if (!lease.isCurrent() || !pending.intentLease.isCurrent()) return
           onClearSearch()
           return
         }
@@ -178,7 +184,7 @@ export function useWorkspaceFileOpenController({
     })()
     pendingFileOpenRef.current = pending
     return pending.promise
-  }, [agentId, clearOpenFilePending, onBeginOpenFileIntent, onClearSearch, onOpenFile, onSelectOpenFile, scheduleOpenFilePending])
+  }, [agentId, clearOpenFilePending, onBeginOpenFileIntent, onClearSearch, onOpenFile, onResolveFile, onSelectOpenFile, scheduleOpenFilePending])
 
   return {
     openFileError,

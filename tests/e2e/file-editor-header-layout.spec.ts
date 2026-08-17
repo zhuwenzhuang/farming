@@ -123,6 +123,65 @@ test('uses one italic preview tab and pins it on double click', async ({ page })
   page.off('request', countRepeatedProjectMounts)
 })
 
+test('returns to a replaced preview before remote revalidation and reuses its editor model', async ({ page }) => {
+  const workspaceRoot = path.join(PLAYWRIGHT_WORKSPACE_ROOT, 'editor-retained-preview-model')
+  fs.rmSync(workspaceRoot, { recursive: true, force: true })
+  fs.mkdirSync(workspaceRoot, { recursive: true })
+  fs.writeFileSync(path.join(workspaceRoot, 'one.txt'), 'one\n')
+  fs.writeFileSync(path.join(workspaceRoot, 'two.txt'), 'two\n')
+
+  await openFarming(page)
+  await openNewAgentDialog(page)
+  await startAgentFromOpenDialog(page, 'bash', workspaceRoot)
+
+  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspaceRoot) })
+  const files = project.getByTestId('code-files-section')
+  const filesTitle = files.locator('.code-files-title').first()
+  if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
+  const oneRow = files.locator('[data-testid="code-file-row"][data-file-path="one.txt"]')
+  const twoRow = files.locator('[data-testid="code-file-row"][data-file-path="two.txt"]')
+  const editor = page.getByTestId('code-file-editor')
+
+  await oneRow.click()
+  const oneTab = editor.getByRole('tab').filter({ hasText: 'one.txt' })
+  await expect(oneTab).toHaveAttribute('aria-selected', 'true')
+  await expect.poll(() => page.evaluate(() => window.__farmingFileEditorTest?.getModelId() ?? null)).not.toBeNull()
+  const firstModelId = await page.evaluate(() => window.__farmingFileEditorTest?.getModelId() ?? null)
+  expect(firstModelId).not.toBeNull()
+
+  await twoRow.click()
+  await expect(oneTab).toHaveCount(0)
+  await expect(editor.getByRole('tab').filter({ hasText: 'two.txt' })).toHaveAttribute('aria-selected', 'true')
+
+  let revalidationReads = 0
+  let releaseRevalidation = () => {}
+  let markRevalidationComplete = () => {}
+  const revalidationGate = new Promise<void>(resolve => { releaseRevalidation = resolve })
+  const revalidationComplete = new Promise<void>(resolve => { markRevalidationComplete = resolve })
+  await page.route('**/api/files/file?**', async route => {
+    const url = new URL(route.request().url())
+    if (url.searchParams.get('path') !== 'one.txt') {
+      await route.continue()
+      return
+    }
+    revalidationReads += 1
+    const response = await route.fetch()
+    await revalidationGate
+    await route.fulfill({ response })
+    markRevalidationComplete()
+  })
+
+  await oneRow.click()
+  await expect(oneTab).toHaveAttribute('aria-selected', 'true')
+  expect(await page.evaluate(() => window.__farmingFileEditorTest?.getModelId() ?? null)).toBe(firstModelId)
+  expect(await page.evaluate(() => window.__farmingFileEditorTest?.getValue() ?? '')).toBe('one\n')
+
+  await expect.poll(() => revalidationReads).toBe(1)
+  releaseRevalidation()
+  await revalidationComplete
+  await page.unroute('**/api/files/file?**')
+})
+
 test('lets the latest same-file intent replace a pending diff target', async ({ page }) => {
   const workspaceRoot = path.join(PLAYWRIGHT_WORKSPACE_ROOT, 'editor-latest-same-file-intent')
   fs.rmSync(workspaceRoot, { recursive: true, force: true })

@@ -1,6 +1,9 @@
 import { useEffect, type MutableRefObject } from 'react'
 import * as monaco from 'monaco-editor'
 
+const modelTestIds = new WeakMap<monaco.editor.ITextModel, number>()
+let nextModelTestId = 1
+
 declare global {
   interface Window {
     __FARMING_E2E__?: boolean
@@ -11,6 +14,7 @@ declare global {
       undo: () => boolean
       getValue: () => string
       getLanguageId: () => string | null
+      getModelId: () => number | null
       getPosition: () => { lineNumber: number; column: number } | null
       getScrollTop: () => number
       getFocusEditorRequestId: () => number | null
@@ -81,6 +85,17 @@ export function useFileEditorTestBridge({
       },
       getLanguageId() {
         return editorRef.current?.getModel()?.getLanguageId() ?? null
+      },
+      getModelId() {
+        const model = editorRef.current?.getModel()
+        if (!model) return null
+        let id = modelTestIds.get(model)
+        if (id === undefined) {
+          id = nextModelTestId
+          nextModelTestId += 1
+          modelTestIds.set(model, id)
+        }
+        return id
       },
       getPosition() {
         return editorRef.current?.getPosition() ?? null

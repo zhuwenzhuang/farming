@@ -5,6 +5,9 @@
 Project Files lets a user inspect and lightly edit a Project while supervising
 its Agents. It is not intended to replace a full IDE.
 
+The detailed correctness, resolve, retention, concurrency, and recovery
+contract is defined by the [Workspace File State Model](./workspace-file-state-model.md).
+
 ## Product Placement
 
 Files belongs to a concrete Project, not Main Agent. An expanded Project shows:

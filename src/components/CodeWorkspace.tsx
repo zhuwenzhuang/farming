@@ -64,7 +64,6 @@ import {
 import { importSharedReadingAnchor } from '@/lib/reading-anchor'
 import { isCompactViewport, isIOSLikeTouchViewport, isTouchInputViewport } from '@/lib/responsive-mode'
 import {
-  fetchWorkspaceFile,
   fetchWorkspaceTree,
   searchWorkspaceFiles,
   type WorkspaceFile,
@@ -618,6 +617,7 @@ export function CodeWorkspace({
   } = useWorkspaceNavigationHistory()
   const openWorkspaceFile = workspaceOpenFiles.activeFile
   const openWorkspaceFiles = workspaceOpenFiles.files
+  const retainedWorkspaceFileModels = workspaceOpenFiles.retainedModelFiles
   const openWorkspaceFileWatchTargets = useMemo(() => {
     const pathsByRoot = new Map<string, Set<string>>()
     openWorkspaceFiles.forEach(file => {
@@ -636,6 +636,7 @@ export function CodeWorkspace({
   }, [openWorkspaceFiles])
   const scheduleOpenFileRefresh = workspaceOpenFiles.scheduleOpenFileRefresh
   const setOpenFileWatchError = workspaceOpenFiles.setWatchError
+  const resolveWorkspaceFile = workspaceOpenFiles.resolve
   const workspaceFileWatchRegistrationsRef = useRef(new Map<string, {
     pathsKey: string
     registration: { update(paths: readonly string[]): void; close(): void }
@@ -1487,6 +1488,7 @@ export function CodeWorkspace({
   })
   useEffect(() => {
     if (!notificationRevealRequest) return
+    workspaceFileOpenRequestRef.current.invalidate()
     closeContextMenu()
     setSearchOpen(false)
     setSearchQuery('')
@@ -2348,6 +2350,7 @@ export function CodeWorkspace({
     workspace: string,
     options?: { projectWorkspace?: string; codexApprovalMode?: string; agentRuntimeMode?: 'terminal' | 'chat' | 'acp'; dangerouslySkipPermissions?: boolean; providerHomeId?: string; additionalDirectories?: string[]; mcpServers?: Array<Record<string, unknown>> },
   ) => {
+    workspaceFileOpenRequestRef.current.invalidate()
     setSearchQuery('')
     setSearchOpen(false)
     setSearchSelectionIndex(0)
@@ -2530,6 +2533,7 @@ export function CodeWorkspace({
   }, [activeView, closeSearchView, searchOpen])
 
   const openWorkspaceView = useCallback((view: WorkspaceView) => {
+    workspaceFileOpenRequestRef.current.invalidate()
     closeContextMenu()
     if (view === 'projects') {
       expandSidebar()
@@ -2614,6 +2618,7 @@ export function CodeWorkspace({
   }, [agents])
 
   const openVisibleTarget = useCallback((target: SearchTarget, options?: { focusTerminal?: boolean }) => {
+    workspaceFileOpenRequestRef.current.invalidate()
     setMainPaneMode('terminal')
     onWorkspaceViewChange('projects')
     if (target.kind === 'agent') {
@@ -2800,6 +2805,7 @@ export function CodeWorkspace({
   }, [expandSidebar, updateSidebarWidth])
 
   const openTerminalFromWorkspace = useCallback((agentId: string, options?: { focusTerminal?: boolean }) => {
+    workspaceFileOpenRequestRef.current.invalidate()
     if (
       manuallyUnreadActiveAgentIdRef.current
       && manuallyUnreadActiveAgentIdRef.current !== agentId
@@ -2814,6 +2820,7 @@ export function CodeWorkspace({
   }, [clearSearch, closeContextMenu, onOpenTerminal, onWorkspaceViewChange, setMainPaneMode])
 
   const showBrowserResource = useCallback((resource: BrowserResource, returnAgentId = activeTerminalId) => {
+    workspaceFileOpenRequestRef.current.invalidate()
     closeContextMenu()
     clearSearch()
     showBrowser(resource.id, returnAgentId)
@@ -2829,6 +2836,7 @@ export function CodeWorkspace({
     const agent = agents.find(candidate => candidate.id === agentId)
     const workspace = agent?.projectWorkspace || agent?.cwd || ''
     if (!workspace) return
+    workspaceFileOpenRequestRef.current.invalidate()
     void createBrowserResource(workspace, { agentId, url })
       .then(resource => startBrowserResource(resource.id))
       .then(resource => showBrowserResource(resource, agentId))
@@ -2848,10 +2856,12 @@ export function CodeWorkspace({
       openTerminalFromWorkspace(returnAgent.id, { focusTerminal: false })
       return
     }
+    workspaceFileOpenRequestRef.current.invalidate()
     setMainPaneMode('terminal')
   }, [activeAgent, agents, browserReturnAgentId, openTerminalFromWorkspace, setMainPaneMode])
 
   const showComputerResource = useCallback((resource: ComputerResource, returnAgentId = activeTerminalId) => {
+    workspaceFileOpenRequestRef.current.invalidate()
     closeContextMenu()
     clearSearch()
     showComputer(resource.id, returnAgentId)
@@ -2907,6 +2917,7 @@ export function CodeWorkspace({
       openTerminalFromWorkspace(returnAgent.id, { focusTerminal: false })
       return
     }
+    workspaceFileOpenRequestRef.current.invalidate()
     setMainPaneMode('terminal')
   }, [activeAgent, agents, computerReturnAgentId, openTerminalFromWorkspace, setMainPaneMode])
 
@@ -3021,6 +3032,23 @@ export function CodeWorkspace({
   const restoreWorkspaceAgent = useCallback((agentId: string) => {
     openTerminalFromWorkspace(agentId, { focusTerminal: false })
   }, [openTerminalFromWorkspace])
+  const resolveWorkspaceSurfaceFile = useCallback((
+    filesId: string,
+    filePath: string,
+    signal: AbortSignal,
+  ) => {
+    const identity = resolveWorkspaceFileIdentity(filesId)
+    return resolveWorkspaceFile(filesId, filePath, {
+      signal,
+      workspaceRoot: identity.workspaceRoot,
+    })
+  }, [resolveWorkspaceFile, resolveWorkspaceFileIdentity])
+  const restoreWorkspaceFile = useCallback((
+    filesId: string,
+    file: WorkspaceFile,
+    target: WorkspaceFileOpenTarget,
+    intentLease?: RequestOwnershipLease,
+  ) => openProjectFile(filesId, file, target, undefined, intentLease), [openProjectFile])
   const { restored: workspaceSurfaceRestored } = useWorkspaceSurfaceController({
     activeView,
     mainPaneMode,
@@ -3032,7 +3060,9 @@ export function CodeWorkspace({
     projectWorkspacesLoaded,
     resolveWorkspaceFileIdentity,
     openAgent: restoreWorkspaceAgent,
-    openFile: openProjectFile,
+    openFile: restoreWorkspaceFile,
+    beginFileOpenIntent: beginProjectFileOpenIntent,
+    fetchFile: resolveWorkspaceSurfaceFile,
   })
 
   useEffect(() => {
@@ -3070,8 +3100,9 @@ export function CodeWorkspace({
             projectFilesWorkspaceId(candidate.workspace),
             candidate.sourceAgentId,
           )
-          const file = await fetchWorkspaceFile(identity.filesId, candidate.filePath, {
+          const file = await resolveWorkspaceFile(identity.filesId, candidate.filePath, {
             signal: controller.signal,
+            workspaceRoot: identity.workspaceRoot ?? candidate.workspace,
           })
           reads.push({
             agentId: identity.filesId,
@@ -3121,6 +3152,7 @@ export function CodeWorkspace({
     initialWorkspaceViewState.openFiles,
     projectWorkspaces,
     projectWorkspacesLoaded,
+    resolveWorkspaceFile,
     resolveWorkspaceFileIdentity,
     restoreOpenFilesFromReads,
     workspaceSurfaceRestored,
@@ -3237,6 +3269,7 @@ export function CodeWorkspace({
     if (!filePath) return
 
     const requestLease = terminalPathOpenRequestRef.current.begin()
+    const intentLease = workspaceFileOpenRequestRef.current.begin()
     const requestedOpenTarget = openTargetForTerminalPath(target)
     const openTarget: WorkspaceFileOpenTarget = {
       ...(requestedOpenTarget ?? {}),
@@ -3246,13 +3279,16 @@ export function CodeWorkspace({
     }
 
     const openResolvedFile = async (resolvedPath: string, resolvedTarget = openTarget) => {
-      const file = await fetchWorkspaceFile(identity.filesId, resolvedPath, { exactExternal: target.exactExternal })
-      if (!requestLease.isCurrent()) return
-      await openProjectFile(identity.filesId, file, resolvedTarget)
+      const file = await resolveWorkspaceFile(identity.filesId, resolvedPath, {
+        exactExternal: target.exactExternal,
+        workspaceRoot: identity.workspaceRoot,
+      })
+      if (!requestLease.isCurrent() || !intentLease.isCurrent()) return
+      await openProjectFile(identity.filesId, file, resolvedTarget, undefined, intentLease)
     }
 
     const revealResolvedDirectory = (resolvedPath: string) => {
-      if (!requestLease.isCurrent()) return
+      if (!requestLease.isCurrent() || !intentLease.isCurrent()) return
       revealWorkspaceFileInExplorer(identity.filesId, resolvedPath, 'directory')
     }
 
@@ -3265,7 +3301,7 @@ export function CodeWorkspace({
     }
 
     const revealSearch = () => {
-      if (!requestLease.isCurrent()) return
+      if (!requestLease.isCurrent() || !intentLease.isCurrent()) return
       focusWorkspaceFilesSearch(identity.filesId, filePath)
     }
 
@@ -3276,18 +3312,20 @@ export function CodeWorkspace({
             workspaceShareAbsolutePath('/', filePath),
             identity.sourceAgentId,
           )
-          if (!requestLease.isCurrent() || !resolvedTarget) return
-          const file = await fetchWorkspaceFile(resolvedTarget.identity.filesId, resolvedTarget.filePath, {
+          if (!requestLease.isCurrent() || !intentLease.isCurrent() || !resolvedTarget) return
+          const file = await resolveWorkspaceFile(resolvedTarget.identity.filesId, resolvedTarget.filePath, {
             exactExternal: resolvedTarget.globalRoot,
+            workspaceRoot: resolvedTarget.identity.workspaceRoot,
           })
-          if (!requestLease.isCurrent()) return
+          if (!requestLease.isCurrent() || !intentLease.isCurrent()) return
           await openProjectFile(resolvedTarget.identity.filesId, file, {
             ...(requestedOpenTarget ?? {}),
             ...(resolvedTarget.globalRoot ? { globalRoot: true, exactExternal: true } : {}),
             sourceAgentId: resolvedTarget.identity.sourceAgentId,
-          })
+          }, undefined, intentLease)
           return
         } catch (error) {
+          if (!requestLease.isCurrent() || !intentLease.isCurrent()) return
           setCopyNotice({
             id: Date.now(),
             kind: 'error',
@@ -3313,7 +3351,7 @@ export function CodeWorkspace({
 
       try {
         const results = await searchWorkspaceFiles(identity.filesId, filePath, { limit: TERMINAL_PATH_SEARCH_LIMIT })
-        if (!requestLease.isCurrent()) return
+        if (!requestLease.isCurrent() || !intentLease.isCurrent()) return
         const pathMatches = uniqueTerminalPathSearchMatches(results.matches)
         if (pathMatches.length === 1) {
           const match = pathMatches[0]
@@ -3340,10 +3378,19 @@ export function CodeWorkspace({
 
       revealSearch()
     })()
-  }, [focusWorkspaceFilesSearch, openProjectFile, resolveAbsoluteWorkspaceFileTarget, resolveWorkspaceFileIdentity, revealWorkspaceFileInExplorer, setCopyNotice])
+  }, [focusWorkspaceFilesSearch, openProjectFile, resolveAbsoluteWorkspaceFileTarget, resolveWorkspaceFile, resolveWorkspaceFileIdentity, revealWorkspaceFileInExplorer, setCopyNotice])
 
-  const selectOpenWorkspaceFile = useCallback((agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => {
-    workspaceFileOpenRequestRef.current.invalidate()
+  const selectOpenWorkspaceFile = useCallback((
+    agentId: string,
+    filePath: string,
+    target?: WorkspaceFileOpenTarget,
+    intentLease?: RequestOwnershipLease,
+  ) => {
+    if (intentLease) {
+      if (!intentLease.isCurrent()) return false
+    } else {
+      workspaceFileOpenRequestRef.current.invalidate()
+    }
     const identity = resolveWorkspaceFileIdentity(agentId, target?.sourceAgentId)
     const projectWorkspace = projectWorkspaceFromFilesId(identity.filesId)
     if (projectWorkspace || identity.sourceAgent) {
@@ -3394,6 +3441,7 @@ export function CodeWorkspace({
   }, [clearSearch, closeContextMenu, closeSidebarForMobile, createWorkspaceOpenFileRequest, onOpenTerminal, onWorkspaceViewChange, openWorkspaceFiles, resolveWorkspaceFileIdentity, setMainPaneMode, workspaceOpenFiles])
 
   const openWorkspaceFilePath = useCallback(async (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => {
+    const intentLease = workspaceFileOpenRequestRef.current.begin()
     const requestedFilesId = target?.globalRoot ? GLOBAL_WORKSPACE_FILES_AGENT_ID : agentId
     let identity = resolveWorkspaceFileIdentity(
       requestedFilesId,
@@ -3411,6 +3459,7 @@ export function CodeWorkspace({
         workspaceShareAbsolutePath('/', resolvedFilePath),
         identity.sourceAgentId,
       )
+      if (!intentLease.isCurrent()) return
       if (absoluteTarget) {
         identity = absoluteTarget.identity
         filesId = identity.filesId
@@ -3423,20 +3472,28 @@ export function CodeWorkspace({
         }
       }
     }
-    if (selectOpenWorkspaceFile(filesId, resolvedFilePath, resolvedTarget)) return
+    if (selectOpenWorkspaceFile(filesId, resolvedFilePath, resolvedTarget, intentLease)) return
     const openResolvedFile = async (resolvedPath: string, fileTarget = resolvedTarget) => {
-      const file = await fetchWorkspaceFile(filesId, resolvedPath, { exactExternal: fileTarget?.exactExternal })
-      await openProjectFile(filesId, file, fileTarget)
+      const file = await resolveWorkspaceFile(filesId, resolvedPath, {
+        exactExternal: fileTarget?.exactExternal,
+        workspaceRoot: identity.workspaceRoot,
+      })
+      if (!intentLease.isCurrent()) return
+      await openProjectFile(filesId, file, fileTarget, undefined, intentLease)
     }
     try {
       await openResolvedFile(resolvedFilePath, resolvedTarget)
     } catch {
+      if (!intentLease.isCurrent()) return
       try {
         await fetchWorkspaceTree(filesId, resolvedFilePath)
+        if (!intentLease.isCurrent()) return
         revealWorkspaceFileInExplorer(filesId, resolvedFilePath, 'directory')
       } catch {
+        if (!intentLease.isCurrent()) return
         try {
           const results = await searchWorkspaceFiles(filesId, resolvedFilePath, { limit: TERMINAL_PATH_SEARCH_LIMIT })
+          if (!intentLease.isCurrent()) return
           const pathMatches = uniqueTerminalPathSearchMatches(results.matches)
           const fileMatches = uniqueTerminalFileSearchMatches(results.matches)
           if (pathMatches.length === 1) {
@@ -3466,16 +3523,18 @@ export function CodeWorkspace({
           // Fall through to a visible Files search when resolution fails.
         }
         if (!resolvedTarget?.suppressSearchOnMiss) {
+          if (!intentLease.isCurrent()) return
           focusWorkspaceFilesSearch(filesId, resolvedFilePath)
         }
       }
     }
-  }, [focusWorkspaceFilesSearch, openProjectFile, resolveAbsoluteWorkspaceFileTarget, resolveWorkspaceFileIdentity, revealWorkspaceFileInExplorer, selectOpenWorkspaceFile])
+  }, [focusWorkspaceFilesSearch, openProjectFile, resolveAbsoluteWorkspaceFileTarget, resolveWorkspaceFile, resolveWorkspaceFileIdentity, revealWorkspaceFileInExplorer, selectOpenWorkspaceFile])
 
   const openAgentHomeConfiguration = useCallback(async (target: AgentHomeFileTarget) => {
+    const intentLease = workspaceFileOpenRequestRef.current.begin()
     try {
       const file: WorkspaceFile = target.exists
-        ? await fetchWorkspaceFile(target.rootId, target.filePath)
+        ? await resolveWorkspaceFile(target.rootId, target.filePath, { workspaceRoot: target.homePath })
         : {
             path: target.filePath,
             content: '',
@@ -3483,6 +3542,7 @@ export function CodeWorkspace({
             mtimeMs: 0,
             sha1: '',
           }
+      if (!intentLease.isCurrent()) return
       closeContextMenu()
       clearSearch()
       onWorkspaceViewChange('projects')
@@ -3499,21 +3559,26 @@ export function CodeWorkspace({
       })
       closeSidebarForMobile()
     } catch (error) {
+      if (!intentLease.isCurrent()) return
       setCopyNotice({
         id: Date.now(),
         kind: 'error',
         message: error instanceof Error ? error.message : 'Failed to open Agent Home configuration',
       })
     }
-  }, [clearSearch, closeContextMenu, closeSidebarForMobile, expandSidebar, onWorkspaceViewChange, setMainPaneMode, workspaceOpenFiles])
+  }, [clearSearch, closeContextMenu, closeSidebarForMobile, expandSidebar, onWorkspaceViewChange, resolveWorkspaceFile, setMainPaneMode, workspaceOpenFiles])
 
   const restoreWorkspaceShareTarget = useCallback(async (
     target: WorkspaceShareTarget,
     allowFileFallback = false,
   ) => {
+    const intentLease = target.kind === 'agent'
+      ? undefined
+      : workspaceFileOpenRequestRef.current.begin()
     importSharedReadingAnchor(target.kind === 'agent' ? target.readingAnchor : undefined)
     if (target.kind === 'agent') {
       if (!workspaceNavigationAgentIds.has(target.agentId)) return false
+      workspaceFileOpenRequestRef.current.invalidate()
       closeContextMenu()
       clearSearch()
       onWorkspaceViewChange('projects')
@@ -3540,6 +3605,7 @@ export function CodeWorkspace({
     let absoluteFileTarget: Awaited<ReturnType<typeof resolveAbsoluteWorkspaceFileTarget>> = null
     if (target.kind === 'file' && resolvedPath.globalRoot && target.absolutePath) {
       absoluteFileTarget = await resolveAbsoluteWorkspaceFileTarget(target.absolutePath, target.agentId)
+      if (intentLease?.isCurrent() === false) return false
       if (absoluteFileTarget) {
         resolvedPath = {
           agentId: absoluteFileTarget.identity.filesId,
@@ -3555,10 +3621,20 @@ export function CodeWorkspace({
     if (target.kind === 'folder') {
       try {
         const tree = await fetchWorkspaceTree(identity.filesId, resolvedPath.filePath)
+        if (intentLease?.isCurrent() === false) return false
         const previewFilePath = workspaceFolderPreviewFilePath(tree.items)
         if (previewFilePath) {
-          const file = await fetchWorkspaceFile(identity.filesId, previewFilePath)
-          await openProjectFile(identity.filesId, file, { sourceAgentId: identity.sourceAgentId })
+          const file = await resolveWorkspaceFile(identity.filesId, previewFilePath, {
+            workspaceRoot: identity.workspaceRoot,
+          })
+          if (intentLease?.isCurrent() === false) return false
+          await openProjectFile(
+            identity.filesId,
+            file,
+            { sourceAgentId: identity.sourceAgentId },
+            undefined,
+            intentLease,
+          )
           return true
         }
         revealWorkspaceFileInExplorer(identity.filesId, resolvedPath.filePath, 'directory')
@@ -3573,19 +3649,22 @@ export function CodeWorkspace({
       ...(resolvedPath.globalRoot ? { globalRoot: true, exactExternal: true } : {}),
       sourceAgentId: identity.sourceAgentId,
     }
-    if (selectOpenWorkspaceFile(identity.filesId, resolvedPath.filePath, openTarget)) return true
+    if (selectOpenWorkspaceFile(identity.filesId, resolvedPath.filePath, openTarget, intentLease)) return true
 
     try {
-      const file = await fetchWorkspaceFile(identity.filesId, resolvedPath.filePath, {
+      const file = await resolveWorkspaceFile(identity.filesId, resolvedPath.filePath, {
         exactExternal: resolvedPath.globalRoot,
+        workspaceRoot: identity.workspaceRoot,
       })
-      await openProjectFile(identity.filesId, file, openTarget)
+      if (intentLease?.isCurrent() === false) return false
+      await openProjectFile(identity.filesId, file, openTarget, undefined, intentLease)
       return true
     } catch {
       if (allowFileFallback && !resolvedPath.globalRoot) {
         const parentPath = resolvedPath.filePath.split('/').slice(0, -1).join('/')
         try {
           await fetchWorkspaceTree(identity.filesId, parentPath)
+          if (intentLease?.isCurrent() === false) return false
           revealWorkspaceFileInExplorer(identity.filesId, parentPath, 'directory')
           setCopyNotice({ id: Date.now(), kind: 'error', message: copy.sharedFileFallback(parentPath) })
           return true
@@ -3606,6 +3685,7 @@ export function CodeWorkspace({
     projectWorkspaces,
     revealWorkspaceFileInExplorer,
     resolveAbsoluteWorkspaceFileTarget,
+    resolveWorkspaceFile,
     resolveWorkspaceFileIdentity,
     selectOpenWorkspaceFile,
     copy,
@@ -3667,6 +3747,7 @@ export function CodeWorkspace({
 
   const restoreWorkspaceNavigationEntry = useCallback(async (entry: WorkspaceNavigationEntry) => {
     if (entry.kind === 'plugins') {
+      workspaceFileOpenRequestRef.current.invalidate()
       closeContextMenu()
       clearSearch()
       setPluginsNavigationState(entry.state)
@@ -3685,6 +3766,7 @@ export function CodeWorkspace({
     onWorkspaceViewChange('projects')
 
     if (entry.kind === 'agent') {
+      workspaceFileOpenRequestRef.current.invalidate()
       setMainPaneMode('terminal')
       onOpenTerminal(entry.agentId)
       closeSidebarForMobile()
@@ -3699,12 +3781,16 @@ export function CodeWorkspace({
       sourceAgentId: entry.sourceAgentId,
     }
     const identity = resolveWorkspaceFileIdentity(entry.agentId, entry.sourceAgentId)
+    const intentLease = workspaceFileOpenRequestRef.current.begin()
 
-    if (selectOpenWorkspaceFile(identity.filesId, entry.filePath, target)) return true
+    if (selectOpenWorkspaceFile(identity.filesId, entry.filePath, target, intentLease)) return true
 
     try {
-      const file = await fetchWorkspaceFile(identity.filesId, entry.filePath)
-      await openProjectFile(identity.filesId, file, target)
+      const file = await resolveWorkspaceFile(identity.filesId, entry.filePath, {
+        workspaceRoot: identity.workspaceRoot,
+      })
+      if (!intentLease.isCurrent()) return false
+      await openProjectFile(identity.filesId, file, target, undefined, intentLease)
       return true
     } catch {
       return false
@@ -3716,6 +3802,7 @@ export function CodeWorkspace({
     onOpenTerminal,
     onWorkspaceViewChange,
     openProjectFile,
+    resolveWorkspaceFile,
     resolveWorkspaceFileIdentity,
     selectOpenWorkspaceFile,
     setMainPaneMode,
@@ -5121,6 +5208,7 @@ export function CodeWorkspace({
         onOpenWorkspaceView={openWorkspaceViewFromSidebar}
         onOpenMainAgent={() => {
           if (!hiddenMainAgent) return
+          workspaceFileOpenRequestRef.current.invalidate()
           setMainPaneMode('terminal')
           onWorkspaceViewChange('projects')
           onOpenTerminal(hiddenMainAgent.id)
@@ -5140,6 +5228,7 @@ export function CodeWorkspace({
         onOpenAgentSessionMenu={openAgentSessionContextMenu}
         onOpenProjectFile={openProjectFile}
         onBeginProjectFileOpenIntent={beginProjectFileOpenIntent}
+        onResolveProjectFile={workspaceOpenFiles.resolve}
         onSelectOpenWorkspaceFile={selectOpenWorkspaceFile}
         onCloseOpenWorkspaceFile={closeOpenWorkspaceFile}
         onMoveWorkspaceEntries={handleWorkspaceFileMove}
@@ -5313,6 +5402,7 @@ export function CodeWorkspace({
         showFileEditor={showFileEditor}
         openWorkspaceFile={openWorkspaceFile}
         openWorkspaceFiles={openWorkspaceFiles}
+        retainedWorkspaceFileModels={retainedWorkspaceFileModels}
         openAgentsCount={openAgents.length}
         openAgents={mountedOpenAgents}
         activeTerminalId={activeTerminalId}

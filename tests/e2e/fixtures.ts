@@ -32,6 +32,7 @@ declare global {
       undo: () => boolean
       getValue: () => string
       getLanguageId: () => string | null
+      getModelId: () => number | null
       getPosition: () => { lineNumber: number; column: number } | null
       getScrollTop: () => number
       getFocusEditorRequestId: () => number | null

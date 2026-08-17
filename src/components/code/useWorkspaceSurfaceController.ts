@@ -16,7 +16,8 @@ import type {
   WorkspaceOpenFileUpdater,
 } from '@/lib/workspace-open-files'
 import { workspaceOpenFileRequestForTarget } from '@/lib/workspace-open-files'
-import { fetchWorkspaceFile, type WorkspaceFile } from '@/lib/workspace-files'
+import type { WorkspaceFile } from '@/lib/workspace-files'
+import type { RequestOwnershipLease } from '@/lib/request-ownership'
 import { projectWorkspaceForAgent } from './model'
 import type { WorkspaceFileOpenTarget, WorkspaceView } from './types'
 import {
@@ -326,12 +327,10 @@ interface UseWorkspaceSurfaceControllerOptions extends CurrentWorkspaceSurfaceOp
     filesId: string,
     file: WorkspaceFile,
     target: WorkspaceFileOpenTarget,
+    intentLease?: RequestOwnershipLease,
   ) => void | Promise<void>
-  fetchFile?: (filesId: string, filePath: string, signal: AbortSignal) => Promise<WorkspaceFile>
-}
-
-function fetchWorkspaceSurfaceFile(filesId: string, filePath: string, signal: AbortSignal) {
-  return fetchWorkspaceFile(filesId, filePath, { signal })
+  beginFileOpenIntent: () => RequestOwnershipLease
+  fetchFile: (filesId: string, filePath: string, signal: AbortSignal) => Promise<WorkspaceFile>
 }
 
 export function useWorkspaceSurfaceController({
@@ -346,7 +345,8 @@ export function useWorkspaceSurfaceController({
   resolveWorkspaceFileIdentity,
   openAgent,
   openFile,
-  fetchFile = fetchWorkspaceSurfaceFile,
+  beginFileOpenIntent,
+  fetchFile,
 }: UseWorkspaceSurfaceControllerOptions) {
   const [initialSurface] = useState<CodeWorkspaceSurface | undefined>(() => (
     loadCodeWorkspaceViewState().surface
@@ -392,10 +392,12 @@ export function useWorkspaceSurfaceController({
     }
 
     const abortController = new AbortController()
+    const intentLease = beginFileOpenIntent()
     void fetchFile(plan.filesId, plan.filePath, abortController.signal)
       .then(file => {
+        if (!intentLease.isCurrent()) return
         if (!admissionRef.current!.beginOpening(generation)) return
-        return openFile(plan.filesId, file, plan.target)
+        return openFile(plan.filesId, file, plan.target, intentLease)
       })
       .then(() => settle())
       .catch(() => {
@@ -413,6 +415,7 @@ export function useWorkspaceSurfaceController({
   }, [
     activeAgents,
     agentInventoryComplete,
+    beginFileOpenIntent,
     fetchFile,
     initialSurface,
     openAgent,

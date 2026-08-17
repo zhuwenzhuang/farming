@@ -272,6 +272,7 @@ interface CodeMainAreaProps {
   showFileEditor: boolean
   openWorkspaceFile: OpenWorkspaceFile | null
   openWorkspaceFiles: OpenWorkspaceFile[]
+  retainedWorkspaceFileModels: OpenWorkspaceFile[]
   openAgentsCount: number
   openAgents: Agent[]
   activeTerminalId: string | null
@@ -563,6 +564,7 @@ export function CodeMainArea({
   showFileEditor,
   openWorkspaceFile,
   openWorkspaceFiles,
+  retainedWorkspaceFileModels,
   openAgentsCount,
   openAgents,
   activeTerminalId,
@@ -1016,6 +1018,7 @@ export function CodeMainArea({
           <ReadyFileEditorPane
             openFile={openWorkspaceFile}
             openFiles={openWorkspaceFiles}
+            retainedFiles={retainedWorkspaceFileModels}
             onChangeDraft={onChangeWorkspaceFileDraft}
             onUpdateOpenFile={onUpdateOpenWorkspaceFile}
             onSelectOpenFile={onSelectOpenWorkspaceFile}

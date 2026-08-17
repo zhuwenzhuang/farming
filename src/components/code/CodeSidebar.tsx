@@ -93,6 +93,7 @@ import { FarmingPet } from './pet/FarmingPet'
 import type { UiAppearance, UiLanguage } from '@/lib/ui-preferences'
 import { scheduleFocusUntil } from './focus-retry'
 import type { RequestOwnershipLease } from '@/lib/request-ownership'
+import type { WorkspaceFileResolveOptions } from '@/lib/workspace-file-model-manager'
 
 declare const __FARMING_PACKAGE_VERSION__: string
 
@@ -252,6 +253,11 @@ interface CodeSidebarProps {
     intentLease?: RequestOwnershipLease,
   ) => void | Promise<void>
   onBeginProjectFileOpenIntent: () => RequestOwnershipLease
+  onResolveProjectFile: (
+    rootId: string,
+    filePath: string,
+    options?: WorkspaceFileResolveOptions,
+  ) => Promise<OpenWorkspaceFile['file']>
   onSelectOpenWorkspaceFile: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
   onCloseOpenWorkspaceFile: (agentId: string, filePath: string, workspaceRoot?: string) => void
   onMoveWorkspaceEntries: (agentId: string, moves: WorkspaceFileMove[]) => void
@@ -351,6 +357,7 @@ export function CodeSidebar({
   onOpenAgentSessionMenu,
   onOpenProjectFile,
   onBeginProjectFileOpenIntent,
+  onResolveProjectFile,
   onSelectOpenWorkspaceFile,
   onCloseOpenWorkspaceFile,
   onMoveWorkspaceEntries,
@@ -870,6 +877,7 @@ export function CodeSidebar({
             onHideAgentPreview={hideAgentPreview}
             onOpenProjectFile={onOpenProjectFile}
             onBeginProjectFileOpenIntent={onBeginProjectFileOpenIntent}
+            onResolveProjectFile={onResolveProjectFile}
             onSelectOpenWorkspaceFile={onSelectOpenWorkspaceFile}
             onCloseOpenWorkspaceFile={onCloseOpenWorkspaceFile}
             onMoveWorkspaceEntries={onMoveWorkspaceEntries}
@@ -1783,6 +1791,11 @@ interface ProjectSectionProps {
     intentLease?: RequestOwnershipLease,
   ) => void | Promise<void>
   onBeginProjectFileOpenIntent: () => RequestOwnershipLease
+  onResolveProjectFile: (
+    rootId: string,
+    filePath: string,
+    options?: WorkspaceFileResolveOptions,
+  ) => Promise<OpenWorkspaceFile['file']>
   onSelectOpenWorkspaceFile: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
   onCloseOpenWorkspaceFile: (agentId: string, filePath: string, workspaceRoot?: string) => void
   onMoveWorkspaceEntries: (agentId: string, moves: WorkspaceFileMove[]) => void
@@ -1908,6 +1921,7 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
   onHideAgentPreview,
   onOpenProjectFile,
   onBeginProjectFileOpenIntent,
+  onResolveProjectFile,
   onSelectOpenWorkspaceFile,
   onCloseOpenWorkspaceFile,
   onMoveWorkspaceEntries,
@@ -2539,6 +2553,7 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
                 editorExternalChangedFilePaths={projectEditorExternalChangedFilePaths}
                 onOpenFile={openProjectWorkspaceFile}
                 onBeginOpenFileIntent={onBeginProjectFileOpenIntent}
+                onResolveFile={onResolveProjectFile}
                 onSelectOpenFile={selectOpenProjectWorkspaceFile}
                 onCloseOpenFile={onCloseOpenWorkspaceFile}
                 onNewAgent={onNewAgent}

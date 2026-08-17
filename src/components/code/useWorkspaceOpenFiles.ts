@@ -33,6 +33,10 @@ import {
   type WorkspaceFileDeleteResult,
   type WorkspaceFileMove,
 } from '@/lib/workspace-files'
+import {
+  WorkspaceFileModelManager,
+  type WorkspaceFileResolveOptions,
+} from '@/lib/workspace-file-model-manager'
 
 const OPEN_FILE_REFRESH_CONCURRENCY = 4
 const OPEN_FILE_REFRESH_TIMEOUT_MS = 15_000
@@ -103,7 +107,9 @@ async function refreshOpenWorkspaceFileReads(rootId: string, filePaths: readonly
 
 export function useWorkspaceOpenFiles() {
   const [state, setState] = useState<WorkspaceOpenFilesState>(() => initialWorkspaceOpenFilesState())
+  const [retainedModelFiles, setRetainedModelFiles] = useState<OpenWorkspaceFile[]>([])
   const stateRef = useRef(state)
+  const modelManagerRef = useRef<WorkspaceFileModelManager | null>(null)
   const draftBackupsRef = useRef<Map<string, WorkspaceDraftBackup> | null>(null)
   const draftBackupWriteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const autoRefreshTimersRef = useRef(new Map<string, number>())
@@ -113,6 +119,9 @@ export function useWorkspaceOpenFiles() {
   const autoRefreshActiveRef = useRef(0)
   const autoRefreshDisposedRef = useRef(false)
   const pumpAutoRefreshRef = useRef<() => void>(() => {})
+  if (modelManagerRef.current === null) {
+    modelManagerRef.current = new WorkspaceFileModelManager()
+  }
   if (draftBackupsRef.current === null) {
     const storage = browserDraftBackupStorage()
     draftBackupsRef.current = storage ? loadWorkspaceDraftBackups(storage) : new Map()
@@ -164,10 +173,21 @@ export function useWorkspaceOpenFiles() {
   const commitState = useCallback((nextState: WorkspaceOpenFilesState) => {
     const previousState = stateRef.current
     stateRef.current = openFilesStateOnly(nextState)
+    modelManagerRef.current?.acceptOpenFiles(
+      [...stateRef.current.files, ...stateRef.current.closedFileCache.values()],
+      stateRef.current.files,
+    )
+    setRetainedModelFiles(modelManagerRef.current?.retainedOpenFiles() ?? [])
     syncDraftBackups(previousState, stateRef.current)
     setState(stateRef.current)
     return stateRef.current
   }, [syncDraftBackups])
+
+  const resolve = useCallback((
+    rootId: string,
+    filePath: string,
+    options: WorkspaceFileResolveOptions = {},
+  ) => modelManagerRef.current!.resolve(rootId, filePath, options), [])
 
   const stateFromRead = useCallback((
     currentState: WorkspaceOpenFilesState,
@@ -402,13 +422,19 @@ export function useWorkspaceOpenFiles() {
 
   const move = useCallback((agentId: string, moves: readonly WorkspaceFileMove[]) => {
     const nextState = moveWorkspaceOpenFiles(stateRef.current, agentId, moves)
-    if (nextState !== stateRef.current) commitState(nextState)
+    if (nextState !== stateRef.current) {
+      modelManagerRef.current?.invalidateRoot(agentId)
+      commitState(nextState)
+    }
     return nextState
   }, [commitState])
 
   const deleteEntries = useCallback((agentId: string, deletions: readonly WorkspaceFileDeleteResult[]) => {
     const result = deleteWorkspaceOpenFiles(stateRef.current, agentId, deletions)
-    if (deletions.length > 0) commitState(result)
+    if (deletions.length > 0) {
+      modelManagerRef.current?.invalidateRoot(agentId)
+      commitState(result)
+    }
     return result
   }, [commitState])
 
@@ -439,6 +465,7 @@ export function useWorkspaceOpenFiles() {
       activeKeys.clear()
       controllers.forEach(controller => controller.abort())
       controllers.clear()
+      modelManagerRef.current?.dispose()
     }
   }, [])
 
@@ -446,6 +473,8 @@ export function useWorkspaceOpenFiles() {
     activeFile: state.activeFile,
     files: state.files,
     closedFiles,
+    retainedModelFiles,
+    resolve,
     openFromRead,
     restoreFromReads,
     select,
@@ -460,5 +489,5 @@ export function useWorkspaceOpenFiles() {
     reorder,
     move,
     deleteEntries,
-  }), [closedFiles, close, deleteEntries, move, openFromRead, refreshFromReads, refreshProject, reorder, reopenLastClosed, restoreFromReads, scheduleOpenFileRefresh, select, setWatchError, state.activeFile, state.files, update, updateDraft])
+  }), [closedFiles, close, deleteEntries, move, openFromRead, refreshFromReads, refreshProject, reorder, reopenLastClosed, resolve, restoreFromReads, retainedModelFiles, scheduleOpenFileRefresh, select, setWatchError, state.activeFile, state.files, update, updateDraft])
 }

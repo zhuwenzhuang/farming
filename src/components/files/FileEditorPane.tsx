@@ -53,6 +53,7 @@ export type { OpenWorkspaceFile, WorkspaceFileCursor } from '@/lib/workspace-ope
 interface FileEditorPaneProps {
   openFile: OpenWorkspaceFile
   openFiles: OpenWorkspaceFile[]
+  retainedFiles: OpenWorkspaceFile[]
   onChangeDraft: (draft: string) => void
   onUpdateOpenFile: (
     target: WorkspaceOpenFileTarget,
@@ -145,6 +146,7 @@ function clampLanguageServerDockWidth(workbenchWidth: number, width: number) {
 export function FileEditorPane({
   openFile,
   openFiles,
+  retainedFiles,
   onChangeDraft,
   onUpdateOpenFile,
   onSelectOpenFile,
@@ -260,6 +262,7 @@ export function FileEditorPane({
   } = useFileEditorMonacoController({
     openFile,
     openFiles,
+    retainedFiles,
     readOnly,
     wordWrapEnabled,
     editorLabel: copy.editorFor(openFile.file.path),

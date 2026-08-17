@@ -38,6 +38,7 @@ import { useFileEditorTestBridge } from './useFileEditorTestBridge'
 interface UseFileEditorMonacoControllerOptions {
   openFile: OpenWorkspaceFile
   openFiles: OpenWorkspaceFile[]
+  retainedFiles: OpenWorkspaceFile[]
   readOnly: boolean
   wordWrapEnabled: boolean
   editorLabel: string
@@ -70,6 +71,7 @@ function modelStatusForEditor(editor: monaco.editor.IStandaloneCodeEditor): File
 export function useFileEditorMonacoController({
   openFile,
   openFiles,
+  retainedFiles,
   readOnly,
   wordWrapEnabled,
   editorLabel,
@@ -377,9 +379,9 @@ export function useFileEditorMonacoController({
   ])
 
   useEffect(() => {
-    const liveFiles = [...openFiles, openFile]
+    const liveFiles = [...retainedFiles, ...openFiles, openFile]
     pruneWorkspaceEditorModelState(liveFiles, editorViewStatesRef.current)
-  }, [openFile, openFiles])
+  }, [openFile, openFiles, retainedFiles])
 
   useEffect(() => {
     const editor = editorRef.current

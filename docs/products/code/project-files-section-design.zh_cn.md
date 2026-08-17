@@ -4,6 +4,9 @@
 
 Project Files 让用户在监督 Agent 时查看并轻量编辑 Project。它不以替代完整 IDE 为目标。
 
+详细的正确性、resolve、retention、并发与恢复契约由
+[Workspace File 状态模型](./workspace-file-state-model.zh_cn.md)定义。
+
 ## 产品位置
 
 Files 属于具体 Project，不属于 Main Agent。Project 展开后包含：
