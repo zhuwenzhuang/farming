@@ -303,6 +303,126 @@ test('CRT requests a full resync after a malformed initial Agent snapshot', asyn
   )
 })
 
+test('CRT keeps a focused Pi session title and read state synchronized', async ({ page }) => {
+  let socket: WebSocketRoute | null = null
+  const clientMessages: Array<Record<string, unknown>> = []
+  const readPatches: Array<Record<string, unknown>> = []
+  const agentId = 'agent-pi-title'
+  await page.routeWebSocket(/\/farming\/ws(?:\?|$)/, route => {
+    socket = route
+    route.onMessage(message => {
+      clientMessages.push(JSON.parse(String(message)) as Record<string, unknown>)
+    })
+  })
+  await page.route(new RegExp(`/farming/api/agents/${agentId}/acp-transcript(?:\\?.*)?$`), route => (
+    route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ transcript: { updatedAt: 'initial', entries: [] } }),
+    })
+  ))
+  await page.route(new RegExp(`/farming/api/agents/${agentId}/acp-session$`), route => (
+    route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ session: { availableCommands: [], configOptions: [] } }),
+    })
+  ))
+  await page.route(new RegExp(`/farming/api/agents/${agentId}$`), route => {
+    if (route.request().method() === 'PATCH') {
+      readPatches.push(route.request().postDataJSON() as Record<string, unknown>)
+    }
+    return route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ changed: true }),
+    })
+  })
+
+  await page.goto(`/farming/crt/?agent=${agentId}`, { waitUntil: 'domcontentloaded' })
+  await expect.poll(() => clientMessages.some(message => message.type === 'protocol-hello')).toBe(true)
+  if (!socket) throw new Error('CRT WebSocket route was not created')
+
+  send(socket, {
+    type: 'protocol-hello',
+    protocolVersion: PROTOCOL_VERSION,
+    minProtocolVersion: PROTOCOL_VERSION,
+  })
+  const pi = {
+    ...testAgent(agentId, ''),
+    command: 'pi',
+    adaptiveTitle: 'Initial Pi title',
+    runtimeBinding: {
+      kind: 'acp' as const,
+      state: 'idle',
+      error: '',
+      stopReason: '',
+      supportsSteer: false,
+      supportsFork: false,
+      pendingPermission: null,
+      pendingPermissions: [],
+      pendingElicitation: null,
+      pendingElicitations: [],
+      activeElicitations: [],
+      sessionUpdatedAt: '',
+      sessionRevision: 0,
+    },
+    providerCapabilities: {
+      supportedRuntimes: ['terminal', 'acp'] as const,
+      runtimeSwitch: true,
+      terminalProfile: true,
+      terminalComposerInput: 'bracketed-paste' as const,
+      slashCommandDiscovery: false,
+      goals: false,
+      goalSubmission: null,
+      terminalSessionFork: false,
+      sessionFork: false,
+      chatRuntime: 'acp' as const,
+      supportsChat: true,
+      supportsSteer: false,
+    },
+  }
+  send(socket, {
+    type: 'state',
+    generation: 'crt-pi-title-generation',
+    sequence: 1,
+    snapshot: {
+      complete: true,
+      id: 'crt-pi-title-snapshot',
+      offset: 0,
+      total: 1,
+    },
+    state: {
+      agents: [pi],
+      agentInventoryRunning: 1,
+      agentInventoryScope: 'all',
+      agentInventoryTotal: 1,
+      mainAgentId: null,
+      taskHistory: [],
+    },
+  })
+
+  await expect(page.locator('#session-title')).toHaveText('Initial Pi title')
+  socket.send(JSON.stringify({
+    type: 'agent-update',
+    update: { agentId, patch: { adaptiveTitle: 'Updated Pi title' } },
+  }))
+  await expect(page.locator('#session-title')).toHaveText('Updated Pi title')
+
+  socket.send(JSON.stringify({
+    type: 'agent-read',
+    read: {
+      agentId,
+      unread: true,
+      attentionSeq: 1,
+      readAttentionSeq: 0,
+      readOutputEpoch: '',
+      readOutputSeq: null,
+    },
+  }))
+  await expect.poll(() => readPatches).toEqual([{ readAttentionSeq: 1 }])
+
+  await page.locator('#session-modal .close-btn').click()
+  await expect(page.locator(`[data-agent-id="${agentId}"]`)).not.toHaveClass(/unread/)
+})
+
 test('Code consumes the same paged Agent state and delta sequence contract', async ({ page }) => {
   let socket: WebSocketRoute | null = null
   const clientMessages: Array<Record<string, unknown>> = []

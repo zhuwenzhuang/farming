@@ -9,7 +9,7 @@ const expectedVersion = '0.0.33';
 const expectedSdkVersion = '0.26.0';
 const expectedZodVersion = '3.25.76';
 const expectedUpstreamSha256 = '24ff73fda6e3c76ddce2d359a79f5c4b8f292eb290e4d2ab85aac94676b2c2dc';
-const expectedBundleSha256 = '946255b69fdecd839d75f01906175206436dd44c8bc7e872b4321b8d719fe7d1';
+const expectedBundleSha256 = 'a750044ca2135463763d373c49744031aa1e9ff08f77011f1626156e3b4c8981';
 const packageRoot = path.dirname(require.resolve('pi-acp/package.json'));
 const packageJsonPath = path.join(packageRoot, 'package.json');
 const sourceEntry = path.join(packageRoot, 'dist', 'index.js');
@@ -80,6 +80,49 @@ function farmingPiPlugin(): esbuild.Plugin {
           '#!/usr/bin/env node\n',
           `#!/usr/bin/env node\n${farmingLaunchOptions}\n`,
           'private launch options',
+        );
+        source = replaceExactly(
+          source,
+          'import * as readline from "readline";',
+          'import { StringDecoder } from "string_decoder";',
+          'strict LF decoder import',
+        );
+        source = replaceExactly(
+          source,
+          '    const rl = readline.createInterface({ input: child.stdout });\n    rl.on("line", (line) => {',
+          [
+            '    const stdoutDecoder = new StringDecoder("utf8");',
+            '    let stdoutBuffer = "";',
+            '    const handleLine = (line) => {',
+          ].join('\n'),
+          'strict LF line handler',
+        );
+        source = replaceExactly(
+          source,
+          '    });\n    child.on("exit", (code, signal) => {',
+          [
+            '    };',
+            '    const drainStdout = () => {',
+            '      for (;;) {',
+            '        const newline = stdoutBuffer.indexOf("\\n");',
+            '        if (newline < 0) return;',
+            '        const line = stdoutBuffer.slice(0, newline).replace(/\\r$/, "");',
+            '        stdoutBuffer = stdoutBuffer.slice(newline + 1);',
+            '        handleLine(line);',
+            '      }',
+            '    };',
+            '    child.stdout.on("data", (chunk) => {',
+            '      stdoutBuffer += typeof chunk === "string" ? chunk : stdoutDecoder.write(chunk);',
+            '      drainStdout();',
+            '    });',
+            '    child.stdout.on("end", () => {',
+            '      stdoutBuffer += stdoutDecoder.end();',
+            '      if (stdoutBuffer) handleLine(stdoutBuffer.replace(/\\r$/, ""));',
+            '      stdoutBuffer = "";',
+            '    });',
+            '    child.on("exit", (code, signal) => {',
+          ].join('\n'),
+          'strict LF stream framing',
         );
         source = replaceExactly(
           source,

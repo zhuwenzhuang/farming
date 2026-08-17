@@ -1221,6 +1221,7 @@ function crtDashboardStateSignature(value) {
             agent.activityLevel,
             agent.command,
             agent.customTitle,
+            agent.adaptiveTitle,
             agent.providerSessionTitle,
             agent.sessionTitle,
             agent.cwd,
@@ -4208,6 +4209,9 @@ function openCrtAgentDeeplinkIfReady() {
     return true;
 }
 function applyCrtWorkspaceState(nextState, previousAgentCount, inventoryComplete = true) {
+    const previousFocusedTitle = focusedAgentId
+        ? getCrtAgentTitle(state?.agents.find((agent) => agent.id === focusedAgentId))
+        : '';
     state = nextState;
     if (isCrtSessionOpen())
         updateCrtAgentInventoryStatus(state);
@@ -4248,6 +4252,10 @@ function applyCrtWorkspaceState(nextState, previousAgentCount, inventoryComplete
     openPendingRuntimeSwitchAgentIfReady();
     if (focusedAgentId) {
         const focusedAgent = state.agents.find((agent) => agent.id === focusedAgentId);
+        const focusedTitle = getCrtAgentTitle(focusedAgent);
+        if (focusedAgent && focusedTitle !== previousFocusedTitle) {
+            updateSessionTitleDisplay(focusedTitle);
+        }
         updateCrtRuntimeSwitchControl(focusedAgent);
         if (focusedAgent && isStructuredRuntimeAgent(focusedAgent)) {
             updateStructuredComposerState(focusedAgent);
@@ -4519,7 +4527,13 @@ function connect() {
             const update = data.update;
             const agent = update && state && state.agents.find(candidate => candidate.id === update.agentId);
             if (agent && update.patch && typeof update.patch === 'object') {
+                const previousTitle = getCrtAgentTitle(agent);
                 Object.assign(agent, update.patch);
+                if (agent.id === focusedAgentId) {
+                    const nextTitle = getCrtAgentTitle(agent);
+                    if (nextTitle !== previousTitle)
+                        updateSessionTitleDisplay(nextTitle);
+                }
                 if (!openPendingRuntimeSwitchAgentIfReady()) {
                     renderCrtDashboardIfNeeded();
                     if (agent.id === focusedAgentId)
@@ -4534,6 +4548,8 @@ function connect() {
                 const readState = { ...read };
                 delete readState.agentId;
                 Object.assign(agent, readState);
+                if (agent.id === focusedAgentId)
+                    void markCrtAgentReadIfNeeded(agent);
                 renderCrtDashboardIfNeeded();
             }
         }

@@ -498,6 +498,14 @@ function run() {
     }),
     'visible status changes should invalidate the dashboard structure',
   );
+  assert.notStrictEqual(
+    crtDashboardStateSignature(dashboardState),
+    crtDashboardStateSignature({
+      ...dashboardState,
+      agents: [{ ...dashboardState.agents[0], adaptiveTitle: 'Updated Pi title' }],
+    }),
+    'adaptive title changes should invalidate the dashboard structure',
+  );
 
   const brandState = {
     mainAgentId: 'agent-main',

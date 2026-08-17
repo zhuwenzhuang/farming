@@ -1509,6 +1509,7 @@ function crtDashboardStateSignature(value: CrtWorkspaceState|null) {
       agent.activityLevel,
       agent.command,
       agent.customTitle,
+      agent.adaptiveTitle,
       agent.providerSessionTitle,
       agent.sessionTitle,
       agent.cwd,
@@ -4720,6 +4721,9 @@ function applyCrtWorkspaceState(
   previousAgentCount: number,
   inventoryComplete = true,
 ): void {
+  const previousFocusedTitle = focusedAgentId
+    ? getCrtAgentTitle(state?.agents.find((agent) => agent.id === focusedAgentId))
+    : '';
   state = nextState;
   if (isCrtSessionOpen()) updateCrtAgentInventoryStatus(state);
   pruneCrtStructuredPreviews(state);
@@ -4759,6 +4763,10 @@ function applyCrtWorkspaceState(
   openPendingRuntimeSwitchAgentIfReady();
   if (focusedAgentId) {
     const focusedAgent = state.agents.find((agent) => agent.id === focusedAgentId);
+    const focusedTitle = getCrtAgentTitle(focusedAgent);
+    if (focusedAgent && focusedTitle !== previousFocusedTitle) {
+      updateSessionTitleDisplay(focusedTitle);
+    }
     updateCrtRuntimeSwitchControl(focusedAgent);
     if (focusedAgent && isStructuredRuntimeAgent(focusedAgent)) {
       updateStructuredComposerState(focusedAgent);
@@ -5037,7 +5045,12 @@ function connect(): void {
       const update = data.update;
       const agent = update && state && state.agents.find(candidate => candidate.id === update.agentId);
       if (agent && update.patch && typeof update.patch === 'object') {
+        const previousTitle = getCrtAgentTitle(agent);
         Object.assign(agent, update.patch);
+        if (agent.id === focusedAgentId) {
+          const nextTitle = getCrtAgentTitle(agent);
+          if (nextTitle !== previousTitle) updateSessionTitleDisplay(nextTitle);
+        }
         if (!openPendingRuntimeSwitchAgentIfReady()) {
           renderCrtDashboardIfNeeded();
           if (agent.id === focusedAgentId) updateCrtRuntimeSwitchControl(agent);
@@ -5050,6 +5063,7 @@ function connect(): void {
         const readState: Partial<typeof read> = { ...read };
         delete readState.agentId;
         Object.assign(agent, readState);
+        if (agent.id === focusedAgentId) void markCrtAgentReadIfNeeded(agent);
         renderCrtDashboardIfNeeded();
       }
     } else if (data.type === 'acp-session-revision') {

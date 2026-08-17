@@ -83,11 +83,16 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
   }) + '\\n');
   if (request.type === 'prompt') {
     process.stdout.write(JSON.stringify({ type: 'agent_start' }) + '\\n');
-    process.stdout.write(JSON.stringify({
+    const update = Buffer.from(JSON.stringify({
       type: 'message_update',
-      assistantMessageEvent: { type: 'text_delta', delta: 'fake answer' },
+      assistantMessageEvent: { type: 'text_delta', delta: '分割中文\\u2028仍是同一条\\u2029结束' },
     }) + '\\n');
-    process.stdout.write(JSON.stringify({ type: 'agent_settled' }) + '\\n');
+    const splitAt = update.indexOf(Buffer.from('中')) + 1;
+    process.stdout.write(update.subarray(0, splitAt));
+    setImmediate(() => {
+      process.stdout.write(update.subarray(splitAt));
+      process.stdout.write(JSON.stringify({ type: 'agent_settled' }) + '\\n');
+    });
   }
 });
 `);
@@ -113,8 +118,9 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
     const pending = new Map<number, (message: RpcMessage) => void>();
     const updates: Array<Record<string, unknown>> = [];
     child.stderr!.on('data', chunk => { stderr = `${stderr}${chunk}`.slice(-16_000); });
+    child.stdout!.setEncoding('utf8');
     child.stdout!.on('data', chunk => {
-      stdout += chunk.toString('utf8');
+      stdout += chunk;
       for (;;) {
         const newline = stdout.indexOf('\n');
         if (newline < 0) break;
@@ -161,6 +167,19 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       prompt: [{ type: 'text', text: 'usage smoke' }],
     });
     assert.strictEqual(prompted.error, undefined);
+    const expectedPiText = '分割中文\u2028仍是同一条\u2029结束';
+    assert.deepStrictEqual(
+      updates.find(update => (
+        update.sessionUpdate === 'agent_message_chunk'
+        && (update.content as Record<string, unknown>)?.text === expectedPiText
+      )),
+      {
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: expectedPiText },
+      },
+      'Pi Chat must preserve split UTF-8 and only treat LF as an RPC record boundary',
+    );
+    assert(!JSON.stringify(updates).includes('\uFFFD'));
     assert.deepStrictEqual(
       updates.find(update => update.sessionUpdate === 'usage_update'),
       {
