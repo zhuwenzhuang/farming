@@ -714,6 +714,14 @@ test.describe('display-backed agent flows', () => {
       if (appearance) body.dataset.appearance = appearance
       else delete body.dataset.appearance
     }, originalAppearance)
+    // Sample the shared base surface after theme and hover transitions settle.
+    await page.mouse.move(0, 0)
+    await expect.poll(() => page.evaluate(() => new Set(
+      Array.from(
+        document.querySelectorAll<HTMLElement>('.code-empty-home-card'),
+        element => getComputedStyle(element).backgroundColor,
+      ),
+    ).size)).toBe(1)
     expect(globalWorktreeRequests).toEqual([])
     const guideGeometry = await page.evaluate(() => {
       const brace = document.querySelector<HTMLElement>('[data-testid="code-empty-home-brace"]')?.getBoundingClientRect()
@@ -853,7 +861,6 @@ test.describe('display-backed agent flows', () => {
           ? Math.abs((guideHeader.top + actionMap.bottom) / 2 - (guideHome.top + guideHome.height / 2))
           : Number.POSITIVE_INFINITY,
         guideBorderWidths: [...guideButtons, ...guideIcons].map(element => getComputedStyle(element).borderTopWidth),
-        cardBackgrounds: guideButtons.map(element => getComputedStyle(element).backgroundColor),
         primaryCardCount: document.querySelectorAll('.code-empty-home-primary .code-empty-home-card').length,
         utilityCardCount: document.querySelectorAll('.code-empty-home-utilities .code-empty-home-card').length,
         pluginsIsUtility: Boolean(
@@ -901,7 +908,6 @@ test.describe('display-backed agent flows', () => {
     expect(guideGeometry.guideBorderWidths).toEqual(
       Array.from({ length: guideGeometry.guideBorderWidths.length }, () => '0px'),
     )
-    expect(new Set(guideGeometry.cardBackgrounds).size).toBe(1)
     expect(guideGeometry.primaryCardCount).toBe(2)
     expect(guideGeometry.utilityCardCount).toBe(4)
     expect(guideGeometry.pluginsIsUtility).toBe(true)

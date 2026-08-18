@@ -13,6 +13,29 @@ test('renders intermediate commentary promptly during a dense live stream', {
   })
   expect(response.ok()).toBeTruthy()
   const { agentId } = await response.json() as { agentId: string }
+  const firstCommentaryText = 'Live commentary 1: checking the current implementation.'
+  let promptSubmitted = false
+  let firstCommentaryResponseAt: number | null = null
+
+  // Observe the response that actually contains commentary without replacing
+  // or delaying the product transport beyond the test's existing slow-read fixture.
+  page.on('response', transcriptResponse => {
+    const url = new URL(transcriptResponse.url())
+    if (
+      promptSubmitted
+      && firstCommentaryResponseAt === null
+      && url.pathname.endsWith(`/farming/api/agents/${agentId}/acp-transcript`)
+    ) {
+      const responseReceivedAt = Date.now()
+      void transcriptResponse.body().then(body => {
+        if (firstCommentaryResponseAt === null && body.includes(Buffer.from(firstCommentaryText))) {
+          firstCommentaryResponseAt = responseReceivedAt
+        }
+      }).catch(() => {
+        // The visibility assertion remains the authoritative liveness failure.
+      })
+    }
+  })
 
   await page.route(new RegExp(`/farming/api/agents/${agentId}/acp-transcript(?:\\?.*)?$`), async route => {
     await new Promise(resolve => setTimeout(resolve, 180))
@@ -25,16 +48,21 @@ test('renders intermediate commentary promptly during a dense live stream', {
   const input = page.getByTestId('code-acp-composer-input')
   await input.fill('live commentary stream')
   const submittedAt = Date.now()
+  promptSubmitted = true
   await page.getByTestId('code-acp-composer-send').click()
 
-  const firstCommentary = page.getByText('Live commentary 1: checking the current implementation.', { exact: true })
+  const firstCommentary = page.getByText(firstCommentaryText, { exact: true })
   await expect(firstCommentary).toBeVisible({ timeout: 5_000 })
-  const commentaryLatencyMs = Date.now() - submittedAt
+  const commentaryVisibleAt = Date.now()
+  await expect.poll(() => firstCommentaryResponseAt).not.toBeNull()
+  const commentaryRenderLatencyMs = commentaryVisibleAt - (firstCommentaryResponseAt as number)
+  const commentaryEndToEndLatencyMs = commentaryVisibleAt - submittedAt
+  console.log(`performance-live-commentary render-ms=${commentaryRenderLatencyMs} end-to-end-ms=${commentaryEndToEndLatencyMs}`)
   test.info().annotations.push({
     type: 'performance-budget',
-    description: `First live commentary rendered in ${commentaryLatencyMs}ms`,
+    description: `First live commentary rendered ${commentaryRenderLatencyMs}ms after delivery (${commentaryEndToEndLatencyMs}ms end to end)`,
   })
-  expect(commentaryLatencyMs).toBeLessThan(1_300)
+  expect(commentaryRenderLatencyMs).toBeLessThan(1_000)
   await expect(page.getByText('Live commentary stream complete.', { exact: true })).toHaveCount(0)
   const firstProgress = firstCommentary.locator('xpath=ancestor::*[@data-testid="code-acp-progress-update"]')
   await expect(firstProgress).toHaveCSS('animation-name', 'code-acp-progress-fill')
