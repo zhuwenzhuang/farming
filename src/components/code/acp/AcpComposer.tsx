@@ -68,6 +68,7 @@ export interface AcpComposerProps {
   active: boolean
   agentId: string
   runtimeState: string
+  sessionRevision?: number
   sessionUpdatedAt?: string
   runtimeError: string
   draft: string
@@ -112,6 +113,7 @@ export function AcpComposer({
   active,
   agentId,
   runtimeState,
+  sessionRevision,
   sessionUpdatedAt,
   runtimeError,
   draft,
@@ -164,7 +166,7 @@ export function AcpComposer({
   const { session, error: sessionError, updatingId, authenticatingId, loggingOut, configDeferred, configOptionsDeferred, modeDeferred, setMode, setConfigOption, setConfigOptions, authenticate, logout } = useAcpSession(
     agentId,
     active,
-    `${runtimeState}:${sessionUpdatedAt || ''}`,
+    `${runtimeState}:${sessionRevision || 0}:${sessionUpdatedAt || ''}`,
   )
   useMobileComposerHeight(composerRef)
   useComposerTextareaAutoSize(textareaRef, draft)

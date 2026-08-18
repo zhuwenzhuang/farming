@@ -5445,6 +5445,7 @@ export function CodeWorkspace({
           active: Boolean(activeAgent) && !activeAgentPermissionSwitching,
           agentId: activeAgent?.id || '',
           runtimeState: activeAcpRuntime?.state || '',
+          sessionRevision: activeAcpRuntime?.sessionRevision || 0,
           sessionUpdatedAt: activeAcpRuntime?.sessionUpdatedAt || '',
           runtimeError: activeAcpRuntime?.error || '',
           draft,

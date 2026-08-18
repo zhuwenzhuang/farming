@@ -85,17 +85,34 @@ test.describe('ACP human-like browser matrix', () => {
     const workspace = path.join(workspaceRoot, 'acp-authentication-classification')
     fs.mkdirSync(workspace, { recursive: true })
     const agentId = await createAcpAgent(page, workspace)
+    const sessionPath = `/farming/api/agents/${agentId}/acp-session?includeEntries=0`
+    let releaseInitialSessionRead = () => {}
+    const initialSessionReadRelease = new Promise<void>(resolve => { releaseInitialSessionRead = resolve })
+    let sessionReadCount = 0
+    await page.route(sessionPath, async route => {
+      sessionReadCount += 1
+      if (sessionReadCount !== 1) {
+        await route.continue()
+        return
+      }
+      const idleResponse = await route.fetch()
+      await initialSessionReadRelease
+      await route.fulfill({ response: idleResponse })
+    })
 
     await openFarming(page)
     await agentRow(page, agentId).click()
+    await expect.poll(() => sessionReadCount).toBe(1)
     await sendAcpMessage(page, 'authentication error')
+    releaseInitialSessionRead()
 
     await expect(page.getByTestId('code-acp-authentication')).toBeVisible({ timeout: 15_000 })
     const turn = page.locator('.code-agent-transcript-turn').filter({ hasText: 'authentication error' })
     await expect(turn.getByTestId('code-agent-transcript-process-summary')).toContainText('Authentication required')
     await expect(page.getByTestId('code-acp-error')).toHaveCount(0)
 
-    await page.route(`/farming/api/agents/${agentId}/acp-session?includeEntries=0`, async route => {
+    await page.unroute(sessionPath)
+    await page.route(sessionPath, async route => {
       await route.fulfill({
         status: 503,
         contentType: 'application/json',
