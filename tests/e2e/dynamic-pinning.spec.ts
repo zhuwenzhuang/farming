@@ -306,9 +306,12 @@ test('keeps manual order stable, deduplicates rows, and renders the dark narrow 
   const pinnedSection = page.getByTestId('code-pinned-section')
   const projectGroup = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspace) })
   const manualRow = pinnedSection.locator(`[data-testid="code-agent-row"][data-agent-id="${manualId}"]`)
+  await expect.poll(() => agentIds(projectGroup), {
+    message: 'dynamic Agent rows appear after the workspace projection loads',
+  }).toHaveLength(2)
   const dynamicOrder = await agentIds(projectGroup)
-  expect(dynamicOrder).toHaveLength(2)
   expect(new Set(dynamicOrder)).toEqual(new Set([firstDynamicId, secondDynamicId]))
+  await expect(manualRow).toBeVisible()
   await expect(manualRow.getByTestId('code-agent-row-age')).toBeHidden()
 
   const toggle = page.getByTestId('code-pinned-dynamic-toggle')
