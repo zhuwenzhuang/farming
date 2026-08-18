@@ -373,6 +373,12 @@ export function CodeSidebar({
     width: number
     branch: string
   }) | null>(null)
+  const handledAgentRevealRequestRef = useRef(0)
+  const consumeAgentRevealRequest = useCallback((requestId: number) => {
+    if (requestId <= handledAgentRevealRequestRef.current) return false
+    handledAgentRevealRequestRef.current = requestId
+    return true
+  }, [])
   const [projectPreview, setProjectPreview] = useState<(ProjectPreviewTarget & {
     x: number
     y: number
@@ -586,8 +592,9 @@ export function CodeSidebar({
   )))
 
   useEffect(() => {
-    if (revealedAgentIsPinned) setPinnedCollapsed(false)
-  }, [agentRevealRequest?.requestId, revealedAgentIsPinned])
+    if (!revealedAgentIsPinned || !agentRevealRequest) return
+    if (consumeAgentRevealRequest(agentRevealRequest.requestId)) setPinnedCollapsed(false)
+  }, [agentRevealRequest, consumeAgentRevealRequest, revealedAgentIsPinned])
 
   useEffect(() => {
     if (!agentRevealRequest) return
@@ -847,6 +854,7 @@ export function CodeSidebar({
             openWorkspaceFiles={openWorkspaceFiles}
             agentLaunchOptions={agentLaunchOptions}
             agentRevealRequest={agentRevealRequest}
+            onConsumeAgentRevealRequest={consumeAgentRevealRequest}
             fileRevealRequest={fileRevealRequest}
             fileSearchFocusRequest={fileSearchFocusRequest}
             onToggleProject={onToggleProject}
@@ -1759,6 +1767,7 @@ interface ProjectSectionProps {
   openWorkspaceFiles: OpenWorkspaceFile[]
   agentLaunchOptions: AgentLaunchOption[]
   agentRevealRequest: { agentId: string; requestId: number } | null
+  onConsumeAgentRevealRequest: (requestId: number) => boolean
   fileRevealRequest: { agentId: string; path: string; kind: 'directory' | 'file'; requestId: number } | null
   fileSearchFocusRequest: { agentId: string; requestId: number; query?: string } | null
   onToggleProject: (projectId: string) => void
@@ -1895,6 +1904,7 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
   openWorkspaceFiles,
   agentLaunchOptions,
   agentRevealRequest,
+  onConsumeAgentRevealRequest,
   fileRevealRequest,
   fileSearchFocusRequest,
   onToggleProject,
@@ -1936,7 +1946,6 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
   const launchButtonRef = useRef<HTMLButtonElement | null>(null)
   const launchMenuRef = useRef<HTMLDivElement | null>(null)
   const worktreeButtonRef = useRef<HTMLButtonElement | null>(null)
-  const handledAgentRevealRequestRef = useRef<number | null>(null)
   const [launchMenu, setLaunchMenu] = useState<{ x: number; y: number } | null>(null)
   const closeLaunchMenu = useCallback(() => setLaunchMenu(null), [])
   const [worktreeMenu, setWorktreeMenu] = useState<{ x: number; y: number } | null>(null)
@@ -2019,18 +2028,19 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
     || project.agentSessionsExpanded === true
   )
   const requestedAgentBelongsToProject = Boolean(
-    agentRevealRequest && project.agents.some(agent => agent.id === agentRevealRequest.agentId),
+    agentRevealRequest && project.agents.some(agent => (
+      agent.id === agentRevealRequest.agentId && !agent.pinned
+    )),
   )
 
   useEffect(() => {
     if (
       !agentRevealRequest
       || !requestedAgentBelongsToProject
-      || handledAgentRevealRequestRef.current === agentRevealRequest.requestId
+      || !onConsumeAgentRevealRequest(agentRevealRequest.requestId)
     ) return
-    handledAgentRevealRequestRef.current = agentRevealRequest.requestId
     setProjectAgentsCollapsed(false)
-  }, [agentRevealRequest, requestedAgentBelongsToProject])
+  }, [agentRevealRequest, onConsumeAgentRevealRequest, requestedAgentBelongsToProject])
 
   useEffect(() => {
     saveCodeProjectFilesViewState(project.id, { agentsCollapsed: projectAgentsCollapsed })

@@ -137,6 +137,13 @@ test('survives seeded cold and warm human Project Files interactions', {
     operations.push({ action: 'file-pointer-layout-shift', path: shiftingFilePath })
     await agentVisibility.click({ force: true })
     await expect(agentVisibility).toHaveAttribute('data-collapsed', 'true')
+    const projectTitle = project.getByTestId('code-project-title')
+    await projectTitle.click()
+    await expect(project).toHaveAttribute('data-collapsed', 'true')
+    await projectTitle.click()
+    await expect(project).toHaveAttribute('data-collapsed', 'false')
+    await expect(agentVisibility).toHaveAttribute('data-collapsed', 'true')
+    operations.push({ action: 'remount-project-with-file-active', path: shiftingFilePath })
     reads.clear()
 
     for (const directory of shuffled(directories, random)) {

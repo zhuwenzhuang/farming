@@ -800,6 +800,9 @@ export function CodeWorkspace({
   })
   const [fileRevealRequest, setFileRevealRequest] = useState<{ agentId: string; path: string; kind: 'directory' | 'file'; requestId: number } | null>(null)
   const [agentRevealRequest, setAgentRevealRequest] = useState<{ agentId: string; requestId: number } | null>(null)
+  const visibleAgentRevealRequest = activeView === 'projects' && mainPaneMode === 'terminal'
+    ? agentRevealRequest
+    : null
   const [fileSearchFocusRequest, setFileSearchFocusRequest] = useState<{ agentId: string; requestId: number; query?: string } | null>(null)
   const renameDialogIdentity = renameDialog
     ? renameDialog.kind === 'agent'
@@ -1353,6 +1356,11 @@ export function CodeWorkspace({
       requestId: workspaceAgentRevealRequestRef.current += 1,
     })
   }, [activeSidebarProjectId, activeTerminalId, activeView, mainPaneMode])
+
+  useEffect(() => {
+    if (activeView === 'projects' && mainPaneMode === 'terminal') return
+    setAgentRevealRequest(current => current === null ? current : null)
+  }, [activeView, mainPaneMode])
 
   useEffect(() => {
     if (activeView !== 'plugins') return
@@ -5184,7 +5192,7 @@ export function CodeWorkspace({
         agentCreationWorkspace={agentCreationWorkspace}
         openWorkspaceFile={openWorkspaceFile}
         openWorkspaceFiles={openWorkspaceFiles}
-        agentRevealRequest={agentRevealRequest}
+        agentRevealRequest={visibleAgentRevealRequest}
         fileRevealRequest={fileRevealRequest}
         fileSearchFocusRequest={fileSearchFocusRequest}
         projectListRef={projectListRef}

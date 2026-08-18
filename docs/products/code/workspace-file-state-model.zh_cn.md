@@ -27,7 +27,8 @@ Project Files 的实现保持成熟编辑器式的简化分层：文件系统访
 文件 intent 中的 source Agent 只提供 workspace 访问上下文；它无权激活该 Agent 的
 Terminal 或 Chat、展开 Agent 列表，也无权替换 editor surface。Agent reveal request
 是一次性导航事件；每个 request identity 只能被消费一次，因此后续 Agent inventory
-刷新不能重放旧 reveal，覆盖用户手动收起的选择。
+刷新或 Project section remount 都不能重放旧 reveal，覆盖用户手动收起的选择。Reveal
+request 只在对应 Agent Terminal 是可见主 surface 时有效；进入 editor 会撤销并清除它。
 
 不建立一个包办四类职责的 Project Files 总协调器，也不把可以从 owner 推导出的状态
 复制到其他 owner。

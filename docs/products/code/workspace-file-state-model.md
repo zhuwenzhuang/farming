@@ -33,7 +33,9 @@ The source Agent on a file intent grants workspace access; it does not grant
 permission to activate that Agent's Terminal or Chat, expand its Agent list,
 or replace the editor surface. Agent reveal requests are one-shot navigation
 events. Each request identity may be consumed once, so a later inventory
-refresh cannot replay an old reveal over the user's collapsed choice.
+refresh or Project-section remount cannot replay an old reveal over the user's
+collapsed choice. A reveal request is valid only while its Agent Terminal is
+the visible main surface; entering the editor revokes and clears it.
 
 No universal Project Files coordinator owns all four responsibilities. State
 that can be derived from an owner is not copied into another owner.
