@@ -8,9 +8,8 @@ import {
   workspaceFileIndentShiftDepthForViewport,
   workspaceStickyContentTop,
   workspaceStickyContextItems,
-  workspaceStickyDirectoryPathsForViewport,
-  type WorkspaceFileRowSnapshot,
-  type WorkspaceVisibleFileTreeRow,
+  workspaceStickyDirectoryPathsForIndexedViewport,
+  workspaceVisibleFileTreeRows,
   type WorkspaceFileStickyContextItem,
 } from '@/lib/workspace-file-view-model'
 
@@ -62,22 +61,9 @@ export function useWorkspaceFileStickyContext({
   const indentShiftRef = useRef(0)
   const contextShiftRef = useRef(0)
 
-  const readVisibleRows = useCallback((): WorkspaceVisibleFileTreeRow[] => (
-    (treeRef.current?.visibleNodes ?? []).map(node => {
-      const ancestors: WorkspaceVisibleFileTreeRow['ancestors'] = []
-      let parent = node.parent
-      while (parent && !parent.isRoot) {
-        ancestors.unshift({ path: parent.data.path, depth: parent.level })
-        parent = parent.parent
-      }
-      return {
-        path: node.data.path,
-        type: node.data.type,
-        depth: node.level,
-        ancestors,
-      }
-    })
-  ), [treeRef])
+  const visibleRows = useMemo(() => (
+    workspaceVisibleFileTreeRows(treeData, openDirectoryPaths)
+  ), [openDirectoryPaths, treeData])
 
   const stickyDirectoryNodes = useMemo(() => (
     stickyDirectoryPaths
@@ -134,28 +120,15 @@ export function useWorkspaceFileStickyContext({
       return
     }
 
-    const renderedRows = Array.from(viewport.querySelectorAll<HTMLElement>('[data-file-path]'))
-    const rowSnapshots: WorkspaceFileRowSnapshot[] = renderedRows.flatMap(row => {
-      const path = row.dataset.filePath
-      if (!path) return []
-      const rect = row.getBoundingClientRect()
-      const depth = Number(row.dataset.treeLevel)
-      return [{
-        path,
-        type: row.dataset.fileType,
-        depth: Number.isFinite(depth) ? depth : undefined,
-        top: rect.top,
-        bottom: rect.bottom,
-      }]
-    })
-    const nextStickyPaths = workspaceStickyDirectoryPathsForViewport({
-      rows: rowSnapshots,
+    const treeTop = viewportRect.top - (treeRef.current?.listEl.current?.scrollTop ?? 0)
+    const nextStickyPaths = workspaceStickyDirectoryPathsForIndexedViewport({
+      rows: visibleRows,
+      treeTop,
       stickyTop,
       scrollerBottom: scrollerRect.bottom,
-      rowHeight: FILE_STICKY_CONTEXT_HEIGHT,
+      rowHeight,
+      stickyHeight: FILE_STICKY_CONTEXT_HEIGHT,
     })
-    const visibleRows = readVisibleRows()
-    const treeTop = viewportRect.top - (treeRef.current?.listEl.current?.scrollTop ?? 0)
     if (nextStickyPaths.length === 0) {
       clearStickyContext()
       return
@@ -178,7 +151,7 @@ export function useWorkspaceFileStickyContext({
         ? current
         : nextStickyPaths
     ))
-  }, [clearStickyContext, filesCollapsed, readVisibleRows, rowHeight, treeRef, treeViewportRef, updateContextShift, updateIndentShift])
+  }, [clearStickyContext, filesCollapsed, rowHeight, treeRef, treeViewportRef, updateContextShift, updateIndentShift, visibleRows])
 
   const focusStickyDirectory = useCallback((node: FileExplorerNode) => {
     lastFocusedFilePathRef.current = node.path

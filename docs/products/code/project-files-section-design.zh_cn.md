@@ -143,6 +143,12 @@ Farming Instance 都是同一文件系统的独立客户端。
   Reconciliation 与 Refresh。
 - **Editor And Viewer**：拥有 Working Copy、Tab、Editor State、Conflict 与有界 Preview。
 
+即使有许多目录保持展开，Explorer 也只保留一个 Project Sidebar 滚动面。完整 Row Projection
+用于稳定 Sticky Path、Keyboard Navigation 与持久化 Expansion；屏外 Row 使用浏览器 Layout
+与 Paint Containment，使大型恢复树的成本由可见邻域而不是全部已挂载 Row 决定。随滚动更新的
+Sticky Context 从该预计算 Projection 定位 Row，并且只检查有界的 Viewport Slice；单个滚动帧
+不得遍历完整展开树，也不得读取每个已挂载文件 Row 的布局。
+
 单个粘性目录上下文是固定单行高度、显示紧凑路径的导航控件。只有首个未被遮挡的可见行存在
 已展开且滚过粘性边界的真实祖先时才展示；已折叠目录和前置同级目录永远不能成为粘性上下文。
 该控件用于在树中重新定位祖先，不显示展开箭头，也不伪装成第二个 Tree Row。

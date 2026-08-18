@@ -190,6 +190,9 @@ directories remain expanded. Its complete row projection keeps sticky paths,
 keyboard navigation, and persisted expansion stable, while offscreen rows use
 browser layout and paint containment so the cost of a large restored tree is
 bounded by the visible neighborhood rather than every mounted row.
+Scroll-linked sticky context derives its row from that precomputed projection
+and inspects only a bounded viewport slice. A scroll frame must not enumerate
+the complete expanded tree or read layout from every mounted file row.
 
 The single sticky directory context is a fixed one-row navigation control with
 a compact path. It appears only when the first uncovered visible row has a real

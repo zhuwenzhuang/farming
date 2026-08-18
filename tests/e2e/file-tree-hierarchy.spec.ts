@@ -166,6 +166,42 @@ async function settleLayout(page: Page) {
   }))
 }
 
+async function measureFileRowLayoutReadsDuringScroll(section: Locator) {
+  return section.evaluate(async element => {
+    const scroller = element.closest<HTMLElement>('.code-project-list')
+    if (!scroller) throw new Error('Files section must have a project-list scroller')
+    const originalGetBoundingClientRect = Element.prototype.getBoundingClientRect
+    let fileRowLayoutReads = 0
+    Element.prototype.getBoundingClientRect = function getBoundingClientRect() {
+      if (
+        this instanceof HTMLElement
+        && element.contains(this)
+        && this.matches('[data-file-path]')
+      ) {
+        fileRowLayoutReads += 1
+      }
+      return originalGetBoundingClientRect.call(this)
+    }
+
+    const startedAt = performance.now()
+    try {
+      const maximumScrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight)
+      for (const progress of [0.15, 0.5, 0.85, 0.35]) {
+        scroller.scrollTop = maximumScrollTop * progress
+        await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+        await new Promise<void>(resolve => window.setTimeout(resolve, 100))
+      }
+      return {
+        durationMs: performance.now() - startedAt,
+        fileRowLayoutReads,
+        maximumScrollTop,
+      }
+    } finally {
+      Element.prototype.getBoundingClientRect = originalGetBoundingClientRect
+    }
+  })
+}
+
 async function waitForFileTreeLayoutToSettle(section: Locator) {
   let previousSnapshot = ''
   let stableSamples = 0
@@ -341,6 +377,15 @@ test('keeps a restored production-sized file projection responsive offscreen', a
   ))
   expect(containment.every(sample => sample.contentVisibility === 'auto')).toBe(true)
   expect(containment.every(sample => sample.intrinsicBlockSize !== 'none')).toBe(true)
+
+  const scrollWork = await measureFileRowLayoutReadsDuringScroll(files)
+  await testInfo.attach('large-file-tree-scroll-work', {
+    body: Buffer.from(JSON.stringify(scrollWork, null, 2)),
+    contentType: 'application/json',
+  })
+  expect(scrollWork.maximumScrollTop).toBeGreaterThan(0)
+  expect(scrollWork.fileRowLayoutReads).toBe(0)
+  await expect.poll(() => stickyHierarchyMatchesFirstUncoveredRow(files)).toBe(true)
 
   const editor = page.getByTestId('code-file-editor')
   const firstPath = 'bulk/entry-0000.cpp'
