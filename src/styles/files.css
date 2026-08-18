@@ -922,6 +922,8 @@ body.code-mode .code-file-change-group-toggle {
   border-radius: 8px;
   background: transparent;
   overflow: hidden;
+  content-visibility: auto;
+  contain-intrinsic-block-size: var(--code-file-entry-height);
 }
 
 .code-file-tree-row-frame:hover {

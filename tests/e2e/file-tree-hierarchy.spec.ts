@@ -278,6 +278,68 @@ function createProductionShapedJavaTree(workspace: string) {
   }
 }
 
+test('keeps a restored production-sized file projection responsive offscreen', async ({ page, workspaceRoot }, testInfo) => {
+  const workspace = path.join(workspaceRoot, 'large-file-tree-projection')
+  const bulkDirectory = path.join(workspace, 'bulk')
+  const fileCount = 1_400
+  fs.rmSync(workspace, { recursive: true, force: true })
+  fs.mkdirSync(bulkDirectory, { recursive: true })
+  for (let index = 0; index < fileCount; index += 1) {
+    const fileName = `entry-${String(index).padStart(4, '0')}.cpp`
+    fs.writeFileSync(path.join(bulkDirectory, fileName), `int entry_${index} = ${index};\n`)
+  }
+
+  await openFarming(page)
+  await openNewAgentDialog(page)
+  await startAgentFromOpenDialog(page, 'bash', workspace)
+
+  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspace) })
+  const agentVisibility = project.getByTestId('code-project-agent-visibility')
+  if (await agentVisibility.getAttribute('data-collapsed') !== 'true') {
+    await project.getByTestId('code-project-title').hover({ position: { x: 40, y: 10 } })
+    await agentVisibility.click({ force: true })
+  }
+  await expect(agentVisibility).toHaveAttribute('data-collapsed', 'true')
+  const files = project.getByTestId('code-files-section')
+  const filesTitle = files.getByRole('button', { name: 'Files', exact: true })
+  if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
+  const bulk = files.locator('[data-testid="code-file-row"][data-file-path="bulk"]')
+  await bulk.click()
+  await expect(bulk).toHaveAttribute('aria-expanded', 'true')
+
+  const fileRows = files.locator('[data-testid="code-file-row"][data-file-type="file"]')
+  await expect(fileRows).toHaveCount(fileCount)
+  const containment = await files.locator('.code-file-tree-row-frame').evaluateAll(frames => (
+    [frames[0], frames[Math.floor(frames.length / 2)], frames.at(-1)].map(frame => ({
+      contentVisibility: frame ? getComputedStyle(frame).contentVisibility : '',
+      intrinsicBlockSize: frame ? getComputedStyle(frame).containIntrinsicBlockSize : '',
+    }))
+  ))
+  expect(containment.every(sample => sample.contentVisibility === 'auto')).toBe(true)
+  expect(containment.every(sample => sample.intrinsicBlockSize !== 'none')).toBe(true)
+
+  const editor = page.getByTestId('code-file-editor')
+  const firstPath = 'bulk/entry-0000.cpp'
+  const lastPath = `bulk/entry-${String(fileCount - 1).padStart(4, '0')}.cpp`
+  const interactionPaths = [firstPath, lastPath, firstPath, lastPath, firstPath, lastPath]
+  for (let index = 0; index < interactionPaths.length; index += 1) {
+    const filePath = interactionPaths[index]!
+    const row = files.locator(`[data-testid="code-file-row"][data-file-path="${filePath}"]`)
+    await row.scrollIntoViewIfNeeded({ timeout: 3_000 })
+    if (index === 0) await row.dblclick({ timeout: 3_000 })
+    else await row.click({ timeout: 3_000 })
+    await expect(editor.getByRole('tab', { selected: true })).toHaveAttribute('title', filePath)
+    await expect(page.getByTestId('code-file-editor-alert')).toHaveCount(0)
+  }
+  await expect(editor.locator(`.code-file-editor-tab[title="${firstPath}"]`)).not.toHaveAttribute('data-preview', 'true')
+  await expect(files.locator('[data-testid="code-file-row"].selected[data-file-type="file"]')).toHaveCount(1)
+  await expect(agentVisibility).toHaveAttribute('data-collapsed', 'true')
+
+  const screenshotPath = testInfo.outputPath('large-file-tree-projection.png')
+  await page.screenshot({ path: screenshotPath, fullPage: false })
+  await testInfo.attach('large-file-tree-projection', { path: screenshotPath, contentType: 'image/png' })
+})
+
 test('preserves every visible directory level across sticky scroll, collapse, refresh, and reload', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'deep-java-tree')
   createProductionShapedJavaTree(workspace)

@@ -182,6 +182,12 @@ Four responsibilities remain separate:
 - **Editor and Viewers** own working copies, tabs, editor state, conflicts, and
   bounded previews.
 
+The Explorer preserves one Project-sidebar scroll surface even when many
+directories remain expanded. Its complete row projection keeps sticky paths,
+keyboard navigation, and persisted expansion stable, while offscreen rows use
+browser layout and paint containment so the cost of a large restored tree is
+bounded by the visible neighborhood rather than every mounted row.
+
 The single sticky directory context is a fixed one-row navigation control with
 a compact path. It appears only when the first uncovered visible row has a real
 expanded ancestor that has scrolled above the sticky boundary. A collapsed
