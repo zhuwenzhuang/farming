@@ -141,6 +141,10 @@ budgets are set from measured production data:
   model when present;
 - watch bursts coalesce per exact resource and never recursively reload the
   Project;
+- automatic Language Server work started by an editor model must honor Monaco
+  cancellation. A superseded semantic-token, inlay-hint, or document-symbol
+  request must release its browser transport slot instead of delaying the next
+  file-content read until the Language Server timeout;
 - retained models are bounded by entry count and approximate content bytes;
 - directory, search, Git, preview, and file-content work stay on-demand and
   independently bounded.
@@ -163,6 +167,8 @@ filesystem invalidation that cannot be read remains a visible file error.
 Tests derive from the transitions above and cover at least:
 
 - single click, double click, and same-file click/double-click overlap;
+- rapid random switching across more files than the browser per-origin
+  connection limit while the Language Server is slow or unavailable;
 - slow old file followed by a fast new file, including across Projects;
 - pinned-tab selection without preview demotion;
 - an Agent list collapsed by the user staying collapsed across file opens and

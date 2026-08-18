@@ -16,10 +16,14 @@ interface ProviderHarness {
   }
   semanticTokensProvider?: {
     onDidChange(listener: () => void): { dispose(): void }
+    provideDocumentSemanticTokens(model: unknown, lastResultId: unknown, token: unknown): Promise<{ data: Uint32Array }>
   }
   inlayHintsProvider?: {
     onDidChangeInlayHints(listener: () => void): { dispose(): void }
     provideInlayHints(model: unknown, range: unknown, token: unknown): Promise<{ hints: unknown[] }>
+  }
+  documentSymbolProvider?: {
+    provideDocumentSymbols(model: unknown, token: unknown): Promise<unknown[]>
   }
   languageServerError?: new (message: string, status: number, code: string) => Error
   request: (options?: { signal?: AbortSignal }) => Promise<unknown>
@@ -117,7 +121,7 @@ async function loadMonacoProviders(harness: ProviderHarness) {
             registerImplementationProvider() { return disposable },
             registerDocumentSemanticTokensProvider(_selector, value) { harness.semanticTokensProvider = value; return disposable },
             registerInlayHintsProvider(_selector, value) { harness.inlayHintsProvider = value; return disposable },
-            registerDocumentSymbolProvider() { return disposable },
+            registerDocumentSymbolProvider(_selector, value) { harness.documentSymbolProvider = value; return disposable },
           }
         ` }
       })
@@ -262,6 +266,47 @@ test('leaving a Language Server hover cancels its request immediately', async ()
   ])
   assert.equal(completion, null)
   assert.equal(requestSignal?.aborted, true)
+})
+
+test('switching files aborts automatic Language Server providers immediately', async () => {
+  const requestSignals: AbortSignal[] = []
+  const harness: ProviderHarness = {
+    request: options => {
+      if (options?.signal) requestSignals.push(options.signal)
+      return requestUntilAborted(options)
+    },
+  }
+  const providers = await loadMonacoProviders(harness)
+  const files = Array.from({ length: 4 }, (_, index) => ({
+    agentId: 'agent-cpp',
+    file: { path: `RapidSwitch${index}.cpp` },
+    workspaceRoot: '/workspace-cpp',
+    dirty: false,
+    externalChanged: false,
+  }))
+  providers.bindLanguageServerModels(files)
+  for (const file of files) {
+    const model = {
+      uri: { toString: () => file.file.path },
+      isDisposed: () => false,
+      getVersionId: () => 1,
+    }
+    const semanticCancellation = controllableCancellationToken()
+    const symbolsCancellation = controllableCancellationToken()
+    const semanticPromise = harness.semanticTokensProvider?.provideDocumentSemanticTokens(
+      model,
+      null,
+      semanticCancellation.token,
+    )
+    const symbolsPromise = harness.documentSymbolProvider?.provideDocumentSymbols(model, symbolsCancellation.token)
+    await new Promise(resolve => setImmediate(resolve))
+    semanticCancellation.cancel()
+    symbolsCancellation.cancel()
+    assert.deepEqual(await semanticPromise, { data: new Uint32Array() })
+    assert.deepEqual(await symbolsPromise, [])
+  }
+  assert.equal(requestSignals.length, 8, 'the fixture must exceed the usual six per-origin connections')
+  assert.ok(requestSignals.every(signal => signal.aborted), 'stale provider fetches must release browser connections')
 })
 
 test('disposing an old source cannot delete a target rebound by a live model', () => {
@@ -412,7 +457,7 @@ test('a cold-start Inlay Hints timeout stays refreshable after the Language Serv
     endLineNumber: 1,
     endColumn: 20,
   }
-  const token = { isCancellationRequested: false }
+  const token = controllableCancellationToken().token
 
   const initial = await harness.inlayHintsProvider?.provideInlayHints(model, range, token)
   assert.deepEqual(initial?.hints, [], 'a transient startup timeout must not reject Monaco\'s provider')

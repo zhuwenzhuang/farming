@@ -168,6 +168,16 @@ function modelRequestIsCurrent(model: monaco.editor.ITextModel, key: string, ver
     && Boolean(binding && !binding.dirty)
 }
 
+function cancellableProviderRequest(token: monaco.CancellationToken) {
+  const controller = new AbortController()
+  if (token.isCancellationRequested) controller.abort()
+  const cancellation = token.onCancellationRequested(() => controller.abort())
+  return {
+    signal: controller.signal,
+    dispose: () => cancellation.dispose(),
+  }
+}
+
 function remapSemanticTokens(value: LanguageServerSemanticTokens | null | undefined): Uint32Array {
   const data = value?.data
   if (!Array.isArray(data) || data.length % 5 !== 0) return new Uint32Array()
@@ -333,14 +343,16 @@ function registerProviders() {
       async provideDocumentSemanticTokens(model, _lastResultId, token) {
         const binding = bindingForModel(model)
         if (!binding) return { data: new Uint32Array() }
+        if (token.isCancellationRequested) return { data: new Uint32Array() }
         const key = model.uri.toString()
         const version = model.getVersionId()
+        const request = cancellableProviderRequest(token)
         try {
           const value = await requestLanguageServer<LanguageServerSemanticTokens>({
             rootId: binding.rootId,
             filePath: binding.filePath,
             method: 'semanticTokens',
-          })
+          }, { signal: request.signal })
           if (token.isCancellationRequested || !modelRequestIsCurrent(model, key, version)) {
             return { data: new Uint32Array() }
           }
@@ -349,8 +361,12 @@ function registerProviders() {
             ...(value?.resultId ? { resultId: value.resultId } : {}),
           }
         } catch (error) {
-          if (isLanguageServerFeatureUnavailable(error)) return { data: new Uint32Array() }
+          if (request.signal.aborted || isLanguageServerProviderNotReady(error)) {
+            return { data: new Uint32Array() }
+          }
           throw error
+        } finally {
+          request.dispose()
         }
       },
       releaseDocumentSemanticTokens() {},
@@ -361,15 +377,17 @@ function registerProviders() {
       async provideInlayHints(model, range, token) {
         const binding = bindingForModel(model)
         if (!binding) return { hints: [], dispose() {} }
+        if (token.isCancellationRequested) return { hints: [], dispose() {} }
         const key = model.uri.toString()
         const version = model.getVersionId()
+        const request = cancellableProviderRequest(token)
         try {
           const values = await requestLanguageServer<LanguageServerInlayHint[]>({
             rootId: binding.rootId,
             filePath: binding.filePath,
             method: 'inlayHints',
             range: requestRangeValue(range),
-          })
+          }, { signal: request.signal })
           if (token.isCancellationRequested || !modelRequestIsCurrent(model, key, version)) {
             return { hints: [], dispose() {} }
           }
@@ -378,25 +396,34 @@ function registerProviders() {
             dispose() {},
           }
         } catch (error) {
-          if (isLanguageServerProviderNotReady(error)) return { hints: [], dispose() {} }
+          if (request.signal.aborted || isLanguageServerProviderNotReady(error)) {
+            return { hints: [], dispose() {} }
+          }
           throw error
+        } finally {
+          request.dispose()
         }
       },
     }),
     monaco.languages.registerDocumentSymbolProvider('*', {
-      async provideDocumentSymbols(model) {
+      async provideDocumentSymbols(model, token) {
         const binding = bindingForModel(model)
         if (!binding) return []
+        if (token.isCancellationRequested) return []
+        const request = cancellableProviderRequest(token)
         try {
           const values = await requestLanguageServer<LanguageServerSymbol[]>({
             rootId: binding.rootId,
             filePath: binding.filePath,
             method: 'documentSymbols',
-          })
+          }, { signal: request.signal })
+          if (token.isCancellationRequested) return []
           return (values || []).map(documentSymbol)
         } catch (error) {
-          if (isLanguageServerUnavailable(error)) return []
+          if (request.signal.aborted || isLanguageServerProviderNotReady(error)) return []
           throw error
+        } finally {
+          request.dispose()
         }
       },
     }),

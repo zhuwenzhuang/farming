@@ -116,6 +116,9 @@ open working copy、Tab 与 reveal target。
 - 同一资源的并发首次打开只读取一次；
 - 文件切换复用现有 editor instance，并在存在时复用 retained Monaco model；
 - watch burst 按 exact resource 合并，绝不递归刷新整个 Project；
+- editor model 自动发起的 Language Server 工作必须遵守 Monaco cancellation；已被替代的
+  semantic tokens、inlay hints、document symbols 请求必须释放浏览器 transport slot，
+  不能占用连接直到 Language Server timeout 并阻塞下一个文件内容读取；
 - retained model 同时受条目数量和近似内容字节数限制；
 - directory、search、Git、preview 和文件内容工作都按需且独立有界。
 
@@ -134,6 +137,7 @@ watch 恢复期间若暂时无法验证 cached snapshot，则保留当前可见�
 测试至少从上述转换推导以下场景：
 
 - 单击、双击以及同文件 click/double-click 重叠；
+- Language Server 缓慢或不可用时，跨越浏览器同源连接上限的多文件快速随机切换；
 - 慢旧文件之后打开快新文件，包括跨 Project；
 - 选择 pinned Tab 不发生 preview 降级；
 - 用户手动收起 Agent 列表后，文件打开和 Agent inventory 刷新都不得自动展开；显式
