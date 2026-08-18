@@ -2749,6 +2749,28 @@ class WorkspaceFileService {
     };
   }
 
+  async readTransportFile(workspaceRoot: unknown, userPath: unknown, options: ResolvePathOptions = {}) {
+    const file = await this.readFile(workspaceRoot, userPath, options);
+    if (!('binary' in file) || file.binary !== true) {
+      const buffer = Buffer.from(file.content, 'utf8');
+      return {
+        path: file.path,
+        buffer,
+        size: buffer.byteLength,
+        sha1: file.sha1,
+        mediaType: ('preview' in file ? file.preview?.mediaType : undefined) || 'text/plain; charset=utf-8',
+      };
+    }
+    try {
+      const previewFile = await this.readPreviewFile(workspaceRoot, userPath, options);
+      return { ...previewFile, mediaType: previewFile.preview.mediaType };
+    } catch (error: unknown) {
+      if (!(error instanceof WorkspaceFileError) || error.statusCode !== 415) throw error;
+      const resourceFile = await this.readResourceFile(workspaceRoot, userPath, options);
+      return { ...resourceFile, mediaType: 'application/octet-stream' };
+    }
+  }
+
   async readResourceFile(workspaceRoot: unknown, userPath: unknown, options: ResolvePathOptions = {}) {
     const { target, relativePath } = await this.resolvePath(workspaceRoot, userPath, options);
     const stat = await fsp.stat(target);

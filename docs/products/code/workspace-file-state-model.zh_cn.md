@@ -14,8 +14,8 @@ Project Files 的实现保持成熟编辑器式的简化分层：文件系统访
 
 文件路径由四类 owner 组合：
 
-1. **Workspace Access** 执行有界的 tree、read、write、watch 和 Git 请求。HTTP
-   响应与 watch 事件不拥有编辑器状态。
+1. **Workspace Access** 执行有界的 tree、read、write、watch 和 Git 请求。Transport
+   Result 与 watch event 不拥有编辑器状态。
 2. **Workspace File Model** 拥有已解析快照、working copy、每个资源唯一的 pending
    resolve，以及最近使用 clean model 的有界保留。Model key 是 canonical workspace
    与 normalized path。
@@ -137,7 +137,8 @@ watch 恢复期间若暂时无法验证 cached snapshot，则保留当前可见�
 测试至少从上述转换推导以下场景：
 
 - 单击、双击以及同文件 click/double-click 重叠；
-- Language Server 缓慢或不可用时，跨越浏览器同源连接上限的多文件快速随机切换；
+- Language Server 缓慢或不可用时，跨足够多文件和目录快速随机切换，使共享 Workspace
+  Transport 的 Background Lane 达到饱和；
 - 慢旧文件之后打开快新文件，包括跨 Project；
 - 选择 pinned Tab 不发生 preview 降级；
 - 用户手动收起 Agent 列表后，文件打开和 Agent inventory 刷新都不得自动展开；显式

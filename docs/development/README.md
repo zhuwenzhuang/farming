@@ -31,6 +31,7 @@ the [documentation home](../README.md).
 - [Language Server](../products/code/language-server.md)
 - [Project Files design](../products/code/project-files-section-design.md)
 - [Workspace file state model](../products/code/workspace-file-state-model.md)
+- [Workspace transport protocol](../products/code/workspace-transport-protocol.md)
 - [Review foundation](../products/code/review-foundation.md)
 - [Farming CRT layout](../products/crt/base_layout.md)
 

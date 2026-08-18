@@ -6,6 +6,8 @@ Project Files 让用户在监督 Agent 时查看并轻量编辑 Project。它不
 
 详细的正确性、resolve、retention、并发与恢复契约由
 [Workspace File 状态模型](./workspace-file-state-model.zh_cn.md)定义。
+交互请求复用与大内容传输边界由
+[Workspace 传输协议](./workspace-transport-protocol.zh_cn.md)定义。
 
 ## 产品位置
 

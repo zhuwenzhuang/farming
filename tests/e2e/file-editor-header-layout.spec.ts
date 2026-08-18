@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
+import type { Page } from '@playwright/test'
 import {
   expect,
   openFarming,
@@ -15,7 +16,49 @@ function colorAlpha(value: string) {
   return match ? Number(match[1]) : value === 'transparent' ? 0 : 1
 }
 
+function observeWorkspaceReads(page: Page, reads: string[]) {
+  page.on('websocket', socket => {
+    socket.on('framesent', ({ payload }) => {
+      try {
+        const message = JSON.parse(String(payload)) as {
+          type?: string
+          request?: { operation?: string; path?: string }
+        }
+        if (message.type === 'workspace-request' && message.request?.operation === 'read-file' && message.request.path) {
+          reads.push(message.request.path)
+        }
+      } catch {
+        // Ignore terminal and other non-JSON websocket frames.
+      }
+    })
+  })
+}
+
+async function setWebSocketLatency(page: Page, latency: number) {
+  const session = await page.context().newCDPSession(page)
+  await session.send('Network.enable')
+  await session.send('Network.emulateNetworkConditions', {
+    offline: false,
+    latency,
+    downloadThroughput: -1,
+    uploadThroughput: -1,
+    connectionType: 'wifi',
+  })
+  return async () => {
+    await session.send('Network.emulateNetworkConditions', {
+      offline: false,
+      latency: 0,
+      downloadThroughput: -1,
+      uploadThroughput: -1,
+      connectionType: 'wifi',
+    })
+    await session.detach()
+  }
+}
+
 test('uses one italic preview tab and pins it on double click', async ({ page }) => {
+  const workspaceReads: string[] = []
+  observeWorkspaceReads(page, workspaceReads)
   const workspaceRoot = path.join(PLAYWRIGHT_WORKSPACE_ROOT, 'editor-preview-tabs')
   fs.rmSync(workspaceRoot, { recursive: true, force: true })
   fs.mkdirSync(workspaceRoot, { recursive: true })
@@ -63,52 +106,24 @@ test('uses one italic preview tab and pins it on double click', async ({ page })
   await expect(twoTab).toHaveCount(1)
   await expect(threeTab).toHaveAttribute('data-preview', 'true')
 
-  let repeatedTwoReads = 0
-  const countRepeatedTwoReads = (request: { url(): string }) => {
-    const url = new URL(request.url())
-    if (url.pathname.endsWith('/api/files/file') && url.searchParams.get('path') === 'two.txt') {
-      repeatedTwoReads += 1
-    }
-  }
-  page.on('request', countRepeatedTwoReads)
+  workspaceReads.length = 0
   await twoRow.click()
   await expect(twoTab).toHaveAttribute('aria-selected', 'true')
   await expect(twoTab).not.toHaveAttribute('data-preview', 'true')
   await expect(twoTab.locator('.code-file-editor-tab-name')).toHaveCSS('font-style', 'normal')
-  expect(repeatedTwoReads).toBe(0)
-  page.off('request', countRepeatedTwoReads)
+  expect(workspaceReads.filter(filePath => filePath === 'two.txt')).toHaveLength(0)
 
   await threeRow.dblclick()
   await expect(threeTab).not.toHaveAttribute('data-preview', 'true')
   await expect(threeTab.locator('.code-file-editor-tab-name')).toHaveCSS('font-style', 'normal')
   await expect(editor.getByRole('tab')).toHaveCount(2)
 
-  let fourReadCount = 0
-  let releaseFourRead = () => {}
-  const fourReadGate = new Promise<void>(resolve => { releaseFourRead = resolve })
-  const delayFirstFourRead = async (route: import('@playwright/test').Route) => {
-    const url = new URL(route.request().url())
-    if (url.searchParams.get('path') !== 'four.txt') {
-      await route.continue()
-      return
-    }
-    fourReadCount += 1
-    if (fourReadCount > 1) {
-      await route.continue()
-      return
-    }
-    const response = await route.fetch()
-    await fourReadGate
-    await route.fulfill({ response })
-  }
-  await page.route('**/api/files/file?**', delayFirstFourRead)
+  workspaceReads.length = 0
   await fourRow.dblclick()
-  await expect.poll(() => fourReadCount).toBe(1)
-  releaseFourRead()
+  await expect.poll(() => workspaceReads.filter(filePath => filePath === 'four.txt').length).toBe(1)
   const fourTab = editor.getByRole('tab').filter({ hasText: 'four.txt' })
   await expect(fourTab).toHaveAttribute('aria-selected', 'true')
   await expect(fourTab).not.toHaveAttribute('data-preview', 'true')
-  await page.unroute('**/api/files/file?**', delayFirstFourRead)
 
   let repeatedProjectMounts = 0
   const countRepeatedProjectMounts = (request: { url(): string }) => {
@@ -123,7 +138,9 @@ test('uses one italic preview tab and pins it on double click', async ({ page })
   page.off('request', countRepeatedProjectMounts)
 })
 
-test('returns to a replaced preview before remote revalidation and reuses its editor model', async ({ page }) => {
+test('returns to a watched retained preview without a remote reread and reuses its editor model', async ({ page }) => {
+  const workspaceReads: string[] = []
+  observeWorkspaceReads(page, workspaceReads)
   const workspaceRoot = path.join(PLAYWRIGHT_WORKSPACE_ROOT, 'editor-retained-preview-model')
   fs.rmSync(workspaceRoot, { recursive: true, force: true })
   fs.mkdirSync(workspaceRoot, { recursive: true })
@@ -153,36 +170,18 @@ test('returns to a replaced preview before remote revalidation and reuses its ed
   await expect(oneTab).toHaveCount(0)
   await expect(editor.getByRole('tab').filter({ hasText: 'two.txt' })).toHaveAttribute('aria-selected', 'true')
 
-  let revalidationReads = 0
-  let releaseRevalidation = () => {}
-  let markRevalidationComplete = () => {}
-  const revalidationGate = new Promise<void>(resolve => { releaseRevalidation = resolve })
-  const revalidationComplete = new Promise<void>(resolve => { markRevalidationComplete = resolve })
-  await page.route('**/api/files/file?**', async route => {
-    const url = new URL(route.request().url())
-    if (url.searchParams.get('path') !== 'one.txt') {
-      await route.continue()
-      return
-    }
-    revalidationReads += 1
-    const response = await route.fetch()
-    await revalidationGate
-    await route.fulfill({ response })
-    markRevalidationComplete()
-  })
-
+  workspaceReads.length = 0
   await oneRow.click()
   await expect(oneTab).toHaveAttribute('aria-selected', 'true')
   expect(await page.evaluate(() => window.__farmingFileEditorTest?.getModelId() ?? null)).toBe(firstModelId)
   expect(await page.evaluate(() => window.__farmingFileEditorTest?.getValue() ?? '')).toBe('one\n')
 
-  await expect.poll(() => revalidationReads).toBe(1)
-  releaseRevalidation()
-  await revalidationComplete
-  await page.unroute('**/api/files/file?**')
+  expect(workspaceReads.filter(filePath => filePath === 'one.txt')).toHaveLength(0)
 })
 
 test('lets the latest same-file intent replace a pending diff target', async ({ page }) => {
+  const workspaceReads: string[] = []
+  observeWorkspaceReads(page, workspaceReads)
   const workspaceRoot = path.join(PLAYWRIGHT_WORKSPACE_ROOT, 'editor-latest-same-file-intent')
   fs.rmSync(workspaceRoot, { recursive: true, force: true })
   fs.mkdirSync(workspaceRoot, { recursive: true })
@@ -211,35 +210,23 @@ test('lets the latest same-file intent replace a pending diff target', async ({ 
   await expect(changeRow).toBeVisible()
   await expect(treeRow).toBeVisible()
 
-  let targetReadCount = 0
-  let releaseTargetRead = () => {}
-  const targetReadGate = new Promise<void>(resolve => { releaseTargetRead = resolve })
-  await page.route('**/api/files/file?**', async route => {
-    const url = new URL(route.request().url())
-    if (url.searchParams.get('path') !== 'target.txt') {
-      await route.continue()
-      return
-    }
-    targetReadCount += 1
-    const response = await route.fetch()
-    await targetReadGate
-    await route.fulfill({ response })
-  })
-
+  const clearLatency = await setWebSocketLatency(page, 350)
+  workspaceReads.length = 0
   await changeRow.click()
-  await expect.poll(() => targetReadCount).toBe(1)
+  await expect.poll(() => workspaceReads.filter(filePath => filePath === 'target.txt').length).toBe(1)
   await treeRow.click()
-  expect(targetReadCount).toBe(1)
-  releaseTargetRead()
+  expect(workspaceReads.filter(filePath => filePath === 'target.txt')).toHaveLength(1)
 
   const targetTab = page.getByTestId('code-file-editor').getByRole('tab').filter({ hasText: 'target.txt' })
   await expect(targetTab).toHaveAttribute('aria-selected', 'true')
   await expect(targetTab).toHaveAttribute('data-preview', 'true')
   await expect(page.getByTestId('code-file-diff-view')).toHaveCount(0)
-  await page.unroute('**/api/files/file?**')
+  await clearLatency()
 })
 
 test('keeps the latest file intent across Project sections', async ({ page }) => {
+  const workspaceReads: string[] = []
+  observeWorkspaceReads(page, workspaceReads)
   const slowWorkspace = path.join(PLAYWRIGHT_WORKSPACE_ROOT, 'editor-cross-project-slow')
   const fastWorkspace = path.join(PLAYWRIGHT_WORKSPACE_ROOT, 'editor-cross-project-fast')
   for (const workspace of [slowWorkspace, fastWorkspace]) {
@@ -264,35 +251,23 @@ test('keeps the latest file intent across Project sections', async ({ page }) =>
     if (await title.getAttribute('aria-expanded') !== 'true') await title.click()
   }
 
-  let slowReadCount = 0
-  let releaseSlowRead = () => {}
-  const slowReadGate = new Promise<void>(resolve => { releaseSlowRead = resolve })
-  await page.route('**/api/files/file?**', async route => {
-    const url = new URL(route.request().url())
-    if (url.searchParams.get('path') !== 'slow.txt') {
-      await route.continue()
-      return
-    }
-    slowReadCount += 1
-    const response = await route.fetch()
-    await slowReadGate
-    await route.fulfill({ response })
-  })
-
+  const clearLatency = await setWebSocketLatency(page, 350)
+  workspaceReads.length = 0
   await slowFiles.locator('[data-testid="code-file-row"][data-file-path="slow.txt"]').click()
-  await expect.poll(() => slowReadCount).toBe(1)
+  await expect.poll(() => workspaceReads.filter(filePath => filePath === 'slow.txt').length).toBe(1)
   await fastFiles.locator('[data-testid="code-file-row"][data-file-path="fast.txt"]').click()
   const editor = page.getByTestId('code-file-editor')
   const fastTab = editor.getByRole('tab').filter({ hasText: 'fast.txt' })
   await expect(fastTab).toHaveAttribute('aria-selected', 'true')
 
-  releaseSlowRead()
   await expect(editor.getByRole('tab').filter({ hasText: 'slow.txt' })).toHaveCount(0)
   await expect(fastTab).toHaveAttribute('aria-selected', 'true')
-  await page.unroute('**/api/files/file?**')
+  await clearLatency()
 })
 
 test('mounts an absent Project once and then reuses membership', async ({ page }) => {
+  const workspaceReads: string[] = []
+  observeWorkspaceReads(page, workspaceReads)
   const workspaceRoot = path.join(PLAYWRIGHT_WORKSPACE_ROOT, 'editor-project-mount-membership')
   fs.rmSync(workspaceRoot, { recursive: true, force: true })
   fs.mkdirSync(workspaceRoot, { recursive: true })
@@ -315,7 +290,6 @@ test('mounts an absent Project once and then reuses membership', async ({ page }
   if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
 
   let mountCount = 0
-  let firstFileReadCount = 0
   let releaseMount = () => {}
   let markMountStarted = () => {}
   const mountGate = new Promise<void>(resolve => { releaseMount = resolve })
@@ -327,18 +301,13 @@ test('mounts an absent Project once and then reuses membership', async ({ page }
     await mountGate
     await route.fulfill({ response })
   })
-  page.on('request', request => {
-    const url = new URL(request.url())
-    if (url.pathname.endsWith('/api/files/file') && url.searchParams.get('path') === 'one.txt') {
-      firstFileReadCount += 1
-    }
-  })
+  workspaceReads.length = 0
   const oneRow = files.locator('[data-testid="code-file-row"][data-file-path="one.txt"]')
   await oneRow.click()
   await mountStarted
   await oneRow.dblclick()
   expect(mountCount).toBe(1)
-  expect(firstFileReadCount).toBe(1)
+  expect(workspaceReads.filter(filePath => filePath === 'one.txt')).toHaveLength(1)
   releaseMount()
   const firstTab = page.getByTestId('code-file-editor').getByRole('tab').filter({ hasText: 'one.txt' })
   await expect(firstTab).toBeVisible()

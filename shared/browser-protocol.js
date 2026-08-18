@@ -1,15 +1,16 @@
 // Generated from TypeScript. Do not edit.
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.PROJECT_ATTENTION_SCORE_MAX = exports.MIN_PROTOCOL_VERSION = exports.PROTOCOL_VERSION = void 0;
+exports.PROJECT_ATTENTION_SCORE_MAX = exports.MAX_INLINE_WORKSPACE_MESSAGE_BYTES = exports.MIN_PROTOCOL_VERSION = exports.PROTOCOL_VERSION = void 0;
 exports.sanitizeAgentUpdatePatch = sanitizeAgentUpdatePatch;
 exports.validateClientMessage = validateClientMessage;
 exports.validateServerMessage = validateServerMessage;
 exports.protocolCompatible = protocolCompatible;
 const agent_state_semantics_js_1 = require("./agent-state-semantics.js");
 const agent_state_wire_js_1 = require("./agent-state-wire.js");
-exports.PROTOCOL_VERSION = 11;
-exports.MIN_PROTOCOL_VERSION = 11;
+exports.PROTOCOL_VERSION = 12;
+exports.MIN_PROTOCOL_VERSION = 12;
+exports.MAX_INLINE_WORKSPACE_MESSAGE_BYTES = 1024 * 1024;
 exports.PROJECT_ATTENTION_SCORE_MAX = agent_state_semantics_js_1.PROJECT_ATTENTION_SCORE_MAX;
 const SERVER_MESSAGE_TYPES = new Set([
     'protocol-hello',
@@ -32,6 +33,8 @@ const SERVER_MESSAGE_TYPES = new Set([
     'agent-read',
     'workspace-file-watch',
     'workspace-file-event',
+    'workspace-result',
+    'language-server-result',
     'language-server-refresh',
     'browser-resource-snapshot',
     'browser-resource-updated',
@@ -76,6 +79,124 @@ function finiteNullableField(value, name) {
 }
 function optionalField(value, name, validate) {
     return value[name] === undefined || validate();
+}
+function boundedStringField(value, name, maxLength, optional = false) {
+    if (optional && value[name] === undefined)
+        return true;
+    return typeof value[name] === 'string' && String(value[name]).length <= maxLength;
+}
+function optionalBooleanField(value, name) {
+    return value[name] === undefined || typeof value[name] === 'boolean';
+}
+function optionalNonNegativeIntegerField(value, name) {
+    return value[name] === undefined || revisionField(value, name);
+}
+function workspaceRequest(value) {
+    if (!objectMessage(value) || typeof value.operation !== 'string')
+        return false;
+    const rootPath = () => boundedStringField(value, 'rootId', 4096)
+        && boundedStringField(value, 'path', 4096);
+    const expectedVersion = () => boundedStringField(value, 'expectedVersion', 256, true);
+    switch (value.operation) {
+        case 'tree':
+            return boundedStringField(value, 'rootId', 4096) && boundedStringField(value, 'path', 4096, true);
+        case 'read-file':
+        case 'create-preview':
+            return rootPath() && optionalBooleanField(value, 'exactExternal');
+        case 'delete-preview':
+            return boundedStringField(value, 'previewId', 256);
+        case 'save-file':
+            return rootPath()
+                && boundedStringField(value, 'content', exports.MAX_INLINE_WORKSPACE_MESSAGE_BYTES)
+                && boundedStringField(value, 'baseSha1', 256)
+                && optionalBooleanField(value, 'overwrite');
+        case 'move-entry':
+            return boundedStringField(value, 'rootId', 4096)
+                && boundedStringField(value, 'sourcePath', 4096)
+                && boundedStringField(value, 'targetDirectory', 4096)
+                && expectedVersion();
+        case 'create-entry':
+            return boundedStringField(value, 'rootId', 4096)
+                && boundedStringField(value, 'parentPath', 4096)
+                && boundedStringField(value, 'name', 1024)
+                && (value.entryType === 'file' || value.entryType === 'directory');
+        case 'rename-entry':
+            return rootPath() && boundedStringField(value, 'name', 1024) && expectedVersion();
+        case 'delete-entry':
+            return rootPath() && expectedVersion();
+        case 'search':
+            return boundedStringField(value, 'rootId', 4096)
+                && boundedStringField(value, 'query', 4096)
+                && boundedStringField(value, 'path', 4096, true)
+                && optionalBooleanField(value, 'includeIgnored')
+                && optionalNonNegativeIntegerField(value, 'limit');
+        case 'blame':
+        case 'blame-capability':
+        case 'diff':
+            return rootPath();
+        case 'changes':
+            return boundedStringField(value, 'rootId', 4096) && optionalNonNegativeIntegerField(value, 'limit');
+        case 'worktrees':
+        case 'branches':
+        case 'branch':
+            return boundedStringField(value, 'rootId', 4096);
+        case 'switch-branch':
+            return boundedStringField(value, 'rootId', 4096)
+                && boundedStringField(value, 'branch', 1024)
+                && boundedStringField(value, 'expectedBranch', 1024)
+                && boundedStringField(value, 'expectedHead', 64)
+                && boundedStringField(value, 'operationId', 160);
+        case 'history':
+            return boundedStringField(value, 'rootId', 4096)
+                && optionalNonNegativeIntegerField(value, 'limit')
+                && optionalNonNegativeIntegerField(value, 'skip')
+                && (value.scope === undefined || value.scope === 'current' || value.scope === 'all');
+        case 'history-changes':
+            return boundedStringField(value, 'rootId', 4096)
+                && boundedStringField(value, 'commit', 128)
+                && boundedStringField(value, 'parent', 128, true)
+                && optionalNonNegativeIntegerField(value, 'limit');
+        case 'line-changes':
+            return rootPath()
+                && revisionField(value, 'lineNumber')
+                && Number(value.lineNumber) > 0
+                && (value.mode === 'working' || value.mode === 'previous');
+        default:
+            return false;
+    }
+}
+const LANGUAGE_SERVER_METHODS = new Set([
+    'hover', 'definition', 'references', 'implementation', 'documentHighlights',
+    'semanticTokens', 'inlayHints', 'documentSymbols', 'workspaceSymbols',
+    'prepareCallHierarchy', 'incomingCalls', 'outgoingCalls', 'prepareTypeHierarchy',
+    'supertypes', 'subtypes', 'diagnostics',
+]);
+function languageServerRequest(value) {
+    if (!objectMessage(value))
+        return false;
+    if (value.operation === 'capability')
+        return optionalBooleanField(value, 'force');
+    return value.operation === 'request'
+        && boundedStringField(value, 'rootId', 4096)
+        && typeof value.method === 'string'
+        && LANGUAGE_SERVER_METHODS.has(value.method)
+        && boundedStringField(value, 'filePath', 4096, true)
+        && boundedStringField(value, 'query', 4096, true)
+        && boundedStringField(value, 'itemId', 4096, true)
+        && optionalField(value, 'position', () => objectMessage(value.position))
+        && optionalField(value, 'range', () => objectMessage(value.range));
+}
+function serializedMessageWithinWorkspaceLimit(value) {
+    const serialized = JSON.stringify(value);
+    const bytes = encodeURIComponent(serialized).replace(/%[0-9A-F]{2}/gi, 'x').length;
+    return bytes <= exports.MAX_INLINE_WORKSPACE_MESSAGE_BYTES;
+}
+function workspaceProtocolError(value) {
+    return objectMessage(value)
+        && boundedStringField(value, 'code', 128)
+        && boundedStringField(value, 'message', 4096)
+        && optionalField(value, 'status', () => revisionField(value, 'status'))
+        && optionalBooleanField(value, 'uncertain');
 }
 function stateSnapshotPage(value, agentCount) {
     if (!objectMessage(value.snapshot))
@@ -290,7 +411,7 @@ function validateClientMessage(value) {
             valid = stringField(value, 'agentId') && finiteField(value, 'cols') && finiteField(value, 'rows');
             break;
         case 'unwatch-workspace-files':
-            valid = stringField(value, 'agentId', true);
+            valid = stringField(value, 'rootId', true);
             break;
         case 'restart-main-agent':
             valid = stringField(value, 'command');
@@ -300,12 +421,25 @@ function validateClientMessage(value) {
                 && optionalField(value, 'afterSequence', () => revisionField(value, 'afterSequence'));
             break;
         case 'watch-workspace-files':
-            valid = stringField(value, 'agentId')
+            valid = stringField(value, 'rootId')
                 && Array.isArray(value.paths)
                 && value.paths.length > 0
                 && value.paths.length <= 256
                 && value.paths.every(filePath => typeof filePath === 'string' && filePath.length > 0 && filePath.length <= 4096)
                 && new Set(value.paths).size === value.paths.length;
+            break;
+        case 'workspace-request':
+            valid = stringField(value, 'requestId')
+                && workspaceRequest(value.request)
+                && serializedMessageWithinWorkspaceLimit(value);
+            break;
+        case 'workspace-cancel':
+            valid = stringField(value, 'requestId');
+            break;
+        case 'language-server-request':
+            valid = stringField(value, 'requestId')
+                && languageServerRequest(value.request)
+                && serializedMessageWithinWorkspaceLimit(value);
             break;
         case 'interrupt-agent':
         case 'clear-terminal':
@@ -331,7 +465,9 @@ function validateServerMessage(value) {
     let valid = true;
     switch (value.type) {
         case 'protocol-hello':
-            valid = Number.isInteger(value.protocolVersion) && Number.isInteger(value.minProtocolVersion);
+            valid = Number.isInteger(value.protocolVersion)
+                && Number.isInteger(value.minProtocolVersion)
+                && optionalNonNegativeIntegerField(value, 'maxInlineWorkspaceMessageBytes');
             break;
         case 'business-health-result':
             valid = stringField(value, 'requestId')
@@ -395,13 +531,30 @@ function validateServerMessage(value) {
             valid = agentReadState(value.read);
             break;
         case 'workspace-file-watch':
-            valid = stringField(value, 'agentId')
+            valid = stringField(value, 'rootId')
                 && Array.isArray(value.paths)
                 && value.paths.every(filePath => typeof filePath === 'string')
                 && typeof value.watching === 'boolean';
             break;
         case 'workspace-file-event':
-            valid = objectMessage(value.event) && stringField(value.event, 'agentId');
+            valid = objectMessage(value.event) && stringField(value.event, 'rootId');
+            break;
+        case 'workspace-result':
+            valid = stringField(value, 'requestId')
+                && typeof value.ok === 'boolean'
+                && (value.ok
+                    ? Object.prototype.hasOwnProperty.call(value, 'result') && value.error === undefined
+                    : workspaceProtocolError(value.error) && value.result === undefined)
+                && serializedMessageWithinWorkspaceLimit(value);
+            break;
+        case 'language-server-result':
+            valid = stringField(value, 'requestId')
+                && typeof value.ok === 'boolean'
+                && optionalField(value, 'supported', () => typeof value.supported === 'boolean')
+                && (value.ok
+                    ? Object.prototype.hasOwnProperty.call(value, 'result') && value.error === undefined
+                    : workspaceProtocolError(value.error) && value.result === undefined)
+                && serializedMessageWithinWorkspaceLimit(value);
             break;
         case 'language-server-refresh':
             valid = stringField(value, 'serverEpoch')

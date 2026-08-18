@@ -220,6 +220,7 @@ import { createWebSocketTerminalHandlers } from './websocket-terminal-handlers.c
 import { createWebSocketFocusScopeHandlers } from './websocket-focus-scope-handlers.cjs';
 import { createWebSocketAgentLifecycleHandlers } from './websocket-agent-lifecycle-handlers.cjs';
 import { createWebSocketAcpHandlers } from './websocket-acp-handlers.cjs';
+import { createWebSocketWorkspaceRequestHandlers } from './websocket-workspace-request-handlers.cjs';
 import { TokenAuth } from './auth.cjs';
 import { readOnlyClientMessageAllowed } from './read-only-access.cjs';
 import { getLocalIPs, getPrimaryLocalIP } from './network.cjs';
@@ -247,7 +248,12 @@ import { createWorkspacePickerRouter } from './workspace-picker-router.cjs';
 import { createControlRouter } from './control-api.cjs';
 import { createAcpTerminalResizeHandler } from './acp-terminal-resize-handler.cjs';
 import { WorkspaceFileService, WorkspaceFileError } from './workspace-file-service.cjs';
-import { createWorkspaceFileRouter, resolveWorkspaceRoot } from './workspace-file-router.cjs';
+import {
+  createWorkspaceFileRouter,
+  executeWorkspaceFileRequest,
+  resolveWorkspaceRoot,
+} from './workspace-file-router.cjs';
+import { PreviewSessionManager } from './preview-session-manager.cjs';
 import { WorkspaceRootRegistry, rootIdForPath } from './workspace-root-registry.cjs';
 import { BrowserResourceManager, createBrowserRouter } from '../extensions/browser/backend/index.cjs';
 import { BrowserExtensionRelay } from '../extensions/browser/backend/browser-extension-relay.cjs';
@@ -259,7 +265,8 @@ import {
 import {
   LanguageServerService,
   ManagedLanguageServerManager,
-  createLanguageServerRouter,
+  executeLanguageServerCapability,
+  executeLanguageServerRequest,
   type ManagedLanguageServerRefreshEvent,
 } from '../extensions/language-server/backend/index.cjs';
 import { UsageMonitor } from './usage-monitor.cjs';
@@ -336,6 +343,7 @@ import {
   type SessionStream,
 } from './websocket-session-stream-broadcasts.cjs';
 const {
+  MAX_INLINE_WORKSPACE_MESSAGE_BYTES,
   MIN_PROTOCOL_VERSION,
   PROTOCOL_VERSION,
   validateClientMessage,
@@ -491,12 +499,13 @@ async function requireAgentRecoveryForHttp(res: HttpResponse) {
 
 const themeManager = new ThemeManager({ configDir: configManager.farmingDir });
 const workspaceFileService = new WorkspaceFileService();
+const workspacePreviewSessionManager = new PreviewSessionManager();
 const workspaceRootRegistry = new WorkspaceRootRegistry(
   agentManager,
 );
 const workspaceFileWatchController = createWorkspaceFileWatchController({
   openState: WebSocket.OPEN,
-  resolveRoot: agentId => resolveWorkspaceRoot(agentManager, agentId),
+  resolveRoot: rootId => resolveWorkspaceRoot(agentManager, rootId),
   subscribe: (root, paths, onEvent) => workspaceFileService.subscribeExactFiles(root, paths, event => onEvent({ ...event })),
   logCleanupError: error => {
     console.error('Failed to clear workspace file watch:', error);
@@ -504,6 +513,51 @@ const workspaceFileWatchController = createWorkspaceFileWatchController({
   watchErrorMessage: error => (
     error instanceof WorkspaceFileError ? caughtError(error).message : null
   ),
+});
+const websocketWorkspaceRequestHandlers = createWebSocketWorkspaceRequestHandlers<WebSocketClient>({
+  openState: WebSocket.OPEN,
+  maxMessageBytes: MAX_INLINE_WORKSPACE_MESSAGE_BYTES,
+  executeWorkspace: (request, accessMode) => executeWorkspaceFileRequest(
+    agentManager as Parameters<typeof executeWorkspaceFileRequest>[0],
+    workspaceFileService,
+    request,
+    {
+      accessMode: accessMode === 'read-only' ? 'read-only' : 'owner',
+      maxInlineResponseBytes: MAX_INLINE_WORKSPACE_MESSAGE_BYTES - 32 * 1024,
+      previewSessionManager: workspacePreviewSessionManager,
+      rootRegistry: workspaceRootRegistry,
+    },
+  ),
+  executeLanguageServer: async request => {
+    if (request.operation === 'capability') {
+      return {
+        result: await executeLanguageServerCapability(languageServerService, request.force === true),
+        supported: true,
+      };
+    }
+    return executeLanguageServerRequest(languageServerService, workspaceRootRegistry, request);
+  },
+  error: error => {
+    const caught = caughtError(error);
+    const record = error && typeof error === 'object' ? error as Record<string, unknown> : {};
+    const explicitStatus = Number(record.statusCode || record.status) || 0;
+    const status = explicitStatus || 500;
+    const statusCode = status === 400 ? 'INVALID_REQUEST'
+      : status === 403 ? 'FORBIDDEN'
+        : status === 404 ? 'NOT_FOUND'
+          : status === 409 ? 'CONFLICT'
+            : status === 413 ? 'TOO_LARGE'
+              : status === 504 ? 'TIMEOUT'
+                : status === 503 ? 'UNAVAILABLE'
+                  : 'INTERNAL';
+    return {
+      code: typeof record.code === 'string' ? record.code : statusCode,
+      message: explicitStatus > 0 ? (caught.message || 'Workspace request failed') : 'Workspace request failed',
+      status,
+      ...(record.details !== undefined ? { details: record.details } : {}),
+      ...(record.uncertain === true ? { uncertain: true } : {}),
+    };
+  },
 });
 let agentResourceReconcileRequested = false;
 let agentResourceReconcileRunning = false;
@@ -861,7 +915,8 @@ app.use(routePath(BASE_PATH, '/api/files'), createWorkspaceFileRouter(
   agentManager as Parameters<typeof createWorkspaceFileRouter>[0],
   workspaceFileService,
   {
-  rootRegistry: workspaceRootRegistry,
+    previewSessionManager: workspacePreviewSessionManager,
+    rootRegistry: workspaceRootRegistry,
   },
 ));
 app.use(routePath(BASE_PATH, '/api/browsers'), createBrowserRouter(
@@ -874,11 +929,6 @@ app.use(routePath(BASE_PATH, '/api/computers'), createComputerRouter(
   workspaceRootRegistry,
   agentManager as Parameters<typeof createComputerRouter>[2],
 ));
-app.use(routePath(BASE_PATH, '/api/language-server'), createLanguageServerRouter(
-  languageServerService,
-  workspaceRootRegistry,
-));
-
 app.use(routePath(BASE_PATH, '/api/review-sessions'), createReviewSessionRouter(reviewSessionService));
 app.use(routePath(BASE_PATH, '/api/reviews'), createReviewDiffRouter(reviewDiffService, reviewSessionService));
 app.use(
@@ -1852,6 +1902,7 @@ wss.on('connection', (ws, req) => {
 
   ws.on('close', (code: number, reason: Buffer) => {
     workspaceFileWatchController.close(ws);
+    websocketWorkspaceRequestHandlers.close(ws);
     cancelSessionPreviewHydration(ws);
     agentStateSnapshotController.dispose(ws);
     console.log('Client disconnected', JSON.stringify({
@@ -1869,6 +1920,7 @@ wss.on('connection', (ws, req) => {
     protocolVersion: PROTOCOL_VERSION,
     minProtocolVersion: MIN_PROTOCOL_VERSION,
     accessMode,
+    maxInlineWorkspaceMessageBytes: MAX_INLINE_WORKSPACE_MESSAGE_BYTES,
   }));
   queueInitialStateSnapshot(ws);
 });
@@ -1978,11 +2030,14 @@ const clientMessageDispatchTable = defineClientMessageDispatchTable<WebSocketCli
   'resize-agent': registerClientMessage('resize-agent', websocketTerminalHandlers.resizeAgent),
   'clear-terminal': registerClientMessage('clear-terminal', websocketTerminalHandlers.clearTerminal),
   'watch-workspace-files': registerClientMessage('watch-workspace-files', (ws, data) => {
-    void workspaceFileWatchController.watch(ws, data.agentId, data.paths);
+    void workspaceFileWatchController.watch(ws, data.rootId, data.paths);
   }),
   'unwatch-workspace-files': registerClientMessage('unwatch-workspace-files', (ws, data) => {
-    workspaceFileWatchController.unwatch(ws, data.agentId);
+    workspaceFileWatchController.unwatch(ws, data.rootId);
   }),
+  'workspace-request': registerClientMessage('workspace-request', websocketWorkspaceRequestHandlers.workspaceRequest),
+  'workspace-cancel': registerClientMessage('workspace-cancel', websocketWorkspaceRequestHandlers.cancel),
+  'language-server-request': registerClientMessage('language-server-request', websocketWorkspaceRequestHandlers.languageServerRequest),
   'archive-agent': registerClientMessage('archive-agent', websocketAgentLifecycleHandlers.archiveAgent),
   'restart-main-agent': registerClientMessage('restart-main-agent', websocketAgentLifecycleHandlers.restartMainAgent),
 });

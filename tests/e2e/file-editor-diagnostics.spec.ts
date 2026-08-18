@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url'
 import {
   expect,
   fileEditorPosition,
+  mockLanguageServerTransport,
   openFarming,
   openNewAgentDialog,
   PLAYWRIGHT_WORKSPACE_ROOT,
@@ -54,9 +55,8 @@ test('keeps TypeScript diagnostics syntax-only without project language service 
 })
 
 test('shows Language Server readiness without inventing a connected project', async ({ page }) => {
-  await page.route('**/api/language-server/capability**', route => route.fulfill({
-    contentType: 'application/json',
-    body: JSON.stringify({
+  await mockLanguageServerTransport(page, () => ({
+    result: {
       status: 'ready',
       source: 'managed',
       detail: '33 built-in language definitions · servers start on demand',
@@ -74,7 +74,7 @@ test('shows Language Server readiness without inventing a connected project', as
         { id: 'rust-analyzer', language: 'Rust', server: 'rust-analyzer', status: 'missing', projects: [] },
         { id: 'pyright', language: 'Python', server: 'pyright-langserver', status: 'missing', projects: [] },
       ],
-    }),
+    },
   }))
 
   await openFarming(page)
@@ -104,9 +104,8 @@ test('shows Language Server readiness without inventing a connected project', as
 test('defaults Language Server to enabled and persists explicit enable and disable actions', async ({ page }) => {
   let enabled = true
   const persistedValues: boolean[] = []
-  await page.route('**/api/language-server/capability**', route => route.fulfill({
-    contentType: 'application/json',
-    body: JSON.stringify({
+  await mockLanguageServerTransport(page, () => ({
+    result: {
       enabled,
       status: 'ready',
       source: 'managed',
@@ -117,7 +116,7 @@ test('defaults Language Server to enabled and persists explicit enable and disab
       languages: [
         { id: 'typescript', language: 'TypeScript / JavaScript', server: 'typescript-language-server', status: 'available', projects: [] },
       ],
-    }),
+    },
   }))
   await page.route('**/api/settings', async route => {
     if (route.request().method() !== 'POST') {
@@ -151,16 +150,15 @@ test('defaults Language Server to enabled and persists explicit enable and disab
 })
 
 test('asks for a restart when the backend does not provide language inventory', async ({ page }) => {
-  await page.route('**/api/language-server/capability**', route => route.fulfill({
-    contentType: 'application/json',
-    body: JSON.stringify({
+  await mockLanguageServerTransport(page, () => ({
+    result: {
       status: 'ready',
       source: 'managed',
       detail: '33 built-in language definitions · servers start on demand',
       features: ['definition', 'diagnostics'],
       workspaces: [],
       connections: [],
-    }),
+    },
   }))
 
   await openFarming(page)
@@ -172,9 +170,8 @@ test('asks for a restart when the backend does not provide language inventory', 
 })
 
 test('keeps plugin scrolling local until the scroll burst settles', async ({ page }) => {
-  await page.route('**/api/language-server/capability**', route => route.fulfill({
-    contentType: 'application/json',
-    body: JSON.stringify({
+  await mockLanguageServerTransport(page, () => ({
+    result: {
       status: 'ready',
       source: 'managed',
       detail: '33 built-in language definitions · servers start on demand',
@@ -188,7 +185,7 @@ test('keeps plugin scrolling local until the scroll burst settles', async ({ pag
         status: 'missing',
         projects: [],
       })),
-    }),
+    },
   }))
 
   await openFarming(page)
@@ -235,9 +232,8 @@ test('keeps plugin scrolling local until the scroll burst settles', async ({ pag
 test('lists live Language Servers by language and Project', async ({ page }) => {
   const workspaceUri = pathToFileURL('/workspaces/managed-project').toString()
   const rootUri = pathToFileURL('/workspaces/managed-project/module').toString()
-  await page.route('**/api/language-server/capability**', route => route.fulfill({
-    contentType: 'application/json',
-    body: JSON.stringify({
+  await mockLanguageServerTransport(page, () => ({
+    result: {
       status: 'connected',
       source: 'managed',
       detail: '33 built-in language definitions · 1 active server · 1 project',
@@ -250,7 +246,7 @@ test('lists live Language Servers by language and Project', async ({ page }) => 
         { id: 'pyright', language: 'Python', server: 'pyright-langserver', status: 'available', projects: [] },
         { id: 'typescript', language: 'TypeScript / JavaScript', server: 'typescript-language-server', status: 'running', projects: [workspaceUri] },
       ],
-    }),
+    },
   }))
 
   await openFarming(page)
@@ -281,67 +277,47 @@ test('renders document highlights, semantic tokens, and inlay hints only for the
   const requestCounts = new Map<string, number>()
   let lastInlayRange: unknown = null
 
-  await page.route('**/api/language-server/capability**', route => route.fulfill({
-    contentType: 'application/json',
-    body: JSON.stringify({
-      status: 'connected',
-      source: 'managed',
-      detail: 'Managed Language Server',
-      features: ['documentHighlights', 'semanticTokens', 'inlayHints', 'diagnostics'],
-      workspaces: [workspaceUri],
-      connections: [{ id: 'jdtls', root: workspaceUri, workspace: workspaceUri }],
-    }),
-  }))
-  await page.route('**/api/language-server/request', async route => {
-    const body = route.request().postDataJSON() as { method: string; range?: unknown }
+  await mockLanguageServerTransport(page, async body => {
+    if (body.operation === 'capability') {
+      return { result: {
+        status: 'connected',
+        source: 'managed',
+        detail: 'Managed Language Server',
+        features: ['documentHighlights', 'semanticTokens', 'inlayHints', 'diagnostics'],
+        workspaces: [workspaceUri],
+        connections: [{ id: 'jdtls', root: workspaceUri, workspace: workspaceUri }],
+      } }
+    }
     requestCounts.set(body.method, (requestCounts.get(body.method) || 0) + 1)
     if (body.method === 'documentHighlights') {
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify({
-          result: [{
+      return { result: [{
             range: { start: { line: 1, character: 18 }, end: { line: 1, character: 23 } },
             kind: 2,
           }, {
             range: { start: { line: 2, character: 12 }, end: { line: 2, character: 17 } },
             kind: 3,
-          }],
-        }),
-      })
-      return
+          }] }
     }
     if (body.method === 'semanticTokens') {
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify({
-          result: {
+      return { result: {
             resultId: 'java-semantic-1',
             data: [0, 6, 4, 1, 2],
             legend: {
               tokenTypes: ['variable', 'class'],
               tokenModifiers: ['readonly', 'declaration'],
             },
-          },
-        }),
-      })
-      return
+          } }
     }
     if (body.method === 'inlayHints') {
       lastInlayRange = body.range
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify({
-          result: [{
+      return { result: [{
             position: { line: 2, character: 12 },
             label: [{ value: 'value:', tooltip: { kind: 'markdown', value: '**parameter name**' } }],
             kind: 2,
             paddingRight: true,
-          }],
-        }),
-      })
-      return
+          }] }
     }
-    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ result: [] }) })
+    return { result: [] }
   })
 
   await openFarming(page)
@@ -418,76 +394,55 @@ test('shows nested, cached, and retryable call/type hierarchy trees for a saved 
   let diagnosticsRequestCount = 0
   let workspaceSymbolRequest: { filePath?: string; query?: string } | null = null
 
-  await page.route('**/api/language-server/capability**', route => route.fulfill({
-    contentType: 'application/json',
-    body: JSON.stringify({
-      status: 'connected',
-      source: 'managed',
-      detail: 'Managed Language Server',
-      features: ['hover', 'definition', 'references', 'implementation', 'documentSymbols', 'workspaceSymbols', 'callHierarchy', 'typeHierarchy', 'diagnostics'],
-      workspaces: [workspaceUri],
-      connections: [{ id: 'typescript', root: workspaceUri, workspace: workspaceUri }],
-    }),
-  }))
-  await page.route('**/api/language-server/request', async route => {
-    const body = route.request().postDataJSON() as { method: string; itemId?: string; filePath?: string; query?: string }
+  await mockLanguageServerTransport(page, async body => {
+    if (body.operation === 'capability') {
+      return { result: {
+        status: 'connected',
+        source: 'managed',
+        detail: 'Managed Language Server',
+        features: ['hover', 'definition', 'references', 'implementation', 'documentSymbols', 'workspaceSymbols', 'callHierarchy', 'typeHierarchy', 'diagnostics'],
+        workspaces: [workspaceUri],
+        connections: [{ id: 'typescript', root: workspaceUri, workspace: workspaceUri }],
+      } }
+    }
     const requestKey = `${body.method}:${body.itemId || ''}`
     hierarchyRequestCounts.set(requestKey, (hierarchyRequestCounts.get(requestKey) || 0) + 1)
     if (body.method === 'diagnostics') {
       diagnosticsRequestCount += 1
       if (body.filePath === 'Other.ts') {
-        await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ result: [] }) })
-        return
+        return { result: [] }
       }
       if (diagnosticsRequestCount === 1) {
         firstDiagnosticsStartedResolve?.()
         await releaseFirstDiagnostics
-        await route.fulfill({
-          contentType: 'application/json',
-          body: JSON.stringify({
-            result: [{
+        const result = [{
               message: 'stale diagnostic must stay cleared',
               severity: 0,
               source: 'test-lsp',
               range: { start: { line: 0, character: 0 }, end: { line: 0, character: 6 } },
-            }],
-          }),
-        })
+            }]
         firstDiagnosticsReturnedResolve?.()
-        return
+        return { result }
       }
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify({
-          result: [{
+      return { result: [{
             message: 'saved diagnostic is current',
             severity: 1,
             source: 'test-lsp',
             range: { start: { line: 0, character: 0 }, end: { line: 0, character: 6 } },
-          }],
-        }),
-      })
-      return
+          }] }
     }
     if (body.method === 'hover') {
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify({
-          result: [{
+      return { result: [{
             contents: ['**Farming hover**', '`root(): void`'],
             range: { start: { line: 0, character: 0 }, end: { line: 0, character: 6 } },
-          }],
-        }),
-      })
-      return
+          }] }
     }
     if (body.method === 'outgoingCalls' && body.itemId === 'call-root' && hierarchyRequestCounts.get(requestKey) === 1) {
-      await route.fulfill({
+      return { error: {
         status: 502,
-        contentType: 'application/json',
-        body: JSON.stringify({ error: 'Temporary hierarchy failure', code: 'TEST_HIERARCHY_FAILURE' }),
-      })
-      return
+        message: 'Temporary hierarchy failure',
+        code: 'TEST_HIERARCHY_FAILURE',
+      } }
     }
     const hierarchyItem = (id: string, name: string, detail: string, kind: number, line: number, filePath = 'App.ts') => ({
       id,
@@ -506,36 +461,24 @@ test('shows nested, cached, and retryable call/type hierarchy trees for a saved 
       },
     })
     if (body.method === 'definition') {
-      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ result: [codeLocation('Other.ts', 0, 13)] }) })
-      return
+      return { result: [codeLocation('Other.ts', 0, 13)] }
     }
     if (body.method === 'references') {
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify({ result: [codeLocation('App.ts', 0, 16), codeLocation('Other.ts', 1, 37)] }),
-      })
-      return
+      return { result: [codeLocation('App.ts', 0, 16), codeLocation('Other.ts', 1, 37)] }
     }
     if (body.method === 'implementation') {
-      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ result: [codeLocation('Other.ts', 1, 16)] }) })
-      return
+      return { result: [codeLocation('Other.ts', 1, 16)] }
     }
     if (body.method === 'workspaceSymbols') {
       workspaceSymbolRequest = { filePath: body.filePath, query: body.query }
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify({
-          result: [{
+      return { result: [{
             name: 'Planner',
             detail: 'Other',
             kind: 5,
             path: 'Other.ts',
             range: { start: { line: 1, character: 16 }, end: { line: 1, character: 26 } },
             selectionRange: { start: { line: 1, character: 16 }, end: { line: 1, character: 26 } },
-          }],
-        }),
-      })
-      return
+          }] }
     }
     const result = body.method === 'prepareCallHierarchy' ? [{
           ...hierarchyItem('call-root', 'root', 'function', 12, 0),
@@ -568,7 +511,7 @@ test('shows nested, cached, and retryable call/type hierarchy trees for a saved 
               }],
             }]
           : []
-    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ result }) })
+    return { result }
   })
 
   await openFarming(page)

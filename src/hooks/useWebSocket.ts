@@ -9,6 +9,12 @@ import {
   settleTerminalSessionCheckpoint,
 } from '@/lib/terminal-session-client'
 import {
+  setWorkspaceRequestTransport,
+  setWorkspaceRequestTransportReady,
+  settleLanguageServerRequest,
+  settleWorkspaceRequest,
+} from '@/lib/workspace-request-client'
+import {
   markBackendDisconnected,
   resetBackendConnectionStatus,
   updateBackendConnectionStatus,
@@ -246,13 +252,13 @@ export function useWebSocket() {
     return false
   }, [])
 
-  const syncWorkspaceFileWatch = useCallback((agentId: string) => {
+  const syncWorkspaceFileWatch = useCallback((rootId: string) => {
     const ws = wsRef.current
     if (!ws || ws.readyState !== WebSocket.OPEN || accessModeRef.current === 'unknown') return
-    const listeners = workspaceFileListenersRef.current.get(agentId)
+    const listeners = workspaceFileListenersRef.current.get(rootId)
     const message: ClientMessage = listeners && listeners.size > 0
-      ? { type: 'watch-workspace-files', agentId, paths: workspaceFileListenerPaths(listeners) }
-      : { type: 'unwatch-workspace-files', agentId }
+      ? { type: 'watch-workspace-files', rootId, paths: workspaceFileListenerPaths(listeners) }
+      : { type: 'unwatch-workspace-files', rootId }
     if (outgoingWebSocketMessageDisposition(accessModeRef.current, message) === 'send') {
       ws.send(JSON.stringify(message))
     }
@@ -510,9 +516,13 @@ export function useWebSocket() {
   useEffect(() => {
     setTerminalSessionTransport(message => sendMessage(message))
     setTerminalSessionTransportReady(false)
+    setWorkspaceRequestTransport(message => sendMessage(message))
+    setWorkspaceRequestTransportReady(false)
     return () => {
       setTerminalSessionTransportReady(false)
       setTerminalSessionTransport(null)
+      setWorkspaceRequestTransportReady(false)
+      setWorkspaceRequestTransport(null)
     }
   }, [sendMessage])
 
@@ -634,6 +644,7 @@ export function useWebSocket() {
       // to the page does not manufacture a disconnected/reconnecting state.
       if (disposed) return
       setTerminalSessionTransportReady(false)
+      setWorkspaceRequestTransportReady(false)
       accessModeRef.current = 'unknown'
       pendingAccessMessagesRef.current = []
       setState(prev => prev.accessMode === 'unknown' ? prev : { ...prev, accessMode: 'unknown' })
@@ -703,6 +714,10 @@ export function useWebSocket() {
                 ws.close(4002, `Unsupported Farming protocol version ${msg.protocolVersion}`)
               } else {
                 setTerminalSessionTransportReady(true)
+                setWorkspaceRequestTransportReady(
+                  true,
+                  msg.maxInlineWorkspaceMessageBytes,
+                )
                 const pendingMessages = pendingAccessMessagesRef.current
                 pendingAccessMessagesRef.current = []
                 pendingMessages.forEach(message => {
@@ -710,7 +725,7 @@ export function useWebSocket() {
                     ws.send(JSON.stringify(message))
                   }
                 })
-                workspaceFileListenersRef.current.forEach((listeners, agentId) => {
+                workspaceFileListenersRef.current.forEach((listeners, rootId) => {
                   if (listeners.size === 0) return
                   listeners.forEach(listener => {
                     listener.pendingReadyReasons = new Map(
@@ -719,7 +734,7 @@ export function useWebSocket() {
                   })
                   ws.send(JSON.stringify({
                     type: 'watch-workspace-files',
-                    agentId,
+                    rootId,
                     paths: workspaceFileListenerPaths(listeners),
                   }))
                 })
@@ -1079,7 +1094,7 @@ export function useWebSocket() {
               updateAgentReadState(msg.read)
               break
             case 'workspace-file-watch':
-              workspaceFileListenersRef.current.get(msg.agentId)?.forEach(listener => {
+              workspaceFileListenersRef.current.get(msg.rootId)?.forEach(listener => {
                 const readyByReason = new Map<WorkspaceFileWatchReadyReason, string[]>()
                 listener.pendingReadyReasons.forEach((reason, filePath) => {
                   if (!msg.paths.includes(filePath)) return
@@ -1092,11 +1107,17 @@ export function useWebSocket() {
               })
               break
             case 'workspace-file-event':
-              workspaceFileListenersRef.current.get(msg.event.agentId)?.forEach(listener => {
+              workspaceFileListenersRef.current.get(msg.event.rootId)?.forEach(listener => {
                 if (msg.event.type === 'error' || (msg.event.path && listener.paths.includes(msg.event.path))) {
                   listener.onEvent(msg.event)
                 }
               })
+              break
+            case 'workspace-result':
+              settleWorkspaceRequest(msg)
+              break
+            case 'language-server-result':
+              settleLanguageServerRequest(msg)
               break
             case 'language-server-refresh':
               refreshLanguageServerProvidersOnDemand(msg)
@@ -1149,6 +1170,7 @@ export function useWebSocket() {
       ws.onclose = (event) => {
         if (disposed || wsRef.current !== ws) return
         setTerminalSessionTransportReady(false)
+        setWorkspaceRequestTransportReady(false)
         const terminalError = event.code === 4001
           ? 'Farming token expired or is invalid'
           : event.code === 4002
@@ -1197,6 +1219,7 @@ export function useWebSocket() {
     return () => {
       disposed = true
       setTerminalSessionTransportReady(false)
+      setWorkspaceRequestTransportReady(false)
       clearTimeout(reconnectTimer)
       document.removeEventListener('visibilitychange', handlePageVisibilityChange)
       clearBusinessProbeTimers()

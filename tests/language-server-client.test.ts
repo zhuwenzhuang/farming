@@ -2,33 +2,22 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 test('Language Server client turns an aborted bounded request into an explicit timeout', async () => {
-  const previousWindow = globalThis.window
-  const previousFetch = globalThis.fetch
-  const fakeWindow = {
-    setTimeout(callback: () => void) {
-      callback()
-      return 1
-    },
-    clearTimeout() {},
-  } as unknown as Window
-  Object.defineProperty(globalThis, 'window', { configurable: true, value: fakeWindow })
-  Object.defineProperty(globalThis, 'fetch', {
-    configurable: true,
-    value: async (_input: RequestInfo | URL, init?: RequestInit) => {
-      const signal = init?.signal
-      return await new Promise<Response>((_resolve, reject) => {
-        if (!signal) {
-          reject(new Error('Language Server request did not receive an abort signal'))
-          return
-        }
-        if (signal.aborted) {
-          reject(signal.reason || new Error('request aborted'))
-          return
-        }
-        signal.addEventListener('abort', () => reject(signal.reason || new Error('request aborted')), { once: true })
-      })
-    },
+  const {
+    setWorkspaceRequestTransport,
+    setWorkspaceRequestTransportReady,
+    settleLanguageServerRequest,
+  } = await import('../src/lib/workspace-request-client')
+  setWorkspaceRequestTransport(message => {
+    if (message.type !== 'language-server-request') return true
+    queueMicrotask(() => settleLanguageServerRequest({
+      type: 'language-server-result',
+      requestId: message.requestId,
+      ok: false,
+      error: { code: 'TIMEOUT', message: 'Workspace request timed out', status: 504 },
+    }))
+    return true
   })
+  setWorkspaceRequestTransportReady(true)
 
   try {
     const { LanguageServerError, fetchLanguageServerCapability } = await import('../extensions/language-server/frontend/client')
@@ -39,7 +28,6 @@ test('Language Server client turns an aborted bounded request into an explicit t
         && error.code === 'LANGUAGE_SERVER_REQUEST_TIMEOUT',
     )
   } finally {
-    Object.defineProperty(globalThis, 'window', { configurable: true, value: previousWindow })
-    Object.defineProperty(globalThis, 'fetch', { configurable: true, value: previousFetch })
+    setWorkspaceRequestTransport(null)
   }
 })

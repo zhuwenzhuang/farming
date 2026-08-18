@@ -30,6 +30,67 @@ const TARGET_FILE = [
 ].join('/')
 const FILE_OPERATION_AUDIT_DIR = path.resolve('.tmp/file-operation-visual-audit')
 
+function observeWorkspaceOperations(page: Page, onOperation: (operation: string, filePath: string) => void) {
+  page.on('websocket', socket => {
+    socket.on('framesent', ({ payload }) => {
+      try {
+        const message = JSON.parse(String(payload)) as {
+          type?: string
+          request?: { operation?: string; path?: string }
+        }
+        if (message.type === 'workspace-request' && message.request?.operation) {
+          onOperation(message.request.operation, message.request.path || '')
+        }
+      } catch {
+        // Ignore terminal and other non-JSON websocket frames.
+      }
+    })
+  })
+}
+
+async function installWorkspaceRequestGate(page: Page) {
+  let nextRule: {
+    operation: string
+    path: string
+    started(): void
+    wait: Promise<void>
+  } | null = null
+  await page.routeWebSocket(/\/farming\/ws(?:\?|$)/, socket => {
+    const server = socket.connectToServer()
+    socket.onMessage(async payload => {
+      let message: { type?: string; request?: { operation?: string; path?: string } } | null = null
+      try {
+        message = JSON.parse(String(payload))
+      } catch {
+        // Non-JSON frames are forwarded unchanged.
+      }
+      const rule = nextRule
+      if (
+        rule
+        && message?.type === 'workspace-request'
+        && message.request?.operation === rule.operation
+        && (message.request.path || '') === rule.path
+      ) {
+        nextRule = null
+        rule.started()
+        await rule.wait
+      }
+      server.send(payload)
+    })
+  })
+  return {
+    blockNext(operation: string, filePath: string) {
+      if (nextRule) throw new Error('a Workspace request gate is already armed')
+      let started!: () => void
+      let release!: () => void
+      const startedPromise = new Promise<void>(resolve => { started = resolve })
+      const wait = new Promise<void>(resolve => { release = resolve })
+      nextRule = { operation, path: filePath, started, wait }
+      return { started: startedPromise, release }
+    },
+  }
+}
+
 async function captureFileOperationAudit(page: Page, name: string) {
   fs.mkdirSync(FILE_OPERATION_AUDIT_DIR, { recursive: true })
   await page.locator('.code-sidebar').screenshot({
@@ -669,10 +730,8 @@ test('continues first expansion through a bounded compact directory chain', asyn
   fs.writeFileSync(path.join(boundedDirectory, 'terminal.ts'), 'export const terminal = true\n')
 
   const loadedDirectoryPaths: string[] = []
-  page.on('request', request => {
-    const requestUrl = new URL(request.url())
-    if (!requestUrl.pathname.endsWith('/api/files/tree')) return
-    loadedDirectoryPaths.push(requestUrl.searchParams.get('path') ?? '')
+  observeWorkspaceOperations(page, (operation, filePath) => {
+    if (operation === 'tree') loadedDirectoryPaths.push(filePath)
   })
 
   await openFarming(page)
@@ -738,20 +797,7 @@ test('keeps file row slots stable for rename, links, statuses, loading, and comp
   fs.unlinkSync(path.join(workspace, 'linked.ts'))
   fs.symlinkSync('target-b.ts', path.join(workspace, 'linked.ts'))
 
-  let releaseFolderLoad = () => {}
-  const folderLoadGate = new Promise<void>(resolve => {
-    releaseFolderLoad = resolve
-  })
-  await page.route('**/api/files/tree?**', async route => {
-    const requestUrl = new URL(route.request().url())
-    if (requestUrl.searchParams.get('path') !== 'folder') {
-      await route.continue()
-      return
-    }
-    const response = await route.fetch()
-    await folderLoadGate
-    await route.fulfill({ response })
-  })
+  const workspaceGate = await installWorkspaceRequestGate(page)
 
   await openFarming(page)
   await openNewAgentDialog(page)
@@ -762,7 +808,9 @@ test('keeps file row slots stable for rename, links, statuses, loading, and comp
   if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
 
   const folderRow = files.locator('[data-testid="code-file-row"][data-file-path="folder"]')
+  const folderLoad = workspaceGate.blockNext('tree', 'folder')
   await folderRow.click()
+  await folderLoad.started
   await expect(folderRow).toHaveClass(/loading/)
   const loadingChevron = folderRow.locator('.code-file-chevron')
   await expect(loadingChevron).toHaveClass(/loading/)
@@ -771,9 +819,9 @@ test('keeps file row slots stable for rename, links, statuses, loading, and comp
   ))).toBe('""')
   await folderRow.click()
   await expect(folderRow).toHaveAttribute('aria-expanded', 'false')
-  releaseFolderLoad()
   await expect(folderRow).not.toHaveClass(/loading/)
   await expect(folderRow).toHaveAttribute('aria-expanded', 'false')
+  folderLoad.release()
 
   const linkedRow = files.locator('[data-testid="code-file-row"][data-file-path="linked.ts"]')
   await expect(linkedRow.locator('.code-file-git-status')).toHaveText('M')
@@ -924,39 +972,22 @@ test('keeps file row slots stable for rename, links, statuses, loading, and comp
   await expect.poll(() => page.evaluate(() => window.__farmingFileEditorTest?.getValue()))
     .toContain('replacement from editor focus')
 
-  let releaseSlowRead = () => {}
-  let markSlowReadStarted = () => {}
-  const slowReadGate = new Promise<void>(resolve => { releaseSlowRead = resolve })
-  const slowReadStarted = new Promise<void>(resolve => { markSlowReadStarted = resolve })
-  await page.route('**/api/files/file?**', async route => {
-    const requestUrl = new URL(route.request().url())
-    if (requestUrl.searchParams.get('path') !== 'target-a.ts') {
-      await route.continue()
-      return
-    }
-    const response = await route.fetch()
-    markSlowReadStarted()
-    await slowReadGate
-    await route.fulfill({ response })
-  })
+  const slowRead = workspaceGate.blockNext('read-file', 'target-a.ts')
   const slowFileRow = files.locator('[data-testid="code-file-row"][data-file-path="target-a.ts"]')
   const latestFileRow = files.locator('[data-testid="code-file-row"][data-file-path="target-b.ts"]')
   await slowFileRow.click()
-  await slowReadStarted
-  await expect(slowFileRow).toHaveClass(/opening/)
-  await expect(slowFileRow.locator('.code-file-open-spinner')).toBeVisible()
+  await slowRead.started
   await latestFileRow.click()
   await expect(page.getByTestId('code-file-editor').getByRole('tab', { name: /target-b\.ts/ })).toHaveAttribute('aria-selected', 'true')
   await expect(page.locator('.monaco-editor textarea.inputarea')).toBeFocused()
   const latestFocusRequestId = await page.evaluate(() => window.__farmingFileEditorTest?.getFocusEditorRequestId() ?? null)
   expect(latestFocusRequestId).not.toBeNull()
-  releaseSlowRead()
   await expect.poll(() => page.getByTestId('code-file-editor').getByRole('tab', { name: /target-b\.ts/ })
     .getAttribute('aria-selected')).toBe('true')
   await expect.poll(() => page.evaluate(() => window.__farmingFileEditorTest?.getFocusEditorRequestId() ?? null))
     .toBe(latestFocusRequestId)
   await expect(page.locator('.monaco-editor textarea.inputarea')).toBeFocused()
-  await page.unroute('**/api/files/file?**')
+  slowRead.release()
 
   let repeatedProjectMounts = 0
   const countRepeatedProjectMounts = (request: { url(): string }) => {

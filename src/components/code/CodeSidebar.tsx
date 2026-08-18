@@ -29,6 +29,7 @@ import type {
 } from '@/types/agent'
 import {
   fetchWorkspaceGitBranches,
+  fetchWorkspaceGitBranch,
   fetchWorkspaceGitWorktrees,
   switchWorkspaceGitBranch,
   WorkspaceFileApiError,
@@ -448,8 +449,7 @@ export function CodeSidebar({
       setProjectPreview(null)
       setAgentPreview({ ...target, x, y, width, branch })
       if (!target.workspaceRootId || branch) return
-      fetch(appPath(`/api/files/branch?rootId=${encodeURIComponent(target.workspaceRootId)}`))
-        .then(response => response.ok ? response.json() : null)
+      fetchWorkspaceGitBranch(target.workspaceRootId)
         .then((data: { branch?: string } | null) => {
           const resolvedBranch = typeof data?.branch === 'string' ? data.branch.trim() : ''
           branchCacheRef.current.set(target.workspaceRootId!, { branch: resolvedBranch, expiresAt: Date.now() + 30_000 })

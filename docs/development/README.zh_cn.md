@@ -28,6 +28,7 @@
 - [Extension 与 Resource Model](../products/code/extension-model.zh_cn.md)
 - [Project Files Design](../products/code/project-files-section-design.zh_cn.md)
 - [Workspace File 状态模型](../products/code/workspace-file-state-model.zh_cn.md)
+- [Workspace 传输协议](../products/code/workspace-transport-protocol.zh_cn.md)
 - [Review Foundation](../products/code/review-foundation.zh_cn.md)
 - [Farming CRT Layout](../products/crt/base_layout.zh_cn.md)
 

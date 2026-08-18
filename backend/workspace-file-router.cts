@@ -16,7 +16,8 @@ interface WorkspaceFileApiError extends Error {
 
 import { WorkspaceFileError } from './workspace-file-service.cjs';
 import { PreviewSessionManager } from './preview-session-manager.cjs';
-import { GLOBAL_WORKSPACE_FILES_AGENT_ID, GLOBAL_WORKSPACE_FILES_ROOT, GLOBAL_WORKSPACE_ROOT_ID, PROJECT_FILES_WORKSPACE_PREFIX, WorkspaceRootRegistry, projectWorkspaceFromLegacyRef } from './workspace-root-registry.cjs';
+import { GLOBAL_WORKSPACE_FILES_AGENT_ID, GLOBAL_WORKSPACE_FILES_ROOT, GLOBAL_WORKSPACE_ROOT_ID, WorkspaceRootRegistry } from './workspace-root-registry.cjs';
+import type { WorkspaceRequest } from '../shared/browser-protocol.js';
 
 type InputRecord = Record<string, unknown>;
 
@@ -46,7 +47,6 @@ interface WorkspaceRoot {
 }
 
 interface WorkspaceRootRegistryLike {
-  list(): unknown;
   resolve(rootRef: unknown): WorkspaceRoot;
 }
 
@@ -54,6 +54,7 @@ interface PreviewFileResult {
   buffer: Buffer;
   path: string;
   preview: { mediaType: string };
+  sha1: string;
   size: number;
 }
 
@@ -61,6 +62,11 @@ interface ResourceFileResult {
   buffer: Buffer;
   path: string;
   size: number;
+}
+
+interface TransportFileResult extends ResourceFileResult {
+  mediaType: string;
+  sha1: string;
 }
 
 interface WorkspaceFileServiceLike {
@@ -80,6 +86,7 @@ interface WorkspaceFileServiceLike {
   readFile(root: string, userPath: unknown, options?: ReadOptions): Promise<unknown>;
   readPreviewFile(root: string, userPath: unknown, options?: ReadOptions): Promise<PreviewFileResult>;
   readResourceFile(root: string, userPath: unknown, options?: ReadOptions): Promise<ResourceFileResult>;
+  readTransportFile(root: string, userPath: unknown, options?: ReadOptions): Promise<TransportFileResult>;
   renameEntry(root: string, sourcePath: unknown, name: unknown, options?: MutationVersionOptions): Promise<unknown>;
   search(root: string, query: unknown, options?: InputRecord): Promise<unknown>;
   writeFile(root: string, userPath: unknown, content: unknown, options?: InputRecord): Promise<unknown>;
@@ -95,7 +102,13 @@ interface PreviewSession {
 }
 
 interface PreviewSessionManagerLike {
-  createStatic(options: InputRecord): PreviewSession;
+  createStatic(options: {
+    authorizedRoot: string;
+    baseDirectory: string;
+    entryPath: string;
+    rootId: string;
+    workspaceRoot: string;
+  }): PreviewSession;
   delete(sessionId: string): boolean;
   get(sessionId: string): PreviewSession | null;
 }
@@ -109,7 +122,6 @@ interface HttpRequest {
 }
 
 interface HttpResponse {
-  end(): void;
   json(value: unknown): HttpResponse;
   send(value: unknown): HttpResponse;
   set(field: string, value: string): HttpResponse;
@@ -120,10 +132,7 @@ interface HttpResponse {
 type HttpHandler = (request: HttpRequest, response: HttpResponse) => void | Promise<void>;
 
 interface ExpressRouter {
-  delete(path: string, handler: HttpHandler): ExpressRouter;
   get(path: string, handler: HttpHandler): ExpressRouter;
-  patch(path: string, handler: HttpHandler): ExpressRouter;
-  post(path: string, handler: HttpHandler): ExpressRouter;
   put(path: string, handler: HttpHandler): ExpressRouter;
   use(handler: unknown): ExpressRouter;
 }
@@ -151,6 +160,11 @@ interface RouterOptions {
   rootRegistry?: WorkspaceRootRegistryLike;
 }
 
+interface WorkspaceRequestOptions extends RouterOptions {
+  accessMode?: 'owner' | 'read-only';
+  maxInlineResponseBytes?: number;
+}
+
 const expressFactory = express as ExpressFactory;
 const ROOT_REGISTRIES = new WeakMap<AgentManager, WorkspaceRootRegistryLike>();
 
@@ -160,10 +174,6 @@ function isRecord(value: unknown): value is InputRecord {
 
 function isGlobalWorkspaceFilesAgentId(agentId: unknown): boolean {
   return agentId === GLOBAL_WORKSPACE_FILES_AGENT_ID || agentId === GLOBAL_WORKSPACE_ROOT_ID;
-}
-
-function projectWorkspaceFromFilesId(filesId: unknown): unknown {
-  return projectWorkspaceFromLegacyRef(filesId);
 }
 
 function workspaceRootRegistryFor(agentManager: AgentManager): WorkspaceRootRegistryLike {
@@ -436,6 +446,270 @@ function readOptionsForAgent(agentManager: AgentManager, agentId: unknown): Read
     : { allowedExternalRoots: globalWorkspaceAllowedRoots(agentManager) };
 }
 
+const WORKSPACE_MUTATION_OPERATIONS = new Set<WorkspaceRequest['operation']>([
+  'save-file',
+  'move-entry',
+  'create-entry',
+  'rename-entry',
+  'delete-entry',
+  'switch-branch',
+]);
+
+function workspaceOperationIsMutation(operation: WorkspaceRequest['operation']): boolean {
+  return WORKSPACE_MUTATION_OPERATIONS.has(operation);
+}
+
+function serializedBytes(value: unknown): number {
+  return Buffer.byteLength(JSON.stringify(value), 'utf8');
+}
+
+async function executeWorkspaceFileRequest(
+  agentManager: AgentManager,
+  fileService: WorkspaceFileServiceLike,
+  request: WorkspaceRequest,
+  options: WorkspaceRequestOptions = {},
+): Promise<unknown> {
+  const rootRegistry = options.rootRegistry || workspaceRootRegistryFor(agentManager);
+  const previewSessions = options.previewSessionManager || new PreviewSessionManager();
+  if (options.accessMode === 'read-only' && workspaceOperationIsMutation(request.operation)) {
+    throw new WorkspaceFileError('This Farming share is read-only.', 403);
+  }
+
+  const resolveRequestRoot = (source: unknown): { kind: string; root: string; rootId: string } => {
+    const workspaceRoot = rootRegistry.resolve(workspaceRef(source));
+    return {
+      kind: String(workspaceRoot.kind || ''),
+      root: workspaceRoot.canonicalPath,
+      rootId: workspaceRoot.rootId,
+    };
+  };
+
+  switch (request.operation) {
+    case 'tree': {
+      const tree = isGlobalWorkspaceFilesAgentId(request.rootId)
+        ? await listGlobalWorkspaceTree(agentManager, fileService, request.path || '')
+        : await fileService.listTree(
+          resolveRequestRoot(request).root,
+          request.path || '',
+          readOptionsForAgent(agentManager, request.rootId),
+        );
+      return tree;
+    }
+    case 'read-file': {
+      let requestPath = request.path;
+      if (isGlobalWorkspaceFilesAgentId(request.rootId)) {
+        if (request.exactExternal) {
+          assertExactExternalFileAccess({ authAccessMode: options.accessMode } as HttpRequest);
+          requestPath = assertExactExternalFileReadable(request.path);
+        } else {
+          assertGlobalWorkspacePathAllowed(agentManager, requestPath);
+        }
+      }
+      const file = await fileService.readFile(
+        resolveRequestRoot(request).root,
+        requestPath,
+        readOptionsForAgent(agentManager, request.rootId),
+      ) as InputRecord;
+      const maxInlineBytes = options.maxInlineResponseBytes || Number.MAX_SAFE_INTEGER;
+      if (serializedBytes(file) <= maxInlineBytes) return file;
+      return {
+        ...file,
+        content: '',
+        transfer: { kind: 'http' },
+      };
+    }
+    case 'create-preview': {
+      let entryPath = request.path.trim();
+      if (!/\.html?$/i.test(entryPath)) {
+        throw new WorkspaceFileError('HTML preview requires an .html or .htm file', 415);
+      }
+      let authorizedRoot;
+      if (isGlobalWorkspaceFilesAgentId(request.rootId)) {
+        if (request.exactExternal) {
+          assertExactExternalFileAccess({ authAccessMode: options.accessMode } as HttpRequest);
+          entryPath = assertExactExternalFileReadable(entryPath);
+          authorizedRoot = path.dirname(realPathIfPresent(globalUserPathToAbsolute(entryPath)));
+          if (authorizedRoot === path.parse(authorizedRoot).root) {
+            throw new WorkspaceFileError('external HTML preview directory cannot be the filesystem root', 403);
+          }
+        } else {
+          const authorization = assertGlobalWorkspacePathAllowed(agentManager, entryPath);
+          authorizedRoot = previewAuthorizedRootForTarget(authorization.allowedRoots, realPathIfPresent(authorization.target));
+          if (!authorizedRoot) throw new WorkspaceFileError('global file path is outside allowed workspaces', 403);
+        }
+      }
+      const { root, rootId } = resolveRequestRoot(request);
+      await fileService.readFile(root, entryPath, { allowedExternalRoots: [] });
+      const session = previewSessions.createStatic({
+        rootId,
+        workspaceRoot: root,
+        authorizedRoot: realPathIfPresent(authorizedRoot || root),
+        entryPath,
+        baseDirectory: path.posix.dirname(entryPath) === '.' ? '' : path.posix.dirname(entryPath),
+      });
+      return { id: session.id, kind: session.kind, expiresAt: session.expiresAt };
+    }
+    case 'delete-preview':
+      return { deleted: previewSessions.delete(request.previewId) };
+    case 'save-file': {
+      assertWritableWorkspaceAgent(request.rootId);
+      const { kind, root } = resolveRequestRoot(request);
+      if (kind === 'agent-home') await fs.promises.mkdir(root, { recursive: true });
+      return fileService.writeFile(root, request.path, request.content, {
+        baseSha1: request.baseSha1,
+        overwrite: request.overwrite === true,
+      });
+    }
+    case 'move-entry': {
+      assertWritableWorkspaceAgent(request.rootId);
+      return fileService.moveEntry(
+        resolveRequestRoot(request).root,
+        request.sourcePath,
+        request.targetDirectory,
+        { expectedVersion: request.expectedVersion },
+      );
+    }
+    case 'create-entry': {
+      assertWritableWorkspaceAgent(request.rootId);
+      return fileService.createEntry(
+        resolveRequestRoot(request).root,
+        request.parentPath,
+        request.name,
+        request.entryType,
+        '',
+      );
+    }
+    case 'rename-entry': {
+      assertWritableWorkspaceAgent(request.rootId);
+      return fileService.renameEntry(
+        resolveRequestRoot(request).root,
+        request.path,
+        request.name,
+        { expectedVersion: request.expectedVersion },
+      );
+    }
+    case 'delete-entry': {
+      assertWritableWorkspaceAgent(request.rootId);
+      return fileService.deleteEntry(
+        resolveRequestRoot(request).root,
+        request.path,
+        { expectedVersion: request.expectedVersion },
+      );
+    }
+    case 'search': {
+      if (isGlobalWorkspaceFilesAgentId(request.rootId)) {
+        assertGlobalWorkspacePathAllowed(agentManager, request.path || '');
+      }
+      const settings = agentManager.configManager?.getSettings?.() || {};
+      return fileService.search(resolveRequestRoot(request).root, request.query, {
+        includeIgnored: request.includeIgnored === true,
+        path: request.path || '',
+        limit: request.limit,
+        timeoutMs: settings.searchTimeoutMs,
+      });
+    }
+    case 'diff': {
+      if (isGlobalWorkspaceFilesAgentId(request.rootId)) {
+        assertGlobalWorkspacePathAllowed(agentManager, request.path, { allowMissing: true });
+      }
+      return fileService.diff(resolveRequestRoot(request).root, request.path);
+    }
+    case 'changes': {
+      if (isGlobalWorkspaceFilesAgentId(request.rootId)) {
+        throw new WorkspaceFileError('global files do not support workspace changes', 403);
+      }
+      return fileService.changes(resolveRequestRoot(request).root, { limit: request.limit });
+    }
+    case 'branch': {
+      if (isGlobalWorkspaceFilesAgentId(request.rootId)) {
+        throw new WorkspaceFileError('global files do not support git branches', 403);
+      }
+      return fileService.gitBranch(resolveRequestRoot(request).root);
+    }
+    case 'branches': {
+      if (isGlobalWorkspaceFilesAgentId(request.rootId)) {
+        throw new WorkspaceFileError('global files do not support git branches', 403);
+      }
+      return agentManager.inspectProjectBranches(resolveRequestRoot(request).root);
+    }
+    case 'switch-branch': {
+      assertWritableWorkspaceAgent(request.rootId);
+      const { kind, root } = resolveRequestRoot(request);
+      if (kind !== 'directory') throw new WorkspaceFileError('branch switching requires a Project root', 403);
+      const branch = requiredBoundedString(request.branch, 'branch', 1024);
+      const expectedBranch = requiredBoundedString(request.expectedBranch, 'expectedBranch', 1024, true);
+      const expectedHead = requiredBoundedString(request.expectedHead, 'expectedHead', 64, true);
+      const operationId = requiredBoundedString(request.operationId, 'operationId', 160);
+      if (!/^[A-Za-z0-9._:-]+$/.test(operationId)) throw new WorkspaceFileError('operationId is invalid', 400);
+      if (expectedHead && !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(expectedHead)) {
+        throw new WorkspaceFileError('expectedHead is invalid', 400);
+      }
+      const result = await agentManager.switchProjectBranch(root, {
+        branch,
+        expectedBranch,
+        expectedHead,
+        requestId: operationId,
+      });
+      if (result.switched) fileService.invalidateGitStatus?.(root);
+      return { ...result, requestId: operationId };
+    }
+    case 'worktrees': {
+      if (isGlobalWorkspaceFilesAgentId(request.rootId)) {
+        throw new WorkspaceFileError('global files do not support git worktrees', 403);
+      }
+      const root = resolveRequestRoot(request).root;
+      const info = await inspectGitWorktree(root, { cacheMs: 0 });
+      return info
+        ? { isGitRepo: true, commonDir: info.commonDir, currentWorkspace: info.workspace, mainWorkspace: info.mainWorkspace, items: info.worktrees }
+        : { isGitRepo: false, commonDir: '', currentWorkspace: root, mainWorkspace: '', items: [] };
+    }
+    case 'history': {
+      if (isGlobalWorkspaceFilesAgentId(request.rootId)) {
+        throw new WorkspaceFileError('global files do not support git history', 403);
+      }
+      return fileService.gitHistory(resolveRequestRoot(request).root, {
+        limit: request.limit,
+        skip: request.skip,
+        scope: request.scope,
+      });
+    }
+    case 'history-changes': {
+      if (isGlobalWorkspaceFilesAgentId(request.rootId)) {
+        throw new WorkspaceFileError('global files do not support git history', 403);
+      }
+      return fileService.gitHistoryChanges(
+        resolveRequestRoot(request).root,
+        request.commit,
+        request.parent,
+        { limit: request.limit },
+      );
+    }
+    case 'line-changes': {
+      if (isGlobalWorkspaceFilesAgentId(request.rootId)) {
+        assertGlobalWorkspacePathAllowed(agentManager, request.path);
+      }
+      return fileService.lineChanges(
+        resolveRequestRoot(request).root,
+        request.path,
+        request.lineNumber,
+        request.mode,
+      );
+    }
+    case 'blame': {
+      if (isGlobalWorkspaceFilesAgentId(request.rootId)) assertGlobalWorkspacePathAllowed(agentManager, request.path);
+      return fileService.blame(resolveRequestRoot(request).root, request.path);
+    }
+    case 'blame-capability': {
+      if (isGlobalWorkspaceFilesAgentId(request.rootId)) assertGlobalWorkspacePathAllowed(agentManager, request.path);
+      return fileService.blameCapability(
+        resolveRequestRoot(request).root,
+        request.path,
+        readOptionsForAgent(agentManager, request.rootId),
+      );
+    }
+  }
+}
+
 function createWorkspaceFileRouter(
   agentManager: AgentManager,
   fileService: WorkspaceFileServiceLike,
@@ -447,10 +721,6 @@ function createWorkspaceFileRouter(
 
   router.use(expressFactory.json({ limit: '3mb' }));
 
-  router.get('/roots', (_req: HttpRequest, res: HttpResponse) => {
-    res.json({ roots: rootRegistry.list() });
-  });
-
   const resolveRequestRoot = (source: unknown): { kind: string; root: string; rootId: string } => {
     const workspaceRoot = rootRegistry.resolve(workspaceRef(source));
     return {
@@ -459,38 +729,6 @@ function createWorkspaceFileRouter(
       rootId: workspaceRoot.rootId,
     };
   };
-
-  router.get('/tree', async (req: HttpRequest, res: HttpResponse) => {
-    try {
-      const rootRef = workspaceRef(req.query);
-      const { root, rootId } = resolveRequestRoot(req.query);
-      const tree = isGlobalWorkspaceFilesAgentId(rootRef)
-        ? await listGlobalWorkspaceTree(agentManager, fileService, req.query.path || '')
-        : await fileService.listTree(root, req.query.path || '', readOptionsForAgent(agentManager, rootRef));
-      res.json({ rootId, root, tree });
-    } catch (error: unknown) {
-      sendWorkspaceFileError(res, error);
-    }
-  });
-
-  router.get('/file', async (req: HttpRequest, res: HttpResponse) => {
-    try {
-      const rootRef = workspaceRef(req.query);
-      const exactExternal = isGlobalWorkspaceFilesAgentId(rootRef) && req.query.exact === '1';
-      if (exactExternal) assertExactExternalFileAccess(req);
-      const requestPath = exactExternal
-        ? assertExactExternalFileReadable(req.query.path || '')
-        : req.query.path || '';
-      if (isGlobalWorkspaceFilesAgentId(rootRef) && req.query.exact !== '1') {
-        assertGlobalWorkspacePathAllowed(agentManager, requestPath);
-      }
-      const { root, rootId } = resolveRequestRoot(req.query);
-      const file = await fileService.readFile(root, requestPath, readOptionsForAgent(agentManager, rootRef));
-      res.set('Cache-Control', 'no-store').json({ rootId, root, file });
-    } catch (error: unknown) {
-      sendWorkspaceFileError(res, error);
-    }
-  });
 
   router.get('/raw', async (req: HttpRequest, res: HttpResponse) => {
     try {
@@ -504,59 +742,26 @@ function createWorkspaceFileRouter(
         assertGlobalWorkspacePathAllowed(agentManager, requestPath);
       }
       const { root } = resolveRequestRoot(req.query);
-      const file = await fileService.readPreviewFile(root, requestPath, readOptionsForAgent(agentManager, rootRef));
+      const transfer = req.query.transfer === '1';
+      const file = transfer
+        ? await fileService.readTransportFile(root, requestPath, readOptionsForAgent(agentManager, rootRef))
+        : await fileService.readPreviewFile(root, requestPath, readOptionsForAgent(agentManager, rootRef));
+      const expectedSha1 = String(req.query.sha1 || '');
+      if (transfer && expectedSha1 && file.sha1 !== expectedSha1) {
+        throw new WorkspaceFileError('file changed before transfer started', 409, {
+          expectedSha1,
+          currentSha1: file.sha1,
+        });
+      }
       res
         .status(200)
-        .type(file.preview.mediaType)
+        .type(transfer
+          ? (file as TransportFileResult).mediaType
+          : (file as PreviewFileResult).preview.mediaType)
         .set('Cache-Control', 'no-store')
         .set('X-Content-Type-Options', 'nosniff')
         .set('Content-Length', String(file.size))
         .send(file.buffer);
-    } catch (error: unknown) {
-      sendWorkspaceFileError(res, error);
-    }
-  });
-
-  router.post('/previews', async (req: HttpRequest, res: HttpResponse) => {
-    try {
-      const body = req.body || {};
-      const rootRef = workspaceRef(body);
-      let entryPath = String(body.path || '').trim();
-      if (!/\.html?$/i.test(entryPath)) {
-        throw new WorkspaceFileError('HTML preview requires an .html or .htm file', 415);
-      }
-
-      let authorizedRoot;
-      if (isGlobalWorkspaceFilesAgentId(rootRef)) {
-        if (body.exact === true) {
-          entryPath = assertExactExternalFileReadable(entryPath);
-          authorizedRoot = path.dirname(realPathIfPresent(globalUserPathToAbsolute(entryPath)));
-          if (authorizedRoot === path.parse(authorizedRoot).root) {
-            throw new WorkspaceFileError('external HTML preview directory cannot be the filesystem root', 403);
-          }
-        } else {
-          const authorization = assertGlobalWorkspacePathAllowed(agentManager, entryPath);
-          authorizedRoot = previewAuthorizedRootForTarget(authorization.allowedRoots, realPathIfPresent(authorization.target));
-          if (!authorizedRoot) throw new WorkspaceFileError('global file path is outside allowed workspaces', 403);
-        }
-      }
-
-      const { root, rootId } = resolveRequestRoot(body);
-      await fileService.readFile(root, entryPath, { allowedExternalRoots: [] });
-      const session = previewSessions.createStatic({
-        rootId,
-        workspaceRoot: root,
-        authorizedRoot: realPathIfPresent(authorizedRoot || root),
-        entryPath,
-        baseDirectory: path.posix.dirname(entryPath) === '.' ? '' : path.posix.dirname(entryPath),
-      });
-      res.status(201).json({
-        preview: {
-          id: session.id,
-          kind: session.kind,
-          expiresAt: session.expiresAt,
-        },
-      });
     } catch (error: unknown) {
       sendWorkspaceFileError(res, error);
     }
@@ -604,11 +809,6 @@ function createWorkspaceFileRouter(
     }
   });
 
-  router.delete('/previews/:sessionId', (req: HttpRequest, res: HttpResponse) => {
-    const deleted = previewSessions.delete(req.params.sessionId);
-    res.status(deleted ? 204 : 404).end();
-  });
-
   router.put('/file', async (req: HttpRequest, res: HttpResponse) => {
     try {
       const body = req.body || {};
@@ -626,326 +826,11 @@ function createWorkspaceFileRouter(
     }
   });
 
-  router.post('/move', async (req: HttpRequest, res: HttpResponse) => {
-    try {
-      const body = req.body || {};
-      const rootRef = workspaceRef(body);
-      assertWritableWorkspaceAgent(rootRef);
-      const { root, rootId } = resolveRequestRoot(body);
-      const move = await fileService.moveEntry(root, body.sourcePath || '', body.targetDirectory || '', {
-        expectedVersion: body.expectedVersion,
-      });
-      res.json({ rootId, root, move });
-    } catch (error: unknown) {
-      sendWorkspaceFileError(res, error);
-    }
-  });
-
-  router.post('/entry', async (req: HttpRequest, res: HttpResponse) => {
-    try {
-      const body = req.body || {};
-      const rootRef = workspaceRef(body);
-      assertWritableWorkspaceAgent(rootRef);
-      const { root, rootId } = resolveRequestRoot(body);
-      const created = await fileService.createEntry(root, body.parentPath || '', body.name || '', body.entryType || 'file', body.content || '');
-      res.status(201).json({ rootId, root, ...created });
-    } catch (error: unknown) {
-      sendWorkspaceFileError(res, error);
-    }
-  });
-
-  router.patch('/entry', async (req: HttpRequest, res: HttpResponse) => {
-    try {
-      const body = req.body || {};
-      const rootRef = workspaceRef(body);
-      assertWritableWorkspaceAgent(rootRef);
-      const { root, rootId } = resolveRequestRoot(body);
-      const move = await fileService.renameEntry(root, body.path || '', body.name || '', {
-        expectedVersion: body.expectedVersion,
-      });
-      res.json({ rootId, root, move });
-    } catch (error: unknown) {
-      sendWorkspaceFileError(res, error);
-    }
-  });
-
-  router.delete('/entry', async (req: HttpRequest, res: HttpResponse) => {
-    try {
-      const body = req.body || {};
-      const rootRef = workspaceRef(body) || workspaceRef(req.query);
-      const targetPath = body.path || req.query.path || '';
-      assertWritableWorkspaceAgent(rootRef);
-      const workspaceRoot = rootRegistry.resolve(rootRef);
-      const { canonicalPath: root, rootId } = workspaceRoot;
-      const deleted = await fileService.deleteEntry(root, targetPath, {
-        expectedVersion: body.expectedVersion || req.query.expectedVersion,
-      });
-      res.json({ rootId, root, deleted });
-    } catch (error: unknown) {
-      sendWorkspaceFileError(res, error);
-    }
-  });
-
-  router.get('/search', async (req: HttpRequest, res: HttpResponse) => {
-    try {
-      const rootRef = workspaceRef(req.query);
-      if (isGlobalWorkspaceFilesAgentId(rootRef)) {
-        assertGlobalWorkspacePathAllowed(agentManager, req.query.path || '');
-      }
-      const { root, rootId } = resolveRequestRoot(req.query);
-      const settings = agentManager?.configManager?.getSettings?.() || {};
-      const results = await fileService.search(root, req.query.q || '', {
-        includeIgnored: req.query.includeIgnored === 'true',
-        path: req.query.path || '',
-        limit: req.query.limit,
-        timeoutMs: settings.searchTimeoutMs,
-      });
-      res.json({ rootId, root, results });
-    } catch (error: unknown) {
-      sendWorkspaceFileError(res, error);
-    }
-  });
-
-  router.get('/diff', async (req: HttpRequest, res: HttpResponse) => {
-    try {
-      const rootRef = workspaceRef(req.query);
-      if (isGlobalWorkspaceFilesAgentId(rootRef)) {
-        assertGlobalWorkspacePathAllowed(agentManager, req.query.path || '', { allowMissing: true });
-      }
-      const { root, rootId } = resolveRequestRoot(req.query);
-      const diff = await fileService.diff(root, req.query.path || '');
-      res.json({ rootId, root, diff });
-    } catch (error: unknown) {
-      sendWorkspaceFileError(res, error);
-    }
-  });
-
-  router.get('/changes', async (req: HttpRequest, res: HttpResponse) => {
-    try {
-      const rootRef = workspaceRef(req.query);
-      if (isGlobalWorkspaceFilesAgentId(rootRef)) {
-        throw new WorkspaceFileError('global files do not support workspace changes', 403);
-      }
-      const { root, rootId } = resolveRequestRoot(req.query);
-      const changes = await fileService.changes(root, {
-        limit: req.query.limit,
-      });
-      res.json({ rootId, root, changes });
-    } catch (error: unknown) {
-      sendWorkspaceFileError(res, error);
-    }
-  });
-
-  router.get('/branch', async (req: HttpRequest, res: HttpResponse) => {
-    try {
-      const rootRef = workspaceRef(req.query);
-      if (isGlobalWorkspaceFilesAgentId(rootRef)) {
-        throw new WorkspaceFileError('global files do not support git branches', 403);
-      }
-      const { root, rootId } = resolveRequestRoot(req.query);
-      const branch = await fileService.gitBranch(root);
-      res.json({ rootId, root, branch });
-    } catch (error: unknown) {
-      sendWorkspaceFileError(res, error);
-    }
-  });
-
-  router.get('/branches', async (req: HttpRequest, res: HttpResponse) => {
-    try {
-      const rootRef = workspaceRef(req.query);
-      if (isGlobalWorkspaceFilesAgentId(rootRef)) {
-        throw new WorkspaceFileError('global files do not support git branches', 403);
-      }
-      const { root } = resolveRequestRoot(req.query);
-      res.json(await agentManager.inspectProjectBranches(root));
-    } catch (error: unknown) {
-      sendWorkspaceFileError(res, error);
-    }
-  });
-
-  router.post('/switch-branch', async (req: HttpRequest, res: HttpResponse) => {
-    try {
-      const body = isRecord(req.body) ? req.body : {};
-      const rootRef = workspaceRef(body);
-      assertWritableWorkspaceAgent(rootRef);
-      const { kind, root } = resolveRequestRoot(body);
-      if (kind !== 'directory') {
-        throw new WorkspaceFileError('branch switching requires a Project root', 403);
-      }
-      const branch = requiredBoundedString(body.branch, 'branch', 1024);
-      const expectedBranch = requiredBoundedString(body.expectedBranch, 'expectedBranch', 1024, true);
-      const expectedHead = requiredBoundedString(body.expectedHead, 'expectedHead', 64, true);
-      const requestId = requiredBoundedString(body.requestId, 'requestId', 160);
-      if (!/^[A-Za-z0-9._:-]+$/.test(requestId)) {
-        throw new WorkspaceFileError('requestId is invalid', 400);
-      }
-      if (expectedHead && !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(expectedHead)) {
-        throw new WorkspaceFileError('expectedHead is invalid', 400);
-      }
-      let result: LocalBranchSwitchResult;
-      try {
-        result = await agentManager.switchProjectBranch(root, {
-          branch,
-          expectedBranch,
-          expectedHead,
-          requestId,
-        });
-      } catch (caught) {
-        const error = caught instanceof Error ? caught : new Error(String(caught));
-        if (/^Project operation request .* was already used for different parameters$/.test(error.message)) {
-          throw new WorkspaceFileError(error.message, 409);
-        }
-        throw caught;
-      }
-      if (result.switched) fileService.invalidateGitStatus?.(root);
-      const response = {
-        ...(result.inventory || {}),
-        switched: result.switched,
-        uncertain: result.uncertain,
-        ...(result.error ? { error: result.error } : {}),
-        ...(result.previousBranch !== undefined ? { previousBranch: result.previousBranch } : {}),
-        ...(result.previousHead !== undefined ? { previousHead: result.previousHead } : {}),
-        requestId,
-      };
-      res.status(result.switched ? 200 : result.uncertain ? 504 : 409).json(response);
-    } catch (error: unknown) {
-      sendWorkspaceFileError(res, error);
-    }
-  });
-
-  router.get('/worktrees', async (req: HttpRequest, res: HttpResponse) => {
-    try {
-      const rootRef = workspaceRef(req.query);
-      if (isGlobalWorkspaceFilesAgentId(rootRef)) {
-        throw new WorkspaceFileError('global files do not support git worktrees', 403);
-      }
-      const { root, rootId } = resolveRequestRoot(req.query);
-      const info = await inspectGitWorktree(root, { cacheMs: 0 });
-      res.json({
-        rootId,
-        root,
-        worktrees: info
-          ? {
-            isGitRepo: true,
-            commonDir: info.commonDir,
-            currentWorkspace: info.workspace,
-            mainWorkspace: info.mainWorkspace,
-            items: info.worktrees,
-          }
-          : {
-            isGitRepo: false,
-            commonDir: '',
-            currentWorkspace: root,
-            mainWorkspace: '',
-            items: [],
-          },
-      });
-    } catch (error: unknown) {
-      sendWorkspaceFileError(res, error);
-    }
-  });
-
-  router.get('/history', async (req: HttpRequest, res: HttpResponse) => {
-    try {
-      const rootRef = workspaceRef(req.query);
-      if (isGlobalWorkspaceFilesAgentId(rootRef)) {
-        throw new WorkspaceFileError('global files do not support git history', 403);
-      }
-      const { root, rootId } = resolveRequestRoot(req.query);
-      const history = await fileService.gitHistory(root, {
-        limit: req.query.limit,
-        skip: req.query.skip,
-        scope: req.query.scope,
-      });
-      res.json({ rootId, root, history });
-    } catch (error: unknown) {
-      sendWorkspaceFileError(res, error);
-    }
-  });
-
-  router.get('/history/changes', async (req: HttpRequest, res: HttpResponse) => {
-    try {
-      const rootRef = workspaceRef(req.query);
-      if (isGlobalWorkspaceFilesAgentId(rootRef)) {
-        throw new WorkspaceFileError('global files do not support git history', 403);
-      }
-      const { root, rootId } = resolveRequestRoot(req.query);
-      const changes = await fileService.gitHistoryChanges(
-        root,
-        req.query.commit,
-        req.query.parent,
-        { limit: req.query.limit }
-      );
-      res.json({ rootId, root, changes });
-    } catch (error: unknown) {
-      sendWorkspaceFileError(res, error);
-    }
-  });
-
-  router.get('/line-changes', async (req: HttpRequest, res: HttpResponse) => {
-    try {
-      const rootRef = workspaceRef(req.query);
-      if (isGlobalWorkspaceFilesAgentId(rootRef)) {
-        assertGlobalWorkspacePathAllowed(agentManager, req.query.path || '');
-      }
-      const { root, rootId } = resolveRequestRoot(req.query);
-      const changes = await fileService.lineChanges(
-        root,
-        req.query.path || '',
-        req.query.lineNumber,
-        req.query.mode || 'working'
-      );
-      res.json({ rootId, root, changes });
-    } catch (error: unknown) {
-      sendWorkspaceFileError(res, error);
-    }
-  });
-
-  router.get('/blame', async (req: HttpRequest, res: HttpResponse) => {
-    try {
-      const rootRef = workspaceRef(req.query);
-      if (isGlobalWorkspaceFilesAgentId(rootRef)) {
-        assertGlobalWorkspacePathAllowed(agentManager, req.query.path || '');
-      }
-      const { root, rootId } = resolveRequestRoot(req.query);
-      const blame = await fileService.blame(root, req.query.path || '');
-      res.json({ rootId, root, blame });
-    } catch (error: unknown) {
-      sendWorkspaceFileError(res, error);
-    }
-  });
-
-  router.get('/blame-capability', async (req: HttpRequest, res: HttpResponse) => {
-    try {
-      const rootRef = workspaceRef(req.query);
-      if (isGlobalWorkspaceFilesAgentId(rootRef)) {
-        assertGlobalWorkspacePathAllowed(agentManager, req.query.path || '');
-      }
-      const { root, rootId } = resolveRequestRoot(req.query);
-      const capability = await fileService.blameCapability(
-        root,
-        req.query.path || '',
-        readOptionsForAgent(agentManager, rootRef)
-      );
-      res.json({ rootId, root, capability });
-    } catch (error: unknown) {
-      sendWorkspaceFileError(res, error);
-    }
-  });
-
   return router;
 }
 
 export {
-  GLOBAL_WORKSPACE_FILES_AGENT_ID,
-  GLOBAL_WORKSPACE_FILES_ROOT,
-  PROJECT_FILES_WORKSPACE_PREFIX,
-  assertGlobalWorkspacePathAllowed,
-  assertExactExternalFileReadable,
   createWorkspaceFileRouter,
-  globalWorkspaceAllowedRoots,
-  isGlobalWorkspaceFilesAgentId,
-  projectWorkspaceFromFilesId,
   resolveWorkspaceRoot,
-  sendWorkspaceFileError,
+  executeWorkspaceFileRequest,
 };

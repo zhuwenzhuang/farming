@@ -12,35 +12,11 @@ interface WorkspaceRootRegistry {
   resolve(rootId: unknown): WorkspaceRoot;
 }
 
-interface Request {
-  body: unknown;
-  query: Record<string, unknown>;
-}
-
-interface Response {
-  json(value: unknown): Response;
-  status(status: number): Response;
-}
-
-type RouteHandler = (request: Request, response: Response) => unknown;
-
-interface Router {
-  get(path: string, handler: RouteHandler): unknown;
-  post(path: string, handler: RouteHandler): unknown;
-  use(handler: RouteHandler): unknown;
-}
-
-interface ExpressModule {
-  Router(): Router;
-  json(options: { limit: string }): RouteHandler;
-}
-
 interface LanguageServerClient {
   capability(options?: { force?: boolean }): Promise<unknown>;
   request(body: unknown): Promise<unknown>;
 }
 
-const express = require('express') as ExpressModule;
 const REJECTED_LANGUAGE_SERVER_LOCATION = Symbol('rejected-language-server-location');
 const SUPPORTED_METHODS = new Set([
   'hover',
@@ -63,14 +39,6 @@ const SUPPORTED_METHODS = new Set([
 
 function recordValue(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' ? value as Record<string, unknown> : {};
-}
-
-function sendError(res: Response, error: unknown): void {
-  const value = recordValue(error);
-  res.status(Number(value.status) || 500).json({
-    error: String(value.message || 'Language Server request failed'),
-    code: String(value.code || 'LANGUAGE_SERVER_INTERNAL_ERROR'),
-  });
 }
 
 function resolveFile(root: WorkspaceRoot, filePath: unknown): string {
@@ -159,48 +127,44 @@ function sanitizeLanguageServerResult(rootPath: string, value: unknown): unknown
   return sanitized === REJECTED_LANGUAGE_SERVER_LOCATION ? null : sanitized;
 }
 
-function createLanguageServerRouter(client: LanguageServerClient, roots: WorkspaceRootRegistry): Router {
-  const router = express.Router();
-  router.use(express.json({ limit: '1mb' }));
-
-  router.get('/capability', async (req, res) => {
-    try {
-      const force = String(req.query.refresh || '') === '1';
-      res.json(await client.capability({ force }));
-    } catch (error) {
-      sendError(res, error);
-    }
-  });
-
-  router.post('/request', async (req, res) => {
-    try {
-      const body = recordValue(req.body);
-      const method = String(body.method || '');
-      if (!SUPPORTED_METHODS.has(method)) {
-        return res.status(400).json({ error: 'Unsupported Language Server method', code: 'LANGUAGE_SERVER_METHOD_UNSUPPORTED' });
-      }
-      const root = roots.resolve(body.rootId);
-      const payload: Record<string, unknown> = {
-        method,
-        workspace: pathToFileURL(root.canonicalPath).toString(),
-      };
-      if (body.filePath !== undefined) {
-        payload.uri = pathToFileURL(resolveFile(root, body.filePath)).toString();
-      }
-      for (const key of ['position', 'range', 'query', 'itemId']) {
-        if (body[key] !== undefined) payload[key] = body[key];
-      }
-      const response = recordValue(await client.request(payload));
-      res.json({
-        ...response,
-        result: sanitizeLanguageServerResult(root.canonicalPath, response.result),
-      });
-    } catch (error) {
-      sendError(res, error);
-    }
-  });
-
-  return router;
+async function executeLanguageServerCapability(
+  client: LanguageServerClient,
+  force = false,
+): Promise<unknown> {
+  return client.capability({ force });
 }
 
-export { createLanguageServerRouter, sanitizeLanguageServerResult };
+async function executeLanguageServerRequest(
+  client: LanguageServerClient,
+  roots: WorkspaceRootRegistry,
+  bodyValue: unknown,
+): Promise<{ result: unknown; supported: boolean }> {
+  const body = recordValue(bodyValue);
+  const method = String(body.method || '');
+  if (!SUPPORTED_METHODS.has(method)) {
+    const error = new Error('Unsupported Language Server method') as Error & { code?: string; status?: number };
+    error.status = 400;
+    error.code = 'LANGUAGE_SERVER_METHOD_UNSUPPORTED';
+    throw error;
+  }
+  const root = roots.resolve(body.rootId);
+  const payload: Record<string, unknown> = {
+    method,
+    workspace: pathToFileURL(root.canonicalPath).toString(),
+  };
+  if (body.filePath !== undefined) payload.uri = pathToFileURL(resolveFile(root, body.filePath)).toString();
+  for (const key of ['position', 'range', 'query', 'itemId']) {
+    if (body[key] !== undefined) payload[key] = body[key];
+  }
+  const response = recordValue(await client.request(payload));
+  return {
+    result: sanitizeLanguageServerResult(root.canonicalPath, response.result),
+    supported: response.supported !== false,
+  };
+}
+
+export {
+  executeLanguageServerCapability,
+  executeLanguageServerRequest,
+  sanitizeLanguageServerResult,
+};

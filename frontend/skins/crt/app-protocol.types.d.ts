@@ -211,7 +211,7 @@ interface CrtProtocolAgentCommandClientMessage extends CrtProtocolRecord {
 
 interface CrtProtocolWatchWorkspaceFilesClientMessage extends CrtProtocolRecord {
   type: 'watch-workspace-files';
-  agentId: string;
+  rootId: string;
   paths: string[];
 }
 

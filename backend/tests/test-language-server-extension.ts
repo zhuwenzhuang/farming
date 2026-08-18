@@ -1,13 +1,11 @@
 import assert from 'node:assert';
-import express from 'express';
 import fs from 'node:fs';
-import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const {
-  createLanguageServerRouter,
+  executeLanguageServerRequest,
   sanitizeLanguageServerResult,
 } = require('../../extensions/language-server/backend/language-server-router.cjs');
 const {
@@ -82,42 +80,28 @@ async function run() {
     );
 
     let requestedPayload: Record<string, unknown> | null = null;
-    const app = express();
-    app.use('/language-server', createLanguageServerRouter({
+    const client = {
       capability: async () => ({}),
       request: async (payload: Record<string, unknown>) => {
         requestedPayload = payload;
         return { result: null };
       },
-    }, {
+    };
+    const roots = {
       resolve: () => ({ canonicalPath: workspace, kind: 'project', rootId: 'root-project' }),
-    }));
-    const server = http.createServer(app);
-    await new Promise<void>((resolve, reject) => {
-      server.once('error', reject);
-      server.listen(0, '127.0.0.1', resolve);
+    };
+    await executeLanguageServerRequest(client, roots, {
+      rootId: 'root-project', method: 'definition', filePath: '..foo/src/legal.ts',
     });
-    try {
-      const address = server.address();
-      if (!address || typeof address === 'string') throw new Error('Language Server test did not bind a TCP port');
-      const endpoint = `http://127.0.0.1:${address.port}/language-server/request`;
-      const legalResponse = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ rootId: 'root-project', method: 'definition', filePath: '..foo/src/legal.ts' }),
-      });
-      assert.strictEqual(legalResponse.status, 200);
-      assert.strictEqual(requestedPayload?.uri, pathToFileURL(dotDotNameSourceFile).toString());
+    assert.strictEqual(requestedPayload?.uri, pathToFileURL(dotDotNameSourceFile).toString());
 
-      const escapeResponse = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ rootId: 'root-project', method: 'definition', filePath: '..foo/escape.ts' }),
-      });
-      assert.strictEqual(escapeResponse.status, 403, 'a symlink through ..foo must not escape the Project');
-    } finally {
-      await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
-    }
+    await assert.rejects(
+      executeLanguageServerRequest(client, roots, {
+        rootId: 'root-project', method: 'definition', filePath: '..foo/escape.ts',
+      }),
+      (error: Error & { status?: number }) => error.status === 403,
+      'a symlink through ..foo must not escape the Project',
+    );
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

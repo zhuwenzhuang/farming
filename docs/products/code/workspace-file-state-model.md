@@ -17,7 +17,7 @@ browser-side latest-intent admission required by its product model.
 Four owners compose the file path:
 
 1. **Workspace access** performs bounded tree, read, write, watch, and Git
-   requests. HTTP responses and watch events do not own editor state.
+   requests. Transport results and watch events do not own editor state.
 2. **Workspace file models** own resolved snapshots, working copies, one
    pending resolve per resource, and bounded retention of recently used clean
    models. The model key is the canonical workspace plus normalized path.
@@ -167,8 +167,9 @@ filesystem invalidation that cannot be read remains a visible file error.
 Tests derive from the transitions above and cover at least:
 
 - single click, double click, and same-file click/double-click overlap;
-- rapid random switching across more files than the browser per-origin
-  connection limit while the Language Server is slow or unavailable;
+- rapid random switching across enough files and directories to saturate the
+  shared Workspace transport's background lane while the Language Server is
+  slow or unavailable;
 - slow old file followed by a fast new file, including across Projects;
 - pinned-tab selection without preview demotion;
 - an Agent list collapsed by the user staying collapsed across file opens and

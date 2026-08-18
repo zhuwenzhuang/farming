@@ -1,0 +1,177 @@
+const assert = require('assert');
+const {
+  createWebSocketWorkspaceRequestHandlers,
+} = require('../websocket-workspace-request-handlers.cjs') as typeof import('../websocket-workspace-request-handlers.cjs');
+
+interface Deferred<Value> {
+  promise: Promise<Value>;
+  resolve(value: Value): void;
+}
+
+interface TestClient {
+  accessMode: 'owner';
+  bufferedAmount: number;
+  messages: Array<Record<string, unknown>>;
+  readyState: number;
+  send(body: string): void;
+}
+
+const OPEN = 1;
+
+function deferred<Value>(): Deferred<Value> {
+  let resolve!: (value: Value) => void;
+  const promise = new Promise<Value>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
+function client(): TestClient {
+  return {
+    accessMode: 'owner',
+    bufferedAmount: 0,
+    messages: [],
+    readyState: OPEN,
+    send(body) { this.messages.push(JSON.parse(body)); },
+  };
+}
+
+async function flush(): Promise<void> {
+  await new Promise(resolve => setImmediate(resolve));
+}
+
+async function run(): Promise<void> {
+  const pending = new Map<string, Deferred<unknown>>();
+  const started: string[] = [];
+  const aborted: string[] = [];
+  const handlers = createWebSocketWorkspaceRequestHandlers<TestClient>({
+    openState: OPEN,
+    maxMessageBytes: 1024,
+    async executeWorkspace(request, accessMode, signal) {
+      assert.strictEqual(accessMode, 'owner');
+      const key = `${request.operation}:${'rootId' in request ? request.rootId : request.previewId}`;
+      started.push(key);
+      signal.addEventListener('abort', () => aborted.push(key), { once: true });
+      const gate = pending.get(key);
+      return gate ? gate.promise : { key };
+    },
+    async executeLanguageServer(request) {
+      return { result: { operation: request.operation }, supported: true };
+    },
+    error(error) {
+      return { code: 'TEST', message: error instanceof Error ? error.message : 'failed' };
+    },
+  });
+
+  {
+    const socket = client();
+    handlers.workspaceRequest(socket, {
+      type: 'workspace-request',
+      requestId: 'read-1',
+      request: { operation: 'read-file', rootId: 'root-a', path: 'a.ts' },
+    });
+    await flush();
+    assert.deepStrictEqual(socket.messages, [{
+      type: 'workspace-result', requestId: 'read-1', ok: true, result: { key: 'read-file:root-a' },
+    }]);
+  }
+
+  {
+    const socket = client();
+    const gate = deferred<unknown>();
+    pending.set('read-file:root-duplicate', gate);
+    const message = {
+      type: 'workspace-request' as const,
+      requestId: 'same-id',
+      request: { operation: 'read-file' as const, rootId: 'root-duplicate', path: 'a.ts' },
+    };
+    handlers.workspaceRequest(socket, message);
+    handlers.workspaceRequest(socket, message);
+    assert.deepStrictEqual(socket.messages.at(-1), {
+      type: 'workspace-result', requestId: 'same-id', ok: false,
+      error: { code: 'CONFLICT', message: 'Workspace request ID is already in use', status: 409 },
+    });
+    handlers.cancel(socket, { type: 'workspace-cancel', requestId: 'same-id' });
+    gate.resolve({ ignored: true });
+    await flush();
+    assert(aborted.includes('read-file:root-duplicate'));
+    assert.strictEqual(socket.messages.length, 1, 'cancelled work must not publish a late result');
+    pending.delete('read-file:root-duplicate');
+  }
+
+  {
+    const socket = client();
+    const gates = Array.from({ length: 5 }, (_, index) => {
+      const gate = deferred<unknown>();
+      pending.set(`read-file:limit-${index}`, gate);
+      handlers.workspaceRequest(socket, {
+        type: 'workspace-request',
+        requestId: `limit-${index}`,
+        request: { operation: 'read-file', rootId: `limit-${index}`, path: 'a.ts' },
+      });
+      return gate;
+    });
+    assert.strictEqual(started.filter(key => key.startsWith('read-file:limit-')).length, 4);
+    gates[0].resolve({ index: 0 });
+    await flush();
+    assert.strictEqual(started.filter(key => key.startsWith('read-file:limit-')).length, 5);
+    gates.slice(1).forEach((gate, index) => gate.resolve({ index: index + 1 }));
+    await flush();
+    handlers.close(socket);
+    for (let index = 0; index < 5; index += 1) pending.delete(`read-file:limit-${index}`);
+  }
+
+  {
+    const socket = client();
+    socket.bufferedAmount = 512 * 1024;
+    handlers.workspaceRequest(socket, {
+      type: 'workspace-request',
+      requestId: 'backpressure',
+      request: { operation: 'search', rootId: 'root-a', query: 'needle' },
+    });
+    assert.deepStrictEqual(socket.messages.at(-1), {
+      type: 'workspace-result', requestId: 'backpressure', ok: false,
+      error: { code: 'BUSY', message: 'Workspace request queue is busy', status: 503 },
+    });
+  }
+
+  {
+    const socket = client();
+    handlers.languageServerRequest(socket, {
+      type: 'language-server-request',
+      requestId: 'language-1',
+      request: { operation: 'capability', rootId: 'root-a' },
+    });
+    await flush();
+    assert.deepStrictEqual(socket.messages.at(-1), {
+      type: 'language-server-result', requestId: 'language-1', ok: true,
+      result: { operation: 'capability' }, supported: true,
+    });
+  }
+
+  {
+    const oversizedHandlers = createWebSocketWorkspaceRequestHandlers<TestClient>({
+      openState: OPEN,
+      maxMessageBytes: 180,
+      async executeWorkspace() { return { content: 'x'.repeat(300) }; },
+      async executeLanguageServer() { return { result: null }; },
+      error() { return { code: 'TEST', message: 'failed' }; },
+    });
+    const socket = client();
+    oversizedHandlers.workspaceRequest(socket, {
+      type: 'workspace-request',
+      requestId: 'large',
+      request: { operation: 'read-file', rootId: 'root-a', path: 'large.txt' },
+    });
+    await flush();
+    assert.strictEqual(socket.messages.at(-1)?.ok, false);
+    assert.deepStrictEqual(socket.messages.at(-1)?.error, {
+      code: 'TOO_LARGE', message: 'Workspace result exceeds the inline WebSocket limit', status: 413,
+    });
+  }
+
+  console.log('WebSocket workspace request handlers passed');
+}
+
+run().catch((error: unknown) => {
+  console.error(error);
+  process.exit(1);
+});

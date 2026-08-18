@@ -1,4 +1,7 @@
-import { appPath } from '@/lib/base-path'
+import {
+  requestLanguageServerTransport,
+  WorkspaceTransportError,
+} from '@/lib/workspace-request-client'
 import type {
   LanguageServerCapability,
   LanguageServerRequest,
@@ -24,45 +27,31 @@ export class LanguageServerError extends Error {
   }
 }
 
-async function fetchWithTimeout(url: string, init?: RequestInit) {
-  const controller = new AbortController()
-  const externalSignal = init?.signal
-  let timedOut = false
-  const abortFromExternalSignal = () => controller.abort(externalSignal?.reason)
-  if (externalSignal?.aborted) abortFromExternalSignal()
-  else externalSignal?.addEventListener('abort', abortFromExternalSignal, { once: true })
-  const timeoutId = window.setTimeout(() => {
-    timedOut = true
-    controller.abort()
-  }, REQUEST_TIMEOUT_MS)
+async function transportRequest<T>(
+  request: Parameters<typeof requestLanguageServerTransport<T>>[0],
+  signal?: AbortSignal,
+) {
   try {
-    return await fetch(url, { ...init, signal: controller.signal })
+    return await requestLanguageServerTransport<T>(request, {
+      signal,
+      timeoutMs: REQUEST_TIMEOUT_MS,
+    })
   } catch (error) {
-    if (timedOut) {
-      throw new LanguageServerError(
-        'Language Server request timed out',
-        504,
-        'LANGUAGE_SERVER_REQUEST_TIMEOUT',
-      )
+    if (error instanceof WorkspaceTransportError) {
+      if (error.code === 'TIMEOUT') {
+        throw new LanguageServerError(error.message, 504, 'LANGUAGE_SERVER_REQUEST_TIMEOUT')
+      }
+      throw new LanguageServerError(error.message, error.status, error.code)
     }
     throw error
-  } finally {
-    window.clearTimeout(timeoutId)
-    externalSignal?.removeEventListener('abort', abortFromExternalSignal)
   }
 }
 
 export async function fetchLanguageServerCapability(refresh = false): Promise<LanguageServerCapability> {
-  const response = await fetchWithTimeout(appPath(`/api/language-server/capability${refresh ? '?refresh=1' : ''}`), {
-    headers: { Accept: 'application/json' },
-  })
-  const data = await response.json().catch(() => ({})) as LanguageServerCapability & { error?: string; code?: string }
-  if (!response.ok) throw new LanguageServerError(
-    data.error || 'Failed to read Language Server capability',
-    response.status,
-    data.code || 'LANGUAGE_SERVER_ERROR',
-  )
-  return data
+  return (await transportRequest<LanguageServerCapability>({
+    operation: 'capability',
+    force: refresh,
+  })).result
 }
 
 export async function requestLanguageServer<T>(request: LanguageServerRequest, options: { signal?: AbortSignal } = {}): Promise<T> {
@@ -73,20 +62,5 @@ export async function requestLanguageServerOutcome<T>(
   request: LanguageServerRequest,
   options: { signal?: AbortSignal } = {},
 ): Promise<{ result: T; supported: boolean }> {
-  const response = await fetchWithTimeout(appPath('/api/language-server/request'), {
-    method: 'POST',
-    signal: options.signal,
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(request),
-  })
-  const data = await response.json().catch(() => ({})) as { result?: T; supported?: boolean; error?: string; code?: string }
-  if (!response.ok) throw new LanguageServerError(
-    data.error || 'Language Server request failed',
-    response.status,
-    data.code || 'LANGUAGE_SERVER_ERROR',
-  )
-  return { result: data.result as T, supported: data.supported !== false }
+  return transportRequest<T>({ operation: 'request', ...request }, options.signal)
 }

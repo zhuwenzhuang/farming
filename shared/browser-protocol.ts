@@ -2,8 +2,9 @@ import { PROJECT_ATTENTION_SCORE_MAX as projectAttentionScoreMax } from './agent
 import { isAgentStateWire } from './agent-state-wire.js'
 import type { AgentStateWire } from './agent-state-wire.js'
 
-export const PROTOCOL_VERSION = 11
-export const MIN_PROTOCOL_VERSION = 11
+export const PROTOCOL_VERSION = 12
+export const MIN_PROTOCOL_VERSION = 12
+export const MAX_INLINE_WORKSPACE_MESSAGE_BYTES = 1024 * 1024
 export const PROJECT_ATTENTION_SCORE_MAX = projectAttentionScoreMax
 
 type ObjectMessage = Record<string, unknown>
@@ -108,13 +109,65 @@ export interface AgentScopedClientMessage<Type extends AgentScopedClientMessageT
 
 export interface UnwatchWorkspaceFilesMessage extends ExtensibleMessage {
   type: 'unwatch-workspace-files'
-  agentId?: string
+  rootId?: string
 }
 
 export interface WatchWorkspaceFilesMessage extends ExtensibleMessage {
   type: 'watch-workspace-files'
-  agentId: string
+  rootId: string
   paths: string[]
+}
+
+export type WorkspaceRequest =
+  | { operation: 'tree'; rootId: string; path?: string }
+  | { operation: 'read-file'; rootId: string; path: string; exactExternal?: boolean }
+  | { operation: 'create-preview'; rootId: string; path: string; exactExternal?: boolean }
+  | { operation: 'delete-preview'; previewId: string }
+  | { operation: 'save-file'; rootId: string; path: string; content: string; baseSha1: string; overwrite?: boolean }
+  | { operation: 'move-entry'; rootId: string; sourcePath: string; targetDirectory: string; expectedVersion?: string }
+  | { operation: 'create-entry'; rootId: string; parentPath: string; name: string; entryType: 'file' | 'directory' }
+  | { operation: 'rename-entry'; rootId: string; path: string; name: string; expectedVersion?: string }
+  | { operation: 'delete-entry'; rootId: string; path: string; expectedVersion?: string }
+  | { operation: 'search'; rootId: string; query: string; path?: string; includeIgnored?: boolean; limit?: number }
+  | { operation: 'blame'; rootId: string; path: string }
+  | { operation: 'blame-capability'; rootId: string; path: string }
+  | { operation: 'diff'; rootId: string; path: string }
+  | { operation: 'changes'; rootId: string; limit?: number }
+  | { operation: 'worktrees'; rootId: string }
+  | { operation: 'branches'; rootId: string }
+  | { operation: 'branch'; rootId: string }
+  | { operation: 'switch-branch'; rootId: string; branch: string; expectedBranch: string; expectedHead: string; operationId: string }
+  | { operation: 'history'; rootId: string; limit?: number; skip?: number; scope?: 'current' | 'all' }
+  | { operation: 'history-changes'; rootId: string; commit: string; parent?: string; limit?: number }
+  | { operation: 'line-changes'; rootId: string; path: string; lineNumber: number; mode: 'working' | 'previous' }
+
+export interface WorkspaceRequestMessage extends ExtensibleMessage {
+  type: 'workspace-request'
+  requestId: string
+  request: WorkspaceRequest
+}
+
+export interface WorkspaceCancelMessage extends ExtensibleMessage {
+  type: 'workspace-cancel'
+  requestId: string
+}
+
+export interface LanguageServerRequestPayload extends ObjectMessage {
+  operation: 'capability' | 'request'
+  rootId?: string
+  method?: string
+  filePath?: string
+  position?: unknown
+  range?: unknown
+  query?: string
+  itemId?: string
+  force?: boolean
+}
+
+export interface LanguageServerRequestMessage extends ExtensibleMessage {
+  type: 'language-server-request'
+  requestId: string
+  request: LanguageServerRequestPayload
 }
 
 export interface RestartMainAgentMessage extends ExtensibleMessage {
@@ -141,6 +194,9 @@ export type ClientMessage =
   | AgentScopedClientMessage<'interrupt-agent'>
   | AgentScopedClientMessage<'clear-terminal'>
   | WatchWorkspaceFilesMessage
+  | WorkspaceRequestMessage
+  | WorkspaceCancelMessage
+  | LanguageServerRequestMessage
   | AgentScopedClientMessage<'archive-agent'>
   | UnwatchWorkspaceFilesMessage
   | RestartMainAgentMessage
@@ -151,6 +207,32 @@ export interface ProtocolServerHelloMessage extends ExtensibleMessage {
   protocolVersion: number
   minProtocolVersion: number
   accessMode?: 'owner' | 'read-only'
+  maxInlineWorkspaceMessageBytes?: number
+}
+
+export interface WorkspaceProtocolError extends ObjectMessage {
+  code: string
+  message: string
+  status?: number
+  details?: unknown
+  uncertain?: boolean
+}
+
+export interface WorkspaceResultMessage extends ExtensibleMessage {
+  type: 'workspace-result'
+  requestId: string
+  ok: boolean
+  result?: unknown
+  error?: WorkspaceProtocolError
+}
+
+export interface LanguageServerResultMessage extends ExtensibleMessage {
+  type: 'language-server-result'
+  requestId: string
+  ok: boolean
+  result?: unknown
+  supported?: boolean
+  error?: WorkspaceProtocolError
 }
 
 export interface BusinessHealthResultMessage extends ExtensibleMessage {
@@ -308,14 +390,14 @@ export interface AgentReadMessage extends ExtensibleMessage {
 
 export interface WorkspaceFileWatchMessage extends ExtensibleMessage {
   type: 'workspace-file-watch'
-  agentId: string
+  rootId: string
   paths: string[]
   watching: boolean
 }
 
 export interface WorkspaceFileEventMessage extends ExtensibleMessage {
   type: 'workspace-file-event'
-  event: ObjectMessage & { agentId: string }
+  event: ObjectMessage & { rootId: string }
 }
 
 export interface LanguageServerRefreshMessage extends ExtensibleMessage {
@@ -378,6 +460,8 @@ export type ServerMessage =
   | AgentReadMessage
   | WorkspaceFileWatchMessage
   | WorkspaceFileEventMessage
+  | WorkspaceResultMessage
+  | LanguageServerResultMessage
   | LanguageServerRefreshMessage
   | BrowserResourceSnapshotMessage
   | BrowserResourceUpdateMessage
@@ -411,6 +495,8 @@ const SERVER_MESSAGE_TYPES: ReadonlySet<ServerMessage['type']> = new Set([
   'agent-read',
   'workspace-file-watch',
   'workspace-file-event',
+  'workspace-result',
+  'language-server-result',
   'language-server-refresh',
   'browser-resource-snapshot',
   'browser-resource-updated',
@@ -464,6 +550,128 @@ function finiteNullableField(value: ObjectMessage, name: string): boolean {
 
 function optionalField(value: ObjectMessage, name: string, validate: () => boolean): boolean {
   return value[name] === undefined || validate()
+}
+
+function boundedStringField(value: ObjectMessage, name: string, maxLength: number, optional = false): boolean {
+  if (optional && value[name] === undefined) return true
+  return typeof value[name] === 'string' && String(value[name]).length <= maxLength
+}
+
+function optionalBooleanField(value: ObjectMessage, name: string): boolean {
+  return value[name] === undefined || typeof value[name] === 'boolean'
+}
+
+function optionalNonNegativeIntegerField(value: ObjectMessage, name: string): boolean {
+  return value[name] === undefined || revisionField(value, name)
+}
+
+function workspaceRequest(value: unknown): value is WorkspaceRequest {
+  if (!objectMessage(value) || typeof value.operation !== 'string') return false
+  const rootPath = () => boundedStringField(value, 'rootId', 4096)
+    && boundedStringField(value, 'path', 4096)
+  const expectedVersion = () => boundedStringField(value, 'expectedVersion', 256, true)
+  switch (value.operation) {
+    case 'tree':
+      return boundedStringField(value, 'rootId', 4096) && boundedStringField(value, 'path', 4096, true)
+    case 'read-file':
+    case 'create-preview':
+      return rootPath() && optionalBooleanField(value, 'exactExternal')
+    case 'delete-preview':
+      return boundedStringField(value, 'previewId', 256)
+    case 'save-file':
+      return rootPath()
+        && boundedStringField(value, 'content', MAX_INLINE_WORKSPACE_MESSAGE_BYTES)
+        && boundedStringField(value, 'baseSha1', 256)
+        && optionalBooleanField(value, 'overwrite')
+    case 'move-entry':
+      return boundedStringField(value, 'rootId', 4096)
+        && boundedStringField(value, 'sourcePath', 4096)
+        && boundedStringField(value, 'targetDirectory', 4096)
+        && expectedVersion()
+    case 'create-entry':
+      return boundedStringField(value, 'rootId', 4096)
+        && boundedStringField(value, 'parentPath', 4096)
+        && boundedStringField(value, 'name', 1024)
+        && (value.entryType === 'file' || value.entryType === 'directory')
+    case 'rename-entry':
+      return rootPath() && boundedStringField(value, 'name', 1024) && expectedVersion()
+    case 'delete-entry':
+      return rootPath() && expectedVersion()
+    case 'search':
+      return boundedStringField(value, 'rootId', 4096)
+        && boundedStringField(value, 'query', 4096)
+        && boundedStringField(value, 'path', 4096, true)
+        && optionalBooleanField(value, 'includeIgnored')
+        && optionalNonNegativeIntegerField(value, 'limit')
+    case 'blame':
+    case 'blame-capability':
+    case 'diff':
+      return rootPath()
+    case 'changes':
+      return boundedStringField(value, 'rootId', 4096) && optionalNonNegativeIntegerField(value, 'limit')
+    case 'worktrees':
+    case 'branches':
+    case 'branch':
+      return boundedStringField(value, 'rootId', 4096)
+    case 'switch-branch':
+      return boundedStringField(value, 'rootId', 4096)
+        && boundedStringField(value, 'branch', 1024)
+        && boundedStringField(value, 'expectedBranch', 1024)
+        && boundedStringField(value, 'expectedHead', 64)
+        && boundedStringField(value, 'operationId', 160)
+    case 'history':
+      return boundedStringField(value, 'rootId', 4096)
+        && optionalNonNegativeIntegerField(value, 'limit')
+        && optionalNonNegativeIntegerField(value, 'skip')
+        && (value.scope === undefined || value.scope === 'current' || value.scope === 'all')
+    case 'history-changes':
+      return boundedStringField(value, 'rootId', 4096)
+        && boundedStringField(value, 'commit', 128)
+        && boundedStringField(value, 'parent', 128, true)
+        && optionalNonNegativeIntegerField(value, 'limit')
+    case 'line-changes':
+      return rootPath()
+        && revisionField(value, 'lineNumber')
+        && Number(value.lineNumber) > 0
+        && (value.mode === 'working' || value.mode === 'previous')
+    default:
+      return false
+  }
+}
+
+const LANGUAGE_SERVER_METHODS = new Set([
+  'hover', 'definition', 'references', 'implementation', 'documentHighlights',
+  'semanticTokens', 'inlayHints', 'documentSymbols', 'workspaceSymbols',
+  'prepareCallHierarchy', 'incomingCalls', 'outgoingCalls', 'prepareTypeHierarchy',
+  'supertypes', 'subtypes', 'diagnostics',
+])
+
+function languageServerRequest(value: unknown): value is LanguageServerRequestPayload {
+  if (!objectMessage(value)) return false
+  if (value.operation === 'capability') return optionalBooleanField(value, 'force')
+  return value.operation === 'request'
+    && boundedStringField(value, 'rootId', 4096)
+    && typeof value.method === 'string'
+    && LANGUAGE_SERVER_METHODS.has(value.method)
+    && boundedStringField(value, 'filePath', 4096, true)
+    && boundedStringField(value, 'query', 4096, true)
+    && boundedStringField(value, 'itemId', 4096, true)
+    && optionalField(value, 'position', () => objectMessage(value.position))
+    && optionalField(value, 'range', () => objectMessage(value.range))
+}
+
+function serializedMessageWithinWorkspaceLimit(value: unknown): boolean {
+  const serialized = JSON.stringify(value)
+  const bytes = encodeURIComponent(serialized).replace(/%[0-9A-F]{2}/gi, 'x').length
+  return bytes <= MAX_INLINE_WORKSPACE_MESSAGE_BYTES
+}
+
+function workspaceProtocolError(value: unknown): boolean {
+  return objectMessage(value)
+    && boundedStringField(value, 'code', 128)
+    && boundedStringField(value, 'message', 4096)
+    && optionalField(value, 'status', () => revisionField(value, 'status'))
+    && optionalBooleanField(value, 'uncertain')
 }
 
 function stateSnapshotPage(value: ObjectMessage, agentCount: number): boolean {
@@ -687,19 +895,32 @@ export function validateClientMessage(value: unknown): ValidationResult<ClientMe
             && value.agentId.length > 0))
       break
     case 'resize-agent': valid = stringField(value, 'agentId') && finiteField(value, 'cols') && finiteField(value, 'rows'); break
-    case 'unwatch-workspace-files': valid = stringField(value, 'agentId', true); break
+    case 'unwatch-workspace-files': valid = stringField(value, 'rootId', true); break
     case 'restart-main-agent': valid = stringField(value, 'command'); break
     case 'state-resync':
       valid = stringField(value, 'generation', true)
         && optionalField(value, 'afterSequence', () => revisionField(value, 'afterSequence'))
       break
     case 'watch-workspace-files':
-      valid = stringField(value, 'agentId')
+      valid = stringField(value, 'rootId')
         && Array.isArray(value.paths)
         && value.paths.length > 0
         && value.paths.length <= 256
         && value.paths.every(filePath => typeof filePath === 'string' && filePath.length > 0 && filePath.length <= 4096)
         && new Set(value.paths).size === value.paths.length
+      break
+    case 'workspace-request':
+      valid = stringField(value, 'requestId')
+        && workspaceRequest(value.request)
+        && serializedMessageWithinWorkspaceLimit(value)
+      break
+    case 'workspace-cancel':
+      valid = stringField(value, 'requestId')
+      break
+    case 'language-server-request':
+      valid = stringField(value, 'requestId')
+        && languageServerRequest(value.request)
+        && serializedMessageWithinWorkspaceLimit(value)
       break
     case 'interrupt-agent':
     case 'clear-terminal':
@@ -725,7 +946,11 @@ export function validateServerMessage(value: unknown): ValidationResult<ServerMe
   }
   let valid = true
   switch (value.type) {
-    case 'protocol-hello': valid = Number.isInteger(value.protocolVersion) && Number.isInteger(value.minProtocolVersion); break
+    case 'protocol-hello':
+      valid = Number.isInteger(value.protocolVersion)
+        && Number.isInteger(value.minProtocolVersion)
+        && optionalNonNegativeIntegerField(value, 'maxInlineWorkspaceMessageBytes')
+      break
     case 'business-health-result':
       valid = stringField(value, 'requestId')
         && stringField(value, 'serverEpoch')
@@ -762,12 +987,29 @@ export function validateServerMessage(value: unknown): ValidationResult<ServerMe
     case 'acp-session-revision': valid = objectMessage(value.session) && stringField(value.session, 'agentId') && Number.isInteger(value.session.revision) && typeof value.session.revision === 'number' && value.session.revision >= 0 && stringField(value.session, 'updatedAt'); break
     case 'agent-read': valid = agentReadState(value.read); break
     case 'workspace-file-watch':
-      valid = stringField(value, 'agentId')
+      valid = stringField(value, 'rootId')
         && Array.isArray(value.paths)
         && value.paths.every(filePath => typeof filePath === 'string')
         && typeof value.watching === 'boolean'
       break
-    case 'workspace-file-event': valid = objectMessage(value.event) && stringField(value.event, 'agentId'); break
+    case 'workspace-file-event': valid = objectMessage(value.event) && stringField(value.event, 'rootId'); break
+    case 'workspace-result':
+      valid = stringField(value, 'requestId')
+        && typeof value.ok === 'boolean'
+        && (value.ok
+          ? Object.prototype.hasOwnProperty.call(value, 'result') && value.error === undefined
+          : workspaceProtocolError(value.error) && value.result === undefined)
+        && serializedMessageWithinWorkspaceLimit(value)
+      break
+    case 'language-server-result':
+      valid = stringField(value, 'requestId')
+        && typeof value.ok === 'boolean'
+        && optionalField(value, 'supported', () => typeof value.supported === 'boolean')
+        && (value.ok
+          ? Object.prototype.hasOwnProperty.call(value, 'result') && value.error === undefined
+          : workspaceProtocolError(value.error) && value.result === undefined)
+        && serializedMessageWithinWorkspaceLimit(value)
+      break
     case 'language-server-refresh':
       valid = stringField(value, 'serverEpoch')
         && String(value.serverEpoch).length > 0

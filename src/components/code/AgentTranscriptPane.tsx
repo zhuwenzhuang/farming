@@ -55,6 +55,7 @@ import {
   createWorkspaceHtmlPreview,
   deleteWorkspaceHtmlPreview,
   fetchWorkspaceFile,
+  fetchWorkspaceGitWorktrees,
   rawWorkspaceFileUrl,
   workspaceHtmlPreviewUrl,
 } from '@/lib/workspace-files'
@@ -178,6 +179,7 @@ const EMPTY_SUBAGENT_STATES: AgentTranscriptSubagentState[] = []
 
 export interface AgentTranscriptPaneProps {
   agentId: string
+  workspaceRootId?: string
   readingIdentity?: string
   workspaceRoot?: string
   active: boolean
@@ -3057,6 +3059,7 @@ function transcriptTurnResetKey(turn: AgentTranscriptTurn) {
 
 export function AgentTranscriptPane({
   agentId,
+  workspaceRootId,
   readingIdentity,
   workspaceRoot,
   active,
@@ -3774,11 +3777,11 @@ export function AgentTranscriptPane({
   useEffect(() => {
     if (!active || !workspaceRoot) return undefined
     let cancelled = false
-    void fetch(appPath(`/api/files/worktrees?agentId=${encodeURIComponent(agentId)}`))
-      .then(response => response.ok ? response.json() : null)
+    const controller = new AbortController()
+    void fetchWorkspaceGitWorktrees(workspaceRootId || agentId, { signal: controller.signal })
       .then(async value => {
         if (cancelled) return
-        if (value?.worktrees?.isGitRepo !== true) {
+        if (value?.isGitRepo !== true) {
           setGitDiffState({ owner: gitDiffOwner, target: unavailableTranscriptGitDiffTarget })
           return
         }
@@ -3794,8 +3797,11 @@ export function AgentTranscriptPane({
         if (!cancelled) setGitDiffState({ owner: gitDiffOwner, target })
       })
       .catch(() => {})
-    return () => { cancelled = true }
-  }, [active, agentId, gitDiffOwner, gitDiffRefreshKey, workspaceRoot])
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
+  }, [active, agentId, gitDiffOwner, gitDiffRefreshKey, workspaceRoot, workspaceRootId])
   const handleLoadProcessItemDetail = useCallback(async (itemId: string) => {
     const response = await fetch(appPath(
       `/api/agents/${encodeURIComponent(agentId)}/acp-tool-details/${encodeURIComponent(itemId)}`,

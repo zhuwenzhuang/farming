@@ -22,6 +22,7 @@ interface WorkspaceFileModelEntry {
 
 interface PendingWorkspaceFileResolve {
   controller: AbortController
+  filePath: string
   promise: Promise<WorkspaceFile>
   rootId: string
   timeout: ReturnType<typeof setTimeout>
@@ -146,7 +147,7 @@ export class WorkspaceFileModelManager {
           this.pendingResolves.delete(key)
         }
       })
-      pending = { controller, promise, rootId, timeout }
+      pending = { controller, filePath, promise, rootId, timeout }
       this.pendingResolves.set(key, pending)
     }
 
@@ -196,6 +197,20 @@ export class WorkspaceFileModelManager {
     }
     for (const [key, pending] of this.pendingResolves) {
       if (pending.rootId !== rootId) continue
+      pending.controller.abort()
+      clearTimeout(pending.timeout)
+      this.pendingResolves.delete(key)
+    }
+  }
+
+  invalidateFile(rootId: string, filePath: string) {
+    for (const [key, entry] of this.entries) {
+      if (entry.rootId !== rootId || entry.file.path !== filePath) continue
+      this.entries.delete(key)
+      this.watchReadyRevalidationKeys.delete(key)
+    }
+    for (const [key, pending] of this.pendingResolves) {
+      if (pending.rootId !== rootId || pending.filePath !== filePath) continue
       pending.controller.abort()
       clearTimeout(pending.timeout)
       this.pendingResolves.delete(key)

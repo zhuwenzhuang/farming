@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import type { WebSocket as PlaywrightWebSocket } from '@playwright/test'
 import {
   expect,
   openFarming,
@@ -56,11 +57,42 @@ test('survives seeded cold and warm human Project Files interactions', {
   const operations: Array<Record<string, unknown>> = []
   const reads = new Map<string, number>()
   const failedResponses: string[] = []
+  const forbiddenControlHttp: string[] = []
+  const workspaceRequestPaths = new Map<string, string>()
+  const observeWorkspaceSocket = (socket: PlaywrightWebSocket) => {
+    socket.on('framesent', ({ payload }) => {
+      try {
+        const message = JSON.parse(String(payload)) as {
+          type?: string
+          requestId?: string
+          request?: { operation?: string; path?: string }
+        }
+        if (message.type !== 'workspace-request' || message.request?.operation !== 'read-file') return
+        const filePath = message.request.path
+        if (!message.requestId || !filePath) return
+        workspaceRequestPaths.set(message.requestId, filePath)
+        reads.set(filePath, (reads.get(filePath) ?? 0) + 1)
+      } catch {
+        // Non-JSON extension frames are outside this transport assertion.
+      }
+    })
+    socket.on('framereceived', ({ payload }) => {
+      try {
+        const message = JSON.parse(String(payload)) as { type?: string; requestId?: string; ok?: boolean; error?: unknown }
+        if (message.type !== 'workspace-result' || message.ok !== false || !message.requestId) return
+        const filePath = workspaceRequestPaths.get(message.requestId)
+        failedResponses.push(`workspace-result ${filePath || message.requestId}: ${JSON.stringify(message.error)}`)
+      } catch {
+        // Non-JSON extension frames are outside this transport assertion.
+      }
+    })
+  }
+  page.on('websocket', observeWorkspaceSocket)
   page.on('request', request => {
     const url = new URL(request.url())
-    if (!url.pathname.endsWith('/api/files/file')) return
-    const filePath = url.searchParams.get('path')
-    if (filePath) reads.set(filePath, (reads.get(filePath) ?? 0) + 1)
+    if (/\/api\/(?:files\/(?:tree|search|diff|changes|branch(?:es)?|switch-branch|worktrees|history|line-changes|blame)|language-server)/.test(url.pathname)) {
+      forbiddenControlHttp.push(request.url())
+    }
   })
   page.on('response', response => {
     const url = new URL(response.url())
@@ -220,7 +252,9 @@ test('survives seeded cold and warm human Project Files interactions', {
       }
     }
     await expect(editor.getByRole('tab', { selected: true })).toHaveAttribute('title', coldOrder.at(-1)!)
-    await expect.poll(() => filePaths.map(filePath => reads.get(filePath) ?? 0)).toEqual(filePaths.map(() => 1))
+    await expect.poll(() => filePaths.filter(filePath => (reads.get(filePath) ?? 0) > 1)).toEqual([])
+    await expect.poll(() => filePaths.filter(filePath => (reads.get(filePath) ?? 0) === 1).length).toBeGreaterThanOrEqual(filePaths.length - 1)
+    const coldReadCounts = Object.fromEntries(filePaths.map(filePath => [filePath, reads.get(filePath) ?? 0]))
     await expect(page.getByTestId('code-file-editor-alert')).toHaveCount(0)
 
     const pinnedTabs = coldOrder.slice(0, 2).map(filePath => editor.locator(`.code-file-editor-tab[title="${filePath}"]`))
@@ -245,12 +279,14 @@ test('survives seeded cold and warm human Project Files interactions', {
     }
     const finalPath = coldOrder[0]
     await humanClick(finalPath, 1)
+    expect(Object.fromEntries(filePaths.map(filePath => [filePath, reads.get(filePath) ?? 0]))).toEqual(coldReadCounts)
     await expect(editor.getByRole('tab', { selected: true })).toHaveAttribute('title', finalPath)
     await expect(editor.locator(`.code-file-editor-tab[title="${finalPath}"]`)).not.toHaveAttribute('data-preview', 'true')
     await expect(files.locator('[data-testid="code-file-row"].selected[data-file-type="file"]')).toHaveCount(1)
     await expect(page.getByTestId('code-file-editor-alert')).toHaveCount(0)
     await expect(agentVisibility).toHaveAttribute('data-collapsed', 'true')
     expect(failedResponses).toEqual([])
+    expect(forbiddenControlHttp).toEqual([])
 
     const viewport = files.locator('.code-file-tree-viewport')
     await viewport.hover()
@@ -276,6 +312,7 @@ test('survives seeded cold and warm human Project Files interactions', {
         operations,
         reads: Object.fromEntries(reads),
         failedResponses,
+        forbiddenControlHttp,
       }, null, 2)),
       contentType: 'application/json',
     })

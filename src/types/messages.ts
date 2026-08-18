@@ -1,7 +1,20 @@
 import type { Agent, AgentTerminalStatus, AppState, CodexTerminalProfile, RuntimeObservation, SystemStats, TerminalPreviewSnapshot } from './agent'
 import type {
+  LanguageServerRequestMessage,
+  LanguageServerResultMessage,
   StateDeltaMessage as AgentStateDeltaMessage,
   StateMessage as AgentStateMessage,
+  WorkspaceCancelMessage,
+  WorkspaceRequestMessage,
+  WorkspaceResultMessage,
+} from '../../shared/browser-protocol'
+export type {
+  LanguageServerRequestMessage,
+  LanguageServerResultMessage,
+  WorkspaceCancelMessage,
+  WorkspaceRequest,
+  WorkspaceRequestMessage,
+  WorkspaceResultMessage,
 } from '../../shared/browser-protocol'
 import type {
   BrowserResource,
@@ -134,13 +147,13 @@ export interface StateResyncMessage {
 
 export interface WatchWorkspaceFilesMessage {
   type: 'watch-workspace-files'
-  agentId: string
+  rootId: string
   paths: string[]
 }
 
 export interface UnwatchWorkspaceFilesMessage {
   type: 'unwatch-workspace-files'
-  agentId?: string
+  rootId?: string
 }
 
 export type ClientMessage =
@@ -156,6 +169,9 @@ export type ClientMessage =
   | RestartMainAgentMessage
   | WatchWorkspaceFilesMessage
   | UnwatchWorkspaceFilesMessage
+  | WorkspaceRequestMessage
+  | WorkspaceCancelMessage
+  | LanguageServerRequestMessage
   | StateResyncMessage
 
 // ---- Server → Client messages ----
@@ -165,6 +181,7 @@ export interface ProtocolServerHelloMessage {
   protocolVersion: number
   minProtocolVersion: number
   accessMode?: 'owner' | 'read-only'
+  maxInlineWorkspaceMessageBytes?: number
 }
 
 export interface ProtocolErrorMessage {
@@ -328,7 +345,7 @@ export interface SessionPreviewMessage {
 
 export interface WorkspaceFileWatchMessage {
   type: 'workspace-file-watch'
-  agentId: string
+  rootId: string
   paths: string[]
   watching: boolean
 }
@@ -336,7 +353,7 @@ export interface WorkspaceFileWatchMessage {
 export interface WorkspaceFileEventMessage {
   type: 'workspace-file-event'
   event: {
-    agentId: string
+    rootId: string
     type: 'add' | 'change' | 'unlink' | 'addDir' | 'unlinkDir' | 'error'
     path?: string
     message?: string
@@ -403,6 +420,8 @@ export type ServerMessage =
   | AgentReadMessage
   | WorkspaceFileWatchMessage
   | WorkspaceFileEventMessage
+  | WorkspaceResultMessage
+  | LanguageServerResultMessage
   | LanguageServerRefreshMessage
   | BrowserResourceSnapshotMessage
   | BrowserResourceUpdateMessage

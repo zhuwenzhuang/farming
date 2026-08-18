@@ -37,7 +37,8 @@
     { "file": "backend/tests/test-terminal-style-ownership.ts", "category": "architecture", "reason": "Terminal selectors must remain in one appearance-neutral style owner and consume semantic color roles.", "owner": "Code UI", "baselineCount": 1 },
     { "file": "backend/tests/test-transcript-style-ownership.ts", "category": "architecture", "reason": "Transcript selectors must remain in one appearance-neutral style owner and consume semantic color roles.", "owner": "Code UI", "baselineCount": 1 },
     { "file": "backend/tests/test-usage-style-ownership.ts", "category": "architecture", "reason": "Usage geometry and theme-token ownership are stylesheet boundaries.", "owner": "Code UI", "baselineCount": 1 },
-    { "file": "tests/quality-gate-wiring.test.ts", "category": "package", "reason": "Quality-gate command and CI wiring are build infrastructure contracts.", "owner": "Test infrastructure", "baselineCount": 3 }
+    { "file": "tests/quality-gate-wiring.test.ts", "category": "package", "reason": "Quality-gate command and CI wiring are build infrastructure contracts.", "owner": "Test infrastructure", "baselineCount": 3 },
+    { "file": "tests/workspace-transport-boundary.test.ts", "category": "architecture", "reason": "Workspace control and data-plane endpoint ownership is a transport architecture boundary.", "owner": "Workspace Files", "baselineCount": 2 }
   ],
   "legacyDebt": []
 }

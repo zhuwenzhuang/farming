@@ -75,18 +75,46 @@ test('automatically refreshes every open file viewer while preserving dirty draf
   let watchedPaths: string[] = []
   const watchedBurstPaths = new Set<string>()
   const redundantWatchReadyReads = new Set<string>()
-  page.on('websocket', socket => recordWorkspaceWatchReady(socket, paths => {
-    watchedPaths = paths
-    paths.forEach(filePath => {
-      if (burstPathSet.has(filePath)) watchedBurstPaths.add(filePath)
+  let trackBurstRefresh = false
+  let activeRefreshReads = 0
+  let maxActiveRefreshReads = 0
+  let completedRefreshReads = 0
+  const activeBurstRequests = new Set<string>()
+  page.on('websocket', socket => {
+    recordWorkspaceWatchReady(socket, paths => {
+      watchedPaths = paths
+      paths.forEach(filePath => {
+        if (burstPathSet.has(filePath)) watchedBurstPaths.add(filePath)
+      })
     })
-  }))
-  page.on('response', response => {
-    if (response.request().method() !== 'GET' || !response.ok()) return
-    const requestUrl = new URL(response.url())
-    if (!requestUrl.pathname.endsWith('/api/files/file')) return
-    const filePath = requestUrl.searchParams.get('path') || ''
-    if (watchedBurstPaths.has(filePath)) redundantWatchReadyReads.add(filePath)
+    socket.on('framesent', ({ payload }) => {
+      try {
+        const message = JSON.parse(String(payload)) as {
+          type?: string
+          requestId?: string
+          request?: { operation?: string; path?: string }
+        }
+        if (message.type !== 'workspace-request' || message.request?.operation !== 'read-file') return
+        const filePath = message.request.path || ''
+        if (watchedBurstPaths.has(filePath) && !trackBurstRefresh) redundantWatchReadyReads.add(filePath)
+        if (!trackBurstRefresh || !burstPathSet.has(filePath) || !message.requestId) return
+        activeBurstRequests.add(message.requestId)
+        activeRefreshReads += 1
+        maxActiveRefreshReads = Math.max(maxActiveRefreshReads, activeRefreshReads)
+      } catch {
+        // Ignore terminal and other non-JSON websocket frames.
+      }
+    })
+    socket.on('framereceived', ({ payload }) => {
+      try {
+        const message = JSON.parse(String(payload)) as { type?: string; requestId?: string }
+        if (message.type !== 'workspace-result' || !message.requestId || !activeBurstRequests.delete(message.requestId)) return
+        activeRefreshReads -= 1
+        completedRefreshReads += 1
+      } catch {
+        // Ignore terminal and other non-JSON websocket frames.
+      }
+    })
   })
   await openFarming(page)
 
@@ -147,27 +175,7 @@ test('automatically refreshes every open file viewer while preserving dirty draf
   for (const filePath of burstPaths) await openProjectFile(page, 'file-auto-refresh', filePath)
   await expect.poll(() => watchedPaths).toEqual(expectedBurstWatchPaths)
   expect([...redundantWatchReadyReads]).toEqual([])
-  let activeRefreshReads = 0
-  let maxActiveRefreshReads = 0
-  let completedRefreshReads = 0
-  await page.route('**/api/files/file?*', async route => {
-    const requestUrl = new URL(route.request().url())
-    const filePath = requestUrl.searchParams.get('path') || ''
-    if (route.request().method() !== 'GET' || !burstPathSet.has(filePath)) {
-      await route.continue()
-      return
-    }
-    activeRefreshReads += 1
-    maxActiveRefreshReads = Math.max(maxActiveRefreshReads, activeRefreshReads)
-    try {
-      const response = await route.fetch()
-      await new Promise(resolve => setTimeout(resolve, 100))
-      await route.fulfill({ response })
-      completedRefreshReads += 1
-    } finally {
-      activeRefreshReads -= 1
-    }
-  })
+  trackBurstRefresh = true
   burstPaths.forEach(filePath => fs.writeFileSync(path.join(workspace, filePath), 'after\n'))
   await expect.poll(() => completedRefreshReads).toBe(burstPaths.length)
   expect(maxActiveRefreshReads).toBeGreaterThan(1)

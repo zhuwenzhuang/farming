@@ -1,4 +1,7 @@
-export { createLanguageServerRouter } from './language-server-router.cjs';
+export {
+  executeLanguageServerCapability,
+  executeLanguageServerRequest,
+} from './language-server-router.cjs';
 export { LanguageServerService } from './language-server-service.cjs';
 export {
   ManagedLanguageServerManager,

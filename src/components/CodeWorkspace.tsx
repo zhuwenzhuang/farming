@@ -619,7 +619,7 @@ export function CodeWorkspace({
   const retainedWorkspaceFileModels = workspaceOpenFiles.retainedModelFiles
   const openWorkspaceFileWatchTargets = useMemo(() => {
     const pathsByRoot = new Map<string, Set<string>>()
-    openWorkspaceFiles.forEach(file => {
+    retainedWorkspaceFileModels.forEach(file => {
       if (
         isGlobalWorkspaceFilesAgentId(file.agentId)
         || file.file.external
@@ -632,7 +632,7 @@ export function CodeWorkspace({
     return JSON.stringify(Array.from(pathsByRoot.entries())
       .map(([rootId, paths]) => [rootId, Array.from(paths).sort()] as const)
       .sort(([left], [right]) => left.localeCompare(right)))
-  }, [openWorkspaceFiles])
+  }, [retainedWorkspaceFileModels])
   const scheduleOpenFileRefresh = workspaceOpenFiles.scheduleOpenFileRefresh
   const consumeWatchReadyRevalidation = workspaceOpenFiles.consumeWatchReadyRevalidation
   const setOpenFileWatchError = workspaceOpenFiles.setWatchError

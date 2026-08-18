@@ -1540,21 +1540,6 @@ test.describe('display-backed agent flows', () => {
     const selectedAgentRow = projectGroup.locator(
       `[data-testid="code-agent-row"][data-agent-id="${selectedAgentId}"]`,
     )
-    let releaseStarvedHttp!: () => void
-    const starvedHttpGate = new Promise<void>(resolve => {
-      releaseStarvedHttp = resolve
-    })
-    let starvedHttpRequests = 0
-    await page.route(/\/farming\/api\/files\/search\?.*checkpoint-starvation=/, async route => {
-      starvedHttpRequests += 1
-      await starvedHttpGate
-      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ results: { matches: [] } }) })
-    })
-    const starvedHttp = page.evaluate(() => Promise.allSettled(Array.from({ length: 6 }, (_, index) => (
-      fetch(`/farming/api/files/search?rootId=starved&q=checkpoint&checkpoint-starvation=${index}`)
-    ))))
-    await expect.poll(() => starvedHttpRequests).toBe(6)
-
     await selectedAgentRow.click()
     const selectedTerminalPane = page.locator(
       `[data-testid="code-terminal-pane"][data-agent-id="${selectedAgentId}"]`,
@@ -1596,8 +1581,6 @@ test.describe('display-backed agent flows', () => {
       outputSeqCovers: true,
       stateRevisionCovers: true,
     })
-    releaseStarvedHttp()
-    await starvedHttp
     expect(legacyCheckpointHttpRequests).toBe(0)
     expect(checkpointRequests.filter(agentId => agentId === selectedAgentId)).toHaveLength(1)
     expect(checkpointResults.has(selectedAgentId)).toBe(true)

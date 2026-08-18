@@ -11,6 +11,7 @@ const { chromium } = require('@playwright/test');
 const tsxCliPath = require.resolve('tsx/cli');
 
 const repoRoot = path.resolve(__dirname, '..');
+const { rootIdForPath } = require(path.join(repoRoot, 'backend', 'workspace-root-registry.cjs'));
 const packageVersion = require(path.join(repoRoot, 'package.json')).version;
 const configuredScreenshotTmpRoot = process.env.FARMING_SCREENSHOT_TMP_ROOT
   || (process.platform === 'win32' ? os.tmpdir() : '/tmp');
@@ -811,7 +812,7 @@ async function captureLanguageServerDocumentationScreenshots(page, baseUrl) {
   ];
   const languageId = name => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
-  await page.route(`**${basePath}/api/language-server/capability**`, route => {
+  const languageServerCapability = () => {
     const languages = [
       ...availableLanguages.map(language => ({ ...language, status: 'available', projects: [] })),
       ...missingLanguageNames.map(language => ({
@@ -822,24 +823,21 @@ async function captureLanguageServerDocumentationScreenshots(page, baseUrl) {
         projects: projectConnected && language === 'TypeScript / JavaScript' ? [workspaceUri] : [],
       })),
     ];
-    return route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({
-        enabled: true,
-        status: projectConnected ? 'connected' : 'ready',
-        source: 'managed',
-        detail: projectConnected
-          ? '33 built-in language definitions · 1 active server · 1 project'
-          : '33 built-in language definitions · servers start on demand',
-        features: ['definition', 'references', 'implementation', 'callHierarchy', 'typeHierarchy', 'diagnostics'],
-        workspaces: projectConnected ? [workspaceUri] : [],
-        connections: projectConnected
-          ? [{ id: 'typescript', root: workspaceUri, workspace: workspaceUri }]
-          : [],
-        languages,
-      }),
-    });
-  });
+    return {
+      enabled: true,
+      status: projectConnected ? 'connected' : 'ready',
+      source: 'managed',
+      detail: projectConnected
+        ? '33 built-in language definitions · 1 active server · 1 project'
+        : '33 built-in language definitions · servers start on demand',
+      features: ['definition', 'references', 'implementation', 'callHierarchy', 'typeHierarchy', 'diagnostics'],
+      workspaces: projectConnected ? [workspaceUri] : [],
+      connections: projectConnected
+        ? [{ id: 'typescript', root: workspaceUri, workspace: workspaceUri }]
+        : [],
+      languages,
+    };
+  };
 
   const hierarchyItem = (id, name, detail, line) => ({
     id,
@@ -850,8 +848,31 @@ async function captureLanguageServerDocumentationScreenshots(page, baseUrl) {
     range: { start: { line, character: 0 }, end: { line, character: name.length } },
     selectionRange: { start: { line, character: 0 }, end: { line, character: name.length } },
   });
-  await page.route(`**${basePath}/api/language-server/request`, async route => {
-    const body = route.request().postDataJSON();
+  await page.routeWebSocket(/\/ws(?:\?|$)/, socket => {
+    const server = socket.connectToServer();
+    socket.onMessage(message => {
+      let envelope;
+      try {
+        envelope = JSON.parse(String(message));
+      } catch {
+        server.send(message);
+        return;
+      }
+      if (envelope.type !== 'language-server-request') {
+        server.send(message);
+        return;
+      }
+      const body = envelope.request || {};
+      if (body.operation === 'capability') {
+        socket.send(JSON.stringify({
+          type: 'language-server-result',
+          requestId: envelope.requestId,
+          ok: true,
+          result: languageServerCapability(),
+          supported: true,
+        }));
+        return;
+      }
     const result = body.method === 'prepareCallHierarchy'
       ? [hierarchyItem('publish-release', 'publishRelease', 'async function', 0)]
       : body.method === 'outgoingCalls' && body.itemId === 'publish-release'
@@ -865,12 +886,20 @@ async function captureLanguageServerDocumentationScreenshots(page, baseUrl) {
               { item: hierarchyItem('verify-screenshots', 'verifyScreenshots', 'async function', 15), ranges: [] },
             ]
           : [];
-    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ result }) });
+      socket.send(JSON.stringify({
+        type: 'language-server-result',
+        requestId: envelope.requestId,
+        ok: true,
+        result,
+        supported: true,
+      }));
+    });
   });
 
   await page.request.post(`${baseUrl}${basePath}/api/settings`, {
     data: { language: screenshotLocale === 'cn' ? 'zh' : 'en' },
   });
+  await page.reload({ waitUntil: 'domcontentloaded' });
   await ensureApp(page);
 
   if (requestedScreenshotFiles.size === 0
@@ -1107,15 +1136,10 @@ async function waitForBrowserPage(page, baseUrl, browserId, expectedTitle, expec
 }
 
 async function projectRootId(page) {
-  const response = await page.request.get(`${basePath}/api/files/roots`);
-  if (!response.ok()) throw new Error(`failed to read screenshot workspace roots: ${response.status()}`);
-  const body = await response.json();
   const canonicalWorkspace = fs.realpathSync(workspaceDir);
-  const root = Array.isArray(body.roots)
-    ? body.roots.find(candidate => candidate.canonicalPath === canonicalWorkspace)
-    : null;
-  if (!root?.rootId) throw new Error(`screenshot workspace root was not registered: ${canonicalWorkspace}`);
-  return root.rootId;
+  const rootId = rootIdForPath(canonicalWorkspace);
+  if (!rootId) throw new Error(`screenshot workspace root could not be identified: ${canonicalWorkspace}`);
+  return rootId;
 }
 
 function requestedScreenshotsComplete() {

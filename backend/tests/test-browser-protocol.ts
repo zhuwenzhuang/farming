@@ -35,8 +35,19 @@ const validClientMessages = {
   'focus-agent': { type: 'focus-agent', agentId: 'agent-1' },
   'resize-agent': { type: 'resize-agent', agentId: 'agent-1', cols: 80, rows: 24 },
   'clear-terminal': { type: 'clear-terminal', agentId: 'agent-1' },
-  'watch-workspace-files': { type: 'watch-workspace-files', agentId: 'agent-1', paths: ['src/App.tsx'] },
-  'unwatch-workspace-files': { type: 'unwatch-workspace-files', agentId: 'agent-1' },
+  'watch-workspace-files': { type: 'watch-workspace-files', rootId: 'root-1', paths: ['src/App.tsx'] },
+  'unwatch-workspace-files': { type: 'unwatch-workspace-files', rootId: 'root-1' },
+  'workspace-request': {
+    type: 'workspace-request',
+    requestId: 'workspace-1',
+    request: { operation: 'read-file', rootId: 'root-1', path: 'src/App.tsx' },
+  },
+  'workspace-cancel': { type: 'workspace-cancel', requestId: 'workspace-1' },
+  'language-server-request': {
+    type: 'language-server-request',
+    requestId: 'language-server-1',
+    request: { operation: 'request', rootId: 'root-1', method: 'hover', filePath: 'src/App.tsx' },
+  },
   'archive-agent': { type: 'archive-agent', agentId: 'agent-1' },
   'restart-main-agent': { type: 'restart-main-agent', command: 'codex' },
   'state-resync': { type: 'state-resync' },
@@ -77,10 +88,25 @@ assert.strictEqual(validateClientMessage({
 }).ok, false);
 assert.strictEqual(validateClientMessage({ type: 'resize-agent', agentId: 'a', cols: 80, rows: 24 }).ok, true);
 assert.strictEqual(validateClientMessage({ type: 'resize-agent', agentId: 'a', cols: '80', rows: 24 }).ok, false);
-assert.strictEqual(validateClientMessage({ type: 'watch-workspace-files', agentId: 'a', paths: ['src/App.tsx'] }).ok, true);
-assert.strictEqual(validateClientMessage({ type: 'watch-workspace-files', agentId: 'a' }).ok, false);
-assert.strictEqual(validateClientMessage({ type: 'watch-workspace-files', agentId: 'a', paths: [] }).ok, false);
-assert.strictEqual(validateClientMessage({ type: 'watch-workspace-files', agentId: 'a', paths: ['same.ts', 'same.ts'] }).ok, false);
+assert.strictEqual(validateClientMessage({ type: 'watch-workspace-files', rootId: 'a', paths: ['src/App.tsx'] }).ok, true);
+assert.strictEqual(validateClientMessage({ type: 'watch-workspace-files', rootId: 'a' }).ok, false);
+assert.strictEqual(validateClientMessage({ type: 'watch-workspace-files', rootId: 'a', paths: [] }).ok, false);
+assert.strictEqual(validateClientMessage({ type: 'watch-workspace-files', rootId: 'a', paths: ['same.ts', 'same.ts'] }).ok, false);
+assert.strictEqual(validateClientMessage({
+  type: 'workspace-request',
+  requestId: 'workspace-1',
+  request: { operation: 'tree', rootId: 'root-1' },
+}).ok, true);
+assert.strictEqual(validateClientMessage({
+  type: 'workspace-request',
+  requestId: 'workspace-1',
+  request: { operation: 'unknown', rootId: 'root-1' },
+}).ok, false);
+assert.strictEqual(validateClientMessage({
+  type: 'language-server-request',
+  requestId: 'language-server-1',
+  request: { operation: 'request', rootId: 'root-1', method: 'hover' },
+}).ok, true);
 assert.strictEqual(validateClientMessage({ type: 'composer-input', agentId: 'a', message: 'steer', requestId: 'request-1' }).ok, true);
 assert.strictEqual(validateClientMessage({ type: 'composer-input', agentId: 'a', message: 'steer', requestId: 'request-1', delivery: 'steer' }).ok, true);
 assert.strictEqual(validateClientMessage({ type: 'composer-input', agentId: 'a', message: 'steer', requestId: 'request-1', delivery: 'next' }).ok, false);
@@ -357,6 +383,32 @@ assert.strictEqual(validateServerMessage({
   kind: 'inlayHints',
   revision: 0,
 }).ok, false);
+assert.strictEqual(validateServerMessage({
+  type: 'workspace-result',
+  requestId: 'workspace-1',
+  ok: true,
+  result: { content: 'ready' },
+}).ok, true);
+assert.strictEqual(validateServerMessage({
+  type: 'workspace-result',
+  requestId: 'workspace-1',
+  ok: false,
+  error: { code: 'NOT_FOUND', message: 'file not found', status: 404 },
+}).ok, true);
+assert.strictEqual(validateServerMessage({
+  type: 'workspace-result',
+  requestId: 'workspace-1',
+  ok: false,
+  result: null,
+  error: { code: 'NOT_FOUND', message: 'file not found' },
+}).ok, false);
+assert.strictEqual(validateServerMessage({
+  type: 'language-server-result',
+  requestId: 'language-1',
+  ok: true,
+  supported: false,
+  result: null,
+}).ok, true);
 assert.strictEqual(validateServerMessage({
   type: 'browser-resource-snapshot',
   snapshot: { collectionRevision: 3, resources: [{ id: '', revision: 1, collectionRevision: 3 }] },

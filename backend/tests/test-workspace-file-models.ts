@@ -1151,6 +1151,16 @@ function run() {
   });
   assert.strictEqual(loadingDirectoryRowState.directoryLoading, true);
   assert.strictEqual(loadingDirectoryRowState.chevronState, 'expanded');
+  const collapsedLoadingDirectoryRowState = workspaceFileTreeRowViewState({
+    editorDirtyFilePaths: new Set(),
+    editorExternalChangedFilePaths: new Set(),
+    item: directory('packages', { loading: true }),
+    isFocused: false,
+    isOpen: false,
+    isSelected: false,
+  });
+  assert.strictEqual(collapsedLoadingDirectoryRowState.directoryLoading, false);
+  assert(!collapsedLoadingDirectoryRowState.rowClasses.includes('loading'));
   const ignoredDirectoryRowState = workspaceFileTreeRowViewState({
     editorDirtyFilePaths: new Set(),
     editorExternalChangedFilePaths: new Set(),

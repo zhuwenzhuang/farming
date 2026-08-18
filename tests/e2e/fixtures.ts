@@ -6,6 +6,10 @@ import type {
   TerminalHostDiagnostics,
   TerminalSessionDiagnostics,
 } from '../../src/lib/terminal-session-diagnostics'
+import type {
+  LanguageServerRequestPayload,
+  WorkspaceProtocolError,
+} from '../../shared/browser-protocol'
 
 // macOS exposes the same temporary directory through both /var and /private/var.
 // Start with the canonical root so persisted project identities and live Agent
@@ -121,6 +125,60 @@ export interface TerminalCheckpointTestState {
   stateRevision: number | null
   cols: number | null
   rows: number | null
+}
+
+export type MockLanguageServerResult = {
+  result?: unknown
+  supported?: boolean
+  error?: WorkspaceProtocolError
+}
+
+export async function mockLanguageServerTransport(
+  page: Page,
+  handler: (request: LanguageServerRequestPayload) => MockLanguageServerResult | Promise<MockLanguageServerResult>,
+) {
+  await page.routeWebSocket(/\/farming\/ws(?:\?|$)/, socket => {
+    const server = socket.connectToServer()
+    socket.onMessage(async payload => {
+      let message: { type?: string; requestId?: string; request?: LanguageServerRequestPayload } | null = null
+      try {
+        message = JSON.parse(String(payload))
+      } catch {
+        // Non-JSON frames belong to another protocol and pass through unchanged.
+      }
+      if (message?.type !== 'language-server-request' || !message.requestId || !message.request) {
+        server.send(payload)
+        return
+      }
+      try {
+        const response = await handler(message.request)
+        socket.send(JSON.stringify(response.error ? {
+          type: 'language-server-result',
+          requestId: message.requestId,
+          ok: false,
+          error: response.error,
+        } : {
+          type: 'language-server-result',
+          requestId: message.requestId,
+          ok: true,
+          result: response.result,
+          supported: response.supported !== false,
+        }))
+      } catch (error) {
+        socket.send(JSON.stringify({
+          type: 'language-server-result',
+          requestId: message.requestId,
+          ok: false,
+          error: {
+            code: 'MOCK_LANGUAGE_SERVER_FAILURE',
+            message: error instanceof Error ? error.message : String(error),
+            status: 500,
+          },
+        }))
+      }
+    })
+    server.onMessage(payload => socket.send(payload))
+  })
 }
 
 let checkpointInterceptorSequence = 0

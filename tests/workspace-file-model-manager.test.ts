@@ -61,6 +61,26 @@ test('unwatchable retained entries keep the authoritative reopen path', async ()
   manager.dispose()
 })
 
+test('a watch event invalidates one retained model without discarding siblings', async () => {
+  const reads = new Map<string, number>()
+  const manager = new WorkspaceFileModelManager({
+    readFile: async (_rootId, filePath) => {
+      reads.set(filePath, (reads.get(filePath) ?? 0) + 1)
+      return workspaceFile(filePath)
+    },
+  })
+
+  await manager.resolve('root', 'one.txt')
+  await manager.resolve('root', 'two.txt')
+  manager.invalidateFile('root', 'one.txt')
+  await manager.resolve('root', 'one.txt')
+  await manager.resolve('root', 'two.txt')
+
+  assert.equal(reads.get('one.txt'), 2)
+  assert.equal(reads.get('two.txt'), 1)
+  manager.dispose()
+})
+
 test('retained models do not cross workspace access owners for the same physical file', async () => {
   let reads = 0
   const manager = new WorkspaceFileModelManager({

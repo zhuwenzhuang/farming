@@ -224,7 +224,7 @@
     {
       "id": "CODE-PROJECT-FILES-HUMAN-STRESS",
       "surface": "ui",
-      "promise": "Seeded cold and warm multi-file interactions preserve latest intent, pinned tabs, single Explorer selection, bounded reads, and an error-free editor while users click, double-click, scroll, collapse, drag, and resize.",
+      "promise": "Seeded cold and warm multi-file interactions preserve latest intent, pinned tabs, single Explorer selection, watched retained-model reuse, shared-WebSocket control traffic, bounded reads, and an error-free editor while users click, double-click, scroll, collapse, drag, and resize.",
       "owner": "docs/products/code/workspace-file-state-model.md",
       "evidence": {
         "node": [

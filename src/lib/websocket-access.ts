@@ -10,6 +10,9 @@ const READ_ONLY_CLIENT_MESSAGE_TYPES = new Set<ClientMessage['type']>([
   'terminal-checkpoint-request',
   'unwatch-workspace-files',
   'watch-workspace-files',
+  'workspace-request',
+  'workspace-cancel',
+  'language-server-request',
 ])
 
 const READ_ONLY_SILENT_MESSAGE_TYPES = new Set<ClientMessage['type']>(['resize-agent'])

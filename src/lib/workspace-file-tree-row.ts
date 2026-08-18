@@ -71,7 +71,7 @@ export function workspaceFileTreeRowViewState({
 }: WorkspaceFileTreeRowViewStateOptions) {
   const isDirectory = item.type === 'directory'
   const active = activeFilePath === item.path
-  const directoryLoading = isDirectory && item.loading === true
+  const directoryLoading = isDirectory && isOpen && item.loading === true
   const fileOpening = !isDirectory && openFilePendingPath === item.path
   const editorDirty = !isDirectory && editorDirtyFilePaths.has(item.path)
   const editorExternalChanged = !isDirectory && editorExternalChangedFilePaths.has(item.path)

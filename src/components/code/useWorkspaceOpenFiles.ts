@@ -416,7 +416,11 @@ export function useWorkspaceOpenFiles() {
   ) => {
     if (!stateRef.current.files.some(openFile => (
       openFile.agentId === rootId && openFile.file.path === filePath
-    ))) return
+    ))) {
+      modelManagerRef.current?.invalidateFile(rootId, filePath)
+      setRetainedModelFiles(modelManagerRef.current?.retainedOpenFiles() ?? [])
+      return
+    }
     const requestKey = openFileAutoRefreshKey(rootId, filePath)
     const pendingTimer = autoRefreshTimersRef.current.get(requestKey)
     if (pendingTimer !== undefined) window.clearTimeout(pendingTimer)

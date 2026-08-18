@@ -11,7 +11,7 @@ interface WorkspaceFileWatchSubscription {
 
 interface WorkspaceFileWatchControllerOptions {
   openState: number;
-  resolveRoot(agentId: string): string;
+  resolveRoot(rootId: string): string;
   subscribe(
     root: string,
     paths: readonly string[],
@@ -38,8 +38,8 @@ function samePaths(left: readonly string[], right: readonly string[]): boolean {
 }
 
 interface WorkspaceFileWatchController<Client extends WorkspaceFileWatchClient = WorkspaceFileWatchClient> {
-  watch(client: Client, agentId: string, paths: readonly string[]): Promise<void>;
-  unwatch(client: Client, agentId?: string | null): void;
+  watch(client: Client, rootId: string, paths: readonly string[]): Promise<void>;
+  unwatch(client: Client, rootId?: string | null): void;
   close(client: Client): void;
 }
 
@@ -56,10 +56,10 @@ function createWorkspaceFileWatchController<Client extends WorkspaceFileWatchCli
 
   function isCurrentLease(
     client: Client,
-    agentId: string,
+    rootId: string,
     lease: WorkspaceFileWatchLease,
   ): boolean {
-    return !lease.cancelled && leasesByClient.get(client)?.get(agentId) === lease;
+    return !lease.cancelled && leasesByClient.get(client)?.get(rootId) === lease;
   }
 
   function closeLease(lease: WorkspaceFileWatchLease): void {
@@ -82,10 +82,10 @@ function createWorkspaceFileWatchController<Client extends WorkspaceFileWatchCli
     }
   }
 
-  function sendWatching(client: Client, agentId: string, paths: readonly string[]): void {
+  function sendWatching(client: Client, rootId: string, paths: readonly string[]): void {
     client.send(JSON.stringify({
       type: 'workspace-file-watch',
-      agentId,
+      rootId,
       paths,
       watching: true,
     }));
@@ -104,13 +104,13 @@ function createWorkspaceFileWatchController<Client extends WorkspaceFileWatchCli
 
   function unwatch(
     client: Client,
-    agentId: string | null = null,
+    rootId: string | null = null,
   ): void {
     const leases = leasesByClient.get(client);
     if (!leases) return;
 
-    const entries: Array<[string, WorkspaceFileWatchLease | undefined]> = agentId
-      ? [[agentId, leases.get(agentId)]]
+    const entries: Array<[string, WorkspaceFileWatchLease | undefined]> = rootId
+      ? [[rootId, leases.get(rootId)]]
       : Array.from(leases.entries());
 
     entries.forEach(([watchedAgentId, lease]) => {
@@ -121,10 +121,10 @@ function createWorkspaceFileWatchController<Client extends WorkspaceFileWatchCli
     releaseEmptyLeaseMap(client, leases);
   }
 
-  async function watch(client: Client, agentId: string, paths: readonly string[]): Promise<void> {
+  async function watch(client: Client, rootId: string, paths: readonly string[]): Promise<void> {
     try {
-      if (!agentId) {
-        sendErrorMessage(client, 'agentId is required');
+      if (!rootId) {
+        sendErrorMessage(client, 'rootId is required');
         return;
       }
       const normalizedPaths = Array.from(new Set(paths)).sort();
@@ -133,7 +133,7 @@ function createWorkspaceFileWatchController<Client extends WorkspaceFileWatchCli
         return;
       }
 
-      const existing = leasesByClient.get(client)?.get(agentId);
+      const existing = leasesByClient.get(client)?.get(rootId);
       if (existing) {
         if (!samePaths(existing.desiredPaths, normalizedPaths)) {
           existing.desiredPaths = normalizedPaths;
@@ -141,14 +141,14 @@ function createWorkspaceFileWatchController<Client extends WorkspaceFileWatchCli
         const requestedPaths = existing.desiredPaths;
         const update = existing.updateQueue.then(async () => {
           const subscription = await existing.ready;
-          if (!subscription || !isCurrentLease(client, agentId, existing)) return;
+          if (!subscription || !isCurrentLease(client, rootId, existing)) return;
           if (existing.desiredPaths !== requestedPaths) return;
           if (!samePaths(existing.appliedPaths, requestedPaths)) {
             await subscription.update(requestedPaths);
             existing.appliedPaths = requestedPaths;
           }
-          if (existing.desiredPaths === requestedPaths && isCurrentLease(client, agentId, existing) && isOpen(client)) {
-            sendWatching(client, agentId, existing.appliedPaths);
+          if (existing.desiredPaths === requestedPaths && isCurrentLease(client, rootId, existing) && isOpen(client)) {
+            sendWatching(client, rootId, existing.appliedPaths);
           }
         });
         existing.updateQueue = update.catch(() => {});
@@ -156,7 +156,7 @@ function createWorkspaceFileWatchController<Client extends WorkspaceFileWatchCli
         return;
       }
 
-      const root = options.resolveRoot(agentId);
+      const root = options.resolveRoot(rootId);
       let leases = leasesByClient.get(client);
       if (!leases) {
         leases = new Map();
@@ -173,37 +173,37 @@ function createWorkspaceFileWatchController<Client extends WorkspaceFileWatchCli
       };
       lease.ready = (async () => {
         const subscription = await options.subscribe(root, normalizedPaths, (event) => {
-          if (!isCurrentLease(client, agentId, lease) || !isOpen(client)) return;
+          if (!isCurrentLease(client, rootId, lease) || !isOpen(client)) return;
           client.send(JSON.stringify({
             type: 'workspace-file-event',
             event: {
-              agentId,
+              rootId,
               ...event,
             },
           }));
         });
         lease.subscription = subscription;
         lease.appliedPaths = normalizedPaths;
-        if (!isCurrentLease(client, agentId, lease) || !isOpen(client)) {
+        if (!isCurrentLease(client, rootId, lease) || !isOpen(client)) {
           closeLease(lease);
           return null;
         }
         return subscription;
       })();
-      leases.set(agentId, lease);
+      leases.set(rootId, lease);
 
       try {
         const subscription = await lease.ready;
         if (
           subscription
           && lease.desiredPaths === lease.appliedPaths
-          && isCurrentLease(client, agentId, lease)
+          && isCurrentLease(client, rootId, lease)
           && isOpen(client)
         ) {
-          sendWatching(client, agentId, lease.appliedPaths);
+          sendWatching(client, rootId, lease.appliedPaths);
         }
       } catch (error: unknown) {
-        if (leases.get(agentId) === lease) leases.delete(agentId);
+        if (leases.get(rootId) === lease) leases.delete(rootId);
         closeLease(lease);
         releaseEmptyLeaseMap(client, leases);
         throw error;

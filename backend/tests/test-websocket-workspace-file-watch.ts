@@ -55,11 +55,11 @@ function createHarness() {
   const cleanupErrors: unknown[] = [];
   const controller = createWorkspaceFileWatchController<TestClient>({
     openState: OPEN,
-    resolveRoot(agentId) {
-      if (!agentId) throw new WorkspaceFileError('agentId is required', 400);
-      if (agentId === 'known-error') throw new WorkspaceFileError('workspace not found', 404);
-      if (agentId === 'generic-error') throw new Error('sensitive root failure');
-      return `/workspace/${agentId}`;
+    resolveRoot(rootId) {
+      if (!rootId) throw new WorkspaceFileError('rootId is required', 400);
+      if (rootId === 'known-error') throw new WorkspaceFileError('workspace not found', 404);
+      if (rootId === 'generic-error') throw new Error('sensitive root failure');
+      return `/workspace/${rootId}`;
     },
     subscribe(root, paths, events) {
       const attempt: SubscriptionAttempt = {
@@ -113,7 +113,7 @@ async function run(): Promise<void> {
     assert.deepStrictEqual(attempts[0].updates, [['b.ts']]);
     assert.deepStrictEqual(
       socket.messages.filter(message => message.type === 'workspace-file-watch'),
-      [{ type: 'workspace-file-watch', agentId: 'agent-initial-update', paths: ['b.ts'], watching: true }],
+      [{ type: 'workspace-file-watch', rootId: 'agent-initial-update', paths: ['b.ts'], watching: true }],
       'an initial subscription must not acknowledge a newer desired path before the update applies',
     );
     controller.close(socket);
@@ -138,7 +138,7 @@ async function run(): Promise<void> {
     assert.deepStrictEqual(attempts[0].updates, [['b.ts'], ['b.ts']]);
     assert.deepStrictEqual(socket.messages.at(-1), {
       type: 'workspace-file-watch',
-      agentId: 'agent-update-retry',
+      rootId: 'agent-update-retry',
       paths: ['b.ts'],
       watching: true,
     });
@@ -159,7 +159,7 @@ async function run(): Promise<void> {
     await watching;
     assert.deepStrictEqual(socket.messages, [{
       type: 'workspace-file-watch',
-      agentId: 'agent-a',
+      rootId: 'agent-a',
       paths: ['src/index.ts'],
       watching: true,
     }]);
@@ -167,7 +167,7 @@ async function run(): Promise<void> {
     attempts[0].events({ type: 'change', path: 'src/index.ts' });
     assert.deepStrictEqual(socket.messages.at(-1), {
       type: 'workspace-file-event',
-      event: { agentId: 'agent-a', type: 'change', path: 'src/index.ts' },
+      event: { rootId: 'agent-a', type: 'change', path: 'src/index.ts' },
     });
 
     controller.unwatch(socket, 'agent-a');
@@ -327,7 +327,7 @@ async function run(): Promise<void> {
     assert.deepStrictEqual(socket.messages, [
       { type: 'error', message: 'workspace not found' },
       { type: 'error', message: 'failed to watch workspace files' },
-      { type: 'error', message: 'agentId is required' },
+      { type: 'error', message: 'rootId is required' },
       { type: 'error', message: 'at least one file path is required' },
     ]);
     socket.readyState = CLOSED;

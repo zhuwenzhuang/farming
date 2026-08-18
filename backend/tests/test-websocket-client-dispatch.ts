@@ -47,8 +47,15 @@ const validClientMessages = {
   'focus-agent': { type: 'focus-agent', agentId: 'agent-1' },
   'resize-agent': { type: 'resize-agent', agentId: 'agent-1', cols: 80, rows: 24 },
   'clear-terminal': { type: 'clear-terminal', agentId: 'agent-1' },
-  'watch-workspace-files': { type: 'watch-workspace-files', agentId: 'agent-1', paths: ['src/App.tsx'] },
+  'watch-workspace-files': { type: 'watch-workspace-files', rootId: 'root-1', paths: ['src/App.tsx'] },
   'unwatch-workspace-files': { type: 'unwatch-workspace-files', agentId: 'agent-1' },
+  'workspace-request': {
+    type: 'workspace-request', requestId: 'workspace-1', request: { operation: 'tree', rootId: 'root-1' },
+  },
+  'workspace-cancel': { type: 'workspace-cancel', requestId: 'workspace-1' },
+  'language-server-request': {
+    type: 'language-server-request', requestId: 'lsp-1', request: { operation: 'capability' },
+  },
   'archive-agent': { type: 'archive-agent', agentId: 'agent-1' },
   'restart-main-agent': { type: 'restart-main-agent', command: 'codex' },
   'state-resync': { type: 'state-resync' },
@@ -100,6 +107,9 @@ async function run(): Promise<void> {
     'clear-terminal': register('clear-terminal', record),
     'watch-workspace-files': register('watch-workspace-files', record),
     'unwatch-workspace-files': register('unwatch-workspace-files', record),
+    'workspace-request': register('workspace-request', record),
+    'workspace-cancel': register('workspace-cancel', record),
+    'language-server-request': register('language-server-request', record),
     'archive-agent': register('archive-agent', record),
     'restart-main-agent': register('restart-main-agent', (dispatchContext, message) => {
       record(dispatchContext, message);
