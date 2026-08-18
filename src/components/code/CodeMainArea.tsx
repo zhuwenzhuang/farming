@@ -8,6 +8,8 @@ import type {
   WorkspaceOpenFileTarget,
   WorkspaceOpenFileUpdater,
 } from '@/lib/workspace-open-files'
+import type { WorkspaceFileResolveOptions } from '@/lib/workspace-file-model-manager'
+import type { WorkspaceFile } from '@/lib/workspace-files'
 import type { WorkspaceNavigationFileInput } from '@/lib/workspace-navigation-history'
 import type { WorkspaceShareTarget } from '@/lib/workspace-share-target'
 import { isCompactViewport, isTouchInputViewport } from '@/lib/responsive-mode'
@@ -344,6 +346,11 @@ interface CodeMainAreaProps {
     target: WorkspaceOpenFileTarget,
     updater: WorkspaceOpenFileUpdater
   ) => OpenWorkspaceFile | null
+  onResolveWorkspaceFile: (
+    rootId: string,
+    filePath: string,
+    options?: WorkspaceFileResolveOptions,
+  ) => Promise<WorkspaceFile>
   onSelectOpenWorkspaceFile: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
   onOpenWorkspaceFilePath: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
   onCopyReadOnlyShareLink: (target: WorkspaceShareTarget | null, anchor: ShareNoticeAnchor) => Promise<void> | void
@@ -626,6 +633,7 @@ export function CodeMainArea({
   onRestoreArchivedAgent,
   onChangeWorkspaceFileDraft,
   onUpdateOpenWorkspaceFile,
+  onResolveWorkspaceFile,
   onSelectOpenWorkspaceFile,
   onOpenWorkspaceFilePath,
   onCopyReadOnlyShareLink,
@@ -1022,6 +1030,7 @@ export function CodeMainArea({
             retainedFiles={retainedWorkspaceFileModels}
             onChangeDraft={onChangeWorkspaceFileDraft}
             onUpdateOpenFile={onUpdateOpenWorkspaceFile}
+            onResolveFile={onResolveWorkspaceFile}
             onSelectOpenFile={onSelectOpenWorkspaceFile}
             onOpenFilePath={onOpenWorkspaceFilePath}
             onCopyReadOnlyShareLink={onCopyReadOnlyShareLink}

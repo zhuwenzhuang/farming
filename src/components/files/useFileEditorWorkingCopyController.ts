@@ -8,7 +8,9 @@ import {
   type WorkspaceOpenFileTarget,
   type WorkspaceOpenFileUpdater,
 } from '@/lib/workspace-open-files'
+import type { WorkspaceFileResolveOptions } from '@/lib/workspace-file-model-manager'
 import { fetchWorkspaceFile, saveWorkspaceFile, WorkspaceFileApiError } from '@/lib/workspace-files'
+import type { WorkspaceFile } from '@/lib/workspace-files'
 import { isWorkspaceWorkingCopyPreview } from '@/lib/workspace-working-copy'
 
 interface UseFileEditorWorkingCopyControllerOptions {
@@ -18,6 +20,11 @@ interface UseFileEditorWorkingCopyControllerOptions {
     target: WorkspaceOpenFileTarget,
     updater: WorkspaceOpenFileUpdater
   ) => OpenWorkspaceFile | null
+  resolveFile: (
+    rootId: string,
+    filePath: string,
+    options?: WorkspaceFileResolveOptions,
+  ) => Promise<WorkspaceFile>
 }
 
 let nextWorkspaceFileRequestId = 1
@@ -32,6 +39,7 @@ export function useFileEditorWorkingCopyController({
   openFile,
   readOnly,
   onUpdateOpenFile,
+  resolveFile,
 }: UseFileEditorWorkingCopyControllerOptions) {
   const saveOpenWorkspaceFile = useCallback(async (fileToSave: OpenWorkspaceFile, overwrite = false) => {
     if (isWorkspaceWorkingCopyPreview(fileToSave)) return true
@@ -112,7 +120,11 @@ export function useFileEditorWorkingCopyController({
     const requestedDraft = reloadingFile.draft
 
     try {
-      const file = await fetchWorkspaceFile(reloadingFile.agentId, reloadingFile.file.path, { exactExternal: reloadingFile.exactExternal })
+      const file = await resolveFile(reloadingFile.agentId, reloadingFile.file.path, {
+        exactExternal: reloadingFile.exactExternal,
+        reload: true,
+        workspaceRoot: reloadingFile.workspaceRoot,
+      })
       onUpdateOpenFile(requestTarget, currentFile => (
         completeWorkspaceOpenFileReload(currentFile, reloadRequestId, requestedDraft, file)
       ))
@@ -126,7 +138,7 @@ export function useFileEditorWorkingCopyController({
         )
       ))
     }
-  }, [onUpdateOpenFile, openFile])
+  }, [onUpdateOpenFile, openFile, resolveFile])
 
   return {
     saveOpenWorkspaceFile,

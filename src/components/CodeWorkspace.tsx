@@ -5648,6 +5648,7 @@ export function CodeWorkspace({
         onRestoreArchivedAgent={restoreArchivedAgent}
         onChangeWorkspaceFileDraft={updateOpenWorkspaceFileDraft}
         onUpdateOpenWorkspaceFile={updateOpenWorkspaceFile}
+        onResolveWorkspaceFile={workspaceOpenFiles.resolve}
         onSelectOpenWorkspaceFile={selectOpenWorkspaceFile}
         onOpenWorkspaceFilePath={openWorkspaceFilePath}
         onCopyReadOnlyShareLink={copyReadOnlyShareLink}

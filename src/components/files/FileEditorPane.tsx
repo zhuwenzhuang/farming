@@ -26,6 +26,8 @@ import type {
   WorkspaceOpenFileTarget,
   WorkspaceOpenFileUpdater,
 } from '@/lib/workspace-open-files'
+import type { WorkspaceFileResolveOptions } from '@/lib/workspace-file-model-manager'
+import type { WorkspaceFile } from '@/lib/workspace-files'
 import type { WorkspaceNavigationFileInput } from '@/lib/workspace-navigation-history'
 import {
   workspaceShareAbsolutePath,
@@ -60,6 +62,11 @@ interface FileEditorPaneProps {
     target: WorkspaceOpenFileTarget,
     updater: WorkspaceOpenFileUpdater
   ) => OpenWorkspaceFile | null
+  onResolveFile: (
+    rootId: string,
+    filePath: string,
+    options?: WorkspaceFileResolveOptions,
+  ) => Promise<WorkspaceFile>
   onSelectOpenFile: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
   onOpenFilePath: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
   onCopyReadOnlyShareLink: (target: WorkspaceShareTarget, anchor: ShareNoticeAnchor) => Promise<void> | void
@@ -150,6 +157,7 @@ export function FileEditorPane({
   retainedFiles,
   onChangeDraft,
   onUpdateOpenFile,
+  onResolveFile,
   onSelectOpenFile,
   onOpenFilePath,
   onCopyReadOnlyShareLink,
@@ -212,6 +220,7 @@ export function FileEditorPane({
     openFile,
     readOnly,
     onUpdateOpenFile,
+    resolveFile: onResolveFile,
   })
   const reloadFileAndPreview = useCallback(async () => {
     await reloadFile()

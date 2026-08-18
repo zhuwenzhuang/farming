@@ -45,6 +45,50 @@ test('watch readiness revalidates retained reads but not fresh authoritative rea
   manager.dispose()
 })
 
+test('concurrent watch and explicit reloads share one in-flight transport read', async () => {
+  let reads = 0
+  let releaseReload: (() => void) | null = null
+  const reloadGate = new Promise<void>(resolve => { releaseReload = resolve })
+  const manager = new WorkspaceFileModelManager({
+    readFile: async (_rootId, filePath) => {
+      reads += 1
+      if (reads > 1) await reloadGate
+      return workspaceFile(filePath, `read ${reads}\n`)
+    },
+  })
+  const options = { reload: true, workspaceRoot: '/repo' }
+
+  await manager.resolve('root', 'one.txt', { workspaceRoot: '/repo' })
+  const watchRefresh = manager.resolve('root', 'one.txt', options)
+  const explicitReload = manager.resolve('root', 'one.txt', options)
+  assert.equal(reads, 2)
+  releaseReload!()
+  await Promise.all([watchRefresh, explicitReload])
+  assert.equal(reads, 2)
+  manager.dispose()
+})
+
+test('concurrent reloads keep identical relative paths isolated by workspace root', async () => {
+  let reads = 0
+  let releaseReads: (() => void) | null = null
+  const readGate = new Promise<void>(resolve => { releaseReads = resolve })
+  const manager = new WorkspaceFileModelManager({
+    readFile: async (_rootId, filePath) => {
+      reads += 1
+      await readGate
+      return workspaceFile(filePath)
+    },
+  })
+
+  const first = manager.resolve('root', 'same.txt', { reload: true, workspaceRoot: '/one' })
+  const second = manager.resolve('root', 'same.txt', { reload: true, workspaceRoot: '/two' })
+  assert.equal(reads, 2)
+  releaseReads!()
+  await Promise.all([first, second])
+  assert.equal(reads, 2)
+  manager.dispose()
+})
+
 test('unwatchable retained entries keep the authoritative reopen path', async () => {
   let reads = 0
   const readFile: WorkspaceFileReader = async (_rootId, filePath) => {
