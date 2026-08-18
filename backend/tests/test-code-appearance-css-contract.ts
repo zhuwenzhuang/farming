@@ -43,6 +43,8 @@ const fixedArtworkPaletteRoles = new Set([
   '--pet-black-hole-gold-dark',
 ])
 const runtimeCodeRoles = new Set([
+  '--code-copy-toast-x',
+  '--code-copy-toast-y',
   '--code-pet-status-glass-filter',
   '--code-sidebar-width',
 ])

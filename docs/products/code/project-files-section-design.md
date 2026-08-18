@@ -94,6 +94,9 @@ cannot commit data or leave a loading state that blocks retry.
 Directory expansion is browser-local navigation state scoped to the workspace.
 Each accepted pointer or keyboard action changes the desired expansion state
 once; a later directory response cannot reopen a directory the user closed.
+Persisted expansion state does not start directory I/O while Files is collapsed.
+When Files becomes visible, missing restored directories hydrate with bounded
+concurrency; a workspace change or unmount aborts the obsolete loads.
 When the first expansion discovers a single-child directory chain, the Explorer
 may load and compact that chain, then transfers the same expansion intent to
 the final visible directory. This continuation is depth-bounded, detects

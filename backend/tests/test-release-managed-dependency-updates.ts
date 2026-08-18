@@ -66,6 +66,29 @@ async function run() {
     });
     assert.strictEqual(current.mismatches.length, 0);
     assert.strictEqual(current.reviews.length, 0);
+    assert.strictEqual(current.deferred.length, 0);
+
+    currentVersions.set('@agentclientprotocol/claude-agent-acp', '0.60.0');
+    const deferredClaude = await checker.inspectManagedReleaseDependencies(dependencies, {
+      fetchImpl: registryFetch,
+      registry: 'https://registry.test/',
+    });
+    assert.strictEqual(deferredClaude.mismatches.length, 0);
+    assert.deepStrictEqual(
+      deferredClaude.deferred.map(dependency => dependency.name),
+      ['@agentclientprotocol/claude-agent-acp'],
+    );
+
+    currentVersions.set('@openai/codex', '0.147.0');
+    const codexRuntimeUpdate = await checker.inspectManagedReleaseDependencies(dependencies, {
+      fetchImpl: registryFetch,
+      registry: 'https://registry.test/',
+    });
+    assert.deepStrictEqual(
+      codexRuntimeUpdate.mismatches.map(dependency => dependency.name),
+      ['@agentclientprotocol/claude-agent-acp', '@openai/codex'],
+    );
+    currentVersions.set('@openai/codex', '0.146.0');
 
     currentVersions.set('@agentclientprotocol/codex-acp', '1.1.14');
     currentVersions.set('pi-acp', '0.0.34');
@@ -76,7 +99,11 @@ async function run() {
     });
     assert.deepStrictEqual(
       outdated.mismatches.map(dependency => dependency.name),
-      ['@agentclientprotocol/codex-acp', 'pi-acp'],
+      [
+        '@agentclientprotocol/codex-acp',
+        '@agentclientprotocol/claude-agent-acp',
+        'pi-acp',
+      ],
     );
     assert.deepStrictEqual(
       outdated.reviews.map(dependency => dependency.name),

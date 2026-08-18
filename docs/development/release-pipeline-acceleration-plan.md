@@ -105,11 +105,15 @@ budget.
 
 Before the fan-out starts, release preflight queries the public npm registry for
 the `latest` versions of the pinned Codex and Claude ACP adapters, ACP SDK, and
-managed Codex runtime. It also checks the standalone Claude Agent SDK latest,
-while requiring the managed Claude runtime to match the exact SDK version owned
-by the current Claude ACP adapter. The standalone SDK result is informational
-until that adapter adopts it. A registry failure or any release-owned pin that
-differs from `latest` fails closed before artifact construction. A
+managed Codex runtime. Claude ACP updates are coupled to Codex maintenance: a
+new Claude ACP version is informational and does not block a release while both
+managed Codex pins remain current; when either managed Codex pin needs an update,
+Claude ACP must also be reviewed and updated to `latest` in the same maintenance
+change. The preflight also checks the standalone Claude Agent SDK latest, while
+requiring the managed Claude runtime to match the exact SDK version owned by the
+current Claude ACP adapter. The standalone SDK result is informational until
+that adapter adopts it. A registry failure or any pin required by this policy
+that differs from `latest` fails closed before artifact construction. A
 maintainer must review the upstream change, update every affected pin, reviewed
 patch and integrity hash, and rerun the required acceptance evidence; discovering
 a version does not by itself prove that the upgrade is compatible.

@@ -28,6 +28,7 @@ interface FileTreeRowProps {
   lastFocusedFilePathRef: MutableRefObject<string | null>
   locatedFilePath?: string | null
   node: NodeRendererProps<FileExplorerNode>['node']
+  selected: boolean
   openFilePendingPath?: string | null
   treeViewportRef: RefObject<HTMLDivElement | null>
   onCancelPendingFileFocus: () => void
@@ -35,6 +36,7 @@ interface FileTreeRowProps {
   onFocusFileTreeTarget: (item: FileExplorerNode | null) => void
   onOpenFileContextMenu: (x: number, y: number, item: FileExplorerNode | null) => void
   onOpenFilePath: (filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void>
+  onSelectFilePath: (filePath: string) => () => void
   onRememberFileOperationName: (name: string) => void
   onToggleDirectory: (path: string) => boolean
   onSubmitFileOperation: () => Promise<void>
@@ -52,6 +54,7 @@ export function FileTreeRow({
   lastFocusedFilePathRef,
   locatedFilePath,
   node,
+  selected,
   openFilePendingPath,
   treeViewportRef,
   onCancelPendingFileFocus,
@@ -59,6 +62,7 @@ export function FileTreeRow({
   onFocusFileTreeTarget,
   onOpenFileContextMenu,
   onOpenFilePath,
+  onSelectFilePath,
   onRememberFileOperationName,
   onToggleDirectory,
   onSubmitFileOperation,
@@ -73,7 +77,7 @@ export function FileTreeRow({
     item,
     isFocused: node.isFocused,
     isOpen: node.isOpen,
-    isSelected: node.isSelected,
+    isSelected: selected,
   })
   const {
     chevronState,
@@ -101,6 +105,7 @@ export function FileTreeRow({
     onFocusFileTreeTarget,
     onOpenFileContextMenu,
     onOpenFilePath,
+    onSelectFilePath,
     onToggleDirectory,
   })
 

@@ -74,6 +74,8 @@ Load 失效；旧 Workspace Generation 的响应不能提交数据，也不能�
 
 Directory Expansion 是按 Workspace 隔离的 Browser-local Navigation State。每次鼠标或键盘
 操作只改变一次期望展开状态；迟到 Directory Response 不能重新打开用户已经关闭的目录。
+Files 收起时，持久化的展开状态不能启动 Directory I/O。Files 重新可见后，缺失的已恢复目录
+以有界并发 Hydrate；Workspace 切换或组件卸载会取消已经失效的 Load。
 首次展开如果发现单子目录链，Explorer 可以继续加载并压缩该目录链，再把同一次展开意图
 迁移到最终可见目录。该过程必须限制最大深度、检测重复路径、不得自动穿过 Symbolic Link，
 并在遇到分叉、文件、空目录、加载失败、Workspace 切换或用户中途折叠时停止。

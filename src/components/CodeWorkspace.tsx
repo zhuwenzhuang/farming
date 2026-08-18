@@ -967,7 +967,7 @@ export function CodeWorkspace({
     } finally {
       await shareLink?.revokeUnusedTicket()
     }
-  }, [copy.copiedReadOnlyShareLink, copy.copyFailed, copy.shareLinkFailed])
+  }, [copy])
   const clearMobileShareLink = useCallback(() => {
     mobileShareRequestFenceRef.current.invalidate()
     setMobileShareUrl('')

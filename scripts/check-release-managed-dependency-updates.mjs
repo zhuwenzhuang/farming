@@ -57,7 +57,7 @@ export function readManagedReleaseDependencies(projectRoot) {
         packageJson.devDependencies?.['@agentclientprotocol/claude-agent-acp'],
         'Claude ACP version',
       ),
-      policy: 'latest',
+      policy: 'codex-coupled',
     },
     {
       name: 'pi-acp',
@@ -118,10 +118,21 @@ export async function inspectManagedReleaseDependencies(
       timeoutMs,
     }),
   })));
+  const codexUpdateRequired = results.some(result => (
+    result.name === '@agentclientprotocol/codex-acp' || result.name === '@openai/codex'
+  ) && result.current !== result.latest);
   return {
     results,
-    mismatches: results.filter(result => result.policy === 'latest' && result.current !== result.latest),
+    mismatches: results.filter(result => (
+      result.policy === 'latest'
+      || (result.policy === 'codex-coupled' && codexUpdateRequired)
+    ) && result.current !== result.latest),
     reviews: results.filter(result => result.policy === 'adapter' && result.current !== result.latest),
+    deferred: results.filter(result => (
+      result.policy === 'codex-coupled'
+      && !codexUpdateRequired
+      && result.current !== result.latest
+    )),
   };
 }
 
@@ -141,12 +152,19 @@ async function main() {
   const { registry } = parseArguments(process.argv.slice(2));
   const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const dependencies = readManagedReleaseDependencies(projectRoot);
-  const { results, mismatches, reviews } = await inspectManagedReleaseDependencies(dependencies, { registry });
+  const {
+    results,
+    mismatches,
+    reviews,
+    deferred,
+  } = await inspectManagedReleaseDependencies(dependencies, { registry });
   for (const result of results) {
     const marker = result.current === result.latest
       ? 'ok'
       : result.policy === 'adapter'
         ? 'adapter constrained'
+        : deferred.includes(result)
+          ? 'deferred until Codex update'
         : 'update available';
     console.log(`${marker}: ${result.name} current=${result.current} latest=${result.latest}`);
   }
@@ -162,7 +180,12 @@ async function main() {
       + 'its standalone npm latest is informational until the adapter adopts it.',
     );
   }
-  console.log('All managed Agent dependencies match their npm latest versions.');
+  if (deferred.length > 0) {
+    console.log(
+      'Claude ACP updates are intentionally deferred until a managed Codex dependency also needs an update.',
+    );
+  }
+  console.log('All managed Agent dependencies satisfy the release update policy.');
 }
 
 const invokedPath = process.argv[1] ? path.resolve(process.argv[1]) : '';

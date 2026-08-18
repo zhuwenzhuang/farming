@@ -24,6 +24,7 @@ interface UseFileTreeRowInteractionsOptions {
   onFocusFileTreeTarget: (item: WorkspaceFileTreeNode | null) => void
   onOpenFileContextMenu: (x: number, y: number, item: WorkspaceFileTreeNode | null) => void
   onOpenFilePath: (filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void>
+  onSelectFilePath: (filePath: string) => () => void
   onToggleDirectory: (path: string) => boolean
 }
 
@@ -37,6 +38,7 @@ export function useFileTreeRowInteractions({
   onFocusFileTreeTarget,
   onOpenFileContextMenu,
   onOpenFilePath,
+  onSelectFilePath,
   onToggleDirectory,
 }: UseFileTreeRowInteractionsOptions) {
   const focusTree = useCallback(() => {
@@ -127,26 +129,31 @@ export function useFileTreeRowInteractions({
       // focus the hidden tree target and steal Ctrl/Cmd shortcuts from Monaco.
       event.preventDefault()
       event.stopPropagation()
-      // Start the transport/model transition before react-arborist publishes
-      // its selection update. A large expanded tree can spend hundreds of
-      // milliseconds reconciling that external store; file reads must overlap
-      // the work instead of waiting behind it.
+      // Publish immediate row feedback through the path-scoped projection,
+      // then keep react-arborist's selection authoritative for keyboard,
+      // multi-select, and repeated-click intent semantics.
+      const reconcileTreeSelection = onSelectFilePath(item.path)
       const opening = onOpenFilePath(item.path, {
         transient: event.detail < 2,
         focusEditor: true,
       })
-      node.tree.select(node, { focus: false })
-      void opening
+      // Arborist still owns keyboard and multi-selection state. The shared
+      // reconciler waits until this open terminates and coalesces rapid file
+      // switches so only the final path pays the large-tree selection cost.
+      void opening.then(reconcileTreeSelection, reconcileTreeSelection)
       return
     }
 
     node.handleClick(event)
-    node.focus()
     focusTree()
-    if (event.shiftKey) {
+    if (event.metaKey || event.ctrlKey || event.shiftKey) {
+      // handleClick already owns additive/range selection. TreeApi.focus()
+      // selects a single node when selectionFollowsFocus is enabled, which
+      // would immediately collapse the multi-selection it just created.
       focusWithoutScrolling(event.currentTarget)
       return
     }
+    node.focus()
     onFocusFileTreeTarget(item)
   }, [
     focusTree,
@@ -156,6 +163,7 @@ export function useFileTreeRowInteractions({
     onCancelPendingFileFocus,
     onFocusFileTreeTarget,
     onOpenFilePath,
+    onSelectFilePath,
     onToggleDirectory,
   ])
 

@@ -162,6 +162,7 @@ export function ProjectFilesSection({
     treeData,
     openDirectoryPaths,
     visibleTreeRowCount,
+    hydrateRestoredDirectories,
     loadRootDirectory,
     ensureDirectoryLoaded,
     isDirectoryLoaded,
@@ -454,6 +455,11 @@ export function ProjectFilesSection({
   useEffect(() => {
     onFilesCollapsedChange?.(filesCollapsed)
   }, [filesCollapsed, onFilesCollapsedChange])
+
+  useEffect(() => {
+    if (filesCollapsed) return
+    hydrateRestoredDirectories()
+  }, [filesCollapsed, hydrateRestoredDirectories])
   useLayoutEffect(() => {
     const projectGroup = filesSectionRef.current?.closest<HTMLElement>('.code-project-group')
     if (!projectGroup) return

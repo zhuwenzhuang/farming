@@ -11,6 +11,7 @@ import {
 } from '@/components/code/workspace-view-state'
 
 const COMPACT_DIRECTORY_PRELOAD_MAX_DEPTH = 12
+const WORKSPACE_DIRECTORY_PRELOAD_CONCURRENCY = 4
 const WORKSPACE_DIRECTORY_REFRESH_CONCURRENCY = 6
 
 function parentDirectoryPath(directoryPath: string) {
@@ -81,7 +82,21 @@ export function useWorkspaceFileExplorer(agentId: string | null, workspaceKey = 
 
   const loadMissingDirectories = useCallback((directoryPaths: string[]) => {
     const missingDirectories = directoryPaths.filter(directoryPath => !directories[directoryPath])
-    return Promise.all(missingDirectories.map(directoryPath => loadDirectory(directoryPath)))
+    return (async () => {
+      const results = new Array<Awaited<ReturnType<typeof loadDirectory>>>(missingDirectories.length)
+      let nextPathIndex = 0
+      const workers = Array.from({
+        length: Math.min(WORKSPACE_DIRECTORY_PRELOAD_CONCURRENCY, missingDirectories.length),
+      }, async () => {
+        while (nextPathIndex < missingDirectories.length) {
+          const pathIndex = nextPathIndex
+          nextPathIndex += 1
+          results[pathIndex] = await loadDirectory(missingDirectories[pathIndex]!)
+        }
+      })
+      await Promise.all(workers)
+      return results
+    })()
   }, [directories, loadDirectory])
 
   const isDirectoryLoaded = useCallback((directoryPath: string) => {
@@ -219,7 +234,7 @@ export function useWorkspaceFileExplorer(agentId: string | null, workspaceKey = 
     setOpenDirectoryPaths(next)
   }, [normalizedWorkspaceKey])
 
-  useEffect(() => {
+  const hydrateRestoredDirectories = useCallback(() => {
     if (openDirectoryPaths.size === 0) return
     const hydrationKey = `${normalizedWorkspaceKey}:${Array.from(openDirectoryPaths).join('\n')}`
     if (restoredDirectoryHydrationKeyRef.current === hydrationKey) return
@@ -233,6 +248,7 @@ export function useWorkspaceFileExplorer(agentId: string | null, workspaceKey = 
     treeData,
     openDirectoryPaths,
     visibleTreeRowCount,
+    hydrateRestoredDirectories,
     loadRootDirectory,
     ensureDirectoryLoaded,
     isDirectoryLoaded,
@@ -245,6 +261,7 @@ export function useWorkspaceFileExplorer(agentId: string | null, workspaceKey = 
   }), [
     directories,
     ensureDirectoryLoaded,
+    hydrateRestoredDirectories,
     hydrateCompactDirectoryChains,
     isDirectoryOpen,
     isDirectoryLoaded,

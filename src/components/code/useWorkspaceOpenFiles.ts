@@ -203,6 +203,12 @@ export function useWorkspaceOpenFiles() {
     return stateRef.current
   }, [syncDraftBackups])
 
+  const commitSelection = useCallback((nextState: WorkspaceOpenFilesState) => {
+    stateRef.current = openFilesStateOnly(nextState)
+    setState(stateRef.current)
+    return stateRef.current
+  }, [])
+
   const resolve = useCallback((
     rootId: string,
     filePath: string,
@@ -271,8 +277,8 @@ export function useWorkspaceOpenFiles() {
   const select = useCallback((agentId: string, filePath: string, options?: WorkspaceOpenFileRequest) => {
     const nextState = selectWorkspaceOpenFile(stateRef.current, agentId, filePath, options)
     if (!nextState) return null
-    return commitState(nextState)
-  }, [commitState])
+    return commitSelection(nextState)
+  }, [commitSelection])
 
   const close = useCallback((targets: readonly WorkspaceOpenFileTarget[]) => {
     const result = closeWorkspaceOpenFiles(stateRef.current, targets)

@@ -674,11 +674,20 @@ test('keeps Project Files on workspace identity while its source Agent changes',
   fs.writeFileSync(path.join(projectDir, 'one.txt'), 'one\n')
   fs.writeFileSync(path.join(projectDir, 'two.txt'), 'two\n')
   const filesRequestRootIds: string[] = []
-  page.on('request', request => {
-    const url = new URL(request.url())
-    if (!url.pathname.startsWith('/farming/api/files/')) return
-    const rootId = url.searchParams.get('rootId')
-    if (rootId) filesRequestRootIds.push(rootId)
+  page.on('websocket', socket => {
+    socket.on('framesent', ({ payload }) => {
+      try {
+        const message = JSON.parse(String(payload)) as {
+          type?: string
+          request?: { rootId?: string }
+        }
+        if (message.type === 'workspace-request' && message.request?.rootId) {
+          filesRequestRootIds.push(message.request.rootId)
+        }
+      } catch {
+        // Ignore terminal and other non-JSON websocket frames.
+      }
+    })
   })
   const expectedFilesId = projectFilesWorkspaceId(projectDir)
 
