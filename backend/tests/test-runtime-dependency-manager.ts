@@ -348,11 +348,11 @@ async function run() {
   fs.mkdirSync(binDir);
   const env: NodeJS.ProcessEnv = {
     PATH: process.env.PATH,
-    FARMING_CODEX_BIN: writeVersionExecutable(binDir, 'codex', '0.147.0'),
+    FARMING_CODEX_BIN: writeVersionExecutable(binDir, 'codex', '0.148.0'),
     FARMING_CLAUDE_BIN: writeVersionExecutable(binDir, 'claude', '2.1.0'),
     FARMING_AGENT_BROWSER_BIN: writeVersionExecutable(binDir, 'agent-browser', '0.33.2'),
   };
-  const managedCodex = writeVersionExecutable(binDir, 'managed-codex', '0.147.0');
+  const managedCodex = writeVersionExecutable(binDir, 'managed-codex', '0.148.0');
   const managedClaude = writeVersionExecutable(binDir, 'managed-claude', '2.1.0');
   const managedAgentBrowser = writeVersionExecutable(binDir, 'managed-agent-browser', '0.33.2');
   const installRuntime = async (_configDir, definition) => {
@@ -618,7 +618,7 @@ async function run() {
   );
 
   const invalid = writeVersionExecutable(binDir, 'wrong-codex', '0.1.0');
-  assert.strictEqual((await verifyExecutable(invalid, '0.147.0')).valid, false);
+  assert.strictEqual((await verifyExecutable(invalid, '0.148.0')).valid, false);
   const ignoredSystemOverride = await prepareRuntimeDependencies({
     configDir: path.join(root, 'wrong'),
     env: {

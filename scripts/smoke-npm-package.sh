@@ -97,7 +97,7 @@ if grep -q '^npm warn allow-scripts' "${INSTALL_LOG}"; then
 fi
 PACKAGE_ROOT="${PREFIX}/lib/node_modules/farming-code"
 CODEX_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/codex-acp-1.4.0.mjs"
-CLAUDE_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/claude-agent-acp-0.69.0.mjs"
+CLAUDE_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/claude-agent-acp-0.70.0.mjs"
 PI_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/pi-acp-0.0.33.mjs"
 for packaged_ui_file in \
   frontend/agent-state-bridge.js \
@@ -248,7 +248,7 @@ const path = require('path');
 const [packageRoot, codexVendorEntry, claudeVendorEntry, piVendorEntry] = process.argv.slice(2);
 const sha256 = filePath => crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
 const expectedCodexVendor = 'a93b69a9e046cfbc3a6287de8aa101e1f2e60d883d7f4669a2e3d28dd67e92ab';
-const expectedClaudeVendor = '74f8e643be6d41178db5a5e16af4e9519631912123ca1cd0b5955e5e8d8064d9';
+const expectedClaudeVendor = '07b9e40041685597281f0fc150c0543b5f3d14ab5189843596c6a6a504c71418';
 const expectedPiVendor = 'a750044ca2135463763d373c49744031aa1e9ff08f77011f1626156e3b4c8981';
 if (sha256(codexVendorEntry) !== expectedCodexVendor) {
   throw new Error('Packed Codex ACP runtime failed its SHA-256 verification');

@@ -29,7 +29,7 @@ async function run() {
   assert.strictEqual(acpErrorKind(new Error('socket connection timed out')), 'network');
   assert.strictEqual(acpErrorKind(new Error('unexpected failure')), 'unknown');
   assert.strictEqual(resolveAcpLaunch('codex').version, '1.4.0');
-  assert.strictEqual(resolveAcpLaunch('claude').version, '0.69.0');
+  assert.strictEqual(resolveAcpLaunch('claude').version, '0.70.0');
   assert.strictEqual(resolveAcpLaunch('pi', piLaunchOptions).version, '0.0.33');
   assert.strictEqual(resolveAcpLaunch('qwen').version, 'native');
   const codexAcpSource = fs.readFileSync(
@@ -956,7 +956,7 @@ async function run() {
   const compatibleClaudeLaunch = resolveAcpLaunch('claude');
   assert.match(
     compatibleClaudeLaunch.args.at(-1),
-    /(?:dist\/acp\/claude-agent-acp-0\.69\.0\.mjs|claude-agent-acp\/dist\/index\.js)$/,
+    /(?:dist\/acp\/claude-agent-acp-0\.70\.0\.mjs|claude-agent-acp\/dist\/index\.js)$/,
   );
   const compatiblePiLaunch = resolveAcpLaunch('pi', piLaunchOptions);
   assert.match(compatiblePiLaunch.args[0], /dist\/acp\/pi-acp-0\.0\.33\.mjs$/);

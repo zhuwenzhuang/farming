@@ -22,7 +22,7 @@ assert.match(progressLine('agent-browser', 50, 100), /50%/);
 
 const cachedStream = captureStream(false);
 const cached = createRuntimeDependencyProgressRenderer({ stream: cachedStream });
-cached.report({ dependencyId: 'codex', phase: 'ready', source: 'system', version: '0.147.0' });
+cached.report({ dependencyId: 'codex', phase: 'ready', source: 'system', version: '0.148.0' });
 cached.finish();
 assert.strictEqual(cachedStream.chunks.join(''), '');
 

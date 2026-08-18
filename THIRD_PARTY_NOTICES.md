@@ -62,16 +62,16 @@ files under `dist/acp/`:
 
 | Package | Version | License | Purpose |
 | --- | --- | --- | --- |
-| `@agentclientprotocol/codex-acp` | 1.2.0 | Apache-2.0 | Reviewed and patched Codex ACP adapter |
-| `@openai/codex` | 0.147.0 | Apache-2.0 | Codex executable discovery and launch bridge; platform CLI binaries are excluded |
-| `@agentclientprotocol/claude-agent-acp` | 0.66.0 | Apache-2.0 | Claude Code ACP adapter |
-| `@anthropic-ai/claude-agent-sdk` | 0.3.220 | Anthropic commercial terms | Claude Agent SDK bridge; platform CLI binaries are excluded |
+| `@agentclientprotocol/codex-acp` | 1.4.0 | Apache-2.0 | Reviewed and patched Codex ACP adapter |
+| `@openai/codex` | 0.148.0 | Apache-2.0 | Codex executable discovery and launch bridge; platform CLI binaries are excluded |
+| `@agentclientprotocol/claude-agent-acp` | 0.70.0 | Apache-2.0 | Claude Code ACP adapter |
+| `@anthropic-ai/claude-agent-sdk` | 0.3.232 | Anthropic commercial terms | Claude Agent SDK bridge; platform CLI binaries are excluded |
 | `pi-acp` | 0.0.33 | MIT | Pi ACP adapter, with Farming Agent Home isolation and bootstrap patches |
 | `@agentclientprotocol/sdk` | 0.26.0 | Apache-2.0 | Protocol runtime bundled inside the Pi ACP adapter |
 | `zod` | 3.25.76 | MIT | Schema validation bundled inside the Pi ACP adapter |
 
-The npm distribution declares the exact Codex CLI 0.147.0 and Claude Agent SDK
-CLI package 0.3.220 platform carriers as optional dependencies and embeds the
+The npm distribution declares the exact Codex CLI 0.148.0 and Claude Agent SDK
+CLI package 0.3.232 platform carriers as optional dependencies and embeds the
 reviewed `agent-browser` 0.32.3 platform artifacts. Other release forms may
 prepare the same exact artifacts in a private runtime cache. These artifacts
 remain independent works under their own terms. Farming accepts only the
