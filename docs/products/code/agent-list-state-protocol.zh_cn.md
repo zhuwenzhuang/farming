@@ -62,3 +62,27 @@ Terminal。Stopped/History Session 只有收到显式用户 Resume 后才能启�
 Farming 已绑定 Agent 的未读状态由单调 Attention Cursor 和 Read Cursor 共同拥有。每次持久化
 Agent State 时，都必须从 Cursor 重新写入 `unread` Projection；旧版本留下的矛盾 Boolean
 不能在启动期间或 Runtime 尚未恢复时重新出现。
+
+## 动态置顶投影
+
+当本地持久化的“动态置顶”偏好打开时，Farming Code 可以把最近活跃或需要用户关注的 Live Agent
+投影到“已置顶”区域。这只是 Browser 展示投影：不会写入 Backend 拥有的 `pinned` 字段，不改变
+手动置顶顺序，也不会动态提升 Main、已归档、已删除或只有历史记录的 Session。一个 Live Agent
+只在一个位置出现；手动置顶保持现有顺序并排在前面，纯动态置顶按稳定的 Project 顺序排在后面，
+中间没有分隔线，也没有第二套行样式。
+
+未手动置顶的 Live Agent 在权威 Runtime Observation 为 Starting、Working 或 Waiting、状态为
+Pending，或权威未读投影为 True 时持续符合条件。除此之外，它会在以下有效时间中的最新值之后
+严格保留不足一小时：`lastActivity`（缺失时使用 `startedAt`）、Attention Update、Read Cursor、
+Exit，或 Browser 本地记录的用户打开时间。打开 Agent 只记录一次活跃；仅仅保持页面打开不会续期。
+仍需关注时，现有相对时间显示为 `now`；关注状态结束后，从最新事件或用户打开时间继续计算一小时。
+到达边界时，纯动态置顶行回到原 Project；手动置顶永不因此失效。
+
+即使列表为空，“已置顶”表头也保持可用。铃铛按钮只控制动态投影并暴露按下状态；右上角未读点
+独立反映当前未读 Inventory，与动态置顶是否打开无关。关闭偏好时，已置顶与 Project 行行为保持
+不变；打开后，每一条完整的已置顶行即使在较窄侧边栏也显示现有相对活跃时间，Hover 或键盘聚焦
+行操作时仍由操作按钮替代时间。
+
+动态置顶复用页面可见时已有的相对时间时钟检查一小时边界，不新增 Heartbeat、Polling、Lease
+或持久化的 Per-Agent Timer。Browser 本地打开时间刻意不持久化；Reload 后从 Backend Agent
+状态重建资格，恢复并打开的 Agent 会被视为一次新的用户活跃。

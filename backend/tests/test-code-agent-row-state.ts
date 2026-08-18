@@ -53,6 +53,11 @@ function run() {
     buildAgentRowDisplayState,
     isNewWorktreeForkAgent,
   } = importTsModule('src/components/code/agent-row-state.ts');
+  const {
+    DYNAMIC_PIN_ACTIVITY_WINDOW_MS,
+    dynamicPinActivityAt,
+    isAgentDynamicallyPinned,
+  } = importTsModule('src/lib/dynamic-pinning.ts');
 
   const now = 100_000 + 2 * 24 * 60 * 60 * 1000;
   assert.strictEqual(
@@ -158,6 +163,75 @@ function run() {
   assert.strictEqual(lastCommandState.detailLabel, 'Last command: npm test (12s, exit 1)');
   assert.strictEqual(lastCommandState.ageLabel, '2d');
   assert.strictEqual(lastCommandState.ageVisible, true);
+
+  const forcedActiveAge = buildAgentRowDisplayState({ kind: 'agent', agent: agent({
+    terminalStatus: {
+      kind: 'shell',
+      activity: 'busy',
+      busy: true,
+      cwd: '/repo',
+      title: '',
+      lastExitCode: null,
+      runningCommand: 'npm test',
+      runningCommandStartedAt: now - 1_000,
+      source: 'shell-status-marker',
+    },
+  }) }, now, {
+    ageTimestamp: now,
+    forceAgeVisible: true,
+  });
+  assert.strictEqual(forcedActiveAge.ageLabel, 'now');
+  assert.strictEqual(forcedActiveAge.ageVisible, true);
+
+  const cutoff = now - DYNAMIC_PIN_ACTIVITY_WINDOW_MS;
+  assert.strictEqual(
+    isAgentDynamicallyPinned({ lastActivity: cutoff + 1 }, now),
+    true,
+    'recent backend activity should dynamically pin an agent'
+  );
+  assert.strictEqual(
+    isAgentDynamicallyPinned({ lastActivity: cutoff }, now),
+    false,
+    'dynamic pinning should expire at exactly one hour'
+  );
+  assert.strictEqual(
+    isAgentDynamicallyPinned({
+      lastActivity: cutoff - 1,
+      runtimeObservation: { phase: 'working' },
+    }, now),
+    true,
+    'working agents should remain dynamically pinned regardless of age'
+  );
+  assert.strictEqual(
+    isAgentDynamicallyPinned({
+      lastActivity: cutoff - 1,
+      runtimeObservation: { phase: 'waiting' },
+    }, now),
+    true,
+    'agents waiting for user input should remain dynamically pinned'
+  );
+  assert.strictEqual(
+    isAgentDynamicallyPinned({ lastActivity: cutoff - 1, unread: true }, now),
+    true,
+    'unread agents should remain dynamically pinned'
+  );
+  assert.strictEqual(
+    dynamicPinActivityAt({ lastActivity: cutoff - 1, unread: true }, now),
+    now,
+    'current attention should display as now'
+  );
+  assert.strictEqual(
+    isAgentDynamicallyPinned({ lastActivity: cutoff - 1, readAttentionAt: now - 1 }, now),
+    true,
+    'reading an attention item should start a fresh activity window'
+  );
+  assert.strictEqual(
+    isAgentDynamicallyPinned({ lastActivity: cutoff - 1 }, now, now - 1),
+    true,
+    'opening an agent should start a fresh local activity window'
+  );
+  assert.strictEqual(isAgentDynamicallyPinned({ lastActivity: now, archived: true }, now), false);
+  assert.strictEqual(isAgentDynamicallyPinned({ lastActivity: now, isMain: true }, now), false);
 
   assert.strictEqual(isNewWorktreeForkAgent(agent({ source: 'ui-fork-same-worktree', parentAgentId: 'parent-1' })), false);
   assert.strictEqual(isNewWorktreeForkAgent(agent({ source: 'ui-fork-new-worktree', parentAgentId: '' })), false);

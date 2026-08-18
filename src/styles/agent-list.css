@@ -572,6 +572,16 @@ body.code-mode:not(.code-compact-layout) .code-agent-row.requires-resume .code-a
   display: none;
 }
 
+.code-agent-row.force-age .code-agent-relative-age {
+  display: inline;
+}
+
+.code-agent-row.force-age:hover .code-agent-age,
+.code-agent-row.force-age:focus-visible .code-agent-age,
+.code-agent-row.force-age:has(.code-agent-row-actions :focus-visible) .code-agent-age {
+  display: none;
+}
+
 .code-agent-name,
 .code-agent-meta {
   overflow: hidden;

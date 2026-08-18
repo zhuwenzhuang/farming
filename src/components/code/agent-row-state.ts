@@ -28,6 +28,11 @@ export interface AgentRowDisplayState {
   ageTitle?: string
 }
 
+export interface AgentRowDisplayOptions {
+  ageTimestamp?: number
+  forceAgeVisible?: boolean
+}
+
 export type AgentRowKeyBacking =
   | { kind: 'agent'; agent: Pick<Agent, 'id'>; claimedSessionKey?: string }
   | { kind: 'history'; session: Pick<AgentSessionHistoryItem, 'provider' | 'id'> }
@@ -104,8 +109,12 @@ function agentCommandTitle(agent: Agent, turnActive: boolean, now: number) {
   return details ? `Last command: ${lastCommand} (${details})` : `Last command: ${lastCommand}`
 }
 
-function agentRowStateFromAgent(agent: Agent, now: number): AgentRowDisplayState {
-  const ageTimestamp = agent.lastActivity ?? agent.startedAt
+function agentRowStateFromAgent(
+  agent: Agent,
+  now: number,
+  options: AgentRowDisplayOptions,
+): AgentRowDisplayState {
+  const ageTimestamp = options.ageTimestamp ?? agent.lastActivity ?? agent.startedAt
   const terminalState = inferAgentTerminalState(agent)
   const turnActive = terminalState.turnActive
   const title = agentRowTitle(agent)
@@ -134,7 +143,7 @@ function agentRowStateFromAgent(agent: Agent, now: number): AgentRowDisplayState
     scheduled: false,
     scheduleTitle: '',
     ageLabel,
-    ageVisible: !turnActive && Boolean(ageLabel),
+    ageVisible: (options.forceAgeVisible === true || !turnActive) && Boolean(ageLabel),
     ageTitle: timestampTitle(ageTimestamp),
   }
 }
@@ -142,7 +151,7 @@ function agentRowStateFromAgent(agent: Agent, now: number): AgentRowDisplayState
 function agentRowStateFromHistory(
   session: AgentSessionHistoryItem,
   fallbackTitle: string,
-  now: number
+  now: number,
 ): AgentRowDisplayState {
   const updatedAt = agentSessionUpdatedAt(session)
   const scheduleTitle = session.schedule?.label || session.schedule?.name || session.schedule?.rrule || ''
@@ -173,7 +182,11 @@ function agentRowStateFromHistory(
   }
 }
 
-export function buildAgentRowDisplayState(backing: AgentRowBacking, now = Date.now()): AgentRowDisplayState {
-  if (backing.kind === 'agent') return agentRowStateFromAgent(backing.agent, now)
+export function buildAgentRowDisplayState(
+  backing: AgentRowBacking,
+  now = Date.now(),
+  options: AgentRowDisplayOptions = {},
+): AgentRowDisplayState {
+  if (backing.kind === 'agent') return agentRowStateFromAgent(backing.agent, now, options)
   return agentRowStateFromHistory(backing.session, backing.fallbackTitle, now)
 }

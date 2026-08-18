@@ -10,6 +10,7 @@ function run() {
     activeTerminalId: 'agent-2',
     openTerminalIds: ['agent-1', 'agent-2', 'agent-1'],
     activeView: 'projects',
+    dynamicPinningEnabled: true,
     surface: {
       kind: 'file',
       workspace: '/repo',
@@ -28,6 +29,7 @@ function run() {
   });
 
   assert.deepStrictEqual(normalized.openTerminalIds, ['agent-1', 'agent-2']);
+  assert.strictEqual(normalized.dynamicPinningEnabled, true);
   assert.deepStrictEqual(normalized.surface, {
     kind: 'file',
     workspace: '/repo',
@@ -66,6 +68,9 @@ function run() {
   assert.strictEqual(normalizeCodeWorkspaceViewState({
     activeView: 'plugins',
   }).activeView, 'plugins');
+  assert.strictEqual(normalizeCodeWorkspaceViewState({
+    dynamicPinningEnabled: 'yes',
+  }).dynamicPinningEnabled, undefined);
 
   console.log('test-code-workspace-view-state passed');
 }

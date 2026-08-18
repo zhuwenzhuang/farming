@@ -63,6 +63,7 @@ export interface CodeWorkspaceViewState {
   activeView?: WorkspaceView
   collapsedComputerAgentIds?: string[]
   collapsedProjectIds?: string[]
+  dynamicPinningEnabled?: boolean
   openFiles?: CodeWorkspaceOpenFileViewState[]
   openTerminalIds?: string[]
   pinnedCollapsed?: boolean
@@ -254,6 +255,7 @@ export function normalizeCodeWorkspaceViewState(value: unknown): CodeWorkspaceVi
     activeView: isWorkspaceView(record.activeView) ? record.activeView : undefined,
     collapsedComputerAgentIds: normalizeStringIds(record.collapsedComputerAgentIds, MAX_COLLAPSED_PROJECT_IDS),
     collapsedProjectIds: normalizeStringIds(record.collapsedProjectIds, MAX_COLLAPSED_PROJECT_IDS),
+    dynamicPinningEnabled: typeof record.dynamicPinningEnabled === 'boolean' ? record.dynamicPinningEnabled : undefined,
     openFiles: normalizeOpenFiles(record.openFiles),
     openTerminalIds: normalizeOpenTerminalIds(record.openTerminalIds),
     pinnedCollapsed: typeof record.pinnedCollapsed === 'boolean' ? record.pinnedCollapsed : undefined,

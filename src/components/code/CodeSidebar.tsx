@@ -7,6 +7,7 @@ import type {
 import { createPortal } from 'react-dom'
 import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
+  BellGlyph,
   BrowserGlyph,
   ChatBubblesGlyph,
   ChevronDownGlyph,
@@ -85,8 +86,14 @@ import {
   agentWithCurrentLiveState,
   projectAgentLiveSummary,
   useAgentWithLiveState,
+  useDynamicPinProjectionRevision,
   useProjectAgentLiveSummary,
 } from '@/lib/agent-live-state'
+import {
+  DYNAMIC_PIN_ACTIVITY_WINDOW_MS,
+  dynamicPinActivityAt,
+  isAgentDynamicallyPinned,
+} from '@/lib/dynamic-pinning'
 import { useAgentReorder } from './useAgentReorder'
 import { useDismissiblePopover } from './useDismissiblePopover'
 import { UsagePanel } from './UsagePanel'
@@ -150,8 +157,8 @@ function previewAgentIconNameForAgent(agent: Agent): AgentIconName | undefined {
 }
 
 type PinnedSidebarItem =
-  | { kind: 'agent'; agent: Agent }
-  | { kind: 'agent-session'; session: AgentSessionHistoryItem }
+  | { kind: 'agent'; agent: Agent; dynamicallyPinned: boolean }
+  | { kind: 'agent-session'; session: AgentSessionHistoryItem; dynamicallyPinned: false }
 
 type SidebarRailItem = { agent: Agent; projectName: string }
 
@@ -391,6 +398,12 @@ export function CodeSidebar({
   const [initialWorkspaceViewState] = useState(() => loadCodeWorkspaceViewState())
   const [usageCollapsed, setUsageCollapsed] = useState(initialWorkspaceViewState.usageCollapsed ?? true)
   const [pinnedCollapsed, setPinnedCollapsed] = useState(initialWorkspaceViewState.pinnedCollapsed ?? false)
+  const [dynamicPinningEnabled, setDynamicPinningEnabled] = useState(
+    initialWorkspaceViewState.dynamicPinningEnabled ?? false,
+  )
+  const [viewedAtByAgentId, setViewedAtByAgentId] = useState<Record<string, number>>(() => (
+    activeTerminalId ? { [activeTerminalId]: Date.now() } : {}
+  ))
   const [brandDialogOpen, setBrandDialogOpen] = useState(false)
   const [instanceNameDialogOpen, setInstanceNameDialogOpen] = useState(false)
   const productMarkRef = useRef<HTMLButtonElement | null>(null)
@@ -414,8 +427,32 @@ export function CodeSidebar({
   }, [pinnedCollapsed])
 
   useEffect(() => {
+    saveCodeWorkspaceViewState({ dynamicPinningEnabled })
+  }, [dynamicPinningEnabled])
+
+  useEffect(() => {
     saveCodeWorkspaceViewState({ usageCollapsed })
   }, [usageCollapsed])
+  const recordAgentViewed = useCallback((agentId: string) => {
+    if (!agentId) return
+    const viewedAt = Date.now()
+    const cutoff = viewedAt - DYNAMIC_PIN_ACTIVITY_WINDOW_MS
+    setViewedAtByAgentId(current => {
+      const next = Object.fromEntries(
+        Object.entries(current).filter(([, timestamp]) => timestamp > cutoff),
+      )
+      next[agentId] = viewedAt
+      return next
+    })
+  }, [])
+  const openAgentWithView = useCallback((agentId: string) => {
+    recordAgentViewed(agentId)
+    onOpenAgent(agentId)
+  }, [onOpenAgent, recordAgentViewed])
+
+  useEffect(() => {
+    if (activeTerminalId) recordAgentViewed(activeTerminalId)
+  }, [activeTerminalId, recordAgentViewed])
   const clearPreviewTimer = useCallback(() => {
     if (previewTimerRef.current === null) return
     window.clearTimeout(previewTimerRef.current)
@@ -567,16 +604,40 @@ export function CodeSidebar({
   const installUnavailableReason = window.isSecureContext
     ? copy.appModeInstallUnavailableBrowser
     : copy.appModeInstallUnavailableInsecure
+  const dynamicPinProjectionRevision = useDynamicPinProjectionRevision()
+  const liveAgents = useMemo(() => {
+    void dynamicPinProjectionRevision
+    return displayedProjects.flatMap(project => project.agents.map(agentWithCurrentLiveState))
+  }, [displayedProjects, dynamicPinProjectionRevision])
+  const liveAgentById = useMemo(
+    () => new Map(liveAgents.map(agent => [agent.id, agent])),
+    [liveAgents],
+  )
+  const dynamicallyPinnedAgentIds = useMemo(() => {
+    const ids = new Set<string>()
+    if (!dynamicPinningEnabled) return ids
+    liveAgents.forEach(agent => {
+      if (agent.pinned === true) return
+      if (isAgentDynamicallyPinned(agent, now, viewedAtByAgentId[agent.id])) ids.add(agent.id)
+    })
+    return ids
+  }, [dynamicPinningEnabled, liveAgents, now, viewedAtByAgentId])
   const pinnedItems = displayedProjects
     .flatMap<PinnedSidebarItem>(project => [
       ...project.agents
-        .filter(agent => agent.pinned)
-        .map(agent => ({ kind: 'agent' as const, agent })),
+        .filter(agent => agent.pinned || dynamicallyPinnedAgentIds.has(agent.id))
+        .map(agent => ({
+          kind: 'agent' as const,
+          agent: liveAgentById.get(agent.id) ?? agent,
+          dynamicallyPinned: agent.pinned !== true,
+        })),
       ...project.agentSessions
         .filter(session => session.pinned)
-        .map(session => ({ kind: 'agent-session' as const, session })),
+        .map(session => ({ kind: 'agent-session' as const, session, dynamicallyPinned: false as const })),
     ])
     .sort((a, b) => {
+      if (a.dynamicallyPinned !== b.dynamicallyPinned) return a.dynamicallyPinned ? 1 : -1
+      if (a.dynamicallyPinned && b.dynamicallyPinned) return 0
       if (a.kind === 'agent' && b.kind === 'agent') {
         return (a.agent.pinnedOrder ?? 0) - (b.agent.pinnedOrder ?? 0)
           || (a.agent.startedAt ?? 0) - (b.agent.startedAt ?? 0)
@@ -587,8 +648,18 @@ export function CodeSidebar({
       }
       return 0
     })
+  const pinnedAgentIds = new Set(pinnedItems.flatMap(item => (
+    item.kind === 'agent' ? [item.agent.id] : []
+  )))
+  const hasUnread = liveAgents.some(agent => (
+    agent.isMain !== true && agent.archived !== true && agent.unread === true
+  )) || displayedProjects.some(project => (
+    project.agentSessions.some(session => session.archived !== true && session.unread === true)
+  ))
   const revealedAgentIsPinned = Boolean(agentRevealRequest && displayedProjects.some(project => (
-    project.agents.some(agent => agent.id === agentRevealRequest.agentId && agent.pinned)
+    project.agents.some(agent => (
+      agent.id === agentRevealRequest.agentId && pinnedAgentIds.has(agent.id)
+    ))
   )))
 
   useEffect(() => {
@@ -785,7 +856,7 @@ export function CodeSidebar({
           items={sidebarRailItems}
           activeTerminalId={activeTerminalId}
           now={now}
-          onOpenAgent={onOpenAgent}
+          onOpenAgent={openAgentWithView}
           onShowPreview={showAgentPreview}
           onHidePreview={hideAgentPreview}
           copy={copy}
@@ -811,30 +882,32 @@ export function CodeSidebar({
             {copy.noMatchingProjectsOrAgents}
           </div>
         )}
-        {pinnedItems.length > 0 && (
-          <PinnedSection
-            items={pinnedItems}
-            collapsed={pinnedCollapsed}
-            compressed={agentCompressionActive}
-            activeTerminalId={activeTerminalId}
-            selectedSearchAgentId={selectedSearchAgentId}
-            selectedSearchSessionHandle={selectedSearchSessionHandle}
-            claimedAgentSessionKeyByAgentId={claimedAgentSessionKeyByAgentId}
-            agentShortcutKeys={agentShortcutKeys}
-            keyboardShortcutsEnabled={keyboardShortcutsEnabled}
-            now={now}
-            onOpenAgent={onOpenAgent}
-            onUpdateAgentFlags={onUpdateAgentFlags}
-            onReorderAgent={onReorderAgent}
-            onOpenAgentMenu={onOpenAgentMenu}
-            onResumeAgentSession={onResumeAgentSession}
-            onOpenAgentSessionMenu={onOpenAgentSessionMenu}
-            onShowAgentPreview={showAgentPreview}
-            onHideAgentPreview={hideAgentPreview}
-            onToggleCollapsed={() => setPinnedCollapsed(collapsed => !collapsed)}
-            copy={copy}
-          />
-        )}
+        <PinnedSection
+          items={pinnedItems}
+          collapsed={pinnedCollapsed}
+          compressed={agentCompressionActive}
+          dynamicPinningEnabled={dynamicPinningEnabled}
+          hasUnread={hasUnread}
+          viewedAtByAgentId={viewedAtByAgentId}
+          activeTerminalId={activeTerminalId}
+          selectedSearchAgentId={selectedSearchAgentId}
+          selectedSearchSessionHandle={selectedSearchSessionHandle}
+          claimedAgentSessionKeyByAgentId={claimedAgentSessionKeyByAgentId}
+          agentShortcutKeys={agentShortcutKeys}
+          keyboardShortcutsEnabled={keyboardShortcutsEnabled}
+          now={now}
+          onOpenAgent={openAgentWithView}
+          onUpdateAgentFlags={onUpdateAgentFlags}
+          onReorderAgent={onReorderAgent}
+          onOpenAgentMenu={onOpenAgentMenu}
+          onResumeAgentSession={onResumeAgentSession}
+          onOpenAgentSessionMenu={onOpenAgentSessionMenu}
+          onShowAgentPreview={showAgentPreview}
+          onHideAgentPreview={hideAgentPreview}
+          onToggleCollapsed={() => setPinnedCollapsed(collapsed => !collapsed)}
+          onToggleDynamicPinning={() => setDynamicPinningEnabled(enabled => !enabled)}
+          copy={copy}
+        />
         {visibleProjectSections.map(project => (
           <ProjectSection
             key={project.id}
@@ -850,6 +923,7 @@ export function CodeSidebar({
             agentShortcutKeys={agentShortcutKeys}
             keyboardShortcutsEnabled={keyboardShortcutsEnabled}
             now={now}
+            dynamicallyPinnedAgentIds={dynamicallyPinnedAgentIds}
             openWorkspaceFile={openWorkspaceFile}
             openWorkspaceFiles={openWorkspaceFiles}
             agentLaunchOptions={agentLaunchOptions}
@@ -875,7 +949,7 @@ export function CodeSidebar({
               if (canDropProject(projectId)) dropProject(event, projectId)
             }}
             onShowProjectPreview={showProjectPreview}
-            onOpenAgent={onOpenAgent}
+            onOpenAgent={openAgentWithView}
             onUpdateAgentFlags={onUpdateAgentFlags}
             onReorderAgent={onReorderAgent}
             onOpenAgentMenu={onOpenAgentMenu}
@@ -1268,6 +1342,9 @@ interface PinnedSectionProps {
   items: PinnedSidebarItem[]
   collapsed: boolean
   compressed: boolean
+  dynamicPinningEnabled: boolean
+  hasUnread: boolean
+  viewedAtByAgentId: Readonly<Record<string, number>>
   activeTerminalId: string | null
   selectedSearchAgentId: string | null
   selectedSearchSessionHandle: string | null
@@ -1284,6 +1361,7 @@ interface PinnedSectionProps {
   onShowAgentPreview: (event: AgentPreviewAnchorEvent, target: AgentPreviewTarget, compact?: boolean) => void
   onHideAgentPreview: () => void
   onToggleCollapsed: () => void
+  onToggleDynamicPinning: () => void
   copy: CodeCopy
 }
 
@@ -1291,6 +1369,9 @@ function PinnedSection({
   items,
   collapsed,
   compressed,
+  dynamicPinningEnabled,
+  hasUnread,
+  viewedAtByAgentId,
   activeTerminalId,
   selectedSearchAgentId,
   selectedSearchSessionHandle,
@@ -1307,9 +1388,12 @@ function PinnedSection({
   onShowAgentPreview,
   onHideAgentPreview,
   onToggleCollapsed,
+  onToggleDynamicPinning,
   copy,
 }: PinnedSectionProps) {
-  const pinnedAgents = items.flatMap(item => item.kind === 'agent' ? [item.agent] : [])
+  const pinnedAgents = items.flatMap(item => (
+    item.kind === 'agent' && !item.dynamicallyPinned ? [item.agent] : []
+  ))
   const {
     agentDrag,
     beginAgentDrag,
@@ -1318,20 +1402,45 @@ function PinnedSection({
     updateAgentDropTarget,
   } = useAgentReorder(pinnedAgents, onReorderAgent, onHideAgentPreview)
   return (
-    <section className={`code-pinned-section ${collapsed ? 'collapsed' : ''}`} data-testid="code-pinned-section">
-      <button
-        type="button"
-        className="code-pinned-title"
-        data-testid="code-pinned-title"
-        aria-expanded={!collapsed}
-        onClick={onToggleCollapsed}
-      >
-        <span className={`code-folder-icon ${collapsed ? 'collapsed' : 'expanded'}`} aria-hidden="true">
-          {collapsed ? <ChevronRightGlyph /> : <ChevronDownGlyph />}
-        </span>
-        <span>{copy.pinned}</span>
-      </button>
-      {!collapsed && (
+    <section
+      className={`code-pinned-section ${collapsed ? 'collapsed' : ''}`}
+      data-testid="code-pinned-section"
+    >
+      <div className="code-pinned-header">
+        <button
+          type="button"
+          className="code-pinned-title"
+          data-testid="code-pinned-title"
+          aria-expanded={!collapsed}
+          onClick={onToggleCollapsed}
+        >
+          <span className={`code-folder-icon ${collapsed ? 'collapsed' : 'expanded'}`} aria-hidden="true">
+            {collapsed ? <ChevronRightGlyph /> : <ChevronDownGlyph />}
+          </span>
+          <span>{copy.pinned}</span>
+        </button>
+        <button
+          type="button"
+          className={`code-pinned-dynamic-toggle ${dynamicPinningEnabled ? 'active' : ''}`}
+          data-testid="code-pinned-dynamic-toggle"
+          aria-label={copy.dynamicPinning}
+          aria-pressed={dynamicPinningEnabled}
+          title={copy.dynamicPinning}
+          onClick={onToggleDynamicPinning}
+        >
+          <span className="code-pinned-dynamic-icon" aria-hidden="true">
+            <BellGlyph />
+          </span>
+          {hasUnread && (
+            <span
+              className="code-pinned-dynamic-unread"
+              data-testid="code-pinned-dynamic-unread"
+              aria-hidden="true"
+            />
+          )}
+        </button>
+      </div>
+      {!collapsed && items.length > 0 && (
         <div className="code-agent-list code-pinned-list">
           {compressed ? (
             <PinnedItemCompactStrip
@@ -1361,9 +1470,11 @@ function PinnedSection({
                     active={agent.id === activeTerminalId}
                     searchSelected={agent.id === selectedSearchAgentId}
                     now={now}
+                    dynamicPinningEnabled={dynamicPinningEnabled}
+                    viewedAt={viewedAtByAgentId[agent.id]}
                     onOpenAgent={onOpenAgent}
                     onUpdateAgentFlags={onUpdateAgentFlags}
-                    reorderable
+                    reorderable={!item.dynamicallyPinned}
                     dragging={agentDrag?.agentId === agent.id}
                     dropPosition={agentDrag?.targetAgentId === agent.id ? agentDrag.position : undefined}
                     onAgentDragStart={beginAgentDrag}
@@ -1384,6 +1495,7 @@ function PinnedSection({
                   session={item.session}
                   searchSelected={agentSessionId(item.session) === selectedSearchSessionHandle}
                   now={now}
+                  dynamicPinningEnabled={dynamicPinningEnabled}
                   onResume={onResumeAgentSession}
                   onOpenSessionMenu={onOpenAgentSessionMenu}
                   onShowPreview={onShowAgentPreview}
@@ -1763,6 +1875,7 @@ interface ProjectSectionProps {
   agentShortcutKeys: Map<string, string>
   keyboardShortcutsEnabled: boolean
   now: number
+  dynamicallyPinnedAgentIds: ReadonlySet<string>
   openWorkspaceFile: OpenWorkspaceFile | null
   openWorkspaceFiles: OpenWorkspaceFile[]
   agentLaunchOptions: AgentLaunchOption[]
@@ -1900,6 +2013,7 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
   agentShortcutKeys,
   keyboardShortcutsEnabled,
   now,
+  dynamicallyPinnedAgentIds,
   openWorkspaceFile,
   openWorkspaceFiles,
   agentLaunchOptions,
@@ -1998,7 +2112,9 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
   const projectEditorExternalChangedFilePaths = new Set(
     projectOpenWorkspaceFiles.filter(file => file.externalChanged).map(file => file.file.path)
   )
-  const sortedAgents = project.agents.filter(agent => !agent.pinned)
+  const sortedAgents = project.agents.filter(agent => (
+    !agent.pinned && !dynamicallyPinnedAgentIds.has(agent.id)
+  ))
   const lastProjectAgentId = sortedAgents[sortedAgents.length - 1]?.id ?? ''
   const visibleAgentSessions = project.agentSessions.filter(session => !session.pinned)
   const showAgentsSection = sortedAgents.length > 0 || visibleAgentSessions.length > 0 || (project.hiddenAgentSessionCount ?? 0) > 0
@@ -2029,7 +2145,9 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
   )
   const requestedAgentBelongsToProject = Boolean(
     agentRevealRequest && project.agents.some(agent => (
-      agent.id === agentRevealRequest.agentId && !agent.pinned
+      agent.id === agentRevealRequest.agentId
+      && !agent.pinned
+      && !dynamicallyPinnedAgentIds.has(agent.id)
     )),
   )
 
@@ -2840,6 +2958,8 @@ function AgentRow({
   active = false,
   searchSelected,
   now,
+  dynamicPinningEnabled = false,
+  viewedAt = 0,
   onOpenAgent,
   onUpdateAgentFlags,
   reorderable = false,
@@ -2862,6 +2982,8 @@ function AgentRow({
   active?: boolean
   searchSelected: boolean
   now: number
+  dynamicPinningEnabled?: boolean
+  viewedAt?: number
   onOpenAgent?: (agentId: string) => void
   onUpdateAgentFlags?: (agent: Agent, flags: Partial<Pick<Agent, 'pinned' | 'archived'>>) => void
   reorderable?: boolean
@@ -2887,7 +3009,12 @@ function AgentRow({
       : null
   if (!backing) return null
 
-  const rowState = buildAgentRowDisplayState(backing, now)
+  const rowState = buildAgentRowDisplayState(backing, now, {
+    ageTimestamp: dynamicPinningEnabled && liveAgent
+      ? dynamicPinActivityAt(liveAgent, now, viewedAt)
+      : undefined,
+    forceAgeVisible: dynamicPinningEnabled,
+  })
   const requiresResume = rowState.requiresResume
   const liveAgentId = liveAgent?.id ?? ''
   const sessionProvider = session?.provider ?? ''
@@ -2936,7 +3063,7 @@ function AgentRow({
     <>
     <div
       tabIndex={0}
-      className={`code-agent-row ${providerIcon ? 'has-provider' : ''} ${requiresResume ? 'requires-resume' : ''} ${active ? 'active' : ''} ${searchSelected ? 'search-selected' : ''} ${rowState.pinned ? 'pinned' : ''} ${rowState.unread ? 'unread' : ''} ${dragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''}`}
+      className={`code-agent-row ${providerIcon ? 'has-provider' : ''} ${requiresResume ? 'requires-resume' : ''} ${active ? 'active' : ''} ${searchSelected ? 'search-selected' : ''} ${rowState.pinned ? 'pinned' : ''} ${rowState.unread ? 'unread' : ''} ${dynamicPinningEnabled ? 'force-age' : ''} ${dragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''}`}
       draggable={(reorderable && !isTouchInputViewport()) || undefined}
       data-testid={rowTestId}
       data-agent-id={liveAgent?.id}
@@ -2955,8 +3082,8 @@ function AgentRow({
           draggedRef.current = false
         }, 0)
       }}
-      onDragOver={event => liveAgentId && onAgentDragOver?.(event, liveAgentId)}
-      onDrop={event => liveAgentId && onAgentDrop?.(event, liveAgentId)}
+      onDragOver={event => liveAgentId && reorderable && onAgentDragOver?.(event, liveAgentId)}
+      onDrop={event => liveAgentId && reorderable && onAgentDrop?.(event, liveAgentId)}
       onClick={event => {
         if (draggedRef.current) {
           event.preventDefault()

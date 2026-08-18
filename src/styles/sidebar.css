@@ -324,7 +324,15 @@ body.code-resizing-sidebar .code-sidebar-resizer {
   color: var(--code-text-muted);
 }
 
+.code-pinned-header {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
 .code-pinned-title {
+  flex: 1 1 auto;
+  min-width: 0;
   min-height: 24px;
   display: flex;
   align-items: center;
@@ -335,6 +343,50 @@ body.code-resizing-sidebar .code-sidebar-resizer {
   font-weight: 400;
   text-align: left;
   background: transparent;
+}
+
+.code-pinned-dynamic-toggle {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--code-text-subtle);
+  cursor: pointer;
+}
+
+.code-pinned-dynamic-toggle:hover,
+.code-pinned-dynamic-toggle:focus-visible {
+  background: var(--code-bg-hover);
+  color: var(--code-text);
+  outline: none;
+}
+
+.code-pinned-dynamic-toggle.active {
+  color: var(--code-accent);
+}
+
+.code-pinned-dynamic-icon,
+.code-pinned-dynamic-icon svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+.code-pinned-dynamic-unread {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--code-accent);
+  box-shadow: 0 0 0 1.5px var(--code-navigation-surface);
 }
 
 .code-pinned-title:hover,

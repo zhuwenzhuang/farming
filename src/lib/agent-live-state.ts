@@ -12,6 +12,11 @@ import type {
   AgentUpdateMessage,
   SessionPreviewMessage,
 } from '@/types/messages'
+import {
+  DYNAMIC_PIN_ACTIVITY_WINDOW_MS,
+  agentHasCurrentDynamicPinAttention,
+  dynamicPinActivityAt,
+} from './dynamic-pinning'
 
 export type AgentLiveActivity = Pick<
   Agent,
@@ -66,12 +71,15 @@ const projectListenersByWorkspace = new Map<string, Set<Listener>>()
 const dirtyProjectWorkspaces = new Set<string>()
 const agentReadListeners = new Set<AgentReadListener>()
 const agentRuntimeBindingListeners = new Set<AgentRuntimeBindingListener>()
+const dynamicPinProjectionListeners = new Set<Listener>()
 // One terminal action emits nearby update and activity frames. Keep their
 // synchronous state writes, but publish one bounded external-store change.
 const LIVE_NOTIFICATION_BATCH_MS = 32
 const pendingAgentNotifications = new Map<string, boolean>()
 const pendingProjectNotifications = new Set<string>()
 let liveNotificationScheduled = false
+let dynamicPinProjectionDirty = false
+let dynamicPinProjectionRevision = 0
 let projectSummaryBatchDepth = 0
 const RUNTIME_FIELDS = new Set<keyof AgentLiveState>([
   'adaptiveTitle',
@@ -225,6 +233,11 @@ function flushLiveNotifications() {
     listeners?.all.forEach(listener => listener())
     if (includeRuntime) listeners?.runtime.forEach(listener => listener())
   })
+  if (dynamicPinProjectionDirty) {
+    dynamicPinProjectionDirty = false
+    dynamicPinProjectionRevision += 1
+    dynamicPinProjectionListeners.forEach(listener => listener())
+  }
 }
 
 function scheduleLiveNotifications() {
@@ -235,6 +248,30 @@ function scheduleLiveNotifications() {
     return
   }
   queueMicrotask(flushLiveNotifications)
+}
+
+function dynamicPinProjectionChanged(
+  previous: AgentLiveState | null | undefined,
+  next: AgentLiveState | null | undefined,
+) {
+  if (!previous || !next) return previous !== next
+  if (previous.unread !== next.unread) return true
+  const previousAttention = agentHasCurrentDynamicPinAttention(previous)
+  const nextAttention = agentHasCurrentDynamicPinAttention(next)
+  if (previousAttention !== nextAttention) return true
+  if (previousAttention) return false
+
+  const now = Date.now()
+  const previousActivityAt = dynamicPinActivityAt(previous, now)
+  const nextActivityAt = dynamicPinActivityAt(next, now)
+  if (previousActivityAt === nextActivityAt) return false
+  const cutoff = now - DYNAMIC_PIN_ACTIVITY_WINDOW_MS
+  return (previousActivityAt > cutoff) !== (nextActivityAt > cutoff)
+}
+
+function notifyDynamicPinProjection() {
+  dynamicPinProjectionDirty = true
+  scheduleLiveNotifications()
 }
 
 function notifyProjectSummary(workspace: string) {
@@ -373,6 +410,7 @@ function replaceAgentLiveState(agentId: string, value: AgentLiveState) {
   if (previousSignature === signature) return
   entries.set(agentId, { value, signature })
   updateProjectContribution(agentId, value)
+  if (dynamicPinProjectionChanged(previous?.value, value)) notifyDynamicPinProjection()
   notify(agentId, true)
 }
 
@@ -395,6 +433,7 @@ export function updateAgentLiveState(agentId: string, patch: AgentLivePatch) {
     signature: null,
   })
   updateProjectContribution(agentId, value)
+  if (dynamicPinProjectionChanged(previous.value, value)) notifyDynamicPinProjection()
   notify(agentId, changedFields.some(field => RUNTIME_FIELDS.has(field)))
   if (changedFields.includes('runtimeBinding')) {
     agentRuntimeBindingListeners.forEach(listener => listener(agentId))
@@ -475,6 +514,7 @@ export function reconcileAgentLiveStates(agents: Agent[]) {
     })
     for (const agentId of entries.keys()) {
       if (activeAgentIds.has(agentId)) continue
+      notifyDynamicPinProjection()
       removeAgentProjectState(agentId)
       entries.delete(agentId)
       notify(agentId, true)
@@ -491,6 +531,7 @@ export function reconcileAgentLiveStateDelta(agents: Agent[], removedAgentIds: s
     removedAgentIds.forEach(agentId => {
       removeAgentProjectState(agentId)
       if (!entries.delete(agentId)) return
+      notifyDynamicPinProjection()
       notify(agentId, true)
     })
   })
@@ -499,6 +540,7 @@ export function reconcileAgentLiveStateDelta(agents: Agent[], removedAgentIds: s
 export function resetAgentLiveStates() {
   const agentIds = [...entries.keys()]
   const projectWorkspaces = [...projectAggregates.keys()]
+  if (agentIds.length > 0) notifyDynamicPinProjection()
   entries.clear()
   projectMembershipByAgentId.clear()
   projectContributionByAgentId.clear()
@@ -550,6 +592,19 @@ export function useProjectAgentLiveSummary(workspace: string): ProjectAgentSumma
     [workspace],
   )
   return useSyncExternalStore(subscribeToProject, getSnapshot, getSnapshot)
+}
+
+export function useDynamicPinProjectionRevision() {
+  return useSyncExternalStore(
+    listener => {
+      dynamicPinProjectionListeners.add(listener)
+      return () => {
+        dynamicPinProjectionListeners.delete(listener)
+      }
+    },
+    () => dynamicPinProjectionRevision,
+    () => dynamicPinProjectionRevision,
+  )
 }
 
 export function agentWithCurrentLiveState(agent: Agent): Agent {

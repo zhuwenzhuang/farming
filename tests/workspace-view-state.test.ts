@@ -20,6 +20,7 @@ test('normalizes the complete stable workspace view state', () => {
       { workspace: '/repo', filePath: 'src/a.ts' },
       { workspace: '/repo', filePath: 'src/b.ts' },
     ],
+    dynamicPinningEnabled: true,
     pinnedCollapsed: true,
     projectListScrollTop: 123.6,
     sidebarCollapsed: false,
@@ -82,6 +83,7 @@ test('normalizes the complete stable workspace view state', () => {
   ])
   assert.equal(state.projectListScrollTop, 124)
   assert.equal(state.sidebarWidth, 840)
+  assert.equal(state.dynamicPinningEnabled, true)
   assert.deepEqual(state.pluginsNavigationState, {
     activeTab: 'extensions',
     activeExtensionHomeKey: 'home',
@@ -121,6 +123,7 @@ test('drops expired workspace view state', () => {
 test('rejects invalid nested view state without rejecting valid siblings', () => {
   const state = normalizeCodeWorkspaceViewState({
     activeView: 'projects',
+    dynamicPinningEnabled: 'yes',
     pinnedCollapsed: 'yes',
     pluginsNavigationState: {
       activeTab: 'unknown',
@@ -142,6 +145,7 @@ test('rejects invalid nested view state without rejecting valid siblings', () =>
   })
 
   assert.equal(state.activeView, 'projects')
+  assert.equal(state.dynamicPinningEnabled, undefined)
   assert.equal(state.pinnedCollapsed, undefined)
   assert.deepEqual(state.pluginsNavigationState, {
     activeTab: 'farming',

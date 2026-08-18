@@ -220,3 +220,38 @@ Unread state for a Farming-bound Agent is owned by its monotonic attention and
 read cursors. The persisted `unread` projection must be rewritten from those
 cursors whenever Agent state is persisted; an older contradictory boolean must
 not reappear during startup or while a runtime is still pending.
+
+## Dynamic pinning projection
+
+Farming Code may project recent or attention-requiring live Agents into the
+Pinned section when the locally persisted Dynamic pinning preference is on.
+This is a browser presentation projection: it never writes the backend-owned
+`pinned` field, changes manual pin order, or promotes Main, archived, deleted,
+or history-only Sessions. A live Agent appears in exactly one place. Manual
+pins remain first in their existing order; dynamic-only rows follow in stable
+Project order, without a separator or a second row treatment.
+
+An unpinned live Agent qualifies while its authoritative runtime observation is
+starting, working, or waiting, while it is pending, or while its authoritative
+unread projection is true. Otherwise it qualifies for strictly less than one
+hour after the newest valid `lastActivity` (falling back to `startedAt`),
+attention update, read cursor, exit, or browser-local user activation. Opening
+an Agent records one activation; merely keeping the view open does not renew
+it. Current attention renders with the existing relative-time label as `now`.
+When current attention ends, the same one-hour window starts from the newest
+event or activation timestamp. At the boundary, a dynamic-only row returns to
+its Project; a manual pin does not expire.
+
+The Pinned header remains available even when its list is empty. Its bell
+button controls only this projection and exposes pressed state; the bell's
+unread dot reflects current unread inventory independently of whether dynamic
+pinning is enabled. With the preference off, Pinned and Project row behavior
+is unchanged. With it on, every full Pinned row exposes the existing relative
+activity time even at narrow sidebar widths; row actions still replace that
+time on hover or keyboard focus.
+
+Dynamic pinning reuses the page-visible relative-time clock to evaluate the
+one-hour boundary. It adds no heartbeat, polling, lease, or persisted per-Agent
+timer. Browser-local activation timestamps are intentionally ephemeral;
+reload recovery reconstructs eligibility from backend Agent state, and opening
+the restored Agent counts as a new user activation.
