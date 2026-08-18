@@ -154,6 +154,7 @@ export interface WorkspaceCancelMessage extends ExtensibleMessage {
 
 export interface LanguageServerRequestPayload extends ObjectMessage {
   operation: 'capability' | 'request'
+  priority?: 'interactive' | 'background'
   rootId?: string
   method?: string
   filePath?: string
@@ -653,6 +654,7 @@ function languageServerRequest(value: unknown): value is LanguageServerRequestPa
     && boundedStringField(value, 'rootId', 4096)
     && typeof value.method === 'string'
     && LANGUAGE_SERVER_METHODS.has(value.method)
+    && (value.priority === undefined || value.priority === 'interactive' || value.priority === 'background')
     && boundedStringField(value, 'filePath', 4096, true)
     && boundedStringField(value, 'query', 4096, true)
     && boundedStringField(value, 'itemId', 4096, true)

@@ -230,7 +230,9 @@ function createWebSocketWorkspaceRequestHandlers<Client extends WorkspaceRequest
     const scheduled: ScheduledRequest = {
       cancelled: false,
       controller,
-      lane: message.request.operation === 'capability' ? 'background' : 'interactive',
+      lane: message.request.operation === 'capability' || message.request.priority === 'background'
+        ? 'background'
+        : 'interactive',
       requestId: message.requestId,
       responseType: 'language-server-result',
       started: false,

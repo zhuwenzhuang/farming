@@ -98,6 +98,25 @@ function filePathBasename(filePath: string) {
   return filePath.split('/').filter(Boolean).pop() || filePath
 }
 
+function useStableFilePathSet(paths: ReadonlySet<string>) {
+  const stableRef = useRef(paths)
+  if (
+    stableRef.current.size !== paths.size
+    || Array.from(paths).some(path => !stableRef.current.has(path))
+  ) {
+    stableRef.current = paths
+  }
+  return stableRef.current
+}
+
+function useStableEventCallback<Args extends unknown[], Result>(
+  callback: (...args: Args) => Result,
+) {
+  const callbackRef = useRef(callback)
+  callbackRef.current = callback
+  return useCallback((...args: Args) => callbackRef.current(...args), [])
+}
+
 function openEditorFileContextNode(file: OpenProjectFileSummary): WorkspaceFileTreeNode {
   return {
     id: file.path,
@@ -136,6 +155,8 @@ export function ProjectFilesSection({
   readOnly = false,
   copy,
 }: ProjectFilesSectionProps) {
+  const stableEditorDirtyFilePaths = useStableFilePathSet(editorDirtyFilePaths)
+  const stableEditorExternalChangedFilePaths = useStableFilePathSet(editorExternalChangedFilePaths)
   const {
     directories,
     treeData,
@@ -210,6 +231,12 @@ export function ProjectFilesSection({
 
   const clearFileSearch = fileSearch.clear
   const setFileSearchQuery = fileSearch.setQuery
+  const resolveProjectFile = useCallback((filesId: string, filePath: string, options?: WorkspaceFileResolveOptions) => (
+    onResolveFile(filesId, filePath, {
+      ...options,
+      workspaceRoot: projectWorkspace,
+    })
+  ), [onResolveFile, projectWorkspace])
 
   const {
     openFileError,
@@ -219,10 +246,7 @@ export function ProjectFilesSection({
   } = useWorkspaceFileOpenController({
     agentId,
     onClearSearch: clearFileSearch,
-    onResolveFile: (filesId, filePath, options) => onResolveFile(filesId, filePath, {
-      ...options,
-      workspaceRoot: projectWorkspace,
-    }),
+    onResolveFile: resolveProjectFile,
     onOpenFile,
     onBeginOpenFileIntent,
     onSelectOpenFile,
@@ -532,14 +556,18 @@ export function ProjectFilesSection({
     toggleDirectoryOpen: toggleTreePathOpen,
   })
 
+  const stableHandleTreeKeyDownCapture = useStableEventCallback(handleTreeKeyDownCapture)
+  const stableOpenFilePath = useStableEventCallback(openFilePath)
+  const stableSubmitFileOperation = useStableEventCallback(submitFileOperation)
+
   const viewModel = useProjectFilesSectionViewModel({
     activeFilePath,
     activeSearchOptionId,
     agentId: agentId ?? '',
     agentLaunchOptions,
     copy,
-    editorDirtyFilePaths,
-    editorExternalChangedFilePaths,
+    editorDirtyFilePaths: stableEditorDirtyFilePaths,
+    editorExternalChangedFilePaths: stableEditorExternalChangedFilePaths,
     fileMenu,
     fileMenuRef,
     fileOperation,
@@ -550,7 +578,7 @@ export function ProjectFilesSection({
     fileSearchResultsRef,
     filesCollapsed,
     handleFileSearchKeyDown,
-    handleTreeKeyDownCapture,
+    handleTreeKeyDownCapture: stableHandleTreeKeyDownCapture,
     lastFocusedFilePathRef,
     locatedFilePath,
     openEditorsCollapsed,
@@ -580,7 +608,7 @@ export function ProjectFilesSection({
     onFocusStickyDirectory: focusStickyDirectory,
     onOpenFileContextMenu: openFileContextMenu,
     onOpenFileJumpQuery: openFileJumpQuery,
-    onOpenFilePath: openFilePath,
+    onOpenFilePath: stableOpenFilePath,
     onOpenFileSearchMatch: openFileSearchMatch,
     onOpenNewAgentFromFileMenu: openNewAgentFromFileMenu,
     onRefreshFileMenuTarget: refreshFileMenuTarget,
@@ -591,7 +619,7 @@ export function ProjectFilesSection({
     onToggleDirectory: toggleTreePathOpen,
     onStartAgentFromFileMenu: startAgentFromFileMenu,
     onStartFileMenuOperation: startFileMenuOperation,
-    onSubmitFileOperation: submitFileOperation,
+    onSubmitFileOperation: stableSubmitFileOperation,
     onToggleFilesCollapsed: toggleFilesCollapsed,
     onToggleOpenEditorsCollapsed: toggleOpenEditorsCollapsed,
     onToggleTreeNode: handleTreeToggle,

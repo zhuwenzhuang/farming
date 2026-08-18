@@ -105,8 +105,13 @@ assert.strictEqual(validateClientMessage({
 assert.strictEqual(validateClientMessage({
   type: 'language-server-request',
   requestId: 'language-server-1',
-  request: { operation: 'request', rootId: 'root-1', method: 'hover' },
+  request: { operation: 'request', rootId: 'root-1', method: 'semanticTokens', priority: 'background' },
 }).ok, true);
+assert.strictEqual(validateClientMessage({
+  type: 'language-server-request',
+  requestId: 'language-server-1',
+  request: { operation: 'request', rootId: 'root-1', method: 'semanticTokens', priority: 'urgent' },
+}).ok, false);
 assert.strictEqual(validateClientMessage({ type: 'composer-input', agentId: 'a', message: 'steer', requestId: 'request-1' }).ok, true);
 assert.strictEqual(validateClientMessage({ type: 'composer-input', agentId: 'a', message: 'steer', requestId: 'request-1', delivery: 'steer' }).ok, true);
 assert.strictEqual(validateClientMessage({ type: 'composer-input', agentId: 'a', message: 'steer', requestId: 'request-1', delivery: 'next' }).ok, false);

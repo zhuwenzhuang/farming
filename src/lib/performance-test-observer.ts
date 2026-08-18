@@ -2,6 +2,7 @@ type PerformanceRenderSurface =
   | 'app'
   | 'codeWorkspace'
   | 'projectSectionContent'
+  | 'fileTreeRow'
   | 'completedTranscriptTurn'
   | 'liveTranscriptTurn'
   | 'completedTranscriptMarkdown'
@@ -23,6 +24,7 @@ const renderCounts: PerformanceTestSnapshot = {
   app: 0,
   codeWorkspace: 0,
   projectSectionContent: 0,
+  fileTreeRow: 0,
   completedTranscriptTurn: 0,
   liveTranscriptTurn: 0,
   completedTranscriptMarkdown: 0,
@@ -36,6 +38,7 @@ function installPerformanceTestApi() {
       renderCounts.app = 0
       renderCounts.codeWorkspace = 0
       renderCounts.projectSectionContent = 0
+      renderCounts.fileTreeRow = 0
       renderCounts.completedTranscriptTurn = 0
       renderCounts.liveTranscriptTurn = 0
       renderCounts.completedTranscriptMarkdown = 0

@@ -135,6 +135,46 @@ async function run(): Promise<void> {
 
   {
     const socket = client();
+    const backgroundGates = [deferred<unknown>(), deferred<unknown>()];
+    const backgroundStarted: string[] = [];
+    const priorityHandlers = createWebSocketWorkspaceRequestHandlers<TestClient>({
+      openState: OPEN,
+      maxMessageBytes: 1024,
+      async executeWorkspace(request) { return { operation: request.operation }; },
+      async executeLanguageServer(request) {
+        const key = String(request.filePath || request.method);
+        backgroundStarted.push(key);
+        const index = key === 'background-a.ts' ? 0 : key === 'background-b.ts' ? 1 : -1;
+        return { result: index >= 0 ? await backgroundGates[index]!.promise : null };
+      },
+      error(error) { return { code: 'TEST', message: error instanceof Error ? error.message : 'failed' }; },
+    });
+    for (const filePath of ['background-a.ts', 'background-b.ts']) {
+      priorityHandlers.languageServerRequest(socket, {
+        type: 'language-server-request',
+        requestId: `language-${filePath}`,
+        request: {
+          operation: 'request', rootId: 'root-a', filePath, method: 'semanticTokens', priority: 'background',
+        },
+      });
+    }
+    assert.deepStrictEqual(backgroundStarted, ['background-a.ts', 'background-b.ts']);
+    priorityHandlers.workspaceRequest(socket, {
+      type: 'workspace-request',
+      requestId: 'foreground-read',
+      request: { operation: 'read-file', rootId: 'root-a', path: 'foreground.ts' },
+    });
+    await flush();
+    assert.deepStrictEqual(socket.messages.at(-1), {
+      type: 'workspace-result', requestId: 'foreground-read', ok: true, result: { operation: 'read-file' },
+    });
+    backgroundGates.forEach(gate => gate.resolve(null));
+    await flush();
+    priorityHandlers.close(socket);
+  }
+
+  {
+    const socket = client();
     handlers.languageServerRequest(socket, {
       type: 'language-server-request',
       requestId: 'language-1',

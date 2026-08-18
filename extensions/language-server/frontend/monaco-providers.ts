@@ -352,6 +352,7 @@ function registerProviders() {
             rootId: binding.rootId,
             filePath: binding.filePath,
             method: 'semanticTokens',
+            priority: 'background',
           }, { signal: request.signal })
           if (token.isCancellationRequested || !modelRequestIsCurrent(model, key, version)) {
             return { data: new Uint32Array() }
@@ -386,6 +387,7 @@ function registerProviders() {
             rootId: binding.rootId,
             filePath: binding.filePath,
             method: 'inlayHints',
+            priority: 'background',
             range: requestRangeValue(range),
           }, { signal: request.signal })
           if (token.isCancellationRequested || !modelRequestIsCurrent(model, key, version)) {
@@ -416,6 +418,7 @@ function registerProviders() {
             rootId: binding.rootId,
             filePath: binding.filePath,
             method: 'documentSymbols',
+            priority: 'background',
           }, { signal: request.signal })
           if (token.isCancellationRequested) return []
           return (values || []).map(documentSymbol)
@@ -475,9 +478,12 @@ export function attachLanguageServerDocumentHighlights(editor: monaco.editor.ISt
   const decorations = editor.createDecorationsCollection()
   let requestGeneration = 0
   let scheduledRefresh: number | null = null
+  let activeRequest: AbortController | null = null
 
   const clear = () => {
     requestGeneration += 1
+    activeRequest?.abort()
+    activeRequest = null
     decorations.clear()
   }
   const refresh = async () => {
@@ -493,13 +499,17 @@ export function attachLanguageServerDocumentHighlights(editor: monaco.editor.ISt
     const key = model.uri.toString()
     const version = model.getVersionId()
     const generation = requestGeneration += 1
+    const controller = new AbortController()
+    activeRequest?.abort()
+    activeRequest = controller
     try {
       const values = await requestLanguageServer<LanguageServerDocumentHighlight[]>({
         rootId: binding.rootId,
         filePath: binding.filePath,
         method: 'documentHighlights',
         position: positionValue(position),
-      })
+        priority: 'background',
+      }, { signal: controller.signal })
       if (
         requestGeneration !== generation
         || editor.getModel() !== model
@@ -508,6 +518,8 @@ export function attachLanguageServerDocumentHighlights(editor: monaco.editor.ISt
       decorations.set((values || []).map(documentHighlightDecoration))
     } catch {
       if (requestGeneration === generation) decorations.clear()
+    } finally {
+      if (activeRequest === controller) activeRequest = null
     }
   }
   const schedule = () => {
@@ -596,6 +608,7 @@ export async function refreshLanguageServerDiagnostics(file: OpenWorkspaceFile) 
     rootId: file.agentId,
     filePath: file.file.path,
     method: 'diagnostics',
+    priority: 'background',
   })
   const currentBinding = bindings.get(key)
   if (

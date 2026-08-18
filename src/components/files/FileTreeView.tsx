@@ -1,4 +1,17 @@
-import { createContext, useCallback, useContext, useRef, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type MutableRefObject, type RefObject } from 'react'
+import {
+  createContext,
+  memo,
+  useCallback,
+  useContext,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useSyncExternalStore,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+  type MutableRefObject,
+  type RefObject,
+} from 'react'
 import { Tree, type NodeRendererProps, type TreeApi } from 'react-arborist'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-file-search'
 import type { WorkspaceFileOperationState } from '@/lib/workspace-file-operation-model'
@@ -45,6 +58,7 @@ export interface FileTreeViewProps {
 
 type FileNodeRendererContextValue = Omit<
   FileTreeViewProps,
+  | 'activeFilePath'
   | 'handleTreeKeyDownCapture'
   | 'renderFileTreeRow'
   | 'rowHeight'
@@ -57,18 +71,100 @@ type FileNodeRendererContextValue = Omit<
   | 'onToggleTreeNode'
   | 'onTreeFocus'
   | 'onTreeSelect'
->
+> & { activeFilePathStore: ActiveFilePathStore }
+
+class ActiveFilePathStore {
+  private activeFilePath: string | undefined
+  private readonly listeners = new Map<string, Set<() => void>>()
+
+  set(filePath: string | undefined) {
+    if (filePath === this.activeFilePath) return
+    const previous = this.activeFilePath
+    this.activeFilePath = filePath
+    if (previous) this.listeners.get(previous)?.forEach(listener => listener())
+    if (filePath) this.listeners.get(filePath)?.forEach(listener => listener())
+  }
+
+  subscribe(filePath: string, listener: () => void) {
+    const listeners = this.listeners.get(filePath) ?? new Set()
+    listeners.add(listener)
+    this.listeners.set(filePath, listeners)
+    return () => {
+      listeners.delete(listener)
+      if (listeners.size === 0) this.listeners.delete(filePath)
+    }
+  }
+
+  isActive(filePath: string) {
+    return this.activeFilePath === filePath
+  }
+}
 
 const FileNodeRendererContext = createContext<FileNodeRendererContextValue | null>(null)
 
 function FileNodeRenderer({ node }: NodeRendererProps<FileExplorerNode>) {
   const props = useContext(FileNodeRendererContext)
   if (!props) return null
-  return <FileTreeRow {...props} node={node} />
+  return (
+    <SubscribedFileTreeRow
+      {...props}
+      node={node}
+      nodeRenderState={{
+        isFocused: node.isFocused,
+        isOpen: node.isOpen,
+        isSelected: node.isSelected,
+        level: node.level,
+      }}
+    />
+  )
 }
 
-export function FileTreeView({
-  activeFilePath,
+interface FileNodeRenderState {
+  isFocused: boolean
+  isOpen: boolean
+  isSelected: boolean
+  level: number
+}
+
+type SubscribedFileTreeRowProps = FileNodeRendererContextValue & {
+  node: NodeRendererProps<FileExplorerNode>['node']
+  nodeRenderState: FileNodeRenderState
+}
+
+const SubscribedFileTreeRow = memo(function SubscribedFileTreeRow({
+  activeFilePathStore,
+  node,
+  nodeRenderState: _nodeRenderState,
+  ...rowProps
+}: SubscribedFileTreeRowProps) {
+  const subscribe = useCallback(
+    (listener: () => void) => activeFilePathStore.subscribe(node.data.path, listener),
+    [activeFilePathStore, node.data.path],
+  )
+  const getSnapshot = useCallback(
+    () => activeFilePathStore.isActive(node.data.path),
+    [activeFilePathStore, node.data.path],
+  )
+  const active = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+  return <FileTreeRow {...rowProps} activeFilePath={active ? node.data.path : undefined} node={node} />
+}, (previous, next) => {
+  if (
+    previous.node.data !== next.node.data
+    || previous.node.tree !== next.node.tree
+    || previous.nodeRenderState.isFocused !== next.nodeRenderState.isFocused
+    || previous.nodeRenderState.isOpen !== next.nodeRenderState.isOpen
+    || previous.nodeRenderState.isSelected !== next.nodeRenderState.isSelected
+    || previous.nodeRenderState.level !== next.nodeRenderState.level
+  ) return false
+  return (Object.keys(previous) as Array<keyof SubscribedFileTreeRowProps>).every(key => (
+    key === 'node'
+    || key === 'nodeRenderState'
+    || Object.is(previous[key], next[key])
+  ))
+})
+
+const FileTreeViewContent = memo(function FileTreeViewContent({
+  activeFilePathStore,
   agentId,
   copy,
   editorDirtyFilePaths,
@@ -100,7 +196,7 @@ export function FileTreeView({
   onTreeFocus,
   onTreeSelect,
   onUpdateFileOperationName,
-}: FileTreeViewProps) {
+}: Omit<FileTreeViewProps, 'activeFilePath'> & { activeFilePathStore: ActiveFilePathStore }) {
   const pointerFileClickRef = useRef<{
     clientX: number
     clientY: number
@@ -158,8 +254,8 @@ export function FileTreeView({
     void onOpenFilePath(firstClick.filePath, { transient: false, focusEditor: true })
   }, [onOpenFilePath])
 
-  const nodeRendererContext: FileNodeRendererContextValue = {
-    activeFilePath,
+  const nodeRendererContext = useMemo<FileNodeRendererContextValue>(() => ({
+    activeFilePathStore,
     agentId,
     copy,
     editorDirtyFilePaths,
@@ -179,7 +275,28 @@ export function FileTreeView({
     onToggleDirectory,
     onSubmitFileOperation,
     onUpdateFileOperationName,
-  }
+  }), [
+    activeFilePathStore,
+    agentId,
+    copy,
+    editorDirtyFilePaths,
+    editorExternalChangedFilePaths,
+    fileOperation,
+    fileOperationInputRef,
+    lastFocusedFilePathRef,
+    locatedFilePath,
+    openFilePendingPath,
+    treeViewportRef,
+    onCancelPendingFileFocus,
+    onCloseFileOperation,
+    onFocusFileTreeTarget,
+    onOpenFileContextMenu,
+    onOpenFilePath,
+    onRememberFileOperationName,
+    onToggleDirectory,
+    onSubmitFileOperation,
+    onUpdateFileOperationName,
+  ])
 
   return (
     <div
@@ -226,4 +343,14 @@ export function FileTreeView({
       </FileNodeRendererContext.Provider>
     </div>
   )
+})
+
+export function FileTreeView({ activeFilePath, ...treeProps }: FileTreeViewProps) {
+  const activeFilePathStoreRef = useRef<ActiveFilePathStore | null>(null)
+  if (!activeFilePathStoreRef.current) activeFilePathStoreRef.current = new ActiveFilePathStore()
+  const activeFilePathStore = activeFilePathStoreRef.current
+  useLayoutEffect(() => {
+    activeFilePathStore.set(activeFilePath)
+  }, [activeFilePath, activeFilePathStore])
+  return <FileTreeViewContent {...treeProps} activeFilePathStore={activeFilePathStore} />
 }

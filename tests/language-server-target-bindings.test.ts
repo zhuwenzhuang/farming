@@ -26,7 +26,7 @@ interface ProviderHarness {
     provideDocumentSymbols(model: unknown, token: unknown): Promise<unknown[]>
   }
   languageServerError?: new (message: string, status: number, code: string) => Error
-  request: (options?: { signal?: AbortSignal }) => Promise<unknown>
+  request: (options?: { signal?: AbortSignal }, request?: { priority?: string }) => Promise<unknown>
 }
 
 let providerModuleSequence = 0
@@ -89,8 +89,8 @@ async function loadMonacoProviders(harness: ProviderHarness) {
               }
             }
             globalThis.__farmingLanguageServerHarness.languageServerError = LanguageServerError
-            export function requestLanguageServer(_request, options) {
-              return globalThis.__farmingLanguageServerHarness.request(options)
+            export function requestLanguageServer(request, options) {
+              return globalThis.__farmingLanguageServerHarness.request(options, request)
             }` }
         }
         return { contents: `
@@ -270,9 +270,11 @@ test('leaving a Language Server hover cancels its request immediately', async ()
 
 test('switching files aborts automatic Language Server providers immediately', async () => {
   const requestSignals: AbortSignal[] = []
+  const requests: Array<{ priority?: string }> = []
   const harness: ProviderHarness = {
-    request: options => {
+    request: (options, request) => {
       if (options?.signal) requestSignals.push(options.signal)
+      if (request) requests.push(request)
       return requestUntilAborted(options)
     },
   }
@@ -307,6 +309,7 @@ test('switching files aborts automatic Language Server providers immediately', a
   }
   assert.equal(requestSignals.length, 8, 'the fixture must exceed the usual six per-origin connections')
   assert.ok(requestSignals.every(signal => signal.aborted), 'stale provider fetches must release browser connections')
+  assert.ok(requests.every(request => request.priority === 'background'), 'automatic providers must not occupy file-read slots')
 })
 
 test('disposing an old source cannot delete a target rebound by a live model', () => {

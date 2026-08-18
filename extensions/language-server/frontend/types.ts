@@ -118,6 +118,7 @@ export type LanguageServerMethod =
 export interface LanguageServerRequest {
   rootId: string
   method: LanguageServerMethod
+  priority?: 'interactive' | 'background'
   filePath?: string
   position?: LanguageServerPosition
   range?: LanguageServerRange

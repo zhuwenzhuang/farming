@@ -15,6 +15,7 @@ import type { CodeCopy } from '../code/copy'
 import { FileTreeInlineOperation } from './FileTreeInlineOperation'
 import { FileTreeRowStatus } from './FileTreeRowStatus'
 import { useFileTreeRowInteractions } from './useFileTreeRowInteractions'
+import { recordPerformanceTestRender } from '@/lib/performance-test-observer'
 
 interface FileTreeRowProps {
   activeFilePath?: string
@@ -62,6 +63,7 @@ export function FileTreeRow({
   onToggleDirectory,
   onSubmitFileOperation,
 }: FileTreeRowProps) {
+  recordPerformanceTestRender('fileTreeRow')
   const item = node.data
   const viewState = workspaceFileTreeRowViewState({
     activeFilePath,

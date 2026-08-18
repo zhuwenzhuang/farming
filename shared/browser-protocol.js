@@ -180,6 +180,7 @@ function languageServerRequest(value) {
         && boundedStringField(value, 'rootId', 4096)
         && typeof value.method === 'string'
         && LANGUAGE_SERVER_METHODS.has(value.method)
+        && (value.priority === undefined || value.priority === 'interactive' || value.priority === 'background')
         && boundedStringField(value, 'filePath', 4096, true)
         && boundedStringField(value, 'query', 4096, true)
         && boundedStringField(value, 'itemId', 4096, true)
