@@ -166,6 +166,30 @@ async function settleLayout(page: Page) {
   }))
 }
 
+async function waitForFileTreeLayoutToSettle(section: Locator) {
+  let previousSnapshot = ''
+  let stableSamples = 0
+  await expect.poll(async () => {
+    const snapshot = await section.evaluate(element => {
+      const scroller = element.closest<HTMLElement>('.code-project-list')
+      const viewport = element.querySelector<HTMLElement>('.code-file-tree-viewport')
+      const sticky = element.querySelector<HTMLElement>('[data-testid="code-file-sticky-stack"]')
+      return JSON.stringify({
+        scrollTop: scroller?.scrollTop ?? Number.NaN,
+        viewportTop: viewport?.getBoundingClientRect().top ?? Number.NaN,
+        stickyPath: sticky?.querySelector<HTMLElement>('[data-sticky-file-path]')?.dataset.stickyFilePath ?? '',
+      })
+    })
+    stableSamples = snapshot === previousSnapshot ? stableSamples + 1 : 0
+    previousSnapshot = snapshot
+    return stableSamples
+  }, {
+    message: 'file tree scroll and sticky context settle before resize',
+    timeout: 3_000,
+    intervals: [100],
+  }).toBeGreaterThanOrEqual(2)
+}
+
 async function stickyContextClearsPinnedAgents(section: Locator) {
   return section.evaluate(element => {
     const project = element.closest<HTMLElement>('.code-project-group')
@@ -365,6 +389,7 @@ test('preserves every visible directory level across sticky scroll, collapse, re
   await expect(files.locator(`[data-file-path="${implPath}/pangu"]`)).toHaveCount(1)
   await expect(files.locator(`[data-file-path="${implPath}/vpc"]`)).toHaveCount(1)
   await expect(files.getByTestId('code-file-sticky-stack').locator('.code-file-sticky-row')).toHaveCount(1)
+  await waitForFileTreeLayoutToSettle(files)
   const stickyResizeBaseline = await files.evaluate(element => {
     const viewport = element.querySelector<HTMLElement>('.code-file-tree-viewport')
     const tree = element.querySelector<HTMLElement>('.code-file-tree')
