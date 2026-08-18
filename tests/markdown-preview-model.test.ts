@@ -10,6 +10,7 @@ import {
   workspaceFileViewerContributions,
 } from '../src/lib/workspace-viewer-registry'
 import { decodeMermaidCharacterReferences } from '../src/lib/mermaid-source'
+import { splitLargeMarkdownSections } from '../src/lib/large-markdown-sections'
 import { markdownTextContent, mermaidCodeBlockSource } from '../src/lib/react-markdown-content'
 
 test('recognizes the supported Markdown file extensions through the viewer registry', () => {
@@ -86,4 +87,48 @@ test('normalizes Mermaid source without changing unknown references or non-Merma
   assert.equal(markdownTextContent(mermaidCode), 'graph TD\n')
   assert.equal(mermaidCodeBlockSource(mermaidCode), 'graph TD')
   assert.equal(mermaidCodeBlockSource(createElement('code', { className: 'language-ts' }, 'const x = 1')), null)
+})
+
+test('segments large Markdown at real block boundaries with stable headings and references', () => {
+  const source = [
+    '# Repeated title',
+    '',
+    '```md',
+    '## This fenced heading stays in the first section',
+    '```',
+    '',
+    '[Shared reference][target]',
+    '',
+    '## Repeated title',
+    '',
+    '| Column | Value |',
+    '| --- | --- |',
+    '| one | two |',
+    '',
+    '$$',
+    'x^2 + y^2',
+    '$$',
+    '',
+    '[target]: https://example.com/reference',
+  ].join('\n')
+
+  const sections = splitLargeMarkdownSections(source, 40)
+  assert.equal(sections.length, 2)
+  assert.deepEqual(sections.map(section => section.headingIds), [
+    ['repeated-title'],
+    ['repeated-title-1'],
+  ])
+  assert.match(sections[0]?.source ?? '', /fenced heading/)
+  assert.doesNotMatch(sections[0]?.source ?? '', /^## Repeated title$/m)
+  assert.match(sections[0]?.renderSource ?? '', /\[target\]: https:\/\/example\.com\/reference/)
+  assert.match(sections[1]?.source ?? '', /\| Column \| Value \|/)
+  assert.match(sections[1]?.source ?? '', /x\^2 \+ y\^2/)
+})
+
+test('bounds heading-free large Markdown sections by top-level block count', () => {
+  const source = ['First paragraph.', 'Second paragraph.', 'Third paragraph.'].join('\n\n')
+  const sections = splitLargeMarkdownSections(source, 2)
+  assert.equal(sections.length, 2)
+  assert.match(sections[0]?.source ?? '', /First paragraph[\s\S]*Second paragraph/)
+  assert.equal(sections[1]?.source.trim(), 'Third paragraph.')
 })

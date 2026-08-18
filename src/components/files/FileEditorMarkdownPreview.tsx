@@ -3,15 +3,16 @@ import {
   createContext,
   forwardRef,
   isValidElement,
+  memo,
   useCallback,
   useContext,
   useEffect,
   useId,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
-  type ChangeEvent,
   type HTMLAttributes,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent,
@@ -30,6 +31,11 @@ import { LocalErrorBoundary, LocalRenderFault } from '@/components/LocalErrorBou
 import { RefreshGlyph } from '@/components/IconGlyphs'
 import { writeClipboardText } from '@/lib/clipboard'
 import { decodeFileUrlPath } from '@/lib/file-url-path'
+import {
+  markdownHeadingSlug,
+  splitLargeMarkdownSections,
+  type LargeMarkdownSection,
+} from '@/lib/large-markdown-sections'
 import { rawWorkspaceFileUrl } from '@/lib/workspace-files'
 import { decodeMermaidCharacterReferences } from '@/lib/mermaid-source'
 import { markdownTextContent, mermaidCodeBlockSource } from '@/lib/react-markdown-content'
@@ -58,15 +64,6 @@ type MarkdownFrontMatter = {
   entries: MarkdownFrontMatterEntry[]
   error?: string
 }
-type MarkdownAstNode = {
-  type: string
-  depth?: number
-  children?: MarkdownAstNode[]
-  data?: {
-    hName?: string
-    hProperties?: Record<string, unknown>
-  }
-}
 type MarkdownPreviewContextValue = {
   openFile: OpenWorkspaceFile
   onOpenFilePath: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
@@ -78,7 +75,14 @@ type MarkdownPreviewContextValue = {
 const MERMAID_FONT = 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
 const LARGE_MARKDOWN_PREVIEW_CHARACTERS = 256 * 1024
 const LARGE_MARKDOWN_SECTION_BLOCKS = 40
+const LARGE_MARKDOWN_OVERSCAN_PX = 1_200
+const LARGE_MARKDOWN_INITIAL_SECTIONS = 8
 const MarkdownPreviewContext = createContext<MarkdownPreviewContextValue | null>(null)
+
+type LargeMarkdownRenderRange = {
+  start: number
+  end: number
+}
 
 function useMarkdownPreviewContext() {
   const value = useContext(MarkdownPreviewContext)
@@ -144,13 +148,7 @@ function codeBlockLanguage(children: ReactNode) {
 }
 
 function slugifyHeading(value: string) {
-  const slug = value
-    .trim()
-    .toLowerCase()
-    .normalize('NFKD')
-    .replace(/[^\p{Letter}\p{Number}\s-]/gu, '')
-    .replace(/\s+/g, '-')
-  return slug || 'heading'
+  return markdownHeadingSlug(value)
 }
 
 function createHeadingIdFactory() {
@@ -160,44 +158,6 @@ function createHeadingIdFactory() {
     const count = counts.get(base) ?? 0
     counts.set(base, count + 1)
     return count === 0 ? base : `${base}-${count}`
-  }
-}
-
-function remarkLargeMarkdownSections(options?: { position?: number }) {
-  return (tree: MarkdownAstNode) => {
-    if (tree.type !== 'root' || !Array.isArray(tree.children)) return
-
-    const sections: MarkdownAstNode[][] = []
-    let currentSection: MarkdownAstNode[] = []
-    const flushSection = () => {
-      if (currentSection.length === 0) return
-      sections.push(currentSection)
-      currentSection = []
-    }
-
-    for (const child of tree.children) {
-      const startsMajorSection = child.type === 'heading' && (child.depth ?? 7) <= 2
-      if (currentSection.length >= LARGE_MARKDOWN_SECTION_BLOCKS || (startsMajorSection && currentSection.length > 0)) {
-        flushSection()
-      }
-      currentSection.push(child)
-    }
-    flushSection()
-
-    const targetIndex = Math.round(((options?.position ?? 0) / 1000) * Math.max(0, sections.length - 1))
-    const targetSection = sections[targetIndex]
-    tree.children = targetSection ? [{
-      type: 'largeMarkdownSection',
-      data: {
-        hName: 'section',
-        hProperties: {
-          className: ['code-markdown-large-section'],
-          'data-section-index': String(targetIndex),
-          'data-section-count': String(sections.length),
-        },
-      },
-      children: targetSection,
-    }] : []
   }
 }
 
@@ -278,57 +238,15 @@ function MarkdownFrontMatterTable({ frontMatter, copy }: { frontMatter: Markdown
   )
 }
 
-function LargeMarkdownPositionControl({
-  panelRef,
-  copy,
-  documentIdentity,
-  onPositionChange,
-}: {
-  panelRef: RefObject<HTMLElement | null>
-  copy: CodeCopy
-  documentIdentity: string
-  onPositionChange: (position: number) => void
-}) {
-  const controlId = useId()
-  const [position, setPosition] = useState(0)
-  const updateTimerRef = useRef<number | null>(null)
-
-  useEffect(() => {
-    setPosition(0)
-    onPositionChange(0)
-    panelRef.current?.scrollTo({ top: 0 })
-    return () => {
-      if (updateTimerRef.current !== null) window.clearTimeout(updateTimerRef.current)
-    }
-  }, [documentIdentity, onPositionChange, panelRef])
-
-  const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const nextPosition = Number(event.currentTarget.value)
-    setPosition(nextPosition)
-    if (updateTimerRef.current !== null) window.clearTimeout(updateTimerRef.current)
-    updateTimerRef.current = window.setTimeout(() => {
-      updateTimerRef.current = null
-      panelRef.current?.scrollTo({ top: 0 })
-      onPositionChange(nextPosition)
-    }, 80)
+function sectionIndexAtOffset(offsets: number[], offset: number) {
+  let low = 0
+  let high = Math.max(0, offsets.length - 2)
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2)
+    if ((offsets[middle + 1] ?? Number.POSITIVE_INFINITY) <= offset) low = middle + 1
+    else high = middle
   }
-
-  return (
-    <div className="code-markdown-large-navigation" data-testid="code-markdown-large-navigation">
-      <label htmlFor={controlId}>{copy.markdownDocumentPosition}</label>
-      <input
-        id={controlId}
-        type="range"
-        min="0"
-        max="1000"
-        step="1"
-        value={position}
-        aria-label={copy.markdownDocumentPosition}
-        onChange={handleChange}
-      />
-      <output htmlFor={controlId}>{Math.round(position / 10)}%</output>
-    </div>
-  )
+  return low
 }
 
 function MarkdownHeading({
@@ -498,6 +416,175 @@ const MARKDOWN_COMPONENTS: Components = {
   a: MarkdownLink,
   img: MarkdownImage,
   pre: MarkdownPre,
+}
+
+const LargeMarkdownVirtualSection = memo(function LargeMarkdownVirtualSection({
+  index,
+  section,
+  onHeight,
+}: {
+  index: number
+  section: LargeMarkdownSection
+  onHeight: (index: number, height: number) => void
+}) {
+  const sectionRef = useRef<HTMLElement | null>(null)
+  const previewContext = useMarkdownPreviewContext()
+  let headingIndex = 0
+  const sectionContext = {
+    ...previewContext,
+    nextHeadingId: (children: ReactNode) => (
+      section.headingIds[headingIndex++] ?? markdownHeadingSlug(markdownTextContent(children))
+    ),
+  }
+
+  useLayoutEffect(() => {
+    const element = sectionRef.current
+    if (!element) return undefined
+    const publishHeight = () => onHeight(index, element.getBoundingClientRect().height)
+    publishHeight()
+    if (typeof ResizeObserver === 'undefined') return undefined
+    const observer = new ResizeObserver(publishHeight)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [index, onHeight, section])
+
+  return (
+    <section
+      ref={sectionRef}
+      className="code-markdown-large-section"
+      data-section-index={index}
+    >
+      <MarkdownPreviewContext.Provider value={sectionContext}>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm, remarkMath]}
+          rehypePlugins={[rehypeKatex]}
+          components={MARKDOWN_COMPONENTS}
+          skipHtml
+        >
+          {section.renderSource}
+        </ReactMarkdown>
+      </MarkdownPreviewContext.Provider>
+    </section>
+  )
+})
+
+function LargeMarkdownVirtualPreview({
+  panelRef,
+  sections,
+}: {
+  panelRef: RefObject<HTMLElement | null>
+  sections: LargeMarkdownSection[]
+}) {
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  const measuredHeightsRef = useRef(new Map<number, number>())
+  const offsetsRef = useRef<number[]>([])
+  const frameRef = useRef<number | null>(null)
+  const [, setMeasurementRevision] = useState(0)
+  const [renderRange, setRenderRange] = useState<LargeMarkdownRenderRange>(() => ({
+    start: 0,
+    end: Math.min(sections.length, LARGE_MARKDOWN_INITIAL_SECTIONS),
+  }))
+
+  const offsets = [0]
+  for (let index = 0; index < sections.length; index += 1) {
+    const section = sections[index]
+    if (!section) break
+    const height = measuredHeightsRef.current.get(index) ?? section.estimatedHeight
+    offsets.push((offsets[index] ?? 0) + height)
+  }
+  offsetsRef.current = offsets
+
+  const updateRenderRange = useCallback(() => {
+    const panel = panelRef.current
+    const root = rootRef.current
+    const currentOffsets = offsetsRef.current
+    if (!panel || !root || currentOffsets.length < 2) return
+
+    const panelRect = panel.getBoundingClientRect()
+    const rootRect = root.getBoundingClientRect()
+    const totalHeight = currentOffsets[currentOffsets.length - 1] ?? 0
+    const visibleStart = Math.max(0, panelRect.top - rootRect.top)
+    const visibleEnd = Math.min(totalHeight, panelRect.bottom - rootRect.top)
+    const start = sectionIndexAtOffset(currentOffsets, Math.max(0, visibleStart - LARGE_MARKDOWN_OVERSCAN_PX))
+    const end = Math.min(
+      sections.length,
+      sectionIndexAtOffset(currentOffsets, Math.min(totalHeight, visibleEnd + LARGE_MARKDOWN_OVERSCAN_PX)) + 1,
+    )
+    setRenderRange(current => (
+      current.start === start && current.end === end ? current : { start, end }
+    ))
+  }, [panelRef, sections.length])
+
+  const scheduleRenderRangeUpdate = useCallback(() => {
+    if (frameRef.current !== null) return
+    frameRef.current = window.requestAnimationFrame(() => {
+      frameRef.current = null
+      updateRenderRange()
+    })
+  }, [updateRenderRange])
+
+  const publishSectionHeight = useCallback((index: number, height: number) => {
+    const currentHeight = measuredHeightsRef.current.get(index)
+    if (currentHeight !== undefined && Math.abs(currentHeight - height) < 1) return
+    measuredHeightsRef.current.set(index, height)
+    setMeasurementRevision(current => current + 1)
+    scheduleRenderRangeUpdate()
+  }, [scheduleRenderRangeUpdate])
+
+  useLayoutEffect(() => {
+    measuredHeightsRef.current.clear()
+    setRenderRange({ start: 0, end: Math.min(sections.length, LARGE_MARKDOWN_INITIAL_SECTIONS) })
+    scheduleRenderRangeUpdate()
+  }, [scheduleRenderRangeUpdate, sections])
+
+  useEffect(() => {
+    const panel = panelRef.current
+    if (!panel) return undefined
+    panel.addEventListener('scroll', scheduleRenderRangeUpdate, { passive: true })
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(scheduleRenderRangeUpdate)
+    observer?.observe(panel)
+    scheduleRenderRangeUpdate()
+    return () => {
+      panel.removeEventListener('scroll', scheduleRenderRangeUpdate)
+      observer?.disconnect()
+      if (frameRef.current !== null) window.cancelAnimationFrame(frameRef.current)
+      frameRef.current = null
+    }
+  }, [panelRef, scheduleRenderRangeUpdate])
+
+  const renderedSections = []
+  for (let index = renderRange.start; index < renderRange.end; index += 1) {
+    const section = sections[index]
+    if (!section) break
+    renderedSections.push(
+      <LargeMarkdownVirtualSection
+        key={index}
+        index={index}
+        section={section}
+        onHeight={publishSectionHeight}
+      />,
+    )
+  }
+
+  return (
+    <div
+      ref={rootRef}
+      className="code-markdown-large-virtual"
+      data-section-count={sections.length}
+    >
+      <div
+        className="code-markdown-large-spacer"
+        style={{ height: `${offsets[renderRange.start] ?? 0}px` }}
+        aria-hidden="true"
+      />
+      {renderedSections}
+      <div
+        className="code-markdown-large-spacer"
+        style={{ height: `${(offsets[offsets.length - 1] ?? 0) - (offsets[renderRange.end] ?? 0)}px` }}
+        aria-hidden="true"
+      />
+    </div>
+  )
 }
 
 function currentMermaidAppearance(): ResolvedAppearance {
@@ -892,10 +979,15 @@ export const FileEditorMarkdownPreview = forwardRef<HTMLElement, FileEditorMarkd
 }, ref) {
   const previewPanelRef = useRef<HTMLElement | null>(null)
   useImperativeHandle(ref, () => previewPanelRef.current as HTMLElement, [])
-  const [largeDocumentPosition, setLargeDocumentPosition] = useState(0)
   const source = openFile.draft ?? openFile.file.content ?? ''
   const markdownDocument = splitMarkdownFrontMatter(source)
   const isLargeDocument = markdownDocument.body.length > LARGE_MARKDOWN_PREVIEW_CHARACTERS
+  const largeDocumentSections = useMemo(
+    () => isLargeDocument
+      ? splitLargeMarkdownSections(markdownDocument.body, LARGE_MARKDOWN_SECTION_BLOCKS)
+      : [],
+    [isLargeDocument, markdownDocument.body],
+  )
   const nextHeadingId = createHeadingIdFactory()
   const contextValue = { openFile, onOpenFilePath, copy, nextHeadingId, previewRefreshRevision }
   const previewIdentity = `${openFile.agentId}:${openFile.file.path}`
@@ -911,14 +1003,6 @@ export const FileEditorMarkdownPreview = forwardRef<HTMLElement, FileEditorMarkd
       tabIndex={-1}
     >
       <MarkdownPreviewContext.Provider value={contextValue}>
-        {isLargeDocument && (
-          <LargeMarkdownPositionControl
-            panelRef={previewPanelRef}
-            copy={copy}
-            documentIdentity={`${previewIdentity}:${openFile.revision}`}
-            onPositionChange={setLargeDocumentPosition}
-          />
-        )}
         <article
           className={`code-markdown-preview${isLargeDocument ? ' large-document' : ''}`}
           data-syntax-highlight={isLargeDocument ? 'disabled' : 'enabled'}
@@ -948,16 +1032,21 @@ export const FileEditorMarkdownPreview = forwardRef<HTMLElement, FileEditorMarkd
             )}
           >
             <LocalRenderFault surface="file-markdown" identity={previewIdentity}>
-              <ReactMarkdown
-                remarkPlugins={isLargeDocument
-                  ? [remarkGfm, remarkMath, [remarkLargeMarkdownSections, { position: largeDocumentPosition }]]
-                  : [remarkGfm, remarkMath]}
-                rehypePlugins={isLargeDocument ? [rehypeKatex] : [rehypeKatex, rehypeHighlight]}
-                components={MARKDOWN_COMPONENTS}
-                skipHtml
-              >
-                {markdownDocument.body}
-              </ReactMarkdown>
+              {isLargeDocument ? (
+                <LargeMarkdownVirtualPreview
+                  panelRef={previewPanelRef}
+                  sections={largeDocumentSections}
+                />
+              ) : (
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm, remarkMath]}
+                  rehypePlugins={[rehypeKatex, rehypeHighlight]}
+                  components={MARKDOWN_COMPONENTS}
+                  skipHtml
+                >
+                  {markdownDocument.body}
+                </ReactMarkdown>
+              )}
             </LocalRenderFault>
           </LocalErrorBoundary>
         </article>

@@ -158,49 +158,197 @@ test('renders Markdown files by default and keeps preview, source, and split con
   await expect(page.getByTestId('code-terminal-grid')).toBeHidden()
 })
 
-test('keeps oversized Markdown responsive and provides proportional document navigation', async ({ page, workspaceRoot }) => {
+test('keeps oversized Markdown responsive with continuous virtual scrolling', async ({ page, workspaceRoot }, testInfo) => {
   await page.setViewportSize({ width: 1440, height: 800 })
   const workspace = path.join(workspaceRoot, 'large-markdown-preview')
   fs.rmSync(workspace, { recursive: true, force: true })
   fs.mkdirSync(workspace, { recursive: true })
+  const queryCount = 105
+  const recordsPerQuery = 13
   const source = [
     '# Large report',
     '',
-    ...Array.from({ length: 700 }, (_, index) => [
-      `## Section ${index + 1}`,
+    '## Metric contract',
+    '',
+    '- Input rows use the probe-side denominator.',
+    '- Filtered rows use the corresponding LocalDF counter.',
+    '',
+    ...Array.from({ length: queryCount }, (_, queryIndex) => [
+      `## Query ${queryIndex + 1}`,
       '',
-      'This section preserves the complete report while offscreen layout work stays bounded. '.repeat(4),
+      `Source directory: /workspace/tpcds/1TB/query-${queryIndex + 1}`,
       '',
-      '```sql',
-      `SELECT ${index + 1} AS section_id, '${'predicate '.repeat(8)}' AS detail;`,
-      '```',
-      '',
+      ...Array.from({ length: recordsPerQuery }, (_, recordIndex) => [
+        `### LOCAL_DF_JOIN_RANGE / M${queryIndex + 1}_${recordIndex + 1} / HashJoin${recordIndex + 1}`,
+        '',
+        `- Producer: \`TableScan${recordIndex + 2}\``,
+        `- Producer key: \`TableScan${recordIndex + 2}.dimension_key\``,
+        `- Consumer: \`Filter${recordIndex + 1}\``,
+        `- Target TableScan: \`TableScan${recordIndex + 1}\` (tpcds.store_sales)`,
+        '- Metric: `HASH_JOIN_LOCAL_DF`',
+        `- Input rows: ${2_000_000_000 + queryIndex + recordIndex}`,
+        `- Output rows: ${100_000_000 + queryIndex + recordIndex}`,
+        '- Description: The probe-side denominator excludes rows already removed by TableScan predicate pushdown.',
+        '',
+        '```sql',
+        `WHERE TableScan${recordIndex + 1}.dimension_key >= DYNAMIC(HashJoin${recordIndex + 1}.Min0)`,
+        `  AND TableScan${recordIndex + 1}.dimension_key <= DYNAMIC(HashJoin${recordIndex + 1}.Max0)`,
+        '```',
+        '',
+      ].join('\n')),
     ].join('\n')),
   ].join('\n')
   expect(source.length).toBeGreaterThan(256 * 1024)
+  expect(source.split('\n').length).toBeGreaterThan(20_000)
   fs.writeFileSync(path.join(workspace, 'report.md'), source)
 
   await openFarming(page)
   await openNewAgentDialog(page)
   await startAgentFromOpenDialog(page, 'bash', workspace)
+  const openStartedAt = await page.evaluate(() => performance.now())
   await openProjectFile(page, 'large-markdown-preview', 'report.md')
 
   const preview = page.getByTestId('code-file-markdown-preview')
   const article = preview.locator('.code-markdown-preview')
-  const navigation = preview.getByTestId('code-markdown-large-navigation')
   await expect(article).toHaveAttribute('data-syntax-highlight', 'disabled')
-  await expect(navigation).toBeVisible()
-  const renderedSection = article.locator('.code-markdown-large-section')
-  await expect(renderedSection).toHaveCount(1)
-  await expect(renderedSection).toHaveAttribute('data-section-count', '701')
+  await expect(preview.getByTestId('code-markdown-large-navigation')).toHaveCount(0)
+  const virtualRoot = article.locator('.code-markdown-large-virtual')
+  await expect(virtualRoot).toHaveAttribute('data-section-count', /\d+/)
+  const sectionCount = Number(await virtualRoot.getAttribute('data-section-count'))
+  expect(sectionCount).toBeGreaterThan(100)
   await expect(article.locator('.hljs')).toHaveCount(0)
+  const openSettledAt = await page.evaluate(() => performance.now())
+  expect(openSettledAt - openStartedAt).toBeLessThan(3_000)
 
-  const position = navigation.getByRole('slider', { name: 'Document position' })
-  await position.fill('750')
-  await expect(navigation.locator('output')).toHaveText('75%')
-  await expect(renderedSection).toHaveAttribute('data-section-index', '525', { timeout: 3_000 })
-  await expect(renderedSection.getByRole('heading', { name: 'Section 525' })).toBeVisible()
-  expect(await preview.locator('*').count()).toBeLessThan(500)
+  const editor = page.getByTestId('code-file-editor')
+  await editor.getByRole('button', { name: 'Show Markdown source' }).click()
+  await expect(editor.getByTestId('code-file-monaco')).toBeVisible()
+  await expect(preview).toHaveCount(0)
+  const reopenStartedAt = await page.evaluate(() => performance.now())
+  await editor.getByRole('button', { name: 'Open Markdown preview', exact: true }).click()
+  await expect(preview).toBeVisible()
+  await expect(article).toHaveAttribute('data-syntax-highlight', 'disabled')
+  const reopenSettledAt = await page.evaluate(() => performance.now())
+  expect(reopenSettledAt - reopenStartedAt).toBeLessThan(3_000)
+
+  const initialSections = article.locator('.code-markdown-large-section')
+  await expect(initialSections.first()).toHaveAttribute('data-section-index', '0')
+  const documentHeading = initialSections.getByRole('heading', { name: 'Large report' })
+  await expect(documentHeading).toBeVisible()
+  await expect(documentHeading).toHaveAttribute('id', 'large-report')
+  expect(await initialSections.count()).toBeLessThan(30)
+  expect(await preview.locator('*').count()).toBeLessThan(1_000)
+
+  const layout = await preview.evaluate(element => {
+    const panel = element as HTMLElement
+    const article = panel.querySelector('.code-markdown-preview') as HTMLElement | null
+    if (!article) throw new Error('Large Markdown article is missing')
+    const panelRect = panel.getBoundingClientRect()
+    const articleRect = article.getBoundingClientRect()
+    const style = getComputedStyle(article)
+    return {
+      articleLeft: articleRect.left,
+      articleRight: articleRect.right,
+      articleWidth: articleRect.width,
+      panelLeft: panelRect.left,
+      panelRight: panelRect.right,
+      paddingLeft: Number.parseFloat(style.paddingLeft),
+      paddingRight: Number.parseFloat(style.paddingRight),
+      scrollable: panel.scrollHeight > panel.clientHeight * 10,
+    }
+  })
+  expect(layout.articleLeft).toBeGreaterThanOrEqual(layout.panelLeft)
+  expect(layout.articleRight).toBeLessThanOrEqual(layout.panelRight)
+  expect(layout.articleWidth).toBeLessThanOrEqual(860)
+  expect(layout.paddingLeft).toBe(36)
+  expect(layout.paddingRight).toBe(36)
+  expect(layout.scrollable).toBe(true)
+
+  const scrollStartedAt = await preview.evaluate(element => {
+    const panel = element as HTMLElement
+    panel.scrollTop = panel.scrollHeight * 0.75
+    return performance.now()
+  })
+  await expect.poll(async () => {
+    const indices = await article.locator('.code-markdown-large-section').evaluateAll(elements => (
+      elements.map(element => Number((element as HTMLElement).dataset.sectionIndex))
+    ))
+    return Math.max(...indices)
+  }, { timeout: 3_000 }).toBeGreaterThan(sectionCount * 0.65)
+  const scrollSettledAt = await page.evaluate(() => performance.now())
+  expect(scrollSettledAt - scrollStartedAt).toBeLessThan(3_000)
+  await expect(article.getByRole('heading', { name: 'Large report' })).toHaveCount(0)
+  expect(await article.locator('.code-markdown-large-section').count()).toBeLessThan(30)
+  expect(await preview.locator('*').count()).toBeLessThan(1_000)
+
+  const screenshotPath = testInfo.outputPath('large-markdown-continuous-scroll.png')
+  await preview.screenshot({ path: screenshotPath })
+  await testInfo.attach('large-markdown-continuous-scroll', {
+    path: screenshotPath,
+    contentType: 'image/png',
+  })
+
+  await preview.evaluate(element => { (element as HTMLElement).scrollTop = 0 })
+  await expect(article.getByRole('heading', { name: 'Large report' })).toBeVisible()
+  await expect(article.getByRole('heading', { name: 'Large report' })).toHaveAttribute('id', 'large-report')
+})
+
+test('keeps oversized non-Markdown text on Monaco virtual scrolling', async ({ page, workspaceRoot }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 800 })
+  const workspace = path.join(workspaceRoot, 'large-text-preview')
+  fs.rmSync(workspace, { recursive: true, force: true })
+  fs.mkdirSync(workspace, { recursive: true })
+  fs.writeFileSync(path.join(workspace, 'report.log'), 'large text line\n'.repeat(160_000))
+
+  await openFarming(page)
+  await openNewAgentDialog(page)
+  await startAgentFromOpenDialog(page, 'bash', workspace)
+  await openProjectFile(page, 'large-text-preview', 'report.log')
+
+  const editor = page.getByTestId('code-file-editor')
+  const monaco = editor.getByTestId('code-file-monaco')
+  await expect(monaco).toBeVisible()
+  await expect(editor.getByTestId('code-file-large-text-alert')).toHaveText(
+    'This large file is shown completely in read-only mode.',
+  )
+  await expect(editor.getByTestId('code-file-markdown-preview')).toHaveCount(0)
+  await expect(editor.locator('input[type="range"]')).toHaveCount(0)
+
+  const scrollStartedAt = await page.evaluate(() => {
+    if (!window.__farmingFileEditorTest?.revealLine(150_000)) {
+      throw new Error('Large text editor did not accept the reveal request')
+    }
+    return performance.now()
+  })
+  await expect.poll(() => page.evaluate(
+    () => window.__farmingFileEditorTest?.getPosition()?.lineNumber ?? 0,
+  ), { timeout: 3_000 }).toBe(150_000)
+  const scrollSettledAt = await page.evaluate(() => performance.now())
+  expect(scrollSettledAt - scrollStartedAt).toBeLessThan(3_000)
+
+  const metrics = await monaco.evaluate(element => {
+    const host = element as HTMLElement
+    const hostRect = host.getBoundingClientRect()
+    const verticalScrollbar = host.querySelector<HTMLElement>('.scrollbar.vertical')
+    const scrollbarRect = verticalScrollbar?.getBoundingClientRect()
+    return {
+      renderedLines: host.querySelectorAll('.view-line').length,
+      hostRight: hostRect.right,
+      scrollbarRight: scrollbarRect?.right ?? 0,
+      scrollbarWidth: scrollbarRect?.width ?? 0,
+    }
+  })
+  expect(metrics.renderedLines).toBeGreaterThan(0)
+  expect(metrics.renderedLines).toBeLessThan(100)
+  expect(metrics.scrollbarWidth).toBeGreaterThan(0)
+  expect(Math.abs(metrics.hostRight - metrics.scrollbarRight)).toBeLessThanOrEqual(2)
+
+  const screenshotPath = testInfo.outputPath('large-text-monaco-scroll.png')
+  await editor.screenshot({ path: screenshotPath })
+  await testInfo.attach('large-text-monaco-scroll', {
+    path: screenshotPath,
+    contentType: 'image/png',
+  })
 })
 
 test('reuses the existing Agent Chat beside a file', async ({ page, workspaceRoot }, testInfo) => {

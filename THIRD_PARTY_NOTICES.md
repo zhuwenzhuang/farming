@@ -43,8 +43,10 @@ preserved in bundled `node_modules` when bundled dependencies are enabled.
 | `rehype-katex` | 7.0.1 | MIT | Markdown math rendering integration |
 | `remark-gfm` | 4.0.1 | MIT | GitHub Flavored Markdown support |
 | `remark-math` | 6.0.0 | MIT | Markdown math syntax support |
+| `remark-parse` | 11.0.0 | MIT | Markdown syntax tree parsing for virtual preview sections |
 | `ripgrep` | 0.3.1 | MIT | Node wrapper for file search support |
 | `tar` | 7.5.22 | BlueOak-1.0.0 | Safe extraction of version-locked startup dependency archives |
+| `unified` | 11.0.5 | MIT | Markdown parser pipeline for virtual preview sections |
 | `vscode-jsonrpc` | 9.0.1 | MIT | Language Server JSON-RPC stream transport |
 | `vscode-languageserver-protocol` | 3.18.2 | MIT | Language Server Protocol types and contracts |
 | `ws` | 8.21.0 | MIT | WebSocket server/client support |
