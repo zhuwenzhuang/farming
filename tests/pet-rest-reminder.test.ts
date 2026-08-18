@@ -268,6 +268,33 @@ test('an overdue user interaction starts a fresh entry countdown', () => {
   )
 })
 
+test('entry blockers do not pause the work deadline and unblock deterministically', () => {
+  const start = 1_000_000
+  let state = createRestReminderState(60)
+  state = reduceRestReminder(state, { type: 'foreground', now: start })
+
+  const beforeDeadline = reduceRestReminder(state, {
+    type: 'entry-unblocked',
+    now: start + 45_000,
+  })
+  assert.equal(beforeDeadline.phase, 'working')
+  assert.equal(beforeDeadline.cycleStartedAt, start)
+  assert.equal(beforeDeadline.backgroundedAt, null)
+
+  const unblockedAt = start + 65_000
+  const overdue = reduceRestReminder(state, {
+    type: 'entry-unblocked',
+    now: unblockedAt,
+  })
+  assert.equal(overdue.phase, 'due')
+  assert.equal(overdue.cycleStartedAt, start)
+  assert.equal(overdue.backgroundedAt, null)
+  assert.equal(
+    overdue.restStartsAt,
+    unblockedAt + REST_REMINDER_ENTRY_COUNTDOWN_SECONDS * 1000,
+  )
+})
+
 test('resumes runtime state, validates stored data, and reconfigures the active interval', () => {
   const { storage, values } = createStorage()
   const start = 1_000_000

@@ -381,6 +381,7 @@ export type RestReminderEvent =
   | { type: 'foreground'; now: number }
   | { type: 'background'; now: number }
   | { type: 'interaction'; now: number }
+  | { type: 'entry-unblocked'; now: number }
   | { type: 'deadline'; now: number }
   | { type: 'snooze'; now: number }
   | { type: 'dismiss'; now: number }
@@ -533,10 +534,10 @@ export function reduceRestReminder(
   state: RestReminderState,
   event: RestReminderEvent,
 ): RestReminderState {
-  // A concrete user action wins over a delayed countdown callback. If the
-  // working deadline passed before its callback ran, start a fresh entry
-  // countdown instead of backdating and partially consuming the break.
-  if (event.type === 'interaction') {
+  // A concrete user action or an entry blocker closing wins over a delayed
+  // countdown callback. If the working deadline already passed, start a fresh
+  // entry countdown instead of backdating and partially consuming the break.
+  if (event.type === 'interaction' || event.type === 'entry-unblocked') {
     if (state.phase === 'due') {
       return {
         ...state,

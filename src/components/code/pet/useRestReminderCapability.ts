@@ -146,10 +146,15 @@ export function useRestReminderCapability(
     const current = stateRef.current
     if (!current || current.phase === 'resting') return
 
-    commit(reduceRestReminder(current, {
-      type: entryBlocked ? 'background' : 'foreground',
-      now: Date.now(),
-    }))
+    // Modal UI blocks reminder entry, but it is not page background time.
+    // Keep the work deadline live and start a fresh entry countdown when the
+    // blocker closes after that deadline has elapsed.
+    if (!entryBlocked) {
+      commit(reduceRestReminder(current, {
+        type: 'entry-unblocked',
+        now: Date.now(),
+      }))
+    }
   }, [clearInteractionTimer, commit, entryBlocked])
 
   // Listener wiring only cares whether a reminder exists, not about each state

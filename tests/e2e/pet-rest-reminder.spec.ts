@@ -1578,12 +1578,12 @@ test('Settings blocks rest entry and closing it starts a fresh entry countdown',
       capabilities: { restReminder: { intervalSeconds: 60 } },
     }))
     sessionStorage.setItem(runtimeKey, JSON.stringify({
-      version: 1,
+      version: 2,
       state: {
         phase: 'working',
         intervalSeconds: 60,
         cycleStartedAt: now - 45_000,
-        lastActivityAt: now,
+        backgroundedAt: null,
         snoozedUntil: null,
         restStartsAt: null,
         restUntil: null,
@@ -1601,6 +1601,9 @@ test('Settings blocks rest entry and closing it starts a fresh entry countdown',
   await page.clock.fastForward(20_000)
   await expect(page.getByTestId('pet-rest-scene')).toHaveCount(0)
   await expect(page.getByTestId('pet-rest-reminder')).toHaveCount(0)
+  await expect.poll(() => page.evaluate(key => (
+    JSON.parse(sessionStorage.getItem(key) ?? 'null')?.state?.phase
+  ), RUNTIME_KEY)).toBe('working')
   await expect(closeSettings).toBeVisible()
   await expect(closeSettings).toBeEnabled()
   expect(await page.locator('#root').evaluate(element => (element as HTMLElement).inert))
