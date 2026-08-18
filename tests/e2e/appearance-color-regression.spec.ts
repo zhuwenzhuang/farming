@@ -63,23 +63,23 @@ function parseRgb(value: string) {
   return channels
 }
 
-function screenshotColorPixelCount(screenshot: Buffer, cssColor: string) {
+function screenshotColorPixelCount(screenshot: Buffer, cssColor: string, channelTolerance = 1) {
   const expected = parseRgb(cssColor)
   const image = ScreenshotPng.sync.read(screenshot)
   let matches = 0
   for (let offset = 0; offset < image.data.length; offset += 4) {
     if (
-      Math.abs((image.data[offset] ?? 0) - (expected[0] ?? 0)) <= 1
-      && Math.abs((image.data[offset + 1] ?? 0) - (expected[1] ?? 0)) <= 1
-      && Math.abs((image.data[offset + 2] ?? 0) - (expected[2] ?? 0)) <= 1
+      Math.abs((image.data[offset] ?? 0) - (expected[0] ?? 0)) <= channelTolerance
+      && Math.abs((image.data[offset + 1] ?? 0) - (expected[1] ?? 0)) <= channelTolerance
+      && Math.abs((image.data[offset + 2] ?? 0) - (expected[2] ?? 0)) <= channelTolerance
     ) matches += 1
   }
   return matches
 }
 
-function screenshotColorRatio(screenshot: Buffer, cssColor: string) {
+function screenshotColorRatio(screenshot: Buffer, cssColor: string, channelTolerance = 1) {
   const image = ScreenshotPng.sync.read(screenshot)
-  return screenshotColorPixelCount(screenshot, cssColor) / (image.width * image.height)
+  return screenshotColorPixelCount(screenshot, cssColor, channelTolerance) / (image.width * image.height)
 }
 
 function screenshotChromaticRatio(screenshot: Buffer) {
@@ -120,9 +120,10 @@ async function expectScreenshotRole(
   role: string,
   minimumRatio: number,
   label: string,
+  channelTolerance = 1,
 ) {
   const expectedColor = await resolvedColor(page, role)
-  expect(screenshotColorRatio(screenshot, expectedColor), `${label} must visibly paint ${role}`).toBeGreaterThanOrEqual(minimumRatio)
+  expect(screenshotColorRatio(screenshot, expectedColor, channelTolerance), `${label} must visibly paint ${role}`).toBeGreaterThanOrEqual(minimumRatio)
 }
 
 async function expectScreenshotTextRole(page: Page, screenshot: Buffer, role: string, label: string) {
@@ -241,7 +242,8 @@ test('Light, Dark, and Paper Chat use neutral reading surfaces and semantic glyp
     expect(await color(send)).toBe(await resolvedColor(page, sendColorRole))
     const sendScreenshot = await stableScreenshot(send)
     await expectScreenshotRole(page, sendScreenshot, sendBackgroundRole, 0.55, `${appearance} send button`)
-    await expectScreenshotRole(page, sendScreenshot, sendColorRole, 0.0008, `${appearance} send glyph`)
+    // Chromium antialiases this 15px SVG without retaining a pixel at the exact source color.
+    await expectScreenshotRole(page, sendScreenshot, sendColorRole, 0.0008, `${appearance} send glyph`, 12)
     const answerScreenshot = await stableScreenshot(answer)
     await expectScreenshotRole(page, answerScreenshot, '--code-code-bg', 0.03, `${appearance} Chat answer`)
     await attachScreenshot(testInfo, `chat-colors-${appearance}`, answerScreenshot)
