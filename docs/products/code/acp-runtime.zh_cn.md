@@ -256,6 +256,10 @@ Chat 展示有序对话、当前 Turn 的一条紧凑 Live Activity，以及可�
 Reasoning 与 Tool Detail 不应在默认阅读面上形成重叠摘要。Disclosure Control 保留稳定布局
 槽位，只在 Hover 或 Keyboard Focus 时视觉浮现。
 
+文件提交后，历史 Patch Card 仍保留其结构化 Diff 证据。只有该 Card 中至少一个路径仍存在
+当前 Staged、Unstaged 或 Untracked Git 改动时才显示 Commit Follow-up；无关的 Working Copy
+改动不能让该操作继续显示。
+
 新建 Chat 在 Session 连接期间持续显示稳定的空对话状态。Session 启动不属于 Active Turn，
 不得启用 Steer，也不应使用短暂的启动文案替换空状态。新 Session 启动期间的 Transcript
 读取失败不能替换该空状态；真实 Runtime Failure 仍通过权威 Runtime 与 Composer State 显示。

@@ -9,6 +9,7 @@ import {
   patchResultLines,
   patchResultSummary,
   patchResultTitle,
+  patchRowsHaveUncommittedChanges,
   patchRowsForChanges,
   patchRowsForItems,
   workspaceRelativeTranscriptPath,
@@ -94,6 +95,18 @@ test('item rows prefer structured changes over parsed detail lines', () => {
     patchItem('updated parsed.ts +2 -2'),
   ], '/repo')
   assert.deepEqual(rows.map(row => row.path), ['real.ts', 'parsed.ts'])
+})
+
+test('patch rows overlap only their current uncommitted workspace paths', () => {
+  const rows = [{ kind: 'updated', path: '/repo/src/app.ts', added: '+1', removed: '-1' }]
+  assert.equal(patchRowsHaveUncommittedChanges(
+    rows,
+    new Set(['src/app.ts', 'unrelated.ts']),
+    '/repo',
+  ), true)
+  assert.equal(patchRowsHaveUncommittedChanges(rows, new Set(['unrelated.ts']), '/repo'), false)
+  assert.equal(patchRowsHaveUncommittedChanges(rows, new Set(), '/repo'), false)
+  assert.equal(patchRowsHaveUncommittedChanges(rows, null, '/repo'), false)
 })
 
 test('patch titles and summaries stay singular, plural, and failure aware', () => {

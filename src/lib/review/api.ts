@@ -60,6 +60,7 @@ export type ReviewComparisonSources = {
   currentBranch: string
   root: string
   staged: ReviewComparisonSource & { available: boolean }
+  uncommittedPaths: string[]
   unstaged: ReviewComparisonSource & { available: boolean }
 }
 
@@ -340,6 +341,9 @@ export async function loadReviewComparisonSources(
     || !sources.commits.every(isComparisonSource)
     || !Array.isArray(sources.branches)
     || !sources.branches.every(isComparisonSource)
+    || !Array.isArray(sources.uncommittedPaths)
+    || !sources.uncommittedPaths.every(isReviewPath)
+    || !hasUniqueReviewPaths(sources.uncommittedPaths)
   ) throw new ReviewApiError('review comparison source response is invalid')
   return sources
 }

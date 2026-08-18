@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import {
   transcriptGitDiffSearchParams,
   transcriptGitDiffTargetForRepository,
+  transcriptUncommittedPathsForRepository,
 } from '../../src/components/code/transcript-git-diff'
 
 type ComparisonSources = Parameters<typeof transcriptGitDiffTargetForRepository>[0]
@@ -17,6 +18,7 @@ function comparisonSources(overrides: Partial<ComparisonSources> = {}): Comparis
       base: '2'.repeat(40),
       head: '3'.repeat(40),
     },
+    uncommittedPaths: [],
     unstaged: {
       available: false,
       base: '3'.repeat(40),
@@ -60,6 +62,12 @@ assert.deepEqual(
 assert.deepEqual(
   transcriptGitDiffTargetForRepository(comparisonSources({ commits: [] })),
   { kind: 'working-copy' },
+)
+assert.deepEqual(
+  transcriptUncommittedPathsForRepository(comparisonSources({
+    uncommittedPaths: ['src/app.ts', 'docs/readme.md', 'src/app.ts'],
+  })),
+  new Set(['src/app.ts', 'docs/readme.md']),
 )
 
 console.log('Transcript Git diff tests passed')

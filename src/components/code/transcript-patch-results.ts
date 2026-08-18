@@ -114,6 +114,18 @@ export function patchRowsForItems(items: AgentTranscriptProcessItem[], workspace
   )
 }
 
+export function patchRowsHaveUncommittedChanges(
+  rows: PatchResultRow[],
+  uncommittedPaths: ReadonlySet<string> | null,
+  workspaceRoot?: string,
+) {
+  if (!uncommittedPaths) return false
+  const patchPaths = new Set(rows.map(row => patchRowDisplayPath(row, workspaceRoot)))
+  return [...uncommittedPaths].some(path => patchPaths.has(
+    workspaceRelativeTranscriptPath(path, workspaceRoot) || normalizeTranscriptPath(path),
+  ))
+}
+
 export function patchResultTitle(fileCount: number, failed: boolean) {
   if (failed) return fileCount === 1 ? 'Failed editing 1 file' : `Failed editing ${fileCount} files`
   return fileCount === 1 ? 'Edited 1 file' : `Edited ${fileCount} files`

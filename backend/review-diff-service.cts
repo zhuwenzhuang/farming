@@ -892,6 +892,11 @@ class ReviewDiffService {
     }
     const currentBranch = String(branchResult.stdout || '').trim();
     const [unstagedResult, stagedResult, untrackedResult] = statusResult;
+    const uncommittedPaths = [...new Set([
+      ...nulFields(unstagedResult.stdout),
+      ...nulFields(stagedResult.stdout),
+      ...nulFields(untrackedResult.stdout),
+    ])];
     const refsResult = await this.git(root, [
       'for-each-ref',
       '--count=20',
@@ -922,6 +927,7 @@ class ReviewDiffService {
       commits: parseComparisonCommits(logResult.stdout),
       currentBranch: currentBranch || 'Detached HEAD',
       root,
+      uncommittedPaths,
       staged: {
         available: Boolean(String(stagedResult.stdout || '')),
         base: head,

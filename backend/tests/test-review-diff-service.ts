@@ -45,6 +45,35 @@ async function run() {
     `origin/HEAD\0${'3'.repeat(40)}`,
   ].join('\n'), 'main'), [{ id: '2'.repeat(40), name: 'feature/review' }]);
 
+  const comparisonRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-review-comparison-'));
+  try {
+    const comparisonService = new ReviewDiffService(null, {
+      diffMaxBuffer: 1024 * 1024,
+      diffTimeoutMs: 5000,
+      gitPath: 'git',
+      async execFile(_command, args) {
+        const gitArgs = args.slice(2);
+        if (gitArgs[0] === 'rev-parse') return { stdout: '1'.repeat(40) };
+        if (gitArgs[0] === 'write-tree') return { stdout: '2'.repeat(40) };
+        if (gitArgs[0] === 'symbolic-ref') return { stdout: 'main' };
+        if (gitArgs[0] === 'log') return { stdout: '' };
+        if (gitArgs[0] === 'for-each-ref') return { stdout: '' };
+        if (gitArgs[0] === 'diff' && gitArgs.includes('--cached')) {
+          return { stdout: 'staged.ts\0shared.ts\0' };
+        }
+        if (gitArgs[0] === 'diff') return { stdout: 'unstaged.ts\0shared.ts\0' };
+        if (gitArgs[0] === 'ls-files') return { stdout: 'new.ts\0' };
+        throw new Error(`unexpected comparison git args: ${gitArgs.join(' ')}`);
+      },
+    });
+    const sources = await comparisonService.getComparisonSources(undefined, { root: comparisonRoot });
+    assert.deepStrictEqual(sources.uncommittedPaths, ['unstaged.ts', 'shared.ts', 'staged.ts', 'new.ts']);
+    assert.strictEqual(sources.staged.available, true);
+    assert.strictEqual(sources.unstaged.available, true);
+  } finally {
+    fs.rmSync(comparisonRoot, { force: true, recursive: true });
+  }
+
   const scopeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-review-scope-'));
   fs.writeFileSync(path.join(scopeRoot, 'recent.txt'), 'recent\n');
   fs.writeFileSync(path.join(scopeRoot, 'old.txt'), 'old\n');

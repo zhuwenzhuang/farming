@@ -54,6 +54,7 @@ import { LocalErrorBoundary, LocalRenderFault } from '@/components/LocalErrorBou
 import {
   createWorkspaceHtmlPreview,
   deleteWorkspaceHtmlPreview,
+  fetchWorkspaceChanges,
   fetchWorkspaceFile,
   fetchWorkspaceGitWorktrees,
   rawWorkspaceFileUrl,
@@ -119,6 +120,7 @@ import {
   patchDiffLineClass,
   patchResultSummary,
   patchRowDisplayPath,
+  patchRowsHaveUncommittedChanges,
   patchRowsForChanges,
   patchRowsForItems,
   workspaceRelativeTranscriptPath,
@@ -150,6 +152,7 @@ import { terminalTargetFilePath } from './workspace-file-view'
 import {
   transcriptGitDiffSearchParams,
   transcriptGitDiffTargetForRepository,
+  transcriptUncommittedPathsForRepository,
   unavailableTranscriptGitDiffTarget,
   workingCopyTranscriptGitDiffTarget,
   type TranscriptGitDiffTarget,
@@ -2090,6 +2093,7 @@ function AgentTranscriptPatchResultCard({
   onLoadPatchChanges,
   onReviewAndCommit,
   source,
+  uncommittedPaths,
   workspaceRoot,
   gitDiffTarget,
 }: {
@@ -2098,6 +2102,7 @@ function AgentTranscriptPatchResultCard({
   onLoadPatchChanges?: (itemIds: string[]) => Promise<AgentTranscriptPatchChange[]>
   onReviewAndCommit?: () => void
   source: AgentTranscriptPaneProps['source']
+  uncommittedPaths: ReadonlySet<string> | null
   workspaceRoot?: string
   gitDiffTarget: TranscriptGitDiffTarget
 }) {
@@ -2132,6 +2137,7 @@ function AgentTranscriptPatchResultCard({
   const totalAdded = rows.reduce((sum, row) => sum + Number(row.added.replace('+', '') || 0), 0)
   const totalRemoved = rows.reduce((sum, row) => sum + Number(row.removed.replace('-', '') || 0), 0)
   const summary = patchResultSummary(rows.length, failed)
+  const hasUncommittedChanges = patchRowsHaveUncommittedChanges(rows, uncommittedPaths, workspaceRoot)
   const embeddedChanges = items.flatMap(item => item.changes || [])
   const hasCompleteEmbeddedDiff = embeddedRows.length > 0 && embeddedRows.every(row => (
     embeddedChanges.some(change => (
@@ -2208,7 +2214,7 @@ function AgentTranscriptPatchResultCard({
                   : copy.agentTranscriptGitDiff}
               </button>
             ) : null}
-            {source === 'acp' && onReviewAndCommit ? (
+            {source === 'acp' && onReviewAndCommit && hasUncommittedChanges ? (
               <button
                 type="button"
                 className="code-agent-transcript-result-review agent-review-commit"
@@ -2303,6 +2309,7 @@ function AgentTranscriptTurnView({
   onLoadPatchChanges,
   onReviewAndCommit,
   gitDiffTarget,
+  uncommittedPaths,
   onStopTerminal,
   onInputTerminal,
   onResizeTerminal,
@@ -2331,6 +2338,7 @@ function AgentTranscriptTurnView({
   onLoadPatchChanges?: (itemIds: string[]) => Promise<AgentTranscriptPatchChange[]>
   onReviewAndCommit?: () => void
   gitDiffTarget: TranscriptGitDiffTarget
+  uncommittedPaths: ReadonlySet<string> | null
   onStopTerminal?: (terminalId: string) => Promise<void>
   onInputTerminal?: (terminalId: string, input: string) => Promise<void>
   onResizeTerminal?: (terminalId: string, cols: number, rows: number) => Promise<void>
@@ -3023,6 +3031,7 @@ function AgentTranscriptTurnView({
             onLoadPatchChanges={onLoadPatchChanges}
             onReviewAndCommit={onReviewAndCommit}
             source={source}
+            uncommittedPaths={uncommittedPaths}
             workspaceRoot={workspaceRoot}
             gitDiffTarget={gitDiffTarget}
           />
@@ -3095,7 +3104,8 @@ export function AgentTranscriptPane({
   const [gitDiffState, setGitDiffState] = useState<{
     owner: string
     target: TranscriptGitDiffTarget
-  }>({ owner: '', target: unavailableTranscriptGitDiffTarget })
+    uncommittedPaths: ReadonlySet<string> | null
+  }>({ owner: '', target: unavailableTranscriptGitDiffTarget, uncommittedPaths: null })
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const pendingPrependAnchorRef = useRef<{ scrollTop: number; scrollHeight: number } | null>(null)
   const followBottomRef = useRef(true)
@@ -3578,6 +3588,9 @@ export function AgentTranscriptPane({
   const gitDiffTarget = gitDiffState.owner === gitDiffOwner
     ? gitDiffState.target
     : unavailableTranscriptGitDiffTarget
+  const uncommittedPaths = gitDiffState.owner === gitDiffOwner
+    ? gitDiffState.uncommittedPaths
+    : null
   const awaitingAcpHistory = source === 'acp'
     && !error
     && turns.length === 0
@@ -3782,19 +3795,31 @@ export function AgentTranscriptPane({
       .then(async value => {
         if (cancelled) return
         if (value?.isGitRepo !== true) {
-          setGitDiffState({ owner: gitDiffOwner, target: unavailableTranscriptGitDiffTarget })
+          setGitDiffState({ owner: gitDiffOwner, target: unavailableTranscriptGitDiffTarget, uncommittedPaths: new Set() })
           return
         }
         let target = workingCopyTranscriptGitDiffTarget
+        let uncommittedPaths: ReadonlySet<string> | null = null
         try {
-          target = transcriptGitDiffTargetForRepository(
-            await loadReviewComparisonSources({ root: workspaceRoot }),
-          )
+          const sources = await loadReviewComparisonSources({ root: workspaceRoot })
+          target = transcriptGitDiffTargetForRepository(sources)
+          uncommittedPaths = transcriptUncommittedPathsForRepository(sources)
         } catch {
           // A repository without HEAD, or a transient comparison-source failure,
           // still supports the existing working-copy review path.
+          try {
+            const changes = await fetchWorkspaceChanges(workspaceRootId || agentId, {
+              limit: 2000,
+              signal: controller.signal,
+            })
+            uncommittedPaths = new Set(changes.items.flatMap(change => (
+              change.previousPath ? [change.previousPath, change.path] : [change.path]
+            )))
+          } catch {
+            // The Commit action stays hidden until current Git state is known.
+          }
         }
-        if (!cancelled) setGitDiffState({ owner: gitDiffOwner, target })
+        if (!cancelled) setGitDiffState({ owner: gitDiffOwner, target, uncommittedPaths })
       })
       .catch(() => {})
     return () => {
@@ -4077,6 +4102,7 @@ export function AgentTranscriptPane({
                     onLoadPatchChanges={source === 'acp' ? handleLoadPatchChanges : undefined}
                     onReviewAndCommit={source === 'acp' ? onReviewAndCommit : undefined}
                     gitDiffTarget={gitDiffTarget}
+                    uncommittedPaths={uncommittedPaths}
                     onStopTerminal={source === 'acp' ? handleStopTerminal : undefined}
                     onInputTerminal={source === 'acp' ? handleInputTerminal : undefined}
                     onResizeTerminal={source === 'acp' ? handleResizeTerminal : undefined}

@@ -344,6 +344,11 @@ details do not remain as overlapping default summaries. Disclosure controls
 keep stable layout slots and become visually prominent on hover or keyboard
 focus.
 
+Historical patch cards retain their structured diff evidence after the files
+are committed. Their Commit follow-up is visible only while at least one path
+from that card still has a current staged, unstaged, or untracked Git change;
+unrelated working-copy changes do not keep the action visible.
+
 A fresh Chat shows the stable empty-conversation state while its Session
 connects. Session startup is not an active Turn and must not enable Steer or
 replace the empty state with transient startup copy. A startup-time transcript

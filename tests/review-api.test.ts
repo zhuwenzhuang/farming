@@ -129,6 +129,7 @@ test('loads semantic comparison sources for the review workspace', async () => {
       currentBranch: 'feature/review',
       root: '/workspace/direct',
       staged: { available: true, base: '1'.repeat(40), head: '2'.repeat(40), id: 'staged', label: 'Staged' },
+      uncommittedPaths: ['src/review.ts'],
       unstaged: { available: false, base: '2'.repeat(40), head: 'now', id: 'unstaged', label: 'Unstaged' },
     })
   }
@@ -136,6 +137,7 @@ test('loads semantic comparison sources for the review workspace', async () => {
     const sources = await loadReviewComparisonSources({ root: '/workspace/direct' })
     assert.equal(sources.currentBranch, 'feature/review')
     assert.equal(sources.staged.available, true)
+    assert.deepEqual(sources.uncommittedPaths, ['src/review.ts'])
     assert.deepEqual(calls, ['/api/reviews/comparison-sources?root=%2Fworkspace%2Fdirect'])
   } finally {
     globalThis.fetch = previousFetch

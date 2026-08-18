@@ -7,6 +7,7 @@ interface TranscriptGitComparisonSource {
 interface TranscriptGitComparisonSources {
   commits: TranscriptGitComparisonSource[]
   staged: TranscriptGitComparisonSource & { available: boolean }
+  uncommittedPaths: string[]
   unstaged: TranscriptGitComparisonSource & { available: boolean }
 }
 
@@ -17,6 +18,12 @@ export type TranscriptGitDiffTarget =
 
 export const unavailableTranscriptGitDiffTarget: TranscriptGitDiffTarget = { kind: 'unavailable' }
 export const workingCopyTranscriptGitDiffTarget: TranscriptGitDiffTarget = { kind: 'working-copy' }
+
+export function transcriptUncommittedPathsForRepository(
+  sources: TranscriptGitComparisonSources,
+) {
+  return new Set(sources.uncommittedPaths)
+}
 
 export function transcriptGitDiffTargetForRepository(
   sources: TranscriptGitComparisonSources,

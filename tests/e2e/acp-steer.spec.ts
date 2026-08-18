@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { expect, openFarming, test } from './fixtures'
@@ -53,6 +54,14 @@ test('renders intermediate commentary promptly during a dense live stream', {
 test('sends the first Codex Chat message as a Prompt while the Session is connecting', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'codex-acp-first-prompt')
   fs.mkdirSync(workspace, { recursive: true })
+  const displayFixture = path.join(workspace, 'display-fixture.txt')
+  fs.writeFileSync(displayFixture, 'before\n')
+  execFileSync('git', ['init', '-q'], { cwd: workspace })
+  execFileSync('git', ['config', 'user.email', 'farming@example.test'], { cwd: workspace })
+  execFileSync('git', ['config', 'user.name', 'Farming Test'], { cwd: workspace })
+  execFileSync('git', ['add', 'display-fixture.txt'], { cwd: workspace })
+  execFileSync('git', ['commit', '-qm', 'seed fixture'], { cwd: workspace })
+  fs.writeFileSync(displayFixture, 'after\n')
 
   const settingsResponse = await page.request.post('/farming/api/settings', {
     data: { composerFollowUpBehavior: 'steer' },
@@ -118,6 +127,17 @@ test('sends the first Codex Chat message as a Prompt while the Session is connec
     description: `Commit send confirmed in ${commitConfirmationMs}ms`,
   })
   expect(commitConfirmationMs).toBeLessThan(15_000)
+  const permission = page.getByTestId('code-acp-permission-request')
+  await expect(permission).toBeVisible({ timeout: 15_000 })
+  await permission.getByRole('button', { name: /Approve|Allow/ }).click()
+  await expect(page.getByText('ACP reply', { exact: true })).toBeVisible({ timeout: 15_000 })
+
+  execFileSync('git', ['add', 'display-fixture.txt'], { cwd: workspace })
+  execFileSync('git', ['commit', '-qm', 'commit fixture change'], { cwd: workspace })
+  fs.writeFileSync(path.join(workspace, 'unrelated.txt'), 'still uncommitted\n')
+  await page.reload()
+  await expect(page.getByText('Rich ACP timeline complete.', { exact: true })).toBeVisible({ timeout: 20_000 })
+  await expect(commitPrompt).toHaveCount(0)
 })
 
 test('blocks ACP submission when an image upload fails', async ({ page, workspaceRoot }) => {
