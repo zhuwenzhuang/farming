@@ -2,7 +2,6 @@ import {
   useLayoutEffect,
   useRef,
   useState,
-  type CSSProperties,
   type DragEvent as ReactDragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
@@ -201,10 +200,12 @@ export function FileEditorTabs({
               onAuxClick={event => onTabAuxClick(event, index)}
               onKeyDown={event => onTabKeyDown(event, index)}
             >
-              <span
+              <img
                 className="code-file-editor-tab-icon"
-                style={{ '--code-file-editor-tab-icon-source': `url(${JSON.stringify(tabIconUrl)})` } as CSSProperties}
+                src={tabIconUrl}
+                alt=""
                 aria-hidden="true"
+                draggable={false}
               />
               <span className="code-file-editor-tab-name">{basename(file.file.path)}</span>
               <span className="code-file-editor-tab-tail">

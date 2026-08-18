@@ -20,6 +20,12 @@ export const VISUAL_SCENARIOS = [
   'queued-followups-narrow-paper',
   'changes-diff',
   'plugins-dark',
+  'appearance-editor-tabs-light',
+  'appearance-editor-tabs-dark',
+  'appearance-editor-tabs-paper',
+  'appearance-chat-light',
+  'appearance-chat-dark',
+  'appearance-chat-paper',
   'appearance-light-settings',
   'appearance-light-search',
   'appearance-light-history',
@@ -336,6 +342,53 @@ test.describe('PR visual regression capture', () => {
     await expect(panel.getByTestId('code-plugin-section-agent-codex-review')).toBeVisible()
     await panel.getByTestId('code-plugin-tab-farming').click()
     await captureScenario(page, 'plugins-dark')
+  })
+
+  test('captures editor tabs and Chat colors in Light, Dark, and Paper', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 820 })
+    const editorWorkspace = path.join(visualRoot, 'appearance-editor-colors')
+    fs.mkdirSync(editorWorkspace, { recursive: true })
+    for (const [name, content] of [
+      ['meta_manager.cpp', 'int metadata = 1;\n'],
+      ['FilterToPot.java', 'package com.aliyun.odps.lot.cbo.converter.pot;\n'],
+      ['sleeper.cpp', 'void sleep_once() {}\n'],
+      ['worker.cpp', 'void work_once() {}\n'],
+      ['operator_profile.osql', 'set odps.sql.planner.mode=lot;\n'],
+    ]) {
+      fs.writeFileSync(path.join(editorWorkspace, name), content)
+    }
+    const editorAgentId = await createAgent(page, 'bash', editorWorkspace, 'terminal')
+    await setAgentTitle(page, editorAgentId, 'Appearance editor colors')
+    await openFarming(page)
+    const editorRow = await openAgent(page, editorAgentId)
+    const project = page.getByTestId('code-project-group').filter({ has: editorRow })
+    const files = project.getByTestId('code-files-section')
+    const filesTitle = files.locator('.code-files-title').first()
+    if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
+    for (const name of ['meta_manager.cpp', 'FilterToPot.java', 'sleeper.cpp', 'worker.cpp', 'operator_profile.osql']) {
+      await files.locator(`[data-testid="code-file-row"][data-file-path="${name}"]`).dblclick()
+    }
+    await expect(page.getByTestId('code-file-editor').getByRole('tab').filter({ hasText: 'operator_profile.osql' })).toHaveAttribute('aria-selected', 'true')
+    for (const appearance of ['light', 'dark', 'paper'] as const) {
+      await setVisualAppearance(page, appearance)
+      await captureScenario(page, `appearance-editor-tabs-${appearance}`)
+    }
+
+    const chatWorkspace = path.join(visualRoot, 'appearance-chat-colors')
+    const chatAgentId = await createAgent(page, 'claude', chatWorkspace, 'chat')
+    await setAgentTitle(page, chatAgentId, 'Appearance Chat colors')
+    await openAgent(page, chatAgentId)
+    const input = page.getByTestId('code-acp-composer-input')
+    await input.fill('markdown typography')
+    await page.getByTestId('code-acp-composer-send').click()
+    await expect(
+      page.locator('.code-agent-transcript-assistant.code-markdown-preview').filter({ hasText: 'Typography baseline.' }),
+    ).toBeVisible({ timeout: 15_000 })
+    await input.fill('next request')
+    for (const appearance of ['light', 'dark', 'paper'] as const) {
+      await setVisualAppearance(page, appearance)
+      await captureScenario(page, `appearance-chat-${appearance}`)
+    }
   })
 
   test('captures every primary side view in Light, Dark, and Paper', async ({ page }) => {

@@ -43,7 +43,6 @@ const fixedArtworkPaletteRoles = new Set([
   '--pet-black-hole-gold-dark',
 ])
 const runtimeCodeRoles = new Set([
-  '--code-file-editor-tab-icon-source',
   '--code-pet-status-glass-filter',
   '--code-sidebar-width',
 ])
@@ -105,6 +104,28 @@ for (const appearance of ['light', 'dark'] as const) {
     registry[appearance].css['--code-file-editor-active-tab-seam'],
     'var(--code-file-editor-active-tab-surface)',
     `${appearance} active editor tabs must not expose a selected-blue seam`,
+  )
+}
+const paperRoleContracts = {
+  '--code-bg-canvas': '#f9f8f4',
+  '--code-bg-chrome': '#f9f8f4',
+  '--code-bg-inset': '#efede7',
+  '--code-code-bg': '#efede7',
+  '--code-active-item-surface': '#e6e5e1',
+  '--code-file-editor-active-tab-surface': 'var(--code-active-item-surface)',
+  '--code-file-editor-active-tab-seam': 'transparent',
+  '--code-file-editor-tab-strip-surface': 'var(--code-bg-canvas)',
+  '--code-composer-surface': 'var(--code-bg-raised)',
+  '--code-info': '#397f79',
+  '--code-success': '#3a6e4a',
+  '--code-skill': '#6f4a8e',
+  '--code-warning': '#8b5a18',
+} as const
+for (const [role, expectedValue] of Object.entries(paperRoleContracts)) {
+  assert.equal(
+    registry.paper.css[role],
+    expectedValue,
+    `Paper must keep ${role} at ${expectedValue}`,
   )
 }
 for (const appearance of appearances) {

@@ -3,7 +3,15 @@ import path from 'node:path'
 import type { Locator, Page, TestInfo } from '@playwright/test'
 import { expect, openFarming, test } from './fixtures'
 
-type Appearance = 'light' | 'dark'
+const { PNG: ScreenshotPng } = require('playwright-core/lib/utilsBundle') as {
+  PNG: {
+    sync: {
+      read: (buffer: Buffer) => { width: number; height: number; data: Uint8Array }
+    }
+  }
+}
+
+type Appearance = 'light' | 'dark' | 'paper'
 
 async function createAgent(page: Page, command: 'bash' | 'claude', workspace: string, chat = false) {
   const response = await page.request.post('/farming/api/control/agents', {
@@ -20,8 +28,13 @@ async function createAgent(page: Page, command: 'bash' | 'claude', workspace: st
 }
 
 async function setAppearance(page: Page, appearance: Appearance) {
-  await page.locator('body').evaluate((body, nextAppearance) => {
-    body.dataset.appearance = nextAppearance
+  await page.emulateMedia({
+    colorScheme: appearance === 'dark' ? 'dark' : 'light',
+    reducedMotion: 'reduce',
+  })
+  await page.evaluate(nextAppearance => {
+    document.documentElement.dataset.appearance = nextAppearance
+    document.body.dataset.appearance = nextAppearance
   }, appearance)
 }
 
@@ -44,13 +57,74 @@ async function color(locator: Locator) {
   return locator.evaluate(element => getComputedStyle(element).color)
 }
 
-async function capture(page: Page, testInfo: TestInfo, name: string) {
-  const screenshotPath = testInfo.outputPath(`${name}.png`)
-  await page.screenshot({ path: screenshotPath, animations: 'disabled' })
-  await testInfo.attach(name, { path: screenshotPath, contentType: 'image/png' })
+function parseRgb(value: string) {
+  const channels = value.match(/[\d.]+/g)?.slice(0, 3).map(Number)
+  if (!channels || channels.length !== 3) throw new Error(`Expected an RGB color, received ${value}`)
+  return channels
 }
 
-test('Light and Dark editor tabs stay neutral and connect to the document canvas', async ({ page, workspaceRoot }, testInfo) => {
+function screenshotColorRatio(screenshot: Buffer, cssColor: string) {
+  const expected = parseRgb(cssColor)
+  const image = ScreenshotPng.sync.read(screenshot)
+  let matches = 0
+  for (let offset = 0; offset < image.data.length; offset += 4) {
+    if (
+      Math.abs((image.data[offset] ?? 0) - (expected[0] ?? 0)) <= 1
+      && Math.abs((image.data[offset + 1] ?? 0) - (expected[1] ?? 0)) <= 1
+      && Math.abs((image.data[offset + 2] ?? 0) - (expected[2] ?? 0)) <= 1
+    ) matches += 1
+  }
+  return matches / (image.width * image.height)
+}
+
+function screenshotChromaticRatio(screenshot: Buffer) {
+  const image = ScreenshotPng.sync.read(screenshot)
+  let chromaticPixels = 0
+  for (let offset = 0; offset < image.data.length; offset += 4) {
+    const channels = [image.data[offset] ?? 0, image.data[offset + 1] ?? 0, image.data[offset + 2] ?? 0]
+    if (Math.max(...channels) - Math.min(...channels) >= 24) chromaticPixels += 1
+  }
+  return chromaticPixels / (image.width * image.height)
+}
+
+async function stableScreenshot(locator: Locator) {
+  const options = { animations: 'disabled' as const, caret: 'hide' as const, scale: 'css' as const }
+  const first = await locator.screenshot(options)
+  const second = await locator.screenshot(options)
+  const firstImage = ScreenshotPng.sync.read(first)
+  const secondImage = ScreenshotPng.sync.read(second)
+  expect({ width: secondImage.width, height: secondImage.height }).toEqual({
+    width: firstImage.width,
+    height: firstImage.height,
+  })
+  let changedPixels = 0
+  for (let offset = 0; offset < firstImage.data.length; offset += 4) {
+    if (
+      Math.abs((firstImage.data[offset] ?? 0) - (secondImage.data[offset] ?? 0)) > 1
+      || Math.abs((firstImage.data[offset + 1] ?? 0) - (secondImage.data[offset + 1] ?? 0)) > 1
+      || Math.abs((firstImage.data[offset + 2] ?? 0) - (secondImage.data[offset + 2] ?? 0)) > 1
+    ) changedPixels += 1
+  }
+  expect(changedPixels / (firstImage.width * firstImage.height)).toBeLessThanOrEqual(0.001)
+  return first
+}
+
+async function expectScreenshotRole(
+  page: Page,
+  screenshot: Buffer,
+  role: string,
+  minimumRatio: number,
+  label: string,
+) {
+  const expectedColor = await resolvedColor(page, role)
+  expect(screenshotColorRatio(screenshot, expectedColor), `${label} must visibly paint ${role}`).toBeGreaterThanOrEqual(minimumRatio)
+}
+
+async function attachScreenshot(testInfo: TestInfo, name: string, screenshot: Buffer) {
+  await testInfo.attach(name, { body: screenshot, contentType: 'image/png' })
+}
+
+test('Light, Dark, and Paper editor tabs keep their surfaces and file-icon colors', async ({ page, workspaceRoot }, testInfo) => {
   const workspace = path.join(workspaceRoot, 'appearance-tab-colors')
   fs.mkdirSync(workspace, { recursive: true })
   for (const [name, content] of [
@@ -58,7 +132,7 @@ test('Light and Dark editor tabs stay neutral and connect to the document canvas
     ['FilterToPot.java', 'package com.aliyun.odps.lot.cbo.converter.pot;\n'],
     ['sleeper.cpp', 'void sleep_once() {}\n'],
     ['worker.cpp', 'void work_once() {}\n'],
-    ['HashAggregateToPot.java', 'final class HashAggregateToPot {}\n'],
+    ['operator_profile.osql', 'set odps.sql.planner.mode=lot;\n'],
   ]) {
     fs.writeFileSync(path.join(workspace, name), content)
   }
@@ -72,32 +146,47 @@ test('Light and Dark editor tabs stay neutral and connect to the document canvas
   const files = project.getByTestId('code-files-section')
   const filesTitle = files.locator('.code-files-title').first()
   if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
-  for (const name of ['meta_manager.cpp', 'FilterToPot.java', 'sleeper.cpp', 'worker.cpp', 'HashAggregateToPot.java']) {
+  for (const name of ['meta_manager.cpp', 'FilterToPot.java', 'sleeper.cpp', 'worker.cpp', 'operator_profile.osql']) {
     await files.locator(`[data-testid="code-file-row"][data-file-path="${name}"]`).dblclick()
   }
 
   const editor = page.getByTestId('code-file-editor')
-  const activeTab = editor.getByRole('tab').filter({ hasText: 'HashAggregateToPot.java' })
+  const activeTab = editor.getByRole('tab').filter({ hasText: 'operator_profile.osql' })
   const inactiveTab = editor.getByRole('tab').filter({ hasText: 'FilterToPot.java' })
+  const activeTabIcon = activeTab.locator('.code-file-editor-tab-icon')
   await expect(activeTab).toHaveAttribute('aria-selected', 'true')
   await expect(editor.getByRole('tab')).toHaveCount(5)
+  await expect.poll(() => activeTabIcon.evaluate(element => (
+    element instanceof HTMLImageElement && element.complete && element.naturalWidth > 0
+  ))).toBe(true)
+  await expect(activeTabIcon).toHaveAttribute('draggable', 'false')
 
-  for (const appearance of ['light', 'dark'] as const) {
+  for (const appearance of ['light', 'dark', 'paper'] as const) {
     await setAppearance(page, appearance)
     const activeSurface = await resolvedColor(page, '--code-file-editor-active-tab-surface')
     const stripSurface = await resolvedColor(page, '--code-file-editor-tab-strip-surface')
     expect(await background(activeTab)).toBe(activeSurface)
     expect(activeSurface).not.toBe(stripSurface)
-    expect(await activeTab.evaluate(element => getComputedStyle(element, '::after').backgroundColor)).toBe(activeSurface)
+    const activeSeam = await activeTab.evaluate(element => getComputedStyle(element, '::after').backgroundColor)
+    if (appearance === 'paper') expect(activeSeam).toBe('rgba(0, 0, 0, 0)')
+    else expect(activeSeam).toBe(activeSurface)
 
     await inactiveTab.hover()
     expect(await background(inactiveTab)).toBe(activeSurface)
     await editor.getByTestId('code-file-editor-main').hover({ position: { x: 20, y: 120 } })
-    await capture(page, testInfo, `editor-tabs-${appearance}`)
+    const activeTabScreenshot = await stableScreenshot(activeTab)
+    await expectScreenshotRole(page, activeTabScreenshot, '--code-file-editor-active-tab-surface', 0.55, `${appearance} active tab`)
+    const activeTabIconScreenshot = await stableScreenshot(activeTabIcon)
+    expect(screenshotChromaticRatio(activeTabIconScreenshot), `${appearance} file icon must retain chroma`).toBeGreaterThanOrEqual(0.08)
+    expect(screenshotColorRatio(activeTabIconScreenshot, 'rgb(255, 106, 0)'), `${appearance} .osql icon must retain its orange paint`).toBeGreaterThanOrEqual(0.04)
+    const headerScreenshot = await stableScreenshot(editor.locator('.code-file-editor-header'))
+    await expectScreenshotRole(page, headerScreenshot, '--code-file-editor-active-tab-surface', 0.04, `${appearance} editor header`)
+    await expectScreenshotRole(page, headerScreenshot, '--code-file-editor-tab-strip-surface', 0.12, `${appearance} editor header`)
+    await attachScreenshot(testInfo, `editor-tabs-${appearance}`, headerScreenshot)
   }
 })
 
-test('Light and Dark Chat use neutral reading surfaces and semantic glyph colors', async ({ page, workspaceRoot }, testInfo) => {
+test('Light, Dark, and Paper Chat use neutral reading surfaces and semantic glyph colors', async ({ page, workspaceRoot }, testInfo) => {
   const workspace = path.join(workspaceRoot, 'appearance-chat-colors')
   fs.mkdirSync(workspace, { recursive: true })
   const agentId = await createAgent(page, 'claude', workspace, true)
@@ -115,21 +204,34 @@ test('Light and Dark Chat use neutral reading surfaces and semantic glyph colors
   const keyword = answer.locator('.hljs-keyword').first()
   const string = answer.locator('.hljs-string').first()
 
-  for (const appearance of ['light', 'dark'] as const) {
+  for (const appearance of ['light', 'dark', 'paper'] as const) {
     await setAppearance(page, appearance)
     expect(await background(pre)).toBe(await resolvedColor(page, '--code-code-bg'))
     expect(await background(inlineCode)).toBe(await resolvedColor(page, '--code-code-bg'))
     expect(await color(keyword)).toBe(await resolvedColor(page, '--code-syntax-keyword'))
     expect(await color(string)).toBe(await resolvedColor(page, '--code-syntax-string'))
+    const preScreenshot = await stableScreenshot(pre)
+    await expectScreenshotRole(page, preScreenshot, '--code-code-bg', 0.55, `${appearance} code block`)
+    const inlineCodeScreenshot = await stableScreenshot(inlineCode)
+    await expectScreenshotRole(page, inlineCodeScreenshot, '--code-code-bg', 0.35, `${appearance} inline code`)
+    const keywordScreenshot = await stableScreenshot(keyword)
+    await expectScreenshotRole(page, keywordScreenshot, '--code-syntax-keyword', 0.02, `${appearance} keyword`)
+    const stringScreenshot = await stableScreenshot(string)
+    await expectScreenshotRole(page, stringScreenshot, '--code-syntax-string', 0.02, `${appearance} string`)
 
     await input.fill('next request')
     const send = page.getByTestId('code-acp-composer-send')
     await answer.hover({ position: { x: 20, y: 20 } })
-    const sendBackgroundRole = appearance === 'light' ? '--code-emphasis' : '--code-text-muted'
-    const sendColorRole = appearance === 'light' ? '--code-text-on-emphasis' : '--code-bg-canvas'
+    const sendBackgroundRole = appearance === 'dark' ? '--code-text-muted' : '--code-emphasis'
+    const sendColorRole = appearance === 'dark' ? '--code-bg-canvas' : '--code-text-on-emphasis'
     expect(await background(send)).toBe(await resolvedColor(page, sendBackgroundRole))
     expect(await color(send)).toBe(await resolvedColor(page, sendColorRole))
-    await capture(page, testInfo, `chat-colors-${appearance}`)
+    const sendScreenshot = await stableScreenshot(send)
+    await expectScreenshotRole(page, sendScreenshot, sendBackgroundRole, 0.55, `${appearance} send button`)
+    await expectScreenshotRole(page, sendScreenshot, sendColorRole, 0.0008, `${appearance} send glyph`)
+    const answerScreenshot = await stableScreenshot(answer)
+    await expectScreenshotRole(page, answerScreenshot, '--code-code-bg', 0.03, `${appearance} Chat answer`)
+    await attachScreenshot(testInfo, `chat-colors-${appearance}`, answerScreenshot)
     await input.fill('')
 
     await input.fill('live progress')
@@ -138,6 +240,8 @@ test('Light and Dark Chat use neutral reading surfaces and semantic glyph colors
     const liveIcon = liveTurn.getByTestId('code-agent-transcript-live-activity-icon')
     await expect(liveIcon).toHaveAttribute('data-kind', 'running', { timeout: 10_000 })
     expect(await color(liveIcon)).toBe(await resolvedColor(page, '--code-success'))
+    const liveIconScreenshot = await stableScreenshot(liveIcon)
+    await expectScreenshotRole(page, liveIconScreenshot, '--code-success', 0.01, `${appearance} running icon`)
     await expect(liveIcon).toHaveCount(0, { timeout: 10_000 })
   }
 })

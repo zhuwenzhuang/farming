@@ -523,8 +523,6 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
       actionBackground: getComputedStyle(actions).backgroundColor,
       tabStripBackground: getComputedStyle(tabStrip).backgroundColor,
       tabStripBorderBottomWidth: getComputedStyle(tabStrip).borderBottomWidth,
-      tabStripBorderColor: getComputedStyle(tabStrip).borderBottomColor,
-      activeTabSeamColor: getComputedStyle(activeTab, '::after').backgroundColor,
       headerBorderBottomWidth: getComputedStyle(header).borderBottomWidth,
       breadcrumbBackground: getComputedStyle(breadcrumbBar).backgroundColor,
       contentBackground: getComputedStyle(content).backgroundColor,
@@ -546,7 +544,6 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
   expect(headerLayout.actionGap).toBe('2px')
   expect(headerLayout.agentToggleIsLast).toBe(true)
   expect(headerLayout.actionBackground).toBe(headerLayout.tabStripBackground)
-  expect(colorAlpha(headerLayout.activeTabSeamColor)).toBeLessThan(colorAlpha(headerLayout.tabStripBorderColor))
   expect(headerLayout.headerBorderBottomWidth).toBe('0px')
   expect(headerLayout.breadcrumbBackground).toBe(headerLayout.contentBackground)
 
@@ -572,6 +569,7 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
     return {
       appearance,
       activeTabBackground: getComputedStyle(activeTab).backgroundColor,
+      activeTabSeamColor: getComputedStyle(activeTab, '::after').backgroundColor,
       activeFileRowBackground: getComputedStyle(activeFileRow).backgroundColor,
       activeFileRowBorderRadius: getComputedStyle(activeFileRow).borderRadius,
       activeFileRowGuideOpacity: getComputedStyle(activeFileRow, '::before').opacity,
@@ -580,7 +578,13 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
     }
   }))
   for (const selection of activeSelectionSurfaces) {
-    expect(selection.activeFileFrameBackground, selection.appearance).toBe(selection.activeTabBackground)
+    if (selection.appearance === 'paper') {
+      expect(selection.activeFileFrameBackground, selection.appearance).toBe(selection.activeTabBackground)
+      expect(colorAlpha(selection.activeTabSeamColor), selection.appearance).toBe(0)
+    } else {
+      expect(selection.activeFileFrameBackground, selection.appearance).not.toBe(selection.activeTabBackground)
+      expect(selection.activeTabSeamColor, selection.appearance).toBe(selection.activeTabBackground)
+    }
     expect(selection.activeFileRowBorderRadius, selection.appearance).toBe('8px')
     expect(selection.activeFileRowGuideOpacity, selection.appearance).toBe('0.32')
     expect(colorAlpha(selection.activeFileRowBackground), selection.appearance).toBe(0)
@@ -593,19 +597,23 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
   const agentRow = project.getByTestId('code-agent-row')
   for (const appearance of ['light', 'dark', 'paper'] as const) {
     await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
-    const activeSurface = await editor.getByRole('tab', { selected: true }).evaluate(element => (
-      getComputedStyle(element).backgroundColor
-    ))
+    const surfaces = await page.evaluate(() => {
+      const activeFileRow = document.querySelector<HTMLElement>('.code-file-row.active')!
+      return {
+        row: getComputedStyle(activeFileRow.closest<HTMLElement>('.code-file-tree-row-frame')!).backgroundColor,
+        tab: getComputedStyle(document.querySelector<HTMLElement>('.code-file-editor-tab.active')!).backgroundColor,
+      }
+    })
     await projectTitle.hover()
-    await expect(projectTitle, `${appearance} Project hover`).toHaveCSS('background-color', activeSurface)
+    await expect(projectTitle, `${appearance} Project hover`).toHaveCSS('background-color', surfaces.row)
     await expect(projectTitle, `${appearance} Project radius`).toHaveCSS('border-radius', '8px')
     await agentRow.hover()
     const agentHoverLayers = await agentRow.evaluate(element => ({
       actionBackground: getComputedStyle(element.querySelector<HTMLElement>('.code-agent-row-actions')!).backgroundImage,
       rowBackground: getComputedStyle(element).backgroundColor,
     }))
-    expect(agentHoverLayers.rowBackground, `${appearance} Agent row hover`).toBe(activeSurface)
-    expect(agentHoverLayers.actionBackground, `${appearance} Agent actions`).toContain(activeSurface)
+    expect(agentHoverLayers.rowBackground, `${appearance} Agent row hover`).toBe(surfaces.row)
+    expect(agentHoverLayers.actionBackground, `${appearance} Agent actions`).toContain(surfaces.row)
     await inactiveFileRow.hover()
     await expect(inactiveFileRow, `${appearance} file content`).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
     await expect(inactiveFileRow, `${appearance} file radius`).toHaveCSS('border-radius', '8px')
@@ -613,10 +621,10 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
       frameBackground: getComputedStyle(element.closest<HTMLElement>('.code-file-tree-row-frame')!).backgroundColor,
       guideOpacity: getComputedStyle(element, '::before').opacity,
     }))
-    expect(hoveredFileLayers.frameBackground, `${appearance} file frame`).toBe(activeSurface)
+    expect(hoveredFileLayers.frameBackground, `${appearance} file frame`).toBe(surfaces.row)
     expect(hoveredFileLayers.guideOpacity, `${appearance} file guide`).toBe('0.32')
     await inactiveTab.hover()
-    await expect(inactiveTab, `${appearance} tab hover`).toHaveCSS('background-color', activeSurface)
+    await expect(inactiveTab, `${appearance} tab hover`).toHaveCSS('background-color', surfaces.tab)
   }
   await page.mouse.move(1000, 800)
 
@@ -637,7 +645,11 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
     return surfaces
   })
   for (const selection of compactActiveSelectionSurfaces) {
-    expect(selection.activeFileFrameBackground, `${selection.appearance} compact`).toBe(selection.activeTabBackground)
+    if (selection.appearance === 'paper') {
+      expect(selection.activeFileFrameBackground, `${selection.appearance} compact`).toBe(selection.activeTabBackground)
+    } else {
+      expect(selection.activeFileFrameBackground, `${selection.appearance} compact`).not.toBe(selection.activeTabBackground)
+    }
     expect(colorAlpha(selection.activeFileRowBackground), `${selection.appearance} compact content`).toBe(0)
     expect(selection.activeFileRowBorderRadius, `${selection.appearance} compact`).toBe('8px')
     expect(colorAlpha(selection.activeTabBackground), `${selection.appearance} compact`).toBe(1)
@@ -662,10 +674,14 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
       tabsBackground: getComputedStyle(tabs).backgroundColor,
       activeTabBackground: getComputedStyle(activeTab).backgroundColor,
       activeTabColor: getComputedStyle(activeTab).color,
-      activeIconColor: getComputedStyle(activeIcon).backgroundColor,
+      activeIconBackground: getComputedStyle(activeIcon).backgroundColor,
+      activeIconFilter: getComputedStyle(activeIcon).filter,
+      activeIconTag: activeIcon.tagName,
       inactiveTabBackground: getComputedStyle(inactiveTab).backgroundColor,
       inactiveTabColor: getComputedStyle(inactiveTab).color,
-      inactiveIconColor: getComputedStyle(inactiveIcon).backgroundColor,
+      inactiveIconBackground: getComputedStyle(inactiveIcon).backgroundColor,
+      inactiveIconFilter: getComputedStyle(inactiveIcon).filter,
+      inactiveIconTag: inactiveIcon.tagName,
       activeActionBackground: getComputedStyle(activeAction).backgroundColor,
       inactiveActionBackground: getComputedStyle(inactiveAction).backgroundColor,
       activeTabBorderRadius: getComputedStyle(activeTab).borderRadius,
@@ -684,8 +700,12 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
   expect(paperHeader.activeTabBackground).not.toBe(paperHeader.tabStripBackground)
   expect(paperHeader.activeFileRowBackground).toBe(paperHeader.activeTabBackground)
   expect(paperHeader.activeFileRowEdgeContent).toBe('none')
-  expect(paperHeader.activeIconColor).toBe(paperHeader.activeTabColor)
-  expect(paperHeader.inactiveIconColor).toBe(paperHeader.inactiveTabColor)
+  expect(paperHeader.activeIconTag).toBe('IMG')
+  expect(paperHeader.inactiveIconTag).toBe('IMG')
+  expect(paperHeader.activeIconBackground).toBe('rgba(0, 0, 0, 0)')
+  expect(paperHeader.inactiveIconBackground).toBe('rgba(0, 0, 0, 0)')
+  expect(paperHeader.activeIconFilter).toBe('none')
+  expect(paperHeader.inactiveIconFilter).toBe('none')
   expect(colorAlpha(paperHeader.inactiveActionBackground)).toBe(0)
   expect(colorAlpha(paperHeader.activeActionBackground)).toBeGreaterThan(0)
   expect(paperHeader.activeTabBorderRadius).toBe('0px')

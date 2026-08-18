@@ -20,9 +20,11 @@ Project, file, or terminal state.
   keep their semantic meaning instead of being recolored.
 - Paper is flat color, not a texture filter. Repeated grain or global opacity
   effects reduce code legibility and are not part of the theme.
-- Paper file tabs keep inactive labels and icons in the same muted ink on the
-  tab-strip paper. The active label and icon use the same strong ink together,
-  with one restrained tonal fill behind only the active tab.
+- Paper file tabs keep inactive labels in muted ink and the active label in
+  strong ink, with one restrained tonal fill behind only the active tab.
+  File-type, Provider, and semantic-status icons retain their own identity
+  colors across the file tree, Open Editors, tabs, breadcrumbs, and Chat;
+  ordinary navigation and action icons continue to use the neutral text hierarchy.
 - Paper icon buttons rest directly on their parent paper surface. Only a
   selected or pressed toggle keeps the deeper selected fill; hover fill is
   temporary and an idle unselected button has no local background.
