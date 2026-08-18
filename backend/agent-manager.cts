@@ -670,6 +670,7 @@ const CREATE_ROLLBACK_FIELDS: string[] = [
   'adaptiveTitle',
   'title',
   'startedAt',
+  'lastActivityAt',
 ];
 const execFileAsync = promisify(execFile);
 
@@ -968,6 +969,25 @@ function terminalMetadataPatch(agent: TypedAgentRecord) {
 
 function finiteNumberOrNull(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function persistedAgentActivityAt(agent: TypedAgentRecord | null | undefined): number {
+  if (!agent) return 0;
+  const recordedActivityAt = finiteNumberOrNull(agent.lastActivityAt);
+  if (recordedActivityAt !== null) {
+    return Math.max(
+      recordedActivityAt,
+      finiteNumberOrNull(agent.attentionUpdatedAt) || 0,
+      finiteNumberOrNull(agent.readAttentionAt) || 0,
+    );
+  }
+  const durableActivityAt = Math.max(
+    finiteNumberOrNull(agent.attentionUpdatedAt) || 0,
+    finiteNumberOrNull(agent.readAttentionAt) || 0,
+    finiteNumberOrNull(agent.exitedAt) || 0,
+  );
+  if (durableActivityAt > 0) return durableActivityAt;
+  return finiteNumberOrNull(agent.startedAt) || 0;
 }
 
 function publicAgentLifecycleStatus(value: unknown): AgentStateWire['status'] {
@@ -1316,6 +1336,22 @@ class AgentManager extends EventEmitter {
     if (previous && previous !== agent) this.agentOrderAllocator.remove(previous);
     this.agentOrderAllocator.ensure(agent);
     this.agents.set(agentId, agent);
+  }
+
+  recordAgentActivity(agentId: AgentId, activityAt = Date.now()): number {
+    const timestamp = this.activityTracker.record(agentId, activityAt);
+    const agent = this.agents.get(agentId);
+    if (agent) agent.lastActivityAt = timestamp;
+    return timestamp;
+  }
+
+  publishAgentActivity(agentId: AgentId, activityAt: number): boolean {
+    const published = this.activityTracker.publish(agentId, activityAt);
+    const agent = this.agents.get(agentId);
+    if (agent) {
+      agent.lastActivityAt = this.activityTracker.get(agentId, persistedAgentActivityAt(agent));
+    }
+    return published;
   }
 
   deleteAgentRecord(agentId: AgentId): boolean {
@@ -1838,6 +1874,12 @@ class AgentManager extends EventEmitter {
       if (sessionIdentityChanged && sessionId) {
         this.providerSessionService.bindConfirmed(agentId, agent.providerSessionProvider, sessionId);
       }
+      const recordsActivity = (
+        state === 'working'
+        || state === 'waiting-for-permission'
+        || state === 'waiting-for-input'
+      ) && state !== previousState;
+      if (recordsActivity) this.recordAgentActivity(agentId);
       if (
         sessionIdentityChanged
         || (stopReason === 'interrupted' && previousState !== state)
@@ -1845,7 +1887,6 @@ class AgentManager extends EventEmitter {
       ) {
         this.sessionPersistence.persist(agent);
       }
-      if (state === 'working' || state === 'waiting-for-permission' || state === 'waiting-for-input') this.activityTracker.record(agentId);
       this.acpTranscriptService.refresh(agentId);
       const nextRuntime = publicRuntimeBinding(agent);
       if (JSON.stringify(previousRuntime) !== JSON.stringify(nextRuntime)) {
@@ -1994,7 +2035,7 @@ class AgentManager extends EventEmitter {
         this.terminalStartupCoordinator.appendOutput(sessionId, data);
         const outputAt = Date.now();
         agent.lastEngineOutputAt = outputAt;
-        this.activityTracker.record(sessionId, outputAt);
+        this.recordAgentActivity(sessionId, outputAt);
 
         this.recordAgentOutputActivity(
           sessionId,
@@ -2047,7 +2088,7 @@ class AgentManager extends EventEmitter {
       }
       if (Number.isFinite(cols) && cols > 0) agent.previewCols = cols;
       if (Number.isFinite(rows) && rows > 0) agent.previewRows = rows;
-      this.activityTracker.record(sessionId);
+      this.recordAgentActivity(sessionId);
       this.emit('session-stream', {
         agentId: sessionId,
         sessionSource: this.getEngineSessionSource(engineName),
@@ -2094,7 +2135,7 @@ class AgentManager extends EventEmitter {
         this.reviveAgentRuntime(agent);
         agent.output = trimSessionOutput(typeof textOutput === 'string' ? textOutput : output);
         agent.previewText = agent.output.slice(-2000);
-        this.activityTracker.record(sessionId);
+        this.recordAgentActivity(sessionId);
 
         if (replaceLive) {
           const sessionSource = this.getEngineSessionSource(engineName);
@@ -2218,7 +2259,7 @@ class AgentManager extends EventEmitter {
         const agent = this.agents.get(sessionId);
         if (!agent || !terminalRuntimeEventMatches(agent, runtimeEpoch)) return;
         this.attentionTracker.observeAgentAttentionState(sessionId);
-        this.activityTracker.publish(sessionId, lastActivityAt || Date.now());
+        this.publishAgentActivity(sessionId, lastActivityAt || Date.now());
       });
 
     this.engineBridge.on('session-busy-state', (payload: TerminalSessionBusyStateEvent) => {
@@ -2658,7 +2699,10 @@ class AgentManager extends EventEmitter {
         console.warn(`Failed to reconcile Agent update ${agentId}: ${recoveredUpdate.error}`);
       }
       void this.refreshAgentWorktree(agentId);
-      this.activityTracker.record(agentId, state.lastActivityAt || metadata.lastActivityAt || Date.now());
+      this.recordAgentActivity(
+        agentId,
+        state.lastActivityAt || metadata.lastActivityAt || persistedAgentActivityAt(agentRecord),
+      );
       if (agentRecord.wantsMain && !this.mainAgentIdentity.hasCurrent()) {
         this.mainAgentIdentity.setCurrent(agentId);
       }
@@ -2827,7 +2871,7 @@ class AgentManager extends EventEmitter {
         setAgentRecordId(blockedAgent, record.id || record.persistentSessionId || '');
         this.markRecoveredAgentLifecycleBlocked(blockedAgent, operation);
         this.registerAgentRecord(agentId, blockedAgent);
-        this.activityTracker.record(agentId);
+        this.recordAgentActivity(agentId, persistedAgentActivityAt(blockedAgent));
         changed = true;
         continue;
       }
@@ -3339,7 +3383,7 @@ class AgentManager extends EventEmitter {
         }
         this.registerAgentRecord(agentId, recoveredAgent);
         void this.refreshAgentWorktree(agentId);
-        this.activityTracker.record(agentId);
+        this.recordAgentActivity(agentId, persistedAgentActivityAt(recoveredAgent));
       } else if (blockedOperation) {
         this.markRecoveredAgentLifecycleBlocked(agent, blockedOperation);
       }
@@ -4038,6 +4082,14 @@ class AgentManager extends EventEmitter {
       engineStarted: true,
       engineStatus: state.status || 'running',
       startedAt: state.startedAt || metadata.startedAt || Date.now(),
+      lastActivityAt: finiteNumberOrNull(state.lastActivityAt)
+        ?? finiteNumberOrNull(metadata.lastActivityAt)
+        ?? Math.max(
+          finiteNumberOrNull(metadata.attentionUpdatedAt) || 0,
+          finiteNumberOrNull(metadata.readAttentionAt) || 0,
+          finiteNumberOrNull(state.startedAt) || 0,
+          finiteNumberOrNull(metadata.startedAt) || 0,
+        ),
       runtimeEpoch: typeof state.runtimeEpoch === 'string' ? state.runtimeEpoch : '',
       stateRevision: finiteNumberOrNull(state.stateRevision),
       lastEngineOutputAt: Date.now(),
@@ -4171,7 +4223,7 @@ class AgentManager extends EventEmitter {
     const agent = this.agents.get(sessionId);
     if (!agent) return null;
     const isMain = this.isMainAgentRecord(sessionId, agent);
-    const lastActivity = this.activityTracker.get(sessionId, now);
+    const lastActivity = this.activityTracker.get(sessionId, persistedAgentActivityAt(agent));
     return {
       agentId: sessionId,
       lastActivity,
@@ -5345,6 +5397,7 @@ class AgentManager extends EventEmitter {
       validated: true,
       engineStarted: false,
       startedAt: Date.now(),
+      lastActivityAt: Date.now(),
       lastOutputSeq: null,
       attentionAutoReadNext: options.autoReadInitialAttention === true,
       attentionTrackingReady: false,
@@ -5623,7 +5676,7 @@ class AgentManager extends EventEmitter {
     try {
       this.registerAgentRecord(agentId, agentRecord);
       void this.refreshAgentWorktree(agentId);
-      this.activityTracker.record(agentId);
+      this.recordAgentActivity(agentId);
       this.emitStateChange({ agentIds: [agentId] });
       // A Chat view can safely attach as soon as this authoritative record
       // exists. ACP initialization continues below and reports any failure on
@@ -9163,7 +9216,7 @@ class AgentManager extends EventEmitter {
       reason: options.reason || 'manual-kill',
       status: agent.status || 'stopped',
       startedAt: agent.startedAt || null,
-      lastActivity: this.activityTracker.get(agent.id, 0) || null,
+      lastActivity: this.activityTracker.get(agent.id, persistedAgentActivityAt(agent)) || null,
       archivedAt: options.archivedAt || Date.now(),
     };
     this.taskHistoryStore.append(entry);
@@ -9931,7 +9984,7 @@ class AgentManager extends EventEmitter {
 
     const fallbackOutput = agent.output || '';
     const fallbackPreview = agent.previewText || fallbackOutput.slice(-2000);
-    const lastActivity = this.activityTracker.get(agentId, Date.now());
+    const lastActivity = this.activityTracker.get(agentId, persistedAgentActivityAt(agent));
     const terminalBusy = sessionState && typeof sessionState.terminalBusy === 'boolean'
       ? sessionState.terminalBusy
       : (typeof agent.terminalBusy === 'boolean' ? agent.terminalBusy : null);
@@ -10114,7 +10167,7 @@ class AgentManager extends EventEmitter {
   getAgentState(agentId: AgentId, now = Date.now()): AgentPublicState | null {
     const agent = this.agents.get(agentId);
     if (!agent) return null;
-    const lastActivity = this.activityTracker.get(agentId, now);
+    const lastActivity = this.activityTracker.get(agentId, persistedAgentActivityAt(agent));
     const isMain = this.isMainAgentRecord(agentId, agent);
     const terminalBusy = typeof agent.terminalBusy === 'boolean' ? agent.terminalBusy : null;
     const terminalStatus = deriveAgentTerminalStatus(agent, {
@@ -10249,7 +10302,7 @@ class AgentManager extends EventEmitter {
       'interrupting',
       'reconnecting',
     ].includes(acpState)) return false;
-    const lastAct = this.activityTracker.get(agentId, now);
+    const lastAct = this.activityTracker.get(agentId, persistedAgentActivityAt(agent));
     return now - lastAct > ZOMBIE_IDLE_MS;
   }
 
@@ -10259,7 +10312,7 @@ class AgentManager extends EventEmitter {
     if (this.isMainAgentRecord(agentId, agent)) return 0;
 
     let score = 0;
-    const lastAct = this.activityTracker.get(agentId, now);
+    const lastAct = this.activityTracker.get(agentId, persistedAgentActivityAt(agent));
     const secsSinceActivity = (now - lastAct) / 1000;
 
     // Status weight (0-20)

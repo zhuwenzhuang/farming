@@ -104,6 +104,7 @@ const AGENT_STATE_FIELDS: string[] = [
   'readOutputSeq',
   'unread',
   'composerCommands',
+  'lastActivityAt',
 ];
 const AGENT_STATE_FIELD_SET = new Set(AGENT_STATE_FIELDS);
 const PRODUCT_STATE_FIELDS: string[] = [
@@ -837,6 +838,7 @@ class FarmingSessionStore {
       ),
       titleUserSpecified: titleValue(agent.customTitle, 80).length > 0,
       startedAt: typeof agent.startedAt === 'number' ? agent.startedAt : null,
+      lastActivityAt: typeof agent.lastActivityAt === 'number' ? agent.lastActivityAt : null,
     };
   }
 

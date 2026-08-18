@@ -280,6 +280,10 @@ must prove old-process ownership, restore the same Provider Session and private
 scope, reload authoritative history, and preserve explicit configuration
 overrides. A Turn active at disconnect ends as failed or uncertain and is never
 silently replayed.
+Recovery and reconnection are not Agent activity and must not advance the
+persisted last-activity time. That time advances only for real runtime work or
+human-attention events; a recovery failure timestamp is lifecycle evidence, not
+activity.
 If a reconnected or replacement Host no longer owns a previously observed
 binding, Farming marks that binding interrupted and immediately schedules cold
 recovery of the exact persisted Provider Session. The transient interruption

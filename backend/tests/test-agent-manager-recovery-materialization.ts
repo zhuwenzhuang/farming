@@ -56,6 +56,7 @@ async function run() {
       providerSessionId: acpSessionId,
       providerSessionKey: acpSessionKey,
       agentRuntimeMode: 'acp',
+      lastActivityAt: 1_234_567,
       attentionSeq: 4,
       readAttentionSeq: 4,
       unread: true,
@@ -121,6 +122,11 @@ async function run() {
       'acp',
     );
     assert.strictEqual(
+      initialAgents.find(agent => agent.id === 'materialized-acp').lastActivity,
+      1_234_567,
+      'materializing a persisted ACP Agent must preserve its activity time',
+    );
+    assert.strictEqual(
       initialAgents.find(agent => agent.id === 'materialized-acp').unread,
       false,
       'the persisted read cursor, not a stale unread boolean, owns restored unread state',
@@ -153,6 +159,11 @@ async function run() {
     const session = await pendingRead;
     assert.strictEqual(session.sessionId, acpSessionId);
     await manager.recoveryGate.wait();
+    assert.strictEqual(
+      manager.getAgentState('materialized-acp').lastActivity,
+      1_234_567,
+      'reconnecting the recovered ACP binding must not count as new Agent activity',
+    );
   } finally {
     if (releaseEngineRecovery) releaseEngineRecovery([]);
     await manager.dispose();

@@ -171,6 +171,7 @@ export interface AgentRecord extends Record<string, unknown>, AgentDisplayState,
   mainWorkspace?: string;
   output?: string;
   lastEngineOutputAt?: number;
+  lastActivityAt?: number | null;
   lastObservedTurnActive?: boolean;
   lastOutputSeq?: number | null;
   parentAgentId?: string;
@@ -232,6 +233,7 @@ export interface PersistedAgentPrivateMetadata extends Record<string, unknown>, 
   id: string;
   kind?: 'agent';
   launchPermissionMode?: string;
+  lastActivityAt?: number | null;
   lifecycleJournal?: LifecycleJournal;
   mainWorkspace?: string;
   parentAgentId?: string;
@@ -280,6 +282,7 @@ export interface PersistedAgentState extends Record<string, unknown>, AgentAtten
   jsonCliError?: string;
   jsonCliState?: string;
   jsonCliTranscriptUpdatedAt?: string;
+  lastActivityAt?: number | null;
 }
 
 export interface MainPageMembership {
@@ -406,7 +409,7 @@ export interface AgentManagerSettings extends Record<string, unknown> {
 
 export type RecoveredEngineSessionMetadata = Partial<PersistedAgentPrivateMetadata> & Record<string, unknown> & {
   engineName?: string;
-  lastActivityAt?: number;
+  lastActivityAt?: number | null;
   provider?: string;
   runtimeAgentId?: string;
   sessionTitle?: string;

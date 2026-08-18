@@ -204,6 +204,8 @@ Recoverable Error 与 Terminal Failure。Idle 是普通 Live State；Session 会
 Adapter 或 Host 异常退出必须进入明确恢复或失败。恢复需要证明旧进程 Ownership，恢复同一
 Provider Session 与私有 Scope，重新加载权威 History，并保留显式 Config Override。断线时
 正在执行的 Turn 结束为失败或不确定，绝不能静默重放。
+恢复与重连本身不属于 Agent 活跃，不能推进持久化 Last Activity；只有真实 Runtime 工作或
+用户注意力事件才推进该时间。恢复失败时间属于 Lifecycle Evidence，不属于活跃。
 重连或替换后的 Host 如果不再持有之前观察到的 Binding，Farming 会先把该 Binding 标记为
 Interrupted，并立即为精确的持久化 Provider Session 安排冷恢复；冷恢复成功时，这个短暂
 Interrupted 状态不能成为 Session 的最终状态。

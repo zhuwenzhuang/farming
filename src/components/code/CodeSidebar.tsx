@@ -882,32 +882,34 @@ export function CodeSidebar({
             {copy.noMatchingProjectsOrAgents}
           </div>
         )}
-        <PinnedSection
-          items={pinnedItems}
-          collapsed={pinnedCollapsed}
-          compressed={agentCompressionActive}
-          dynamicPinningEnabled={dynamicPinningEnabled}
-          hasUnread={hasUnread}
-          viewedAtByAgentId={viewedAtByAgentId}
-          activeTerminalId={activeTerminalId}
-          selectedSearchAgentId={selectedSearchAgentId}
-          selectedSearchSessionHandle={selectedSearchSessionHandle}
-          claimedAgentSessionKeyByAgentId={claimedAgentSessionKeyByAgentId}
-          agentShortcutKeys={agentShortcutKeys}
-          keyboardShortcutsEnabled={keyboardShortcutsEnabled}
-          now={now}
-          onOpenAgent={openAgentWithView}
-          onUpdateAgentFlags={onUpdateAgentFlags}
-          onReorderAgent={onReorderAgent}
-          onOpenAgentMenu={onOpenAgentMenu}
-          onResumeAgentSession={onResumeAgentSession}
-          onOpenAgentSessionMenu={onOpenAgentSessionMenu}
-          onShowAgentPreview={showAgentPreview}
-          onHideAgentPreview={hideAgentPreview}
-          onToggleCollapsed={() => setPinnedCollapsed(collapsed => !collapsed)}
-          onToggleDynamicPinning={() => setDynamicPinningEnabled(enabled => !enabled)}
-          copy={copy}
-        />
+        {pinnedItems.length > 0 && (
+          <PinnedSection
+            items={pinnedItems}
+            collapsed={pinnedCollapsed}
+            compressed={agentCompressionActive}
+            dynamicPinningEnabled={dynamicPinningEnabled}
+            hasUnread={hasUnread}
+            viewedAtByAgentId={viewedAtByAgentId}
+            activeTerminalId={activeTerminalId}
+            selectedSearchAgentId={selectedSearchAgentId}
+            selectedSearchSessionHandle={selectedSearchSessionHandle}
+            claimedAgentSessionKeyByAgentId={claimedAgentSessionKeyByAgentId}
+            agentShortcutKeys={agentShortcutKeys}
+            keyboardShortcutsEnabled={keyboardShortcutsEnabled}
+            now={now}
+            onOpenAgent={openAgentWithView}
+            onUpdateAgentFlags={onUpdateAgentFlags}
+            onReorderAgent={onReorderAgent}
+            onOpenAgentMenu={onOpenAgentMenu}
+            onResumeAgentSession={onResumeAgentSession}
+            onOpenAgentSessionMenu={onOpenAgentSessionMenu}
+            onShowAgentPreview={showAgentPreview}
+            onHideAgentPreview={hideAgentPreview}
+            onToggleCollapsed={() => setPinnedCollapsed(collapsed => !collapsed)}
+            onToggleDynamicPinning={() => setDynamicPinningEnabled(enabled => !enabled)}
+            copy={copy}
+          />
+        )}
         {visibleProjectSections.map(project => (
           <ProjectSection
             key={project.id}

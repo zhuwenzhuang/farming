@@ -106,11 +106,13 @@ function run() {
     engineName: 'native',
     projectOrder: 4096,
     pinnedOrder: 2048,
+    lastActivityAt: 1_700_000_000_000,
   });
   assert(/^agent_/.test(tempRecordId));
   const temporaryRecord = readJson(path.join(root, 'sessions', `${tempRecordId}.json`));
   assert.strictEqual(temporaryRecord.projectOrder, 4096);
   assert.strictEqual(temporaryRecord.pinnedOrder, 2048);
+  assert.strictEqual(store.readRecord(tempRecordId).lastActivityAt, 1_700_000_000_000);
   assert.strictEqual(temporaryRecord.terminalInputReceived, true);
   assert.strictEqual(temporaryRecord.wantsMain, true);
   const resolvedRecordId = store.ensureRecordForAgent({
