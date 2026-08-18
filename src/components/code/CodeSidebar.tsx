@@ -30,7 +30,6 @@ import type {
 } from '@/types/agent'
 import {
   fetchWorkspaceGitBranches,
-  fetchWorkspaceGitBranch,
   fetchWorkspaceGitWorktrees,
   switchWorkspaceGitBranch,
   WorkspaceFileApiError,
@@ -127,9 +126,9 @@ type AgentPreviewTarget = {
   title: string
   project: string
   lastActive: number
+  branch: string
   provider?: AgentIconName
   providerHomeId?: string
-  workspaceRootId?: string
   browserCount?: number
   desktopCount?: number
 }
@@ -395,7 +394,6 @@ export function CodeSidebar({
   }) | null>(null)
   const previewTimerRef = useRef<number | null>(null)
   const previewBrowsingRef = useRef(false)
-  const branchCacheRef = useRef(new Map<string, { branch: string; expiresAt: number }>())
   const [initialWorkspaceViewState] = useState(() => loadCodeWorkspaceViewState())
   const [usageCollapsed, setUsageCollapsed] = useState(initialWorkspaceViewState.usageCollapsed ?? true)
   const [pinnedCollapsed, setPinnedCollapsed] = useState(initialWorkspaceViewState.pinnedCollapsed ?? false)
@@ -481,21 +479,9 @@ export function CodeSidebar({
       const width = Math.min(320, window.innerWidth - x - 12)
       if (width < 200) return
       const y = Math.max(8, Math.min(rect.top - 4, window.innerHeight - 152))
-      const cachedBranch = target.workspaceRootId ? branchCacheRef.current.get(target.workspaceRootId) : undefined
-      const branch = cachedBranch && cachedBranch.expiresAt > Date.now() ? cachedBranch.branch : ''
       previewBrowsingRef.current = true
       setProjectPreview(null)
-      setAgentPreview({ ...target, x, y, width, branch })
-      if (!target.workspaceRootId || branch) return
-      fetchWorkspaceGitBranch(target.workspaceRootId)
-        .then((data: { branch?: string } | null) => {
-          const resolvedBranch = typeof data?.branch === 'string' ? data.branch.trim() : ''
-          branchCacheRef.current.set(target.workspaceRootId!, { branch: resolvedBranch, expiresAt: Date.now() + 30_000 })
-          setAgentPreview(current => current?.key === target.key ? { ...current, branch: resolvedBranch } : current)
-        })
-        .catch(() => {
-          branchCacheRef.current.set(target.workspaceRootId!, { branch: '', expiresAt: Date.now() + 30_000 })
-        })
+      setAgentPreview({ ...target, x, y, width })
     }, delay)
   }, [clearPreviewTimer, hoverPreviewsPaused])
 
@@ -1865,6 +1851,12 @@ function agentWorktreeList(worktree: Agent['gitWorktree']): WorkspaceGitWorktree
   }
 }
 
+function currentWorktreeName(worktrees: WorkspaceGitWorktrees | null) {
+  const current = worktrees?.isGitRepo ? worktrees.items.find(item => item.current) : null
+  if (!current) return ''
+  return current.branch || (current.head ? `detached@${current.head.slice(0, 7)}` : '')
+}
+
 interface ProjectSectionProps {
   project: ProjectGroup
   agentInventoryComplete: boolean
@@ -2335,11 +2327,7 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
     setLaunchMenu(null)
     onStartAgent(command, project.workspace, agentRuntimeMode ? { agentRuntimeMode } : undefined)
   }
-  const currentWorktree = repositoryWorktrees?.items.find(item => item.current)
-  const hasRepositoryWorktrees = Boolean(repositoryWorktrees?.isGitRepo && currentWorktree)
-  const currentWorktreeName = hasRepositoryWorktrees && currentWorktree
-    ? currentWorktree.branch || `detached@${currentWorktree.head.slice(0, 7)}`
-    : ''
+  const currentProjectWorktreeName = currentWorktreeName(repositoryWorktrees)
   const repositoryWorktreeCount = repositoryWorktrees?.items.length || 0
   const openWorktreeMenu = (event: ReactMouseEvent<HTMLButtonElement>) => {
     event.preventDefault()
@@ -2377,7 +2365,7 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
             agentCount: metrics.agentCount,
             unreadCount: metrics.unreadCount,
             runningCount: metrics.activeCount,
-            branch: currentWorktreeName,
+            branch: currentProjectWorktreeName,
             worktreeCount: repositoryWorktreeCount,
             pinned: project.pinned === true,
           })
@@ -2419,19 +2407,19 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
             </span>
             <span className="code-project-title-name">{project.name}</span>
           </button>
-          {currentWorktreeName && repositoryWorktrees && (
+          {currentProjectWorktreeName && repositoryWorktrees && (
             <button
               ref={worktreeButtonRef}
               type="button"
               className="code-project-worktree"
               data-testid="code-project-worktree"
-              aria-label={`${currentWorktreeName} · ${repositoryWorktreeCount} ${copy.worktrees}`}
+              aria-label={`${currentProjectWorktreeName} · ${repositoryWorktreeCount} ${copy.worktrees}`}
               aria-haspopup="dialog"
               aria-expanded={worktreeMenu ? true : undefined}
               onClick={openWorktreeMenu}
             >
               <span className="code-project-worktree-icon" aria-hidden="true"><BranchGlyph /></span>
-              <span className="code-project-worktree-name">{currentWorktreeName}</span>
+              <span className="code-project-worktree-name">{currentProjectWorktreeName}</span>
               {repositoryWorktreeCount > 1 && (
                 <span className="code-project-worktree-count" aria-hidden="true">{repositoryWorktreeCount}</span>
               )}
@@ -2756,9 +2744,9 @@ function previewTargetForAgent(agent: Agent, rowState: ReturnType<typeof buildAg
     title: rowState.title,
     project: project || projectNameForWorkspace(agent.projectWorkspace || agent.cwd),
     lastActive: agent.lastActivity || agent.startedAt || 0,
+    branch: currentWorktreeName(agentWorktreeList(agent.gitWorktree)),
     provider: previewAgentIconNameForAgent(agent),
     providerHomeId: nonDefaultAgentHomeId(agent.providerHomeId),
-    workspaceRootId: agent.workspaceRootId,
   }
 }
 
@@ -2768,6 +2756,7 @@ function previewTargetForSession(session: AgentSessionHistoryItem, rowState: Ret
     title: rowState.title,
     project: agentSessionProjectName(session),
     lastActive: agentSessionUpdatedAt(session),
+    branch: '',
     provider: agentIconName(session.provider),
     providerHomeId: nonDefaultAgentHomeId(session.providerHomeId),
   }
@@ -2861,10 +2850,12 @@ function AgentHoverPreview({
             {preview.provider && <AgentLaunchIcon name={preview.provider} variant="color" className="code-agent-hover-preview-provider-icon" />}
           </div>
         </div>
-        <div className="code-agent-hover-preview-line">
-          <span className="code-agent-hover-preview-icon"><AgentPreviewBranchIcon /></span>
-          <span>{preview.branch || '—'}</span>
-        </div>
+        {preview.branch && (
+          <div className="code-agent-hover-preview-line" data-testid="code-agent-hover-preview-branch">
+            <span className="code-agent-hover-preview-icon"><AgentPreviewBranchIcon /></span>
+            <span>{preview.branch}</span>
+          </div>
+        )}
         {preview.providerHomeId && (
           <div className="code-agent-hover-preview-line" data-testid="code-agent-hover-preview-home">
             <span className="code-agent-hover-preview-icon"><AgentPreviewHomeIcon /></span>
@@ -3123,7 +3114,6 @@ function AgentRow({
         if (event.currentTarget.matches(':focus-visible')) prepareLiveChat()
       }}
       onMouseEnter={event => {
-        prepareLiveChat()
         if (liveAgent) {
           onShowPreview?.(event, previewTargetForAgent(liveAgent, rowState))
         } else if (session) {

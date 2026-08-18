@@ -498,10 +498,6 @@ export async function fetchWorkspaceGitBranches(rootId: string, options: { signa
   return runWorkspaceRequest<WorkspaceGitBranches>({ operation: 'branches', rootId }, { signal: options.signal })
 }
 
-export async function fetchWorkspaceGitBranch(rootId: string, options: { signal?: AbortSignal } = {}) {
-  return runWorkspaceRequest<{ branch: string }>({ operation: 'branch', rootId }, { signal: options.signal })
-}
-
 export async function switchWorkspaceGitBranch(
   rootId: string,
   branch: string,
