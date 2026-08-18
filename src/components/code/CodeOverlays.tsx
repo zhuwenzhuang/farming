@@ -162,15 +162,6 @@ export function CodeOverlays({
   const agentMenuEntries = compactContextMenuEntries([
     {
       type: 'item',
-      id: 'create-agent-desktop',
-      label: copy.createIsolatedDesktop,
-      icon: 'desktop',
-      hidden: !agentMenuAvailabilityState.createDesktop,
-      onSelect: onCreateAgentDesktop,
-    },
-    { type: 'separator', id: 'agent-resource-separator' },
-    {
-      type: 'item',
       id: 'pin-agent',
       label: contextMenuAgent?.pinned ? copy.unpinAgent : copy.pinAgent,
       icon: contextMenuAgent?.pinned ? 'unpin' : 'pin',
@@ -247,6 +238,14 @@ export function CodeOverlays({
       icon: 'browser',
       hidden: !agentMenuAvailabilityState.createBrowser,
       onSelect: onCreateAgentBrowser,
+    },
+    {
+      type: 'item',
+      id: 'create-agent-desktop',
+      label: copy.createIsolatedDesktop,
+      icon: 'desktop',
+      hidden: !agentMenuAvailabilityState.createDesktop,
+      onSelect: onCreateAgentDesktop,
     },
   ])
   const sessionMenuEntries = compactContextMenuEntries([

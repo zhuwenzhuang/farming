@@ -38,7 +38,15 @@ test('shows an Agent-owned Desktop only when present and switches Viewer control
 
   await page.route('**/api/browsers/capability', async route => {
     browserCapabilityRequests += 1
-    await route.continue()
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        enabled: true,
+        available: true,
+        browser: { kind: 'chrome', path: '/mock/chrome' },
+        message: 'Browser is available',
+      }),
+    })
   })
 
   await page.route('**/api/computers/capability', async route => {
@@ -166,8 +174,15 @@ test('shows an Agent-owned Desktop only when present and switches Viewer control
   await expect(agentRow.getByTestId('code-agent-resources-toggle')).toHaveCount(0)
   await expect(page.locator(`[data-testid="code-agent-resource-slot"][data-agent-id="${agentId}"]`).getByTestId('farming-computer-section')).toHaveCount(0)
   await agentRow.click({ button: 'right' })
+  const agentMenuItems = page.getByTestId('code-agent-context-menu').getByRole('menuitem')
+  const createBrowserMenuItem = page.getByRole('menuitem', { name: 'Create Browser' })
   const createDesktopMenuItem = page.getByRole('menuitem', { name: 'Create Desktop in Docker (Experimental)' })
+  await expect(createBrowserMenuItem).toBeVisible()
   await expect(createDesktopMenuItem).toBeVisible()
+  expect((await agentMenuItems.allTextContents()).slice(-2)).toEqual([
+    'Create Browser',
+    'Create Desktop in Docker (Experimental)',
+  ])
   await expect(createDesktopMenuItem.locator('.code-context-menu-icon:not(.trailing) > svg')).toHaveCount(1)
   const desktopMenuScreenshot = testInfo.outputPath('agent-desktop-menu.png')
   await page.locator('.code-context-menu').screenshot({ path: desktopMenuScreenshot })
