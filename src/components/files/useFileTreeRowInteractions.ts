@@ -1,4 +1,10 @@
-import { useCallback, type MouseEvent as ReactMouseEvent, type MutableRefObject, type RefObject } from 'react'
+import {
+  useCallback,
+  type MouseEvent as ReactMouseEvent,
+  type MutableRefObject,
+  type PointerEvent as ReactPointerEvent,
+  type RefObject,
+} from 'react'
 import type { NodeRendererProps } from 'react-arborist'
 import { workspaceFileTreeRowClickIntent } from '@/lib/workspace-file-view-model'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-open-files'
@@ -55,6 +61,21 @@ export function useFileTreeRowInteractions({
     const rect = event.currentTarget.getBoundingClientRect()
     onOpenFileContextMenu(rect.right, rect.bottom, item)
   }, [item, lastFocusedFilePathRef, node, onCancelPendingFileFocus, onOpenFileContextMenu])
+
+  const handleRowPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (
+      event.button !== 0
+      || event.metaKey
+      || event.ctrlKey
+      || event.shiftKey
+      || (event.target as HTMLElement | null)?.closest('button, input')
+    ) return
+    // Keep the activation owned by the row where the gesture started. Opening
+    // a preview or scrolling a virtualized tree can move the row before
+    // pointerup; without capture, the generated click can land on a sticky
+    // Agent row and unexpectedly leave the editor.
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }, [])
 
   const handleRowMouseDown = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
     if (
@@ -137,6 +158,7 @@ export function useFileTreeRowInteractions({
     handleRowClick,
     handleRowContextMenu,
     handleRowMouseDown,
+    handleRowPointerDown,
     handleRowActions,
   }
 }

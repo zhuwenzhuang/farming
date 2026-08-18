@@ -108,6 +108,12 @@ the second hit is blank or a different row, the Explorer suppresses that
 displaced hit and commits the pin intent to the first file. Unrelated clicks,
 directories, and gestures outside those bounds are not recovered.
 
+A primary pointer gesture is owned by the file row where pointerdown starts.
+Virtual scrolling, a completed preview render, or a sticky Agent inventory
+change may move content before pointerup, but must not retarget that gesture to
+an Agent row or another navigation surface. Row pointer capture preserves this
+ownership; controls inside the row keep their own ordinary button behavior.
+
 ## Directory And Mutation Model
 
 Directory snapshots stay absent, loading, ready, or failed under the Explorer
@@ -159,6 +165,8 @@ Tests derive from the transitions above and cover at least:
 - pinned-tab selection without preview demotion;
 - an Agent list collapsed by the user staying collapsed across file opens and
   Agent inventory refresh, while an explicit later Agent navigation may reveal it;
+- a file pointerdown followed by a sticky Agent layout change before pointerup,
+  with the file still opening and the Agent remaining inactive;
 - a double-click whose first preview moves the row under the pointer, including
   both blank and different-file second hits;
 - repeated same-file first open with one transport read;

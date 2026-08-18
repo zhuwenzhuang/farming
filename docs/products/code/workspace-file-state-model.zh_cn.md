@@ -90,6 +90,11 @@ preview。替换 clean preview 只移除其 Tab 投影；有界的 resource mode
 行，Explorer 必须拦截这个错位命中，并把 pin intent 提交给第一次命中的文件。无关
 click、目录以及超出边界的手势不做恢复。
 
+主指针手势由 pointerdown 开始时命中的文件行拥有。虚拟滚动、preview 渲染完成或
+sticky Agent inventory 变化可能在 pointerup 前移动内容，但不得把该手势重新定向到
+Agent 行或其他导航 surface。文件行通过 pointer capture 保持该所有权；行内按钮仍
+保留各自普通的 button 行为。
+
 ## Directory 与 Mutation 模型
 
 目录快照继续由 Explorer owner 管理 absent、loading、ready、failed。相同目录读取
@@ -132,6 +137,8 @@ watch 恢复期间若暂时无法验证 cached snapshot，则保留当前可见�
 - 选择 pinned Tab 不发生 preview 降级；
 - 用户手动收起 Agent 列表后，文件打开和 Agent inventory 刷新都不得自动展开；显式
   的后续 Agent 导航仍可 reveal；
+- 文件 pointerdown 后、pointerup 前发生 sticky Agent 布局变化时，文件仍应打开，
+  Agent 仍保持未激活；
 - 首次 preview 导致指针下方行移动的双击，包括第二击落到空白和其他文件两种情况；
 - 同文件重复首次打开只有一次 transport read；
 - preview 替换后立即从 cache 返回，同时异步 revalidate；

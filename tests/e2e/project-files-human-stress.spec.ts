@@ -114,6 +114,31 @@ test('survives seeded cold and warm human Project Files interactions', {
       await expect(row).toHaveAttribute('aria-expanded', String(expanded), { timeout: 3_000 })
     }
 
+    // A file gesture must remain owned by the row where pointerdown started.
+    // This models a real race where an Agent inventory/reveal update changes
+    // the sticky content above Files before pointerup.
+    await setDirectoryExpanded('alpha', true)
+    const shiftingFilePath = 'alpha/model.cpp'
+    const shiftingRow = files.locator(`[data-testid="code-file-row"][data-file-path="${shiftingFilePath}"]`)
+    await shiftingRow.scrollIntoViewIfNeeded()
+    const shiftingBoxBefore = await shiftingRow.boundingBox()
+    if (!shiftingBoxBefore) throw new Error('Shifting file row must be measurable')
+    const shiftingX = shiftingBoxBefore.x + Math.min(shiftingBoxBefore.width - 8, 72)
+    const shiftingY = shiftingBoxBefore.y + shiftingBoxBefore.height / 2
+    await page.mouse.move(shiftingX, shiftingY, { steps: 4 })
+    await page.mouse.down()
+    await agentVisibility.evaluate(element => (element as HTMLButtonElement).click())
+    await expect(agentVisibility).toHaveAttribute('data-collapsed', 'false')
+    await page.mouse.up()
+    await expect(page.getByTestId('code-file-editor').getByRole('tab', { selected: true })).toHaveAttribute(
+      'title',
+      shiftingFilePath,
+    )
+    operations.push({ action: 'file-pointer-layout-shift', path: shiftingFilePath })
+    await agentVisibility.click({ force: true })
+    await expect(agentVisibility).toHaveAttribute('data-collapsed', 'true')
+    reads.clear()
+
     for (const directory of shuffled(directories, random)) {
       await setDirectoryExpanded(directory, true)
       operations.push({ action: 'expand', path: directory })

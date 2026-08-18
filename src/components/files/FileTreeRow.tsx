@@ -87,6 +87,7 @@ export function FileTreeRow({
     handleRowClick,
     handleRowContextMenu,
     handleRowMouseDown,
+    handleRowPointerDown,
     handleRowActions,
   } = useFileTreeRowInteractions({
     isDirectory,
@@ -114,6 +115,7 @@ export function FileTreeRow({
       tabIndex={-1}
       aria-expanded={isDirectory ? node.isOpen : undefined}
       onContextMenu={handleRowContextMenu}
+      onPointerDown={handleRowPointerDown}
       onMouseDown={handleRowMouseDown}
       onClick={handleRowClick}
     >
