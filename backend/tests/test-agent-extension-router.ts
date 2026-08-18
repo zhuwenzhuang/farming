@@ -97,6 +97,9 @@ async function run(): Promise<void> {
       },
     },
     configuredProviders: () => ['codex', 'gemini'],
+    getAgentLaunchProfile: (provider: string) => provider === 'codex'
+      ? { homeId: 'work', runtimeMode: 'chat' }
+      : { homeId: 'default', runtimeMode: 'terminal' },
     getAgentHomes: (provider: string) => provider === 'codex' ? codexHomes : [],
     getAvailableAgents: () => [
       { category: 'coding', command: 'codex', description: 'Codex CLI', name: 'codex' },
@@ -104,6 +107,7 @@ async function run(): Promise<void> {
     ],
     getMainAgentSkillsCatalog: () => [{ id: 'quest', name: 'Quest', trigger: '/quest' }],
     getProviderAcpExecutablePolicy: (provider: string) => provider === 'codex' ? 'managed' : 'system',
+    providerSupportsChat: (provider: string) => provider === 'codex',
     requestedProviderHome: (provider: string, rawHomeId: unknown) => {
       requestedHomeCalls.push({ provider, rawHomeId });
       return requestedHome;
@@ -148,6 +152,8 @@ async function run(): Promise<void> {
           available: true,
           discoverySupported: true,
           acpExecutablePolicy: 'managed',
+          launchDefaults: { homeId: 'work', runtimeMode: 'chat' },
+          supportsChat: true,
           homes: [
             {
               id: 'default',
@@ -190,6 +196,8 @@ async function run(): Promise<void> {
           available: false,
           discoverySupported: true,
           acpExecutablePolicy: 'system',
+          launchDefaults: { homeId: 'default', runtimeMode: 'terminal' },
+          supportsChat: false,
           homes: [{
             id: 'default',
             path: '',

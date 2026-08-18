@@ -36,6 +36,10 @@ interface CliAgent {
   capabilities?: {
     supportsChat?: boolean
   }
+  launchDefaults?: {
+    homeId: string
+    runtimeMode: 'terminal' | 'chat'
+  }
   launchOrder?: number
 }
 
@@ -246,6 +250,13 @@ export function InputDialog({
         const nextSelectedAgent = !mustStartMain ? initialAgent : null
         if (nextSelectedAgent) {
           setSelectedAgent(nextSelectedAgent)
+          setSelectedHomeId(nextSelectedAgent.launchDefaults?.homeId || 'default')
+          setAgentRuntimeMode(
+            nextSelectedAgent.capabilities?.supportsChat === true
+              && nextSelectedAgent.launchDefaults?.runtimeMode === 'chat'
+              ? 'chat'
+              : 'terminal',
+          )
           setStep('workspace')
           if (!isMobileViewport()) {
             setTimeout(() => inputRef.current?.focus(), 50)
@@ -473,7 +484,14 @@ export function InputDialog({
       if (!settingsLoaded) return
       if (!lockStartClick()) return
       const resolvedWorkspace = resolveWorkspaceToStart(workspace, true, mainWorkspaceDefault)
-      if (resolvedWorkspace) onStart(agent.command || agent.name, resolvedWorkspace, { ...(resumeStartOptions(agent) || {}), providerHomeId: selectedHomeId })
+      const resumeOptions = resumeStartOptions(agent)
+      if (resolvedWorkspace) onStart(agent.command || agent.name, resolvedWorkspace, {
+        ...(resumeOptions || {}),
+        providerHomeId: resumeOptions?.providerHomeId || agent.launchDefaults?.homeId || 'default',
+        ...(agent.capabilities?.supportsChat === true ? {
+          agentRuntimeMode: agent.launchDefaults?.runtimeMode === 'chat' ? 'chat' : 'terminal',
+        } : {}),
+      })
       return
     }
 
@@ -482,7 +500,15 @@ export function InputDialog({
     const nextHomes = (Array.isArray(configuredHomes) ? configuredHomes : [])
       .slice()
       .sort((left, right) => (left.order ?? Number.MAX_SAFE_INTEGER) - (right.order ?? Number.MAX_SAFE_INTEGER))
-    setSelectedHomeId(nextHomes[0]?.id || 'default')
+    const defaultHomeId = agent.launchDefaults?.homeId || 'default'
+    setSelectedHomeId(nextHomes.some(home => home.id === defaultHomeId)
+      ? defaultHomeId
+      : (nextHomes[0]?.id || 'default'))
+    setAgentRuntimeMode(
+      agent.capabilities?.supportsChat === true && agent.launchDefaults?.runtimeMode === 'chat'
+        ? 'chat'
+        : 'terminal',
+    )
     setHomeMenuOpen(false)
     workspaceTouchedRef.current = false
     setWorkspace(normalizeWorkspaceValue(initialWorkspace || ''))
@@ -492,7 +518,7 @@ export function InputDialog({
     if (!isMobileViewport()) {
       setTimeout(() => inputRef.current?.focus(), 50)
     }
-  }, [agentHomes, initialWorkspace, lockStartClick, mainWorkspaceDefault, mustStartMain, onStart, resumeStartOptions, selectedHomeId, settingsLoaded, workspace])
+  }, [agentHomes, initialWorkspace, lockStartClick, mainWorkspaceDefault, mustStartMain, onStart, resumeStartOptions, settingsLoaded, workspace])
 
   const persistWorkspaceHistory = useCallback((nextWorkspace: string) => {
     const currentHistory = workspaceHistoryRef.current

@@ -73,20 +73,17 @@ export interface GlobalSettings extends WorkspaceHistorySettings {
   languageServerEnabled?: boolean
   searchTimeoutMs?: number
   agentHomes?: AgentHomesSettings
-  agentLaunchProfiles?: {
-    codex?: {
-      approvalMode?: CodexApprovalMode
-      modelPreset?: CodexModelPreset
-      model?: string
-      reasoningEffort?: string
-      serviceTier?: string
-    }
-    claude?: {
-      permissionMode?: ClaudePermissionMode
-      model?: string
-      effort?: string
-    }
-  }
+  agentLaunchProfiles?: Record<string, {
+    approvalMode?: CodexApprovalMode
+    effort?: string
+    homeId?: string
+    model?: string
+    modelPreset?: CodexModelPreset
+    permissionMode?: ClaudePermissionMode
+    reasoningEffort?: string
+    runtimeMode?: 'terminal' | 'chat'
+    serviceTier?: string
+  }>
   codexApprovalMode?: CodexApprovalMode
   codexModelPreset?: CodexModelPreset
   codexModel?: string

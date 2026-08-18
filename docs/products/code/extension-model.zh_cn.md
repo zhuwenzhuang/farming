@@ -106,6 +106,11 @@ Provider 加 Agent Home ID 是一份 Configuration Identity。Global Settings �
 的 Home 与展示顺序；Existing Agent Record 保留创建 Session 时使用的精确 Provider Home
 不可变绑定，移除或重排配置不能给已有 Session 改身份。
 
+每个 Provider Launch Profile 拥有新 Agent 的默认 Home 与 Terminal/Chat Runtime。启动请求可以
+显式覆盖其中任一项而不修改已保存默认值。删除当前选中的默认 Home 时，必须在同一次配置提交中
+回落到该 Provider 的 `default` Home，同时保留 Runtime 默认值。Resume、Fork、Restart 与恢复
+继续使用 Existing Session 的精确 Home 和 Runtime，不读取新 Agent 默认值。
+
 同一 Identity 把新建 Chat Session 绑定到 Adapter 的 Farming-managed ACP Runtime；Plugins
 不提供 Custom Executable 选择。已有 Session 保留持久化 Launch Identity，包括精确恢复所需
 的旧 Custom Binding；Terminal Executable Discovery 继续独立。

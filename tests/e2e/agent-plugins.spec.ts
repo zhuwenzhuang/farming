@@ -1,7 +1,14 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { WebSocketRoute } from '@playwright/test'
-import { expect, interceptWorkspaceRequests, openFarming, test } from './fixtures'
+import {
+  expect,
+  interceptWorkspaceRequests,
+  openFarming,
+  openNewAgentDialog,
+  startAgentFromOpenDialog,
+  test,
+} from './fixtures'
 import { selectCodeOption } from './code-select'
 
 test('Plugins treats each Agent Home as an independent ordered Agent configuration', async ({ page, workspaceRoot }) => {
@@ -94,7 +101,7 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
 
   const openCode = panel.getByTestId('code-plugin-section-agent-opencode-default')
   await expect(openCode.getByText(/Inherited from|was not found/)).toBeVisible()
-  await expect(openCode.getByRole('combobox')).toHaveCount(0)
+  await expect(openCode.getByRole('combobox')).toHaveValue('terminal')
   await expect(panel.locator('.code-plugin-extension')).toHaveCount(0)
 
   const claudePrimary = panel.getByTestId('code-plugin-section-agent-claude-primary')
@@ -171,7 +178,7 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
   await expect(review).toHaveCount(0)
 })
 
-test('Agent Homes use the Farming-managed ACP runtime without a user-facing runtime selector', {
+test('Agent Homes keep the ACP executable managed while exposing the launch runtime default', {
   tag: ['@critical-behavior', '@behavior-CODE-PLUGINS-MANAGED-RUNTIME'],
 }, async ({ page }) => {
   await openFarming(page)
@@ -179,7 +186,7 @@ test('Agent Homes use the Farming-managed ACP runtime without a user-facing runt
   const panel = page.getByTestId('code-plugins-panel')
   await panel.getByTestId('code-plugin-tab-homes').click()
   const codexHome = panel.getByTestId('code-plugin-section-agent-codex-default')
-  await expect(codexHome.getByRole('combobox')).toHaveCount(0)
+  await expect(codexHome.getByTestId('code-plugin-agent-runtime-default-codex')).toHaveValue('terminal')
   await expect(codexHome.getByText('Custom executable')).toHaveCount(0)
   await expect(codexHome.getByRole('button', { name: 'Apply runtime' })).toHaveCount(0)
   const settingsResponse = await page.request.get('/farming/api/settings')
@@ -191,6 +198,115 @@ test('Agent Homes use the Farming-managed ACP runtime without a user-facing runt
     mode: 'managed',
     executable: '',
   })
+})
+
+test('Agent Home and runtime launch defaults drive dialogs, project shortcuts, and deletion fallback', async ({ page, workspaceRoot }) => {
+  await openFarming(page)
+  const currentSettingsResponse = await page.request.get('/farming/api/settings')
+  expect(currentSettingsResponse.ok()).toBeTruthy()
+  const currentSettings = await currentSettingsResponse.json() as {
+    settings?: {
+      agentHomes?: Record<string, Array<{
+        id: string
+        path: string
+        order?: number
+        acpRuntime?: { mode?: string; executable?: string }
+        newAgentDefaults?: { model?: string; reasoning?: string; fast?: string }
+      }>>
+    }
+  }
+  const codexDefault = currentSettings.settings?.agentHomes?.codex?.find(home => home.id === 'default')
+  expect(codexDefault?.path).toBeTruthy()
+
+  const codexWorkHome = path.join(workspaceRoot, 'codex-launch-default')
+  fs.mkdirSync(codexWorkHome, { recursive: true })
+  const seedResponse = await page.request.post('/farming/api/settings', {
+    data: {
+      agentHomes: {
+        codex: [
+          codexDefault!,
+          {
+            id: 'work',
+            path: codexWorkHome,
+            order: 100,
+            acpRuntime: { mode: 'managed', executable: '' },
+            newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
+          },
+        ],
+      },
+    },
+  })
+  expect(seedResponse.ok()).toBeTruthy()
+
+  await page.getByTestId('code-nav-plugins').click()
+  const panel = page.getByTestId('code-plugins-panel')
+  await panel.getByTestId('code-plugin-tab-homes').click()
+  const defaultHome = panel.getByTestId('code-plugin-section-agent-codex-default')
+  const workHome = panel.getByTestId('code-plugin-section-agent-codex-work')
+  await expect(defaultHome.getByText('Launch default', { exact: true })).toBeVisible()
+  await workHome.getByTestId('code-plugin-agent-set-default-codex-work').click()
+  await expect(workHome.getByText('Launch default', { exact: true })).toBeVisible()
+  const runtimeDefault = workHome.getByTestId('code-plugin-agent-runtime-default-codex')
+  await expect(runtimeDefault).toHaveValue('terminal')
+  await runtimeDefault.selectOption('chat')
+  await expect(runtimeDefault).toHaveValue('chat')
+
+  await openNewAgentDialog(page)
+  await page.getByTestId('agent-option-codex').click()
+  await expect(page.getByTestId('agent-home-select')).toContainText('work')
+  await expect(page.getByTestId('agent-runtime-mode').getByRole('button', { name: 'Chat', exact: true }))
+    .toHaveAttribute('aria-pressed', 'true')
+  await page.getByRole('button', { name: 'Back', exact: true }).click()
+  await startAgentFromOpenDialog(page, 'bash', workspaceRoot)
+
+  const projectGroup = page.getByTestId('code-project-group').first()
+  await projectGroup.hover()
+  await projectGroup.getByTestId('code-project-new-agent').click({ force: true })
+  const projectLaunchMenu = page.getByTestId('code-project-new-agent-menu')
+  await expect(projectLaunchMenu).toBeVisible()
+  await expect(page.getByTestId('code-project-agent-launch-chat-codex'))
+    .toHaveAttribute('aria-label', 'Codex · Terminal')
+  const beforeResponse = await page.request.get('/farming/api/control/agents')
+  expect(beforeResponse.ok()).toBeTruthy()
+  const beforePayload = await beforeResponse.json() as { agents?: Array<{ id: string }> }
+  const beforeIds = new Set((beforePayload.agents ?? []).map(agent => agent.id))
+  await page.getByTestId('code-project-agent-launch-codex').click()
+  await expect.poll(async () => {
+    const response = await page.request.get('/farming/api/control/agents')
+    if (!response.ok()) return null
+    const payload = await response.json() as {
+      agents?: Array<{
+        id: string
+        command?: string
+        providerHomeId?: string
+        runtimeBinding?: { kind?: string }
+      }>
+    }
+    const launched = (payload.agents ?? []).find(agent => !beforeIds.has(agent.id) && agent.command === 'codex')
+    return launched
+      ? { providerHomeId: launched.providerHomeId, runtimeKind: launched.runtimeBinding?.kind }
+      : null
+  }, { timeout: 30_000 }).toEqual({ providerHomeId: 'work', runtimeKind: 'acp' })
+
+  await page.getByTestId('code-nav-plugins').click()
+  await panel.getByTestId('code-plugin-tab-homes').click()
+  const removableWorkHome = panel.getByTestId('code-plugin-section-agent-codex-work')
+  page.once('dialog', dialog => dialog.accept())
+  await removableWorkHome.getByRole('button', { name: 'Remove', exact: true }).click()
+  await expect(removableWorkHome).toHaveCount(0)
+  await expect.poll(async () => {
+    const response = await page.request.get('/farming/api/settings')
+    if (!response.ok()) return null
+    const payload = await response.json() as {
+      settings?: {
+        agentLaunchProfiles?: Record<string, { homeId?: string; runtimeMode?: string }>
+      }
+    }
+    const profile = payload.settings?.agentLaunchProfiles?.codex
+    return profile ? { homeId: profile.homeId, runtimeMode: profile.runtimeMode } : null
+  }).toEqual({ homeId: 'default', runtimeMode: 'chat' })
+  await expect(defaultHome.getByText('Launch default', { exact: true })).toBeVisible()
+  await expect(defaultHome.getByTestId('code-plugin-agent-runtime-default-codex')).toHaveValue('chat')
 })
 
 test('Plugins keeps cached Agent Home configurations visible while refreshing', async ({ page }) => {

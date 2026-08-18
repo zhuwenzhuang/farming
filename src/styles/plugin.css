@@ -523,6 +523,11 @@
   color: var(--code-warning);
 }
 
+.code-plugin-agent-identity h3 > .code-plugin-agent-launch-default {
+  background: var(--code-accent-soft);
+  color: var(--code-accent);
+}
+
 .code-plugin-agent-identity h3 > small {
   color: var(--code-text-subtle);
   font-size: 13px;
@@ -546,6 +551,37 @@
   justify-content: flex-end;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.code-plugin-agent-actions .code-plugin-agent-set-default {
+  width: auto;
+  padding: 0 8px;
+  color: var(--code-text-muted);
+  white-space: nowrap;
+}
+
+.code-plugin-agent-runtime-default {
+  height: 26px;
+  padding: 0 24px 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--code-bg-inset);
+  color: var(--code-text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.code-plugin-agent-runtime-default:hover:not(:disabled),
+.code-plugin-agent-runtime-default:focus-visible:not(:disabled) {
+  background: var(--code-bg-hover-strong);
+  outline: 2px solid var(--code-focus-ring);
+  outline-offset: 1px;
+}
+
+.code-plugin-agent-runtime-default:disabled {
+  cursor: default;
+  opacity: 0.48;
 }
 
 .code-plugin-agent-path-edit {

@@ -384,16 +384,24 @@ async function resetSettings(page: Page) {
         agentLaunchProfiles: {
           codex: {
             approvalMode: 'approve',
+            homeId: 'default',
             model: 'gpt-5.5',
             reasoningEffort: 'xhigh',
+            runtimeMode: 'terminal',
             serviceTier: 'default',
             modelPreset: 'gpt-5.5:xhigh',
           },
           claude: {
             permissionMode: 'default',
+            homeId: 'default',
             model: 'config',
             effort: 'config',
+            runtimeMode: 'terminal',
           },
+          pi: { homeId: 'default', runtimeMode: 'terminal' },
+          opencode: { homeId: 'default', runtimeMode: 'terminal' },
+          qoder: { homeId: 'default', runtimeMode: 'terminal' },
+          qwen: { homeId: 'default', runtimeMode: 'terminal' },
         },
       },
     })

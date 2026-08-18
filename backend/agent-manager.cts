@@ -4720,12 +4720,38 @@ class AgentManager extends EventEmitter {
     throw new Error(`Terminal ${agentId} did not reach an exited state after kill`);
   }
 
+  resolveAgentStartDefaults(
+    command: string,
+    options: AgentStartOptions = {},
+  ): AgentStartOptions {
+    const provider = agentHomeProviderForProgram(command);
+    if (!provider || !this.configManager?.getAgentLaunchProfiles) return options;
+    const profiles = this.configManager.getAgentLaunchProfiles();
+    const profile = isRecord(profiles[provider]) ? profiles[provider] : null;
+    if (!profile) return options;
+
+    const explicitHomeId = typeof options.providerHomeId === 'string'
+      ? options.providerHomeId.trim()
+      : '';
+    const explicitRuntimeMode = typeof options.agentRuntimeMode === 'string'
+      ? options.agentRuntimeMode.trim()
+      : '';
+    const defaultHomeId = typeof profile.homeId === 'string' ? profile.homeId.trim() : '';
+    const defaultRuntimeMode = profile.runtimeMode === 'chat' ? 'chat' : 'terminal';
+    return {
+      ...options,
+      ...(!explicitHomeId && defaultHomeId ? { providerHomeId: defaultHomeId } : {}),
+      ...(!explicitRuntimeMode ? { agentRuntimeMode: defaultRuntimeMode } : {}),
+    };
+  }
+
   startAgent(
     command: string,
     customWorkspace: string | null,
     callback: AgentStartCallback | null,
     options: AgentStartOptions = {},
   ): Promise<AgentId | null> {
+    const launchOptions = this.resolveAgentStartDefaults(command, options);
     const lifecycleEntry = this.lifecycleCoordinator.hasToken(options.lifecycleToken);
     if (this.shutdownState.isShuttingDown() && !lifecycleEntry) {
       const error = 'Farming is shutting down; new Agents are not accepted';
@@ -4733,14 +4759,14 @@ class AgentManager extends EventEmitter {
       return Promise.resolve(null);
     }
 
-    const createRequestId = typeof options.createRequestId === 'string'
-      ? options.createRequestId.trim().slice(0, 160)
+    const createRequestId = typeof launchOptions.createRequestId === 'string'
+      ? launchOptions.createRequestId.trim().slice(0, 160)
       : '';
-    const createRequestSignature = createOperationSignature(command, customWorkspace, options);
-    const requestedProjectWorkspace = options.wantsMain === true
+    const createRequestSignature = createOperationSignature(command, customWorkspace, launchOptions);
+    const requestedProjectWorkspace = launchOptions.wantsMain === true
       ? ''
-      : (typeof options.projectWorkspace === 'string' && options.projectWorkspace.trim()
-        ? options.projectWorkspace
+      : (typeof launchOptions.projectWorkspace === 'string' && launchOptions.projectWorkspace.trim()
+        ? launchOptions.projectWorkspace
         : customWorkspace);
     return this.startAdmissionCoordinator.start({
       requestId: createRequestId,
@@ -4750,7 +4776,7 @@ class AgentManager extends EventEmitter {
         : '',
       report: callback,
       execute: (token, report) => this.startAgentAdmitted(command, customWorkspace, report, {
-        ...options,
+        ...launchOptions,
         startAdmissionToken: token,
       }),
     });

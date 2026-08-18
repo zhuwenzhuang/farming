@@ -362,10 +362,12 @@ export interface AgentHome {
 export interface AgentLaunchProfile extends Record<string, unknown> {
   approvalMode?: string;
   effort?: string;
+  homeId?: string;
   model?: string;
   modelPreset?: string;
   permissionMode?: string;
   reasoningEffort?: string;
+  runtimeMode?: 'terminal' | 'chat';
   serviceTier?: string;
 }
 

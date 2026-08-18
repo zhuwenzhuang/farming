@@ -13,6 +13,7 @@ test('fake executable inventory preserves Provider and shell API rows', async ({
         supported: true,
         interactive: true,
         launchOrder: 0,
+        launchDefaults: { homeId: 'default', runtimeMode: 'terminal' },
         capabilities: { supportsChat: true },
       },
       {
@@ -23,6 +24,7 @@ test('fake executable inventory preserves Provider and shell API rows', async ({
         supported: true,
         interactive: true,
         launchOrder: 1,
+        launchDefaults: { homeId: 'default', runtimeMode: 'terminal' },
         capabilities: { supportsChat: true },
       },
       {
@@ -33,6 +35,7 @@ test('fake executable inventory preserves Provider and shell API rows', async ({
         supported: true,
         interactive: true,
         launchOrder: 2,
+        launchDefaults: { homeId: 'default', runtimeMode: 'terminal' },
         capabilities: { supportsChat: true },
       },
       {
@@ -43,6 +46,7 @@ test('fake executable inventory preserves Provider and shell API rows', async ({
         supported: true,
         interactive: true,
         launchOrder: 3,
+        launchDefaults: { homeId: 'default', runtimeMode: 'terminal' },
         capabilities: { supportsChat: true },
       },
       {
@@ -53,6 +57,7 @@ test('fake executable inventory preserves Provider and shell API rows', async ({
         supported: true,
         interactive: true,
         launchOrder: 4,
+        launchDefaults: { homeId: 'default', runtimeMode: 'terminal' },
         capabilities: { supportsChat: true },
       },
       {
@@ -63,6 +68,7 @@ test('fake executable inventory preserves Provider and shell API rows', async ({
         supported: true,
         interactive: true,
         launchOrder: 5,
+        launchDefaults: { homeId: 'default', runtimeMode: 'terminal' },
         capabilities: { supportsChat: true },
       },
       {

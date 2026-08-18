@@ -54,18 +54,27 @@ interface AgentHomeBinding {
   providerHomePath: string;
 }
 
+interface AgentLaunchDefaults extends JsonRecord {
+  homeId: string;
+  runtimeMode: 'terminal' | 'chat';
+}
+
 interface CodexLaunchProfile extends JsonRecord {
   approvalMode: string;
+  homeId: string;
   model: string;
   reasoningEffort: string;
+  runtimeMode: 'terminal' | 'chat';
   serviceTier: string;
   modelPreset: string;
 }
 
 interface ClaudeLaunchProfile extends JsonRecord {
   permissionMode: string;
+  homeId: string;
   model: string;
   effort: string;
+  runtimeMode: 'terminal' | 'chat';
 }
 
 interface AgentLaunchProfiles {
@@ -225,22 +234,32 @@ function joinCodexModelPreset(model: string, effort: string): string {
 
 const DEFAULT_CODEX_LAUNCH_PROFILE: CodexLaunchProfile = {
   approvalMode: 'approve',
+  homeId: 'default',
   model: 'config',
   reasoningEffort: 'config',
+  runtimeMode: 'terminal',
   serviceTier: 'config',
   modelPreset: 'config',
 };
 
 const DEFAULT_CLAUDE_LAUNCH_PROFILE: ClaudeLaunchProfile = {
   permissionMode: 'default',
+  homeId: 'default',
   model: 'config',
   effort: 'config',
+  runtimeMode: 'terminal',
 };
 
-const DEFAULT_AGENT_LAUNCH_PROFILES: AgentLaunchProfiles = {
-  codex: DEFAULT_CODEX_LAUNCH_PROFILE,
-  claude: DEFAULT_CLAUDE_LAUNCH_PROFILE,
-};
+const DEFAULT_AGENT_LAUNCH_PROFILES: AgentLaunchProfiles = Object.assign(
+  Object.fromEntries(listProviderDescriptors().map(provider => [provider.id, {
+    homeId: 'default',
+    runtimeMode: 'terminal',
+  }])) as unknown as AgentLaunchProfiles,
+  {
+    codex: DEFAULT_CODEX_LAUNCH_PROFILE,
+    claude: DEFAULT_CLAUDE_LAUNCH_PROFILE,
+  },
+);
 
 const AGENT_HOME_LAUNCH_PROFILE_OVERRIDES: Record<string, JsonRecord> = {
   codex: {
@@ -1021,6 +1040,7 @@ class ConfigManager {
   normalizeCodexLaunchProfile(
     profile: unknown = {},
     changed: JsonRecord = {},
+    settings: Settings = this.settings,
   ): CodexLaunchProfile {
     const next = {
       ...DEFAULT_CODEX_LAUNCH_PROFILE,
@@ -1044,19 +1064,46 @@ class ConfigManager {
       next.model,
       next.reasoningEffort === 'config' ? '' : next.reasoningEffort
     );
+    Object.assign(next, this.normalizeAgentLaunchDefaults('codex', next, settings));
     return next as CodexLaunchProfile;
   }
 
-  normalizeClaudeLaunchProfile(profile: unknown = {}): ClaudeLaunchProfile {
+  normalizeClaudeLaunchProfile(
+    profile: unknown = {},
+    settings: Settings = this.settings,
+  ): ClaudeLaunchProfile {
     const next = {
       ...DEFAULT_CLAUDE_LAUNCH_PROFILE,
       ...spreadableObject(profile),
     };
+    const defaults = this.normalizeAgentLaunchDefaults('claude', next, settings);
     return {
       permissionMode: this.normalizeClaudePermissionMode(next.permissionMode),
+      homeId: defaults.homeId,
       model: this.normalizeClaudeModel(next.model),
       effort: this.normalizeClaudeEffort(next.effort),
+      runtimeMode: defaults.runtimeMode,
     };
+  }
+
+  normalizeAgentLaunchDefaults(
+    provider: unknown,
+    profile: unknown = {},
+    settings: Settings = this.settings,
+  ): AgentLaunchDefaults {
+    const providerId = String(provider || '').trim().toLowerCase();
+    const next = spreadableObject(profile) as JsonRecord;
+    const requestedHomeId = String(next.homeId || 'default').trim() || 'default';
+    const homes = settings?.agentHomes?.[providerId] || [];
+    const homeId = homes.some(home => home.id === requestedHomeId)
+      ? requestedHomeId
+      : 'default';
+    const descriptor = listProviderDescriptors().find(item => item.id === providerId);
+    const runtimeMode = next.runtimeMode === 'chat'
+      && descriptor?.supportedRuntimes.includes('acp')
+      ? 'chat'
+      : 'terminal';
+    return { homeId, runtimeMode };
   }
 
   getChangedAgentLaunchProfiles(rawSettings: JsonRecord = {}): Record<string, JsonRecord> {
@@ -1119,10 +1166,16 @@ class ConfigManager {
   ): void {
     const changedProfiles = this.getChangedAgentLaunchProfiles(rawSettings);
     const mergedProfiles = this.mergeAgentLaunchProfiles(settings.agentLaunchProfiles, changedProfiles);
-    settings.agentLaunchProfiles = {
-      codex: this.normalizeCodexLaunchProfile(mergedProfiles.codex, changedProfiles.codex || {}),
-      claude: this.normalizeClaudeLaunchProfile(mergedProfiles.claude),
-    };
+    settings.agentLaunchProfiles = Object.fromEntries(listProviderDescriptors().map(provider => {
+      const profile = mergedProfiles[provider.id];
+      if (provider.id === 'codex') {
+        return [provider.id, this.normalizeCodexLaunchProfile(profile, changedProfiles.codex || {}, settings)];
+      }
+      if (provider.id === 'claude') {
+        return [provider.id, this.normalizeClaudeLaunchProfile(profile, settings)];
+      }
+      return [provider.id, this.normalizeAgentLaunchDefaults(provider.id, profile, settings)];
+    })) as unknown as AgentLaunchProfiles;
     settings.defaultLaunchAgent = this.normalizeDefaultLaunchAgent(settings.defaultLaunchAgent);
     this.applyCodexProfileToLegacySettings(settings.agentLaunchProfiles.codex, settings);
   }
@@ -1219,10 +1272,10 @@ class ConfigManager {
     const profiles = this.settings && this.settings.agentLaunchProfiles
       ? this.settings.agentLaunchProfiles
       : DEFAULT_AGENT_LAUNCH_PROFILES;
-    return {
-      codex: { ...profiles.codex },
-      claude: { ...profiles.claude },
-    };
+    return Object.fromEntries(Object.entries(profiles).map(([provider, profile]) => [
+      provider,
+      { ...profile },
+    ])) as AgentLaunchProfiles;
   }
 
   getAgentLaunchProfile(agentName: 'codex'): CodexLaunchProfile;

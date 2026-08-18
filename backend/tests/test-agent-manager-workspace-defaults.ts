@@ -314,12 +314,15 @@ async function run() {
     assert.strictEqual(outsideAgent.projectWorkspace, restoredWorkingDirectory);
 
     const homeLaunches = [];
+    let defaultRuntimeMode = 'terminal';
     const homeProfileManager = createTestAgentManager(AgentManager, {
       getWorkspace: () => process.cwd(),
       getHeartbeatInterval: () => 60_000,
       getTaskHistory: () => [],
       getDangerouslySkipAgentPermissionsByDefault: () => false,
-      getAgentLaunchProfiles: () => ({ codex: { approvalMode: 'approve' } }),
+      getAgentLaunchProfiles: () => ({
+        codex: { approvalMode: 'approve', homeId: 'work', runtimeMode: defaultRuntimeMode },
+      }),
       getAgentLaunchProfileForHome(provider, homeId) {
         assert.strictEqual(provider, 'codex');
         assert.strictEqual(homeId, 'work');
@@ -354,8 +357,8 @@ async function run() {
     try {
       await startAgent(homeProfileManager, 'codex', process.cwd(), {
         wantsMain: false,
-        providerHomeId: 'work',
       });
+      assert.strictEqual(homeProfileManager.agents.values().next().value.providerHomeId, 'work');
       assert(homeLaunches[0].args.includes('gpt-5.6-sol'));
       assert(homeLaunches[0].args.includes('model_reasoning_effort="high"'));
       assert(homeLaunches[0].args.includes('service_tier="priority"'));
@@ -363,6 +366,22 @@ async function run() {
       homeProfileManager.heartbeatScheduler.stop();
       homeProfileManager.engineBridge.dispose();
     }
+
+    defaultRuntimeMode = 'chat';
+    assert.deepStrictEqual(
+      homeProfileManager.resolveAgentStartDefaults('codex', { wantsMain: false }),
+      { wantsMain: false, providerHomeId: 'work', agentRuntimeMode: 'chat' },
+      'missing Home and runtime options must use the Provider launch defaults',
+    );
+    assert.deepStrictEqual(
+      homeProfileManager.resolveAgentStartDefaults('codex', {
+        wantsMain: false,
+        providerHomeId: 'default',
+        agentRuntimeMode: 'terminal',
+      }),
+      { wantsMain: false, providerHomeId: 'default', agentRuntimeMode: 'terminal' },
+      'explicit launch choices must override the Provider defaults',
+    );
 
     const claudeHomeLaunches = [];
     const claudeHomeProfileManager = createTestAgentManager(AgentManager, {

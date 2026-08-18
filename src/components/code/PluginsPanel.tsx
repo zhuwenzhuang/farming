@@ -61,6 +61,11 @@ type AgentExtensionGroup = {
   available: boolean
   discoverySupported: boolean
   acpExecutablePolicy: 'managed' | 'system'
+  launchDefaults: {
+    homeId: string
+    runtimeMode: 'terminal' | 'chat'
+  }
+  supportsChat: boolean
   homes: Array<{
     id: string
     path: string
@@ -165,8 +170,8 @@ function pluginCopy(language: UiLanguage) {
     farmingBuiltInDescription: zh ? '由 Farming 提供并统一管理的能力。' : 'Capabilities provided and managed by Farming.',
     agentHomes: 'Agent Homes',
     agentHomesDescription: zh
-      ? '配置来自各自 Home；Farming 只显示可安全识别的摘要。'
-      : 'Configuration comes from each Home; Farming only shows safe recognized summaries.',
+      ? '配置 Agent Home，以及新 Agent 的默认 Home 和 Runtime。'
+      : 'Configure Agent Homes and the default Home and runtime for new Agents.',
     agentExtensions: zh ? 'Agent 扩展' : 'Agent extensions',
     agentExtensionsDescription: zh
       ? '按 Home 查看发现的 Skill、MCP、Hook、插件和命令。'
@@ -177,6 +182,9 @@ function pluginCopy(language: UiLanguage) {
     addAgent: zh ? '添加 Agent' : 'Add Agent',
     edit: zh ? '编辑配置' : 'Edit configuration',
     remove: zh ? '删除' : 'Remove',
+    launchDefault: zh ? '启动默认' : 'Launch default',
+    setLaunchDefault: zh ? '设为默认' : 'Set as default',
+    defaultRuntime: zh ? '默认 Runtime' : 'Default runtime',
     save: zh ? '保存' : 'Save',
     cancel: zh ? '取消' : 'Cancel',
     dragToReorder: zh ? '拖动调整 Agent 顺序' : 'Drag to reorder Agents',
@@ -203,6 +211,9 @@ function pluginCopy(language: UiLanguage) {
     invalidHome: zh ? '请输入有效且不重复的 Home 名称和路径。' : 'Enter a valid, unique Home name and path.',
     saveAgentFailed: zh ? 'Agent 设置保存失败' : 'Failed to save Agent settings',
     confirmRemoveAgent: (name: string) => zh ? `删除 ${name}？` : `Remove ${name}?`,
+    confirmRemoveDefaultAgent: (name: string) => zh
+      ? `删除 ${name}？新 Agent 的启动默认将自动切回 default Home。`
+      : `Remove ${name}? New Agents will automatically fall back to the default Home.`,
     loadingAgentExtensions: zh ? '正在读取 Agent 扩展…' : 'Loading Agent extensions…',
     agentExtensionsFailed: zh ? 'Agent 扩展读取失败' : 'Failed to load Agent extensions',
     agentExtensionsDisconnected: zh
@@ -525,6 +536,13 @@ function normalizeAgentExtensionGroups(rawGroups: AgentExtensionGroup[]): AgentE
     ...provider,
     available: provider.available !== false,
     acpExecutablePolicy: provider.acpExecutablePolicy === 'managed' ? 'managed' : 'system',
+    launchDefaults: {
+      homeId: String(provider.launchDefaults?.homeId || 'default'),
+      runtimeMode: provider.supportsChat === true && provider.launchDefaults?.runtimeMode === 'chat'
+        ? 'chat'
+        : 'terminal',
+    },
+    supportsChat: provider.supportsChat === true,
     homes: (provider.homes || []).map(home => ({
       ...home,
       path: String(home.path || ''),
@@ -574,6 +592,16 @@ function settingsHomes(groups: AgentExtensionGroup[]) {
       acpRuntime: { mode: 'managed', executable: '' },
       newAgentDefaults: { model: 'inherit', reasoning: 'inherit', fast: 'inherit' },
     })),
+  ]))
+}
+
+function settingsLaunchProfiles(groups: AgentExtensionGroup[]) {
+  return Object.fromEntries(groups.map(provider => [
+    provider.id,
+    {
+      homeId: provider.launchDefaults.homeId,
+      runtimeMode: provider.launchDefaults.runtimeMode,
+    },
   ]))
 }
 
@@ -902,7 +930,10 @@ export function PluginsPanel({
       const response = await fetchAgentSettings(appPath('/api/settings'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ agentHomes: settingsHomes(nextGroups) }),
+        body: JSON.stringify({
+          agentHomes: settingsHomes(nextGroups),
+          agentLaunchProfiles: settingsLaunchProfiles(nextGroups),
+        }),
       })
       const data = await response.json().catch(() => ({})) as { error?: string }
       if (!response.ok) throw new Error(data.error || copy.saveAgentFailed)
@@ -981,12 +1012,38 @@ export function PluginsPanel({
   const removeAgentConfiguration = useCallback((providerId: string, homeId: string) => {
     if (homeId === 'default' || agentSaving) return
     const label = `${agentDisplayName({ id: providerId, name: providerId })} · ${homeId}`
-    if (!window.confirm(copy.confirmRemoveAgent(label))) return
+    const currentProvider = agentGroups.find(provider => provider.id === providerId)
+    const removesLaunchDefault = currentProvider?.launchDefaults.homeId === homeId
+    if (!window.confirm(removesLaunchDefault
+      ? copy.confirmRemoveDefaultAgent(label)
+      : copy.confirmRemoveAgent(label))) return
     const nextGroups = agentGroups.map(provider => provider.id === providerId
-      ? { ...provider, homes: provider.homes.filter(home => home.id !== homeId) }
+      ? {
+          ...provider,
+          launchDefaults: removesLaunchDefault
+            ? { ...provider.launchDefaults, homeId: 'default' }
+            : provider.launchDefaults,
+          homes: provider.homes.filter(home => home.id !== homeId),
+        }
       : provider)
     void saveAgentGroups(nextGroups)
   }, [agentGroups, agentSaving, copy, saveAgentGroups])
+
+  const setLaunchDefaultHome = useCallback((providerId: string, homeId: string) => {
+    if (agentSaving) return
+    const nextGroups = agentGroups.map(provider => provider.id === providerId
+      ? { ...provider, launchDefaults: { ...provider.launchDefaults, homeId } }
+      : provider)
+    void saveAgentGroups(nextGroups)
+  }, [agentGroups, agentSaving, saveAgentGroups])
+
+  const setLaunchDefaultRuntime = useCallback((providerId: string, runtimeMode: 'terminal' | 'chat') => {
+    if (agentSaving) return
+    const nextGroups = agentGroups.map(provider => provider.id === providerId
+      ? { ...provider, launchDefaults: { ...provider.launchDefaults, runtimeMode } }
+      : provider)
+    void saveAgentGroups(nextGroups)
+  }, [agentGroups, agentSaving, saveAgentGroups])
 
   const reorderAgentConfigurations = useCallback((sourceKey: string, targetKey: string) => {
     if (!sourceKey || sourceKey === targetKey || agentSaving) return
@@ -1804,6 +1861,7 @@ export function PluginsPanel({
         ) : agentConfigurations.map(configuration => {
           const { provider, home } = configuration
           const key = agentConfigurationKey(provider.id, home.id)
+          const isLaunchDefault = provider.launchDefaults.homeId === home.id
           const extensionCount = home.extensions.length
           const configurationSummary = home.configuration.summary.length > 0
             ? home.configuration.summary.map(entry => (
@@ -1853,12 +1911,38 @@ export function PluginsPanel({
                   <h3>
                     {agentDisplayName(provider)}
                     <span>{home.id}</span>
+                    {isLaunchDefault ? <span className="code-plugin-agent-launch-default">{copy.launchDefault}</span> : null}
                     {!provider.available ? <em>{copy.unavailableAgent}</em> : null}
                     <small>{copy.count(extensionCount)}</small>
                   </h3>
                   <p><code>{home.path}</code></p>
                 </div>
                 <div className="code-plugin-agent-actions">
+                  {isLaunchDefault && provider.supportsChat ? (
+                    <select
+                      className="code-plugin-agent-runtime-default"
+                      data-testid={`code-plugin-agent-runtime-default-${provider.id}`}
+                      aria-label={`${agentDisplayName(provider)} · ${copy.defaultRuntime}`}
+                      title={copy.defaultRuntime}
+                      value={provider.launchDefaults.runtimeMode}
+                      disabled={agentSaving}
+                      onChange={event => setLaunchDefaultRuntime(
+                        provider.id,
+                        event.target.value === 'chat' ? 'chat' : 'terminal',
+                      )}
+                    >
+                      <option value="terminal">Terminal</option>
+                      <option value="chat">Chat</option>
+                    </select>
+                  ) : !isLaunchDefault ? (
+                    <button
+                      type="button"
+                      className="code-plugin-agent-set-default"
+                      data-testid={`code-plugin-agent-set-default-${provider.id}-${home.id}`}
+                      disabled={agentSaving}
+                      onClick={() => setLaunchDefaultHome(provider.id, home.id)}
+                    >{copy.setLaunchDefault}</button>
+                  ) : null}
                   <button
                     type="button"
                     disabled={agentSaving || !home.configuration.rootId || !home.configuration.filePath}

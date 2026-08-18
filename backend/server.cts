@@ -783,13 +783,23 @@ function getAvailableAgentsForRequest() {
 }
 
 function withLaunchCapabilities<T extends { name: string }>(agents: T[]) {
-  return agents.map(agent => ({
-    ...agent,
-    ...getAgentLaunchMetadata(agent.name),
-    capabilities: {
-      supportsChat: providerCapabilities(agent.name).supportsChat === true,
-    },
-  }));
+  return agents.map(agent => {
+    const profile = configManager.getAgentLaunchProfile(agent.name);
+    const capabilities = providerCapabilities(agent.name);
+    return {
+      ...agent,
+      ...getAgentLaunchMetadata(agent.name),
+      ...(profile.homeId ? {
+        launchDefaults: {
+          homeId: String(profile.homeId),
+          runtimeMode: profile.runtimeMode === 'chat' ? 'chat' : 'terminal',
+        },
+      } : {}),
+      capabilities: {
+        supportsChat: capabilities.supportsChat === true,
+      },
+    };
+  });
 }
 
 // iOS can fetch installed-web-app metadata outside the authenticated page
@@ -1002,10 +1012,12 @@ app.use(routePath(BASE_PATH, '/api/workspaces'), createWorkspaceDirectoryRouter(
 app.use(routePath(BASE_PATH, '/api'), createAgentExtensionRouter({
   agentExtensionInventory,
   configuredProviders: () => Object.keys(configManager.getSettings().agentHomes || {}),
+  getAgentLaunchProfile: provider => configManager.getAgentLaunchProfile(provider),
   getAgentHomes: provider => configManager.getAgentHomes(provider),
   getAvailableAgents: getAvailableAgentsForRequest,
   getMainAgentSkillsCatalog,
   getProviderAcpExecutablePolicy: provider => getProviderAdapter(provider)?.acp.executablePolicy || 'system',
+  providerSupportsChat: provider => providerCapabilities(provider).supportsChat === true,
   requestedProviderHome,
   rootIdForPath,
   slashCommandDiscoveryCache,

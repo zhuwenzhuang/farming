@@ -6,6 +6,10 @@ export interface AgentLaunchOption {
   supported?: boolean
   interactive?: boolean
   launchOrder?: number
+  launchDefaults?: {
+    homeId: string
+    runtimeMode: 'terminal' | 'chat'
+  }
   capabilities?: {
     supportsChat?: boolean
   }

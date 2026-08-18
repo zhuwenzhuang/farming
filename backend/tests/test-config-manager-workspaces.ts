@@ -101,8 +101,12 @@ function run() {
     assert.strictEqual(settings.crtTerminalFontSize, DEFAULT_CRT_TERMINAL_FONT_SIZE);
     assert.strictEqual(settings.defaultLaunchAgent, 'codex');
     assert.strictEqual(settings.agentLaunchProfiles.codex.approvalMode, 'approve');
+    assert.strictEqual(settings.agentLaunchProfiles.codex.homeId, 'default');
+    assert.strictEqual(settings.agentLaunchProfiles.codex.runtimeMode, 'terminal');
     assert.strictEqual(settings.agentLaunchProfiles.codex.modelPreset, 'config');
     assert.strictEqual(settings.agentLaunchProfiles.claude.permissionMode, 'default');
+    assert.strictEqual(settings.agentLaunchProfiles.claude.homeId, 'default');
+    assert.strictEqual(settings.agentLaunchProfiles.claude.runtimeMode, 'terminal');
     assert.strictEqual(settings.agentLaunchProfiles.claude.model, 'config');
     assert.strictEqual(settings.agentLaunchProfiles.claude.effort, 'config');
     assert.strictEqual(settings.codexApprovalMode, 'approve');
@@ -159,6 +163,8 @@ function run() {
     providerDescriptors.forEach((provider, order) => {
       assert.strictEqual(settings.agentHomes[provider.id][0].path, `~/${provider.defaultHomeDirectory}`);
       assert.strictEqual(settings.agentHomes[provider.id][0].order, order);
+      assert.strictEqual(settings.agentLaunchProfiles[provider.id].homeId, 'default');
+      assert.strictEqual(settings.agentLaunchProfiles[provider.id].runtimeMode, 'terminal');
     });
     assert.strictEqual(settings.codexRuntimeMode, undefined);
     assert.strictEqual(settings.updateUrl, undefined);
@@ -454,15 +460,19 @@ function run() {
     });
     assert.deepStrictEqual(manager.getAgentLaunchProfileForHome('codex', 'default'), {
       approvalMode: 'approve',
+      homeId: 'default',
       model: 'config',
       reasoningEffort: 'config',
+      runtimeMode: 'terminal',
       serviceTier: 'config',
       modelPreset: 'config',
     });
     assert.deepStrictEqual(manager.getAgentLaunchProfileForHome('codex', 'work'), {
       approvalMode: 'approve',
+      homeId: 'default',
       model: 'config',
       reasoningEffort: 'config',
+      runtimeMode: 'terminal',
       serviceTier: 'config',
       modelPreset: 'config',
     });
@@ -471,6 +481,13 @@ function run() {
       mode: 'managed',
       executable: '',
     });
+    manager.updateSettings({
+      agentLaunchProfiles: {
+        codex: { homeId: 'work', runtimeMode: 'chat' },
+      },
+    });
+    assert.strictEqual(manager.getAgentLaunchProfile('codex').homeId, 'work');
+    assert.strictEqual(manager.getAgentLaunchProfile('codex').runtimeMode, 'chat');
     manager.updateSettings({
       agentHomes: {
         ...manager.getSettings().agentHomes,
@@ -524,6 +541,16 @@ function run() {
     });
     assert.strictEqual(manager.getAgentHome('codex', 'work'), null, 'removed Homes must not accept fresh Agents');
     assert.strictEqual(
+      manager.getAgentLaunchProfile('codex').homeId,
+      'default',
+      'removing the launch-default Home must atomically fall back to default',
+    );
+    assert.strictEqual(
+      manager.getAgentLaunchProfile('codex').runtimeMode,
+      'chat',
+      'falling back to the default Home must preserve the Provider runtime default',
+    );
+    assert.strictEqual(
       manager.getKnownAgentHome('codex', 'work').path,
       path.join(os.homedir(), '.codex-work'),
       'persisted Agent bindings must retain a removed Home path for history and recovery',
@@ -570,8 +597,10 @@ function run() {
     assert.strictEqual(manager.getDefaultLaunchAgent(), 'qoder');
     assert.deepStrictEqual(manager.getAgentLaunchProfile('claude'), {
       permissionMode: 'auto',
+      homeId: 'default',
       model: 'sonnet',
       effort: 'high',
+      runtimeMode: 'terminal',
     });
     manager.updateSettings({
       agentLaunchProfiles: {
@@ -580,8 +609,10 @@ function run() {
     });
     assert.deepStrictEqual(manager.getAgentLaunchProfile('claude'), {
       permissionMode: 'auto',
+      homeId: 'default',
       model: 'claude-opus-4-8[1m]',
       effort: 'high',
+      runtimeMode: 'terminal',
     });
     assert.strictEqual(manager.getSettings().agentLaunchProfiles.codex.modelPreset, 'config');
     manager.updateSettings({
@@ -593,8 +624,10 @@ function run() {
     assert.strictEqual(manager.getDefaultLaunchAgent(), 'codex');
     assert.deepStrictEqual(manager.getAgentLaunchProfile('claude'), {
       permissionMode: 'default',
+      homeId: 'default',
       model: 'config',
       effort: 'config',
+      runtimeMode: 'terminal',
     });
 
     fs.rmSync(farmingDir, { recursive: true, force: true });

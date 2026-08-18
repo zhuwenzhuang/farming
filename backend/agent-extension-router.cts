@@ -24,6 +24,9 @@ interface ExpressFactory {
 }
 
 interface AvailableAgent {
+  capabilities?: {
+    supportsChat?: boolean;
+  };
   category?: string;
   command?: string;
   description?: string;
@@ -55,10 +58,12 @@ interface AgentExtensionRouterPort {
     retain(homes: Array<{ provider: string; path: string }>): Promise<void>;
   };
   configuredProviders(): readonly string[];
+  getAgentLaunchProfile(provider: string): Record<string, unknown>;
   getAgentHomes(provider: string): readonly AgentHome[];
   getAvailableAgents(): readonly AvailableAgent[];
   getMainAgentSkillsCatalog(): unknown;
   getProviderAcpExecutablePolicy(provider: string): string;
+  providerSupportsChat(provider: string): boolean;
   requestedProviderHome(provider: string, rawHomeId: unknown): RequestedProviderHome;
   rootIdForPath(homePath: string): string;
   slashCommandDiscoveryCache: {
@@ -107,6 +112,7 @@ function createAgentExtensionRouter(service: AgentExtensionRouterPort): ExpressR
       const retainedHomes: Array<{ provider: string; path: string }> = [];
       const agents = await Promise.all(service.configuredProviders().map(async provider => {
         const agent = availableByProvider.get(provider);
+        const launchProfile = service.getAgentLaunchProfile(provider);
         const configuredHomes = service.getAgentHomes(provider);
         const homes = configuredHomes.length > 0 ? configuredHomes : [defaultAgentHome()];
         return {
@@ -116,6 +122,11 @@ function createAgentExtensionRouter(service: AgentExtensionRouterPort): ExpressR
           available: Boolean(agent),
           discoverySupported: true,
           acpExecutablePolicy: service.getProviderAcpExecutablePolicy(provider),
+          launchDefaults: {
+            homeId: typeof launchProfile.homeId === 'string' ? launchProfile.homeId : 'default',
+            runtimeMode: launchProfile.runtimeMode === 'chat' ? 'chat' : 'terminal',
+          },
+          supportsChat: service.providerSupportsChat(provider),
           homes: await Promise.all(homes.map(async home => {
             if (home.path) retainedHomes.push({ provider, path: home.path });
             const inventory = await service.agentExtensionInventory.get(provider, home.path);

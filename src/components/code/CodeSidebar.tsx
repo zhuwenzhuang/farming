@@ -21,6 +21,7 @@ import {
   PuzzleGlyph,
   SettingsGlyph,
   SearchGlyph,
+  TerminalSquareGlyph,
   VisibilityGlyph,
   VisibilityOffGlyph,
 } from '@/components/IconGlyphs'
@@ -2323,9 +2324,9 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
     setLaunchMenu(point)
   }
 
-  const startProjectAgent = (command: string, agentRuntimeMode?: 'chat') => {
+  const startProjectAgent = (command: string, agentRuntimeMode: 'terminal' | 'chat') => {
     setLaunchMenu(null)
-    onStartAgent(command, project.workspace, agentRuntimeMode ? { agentRuntimeMode } : undefined)
+    onStartAgent(command, project.workspace, { agentRuntimeMode })
   }
   const currentProjectWorktreeName = currentWorktreeName(repositoryWorktrees)
   const repositoryWorktreeCount = repositoryWorktrees?.items.length || 0
@@ -2479,6 +2480,13 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
               const command = option.command || option.name
               const displayName = agentDisplayName(option.name)
               const supportsChat = option.capabilities?.supportsChat === true
+              const defaultRuntimeMode = supportsChat && option.launchDefaults?.runtimeMode === 'chat'
+                ? 'chat'
+                : 'terminal'
+              const alternateRuntimeMode = defaultRuntimeMode === 'chat' ? 'terminal' : 'chat'
+              const alternateRuntimeLabel = alternateRuntimeMode === 'chat'
+                ? copy.transcriptView
+                : copy.terminalView
               return (
                 <div
                   key={option.name}
@@ -2490,7 +2498,7 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
                     role="menuitem"
                     className="code-project-agent-launch"
                     data-testid={`code-project-agent-launch-${option.name}`}
-                    onClick={() => startProjectAgent(command)}
+                    onClick={() => startProjectAgent(command, defaultRuntimeMode)}
                   >
                     <AgentLaunchIcon name={option.name} />
                     <span>{displayName}</span>
@@ -2501,11 +2509,11 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
                       role="menuitem"
                       className="code-project-agent-launch-chat"
                       data-testid={`code-project-agent-launch-chat-${option.name}`}
-                      aria-label={`${displayName} · ${copy.transcriptView}`}
-                      title={copy.transcriptView}
-                      onClick={() => startProjectAgent(command, 'chat')}
+                      aria-label={`${displayName} · ${alternateRuntimeLabel}`}
+                      title={alternateRuntimeLabel}
+                      onClick={() => startProjectAgent(command, alternateRuntimeMode)}
                     >
-                      <ChatBubblesGlyph />
+                      {alternateRuntimeMode === 'chat' ? <ChatBubblesGlyph /> : <TerminalSquareGlyph />}
                     </button>
                   )}
                 </div>

@@ -127,6 +127,13 @@ which Homes accept new Agents and their display order. Existing Agent records
 retain an immutable binding to the exact Provider Home used for their Session;
 removing or reordering a configuration must not relabel existing Sessions.
 
+Each Provider launch profile owns the default Home and Terminal-or-Chat runtime
+for new Agents. A launch request may explicitly override either value without
+changing the saved defaults. Removing the selected default Home atomically
+falls back to that Provider's `default` Home while preserving its runtime
+default. Resume, Fork, Restart, and recovery continue from the existing
+Session's exact Home and runtime rather than consulting new-Agent defaults.
+
 The same identity binds new Chat Sessions to the adapter's Farming-managed ACP
 runtime. Plugins does not expose a custom executable selection. Existing
 Sessions retain their persisted launch identity, including legacy custom
