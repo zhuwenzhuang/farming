@@ -243,7 +243,7 @@
 
 .review-commit-message {
   border-top: 1px solid var(--review-line);
-  color: var(--code-accent);
+  color: var(--code-text-muted);
   font-size: 12px;
 }
 .review-commit-message summary {
@@ -259,14 +259,14 @@
 .review-commit-message summary::-webkit-details-marker { display: none; }
 .review-commit-message summary:focus-visible { outline: 2px solid var(--code-focus-ring); outline-offset: -2px; }
 .review-commit-message summary > span { color: var(--code-accent); }
-.review-commit-message summary > strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; color: var(--code-accent); }
-.review-commit-message summary svg { width: 14px; height: 14px; color: var(--code-accent); transition: transform 120ms ease; }
+.review-commit-message summary > strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; color: var(--code-text); }
+.review-commit-message summary svg { width: 14px; height: 14px; color: var(--code-text-subtle); transition: transform 120ms ease; }
 .review-commit-message[open] summary svg { transform: rotate(90deg); }
 .review-commit-message > div { padding: 8px 44px 12px 124px; border-top: 1px solid var(--code-border); background: var(--code-bg-inset); }
 .review-commit-message p { margin: 3px 0; }
-.review-commit-message p > span { display: inline-block; min-width: 72px; color: var(--code-accent); }
+.review-commit-message p > span { display: inline-block; min-width: 72px; color: var(--code-text-subtle); }
 .review-commit-message p > strong { font-weight: 500; }
-.review-commit-message pre { margin: 10px 0 0; white-space: pre-wrap; font: inherit; line-height: 1.45; color: var(--code-accent); }
+.review-commit-message pre { margin: 10px 0 0; white-space: pre-wrap; font: inherit; line-height: 1.45; color: var(--code-text); }
 
 .review-working-copy-message {
   margin: 0;

@@ -165,7 +165,7 @@
   overflow: hidden;
   border: 1px solid var(--code-border);
   border-radius: 8px;
-  background: var(--code-accent-soft);
+  background: var(--code-code-bg);
   font-size: inherit;
   line-height: inherit;
   white-space: pre-wrap;
@@ -392,7 +392,7 @@
 .code-markdown-preview code {
   padding: 0.16em 0.34em;
   border-radius: 4px;
-  background: var(--code-accent-soft);
+  background: var(--code-code-bg);
   color: var(--code-text);
   font-family: ui-monospace, SFMono-Regular, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   font-size: 0.92em;
@@ -431,32 +431,35 @@
 
 .code-markdown-preview .hljs-comment,
 .code-markdown-preview .hljs-quote {
-  color: var(--code-text-subtle);
+  color: var(--code-syntax-comment);
 }
 
 .code-markdown-preview .hljs-keyword,
 .code-markdown-preview .hljs-selector-tag,
 .code-markdown-preview .hljs-subst {
-  color: var(--code-diff-removed);
+  color: var(--code-syntax-keyword);
 }
 
 .code-markdown-preview .hljs-literal,
-.code-markdown-preview .hljs-number,
+.code-markdown-preview .hljs-number {
+  color: var(--code-syntax-number);
+}
+
 .code-markdown-preview .hljs-tag .hljs-attr,
 .code-markdown-preview .hljs-template-variable,
 .code-markdown-preview .hljs-variable {
-  color: var(--code-accent-hover);
+  color: var(--code-syntax-variable);
 }
 
 .code-markdown-preview .hljs-doctag,
 .code-markdown-preview .hljs-string {
-  color: var(--code-accent);
+  color: var(--code-syntax-string);
 }
 
 .code-markdown-preview .hljs-section,
 .code-markdown-preview .hljs-selector-id,
 .code-markdown-preview .hljs-title {
-  color: var(--code-skill);
+  color: var(--code-syntax-function);
 }
 
 .code-markdown-preview .hljs-attr,
@@ -470,7 +473,7 @@
 
 .code-markdown-preview .hljs-built_in,
 .code-markdown-preview .hljs-symbol {
-  color: var(--code-accent);
+  color: var(--code-syntax-function);
 }
 
 .code-markdown-preview .katex-display {
@@ -700,7 +703,7 @@
 }
 
 .code-markdown-preview tr:nth-child(2n) {
-  background: var(--code-accent-soft);
+  background: var(--code-code-bg);
 }
 
 .code-markdown-preview img {
@@ -751,7 +754,7 @@
 }
 
 .code-agent-transcript-assistant.code-markdown-preview code {
-  background: var(--code-accent-soft);
+  background: var(--code-code-bg);
 }
 
 .code-agent-transcript-assistant.code-markdown-preview code {

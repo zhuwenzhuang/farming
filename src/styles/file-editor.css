@@ -124,7 +124,7 @@
 
 .code-file-editor-tab.active {
   border-top-color: transparent;
-  background: var(--code-active-item-surface);
+  background: var(--code-file-editor-active-tab-surface);
   color: var(--code-text-strong);
 }
 
@@ -152,7 +152,7 @@
 }
 
 .code-file-editor-tab:hover:not(.active) {
-  background: var(--code-active-item-surface);
+  background: var(--code-file-editor-active-tab-surface);
 }
 
 .code-file-editor-tab:focus-visible {

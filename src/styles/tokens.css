@@ -50,7 +50,8 @@ body.code-mode {
   --code-empty-guide-connector: rgba(142, 151, 139, 0.3);
   --code-empty-guide-origin: rgba(142, 151, 139, 0.46);
   --code-empty-guide-target: rgba(142, 151, 139, 0.56);
-  --code-file-editor-active-tab-seam: var(--code-bg-selected);
+  --code-file-editor-active-tab-seam: var(--code-file-editor-active-tab-surface);
+  --code-file-editor-active-tab-surface: var(--code-bg-canvas);
   --code-file-editor-tab-color: var(--code-text);
   --code-file-editor-tab-strip-surface: var(--code-bg-inset);
   --code-file-metadata-bg: linear-gradient(180deg, rgba(246, 247, 243, 0.78), rgba(255, 255, 255, 0.92));
@@ -64,6 +65,7 @@ body.code-mode {
   --code-heatmap-level-3: rgba(55, 119, 45, 0.64);
   --code-heatmap-level-4: rgba(43, 107, 34, 0.72);
   --code-heatmap-level-5: rgba(34, 91, 28, 0.94);
+  --code-info: #0a7ea4;
   --code-input-bg: var(--code-bg-surface);
   --code-mobile-options-surface: rgba(255, 255, 255, 0.88);
   --code-mobile-options-text: #4f5750;
@@ -186,7 +188,8 @@ body.code-mode[data-appearance='dark'] {
   --code-empty-guide-connector: rgba(139, 148, 158, 0.28);
   --code-empty-guide-origin: rgba(139, 148, 158, 0.5);
   --code-empty-guide-target: rgba(139, 148, 158, 0.62);
-  --code-file-editor-active-tab-seam: var(--code-bg-selected);
+  --code-file-editor-active-tab-seam: var(--code-file-editor-active-tab-surface);
+  --code-file-editor-active-tab-surface: var(--code-bg-canvas);
   --code-file-editor-tab-color: var(--code-text);
   --code-file-editor-tab-strip-surface: var(--code-bg-inset);
   --code-file-metadata-bg: linear-gradient(180deg, rgba(22, 27, 34, 0.88), rgba(13, 17, 23, 0.96));
@@ -200,6 +203,7 @@ body.code-mode[data-appearance='dark'] {
   --code-heatmap-level-3: rgba(88, 166, 255, 0.64);
   --code-heatmap-level-4: rgba(88, 166, 255, 0.72);
   --code-heatmap-level-5: rgba(88, 166, 255, 0.94);
+  --code-info: #58a6ff;
   --code-input-bg: var(--code-bg-surface);
   --code-mobile-options-surface: rgba(22, 27, 34, 0.94);
   --code-mobile-options-text: #ffffff;
@@ -323,6 +327,7 @@ body.code-mode[data-appearance='paper'] {
   --code-empty-guide-origin: rgba(142, 151, 139, 0.46);
   --code-empty-guide-target: rgba(142, 151, 139, 0.56);
   --code-file-editor-active-tab-seam: transparent;
+  --code-file-editor-active-tab-surface: var(--code-active-item-surface);
   --code-file-editor-tab-color: var(--code-text-muted);
   --code-file-editor-tab-strip-surface: var(--code-bg-canvas);
   --code-file-metadata-bg: linear-gradient(180deg, rgba(40, 41, 34, 0.025), rgba(255, 255, 255, 0.12));
@@ -336,6 +341,7 @@ body.code-mode[data-appearance='paper'] {
   --code-heatmap-level-3: rgba(58, 110, 74, 0.52);
   --code-heatmap-level-4: rgba(58, 110, 74, 0.7);
   --code-heatmap-level-5: rgba(45, 93, 60, 0.9);
+  --code-info: #397f79;
   --code-input-bg: var(--code-composer-surface);
   --code-mobile-options-surface: var(--code-bg-raised);
   --code-mobile-options-text: var(--code-text-muted);

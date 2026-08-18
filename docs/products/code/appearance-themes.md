@@ -34,16 +34,17 @@ Project, file, or terminal state.
 - A current Agent uses exactly one selected fill, including its leading
   provider identity icon. Unselected section headers such as Files remain on
   the panel surface and must not resemble a second selection.
-- Parallel representations of the same active item use the same selected fill;
-  for example, the active file row and its editor tab must match. Selected or
-  active rows never add a left-edge line, bar, border, or rail, and one item
-  must not stack competing selection cues. Active Agent rows, file rows, and
-  editor tabs use the opaque `--code-active-item-surface` role so their final
-  rendered color matches across different parent surfaces without changing the
-  generic `--code-bg-selected` role used by other controls. Light and Paper
-  keep this active-item surface neutral; they do not use an accent-blue fill.
-  Pointer hover on the same Project, Agent, file, and editor-tab collections
-  uses that same active-item surface instead of a second hover fill.
+- Selected or active rows never add a left-edge line, bar, border, or rail, and
+  one item must not stack competing selection cues. Active Agent and file rows
+  use the opaque `--code-active-item-surface` role so their final rendered color
+  matches across different parent surfaces without changing the generic
+  `--code-bg-selected` role used by other controls. Light and Paper keep this
+  active-item surface neutral; they do not use an accent-blue fill. Editor tabs
+  use the document-connected `--code-file-editor-active-tab-surface`: Light and
+  Dark connect the active tab to the editor canvas, while Paper retains its
+  restrained neutral fill. Pointer hover and selection within the same Project,
+  Agent, file, or editor-tab collection use the same surface instead of a
+  second hover fill.
 - A visually continuous control or state surface keeps one outer corner
   geometry across its base, hover or selection fill, overlay, and action
   layers. Asymmetric square and rounded ends require an explicit joined-control
@@ -94,10 +95,11 @@ Code colors.
 The shared role set is intentionally bounded. Most roles describe layer,
 content, interaction, or functional meaning: canvas, chrome, surface, raised,
 inset, hover, selected, disabled, text hierarchy, border hierarchy, focus,
-accent, success, warning, danger, diff, shadow, editor, and terminal. Explicit
-palette exceptions are limited to visuals whose distinctions carry product
-meaning, such as syntax, data charts, collaboration identities, Git references,
-branded art, and Farming Pet artwork. Exceptions must use durable semantic names;
+accent, info, success, warning, danger, diff, shadow, editor, and terminal.
+Explicit palette exceptions are limited to visuals whose distinctions carry
+product meaning, such as syntax, data charts, collaboration identities, Git
+references, branded art, and Farming Pet artwork. Exceptions must use durable
+semantic names;
 selector-derived or hashed names are not contracts. Fixed artwork hues that do
 not vary by appearance must be declared once as a small, named component palette;
 all surrounding text, chrome, borders, focus, and derived opacity or shadow must

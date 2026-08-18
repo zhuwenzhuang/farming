@@ -84,12 +84,29 @@ assert.notEqual(
 )
 
 const lightRoles = Object.keys(registry.light.css).sort()
-assert(lightRoles.length <= 132, 'the semantic palette must not grow back into a selector-level override matrix')
+assert(lightRoles.length <= 134, 'the semantic palette must not grow back into a selector-level override matrix')
 assert.equal(
   registry.light.css['--code-active-item-surface'],
   '#eeeeec',
   'light active items must remain neutral rather than use an accent-blue surface',
 )
+assert.equal(
+  registry.light.css['--code-file-editor-active-tab-surface'],
+  'var(--code-bg-canvas)',
+  'light active editor tabs must connect to the document canvas',
+)
+assert.equal(
+  registry.dark.css['--code-file-editor-active-tab-surface'],
+  'var(--code-bg-canvas)',
+  'dark active editor tabs must connect to the document canvas',
+)
+for (const appearance of ['light', 'dark'] as const) {
+  assert.equal(
+    registry[appearance].css['--code-file-editor-active-tab-seam'],
+    'var(--code-file-editor-active-tab-surface)',
+    `${appearance} active editor tabs must not expose a selected-blue seam`,
+  )
+}
 for (const appearance of appearances) {
   const theme = registry[appearance]
   assert.deepEqual(Object.keys(theme.css).sort(), lightRoles, `${appearance} must define every CSS role`)
@@ -281,8 +298,8 @@ const structuralSurfaceContracts = [
   ['src/styles/files.css', '.code-file-row', 'border-radius', '8px'],
   ['src/styles/files.css', '.code-file-row', 'background', 'transparent'],
   ['src/styles/files.css', 'body.code-mode.code-compact-layout .code-file-row', 'border-radius', '8px'],
-  ['src/styles/file-editor.css', '.code-file-editor-tab:hover:not(.active)', 'background', 'var(--code-active-item-surface)'],
-  ['src/styles/file-editor.css', '.code-file-editor-tab.active', 'background', 'var(--code-active-item-surface)'],
+  ['src/styles/file-editor.css', '.code-file-editor-tab:hover:not(.active)', 'background', 'var(--code-file-editor-active-tab-surface)'],
+  ['src/styles/file-editor.css', '.code-file-editor-tab.active', 'background', 'var(--code-file-editor-active-tab-surface)'],
 ] as const
 for (const [sourcePath, selector, property, expectedValue] of structuralSurfaceContracts) {
   const root = postcss.parse(fs.readFileSync(path.join(projectRoot, sourcePath), 'utf8'), { from: sourcePath })
@@ -357,13 +374,29 @@ for (const sourcePath of [
 }
 
 const semanticStateContracts = [
-  ['src/styles/composer.css', '.code-composer-send:not(:disabled)', 'background', 'var(--code-emphasis)'],
-  ['src/styles/composer.css', '.code-composer-send:not(:disabled)', 'color', 'var(--code-text-on-emphasis)'],
+  ['src/styles/composer.css', '.code-composer-send:not(:disabled)', 'background', 'light-dark(var(--code-emphasis), var(--code-text-muted))'],
+  ['src/styles/composer.css', '.code-composer-send:not(:disabled)', 'color', 'light-dark(var(--code-text-on-emphasis), var(--code-bg-canvas))'],
+  ['src/styles/composer.css', '.code-composer-send:not(:disabled):hover', 'background', 'light-dark(var(--code-emphasis-hover), var(--code-text))'],
   ['src/styles/composer.css', '.code-composer-send:disabled', 'background', 'var(--code-bg-disabled)'],
   ['src/styles/composer.css', '.code-composer-send:disabled', 'color', 'var(--code-text-disabled)'],
   ['src/styles/composer.css', '.code-composer-send.interrupt', 'background', 'light-dark(var(--code-emphasis), var(--code-danger))'],
   ['src/styles/composer.css', '.code-composer-send.interrupt', 'color', 'var(--code-text-on-emphasis)'],
   ['src/styles/composer.css', '.code-composer-send.interrupt:not(:disabled):hover', 'background', 'light-dark(\n    var(--code-emphasis-hover),\n    color-mix(in srgb, var(--code-danger) 82%, var(--code-text))\n  )'],
+  ['src/styles/markdown.css', '.code-agent-transcript-assistant.code-markdown-preview pre', 'background', 'var(--code-code-bg)'],
+  ['src/styles/markdown.css', '.code-markdown-preview code', 'background', 'var(--code-code-bg)'],
+  ['src/styles/markdown.css', '.code-markdown-preview tr:nth-child(2n)', 'background', 'var(--code-code-bg)'],
+  ['src/styles/markdown.css', '.code-markdown-preview .hljs-keyword,\n.code-markdown-preview .hljs-selector-tag,\n.code-markdown-preview .hljs-subst', 'color', 'var(--code-syntax-keyword)'],
+  ['src/styles/markdown.css', '.code-markdown-preview .hljs-doctag,\n.code-markdown-preview .hljs-string', 'color', 'var(--code-syntax-string)'],
+  ['src/styles/transcript.css', '.code-agent-transcript-live-activity-icon.kind-running', 'color', 'var(--code-success)'],
+  ['src/styles/transcript.css', '.code-agent-transcript-live-activity-icon.kind-reading,\n.code-agent-transcript-live-activity-icon.kind-searching', 'color', 'var(--code-info)'],
+  ['src/styles/transcript.css', '.code-agent-transcript-live-activity-icon.kind-editing', 'color', 'var(--code-skill)'],
+  ['src/styles/transcript.css', '.code-agent-transcript-file-link', 'background', 'light-dark(var(--code-code-bg), var(--code-accent-soft))'],
+  ['src/styles/transcript.css', '.code-agent-transcript-file-link', 'color', 'var(--code-info)'],
+  ['src/styles/review.css', '.review-commit-message', 'color', 'var(--code-text-muted)'],
+  ['src/styles/review.css', '.review-commit-message summary > strong', 'color', 'var(--code-text)'],
+  ['src/styles/sidebar.css', '.code-worktree-popover-status.success', 'color', 'var(--code-success)'],
+  ['src/styles/usage.css', '.code-usage-heatmap-cell', 'background', 'color-mix(in srgb, var(--code-heatmap-level-1) 34%, transparent)'],
+  ['src/styles/usage.css', ".code-usage-detail-day-highlight[data-state='selected'] > strong", 'color', 'var(--code-chart-line)'],
   ['src/styles/main.css', '.kill-btn', 'color', 'var(--code-text-on-emphasis)'],
   ['src/styles/share.css', '.code-mobile-install-step', 'background', 'var(--code-bg-hover)'],
   ['src/styles/share.css', '.code-mobile-install-control', 'background', 'var(--code-bg-hover-strong)'],

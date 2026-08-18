@@ -2530,12 +2530,12 @@ body.code-mode .code-composer textarea::placeholder {
 }
 
 .code-composer-send:not(:disabled) {
-  background: var(--code-emphasis);
-  color: var(--code-text-on-emphasis);
+  background: light-dark(var(--code-emphasis), var(--code-text-muted));
+  color: light-dark(var(--code-text-on-emphasis), var(--code-bg-canvas));
 }
 
 .code-composer-send:not(:disabled):hover {
-  background: var(--code-emphasis-hover);
+  background: light-dark(var(--code-emphasis-hover), var(--code-text));
 }
 
 .code-composer-send.interrupt {

@@ -955,7 +955,7 @@ body.code-resizing-sidebar .code-sidebar-resizer {
 }
 
 .code-worktree-popover-status.success {
-  color: var(--code-accent);
+  color: var(--code-success);
 }
 
 .code-worktree-popover-status.compact {

@@ -181,7 +181,7 @@
   min-width: 2px;
   height: 10px;
   border-radius: 2px;
-  background: var(--code-accent-soft);
+  background: color-mix(in srgb, var(--code-heatmap-level-1) 34%, transparent);
 }
 
 .code-usage-heatmap-cell:hover {
@@ -432,7 +432,7 @@
 }
 
 .code-usage-detail-day-highlight[data-state='selected'] > strong {
-  color: var(--code-accent);
+  color: var(--code-chart-line);
 }
 
 .code-usage-detail-chart .code-usage-daily-heatmap {

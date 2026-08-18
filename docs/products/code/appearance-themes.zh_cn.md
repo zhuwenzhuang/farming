@@ -25,14 +25,13 @@ Farming Code 支持跟随系统、浅色、深色和纸张四种外观。外观�
   普通文档流的浮层。静止控件继承结构性父级，不能再用 canvas 或 raised 背景替换父级表面。
 - 当前 Agent 只使用一块 selected 填充，并完整包住前置 Provider 身份图标；Files 等未选中的
   Section Header 保持 panel 表面，不能表现得像第二个选中项。
-- 同一 Active 项在不同位置的表示使用相同的 Selected 填充，例如当前文件行必须与对应的
-  Editor Tab 保持一致。Selected 或 Active 行不得增加左侧线、色条、边框或轨道，同一项也
-  不得叠加多个相互竞争的选中提示。Active Agent 行、文件行与 Editor Tab 使用不透明的
-  `--code-active-item-surface` 角色，使它们跨不同父级表面时最终渲染颜色仍保持一致，同时不
-  改变其他控件使用的通用 `--code-bg-selected` 角色。Light 与 Paper 的 Active Item 表面
-  保持中性，不使用强调蓝填充。
-  同一组 Project、Agent、文件和 Editor Tab 的鼠标 Hover 使用相同的 Active Item 表面，
-  不再引入第二种 Hover 填充色。
+- Selected 或 Active 行不得增加左侧线、色条、边框或轨道，同一项也不得叠加多个相互竞争的
+  选中提示。Active Agent 行和文件行使用不透明的 `--code-active-item-surface` 角色，使它们
+  跨不同父级表面时最终渲染颜色仍保持一致，同时不改变其他控件使用的通用
+  `--code-bg-selected` 角色。Light 与 Paper 的 Active Item 表面保持中性，不使用强调蓝填充。
+  Editor Tab 使用与文档连贯的 `--code-file-editor-active-tab-surface`：Light 与 Dark 的
+  Active Tab 连接编辑器画布，Paper 则保留克制的中性填充。同一组 Project、Agent、文件或
+  Editor Tab 的鼠标 Hover 与 Selected 使用相同表面，不再引入第二种 Hover 填充色。
 - 视觉上连续的控件或状态表面，其基础层、Hover 或 Selected 填充层、覆盖层与操作层应保持
   同一套外轮廓圆角。方角与圆角的不对称组合只能来自明确的组合控件设计，不能由图层覆盖
   意外产生。
@@ -69,11 +68,11 @@ Composer、Files、Settings、Transcript、Review 和扩展前端等领域样式
 
 共享角色数量必须保持克制。普通角色只描述层级、内容、交互或功能语义，例如 canvas、
 chrome、surface、raised、inset、hover、selected、disabled、文字层级、边框层级、
-focus、accent、success、warning、danger、diff、shadow、editor 和 terminal。只有颜色
-区分本身承载产品含义的视觉才允许显式色板例外，例如语法、数据图表、协作身份、Git
-引用、品牌图像和 Farming Pet 美术。例外必须使用稳定语义命名，不能出现由选择器机械
-拼接或带哈希后缀的名称。不随外观变化的固定美术色必须集中成一组小型、具名的组件
-调色板；外围文字、框架、边框、焦点，以及由透明度或阴影形成的派生效果仍必须消费
+focus、accent、info、success、warning、danger、diff、shadow、editor 和 terminal。
+只有颜色区分本身承载产品含义的视觉才允许显式色板例外，例如语法、数据图表、协作
+身份、Git 引用、品牌图像和 Farming Pet 美术。例外必须使用稳定语义命名，不能出现由
+选择器机械拼接或带哈希后缀的名称。不随外观变化的固定美术色必须集中成一组小型、
+具名的组件调色板；外围文字、框架、边框、焦点，以及由透明度或阴影形成的派生效果仍必须消费
 外观语义角色。静态契约目前只放行 Model Matrix 身份色和 Pet 黑洞预览调色板。
 
 Farming CRT 的固定色板独立放在 `crt-tokens.css`。CRT 皮肤颜色不是 Code 外观角色，
