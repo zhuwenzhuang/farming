@@ -2,13 +2,14 @@ import { workspaceEditorActionState, type WorkspaceEditorFileMode } from '@/lib/
 import { FileEditorActions } from './FileEditorActions'
 import { FileEditorBreadcrumbs } from './FileEditorBreadcrumbs'
 import { FileEditorTabs, type FileEditorTabsProps } from './FileEditorTabs'
+import type { ShareNoticeAnchor } from '../code/share-notice'
 
 interface FileEditorHeaderProps extends Omit<FileEditorTabsProps, 'actions'> {
   editorMode: WorkspaceEditorFileMode
   statusText: string | null
   onRevealInExplorer: (agentId: string, filePath: string, kind: 'directory' | 'file') => void
   onSave: (overwrite?: boolean) => void
-  onCopyReadOnlyShareLink: () => void
+  onCopyReadOnlyShareLink: (anchor: ShareNoticeAnchor) => void
   onReload: () => void
   onToggleSourcePreview: () => void
   onToggleMarkdownSplit: () => void

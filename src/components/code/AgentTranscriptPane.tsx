@@ -19,6 +19,7 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown'
+import { shareNoticeAnchor, type ShareNoticeAnchor } from './share-notice'
 import rehypeHighlight from 'rehype-highlight'
 import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
@@ -193,7 +194,7 @@ export interface AgentTranscriptPaneProps {
   expectHistory?: boolean
   forkedFromAgent?: boolean
   onOpenWorkspaceFilePath?: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
-  onCopyReadOnlyShareLink?: (target: WorkspaceShareTarget | null) => Promise<void> | void
+  onCopyReadOnlyShareLink?: (target: WorkspaceShareTarget | null, anchor: ShareNoticeAnchor) => Promise<void> | void
   onOpenUrlInFarming?: (url: string) => void
   onAvailabilityChange?: (state: { loading: boolean; hasContent: boolean; available: boolean }) => void
   onReadLatest?: () => void
@@ -2349,7 +2350,7 @@ function AgentTranscriptTurnView({
   openCollaborationActivityIds: Set<string>
   setOpenCollaborationActivityIds: Dispatch<SetStateAction<Set<string>>>
   onFork?: () => Promise<void> | void
-  onShare?: (turnId: string) => Promise<void> | void
+  onShare?: (turnId: string, anchor: ShareNoticeAnchor) => Promise<void> | void
   showLiveActivity: boolean
   initialProgressIds?: Set<string> | null
 }) {
@@ -2593,8 +2594,8 @@ function AgentTranscriptTurnView({
       setForking(false)
     }
   }, [onFork])
-  const handleShare = useCallback(() => {
-    void onShare?.(turn.id)
+  const handleShare = useCallback((event: ReactMouseEvent<HTMLButtonElement>) => {
+    void onShare?.(turn.id, shareNoticeAnchor(event))
   }, [onShare, turn.id])
   const toggleProcessOpen = useCallback(() => {
     onToggleProcess(turn.id)
@@ -3770,7 +3771,7 @@ export function AgentTranscriptPane({
       suppressSearchOnMiss: true,
     })
   ), [agentId])
-  const copyTurnShareLink = useCallback((turnId: string) => {
+  const copyTurnShareLink = useCallback((turnId: string, anchor: ShareNoticeAnchor) => {
     if (!onCopyReadOnlyShareLink) return
     const readingAnchor = encodeReadingAnchor({
       version: 1,
@@ -3779,8 +3780,8 @@ export function AgentTranscriptPane({
       locator: { kind: 'message', id: turnId },
       position: { unit: 'fraction', value: 0 },
     })
-    if (!readingAnchor) return onCopyReadOnlyShareLink(null)
-    return onCopyReadOnlyShareLink({ kind: 'agent', agentId, readingAnchor })
+    if (!readingAnchor) return onCopyReadOnlyShareLink(null, anchor)
+    return onCopyReadOnlyShareLink({ kind: 'agent', agentId, readingAnchor }, anchor)
   }, [agentId, onCopyReadOnlyShareLink, readingAnchorAgentId])
   const transcriptFileOpenContext = useMemo(() => ({
     agentId,

@@ -10,7 +10,7 @@ Farming 可以分享一个具体工作位置，而不只是工作区首页。Cha
 
 ## 分享 Chat 回复
 
-在已完成回复下方点击分享按钮。Farming 会复制只读链接，并显示“只读分享链接已复制；只能查看，链接会自动过期”。链接记录这条回复的 Turn 标识，接收者打开后会直接定位到该回复。
+在已完成回复下方点击分享按钮。Farming 会在按钮附近确认只读链接已复制、只能查看，并显示准确过期时刻。链接记录这条回复的 Turn 标识，接收者打开后会直接定位到该回复。
 
 <ThemeImage light="/cn/assets/share-chat.png" dark="/cn/assets/share-chat-dark.png" paper="/cn/assets/share-chat-paper.png" alt="从 Chat 回复复制精确位置的只读分享链接" />
 

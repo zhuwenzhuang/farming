@@ -1,4 +1,5 @@
 import type {
+  CSSProperties,
   KeyboardEvent as ReactKeyboardEvent,
   RefObject,
 } from 'react'
@@ -16,6 +17,7 @@ import {
 } from './menu-model'
 import type { CodeCopy } from './copy'
 import type { AgentSessionHistoryItem, ProjectGroup } from './types'
+import type { ShareNoticeAnchor } from './share-notice'
 import {
   BrowserGlyph,
   ChatBubblesGlyph,
@@ -46,6 +48,7 @@ interface CopyNoticeState {
   id: number
   kind: 'success' | 'error'
   message: string
+  anchor?: ShareNoticeAnchor
 }
 
 interface CodeOverlaysProps {
@@ -495,7 +498,15 @@ export function CodeOverlays({
         </div>
       )}
       {copyNotice && (
-        <div className={`code-copy-toast ${copyNotice.kind}`} data-testid="code-copy-toast" role="status">
+        <div
+          className={`code-copy-toast ${copyNotice.kind}${copyNotice.anchor ? ` anchored ${copyNotice.anchor.placement} ${copyNotice.anchor.alignment}` : ''}`}
+          data-testid="code-copy-toast"
+          role="status"
+          style={copyNotice.anchor ? ({
+            '--code-copy-toast-x': `${copyNotice.anchor.x}px`,
+            '--code-copy-toast-y': `${copyNotice.anchor.y}px`,
+          } as CSSProperties) : undefined}
+        >
           {copyNotice.message}
         </div>
       )}

@@ -1062,6 +1062,32 @@ body.code-resizing-language-server-dock {
   transform: translateX(-50%);
 }
 
+.code-copy-toast.anchored {
+  --code-copy-toast-safe-half-width: min(180px, calc(50vw - 16px));
+  left: clamp(
+    calc(var(--code-copy-toast-safe-half-width) + 16px),
+    var(--code-copy-toast-x),
+    calc(100vw - var(--code-copy-toast-safe-half-width) - 16px)
+  );
+  top: var(--code-copy-toast-y);
+  bottom: auto;
+  transform: translate(-50%, calc(-100% - 10px));
+}
+
+.code-copy-toast.anchored.below {
+  transform: translate(-50%, 10px);
+}
+
+.code-copy-toast.anchored.right {
+  right: 16px;
+  left: auto;
+  transform: translateY(calc(-100% - 10px));
+}
+
+.code-copy-toast.anchored.right.below {
+  transform: translateY(10px);
+}
+
 .code-copy-toast.error {
   border: 1px solid var(--code-border-danger);
   border-color: var(--code-border-danger);

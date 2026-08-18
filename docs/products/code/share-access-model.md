@@ -16,7 +16,9 @@ The share popover exposes different capabilities deliberately:
 
 The UI must state the QR permission and expiry directly below the QR code in muted
 text. The copy confirmation must say that the current-page link is read-only,
-cannot modify the workspace, and expires with the countdown. The owner passphrase
+cannot modify the workspace, and expires with the countdown. Direct Chat and File
+copy confirmations appear next to the activated share control and state the exact
+expiry time returned by the backend. The owner passphrase
 area is a clickable button that copies a full-control URL while preserving the
 segmented passphrase line wrapping. It must carry a separate warning that it grants
 full control until the instance credential changes; it does not inherit the QR
@@ -136,7 +138,8 @@ RFB transport cannot provide a server-verifiable view-only boundary.
 
 - The automatically copied URL is always read-only.
 - Contextual Chat and File copy actions include the selected Turn or current file
-  reading position and show an explicit read-only-link copy confirmation.
+  reading position and show the read-only-link copy confirmation and exact expiry
+  time next to the activated share control.
 - Out-of-order direct-share responses cannot replace the clipboard result of a newer
   share action.
 - Owner QR and passphrase access remain full-control and are labeled as such.

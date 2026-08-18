@@ -2,6 +2,7 @@ import type { OpenWorkspaceFile } from '@/lib/workspace-open-files'
 import type { WorkspaceEditorActionState } from '@/lib/workspace-editor-model'
 import { ChatBubblesGlyph, ErrorGlyph, RefreshGlyph, ShareGlyph } from '@/components/IconGlyphs'
 import type { CodeCopy } from '../code/copy'
+import { shareNoticeAnchor, type ShareNoticeAnchor } from '../code/share-notice'
 
 function MarkdownPreviewIcon({ previewOpen }: { previewOpen: boolean }) {
   if (previewOpen) {
@@ -105,7 +106,7 @@ interface FileEditorActionsProps {
   agentSidePanelOpen: boolean
   onReload: () => void
   onSave: (overwrite?: boolean) => void
-  onCopyReadOnlyShareLink: () => void
+  onCopyReadOnlyShareLink: (anchor: ShareNoticeAnchor) => void
   onToggleMarkdownSplit: () => void
   onToggleSourcePreview: () => void
   onToggleWordWrap: () => void
@@ -147,7 +148,7 @@ export function FileEditorActions({
         type="button"
         className="code-file-editor-action share"
         data-testid="code-file-editor-share"
-        onClick={onCopyReadOnlyShareLink}
+        onClick={event => onCopyReadOnlyShareLink(shareNoticeAnchor(event))}
         aria-label={copy.copyReadOnlyShareLink}
         title={copy.copyReadOnlyShareLink}
       >

@@ -15,6 +15,7 @@ async function createAgent(page: Page, workspace: string, agentRuntimeMode: 'cha
 
 test.describe('workspace sharing', () => {
   test('lets idle toolbar controls inherit the same surface in every appearance', async ({ page }) => {
+    await page.request.post('/farming/api/settings', { data: { appearance: 'light', language: 'zh' } })
     await openFarming(page)
 
     const sidebar = page.locator('.code-sidebar')
@@ -164,9 +165,23 @@ test.describe('workspace sharing', () => {
     await expect(shareButtons).toHaveCount(2)
     await shareButtons.nth(0).click()
     await expect.poll(() => shareRequestCount).toBe(1)
-    await shareButtons.nth(1).click()
+    const selectedShareButton = shareButtons.nth(1)
+    const selectedShareButtonBox = await selectedShareButton.boundingBox()
+    expect(selectedShareButtonBox).not.toBeNull()
+    await selectedShareButton.click()
     await expect.poll(async () => page.evaluate(() => navigator.clipboard.readText())).toBe('https://share.example.test/chat-2')
-    await expect(page.getByTestId('code-copy-toast')).toHaveText(/Read-only share link copied|只读分享链接已复制/)
+    const copyToast = page.getByTestId('code-copy-toast')
+    await expect(copyToast).toHaveText(/Read-only share link copied; view only, valid until|只读分享链接已复制；只能查看，有效至/)
+    const copyToastBox = await copyToast.boundingBox()
+    expect(copyToastBox).not.toBeNull()
+    expect(copyToastBox!.y + copyToastBox!.height).toBeLessThanOrEqual(selectedShareButtonBox!.y - 8)
+    expect(copyToastBox!.y + copyToastBox!.height).toBeGreaterThanOrEqual(selectedShareButtonBox!.y - 12)
+    const shareButtonCenterX = selectedShareButtonBox!.x + selectedShareButtonBox!.width / 2
+    expect(shareButtonCenterX).toBeGreaterThanOrEqual(copyToastBox!.x)
+    expect(shareButtonCenterX).toBeLessThanOrEqual(copyToastBox!.x + copyToastBox!.width)
+    if (process.env.FARMING_SHARE_NOTICE_SCREENSHOT) {
+      await page.screenshot({ path: process.env.FARMING_SHARE_NOTICE_SCREENSHOT })
+    }
 
     releaseFirstShare()
     await expect.poll(() => revokedTickets).toBe(2)
@@ -229,9 +244,26 @@ test.describe('workspace sharing', () => {
       window.__farmingFileEditorTest?.revealLine(120, 6) === true
     ))).toBe(true)
 
-    await page.getByTestId('code-file-editor-share').click()
+    const fileShareButton = page.getByTestId('code-file-editor-share')
+    const fileShareButtonBox = await fileShareButton.boundingBox()
+    expect(fileShareButtonBox).not.toBeNull()
+    await fileShareButton.click()
     await expect.poll(async () => page.evaluate(() => navigator.clipboard.readText())).toBe('https://share.example.test/file-position')
-    await expect(page.getByTestId('code-copy-toast')).toHaveText(/Read-only share link copied|只读分享链接已复制/)
+    const copyToast = page.getByTestId('code-copy-toast')
+    await expect(copyToast).toHaveText(/Read-only share link copied; view only, valid until|只读分享链接已复制；只能查看，有效至/)
+    const copyToastBox = await copyToast.boundingBox()
+    expect(copyToastBox).not.toBeNull()
+    const toastAboveShareButton = await copyToast.evaluate(element => element.classList.contains('above'))
+    if (toastAboveShareButton) {
+      expect(copyToastBox!.y + copyToastBox!.height).toBeLessThanOrEqual(fileShareButtonBox!.y - 8)
+      expect(copyToastBox!.y + copyToastBox!.height).toBeGreaterThanOrEqual(fileShareButtonBox!.y - 12)
+    } else {
+      expect(copyToastBox!.y).toBeGreaterThanOrEqual(fileShareButtonBox!.y + fileShareButtonBox!.height + 8)
+      expect(copyToastBox!.y).toBeLessThanOrEqual(fileShareButtonBox!.y + fileShareButtonBox!.height + 12)
+    }
+    const fileShareButtonCenterX = fileShareButtonBox!.x + fileShareButtonBox!.width / 2
+    expect(fileShareButtonCenterX).toBeGreaterThanOrEqual(copyToastBox!.x)
+    expect(fileShareButtonCenterX).toBeLessThanOrEqual(copyToastBox!.x + copyToastBox!.width)
     await expect.poll(() => revoked).toBe(true)
     expect(capturedTarget).not.toBeNull()
     expect(capturedTarget?.absolutePath).toBe(path.join(workspace, 'notes.txt'))

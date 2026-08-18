@@ -26,6 +26,7 @@ import type { AgentTranscriptProcessItem } from './acp/acp-entry-projection'
 import { CodeComposer } from './CodeComposer'
 import { AcpComposer } from './acp/AcpComposer'
 import { HistoryPanel } from './HistoryPanel'
+import type { ShareNoticeAnchor } from './share-notice'
 import { SearchPanel } from './SearchPanel'
 import {
   ChevronDownGlyph,
@@ -345,7 +346,7 @@ interface CodeMainAreaProps {
   ) => OpenWorkspaceFile | null
   onSelectOpenWorkspaceFile: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
   onOpenWorkspaceFilePath: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
-  onCopyReadOnlyShareLink: (target: WorkspaceShareTarget | null) => Promise<void> | void
+  onCopyReadOnlyShareLink: (target: WorkspaceShareTarget | null, anchor: ShareNoticeAnchor) => Promise<void> | void
   onOpenUrlInFarming?: (agentId: string, url: string) => void
   canNavigateWorkspaceBack: boolean
   canNavigateWorkspaceForward: boolean

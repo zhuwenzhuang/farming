@@ -10,7 +10,7 @@ Sharing requires token authentication. When authentication is disabled, Farming 
 
 ## Share a Chat answer
 
-Select the share button below a completed answer. Farming copies a read-only link and confirms that the link is view-only and expires automatically. The link records the answer's durable Turn identity so the recipient opens at that exact answer.
+Select the share button below a completed answer. Farming copies a read-only link and confirms next to the button that the link is view-only and shows its exact expiry time. The link records the answer's durable Turn identity so the recipient opens at that exact answer.
 
 <ThemeImage light="/cn/assets/share-chat.png" dark="/cn/assets/share-chat-dark.png" paper="/cn/assets/share-chat-paper.png" alt="Copy a read-only link to an exact Chat answer" />
 

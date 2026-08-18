@@ -48,6 +48,7 @@ import {
   type WorkspaceNavigationEntry,
 } from '@/lib/workspace-navigation-history'
 import { requestQrShareTicket, requestReadOnlyShareLink } from '@/lib/qr-share-ticket'
+import type { ShareNoticeAnchor } from './code/share-notice'
 import {
   clearWorkspaceShareTargetSearch,
   resolveWorkspaceSharePath,
@@ -792,7 +793,12 @@ export function CodeWorkspace({
     title: string
   } | null>(null)
   const [deleteWorktreeDialog, setDeleteWorktreeDialog] = useState<{ projectId: string; workspace: string; sessionHandles: string[] } | null>(null)
-  const [copyNotice, setCopyNotice] = useState<{ id: number; kind: 'success' | 'error'; message: string } | null>(null)
+  const [copyNotice, setCopyNotice] = useState<{
+    id: number
+    kind: 'success' | 'error'
+    message: string
+    anchor?: ShareNoticeAnchor
+  } | null>(null)
   const mutateProject = useProjectMutationController({
     applyProjectMembership,
     replaceProjectName,
@@ -929,9 +935,12 @@ export function CodeWorkspace({
     }
   }, [copy.shareLinkFailed])
 
-  const copyReadOnlyShareLink = useCallback(async (target: WorkspaceShareTarget | null) => {
+  const copyReadOnlyShareLink = useCallback(async (
+    target: WorkspaceShareTarget | null,
+    anchor: ShareNoticeAnchor,
+  ) => {
     if (!target) {
-      setCopyNotice({ id: Date.now(), kind: 'error', message: copy.shareLinkFailed })
+      setCopyNotice({ id: Date.now(), kind: 'error', message: copy.shareLinkFailed, anchor })
       return
     }
     const lease = directShareRequestFenceRef.current.begin()
@@ -941,13 +950,19 @@ export function CodeWorkspace({
       if (!lease.isCurrent()) return
       if (!await writeClipboardText(shareLink.url)) throw new Error(copy.copyFailed)
       if (!lease.isCurrent()) return
-      setCopyNotice({ id: Date.now(), kind: 'success', message: copy.copiedReadOnlyShareLink })
+      setCopyNotice({
+        id: Date.now(),
+        kind: 'success',
+        message: copy.copiedReadOnlyShareLink(shareLink.expiresAt),
+        anchor,
+      })
     } catch (error) {
       if (!lease.isCurrent()) return
       setCopyNotice({
         id: Date.now(),
         kind: 'error',
         message: error instanceof Error ? error.message : copy.shareLinkFailed,
+        anchor,
       })
     } finally {
       await shareLink?.revokeUnusedTicket()

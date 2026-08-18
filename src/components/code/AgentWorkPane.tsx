@@ -12,6 +12,7 @@ import type { AgentTranscriptProcessItem } from './acp/acp-entry-projection'
 import { canForkAgentConversation, canSwitchAgentRuntime } from './capabilities'
 import { isAgentTurnActive } from './agent-working-state'
 import type { CodeCopy } from './copy'
+import type { ShareNoticeAnchor } from './share-notice'
 import { resumedAgentSessionSourceIdentity } from './session-display'
 
 type TerminalFollowState = {
@@ -34,7 +35,7 @@ interface AgentWorkPaneProps {
   onResolvePath?: (agentId: string, target: TerminalPathOpenTarget) => Promise<TerminalPathOpenTarget | null> | TerminalPathOpenTarget | null
   onSearchTerminalWord?: (agentId: string, query: string) => void
   onOpenWorkspaceFilePath?: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
-  onCopyReadOnlyShareLink?: (target: WorkspaceShareTarget | null) => Promise<void> | void
+  onCopyReadOnlyShareLink?: (target: WorkspaceShareTarget | null, anchor: ShareNoticeAnchor) => Promise<void> | void
   onOpenUrlInFarming?: (agentId: string, url: string) => void
   onFollowOutputChange?: (agentId: string, state: TerminalFollowState) => void
   onReadLatest?: (agentId: string, readCut?: { runtimeEpoch: string; outputSeq: number } | null) => void

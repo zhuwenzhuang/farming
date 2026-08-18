@@ -33,6 +33,7 @@ import {
   type WorkspaceShareTarget,
 } from '@/lib/workspace-share-target'
 import type { CodeCopy } from '../code/copy'
+import type { ShareNoticeAnchor } from '../code/share-notice'
 import { FileEditorHeader } from './FileEditorHeader'
 import { FileEditorOverlays } from './FileEditorOverlays'
 import { LanguageServerPanel } from './LanguageServerPanel'
@@ -61,7 +62,7 @@ interface FileEditorPaneProps {
   ) => OpenWorkspaceFile | null
   onSelectOpenFile: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => boolean
   onOpenFilePath: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
-  onCopyReadOnlyShareLink: (target: WorkspaceShareTarget) => Promise<void> | void
+  onCopyReadOnlyShareLink: (target: WorkspaceShareTarget, anchor: ShareNoticeAnchor) => Promise<void> | void
   canNavigateBack: boolean
   canNavigateForward: boolean
   onNavigateHistory: (direction: -1 | 1) => boolean
@@ -442,7 +443,7 @@ export function FileEditorPane({
     diffDisabled: !editorMode.canShowDiff,
     onClearBlameDetail: clearBlameDetail,
   })
-  const copyReadOnlyShareLink = useCallback(() => {
+  const copyReadOnlyShareLink = useCallback((anchor: ShareNoticeAnchor) => {
     const workspaceRoot = openFile.workspaceRoot || ''
     const target: WorkspaceShareTarget = {
       kind: 'file',
@@ -454,7 +455,7 @@ export function FileEditorPane({
       lineNumber: cursorPosition.lineNumber,
       column: cursorPosition.column,
     }
-    void onCopyReadOnlyShareLink(target)
+    void onCopyReadOnlyShareLink(target, anchor)
   }, [cursorPosition.column, cursorPosition.lineNumber, diffState.open, onCopyReadOnlyShareLink, openFile.agentId, openFile.file.path, openFile.workspaceRoot])
   const markdownPreviewVisible = markdownPreviewOpen && !diffState.open
   const visualPreviewVisible = !diffState.open && (sourceVisualPreviewOpen || editorMode.visualPreview)
