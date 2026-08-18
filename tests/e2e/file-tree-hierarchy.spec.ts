@@ -704,6 +704,8 @@ test('keeps a deeply scrolled directory anchored while pointer expansion loads i
 
   await velox.click()
   await expect(velox).toHaveAttribute('aria-expanded', 'true')
+  await expect(files.locator('[data-file-path="velox/child-00"] .code-file-name')).toBeVisible()
+  await expect(files.locator('[data-file-path="velox/fixture.ts"] .code-file-name')).toBeVisible()
   const readSameDepthLabelLeft = () => files.evaluate(element => {
     const directoryName = element.querySelector<HTMLElement>('[data-file-path="velox/child-00"] .code-file-name')
     const fileName = element.querySelector<HTMLElement>('[data-file-path="velox/fixture.ts"] .code-file-name')
