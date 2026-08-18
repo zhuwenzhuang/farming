@@ -10,7 +10,7 @@ import {
   test,
 } from './fixtures'
 
-const STRESS_SEED = 0x5eedc0de
+const BASE_STRESS_SEED = 0x5eedc0de
 
 function seededRandom(seed: number) {
   let state = seed >>> 0
@@ -34,6 +34,7 @@ function shuffled<T>(values: readonly T[], random: () => number) {
 test('survives seeded cold and warm human Project Files interactions', {
   tag: ['@critical-behavior', '@behavior-CODE-PROJECT-FILES-HUMAN-STRESS'],
 }, async ({ page }, testInfo) => {
+  const stressSeed = (BASE_STRESS_SEED ^ Math.imul(testInfo.repeatEachIndex + 1, 0x9e3779b9)) >>> 0
   const workspaceRoot = path.join(PLAYWRIGHT_WORKSPACE_ROOT, 'project-files-human-stress')
   const filesByDirectory = {
     alpha: ['model.cpp', 'model.h'],
@@ -53,7 +54,7 @@ test('survives seeded cold and warm human Project Files interactions', {
     }
   }
 
-  const random = seededRandom(STRESS_SEED)
+  const random = seededRandom(stressSeed)
   const operations: Array<Record<string, unknown>> = []
   const reads = new Map<string, number>()
   const failedResponses: string[] = []
@@ -299,7 +300,7 @@ test('survives seeded cold and warm human Project Files interactions', {
     if (!editorBox) throw new Error('File editor must be measurable for visual capture')
     await page.mouse.move(editorBox.x + editorBox.width * 0.75, editorBox.y + editorBox.height * 0.75)
 
-    const screenshotPath = testInfo.outputPath(`project-files-human-stress-${STRESS_SEED}.png`)
+    const screenshotPath = testInfo.outputPath(`project-files-human-stress-${stressSeed}.png`)
     await page.screenshot({ path: screenshotPath, fullPage: false })
     await testInfo.attach('project-files-human-stress-screenshot', {
       path: screenshotPath,
@@ -308,7 +309,7 @@ test('survives seeded cold and warm human Project Files interactions', {
   } finally {
     await testInfo.attach('project-files-human-stress-actions', {
       body: Buffer.from(JSON.stringify({
-        seed: STRESS_SEED,
+        seed: stressSeed,
         operations,
         reads: Object.fromEntries(reads),
         failedResponses,

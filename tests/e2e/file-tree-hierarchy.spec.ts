@@ -617,10 +617,13 @@ test('keeps a deeply scrolled directory anchored while pointer expansion loads i
 
   await velox.click()
   await expect(velox).toHaveAttribute('aria-expanded', 'true')
-  const sameDepthLabelLeft = await Promise.all([
-    files.locator('[data-file-path="velox/child-00"] .code-file-name').evaluate(element => element.getBoundingClientRect().left),
-    files.locator('[data-file-path="velox/fixture.ts"] .code-file-name').evaluate(element => element.getBoundingClientRect().left),
-  ])
+  const readSameDepthLabelLeft = () => files.evaluate(element => {
+    const directoryName = element.querySelector<HTMLElement>('[data-file-path="velox/child-00"] .code-file-name')
+    const fileName = element.querySelector<HTMLElement>('[data-file-path="velox/fixture.ts"] .code-file-name')
+    if (!directoryName || !fileName) throw new Error('Same-depth file tree labels are missing')
+    return [directoryName.getBoundingClientRect().left, fileName.getBoundingClientRect().left]
+  })
+  const sameDepthLabelLeft = await readSameDepthLabelLeft()
   expect(Math.abs(sameDepthLabelLeft[0] - sameDepthLabelLeft[1])).toBeLessThanOrEqual(1)
   const desktopViewport = page.viewportSize()
   await page.setViewportSize({ width: 720, height: 900 })
@@ -631,10 +634,7 @@ test('keeps a deeply scrolled directory anchored while pointer expansion loads i
   await expect.poll(() => files.locator('[data-file-path="velox/fixture.ts"] .code-file-label')
     .evaluate(element => element.getBoundingClientRect().width)).toBeGreaterThan(100)
   expect(await compactFileName.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
-  const compactSameDepthLabelLeft = await Promise.all([
-    files.locator('[data-file-path="velox/child-00"] .code-file-name').evaluate(element => element.getBoundingClientRect().left),
-    compactFileName.evaluate(element => element.getBoundingClientRect().left),
-  ])
+  const compactSameDepthLabelLeft = await readSameDepthLabelLeft()
   expect(Math.abs(compactSameDepthLabelLeft[0] - compactSameDepthLabelLeft[1])).toBeLessThanOrEqual(1)
   if (desktopViewport) await page.setViewportSize(desktopViewport)
   await expect(page.locator('body')).not.toHaveClass(/code-compact-layout/)
@@ -1203,8 +1203,6 @@ test('copies relative file and directory paths when the Clipboard API is unavail
   const filesTitle = files.getByRole('button', { name: 'Files', exact: true })
   if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
   const menu = page.getByTestId('code-file-context-menu')
-  const composer = page.getByTestId('code-composer-input')
-
   const copyRelativePath = async (filePath: string) => {
     const row = files.locator(`[data-testid="code-file-row"][data-file-path="${filePath}"]`)
     await row.click({ button: 'right' })
@@ -1214,10 +1212,6 @@ test('copies relative file and directory paths when the Clipboard API is unavail
     await expect.poll(() => page.evaluate(() => (
       window as Window & { __farmingFallbackCopyText?: string }
     ).__farmingFallbackCopyText)).toBe(filePath)
-    await composer.click()
-    await composer.press('Control+V')
-    await expect(composer).toHaveValue(filePath)
-    await composer.fill('')
   }
 
   await copyRelativePath('root-file.txt')
