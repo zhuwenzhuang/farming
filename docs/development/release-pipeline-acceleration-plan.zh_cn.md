@@ -82,7 +82,9 @@ Exact-SHA CI       平台制品            唯一 npm Tarball
 Fan-out 开始前，Release Preflight 必须从公共 npm Registry 查询固定的 Codex/Claude ACP Adapter、
 ACP SDK 和受管 Codex Runtime 的 `latest` 版本。Claude ACP 更新与 Codex 维护绑定：当两个受管
 Codex Pin 都是最新版本时，新 Claude ACP 版本只作提示且不阻塞发布；当任一受管 Codex Pin 需要
-更新时，必须在同一次维护中审查 Claude ACP 并将其更新到 `latest`。Preflight 还会查询独立 Claude
+更新时，必须在同一次维护中审查 Claude ACP 并将其更新到 `latest`。受管 Codex Runtime 更新只有
+在该版本声明的所有平台包都已存在于公共 Registry 时才可执行；不完整的平台发布会被报告并继续
+使用上一完整版本，因此不会触发 Claude 单独更新。Preflight 还会查询独立 Claude
 Agent SDK 的最新版本，同时要求受管 Claude Runtime 与当前 Claude ACP Adapter 精确依赖的 SDK
 版本一致；在 Adapter 采用新版 SDK 之前，独立 SDK 的结果仅作提示。Registry 查询失败或任一按
 此策略必须更新的 Pin 与 `latest` 不一致时，必须在构建制品前 Fail Closed。维护者需要审查上游

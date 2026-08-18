@@ -21,17 +21,43 @@ test('keeps large expanded file trees off the warm file-switch render path', asy
   await page.addInitScript(() => {
     const originalSend = WebSocket.prototype.send
     const readStarts: Record<string, number> = {}
-    ;(window as Window & { __farmingWorkspaceReadStarts?: Record<string, number> })
-      .__farmingWorkspaceReadStarts = readStarts
+    const readResponses: Record<string, number> = {}
+    const readPathsByRequestId = new Map<string, string>()
+    const observedSockets = new WeakSet<WebSocket>()
+    const performanceWindow = window as Window & {
+      __farmingWorkspaceReadResponses?: Record<string, number>
+      __farmingWorkspaceReadStarts?: Record<string, number>
+    }
+    performanceWindow.__farmingWorkspaceReadStarts = readStarts
+    performanceWindow.__farmingWorkspaceReadResponses = readResponses
     WebSocket.prototype.send = function send(data) {
+      if (!observedSockets.has(this)) {
+        observedSockets.add(this)
+        this.addEventListener('message', event => {
+          if (typeof event.data !== 'string') return
+          try {
+            const message = JSON.parse(event.data) as { type?: string; requestId?: string }
+            if (message.type !== 'workspace-result' || !message.requestId) return
+            const filePath = readPathsByRequestId.get(message.requestId)
+            if (!filePath) return
+            readResponses[filePath] = performance.now()
+            readPathsByRequestId.delete(message.requestId)
+          } catch {
+            // Terminal frames and extension payloads are not necessarily JSON.
+          }
+        })
+      }
       if (typeof data === 'string') {
         try {
           const message = JSON.parse(data) as {
             type?: string
+            requestId?: string
             request?: { operation?: string; path?: string }
           }
           if (message.type === 'workspace-request' && message.request?.operation === 'read-file') {
-            readStarts[message.request.path ?? ''] = performance.now()
+            const filePath = message.request.path ?? ''
+            readStarts[filePath] = performance.now()
+            if (message.requestId) readPathsByRequestId.set(message.requestId, filePath)
           }
         } catch {
           // Terminal frames and extension payloads are not necessarily JSON.
@@ -62,13 +88,18 @@ test('keeps large expanded file trees off the warm file-switch render path', asy
         contentMs: number
         paintMs: number
         requestMs: number | null
+        responseToSelectedMs: number | null
         rowSelectedMs: number
         selectedMs: number
       }>((resolve, reject) => {
         const startedAt = performance.now()
         const readStarts = (window as Window & { __farmingWorkspaceReadStarts?: Record<string, number> })
           .__farmingWorkspaceReadStarts
+        const readResponses = (window as Window & {
+          __farmingWorkspaceReadResponses?: Record<string, number>
+        }).__farmingWorkspaceReadResponses
         if (readStarts) delete readStarts[expected.path]
+        if (readResponses) delete readResponses[expected.path]
         let rowSelectedAt: number | null = null
         let selectedAt: number | null = null
         const inspect = () => {
@@ -85,6 +116,9 @@ test('keeps large expanded file trees off the warm file-switch render path', asy
               requestMs: readStarts?.[expected.path] === undefined
                 ? null
                 : readStarts[expected.path]! - startedAt,
+              responseToSelectedMs: readResponses?.[expected.path] === undefined
+                ? null
+                : selectedAt! - readResponses[expected.path]!,
               rowSelectedMs: rowSelectedAt! - startedAt,
               contentMs: contentAt - startedAt,
               paintMs: performance.now() - startedAt,
@@ -119,9 +153,11 @@ test('keeps large expanded file trees off the warm file-switch render path', asy
     expect(sample.requestMs).not.toBeNull()
     expect(sample.requestMs!).toBeLessThan(50)
     expect(sample.rowSelectedMs).toBeLessThan(100)
-    // Cold selection commits after the asynchronous file read. Its standalone
-    // wall-clock time is runner-I/O dependent; row feedback and final content
-    // bound the user-visible contract, while warm switches cover render cost.
+    expect(sample.responseToSelectedMs).not.toBeNull()
+    expect(sample.responseToSelectedMs!).toBeGreaterThanOrEqual(0)
+    expect(sample.responseToSelectedMs!).toBeLessThan(150)
+    // End-to-end cold time still bounds the read plus commit; the response-to-
+    // selection metric above isolates the frontend commit from runner I/O.
     expect(sample.contentMs).toBeLessThan(500)
   }
   expect(coldRenderCounts?.fileTreeRow).toBeLessThanOrEqual(16)
@@ -148,6 +184,7 @@ test('keeps large expanded file trees off the warm file-switch render path', asy
     contentMs: number
     paintMs: number
     requestMs: number | null
+    responseToSelectedMs: number | null
     rowSelectedMs: number
     selectedMs: number
   }> = []

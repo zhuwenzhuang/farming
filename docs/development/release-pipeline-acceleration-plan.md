@@ -109,7 +109,11 @@ managed Codex runtime. Claude ACP updates are coupled to Codex maintenance: a
 new Claude ACP version is informational and does not block a release while both
 managed Codex pins remain current; when either managed Codex pin needs an update,
 Claude ACP must also be reviewed and updated to `latest` in the same maintenance
-change. The preflight also checks the standalone Claude Agent SDK latest, while
+change. A managed Codex runtime update is actionable only after every declared
+platform package for that version is present in the public registry; an
+incomplete platform publication is reported and remains on the last complete
+version, so it does not trigger a Claude-only update. The preflight also checks
+the standalone Claude Agent SDK latest, while
 requiring the managed Claude runtime to match the exact SDK version owned by the
 current Claude ACP adapter. The standalone SDK result is informational until
 that adapter adopts it. A registry failure or any pin required by this policy

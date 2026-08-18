@@ -53,8 +53,16 @@ async function run() {
     );
 
     const currentVersions = new Map(dependencies.map(dependency => [dependency.name, dependency.current]));
+    const missingVersions = new Set();
     const registryFetch = async url => {
-      const packageName = decodeURIComponent(new URL(url).pathname.split('/')[1]);
+      const pathParts = new URL(url).pathname.split('/');
+      const packageName = decodeURIComponent(pathParts[1]);
+      const requestedVersion = pathParts[2] ? decodeURIComponent(pathParts[2]) : '';
+      if (requestedVersion !== 'latest') {
+        return new Response('', {
+          status: missingVersions.has(`${packageName}@${requestedVersion}`) ? 404 : 200,
+        });
+      }
       return new Response(JSON.stringify({ version: currentVersions.get(packageName) }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
@@ -88,6 +96,43 @@ async function run() {
       codexRuntimeUpdate.mismatches.map(dependency => dependency.name),
       ['@agentclientprotocol/claude-agent-acp', '@openai/codex'],
     );
+
+    missingVersions.add('@openai/codex@0.147.0-darwin-x64');
+    const incompleteCodexRuntimeUpdate = await checker.inspectManagedReleaseDependencies(
+      dependencies,
+      {
+        fetchImpl: registryFetch,
+        registry: 'https://registry.test/',
+      },
+    );
+    assert.deepStrictEqual(incompleteCodexRuntimeUpdate.mismatches, []);
+    assert.deepStrictEqual(
+      incompleteCodexRuntimeUpdate.deferred.map(dependency => dependency.name),
+      ['@agentclientprotocol/claude-agent-acp', '@openai/codex'],
+    );
+    assert.deepStrictEqual(
+      incompleteCodexRuntimeUpdate.incomplete.map(dependency => ({
+        name: dependency.name,
+        missingPlatforms: dependency.missingPlatforms,
+      })),
+      [{ name: '@openai/codex', missingPlatforms: ['darwin-x64'] }],
+    );
+    missingVersions.clear();
+
+    for (const status of [204, 206, 503]) {
+      await assert.rejects(
+        checker.inspectManagedReleaseDependencies(dependencies, {
+          fetchImpl: async url => {
+            if (String(url).endsWith('/0.147.0-darwin-arm64')) {
+              return new Response(status === 204 ? null : '', { status });
+            }
+            return registryFetch(url);
+          },
+          registry: 'https://registry.test/',
+        }),
+        new RegExp(`registry returned HTTP ${status}`),
+      );
+    }
     currentVersions.set('@openai/codex', '0.146.0');
 
     currentVersions.set('@agentclientprotocol/codex-acp', '1.1.14');
@@ -118,6 +163,20 @@ async function run() {
       /registry returned HTTP 503/,
     );
 
+    for (const status of [201, 206]) {
+      await assert.rejects(
+        checker.inspectManagedReleaseDependencies(dependencies, {
+          fetchImpl: async url => (
+            String(url).endsWith('/latest')
+              ? new Response(JSON.stringify({ version: '9.9.9' }), { status })
+              : registryFetch(url)
+          ),
+          registry: 'https://registry.test/',
+        }),
+        new RegExp(`registry returned HTTP ${status}`),
+      );
+    }
+
     const packageJson = JSON.parse(fs.readFileSync(path.join(temporaryRoot, 'package.json'), 'utf8'));
     packageJson.overrides['@openai/codex'] = '0.145.0';
     fs.writeFileSync(path.join(temporaryRoot, 'package.json'), JSON.stringify(packageJson));
@@ -140,7 +199,9 @@ async function run() {
     fs.rmSync(temporaryRoot, { recursive: true, force: true });
   }
 
-  console.log('✓ Release dependency preflight detects current, outdated, unavailable, and inconsistent pins');
+  console.log(
+    '✓ Release dependency preflight detects current, outdated, incomplete, unavailable, and inconsistent pins',
+  );
 }
 
 run().catch(error => {
