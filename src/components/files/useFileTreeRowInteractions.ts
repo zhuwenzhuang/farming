@@ -127,11 +127,16 @@ export function useFileTreeRowInteractions({
       // focus the hidden tree target and steal Ctrl/Cmd shortcuts from Monaco.
       event.preventDefault()
       event.stopPropagation()
-      node.tree.select(node, { focus: false })
-      void onOpenFilePath(item.path, {
+      // Start the transport/model transition before react-arborist publishes
+      // its selection update. A large expanded tree can spend hundreds of
+      // milliseconds reconciling that external store; file reads must overlap
+      // the work instead of waiting behind it.
+      const opening = onOpenFilePath(item.path, {
         transient: event.detail < 2,
         focusEditor: true,
       })
+      node.tree.select(node, { focus: false })
+      void opening
       return
     }
 
