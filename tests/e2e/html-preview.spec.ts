@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type { Page, Route } from '@playwright/test'
-import { expect, openFarming, test } from './fixtures'
+import type { Page } from '@playwright/test'
+import { expect, interceptWorkspaceRequests, openFarming, test } from './fixtures'
 
 async function createControlAgent(page: Page, workspace: string) {
   const response = await page.request.post('/farming/api/control/agents', {
@@ -102,16 +102,16 @@ test.describe('HTML Preview', () => {
     const workspace = path.join(workspaceRoot, 'html-preview-matrix')
     writePreviewWorkspace(workspace)
     await createControlAgent(page, workspace)
+    const deletedPreviewIds: string[] = []
+    await interceptWorkspaceRequests(page, request => {
+      if (request.operation === 'delete-preview') deletedPreviewIds.push(request.previewId)
+    })
 
-    const externalRequests: string[] = []
     const externalResponses: string[] = []
     let externalRouteHits = 0
     await page.route('https://preview-external.invalid/**', async route => {
       externalRouteHits += 1
       await route.fulfill({ status: 200, contentType: 'text/plain', body: 'unexpected external response' })
-    })
-    page.on('request', request => {
-      if (request.url().startsWith('https://preview-external.invalid/')) externalRequests.push(request.url())
     })
     page.on('response', response => {
       if (response.url().startsWith('https://preview-external.invalid/')) externalResponses.push(response.url())
@@ -145,7 +145,6 @@ test.describe('HTML Preview', () => {
     await frame.locator('#inline-handler').click()
     await expect(frame.locator('body')).not.toHaveAttribute('data-inline-handler', 'ran')
     await frame.locator('#external-form button').click()
-    expect(externalRequests.length).toBeGreaterThan(0)
     expect(externalResponses).toEqual([])
     expect(externalRouteHits).toBe(0)
     await frame.locator('#next-page').click()
@@ -154,11 +153,6 @@ test.describe('HTML Preview', () => {
     await expect.poll(() => frame.locator('.root-style').evaluate(element => getComputedStyle(element).color)).toBe('rgb(7, 8, 9)')
     await expect(frame.locator('body')).not.toHaveAttribute('data-script', 'ran')
 
-    const deletedSessions: string[] = []
-    page.on('request', request => {
-      if (request.method() !== 'DELETE' || !request.url().includes('/api/files/previews/')) return
-      deletedSessions.push(request.url())
-    })
     await page.getByRole('button', { name: 'Show source' }).click()
     await expect(page.getByTestId('code-file-monaco')).toBeVisible()
     await page.evaluate(() => {
@@ -168,11 +162,11 @@ test.describe('HTML Preview', () => {
     })
     await page.getByRole('button', { name: 'Open preview' }).click()
     await expect(page.frameLocator('[data-testid="code-file-html-preview"]').locator('#draft-update')).toHaveText('Unsaved draft')
-    await expect.poll(() => deletedSessions.length).toBeGreaterThan(0)
+    await expect.poll(() => deletedPreviewIds.length).toBeGreaterThan(0)
 
     await openProjectFile(page, 'html-preview-matrix', 'site/fragment.HTML')
     await expect(page.frameLocator('[data-testid="code-file-html-preview"]').locator('#fragment-title')).toHaveText('你好，Farming')
-    await expect.poll(() => deletedSessions.length).toBeGreaterThan(1)
+    await expect.poll(() => deletedPreviewIds.length).toBeGreaterThan(1)
   })
 
   test('cleans a delayed creation and recovers from a visible creation failure', async ({ page, workspaceRoot }) => {
@@ -184,22 +178,38 @@ test.describe('HTML Preview', () => {
     let releaseResponse = () => {}
     const responseGate = new Promise<void>(resolve => { releaseResponse = resolve })
     const deletedPreviewIds: string[] = []
-    page.on('request', request => {
-      const match = /\/api\/files\/previews\/([^/?]+)$/.exec(new URL(request.url()).pathname)
-      if (request.method() === 'DELETE' && match?.[1]) deletedPreviewIds.push(match[1])
-    })
-    const delayedCreation = async (route: Route) => {
-      if (route.request().method() !== 'POST') {
-        await route.continue()
+    let delayNextCreation = true
+    let forceNextCreationFailure = false
+    await interceptWorkspaceRequests(page, request => {
+      if (request.operation === 'delete-preview') {
+        deletedPreviewIds.push(request.previewId)
         return
       }
-      const response = await route.fetch()
-      const body = await response.json() as { preview?: { id?: string } }
-      createdPreviewId = body.preview?.id || ''
-      await responseGate
-      await route.fulfill({ response, json: body }).catch(() => {})
-    }
-    await page.route('**/api/files/previews', delayedCreation)
+      if (request.operation !== 'create-preview') return
+      if (forceNextCreationFailure) {
+        forceNextCreationFailure = false
+        return {
+          response: {
+            ok: false,
+            error: {
+              code: 'FORCED_PREVIEW_CREATION_FAILURE',
+              message: 'Forced preview creation failure',
+              status: 503,
+            },
+          },
+        }
+      }
+      if (!delayNextCreation) return
+      delayNextCreation = false
+      return {
+        onResult: async response => {
+          const preview = response.result as { id?: string } | undefined
+          createdPreviewId = preview?.id ?? ''
+          await responseGate
+          return response
+        },
+      }
+    })
 
     await openFarming(page)
     await openProjectFile(page, 'html-preview-lifecycle', 'site/index.html')
@@ -210,23 +220,10 @@ test.describe('HTML Preview', () => {
     const deletedSessionResponse = await page.request.get(`/farming/api/files/previews/${createdPreviewId}/base/index.html`)
     expect(deletedSessionResponse.status()).toBe(404)
 
-    await page.unroute('**/api/files/previews', delayedCreation)
-    const forcedFailure = async (route: Route) => {
-      if (route.request().method() === 'POST') {
-        await route.fulfill({
-          status: 503,
-          contentType: 'application/json',
-          body: JSON.stringify({ error: 'Forced preview creation failure' }),
-        })
-        return
-      }
-      await route.continue()
-    }
-    await page.route('**/api/files/previews', forcedFailure)
+    forceNextCreationFailure = true
     await openProjectFile(page, 'html-preview-lifecycle', 'site/error.html')
     await expect(page.getByTestId('code-file-html-preview-panel')).toContainText('Forced preview creation failure')
     await page.getByRole('button', { name: 'Show source' }).click()
-    await page.unroute('**/api/files/previews', forcedFailure)
     await page.getByRole('button', { name: 'Open preview' }).click()
     await expect(page.frameLocator('[data-testid="code-file-html-preview"]').locator('h1')).toHaveText('Error retry')
   })
@@ -241,15 +238,14 @@ test.describe('HTML Preview', () => {
     )
     fs.writeFileSync(path.join(externalWorkspace, 'assets', 'site.css'), 'h1 { color: rgb(10, 11, 12); }\n')
 
-    const requests: string[] = []
-    let previewCreationBody: { exact?: boolean; path?: string } | null = null
-    page.on('request', request => {
-      if (request.url().includes('/api/files/file?') || request.url().endsWith('/api/files/previews')) {
-        requests.push(`${request.method()} ${request.url()}`)
-      }
-      if (request.method() === 'POST' && request.url().endsWith('/api/files/previews')) {
-        previewCreationBody = request.postDataJSON() as { exact?: boolean; path?: string }
-      }
+    const workspaceRequests: Array<{ operation: string; exactExternal?: boolean; path?: string }> = []
+    await interceptWorkspaceRequests(page, request => {
+      if (request.operation !== 'read-file' && request.operation !== 'create-preview') return
+      workspaceRequests.push({
+        operation: request.operation,
+        path: request.path,
+        ...(request.exactExternal ? { exactExternal: true } : {}),
+      })
     })
     const params = new URLSearchParams({
       ftarget: 'file',
@@ -264,10 +260,12 @@ test.describe('HTML Preview', () => {
     await expect(frame.locator('h1')).toHaveText('External HTML')
     await expect.poll(() => frame.locator('h1').evaluate(element => getComputedStyle(element).color)).toBe('rgb(10, 11, 12)')
     await expect(frame.locator('body')).not.toHaveAttribute('data-script', 'ran')
-    expect(requests.some(request => request.includes('/api/files/file?') && request.includes('exact=1'))).toBe(true)
-    expect(requests.some(request => request.startsWith('POST ') && request.endsWith('/api/files/previews'))).toBe(true)
-    expect(previewCreationBody).toEqual(expect.objectContaining({ exact: true }))
-    expect(previewCreationBody?.path).toBe(fs.realpathSync(externalHtml).replace(/^\/+/, ''))
+    expect(workspaceRequests).toEqual(expect.arrayContaining([
+      expect.objectContaining({ operation: 'read-file', exactExternal: true }),
+      expect.objectContaining({ operation: 'create-preview', exactExternal: true }),
+    ]))
+    expect(workspaceRequests.find(request => request.operation === 'create-preview')?.path)
+      .toBe(fs.realpathSync(externalHtml).replace(/^\/+/, ''))
   })
 
   test('renews an expiring session without losing the rendered draft', async ({ page, workspaceRoot }) => {
@@ -277,22 +275,22 @@ test.describe('HTML Preview', () => {
 
     const createdPreviewIds: string[] = []
     const deletedPreviewIds: string[] = []
-    page.on('request', request => {
-      const match = /\/api\/files\/previews\/([^/?]+)$/.exec(new URL(request.url()).pathname)
-      if (request.method() === 'DELETE' && match?.[1]) deletedPreviewIds.push(match[1])
-    })
-    const shortFirstSession = async (route: Route) => {
-      if (route.request().method() !== 'POST') {
-        await route.continue()
+    await interceptWorkspaceRequests(page, request => {
+      if (request.operation === 'delete-preview') {
+        deletedPreviewIds.push(request.previewId)
         return
       }
-      const response = await route.fetch()
-      const body = await response.json() as { preview: { id: string; expiresAt: number } }
-      createdPreviewIds.push(body.preview.id)
-      if (createdPreviewIds.length === 1) body.preview.expiresAt = Date.now() + 1_200
-      await route.fulfill({ response, json: body })
-    }
-    await page.route('**/api/files/previews', shortFirstSession)
+      if (request.operation !== 'create-preview') return
+      return {
+        onResult: response => {
+          const preview = response.result as { id: string; expiresAt: number }
+          createdPreviewIds.push(preview.id)
+          return createdPreviewIds.length === 1
+            ? { ...response, result: { ...preview, expiresAt: Date.now() + 1_200 } }
+            : response
+        },
+      }
+    })
 
     await openFarming(page)
     await openProjectFile(page, 'html-preview-renewal', 'site/index.html')

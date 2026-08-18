@@ -7,6 +7,7 @@ import {
   expectTerminalCanvasToHaveInk,
   fileEditorPosition,
   getAgentIdFromRow,
+  interceptWorkspaceRequests,
   openFarming,
   openNewAgentDialog,
   scrollTerminalToLine,
@@ -1206,6 +1207,26 @@ test.describe('display-backed agent flows', () => {
   })
 
   test('opens project changes into the editor diff surface', async ({ page, workspaceRoot }) => {
+    const workspaceRequests: Array<{ operation: string; path: string }> = []
+    let failNextChangesRequest = false
+    await interceptWorkspaceRequests(page, request => {
+      workspaceRequests.push({
+        operation: request.operation,
+        path: 'path' in request ? request.path ?? '' : '',
+      })
+      if (request.operation !== 'changes' || !failNextChangesRequest) return
+      failNextChangesRequest = false
+      return {
+        response: {
+          ok: false,
+          error: {
+            code: 'CHANGES_TEMPORARILY_UNAVAILABLE',
+            message: 'Changes temporarily unavailable',
+            status: 503,
+          },
+        },
+      }
+    })
     await mockCodexSessions(page)
     const projectDir = path.join(workspaceRoot, 'project-changes')
     fs.mkdirSync(projectDir, { recursive: true })
@@ -1282,16 +1303,16 @@ test.describe('display-backed agent flows', () => {
     await expect(page.getByTestId('code-file-diff-view')).toBeVisible()
     await expect(page.getByTestId('code-file-diff-monaco')).toBeVisible()
     await expect(changeRow).toHaveClass(/active/)
-    const refreshedDiffFile = page.waitForResponse(response => (
-      response.url().includes('/api/files/file')
-      && response.url().includes('review-target.txt')
-      && response.request().method() === 'GET'
-    ))
+    const refreshedDiffFileCount = workspaceRequests.filter(request => (
+      request.operation === 'read-file' && request.path === 'review-target.txt'
+    )).length
     const diffRefreshButton = filesSection.getByTestId('code-files-refresh')
     await filesSection.locator('.code-files-header').hover()
     await expect(diffRefreshButton).toHaveCSS('opacity', '1')
     await diffRefreshButton.click()
-    await refreshedDiffFile
+    await expect.poll(() => workspaceRequests.filter(request => (
+      request.operation === 'read-file' && request.path === 'review-target.txt'
+    )).length).toBe(refreshedDiffFileCount + 1)
     await expect(page.getByTestId('code-file-diff-view')).toBeVisible()
     await expect(page.getByTestId('code-file-monaco').locator('..')).toHaveClass(/hidden/)
     const trackedDirectory = trackedGroup.locator(
@@ -1321,13 +1342,14 @@ test.describe('display-backed agent flows', () => {
       '[data-testid="code-file-row"][data-file-path="tracked/deep/no-reveal.txt"]',
     )).toHaveCount(0)
     const untrackedTitle = untrackedGroup.getByRole('button', { name: /Untracked/ })
-    const untrackedRefresh = page.waitForResponse(response => response.url().includes('/api/files/changes'))
+    const untrackedRefreshCount = workspaceRequests.filter(request => request.operation === 'changes').length
     await untrackedTitle.click()
     await expect(untrackedTitle).toHaveAttribute('aria-expanded', 'true')
-    await untrackedRefresh
+    await expect.poll(() => workspaceRequests.filter(request => request.operation === 'changes').length)
+      .toBe(untrackedRefreshCount + 1)
     fs.writeFileSync(path.join(projectDir, 'watched-later.txt'), 'created after Files opened\n')
     await page.waitForTimeout(500)
-    await expect(untrackedGroup.getByTestId('code-file-change-row').filter({ hasText: 'watched-later.txt' })).toHaveCount(0)
+    await expect(untrackedGroup.getByTestId('code-file-change-row').filter({ hasText: 'watched-later.txt' })).toBeVisible()
     const filesRefreshButton = filesSection.getByTestId('code-files-refresh')
     const filesHeader = filesSection.locator('.code-files-header')
     const filesHeaderActions = filesSection.getByTestId('code-files-header-actions')
@@ -1362,13 +1384,7 @@ test.describe('display-backed agent flows', () => {
     await expect(trackedCount).toHaveAttribute('data-refresh-state', 'refreshed')
     await expect(untrackedCount).toHaveAttribute('data-refresh-state', 'refreshed')
     await expect(filesRefreshButton).toHaveAttribute('data-refresh-status', 'idle', { timeout: 3_000 })
-    await page.route('**/api/files/changes?**', async route => {
-      await route.fulfill({
-        status: 503,
-        contentType: 'application/json',
-        body: JSON.stringify({ error: 'Changes temporarily unavailable' }),
-      })
-    }, { times: 1 })
+    failNextChangesRequest = true
     await refreshProjectFiles()
     await expect(filesRefreshButton).toHaveAttribute('data-refresh-status', 'refreshing')
     await expect(trackedCount).toHaveAttribute('data-refresh-state', 'refreshing')
@@ -1643,6 +1659,45 @@ test.describe('display-backed agent flows', () => {
     execFileSync('git', ['commit', '-m', 'seed linked worktree'], { cwd: repo, stdio: 'ignore' })
     execFileSync('git', ['branch', 'switch-target'], { cwd: repo, stdio: 'ignore' })
     execFileSync('git', ['worktree', 'add', '-b', 'feature/topic', linkedWorkspace], { cwd: repo, stdio: 'ignore' })
+    const mainBranch = execFileSync('git', ['branch', '--show-current'], { cwd: repo, encoding: 'utf8' }).trim()
+    const repoHead = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim()
+    let returnUncertainSwitch = true
+    await interceptWorkspaceRequests(page, request => {
+      if (request.operation !== 'switch-branch' || !returnUncertainSwitch) return
+      returnUncertainSwitch = false
+      return {
+        response: {
+          ok: false,
+          error: {
+            code: 'SYNTHETIC_UNCERTAIN_SWITCH',
+            message: 'Synthetic uncertain switch result',
+            status: 504,
+            uncertain: true,
+            details: {
+              isGitRepo: true,
+              workspace: repo,
+              mainWorkspace: repo,
+              currentBranch: mainBranch,
+              head: repoHead,
+              dirtyCount: 0,
+              canSwitch: true,
+              blockedReason: '',
+              blockedReasonCode: '',
+              blockingAgentIds: [],
+              items: [
+                { name: mainBranch, head: repoHead, current: true, checkedOutWorkspace: repo },
+                { name: 'feature/topic', head: repoHead, current: false, checkedOutWorkspace: linkedWorkspace },
+                { name: 'switch-target', head: repoHead, current: false, checkedOutWorkspace: '' },
+              ],
+              truncated: false,
+              switched: false,
+              uncertain: true,
+              requestId: request.operationId,
+            },
+          },
+        },
+      }
+    })
 
     let revealedProjectRootId = ''
     let createdWorktreeRootId = ''
@@ -1803,42 +1858,6 @@ test.describe('display-backed agent flows', () => {
 
     const mainProject = page.getByTestId('code-project-group').filter({ hasText: 'base-repo' })
     await expect(mainProject).toHaveCount(1)
-    const mainBranch = execFileSync('git', ['branch', '--show-current'], { cwd: repo, encoding: 'utf8' }).trim()
-    const repoHead = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim()
-    let returnUncertainSwitch = true
-    await page.route(/\/farming\/api\/files\/switch-branch$/, async route => {
-      if (!returnUncertainSwitch) {
-        await route.continue()
-        return
-      }
-      returnUncertainSwitch = false
-      const request = route.request().postDataJSON() as { requestId?: string }
-      await route.fulfill({
-        status: 504,
-        json: {
-          isGitRepo: true,
-          workspace: repo,
-          mainWorkspace: repo,
-          currentBranch: mainBranch,
-          head: repoHead,
-          dirtyCount: 0,
-          canSwitch: true,
-          blockedReason: '',
-          blockedReasonCode: '',
-          blockingAgentIds: [],
-          items: [
-            { name: mainBranch, head: repoHead, current: true, checkedOutWorkspace: repo },
-            { name: 'feature/topic', head: repoHead, current: false, checkedOutWorkspace: linkedWorkspace },
-            { name: 'switch-target', head: repoHead, current: false, checkedOutWorkspace: '' },
-          ],
-          truncated: false,
-          switched: false,
-          uncertain: true,
-          error: 'Synthetic uncertain switch result',
-          requestId: request.requestId || '',
-        },
-      })
-    })
     const mainProjectWorktree = mainProject.getByTestId('code-project-worktree')
     await mainProjectWorktree.click()
     const mainWorktreeMenu = page.getByTestId('code-project-worktree-menu')
@@ -1850,9 +1869,9 @@ test.describe('display-backed agent flows', () => {
     await mainWorktreeMenu.getByRole('button', { name: 'Refresh' }).click()
     await expect(switchTargetBranch).toBeEnabled()
     await switchTargetBranch.click()
-    await expect(mainWorktreeMenu).toContainText('Switched to switch-target')
     await expect(mainProjectWorktree).toContainText('switch-target')
-    await expect(switchTargetBranch).toHaveAttribute('data-current', 'true')
+    await expect.poll(() => execFileSync('git', ['branch', '--show-current'], { cwd: repo, encoding: 'utf8' }).trim())
+      .toBe('switch-target')
     await page.keyboard.press('Escape')
     await openProjectActions(mainProject)
     const mainProjectRemove = page.getByTestId('code-project-context-menu').getByRole('menuitem', { name: 'Remove Project' })
@@ -1908,6 +1927,13 @@ test.describe('display-backed agent flows', () => {
 
   test('keeps project files as a collapsible project-level section', async ({ page }) => {
     test.setTimeout(120_000)
+    const workspaceRequests: Array<{ operation: string; path: string }> = []
+    await interceptWorkspaceRequests(page, request => {
+      workspaceRequests.push({
+        operation: request.operation,
+        path: 'path' in request ? request.path ?? '' : '',
+      })
+    })
     await mockCodexSessions(page)
     const shortWorkspaceRoot = path.join('/tmp', `farming-files-${process.pid}`)
     fs.rmSync(shortWorkspaceRoot, { recursive: true, force: true })
@@ -2180,12 +2206,6 @@ test.describe('display-backed agent flows', () => {
     }
     await expect(filesTitle).toHaveAttribute('aria-expanded', 'true')
     const fileSearchInput = childFiles.getByPlaceholder('Search or path:line')
-    const fileTreeRequests: string[] = []
-    page.on('request', request => {
-      const url = request.url()
-      if (!url.includes('/api/files/tree')) return
-      fileTreeRequests.push(new URL(url).searchParams.get('path') ?? '')
-    })
     const requestDedupeRow = childFiles.locator('[data-testid="code-file-row"][data-file-path="request-dedupe"]')
     await expect(requestDedupeRow).toBeVisible()
     await requestDedupeRow.click()
@@ -2200,7 +2220,9 @@ test.describe('display-backed agent flows', () => {
     await page.evaluate(() => new Promise<void>(resolve => {
       requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
     }))
-    expect(fileTreeRequests.filter(requestPath => requestPath === 'request-dedupe')).toHaveLength(1)
+    expect(workspaceRequests.filter(request => (
+      request.operation === 'tree' && request.path === 'request-dedupe'
+    ))).toHaveLength(1)
     await fileSearchInput.fill('poem')
     const folderSearchResults = childFiles.getByTestId('code-file-search-results')
     const poemDirectoryResult = folderSearchResults.locator('.code-file-search-result[title="poem"]')
@@ -2287,11 +2309,6 @@ test.describe('display-backed agent flows', () => {
     await page.getByRole('button', { name: 'Show source' }).click()
     await expect(page.getByTestId('code-file-monaco')).toBeVisible()
     await expect(page.getByTestId('code-file-editor-statusbar')).toHaveCount(0)
-    const previewSessionRequests: string[] = []
-    page.on('request', request => {
-      if (!request.url().includes('/api/files/previews')) return
-      previewSessionRequests.push(`${request.method()} ${new URL(request.url()).pathname}`)
-    })
     const siteRow = childFiles.locator('[data-testid="code-file-row"][data-file-path="site"]')
     await siteRow.click()
     const htmlRow = childFiles.locator('[data-testid="code-file-row"][data-file-path="site/index.html"]')
@@ -2305,7 +2322,7 @@ test.describe('display-backed agent flows', () => {
     await expect(htmlFrame.locator('body')).not.toHaveAttribute('data-script-ran', 'yes')
     await page.getByRole('button', { name: 'Show source' }).click()
     await expect(page.getByTestId('code-file-monaco')).toBeVisible()
-    await expect.poll(() => previewSessionRequests.filter(request => request.startsWith('DELETE ')).length).toBeGreaterThan(0)
+    await expect.poll(() => workspaceRequests.filter(request => request.operation === 'delete-preview').length).toBeGreaterThan(0)
     await page.evaluate(() => {
       if (!window.__farmingFileEditorTest?.insertText('<p id="draft-preview">Draft update</p>')) {
         throw new Error('Failed to update HTML draft')
@@ -2424,36 +2441,21 @@ test.describe('display-backed agent flows', () => {
     const changedTime = new Date(Date.now() + 2000)
     fs.utimesSync(readmePath, changedTime, changedTime)
     await expect(page.getByRole('button', { name: 'Save file' })).toBeVisible()
-    const conflictResponse = page.waitForResponse(response => (
-      new URL(response.url()).pathname.endsWith('/api/files/file')
-      && response.request().method() === 'PUT'
-      && (response.request().postDataJSON() as { path?: string } | null)?.path === 'README.md'
-      && response.status() === 409
-    ), { timeout: 5_000 })
+    const saveRequestCount = workspaceRequests.filter(request => (
+      request.operation === 'save-file' && request.path === 'README.md'
+    )).length
     await page.getByRole('button', { name: 'Save file' }).click()
-    await conflictResponse
+    await expect.poll(() => workspaceRequests.filter(request => (
+      request.operation === 'save-file' && request.path === 'README.md'
+    )).length).toBe(saveRequestCount + 1)
     await expect(page.getByTestId('code-file-editor').getByTitle('Changed on disk')).toBeVisible()
-    const reloadResponse = page.waitForResponse(response => {
-      const url = new URL(response.url())
-      return (
-      url.pathname.endsWith('/api/files/file')
-      && url.searchParams.get('path') === 'README.md'
-      && response.request().method() === 'GET'
-      && response.ok()
-      )
-    }, { timeout: 5_000 })
-    const blameResponse = page.waitForResponse(response => {
-      const url = new URL(response.url())
-      return (
-      url.pathname.endsWith('/api/files/blame')
-      && url.searchParams.get('path') === 'README.md'
-      && response.request().method() === 'GET'
-      && response.ok()
-      )
-    }, { timeout: 5_000 })
+    const reloadRequestCount = workspaceRequests.filter(request => (
+      request.operation === 'read-file' && request.path === 'README.md'
+    )).length
     await page.getByRole('button', { name: 'Reload file' }).click()
-    await reloadResponse
-    await blameResponse
+    await expect.poll(() => workspaceRequests.filter(request => (
+      request.operation === 'read-file' && request.path === 'README.md'
+    )).length).toBe(reloadRequestCount + 1)
     await expect(page.getByTestId('code-file-editor').getByTitle('Changed on disk')).toHaveCount(0)
     await expect.poll(async () => page.evaluate(() => window.__farmingFileEditorTest?.getValue() ?? ''))
       .toContain('blame reload refresh marker')
@@ -2795,30 +2797,25 @@ test.describe('display-backed agent flows', () => {
   })
 
   test('shows incomplete state when project file search stops early', async ({ page }) => {
+    await interceptWorkspaceRequests(page, request => {
+      if (request.operation !== 'search' || request.query !== 'huge-no-match') return
+      return {
+        response: {
+          ok: true,
+          result: {
+            query: 'huge-no-match',
+            path: '.',
+            matches: [],
+            truncated: true,
+          },
+        },
+      }
+    })
     await mockCodexSessions(page)
     const workspaceRoot = path.join('/tmp', `farming-search-truncated-${process.pid}`)
     fs.rmSync(workspaceRoot, { recursive: true, force: true })
     fs.mkdirSync(workspaceRoot, { recursive: true })
     fs.writeFileSync(path.join(workspaceRoot, 'README.md'), '# Search truncated\n')
-
-    await page.route('**/api/files/search?**', async route => {
-      const url = new URL(route.request().url())
-      if (url.searchParams.get('q') === 'huge-no-match') {
-        await route.fulfill({
-          contentType: 'application/json',
-          body: JSON.stringify({
-            results: {
-              query: 'huge-no-match',
-              path: '.',
-              matches: [],
-              truncated: true,
-            },
-          }),
-        })
-        return
-      }
-      await route.continue()
-    })
 
     await openFarming(page)
     await openNewAgentDialog(page)

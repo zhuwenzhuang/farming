@@ -177,9 +177,28 @@ test('promotes an external Chat file link to its nearest Git Project', async ({ 
   const agentId = await createChatAgent(page, launcherWorkspace)
   let forceGlobalFallback = true
   const navigationResponses: Response[] = []
+  const workspaceFileReads: Array<{ path: string; exactExternal?: boolean }> = []
+  page.on('websocket', socket => {
+    socket.on('framesent', ({ payload }) => {
+      try {
+        const message = JSON.parse(String(payload)) as {
+          type?: string
+          request?: { operation?: string; path?: string; exactExternal?: boolean }
+        }
+        if (message.type === 'workspace-request' && message.request?.operation === 'read-file') {
+          workspaceFileReads.push({
+            path: message.request.path ?? '',
+            ...(message.request.exactExternal ? { exactExternal: true } : {}),
+          })
+        }
+      } catch {
+        // Ignore terminal and other non-JSON websocket frames.
+      }
+    })
+  })
   page.on('response', response => {
     const pathname = new URL(response.url()).pathname
-    if (pathname.endsWith('/api/projects/mount-file') || pathname.endsWith('/api/files/file')) {
+    if (pathname.endsWith('/api/projects/mount-file')) {
       navigationResponses.push(response)
     }
   })
@@ -239,23 +258,14 @@ test('promotes an external Chat file link to its nearest Git Project', async ({ 
     return `${response.request().method()} ${pathname} ${response.status()}`
   }), { timeout: 5_000 }).toEqual(expect.arrayContaining([
     'POST /farming/api/projects/mount-file 200',
-    'GET /farming/api/files/file 200',
   ]))
+  await expect.poll(() => workspaceFileReads).toContainEqual({ path: 'compiler/src/SmartOpen.java' })
   const mounted = navigationResponses.slice(responseStart).find(response => (
     response.request().method() === 'POST'
     && new URL(response.url()).pathname.endsWith('/api/projects/mount-file')
   ))
-  const projectFileReadResponse = navigationResponses.slice(responseStart).find(response => (
-    new URL(response.url()).pathname.endsWith('/api/files/file')
-  ))
-  if (!mounted || !projectFileReadResponse) throw new Error('Expected bounded mount and file responses')
+  if (!mounted) throw new Error('Expected bounded mount response')
   expect((await mounted.json()).workspace).toBe(fs.realpathSync(repository))
-  const projectFileReadUrl = new URL(projectFileReadResponse.url())
-  expect({
-    ok: projectFileReadResponse.ok(),
-    path: projectFileReadUrl.searchParams.get('path'),
-    exact: projectFileReadUrl.searchParams.get('exact'),
-  }).toEqual({ ok: true, path: 'compiler/src/SmartOpen.java', exact: null })
 
   const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(repository) })
   await expect(project).toBeVisible()

@@ -309,9 +309,12 @@ async function runWorkspaceRequest<T>(
     return await requestWorkspace<T>(request, options)
   } catch (error) {
     if (error instanceof WorkspaceTransportError) {
+      const structuredDetails = error.details && typeof error.details === 'object'
+        ? error.details as Record<string, unknown>
+        : null
       throw new WorkspaceFileApiError(error.message, error.status, {
+        ...(structuredDetails ?? (error.details === undefined ? {} : { details: error.details })),
         code: error.code,
-        details: error.details,
         uncertain: error.uncertain,
       })
     }

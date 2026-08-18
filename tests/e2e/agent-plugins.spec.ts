@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { WebSocketRoute } from '@playwright/test'
-import { expect, openFarming, test } from './fixtures'
+import { expect, interceptWorkspaceRequests, openFarming, test } from './fixtures'
 import { selectCodeOption } from './code-select'
 
 test('Plugins treats each Agent Home as an independent ordered Agent configuration', async ({ page, workspaceRoot }) => {
@@ -274,6 +274,29 @@ test('Plugins reports a disconnected inventory read and retries after reconnecti
 test('Plugins shows a read-only extension catalog from one exact Agent Home', {
   tag: ['@critical-behavior', '@behavior-CODE-PLUGINS-SOURCE-NAVIGATION'],
 }, async ({ page, workspaceRoot }) => {
+  const pluginSourcePath = 'plugins/example/.codex-plugin/plugin.json'
+  let failNextSourceRead = true
+  let blockNextSourceRead = false
+  let releaseSourceRead = () => {}
+  let markSourceReadStarted = () => {}
+  const sourceReadGate = new Promise<void>(resolve => { releaseSourceRead = resolve })
+  const sourceReadStarted = new Promise<void>(resolve => { markSourceReadStarted = resolve })
+  await interceptWorkspaceRequests(page, async request => {
+    if (request.operation !== 'read-file' || request.path !== pluginSourcePath) return
+    if (failNextSourceRead) {
+      failNextSourceRead = false
+      return {
+        response: {
+          ok: false,
+          error: { code: 'FIXTURE_READ_FAILURE', message: 'fixture read failure', status: 500 },
+        },
+      }
+    }
+    if (!blockNextSourceRead) return
+    blockNextSourceRead = false
+    markSourceReadStarted()
+    await sourceReadGate
+  })
   await openFarming(page)
   const codexHome = path.join(workspaceRoot, 'codex-catalog')
   const pluginRoot = path.join(codexHome, 'plugins', 'example')
@@ -419,32 +442,11 @@ test('Plugins shows a read-only extension catalog from one exact Agent Home', {
     return element.scrollTop
   })
   expect(pluginScrollTop).toBeGreaterThan(0)
-  await page.route(/\/farming\/api\/files\/file\?/, async route => {
-    const requestUrl = new URL(route.request().url())
-    if (requestUrl.searchParams.get('path') !== 'plugins/example/.codex-plugin/plugin.json') {
-      await route.continue()
-      return
-    }
-    await route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"fixture read failure"}' })
-  }, { times: 1 })
   await detail.getByRole('button', { name: 'Open source file' }).click()
   await expect(detail).toContainText('Example Plugin')
   await expect(page.getByTestId('code-file-editor')).toHaveCount(0)
 
-  let releaseSourceRead = () => {}
-  let markSourceReadStarted = () => {}
-  const sourceReadGate = new Promise<void>(resolve => { releaseSourceRead = resolve })
-  const sourceReadStarted = new Promise<void>(resolve => { markSourceReadStarted = resolve })
-  await page.route(/\/farming\/api\/files\/file\?/, async route => {
-    const requestUrl = new URL(route.request().url())
-    if (requestUrl.searchParams.get('path') !== 'plugins/example/.codex-plugin/plugin.json') {
-      await route.continue()
-      return
-    }
-    markSourceReadStarted()
-    await sourceReadGate
-    await route.continue()
-  })
+  blockNextSourceRead = true
   const openSource = detail.getByRole('button', { name: 'Open source file' }).click()
   await sourceReadStarted
   await expect(panel.getByTestId('code-plugin-detail-dialog')).toContainText('Example Plugin')

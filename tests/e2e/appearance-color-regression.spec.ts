@@ -148,6 +148,9 @@ test('Light, Dark, and Paper editor tabs keep their surfaces and file-icon color
   if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
   for (const name of ['meta_manager.cpp', 'FilterToPot.java', 'sleeper.cpp', 'worker.cpp', 'operator_profile.osql']) {
     await files.locator(`[data-testid="code-file-row"][data-file-path="${name}"]`).dblclick()
+    const openedTab = page.getByTestId('code-file-editor').getByRole('tab').filter({ hasText: name })
+    await expect(openedTab).toHaveAttribute('aria-selected', 'true')
+    await expect(openedTab).not.toHaveAttribute('data-preview', 'true')
   }
 
   const editor = page.getByTestId('code-file-editor')

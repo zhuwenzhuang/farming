@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import {
   expect,
+  interceptWorkspaceRequests,
   openFarming,
   openNewAgentDialog,
   PLAYWRIGHT_WORKSPACE_ROOT,
@@ -14,6 +15,14 @@ test('contains file save confirmation focus and restores the close trigger', asy
   fs.rmSync(workspaceRoot, { recursive: true, force: true })
   fs.mkdirSync(workspaceRoot, { recursive: true })
   fs.writeFileSync(path.join(workspaceRoot, 'draft.txt'), 'original\n')
+  let blockSave = false
+  let releaseSave!: () => void
+  const saveGate = new Promise<void>(resolve => {
+    releaseSave = resolve
+  })
+  await interceptWorkspaceRequests(page, async request => {
+    if (request.operation === 'save-file' && blockSave) await saveGate
+  })
 
   await openFarming(page)
   await openNewAgentDialog(page)
@@ -55,28 +64,15 @@ test('contains file save confirmation focus and restores the close trigger', asy
   await expect(closeButton).toBeFocused()
   await expect(page.locator('#root')).not.toHaveAttribute('inert', '')
 
-  let releaseSave!: () => void
-  const saveGate = new Promise<void>(resolve => {
-    releaseSave = resolve
-  })
-  await page.route('**/api/files/file', async route => {
-    if (route.request().method() === 'PUT') await saveGate
-    await route.continue()
-  })
+  blockSave = true
   await activeTab.hover()
   await closeButton.click()
   await expect(cancelButton).toBeFocused()
-  const saveResponse = page.waitForResponse(response => (
-    new URL(response.url()).pathname.endsWith('/api/files/file')
-    && response.request().method() === 'PUT'
-    && response.ok()
-  ))
   await saveButton.click()
   await expect(dialog.locator('button.primary')).toBeDisabled()
   await page.keyboard.press('Escape')
   await expect(modal).toBeVisible()
   releaseSave()
-  await saveResponse
   await expect(modal).toHaveCount(0)
   await expect(activeTab).toHaveCount(0)
 })

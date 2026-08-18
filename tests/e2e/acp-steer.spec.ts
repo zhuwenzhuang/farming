@@ -246,9 +246,14 @@ test('queues a follow-up and explicitly sends negotiated Codex ACP steer', async
         return resolved
       }
       const style = getComputedStyle(element)
+      const darkAppearance = bodyStyle.colorScheme === 'dark'
       return {
-        backgroundMatches: style.backgroundColor === resolveColor(bodyStyle.getPropertyValue('--code-emphasis')),
-        colorMatches: style.color === resolveColor(bodyStyle.getPropertyValue('--code-text-on-emphasis')),
+        backgroundMatches: style.backgroundColor === resolveColor(bodyStyle.getPropertyValue(
+          darkAppearance ? '--code-text-muted' : '--code-emphasis',
+        )),
+        colorMatches: style.color === resolveColor(bodyStyle.getPropertyValue(
+          darkAppearance ? '--code-bg-canvas' : '--code-text-on-emphasis',
+        )),
       }
     })).toEqual({ backgroundMatches: true, colorMatches: true })
   }

@@ -472,6 +472,26 @@ async function runDesktopTerminalMatrix(
     fs.writeFileSync(path.join(projectDir, 'src', 'duplicates', 'a', 'duplicate.txt'), 'first\n')
     fs.writeFileSync(path.join(projectDir, 'src', 'duplicates', 'b', 'duplicate.txt'), 'second\n')
 
+    const workspaceFileReads: Array<{ path: string; exactExternal?: boolean }> = []
+    page.on('websocket', socket => {
+      socket.on('framesent', ({ payload }) => {
+        try {
+          const message = JSON.parse(String(payload)) as {
+            type?: string
+            request?: { operation?: string; path?: string; exactExternal?: boolean }
+          }
+          if (message.type === 'workspace-request' && message.request?.operation === 'read-file') {
+            workspaceFileReads.push({
+              path: message.request.path ?? '',
+              ...(message.request.exactExternal ? { exactExternal: true } : {}),
+            })
+          }
+        } catch {
+          // Ignore terminal and other non-JSON websocket frames.
+        }
+      })
+    })
+
     await openFarming(page)
     await installClipboardProbe(page)
     await installWindowOpenProbe(page)
@@ -1365,17 +1385,14 @@ async function runDesktopTerminalMatrix(
     await scenario('plain-clicking an external absolute terminal path opens its exact readable file without selecting it', async () => {
       const externalDirectory = fs.mkdtempSync('/tmp/farming-terminal-exact-file-')
       const externalFile = path.join(externalDirectory, 'README.md')
-      fs.writeFileSync(externalFile, '# External terminal file\n')
+        fs.writeFileSync(externalFile, '# External terminal file\n')
       try {
         await writeTerminalFixture(page, bashAgentId, `${externalFile}\r\n`)
         const cell = await cellForText(page, bashAgentId, externalFile, 2)
-        const externalRead = page.waitForResponse(response => (
-          response.url().includes('/api/files/file?')
-          && response.url().includes('exact=1')
-          && response.url().includes(encodeURIComponent(externalDirectory.replace(/^\/+/, '')))
-        ))
         await page.mouse.click(cell.x, cell.y)
-        expect((await externalRead).status()).toBe(200)
+        await expect.poll(() => workspaceFileReads.some(request => (
+          request.path === externalFile.replace(/^\/+/, '') && request.exactExternal === true
+        ))).toBe(true)
         await expect(page.getByTestId('code-file-editor')).toBeVisible()
         await expect(page.getByTestId('code-file-editor').getByRole('tab', { selected: true })).toContainText('README.md')
         await expect.poll(async () => {

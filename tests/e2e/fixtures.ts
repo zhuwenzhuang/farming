@@ -8,7 +8,10 @@ import type {
 } from '../../src/lib/terminal-session-diagnostics'
 import type {
   LanguageServerRequestPayload,
+  WorkspaceRequest,
+  WorkspaceRequestMessage,
   WorkspaceProtocolError,
+  WorkspaceResultMessage,
 } from '../../shared/browser-protocol'
 
 // macOS exposes the same temporary directory through both /var and /private/var.
@@ -131,6 +134,71 @@ export type MockLanguageServerResult = {
   result?: unknown
   supported?: boolean
   error?: WorkspaceProtocolError
+}
+
+export type WorkspaceRequestInterception = {
+  response?: Omit<WorkspaceResultMessage, 'type' | 'requestId'>
+  onResult?: (
+    message: WorkspaceResultMessage,
+  ) => WorkspaceResultMessage | null | Promise<WorkspaceResultMessage | null>
+}
+
+export async function interceptWorkspaceRequests(
+  page: Page,
+  handler: (
+    request: WorkspaceRequest,
+    message: WorkspaceRequestMessage,
+  ) => WorkspaceRequestInterception | void | Promise<WorkspaceRequestInterception | void>,
+) {
+  await page.routeWebSocket(/\/farming\/ws(?:\?|$)/, socket => {
+    const server = socket.connectToServer()
+    const resultHandlers = new Map<string, NonNullable<WorkspaceRequestInterception['onResult']>>()
+    socket.onMessage(async payload => {
+      let message: WorkspaceRequestMessage | null = null
+      try {
+        const parsed = JSON.parse(String(payload)) as WorkspaceRequestMessage
+        if (parsed.type === 'workspace-request' && parsed.requestId && parsed.request) message = parsed
+      } catch {
+        // Non-JSON frames belong to another protocol and pass through unchanged.
+      }
+      if (!message) {
+        server.send(payload)
+        return
+      }
+      const interception = await handler(message.request, message)
+      if (interception?.response) {
+        socket.send(JSON.stringify({
+          type: 'workspace-result',
+          requestId: message.requestId,
+          ...interception.response,
+        } satisfies WorkspaceResultMessage))
+        return
+      }
+      if (interception?.onResult) resultHandlers.set(message.requestId, interception.onResult)
+      server.send(payload)
+    })
+    server.onMessage(async payload => {
+      let message: WorkspaceResultMessage | null = null
+      try {
+        const parsed = JSON.parse(String(payload)) as WorkspaceResultMessage
+        if (parsed.type === 'workspace-result' && parsed.requestId) message = parsed
+      } catch {
+        // Non-JSON frames belong to another protocol and pass through unchanged.
+      }
+      if (!message) {
+        socket.send(payload)
+        return
+      }
+      const resultHandler = resultHandlers.get(message.requestId)
+      if (!resultHandler) {
+        socket.send(payload)
+        return
+      }
+      resultHandlers.delete(message.requestId)
+      const nextMessage = await resultHandler(message)
+      if (nextMessage) socket.send(JSON.stringify(nextMessage))
+    })
+  })
 }
 
 export async function mockLanguageServerTransport(
