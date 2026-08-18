@@ -670,10 +670,9 @@ test.describe('display-backed agent flows', () => {
 
   test('renders empty workspace guidance and routes its actions', async ({ page, workspaceRoot }) => {
     const globalWorktreeRequests: string[] = []
-    page.on('request', request => {
-      const url = new URL(request.url())
-      if (url.pathname.endsWith('/api/files/worktrees') && url.searchParams.get('rootId') === 'wroot_global') {
-        globalWorktreeRequests.push(request.url())
+    await interceptWorkspaceRequests(page, request => {
+      if (request.operation === 'worktrees' && request.rootId === 'wroot_global') {
+        globalWorktreeRequests.push(request.rootId)
       }
     })
     await prepareEmptyWorkspaceHistory(page, workspaceRoot)

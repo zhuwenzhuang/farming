@@ -60,6 +60,7 @@ type FileNodeRendererContextValue = Omit<
   FileTreeViewProps,
   | 'activeFilePath'
   | 'handleTreeKeyDownCapture'
+  | 'openFilePendingPath'
   | 'renderFileTreeRow'
   | 'rowHeight'
   | 'stickyContextItems'
@@ -73,6 +74,7 @@ type FileNodeRendererContextValue = Omit<
   | 'onTreeSelect'
 > & {
   activeFilePathStore: ActiveFilePathStore
+  openFilePendingPathStore: ActiveFilePathStore
   selectedFilePathStore: SelectedFilePathStore
   onSelectFilePath: (filePath: string) => () => void
 }
@@ -168,6 +170,7 @@ type SubscribedFileTreeRowProps = FileNodeRendererContextValue & {
 
 const SubscribedFileTreeRow = memo(function SubscribedFileTreeRow({
   activeFilePathStore,
+  openFilePendingPathStore,
   selectedFilePathStore,
   node,
   nodeRenderState: _nodeRenderState,
@@ -182,6 +185,15 @@ const SubscribedFileTreeRow = memo(function SubscribedFileTreeRow({
     [activeFilePathStore, node.data.path],
   )
   const active = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+  const subscribePending = useCallback(
+    (listener: () => void) => openFilePendingPathStore.subscribe(node.data.path, listener),
+    [node.data.path, openFilePendingPathStore],
+  )
+  const getPendingSnapshot = useCallback(
+    () => openFilePendingPathStore.isActive(node.data.path),
+    [node.data.path, openFilePendingPathStore],
+  )
+  const pending = useSyncExternalStore(subscribePending, getPendingSnapshot, getPendingSnapshot)
   const subscribeSelected = useCallback(
     (listener: () => void) => selectedFilePathStore.subscribe(node.data.path, listener),
     [node.data.path, selectedFilePathStore],
@@ -196,6 +208,7 @@ const SubscribedFileTreeRow = memo(function SubscribedFileTreeRow({
       {...rowProps}
       activeFilePath={active ? node.data.path : undefined}
       node={node}
+      openFilePendingPath={pending ? node.data.path : undefined}
       selected={selected}
     />
   )
@@ -216,6 +229,7 @@ const SubscribedFileTreeRow = memo(function SubscribedFileTreeRow({
 
 const FileTreeViewContent = memo(function FileTreeViewContent({
   activeFilePathStore,
+  openFilePendingPathStore,
   selectedFilePathStore,
   agentId,
   copy,
@@ -226,7 +240,6 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
   handleTreeKeyDownCapture,
   lastFocusedFilePathRef,
   locatedFilePath,
-  openFilePendingPath,
   renderFileTreeRow,
   rowHeight,
   stickyContextItems,
@@ -249,8 +262,9 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
   onTreeFocus,
   onTreeSelect,
   onUpdateFileOperationName,
-}: Omit<FileTreeViewProps, 'activeFilePath'> & {
+}: Omit<FileTreeViewProps, 'activeFilePath' | 'openFilePendingPath'> & {
   activeFilePathStore: ActiveFilePathStore
+  openFilePendingPathStore: ActiveFilePathStore
   selectedFilePathStore: SelectedFilePathStore
   onSelectFilePath: (filePath: string) => () => void
 }) {
@@ -313,6 +327,7 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
 
   const nodeRendererContext = useMemo<FileNodeRendererContextValue>(() => ({
     activeFilePathStore,
+    openFilePendingPathStore,
     selectedFilePathStore,
     agentId,
     copy,
@@ -322,7 +337,6 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
     fileOperationInputRef,
     lastFocusedFilePathRef,
     locatedFilePath,
-    openFilePendingPath,
     treeViewportRef,
     onCancelPendingFileFocus,
     onCloseFileOperation,
@@ -336,6 +350,7 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
     onUpdateFileOperationName,
   }), [
     activeFilePathStore,
+    openFilePendingPathStore,
     selectedFilePathStore,
     agentId,
     copy,
@@ -345,7 +360,6 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
     fileOperationInputRef,
     lastFocusedFilePathRef,
     locatedFilePath,
-    openFilePendingPath,
     treeViewportRef,
     onCancelPendingFileFocus,
     onCloseFileOperation,
@@ -406,10 +420,13 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
   )
 })
 
-export function FileTreeView({ activeFilePath, onTreeSelect, ...treeProps }: FileTreeViewProps) {
+export function FileTreeView({ activeFilePath, openFilePendingPath, onTreeSelect, ...treeProps }: FileTreeViewProps) {
   const activeFilePathStoreRef = useRef<ActiveFilePathStore | null>(null)
   if (!activeFilePathStoreRef.current) activeFilePathStoreRef.current = new ActiveFilePathStore()
   const activeFilePathStore = activeFilePathStoreRef.current
+  const openFilePendingPathStoreRef = useRef<ActiveFilePathStore | null>(null)
+  if (!openFilePendingPathStoreRef.current) openFilePendingPathStoreRef.current = new ActiveFilePathStore()
+  const openFilePendingPathStore = openFilePendingPathStoreRef.current
   const selectedFilePathStoreRef = useRef<SelectedFilePathStore | null>(null)
   if (!selectedFilePathStoreRef.current) selectedFilePathStoreRef.current = new SelectedFilePathStore()
   const selectedFilePathStore = selectedFilePathStoreRef.current
@@ -417,6 +434,9 @@ export function FileTreeView({ activeFilePath, onTreeSelect, ...treeProps }: Fil
   useLayoutEffect(() => {
     activeFilePathStore.set(activeFilePath)
   }, [activeFilePath, activeFilePathStore])
+  useLayoutEffect(() => {
+    openFilePendingPathStore.set(openFilePendingPath || undefined)
+  }, [openFilePendingPath, openFilePendingPathStore])
   const handleSelectFilePath = useCallback((filePath: string) => {
     if (treeSelectionTimerRef.current !== null) {
       window.clearTimeout(treeSelectionTimerRef.current)
@@ -449,6 +469,7 @@ export function FileTreeView({ activeFilePath, onTreeSelect, ...treeProps }: Fil
     <FileTreeViewContent
       {...treeProps}
       activeFilePathStore={activeFilePathStore}
+      openFilePendingPathStore={openFilePendingPathStore}
       selectedFilePathStore={selectedFilePathStore}
       onSelectFilePath={handleSelectFilePath}
       onTreeSelect={handleTreeSelect}

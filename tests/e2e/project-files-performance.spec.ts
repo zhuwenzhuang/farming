@@ -3,14 +3,15 @@ import path from 'node:path'
 import {
   expect,
   openFarming,
-  openNewAgentDialog,
   PLAYWRIGHT_WORKSPACE_ROOT,
-  startAgentFromOpenDialog,
   test,
 } from './fixtures'
 
 test('keeps large expanded file trees off the warm file-switch render path', async ({ page }, testInfo) => {
-  const workspaceRoot = path.join(PLAYWRIGHT_WORKSPACE_ROOT, 'project-files-performance')
+  const workspaceRoot = path.join(
+    PLAYWRIGHT_WORKSPACE_ROOT,
+    `project-files-performance-${testInfo.repeatEachIndex}`,
+  )
   fs.rmSync(workspaceRoot, { recursive: true, force: true })
   fs.mkdirSync(workspaceRoot, { recursive: true })
   for (let index = 0; index < 2_000; index += 1) {
@@ -40,9 +41,9 @@ test('keeps large expanded file trees off the warm file-switch render path', asy
     }
   })
 
+  const mount = await page.request.post('/farming/api/projects/mount', { data: { workspace: workspaceRoot } })
+  expect(mount.ok()).toBe(true)
   await openFarming(page)
-  await openNewAgentDialog(page)
-  await startAgentFromOpenDialog(page, 'bash', workspaceRoot)
 
   const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspaceRoot) })
   await expect(project).toBeVisible({ timeout: 30_000 })
@@ -101,15 +102,27 @@ test('keeps large expanded file trees off the warm file-switch render path', asy
       })
     ), { path: filePath, content: expectedContent })
   }
+  await page.evaluate(() => window.__farmingPerformanceTest?.reset())
   const coldSwitchDurations = [
     await measureFilePaint(firstPath, '0'),
     await measureFilePaint(secondPath, '1'),
   ]
-  expect(coldSwitchDurations[0]!.requestMs).not.toBeNull()
-  expect(coldSwitchDurations[0]!.requestMs!).toBeLessThan(50)
-  expect(coldSwitchDurations[0]!.rowSelectedMs).toBeLessThan(100)
-  expect(coldSwitchDurations[0]!.selectedMs).toBeLessThan(150)
-  expect(coldSwitchDurations[0]!.contentMs).toBeLessThan(500)
+  const coldRenderCounts = await page.evaluate(() => window.__farmingPerformanceTest?.snapshot())
+  await testInfo.attach('cold-file-switch-latency', {
+    body: Buffer.from(JSON.stringify({
+      coldSamplesMs: coldSwitchDurations,
+      coldRenderCounts,
+    }, null, 2)),
+    contentType: 'application/json',
+  })
+  for (const sample of coldSwitchDurations) {
+    expect(sample.requestMs).not.toBeNull()
+    expect(sample.requestMs!).toBeLessThan(50)
+    expect(sample.rowSelectedMs).toBeLessThan(100)
+    expect(sample.selectedMs).toBeLessThan(150)
+    expect(sample.contentMs).toBeLessThan(500)
+  }
+  expect(coldRenderCounts?.fileTreeRow).toBeLessThanOrEqual(16)
   await files.locator(`[data-file-path="${firstPath}"]`).dblclick()
   await files.locator(`[data-file-path="${secondPath}"]`).dblclick()
   const firstTab = editor.locator(`[role="tab"][title="${firstPath}"]`)
@@ -152,14 +165,29 @@ test('keeps large expanded file trees off the warm file-switch render path', asy
     contentMs: percentile95(warmSwitchDurations.map(sample => sample.contentMs)),
     paintMs: percentile95(warmSwitchDurations.map(sample => sample.paintMs)),
   }
+  const warmMax = {
+    selectedMs: Math.max(...warmSwitchDurations.map(sample => sample.selectedMs)),
+    rowSelectedMs: Math.max(...warmSwitchDurations.map(sample => sample.rowSelectedMs)),
+    contentMs: Math.max(...warmSwitchDurations.map(sample => sample.contentMs)),
+    paintMs: Math.max(...warmSwitchDurations.map(sample => sample.paintMs)),
+  }
   await testInfo.attach('warm-file-switch-latency', {
-    body: Buffer.from(JSON.stringify({ coldSamplesMs: coldSwitchDurations, warmSamplesMs: warmSwitchDurations, warmP95Ms: warmP95 }, null, 2)),
+    body: Buffer.from(JSON.stringify({
+      coldSamplesMs: coldSwitchDurations,
+      warmSamplesMs: warmSwitchDurations,
+      warmP95Ms: warmP95,
+      warmMaxMs: warmMax,
+    }, null, 2)),
     contentType: 'application/json',
   })
   expect(warmP95.selectedMs).toBeLessThan(50)
   expect(warmP95.rowSelectedMs).toBeLessThan(50)
   expect(warmP95.contentMs).toBeLessThan(60)
   expect(warmP95.paintMs).toBeLessThan(100)
+  expect(warmMax.selectedMs).toBeLessThan(150)
+  expect(warmMax.rowSelectedMs).toBeLessThan(150)
+  expect(warmMax.contentMs).toBeLessThan(250)
+  expect(warmMax.paintMs).toBeLessThan(300)
   expect(warmSwitchDurations.every(sample => sample.requestMs === null)).toBe(true)
   // Each switch has two intentional phases: selection feedback, then active
   // editor commit. Only the old and new rows may render in either phase.

@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { Locator, Page } from '@playwright/test'
-import { expect, openFarming, test } from './fixtures'
+import { expect, interceptWorkspaceRequests, openFarming, test } from './fixtures'
 
 export const VISUAL_SCENARIOS = [
   'sidebar-agent-hover',
@@ -278,6 +278,21 @@ test.describe('PR visual regression capture', () => {
     const agentId = await createAgent(page, 'bash', workspace, 'terminal')
     await setAgentTitle(page, agentId, 'Review workspace changes')
 
+    let diffPayload: {
+      patch?: string
+      originalContent?: string
+      modifiedContent?: string
+    } | null = null
+    await interceptWorkspaceRequests(page, request => {
+      if (request.operation !== 'diff') return
+      return {
+        onResult(message) {
+          if (message.ok) diffPayload = message.result as typeof diffPayload
+          return message
+        },
+      }
+    })
+
     await openFarming(page)
     const row = await openAgent(page, agentId)
     const project = page.getByTestId('code-project-group').filter({ has: row })
@@ -293,16 +308,11 @@ test.describe('PR visual regression capture', () => {
     await expect(componentsDirectory).toBeVisible()
     await componentsDirectory.click()
     const changedFile = trackedGroup.locator('[data-testid="code-file-change-row"][data-file-path="src/components/QueuePanel.tsx"]')
-    const diffResponse = page.waitForResponse(response => (
-      response.url().includes('/api/files/diff') && response.request().method() === 'GET'
-    ))
     await changedFile.click()
-    const diffPayload = await (await diffResponse).json() as {
-      diff?: { patch?: string; originalContent?: string; modifiedContent?: string }
-    }
-    expect(diffPayload.diff?.patch).toContain('queuedMessages')
-    expect(diffPayload.diff?.originalContent).toContain('label = "before"')
-    expect(diffPayload.diff?.modifiedContent).toContain('label = "after"')
+    await expect.poll(() => diffPayload).not.toBeNull()
+    expect(diffPayload?.patch).toContain('queuedMessages')
+    expect(diffPayload?.originalContent).toContain('label = "before"')
+    expect(diffPayload?.modifiedContent).toContain('label = "after"')
     await expect(page.getByTestId('code-file-diff-view')).toBeVisible({ timeout: 30_000 })
     await expect(page.getByTestId('code-file-diff-monaco')).toBeVisible()
     await captureScenario(page, 'changes-diff')
