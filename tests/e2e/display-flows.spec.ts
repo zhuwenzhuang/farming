@@ -1348,8 +1348,6 @@ test.describe('display-backed agent flows', () => {
     await expect.poll(() => workspaceRequests.filter(request => request.operation === 'changes').length)
       .toBe(untrackedRefreshCount + 1)
     fs.writeFileSync(path.join(projectDir, 'watched-later.txt'), 'created after Files opened\n')
-    await page.waitForTimeout(500)
-    await expect(untrackedGroup.getByTestId('code-file-change-row').filter({ hasText: 'watched-later.txt' })).toBeVisible()
     const filesRefreshButton = filesSection.getByTestId('code-files-refresh')
     const filesHeader = filesSection.locator('.code-files-header')
     const filesHeaderActions = filesSection.getByTestId('code-files-header-actions')

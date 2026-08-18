@@ -132,3 +132,46 @@ test('bounds heading-free large Markdown sections by top-level block count', () 
   assert.match(sections[0]?.source ?? '', /First paragraph[\s\S]*Second paragraph/)
   assert.equal(sections[1]?.source.trim(), 'Third paragraph.')
 })
+
+test('never starts a bounded section inside list continuation indentation', () => {
+  const source = [
+    'First paragraph.',
+    '',
+    '- List item',
+    '',
+    '  continued list content',
+    '',
+    'Final paragraph.',
+  ].join('\n')
+  const sections = splitLargeMarkdownSections(source, 1)
+  assert.equal(sections.length, 2)
+  assert.match(sections[0]?.source ?? '', /List item[\s\S]*continued list content/)
+  assert.equal(sections[1]?.source.trim(), 'Final paragraph.')
+})
+
+test('keeps protected Markdown content out of heading and definition discovery', () => {
+  const source = [
+    '# <https://example.test> &amp; B ![ignored](image.png)',
+    '',
+    '```md',
+    'Fake setext title',
+    '---',
+    '[target]: https://example.com/wrong',
+    '```',
+    '',
+    '[Shared reference][target]',
+    '[shortcut]',
+    '',
+    'Setext title',
+    '---',
+    '',
+    '[target]: https://example.com/right',
+    '[shortcut]: https://example.com/shortcut',
+  ].join('\n')
+
+  const sections = splitLargeMarkdownSections(source, 2)
+  assert.deepEqual(sections.flatMap(section => section.headingIds), ['httpsexampletest-b', 'setext-title'])
+  assert.match(sections.find(section => section.source.includes('Shared reference'))?.renderSource ?? '', /example\.com\/right/)
+  assert.doesNotMatch(sections.find(section => section.source.includes('Shared reference'))?.renderSource ?? '', /example\.com\/wrong/)
+  assert.match(sections.find(section => section.source.includes('shortcut'))?.renderSource ?? '', /example\.com\/shortcut/)
+})

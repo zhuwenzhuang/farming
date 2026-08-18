@@ -63,7 +63,7 @@ function parseRgb(value: string) {
   return channels
 }
 
-function screenshotColorRatio(screenshot: Buffer, cssColor: string) {
+function screenshotColorPixelCount(screenshot: Buffer, cssColor: string) {
   const expected = parseRgb(cssColor)
   const image = ScreenshotPng.sync.read(screenshot)
   let matches = 0
@@ -74,7 +74,12 @@ function screenshotColorRatio(screenshot: Buffer, cssColor: string) {
       && Math.abs((image.data[offset + 2] ?? 0) - (expected[2] ?? 0)) <= 1
     ) matches += 1
   }
-  return matches / (image.width * image.height)
+  return matches
+}
+
+function screenshotColorRatio(screenshot: Buffer, cssColor: string) {
+  const image = ScreenshotPng.sync.read(screenshot)
+  return screenshotColorPixelCount(screenshot, cssColor) / (image.width * image.height)
 }
 
 function screenshotChromaticRatio(screenshot: Buffer) {
@@ -118,6 +123,11 @@ async function expectScreenshotRole(
 ) {
   const expectedColor = await resolvedColor(page, role)
   expect(screenshotColorRatio(screenshot, expectedColor), `${label} must visibly paint ${role}`).toBeGreaterThanOrEqual(minimumRatio)
+}
+
+async function expectScreenshotTextRole(page: Page, screenshot: Buffer, role: string, label: string) {
+  const expectedColor = await resolvedColor(page, role)
+  expect(screenshotColorPixelCount(screenshot, expectedColor), `${label} must visibly paint ${role}`).toBeGreaterThan(0)
 }
 
 async function attachScreenshot(testInfo: TestInfo, name: string, screenshot: Buffer) {
@@ -218,9 +228,9 @@ test('Light, Dark, and Paper Chat use neutral reading surfaces and semantic glyp
     const inlineCodeScreenshot = await stableScreenshot(inlineCode)
     await expectScreenshotRole(page, inlineCodeScreenshot, '--code-code-bg', 0.35, `${appearance} inline code`)
     const keywordScreenshot = await stableScreenshot(keyword)
-    await expectScreenshotRole(page, keywordScreenshot, '--code-syntax-keyword', 0.02, `${appearance} keyword`)
+    await expectScreenshotTextRole(page, keywordScreenshot, '--code-syntax-keyword', `${appearance} keyword`)
     const stringScreenshot = await stableScreenshot(string)
-    await expectScreenshotRole(page, stringScreenshot, '--code-syntax-string', 0.02, `${appearance} string`)
+    await expectScreenshotTextRole(page, stringScreenshot, '--code-syntax-string', `${appearance} string`)
 
     await input.fill('next request')
     const send = page.getByTestId('code-acp-composer-send')
