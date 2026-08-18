@@ -584,6 +584,10 @@ async function run() {
     configDir: root,
     codexHome,
     claudeHome,
+    async openCodeCommandRunner(args) {
+      if (args[0] === 'session' && args[1] === 'list') return { stdout: '[]' };
+      throw new Error(`Unexpected syncing OpenCode command ${args.join(' ')}`);
+    },
     usageHistoryClient: {
       collect(options) {
         syncingScanBudgetMs = options.scanBudgetMs || 0;
