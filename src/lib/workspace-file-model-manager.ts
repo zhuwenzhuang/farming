@@ -1,12 +1,12 @@
 import type { OpenWorkspaceFile } from './workspace-open-files'
 import { fetchWorkspaceFile, type WorkspaceFile } from './workspace-files'
-import { workspaceFileResourceKey } from './workspace-working-copy'
+import { normalizeWorkspaceResourcePath, workspaceFileResourceKey } from './workspace-working-copy'
 
 const DEFAULT_MODEL_LIMIT = 32
 const DEFAULT_MODEL_BYTES_LIMIT = 16 * 1024 * 1024
 const DEFAULT_RESOLVE_TIMEOUT_MS = 15_000
 
-type WorkspaceFileReader = (
+export type WorkspaceFileReader = (
   rootId: string,
   filePath: string,
   options: { signal: AbortSignal; exactExternal?: boolean },
@@ -48,8 +48,12 @@ export function workspaceFileModelKey(
   exactExternal = false,
 ) {
   const resource = workspaceFileResourceKey(filePath, workspaceRoot)
+  const accessOwner = workspaceRoot
+    ? normalizeWorkspaceResourcePath(workspaceRoot)
+    : rootId
   return JSON.stringify([
-    workspaceRoot ? resource : `${rootId}:${resource}`,
+    accessOwner,
+    resource,
     exactExternal,
   ])
 }
@@ -99,6 +103,7 @@ export class WorkspaceFileModelManager {
   private readonly entries = new Map<string, WorkspaceFileModelEntry>()
   private readonly pendingResolves = new Map<string, PendingWorkspaceFileResolve>()
   private readonly protectedKeys = new Set<string>()
+  private readonly watchReadyRevalidationKeys = new Set<string>()
   private readonly maxBytes: number
   private readonly maxModels: number
   private readonly readFile: WorkspaceFileReader
@@ -121,6 +126,7 @@ export class WorkspaceFileModelManager {
     const retained = this.entries.get(key)
     if (retained && !options.reload && canResolveFromRetainedEntry(retained)) {
       this.touch(key, retained)
+      this.watchReadyRevalidationKeys.add(key)
       return waitForWorkspaceFileResolve(Promise.resolve(retained.file), options.signal)
     }
 
@@ -168,9 +174,25 @@ export class WorkspaceFileModelManager {
     ))
   }
 
+  consumeWatchReadyRevalidation(
+    rootId: string,
+    filePath: string,
+    options: Pick<WorkspaceFileResolveOptions, 'exactExternal' | 'workspaceRoot'> = {},
+  ) {
+    const key = workspaceFileModelKey(
+      rootId,
+      filePath,
+      options.workspaceRoot,
+      options.exactExternal === true,
+    )
+    return this.watchReadyRevalidationKeys.delete(key)
+  }
+
   invalidateRoot(rootId: string) {
     for (const [key, entry] of this.entries) {
-      if (entry.rootId === rootId) this.entries.delete(key)
+      if (entry.rootId !== rootId) continue
+      this.entries.delete(key)
+      this.watchReadyRevalidationKeys.delete(key)
     }
     for (const [key, pending] of this.pendingResolves) {
       if (pending.rootId !== rootId) continue
@@ -188,6 +210,7 @@ export class WorkspaceFileModelManager {
     this.pendingResolves.clear()
     this.entries.clear()
     this.protectedKeys.clear()
+    this.watchReadyRevalidationKeys.clear()
   }
 
   private acceptFile(
@@ -202,6 +225,7 @@ export class WorkspaceFileModelManager {
       options.exactExternal === true,
     )
     const previous = this.entries.get(key)
+    this.watchReadyRevalidationKeys.delete(key)
     this.touch(key, {
       exactExternal: options.exactExternal === true,
       file,

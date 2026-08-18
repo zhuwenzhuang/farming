@@ -1936,6 +1936,7 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
   const launchButtonRef = useRef<HTMLButtonElement | null>(null)
   const launchMenuRef = useRef<HTMLDivElement | null>(null)
   const worktreeButtonRef = useRef<HTMLButtonElement | null>(null)
+  const handledAgentRevealRequestRef = useRef<number | null>(null)
   const [launchMenu, setLaunchMenu] = useState<{ x: number; y: number } | null>(null)
   const closeLaunchMenu = useCallback(() => setLaunchMenu(null), [])
   const [worktreeMenu, setWorktreeMenu] = useState<{ x: number; y: number } | null>(null)
@@ -2017,11 +2018,19 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
     (!forceAgentsExpanded && !compactProjectAgents && projectAgentsExpanded)
     || project.agentSessionsExpanded === true
   )
+  const requestedAgentBelongsToProject = Boolean(
+    agentRevealRequest && project.agents.some(agent => agent.id === agentRevealRequest.agentId),
+  )
 
   useEffect(() => {
-    if (!agentRevealRequest || !project.agents.some(agent => agent.id === agentRevealRequest.agentId)) return
+    if (
+      !agentRevealRequest
+      || !requestedAgentBelongsToProject
+      || handledAgentRevealRequestRef.current === agentRevealRequest.requestId
+    ) return
+    handledAgentRevealRequestRef.current = agentRevealRequest.requestId
     setProjectAgentsCollapsed(false)
-  }, [agentRevealRequest, project.agents])
+  }, [agentRevealRequest, requestedAgentBelongsToProject])
 
   useEffect(() => {
     saveCodeProjectFilesViewState(project.id, { agentsCollapsed: projectAgentsCollapsed })

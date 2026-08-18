@@ -10,7 +10,7 @@ import {
   test,
   writeTerminalFixture,
 } from './fixtures'
-import type { Page } from '@playwright/test'
+import type { Page, Response } from '@playwright/test'
 
 function git(cwd: string, args: string[]) {
   execFileSync('git', args, { cwd, stdio: 'ignore' })
@@ -176,6 +176,13 @@ test('promotes an external Chat file link to its nearest Git Project', async ({ 
   const { filePath, repository } = createRepositoryFile(workspaceRoot, 'chat link git project 发布')
   const agentId = await createChatAgent(page, launcherWorkspace)
   let forceGlobalFallback = true
+  const navigationResponses: Response[] = []
+  page.on('response', response => {
+    const pathname = new URL(response.url()).pathname
+    if (pathname.endsWith('/api/projects/mount-file') || pathname.endsWith('/api/files/file')) {
+      navigationResponses.push(response)
+    }
+  })
 
   await page.route(/\/farming\/api\/projects\/mount-file$/, async route => {
     if (forceGlobalFallback) {
@@ -225,16 +232,24 @@ test('promotes an external Chat file link to its nearest Git Project', async ({ 
   forceGlobalFallback = false
   await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
   await expect(fileLink).toBeVisible()
-  const mounted = page.waitForResponse(response => (
+  const responseStart = navigationResponses.length
+  await fileLink.click()
+  await expect.poll(() => navigationResponses.slice(responseStart).map(response => {
+    const pathname = new URL(response.url()).pathname
+    return `${response.request().method()} ${pathname} ${response.status()}`
+  }), { timeout: 5_000 }).toEqual(expect.arrayContaining([
+    'POST /farming/api/projects/mount-file 200',
+    'GET /farming/api/files/file 200',
+  ]))
+  const mounted = navigationResponses.slice(responseStart).find(response => (
     response.request().method() === 'POST'
     && new URL(response.url()).pathname.endsWith('/api/projects/mount-file')
   ))
-  const projectFileRead = page.waitForResponse(response => (
+  const projectFileReadResponse = navigationResponses.slice(responseStart).find(response => (
     new URL(response.url()).pathname.endsWith('/api/files/file')
   ))
-  await fileLink.click()
-  expect((await (await mounted).json()).workspace).toBe(fs.realpathSync(repository))
-  const projectFileReadResponse = await projectFileRead
+  if (!mounted || !projectFileReadResponse) throw new Error('Expected bounded mount and file responses')
+  expect((await mounted.json()).workspace).toBe(fs.realpathSync(repository))
   const projectFileReadUrl = new URL(projectFileReadResponse.url())
   expect({
     ok: projectFileReadResponse.ok(),

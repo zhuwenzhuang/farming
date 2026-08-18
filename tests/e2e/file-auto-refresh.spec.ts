@@ -74,7 +74,7 @@ test('automatically refreshes every open file viewer while preserving dirty draf
 
   let watchedPaths: string[] = []
   const watchedBurstPaths = new Set<string>()
-  const baselineBurstRefreshes = new Set<string>()
+  const redundantWatchReadyReads = new Set<string>()
   page.on('websocket', socket => recordWorkspaceWatchReady(socket, paths => {
     watchedPaths = paths
     paths.forEach(filePath => {
@@ -86,7 +86,7 @@ test('automatically refreshes every open file viewer while preserving dirty draf
     const requestUrl = new URL(response.url())
     if (!requestUrl.pathname.endsWith('/api/files/file')) return
     const filePath = requestUrl.searchParams.get('path') || ''
-    if (watchedBurstPaths.has(filePath)) baselineBurstRefreshes.add(filePath)
+    if (watchedBurstPaths.has(filePath)) redundantWatchReadyReads.add(filePath)
   })
   await openFarming(page)
 
@@ -146,7 +146,7 @@ test('automatically refreshes every open file viewer while preserving dirty draf
 
   for (const filePath of burstPaths) await openProjectFile(page, 'file-auto-refresh', filePath)
   await expect.poll(() => watchedPaths).toEqual(expectedBurstWatchPaths)
-  await expect.poll(() => [...baselineBurstRefreshes].sort()).toEqual(burstPaths)
+  expect([...redundantWatchReadyReads]).toEqual([])
   let activeRefreshReads = 0
   let maxActiveRefreshReads = 0
   let completedRefreshReads = 0

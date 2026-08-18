@@ -29,6 +29,12 @@ Four owners compose the file path:
    group owns active, preview, pinned, and tab order; the Explorer owns
    expansion, selection, keyboard focus, directory snapshots, and reveal.
 
+The source Agent on a file intent grants workspace access; it does not grant
+permission to activate that Agent's Terminal or Chat, expand its Agent list,
+or replace the editor surface. Agent reveal requests are one-shot navigation
+events. Each request identity may be consumed once, so a later inventory
+refresh cannot replay an old reveal over the user's collapsed choice.
+
 No universal Project Files coordinator owns all four responsibilities. State
 that can be derived from an owner is not copied into another owner.
 
@@ -54,12 +60,23 @@ represent them with existing records, promises, and request guards.
 | any | rename, move, or delete | Reconcile resource identity and invalidate affected retained snapshots. |
 
 The resource snapshot cache is not filesystem authority. It exists to make
-recent navigation immediate. Open exact-path watches and their ready handshake
-provide invalidation; a clean stale model may be shown while a bounded reload
-runs, while a dirty model is never overwritten by that reload. Global,
-external, and symbolic-link resources that do not have this watch contract keep
-the authoritative read on reopen, though their editor models may still be
-retained.
+recent navigation immediate. A fresh successful read is already authoritative,
+so the initial watch-ready acknowledgement must not immediately read the same
+file again. Reopening a retained watched model may paint it immediately and use
+watch readiness to revalidate it. Reconnect readiness revalidates every open
+watched file because events may have been missed. A newer invalidation
+supersedes an older background reload, and closing or replacing a preview
+cancels reload work that no longer has an open-file owner. A clean stale model
+may be shown while a bounded reload runs, while a dirty model is never
+overwritten by that reload. Global, external, and symbolic-link resources that
+do not have this watch contract keep the authoritative read on reopen, though
+their editor models may still be retained.
+
+The same physical path can be reached through different access owners, such as
+the global root and a mounted Project or two nested Projects. A retained
+content snapshot cannot cross that owner boundary: the new owner performs an
+authoritative read and establishes its own watch and authorization semantics.
+The editor group may reuse the existing tab and Monaco model after that read.
 
 ## File-Open Transaction
 
@@ -70,6 +87,8 @@ cancelled, or failed. The following invariants are mandatory:
 - a newer different-resource intent cannot be overwritten by an older result;
 - repeated same-resource intents share the resolve and the latest cursor,
   focus, view, and reveal target wins;
+- the open-file owner, rather than a possibly stale render snapshot, decides
+  whether an intent selects an existing model or starts a resolve;
 - pinning is monotonic within a transaction and while a tab remains open;
 - an already mounted Project does not run a mount mutation on the open path;
 - concurrent waiters for one absent Project share its mount mutation, and
@@ -81,6 +100,13 @@ Preview is a creation-time editor-group choice. Selecting an existing pinned
 tab never turns it back into preview. Replacing a clean preview removes only
 its tab projection; its bounded resource and editor models may remain retained
 for fast return.
+
+A pointer double-click is anchored to the file hit by its first click. Opening
+that preview may move virtualized rows before the second click. When the native
+double-click remains within the bounded time and pointer-distance gesture but
+the second hit is blank or a different row, the Explorer suppresses that
+displaced hit and commits the pin intent to the first file. Unrelated clicks,
+directories, and gestures outside those bounds are not recovered.
 
 ## Directory And Mutation Model
 
@@ -122,16 +148,28 @@ Disconnect and reconnect do not need Terminal-style checkpoint or delta
 sequencing. File watch messages are invalidation hints. Reconnect restores
 exact watches, the ready handshake schedules authoritative reloads, and current
 versions decide whether clean content can update or a dirty draft conflicts.
+Failure to verify a cached snapshot during watch recovery preserves the visible
+snapshot and leaves connection health as the recovery owner; an actual
+filesystem invalidation that cannot be read remains a visible file error.
 
 Tests derive from the transitions above and cover at least:
 
 - single click, double click, and same-file click/double-click overlap;
 - slow old file followed by a fast new file, including across Projects;
 - pinned-tab selection without preview demotion;
+- an Agent list collapsed by the user staying collapsed across file opens and
+  Agent inventory refresh, while an explicit later Agent navigation may reveal it;
+- a double-click whose first preview moves the row under the pointer, including
+  both blank and different-file second hits;
 - repeated same-file first open with one transport read;
 - preview replacement followed by immediate cached return and asynchronous
   revalidation;
 - cancellation of one Project-mount waiter while shared membership completes;
 - watch invalidation for clean, dirty, saving, closed, renamed, and deleted
   resources;
-- bounded model eviction followed by an ordinary authoritative reopen.
+- bounded model eviction followed by an ordinary authoritative reopen;
+- the same physical file moving from global/external access to a mounted
+  Project, with a new authoritative read before the tab is rebound;
+- a reproducible seeded cold/warm interaction pass across multiple directories
+  and file types, with single and double clicks, tree scrolling and expansion,
+  tab dragging, sidebar resizing, a captured action log, and a final screenshot.

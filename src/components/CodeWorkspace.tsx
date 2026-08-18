@@ -17,6 +17,7 @@ import type {
   UsageSummary,
 } from '@/types/agent'
 import type { WorkspaceFileEventMessage } from '@/types/messages'
+import type { WorkspaceFileWatchReadyReason } from '@/hooks/useWebSocket'
 import { CheckGlyph } from '@/components/IconGlyphs'
 import { appPath } from '@/lib/base-path'
 import { readRecentClipboardWrite, writeClipboardText } from '@/lib/clipboard'
@@ -38,8 +39,6 @@ import {
 } from '@/lib/project-workspaces'
 import {
   shouldRevealSelectedWorkspaceOpenFile,
-  workspaceOpenFileKey,
-  workspaceOpenFileTargetKey,
   type OpenWorkspaceFile,
   type WorkspaceOpenFileUpdater,
   type WorkspaceOpenFileTarget,
@@ -390,7 +389,7 @@ interface CodeWorkspaceProps {
     agentId: string,
     paths: readonly string[],
     handler: (event: WorkspaceFileEventMessage['event']) => void,
-    onReady?: (paths: readonly string[]) => void,
+    onReady?: (paths: readonly string[], reason: WorkspaceFileWatchReadyReason) => void,
   ) => { update(paths: readonly string[]): void; close(): void }
   onBrowserResource: (resource: BrowserResource) => void
   onBrowserResourceDeletion: (deletion: BrowserResourceDeletion) => void
@@ -635,6 +634,7 @@ export function CodeWorkspace({
       .sort(([left], [right]) => left.localeCompare(right)))
   }, [openWorkspaceFiles])
   const scheduleOpenFileRefresh = workspaceOpenFiles.scheduleOpenFileRefresh
+  const consumeWatchReadyRevalidation = workspaceOpenFiles.consumeWatchReadyRevalidation
   const setOpenFileWatchError = workspaceOpenFiles.setWatchError
   const resolveWorkspaceFile = workspaceOpenFiles.resolve
   const workspaceFileWatchRegistrationsRef = useRef(new Map<string, {
@@ -661,9 +661,16 @@ export function CodeWorkspace({
           return
         }
         if ((event.type === 'change' || event.type === 'add' || event.type === 'unlink') && event.path) {
-          scheduleOpenFileRefresh(rootId, event.path)
+          scheduleOpenFileRefresh(rootId, event.path, 'watch-event')
         }
-      }, readyPaths => readyPaths.forEach(filePath => scheduleOpenFileRefresh(rootId, filePath)))
+      }, (readyPaths, reason) => readyPaths.forEach(filePath => {
+        if (
+          reason === 'reconnected'
+          || consumeWatchReadyRevalidation(rootId, filePath)
+        ) {
+          scheduleOpenFileRefresh(rootId, filePath, 'watch-ready')
+        }
+      }))
       workspaceFileWatchRegistrationsRef.current.set(rootId, { pathsKey, registration })
     })
     workspaceFileWatchRegistrationsRef.current.forEach((entry, rootId) => {
@@ -671,7 +678,7 @@ export function CodeWorkspace({
       entry.registration.close()
       workspaceFileWatchRegistrationsRef.current.delete(rootId)
     })
-  }, [onWatchWorkspaceFiles, openWorkspaceFileWatchTargets, scheduleOpenFileRefresh, setOpenFileWatchError])
+  }, [consumeWatchReadyRevalidation, onWatchWorkspaceFiles, openWorkspaceFileWatchTargets, scheduleOpenFileRefresh, setOpenFileWatchError])
 
   useEffect(() => () => {
     workspaceFileWatchRegistrationsRef.current.forEach(entry => entry.registration.close())
@@ -2996,11 +3003,8 @@ export function CodeWorkspace({
         requestId: workspaceFileRevealRequestRef.current += 1,
       })
     }
-    if (identity.sourceAgent && identity.sourceAgentId) {
-      onOpenTerminal(identity.sourceAgentId, { focusTerminal: false })
-    }
     closeSidebarForMobile()
-  }, [clearSearch, closeContextMenu, closeSidebarForMobile, createWorkspaceOpenFileRequest, mountProject, onOpenTerminal, onWorkspaceViewChange, projectWorkspaces, resolveWorkspaceFileIdentity, setMainPaneMode, workspaceOpenFiles])
+  }, [clearSearch, closeContextMenu, closeSidebarForMobile, createWorkspaceOpenFileRequest, mountProject, onWorkspaceViewChange, projectWorkspaces, resolveWorkspaceFileIdentity, setMainPaneMode, workspaceOpenFiles])
 
   const beginProjectFileOpenIntent = useCallback(() => (
     workspaceFileOpenRequestRef.current.begin()
@@ -3404,17 +3408,6 @@ export function CodeWorkspace({
         return next
       })
     }
-    const requestedKey = workspaceOpenFileTargetKey({
-      agentId: identity.filesId,
-      workspaceRoot: identity.workspaceRoot,
-      filePath,
-    })
-    const existingOpenFile = openWorkspaceFiles.find(file => workspaceOpenFileKey(file) === requestedKey)
-    if (!existingOpenFile) return false
-    if (
-      isGlobalWorkspaceFilesAgentId(existingOpenFile.agentId)
-      && !isGlobalWorkspaceFilesAgentId(identity.filesId)
-    ) return false
     const openRequest = {
       ...createWorkspaceOpenFileRequest(target),
       workspaceRoot: identity.workspaceRoot,
@@ -3433,12 +3426,9 @@ export function CodeWorkspace({
         requestId: workspaceFileRevealRequestRef.current += 1,
       })
     }
-    if (identity.sourceAgent && identity.sourceAgentId) {
-      onOpenTerminal(identity.sourceAgentId, { focusTerminal: false })
-    }
     closeSidebarForMobile()
     return true
-  }, [clearSearch, closeContextMenu, closeSidebarForMobile, createWorkspaceOpenFileRequest, onOpenTerminal, onWorkspaceViewChange, openWorkspaceFiles, resolveWorkspaceFileIdentity, setMainPaneMode, workspaceOpenFiles])
+  }, [clearSearch, closeContextMenu, closeSidebarForMobile, createWorkspaceOpenFileRequest, onWorkspaceViewChange, resolveWorkspaceFileIdentity, setMainPaneMode, workspaceOpenFiles])
 
   const openWorkspaceFilePath = useCallback(async (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => {
     const intentLease = workspaceFileOpenRequestRef.current.begin()

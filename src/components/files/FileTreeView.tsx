@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type MutableRefObject, type RefObject } from 'react'
+import { createContext, useCallback, useContext, useRef, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type MutableRefObject, type RefObject } from 'react'
 import { Tree, type NodeRendererProps, type TreeApi } from 'react-arborist'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-file-search'
 import type { WorkspaceFileOperationState } from '@/lib/workspace-file-operation-model'
@@ -101,12 +101,62 @@ export function FileTreeView({
   onTreeSelect,
   onUpdateFileOperationName,
 }: FileTreeViewProps) {
+  const pointerFileClickRef = useRef<{
+    clientX: number
+    clientY: number
+    filePath: string
+    timeStamp: number
+  } | null>(null)
+
   const handleViewportContextMenu = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
     if ((event.target as HTMLElement | null)?.closest('[data-file-path]')) return
     event.preventDefault()
     onCancelPendingFileFocus()
     onOpenFileContextMenu(event.clientX, event.clientY, null)
   }, [onCancelPendingFileFocus, onOpenFileContextMenu])
+
+  const handleViewportClickCapture = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    const row = (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-file-path]')
+    if (row?.dataset.fileType === 'file' && event.detail === 1) {
+      pointerFileClickRef.current = {
+        clientX: event.clientX,
+        clientY: event.clientY,
+        filePath: row.dataset.filePath ?? '',
+        timeStamp: event.timeStamp,
+      }
+      return
+    }
+    const firstClick = pointerFileClickRef.current
+    if (
+      event.detail > 1
+      && firstClick?.filePath
+      && row?.dataset.filePath !== firstClick.filePath
+      && event.timeStamp - firstClick.timeStamp <= 1_000
+      && Math.abs(event.clientX - firstClick.clientX) <= 12
+      && Math.abs(event.clientY - firstClick.clientY) <= 12
+    ) {
+      event.preventDefault()
+      event.stopPropagation()
+      return
+    }
+    if (!row && event.detail === 1) pointerFileClickRef.current = null
+  }, [])
+
+  const handleViewportDoubleClick = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    const row = (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-file-path]')
+    const firstClick = pointerFileClickRef.current
+    pointerFileClickRef.current = null
+    if (
+      !firstClick?.filePath
+      || row?.dataset.filePath === firstClick.filePath
+      || event.timeStamp - firstClick.timeStamp > 1_000
+      || Math.abs(event.clientX - firstClick.clientX) > 12
+      || Math.abs(event.clientY - firstClick.clientY) > 12
+    ) return
+    event.preventDefault()
+    event.stopPropagation()
+    void onOpenFilePath(firstClick.filePath, { transient: false, focusEditor: true })
+  }, [onOpenFilePath])
 
   const nodeRendererContext: FileNodeRendererContextValue = {
     activeFilePath,
@@ -138,6 +188,8 @@ export function FileTreeView({
       data-visible-row-count={visibleTreeRowCount}
       style={{ height: treeHeight }}
       onKeyDownCapture={handleTreeKeyDownCapture}
+      onClickCapture={handleViewportClickCapture}
+      onDoubleClickCapture={handleViewportDoubleClick}
       onContextMenu={handleViewportContextMenu}
     >
       <FileStickyContext

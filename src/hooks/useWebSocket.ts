@@ -107,10 +107,11 @@ function sameJsonValue(left: unknown, right: unknown) {
 }
 
 type WorkspaceFileListener = (event: WorkspaceFileEventMessage['event']) => void
+export type WorkspaceFileWatchReadyReason = 'reconnected' | 'watch-added'
 interface WorkspaceFileListenerRegistration {
   onEvent: WorkspaceFileListener
-  onReady?: (paths: readonly string[]) => void
-  pendingReadyPaths: Set<string>
+  onReady?: (paths: readonly string[], reason: WorkspaceFileWatchReadyReason) => void
+  pendingReadyReasons: Map<string, WorkspaceFileWatchReadyReason>
   paths: readonly string[]
 }
 
@@ -449,7 +450,7 @@ export function useWebSocket() {
     agentId: string,
     paths: readonly string[],
     handler: WorkspaceFileListener,
-    onReady?: (paths: readonly string[]) => void,
+    onReady?: (paths: readonly string[], reason: WorkspaceFileWatchReadyReason) => void,
   ): WorkspaceFileWatchRegistration => {
     const normalizedPaths = Array.from(new Set(paths)).sort()
     if (normalizedPaths.length === 0) return { update: () => {}, close: () => {} }
@@ -462,7 +463,7 @@ export function useWebSocket() {
       onEvent: handler,
       onReady,
       paths: normalizedPaths,
-      pendingReadyPaths: new Set(normalizedPaths),
+      pendingReadyReasons: new Map(normalizedPaths.map(filePath => [filePath, 'watch-added'])),
     }
     listeners.set(handler, registration)
     syncWorkspaceFileWatch(agentId)
@@ -486,10 +487,12 @@ export function useWebSocket() {
         if (sameStringArray([...registration.paths], nextNormalizedPaths)) return
         const nextPathSet = new Set(nextNormalizedPaths)
         registration.paths.forEach(filePath => {
-          if (!nextPathSet.has(filePath)) registration.pendingReadyPaths.delete(filePath)
+          if (!nextPathSet.has(filePath)) registration.pendingReadyReasons.delete(filePath)
         })
         nextNormalizedPaths.forEach(filePath => {
-          if (!registration.paths.includes(filePath)) registration.pendingReadyPaths.add(filePath)
+          if (!registration.paths.includes(filePath)) {
+            registration.pendingReadyReasons.set(filePath, 'watch-added')
+          }
         })
         registration.paths = nextNormalizedPaths
         const currentListeners = workspaceFileListenersRef.current.get(agentId)
@@ -710,7 +713,9 @@ export function useWebSocket() {
                 workspaceFileListenersRef.current.forEach((listeners, agentId) => {
                   if (listeners.size === 0) return
                   listeners.forEach(listener => {
-                    listener.pendingReadyPaths = new Set(listener.paths)
+                    listener.pendingReadyReasons = new Map(
+                      listener.paths.map(filePath => [filePath, 'reconnected']),
+                    )
                   })
                   ws.send(JSON.stringify({
                     type: 'watch-workspace-files',
@@ -1075,10 +1080,15 @@ export function useWebSocket() {
               break
             case 'workspace-file-watch':
               workspaceFileListenersRef.current.get(msg.agentId)?.forEach(listener => {
-                const readyPaths = Array.from(listener.pendingReadyPaths).filter(filePath => msg.paths.includes(filePath))
-                if (readyPaths.length === 0) return
-                readyPaths.forEach(filePath => listener.pendingReadyPaths.delete(filePath))
-                listener.onReady?.(readyPaths)
+                const readyByReason = new Map<WorkspaceFileWatchReadyReason, string[]>()
+                listener.pendingReadyReasons.forEach((reason, filePath) => {
+                  if (!msg.paths.includes(filePath)) return
+                  const paths = readyByReason.get(reason) ?? []
+                  paths.push(filePath)
+                  readyByReason.set(reason, paths)
+                  listener.pendingReadyReasons.delete(filePath)
+                })
+                readyByReason.forEach((paths, reason) => listener.onReady?.(paths, reason))
               })
               break
             case 'workspace-file-event':

@@ -24,6 +24,11 @@ Project Files 的实现保持成熟编辑器式的简化分层：文件系统访
 4. **Editor Group 与 Explorer** 是互相独立的投影。Editor Group 拥有 active、preview、
    pinned 和 Tab 顺序；Explorer 拥有展开、选择、键盘焦点、目录快照和 reveal。
 
+文件 intent 中的 source Agent 只提供 workspace 访问上下文；它无权激活该 Agent 的
+Terminal 或 Chat、展开 Agent 列表，也无权替换 editor surface。Agent reveal request
+是一次性导航事件；每个 request identity 只能被消费一次，因此后续 Agent inventory
+刷新不能重放旧 reveal，覆盖用户手动收起的选择。
+
 不建立一个包办四类职责的 Project Files 总协调器，也不把可以从 owner 推导出的状态
 复制到其他 owner。
 
@@ -47,10 +52,19 @@ Project Files 的实现保持成熟编辑器式的简化分层：文件系统访
 | saving | 冲突或结果不确定 | 保留 draft；先从权威状态 reconcile，再允许 retry 或 overwrite。 |
 | 任意状态 | rename、move 或 delete | reconcile 资源 identity，并使受影响的 retained snapshot 失效。 |
 
-资源快照缓存不是文件系统权威，它只用于让最近导航立即发生。打开文件的 exact-path
-watch 及其 ready handshake 提供失效通知：clean stale model 可以先显示并在后台做有界
-reload；dirty model 绝不能被该 reload 覆盖。没有该 watch 契约的 global、external 和
-symbolic-link 资源在 reopen 时继续执行权威 read，但仍可保留并复用 editor model。
+资源快照缓存不是文件系统权威，它只用于让最近导航立即发生。首次成功 read 本身已经
+是权威结果，所以初次 watch-ready 确认不能马上重复读取同一文件。重新打开 retained
+watched model 时可以立即绘制，并通过 watch readiness 异步 revalidate；重连后的
+readiness 必须 revalidate 所有已打开 watched file，因为断线期间可能丢失事件。新的
+invalidation 会取代旧的后台 reload；preview 被关闭或替换后，没有 open-file owner 的
+reload 必须取消。clean stale model 可以先显示并在后台做有界 reload，但 dirty model
+绝不能被该 reload 覆盖。没有该 watch 契约的 global、external 和 symbolic-link 资源
+在 reopen 时继续执行权威 read，但仍可保留并复用 editor model。
+
+同一物理路径可能通过不同 access owner 到达，例如 global root 与已挂载 Project，或
+两个嵌套 Project。retained content snapshot 不能跨越 owner 边界；新 owner 必须执行
+权威 read，并建立自己的 watch 与 authorization 语义。完成 read 后，Editor Group
+仍可复用已有 Tab 和 Monaco model。
 
 ## File Open Transaction
 
@@ -60,6 +74,8 @@ symbolic-link 资源在 reopen 时继续执行权威 read，但仍可保留并�
 - 一个 canonical resource 同时最多存在一个 transport resolve；
 - 较新的不同资源 intent 不会被较旧结果覆盖；
 - 同一资源的重复 intent 共享 resolve，最新 cursor、focus、view 与 reveal target 生效；
+- 由 open-file owner 而不是可能过时的 render snapshot 决定 intent 是选择已有 model
+  还是启动 resolve；
 - 同一事务内以及 Tab 保持打开期间，pin 只能升级不能降级；
 - 已挂载 Project 不在文件打开关键路径上重复执行 mount mutation；
 - 同一缺失 Project 的并发 waiter 共享 mount mutation，取消一个 waiter 不取消公共 mutation；
@@ -68,6 +84,11 @@ symbolic-link 资源在 reopen 时继续执行权威 read，但仍可保留并�
 Preview 是 Editor Group 创建 Tab 时的选择。选择已有 pinned Tab 不得将其重新变为
 preview。替换 clean preview 只移除其 Tab 投影；有界的 resource model 和 editor model
 可以继续保留，以便快速返回。
+
+指针双击以第一次 click 命中的文件为准。打开该 preview 可能在第二击前移动虚拟列表
+行；若原生 double-click 仍处于有界时间和指针距离内，但第二击落在空白或另一个文件
+行，Explorer 必须拦截这个错位命中，并把 pin intent 提交给第一次命中的文件。无关
+click、目录以及超出边界的手势不做恢复。
 
 ## Directory 与 Mutation 模型
 
@@ -101,14 +122,23 @@ open working copy、Tab 与 reveal target。
 断线与重连不需要 Terminal 式 checkpoint 或 delta 序列。File watch message 只是
 invalidation hint。重连后恢复 exact watch，ready handshake 安排权威 reload，再由当前
 version 决定 clean content 是否更新或 dirty draft 是否冲突。
+watch 恢复期间若暂时无法验证 cached snapshot，则保留当前可见快照，并由连接健康
+状态继续负责恢复；真实文件系统 invalidation 发生后仍无法读取，则保留可见文件错误。
 
 测试至少从上述转换推导以下场景：
 
 - 单击、双击以及同文件 click/double-click 重叠；
 - 慢旧文件之后打开快新文件，包括跨 Project；
 - 选择 pinned Tab 不发生 preview 降级；
+- 用户手动收起 Agent 列表后，文件打开和 Agent inventory 刷新都不得自动展开；显式
+  的后续 Agent 导航仍可 reveal；
+- 首次 preview 导致指针下方行移动的双击，包括第二击落到空白和其他文件两种情况；
 - 同文件重复首次打开只有一次 transport read；
 - preview 替换后立即从 cache 返回，同时异步 revalidate；
 - 取消一个 Project mount waiter 时公共 membership 仍完成；
 - clean、dirty、saving、closed、renamed、deleted 资源的 watch invalidation；
-- 有界 model 淘汰后按普通权威路径重新打开。
+- 有界 model 淘汰后按普通权威路径重新打开；
+- 同一物理文件从 global/external owner 切换到 mounted Project 时，必须在重新绑定
+  Tab 前执行新的权威 read；
+- 跨多目录和多文件类型、可用 seed 重放的 cold/warm 类人操作，包含单击、双击、
+  文件树滚动与展开收起、Tab 拖动、侧栏调整，并保存操作日志和最终截图。

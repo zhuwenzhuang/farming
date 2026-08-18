@@ -115,6 +115,18 @@ export function useWorkspaceFileOpenController({
     const requestAgentId = agentId
     setOpenFileError(null)
     const currentPending = pendingFileOpenRef.current
+    // A fast read can commit its preview before the pending promise reaches
+    // finally. In that interval, the second click of a double-click must pin
+    // the committed tab; merging into the already-consumed target would lose
+    // the pin request and leave the tab italic.
+    if (onSelectOpenFile?.(agentId, filePath, target)) {
+      pendingFileOpenRef.current?.controller.abort()
+      pendingFileOpenRef.current = null
+      fileOpenRequestFenceRef.current.invalidate()
+      clearOpenFilePending()
+      onClearSearch()
+      return
+    }
     if (
       currentPending?.agentId === requestAgentId
       && currentPending.filePath === filePath
@@ -125,14 +137,6 @@ export function useWorkspaceFileOpenController({
       // from the file read into an asynchronous Project mount.
       mergeWorkspaceFileOpenTarget(currentPending.target, target)
       return currentPending.promise
-    }
-    if (onSelectOpenFile?.(agentId, filePath, target)) {
-      pendingFileOpenRef.current?.controller.abort()
-      pendingFileOpenRef.current = null
-      fileOpenRequestFenceRef.current.invalidate()
-      clearOpenFilePending()
-      onClearSearch()
-      return
     }
 
     currentPending?.controller.abort()

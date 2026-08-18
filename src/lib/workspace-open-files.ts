@@ -486,6 +486,12 @@ export function selectWorkspaceOpenFile(
   const request = normalizeWorkspaceOpenFileRequest(options)
   const nextFile = findOpenWorkspaceFile(state.files, agentId, filePath, request.workspaceRoot)
   if (!nextFile) return null
+  const accessOwnerChanged = Boolean(
+    request.workspaceRoot && request.workspaceRoot !== nextFile.workspaceRoot,
+  )
+  const accessModeChanged = request.exactExternal !== undefined
+    && request.exactExternal !== Boolean(nextFile.exactExternal)
+  if (accessOwnerChanged || accessModeChanged) return null
   const hasViewRequest = Boolean(
     request.cursor
     || request.diffRequestId

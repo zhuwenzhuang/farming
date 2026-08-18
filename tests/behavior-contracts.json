@@ -220,6 +220,23 @@
           "backend/tests/test-remote-deployment-transaction.ts"
         ]
       }
+    },
+    {
+      "id": "CODE-PROJECT-FILES-HUMAN-STRESS",
+      "surface": "ui",
+      "promise": "Seeded cold and warm multi-file interactions preserve latest intent, pinned tabs, single Explorer selection, bounded reads, and an error-free editor while users click, double-click, scroll, collapse, drag, and resize.",
+      "owner": "docs/products/code/workspace-file-state-model.md",
+      "evidence": {
+        "node": [
+          "tests/workspace-file-model-manager.test.ts"
+        ],
+        "playwright": [
+          {
+            "file": "tests/e2e/project-files-human-stress.spec.ts",
+            "title": "survives seeded cold and warm human Project Files interactions"
+          }
+        ]
+      }
     }
   ]
 }
