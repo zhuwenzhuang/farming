@@ -76,7 +76,7 @@ const MERMAID_FONT = 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSy
 const LARGE_MARKDOWN_PREVIEW_CHARACTERS = 256 * 1024
 const LARGE_MARKDOWN_SECTION_BLOCKS = 40
 const LARGE_MARKDOWN_OVERSCAN_PX = 1_200
-const LARGE_MARKDOWN_INITIAL_SECTIONS = 8
+const LARGE_MARKDOWN_INITIAL_SECTIONS = 2
 const MarkdownPreviewContext = createContext<MarkdownPreviewContextValue | null>(null)
 
 type LargeMarkdownRenderRange = {
@@ -198,9 +198,11 @@ function parseFrontMatter(raw: string): MarkdownFrontMatter {
 }
 
 function splitMarkdownFrontMatter(source: string): { body: string; frontMatter: MarkdownFrontMatter | null } {
+  const firstLineEnd = source.indexOf('\n')
+  const firstLine = source.slice(0, firstLineEnd < 0 ? source.length : firstLineEnd).replace(/\r$/, '')
+  if (firstLine.trim() !== '---') return { body: source, frontMatter: null }
   const normalized = source.replace(/\r\n/g, '\n')
   const lines = normalized.split('\n')
-  if (lines[0]?.trim() !== '---') return { body: source, frontMatter: null }
 
   for (let index = 1; index < lines.length; index += 1) {
     if (lines[index]?.trim() !== '---') continue

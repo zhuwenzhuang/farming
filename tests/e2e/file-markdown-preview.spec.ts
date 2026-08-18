@@ -25,7 +25,7 @@ async function openProjectFile(page: Parameters<typeof openFarming>[0], projectN
 
   const file = files.locator(`[data-testid="code-file-row"][data-file-path="${filePath}"]`)
   await expect(file).toBeVisible()
-  await file.dblclick()
+  await file.click()
 }
 
 test('renders Markdown files by default and keeps preview, source, and split controls coherent', async ({ page, workspaceRoot }, testInfo) => {

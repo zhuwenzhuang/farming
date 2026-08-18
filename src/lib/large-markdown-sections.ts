@@ -1,6 +1,4 @@
 import type { Root } from 'mdast'
-import remarkGfm from 'remark-gfm'
-import remarkMath from 'remark-math'
 import remarkParse from 'remark-parse'
 import { unified } from 'unified'
 
@@ -76,7 +74,11 @@ function sectionIndexForOffset(starts: number[], offset: number) {
 }
 
 export function splitLargeMarkdownSections(source: string, maximumSectionBlocks: number): LargeMarkdownSection[] {
-  const processor = unified().use(remarkParse).use(remarkGfm).use(remarkMath)
+  // Segmentation only needs CommonMark block boundaries and source positions.
+  // GFM and math are still applied when a visible section is rendered; running
+  // those transforms over the complete oversized document needlessly delays
+  // its first paint and creates a much larger temporary tree.
+  const processor = unified().use(remarkParse)
   const tree = processor.runSync(processor.parse(source) as Root) as unknown as MarkdownNode
   const children = tree.children ?? []
   if (children.length === 0) {
