@@ -128,6 +128,7 @@ type AgentPreviewTarget = {
   project: string
   lastActive: number
   provider?: AgentIconName
+  providerHomeId?: string
   workspaceRootId?: string
   browserCount?: number
   desktopCount?: number
@@ -2756,6 +2757,7 @@ function previewTargetForAgent(agent: Agent, rowState: ReturnType<typeof buildAg
     project: project || projectNameForWorkspace(agent.projectWorkspace || agent.cwd),
     lastActive: agent.lastActivity || agent.startedAt || 0,
     provider: previewAgentIconNameForAgent(agent),
+    providerHomeId: nonDefaultAgentHomeId(agent.providerHomeId),
     workspaceRootId: agent.workspaceRootId,
   }
 }
@@ -2767,7 +2769,13 @@ function previewTargetForSession(session: AgentSessionHistoryItem, rowState: Ret
     project: agentSessionProjectName(session),
     lastActive: agentSessionUpdatedAt(session),
     provider: agentIconName(session.provider),
+    providerHomeId: nonDefaultAgentHomeId(session.providerHomeId),
   }
+}
+
+function nonDefaultAgentHomeId(providerHomeId: string | undefined) {
+  const normalized = providerHomeId?.trim() || ''
+  return normalized && normalized.toLowerCase() !== 'default' ? normalized : undefined
 }
 
 function ProjectHoverPreview({
@@ -2829,7 +2837,7 @@ function AgentHoverPreview({
     setTitleOverflow(Boolean(title && title.scrollWidth > title.clientWidth + 1))
     const previewElement = previewRef.current
     if (previewElement) setTitleCardTop(previewElement.getBoundingClientRect().bottom + 10)
-  }, [ageLabel, preview.branch, preview.key, preview.title, preview.width, preview.x, preview.y])
+  }, [ageLabel, preview.branch, preview.key, preview.providerHomeId, preview.title, preview.width, preview.x, preview.y])
   const titleCardLeft = preview.x
   const titleCardWidth = Math.min(360, window.innerWidth - titleCardLeft - 12)
 
@@ -2857,6 +2865,12 @@ function AgentHoverPreview({
           <span className="code-agent-hover-preview-icon"><AgentPreviewBranchIcon /></span>
           <span>{preview.branch || '—'}</span>
         </div>
+        {preview.providerHomeId && (
+          <div className="code-agent-hover-preview-line" data-testid="code-agent-hover-preview-home">
+            <span className="code-agent-hover-preview-icon"><AgentPreviewHomeIcon /></span>
+            <span>{preview.providerHomeId}</span>
+          </div>
+        )}
         {(Boolean(preview.browserCount) || Boolean(preview.desktopCount)) && (
           <div className="code-agent-hover-preview-resources" data-testid="code-agent-hover-preview-resources">
             {Boolean(preview.browserCount) && (
@@ -2892,6 +2906,14 @@ function AgentPreviewFolderIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
       <path fill="currentColor" d="M1.5 3.75C1.5 2.784 2.284 2 3.25 2h3.104c.464 0 .91.184 1.237.513l.841.842c.14.14.33.22.528.22h3.79c.966 0 1.75.784 1.75 1.75v6.925c0 .966-.784 1.75-1.75 1.75H3.25a1.75 1.75 0 0 1-1.75-1.75V3.75Zm1.75-.75a.75.75 0 0 0-.75.75v8.5c0 .414.336.75.75.75h9.5a.75.75 0 0 0 .75-.75V5.325a.75.75 0 0 0-.75-.75H8.96a1.75 1.75 0 0 1-1.235-.512l-.841-.842A.75.75 0 0 0 6.354 3H3.25Z" />
+    </svg>
+  )
+}
+
+function AgentPreviewHomeIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path fill="currentColor" d="M7.66 1.63a.5.5 0 0 1 .68 0l5.5 5.08a.5.5 0 1 1-.68.74L13 7.3v5.45A1.25 1.25 0 0 1 11.75 14h-7.5A1.25 1.25 0 0 1 3 12.75V7.3l-.16.15a.5.5 0 1 1-.68-.74l5.5-5.08ZM4 6.38v6.37c0 .14.11.25.25.25H6.5V9.75c0-.69.56-1.25 1.25-1.25h.5c.69 0 1.25.56 1.25 1.25V13h2.25c.14 0 .25-.11.25-.25V6.38L8 2.69 4 6.38ZM8.25 9.5h-.5a.25.25 0 0 0-.25.25V13h1V9.75a.25.25 0 0 0-.25-.25Z" />
     </svg>
   )
 }

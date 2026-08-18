@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { Page } from '@playwright/test'
 import { expect, openFarming, test } from './fixtures'
+import { encodeProviderSessionKey } from '../../shared/provider-session-identity'
 
 async function resizeSidebar(page: Page, width: number) {
   const sidebar = page.getByTestId('code-sidebar')
@@ -84,6 +85,7 @@ test('reveals more Agent row information as the sidebar widens', async ({ page, 
   const titleCard = page.getByTestId('code-agent-hover-title-card')
   const agentPreview = page.getByTestId('code-agent-hover-preview')
   await expect(titleCard).toBeVisible()
+  await expect(agentPreview.getByTestId('code-agent-hover-preview-home')).toHaveCount(0)
   await expect(titleCard).toHaveText(longTitle)
   await expect(titleCard).toHaveCSS('font-size', '14px')
   await expect(titleCard).toHaveCSS('font-weight', '400')
@@ -258,6 +260,49 @@ test('reveals more Agent row information as the sidebar widens', async ({ page, 
   expect(wide.ageDisplay).not.toBe('none')
   expect(wide.detailDisplay).toBe('block')
   expect(wide.detail).toBe('bash')
+})
+
+test('shows only non-default Agent Homes in the Agent hover preview', async ({ page, workspaceRoot }) => {
+  const projectDir = path.join(workspaceRoot, 'agent-home-hover-preview')
+  const sessionId = 'agent-home-hover-session'
+  fs.mkdirSync(projectDir, { recursive: true })
+  await page.route(/\/farming\/api\/agent-sessions(?:\?.*)?$/, route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      sessions: [{
+        provider: 'codex',
+        providerName: 'Codex',
+        providerHomeId: 'review',
+        id: sessionId,
+        title: 'Review Home Agent',
+        workspace: projectDir,
+        updatedAt: new Date().toISOString(),
+        archived: false,
+        pinned: false,
+        unread: false,
+        projectless: false,
+      }],
+      nextCursor: '',
+      hasMore: false,
+      total: 1,
+    }),
+  }))
+  const membershipResponse = await page.request.post('/farming/api/main-page-agent-sessions', {
+    data: {
+      operation: 'add',
+      sessionKeys: [encodeProviderSessionKey('codex', sessionId, 'review')],
+    },
+  })
+  expect(membershipResponse.ok()).toBeTruthy()
+
+  await openFarming(page)
+  const row = page.getByTestId('code-active-session-row').filter({ hasText: 'Review Home Agent' })
+  await expect(row).toBeVisible()
+  await row.hover()
+
+  const home = page.getByTestId('code-agent-hover-preview-home')
+  await expect(home).toBeVisible()
+  await expect(home).toHaveText('review')
 })
 
 test('hides Agent row actions after a clicked row loses hover', async ({ page, workspaceRoot }) => {
