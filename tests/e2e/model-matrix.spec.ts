@@ -117,6 +117,59 @@ test('ACP model controls wait for the initial session configuration to become re
   await expect(page.getByText('ACP Agent is not ready for configuration changes (connecting)')).toHaveCount(0)
 })
 
+test('keeps confirmed ACP controls visible while revalidating after an Agent switch', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'model-matrix-switch-cache')
+  fs.mkdirSync(workspace, { recursive: true })
+  const firstAgentId = await createAcpAgent(page, workspace)
+  const secondAgentId = await createAcpAgent(page, workspace)
+  const firstState: MatrixState = { model: 'gpt-5.6-sol', reasoning: 'high', fast: false }
+  const secondState: MatrixState = { model: 'gpt-5.6-terra', reasoning: 'low', fast: false }
+  const blockedRefresh = deferred()
+  const refreshStarted = deferred()
+  let blockNextFirstRefresh = false
+
+  await page.route(/\/farming\/api\/agents\/([^/]+)\/acp-session(?:\?includeEntries=0)?$/, async route => {
+    if (route.request().method() !== 'GET') {
+      await route.continue()
+      return
+    }
+    const match = new URL(route.request().url()).pathname.match(/\/api\/agents\/([^/]+)\/acp-session$/)
+    const agentId = decodeURIComponent(match?.[1] || '')
+    if (agentId === firstAgentId && blockNextFirstRefresh) {
+      blockNextFirstRefresh = false
+      refreshStarted.resolve()
+      await blockedRefresh.promise
+    }
+    await route.fulfill({
+      json: { session: sessionSnapshot(agentId === firstAgentId ? firstState : secondState) },
+    })
+  })
+
+  await openFarming(page)
+  const firstRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${firstAgentId}"]`)
+  const secondRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${secondAgentId}"]`)
+  const picker = page.getByTestId('code-acp-model-picker')
+
+  await firstRow.click()
+  await expect(picker).toHaveAttribute('data-agent-model-preset', 'gpt-5.6-sol:high')
+  await secondRow.click()
+  await expect(picker).toHaveAttribute('data-agent-model-preset', 'gpt-5.6-terra:low')
+
+  blockNextFirstRefresh = true
+  await firstRow.click()
+  await refreshStarted.promise
+  try {
+    await page.evaluate(() => new Promise<void>(resolve => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+    }))
+    expect(await picker.isVisible()).toBe(true)
+    expect(await picker.getAttribute('data-agent-model-preset')).toBe('gpt-5.6-sol:high')
+  } finally {
+    blockedRefresh.resolve()
+  }
+  await expect(picker).toHaveAttribute('data-agent-model-preset', 'gpt-5.6-sol:high')
+})
+
 test('ACP model matrix responds locally, settles once, and morphs Advanced without a layout jump', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'model-matrix')
   fs.mkdirSync(workspace, { recursive: true })

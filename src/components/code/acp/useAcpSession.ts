@@ -1,7 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { appPath } from '@/lib/base-path'
 import { RequestOwnershipFence } from '@/lib/request-ownership'
 import type { AcpSessionSnapshot } from './types'
+import {
+  getAcpSessionStateSnapshot,
+  subscribeAcpSessionState,
+  updateAcpSessionState,
+} from './acp-session-state-pool'
 
 type AcpConfigChange = {
   configId: string
@@ -73,13 +78,16 @@ function optimisticDeferredSession(session: AcpSessionSnapshot) {
 }
 
 export function useAcpSession(agentId: string, active: boolean, runtimeState: string) {
-  const [session, setSession] = useState<AcpSessionSnapshot | null>(null)
-  const [error, setError] = useState('')
+  const state = useSyncExternalStore(
+    useCallback(listener => subscribeAcpSessionState(agentId, listener), [agentId]),
+    useCallback(() => getAcpSessionStateSnapshot(agentId), [agentId]),
+    useCallback(() => getAcpSessionStateSnapshot(agentId), [agentId]),
+  )
+  const { session, error } = state
   const [updatingId, setUpdatingId] = useState('')
   const [authenticatingId, setAuthenticatingId] = useState('')
   const [loggingOut, setLoggingOut] = useState(false)
-  const [configDeferred, setConfigDeferred] = useState(false)
-  const sessionRef = useRef<AcpSessionSnapshot | null>(null)
+  const sessionRef = useRef<AcpSessionSnapshot | null>(session)
   const refreshOwnershipRef = useRef(new RequestOwnershipFence(agentId))
   const mutationOwnershipRef = useRef(new RequestOwnershipFence(agentId))
   const accountMutationOwnershipRef = useRef(new RequestOwnershipFence(agentId))
@@ -101,6 +109,22 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
     sessionRef.current = session
   }, [session])
 
+  const setSession = useCallback((
+    value: AcpSessionSnapshot | null | ((current: AcpSessionSnapshot | null) => AcpSessionSnapshot | null),
+  ) => {
+    updateAcpSessionState(agentId, current => {
+      const nextSession = typeof value === 'function' ? value(current.session) : value
+      sessionRef.current = nextSession
+      return nextSession === current.session ? current : { ...current, session: nextSession }
+    })
+  }, [agentId])
+
+  const setError = useCallback((nextError: string) => {
+    updateAcpSessionState(agentId, current => (
+      nextError === current.error ? current : { ...current, error: nextError }
+    ))
+  }, [agentId])
+
   const refresh = useCallback(async (signal?: AbortSignal) => {
     if (!agentId || !active) return
     const requestMutationSequence = mutationSequenceRef.current
@@ -117,10 +141,6 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
       const nextSession = optimisticDeferredSession(body.session)
       sessionRef.current = nextSession
       setSession(nextSession)
-      setConfigDeferred(
-        (body.session.deferredConfigOptions?.length || 0) > 0
-        || Boolean(body.session.deferredModeId),
-      )
       setError('')
     } catch (nextError) {
       if (nextError instanceof DOMException && nextError.name === 'AbortError') return
@@ -131,7 +151,7 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
       ) return
       setError(nextError instanceof Error ? nextError.message : 'Failed to read ACP session')
     }
-  }, [active, agentId])
+  }, [active, agentId, setError, setSession])
 
   useEffect(() => {
     refreshOwnershipRef.current.invalidate()
@@ -141,13 +161,9 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
     accountMutationOwnershipRef.current.invalidate()
     accountMutationSequenceRef.current += 1
     accountMutationRef.current = null
-    sessionRef.current = null
-    setSession(null)
-    setError('')
     setUpdatingId('')
     setAuthenticatingId('')
     setLoggingOut(false)
-    setConfigDeferred(false)
   }, [active, agentId])
 
   useEffect(() => {
@@ -215,10 +231,6 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
         return next
       })
       setError('')
-      setConfigDeferred(
-        (body?.deferredConfigOptions?.length || 0) > 0
-        || Boolean(body?.deferredModeId),
-      )
       return true
     } catch (nextError) {
       if (
@@ -242,7 +254,7 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
         setUpdatingId('')
       }
     }
-  }, [agentId])
+  }, [agentId, setError, setSession])
 
   const setMode = useCallback(
     (modeId: string) => patchSession('mode', { modeId }),
@@ -295,7 +307,7 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
         setAuthenticatingId('')
       }
     }
-  }, [active, agentId, refresh])
+  }, [active, agentId, refresh, setError])
 
   const logout = useCallback(async () => {
     if (!agentId || !active || accountMutationRef.current) return false
@@ -330,7 +342,7 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
         setLoggingOut(false)
       }
     }
-  }, [active, agentId, refresh])
+  }, [active, agentId, refresh, setError])
 
   return {
     session,
@@ -338,7 +350,7 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
     updatingId,
     authenticatingId,
     loggingOut,
-    configDeferred,
+    configDeferred: Boolean(session?.deferredConfigOptions?.length || session?.deferredModeId),
     configOptionsDeferred: Boolean(session?.deferredConfigOptions?.length),
     modeDeferred: Boolean(session?.deferredModeId),
     setMode,

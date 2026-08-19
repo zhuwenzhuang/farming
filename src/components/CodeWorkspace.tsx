@@ -87,6 +87,7 @@ import {
 } from './code/acp/acp-composer-behavior'
 import { acpComposerStateAliasKeysForAgent, acpComposerStateKeyForAgent } from './code/acp/acp-composer-state'
 import { discardAcpTranscriptSession } from './code/acp/acp-transcript-session-pool'
+import { discardAcpSessionState } from './code/acp/acp-session-state-pool'
 import { MobileShareSheet } from './code/MobileShareSheet'
 import { CodeOverlays, ContextMenuIcon } from './code/CodeOverlays'
 import { CodeSidebar } from './code/CodeSidebar'
@@ -2451,6 +2452,7 @@ export function CodeWorkspace({
     options: { acknowledgeUnprovenAcpExit?: boolean } = {},
   ) => {
     discardAcpTranscriptSession(agentId)
+    discardAcpSessionState(agentId)
     setOptimisticallyArchivedAgentIds(previous => {
       if (previous.has(agentId)) return previous
       return new Set(previous).add(agentId)

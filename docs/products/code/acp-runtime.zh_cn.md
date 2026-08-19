@@ -208,6 +208,20 @@ Identity 变化、检测到缺口、Reset 或分页范围变化，仍必须先�
 内容。阅读位置绑定稳定 Turn 或 Process Item，而不只记录 Pixel；Transcript Record 与 Pooled
 Terminal 共用 20-view Working-set 边界。
 
+ACP Session 控件沿用同一套 Agent-scoped Working-set Ownership。Browser 会保留最近每个
+Agent 最后一次已确认的 Mode、Model、Reasoning、Permission 与 Account Snapshot，切换到
+其它 Chat 时不会清空。切回时同步显示该 Confirmed Snapshot，同时发起新的权威 Session Read
+做 Revalidation。Revalidation 失败可以显示错误，但不能抹掉已确认控件；从未加载或已经淘汰的
+Agent 仍需等待第一份权威 Snapshot。Refresh 与 Mutation Response 继续由精确 Agent Identity
+和 Request Sequence 保护；归档或 Working-set Eviction 只销毁对应 Agent 的 Retained Snapshot。
+
+Provider-wide Discovery 归 Shared ACP Runtime 所有，而不归单个 Session 所有。同一 Provider
+Home 与 Project 的并发 Session Open 必须合并 Skills Discovery；后续 Session Open 应读取
+Provider 的 Warm Skills Cache，不能再次强制扫描文件系统。Runtime 还会复用最近一次成功取得的
+Model Inventory，直到 Authentication 或 Provider Routing 发生变化；失败的 Discovery 不得缓存。
+Session 自己的 History Restore 仍保持权威并可能耗时，但不能再排在重复的 Runtime-wide
+Discovery 工作之后。
+
 ## 生命周期与恢复
 
 有业务意义的 Session 状态包括 Connecting、Idle、Working、Waiting for User、Interrupting、

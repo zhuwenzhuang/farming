@@ -286,6 +286,26 @@ checkpoint before replacement content becomes visible. Reading position is
 anchored to a stable Turn or process item rather than raw pixels, and transcript
 records share the same 20-view working-set boundary as pooled Terminals.
 
+ACP Session controls use the same Agent-scoped working-set ownership. The
+browser retains each recent Agent's last confirmed mode, model, reasoning,
+permission, and account snapshot rather than clearing it when another Chat
+becomes visible. Reattaching shows that confirmed snapshot synchronously while
+a fresh authoritative Session read revalidates it. A failed revalidation may
+surface an error but does not erase confirmed controls; a never-loaded or
+evicted Agent still waits for its first authoritative snapshot. Refresh and
+mutation responses remain fenced by exact Agent identity and request sequence,
+and archiving or working-set eviction discards only that Agent's retained
+snapshot.
+
+Provider-wide discovery belongs to the shared ACP runtime, not to an individual
+Session. Concurrent Session opens for the same provider Home and Project must
+coalesce Skills discovery, and later opens may consult the provider's warm
+Skills cache instead of forcing another filesystem scan. The runtime also
+reuses the last successfully discovered model inventory until authentication
+or provider routing changes. A failed discovery is not cached. Session-owned
+history restore remains authoritative and may still take time, but it must not
+be serialized behind repeated runtime-wide discovery work.
+
 ## Lifecycle And Recovery
 
 The meaningful Session states are connecting, idle, working, waiting for user

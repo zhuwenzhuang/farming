@@ -43,6 +43,7 @@ import {
   reconnectAcpTranscriptSessions,
   retainAcpTranscriptSessions,
 } from '@/components/code/acp/acp-transcript-session-pool'
+import { retainAcpSessionStates } from '@/components/code/acp/acp-session-state-pool'
 import { isOpenableAgent, resolveActiveAgentId } from '@/components/code/agent-selection'
 import { projectWorkspaceFromAgentState } from '../shared/agent-state-semantics.js'
 
@@ -1219,11 +1220,13 @@ export function App() {
 
   useEffect(() => {
     retainAcpTranscriptSessions(retainedAcpTranscriptAgentIds)
+    retainAcpSessionStates(retainedAcpTranscriptAgentIds)
     watchAcpTranscripts(retainedAcpTranscriptAgentIds)
   }, [retainedAcpTranscriptAgentIds, watchAcpTranscripts])
 
   useEffect(() => () => {
     retainAcpTranscriptSessions([])
+    retainAcpSessionStates([])
   }, [])
 
   useEffect(() => {
