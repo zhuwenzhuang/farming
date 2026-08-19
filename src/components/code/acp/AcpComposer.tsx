@@ -163,7 +163,7 @@ export function AcpComposer({
   const [openMenu, setOpenMenu] = useState<AcpComposerMenu>(null)
   const [modelPane, setModelPane] = useState<'model' | 'speed' | null>(null)
   const [dismissedPromptSuggestionId, setDismissedPromptSuggestionId] = useState('')
-  const { session, error: sessionError, updatingId, authenticatingId, loggingOut, configDeferred, configOptionsDeferred, modeDeferred, setMode, setConfigOption, setConfigOptions, authenticate, logout } = useAcpSession(
+  const { session, error: sessionError, updatingId, authenticatingId, loggingOut, authoritative: sessionAuthoritative, configDeferred, configOptionsDeferred, modeDeferred, setMode, setConfigOption, setConfigOptions, authenticate, logout } = useAcpSession(
     agentId,
     active,
     `${runtimeState}:${sessionRevision || 0}:${sessionUpdatedAt || ''}`,
@@ -179,7 +179,7 @@ export function AcpComposer({
     [draft, selectionStart]
   )
   const filteredCommands = useMemo(() => {
-    if (!commandTrigger) return []
+    if (!commandTrigger || !sessionAuthoritative) return []
     const query = commandTrigger.query.toLowerCase()
     return (session?.availableCommands || [])
       .filter(command => {
@@ -189,11 +189,12 @@ export function AcpComposer({
         return searchableName.startsWith(query) || command.description.toLowerCase().includes(query)
       })
       .slice(0, 12)
-  }, [commandTrigger, session?.availableCommands])
+  }, [commandTrigger, session?.availableCommands, sessionAuthoritative])
   const showCommands = active && focused && filteredCommands.length > 0
   const selectedCommand = filteredCommands[activeCommandIndex] || filteredCommands[0] || null
   const promptSuggestion = session?.promptSuggestion
   const visiblePromptSuggestion = active
+    && sessionAuthoritative
     && runtimeState === 'idle'
     && composerMode === 'default'
     && !draft
@@ -208,6 +209,11 @@ export function AcpComposer({
 
   useEffect(() => setActiveCommandIndex(0), [commandTrigger?.query, commandTrigger?.trigger, filteredCommands.length])
   useEffect(() => setDismissedPromptSuggestionId(''), [agentId])
+  useEffect(() => {
+    if (sessionAuthoritative) return
+    setOpenMenu(null)
+    setModelPane(null)
+  }, [sessionAuthoritative])
 
   useEffect(() => {
     if (!openMenu) return undefined
@@ -370,15 +376,15 @@ export function AcpComposer({
       acpUsage?.costLabel ? `Session cost: ${acpUsage.costLabel}` : '',
     ].filter(Boolean).join('. ')
     : ''
-  const effectiveRuntimeState = session?.state || runtimeState
+  const effectiveRuntimeState = sessionAuthoritative ? session?.state || runtimeState : runtimeState
   const effectiveRuntimeError = effectiveRuntimeState === 'error'
-    ? (session ? session.error : runtimeError)
+    ? (sessionAuthoritative && session ? session.error : runtimeError)
     : ''
-  const authenticationRequired = session?.errorKind === 'authentication'
+  const authenticationRequired = sessionAuthoritative && session?.errorKind === 'authentication'
   const deferredSessionError = effectiveRuntimeError.startsWith('Deferred session change was not applied:')
   const reconnectableSessionError = isReconnectableAcpFailure(
     effectiveRuntimeState,
-    session?.retryableReconnect === true,
+    sessionAuthoritative && session?.retryableReconnect === true,
   )
   const displayedSessionError = sessionError || (
     authenticationRequired || deferredSessionError ? '' : effectiveRuntimeError
@@ -405,6 +411,7 @@ export function AcpComposer({
       ref={composerRef}
       className="code-acp-composer-stack"
       data-testid="code-acp-composer-stack"
+      aria-busy={active && !sessionAuthoritative}
     >
       {(submissions.length > 0 || pendingFollowUp) && active ? (
         <div className="code-pending-followup code-acp-pending-items" data-testid="code-acp-pending-followup">
@@ -470,7 +477,7 @@ export function AcpComposer({
           <p>{effectiveRuntimeError}</p>
         </section>
       ) : null}
-      {active && session?.configOverrideWarnings?.length ? (
+      {active && sessionAuthoritative && session?.configOverrideWarnings?.length ? (
         <section className="code-acp-feedback" data-testid="code-acp-config-recovery-warning" role="status">
           <p>{session.configOverrideWarnings.map(warning => warning.message).join(' ')}</p>
         </section>
@@ -631,7 +638,7 @@ export function AcpComposer({
                     type="button"
                     role="menuitem"
                     data-testid="code-acp-logout"
-                    disabled={loggingOut}
+                    disabled={loggingOut || !sessionAuthoritative}
                     onClick={() => {
                       setOpenMenu(null)
                       void logout()
@@ -662,6 +669,7 @@ export function AcpComposer({
             <AcpModeControl
               session={session}
               updatingId={updatingId}
+              disabled={!sessionAuthoritative}
               copy={copy}
               open={openMenu === 'mode'}
               onToggle={() => toggleMenu('mode')}
@@ -694,6 +702,7 @@ export function AcpComposer({
             <AcpModelControl
               session={session}
               updatingId={updatingId}
+              disabled={!sessionAuthoritative}
               copy={copy}
               open={openMenu === 'model'}
               pane={modelPane}

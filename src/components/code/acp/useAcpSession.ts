@@ -87,6 +87,9 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
   const [updatingId, setUpdatingId] = useState('')
   const [authenticatingId, setAuthenticatingId] = useState('')
   const [loggingOut, setLoggingOut] = useState(false)
+  const [validatedScope, setValidatedScope] = useState('')
+  const validationScope = `${agentId}\u0000${runtimeState}`
+  const authoritative = active && validatedScope === validationScope
   const sessionRef = useRef<AcpSessionSnapshot | null>(session)
   const refreshOwnershipRef = useRef(new RequestOwnershipFence(agentId))
   const mutationOwnershipRef = useRef(new RequestOwnershipFence(agentId))
@@ -142,6 +145,7 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
       sessionRef.current = nextSession
       setSession(nextSession)
       setError('')
+      setValidatedScope(validationScope)
     } catch (nextError) {
       if (nextError instanceof DOMException && nextError.name === 'AbortError') return
       if (
@@ -149,9 +153,10 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
         || mutationRef.current
         || mutationSequenceRef.current !== requestMutationSequence
       ) return
+      setValidatedScope('')
       setError(nextError instanceof Error ? nextError.message : 'Failed to read ACP session')
     }
-  }, [active, agentId, setError, setSession])
+  }, [active, agentId, setError, setSession, validationScope])
 
   useEffect(() => {
     refreshOwnershipRef.current.invalidate()
@@ -182,7 +187,7 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
   }, [refresh, session?.authTerminal?.state, session?.authTerminal?.terminalId])
 
   const patchSession = useCallback(async (id: string, patch: Record<string, unknown>) => {
-    if (!agentId || mutationRef.current) return false
+    if (!agentId || !authoritative || mutationRef.current) return false
     const requestAgentId = agentId
     const lease = mutationOwnershipRef.current.begin()
     const sequence = ++mutationSequenceRef.current
@@ -254,7 +259,7 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
         setUpdatingId('')
       }
     }
-  }, [agentId, setError, setSession])
+  }, [agentId, authoritative, setError, setSession])
 
   const setMode = useCallback(
     (modeId: string) => patchSession('mode', { modeId }),
@@ -273,7 +278,7 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
   )
 
   const authenticate = useCallback(async (methodId: string) => {
-    if (!agentId || !active || accountMutationRef.current) return false
+    if (!agentId || !authoritative || accountMutationRef.current) return false
     const requestAgentId = agentId
     const lease = accountMutationOwnershipRef.current.begin()
     const sequence = ++accountMutationSequenceRef.current
@@ -307,10 +312,10 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
         setAuthenticatingId('')
       }
     }
-  }, [active, agentId, refresh, setError])
+  }, [agentId, authoritative, refresh, setError])
 
   const logout = useCallback(async () => {
-    if (!agentId || !active || accountMutationRef.current) return false
+    if (!agentId || !authoritative || accountMutationRef.current) return false
     const requestAgentId = agentId
     const lease = accountMutationOwnershipRef.current.begin()
     const sequence = ++accountMutationSequenceRef.current
@@ -342,7 +347,7 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
         setLoggingOut(false)
       }
     }
-  }, [active, agentId, refresh, setError])
+  }, [agentId, authoritative, refresh, setError])
 
   return {
     session,
@@ -350,9 +355,10 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
     updatingId,
     authenticatingId,
     loggingOut,
-    configDeferred: Boolean(session?.deferredConfigOptions?.length || session?.deferredModeId),
-    configOptionsDeferred: Boolean(session?.deferredConfigOptions?.length),
-    modeDeferred: Boolean(session?.deferredModeId),
+    authoritative,
+    configDeferred: authoritative && Boolean(session?.deferredConfigOptions?.length || session?.deferredModeId),
+    configOptionsDeferred: authoritative && Boolean(session?.deferredConfigOptions?.length),
+    modeDeferred: authoritative && Boolean(session?.deferredModeId),
     setMode,
     setConfigOption,
     setConfigOptions,

@@ -102,15 +102,13 @@ async function run() {
       .map(line => JSON.parse(line));
     const skillRequests = requests.filter(request => request.method === 'skills/list');
     const modelRequests = requests.filter(request => request.method === 'model/list');
-    assert.strictEqual(skillRequests.filter(request => request.params.forceReload === true).length, 1,
-      'concurrent and later Sessions in one Codex runtime must not repeat a full Skills reload');
+    assert.strictEqual(skillRequests.filter(request => request.params.forceReload === true).length, 2,
+      'concurrent Session loads must coalesce, while a later load performs a fresh Skills reload');
     assert.strictEqual(skillRequests[0].params.forceReload, true,
       'the first Session must still establish an authoritative Skills snapshot');
-    assert(skillRequests.slice(1).every(request => request.params.forceReload !== true),
-      'later Session setup and command discovery may only consult the warm Skills cache');
-    assert.strictEqual(modelRequests.length, 1,
-      'Session-global model discovery must be reused by every Session in one Codex runtime');
-    console.log('✓ Codex ACP reuses runtime discovery across Session loads');
+    assert.strictEqual(modelRequests.length, 2,
+      'concurrent model discovery must coalesce without caching results for a later Session load');
+    console.log('✓ Codex ACP coalesces concurrent discovery without retaining stale results');
   } finally {
     child.kill('SIGTERM');
     fs.rmSync(tmpDir, { recursive: true, force: true });

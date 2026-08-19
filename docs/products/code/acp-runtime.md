@@ -290,8 +290,10 @@ ACP Session controls use the same Agent-scoped working-set ownership. The
 browser retains each recent Agent's last confirmed mode, model, reasoning,
 permission, and account snapshot rather than clearing it when another Chat
 becomes visible. Reattaching shows that confirmed snapshot synchronously while
-a fresh authoritative Session read revalidates it. A failed revalidation may
-surface an error but does not erase confirmed controls; a never-loaded or
+a fresh authoritative Session read revalidates it. Retained controls remain
+visible but are not actionable until that read confirms the current Agent and
+runtime revision. A failed revalidation surfaces an error, preserves the last
+confirmed presentation, and keeps its controls disabled; a never-loaded or
 evicted Agent still waits for its first authoritative snapshot. Refresh and
 mutation responses remain fenced by exact Agent identity and request sequence,
 and archiving or working-set eviction discards only that Agent's retained
@@ -299,12 +301,13 @@ snapshot.
 
 Provider-wide discovery belongs to the shared ACP runtime, not to an individual
 Session. Concurrent Session opens for the same provider Home and Project must
-coalesce Skills discovery, and later opens may consult the provider's warm
-Skills cache instead of forcing another filesystem scan. The runtime also
-reuses the last successfully discovered model inventory until authentication
-or provider routing changes. A failed discovery is not cached. Session-owned
-history restore remains authoritative and may still take time, but it must not
-be serialized behind repeated runtime-wide discovery work.
+coalesce Skills and model discovery. A completed discovery result is not an
+authoritative cache for a later Session open: later opens force a fresh Skills
+read and obtain a fresh model inventory. Authentication or provider-routing
+changes advance the discovery generation, so an older in-flight model result
+is re-read before use. Failed discovery is never cached. Session-owned history
+restore remains authoritative and may still take time, but concurrent opens
+must not serialize behind duplicate runtime-wide discovery work.
 
 ## Lifecycle And Recovery
 

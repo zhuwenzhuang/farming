@@ -88,11 +88,13 @@ function sessionModeConfig(session: AcpSessionSnapshot) {
 function SelectOptions({
   option,
   currentValue,
+  disabled,
   label,
   onSelect,
 }: {
   option: AcpSessionConfigSelect
   currentValue: string
+  disabled: boolean
   label: (candidate: AcpSessionConfigSelectOption) => string
   onSelect: (value: string) => void
 }) {
@@ -103,6 +105,7 @@ function SelectOptions({
       className={`code-model-option ${candidate.value === currentValue ? 'selected' : ''}`}
       role="menuitemradio"
       aria-checked={candidate.value === currentValue}
+      disabled={disabled}
       onClick={() => onSelect(candidate.value)}
     >
       <span className="code-model-option-copy">
@@ -116,6 +119,7 @@ function SelectOptions({
 export function AcpModeControl({
   session,
   updatingId,
+  disabled,
   copy,
   open,
   onToggle,
@@ -124,6 +128,7 @@ export function AcpModeControl({
 }: {
   session: AcpSessionSnapshot
   updatingId: string
+  disabled: boolean
   copy: CodeCopy
   open: boolean
   onToggle: () => void
@@ -156,7 +161,7 @@ export function AcpModeControl({
         aria-label={copy.agentPermissionMode}
         aria-haspopup="menu"
         aria-expanded={open}
-        disabled={Boolean(updatingId)}
+        disabled={disabled || Boolean(updatingId)}
         onClick={onToggle}
       >
         <span className="code-tool-icon" aria-hidden="true"><ModeIcon modeId={currentModeId} /></span>
@@ -176,6 +181,7 @@ export function AcpModeControl({
               className={`code-approval-option ${mode.id === currentModeId ? 'selected' : ''}`}
               role="menuitemradio"
               aria-checked={mode.id === currentModeId}
+              disabled={disabled || Boolean(updatingId)}
               onClick={() => usesConfigOption && modeConfig
                 ? onSetConfigOption(modeConfig.id, mode.id)
                 : onSetMode(mode.id)}
@@ -197,6 +203,7 @@ export function AcpModeControl({
 export function AcpModelControl({
   session,
   updatingId,
+  disabled: externallyDisabled,
   copy,
   open,
   pane,
@@ -208,6 +215,7 @@ export function AcpModelControl({
 }: {
   session: AcpSessionSnapshot
   updatingId: string
+  disabled: boolean
   copy: CodeCopy
   open: boolean
   pane: 'model' | 'speed' | null
@@ -241,7 +249,7 @@ export function AcpModelControl({
     : []
   const hasMatrix = Boolean(modelMatrixFamily(matrixModels, model?.currentValue || ''))
   if (!model && !reasoning && !fastMode && extraOptions.length === 0) return null
-  const disabled = Boolean(updatingId) || session.state === 'connecting'
+  const disabled = externallyDisabled || Boolean(updatingId) || session.state === 'connecting'
 
   return (
     <div className="code-composer-menu-anchor model-picker">
@@ -287,6 +295,7 @@ export function AcpModelControl({
               <SelectOptions
                 option={reasoning}
                 currentValue={reasoning.currentValue}
+                disabled={disabled}
                 label={candidate => copy.reasoningOptionLabel(candidate.value, candidate.name)}
                 onSelect={value => onSetConfigOption(reasoning.id, value)}
               />
@@ -300,6 +309,7 @@ export function AcpModelControl({
                 className={`code-model-nested-trigger ${pane === 'model' ? 'selected' : ''}`}
                 role="menuitem"
                 data-testid="code-acp-model-submenu-trigger"
+                disabled={disabled}
                 onClick={() => onSetPane(pane === 'model' ? null : 'model')}
               >
                 <span>{currentModel?.name || model.currentValue}</span>
@@ -310,6 +320,7 @@ export function AcpModelControl({
                   <SelectOptions
                     option={model}
                     currentValue={model.currentValue}
+                    disabled={disabled}
                     label={candidate => candidate.name}
                     onSelect={value => onSetConfigOption(model.id, value)}
                   />
@@ -324,6 +335,7 @@ export function AcpModelControl({
                 className={`code-model-nested-trigger ${pane === 'speed' ? 'selected' : ''}`}
                 role="menuitem"
                 data-testid="code-acp-speed-submenu-trigger"
+                disabled={disabled}
                 onClick={() => onSetPane(pane === 'speed' ? null : 'speed')}
               >
                 <span>{copy.speed}</span>
@@ -338,6 +350,7 @@ export function AcpModelControl({
                       className={`code-model-option ${fastMode.currentValue === value ? 'selected' : ''}`}
                       role="menuitemradio"
                       aria-checked={fastMode.currentValue === value}
+                      disabled={disabled}
                       onClick={() => onSetConfigOption(fastMode.id, value)}
                     >
                       <span className="code-model-option-copy">
@@ -361,6 +374,7 @@ export function AcpModelControl({
               <SelectOptions
                 option={option}
                 currentValue={option.currentValue}
+                disabled={disabled}
                 label={candidate => candidate.name}
                 onSelect={value => onSetConfigOption(option.id, value)}
               />
@@ -372,6 +386,7 @@ export function AcpModelControl({
               className={`code-model-option ${option.currentValue ? 'selected' : ''}`}
               role="menuitemcheckbox"
               aria-checked={option.currentValue}
+              disabled={disabled}
               onClick={() => onSetConfigOption(option.id, !option.currentValue)}
             >
               <span className="code-model-option-copy">

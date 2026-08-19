@@ -211,16 +211,19 @@ Terminal 共用 20-view Working-set 边界。
 ACP Session 控件沿用同一套 Agent-scoped Working-set Ownership。Browser 会保留最近每个
 Agent 最后一次已确认的 Mode、Model、Reasoning、Permission 与 Account Snapshot，切换到
 其它 Chat 时不会清空。切回时同步显示该 Confirmed Snapshot，同时发起新的权威 Session Read
-做 Revalidation。Revalidation 失败可以显示错误，但不能抹掉已确认控件；从未加载或已经淘汰的
-Agent 仍需等待第一份权威 Snapshot。Refresh 与 Mutation Response 继续由精确 Agent Identity
-和 Request Sequence 保护；归档或 Working-set Eviction 只销毁对应 Agent 的 Retained Snapshot。
+做 Revalidation。在该读取确认当前 Agent 与 Runtime Revision 之前，保留控件保持可见但不可
+操作。Revalidation 失败会显示错误、保留最后确认的画面，并继续禁用控件；从未加载或已经淘汰
+的 Agent 仍需等待第一份权威 Snapshot。Refresh 与 Mutation Response 继续由精确 Agent
+Identity 和 Request Sequence 保护；归档或 Working-set Eviction 只销毁对应 Agent 的
+Retained Snapshot。
 
 Provider-wide Discovery 归 Shared ACP Runtime 所有，而不归单个 Session 所有。同一 Provider
-Home 与 Project 的并发 Session Open 必须合并 Skills Discovery；后续 Session Open 应读取
-Provider 的 Warm Skills Cache，不能再次强制扫描文件系统。Runtime 还会复用最近一次成功取得的
-Model Inventory，直到 Authentication 或 Provider Routing 发生变化；失败的 Discovery 不得缓存。
-Session 自己的 History Restore 仍保持权威并可能耗时，但不能再排在重复的 Runtime-wide
-Discovery 工作之后。
+Home 与 Project 的并发 Session Open 必须合并 Skills 与 Model Discovery。一次已经完成的
+Discovery Result 不能作为后续 Session Open 的权威缓存：后续 Open 必须强制重新读取 Skills，
+并取得新的 Model Inventory。Authentication 或 Provider Routing 改变时必须推进 Discovery
+Generation；更早的 In-flight Model Result 在使用前必须重新读取。失败的 Discovery 不得缓存。
+Session 自己的 History Restore 仍保持权威并可能耗时，但并发 Open 不能串行等待重复的
+Runtime-wide Discovery 工作。
 
 ## 生命周期与恢复
 

@@ -164,10 +164,14 @@ test('keeps confirmed ACP controls visible while revalidating after an Agent swi
     }))
     expect(await picker.isVisible()).toBe(true)
     expect(await picker.getAttribute('data-agent-model-preset')).toBe('gpt-5.6-sol:high')
+    expect(await picker.isDisabled()).toBe(true)
+    await picker.evaluate(button => (button as HTMLButtonElement).click())
+    await expect(page.getByTestId('code-acp-model-menu')).toHaveCount(0)
   } finally {
     blockedRefresh.resolve()
   }
   await expect(picker).toHaveAttribute('data-agent-model-preset', 'gpt-5.6-sol:high')
+  await expect(picker).toBeEnabled()
 })
 
 test('ACP model matrix responds locally, settles once, and morphs Advanced without a layout jump', async ({ page, workspaceRoot }) => {
