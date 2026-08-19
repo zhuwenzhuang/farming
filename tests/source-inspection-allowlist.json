@@ -18,7 +18,6 @@
     { "file": "backend/tests/test-file-editor-style-ownership.ts", "category": "architecture", "reason": "File editor geometry and theme-token ownership are stylesheet boundaries.", "owner": "Code UI", "baselineCount": 1 },
     { "file": "backend/tests/test-files-style-ownership.ts", "category": "architecture", "reason": "Project Files selectors must remain in one appearance-neutral style owner and consume semantic color roles.", "owner": "Code UI", "baselineCount": 1 },
     { "file": "backend/tests/test-frontend-runtime-paths.ts", "category": "package", "reason": "Runtime asset paths are package assembly contracts.", "owner": "Build", "baselineCount": 1 },
-    { "file": "backend/tests/test-ghostty-vendor.ts", "category": "generated", "reason": "Vendored terminal assets must match their generated package manifest.", "owner": "Runtime", "baselineCount": 1 },
     { "file": "backend/tests/test-git-history-style-ownership.ts", "category": "architecture", "reason": "Git history geometry and theme-token ownership are stylesheet boundaries.", "owner": "Code UI", "baselineCount": 1 },
     { "file": "backend/tests/test-history-style-ownership.ts", "category": "architecture", "reason": "History selectors must remain in one appearance-neutral style owner and consume semantic color roles.", "owner": "Code UI", "baselineCount": 1 },
     { "file": "backend/tests/test-index-html-asset-token.ts", "category": "generated", "reason": "Generated index assets require a stable release token.", "owner": "Build", "baselineCount": 3 },

@@ -25,7 +25,6 @@
     "scripts/smoke-codex-acp-process.ts",
     "scripts/smoke-remote-terminal.ts",
     "scripts/start-playwright-server.ts",
-    "scripts/sync-ghostty-vendor.ts",
     "scripts/test-update-platforms.ts",
     "scripts/typecheck-classic-runtime.ts",
     "scripts/verify-linux-compat-release.ts",

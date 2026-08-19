@@ -969,7 +969,6 @@ async function createTerminalInstance(options = {}) {
             onWebglContextLoss: () => {
                 showCrtWebglFailure(new Error('The xterm WebGL context was lost. Close and reopen this terminal to restore it.'));
             },
-            smoothScrollDuration: 120,
             disableStdin: options.disableStdin === true,
             scrollback: TERMINAL_SCROLLBACK
         });
@@ -1877,92 +1876,6 @@ function mapMergedOffsetToTerminalPosition(context, offset) {
     }
     return { x: 0, y: context.segments[0].row };
 }
-function collectTerminalHyperlinkRange(buffer, row, column, hyperlinkId) {
-    let startRow = row;
-    let startColumn = column;
-    while (true) {
-        if (startColumn > 0) {
-            const currentLine = buffer.getLine(startRow);
-            const previousCell = currentLine && currentLine.getCell(startColumn - 1);
-            if (previousCell && typeof previousCell.getHyperlinkId === 'function' && previousCell.getHyperlinkId() === hyperlinkId) {
-                startColumn -= 1;
-                continue;
-            }
-        }
-        const previousRow = startRow - 1;
-        const previousLine = previousRow >= 0 ? buffer.getLine(previousRow) : null;
-        if (!previousLine || !previousLine.isWrapped || previousLine.length === 0) {
-            break;
-        }
-        const previousTail = previousLine.getCell(previousLine.length - 1);
-        if (!previousTail || typeof previousTail.getHyperlinkId !== 'function' || previousTail.getHyperlinkId() !== hyperlinkId) {
-            break;
-        }
-        startRow = previousRow;
-        startColumn = previousLine.length;
-    }
-    let endRow = row;
-    let endColumn = column + 1;
-    while (true) {
-        const currentLine = buffer.getLine(endRow);
-        const nextCell = currentLine && endColumn < currentLine.length ? currentLine.getCell(endColumn) : null;
-        if (nextCell && typeof nextCell.getHyperlinkId === 'function' && nextCell.getHyperlinkId() === hyperlinkId) {
-            endColumn += 1;
-            continue;
-        }
-        const nextRow = endRow + 1;
-        const nextLine = buffer.getLine(nextRow);
-        const currentLineWraps = currentLine && currentLine.isWrapped;
-        if (!currentLineWraps || !nextLine || nextLine.length === 0) {
-            break;
-        }
-        const nextHead = nextLine.getCell(0);
-        if (!nextHead || typeof nextHead.getHyperlinkId !== 'function' || nextHead.getHyperlinkId() !== hyperlinkId) {
-            break;
-        }
-        endRow = nextRow;
-        endColumn = 0;
-    }
-    return {
-        start: { x: startColumn, y: startRow },
-        end: { x: endColumn, y: endRow },
-    };
-}
-function createTerminalOsc8LinkProvider(terminalInstance) {
-    return {
-        provideLinks(row, callback) {
-            const buffer = terminalInstance.buffer.active;
-            const line = buffer && typeof buffer.getLine === 'function' ? buffer.getLine(row) : null;
-            const wasmTerm = terminalInstance ? terminalInstance.wasmTerm : null;
-            if (!line || !wasmTerm || typeof wasmTerm.getHyperlinkUri !== 'function') {
-                callback(undefined);
-                return;
-            }
-            const links = [];
-            const seen = new Set();
-            for (let column = 0; column < line.length; column += 1) {
-                const cell = line.getCell(column);
-                const hyperlinkId = cell && typeof cell.getHyperlinkId === 'function' ? cell.getHyperlinkId() : 0;
-                if (!hyperlinkId || seen.has(hyperlinkId)) {
-                    continue;
-                }
-                const uri = normalizeSessionLink(wasmTerm.getHyperlinkUri(hyperlinkId) || '');
-                if (!uri) {
-                    continue;
-                }
-                seen.add(hyperlinkId);
-                links.push({
-                    text: uri,
-                    range: collectTerminalHyperlinkRange(buffer, row, column, hyperlinkId),
-                    activate: () => {
-                        window.open(uri, '_blank', 'noopener,noreferrer');
-                    },
-                });
-            }
-            callback(links.length ? links : undefined);
-        },
-    };
-}
 function createTerminalUrlLinkProvider(terminalInstance) {
     return {
         provideLinks(row, callback) {
@@ -2002,7 +1915,6 @@ function registerTerminalLinks(terminalInstance) {
     if (!terminalInstance || typeof terminalInstance.registerLinkProvider !== 'function') {
         return;
     }
-    terminalInstance.registerLinkProvider(createTerminalOsc8LinkProvider(terminalInstance));
     terminalInstance.registerLinkProvider(createTerminalUrlLinkProvider(terminalInstance));
 }
 function getTerminalBufferLines(terminalInstance) {

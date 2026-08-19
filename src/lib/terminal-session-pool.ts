@@ -1,10 +1,7 @@
 import '../../frontend/terminal-replay.js'
 import {
-  DEFAULT_FONT_FAMILY,
-  DEFAULT_FONT_SIZE,
   DEFAULT_THEME,
   createTerminalInstance,
-  isXtermTerminal,
 } from '@/lib/terminal-engine'
 import type { FarmingFitAddon, FarmingTerminal } from '@/lib/terminal-engine'
 import {
@@ -74,7 +71,6 @@ import {
   scrollRecordToViewportY,
   writeTerminalOutput,
 } from '@/lib/terminal-output'
-import { TerminalRendererEffectController } from '@/lib/terminal-renderer-effects'
 import {
   attachTerminalHost,
   canDetachTerminalHost,
@@ -156,7 +152,6 @@ interface AttachOptions {
   mountEl: HTMLElement
   onSessionOutput: (agentId: string, handler: TerminalOutputHandler) => () => void
   autoFocus?: boolean
-  suppressRendererCursor?: boolean
   inputDisabled?: boolean
   manageReadingAnchor?: boolean
   onFollowOutputChange?: (state: TerminalFollowState) => void
@@ -182,7 +177,6 @@ export type TerminalLinkHandlerWrappers = Pick<AttachOptions, 'onPathOpen' | 'on
 export interface TerminalSessionLiveOptions {
   inputDisabled: boolean
   manageReadingAnchor: boolean
-  suppressRendererCursor: boolean
   onOpenUrlInFarming?: (agentId: string, url: string) => void
 }
 
@@ -225,7 +219,6 @@ interface SessionRecord extends TerminalSessionDiagnosticsSource {
   pathResolveHandler: ((agentId: string, target: TerminalPathOpenTarget) => Promise<TerminalPathOpenTarget | null> | TerminalPathOpenTarget | null) | null
   searchOpenHandler: ((agentId: string, query: string) => void) | null
   farmingUrlOpenHandler: ((agentId: string, url: string) => void) | null
-  rendererEffects: TerminalRendererEffectController
   attachment: TerminalAttachmentCoordinator
   pageLifecycleHandler: ((event: Event) => void) | null
   inputCount: number
@@ -263,7 +256,6 @@ declare global {
       openPathAtCell: (agentId: string, col: number, row: number) => boolean
       getCursor: (agentId: string) => { x: number; y: number; visible?: boolean } | null
       getCursorVisible: (agentId: string) => boolean | undefined
-      getRendererCursorVisible: (agentId: string) => boolean | undefined
       getCursorCellPixel: (agentId: string) => { r: number; g: number; b: number; a: number } | null
       getCanvasInkPixelCount: (agentId: string) => number
       writeRaw: (agentId: string, text: string) => Promise<void>
@@ -374,12 +366,6 @@ function isolateSinglePaneTerminalMount(hostEl: HTMLDivElement, mountEl: HTMLEle
   })
 }
 
-function readTerminalFontSize(hostEl: HTMLElement): number {
-  const raw = hostEl.dataset.terminalFontSize
-  const n = raw ? Number(raw) : NaN
-  return Number.isFinite(n) && n > 0 ? n : DEFAULT_FONT_SIZE
-}
-
 function publishTerminalRecoveryStatus(
   record: SessionRecord,
   phase: TerminalRecoveryPhase,
@@ -404,19 +390,9 @@ function focusTerminalInput(hostEl: HTMLDivElement, terminal: FarmingTerminal) {
   // xterm owns its helper textarea and composition lifecycle. Go through its
   // public focus API so a focus change from the composer does not bypass the
   // same IME path it uses for ordinary terminal input.
-  if (isXtermTerminal(terminal)) {
-    terminal.focus()
-    return true
-  }
-
-  const input = hostEl.querySelector('textarea')
-  if (input instanceof HTMLTextAreaElement) {
-    input.focus()
-    return true
-  }
-
+  void hostEl
   terminal.focus()
-  return false
+  return true
 }
 
 function focusAttachedTerminalInput(record: SessionRecord) {
@@ -511,7 +487,7 @@ function restoreTerminalViewportFromAnchor(record: SessionRecord, viewportState:
 }
 
 function getTerminalCellMetrics(record: SessionRecord) {
-  return record.terminal.getCellMetrics?.() ?? record.terminal.renderer?.getMetrics?.()
+  return record.terminal.getCellMetrics()
 }
 
 function getTerminalScreenRect(record: SessionRecord) {
@@ -520,8 +496,7 @@ function getTerminalScreenRect(record: SessionRecord) {
     return screen.getBoundingClientRect()
   }
 
-  const canvas = record.terminal.renderer?.getCanvas?.() || record.hostEl.querySelector('canvas')
-  return canvas instanceof HTMLCanvasElement ? canvas.getBoundingClientRect() : null
+  return null
 }
 
 function updateFollowStateFromViewport(
@@ -550,10 +525,6 @@ function scheduleFollowStateFromViewport(
       allowClearUnread: atBottom && options.allowClearUnread === true,
     })
   })
-}
-
-function updateRendererCursorSuppression(record: SessionRecord, suppressed: boolean) {
-  record.rendererEffects.setAttachmentCursorSuppressed(suppressed)
 }
 
 function focusTerminalInputWhenReady(
@@ -696,19 +667,14 @@ function restoreTerminalReadingAnchor(
 
 function repairTerminalAfterAttach(record: SessionRecord) {
   record.interaction.reset()
-
-  if (isXtermTerminal(record.terminal)) {
-    record.terminal.reattach?.()
-    record.terminal.syncAppearanceTheme?.()
-    record.terminal.forceRedraw?.()
-  }
+  record.terminal.reattach()
+  record.terminal.syncAppearanceTheme()
+  record.terminal.forceRedraw()
 
   scheduleTerminalRepaint(record)
   requestAnimationFrame(() => {
     if (record.disposed || record.attachedMount === null) return
-    if (isXtermTerminal(record.terminal)) {
-      record.terminal.forceRedraw?.()
-    }
+    record.terminal.forceRedraw()
     forceTerminalRender(record)
   })
 }
@@ -818,26 +784,20 @@ function installTerminalTestApi() {
     getCursor(agentId: string) {
       const current = sessions.get(agentId)
       if (!current || current instanceof Promise || current.disposed) return null
-      return current.terminal.wasmTerm?.getCursor?.() ?? null
+      return current.terminal.getCursor()
     },
     getCursorVisible(agentId: string) {
       const current = sessions.get(agentId)
       if (!current || current instanceof Promise || current.disposed) return undefined
-      const visible = current.terminal.wasmTerm?.getCursor?.().visible
-      return visible === undefined ? undefined : Boolean(visible)
-    },
-    getRendererCursorVisible(agentId: string) {
-      const current = sessions.get(agentId)
-      if (!current || current instanceof Promise || current.disposed) return undefined
-      const visible = current.terminal.renderer?.cursorVisible
+      const visible = current.terminal.getCursor().visible
       return visible === undefined ? undefined : Boolean(visible)
     },
     getCursorCellPixel(agentId: string) {
       const current = sessions.get(agentId)
       if (!current || current instanceof Promise || current.disposed) return null
-      const canvas = current.terminal.renderer?.getCanvas?.() || current.hostEl.querySelector('canvas')
+      const canvas = current.hostEl.querySelector('canvas')
       const metrics = getTerminalCellMetrics(current)
-      const cursor = current.terminal.wasmTerm?.getCursor?.()
+      const cursor = current.terminal.getCursor()
       if (!(canvas instanceof HTMLCanvasElement) || !metrics || !cursor) {
         const cursorElement = current.hostEl.querySelector('.xterm-cursor')
         if (!(cursorElement instanceof HTMLElement)) return null
@@ -864,11 +824,7 @@ function installTerminalTestApi() {
     getCanvasInkPixelCount(agentId: string) {
       const current = sessions.get(agentId)
       if (!current || current instanceof Promise || current.disposed) return 0
-      const rendererCanvas = current.terminal.renderer?.getCanvas?.()
-      const canvases = [...new Set([
-        ...(rendererCanvas instanceof HTMLCanvasElement ? [rendererCanvas] : []),
-        ...current.hostEl.querySelectorAll<HTMLCanvasElement>('canvas'),
-      ])]
+      const canvases = [...current.hostEl.querySelectorAll<HTMLCanvasElement>('canvas')]
       if (canvases.length === 0) {
         const visibleText = current.hostEl.querySelector('.xterm-rows')?.textContent?.trim() ?? ''
         return visibleText.length * 8
@@ -1116,31 +1072,20 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
   const selection = new TerminalSelectionController({
     terminal,
     hostEl,
-    cellMetrics: () => terminal.getCellMetrics?.() ?? terminal.renderer?.getMetrics?.() ?? null,
+    cellMetrics: () => terminal.getCellMetrics() ?? null,
     screenRect: () => {
-      const screen = terminal.getScreenElement?.()
+      const screen = terminal.getScreenElement()
       if (screen instanceof HTMLElement) return screen.getBoundingClientRect()
-      const canvas = terminal.renderer?.getCanvas?.() || hostEl.querySelector('canvas')
-      return canvas instanceof HTMLCanvasElement ? canvas.getBoundingClientRect() : null
+      return null
     },
   })
 
   let record: SessionRecord
-  const rendererEffects = new TerminalRendererEffectController({
-    terminal,
-    hostEl,
-    supportsCursorSuppression: !isXtermTerminal(terminal),
-    initialCursorSuppressed: Boolean(options.suppressRendererCursor),
-    forceRender: () => forceTerminalRender(record),
-  })
   const linkInteraction = new TerminalLinkInteractionController({
     agentId,
     hostEl,
     windowTarget: window,
-    isXterm: isXtermTerminal(terminal),
-    registerLinkProvider: isXtermTerminal(terminal) && typeof terminal.registerLinkProvider === 'function'
-      ? provider => terminal.registerLinkProvider!(provider)
-      : null,
+    registerLinkProvider: provider => terminal.registerLinkProvider(provider),
     now: () => Date.now(),
     isMacPlatform: () => navigator.platform.toLowerCase().includes('mac'),
     language: () => document.documentElement.lang || navigator.language || '',
@@ -1151,7 +1096,7 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
       isTerminalSessionAttached(record) && record.attachment.isCurrentOperation(operation)
     ),
     cellFromEvent: event => selection.cellFromEvent(event),
-    cellMetrics: () => terminal.getCellMetrics?.() ?? terminal.renderer?.getMetrics?.() ?? null,
+    cellMetrics: () => terminal.getCellMetrics() ?? null,
     elementFromPoint: (x, y) => document.elementFromPoint(x, y),
     logicalLineAtCell: cell => selection.logicalLineAtCell(cell),
     logicalLineAtBufferRow: bufferRow => selection.logicalLineAtBufferRow(bufferRow),
@@ -1167,10 +1112,7 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     agentId,
     hostEl,
     terminal,
-    isXterm: isXtermTerminal(terminal),
-    fontFamily: DEFAULT_FONT_FAMILY,
     selection,
-    rendererEffects,
     link: {
       controller: linkInteraction,
       pathOpenHandler: () => record.pathOpenHandler,
@@ -1225,7 +1167,6 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     isCurrentAttachmentOperation: operation => (
       isTerminalSessionAttached(record) && record.attachment.isCurrentOperation(operation)
     ),
-    readFontSize: () => readTerminalFontSize(hostEl),
   })
   const resizeEffects = new TerminalResizeEffectController({
     attachmentOperation: () => record.attachment.currentOperation(),
@@ -1288,7 +1229,6 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     pathResolveHandler: options.onPathResolve ?? null,
     searchOpenHandler: options.onSearchOpen ?? null,
     farmingUrlOpenHandler: options.onOpenUrlInFarming ?? null,
-    rendererEffects,
     attachment: new TerminalAttachmentCoordinator(TERMINAL_REPLAY),
     pageLifecycleHandler: null,
     inputCount: 0,
@@ -1330,7 +1270,6 @@ async function bootstrapSession(agentId: string, options: AttachOptions) {
     if (!record.disposed) terminal.syncAppearanceTheme?.()
   })
 
-  record.rendererEffects.install()
   record.interaction.install()
   const scrollSubscription = terminal.onScroll?.(() => {
     scheduleFollowStateFromViewport(record)
@@ -1474,7 +1413,6 @@ function applyTerminalAttachmentOptions(record: SessionRecord, options: AttachOp
   record.searchOpenHandler = nextSearchOpenHandler
   record.farmingUrlOpenHandler = options.onOpenUrlInFarming ?? null
   record.recoveryStatusHandler = options.onRecoveryStatusChange ?? null
-  updateRendererCursorSuppression(record, Boolean(options.suppressRendererCursor))
   // An attach can resolve after the owner already committed a newer revision, so
   // the latch - not the revision this attach captured - is the authoritative
   // identity of the handlers behind those wrappers.
@@ -1631,7 +1569,6 @@ export async function updateTerminalSessionLiveOptions(
     if (record.parkedViewportState) record.parkedViewportState.readingAnchor = null
   }
   record.farmingUrlOpenHandler = options.onOpenUrlInFarming ?? null
-  updateRendererCursorSuppression(record, options.suppressRendererCursor)
   return true
 }
 
@@ -1734,7 +1671,6 @@ export async function destroyTerminalSession(agentId: string) {
   if (record.followCheckFrame !== null) cancelAnimationFrame(record.followCheckFrame)
   record.interaction.dispose()
   releaseTakenLinkHandlers()
-  record.rendererEffects.dispose()
   record.terminal.dispose()
   record.hostEl.remove()
 }
@@ -1795,7 +1731,6 @@ export function updateTerminalSessionContentFontSize(contentFontSize: unknown) {
     if (current.hostEl.dataset.terminalFontSize === String(fontSize)) return
     current.hostEl.dataset.terminalFontSize = String(fontSize)
     if (current.terminal.options) current.terminal.options.fontSize = fontSize
-    current.interaction.refreshImeOverlay()
     if (!isTerminalSessionAttached(current)) return
     requestAnimationFrame(() => {
       if (current.disposed || !isTerminalSessionAttached(current)) return

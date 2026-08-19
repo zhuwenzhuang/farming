@@ -1,6 +1,4 @@
-import { DEFAULT_THEME, isXtermTerminal } from '@/lib/terminal-engine'
 import type { FarmingTerminal } from '@/lib/terminal-engine'
-import type { TerminalRendererEffectController, TerminalRenderSuspensionLease } from '@/lib/terminal-renderer-effects'
 import {
   getTerminalScrollbackLength,
   getTerminalViewportY,
@@ -15,7 +13,6 @@ export interface TerminalOutputRecord {
   terminal: FarmingTerminal
   hostEl: HTMLElement
   disposed: boolean
-  rendererEffects: Pick<TerminalRendererEffectController, 'acquireRenderSuspension'>
   replication: {
     terminalWriteQueue: Promise<void>
     terminalWriteResolvers: Set<(cancelled?: boolean) => boolean>
@@ -28,30 +25,7 @@ export interface TerminalOutputRecord {
 }
 
 export function forceTerminalRender(record: TerminalOutputRecord) {
-  if (isXtermTerminal(record.terminal)) {
-    record.terminal.refresh?.(0, Math.max(0, (record.terminal.rows || 1) - 1))
-    return
-  }
-
-  const { renderer, wasmTerm } = record.terminal
-  if (!renderer?.render || !wasmTerm) return
-
-  clearTerminalCanvas(record)
-  renderer.render(wasmTerm, true, record.terminal.viewportY || 0, record.terminal)
-}
-
-function clearTerminalCanvas(record: TerminalOutputRecord) {
-  const canvas = record.terminal.renderer?.getCanvas?.() || record.hostEl.querySelector('canvas')
-  if (!(canvas instanceof HTMLCanvasElement)) return
-
-  const context = canvas.getContext('2d')
-  if (!context) return
-
-  context.save()
-  context.setTransform(1, 0, 0, 1, 0, 0)
-  context.fillStyle = DEFAULT_THEME.background
-  context.fillRect(0, 0, canvas.width, canvas.height)
-  context.restore()
+  record.terminal.refresh?.(0, Math.max(0, (record.terminal.rows || 1) - 1))
 }
 
 export function scheduleTerminalRepaint(record: TerminalOutputRecord) {
@@ -139,16 +113,6 @@ function writeTerminalData(record: TerminalOutputRecord, data: string, callback?
   record.terminal.write(data, callback)
 }
 
-function renderLiveTerminalOutput(record: TerminalOutputRecord) {
-  // xterm's WebGL renderer batches writes into animation frames. Refreshing
-  // every PTY chunk defeats that batching and makes high-frequency TUIs look
-  // as though the whole screen is flashing. The Ghostty debug renderer still
-  // needs an explicit paint here.
-  if (!isXtermTerminal(record.terminal)) {
-    forceTerminalRender(record)
-  }
-}
-
 function enqueueTerminalWrite(
   record: TerminalOutputRecord,
   operation: (done: (cancelled?: boolean) => boolean) => void,
@@ -200,11 +164,6 @@ export function writeTerminalOutput(
     return
   }
 
-  let renderSuspension: TerminalRenderSuspensionLease | null = null
-  const releaseRenderSuspension = () => {
-    renderSuspension?.release()
-    renderSuspension = null
-  }
   void enqueueTerminalWrite(record, done => {
     if (record.disposed) {
       completeTerminalWrite(done, callback)
@@ -217,11 +176,7 @@ export function writeTerminalOutput(
     const quiet = options.quiet === true || data.length >= QUIET_TERMINAL_WRITE_THRESHOLD
     const outputObserved = options.isOutputObserved?.() ?? true
 
-    if (quiet) {
-      renderSuspension = record.rendererEffects.acquireRenderSuspension()
-    }
     writeTerminalData(record, data, () => {
-      releaseRenderSuspension()
       if (record.disposed) {
         completeTerminalWrite(done, callback)
         return
@@ -248,13 +203,9 @@ export function writeTerminalOutput(
           forceTerminalRender(record)
         })
       }
-      if (outputObserved) {
-        renderLiveTerminalOutput(record)
-      }
       completeTerminalWrite(done, callback)
     })
   }, () => {
-    releaseRenderSuspension()
     callback?.()
   })
 }
@@ -265,11 +216,6 @@ export function replaceTerminalOutput(
   callback?: () => void,
   options: { beforeReplace?: () => boolean } = {},
 ) {
-  let renderSuspension: TerminalRenderSuspensionLease | null = null
-  const releaseRenderSuspension = () => {
-    renderSuspension?.release()
-    renderSuspension = null
-  }
   void enqueueTerminalWrite(record, done => {
     if (record.disposed) {
       completeTerminalWrite(done, callback)
@@ -284,17 +230,14 @@ export function replaceTerminalOutput(
     const previousScrollbackLength = getTerminalScrollbackLength(record.terminal)
     const shouldFollowOutput = record.followOutput
 
-    renderSuspension = record.rendererEffects.acquireRenderSuspension()
     record.terminal.reset()
     if (!data) {
-      releaseRenderSuspension()
       forceTerminalRender(record)
       completeTerminalWrite(done, callback)
       return
     }
 
     writeTerminalData(record, data, () => {
-      releaseRenderSuspension()
       if (record.disposed) {
         completeTerminalWrite(done, callback)
         return
@@ -313,7 +256,6 @@ export function replaceTerminalOutput(
       completeTerminalWrite(done, callback)
     })
   }, () => {
-    releaseRenderSuspension()
     callback?.()
   })
 }

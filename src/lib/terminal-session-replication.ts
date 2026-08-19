@@ -82,7 +82,7 @@ export interface TerminalReplicationRecord extends TerminalOutputRecord {
   disposed: boolean
   attachment: TerminalAttachmentCoordinator
   resizeEffects: TerminalResizeEffectController
-  interaction: Pick<TerminalSessionInteractionController, 'reset' | 'scheduleImeOverlayUpdateIfActive'>
+  interaction: Pick<TerminalSessionInteractionController, 'reset'>
   replication: TerminalReplicationState
   replicationPorts: TerminalReplicationPorts
 }
@@ -403,7 +403,6 @@ function installTerminalCheckpoint(
       record.replication.replayInProgress = false
       record.replication.needsReconnectOutputSync = false
       record.replication.bootstrappingSnapshot = false
-      record.interaction.scheduleImeOverlayUpdateIfActive()
       flushQueuedTerminalOutput(record)
       finishTerminalReplay(record, generation)
     }
@@ -549,7 +548,6 @@ export function applyTerminalOutputEvent(
       attachment: transitionAttachment,
       stateRevision: record.attachment.stateRevision!,
     })
-    record.interaction.scheduleImeOverlayUpdateIfActive()
     flushQueuedTerminalOutput(record)
     record.replicationPorts.notifyReady(record.attachment.generation)
     return
@@ -571,7 +569,6 @@ export function applyTerminalOutputEvent(
     if (record.followOutput && !record.hasUnreadOutput) {
       emitFollowOutputState(record)
     }
-    record.interaction.scheduleImeOverlayUpdateIfActive()
     flushQueuedTerminalOutput(record)
     if (record.hostEl.classList.contains('terminal-checkpoint-installing')) {
       finishTerminalReplay(record, record.attachment.generation)
@@ -720,7 +717,6 @@ function applyQueuedTerminalOutputBatch(
     if (record.followOutput && !record.hasUnreadOutput) {
       emitFollowOutputState(record)
     }
-    record.interaction.scheduleImeOverlayUpdateIfActive()
     flushQueuedTerminalOutput(record)
     record.replicationPorts.notifyReady(record.attachment.generation)
   }, { isOutputObserved: () => record.replicationPorts.isAttached() })

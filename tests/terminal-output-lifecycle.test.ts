@@ -15,10 +15,8 @@ test.before(async () => {
 function outputRecord() {
   const writes: Array<{ data: string; complete: () => void }> = []
   let resets = 0
-  let renderSuspensionReleases = 0
   const record = {
     terminal: {
-      __farmingTerminalEngine: 'xterm',
       buffer: { active: { viewportY: 0, baseY: 0, length: 24 } },
       cols: 80,
       rows: 24,
@@ -29,11 +27,6 @@ function outputRecord() {
     },
     hostEl: { querySelector: () => null },
     disposed: false,
-    rendererEffects: {
-      acquireRenderSuspension: () => ({
-        release: () => { renderSuspensionReleases += 1 },
-      }),
-    },
     replication: {
       terminalWriteQueue: Promise.resolve(),
       terminalWriteResolvers: new Set<(cancelled?: boolean) => boolean>(),
@@ -48,7 +41,6 @@ function outputRecord() {
     record,
     writes,
     resets: () => resets,
-    renderSuspensionReleases: () => renderSuspensionReleases,
   }
 }
 
@@ -67,12 +59,10 @@ test('destroy cleanup cancels one pending write and completes its callback exact
   output.flushPendingTerminalWrites(state.record)
   await state.record.replication.terminalWriteQueue
   assert.equal(callbacks, 1)
-  assert.equal(state.renderSuspensionReleases(), 1)
   assert.equal(state.record.replication.terminalWriteResolvers.size, 0)
 
   state.writes[0]?.complete()
   assert.equal(callbacks, 1)
-  assert.equal(state.renderSuspensionReleases(), 1)
 })
 
 test('terminal writes remain serialized behind renderer callbacks', async () => {

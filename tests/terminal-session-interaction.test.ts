@@ -65,10 +65,7 @@ test('interaction owner installs and disposes its exact DOM listener set', () =>
     agentId: 'agent-a',
     hostEl: host as unknown as HTMLDivElement,
     terminal: {} as never,
-    isXterm: true,
-    fontFamily: 'monospace',
     selection: selection as never,
-    rendererEffects: { isImeComposing: false } as never,
     link: {
       controller: link as never,
       pathOpenHandler: () => null,
@@ -90,7 +87,6 @@ test('interaction owner installs and disposes its exact DOM listener set', () =>
     mayRestoreFocus: () => true,
     attachmentOperation: () => ({ generation: 1, revision: 1 }),
     isCurrentAttachmentOperation: () => true,
-    readFontSize: () => 14,
   })
 
   try {

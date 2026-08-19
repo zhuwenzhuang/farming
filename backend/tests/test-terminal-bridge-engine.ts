@@ -54,7 +54,7 @@ async function run() {
     document: {
       createElement: () => ({ getContext: (kind) => kind === 'webgl2' ? {} : null }),
     },
-    localStorage: { getItem: () => null },
+    localStorage: { getItem: () => { throw new Error('terminal renderer selection must not read local storage'); } },
   };
   const source = fs.readFileSync(path.join(__dirname, '../../frontend/terminal-bridge.js'), 'utf8');
   vm.runInNewContext(source, { window, console, setTimeout });
@@ -81,7 +81,7 @@ async function run() {
   assert.strictEqual(webglResult.webglAddon.contextLossListener, contextLoss);
   assert(webglResult.terminal.addons.includes(webglResult.webglAddon));
 
-  console.log('✓ CRT terminal bridge defaults to xterm and supports strict WebGL mode');
+  console.log('✓ CRT terminal bridge is xterm-only and supports strict WebGL mode');
 }
 
 run().catch((error) => {

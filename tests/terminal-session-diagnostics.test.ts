@@ -32,7 +32,6 @@ function diagnosticsSource(agentId = 'agent-one'): TerminalSessionDiagnosticsSou
     snapshot: () => ({ ...attachmentState }),
   } as unknown as TerminalAttachmentCoordinator
   const terminal = {
-    __farmingTerminalEngine: 'xterm',
     getRendererType: () => 'webgl' as const,
     cols: 120,
     rows: 35,

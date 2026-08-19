@@ -126,7 +126,7 @@ export class TerminalSessionDiagnosticsProjection {
     const generation = current.attachment.generation
 
     return {
-      engine: current.terminal.__farmingTerminalEngine,
+      engine: 'xterm',
       renderer: current.terminal.getRendererType?.(),
       cols: current.terminal.cols || 0,
       rows: current.terminal.rows || 0,

@@ -144,7 +144,6 @@ function createFixture(options: {
     agentId: 'agent-1',
     hostEl,
     windowTarget,
-    isXterm: true,
     registerLinkProvider: options.withLinkProvider
       ? registered => {
         provider.current = registered;

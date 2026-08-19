@@ -254,16 +254,9 @@ export class TerminalSelectionController {
     this.#clearNativeSelection()
   }
 
-  selectionForCopy(options: { includeNativeFallback?: boolean } = {}) {
+  selectionForCopy() {
     const terminal = this.#ports.terminal
-    const selection = terminal.__farmingTerminalEngine === 'xterm'
-      ? normalizeTerminalSelectionForCopy(terminal.getSelection() || '')
-      : normalizeTerminalSelectionForCopy(normalizeTerminalSelection(terminal))
-    if (selection) return selection
-    if (terminal.__farmingTerminalEngine !== 'xterm' && options.includeNativeFallback) {
-      return normalizeTerminalSelectionForCopy(this.#nativeSelection())
-    }
-    return ''
+    return normalizeTerminalSelectionForCopy(terminal.getSelection() || '')
   }
 
   selectContinuousTextAtCell(col: number, row: number) {
@@ -466,15 +459,6 @@ export class TerminalSelectionController {
     const lastCol = this.#lineLastColumn(buffer.getLine(row), cols)
     if (col < lastCol) return { row, col: col + 1 }
     return buffer.getLine(row + 1)?.isWrapped ? { row: row + 1, col: 0 } : null
-  }
-
-  #nativeSelection() {
-    const selection = window.getSelection?.()
-    if (!selection || selection.isCollapsed) return ''
-    const anchorNode = selection.anchorNode
-    const focusNode = selection.focusNode
-    if ((anchorNode && !this.#ports.hostEl.contains(anchorNode)) || (focusNode && !this.#ports.hostEl.contains(focusNode))) return ''
-    return selection.toString()
   }
 
   #clearNativeSelection() {

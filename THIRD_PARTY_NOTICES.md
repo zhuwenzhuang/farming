@@ -84,11 +84,6 @@ The optional Computer plugin interoperates with the version-pinned Cua Driver
 container image in its release package. Cua is licensed under MIT; its license
 text is included at `backend/data/LICENSE.cua`.
 
-Farming vendors `ghostty-web` distribution files under
-`frontend/vendor/ghostty-web` for the optional Ghostty debug renderer. The
-source package is `ghostty-web` 0.4.0, licensed under MIT. Its license is kept
-beside the vendored files at `frontend/vendor/ghostty-web/LICENSE`.
-
 Farming's monochrome Pi launch icon is copied from the `pi-acp` entry in the
 [ACP Registry](https://github.com/agentclientprotocol/registry/tree/0b3f7a7197452251a08d87ce8339fbbd707049f5/pi-acp),
 which declares the agent under the MIT License, Copyright (c) 2025 Sergii

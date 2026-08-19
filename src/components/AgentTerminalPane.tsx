@@ -46,20 +46,6 @@ interface TerminalFollowState {
 type TerminalSearchOptionKey = 'caseSensitive' | 'wholeWord' | 'regex'
 const TERMINAL_RECOVERY_NOTICE_GRACE_MS = 500
 
-function shouldSuppressRendererCursorForAgent(command?: string) {
-  const program = String(command || '').trim().split(/\s+/)[0] || ''
-  return [
-    'claude',
-    'codex',
-    'qwen',
-    'opencode',
-    'qodercli',
-    'aider',
-    'github-copilot-cli',
-    'amazon-q',
-  ].includes(program)
-}
-
 function isPrimaryFindShortcut(event: Pick<KeyboardEvent, 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey' | 'key'>) {
   const primaryModifier = (event.metaKey && !event.ctrlKey) || (event.ctrlKey && !event.metaKey)
   return primaryModifier && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'f'
@@ -187,7 +173,6 @@ export function AgentTerminalPane({
     onSessionOutput,
     inputDisabled: false,
     manageReadingAnchor: agent.providerCapabilities?.terminalReadingAnchor !== false,
-    suppressRendererCursor: shouldSuppressRendererCursorForAgent(agent.command),
     onFollowOutputChange: handleFollowOutputChange,
     onPathOpen: onOpenPath,
     onPathResolve: onResolvePath,

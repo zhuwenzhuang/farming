@@ -53,10 +53,6 @@ interface CrtTerminalLinkProvider {
   ): void;
 }
 
-interface CrtGhosttyTerminalState {
-  getHyperlinkUri(id: number): string | null;
-}
-
 interface CrtTerminalOptions {
   disableStdin?: boolean;
   fontFamily?: string;
@@ -73,7 +69,6 @@ interface CrtTerminalInstance {
   readonly buffer: { active: CrtTerminalBuffer };
   readonly cols: number;
   readonly rows: number;
-  readonly wasmTerm?: CrtGhosttyTerminalState;
   options: CrtTerminalOptions;
   clear(): void;
   clearSelection(): void;
@@ -115,7 +110,7 @@ interface CrtTerminalWebglAddon extends CrtTerminalAddon {
 }
 
 interface FarmingTerminalBundle {
-  kind: 'ghostty' | 'xterm' | 'xterm-webgl';
+  kind: 'xterm' | 'xterm-webgl';
   terminal: CrtTerminalInstance;
   fitAddon: CrtTerminalFitAddon;
   webglAddon?: CrtTerminalWebglAddon;
@@ -128,7 +123,6 @@ interface FarmingTerminalBridgeCreateOptions {
   cursorBlink?: boolean;
   disableStdin?: boolean;
   scrollback?: number;
-  smoothScrollDuration?: number;
   requireWebgl?: boolean;
   onWebglContextLoss?: () => void;
 }
@@ -136,7 +130,6 @@ interface FarmingTerminalBridgeCreateOptions {
 interface FarmingTerminalBridge {
   readonly DEFAULT_THEME: Record<string, string>;
   readonly DEFAULT_FONT_FAMILY: string;
-  preferredEngine(): 'ghostty' | 'xterm';
   supportsWebgl2(): boolean;
   createInstance(options?: FarmingTerminalBridgeCreateOptions): Promise<FarmingTerminalBundle | null>;
 }

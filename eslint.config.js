@@ -106,13 +106,6 @@ module.exports = [
       'eqeqeq': ['warn', 'smart'],
     }
   },
-  // Frontend ES modules
-  {
-    files: ['frontend/ghostty-loader.js'],
-    languageOptions: {
-      sourceType: 'module',
-    }
-  },
   {
     files: ['bin/farming'],
     languageOptions: {

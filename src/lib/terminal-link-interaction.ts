@@ -137,7 +137,6 @@ export interface TerminalLinkInteractionPorts {
   agentId: string
   hostEl: TerminalLinkHostElement
   windowTarget: TerminalLinkEventTarget
-  isXterm: boolean
   registerLinkProvider: ((provider: TerminalLinkProvider) => { dispose: () => void }) | null
   now: () => number
   isMacPlatform: () => boolean
@@ -821,9 +820,6 @@ export class TerminalLinkInteractionController {
 
   #claimOpenMouseUp(event: MouseEvent) {
     event.preventDefault()
-    if (this.#ports.isXterm) return
-    event.stopPropagation()
-    event.stopImmediatePropagation()
   }
 
   #handleClick = (event: MouseEvent) => {

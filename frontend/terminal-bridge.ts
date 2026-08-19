@@ -11,10 +11,6 @@ type WebglAddonInstance = TerminalDisposable & {
   onContextLoss?: (listener: () => void) => void;
 };
 type WebglAddonConstructor = new () => WebglAddonInstance;
-type GhosttyLibrary = {
-  Terminal: TerminalConstructor;
-  FitAddon: FitAddonConstructor;
-};
 type TerminalBridgeOptions = {
   theme?: TerminalTheme;
   fontSize?: number;
@@ -22,7 +18,6 @@ type TerminalBridgeOptions = {
   cursorBlink?: boolean;
   disableStdin?: boolean;
   scrollback?: number;
-  smoothScrollDuration?: number;
   requireWebgl?: boolean;
   onWebglContextLoss?: () => void;
 };
@@ -31,7 +26,7 @@ type XtermLibrary = {
   FitAddon: FitAddonConstructor;
 };
 type TerminalBundle = {
-  kind: 'ghostty' | 'xterm' | 'xterm-webgl';
+  kind: 'xterm' | 'xterm-webgl';
   terminal: TerminalInstance;
   fitAddon: FitAddonInstance;
   webglAddon?: WebglAddonInstance;
@@ -39,8 +34,6 @@ type TerminalBundle = {
 type FarmingTerminalBridgeApi = {
   DEFAULT_THEME: TerminalTheme;
   DEFAULT_FONT_FAMILY: string;
-  preferredEngine: () => 'ghostty' | 'xterm';
-  ensureGhosttyLibrary: () => Promise<GhosttyLibrary | null>;
   ensureXtermLibrary: () => XtermLibrary | null;
   ensureXtermWebglLibrary: () => WebglAddonConstructor | null;
   supportsWebgl2: () => boolean;
@@ -50,8 +43,6 @@ type TerminalBridgeGlobal = Window & typeof globalThis & {
   Terminal?: TerminalConstructor;
   FitAddon?: { FitAddon?: FitAddonConstructor };
   WebglAddon?: { WebglAddon?: WebglAddonConstructor };
-  GhosttyWeb?: GhosttyLibrary;
-  __ghosttyReadyPromise?: Promise<GhosttyLibrary | null>;
   FarmingTerminalBridge?: FarmingTerminalBridgeApi;
 };
 
@@ -95,16 +86,6 @@ type TerminalBridgeGlobal = Window & typeof globalThis & {
     'monospace',
   ].join(', ');
 
-  function preferredEngine(): 'ghostty' | 'xterm' {
-    try {
-      return global.localStorage.getItem('farmingTerminalEngine') === 'ghostty'
-        ? 'ghostty'
-        : 'xterm';
-    } catch {
-      return 'xterm';
-    }
-  }
-
   function ensureXtermLibrary(): XtermLibrary | null {
     if (global.Terminal && global.FitAddon && global.FitAddon.FitAddon) {
       return {
@@ -136,28 +117,6 @@ type TerminalBridgeGlobal = Window & typeof globalThis & {
     }
   }
 
-  async function ensureGhosttyLibrary(): Promise<GhosttyLibrary | null> {
-    if (global.GhosttyWeb && global.GhosttyWeb.Terminal) {
-      return global.GhosttyWeb;
-    }
-
-    if (global.__ghosttyReadyPromise) {
-      try {
-        const ghostty = await Promise.race([
-          global.__ghosttyReadyPromise,
-          new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500)),
-        ]);
-        if (ghostty && ghostty.Terminal) {
-          return ghostty;
-        }
-      } catch (error) {
-        console.error('Ghostty loader promise failed:', error);
-      }
-    }
-
-    return null;
-  }
-
   async function createInstance(options: TerminalBridgeOptions = {}): Promise<TerminalBundle | null> {
     const theme = options.theme || DEFAULT_THEME;
     const baseOptions = {
@@ -167,24 +126,6 @@ type TerminalBridgeGlobal = Window & typeof globalThis & {
       disableStdin: options.disableStdin === true,
       scrollback: options.scrollback || 20000,
     };
-
-    if (!options.requireWebgl && preferredEngine() === 'ghostty') {
-      const ghostty = await ensureGhosttyLibrary();
-      if (!ghostty || !ghostty.Terminal) {
-        console.error('Ghostty terminal is unavailable.');
-        return null;
-      }
-      return {
-        kind: 'ghostty',
-        terminal: new ghostty.Terminal({
-          ...baseOptions,
-          theme,
-          smoothScrollDuration: options.smoothScrollDuration || 120,
-          disableStdin: options.disableStdin !== undefined ? options.disableStdin : true,
-        }),
-        fitAddon: new ghostty.FitAddon(),
-      };
-    }
 
     const xterm = ensureXtermLibrary();
     if (!xterm) {
@@ -239,8 +180,6 @@ type TerminalBridgeGlobal = Window & typeof globalThis & {
   global.FarmingTerminalBridge = {
     DEFAULT_THEME,
     DEFAULT_FONT_FAMILY,
-    preferredEngine,
-    ensureGhosttyLibrary,
     ensureXtermLibrary,
     ensureXtermWebglLibrary,
     supportsWebgl2,

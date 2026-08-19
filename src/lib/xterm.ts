@@ -7,16 +7,33 @@ import { WebglAddon } from '@xterm/addon-webgl'
 import '@xterm/xterm/css/xterm.css'
 
 import { createTerminalClipboardProvider } from '@/lib/clipboard'
-import {
-  DEFAULT_FONT_FAMILY,
-  DEFAULT_FONT_SIZE,
-} from '@/lib/ghostty'
-import type { GhosttyFitAddon, GhosttyTerminal } from '@/lib/ghostty'
 import type { TerminalSearchOptions } from '@/lib/terminal-search'
 import { APPEARANCE_THEMES, appearanceTheme, type AppearanceThemeDefinition } from '../../shared/appearance-themes'
 
-export type XtermBackedTerminal = GhosttyTerminal & {
-  __farmingTerminalEngine: 'xterm'
+export const DEFAULT_THEME = APPEARANCE_THEMES.light.terminal
+
+export const DEFAULT_FONT_FAMILY = [
+  '"JetBrains Mono"',
+  '"SF Mono"',
+  'Menlo',
+  'Monaco',
+  '"Cascadia Mono"',
+  '"Segoe UI Mono"',
+  '"Sarasa Mono SC"',
+  '"PingFang SC"',
+  '"Hiragino Sans GB"',
+  '"Noto Sans Mono CJK SC"',
+  '"Microsoft YaHei UI"',
+  'monospace',
+].join(', ')
+
+export const DEFAULT_FONT_SIZE = 12
+export const SESSION_TERMINAL_FONT_DESKTOP = DEFAULT_FONT_SIZE
+export const SESSION_TERMINAL_FONT_MOBILE = 11
+
+export type XtermFitAddon = FitAddon
+
+export type XtermBackedTerminal = Terminal & {
   getRendererType: () => 'pending' | 'webgl' | 'failed'
   onRendererFailure: (handler: (error: Error) => void) => { dispose: () => void }
   getVisibleBufferBase: () => number
@@ -38,6 +55,9 @@ export type XtermBackedTerminal = GhosttyTerminal & {
   attachCustomKeyEventHandler: (handler: (event: KeyboardEvent) => boolean) => void
   onRender: (handler: () => void) => { dispose: () => void }
   registerLinkProvider: Terminal['registerLinkProvider']
+  getScrollbackLength: () => number
+  viewportY: number
+  getCursor: () => { x: number; y: number; visible: boolean }
   refresh?: (start: number, end: number) => void
 }
 
@@ -244,7 +264,6 @@ function decorateXtermTerminal(
     lastSearchResult = result
   })
 
-  adapted.__farmingTerminalEngine = 'xterm'
   adapted.getRendererType = () => rendererType
   adapted.onRendererFailure = (handler) => {
     rendererFailureHandlers.add(handler)
@@ -370,13 +389,11 @@ function decorateXtermTerminal(
     nativeScrollToBottom()
     syncXtermViewportTopLine(terminal, topLine)
   }
-  adapted.wasmTerm = {
-    getCursor: () => ({
-      x: terminal.buffer.active.cursorX,
-      y: terminal.buffer.active.cursorY,
-      visible: terminal.textarea ? document.activeElement === terminal.textarea : true,
-    }),
-  }
+  adapted.getCursor = () => ({
+    x: terminal.buffer.active.cursorX,
+    y: terminal.buffer.active.cursorY,
+    visible: terminal.textarea ? document.activeElement === terminal.textarea : true,
+  })
 
   Object.defineProperty(adapted, 'viewportY', {
     configurable: true,
@@ -397,7 +414,7 @@ export async function createXtermTerminalInstance(options?: {
   theme?: 'appearance' | 'dark'
 }): Promise<{
   terminal: XtermBackedTerminal
-  fitAddon: GhosttyFitAddon
+  fitAddon: XtermFitAddon
 }> {
   const fontSize = options?.fontSize ?? DEFAULT_FONT_SIZE
   const themeOverride = options?.theme === 'dark' ? APPEARANCE_THEMES.dark.terminal : undefined
@@ -444,6 +461,6 @@ export async function createXtermTerminalInstance(options?: {
 
   return {
     terminal: decorateXtermTerminal(terminal, searchAddon, serializeAddon, themeOverride),
-    fitAddon: new FitAddon() as unknown as GhosttyFitAddon,
+    fitAddon: new FitAddon(),
   }
 }

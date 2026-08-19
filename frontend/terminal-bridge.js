@@ -38,16 +38,6 @@
         '"Microsoft YaHei UI"',
         'monospace',
     ].join(', ');
-    function preferredEngine() {
-        try {
-            return global.localStorage.getItem('farmingTerminalEngine') === 'ghostty'
-                ? 'ghostty'
-                : 'xterm';
-        }
-        catch {
-            return 'xterm';
-        }
-    }
     function ensureXtermLibrary() {
         if (global.Terminal && global.FitAddon && global.FitAddon.FitAddon) {
             return {
@@ -78,26 +68,6 @@
             return false;
         }
     }
-    async function ensureGhosttyLibrary() {
-        if (global.GhosttyWeb && global.GhosttyWeb.Terminal) {
-            return global.GhosttyWeb;
-        }
-        if (global.__ghosttyReadyPromise) {
-            try {
-                const ghostty = await Promise.race([
-                    global.__ghosttyReadyPromise,
-                    new Promise((resolve) => setTimeout(() => resolve(null), 1500)),
-                ]);
-                if (ghostty && ghostty.Terminal) {
-                    return ghostty;
-                }
-            }
-            catch (error) {
-                console.error('Ghostty loader promise failed:', error);
-            }
-        }
-        return null;
-    }
     async function createInstance(options = {}) {
         const theme = options.theme || DEFAULT_THEME;
         const baseOptions = {
@@ -107,23 +77,6 @@
             disableStdin: options.disableStdin === true,
             scrollback: options.scrollback || 20000,
         };
-        if (!options.requireWebgl && preferredEngine() === 'ghostty') {
-            const ghostty = await ensureGhosttyLibrary();
-            if (!ghostty || !ghostty.Terminal) {
-                console.error('Ghostty terminal is unavailable.');
-                return null;
-            }
-            return {
-                kind: 'ghostty',
-                terminal: new ghostty.Terminal({
-                    ...baseOptions,
-                    theme,
-                    smoothScrollDuration: options.smoothScrollDuration || 120,
-                    disableStdin: options.disableStdin !== undefined ? options.disableStdin : true,
-                }),
-                fitAddon: new ghostty.FitAddon(),
-            };
-        }
         const xterm = ensureXtermLibrary();
         if (!xterm) {
             console.error('xterm terminal is unavailable.');
@@ -174,8 +127,6 @@
     global.FarmingTerminalBridge = {
         DEFAULT_THEME,
         DEFAULT_FONT_FAMILY,
-        preferredEngine,
-        ensureGhosttyLibrary,
         ensureXtermLibrary,
         ensureXtermWebglLibrary,
         supportsWebgl2,

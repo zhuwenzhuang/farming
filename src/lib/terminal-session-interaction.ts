@@ -1,5 +1,4 @@
 import type { FarmingTerminal } from '@/lib/terminal-engine'
-import { terminalImeOverlayStyle } from '@/lib/terminal-ime'
 import {
   normalizeTerminalSelectionForCopy,
   type TerminalSelectionController,
@@ -9,12 +8,7 @@ import {
   type TerminalLinkInteractionController,
 } from '@/lib/terminal-link-interaction'
 import type { TerminalAttachmentOperation } from '@/lib/terminal-attachment-coordinator'
-import type { TerminalRendererEffectController } from '@/lib/terminal-renderer-effects'
 import { readClipboardText, writeClipboardText } from '@/lib/clipboard'
-import {
-  shouldBlockDetachedTerminalPaste,
-  shouldHandleTerminalPasteEvent,
-} from '@/lib/terminal-input'
 import { isTouchInputViewport } from '@/lib/responsive-mode'
 import { TerminalTouchInteractionController } from '@/lib/terminal-touch-interaction-controller'
 import { showUrlOpenMenu } from '@/lib/url-open-menu'
@@ -45,10 +39,7 @@ export interface TerminalSessionInteractionPorts {
   agentId: string
   hostEl: HTMLDivElement
   terminal: FarmingTerminal
-  isXterm: boolean
-  fontFamily: string
   selection: TerminalSelectionController
-  rendererEffects: TerminalRendererEffectController
   link: TerminalInteractionLinkPorts
   viewport: TerminalInteractionViewportPorts
   input: TerminalInteractionInputPorts
@@ -59,7 +50,6 @@ export interface TerminalSessionInteractionPorts {
   mayRestoreFocus: (menu: HTMLElement, revision: number) => boolean
   attachmentOperation: () => TerminalAttachmentOperation
   isCurrentAttachmentOperation: (operation: TerminalAttachmentOperation) => boolean
-  readFontSize: () => number
 }
 
 function isTextEditingCopyTarget(target: EventTarget | null) {
@@ -128,7 +118,6 @@ function createTerminalContextMenuItem(
 export class TerminalSessionInteractionController {
   readonly #ports: TerminalSessionInteractionPorts
   readonly #listenerRemovals: Array<() => void> = []
-  readonly #imeDisposables: Array<() => void> = []
   #touch: TerminalTouchInteractionController | null = null
   #contextMenuEl: HTMLDivElement | null = null
   #contextMenuCleanup: (() => void) | null = null
@@ -148,7 +137,6 @@ export class TerminalSessionInteractionController {
     this.#installed = true
     this.#ports.selection.install()
     this.link.install()
-    this.#installImeOverlay()
     this.#installContextMenu()
     this.#installSelectionInputAndScroll()
     this.#touch = new TerminalTouchInteractionController({
@@ -170,7 +158,6 @@ export class TerminalSessionInteractionController {
     if (this.#disposed) return false
     this.#disposed = true
     this.#listenerRemovals.splice(0).reverse().forEach(remove => remove())
-    this.#imeDisposables.splice(0).reverse().forEach(dispose => dispose())
     this.#touch?.dispose()
     this.#touch = null
     this.hideContextMenu()
@@ -191,17 +178,6 @@ export class TerminalSessionInteractionController {
 
   stopTouchMomentum() {
     this.#touch?.stopTouchMomentum()
-  }
-
-  refreshImeOverlay() {
-    this.#updateImeOverlay()
-  }
-
-  scheduleImeOverlayUpdateIfActive() {
-    if (!this.#ports.rendererEffects.isImeComposing) return
-    requestAnimationFrame(() => {
-      if (!this.#isDisposed() && this.#ports.rendererEffects.isImeComposing) this.#updateImeOverlay()
-    })
   }
 
   copyTextAtEvent(event: MouseEvent) {
@@ -403,47 +379,10 @@ export class TerminalSessionInteractionController {
   #installSelectionInputAndScroll() {
     const terminal = this.#ports.terminal
     const selection = this.#ports.selection
-    if (!this.#ports.isXterm) {
-      const pointerDown = (event: PointerEvent) => {
-        if (event.pointerType === 'touch' || !selection.startDrag(event, isTouchInputViewport(), event.pointerId)) return
-        try { this.#ports.hostEl.setPointerCapture(event.pointerId) } catch { /* window listeners remain */ }
-      }
-      const pointerMove = (event: PointerEvent) => {
-        if (event.pointerType !== 'touch') selection.updateDrag(event)
-      }
-      const pointerUp = (event: PointerEvent) => {
-        if (event.pointerType === 'touch') return
-        const finished = selection.finishDrag(event)
-        if (finished) this.link.suppressActivation()
-        else this.link.activateOpenTargetAtEvent(event)
-        if (finished || this.link.isActivationSuppressed) {
-          try { this.#ports.hostEl.releasePointerCapture(event.pointerId) } catch { /* ignore */ }
-        }
-      }
-      const mouseDown = (event: MouseEvent) => {
-        if (!selection.hasDrag()) selection.startDrag(event, isTouchInputViewport())
-      }
-      this.#listen(this.#ports.hostEl, 'pointerdown', pointerDown as EventListener, true)
-      this.#listen(window, 'pointermove', pointerMove as EventListener, true)
-      this.#listen(window, 'pointerup', pointerUp as EventListener, true)
-      this.#listen(window, 'pointercancel', pointerUp as EventListener, true)
-      this.#listen(this.#ports.hostEl, 'mousedown', mouseDown as EventListener, true)
-      this.#listen(window, 'mousemove', (event => selection.updateDrag(event as MouseEvent)) as EventListener, true)
-      this.#listen(window, 'mouseup', (event => selection.finishDrag(event as MouseEvent)) as EventListener, true)
-    }
-
-    this.#listen(this.#ports.hostEl, 'dblclick', ((event: MouseEvent) => {
-      if (this.#ports.isXterm || isTouchInputViewport()) return
-      const cell = selection.cellFromEvent(event)
-      if (!cell || !selection.selectContinuousTextAtCell(cell.col, cell.row)) return
-      event.preventDefault()
-      event.stopPropagation()
-      event.stopImmediatePropagation()
-    }) as EventListener, true)
 
     const copy = (event: ClipboardEvent) => {
       if (!this.#shouldHandleCopy(event.target)) return
-      const text = selection.selectionForCopy({ includeNativeFallback: true })
+      const text = selection.selectionForCopy()
       if (!text) return
       event.preventDefault()
       event.stopPropagation()
@@ -455,7 +394,7 @@ export class TerminalSessionInteractionController {
 
     const copyKeydown = (event: KeyboardEvent) => {
       if (!isTerminalCopyShortcut(event) || !this.#shouldHandleCopy(event.target)) return
-      const text = selection.selectionForCopy({ includeNativeFallback: true })
+      const text = selection.selectionForCopy()
       if (!text) return
       event.preventDefault()
       event.stopPropagation()
@@ -494,85 +433,7 @@ export class TerminalSessionInteractionController {
       this.#listen(this.#ports.hostEl, 'keydown', controlKeydown as EventListener, true)
     }
 
-    const paste = (event: ClipboardEvent) => {
-      const attached = this.#ports.isAttached()
-      if (shouldBlockDetachedTerminalPaste(this.#ports.hostEl, event, attached)) {
-        event.preventDefault()
-        event.stopPropagation()
-        event.stopImmediatePropagation()
-        return
-      }
-      if (!shouldHandleTerminalPasteEvent(this.#ports.hostEl, event, attached) || this.#ports.isXterm) return
-      if (!this.#paste(event.clipboardData?.getData('text/plain') || '')) return
-      event.preventDefault()
-      event.stopPropagation()
-      event.stopImmediatePropagation()
-    }
-    this.#listen(window, 'paste', paste as EventListener, true)
-    this.#listen(this.#ports.hostEl, 'paste', paste as EventListener, true)
     this.#listen(this.#ports.hostEl, 'wheel', this.#ports.viewport.onScrollIntent as EventListener, true)
     this.#listen(this.#ports.hostEl, 'pointerup', this.#ports.viewport.onScrollIntent as EventListener, true)
-  }
-
-  #updateImeOverlay() {
-    const input = this.#ports.hostEl.querySelector('textarea')
-    const metrics = this.#ports.terminal.renderer?.getMetrics?.()
-    const cursor = this.#ports.terminal.wasmTerm?.getCursor?.()
-    if (!(input instanceof HTMLTextAreaElement) || !metrics || !cursor) return
-    const style = terminalImeOverlayStyle(cursor, metrics, this.#ports.readFontSize(), this.#ports.fontFamily)
-    if (!style) return
-    input.classList.add('terminal-ime-input')
-    Object.assign(input.style, style)
-  }
-
-  #installImeOverlay() {
-    if (this.#ports.isXterm) return
-    const input = this.#ports.hostEl.querySelector('textarea')
-    if (!(input instanceof HTMLTextAreaElement)) return
-    const sync = () => { if (!this.#isDisposed()) this.#updateImeOverlay() }
-    const rafSync = () => requestAnimationFrame(sync)
-    const rafSyncIfComposing = () => {
-      if (this.#ports.rendererEffects.isImeComposing) rafSync()
-    }
-    const activate = () => {
-      sync()
-      this.#ports.hostEl.classList.add('terminal-ime-active')
-      input.classList.add('terminal-ime-composing')
-      this.#ports.rendererEffects.beginImeComposition()
-    }
-    const finish = () => {
-      this.#ports.rendererEffects.endImeComposition()
-      requestAnimationFrame(() => {
-        this.#ports.hostEl.classList.remove('terminal-ime-active')
-        input.classList.remove('terminal-ime-composing')
-        input.value = ''
-        sync()
-      })
-    }
-    const cancel = () => {
-      this.#ports.rendererEffects.endImeComposition()
-      this.#ports.hostEl.classList.remove('terminal-ime-active')
-      input.classList.remove('terminal-ime-composing')
-    }
-    const keydown = (event: KeyboardEvent) => {
-      if (event.isComposing || event.keyCode === 229) activate()
-    }
-    const listen = (target: EventTarget, type: string, listener: EventListener, capture = false) => {
-      target.addEventListener(type, listener, capture)
-      this.#imeDisposables.push(() => target.removeEventListener(type, listener, capture))
-    }
-    listen(input, 'focus', sync)
-    listen(this.#ports.hostEl, 'keydown', keydown as EventListener, true)
-    listen(this.#ports.hostEl, 'compositionstart', activate, true)
-    listen(this.#ports.hostEl, 'compositionupdate', sync, true)
-    listen(this.#ports.hostEl, 'compositionend', finish, true)
-    listen(input, 'input', rafSyncIfComposing)
-    listen(input, 'blur', cancel)
-    const cursorMove = this.#ports.terminal.onCursorMove?.(rafSyncIfComposing)
-    const key = this.#ports.terminal.onKey?.(rafSyncIfComposing)
-    if (cursorMove) this.#imeDisposables.push(() => cursorMove.dispose())
-    if (key) this.#imeDisposables.push(() => key.dispose())
-    this.#imeDisposables.push(cancel)
-    sync()
   }
 }

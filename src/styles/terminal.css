@@ -420,22 +420,6 @@
   background-color: var(--code-selection-bg) !important;
 }
 
-.terminal-session-host.terminal-renderer-cursor-suppressed .xterm .xterm-cursor {
-  background-color: transparent !important;
-  border-color: transparent !important;
-  color: transparent !important;
-  outline: 0 !important;
-  outline-color: transparent !important;
-  opacity: 0 !important;
-  animation: none !important;
-}
-
-.terminal-session-host.terminal-renderer-cursor-suppressed .xterm .xterm-cursor-bar,
-.terminal-session-host.terminal-renderer-cursor-suppressed .xterm .xterm-cursor-underline {
-  border-color: transparent !important;
-  opacity: 0 !important;
-}
-
 .terminal-session-host .xterm .composition-view {
   color: var(--code-text-strong);
   background: transparent;
@@ -461,22 +445,6 @@
   text-shadow: none !important;
 }
 
-.terminal-session-host textarea.terminal-ime-input {
-  z-index: 2 !important;
-  pointer-events: none !important;
-  opacity: 0.01 !important;
-  font-family: "JetBrains Mono", "SF Mono", Menlo, Monaco, "Sarasa Mono SC", "PingFang SC", monospace !important;
-}
-
-.terminal-session-host textarea.terminal-ime-input.terminal-ime-composing {
-  color: var(--code-text-strong) !important;
-  -webkit-text-fill-color: var(--code-text-strong) !important;
-  caret-color: transparent !important;
-  border-bottom: 2px solid var(--code-accent) !important;
-  border-radius: 0 !important;
-  box-shadow: none !important;
-  opacity: 1 !important;
-}
 
 .terminal-context-menu {
   position: fixed;
