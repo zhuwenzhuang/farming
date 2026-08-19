@@ -86,7 +86,7 @@
         "playwright": [
           {
             "file": "tests/e2e/agent-plugins.spec.ts",
-            "title": "Agent Homes keep the ACP executable managed while exposing the launch runtime default"
+            "title": "Agent Homes use the Farming-managed ACP runtime without a user-facing runtime selector"
           }
         ]
       }
