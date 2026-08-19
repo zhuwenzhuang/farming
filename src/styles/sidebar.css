@@ -230,11 +230,6 @@ body.code-resizing-sidebar .code-sidebar-resizer {
   overflow-y: auto;
   overflow-x: hidden;
   padding: 2px 0 6px;
-  scrollbar-width: none;
-}
-
-.code-sidebar.collapsed .code-agent-rail::-webkit-scrollbar {
-  display: none;
 }
 
 .code-nav-item:hover {
@@ -279,34 +274,11 @@ body.code-resizing-sidebar .code-sidebar-resizer {
   scroll-behavior: auto;
   -webkit-overflow-scrolling: touch;
   scrollbar-gutter: stable;
-  scrollbar-width: thin;
-  scrollbar-color: transparent transparent;
   display: flex;
   flex-direction: column;
   gap: 8px;
   padding: 0 2px 72px 0;
   border-radius: 8px;
-}
-
-.code-project-list::-webkit-scrollbar {
-  width: 8px;
-}
-
-.code-project-list::-webkit-scrollbar-thumb {
-  border-radius: 999px;
-  background: transparent;
-}
-
-.code-project-list::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.code-project-list:hover {
-  scrollbar-color: var(--code-scrollbar-thumb) transparent;
-}
-
-.code-project-list:hover::-webkit-scrollbar-thumb {
-  background: var(--code-scrollbar-thumb);
 }
 
 .code-project-list:focus-visible {
@@ -1487,11 +1459,6 @@ body.code-resizing-sidebar .code-sidebar-resizer {
   body.code-mode.code-compact-layout .code-project-list {
       gap: 6px;
       padding: 0 1px 4px 0;
-      scrollbar-width: none;
-    }
-
-  body.code-mode.code-compact-layout .code-project-list::-webkit-scrollbar {
-      display: none;
     }
 
   body.code-mode.code-compact-layout .code-project-title {

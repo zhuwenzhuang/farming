@@ -157,6 +157,20 @@ export function workspaceEditorFontOptions(): Pick<
   }
 }
 
+export function workspaceEditorScrollbarOptions(): Pick<
+  monaco.editor.IStandaloneEditorConstructionOptions,
+  'scrollbar'
+> {
+  return {
+    scrollbar: {
+      vertical: 'visible',
+      horizontal: 'visible',
+      verticalScrollbarSize: 8,
+      horizontalScrollbarSize: 8,
+    },
+  }
+}
+
 export function updateWorkspaceEditorContentFontSize(
   editor: monaco.editor.ICodeEditor | monaco.editor.IStandaloneDiffEditor,
 ) {
@@ -178,6 +192,7 @@ export function workspaceEditorCreateOptions({
     minimap: { enabled: false },
     scrollBeyondLastLine: false,
     ...workspaceEditorFontOptions(),
+    ...workspaceEditorScrollbarOptions(),
     tabSize: 2,
     insertSpaces: true,
     wordWrap: workspaceEditorWordWrapValue(wordWrapEnabled),

@@ -1974,19 +1974,6 @@ body.code-mode .workspace-path-suggestion-path {
   font-weight: 450;
 }
 
-body.code-mode .workspace-path-suggestions::-webkit-scrollbar {
-  width: 8px;
-}
-
-body.code-mode .workspace-path-suggestions::-webkit-scrollbar-thumb {
-  background: var(--code-scrollbar-thumb);
-  border-radius: 999px;
-}
-
-body.code-mode .workspace-path-suggestions::-webkit-scrollbar-track {
-  background: transparent;
-}
-
 body.code-mode .workspace-directory-prompt {
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr);
@@ -3770,9 +3757,6 @@ body.code-mode.code-compact-layout .code-options-menu button:focus-visible {
 .workspace-runtime-options button span {
   color: var(--code-warning);
 }
-.workspace-history-list::-webkit-scrollbar-track {
-  background: var(--code-bg-raised);
-}
 .agent-item:focus-visible {
   background: var(--code-bg-hover);
   border-color: var(--code-border);
@@ -3903,9 +3887,6 @@ body.code-mode.code-compact-layout .code-options-menu button:focus-visible {
 }
 .workspace-home-menu {
   box-shadow: var(--code-shadow-raised);
-}
-.workspace-history-list::-webkit-scrollbar-thumb {
-  background: var(--code-scrollbar-thumb);
 }
 .workspace-history-item {
   border-color: var(--code-border);

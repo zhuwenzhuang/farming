@@ -8,6 +8,7 @@ import {
   workspaceEditorFontOptions,
   workspaceEditorLanguageForPath,
   workspaceEditorMonacoThemeForAppearance,
+  workspaceEditorScrollbarOptions,
 } from '@/lib/workspace-editor-monaco'
 import { workspaceFileResourceKey } from '@/lib/workspace-working-copy'
 import type { OpenWorkspaceFile } from '@/lib/workspace-open-files'
@@ -109,6 +110,7 @@ export function FileEditorDiffView({
       minimap: { enabled: false },
       scrollBeyondLastLine: false,
       ...workspaceEditorFontOptions(),
+      ...workspaceEditorScrollbarOptions(),
       fixedOverflowWidgets: true,
       renderOverviewRuler: true,
       enableSplitViewResizing: !isCompactViewport(),

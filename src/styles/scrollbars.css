@@ -1,0 +1,46 @@
+/* Farming Code scrollbar geometry and interaction states. Appearance-specific
+   colors come from the shared appearance registry. */
+
+body.code-mode,
+body.code-mode * {
+  scrollbar-color: var(--code-scrollbar-thumb) transparent;
+  scrollbar-width: thin;
+}
+
+body.code-mode::-webkit-scrollbar,
+body.code-mode *::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+body.code-mode::-webkit-scrollbar-track,
+body.code-mode *::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+body.code-mode::-webkit-scrollbar-thumb,
+body.code-mode *::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: var(--code-scrollbar-thumb);
+  background-clip: content-box;
+}
+
+body.code-mode::-webkit-scrollbar-thumb:hover,
+body.code-mode *::-webkit-scrollbar-thumb:hover {
+  background: var(--code-scrollbar-thumb-hover);
+  background-clip: content-box;
+}
+
+body.code-mode::-webkit-scrollbar-thumb:active,
+body.code-mode *::-webkit-scrollbar-thumb:active {
+  background: var(--code-scrollbar-thumb-active);
+  background-clip: content-box;
+}
+
+body.code-mode .monaco-scrollable-element > .scrollbar > .slider {
+  box-sizing: border-box;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: content-box;
+}

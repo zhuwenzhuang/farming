@@ -1015,14 +1015,6 @@ body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file
   }
 }
 
-.code-file-editor-tabs::-webkit-scrollbar-track {
-  background: var(--code-bg-inset);
-}
-
-.code-file-editor-tabs::-webkit-scrollbar-thumb {
-  background: var(--code-scrollbar-thumb);
-}
-
 body.code-mode.code-compact-layout .code-file-editor.markdown-reading .code-file-editor-action.source-preview.active {
   box-shadow: none;
 }

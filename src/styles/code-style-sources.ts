@@ -1,6 +1,7 @@
 export const CODE_STYLE_SOURCES = [
   'src/styles/crt-tokens.css',
   'src/styles/tokens.css',
+  'src/styles/scrollbars.css',
   'src/styles/main.css',
   'src/styles/file-editor.css',
   'src/styles/pet.css',

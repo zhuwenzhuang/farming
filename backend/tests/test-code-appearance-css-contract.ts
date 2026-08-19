@@ -16,8 +16,11 @@ type AppearanceRegistry = Record<string, {
 
 const projectRoot = path.join(__dirname, '..', '..')
 const tokenPath = 'src/styles/tokens.css'
+const scrollbarPath = 'src/styles/scrollbars.css'
 const tokenSource = fs.readFileSync(path.join(projectRoot, tokenPath), 'utf8')
 const tokenRoot = postcss.parse(tokenSource, { from: tokenPath })
+const scrollbarSource = fs.readFileSync(path.join(projectRoot, scrollbarPath), 'utf8')
+const scrollbarRoot = postcss.parse(scrollbarSource, { from: scrollbarPath })
 const registry = JSON.parse(
   fs.readFileSync(path.join(projectRoot, 'shared/appearance-themes.json'), 'utf8'),
 ) as AppearanceRegistry
@@ -48,6 +51,27 @@ const runtimeCodeRoles = new Set([
   '--code-pet-status-glass-filter',
   '--code-sidebar-width',
 ])
+
+function normalizedColor(value: string) {
+  const hex = value.match(/^#([\da-f]{6})([\da-f]{2})?$/i)
+  if (hex) {
+    const rgb = hex[1]
+    return [
+      Number.parseInt(rgb.slice(0, 2), 16),
+      Number.parseInt(rgb.slice(2, 4), 16),
+      Number.parseInt(rgb.slice(4, 6), 16),
+      hex[2] ? Number.parseInt(hex[2], 16) : 255,
+    ]
+  }
+  const rgba = value.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)(?:\s*,\s*([\d.]+))?\s*\)$/i)
+  assert(rgba, `Unsupported contract color: ${value}`)
+  return [
+    Number(rgba[1]),
+    Number(rgba[2]),
+    Number(rgba[3]),
+    Math.round(Number(rgba[4] ?? 1) * 255),
+  ]
+}
 
 function cssFilesBelow(relativeRoot: string): string[] {
   const absoluteRoot = path.join(projectRoot, relativeRoot)
@@ -85,7 +109,7 @@ assert.notEqual(
 )
 
 const lightRoles = Object.keys(registry.light.css).sort()
-assert(lightRoles.length <= 134, 'the semantic palette must not grow back into a selector-level override matrix')
+assert(lightRoles.length <= 136, 'the semantic palette must not grow back into a selector-level override matrix')
 assert.equal(
   registry.light.css['--code-active-item-surface'],
   '#eeeeec',
@@ -136,6 +160,37 @@ for (const appearance of appearances) {
   for (const consumer of ['metadata', 'mermaid', 'monaco', 'terminal', 'terminalSearch'] as const) {
     assert(Object.keys(theme[consumer]).length > 0, `${appearance} must define its ${consumer} theme`)
   }
+  const monacoColors = theme.monaco.colors as Record<string, string>
+  assert.deepEqual(
+    normalizedColor(monacoColors['scrollbarSlider.background']),
+    normalizedColor(theme.css['--code-scrollbar-thumb']),
+    `${appearance} Monaco scrollbar must share the native default color`,
+  )
+  assert.deepEqual(
+    normalizedColor(monacoColors['scrollbarSlider.hoverBackground']),
+    normalizedColor(theme.css['--code-scrollbar-thumb-hover']),
+    `${appearance} Monaco scrollbar must share the native hover color`,
+  )
+  assert.deepEqual(
+    normalizedColor(monacoColors['scrollbarSlider.activeBackground']),
+    normalizedColor(theme.css['--code-scrollbar-thumb-active']),
+    `${appearance} Monaco scrollbar must share the native active color`,
+  )
+  assert.equal(
+    theme.terminal.scrollbarSliderBackground,
+    theme.css['--code-scrollbar-thumb'],
+    `${appearance} Terminal scrollbar must share the native default color`,
+  )
+  assert.equal(
+    theme.terminal.scrollbarSliderHoverBackground,
+    theme.css['--code-scrollbar-thumb-hover'],
+    `${appearance} Terminal scrollbar must share the native hover color`,
+  )
+  assert.equal(
+    theme.terminal.scrollbarSliderActiveBackground,
+    theme.css['--code-scrollbar-thumb-active'],
+    `${appearance} Terminal scrollbar must share the native active color`,
+  )
 
   const selector = appearance === 'light'
     ? 'body.code-mode'
@@ -147,6 +202,73 @@ for (const appearance of appearances) {
     declarations[declaration.prop] = declaration.value
   })
   assert.deepEqual(declarations, theme.css, `generated ${appearance} CSS must exactly match the registry`)
+}
+
+function scrollbarRule(selector: string) {
+  const rule = scrollbarRoot.nodes.find(node => (
+    node.type === 'rule' && node.selectors.includes(selector)
+  ))
+  assert(rule && rule.type === 'rule', `scrollbar stylesheet must define ${selector}`)
+  return Object.fromEntries(rule.nodes
+    .filter(node => node.type === 'decl')
+    .map(declaration => [declaration.prop, declaration.value]))
+}
+
+assert.deepEqual(scrollbarRule('body.code-mode *'), {
+  'scrollbar-color': 'var(--code-scrollbar-thumb) transparent',
+  'scrollbar-width': 'thin',
+})
+assert.deepEqual(scrollbarRule('body.code-mode *::-webkit-scrollbar'), {
+  width: '8px',
+  height: '8px',
+})
+assert.deepEqual(scrollbarRule('body.code-mode *::-webkit-scrollbar-track'), {
+  background: 'transparent',
+})
+assert.deepEqual(scrollbarRule('body.code-mode *::-webkit-scrollbar-thumb'), {
+  border: '2px solid transparent',
+  'border-radius': '999px',
+  background: 'var(--code-scrollbar-thumb)',
+  'background-clip': 'content-box',
+})
+assert.equal(
+  scrollbarRule('body.code-mode *::-webkit-scrollbar-thumb:hover').background,
+  'var(--code-scrollbar-thumb-hover)',
+)
+assert.equal(
+  scrollbarRule('body.code-mode *::-webkit-scrollbar-thumb:active').background,
+  'var(--code-scrollbar-thumb-active)',
+)
+assert.deepEqual(scrollbarRule('body.code-mode .monaco-scrollable-element > .scrollbar > .slider'), {
+  'box-sizing': 'border-box',
+  border: '2px solid transparent',
+  'border-radius': '999px',
+  'background-clip': 'content-box',
+})
+
+for (const sourcePath of allAppearanceSources) {
+  if (sourcePath === scrollbarPath || sourcePath === tokenPath || sourcePath === 'src/styles/crt-tokens.css') continue
+  const root = postcss.parse(fs.readFileSync(path.join(projectRoot, sourcePath), 'utf8'), { from: sourcePath })
+  root.walkRules(rule => {
+    rule.walkDecls(declaration => {
+      const hiddenEditorTabs = sourcePath === 'src/styles/file-editor.css'
+        && rule.selector === '.code-file-editor-tabs'
+        && declaration.prop === 'scrollbar-width'
+        && declaration.value === 'none'
+      const hiddenEditorTabsPseudo = sourcePath === 'src/styles/file-editor.css'
+        && rule.selector === '.code-file-editor-tabs::-webkit-scrollbar'
+        && declaration.prop === 'display'
+        && declaration.value === 'none'
+      assert(
+        hiddenEditorTabs
+          || hiddenEditorTabsPseudo
+          || (declaration.prop !== 'scrollbar-width'
+            && declaration.prop !== 'scrollbar-color'
+            && !rule.selector.includes('::-webkit-scrollbar')),
+        `${sourcePath}:${declaration.source?.start?.line ?? '?'} must not override the shared Code scrollbar contract`,
+      )
+    })
+  })
 }
 assert.equal(
   tokenRoot.nodes.filter(node => node.type === 'rule').length,

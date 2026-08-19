@@ -51,6 +51,13 @@ Project, file, or terminal state.
   geometry across its base, hover or selection fill, overlay, and action
   layers. Asymmetric square and rounded ends require an explicit joined-control
   design; they must not result accidentally from overlapping layers.
+- Native Farming Code scrollbars use one eight-pixel interaction lane with a
+  four-pixel rounded thumb, a transparent track, and visible default, hover,
+  and active states from the shared appearance registry. Domain styles must not
+  redefine scrollbar geometry or colors. Monaco and Terminal keep their own
+  renderer integration but map to the same geometry and state colors. A hidden
+  scrollbar is limited to an explicitly documented alternative scrolling
+  interaction such as the horizontal editor-tab strip.
 - Navigation descendants consume the inherited `--code-navigation-surface`.
   The workspace maps that local role for each layout; responsive component
   rules may change geometry but must not choose a separate theme surface.
@@ -126,6 +133,8 @@ Code colors, and appearance branching outside the generated file.
   application startup.
 - Navigation, Chat, Composer, Settings, Files, Review, Browser and Computer
   extensions, Monaco, Terminal, and Mermaid repaint without requiring a reload.
+- Native, Monaco, and Terminal scrollbars share geometry and default, hover,
+  and active colors in every resolved appearance.
 - Primary and muted text remain readable, focus remains visible, and semantic
   success, warning, danger, and diff states remain distinguishable.
 - Desktop and compact layouts do not introduce uncovered white or dark areas.

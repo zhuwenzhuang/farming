@@ -27,9 +27,9 @@
       "brightMagenta": "#a475f9",
       "brightCyan": "#3192aa",
       "brightWhite": "#24292f",
-      "scrollbarSliderBackground": "rgba(87, 96, 106, 0.24)",
-      "scrollbarSliderHoverBackground": "rgba(87, 96, 106, 0.34)",
-      "scrollbarSliderActiveBackground": "rgba(87, 96, 106, 0.44)"
+      "scrollbarSliderBackground": "rgba(95, 103, 94, 0.28)",
+      "scrollbarSliderHoverBackground": "rgba(95, 103, 94, 0.40)",
+      "scrollbarSliderActiveBackground": "rgba(95, 103, 94, 0.52)"
     },
     "terminalSearch": {
       "matchBackground": "#fff4a3",
@@ -60,7 +60,10 @@
         "editorWhitespace.foreground": "#d0d7de",
         "editorIndentGuide.background1": "#d8dee4",
         "editorIndentGuide.activeBackground1": "#8c959f",
-        "editorGutter.background": "#ffffff"
+        "editorGutter.background": "#ffffff",
+        "scrollbarSlider.background": "#5f675e47",
+        "scrollbarSlider.hoverBackground": "#5f675e66",
+        "scrollbarSlider.activeBackground": "#5f675e85"
       }
     },
     "mermaid": {
@@ -174,6 +177,8 @@
       "--code-pet-seven-segment-time-color": "#242b28",
       "--code-pet-seven-segment-time-filter": "drop-shadow(0 0 4px rgba(245, 196, 120, 0.18))",
       "--code-scrollbar-thumb": "rgba(95, 103, 94, 0.28)",
+      "--code-scrollbar-thumb-active": "rgba(95, 103, 94, 0.52)",
+      "--code-scrollbar-thumb-hover": "rgba(95, 103, 94, 0.40)",
       "--code-selection-bg": "rgba(9, 105, 218, 0.2)",
       "--code-shadow-color": "rgba(31, 35, 40, 0.16)",
       "--code-shadow-focus": "0 0 0 3px rgba(9, 105, 218, 0.24)",
@@ -272,7 +277,10 @@
         "editorWhitespace.foreground": "#383838",
         "editorIndentGuide.background1": "#21262d",
         "editorIndentGuide.activeBackground1": "#3b4655",
-        "editorGutter.background": "#181818"
+        "editorGutter.background": "#181818",
+        "scrollbarSlider.background": "#8b949e52",
+        "scrollbarSlider.hoverBackground": "#8b949e70",
+        "scrollbarSlider.activeBackground": "#8b949e8f"
       }
     },
     "mermaid": {
@@ -386,6 +394,8 @@
       "--code-pet-seven-segment-time-color": "#e7eee9",
       "--code-pet-seven-segment-time-filter": "drop-shadow(0 0 5px rgba(245, 196, 120, 0.2))",
       "--code-scrollbar-thumb": "rgba(139, 148, 158, 0.32)",
+      "--code-scrollbar-thumb-active": "rgba(139, 148, 158, 0.56)",
+      "--code-scrollbar-thumb-hover": "rgba(139, 148, 158, 0.44)",
       "--code-selection-bg": "rgba(51, 156, 255, 0.34)",
       "--code-shadow-color": "rgba(0, 0, 0, 0.46)",
       "--code-shadow-focus": "0 0 0 3px rgba(51, 156, 255, 0.34)",
@@ -484,7 +494,10 @@
         "editorWhitespace.foreground": "#ddd6c8",
         "editorIndentGuide.background1": "#e2dccf",
         "editorIndentGuide.activeBackground1": "#a9a08f",
-        "editorGutter.background": "#f9f8f4"
+        "editorGutter.background": "#f9f8f4",
+        "scrollbarSlider.background": "#62635b38",
+        "scrollbarSlider.hoverBackground": "#62635b52",
+        "scrollbarSlider.activeBackground": "#62635b6b"
       }
     },
     "mermaid": {
@@ -598,6 +611,8 @@
       "--code-pet-seven-segment-time-color": "#242b28",
       "--code-pet-seven-segment-time-filter": "drop-shadow(0 0 4px rgba(245, 196, 120, 0.18))",
       "--code-scrollbar-thumb": "rgba(98, 99, 91, 0.22)",
+      "--code-scrollbar-thumb-active": "rgba(98, 99, 91, 0.42)",
+      "--code-scrollbar-thumb-hover": "rgba(98, 99, 91, 0.32)",
       "--code-selection-bg": "rgba(58, 110, 74, 0.22)",
       "--code-shadow-color": "transparent",
       "--code-shadow-focus": "none",

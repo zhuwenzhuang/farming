@@ -305,6 +305,7 @@ async function renderApplication() {
   prepareCodeAppearanceDocument()
   await import('./styles/crt-tokens.css')
   await import('./styles/tokens.css')
+  await import('./styles/scrollbars.css')
   await import('./styles/main.css')
   await import('./styles/file-editor.css')
   await import('./styles/pet.css')

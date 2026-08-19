@@ -146,7 +146,6 @@
   align-items: center;
   gap: 5px;
   overflow-x: auto;
-  scrollbar-width: thin;
 }
 
 .code-plugin-extension-home-tabs {

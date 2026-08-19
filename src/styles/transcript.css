@@ -35,8 +35,6 @@
   overscroll-behavior-x: none;
   overflow-anchor: none;
   padding: 36px clamp(18px, 4vw, 54px) 8px;
-  scrollbar-width: thin;
-  scrollbar-color: var(--code-scrollbar-thumb) transparent;
   user-select: text;
   -webkit-user-select: text;
 }
@@ -160,15 +158,6 @@
 
 .code-agent-work-pane.runtime-switchable .code-agent-transcript-user {
   margin-right: 68px;
-}
-
-.code-agent-transcript-scroll::-webkit-scrollbar {
-  width: 6px;
-}
-
-.code-agent-transcript-scroll::-webkit-scrollbar-thumb {
-  border-radius: 999px;
-  background: var(--code-scrollbar-thumb);
 }
 
 @container (max-width: 800px) {
