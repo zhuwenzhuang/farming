@@ -257,6 +257,36 @@ test('reveals the active Agent in the sidebar after an Agent jump', async ({ pag
   })).toBe(true)
 })
 
+test('keeps the Project list anchored when selecting a visible Agent', async ({ page, workspaceRoot }) => {
+  const projectDir = path.join(workspaceRoot, 'visible-agent-selection')
+  fs.mkdirSync(projectDir, { recursive: true })
+  for (let index = 0; index < 80; index += 1) {
+    fs.writeFileSync(path.join(projectDir, `file-${String(index).padStart(2, '0')}.txt`), `${index}\n`)
+  }
+
+  await openFarming(page)
+  const targetAgentId = await createControlAgent(page, projectDir)
+  const activeAgentId = await createControlAgent(page, projectDir)
+  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(projectDir) })
+  const targetRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${targetAgentId}"]`)
+  const activeRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${activeAgentId}"]`)
+  const projectList = page.getByTestId('code-project-list')
+
+  await activeRow.click()
+  await expect(activeRow).toHaveClass(/active/)
+  await project.locator('.code-files-title').click()
+  const lastFileRow = project.getByTestId('code-file-row').last()
+  await expect(lastFileRow).toBeVisible()
+  await lastFileRow.evaluate(element => element.scrollIntoView({ block: 'end' }))
+  await expect(targetRow).toBeVisible()
+
+  const beforeScrollTop = await projectList.evaluate(element => element.scrollTop)
+  expect(beforeScrollTop).toBeGreaterThan(0)
+  await targetRow.click()
+  await expect(targetRow).toHaveClass(/active/)
+  await expect.poll(() => projectList.evaluate(element => element.scrollTop)).toBe(beforeScrollTop)
+})
+
 test('restores Project disclosure without letting late sidebar content hide the active Agent', async ({ page, workspaceRoot }) => {
   const rememberedProjectDir = path.join(workspaceRoot, 'remembered-project-view')
   const activeProjectDir = path.join(workspaceRoot, 'remembered-active-project')

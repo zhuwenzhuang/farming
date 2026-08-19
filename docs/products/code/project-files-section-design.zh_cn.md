@@ -37,6 +37,8 @@ Project Agent 行采用渐进展示，避免大型 Agent 分组难以浏览。Pr
 Selection、Search 与 Active Agent 变化可以替换当前容量内的行，但只有“显示更多”和
 “显示较少”可以改变这个容量。当 Live Agent 行和可恢复 Session 行都还有更多条目时，
 Project 同一时间只显示一个“显示更多”操作，并先展示剩余的 Live Agent，再展示更多 Session。
+选择已经可见的 Agent Row 时保持 Project Scroll Surface 位置不变；导航到不可见 Agent 时，
+可以在该 Surface 中定位并显示目标。
 
 ## Project 与 Workspace 身份
 

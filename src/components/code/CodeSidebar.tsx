@@ -644,10 +644,12 @@ export function CodeSidebar({
       ))
       if (!row) return false
 
-      scroller.scrollTop += workspaceFileRevealScrollDelta(
-        scroller.getBoundingClientRect(),
-        row.getBoundingClientRect(),
-      )
+      const scrollerRect = scroller.getBoundingClientRect()
+      const rowRect = row.getBoundingClientRect()
+      const rowIsVisible = rowRect.bottom > scrollerRect.top && rowRect.top < scrollerRect.bottom
+      if (!rowIsVisible) {
+        scroller.scrollTop += workspaceFileRevealScrollDelta(scrollerRect, rowRect)
+      }
       return true
     }, {
       initialDelay: 0,

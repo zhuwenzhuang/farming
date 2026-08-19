@@ -44,6 +44,8 @@ replace a row within the current capacity, but only Show more and Show less may
 change that capacity. When both live Agent rows and resumable session rows have
 more entries, the Project shows one Show more action at a time and reveals the
 remaining live Agents before additional sessions.
+Selecting an Agent row that is already visible keeps the Project scroll surface
+anchored. Navigation to an offscreen Agent may reveal it in that surface.
 
 ## Project And Workspace Identity
 
