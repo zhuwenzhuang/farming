@@ -663,7 +663,10 @@ export function CodeMainArea({
   const [resourceAgentWidth, setResourceAgentWidth] = useState(DEFAULT_RESOURCE_AGENT_WIDTH)
   const [resourceAgentWidthMax, setResourceAgentWidthMax] = useState(MAX_RESOURCE_AGENT_WIDTH)
   const mainAreaRef = useRef<HTMLElement | null>(null)
-  const resizingResourceAgentRef = useRef(false)
+  const resourceAgentResizeGestureRef = useRef<{
+    pointerId: number
+    target: HTMLDivElement
+  } | null>(null)
   const previousActiveRuntimeRef = useRef<{ agentId: string | null; kind: 'acp' | 'terminal' | null }>({
     agentId: null,
     kind: null,
@@ -771,35 +774,38 @@ export function CodeMainArea({
   }, [resourceAgentWidth, resourceAgentWidthMax])
 
   const beginResourceAgentResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || !event.isPrimary || resourceAgentResizeGestureRef.current) return
     event.preventDefault()
-    resizingResourceAgentRef.current = true
+    event.currentTarget.setPointerCapture(event.pointerId)
+    resourceAgentResizeGestureRef.current = {
+      pointerId: event.pointerId,
+      target: event.currentTarget,
+    }
     document.body.classList.add('code-resizing-resource-agent')
     updateResourceAgentWidth(event.clientX)
   }, [updateResourceAgentWidth])
 
-  useEffect(() => {
-    function handlePointerMove(event: PointerEvent) {
-      if (!resizingResourceAgentRef.current) return
-      event.preventDefault()
-      updateResourceAgentWidth(event.clientX)
-    }
-
-    function stopResourceAgentResize() {
-      if (!resizingResourceAgentRef.current) return
-      resizingResourceAgentRef.current = false
-      document.body.classList.remove('code-resizing-resource-agent')
-    }
-
-    window.addEventListener('pointermove', handlePointerMove)
-    window.addEventListener('pointerup', stopResourceAgentResize)
-    window.addEventListener('pointercancel', stopResourceAgentResize)
-    return () => {
-      window.removeEventListener('pointermove', handlePointerMove)
-      window.removeEventListener('pointerup', stopResourceAgentResize)
-      window.removeEventListener('pointercancel', stopResourceAgentResize)
-      document.body.classList.remove('code-resizing-resource-agent')
-    }
+  const finishResourceAgentResize = useCallback((
+    target: HTMLDivElement,
+    pointerId: number,
+    clientX?: number,
+  ) => {
+    const gesture = resourceAgentResizeGestureRef.current
+    if (!gesture || gesture.pointerId !== pointerId) return
+    if (clientX !== undefined) updateResourceAgentWidth(clientX)
+    resourceAgentResizeGestureRef.current = null
+    document.body.classList.remove('code-resizing-resource-agent')
+    if (target.hasPointerCapture(pointerId)) target.releasePointerCapture(pointerId)
   }, [updateResourceAgentWidth])
+
+  useEffect(() => () => {
+    const gesture = resourceAgentResizeGestureRef.current
+    resourceAgentResizeGestureRef.current = null
+    document.body.classList.remove('code-resizing-resource-agent')
+    if (gesture?.target.hasPointerCapture(gesture.pointerId)) {
+      gesture.target.releasePointerCapture(gesture.pointerId)
+    }
+  }, [])
 
   useLayoutEffect(() => {
     if (!resourceAgentPanelVisible || typeof ResizeObserver === 'undefined') return undefined
@@ -1065,6 +1071,25 @@ export function CodeMainArea({
           aria-valuenow={Math.round(resourceAgentWidth)}
           tabIndex={0}
           onPointerDown={beginResourceAgentResize}
+          onPointerMove={event => {
+            const gesture = resourceAgentResizeGestureRef.current
+            if (!gesture || gesture.pointerId !== event.pointerId) return
+            if (event.pointerType === 'mouse' && event.buttons === 0) {
+              finishResourceAgentResize(event.currentTarget, event.pointerId, event.clientX)
+              return
+            }
+            event.preventDefault()
+            updateResourceAgentWidth(event.clientX)
+          }}
+          onPointerUp={event => {
+            finishResourceAgentResize(event.currentTarget, event.pointerId, event.clientX)
+          }}
+          onPointerCancel={event => {
+            finishResourceAgentResize(event.currentTarget, event.pointerId)
+          }}
+          onLostPointerCapture={event => {
+            finishResourceAgentResize(event.currentTarget, event.pointerId)
+          }}
           onKeyDown={handleResourceAgentResizeKeyDown}
         />
       ) : null}

@@ -103,6 +103,41 @@ test('keeps another Browser preview above the Composer beside the current Browse
   await page.mouse.move(mainBox.x, resizerBox.y + (resizerBox.height / 2))
   await page.mouse.up()
 
+  const interruptedResizerBox = await resizer.boundingBox()
+  if (!interruptedResizerBox) throw new Error('Resized side-panel handle is unavailable')
+  const interruptedPointerY = interruptedResizerBox.y + interruptedResizerBox.height / 2
+  await resizer.evaluate(element => {
+    element.addEventListener('pointerdown', event => {
+      element.setAttribute('data-test-pointer-id', String(event.pointerId))
+    }, { once: true })
+  })
+  await page.mouse.move(interruptedResizerBox.x + interruptedResizerBox.width / 2, interruptedPointerY)
+  await page.mouse.down()
+  const pointerId = Number(await resizer.getAttribute('data-test-pointer-id'))
+  expect(await resizer.evaluate((element, id) => element.hasPointerCapture(id), pointerId)).toBe(true)
+  await resizer.dispatchEvent('pointermove', {
+    pointerId,
+    pointerType: 'mouse',
+    isPrimary: true,
+    buttons: 0,
+    clientX: interruptedResizerBox.x + interruptedResizerBox.width / 2,
+    clientY: interruptedPointerY,
+  })
+  await expect(page.locator('body')).not.toHaveClass(/code-resizing-resource-agent/)
+  const releasedPanelWidth = Math.round((await page.getByTestId('code-terminal-grid').boundingBox())?.width ?? 0)
+  await resizer.dispatchEvent('pointermove', {
+    pointerId,
+    pointerType: 'mouse',
+    isPrimary: true,
+    buttons: 0,
+    clientX: interruptedResizerBox.x - 60,
+    clientY: interruptedPointerY,
+  })
+  await expect.poll(async () => (
+    Math.round((await page.getByTestId('code-terminal-grid').boundingBox())?.width ?? 0)
+  )).toBe(releasedPanelWidth)
+  await page.mouse.up()
+
   await otherBrowserCard.locator('.farming-browser-activity-title').click()
   await expect(otherBrowserCard.locator('.farming-browser-activity-frame')).toBeVisible()
   const geometry = await main.evaluate(element => {

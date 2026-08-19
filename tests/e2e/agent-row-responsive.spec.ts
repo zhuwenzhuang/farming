@@ -18,6 +18,46 @@ async function resizeSidebar(page: Page, width: number) {
   await expect.poll(async () => Math.round((await sidebar.boundingBox())?.width ?? 0)).toBe(width)
 }
 
+test('ends sidebar resize when a released mouse re-enters without pointerup', async ({ page }) => {
+  await openFarming(page)
+  const sidebar = page.getByTestId('code-sidebar')
+  const resizer = page.getByTestId('code-sidebar-resizer')
+  const resizerBox = await resizer.boundingBox()
+  if (!resizerBox) throw new Error('Sidebar resize handle is unavailable')
+  const pointerY = resizerBox.y + Math.min(120, resizerBox.height / 2)
+  await resizer.evaluate(element => {
+    element.addEventListener('pointerdown', event => {
+      element.setAttribute('data-test-pointer-id', String(event.pointerId))
+    }, { once: true })
+  })
+  await page.mouse.move(resizerBox.x + resizerBox.width / 2, pointerY)
+  await page.mouse.down()
+  const pointerId = Number(await resizer.getAttribute('data-test-pointer-id'))
+  expect(await resizer.evaluate((element, id) => element.hasPointerCapture(id), pointerId)).toBe(true)
+
+  await resizer.dispatchEvent('pointermove', {
+    pointerId,
+    pointerType: 'mouse',
+    isPrimary: true,
+    buttons: 0,
+    clientX: resizerBox.x + 80,
+    clientY: pointerY,
+  })
+  await expect(page.locator('body')).not.toHaveClass(/code-resizing-sidebar/)
+  const releasedWidth = Math.round((await sidebar.boundingBox())?.width ?? 0)
+
+  await resizer.dispatchEvent('pointermove', {
+    pointerId,
+    pointerType: 'mouse',
+    isPrimary: true,
+    buttons: 0,
+    clientX: resizerBox.x - 80,
+    clientY: pointerY,
+  })
+  await expect.poll(async () => Math.round((await sidebar.boundingBox())?.width ?? 0)).toBe(releasedWidth)
+  await page.mouse.up()
+})
+
 async function rowProjection(row: ReturnType<Page['locator']>) {
   return row.evaluate(element => {
     const title = element.querySelector<HTMLElement>('.code-agent-name')

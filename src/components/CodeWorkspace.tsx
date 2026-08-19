@@ -855,7 +855,10 @@ export function CodeWorkspace({
   const pendingRestoredFocusAgentRef = useRef<string | null>(null)
   const projectOperationRequestIdsRef = useRef(new Map<string, string>())
   const trackedMainPageAgentKeysRef = useRef<Set<string>>(new Set())
-  const resizingSidebarRef = useRef(false)
+  const sidebarResizeGestureRef = useRef<{
+    pointerId: number
+    target: HTMLDivElement
+  } | null>(null)
   const sidebarUserCollapsedRef = useRef(initialWorkspaceViewState.sidebarCollapsed === true)
   const sidebarAutoCollapsedRef = useRef(
     initialWorkspaceViewState.sidebarCollapsed !== true && shouldCollapseSidebarInitially(),
@@ -2833,12 +2836,30 @@ export function CodeWorkspace({
   }, [closeContextMenu, contextMenuAgentSession, removeMainPageAgentSession])
 
   const beginSidebarResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || !event.isPrimary || sidebarResizeGestureRef.current) return
     event.preventDefault()
     expandSidebar()
-    resizingSidebarRef.current = true
+    event.currentTarget.setPointerCapture(event.pointerId)
+    sidebarResizeGestureRef.current = {
+      pointerId: event.pointerId,
+      target: event.currentTarget,
+    }
     document.body.classList.add('code-resizing-sidebar')
     updateSidebarWidth(event.clientX)
   }, [expandSidebar, updateSidebarWidth])
+
+  const finishSidebarResize = useCallback((
+    target: HTMLDivElement,
+    pointerId: number,
+    clientX?: number,
+  ) => {
+    const gesture = sidebarResizeGestureRef.current
+    if (!gesture || gesture.pointerId !== pointerId) return
+    if (clientX !== undefined) updateSidebarWidth(clientX)
+    sidebarResizeGestureRef.current = null
+    document.body.classList.remove('code-resizing-sidebar')
+    if (target.hasPointerCapture(pointerId)) target.releasePointerCapture(pointerId)
+  }, [updateSidebarWidth])
 
   const openTerminalFromWorkspace = useCallback((agentId: string, options?: { focusTerminal?: boolean }) => {
     workspaceFileOpenRequestRef.current.invalidate()
@@ -5033,32 +5054,14 @@ export function CodeWorkspace({
     }
   }, [activeView, loadAgentSessions, loadGlobalSettings])
 
-  useEffect(() => {
-    function handlePointerMove(event: PointerEvent) {
-      if (!resizingSidebarRef.current) return
-
-      event.preventDefault()
-      updateSidebarWidth(event.clientX)
+  useEffect(() => () => {
+    const gesture = sidebarResizeGestureRef.current
+    sidebarResizeGestureRef.current = null
+    document.body.classList.remove('code-resizing-sidebar')
+    if (gesture?.target.hasPointerCapture(gesture.pointerId)) {
+      gesture.target.releasePointerCapture(gesture.pointerId)
     }
-
-    function stopSidebarResize() {
-      if (!resizingSidebarRef.current) return
-
-      resizingSidebarRef.current = false
-      document.body.classList.remove('code-resizing-sidebar')
-    }
-
-    window.addEventListener('pointermove', handlePointerMove)
-    window.addEventListener('pointerup', stopSidebarResize)
-    window.addEventListener('pointercancel', stopSidebarResize)
-
-    return () => {
-      window.removeEventListener('pointermove', handlePointerMove)
-      window.removeEventListener('pointerup', stopSidebarResize)
-      window.removeEventListener('pointercancel', stopSidebarResize)
-      document.body.classList.remove('code-resizing-sidebar')
-    }
-  }, [updateSidebarWidth])
+  }, [])
 
   useEffect(() => {
     const workspace = workspaceRef.current
@@ -5332,6 +5335,25 @@ export function CodeWorkspace({
         aria-valuemax={MAX_SIDEBAR_WIDTH}
         aria-valuenow={sidebarCollapsed ? COLLAPSED_SIDEBAR_WIDTH : sidebarWidth}
         onPointerDown={beginSidebarResize}
+        onPointerMove={event => {
+          const gesture = sidebarResizeGestureRef.current
+          if (!gesture || gesture.pointerId !== event.pointerId) return
+          if (event.pointerType === 'mouse' && event.buttons === 0) {
+            finishSidebarResize(event.currentTarget, event.pointerId, event.clientX)
+            return
+          }
+          event.preventDefault()
+          updateSidebarWidth(event.clientX)
+        }}
+        onPointerUp={event => {
+          finishSidebarResize(event.currentTarget, event.pointerId, event.clientX)
+        }}
+        onPointerCancel={event => {
+          finishSidebarResize(event.currentTarget, event.pointerId)
+        }}
+        onLostPointerCapture={event => {
+          finishSidebarResize(event.currentTarget, event.pointerId)
+        }}
       />
 
       {!sidebarCollapsed && (
