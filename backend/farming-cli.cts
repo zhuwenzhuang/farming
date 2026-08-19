@@ -416,7 +416,7 @@ function farmingCapabilities(
       id: 'browser',
       state,
       summary: state === 'available'
-        ? 'Default browser path for web tasks. An available Browser source can be created or attached as a shared, user-visible Farming Resource.'
+        ? 'Default browser path for web tasks. `farming browser open [url]` reuses this Agent’s default Browser Session and creates it only when absent.'
         : (browser?.message || 'Browser integration is unavailable in Farming.'),
       commands: state === 'available'
         ? {

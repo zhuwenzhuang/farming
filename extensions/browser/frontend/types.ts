@@ -15,6 +15,7 @@ export interface BrowserResource {
   title: string
   browserKind: string
   browserSource?: 'extension' | 'isolated' | 'system'
+  sessionName?: string
   error: string
   createdAt: number
   updatedAt: number

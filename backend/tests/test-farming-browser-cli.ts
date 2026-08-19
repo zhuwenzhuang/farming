@@ -58,7 +58,7 @@ async function run() {
 
   const workflow = (await invoke(browserCli, ['help', 'workflow'])).stdout;
   assert(workflow.includes('farming capabilities'));
-  assert(workflow.includes('take a snapshot'));
+  assert(workflow.includes('reuses the default Browser Session'));
   assert(!workflow.includes('--sameSite'));
 
   const openDescription = describeCommand('open');
@@ -72,6 +72,18 @@ async function run() {
   assert.deepStrictEqual(
     describeCommand('attach').input.positionals.map(field => field.name),
     ['chrome-tab-id'],
+  );
+  assert.strictEqual(
+    describeCommand('snapshot').input.positionals[0].required,
+    false,
+  );
+  assert(
+    describeCommand('attach').input.options.some(option => option.name === '--session'),
+  );
+
+  await assert.rejects(
+    invoke(browserCli, ['--session', 'bad/name', 'snapshot']),
+    error => JSON.parse(error.stderr).message.includes('Browser session must use'),
   );
 
   const screenshotDescription = JSON.parse((await invoke(browserCli, [
@@ -130,8 +142,13 @@ async function run() {
         response.end(JSON.stringify({
           resources: [{
             id: 'browser_project', ownerAgentId: 'agent_test', workspace: '/project', status: 'running',
+            sessionName: 'default', updatedAt: 30, createdAt: 10,
           }, {
             id: 'browser_symlink', ownerAgentId: 'agent_test', workspace: canonicalWorkspace, status: 'running',
+            sessionName: '', updatedAt: 20, createdAt: 20,
+          }, {
+            id: 'browser_docs', ownerAgentId: 'agent_test', workspace: '/project', status: 'running',
+            sessionName: 'docs', updatedAt: 10, createdAt: 30,
           }, {
             id: 'browser_other', ownerAgentId: 'agent_other', workspace: '/project', status: 'running',
           }],
@@ -145,18 +162,26 @@ async function run() {
         return;
       }
       if (request.method === 'POST' && request.url === '/api/browsers') {
+        if (body.reuseSession === true && body.existingTabId === undefined) {
+          const id = body.sessionName === 'docs' ? 'browser_docs' : 'browser_project';
+          response.end(JSON.stringify({
+            id, sessionName: body.sessionName, status: 'running',
+            sessionCreated: false, sessionNeedsNavigation: true,
+          }));
+          return;
+        }
         response.end(JSON.stringify({ id: 'browser_created', received: body }));
         return;
       }
-      if (request.method === 'POST' && request.url === '/api/browsers/browser_created/start') {
-        response.end(JSON.stringify({ id: 'browser_created', status: 'running' }));
+      if (request.method === 'POST' && /^\/api\/browsers\/browser_(?:created|project|docs)\/start$/.test(request.url)) {
+        response.end(JSON.stringify({ id: request.url.split('/')[3], status: 'running' }));
         return;
       }
       if (request.method === 'DELETE' && request.url === '/api/browsers/browser_project') {
         response.end(JSON.stringify({ id: 'browser_project', deleted: true }));
         return;
       }
-      if (request.method === 'POST' && ['/api/browsers/browser_project/action', '/api/browsers/browser_symlink/action'].includes(request.url)) {
+      if (request.method === 'POST' && ['/api/browsers/browser_project/action', '/api/browsers/browser_symlink/action', '/api/browsers/browser_docs/action'].includes(request.url)) {
         if (body.kind === 'screenshot') {
           response.end(JSON.stringify({
             artifact: {
@@ -164,6 +189,8 @@ async function run() {
               mimeType: 'image/png', size: 123,
             },
           }));
+        } else if (body.kind === 'navigate') {
+          response.end(JSON.stringify({ id: request.url.split('/')[3], status: 'running', url: body.url }));
         } else {
           response.end(JSON.stringify({ received: body }));
         }
@@ -179,6 +206,8 @@ async function run() {
     const env = {
       FARMING_CONTROL_URL: `http://127.0.0.1:${port}`,
       FARMING_DISABLE_AUTH: '1',
+      FARMING_AGENT_ID: '',
+      FARMING_PROJECT_WORKSPACE: '',
     };
     const waited = JSON.parse((await invoke(browserCli, [
       'wait', 'browser_project', '--text', 'Ready', '--timeout', '9000',
@@ -197,7 +226,9 @@ async function run() {
     const tabs = JSON.parse((await invoke(browserCli, ['tabs'], env)).stdout);
     assert.deepStrictEqual(tabs.result.tabs.map(tab => tab.id), [42]);
 
-    const attached = JSON.parse((await invoke(browserCli, ['attach', '42'], {
+    const attached = JSON.parse((await invoke(browserCli, [
+      '--session', 'chrome', 'attach', '42',
+    ], {
       ...env,
       FARMING_AGENT_ID: 'agent_test',
       FARMING_PROJECT_WORKSPACE: '/project',
@@ -208,16 +239,83 @@ async function run() {
       && item.url === '/api/browsers'
       && item.body.source === 'extension'
       && item.body.existingTabId === '42'
+      && item.body.sessionName === 'chrome'
+      && item.body.reuseSession === true
     )));
 
-    const opened = JSON.parse((await invoke(browserCli, ['open', '--url', 'https://example.test'], {
+    const opened = JSON.parse((await invoke(browserCli, ['open', 'https://example.test'], {
       ...env,
       FARMING_AGENT_ID: 'agent_test',
       FARMING_PROJECT_WORKSPACE: '/project',
     })).stdout);
     assert.strictEqual(opened.result.status, 'running');
-    assert.strictEqual(requests.find(item => item.url === '/api/browsers').body.agentId, 'agent_test');
-    assert(requests.some(item => item.url === '/api/browsers/browser_created/start'));
+    const defaultOpen = requests.find(item => (
+      item.url === '/api/browsers'
+      && item.body.sessionName === 'default'
+      && item.body.existingTabId === undefined
+    ));
+    assert.strictEqual(defaultOpen.body.agentId, 'agent_test');
+    assert.strictEqual(defaultOpen.body.reuseSession, true);
+    assert(requests.some(item => item.url === '/api/browsers/browser_project/start'));
+    assert(requests.some(item => (
+      item.url === '/api/browsers/browser_project/action'
+      && item.body.kind === 'navigate'
+      && item.body.url === 'https://example.test'
+    )));
+
+    const defaultSnapshot = JSON.parse((await invoke(browserCli, ['snapshot'], {
+      ...env,
+      FARMING_AGENT_ID: 'agent_test',
+      FARMING_PROJECT_WORKSPACE: '/project',
+    })).stdout);
+    assert.strictEqual(defaultSnapshot.ok, true);
+    assert.strictEqual(requests.at(-1).url, '/api/browsers/browser_project/action');
+
+    const docsSnapshot = JSON.parse((await invoke(browserCli, [
+      '--session', 'docs', 'snapshot',
+    ], {
+      ...env,
+      FARMING_AGENT_ID: 'agent_test',
+      FARMING_PROJECT_WORKSPACE: '/project',
+    })).stdout);
+    assert.strictEqual(docsSnapshot.ok, true);
+    assert.strictEqual(requests.at(-1).url, '/api/browsers/browser_docs/action');
+
+    const namedOpen = JSON.parse((await invoke(browserCli, [
+      'open', '--session', 'docs',
+    ], {
+      ...env,
+      FARMING_AGENT_ID: 'agent_test',
+      FARMING_PROJECT_WORKSPACE: '/project',
+    })).stdout);
+    assert.strictEqual(namedOpen.result.id, 'browser_docs');
+    assert.strictEqual(requests.at(-1).url, '/api/browsers/browser_docs/start');
+
+    await assert.rejects(
+      invoke(browserCli, ['create', '--session', 'extra'], {
+        ...env,
+        FARMING_AGENT_ID: 'agent_test',
+        FARMING_PROJECT_WORKSPACE: '/project',
+      }),
+      error => JSON.parse(error.stderr).message.includes('does not bind a Session'),
+    );
+
+    const mutationCount = requests.filter(item => item.method !== 'GET').length;
+    await assert.rejects(
+      invoke(browserCli, ['--session', 'missing', 'snapshot'], {
+        ...env,
+        FARMING_AGENT_ID: 'agent_test',
+        FARMING_PROJECT_WORKSPACE: '/project',
+      }),
+      error => JSON.parse(error.stderr).message.includes(
+        'Browser session missing does not exist; run farming browser --session missing open',
+      ),
+    );
+    assert.strictEqual(
+      requests.filter(item => item.method !== 'GET').length,
+      mutationCount,
+      'a missing Session read must not create a Browser Resource',
+    );
 
     const deleted = JSON.parse((await invoke(browserCli, ['delete', 'browser_project'], {
       ...env,

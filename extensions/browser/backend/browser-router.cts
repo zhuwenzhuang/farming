@@ -253,6 +253,7 @@ function createBrowserRouter(
             resources: resources.filter(resource => (
               recordValue(resource).ownerType === 'agent'
               && recordValue(resource).ownerAgentId === agentId
+              && recordValue(resource).workspace === binding?.workspace
             )),
           }
         : snapshot);
@@ -303,7 +304,7 @@ function createBrowserRouter(
       }
       const source = String(body.source || '').trim();
       const executablePath = String(body.executablePath || '').trim();
-      const resource = manager.create({
+      const input = {
         projectRootId: root.rootId,
         workspace: root.canonicalPath,
         ownerType: ownerAgentId ? 'agent' : 'project',
@@ -313,8 +314,12 @@ function createBrowserRouter(
         ...(source ? { browserSource: source } : {}),
         ...(executablePath ? { browserExecutablePath: executablePath } : {}),
         ...(body.existingTabId !== undefined ? { existingTabId: body.existingTabId } : {}),
-      });
-      res.status(201).json(resource);
+        ...(body.sessionName !== undefined ? { sessionName: body.sessionName } : {}),
+      };
+      const resource = body.reuseSession === true
+        ? manager.ensureSession(input)
+        : manager.create(input);
+      res.status(recordValue(resource).sessionCreated === false ? 200 : 201).json(resource);
     } catch (error) {
       sendError(res, error);
     }

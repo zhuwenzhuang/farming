@@ -6,8 +6,9 @@ import {
   browserResourcesFile,
 } from '../../../backend/storage-layout.cjs';
 
-const STORE_VERSION = 9;
+const STORE_VERSION = 10;
 const RESOURCE_ID_RE = /^browser_[A-Za-z0-9_-]+$/;
+const SESSION_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const TAB_ID_RE = /^t\d+$/;
 const STATUSES = new Set<BrowserResourceStatus>([
   'stopped',
@@ -45,6 +46,7 @@ interface BrowserResource {
   projectRootId: string;
   revision: number;
   runtimeKind: string;
+  sessionName: string;
   sessionGeneration: number;
   sessionId: string;
   status: BrowserResourceStatus;
@@ -65,6 +67,7 @@ interface BrowserResourceCreateInput {
   ownerAgentId?: unknown;
   ownerType?: unknown;
   projectRootId: unknown;
+  sessionName?: unknown;
   sessionGeneration?: unknown;
   sessionId?: unknown;
   tabId?: unknown;
@@ -175,6 +178,9 @@ function normalizeResource(value: unknown): BrowserResource | null {
       : legacySource,
     browserExecutablePath: String(resource.browserExecutablePath || '').slice(0, 4_096),
     runtimeKind: String(resource.runtimeKind || ''),
+    sessionName: SESSION_NAME_RE.test(String(resource.sessionName || '').trim())
+      ? String(resource.sessionName).trim()
+      : '',
     sessionId: RESOURCE_ID_RE.test(String(resource.sessionId || ''))
       ? String(resource.sessionId)
       : '',
@@ -259,6 +265,7 @@ class BrowserResourceStore {
       browserKind: '',
       browserSource: input.browserSource,
       browserExecutablePath: input.browserExecutablePath,
+      sessionName: input.sessionName || '',
       sessionId: input.sessionId || '',
       sessionGeneration: input.sessionGeneration || 0,
       tabId: input.tabId || '',
@@ -268,6 +275,9 @@ class BrowserResourceStore {
       updatedAt: Date.now(),
     });
     if (!resource) throw new Error('Invalid Browser resource');
+    if (resource.sessionName && this.hasSession(resource)) {
+      throw new Error(`Browser session already exists: ${resource.sessionName}`);
+    }
     this.resources.set(resource.id, resource);
     this.commit();
     return { ...resource };
@@ -301,6 +311,9 @@ class BrowserResourceStore {
       updatedAt: Date.now(),
     });
     if (!next) throw new Error('Invalid Browser resource update');
+    if (next.sessionName && this.hasSession(next, id)) {
+      throw new Error(`Browser session already exists: ${next.sessionName}`);
+    }
     this.resources.set(id, next);
     this.commit();
     return { ...next };
@@ -310,6 +323,16 @@ class BrowserResourceStore {
     if (!this.resources.delete(id)) return false;
     this.commit();
     return true;
+  }
+
+  hasSession(resource: BrowserResource, exceptId = ''): boolean {
+    return [...this.resources.values()].some(candidate => (
+      candidate.id !== exceptId
+      && candidate.ownerType === resource.ownerType
+      && candidate.ownerAgentId === resource.ownerAgentId
+      && candidate.projectRootId === resource.projectRootId
+      && candidate.sessionName === resource.sessionName
+    ));
   }
 
   commit(): void {
@@ -332,6 +355,7 @@ class BrowserResourceStore {
 export {
   BrowserResourceStore,
   RESOURCE_ID_RE,
+  SESSION_NAME_RE,
 };
 export type {
   BrowserProcessIdentity,

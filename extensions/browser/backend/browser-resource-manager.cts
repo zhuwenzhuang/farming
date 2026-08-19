@@ -16,6 +16,7 @@ import {
 import {
   BrowserResourceStore,
   RESOURCE_ID_RE,
+  SESSION_NAME_RE,
   type BrowserResource,
   type BrowserResourceCreateInput,
   type BrowserResourcePatch,
@@ -280,6 +281,7 @@ function publicResource(resource: BrowserResource, collectionRevision: number) {
     browserKind: resource.browserKind,
     browserSource: resource.browserSource,
     existingTabId: resource.existingTabId,
+    sessionName: resource.sessionName,
     error: resource.error,
     createdAt: resource.createdAt,
     updatedAt: resource.updatedAt,
@@ -334,6 +336,27 @@ function normalizeExistingTabId(value: unknown): number | null {
     throw browserError('Chrome tab id must be a positive integer');
   }
   return id;
+}
+
+function normalizeBrowserSessionName(value: unknown): string {
+  const name = String(value || '').trim();
+  if (!SESSION_NAME_RE.test(name)) {
+    throw browserError(
+      'Browser session must use 1-64 letters, numbers, dots, underscores, or hyphens',
+      400,
+      'BROWSER_INVALID_SESSION',
+    );
+  }
+  return name;
+}
+
+function sameBrowserOwner(
+  resource: BrowserResource,
+  input: Record<string, unknown>,
+): boolean {
+  return resource.ownerType === input.ownerType
+    && resource.ownerAgentId === String(input.ownerAgentId || '')
+    && resource.projectRootId === String(input.projectRootId || '');
 }
 
 function tabResourceName(tab: BrowserTab): string {
@@ -970,9 +993,101 @@ class BrowserResourceManager extends EventEmitter {
       browserSource: selection.source,
       browserExecutablePath: selection.executablePath,
       existingTabId,
+      sessionName: input.sessionName
+        ? normalizeBrowserSessionName(input.sessionName)
+        : '',
     });
     this.emitResource(resource);
     return publicResource(resource, this.store.revision);
+  }
+
+  ensureSession(input: Record<string, unknown>) {
+    this.requireEnabled();
+    if (this.disposed) throw browserError('Browser manager is stopping', 503, 'BROWSER_MANAGER_STOPPING');
+    const sessionName = normalizeBrowserSessionName(input.sessionName || 'default');
+    const requestedSource = String(input.browserSource || '').trim();
+    if (requestedSource && !BROWSER_SOURCES.has(requestedSource)) {
+      throw browserError(
+        `Unsupported Browser source: ${requestedSource}`,
+        400,
+        'BROWSER_INVALID_SOURCE',
+      );
+    }
+    const requestedExecutablePath = String(input.browserExecutablePath || '').trim();
+    const requestedTabId = normalizeExistingTabId(input.existingTabId);
+    const resources = this.store.list().filter(resource => sameBrowserOwner(resource, input));
+    const exact = resources.filter(resource => resource.sessionName === sessionName);
+    if (exact.length > 1) {
+      throw browserError(
+        `Browser session ${sessionName} has multiple Resources`,
+        409,
+        'BROWSER_SESSION_CONFLICT',
+      );
+    }
+
+    let resource = exact[0] || null;
+    if (!resource && sessionName === 'default') {
+      const legacy = resources
+        .filter(candidate => (
+          !candidate.sessionName
+          && (requestedTabId === null || candidate.existingTabId === requestedTabId)
+          && (!requestedSource || candidate.browserSource === requestedSource)
+          && (!requestedExecutablePath || candidate.browserExecutablePath === requestedExecutablePath)
+        ))
+        .sort((left, right) => {
+          const running = Number(['starting', 'running'].includes(right.status))
+            - Number(['starting', 'running'].includes(left.status));
+          return running || right.updatedAt - left.updatedAt || left.createdAt - right.createdAt;
+        });
+      if (legacy[0]) {
+        resource = this.store.update(legacy[0].id, { sessionName });
+        this.emitResource(resource);
+      }
+    }
+
+    if (!resource) {
+      const created = this.create({ ...input, sessionName });
+      return {
+        ...created,
+        sessionCreated: true,
+        sessionNeedsNavigation: false,
+      };
+    }
+    if (requestedSource && resource.browserSource !== requestedSource) {
+      throw browserError(
+        `Browser session ${sessionName} uses source ${resource.browserSource}, not ${requestedSource}`,
+        409,
+        'BROWSER_SESSION_SOURCE_MISMATCH',
+      );
+    }
+    if (requestedExecutablePath && resource.browserExecutablePath !== requestedExecutablePath) {
+      throw browserError(
+        `Browser session ${sessionName} uses a different executable`,
+        409,
+        'BROWSER_SESSION_EXECUTABLE_MISMATCH',
+      );
+    }
+    if (requestedTabId !== null && resource.existingTabId !== requestedTabId) {
+      throw browserError(
+        resource.existingTabId === null
+          ? `Browser session ${sessionName} is not attached to a Chrome page`
+          : `Browser session ${sessionName} is attached to Chrome tab ${resource.existingTabId}`,
+        409,
+        'BROWSER_SESSION_TAB_MISMATCH',
+      );
+    }
+
+    const requestedUrl = String(input.url || '').trim();
+    const needsNavigation = Boolean(requestedUrl && ['starting', 'running'].includes(resource.status));
+    if (requestedUrl && !needsNavigation) {
+      resource = this.store.update(resource.id, { url: normalizeUrl(requestedUrl) });
+      this.emitResource(resource);
+    }
+    return {
+      ...publicResource(resource, this.store.revision),
+      sessionCreated: false,
+      sessionNeedsNavigation: needsNavigation,
+    };
   }
 
   rename(id: string, name: unknown) {

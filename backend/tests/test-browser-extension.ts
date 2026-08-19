@@ -1154,6 +1154,38 @@ async function testExistingChromeTabManagement() {
     });
     assert.strictEqual(borrowed.existingTabId, 42);
     assert.strictEqual(borrowed.url, 'https://account.example/');
+    const attachedSession = manager.ensureSession({
+      projectRootId: 'wroot_project',
+      workspace,
+      ownerType: 'agent',
+      ownerAgentId: 'agent_a',
+      browserSource: 'extension',
+      existingTabId: 42,
+      sessionName: 'default',
+    });
+    assert.strictEqual(attachedSession.id, borrowed.id);
+    assert.strictEqual(attachedSession.sessionCreated, false);
+    assert.strictEqual(manager.ensureSession({
+      projectRootId: 'wroot_project',
+      workspace,
+      ownerType: 'agent',
+      ownerAgentId: 'agent_a',
+      browserSource: 'extension',
+      existingTabId: 42,
+      sessionName: 'default',
+    }).id, borrowed.id);
+    assert.throws(
+      () => manager.ensureSession({
+        projectRootId: 'wroot_project',
+        workspace,
+        ownerType: 'agent',
+        ownerAgentId: 'agent_a',
+        browserSource: 'extension',
+        existingTabId: 43,
+        sessionName: 'default',
+      }),
+      error => error?.code === 'BROWSER_SESSION_TAB_MISMATCH',
+    );
     const runningBorrowed = await manager.start(borrowed.id);
     assert.strictEqual(runningBorrowed.status, 'running');
     assert.strictEqual(runtimes[0].activeTabId, 't1');
@@ -1294,6 +1326,55 @@ async function testAgentOwnedBrowserIsolationAndLifecycle() {
     );
   } finally {
     await manager.dispose();
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+}
+
+async function testAgentBrowserNamedSessionEnsure() {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-agent-browser-session-'));
+  const manager = new BrowserResourceManager({
+    configDir,
+    discoverExecutable: () => ({
+      kind: 'chrome',
+      path: '/fake/chrome',
+      agentBrowserPath: '/fake/agent-browser',
+    }),
+    createRuntime: options => new FakeBrowserRuntime(options),
+  });
+  const owner = {
+    projectRootId: 'wroot_session',
+    workspace: '/tmp/session',
+    ownerType: 'agent',
+    ownerAgentId: 'agent_session',
+  };
+  try {
+    await manager.init();
+    const older = manager.create({ ...owner, name: 'Older' });
+    const running = manager.create({ ...owner, name: 'Running' });
+    await manager.start(running.id);
+
+    const adopted = manager.ensureSession({ ...owner, sessionName: 'default' });
+    assert.strictEqual(adopted.id, running.id, 'default Session should adopt the live legacy Resource');
+    assert.strictEqual(adopted.sessionName, 'default');
+    assert.strictEqual(adopted.sessionCreated, false);
+    assert.strictEqual(manager.get(older.id).sessionName, '');
+
+    const repeated = manager.ensureSession({ ...owner, sessionName: 'default' });
+    assert.strictEqual(repeated.id, running.id, 'repeated ensure must reuse the same Resource');
+    assert.strictEqual(manager.list().length, 2);
+
+    const namedFirst = manager.ensureSession({ ...owner, sessionName: 'docs', url: 'https://docs.example/' });
+    const namedSecond = manager.ensureSession({ ...owner, sessionName: 'docs' });
+    assert.strictEqual(namedFirst.sessionCreated, true);
+    assert.strictEqual(namedSecond.sessionCreated, false);
+    assert.strictEqual(namedSecond.id, namedFirst.id);
+    assert.strictEqual(manager.list().filter(resource => resource.sessionName === 'docs').length, 1);
+    assert.throws(
+      () => manager.ensureSession({ ...owner, sessionName: 'docs', browserSource: 'isolated' }),
+      error => error?.code === 'BROWSER_SESSION_SOURCE_MISMATCH',
+    );
+  } finally {
+    await manager.dispose().catch(() => {});
     fs.rmSync(configDir, { recursive: true, force: true });
   }
 }
@@ -1496,6 +1577,13 @@ async function testBrowserRouterAgentOwnership() {
     projectRootId: 'wroot_project',
     workspace: '/tmp/project',
     name: 'Agent B Browser',
+  }, {
+    id: 'browser_agent_a_other_project',
+    ownerType: 'agent',
+    ownerAgentId: 'agent_a',
+    projectRootId: 'wroot_other',
+    workspace: '/tmp/other-project',
+    name: 'Stale Agent A Browser',
   }];
   const calls = [];
   const manager = {
@@ -1532,6 +1620,10 @@ async function testBrowserRouterAgentOwnership() {
     create: input => {
       calls.push({ kind: 'create', input });
       return { id: 'browser_created', ...input };
+    },
+    ensureSession: input => {
+      calls.push({ kind: 'ensure-session', input });
+      return { id: 'browser_agent_a', ...input, sessionCreated: false };
     },
     rename: (id, name) => {
       calls.push({ kind: 'rename', id, name });
@@ -1603,7 +1695,7 @@ async function testBrowserRouterAgentOwnership() {
     assert.deepStrictEqual(
       listed.body.resources.map(resource => resource.id),
       ['browser_agent_a'],
-      'Agent-scoped Browser listing must be filtered by the Server',
+      'Agent-scoped Browser listing must be filtered by Agent and current Project',
     );
 
     const tabs = await request('/api/browsers/extension/tabs');
@@ -1655,6 +1747,30 @@ async function testBrowserRouterAgentOwnership() {
       },
     });
 
+    const reused = await request('/api/browsers', {
+      method: 'POST',
+      body: JSON.stringify({
+        rootId: 'wroot_project',
+        agentId: 'agent_a',
+        sessionName: 'default',
+        reuseSession: true,
+        url: 'https://reuse.example/',
+      }),
+    });
+    assert.strictEqual(reused.status, 200);
+    assert.deepStrictEqual(calls.at(-1), {
+      kind: 'ensure-session',
+      input: {
+        projectRootId: 'wroot_project',
+        workspace: '/tmp/project',
+        ownerType: 'agent',
+        ownerAgentId: 'agent_a',
+        name: undefined,
+        url: 'https://reuse.example/',
+        sessionName: 'default',
+      },
+    });
+
     const spoofed = await request('/api/browsers', {
       method: 'POST',
       body: JSON.stringify({
@@ -1696,6 +1812,7 @@ Promise.resolve()
   .then(testBrowserResourceManager)
   .then(testExistingChromeTabManagement)
   .then(testAgentOwnedBrowserIsolationAndLifecycle)
+  .then(testAgentBrowserNamedSessionEnsure)
   .then(testAgentBrowserRestartRecovery)
   .then(testBrowserResourceRevisionOrdering)
   .then(testBrowserRouterAgentOwnership)

@@ -73,12 +73,14 @@ const MAIN_AGENT_SKILLS: MainAgentSkill[] = [
     id: 'browser-resource',
     name: '系统浏览器操作',
     trigger: '用户要求打开、查看或操作 Farming Project 下的 Browser Resource，或者需要绕过静态 HTML Viewer 限制验证真实网页时',
-    summary: '通过 Farming Browser ID 操作用户当前看到的同一个系统浏览器；先走 Browser 的渐进式帮助和标准 Workflow，只在需要时展开具体问题域与原子命令。',
+    summary: '默认复用当前 Agent 的 default Browser Session，缺失时由 browser open 创建；只有确需另一个独立 Browser 时才使用命名 Session。先走渐进式帮助和标准 Workflow，只在需要时展开具体命令。',
     commands: [
       'farming capabilities',
       'farming browser list',
+      'farming browser open [url]',
       'farming browser tabs',
-      'farming browser attach <chrome-tab-id>',
+      'farming browser attach <chrome-tab-id> [--session <name>]',
+      'farming browser --session <name> open [url]',
       'farming browser help workflow',
       'farming browser help <lifecycle|navigation|interaction|inspection|debugging|state|files>',
       'farming browser describe <command> --json',
@@ -168,7 +170,8 @@ function renderMainAgentSkills(): string {
 
   lines.push('Rules:');
   lines.push('- Farming Browser and Computer are CLI-only capabilities. Do not look for or start Farming MCP servers, and do not call the upstream runtimes directly.');
-  lines.push('- `farming browser` lists and operates only Browser Resources owned by this Agent; follow `farming browser help workflow`, and reveal only the help topic, command, or command description needed for the current step.');
+  lines.push('- `farming browser open [url]` reuses this Agent’s default Browser Session and creates it only when absent; ordinary commands need no Browser ID, and `--session <name>` is only for another independent Browser.');
+  lines.push('- `farming browser` operates only Browser Resources owned by this Agent; follow `farming browser help workflow`, and reveal only the help topic, command, or command description needed for the current step.');
   lines.push('- `farming computer` operates only the isolated Computer owned by this Agent; discover one topic and exact tool schema at a time, observe before and after actions, and never replay an uncertain mutation without observing first.');
   lines.push('- Use “牧场除虫计划” when the user asks for systematic bug hunting across a directory or module tree.');
   lines.push('- Before spawning child agents for pest control, map modules and module protocols first; do not send overlapping or vague tasks.');
