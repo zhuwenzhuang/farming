@@ -129,9 +129,11 @@ Computer Use 使用远端 Linux 的 Isolated Docker Desktop 池。Release Coordi
 Workspace/Fixture 和 Evidence Directory。同一 Lane 内的操作串行，不同 Lane 并发。
 
 Campaign 开始时，Coordinator 为 Candidate 创建唯一的 Commit Status Context，并将自动化/Computer
-Use Acceptance 标记为 `pending`。`release.yml` 接收这个精确 Context，因此 Artifact Job 可以立即
-执行，但 Publication Job 不能创建 Tag 或 Release。只有所有必需 Interaction Lane 都 Green 后，
-Coordinator 才标记 `success`；`failure`、`error`、缺失和 Timeout 全部 Fail Closed。
+Use Acceptance 标记为 `pending`。`release.yml` 只准备并保留精确 Candidate 的 Artifact，不执行任何
+公开 Mutation。所有必需 Interaction Lane 都 Green 后，Coordinator 标记 `success`，并使用精确
+Candidate SHA、成功的 Preparation Run ID 和 Acceptance Context 调度 `publish-release.yml`。
+Publication 只校验一次这三个身份，只下载该 Run 的 Artifact；门禁未就绪时直接 Fail Closed，不在
+Hosted Runner 中等待，也不重新构建 Artifact。
 
 Computer Use 分三层选择：
 
@@ -317,6 +319,29 @@ Exact-SHA CI 时完成；npm 仍严格位于 GitHub 公开验证之后，作为�
 仓库新增 `scripts/release-snapshot.sh`，一次采集初始 Candidate 状态；新增
 `scripts/watch-run.sh`，由脚本持续监控并在失败时生成有边界的 Failure Bundle，Agent 不再反复
 手工轮询。
+
+## v2.2.55 复盘与 Artifact 复用改造
+
+v2.2.55 从收到请求到 npm 验证总计 6 小时 46 分 12 秒，而最终通过验收的 Candidate 从开始发布到
+npm 完成只用了 7 分 40 秒。Candidate 准备和缺陷收敛占据了主要时间，但 Workflow 还存在一项明确
+浪费：Candidate Workflow 或 Computer Use Acceptance 晚于 Publication Job 的有界等待时，后续重试
+会重新构建全部平台和 npm Artifact。
+
+两次发布尝试量化了这项浪费：
+
+- 一次等待 Candidate Workflow 8 分钟后失败；
+- 一次等待 Computer Use Acceptance 10 分钟后失败；
+- 每次重试都重新调度并构建约 5 分钟已经验证过的 Linux、macOS 和 npm Artifact。
+
+现在 Release Preparation 与 Publication 已拆成两个 Workflow。`release.yml` 只构建、验证、Smoke 并
+保存一次精确 Artifact。`publish-release.yml` 只接受 Workflow Path 和 `head_sha` 都与完整 Candidate
+SHA 匹配的成功 Preparation Run，从该 Run 下载 Artifact，对 Candidate Push Workflow 和 Release
+Acceptance 做一次权威校验，然后继续保持“GitHub 公开验证完成后才发布 npm”的顺序。Acceptance
+晚到或 Publication 重试时，因此直接复用已验证 Artifact，不再重复 Platform Fan-out。
+
+仓库同时新增 `npm run release:fast-screen`，并行执行 Release Metadata、Dependency Policy、Browser
+Lifecycle、ACP Replacement、Packaging Identity 和 Workflow Contract 等独立门禁。2026-08-20 本地
+实测 8 个门禁用时 3.06 秒，明显低于 2 分钟早期反馈目标。
 
 ## 已确认的浪费来源
 

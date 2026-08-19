@@ -1,0 +1,471 @@
+name: Publish Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: 'Package version to publish (for example, 2.2.56)'
+        required: true
+        type: string
+      candidate_sha:
+        description: 'Full exact candidate commit SHA'
+        required: true
+        type: string
+      preparation_run_id:
+        description: 'Successful Release Preparation workflow run ID for this candidate'
+        required: true
+        type: string
+      acceptance_context:
+        description: 'Exact successful commit-status context created by the release acceptance coordinator'
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+  statuses: read
+
+jobs:
+  publish-release:
+    name: Publish verified release
+    runs-on: ubuntu-latest
+    env:
+      FARMING_RELEASE_VERSION: ${{ inputs.release_version }}
+      GH_TOKEN: ${{ github.token }}
+    permissions:
+      actions: read
+      contents: write
+      id-token: write
+      statuses: read
+    steps:
+      - name: Normalize release version
+        id: version
+        shell: bash
+        run: |
+          version="${FARMING_RELEASE_VERSION}"
+          if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "release_version must be an exact semver without a v prefix: ${version}" >&2
+            exit 1
+          fi
+          echo "value=${version}" >> "${GITHUB_OUTPUT}"
+          echo "tag=v${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.candidate_sha }}
+
+      - name: Verify exact preparation run
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          PREPARATION_RUN_ID: ${{ inputs.preparation_run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "${CANDIDATE_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "candidate_sha must be a full lowercase commit SHA." >&2
+            exit 1
+          fi
+          if [[ "${GITHUB_SHA}" != "${CANDIDATE_SHA}" ]]; then
+            echo "Publish Release must be dispatched from the exact candidate SHA: workflow=${GITHUB_SHA}, candidate=${CANDIDATE_SHA}" >&2
+            exit 1
+          fi
+          if [[ ! "${PREPARATION_RUN_ID}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "preparation_run_id must be a positive GitHub Actions run ID." >&2
+            exit 1
+          fi
+          run_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${PREPARATION_RUN_ID}")"
+          RUN_JSON="${run_json}" CANDIDATE_SHA="${CANDIDATE_SHA}" node <<'NODE'
+          const run = JSON.parse(process.env.RUN_JSON);
+          if (run.event !== 'workflow_dispatch') throw new Error(`Preparation run event is ${run.event}, expected workflow_dispatch`);
+          if (run.status !== 'completed' || run.conclusion !== 'success') {
+            throw new Error(`Preparation run is not successful: status=${run.status}, conclusion=${run.conclusion}`);
+          }
+          if (run.head_sha !== process.env.CANDIDATE_SHA) {
+            throw new Error(`Preparation run SHA mismatch: run=${run.head_sha}, candidate=${process.env.CANDIDATE_SHA}`);
+          }
+          NODE
+          workflow_id="$(RUN_JSON="${run_json}" node -p 'JSON.parse(process.env.RUN_JSON).workflow_id')"
+          workflow_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow_id}")"
+          WORKFLOW_JSON="${workflow_json}" node <<'NODE'
+          const workflow = JSON.parse(process.env.WORKFLOW_JSON);
+          if (workflow.path !== '.github/workflows/release.yml') {
+            throw new Error(`Preparation run used unexpected workflow: ${workflow.path}`);
+          }
+          NODE
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: https://registry.npmjs.org
+
+      - name: Install current npm CLI
+        run: npm install --global npm@latest
+
+      - name: Download verified npm tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: farming-npm-${{ inputs.release_version }}
+          path: npm-package
+          run-id: ${{ inputs.preparation_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Verify release notes
+        id: notes
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.value }}
+        shell: bash
+        run: |
+          package_version="$(node -p "require('./package.json').version")"
+          lock_version="$(node -p "require('./package-lock.json').packages[''].version")"
+          if [[ "${RELEASE_VERSION}" != "${package_version}" || "${RELEASE_VERSION}" != "${lock_version}" ]]; then
+            echo "Tag, package.json, and package-lock.json versions must match: tag=${RELEASE_VERSION}, package=${package_version}, lock=${lock_version}" >&2
+            exit 1
+          fi
+          notes_file="release-notes/v${RELEASE_VERSION}.md"
+          if [[ ! -f "${notes_file}" ]]; then
+            echo "Missing release notes: ${notes_file}" >&2
+            exit 1
+          fi
+          node scripts/verify-release-notes.mjs "${RELEASE_VERSION}"
+          codename="$(node scripts/verify-release-notes.mjs "${RELEASE_VERSION}" --codename)"
+          body_file="${RUNNER_TEMP}/release-notes-v${RELEASE_VERSION}.md"
+          NOTES_FILE="${notes_file}" BODY_FILE="${body_file}" node <<'NODE'
+          const fs = require('fs');
+          const version = process.env.RELEASE_VERSION;
+          let body = fs.readFileSync(process.env.NOTES_FILE, 'utf8');
+          body = body.replaceAll(`](./v${version}.zh_cn.md)`, `](./release-notes/v${version}.zh_cn.md)`);
+          body = body.replaceAll(`](./v${version}.md)`, `](./release-notes/v${version}.md)`);
+          fs.writeFileSync(process.env.BODY_FILE, body);
+          NODE
+          echo "file=${body_file}" >> "${GITHUB_OUTPUT}"
+          echo "codename=${codename}" >> "${GITHUB_OUTPUT}"
+
+      - name: Download Linux release assets
+        uses: actions/download-artifact@v4
+        with:
+          pattern: farming-linux-${{ steps.version.outputs.value }}-*
+          path: release-assets
+          merge-multiple: true
+          run-id: ${{ inputs.preparation_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Download macOS release assets
+        uses: actions/download-artifact@v4
+        with:
+          pattern: farming-macos-${{ steps.version.outputs.value }}-*
+          path: release-assets
+          merge-multiple: true
+          run-id: ${{ inputs.preparation_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Generate checksums and manifest
+        env:
+          FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
+        shell: bash
+        run: |
+          cd release-assets
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum farming* > "farming_${FARMING_RELEASE_VERSION}_checksums.txt"
+          else
+            shasum -a 256 farming* > "farming_${FARMING_RELEASE_VERSION}_checksums.txt"
+          fi
+          node <<'NODE'
+          const fs = require('fs');
+          const version = process.env.FARMING_RELEASE_VERSION;
+          const checksumLines = fs.readFileSync(`farming_${version}_checksums.txt`, 'utf8')
+            .split(/\r?\n/)
+            .filter(Boolean);
+          const checksums = new Map(checksumLines.map((line) => {
+            const match = line.match(/^([a-f0-9]{64})\s+\*?(.+)$/i);
+            if (!match) throw new Error(`Invalid checksum entry: ${line}`);
+            return [match[2], match[1].toLowerCase()];
+          }));
+          function checksumFor(file) {
+            const value = checksums.get(file);
+            if (!value) throw new Error(`Missing generated checksum for ${file}`);
+            return value;
+          }
+          function readBundleRelease(file) {
+            const metadataFile = `release-metadata-${file.slice(0, -'.tar.gz'.length)}.json`;
+            if (!fs.existsSync(metadataFile)) {
+              throw new Error(`Release artifact is missing verified metadata: ${metadataFile}`);
+            }
+            return JSON.parse(fs.readFileSync(metadataFile, 'utf8'));
+          }
+          const files = fs.readdirSync('.')
+            .filter((file) => file.startsWith('farming'))
+            .filter((file) => !file.endsWith('_checksums.txt'))
+            .sort();
+          const assets = files.map((file) => {
+            const cliMatch = file.match(/^farming_(.+)_(darwin|linux)_(amd64|arm64)$/);
+            if (cliMatch) {
+              return {
+                type: 'cli',
+                file,
+                sha256: checksumFor(file),
+                releaseVersion: cliMatch[1],
+                platform: cliMatch[2],
+                arch: cliMatch[3],
+              };
+            }
+            const bundleMatch = file.match(/^farming-(.+)-(darwin|linux)-(x64|arm64)(-legacy-glibc228)?\.tar\.gz$/);
+            if (bundleMatch) {
+              const bundle = readBundleRelease(file);
+              return {
+                type: 'app-bundle',
+                file,
+                sha256: checksumFor(file),
+                releaseVersion: bundleMatch[1],
+                packageVersion: bundle.packageVersion || '',
+                gitSha: bundle.gitSha || '',
+                platform: bundle.platform || bundleMatch[2],
+                arch: bundle.arch || bundleMatch[3],
+                compatibilityProfile: bundle.compatibilityProfile || (bundleMatch[4] ? 'linux-x64-legacy-glibc228' : ''),
+                bundledNodeModules: bundle.bundledNodeModules === true,
+                bundledGlibcRuntime: bundle.bundledGlibcRuntime === true,
+              };
+            }
+            return { type: 'unknown', file };
+          });
+          const manifest = {
+            name: 'farming',
+            releaseVersion: version,
+            tag: `v${version}`,
+            gitSha: process.env.GITHUB_SHA,
+            basePath: '/farming',
+            sourceIncluded: false,
+            builtAt: new Date().toISOString(),
+            assets,
+          };
+          fs.writeFileSync('manifest.json', `${JSON.stringify(manifest, null, 2)}\n`);
+          NODE
+          rm release-metadata-*.json
+
+      - name: Require successful candidate push workflows
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: scripts/watch-candidate-workflows.sh "${GITHUB_SHA}" "${GITHUB_REPOSITORY}" 0 once
+
+      - name: Upload candidate workflow failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: candidate-workflow-failure-${{ github.sha }}
+          path: .tmp/release-watch/candidate-${{ github.sha }}
+          if-no-files-found: ignore
+          retention-days: 3
+
+      - name: Require successful automated and Computer Use acceptance
+        env:
+          ACCEPTANCE_CONTEXT: ${{ inputs.acceptance_context }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          expected_prefix="farming/release-acceptance/${FARMING_RELEASE_VERSION}/"
+          if [[ "${ACCEPTANCE_CONTEXT}" != "${expected_prefix}"* ]]; then
+            echo "acceptance_context must start with ${expected_prefix}" >&2
+            exit 1
+          fi
+          campaign_id="${ACCEPTANCE_CONTEXT#${expected_prefix}}"
+          if [[ ! "${campaign_id}" =~ ^[0-9A-Za-z][0-9A-Za-z._-]{0,47}$ ]]; then
+            echo "acceptance_context has an invalid campaign identifier." >&2
+            exit 1
+          fi
+          commit_status="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/status")"
+          acceptance_state="$(
+            STATUS_JSON="${commit_status}" CONTEXT="${ACCEPTANCE_CONTEXT}" node <<'NODE'
+          const payload = JSON.parse(process.env.STATUS_JSON);
+          const match = (payload.statuses || []).find(status => status.context === process.env.CONTEXT);
+          process.stdout.write(match?.state || 'missing');
+          NODE
+          )"
+          if [[ "${acceptance_state}" != "success" ]]; then
+            echo "Release acceptance is not successful: context=${ACCEPTANCE_CONTEXT}, state=${acceptance_state}" >&2
+            exit 1
+          fi
+          echo "Release acceptance succeeded for ${GITHUB_SHA}: ${ACCEPTANCE_CONTEXT}"
+
+      - name: Create or refresh draft release
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.version.outputs.value }}
+          RELEASE_CODENAME: ${{ steps.notes.outputs.codename }}
+          RELEASE_NOTES_FILE: ${{ steps.notes.outputs.file }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_args=(--repo "${GITHUB_REPOSITORY}")
+          candidate_sha="$(git rev-parse HEAD)"
+          tag_created=0
+          release_created=0
+          cleanup() {
+            status=$?
+            if [[ "${status}" -ne 0 && "${release_created}" -eq 1 ]]; then
+              gh release delete "${RELEASE_TAG}" --yes "${release_args[@]}" || true
+            fi
+            if [[ "${status}" -ne 0 && "${tag_created}" -eq 1 ]]; then
+              git push origin ":refs/tags/${RELEASE_TAG}" || true
+            fi
+            exit "${status}"
+          }
+          trap cleanup EXIT
+
+          remote_tag_sha="$(git ls-remote origin "refs/tags/${RELEASE_TAG}^{}" | awk '{print $1}')"
+          if [[ -z "${remote_tag_sha}" ]]; then
+            git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+              tag -a "${RELEASE_TAG}" -m "Farming ${RELEASE_VERSION}" "${candidate_sha}"
+            git push origin "refs/tags/${RELEASE_TAG}"
+            tag_created=1
+          elif [[ "${remote_tag_sha}" != "${candidate_sha}" ]]; then
+            echo "Existing tag ${RELEASE_TAG} does not identify this candidate: tag=${remote_tag_sha}, candidate=${candidate_sha}" >&2
+            exit 1
+          fi
+
+          release_json="$(gh release view "${RELEASE_TAG}" "${release_args[@]}" --json isDraft 2>/dev/null || true)"
+          if [[ -n "${release_json}" ]]; then
+            is_draft="$(RELEASE_JSON="${release_json}" node -p "JSON.parse(process.env.RELEASE_JSON).isDraft")"
+            if [[ "${is_draft}" != "true" ]]; then
+              exit 0
+            fi
+            gh release upload "${RELEASE_TAG}" release-assets/* --clobber "${release_args[@]}"
+            gh release edit "${RELEASE_TAG}" --title "Farming ${RELEASE_VERSION} · ${RELEASE_CODENAME}" --notes-file "${RELEASE_NOTES_FILE}" "${release_args[@]}"
+          else
+            create_args=(
+              "${RELEASE_TAG}"
+              release-assets/*
+              --draft
+              --verify-tag
+              --title "Farming ${RELEASE_VERSION} · ${RELEASE_CODENAME}"
+              --notes-file "${RELEASE_NOTES_FILE}"
+            )
+            if [[ "${RELEASE_VERSION}" == *-* ]]; then
+              create_args+=(--prerelease)
+            fi
+            gh release create "${create_args[@]}" "${release_args[@]}"
+            release_created=1
+          fi
+
+      - name: Publish the matching draft release
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.value }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="v${RELEASE_VERSION}"
+          candidate_sha="${GITHUB_SHA}"
+          remote_tag_sha="$(git ls-remote "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "refs/tags/${tag}^{}" | awk '{print $1}')"
+          if [[ "${remote_tag_sha}" != "${candidate_sha}" ]]; then
+            echo "Release tag ${tag} does not identify this candidate: tag=${remote_tag_sha:-missing}, candidate=${candidate_sha}" >&2
+            exit 1
+          fi
+          release_json="$(gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" --json isDraft)"
+          is_draft="$(RELEASE_JSON="${release_json}" node -p "JSON.parse(process.env.RELEASE_JSON).isDraft")"
+          if [[ "${is_draft}" == "true" ]]; then
+            gh release edit "${tag}" --repo "${GITHUB_REPOSITORY}" --draft=false
+          fi
+
+      - name: Verify public tag, assets, and manifest
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.value }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="v${RELEASE_VERSION}"
+          candidate_sha="${GITHUB_SHA}"
+          remote_tag_sha="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" "refs/tags/${tag}^{}" | awk '{print $1}')"
+          if [[ "${remote_tag_sha}" != "${candidate_sha}" ]]; then
+            echo "Public tag ${tag} does not identify this candidate: tag=${remote_tag_sha:-missing}, candidate=${candidate_sha}" >&2
+            exit 1
+          fi
+
+          release_json="$(curl --fail --silent --show-error --location \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'User-Agent: farming-release-verifier' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${tag}")"
+          release_dir="${RUNNER_TEMP}/public-release"
+          mkdir -p "${release_dir}"
+          RELEASE_JSON="${release_json}" RELEASE_VERSION="${RELEASE_VERSION}" node - "${candidate_sha}" "${release_dir}" <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+          const [candidateSha, releaseDir] = process.argv.slice(2);
+          const version = process.env.RELEASE_VERSION;
+          const release = JSON.parse(process.env.RELEASE_JSON);
+          if (release.draft) throw new Error(`GitHub Release v${version} is still a draft`);
+          const required = [
+            `farming_${version}_linux_amd64`,
+            `farming_${version}_linux_arm64`,
+            `farming_${version}_darwin_amd64`,
+            `farming_${version}_darwin_arm64`,
+            `farming-${version}-linux-x64.tar.gz`,
+            `farming-${version}-linux-x64-legacy-glibc228.tar.gz`,
+            `farming-${version}-darwin-x64.tar.gz`,
+            `farming-${version}-darwin-arm64.tar.gz`,
+            `farming_${version}_checksums.txt`,
+            'manifest.json',
+          ];
+          const assets = new Map((release.assets || []).map(asset => [asset.name, asset.browser_download_url]));
+          const missing = required.filter(name => !assets.has(name));
+          if (missing.length) throw new Error(`GitHub Release is missing assets: ${missing.join(', ')}`);
+          fs.writeFileSync(path.join(releaseDir, 'manifest.url'), assets.get('manifest.json'));
+          fs.writeFileSync(path.join(releaseDir, 'checksums.url'), assets.get(`farming_${version}_checksums.txt`));
+          fs.writeFileSync(path.join(releaseDir, 'probe.url'), assets.get(`farming_${version}_linux_amd64`));
+          fs.writeFileSync(path.join(releaseDir, 'candidate.sha'), candidateSha);
+          NODE
+          curl --fail --silent --show-error --location \
+            "$(cat "${release_dir}/manifest.url")" --output "${release_dir}/manifest.json"
+          curl --fail --silent --show-error --location \
+            "$(cat "${release_dir}/checksums.url")" --output "${release_dir}/checksums.txt"
+          probe_name="farming_${RELEASE_VERSION}_linux_amd64"
+          curl --fail --silent --show-error --location \
+            "$(cat "${release_dir}/probe.url")" --output "${release_dir}/${probe_name}"
+          node - "${release_dir}/manifest.json" "${candidate_sha}" "${RELEASE_VERSION}" <<'NODE'
+          const fs = require('fs');
+          const [manifestPath, candidateSha, version] = process.argv.slice(2);
+          const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+          if (manifest.gitSha !== candidateSha || manifest.releaseVersion !== version) {
+            throw new Error(`Public manifest mismatch: sha=${manifest.gitSha}, version=${manifest.releaseVersion}`);
+          }
+          NODE
+          expected_probe_sha="$(awk -v file="${probe_name}" '$2 == file {print $1}' "${release_dir}/checksums.txt")"
+          actual_probe_sha="$(sha256sum "${release_dir}/${probe_name}" | awk '{print $1}')"
+          if [[ -z "${expected_probe_sha}" || "${actual_probe_sha}" != "${expected_probe_sha}" ]]; then
+            echo "Public release asset checksum mismatch for ${probe_name}" >&2
+            exit 1
+          fi
+
+      - name: Verify and publish npm package with provenance
+        env:
+          FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${NPM_TOKEN}" ]]; then
+            printf '//registry.npmjs.org/:_authToken=%s\n' "${NPM_TOKEN}" > "${HOME}/.npmrc"
+          fi
+          version="${FARMING_RELEASE_VERSION}"
+          candidate_sha="${GITHUB_SHA}"
+          package_tarball="npm-package/farming-code-${version}.tgz"
+          digest_file="${package_tarball}.sha256"
+          test -f "${package_tarball}"
+          test -f "${digest_file}"
+          if command -v sha256sum >/dev/null 2>&1; then
+            (cd npm-package && sha256sum --check "$(basename "${digest_file}")")
+          else
+            expected="$(awk '{print $1}' "${digest_file}")"
+            actual="$(shasum -a 256 "${package_tarball}" | awk '{print $1}')"
+            [[ "${actual}" == "${expected}" ]]
+          fi
+          if npm view "farming-code@${version}" version >/dev/null 2>&1; then
+            bash scripts/verify-npm-release-source.sh "farming-code@${version}" "${candidate_sha}"
+            exit 0
+          fi
+          dist_tag="latest"
+          if [[ "${version}" == *-* ]]; then
+            dist_tag="next"
+          fi
+          npm publish "./${package_tarball}" --access public --provenance --tag "${dist_tag}" --loglevel=error
+          bash scripts/verify-npm-release-source.sh "farming-code@${version}" "${candidate_sha}"

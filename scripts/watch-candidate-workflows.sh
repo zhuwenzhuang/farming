@@ -3,12 +3,17 @@ set -euo pipefail
 
 CANDIDATE_SHA="${1:-}"
 if [[ -z "${CANDIDATE_SHA}" ]]; then
-  echo "Usage: $0 <candidate-sha> [repository] [timeout-seconds]" >&2
+  echo "Usage: $0 <candidate-sha> [repository] [timeout-seconds] [wait|once]" >&2
   exit 2
 fi
 
 REPOSITORY="${2:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}"
 TIMEOUT_SECONDS="${3:-900}"
+MODE="${4:-wait}"
+if [[ "${MODE}" != "wait" && "${MODE}" != "once" ]]; then
+  echo "Mode must be wait or once: ${MODE}" >&2
+  exit 2
+fi
 POLL_SECONDS="${FARMING_RELEASE_WORKFLOW_POLL_SECONDS:-5}"
 DISCOVERY_SECONDS="${FARMING_RELEASE_WORKFLOW_DISCOVERY_SECONDS:-20}"
 NO_RUN_TIMEOUT_SECONDS="${FARMING_RELEASE_WORKFLOW_NO_RUN_TIMEOUT_SECONDS:-60}"
@@ -93,6 +98,20 @@ NODE
     RUNS_JSON="${RUNS_JSON}" node -p \
       'JSON.parse(process.env.RUNS_JSON).filter(run => run.status !== "completed").length'
   )"
+  if [[ "${MODE}" == "once" ]]; then
+    if [[ "${RUN_COUNT}" -eq 0 ]]; then
+      echo "No candidate push workflows exist for ${CANDIDATE_SHA}." >&2
+      echo "Candidate workflow discovery bundle: ${BUNDLE_DIR}" >&2
+      exit 1
+    fi
+    if [[ "${RUNNING_COUNT}" -gt 0 ]]; then
+      echo "Candidate push workflows are not complete for ${CANDIDATE_SHA}." >&2
+      echo "Candidate workflow snapshot: ${BUNDLE_DIR}" >&2
+      exit 1
+    fi
+    echo "All ${RUN_COUNT} candidate push workflows succeeded for ${CANDIDATE_SHA}."
+    exit 0
+  fi
   if [[ "${RUN_COUNT}" -gt 0 && "${RUNNING_COUNT}" -eq 0 && "${ELAPSED}" -ge "${DISCOVERY_SECONDS}" ]]; then
     echo "All ${RUN_COUNT} candidate push workflows succeeded for ${CANDIDATE_SHA}."
     exit 0

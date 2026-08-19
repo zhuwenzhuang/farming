@@ -50,7 +50,10 @@ function run() {
       && candidateWorkflowWatchSource.includes('--event push')
       && candidateWorkflowWatchSource.includes('--log-failed')
       && candidateWorkflowWatchSource.includes('SEEN_RUN_COUNT')
-      && candidateWorkflowWatchSource.includes('"${SEEN_RUN_COUNT}" -eq 0'),
+      && candidateWorkflowWatchSource.includes('"${SEEN_RUN_COUNT}" -eq 0')
+      && candidateWorkflowWatchSource.includes('MODE="${4:-wait}"')
+      && candidateWorkflowWatchSource.includes('"${MODE}" == "once"')
+      && candidateWorkflowWatchSource.includes('Candidate push workflows are not complete'),
     'release monitoring must discover and retain failures from every candidate push workflow',
   );
   const browserShardSource = fs.readFileSync(

@@ -171,10 +171,12 @@ run concurrently.
 
 At campaign start the coordinator creates a unique commit-status context for the
 candidate and marks automated/Computer Use acceptance pending. `release.yml`
-receives that exact context, so its artifact jobs can run immediately but its
-publication job cannot create a tag or Release. The coordinator marks the
-context successful only after every required interaction lane is green; failure,
-error, missing, and timeout all fail closed.
+prepares and retains the exact candidate artifacts without any public mutation.
+After every required interaction lane is green, the coordinator marks the
+context successful and dispatches `publish-release.yml` with the exact candidate
+SHA, successful preparation run ID, and acceptance context. Publication verifies
+all three identities once, downloads only that run's artifacts, and fails closed
+instead of waiting on a hosted runner or rebuilding artifacts.
 
 Computer Use selection has three levels:
 
@@ -397,6 +399,37 @@ step after public GitHub verification.
 The repository now provides `scripts/release-snapshot.sh` for one initial
 candidate snapshot and `scripts/watch-run.sh` for script-owned monitoring and a
 bounded failure bundle. This removes the need for repeated Agent polling.
+
+## v2.2.55 Retrospective And Artifact-Reuse Change
+
+The v2.2.55 campaign took 6 hours 46 minutes 12 seconds from request to npm
+verification, while the final accepted candidate needed only 7 minutes 40
+seconds to publish. Candidate preparation and defect convergence dominated the
+campaign, but the workflow also rebuilt all platform and npm artifacts whenever
+candidate-workflow or Computer Use acceptance arrived after the publication
+job's bounded wait.
+
+The two observed publication attempts exposed the avoidable retry cost:
+
+- one attempt waited 8 minutes for candidate workflows and then failed;
+- one attempt waited 10 minutes for Computer Use acceptance and then failed;
+- each retry rescheduled and rebuilt roughly 5 minutes of already verified
+  Linux, macOS, and npm artifacts before publication could resume.
+
+Release preparation and publication are now separate workflows. `release.yml`
+builds, verifies, smokes, and stores the exact artifacts once.
+`publish-release.yml` accepts only a successful preparation run whose workflow
+path and `head_sha` match the full candidate SHA, downloads artifacts from that
+exact run, checks candidate push workflows and release acceptance once, then
+preserves the GitHub-public-verification-before-npm order. A late acceptance or
+publication retry therefore reuses verified artifacts instead of repeating the
+platform fan-out.
+
+The repository also provides `npm run release:fast-screen`. Its independent
+release metadata, dependency policy, Browser lifecycle, ACP replacement,
+packaging identity, and workflow-contract gates run in parallel. On 2026-08-20
+the eight-gate screen completed locally in 3.06 seconds, well below the two-minute
+early-feedback target.
 
 ## Confirmed Sources Of Waste
 

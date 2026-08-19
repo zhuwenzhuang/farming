@@ -14,6 +14,7 @@ Before acting, read:
 - `../../../docs/development/release-pipeline-acceleration-plan.md`
 - `../../../.github/workflows/ci.yml`
 - `../../../.github/workflows/release.yml`
+- `../../../.github/workflows/publish-release.yml`
 - the release scripts and package scripts invoked by those workflows
 - `../../../docs/products/code/computer-use.md` when Computer Use is selected
 
@@ -39,10 +40,13 @@ that npm context.
 5. Verify the selected remote branch identifies the same exact candidate SHA;
    push the intentional candidate commit before starting remote preparation.
 6. Create a short unique campaign ID. Run
-   `scripts/set-release-acceptance-status.sh pending VERSION CAMPAIGN_ID SHA`
-   and pass its `acceptance_context` output when dispatching `release.yml`.
-   This lets artifact preparation start immediately while preventing publication
-   before automated and Computer Use acceptance succeeds.
+   `scripts/set-release-acceptance-status.sh pending VERSION CAMPAIGN_ID SHA`.
+   Dispatch `release.yml` for artifact preparation immediately and retain its
+   successful run ID. After every required gate is green, dispatch
+   `publish-release.yml` from the exact candidate SHA with `release_version`,
+   `candidate_sha`, `preparation_run_id`, and the generated
+   `acceptance_context`. Publication reuses the prepared artifacts and fails
+   closed instead of waiting on a runner or rebuilding them.
 7. Create a domain ledger with these rows:
 
 | Domain | Required evidence |
@@ -182,8 +186,9 @@ investigation uses it, then remove that exact resource.
 When every required automated and Computer Use lane is green, run
 `scripts/set-release-acceptance-status.sh success VERSION CAMPAIGN_ID SHA`.
 Post `failure` or `error` for a terminal acceptance outcome. Never post success
-while a required lane is unknown, running, blocked, or stale. The Release
-workflow must wait for this exact context before creating a tag or Release.
+while a required lane is unknown, running, blocked, or stale. The publication
+workflow must verify this exact successful context before creating a tag or
+Release.
 
 ### Behavior-to-scenario mapping
 
@@ -255,7 +260,8 @@ within 10 minutes total.
 ### Quick fix
 
 Use for a bounded metadata, packaging-manifest, test-oracle, or small product
-defect. Run the changed-area fast screen beside the full pipeline. Target:
+defect. Run `npm run release:fast-screen` beside the full pipeline, plus any
+additional changed-area focused gate. Target:
 
 - first actionable failure within 2 minutes;
 - classification, focused reproduction, and minimal fix within 3 minutes;
@@ -318,8 +324,10 @@ typecheck, lint, build, full tests, and remote CI after every small edit.
   inspect several Agent conversations to learn whether preparation is complete.
 - Use `scripts/watch-candidate-workflows.sh SHA` to monitor all workflows from
   the candidate push. Do not infer repository health from CI alone.
-- Dispatch `release.yml` with both `release_version` and the exact
-  `acceptance_context` created for this campaign.
+- Dispatch `release.yml` with `release_version` to prepare artifacts. After its
+  successful run and every acceptance domain are green, dispatch
+  `publish-release.yml` with the exact candidate SHA, preparation run ID, and
+  acceptance context.
 - Fail fast per lane, not per campaign. Let independent lanes converge while the
   failed lane produces actionable evidence.
 - Use `scripts/watch-run.sh RUN_ID` for a GitHub Actions run. Do not manually poll

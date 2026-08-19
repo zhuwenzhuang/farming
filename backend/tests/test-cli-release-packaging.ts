@@ -15,7 +15,15 @@ function run() {
     path.join(root, 'scripts/verify-npm-release-source.sh'),
     'utf8',
   );
-  const releaseWorkflow = fs.readFileSync(path.join(root, '.github/workflows/release.yml'), 'utf8');
+  const releasePreparationWorkflow = fs.readFileSync(
+    path.join(root, '.github/workflows/release.yml'),
+    'utf8',
+  );
+  const releasePublicationWorkflow = fs.readFileSync(
+    path.join(root, '.github/workflows/publish-release.yml'),
+    'utf8',
+  );
+  const releaseWorkflow = `${releasePreparationWorkflow}\n${releasePublicationWorkflow}`;
   const packageJson = require(path.join(root, 'package.json'));
   const farmingLauncher = fs.readFileSync(path.join(root, 'bin/farming'), 'utf8');
   const bundleCliScript = fs.readFileSync(path.join(root, 'scripts/bundle-cli-runtime.ts'), 'utf8');
