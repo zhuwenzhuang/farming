@@ -135,7 +135,7 @@ test.describe('human Farming Agent story', () => {
       await page.getByTestId('code-mobile-menu').click()
     }
     await expect(firstAgentRow).toBeVisible()
-    await firstAgentRow.dispatchEvent('click')
+    await firstAgentRow.click()
     await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${firstAgentId}"]`)).toBeVisible()
     await page.reload({ waitUntil: 'domcontentloaded' })
     await expectTerminalAgentSelected(page, firstAgentId, compactLayout)
