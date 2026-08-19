@@ -651,6 +651,34 @@ class BrowserResourceManager extends EventEmitter {
     });
   }
 
+  async forceStopIsolatedRuntime(resource: BrowserResource): Promise<void> {
+    const expected = resource.processIdentity;
+    if (!expected) {
+      throw new Error('the isolated agent-browser process identity was not committed');
+    }
+    const current = await this.readProcessIdentity(expected.pid);
+    if (!matchingProcessIdentity(expected, current)) return;
+    if (expected.processGroupId !== expected.pid) {
+      throw new Error(
+        `isolated agent-browser process ${expected.pid} has an unsafe process-group identity`,
+      );
+    }
+    try {
+      this.killProcessGroup(expected.processGroupId, 'SIGKILL');
+    } catch (error) {
+      if (errorCode(error) !== 'ESRCH') throw error;
+    }
+    const startedAt = Date.now();
+    while (matchingProcessIdentity(expected, await this.readProcessIdentity(expected.pid))) {
+      if (Date.now() - startedAt >= BROWSER_RECOVERY_TIMEOUT_MS) {
+        throw new Error(
+          `isolated agent-browser process ${expected.pid} did not exit after SIGKILL`,
+        );
+      }
+      await this.wait(BROWSER_RECOVERY_POLL_MS);
+    }
+  }
+
   capability() {
     const executable = this.runtimeCapability;
     const runnable = executable && !executable.error;
@@ -1476,42 +1504,67 @@ class BrowserResourceManager extends EventEmitter {
       this.broadcastRuntimeState(binding);
       const { session } = binding;
       session.closing = session.bindings.size === 1;
+      let closeError: unknown = null;
       let isolatedReleaseError: unknown = null;
-      try {
-        const closeOperation = (session.actionChain || Promise.resolve())
-          .catch(() => {})
-          .then(async () => {
-            if (session.bindings.size === 1) return session.runtime.close();
-            if (resource.existingTabId === null) return session.runtime.closeTab(binding.tabId);
-            if (session.runtime.activeTabId === binding.tabId) {
-              const next = [...session.bindings.values()].find(candidate => candidate.id !== id);
-              if (next) await session.runtime.switchTab(next.tabId);
-            }
-            return undefined;
-          });
-        session.actionChain = closeOperation;
-        await closeOperation;
-        if (session.bindings.size === 1 && session.isolatedLeaseKey && this.isolatedBrowserProvider) {
-          try {
-            await this.isolatedBrowserProvider.release(session.isolatedLeaseKey);
-            session.isolatedLeaseKey = '';
-          } catch (error) {
-            isolatedReleaseError = error;
+      const closeOperation = (session.actionChain || Promise.resolve())
+        .catch(() => {})
+        .then(async () => {
+          if (session.bindings.size === 1) return session.runtime.close();
+          if (resource.existingTabId === null) return session.runtime.closeTab(binding.tabId);
+          if (session.runtime.activeTabId === binding.tabId) {
+            const next = [...session.bindings.values()].find(candidate => candidate.id !== id);
+            if (next) await session.runtime.switchTab(next.tabId);
           }
-        }
+          return undefined;
+        });
+      session.actionChain = closeOperation;
+      try {
+        await closeOperation;
       } catch (error) {
-        session.closing = false;
-        throw error;
+        closeError = error;
       }
-      if (isolatedReleaseError) {
+      if (session.bindings.size === 1 && session.isolatedLeaseKey && this.isolatedBrowserProvider) {
+        try {
+          await this.isolatedBrowserProvider.release(session.isolatedLeaseKey);
+          session.isolatedLeaseKey = '';
+        } catch (error) {
+          isolatedReleaseError = error;
+        }
+      }
+      if (
+        closeError
+        && !isolatedReleaseError
+        && session.bindings.size === 1
+        && session.browserKind === 'isolated-computer'
+      ) {
+        try {
+          await this.forceStopIsolatedRuntime(resource);
+          closeError = null;
+        } catch (error) {
+          closeError = new Error(
+            `Browser close failed: ${errorMessage(closeError)}; exact isolated runtime cleanup failed: ${errorMessage(error)}`,
+          );
+        }
+      }
+      if (closeError || isolatedReleaseError) {
         session.closing = false;
+        const failures = [
+          ...(closeError ? [`Browser runtime could not be stopped: ${errorMessage(closeError)}`] : []),
+          ...(isolatedReleaseError
+            ? [`Browser isolated lease could not be released: ${errorMessage(isolatedReleaseError)}`]
+            : []),
+        ];
         const failed = this.store.update(id, {
           status: 'failed',
-          error: `Browser closed, but its isolated container could not be stopped: ${errorMessage(isolatedReleaseError)}`,
+          error: failures.join('; '),
         });
         this.emitResource(failed);
         this.broadcastRuntimeState(binding);
-        throw browserError(failed.error, 500, 'ISOLATED_BROWSER_RELEASE_FAILED');
+        throw browserError(
+          failed.error,
+          500,
+          closeError ? 'BROWSER_STOP_FAILED' : 'ISOLATED_BROWSER_RELEASE_FAILED',
+        );
       }
       session.bindings.delete(id);
       if (session.activeResourceId === id) {

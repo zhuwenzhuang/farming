@@ -153,6 +153,12 @@ Browser 与 Computer 可以安全共享轻量 Backend Capability Service，同�
 是本地路由状态，不是额外权限 Credential。Farming 不注入或托管第二套 Browser/Computer
 MCP 实现。
 
+Browser 的 Stop 与 Delete Transition 必须有界。Cleanup 失败时必须进入 Terminal Failed
+State，并保留精确 Resource 与 Process Identity 供显式重试，不能无限停留在 Stopping。
+即使 Runtime Close 失败，Isolated Browser 关闭 Last Binding 时仍须释放 Lease；此后只有
+Single-binding Isolated Session 可以按精确记录回收 Farming-owned Process，Shared Session
+与借用的 Chrome Tab 不能作为 Cleanup Fallback 被 Kill。
+
 ## Files 与 Language Server
 
 File Viewer 体现同一模型：不同文件类型可以使用不同 Viewer，但共享一份 Project Authorization

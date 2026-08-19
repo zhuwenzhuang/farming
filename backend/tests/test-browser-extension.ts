@@ -38,6 +38,7 @@ class FakeBrowserRuntime extends EventEmitter {
     this.startedUrl = '';
     this.closed = false;
     this.closeFailures = 0;
+    this.closeTabFailures = 0;
     this.latestFrame = null;
     this.viewers = new Set();
     this.resizeCalls = 0;
@@ -118,6 +119,10 @@ class FakeBrowserRuntime extends EventEmitter {
   }
 
   async closeTab(tabId) {
+    if (this.closeTabFailures > 0) {
+      this.closeTabFailures -= 1;
+      throw new Error('tab close not proven');
+    }
     this.closedTabIds.push(tabId);
     this.tabs = this.tabs.filter(tab => tab.tabId !== tabId);
     if (this.activeTabId === tabId) {
@@ -488,9 +493,12 @@ async function testBrowserResourceManager() {
     const isolatedConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-isolated-browser-manager-'));
     const isolatedCalls = {
       acquired: 0,
+      killedProcessGroups: [],
       released: 0,
       deleted: 0,
       deleteShouldFail: true,
+      processAlive: false,
+      runtimes: new Map(),
       runtimeOptions: null,
     };
     const isolatedManager = new BrowserResourceManager({
@@ -526,8 +534,25 @@ async function testBrowserResourceManager() {
       ),
       createRuntime: options => {
         isolatedCalls.runtimeOptions = options;
-        return new FakeBrowserRuntime(options);
+        const runtime = new FakeBrowserRuntime(options);
+        isolatedCalls.runtimes.set(options.id, runtime);
+        return runtime;
       },
+      readProcessIdentity: async pid => (
+        isolatedCalls.processAlive && pid === 41_002
+          ? {
+              pid,
+              processGroupId: pid,
+              startedAt: 'generation-1',
+              format: 'test-v1',
+            }
+          : null
+      ),
+      killProcessGroup: (processGroupId, signal) => {
+        isolatedCalls.killedProcessGroups.push({ processGroupId, signal });
+        isolatedCalls.processAlive = false;
+      },
+      wait: async () => {},
     });
     try {
       await isolatedManager.init();
@@ -568,6 +593,70 @@ async function testBrowserResourceManager() {
       await isolatedManager.delete(isolatedResource.id);
       assert.strictEqual(isolatedCalls.released, 1);
       assert.strictEqual(isolatedCalls.deleted, 2);
+
+      const orphanedIsolated = isolatedManager.create({
+        projectRootId: 'wroot_isolated',
+        workspace: projectWorkspace,
+        ownerType: 'agent',
+        ownerAgentId: 'agent_orphaned',
+        name: 'Orphaned isolated Browser',
+        url: 'https://example.com',
+      });
+      const retainedIsolated = isolatedManager.create({
+        projectRootId: 'wroot_isolated',
+        workspace: projectWorkspace,
+        ownerType: 'agent',
+        ownerAgentId: 'agent_retained',
+        name: 'Retained isolated Browser',
+        url: 'https://example.com',
+      });
+      await isolatedManager.start(orphanedIsolated.id);
+      isolatedCalls.processAlive = true;
+      isolatedCalls.runtimes.get(orphanedIsolated.id).closeFailures = 1;
+      await isolatedManager.reconcileAgentLifecycle([
+        { id: 'agent_retained', status: 'running' },
+      ]);
+      assert.throws(
+        () => isolatedManager.get(orphanedIsolated.id),
+        /not found/,
+        'orphan cleanup must converge after exact isolated runtime close failure',
+      );
+      assert.strictEqual(
+        isolatedManager.get(retainedIsolated.id).status,
+        'stopped',
+        'orphan cleanup must retain the exact Browser owned by the live Agent',
+      );
+      assert.deepStrictEqual(isolatedCalls.killedProcessGroups, [{
+        processGroupId: 41_002,
+        signal: 'SIGKILL',
+      }]);
+      assert.strictEqual(
+        isolatedCalls.released,
+        2,
+        'isolated lease release must not be blocked by runtime close failure',
+      );
+
+      await isolatedManager.start(retainedIsolated.id);
+      const sharedIsolated = isolatedManager.create({
+        projectRootId: 'wroot_isolated',
+        workspace: projectWorkspace,
+        ownerType: 'agent',
+        ownerAgentId: 'agent_retained',
+        name: 'Shared isolated Browser',
+        url: 'https://example.com/shared',
+      });
+      await isolatedManager.start(sharedIsolated.id);
+      const sharedRuntime = isolatedCalls.runtimes.get(retainedIsolated.id);
+      sharedRuntime.closeTabFailures = 1;
+      await assert.rejects(isolatedManager.stop(sharedIsolated.id), /tab close not proven/);
+      assert.strictEqual(isolatedManager.get(sharedIsolated.id).status, 'failed');
+      assert.deepStrictEqual(
+        isolatedCalls.killedProcessGroups,
+        [{ processGroupId: 41_002, signal: 'SIGKILL' }],
+        'a failed tab close must never kill the shared isolated Session',
+      );
+      await isolatedManager.delete(sharedIsolated.id);
+      await isolatedManager.delete(retainedIsolated.id);
     } finally {
       await isolatedManager.dispose();
       fs.rmSync(isolatedConfigDir, { recursive: true, force: true });
@@ -971,8 +1060,17 @@ async function testBrowserResourceManager() {
     await manager.start(retryable.id);
     runtimes[3].closeFailures = 1;
     await assert.rejects(manager.stop(retryable.id), /close not proven/);
-    assert.strictEqual(manager.get(retryable.id).status, 'stopping');
-    assert.strictEqual((await manager.stop(retryable.id)).status, 'stopped');
+    assert.strictEqual(
+      manager.get(retryable.id).status,
+      'failed',
+      'a failed Browser close must leave a terminal retryable state instead of remaining stopping',
+    );
+    await manager.delete(retryable.id);
+    assert.throws(
+      () => manager.get(retryable.id),
+      /not found/,
+      'an exact delete retry must finish cleanup and remove the retained Browser row',
+    );
 
     await manager.delete(created.id);
     assert.throws(() => manager.get(created.id), /not found/);

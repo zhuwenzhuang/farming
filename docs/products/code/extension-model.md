@@ -189,6 +189,14 @@ Session state to the current owner. The name is local routing state rather than
 a separate permission credential. Farming does not inject or host a second
 Browser/Computer MCP implementation.
 
+Browser stop and delete transitions are bounded. A cleanup failure ends in a
+terminal failed state that retains the exact Resource and process identity for
+an explicit retry; it must not remain indefinitely in stopping. Isolated
+Browser lease release for a last binding proceeds even when Runtime close
+fails. Only a single-binding isolated Session may then recover its exact recorded
+Farming-owned process; shared Sessions and borrowed Chrome tabs must not be
+killed as cleanup fallback.
+
 ## Files And Language Server
 
 File viewers demonstrate the same model: different file types may use different
