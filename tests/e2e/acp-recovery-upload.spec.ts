@@ -149,8 +149,9 @@ test('retries an unsettled authoritative transcript when returning to and refres
     await route.continue()
   })
 
+  await page.reload()
   const restoreStartedAt = Date.now()
-  await agentRow.click()
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
   await expect(page.getByText('Rich ACP timeline complete.', { exact: true })).toBeVisible({ timeout: 1_000 })
   const unsettledTranscriptVisibleMs = Date.now() - restoreStartedAt
   expect(unsettledTranscriptVisibleMs).toBeLessThan(1_000)

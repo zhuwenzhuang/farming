@@ -4,7 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
-const { AcpRuntime, acpErrorKind, acpSessionRequestOptions, autoPermissionResponse, codexAcpEnvironment, deleteProviderSessionIdentity, normalizeCodexHostMessageUpdate, promptContentForCapabilities, resolveAcpLaunch, steeringMethod, supportsCodexSteer } = require('../acp-runtime.cjs');
+const { AcpRuntime, acpErrorKind, acpSessionRequestOptions, autoPermissionResponse, classifyLinuxProcessGroupStats, codexAcpEnvironment, deleteProviderSessionIdentity, normalizeCodexHostMessageUpdate, promptContentForCapabilities, resolveAcpLaunch, steeringMethod, supportsCodexSteer } = require('../acp-runtime.cjs');
 const { renderFarmingAgentBootstrap } = require('../farming-agent-bootstrap.cjs');
 const { claudeAcpEnvironment } = require('../provider-adapters.cjs');
 const { AcpSessionState } = require('../acp-session-state.cjs');
@@ -28,6 +28,17 @@ async function run() {
   assert.strictEqual(acpErrorKind(new Error('429 rate limit exceeded')), 'rate-limit');
   assert.strictEqual(acpErrorKind(new Error('socket connection timed out')), 'network');
   assert.strictEqual(acpErrorKind(new Error('unexpected failure')), 'unknown');
+  assert.strictEqual(classifyLinuxProcessGroupStats([
+    '574 (adapter) Z 1 574 0',
+    '575 (provider child) X 1 574 0',
+  ], 574), 'exited-only', 'zombie-only process groups must not block verified hard-stop cleanup');
+  assert.strictEqual(classifyLinuxProcessGroupStats([
+    '574 (adapter) Z 1 574 0',
+    '575 (provider child) S 1 574 0',
+  ], 574), 'live', 'a live descendant must continue to block process-tree cleanup');
+  assert.strictEqual(classifyLinuxProcessGroupStats([
+    '600 (unrelated) S 1 600 0',
+  ], 574), 'missing');
   assert.strictEqual(resolveAcpLaunch('codex').version, '1.4.0');
   assert.strictEqual(resolveAcpLaunch('claude').version, '0.70.0');
   assert.strictEqual(resolveAcpLaunch('pi', piLaunchOptions).version, '0.0.33');

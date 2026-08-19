@@ -5,7 +5,6 @@ const os = require('os');
 const path = require('path');
 const { AgentManager } = require('../agent-manager.cjs');
 const { createTestAgentManager } = require('./helpers/test-acp-runtime.ts');
-const { resolveUserShellEnvSync } = require('../agent-env.cjs');
 const { resolveAgentExecutable } = require('../executable-discovery.cjs');
 
 async function run() {
@@ -53,7 +52,7 @@ async function run() {
   }, {
     agentShellEnvProvider: shell => shellEnvProviderOverride
       ? shellEnvProviderOverride(shell)
-      : resolveUserShellEnvSync({ processEnv: process.env, shell }),
+      : ({ PATH: process.env.PATH || '' }),
     createProviderSessionIdentity: async () => ({ sessionId: '019f1234-5678-7abc-8def-0123456789ab' }),
   });
 

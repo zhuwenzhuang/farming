@@ -62,6 +62,7 @@ test('opens a completed Chat shell immediately and renders its prepared snapshot
   const workspace = path.join(workspaceRoot, 'chat-initial-snapshot-reveal')
   fs.mkdirSync(workspace, { recursive: true })
   const agentId = await createAcpAgent(page, workspace)
+  const identity = await acpTranscriptFixtureIdentity(page, agentId)
   const partialAnswer = 'Initial answer fragment that must stay hidden.'
   const completeAnswer = 'Initial answer is now complete and should appear once.'
   let transcriptRequests = 0
@@ -71,10 +72,19 @@ test('opens a completed Chat shell immediately and renders its prepared snapshot
     await route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
+        version: 1,
+        agentId,
+        sessionId: identity.sessionId,
+        runtimeEpoch: identity.runtimeEpoch,
+        fromRevision: null,
+        toRevision: identity.fixtureRevision,
+        replace: true,
+        settled: true,
+        hasMoreBefore: false,
         transcript: {
-          sessionId: 'chat-initial-snapshot-reveal-session',
+          sessionId: identity.sessionId,
           state: 'idle',
-          revision: transcriptRequests,
+          revision: identity.fixtureRevision,
           entries: [
             {
               id: 'initial-snapshot-user',
@@ -265,6 +275,7 @@ test('does not repeat Chat read receipts when only live runtime state changes', 
   const workspace = path.join(workspaceRoot, 'chat-read-receipt-stability')
   fs.mkdirSync(workspace, { recursive: true })
   const agentId = await createAcpAgent(page, workspace)
+  const identity = await acpTranscriptFixtureIdentity(page, agentId)
   let readReceiptRequests = 0
 
   await page.route(new RegExp(`/farming/api/agents/${agentId}$`), async route => {
@@ -279,10 +290,19 @@ test('does not repeat Chat read receipts when only live runtime state changes', 
     await route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
+        version: 1,
+        agentId,
+        sessionId: identity.sessionId,
+        runtimeEpoch: identity.runtimeEpoch,
+        fromRevision: null,
+        toRevision: identity.fixtureRevision,
+        replace: true,
+        settled: true,
+        hasMoreBefore: false,
         transcript: {
-          sessionId: 'chat-read-receipt-stability-session',
+          sessionId: identity.sessionId,
           state: 'idle',
-          revision: 1,
+          revision: identity.fixtureRevision,
           entries: [
             {
               id: 'read-receipt-user',

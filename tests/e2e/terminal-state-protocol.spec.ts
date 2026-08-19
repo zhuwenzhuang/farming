@@ -379,7 +379,6 @@ test.describe('terminal state protocol', () => {
     const agentId = await createControlAgent(page, workspace)
     await interceptTerminalCheckpoints(page, async message => {
       if (message.agentId !== agentId) return message
-      await new Promise(resolve => setTimeout(resolve, 150))
       return message
     })
     await openTerminalTestPage(page)

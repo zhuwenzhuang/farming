@@ -997,13 +997,48 @@ function childHasExited(child: import('child_process').ChildProcessWithoutNullSt
     || (child.signalCode !== null && child.signalCode !== undefined);
 }
 
+function classifyLinuxProcessGroupStats(statLines: string[], processGroupId: number) {
+  let matchedExitedMember = false;
+  for (const statLine of statLines) {
+    const commandEnd = statLine.lastIndexOf(')');
+    if (commandEnd < 0) continue;
+    const fields = statLine.slice(commandEnd + 1).trim().split(/\s+/);
+    const state = fields[0] || '';
+    const groupId = Number(fields[2]);
+    if (groupId !== processGroupId) continue;
+    if (!['Z', 'X', 'x'].includes(state)) return 'live';
+    matchedExitedMember = true;
+  }
+  return matchedExitedMember ? 'exited-only' : 'missing';
+}
+
+function inspectLinuxProcessGroup(processGroupId: number) {
+  if (process.platform !== 'linux') return 'unknown';
+  let processIds: string[];
+  try {
+    processIds = fs.readdirSync('/proc').filter((name: string) => /^\d+$/.test(name));
+  } catch {
+    return 'unknown';
+  }
+  const statLines = [];
+  for (const processId of processIds) {
+    try {
+      statLines.push(fs.readFileSync(`/proc/${processId}/stat`, 'utf8'));
+    } catch {
+      // Processes may exit while /proc is being sampled.
+    }
+  }
+  return classifyLinuxProcessGroupStats(statLines, processGroupId);
+}
+
 function processGroupHasExited(owner: AcpProcessOwner) {
   if (!owner?.ownsProcessGroup || !owner.child?.pid || process.platform === 'win32') {
     return childHasExited(owner?.child);
   }
   try {
     process.kill(-owner.child.pid, 0);
-    return false;
+    if (!childHasExited(owner.child)) return false;
+    return inspectLinuxProcessGroup(owner.child.pid) === 'exited-only';
   } catch (error) {
     return asErrorLike(error).code === 'ESRCH';
   }
@@ -4830,6 +4865,7 @@ export {
   acpSessionRequestOptions,
   acpErrorKind,
   autoPermissionResponse,
+  classifyLinuxProcessGroupStats,
   codexAcpEnvironment,
   describeAcpProcessGroup,
   promptContentForCapabilities,

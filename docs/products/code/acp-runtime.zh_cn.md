@@ -84,6 +84,8 @@ Handoff，也不保留或复用进程。这个单一的 Hard-stop 契约用于�
 状态机正确性：Graceful 路径会增加第二种终止场景，并可能隐藏只有突然终止才会暴露的问题，
 因此 Recovery 与 Cleanup 必须以 Hard-stop 为准。仓库的 `npm restart` 命令会完整停止
 Farming 后全新启动；其性能优化必须改进冷启动 Inventory 与 Session 恢复。
+Linux 上的退出验证会把只剩已退出 Zombie Entry 的进程组视为已停止；只要仍有
+可运行、睡眠或暂停的后代进程，Cleanup 就必须继续失败关闭。
 
 ACP 不设置固定 Agent、Session、Process、Thread 或并发数量上限。资源保护来自有界 Queue、
 Payload、Cache 与 Backpressure，不能用任意 Live Agent 限制代替真实性能治理。

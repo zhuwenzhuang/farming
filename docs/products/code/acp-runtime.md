@@ -115,6 +115,9 @@ scenario and can hide failures exposed by abrupt loss. Recovery and cleanup
 must therefore be correct against hard stop. The repository's `npm restart`
 command performs a full Farming stop followed by a fresh start; its performance
 work must optimize cold inventory and Session recovery.
+On Linux, exit verification treats a process group containing only exited
+zombie entries as stopped, while any runnable, sleeping, or stopped descendant
+continues to block cleanup.
 
 A full restart must include the ACP Runtime Host and every Provider process in
 the selected process set. If a reachable Host remains despite that stop, the

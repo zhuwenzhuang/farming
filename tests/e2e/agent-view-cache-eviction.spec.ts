@@ -26,6 +26,25 @@ async function controlAgent(page: Page, agentId: string) {
   return payload.agents?.find(agent => agent.id === agentId) ?? null
 }
 
+async function acpTranscriptFixtureIdentity(page: Page, agentId: string) {
+  const response = await page.request.get(
+    `/farming/api/agents/${encodeURIComponent(agentId)}/acp-transcript?maxTurns=5&media=external-v1`,
+  )
+  expect(response.ok()).toBeTruthy()
+  const payload = await response.json() as {
+    sessionId?: string
+    runtimeEpoch?: string
+    toRevision?: number
+  }
+  expect(payload.sessionId).toBeTruthy()
+  expect(payload.runtimeEpoch).toBeTruthy()
+  return {
+    sessionId: payload.sessionId || '',
+    runtimeEpoch: payload.runtimeEpoch || '',
+    fixtureRevision: Math.max(11, Number(payload.toRevision) || 0) + 1_000_000,
+  }
+}
+
 function largeTranscript(label: string) {
   return Array.from({ length: 20 }, (_, turnIndex) => ([
     {
@@ -83,20 +102,30 @@ test('bounds one shared Chat and Terminal frontend cache and restores evicted vi
     [secondChatAgentId, 0],
   ])
   for (const [agentId, entries] of transcriptEntries) {
+    const identity = await acpTranscriptFixtureIdentity(page, agentId)
     await page.route(new RegExp(`/farming/api/agents/${agentId}/acp-transcript(?:\\?.*)?$`), async route => {
       const sinceRevision = new URL(route.request().url()).searchParams.get('sinceRevision')
       if (sinceRevision === null) {
         fullTranscriptLoads.set(agentId, (fullTranscriptLoads.get(agentId) ?? 0) + 1)
       }
+      const replace = sinceRevision === null
       await route.fulfill({
         contentType: 'application/json',
         body: JSON.stringify({
+          version: 1,
+          agentId,
+          sessionId: identity.sessionId,
+          runtimeEpoch: identity.runtimeEpoch,
+          fromRevision: replace ? null : Number(sinceRevision),
+          toRevision: identity.fixtureRevision,
+          replace,
+          settled: true,
+          hasMoreBefore: false,
           transcript: {
-            sessionId: `cache-${agentId}`,
+            sessionId: identity.sessionId,
             state: 'idle',
-            revision: 1,
-            delta: sinceRevision !== null,
-            entries: sinceRevision === null ? entries : [],
+            revision: identity.fixtureRevision,
+            entries: replace ? entries : [],
           },
         }),
       })
