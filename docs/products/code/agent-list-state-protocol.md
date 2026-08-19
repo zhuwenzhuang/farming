@@ -235,12 +235,12 @@ An unpinned live Agent qualifies while its authoritative runtime observation is
 starting, working, or waiting, while it is pending, or while its authoritative
 unread projection is true. Otherwise it qualifies for strictly less than one
 hour after the newest valid `lastActivity` (falling back to `startedAt`),
-attention update, read cursor, exit, or browser-local user activation. Opening
-an Agent records one activation; merely keeping the view open does not renew
-it. Current attention renders with the existing relative-time label as `now`.
-When current attention ends, the same one-hour window starts from the newest
-event or activation timestamp. At the boundary, a dynamic-only row returns to
-its Project; a manual pin does not expire.
+attention update, or exit. Opening or viewing an Agent does not count as
+activity, and the read cursor is not an activity-time source. Current attention
+renders with the existing relative-time label as `now`. When current attention
+ends, the same one-hour window starts from the newest authoritative event
+timestamp. At the boundary, a dynamic-only row returns to its Project; a manual
+pin does not expire.
 
 The Pinned header remains available even when its list is empty. Its bell
 button controls only this projection and exposes pressed state; the bell's
@@ -252,6 +252,4 @@ time on hover or keyboard focus.
 
 Dynamic pinning reuses the page-visible relative-time clock to evaluate the
 one-hour boundary. It adds no heartbeat, polling, lease, or persisted per-Agent
-timer. Browser-local activation timestamps are intentionally ephemeral;
-reload recovery reconstructs eligibility from backend Agent state, and opening
-the restored Agent counts as a new user activation.
+timer. Reload recovery reconstructs eligibility from backend Agent state.

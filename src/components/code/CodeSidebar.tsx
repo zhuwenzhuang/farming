@@ -89,7 +89,6 @@ import {
   useProjectAgentLiveSummary,
 } from '@/lib/agent-live-state'
 import {
-  DYNAMIC_PIN_ACTIVITY_WINDOW_MS,
   dynamicPinActivityAt,
   isAgentDynamicallyPinned,
 } from '@/lib/dynamic-pinning'
@@ -400,9 +399,6 @@ export function CodeSidebar({
   const [dynamicPinningEnabled, setDynamicPinningEnabled] = useState(
     initialWorkspaceViewState.dynamicPinningEnabled ?? false,
   )
-  const [viewedAtByAgentId, setViewedAtByAgentId] = useState<Record<string, number>>(() => (
-    activeTerminalId ? { [activeTerminalId]: Date.now() } : {}
-  ))
   const [brandDialogOpen, setBrandDialogOpen] = useState(false)
   const [instanceNameDialogOpen, setInstanceNameDialogOpen] = useState(false)
   const productMarkRef = useRef<HTMLButtonElement | null>(null)
@@ -432,26 +428,6 @@ export function CodeSidebar({
   useEffect(() => {
     saveCodeWorkspaceViewState({ usageCollapsed })
   }, [usageCollapsed])
-  const recordAgentViewed = useCallback((agentId: string) => {
-    if (!agentId) return
-    const viewedAt = Date.now()
-    const cutoff = viewedAt - DYNAMIC_PIN_ACTIVITY_WINDOW_MS
-    setViewedAtByAgentId(current => {
-      const next = Object.fromEntries(
-        Object.entries(current).filter(([, timestamp]) => timestamp > cutoff),
-      )
-      next[agentId] = viewedAt
-      return next
-    })
-  }, [])
-  const openAgentWithView = useCallback((agentId: string) => {
-    recordAgentViewed(agentId)
-    onOpenAgent(agentId)
-  }, [onOpenAgent, recordAgentViewed])
-
-  useEffect(() => {
-    if (activeTerminalId) recordAgentViewed(activeTerminalId)
-  }, [activeTerminalId, recordAgentViewed])
   const clearPreviewTimer = useCallback(() => {
     if (previewTimerRef.current === null) return
     window.clearTimeout(previewTimerRef.current)
@@ -605,10 +581,10 @@ export function CodeSidebar({
     if (!dynamicPinningEnabled) return ids
     liveAgents.forEach(agent => {
       if (agent.pinned === true) return
-      if (isAgentDynamicallyPinned(agent, now, viewedAtByAgentId[agent.id])) ids.add(agent.id)
+      if (isAgentDynamicallyPinned(agent, now)) ids.add(agent.id)
     })
     return ids
-  }, [dynamicPinningEnabled, liveAgents, now, viewedAtByAgentId])
+  }, [dynamicPinningEnabled, liveAgents, now])
   const pinnedItems = displayedProjects
     .flatMap<PinnedSidebarItem>(project => [
       ...project.agents
@@ -843,7 +819,7 @@ export function CodeSidebar({
           items={sidebarRailItems}
           activeTerminalId={activeTerminalId}
           now={now}
-          onOpenAgent={openAgentWithView}
+          onOpenAgent={onOpenAgent}
           onShowPreview={showAgentPreview}
           onHidePreview={hideAgentPreview}
           copy={copy}
@@ -876,7 +852,6 @@ export function CodeSidebar({
             compressed={agentCompressionActive}
             dynamicPinningEnabled={dynamicPinningEnabled}
             hasUnread={hasUnread}
-            viewedAtByAgentId={viewedAtByAgentId}
             activeTerminalId={activeTerminalId}
             selectedSearchAgentId={selectedSearchAgentId}
             selectedSearchSessionHandle={selectedSearchSessionHandle}
@@ -884,7 +859,7 @@ export function CodeSidebar({
             agentShortcutKeys={agentShortcutKeys}
             keyboardShortcutsEnabled={keyboardShortcutsEnabled}
             now={now}
-            onOpenAgent={openAgentWithView}
+            onOpenAgent={onOpenAgent}
             onUpdateAgentFlags={onUpdateAgentFlags}
             onReorderAgent={onReorderAgent}
             onOpenAgentMenu={onOpenAgentMenu}
@@ -938,7 +913,7 @@ export function CodeSidebar({
               if (canDropProject(projectId)) dropProject(event, projectId)
             }}
             onShowProjectPreview={showProjectPreview}
-            onOpenAgent={openAgentWithView}
+            onOpenAgent={onOpenAgent}
             onUpdateAgentFlags={onUpdateAgentFlags}
             onReorderAgent={onReorderAgent}
             onOpenAgentMenu={onOpenAgentMenu}
@@ -1333,7 +1308,6 @@ interface PinnedSectionProps {
   compressed: boolean
   dynamicPinningEnabled: boolean
   hasUnread: boolean
-  viewedAtByAgentId: Readonly<Record<string, number>>
   activeTerminalId: string | null
   selectedSearchAgentId: string | null
   selectedSearchSessionHandle: string | null
@@ -1360,7 +1334,6 @@ function PinnedSection({
   compressed,
   dynamicPinningEnabled,
   hasUnread,
-  viewedAtByAgentId,
   activeTerminalId,
   selectedSearchAgentId,
   selectedSearchSessionHandle,
@@ -1460,7 +1433,6 @@ function PinnedSection({
                     searchSelected={agent.id === selectedSearchAgentId}
                     now={now}
                     dynamicPinningEnabled={dynamicPinningEnabled}
-                    viewedAt={viewedAtByAgentId[agent.id]}
                     onOpenAgent={onOpenAgent}
                     onUpdateAgentFlags={onUpdateAgentFlags}
                     reorderable={!item.dynamicallyPinned}
@@ -2974,7 +2946,6 @@ function AgentRow({
   searchSelected,
   now,
   dynamicPinningEnabled = false,
-  viewedAt = 0,
   onOpenAgent,
   onUpdateAgentFlags,
   reorderable = false,
@@ -2998,7 +2969,6 @@ function AgentRow({
   searchSelected: boolean
   now: number
   dynamicPinningEnabled?: boolean
-  viewedAt?: number
   onOpenAgent?: (agentId: string) => void
   onUpdateAgentFlags?: (agent: Agent, flags: Partial<Pick<Agent, 'pinned' | 'archived'>>) => void
   reorderable?: boolean
@@ -3026,7 +2996,7 @@ function AgentRow({
 
   const rowState = buildAgentRowDisplayState(backing, now, {
     ageTimestamp: dynamicPinningEnabled && liveAgent
-      ? dynamicPinActivityAt(liveAgent, now, viewedAt)
+      ? dynamicPinActivityAt(liveAgent, now)
       : undefined,
     forceAgeVisible: dynamicPinningEnabled,
   })

@@ -165,12 +165,9 @@ test('projects recent attention into Pinned without turning it into a manual pin
     })
   }, {
     ids: [agentId, unreadAgentId],
-    oldActivityAt: Date.now() - DYNAMIC_PIN_ACTIVITY_WINDOW_MS - 1,
+    oldActivityAt: Date.now() - DYNAMIC_PIN_ACTIVITY_WINDOW_MS - 60_000,
   })
   await page.clock.runFor(50)
-  await expect(pinnedRow).toBeVisible()
-
-  await page.clock.fastForward(DYNAMIC_PIN_ACTIVITY_WINDOW_MS + 60_000)
   await expect(pinnedRow).toHaveCount(0)
   await expect(unreadPinnedRow).toBeVisible()
   await expect(projectRow).toBeVisible()

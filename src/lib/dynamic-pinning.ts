@@ -10,7 +10,6 @@ export type DynamicPinAgentState = Partial<Pick<
   | 'exitedAt'
   | 'isMain'
   | 'lastActivity'
-  | 'readAttentionAt'
   | 'runtimeBinding'
   | 'runtimeObservation'
   | 'startedAt'
@@ -31,7 +30,6 @@ export function agentHasCurrentDynamicPinAttention(agent: DynamicPinAgentState) 
 export function dynamicPinActivityAt(
   agent: DynamicPinAgentState,
   now: number,
-  viewedAt = 0,
 ) {
   if (agentHasCurrentDynamicPinAttention(agent)) return now
   const agentActivityAt = finiteTimestamp(agent.lastActivity)
@@ -39,18 +37,15 @@ export function dynamicPinActivityAt(
   return Math.max(
     agentActivityAt,
     finiteTimestamp(agent.attentionUpdatedAt),
-    finiteTimestamp(agent.readAttentionAt),
     finiteTimestamp(agent.exitedAt),
-    finiteTimestamp(viewedAt),
   )
 }
 
 export function isAgentDynamicallyPinned(
   agent: DynamicPinAgentState,
   now: number,
-  viewedAt = 0,
 ) {
   if (agent.archived === true || agent.isMain === true) return false
-  const activityAt = dynamicPinActivityAt(agent, now, viewedAt)
+  const activityAt = dynamicPinActivityAt(agent, now)
   return activityAt > 0 && now - activityAt < DYNAMIC_PIN_ACTIVITY_WINDOW_MS
 }

@@ -978,12 +978,10 @@ function persistedAgentActivityAt(agent: TypedAgentRecord | null | undefined): n
     return Math.max(
       recordedActivityAt,
       finiteNumberOrNull(agent.attentionUpdatedAt) || 0,
-      finiteNumberOrNull(agent.readAttentionAt) || 0,
     );
   }
   const durableActivityAt = Math.max(
     finiteNumberOrNull(agent.attentionUpdatedAt) || 0,
-    finiteNumberOrNull(agent.readAttentionAt) || 0,
     finiteNumberOrNull(agent.exitedAt) || 0,
   );
   if (durableActivityAt > 0) return durableActivityAt;

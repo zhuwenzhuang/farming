@@ -222,13 +222,8 @@ function run() {
   );
   assert.strictEqual(
     isAgentDynamicallyPinned({ lastActivity: cutoff - 1, readAttentionAt: now - 1 }, now),
-    true,
-    'reading an attention item should start a fresh activity window'
-  );
-  assert.strictEqual(
-    isAgentDynamicallyPinned({ lastActivity: cutoff - 1 }, now, now - 1),
-    true,
-    'opening an agent should start a fresh local activity window'
+    false,
+    'reading an attention item should not count as Agent activity'
   );
   assert.strictEqual(isAgentDynamicallyPinned({ lastActivity: now, archived: true }, now), false);
   assert.strictEqual(isAgentDynamicallyPinned({ lastActivity: now, isMain: true }, now), false);

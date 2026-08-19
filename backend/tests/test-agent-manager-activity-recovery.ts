@@ -53,8 +53,8 @@ async function run() {
     });
     assert.strictEqual(
       manager.getAgentState('legacy-idle', now).lastActivity,
-      3_500,
-      'a legacy ACP record must fall back to its latest durable activity instead of reconnect time',
+      3_000,
+      'a legacy ACP record must fall back to its latest Agent activity instead of read or reconnect time',
     );
 
     manager.registerAgentRecord('viewed-idle', recoveredAgent('viewed-idle', {
@@ -68,8 +68,8 @@ async function run() {
     });
     assert.strictEqual(
       manager.getAgentState('viewed-idle', now).lastActivity,
-      4_500,
-      'a later user read must remain newer activity than the Agent runtime timestamp',
+      4_000,
+      'a later user read must not replace the Agent runtime activity timestamp',
     );
 
     manager.registerAgentRecord('recovery-error', recoveredAgent('recovery-error', {

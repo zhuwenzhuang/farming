@@ -73,10 +73,10 @@ Agent State 时，都必须从 Cursor 重新写入 `unread` Projection；旧版�
 
 未手动置顶的 Live Agent 在权威 Runtime Observation 为 Starting、Working 或 Waiting、状态为
 Pending，或权威未读投影为 True 时持续符合条件。除此之外，它会在以下有效时间中的最新值之后
-严格保留不足一小时：`lastActivity`（缺失时使用 `startedAt`）、Attention Update、Read Cursor、
-Exit，或 Browser 本地记录的用户打开时间。打开 Agent 只记录一次活跃；仅仅保持页面打开不会续期。
-仍需关注时，现有相对时间显示为 `now`；关注状态结束后，从最新事件或用户打开时间继续计算一小时。
-到达边界时，纯动态置顶行回到原 Project；手动置顶永不因此失效。
+严格保留不足一小时：`lastActivity`（缺失时使用 `startedAt`）、Attention Update 或 Exit。
+打开或查看 Agent 不计为活跃，Read Cursor 也不作为活跃时间来源。仍需关注时，现有相对时间显示为
+`now`；关注状态结束后，
+从最新的权威事件时间继续计算一小时。到达边界时，纯动态置顶行回到原 Project；手动置顶永不因此失效。
 
 即使列表为空，“已置顶”表头也保持可用。铃铛按钮只控制动态投影并暴露按下状态；右上角未读点
 独立反映当前未读 Inventory，与动态置顶是否打开无关。关闭偏好时，已置顶与 Project 行行为保持
@@ -84,5 +84,4 @@ Exit，或 Browser 本地记录的用户打开时间。打开 Agent 只记录一
 行操作时仍由操作按钮替代时间。
 
 动态置顶复用页面可见时已有的相对时间时钟检查一小时边界，不新增 Heartbeat、Polling、Lease
-或持久化的 Per-Agent Timer。Browser 本地打开时间刻意不持久化；Reload 后从 Backend Agent
-状态重建资格，恢复并打开的 Agent 会被视为一次新的用户活跃。
+或持久化的 Per-Agent Timer。Reload 后从 Backend Agent 状态重建资格。
