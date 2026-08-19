@@ -3,8 +3,13 @@ import { Component, type CSSProperties, type ErrorInfo, type ReactNode } from 'r
 import { createRoot } from 'react-dom/client'
 import { appPath } from './lib/base-path'
 import { rememberStartupAccessToken } from './lib/auth-url'
+import { visibleUrlWithoutWorkspaceShareTarget } from './lib/workspace-share-target'
 
 rememberStartupAccessToken(window.location.href)
+const locationFreeVisibleUrl = visibleUrlWithoutWorkspaceShareTarget(window.location.href)
+if (locationFreeVisibleUrl) {
+  window.history.replaceState(window.history.state, '', locationFreeVisibleUrl)
+}
 
 type ApplicationErrorBoundaryProps = { children: ReactNode }
 type ApplicationErrorBoundaryState = { failed: boolean; error: unknown }

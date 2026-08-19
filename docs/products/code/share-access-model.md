@@ -93,7 +93,10 @@ to the current file bounds. If a shared file remains unavailable after bounded P
 inventory reconciliation, Farming opens its nearest available parent folder. If the
 Agent or Project itself cannot be resolved, Farming keeps the default workspace open
 and reports the failed location. A location fallback never changes the link's
-read-only access mode.
+read-only access mode. The frontend captures the contextual location once at startup
+and immediately removes its query fields from the visible URL while retaining the
+credential. Reload and restart therefore use current workspace state instead of
+replaying a stale location.
 
 An owner startup URL carries the instance token so the entry assets can load. The
 frontend keeps that token in the visible URL so reloads, copied URLs, and installed
@@ -145,6 +148,8 @@ RFB transport cannot provide a server-verifiable view-only boundary.
 - Owner QR and passphrase access remain full-control and are labeled as such.
 - An owner startup URL retains its token through reload and supplies the same
   token to an installed app's start URL.
+- A contextual location is applied only by its first page load; the visible URL
+  retains the credential but cannot replay that location after reload or restart.
 - A read-only visitor can re-share, but receives only a read-only URL and read-only
   QR, with no owner passphrase or owner token.
 - Delegated shares never outlive their parent capability.

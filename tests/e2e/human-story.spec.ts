@@ -123,6 +123,23 @@ test.describe('human Farming Agent story', () => {
     await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${secondAgentId}"]`)).toBeHidden()
     await expectTerminalAgentSelected(page, firstAgentId, compactLayout)
 
+    await page.goto(`/farming/?ftarget=agent&agent=${encodeURIComponent(secondAgentId)}&fra=stale-anchor`, { waitUntil: 'domcontentloaded' })
+    await expectTerminalAgentSelected(page, secondAgentId, compactLayout)
+    await expect.poll(() => {
+      const params = new URL(page.url()).searchParams
+      return [params.get('ftarget'), params.get('agent'), params.get('fra')]
+    }).toEqual([null, null, null])
+
+    const firstAgentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${firstAgentId}"]`)
+    if (compactLayout) {
+      await page.getByTestId('code-mobile-menu').click()
+    }
+    await expect(firstAgentRow).toBeVisible()
+    await firstAgentRow.dispatchEvent('click')
+    await expect(page.locator(`[data-testid="code-terminal-pane"][data-agent-id="${firstAgentId}"]`)).toBeVisible()
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await expectTerminalAgentSelected(page, firstAgentId, compactLayout)
+
     const terminalComposerInput = page.getByTestId('code-composer-input')
     await terminalComposerInput.fill('terminal draft survives composer collapse')
     if (compactLayout) {

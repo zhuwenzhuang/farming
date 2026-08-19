@@ -109,6 +109,13 @@ export function clearWorkspaceShareTargetSearch(search: string) {
   return next ? `?${next}` : ''
 }
 
+export function visibleUrlWithoutWorkspaceShareTarget(value: string) {
+  const url = new URL(value)
+  if (!url.searchParams.has('ftarget') && !url.searchParams.has('agent')) return null
+  const search = clearWorkspaceShareTargetSearch(url.search)
+  return `${url.pathname}${search}${url.hash}`
+}
+
 function positiveInteger(value: string | null) {
   if (!value) return undefined
   const number = Number(value)

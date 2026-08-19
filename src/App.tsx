@@ -25,6 +25,7 @@ import {
   updateTerminalSessionContentFontSize,
 } from '@/lib/terminal-session-pool'
 import { appPath } from '@/lib/base-path'
+import { getStartupSearch } from '@/lib/auth-url'
 import { runtimeBindingForMode } from '@/lib/agent-runtime'
 import { recordPerformanceTestRender } from '@/lib/performance-test-observer'
 import {
@@ -1290,7 +1291,7 @@ export function App() {
       || ws.agents.length === 0
     ) return
 
-    const agentId = new URLSearchParams(window.location.search).get('agent')
+    const agentId = new URLSearchParams(getStartupSearch() || window.location.search).get('agent')
     if (!agentId) {
       didApplyAgentDeeplinkRef.current = true
       return

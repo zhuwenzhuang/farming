@@ -1,9 +1,16 @@
 let startupAccessToken = ''
+let startupSearch = ''
 
 export function rememberStartupAccessToken(value: string): void {
-  startupAccessToken = new URL(value).searchParams.get('token') || ''
+  const url = new URL(value)
+  startupAccessToken = url.searchParams.get('token') || ''
+  startupSearch = url.search
 }
 
 export function getStartupAccessToken(): string {
   return startupAccessToken
+}
+
+export function getStartupSearch(): string {
+  return startupSearch
 }

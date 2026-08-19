@@ -161,6 +161,7 @@ const {
   workspaceShareTargetKey,
   workspaceShareTargetSearchParams,
   workspaceShareProjectLabel,
+  visibleUrlWithoutWorkspaceShareTarget,
 } = require('../../src/lib/workspace-share-target.ts');
 
 function workspaceFile(path, overrides = {}) {
@@ -278,6 +279,14 @@ function run() {
   assert.strictEqual(
     clearWorkspaceShareTargetSearch('?token=keep&ftarget=folder&path=%2Ftmp%2Fa#ignored'),
     '?token=keep'
+  );
+  assert.strictEqual(
+    visibleUrlWithoutWorkspaceShareTarget('https://farming.example/farming/?token=keep&ftarget=agent&agent=agent-1&fra=old#workspace'),
+    '/farming/?token=keep#workspace',
+  );
+  assert.strictEqual(
+    visibleUrlWithoutWorkspaceShareTarget('https://farming.example/farming/?token=keep'),
+    null,
   );
   assert.strictEqual(workspaceFolderPreviewFilePath([
     workspaceFile('reference/index.ts'),

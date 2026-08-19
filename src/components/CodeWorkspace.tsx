@@ -20,6 +20,7 @@ import type { WorkspaceFileEventMessage } from '@/types/messages'
 import type { WorkspaceFileWatchReadyReason } from '@/hooks/useWebSocket'
 import { CheckGlyph } from '@/components/IconGlyphs'
 import { appPath } from '@/lib/base-path'
+import { getStartupSearch } from '@/lib/auth-url'
 import { readRecentClipboardWrite, writeClipboardText } from '@/lib/clipboard'
 import { isAcpRuntime, isStructuredRuntime } from '@/lib/agent-runtime'
 import {
@@ -783,7 +784,9 @@ export function CodeWorkspace({
   const [mobileNavigationViewport, setMobileNavigationViewport] = useState(() => isMobileNavigationViewport())
   const [emptyHomeSidebarActionRequest, setEmptyHomeSidebarActionRequest] = useState<EmptyHomeSidebarActionRequest | null>(null)
   const [pendingShareTarget, setPendingShareTarget] = useState<WorkspaceShareTarget | null>(() => (
-    typeof window === 'undefined' ? null : workspaceShareTargetFromSearch(window.location.search)
+    typeof window === 'undefined'
+      ? null
+      : workspaceShareTargetFromSearch(getStartupSearch() || window.location.search)
   ))
   const [shareTargetRestoreTick, setShareTargetRestoreTick] = useState(0)
   const [lastProjectWorkspace, setLastProjectWorkspace] = useState<string | undefined>(undefined)
