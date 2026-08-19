@@ -363,16 +363,37 @@ test('reuses the existing Agent Chat beside a file', async ({ page, workspaceRoo
   })
   expect(response.ok()).toBeTruthy()
   const { agentId } = await response.json() as { agentId: string }
+  const identityResponse = await page.request.get(
+    `/farming/api/agents/${encodeURIComponent(agentId)}/acp-transcript?maxTurns=5&media=external-v1`,
+  )
+  expect(identityResponse.ok()).toBeTruthy()
+  const identity = await identityResponse.json() as {
+    sessionId?: string
+    runtimeEpoch?: string
+    toRevision?: number
+  }
+  expect(identity.sessionId).toBeTruthy()
+  expect(identity.runtimeEpoch).toBeTruthy()
+  const fixtureRevision = Math.max(11, Number(identity.toRevision) || 0) + 1_000_000
   let transcriptRequests = 0
   await page.route(new RegExp(`/farming/api/agents/${agentId}/acp-transcript(?:\\?.*)?$`), async route => {
     transcriptRequests += 1
     await route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
+        version: 1,
+        agentId,
+        sessionId: identity.sessionId,
+        runtimeEpoch: identity.runtimeEpoch,
+        fromRevision: null,
+        toRevision: fixtureRevision,
+        replace: true,
+        settled: true,
+        hasMoreBefore: false,
         transcript: {
-          sessionId: 'file-agent-chat-side-panel-session',
+          sessionId: identity.sessionId,
           state: 'idle',
-          revision: 1,
+          revision: fixtureRevision,
           entries: [
             {
               id: 'file-agent-chat-user',

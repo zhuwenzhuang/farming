@@ -146,12 +146,9 @@ test('projects recent attention into Pinned without turning it into a manual pin
   await pinnedRow.click()
   await expect(pinnedRow).toBeVisible()
 
-  await page.evaluate(({ ids, oldActivityAt }) => {
+  await page.evaluate(ids => {
     ids.forEach(id => {
       window.__farmingAgentActivityTest?.update(id, {
-        attentionUpdatedAt: oldActivityAt,
-        lastActivity: oldActivityAt,
-        readAttentionAt: oldActivityAt,
         unread: false,
         runtimeObservation: {
           kind: 'shell',
@@ -159,15 +156,12 @@ test('projects recent attention into Pinned without turning it into a manual pin
           confidence: 'authoritative',
           source: 'structured-runtime',
           observerVersion: 'dynamic-pinning-test',
-          observedAt: oldActivityAt,
+          observedAt: Date.now(),
         },
       })
     })
-  }, {
-    ids: [agentId, unreadAgentId],
-    oldActivityAt: Date.now() - DYNAMIC_PIN_ACTIVITY_WINDOW_MS - 60_000,
-  })
-  await page.clock.runFor(50)
+  }, [agentId, unreadAgentId])
+  await page.clock.runFor(DYNAMIC_PIN_ACTIVITY_WINDOW_MS + 60_000)
   await expect(pinnedRow).toHaveCount(0)
   await expect(unreadPinnedRow).toBeVisible()
   await expect(projectRow).toBeVisible()
