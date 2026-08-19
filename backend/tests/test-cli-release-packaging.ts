@@ -31,6 +31,7 @@ function run() {
     path.join(root, 'scripts/prepare-codex-acp-vendor.ts'),
     'utf8',
   );
+  const acpRuntimeSource = fs.readFileSync(path.join(root, 'backend/acp-runtime.cts'), 'utf8');
   const preparePiAcpVendorScript = fs.readFileSync(
     path.join(root, 'scripts/prepare-pi-acp-vendor.ts'),
     'utf8',
@@ -128,6 +129,19 @@ function run() {
       && prepareCodexAcpVendorScript.includes('fs.renameSync(temporaryEntry, targetEntry)')
       && !prepareCodexAcpVendorScript.includes('fs.copyFileSync(sourceEntry, targetEntry)'),
     'Codex ACP vendor preparation must atomically replace a potentially live adapter entry',
+  );
+  const preparedCodexAcpSha256 = prepareCodexAcpVendorScript.match(
+    /const expectedPatchedSha256 = '([a-f0-9]{64})';/,
+  )?.[1];
+  const runtimeCodexAcpSha256 = acpRuntimeSource.match(
+    /const CODEX_ACP_SHA256 = '([a-f0-9]{64})';/,
+  )?.[1];
+  assert(preparedCodexAcpSha256, 'Codex ACP vendor preparation must pin its reviewed SHA-256');
+  assert(runtimeCodexAcpSha256, 'Codex ACP runtime launch must pin its reviewed SHA-256');
+  assert.strictEqual(
+    runtimeCodexAcpSha256,
+    preparedCodexAcpSha256,
+    'Codex ACP runtime integrity must match the reviewed vendor bytes',
   );
   assert(
     appPackageScript.includes(
