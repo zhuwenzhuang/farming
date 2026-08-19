@@ -48,7 +48,9 @@ function run() {
   assert(
     candidateWorkflowWatchSource.includes('--commit "${CANDIDATE_SHA}"')
       && candidateWorkflowWatchSource.includes('--event push')
-      && candidateWorkflowWatchSource.includes('--log-failed'),
+      && candidateWorkflowWatchSource.includes('--log-failed')
+      && candidateWorkflowWatchSource.includes('SEEN_RUN_COUNT')
+      && candidateWorkflowWatchSource.includes('"${SEEN_RUN_COUNT}" -eq 0'),
     'release monitoring must discover and retain failures from every candidate push workflow',
   );
   const browserShardSource = fs.readFileSync(

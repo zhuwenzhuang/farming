@@ -17,6 +17,7 @@ BUNDLE_ROOT="${FARMING_RELEASE_WATCH_DIR:-${PROJECT_ROOT}/.tmp/release-watch}"
 BUNDLE_DIR="${BUNDLE_ROOT}/candidate-${CANDIDATE_SHA}"
 STARTED_AT="$(date +%s)"
 PREVIOUS_SNAPSHOT=""
+SEEN_RUN_COUNT=0
 mkdir -p "${BUNDLE_DIR}"
 
 while true; do
@@ -85,6 +86,9 @@ NODE
   fi
 
   RUN_COUNT="$(RUNS_JSON="${RUNS_JSON}" node -p 'JSON.parse(process.env.RUNS_JSON).length')"
+  if [[ "${RUN_COUNT}" -gt 0 ]]; then
+    SEEN_RUN_COUNT="${RUN_COUNT}"
+  fi
   RUNNING_COUNT="$(
     RUNS_JSON="${RUNS_JSON}" node -p \
       'JSON.parse(process.env.RUNS_JSON).filter(run => run.status !== "completed").length'
@@ -94,7 +98,10 @@ NODE
     exit 0
   fi
 
-  if [[ "${RUN_COUNT}" -eq 0 && "${ELAPSED}" -ge "${NO_RUN_TIMEOUT_SECONDS}" ]]; then
+  # GitHub's run-list endpoint can briefly return an empty snapshot after it
+  # already exposed the candidate runs. Do not forget that authoritative
+  # discovery and misclassify the candidate as having never triggered CI.
+  if [[ "${RUN_COUNT}" -eq 0 && "${SEEN_RUN_COUNT}" -eq 0 && "${ELAPSED}" -ge "${NO_RUN_TIMEOUT_SECONDS}" ]]; then
     echo "No candidate push workflows appeared for ${CANDIDATE_SHA} within ${NO_RUN_TIMEOUT_SECONDS}s." >&2
     echo "Candidate workflow discovery bundle: ${BUNDLE_DIR}" >&2
     exit 1
