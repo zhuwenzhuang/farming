@@ -549,16 +549,23 @@ class FakeAgent implements Agent {
         'body{margin:0;padding:24px;font:15px system-ui;background:linear-gradient(135deg,#eef8ff,#f5f0ff);color:#182230}',
         '.card{border:1px solid #93b4d8;border-radius:16px;background:rgba(255,255,255,.88);padding:22px;box-shadow:0 12px 32px rgba(34,72,110,.14)}',
         '.badge{display:inline-block;border-radius:999px;background:#dff6e7;color:#176b36;padding:5px 10px;font-weight:700}',
-        'h2{margin:14px 0 8px;font-size:24px}p{margin:0;color:#486174}',
-        '</style></head><body><section class="card"><span class="badge">ACP · inline</span><h2>Farming visualization ready</h2><p>Rendered directly inside the Chat result.</p></section>',
-        '<script>document.body.dataset.visualizationReady="true"</script></body></html>',
+        'h2{margin:14px 0 8px;font-size:24px}p{margin:0;color:#486174}button{margin-top:18px;border:0;border-radius:10px;background:#176bdb;color:white;padding:9px 14px;font:inherit;font-weight:700;cursor:pointer}',
+        '</style></head><body data-view="jobs"><section class="card"><span class="badge">ACP · inline</span><h2>Farming visualization ready</h2><p id="view-status">Job count view active</p><button id="view-toggle" type="button" aria-pressed="false">Show CU view</button></section>',
+        '<script>document.body.dataset.visualizationReady="true";document.getElementById("view-toggle").addEventListener("click",event=>{document.body.dataset.view="cu";document.getElementById("view-status").textContent="CU consumption view active";event.currentTarget.setAttribute("aria-pressed","true")})</script></body></html>',
       ].join(''));
+      const visualizationReference = `visualize${JSON.stringify({
+        path: path.join(directory, 'farming-inline.html'),
+      })}`;
+      const referenceSplit = visualizationReference.indexOf('inline.html');
       await client.sessionUpdate({
         sessionId: params.sessionId,
         update: {
           sessionUpdate: 'agent_message_chunk',
           messageId: 'inline-visualization-answer',
-          content: { type: 'text', text: 'Inline visualization result\n\n::codex-inline-vis{file="farming-' },
+          content: {
+            type: 'text',
+            text: `Inline visualization result\n\n${visualizationReference.slice(0, referenceSplit)}`,
+          },
           _meta: { codex: { phase: 'final_answer' } },
         },
       });
@@ -567,7 +574,7 @@ class FakeAgent implements Agent {
         update: {
           sessionUpdate: 'agent_message_chunk',
           messageId: 'inline-visualization-answer',
-          content: { type: 'text', text: 'inline.html"}' },
+          content: { type: 'text', text: visualizationReference.slice(referenceSplit) },
           _meta: { codex: { phase: 'final_answer' } },
         },
       });

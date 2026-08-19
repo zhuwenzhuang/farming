@@ -837,8 +837,14 @@ function codexVisualizationThreadDirectory(binding: Pick<AcpBinding, 'env' | 'se
 }
 
 async function resolveCodexInlineVisualization(binding: AcpBinding, sessionId: string, requestedFile: string) {
-  const file = String(requestedFile || '').trim();
-  if (!file || path.basename(file) !== file || path.extname(file) !== '.html') return '';
+  const requested = String(requestedFile || '').trim();
+  const file = path.basename(requested);
+  if (
+    !requested
+    || !file
+    || (!path.isAbsolute(requested) && requested !== file)
+    || path.extname(file) !== '.html'
+  ) return '';
   const { threadDirectory, visualizationsDirectory } = codexVisualizationThreadDirectory(binding, sessionId);
   if (!threadDirectory) return '';
   try {
@@ -849,6 +855,7 @@ async function resolveCodexInlineVisualization(binding: AcpBinding, sessionId: s
     if (!canonicalThread.startsWith(`${canonicalVisualizations}${path.sep}`)) return '';
     const candidate = await fs.promises.realpath(path.join(canonicalThread, file));
     if (!candidate.startsWith(`${canonicalThread}${path.sep}`)) return '';
+    if (path.isAbsolute(requested) && await fs.promises.realpath(requested) !== candidate) return '';
     const metadata = await fs.promises.stat(candidate);
     if (!metadata.isFile() || metadata.size > MAX_CODEX_INLINE_VISUALIZATION_BYTES) return '';
     const source = await fs.promises.readFile(candidate);
@@ -881,14 +888,15 @@ async function normalizeCodexHostMessageUpdate(binding: AcpBinding, notification
   }
   for (const directive of directives.slice(0, 8)) {
     const resolved = await resolveCodexInlineVisualization(binding, String(notification.sessionId || ''), directive.file);
+    const displayFile = path.basename(directive.file);
     const normalizedNotification = {
       ...notification,
       update: {
         ...update,
         content: {
           type: 'resource_link',
-          name: directive.file,
-          uri: resolved ? pathToFileURL(resolved).toString() : `farming-unavailable:${directive.file}`,
+          name: displayFile,
+          uri: resolved ? pathToFileURL(resolved).toString() : `farming-unavailable:${displayFile}`,
           mimeType: 'text/html',
           _meta: {
             codex: { kind: 'inline-visualization', available: Boolean(resolved) },

@@ -34,6 +34,9 @@ Capability 以 Live ACP Handshake 和 Session State 为准。Live Steer 等 Code
 
 Codex 的 Media、Tool、Diff、Terminal、Permission、Config 与 Child Activity 都保持为类型化
 Protocol Data。Provider 特有展示 Hint 在 Adapter 边界归一化，不能变成通用 ACP 语法。
+来自 Live 或恢复 History 的 Codex Host-directed HTML Visualization 也在该边界归一化为有界
+Resource，并复用同一套沙箱 Chat Renderer；绝对 Host Path 只有在解析到该 Provider Session
+精确拥有的 Visualization 目录时才会被接受。
 
 Native Terminal 的启动排序不是一套 Codex Lifecycle State Machine。共享的 Terminal
 Startup Coordinator 拥有有界串行、就绪、失败与清理；Codex Adapter 只声明无状态约束：

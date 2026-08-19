@@ -40,6 +40,10 @@ enable it merely because the Agent is named Codex.
 Codex structured media, tools, diffs, terminals, permissions, configuration,
 and child activity remain typed protocol data. Provider-specific display hints
 are normalized at the adapter boundary and must not become generic ACP syntax.
+Codex host-directed HTML visualizations from live or resumed history are
+normalized there into bounded resources and use the same sandboxed Chat
+renderer; an absolute host path is accepted only when it resolves to the exact
+visualization directory owned by that Provider Session.
 
 Native Terminal startup ordering is not a Codex lifecycle state machine. The
 shared Terminal startup coordinator owns bounded serialization, readiness,

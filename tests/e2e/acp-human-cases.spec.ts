@@ -165,6 +165,12 @@ test.describe('ACP human-like browser matrix', () => {
     const frame = visualization.locator('iframe').contentFrame()
     await expect(frame.getByRole('heading', { name: 'Farming visualization ready' })).toBeVisible()
     await expect(frame.locator('body')).toHaveAttribute('data-visualization-ready', 'true')
+    await expect(frame.getByText('Job count view active', { exact: true })).toBeVisible()
+    const viewToggle = frame.getByRole('button', { name: 'Show CU view' })
+    await viewToggle.click()
+    await expect(frame.locator('body')).toHaveAttribute('data-view', 'cu')
+    await expect(frame.getByText('CU consumption view active', { exact: true })).toBeVisible()
+    await expect(viewToggle).toHaveAttribute('aria-pressed', 'true')
     await expect(page.getByText('farming-inline.html', { exact: true })).toHaveCount(0)
   })
 

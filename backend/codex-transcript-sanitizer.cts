@@ -23,6 +23,12 @@ interface CodexInlineVisualizationStreamResult {
 }
 
 const CODEX_INLINE_VISUALIZATION_PREFIX = '::codex-inline-vis{';
+const CODEX_VISUALIZE_REFERENCE_PREFIX = 'visualize';
+const CODEX_VISUALIZE_REFERENCE_SUFFIX = '';
+const CODEX_INLINE_VISUALIZATION_PREFIXES = [
+  CODEX_INLINE_VISUALIZATION_PREFIX,
+  CODEX_VISUALIZE_REFERENCE_PREFIX,
+];
 const MAX_CODEX_INLINE_VISUALIZATION_BUFFER_BYTES = 16 * 1024;
 
 function normalizeCodexTranscriptText(value: unknown): string {
@@ -105,10 +111,46 @@ function createCodexInlineVisualizationStreamState(): CodexInlineVisualizationSt
 
 function directiveFile(line: string): string {
   const trimmed = line.trim();
-  if (!trimmed.startsWith(CODEX_INLINE_VISUALIZATION_PREFIX) || !trimmed.endsWith('}')) return '';
-  const attributes = trimmed.slice(CODEX_INLINE_VISUALIZATION_PREFIX.length, -1).trim();
-  const match = attributes.match(/^file="([^"]+)"$/);
-  return String(match?.[1] || '');
+  if (trimmed.startsWith(CODEX_INLINE_VISUALIZATION_PREFIX) && trimmed.endsWith('}')) {
+    const attributes = trimmed.slice(CODEX_INLINE_VISUALIZATION_PREFIX.length, -1).trim();
+    const match = attributes.match(/^file="([^"]+)"$/);
+    return String(match?.[1] || '');
+  }
+  if (
+    !trimmed.startsWith(CODEX_VISUALIZE_REFERENCE_PREFIX)
+    || !trimmed.endsWith(CODEX_VISUALIZE_REFERENCE_SUFFIX)
+  ) return '';
+  try {
+    const payload = JSON.parse(trimmed.slice(
+      CODEX_VISUALIZE_REFERENCE_PREFIX.length,
+      -CODEX_VISUALIZE_REFERENCE_SUFFIX.length,
+    ));
+    return payload && typeof payload === 'object' && !Array.isArray(payload)
+      && typeof payload.path === 'string'
+      ? payload.path
+      : '';
+  } catch {
+    return '';
+  }
+}
+
+function startsWithVisualizationDirective(value: string): boolean {
+  return CODEX_INLINE_VISUALIZATION_PREFIXES.some(prefix => value.startsWith(prefix));
+}
+
+function couldBecomeVisualizationDirective(value: string): boolean {
+  return CODEX_INLINE_VISUALIZATION_PREFIXES.some(prefix => (
+    prefix.startsWith(value) || value.startsWith(prefix)
+  ));
+}
+
+function isCompleteVisualizationDirective(value: string): boolean {
+  return (
+    value.startsWith(CODEX_INLINE_VISUALIZATION_PREFIX) && value.endsWith('}')
+  ) || (
+    value.startsWith(CODEX_VISUALIZE_REFERENCE_PREFIX)
+    && value.endsWith(CODEX_VISUALIZE_REFERENCE_SUFFIX)
+  );
 }
 
 function fenceMarker(line: string) {
@@ -152,7 +194,7 @@ function consumeCodexInlineVisualizationStream(
       return;
     }
     const trimmed = line.trim();
-    if (!trimmed.startsWith(CODEX_INLINE_VISUALIZATION_PREFIX)) {
+    if (!startsWithVisualizationDirective(trimmed)) {
       text += `${line}${newline}`;
       return;
     }
@@ -194,8 +236,7 @@ function consumeCodexInlineVisualizationStream(
     }
 
     const trimmedStart = state.buffer.trimStart();
-    const couldBecomeDirective = CODEX_INLINE_VISUALIZATION_PREFIX.startsWith(trimmedStart)
-      || trimmedStart.startsWith(CODEX_INLINE_VISUALIZATION_PREFIX);
+    const couldBecomeDirective = couldBecomeVisualizationDirective(trimmedStart);
     const couldBecomeFence = /^ {0,3}(?:`+|~+)/.test(state.buffer);
     const couldCloseFence = Boolean(state.fenceCharacter)
       && new RegExp(`^ {0,3}${state.fenceCharacter === '`' ? '`' : '~'}{${state.fenceLength},}`).test(state.buffer);
@@ -212,7 +253,7 @@ function consumeCodexInlineVisualizationStream(
     // The line is a partial or complete directive. A closing brace makes it
     // stable enough to normalize immediately; otherwise keep it invisible
     // until the next chunk completes it.
-    if (trimmedStart.endsWith('}')) {
+    if (isCompleteVisualizationDirective(trimmedStart)) {
       const line = state.buffer;
       state.buffer = '';
       consumeLine(line, '');
