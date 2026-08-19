@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type { WebSocketRoute } from '@playwright/test'
+import type { Route, WebSocketRoute } from '@playwright/test'
 import {
   expect,
   interceptWorkspaceRequests,
@@ -307,6 +307,63 @@ test('Agent Home and runtime launch defaults drive dialogs, project shortcuts, a
   }).toEqual({ homeId: 'default', runtimeMode: 'chat' })
   await expect(defaultHome.getByText('Launch default', { exact: true })).toBeVisible()
   await expect(defaultHome.getByTestId('code-plugin-agent-runtime-default-codex')).toHaveValue('chat')
+})
+
+test('project shortcuts ignore an older Agent launch-default response', async ({ page, workspaceRoot }) => {
+  const staleResponse = await page.request.get('/farming/api/executables')
+  expect(staleResponse.ok()).toBeTruthy()
+  const stalePayload = await staleResponse.json() as {
+    agents?: Array<{ name?: string; launchDefaults?: { runtimeMode?: string } }>
+  }
+  expect(stalePayload.agents?.find(agent => agent.name === 'codex')?.launchDefaults?.runtimeMode)
+    .toBe('terminal')
+
+  const agentResponse = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'bash', workspace: workspaceRoot },
+  })
+  expect(agentResponse.ok()).toBeTruthy()
+
+  let requestCount = 0
+  let initialRequest: Route | null = null
+  let resolveInitialRequest: (() => void) | null = null
+  let resolveFreshRequest: (() => void) | null = null
+  const initialRequestObserved = new Promise<void>(resolve => { resolveInitialRequest = resolve })
+  const freshRequestCompleted = new Promise<void>(resolve => { resolveFreshRequest = resolve })
+  await page.route('**/farming/api/executables', async route => {
+    requestCount += 1
+    if (requestCount === 1) {
+      initialRequest = route
+      resolveInitialRequest?.()
+      return
+    }
+    const response = await route.fetch()
+    await route.fulfill({ response })
+    resolveFreshRequest?.()
+  })
+
+  await openFarming(page)
+  await initialRequestObserved
+  const settingsResponse = await page.request.post('/farming/api/settings', {
+    data: {
+      agentLaunchProfiles: {
+        codex: { homeId: 'default', runtimeMode: 'chat' },
+      },
+    },
+  })
+  expect(settingsResponse.ok()).toBeTruthy()
+  await page.evaluate(() => {
+    window.dispatchEvent(new CustomEvent('farming-agent-homes-saved'))
+  })
+  await freshRequestCompleted
+  expect(requestCount).toBe(2)
+  await initialRequest!.fulfill({ json: stalePayload })
+
+  const projectGroup = page.getByTestId('code-project-group').first()
+  await expect(projectGroup).toBeVisible()
+  await projectGroup.hover()
+  await projectGroup.getByTestId('code-project-new-agent').click({ force: true })
+  await expect(page.getByTestId('code-project-agent-launch-chat-codex'))
+    .toHaveAttribute('aria-label', 'Codex · Terminal')
 })
 
 test('Plugins keeps cached Agent Home configurations visible while refreshing', async ({ page }) => {

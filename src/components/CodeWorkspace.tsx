@@ -745,6 +745,7 @@ export function CodeWorkspace({
     remotePinnedProjectWorkspaces,
   )
   const [agentLaunchOptions, setAgentLaunchOptions] = useState<AgentLaunchOption[]>([])
+  const agentLaunchOptionsRequestFenceRef = useRef(new LatestRequestFence())
   const {
     mainPageSessionKeys,
     mutateMainPageSessionKeys,
@@ -2393,22 +2394,27 @@ export function CodeWorkspace({
   }, [composerProviderProfiles, onStartAgent, onWorkspaceViewChange, setMainPaneMode])
 
   const loadAgentLaunchOptions = useCallback(() => {
+    const requestLease = agentLaunchOptionsRequestFenceRef.current.begin()
     return fetch(appPath('/api/executables'), { cache: 'no-store' })
       .then(response => {
         if (!response.ok) throw new Error(`Failed to load executables: ${response.status}`)
         return response.json()
       })
       .then((data: { agents?: AgentLaunchOption[] } | AgentLaunchOption[]) => {
+        if (!requestLease.isCurrent()) return
         const agents = Array.isArray(data) ? data : data.agents ?? []
         setAgentLaunchOptions(normalizeAgentLaunchOptions(agents))
       })
       .catch(() => {
+        if (!requestLease.isCurrent()) return
         setAgentLaunchOptions([])
       })
   }, [])
 
   useEffect(() => {
+    const requestFence = agentLaunchOptionsRequestFenceRef.current
     void loadAgentLaunchOptions()
+    return () => requestFence.invalidate()
   }, [loadAgentLaunchOptions])
 
   const addMainPageAgentSession = useCallback((provider: string, sessionId: string, providerHomeId = '') => {

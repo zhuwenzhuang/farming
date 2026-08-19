@@ -84,8 +84,9 @@ test('Plugin style owners preserve the light, dark, and narrow runtime cascade',
     const expected = appearanceStyles[appearance]
     await expect(openCode).toHaveCSS('border-top-color', expected.border)
     await expect(agentIdentity.locator('h3')).toHaveCSS('color', expected.title)
-    await expect(agentIdentity.locator('h3 > span')).toHaveCSS('color', expected.subtle)
-    await expect(agentIdentity.locator('h3 > span')).toHaveCSS('background-color', expected.badgeBackground)
+    const homeBadge = agentIdentity.locator('h3 > span:not(.code-plugin-agent-launch-default)')
+    await expect(homeBadge).toHaveCSS('color', expected.subtle)
+    await expect(homeBadge).toHaveCSS('background-color', expected.badgeBackground)
     await expect(agentIdentity.locator('h3 > em')).toHaveCSS('color', expected.warning)
     await expect(agentIdentity.locator('h3 > em')).toHaveCSS('background-color', expected.warningBackground)
     await expect(agentIdentity.locator('h3 > small')).toHaveCSS('color', expected.subtle)

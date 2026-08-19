@@ -225,7 +225,23 @@ export function useWorkspaceOpenFiles() {
     rootId: string,
     filePath: string,
     options: WorkspaceFileResolveOptions = {},
-  ) => modelManagerRef.current!.resolve(rootId, filePath, options), [])
+  ) => {
+    if (options.reload) {
+      const requestKey = openFileAutoRefreshKey(
+        rootId,
+        filePath,
+        options.workspaceRoot,
+        options.exactExternal === true,
+      )
+      const pendingTimer = autoRefreshTimersRef.current.get(requestKey)
+      if (pendingTimer !== undefined) {
+        window.clearTimeout(pendingTimer)
+        autoRefreshTimersRef.current.delete(requestKey)
+      }
+      autoRefreshQueueRef.current.delete(requestKey)
+    }
+    return modelManagerRef.current!.resolve(rootId, filePath, options)
+  }, [])
 
   const consumeWatchReadyRevalidation = useCallback((rootId: string, filePath: string) => {
     const openFile = stateRef.current.files.find(file => (
