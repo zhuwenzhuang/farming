@@ -77,7 +77,7 @@ const packagedAcpPlugin: esbuild.Plugin = {
     build.onLoad({ filter: /claude-agent-acp-0\.70\.0\.mjs$/ }, async (args) => {
       if (path.resolve(args.path) !== path.resolve(packagedClaudeEntry)) return null;
       const source = await fs.promises.readFile(args.path, 'utf8');
-      const marker = '// dist/index.js\nif (process.argv.includes("--cli")) {';
+      const marker = 'if (process.argv.includes("--cli")) {';
       const occurrences = source.split(marker).length - 1;
       if (occurrences !== 1) {
         throw new Error(`Expected one reviewed Claude ACP executable entry, found ${occurrences}`);

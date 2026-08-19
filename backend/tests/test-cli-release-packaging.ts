@@ -1,6 +1,7 @@
 const assert = require('assert');
 const { execFileSync } = require('child_process');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 function run() {
@@ -88,6 +89,25 @@ function run() {
       && bundleCliScript.includes("'claude-agent-acp-0.70.0.mjs'"),
     'standalone CLI must bundle a hidden entry for the pinned Claude ACP runtime',
   );
+  const bundleOutputRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-cli-bundle-test-'));
+  try {
+    execFileSync(
+      path.join(root, 'node_modules/.bin/tsx'),
+      [path.join(root, 'scripts/bundle-cli-runtime.ts')],
+      {
+        cwd: root,
+        env: {
+          ...process.env,
+          FARMING_CLI_BUNDLE_ENTRY: path.join(bundleOutputRoot, 'farming-app-cli.pkg.js'),
+          FARMING_CLI_BUNDLE_WORKER: path.join(bundleOutputRoot, 'terminal-screen-worker-thread.pkg.js'),
+          FARMING_CLI_BUNDLE_USAGE_WORKER: path.join(bundleOutputRoot, 'usage-history-worker.pkg.js'),
+        },
+        stdio: 'pipe',
+      },
+    );
+  } finally {
+    fs.rmSync(bundleOutputRoot, { recursive: true, force: true });
+  }
   assert(
     packagedPiAcpBridge.includes("PACKAGED_PI_ACP_ARG = '--farming-pi-acp'")
       && packagedPiAcpBridge.includes('omitted its embedded Pi ACP runtime')
