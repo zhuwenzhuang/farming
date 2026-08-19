@@ -30,6 +30,16 @@ export function projectWorkspaceForHistoryRun(entry: Pick<TaskHistoryEntry, 'cwd
   return entry.projectWorkspace || entry.cwd || ''
 }
 
+export function projectWorkspaceForOpenFile(
+  file: Pick<OpenWorkspaceFile, 'agentId' | 'sourceAgentId' | 'workspaceRoot'>,
+  agents: readonly Agent[],
+) {
+  if (file.workspaceRoot) return file.workspaceRoot
+  const sourceAgentId = file.sourceAgentId || file.agentId
+  const sourceAgent = agents.find(agent => agent.id === sourceAgentId)
+  return sourceAgent ? projectWorkspaceForAgent(sourceAgent) : ''
+}
+
 export function projectListProjectsForAgents(
   agents: Agent[],
   sessions: AgentSessionHistoryItem[],
@@ -47,11 +57,8 @@ export function projectListProjectsForAgents(
   )
 
   openFiles.forEach(file => {
-    const fileSourceAgent = file.sourceAgentId
-      ? allAgents.find(agent => agent.id === file.sourceAgentId)
-      : allAgents.find(agent => agent.id === file.agentId)
-    const workspace = file.workspaceRoot
-      || (fileSourceAgent ? projectWorkspaceForAgent(fileSourceAgent) : '')
+    const fileSourceAgent = allAgents.find(agent => agent.id === (file.sourceAgentId || file.agentId))
+    const workspace = projectWorkspaceForOpenFile(file, allAgents)
     if (!workspace) return
 
     const existing = projectsByWorkspace.get(workspace)

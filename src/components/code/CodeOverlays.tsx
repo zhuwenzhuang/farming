@@ -44,6 +44,14 @@ interface DeleteWorktreeDialogState {
   workspace: string
 }
 
+export interface RemoveProjectDialogView {
+  name: string
+  busy: boolean
+  agentNames: string[]
+  sessionNames: string[]
+  files: Array<{ path: string; dirty: boolean }>
+}
+
 interface CopyNoticeState {
   id: number
   kind: 'success' | 'error'
@@ -60,6 +68,7 @@ interface CodeOverlaysProps {
   agentSessionMenu: AgentSessionMenuState
   renameDialog: RenameDialogState | null
   archiveExitDialog: ArchiveExitDialogState | null
+  removeProjectDialog: RemoveProjectDialogView | null
   deleteWorktreeDialog: DeleteWorktreeDialogState | null
   copyNotice: CopyNoticeState | null
   contextMenuRef: RefObject<HTMLDivElement | null>
@@ -67,6 +76,8 @@ interface CodeOverlaysProps {
   renameInputRef: RefObject<HTMLInputElement | null>
   archiveExitDialogRef: RefObject<HTMLDivElement | null>
   archiveExitCancelButtonRef: RefObject<HTMLButtonElement | null>
+  removeProjectDialogRef: RefObject<HTMLDivElement | null>
+  removeProjectCancelButtonRef: RefObject<HTMLButtonElement | null>
   deleteWorktreeDialogRef: RefObject<HTMLDivElement | null>
   deleteWorktreeCancelButtonRef: RefObject<HTMLButtonElement | null>
   onContextMenuKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => void
@@ -98,6 +109,8 @@ interface CodeOverlaysProps {
   onSubmitRenameDialog: () => void
   onCloseArchiveExitDialog: () => void
   onSubmitArchiveExitDialog: () => void
+  onCloseRemoveProjectDialog: () => void
+  onSubmitRemoveProjectDialog: () => void
   onCloseDeleteWorktreeDialog: () => void
   onSubmitDeleteWorktreeDialog: () => void
   copy: CodeCopy
@@ -112,6 +125,7 @@ export function CodeOverlays({
   agentSessionMenu,
   renameDialog,
   archiveExitDialog,
+  removeProjectDialog,
   deleteWorktreeDialog,
   copyNotice,
   contextMenuRef,
@@ -119,6 +133,8 @@ export function CodeOverlays({
   renameInputRef,
   archiveExitDialogRef,
   archiveExitCancelButtonRef,
+  removeProjectDialogRef,
+  removeProjectCancelButtonRef,
   deleteWorktreeDialogRef,
   deleteWorktreeCancelButtonRef,
   onContextMenuKeyDown,
@@ -150,6 +166,8 @@ export function CodeOverlays({
   onSubmitRenameDialog,
   onCloseArchiveExitDialog,
   onSubmitArchiveExitDialog,
+  onCloseRemoveProjectDialog,
+  onSubmitRemoveProjectDialog,
   onCloseDeleteWorktreeDialog,
   onSubmitDeleteWorktreeDialog,
   copy,
@@ -337,14 +355,6 @@ export function CodeOverlays({
       label: copy.removeProject,
       removeIcon: true,
       hidden: !contextMenuProject?.workspace || contextMenuProject.hasMain,
-      disabled: Boolean(
-        contextMenuProject
-        && (
-          contextMenuProject.agents.length > 0
-          || contextMenuProject.agentSessions.length > 0
-          || contextMenuProject.hasOpenFile
-        )
-      ),
       onSelect: onRemoveProject,
     },
     {
@@ -475,6 +485,74 @@ export function CodeOverlays({
           </div>
         </div>
       )}
+      {removeProjectDialog && (
+        <div
+          className="code-rename-backdrop"
+          data-testid="code-remove-project-backdrop"
+          onMouseDown={() => {
+            if (!removeProjectDialog.busy) onCloseRemoveProjectDialog()
+          }}
+        >
+          <div
+            className="code-rename-dialog code-kill-dialog code-remove-project-dialog"
+            data-testid="code-remove-project-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="code-remove-project-title"
+            aria-describedby="code-remove-project-description"
+            aria-busy={removeProjectDialog.busy}
+            ref={removeProjectDialogRef}
+            onMouseDown={event => event.stopPropagation()}
+            onKeyDownCapture={event => trapFocusInContainer(event, removeProjectDialogRef.current)}
+            onKeyDown={event => trapFocusInContainer(event, removeProjectDialogRef.current)}
+          >
+            <h2 id="code-remove-project-title">{copy.removeProjectQuestion(removeProjectDialog.name)}</h2>
+            <p id="code-remove-project-description">{copy.removeProjectDescription}</p>
+            <div className="code-remove-project-resources" data-testid="code-remove-project-resources">
+              {removeProjectDialog.agentNames.length > 0 && (
+                <ResourceInventory
+                  heading={copy.removeProjectAgents(removeProjectDialog.agentNames.length)}
+                  items={removeProjectDialog.agentNames}
+                />
+              )}
+              {removeProjectDialog.sessionNames.length > 0 && (
+                <ResourceInventory
+                  heading={copy.removeProjectSessions(removeProjectDialog.sessionNames.length)}
+                  items={removeProjectDialog.sessionNames}
+                />
+              )}
+              {removeProjectDialog.files.length > 0 && (
+                <ResourceInventory
+                  heading={copy.removeProjectFiles(removeProjectDialog.files.length)}
+                  items={removeProjectDialog.files.map(file => file.path)}
+                />
+              )}
+            </div>
+            {removeProjectDialog.files.some(file => file.dirty) && (
+              <p className="code-remove-project-warning">{copy.removeProjectUnsavedChanges}</p>
+            )}
+            <div className="code-rename-actions">
+              <button
+                type="button"
+                ref={removeProjectCancelButtonRef}
+                onClick={onCloseRemoveProjectDialog}
+                disabled={removeProjectDialog.busy}
+                autoFocus
+              >
+                {copy.cancel}
+              </button>
+              <button
+                type="button"
+                className="danger"
+                onClick={onSubmitRemoveProjectDialog}
+                disabled={removeProjectDialog.busy}
+              >
+                {removeProjectDialog.busy ? copy.removingProject : copy.archiveAndRemoveProject}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {deleteWorktreeDialog && (
         <div className="code-rename-backdrop" data-testid="code-delete-worktree-backdrop" onMouseDown={onCloseDeleteWorktreeDialog}>
           <div
@@ -511,6 +589,17 @@ export function CodeOverlays({
         </div>
       )}
     </>
+  )
+}
+
+function ResourceInventory({ heading, items }: { heading: string; items: string[] }) {
+  return (
+    <section className="code-remove-project-resource-group">
+      <h3>{heading}</h3>
+      <ul>
+        {items.map((item, index) => <li key={`${item}:${index}`} title={item}>{item}</li>)}
+      </ul>
+    </section>
   )
 }
 

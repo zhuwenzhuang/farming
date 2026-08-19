@@ -6,6 +6,7 @@ const {
   editorFileStateByAgentForFiles,
   projectListProjectsForAgents,
   projectWorkspaceForHistoryRun,
+  projectWorkspaceForOpenFile,
   stableProjectSourceAgentId,
   visibleSearchTargetsForProjects,
 } = importTsModule('src/components/code/workspace-derived.ts');
@@ -67,6 +68,14 @@ function run() {
   assert.strictEqual(projectWorkspaceForHistoryRun(null), '');
   assert.strictEqual(projectWorkspaceForHistoryRun({ cwd: '/cwd', projectWorkspace: '' }), '/cwd');
   assert.strictEqual(projectWorkspaceForHistoryRun({ cwd: '/cwd', projectWorkspace: '/project' }), '/project');
+  assert.strictEqual(projectWorkspaceForOpenFile(
+    openFile('agent-1', 'README.md', { workspaceRoot: '/explicit' }),
+    [agent({ projectWorkspace: '/agent-project' })],
+  ), '/explicit');
+  assert.strictEqual(projectWorkspaceForOpenFile(
+    openFile('file-owner', 'README.md', { sourceAgentId: 'source-agent' }),
+    [agent({ id: 'source-agent', projectWorkspace: '/source-project' })],
+  ), '/source-project');
 
   const sourceAgents = [
     agent({ id: 'main', isMain: true }),

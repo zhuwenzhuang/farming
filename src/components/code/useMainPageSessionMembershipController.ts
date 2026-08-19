@@ -72,7 +72,13 @@ export function useMainPageSessionMembershipController(remoteMainPageSessionKeys
     operation: MainPageSessionKeyOperation,
     sessionKeys: string[],
   ) => {
-    void controller.mutate(operation, normalizeMainPageSessionKeys(sessionKeys))
+    const normalizedKeys = normalizeMainPageSessionKeys(sessionKeys)
+    return controller.mutate(operation, normalizedKeys).then(() => {
+      const projectedKeys = new Set(controller.getSnapshot().projectedKeys)
+      return operation === 'remove'
+        ? normalizedKeys.every(sessionKey => !projectedKeys.has(sessionKey))
+        : normalizedKeys.every(sessionKey => projectedKeys.has(sessionKey))
+    })
   }, [controller])
   const observeSessionKeys = useCallback((sessionKeys: string[]) => {
     controller.observeSessionKeys(normalizeMainPageSessionKeys(sessionKeys))

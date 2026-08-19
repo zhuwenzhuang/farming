@@ -1042,6 +1042,50 @@ body.code-resizing-language-server-dock {
   line-height: 1.35;
 }
 
+.code-remove-project-dialog {
+  width: min(440px, calc(100vw - 32px));
+}
+
+.code-remove-project-resources {
+  display: flex;
+  max-height: min(42vh, 320px);
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+}
+
+.code-remove-project-resource-group {
+  min-width: 0;
+  padding: 9px 10px;
+  border-radius: 8px;
+  background: var(--code-bg-muted);
+}
+
+.code-remove-project-resource-group h3 {
+  margin: 0 0 5px;
+  color: var(--code-text);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.code-remove-project-resource-group ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--code-text-subtle);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.code-remove-project-resource-group li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.code-kill-dialog .code-remove-project-warning {
+  color: var(--code-warning-text, var(--code-text));
+}
+
 .code-copy-toast {
   position: fixed;
   left: 50%;

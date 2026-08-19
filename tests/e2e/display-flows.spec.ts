@@ -1653,6 +1653,8 @@ test.describe('display-backed agent flows', () => {
   test('persists every Project until Remove and mounts sibling worktrees from the Git list', async ({ page, workspaceRoot }) => {
     const repo = path.join(workspaceRoot, 'base-repo')
     const linkedWorkspace = path.join(workspaceRoot, 'linked-project')
+    const linkedSessionId = '019f2222-3333-7444-8555-666666666666'
+    const linkedSessionHandle = `agent-session:codex:~2~default~${linkedSessionId}`
     fs.mkdirSync(repo, { recursive: true })
     fs.writeFileSync(path.join(repo, 'README.md'), '# linked worktree\n')
     execFileSync('git', ['init'], { cwd: repo, stdio: 'ignore' })
@@ -1719,6 +1721,26 @@ test.describe('display-backed agent flows', () => {
         },
       })
     })
+
+    await mockCodexSessions(page, [{
+      id: linkedSessionId,
+      title: 'Linked cleanup session',
+      cwd: linkedWorkspace,
+      workspace: linkedWorkspace,
+      updatedAt: new Date().toISOString(),
+      createdAt: new Date(Date.now() - 60 * 1000).toISOString(),
+      archived: false,
+      pinned: false,
+      unread: false,
+      projectless: false,
+      model: 'gpt-5.5',
+      effort: 'xhigh',
+      source: 'codex',
+    }])
+    const addSessionResponse = await page.request.post('/farming/api/main-page-agent-sessions', {
+      data: { operation: 'add', sessionKeys: [linkedSessionHandle] },
+    })
+    expect(addSessionResponse.ok()).toBeTruthy()
 
     await openFarming(page)
     const initialSettingsResponse = await page.request.get('/farming/api/settings')
@@ -1891,20 +1913,45 @@ test.describe('display-backed agent flows', () => {
     await readme.click()
     await expect(activeFileTabName(page)).toHaveText('README.md')
 
-    const deleteResponse = await page.request.delete(`/farming/api/control/agents/${agentId}`)
-    expect(deleteResponse.ok()).toBeTruthy()
-    await expect(project.getByTestId('code-agent-row')).toHaveCount(0)
-    await expect(project).toHaveCount(1)
-    await expect(project.getByTestId('code-open-editors')).toBeVisible()
-
-    await page.getByTestId('code-file-editor').getByRole('button', { name: 'Close README.md' }).click()
-    await expect(project).toHaveCount(1)
-
     await openProjectActions()
     const projectMenu = page.getByTestId('code-project-context-menu')
     await expect(projectMenu.getByRole('menuitem', { name: 'Remove Project' })).toBeEnabled()
     await projectMenu.getByRole('menuitem', { name: 'Remove Project' }).click()
+    let removeDialog = page.getByTestId('code-remove-project-dialog')
+    await expect(removeDialog).toBeVisible()
+    await expect(removeDialog).toContainText('1 Agent will be archived')
+    await expect(removeDialog).toContainText('1 Session will be archived')
+    await expect(removeDialog).toContainText('1 file tab will be closed')
+    await expect(removeDialog).toContainText('Linked cleanup session')
+    await expect(removeDialog).toContainText('README.md')
+    await removeDialog.getByRole('button', { name: 'Cancel' }).click()
+    await expect(removeDialog).toBeHidden()
+    await expect(project).toHaveCount(1)
+    await expect(project.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)).toBeVisible()
+    await expect(activeFileTabName(page)).toHaveText('README.md')
+    await expect.poll(async () => {
+      const response = await page.request.get('/farming/api/settings')
+      const data = await response.json()
+      return data.settings?.mainPageSessionKeys
+    }).toContain(linkedSessionHandle)
+
+    await openProjectActions()
+    await page.getByTestId('code-project-context-menu').getByRole('menuitem', { name: 'Remove Project' }).click()
+    removeDialog = page.getByTestId('code-remove-project-dialog')
+    await removeDialog.getByRole('button', { name: 'Archive and Remove' }).click()
     await expect(project).toHaveCount(0)
+    await expect(page.getByTestId('code-file-editor')).toHaveCount(0)
+    await expect.poll(async () => {
+      const response = await page.request.get('/farming/api/settings')
+      const data = await response.json()
+      return {
+        projects: data.settings?.projectWorkspaces,
+        sessions: data.settings?.mainPageSessionKeys,
+      }
+    }).toEqual({
+      projects: initialProjects.filter(workspace => workspace !== linkedWorkspace),
+      sessions: expect.not.arrayContaining([linkedSessionHandle]),
+    })
 
     const permanentWorkspace = path.join(workspaceRoot, 'base-repo-farming-fork-20260718-140000')
     execFileSync('git', ['worktree', 'add', permanentWorkspace, 'HEAD'], { cwd: repo, stdio: 'ignore' })
@@ -3701,8 +3748,13 @@ test.describe('display-backed agent flows', () => {
     await expect(childProjectMenu.getByRole('menuitem', { name: 'Rename project' })).toBeVisible()
     await expect(childProjectMenu.getByRole('menuitem', { name: 'Mark all as read' })).toBeVisible()
     await expect(childProjectMenu.getByRole('menuitem', { name: 'Archive chats' })).toBeVisible()
-    await expect(childProjectMenu.getByRole('menuitem', { name: 'Remove Project' })).toBeDisabled()
-    await page.keyboard.press('Escape')
+    await expect(childProjectMenu.getByRole('menuitem', { name: 'Remove Project' })).toBeEnabled()
+    await childProjectMenu.getByRole('menuitem', { name: 'Remove Project' }).click()
+    const removeProjectDialog = page.getByTestId('code-remove-project-dialog')
+    await expect(removeProjectDialog).toBeVisible()
+    await expect(removeProjectDialog).toContainText('Agent will be archived')
+    await removeProjectDialog.getByRole('button', { name: 'Cancel' }).click()
+    await expect(removeProjectDialog).toBeHidden()
     await expect(childProjectMenu).toBeHidden()
     await expect(childProjectTitle).toBeVisible()
 

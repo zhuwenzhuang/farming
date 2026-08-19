@@ -90,7 +90,11 @@ import { acpComposerStateAliasKeysForAgent, acpComposerStateKeyForAgent } from '
 import { discardAcpTranscriptSession } from './code/acp/acp-transcript-session-pool'
 import { discardAcpSessionState } from './code/acp/acp-session-state-pool'
 import { MobileShareSheet } from './code/MobileShareSheet'
-import { CodeOverlays, ContextMenuIcon } from './code/CodeOverlays'
+import {
+  CodeOverlays,
+  ContextMenuIcon,
+  type RemoveProjectDialogView,
+} from './code/CodeOverlays'
 import { CodeSidebar } from './code/CodeSidebar'
 import { LatestRequestFence } from './code/latest-request-fence'
 import type { RequestOwnershipLease } from '@/lib/request-ownership'
@@ -186,6 +190,7 @@ import {
 import type {
   ComposerMode,
   GlobalSettings,
+  ProjectGroup,
   SearchTarget,
   SpeechRecognitionLike,
   WindowWithSpeechRecognition,
@@ -212,6 +217,7 @@ import {
   displayedProjectsForSearch,
   projectListProjectsForAgents,
   projectWorkspaceForHistoryRun,
+  projectWorkspaceForOpenFile,
   visibleSearchTargetsForProjects,
 } from './code/workspace-derived'
 import {
@@ -236,6 +242,7 @@ import {
   useProjectMembershipController,
 } from './code/useProjectMembershipController'
 import { useProjectMutationController } from './code/useProjectMutationController'
+import { executeProjectRemoval, type ProjectRemovalPlan } from './code/project-removal'
 import {
   terminalTargetFilePath,
   terminalTargetGlobalFilePath,
@@ -798,6 +805,12 @@ export function CodeWorkspace({
     agentId: string
     title: string
   } | null>(null)
+  const [removeProjectDialog, setRemoveProjectDialog] = useState<{
+    projectId: string
+    workspace: string
+    name: string
+    busy: boolean
+  } | null>(null)
   const [deleteWorktreeDialog, setDeleteWorktreeDialog] = useState<{ projectId: string; workspace: string; sessionHandles: string[] } | null>(null)
   const [copyNotice, setCopyNotice] = useState<{
     id: number
@@ -837,6 +850,8 @@ export function CodeWorkspace({
   renameDialogStateRef.current = renameDialog
   const archiveExitDialogRef = useRef<HTMLDivElement>(null)
   const archiveExitCancelButtonRef = useRef<HTMLButtonElement>(null)
+  const removeProjectDialogRef = useRef<HTMLDivElement>(null)
+  const removeProjectCancelButtonRef = useRef<HTMLButtonElement>(null)
   const deleteWorktreeDialogRef = useRef<HTMLDivElement>(null)
   const deleteWorktreeCancelButtonRef = useRef<HTMLButtonElement>(null)
   const projectListRef = useRef<HTMLDivElement>(null)
@@ -1128,6 +1143,36 @@ export function CodeWorkspace({
     ),
     [incompleteProjectAgentSummaries, mainPageAgentSessions, openWorkspaceFiles, pinnedProjectWorkspaces, projectNames, projectWorkspaces, visibleAgents, visibleLiveAgents]
   )
+  const projectOpenFiles = useCallback((workspace: string) => (
+    openWorkspaceFiles.filter(file => projectWorkspaceForOpenFile(file, visibleAgents) === workspace)
+  ), [openWorkspaceFiles, visibleAgents])
+  const projectAgentInventoryComplete = useCallback((project: ProjectGroup) => (
+    agentInventoryComplete
+    || !project.agentSummary
+    || project.agentSummary.agentCount <= project.agents.length
+  ), [agentInventoryComplete])
+  const removeProjectDialogProject = removeProjectDialog
+    ? projectListProjects.find(project => project.workspace === removeProjectDialog.workspace) ?? null
+    : null
+  const removeProjectDialogFiles = useMemo(() => (
+    removeProjectDialog ? projectOpenFiles(removeProjectDialog.workspace) : []
+  ), [projectOpenFiles, removeProjectDialog])
+  const removeProjectDialogView = useMemo<RemoveProjectDialogView | null>(() => {
+    if (!removeProjectDialog) return null
+    return {
+      name: removeProjectDialog.name,
+      busy: removeProjectDialog.busy,
+      agentNames: (removeProjectDialogProject?.agents ?? [])
+        .filter(agent => !agent.isMain)
+        .map(agentTitle),
+      sessionNames: (removeProjectDialogProject?.agentSessions ?? [])
+        .map(session => session.title || session.id),
+      files: removeProjectDialogFiles.map(file => ({
+        path: file.file.path,
+        dirty: file.dirty,
+      })),
+    }
+  }, [removeProjectDialog, removeProjectDialogFiles, removeProjectDialogProject])
   const projects = useMemo(() => limitProjectAgentSessions(
     projectListProjects,
     projectSessionLimits,
@@ -1535,6 +1580,7 @@ export function CodeWorkspace({
     clearMobileShareLink()
     setRenameDialog(null)
     setArchiveExitDialog(null)
+    setRemoveProjectDialog(null)
     setDeleteWorktreeDialog(null)
     setMainPaneMode('terminal')
     if (isMobileNavigationViewport()) autoCollapseSidebar()
@@ -2427,15 +2473,15 @@ export function CodeWorkspace({
 
   const addMainPageAgentSession = useCallback((provider: string, sessionId: string, providerHomeId = '') => {
     const sessionHandle = agentSessionId({ provider, id: sessionId, providerHomeId })
-    mutateMainPageSessionKeys('add', [sessionHandle])
+    return mutateMainPageSessionKeys('add', [sessionHandle])
   }, [mutateMainPageSessionKeys])
 
   const removeMainPageAgentSession = useCallback((sessionHandle: string) => {
-    mutateMainPageSessionKeys('remove', [sessionHandle])
+    return mutateMainPageSessionKeys('remove', [sessionHandle])
   }, [mutateMainPageSessionKeys])
 
   const removeMainPageAgentSessions = useCallback((sessionHandles: string[]) => {
-    mutateMainPageSessionKeys('remove', sessionHandles)
+    return mutateMainPageSessionKeys('remove', sessionHandles)
   }, [mutateMainPageSessionKeys])
 
   const syncRemovedMainPageSessionsFromAgentUpdate = useCallback((result: AgentFlagUpdateResponse | Promise<AgentFlagUpdateResponse>) => {
@@ -4623,22 +4669,116 @@ export function CodeWorkspace({
     restoreProjectListFocusRef.current = 'list'
   }, [archiveAgentOptimistically, closeContextMenu, mainPageAgentSessions, contextMenuProject, removeMainPageAgentSessions])
 
+  const buildProjectRemovalPlan = useCallback((project: ProjectGroup): ProjectRemovalPlan => ({
+    workspace: project.workspace,
+    agents: project.agents
+      .filter(agent => !agent.isMain)
+      .map(agent => ({
+        id: agent.id,
+        acknowledgeUnprovenAcpExit: agent.requiresProcessExitAcknowledgement === true,
+      })),
+    sessionHandles: Array.from(new Set(project.agentSessions.map(agentSessionId))),
+    files: projectOpenFiles(project.workspace).map(file => ({
+      agentId: file.agentId,
+      filePath: file.file.path,
+      workspaceRoot: file.workspaceRoot,
+    })),
+  }), [projectOpenFiles])
+
   const removeContextProject = useCallback(async () => {
-    if (
-      !contextMenuProject
-      || contextMenuProject.hasMain
-      || contextMenuProject.agents.length > 0
-      || contextMenuProject.agentSessions.length > 0
-      || contextMenuProject.hasOpenFile
-    ) return
-    await mutateProject({
+    if (!contextMenuProject || contextMenuProject.hasMain) return
+    if (!projectAgentInventoryComplete(contextMenuProject)) {
+      closeContextMenu()
+      setCopyNotice({ id: Date.now(), kind: 'error', message: copy.removeProjectInventoryUnavailable })
+      focusProjectTitle(contextMenuProject.id)
+      return
+    }
+
+    const plan = buildProjectRemovalPlan(contextMenuProject)
+    closeContextMenu()
+    if (plan.agents.length > 0 || plan.sessionHandles.length > 0 || plan.files.length > 0) {
+      setRemoveProjectDialog({
+        projectId: contextMenuProject.id,
+        workspace: contextMenuProject.workspace,
+        name: contextMenuProject.name,
+        busy: false,
+      })
+      return
+    }
+
+    const outcome = await mutateProject({
       kind: 'remove',
       workspace: contextMenuProject.workspace,
-      errorMessage: copy.copyFailed,
+      errorMessage: copy.removeProjectFailed,
     })
-    closeContextMenu()
-    restoreProjectListFocusRef.current = 'list'
-  }, [closeContextMenu, contextMenuProject, copy.copyFailed, mutateProject])
+    if (outcome.status === 'succeeded') restoreProjectListFocusRef.current = 'list'
+    else focusProjectTitle(contextMenuProject.id)
+  }, [buildProjectRemovalPlan, closeContextMenu, contextMenuProject, copy.removeProjectFailed, copy.removeProjectInventoryUnavailable, focusProjectTitle, mutateProject, projectAgentInventoryComplete])
+
+  const closeRemoveProjectDialog = useCallback(() => {
+    if (!removeProjectDialog || removeProjectDialog.busy) return
+    const projectId = removeProjectDialog.projectId
+    setRemoveProjectDialog(null)
+    focusProjectTitle(projectId)
+  }, [focusProjectTitle, removeProjectDialog])
+
+  const submitRemoveProjectDialog = useCallback(async () => {
+    if (!removeProjectDialog || removeProjectDialog.busy) return
+    const project = projectListProjects.find(candidate => candidate.workspace === removeProjectDialog.workspace)
+    if (project && !projectAgentInventoryComplete(project)) {
+      setCopyNotice({ id: Date.now(), kind: 'error', message: copy.removeProjectInventoryUnavailable })
+      return
+    }
+
+    const plan = project
+      ? buildProjectRemovalPlan(project)
+      : { workspace: removeProjectDialog.workspace, agents: [], sessionHandles: [], files: [] }
+    setRemoveProjectDialog(current => current ? { ...current, busy: true } : current)
+    const outcome = await executeProjectRemoval(plan, {
+      archiveAgent: async agent => {
+        const result = await onUpdateAgentFlags(agent.id, {
+          archived: true,
+          ...(agent.acknowledgeUnprovenAcpExit
+            ? { acknowledgeUnprovenAcpExit: true }
+            : {}),
+        })
+        const archived = result === true || (
+          typeof result === 'object'
+          && result !== null
+          && result.archived === true
+        )
+        if (!archived) return false
+        discardAcpTranscriptSession(agent.id)
+        discardAcpSessionState(agent.id)
+        setOptimisticallyArchivedAgentIds(previous => (
+          previous.has(agent.id) ? previous : new Set(previous).add(agent.id)
+        ))
+        return true
+      },
+      archiveSessions: removeMainPageAgentSessions,
+      closeFiles: closeOpenWorkspaceFiles,
+      removeProject: workspace => mutateProject({
+        kind: 'remove',
+        workspace,
+        errorMessage: copy.removeProjectFailed,
+      }),
+    })
+
+    if (outcome.status === 'succeeded') {
+      setRemoveProjectDialog(null)
+      restoreProjectListFocusRef.current = 'list'
+      return
+    }
+
+    const message = {
+      'archive-agents': copy.removeProjectArchiveAgentsFailed,
+      'archive-sessions': copy.removeProjectArchiveSessionsFailed,
+      'close-files': copy.removeProjectCloseFilesFailed,
+      'remove-project': copy.removeProjectFailed,
+    }[outcome.stage]
+    setCopyNotice({ id: Date.now(), kind: 'error', message })
+    setRemoveProjectDialog(current => current ? { ...current, busy: false } : current)
+  }, [buildProjectRemovalPlan, closeOpenWorkspaceFiles, copy.removeProjectArchiveAgentsFailed, copy.removeProjectArchiveSessionsFailed, copy.removeProjectCloseFilesFailed, copy.removeProjectFailed, copy.removeProjectInventoryUnavailable, mutateProject, onUpdateAgentFlags, projectAgentInventoryComplete, projectListProjects, removeMainPageAgentSessions, removeProjectDialog])
 
   const deleteContextWorktree = useCallback(() => {
     if (!contextMenuProject) return
@@ -4768,13 +4908,19 @@ export function CodeWorkspace({
         return
       }
 
+      if (event.key === 'Escape' && removeProjectDialog) {
+        event.preventDefault()
+        closeRemoveProjectDialog()
+        return
+      }
+
       if (event.key === 'Escape' && deleteWorktreeDialog) {
         event.preventDefault()
         closeDeleteWorktreeDialog()
         return
       }
 
-      if (renameDialog || archiveExitDialog || deleteWorktreeDialog) {
+      if (renameDialog || archiveExitDialog || removeProjectDialog || deleteWorktreeDialog) {
         if (!isOverlayShortcutTarget(target)) {
           event.preventDefault()
           event.stopPropagation()
@@ -4808,6 +4954,7 @@ export function CodeWorkspace({
         && !event.shiftKey
         && !renameDialog
         && !archiveExitDialog
+        && !removeProjectDialog
         && !deleteWorktreeDialog
         && !isOverlayShortcutTarget(target)
         && !isNativeTextEditingShortcutTarget(target)
@@ -4875,7 +5022,7 @@ export function CodeWorkspace({
 
     window.addEventListener('keydown', handleKeyDown, true)
     return () => window.removeEventListener('keydown', handleKeyDown, true)
-  }, [activeView, approvalMenuOpen, archiveExitDialog, clearSearch, closeActiveComposerMenus, closeArchiveExitDialog, closeContextMenu, closeContextMenuAndRestoreFocus, closeDeleteWorktreeDialog, closeRenameDialog, contextMenu, contextMenuRef, deleteWorktreeDialog, dialogOpen, focusComposerTextarea, focusWorkspaceFilesSearch, handleContextMenuNavigation, keyboardShortcutsEnabled, mobileNavigationModalOpen, mobileShareUrl, modelMenuOpen, navigateWorkspaceHistory, onWorkspaceViewChange, openSearch, plusMenuOpen, projectFileSearchId, projectFileSearchIdForShortcutTarget, renameDialog, reopenLastClosedWorkspaceFile, toggleSidebar])
+  }, [activeView, approvalMenuOpen, archiveExitDialog, clearSearch, closeActiveComposerMenus, closeArchiveExitDialog, closeContextMenu, closeContextMenuAndRestoreFocus, closeDeleteWorktreeDialog, closeRemoveProjectDialog, closeRenameDialog, contextMenu, contextMenuRef, deleteWorktreeDialog, dialogOpen, focusComposerTextarea, focusWorkspaceFilesSearch, handleContextMenuNavigation, keyboardShortcutsEnabled, mobileNavigationModalOpen, mobileShareUrl, modelMenuOpen, navigateWorkspaceHistory, onWorkspaceViewChange, openSearch, plusMenuOpen, projectFileSearchId, projectFileSearchIdForShortcutTarget, removeProjectDialog, renameDialog, reopenLastClosedWorkspaceFile, toggleSidebar])
 
   useEffect(() => {
     const dialog = renameDialogStateRef.current
@@ -4910,6 +5057,15 @@ export function CodeWorkspace({
     }
     return scheduleFocusRetries(focusCancelButton, { runNow: false, delays: [180] })
   }, [archiveExitDialog])
+
+  useEffect(() => {
+    if (!removeProjectDialog || removeProjectDialog.busy) return
+    const focusCancelButton = () => {
+      if (removeProjectDialogRef.current?.contains(document.activeElement)) return
+      removeProjectCancelButtonRef.current?.focus()
+    }
+    return scheduleFocusRetries(focusCancelButton, { runNow: false, delays: [180] })
+  }, [removeProjectDialog])
 
   useEffect(() => {
     if (!deleteWorktreeDialog) return
@@ -5214,6 +5370,7 @@ export function CodeWorkspace({
           || Boolean(mobileShareUrl)
           || Boolean(renameDialog)
           || Boolean(archiveExitDialog)
+          || Boolean(removeProjectDialog)
           || Boolean(deleteWorktreeDialog)
           || dialogOpen
         }
@@ -5708,6 +5865,7 @@ export function CodeWorkspace({
         agentSessionMenu={agentSessionMenu}
         renameDialog={renameDialog}
         archiveExitDialog={archiveExitDialog}
+        removeProjectDialog={removeProjectDialogView}
         deleteWorktreeDialog={deleteWorktreeDialog}
         copyNotice={copyNotice}
         contextMenuRef={contextMenuRef}
@@ -5715,6 +5873,8 @@ export function CodeWorkspace({
         renameInputRef={renameInputRef}
         archiveExitDialogRef={archiveExitDialogRef}
         archiveExitCancelButtonRef={archiveExitCancelButtonRef}
+        removeProjectDialogRef={removeProjectDialogRef}
+        removeProjectCancelButtonRef={removeProjectCancelButtonRef}
         deleteWorktreeDialogRef={deleteWorktreeDialogRef}
         deleteWorktreeCancelButtonRef={deleteWorktreeCancelButtonRef}
         onContextMenuKeyDown={handleContextMenuKeyDown}
@@ -5763,6 +5923,8 @@ export function CodeWorkspace({
         onSubmitRenameDialog={submitRenameDialog}
         onCloseArchiveExitDialog={closeArchiveExitDialog}
         onSubmitArchiveExitDialog={submitArchiveExitDialog}
+        onCloseRemoveProjectDialog={closeRemoveProjectDialog}
+        onSubmitRemoveProjectDialog={submitRemoveProjectDialog}
         onCloseDeleteWorktreeDialog={closeDeleteWorktreeDialog}
         onSubmitDeleteWorktreeDialog={submitDeleteWorktreeDialog}
         copy={copy}

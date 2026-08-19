@@ -60,6 +60,19 @@ individual file-open waiter does not cancel or replay that mutation; its result
 still updates authoritative browser membership, while only the current file-open
 intent may commit the main pane.
 
+Explicit removal is immediate only when the Project has no dependent resources.
+When live Agents, main-page sessions, or open editor tabs remain, Remove opens a
+confirmation inventory. Confirmation archives Agents first, removes the Project's
+main-page session memberships second, closes its editor tabs third, and only then
+unmounts the Project membership. Cancellation has no effect. Each stage is owned
+by its existing lifecycle, session-membership, editor, or Project-membership
+controller; a failed stage stops all later stages and leaves the Project mounted.
+Completed cleanup is not rolled back, so retry rebuilds the inventory from current
+authoritative state. An uncertain Project-removal result is reconciled from
+authoritative membership and is never replayed blindly. While confirmation is in
+progress, duplicate confirmation and cancellation are disabled; completion,
+definitive failure, or bounded uncertain reconciliation terminates the attempt.
+
 When a user explicitly selects a repository subdirectory while creating an
 Agent, that directory is the Project boundary. The containing Git worktree
 remains authoritative for repository operations, but it must not promote the

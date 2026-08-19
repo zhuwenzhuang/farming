@@ -50,6 +50,15 @@ Project 是持久挂载到 Farming 的 Workspace。Agent 创建、文件打开�
 不会取消或重放该 Mutation；其结果仍会更新 Browser 中的权威 Membership，而只有当前
 File-open Intent 可以提交 Main Pane。
 
+只有 Project 不再依赖任何资源时，显式移除才会立即执行。如果仍有 Live Agent、Main-page
+Session 或已打开的 Editor Tab，Remove 必须先展示确认清单。用户确认后，依次归档 Agent、
+移除该 Project 的 Main-page Session Membership、关闭 Editor Tab，最后才卸载 Project
+Membership。取消操作不产生任何 Effect。各阶段仍分别由现有 Lifecycle、Session Membership、
+Editor 和 Project Membership Controller 持有；任一阶段失败都停止后续阶段并保留 Project。
+已经完成的清理不回滚，因此 Retry 必须基于当前权威状态重新生成资源清单。Project Remove
+结果不明确时，只能从权威 Membership 对账，不能盲目重放。确认执行期间禁止重复确认和取消；
+成功、确定失败或有界的不确定结果对账都会终止本次尝试。
+
 用户在创建 Agent 时显式选择仓库子目录，该目录就是 Project 边界。外层 Git Worktree 仍然
 负责仓库操作，但不得因此把 Agent 提升到范围更大的已挂载 Project。从已有 Project 界面启动时，
 则可以显式传入该 Project Workspace，同时使用更深层的 Working Directory。

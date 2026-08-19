@@ -190,6 +190,19 @@ export interface CodeCopy {
   archiveChats: string
   archiveProject: string
   removeProject: string
+  removeProjectQuestion: (name: string) => string
+  removeProjectDescription: string
+  removeProjectAgents: (count: number) => string
+  removeProjectSessions: (count: number) => string
+  removeProjectFiles: (count: number) => string
+  removeProjectUnsavedChanges: string
+  archiveAndRemoveProject: string
+  removingProject: string
+  removeProjectInventoryUnavailable: string
+  removeProjectArchiveAgentsFailed: string
+  removeProjectArchiveSessionsFailed: string
+  removeProjectCloseFilesFailed: string
+  removeProjectFailed: string
   deleteWorktree: string
   deleteWorktreeQuestion: string
   deleteWorktreeDescription: string
@@ -750,6 +763,19 @@ const EN_COPY: CodeCopy = {
   archiveChats: 'Archive chats',
   archiveProject: 'Archive Project',
   removeProject: 'Remove Project',
+  removeProjectQuestion: name => `Remove ${name}?`,
+  removeProjectDescription: 'Farming will release these Project resources before removing it from the sidebar.',
+  removeProjectAgents: count => `${count} Agent${count === 1 ? '' : 's'} will be archived`,
+  removeProjectSessions: count => `${count} Session${count === 1 ? '' : 's'} will be archived`,
+  removeProjectFiles: count => `${count} file tab${count === 1 ? '' : 's'} will be closed`,
+  removeProjectUnsavedChanges: 'Unsaved file changes will remain available in the recently closed tab history.',
+  archiveAndRemoveProject: 'Archive and Remove',
+  removingProject: 'Removing…',
+  removeProjectInventoryUnavailable: 'Wait for the Project Agent list to finish loading before removing it.',
+  removeProjectArchiveAgentsFailed: 'Could not archive every Agent. The Project was not removed; retry uses the remaining resources.',
+  removeProjectArchiveSessionsFailed: 'Could not archive every Session. File tabs stayed open and the Project was not removed.',
+  removeProjectCloseFilesFailed: 'Could not close every file tab. The Project was not removed.',
+  removeProjectFailed: 'Could not remove the Project after releasing its resources.',
   deleteWorktree: 'Permanently Delete Worktree',
   deleteWorktreeQuestion: 'Permanently delete worktree?',
   deleteWorktreeDescription: 'This permanently deletes the worktree and all of its files.',
@@ -1336,6 +1362,19 @@ const ZH_COPY: CodeCopy = {
   archiveChats: '归档会话',
   archiveProject: '归档项目',
   removeProject: '移除项目',
+  removeProjectQuestion: name => `移除“${name}”？`,
+  removeProjectDescription: 'Farming 会先释放以下项目资源，再将项目从侧边栏移除。',
+  removeProjectAgents: count => `将归档 ${count} 个 Agent`,
+  removeProjectSessions: count => `将归档 ${count} 个会话`,
+  removeProjectFiles: count => `将关闭 ${count} 个文件页签`,
+  removeProjectUnsavedChanges: '未保存的文件改动仍可从最近关闭的页签记录中恢复。',
+  archiveAndRemoveProject: '归档并移除',
+  removingProject: '正在移除…',
+  removeProjectInventoryUnavailable: '请等待项目 Agent 列表加载完成后再移除。',
+  removeProjectArchiveAgentsFailed: '部分 Agent 无法归档，项目尚未移除；重试时会以剩余资源为准。',
+  removeProjectArchiveSessionsFailed: '部分会话无法归档，文件页签保持打开，项目尚未移除。',
+  removeProjectCloseFilesFailed: '部分文件页签无法关闭，项目尚未移除。',
+  removeProjectFailed: '相关资源已释放，但项目移除失败。',
   deleteWorktree: '彻底删除 worktree',
   deleteWorktreeQuestion: '彻底删除 worktree？',
   deleteWorktreeDescription: '这会彻底删除该 worktree 及其中的所有文件。',
