@@ -96,7 +96,7 @@ if grep -q '^npm warn allow-scripts' "${INSTALL_LOG}"; then
   exit 1
 fi
 PACKAGE_ROOT="${PREFIX}/lib/node_modules/farming-code"
-CODEX_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/codex-acp-1.4.0.mjs"
+CODEX_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/codex-acp-1.6.0.mjs"
 CLAUDE_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/claude-agent-acp-0.70.0.mjs"
 PI_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/pi-acp-0.0.33.mjs"
 for packaged_ui_file in \
@@ -247,7 +247,7 @@ const path = require('path');
 
 const [packageRoot, codexVendorEntry, claudeVendorEntry, piVendorEntry] = process.argv.slice(2);
 const sha256 = filePath => crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
-const expectedCodexVendor = 'b12502378ea4fda027b721902866ed27b600b5add6d019f5e5f00e84a0da0aed';
+const expectedCodexVendor = '2909eed4d1be735b1e3bfe59a9ee5e3e31344836ca2b874ae05ab1da042842f3';
 const expectedClaudeVendor = '07b9e40041685597281f0fc150c0543b5f3d14ab5189843596c6a6a504c71418';
 const expectedPiVendor = 'a750044ca2135463763d373c49744031aa1e9ff08f77011f1626156e3b4c8981';
 if (sha256(codexVendorEntry) !== expectedCodexVendor) {

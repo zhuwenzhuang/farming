@@ -11,6 +11,8 @@ const stallPrompt = process.env.FARMING_TEST_STALL_PROMPT === '1';
 const multiSession = process.env.FARMING_TEST_MULTI_SESSION === '1';
 const splitUtf8 = process.env.FARMING_TEST_SPLIT_UTF8 === '1';
 const requestLogFile = process.env.FARMING_TEST_REQUEST_LOG_FILE || '';
+const providerResumeGatePrefix = process.env.FARMING_TEST_PROVIDER_RESUME_GATE_PREFIX || '';
+const emitSubagentAfterResume = process.env.FARMING_TEST_EMIT_SUBAGENT_AFTER_RESUME === '1';
 let nextThread = 1;
 
 function thread(id = sessionId) {
@@ -63,7 +65,19 @@ function thread(id = sessionId) {
   };
 }
 
-function resultFor(method, params) {
+async function waitForProviderResumeGate() {
+  if (!providerResumeGatePrefix) return;
+  const gateFile = `${providerResumeGatePrefix}.${process.pid}`;
+  const deadline = Date.now() + 10_000;
+  while (!fs.existsSync(gateFile)) {
+    if (Date.now() >= deadline) {
+      throw new Error(`Timed out waiting for provider resume gate ${gateFile}`);
+    }
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+}
+
+async function resultFor(method, params) {
   if (method === 'initialize') {
     return { userAgent: 'fake-codex-app-server/0.0.0' };
   }
@@ -80,6 +94,7 @@ function resultFor(method, params) {
     return { data: [] };
   }
   if (method === 'thread/resume') {
+    await waitForProviderResumeGate();
     return {
       thread: thread(params.threadId),
       model: 'gpt-5.6',
@@ -99,6 +114,10 @@ function resultFor(method, params) {
       reasoningEffort: 'medium',
       serviceTier: null,
     };
+  }
+  if (method === 'thread/fork') {
+    const id = `019f0000-0000-7000-8001-${String(nextThread++).padStart(12, '0')}`;
+    return { thread: { ...thread(id), forkedFromId: params.threadId, turns: [] } };
   }
   if (method === 'turn/start' && stallPrompt) {
     return {
@@ -171,28 +190,60 @@ async function writeResponse(message) {
 
 async function run() {
   const lines = readline.createInterface({ input: process.stdin });
-  for await (const line of lines) {
-    if (!line.trim()) continue;
-    const request = JSON.parse(line);
-    if (request.id === undefined) continue;
+  const pending = new Set();
+  let outputQueue = Promise.resolve();
+  const enqueueResponse = message => {
+    const response = outputQueue.then(() => writeResponse(message));
+    outputQueue = response.catch(() => {});
+    return response;
+  };
+  const handleRequest = async request => {
     try {
       if (requestLogFile) {
         fs.appendFileSync(requestLogFile, `${JSON.stringify({
+          pid: process.pid,
           method: request.method,
           params: request.params,
         })}\n`);
       }
-      await writeResponse({
+      await enqueueResponse({
         id: request.id,
-        result: resultFor(request.method, request.params),
+        result: await resultFor(request.method, request.params),
       });
+      if (request.method === 'thread/resume' && emitSubagentAfterResume) {
+        const childId = `${request.params.threadId}-child`;
+        await enqueueResponse({
+          method: 'thread/started',
+          params: {
+            thread: {
+              ...thread(childId),
+              parentThreadId: request.params.threadId,
+              agentNickname: 'provider-restart-child',
+            },
+          },
+        });
+      }
     } catch (error) {
-      await writeResponse({
+      await enqueueResponse({
         id: request.id,
         error: { code: -32601, message: error.message },
       });
     }
+  };
+  for await (const line of lines) {
+    if (!line.trim()) continue;
+    const request = JSON.parse(line);
+    if (request.id === undefined) continue;
+    if (!providerResumeGatePrefix) {
+      await handleRequest(request);
+      continue;
+    }
+    const operation = handleRequest(request);
+    pending.add(operation);
+    void operation.finally(() => pending.delete(operation));
   }
+  await Promise.allSettled([...pending]);
+  await outputQueue;
 }
 
 run().catch(error => {
