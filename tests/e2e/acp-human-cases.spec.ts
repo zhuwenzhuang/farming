@@ -274,6 +274,18 @@ test.describe('ACP human-like browser matrix', () => {
     })
     expect(otherAgentResponse.ok()).toBeTruthy()
     const { agentId: otherAgentId } = await otherAgentResponse.json() as { agentId: string }
+    const identityResponse = await page.request.get(
+      `/farming/api/agents/${encodeURIComponent(agentId)}/acp-transcript?maxTurns=5&media=external-v1`,
+    )
+    expect(identityResponse.ok()).toBeTruthy()
+    const identity = await identityResponse.json() as {
+      sessionId?: string
+      runtimeEpoch?: string
+      toRevision?: number
+    }
+    expect(identity.sessionId).toBeTruthy()
+    expect(identity.runtimeEpoch).toBeTruthy()
+    const fixtureRevision = Math.max(11, Number(identity.toRevision) || 0) + 1_000_000
     let attempts = 0
     await page.route(
       new RegExp(`/farming/api/agents/${agentId}/acp-transcript(?:\\?.*)?$`),
@@ -286,10 +298,19 @@ test.describe('ACP human-like browser matrix', () => {
         await route.fulfill({
           contentType: 'application/json',
           body: JSON.stringify({
+            version: 1,
+            agentId,
+            sessionId: identity.sessionId,
+            runtimeEpoch: identity.runtimeEpoch,
+            fromRevision: null,
+            toRevision: fixtureRevision,
+            replace: true,
+            settled: true,
+            hasMoreBefore: false,
             transcript: {
-              sessionId: `transport-retry-${agentId}`,
+              sessionId: identity.sessionId,
               state: 'idle',
-              revision: 1,
+              revision: fixtureRevision,
               entries: [
                 {
                   id: 'retry-user',
@@ -312,13 +333,19 @@ test.describe('ACP human-like browser matrix', () => {
     )
 
     await openFarming(page)
-    await page.evaluate(() => window.dispatchEvent(new Event('farming:backend-disconnected')))
     await agentRow(page, agentId).click()
+    await page.evaluate(() => {
+      window.dispatchEvent(new Event('farming:backend-disconnected'))
+      window.dispatchEvent(new Event('farming:backend-connected'))
+    })
     await expect(page.getByText('This session’s Chat history could not be loaded.', { exact: true }))
       .toBeVisible({ timeout: 10_000 })
     expect(attempts).toBe(3)
 
-    await page.evaluate(() => window.dispatchEvent(new Event('farming:backend-connected')))
+    await page.evaluate(() => {
+      window.dispatchEvent(new Event('farming:backend-disconnected'))
+      window.dispatchEvent(new Event('farming:backend-connected'))
+    })
     await expect(page.getByText('Transcript transport recovered.', { exact: true })).toBeVisible({
       timeout: 10_000,
     })
@@ -331,7 +358,7 @@ test.describe('ACP human-like browser matrix', () => {
     )).toBeVisible()
     await agentRow(page, agentId).click()
     await expect(page.getByText('Transcript transport recovered.', { exact: true })).toBeVisible()
-    await expect.poll(() => attempts, { timeout: 5_000 }).toBeGreaterThanOrEqual(5)
+    expect(attempts).toBe(4)
     await expect(page.getByText('Transcript transport recovered.', { exact: true })).toBeVisible()
     await expect(page.getByText('This session’s Chat history could not be loaded.', { exact: true }))
       .toHaveCount(0)
@@ -1388,7 +1415,6 @@ test.describe('ACP human-like browser matrix', () => {
       await expect(errorSummary).toHaveAttribute('aria-expanded', 'false')
       await expect(errorTurn.getByTestId('code-agent-transcript-process-item')).toHaveCount(0)
       await errorSummary.click()
-      await errorTurn.getByTestId('code-agent-transcript-process-group-toggle').click()
       const errorItem = errorTurn.getByTestId('code-agent-transcript-process-item').filter({ hasText: 'Authentication required' })
       await expect(errorItem.getByTestId('code-agent-transcript-process-item-toggle')).toHaveAttribute('aria-expanded', 'false')
       await errorItem.getByTestId('code-agent-transcript-process-item-toggle').click()
@@ -2117,7 +2143,6 @@ test.describe('ACP human-like browser matrix', () => {
     const errorSummary = errorTurn.getByTestId('code-agent-transcript-process-summary')
     await expect(errorSummary).toContainText('Agent error', { timeout: 10_000 })
     await errorSummary.click()
-    await errorTurn.getByTestId('code-agent-transcript-process-group-toggle').click()
     await errorTurn.getByTestId('code-agent-transcript-process-item-toggle').click()
     expect((await errorTurn.innerText()).split(errorText).length - 1).toBe(1)
     await expect(errorTurn.getByTestId('code-agent-transcript-copy-answer')).toHaveCount(0)

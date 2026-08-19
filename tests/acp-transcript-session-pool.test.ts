@@ -4,6 +4,7 @@ import {
   attachAcpTranscriptSession,
   getAcpTranscriptSessionSnapshot,
   observeAcpTranscriptRevision,
+  reconnectAcpTranscriptSessions,
   resetAcpTranscriptSessionPoolForTests,
   retainAcpTranscriptSessions,
 } from '../src/components/code/acp/acp-transcript-session-pool'
@@ -116,6 +117,45 @@ test('reattach reuses a current retained Transcript without another read', async
     assert.equal(getAcpTranscriptSessionSnapshot('agent-e').transcript?.revision, 1)
     assert.equal(urls.length, 1)
     secondRelease()
+  } finally {
+    resetAcpTranscriptSessionPoolForTests()
+    globalThis.fetch = previousFetch
+  }
+})
+
+test('an exhausted recovery checkpoint exposes a transport error and can reconnect', async () => {
+  const previousFetch = globalThis.fetch
+  let attempts = 0
+  let releaseFirstFailure!: () => void
+  const firstFailureGate = new Promise<void>(resolve => { releaseFirstFailure = resolve })
+  globalThis.fetch = async () => {
+    attempts += 1
+    if (attempts === 1) await firstFailureGate
+    if (attempts <= 3) throw new TypeError('Failed to fetch')
+    return jsonResponse(envelope('agent-recovery', 1))
+  }
+  try {
+    retainAcpTranscriptSessions(['agent-recovery'])
+    const release = attachAcpTranscriptSession('agent-recovery')
+    observeAcpTranscriptRevision({
+      agentId: 'agent-recovery',
+      sessionId: 'session-agent-recovery',
+      runtimeEpoch: 'epoch-agent-recovery',
+      revision: 1,
+      updatedAt: '2026-08-19T00:00:01.000Z',
+    })
+    releaseFirstFailure()
+    await waitFor(() => attempts === 3, 2_500)
+    await waitFor(() => getAcpTranscriptSessionSnapshot('agent-recovery').error === 'transport')
+
+    assert.equal(getAcpTranscriptSessionSnapshot('agent-recovery').loading, false)
+    assert.equal(getAcpTranscriptSessionSnapshot('agent-recovery').transcript, null)
+
+    reconnectAcpTranscriptSessions()
+    await waitFor(() => getAcpTranscriptSessionSnapshot('agent-recovery').transcript?.revision === 1)
+    assert.equal(attempts, 4)
+    assert.equal(getAcpTranscriptSessionSnapshot('agent-recovery').error, null)
+    release()
   } finally {
     resetAcpTranscriptSessionPoolForTests()
     globalThis.fetch = previousFetch

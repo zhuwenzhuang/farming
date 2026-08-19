@@ -175,6 +175,18 @@ test('promotes an external Chat file link to its nearest Git Project', async ({ 
   fs.mkdirSync(launcherWorkspace, { recursive: true })
   const { filePath, repository } = createRepositoryFile(workspaceRoot, 'chat link git project 发布')
   const agentId = await createChatAgent(page, launcherWorkspace)
+  const identityResponse = await page.request.get(
+    `/farming/api/agents/${encodeURIComponent(agentId)}/acp-transcript?maxTurns=5&media=external-v1`,
+  )
+  expect(identityResponse.ok()).toBeTruthy()
+  const identity = await identityResponse.json() as {
+    sessionId?: string
+    runtimeEpoch?: string
+    toRevision?: number
+  }
+  expect(identity.sessionId).toBeTruthy()
+  expect(identity.runtimeEpoch).toBeTruthy()
+  const fixtureRevision = Math.max(11, Number(identity.toRevision) || 0) + 1_000_000
   let forceGlobalFallback = true
   const navigationResponses: Response[] = []
   const workspaceFileReads: Array<{ path: string; exactExternal?: boolean }> = []
@@ -215,10 +227,19 @@ test('promotes an external Chat file link to its nearest Git Project', async ({ 
     await route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
+        version: 1,
+        agentId,
+        sessionId: identity.sessionId,
+        runtimeEpoch: identity.runtimeEpoch,
+        fromRevision: null,
+        toRevision: fixtureRevision,
+        replace: true,
+        settled: true,
+        hasMoreBefore: false,
         transcript: {
-          sessionId: 'external-chat-file-link',
+          sessionId: identity.sessionId,
           state: 'idle',
-          revision: 1,
+          revision: fixtureRevision,
           entries: [
             {
               id: 'external-chat-file-link-user',

@@ -343,7 +343,7 @@ test('project shortcuts ignore an older Agent launch-default response', async ({
   await projectGroup.hover()
   await projectGroup.getByTestId('code-project-new-agent').click({ force: true })
   await expect(page.getByTestId('code-project-agent-launch-chat-codex'))
-    .toHaveAttribute('aria-label', 'Codex · Terminal')
+    .toHaveAttribute('aria-label', 'Codex · Chat')
 })
 
 test('Plugins keeps cached Agent Home configurations visible while refreshing', async ({ page }) => {

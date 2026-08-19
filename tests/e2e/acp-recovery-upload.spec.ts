@@ -103,6 +103,10 @@ test('retries a transient ACP transcript transport failure before restoring an e
   })
 
   await agentRow.click()
+  await page.evaluate(() => {
+    window.dispatchEvent(new Event('farming:backend-disconnected'))
+    window.dispatchEvent(new Event('farming:backend-connected'))
+  })
   await expect.poll(() => transcriptRequests, { timeout: 5_000 }).toBe(3)
   await expect(page.getByText('Rich ACP timeline complete.', { exact: true })).toBeVisible()
   await expect(page.getByText('Chat history is unavailable for this session.', { exact: true })).toHaveCount(0)

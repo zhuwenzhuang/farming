@@ -100,6 +100,18 @@ test.describe('workspace sharing', () => {
     const workspace = path.join(workspaceRoot, 'chat-context-share')
     fs.mkdirSync(workspace, { recursive: true })
     const agentId = await createAgent(page, workspace, 'chat')
+    const identityResponse = await page.request.get(
+      `/farming/api/agents/${encodeURIComponent(agentId)}/acp-transcript?maxTurns=5&media=external-v1`,
+    )
+    expect(identityResponse.ok()).toBeTruthy()
+    const identity = await identityResponse.json() as {
+      sessionId?: string
+      runtimeEpoch?: string
+      toRevision?: number
+    }
+    expect(identity.sessionId).toBeTruthy()
+    expect(identity.runtimeEpoch).toBeTruthy()
+    const fixtureRevision = Math.max(11, Number(identity.toRevision) || 0) + 1_000_000
     const capturedTargets: Array<{ agentId?: string; readingAnchor?: string }> = []
     let releaseFirstShare = () => {}
     const firstShareGate = new Promise<void>(resolve => { releaseFirstShare = resolve })
@@ -110,10 +122,19 @@ test.describe('workspace sharing', () => {
       await route.fulfill({
         contentType: 'application/json',
         body: JSON.stringify({
+          version: 1,
+          agentId,
+          sessionId: identity.sessionId,
+          runtimeEpoch: identity.runtimeEpoch,
+          fromRevision: null,
+          toRevision: fixtureRevision,
+          replace: true,
+          settled: true,
+          hasMoreBefore: false,
           transcript: {
-            sessionId: 'chat-context-share-session',
+            sessionId: identity.sessionId,
             state: 'idle',
-            revision: 1,
+            revision: fixtureRevision,
             entries: [
               { id: 'share-user-one', type: 'message', role: 'user', content: [{ type: 'text', text: 'First question' }] },
               { id: 'share-answer-one', type: 'message', role: 'assistant', _meta: { codex: { phase: 'final_answer' } }, content: [{ type: 'text', text: 'First answer to share' }] },

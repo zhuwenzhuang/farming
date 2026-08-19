@@ -347,11 +347,11 @@ async function loadRecord(record: AcpTranscriptSessionRecord) {
       return
     }
     record.retryAttempt = 0
-    const checkpointPending = attachmentCheckpointPending(record)
+    const hasAvailableTranscript = record.snapshot.transcript?.available === true
     updateSnapshot(record, {
-      loading: checkpointPending,
+      loading: false,
       loadingOlder: false,
-      error: checkpointPending || record.snapshot.transcript?.available
+      error: hasAvailableTranscript
         ? null
         : (responseReceived ? 'response' : 'transport'),
     })
