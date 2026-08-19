@@ -64,6 +64,8 @@ A fresh Chat may expose its connecting shell before the Provider Session id is
 materialized. Its transcript projection remains explicitly pending until that
 authoritative identity is published; opening, archiving, or replacing the
 connecting shell must not turn that expected interval into a failed request.
+Loading older transcript pages must preserve the reader's visible position;
+prepending history does not itself navigate to the start of the conversation.
 
 A fresh Terminal may switch before user input has materialized a Provider
 conversation. After input, switching, permission restart, recovery, and Fork

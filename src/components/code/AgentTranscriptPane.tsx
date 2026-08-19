@@ -3115,7 +3115,11 @@ export function AgentTranscriptPane({
     uncommittedPaths: ReadonlySet<string> | null
   }>({ owner: '', target: unavailableTranscriptGitDiffTarget, uncommittedPaths: null })
   const scrollRef = useRef<HTMLDivElement | null>(null)
-  const pendingPrependAnchorRef = useRef<{ scrollTop: number; scrollHeight: number } | null>(null)
+  const pendingPrependAnchorRef = useRef<{
+    scrollTop: number
+    scrollHeight: number
+    turnCount: number
+  } | null>(null)
   const followBottomRef = useRef(true)
   const stationaryScrollTopRef = useRef<number | null>(null)
   const previousViewportLayoutKeyRef = useRef(viewportLayoutKey)
@@ -3711,12 +3715,17 @@ export function AgentTranscriptPane({
     }
     const pendingAnchor = pendingPrependAnchorRef.current
     if (pendingAnchor) {
+      const prependedTurns = turns.length > pendingAnchor.turnCount
+      if (prependedTurns) {
+        pendingPrependAnchorRef.current = null
+        const nextTop = element.scrollHeight - pendingAnchor.scrollHeight + pendingAnchor.scrollTop
+        element.scrollTop = Math.max(0, nextTop)
+        if (!followBottomRef.current) stationaryScrollTopRef.current = element.scrollTop
+        scheduleReadingAnchorSave(readingAnchorAgentId, element)
+        return
+      }
+      if (loadingOlder) return
       pendingPrependAnchorRef.current = null
-      const nextTop = element.scrollHeight - pendingAnchor.scrollHeight + pendingAnchor.scrollTop
-      element.scrollTop = Math.max(0, nextTop)
-      if (!followBottomRef.current) stationaryScrollTopRef.current = element.scrollTop
-      scheduleReadingAnchorSave(readingAnchorAgentId, element)
-      return
     }
     if (userScrollGestureRef.current) return
     if (followBottomRef.current) {
@@ -3940,6 +3949,7 @@ export function AgentTranscriptPane({
     pendingPrependAnchorRef.current = {
       scrollTop: element.scrollTop,
       scrollHeight: element.scrollHeight,
+      turnCount: turns.length,
     }
     setLoadingOlder(true)
     setTurnLimit(current => {
@@ -3952,7 +3962,7 @@ export function AgentTranscriptPane({
       }
       return next
     })
-  }, [loadingOlder, source, transcript?.hasMoreBefore, turnLimit])
+  }, [loadingOlder, source, transcript?.hasMoreBefore, turnLimit, turns.length])
   const handleTouchStart = useCallback(() => {
     markUserScrollGesture()
   }, [markUserScrollGesture])

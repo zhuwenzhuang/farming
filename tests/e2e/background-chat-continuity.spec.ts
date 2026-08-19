@@ -772,7 +772,7 @@ test('keeps long ACP Chat stable when the Composer is collapsed and restored', a
   await expect(page.getByTestId('code-agent-transcript-jump-bottom')).toBeVisible()
 })
 
-test('restores a persisted Chat message anchor after reload and loads older turns when needed', async ({ page, workspaceRoot }) => {
+test('preserves the visible Chat position when loading older turns after reload', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'persisted-chat-reading-anchor')
   fs.mkdirSync(workspace, { recursive: true })
   const agentId = await createAcpAgent(page, workspace)
@@ -826,18 +826,46 @@ test('restores a persisted Chat message anchor after reload and loads older turn
   await selectAgentOnCompactLayout(page, agentId)
   const transcript = page.getByTestId('code-agent-transcript-scroll')
   await expect(transcript).toContainText('Persisted reading question 35')
+  await page.reload()
+  await selectAgentOnCompactLayout(page, agentId)
+  await expect(transcript).toContainText('Persisted reading question 35')
+  const initialPageAnchor = transcript.getByText('Persisted reading question 31', { exact: true })
+  await expect(initialPageAnchor).toBeAttached()
+  const initialPageAnchorOffset = () => transcript.evaluate((element, expectedText) => {
+    const anchor = Array.from(element.querySelectorAll<HTMLElement>('.code-agent-transcript-user'))
+      .find(message => message.textContent?.trim() === expectedText)
+    if (!anchor) throw new Error('Initial transcript page anchor is unavailable')
+    return anchor.getBoundingClientRect().top - element.getBoundingClientRect().top
+  }, 'Persisted reading question 31')
+  let initialPageAnchorTop: number | null = null
   const targetQuestion = transcript.getByText('Persisted reading question 2', { exact: true })
   for (let attempt = 0; attempt < 4 && await targetQuestion.count() === 0; attempt += 1) {
     const requestsBeforeScroll = requestedTurnLimits.length
     const heightBeforeScroll = await transcript.evaluate(element => element.scrollHeight)
-    await transcript.evaluate(element => {
+    const anchorTop = await transcript.evaluate((element, captureAnchor) => {
       element.dispatchEvent(new Event('touchstart', { bubbles: true }))
       element.scrollTop = 0
+      const anchor = captureAnchor
+        ? Array.from(element.querySelectorAll<HTMLElement>('.code-agent-transcript-user'))
+            .find(message => message.textContent?.trim() === 'Persisted reading question 31')
+        : null
+      const top = anchor
+        ? anchor.getBoundingClientRect().top - element.getBoundingClientRect().top
+        : null
       element.dispatchEvent(new Event('scroll', { bubbles: true }))
       element.dispatchEvent(new Event('touchend', { bubbles: true }))
-    })
+      return top
+    }, attempt === 0)
+    if (attempt === 0) initialPageAnchorTop = anchorTop
     await expect.poll(() => requestedTurnLimits.length).toBeGreaterThan(requestsBeforeScroll)
     await expect.poll(() => transcript.evaluate(element => element.scrollHeight)).toBeGreaterThan(heightBeforeScroll)
+    if (attempt === 0) {
+      const expectedAnchorTop = initialPageAnchorTop
+      if (expectedAnchorTop === null) throw new Error('Initial transcript page anchor was not captured')
+      await expect.poll(async () => Math.abs(
+        (await initialPageAnchorOffset()) - expectedAnchorTop,
+      )).toBeLessThanOrEqual(2)
+    }
   }
   await expect(targetQuestion).toBeAttached()
 
