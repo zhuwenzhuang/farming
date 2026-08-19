@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
 import type { Agent, ProjectAgentSummary, TaskHistoryEntry } from '@/types/agent'
-import type { ClientMessage, ComposerInputAttachment, ComposerInputMessage, LanguageServerRefreshMessage, ServerMessage, StartAgentMessage, WorkspaceFileEventMessage } from '@/types/messages'
+import type { AcpSessionRevisionMessage, ClientMessage, ComposerInputAttachment, ComposerInputMessage, LanguageServerRefreshMessage, ServerMessage, StartAgentMessage, WorkspaceFileEventMessage } from '@/types/messages'
 import { getStartupAccessToken } from '@/lib/auth-url'
 import { appWsUrl } from '@/lib/base-path'
 import {
@@ -149,6 +149,7 @@ export function useWebSocket() {
   const focusedAgentIdRef = useRef<string | null>(null)
   const agentActivityScopeRef = useRef<'all' | 'focused' | 'none'>('all')
   const agentPreviewScopeRef = useRef<'all' | 'focused' | 'none'>('none')
+  const watchedAcpTranscriptAgentIdsRef = useRef<string[]>([])
   const agentStateSignaturesRef = useRef<Map<string, string>>(new Map())
   const agentStateCursorRef = useRef<AgentStateCursor | null>(null)
   const agentStateSnapshotAgentsRef = useRef<Agent[]>([])
@@ -230,6 +231,7 @@ export function useWebSocket() {
     kind?: 'output' | 'resize' | 'clear',
   ) => void>>(new Map())
   const workspaceFileListenersRef = useRef<Map<string, Map<WorkspaceFileListener, WorkspaceFileListenerRegistration>>>(new Map())
+  const acpRevisionListenersRef = useRef(new Set<(session: AcpSessionRevisionMessage['session']) => void>())
 
   const sendMessage = useCallback((msg: ClientMessage) => {
     const ws = wsRef.current
@@ -428,6 +430,21 @@ export function useWebSocket() {
       previewScope,
     }))
     return true
+  }, [])
+
+  const watchAcpTranscripts = useCallback((agentIds: readonly string[]) => {
+    const normalizedAgentIds = Array.from(new Set(agentIds)).sort().slice(0, 20)
+    if (sameStringArray(watchedAcpTranscriptAgentIdsRef.current, normalizedAgentIds)) return true
+    watchedAcpTranscriptAgentIdsRef.current = normalizedAgentIds
+    const ws = wsRef.current
+    if (!ws || ws.readyState !== WebSocket.OPEN || accessModeRef.current === 'unknown') return false
+    ws.send(JSON.stringify({ type: 'watch-acp-transcripts', agentIds: normalizedAgentIds }))
+    return true
+  }, [])
+
+  const onAcpSessionRevision = useCallback((handler: (session: AcpSessionRevisionMessage['session']) => void) => {
+    acpRevisionListenersRef.current.add(handler)
+    return () => { acpRevisionListenersRef.current.delete(handler) }
   }, [])
 
   const interruptAgent = useCallback((agentId: string) => {
@@ -738,6 +755,10 @@ export function useWebSocket() {
                     paths: workspaceFileListenerPaths(listeners),
                   }))
                 })
+                ws.send(JSON.stringify({
+                  type: 'watch-acp-transcripts',
+                  agentIds: watchedAcpTranscriptAgentIdsRef.current,
+                }))
               }
               break
             }
@@ -1039,7 +1060,10 @@ export function useWebSocket() {
               updateAgentLiveState(msg.update.agentId, msg.update.patch)
               break
             case 'acp-session-revision':
-              updateAgentAcpSessionRevision(msg.session)
+              acpRevisionListenersRef.current.forEach(listener => listener(msg.session))
+              if (msg.session.agentId === focusedAgentIdRef.current) {
+                updateAgentAcpSessionRevision(msg.session)
+              }
               break
             case 'session-preview':
               updateAgentLivePreview(msg.preview)
@@ -1239,6 +1263,8 @@ export function useWebSocket() {
     startAgent,
     sendComposerInput,
     focusAgent,
+    watchAcpTranscripts,
+    onAcpSessionRevision,
     interruptAgent,
     restartMainAgent,
     onSessionOutput,

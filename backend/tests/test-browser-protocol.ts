@@ -33,6 +33,7 @@ const validClientMessages = {
   },
   'interrupt-agent': { type: 'interrupt-agent', agentId: 'agent-1' },
   'focus-agent': { type: 'focus-agent', agentId: 'agent-1' },
+  'watch-acp-transcripts': { type: 'watch-acp-transcripts', agentIds: ['agent-1', 'agent-2'] },
   'resize-agent': { type: 'resize-agent', agentId: 'agent-1', cols: 80, rows: 24 },
   'clear-terminal': { type: 'clear-terminal', agentId: 'agent-1' },
   'watch-workspace-files': { type: 'watch-workspace-files', rootId: 'root-1', paths: ['src/App.tsx'] },
@@ -87,6 +88,9 @@ assert.strictEqual(validateClientMessage({
   initialFocusedAgentId: 'agent-a',
 }).ok, false);
 assert.strictEqual(validateClientMessage({ type: 'resize-agent', agentId: 'a', cols: 80, rows: 24 }).ok, true);
+assert.strictEqual(validateClientMessage({ type: 'watch-acp-transcripts', agentIds: [] }).ok, true);
+assert.strictEqual(validateClientMessage({ type: 'watch-acp-transcripts', agentIds: ['a', 'a'] }).ok, false);
+assert.strictEqual(validateClientMessage({ type: 'watch-acp-transcripts', agentIds: Array.from({ length: 21 }, (_, index) => `a-${index}`) }).ok, false);
 assert.strictEqual(validateClientMessage({ type: 'resize-agent', agentId: 'a', cols: '80', rows: 24 }).ok, false);
 assert.strictEqual(validateClientMessage({ type: 'watch-workspace-files', rootId: 'a', paths: ['src/App.tsx'] }).ok, true);
 assert.strictEqual(validateClientMessage({ type: 'watch-workspace-files', rootId: 'a' }).ok, false);
@@ -584,11 +588,37 @@ assert.strictEqual(validateServerMessage({
 }).ok, false);
 assert.strictEqual(validateServerMessage({
   type: 'acp-session-revision',
-  session: { agentId: 'a', revision: 12, updatedAt: '2026-07-29T03:00:00.000Z' },
+  session: {
+    agentId: 'a',
+    sessionId: 'session-a',
+    runtimeEpoch: 'epoch-a',
+    revision: 12,
+    updatedAt: '2026-07-29T03:00:00.000Z',
+  },
 }).ok, true);
 assert.strictEqual(validateServerMessage({
   type: 'acp-session-revision',
-  session: { agentId: 'a', revision: '12', updatedAt: '2026-07-29T03:00:00.000Z' },
+  session: {
+    agentId: 'a',
+    sessionId: 'session-a',
+    runtimeEpoch: 'epoch-a',
+    revision: '12',
+    updatedAt: '2026-07-29T03:00:00.000Z',
+  },
+}).ok, false);
+assert.strictEqual(validateServerMessage({
+  type: 'acp-session-revision',
+  session: { agentId: 'a', revision: 12, updatedAt: '2026-07-29T03:00:00.000Z' },
+}).ok, false);
+assert.strictEqual(validateServerMessage({
+  type: 'acp-session-revision',
+  session: {
+    agentId: 'a',
+    sessionId: '',
+    runtimeEpoch: 'epoch-a',
+    revision: 12,
+    updatedAt: '2026-07-29T03:00:00.000Z',
+  },
 }).ok, false);
 assert.strictEqual(validateServerMessage({
   type: 'agent-read',

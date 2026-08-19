@@ -17,11 +17,29 @@ function setup(client = {}) {
 }
 
 {
-  const test = setup({ focusedAgentId: 'a', stateScope: 'focused', activityScope: 'focused', previewScope: 'focused' });
+  const test = setup({
+    focusedAgentId: 'a',
+    stateScope: 'focused',
+    activityScope: 'focused',
+    previewScope: 'focused',
+    acpRevisionCheckpointPending: new Set(['a', 'b']),
+    acpRevisionSentCursor: new Map([['a', { revision: 3 }], ['b', { revision: 4 }]]),
+  });
   test.handlers.focusAgent(test.client, { agentId: 'b', stateScope: 'focused', activityScope: 'focused' });
   assert.deepStrictEqual(test.calls, ['prioritize:b', 'acp:b', 'activity:b', 'state']);
   assert.strictEqual(test.client.focusedAgentId, 'b');
-  assert.strictEqual(test.client.acpRevisionSentRevision, -1);
+  assert.strictEqual((test.client.acpRevisionSentCursor as Map<string, unknown>).size, 0);
+  assert.strictEqual((test.client.acpRevisionCheckpointPending as Set<string>).size, 0);
+}
+
+{
+  const test = setup({
+    focusedAgentId: 'a',
+    acpRevisionInterest: new Set(['a']),
+    acpRevisionSentCursor: new Map([['a', { revision: 3 }]]),
+  });
+  test.handlers.focusAgent(test.client, { agentId: 'b' });
+  assert.strictEqual((test.client.acpRevisionSentCursor as Map<string, unknown>).has('a'), true);
 }
 
 {

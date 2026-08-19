@@ -4,6 +4,7 @@ const READ_ONLY_CLIENT_MESSAGE_TYPES = new Set([
   'protocol-hello',
   'state-resync',
   'terminal-checkpoint-request',
+  'watch-acp-transcripts',
   'unwatch-workspace-files',
   'watch-workspace-files',
   'workspace-request',

@@ -1320,6 +1320,7 @@ class AgentManager extends EventEmitter {
   declare heartbeatScheduler: AgentHeartbeatScheduler;
   declare taskHistoryStore: AgentTaskHistoryStore;
   declare acpTranscriptService: AcpTranscriptService;
+  declare acpTranscriptCursorIdentities: Map<AgentId, string>;
   declare createProviderSessionIdentity: CreateProviderSessionIdentityContract;
   declare deleteProviderSessionIdentity: DeleteProviderSessionIdentityContract;
   declare archiveCodexSession: ArchiveCodexSessionContract;
@@ -1358,6 +1359,7 @@ class AgentManager extends EventEmitter {
     const agent = this.agents.get(agentId);
     const deleted = this.agents.delete(agentId);
     if (deleted) {
+      this.acpTranscriptCursorIdentities.delete(agentId);
       this.agentOrderAllocator.remove(agent);
       this.agentWorktreeRefreshQueue.forget(agentId);
     }
@@ -1477,6 +1479,7 @@ class AgentManager extends EventEmitter {
         : (shell: string) => resolveUserShellEnvSync({ processEnv: process.env, shell }),
     });
     this.agents = new RuntimeAgentMap();
+    this.acpTranscriptCursorIdentities = new Map();
     this.forkTitleReservations = new Set();
     this.agentOrderAllocator = new AgentOrderAllocator();
     this.mainAgentIdentity = new MainAgentIdentityOwner();
@@ -1899,6 +1902,26 @@ class AgentManager extends EventEmitter {
         });
       }
       if (sessionIdentityChanged) this.emitStateChange({ agentIds: [agentId] });
+      let runtimeEpoch = '';
+      try {
+        runtimeEpoch = typeof this.acpRuntime.bindingEpoch === 'function'
+          ? String(this.acpRuntime.bindingEpoch(agentId) || '').trim()
+          : '';
+      } catch {
+        runtimeEpoch = '';
+      }
+      const cursorSessionId = String(sessionId || agent.providerSessionId || '').trim();
+      const cursorIdentity = cursorSessionId && runtimeEpoch
+        ? `${cursorSessionId}\0${runtimeEpoch}`
+        : '';
+      const cursorIdentityChanged = Boolean(
+        cursorIdentity
+        && this.acpTranscriptCursorIdentities.get(agentId) !== cursorIdentity
+      );
+      if (cursorIdentity) this.acpTranscriptCursorIdentities.set(agentId, cursorIdentity);
+      if (sessionIdentityChanged || cursorIdentityChanged) {
+        this.emit('acp-session-revision', { agentId });
+      }
       const settledTurnHandle = String(lastSettledTurnHandle || '');
       this.acpTurnFinalizationCoordinator.observeSettledTurn({
         agentId,
@@ -6585,6 +6608,27 @@ class AgentManager extends EventEmitter {
 
   async getAcpTranscriptSerialized(agentId: AgentId, options: Partial<AcpSessionRequestOptions> = {}) {
     return this.acpTranscriptService.getSerialized(agentId, options);
+  }
+
+  getAcpTranscriptCursor(agentId: AgentId) {
+    const agent = this.agents.get(agentId);
+    if (!agent || runtimeKind(agent) !== 'acp') return null;
+    let session: Record<string, unknown>;
+    try {
+      session = this.acpRuntime.getSession(agentId, {
+        includeEntries: false,
+        includeUpdates: false,
+      });
+    } catch {
+      return null;
+    }
+    const sessionId = String(session.sessionId || agent.providerSessionId || '').trim();
+    const runtimeEpoch = String(this.acpRuntime.bindingEpoch(agentId) || '').trim();
+    const revision = Number(session.revision);
+    const updatedAt = String(session.updatedAt || runtimeBindingOf(agent, 'acp')?.sessionUpdatedAt || '');
+    if (!sessionId || !runtimeEpoch || !Number.isInteger(revision) || revision < 0 || !updatedAt) return null;
+    this.acpTranscriptCursorIdentities.set(agentId, `${sessionId}\0${runtimeEpoch}`);
+    return { agentId, sessionId, runtimeEpoch, revision, updatedAt };
   }
 
   prioritizeAcpPreparedTranscript(agentId: AgentId) {

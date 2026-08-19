@@ -119,3 +119,24 @@ test('releasing a held checkpoint completion consumes it exactly once', () => {
   assert.equal(completions, 1)
   assert.equal(record.replication.heldCheckpointInstallCompletionForTest, null)
 })
+
+test('a detached replacement snapshot explicitly requires checkpoint recovery', () => {
+  const state = replicationRecord()
+  state.record.replication.bootstrappingSnapshot = false
+  state.record.replication.needsReconnectOutputSync = false
+
+  replication.applyTerminalOutputEvent(
+    state.record,
+    'replacement screen',
+    true,
+    9,
+    'farming-runtime-v1:00000000000000000002:test',
+    12,
+    100,
+    30,
+  )
+
+  assert.equal(state.record.replication.needsReconnectOutputSync, true)
+  assert.equal(state.record.replication.bootstrappingSnapshot, true)
+  assert.ok(state.recoveryBegins() >= 2)
+})

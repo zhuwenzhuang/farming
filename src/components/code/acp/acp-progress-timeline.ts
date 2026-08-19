@@ -33,11 +33,6 @@ function actionLabel(kind: ActionKind, count: number) {
 }
 
 export function acpActionGroupLabel(items: AcpProgressTimelineItem[]) {
-  const failedCount = items.filter(item => (
-    ['failed', 'rejected', 'cancelled', 'canceled'].includes(String(item.status || '').toLowerCase())
-  )).length
-  if (failedCount > 0) return failedCount === 1 ? 'Action failed' : `${failedCount} actions failed`
-
   const counts = new Map<ActionKind, number>()
   for (const item of items) {
     const kind = actionKind(item)
@@ -60,7 +55,7 @@ export function isAcpProgressUpdate(item: AcpProgressTimelineItem) {
 
 function isAcpProgressBoundary(item: AcpProgressTimelineItem) {
   const type = String(item.type || '').trim().toLowerCase()
-  return type === 'progress' || type === 'user-steer'
+  return type === 'progress' || type === 'user-steer' || type === 'error'
 }
 
 export function acpProgressFlowEntries<T extends AcpProgressTimelineItem>(

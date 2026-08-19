@@ -67,6 +67,9 @@ authoritative cut it needs.
 A stale checkpoint already queued for rendering may drain, but its completion
 cannot commit after a newer attachment or recovery generation exists. The
 replacement checkpoint remains able to reach a visible authoritative state.
+A replacement transition received while its renderer is detached cannot be
+silently discarded: it advances the attachment recovery target and marks the
+record as requiring a fresh checkpoint before the next visible attach.
 
 During a full checkpoint install, the previous screen stays hidden. The user
 sees either the last proven screen, a bounded recovery status, or the newly

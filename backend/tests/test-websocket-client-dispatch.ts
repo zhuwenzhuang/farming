@@ -45,6 +45,7 @@ const validClientMessages = {
   },
   'interrupt-agent': { type: 'interrupt-agent', agentId: 'agent-1' },
   'focus-agent': { type: 'focus-agent', agentId: 'agent-1' },
+  'watch-acp-transcripts': { type: 'watch-acp-transcripts', agentIds: ['agent-1'] },
   'resize-agent': { type: 'resize-agent', agentId: 'agent-1', cols: 80, rows: 24 },
   'clear-terminal': { type: 'clear-terminal', agentId: 'agent-1' },
   'watch-workspace-files': { type: 'watch-workspace-files', rootId: 'root-1', paths: ['src/App.tsx'] },
@@ -103,6 +104,7 @@ async function run(): Promise<void> {
       });
     }),
     'focus-agent': register('focus-agent', record),
+    'watch-acp-transcripts': register('watch-acp-transcripts', record),
     'resize-agent': register('resize-agent', record),
     'clear-terminal': register('clear-terminal', record),
     'watch-workspace-files': register('watch-workspace-files', record),

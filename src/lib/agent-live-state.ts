@@ -71,6 +71,7 @@ const projectListenersByWorkspace = new Map<string, Set<Listener>>()
 const dirtyProjectWorkspaces = new Set<string>()
 const agentReadListeners = new Set<AgentReadListener>()
 const agentRuntimeBindingListeners = new Set<AgentRuntimeBindingListener>()
+const acpSessionRevisionCursors = new Map<string, AcpSessionRevisionMessage['session']>()
 const dynamicPinProjectionListeners = new Set<Listener>()
 // One terminal action emits nearby update and activity frames. Keep their
 // synchronous state writes, but publish one bounded external-store change.
@@ -478,11 +479,17 @@ export function updateAgentAcpSessionRevision(
 ) {
   const previous = entries.get(session.agentId)
   const runtimeBinding = previous?.value.runtimeBinding
+  const previousCursor = acpSessionRevisionCursors.get(session.agentId)
   if (
     !previous
     || runtimeBinding?.kind !== 'acp'
-    || session.revision <= runtimeBinding.sessionRevision
+    || (
+      previousCursor?.sessionId === session.sessionId
+      && previousCursor.runtimeEpoch === session.runtimeEpoch
+      && session.revision <= previousCursor.revision
+    )
   ) return
+  acpSessionRevisionCursors.set(session.agentId, session)
   updateAgentLiveState(session.agentId, {
     runtimeBinding: {
       ...runtimeBinding,
@@ -517,6 +524,7 @@ export function reconcileAgentLiveStates(agents: Agent[]) {
       notifyDynamicPinProjection()
       removeAgentProjectState(agentId)
       entries.delete(agentId)
+      acpSessionRevisionCursors.delete(agentId)
       notify(agentId, true)
     }
   })
@@ -530,6 +538,7 @@ export function reconcileAgentLiveStateDelta(agents: Agent[], removedAgentIds: s
     })
     removedAgentIds.forEach(agentId => {
       removeAgentProjectState(agentId)
+      acpSessionRevisionCursors.delete(agentId)
       if (!entries.delete(agentId)) return
       notifyDynamicPinProjection()
       notify(agentId, true)
@@ -542,6 +551,7 @@ export function resetAgentLiveStates() {
   const projectWorkspaces = [...projectAggregates.keys()]
   if (agentIds.length > 0) notifyDynamicPinProjection()
   entries.clear()
+  acpSessionRevisionCursors.clear()
   projectMembershipByAgentId.clear()
   projectContributionByAgentId.clear()
   projectAggregates.clear()

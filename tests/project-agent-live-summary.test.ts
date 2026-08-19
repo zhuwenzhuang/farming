@@ -2,10 +2,12 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { Agent } from '../src/types/agent'
 import {
+  agentWithCurrentLiveState,
   projectAgentLiveSummary,
   reconcileAgentLiveStateDelta,
   reconcileAgentLiveStates,
   resetAgentLiveStates,
+  updateAgentAcpSessionRevision,
   updateAgentLiveState,
 } from '../src/lib/agent-live-state'
 
@@ -134,4 +136,43 @@ test('Project summary reads remain stable with a 10,000-Agent inventory', () => 
   for (let index = 0; index < 10_000; index += 1) {
     assert.equal(projectAgentLiveSummary('/scale'), summary)
   }
+})
+
+test('ACP live revision state accepts a lower revision from a replacement identity', () => {
+  resetAgentLiveStates()
+  const current = agent('a', '/alpha', {
+    runtimeBinding: {
+      kind: 'acp',
+      state: 'idle',
+      error: '',
+      stopReason: '',
+      supportsSteer: false,
+      supportsFork: false,
+      pendingPermission: null,
+      pendingPermissions: [],
+      pendingElicitation: null,
+      pendingElicitations: [],
+      activeElicitations: [],
+      sessionRevision: 8,
+      sessionUpdatedAt: '2026-08-19T00:00:08.000Z',
+    },
+  })
+  reconcileAgentLiveStates([current])
+  updateAgentAcpSessionRevision({
+    agentId: 'a',
+    sessionId: 'session-old',
+    runtimeEpoch: 'epoch-old',
+    revision: 8,
+    updatedAt: '2026-08-19T00:00:08.000Z',
+  })
+  updateAgentAcpSessionRevision({
+    agentId: 'a',
+    sessionId: 'session-new',
+    runtimeEpoch: 'epoch-new',
+    revision: 1,
+    updatedAt: '2026-08-19T00:00:09.000Z',
+  })
+
+  const runtimeBinding = agentWithCurrentLiveState(current).runtimeBinding
+  assert.equal(runtimeBinding.kind === 'acp' ? runtimeBinding.sessionRevision : -1, 1)
 })

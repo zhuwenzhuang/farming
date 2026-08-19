@@ -233,12 +233,22 @@ Browser delivery uses a strict checkpoint-and-delta contract:
 - a late response for another Agent or older revision cannot take over the
   visible Chat.
 
-Each browser connection explicitly identifies its currently visible Agent.
+Each browser connection explicitly identifies its currently visible Agent and
+the bounded set of retained ACP Chats whose structured transcripts it owns.
 ACP revision notifications are delivered only to connections with matching
-interest. Changing focus or reconnecting sends the current absolute revision as
-an Agent-scoped checkpoint. A slow connection retains only one pending
-checkpoint marker and recovers the latest revision after its transport buffer
-drains; it never accumulates one queued notification per Provider update.
+interest. Changing focus, adding retained interest, or reconnecting sends the
+current absolute cursor—Agent, provider Session, runtime epoch, and transcript
+revision—as an Agent-scoped checkpoint. A Session or epoch replacement is
+delivered even when its revision restarts at a lower number. A slow connection
+retains only one pending checkpoint marker per interested Agent and recovers
+the latest revision after its transport buffer drains; it never accumulates one
+queued notification per Provider update.
+
+An HTTP transcript read samples the authoritative Session and runtime epoch
+before and after the cross-process read and rejects a response if that identity
+changed or the returned transcript names another Session. Transcript revision
+may advance during the read; continuously progressing Agents do not wait for a
+quiet revision before returning a self-consistent result.
 
 Provider replay is authoritative. Local checkpoints accelerate projection and
 preserve reset fences, but cannot replace a full load unless the provider can
@@ -262,11 +272,19 @@ The first settled ACP transcript response contains only the five newest Turns.
 Older Turns load in bounded pages as the reader moves upward, so opening a long
 Chat does not make its full Markdown and tool history part of first paint.
 
-The browser keeps heavyweight transcript trees only for visible Chats. Inactive
-Chats retain small navigation anchors and reload from the backend checkpoint
-when revisited. Reading position is anchored to a stable Turn or process item,
-not to raw pixels alone, so reload and pagination can restore the same context
-without keeping every transcript in frontend memory.
+The browser keeps a bounded LRU of complete structured transcript records for
+recent Chats, including any older Turn range the reader loaded. Retained records
+continue to merge live revisions while inactive; revisions coalesce to one
+latest high-water per Agent, reads are single-flight per Agent, and background
+read cadence plus global read concurrency are bounded. Only the visible Chat
+owns the React, Markdown, and tool-card DOM. Reattaching a retained record whose
+observed Session and runtime epoch still match shows it immediately and
+continues from its revision without requesting a checkpoint solely because it
+became visible. A cold or evicted Chat, reconnect, identity change, detected
+gap, reset, or pagination-range change still requires an authoritative
+checkpoint before replacement content becomes visible. Reading position is
+anchored to a stable Turn or process item rather than raw pixels, and transcript
+records share the same 20-view working-set boundary as pooled Terminals.
 
 ## Lifecycle And Recovery
 
@@ -346,7 +364,9 @@ Chat shows the ordered conversation, one compact live activity signal for the
 current Turn, and reversible structured evidence. Completed reasoning and tool
 details do not remain as overlapping default summaries. Disclosure controls
 keep stable layout slots and become visually prominent on hover or keyboard
-focus.
+focus. Intermediate Tool failures remain available within their action groups
+without replacing those groups' action-oriented summaries; authoritative Turn
+and Runtime failures remain visible at the higher level.
 
 Historical patch cards retain their structured diff evidence after the files
 are committed. Their Commit follow-up is visible only while at least one path

@@ -2,8 +2,8 @@ import { PROJECT_ATTENTION_SCORE_MAX as projectAttentionScoreMax } from './agent
 import { isAgentStateWire } from './agent-state-wire.js'
 import type { AgentStateWire } from './agent-state-wire.js'
 
-export const PROTOCOL_VERSION = 12
-export const MIN_PROTOCOL_VERSION = 12
+export const PROTOCOL_VERSION = 14
+export const MIN_PROTOCOL_VERSION = 14
 export const MAX_INLINE_WORKSPACE_MESSAGE_BYTES = 1024 * 1024
 export const PROJECT_ATTENTION_SCORE_MAX = projectAttentionScoreMax
 
@@ -88,6 +88,11 @@ export interface FocusAgentMessage extends ExtensibleMessage {
   activityScope?: 'all' | 'focused' | 'none'
   previewScope?: 'all' | 'focused' | 'none'
   stateScope?: 'all' | 'focused'
+}
+
+export interface WatchAcpTranscriptsMessage extends ExtensibleMessage {
+  type: 'watch-acp-transcripts'
+  agentIds: string[]
 }
 
 export interface ResizeAgentMessage extends ExtensibleMessage {
@@ -191,6 +196,7 @@ export type ClientMessage =
   | ComposerInputMessage
   | AcpPermissionResponseMessage
   | FocusAgentMessage
+  | WatchAcpTranscriptsMessage
   | ResizeAgentMessage
   | AgentScopedClientMessage<'interrupt-agent'>
   | AgentScopedClientMessage<'clear-terminal'>
@@ -366,6 +372,8 @@ export interface AcpSessionRevisionMessage extends ExtensibleMessage {
   type: 'acp-session-revision'
   session: ObjectMessage & {
     agentId: string
+    sessionId: string
+    runtimeEpoch: string
     revision: number
     updatedAt: string
   }
@@ -896,6 +904,12 @@ export function validateClientMessage(value: unknown): ValidationResult<ClientMe
             && typeof value.agentId === 'string'
             && value.agentId.length > 0))
       break
+    case 'watch-acp-transcripts':
+      valid = Array.isArray(value.agentIds)
+        && value.agentIds.length <= 20
+        && value.agentIds.every(agentId => typeof agentId === 'string' && agentId.length > 0 && agentId.length <= 256)
+        && new Set(value.agentIds).size === value.agentIds.length
+      break
     case 'resize-agent': valid = stringField(value, 'agentId') && finiteField(value, 'cols') && finiteField(value, 'rows'); break
     case 'unwatch-workspace-files': valid = stringField(value, 'rootId', true); break
     case 'restart-main-agent': valid = stringField(value, 'command'); break
@@ -986,7 +1000,20 @@ export function validateServerMessage(value: unknown): ValidationResult<ServerMe
     case 'agent-activity': valid = objectMessage(value.activity) && stringField(value.activity, 'agentId'); break
     case 'agent-activity-snapshot': valid = Array.isArray(value.activities) && value.activities.every(activity => objectMessage(activity) && stringField(activity, 'agentId')); break
     case 'agent-update': valid = objectMessage(value.update) && stringField(value.update, 'agentId') && sanitizeAgentUpdatePatch(value.update.patch) !== null; break
-    case 'acp-session-revision': valid = objectMessage(value.session) && stringField(value.session, 'agentId') && Number.isInteger(value.session.revision) && typeof value.session.revision === 'number' && value.session.revision >= 0 && stringField(value.session, 'updatedAt'); break
+    case 'acp-session-revision':
+      valid = objectMessage(value.session)
+        && stringField(value.session, 'agentId')
+        && String(value.session.agentId).length > 0
+        && stringField(value.session, 'sessionId')
+        && String(value.session.sessionId).length > 0
+        && stringField(value.session, 'runtimeEpoch')
+        && String(value.session.runtimeEpoch).length > 0
+        && Number.isInteger(value.session.revision)
+        && typeof value.session.revision === 'number'
+        && value.session.revision >= 0
+        && stringField(value.session, 'updatedAt')
+        && String(value.session.updatedAt).length > 0
+      break
     case 'agent-read': valid = agentReadState(value.read); break
     case 'workspace-file-watch':
       valid = stringField(value, 'rootId')

@@ -198,6 +198,11 @@ let agentStateSnapshotCursor: {
   sequence: number;
   total: number;
 } | null = null;
+const acpSessionRevisionCursors = new Map<string, {
+  sessionId: string;
+  runtimeEpoch: string;
+  revision: number;
+}>();
 let focusedAgentId: string | null = null;
 let keyMap: Record<string, string> = {};
 let agents: CrtAgent[] = [];
@@ -4728,6 +4733,9 @@ function applyCrtWorkspaceState(
   if (isCrtSessionOpen()) updateCrtAgentInventoryStatus(state);
   pruneCrtStructuredPreviews(state);
   const activeAgentIds = new Set(state.agents.map((agent) => agent.id));
+  acpSessionRevisionCursors.forEach((_cursor, agentId) => {
+    if (!activeAgentIds.has(agentId)) acpSessionRevisionCursors.delete(agentId);
+  });
   terminalPreviewSnapshots.forEach((_snapshot, agentId) => {
     if (!activeAgentIds.has(agentId)) terminalPreviewSnapshots.delete(agentId);
   });
@@ -5069,10 +5077,20 @@ function connect(): void {
     } else if (data.type === 'acp-session-revision') {
       const update = data.session;
       const agent = update && state && state.agents.find(candidate => candidate.id === update.agentId);
+      const previousCursor = update ? acpSessionRevisionCursors.get(update.agentId) : null;
       if (
         agent?.runtimeBinding?.kind === 'acp'
-        && Number(update.revision) > Number(agent.runtimeBinding.sessionRevision || 0)
+        && !(
+          previousCursor?.sessionId === update.sessionId
+          && previousCursor.runtimeEpoch === update.runtimeEpoch
+          && Number(update.revision) <= previousCursor.revision
+        )
       ) {
+        acpSessionRevisionCursors.set(update.agentId, {
+          sessionId: update.sessionId,
+          runtimeEpoch: update.runtimeEpoch,
+          revision: Number(update.revision),
+        });
         agent.runtimeBinding.sessionRevision = Number(update.revision);
         agent.runtimeBinding.sessionUpdatedAt = String(update.updatedAt || '');
         if (agent.id === focusedAgentId) {
@@ -5162,6 +5180,7 @@ function connect(): void {
     agentStateResyncPending = false;
     agentStateSnapshotAgents = [];
     agentStateSnapshotCursor = null;
+    acpSessionRevisionCursors.clear();
     clearCrtAgentStateSnapshotDeadline();
     getSessionClient()?.handleTransportDisconnected();
     console.log('Disconnected from server');

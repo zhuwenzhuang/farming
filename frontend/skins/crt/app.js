@@ -17,6 +17,7 @@ let agentStateResyncPending = false;
 let agentStateSnapshotAgents = [];
 let agentStateSnapshotDeadlineTimer = null;
 let agentStateSnapshotCursor = null;
+const acpSessionRevisionCursors = new Map();
 let focusedAgentId = null;
 let keyMap = {};
 let agents = [];
@@ -109,7 +110,7 @@ const terminalPreviewSnapshots = new Map();
 const crtBrandPulseTimers = new Map();
 const SESSION_LINK_LIMIT = 6;
 // Replaced from shared/browser-protocol.ts by build-classic-browser-runtime.ts.
-const CRT_PROTOCOL_VERSION = 12;
+const CRT_PROTOCOL_VERSION = 14;
 const CRT_AGENT_STATE_SNAPSHOT_PAGE_DEADLINE_MS = 30_000;
 const CRT_PREVIEW_RENDER_INTERVAL_MS = 1000;
 const CRT_STRUCTURED_PREVIEW_REFRESH_MS = 240;
@@ -4217,6 +4218,10 @@ function applyCrtWorkspaceState(nextState, previousAgentCount, inventoryComplete
         updateCrtAgentInventoryStatus(state);
     pruneCrtStructuredPreviews(state);
     const activeAgentIds = new Set(state.agents.map((agent) => agent.id));
+    acpSessionRevisionCursors.forEach((_cursor, agentId) => {
+        if (!activeAgentIds.has(agentId))
+            acpSessionRevisionCursors.delete(agentId);
+    });
     terminalPreviewSnapshots.forEach((_snapshot, agentId) => {
         if (!activeAgentIds.has(agentId))
             terminalPreviewSnapshots.delete(agentId);
@@ -4556,8 +4561,16 @@ function connect() {
         else if (data.type === 'acp-session-revision') {
             const update = data.session;
             const agent = update && state && state.agents.find(candidate => candidate.id === update.agentId);
+            const previousCursor = update ? acpSessionRevisionCursors.get(update.agentId) : null;
             if (agent?.runtimeBinding?.kind === 'acp'
-                && Number(update.revision) > Number(agent.runtimeBinding.sessionRevision || 0)) {
+                && !(previousCursor?.sessionId === update.sessionId
+                    && previousCursor.runtimeEpoch === update.runtimeEpoch
+                    && Number(update.revision) <= previousCursor.revision)) {
+                acpSessionRevisionCursors.set(update.agentId, {
+                    sessionId: update.sessionId,
+                    runtimeEpoch: update.runtimeEpoch,
+                    revision: Number(update.revision),
+                });
                 agent.runtimeBinding.sessionRevision = Number(update.revision);
                 agent.runtimeBinding.sessionUpdatedAt = String(update.updatedAt || '');
                 if (agent.id === focusedAgentId) {
@@ -4662,6 +4675,7 @@ function connect() {
         agentStateResyncPending = false;
         agentStateSnapshotAgents = [];
         agentStateSnapshotCursor = null;
+        acpSessionRevisionCursors.clear();
         clearCrtAgentStateSnapshotDeadline();
         getSessionClient()?.handleTransportDisconnected();
         console.log('Disconnected from server');

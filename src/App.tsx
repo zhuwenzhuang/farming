@@ -38,6 +38,11 @@ import {
   reconcileAgentViewCache,
   touchAgentViewCache,
 } from '@/components/code/agent-view-cache'
+import {
+  observeAcpTranscriptRevision,
+  reconnectAcpTranscriptSessions,
+  retainAcpTranscriptSessions,
+} from '@/components/code/acp/acp-transcript-session-pool'
 import { isOpenableAgent, resolveActiveAgentId } from '@/components/code/agent-selection'
 import { projectWorkspaceFromAgentState } from '../shared/agent-state-semantics.js'
 
@@ -187,6 +192,8 @@ export function App() {
   recordPerformanceTestRender('app')
   const ws = useWebSocket()
   const focusAgent = ws.focusAgent
+  const onAcpSessionRevision = ws.onAcpSessionRevision
+  const watchAcpTranscripts = ws.watchAcpTranscripts
   const pageVisible = usePageVisibility()
   const { keyMap } = useAgents(ws.agents, ws.mainAgentId)
   const [initialWorkspaceViewState] = useState(() => loadCodeWorkspaceViewState())
@@ -300,6 +307,12 @@ export function App() {
   const effectiveRetainedAgentViewIds = useMemo(() => normalizeAgentViewCache(
     retainedAgentViewIds.map(agentId => observedAgentReplacements.get(agentId) ?? agentId)
   ), [observedAgentReplacements, retainedAgentViewIds])
+  const retainedAcpTranscriptAgentIds = useMemo(() => {
+    const retained = new Set(effectiveRetainedAgentViewIds)
+    return displayedAgents
+      .filter(agent => retained.has(agent.id) && agent.runtimeBinding.kind === 'acp')
+      .map(agent => agent.id)
+  }, [displayedAgents, effectiveRetainedAgentViewIds])
   const effectiveActiveTerminalId = activeTerminalId
     ? observedAgentReplacements.get(activeTerminalId) ?? activeTerminalId
     : null
@@ -1196,6 +1209,22 @@ export function App() {
       console.error('Failed to prune terminal sessions:', error)
     })
   }, [effectiveRetainedAgentViewIds])
+
+  useEffect(() => onAcpSessionRevision(observeAcpTranscriptRevision), [onAcpSessionRevision])
+
+  useEffect(() => {
+    window.addEventListener('farming:backend-connected', reconnectAcpTranscriptSessions)
+    return () => window.removeEventListener('farming:backend-connected', reconnectAcpTranscriptSessions)
+  }, [])
+
+  useEffect(() => {
+    retainAcpTranscriptSessions(retainedAcpTranscriptAgentIds)
+    watchAcpTranscripts(retainedAcpTranscriptAgentIds)
+  }, [retainedAcpTranscriptAgentIds, watchAcpTranscripts])
+
+  useEffect(() => () => {
+    retainAcpTranscriptSessions([])
+  }, [])
 
   useEffect(() => {
     if (!ws.agentInventoryComplete) return

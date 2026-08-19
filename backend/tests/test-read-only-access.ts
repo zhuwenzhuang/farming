@@ -8,6 +8,7 @@ async function run() {
     'protocol-hello',
     'state-resync',
     'terminal-checkpoint-request',
+    'watch-acp-transcripts',
     'unwatch-workspace-files',
     'watch-workspace-files',
   ]) {

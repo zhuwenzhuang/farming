@@ -52,8 +52,10 @@ function acpAgent(id) {
 
 async function run() {
   let persistenceCount = 0;
+  let bindingEpoch = '';
   const runtime = Object.assign(new EventEmitter(), {
     bindings: new Map(),
+    bindingEpoch: () => bindingEpoch,
     async dispose() {},
   });
   const manager = new AgentManager({
@@ -113,6 +115,18 @@ async function run() {
     assert.strictEqual(revisions.length, count, 'transcript revisions must use the dedicated scoped channel');
     assert.strictEqual(agentUpdates.length, runtimeUpdatesBeforeDuplicates, 'revision-only events must not publish Agent patches');
     assert.strictEqual(fullUpdates, 0, 'transcript revisions must not broadcast full state');
+
+    bindingEpoch = 'epoch-a';
+    const identityRevisionStart = revisions.length;
+    runtime.emit('agent-runtime', { agentId: agentIds[0], state: 'idle' });
+    runtime.emit('agent-runtime', { agentId: agentIds[0], state: 'idle' });
+    bindingEpoch = 'epoch-b';
+    runtime.emit('agent-runtime', { agentId: agentIds[0], state: 'idle' });
+    assert.strictEqual(
+      revisions.length - identityRevisionStart,
+      2,
+      'runtime identity cursors should publish once initially and once per epoch replacement',
+    );
 
     const titleUpdatesStart = agentUpdates.length;
     for (const agentId of agentIds) {

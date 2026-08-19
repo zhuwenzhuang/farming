@@ -496,6 +496,20 @@ export function applyTerminalOutputEvent(
   if (replace) {
     if (record.replication.fixtureOverrideActive || record.replication.pageOutputSuspended) return
     invalidateTerminalReplication(record)
+    if (!record.replicationPorts.isAttached()) {
+      record.attachment.beginRecovery({
+        kind,
+        data,
+        outputSeq,
+        runtimeEpoch,
+        stateRevision,
+        cols,
+        rows,
+      })
+      record.replication.needsReconnectOutputSync = true
+      record.replication.bootstrappingSnapshot = true
+      return
+    }
     installTerminalCheckpoint(record, {
       runtimeEpoch,
       output: data,

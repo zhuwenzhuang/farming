@@ -12,8 +12,9 @@ import {
 import type { FocusAgentMessage } from '../shared/browser-protocol.js';
 
 interface WebSocketFocusScopeClient {
-  acpRevisionCheckpointPending?: boolean;
-  acpRevisionSentRevision?: number;
+  acpRevisionCheckpointPending?: Set<string>;
+  acpRevisionInterest?: Set<string>;
+  acpRevisionSentCursor?: Map<string, unknown>;
   activityScope?: 'all' | 'focused' | 'none';
   activityScopeDeclared?: boolean;
   agentActivityAllCheckpointPending?: boolean;
@@ -92,8 +93,17 @@ function createWebSocketFocusScopeHandlers<Client extends WebSocketFocusScopeCli
       && client.activityScopeDeclared === true
       && client.agentActivityResyncPending === true;
     if (focusChanged) {
-      client.acpRevisionCheckpointPending = false;
-      client.acpRevisionSentRevision = -1;
+      if (
+        previousFocusedAgentId
+        && !client.acpRevisionInterest?.has(previousFocusedAgentId)
+      ) {
+        client.acpRevisionCheckpointPending?.delete(previousFocusedAgentId);
+        client.acpRevisionSentCursor?.delete(previousFocusedAgentId);
+      }
+      if (data.agentId) {
+        client.acpRevisionCheckpointPending?.delete(data.agentId);
+        client.acpRevisionSentCursor?.delete(data.agentId);
+      }
     }
     client.focusedAgentId = data.agentId;
     client.activityScope = nextActivityScope;

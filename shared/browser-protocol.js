@@ -8,8 +8,8 @@ exports.validateServerMessage = validateServerMessage;
 exports.protocolCompatible = protocolCompatible;
 const agent_state_semantics_js_1 = require("./agent-state-semantics.js");
 const agent_state_wire_js_1 = require("./agent-state-wire.js");
-exports.PROTOCOL_VERSION = 12;
-exports.MIN_PROTOCOL_VERSION = 12;
+exports.PROTOCOL_VERSION = 14;
+exports.MIN_PROTOCOL_VERSION = 14;
 exports.MAX_INLINE_WORKSPACE_MESSAGE_BYTES = 1024 * 1024;
 exports.PROJECT_ATTENTION_SCORE_MAX = agent_state_semantics_js_1.PROJECT_ATTENTION_SCORE_MAX;
 const SERVER_MESSAGE_TYPES = new Set([
@@ -408,6 +408,12 @@ function validateClientMessage(value) {
                         && typeof value.agentId === 'string'
                         && value.agentId.length > 0));
             break;
+        case 'watch-acp-transcripts':
+            valid = Array.isArray(value.agentIds)
+                && value.agentIds.length <= 20
+                && value.agentIds.every(agentId => typeof agentId === 'string' && agentId.length > 0 && agentId.length <= 256)
+                && new Set(value.agentIds).size === value.agentIds.length;
+            break;
         case 'resize-agent':
             valid = stringField(value, 'agentId') && finiteField(value, 'cols') && finiteField(value, 'rows');
             break;
@@ -526,7 +532,18 @@ function validateServerMessage(value) {
             valid = objectMessage(value.update) && stringField(value.update, 'agentId') && sanitizeAgentUpdatePatch(value.update.patch) !== null;
             break;
         case 'acp-session-revision':
-            valid = objectMessage(value.session) && stringField(value.session, 'agentId') && Number.isInteger(value.session.revision) && typeof value.session.revision === 'number' && value.session.revision >= 0 && stringField(value.session, 'updatedAt');
+            valid = objectMessage(value.session)
+                && stringField(value.session, 'agentId')
+                && String(value.session.agentId).length > 0
+                && stringField(value.session, 'sessionId')
+                && String(value.session.sessionId).length > 0
+                && stringField(value.session, 'runtimeEpoch')
+                && String(value.session.runtimeEpoch).length > 0
+                && Number.isInteger(value.session.revision)
+                && typeof value.session.revision === 'number'
+                && value.session.revision >= 0
+                && stringField(value.session, 'updatedAt')
+                && String(value.session.updatedAt).length > 0;
             break;
         case 'agent-read':
             valid = agentReadState(value.read);

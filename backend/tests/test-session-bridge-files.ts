@@ -114,13 +114,17 @@ function run() {
     'Code should advance the read cursor only after the renderer exposes the latest authoritative output cut'
   );
   assert(
-    server.includes('client.focusedAgentId') &&
-      server.includes('deliverAcpSessionRevision(client, entry.session);') &&
-      server.includes('client.acpRevisionCheckpointPending = true;') &&
+      server.includes('client.focusedAgentId') &&
+      server.includes('client.acpRevisionInterest?.has(session.agentId)') &&
+      server.includes('const cursor = currentAcpSessionRevision(agentId);') &&
+      server.includes('deliverAcpSessionRevision(client, cursor);') &&
+      server.includes('client.acpRevisionCheckpointPending ??= new Set()') &&
       server.includes('recoverAcpSessionRevisionIfReady(ws);') &&
       useWebSocket.includes('agentId: focusedAgentIdRef.current,') &&
-      useWebSocket.includes('activityScope: agentActivityScopeRef.current,'),
-    'ACP revisions should follow focused browser interest, recover slow clients with one checkpoint marker, and restore focus after reconnect',
+      useWebSocket.includes('activityScope: agentActivityScopeRef.current,') &&
+      useWebSocket.includes("type: 'watch-acp-transcripts'") &&
+      useWebSocket.includes('acpRevisionListenersRef.current.forEach'),
+    'ACP revisions should follow visible and retained browser interest, recover slow clients per Agent, and restore interest after reconnect',
   );
   assert(
     server.includes('deliverAgentActivity(client, activity, message);') &&

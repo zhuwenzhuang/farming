@@ -192,6 +192,57 @@ test('does not replay an in-progress ACP answer after switching agents', async (
   expect(await firstAnswerAfterAgentClick(page, agentId)).toBe(PROGRESSIVE_ANSWER)
 })
 
+test('keeps three retained progressing Chats current while rendering only the selected Chat DOM', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'acp-three-retained-progressing-chats')
+  fs.mkdirSync(workspace, { recursive: true })
+  const agentIds = await Promise.all(Array.from({ length: 3 }, () => createAcpAgent(page, workspace)))
+  let selectedAgentId = ''
+  let checkingRetainedSwitches = false
+  const backgroundDeltaAgents = new Set<string>()
+  const retainedSwitchCheckpointAgents: string[] = []
+  page.on('request', request => {
+    const match = new URL(request.url()).pathname.match(/\/api\/agents\/([^/]+)\/acp-transcript$/)
+    if (!match) return
+    const agentId = decodeURIComponent(match[1] || '')
+    const sinceRevision = new URL(request.url()).searchParams.get('sinceRevision')
+    if (agentId && agentId !== selectedAgentId && sinceRevision !== null) {
+      backgroundDeltaAgents.add(agentId)
+    }
+    if (checkingRetainedSwitches && agentIds.includes(agentId) && sinceRevision === null) {
+      retainedSwitchCheckpointAgents.push(agentId)
+    }
+  })
+
+  await openFarming(page)
+  for (const agentId of agentIds) {
+    selectedAgentId = agentId
+    await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+    const input = page.getByTestId('code-acp-composer-input')
+    await expect(input).toBeEditable()
+    await input.fill('progressive answer stream')
+    await page.getByTestId('code-acp-composer-send').click()
+    await expect(page.locator('.code-agent-transcript-user').filter({ hasText: 'progressive answer stream' })).toBeVisible()
+  }
+
+  await expect.poll(() => agentIds.slice(0, 2).every(agentId => backgroundDeltaAgents.has(agentId)), {
+    timeout: 15_000,
+  }).toBe(true)
+  await expect(page.getByTestId('code-agent-transcript')).toHaveCount(1)
+
+  checkingRetainedSwitches = true
+  for (const agentId of agentIds) {
+    selectedAgentId = agentId
+    const firstText = await firstAnswerAfterAgentClick(page, agentId)
+    expect(PROGRESSIVE_ANSWER.startsWith(firstText)).toBe(true)
+    const pane = page.locator(`[data-testid="code-agent-work-pane"][data-agent-id="${agentId}"]`)
+    await expect(pane.locator('.code-agent-transcript-assistant').last()).toHaveText(PROGRESSIVE_ANSWER, {
+      timeout: 20_000,
+    })
+    await expect(page.getByTestId('code-agent-transcript')).toHaveCount(1)
+  }
+  expect(retainedSwitchCheckpointAgents).toEqual([])
+})
+
 test('shows a one-shot live ACP answer snapshot in full without replaying it', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'acp-answer-snapshot')
   fs.mkdirSync(workspace, { recursive: true })

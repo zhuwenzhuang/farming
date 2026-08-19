@@ -100,6 +100,11 @@ export interface FocusAgentMessage {
   refreshState?: boolean
 }
 
+export interface WatchAcpTranscriptsMessage {
+  type: 'watch-acp-transcripts'
+  agentIds: string[]
+}
+
 export interface ResizeAgentMessage {
   type: 'resize-agent'
   agentId: string
@@ -163,6 +168,7 @@ export type ClientMessage =
   | InputMessage
   | ComposerInputMessage
   | FocusAgentMessage
+  | WatchAcpTranscriptsMessage
   | TerminalSessionClientMessage
   | ArchiveAgentMessage
   | InterruptAgentMessage
@@ -324,6 +330,8 @@ export interface AcpSessionRevisionMessage {
   type: 'acp-session-revision'
   session: {
     agentId: string
+    sessionId: string
+    runtimeEpoch: string
     revision: number
     updatedAt: string
   }

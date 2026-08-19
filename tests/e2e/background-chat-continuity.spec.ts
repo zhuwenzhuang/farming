@@ -13,6 +13,26 @@ async function createAcpAgent(page: Page, workspace: string, command = 'claude')
   return payload.agentId as string
 }
 
+async function acpTranscriptFixtureIdentity(page: Page, agentId: string) {
+  const response = await page.request.get(
+    `/farming/api/agents/${encodeURIComponent(agentId)}/acp-transcript?maxTurns=5&media=external-v1`,
+  )
+  expect(response.ok()).toBeTruthy()
+  const payload = await response.json() as {
+    sessionId?: string
+    runtimeEpoch?: string
+    toRevision?: number
+  }
+  expect(payload.sessionId).toBeTruthy()
+  expect(payload.runtimeEpoch).toBeTruthy()
+  return {
+    sessionId: payload.sessionId || '',
+    runtimeEpoch: payload.runtimeEpoch || '',
+    // Keep routed snapshots ahead of unrelated fake-provider startup updates.
+    fixtureRevision: Math.max(11, Number(payload.toRevision) || 0) + 1_000_000,
+  }
+}
+
 async function setPageVisibility(page: Page, state: 'hidden' | 'visible') {
   await page.evaluate(nextState => {
     Object.defineProperty(document, 'visibilityState', {
@@ -225,11 +245,17 @@ test('keeps ACP Chat live while the browser page is hidden', { tag: '@iphone-hum
   expect(await page.evaluate(() => document.visibilityState)).toBe('hidden')
   expect(backendSocketClosed).toBe(0)
   const row = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
+  const compactLayout = await page.locator('body').evaluate(element => (
+    element.classList.contains('code-compact-layout')
+  ))
+  if (compactLayout) await page.getByTestId('code-mobile-menu').click()
   await expect(row).toHaveClass(/unread/)
+  if (compactLayout) await row.click()
 
   await setPageVisibility(page, 'visible')
   expect(await page.evaluate(() => document.visibilityState)).toBe('visible')
   await expect(page.getByText('Streaming thought complete.', { exact: true })).toBeVisible()
+  if (compactLayout) await page.getByTestId('code-mobile-menu').click()
   await expect(row).not.toHaveClass(/unread/)
   await expect(page.getByTestId('connection-status')).toHaveCount(0)
   expect(backendSocketClosed).toBe(0)
@@ -300,12 +326,16 @@ test('does not repeat Chat read receipts when only live runtime state changes', 
   await expect(page.getByTestId('app-error-fallback')).toHaveCount(0)
 })
 
-test('unmounts inactive Chat trees while preserving the active Chat behind resources', async ({ page, workspaceRoot }) => {
+test('unmounts inactive Chat trees while reusing retained transcripts behind resources', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'agent-chat-view-cache')
   fs.mkdirSync(workspace, { recursive: true })
   fs.writeFileSync(path.join(workspace, 'cache-target.txt'), 'retained Chat file target\n')
   const firstAgentId = await createAcpAgent(page, workspace)
   const secondAgentId = await createAcpAgent(page, workspace, 'opencode')
+  const transcriptIdentities = new Map<string, Awaited<ReturnType<typeof acpTranscriptFixtureIdentity>>>()
+  for (const agentId of [firstAgentId, secondAgentId]) {
+    transcriptIdentities.set(agentId, await acpTranscriptFixtureIdentity(page, agentId))
+  }
   const transcriptEntries = new Map<string, Array<Record<string, unknown>>>()
   for (const label of ['FIRST', 'SECOND']) {
     transcriptEntries.set(label, Array.from({ length: 20 }, (_, index) => ([
@@ -344,6 +374,7 @@ test('unmounts inactive Chat trees while preserving the active Chat behind resou
     [secondAgentId, []],
   ])
   const routeTranscript = async (agentId: string, label: string) => {
+    const identity = transcriptIdentities.get(agentId)!
     await page.route(new RegExp(`/farming/api/agents/${agentId}/acp-transcript(?:\\?.*)?$`), async route => {
       const sinceRevision = new URL(route.request().url()).searchParams.get('sinceRevision')
       requests.get(agentId)?.push(sinceRevision)
@@ -353,17 +384,17 @@ test('unmounts inactive Chat trees while preserving the active Chat behind resou
           body: JSON.stringify({
             version: 1,
             agentId,
-            sessionId: `${label}-session`,
-            runtimeEpoch: `${label}-epoch`,
+            sessionId: identity.sessionId,
+            runtimeEpoch: identity.runtimeEpoch,
             fromRevision: null,
-            toRevision: 11,
+            toRevision: identity.fixtureRevision,
             replace: true,
             settled: true,
             hasMoreBefore: false,
             transcript: {
-              sessionId: `${label}-session`,
+              sessionId: identity.sessionId,
               state: 'idle',
-              revision: 11,
+              revision: identity.fixtureRevision,
               entries: transcriptEntries.get(label) ?? [],
             },
           }),
@@ -462,9 +493,10 @@ test('unmounts inactive Chat trees while preserving the active Chat behind resou
   await firstRow.click()
   await expect(firstPane).toBeVisible()
   await expect(firstPane.getByText('FIRST cached answer 19.', { exact: false })).toBeVisible()
-  expect(requests.get(firstAgentId)?.every(revision => revision === null)).toBe(true)
-  expect(requests.get(firstAgentId)?.filter(revision => revision === null).length).toBeGreaterThanOrEqual(3)
-  expect(requests.get(secondAgentId)?.filter(revision => revision === null).length).toBeGreaterThanOrEqual(2)
+  expect(requests.get(firstAgentId)?.filter(revision => revision === null)).toHaveLength(1)
+  expect(requests.get(secondAgentId)?.filter(revision => revision === null)).toHaveLength(1)
+  expect(requests.get(firstAgentId)?.slice(1).every(revision => revision !== null)).toBe(true)
+  expect(requests.get(secondAgentId)?.slice(1).every(revision => revision !== null)).toBe(true)
   expect(await firstPane.getAttribute('data-cache-probe')).toBe('retained')
   const refreshedScrollTop = await firstScroll.evaluate(element => {
     return element.scrollTop
@@ -513,31 +545,48 @@ test('unmounts inactive Chat trees while preserving the active Chat behind resou
   await expect(firstPane).toHaveCount(0)
 })
 
-test('rejects an older successful ACP transcript response that arrives after a newer one', { tag: '@iphone-human' }, async ({ page, workspaceRoot }) => {
-  const workspace = path.join(workspaceRoot, 'acp-transcript-response-order')
+test('keeps the reconnect fence closed until the newest queued checkpoint commits', { tag: '@iphone-human' }, async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'acp-transcript-reconnect-fence')
   fs.mkdirSync(workspace, { recursive: true })
   const agentId = await createAcpAgent(page, workspace)
-  let deltaRequestCount = 0
+  const identity = await acpTranscriptFixtureIdentity(page, agentId)
+  const baseRevision = identity.fixtureRevision
+  let checkpointRequestCount = 0
 
   await page.route(new RegExp(`/farming/api/agents/${agentId}/acp-transcript(?:\\?.*)?$`), async route => {
     const sinceRevision = new URL(route.request().url()).searchParams.get('sinceRevision')
-    const deltaOrdinal = sinceRevision === null ? 0 : ++deltaRequestCount
-    const label = deltaOrdinal === 1
+    expect(sinceRevision).toBeNull()
+    const checkpointOrdinal = ++checkpointRequestCount
+    const label = checkpointOrdinal === 2
       ? 'STALE'
-      : deltaOrdinal === 2
+      : checkpointOrdinal === 3
         ? 'FRESH'
-        : deltaOrdinal === 3
+        : checkpointOrdinal === 4
           ? 'REGRESSED'
           : 'INITIAL'
-    const revision = deltaOrdinal === 1 ? 12 : deltaOrdinal === 2 ? 13 : deltaOrdinal === 3 ? 12 : 11
+    const revision = checkpointOrdinal === 2
+      ? baseRevision + 1
+      : checkpointOrdinal === 3
+        ? baseRevision + 2
+        : checkpointOrdinal === 4
+          ? baseRevision + 1
+          : baseRevision
     await route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
+        version: 1,
+        agentId,
+        sessionId: identity.sessionId,
+        runtimeEpoch: identity.runtimeEpoch,
+        fromRevision: null,
+        toRevision: revision,
+        replace: true,
+        settled: true,
+        hasMoreBefore: false,
         transcript: {
-          sessionId: 'response-order-session',
+          sessionId: identity.sessionId,
           state: 'idle',
           revision,
-          delta: sinceRevision !== null,
           entries: [
             {
               id: `${label}-user`,
@@ -560,7 +609,7 @@ test('rejects an older successful ACP transcript response that arrives after a n
 
   await page.addInitScript(() => {
     const originalFetch = window.fetch.bind(window)
-    let deltaResponseCount = 0
+    let transcriptResponseCount = 0
     let releaseHeldResponse = () => {}
     let markHeldResponseReady = () => {}
     const heldResponseReady = new Promise<void>(resolve => {
@@ -579,15 +628,12 @@ test('rejects an older successful ACP transcript response that arrives after a n
           ? input.url
           : String(input)
       const url = new URL(rawUrl, window.location.href)
-      if (!url.pathname.endsWith('/acp-transcript') || !url.searchParams.has('sinceRevision')) {
+      if (!url.pathname.endsWith('/acp-transcript')) {
         return originalFetch(input, init)
       }
-      deltaResponseCount += 1
-      // Simulate a transport that has already accepted the request and cannot
-      // be cancelled: both HTTP responses succeed, but the first is delivered
-      // to the application only after the second response has committed.
+      transcriptResponseCount += 1
       const response = await originalFetch(input, { ...init, signal: undefined })
-      if (deltaResponseCount !== 1) return response
+      if (transcriptResponseCount !== 2) return response
       markHeldResponseReady()
       await new Promise<void>(resolve => {
         releaseHeldResponse = resolve
@@ -613,8 +659,8 @@ test('rejects an older successful ACP transcript response that arrives after a n
     window.dispatchEvent(new Event('farming:backend-disconnected'))
     window.dispatchEvent(new Event('farming:backend-connected'))
   })
+  await expect(page.getByText('STALE response answer', { exact: true })).toHaveCount(0)
 
-  await expect(page.getByText('FRESH response answer', { exact: true })).toBeVisible()
   await page.evaluate(async () => {
     (window as typeof window & {
       __farmingTranscriptResponseRace?: { releaseHeldResponse: () => void }
@@ -626,7 +672,7 @@ test('rejects an older successful ACP transcript response that arrives after a n
     })
   })
 
-  expect(deltaRequestCount).toBe(2)
+  await expect.poll(() => checkpointRequestCount).toBe(3)
   await expect(page.getByText('FRESH response answer', { exact: true })).toBeVisible()
   await expect(page.getByText('STALE response answer', { exact: true })).toHaveCount(0)
 
@@ -634,7 +680,7 @@ test('rejects an older successful ACP transcript response that arrives after a n
     window.dispatchEvent(new Event('farming:backend-disconnected'))
     window.dispatchEvent(new Event('farming:backend-connected'))
   })
-  await expect.poll(() => deltaRequestCount).toBe(3)
+  await expect.poll(() => checkpointRequestCount).toBe(4)
   await expect(page.getByText('FRESH response answer', { exact: true })).toBeVisible()
   await expect(page.getByText('REGRESSED response answer', { exact: true })).toHaveCount(0)
 })
@@ -643,6 +689,7 @@ test('keeps long ACP Chat stable when the Composer is collapsed and restored', a
   const workspace = path.join(workspaceRoot, 'composer-layout-anchor')
   fs.mkdirSync(workspace, { recursive: true })
   const agentId = await createAcpAgent(page, workspace)
+  const identity = await acpTranscriptFixtureIdentity(page, agentId)
   const entries = Array.from({ length: 24 }, (_, index) => ([
     {
       id: `user-${index}`,
@@ -663,13 +710,23 @@ test('keeps long ACP Chat stable when the Composer is collapsed and restored', a
   ])).flat()
 
   await page.route(new RegExp(`/farming/api/agents/${agentId}/acp-transcript(?:\\?.*)?$`), async route => {
+    const maxTurns = Number(new URL(route.request().url()).searchParams.get('maxTurns') || 0)
     await route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
+        version: 1,
+        agentId,
+        sessionId: identity.sessionId,
+        runtimeEpoch: identity.runtimeEpoch,
+        fromRevision: null,
+        toRevision: identity.fixtureRevision,
+        replace: true,
+        settled: true,
+        hasMoreBefore: maxTurns < 24,
         transcript: {
-          sessionId: 'composer-layout-anchor-session',
+          sessionId: identity.sessionId,
           state: 'idle',
-          revision: 1,
+          revision: identity.fixtureRevision,
           entries,
         },
       }),
@@ -719,6 +776,7 @@ test('restores a persisted Chat message anchor after reload and loads older turn
   const workspace = path.join(workspaceRoot, 'persisted-chat-reading-anchor')
   fs.mkdirSync(workspace, { recursive: true })
   const agentId = await createAcpAgent(page, workspace)
+  const identity = await acpTranscriptFixtureIdentity(page, agentId)
   const entries = Array.from({ length: 36 }, (_, index) => ([
     {
       id: `anchor-user-${index}`,
@@ -740,14 +798,24 @@ test('restores a persisted Chat message anchor after reload and loads older turn
   const requestedTurnLimits: number[] = []
 
   await page.route(new RegExp(`/farming/api/agents/${agentId}/acp-transcript(?:\\?.*)?$`), async route => {
-    requestedTurnLimits.push(Number(new URL(route.request().url()).searchParams.get('maxTurns') || 0))
+    const maxTurns = Number(new URL(route.request().url()).searchParams.get('maxTurns') || 0)
+    requestedTurnLimits.push(maxTurns)
     await route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
+        version: 1,
+        agentId,
+        sessionId: identity.sessionId,
+        runtimeEpoch: identity.runtimeEpoch,
+        fromRevision: null,
+        toRevision: identity.fixtureRevision,
+        replace: true,
+        settled: true,
+        hasMoreBefore: maxTurns < 36,
         transcript: {
-          sessionId: 'persisted-chat-reading-anchor-session',
+          sessionId: identity.sessionId,
           state: 'idle',
-          revision: 1,
+          revision: identity.fixtureRevision,
           entries,
         },
       }),

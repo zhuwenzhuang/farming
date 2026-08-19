@@ -139,8 +139,9 @@ interface WebSocketClient {
   activityScope?: 'all' | 'focused' | 'none';
   activityScopeDeclared?: boolean;
   bufferedAmount: number;
-  acpRevisionCheckpointPending?: boolean;
-  acpRevisionSentRevision?: number;
+  acpRevisionCheckpointPending?: Set<string>;
+  acpRevisionInterest?: Set<string>;
+  acpRevisionSentCursor?: Map<string, AcpTranscriptCursor>;
   connectionId?: string;
   focusedAgentId?: string | null;
   previewHydrationPending?: boolean;
@@ -167,6 +168,14 @@ interface WebSocketClient {
   on(event: string, listener: (...args: never[]) => void): WebSocketClient;
   once(event: string, listener: (...args: never[]) => void): WebSocketClient;
 }
+
+type AcpTranscriptCursor = {
+  agentId: string;
+  sessionId: string;
+  runtimeEpoch: string;
+  revision: number;
+  updatedAt: string;
+};
 
 interface ServerError extends Error {
   code?: string;
@@ -1995,6 +2004,24 @@ const websocketFocusScopeHandlers = createWebSocketFocusScopeHandlers<WebSocketC
   sendAllActivitySnapshot: sendAgentActivitySnapshot,
   sendPreviewHydration,
 });
+
+function watchAcpTranscripts(client: WebSocketClient, data: { agentIds: string[] }) {
+  const previous = client.acpRevisionInterest ?? new Set<string>();
+  const next = new Set(data.agentIds);
+  client.acpRevisionInterest = next;
+  for (const agentId of previous) {
+    if (next.has(agentId) || client.focusedAgentId === agentId) continue;
+    client.acpRevisionCheckpointPending?.delete(agentId);
+    client.acpRevisionSentCursor?.delete(agentId);
+  }
+  for (const agentId of next) {
+    if (previous.has(agentId)) continue;
+    client.acpRevisionSentCursor?.delete(agentId);
+    agentManager.prioritizeAcpPreparedTranscript(agentId);
+    const revision = currentAcpSessionRevision(agentId);
+    if (revision) deliverAcpSessionRevision(client, revision);
+  }
+}
 const websocketAgentLifecycleHandlers = createWebSocketAgentLifecycleHandlers<WebSocketClient>({
   openState: WebSocket.OPEN,
   canonicalProjectWorkspace,
@@ -2039,6 +2066,7 @@ const clientMessageDispatchTable = defineClientMessageDispatchTable<WebSocketCli
   'acp-permission-response': registerClientMessage('acp-permission-response', websocketAcpHandlers.acpPermissionResponse),
   'interrupt-agent': registerClientMessage('interrupt-agent', websocketAgentLifecycleHandlers.interruptAgent),
   'focus-agent': registerClientMessage('focus-agent', websocketFocusScopeHandlers.focusAgent),
+  'watch-acp-transcripts': registerClientMessage('watch-acp-transcripts', watchAcpTranscripts),
   'resize-agent': registerClientMessage('resize-agent', websocketTerminalHandlers.resizeAgent),
   'clear-terminal': registerClientMessage('clear-terminal', websocketTerminalHandlers.clearTerminal),
   'watch-workspace-files': registerClientMessage('watch-workspace-files', (ws, data) => {
@@ -2332,41 +2360,35 @@ function queueAgentActivityRecovery(client: WebSocketClient) {
 }
 
 function currentAcpSessionRevision(agentId: string) {
-  const agent = agentManager.getAgentState(agentId, Date.now()) as ServerRecord | null;
-  const runtimeBinding = isRecord(agent?.runtimeBinding) ? agent.runtimeBinding : null;
-  const revision = Number(runtimeBinding?.sessionRevision);
-  const updatedAt = typeof runtimeBinding?.sessionUpdatedAt === 'string'
-    ? runtimeBinding.sessionUpdatedAt
-    : '';
-  if (runtimeBinding?.kind !== 'acp' || !Number.isInteger(revision) || revision < 0 || !updatedAt) return null;
-  return { agentId, revision, updatedAt };
+  return agentManager.getAcpTranscriptCursor(agentId);
 }
 
-function deliverAcpSessionRevision(client: WebSocketClient, session: AgentScopedServerEvent) {
+function deliverAcpSessionRevision(client: WebSocketClient, session: AcpTranscriptCursor) {
   if (client.readyState !== WebSocket.OPEN || client.protocolVersion !== PROTOCOL_VERSION) return;
   const sessionIsRelevant = () => Boolean(
-    client.focusedAgentId
-    && client.focusedAgentId === session.agentId
+    client.focusedAgentId === session.agentId
+    || client.acpRevisionInterest?.has(session.agentId)
   );
+  const sentCursor = client.acpRevisionSentCursor?.get(session.agentId);
   const delivery = acpRevisionClientDelivery(
-    client.focusedAgentId,
-    client.acpRevisionSentRevision,
+    sessionIsRelevant(),
+    sentCursor,
     client.stateSnapshotInProgress ? 0 : client.bufferedAmount,
     MAX_ACP_REVISION_CLIENT_BUFFERED_AMOUNT,
-    { agentId: session.agentId, revision: Number(session.revision) },
+    session,
   );
   if (delivery === 'skip') return;
   if (delivery === 'defer') {
-    client.acpRevisionCheckpointPending = true;
+    (client.acpRevisionCheckpointPending ??= new Set()).add(session.agentId);
     return;
   }
   const message = JSON.stringify({ type: 'acp-session-revision', session });
   const markSent = () => {
-    client.acpRevisionSentRevision = Number(session.revision);
-    client.acpRevisionCheckpointPending = false;
+    (client.acpRevisionSentCursor ??= new Map()).set(session.agentId, session);
+    client.acpRevisionCheckpointPending?.delete(session.agentId);
   };
   const markDiscarded = () => {
-    if (sessionIsRelevant()) client.acpRevisionCheckpointPending = true;
+    if (sessionIsRelevant()) (client.acpRevisionCheckpointPending ??= new Set()).add(session.agentId);
   };
   if (deferUntilAgentStateSnapshotCompletes(
     client,
@@ -2381,13 +2403,20 @@ function deliverAcpSessionRevision(client: WebSocketClient, session: AgentScoped
 }
 
 function recoverAcpSessionRevisionIfReady(client: WebSocketClient) {
-  if (client.acpRevisionCheckpointPending !== true || !client.focusedAgentId) return;
-  const revision = currentAcpSessionRevision(client.focusedAgentId);
-  if (!revision) {
-    client.acpRevisionCheckpointPending = false;
-    return;
+  const pending = client.acpRevisionCheckpointPending;
+  if (!pending || pending.size === 0) return;
+  for (const agentId of [...pending]) {
+    if (client.focusedAgentId !== agentId && !client.acpRevisionInterest?.has(agentId)) {
+      pending.delete(agentId);
+      continue;
+    }
+    const revision = currentAcpSessionRevision(agentId);
+    if (!revision) {
+      pending.delete(agentId);
+      continue;
+    }
+    deliverAcpSessionRevision(client, revision);
   }
-  deliverAcpSessionRevision(client, revision);
 }
 
 const stateBroadcastTracker = createAgentStateBroadcastTracker();
@@ -2653,29 +2682,21 @@ agentManager.onAgentActivity(websocketAgentActivityBroadcasts.schedule);
 agentManager.on('agent-update', websocketAgentChangeBroadcasts.scheduleAgentUpdate);
 
 function scheduleAcpSessionRevision(session: unknown) {
-  if (
-    !isAgentScopedServerEvent(session)
-    || !Number.isFinite(Number(session.revision))
-    || typeof session.updatedAt !== 'string'
-  ) return;
-  const previous = pendingAcpSessionRevisions.get(session.agentId);
-  if (previous) {
-    if (Number(session.revision) >= Number(previous.session.revision)) {
-      previous.session = session;
-    }
-    return;
-  }
+  if (!isAgentScopedServerEvent(session)) return;
+  if (pendingAcpSessionRevisions.has(session.agentId)) return;
+  const agentId = session.agentId;
   const entry = {
-    session,
     timer: setTimeout(() => {
-      pendingAcpSessionRevisions.delete(session.agentId);
+      pendingAcpSessionRevisions.delete(agentId);
+      const cursor = currentAcpSessionRevision(agentId);
+      if (!cursor) return;
       wss.clients.forEach((client) => {
-        deliverAcpSessionRevision(client, entry.session);
+        deliverAcpSessionRevision(client, cursor);
       });
     }, AGENT_ACTIVITY_BROADCAST_DELAY_MS),
   };
   entry.timer.unref?.();
-  pendingAcpSessionRevisions.set(session.agentId, entry);
+  pendingAcpSessionRevisions.set(agentId, entry);
 }
 
 agentManager.on('acp-session-revision', scheduleAcpSessionRevision);

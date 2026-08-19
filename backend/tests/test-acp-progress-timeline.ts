@@ -23,7 +23,14 @@ assert.strictEqual(
 );
 assert.strictEqual(
   acpActionGroupLabel([{ type: 'tool', kind: 'execute', status: 'failed' }]),
-  'Action failed',
+  'Ran a command',
+);
+assert.strictEqual(
+  acpActionGroupLabel([
+    { type: 'tool', kind: 'execute', status: 'completed' },
+    { type: 'tool', kind: 'execute', status: 'failed' },
+  ]),
+  'Ran commands',
 );
 
 assert.deepStrictEqual(
@@ -33,6 +40,8 @@ assert.deepStrictEqual(
     { id: 'comment-a', type: 'progress' },
     { id: 'thought-b', type: 'thought' },
     { id: 'tool-b', type: 'tool', kind: 'execute' },
+    { id: 'error-a', type: 'error', status: 'failed' },
+    { id: 'tool-d', type: 'tool', kind: 'search' },
     { id: 'steer-a', type: 'user-steer' },
     { id: 'comment-b', type: 'progress' },
     { id: 'plan-a', type: 'plan' },
@@ -46,6 +55,8 @@ assert.deepStrictEqual(
     { kind: 'group', id: 'group:thought-a', ids: ['thought-a', 'tool-a'] },
     { kind: 'item', id: 'comment-a' },
     { kind: 'group', id: 'group:thought-b', ids: ['thought-b', 'tool-b'] },
+    { kind: 'item', id: 'error-a' },
+    { kind: 'group', id: 'group:tool-d', ids: ['tool-d'] },
     { kind: 'item', id: 'steer-a' },
     { kind: 'item', id: 'comment-b' },
     { kind: 'group', id: 'group:tool-c', ids: ['tool-c'] },

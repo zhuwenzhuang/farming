@@ -170,10 +170,17 @@ Browser Delivery 使用严格 Checkpoint + Delta 契约：
 - 发现缺口、Identity 变化或 Reset 时必须请求 Replacement Checkpoint；
 - 其它 Agent 或旧 Revision 的迟到响应不能抢回当前 Chat。
 
-每个 Browser Connection 都会显式声明当前可见 Agent。ACP Revision Notification 只投递给
-Interest 匹配的 Connection。切换 Focus 或重连时，会把当前绝对 Revision 作为 Agent-scoped
-Checkpoint 发送。慢连接只保留一个 Pending Checkpoint Marker，并在 Transport Buffer 排空后
-恢复最新 Revision；不会按每次 Provider Update 累积一条待发送通知。
+每个 Browser Connection 都会显式声明当前可见 Agent，以及它拥有结构化 Transcript 的有界
+Retained ACP Chat 集合。ACP Revision Notification 只投递给 Interest 匹配的 Connection。
+切换 Focus、新增 Retained Interest 或重连时，会把当前绝对 Cursor（Agent、Provider Session、
+Runtime Epoch 与 Transcript Revision）作为 Agent-scoped Checkpoint 发送。Session 或 Epoch
+被替换时，即使 Revision 从更小数字重新开始也必须投递。
+慢连接对每个 Interested Agent 只保留一个 Pending Checkpoint Marker，并在
+Transport Buffer 排空后恢复最新 Revision；不会按每次 Provider Update 累积一条待发送通知。
+
+HTTP Transcript Read 在跨进程读取前后分别采样权威 Session 与 Runtime Epoch；Identity 发生
+变化或返回 Transcript 指向其它 Session 时拒绝该响应。读取期间 Transcript Revision 可以继续
+前进；持续工作的 Agent 不需要等待 Revision 静止，仍可返回 Identity 自洽的结果。
 
 Provider Replay 是权威来源。Local Checkpoint 可以加速投影并保留 Reset Fence，但除非 Provider
 能证明 Freshness，否则不能替代完整 Load。结果不确定的 Prompt 会让 Checkpoint 保持 Dirty。
@@ -191,9 +198,15 @@ Provider Replay 是权威来源。Local Checkpoint 可以加速投影并保留 R
 首份稳定 ACP Transcript 只包含最新 5 个 Turn。用户向上阅读时，再按有界批次加载更早的
 Turn，避免打开长 Chat 时把全部 Markdown 与工具历史放入首屏渲染路径。
 
-Browser 只为当前可见 Chat 保留重量级 Transcript Tree。Inactive Chat 只保存轻量导航 Anchor，
-再次进入时从 Backend Checkpoint 读取。阅读位置绑定稳定 Turn 或 Process Item，而不只记录
-Pixel，因此重启与分页后可以恢复上下文，同时避免大量 Frontend Memory 占用。
+Browser 为最近 Chat 保留有界 LRU 的完整结构化 Transcript Record，其中包括用户已经向上加载的
+更早 Turn 范围。Retained Record 在 Inactive 时继续合并 Live Revision；每个 Agent 的 Revision
+只合并到一个最新 High-water，每个 Agent 只允许一个 Transcript Read in-flight，同时对后台读取
+Cadence 与全局读取并发设界。只有当前可见 Chat 持有 React、Markdown 与 Tool Card DOM。
+重新 Attach 的 Retained Record 如果已观察到的 Session 与 Runtime Epoch 仍匹配，就立即显示，
+并从现有 Revision 继续；不能只因为它重新可见就请求 Checkpoint。冷启动或已淘汰的 Chat、重连、
+Identity 变化、检测到缺口、Reset 或分页范围变化，仍必须先取得权威 Checkpoint，才能显示替换
+内容。阅读位置绑定稳定 Turn 或 Process Item，而不只记录 Pixel；Transcript Record 与 Pooled
+Terminal 共用 20-view Working-set 边界。
 
 ## 生命周期与恢复
 
@@ -256,7 +269,8 @@ Transition：Operation 保持 pending 并给出显式告警。任何情况下 Fo
 
 Chat 展示有序对话、当前 Turn 的一条紧凑 Live Activity，以及可逆的结构化证据。已完成的
 Reasoning 与 Tool Detail 不应在默认阅读面上形成重叠摘要。Disclosure Control 保留稳定布局
-槽位，只在 Hover 或 Keyboard Focus 时视觉浮现。
+槽位，只在 Hover 或 Keyboard Focus 时视觉浮现。中间 Tool 失败保留在所属 Action Group
+内，但不替换该 Group 的行为摘要；权威 Turn 与 Runtime Failure 继续在更高层级显式展示。
 
 文件提交后，历史 Patch Card 仍保留其结构化 Diff 证据。只有该 Card 中至少一个路径仍存在
 当前 Staged、Unstaged 或 Untracked Git 改动时才显示 Commit Follow-up；无关的 Working Copy

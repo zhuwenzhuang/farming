@@ -331,6 +331,8 @@ interface CrtProtocolAcpRevisionServerMessage extends CrtProtocolRecord {
   type: 'acp-session-revision';
   session: {
     agentId: string;
+    sessionId: string;
+    runtimeEpoch: string;
     revision: number;
     updatedAt: string;
   };

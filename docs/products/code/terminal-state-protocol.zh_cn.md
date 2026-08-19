@@ -53,6 +53,8 @@ Attention 变化不会推测性读取 Checkpoint；只有 Attachment 或真实 R
 
 已经排入 Renderer Queue 的 Stale Checkpoint 可以按顺序排空，但存在更新 Attachment 或 Recovery
 Generation 后，它的 Completion 不能提交。Replacement Checkpoint 必须始终能推进到可见权威状态。
+Renderer 处于 Detached 时收到的 Replacement Transition 不能静默丢弃：它必须推进 Attachment
+Recovery Target，并将该 Record 标记为下一次可见 Attach 前需要重新读取权威 Checkpoint。
 
 完整 Checkpoint 安装期间隐藏旧 Screen。用户只会看到上一个已证明 Screen、有界 Recovery
 Status 或新提交 Screen，不会观看历史重绘逐步回放。

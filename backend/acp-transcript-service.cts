@@ -113,14 +113,23 @@ class AcpTranscriptService {
     agentId: string,
     options: Partial<AcpSessionRequestOptions> = {},
   ): Promise<UnknownRecord> {
+    const identityBefore = this.currentTranscriptIdentity(agentId);
     const transcript = await this.build(agentId, options);
+    const identityAfter = this.currentTranscriptIdentity(agentId);
+    if (
+      identityBefore.sessionId !== identityAfter.sessionId
+      || identityBefore.runtimeEpoch !== identityAfter.runtimeEpoch
+      || String(transcript.sessionId || '') !== identityAfter.sessionId
+    ) {
+      throw new Error('ACP Transcript identity changed during read');
+    }
     const requestedRevision = Number(options.sinceRevision);
     const replace = transcript.delta !== true;
     return {
       version: 1,
       agentId,
       sessionId: String(transcript.sessionId || ''),
-      runtimeEpoch: this.runtime.bindingEpoch(agentId),
+      runtimeEpoch: identityAfter.runtimeEpoch,
       fromRevision: !replace && Number.isFinite(requestedRevision)
         ? Math.max(0, Math.floor(requestedRevision))
         : null,
@@ -210,6 +219,20 @@ class AcpTranscriptService {
       && Number(runtimeBinding.sessionRevision || 0) === identity.revision
       && runtimeBinding.state === 'idle'
     );
+  }
+
+  private currentTranscriptIdentity(agentId: string) {
+    this.requireLiveAgent(agentId);
+    const session = this.runtime.getSession(agentId, {
+      includeEntries: false,
+      includeUpdates: false,
+    });
+    const sessionId = String(session.sessionId || '').trim();
+    const runtimeEpoch = String(this.runtime.bindingEpoch(agentId) || '').trim();
+    if (!sessionId || !runtimeEpoch) {
+      throw new Error('ACP Transcript identity is unavailable');
+    }
+    return { sessionId, runtimeEpoch };
   }
 }
 

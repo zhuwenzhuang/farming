@@ -145,6 +145,13 @@ import {
   projectAcpTranscriptResponse,
 } from './acp/acp-transcript-envelope'
 import {
+  attachAcpTranscriptSession,
+  getAcpTranscriptSessionSnapshot,
+  refreshAcpTranscriptSession,
+  setAcpTranscriptTurnLimit,
+  subscribeAcpTranscriptSession,
+} from './acp/acp-transcript-session-pool'
+import {
   acpActionGroupLabel,
   acpProgressFlowEntries,
   isAcpProgressUpdate,
@@ -3343,6 +3350,47 @@ export function AgentTranscriptPane({
   }, [active, finishUserScrollGesture])
 
   useEffect(() => {
+    if (source !== 'acp') return undefined
+    const syncSnapshot = () => {
+      const snapshot = getAcpTranscriptSessionSnapshot(agentId)
+      transcriptRef.current = snapshot.transcript
+      setTranscript(snapshot.transcript)
+      setLoading(snapshot.loading)
+      setLoadingOlder(snapshot.loadingOlder)
+      setTurnLimit(current => current === snapshot.turnLimit ? current : snapshot.turnLimit)
+      const visibleError = snapshot.error
+        && !snapshot.transcript?.available
+        && (snapshot.error === 'transport' || expectHistoryRef.current)
+      setError(visibleError ? copy.agentTranscriptUnavailable : '')
+      if (snapshot.loading) return
+      const pooledTranscript = snapshot.transcript
+      if (pooledTranscript?.envelopeVersion === 1 && pooledTranscript.settled) {
+        revealInitialTranscript()
+      } else if (pooledTranscript?.available && pooledTranscript.turns.length > 0) {
+        scheduleInitialTranscriptReveal()
+      } else if (!expectHistoryRef.current) {
+        revealInitialTranscript()
+      }
+    }
+    const unsubscribe = subscribeAcpTranscriptSession(agentId, syncSnapshot)
+    const release = attachAcpTranscriptSession(agentId)
+    transcriptRefreshRef.current = () => refreshAcpTranscriptSession(agentId)
+    syncSnapshot()
+    return () => {
+      if (transcriptRefreshRef.current) transcriptRefreshRef.current = null
+      unsubscribe()
+      release()
+    }
+  }, [agentId, copy.agentTranscriptUnavailable, revealInitialTranscript, scheduleInitialTranscriptReveal, source])
+
+  useEffect(() => {
+    if (source !== 'acp') return
+    setAcpTranscriptTurnLimit(agentId, turnLimit)
+  }, [agentId, source, turnLimit])
+
+  useEffect(() => {
+    if (source === 'acp') return undefined
+    const fetchSource = source as AgentTranscriptPaneProps['source']
     let stopped = false
     let pollTimer: number | null = null
     let retryTimer: number | null = null
@@ -3378,14 +3426,14 @@ export function AgentTranscriptPane({
       forceCheckpoint = false
       if (
         !checkpointRequested
-        && source === 'acp'
+        && fetchSource === 'acp'
         && currentTranscript?.sessionId
         && currentTranscript.turnLimit === turnLimit
         && Number.isFinite(currentTranscript.revision)
       ) {
         params.set('sinceRevision', String(currentTranscript.revision))
       }
-      if (source === 'acp') {
+      if (fetchSource === 'acp') {
         params.set('media', 'external-v1')
       }
       const endpoint = 'acp-transcript'
@@ -3402,10 +3450,10 @@ export function AgentTranscriptPane({
           if (stopped || generation !== requestGeneration) return
           retryAttempt = 0
           needsReconnectReload = false
-          const nextTranscript = source === 'acp'
+          const nextTranscript = fetchSource === 'acp'
             ? projectAcpTranscriptResponse(payload, agentId, { maxTurns: turnLimit })
             : payload.transcript || null
-          const mergeResult = source === 'acp'
+          const mergeResult = fetchSource === 'acp'
             ? mergeAcpTranscript(transcriptRef.current, nextTranscript)
             : {
                 transcript: preserveCompletedTranscriptTurns(transcriptRef.current, nextTranscript),
@@ -3464,7 +3512,7 @@ export function AgentTranscriptPane({
         })
         .catch(reason => {
           if (stopped || generation !== requestGeneration || reason?.name === 'AbortError') return
-          const retryDelay = source === 'acp' && !responseReceived && reason instanceof TypeError
+          const retryDelay = fetchSource === 'acp' && !responseReceived && reason instanceof TypeError
             ? acpTranscriptFetchRetryDelayMs(retryAttempt)
             : undefined
           if (retryDelay !== undefined) {
@@ -3473,8 +3521,8 @@ export function AgentTranscriptPane({
             return
           }
           retryAttempt = 0
-          needsReconnectReload = source === 'acp' && !responseReceived && reason instanceof TypeError
-          const suppressFreshAcpResponseError = source === 'acp'
+          needsReconnectReload = fetchSource === 'acp' && !responseReceived && reason instanceof TypeError
+          const suppressFreshAcpResponseError = fetchSource === 'acp'
             && !expectHistoryRef.current
             && responseReceived
           setError(
@@ -3548,7 +3596,7 @@ export function AgentTranscriptPane({
     // ACP entry updates already advance refreshSignal through the shared state
     // websocket. Re-fetching a complete, idle history every three seconds is
     // especially expensive for long sessions with many tool details.
-    if (source !== 'acp') pollTimer = window.setInterval(load, 3000)
+    if (fetchSource !== 'acp') pollTimer = window.setInterval(load, 3000)
 
     return () => {
       stopped = true
