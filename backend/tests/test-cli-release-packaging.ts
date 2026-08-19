@@ -144,6 +144,10 @@ function run() {
     'Codex ACP runtime integrity must match the reviewed vendor bytes',
   );
   assert(
+    npmSmokeScript.includes(`const expectedCodexVendor = '${preparedCodexAcpSha256}';`),
+    'npm package smoke must verify the same reviewed Codex ACP bytes',
+  );
+  assert(
     appPackageScript.includes(
       'cp "${PROJECT_ROOT}/backend/usage-history-scanner.generated.js"',
     ),
