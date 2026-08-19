@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const appearanceThemes = require('../../shared/appearance-themes.json');
 const {
+  appendWebAppManifestToken,
   applyIndexHtmlAppearance,
   appendIndexHtmlAssetToken,
   rewriteIndexHtmlForBasePath,
@@ -25,6 +26,7 @@ function run() {
     '<script type="module" src="/assets/index.js"></script>',
     '<link rel="modulepreload" href="/assets/chunk.js">',
     '<link rel="stylesheet" href="/farming/assets/index.css">',
+    '<link rel="manifest" href="/farming-2/site.webmanifest">',
     '<link rel="icon" href="/farming-2/favicon-v2.ico">',
     '<link rel="preconnect" href="https://example.invalid/assets/remote.js">',
     '</head>',
@@ -38,6 +40,7 @@ function run() {
   assertAssetCarriesStartupToken(withToken, '/farming/assets/index.js', startupToken);
   assertAssetCarriesStartupToken(withToken, '/farming/assets/chunk.js', startupToken);
   assertAssetCarriesStartupToken(withToken, '/farming/assets/index.css', startupToken);
+  assertAssetCarriesStartupToken(withToken, '/farming/farming-2/site.webmanifest', startupToken);
   assert(
     withToken.includes('<link rel="icon" href="/farming/farming-2/favicon-v2.ico">'),
     'public product icons should keep a stable token-free URL for installed web apps'
@@ -97,6 +100,7 @@ function run() {
   const mainSource = fs.readFileSync(path.join(repoRoot, 'src/main.tsx'), 'utf8');
   const serverSource = fs.readFileSync(path.join(repoRoot, 'backend/server.cts'), 'utf8');
   const manifest = JSON.parse(fs.readFileSync(path.join(repoRoot, 'public/farming-2/site.webmanifest'), 'utf8'));
+  const personalizedManifest = appendWebAppManifestToken(manifest, startupToken);
   const faviconHeader = fs.readFileSync(path.join(repoRoot, 'public/farming-2/favicon-v2.ico')).subarray(0, 4);
   assert(productIndex.includes('app-icon-v2-180.png'), 'iOS should use the versioned high-resolution touch icon');
   assert(productIndex.includes('favicon-v2-32.png'), 'browser tabs should use the versioned small-icon crop');
@@ -108,12 +112,22 @@ function run() {
   );
   assert(productIndex.includes("root.dataset.appearance = appearance"), 'the entry document should resolve its first-paint appearance before loading app code');
   assert(
-    mainSource.includes('visibleUrlWithoutToken(window.location.href)')
-      && mainSource.includes("window.history.replaceState(window.history.state, '', tokenFreeVisibleUrl)"),
-    'the loaded application should replace the credential-bearing owner URL without adding browser history',
+    mainSource.includes('rememberStartupAccessToken(window.location.href)')
+      && !mainSource.includes("searchParams.delete('token')"),
+    'the loaded application should retain the credential-bearing owner URL for reload and installed-app handoff',
   );
   assert.strictEqual(manifest.id, undefined, 'the installed app identity should inherit the resolved start URL instead of collapsing custom base paths to one origin-level id');
-  assert.strictEqual(manifest.start_url, '../', 'the installed app should reopen the authenticated base path without persisting a token URL');
+  assert.strictEqual(manifest.start_url, '../', 'the public manifest fallback should keep a token-free start URL');
+  assert.strictEqual(
+    personalizedManifest.start_url,
+    `../?token=${encodeURIComponent(startupToken)}`,
+    'an authenticated install should reopen the base path with its explicit owner token',
+  );
+  assert.strictEqual(
+    appendWebAppManifestToken({ start_url: '../?mode=compact&token=old#workspace' }, startupToken).start_url,
+    `../?mode=compact&token=${encodeURIComponent(startupToken)}#workspace`,
+    'manifest personalization should replace an old token while preserving other startup state',
+  );
   assert.strictEqual(manifest.scope, '../', 'the installed app should keep Code and CRT routes inside the same standalone window');
   assert.strictEqual(manifest.display, 'standalone', 'the installed desktop app should omit ordinary browser tabs and address controls');
   const customBaseManifestUrl = new URL('https://farming.example/custom/base/farming-2/site.webmanifest');
@@ -125,6 +139,11 @@ function run() {
     serverSource.indexOf("app.use(routePath(BASE_PATH, '/farming-2'), express.static(publicProductAssetsDir")
       < serverSource.indexOf('app.use(tokenAuth.middleware())'),
     'public product assets should be mounted before token authentication for OS icon fetchers'
+  );
+  assert(
+    serverSource.indexOf("app.get(routePath(BASE_PATH, '/farming-2/site.webmanifest')")
+      < serverSource.indexOf("app.use(routePath(BASE_PATH, '/farming-2'), express.static(publicProductAssetsDir"),
+    'the personalized installed-app manifest should take precedence over public product assets',
   );
   assert(serverSource.includes("'/apple-touch-icon.png'"), 'iOS should have a conventional root touch-icon route');
   assert(serverSource.includes("routePath(BASE_PATH, '/apple-touch-icon.png')"), 'iOS should have a base-path touch-icon route');

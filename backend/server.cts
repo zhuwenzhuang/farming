@@ -344,7 +344,7 @@ import { createReviewDiffRouter } from './review-diff-router.cjs';
 import { ReviewSessionStore } from './review-session-store.cjs';
 import { ReviewSessionService } from './review-session-service.cjs';
 import { createReviewSessionRouter } from './review-session-router.cjs';
-import { applyIndexHtmlAppearance, normalizeBasePath, routePath, rewriteIndexHtmlForBasePath, appendIndexHtmlAssetToken } from './index-html.cjs';
+import { appendIndexHtmlAssetToken, appendWebAppManifestToken, applyIndexHtmlAppearance, normalizeBasePath, routePath, rewriteIndexHtmlForBasePath } from './index-html.cjs';
 import { decodeAcpTranscriptMedia } from './acp-transcript.cjs';
 import { deliverSessionStreamToClients } from './session-stream-protocol.cjs';
 import {
@@ -812,9 +812,31 @@ function withLaunchCapabilities<T extends { name: string }>(agents: T[]) {
 }
 
 // iOS can fetch installed-web-app metadata outside the authenticated page
-// request, without preserving its cookie or token query. These files contain
-// only public product artwork and must remain available to that fetcher.
+// request, without preserving its cookie or token query. Product artwork stays
+// public; only an explicit valid owner query personalizes the no-store manifest.
 const publicProductAssetsDir = path.join(staticAppDir, 'farming-2');
+const publicProductManifestPath = path.join(publicProductAssetsDir, 'site.webmanifest');
+app.get(routePath(BASE_PATH, '/farming-2/site.webmanifest'), (req, res) => {
+  const requestUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+  const requestToken = requestUrl.searchParams.get('token');
+  if (!authEnabled || !requestToken || !tokenAuth.verify(requestToken)) {
+    res.sendFile(publicProductManifestPath);
+    return;
+  }
+  fs.readFile(publicProductManifestPath, 'utf8', (error: unknown, source: string) => {
+    if (error) {
+      res.status(500).send('Farming web app manifest is unavailable');
+      return;
+    }
+    try {
+      res.set('Cache-Control', 'no-store');
+      res.set('Content-Type', 'application/manifest+json');
+      res.json(appendWebAppManifestToken(JSON.parse(source), requestToken));
+    } catch {
+      res.status(500).send('Farming web app manifest is invalid');
+    }
+  });
+});
 app.use(routePath(BASE_PATH, '/farming-2'), express.static(publicProductAssetsDir, { index: false }));
 
 const sendPublicProductAsset = (filename: string) => (_req: HttpRequest, res: HttpResponse) => {

@@ -35,7 +35,7 @@ function appendIndexHtmlAssetToken(html: unknown, token: unknown): string {
   return String(html || '').replace(/\b(src|href)="([^"]+)"/g, (match, attr, url) => {
     if (!url || /(?:[?&])token=/.test(url)) return match;
     if (/^[a-z][a-z0-9+.-]*:/i.test(url) || url.startsWith('//')) return match;
-    if (!/(?:^|\/)assets\//.test(url)) return match;
+    if (!/(?:^|\/)assets\//.test(url) && !/(?:^|\/)farming-2\/site\.webmanifest(?:[?#]|$)/.test(url)) return match;
 
     const hashIndex = url.indexOf('#');
     const urlWithoutHash = hashIndex >= 0 ? url.slice(0, hashIndex) : url;
@@ -43,6 +43,21 @@ function appendIndexHtmlAssetToken(html: unknown, token: unknown): string {
     const separator = urlWithoutHash.includes('?') ? '&' : '?';
     return `${attr}="${urlWithoutHash}${separator}token=${encodedToken}${hash}"`;
   });
+}
+
+function appendWebAppManifestToken(manifest: unknown, token: unknown): unknown {
+  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest) || !token) return manifest;
+  const personalized = { ...manifest } as Record<string, unknown>;
+  const startUrl = typeof personalized.start_url === 'string' ? personalized.start_url : '../';
+  const hashIndex = startUrl.indexOf('#');
+  const startUrlWithoutHash = hashIndex >= 0 ? startUrl.slice(0, hashIndex) : startUrl;
+  const hash = hashIndex >= 0 ? startUrl.slice(hashIndex) : '';
+  const queryIndex = startUrlWithoutHash.indexOf('?');
+  const pathname = queryIndex >= 0 ? startUrlWithoutHash.slice(0, queryIndex) : startUrlWithoutHash;
+  const params = new URLSearchParams(queryIndex >= 0 ? startUrlWithoutHash.slice(queryIndex + 1) : '');
+  params.set('token', String(token));
+  personalized.start_url = `${pathname}?${params.toString()}${hash}`;
+  return personalized;
 }
 
 function applyIndexHtmlAppearance(html: unknown, appearance: unknown): string {
@@ -84,4 +99,5 @@ export {
   routePath,
   rewriteIndexHtmlForBasePath,
   appendIndexHtmlAssetToken,
+  appendWebAppManifestToken,
 };
