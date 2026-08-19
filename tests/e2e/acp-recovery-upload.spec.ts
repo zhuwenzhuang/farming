@@ -12,6 +12,52 @@ async function createCodexChat(page: import('@playwright/test').Page, workspace:
   return agentId
 }
 
+async function startCodexChatFromDialog(page: import('@playwright/test').Page, workspace: string) {
+  await page.getByTestId('code-new-agent').click()
+  await page.getByTestId('agent-option-codex').click()
+  const runtimeMode = page.getByTestId('agent-runtime-mode')
+  await runtimeMode.getByRole('button', { name: /^Chat$/ }).click()
+  await page.getByTestId('workspace-input').fill(workspace)
+  await page.getByTestId('workspace-start').click()
+  await expect(page.getByTestId('input-dialog')).toBeHidden({ timeout: 5_000 })
+  const pane = page.locator('[data-testid="code-agent-work-pane"]:visible')
+  await expect(pane).toBeVisible()
+  const agentId = await pane.getAttribute('data-agent-id')
+  if (!agentId) throw new Error('Connecting Chat did not expose its Agent identity')
+  return agentId
+}
+
+test('keeps transcript reads pending when Archive is followed by another connecting Chat', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'acp-archive-create-identity-race')
+  fs.mkdirSync(workspace, { recursive: true })
+  const transcriptResponses: Array<{ agentId: string; status: number; body?: string }> = []
+  page.on('response', response => {
+    const match = response.url().match(/\/api\/agents\/([^/]+)\/acp-transcript(?:\?|$)/)
+    if (match) {
+      const entry = { agentId: decodeURIComponent(match[1]), status: response.status(), body: undefined as string | undefined }
+      transcriptResponses.push(entry)
+      void response.text().then(body => { entry.body = body }).catch(() => {})
+    }
+  })
+
+  await openFarming(page)
+  const firstAgentId = await startCodexChatFromDialog(page, workspace)
+  const firstRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${firstAgentId}"]`)
+  await firstRow.hover()
+  await firstRow.getByTestId('code-agent-row-archive').click()
+
+  const secondAgentId = await startCodexChatFromDialog(page, workspace)
+  await expect.poll(() => transcriptResponses.some(response => (
+    response.agentId === secondAgentId && response.status === 200
+  )), { timeout: 10_000 }).toBe(true)
+  await expect.poll(() => transcriptResponses.every(response => response.body !== undefined)).toBe(true)
+  expect(transcriptResponses.filter(response => (
+    (response.agentId === firstAgentId || response.agentId === secondAgentId)
+    && response.status === 409
+  ))).toEqual([])
+  await expect(page.getByText('Chat history is unavailable for this session.', { exact: true })).toHaveCount(0)
+})
+
 test('keeps a fresh Chat in its empty state when the startup transcript read fails', async ({ page, workspaceRoot }) => {
   const agentId = await createCodexChat(page, path.join(workspaceRoot, 'acp-fresh-empty-read-failure'))
   let transcriptRequests = 0

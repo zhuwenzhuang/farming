@@ -250,6 +250,9 @@ class FakeAgent implements Agent {
 
   async newSession(params) {
     validateRequestedSessionScope(params);
+    if (path.basename(params.cwd) === 'acp-archive-create-identity-race') {
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
     const environment = farmingSessionEnvironment(params);
     if (process.env.FARMING_E2E_FAKE_EXECUTABLES === '1' && environment.FARMING_AGENT_ID) {
       sessionId = deterministicE2eSessionId(environment.FARMING_AGENT_ID);

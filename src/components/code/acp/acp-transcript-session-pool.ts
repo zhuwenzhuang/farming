@@ -247,6 +247,18 @@ async function loadRecord(record: AcpTranscriptSessionRecord) {
       `/api/agents/${encodeURIComponent(record.agentId)}/acp-transcript?${params.toString()}`,
     ), { signal: controller.signal })
     responseReceived = true
+    if (response.status === 202) {
+      updateSnapshot(record, { loading: true, loadingOlder: false, error: null })
+      const retryDelay = acpTranscriptUnsettledRetryDelayMs(record.unsettledRetryAttempt, false)
+      if (retryDelay !== undefined) {
+        record.unsettledRetryAttempt = Math.min(
+          record.unsettledRetryAttempt + 1,
+          ACP_TRANSCRIPT_UNSETTLED_RETRY_LADDER_LENGTH,
+        )
+        scheduleRecord(record, { delayMs: retryDelay })
+      }
+      return
+    }
     if (!response.ok) throw new Error('Transcript unavailable')
     const payload = await response.json()
     if (generation !== record.requestGeneration) return
@@ -475,6 +487,11 @@ export function refreshAcpTranscriptSession(agentId: string, checkpoint = false)
   const record = recordFor(agentId)
   record.forceCheckpoint ||= checkpoint
   scheduleRecord(record, { immediate: checkpoint })
+}
+
+export function discardAcpTranscriptSession(agentId: string) {
+  const record = records.get(agentId)
+  if (record) disposeRecord(record)
 }
 
 export function reconnectAcpTranscriptSessions() {

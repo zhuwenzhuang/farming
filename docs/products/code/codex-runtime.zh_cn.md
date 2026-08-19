@@ -49,6 +49,10 @@ Publication，但不识别 Codex，也不解释其 Menu。
 Provider Session ID 是 Codex Conversation 的权威身份。Chat/Terminal 切换是真实 Runtime
 Replacement，只有在证明可恢复时才保留该身份。
 
+全新 Chat 可以在 Provider Session ID 物化前先展示 Connecting Shell。在该权威身份发布前，
+Transcript Projection 必须保持明确的 Pending 状态；打开、归档或替换 Connecting Shell 时，
+不得把正常的 Identity Pending 窗口变成失败的 Request。
+
 全新 Terminal 可以在用户输入物化 Provider Conversation 前切换；一旦收到输入，切换、权限
 重启、恢复与 Fork 都需要已验证的可恢复身份。Terminal Presentation 不得从任意 Output Text
 推断该身份。

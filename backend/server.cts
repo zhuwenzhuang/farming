@@ -1214,6 +1214,14 @@ app.get(routePath(BASE_PATH, '/api/agents/:agentId/acp-transcript'), async (req,
   } catch (caught) {
     const error = caughtError(caught);
     const message = error && error.message ? error.message : 'Failed to read ACP transcript';
+    if (
+      message === 'ACP Agent is still connecting'
+      || message === 'ACP Transcript identity is unavailable'
+      || message === 'ACP Transcript identity changed during read'
+    ) {
+      res.status(202).json({ pending: true });
+      return;
+    }
     res.status(message === 'Agent not found' ? 404 : 409).json({ error: message });
   }
 });
