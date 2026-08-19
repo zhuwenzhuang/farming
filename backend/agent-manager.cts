@@ -506,6 +506,13 @@ interface AgentManagerOptions extends UnknownRecord {
   transcriptMediaPathPrefix?: (agentId: string) => string;
   unarchiveCodexSession?: UnarchiveCodexSessionContract;
   worktreeGitService?: WorktreeGitServicePort;
+  agentResourceOwnerReplacement?: AgentResourceOwnerReplacementContract;
+}
+
+interface AgentResourceOwnerReplacementContract {
+  begin(sourceAgentId: string): void;
+  complete(sourceAgentId: string, targetAgentId: string): void;
+  cancel(sourceAgentId: string): void;
 }
 
 interface AgentResourceBinding {
@@ -1329,6 +1336,7 @@ class AgentManager extends EventEmitter {
   declare systemMonitor: SystemMonitor;
   declare startTime: number;
   declare providerSessionService: ProviderSessionServiceRuntimeContract;
+  declare agentResourceOwnerReplacement: AgentResourceOwnerReplacementContract;
 
   registerAgentRecord(agentId: AgentId, agent: TypedAgentRecord): void {
     const previous = this.agents.get(agentId);
@@ -1463,6 +1471,11 @@ class AgentManager extends EventEmitter {
   ) {
     super();
     this.configManager = configManager;
+    this.agentResourceOwnerReplacement = options.agentResourceOwnerReplacement || {
+      begin: () => {},
+      complete: () => {},
+      cancel: () => {},
+    };
     this.recoveryGate = new AgentRecoveryGate();
     this.shutdownState = new AgentShutdownState();
     this.controlUrl = options.controlUrl || '';
@@ -7595,16 +7608,55 @@ class AgentManager extends EventEmitter {
     ) {
       return { error: 'Agent runtime changed while preparing the runtime switch. Retry the runtime switch.' };
     }
-    const killResult = await this.killAgent(agentId, {
-      reason: 'runtime-switch',
-      recordHistory: false,
-      emitUpdate: false,
-      lifecycleToken,
-      persistDeleteOperation: false,
-    });
-    if (killResult?.error) return killResult;
+    try {
+      this.agentResourceOwnerReplacement.begin(agentId);
+    } catch (error) {
+      return {
+        error: `Failed to preserve Agent resources for the runtime switch: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      };
+    }
+    let resourceOwnerReplacementActive = true;
+    const cancelResourceOwnerReplacement = (): void => {
+      if (!resourceOwnerReplacementActive) return;
+      this.agentResourceOwnerReplacement.cancel(agentId);
+      resourceOwnerReplacementActive = false;
+    };
+    const completeResourceOwnerReplacement = (replacementAgentId: string): string => {
+      try {
+        this.agentResourceOwnerReplacement.complete(agentId, replacementAgentId);
+        resourceOwnerReplacementActive = false;
+        return '';
+      } catch (error) {
+        cancelResourceOwnerReplacement();
+        return error instanceof Error ? error.message : String(error);
+      }
+    };
+    let killResult: KillAgentResult;
+    try {
+      killResult = await this.killAgent(agentId, {
+        reason: 'runtime-switch',
+        recordHistory: false,
+        emitUpdate: false,
+        lifecycleToken,
+        persistDeleteOperation: false,
+      });
+    } catch (error) {
+      cancelResourceOwnerReplacement();
+      return {
+        error: `Failed to stop Agent runtime for the runtime switch: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      };
+    }
+    if (killResult?.error) {
+      cancelResourceOwnerReplacement();
+      return killResult;
+    }
     const switched = await startReplacement(restartOptions);
     if (switched.restartedAgentId && !switched.error) {
+      const resourceTransferError = completeResourceOwnerReplacement(switched.restartedAgentId);
       restorePreservedState(switched.restartedAgentId);
       this.emitStateChange({ agentIds: [agentId, switched.restartedAgentId] });
       return {
@@ -7612,6 +7664,9 @@ class AgentManager extends EventEmitter {
         restarted: true,
         restartedAgentId: switched.restartedAgentId,
         agentRuntimeMode: nextMode,
+        ...(resourceTransferError ? {
+          error: `Agent runtime switched, but its resources could not be transferred: ${resourceTransferError}`,
+        } : {}),
       };
     }
     if (switched.restartedAgentId && this.agents.has(switched.restartedAgentId)) {
@@ -7622,6 +7677,7 @@ class AgentManager extends EventEmitter {
           lifecycleToken,
       });
       if (cleanup?.error) {
+        cancelResourceOwnerReplacement();
         this.emitStateChange({ agentIds: [agentId, switched.restartedAgentId] });
         return {
           agentId,
@@ -7634,6 +7690,7 @@ class AgentManager extends EventEmitter {
 
     const restored = await startReplacement(originalOptions);
     if (restored.restartedAgentId && !restored.error) {
+      const resourceTransferError = completeResourceOwnerReplacement(restored.restartedAgentId);
       restorePreservedState(restored.restartedAgentId);
       this.emitStateChange({ agentIds: [agentId, restored.restartedAgentId] });
       return {
@@ -7643,6 +7700,9 @@ class AgentManager extends EventEmitter {
         agentRuntimeMode: originalMode,
         switchFailed: true,
         warning: `${switched.error || 'Failed to switch Agent runtime'} Original runtime restored.`,
+        ...(resourceTransferError ? {
+          error: `Original Agent runtime was restored, but its resources could not be transferred: ${resourceTransferError}`,
+        } : {}),
       };
     }
     let restoreCleanupError = '';
@@ -7655,6 +7715,7 @@ class AgentManager extends EventEmitter {
       });
       restoreCleanupError = cleanup?.error || '';
     }
+    cancelResourceOwnerReplacement();
     this.emitStateChange({
       agentIds: [agentId, switched.restartedAgentId, restored.restartedAgentId].filter(
         (value): value is string => typeof value === 'string' && value.length > 0,

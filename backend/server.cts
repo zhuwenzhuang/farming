@@ -489,6 +489,30 @@ const agentManager = new AgentManager(
     BASE_PATH,
     `/api/agents/${encodeURIComponent(agentId)}/acp-media`,
   ),
+  agentResourceOwnerReplacement: {
+    begin: sourceAgentId => {
+      browserResourceManager.beginAgentOwnerReplacement(sourceAgentId);
+      computerResourceManager.beginAgentOwnerReplacement(sourceAgentId);
+    },
+    complete: (sourceAgentId, targetAgentId) => {
+      const errors: string[] = [];
+      try {
+        computerResourceManager.completeAgentOwnerReplacement(sourceAgentId, targetAgentId);
+      } catch (error) {
+        errors.push(`Computer: ${caughtError(error).message}`);
+      }
+      try {
+        browserResourceManager.completeAgentOwnerReplacement(sourceAgentId, targetAgentId);
+      } catch (error) {
+        errors.push(`Browser: ${caughtError(error).message}`);
+      }
+      if (errors.length > 0) throw new Error(errors.join('; '));
+    },
+    cancel: sourceAgentId => {
+      browserResourceManager.cancelAgentOwnerReplacement(sourceAgentId);
+      computerResourceManager.cancelAgentOwnerReplacement(sourceAgentId);
+    },
+  },
   },
 );
 
@@ -580,8 +604,19 @@ const reconcileAgentResourceLifecycle = () => {
         agentResourceReconcileRequested = false;
         await agentManager.recoveryGate.wait();
         const agents = agentManager.getState().agents;
-        await browserResourceManager.reconcileAgentLifecycle(Array.isArray(agents) ? agents : []);
-        await computerResourceManager.reconcileAgentLifecycle(Array.isArray(agents) ? agents : []);
+        const states = Array.isArray(agents) ? agents : [];
+        const errors: string[] = [];
+        try {
+          await browserResourceManager.reconcileAgentLifecycle(states);
+        } catch (error) {
+          errors.push(`Browser: ${caughtError(error).message}`);
+        }
+        try {
+          await computerResourceManager.reconcileAgentLifecycle(states);
+        } catch (error) {
+          errors.push(`Computer: ${caughtError(error).message}`);
+        }
+        if (errors.length > 0) throw new Error(errors.join('; '));
       }
     } catch (error) {
       agentResourceReconcileRequested = false;

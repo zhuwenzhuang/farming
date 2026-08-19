@@ -26,6 +26,13 @@ Session、Credential、Profile 或 Private Endpoint。
 - 删除 Agent 会删除它精确拥有的 Desktop。
 - Browser 正在使用 Desktop 时，必须先释放 Lease 才能停止 Desktop。
 
+Chat/Terminal Replacement 会改变 Runtime Agent Identity。Lifecycle Owner 会在 Live Agent
+Record 暂时不存在期间 Hold 旧 Agent 的 Browser 与 Computer Resource，并在 Switch 结束前把
+这些精确 Resource 转移给已注册的 Replacement。若请求的 Replacement 与原 Runtime 都无法恢复，
+则解除 Hold，由普通 Orphan Cleanup 删除这些 Resource。Server Abrupt Loss 后，Farming 使用持久化的
+Replacement Lineage 与精确 Project Workspace 恢复未完成的 Ownership Transfer；Lineage 有歧义时
+失败封闭，不删除这些 Resource。
+
 破坏性操作前必须验证精确 Ownership。Viewer 通过带鉴权的 Farming Boundary 提供，而不是
 暴露公开 Desktop Endpoint。
 

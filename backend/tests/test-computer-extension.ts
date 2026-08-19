@@ -786,14 +786,82 @@ async function run() {
       'running',
       'a runtime switch must preserve the exact Agent-owned Computer',
     );
+    const retainedContainerId = manager.get(lifecycleCandidate.id).containerId;
+    manager.beginAgentOwnerReplacement('agent_other');
     await manager.reconcileAgentLifecycle([
       { id: 'agent_owner', status: 'running' },
-      { id: 'agent_other', status: 'stopped' },
+    ]);
+    assert.strictEqual(
+      manager.get(lifecycleCandidate.id).containerId,
+      retainedContainerId,
+      'a replacement hold must retain the Computer while the old Agent is absent',
+    );
+    manager.completeAgentOwnerReplacement('agent_other', 'agent_replacement');
+    assert.strictEqual(manager.get(lifecycleCandidate.id).ownerAgentId, 'agent_replacement');
+    assert.strictEqual(manager.get(lifecycleCandidate.id).containerId, retainedContainerId);
+    await manager.inspectOwnedContainer(manager.privateResource(lifecycleCandidate.id));
+    await manager.reconcileAgentLifecycle([
+      { id: 'agent_owner', status: 'running' },
+      { id: 'agent_replacement', status: 'stopped' },
     ]);
     assert.throws(
       () => manager.get(lifecycleCandidate.id),
       error => error.code === 'COMPUTER_NOT_FOUND',
       'an inactive owner must delete its Computer row and container instead of leaving an orphan',
+    );
+
+    const recoveredReplacement = manager.create({
+      ownerAgentId: 'agent_recovery_old',
+      projectRootId: 'root_project',
+      workspace,
+      name: 'Recovery Candidate',
+    });
+    await manager.start(recoveredReplacement.id);
+    const recoveredContainerId = manager.get(recoveredReplacement.id).containerId;
+    await assert.rejects(
+      manager.reconcileAgentLifecycle([
+        { id: 'agent_owner', status: 'running' },
+        {
+          id: 'agent_recovery_first',
+          projectWorkspace: workspace,
+          restartedFromAgentId: 'agent_recovery_old',
+          status: 'running',
+        },
+        {
+          id: 'agent_recovery_second',
+          projectWorkspace: workspace,
+          restartedFromAgentIds: ['agent_recovery_old'],
+          status: 'running',
+        },
+      ]),
+      error => error.code === 'COMPUTER_OWNER_REPLACEMENT_AMBIGUOUS',
+    );
+    assert.strictEqual(manager.get(recoveredReplacement.id).ownerAgentId, 'agent_recovery_old');
+    assert.strictEqual(manager.get(recoveredReplacement.id).containerId, recoveredContainerId);
+    await manager.reconcileAgentLifecycle([
+      { id: 'agent_owner', status: 'running' },
+      {
+        id: 'agent_recovery_new',
+        projectWorkspace: workspace,
+        restartedFromAgentIds: ['agent_recovery_old'],
+        status: 'running',
+      },
+    ]);
+    assert.strictEqual(manager.get(recoveredReplacement.id).ownerAgentId, 'agent_recovery_new');
+    assert.strictEqual(manager.get(recoveredReplacement.id).containerId, recoveredContainerId);
+    await manager.inspectOwnedContainer(manager.privateResource(recoveredReplacement.id));
+    await manager.reconcileAgentLifecycle([
+      { id: 'agent_owner', status: 'running' },
+      {
+        id: 'agent_recovery_new',
+        projectWorkspace: workspace,
+        status: 'stopped',
+      },
+    ]);
+    assert.throws(
+      () => manager.get(recoveredReplacement.id),
+      error => error.code === 'COMPUTER_NOT_FOUND',
+      'restart recovery must transfer before ordinary replacement cleanup resumes',
     );
 
     const app = express();

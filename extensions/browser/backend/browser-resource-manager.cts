@@ -192,6 +192,7 @@ interface BrowserResourceStoreLike {
   create(input: BrowserResourceCreateInput): BrowserResource;
   createRunningTab(input: RunningBrowserTabInput): BrowserResource;
   update(id: string, patch: BrowserResourcePatch): BrowserResource;
+  transferAgentOwner(sourceAgentId: string, targetAgentId: string): BrowserResource[];
   delete(id: string): boolean | void;
 }
 type IsolatedBrowserProvider = {
@@ -243,8 +244,12 @@ type BrowserManagerOptions = Record<string, unknown> & {
 };
 type AgentLifecycleState = {
   archived?: boolean;
+  cwd?: string;
   id: string;
   lifecycleOperation?: { type?: string } | null;
+  projectWorkspace?: string;
+  restartedFromAgentId?: string;
+  restartedFromAgentIds?: string[];
   status?: string;
 };
 type BrowserError = Error & { cause?: unknown; code: string; status: number };
@@ -293,6 +298,34 @@ function browserError(message: string, status = 400, code = 'BROWSER_INVALID_REQ
   error.status = status;
   error.code = code;
   return error;
+}
+
+function replacementAgentOwner(
+  ownerAgentId: string,
+  workspace: string,
+  agentStates: AgentLifecycleState[],
+): AgentLifecycleState | null {
+  const expectedWorkspace = path.resolve(workspace);
+  const candidates = agentStates.filter(agent => {
+    const lineage = new Set([
+      String(agent.restartedFromAgentId || ''),
+      ...(Array.isArray(agent.restartedFromAgentIds) ? agent.restartedFromAgentIds : []),
+    ]);
+    const agentWorkspace = String(agent.projectWorkspace || agent.cwd || '').trim();
+    return lineage.has(ownerAgentId)
+      && agent.archived !== true
+      && !INACTIVE_AGENT_STATUSES.has(String(agent.status || ''))
+      && Boolean(agentWorkspace)
+      && path.resolve(agentWorkspace) === expectedWorkspace;
+  });
+  if (candidates.length > 1) {
+    throw browserError(
+      `Browser owner replacement is ambiguous for Agent ${ownerAgentId}`,
+      409,
+      'BROWSER_OWNER_REPLACEMENT_AMBIGUOUS',
+    );
+  }
+  return candidates[0] || null;
 }
 
 function browserOwnerKey(resource: Pick<BrowserResource, 'ownerAgentId' | 'ownerType' | 'projectRootId'>): string {
@@ -442,6 +475,7 @@ class BrowserResourceManager extends EventEmitter {
   readonly operations = new Map<string, Promise<unknown>>();
   readonly stopAdmissions = new Map<string, number>();
   readonly existingTabReservations = new Map<number, string>();
+  readonly agentOwnerReplacementHolds = new Set<string>();
   disposed = false;
   runtimeCapability: BrowserCapability | null = null;
   browserOptions: BrowserOption[] = [];
@@ -2027,6 +2061,16 @@ class BrowserResourceManager extends EventEmitter {
     for (const resource of resources) {
       const owner = agents.get(resource.ownerAgentId);
       if (!owner) {
+        const replacement = replacementAgentOwner(
+          resource.ownerAgentId,
+          resource.workspace,
+          agentStates,
+        );
+        if (replacement) {
+          this.completeAgentOwnerReplacement(resource.ownerAgentId, replacement.id);
+          continue;
+        }
+        if (this.agentOwnerReplacementHolds.has(resource.ownerAgentId)) continue;
         await this.delete(resource.id, true);
         continue;
       }
@@ -2041,6 +2085,29 @@ class BrowserResourceManager extends EventEmitter {
         await this.delete(resource.id, true);
       }
     }
+  }
+
+  beginAgentOwnerReplacement(sourceAgentId: string): void {
+    this.agentOwnerReplacementHolds.add(sourceAgentId);
+  }
+
+  completeAgentOwnerReplacement(sourceAgentId: string, targetAgentId: string): void {
+    try {
+      const transferred = this.store.transferAgentOwner(sourceAgentId, targetAgentId);
+      if (transferred.length === 0) return;
+      const sourceOwnerKey = `agent:${sourceAgentId}`;
+      const targetOwnerKey = `agent:${targetAgentId}`;
+      for (const session of this.sessions.values()) {
+        if (session.ownerKey === sourceOwnerKey) session.ownerKey = targetOwnerKey;
+      }
+      for (const resource of transferred) this.emitResource(resource);
+    } finally {
+      this.agentOwnerReplacementHolds.delete(sourceAgentId);
+    }
+  }
+
+  cancelAgentOwnerReplacement(sourceAgentId: string): void {
+    this.agentOwnerReplacementHolds.delete(sourceAgentId);
   }
 
   requireEnabled(): void {

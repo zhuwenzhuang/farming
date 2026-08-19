@@ -4,7 +4,7 @@ const crypto = require('crypto');
 import { atomicWriteJson } from '../../../backend/atomic-json-store.cjs';
 import * as storageLayout from '../../../backend/storage-layout.cjs';
 
-const STORE_VERSION = 1;
+const STORE_VERSION = 2;
 const RESOURCE_ID_RE = /^computer_[A-Za-z0-9_-]+$/;
 const RESOURCE_STATES = new Set(['stopped', 'starting', 'running', 'stopping', 'failed']);
 const CONTROL_OWNERS = new Set(['agent', 'human']);
@@ -15,6 +15,7 @@ type ComputerControlOwner = 'agent' | 'human';
 interface ComputerResource {
   id: string;
   ownerAgentId: string;
+  containerOwnerAgentId: string;
   projectRootId: string;
   workspace: string;
   name: string;
@@ -53,6 +54,7 @@ function normalizeResource(value: unknown): ComputerResource | null {
   const resource = value as Partial<ComputerResource>;
   const id = cleanString(resource.id, 160);
   const ownerAgentId = cleanString(resource.ownerAgentId, 240);
+  const containerOwnerAgentId = cleanString(resource.containerOwnerAgentId, 240) || ownerAgentId;
   const projectRootId = cleanString(resource.projectRootId, 240);
   const workspace = cleanString(resource.workspace);
   if (!RESOURCE_ID_RE.test(id) || !ownerAgentId || !projectRootId || !workspace) return null;
@@ -65,6 +67,7 @@ function normalizeResource(value: unknown): ComputerResource | null {
   return {
     id,
     ownerAgentId,
+    containerOwnerAgentId,
     projectRootId,
     workspace: path.resolve(workspace),
     name: cleanString(resource.name, 120) || 'Desktop',
@@ -86,7 +89,11 @@ function normalizeResource(value: unknown): ComputerResource | null {
 }
 
 function publicResource(resource: ComputerResource, collectionRevision: number) {
-  const { vncPassword: _password, ...safe } = resource;
+  const {
+    vncPassword: _password,
+    containerOwnerAgentId: _containerOwnerAgentId,
+    ...safe
+  } = resource;
   return { ...safe, collectionRevision };
 }
 
@@ -133,6 +140,7 @@ class ComputerResourceStore {
     const resource: ComputerResource = {
       id,
       ownerAgentId: input.ownerAgentId,
+      containerOwnerAgentId: input.ownerAgentId,
       projectRootId: input.projectRootId,
       workspace: path.resolve(input.workspace),
       name: cleanString(input.name, 120) || 'Desktop',

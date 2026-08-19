@@ -319,6 +319,37 @@ class BrowserResourceStore {
     return { ...next };
   }
 
+  transferAgentOwner(sourceAgentId: string, targetAgentId: string): BrowserResource[] {
+    const transferring = [...this.resources.values()].filter(resource => (
+      resource.ownerType === 'agent' && resource.ownerAgentId === sourceAgentId
+    ));
+    if (transferring.length === 0) return [];
+    const previous = new Map(transferring.map(resource => [resource.id, resource]));
+    const updated = transferring.map(resource => normalizeResource({
+      ...resource,
+      ownerAgentId: targetAgentId,
+      revision: resource.revision + 1,
+      updatedAt: Date.now(),
+    }));
+    if (updated.some(resource => !resource)) throw new Error('Invalid Browser resource owner transfer');
+    for (const resource of updated) {
+      if (!resource) continue;
+      if (resource.sessionName && this.hasSession(resource, resource.id)) {
+        throw new Error(`Browser session already exists: ${resource.sessionName}`);
+      }
+    }
+    try {
+      for (const resource of updated) {
+        if (resource) this.resources.set(resource.id, resource);
+      }
+      this.commit();
+    } catch (error) {
+      for (const [id, resource] of previous) this.resources.set(id, resource);
+      throw error;
+    }
+    return updated.filter((resource): resource is BrowserResource => Boolean(resource));
+  }
+
   delete(id: string): boolean {
     if (!this.resources.delete(id)) return false;
     this.commit();

@@ -44,9 +44,18 @@ function deferred() {
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-runtime-switch-'));
   const sessionsDir = path.join(codexHome, 'sessions', '2026', '07', '12');
   fs.mkdirSync(sessionsDir, { recursive: true });
+  const resourceOwnerReplacementEvents: string[] = [];
   const manager = createTestAgentManager(AgentManager, {
     getHeartbeatInterval: () => 60_000,
     getTaskHistory: () => [],
+  }, {
+    agentResourceOwnerReplacement: {
+      begin: sourceAgentId => resourceOwnerReplacementEvents.push(`begin:${sourceAgentId}`),
+      complete: (sourceAgentId, targetAgentId) => resourceOwnerReplacementEvents.push(
+        `complete:${sourceAgentId}:${targetAgentId}`,
+      ),
+      cancel: sourceAgentId => resourceOwnerReplacementEvents.push(`cancel:${sourceAgentId}`),
+    },
   });
   const sessionId = '019f5577-59c5-7572-bb21-56b487be14d4';
   fs.writeFileSync(path.join(sessionsDir, `rollout-${sessionId}.jsonl`), [
@@ -149,6 +158,7 @@ function deferred() {
   const blockedAcpResult = await manager.restartAgentRuntimeMode('agent-acp-switch', 'chat');
   assert.match(blockedAcpResult.error, /delivery finished while the runtime switch was waiting/);
   assert.strictEqual(killed, '');
+  resourceOwnerReplacementEvents.length = 0;
   const acpResult = await manager.restartAgentRuntimeMode('agent-acp-switch', 'chat');
   assert.strictEqual(killed, 'agent-acp-switch');
   assert.strictEqual(started.options.agentRuntimeMode, 'chat');
@@ -157,6 +167,10 @@ function deferred() {
   assert.deepStrictEqual(started.options.composerCommands, crossRuntimeComposerCommands);
   assert.deepStrictEqual(manager.agents.get('agent-new').composerCommands, crossRuntimeComposerCommands);
   assert.strictEqual(acpResult.agentRuntimeMode, 'chat');
+  assert.deepStrictEqual(resourceOwnerReplacementEvents, [
+    'begin:agent-acp-switch',
+    'complete:agent-acp-switch:agent-new',
+  ]);
 
   manager.agents.set('agent-live-acp-switch', {
     id: 'agent-live-acp-switch',
@@ -249,6 +263,67 @@ function deferred() {
   manager.acpRuntime.reconnectAgent = originalReconnectAcpAgent;
   manager.acpRuntime.submitMessage = originalSubmitAcpMessage;
   manager.findRuntimeSwitchSession = originalFindRuntimeSwitchSession;
+
+  manager.agents.set('agent-kill-error', {
+    id: 'agent-kill-error',
+    command: 'codex',
+    forkCommand: 'codex',
+    cwd: '/tmp/project',
+    projectWorkspace: '/tmp/project',
+    providerSessionProvider: 'codex',
+    providerSessionId: sessionId,
+    providerSessionTemporary: false,
+    providerHomeId: 'zwz',
+    providerHomePath: codexHome,
+    agentRuntimeMode: 'terminal',
+    runtimeEpoch: 'runtime-kill-error',
+    status: 'running',
+    output: '',
+  });
+  const successfulKillAgent = manager.killAgent;
+  manager.killAgent = async () => {
+    throw new Error('kill transport failed');
+  };
+  resourceOwnerReplacementEvents.length = 0;
+  const killErrorResult = await manager.restartAgentRuntimeMode('agent-kill-error', 'chat');
+  assert.match(killErrorResult.error, /kill transport failed/);
+  assert.deepStrictEqual(resourceOwnerReplacementEvents, [
+    'begin:agent-kill-error',
+    'cancel:agent-kill-error',
+  ]);
+  manager.killAgent = successfulKillAgent;
+
+  manager.agents.set('agent-transfer-error', {
+    id: 'agent-transfer-error',
+    command: 'codex',
+    forkCommand: 'codex',
+    cwd: '/tmp/project',
+    projectWorkspace: '/tmp/project',
+    providerSessionProvider: 'codex',
+    providerSessionId: sessionId,
+    providerSessionTemporary: false,
+    providerHomeId: 'zwz',
+    providerHomePath: codexHome,
+    agentRuntimeMode: 'terminal',
+    runtimeEpoch: 'runtime-transfer-error',
+    status: 'running',
+    output: '',
+  });
+  const successfulResourceTransfer = manager.agentResourceOwnerReplacement.complete;
+  manager.agentResourceOwnerReplacement.complete = (sourceAgentId, targetAgentId) => {
+    resourceOwnerReplacementEvents.push(`complete:${sourceAgentId}:${targetAgentId}`);
+    throw new Error('resource store failed');
+  };
+  resourceOwnerReplacementEvents.length = 0;
+  const transferErrorResult = await manager.restartAgentRuntimeMode('agent-transfer-error', 'chat');
+  assert.match(transferErrorResult.error, /resources could not be transferred: resource store failed/);
+  assert.strictEqual(transferErrorResult.restartedAgentId, 'agent-new');
+  assert.deepStrictEqual(resourceOwnerReplacementEvents, [
+    'begin:agent-transfer-error',
+    'complete:agent-transfer-error:agent-new',
+    'cancel:agent-transfer-error',
+  ]);
+  manager.agentResourceOwnerReplacement.complete = successfulResourceTransfer;
 
   const permissionSessionKey = `agent-session:codex:home:zwz:${sessionId}`;
   manager.agents.set('agent-permission-config', {
@@ -517,6 +592,7 @@ function deferred() {
   const blockedRollbackResult = await manager.restartAgentRuntimeMode('agent-rollback', 'chat');
   assert.match(blockedRollbackResult.error, /delivery finished while the runtime switch was waiting/);
   assert.strictEqual(rollbackStarts, 0);
+  resourceOwnerReplacementEvents.length = 0;
   const rollbackResult = await manager.restartAgentRuntimeMode('agent-rollback', 'chat');
   assert.strictEqual(rollbackStarts, 2);
   assert.strictEqual(rollbackResult.switchFailed, true);
@@ -532,6 +608,10 @@ function deferred() {
   assert.deepStrictEqual(manager.agents.get('agent-restored').composerCommands, rollbackComposerCommands);
   assert.strictEqual(manager.agents.get('agent-restored').agentRecordId, 'agent_record_runtime_rollback');
   assert.strictEqual(manager.agents.get('agent-restored').runtimeBinding.kind, 'terminal');
+  assert.deepStrictEqual(resourceOwnerReplacementEvents, [
+    'begin:agent-rollback',
+    'complete:agent-rollback:agent-restored',
+  ]);
   const rollbackRetry = await manager.sendPersistentComposerMessage(
     'agent-restored',
     'retain this command when runtime switching rolls back',
@@ -579,12 +659,17 @@ function deferred() {
     manager.agents.delete(agentId);
     return { agentId, killed: true };
   };
+  resourceOwnerReplacementEvents.length = 0;
   const uncertainSwitch = await manager.restartAgentRuntimeMode('agent-uncertain-switch', 'chat');
   assert.strictEqual(uncertainStarts, 1, 'an uncertain replacement must block rollback start');
   assert.strictEqual(uncertainSwitch.cleanupUncertain, true);
   assert.strictEqual(uncertainSwitch.restartedAgentId, 'agent-uncertain-replacement');
   assert.match(uncertainSwitch.error, /cleanup could not be verified/i);
   assert.strictEqual(manager.agents.has('agent-uncertain-replacement'), true);
+  assert.deepStrictEqual(resourceOwnerReplacementEvents, [
+    'begin:agent-uncertain-switch',
+    'cancel:agent-uncertain-switch',
+  ]);
 
   await manager.dispose();
 

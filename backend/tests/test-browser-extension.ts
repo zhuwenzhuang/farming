@@ -1304,8 +1304,21 @@ async function testAgentOwnedBrowserIsolationAndLifecycle() {
       'An explicit Browser stop may retain the row while its Agent remains active',
     );
 
+    manager.beginAgentOwnerReplacement('agent_a');
     await manager.reconcileAgentLifecycle([
-      { id: 'agent_a', status: 'stopped' },
+      { id: 'agent_b', status: 'running' },
+    ]);
+    assert.strictEqual(
+      manager.get(first.id).status,
+      'running',
+      'a replacement hold must retain the Browser while the old Agent is absent',
+    );
+    manager.completeAgentOwnerReplacement('agent_a', 'agent_replacement');
+    assert.strictEqual(manager.get(first.id).ownerAgentId, 'agent_replacement');
+    assert.strictEqual(manager.get(second.id).ownerAgentId, 'agent_replacement');
+    assert.strictEqual(manager.sessions.get(first.id)?.ownerKey, 'agent:agent_replacement');
+    await manager.reconcileAgentLifecycle([
+      { id: 'agent_replacement', status: 'stopped' },
       { id: 'agent_b', status: 'running' },
     ]);
     assert.throws(() => manager.get(first.id), /not found/);
@@ -1316,6 +1329,62 @@ async function testAgentOwnedBrowserIsolationAndLifecycle() {
       'Reclaiming an Agent must close its shared Browser runtime after deleting every owned Resource',
     );
     assert.strictEqual(manager.get(isolated.id).status, 'running');
+
+    const recoveredReplacement = manager.create({
+      projectRootId: 'wroot_shared',
+      workspace: '/tmp/shared',
+      ownerType: 'agent',
+      ownerAgentId: 'agent_recovery_old',
+      name: 'Recovered',
+      url: 'about:blank',
+    });
+    await manager.start(recoveredReplacement.id);
+    const recoveredBinding = manager.runtimes.get(recoveredReplacement.id);
+    await assert.rejects(
+      manager.reconcileAgentLifecycle([
+        { id: 'agent_b', status: 'running' },
+        {
+          id: 'agent_recovery_first',
+          projectWorkspace: '/tmp/shared',
+          restartedFromAgentId: 'agent_recovery_old',
+          status: 'running',
+        },
+        {
+          id: 'agent_recovery_second',
+          projectWorkspace: '/tmp/shared',
+          restartedFromAgentIds: ['agent_recovery_old'],
+          status: 'running',
+        },
+      ]),
+      error => error.code === 'BROWSER_OWNER_REPLACEMENT_AMBIGUOUS',
+    );
+    assert.strictEqual(manager.get(recoveredReplacement.id).ownerAgentId, 'agent_recovery_old');
+    assert.strictEqual(manager.runtimes.get(recoveredReplacement.id), recoveredBinding);
+    await manager.reconcileAgentLifecycle([
+      { id: 'agent_b', status: 'running' },
+      {
+        id: 'agent_recovery_new',
+        projectWorkspace: '/tmp/shared',
+        restartedFromAgentId: 'agent_recovery_old',
+        status: 'running',
+      },
+    ]);
+    assert.strictEqual(manager.get(recoveredReplacement.id).ownerAgentId, 'agent_recovery_new');
+    assert.strictEqual(manager.runtimes.get(recoveredReplacement.id), recoveredBinding);
+    assert.strictEqual(recoveredBinding?.session.ownerKey, 'agent:agent_recovery_new');
+    await manager.reconcileAgentLifecycle([
+      { id: 'agent_b', status: 'running' },
+      {
+        id: 'agent_recovery_new',
+        projectWorkspace: '/tmp/shared',
+        status: 'stopped',
+      },
+    ]);
+    assert.throws(
+      () => manager.get(recoveredReplacement.id),
+      /not found/,
+      'restart recovery must transfer before ordinary replacement cleanup resumes',
+    );
 
     await manager.reconcileAgentLifecycle([{ id: 'agent_a', status: 'running' }]);
     assert.throws(() => manager.get(isolated.id), /not found/);

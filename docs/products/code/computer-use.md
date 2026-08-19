@@ -31,6 +31,15 @@ endpoint.
 - Deleting the Agent removes the exact Desktop it owns.
 - A Browser using the Desktop must release its lease before the Desktop stops.
 
+Chat/Terminal replacement changes the runtime Agent identity. The lifecycle
+owner holds the old Agent's Browser and Computer Resources while no live Agent
+record exists, then transfers those exact Resources to the registered
+replacement before ending the switch. If neither the requested replacement nor
+the original runtime can be restored, the hold ends and ordinary orphan cleanup
+removes the Resources. After abrupt Server loss, the persisted replacement
+lineage and exact Project workspace recover an incomplete ownership transfer;
+an ambiguous lineage fails closed without deleting the Resources.
+
 Farming verifies exact ownership before destructive actions. The Viewer is
 served through the authenticated Farming boundary rather than exposed as a
 public desktop endpoint.

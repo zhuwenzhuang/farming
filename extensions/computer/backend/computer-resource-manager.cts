@@ -134,8 +134,40 @@ interface ComputerManagerOptions {
 interface AgentLifecycleState {
   id: string;
   archived?: boolean;
+  cwd?: string;
+  projectWorkspace?: string;
+  restartedFromAgentId?: string;
+  restartedFromAgentIds?: string[];
   status?: string;
   lifecycleOperation?: { type?: string };
+}
+
+function replacementAgentOwner(
+  ownerAgentId: string,
+  workspace: string,
+  agentStates: AgentLifecycleState[],
+): AgentLifecycleState | null {
+  const expectedWorkspace = path.resolve(workspace);
+  const candidates = agentStates.filter(agent => {
+    const lineage = new Set([
+      String(agent.restartedFromAgentId || ''),
+      ...(Array.isArray(agent.restartedFromAgentIds) ? agent.restartedFromAgentIds : []),
+    ]);
+    const agentWorkspace = String(agent.projectWorkspace || agent.cwd || '').trim();
+    return lineage.has(ownerAgentId)
+      && agent.archived !== true
+      && !INACTIVE_AGENT_STATUSES.has(String(agent.status || ''))
+      && Boolean(agentWorkspace)
+      && path.resolve(agentWorkspace) === expectedWorkspace;
+  });
+  if (candidates.length > 1) {
+    throw computerError(
+      `Computer owner replacement is ambiguous for Agent ${ownerAgentId}`,
+      409,
+      'COMPUTER_OWNER_REPLACEMENT_AMBIGUOUS',
+    );
+  }
+  return candidates[0] || null;
 }
 
 interface ViewerSocket {
@@ -281,6 +313,7 @@ class ComputerResourceManager extends EventEmitter {
   readonly controlAdmissions = new Map<string, number>();
   readonly viewerSockets = new Map<string, Set<ViewerSocket>>();
   readonly browserLeases = new Map<string, number>();
+  readonly agentOwnerReplacementHolds = new Set<string>();
   capabilityCache: Record<string, unknown> | null = null;
   preparePromise: Promise<unknown> | null = null;
 
@@ -400,6 +433,25 @@ class ComputerResourceManager extends EventEmitter {
     const resource = this.store.create(input);
     this.emitResource(resource);
     return publicResource(resource, this.store.revision);
+  }
+
+  beginAgentOwnerReplacement(sourceAgentId: string): void {
+    this.agentOwnerReplacementHolds.add(sourceAgentId);
+  }
+
+  completeAgentOwnerReplacement(sourceAgentId: string, targetAgentId: string): void {
+    try {
+      for (const resource of this.store.list()) {
+        if (resource.ownerAgentId !== sourceAgentId) continue;
+        this.patch(resource.id, { ownerAgentId: targetAgentId });
+      }
+    } finally {
+      this.agentOwnerReplacementHolds.delete(sourceAgentId);
+    }
+  }
+
+  cancelAgentOwnerReplacement(sourceAgentId: string): void {
+    this.agentOwnerReplacementHolds.delete(sourceAgentId);
   }
 
   async acquireBrowser(input: {
@@ -929,6 +981,16 @@ class ComputerResourceManager extends EventEmitter {
     for (const resource of this.store.list()) {
       const owner = agents.get(resource.ownerAgentId);
       if (!owner) {
+        const replacement = replacementAgentOwner(
+          resource.ownerAgentId,
+          resource.workspace,
+          agentStates,
+        );
+        if (replacement) {
+          this.completeAgentOwnerReplacement(resource.ownerAgentId, replacement.id);
+          continue;
+        }
+        if (this.agentOwnerReplacementHolds.has(resource.ownerAgentId)) continue;
         await this.delete(resource.id, true);
         continue;
       }
@@ -1040,12 +1102,16 @@ class ComputerResourceManager extends EventEmitter {
     return safeNamePart(`farming-computer-${this.configFingerprint}-${resource.id.slice(-12)}`);
   }
 
-  private containerLabels(resource: { id: string; ownerAgentId: string }): Array<[string, string]> {
+  private containerLabels(resource: {
+    id: string;
+    ownerAgentId: string;
+    containerOwnerAgentId?: string;
+  }): Array<[string, string]> {
     return [
       ['farming.dev/kind', 'computer'],
       ['farming.dev/config', this.configFingerprint],
       ['farming.dev/resource', resource.id],
-      ['farming.dev/owner-agent', resource.ownerAgentId],
+      ['farming.dev/owner-agent', resource.containerOwnerAgentId || resource.ownerAgentId],
       ['farming.dev/image-digest', COMPUTER_IMAGE_INDEX_DIGEST],
     ];
   }
