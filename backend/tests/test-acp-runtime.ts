@@ -9,6 +9,29 @@ const { renderFarmingAgentBootstrap } = require('../farming-agent-bootstrap.cjs'
 const { claudeAcpEnvironment } = require('../provider-adapters.cjs');
 const { AcpSessionState } = require('../acp-session-state.cjs');
 
+function assertProcessIsNotLive(processId, message) {
+  if (process.platform === 'linux') {
+    try {
+      const statLine = fs.readFileSync(`/proc/${processId}/stat`, 'utf8');
+      const commandEnd = statLine.lastIndexOf(')');
+      const state = commandEnd < 0 ? '' : statLine.slice(commandEnd + 1).trim().split(/\s+/)[0];
+      assert(
+        ['Z', 'X', 'x'].includes(state),
+        `${message}: Linux process ${processId} remained in live state ${state || 'unknown'}`,
+      );
+      return;
+    } catch (error) {
+      if (error?.code === 'ENOENT') return;
+      throw error;
+    }
+  }
+  assert.throws(
+    () => process.kill(processId, 0),
+    error => error?.code === 'ESRCH',
+    message,
+  );
+}
+
 async function run() {
   const packagedProcess = process as NodeJS.Process & {
     pkg?: { entrypoint?: string };
@@ -3413,9 +3436,8 @@ async function run() {
       assert(Number.isInteger(descendantPid) && descendantPid > 0);
       await processTreeRuntime.dispose();
       assert.strictEqual(processTreeRuntime.bindings.has('agent-acp-process-tree'), false);
-      assert.throws(
-        () => process.kill(descendantPid, 0),
-        error => error?.code === 'ESRCH',
+      assertProcessIsNotLive(
+        descendantPid,
         'verified ACP cleanup must stop descendants in the adapter process group',
       );
     } finally {
