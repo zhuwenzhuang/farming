@@ -8,7 +8,7 @@
     { "file": "backend/tests/test-browser-extension.ts", "category": "package", "reason": "Browser extension files and binaries are package assembly contracts.", "owner": "Extensions", "baselineCount": 1 },
     { "file": "backend/tests/test-capability-cli-only.ts", "category": "architecture", "reason": "Extension capability ownership must not leak into the core CLI path.", "owner": "Runtime", "baselineCount": 1 },
     { "file": "backend/tests/test-ci-node-version-gate.ts", "category": "package", "reason": "CI Node-version wiring is build infrastructure, not product behavior.", "owner": "Build", "baselineCount": 2 },
-    { "file": "backend/tests/test-cli-release-packaging.ts", "category": "package", "reason": "CLI release scripts and entry points are package assembly contracts.", "owner": "Build", "baselineCount": 14 },
+    { "file": "backend/tests/test-cli-release-packaging.ts", "category": "package", "reason": "CLI release scripts and entry points are package assembly contracts.", "owner": "Build", "baselineCount": 15 },
     { "file": "backend/tests/test-code-appearance-css-contract.ts", "category": "architecture", "reason": "Appearance token ownership is a cross-skin architecture boundary.", "owner": "Code UI", "baselineCount": 3 },
     { "file": "backend/tests/test-code-style-sources.ts", "category": "architecture", "reason": "The style source manifest and cascade order are stylesheet ownership boundaries.", "owner": "Code UI", "baselineCount": 1 },
     { "file": "backend/tests/test-composer-style-ownership.ts", "category": "architecture", "reason": "Composer geometry and theme-token ownership are stylesheet boundaries.", "owner": "Code UI", "baselineCount": 2 },

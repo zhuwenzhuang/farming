@@ -178,7 +178,7 @@ test('Plugins treats each Agent Home as an independent ordered Agent configurati
   await expect(review).toHaveCount(0)
 })
 
-test('Agent Homes keep the ACP executable managed while exposing the launch runtime default', {
+test('Agent Homes use the Farming-managed ACP runtime without a user-facing runtime selector', {
   tag: ['@critical-behavior', '@behavior-CODE-PLUGINS-MANAGED-RUNTIME'],
 }, async ({ page }) => {
   await openFarming(page)
