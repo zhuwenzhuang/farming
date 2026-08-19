@@ -97,4 +97,44 @@ test.describe('agent launch icons', () => {
       ))
     }).toBe(true)
   })
+
+  test('keeps project Terminal and Chat shortcuts fixed when the saved default is Chat', async ({ page, workspaceRoot }) => {
+    const settingsResponse = await page.request.post('/farming/api/settings', {
+      data: {
+        agentLaunchProfiles: {
+          codex: { homeId: 'default', runtimeMode: 'chat' },
+        },
+      },
+    })
+    expect(settingsResponse.ok()).toBeTruthy()
+    await openFarming(page)
+    await openNewAgentDialog(page)
+    await startAgentFromOpenDialog(page, 'bash', workspaceRoot)
+
+    const projectGroup = page.getByTestId('code-project-group').first()
+    await projectGroup.hover()
+    await projectGroup.getByTestId('code-project-new-agent').click({ force: true })
+    const menu = page.getByTestId('code-project-new-agent-menu')
+    await expect(menu).toBeVisible()
+    await expect(page.getByTestId('code-project-agent-launch-chat-codex'))
+      .toHaveAttribute('aria-label', 'Codex · Chat')
+
+    const beforeResponse = await page.request.get('/farming/api/control/agents')
+    expect(beforeResponse.ok()).toBeTruthy()
+    const beforePayload = await beforeResponse.json() as { agents?: Array<{ id: string }> }
+    const beforeIds = new Set((beforePayload.agents ?? []).map(agent => agent.id))
+    await page.getByTestId('code-project-agent-launch-codex').click()
+    await expect.poll(async () => {
+      const response = await page.request.get('/farming/api/control/agents')
+      if (!response.ok()) return false
+      const payload = await response.json() as {
+        agents?: Array<{ id: string; command?: string; runtimeBinding?: { kind?: string } }>
+      }
+      return (payload.agents ?? []).some(agent => (
+        !beforeIds.has(agent.id)
+        && agent.command === 'codex'
+        && agent.runtimeBinding?.kind === 'terminal'
+      ))
+    }).toBe(true)
+  })
 })

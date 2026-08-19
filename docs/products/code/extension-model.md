@@ -133,6 +133,9 @@ changing the saved defaults. Removing the selected default Home atomically
 falls back to that Provider's `default` Home while preserving its runtime
 default. Resume, Fork, Restart, and recovery continue from the existing
 Session's exact Home and runtime rather than consulting new-Agent defaults.
+The Project quick-launch menu remains an explicit two-action control: the main
+Provider row always starts Terminal, and its right-side shortcut always starts
+Chat. These actions override the saved runtime default.
 
 The same identity binds new Chat Sessions to the adapter's Farming-managed ACP
 runtime. Plugins does not expose a custom executable selection. Existing

@@ -200,7 +200,7 @@ test('Agent Homes keep the ACP executable managed while exposing the launch runt
   })
 })
 
-test('Agent Home and runtime launch defaults drive dialogs, project shortcuts, and deletion fallback', async ({ page, workspaceRoot }) => {
+test('Agent Home and runtime launch defaults drive dialogs while project shortcuts stay explicit', async ({ page, workspaceRoot }) => {
   await openFarming(page)
   const currentSettingsResponse = await page.request.get('/farming/api/settings')
   expect(currentSettingsResponse.ok()).toBeTruthy()
@@ -265,28 +265,8 @@ test('Agent Home and runtime launch defaults drive dialogs, project shortcuts, a
   const projectLaunchMenu = page.getByTestId('code-project-new-agent-menu')
   await expect(projectLaunchMenu).toBeVisible()
   await expect(page.getByTestId('code-project-agent-launch-chat-codex'))
-    .toHaveAttribute('aria-label', 'Codex · Terminal')
-  const beforeResponse = await page.request.get('/farming/api/control/agents')
-  expect(beforeResponse.ok()).toBeTruthy()
-  const beforePayload = await beforeResponse.json() as { agents?: Array<{ id: string }> }
-  const beforeIds = new Set((beforePayload.agents ?? []).map(agent => agent.id))
-  await page.getByTestId('code-project-agent-launch-codex').click()
-  await expect.poll(async () => {
-    const response = await page.request.get('/farming/api/control/agents')
-    if (!response.ok()) return null
-    const payload = await response.json() as {
-      agents?: Array<{
-        id: string
-        command?: string
-        providerHomeId?: string
-        runtimeBinding?: { kind?: string }
-      }>
-    }
-    const launched = (payload.agents ?? []).find(agent => !beforeIds.has(agent.id) && agent.command === 'codex')
-    return launched
-      ? { providerHomeId: launched.providerHomeId, runtimeKind: launched.runtimeBinding?.kind }
-      : null
-  }, { timeout: 30_000 }).toEqual({ providerHomeId: 'work', runtimeKind: 'acp' })
+    .toHaveAttribute('aria-label', 'Codex · Chat')
+  await page.keyboard.press('Escape')
 
   await page.getByTestId('code-nav-plugins').click()
   await panel.getByTestId('code-plugin-tab-homes').click()
