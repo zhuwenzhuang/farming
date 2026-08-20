@@ -191,17 +191,17 @@ test('Project Archive protects manual and dynamic pinned Agents', async ({ page,
       observedAt: Date.now(),
     },
   })
-  await updateAgentLiveState(page, dynamicId, {
-    unread: true,
-    runtimeObservation: {
-      kind: 'shell',
-      phase: 'working',
-      confidence: 'authoritative',
-      source: 'structured-runtime',
-      observerVersion: 'dynamic-pinning-archive-test',
-      observedAt: Date.now(),
-    },
+  const workingCommand = await page.request.post(`/farming/api/control/agents/${dynamicId}/input`, {
+    data: { input: 'sleep 7200\r' },
   })
+  expect(workingCommand.ok()).toBeTruthy()
+  await expect.poll(async () => {
+    const response = await page.request.get('/farming/api/control/agents')
+    const body = await response.json() as {
+      agents?: Array<{ id?: string; runtimeObservation?: { phase?: string } }>
+    }
+    return body.agents?.find(agent => agent.id === dynamicId)?.runtimeObservation?.phase
+  }).toBe('working')
   await page.clock.fastForward(DYNAMIC_PIN_ACTIVITY_WINDOW_MS + 60_000)
 
   const pinnedSection = page.getByTestId('code-pinned-section')
