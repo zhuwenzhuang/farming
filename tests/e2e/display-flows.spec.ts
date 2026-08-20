@@ -2399,17 +2399,21 @@ test.describe('display-backed agent flows', () => {
     await expect.poll(() => fileEditorPosition(page)).toEqual({ lineNumber: 1, column: 1 })
     await expect.poll(async () => childFiles.locator('.code-file-tree-viewport').evaluate(viewport => {
       const tree = viewport.querySelector<HTMLElement>('.code-file-tree')
-      if (!tree) return false
+      const treeWindow = viewport.querySelector<HTMLElement>('.code-file-tree-window')
+      if (!tree || !treeWindow) return false
       const rowCount = viewport.querySelectorAll('[data-testid="code-file-row"]').length
+      const visibleRowCount = Number(viewport.dataset.visibleRowCount)
       const treeStyle = getComputedStyle(tree)
       const viewportStyle = getComputedStyle(viewport)
-      return rowCount > 0 &&
-        treeStyle.overflowY === 'visible' &&
+      const maximumMountedRows = Math.ceil(treeWindow.clientHeight / 24) + 12
+      return rowCount > 0 && Number.isFinite(visibleRowCount) &&
+        treeStyle.overflowY === 'hidden' &&
         viewportStyle.overflowY === 'visible' &&
-        tree.scrollHeight <= tree.clientHeight + 1 &&
         viewport.scrollHeight <= viewport.clientHeight + 1 &&
-        Math.abs(tree.clientHeight - rowCount * 24) <= 4 &&
-        Math.abs(viewport.clientHeight - rowCount * 24) <= 4
+        Math.abs(tree.clientHeight - treeWindow.clientHeight) <= 1 &&
+        Math.abs(viewport.clientHeight - visibleRowCount * 24) <= 4 &&
+        treeWindow.clientHeight <= viewport.clientHeight &&
+        rowCount <= maximumMountedRows
     })).toBe(true)
     fs.writeFileSync(
       path.join(deepInnerWorkspace, 'file-00.txt'),
@@ -2588,7 +2592,7 @@ test.describe('display-backed agent flows', () => {
     await expect(readmeRow).toBeVisible()
     await expect(readmeRow).toHaveClass(/active/)
     const queryRow = childFiles.locator('[data-testid="code-file-row"][data-file-path="query.sql"]')
-    const transientDeleteRow = childFiles.locator('[data-testid="code-file-row"][data-file-path="delete-me.txt"]')
+    const transientReplacementRow = childFiles.locator('[data-testid="code-file-row"][data-file-path="deep/nested/inner/file-00.txt"]')
     await queryRow.click()
     await expect(activeFileTabName(page)).toHaveText('query.sql')
     await expect(page.getByTestId('code-file-editor').getByRole('tab').filter({ hasText: 'query.sql' })).toHaveCount(1)
@@ -2597,8 +2601,8 @@ test.describe('display-backed agent flows', () => {
     await page.keyboard.press('Control+Shift+T')
     await expect(activeFileTabName(page)).toHaveText('query.sql')
     await expect(page.getByTestId('code-file-editor').getByRole('tab').filter({ hasText: 'query.sql' })).toHaveCount(1)
-    await transientDeleteRow.click()
-    await expect(activeFileTabName(page)).toHaveText('delete-me.txt')
+    await transientReplacementRow.click()
+    await expect(activeFileTabName(page)).toHaveText('file-00.txt')
     await expect(page.getByTestId('code-file-editor').getByRole('tab').filter({ hasText: 'query.sql' })).toHaveCount(0)
     await expect(page.getByTestId('code-file-editor').getByRole('tab').filter({ hasText: 'README.md' })).toHaveCount(1)
 
@@ -2769,14 +2773,22 @@ test.describe('display-backed agent flows', () => {
     })).toBe(true)
     await compactDeepRow.dispatchEvent('click')
     await expect(compactDeepRow).toHaveAttribute('aria-expanded', 'true')
-    await expect.poll(async () => fileTree.evaluate(element => {
-      const rowCount = element.querySelectorAll('[data-testid="code-file-row"]').length
-      const style = getComputedStyle(element)
-      return rowCount > 0 &&
-        style.overflowY === 'visible' &&
-        element.scrollHeight <= element.clientHeight + 1 &&
-        Math.abs(element.clientHeight - rowCount * 24) <= 4
+    await expect.poll(async () => childFiles.locator('.code-file-tree-viewport').evaluate(viewport => {
+      const tree = viewport.querySelector<HTMLElement>('.code-file-tree')
+      const treeWindow = viewport.querySelector<HTMLElement>('.code-file-tree-window')
+      if (!tree || !treeWindow) return false
+      const rowCount = viewport.querySelectorAll('[data-testid="code-file-row"]').length
+      const visibleRowCount = Number(viewport.dataset.visibleRowCount)
+      const maximumMountedRows = Math.ceil(treeWindow.clientHeight / 24) + 12
+      return rowCount > 0 && Number.isFinite(visibleRowCount) &&
+        getComputedStyle(tree).overflowY === 'hidden' &&
+        Math.abs(viewport.clientHeight - visibleRowCount * 24) <= 4 &&
+        rowCount <= maximumMountedRows
     })).toBe(true)
+    await fileSearchInput.fill('deep/nested/inner/file-30.txt:1')
+    await expect(childFiles.locator('.code-file-search-result').filter({ hasText: 'file-30.txt' }).first()).toBeVisible()
+    await fileSearchInput.press('Enter')
+    await fileSearchInput.fill('')
     await expect.poll(async () => page.getByTestId('code-project-list').evaluate((projectList, targetPath) => {
       const target = projectList
         .querySelector<HTMLElement>(`[data-testid="code-file-row"][data-file-path="${targetPath}"]`)

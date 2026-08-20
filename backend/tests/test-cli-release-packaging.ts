@@ -78,11 +78,20 @@ function run() {
   }
 
   assert(
-    packageScript.includes('--fallback-to-source')
+    packageScript.includes('--public')
+      && packageScript.includes('--no-bytecode')
+      && packageScript.includes('--fallback-to-source')
       && packageScript.includes('prepare:ripgrep-runtime -- --platform all')
       && packageScript.includes('Failed to generate V8 bytecode.*Use --fallback-to-source')
       && packageScript.includes('refusing to publish a broken CLI'),
-    'CLI packaging must retain source when cross-target bytecode fails and reject missing code',
+    'CLI packaging must avoid host-specific bytecode for cross-target binaries and reject missing code',
+  );
+  assert(
+    releasePreparationWorkflow.includes('uses: docker/setup-qemu-action@v3')
+      && releasePreparationWorkflow.includes('Smoke-test Linux arm64 CLI server and native PTY')
+      && releasePreparationWorkflow.includes('docker run --rm --platform linux/arm64')
+      && releasePreparationWorkflow.includes('farming_${FARMING_RELEASE_VERSION}_linux_arm64'),
+    'release preparation must execute the Linux arm64 CLI and native PTY before publishing it',
   );
   assert(
     packagedAcpBridge.includes("PACKAGED_CODEX_ACP_ARG = '--farming-codex-acp'")

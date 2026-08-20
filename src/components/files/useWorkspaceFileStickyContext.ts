@@ -19,6 +19,7 @@ interface UseWorkspaceFileStickyContextOptions {
   filesCollapsed: boolean
   focusFileTreePath: (path: string) => void
   lastFocusedFilePathRef: MutableRefObject<string | null>
+  layoutKey: string
   openDirectoryPaths: ReadonlySet<string>
   rowHeight: number
   refreshTreeLayout: () => void
@@ -38,6 +39,7 @@ export function useWorkspaceFileStickyContext({
   filesCollapsed,
   focusFileTreePath,
   lastFocusedFilePathRef,
+  layoutKey,
   openDirectoryPaths,
   rowHeight,
   refreshTreeLayout,
@@ -160,7 +162,7 @@ export function useWorkspaceFileStickyContext({
       window.clearTimeout(timeoutId)
       window.clearTimeout(lateTimeoutId)
     }
-  }, [clearStickyContext, filesCollapsed, openDirectoryPaths, refreshTreeLayout, treeData])
+  }, [clearStickyContext, filesCollapsed, layoutKey, openDirectoryPaths, refreshTreeLayout, treeData])
 
   useLayoutEffect(() => {
     if (filesCollapsed) return undefined
@@ -208,7 +210,7 @@ export function useWorkspaceFileStickyContext({
       scroller?.removeEventListener('scroll', refreshBeforePaint)
       window.removeEventListener('resize', refreshBeforePaint)
     }
-  }, [filesCollapsed, openDirectoryPaths, refreshStickyAncestors, treeData, treeRef, treeViewportRef])
+  }, [filesCollapsed, layoutKey, openDirectoryPaths, refreshStickyAncestors, treeData, treeRef, treeViewportRef])
 
   return {
     focusStickyDirectory,

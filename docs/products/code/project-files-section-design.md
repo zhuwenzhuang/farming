@@ -214,6 +214,8 @@ the complete expanded tree or read layout from every mounted file row.
 Its projection is output-blind: only the logical row projection, outer scroll
 geometry, and Files header boundary are inputs. Rendered sticky geometry and
 prior sticky state must never feed the next visibility decision.
+Authoritative preceding-layout changes, including Open Editors disclosure and
+count, invalidate that projection before paint; sticky output mutations do not.
 
 The single sticky directory context is a fixed one-row navigation control with
 a compact path. It appears only when the first uncovered visible row has a real

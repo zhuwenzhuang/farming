@@ -163,6 +163,8 @@ Sticky Context 从该预计算 Projection 定位 Row，并且只检查有界的 
 不得遍历完整展开树，也不得读取每个已挂载文件 Row 的布局。
 该 Projection 必须对自身输出无感：输入只能是逻辑 Row Projection、外层滚动几何和 Files Header
 边界。已渲染 Sticky DOM 几何及上一次 Sticky 状态绝不能回流到下一次显隐决策。
+Open Editors 展开状态和数量等权威前置布局变化必须在绘制前使该 Projection 失效；Sticky 输出
+自身的 Mutation 不能触发这一失效。
 
 单个粘性目录上下文是固定单行高度、显示紧凑路径的导航控件。只有首个未被遮挡的可见行存在
 已展开且滚过粘性边界的真实祖先时才展示；已折叠目录和前置同级目录永远不能成为粘性上下文。

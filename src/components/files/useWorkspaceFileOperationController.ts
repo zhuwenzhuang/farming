@@ -66,6 +66,7 @@ interface UseWorkspaceFileOperationControllerOptions {
   onMoveEntries: (agentId: string, moves: WorkspaceFileMove[]) => void
   onOpenFile: (agentId: string, file: WorkspaceFile) => void | Promise<void>
   onWorkspaceChange?: () => void
+  openDirectoriesInLayout: (directoryPaths: string[]) => void
   moveOpenDirectories: (moves: readonly WorkspaceFileMove[]) => Promise<unknown>
   refreshDirectories: (directoryPaths: Array<string | null | undefined>) => Promise<boolean>
   setOpenFileError: (error: string | null) => void
@@ -80,6 +81,7 @@ export function useWorkspaceFileOperationController({
   onMoveEntries,
   onOpenFile,
   onWorkspaceChange,
+  openDirectoriesInLayout,
   moveOpenDirectories,
   refreshDirectories,
   setOpenFileError,
@@ -128,6 +130,9 @@ export function useWorkspaceFileOperationController({
   const startFileOperation = useCallback((kind: WorkspaceFileOperationKind, item: WorkspaceFileTreeNode | null) => {
     if (!agentId || (item?.readOnly && !(item.symbolicLink && (kind === 'rename' || kind === 'delete')))) return
     const operation = createWorkspaceFileOperation(kind, item)
+    if ((kind === 'new-file' || kind === 'new-folder') && operation.parentPath) {
+      openDirectoriesInLayout([operation.parentPath])
+    }
     const generation = fileOperationGenerationRef.current + 1
     fileOperationGenerationRef.current = generation
     fileOperationRef.current = {
@@ -140,7 +145,7 @@ export function useWorkspaceFileOperationController({
     fileOperationActiveRef.current = true
     setOpenFileError(null)
     setFileOperation(operation)
-  }, [agentId, fileOperationActiveRef, setOpenFileError])
+  }, [agentId, fileOperationActiveRef, openDirectoriesInLayout, setOpenFileError])
 
   const closeFileOperation = useCallback(() => {
     const operation = fileOperationRef.current
@@ -197,7 +202,7 @@ export function useWorkspaceFileOperationController({
           operation.kind === 'new-folder' ? 'directory' : 'file',
           { signal },
         ))
-        refreshDirectories([operation.parentPath])
+        await refreshDirectories([operation.parentPath])
         onWorkspaceChange?.()
         if (isCurrentFileOperation(ownedOperation)) {
           if (created.entry.type === 'directory') {

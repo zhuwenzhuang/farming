@@ -115,6 +115,12 @@ jobs:
       - name: Install dependencies
         run: FARMING_SKIP_INSTALL_RUNTIME_PREPARE=1 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 PUPPETEER_SKIP_DOWNLOAD=1 npm ci --registry=https://registry.npmjs.org/ --no-audit --no-fund
 
+      - name: Enable arm64 CLI smoke emulation
+        if: matrix.kind == 'cli'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
       - name: Build Linux CLI
         if: matrix.kind == 'cli'
         env:
@@ -128,6 +134,16 @@ jobs:
           FARMING_RELEASE_VERSION: ${{ steps.version.outputs.value }}
           FARMING_SMOKE_AGENT: "0"
         run: npm run release:cli:smoke -- "releases/${FARMING_RELEASE_VERSION}/farming_${FARMING_RELEASE_VERSION}_linux_amd64"
+
+      - name: Smoke-test Linux arm64 CLI server and native PTY
+        if: matrix.kind == 'cli'
+        shell: bash
+        run: |
+          docker run --rm --platform linux/arm64 \
+            -v "$PWD/releases/${FARMING_RELEASE_VERSION}:/release:ro" \
+            -v "$PWD/scripts:/scripts:ro" \
+            node:22.17.0-bookworm \
+            bash /scripts/smoke-cli-release.sh "/release/farming_${FARMING_RELEASE_VERSION}_linux_arm64"
 
       - name: Build Linux app bundle
         if: matrix.kind == 'app'

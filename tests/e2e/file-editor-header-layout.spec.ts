@@ -423,10 +423,10 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
       openEditorsContent: left('.code-open-editors-header'),
     }
   })
-  expect(stickySurfaceGeometry.agentsSurface).toBe(stickySurfaceGeometry.fileRowSurface)
-  expect(stickySurfaceGeometry.filesHeaderSurface).toBe(stickySurfaceGeometry.fileRowSurface)
-  expect(stickySurfaceGeometry.openEditorsSurface).toBe(stickySurfaceGeometry.fileRowSurface)
-  expect(stickySurfaceGeometry.openEditorsContent).toBeGreaterThan(stickySurfaceGeometry.openEditorsSurface)
+  expect(stickySurfaceGeometry.filesHeaderSurface).toBe(stickySurfaceGeometry.agentsSurface)
+  expect(stickySurfaceGeometry.openEditorsSurface).toBe(stickySurfaceGeometry.agentsSurface)
+  expect(stickySurfaceGeometry.openEditorsContent).toBe(stickySurfaceGeometry.fileRowSurface)
+  expect(stickySurfaceGeometry.fileRowSurface).toBeGreaterThan(stickySurfaceGeometry.agentsSurface)
   await pinMarkdownFile('docs/alpha.md')
   await pinMarkdownFile('docs/beta.md')
 

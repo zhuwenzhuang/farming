@@ -182,6 +182,8 @@ for target in "${TARGET_ARRAY[@]}"; do
       -c pkg.config.cjs \
       -t "${target}" \
       --no-native-build \
+      --public \
+      --no-bytecode \
       --fallback-to-source \
       --compress GZip \
       -o "${out_bin}" \
