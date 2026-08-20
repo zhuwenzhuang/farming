@@ -17,7 +17,7 @@ const MOBILE_PROJECT_CONTEXT_MENU_WIDTH = 286
 
 export type WorkspaceContextMenu =
   | { kind: 'agent'; agentId: string; x: number; y: number; focusFirstItem: boolean }
-  | { kind: 'project'; projectId: string; x: number; y: number; returnFocusTarget: HTMLElement; focusFirstItem: boolean }
+  | { kind: 'project'; projectId: string; protectedAgentIds: string[]; x: number; y: number; returnFocusTarget: HTMLElement; focusFirstItem: boolean }
   | { kind: 'agent-session'; provider: string; sessionId: string; x: number; y: number; focusFirstItem: boolean }
   | { kind: 'options'; x: number; y: number; returnFocusTarget: HTMLElement | null; focusFirstItem: boolean }
 
@@ -99,7 +99,11 @@ export function useWorkspaceContextMenu({
     const point = anchoredMenuPoint(event, height)
     setContextMenu({ kind: 'agent', agentId, ...point, focusFirstItem: isKeyboardMenuTrigger(event) })
   }, [agents, canCreateAgentBrowser, canCreateAgentDesktop])
-  const openProjectMenu = useCallback((event: WorkspaceContextMenuTriggerEvent, projectId: string) => {
+  const openProjectMenu = useCallback((
+    event: WorkspaceContextMenuTriggerEvent,
+    projectId: string,
+    protectedAgentIds: readonly string[] = [],
+  ) => {
     if (!prepareMenuTrigger(event)) return
     const rect = event.currentTarget.getBoundingClientRect()
     const project = projects.find(item => item.id === projectId)
@@ -112,6 +116,7 @@ export function useWorkspaceContextMenu({
     setContextMenu({
       kind: 'project',
       projectId,
+      protectedAgentIds: Array.from(new Set(protectedAgentIds)),
       ...point,
       returnFocusTarget: event.currentTarget,
       focusFirstItem: isKeyboardMenuTrigger(event),

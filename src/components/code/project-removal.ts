@@ -1,5 +1,28 @@
 import type { WorkspaceOpenFileTarget } from '@/lib/workspace-open-files'
+import { agentSessionId, agentSessionWorkspace } from './model'
+import type { AgentSessionHistoryItem, ProjectGroup } from './types'
 import type { ProjectMutationOutcome } from './useProjectMutationController'
+
+export interface ProjectArchiveTargets {
+  agentIds: string[]
+  sessionHandles: string[]
+}
+
+/** Selects only rows that remain in the Project section; pinned-section rows are protected. */
+export function projectArchiveTargets(
+  project: ProjectGroup,
+  mainPageSessions: AgentSessionHistoryItem[],
+  protectedAgentIds: ReadonlySet<string> = new Set(),
+): ProjectArchiveTargets {
+  return {
+    agentIds: project.agents
+      .filter(agent => !agent.isMain && !agent.pinned && !protectedAgentIds.has(agent.id))
+      .map(agent => agent.id),
+    sessionHandles: mainPageSessions
+      .filter(session => agentSessionWorkspace(session) === project.workspace && !session.pinned)
+      .map(agentSessionId),
+  }
+}
 
 export interface ProjectRemovalAgent {
   id: string

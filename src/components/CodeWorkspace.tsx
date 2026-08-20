@@ -201,7 +201,6 @@ import type { UiPreferences } from '@/lib/ui-preferences'
 import {
   MAIN_AGENT_PROJECT_ID,
   agentSessionId,
-  agentSessionWorkspace,
   agentSessionWorkingDirectory,
   basename,
   projectWorkspaceForAgent,
@@ -242,7 +241,7 @@ import {
   useProjectMembershipController,
 } from './code/useProjectMembershipController'
 import { useProjectMutationController } from './code/useProjectMutationController'
-import { executeProjectRemoval, type ProjectRemovalPlan } from './code/project-removal'
+import { executeProjectRemoval, projectArchiveTargets, type ProjectRemovalPlan } from './code/project-removal'
 import {
   terminalTargetFilePath,
   terminalTargetGlobalFilePath,
@@ -713,7 +712,7 @@ export function CodeWorkspace({
       counts.set(agentId, { ...current, [kind]: current[kind] + 1 })
     }
     for (const resource of browserResources.resources) {
-      if (resource.ownerType === 'agent') update(resource.ownerAgentId, 'browserCount')
+      update(resource.ownerAgentId, 'browserCount')
     }
     for (const resource of computerResources.resources) update(resource.ownerAgentId, 'desktopCount')
     return counts
@@ -1601,11 +1600,20 @@ export function CodeWorkspace({
   const contextMenuProject = useMemo(
     () => {
       const project = projectListProjects.find(candidate => candidate.id === projectMenu?.projectId)
+      const protectedAgentIds = new Set(projectMenu?.protectedAgentIds ?? [])
       return project
-        ? { ...project, agents: project.agents.map(agentWithCurrentLiveState) }
+        ? {
+            ...project,
+            agents: project.agents.map(agent => {
+              const liveAgent = agentWithCurrentLiveState(agent)
+              return protectedAgentIds.has(agent.id) && !liveAgent.pinned
+                ? { ...liveAgent, pinned: true }
+                : liveAgent
+            }),
+          }
         : null
     },
-    [projectListProjects, projectMenu?.projectId]
+    [projectListProjects, projectMenu?.projectId, projectMenu?.protectedAgentIds]
   )
   const contextMenuAgentSession = useMemo(
     () => displayedProjects.flatMap(project => project.agentSessions).find(session => (
@@ -1649,7 +1657,7 @@ export function CodeWorkspace({
     ? lastProjectWorkspace ?? projects[0]?.workspace
     : activeProjectWorkspace ?? lastProjectWorkspace ?? projects[0]?.workspace
   const showFileEditor = mainPaneMode === 'editor' && Boolean(openWorkspaceFile)
-  const requestedResourceAgentId = mainPaneMode === 'browser' && activeBrowserResource?.ownerType === 'agent'
+  const requestedResourceAgentId = mainPaneMode === 'browser' && activeBrowserResource
     ? activeBrowserResource.ownerAgentId
     : mainPaneMode === 'computer' && activeComputerResource
       ? activeComputerResource.ownerAgentId
@@ -4652,22 +4660,23 @@ export function CodeWorkspace({
   const archiveContextProject = useCallback(() => {
     if (!contextMenuProject) return
 
-    const workspace = contextMenuProject.workspace
-    const archivableAgents = contextMenuProject.agents.filter(agent => !agent.isMain)
-    const projectSessions = mainPageAgentSessions.filter(session => agentSessionWorkspace(session) === workspace)
-    if (archivableAgents.length === 0 && projectSessions.length === 0) {
+    const targets = projectArchiveTargets(
+      contextMenuProject,
+      mainPageAgentSessions,
+      new Set(projectMenu?.protectedAgentIds ?? []),
+    )
+    if (targets.agentIds.length === 0 && targets.sessionHandles.length === 0) {
       closeContextMenu()
       restoreProjectListFocusRef.current = 'list'
       return
     }
 
-    archivableAgents.forEach(agent => archiveAgentOptimistically(agent.id))
-
-    removeMainPageAgentSessions(projectSessions.map(agentSessionId))
+    targets.agentIds.forEach(agentId => archiveAgentOptimistically(agentId))
+    removeMainPageAgentSessions(targets.sessionHandles)
 
     closeContextMenu()
     restoreProjectListFocusRef.current = 'list'
-  }, [archiveAgentOptimistically, closeContextMenu, mainPageAgentSessions, contextMenuProject, removeMainPageAgentSessions])
+  }, [archiveAgentOptimistically, closeContextMenu, mainPageAgentSessions, contextMenuProject, projectMenu?.protectedAgentIds, removeMainPageAgentSessions])
 
   const buildProjectRemovalPlan = useCallback((project: ProjectGroup): ProjectRemovalPlan => ({
     workspace: project.workspace,

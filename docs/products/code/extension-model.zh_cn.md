@@ -78,11 +78,9 @@ Runtime，再同时删除 Row 与 Profile。面向 Agent 的 CLI 必须同时暴
 Resource 能按精确 ID 删除，而不是长期累积为 Stopped Inventory。Agent 生命周期中的停止或
 归档使用删除；Chat/Terminal Replacement 明确不触发删除。
 
-Project-owned Browser Resource 由系统 Chromium 支持。Docker 中的浏览器（实验性；内部 Source 为 `isolated`）会租用
-Agent-owned Computer，因此只接受活跃 Agent Owner；Project 创建会在持久化
-Resource Row 前被拒绝，已有 Project Row 在选择 Isolated 模式时保持隐藏。Project 侧栏中的
-Project Resource Section 使用位于 Agent 库存之后、Files 之前的显式插槽；Extension Portal
-不得直接挂载到整个展开的 Project 容器。
+每个 Browser Resource 都必须有一个活跃 Agent Owner 与一个已授权 Project Workspace。
+无法证明精确活跃 Agent Owner 的创建请求必须在持久化 Row 前被拒绝。Browser Resource 只在
+所属 Agent 的 Resource Section 内展示。
 
 ## Agent Capability 投影
 

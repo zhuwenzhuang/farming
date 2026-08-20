@@ -64,20 +64,6 @@
       }
     },
     {
-      "id": "CODE-SIDEBAR-BROWSER-ORDER",
-      "surface": "ui",
-      "promise": "Project Browser resources render after Agents and before Files.",
-      "owner": "docs/products/code/extension-model.md",
-      "evidence": {
-        "playwright": [
-          {
-            "file": "tests/e2e/browser-resources.spec.ts",
-            "title": "places Project Browser resources after Agents and before Files"
-          }
-        ]
-      }
-    },
-    {
       "id": "CODE-PLUGINS-MANAGED-RUNTIME",
       "surface": "ui",
       "promise": "Agent Homes use the Farming-managed ACP runtime without exposing a redundant executable selector.",

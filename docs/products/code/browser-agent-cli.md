@@ -90,8 +90,7 @@ Agent input share one ordered Browser identity. High-frequency frames and input
 are bounded so stale work cannot grow without limit.
 
 Chat/Terminal replacement retains Browser ownership. Stopping or archiving an
-Agent may stop the runtime while retaining the Resource and profile; deleting
-the Agent deletes only the Browser Resources and profiles it exactly owns.
+Agent deletes the Browser Resources and profiles it exactly owns.
 
 A Resource attached to an existing Chrome page borrows that tab. Stopping or
 deleting the Resource disconnects Farming without closing the user's tab. One

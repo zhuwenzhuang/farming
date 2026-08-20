@@ -168,6 +168,25 @@ async function browserSnapshot(page: Page, browserId: string) {
   }>
 }
 
+async function createBrowserOwnerAgent(page: Page, workspace: string) {
+  const response = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'bash', workspace },
+  })
+  const result = await response.json() as { agentId?: string, error?: string }
+  expect(response.ok(), result.error || 'Failed to create Browser owner Agent').toBeTruthy()
+  return result.agentId as string
+}
+
+async function openAgentBrowserSection(page: Page, agentId: string) {
+  const agentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
+  await expect(agentRow).toBeVisible({ timeout: 30_000 })
+  const toggle = agentRow.getByTestId('code-agent-resources-toggle')
+  await agentRow.hover()
+  if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click()
+  return page.locator(`[data-testid="code-agent-resource-slot"][data-agent-id="${agentId}"]`)
+    .getByTestId('farming-browser-section')
+}
+
 async function runBrowserCli(args: string[]) {
   const port = Number(process.env.FARMING_PLAYWRIGHT_PORT || 4173)
   return execFileAsync(process.execPath, [
@@ -211,57 +230,6 @@ test('does not show a Browser section before the first Browser is created', asyn
   await page.route('**/api/browsers', route => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify({ collectionRevision: 1, resources: [] }),
-  }))
-  await page.request.post('/farming/api/projects/mount', { data: { workspace } })
-  await openFarming(page)
-
-  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspace) })
-  await expect(project.getByTestId('farming-browser-section')).toHaveCount(0)
-})
-
-test('hides project Browser tabs when the selected runtime is Agent-owned', async ({
-  page,
-  workspaceRoot,
-}) => {
-  const workspace = path.join(workspaceRoot, 'isolated-browser-project')
-  fs.mkdirSync(workspace, { recursive: true })
-  const projectRootId = projectFilesWorkspaceId(workspace)
-  await page.route('**/api/browsers/capability', route => route.fulfill({
-    contentType: 'application/json',
-    body: JSON.stringify({
-      enabled: true,
-      available: true,
-      browser: { kind: 'isolated-computer', path: '' },
-      selection: {
-        source: 'isolated',
-        executablePath: '',
-      },
-      message: 'Browser in Docker is available',
-    }),
-  }))
-  await page.route('**/api/browsers', route => route.fulfill({
-    contentType: 'application/json',
-    body: JSON.stringify({
-      collectionRevision: 1,
-      resources: [{
-        id: 'browser_project',
-        ownerType: 'project',
-        ownerAgentId: '',
-        projectRootId,
-        workspace,
-        name: 'Legacy project tab',
-        status: 'stopped',
-        generation: 1,
-        revision: 1,
-        collectionRevision: 1,
-        url: 'about:blank',
-        title: '',
-        browserKind: 'isolated-computer',
-        error: '',
-        createdAt: 1,
-        updatedAt: 1,
-      }],
-    }),
   }))
   await page.request.post('/farming/api/projects/mount', { data: { workspace } })
   await openFarming(page)
@@ -479,7 +447,7 @@ test('mounts Agent-owned Browsers behind nested resource controls without layout
   await expect(agentDetailResources.getByTestId('code-agent-hover-preview-desktop-count')).toHaveCount(0)
 })
 
-test('reclaims Agent-owned Browser resources after the Server removes their Agent', async ({
+test('deletes Agent-owned Browser resources when their Agent is archived', async ({
   page,
   workspaceRoot,
 }) => {
@@ -507,8 +475,10 @@ test('reclaims Agent-owned Browser resources after the Server removes their Agen
   expect(createResponse.ok()).toBeTruthy()
   const browser = await createResponse.json() as { id: string }
 
-  const deleteResponse = await page.request.delete(`/farming/api/control/agents/${agentId}`)
-  expect(deleteResponse.ok()).toBeTruthy()
+  const archiveResponse = await page.request.patch(`/farming/api/agents/${agentId}`, {
+    data: { archived: true },
+  })
+  expect(archiveResponse.ok()).toBeTruthy()
   await expect.poll(async () => {
     const response = await page.request.get('/farming/api/browsers')
     expect(response.ok()).toBeTruthy()
@@ -668,15 +638,15 @@ test('deletes a Browser directly without a confirmation dialog', async ({
     data: { browserExtensionEnabled: true },
   })
   expect(enableResponse.ok()).toBeTruthy()
-  await page.request.post('/farming/api/projects/mount', { data: { workspace } })
+  const agentId = await createBrowserOwnerAgent(page, workspace)
   const createResponse = await page.request.post('/farming/api/browsers', {
-    data: { rootId: projectFilesWorkspaceId(workspace) },
+    data: { rootId: projectFilesWorkspaceId(workspace), agentId },
   })
   expect(createResponse.ok()).toBeTruthy()
   await openFarming(page)
 
-  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspace) })
-  const row = project.getByTestId('farming-browser-row')
+  const browserSection = await openAgentBrowserSection(page, agentId)
+  const row = browserSection.getByTestId('farming-browser-row')
   await expect(row).toBeVisible()
   const dialogs: string[] = []
   page.on('dialog', async dialog => {
@@ -686,45 +656,8 @@ test('deletes a Browser directly without a confirmation dialog', async ({
 
   await row.hover()
   await row.getByRole('button', { name: 'Close Tab' }).click()
-  await expect(project.getByTestId('farming-browser-section')).toHaveCount(0)
+  await expect(browserSection).toHaveCount(0)
   expect(dialogs).toEqual([])
-})
-
-test('places Project Browser resources after Agents and before Files', {
-  tag: ['@critical-behavior', '@behavior-CODE-SIDEBAR-BROWSER-ORDER'],
-}, async ({
-  page,
-  workspaceRoot,
-}) => {
-  const workspace = path.join(workspaceRoot, 'browser-project-resource-order')
-  fs.mkdirSync(workspace, { recursive: true })
-  const enableResponse = await page.request.post('/farming/api/settings', {
-    data: { browserExtensionEnabled: true },
-  })
-  expect(enableResponse.ok()).toBeTruthy()
-  await page.request.post('/farming/api/projects/mount', { data: { workspace } })
-  const agentResponse = await page.request.post('/farming/api/control/agents', {
-    data: { command: 'bash', workspace },
-  })
-  expect(agentResponse.ok()).toBeTruthy()
-  const createResponse = await page.request.post('/farming/api/browsers', {
-    data: { rootId: projectFilesWorkspaceId(workspace) },
-  })
-  expect(createResponse.ok()).toBeTruthy()
-
-  await openFarming(page)
-  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspace) })
-  await expect(project.getByTestId('code-agent-row')).toHaveCount(1)
-  await expect(project.getByTestId('farming-browser-section')).toHaveCount(1)
-  await expect(project.getByTestId('code-files-section')).toHaveCount(1)
-  expect(await project.evaluate(element => {
-    const agents = element.querySelector('[data-testid="code-agents-section"]')
-    const browser = element.querySelector('[data-testid="farming-browser-section"]')
-    const files = element.querySelector('[data-testid="code-files-section"]')
-    if (!agents || !browser || !files) return false
-    return Boolean(agents.compareDocumentPosition(browser) & Node.DOCUMENT_POSITION_FOLLOWING)
-      && Boolean(browser.compareDocumentPosition(files) & Node.DOCUMENT_POSITION_FOLLOWING)
-  })).toBe(true)
 })
 
 test('offers explicit isolated Browser preparation when no local browser is available', async ({
@@ -1050,20 +983,19 @@ test('keeps an edited browser address until Enter submits it', async ({
     data: { browserExtensionEnabled: true },
   })
   expect(enableResponse.ok()).toBeTruthy()
-  await page.request.post('/farming/api/projects/mount', { data: { workspace } })
+  const agentId = await createBrowserOwnerAgent(page, workspace)
   await openFarming(page)
 
   const createResponse = await page.request.post('/farming/api/browsers', {
-    data: { rootId: projectFilesWorkspaceId(workspace) },
+    data: { rootId: projectFilesWorkspaceId(workspace), agentId },
   })
   expect(createResponse.ok()).toBeTruthy()
   const createdBrowser = await createResponse.json() as { id: string }
   const startResponse = await page.request.post(`/farming/api/browsers/${createdBrowser.id}/start`)
   expect(startResponse.ok()).toBeTruthy()
 
-  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspace) })
-  await expect(project.getByTestId('farming-browser-section')).toBeVisible()
-  await project.getByTestId('farming-browser-row').click()
+  const browserSection = await openAgentBrowserSection(page, agentId)
+  await browserSection.getByTestId('farming-browser-row').click()
   const addressInput = page.getByRole('textbox', { name: 'Browser address' })
   await expect(addressInput).toBeVisible({ timeout: 30_000 })
   await addressInput.fill(targetUrl)
@@ -1090,9 +1022,9 @@ test('normalizes a bare address and clears a recovered navigation error', async 
     data: { browserExtensionEnabled: true },
   })
   expect(enableResponse.ok()).toBeTruthy()
-  await page.request.post('/farming/api/projects/mount', { data: { workspace } })
+  const agentId = await createBrowserOwnerAgent(page, workspace)
   const createResponse = await page.request.post('/farming/api/browsers', {
-    data: { rootId: projectFilesWorkspaceId(workspace) },
+    data: { rootId: projectFilesWorkspaceId(workspace), agentId },
   })
   expect(createResponse.ok()).toBeTruthy()
   const createdBrowser = await createResponse.json() as { id: string }
@@ -1100,8 +1032,8 @@ test('normalizes a bare address and clears a recovered navigation error', async 
   expect(startResponse.ok()).toBeTruthy()
   await openFarming(page)
 
-  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspace) })
-  await project.getByTestId('farming-browser-row').click()
+  const browserSection = await openAgentBrowserSection(page, agentId)
+  await browserSection.getByTestId('farming-browser-row').click()
   const viewer = page.getByTestId('farming-browser-viewer')
   const addressInput = viewer.getByRole('textbox', { name: 'Browser address' })
   await expect(addressInput).toBeVisible({ timeout: 30_000 })
@@ -1134,10 +1066,11 @@ test('promotes a website popup into a shared Browser tab Resource', async ({
     data: { browserExtensionEnabled: true },
   })
   expect(enableResponse.ok()).toBeTruthy()
-  await page.request.post('/farming/api/projects/mount', { data: { workspace } })
+  const agentId = await createBrowserOwnerAgent(page, workspace)
   const createResponse = await page.request.post('/farming/api/browsers', {
     data: {
       rootId: projectFilesWorkspaceId(workspace),
+      agentId,
       url: targetUrl,
     },
   })
@@ -1147,8 +1080,7 @@ test('promotes a website popup into a shared Browser tab Resource', async ({
   expect(startResponse.ok()).toBeTruthy()
   await openFarming(page)
 
-  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspace) })
-  const browserSection = project.getByTestId('farming-browser-section')
+  const browserSection = await openAgentBrowserSection(page, agentId)
   await browserSection.getByTestId('farming-browser-row').click()
   const viewer = page.getByTestId('farming-browser-viewer')
   await expect(viewer.locator('canvas')).toBeVisible({ timeout: 30_000 })
@@ -1177,9 +1109,9 @@ test('keeps Browser startup, navigation, frames, and interaction within local bu
     data: { browserExtensionEnabled: true },
   })
   expect(enableResponse.ok()).toBeTruthy()
-  await page.request.post('/farming/api/projects/mount', { data: { workspace } })
+  const agentId = await createBrowserOwnerAgent(page, workspace)
   const createResponse = await page.request.post('/farming/api/browsers', {
-    data: { rootId: projectFilesWorkspaceId(workspace) },
+    data: { rootId: projectFilesWorkspaceId(workspace), agentId },
   })
   expect(createResponse.ok()).toBeTruthy()
   const createdBrowser = await createResponse.json() as { id: string }
@@ -1189,8 +1121,8 @@ test('keeps Browser startup, navigation, frames, and interaction within local bu
   expect(startResponse.ok()).toBeTruthy()
   const startupMs = performance.now() - startupAt
   await openFarming(page)
-  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspace) })
-  await project.getByTestId('farming-browser-row').click()
+  const browserSection = await openAgentBrowserSection(page, agentId)
+  await browserSection.getByTestId('farming-browser-row').click()
   const viewer = page.getByTestId('farming-browser-viewer')
   const canvas = viewer.locator('canvas')
   await expect(canvas).toBeVisible({ timeout: 30_000 })
@@ -1383,11 +1315,12 @@ test('matches the focused Viewer viewport and restores the previous Viewer on cl
     data: { browserExtensionEnabled: true, instanceName: 'Farming Demo' },
   })
   expect(enableResponse.ok()).toBeTruthy()
-  await page.request.post('/farming/api/projects/mount', { data: { workspace } })
+  const agentId = await createBrowserOwnerAgent(page, workspace)
   await openFarming(page)
 
-  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspace) })
-  const browserSection = project.getByTestId('farming-browser-section')
+  const browserSection = page.locator(
+    `[data-testid="code-agent-resource-slot"][data-agent-id="${agentId}"]`,
+  ).getByTestId('farming-browser-section')
   await expect(browserSection).toHaveCount(0)
   await page.getByTestId('code-nav-plugins').click()
   const pluginsPanel = page.getByTestId('code-plugins-panel')
@@ -1431,12 +1364,13 @@ test('matches the focused Viewer viewport and restores the previous Viewer on cl
   await expect(browserSection).toHaveCount(0)
   await pluginsPanel.getByRole('button', { name: 'Back', exact: true }).click()
   const createResponse = await page.request.post('/farming/api/browsers', {
-    data: { rootId: projectFilesWorkspaceId(workspace) },
+    data: { rootId: projectFilesWorkspaceId(workspace), agentId },
   })
   expect(createResponse.ok()).toBeTruthy()
   const createdBrowser = await createResponse.json() as { id: string }
   const startResponse = await page.request.post(`/farming/api/browsers/${createdBrowser.id}/start`)
   expect(startResponse.ok()).toBeTruthy()
+  await openAgentBrowserSection(page, agentId)
   await expect(browserSection).toBeVisible()
   await expect(browserSection.locator('.farming-browser-section-toggle small')).toHaveText('1')
   await browserSection.getByTestId('farming-browser-row').click()

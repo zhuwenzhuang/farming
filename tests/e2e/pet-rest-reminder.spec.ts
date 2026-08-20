@@ -1434,8 +1434,14 @@ test('an overdue Browser click starts a fresh rest-entry countdown', async ({
     data: { workspace },
   })
   expect(mountResponse.ok()).toBeTruthy()
+  const agentResponse = await page.request.post('/farming/api/control/agents', {
+    data: { command: 'bash', workspace },
+  })
+  const agent = await agentResponse.json() as { agentId?: string, error?: string }
+  expect(agentResponse.ok(), agent.error || 'Failed to create Browser owner Agent').toBeTruthy()
+  const agentId = agent.agentId as string
   const browserResponse = await page.request.post('/farming/api/browsers', {
-    data: { rootId: projectFilesWorkspaceId(workspace) },
+    data: { rootId: projectFilesWorkspaceId(workspace), agentId },
   })
   expect(browserResponse.ok()).toBeTruthy()
 
@@ -1462,10 +1468,14 @@ test('an overdue Browser click starts a fresh rest-entry countdown', async ({
   }, { settingsKey: SETTINGS_KEY, runtimeKey: RUNTIME_KEY })
 
   await openFarming(page)
-  const project = page.getByTestId('code-project-group').filter({
-    hasText: path.basename(workspace),
-  })
-  const browserRow = project.getByTestId('farming-browser-row')
+  const agentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
+  await expect(agentRow).toBeVisible({ timeout: 30_000 })
+  const resourcesToggle = agentRow.getByTestId('code-agent-resources-toggle')
+  await agentRow.hover()
+  await resourcesToggle.click()
+  const browserRow = page.locator(
+    `[data-testid="code-agent-resource-slot"][data-agent-id="${agentId}"]`,
+  ).getByTestId('farming-browser-row')
   await expect(browserRow).toBeVisible()
 
   const interactionAt = await page.evaluate(() => {

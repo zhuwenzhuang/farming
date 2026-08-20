@@ -272,7 +272,6 @@ function recordValue(value: unknown): Record<string, unknown> {
 function publicResource(resource: BrowserResource, collectionRevision: number) {
   return {
     id: resource.id,
-    ownerType: resource.ownerType,
     ownerAgentId: resource.ownerAgentId,
     projectRootId: resource.projectRootId,
     workspace: resource.workspace,
@@ -328,10 +327,8 @@ function replacementAgentOwner(
   return candidates[0] || null;
 }
 
-function browserOwnerKey(resource: Pick<BrowserResource, 'ownerAgentId' | 'ownerType' | 'projectRootId'>): string {
-  return resource.ownerType === 'agent'
-    ? `agent:${resource.ownerAgentId}`
-    : `project:${resource.projectRootId}`;
+function browserOwnerKey(resource: Pick<BrowserResource, 'ownerAgentId'>): string {
+  return `agent:${resource.ownerAgentId}`;
 }
 
 function normalizeUrl(value: unknown): string {
@@ -387,8 +384,7 @@ function sameBrowserOwner(
   resource: BrowserResource,
   input: Record<string, unknown>,
 ): boolean {
-  return resource.ownerType === input.ownerType
-    && resource.ownerAgentId === String(input.ownerAgentId || '')
+  return resource.ownerAgentId === String(input.ownerAgentId || '')
     && resource.projectRootId === String(input.projectRootId || '');
 }
 
@@ -1007,6 +1003,13 @@ class BrowserResourceManager extends EventEmitter {
   create(input: Record<string, unknown>) {
     this.requireEnabled();
     if (this.disposed) throw browserError('Browser manager is stopping', 503, 'BROWSER_MANAGER_STOPPING');
+    if (!String(input.ownerAgentId || '').trim()) {
+      throw browserError(
+        'Browser creation requires an active Agent owner',
+        400,
+        'BROWSER_AGENT_OWNER_REQUIRED',
+      );
+    }
     const requestedSource = String(input.browserSource || '').trim();
     if (requestedSource && !BROWSER_SOURCES.has(requestedSource)) {
       throw browserError(
@@ -1038,17 +1041,9 @@ class BrowserResourceManager extends EventEmitter {
         'BROWSER_EXTENSION_TAB_NOT_FOUND',
       );
     }
-    if (selection.source === 'isolated' && input.ownerType !== 'agent') {
-      throw browserError(
-        'The isolated Browser requires an active Agent owner; create it from an Agent',
-        409,
-        'ISOLATED_BROWSER_AGENT_OWNER_REQUIRED',
-      );
-    }
     const resource = this.store.create({
       projectRootId: input.projectRootId,
       workspace: input.workspace,
-      ownerType: input.ownerType,
       ownerAgentId: input.ownerAgentId,
       name: input.name || existingTab?.title || 'Browser',
       url: existingTab?.url || normalizeUrl(input.url),
@@ -1223,14 +1218,6 @@ class BrowserResourceManager extends EventEmitter {
         this.emitResource(failed);
         throw browserError(failed.error, 503, 'BROWSER_EXECUTABLE_NOT_FOUND');
       }
-      if (executable.kind === 'isolated-computer' && resource.ownerType !== 'agent') {
-        throw browserError(
-          'The isolated Browser requires an active Agent owner; create it from an Agent',
-          409,
-          'ISOLATED_BROWSER_AGENT_OWNER_REQUIRED',
-        );
-      }
-
       const generation = resource.generation + 1;
       const starting = this.store.update(id, {
         status: 'starting',
@@ -2110,7 +2097,7 @@ class BrowserResourceManager extends EventEmitter {
 
   async reconcileAgentLifecycle(agentStates: AgentLifecycleState[]): Promise<void> {
     const agents = new Map(agentStates.map(agent => [String(agent.id || ''), agent]));
-    const resources = this.store.list().filter(resource => resource.ownerType === 'agent');
+    const resources = this.store.list();
     for (const resource of resources) {
       const owner = agents.get(resource.ownerAgentId);
       if (!owner) {
@@ -2346,12 +2333,15 @@ class BrowserResourceManager extends EventEmitter {
         && (!session.runtime.externalCdpUrl || event.popupAdmitted)
       ) {
         session.runtime.ownedTabIds.add(tab.tabId);
+        const ownerResource = (opener ? this.store.get(opener.id) : null)
+          || this.store.list().find(resource => resource.sessionId === session.id);
+        if (!ownerResource) {
+          throw new Error(`Browser Session ${session.id} has no Agent-owned Resource`);
+        }
         const created = this.store.createRunningTab({
-          projectRootId: opener?.session.projectRootId || session.projectRootId,
-          ownerType: opener ? this.store.get(opener.id)?.ownerType : undefined,
-          ownerAgentId: opener ? this.store.get(opener.id)?.ownerAgentId : undefined,
-          workspace: (opener ? this.store.get(opener.id)?.workspace : undefined)
-            || this.store.list().find(resource => resource.sessionId === session.id)?.workspace,
+          projectRootId: ownerResource.projectRootId,
+          ownerAgentId: ownerResource.ownerAgentId,
+          workspace: ownerResource.workspace,
           name: tabResourceName(tab),
           url: tab.url,
           title: tab.title,

@@ -85,3 +85,7 @@ Pending，或权威未读投影为 True 时持续符合条件。除此之外，�
 
 动态置顶复用页面可见时已有的相对时间时钟检查一小时边界，不新增 Heartbeat、Polling、Lease
 或持久化的 Per-Agent Timer。Reload 后从 Backend Agent 状态重建资格。
+
+Project 级“归档会话”只作用于仍位于该 Project 区域中的 Row。手动置顶的 Session 与 Agent，
+以及当前由动态置顶投影到“已置顶”区域的 Live Agent 都受保护。“移除项目”是另一项需要确认的
+清理操作，仍会释放该 Project 关联的全部 Agent 与 Main-page Session，包括置顶 Row。

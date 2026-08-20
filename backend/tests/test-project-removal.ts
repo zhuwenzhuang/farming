@@ -1,6 +1,6 @@
 const assert = require('assert');
 const { importTsModule } = require('./helpers/import-ts-module');
-const { executeProjectRemoval } = importTsModule('src/components/code/project-removal.ts');
+const { executeProjectRemoval, projectArchiveTargets } = importTsModule('src/components/code/project-removal.ts');
 
 function plan(overrides = {}) {
   return {
@@ -16,6 +16,24 @@ function plan(overrides = {}) {
 }
 
 async function run() {
+  const archiveTargets = projectArchiveTargets({
+    workspace: '/repo',
+    agents: [
+      { id: 'ordinary-agent', isMain: false, pinned: false },
+      { id: 'manual-pin', isMain: false, pinned: true },
+      { id: 'dynamic-pin', isMain: false, pinned: false },
+      { id: 'main', isMain: true, pinned: false },
+    ],
+  }, [
+    { provider: 'codex', id: 'ordinary-session', workspace: '/repo', pinned: false },
+    { provider: 'codex', id: 'pinned-session', workspace: '/repo', pinned: true },
+    { provider: 'codex', id: 'other-project', workspace: '/other', pinned: false },
+  ], new Set(['dynamic-pin']));
+  assert.deepStrictEqual(archiveTargets, {
+    agentIds: ['ordinary-agent'],
+    sessionHandles: ['agent-session:codex:~2~default~ordinary-session'],
+  }, 'Project Archive must protect every row shown in the pinned section');
+
   const effects = [];
   const succeeded = await executeProjectRemoval(plan(), {
     archiveAgent: async agent => {

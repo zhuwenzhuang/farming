@@ -77,8 +77,8 @@ Browser Session、Profile、Cookie 或 Storage。
 用户可以随时打开 Viewer，操作 Agent 使用的同一个页面。Human 与 Agent Input 共享同一有序
 Browser Identity。高频 Frame 与 Input 保持有界，避免陈旧工作无限积累。
 
-Chat/Terminal Replacement 保留 Browser Ownership。停止或归档 Agent 可以停止 Runtime 但
-保留 Resource/Profile；删除 Agent 只删除它精确拥有的 Browser Resource 与 Profile。
+Chat/Terminal Replacement 保留 Browser Ownership。停止或归档 Agent 会删除它精确拥有的
+Browser Resource 与 Profile。
 
 接入已有 Chrome 页面时，Resource 只是借用该标签页。停止或删除 Resource 只解除 Farming
 连接，不关闭用户标签页。同一个已有标签页同时只能由一个运行中的 Browser Resource 管理。

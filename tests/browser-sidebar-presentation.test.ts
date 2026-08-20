@@ -9,8 +9,7 @@ import type { BrowserResource } from '../extensions/browser/frontend/types'
 function resource(status: BrowserResource['status'], url = 'about:blank'): BrowserResource {
   return {
     id: 'browser-1',
-    ownerType: 'project',
-    ownerAgentId: '',
+    ownerAgentId: 'agent-1',
     projectRootId: 'root-1',
     workspace: '/workspace',
     name: 'Browser',

@@ -167,6 +167,74 @@ test('projects recent attention into Pinned without turning it into a manual pin
   await expect(projectRow).toBeVisible()
 })
 
+test('Project Archive protects manual and dynamic pinned Agents', async ({ page, workspaceRoot }) => {
+  await page.clock.install()
+  const workspace = path.join(workspaceRoot, 'dynamic-pinning-project-archive')
+  fs.mkdirSync(workspace, { recursive: true })
+  const ordinaryId = await createControlAgent(page, workspace)
+  const dynamicId = await createControlAgent(page, workspace)
+  const manualId = await createControlAgent(page, workspace)
+  await renameAgent(page, ordinaryId, 'Ordinary Project Agent')
+  await renameAgent(page, dynamicId, 'Dynamic Pinned Agent')
+  await renameAgent(page, manualId, 'Manual Pinned Agent')
+  await pinAgent(page, manualId)
+  await openFarming(page)
+
+  await updateAgentLiveState(page, ordinaryId, {
+    unread: false,
+    runtimeObservation: {
+      kind: 'shell',
+      phase: 'idle',
+      confidence: 'authoritative',
+      source: 'structured-runtime',
+      observerVersion: 'dynamic-pinning-archive-test',
+      observedAt: Date.now(),
+    },
+  })
+  await updateAgentLiveState(page, dynamicId, {
+    runtimeObservation: {
+      kind: 'shell',
+      phase: 'working',
+      confidence: 'authoritative',
+      source: 'structured-runtime',
+      observerVersion: 'dynamic-pinning-archive-test',
+      observedAt: Date.now(),
+    },
+  })
+  await page.clock.fastForward(DYNAMIC_PIN_ACTIVITY_WINDOW_MS + 60_000)
+
+  const pinnedSection = page.getByTestId('code-pinned-section')
+  await pinnedSection.getByTestId('code-pinned-dynamic-toggle').click()
+  await expect(pinnedSection.locator(`[data-testid="code-agent-row"][data-agent-id="${manualId}"]`)).toBeVisible()
+  await expect(pinnedSection.locator(`[data-testid="code-agent-row"][data-agent-id="${dynamicId}"]`)).toBeVisible()
+  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspace) })
+  await expect(project.locator(`[data-testid="code-agent-row"][data-agent-id="${ordinaryId}"]`)).toBeVisible()
+
+  await project.getByTestId('code-project-title').hover()
+  await project.getByTestId('code-project-actions').click()
+  const archive = page.getByTestId('code-project-context-menu').getByRole('menuitem', {
+    name: 'Archive chats',
+  })
+  await expect(archive).toBeEnabled()
+  await archive.click()
+
+  await expect(project.locator(`[data-testid="code-agent-row"][data-agent-id="${ordinaryId}"]`)).toHaveCount(0)
+  await expect(pinnedSection.locator(`[data-testid="code-agent-row"][data-agent-id="${manualId}"]`)).toBeVisible()
+  await expect(pinnedSection.locator(`[data-testid="code-agent-row"][data-agent-id="${dynamicId}"]`)).toBeVisible()
+  await expect.poll(async () => {
+    const response = await page.request.get('/farming/api/control/agents')
+    const body = await response.json() as { agents?: Array<{ id?: string; archived?: boolean }> }
+    return Object.fromEntries(
+      (body.agents ?? [])
+        .filter(agent => agent.id === dynamicId || agent.id === manualId)
+        .map(agent => [agent.id, agent.archived === true]),
+    )
+  }).toEqual({
+    [dynamicId]: false,
+    [manualId]: false,
+  })
+})
+
 test('keeps every current attention state pinned while recent idle work expires', async ({ page, workspaceRoot }, testInfo) => {
   await page.clock.install()
   const workspace = path.join(workspaceRoot, 'dynamic-pinning-attention')

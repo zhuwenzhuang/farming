@@ -6,7 +6,7 @@ import {
   browserResourcesFile,
 } from '../../../backend/storage-layout.cjs';
 
-const STORE_VERSION = 10;
+const STORE_VERSION = 11;
 const RESOURCE_ID_RE = /^browser_[A-Za-z0-9_-]+$/;
 const SESSION_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const TAB_ID_RE = /^t\d+$/;
@@ -19,8 +19,6 @@ const STATUSES = new Set<BrowserResourceStatus>([
 ]);
 
 type BrowserResourceStatus = 'stopped' | 'starting' | 'running' | 'stopping' | 'failed';
-type BrowserResourceOwnerType = 'agent' | 'project';
-
 interface BrowserProcessIdentity {
   configInstanceFingerprint?: string;
   format: string;
@@ -41,7 +39,6 @@ interface BrowserResource {
   id: string;
   name: string;
   ownerAgentId: string;
-  ownerType: BrowserResourceOwnerType;
   processIdentity: BrowserProcessIdentity | null;
   projectRootId: string;
   revision: number;
@@ -64,8 +61,7 @@ interface BrowserResourceCreateInput {
   browserExecutablePath?: unknown;
   existingTabId?: unknown;
   name?: unknown;
-  ownerAgentId?: unknown;
-  ownerType?: unknown;
+  ownerAgentId: unknown;
   projectRootId: unknown;
   sessionName?: unknown;
   sessionGeneration?: unknown;
@@ -85,7 +81,7 @@ interface RunningBrowserTabInput extends BrowserResourceCreateInput {
 
 type MutableBrowserResourceKey = Exclude<
   keyof BrowserResource,
-  'id' | 'ownerAgentId' | 'ownerType' | 'projectRootId' | 'revision' | 'updatedAt' | 'workspace'
+  'id' | 'ownerAgentId' | 'projectRootId' | 'revision' | 'updatedAt' | 'workspace'
 >;
 
 type BrowserResourcePatch = {
@@ -145,11 +141,8 @@ function normalizeResource(value: unknown): BrowserResource | null {
   }
   const projectRootId = String(resource.projectRootId || '').trim();
   const workspace = String(resource.workspace || '').trim();
-  if (!projectRootId || !workspace) return null;
   const ownerAgentId = String(resource.ownerAgentId || '').trim();
-  const ownerType: BrowserResourceOwnerType = resource.ownerType === 'agent' && ownerAgentId
-    ? 'agent'
-    : 'project';
+  if (!projectRootId || !workspace || !ownerAgentId) return null;
   const legacySource = resource.browserKind === 'chrome-extension'
     ? 'extension'
     : resource.browserKind === 'isolated-computer'
@@ -159,8 +152,7 @@ function normalizeResource(value: unknown): BrowserResource | null {
     id: String(resource.id),
     projectRootId,
     workspace,
-    ownerType,
-    ownerAgentId: ownerType === 'agent' ? ownerAgentId : '',
+    ownerAgentId,
     name: String(resource.name || 'Browser').trim().slice(0, 120) || 'Browser',
     autoName: resource.autoName === true,
     status: isBrowserResourceStatus(resource.status) ? resource.status : 'failed',
@@ -253,7 +245,6 @@ class BrowserResourceStore {
       id: createBrowserId(),
       projectRootId: input.projectRootId,
       workspace: input.workspace,
-      ownerType: input.ownerType,
       ownerAgentId: input.ownerAgentId,
       name: input.name || 'Browser',
       autoName: input.autoName === true,
@@ -321,7 +312,7 @@ class BrowserResourceStore {
 
   transferAgentOwner(sourceAgentId: string, targetAgentId: string): BrowserResource[] {
     const transferring = [...this.resources.values()].filter(resource => (
-      resource.ownerType === 'agent' && resource.ownerAgentId === sourceAgentId
+      resource.ownerAgentId === sourceAgentId
     ));
     if (transferring.length === 0) return [];
     const previous = new Map(transferring.map(resource => [resource.id, resource]));
@@ -359,7 +350,6 @@ class BrowserResourceStore {
   hasSession(resource: BrowserResource, exceptId = ''): boolean {
     return [...this.resources.values()].some(candidate => (
       candidate.id !== exceptId
-      && candidate.ownerType === resource.ownerType
       && candidate.ownerAgentId === resource.ownerAgentId
       && candidate.projectRootId === resource.projectRootId
       && candidate.sessionName === resource.sessionName

@@ -366,8 +366,8 @@ export function projectCanArchive(project: ProjectGroup | null | undefined) {
   return Boolean(
     project
     && (
-      project.agents.some(agent => !agent.isMain)
-      || project.agentSessions.length > 0
+      project.agents.some(agent => !agent.isMain && !agent.pinned)
+      || project.agentSessions.some(session => !session.pinned)
     )
   )
 }

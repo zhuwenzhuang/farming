@@ -120,20 +120,10 @@ export function useBrowserResources(options: {
     [capability?.available, collection?.resources],
   )
 
-  const byWorkspace = useMemo(() => {
-    const result = new Map<string, BrowserResource[]>()
-    for (const resource of resources) {
-      const current = result.get(resource.workspace) ?? []
-      current.push(resource)
-      result.set(resource.workspace, current)
-    }
-    return result
-  }, [resources])
-
   const byAgentId = useMemo(() => {
     const result = new Map<string, BrowserResource[]>()
     for (const resource of resources) {
-      if (resource.ownerType !== 'agent' || !resource.ownerAgentId) continue
+      if (!resource.ownerAgentId) continue
       const current = result.get(resource.ownerAgentId) ?? []
       current.push(resource)
       result.set(resource.ownerAgentId, current)
@@ -143,7 +133,6 @@ export function useBrowserResources(options: {
 
   return {
     resources,
-    byWorkspace,
     byAgentId,
     capability,
     capabilityError,

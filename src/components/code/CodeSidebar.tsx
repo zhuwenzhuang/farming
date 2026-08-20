@@ -244,7 +244,7 @@ interface CodeSidebarProps {
   onToggleProject: (projectId: string) => void
   onToggleProjectSessions: (projectId: string, direction: 'more' | 'less') => void
   onMountProject: (workspace: string) => void
-  onOpenProjectMenu: (event: ContextMenuTriggerEvent, projectId: string) => void
+  onOpenProjectMenu: (event: ContextMenuTriggerEvent, projectId: string, protectedAgentIds?: readonly string[]) => void
   onReorderProject: (workspace: string, beforeWorkspace: string, afterWorkspace: string) => void
   onOpenAgent: (agentId: string) => void
   onUpdateAgentFlags: (agent: Agent, flags: Partial<Pick<Agent, 'pinned' | 'archived'>>) => void
@@ -1857,7 +1857,7 @@ interface ProjectSectionProps {
   onMountProject: (workspace: string) => void
   onNewAgent: (workspace?: string, command?: string, returnFocusTarget?: HTMLElement | null) => void
   onStartAgent: (command: string, workspace: string, options?: { projectWorkspace?: string; agentRuntimeMode?: 'terminal' | 'chat' | 'acp' }) => void
-  onOpenProjectMenu: (event: ContextMenuTriggerEvent, projectId: string) => void
+  onOpenProjectMenu: (event: ContextMenuTriggerEvent, projectId: string, protectedAgentIds?: readonly string[]) => void
   reorderable: boolean
   dragging: boolean
   dropPosition?: 'before' | 'after'
@@ -2086,6 +2086,9 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
   ))
   const lastProjectAgentId = sortedAgents[sortedAgents.length - 1]?.id ?? ''
   const visibleAgentSessions = project.agentSessions.filter(session => !session.pinned)
+  const pinnedSectionAgentIds = project.agents
+    .filter(agent => agent.pinned || dynamicallyPinnedAgentIds.has(agent.id))
+    .map(agent => agent.id)
   const showAgentsSection = sortedAgents.length > 0 || visibleAgentSessions.length > 0 || (project.hiddenAgentSessionCount ?? 0) > 0
   const filesCompressAgents = projectFilesExpanded && isCompactViewport() && sortedAgents.length > 1
   const compactProjectAgents = (compactAgents || filesCompressAgents) && sortedAgents.length > 0
@@ -2373,8 +2376,8 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
               }
               onToggleProject(project.id)
             }}
-            onContextMenu={event => onOpenProjectMenu(event, project.id)}
-            onKeyDown={event => onOpenProjectMenu(event, project.id)}
+            onContextMenu={event => onOpenProjectMenu(event, project.id, pinnedSectionAgentIds)}
+            onKeyDown={event => onOpenProjectMenu(event, project.id, pinnedSectionAgentIds)}
           >
             <span className={`code-folder-icon ${collapsed ? 'collapsed' : 'expanded'}`} aria-hidden="true">
               {collapsed ? <ChevronRightGlyph /> : <ChevronDownGlyph />}
@@ -2421,7 +2424,7 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
             data-testid="code-project-actions"
             aria-label={copy.openOptions}
             title={copy.openOptions}
-            onClick={event => onOpenProjectMenu(event, project.id)}
+            onClick={event => onOpenProjectMenu(event, project.id, pinnedSectionAgentIds)}
           >
             <ProjectActionsIcon />
           </button>

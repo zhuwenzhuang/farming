@@ -253,3 +253,9 @@ time on hover or keyboard focus.
 Dynamic pinning reuses the page-visible relative-time clock to evaluate the
 one-hour boundary. It adds no heartbeat, polling, lease, or persisted per-Agent
 timer. Reload recovery reconstructs eligibility from backend Agent state.
+
+Project-level Archive applies only to rows that remain in that Project section.
+It protects manually pinned Sessions and Agents as well as live Agents currently
+projected into Pinned by Dynamic pinning. Removing a Project is a separate,
+confirmed cleanup operation and still releases every associated Agent and
+main-page Session, including pinned rows.

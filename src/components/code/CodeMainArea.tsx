@@ -727,7 +727,7 @@ export function CodeMainArea({
     : null
   const expandedBrowserAvailable = expandedBrowserResourceId === null
     || activeBrowserPreviews.some(resource => resource.id === expandedBrowserResourceId)
-  const browserOwnerAgent = activeBrowserResource?.ownerType === 'agent'
+  const browserOwnerAgent = activeBrowserResource
     ? openAgents.find(agent => agent.id === activeBrowserResource.ownerAgentId) || null
     : null
   const browserOwnerName = browserOwnerAgent

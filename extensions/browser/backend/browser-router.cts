@@ -106,7 +106,6 @@ function requireActiveOwner(
   id: string,
 ): void {
   const resource = manager.get(id);
-  if (resource.ownerType !== 'agent') return;
   const owner = browserOwnerAgent(agentStateReader, String(resource.ownerAgentId || ''));
   const lifecycleType = String(recordValue(owner?.lifecycleOperation).type || '');
   const preservesBrowserRuntime = ['permission-restart', 'runtime-switch'].includes(lifecycleType);
@@ -135,8 +134,7 @@ function requireRequestOwnership(
   if (!binding) return;
   const resource = manager.get(id);
   if (
-    resource.ownerType !== 'agent'
-    || resource.ownerAgentId !== binding.agentId
+    resource.ownerAgentId !== binding.agentId
     || resource.workspace !== binding.workspace
   ) {
     const error = new Error('Browser Resource is not owned by this Agent') as Error & {
@@ -251,8 +249,7 @@ function createBrowserRouter(
         ? {
             ...snapshot,
             resources: resources.filter(resource => (
-              recordValue(resource).ownerType === 'agent'
-              && recordValue(resource).ownerAgentId === agentId
+              recordValue(resource).ownerAgentId === agentId
               && recordValue(resource).workspace === binding?.workspace
             )),
           }
@@ -282,32 +279,35 @@ function createBrowserRouter(
         return res.status(403).json({ error: 'Agent tools cannot create a Browser for another Agent' });
       }
       const ownerAgentId = callerAgentId || requestedAgentId;
-      if (ownerAgentId) {
-        const owner = browserOwnerAgent(agentStateReader, ownerAgentId);
-        if (!owner) {
-          return res.status(404).json({ error: 'Browser owner Agent was not found' });
-        }
-        const ownerWorkspace = String(owner.projectWorkspace || owner.cwd || '').trim();
-        if (!ownerWorkspace || ownerWorkspace !== root.canonicalPath) {
-          return res.status(409).json({
-            error: 'Browser owner Agent is not bound to the selected Project workspace',
-          });
-        }
-        const lifecycleType = String(recordValue(owner.lifecycleOperation).type || '');
-        const preservesBrowserRuntime = ['permission-restart', 'runtime-switch'].includes(lifecycleType);
-        if (
-          owner.archived === true
-          || (!preservesBrowserRuntime && INACTIVE_AGENT_STATUSES.has(String(owner.status || '')))
-        ) {
-          return res.status(409).json({ error: 'Browser owner Agent is not running' });
-        }
+      if (!ownerAgentId) {
+        return res.status(400).json({
+          error: 'Browser creation requires an active Agent owner',
+          code: 'BROWSER_AGENT_OWNER_REQUIRED',
+        });
+      }
+      const owner = browserOwnerAgent(agentStateReader, ownerAgentId);
+      if (!owner) {
+        return res.status(404).json({ error: 'Browser owner Agent was not found' });
+      }
+      const ownerWorkspace = String(owner.projectWorkspace || owner.cwd || '').trim();
+      if (!ownerWorkspace || ownerWorkspace !== root.canonicalPath) {
+        return res.status(409).json({
+          error: 'Browser owner Agent is not bound to the selected Project workspace',
+        });
+      }
+      const lifecycleType = String(recordValue(owner.lifecycleOperation).type || '');
+      const preservesBrowserRuntime = ['permission-restart', 'runtime-switch'].includes(lifecycleType);
+      if (
+        owner.archived === true
+        || (!preservesBrowserRuntime && INACTIVE_AGENT_STATUSES.has(String(owner.status || '')))
+      ) {
+        return res.status(409).json({ error: 'Browser owner Agent is not running' });
       }
       const source = String(body.source || '').trim();
       const executablePath = String(body.executablePath || '').trim();
       const input = {
         projectRootId: root.rootId,
         workspace: root.canonicalPath,
-        ownerType: ownerAgentId ? 'agent' : 'project',
         ownerAgentId,
         name: body.name,
         url: body.url,

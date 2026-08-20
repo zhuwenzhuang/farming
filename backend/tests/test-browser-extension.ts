@@ -488,6 +488,7 @@ async function testBrowserResourceManager() {
     assert.throws(() => manager.create({
       projectRootId: 'wroot_project',
       workspace: projectWorkspace,
+      ownerAgentId: 'agent_project',
       browserSource: 'external-cdp',
     }), error => error?.code === 'BROWSER_INVALID_SOURCE');
     const isolatedConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-isolated-browser-manager-'));
@@ -561,18 +562,16 @@ async function testBrowserResourceManager() {
       assert.throws(() => isolatedManager.create({
         projectRootId: 'wroot_isolated',
         workspace: projectWorkspace,
-        ownerType: 'project',
         ownerAgentId: '',
-        name: 'Invalid Project Browser',
+        name: 'Ownerless Browser',
         url: 'https://example.com',
       }), error => (
-        error?.code === 'ISOLATED_BROWSER_AGENT_OWNER_REQUIRED'
-        && error?.status === 409
-      ), 'isolated Browser creation must reject a Project owner before persisting an unusable row');
+        error?.code === 'BROWSER_AGENT_OWNER_REQUIRED'
+        && error?.status === 400
+      ), 'Browser creation must reject a missing Agent owner before persisting a row');
       const isolatedResource = isolatedManager.create({
         projectRootId: 'wroot_isolated',
         workspace: projectWorkspace,
-        ownerType: 'agent',
         ownerAgentId: 'agent_isolated',
         name: 'Isolated',
         url: 'https://example.com',
@@ -597,7 +596,6 @@ async function testBrowserResourceManager() {
       const orphanedIsolated = isolatedManager.create({
         projectRootId: 'wroot_isolated',
         workspace: projectWorkspace,
-        ownerType: 'agent',
         ownerAgentId: 'agent_orphaned',
         name: 'Orphaned isolated Browser',
         url: 'https://example.com',
@@ -605,7 +603,6 @@ async function testBrowserResourceManager() {
       const retainedIsolated = isolatedManager.create({
         projectRootId: 'wroot_isolated',
         workspace: projectWorkspace,
-        ownerType: 'agent',
         ownerAgentId: 'agent_retained',
         name: 'Retained isolated Browser',
         url: 'https://example.com',
@@ -640,7 +637,6 @@ async function testBrowserResourceManager() {
       const sharedIsolated = isolatedManager.create({
         projectRootId: 'wroot_isolated',
         workspace: projectWorkspace,
-        ownerType: 'agent',
         ownerAgentId: 'agent_retained',
         name: 'Shared isolated Browser',
         url: 'https://example.com/shared',
@@ -664,13 +660,13 @@ async function testBrowserResourceManager() {
     const created = manager.create({
       projectRootId: 'wroot_project',
       workspace: projectWorkspace,
+      ownerAgentId: 'agent_project',
       name: 'App',
       url: 'localhost:3000',
     });
     assert.strictEqual(created.status, 'stopped');
     assert.strictEqual(created.url, 'http://localhost:3000/');
-    assert.strictEqual(created.ownerType, 'project', 'Existing create callers migrate to Project ownership');
-    assert.strictEqual(created.ownerAgentId, '');
+    assert.strictEqual(created.ownerAgentId, 'agent_project');
 
     const transitions = [];
     manager.on('resource', resource => transitions.push(resource.status));
@@ -831,6 +827,7 @@ async function testBrowserResourceManager() {
     const manualTab = manager.create({
       projectRootId: 'wroot_project',
       workspace: projectWorkspace,
+      ownerAgentId: 'agent_project',
       name: 'Manual tab',
       url: 'https://manual.example/',
     });
@@ -1042,6 +1039,7 @@ async function testBrowserResourceManager() {
     const second = manager.create({
       projectRootId: 'wroot_project',
       workspace: '/tmp/project',
+      ownerAgentId: 'agent_project',
       name: 'Crash',
       url: 'about:blank',
     });
@@ -1054,6 +1052,7 @@ async function testBrowserResourceManager() {
     const retryable = manager.create({
       projectRootId: 'wroot_project',
       workspace: '/tmp/project',
+      ownerAgentId: 'agent_project',
       name: 'Retry cleanup',
       url: 'about:blank',
     });
@@ -1086,6 +1085,7 @@ async function testBrowserResourceManager() {
     const orphaned = manager.create({
       projectRootId: 'wroot_project',
       workspace: '/tmp/project',
+      ownerAgentId: 'agent_project',
       name: 'Restart recovery',
       url: 'about:blank',
     });
@@ -1131,6 +1131,7 @@ async function testBrowserResourceManager() {
     const blocked = manager.store.create({
       projectRootId: 'project_test',
       workspace: '/tmp/project-test',
+      ownerAgentId: 'agent_permission',
       name: 'Permission recovery',
       url: 'about:blank',
     });
@@ -1245,7 +1246,6 @@ async function testExistingChromeTabManagement() {
     const borrowed = manager.create({
       projectRootId: 'wroot_project',
       workspace,
-      ownerType: 'agent',
       ownerAgentId: 'agent_a',
       browserSource: 'extension',
       existingTabId: 42,
@@ -1255,7 +1255,6 @@ async function testExistingChromeTabManagement() {
     const attachedSession = manager.ensureSession({
       projectRootId: 'wroot_project',
       workspace,
-      ownerType: 'agent',
       ownerAgentId: 'agent_a',
       browserSource: 'extension',
       existingTabId: 42,
@@ -1266,7 +1265,6 @@ async function testExistingChromeTabManagement() {
     assert.strictEqual(manager.ensureSession({
       projectRootId: 'wroot_project',
       workspace,
-      ownerType: 'agent',
       ownerAgentId: 'agent_a',
       browserSource: 'extension',
       existingTabId: 42,
@@ -1276,7 +1274,6 @@ async function testExistingChromeTabManagement() {
       () => manager.ensureSession({
         projectRootId: 'wroot_project',
         workspace,
-        ownerType: 'agent',
         ownerAgentId: 'agent_a',
         browserSource: 'extension',
         existingTabId: 43,
@@ -1294,7 +1291,6 @@ async function testExistingChromeTabManagement() {
     const duplicate = manager.create({
       projectRootId: 'wroot_project',
       workspace,
-      ownerType: 'agent',
       ownerAgentId: 'agent_b',
       browserSource: 'extension',
       existingTabId: 42,
@@ -1307,7 +1303,6 @@ async function testExistingChromeTabManagement() {
     const created = manager.create({
       projectRootId: 'wroot_project',
       workspace,
-      ownerType: 'agent',
       ownerAgentId: 'agent_a',
       browserSource: 'extension',
       url: 'https://fresh.example/',
@@ -1350,7 +1345,6 @@ async function testAgentOwnedBrowserIsolationAndLifecycle() {
     const first = manager.create({
       projectRootId: 'wroot_shared',
       workspace: '/tmp/shared',
-      ownerType: 'agent',
       ownerAgentId: 'agent_a',
       name: 'A1',
       url: 'about:blank',
@@ -1358,7 +1352,6 @@ async function testAgentOwnedBrowserIsolationAndLifecycle() {
     const second = manager.create({
       projectRootId: 'wroot_shared',
       workspace: '/tmp/shared',
-      ownerType: 'agent',
       ownerAgentId: 'agent_a',
       name: 'A2',
       url: 'about:blank',
@@ -1366,12 +1359,10 @@ async function testAgentOwnedBrowserIsolationAndLifecycle() {
     const isolated = manager.create({
       projectRootId: 'wroot_shared',
       workspace: '/tmp/shared',
-      ownerType: 'agent',
       ownerAgentId: 'agent_b',
       name: 'B1',
       url: 'about:blank',
     });
-    assert.strictEqual(first.ownerType, 'agent');
     assert.strictEqual(first.ownerAgentId, 'agent_a');
     await manager.start(first.id);
     await manager.start(second.id);
@@ -1431,7 +1422,6 @@ async function testAgentOwnedBrowserIsolationAndLifecycle() {
     const recoveredReplacement = manager.create({
       projectRootId: 'wroot_shared',
       workspace: '/tmp/shared',
-      ownerType: 'agent',
       ownerAgentId: 'agent_recovery_old',
       name: 'Recovered',
       url: 'about:blank',
@@ -1511,7 +1501,6 @@ async function testAgentBrowserNamedSessionEnsure() {
   const owner = {
     projectRootId: 'wroot_session',
     workspace: '/tmp/session',
-    ownerType: 'agent',
     ownerAgentId: 'agent_session',
   };
   try {
@@ -1561,6 +1550,7 @@ async function testAgentBrowserRestartRecovery() {
     const created = seed.store.create({
       projectRootId: 'wroot_recovery',
       workspace: '/tmp/recovery',
+      ownerAgentId: 'agent_recovery',
       name: 'Recover',
       url: 'about:blank',
     });
@@ -1574,6 +1564,7 @@ async function testAgentBrowserRestartRecovery() {
     const local = seed.store.create({
       projectRootId: 'wroot_recovery',
       workspace: '/tmp/recovery',
+      ownerAgentId: 'agent_recovery',
       name: 'Recover local',
       url: 'about:blank',
     });
@@ -1587,6 +1578,7 @@ async function testAgentBrowserRestartRecovery() {
     const failedWithIdentity = seed.store.create({
       projectRootId: 'wroot_recovery',
       workspace: '/tmp/recovery',
+      ownerAgentId: 'agent_recovery',
       name: 'Retry failed cleanup',
       url: 'about:blank',
     });
@@ -1732,21 +1724,18 @@ function testBrowserResourceRevisionOrdering() {
 async function testBrowserRouterAgentOwnership() {
   const resources = [{
     id: 'browser_agent_a',
-    ownerType: 'agent',
     ownerAgentId: 'agent_a',
     projectRootId: 'wroot_project',
     workspace: '/tmp/project',
     name: 'Agent A Browser',
   }, {
     id: 'browser_agent_b',
-    ownerType: 'agent',
     ownerAgentId: 'agent_b',
     projectRootId: 'wroot_project',
     workspace: '/tmp/project',
     name: 'Agent B Browser',
   }, {
     id: 'browser_agent_a_other_project',
-    ownerType: 'agent',
     ownerAgentId: 'agent_a',
     projectRootId: 'wroot_other',
     workspace: '/tmp/other-project',
@@ -1888,6 +1877,14 @@ async function testBrowserRouterAgentOwnership() {
       'A cross-Agent operation must be rejected before it reaches the manager',
     );
 
+    const ownerless = await request('/api/browsers', {
+      method: 'POST',
+      headers: { 'X-Farming-Agent-Id': '' },
+      body: JSON.stringify({ rootId: 'wroot_project' }),
+    });
+    assert.strictEqual(ownerless.status, 400);
+    assert.strictEqual(ownerless.body.code, 'BROWSER_AGENT_OWNER_REQUIRED');
+
     const created = await request('/api/browsers', {
       method: 'POST',
       body: JSON.stringify({
@@ -1905,7 +1902,6 @@ async function testBrowserRouterAgentOwnership() {
       input: {
         projectRootId: 'wroot_project',
         workspace: '/tmp/project',
-        ownerType: 'agent',
         ownerAgentId: 'agent_a',
         name: 'Owned',
         url: 'https://example.test/',
@@ -1930,7 +1926,6 @@ async function testBrowserRouterAgentOwnership() {
       input: {
         projectRootId: 'wroot_project',
         workspace: '/tmp/project',
-        ownerType: 'agent',
         ownerAgentId: 'agent_a',
         name: undefined,
         url: 'https://reuse.example/',
