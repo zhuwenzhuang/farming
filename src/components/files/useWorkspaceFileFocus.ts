@@ -16,10 +16,10 @@ import {
   WORKSPACE_FILE_SEARCH_FOCUS_RETRY_DELAYS,
   WORKSPACE_FILE_TREE_FOCUS_RETRY_DELAYS,
 } from '@/lib/workspace-file-view-model'
+import { claimProjectListScroll, type ProjectListScrollLease } from '@/lib/project-list-scroll-owner'
 
 const FILE_TREE_REVEAL_RETRY_DELAY_MS = 50
 const FILE_TREE_REVEAL_MAX_ATTEMPTS = 60
-const FILE_TREE_REVEAL_STABILITY_DELAYS = [240, 600, 1200]
 const FILE_TREE_LOCATION_HIGHLIGHT_MS = 6000
 const FILE_TREE_LOCATION_STABILITY_CHECK_MS = 80
 const FILE_TREE_LOCATION_STABILITY_MAX_ATTEMPTS = 100
@@ -73,13 +73,16 @@ function visibleFileTreeRectForReveal(scroller: HTMLElement, row: HTMLElement) {
 
 function revealRowInProjectScroller(row: HTMLElement, alignNearTop = false) {
   const scroller = row.closest<HTMLElement>('.code-project-list')
-  if (!scroller) return
+  if (!scroller) return false
 
   const scrollerRect = visibleFileTreeRectForReveal(scroller, row)
   const rowRect = row.getBoundingClientRect()
-  scroller.scrollTop += alignNearTop
+  const delta = alignNearTop
     ? rowRect.top - scrollerRect.top - 6
     : workspaceFileRevealScrollDelta(scrollerRect, rowRect)
+  if (Math.abs(delta) <= 1) return true
+  scroller.scrollTop += delta
+  return false
 }
 
 export function useWorkspaceFileFocus({
@@ -102,6 +105,7 @@ export function useWorkspaceFileFocus({
   const fileTreeRevealFrameRefs = useRef<number[]>([])
   const fileTreeRevealTimeoutsRef = useRef<number[]>([])
   const fileTreeRevealGenerationRef = useRef(0)
+  const fileTreeScrollLeaseRef = useRef<ProjectListScrollLease | null>(null)
   const [locatedFilePath, setLocatedFilePath] = useState<string | null>(null)
   const locatedFilePathTimeoutRef = useRef<number | null>(null)
   const treeDataRef = useRef(treeData)
@@ -169,9 +173,15 @@ export function useWorkspaceFileFocus({
     clearLocatedFilePath()
   }, [cancelPendingFileSearchFocus, cancelPendingFileTreeFocus, clearLocatedFilePath])
 
-  const scrollFileTreeToPath = useCallback((filePath: string, focusRow = false, emphasizeLocation = false) => {
+  const scrollFileTreeToPath = useCallback((
+    filePath: string,
+    focusRow = false,
+    emphasizeLocation = false,
+    revealIsCurrent: () => boolean = () => true,
+  ) => {
     cancelPendingFileTreeScrollFocus()
     cancelPendingFileTreeLocationHighlight()
+    let settled = false
 
     const scheduleLocationHighlight = () => {
       let stableChecks = 0
@@ -198,6 +208,7 @@ export function useWorkspaceFileFocus({
     }
 
     const scrollRenderedRow = () => {
+      if (settled || !revealIsCurrent()) return false
       const searchInput = fileSearchInputRef.current
       const shouldFocusTree = shouldFocusWorkspaceFileTree({
         focusRow,
@@ -208,15 +219,20 @@ export function useWorkspaceFileFocus({
       const row = Array.from(treeViewportRef.current?.querySelectorAll<HTMLElement>('[data-file-path]') ?? [])
         .find(element => element.dataset.filePath === filePath)
       if (!row) return false
-      revealRowInProjectScroller(row, emphasizeLocation)
+      const aligned = revealRowInProjectScroller(row, emphasizeLocation)
       if (shouldFocusTree) focusWithoutScrolling(row.closest<HTMLElement>('[role="tree"]'))
-      return true
+      return aligned
     }
 
     const scroll = () => {
+      if (settled || !revealIsCurrent()) return
       const tree = treeRef.current
       if (focusRow) tree?.get(filePath)?.select()
       const rowRendered = scrollRenderedRow()
+      if (rowRendered) {
+        settled = true
+        return
+      }
       if (focusRow && !rowRendered) {
         const scrollPromise = tree?.scrollTo(filePath, emphasizeLocation ? 'start' : 'smart')
         if (scrollPromise) {
@@ -247,8 +263,16 @@ export function useWorkspaceFileFocus({
     focusRow = true
   ) => {
     const revealGeneration = generation ?? (fileTreeRevealGenerationRef.current + 1)
-    if (generation === undefined) fileTreeRevealGenerationRef.current = revealGeneration
-    const revealIsCurrent = () => fileTreeRevealGenerationRef.current === revealGeneration
+    if (generation === undefined) {
+      fileTreeRevealGenerationRef.current = revealGeneration
+      const scroller = treeViewportRef.current?.closest<HTMLElement>('.code-project-list')
+      fileTreeScrollLeaseRef.current = scroller ? claimProjectListScroll(scroller) : null
+    }
+    const revealLease = fileTreeScrollLeaseRef.current
+    const revealIsCurrent = () => (
+      fileTreeRevealGenerationRef.current === revealGeneration
+      && (!revealLease || revealLease.isCurrent())
+    )
     const tree = treeRef.current
     const currentTreeData = treeDataRef.current
     const directoryPathsToOpen = visibleWorkspaceDirectoryPathsToOpenForTarget(
@@ -300,7 +324,7 @@ export function useWorkspaceFileFocus({
       directoryPathsToOpen.forEach(directoryPath => treeRef.current?.open(directoryPath))
       refreshTreeLayout(directoryPathsToOpen)
       queueRevealFrame(() => {
-        scrollFileTreeToPath(visibleTargetPath, focusRow, openTargetDirectory)
+        scrollFileTreeToPath(visibleTargetPath, focusRow, openTargetDirectory, revealIsCurrent)
       })
     }
     const queueRevealFrame = (callback: () => void) => {
@@ -312,28 +336,24 @@ export function useWorkspaceFileFocus({
       fileTreeRevealFrameRefs.current.push(frameId)
     }
     queueRevealFrame(reveal)
-    FILE_TREE_REVEAL_STABILITY_DELAYS.forEach(delay => {
-      const retryTimeoutId = window.setTimeout(() => {
-        fileTreeRevealTimeoutsRef.current = fileTreeRevealTimeoutsRef.current.filter(id => id !== retryTimeoutId)
-        if (!revealIsCurrent()) return
-        queueRevealFrame(reveal)
-      }, delay)
-      fileTreeRevealTimeoutsRef.current.push(retryTimeoutId)
-    })
-  }, [openDirectoriesInLayout, refreshTreeLayout, scrollFileTreeToPath, treeRef])
+  }, [openDirectoriesInLayout, refreshTreeLayout, scrollFileTreeToPath, treeRef, treeViewportRef])
 
   const revealFilePath = useCallback(async (filePath: string) => {
     cancelPendingFileTreeFocus()
     const revealGeneration = fileTreeRevealGenerationRef.current
+    const scroller = treeViewportRef.current?.closest<HTMLElement>('.code-project-list')
+    fileTreeScrollLeaseRef.current = scroller ? claimProjectListScroll(scroller) : null
     const ancestors = ancestorDirectories(filePath)
     await loadMissingDirectories(['', ...ancestors])
     if (fileTreeRevealGenerationRef.current !== revealGeneration) return
     revealFilePathInTree(filePath, 0, false, revealGeneration, false)
-  }, [cancelPendingFileTreeFocus, loadMissingDirectories, revealFilePathInTree])
+  }, [cancelPendingFileTreeFocus, loadMissingDirectories, revealFilePathInTree, treeViewportRef])
 
   const revealExplorerPath = useCallback(async (filePath: string, kind: 'directory' | 'file') => {
     cancelPendingFileTreeFocus()
     const revealGeneration = fileTreeRevealGenerationRef.current
+    const scroller = treeViewportRef.current?.closest<HTMLElement>('.code-project-list')
+    fileTreeScrollLeaseRef.current = scroller ? claimProjectListScroll(scroller) : null
     if (kind === 'directory') {
       document.body.classList.remove('code-file-location-dismissed')
       clearLocatedFilePath()
@@ -346,7 +366,7 @@ export function useWorkspaceFileFocus({
     ])
     if (fileTreeRevealGenerationRef.current !== revealGeneration) return
     revealFilePathInTree(filePath, 0, kind === 'directory', revealGeneration)
-  }, [cancelPendingFileTreeFocus, clearLocatedFilePath, loadMissingDirectories, revealFilePathInTree])
+  }, [cancelPendingFileTreeFocus, clearLocatedFilePath, loadMissingDirectories, revealFilePathInTree, treeViewportRef])
 
   const focusFileSearchInput = useCallback(() => {
     cancelPendingFileFocus()

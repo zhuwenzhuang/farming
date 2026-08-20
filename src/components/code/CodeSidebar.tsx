@@ -76,6 +76,7 @@ import { formatWorkspaceForDisplay } from '@/lib/workspace-options'
 import { recordPerformanceTestRender } from '@/lib/performance-test-observer'
 import { stableProjectSourceAgentId } from './workspace-derived'
 import { workspaceFileRevealScrollDelta } from '@/lib/workspace-file-view-model'
+import { claimProjectListScroll, invalidateProjectListScroll } from '@/lib/project-list-scroll-owner'
 import {
   loadCodeProjectFilesViewState,
   loadCodeWorkspaceViewState,
@@ -637,7 +638,10 @@ export function CodeSidebar({
 
   useEffect(() => {
     if (!agentRevealRequest) return
+    const ownedScroller = projectListRef.current
+    const scrollLease = ownedScroller ? claimProjectListScroll(ownedScroller) : null
     return scheduleFocusUntil(() => {
+      if (scrollLease && !scrollLease.isCurrent()) return true
       const scroller = projectListRef.current
       if (!scroller) return false
       const rows = Array.from(scroller.querySelectorAll<HTMLElement>(
@@ -654,6 +658,7 @@ export function CodeSidebar({
       const rowIsFullyVisible = rowRect.top >= scrollerRect.top && rowRect.bottom <= scrollerRect.bottom
       if (!rowIsFullyVisible) {
         scroller.scrollTop += workspaceFileRevealScrollDelta(scrollerRect, rowRect)
+        return false
       }
       return true
     }, {
@@ -838,7 +843,12 @@ export function CodeSidebar({
         data-testid="code-project-list"
         ref={projectListRef}
         tabIndex={0}
-        onKeyDown={onProjectListKeyDown}
+        onKeyDown={event => {
+          invalidateProjectListScroll(event.currentTarget)
+          onProjectListKeyDown(event)
+        }}
+        onPointerDownCapture={event => invalidateProjectListScroll(event.currentTarget)}
+        onWheelCapture={event => invalidateProjectListScroll(event.currentTarget)}
         onScroll={event => loadMoreNearProjectListEnd(event.currentTarget)}
         aria-label={copy.projectsAndAgents}
       >

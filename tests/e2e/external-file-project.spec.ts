@@ -146,10 +146,12 @@ test('promotes an external terminal file link to its nearest Git Project', async
   await expectBlameAvailable(page)
 
   const sourceProject = page.getByTestId('code-project-group').filter({ hasText: path.basename(launcherWorkspace) })
-  await sourceProject.hover()
-  await sourceProject.getByTestId('code-project-agent-visibility').click({ force: true })
-  await expect(sourceProject.getByTestId('code-project-agent-visibility')).toHaveAttribute('aria-expanded', 'false')
-  await sourceProject.getByTestId('code-project-title').click({ force: true })
+  await sourceProject.getByTestId('code-project-title').hover({ position: { x: 8, y: 8 } })
+  const agentVisibility = sourceProject.getByTestId('code-project-agent-visibility')
+  await expect(agentVisibility).toBeVisible()
+  await agentVisibility.click()
+  await expect(agentVisibility).toHaveAttribute('aria-expanded', 'false')
+  await sourceProject.getByTestId('code-project-title').click()
   await expect(sourceProject).toHaveAttribute('data-collapsed', 'true')
   await page.getByTestId('code-project-list').evaluate(scroller => {
     scroller.scrollTop = scroller.scrollHeight

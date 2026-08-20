@@ -103,6 +103,10 @@ Row；即使文件与 Source Agent 分属不同 Project 也必须成功。文件
 Location 作为一等 History Entry；打开来源文件后返回时，恢复原来的 Tab、Agent Home、
 Extension Kind、Query、Detail 与 Scroll Position。
 
+共享 Project Scroll Surface 上的每个程序化 Reveal 只持有一个 Generation Lease。更新的文件或
+Agent Reveal，以及直接的 Pointer、Wheel 或 Keyboard 意图，会在旧 Owner 再次写入滚动位置前
+撤销其 Lease。目标实测位置满足后 Reveal 立即停止；固定延迟的重复回放不能覆盖后续导航或用户输入。
+
 ## Workspace View Memory
 
 记住能帮助用户继续上次工作的稳定选择，不记住交互过程、加载、错误和响应式临时状态。

@@ -136,6 +136,12 @@ entry and restores
 its tab, Agent Home, extension kind, query, detail, and scroll position after
 opening a source file.
 
+Every programmatic reveal on the shared Project scroll surface holds one
+generation lease. A newer file or Agent reveal, or direct pointer, wheel, or
+keyboard intent, revokes the older lease before it can write another scroll
+position. A reveal stops once its measured target position is satisfied; fixed
+delayed replays must not overwrite later navigation or user input.
+
 ## Workspace View Memory
 
 Remember stable user choices that help a user continue where they left off.
