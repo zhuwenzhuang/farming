@@ -163,6 +163,11 @@ Protocol Error 使用稳定 Code，例如 `NOT_FOUND`、`FORBIDDEN`、`CONFLICT`
 Browser Request 可以处于 Locally Queued、Sent、Settled、Cancelled、Disconnected 或
 Uncertain。这些是推理状态，实现可以继续使用普通 Record、Promise 与 Abort Listener。
 
+Server Restart 后，如果仍运行旧 Bundle 的页面发现 Backend Browser Protocol 更新，则按
+Interface 与 WebSocket Endpoint 在 Session Storage 中为目标 Protocol 领取一次 Reload，随后
+Reload 使用 No-cache 的 Entry Document。同一目标再次失配、Backend 更旧或 Session Storage
+不可用时必须以显式 Protocol Error 终止，不能继续 Reload，从而保证恢复不会形成刷新循环。
+
 | 当前状态 | 触发 | 必须产生的结果 |
 | --- | --- | --- |
 | Locally Queued | Compatible Protocol Hello | 仅在仍有 Live Consumer 时发送一次。 |

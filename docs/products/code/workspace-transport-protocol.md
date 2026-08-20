@@ -187,6 +187,13 @@ A browser request is locally queued, sent, settled, cancelled, disconnected,
 or uncertain. These are reasoning states and may be represented with ordinary
 records, promises, and abort listeners.
 
+When a Server restart exposes a newer browser protocol to a page that is still
+running an older bundle, that page claims one reload for the target protocol in
+session storage and reloads its no-cache entry document. The claim is scoped to
+the interface and WebSocket endpoint. A repeated mismatch for the same target,
+an older backend, or unavailable session storage terminates with the explicit
+protocol error instead of reloading, so recovery cannot form a reload loop.
+
 | Current state | Trigger | Required result |
 | --- | --- | --- |
 | locally queued | compatible protocol hello | Send once if still owned by a live consumer. |

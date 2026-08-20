@@ -4377,6 +4377,10 @@ function connect() {
             return;
         if (data.type === 'protocol-hello') {
             if (!agentStateBridge.protocolCompatible(data.protocolVersion)) {
+                if (agentStateBridge.claimProtocolUpgradeReload(CRT_PROTOCOL_VERSION, data.protocolVersion, window.sessionStorage, `crt:${farmingWebSocketUrl()}`)) {
+                    window.location.reload();
+                    return;
+                }
                 if (data.protocolVersion > CRT_PROTOCOL_VERSION) {
                     showCrtProtocolMismatchNotice('FARMING CRT PAGE OUT OF DATE', 'Reload this page to load the updated Farming CRT interface.');
                 }

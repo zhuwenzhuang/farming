@@ -6,6 +6,7 @@ exports.sanitizeAgentUpdatePatch = sanitizeAgentUpdatePatch;
 exports.validateClientMessage = validateClientMessage;
 exports.validateServerMessage = validateServerMessage;
 exports.protocolCompatible = protocolCompatible;
+exports.claimProtocolUpgradeReload = claimProtocolUpgradeReload;
 const agent_state_semantics_js_1 = require("./agent-state-semantics.js");
 const agent_state_wire_js_1 = require("./agent-state-wire.js");
 exports.PROTOCOL_VERSION = 15;
@@ -621,4 +622,21 @@ function protocolCompatible(version) {
         && typeof version === 'number'
         && version >= exports.MIN_PROTOCOL_VERSION
         && version <= exports.PROTOCOL_VERSION;
+}
+function claimProtocolUpgradeReload(pageProtocolVersion, backendProtocolVersion, storage, scope) {
+    if (!Number.isInteger(pageProtocolVersion)
+        || !Number.isInteger(backendProtocolVersion)
+        || backendProtocolVersion <= pageProtocolVersion) {
+        return false;
+    }
+    const key = `farming:protocol-upgrade-reload:${scope}:${backendProtocolVersion}`;
+    try {
+        if (storage.getItem(key) === '1')
+            return false;
+        storage.setItem(key, '1');
+        return true;
+    }
+    catch {
+        return false;
+    }
 }

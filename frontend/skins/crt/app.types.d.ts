@@ -361,6 +361,7 @@ interface FarmingAgentStateBridge {
   advanceAgentStateSnapshot: typeof import('../../../shared/agent-state-reducer.js').advanceAgentStateSnapshot;
   agentStateDeltaDisposition: typeof import('../../../shared/agent-state-reducer.js').agentStateDeltaDisposition;
   applyAgentStateDelta: typeof import('../../../shared/agent-state-reducer.js').applyAgentStateDelta;
+  claimProtocolUpgradeReload: typeof import('../../../shared/browser-protocol.js').claimProtocolUpgradeReload;
   protocolCompatible: typeof import('../../../shared/browser-protocol.js').protocolCompatible;
   validateServerMessage: typeof import('../../../shared/browser-protocol.js').validateServerMessage;
 }

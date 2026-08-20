@@ -39,6 +39,7 @@ import {
   type AgentStateSnapshotCursor,
 } from '../../shared/agent-state-reducer.js'
 import {
+  claimProtocolUpgradeReload,
   MIN_PROTOCOL_VERSION,
   PROTOCOL_VERSION,
   protocolCompatible,
@@ -725,6 +726,15 @@ export function useWebSocket() {
                 accessMode,
               }))
               if (!protocolCompatible(msg.protocolVersion)) {
+                if (claimProtocolUpgradeReload(
+                  PROTOCOL_VERSION,
+                  msg.protocolVersion,
+                  window.sessionStorage,
+                  `code:${appWsUrl()}`,
+                )) {
+                  window.location.reload()
+                  return
+                }
                 protocolMismatchNotice = msg.protocolVersion < MIN_PROTOCOL_VERSION
                   ? `This page requires a newer Farming backend (protocol ${MIN_PROTOCOL_VERSION}, backend has ${msg.protocolVersion}). Update and restart the Farming backend.`
                   : 'The Farming backend is newer than this page. Refresh this page to load the updated interface.'

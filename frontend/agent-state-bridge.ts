@@ -1,4 +1,5 @@
 import {
+  claimProtocolUpgradeReload,
   MIN_PROTOCOL_VERSION,
   PROTOCOL_VERSION,
   protocolCompatible,
@@ -16,6 +17,7 @@ export interface FarmingAgentStateBridge {
   advanceAgentStateSnapshot: typeof advanceAgentStateSnapshot
   agentStateDeltaDisposition: typeof agentStateDeltaDisposition
   applyAgentStateDelta: typeof applyAgentStateDelta
+  claimProtocolUpgradeReload: typeof claimProtocolUpgradeReload
   protocolCompatible: typeof protocolCompatible
   validateServerMessage: typeof validateServerMessage
 }
@@ -31,6 +33,7 @@ type AgentStateBridgeGlobal = typeof globalThis & {
     advanceAgentStateSnapshot,
     agentStateDeltaDisposition,
     applyAgentStateDelta,
+    claimProtocolUpgradeReload,
     protocolCompatible,
     validateServerMessage,
   })

@@ -7,6 +7,11 @@ export const MIN_PROTOCOL_VERSION = 15
 export const MAX_INLINE_WORKSPACE_MESSAGE_BYTES = 1024 * 1024
 export const PROJECT_ATTENTION_SCORE_MAX = projectAttentionScoreMax
 
+export interface ProtocolReloadStorage {
+  getItem(key: string): string | null
+  setItem(key: string, value: string): void
+}
+
 type ObjectMessage = Record<string, unknown>
 
 interface ExtensibleMessage extends ObjectMessage {
@@ -1076,4 +1081,25 @@ export function protocolCompatible(version: unknown): version is number {
     && typeof version === 'number'
     && version >= MIN_PROTOCOL_VERSION
     && version <= PROTOCOL_VERSION
+}
+
+export function claimProtocolUpgradeReload(
+  pageProtocolVersion: number,
+  backendProtocolVersion: number,
+  storage: ProtocolReloadStorage,
+  scope: string,
+): boolean {
+  if (!Number.isInteger(pageProtocolVersion)
+    || !Number.isInteger(backendProtocolVersion)
+    || backendProtocolVersion <= pageProtocolVersion) {
+    return false
+  }
+  const key = `farming:protocol-upgrade-reload:${scope}:${backendProtocolVersion}`
+  try {
+    if (storage.getItem(key) === '1') return false
+    storage.setItem(key, '1')
+    return true
+  } catch {
+    return false
+  }
 }

@@ -4,6 +4,7 @@ const assert = require('assert');
 const packageJson = require('../../package.json');
 const { importTsModule } = require('./helpers/import-ts-module');
 const {
+  claimProtocolUpgradeReload,
   PROTOCOL_VERSION,
   protocolCompatible,
   validateClientMessage,
@@ -62,6 +63,30 @@ assert(
 assert.strictEqual(protocolCompatible(PROTOCOL_VERSION), true);
 assert.strictEqual(protocolCompatible(PROTOCOL_VERSION - 1), false);
 assert.strictEqual(protocolCompatible(PROTOCOL_VERSION + 1), false);
+const protocolReloadValues = new Map<string, string>();
+const protocolReloadStorage = {
+  getItem: (key: string) => protocolReloadValues.get(key) || null,
+  setItem: (key: string, value: string) => protocolReloadValues.set(key, value),
+};
+const claimReload = (
+  backendVersion: number,
+  scope = 'code:ws://farming.test/ws',
+  storage = protocolReloadStorage,
+) => claimProtocolUpgradeReload(PROTOCOL_VERSION, backendVersion, storage, scope);
+assert.strictEqual(claimReload(PROTOCOL_VERSION + 1), true);
+assert.strictEqual(claimReload(PROTOCOL_VERSION + 1), false);
+assert.strictEqual(claimReload(PROTOCOL_VERSION + 1, 'crt:ws://farming.test/ws'), true);
+assert.strictEqual(claimReload(PROTOCOL_VERSION), false);
+assert.strictEqual(claimReload(PROTOCOL_VERSION - 1), false);
+assert.strictEqual(claimProtocolUpgradeReload(
+  PROTOCOL_VERSION,
+  PROTOCOL_VERSION + 2,
+  {
+    getItem: () => null,
+    setItem: () => { throw new Error('storage unavailable'); },
+  },
+  'code:ws://farming.test/ws',
+), false);
 for (const message of Object.values(validClientMessages)) {
   assert.strictEqual(
     validateClientMessage(message).ok,
