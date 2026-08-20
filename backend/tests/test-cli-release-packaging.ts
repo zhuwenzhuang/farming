@@ -253,10 +253,10 @@ function run() {
   );
   assert(
     packageJson.scripts?.['prepare:ripgrep-runtime']
-      && packageJson.scripts?.prebuild.includes('prepare:ripgrep-runtime')
+      && packageJson.scripts?.build.endsWith('npm run prepare:ripgrep-runtime')
       && packageJson.scripts?.pretest.includes('prepare:ripgrep-runtime')
       && packageJson.scripts?.['prepare:packaged-runtimes'],
-    'source, test, npm, and target release builds must prepare Farming managed ripgrep',
+    'source builds must prepare ripgrep after Vite clears dist, while tests, npm, and target releases also prepare it',
   );
   assert(
     farmingLauncher.includes('FARMING_PACKAGED_RUNTIME_ROOT')
