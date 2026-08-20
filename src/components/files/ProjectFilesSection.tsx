@@ -54,6 +54,8 @@ interface ProjectFilesSectionProps {
   activeFileRevealInTree?: boolean
   revealRequest?: { path: string; kind: 'directory' | 'file'; requestId: number }
   focusSearchRequest?: { requestId: number; query?: string }
+  onConsumeRevealRequest: (requestId: number) => boolean
+  onConsumeSearchFocusRequest: (requestId: number) => boolean
   editorDirtyFilePaths?: ReadonlySet<string>
   editorExternalChangedFilePaths?: ReadonlySet<string>
   openFiles?: OpenProjectFileSummary[]
@@ -137,6 +139,8 @@ export function ProjectFilesSection({
   activeFileRevealInTree,
   revealRequest,
   focusSearchRequest,
+  onConsumeRevealRequest,
+  onConsumeSearchFocusRequest,
   editorDirtyFilePaths = EMPTY_FILE_PATHS,
   editorExternalChangedFilePaths = EMPTY_FILE_PATHS,
   openFiles = [],
@@ -442,6 +446,8 @@ export function ProjectFilesSection({
     clearFileSearch,
     focusFileSearchInput,
     focusSearchRequest,
+    onConsumeRevealRequest,
+    onConsumeSearchFocusRequest,
     loadRootDirectory,
     openFilesCount: openFiles.length,
     refreshTreeLayout,
@@ -496,7 +502,7 @@ export function ProjectFilesSection({
 
   useEffect(() => {
     if (!activeFilePath || filesCollapsed || !directories['']) return
-    if (activeFileRevealInTree === false) {
+    if (activeFileRevealInTree !== true) {
       lastAutoRevealedActivePathRef.current = activeFilePath
       return
     }

@@ -254,6 +254,7 @@ export function workspaceFileOpenTargetFromShareTarget(target: WorkspaceShareTar
     lineNumber: target.lineNumber,
     column: target.column,
     endColumn: target.endColumn,
+    revealInTree: true,
   }
 }
 

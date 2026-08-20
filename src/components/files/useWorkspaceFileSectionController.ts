@@ -26,6 +26,8 @@ interface UseWorkspaceFileSectionControllerOptions {
   focusSearchRequest?: WorkspaceFileSearchFocusRequest
   loadRootDirectory: () => void
   openFilesCount: number
+  onConsumeRevealRequest: (requestId: number) => boolean
+  onConsumeSearchFocusRequest: (requestId: number) => boolean
   refreshTreeLayout: () => void
   revealExplorerPath: (filePath: string, kind: 'directory' | 'file') => Promise<unknown>
   revealRequest?: WorkspaceFileRevealRequest
@@ -46,6 +48,8 @@ export function useWorkspaceFileSectionController({
   focusSearchRequest,
   loadRootDirectory,
   openFilesCount,
+  onConsumeRevealRequest,
+  onConsumeSearchFocusRequest,
   refreshTreeLayout,
   revealExplorerPath,
   revealRequest,
@@ -60,13 +64,13 @@ export function useWorkspaceFileSectionController({
   const [openEditorsCollapsed, setOpenEditorsCollapsed] = useState(() => (
     loadCodeProjectFilesViewState(workspaceKey).openEditorsCollapsed ?? true
   ))
-  const handledRevealRequestIdRef = useRef<number | null>(null)
   const filesCollapsedWorkspaceKeyRef = useRef(workspaceKey)
   const previousOpenFilesCountRef = useRef(openFilesCount)
 
   const toggleFilesCollapsed = useCallback(() => {
     const nextCollapsed = !filesCollapsed
     if (nextCollapsed) {
+      cancelPendingFileFocus()
       clearFileMenu()
       clearFileOperation()
       clearFileSearch()
@@ -74,7 +78,7 @@ export function useWorkspaceFileSectionController({
       loadRootDirectory()
     }
     setFilesCollapsed(nextCollapsed)
-  }, [clearFileMenu, clearFileOperation, clearFileSearch, filesCollapsed, loadRootDirectory, rootDirectoryLoaded])
+  }, [cancelPendingFileFocus, clearFileMenu, clearFileOperation, clearFileSearch, filesCollapsed, loadRootDirectory, rootDirectoryLoaded])
 
   const toggleOpenEditorsCollapsed = useCallback(() => {
     setOpenEditorsCollapsed(current => !current)
@@ -88,31 +92,26 @@ export function useWorkspaceFileSectionController({
   }, [agentId, clearFileMenu, clearFileOperation, clearFileSearch, setOpenFileError])
 
   useEffect(() => {
-    if (revealRequest) return
-    cancelPendingFileFocus()
-  }, [cancelPendingFileFocus, revealRequest])
-
-  useEffect(() => {
     if (!revealRequest) return
     setFilesCollapsed(false)
     if (!rootDirectoryLoaded) {
       loadRootDirectory()
       return
     }
-    if (handledRevealRequestIdRef.current === revealRequest.requestId) return
-    handledRevealRequestIdRef.current = revealRequest.requestId
+    if (!onConsumeRevealRequest(revealRequest.requestId)) return
     void revealExplorerPath(revealRequest.path, revealRequest.kind)
-  }, [loadRootDirectory, revealExplorerPath, revealRequest, rootDirectoryLoaded])
+  }, [loadRootDirectory, onConsumeRevealRequest, revealExplorerPath, revealRequest, rootDirectoryLoaded])
 
   useEffect(() => {
     if (!focusSearchRequest) return
+    if (!onConsumeSearchFocusRequest(focusSearchRequest.requestId)) return
     setFilesCollapsed(false)
     if (!rootDirectoryLoaded) loadRootDirectory()
     if (typeof focusSearchRequest.query === 'string') {
       setFileSearchQuery(focusSearchRequest.query)
     }
     focusFileSearchInput()
-  }, [focusFileSearchInput, focusSearchRequest, loadRootDirectory, rootDirectoryLoaded, setFileSearchQuery])
+  }, [focusFileSearchInput, focusSearchRequest, loadRootDirectory, onConsumeSearchFocusRequest, rootDirectoryLoaded, setFileSearchQuery])
 
   useEffect(() => {
     if (previousOpenFilesCountRef.current > 0 && openFilesCount === 0) {

@@ -590,6 +590,47 @@ test('restores the open editor set, preview state, and Open Editors disclosure',
   await expect(page.locator('.code-file-editor-tab[title="preview.ts"]')).toHaveAttribute('data-preview', 'true')
 })
 
+test('keeps explicit user collapses when tabs change or a reveal is still loading', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'user-owned-file-tree-disclosure')
+  fs.mkdirSync(path.join(workspace, 'workflow'), { recursive: true })
+  fs.mkdirSync(path.join(workspace, 'pending'), { recursive: true })
+  fs.writeFileSync(path.join(workspace, 'workflow', 'nested.ts'), 'export const nested = true\n')
+  fs.writeFileSync(path.join(workspace, 'pending', 'nested.ts'), 'export const pending = true\n')
+  fs.writeFileSync(path.join(workspace, 'root.ts'), 'export const root = true\n')
+
+  const gate = await installWorkspaceRequestGate(page)
+  await openFarming(page)
+  await openNewAgentDialog(page)
+  await startAgentFromOpenDialog(page, 'bash', workspace)
+
+  const files = page.getByTestId('code-files-section')
+  const filesTitle = files.getByRole('button', { name: 'Files', exact: true })
+  if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
+  const workflow = files.locator('[data-testid="code-file-row"][data-file-path="workflow"]')
+  await workflow.click()
+  await files.locator('[data-testid="code-file-row"][data-file-path="workflow/nested.ts"]').dblclick()
+  await files.locator('[data-testid="code-file-row"][data-file-path="root.ts"]').dblclick()
+  await workflow.click()
+  await expect(workflow).toHaveAttribute('aria-expanded', 'false')
+
+  await page.locator('.code-file-editor-tab[title="workflow/nested.ts"]').click()
+  await page.waitForTimeout(1_300)
+  await expect(workflow).toHaveAttribute('aria-expanded', 'false')
+
+  const pendingLoad = gate.blockNext('tree', 'pending')
+  const search = files.getByPlaceholder('Search or path:line')
+  await search.fill('pending/nested.ts:1')
+  await search.press('Enter')
+  await pendingLoad.started
+  await filesTitle.click()
+  pendingLoad.release()
+  await expect(filesTitle).toHaveAttribute('aria-expanded', 'false')
+  await filesTitle.click()
+
+  const pending = files.locator('[data-testid="code-file-row"][data-file-path="pending"]')
+  await expect(pending).toHaveAttribute('aria-expanded', 'false')
+})
+
 test('keeps the sticky Files seam opaque over scrolled file rows', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'opaque-files-sticky-seam')
   fs.mkdirSync(workspace, { recursive: true })

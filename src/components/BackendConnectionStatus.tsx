@@ -42,7 +42,9 @@ export function BackendConnectionStatus({ copy }: { copy: CodeCopy }) {
     : state === 'business-unavailable'
       ? copy.backendBusinessUnavailable
       : state === 'lost'
-        ? copy.backendConnectionLost
+        ? connection.reconnecting
+          ? copy.backendConnectionLost
+          : copy.backendConnectionUnavailable
         : copy.backendConnecting
 
   return (

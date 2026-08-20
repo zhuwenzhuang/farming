@@ -528,7 +528,8 @@ function run() {
     gitStatus: 'modified',
   }), false);
   assert.strictEqual(shouldRevealSelectedWorkspaceOpenFile({ gitStatus: 'deleted' }), false);
-  assert.strictEqual(shouldRevealSelectedWorkspaceOpenFile({ gitStatus: 'modified' }), true);
+  assert.strictEqual(shouldRevealSelectedWorkspaceOpenFile({ gitStatus: 'modified' }), false);
+  assert.strictEqual(shouldRevealSelectedWorkspaceOpenFile({ gitStatus: 'modified', revealInTree: true }), true);
   assert.strictEqual(shouldRevealSelectedWorkspaceOpenFile({ gitStatus: 'modified', revealInTree: false }), false);
   assert.strictEqual(shouldRevealSelectedWorkspaceOpenFile({ gitStatus: 'modified', focusEditor: true }), false);
   assert.deepStrictEqual(workspaceFileOpenTargetForChange({
@@ -1791,12 +1792,14 @@ function run() {
     lineNumber: 9,
     column: 7,
     endColumn: 12,
+    revealInTree: true,
   });
   assert.deepStrictEqual(openRequestForWorkspaceFileJumpQuery('./src/App.tsx:12:3'), {
     path: 'src/App.tsx',
     target: {
       lineNumber: 12,
       column: 3,
+      revealInTree: true,
     },
   });
   assert.strictEqual(openRequestForWorkspaceFileJumpQuery('src/App.tsx'), null);
@@ -1808,6 +1811,9 @@ function run() {
     ranges: [],
   }), {
     path: 'src/App.tsx',
+    target: {
+      revealInTree: true,
+    },
   });
   assert.deepStrictEqual(openRequestForWorkspaceFileSearchMatch({
     path: 'src/App.tsx',
@@ -1820,6 +1826,7 @@ function run() {
       lineNumber: 9,
       column: 7,
       endColumn: 12,
+      revealInTree: true,
     },
   });
   assert.strictEqual(workspaceFileSearchActiveOptionId({

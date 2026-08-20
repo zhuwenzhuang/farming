@@ -3825,6 +3825,7 @@ export function AgentTranscriptPane({
   const handleOpenFile = useCallback((filePath: string, target?: WorkspaceFileOpenTarget) => (
     openWorkspaceFilePathRef.current?.(agentId, filePath, {
       ...target,
+      revealInTree: true,
       suppressSearchOnMiss: true,
     })
   ), [agentId])

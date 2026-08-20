@@ -3,6 +3,7 @@ import type { SystemStats } from '@/types/agent'
 
 export interface BackendConnectionSnapshot {
   connected: boolean
+  reconnecting: boolean
   everConnected: boolean
   lastMessageAt: number
   disconnectedAt: number | null
@@ -15,6 +16,7 @@ type Listener = () => void
 
 let connectionSnapshot: BackendConnectionSnapshot = {
   connected: false,
+  reconnecting: false,
   everConnected: false,
   lastMessageAt: Date.now(),
   disconnectedAt: Date.now(),
@@ -39,6 +41,7 @@ function notify(listeners: Set<Listener>) {
 export function resetBackendConnectionStatus() {
   connectionSnapshot = {
     connected: false,
+    reconnecting: false,
     everConnected: false,
     lastMessageAt: Date.now(),
     disconnectedAt: Date.now(),
@@ -53,6 +56,7 @@ export function updateBackendConnectionStatus(patch: Partial<BackendConnectionSn
   const next = { ...connectionSnapshot, ...patch }
   if (
     next.connected === connectionSnapshot.connected
+    && next.reconnecting === connectionSnapshot.reconnecting
     && next.everConnected === connectionSnapshot.everConnected
     && next.lastMessageAt === connectionSnapshot.lastMessageAt
     && next.disconnectedAt === connectionSnapshot.disconnectedAt

@@ -45,18 +45,19 @@ export function parseWorkspaceFileJumpQuery(query: string): WorkspaceFileJumpQue
 
 export function targetForWorkspaceFileSearchMatch(match: WorkspaceFileSearchMatch): WorkspaceFileOpenTarget {
   const range = match.ranges[0]
-  if (!range) return { lineNumber: match.lineNumber }
+  if (!range) return { lineNumber: match.lineNumber, revealInTree: true }
   return {
     lineNumber: match.lineNumber,
     column: range.start + 1,
     endColumn: Math.max(range.start + 1, range.end + 1),
+    revealInTree: true,
   }
 }
 
 export function openRequestForWorkspaceFileSearchMatch(
   match: WorkspaceFileSearchMatch
 ): WorkspaceFileSearchOpenRequest {
-  if (match.kind === 'path') return { path: match.path }
+  if (match.kind === 'path') return { path: match.path, target: { revealInTree: true } }
   return {
     path: match.path,
     target: targetForWorkspaceFileSearchMatch(match),
@@ -71,6 +72,7 @@ export function openRequestForWorkspaceFileJumpQuery(query: string): WorkspaceFi
     target: {
       lineNumber: jump.lineNumber,
       column: jump.column,
+      revealInTree: true,
     },
   }
 }

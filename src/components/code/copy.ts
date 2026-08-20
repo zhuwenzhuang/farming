@@ -565,6 +565,7 @@ export interface CodeCopy {
   backendConnecting: string
   backendActionPending: string
   backendConnectionLost: string
+  backendConnectionUnavailable: string
   backendBusinessRecovering: string
   backendBusinessUnavailable: string
 }
@@ -1167,6 +1168,7 @@ const EN_COPY: CodeCopy = {
   backendConnecting: 'Loading...',
   backendActionPending: 'Still reconnecting. This action was not sent.',
   backendConnectionLost: 'Farming backend is still unavailable. Retrying...',
+  backendConnectionUnavailable: 'Farming backend connection is unavailable.',
   backendBusinessRecovering: 'Farming backend is restoring business state...',
   backendBusinessUnavailable: 'Farming backend business state is not responding. Waiting for recovery...',
 }
@@ -1805,6 +1807,7 @@ const ZH_COPY: CodeCopy = {
   backendConnecting: '加载中…',
   backendActionPending: '正在重新连接，这次操作尚未发送。',
   backendConnectionLost: 'Farming 后端暂时不可用，仍在重试…',
+  backendConnectionUnavailable: 'Farming 后端连接不可用。',
   backendBusinessRecovering: 'Farming 后端正在恢复业务状态…',
   backendBusinessUnavailable: 'Farming 后端业务状态没有响应，正在等待恢复…',
 }

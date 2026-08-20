@@ -323,12 +323,17 @@ export function useWorkspaceFileFocus({
   }, [openDirectoriesInLayout, refreshTreeLayout, scrollFileTreeToPath, treeRef])
 
   const revealFilePath = useCallback(async (filePath: string) => {
+    cancelPendingFileTreeFocus()
+    const revealGeneration = fileTreeRevealGenerationRef.current
     const ancestors = ancestorDirectories(filePath)
     await loadMissingDirectories(['', ...ancestors])
-    revealFilePathInTree(filePath, 0, false, undefined, false)
-  }, [loadMissingDirectories, revealFilePathInTree])
+    if (fileTreeRevealGenerationRef.current !== revealGeneration) return
+    revealFilePathInTree(filePath, 0, false, revealGeneration, false)
+  }, [cancelPendingFileTreeFocus, loadMissingDirectories, revealFilePathInTree])
 
   const revealExplorerPath = useCallback(async (filePath: string, kind: 'directory' | 'file') => {
+    cancelPendingFileTreeFocus()
+    const revealGeneration = fileTreeRevealGenerationRef.current
     if (kind === 'directory') {
       document.body.classList.remove('code-file-location-dismissed')
       clearLocatedFilePath()
@@ -339,8 +344,9 @@ export function useWorkspaceFileFocus({
       ...ancestors,
       ...(kind === 'directory' && filePath ? [filePath] : []),
     ])
-    revealFilePathInTree(filePath, 0, kind === 'directory')
-  }, [clearLocatedFilePath, loadMissingDirectories, revealFilePathInTree])
+    if (fileTreeRevealGenerationRef.current !== revealGeneration) return
+    revealFilePathInTree(filePath, 0, kind === 'directory', revealGeneration)
+  }, [cancelPendingFileTreeFocus, clearLocatedFilePath, loadMissingDirectories, revealFilePathInTree])
 
   const focusFileSearchInput = useCallback(() => {
     cancelPendingFileFocus()

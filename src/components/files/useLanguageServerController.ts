@@ -195,7 +195,6 @@ export function useLanguageServerController({
       endLineNumber: selection && 'endLineNumber' in selection ? selection.endLineNumber : undefined,
       endColumn: selection && 'endColumn' in selection ? selection.endColumn : undefined,
       transient: true,
-      revealInTree: true,
     }))
     return () => setLanguageServerEditorOpener(null)
   }, [onOpenFilePath])
@@ -356,7 +355,6 @@ export function useLanguageServerController({
           lineNumber: directNode.lineNumber,
           column: directNode.column,
           transient: true,
-          revealInTree: true,
         })
         return
       }
@@ -455,7 +453,6 @@ export function useLanguageServerController({
       lineNumber: node.lineNumber,
       column: node.column,
       transient: true,
-      revealInTree: true,
     })).catch(() => {
       navigatorOpenTargetRef.current = null
     })

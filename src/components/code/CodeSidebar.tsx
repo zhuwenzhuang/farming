@@ -230,6 +230,8 @@ interface CodeSidebarProps {
   agentRevealRequest: { agentId: string; requestId: number } | null
   fileRevealRequest: { agentId: string; path: string; kind: 'directory' | 'file'; requestId: number } | null
   fileSearchFocusRequest: { agentId: string; requestId: number; query?: string } | null
+  onConsumeFileRevealRequest: (requestId: number) => boolean
+  onConsumeFileSearchFocusRequest: (requestId: number) => boolean
   projectListRef: RefObject<HTMLDivElement | null>
   canLoadMoreAgentSessions: boolean
   onLoadMoreAgentSessions: () => void
@@ -340,6 +342,8 @@ export function CodeSidebar({
   agentRevealRequest,
   fileRevealRequest,
   fileSearchFocusRequest,
+  onConsumeFileRevealRequest,
+  onConsumeFileSearchFocusRequest,
   projectListRef,
   canLoadMoreAgentSessions,
   onLoadMoreAgentSessions,
@@ -898,6 +902,8 @@ export function CodeSidebar({
             onConsumeAgentRevealRequest={consumeAgentRevealRequest}
             fileRevealRequest={fileRevealRequest}
             fileSearchFocusRequest={fileSearchFocusRequest}
+            onConsumeFileRevealRequest={onConsumeFileRevealRequest}
+            onConsumeFileSearchFocusRequest={onConsumeFileSearchFocusRequest}
             onToggleProject={onToggleProject}
             onToggleProjectSessions={onToggleProjectSessions}
             onMountProject={onMountProject}
@@ -1853,6 +1859,8 @@ interface ProjectSectionProps {
   onConsumeAgentRevealRequest: (requestId: number) => boolean
   fileRevealRequest: { agentId: string; path: string; kind: 'directory' | 'file'; requestId: number } | null
   fileSearchFocusRequest: { agentId: string; requestId: number; query?: string } | null
+  onConsumeFileRevealRequest: (requestId: number) => boolean
+  onConsumeFileSearchFocusRequest: (requestId: number) => boolean
   onToggleProject: (projectId: string) => void
   onToggleProjectSessions: (projectId: string, direction: 'more' | 'less') => void
   onMountProject: (workspace: string) => void
@@ -1997,6 +2005,8 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
   onConsumeAgentRevealRequest,
   fileRevealRequest,
   fileSearchFocusRequest,
+  onConsumeFileRevealRequest,
+  onConsumeFileSearchFocusRequest,
   onToggleProject,
   onToggleProjectSessions,
   onMountProject,
@@ -2671,6 +2681,8 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
                   }))}
                 revealRequest={fileRevealRequest && projectFileContextIds.has(fileRevealRequest.agentId) ? fileRevealRequest : undefined}
                 focusSearchRequest={fileSearchFocusRequest && projectFileContextIds.has(fileSearchFocusRequest.agentId) ? fileSearchFocusRequest : undefined}
+                onConsumeRevealRequest={onConsumeFileRevealRequest}
+                onConsumeSearchFocusRequest={onConsumeFileSearchFocusRequest}
                 editorDirtyFilePaths={projectEditorDirtyFilePaths}
                 editorExternalChangedFilePaths={projectEditorExternalChangedFilePaths}
                 onOpenFile={openProjectWorkspaceFile}

@@ -488,13 +488,13 @@ function initialComputerResourceId() {
   return new URL(window.location.href).searchParams.get('computer')
 }
 
-function openTargetForTerminalPath(target: TerminalPathOpenTarget): WorkspaceFileOpenTarget | undefined {
-  if (!target.lineNumber) return undefined
+function openTargetForTerminalPath(target: TerminalPathOpenTarget): WorkspaceFileOpenTarget {
   return {
     lineNumber: target.lineNumber,
     column: target.column,
     endLineNumber: target.endLineNumber,
     endColumn: target.endColumn,
+    revealInTree: true,
   }
 }
 
@@ -862,8 +862,10 @@ export function CodeWorkspace({
   const activeTerminalIdRef = useRef<string | null>(activeTerminalId)
   const manuallyUnreadActiveAgentIdRef = useRef<string | null>(null)
   const workspaceFileRevealRequestRef = useRef(0)
+  const consumedWorkspaceFileRevealRequestRef = useRef(0)
   const workspaceAgentRevealRequestRef = useRef(0)
   const workspaceFileSearchFocusRequestRef = useRef(0)
+  const consumedWorkspaceFileSearchFocusRequestRef = useRef(0)
   const workspaceFileOpenRequestRef = useRef(new LatestRequestFence())
   const terminalPathOpenRequestRef = useRef(new LatestRequestFence())
   const mobileShareRequestFenceRef = useRef(new LatestRequestFence())
@@ -889,6 +891,20 @@ export function CodeWorkspace({
   const restoreMobileNavigationFocusRef = useRef(false)
   const mobileNavigationFocusRestoreFrameRef = useRef<number | null>(null)
   const mobileNavigationModalOpen = mobileNavigationViewport && !sidebarCollapsed
+
+  const consumeFileRevealRequest = useCallback((requestId: number) => {
+    if (requestId <= consumedWorkspaceFileRevealRequestRef.current) return false
+    consumedWorkspaceFileRevealRequestRef.current = requestId
+    setFileRevealRequest(current => current?.requestId === requestId ? null : current)
+    return true
+  }, [])
+
+  const consumeFileSearchFocusRequest = useCallback((requestId: number) => {
+    if (requestId <= consumedWorkspaceFileSearchFocusRequestRef.current) return false
+    consumedWorkspaceFileSearchFocusRequestRef.current = requestId
+    setFileSearchFocusRequest(current => current?.requestId === requestId ? null : current)
+    return true
+  }, [])
 
   const collapseSidebar = useCallback(() => {
     sidebarAutoCollapsedRef.current = false
@@ -3408,7 +3424,7 @@ export function CodeWorkspace({
     const intentLease = workspaceFileOpenRequestRef.current.begin()
     const requestedOpenTarget = openTargetForTerminalPath(target)
     const openTarget: WorkspaceFileOpenTarget = {
-      ...(requestedOpenTarget ?? {}),
+      ...requestedOpenTarget,
       ...(target.globalRoot ? { globalRoot: true } : {}),
       ...(target.exactExternal ? { exactExternal: true } : {}),
       sourceAgentId: identity.sourceAgentId,
@@ -3500,11 +3516,12 @@ export function CodeWorkspace({
         if (pathMatches.length === 0 && fileMatches.length === 1) {
           const match = fileMatches[0]
           if (!match) return
-          await openResolvedFile(match.path, !requestedOpenTarget && match.kind === 'content' ? {
+          await openResolvedFile(match.path, !target.lineNumber && match.kind === 'content' ? {
             lineNumber: match.lineNumber,
             column: match.ranges[0] ? match.ranges[0].start + 1 : undefined,
             endColumn: match.ranges[0] ? Math.max(match.ranges[0].start + 1, match.ranges[0].end + 1) : undefined,
             sourceAgentId: identity.sourceAgentId,
+            revealInTree: true,
           } : openTarget)
           return
         }
@@ -3753,7 +3770,7 @@ export function CodeWorkspace({
           await openProjectFile(
             identity.filesId,
             file,
-            { sourceAgentId: identity.sourceAgentId },
+            { sourceAgentId: identity.sourceAgentId, revealInTree: true },
             undefined,
             intentLease,
           )
@@ -3901,6 +3918,7 @@ export function CodeWorkspace({
       column: entry.column,
       endColumn: entry.endColumn,
       sourceAgentId: entry.sourceAgentId,
+      revealInTree: true,
     }
     const identity = resolveWorkspaceFileIdentity(entry.agentId, entry.sourceAgentId)
     const intentLease = workspaceFileOpenRequestRef.current.begin()
@@ -5414,6 +5432,8 @@ export function CodeWorkspace({
         agentRevealRequest={visibleAgentRevealRequest}
         fileRevealRequest={fileRevealRequest}
         fileSearchFocusRequest={fileSearchFocusRequest}
+        onConsumeFileRevealRequest={consumeFileRevealRequest}
+        onConsumeFileSearchFocusRequest={consumeFileSearchFocusRequest}
         projectListRef={projectListRef}
         canLoadMoreAgentSessions={agentSessionsHasMore}
         onLoadMoreAgentSessions={loadMoreAgentSessions}

@@ -691,6 +691,7 @@ export function useWebSocket() {
         }))
         updateBackendConnectionStatus({
           connected: true,
+          reconnecting: false,
           everConnected: true,
           lastMessageAt: lastMessageStateUpdateAt,
           disconnectedAt: null,
@@ -1234,6 +1235,7 @@ export function useWebSocket() {
           browserResources: null,
           computerResources: null,
         }))
+        updateBackendConnectionStatus({ reconnecting: terminalError === null })
         markBackendDisconnected()
         window.dispatchEvent(new CustomEvent('farming:backend-disconnected', {
           detail: { code: event.code, reason: event.reason },

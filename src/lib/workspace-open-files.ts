@@ -186,7 +186,7 @@ export function shouldOpenMissingWorkspaceFileAsDiff(target?: WorkspaceFileOpenT
 }
 
 export function shouldRevealSelectedWorkspaceOpenFile(target?: WorkspaceFileOpenTarget) {
-  return target?.revealInTree !== false
+  return target?.revealInTree === true
     && target?.focusEditor !== true
     && target?.gitStatus !== 'deleted'
 }
