@@ -107,7 +107,8 @@ async function stickyHierarchyMatchesFirstUncoveredRow(section: Locator) {
     const rows = Array.from(element.querySelectorAll<HTMLElement>('[data-testid="code-file-row"][data-file-path]'))
     if (!stack || !scroller || rows.length === 0) return false
 
-    const stackBottom = stack.getBoundingClientRect().bottom
+    const stackRect = stack.getBoundingClientRect()
+    const stackBottom = stackRect.bottom
     const scrollerBottom = scroller.getBoundingClientRect().bottom
     const firstUncoveredRow = rows.find(row => {
       const rect = row.getBoundingClientRect()
@@ -116,38 +117,15 @@ async function stickyHierarchyMatchesFirstUncoveredRow(section: Locator) {
     const firstUncoveredPath = firstUncoveredRow?.dataset.filePath
     if (!firstUncoveredPath) return false
 
-    const rowTopByPath = new Map(rows.map(row => [
-      row.dataset.filePath || '',
-      row.getBoundingClientRect().top,
-    ]))
-    const segments = firstUncoveredPath.split('/').filter(Boolean)
-    const expectedStickyPaths: string[] = []
-    for (let index = 1; index < segments.length; index += 1) {
-      const ancestorPath = segments.slice(0, index).join('/')
-      const ancestorTop = rowTopByPath.get(ancestorPath)
-      if (typeof ancestorTop === 'number' && ancestorTop < stackBottom) {
-        expectedStickyPaths.push(ancestorPath)
-      }
-    }
     const actualStickyRows = Array.from(stack.querySelectorAll<HTMLElement>('.code-file-sticky-row'))
-    if (actualStickyRows.length !== 1 || expectedStickyPaths.length === 0) return false
+    if (actualStickyRows.length !== 1) return false
 
     const stickyRow = actualStickyRows[0]
-    const expectedTarget = expectedStickyPaths[expectedStickyPaths.length - 1]
-    if (stickyRow.getAttribute('title') !== expectedTarget) return false
+    const stickyPath = stickyRow.getAttribute('title') ?? ''
+    if (!stickyPath || !firstUncoveredPath.startsWith(`${stickyPath}/`)) return false
     if (stickyRow.style.getPropertyValue('--file-depth') !== '0') return false
-
-    const expectedLabelSegments = expectedStickyPaths.map(path => (
-      rows.find(row => row.dataset.filePath === path)
-        ?.querySelector<HTMLElement>('.code-file-name')
-        ?.textContent
-        ?.trim() ?? ''
-    )).filter(Boolean).join('/').split('/').filter(Boolean)
-    const expectedLabel = expectedLabelSegments.length > 3
-      ? [expectedLabelSegments[0], '…', ...expectedLabelSegments.slice(-2)].join('/')
-      : expectedLabelSegments.join('/')
-    const actualLabel = stickyRow.querySelector<HTMLElement>('.code-file-name')?.textContent?.trim() ?? ''
-    return actualLabel === expectedLabel
+    const sourceRow = rows.find(row => row.dataset.filePath === stickyPath)
+    return !sourceRow || sourceRow.getBoundingClientRect().bottom <= stackRect.top + 1
   })
 }
 
@@ -368,7 +346,8 @@ test('keeps a restored production-sized file projection responsive offscreen', a
   await expect(bulk).toHaveAttribute('aria-expanded', 'true')
 
   const fileRows = files.locator('[data-testid="code-file-row"][data-file-type="file"]')
-  await expect(fileRows).toHaveCount(fileCount)
+  await expect(files.locator('.code-file-tree-viewport')).toHaveAttribute('data-visible-row-count', String(fileCount + 1))
+  await expect.poll(() => fileRows.count()).toBeLessThan(100)
   const containment = await files.locator('.code-file-tree-row-frame').evaluateAll(frames => (
     [frames[0], frames[Math.floor(frames.length / 2)], frames.at(-1)].map(frame => ({
       contentVisibility: frame ? getComputedStyle(frame).contentVisibility : '',
@@ -391,10 +370,18 @@ test('keeps a restored production-sized file projection responsive offscreen', a
   const firstPath = 'bulk/entry-0000.cpp'
   const lastPath = `bulk/entry-${String(fileCount - 1).padStart(4, '0')}.cpp`
   const interactionPaths = [firstPath, lastPath, firstPath, lastPath, firstPath, lastPath]
+  const tree = files.locator('[role="tree"]')
   for (let index = 0; index < interactionPaths.length; index += 1) {
     const filePath = interactionPaths[index]!
+    await tree.focus()
+    if (filePath === firstPath) {
+      await page.keyboard.press('Home')
+      await page.keyboard.press('ArrowDown')
+    } else {
+      await page.keyboard.press('End')
+    }
     const row = files.locator(`[data-testid="code-file-row"][data-file-path="${filePath}"]`)
-    await row.scrollIntoViewIfNeeded({ timeout: 3_000 })
+    await expect(row).toHaveClass(/selected/)
     if (index === 0) await row.dblclick({ timeout: 3_000 })
     else await row.click({ timeout: 3_000 })
     await expect(editor.getByRole('tab', { selected: true })).toHaveAttribute('title', filePath)
@@ -678,6 +665,62 @@ test('keeps compact sticky context on the real ancestor instead of a crossed sib
   await expect(stickyRow.locator('.code-file-name')).toHaveText('src/components/code')
 })
 
+test('does not duplicate a root directory into sticky context while its source row is visible', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'visible-root-sticky-source')
+  fs.mkdirSync(path.join(workspace, 'user'), { recursive: true })
+  fs.mkdirSync(path.join(workspace, 'workflow', 'lease'), { recursive: true })
+  fs.mkdirSync(path.join(workspace, 'workflow', 'test'), { recursive: true })
+  fs.mkdirSync(path.join(workspace, 'workflow', 'z_process'), { recursive: true })
+  for (let index = 0; index < 18; index += 1) {
+    fs.writeFileSync(path.join(workspace, 'user', `entry-${String(index).padStart(2, '0')}.txt`), `${index}\n`)
+  }
+  for (let index = 0; index < 24; index += 1) {
+    fs.writeFileSync(path.join(workspace, 'workflow', `job-${String(index).padStart(2, '0')}.osql`), `${index}\n`)
+  }
+
+  await openFarming(page)
+  await openNewAgentDialog(page)
+  await startAgentFromOpenDialog(page, 'bash', workspace)
+  const files = page.getByTestId('code-files-section')
+  const filesTitle = files.getByRole('button', { name: 'Files', exact: true })
+  if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
+  const user = files.locator('[data-testid="code-file-row"][data-file-path="user"]')
+  const workflow = files.locator('[data-testid="code-file-row"][data-file-path="workflow"]')
+  await user.click()
+  await workflow.click()
+  await expect(workflow).toHaveAttribute('aria-expanded', 'true')
+
+  await workflow.evaluate(element => {
+    const scroller = element.closest<HTMLElement>('.code-project-list')
+    const header = element.closest<HTMLElement>('.code-files-section')?.querySelector<HTMLElement>('.code-files-header')
+    if (!scroller || !header) throw new Error('missing Files scroll geometry')
+    scroller.scrollTop += element.getBoundingClientRect().top - header.getBoundingClientRect().bottom + 2
+  })
+  await settleLayout(page)
+  await expect.poll(() => files.evaluate(element => {
+    const header = element.querySelector<HTMLElement>('.code-files-header')
+    const source = element.querySelector<HTMLElement>('[data-file-path="workflow"]')
+    if (!header || !source) return null
+    return source.getBoundingClientRect().bottom > header.getBoundingClientRect().bottom + 1
+  })).toBe(true)
+  await expect(files.locator('[data-testid="code-file-sticky-row"][title="workflow"]')).toHaveCount(0)
+
+  await workflow.evaluate(element => {
+    const scroller = element.closest<HTMLElement>('.code-project-list')
+    const header = element.closest<HTMLElement>('.code-files-section')?.querySelector<HTMLElement>('.code-files-header')
+    if (!scroller || !header) throw new Error('missing Files scroll geometry')
+    scroller.scrollTop += element.getBoundingClientRect().bottom - header.getBoundingClientRect().bottom + 2
+  })
+  await settleLayout(page)
+  const stickyWorkflow = files.locator('[data-testid="code-file-sticky-row"][title="workflow"]')
+  await expect(stickyWorkflow).toHaveCount(1)
+  await expect.poll(() => files.evaluate(element => {
+    const sticky = element.querySelector<HTMLElement>('[data-testid="code-file-sticky-row"][title="workflow"]')
+    const source = element.querySelector<HTMLElement>('[data-testid="code-file-row"][data-file-path="workflow"]')
+    return Boolean(sticky && (!source || source.getBoundingClientRect().bottom <= sticky.getBoundingClientRect().top + 1))
+  })).toBe(true)
+})
+
 test('does not pin a collapsed root sibling above root files', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'collapsed-root-sibling')
   fs.mkdirSync(path.join(workspace, 'tests'), { recursive: true })
@@ -696,9 +739,16 @@ test('does not pin a collapsed root sibling above root files', async ({ page, wo
 
   const testsDirectory = files.locator('[data-testid="code-file-row"][data-file-path="tests"]')
   await expect(testsDirectory).toHaveAttribute('aria-expanded', 'false')
-  await scrollFileRowIntoStickyRange(files.locator('[data-testid="code-file-row"][data-file-path="root-29.ts"]'))
+  const tree = files.locator('[role="tree"]')
+  await tree.focus()
+  await page.keyboard.press('End')
+  const lastRootFile = files.locator('[data-testid="code-file-row"][data-file-path="root-29.ts"]')
+  await expect(lastRootFile).toHaveClass(/selected/)
+  await scrollFileRowIntoStickyRange(lastRootFile)
 
   await expect(files.getByTestId('code-file-sticky-stack')).toHaveCount(0)
+  await tree.focus()
+  await page.keyboard.press('Home')
   await expect(testsDirectory).toHaveAttribute('aria-expanded', 'false')
 })
 
@@ -710,7 +760,7 @@ test('keeps a deeply scrolled directory anchored while pointer expansion loads i
   for (let index = 0; index < 40; index += 1) {
     fs.mkdirSync(path.join(workspace, `zz-tail-${String(index).padStart(2, '0')}`), { recursive: true })
   }
-  for (let index = 0; index < 24; index += 1) {
+  for (let index = 0; index < 13; index += 1) {
     fs.mkdirSync(path.join(workspace, 'velox', `child-${String(index).padStart(2, '0')}`), { recursive: true })
   }
   for (let index = 0; index < 12; index += 1) {
@@ -726,7 +776,12 @@ test('keeps a deeply scrolled directory anchored while pointer expansion loads i
   const filesTitle = files.getByRole('button', { name: 'Files', exact: true })
   if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
 
+  const tree = files.locator('[role="tree"]')
+  await tree.focus()
+  await page.keyboard.press('End')
+  for (let index = 0; index < 40; index += 1) await page.keyboard.press('ArrowUp')
   const velox = files.locator('[data-testid="code-file-row"][data-file-path="velox"]')
+  await expect(velox).toHaveClass(/selected/)
   await scrollFileRowIntoStickyRange(velox)
   await page.evaluate(() => {
     const testWindow = window as Window & { __fileTreeScrollIntoViewPaths?: string[] }

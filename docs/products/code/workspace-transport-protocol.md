@@ -97,7 +97,8 @@ compatibility input only while persisted clients are upgraded.
 | Operation | Main `/ws` | HTTP data plane |
 | --- | --- | --- |
 | Workspace root inventory | Existing authoritative state snapshot/delta | No Files endpoint |
-| Directory tree and ordinary file metadata/read | Request/result | Oversized or binary body only |
+| Directory structure and ordinary file metadata/read | Request/result | Oversized or binary body only |
+| Directory Git/ignored decoration | Bounded `tree-decorations` request/result | None |
 | Save, create, rename, move, delete | Request/result when payload is inline | Oversized upload body only |
 | Search | Request/result with bounded matches | None |
 | Changes, branch inventory, worktrees, History, blame, line changes | Request/result with paging or truncation | None |
@@ -165,6 +166,9 @@ type LanguageServerResultMessage = {
 payload and result schema. The shared protocol validator rejects unknown
 operations, unknown fields where ambiguity is unsafe, invalid paths, unbounded
 arrays or strings, and payloads above the inline limit before dispatch.
+The interactive `tree` operation returns filesystem structure without waiting
+for Git. `tree-decorations` accepts the bounded entry paths from that structure
+snapshot and returns only Git and ignored decoration for those paths.
 
 Request IDs are unique within a browser connection. A result is admitted only
 by the pending record with the same request ID and domain. Unknown, duplicate,
@@ -217,9 +221,9 @@ cancel-safe work and disposes its watch registrations.
 
 Workspace work uses at least two scheduling lanes:
 
-- **interactive**: tree expansion, file resolve, explicit reload, save and
+- **interactive**: directory `tree`, file resolve, explicit reload, save and
   direct semantic navigation;
-- **background**: search, Git status, History, blame, previews, automatic
+- **background**: `tree-decorations`, search, Git status, History, blame, previews, automatic
   semantic tokens, inlay hints, symbols, and watch-triggered revalidation.
 
 Background work has independent concurrency limits and cannot occupy every

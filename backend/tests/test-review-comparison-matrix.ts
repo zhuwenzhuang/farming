@@ -41,7 +41,7 @@ async function run() {
   const repository = path.join(temporaryRoot, 'repo');
   const configDir = path.join(temporaryRoot, 'config');
   fs.mkdirSync(repository);
-  const fileService = new WorkspaceFileService({ gitStatusCacheTtlMs: 0, gitStatusInlineTimeoutMs: 0 });
+  const fileService = new WorkspaceFileService({ gitStatusCacheTtlMs: 0 });
   const diffService = new ReviewDiffService(null, fileService);
   let caseCount = 0;
 

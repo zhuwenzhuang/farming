@@ -5,6 +5,7 @@ import {
   WorkspaceTransportError,
   workspaceInlineMessageLimit,
 } from './workspace-request-client'
+import type { WorkspaceFileDecorationEntry } from './workspace-file-decorations'
 
 export interface WorkspaceFileEntry {
   name: string
@@ -323,10 +324,24 @@ async function runWorkspaceRequest<T>(
 }
 
 export async function fetchWorkspaceTree(rootId: string, directoryPath = '', options: { signal?: AbortSignal } = {}) {
-  return runWorkspaceRequest<{ path: string; items: WorkspaceFileEntry[]; gitStatusPending?: boolean }>({
+  return runWorkspaceRequest<{ path: string; items: WorkspaceFileEntry[] }>({
     operation: 'tree',
     rootId,
     ...(directoryPath ? { path: directoryPath } : {}),
+  }, { signal: options.signal })
+}
+
+export async function fetchWorkspaceTreeDecorations(
+  rootId: string,
+  directoryPath: string,
+  entryPaths: string[],
+  options: { signal?: AbortSignal } = {},
+) {
+  return runWorkspaceRequest<{ path: string; items: WorkspaceFileDecorationEntry[] }>({
+    operation: 'tree-decorations',
+    rootId,
+    ...(directoryPath ? { path: directoryPath } : {}),
+    entryPaths,
   }, { signal: options.signal })
 }
 

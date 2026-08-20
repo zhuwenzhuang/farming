@@ -84,6 +84,13 @@ async function run() {
       operation: 'tree', rootId: 'agent-main', path: '',
     }, requestOptions);
     assert(tree.items.some((item: { path: string }) => item.path === 'README.md'));
+    const treeDecorations = await executeWorkspaceFileRequest(agentManager, service, {
+      operation: 'tree-decorations',
+      rootId: 'agent-main',
+      path: '',
+      entryPaths: tree.items.map((item: { path: string }) => item.path),
+    }, requestOptions);
+    assert.strictEqual(treeDecorations.path, '');
 
     const read = await executeWorkspaceFileRequest(agentManager, service, {
       operation: 'read-file', rootId: 'agent-main', path: 'README.md',
@@ -101,6 +108,15 @@ async function run() {
         operation: 'delete-entry', rootId: 'agent-main', path: 'README.md',
       }, { accessMode: 'read-only' }),
       (error: Error) => /read-only/.test(error.message),
+    );
+    await assert.rejects(
+      executeWorkspaceFileRequest(agentManager, service, {
+        operation: 'tree-decorations',
+        rootId: 'agent-main',
+        path: 'site',
+        entryPaths: ['README.md'],
+      }, requestOptions),
+      (error: Error) => /direct directory entry/.test(error.message),
     );
 
     await executeWorkspaceFileRequest(agentManager, service, {

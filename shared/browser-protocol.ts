@@ -2,8 +2,8 @@ import { PROJECT_ATTENTION_SCORE_MAX as projectAttentionScoreMax } from './agent
 import { isAgentStateWire } from './agent-state-wire.js'
 import type { AgentStateWire } from './agent-state-wire.js'
 
-export const PROTOCOL_VERSION = 14
-export const MIN_PROTOCOL_VERSION = 14
+export const PROTOCOL_VERSION = 15
+export const MIN_PROTOCOL_VERSION = 15
 export const MAX_INLINE_WORKSPACE_MESSAGE_BYTES = 1024 * 1024
 export const PROJECT_ATTENTION_SCORE_MAX = projectAttentionScoreMax
 
@@ -125,6 +125,7 @@ export interface WatchWorkspaceFilesMessage extends ExtensibleMessage {
 
 export type WorkspaceRequest =
   | { operation: 'tree'; rootId: string; path?: string }
+  | { operation: 'tree-decorations'; rootId: string; path?: string; entryPaths: string[] }
   | { operation: 'read-file'; rootId: string; path: string; exactExternal?: boolean }
   | { operation: 'create-preview'; rootId: string; path: string; exactExternal?: boolean }
   | { operation: 'delete-preview'; previewId: string }
@@ -582,6 +583,12 @@ function workspaceRequest(value: unknown): value is WorkspaceRequest {
   switch (value.operation) {
     case 'tree':
       return boundedStringField(value, 'rootId', 4096) && boundedStringField(value, 'path', 4096, true)
+    case 'tree-decorations':
+      return boundedStringField(value, 'rootId', 4096)
+        && boundedStringField(value, 'path', 4096, true)
+        && Array.isArray(value.entryPaths)
+        && value.entryPaths.length <= 4096
+        && value.entryPaths.every(entryPath => typeof entryPath === 'string' && entryPath.length <= 4096)
     case 'read-file':
     case 'create-preview':
       return rootPath() && optionalBooleanField(value, 'exactExternal')

@@ -158,6 +158,7 @@ export function ProjectFilesSection({
   const stableEditorDirtyFilePaths = useStableFilePathSet(editorDirtyFilePaths)
   const stableEditorExternalChangedFilePaths = useStableFilePathSet(editorExternalChangedFilePaths)
   const {
+    decorations,
     directories,
     treeData,
     openDirectoryPaths,
@@ -572,6 +573,7 @@ export function ProjectFilesSection({
     agentId: agentId ?? '',
     agentLaunchOptions,
     copy,
+    decorations,
     editorDirtyFilePaths: stableEditorDirtyFilePaths,
     editorExternalChangedFilePaths: stableEditorExternalChangedFilePaths,
     fileMenu,

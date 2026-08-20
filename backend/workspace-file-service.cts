@@ -15,7 +15,6 @@ const DEFAULT_SEARCH_LIMIT = 100;
 const DEFAULT_GIT_CHANGES_LIMIT = 500;
 const DEFAULT_GIT_CHANGES_MAX_BUFFER = 8 * 1024 * 1024;
 const DEFAULT_GIT_STATUS_CACHE_TTL_MS = 30000;
-const DEFAULT_GIT_STATUS_INLINE_TIMEOUT_MS = 80;
 const DEFAULT_GIT_STATUS_TIMEOUT_MS = 15000;
 const DEFAULT_SEARCH_TIMEOUT_MS = 3000;
 const DEFAULT_BLAME_TIMEOUT_MS = 5000;
@@ -35,7 +34,6 @@ const SEARCH_FILE_LIST_MAX_BUFFER = 16 * 1024 * 1024;
 const BINARY_SNIFF_BYTES = 8192;
 const PATH_SEARCH_MIN_CANDIDATES = 120;
 const PATH_SEARCH_CANDIDATE_MULTIPLIER = 8;
-const TIMEOUT = Symbol('timeout');
 
 interface WorkspaceFileErrorDetails {
   [key: string]: unknown;
@@ -77,7 +75,6 @@ interface WorkspaceFileServiceOptions {
   gitHistoryTimeoutMs?: number;
   gitPath?: string;
   gitStatusCacheTtlMs?: number;
-  gitStatusInlineTimeoutMs?: number;
   gitStatusTimeoutMs?: number;
   maxFileSize?: number;
   maxPreviewFileSize?: number;
@@ -1592,7 +1589,6 @@ class WorkspaceFileService {
   gitPath: string;
   gitStatusCache: Map<string, GitStatusCacheEntry>;
   gitStatusCacheTtlMs: number;
-  gitStatusInlineTimeoutMs: number;
   gitStatusTimeoutMs: number;
   maxFileSize: number;
   maxPreviewFileSize: number;
@@ -1626,7 +1622,6 @@ class WorkspaceFileService {
     this.bundledRipgrepModule = null;
     this.gitPath = options.gitPath || 'git';
     this.gitStatusCacheTtlMs = options.gitStatusCacheTtlMs ?? DEFAULT_GIT_STATUS_CACHE_TTL_MS;
-    this.gitStatusInlineTimeoutMs = options.gitStatusInlineTimeoutMs ?? DEFAULT_GIT_STATUS_INLINE_TIMEOUT_MS;
     this.gitStatusTimeoutMs = options.gitStatusTimeoutMs ?? DEFAULT_GIT_STATUS_TIMEOUT_MS;
     this.gitStatusCache = new Map();
     this.mutationQueues = new Map();
@@ -2178,11 +2173,6 @@ class WorkspaceFileService {
 
     const entries = await fsp.readdir(target, { withFileTypes: true });
     const visibleEntries = entries.filter((entry: import("fs").Dirent) => !TREE_HIDDEN_NAMES.has(entry.name));
-    const [{ value: gitStatusByPath, pending: gitStatusPending }, ignoredPaths] = await Promise.all([
-      this.getGitStatusForTree(root),
-      this.loadGitIgnoredPaths(root, visibleEntries.map((entry: import("fs").Dirent) => joinRelativePath(relativePath, entry.name))),
-    ]);
-    const descendantGitStatusByPath = buildDescendantGitStatusByDirectory(gitStatusByPath);
     const items = await Promise.all(visibleEntries
       .map(async (entry: import("fs").Dirent) => {
         const absolute = path.join(target, entry.name);
@@ -2221,12 +2211,6 @@ class WorkspaceFileService {
             linkError = error && error.code === 'ENOENT' ? 'broken' : 'unavailable';
           }
         }
-        const directGitStatus = gitStatusByPath.get(itemPath);
-        let descendantGitStatus = null;
-        if (type === 'directory' && !external) {
-          descendantGitStatus = descendantGitStatusByPath.get(itemPath) || null;
-        }
-
         return {
           name: entry.name,
           path: itemPath,
@@ -2239,14 +2223,6 @@ class WorkspaceFileService {
           ...(readOnly ? { readOnly: true } : {}),
           ...(linkTarget ? { linkTarget } : {}),
           ...(linkError ? { linkError } : {}),
-          ...(ignoredPaths.has(itemPath) ? { ignored: true } : {}),
-          ...(directGitStatus ? {
-            gitStatus: directGitStatus.kind,
-            gitStatusLabel: directGitStatus.label,
-          } : {}),
-          ...(descendantGitStatus ? {
-            descendantGitStatus: descendantGitStatus.kind,
-          } : {}),
         };
       }));
     const visibleItems = items.filter(Boolean);
@@ -2260,7 +2236,48 @@ class WorkspaceFileService {
     return {
       path: relativePath,
       items: visibleItems,
-      gitStatusPending,
+    };
+  }
+
+  async listTreeDecorations(workspaceRoot: unknown, userPath: unknown = '', entryPaths: unknown[] = []) {
+    const root = await this.waitForWorkspaceMutations(workspaceRoot);
+    const { target, relativePath } = await this.resolvePath(root, userPath);
+    const stat = await fsp.stat(target);
+    if (!stat.isDirectory()) {
+      throw new WorkspaceFileError('path must be a directory', 400);
+    }
+
+    const normalizedEntryPaths = Array.from(new Set(entryPaths.map((entryPath) => {
+      const normalizedPath = normalizeGitStatusPath(normalizeUserPath(entryPath));
+      if (!normalizedPath || parentDirectory(normalizedPath) !== relativePath) {
+        throw new WorkspaceFileError('decoration path must be a direct directory entry', 400);
+      }
+      return normalizeGitStatusPath(normalizedPath);
+    })));
+    const [gitStatusByPath, ignoredPaths] = await Promise.all([
+      this.getGitStatusByPath(root),
+      this.loadGitIgnoredPaths(root, normalizedEntryPaths),
+    ]);
+    const descendantGitStatusByPath = buildDescendantGitStatusByDirectory(gitStatusByPath);
+
+    return {
+      path: relativePath,
+      items: normalizedEntryPaths.flatMap((itemPath) => {
+        const directGitStatus = gitStatusByPath.get(itemPath);
+        const descendantGitStatus = descendantGitStatusByPath.get(itemPath);
+        if (!ignoredPaths.has(itemPath) && !directGitStatus && !descendantGitStatus) return [];
+        return [{
+          path: itemPath,
+          ...(ignoredPaths.has(itemPath) ? { ignored: true } : {}),
+          ...(directGitStatus ? {
+            gitStatus: directGitStatus.kind,
+            gitStatusLabel: directGitStatus.label,
+          } : {}),
+          ...(descendantGitStatus ? {
+            descendantGitStatus: descendantGitStatus.kind,
+          } : {}),
+        }];
+      }),
     };
   }
 
@@ -2388,29 +2405,6 @@ class WorkspaceFileService {
     }
 
     return this.loadGitStatusByPath(root);
-  }
-
-  async getGitStatusForTree(root: string): Promise<{ value: GitStatusMap; pending: boolean }> {
-    const cached = this.gitStatusCache.get(root);
-    if (cached?.value) {
-      return { value: cached.value, pending: false };
-    }
-
-    const promise = this.getGitStatusByPath(root);
-    if (this.gitStatusInlineTimeoutMs <= 0) {
-      return { value: await promise, pending: false };
-    }
-
-    const result = await Promise.race([
-      promise,
-      new Promise(resolve => setTimeout(() => resolve(TIMEOUT), this.gitStatusInlineTimeoutMs)),
-    ]);
-
-    if (result === TIMEOUT) {
-      return { value: new Map() as GitStatusMap, pending: true };
-    }
-
-    return { value: result as GitStatusMap, pending: false };
   }
 
   async getGitStatusForPath(root: string, relativePath: unknown) {

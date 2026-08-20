@@ -82,7 +82,8 @@ Canonical 且已授权的 Workspace；Persisted Client 升级期间，旧 Agent 
 | 操作 | 主 `/ws` | HTTP Data Plane |
 | --- | --- | --- |
 | Workspace Root Inventory | 现有权威 State Snapshot/Delta | 不保留 Files Endpoint |
-| Directory Tree 与普通文件 Metadata/Read | Request/Result | 仅 Oversized 或 Binary Body |
+| Directory Structure 与普通文件 Metadata/Read | Request/Result | 仅 Oversized 或 Binary Body |
+| Directory Git/Ignored Decoration | 有界 `tree-decorations` Request/Result | 无 |
 | Save、Create、Rename、Move、Delete | Payload 可内联时使用 Request/Result | 仅 Oversized Upload Body |
 | Search | 有界 Match 的 Request/Result | 无 |
 | Changes、Branch Inventory、Worktrees、History、Blame、Line Changes | 分页或截断的 Request/Result | 无 |
@@ -146,6 +147,8 @@ type LanguageServerResultMessage = {
 `WorkspaceRequest` 是 Discriminated Union，每个 Operation 都有精确 Payload 与 Result
 Schema。共享协议 Validator 在 Dispatch 前拒绝未知 Operation、存在安全歧义的未知字段、
 非法路径、无界 Array/String，以及超过 Inline Limit 的 Payload。
+Interactive `tree` Operation 返回 Filesystem Structure，不等待 Git；`tree-decorations` 接收
+来自该 Structure Snapshot 的有界 Entry Path，只返回这些 Path 的 Git 与 Ignored Decoration。
 
 Request ID 在一条 Browser Connection 内唯一。只有相同 Request ID 与 Domain 的 Pending
 Record 可以接收结果。未知、重复、已取消或已完成的 Result 会被忽略并计数，绝不能进入
@@ -191,8 +194,8 @@ Cancel-safe 工作并释放其 Watch Registration。
 
 Workspace Work 至少分为两个 Scheduling Lane：
 
-- **Interactive**：Tree Expansion、File Resolve、Explicit Reload、Save 与直接 Semantic Navigation；
-- **Background**：Search、Git Status、History、Blame、Preview、自动 Semantic Tokens、Inlay
+- **Interactive**：Directory `tree`、File Resolve、Explicit Reload、Save 与直接 Semantic Navigation；
+- **Background**：`tree-decorations`、Search、Git Status、History、Blame、Preview、自动 Semantic Tokens、Inlay
   Hints、Symbols 与 Watch-triggered Revalidation。
 
 Background Work 使用独立并发上限，不能占满所有 Workspace Execution Slot；至少保留一个

@@ -202,9 +202,11 @@ Four responsibilities remain separate:
 
 The Explorer preserves one Project-sidebar scroll surface even when many
 directories remain expanded. Its complete row projection keeps sticky paths,
-keyboard navigation, and persisted expansion stable, while offscreen rows use
-browser layout and paint containment so the cost of a large restored tree is
-bounded by the visible neighborhood rather than every mounted row.
+keyboard navigation, and persisted expansion stable, while only a bounded
+viewport neighborhood is mounted. The outer Project scroller owns the complete
+logical tree height; the virtual tree window follows that scroll offset without
+introducing a second scrollbar. The cost of a large restored tree is therefore
+bounded by the visible neighborhood rather than the complete projection.
 Scroll-linked sticky context derives its row from that precomputed projection
 and inspects only a bounded viewport slice. A scroll frame must not enumerate
 the complete expanded tree or read layout from every mounted file row.
@@ -214,7 +216,9 @@ a compact path. It appears only when the first uncovered visible row has a real
 expanded ancestor that has scrolled above the sticky boundary. A collapsed
 directory or a preceding sibling is never sticky. The control reveals its
 ancestor in the tree; it does not present an expansion chevron or pretend to be
-a second tree row.
+a second tree row. An ancestor becomes sticky only after the bottom of its
+source projection row has completely crossed the sticky boundary. A partially
+or fully visible source row and its sticky copy must never appear together.
 
 When the visible rows share a deep offscreen ancestor represented by that
 sticky context, the Explorer may reclaim the ancestor indentation with one
@@ -324,6 +328,22 @@ editor models, and caches are bounded. Trees and expensive details load on
 demand. Background preparation may improve first open, but failure must fall
 back to the same authoritative path and must not reload the page or block Agent
 work.
+
+A directory `tree` request is the interactive structure path and does not wait
+for Git status, ignore checks, or descendant decoration. Git and ignored state
+load through the independent background `tree-decorations` operation and
+publish only changed paths; decoration arrival does not replace directory
+snapshots or rebuild an unchanged tree projection. An unchanged structural
+refresh reuses node identity, while a changed path replaces only that node and
+the ancestors needed to reach it.
+
+The automated large-workspace gate uses production-shaped trees rather than a
+single synthetic click. A 2,000-row projection must keep fewer than 100 file
+rows mounted and retain Home/End navigation. Cold expansion across multiple
+directories records both request and visible-paint p50/p95, bounds request p95
+below 750 ms and paint p95 below 1,000 ms, and also bounds mounted rows and row
+renders. These are regression ceilings, not promises that routine interaction
+should approach the limits.
 
 Subject to the existing workspace ownership and read-only constraints, text
 files up to 2 MiB open completely and remain editable. Text files between 2 MiB

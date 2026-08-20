@@ -6,6 +6,7 @@ import type {
   WorkspaceFileOperationState,
 } from '@/lib/workspace-file-operation-model'
 import type { WorkspaceFileTreeNode as FileExplorerNode } from '@/lib/workspace-file-tree'
+import type { WorkspaceFileDecoration } from '@/lib/workspace-file-decorations'
 import {
   workspaceFileTreeDepthStyle,
   workspaceFileTreeRowViewState,
@@ -21,6 +22,7 @@ interface FileTreeRowProps {
   activeFilePath?: string
   agentId: string
   copy: CodeCopy
+  decoration: WorkspaceFileDecoration
   editorDirtyFilePaths: ReadonlySet<string>
   editorExternalChangedFilePaths: ReadonlySet<string>
   fileOperation: WorkspaceFileOperationState | null
@@ -47,6 +49,7 @@ export function FileTreeRow({
   activeFilePath,
   agentId,
   copy,
+  decoration,
   editorDirtyFilePaths,
   editorExternalChangedFilePaths,
   fileOperation,
@@ -68,7 +71,10 @@ export function FileTreeRow({
   onSubmitFileOperation,
 }: FileTreeRowProps) {
   recordPerformanceTestRender('fileTreeRow')
-  const item = node.data
+  const item: FileExplorerNode = {
+    ...node.data,
+    ...decoration,
+  }
   const viewState = workspaceFileTreeRowViewState({
     activeFilePath,
     editorDirtyFilePaths,

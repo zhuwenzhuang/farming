@@ -4,7 +4,6 @@ export interface WorkspaceDirectorySnapshot {
   items: WorkspaceFileEntry[]
   loading?: boolean
   error?: string | null
-  gitStatusPending?: boolean
 }
 
 export type WorkspaceDirectoryMap = Record<string, WorkspaceDirectorySnapshot | undefined>
@@ -98,14 +97,20 @@ export function countVisibleWorkspaceTreeRows(nodes: WorkspaceFileTreeNode[], op
 
 export function buildWorkspaceFileTreeNodes(
   items: WorkspaceFileEntry[],
-  directories: WorkspaceDirectoryMap
+  directories: WorkspaceDirectoryMap,
+  previousNodes: WorkspaceFileTreeNode[] = [],
 ): WorkspaceFileTreeNode[] {
-  return items.map(item => {
+  const previousById = new Map(previousNodes.map(node => [node.id, node]))
+  const nextNodes = items.map(item => {
     if (item.type !== 'directory') {
-      return {
+      const nextNode = {
         ...item,
         id: item.path,
       }
+      const previousNode = previousById.get(nextNode.id)
+      return previousNode && sameWorkspaceFileTreeNode(previousNode, nextNode)
+        ? previousNode
+        : nextNode
     }
 
     let visibleEntry = item
@@ -127,14 +132,52 @@ export function buildWorkspaceFileTreeNodes(
     }
     const loading = compactedPaths.some(directoryPath => directories[directoryPath]?.loading)
 
-    return {
+    const previousNode = previousById.get(visibleEntry.path)
+    const children = buildWorkspaceFileTreeNodes(
+      visibleChildren ?? [],
+      directories,
+      previousNode?.children ?? [],
+    )
+    const nextNode = {
       ...visibleEntry,
       id: visibleEntry.path,
       displayName: compactedNames.join('/'),
       compactedPaths,
       iconPath: compactedPaths[0] ?? visibleEntry.path,
       loading,
-      children: buildWorkspaceFileTreeNodes(visibleChildren ?? [], directories),
+      children,
     }
+    return previousNode && sameWorkspaceFileTreeNode(previousNode, nextNode)
+      ? previousNode
+      : nextNode
   })
+  return previousNodes.length === nextNodes.length
+    && previousNodes.every((node, index) => node === nextNodes[index])
+    ? previousNodes
+    : nextNodes
+}
+
+function sameStringArray(left: string[] | undefined, right: string[] | undefined) {
+  if (left === right) return true
+  return Boolean(left && right && left.length === right.length && left.every((value, index) => value === right[index]))
+}
+
+function sameWorkspaceFileTreeNode(left: WorkspaceFileTreeNode, right: WorkspaceFileTreeNode) {
+  return left.id === right.id
+    && left.name === right.name
+    && left.path === right.path
+    && left.type === right.type
+    && left.size === right.size
+    && left.mtimeMs === right.mtimeMs
+    && left.version === right.version
+    && left.displayName === right.displayName
+    && left.iconPath === right.iconPath
+    && left.loading === right.loading
+    && left.symbolicLink === right.symbolicLink
+    && left.external === right.external
+    && left.readOnly === right.readOnly
+    && left.linkTarget === right.linkTarget
+    && left.linkError === right.linkError
+    && left.children === right.children
+    && sameStringArray(left.compactedPaths, right.compactedPaths)
 }

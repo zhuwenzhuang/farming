@@ -24,6 +24,7 @@ const {
   visibleWorkspaceDirectoryPathsForTarget,
   visibleWorkspaceDirectoryPathsToOpenForTarget,
 } = require('../../src/lib/workspace-file-tree.ts');
+const { WorkspaceFileDecorationStore } = require('../../src/lib/workspace-file-decorations.ts');
 const {
   hasWorkspaceFileTreeDescendant,
   visibleWorkspaceFileTreeGitStatus,
@@ -1022,6 +1023,42 @@ function run() {
   assert.deepStrictEqual(visibleWorkspaceDirectoryPathsToOpenForTarget(tree, 'src', true), ['src/components']);
   assert.strictEqual(countVisibleWorkspaceTreeRows(tree, new Set()), 2);
   assert.strictEqual(countVisibleWorkspaceTreeRows(tree, new Set(['src/components'])), 4);
+  const stableTree = buildWorkspaceFileTreeNodes(
+    directories[''].items.map(item => ({ ...item })),
+    directories,
+    tree,
+  );
+  assert.strictEqual(stableTree, tree, 'an unchanged directory refresh must preserve the tree projection');
+  const changedRootItems = directories[''].items.map(item => (
+    item.path === 'README.md' ? { ...item, mtimeMs: item.mtimeMs + 1 } : { ...item }
+  ));
+  const changedTree = buildWorkspaceFileTreeNodes(changedRootItems, {
+    ...directories,
+    '': { items: changedRootItems },
+  }, tree);
+  assert.notStrictEqual(changedTree, tree);
+  assert.strictEqual(changedTree[0], tree[0], 'an unchanged branch must retain its node identity');
+  assert.notStrictEqual(changedTree[1], tree[1], 'only the changed path should receive a new node');
+
+  const decorationStore = new WorkspaceFileDecorationStore();
+  let readmeDecorationNotifications = 0;
+  let appDecorationNotifications = 0;
+  const unsubscribeReadmeDecoration = decorationStore.subscribe('README.md', () => { readmeDecorationNotifications += 1; });
+  const unsubscribeAppDecoration = decorationStore.subscribe('src/components/App.tsx', () => { appDecorationNotifications += 1; });
+  decorationStore.replace(['README.md', 'src/components/App.tsx'], [{
+    path: 'README.md',
+    gitStatus: 'modified',
+    gitStatusLabel: 'M',
+  }]);
+  assert.strictEqual(decorationStore.get('README.md').gitStatus, 'modified');
+  assert.strictEqual(readmeDecorationNotifications, 1);
+  assert.strictEqual(appDecorationNotifications, 0);
+  decorationStore.replace(['README.md'], [{ path: 'README.md', gitStatus: 'modified', gitStatusLabel: 'M' }]);
+  assert.strictEqual(readmeDecorationNotifications, 1, 'an unchanged decoration must not publish another row update');
+  decorationStore.clear();
+  assert.strictEqual(readmeDecorationNotifications, 2);
+  unsubscribeReadmeDecoration();
+  unsubscribeAppDecoration();
   assert.deepStrictEqual(
     workspaceVisibleFileTreeRows(tree, new Set(['src/components'])).map(row => ({
       path: row.path,
@@ -1283,7 +1320,7 @@ function run() {
     { path: 'src/components/App.tsx', top: 80, bottom: 104 },
   ];
   assert.strictEqual(firstVisibleWorkspaceFilePath(rowSnapshots, 50, 120), 'src/components');
-  assert.deepStrictEqual(workspaceStickyDirectoryPaths('src/components/App.tsx', rowSnapshots, 70), ['src', 'src/components']);
+  assert.deepStrictEqual(workspaceStickyDirectoryPaths('src/components/App.tsx', rowSnapshots, 70), ['src']);
   const deepPackageRows = [
     { path: 'odps-sql', top: -140, bottom: -116, depth: 0 },
     { path: 'odps-sql/odps-optimizer', top: -116, bottom: -92, depth: 1 },
@@ -1334,8 +1371,6 @@ function run() {
       'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main',
       'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java',
       'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo',
-      'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo/plan',
-      'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo/plan/splitting',
     ]
   );
   assert.deepStrictEqual(
@@ -1420,14 +1455,34 @@ function run() {
     },
     { path: 'module/peer', type: 'directory', depth: 1, ancestors: [{ path: 'module', depth: 0 }] },
   ];
+  const indexedRowIndexByPath = new Map(indexedRows.map((row, index) => [row.path, index]));
   assert.deepStrictEqual(workspaceStickyDirectoryPathsForIndexedViewport({
     rows: indexedRows,
+    rowIndexByPath: indexedRowIndexByPath,
     treeTop: -56,
     stickyTop: 0,
     scrollerBottom: 88,
     rowHeight: 24,
     stickyHeight: 40,
-  }), ['module', 'module/src', 'module/src/main', 'module/src/main/rules']);
+  }), ['module', 'module/src']);
+  assert.deepStrictEqual(workspaceStickyDirectoryPathsForIndexedViewport({
+    rows: indexedRows,
+    rowIndexByPath: indexedRowIndexByPath,
+    treeTop: -23,
+    stickyTop: 0,
+    scrollerBottom: 88,
+    rowHeight: 24,
+    stickyHeight: 24,
+  }), [], 'a root directory must not duplicate into sticky context while its source row remains visible');
+  assert.deepStrictEqual(workspaceStickyDirectoryPathsForIndexedViewport({
+    rows: indexedRows,
+    rowIndexByPath: indexedRowIndexByPath,
+    treeTop: -47,
+    stickyTop: 0,
+    scrollerBottom: 88,
+    rowHeight: 24,
+    stickyHeight: 24,
+  }), ['module'], 'only ancestors whose source row is fully above the sticky boundary may float');
   const indexedSiblingRows = [
     { path: 'src/components/code', type: 'directory', depth: 0, ancestors: [] },
     {
@@ -1455,8 +1510,10 @@ function run() {
       ancestors: [{ path: 'src/components/code', depth: 0 }],
     },
   ];
+  const indexedSiblingRowIndexByPath = new Map(indexedSiblingRows.map((row, index) => [row.path, index]));
   assert.deepStrictEqual(workspaceStickyDirectoryPathsForIndexedViewport({
     rows: indexedSiblingRows,
+    rowIndexByPath: indexedSiblingRowIndexByPath,
     treeTop: -56,
     stickyTop: 0,
     scrollerBottom: 88,

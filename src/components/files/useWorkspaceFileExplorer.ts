@@ -26,6 +26,7 @@ function directoryPathDepth(directoryPath: string) {
 export function useWorkspaceFileExplorer(agentId: string | null, workspaceKey = agentId) {
   const normalizedWorkspaceKey = workspaceKey || ''
   const {
+    decorations,
     directories,
     loadDirectory,
     ensureDirectoryLoaded,
@@ -37,10 +38,19 @@ export function useWorkspaceFileExplorer(agentId: string | null, workspaceKey = 
   const openDirectoryWorkspaceKeyRef = useRef(normalizedWorkspaceKey)
   const compactDirectoryHydrationRef = useRef(new Map<string, Promise<readonly string[] | null>>())
   const restoredDirectoryHydrationKeyRef = useRef('')
+  const treeProjectionRef = useRef<{ workspaceKey: string; nodes: WorkspaceFileTreeNode[] }>({
+    workspaceKey: normalizedWorkspaceKey,
+    nodes: [],
+  })
 
-  const treeData = useMemo<WorkspaceFileTreeNode[]>(() => (
-    buildWorkspaceFileTreeNodes(directories['']?.items ?? [], directories)
-  ), [directories])
+  const treeData = useMemo<WorkspaceFileTreeNode[]>(() => {
+    const previousNodes = treeProjectionRef.current.workspaceKey === normalizedWorkspaceKey
+      ? treeProjectionRef.current.nodes
+      : []
+    const nodes = buildWorkspaceFileTreeNodes(directories['']?.items ?? [], directories, previousNodes)
+    treeProjectionRef.current = { workspaceKey: normalizedWorkspaceKey, nodes }
+    return nodes
+  }, [directories, normalizedWorkspaceKey])
   const visibleTreeRowCount = useMemo(() => (
     Math.max(1, countVisibleWorkspaceTreeRows(treeData, openDirectoryPaths))
   ), [openDirectoryPaths, treeData])
@@ -244,6 +254,7 @@ export function useWorkspaceFileExplorer(agentId: string | null, workspaceKey = 
   }, [loadMissingDirectories, loadRootDirectory, normalizedWorkspaceKey, openDirectoryPaths])
 
   return useMemo(() => ({
+    decorations,
     directories,
     treeData,
     openDirectoryPaths,
@@ -259,6 +270,7 @@ export function useWorkspaceFileExplorer(agentId: string | null, workspaceKey = 
     setDirectoryOpen,
     openDirectoriesInLayout,
   }), [
+    decorations,
     directories,
     ensureDirectoryLoaded,
     hydrateRestoredDirectories,

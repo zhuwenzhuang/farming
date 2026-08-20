@@ -118,7 +118,6 @@ async function run() {
     maxFileSize: 1024 * 32,
     maxWriteSize: 1024 * 32,
     gitStatusCacheTtlMs: 0,
-    gitStatusInlineTimeoutMs: 0,
     flushWorkspaceWrites: false,
     watchOptions: { usePolling: true, interval: 50 },
   });
@@ -791,9 +790,14 @@ async function run() {
       execFileSync('git', ['commit', '-m', 'initial'], { cwd: workspace, stdio: 'ignore' });
 
       const ignoredTree = await service.listTree(workspace, '');
-      assert(ignoredTree.items.some(item => item.name === '.farming' && item.ignored));
-      assert(ignoredTree.items.some(item => item.name === '.tmp' && item.ignored));
-      assert(ignoredTree.items.some(item => item.name === 'dist-release' && item.ignored));
+      const ignoredDecorations = await service.listTreeDecorations(
+        workspace,
+        '',
+        ignoredTree.items.map(item => item.path),
+      );
+      assert(ignoredDecorations.items.some(item => item.path === '.farming' && item.ignored));
+      assert(ignoredDecorations.items.some(item => item.path === '.tmp' && item.ignored));
+      assert(ignoredDecorations.items.some(item => item.path === 'dist-release' && item.ignored));
 
       const expandedIgnoredSearch = await service.search(workspace, 'ignored', { includeIgnored: true });
       assert(expandedIgnoredSearch.matches.some(match => match.path.startsWith('.dolt/')));
@@ -936,12 +940,22 @@ async function run() {
       execFileSync('git', ['add', 'README.md'], { cwd: playbackDir });
       execFileSync('git', ['commit', '-m', 'nested repo'], { cwd: playbackDir, stdio: 'ignore' });
       const rootTreeWithGitStatus = await service.listTree(workspace, '');
-      const srcEntryWithGitStatus = rootTreeWithGitStatus.items.find(item => item.path === 'src');
+      const rootTreeDecorations = await service.listTreeDecorations(
+        workspace,
+        '',
+        rootTreeWithGitStatus.items.map(item => item.path),
+      );
+      const srcEntryWithGitStatus = rootTreeDecorations.items.find(item => item.path === 'src');
       assert(srcEntryWithGitStatus);
       assert.strictEqual(srcEntryWithGitStatus.descendantGitStatus, 'deleted');
       const srcTreeWithGitStatus = await service.listTree(workspace, 'src');
-      const appEntryWithGitStatus = srcTreeWithGitStatus.items.find(item => item.path === 'src/App.tsx');
-      const untrackedEntryWithGitStatus = srcTreeWithGitStatus.items.find(item => item.path === 'src/Untracked.ts');
+      const srcTreeDecorations = await service.listTreeDecorations(
+        workspace,
+        'src',
+        srcTreeWithGitStatus.items.map(item => item.path),
+      );
+      const appEntryWithGitStatus = srcTreeDecorations.items.find(item => item.path === 'src/App.tsx');
+      const untrackedEntryWithGitStatus = srcTreeDecorations.items.find(item => item.path === 'src/Untracked.ts');
       assert(appEntryWithGitStatus);
       assert.strictEqual(appEntryWithGitStatus.gitStatus, 'modified');
       assert.strictEqual(appEntryWithGitStatus.gitStatusLabel, 'M');
@@ -1138,7 +1152,8 @@ async function run() {
         return originalExecFile(command, args, options);
       };
       try {
-        await service.listTree(workspace, '');
+        const tree = await service.listTree(workspace, '');
+        await service.listTreeDecorations(workspace, '', tree.items.map(item => item.path));
       } finally {
         service.execFile = originalExecFile;
       }
@@ -1167,14 +1182,14 @@ async function run() {
     });
     try {
       await Promise.all([
-        cachedService.listTree(cacheWorkspace, ''),
-        cachedService.listTree(cacheWorkspace, ''),
+        cachedService.listTreeDecorations(cacheWorkspace, '', ['cached.txt']),
+        cachedService.listTreeDecorations(cacheWorkspace, '', ['cached.txt']),
       ]);
       assert.strictEqual(gitStatusCalls, 1);
-      await cachedService.listTree(cacheWorkspace, '');
+      await cachedService.listTreeDecorations(cacheWorkspace, '', ['cached.txt']);
       assert.strictEqual(gitStatusCalls, 1);
       cachedService.invalidateGitStatus(fs.realpathSync(cacheWorkspace));
-      await cachedService.listTree(cacheWorkspace, '');
+      await cachedService.listTreeDecorations(cacheWorkspace, '', ['cached.txt']);
       assert.strictEqual(gitStatusCalls, 2);
     } finally {
       await cachedService.dispose();
@@ -1187,7 +1202,6 @@ async function run() {
     const slowGitStatusDone = new Promise<void>(resolve => { slowGitStatusCompleted = resolve; });
     const slowStatusService = new WorkspaceFileService({
       gitStatusCacheTtlMs: 5000,
-      gitStatusInlineTimeoutMs: 1,
       commandRunner: {
         run: async (command, args) => {
           if (command === 'git' && args.includes('status')) {
@@ -1201,14 +1215,17 @@ async function run() {
       },
     });
     try {
-      const pendingTree = await slowStatusService.listTree(cacheWorkspace, '');
-      assert.strictEqual(pendingTree.gitStatusPending, true);
-      assert.strictEqual(pendingTree.items.find(item => item.path === 'cached.txt')?.gitStatus, undefined);
+      const structureTree = await slowStatusService.listTree(cacheWorkspace, '');
+      assert.strictEqual(slowGitStatusCalls, 0, 'directory structure must not start or wait for Git status');
+      assert.strictEqual(structureTree.items.find(item => item.path === 'cached.txt')?.gitStatus, undefined);
+      const pendingDecorations = slowStatusService.listTreeDecorations(cacheWorkspace, '', ['cached.txt']);
+      await waitFor(() => slowGitStatusCalls === 1);
+      assert.strictEqual(slowGitStatusCalls, 1);
       releaseSlowGitStatus();
       await slowGitStatusDone;
-      const readyTree = await slowStatusService.listTree(cacheWorkspace, '');
-      assert.strictEqual(readyTree.gitStatusPending, false);
-      assert.strictEqual(readyTree.items.find(item => item.path === 'cached.txt')?.gitStatus, 'untracked');
+      const readyDecorations = await pendingDecorations;
+      assert.strictEqual(readyDecorations.items.find(item => item.path === 'cached.txt')?.gitStatus, 'untracked');
+      await slowStatusService.listTreeDecorations(cacheWorkspace, '', ['cached.txt']);
       assert.strictEqual(slowGitStatusCalls, 1);
     } finally {
       await slowStatusService.dispose();

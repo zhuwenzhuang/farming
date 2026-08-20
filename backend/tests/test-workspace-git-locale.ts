@@ -38,8 +38,19 @@ async function assertNonAsciiIgnoreStateSurvives(tmpRoot: string): Promise<void>
   const service = new WorkspaceFileService({ workspace: repository, gitStatusCacheTtlMs: 0 });
   try {
     const tree = await service.listTree(repository, '');
+    const decorations = await service.listTreeDecorations(
+      repository,
+      '',
+      tree.items.map((item: { path: string }) => item.path),
+    );
+    const decorationByPath = new Map<string, { ignored?: boolean }>(
+      decorations.items.map((item: { path: string; ignored?: boolean }) => [item.path, item]),
+    );
     const ignoredByName = new Map<string, boolean>(
-      tree.items.map((item: { name: string; ignored?: boolean }) => [item.name, Boolean(item.ignored)]),
+      tree.items.map((item: { name: string; path: string }) => [
+        item.name,
+        Boolean(decorationByPath.get(item.path)?.ignored),
+      ]),
     );
     assert.strictEqual(ignoredByName.get('ascii.log'), true, 'an ignored ASCII file must be reported as ignored');
     assert.strictEqual(

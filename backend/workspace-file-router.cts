@@ -82,6 +82,7 @@ interface WorkspaceFileServiceLike {
   invalidateGitStatus?(root: string): void;
   lineChanges(root: string, userPath: unknown, lineNumber: unknown, mode: unknown): Promise<unknown>;
   listTree(root: string, userPath: unknown, options?: ReadOptions): Promise<unknown>;
+  listTreeDecorations(root: string, userPath: unknown, entryPaths: unknown[]): Promise<unknown>;
   moveEntry(root: string, sourcePath: unknown, targetDirectory: unknown, options?: MutationVersionOptions): Promise<unknown>;
   readFile(root: string, userPath: unknown, options?: ReadOptions): Promise<unknown>;
   readPreviewFile(root: string, userPath: unknown, options?: ReadOptions): Promise<PreviewFileResult>;
@@ -382,7 +383,6 @@ function globalSyntheticTree(agentManager: AgentManager, userPath: unknown = '')
   return {
     path: relativeGlobalPath(target),
     items: Array.from(children.values()).sort((a, b) => a.name.localeCompare(b.name)),
-    gitStatusPending: false,
   };
 }
 
@@ -494,6 +494,16 @@ async function executeWorkspaceFileRequest(
           readOptionsForAgent(agentManager, request.rootId),
         );
       return tree;
+    }
+    case 'tree-decorations': {
+      if (isGlobalWorkspaceFilesAgentId(request.rootId)) {
+        return { path: request.path || '', items: [] };
+      }
+      return fileService.listTreeDecorations(
+        resolveRequestRoot(request).root,
+        request.path || '',
+        request.entryPaths,
+      );
     }
     case 'read-file': {
       let requestPath = request.path;

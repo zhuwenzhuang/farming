@@ -123,6 +123,14 @@ owner. Same-directory loads join, workspace changes invalidate old results,
 and expansion intent is independent from load completion. Directory caches do
 not become file-content models.
 
+Directory structure and Git decoration are separate projections. A successful
+structure result may commit while decoration remains absent, loading, ready, or
+failed. Decoration failure does not fail or delay the directory snapshot. A
+decoration result is admitted only for the current workspace generation and
+the entry paths of the corresponding structure snapshot; it updates the
+path-scoped decoration store without changing expansion state or tree data.
+Repeating an identical decoration value produces no subscriber notification.
+
 Create, save, rename, move, and delete remain version-checked operations. A
 timeout or lost response is uncertain, not failed by assumption: reconcile the
 file or parent directory and do not blindly replay. Successful mutations
@@ -148,11 +156,21 @@ budgets are set from measured production data:
 - retained models are bounded by entry count and approximate content bytes;
 - directory, search, Git, preview, and file-content work stay on-demand and
   independently bounded.
+- directory structure does not wait for Git decoration, and decoration work
+  uses the background scheduling lane;
+- unchanged directory refresh preserves the tree projection identity, while a
+  path change preserves every unaffected branch;
+- the outer Project scroller owns the logical tree offset and only a bounded
+  viewport neighborhood is mounted, including during Home/End navigation;
+- decoration updates notify only subscribers for changed paths and do not
+  trigger a directory reload.
 
 Instrumentation should separate user intent, cache lookup, transport read,
 optional mount, state commit, and editor paint. Paths and file contents are not
-telemetry fields. Numeric latency gates are introduced only after collecting a
-representative baseline.
+telemetry fields. Directory performance gates record request and response-to-
+visible-paint samples separately, report p50/p95 across multiple cold
+expansions, and pair latency with mounted-row and render-count bounds. Numeric
+latency ceilings are based on a representative production-shaped baseline.
 
 ## Recovery And Acceptance
 

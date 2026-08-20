@@ -64,6 +64,9 @@ export function useWorkspaceFileStickyContext({
   const visibleRows = useMemo(() => (
     workspaceVisibleFileTreeRows(treeData, openDirectoryPaths)
   ), [openDirectoryPaths, treeData])
+  const visibleRowIndexByPath = useMemo(() => (
+    new Map(visibleRows.map((row, index) => [row.path, index]))
+  ), [visibleRows])
 
   const stickyDirectoryNodes = useMemo(() => (
     stickyDirectoryPaths
@@ -120,9 +123,10 @@ export function useWorkspaceFileStickyContext({
       return
     }
 
-    const treeTop = viewportRect.top - (treeRef.current?.listEl.current?.scrollTop ?? 0)
+    const treeTop = viewportRect.top
     const nextStickyPaths = workspaceStickyDirectoryPathsForIndexedViewport({
       rows: visibleRows,
+      rowIndexByPath: visibleRowIndexByPath,
       treeTop,
       stickyTop,
       scrollerBottom: scrollerRect.bottom,
@@ -151,7 +155,7 @@ export function useWorkspaceFileStickyContext({
         ? current
         : nextStickyPaths
     ))
-  }, [clearStickyContext, filesCollapsed, rowHeight, treeRef, treeViewportRef, updateContextShift, updateIndentShift, visibleRows])
+  }, [clearStickyContext, filesCollapsed, rowHeight, treeViewportRef, updateContextShift, updateIndentShift, visibleRowIndexByPath, visibleRows])
 
   const focusStickyDirectory = useCallback((node: FileExplorerNode) => {
     lastFocusedFilePathRef.current = node.path

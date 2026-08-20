@@ -6,6 +6,7 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
+  useState,
   useSyncExternalStore,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
@@ -16,15 +17,20 @@ import { Tree, type NodeRendererProps, type TreeApi } from 'react-arborist'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-file-search'
 import type { WorkspaceFileOperationState } from '@/lib/workspace-file-operation-model'
 import type { WorkspaceFileTreeNode as FileExplorerNode } from '@/lib/workspace-file-tree'
+import type { WorkspaceFileDecorationStore } from '@/lib/workspace-file-decorations'
 import type { CodeCopy } from '../code/copy'
 import { FileStickyContext } from './FileStickyContext'
 import { FileTreeRow } from './FileTreeRow'
 import type { FileStickyContextItem } from './useWorkspaceFileStickyContext'
 
+const FILE_TREE_OVERSCAN_ROWS = 6
+const FILE_TREE_INITIAL_VIEWPORT_ROWS = 24
+
 export interface FileTreeViewProps {
   activeFilePath?: string
   agentId: string
   copy: CodeCopy
+  decorations: WorkspaceFileDecorationStore
   editorDirtyFilePaths: ReadonlySet<string>
   editorExternalChangedFilePaths: ReadonlySet<string>
   fileOperation: WorkspaceFileOperationState | null
@@ -172,6 +178,7 @@ const SubscribedFileTreeRow = memo(function SubscribedFileTreeRow({
   activeFilePathStore,
   openFilePendingPathStore,
   selectedFilePathStore,
+  decorations,
   node,
   nodeRenderState: _nodeRenderState,
   ...rowProps
@@ -203,10 +210,20 @@ const SubscribedFileTreeRow = memo(function SubscribedFileTreeRow({
     [node.data.path, selectedFilePathStore],
   )
   const selected = useSyncExternalStore(subscribeSelected, getSelectedSnapshot, getSelectedSnapshot)
+  const subscribeDecoration = useCallback(
+    (listener: () => void) => decorations.subscribe(node.data.path, listener),
+    [decorations, node.data.path],
+  )
+  const getDecorationSnapshot = useCallback(
+    () => decorations.get(node.data.path),
+    [decorations, node.data.path],
+  )
+  const decoration = useSyncExternalStore(subscribeDecoration, getDecorationSnapshot, getDecorationSnapshot)
   return (
     <FileTreeRow
       {...rowProps}
       activeFilePath={active ? node.data.path : undefined}
+      decoration={decoration}
       node={node}
       openFilePendingPath={pending ? node.data.path : undefined}
       selected={selected}
@@ -235,6 +252,7 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
   copy,
   editorDirtyFilePaths,
   editorExternalChangedFilePaths,
+  decorations,
   fileOperation,
   fileOperationInputRef,
   handleTreeKeyDownCapture,
@@ -274,6 +292,80 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
     filePath: string
     timeStamp: number
   } | null>(null)
+  const treeWindowRef = useRef<HTMLDivElement | null>(null)
+  const virtualScrollOffsetRef = useRef(0)
+  const [treeWindowHeight, setTreeWindowHeight] = useState(() => (
+    Math.max(rowHeight, Math.min(treeHeight, rowHeight * FILE_TREE_INITIAL_VIEWPORT_ROWS))
+  ))
+
+  useLayoutEffect(() => {
+    const viewport = treeViewportRef.current
+    const scroller = viewport?.closest<HTMLElement>('.code-project-list')
+    if (!viewport || !scroller) return undefined
+    const updateHeight = () => {
+      const nextHeight = Math.max(rowHeight, Math.min(treeHeight, scroller.clientHeight || rowHeight))
+      setTreeWindowHeight(current => current === nextHeight ? current : nextHeight)
+    }
+    updateHeight()
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(updateHeight)
+    observer?.observe(scroller)
+    window.addEventListener('resize', updateHeight)
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener('resize', updateHeight)
+    }
+  }, [rowHeight, treeHeight, treeViewportRef])
+
+  useLayoutEffect(() => {
+    const viewport = treeViewportRef.current
+    const scroller = viewport?.closest<HTMLElement>('.code-project-list')
+    const treeWindow = treeWindowRef.current
+    if (!viewport || !scroller || !treeWindow) return undefined
+    let frameId = 0
+    const synchronize = () => {
+      frameId = 0
+      const viewportRect = viewport.getBoundingClientRect()
+      const scrollerRect = scroller.getBoundingClientRect()
+      const maxOffset = Math.max(0, treeHeight - treeWindowHeight)
+      const offset = Math.max(0, Math.min(maxOffset, scrollerRect.top - viewportRect.top))
+      virtualScrollOffsetRef.current = offset
+      treeWindow.style.transform = `translateY(${offset}px)`
+      treeRef.current?.list.current?.scrollTo(offset)
+    }
+    const scheduleSynchronize = () => {
+      if (frameId) return
+      frameId = window.requestAnimationFrame(synchronize)
+    }
+    synchronize()
+    scroller.addEventListener('scroll', scheduleSynchronize, { passive: true })
+    window.addEventListener('resize', scheduleSynchronize)
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(scheduleSynchronize)
+    observer?.observe(viewport)
+    return () => {
+      if (frameId) window.cancelAnimationFrame(frameId)
+      observer?.disconnect()
+      scroller.removeEventListener('scroll', scheduleSynchronize)
+      window.removeEventListener('resize', scheduleSynchronize)
+    }
+  }, [treeHeight, treeRef, treeViewportRef, treeWindowHeight])
+
+  const handleVirtualTreeScroll = useCallback(({
+    scrollOffset,
+    scrollUpdateWasRequested,
+  }: {
+    scrollOffset: number
+    scrollUpdateWasRequested: boolean
+  }) => {
+    if (!scrollUpdateWasRequested || Math.abs(scrollOffset - virtualScrollOffsetRef.current) < 1) return
+    const viewport = treeViewportRef.current
+    const scroller = viewport?.closest<HTMLElement>('.code-project-list')
+    if (!viewport || !scroller) return
+    const currentOffset = Math.max(0, Math.min(
+      Math.max(0, treeHeight - treeWindowHeight),
+      scroller.getBoundingClientRect().top - viewport.getBoundingClientRect().top,
+    ))
+    scroller.scrollTop += scrollOffset - currentOffset
+  }, [treeHeight, treeViewportRef, treeWindowHeight])
 
   const handleViewportContextMenu = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
     if ((event.target as HTMLElement | null)?.closest('[data-file-path]')) return
@@ -333,6 +425,7 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
     copy,
     editorDirtyFilePaths,
     editorExternalChangedFilePaths,
+    decorations,
     fileOperation,
     fileOperationInputRef,
     lastFocusedFilePathRef,
@@ -356,6 +449,7 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
     copy,
     editorDirtyFilePaths,
     editorExternalChangedFilePaths,
+    decorations,
     fileOperation,
     fileOperationInputRef,
     lastFocusedFilePathRef,
@@ -386,35 +480,43 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
     >
       <FileStickyContext
         copy={copy}
+        decorations={decorations}
         items={stickyContextItems}
         onFocusDirectory={onFocusStickyDirectory}
         onOpenFileContextMenu={onOpenFileContextMenu}
       />
       <FileNodeRendererContext.Provider value={nodeRendererContext}>
-        <Tree<FileExplorerNode>
-          ref={treeRef}
-          data={treeData}
-          idAccessor="id"
-          childrenAccessor="children"
-          rowHeight={rowHeight}
-          indent={0}
-          height={treeHeight}
-          width="100%"
-          overscanCount={visibleTreeRowCount}
-          openByDefault={false}
-          selectionFollowsFocus
-          className="code-file-tree"
-          rowClassName="code-file-tree-row"
-          renderRow={renderFileTreeRow}
-          onToggle={onToggleTreeNode}
-          onFocus={onTreeFocus}
-          onSelect={onTreeSelect}
-          disableDrag
-          disableEdit
-          disableDrop
+        <div
+          className="code-file-tree-window"
+          ref={treeWindowRef}
+          style={{ height: treeWindowHeight }}
         >
-          {FileNodeRenderer}
-        </Tree>
+          <Tree<FileExplorerNode>
+            ref={treeRef}
+            data={treeData}
+            idAccessor="id"
+            childrenAccessor="children"
+            rowHeight={rowHeight}
+            indent={0}
+            height={treeWindowHeight}
+            width="100%"
+            overscanCount={FILE_TREE_OVERSCAN_ROWS}
+            openByDefault={false}
+            selectionFollowsFocus
+            className="code-file-tree"
+            rowClassName="code-file-tree-row"
+            renderRow={renderFileTreeRow}
+            onScroll={handleVirtualTreeScroll}
+            onToggle={onToggleTreeNode}
+            onFocus={onTreeFocus}
+            onSelect={onTreeSelect}
+            disableDrag
+            disableEdit
+            disableDrop
+          >
+            {FileNodeRenderer}
+          </Tree>
+        </div>
       </FileNodeRendererContext.Provider>
     </div>
   )

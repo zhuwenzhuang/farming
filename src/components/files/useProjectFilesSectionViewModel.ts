@@ -6,6 +6,7 @@ import type {
 } from '@/lib/workspace-file-operation-model'
 import type { WorkspaceFileOpenTarget } from '@/lib/workspace-file-search'
 import type { WorkspaceFileTreeNode } from '@/lib/workspace-file-tree'
+import type { WorkspaceFileDecorationStore } from '@/lib/workspace-file-decorations'
 import type { AgentLaunchOption } from '../code/agent-launch-options'
 import type { CodeCopy } from '../code/copy'
 import type {
@@ -24,6 +25,7 @@ interface UseProjectFilesSectionViewModelOptions {
   agentId: string
   agentLaunchOptions: AgentLaunchOption[]
   copy: CodeCopy
+  decorations: WorkspaceFileDecorationStore
   editorDirtyFilePaths: ReadonlySet<string>
   editorExternalChangedFilePaths: ReadonlySet<string>
   fileMenu: WorkspaceFileContextMenuState | null
@@ -92,6 +94,7 @@ export function useProjectFilesSectionViewModel({
   agentId,
   agentLaunchOptions,
   copy,
+  decorations,
   editorDirtyFilePaths,
   editorExternalChangedFilePaths,
   fileMenu,
@@ -212,6 +215,7 @@ export function useProjectFilesSectionViewModel({
   const bodyTree: FileSectionBodyTree = useMemo(() => ({
     activeFilePath,
     agentId,
+    decorations,
     editorDirtyFilePaths,
     editorExternalChangedFilePaths,
     fileOperation,
@@ -244,6 +248,7 @@ export function useProjectFilesSectionViewModel({
   }), [
     activeFilePath,
     agentId,
+    decorations,
     editorDirtyFilePaths,
     editorExternalChangedFilePaths,
     fileOperation,

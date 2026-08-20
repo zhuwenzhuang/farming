@@ -855,6 +855,16 @@ body.code-mode .code-file-change-group-toggle {
   overflow: visible;
 }
 
+.code-file-tree-window {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  min-height: 0;
+  overflow: hidden;
+  will-change: transform;
+}
+
 .code-file-tree {
   position: relative;
   left: calc(0px - var(--file-context-shift, 0px));
@@ -862,9 +872,8 @@ body.code-mode .code-file-change-group-toggle {
   width: calc(100% + var(--file-context-shift, 0px)) !important;
   flex: 0 0 auto;
   box-sizing: border-box;
-  overflow: visible !important;
+  overflow: hidden !important;
   overscroll-behavior: auto;
-  scroll-behavior: smooth;
 }
 
 .code-file-tree-viewport [role="tree"]:focus,

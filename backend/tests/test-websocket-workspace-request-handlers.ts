@@ -175,6 +175,44 @@ async function run(): Promise<void> {
 
   {
     const socket = client();
+    const decorationGates = [deferred<unknown>(), deferred<unknown>()];
+    const decorationStarted: string[] = [];
+    const priorityHandlers = createWebSocketWorkspaceRequestHandlers<TestClient>({
+      openState: OPEN,
+      maxMessageBytes: 1024,
+      async executeWorkspace(request) {
+        if (request.operation !== 'tree-decorations') return { operation: request.operation };
+        const index = request.rootId === 'decorations-a' ? 0 : 1;
+        decorationStarted.push(request.rootId);
+        return decorationGates[index]!.promise;
+      },
+      async executeLanguageServer() { return { result: null }; },
+      error(error) { return { code: 'TEST', message: error instanceof Error ? error.message : 'failed' }; },
+    });
+    for (const rootId of ['decorations-a', 'decorations-b']) {
+      priorityHandlers.workspaceRequest(socket, {
+        type: 'workspace-request',
+        requestId: rootId,
+        request: { operation: 'tree-decorations', rootId, entryPaths: ['src/App.tsx'] },
+      });
+    }
+    assert.deepStrictEqual(decorationStarted, ['decorations-a', 'decorations-b']);
+    priorityHandlers.workspaceRequest(socket, {
+      type: 'workspace-request',
+      requestId: 'foreground-tree',
+      request: { operation: 'tree', rootId: 'foreground-tree' },
+    });
+    await flush();
+    assert.deepStrictEqual(socket.messages.at(-1), {
+      type: 'workspace-result', requestId: 'foreground-tree', ok: true, result: { operation: 'tree' },
+    });
+    decorationGates.forEach(gate => gate.resolve({ items: [] }));
+    await flush();
+    priorityHandlers.close(socket);
+  }
+
+  {
+    const socket = client();
     handlers.languageServerRequest(socket, {
       type: 'language-server-request',
       requestId: 'language-1',

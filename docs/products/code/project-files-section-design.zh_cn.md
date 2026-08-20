@@ -155,14 +155,17 @@ Farming Instance 都是同一文件系统的独立客户端。
 - **Editor And Viewer**：拥有 Working Copy、Tab、Editor State、Conflict 与有界 Preview。
 
 即使有许多目录保持展开，Explorer 也只保留一个 Project Sidebar 滚动面。完整 Row Projection
-用于稳定 Sticky Path、Keyboard Navigation 与持久化 Expansion；屏外 Row 使用浏览器 Layout
-与 Paint Containment，使大型恢复树的成本由可见邻域而不是全部已挂载 Row 决定。随滚动更新的
+用于稳定 Sticky Path、Keyboard Navigation 与持久化 Expansion，但只挂载有界的 Viewport
+邻域。外层 Project Scroller 拥有完整逻辑树高度；Virtual Tree Window 跟随该 Scroll Offset，
+不能引入第二个 Scrollbar。因此大型恢复树的成本由可见邻域而不是完整 Projection 决定。随滚动更新的
 Sticky Context 从该预计算 Projection 定位 Row，并且只检查有界的 Viewport Slice；单个滚动帧
 不得遍历完整展开树，也不得读取每个已挂载文件 Row 的布局。
 
 单个粘性目录上下文是固定单行高度、显示紧凑路径的导航控件。只有首个未被遮挡的可见行存在
 已展开且滚过粘性边界的真实祖先时才展示；已折叠目录和前置同级目录永远不能成为粘性上下文。
 该控件用于在树中重新定位祖先，不显示展开箭头，也不伪装成第二个 Tree Row。
+只有祖先 Source Projection Row 的底边完全越过 Sticky Boundary 后，祖先才可进入 Sticky；
+Source Row 仍部分或全部可见时，绝不能同时出现它的 Sticky 副本。
 
 当可见行共享一个已由该粘性上下文展示的深层屏外祖先时，Explorer 可以用一个统一且随滚动
 连续变化的横向偏移回收祖先缩进。该偏移来自固定行高几何，在视口边界连续变化，并且绝不改变
@@ -241,6 +244,18 @@ Issue Reference 遵循 Workspace `.idea/vcs.xml` 内的 IntelliJ
 File Read、Preview、Search、Git Output、Directory Load、History Page、Editor Model 与 Cache 都
 必须有界。Tree 和昂贵 Detail 按需加载。Background Preparation 可以改善首次打开，但失败时
 必须回退到同一权威路径，不能 Reload Page 或阻塞 Agent Work。
+
+Directory `tree` Request 是 Interactive Structure Path，不等待 Git Status、Ignore Check 或
+Descendant Decoration。Git 与 Ignored State 通过独立的 Background `tree-decorations` Operation
+加载，并且只发布发生变化的 Path；Decoration 到达时不能替换 Directory Snapshot 或重建未变化
+的 Tree Projection。结构未变化的 Refresh 复用 Node Identity；单 Path 变化只替换该 Node 与
+到达它所必需的 Ancestor。
+
+Large-workspace 自动化门禁使用 Production-shaped Tree，而不是只测一次合成点击。2,000 Row
+Projection 必须保持少于 100 个已挂载 File Row，并保留 Home/End Navigation。跨多个目录的
+Cold Expansion 同时记录 Request 与 Visible Paint 的 p50/p95，要求 Request p95 小于 750 ms、
+Paint p95 小于 1,000 ms，并同时限制 Mounted Row 与 Row Render。这些数值是回归上限，不表示
+日常交互可以接近该上限。
 
 在现有 Workspace 归属与只读约束之上，2 MiB 以内的文本文件完整打开且可编辑。2 MiB 到
 10 MiB 的文本文件在只读查看器中完整打开。更大的文本文件只显示前 10 MiB。界面必须明确区分

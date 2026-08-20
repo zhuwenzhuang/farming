@@ -103,6 +103,16 @@ assert.strictEqual(validateClientMessage({
 }).ok, true);
 assert.strictEqual(validateClientMessage({
   type: 'workspace-request',
+  requestId: 'workspace-decorations-1',
+  request: { operation: 'tree-decorations', rootId: 'root-1', path: 'src', entryPaths: ['src/App.tsx'] },
+}).ok, true);
+assert.strictEqual(validateClientMessage({
+  type: 'workspace-request',
+  requestId: 'workspace-decorations-2',
+  request: { operation: 'tree-decorations', rootId: 'root-1', entryPaths: 'src/App.tsx' },
+}).ok, false);
+assert.strictEqual(validateClientMessage({
+  type: 'workspace-request',
   requestId: 'workspace-1',
   request: { operation: 'unknown', rootId: 'root-1' },
 }).ok, false);

@@ -102,6 +102,12 @@ Agent 行或其他导航 surface。文件行通过 pointer capture 保持该所�
 合并；workspace 改变使旧结果失效；展开意图不依赖读取完成。目录缓存不成为文件内容
 model。
 
+Directory Structure 与 Git Decoration 是两个独立 Projection。Structure 成功结果可以在
+Decoration 仍处于 absent、loading、ready 或 failed 时提交；Decoration 失败不能让 Directory
+Snapshot 失败或延迟。Decoration Result 只有在 Workspace Generation 仍为当前值，且 Entry Path
+属于对应 Structure Snapshot 时才可提交；它只更新 Path-scoped Decoration Store，不改变
+Expansion State 或 Tree Data。重复的相同 Decoration Value 不触发 Subscriber Notification。
+
 Create、save、rename、move 和 delete 继续使用版本校验。timeout 或 response loss 表示
 结果不确定，不能直接当作失败：必须重新读取文件或父目录进行 reconcile，不能盲目
 重放。成功 mutation 通过现有 owner 刷新或失效相关目录快照、retained resource model、
@@ -121,10 +127,16 @@ open working copy、Tab 与 reveal target。
   不能占用连接直到 Language Server timeout 并阻塞下一个文件内容读取；
 - retained model 同时受条目数量和近似内容字节数限制；
 - directory、search、Git、preview 和文件内容工作都按需且独立有界。
+- Directory Structure 不等待 Git Decoration，Decoration Work 使用 Background Scheduling Lane；
+- 未变化的 Directory Refresh 保持 Tree Projection Identity；单 Path 变化保留所有未受影响 Branch；
+- 外层 Project Scroller 拥有逻辑 Tree Offset，包括 Home/End Navigation 在内都只挂载有界的
+  Viewport 邻域；
+- Decoration Update 只通知发生变化的 Path Subscriber，不能触发 Directory Reload。
 
 观测应分别记录 user intent、cache lookup、transport read、optional mount、state commit
-和 editor paint；路径与文件内容不能成为 telemetry 字段。只有取得代表性 baseline 后，
-才引入数值 latency gate。
+和 editor paint；路径与文件内容不能成为 telemetry 字段。Directory 性能门禁分别记录 Request
+与 Response-to-visible-paint Sample，跨多次 Cold Expansion 输出 p50/p95，并同时限制 Mounted-row
+与 Render-count。数值 Latency Ceiling 来自 Production-shaped 的代表性 Baseline。
 
 ## 恢复与验收
 

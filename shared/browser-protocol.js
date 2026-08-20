@@ -8,8 +8,8 @@ exports.validateServerMessage = validateServerMessage;
 exports.protocolCompatible = protocolCompatible;
 const agent_state_semantics_js_1 = require("./agent-state-semantics.js");
 const agent_state_wire_js_1 = require("./agent-state-wire.js");
-exports.PROTOCOL_VERSION = 14;
-exports.MIN_PROTOCOL_VERSION = 14;
+exports.PROTOCOL_VERSION = 15;
+exports.MIN_PROTOCOL_VERSION = 15;
 exports.MAX_INLINE_WORKSPACE_MESSAGE_BYTES = 1024 * 1024;
 exports.PROJECT_ATTENTION_SCORE_MAX = agent_state_semantics_js_1.PROJECT_ATTENTION_SCORE_MAX;
 const SERVER_MESSAGE_TYPES = new Set([
@@ -100,6 +100,12 @@ function workspaceRequest(value) {
     switch (value.operation) {
         case 'tree':
             return boundedStringField(value, 'rootId', 4096) && boundedStringField(value, 'path', 4096, true);
+        case 'tree-decorations':
+            return boundedStringField(value, 'rootId', 4096)
+                && boundedStringField(value, 'path', 4096, true)
+                && Array.isArray(value.entryPaths)
+                && value.entryPaths.length <= 4096
+                && value.entryPaths.every(entryPath => typeof entryPath === 'string' && entryPath.length <= 4096);
         case 'read-file':
         case 'create-preview':
             return rootPath() && optionalBooleanField(value, 'exactExternal');

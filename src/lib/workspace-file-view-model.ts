@@ -194,10 +194,10 @@ export function workspaceStickyDirectoryPaths(
   stickyTop: number
 ) {
   if (!firstVisiblePath) return []
-  const topByPath = new Map(rows.map(row => [row.path, row.top]))
+  const bottomByPath = new Map(rows.map(row => [row.path, row.bottom]))
   return ancestorDirectories(firstVisiblePath).filter(directoryPath => {
-    const top = topByPath.get(directoryPath)
-    return typeof top === 'number' && top < stickyTop
+    const bottom = bottomByPath.get(directoryPath)
+    return typeof bottom === 'number' && bottom <= stickyTop
   })
 }
 
@@ -207,13 +207,15 @@ export function workspaceStickyDirectoryPathsForViewport(options: {
   scrollerBottom: number
   rowHeight: number
 }) {
-  const stickyBottom = options.stickyTop + Math.max(1, options.rowHeight)
-  const firstUncoveredIndex = options.rows.findIndex(row => (
-    row.top >= stickyBottom - 1 && row.top < options.scrollerBottom
+  const firstVisibleRow = options.rows.find(row => (
+    row.bottom > options.stickyTop + 1 && row.top < options.scrollerBottom
   ))
-  if (firstUncoveredIndex < 0) return []
-
-  return workspaceStickyDirectoryPaths(options.rows[firstUncoveredIndex]!.path, options.rows, stickyBottom)
+  if (!firstVisibleRow) return []
+  const rowsByPath = new Map(options.rows.map(row => [row.path, row]))
+  return ancestorDirectories(firstVisibleRow.path).filter(directoryPath => {
+    const directoryRow = rowsByPath.get(directoryPath)
+    return Boolean(directoryRow && directoryRow.bottom <= options.stickyTop)
+  })
 }
 
 export function workspaceVisibleFileTreeRows(
@@ -244,6 +246,7 @@ export function workspaceVisibleFileTreeRows(
 
 export function workspaceStickyDirectoryPathsForIndexedViewport(options: {
   rows: readonly WorkspaceVisibleFileTreeRow[]
+  rowIndexByPath: ReadonlyMap<string, number>
   treeTop: number
   stickyTop: number
   scrollerBottom: number
@@ -256,8 +259,12 @@ export function workspaceStickyDirectoryPathsForIndexedViewport(options: {
   const firstUncoveredRow = options.rows[firstUncoveredIndex]
   if (!firstUncoveredRow) return []
   if (options.treeTop + firstUncoveredIndex * rowHeight >= options.scrollerBottom) return []
-
-  return firstUncoveredRow.ancestors.map(ancestor => ancestor.path)
+  return firstUncoveredRow.ancestors.flatMap(ancestor => {
+    const ancestorIndex = options.rowIndexByPath.get(ancestor.path)
+    if (ancestorIndex === undefined) return []
+    const ancestorBottom = options.treeTop + (ancestorIndex + 1) * rowHeight
+    return ancestorBottom <= options.stickyTop ? [ancestor.path] : []
+  })
 }
 
 function workspaceFileIndentShiftDepthForWindow(

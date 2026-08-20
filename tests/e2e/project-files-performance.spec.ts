@@ -75,8 +75,30 @@ test('keeps large expanded file trees off the warm file-switch render path', asy
   await expect(project).toBeVisible({ timeout: 30_000 })
   const files = project.getByTestId('code-files-section')
   const filesTitle = files.locator('.code-files-title').first()
+  await page.evaluate(() => window.__farmingPerformanceTest?.reset())
   if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
-  await expect(files.getByTestId('code-file-row')).toHaveCount(2_000)
+  const treeViewport = files.locator('.code-file-tree-viewport')
+  await expect(treeViewport).toHaveAttribute('data-visible-row-count', '2000')
+  await expect.poll(() => files.getByTestId('code-file-row').count()).toBeLessThan(100)
+  const initialMountedRowCount = await files.getByTestId('code-file-row').count()
+  const initialRenderCounts = await page.evaluate(() => window.__farmingPerformanceTest?.snapshot())
+  expect(initialRenderCounts?.fileTreeRow).toBeLessThan(120)
+
+  const tree = files.locator('[role="tree"]')
+  await tree.focus()
+  await page.keyboard.press('End')
+  const lastRow = files.locator('[data-file-path="file-1999.txt"]')
+  await expect(lastRow).toHaveClass(/selected/)
+  await expect.poll(() => files.getByTestId('code-file-row').count()).toBeLessThan(100)
+  await page.keyboard.press('Home')
+  await expect(files.locator('[data-file-path="file-0000.txt"]')).toHaveClass(/selected/)
+
+  await page.evaluate(() => window.__farmingPerformanceTest?.reset())
+  const refresh = files.getByTestId('code-files-refresh')
+  await refresh.click({ force: true })
+  await expect(refresh).toHaveAttribute('data-refresh-status', 'success')
+  const refreshRenderCounts = await page.evaluate(() => window.__farmingPerformanceTest?.snapshot())
+  expect(refreshRenderCounts?.fileTreeRow).toBeLessThanOrEqual(12)
 
   const firstPath = 'file-0000.txt'
   const secondPath = 'file-0001.txt'
@@ -144,6 +166,11 @@ test('keeps large expanded file trees off the warm file-switch render path', asy
   const coldRenderCounts = await page.evaluate(() => window.__farmingPerformanceTest?.snapshot())
   await testInfo.attach('cold-file-switch-latency', {
     body: Buffer.from(JSON.stringify({
+      largeTree: {
+        projectedRows: 2_000,
+        initialMountedRows: initialMountedRowCount,
+        unchangedRefreshRowRenders: refreshRenderCounts?.fileTreeRow ?? null,
+      },
       coldSamplesMs: coldSwitchDurations,
       coldRenderCounts,
     }, null, 2)),
@@ -237,7 +264,6 @@ test('keeps large expanded file trees off the warm file-switch render path', asy
   await expect(files.locator(`[data-file-path="${firstPath}"]`)).toHaveClass(/active/)
   const firstRow = files.locator(`[data-file-path="${firstPath}"]`)
   const secondRow = files.locator(`[data-file-path="${secondPath}"]`)
-  const tree = files.locator('[role="tree"]')
   await tree.focus()
   await page.keyboard.press('Home')
   await expect(firstRow).toHaveClass(/selected/)
@@ -247,4 +273,134 @@ test('keeps large expanded file trees off the warm file-switch render path', asy
   await secondRow.click()
   await expect(files.locator('[data-testid="code-file-row"].selected[data-file-type="file"]')).toHaveCount(1)
   await expect(secondRow).toHaveClass(/active/)
+})
+
+test('keeps cold directory expansion latency bounded across production-shaped folders', async ({ page }, testInfo) => {
+  const workspaceRoot = path.join(
+    PLAYWRIGHT_WORKSPACE_ROOT,
+    `project-files-expansion-performance-${testInfo.repeatEachIndex}`,
+  )
+  fs.rmSync(workspaceRoot, { recursive: true, force: true })
+  fs.mkdirSync(workspaceRoot, { recursive: true })
+  const directoryCount = 12
+  const filesPerDirectory = 160
+  for (let directoryIndex = 0; directoryIndex < directoryCount; directoryIndex += 1) {
+    const directoryName = `folder-${String(directoryIndex).padStart(2, '0')}`
+    const directoryPath = path.join(workspaceRoot, directoryName)
+    fs.mkdirSync(directoryPath)
+    for (let fileIndex = 0; fileIndex < filesPerDirectory; fileIndex += 1) {
+      fs.writeFileSync(
+        path.join(directoryPath, `file-${String(fileIndex).padStart(3, '0')}.txt`),
+        `${directoryIndex}:${fileIndex}\n`,
+      )
+    }
+  }
+
+  await page.addInitScript(() => {
+    const originalSend = WebSocket.prototype.send
+    const starts = new Map<string, number>()
+    const requestPaths = new Map<string, string>()
+    const samples: Array<{ path: string; requestMs: number }> = []
+    const observedSockets = new WeakSet<WebSocket>()
+    ;(window as Window & { __farmingTreeRequestSamples?: typeof samples }).__farmingTreeRequestSamples = samples
+    WebSocket.prototype.send = function send(data) {
+      if (!observedSockets.has(this)) {
+        observedSockets.add(this)
+        this.addEventListener('message', event => {
+          if (typeof event.data !== 'string') return
+          try {
+            const message = JSON.parse(event.data) as { type?: string; requestId?: string }
+            if (message.type !== 'workspace-result' || !message.requestId) return
+            const startedAt = starts.get(message.requestId)
+            const path = requestPaths.get(message.requestId)
+            if (startedAt === undefined || path === undefined) return
+            samples.push({ path, requestMs: performance.now() - startedAt })
+            starts.delete(message.requestId)
+            requestPaths.delete(message.requestId)
+          } catch {
+            // Non-Workspace frames are irrelevant to this measurement.
+          }
+        })
+      }
+      if (typeof data === 'string') {
+        try {
+          const message = JSON.parse(data) as {
+            type?: string
+            requestId?: string
+            request?: { operation?: string; path?: string }
+          }
+          if (message.type === 'workspace-request' && message.request?.operation === 'tree' && message.requestId) {
+            starts.set(message.requestId, performance.now())
+            requestPaths.set(message.requestId, message.request.path ?? '')
+          }
+        } catch {
+          // Non-Workspace frames are irrelevant to this measurement.
+        }
+      }
+      return originalSend.call(this, data)
+    }
+  })
+
+  const mount = await page.request.post('/farming/api/projects/mount', { data: { workspace: workspaceRoot } })
+  expect(mount.ok()).toBe(true)
+  await openFarming(page)
+  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspaceRoot) })
+  await expect(project).toBeVisible({ timeout: 30_000 })
+  const files = project.getByTestId('code-files-section')
+  const filesTitle = files.locator('.code-files-title').first()
+  if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
+  const treeViewport = files.locator('.code-file-tree-viewport')
+  await expect(treeViewport).toHaveAttribute('data-visible-row-count', String(directoryCount))
+  await page.evaluate(() => window.__farmingPerformanceTest?.reset())
+
+  const paintSamples: Array<{ path: string; paintMs: number }> = []
+  const mountedRowCounts: number[] = []
+  for (let directoryIndex = 0; directoryIndex < directoryCount; directoryIndex += 1) {
+    const directoryName = `folder-${String(directoryIndex).padStart(2, '0')}`
+    const startedAt = await page.evaluate(() => performance.now())
+    await files.locator(`[data-file-path="${directoryName}"]`).click()
+    await expect(treeViewport).toHaveAttribute(
+      'data-visible-row-count',
+      String(directoryCount + filesPerDirectory),
+      { timeout: 5_000 },
+    )
+    await expect(files.locator(`[data-file-path="${directoryName}/file-000.txt"]`)).toBeAttached()
+    const paintedAt = await page.evaluate(() => performance.now())
+    paintSamples.push({ path: directoryName, paintMs: paintedAt - startedAt })
+    await expect.poll(() => files.getByTestId('code-file-row').count()).toBeLessThan(100)
+    mountedRowCounts.push(await files.getByTestId('code-file-row').count())
+    await files.locator(`[data-file-path="${directoryName}"]`).click()
+    await expect(treeViewport).toHaveAttribute('data-visible-row-count', String(directoryCount))
+  }
+
+  const requestSamples = await page.evaluate(() => (
+    (window as Window & { __farmingTreeRequestSamples?: Array<{ path: string; requestMs: number }> })
+      .__farmingTreeRequestSamples ?? []
+  )).then(samples => samples.filter(sample => sample.path.startsWith('folder-')))
+  expect(requestSamples).toHaveLength(directoryCount)
+  const percentile = (samples: number[], ratio: number) => {
+    const sorted = [...samples].sort((left, right) => left - right)
+    return sorted[Math.ceil(sorted.length * ratio) - 1] ?? Number.POSITIVE_INFINITY
+  }
+  const latency = {
+    requestP50Ms: percentile(requestSamples.map(sample => sample.requestMs), 0.5),
+    requestP95Ms: percentile(requestSamples.map(sample => sample.requestMs), 0.95),
+    paintP50Ms: percentile(paintSamples.map(sample => sample.paintMs), 0.5),
+    paintP95Ms: percentile(paintSamples.map(sample => sample.paintMs), 0.95),
+  }
+  const renderCounts = await page.evaluate(() => window.__farmingPerformanceTest?.snapshot())
+  await testInfo.attach('cold-directory-expansion-latency', {
+    body: Buffer.from(JSON.stringify({
+      latency,
+      requestSamples,
+      paintSamples,
+      mountedRowCounts,
+      maximumMountedRows: Math.max(...mountedRowCounts),
+      renderCounts,
+    }, null, 2)),
+    contentType: 'application/json',
+  })
+  expect(latency.requestP95Ms).toBeLessThan(750)
+  expect(latency.paintP95Ms).toBeLessThan(1_000)
+  expect(renderCounts?.fileTreeRow).toBeLessThan(1_500)
 })

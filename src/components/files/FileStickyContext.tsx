@@ -1,3 +1,5 @@
+import { useCallback, useSyncExternalStore } from 'react'
+import type { WorkspaceFileDecorationStore } from '@/lib/workspace-file-decorations'
 import type { WorkspaceFileTreeNode as FileExplorerNode } from '@/lib/workspace-file-tree'
 import { workspaceStickyDirectoryPresentation } from '@/lib/workspace-file-view-model'
 import {
@@ -10,18 +12,31 @@ import type { FileStickyContextItem } from './useWorkspaceFileStickyContext'
 
 interface FileStickyContextProps {
   copy: CodeCopy
+  decorations: WorkspaceFileDecorationStore
   items: FileStickyContextItem[]
   onFocusDirectory: (node: FileExplorerNode) => void
   onOpenFileContextMenu: (x: number, y: number, node: FileExplorerNode) => void
 }
 
-function renderDirectoryStickyItem(
-  item: Extract<FileStickyContextItem, { kind: 'directory' }>,
-  copy: CodeCopy,
-  onFocusDirectory: (node: FileExplorerNode) => void,
-  onOpenFileContextMenu: (x: number, y: number, node: FileExplorerNode) => void,
-) {
-  const descendantStatusClassName = workspaceFileTreeDescendantGitStatusClassName(item.node.descendantGitStatus)
+function DirectoryStickyItem({
+  copy,
+  decorations,
+  item,
+  onFocusDirectory,
+  onOpenFileContextMenu,
+}: Omit<FileStickyContextProps, 'items'> & {
+  item: Extract<FileStickyContextItem, { kind: 'directory' }>
+}) {
+  const subscribe = useCallback(
+    (listener: () => void) => decorations.subscribe(item.node.path, listener),
+    [decorations, item.node.path],
+  )
+  const getSnapshot = useCallback(
+    () => decorations.get(item.node.path),
+    [decorations, item.node.path],
+  )
+  const decoration = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+  const descendantStatusClassName = workspaceFileTreeDescendantGitStatusClassName(decoration.descendantGitStatus)
   const presentation = workspaceStickyDirectoryPresentation(item.nodes)
   return (
     <button
@@ -57,6 +72,7 @@ function renderDirectoryStickyItem(
 
 export function FileStickyContext({
   copy,
+  decorations,
   items,
   onFocusDirectory,
   onOpenFileContextMenu,
@@ -67,7 +83,13 @@ export function FileStickyContext({
   return (
     <div className="code-file-sticky-shell">
       <div className="code-file-sticky-stack" data-testid="code-file-sticky-stack" aria-label={copy.stickyFolderPath}>
-        {renderDirectoryStickyItem(item, copy, onFocusDirectory, onOpenFileContextMenu)}
+        <DirectoryStickyItem
+          copy={copy}
+          decorations={decorations}
+          item={item}
+          onFocusDirectory={onFocusDirectory}
+          onOpenFileContextMenu={onOpenFileContextMenu}
+        />
       </div>
     </div>
   )
