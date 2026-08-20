@@ -23,6 +23,8 @@ Reasoning Field、Resume 时的继承规则、Display Name 及已退役 Request 
 Provider History Mutation 使用同一边界。Archive，以及 Resume 或 Fork 前的 Unarchive
 支持，由 Provider History Mutation Registry 声明并执行；通用 Resume、Fork、Recovery 与
 Archive Flow 只传递精确 Provider Identity，不直接调用 Provider-specific Command。
+归档 Detached History-backed Row 时，只有受支持的 Provider Mutation 成功后才提交 Main-page
+Membership Removal；失败时 Membership 保持不变，使同一 Row 仍可继续操作。
 
 性能、正确性、可靠性、恢复、隔离与可观测性都是 Provider-neutral 的 ACP 要求。
 横切改进只有在所有受支持 Provider 都满足同一 Adapter Contract 与等价验收标准后才算

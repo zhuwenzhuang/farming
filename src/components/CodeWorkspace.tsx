@@ -759,6 +759,7 @@ export function CodeWorkspace({
     mainPageSessionKeys,
     mutateMainPageSessionKeys,
     observeSessionKeys: observeMainPageSessionKeys,
+    receiveAuthoritativeSessionKeys: receiveAuthoritativeMainPageSessionKeys,
     captureInitialSettingsGuard: captureMainPageSessionKeysInitialGuard,
     receiveInitialSettings: receiveInitialMainPageSessionKeys,
   } = useMainPageSessionMembershipController(remoteMainPageSessionKeys)
@@ -2882,17 +2883,39 @@ export function CodeWorkspace({
     }
   }, [closeContextMenu, contextMenuAgentSession, copy.updateFailed, focusAgentSessionRow, mainPageSessionKeys, refreshVisibleAgentSessionPage])
 
-  const archiveContextMenuAgentSession = useCallback(() => {
+  const archiveContextMenuAgentSession = useCallback(async () => {
     if (!contextMenuAgentSession) return
-    const sessionId = agentSessionId(contextMenuAgentSession)
-    setAgentSessionPinnedOverrides(previous => ({
-      ...previous,
-      [sessionId]: false,
-    }))
-    removeMainPageAgentSession(sessionId)
+    const session = contextMenuAgentSession
+    const sessionHandle = agentSessionId(session)
     closeContextMenu()
     window.requestAnimationFrame(() => projectListRef.current?.focus({ preventScroll: true }))
-  }, [closeContextMenu, contextMenuAgentSession, removeMainPageAgentSession])
+    try {
+      const response = await fetch(appPath(`/api/agent-sessions/${encodeURIComponent(session.provider)}/${encodeURIComponent(session.id)}/archive`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ providerHomeId: session.providerHomeId || 'default' }),
+      })
+      const data = await response.json().catch(() => null) as {
+        error?: string
+        mainPageSessionKeys?: string[]
+      } | null
+      if (!response.ok || !Array.isArray(data?.mainPageSessionKeys)) {
+        throw new Error(data?.error || copy.updateFailed)
+      }
+      receiveAuthoritativeMainPageSessionKeys(data.mainPageSessionKeys)
+      setAgentSessionPinnedOverrides(previous => ({
+        ...previous,
+        [sessionHandle]: false,
+      }))
+      invalidateAgentSessionsForHistory()
+    } catch (error) {
+      setCopyNotice({
+        id: Date.now(),
+        kind: 'error',
+        message: error instanceof Error ? error.message : copy.updateFailed,
+      })
+    }
+  }, [closeContextMenu, contextMenuAgentSession, copy.updateFailed, invalidateAgentSessionsForHistory, receiveAuthoritativeMainPageSessionKeys])
 
   const beginSidebarResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 || !event.isPrimary || sidebarResizeGestureRef.current) return

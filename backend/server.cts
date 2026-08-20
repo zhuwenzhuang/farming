@@ -1173,6 +1173,12 @@ app.get(routePath(BASE_PATH, '/api/codex/sessions'), async (req, res) => {
 });
 
 app.use(routePath(BASE_PATH, '/api'), createAgentSessionRouter({
+  archiveSession: (provider, sessionId, providerHomeId) => (
+    agentManager.archiveProviderSessionByIdentity(provider, sessionId, {
+      providerHomeId,
+      providerHomes: configuredProviderHomes(),
+    })
+  ),
   getMainPageSessionKeys: () => configManager.getMainPageSessionKeys(),
   getSettings: () => configManager.getSettings(),
   invalidate: () => agentSessionInventory.invalidate(),

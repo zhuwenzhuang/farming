@@ -83,6 +83,9 @@ export function useMainPageSessionMembershipController(remoteMainPageSessionKeys
   const observeSessionKeys = useCallback((sessionKeys: string[]) => {
     controller.observeSessionKeys(normalizeMainPageSessionKeys(sessionKeys))
   }, [controller])
+  const receiveAuthoritativeSessionKeys = useCallback((sessionKeys: string[]) => {
+    controller.receiveRemoteBaseline(normalizeMainPageSessionKeys(sessionKeys))
+  }, [controller])
   const receiveInitialSettings = useCallback((
     authoritativeKeys: string[],
     guard: MainPageSessionKeysInitialGuard,
@@ -97,6 +100,7 @@ export function useMainPageSessionMembershipController(remoteMainPageSessionKeys
     mainPageSessionKeys,
     mutateMainPageSessionKeys,
     observeSessionKeys,
+    receiveAuthoritativeSessionKeys,
     captureInitialSettingsGuard: controller.captureInitialSettingsGuard,
     receiveInitialSettings,
   }

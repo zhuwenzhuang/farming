@@ -84,6 +84,7 @@ async function run(): Promise<void> {
   const events: string[] = [];
   const loggedErrors: unknown[][] = [];
   const displayWrites: Array<{ patch: unknown; sessionKey: string }> = [];
+  const archiveCalls: Array<{ provider: string; providerHomeId: string; sessionId: string }> = [];
   const rememberedKeys: Array<{ patch: unknown; sessionKey: string }> = [];
   const removedKeys: string[][] = [];
   const publishedMetadata: unknown[] = [];
@@ -91,6 +92,8 @@ async function run(): Promise<void> {
   let listFailure: Error | null = null;
   let listPending = false;
   let searchTimeoutMs = 50;
+  let archiveResult: { error?: string; status?: number } = {};
+  let archiveThrows = false;
   const settings = {
     projectNames: { '/repo/beta': 'Friendly Project' },
     get searchTimeoutMs() {
@@ -98,6 +101,12 @@ async function run(): Promise<void> {
     },
   };
   const service = {
+    async archiveSession(provider: string, sessionId: string, providerHomeId: string) {
+      events.push('archive');
+      archiveCalls.push({ provider, sessionId, providerHomeId });
+      if (archiveThrows) throw new Error('archive transport failed');
+      return archiveResult;
+    },
     getMainPageSessionKeys() {
       events.push('main-page-keys');
       return mainPageSessionKeys;
@@ -130,6 +139,8 @@ async function run(): Promise<void> {
     removeMainPageSessionKeys(sessionKeys: readonly string[]) {
       events.push('remove');
       removedKeys.push([...sessionKeys]);
+      const removed = new Set(sessionKeys);
+      mainPageSessionKeys = mainPageSessionKeys.filter(key => !removed.has(key));
     },
     setProviderSessionDisplayState(sessionKey: string, patch: unknown) {
       events.push('set-display');
@@ -171,6 +182,10 @@ async function run(): Promise<void> {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body,
+  });
+  const postArchive = (path: string, body?: string) => fetch(`${baseUrl}${path}/archive`, {
+    method: 'POST',
+    ...(body === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body }),
   });
 
   try {
@@ -307,6 +322,49 @@ async function run(): Promise<void> {
     assert.deepStrictEqual(events, [], 'invalid display mutations must not reach the store');
 
     events.length = 0;
+    mainPageSessionKeys = [
+      encodeProviderSessionKey('codex', 'session-alpha', 'work'),
+      encodeProviderSessionKey('claude', 'session-beta', 'default'),
+    ];
+    const archived = await postArchive('/codex/session-alpha', JSON.stringify({ providerHomeId: 'work' }));
+    assert.strictEqual(archived.status, 200);
+    assert.deepStrictEqual(await archived.json(), {
+      success: true,
+      sessionKey: encodeProviderSessionKey('codex', 'session-alpha', 'work'),
+      mainPageSessionKeys: [encodeProviderSessionKey('claude', 'session-beta', 'default')],
+    });
+    assert.deepStrictEqual(archiveCalls, [{
+      provider: 'codex',
+      sessionId: 'session-alpha',
+      providerHomeId: 'work',
+    }]);
+    assert.deepStrictEqual(events, ['archive', 'remove', 'main-page-keys', 'invalidate', 'publish']);
+    assert.deepStrictEqual(removedKeys.at(-1), [encodeProviderSessionKey('codex', 'session-alpha', 'work')]);
+
+    events.length = 0;
+    mainPageSessionKeys = [encodeProviderSessionKey('codex', 'session-alpha', 'work')];
+    archiveResult = { error: 'session is running', status: 409 };
+    const archiveConflict = await postArchive('/codex/session-alpha', JSON.stringify({ providerHomeId: 'work' }));
+    assert.strictEqual(archiveConflict.status, 409);
+    assert.deepStrictEqual(await archiveConflict.json(), { error: 'session is running' });
+    assert.deepStrictEqual(events, ['archive'], 'failed Archive must retain main-page membership');
+    assert.deepStrictEqual(mainPageSessionKeys, [encodeProviderSessionKey('codex', 'session-alpha', 'work')]);
+
+    archiveResult = {};
+    const invalidArchive = await postArchive('/codex/session-alpha', JSON.stringify({ providerHomeId: 'bad home' }));
+    assert.strictEqual(invalidArchive.status, 400);
+    assert.deepStrictEqual(await invalidArchive.json(), { error: 'Invalid Agent session' });
+
+    archiveThrows = true;
+    const failedArchive = await postArchive('/codex/session-alpha', JSON.stringify({ providerHomeId: 'work' }));
+    assert.strictEqual(failedArchive.status, 500);
+    assert.deepStrictEqual(await failedArchive.json(), { error: 'archive transport failed' });
+    assert.strictEqual(loggedErrors.at(-1)?.[0], 'Failed to archive Agent session:');
+    archiveThrows = false;
+
+    events.length = 0;
+    publishedMetadata.length = 0;
+    removedKeys.length = 0;
     mainPageSessionKeys = [
       encodeProviderSessionKey('codex', 'session-alpha', 'work'),
       encodeProviderSessionKey('claude', 'session-beta', 'default'),

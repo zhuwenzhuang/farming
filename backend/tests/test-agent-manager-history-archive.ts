@@ -1,10 +1,14 @@
 const assert = require('assert');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const { encodeProviderSessionKey } = require('../../shared/provider-session-identity.js');
 const { AgentManager } = require('../agent-manager.cjs');
 const { createTestAgentManager } = require('./helpers/test-acp-runtime.ts');
 const { activeLifecycleOperation } = require('../agent-lifecycle-journal.cjs');
 
 async function run() {
+  const providerHistoryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-session-archive-'));
   const appended = [];
   const codexArchiveCalls = [];
   const persistedSessionPatches = [];
@@ -288,6 +292,82 @@ async function run() {
     await Promise.all([queuedArchive, queuedUnarchive]);
     assert.deepStrictEqual(providerMutationOrder, ['archive-start', 'archive-end', 'unarchive']);
 
+    const detachedSessionId = '019f0000-0000-7000-8000-000000000020';
+    const detachedSessionsDir = path.join(providerHistoryRoot, 'sessions', '2026', '08', '20');
+    fs.mkdirSync(detachedSessionsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(detachedSessionsDir, `rollout-2026-08-20T10-00-00-${detachedSessionId}.jsonl`),
+      JSON.stringify({
+        timestamp: '2026-08-20T02:00:00.000Z',
+        type: 'session_meta',
+        payload: { id: detachedSessionId, cwd: '/repo/detached', source: 'cli' },
+      }),
+    );
+    const originalArchiveCodexSession = manager.archiveCodexSession;
+    const detachedArchiveCalls = [];
+    manager.archiveCodexSession = async (sessionId, session) => {
+      detachedArchiveCalls.push({ sessionId, session });
+      return { archived: true };
+    };
+    settings.mainPageSessionKeys = [
+      encodeProviderSessionKey('codex', detachedSessionId, 'review'),
+      ...settings.mainPageSessionKeys,
+    ];
+    manager.agents.set('stopped-detached-session', {
+      id: 'stopped-detached-session',
+      command: 'codex',
+      cwd: '/repo/detached',
+      output: '',
+      status: 'stopped',
+      engineName: 'local',
+      source: 'ui',
+      providerSessionProvider: 'codex',
+      providerSessionId: detachedSessionId,
+      providerSessionKey: encodeProviderSessionKey('codex', detachedSessionId, 'review'),
+      providerHomeId: 'review',
+      providerSessionTemporary: false,
+      task: 'stopped detached session',
+    });
+    const detachedArchive = await manager.archiveProviderSessionByIdentity(
+      'codex',
+      detachedSessionId,
+      {
+        providerHomeId: 'review',
+        providerHomes: { codex: [{ id: 'review', path: providerHistoryRoot }] },
+      },
+    );
+    assert.deepStrictEqual(detachedArchive, { archived: true, providerArchived: true });
+    assert.strictEqual(detachedArchiveCalls.length, 1);
+    assert.strictEqual(detachedArchiveCalls[0].sessionId, detachedSessionId);
+    assert.strictEqual(detachedArchiveCalls[0].session.providerHomePath, providerHistoryRoot);
+    assert.strictEqual(manager.agents.has('stopped-detached-session'), false);
+    assert(!settings.mainPageSessionKeys.includes(encodeProviderSessionKey('codex', detachedSessionId, 'review')));
+
+    manager.agents.set('claimed-detached-session', {
+      id: 'claimed-detached-session',
+      command: 'codex',
+      cwd: '/repo/detached',
+      output: '',
+      status: 'running',
+      engineName: 'local',
+      source: 'ui',
+      providerSessionProvider: 'codex',
+      providerSessionId: detachedSessionId,
+      providerHomeId: 'review',
+      providerSessionTemporary: false,
+      task: 'claimed detached session',
+    });
+    const claimedArchive = await manager.archiveProviderSessionByIdentity(
+      'codex',
+      detachedSessionId,
+      { providerHomeId: 'review' },
+    );
+    assert.strictEqual(claimedArchive.status, 409);
+    assert.match(claimedArchive.error, /currently running/i);
+    assert.strictEqual(detachedArchiveCalls.length, 1, 'a claimed session must not reach Provider Archive');
+    manager.agents.delete('claimed-detached-session');
+    manager.archiveCodexSession = originalArchiveCodexSession;
+
     settings.mainPageSessionKeys = [
       encodeProviderSessionKey('codex', 'rollback-session', 'default'),
       ...settings.mainPageSessionKeys,
@@ -548,6 +628,7 @@ async function run() {
     manager.heartbeatScheduler.stop();
     manager.engineBridge.dispose();
     await manager.acpRuntime.dispose();
+    fs.rmSync(providerHistoryRoot, { recursive: true, force: true });
   }
 }
 

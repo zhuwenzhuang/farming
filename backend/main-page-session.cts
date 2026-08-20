@@ -30,7 +30,7 @@ interface MainPageAgentClaim {
   status?: string;
   cwd?: string;
   projectWorkspace?: string;
-  gitWorktree?: { workspace?: string };
+  gitWorktree?: { workspace?: string } | null;
   providerSessionTemporary?: boolean;
   providerSessionKey?: string;
   providerSessionProvider?: string;

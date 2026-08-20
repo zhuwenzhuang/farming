@@ -113,6 +113,7 @@ import {
   findAgentSession,
   providerHistorySupportsUnarchive,
   type AgentSession,
+  type AgentSessionHistoryOptions,
 } from './agent-session-history.cjs';
 import { archiveCodexSession, unarchiveCodexSession } from './codex-session-archive.cjs';
 import { buildAgentProviderSessionPlan, sessionFromExactResumeSource } from './agent-provider-session.cjs';
@@ -128,7 +129,12 @@ import { ensureMainAgentSkillFiles, renderMainAgentBootstrap } from './main-agen
 import {
   renderFarmingAgentBootstrap,
 } from './farming-agent-bootstrap.cjs';
-import { canonicalProviderSessionKey, mainPageAgentSessionKey, resumedAgentSource } from './main-page-session.cjs';
+import {
+  canonicalProviderSessionKey,
+  findActiveAgentClaimingSession,
+  mainPageAgentSessionKey,
+  resumedAgentSource,
+} from './main-page-session.cjs';
 import * as storageLayout from './storage-layout.cjs';
 import { isSafeProviderSessionId, isTemporaryProviderSessionId } from './provider-session-id.cjs';
 import { decodeProviderSessionKey } from '../shared/provider-session-identity.js';
@@ -9309,6 +9315,102 @@ class AgentManager extends EventEmitter {
         return result?.error ? { error: result.error } : null;
       },
     });
+  }
+
+  async archiveProviderSessionByIdentity(
+    provider: string,
+    sessionId: string,
+    options: Pick<AgentSessionHistoryOptions, 'providerHomeId' | 'providerHomes'> = {},
+  ): Promise<{ archived?: boolean; error?: string; providerArchived?: boolean; status?: number }> {
+    const providerHomeId = String(options.providerHomeId || 'default').trim() || 'default';
+    const sessionKey = mainPageAgentSessionKey(provider, sessionId, providerHomeId);
+    const claimingAgent = () => findActiveAgentClaimingSession(
+      [...this.agents.values()],
+      provider,
+      { id: sessionId, providerHomeId },
+    );
+    const detachedAgent = () => [...this.agents.values()].find(agent => {
+      if (agent.archived === true || agent.providerSessionTemporary === true) return false;
+      const directKey = canonicalProviderSessionKey(agent.providerSessionKey)
+        || mainPageAgentSessionKey(
+          agent.providerSessionProvider,
+          agent.providerSessionId,
+          agent.providerHomeId || 'default',
+        );
+      if (directKey === sessionKey) return true;
+      const source = resumedSessionFromSource(String(agent.source || ''));
+      return source
+        ? mainPageAgentSessionKey(source.provider, source.sessionId, source.providerHomeId) === sessionKey
+        : false;
+    });
+    if (claimingAgent()) {
+      return { error: 'Agent session is currently running', status: 409 };
+    }
+
+    try {
+      return await this.providerSessionMutationCoordinator.run({
+        provider,
+        homeId: providerHomeId,
+        sessionId,
+        type: 'archive',
+        joinSameType: true,
+        operation: async () => {
+          if (claimingAgent()) {
+            return { error: 'Agent session is currently running', status: 409 };
+          }
+
+          const providerArchiveSupported = providerSessionHistoryMutationSupported(provider, 'archive');
+          if (providerArchiveSupported) {
+            let session: Awaited<ReturnType<typeof findAgentSession>>;
+            try {
+              session = await findAgentSession(provider, sessionId, {
+                limit: 1000,
+                providerLimit: 1000,
+                scanLimit: 5000,
+                providerHomeId,
+                providerHomes: options.providerHomes,
+              });
+            } catch (caughtError: unknown) {
+              const error = caughtError as ErrorRecord;
+              return {
+                error: `Failed to inspect Agent session before archiving: ${error.message || error}`,
+                status: 500,
+              };
+            }
+            if (!session) return { error: 'Agent session not found', status: 404 };
+            if (session.archived !== true) {
+              const result = await runProviderSessionHistoryMutation(
+                provider,
+                'archive',
+                sessionId,
+                { ...session },
+                { archiveCodexSession: (...args) => this.archiveCodexSession(...args) },
+              );
+              if (result?.error) {
+                return { error: result.error, status: Number(result.status) || 409 };
+              }
+            }
+          }
+
+          if (claimingAgent()) {
+            return { error: 'Agent session started while Archive was in progress', status: 409 };
+          }
+          const agent = detachedAgent();
+          if (agent) {
+            const localArchive = await this.archiveAgent(agent.id, {
+              reason: 'manual-archive',
+              recordHistory: false,
+              scheduleProviderArchive: false,
+            });
+            if (localArchive.error) return { error: localArchive.error, status: 409 };
+          }
+          return { archived: true, providerArchived: providerArchiveSupported };
+        },
+      });
+    } catch (caughtError: unknown) {
+      const error = caughtError as ErrorRecord;
+      return { error: error.message || String(error), status: Number(error.statusCode) || 500 };
+    }
   }
 
   async ensureProviderSessionAvailableForFork(

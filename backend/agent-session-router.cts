@@ -28,6 +28,10 @@ type MainPageSessionRecordPatch = {
 };
 
 interface AgentSessionRouterPort {
+  archiveSession(provider: string, sessionId: string, providerHomeId: string): Promise<{
+    error?: string;
+    status?: number;
+  }>;
   getMainPageSessionKeys(): string[];
   getSettings(): AgentSessionRouterSettings;
   invalidate(): void;
@@ -201,6 +205,38 @@ function createAgentSessionRouter(service: AgentSessionRouterPort): ExpressRoute
     const sessionKey = mainPageAgentSessionKey(provider, sessionId, providerHomeId);
     service.setProviderSessionDisplayState(sessionKey, { pinned: req.body.pinned });
     res.json({ sessionKey, pinned: req.body.pinned });
+  });
+
+  router.post('/agent-sessions/:provider/:sessionId/archive', expressFactory.json(), async (req, res) => {
+    const provider = normalizeProvider(req.params.provider);
+    const sessionId = String(req.params.sessionId || '').trim();
+    const providerHomeId = String(req.body?.providerHomeId || 'default').trim() || 'default';
+    if (!provider || !isSafeSessionId(sessionId) || !/^[A-Za-z0-9._-]+$/.test(providerHomeId)) {
+      res.status(400).json({ error: 'Invalid Agent session' });
+      return;
+    }
+
+    try {
+      const archived = await service.archiveSession(provider, sessionId, providerHomeId);
+      if (archived.error) {
+        const status = Number(archived.status);
+        res.status(Number.isInteger(status) && status >= 400 && status < 600 ? status : 409).json({
+          error: archived.error,
+        });
+        return;
+      }
+
+      const sessionKey = mainPageAgentSessionKey(provider, sessionId, providerHomeId);
+      service.removeMainPageSessionKeys([sessionKey]);
+      const mainPageSessionKeys = service.getMainPageSessionKeys();
+      service.invalidate();
+      res.json({ success: true, sessionKey, mainPageSessionKeys });
+      service.publishStateMetadata({ mainPageSessionKeys });
+    } catch (caught) {
+      const error = caughtError(caught);
+      console.error('Failed to archive Agent session:', error);
+      res.status(500).json({ error: error.message || 'Failed to archive Agent session' });
+    }
   });
 
   router.post('/main-page-agent-sessions', expressFactory.json(), (req, res) => {

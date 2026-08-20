@@ -354,6 +354,126 @@ test('shows only non-default Agent Homes in the Agent hover preview', async ({ p
   await expect(home).toHaveText('review')
 })
 
+test('resumes a detached session by clicking its ordinary sidebar row', async ({ page, workspaceRoot }) => {
+  const projectDir = path.join(workspaceRoot, 'sidebar-session-resume')
+  const sessionId = 'sidebar-session-resume-id'
+  fs.mkdirSync(projectDir, { recursive: true })
+  await page.route(/\/farming\/api\/agent-sessions(?:\?.*)?$/, route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      sessions: [{
+        provider: 'codex',
+        providerName: 'Codex',
+        providerHomeId: 'review',
+        id: sessionId,
+        title: 'Resume from sidebar row',
+        workspace: projectDir,
+        updatedAt: new Date().toISOString(),
+        archived: false,
+        pinned: false,
+        unread: false,
+        projectless: false,
+      }],
+      nextCursor: '',
+      hasMore: false,
+      total: 1,
+    }),
+  }))
+  const membershipResponse = await page.request.post('/farming/api/main-page-agent-sessions', {
+    data: {
+      operation: 'add',
+      sessionKeys: [encodeProviderSessionKey('codex', sessionId, 'review')],
+    },
+  })
+  expect(membershipResponse.ok()).toBeTruthy()
+
+  const resumeRequests: unknown[] = []
+  await page.route(`**/farming/api/agent-sessions/codex/${sessionId}/resume`, async route => {
+    resumeRequests.push(route.request().postDataJSON())
+    await route.fulfill({
+      contentType: 'application/json',
+      status: 201,
+      body: JSON.stringify({ agentId: 'sidebar-session-resumed-agent', projectWorkspace: projectDir }),
+    })
+  })
+
+  await openFarming(page)
+  const row = page.getByTestId('code-active-session-row').filter({ hasText: 'Resume from sidebar row' })
+  await expect(row).toHaveCount(1)
+  await row.click()
+  await expect.poll(() => resumeRequests.length).toBe(1)
+  expect(resumeRequests).toEqual([expect.objectContaining({ providerHomeId: 'review' })])
+  await expect(row).toHaveCount(1)
+})
+
+test('keeps a session row on Archive failure and removes it after confirmed Archive', async ({ page, workspaceRoot }) => {
+  const projectDir = path.join(workspaceRoot, 'sidebar-session-archive')
+  const sessionId = 'sidebar-session-archive-id'
+  fs.mkdirSync(projectDir, { recursive: true })
+  await page.route(/\/farming\/api\/agent-sessions(?:\?.*)?$/, route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      sessions: [{
+        provider: 'codex',
+        providerName: 'Codex',
+        providerHomeId: 'review',
+        id: sessionId,
+        title: 'Archive from sidebar row',
+        workspace: projectDir,
+        updatedAt: new Date().toISOString(),
+        archived: false,
+        pinned: false,
+        unread: false,
+        projectless: false,
+      }],
+      nextCursor: '',
+      hasMore: false,
+      total: 1,
+    }),
+  }))
+  const sessionKey = encodeProviderSessionKey('codex', sessionId, 'review')
+  const membershipResponse = await page.request.post('/farming/api/main-page-agent-sessions', {
+    data: { operation: 'add', sessionKeys: [sessionKey] },
+  })
+  expect(membershipResponse.ok()).toBeTruthy()
+
+  const archiveRequests: unknown[] = []
+  await page.route(`**/farming/api/agent-sessions/codex/${sessionId}/archive`, async route => {
+    archiveRequests.push(route.request().postDataJSON())
+    if (archiveRequests.length === 1) {
+      await route.fulfill({
+        contentType: 'application/json',
+        status: 409,
+        body: JSON.stringify({ error: 'Provider Archive failed' }),
+      })
+      return
+    }
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, sessionKey, mainPageSessionKeys: [] }),
+    })
+  })
+
+  await openFarming(page)
+  const row = page.getByTestId('code-active-session-row').filter({ hasText: 'Archive from sidebar row' })
+  await expect(row).toHaveCount(1)
+  await row.hover()
+  await row.getByTestId('code-agent-row-more').click()
+  await page.getByTestId('code-session-context-menu').getByRole('menuitem', { name: 'Archive' }).click()
+  await expect(page.getByTestId('code-copy-toast')).toContainText('Provider Archive failed')
+  await expect(row).toHaveCount(1)
+
+  await row.hover()
+  await row.getByTestId('code-agent-row-more').click()
+  await page.getByTestId('code-session-context-menu').getByRole('menuitem', { name: 'Archive' }).click()
+  await expect.poll(() => archiveRequests.length).toBe(2)
+  expect(archiveRequests).toEqual([
+    { providerHomeId: 'review' },
+    { providerHomeId: 'review' },
+  ])
+  await expect(row).toHaveCount(0)
+})
+
 test('hides Agent row actions after a clicked row loses hover', async ({ page, workspaceRoot }) => {
   const projectDir = path.join(workspaceRoot, 'agent-row-actions')
   fs.mkdirSync(projectDir, { recursive: true })

@@ -31,6 +31,9 @@ Provider History mutations use the same boundary. Archive and pre-resume or
 pre-Fork unarchive support are declared and executed by the Provider History
 Mutation registry; generic resume, Fork, recovery, and archive flows pass the
 exact Provider identity and do not call a Provider-specific command directly.
+Archiving a detached History-backed row commits main-page membership removal
+only after the supported Provider mutation succeeds; failure leaves membership
+unchanged so the same row remains actionable.
 
 Performance, correctness, reliability, recovery, isolation, and observability
 are provider-neutral ACP requirements. A cross-cutting improvement is complete

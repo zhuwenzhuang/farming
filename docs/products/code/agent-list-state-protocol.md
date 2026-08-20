@@ -216,6 +216,16 @@ and native-host rotation restarts only Terminals backed by an exact serialized
 live state from the previous Host. An explicit user resume remains the
 authority for a stopped/history Session.
 
+A main-page Provider Session keeps one ordinary conversation-row identity
+whether or not a runtime currently claims it. Runtime attachment is internal
+state and does not add detached, resuming, or archiving row treatments. Clicking
+an unclaimed row sends one exact Resume mutation; when the resulting Agent
+claims that Provider Session, it replaces the row backing under the same stable
+key. Archive sends one exact Provider Session mutation and removes main-page
+membership only after the backend confirms success. Failure retains the row and
+uses the existing action-error surface; an uncertain transport result is
+reconciled from authoritative state and is never replayed automatically.
+
 Unread state for a Farming-bound Agent is owned by its monotonic attention and
 read cursors. The persisted `unread` projection must be rewritten from those
 cursors whenever Agent state is persisted; an older contradictory boolean must

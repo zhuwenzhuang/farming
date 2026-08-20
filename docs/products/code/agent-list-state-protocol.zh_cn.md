@@ -59,6 +59,13 @@ Agent Row，且不会删除或批量改写历史数据。Main-page Membership �
 History Session；Native Host Rotation 也只能重启由旧 Host 提供了精确 Serialized Live State 的
 Terminal。Stopped/History Session 只有收到显式用户 Resume 后才能启动 Runtime。
 
+Main-page Provider Session 无论当前是否有 Runtime Claim，都保持同一条普通 Conversation Row
+Identity。Runtime Attachment 只属于内部状态，不新增 Detached、Resuming 或 Archiving 行样式。
+点击未被 Claim 的 Row 时发送一次精确 Resume Mutation；产生的 Agent Claim 该 Provider Session
+后，在同一个稳定 Key 下替换 Row Backing。Archive 发送一次精确 Provider Session Mutation，且
+只有 Backend 确认成功后才移除 Main-page Membership。失败时保留原 Row，并使用现有 Action Error
+Surface；Transport 结果不确定时只从权威状态 Reconcile，不得自动重放 Mutation。
+
 Farming 已绑定 Agent 的未读状态由单调 Attention Cursor 和 Read Cursor 共同拥有。每次持久化
 Agent State 时，都必须从 Cursor 重新写入 `unread` Projection；旧版本留下的矛盾 Boolean
 不能在启动期间或 Runtime 尚未恢复时重新出现。
