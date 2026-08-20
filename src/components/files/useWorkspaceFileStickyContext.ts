@@ -4,18 +4,14 @@ import type { TreeApi } from 'react-arborist'
 import { findWorkspaceFileTreeNode, type WorkspaceFileTreeNode as FileExplorerNode } from '@/lib/workspace-file-tree'
 import { WORKSPACE_FILE_TREE_INDENT } from '@/lib/workspace-file-tree-row'
 import {
-  isWorkspaceStickyContextVisible,
-  workspaceFileIndentShiftDepthForViewport,
-  workspaceStickyContentTop,
+  workspaceFileStickyProjection,
   workspaceStickyContextItems,
-  workspaceStickyDirectoryPathsForIndexedViewport,
   workspaceVisibleFileTreeRows,
   type WorkspaceFileStickyContextItem,
 } from '@/lib/workspace-file-view-model'
 
 export type FileStickyContextItem = WorkspaceFileStickyContextItem
 
-const FILE_STICKY_CONTEXT_HEIGHT = 24
 const FILE_CONTEXT_DESKTOP_SHIFT = 14
 const FILE_CONTEXT_COMPACT_SHIFT = 6
 
@@ -32,17 +28,10 @@ interface UseWorkspaceFileStickyContextOptions {
   treeViewportRef: RefObject<HTMLDivElement | null>
 }
 
-function stickyContentTop(scroller: HTMLElement, viewport: HTMLElement) {
-  const projectGroup = viewport.closest<HTMLElement>('.code-project-group')
-  const projectRow = projectGroup?.querySelector<HTMLElement>('.code-project-row')
-  const agentsSection = projectGroup?.querySelector<HTMLElement>('.code-agents-section')
-  const openEditorsSection = projectGroup?.querySelector<HTMLElement>('[data-testid="code-open-editors"]')
-  return workspaceStickyContentTop(
-    scroller.getBoundingClientRect().top,
-    projectRow?.getBoundingClientRect().height ?? 30,
-    (agentsSection?.getBoundingClientRect().height ?? 0) + (openEditorsSection?.getBoundingClientRect().height ?? 0),
-    25
-  )
+function fileTreeStickyBoundary(viewport: HTMLElement) {
+  return viewport.closest<HTMLElement>('.code-files-section')
+    ?.querySelector<HTMLElement>('.code-files-header')
+    ?.getBoundingClientRect().bottom ?? null
 }
 
 export function useWorkspaceFileStickyContext({
@@ -113,47 +102,36 @@ export function useWorkspaceFileStickyContext({
     }
 
     const scrollerRect = scroller.getBoundingClientRect()
-    const renderedStickyTop = viewport
-      .querySelector<HTMLElement>('[data-testid="code-file-sticky-stack"]')
-      ?.getBoundingClientRect().top
-    const stickyTop = renderedStickyTop ?? stickyContentTop(scroller, viewport)
     const viewportRect = viewport.getBoundingClientRect()
-    if (!isWorkspaceStickyContextVisible(viewportRect.top, stickyTop)) {
+    const stickyBoundary = fileTreeStickyBoundary(viewport)
+    if (stickyBoundary === null) {
       clearStickyContext()
       return
     }
 
-    const treeTop = viewportRect.top
-    const nextStickyPaths = workspaceStickyDirectoryPathsForIndexedViewport({
+    // This projection is deliberately output-blind. Rendered sticky geometry
+    // and prior sticky state are not inputs and cannot feed back into the next
+    // visibility decision.
+    const projection = workspaceFileStickyProjection({
       rows: visibleRows,
       rowIndexByPath: visibleRowIndexByPath,
-      treeTop,
-      stickyTop,
+      treeTop: viewportRect.top,
+      stickyBoundary,
       scrollerBottom: scrollerRect.bottom,
       rowHeight,
-      stickyHeight: FILE_STICKY_CONTEXT_HEIGHT,
     })
-    if (nextStickyPaths.length === 0) {
+    if (projection.directoryPaths.length === 0) {
       clearStickyContext()
       return
     }
 
     updateContextShift(true)
-
-    const indentShiftDepth = workspaceFileIndentShiftDepthForViewport({
-      rows: visibleRows,
-      treeTop,
-      stickyTop,
-      scrollerBottom: scrollerRect.bottom,
-      rowHeight,
-      stickyHeight: FILE_STICKY_CONTEXT_HEIGHT,
-    })
-    updateIndentShift(indentShiftDepth * WORKSPACE_FILE_TREE_INDENT)
+    updateIndentShift(projection.indentShiftDepth * WORKSPACE_FILE_TREE_INDENT)
 
     setStickyDirectoryPaths(current => (
-      current.length === nextStickyPaths.length && current.every((path, index) => path === nextStickyPaths[index])
+      current.length === projection.directoryPaths.length && current.every((path, index) => path === projection.directoryPaths[index])
         ? current
-        : nextStickyPaths
+        : projection.directoryPaths
     ))
   }, [clearStickyContext, filesCollapsed, rowHeight, treeViewportRef, updateContextShift, updateIndentShift, visibleRowIndexByPath, visibleRows])
 
@@ -205,6 +183,8 @@ export function useWorkspaceFileStickyContext({
     refreshStickyAncestors()
     const earlyTimeoutId = window.setTimeout(refreshStickyAncestors, 80)
     const lateTimeoutId = window.setTimeout(refreshStickyAncestors, 180)
+    // Tree mutations are only a liveness signal for the virtual list. The
+    // projection above never reads the observed tree or sticky output DOM.
     const treeObserver = typeof MutationObserver === 'undefined'
       ? null
       : new MutationObserver(refreshBeforePaint)

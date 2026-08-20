@@ -49,9 +49,9 @@ const {
   workspaceFileTreeActivationIntent,
   workspaceFileTreeRowClickIntent,
   workspaceFileIndentShiftDepthForViewport,
+  workspaceFileStickyProjection,
   workspaceCompactStickyDirectoryLabel,
   workspaceStickyDirectoryPresentation,
-  workspaceStickyContentTop,
   workspaceStickyContextRevealProgress,
   workspaceStickyContextItems,
   workspaceStickyDirectoryPaths,
@@ -1307,8 +1307,6 @@ function run() {
     lastFocusedPath: null,
     rows: [],
   }), null);
-  assert.strictEqual(workspaceStickyContentTop(10, 30, 12), 77);
-  assert.strictEqual(workspaceStickyContentTop(10, 30, 12, 0), 52);
   assert.strictEqual(isWorkspaceStickyContextVisible(40, 41), true);
   assert.strictEqual(isWorkspaceStickyContextVisible(43, 41), false);
   assert.strictEqual(workspaceStickyContextRevealProgress(40, 40, 24), 0);
@@ -1545,6 +1543,28 @@ function run() {
     rowHeight: 24,
     stickyHeight: 40,
   }), 0);
+  assert.deepStrictEqual(workspaceFileStickyProjection({
+    rows: indexedRows,
+    rowIndexByPath: indexedRowIndexByPath,
+    treeTop: -48,
+    stickyBoundary: 0,
+    scrollerBottom: 88,
+    rowHeight: 24,
+  }), {
+    directoryPaths: ['module', 'module/src'],
+    indentShiftDepth: 2,
+  });
+  assert.deepStrictEqual(workspaceFileStickyProjection({
+    rows: indexedRows,
+    rowIndexByPath: indexedRowIndexByPath,
+    treeTop: 2,
+    stickyBoundary: 0,
+    scrollerBottom: 88,
+    rowHeight: 24,
+  }), {
+    directoryPaths: [],
+    indentShiftDepth: 0,
+  });
   assert.deepStrictEqual(WORKSPACE_FILE_SEARCH_FOCUS_RETRY_DELAYS, [0, 80, 180, 300, 520, 900, 1200]);
   assert.deepStrictEqual(WORKSPACE_FILE_TREE_FOCUS_RETRY_DELAYS, [80, 180, 360]);
 

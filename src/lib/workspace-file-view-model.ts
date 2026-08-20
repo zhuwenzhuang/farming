@@ -37,6 +37,11 @@ export interface WorkspaceVisibleFileTreeRow {
   ancestors: Array<{ path: string; depth: number }>
 }
 
+export interface WorkspaceFileStickyProjection {
+  directoryPaths: string[]
+  indentShiftDepth: number
+}
+
 export interface WorkspaceFileTreeSelectedRowState {
   path?: string
   type?: string
@@ -165,10 +170,6 @@ export function workspaceFileTreeActivationIntent(options: {
   if (options.nodeType === 'directory') return options.nodeOpen ? 'close-directory' : 'open-directory'
   if (options.nodeType === 'file') return 'open-file'
   return 'none'
-}
-
-export function workspaceStickyContentTop(scrollerTop: number, projectRowHeight = 30, precedingSectionHeight = 0, filesHeaderHeight = 25) {
-  return scrollerTop + projectRowHeight + precedingSectionHeight + filesHeaderHeight
 }
 
 export function isWorkspaceStickyContextVisible(viewportTop: number, stickyTop: number, margin = 1) {
@@ -319,6 +320,40 @@ export function workspaceFileIndentShiftDepthForViewport(options: {
     minimumShiftDepth
   )
   return currentShift + (nextShift - currentShift) * progress
+}
+
+export function workspaceFileStickyProjection(options: {
+  rows: readonly WorkspaceVisibleFileTreeRow[]
+  rowIndexByPath: ReadonlyMap<string, number>
+  treeTop: number
+  stickyBoundary: number
+  scrollerBottom: number
+  rowHeight: number
+}): WorkspaceFileStickyProjection {
+  if (!isWorkspaceStickyContextVisible(options.treeTop, options.stickyBoundary)) {
+    return { directoryPaths: [], indentShiftDepth: 0 }
+  }
+
+  const geometry = {
+    rows: options.rows,
+    treeTop: options.treeTop,
+    stickyTop: options.stickyBoundary,
+    scrollerBottom: options.scrollerBottom,
+    rowHeight: options.rowHeight,
+    stickyHeight: options.rowHeight,
+  }
+  const directoryPaths = workspaceStickyDirectoryPathsForIndexedViewport({
+    ...geometry,
+    rowIndexByPath: options.rowIndexByPath,
+  })
+  if (directoryPaths.length === 0) {
+    return { directoryPaths: [], indentShiftDepth: 0 }
+  }
+
+  return {
+    directoryPaths,
+    indentShiftDepth: workspaceFileIndentShiftDepthForViewport(geometry),
+  }
 }
 
 export function workspaceStickyContextItems(options: {

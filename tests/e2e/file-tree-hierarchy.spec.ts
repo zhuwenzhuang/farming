@@ -558,6 +558,84 @@ test('preserves every visible directory level across sticky scroll, collapse, re
   await expect.poll(() => stickyHierarchyMatchesFirstUncoveredRow(restoredFiles)).toBe(true)
 })
 
+test('keeps sticky context mounted through continuous Project scrolling', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'sticky-scrollbar-drag')
+  const bulk = path.join(workspace, 'bulk')
+  fs.mkdirSync(bulk, { recursive: true })
+  for (let index = 0; index < 320; index += 1) {
+    fs.writeFileSync(path.join(bulk, `entry-${String(index).padStart(3, '0')}.ts`), `export const value${index} = ${index}\n`)
+  }
+
+  await openFarming(page)
+  await openNewAgentDialog(page)
+  await startAgentFromOpenDialog(page, 'bash', workspace)
+
+  const files = page.getByTestId('code-files-section')
+  const filesTitle = files.getByRole('button', { name: 'Files', exact: true })
+  if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
+  const bulkDirectory = files.locator('[data-testid="code-file-row"][data-file-path="bulk"]')
+  await bulkDirectory.click()
+  await expect(bulkDirectory).toHaveAttribute('aria-expanded', 'true')
+
+  const projectList = page.getByTestId('code-project-list')
+  await projectList.evaluate(element => { element.scrollTop = 0 })
+  await expect(files.getByTestId('code-file-sticky-stack')).toHaveCount(0)
+  await files.evaluate(element => {
+    const testWindow = window as Window & {
+      __fileTreeStickyDragAudit?: {
+        observer: MutationObserver
+        mounted: number
+        removed: number
+      }
+    }
+    const audit = {
+      observer: null as unknown as MutationObserver,
+      mounted: 0,
+      removed: 0,
+    }
+    audit.observer = new MutationObserver(mutations => {
+      for (const mutation of mutations) {
+        for (const addedNode of mutation.addedNodes) {
+          if (!(addedNode instanceof HTMLElement)) continue
+          if (addedNode.matches('[data-testid="code-file-sticky-stack"]') || addedNode.querySelector('[data-testid="code-file-sticky-stack"]')) {
+            audit.mounted += 1
+          }
+        }
+        for (const removedNode of mutation.removedNodes) {
+          if (!(removedNode instanceof HTMLElement)) continue
+          if (removedNode.matches('[data-testid="code-file-sticky-stack"]') || removedNode.querySelector('[data-testid="code-file-sticky-stack"]')) {
+            audit.removed += 1
+          }
+        }
+      }
+    })
+    audit.observer.observe(element, { childList: true, subtree: true })
+    testWindow.__fileTreeStickyDragAudit = audit
+  })
+
+  await projectList.evaluate(async element => {
+    const targetScrollTop = (element.scrollHeight - element.clientHeight) * 0.45
+    for (let step = 1; step <= 120; step += 1) {
+      element.scrollTop = targetScrollTop * step / 120
+      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    }
+  })
+  await settleLayout(page)
+  expect(await projectList.evaluate(element => element.scrollTop)).toBeGreaterThan(0)
+
+  const audit = await files.evaluate(() => {
+    const testWindow = window as Window & {
+      __fileTreeStickyDragAudit?: { observer: MutationObserver; mounted: number; removed: number }
+    }
+    const result = testWindow.__fileTreeStickyDragAudit
+    result?.observer.disconnect()
+    delete testWindow.__fileTreeStickyDragAudit
+    return result ? { mounted: result.mounted, removed: result.removed } : null
+  })
+  expect(audit).toEqual({ mounted: 1, removed: 0 })
+  await expect(files.getByTestId('code-file-sticky-stack')).toBeVisible()
+})
+
 test('restores the open editor set, preview state, and Open Editors disclosure', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'remembered-open-editors')
   fs.mkdirSync(workspace, { recursive: true })

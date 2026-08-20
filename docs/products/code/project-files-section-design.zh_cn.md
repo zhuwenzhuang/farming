@@ -160,6 +160,8 @@ Farming Instance 都是同一文件系统的独立客户端。
 不能引入第二个 Scrollbar。因此大型恢复树的成本由可见邻域而不是完整 Projection 决定。随滚动更新的
 Sticky Context 从该预计算 Projection 定位 Row，并且只检查有界的 Viewport Slice；单个滚动帧
 不得遍历完整展开树，也不得读取每个已挂载文件 Row 的布局。
+该 Projection 必须对自身输出无感：输入只能是逻辑 Row Projection、外层滚动几何和 Files Header
+边界。已渲染 Sticky DOM 几何及上一次 Sticky 状态绝不能回流到下一次显隐决策。
 
 单个粘性目录上下文是固定单行高度、显示紧凑路径的导航控件。只有首个未被遮挡的可见行存在
 已展开且滚过粘性边界的真实祖先时才展示；已折叠目录和前置同级目录永远不能成为粘性上下文。

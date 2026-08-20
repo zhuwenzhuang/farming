@@ -210,6 +210,9 @@ bounded by the visible neighborhood rather than the complete projection.
 Scroll-linked sticky context derives its row from that precomputed projection
 and inspects only a bounded viewport slice. A scroll frame must not enumerate
 the complete expanded tree or read layout from every mounted file row.
+Its projection is output-blind: only the logical row projection, outer scroll
+geometry, and Files header boundary are inputs. Rendered sticky geometry and
+prior sticky state must never feed the next visibility decision.
 
 The single sticky directory context is a fixed one-row navigation control with
 a compact path. It appears only when the first uncovered visible row has a real
