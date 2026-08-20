@@ -1,0 +1,130 @@
+{
+  "name": "editorial_research_linework",
+  "version": 5,
+  "principle": "Style is fixed; subject and visual elements are free. This capsule defines only how an illustration is rendered, paced, colored, and composed. It does not prescribe which objects, actors, metaphors, diagrams, or information structures must appear.",
+  "canonical_style_prompt": "Render the requested subject as a refined minimalist editorial research illustration. Build the image from a few large softly simplified shapes, strong negative space, and very little internal detail. Use a warm off-white field, thin-to-medium charcoal-colored contours, pale neutral fills, and one restrained muted blue-gray color family. Keep the drawing flat, matte, calm, and authored: confident organic curves, quiet asymmetry, economical marks, and no fine descriptive rendering. Let silhouette, overlap, spacing, and selective color carry the image.",
+  "style_capsule": {
+    "medium": [
+      "clean digital editorial line illustration",
+      "flat color and outline drawing",
+      "publication artwork rather than interface rendering",
+      "subtle hand-authored character without visible physical-media texture"
+    ],
+    "line": [
+      "thin-to-medium charcoal-gray strokes",
+      "mostly consistent light weight with slight natural variation at curves and joins",
+      "rounded, confident contours",
+      "large contours are established before any internal detail",
+      "details are suggested with only a few economical marks rather than fully described",
+      "lines feel drawn by an illustrator, not snapped to a rigid vector grid"
+    ],
+    "shape": [
+      "large softly simplified silhouettes",
+      "recognizable forms reduced to their most useful contours and masses",
+      "gentle asymmetry and slightly organic geometry",
+      "broad quiet shapes with very few small internal details",
+      "objects remain distinct without receiving heavy borders or decorative framing"
+    ],
+    "color": {
+      "ground": "warm off-white or pale cream",
+      "ink": "charcoal gray-black rather than absolute digital black",
+      "neutral_fill": "white, warm light gray, and very pale cream",
+      "accent": "one muted blue-gray family used sparingly",
+      "behavior": "most of the image remains neutral; accent color appears in a few deliberate areas and never becomes a broad gradient or decorative wash"
+    },
+    "surface": [
+      "flat matte digital finish with broad unmodeled color fields",
+      "depth and material are suggested through shape relationships rather than tonal rendering",
+      "clean digital surfaces without visible paper grain or physical-media buildup",
+      "very subtle warm edge softness is acceptable when it makes the image feel less sterile"
+    ],
+    "space": [
+      "generous unoccupied field around the subject",
+      "clear separation between major masses",
+      "depth suggested through overlap, scale, and placement rather than shadow rendering",
+      "quiet asymmetry instead of perfectly centered icon-like balance",
+      "the composition should breathe at article width"
+    ],
+    "rhythm": [
+      "one dominant visual gesture or mass",
+      "a small number of secondary forms",
+      "alternation between open space and compact detail",
+      "calm eye movement with low descriptive density",
+      "visual emphasis comes from scale, spacing, and selective accent color"
+    ],
+    "human_treatment": [
+      "when people happen to be present, use natural adult proportions and quiet body language",
+      "simplify faces, hair, clothing folds, and hands into a few clear marks; when a face is visible, retain minimal readable eyes as small dots or short drawn marks so the expression does not feel blank",
+      "prefer observational side or three-quarter views when the requested action supports them",
+      "people follow the same thin-line, pale-fill, low-detail treatment as every other subject"
+    ],
+    "typography": [
+      "when text is requested, use sparse clean editorial sans-serif lettering",
+      "text stays secondary to the illustration",
+      "use exact supplied wording and do not invent explanatory copy"
+    ],
+    "mood": [
+      "calm",
+      "thoughtful",
+      "precise",
+      "quietly human",
+      "intellectually playful without becoming cute",
+      "professional without corporate stock-art polish"
+    ],
+    "boundaries": [
+      "use flat editorial color fields and contour-led form",
+      "preserve generous open field around a small number of major masses",
+      "favor authored organic simplification over either rigid geometry or fine descriptive rendering"
+    ]
+  },
+  "reference_policy": {
+    "role": "rendering style only",
+    "inherit": [
+      "warm off-white ground",
+      "thin charcoal-colored outlines",
+      "pale neutral fills",
+      "restrained muted blue-gray accents",
+      "simplified proportions",
+      "editorial spacing and light visual weight"
+    ],
+    "do_not_inherit": "Do not copy reference subjects, objects, actors, labels, topology, layout, information flow, or composition. The new request has complete freedom over its elements."
+  },
+  "request_schema": {
+    "required": [
+      "subject"
+    ],
+    "optional": [
+      "intended_use",
+      "aspect_ratio",
+      "composition",
+      "palette_adjustment",
+      "text",
+      "invariants"
+    ],
+    "assembly_order": [
+      "describe the requested subject and action without adding unrelated elements",
+      "apply canonical_style_prompt and style_capsule",
+      "attach references as rendering-style references only",
+      "apply request-specific composition, text, and invariants"
+    ]
+  },
+  "style_gate": [
+    "unrelated subjects still look like they were illustrated by the same visual author",
+    "the result uses thin-to-medium charcoal-colored authored contours with slight organic variation",
+    "the background and fills remain warm, pale, matte, and spacious",
+    "muted blue-gray is restrained to a few deliberate areas",
+    "forms are built from a few large simplified masses and remain recognizable without depending on a prescribed element vocabulary",
+    "the image retains low descriptive density, strong negative space, and an authored editorial rhythm",
+    "removing all labels would not remove the visual style identity"
+  ],
+  "saved_references": [
+    {
+      "path": "./references/editorial-systems-sketch/progressive-network.png",
+      "role": "rendering-style evidence only; ignore its subject and diagram structure"
+    },
+    {
+      "path": "./references/editorial-systems-sketch/terminal-workspace.png",
+      "role": "rendering-style evidence only; ignore its subject and workspace structure"
+    }
+  ]
+}
