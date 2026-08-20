@@ -1,7 +1,8 @@
 {
   "name": "editorial_systems_sketch",
-  "version": 1,
-  "principle": "The claim is fixed; the visual metaphor is free. Use a calm editorial sketch to make one complex relationship immediately understandable without turning the image into a dashboard or a labeled specification.",
+  "version": 2,
+  "principle": "The claim is fixed; the visual metaphor is free. Use a refined product-editorial systems illustration to make one complex relationship immediately understandable without turning the image into a dashboard or a labeled specification. Sketch means conceptual simplification, never a visible pencil, charcoal, watercolor, or paper-texture treatment.",
+  "style_reference_asset": "./references/editorial-systems-sketch/progressive-network.png",
   "style_capsule": {
     "purpose": [
       "editorial illustrations for articles, documentation, and concept explanations",
@@ -9,18 +10,18 @@
       "show a person using a system rather than presenting an abstract machine alone"
     ],
     "medium": [
-      "restrained hand-drawn ink line art",
-      "warm off-white paper background",
-      "sparse flat color washes rather than glossy digital rendering",
-      "subtle print and paper texture",
-      "clean icon-like objects embedded in a lightly sketched scene"
+      "refined product-editorial illustration",
+      "thin clean charcoal-gray line art with controlled, consistent geometry",
+      "flat warm off-white background with no visible paper grain",
+      "sparse flat muted color accents rather than watercolor washes or glossy rendering",
+      "clean icon-like objects arranged in a polished explanatory scene"
     ],
     "mood": [
       "calm",
       "human",
       "intelligent",
       "lightly playful",
-      "professional rather than corporate"
+      "professional and engineering-oriented rather than corporate or pastoral"
     ],
     "palette": {
       "background": "warm off-white or pale cream",
@@ -31,16 +32,17 @@
       "fills": "mostly white and pale neutral fills with restrained accent color"
     },
     "line_quality": [
-      "thin confident ink outlines with slight hand-drawn irregularity",
-      "consistent visual weight across people, objects, icons, and containers",
+      "thin crisp outlines with minimal organic softness and no sketch wobble",
+      "consistent light visual weight across people, objects, icons, arrows, and containers",
       "simple silhouettes and recognizable physical metaphors",
-      "no photorealistic shading and no polished vector perfection"
+      "polished product-illustration finish without photorealistic shading, pencil rendering, crosshatching, or heavy contour work"
     ],
     "human_figures": [
       "use an adult human, never a robot or mascot, when an Agent or operator is shown",
       "show the person actively observing, pointing, typing, repairing, or deciding",
       "prefer side or three-quarter back views so attention stays on the work",
-      "use practical neutral clothing and natural proportions",
+      "use practical neutral clothing, natural proportions, simplified facial detail, and flat or near-flat fills",
+      "keep the figure visually light; do not render hair, fabric, skin, or shadows with dense pencil or charcoal strokes",
       "write Working Agent on the back only when the role would otherwise be ambiguous"
     ],
     "system_language": [
@@ -73,6 +75,9 @@
     ],
     "avoid": [
       "robots, mascots, and science-fiction control rooms",
+      "the Farming watercolor-pastoral style, watercolor washes, storybook softness, pastoral mood, and handmade avatar language",
+      "paper grain, canvas texture, print noise, pencil texture, charcoal rendering, crosshatching, scribbled shading, and visibly rough sketch lines",
+      "cozy lifestyle-vignette props such as coffee cups, desk notebooks, houseplants, or decorative stationery unless they carry the claim",
       "generic SaaS dashboards and dense grids of cards",
       "corporate stock illustration polish",
       "gradient backgrounds, glowing effects, glassmorphism, and 3D rendering",
@@ -81,7 +86,8 @@
       "too many arrows, labels, borders, or nested containers",
       "diagram annotations that merely repeat what the icons already show",
       "blue-dominated monochrome compositions",
-      "decorative complexity that makes the task look difficult to use"
+      "decorative complexity that makes the task look difficult to use",
+      "using the word sketch as an instruction to imitate a physical sketch medium"
     ]
   },
   "modes": {
@@ -93,7 +99,7 @@
         "omit the human figure unless use by a person is part of the claim",
         "keep labels literal and minimal"
       ],
-      "prompt_addendum": "Create a compact editorial systems sketch with one clear structure, generous negative space, and only the labels required to identify its parts."
+      "prompt_addendum": "Create a compact, clean product-editorial systems illustration with one clear structure, generous negative space, crisp thin linework, flat fills, and only the labels required to identify its parts. Do not use a physical sketch or paper texture."
     },
     "human_feedback_loop": {
       "goal": "Show two connected feedback loops or a repeated learning relationship between people and Agents.",
@@ -147,7 +153,7 @@
         "show context view, workspace, cache, progress, and structured data as terminal-native working views",
         "keep the CLI command visible but secondary to the information transformation"
       ],
-      "prompt_addendum": "Use a large Terminal window as the Agent's inhabitable workspace, with raw information flowing in, organized terminal-native views in the middle, and clear insight plus next actions flowing out."
+      "prompt_addendum": "Use a large Terminal window as the Agent's inhabitable workspace, with raw information flowing in, organized terminal-native views in the middle, and clear insight plus next actions flowing out. Keep the treatment clean, thin-lined, flat, and product-editorial; no charcoal shading, paper texture, or cozy desk vignette."
     }
   },
   "request_schema": {
@@ -171,6 +177,7 @@
       "state the editorial claim and intended article placement",
       "describe the concrete scene and information flow",
       "apply the complete style_capsule",
+      "attach the top-level style_reference_asset for every mode and treat it as the authoritative rendering reference",
       "apply the selected mode and its prompt_addendum",
       "attach the mode reference_asset when present",
       "append request-specific must_show and must_avoid constraints"
@@ -183,16 +190,17 @@
     "all text is accurate, sparse, and readable",
     "unused possibilities remain visible without competing with the active path",
     "the image feels calm and easy to use despite depicting a capable system",
+    "the rendering is a clean thin-lined product-editorial illustration and cannot be mistaken for Farming watercolor-pastoral art, a pencil sketch, or a charcoal drawing",
     "there is no private data, watermark, accidental logo, or unexplained decorative element"
   ],
   "saved_references": [
     {
       "path": "./references/editorial-systems-sketch/progressive-network.png",
-      "role": "complex capability network, human interaction, and one highlighted task path"
+      "role": "authoritative visual-style reference: clean thin linework, flat warm off-white background, restrained blue-gray hierarchy, simplified human figure, and one highlighted task path"
     },
     {
       "path": "./references/editorial-systems-sketch/terminal-workspace.png",
-      "role": "Terminal as an Agent workspace that turns large raw context into insight and action"
+      "role": "composition reference for a clean product-editorial Terminal workspace that turns large raw context into insight and action"
     }
   ]
 }
