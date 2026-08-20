@@ -651,8 +651,8 @@ export function CodeSidebar({
 
       const scrollerRect = scroller.getBoundingClientRect()
       const rowRect = row.getBoundingClientRect()
-      const rowIsVisible = rowRect.bottom > scrollerRect.top && rowRect.top < scrollerRect.bottom
-      if (!rowIsVisible) {
+      const rowIsFullyVisible = rowRect.top >= scrollerRect.top && rowRect.bottom <= scrollerRect.bottom
+      if (!rowIsFullyVisible) {
         scroller.scrollTop += workspaceFileRevealScrollDelta(scrollerRect, rowRect)
       }
       return true

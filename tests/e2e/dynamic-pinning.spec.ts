@@ -192,6 +192,7 @@ test('Project Archive protects manual and dynamic pinned Agents', async ({ page,
     },
   })
   await updateAgentLiveState(page, dynamicId, {
+    unread: true,
     runtimeObservation: {
       kind: 'shell',
       phase: 'working',
