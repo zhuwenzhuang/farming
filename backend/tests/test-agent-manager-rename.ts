@@ -208,6 +208,15 @@ async function run() {
     assert.match(failedFlagUpdate.error, /Failed to update Agent/);
     assert.strictEqual(manager.agents.get(agentId).pinned, pinnedBeforeFailedUpdate);
     assert.strictEqual(failedWriteAttempts.at(-1).pinned, pinnedBeforeFailedUpdate);
+    failNextWrite = true;
+    const failedFollowUpUpdate = manager.updateAgentFlags(agentId, { followUp: true });
+    assert.match(failedFollowUpUpdate.error, /Failed to update Agent/);
+    assert.strictEqual(manager.agents.get(agentId).followUp, false);
+    assert.strictEqual(
+      failedWriteAttempts.at(-1).followUp,
+      true,
+      'the failed durable write should contain the requested follow-up state without committing it in memory',
+    );
     const ordersBeforeFailedReorder = new Map(
       [...manager.agents].map(([id, agent]) => [id, agent.projectOrder]),
     );
@@ -384,11 +393,13 @@ async function run() {
     assert.strictEqual(missing.error, 'Agent not found');
     assert.strictEqual(manager.setAgentTask('missing-agent', 'Nope').error, 'Agent not found');
 
-    const flags = manager.updateAgentFlags(agentId, { pinned: true, unread: true });
+    const flags = manager.updateAgentFlags(agentId, { followUp: true, pinned: true, unread: true });
+    assert.strictEqual(flags.followUp, true);
     assert.strictEqual(flags.pinned, true);
     assert.strictEqual(typeof flags.pinnedOrder, 'number');
     assert.strictEqual(flags.unread, true);
     const flaggedAgent = manager.getState().agents.find(agent => agent.id === agentId);
+    assert.strictEqual(flaggedAgent.followUp, true);
     assert.strictEqual(flaggedAgent.pinned, true);
     assert.strictEqual(flaggedAgent.unread, true);
 
@@ -396,6 +407,7 @@ async function run() {
     assert.strictEqual(directArchive.error, 'Use archiveAgent to archive live agents');
     const stillLiveAgent = manager.getState().agents.find(agent => agent.id === agentId);
     assert.strictEqual(stillLiveAgent.archived, false);
+    assert.strictEqual(stillLiveAgent.followUp, true);
     assert.strictEqual(stillLiveAgent.pinned, true);
 
     const legacyArchivedAgent = manager.agents.get(agentId);
@@ -406,6 +418,7 @@ async function run() {
     const restored = manager.updateAgentFlags(agentId, { archived: false, unread: false });
     assert.strictEqual(restored.archived, false);
     assert.strictEqual(restored.archivedAt, null);
+    assert.strictEqual(manager.getState().agents.find(agent => agent.id === agentId).followUp, true);
     assert.strictEqual(restored.unread, false);
 
     const markedUnread = manager.attentionTracker.markAgentUnreadCursor(agentId);
@@ -503,6 +516,7 @@ async function run() {
       workflowTemplate: '',
       source: 'codex-history:codex-session-123',
       customTitle: 'Keep title',
+      followUp: true,
       pinned: true,
       unread: false,
       archived: false,
@@ -545,6 +559,7 @@ async function run() {
     assert.strictEqual(restartedCodex.agentRecordId, permissionAgentRecordId);
     assert.strictEqual(restartedCodex.persistentSessionId, permissionAgentRecordId);
     assert.strictEqual(restartedCodex.customTitle, 'Keep title');
+    assert.strictEqual(restartedCodex.followUp, true);
     assert.strictEqual(restartedCodex.pinned, true);
     assert.deepStrictEqual(restartedCodex.composerCommands, permissionComposerCommands);
     assert.deepStrictEqual(restartedCodex.restartedFromAgentIds, [codexPermissionAgentId]);
@@ -640,6 +655,7 @@ async function run() {
       workflowTemplate: '',
       source: 'ui',
       customTitle: 'Keep pending title',
+      followUp: true,
       pinned: true,
       unread: false,
       archived: false,
@@ -700,6 +716,7 @@ async function run() {
       pendingCodexPermissionAgentId
     );
     assert.strictEqual(restartedPendingCodex.customTitle, 'Keep pending title');
+    assert.strictEqual(restartedPendingCodex.followUp, true);
     assert.strictEqual(restartedPendingCodex.pinned, true);
 
     const chainedPendingCodexPermission = await manager.syncCodexTerminalPermissionMode(

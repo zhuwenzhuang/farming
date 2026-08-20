@@ -25,6 +25,7 @@ type AgentStateSnapshotFrame = Pick<StateMessage, 'state'> & {
 interface ProjectAgentSummary {
   activeCount: number;
   agentCount: number;
+  followUpCount: number;
   maxAttentionScore: number;
   unreadCount: number;
   workspace: string;
@@ -131,6 +132,7 @@ function accumulateProjectAgentSummary(
   const summary = summaries.get(workspace) || {
     activeCount: 0,
     agentCount: 0,
+    followUpCount: 0,
     maxAttentionScore: 0,
     unreadCount: 0,
     workspace,
@@ -138,6 +140,7 @@ function accumulateProjectAgentSummary(
   };
   summary.agentCount += 1;
   if (agentTurnActiveFromState(agent)) summary.activeCount += 1;
+  if (agent.followUp === true) summary.followUpCount += 1;
   if (agent.unread === true) summary.unreadCount += 1;
   if (agent.isZombie === true) summary.zombieCount += 1;
   const attentionScore = Number(agent.attentionScore);

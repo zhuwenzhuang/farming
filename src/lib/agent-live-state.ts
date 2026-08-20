@@ -31,10 +31,12 @@ type AgentPreviewPatch = Pick<
 type AgentLivePatch = AgentUpdateMessage['update']['patch']
   & Partial<AgentLiveActivity>
   & Partial<AgentPreviewPatch>
+  & Partial<Pick<Agent, 'followUp'>>
   & Partial<Omit<AgentReadMessage['read'], 'agentId'>>
 
 type AgentLiveState = AgentLiveActivity
   & AgentPreviewPatch
+  & Pick<Agent, 'followUp'>
   & AgentUpdateMessage['update']['patch']
   & Omit<AgentReadMessage['read'], 'agentId'>
 type Listener = () => void
@@ -49,6 +51,7 @@ type AgentProjectMembership = {
 type AgentProjectContribution = {
   active: boolean
   attentionScore: number
+  followUp: boolean
   unread: boolean
   workspace: string
   zombie: boolean
@@ -57,6 +60,7 @@ type ProjectAggregate = {
   activeCount: number
   agentCount: number
   attentionCounts: Uint32Array
+  followUpCount: number
   snapshot: ProjectAgentSummary
   unreadCount: number
   zombieCount: number
@@ -145,6 +149,7 @@ function liveStateFromAgent(agent: Agent): AgentLiveState {
     terminalStatus: agent.terminalStatus,
     runtimeObservation: agent.runtimeObservation,
     codexTerminalProfile: agent.codexTerminalProfile,
+    followUp: agent.followUp,
     unread: agent.unread,
     attentionSeq: agent.attentionSeq,
     readAttentionSeq: agent.readAttentionSeq,
@@ -189,6 +194,7 @@ function agentProjectContribution(
   return {
     active: agentTurnActiveFromState(liveState),
     attentionScore: normalizedProjectAttentionScore(liveState.attentionScore),
+    followUp: liveState.followUp === true,
     unread: liveState.unread === true,
     workspace: membership.workspace,
     zombie: liveState.isZombie === true,
@@ -200,9 +206,11 @@ function emptyProjectAggregate(workspace: string): ProjectAggregate {
     activeCount: 0,
     agentCount: 0,
     attentionCounts: new Uint32Array(PROJECT_ATTENTION_SCORE_MAX + 1),
+    followUpCount: 0,
     snapshot: {
       activeCount: 0,
       agentCount: 0,
+      followUpCount: 0,
       maxAttentionScore: 0,
       unreadCount: 0,
       workspace,
@@ -294,6 +302,7 @@ function flushProjectSummaries() {
     const nextSnapshot: ProjectAgentSummary = {
       activeCount: aggregate.activeCount,
       agentCount: aggregate.agentCount,
+      followUpCount: aggregate.followUpCount,
       maxAttentionScore: projectMaximumAttention(aggregate),
       unreadCount: aggregate.unreadCount,
       workspace,
@@ -303,6 +312,7 @@ function flushProjectSummaries() {
     if (
       previous.activeCount === nextSnapshot.activeCount
       && previous.agentCount === nextSnapshot.agentCount
+      && previous.followUpCount === nextSnapshot.followUpCount
       && previous.maxAttentionScore === nextSnapshot.maxAttentionScore
       && previous.unreadCount === nextSnapshot.unreadCount
       && previous.zombieCount === nextSnapshot.zombieCount
@@ -333,6 +343,7 @@ function removeProjectContribution(contribution: AgentProjectContribution) {
   if (!aggregate) return
   aggregate.agentCount = Math.max(0, aggregate.agentCount - 1)
   if (contribution.active) aggregate.activeCount = Math.max(0, aggregate.activeCount - 1)
+  if (contribution.followUp) aggregate.followUpCount = Math.max(0, aggregate.followUpCount - 1)
   if (contribution.unread) aggregate.unreadCount = Math.max(0, aggregate.unreadCount - 1)
   if (contribution.zombie) aggregate.zombieCount = Math.max(0, aggregate.zombieCount - 1)
   aggregate.attentionCounts[contribution.attentionScore] = Math.max(
@@ -348,6 +359,7 @@ function addProjectContribution(contribution: AgentProjectContribution) {
   projectAggregates.set(contribution.workspace, aggregate)
   aggregate.agentCount += 1
   if (contribution.active) aggregate.activeCount += 1
+  if (contribution.followUp) aggregate.followUpCount += 1
   if (contribution.unread) aggregate.unreadCount += 1
   if (contribution.zombie) aggregate.zombieCount += 1
   aggregate.attentionCounts[contribution.attentionScore] = (
@@ -365,6 +377,7 @@ function sameProjectContribution(
     && right
     && left.active === right.active
     && left.attentionScore === right.attentionScore
+    && left.followUp === right.followUp
     && left.unread === right.unread
     && left.workspace === right.workspace
     && left.zombie === right.zombie

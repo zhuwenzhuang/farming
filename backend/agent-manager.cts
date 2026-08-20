@@ -658,6 +658,7 @@ const CREATE_ROLLBACK_FIELDS: string[] = [
   'task',
   'workflowTemplate',
   'wantsMain',
+  'followUp',
   'pinned',
   'projectOrder',
   'pinnedOrder',
@@ -2669,6 +2670,7 @@ class AgentManager extends EventEmitter {
           : engineMetadata.adaptiveTitle,
         lifecycleJournal: lifecycleJournal(persisted),
         ...legacyRuntimeMetadata(persisted),
+        followUp: persisted.followUp === true,
         pinned: persisted.pinned === true,
         projectOrder: finiteOrder(persisted.projectOrder) ?? finiteOrder(engineMetadata.projectOrder),
         pinnedOrder: finiteOrder(persisted.pinnedOrder) ?? finiteOrder(engineMetadata.pinnedOrder),
@@ -3223,6 +3225,7 @@ class AgentManager extends EventEmitter {
         pinnedOrder: finiteOrder(record.pinnedOrder),
         customTitle: record.customTitle || '',
         adaptiveTitle: record.adaptiveTitle || '',
+        followUp: record.followUp === true,
         pinned: record.pinned === true,
         attentionSeq: finiteNonNegativeInteger(record.attentionSeq),
         readAttentionSeq: finiteNonNegativeInteger(record.readAttentionSeq),
@@ -3284,6 +3287,7 @@ class AgentManager extends EventEmitter {
         continue;
       }
 
+      replacement.followUp = record.followUp === true;
       replacement.pinned = record.pinned === true;
       replacement.projectOrder = finiteOrder(record.projectOrder);
       replacement.pinnedOrder = finiteOrder(record.pinnedOrder);
@@ -4096,6 +4100,7 @@ class AgentManager extends EventEmitter {
       shellLastCommandStartedAt: finiteNumberOrNull(state.shellLastCommandStartedAt),
       shellLastCommandFinishedAt: finiteNumberOrNull(state.shellLastCommandFinishedAt),
       shellLastCommandDurationMs: finiteNumberOrNull(state.shellLastCommandDurationMs),
+      followUp: metadata.followUp === true,
       pinned: metadata.pinned === true,
       projectOrder: finiteOrder(metadata.projectOrder),
       pinnedOrder: finiteOrder(metadata.pinnedOrder),
@@ -4194,6 +4199,7 @@ class AgentManager extends EventEmitter {
       forkRequestId: agent.forkRequestId || '',
       forkRequestSignature: agent.forkRequestSignature || '',
       launchPermissionMode: agent.launchPermissionMode || '',
+      followUp: agent.followUp === true,
       attentionSeq: finiteNonNegativeInteger(agent.attentionSeq),
       readAttentionSeq: finiteNonNegativeInteger(agent.readAttentionSeq),
       attentionUpdatedAt: finiteNumberOrNull(agent.attentionUpdatedAt),
@@ -4699,6 +4705,7 @@ class AgentManager extends EventEmitter {
       customTitle: agent.customTitle,
       adaptiveTitle: agent.adaptiveTitle,
       capabilityRuntimeEpoch: agent.capabilityRuntimeEpoch || '',
+      followUp: agent.followUp === true,
       pinned: agent.pinned,
       projectOrder: finiteOrder(agent.projectOrder),
       pinnedOrder: finiteOrder(agent.pinnedOrder),
@@ -5438,6 +5445,7 @@ class AgentManager extends EventEmitter {
       shellLastCommandStartedAt: null,
       shellLastCommandFinishedAt: null,
       shellLastCommandDurationMs: null,
+      followUp: options.followUp === true,
       pinned: options.pinned === true,
       projectOrder: finiteOrder(options.projectOrder),
       pinnedOrder: finiteOrder(options.pinnedOrder),
@@ -7176,6 +7184,7 @@ class AgentManager extends EventEmitter {
 
     const persistedFlags: UnknownRecord = {};
     [
+      'followUp',
       'pinned',
       'unread',
       'archived',
@@ -7211,6 +7220,12 @@ class AgentManager extends EventEmitter {
     };
     const updates: UnknownRecord = {};
     let structuralUpdateChanged = false;
+    if (typeof flags.followUp === 'boolean') {
+      const wasFollowUp = staged.followUp === true;
+      staged.followUp = flags.followUp;
+      structuralUpdateChanged = structuralUpdateChanged || wasFollowUp !== staged.followUp;
+      updates.followUp = staged.followUp;
+    }
     if (typeof flags.pinned === 'boolean') {
       const wasPinned = staged.pinned === true;
       staged.pinned = flags.pinned;
@@ -7495,6 +7510,7 @@ class AgentManager extends EventEmitter {
         });
     if (!command) return { error: 'Failed to build provider resume command' };
     const preserved = {
+      followUp: agent.followUp === true,
       pinned: agent.pinned === true,
       projectOrder: finiteOrder(agent.projectOrder),
       pinnedOrder: finiteOrder(agent.pinnedOrder),
@@ -7849,6 +7865,7 @@ class AgentManager extends EventEmitter {
       }),
     };
     const preserved = {
+      followUp: agent.followUp === true,
       pinned: agent.pinned === true,
       projectOrder: finiteOrder(agent.projectOrder),
       pinnedOrder: finiteOrder(agent.pinnedOrder),
@@ -7883,6 +7900,7 @@ class AgentManager extends EventEmitter {
 
         const restartedAgent = this.agents.get(restartedAgentId);
         if (restartedAgent) {
+          restartedAgent.followUp = preserved.followUp;
           restartedAgent.pinned = preserved.pinned;
           restartedAgent.projectOrder = preserved.projectOrder;
           restartedAgent.pinnedOrder = preserved.pinnedOrder;
@@ -7894,6 +7912,7 @@ class AgentManager extends EventEmitter {
           restartedAgent.launchPermissionMode = nextMode;
           this.updateEngineProviderSessionMetadata(restartedAgent);
           this.sessionPersistence.persist(restartedAgent, {
+            followUp: restartedAgent.followUp,
             pinned: restartedAgent.pinned,
             projectOrder: restartedAgent.projectOrder,
             pinnedOrder: restartedAgent.pinnedOrder,
@@ -10193,6 +10212,7 @@ class AgentManager extends EventEmitter {
       forkedFromProviderSessionId: agent.forkedFromProviderSessionId || '',
       customTitle: agent.customTitle || '',
       adaptiveTitle: agent.adaptiveTitle || '',
+      followUp: agent.followUp === true,
       pinned: agent.pinned === true,
       projectOrder: finiteOrder(agent.projectOrder),
       pinnedOrder: finiteOrder(agent.pinnedOrder),
@@ -10369,6 +10389,7 @@ class AgentManager extends EventEmitter {
       launchPermissionMode: agent.launchPermissionMode || '',
       customTitle: agent.customTitle || '',
       adaptiveTitle: agent.adaptiveTitle || '',
+      followUp: agent.followUp === true,
       pinned: agent.pinned === true,
       projectOrder: finiteOrder(agent.projectOrder),
       pinnedOrder: finiteOrder(agent.pinnedOrder),

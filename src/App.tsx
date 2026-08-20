@@ -50,6 +50,7 @@ import { projectWorkspaceFromAgentState } from '../shared/agent-state-semantics.
 
 type DialogState = 'none' | 'input'
 type AgentFlagPatch = Partial<{
+  followUp: boolean
   pinned: boolean
   unread: boolean
   archived: boolean

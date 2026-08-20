@@ -14,6 +14,7 @@ import {
   ChevronLeftGlyph,
   ChevronRightGlyph,
   DesktopGlyph,
+  FieldFlagGlyph,
   FocusModeGlyph,
   HistoryGlyph,
   NewAgentGlyph,
@@ -247,7 +248,7 @@ interface CodeSidebarProps {
   onOpenProjectMenu: (event: ContextMenuTriggerEvent, projectId: string, protectedAgentIds?: readonly string[]) => void
   onReorderProject: (workspace: string, beforeWorkspace: string, afterWorkspace: string) => void
   onOpenAgent: (agentId: string) => void
-  onUpdateAgentFlags: (agent: Agent, flags: Partial<Pick<Agent, 'pinned' | 'archived'>>) => void
+  onUpdateAgentFlags: (agent: Agent, flags: Partial<Pick<Agent, 'followUp' | 'pinned' | 'archived'>>) => void
   onReorderAgent: (agentId: string, beforeAgentId: string, afterAgentId: string) => void
   onOpenAgentMenu: (event: ContextMenuTriggerEvent, agentId: string) => void
   onResumeAgentSession: (provider: string, sessionId: string, providerHomeId?: string) => void
@@ -1318,7 +1319,7 @@ interface PinnedSectionProps {
   keyboardShortcutsEnabled: boolean
   now: number
   onOpenAgent: (agentId: string) => void
-  onUpdateAgentFlags: (agent: Agent, flags: Partial<Pick<Agent, 'pinned' | 'archived'>>) => void
+  onUpdateAgentFlags: (agent: Agent, flags: Partial<Pick<Agent, 'followUp' | 'pinned' | 'archived'>>) => void
   onReorderAgent: (agentId: string, beforeAgentId: string, afterAgentId: string) => void
   onOpenAgentMenu: (event: ContextMenuTriggerEvent, agentId: string) => void
   onResumeAgentSession: (provider: string, sessionId: string, providerHomeId?: string) => void
@@ -1867,7 +1868,7 @@ interface ProjectSectionProps {
   onProjectDrop: (event: ReactDragEvent<HTMLElement>, projectId: string) => void
   onShowProjectPreview: (event: AgentPreviewAnchorEvent, target: ProjectPreviewTarget) => void
   onOpenAgent: (agentId: string) => void
-  onUpdateAgentFlags: (agent: Agent, flags: Partial<Pick<Agent, 'pinned' | 'archived'>>) => void
+  onUpdateAgentFlags: (agent: Agent, flags: Partial<Pick<Agent, 'followUp' | 'pinned' | 'archived'>>) => void
   onReorderAgent: (agentId: string, beforeAgentId: string, afterAgentId: string) => void
   onOpenAgentMenu: (event: ContextMenuTriggerEvent, agentId: string) => void
   onResumeAgentSession: (provider: string, sessionId: string, providerHomeId?: string) => void
@@ -1906,6 +1907,7 @@ function projectHeaderMetrics(
     : (project.agentSummary ?? null)
   let agentCount = 0
   let activeCount = 0
+  let followUpCount = 0
   let unreadCount = 0
   let zombieCount = 0
   let maxAttentionScore = 0
@@ -1913,6 +1915,7 @@ function projectHeaderMetrics(
   if (summary) {
     agentCount = summary.agentCount
     activeCount = summary.activeCount
+    followUpCount = summary.followUpCount ?? 0
     unreadCount = summary.unreadCount
     zombieCount = summary.zombieCount
     maxAttentionScore = summary.maxAttentionScore
@@ -1929,6 +1932,7 @@ function projectHeaderMetrics(
       kind: 'agent',
       agent,
     }, now).turnActive).length
+    followUpCount = agents.filter(agent => agent.followUp === true).length
     unreadCount = agents.filter(agent => agent.unread === true).length
     zombieCount = agents.filter(agent => agent.isZombie === true).length
     maxAttentionScore = agents.reduce((maximum, agent) => (
@@ -1940,6 +1944,7 @@ function projectHeaderMetrics(
   return {
     activeCount,
     agentCount: agentCount + sessions.length + (project.hiddenAgentSessionCount ?? 0),
+    followUpCount,
     maxAttentionScore,
     unreadCount: unreadCount + sessions.filter(session => session.unread === true).length,
     zombieCount,
@@ -1960,17 +1965,19 @@ function ProjectSection(props: ProjectSectionProps) {
       data-collapsed={props.collapsed ? 'true' : 'false'}
       data-project-agent-count={metrics.agentCount}
       data-project-active-count={metrics.activeCount}
+      data-project-follow-up-count={metrics.followUpCount}
       data-project-unread-count={metrics.unreadCount}
       data-project-zombie-count={metrics.zombieCount}
       data-project-max-attention={metrics.maxAttentionScore}
     >
-      <ProjectSectionContent {...props} />
+      <ProjectSectionContent {...props} followUpCount={metrics.followUpCount} />
     </section>
   )
 }
 
 const ProjectSectionContent = memo(function ProjectSectionContent({
   project,
+  followUpCount,
   agentInventoryComplete,
   collapsed,
   forceAgentsExpanded,
@@ -2021,7 +2028,7 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
   onDeleteWorkspaceEntries,
   onRefreshProjectOpenFiles,
   copy,
-}: ProjectSectionProps) {
+}: ProjectSectionProps & { followUpCount: number }) {
   recordPerformanceTestRender('projectSectionContent')
   const projectDraggedRef = useRef(false)
   const projectRowRef = useRef<HTMLDivElement | null>(null)
@@ -2383,6 +2390,16 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
               {collapsed ? <ChevronRightGlyph /> : <ChevronDownGlyph />}
             </span>
             <span className="code-project-title-name">{project.name}</span>
+            {followUpCount > 0 && (
+              <span
+                className="code-project-follow-up-count"
+                data-testid="code-project-follow-up-count"
+                title={`${copy.followUp}: ${followUpCount}`}
+              >
+                <FieldFlagGlyph filled />
+                <span>{followUpCount}</span>
+              </span>
+            )}
           </button>
           {currentProjectWorktreeName && repositoryWorktrees && (
             <button
@@ -2975,7 +2992,7 @@ function AgentRow({
   now: number
   dynamicPinningEnabled?: boolean
   onOpenAgent?: (agentId: string) => void
-  onUpdateAgentFlags?: (agent: Agent, flags: Partial<Pick<Agent, 'pinned' | 'archived'>>) => void
+  onUpdateAgentFlags?: (agent: Agent, flags: Partial<Pick<Agent, 'followUp' | 'pinned' | 'archived'>>) => void
   reorderable?: boolean
   dragging?: boolean
   dropPosition?: 'before' | 'after'
@@ -3033,6 +3050,12 @@ function AgentRow({
     if (!liveAgent) return
     onUpdateAgentFlags?.(liveAgent, { pinned: !rowState.pinned })
   }
+  const toggleFollowUp = (event: ReactMouseEvent<HTMLButtonElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    if (!liveAgent) return
+    onUpdateAgentFlags?.(liveAgent, { followUp: liveAgent.followUp !== true })
+  }
   const archiveAgent = (event: ReactMouseEvent<HTMLButtonElement>) => {
     event.preventDefault()
     event.stopPropagation()
@@ -3053,7 +3076,7 @@ function AgentRow({
     <>
     <div
       tabIndex={0}
-      className={`code-agent-row ${providerIcon ? 'has-provider' : ''} ${requiresResume ? 'requires-resume' : ''} ${active ? 'active' : ''} ${searchSelected ? 'search-selected' : ''} ${rowState.pinned ? 'pinned' : ''} ${rowState.unread ? 'unread' : ''} ${dynamicPinningEnabled ? 'force-age' : ''} ${dragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''}`}
+      className={`code-agent-row ${providerIcon ? 'has-provider' : ''} ${requiresResume ? 'requires-resume' : ''} ${active ? 'active' : ''} ${searchSelected ? 'search-selected' : ''} ${rowState.pinned ? 'pinned' : ''} ${liveAgent?.followUp === true ? 'follow-up' : ''} ${rowState.unread ? 'unread' : ''} ${dynamicPinningEnabled ? 'force-age' : ''} ${dragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''}`}
       draggable={(reorderable && !isTouchInputViewport()) || undefined}
       data-testid={rowTestId}
       data-agent-id={liveAgent?.id}
@@ -3160,6 +3183,17 @@ function AgentRow({
             aria-label={rowState.scheduleTitle || copy.scheduledTask}
           />
         )}
+        {liveAgent?.followUp === true && (
+          <span
+            className="code-agent-follow-up"
+            data-testid="code-agent-follow-up"
+            title={copy.followUp}
+            aria-label={copy.followUp}
+            role="img"
+          >
+            <FieldFlagGlyph filled />
+          </span>
+        )}
         {rowState.unread && <span className="code-agent-unread" title={copy.unread} />}
         {rowState.ageVisible && (
           <span
@@ -3179,6 +3213,17 @@ function AgentRow({
                 data-agent-id={liveAgent.id}
               />
             )}
+            <button
+              type="button"
+              className={`code-agent-row-action follow-up ${liveAgent?.followUp === true ? 'active' : ''}`}
+              data-testid="code-agent-row-follow-up"
+              aria-label={liveAgent?.followUp === true ? copy.unmarkFollowUp : copy.markFollowUp}
+              aria-pressed={liveAgent?.followUp === true}
+              title={liveAgent?.followUp === true ? copy.unmarkFollowUp : copy.markFollowUp}
+              onClick={toggleFollowUp}
+            >
+              <FieldFlagGlyph filled={liveAgent?.followUp === true} />
+            </button>
             <button
               type="button"
               className={`code-agent-row-action pin ${rowState.pinned ? 'active' : ''}`}

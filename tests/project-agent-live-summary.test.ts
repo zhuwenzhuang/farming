@@ -31,6 +31,7 @@ test('Project live summaries update incrementally from authoritative Agent state
     agent('main', '/alpha', { isMain: true }),
     agent('a', '/alpha', {
       attentionScore: 20,
+      followUp: true,
       runtimeObservation: { phase: 'working' } as Agent['runtimeObservation'],
       unread: true,
     }),
@@ -44,6 +45,7 @@ test('Project live summaries update incrementally from authoritative Agent state
   assert.deepEqual(projectAgentLiveSummary('/alpha'), {
     activeCount: 1,
     agentCount: 2,
+    followUpCount: 1,
     maxAttentionScore: 90,
     unreadCount: 1,
     workspace: '/alpha',
@@ -54,10 +56,12 @@ test('Project live summaries update incrementally from authoritative Agent state
   updateAgentLiveState('a', { previewText: 'irrelevant preview change' })
   assert.equal(projectAgentLiveSummary('/alpha'), stableSummary)
 
-  updateAgentLiveState('b', { attentionScore: 10 })
+  updateAgentLiveState('b', { attentionScore: 10, followUp: true })
   assert.equal(projectAgentLiveSummary('/alpha')?.maxAttentionScore, 20)
+  assert.equal(projectAgentLiveSummary('/alpha')?.followUpCount, 2)
   updateAgentLiveState('a', {
     attentionScore: 5,
+    followUp: false,
     isZombie: true,
     runtimeObservation: { phase: 'idle' } as Agent['runtimeObservation'],
     unread: false,
@@ -65,6 +69,7 @@ test('Project live summaries update incrementally from authoritative Agent state
   assert.deepEqual(projectAgentLiveSummary('/alpha'), {
     activeCount: 0,
     agentCount: 2,
+    followUpCount: 1,
     maxAttentionScore: 10,
     unreadCount: 0,
     workspace: '/alpha',
@@ -75,14 +80,15 @@ test('Project live summaries update incrementally from authoritative Agent state
 test('Project live summaries follow workspace moves and removals', () => {
   resetAgentLiveStates()
   const alpha = agent('a', '/alpha', { attentionScore: 30 })
-  const moving = agent('b', '/alpha', { attentionScore: 40, unread: true })
+  const moving = agent('b', '/alpha', { attentionScore: 40, followUp: true, unread: true })
   reconcileAgentLiveStates([alpha, moving])
 
-  const moved = agent('b', '/beta', { attentionScore: 40, unread: true })
+  const moved = agent('b', '/beta', { attentionScore: 40, followUp: true, unread: true })
   reconcileAgentLiveStateDelta([moved], [])
   assert.deepEqual(projectAgentLiveSummary('/alpha'), {
     activeCount: 0,
     agentCount: 1,
+    followUpCount: 0,
     maxAttentionScore: 30,
     unreadCount: 0,
     workspace: '/alpha',
@@ -91,6 +97,7 @@ test('Project live summaries follow workspace moves and removals', () => {
   assert.deepEqual(projectAgentLiveSummary('/beta'), {
     activeCount: 0,
     agentCount: 1,
+    followUpCount: 1,
     maxAttentionScore: 40,
     unreadCount: 1,
     workspace: '/beta',
@@ -115,6 +122,7 @@ test('Project live summaries normalize attention and clear excluded or reset Age
   assert.deepEqual(projectAgentLiveSummary('/scale'), {
     activeCount: 0,
     agentCount: 1,
+    followUpCount: 0,
     maxAttentionScore: 0,
     unreadCount: 0,
     workspace: '/scale',
@@ -128,10 +136,11 @@ test('Project live summaries normalize attention and clear excluded or reset Age
 test('Project summary reads remain stable with a 10,000-Agent inventory', () => {
   resetAgentLiveStates()
   reconcileAgentLiveStates(Array.from({ length: 10_000 }, (_, index) => (
-    agent(`scale-${index}`, '/scale', { attentionScore: index % 101 })
+    agent(`scale-${index}`, '/scale', { attentionScore: index % 101, followUp: index % 2 === 0 })
   )))
   const summary = projectAgentLiveSummary('/scale')
   assert.equal(summary?.agentCount, 10_000)
+  assert.equal(summary?.followUpCount, 5_000)
   assert.equal(summary?.maxAttentionScore, 100)
   for (let index = 0; index < 10_000; index += 1) {
     assert.equal(projectAgentLiveSummary('/scale'), summary)

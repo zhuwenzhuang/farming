@@ -123,6 +123,7 @@ async function run() {
     assert.strictEqual(sourceAgent.canForkNewWorktree, true);
     assert.strictEqual(sourceAgent.command, 'bash');
     assert.strictEqual(sourceAgent.customTitle, 'Review changes');
+    assert.strictEqual(manager.updateAgentFlags(sourceId, { followUp: true }).followUp, true);
 
     const permanentWorktree = await manager.createPermanentWorktree(repo);
     assert.match(path.basename(permanentWorktree.workspace), /^repo-farming-worktree-\d{8}-\d{6}-[0-9a-f]{32}(?:-\d+)?$/);
@@ -153,6 +154,7 @@ async function run() {
     assert.strictEqual(sameAgent.parentAgentId, sourceId);
     assert.strictEqual(sameAgent.source, 'ui-fork-same-worktree');
     assert.strictEqual(sameAgent.customTitle, 'Review changes(1)');
+    assert.strictEqual(sameAgent.followUp, false, 'Fork children must not inherit the source follow-up flag');
     assert.strictEqual(typeof sameAgent.startedAt, 'number');
 
     const nestedFork = await manager.forkAgent(sameWorktree.agentId, 'same-worktree');

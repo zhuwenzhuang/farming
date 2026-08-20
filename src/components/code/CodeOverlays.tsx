@@ -23,6 +23,7 @@ import {
   ChatBubblesGlyph,
   CopyGlyph,
   DesktopGlyph,
+  FieldFlagGlyph,
   ForkGlyph,
   TerminalSquareGlyph,
 } from '@/components/IconGlyphs'
@@ -87,7 +88,7 @@ interface CodeOverlaysProps {
   onSwitchAgentRuntime: (agentId: string, mode: 'terminal' | 'chat') => void
   onCreateAgentBrowser: () => void
   onCreateAgentDesktop: () => void
-  onUpdateAgentFlags: (flags: Partial<Pick<Agent, 'pinned' | 'unread' | 'archived'>>) => void
+  onUpdateAgentFlags: (flags: Partial<Pick<Agent, 'followUp' | 'pinned' | 'unread' | 'archived'>>) => void
   onArchiveAgent: () => void
   onRenameAgent: () => void
   onRenameProject: () => void
@@ -212,6 +213,14 @@ export function CodeOverlays({
       icon: 'unread',
       hidden: !agentMenuAvailabilityState.markUnread,
       onSelect: () => onUpdateAgentFlags({ unread: true }),
+    },
+    {
+      type: 'item',
+      id: 'toggle-agent-follow-up',
+      label: contextMenuAgent?.followUp ? copy.unmarkFollowUp : copy.markFollowUp,
+      icon: 'follow-up',
+      hidden: !contextMenuAgent,
+      onSelect: () => onUpdateAgentFlags({ followUp: contextMenuAgent?.followUp !== true }),
     },
     { type: 'separator', id: 'agent-copy-separator' },
     {
@@ -647,6 +656,7 @@ function RemoveProjectIcon() {
 }
 
 export function ContextMenuIcon({ kind }: { kind: ContextMenuIconKind }) {
+  if (kind === 'follow-up') return <FieldFlagGlyph filled />
   if (kind === 'browser') return <BrowserGlyph />
   if (kind === 'desktop') return <DesktopGlyph />
   if (kind === 'chat') return <ChatBubblesGlyph />

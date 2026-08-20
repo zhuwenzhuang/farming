@@ -53,6 +53,7 @@ export interface AgentStateWire {
   command: string
   cwd: string
   output: string
+  followUp?: boolean
   status: AgentLifecycleStatus
   isMain: boolean
   activityLevel: AgentActivityLevel
@@ -182,6 +183,7 @@ export function isAgentStateWire(value: unknown): value is AgentStateWire {
     && typeof agent.command === 'string'
     && typeof agent.cwd === 'string'
     && typeof agent.output === 'string'
+    && (agent.followUp === undefined || typeof agent.followUp === 'boolean')
     && ['pending', 'running', 'stopped', 'dead'].includes(String(agent.status || ''))
     && typeof agent.isMain === 'boolean'
     && ['hot', 'warm', 'cool', 'cold'].includes(String(agent.activityLevel || ''))

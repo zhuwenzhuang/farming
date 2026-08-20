@@ -375,7 +375,7 @@ interface CodeWorkspaceProps {
   onRenameAgent: (agentId: string, title: string) => void
   onUpdateAgentFlags: (
     agentId: string,
-    flags: Partial<Pick<Agent, 'pinned' | 'unread' | 'archived' | 'launchPermissionMode' | 'readAttentionSeq'>>
+    flags: Partial<Pick<Agent, 'followUp' | 'pinned' | 'unread' | 'archived' | 'launchPermissionMode' | 'readAttentionSeq'>>
       & { agentRuntimeMode?: 'terminal' | 'chat' | 'acp'; readOutputEpoch?: string; readOutputSeq?: number; acknowledgeUnprovenAcpExit?: boolean },
   ) => AgentFlagUpdateResponse | Promise<AgentFlagUpdateResponse>
   onOpenArchivedAgent: (agentId: string) => void
@@ -4083,7 +4083,7 @@ export function CodeWorkspace({
     onForkAgent(contextMenuAgent.id, mode, forkOptions)
   }, [closeContextMenu, contextMenuAgent, onForkAgent])
 
-  const updateContextMenuAgentFlags = useCallback((flags: Partial<Pick<Agent, 'pinned' | 'unread' | 'archived'>>) => {
+  const updateContextMenuAgentFlags = useCallback((flags: Partial<Pick<Agent, 'followUp' | 'pinned' | 'unread' | 'archived'>>) => {
     if (!contextMenuAgent) return
     const agentId = contextMenuAgent.id
     closeContextMenu()
@@ -4117,7 +4117,7 @@ export function CodeWorkspace({
     if (flags.archived !== true) focusAgentRow(agentId)
   }, [activeView, archiveAgentOptimistically, closeContextMenu, contextMenuAgent, focusAgentRow, mainPaneMode, onUpdateAgentFlags, removeMainPageAgentSession])
 
-  const updateSidebarAgentFlags = useCallback((agent: Agent, flags: Partial<Pick<Agent, 'pinned' | 'archived'>>) => {
+  const updateSidebarAgentFlags = useCallback((agent: Agent, flags: Partial<Pick<Agent, 'followUp' | 'pinned' | 'archived'>>) => {
     const agentId = agent.id
     closeContextMenu()
     if (flags.archived === true && agent.requiresProcessExitAcknowledgement === true) {

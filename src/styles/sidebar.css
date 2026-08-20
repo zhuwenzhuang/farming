@@ -488,6 +488,26 @@ body.code-resizing-sidebar .code-sidebar-resizer {
   color: var(--code-text);
 }
 
+.code-project-title-name {
+  flex: 1 1 auto;
+}
+
+.code-project-follow-up-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  color: var(--code-warning);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.code-project-follow-up-count svg {
+  width: 13px;
+  height: 13px;
+  display: block;
+}
+
 .code-project-worktree {
   width: calc(100% - 28px);
   max-width: none;

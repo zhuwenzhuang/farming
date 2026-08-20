@@ -81,6 +81,7 @@ interface PersistedSessionRecord extends Record<string, unknown> {
   attentionSeq?: unknown;
   attentionUpdatedAt?: unknown;
   customTitle?: unknown;
+  followUp?: unknown;
   id?: unknown;
   pinned?: unknown;
   pinnedOrder?: unknown;
@@ -106,6 +107,7 @@ interface ResumeStartOptions extends Record<string, unknown> {
   autoReadInitialAttention: boolean;
   customTitle: string;
   customTitleExplicit: boolean;
+  followUp: boolean;
   persistentSessionId: string;
   pinned: boolean;
   pinnedOrder?: unknown;
@@ -476,6 +478,7 @@ class AgentSessionResumeCoordinator {
       providerHomePath: session?.providerHomePath || '',
       providerSessionTitle: session?.title || stringValue(savedSession?.providerSessionTitle),
       persistentSessionId: stringValue(savedSession?.id),
+      followUp: shouldFork ? false : savedSession?.followUp === true,
       pinned: savedSession?.pinned === true,
       projectOrder: savedSession?.projectOrder,
       pinnedOrder: savedSession?.pinnedOrder,

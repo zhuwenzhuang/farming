@@ -99,6 +99,7 @@ export interface AgentDisplayState {
   archived?: boolean;
   archivedAt?: number | null;
   customTitle?: string;
+  followUp?: boolean;
   pinned?: boolean;
   pinnedOrder?: number | null;
   projectOrder?: number | null;

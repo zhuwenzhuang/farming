@@ -1081,7 +1081,11 @@ async function testForkAndMainSemantics() {
       findAgentSession: async () => ({
         provider: 'codex', id: 'session-fork', archived: true, cwd: '/repo', workspace: '/repo', title: 'Forked',
       }),
-      getSavedAgentSession: () => ({ id: 'persisted-1', customTitle: 'Saved title' }),
+      getSavedAgentSession: () => ({
+        id: 'persisted-1',
+        customTitle: 'Saved title',
+        followUp: true,
+      }),
       publishAgentState: () => { events.push('publish'); },
       rememberMainPageSession: () => { events.push('remember'); },
       startAgent: (_command, _workspace, callback, options) => {
@@ -1099,6 +1103,7 @@ async function testForkAndMainSemantics() {
     );
     assert.strictEqual(startOptions!.persistentSessionId, '', 'a Fork must not inherit the source session record');
     assert.strictEqual(startOptions!.customTitle, '');
+    assert.strictEqual(startOptions!.followUp, false, 'a Fork must start without the source follow-up flag');
   }
 
   {
@@ -1219,6 +1224,7 @@ async function testStartOptionsFromSavedSession() {
         customTitle: 'Saved title',
         projectWorkspace: '/repo/saved',
         providerSessionTitle: 'Saved provider title',
+        followUp: true,
         pinned: true,
         projectOrder: 3,
         pinnedOrder: 1,
@@ -1248,6 +1254,7 @@ async function testStartOptionsFromSavedSession() {
   assert.strictEqual(startOptions!.providerHomeId, 'home-b');
   assert.strictEqual(startOptions!.providerHomePath, '/homes/codex-b');
   assert.strictEqual(startOptions!.requiredCliVersion, '1.2.3');
+  assert.strictEqual(startOptions!.followUp, true);
   assert.strictEqual(startOptions!.pinned, true);
   assert.strictEqual(
     startOptions!.source,

@@ -255,6 +255,7 @@ function run() {
     providerSessionTemporary: false,
     customTitle: 'Canonical name',
     projectWorkspace: '/canonical/project',
+    followUp: true,
     pinned: true,
     pinnedOrder: 512,
     attentionSeq: 9,
@@ -276,6 +277,7 @@ function run() {
     providerSessionTemporary: true,
     customTitle: 'Live temporary name',
     projectWorkspace: '/temporary/project',
+    followUp: false,
     pinned: false,
     pinnedOrder: 2048,
     attentionSeq: 2,
@@ -304,6 +306,7 @@ function run() {
   );
   const canonicalCollisionRecord = store.readRecord(canonicalCollisionId);
   assert.strictEqual(canonicalCollisionRecord.projectWorkspace, '/canonical/project');
+  assert.strictEqual(canonicalCollisionRecord.followUp, true);
   assert.strictEqual(canonicalCollisionRecord.pinned, true);
   assert.strictEqual(canonicalCollisionRecord.pinnedOrder, 512);
   assert.strictEqual(canonicalCollisionRecord.attentionSeq, 9);

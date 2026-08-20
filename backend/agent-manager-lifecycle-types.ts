@@ -140,6 +140,7 @@ export interface CreateAgentOptions extends BaseLifecycleOptions {
 export interface UpdateAgentOptions extends BaseLifecycleOptions {
   archived?: boolean;
   customTitle?: string;
+  followUp?: boolean;
   pinned?: boolean;
   readAttentionSeq?: number;
   readOutputEpoch?: string;

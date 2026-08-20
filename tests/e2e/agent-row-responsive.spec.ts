@@ -378,6 +378,9 @@ test('hides Agent row actions after a clicked row loses hover', async ({ page, w
   await expect(actions).toHaveCSS('opacity', '0')
 
   await page.keyboard.press('Tab')
+  await expect(row.getByTestId('code-agent-row-follow-up')).toBeFocused()
+  await expect(actions).toHaveCSS('opacity', '1')
+  await page.keyboard.press('Tab')
   await expect(row.getByTestId('code-agent-row-pin')).toBeFocused()
   await expect(actions).toHaveCSS('opacity', '1')
 })

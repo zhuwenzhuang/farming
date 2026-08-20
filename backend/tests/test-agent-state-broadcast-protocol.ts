@@ -37,6 +37,7 @@ assert.deepStrictEqual(projectAgentSummaries([{
 }]), [{
   activeCount: 0,
   agentCount: 1,
+  followUpCount: 0,
   maxAttentionScore: 0,
   unreadCount: 0,
   workspace: '/repo/odps-sql',
@@ -376,6 +377,7 @@ assert.deepStrictEqual(projectAgentSummaries([
     cwd: '/alpha',
     runtimeBinding: { kind: 'acp' },
     runtimeObservation: { phase: 'working' },
+    followUp: true,
     unread: true,
     attentionScore: 173.4,
   },
@@ -400,6 +402,7 @@ assert.deepStrictEqual(projectAgentSummaries([
   {
     activeCount: 1,
     agentCount: 2,
+    followUpCount: 1,
     maxAttentionScore: PROJECT_ATTENTION_SCORE_MAX,
     unreadCount: 1,
     workspace: '/alpha',
@@ -408,6 +411,7 @@ assert.deepStrictEqual(projectAgentSummaries([
   {
     activeCount: 1,
     agentCount: 1,
+    followUpCount: 0,
     maxAttentionScore: 0,
     unreadCount: 0,
     workspace: '/base/.worktrees/feature',
@@ -421,12 +425,14 @@ const initialSummaryState = state([{
   cwd: '/summary',
   runtimeBinding: { kind: 'acp' },
   runtimeObservation: { phase: 'idle' },
+  followUp: true,
   attentionScore: 1,
 }]);
 assert.strictEqual(advanceAgentStateBroadcast(summaryTracker, initialSummaryState), null);
 assert.deepStrictEqual(agentStateBroadcastProjectSummaries(summaryTracker), [{
   activeCount: 0,
   agentCount: 1,
+  followUpCount: 1,
   maxAttentionScore: 1,
   unreadCount: 0,
   workspace: '/summary',
@@ -446,6 +452,7 @@ assert.strictEqual(summaryTracker.sequence, 0);
 assert.deepStrictEqual(agentStateBroadcastProjectSummaries(summaryTracker), [{
   activeCount: 1,
   agentCount: 1,
+  followUpCount: 1,
   maxAttentionScore: 90,
   unreadCount: 0,
   workspace: '/summary',
@@ -489,6 +496,7 @@ projectedWorkspaceReads = 0;
 assert.deepStrictEqual(agentStateBroadcastProjectSummaries(projectedTracker), [{
   activeCount: 0,
   agentCount: 1,
+  followUpCount: 0,
   maxAttentionScore: 0,
   unreadCount: 0,
   workspace: '/projected',

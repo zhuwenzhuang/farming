@@ -228,10 +228,12 @@ function projectAgentSummaries(value) {
             || String(summary.workspace).length === 0
             || !revisionField(summary, 'agentCount')
             || !revisionField(summary, 'activeCount')
+            || !optionalField(summary, 'followUpCount', () => revisionField(summary, 'followUpCount'))
             || !revisionField(summary, 'unreadCount')
             || !revisionField(summary, 'zombieCount')
             || !revisionField(summary, 'maxAttentionScore')
             || Number(summary.activeCount) > Number(summary.agentCount)
+            || (summary.followUpCount !== undefined && Number(summary.followUpCount) > Number(summary.agentCount))
             || Number(summary.unreadCount) > Number(summary.agentCount)
             || Number(summary.zombieCount) > Number(summary.agentCount)
             || Number(summary.maxAttentionScore) > exports.PROJECT_ATTENTION_SCORE_MAX

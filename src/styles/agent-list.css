@@ -400,7 +400,7 @@
   align-items: center;
   justify-content: flex-end;
   gap: 3px;
-  width: 68px;
+  width: 93px;
   height: 28px;
   box-sizing: border-box;
   padding-left: 21px;
@@ -461,6 +461,23 @@ body.code-mode:not(.code-compact-layout) .code-agent-row:has(.code-agent-row-act
 
 .code-agent-row-action.pin.active {
   color: var(--code-accent);
+}
+
+.code-agent-row-action.follow-up.active {
+  color: var(--code-warning);
+}
+
+.code-agent-follow-up {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  color: var(--code-warning);
+}
+
+.code-agent-follow-up svg {
+  width: 14px;
+  height: 14px;
+  display: block;
 }
 
 .code-agent-row-more {

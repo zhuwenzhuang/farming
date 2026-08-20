@@ -122,6 +122,9 @@ export interface CodeCopy {
   languageEnglish: string
   languageChinese: string
   dynamicPinning: string
+  followUp: string
+  markFollowUp: string
+  unmarkFollowUp: string
   pinAgent: string
   unpinAgent: string
   pinProject: string
@@ -695,6 +698,9 @@ const EN_COPY: CodeCopy = {
   languageEnglish: 'Language: English',
   languageChinese: 'Language: 中文',
   dynamicPinning: 'Dynamic pinning',
+  followUp: 'Follow up',
+  markFollowUp: 'Mark',
+  unmarkFollowUp: 'Unmark',
   pinAgent: 'Pin Agent',
   unpinAgent: 'Unpin Agent',
   pinProject: 'Pin project',
@@ -1294,6 +1300,9 @@ const ZH_COPY: CodeCopy = {
   languageEnglish: '语言：English',
   languageChinese: '语言：中文',
   dynamicPinning: '动态置顶',
+  followUp: '待跟进',
+  markFollowUp: '标记',
+  unmarkFollowUp: '取消标记',
   pinAgent: '置顶 Agent',
   unpinAgent: '取消置顶',
   pinProject: '置顶项目',

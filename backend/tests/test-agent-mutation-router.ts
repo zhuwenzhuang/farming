@@ -182,7 +182,7 @@ async function run(): Promise<void> {
     ]);
 
     await assertJson(await patchAgent(baseUrl, '/agent-1', {}), 400, {
-      error: 'customTitle, task, pinned, unread, archived, readAttentionSeq, readOutputEpoch/readOutputSeq, launchPermissionMode, or agentRuntimeMode is required',
+      error: 'customTitle, task, followUp, pinned, unread, archived, readAttentionSeq, readOutputEpoch/readOutputSeq, launchPermissionMode, or agentRuntimeMode is required',
     });
     assert.deepStrictEqual(calls.splice(0), [
       { method: 'recovered' },
@@ -190,7 +190,7 @@ async function run(): Promise<void> {
     ]);
 
     await assertJson(await patchAgent(baseUrl, '/agent-1', { readOutputEpoch: 'epoch-1' }), 400, {
-      error: 'customTitle, task, pinned, unread, archived, readAttentionSeq, readOutputEpoch/readOutputSeq, launchPermissionMode, or agentRuntimeMode is required',
+      error: 'customTitle, task, followUp, pinned, unread, archived, readAttentionSeq, readOutputEpoch/readOutputSeq, launchPermissionMode, or agentRuntimeMode is required',
     });
     assert.deepStrictEqual(calls.splice(0), [
       { method: 'recovered' },
@@ -243,6 +243,24 @@ async function run(): Promise<void> {
       },
     ]);
     results.delete('flags');
+
+    await assertJson(await patchAgent(baseUrl, '/agent-1', { followUp: true }), 200, {
+      agentId: 'agent-1',
+      followUp: true,
+    });
+    assert.deepStrictEqual(calls.splice(0), [
+      { method: 'recovered' },
+      { method: 'lifecycle-idle', value: 'agent-1' },
+      { method: 'flags', value: { agentId: 'agent-1', patch: { followUp: true } } },
+    ]);
+
+    await assertJson(await patchAgent(baseUrl, '/agent-1', { followUp: 'yes' }), 400, {
+      error: 'customTitle, task, followUp, pinned, unread, archived, readAttentionSeq, readOutputEpoch/readOutputSeq, launchPermissionMode, or agentRuntimeMode is required',
+    });
+    assert.deepStrictEqual(calls.splice(0), [
+      { method: 'recovered' },
+      { method: 'lifecycle-idle', value: 'agent-1' },
+    ]);
 
     results.set('flags', { agentId: 'agent-1', unread: false, requiresState: true });
     await assertJson(await patchAgent(baseUrl, '/agent-1', { unread: false }), 200, {

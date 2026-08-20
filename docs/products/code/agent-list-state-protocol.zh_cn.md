@@ -63,6 +63,17 @@ Farming 已绑定 Agent 的未读状态由单调 Attention Cursor 和 Read Curso
 Agent State 时，都必须从 Cursor 重新写入 `unread` Projection；旧版本留下的矛盾 Boolean
 不能在启动期间或 Runtime 尚未恢复时重新出现。
 
+## 待跟进小田旗
+
+Backend 拥有每个 Agent 持久化的 `followUp` Boolean。Farming Code 使用它展示小田旗和 Project
+待跟进数量。打开或阅读 Agent、Turn 完成以及未读状态变化都不会清除小田旗，只有显式的“标记”
+或“取消标记”操作可以修改它。Archive 只会让已标记 Agent 离开活动投影，不清除标记；
+Restore 后仍显示原值。Runtime 与权限重启必须保留标记，Fork 子 Agent 默认不继承。
+
+小田旗只是一种标记，不形成第二个列表或导航模式。Project Snapshot Metadata 提供权威
+`followUpCount`；完整 Agent Inventory 到达后，Browser 以增量方式维护同一数量。Farming CRT
+可以忽略共享协议中的新增 Agent 字段，不展示也不修改这项 Farming Code 交互。
+
 ## 动态置顶投影
 
 当本地持久化的“动态置顶”偏好打开时，Farming Code 可以把最近活跃或需要用户关注的 Live Agent

@@ -398,7 +398,7 @@ export function agentMenuShape(
   const availability = agentMenuAvailability(agent, environment)
   const groups = [
     [availability.createDesktop],
-    [availability.pin, availability.rename, availability.archive, availability.markUnread],
+    [availability.pin, availability.rename, availability.archive, availability.markUnread, Boolean(agent)],
     [availability.copyWorkingDirectory],
     [availability.forkSameWorktree, availability.forkNewWorktree],
     [availability.switchRuntime, availability.createBrowser],

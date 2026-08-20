@@ -140,6 +140,7 @@ function deferred() {
     persistentSessionId: 'agent_record_acp_switch',
     agentRuntimeMode: 'terminal',
     runtimeEpoch: 'runtime-acp-switch',
+    followUp: true,
     status: 'running',
     output: '',
   });
@@ -166,6 +167,7 @@ function deferred() {
   assert.strictEqual(started.options.restoreRuntimeAgentIdOnFailure, 'agent-acp-switch');
   assert.deepStrictEqual(started.options.composerCommands, crossRuntimeComposerCommands);
   assert.deepStrictEqual(manager.agents.get('agent-new').composerCommands, crossRuntimeComposerCommands);
+  assert.strictEqual(manager.agents.get('agent-new').followUp, true);
   assert.strictEqual(acpResult.agentRuntimeMode, 'chat');
   assert.deepStrictEqual(resourceOwnerReplacementEvents, [
     'begin:agent-acp-switch',

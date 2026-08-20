@@ -91,6 +91,7 @@ function createAgentMutationRouter(port: AgentMutationRouterPort): ExpressRouter
     const providedPatchFields = [
       'customTitle',
       'task',
+      'followUp',
       'pinned',
       'unread',
       'archived',
@@ -124,6 +125,7 @@ function createAgentMutationRouter(port: AgentMutationRouterPort): ExpressRouter
       providedPatchFields.includes('customTitle') ? 'customTitle' : '',
       providedPatchFields.includes('task') ? 'task' : '',
       providedPatchFields.some(field => [
+        'followUp',
         'pinned',
         'unread',
         'archived',
@@ -160,7 +162,7 @@ function createAgentMutationRouter(port: AgentMutationRouterPort): ExpressRouter
     }
 
     const flagPatch: Record<string, unknown> = {};
-    ['pinned', 'unread', 'archived'].forEach((flagName) => {
+    ['followUp', 'pinned', 'unread', 'archived'].forEach((flagName) => {
       if (typeof body[flagName] === 'boolean') {
         flagPatch[flagName] = body[flagName];
       }
@@ -237,7 +239,7 @@ function createAgentMutationRouter(port: AgentMutationRouterPort): ExpressRouter
     }
 
     if (Object.keys(updates).length === 0) {
-      res.status(400).json({ error: 'customTitle, task, pinned, unread, archived, readAttentionSeq, readOutputEpoch/readOutputSeq, launchPermissionMode, or agentRuntimeMode is required' });
+      res.status(400).json({ error: 'customTitle, task, followUp, pinned, unread, archived, readAttentionSeq, readOutputEpoch/readOutputSeq, launchPermissionMode, or agentRuntimeMode is required' });
       return;
     }
 

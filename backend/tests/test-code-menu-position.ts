@@ -61,12 +61,12 @@ function run() {
   );
 
   assert.strictEqual(estimateAgentContextMenuHeight(undefined), estimateContextMenuHeight(0, 0));
-  assert.strictEqual(estimateAgentContextMenuHeight(agent()), estimateContextMenuHeight(6, 2));
-  assert.strictEqual(estimateAgentContextMenuHeight(agent({ isMain: true })), estimateContextMenuHeight(6, 2));
-  assert.strictEqual(estimateAgentContextMenuHeight(agent({ canForkNewWorktree: true })), estimateContextMenuHeight(7, 2));
+  assert.strictEqual(estimateAgentContextMenuHeight(agent()), estimateContextMenuHeight(7, 2));
+  assert.strictEqual(estimateAgentContextMenuHeight(agent({ isMain: true })), estimateContextMenuHeight(7, 2));
+  assert.strictEqual(estimateAgentContextMenuHeight(agent({ canForkNewWorktree: true })), estimateContextMenuHeight(8, 2));
   assert.strictEqual(
     estimateAgentContextMenuHeight(agent(), { canCreateBrowser: true, canCreateDesktop: true }),
-    estimateContextMenuHeight(8, 4),
+    estimateContextMenuHeight(9, 4),
   );
 
   console.log('test-code-menu-position passed');

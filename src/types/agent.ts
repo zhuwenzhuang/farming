@@ -522,6 +522,7 @@ export interface UsageSummary {
 export interface ProjectAgentSummary {
   activeCount: number
   agentCount: number
+  followUpCount?: number
   maxAttentionScore: number
   unreadCount: number
   workspace: string

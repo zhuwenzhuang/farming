@@ -221,6 +221,22 @@ read cursors. The persisted `unread` projection must be rewritten from those
 cursors whenever Agent state is persisted; an older contradictory boolean must
 not reappear during startup or while a runtime is still pending.
 
+## Follow-up flag
+
+The backend owns the durable `followUp` boolean for each Agent. Farming Code
+uses it for the Field Flag marker and per-Project follow-up count. Opening,
+reading, completing a Turn, or changing Unread state never clears the flag;
+only the explicit Mark or Unmark action changes it.
+Archive hides a flagged Agent from the active projection without clearing the
+flag, and Restore exposes the same value again. Runtime and permission restarts
+preserve the value, while a Fork child starts unflagged.
+
+The flag is a marker, not a second list or navigation mode. Project snapshot
+metadata carries an authoritative `followUpCount`; after the complete Agent
+inventory arrives, the browser maintains the same count incrementally. Farming
+CRT accepts the shared additive Agent field but does not present or mutate this
+Farming Code interaction.
+
 ## Dynamic pinning projection
 
 Farming Code may project recent or attention-requiring live Agents into the

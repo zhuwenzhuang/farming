@@ -12,6 +12,14 @@ export function BellGlyph(props: IconGlyphProps) {
   )
 }
 
+export function FieldFlagGlyph({ filled = false, ...props }: IconGlyphProps & { filled?: boolean }) {
+  return (
+    <svg viewBox="0 0 16 16" fill={filled ? 'currentColor' : 'none'} stroke={filled ? 'none' : 'currentColor'} strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false" {...props}>
+      <path d="M3 2.25a.75.75 0 0 1 1.5 0v.5h7.3c.68 0 1.05.8.6 1.3L10.7 6l1.7 1.95c.45.5.08 1.3-.6 1.3H4.5v4.5a.75.75 0 0 1-1.5 0V2.25Z" />
+    </svg>
+  )
+}
+
 export function ChevronDownGlyph(props: IconGlyphProps) {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>

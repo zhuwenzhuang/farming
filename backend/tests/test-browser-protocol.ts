@@ -234,6 +234,7 @@ assert.strictEqual(validateServerMessage({
       workspace: '/alpha',
       agentCount: 9,
       activeCount: 3,
+      followUpCount: 4,
       unreadCount: 2,
       zombieCount: 1,
       maxAttentionScore: 81,
@@ -250,6 +251,24 @@ assert.strictEqual(validateServerMessage({
     agentInventoryScope: 'focused',
     agentInventoryRunning: 11,
     agentInventoryTotal: 10,
+  },
+}).ok, false);
+assert.strictEqual(validateServerMessage({
+  type: 'state',
+  generation: 'server-1',
+  sequence: 0,
+  snapshot: { complete: true, id: 'snapshot-follow-up-invalid', offset: 0, total: 1 },
+  state: {
+    agents: [wireAgent('a')],
+    projectAgentSummaries: [{
+      workspace: '/alpha',
+      agentCount: 1,
+      activeCount: 0,
+      followUpCount: 2,
+      unreadCount: 0,
+      zombieCount: 0,
+      maxAttentionScore: 0,
+    }],
   },
 }).ok, false);
 assert.strictEqual(validateServerMessage({
@@ -274,6 +293,12 @@ assert.strictEqual(validateServerMessage({
     agentInventoryRunning: 8,
     agentInventoryTotal: 10,
   },
+}).ok, false);
+assert.strictEqual(validateServerMessage({
+  type: 'state',
+  generation: 'server-1',
+  sequence: 0,
+  state: { agents: [{ ...wireAgent('invalid-follow-up'), followUp: 'yes' }] },
 }).ok, false);
 assert.strictEqual(validateServerMessage({
   type: 'state',
