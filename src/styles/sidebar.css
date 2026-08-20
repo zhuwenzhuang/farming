@@ -286,6 +286,14 @@ body.code-resizing-sidebar .code-sidebar-resizer {
   outline-offset: 3px;
 }
 
+@media (min-width: 981px) {
+  .code-project-list {
+    margin-right: -9px;
+    padding-right: 0;
+    scrollbar-width: thin;
+  }
+}
+
 .code-pinned-section {
   display: flex;
   flex-direction: column;

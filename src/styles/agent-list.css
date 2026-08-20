@@ -613,9 +613,9 @@ body.code-mode:not(.code-compact-layout) .code-agent-row.requires-resume .code-a
       color: var(--code-text-muted);
     }
 
-  .code-agent-row-provider-icon .agent-launch-icon {
-      width: 15px;
-      height: 15px;
+  body.code-mode .code-agent-row-provider-icon .agent-launch-icon {
+      width: 13px;
+      height: 13px;
       display: block;
     }
 
@@ -874,8 +874,8 @@ body.code-mode:not(.code-compact-layout) .code-agent-row.requires-resume .code-a
     }
 
   body.code-mode.code-compact-layout .code-agent-row-provider-icon .agent-launch-icon {
-      width: 15px;
-      height: 15px;
+      width: 14px;
+      height: 14px;
       display: block;
     }
 

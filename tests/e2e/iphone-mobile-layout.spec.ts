@@ -968,14 +968,19 @@ test.describe('iPhone mobile layout', () => {
       const row = (element as HTMLElement).getBoundingClientRect()
       const copy = element.querySelector('.code-agent-row-copy')?.getBoundingClientRect()
       const icon = element.querySelector('.code-agent-row-provider-icon')?.getBoundingClientRect()
+      const providerIcon = element.querySelector('.code-agent-row-provider-icon .agent-launch-icon')?.getBoundingClientRect()
+      const title = element.querySelector('.code-agent-name')
       return {
         copyInset: copy ? Math.round(copy.left - row.left) : -1,
         iconRight: icon?.right ?? Number.POSITIVE_INFINITY,
         copyLeft: copy?.left ?? Number.NEGATIVE_INFINITY,
+        providerIconSize: providerIcon ? Math.round(providerIcon.width) : 0,
+        titleFontSize: title ? Number.parseFloat(getComputedStyle(title).fontSize) : -1,
       }
     })
     expect(agentRowLayout.copyInset).toBe(27)
     expect(agentRowLayout.iconRight).toBeLessThanOrEqual(agentRowLayout.copyLeft)
+    expect(agentRowLayout.providerIconSize).toBe(agentRowLayout.titleFontSize)
     await page.getByTestId('code-sidebar-options').click()
     const settingsPanel = page.getByTestId('code-settings-panel')
     await expect(settingsPanel).toBeVisible()

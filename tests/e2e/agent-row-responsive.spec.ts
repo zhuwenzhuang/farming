@@ -64,16 +64,23 @@ async function rowProjection(row: ReturnType<Page['locator']>) {
     const provider = element.querySelector<HTMLElement>('.code-agent-row-provider-icon')
     const age = element.querySelector<HTMLElement>('.code-agent-relative-age')
     const detail = element.querySelector<HTMLElement>('.code-agent-meta')
+    const sidebar = element.closest<HTMLElement>('.code-sidebar')
     if (!title || !provider || !age || !detail) throw new Error('Responsive Agent row fields are missing')
     const titleStyle = getComputedStyle(title)
+    const providerIcon = provider.querySelector<HTMLElement>('.agent-launch-icon')
+    const rowRect = (element as HTMLElement).getBoundingClientRect()
+    const sidebarRect = sidebar?.getBoundingClientRect()
     return {
-      rowHeight: Math.round((element as HTMLElement).getBoundingClientRect().height),
+      rowHeight: Math.round(rowRect.height),
+      rowRightGap: sidebarRect ? Math.round(sidebarRect.right - rowRect.right) : Number.POSITIVE_INFINITY,
       title: title.textContent,
       titleClientWidth: Math.round(title.getBoundingClientRect().width),
       titleScrollWidth: title.scrollWidth,
       titleTextOverflow: titleStyle.textOverflow,
       titleMaskImage: titleStyle.maskImage || titleStyle.getPropertyValue('-webkit-mask-image'),
       providerDisplay: getComputedStyle(provider).display,
+      providerIconSize: providerIcon ? Math.round(providerIcon.getBoundingClientRect().width) : 0,
+      titleFontSize: Number.parseFloat(titleStyle.fontSize),
       ageDisplay: getComputedStyle(age).display,
       detailDisplay: getComputedStyle(detail).display,
       detail: detail.textContent,
@@ -290,6 +297,8 @@ test('reveals more Agent row information as the sidebar widens', async ({ page, 
   expect(roomy.rowHeight).toBe(compact.rowHeight)
   expect(roomy.titleClientWidth).toBeGreaterThan(compact.titleClientWidth + 100)
   expect(roomy.providerDisplay).not.toBe('none')
+  expect(roomy.providerIconSize).toBe(roomy.titleFontSize)
+  expect(roomy.rowRightGap).toBeLessThanOrEqual(14)
   expect(roomy.ageDisplay).not.toBe('none')
   expect(roomy.detailDisplay).toBe('none')
 
