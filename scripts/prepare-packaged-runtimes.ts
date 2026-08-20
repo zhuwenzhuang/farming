@@ -4,10 +4,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import manifest from '../backend/data/runtime-dependency-manifest.json';
+import { canonicalManagedRipgrepPlatform } from '../backend/ripgrep-runtime.cjs';
+import { prepareRipgrepRuntimes } from './prepare-ripgrep-runtime';
 
 const projectRoot = path.resolve(__dirname, '..');
 const agentBrowserRoot = path.dirname(require.resolve('agent-browser/package.json'));
 const outputRoot = path.join(projectRoot, 'dist', 'runtime', 'agent-browser');
+const ripgrepOutputRoot = path.join(projectRoot, 'dist', 'runtime', 'ripgrep');
 
 function requestedPlatform(): string {
   const index = process.argv.indexOf('--platform');
@@ -25,9 +28,10 @@ function safeRelative(value: string, label: string): string {
   return normalized;
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const platform = requestedPlatform();
   fs.rmSync(outputRoot, { recursive: true, force: true });
+  fs.rmSync(ripgrepOutputRoot, { recursive: true, force: true });
   for (const [platformKey, artifact] of Object.entries(manifest.dependencies.agentBrowser.artifacts)) {
     if (platform && platformKey !== platform) continue;
     if (!artifact.archiveEntry || !artifact.packagedEntry) {
@@ -47,6 +51,12 @@ function main(): void {
   if (platform && !(platform in manifest.dependencies.agentBrowser.artifacts)) {
     throw new Error(`Unknown agent-browser platform: ${platform}`);
   }
+  await prepareRipgrepRuntimes(platform
+    ? [canonicalManagedRipgrepPlatform(platform)]
+    : ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'win32-arm64', 'win32-x64']);
 }
 
-main();
+void main().catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});

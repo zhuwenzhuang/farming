@@ -1,6 +1,9 @@
 #!/bin/sh
 ':' //; script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"; repo_dir="$script_dir"; while [ ! -x "$repo_dir/node_modules/.bin/tsx" ] && [ "$repo_dir" != "/" ]; do repo_dir="$(dirname -- "$repo_dir")"; done; if [ ! -x "$repo_dir/node_modules/.bin/tsx" ]; then echo "Pinned tsx runtime not found above $script_dir" >&2; exit 127; fi; exec "$repo_dir/node_modules/.bin/tsx" "$0" "$@"
 import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { verifyReleaseBundle } from './verify-release-bundle';
 
 const PROFILE = 'linux-x64-glibc217';
@@ -33,7 +36,7 @@ function assertCompatibleVersion(nativeModule: string, prefix: string, maximum: 
   return newest;
 }
 
-function verifyLinuxCompatRelease(archivePath: string) {
+function verifyLinuxCompatRelease(archivePath: string, options: { verifyRipgrep?: boolean } = {}) {
   const bundle = verifyReleaseBundle(archivePath);
   const { release, entries } = bundle;
   if (release.platform !== 'linux' || release.arch !== 'x64') {
@@ -61,6 +64,31 @@ function verifyLinuxCompatRelease(archivePath: string) {
   assertCompatibleVersion(nativeModule, 'GLIBC', MAX_GLIBC);
   assertCompatibleVersion(nativeModule, 'GLIBCXX', MAX_GLIBCXX);
   assertCompatibleVersion(nativeModule, 'CXXABI', MAX_CXXABI);
+
+  if (options.verifyRipgrep === false) return bundle;
+
+  const ripgrepEntry = entries.find(entry => entry.endsWith('/dist/runtime/ripgrep/linux-x64/rg'));
+  if (!ripgrepEntry) {
+    throw new Error('compatibility bundle is missing Farming managed linux-x64 ripgrep');
+  }
+  const verificationRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-rg-compat-'));
+  const ripgrepPath = path.join(verificationRoot, 'rg');
+  try {
+    fs.writeFileSync(ripgrepPath, execFileSync('tar', ['-xOf', archivePath, ripgrepEntry], {
+      maxBuffer: 8 * 1024 * 1024,
+    }), { mode: 0o755 });
+    const programHeaders = execFileSync('readelf', ['--program-headers', ripgrepPath], { encoding: 'utf8' });
+    const dynamicSection = execFileSync('readelf', ['--dynamic', ripgrepPath], { encoding: 'utf8' });
+    if (/INTERP/.test(programHeaders) || /\(NEEDED\)/.test(dynamicSection)) {
+      throw new Error('Farming managed linux-x64 ripgrep must remain statically linked');
+    }
+    const version = execFileSync(ripgrepPath, ['--version'], { encoding: 'utf8' });
+    if (!version.startsWith('ripgrep 15.2.0')) {
+      throw new Error(`compatibility bundle contains unexpected ripgrep: ${version.split(/\r?\n/, 1)[0]}`);
+    }
+  } finally {
+    fs.rmSync(verificationRoot, { recursive: true, force: true });
+  }
   return bundle;
 }
 

@@ -329,6 +329,15 @@ demand. Background preparation may improve first open, but failure must fall
 back to the same authoritative path and must not reload the page or block Agent
 work.
 
+Project Files search has one production execution path: the Farming-owned,
+version-pinned native ripgrep artifact. Path enumeration, directory-name
+matching, and content matching share one absolute deadline instead of receiving
+independent timeout budgets. Browser or WebSocket cancellation propagates to
+the active search and terminates its ripgrep subprocess; a final browser
+watchdog guarantees that visible loading settles. A missing, corrupt, or
+unsupported managed artifact is an explicit bounded failure, not a trigger for
+system `rg`, WebAssembly, Git, or another automatic fallback.
+
 A directory `tree` request is the interactive structure path and does not wait
 for Git status, ignore checks, or descendant decoration. Git and ignored state
 load through the independent background `tree-decorations` operation and

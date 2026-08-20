@@ -134,6 +134,7 @@ fi
 
 log "Building frontend for base path ${BASE_PATH} ..."
 (cd "${PROJECT_ROOT}" && FARMING_BASE_PATH="${BASE_PATH}" npm run build >&2)
+(cd "${PROJECT_ROOT}" && npm run prepare:ripgrep-runtime -- --platform all >&2)
 
 log "Bundling backend runtime with esbuild ..."
 cp "${SOURCE_COMPUTER_TOOLS}" "${BUNDLE_COMPUTER_TOOLS}"

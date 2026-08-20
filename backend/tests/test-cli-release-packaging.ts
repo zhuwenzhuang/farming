@@ -63,7 +63,9 @@ function run() {
     assert(config.pkg.scripts.includes('backend/usage-history-worker.pkg.js'));
     assert(config.pkg.assets.includes('backend/cua-tools.json'));
     assert(config.pkg.assets.includes('backend/farming-agent-bootstrap.md'));
+    assert(config.pkg.assets.includes('dist/**/*'));
     assert(config.pkg.assets.includes('node_modules/node-pty/lib/**/*.js'));
+    assert(!config.pkg.assets.some((asset: string) => asset.includes('node_modules/ripgrep')));
     assert.strictEqual(config.pkg.fallbackToSource, false);
   } finally {
     if (previousEntry === undefined) delete process.env.FARMING_PKG_ENTRY;
@@ -77,6 +79,7 @@ function run() {
 
   assert(
     packageScript.includes('--fallback-to-source')
+      && packageScript.includes('prepare:ripgrep-runtime -- --platform all')
       && packageScript.includes('Failed to generate V8 bytecode.*Use --fallback-to-source')
       && packageScript.includes('refusing to publish a broken CLI'),
     'CLI packaging must retain source when cross-target bytecode fails and reject missing code',
@@ -233,6 +236,8 @@ function run() {
       && npmSmokeScript.includes('/farming/crt/shared/agent-state-bridge.js')
       && npmSmokeScript.includes('/farming/crt/shared/runtime-paths.js')
       && npmSmokeScript.includes('/farming/crt/styles/monochrome-green.css')
+      && npmSmokeScript.includes('dist/runtime/ripgrep/${RIPGREP_PLATFORM}/rg')
+      && npmSmokeScript.includes("grep -q '^ripgrep 15\\.2\\.0'")
       && npmSmokeScript.includes('node --import tsx "${PROJECT_ROOT}/scripts/assert-no-bundled-agent-clis.ts"')
       && !npmSmokeScript.includes('node_modules/.bin/tsx')
       && !npmSmokeScript.includes('FARMING_SKIP_INSTALL_RUNTIME_PREPARE=1'),
@@ -245,6 +250,13 @@ function run() {
       && !packageJson.files.includes('scripts/prepare-installed-runtime.cjs')
       && packageJson.scripts?.['prepare:packaged-runtimes'],
     'npm install must be lifecycle-script-free and release packaging must prepare runtime artifacts',
+  );
+  assert(
+    packageJson.scripts?.['prepare:ripgrep-runtime']
+      && packageJson.scripts?.prebuild.includes('prepare:ripgrep-runtime')
+      && packageJson.scripts?.pretest.includes('prepare:ripgrep-runtime')
+      && packageJson.scripts?.['prepare:packaged-runtimes'],
+    'source, test, npm, and target release builds must prepare Farming managed ripgrep',
   );
   assert(
     farmingLauncher.includes('FARMING_PACKAGED_RUNTIME_ROOT')

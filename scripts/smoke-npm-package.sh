@@ -96,6 +96,22 @@ if grep -q '^npm warn allow-scripts' "${INSTALL_LOG}"; then
   exit 1
 fi
 PACKAGE_ROOT="${PREFIX}/lib/node_modules/farming-code"
+case "$(uname -s)-$(uname -m)" in
+  Darwin-arm64) RIPGREP_PLATFORM="darwin-arm64" ;;
+  Darwin-x86_64) RIPGREP_PLATFORM="darwin-x64" ;;
+  Linux-aarch64|Linux-arm64) RIPGREP_PLATFORM="linux-arm64" ;;
+  Linux-x86_64) RIPGREP_PLATFORM="linux-x64" ;;
+  MINGW*|MSYS*) RIPGREP_PLATFORM="win32-x64" ;;
+  *) echo "Unsupported npm smoke ripgrep platform: $(uname -s)-$(uname -m)" >&2; exit 1 ;;
+esac
+RIPGREP_BIN="${PACKAGE_ROOT}/dist/runtime/ripgrep/${RIPGREP_PLATFORM}/rg"
+if [ "${RIPGREP_PLATFORM#win32-}" != "${RIPGREP_PLATFORM}" ]; then
+  RIPGREP_BIN="${RIPGREP_BIN}.exe"
+fi
+if [ ! -x "${RIPGREP_BIN}" ] || ! "${RIPGREP_BIN}" --version | grep -q '^ripgrep 15\.2\.0'; then
+  echo "npm package omitted or corrupted Farming managed ripgrep: ${RIPGREP_BIN}" >&2
+  exit 1
+fi
 CODEX_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/codex-acp-1.6.0.mjs"
 CLAUDE_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/claude-agent-acp-0.70.0.mjs"
 PI_ACP_VENDOR="${PACKAGE_ROOT}/dist/acp/pi-acp-0.0.33.mjs"
@@ -172,6 +188,7 @@ for runtime_module in \
   review-session-store \
   review-state-router \
   review-state-store \
+  ripgrep-runtime \
   run-history-store \
   runtime-executable-invocation \
   runtime-dependency-progress \

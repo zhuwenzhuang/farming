@@ -282,6 +282,8 @@ export interface WorkspaceFileSearchResult {
   timeoutMs?: number
 }
 
+const WORKSPACE_FILE_SEARCH_REQUEST_TIMEOUT_MS = 185_000
+
 export class WorkspaceFileApiError extends Error {
   status: number
   details: unknown
@@ -569,5 +571,5 @@ export async function searchWorkspaceFiles(rootId: string, query: string, option
     ...(options.includeIgnored ? { includeIgnored: true } : {}),
     ...(options.path ? { path: options.path } : {}),
     ...(options.limit ? { limit: options.limit } : {}),
-  }, { signal: options.signal })
+  }, { signal: options.signal, timeoutMs: WORKSPACE_FILE_SEARCH_REQUEST_TIMEOUT_MS })
 }

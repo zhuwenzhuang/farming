@@ -44,7 +44,6 @@ preserved in bundled `node_modules` when bundled dependencies are enabled.
 | `remark-gfm` | 4.0.1 | MIT | GitHub Flavored Markdown support |
 | `remark-math` | 6.0.0 | MIT | Markdown math syntax support |
 | `remark-parse` | 11.0.0 | MIT | Markdown syntax tree parsing for virtual preview sections |
-| `ripgrep` | 0.3.1 | MIT | Node wrapper for file search support |
 | `tar` | 7.5.22 | BlueOak-1.0.0 | Safe extraction of version-locked startup dependency archives |
 | `unified` | 11.0.5 | MIT | Markdown parser pipeline for virtual preview sections |
 | `vscode-jsonrpc` | 9.0.1 | MIT | Language Server JSON-RPC stream transport |
@@ -69,6 +68,10 @@ files under `dist/acp/`:
 | `pi-acp` | 0.0.33 | MIT | Pi ACP adapter, with Farming Agent Home isolation and bootstrap patches |
 | `@agentclientprotocol/sdk` | 0.26.0 | Apache-2.0 | Protocol runtime bundled inside the Pi ACP adapter |
 | `zod` | 3.25.76 | MIT | Schema validation bundled inside the Pi ACP adapter |
+
+Farming also embeds the pinned native ripgrep 15.2.0 executable for Project
+Files search. ripgrep is dual-licensed under MIT or the Unlicense; Farming uses
+it under the Unlicense.
 
 The npm distribution declares the exact Codex CLI 0.148.0 and Claude Agent SDK
 CLI package 0.3.232 platform carriers as optional dependencies and embeds the

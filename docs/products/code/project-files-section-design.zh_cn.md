@@ -245,6 +245,12 @@ File Read、Preview、Search、Git Output、Directory Load、History Page、Edit
 必须有界。Tree 和昂贵 Detail 按需加载。Background Preparation 可以改善首次打开，但失败时
 必须回退到同一权威路径，不能 Reload Page 或阻塞 Agent Work。
 
+Project Files Search 只有一条 Production Execution Path：Farming 自带、版本固定的原生 ripgrep
+Artifact。Path Enumeration、Directory-name Matching 与 Content Matching 共用一个绝对 Deadline，
+不能各自重新获得一份 Timeout Budget。Browser 或 WebSocket Cancel 会传播到 Active Search 并终止其
+ripgrep Subprocess；Browser 侧的最终 Watchdog 保证可见 Loading 一定结束。Managed Artifact 缺失、
+损坏或不支持时必须明确且有界地失败，不能自动切换到系统 `rg`、WebAssembly、Git 或其它 Fallback。
+
 Directory `tree` Request 是 Interactive Structure Path，不等待 Git Status、Ignore Check 或
 Descendant Decoration。Git 与 Ignored State 通过独立的 Background `tree-decorations` Operation
 加载，并且只发布发生变化的 Path；Decoration 到达时不能替换 Directory Snapshot 或重建未变化

@@ -29,10 +29,16 @@ isolated by Config identity. Package Images are shared read-only within one
 installation, while every live Config remains bound to the exact Image that
 started it.
 
-Fixed provider and Browser runtimes are prepared at installation or update
-time. Application startup verifies an already prepared artifact and fails with
-an actionable repair instruction when it is missing or corrupt; startup does
-not silently download a replacement.
+Fixed provider, Browser, and Project Files search runtimes are prepared in the
+Package Image before installation or update. Application startup verifies an
+already prepared artifact and fails with an actionable repair instruction when
+it is missing or corrupt; startup does not silently download a replacement.
+
+Project Files search uses the Farming-owned, version-pinned native ripgrep
+artifact for the target OS and architecture. Linux images use the static musl
+build so this runtime does not add a glibc compatibility branch. A system
+`rg`, a WebAssembly implementation, or another search command never replaces
+the managed artifact at runtime.
 
 Managed ACP dependencies are always prepared from the pinned manifest. A
 matching system provider CLI cannot satisfy that managed dependency. The
@@ -55,9 +61,16 @@ missing or corrupt; it never compensates by downloading or preparing them.
 The npm image declares the exact Codex and Claude native carrier packages as
 platform-constrained optional dependencies, so npm selects the matching OS,
 architecture, and libc artifact without executing lifecycle code. The release
-pipeline embeds the reviewed agent-browser binaries in the Farming image.
-The launcher marks npm images as download-forbidden and the runtime manager
-binds only an exact declared carrier or embedded artifact after verification.
+pipeline embeds the reviewed agent-browser and ripgrep binaries in the Farming
+image; target-specific release images retain only their target artifacts. The
+launcher marks npm images as download-forbidden and the runtime manager binds
+only an exact declared carrier or embedded artifact after verification.
+
+Because an executable cannot run directly from the standalone CLI's virtual
+filesystem, that form atomically materializes its embedded, pinned ripgrep into
+the owning Config's private versioned runtime directory before Server
+initialization. This is local image extraction, not a download or executable
+fallback; the same version and executable verification applies afterward.
 
 ## Update State Machine
 

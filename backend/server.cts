@@ -550,7 +550,7 @@ const workspaceFileWatchController = createWorkspaceFileWatchController({
 const websocketWorkspaceRequestHandlers = createWebSocketWorkspaceRequestHandlers<WebSocketClient>({
   openState: WebSocket.OPEN,
   maxMessageBytes: MAX_INLINE_WORKSPACE_MESSAGE_BYTES,
-  executeWorkspace: (request, accessMode) => executeWorkspaceFileRequest(
+  executeWorkspace: (request, accessMode, signal) => executeWorkspaceFileRequest(
     agentManager as Parameters<typeof executeWorkspaceFileRequest>[0],
     workspaceFileService,
     request,
@@ -559,6 +559,7 @@ const websocketWorkspaceRequestHandlers = createWebSocketWorkspaceRequestHandler
       maxInlineResponseBytes: MAX_INLINE_WORKSPACE_MESSAGE_BYTES - 32 * 1024,
       previewSessionManager: workspacePreviewSessionManager,
       rootRegistry: workspaceRootRegistry,
+      signal,
     },
   ),
   executeLanguageServer: async request => {

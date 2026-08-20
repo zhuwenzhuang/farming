@@ -23,8 +23,12 @@
 Config 状态与 Package Image 属于不同 Owner。Config 状态按 Config 身份隔离；同一 Installation
 中的 Package Image 只读共享，而每套 Live Config 始终绑定启动它的精确 Image。
 
-固定 Provider 与 Browser Runtime 在安装或更新阶段准备。应用启动只验证已经准备好的 Artifact；
-缺失或损坏时给出可操作的修复说明，不会在启动中静默下载替代品。
+固定 Provider、Browser 与 Project Files Search Runtime 在安装或更新前写入 Package Image。
+应用启动只验证已经准备好的 Artifact；缺失或损坏时给出可操作的修复说明，不会在启动中静默下载替代品。
+
+Project Files Search 只使用 Farming 自带、版本固定且匹配目标 OS 与 Architecture 的原生 ripgrep
+Artifact。Linux Image 使用静态 musl Build，因此该 Runtime 不增加 glibc 兼容分支。Runtime 不会用
+系统 `rg`、WebAssembly 实现或其它 Search Command 替代 Managed Artifact。
 
 Managed ACP Dependency 必须始终从固定 Manifest 准备；即使系统 Provider CLI 版本相同，
 也不能满足该 Managed Dependency。Prepared Image 还携带目标平台所需的 Child Process
@@ -42,8 +46,13 @@ Server 启动只校验这些 Artifact；它们缺失或损坏时给出可操作�
 
 npm Image 将精确版本的 Codex 与 Claude Native Carrier 声明为受平台约束的 Optional Dependency，
 由 npm 在不执行生命周期代码的前提下按 OS、Architecture 与 libc 选择；Release Pipeline 则把经过
-审查的 agent-browser 二进制直接嵌入 Farming Image。Launcher 会把 npm Image 标记为禁止下载，
-Runtime Manager 只能在校验后绑定精确声明的 Carrier 或内置 Artifact。
+审查的 agent-browser 与 ripgrep 二进制直接嵌入 Farming Image，Target-specific Release Image 只保留
+目标平台 Artifact。Launcher 会把 npm Image 标记为禁止下载，Runtime Manager 只能在校验后绑定
+精确声明的 Carrier 或内置 Artifact。
+
+由于 Executable 不能直接从 Standalone CLI 的 Virtual Filesystem 执行，该安装形态会在 Server
+初始化前，把内置且固定版本的 ripgrep 原子写入所属 Config 的私有 Versioned Runtime Directory。
+这是本地 Image Extraction，不是下载或 Executable Fallback；写入后仍执行相同的版本与可执行校验。
 
 ## 更新状态机
 

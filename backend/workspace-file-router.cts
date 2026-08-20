@@ -164,6 +164,7 @@ interface RouterOptions {
 interface WorkspaceRequestOptions extends RouterOptions {
   accessMode?: 'owner' | 'read-only';
   maxInlineResponseBytes?: number;
+  signal?: AbortSignal;
 }
 
 const expressFactory = express as ExpressFactory;
@@ -616,6 +617,7 @@ async function executeWorkspaceFileRequest(
         path: request.path || '',
         limit: request.limit,
         timeoutMs: settings.searchTimeoutMs,
+        signal: options.signal,
       });
     }
     case 'diff': {

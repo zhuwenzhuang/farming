@@ -21,7 +21,7 @@ if [ -z "${node_major}" ] || [ "${node_major}" -lt 22 ]; then
   exit 1
 fi
 
-for command_name in npm gcc g++ make python3; do
+for command_name in npm gcc g++ make python3 readelf; do
   if ! command -v "${command_name}" >/dev/null 2>&1; then
     echo "Linux compatibility packaging requires ${command_name}." >&2
     exit 1

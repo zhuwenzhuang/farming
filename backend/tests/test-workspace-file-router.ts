@@ -144,6 +144,22 @@ async function run() {
     });
     assert.strictEqual(branchRequest?.requestId, 'switch-1');
 
+    const searchAbort = new AbortController();
+    const originalSearch = service.search.bind(service);
+    let routedSearchSignal: AbortSignal | undefined;
+    service.search = async (_root, query, options: { signal?: AbortSignal } = {}) => {
+      routedSearchSignal = options.signal as AbortSignal | undefined;
+      return { query, path: '.', matches: [], truncated: false };
+    };
+    try {
+      await executeWorkspaceFileRequest(agentManager, service, {
+        operation: 'search', rootId: 'agent-main', query: 'hello',
+      }, { ...requestOptions, signal: searchAbort.signal });
+      assert.strictEqual(routedSearchSignal, searchAbort.signal);
+    } finally {
+      service.search = originalSearch;
+    }
+
     const preview = await executeWorkspaceFileRequest(agentManager, service, {
       operation: 'create-preview', rootId: 'agent-main', path: 'site/index.html',
     }, requestOptions);

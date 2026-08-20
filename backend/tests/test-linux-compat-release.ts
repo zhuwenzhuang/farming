@@ -47,7 +47,12 @@ function createBundle(root, glibcVersion, additionalNativeMarkers = '') {
 function run() {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-linux-compat-test-'));
   try {
-    assert.doesNotThrow(() => verifyLinuxCompatRelease(createBundle(tempDir, '2.17')));
+    const compatibleBundle = createBundle(tempDir, '2.17');
+    assert.doesNotThrow(() => verifyLinuxCompatRelease(compatibleBundle, { verifyRipgrep: false }));
+    assert.throws(
+      () => verifyLinuxCompatRelease(compatibleBundle),
+      /missing Farming managed linux-x64 ripgrep/,
+    );
     assert.throws(
       () => verifyLinuxCompatRelease(createBundle(tempDir, '2.28')),
       /requires GLIBC_2\.28/,
@@ -67,6 +72,7 @@ function run() {
     );
     assert(packageScript.includes('npm_config_build_from_source=true'));
     assert(packageScript.includes('-static-libstdc++ -static-libgcc'));
+    assert(packageScript.includes('python3 readelf'));
     assert(packageScript.includes('FARMING_RELEASE_PROFILE=linux-x64-glibc217'));
     console.log('Linux compatibility release tests passed');
   } finally {

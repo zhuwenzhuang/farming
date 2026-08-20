@@ -593,33 +593,21 @@ async function run() {
     await assertRejectsWithStatus(service.moveEntry(workspace, 'docs', 'docs'), 400);
 
     assert(
-      service.rgPath.includes(`node_modules${path.sep}ripgrep${path.sep}lib${path.sep}rg.mjs`) ||
-        service.rgPath.includes('node_modules/ripgrep/lib/rg.mjs'),
-      'workspace file search should prefer the bundled ripgrep entrypoint'
+      service.rgPath.includes(`${path.sep}dist${path.sep}runtime${path.sep}ripgrep${path.sep}`),
+      'workspace file search should use Farming managed native ripgrep'
     );
 
-    const bundledOnlyService = new WorkspaceFileService({
+    const missingManagedService = new WorkspaceFileService({
       rgPath: 'farming-missing-rg-for-test',
-      rgFallbackPath: '',
-      commandRunner: {
-        run: async () => {
-          const error = commandError('external rg is not installed');
-          error.code = 'ENOENT';
-          throw error;
-        },
-      },
     });
     try {
-      const bundledOnlySearch = await bundledOnlyService.search(workspace, 'external');
-      assert(
-        bundledOnlySearch.matches.some(match => match.path === 'src/App.tsx'),
-        'workspace file search should work through bundled ripgrep when external rg is unavailable'
-      );
+      await assertRejectsWithStatus(missingManagedService.search(workspace, 'external'), 503);
+      assert.strictEqual(missingManagedService.rgPath, 'farming-missing-rg-for-test');
     } finally {
-      await bundledOnlyService.dispose();
+      await missingManagedService.dispose();
     }
 
-    if (hasCommand('rg')) {
+    if (fs.existsSync(service.rgPath)) {
       const search = await service.search(workspace, 'external');
       assert(search.matches.some(match => match.path === 'src/App.tsx'));
 
@@ -697,18 +685,6 @@ async function run() {
       const ignoredPathSearch = await service.search(workspace, 'ignored.tmp');
       assert(!ignoredPathSearch.matches.some(match => match.path === '.tmp/ignored.tmp'));
 
-      const fallbackService = new WorkspaceFileService({
-        rgPath: 'farming-missing-rg-for-test',
-        rgFallbackPath: 'rg',
-      });
-      try {
-        const fallbackSearch = await fallbackService.search(workspace, 'external');
-        assert(fallbackSearch.matches.some(match => match.path === 'src/App.tsx'));
-        assert.strictEqual(fallbackService.rgPath, 'rg');
-      } finally {
-        await fallbackService.dispose();
-      }
-
       const timeoutService = new WorkspaceFileService({
         commandRunner: {
           run: async (_command, args) => {
@@ -775,6 +751,61 @@ async function run() {
         assert(!cappedSearch.matches.some(match => match.path.startsWith('reference/')));
       } finally {
         service.execFile = originalExecFile;
+      }
+
+      const deadlineService = new WorkspaceFileService({ rgPath: service.rgPath });
+      let contentSearchWasStarted = false;
+      deadlineService.collectPathMatchCandidates = async (_root, _searchPath, _query, _limit, phaseTimeout) => {
+        assert(phaseTimeout <= 1000 && phaseTimeout > 0);
+        await new Promise(resolve => setTimeout(resolve, 650));
+        return { matches: [], truncated: false };
+      };
+      deadlineService.collectDirectoryNameMatchCandidates = async (_root, _searchPath, _query, _limit, deadline) => {
+        assert(deadline - Date.now() < 500, 'directory matching must inherit the remaining total budget');
+        await new Promise(resolve => setTimeout(resolve, Math.max(0, deadline - Date.now() + 20)));
+        return { matches: [], truncated: true };
+      };
+      deadlineService.execRipgrep = async () => {
+        contentSearchWasStarted = true;
+        return { stdout: '', stderr: '' };
+      };
+      try {
+        const startedAt = Date.now();
+        const deadlineSearch = await deadlineService.search(workspace, 'total-deadline', { timeoutMs: 1000 });
+        assert(Date.now() - startedAt < 1400, 'search phases must not each receive a fresh timeout');
+        assert.strictEqual(deadlineSearch.truncated, true);
+        assert.strictEqual(contentSearchWasStarted, false);
+      } finally {
+        await deadlineService.dispose();
+      }
+
+      if (process.platform !== 'win32') {
+        const readyMarker = path.join(tmpRoot, 'fake-rg-ready');
+        const stoppedMarker = path.join(tmpRoot, 'fake-rg-stopped');
+        const fakeRipgrep = path.join(tmpRoot, 'fake-rg');
+        fs.writeFileSync(fakeRipgrep, `#!/usr/bin/env node
+const fs = require('fs');
+fs.writeFileSync(${JSON.stringify(readyMarker)}, 'ready');
+process.on('SIGTERM', () => {
+  fs.writeFileSync(${JSON.stringify(stoppedMarker)}, 'stopped');
+  process.exit(0);
+});
+setInterval(() => {}, 1000);
+`, { mode: 0o755 });
+        const cancellableService = new WorkspaceFileService({ rgPath: fakeRipgrep });
+        const controller = new AbortController();
+        try {
+          const pendingSearch = cancellableService.search(workspace, 'cancel-native-rg', {
+            signal: controller.signal,
+            timeoutMs: 5000,
+          });
+          await waitFor(() => fs.existsSync(readyMarker), 1500);
+          controller.abort();
+          await assert.rejects(pendingSearch, error => error?.name === 'AbortError');
+          await waitFor(() => fs.existsSync(stoppedMarker), 1500);
+        } finally {
+          await cancellableService.dispose();
+        }
       }
     }
 

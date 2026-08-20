@@ -5,8 +5,8 @@ const path = require('path');
 const { diffChars } = require('diff');
 const { execFile, spawn } = require('child_process');
 const readline = require('readline');
-const { pathToFileURL } = require('url');
 import { isSameOrDescendantPath as isInside } from './path-containment.cjs';
+import { assertManagedRipgrep } from './ripgrep-runtime.cjs';
 
 const DEFAULT_MAX_FILE_SIZE = 10 * 1024 * 1024;
 const DEFAULT_MAX_WRITE_SIZE = 2 * 1024 * 1024;
@@ -44,6 +44,7 @@ interface CommandExecutionOptions {
   encoding?: BufferEncoding | 'buffer';
   env?: NodeJS.ProcessEnv;
   maxBuffer?: number;
+  signal?: AbortSignal;
   timeout?: number;
 }
 
@@ -65,7 +66,6 @@ interface WorkspaceCommandRunner {
 
 interface WorkspaceFileServiceOptions {
   blameTimeoutMs?: number;
-  bundledRipgrepModulePath?: string;
   commandRunner?: WorkspaceCommandRunner;
   commandRunnerOptions?: CommandRunnerOptions;
   diffMaxBuffer?: number;
@@ -79,19 +79,12 @@ interface WorkspaceFileServiceOptions {
   maxFileSize?: number;
   maxPreviewFileSize?: number;
   maxWriteSize?: number;
-  rgFallbackPath?: string;
+  /** Explicit native ripgrep injection for tests. Production uses Farming's managed runtime. */
   rgPath?: string;
   searchLimit?: number;
   searchTimeoutMs?: number;
   watchDepth?: number;
   watchOptions?: Record<string, unknown>;
-}
-
-interface BundledRipgrepModule {
-  ripgrep(
-    args: string[],
-    options: { buffer: boolean; env: NodeJS.ProcessEnv; preopens: Record<string, string> },
-  ): Promise<{ code: number; stderr?: string; stdout?: string }>;
 }
 
 interface PathSearchResult {
@@ -373,29 +366,6 @@ function gitDiffContextArgs(value: unknown): string[] {
   const context = Number(value);
   if (!Number.isInteger(context) || context < 0) return [];
   return [`--unified=${Math.min(context, 10000)}`];
-}
-
-function resolveBundledRipgrepPath() {
-  const script = path.join(__dirname, '..', 'node_modules', 'ripgrep', 'lib', 'rg.mjs');
-  if (fs.existsSync(script)) return script;
-  const binaryName = process.platform === 'win32' ? 'rg.cmd' : 'rg';
-  const bin = path.join(__dirname, '..', 'node_modules', '.bin', binaryName);
-  return fs.existsSync(bin) ? bin : '';
-}
-
-function resolveBundledRipgrepModulePath() {
-  try {
-    return require.resolve('ripgrep');
-  } catch {
-    const candidate = path.join(__dirname, '..', 'node_modules', 'ripgrep', 'lib', 'index.mjs');
-    return fs.existsSync(candidate) ? candidate : '';
-  }
-}
-
-function isCommandUnavailable(error: unknown): boolean {
-  return error instanceof Error
-    && ('code' in error)
-    && (error.code === 'ENOENT' || error.code === 'EACCES');
 }
 
 class WorkspaceFileError extends Error {
@@ -1576,8 +1546,6 @@ function buildDescendantGitStatusByDirectory(statusByPath: GitStatusMap): Map<st
 
 class WorkspaceFileService {
   blameTimeoutMs: number;
-  bundledRipgrepModule: Promise<BundledRipgrepModule> | null;
-  bundledRipgrepModulePath: string;
   commandRunner: WorkspaceCommandRunner;
   diffMaxBuffer: number;
   diffTimeoutMs: number;
@@ -1595,7 +1563,6 @@ class WorkspaceFileService {
   maxWriteSize: number;
   mutationQueues: Map<string, Promise<void>>;
   ownsCommandRunner: boolean;
-  rgFallbackPath: string;
   rgPath: string;
   searchLimit: number;
   searchTimeoutMs: number;
@@ -1615,11 +1582,7 @@ class WorkspaceFileService {
     this.diffMaxBuffer = options.diffMaxBuffer ?? DEFAULT_DIFF_MAX_BUFFER;
     this.gitHistoryTimeoutMs = options.gitHistoryTimeoutMs ?? DEFAULT_GIT_HISTORY_TIMEOUT_MS;
     this.gitHistoryMaxBuffer = options.gitHistoryMaxBuffer ?? DEFAULT_GIT_HISTORY_MAX_BUFFER;
-    const bundledRipgrepPath = resolveBundledRipgrepPath();
-    this.rgPath = options.rgPath || process.env.FARMING_RG_BIN || bundledRipgrepPath || 'rg';
-    this.rgFallbackPath = options.rgFallbackPath ?? (this.rgPath === 'rg' ? bundledRipgrepPath : 'rg');
-    this.bundledRipgrepModulePath = options.bundledRipgrepModulePath ?? resolveBundledRipgrepModulePath();
-    this.bundledRipgrepModule = null;
+    this.rgPath = options.rgPath || assertManagedRipgrep();
     this.gitPath = options.gitPath || 'git';
     this.gitStatusCacheTtlMs = options.gitStatusCacheTtlMs ?? DEFAULT_GIT_STATUS_CACHE_TTL_MS;
     this.gitStatusTimeoutMs = options.gitStatusTimeoutMs ?? DEFAULT_GIT_STATUS_TIMEOUT_MS;
@@ -1639,11 +1602,15 @@ class WorkspaceFileService {
 
   execFile(command: string, args: string[], options: CommandExecutionOptions = {}) {
     const git = command === this.gitPath;
-    return this.commandRunner.run(command, git ? gitCommandArgs(args) : args, {
+    const commandOptions = {
       maxBuffer: 2 * 1024 * 1024,
       ...options,
       ...(git ? { env: gitCommandEnvironment(options.env) } : {}),
-    });
+    };
+    const commandArgs = git ? gitCommandArgs(args) : args;
+    return options.signal
+      ? execFileAsync(command, commandArgs, commandOptions)
+      : this.commandRunner.run(command, commandArgs, commandOptions);
   }
 
   async runWorkspaceMutation<T>(workspaceRoot: unknown, operation: (root: string) => Promise<T>): Promise<T> {
@@ -1675,71 +1642,7 @@ class WorkspaceFileService {
   }
 
   async execRipgrep(args: string[], options: CommandExecutionOptions = {}): Promise<CommandResult> {
-    try {
-      return await this.execFile(this.rgPath, args, options);
-    } catch (caught: unknown) {
-      const error = processError(caught);
-      if (!isCommandUnavailable(error) || !this.rgFallbackPath || this.rgFallbackPath === this.rgPath) {
-        if (isCommandUnavailable(error)) {
-          return this.runBundledRipgrep(args, options);
-        }
-        throw error;
-      }
-      this.rgPath = this.rgFallbackPath;
-      try {
-        return await this.execFile(this.rgPath, args, options);
-      } catch (caughtFallback: unknown) {
-        const fallbackError = processError(caughtFallback);
-        if (isCommandUnavailable(fallbackError)) {
-          return this.runBundledRipgrep(args, options);
-        }
-        throw fallbackError;
-      }
-    }
-  }
-
-  async loadBundledRipgrep(): Promise<BundledRipgrepModule> {
-    if (!this.bundledRipgrepModulePath) {
-      const error = new Error('bundled ripgrep is unavailable') as ProcessError;
-      error.code = 'ENOENT';
-      throw error;
-    }
-    if (!this.bundledRipgrepModule) {
-      this.bundledRipgrepModule = import(pathToFileURL(this.bundledRipgrepModulePath).href) as Promise<BundledRipgrepModule>;
-    }
-    return this.bundledRipgrepModule;
-  }
-
-  async runBundledRipgrep(args: string[], options: CommandExecutionOptions = {}): Promise<CommandResult> {
-    const { ripgrep } = await this.loadBundledRipgrep();
-    const cwd = options.cwd || process.cwd();
-    const run = ripgrep(args, {
-      buffer: true,
-      env: options.env || process.env,
-      preopens: { '.': cwd },
-    });
-    const result: { code: number; stderr?: string; stdout?: string } = await (options.timeout
-      ? Promise.race([
-        run,
-        new Promise<never>((_, reject) => {
-          setTimeout(() => {
-            const error = new Error('bundled ripgrep timed out') as ProcessError;
-            error.code = 'ETIMEDOUT';
-            reject(error);
-          }, options.timeout);
-        }),
-      ])
-      : run);
-    const stdout = result.stdout || '';
-    const stderr = result.stderr || '';
-    if (result.code && result.code !== 0) {
-      const error = new Error(stderr || `ripgrep exited with code ${result.code}`) as ProcessError;
-      error.code = result.code;
-      error.stdout = stdout;
-      error.stderr = stderr;
-      throw error;
-    }
-    return { stdout, stderr };
+    return await this.execFile(this.rgPath, args, options);
   }
 
   async collectGitIgnoredPathMatchCandidates(
@@ -1748,6 +1651,7 @@ class WorkspaceFileService {
     query: unknown,
     limit: number,
     timeout: number,
+    signal?: AbortSignal,
   ): Promise<PathSearchResult> {
     const candidateLimit = Math.max(PATH_SEARCH_MIN_CANDIDATES, limit * PATH_SEARCH_CANDIDATE_MULTIPLIER);
     const { stdout } = await this.execFile(this.gitPath, [
@@ -1758,7 +1662,7 @@ class WorkspaceFileService {
       '--ignored',
       '--exclude-standard',
       ...gitSearchExcludePathspecArgs(true, searchPath),
-    ], { cwd: root, timeout, maxBuffer: SEARCH_FILE_LIST_MAX_BUFFER });
+    ], { cwd: root, timeout, maxBuffer: SEARCH_FILE_LIST_MAX_BUFFER, signal });
     const scoredMatches = [];
     const seenMatchPaths = new Set();
     let truncated = false;
@@ -1800,6 +1704,7 @@ class WorkspaceFileService {
     limit: number,
     timeout: number,
     stopAtLimit = false,
+    signal?: AbortSignal,
   ): Promise<PathSearchResult> {
     const args = [
       '--files',
@@ -1827,6 +1732,7 @@ class WorkspaceFileService {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        signal?.removeEventListener('abort', onAbort);
         if (error) {
           reject(error);
           return;
@@ -1851,6 +1757,13 @@ class WorkspaceFileService {
         settle();
       };
 
+      const onAbort = () => {
+        child.kill();
+        settle(signal?.reason instanceof Error
+          ? signal.reason
+          : new DOMException('Workspace search was cancelled', 'AbortError'));
+      };
+
       const processLine = (line: unknown) => {
         const filePath = normalizeSearchResultPath(line);
         if (!filePath || isSearchIgnoredRelativePath(filePath)) return;
@@ -1870,6 +1783,8 @@ class WorkspaceFileService {
         child.kill();
         settle();
       }, timeout);
+      signal?.addEventListener('abort', onAbort, { once: true });
+      if (signal?.aborted) onAbort();
 
       child.stdout.on('data', (chunk: Buffer) => {
         if (settled) return;
@@ -1907,32 +1822,26 @@ class WorkspaceFileService {
     });
   }
 
-  async collectPathMatchCandidates(root: string, searchPath: string, query: unknown, limit: number, timeout: number, stopAtLimit = false): Promise<PathSearchResult> {
-    try {
-      return await this.streamPathMatches(this.rgPath, root, searchPath, query, limit, timeout, stopAtLimit);
-    } catch (caught: unknown) {
-      const error = processError(caught);
-      if (!isCommandUnavailable(error) || !this.rgFallbackPath || this.rgFallbackPath === this.rgPath) {
-        if (isCommandUnavailable(error)) {
-          return this.collectBundledPathMatchCandidates(root, searchPath, query, limit, timeout, stopAtLimit);
-        }
-        throw error;
-      }
-      this.rgPath = this.rgFallbackPath;
-      try {
-        return await this.streamPathMatches(this.rgPath, root, searchPath, query, limit, timeout, stopAtLimit);
-      } catch (caughtFallback: unknown) {
-        const fallbackError = processError(caughtFallback);
-        if (isCommandUnavailable(fallbackError)) {
-          return this.collectBundledPathMatchCandidates(root, searchPath, query, limit, timeout, stopAtLimit);
-        }
-        throw fallbackError;
-      }
-    }
+  async collectPathMatchCandidates(
+    root: string,
+    searchPath: string,
+    query: unknown,
+    limit: number,
+    timeout: number,
+    stopAtLimit = false,
+    signal?: AbortSignal,
+  ): Promise<PathSearchResult> {
+    return await this.streamPathMatches(this.rgPath, root, searchPath, query, limit, timeout, stopAtLimit, signal);
   }
 
-  async collectDirectoryNameMatchCandidates(root: string, searchPath: string, query: unknown, limit: number, timeout: number): Promise<PathSearchResult> {
-    const startedAt = Date.now();
+  async collectDirectoryNameMatchCandidates(
+    root: string,
+    searchPath: string,
+    query: unknown,
+    limit: number,
+    deadline: number,
+    signal?: AbortSignal,
+  ): Promise<PathSearchResult> {
     const allowPathMatch = isLikelyPathQuery(query);
     const candidateLimit = Math.max(PATH_SEARCH_MIN_CANDIDATES, limit * PATH_SEARCH_CANDIDATE_MULTIPLIER);
     const startRelativePath = searchPath === '.' ? '' : normalizeSearchResultPath(searchPath);
@@ -1944,7 +1853,8 @@ class WorkspaceFileService {
     let truncated = false;
 
     while (queue.length > 0) {
-      if (Date.now() - startedAt > timeout) {
+      signal?.throwIfAborted();
+      if (Date.now() >= deadline) {
         truncated = true;
         break;
       }
@@ -1963,6 +1873,7 @@ class WorkspaceFileService {
       } catch {
         continue;
       }
+      signal?.throwIfAborted();
 
       for (const entry of entries) {
         if (!entry.isDirectory()) continue;
@@ -1999,55 +1910,17 @@ class WorkspaceFileService {
     };
   }
 
-  async collectBundledPathMatchCandidates(root: string, searchPath: string, query: unknown, limit: number, timeout: number, stopAtLimit = false): Promise<PathSearchResult> {
-    const candidateLimit = stopAtLimit
-      ? limit
-      : Math.max(PATH_SEARCH_MIN_CANDIDATES, limit * PATH_SEARCH_CANDIDATE_MULTIPLIER);
-    const { stdout } = await this.runBundledRipgrep([
-      '--files',
-      '--hidden',
-      ...searchExcludeGlobArgs(),
-      searchPath,
-    ], { cwd: root, timeout, maxBuffer: SEARCH_FILE_LIST_MAX_BUFFER });
-    const scoredMatches = [];
-    const seenMatchPaths = new Set();
-    let truncated = false;
-    for (const line of String(stdout).split('\n')) {
-      const filePath = normalizeSearchResultPath(line);
-      if (!filePath || isSearchIgnoredRelativePath(filePath)) continue;
-      for (const match of pathSearchMatchesForFile(filePath, query)) {
-        if (seenMatchPaths.has(match.path)) continue;
-        seenMatchPaths.add(match.path);
-        scoredMatches.push(match);
-        if (scoredMatches.length >= candidateLimit) {
-          truncated = true;
-          break;
-        }
-      }
-      if (truncated) break;
-    }
-    scoredMatches.sort(comparePathSearchMatches);
-    return {
-      matches: scoredMatches.slice(0, limit).map(match => ({
-        kind: 'path',
-        entryType: match.entryType,
-        path: match.path,
-        lineNumber: 1,
-        lines: '',
-        ranges: [],
-      })),
-      truncated,
-    };
-  }
-
-  async directPathMatchCandidate(root: string, query: unknown, includeIgnored = false) {
+  async directPathMatchCandidate(root: string, query: unknown, includeIgnored = false, signal?: AbortSignal) {
+    signal?.throwIfAborted();
     if (!isLikelyPathQuery(query)) return null;
     const candidatePath = normalizeSearchResultPath(String(query || '').trim().replace(/^\.\/+/, ''));
     if (!candidatePath || candidatePath.includes('\0') || isSearchIgnoredRelativePath(candidatePath, includeIgnored)) return null;
     try {
       const { target, relativePath } = await this.resolvePath(root, candidatePath);
+      signal?.throwIfAborted();
       if (!relativePath || isSearchIgnoredRelativePath(relativePath, includeIgnored)) return null;
       const stat = await fsp.stat(target);
+      signal?.throwIfAborted();
       if (!stat.isFile()) return null;
       return {
         kind: 'path',
@@ -2057,7 +1930,8 @@ class WorkspaceFileService {
         lines: '',
         ranges: [],
       };
-    } catch {
+    } catch (error) {
+      if (signal?.aborted) throw error;
       return null;
     }
   }
@@ -3271,6 +3145,10 @@ class WorkspaceFileService {
     const limit = Math.max(1, Math.min(500, Number(options.limit) || this.searchLimit));
     const searchPath = relativePath || '.';
     const timeout = Math.max(1000, Number(options.timeoutMs) || this.searchTimeoutMs);
+    const deadline = Date.now() + timeout;
+    const signal = options.signal as AbortSignal | undefined;
+    const remainingMs = () => Math.max(1, deadline - Date.now());
+    signal?.throwIfAborted();
     const includeIgnored = options.includeIgnored === true;
     const likelyPathQuery = isLikelyPathQuery(query);
     const result = (matches: unknown[], truncated: boolean) => ({
@@ -3285,14 +3163,23 @@ class WorkspaceFileService {
 
     if (includeIgnored) {
       try {
-        const directPathMatch = likelyPathQuery ? await this.directPathMatchCandidate(root, query, true) : null;
+        const directPathMatch = likelyPathQuery ? await this.directPathMatchCandidate(root, query, true, signal) : null;
         if (directPathMatch) {
           return result([directPathMatch], false);
         }
-        const ignoredPathSearch = await this.collectGitIgnoredPathMatchCandidates(root, searchPath, query, limit, timeout);
+        if (Date.now() >= deadline) return result([], true);
+        const ignoredPathSearch = await this.collectGitIgnoredPathMatchCandidates(
+          root,
+          searchPath,
+          query,
+          limit,
+          remainingMs(),
+          signal,
+        );
         return result(ignoredPathSearch.matches, ignoredPathSearch.truncated);
       } catch (caught: unknown) {
-      const error = processError(caught);
+        if (signal?.aborted) throw caught;
+        const error = processError(caught);
         if (error.code === 'ETIMEDOUT' || error.signal === 'SIGTERM' || error.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
           return result([], true);
         }
@@ -3301,21 +3188,33 @@ class WorkspaceFileService {
     }
 
     try {
-      const directPathMatch = likelyPathQuery ? await this.directPathMatchCandidate(root, query) : null;
+      const directPathMatch = likelyPathQuery ? await this.directPathMatchCandidate(root, query, false, signal) : null;
       if (directPathMatch) {
         return result([directPathMatch], false);
       }
-      const pathSearch = await this.collectPathMatchCandidates(root, searchPath, query, limit, timeout, likelyPathQuery);
-      const directoryNameSearch = await this.collectDirectoryNameMatchCandidates(root, searchPath, query, limit, timeout);
+      if (Date.now() >= deadline) return result([], true);
+      const pathSearch = await this.collectPathMatchCandidates(
+        root,
+        searchPath,
+        query,
+        limit,
+        remainingMs(),
+        likelyPathQuery,
+        signal,
+      );
+      const directoryNameSearch = Date.now() >= deadline
+        ? { matches: [], truncated: true }
+        : await this.collectDirectoryNameMatchCandidates(root, searchPath, query, limit, deadline, signal);
       pathMatchCandidates = dedupePathMatches([
         ...directoryNameSearch.matches,
         ...pathSearch.matches,
       ], limit);
       searchOutputTruncated = pathSearch.truncated || directoryNameSearch.truncated;
     } catch (caught: unknown) {
+      if (signal?.aborted) throw caught;
       const error = processError(caught);
       if (error.code === 'ENOENT') {
-        throw new WorkspaceFileError('ripgrep is not installed', 501);
+        throw new WorkspaceFileError('Farming managed ripgrep is missing or not executable', 503);
       }
       if (error.code === 'ETIMEDOUT' || error.signal === 'SIGTERM') {
         searchOutputTruncated = true;
@@ -3325,6 +3224,9 @@ class WorkspaceFileService {
 
     if (pathMatchCandidates.length >= limit || pathMatchCandidates.length > 0 && likelyPathQuery) {
       return result(pathMatchCandidates, searchOutputTruncated || pathMatchCandidates.length >= limit);
+    }
+    if (Date.now() >= deadline) {
+      return result(pathMatchCandidates, true);
     }
 
     const args = [
@@ -3344,13 +3246,14 @@ class WorkspaceFileService {
 
     let stdout;
     try {
-      ({ stdout } = await this.execRipgrep(args, { cwd: root, timeout }));
+      ({ stdout } = await this.execRipgrep(args, { cwd: root, timeout: remainingMs(), signal }));
     } catch (caught: unknown) {
+      if (signal?.aborted) throw caught;
       const error = processError(caught);
       if (error.code === 1) {
         stdout = error.stdout || '';
       } else if (error.code === 'ENOENT') {
-        throw new WorkspaceFileError('ripgrep is not installed', 501);
+        throw new WorkspaceFileError('Farming managed ripgrep is missing or not executable', 503);
       } else if (error.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
         stdout = error.stdout || '';
         searchOutputTruncated = true;
