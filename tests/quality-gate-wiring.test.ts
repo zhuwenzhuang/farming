@@ -41,6 +41,14 @@ test('critical behavior contracts stay wired into local checks and named CI evid
   assert.match(workflow, /npm run test:behavior:e2e/)
 })
 
+test('every frontend artifact browser consumer restores the managed ripgrep executable', () => {
+  const workflow = fs.readFileSync(path.join(repoRoot, '.github', 'workflows', 'ci.yml'), 'utf8')
+  const artifactConsumers = workflow.match(/name: Download frontend build/g) ?? []
+  const permissionRestorations = workflow.match(/run: chmod \+x dist\/runtime\/ripgrep\/\*\/rg/g) ?? []
+  assert.equal(artifactConsumers.length, 3)
+  assert.equal(permissionRestorations.length, artifactConsumers.length)
+})
+
 test('typecheck gate keeps every required project including the strict unit tests', () => {
   const requiredProjects = [
     'tsconfig.backend-runtime.json',

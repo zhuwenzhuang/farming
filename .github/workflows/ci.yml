@@ -106,6 +106,12 @@ jobs:
           name: frontend-dist
           path: dist
 
+      # upload-artifact normalizes file modes. The managed rg binary is part
+      # of the tested frontend artifact, so restore its executable bit instead
+      # of rebuilding or downloading a different runtime in this consumer.
+      - name: Restore managed runtime executable permissions
+        run: chmod +x dist/runtime/ripgrep/*/rg
+
       - name: Prepare behavior runtimes
         run: |
           npm run build:backend-runtime
@@ -207,6 +213,9 @@ jobs:
           name: frontend-dist
           path: dist
 
+      - name: Restore managed runtime executable permissions
+        run: chmod +x dist/runtime/ripgrep/*/rg
+
       # The artifact only carries dist/. These prebuild outputs land next to
       # their sources instead, so every shard still runs the four cheap
       # transpile/codegen steps to reach the same state a full `npm run build`
@@ -286,6 +295,9 @@ jobs:
         with:
           name: frontend-dist
           path: dist
+
+      - name: Restore managed runtime executable permissions
+        run: chmod +x dist/runtime/ripgrep/*/rg
 
       - name: Prepare backend runtime
         run: npm run build:backend-runtime
