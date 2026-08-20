@@ -25,6 +25,7 @@ const {
   createBrowserRouter,
 } = require('../../extensions/browser/backend/browser-router.cjs');
 const { configInstanceFingerprint } = require('../config-instance.cjs');
+const storageLayout = require('../storage-layout.cjs');
 
 class FakeBrowserRuntime extends EventEmitter {
   constructor(options) {
@@ -1633,6 +1634,114 @@ async function testAgentBrowserRestartRecovery() {
   }
 }
 
+async function testLegacyProjectBrowserMigrationCleanup() {
+  const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-legacy-project-browser-'));
+  const runningId = 'browser_legacy_project_running';
+  const stoppedId = 'browser_legacy_project_stopped';
+  const runningIdentity = {
+    pid: 53_001,
+    processGroupId: 53_001,
+    startedAt: 'legacy-project-browser',
+    format: 'test-v1',
+  };
+  const resourcesFile = storageLayout.browserResourcesFile(configDir);
+  const runningProfile = storageLayout.browserProfileDir(configDir, runningId);
+  const stoppedProfile = storageLayout.browserProfileDir(configDir, stoppedId);
+  fs.mkdirSync(runningProfile, { recursive: true });
+  fs.mkdirSync(stoppedProfile, { recursive: true });
+  const canonicalRunningProfile = fs.realpathSync(runningProfile);
+  fs.writeFileSync(path.join(runningProfile, 'state'), 'running');
+  fs.writeFileSync(path.join(stoppedProfile, 'state'), 'stopped');
+  fs.writeFileSync(resourcesFile, JSON.stringify({
+    version: 10,
+    revision: 7,
+    resources: [{
+      id: runningId,
+      projectRootId: 'wroot_legacy',
+      workspace: '/tmp/legacy',
+      ownerType: 'project',
+      ownerAgentId: '',
+      name: 'Legacy running Browser',
+      status: 'running',
+      generation: 4,
+      runtimeKind: 'agent-browser',
+      browserKind: 'chrome',
+      sessionId: runningId,
+      sessionGeneration: 4,
+      processIdentity: runningIdentity,
+    }, {
+      id: stoppedId,
+      projectRootId: 'wroot_legacy',
+      workspace: '/tmp/legacy',
+      ownerType: 'project',
+      ownerAgentId: '',
+      name: 'Legacy stopped Browser',
+      status: 'stopped',
+      processIdentity: null,
+    }],
+  }));
+
+  const discovery = () => ({
+    kind: 'chrome',
+    path: '/fake/chrome',
+    agentBrowserPath: '/test/agent-browser',
+  });
+  const blocked = new BrowserResourceManager({
+    configDir,
+    discoverExecutable: discovery,
+    recoverRuntime: async input => {
+      const persisted = JSON.parse(fs.readFileSync(resourcesFile, 'utf8'));
+      assert(persisted.resources.some(resource => resource.id === runningId));
+      assert(fs.existsSync(runningProfile));
+      assert.strictEqual(input.id, runningId);
+      assert.strictEqual(input.generation, 4);
+      assert.strictEqual(input.profileDir, canonicalRunningProfile);
+      assert.deepStrictEqual(input.processIdentity, runningIdentity);
+      throw new Error('cleanup blocked');
+    },
+  });
+  try {
+    await blocked.init();
+    assert.deepStrictEqual(blocked.store.list(), []);
+    assert.strictEqual(blocked.store.listLegacyProjectResources().length, 1);
+    assert(fs.existsSync(runningProfile), 'failed runtime cleanup must retain the legacy profile');
+    assert(!fs.existsSync(stoppedProfile), 'a stopped legacy Browser profile should be removed');
+    const retained = JSON.parse(fs.readFileSync(resourcesFile, 'utf8'));
+    assert.strictEqual(retained.version, 10);
+    assert.deepStrictEqual(retained.resources.map(resource => resource.id), [runningId]);
+  } finally {
+    await blocked.dispose();
+  }
+
+  const recoveries = [];
+  const recovered = new BrowserResourceManager({
+    configDir,
+    discoverExecutable: discovery,
+    recoverRuntime: async input => {
+      const persisted = JSON.parse(fs.readFileSync(resourcesFile, 'utf8'));
+      assert(persisted.resources.some(resource => resource.id === runningId));
+      assert(fs.existsSync(runningProfile));
+      recoveries.push(input);
+    },
+  });
+  try {
+    await recovered.init();
+    assert.strictEqual(recoveries.length, 1);
+    assert.strictEqual(recoveries[0].id, runningId);
+    assert.strictEqual(recoveries[0].generation, 4);
+    assert.strictEqual(recoveries[0].profileDir, canonicalRunningProfile);
+    assert.deepStrictEqual(recoveries[0].processIdentity, runningIdentity);
+    assert.deepStrictEqual(recovered.store.listLegacyProjectResources(), []);
+    assert(!fs.existsSync(runningProfile));
+    const migrated = JSON.parse(fs.readFileSync(resourcesFile, 'utf8'));
+    assert.strictEqual(migrated.version, 11);
+    assert.deepStrictEqual(migrated.resources, []);
+  } finally {
+    await recovered.dispose();
+    fs.rmSync(configDir, { recursive: true, force: true });
+  }
+}
+
 function testBrowserResourceRevisionOrdering() {
   const current = {
     id: 'browser_revision',
@@ -1976,6 +2085,7 @@ Promise.resolve()
   .then(testAgentOwnedBrowserIsolationAndLifecycle)
   .then(testAgentBrowserNamedSessionEnsure)
   .then(testAgentBrowserRestartRecovery)
+  .then(testLegacyProjectBrowserMigrationCleanup)
   .then(testBrowserResourceRevisionOrdering)
   .then(testBrowserRouterAgentOwnership)
   .then(testBrowserPackaging)

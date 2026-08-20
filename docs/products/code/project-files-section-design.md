@@ -87,7 +87,8 @@ shared URLs, first asks the backend for the nearest containing Git worktree thro
 one shared resolution boundary. A successful authoritative lookup mounts
 that worktree and opens the repository-relative file through the normal Project
 path, including Git blame; when no repository exists, the bounded read-only
-global-file path remains the fallback.
+global-file path remains the fallback. A global-file fallback opens the exact
+file without attempting to reveal it in a Project tree that cannot contain it.
 
 Filesystem paths are decoded internal identities. Structured URI boundaries such
 as Markdown links, preview resources, share URLs, and file APIs encode a path once
@@ -347,7 +348,9 @@ load through the independent background `tree-decorations` operation and
 publish only changed paths; decoration arrival does not replace directory
 snapshots or rebuild an unchanged tree projection. An unchanged structural
 refresh reuses node identity, while a changed path replaces only that node and
-the ancestors needed to reach it.
+the ancestors needed to reach it. Large directories split decoration reads at
+both protocol-message and subprocess-argument boundaries; no directory size may
+turn background decoration into an invalid or indefinitely pending request.
 
 The automated large-workspace gate uses production-shaped trees rather than a
 single synthetic click. A 2,000-row projection must keep fewer than 100 file

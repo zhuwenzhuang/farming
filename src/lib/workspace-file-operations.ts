@@ -42,6 +42,15 @@ export function workspaceFileMoveFocusPath(move: WorkspaceFileMove) {
   return move.targetPath
 }
 
+export function applyWorkspaceFileMovesToDirectoryPaths(
+  directoryPaths: ReadonlySet<string>,
+  moves: readonly WorkspaceFileMove[],
+) {
+  return new Set(Array.from(directoryPaths, directoryPath => (
+    movedWorkspacePathByAnyMove(directoryPath, moves) ?? directoryPath
+  )))
+}
+
 export function workspaceFileDeleteFocusPath(deletion: WorkspaceFileDeleteResult) {
   return deletion.parentDirectory || null
 }

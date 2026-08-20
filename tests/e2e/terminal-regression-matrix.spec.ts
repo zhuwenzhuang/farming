@@ -473,18 +473,26 @@ async function runDesktopTerminalMatrix(
     fs.writeFileSync(path.join(projectDir, 'src', 'duplicates', 'b', 'duplicate.txt'), 'second\n')
 
     const workspaceFileReads: Array<{ path: string; exactExternal?: boolean }> = []
+    const globalTreeRequests: string[] = []
     page.on('websocket', socket => {
       socket.on('framesent', ({ payload }) => {
         try {
           const message = JSON.parse(String(payload)) as {
             type?: string
-            request?: { operation?: string; path?: string; exactExternal?: boolean }
+            request?: { operation?: string; path?: string; rootId?: string; exactExternal?: boolean }
           }
           if (message.type === 'workspace-request' && message.request?.operation === 'read-file') {
             workspaceFileReads.push({
               path: message.request.path ?? '',
               ...(message.request.exactExternal ? { exactExternal: true } : {}),
             })
+          }
+          if (
+            message.type === 'workspace-request'
+            && message.request?.operation === 'tree'
+            && message.request.rootId === 'wroot_global'
+          ) {
+            globalTreeRequests.push(message.request.path ?? '')
           }
         } catch {
           // Ignore terminal and other non-JSON websocket frames.
@@ -1387,6 +1395,7 @@ async function runDesktopTerminalMatrix(
       const externalFile = path.join(externalDirectory, 'README.md')
         fs.writeFileSync(externalFile, '# External terminal file\n')
       try {
+        const globalTreeRequestCount = globalTreeRequests.length
         await writeTerminalFixture(page, bashAgentId, `${externalFile}\r\n`)
         const cell = await cellForText(page, bashAgentId, externalFile, 2)
         await page.mouse.click(cell.x, cell.y)
@@ -1395,6 +1404,7 @@ async function runDesktopTerminalMatrix(
         ))).toBe(true)
         await expect(page.getByTestId('code-file-editor')).toBeVisible()
         await expect(page.getByTestId('code-file-editor').getByRole('tab', { selected: true })).toContainText('README.md')
+        await expect.poll(() => globalTreeRequests.length).toBe(globalTreeRequestCount)
         await expect.poll(async () => {
           return page.evaluate((id) => window.__farmingTerminalTest?.getSelection(id) ?? '', bashAgentId)
         }).toBe('')

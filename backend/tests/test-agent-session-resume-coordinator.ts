@@ -7,6 +7,7 @@ import {
   AgentSessionResumeCoordinator,
   type AgentSessionResumeCoordinatorPorts,
 } from '../agent-session-resume-coordinator.cjs';
+import { ProviderSessionMutationCoordinator } from '../provider-session-mutation-coordinator.cjs';
 
 type StartCallback = (agentId: string | null, error?: string | null) => void;
 type StartOptions = Parameters<AgentSessionResumeCoordinatorPorts['startAgent']>[3];
@@ -32,7 +33,7 @@ function deferred<Result>() {
 }
 
 function basePorts(overrides: Partial<AgentSessionResumeCoordinatorPorts> = {}): AgentSessionResumeCoordinatorPorts {
-  return {
+  const ports: AgentSessionResumeCoordinatorPorts = {
     archiveNewAgent: async () => null,
     canonicalProjectWorkspace: async workspace => workspace || '',
     configuredProviderHomes: () => ({ codex: [{ id: 'default', path: '/homes/codex' }] }),
@@ -55,6 +56,9 @@ function basePorts(overrides: Partial<AgentSessionResumeCoordinatorPorts> = {}):
     publishAgentState: () => {},
     rememberMainPageSession: () => {},
     removeMainPageSession: () => {},
+    runProviderSessionResumeAdmission: (provider, sessionId, _providerHomeId, operation) => (
+      operation(options => ports.ensureProviderSessionAvailable(provider, sessionId, options))
+    ),
     startAgent: (_command, _workspace, callback) => {
       callback('agent-alpha');
       return Promise.resolve('agent-alpha');
@@ -63,6 +67,7 @@ function basePorts(overrides: Partial<AgentSessionResumeCoordinatorPorts> = {}):
     warn: () => {},
     ...overrides,
   };
+  return ports;
 }
 
 async function testInvalidRequestBoundary() {
@@ -1281,6 +1286,147 @@ async function testStartOptionsFromSavedSession() {
   );
 }
 
+async function testArchiveResumeLifecycleSerialization() {
+  {
+    const mutations = new ProviderSessionMutationCoordinator();
+    const releaseWorkspace = deferred<void>();
+    const events: string[] = [];
+    const activeAgents: Array<{ id: string; providerSessionKey: string; status: string }> = [];
+    const coordinator = new AgentSessionResumeCoordinator(basePorts({
+      canonicalProjectWorkspace: async workspace => {
+        events.push('resume-workspace');
+        await releaseWorkspace.promise;
+        return workspace || '';
+      },
+      getActiveAgents: () => activeAgents,
+      runProviderSessionResumeAdmission: (provider, sessionId, providerHomeId, operation) => (
+        mutations.run({
+          provider,
+          homeId: providerHomeId,
+          sessionId,
+          type: 'resume',
+          operation: () => operation(async () => {
+            events.push('resume-unarchive');
+            return null;
+          }),
+        })
+      ),
+      startAgent: (_command, _workspace, callback) => {
+        events.push('resume-start');
+        activeAgents.push({
+          id: 'serialized-agent',
+          providerSessionKey: encodeProviderSessionKey('codex', 'session-alpha', 'default'),
+          status: 'running',
+        });
+        callback('serialized-agent');
+        return Promise.resolve('serialized-agent');
+      },
+    }));
+
+    const resume = coordinator.resume('codex', 'session-alpha', { allowUnarchiveArchived: true });
+    await drainAsyncWork();
+    assert.deepStrictEqual(events, ['resume-unarchive', 'resume-workspace']);
+
+    const archive = mutations.run({
+      provider: 'codex',
+      homeId: 'default',
+      sessionId: 'session-alpha',
+      type: 'archive',
+      operation: async () => {
+        const claimed = activeAgents.length > 0;
+        events.push(claimed ? 'archive-conflict' : 'archive-committed');
+        return claimed ? 'conflict' : 'archived';
+      },
+    });
+    await drainAsyncWork();
+    assert.deepStrictEqual(
+      events,
+      ['resume-unarchive', 'resume-workspace'],
+      'Archive must remain queued until Resume establishes the Agent claim',
+    );
+
+    releaseWorkspace.resolve();
+    assert.strictEqual((await resume).agentId, 'serialized-agent');
+    assert.strictEqual(await archive, 'conflict');
+    assert.deepStrictEqual(events, [
+      'resume-unarchive',
+      'resume-workspace',
+      'resume-start',
+      'archive-conflict',
+    ]);
+  }
+
+  {
+    const mutations = new ProviderSessionMutationCoordinator();
+    const releaseArchive = deferred<void>();
+    const events: string[] = [];
+    let archived = false;
+    const archive = mutations.run({
+      provider: 'codex',
+      homeId: 'default',
+      sessionId: 'session-alpha',
+      type: 'archive',
+      operation: async () => {
+        events.push('archive-start');
+        await releaseArchive.promise;
+        archived = true;
+        events.push('archive-committed');
+        return 'archived';
+      },
+    });
+    await drainAsyncWork();
+
+    const coordinator = new AgentSessionResumeCoordinator(basePorts({
+      findAgentSession: async () => {
+        events.push(archived ? 'resume-read-archived' : 'resume-read-active');
+        return {
+          provider: 'codex',
+          id: 'session-alpha',
+          cwd: '/repo',
+          workspace: '/repo',
+          title: 'Alpha',
+          providerHomeId: 'default',
+          providerHomePath: '/homes/codex',
+          archived,
+        };
+      },
+      runProviderSessionResumeAdmission: (provider, sessionId, providerHomeId, operation) => (
+        mutations.run({
+          provider,
+          homeId: providerHomeId,
+          sessionId,
+          type: 'resume',
+          operation: () => operation(async () => {
+            events.push('resume-unarchive');
+            archived = false;
+            return null;
+          }),
+        })
+      ),
+      startAgent: (_command, _workspace, callback) => {
+        events.push('resume-start');
+        callback('agent-after-archive');
+        return Promise.resolve('agent-after-archive');
+      },
+    }));
+    const resume = coordinator.resume('codex', 'session-alpha', { allowUnarchiveArchived: true });
+    await drainAsyncWork();
+    assert.deepStrictEqual(events, ['archive-start'], 'Resume must wait behind the exact Session Archive');
+
+    releaseArchive.resolve();
+    assert.strictEqual(await archive, 'archived');
+    assert.strictEqual((await resume).agentId, 'agent-after-archive');
+    assert.deepStrictEqual(events, [
+      'archive-start',
+      'archive-committed',
+      'resume-read-archived',
+      'resume-unarchive',
+      'resume-read-active',
+      'resume-start',
+    ]);
+  }
+}
+
 async function testAutoResume() {
   {
     const events: string[] = [];
@@ -1457,6 +1603,7 @@ async function run() {
   await testArchivedAndUnarchiveSemantics();
   await testForkAndMainSemantics();
   await testStartOptionsFromSavedSession();
+  await testArchiveResumeLifecycleSerialization();
   await testAutoResume();
 
   await drainAsyncWork();

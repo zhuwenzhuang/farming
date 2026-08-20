@@ -9,6 +9,8 @@ import {
   loadCodeProjectFilesViewState,
   saveCodeProjectFilesViewState,
 } from '@/components/code/workspace-view-state'
+import { applyWorkspaceFileMovesToDirectoryPaths } from '@/lib/workspace-file-operations'
+import type { WorkspaceFileMove } from '@/lib/workspace-files'
 
 const COMPACT_DIRECTORY_PRELOAD_MAX_DEPTH = 12
 const WORKSPACE_DIRECTORY_PRELOAD_CONCURRENCY = 4
@@ -108,6 +110,17 @@ export function useWorkspaceFileExplorer(agentId: string | null, workspaceKey = 
       return results
     })()
   }, [directories, loadDirectory])
+
+  const moveOpenDirectories = useCallback((moves: readonly WorkspaceFileMove[]) => {
+    const current = openDirectoryPathsRef.current
+    const next = applyWorkspaceFileMovesToDirectoryPaths(current, moves)
+    const changed = current.size !== next.size
+      || Array.from(current).some(directoryPath => !next.has(directoryPath))
+    if (!changed) return Promise.resolve([])
+    openDirectoryPathsRef.current = next
+    setOpenDirectoryPaths(next)
+    return loadMissingDirectories(Array.from(next))
+  }, [loadMissingDirectories])
 
   const isDirectoryLoaded = useCallback((directoryPath: string) => {
     const directory = directories[directoryPath]
@@ -264,6 +277,7 @@ export function useWorkspaceFileExplorer(agentId: string | null, workspaceKey = 
     ensureDirectoryLoaded,
     isDirectoryLoaded,
     loadMissingDirectories,
+    moveOpenDirectories,
     refreshDirectories,
     hydrateCompactDirectoryChains,
     isDirectoryOpen,
@@ -278,6 +292,7 @@ export function useWorkspaceFileExplorer(agentId: string | null, workspaceKey = 
     isDirectoryOpen,
     isDirectoryLoaded,
     loadMissingDirectories,
+    moveOpenDirectories,
     loadRootDirectory,
     openDirectoriesInLayout,
     openDirectoryPaths,

@@ -3426,7 +3426,7 @@ export function CodeWorkspace({
     const openTarget: WorkspaceFileOpenTarget = {
       ...requestedOpenTarget,
       ...(target.globalRoot ? { globalRoot: true } : {}),
-      ...(target.exactExternal ? { exactExternal: true } : {}),
+      ...(target.exactExternal ? { exactExternal: true, revealInTree: false } : {}),
       sourceAgentId: identity.sourceAgentId,
     }
 
@@ -3472,7 +3472,9 @@ export function CodeWorkspace({
           if (!requestLease.isCurrent() || !intentLease.isCurrent()) return
           await openProjectFile(resolvedTarget.identity.filesId, file, {
             ...(requestedOpenTarget ?? {}),
-            ...(resolvedTarget.globalRoot ? { globalRoot: true, exactExternal: true } : {}),
+            ...(resolvedTarget.globalRoot
+              ? { globalRoot: true, exactExternal: true, revealInTree: false }
+              : {}),
             sourceAgentId: resolvedTarget.identity.sourceAgentId,
           }, undefined, intentLease)
           return

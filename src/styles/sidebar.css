@@ -290,7 +290,6 @@ body.code-resizing-sidebar .code-sidebar-resizer {
   .code-project-list {
     margin-right: -9px;
     padding-right: 0;
-    scrollbar-width: thin;
   }
 }
 

@@ -54,6 +54,11 @@ interface BrowserResource {
   workspace: string;
 }
 
+interface LegacyProjectBrowserResource extends BrowserResource {
+  ownerAgentId: '';
+  ownerType: 'project';
+}
+
 interface BrowserResourceCreateInput {
   autoName?: boolean;
   browserKind?: unknown;
@@ -134,15 +139,17 @@ function normalizeProcessIdentity(value: unknown): BrowserProcessIdentity | null
   };
 }
 
-function normalizeResource(value: unknown): BrowserResource | null {
+function normalizeResourceFields(
+  value: unknown,
+  ownerAgentId: string,
+): BrowserResource | null {
   const resource = recordValue(value);
   if (!value || typeof value !== 'object' || !RESOURCE_ID_RE.test(String(resource.id || ''))) {
     return null;
   }
   const projectRootId = String(resource.projectRootId || '').trim();
   const workspace = String(resource.workspace || '').trim();
-  const ownerAgentId = String(resource.ownerAgentId || '').trim();
-  if (!projectRootId || !workspace || !ownerAgentId) return null;
+  if (!projectRootId || !workspace) return null;
   const legacySource = resource.browserKind === 'chrome-extension'
     ? 'extension'
     : resource.browserKind === 'isolated-computer'
@@ -192,11 +199,25 @@ function normalizeResource(value: unknown): BrowserResource | null {
   };
 }
 
+function normalizeResource(value: unknown): BrowserResource | null {
+  const resource = recordValue(value);
+  const ownerAgentId = String(resource.ownerAgentId || '').trim();
+  return ownerAgentId ? normalizeResourceFields(value, ownerAgentId) : null;
+}
+
+function normalizeLegacyProjectResource(value: unknown): LegacyProjectBrowserResource | null {
+  const resource = recordValue(value);
+  if (resource.ownerType !== 'project' || String(resource.ownerAgentId || '').trim()) return null;
+  const normalized = normalizeResourceFields(value, '');
+  return normalized ? { ...normalized, ownerAgentId: '', ownerType: 'project' } : null;
+}
+
 class BrowserResourceStore {
   readonly directory: string;
   readonly file: string;
   readonly writeJson: WriteJson;
   readonly resources = new Map<string, BrowserResource>();
+  readonly legacyProjectResources = new Map<string, LegacyProjectBrowserResource>();
   revision = 0;
 
   constructor(configDir: string, options: BrowserResourceStoreOptions = {}) {
@@ -223,8 +244,15 @@ class BrowserResourceStore {
     const resources = Array.isArray(parsed.resources) ? parsed.resources : [];
     for (const value of resources) {
       const resource = normalizeResource(value);
-      if (!resource || this.resources.has(resource.id)) continue;
-      this.resources.set(resource.id, resource);
+      if (resource && !this.resources.has(resource.id) && !this.legacyProjectResources.has(resource.id)) {
+        this.resources.set(resource.id, resource);
+        continue;
+      }
+      const legacy = normalizeLegacyProjectResource(value);
+      if (!legacy || this.resources.has(legacy.id) || this.legacyProjectResources.has(legacy.id)) {
+        continue;
+      }
+      this.legacyProjectResources.set(legacy.id, legacy);
     }
     this.commit();
   }
@@ -238,6 +266,12 @@ class BrowserResourceStore {
   get(id: string): BrowserResource | null {
     const resource = this.resources.get(id);
     return resource ? { ...resource } : null;
+  }
+
+  listLegacyProjectResources(): LegacyProjectBrowserResource[] {
+    return [...this.legacyProjectResources.values()]
+      .map(resource => ({ ...resource }))
+      .sort((left, right) => left.createdAt - right.createdAt);
   }
 
   create(input: BrowserResourceCreateInput): BrowserResource {
@@ -347,6 +381,19 @@ class BrowserResourceStore {
     return true;
   }
 
+  deleteLegacyProjectResource(id: string): boolean {
+    const resource = this.legacyProjectResources.get(id);
+    if (!resource) return false;
+    this.legacyProjectResources.delete(id);
+    try {
+      this.commit();
+    } catch (error) {
+      this.legacyProjectResources.set(id, resource);
+      throw error;
+    }
+    return true;
+  }
+
   hasSession(resource: BrowserResource, exceptId = ''): boolean {
     return [...this.resources.values()].some(candidate => (
       candidate.id !== exceptId
@@ -360,10 +407,17 @@ class BrowserResourceStore {
     const previousRevision = this.revision;
     this.revision += 1;
     try {
+      const legacyResources = this.listLegacyProjectResources();
+      const currentResources = this.list();
       this.writeJson(this.file, {
-        version: STORE_VERSION,
+        version: legacyResources.length > 0 ? 10 : STORE_VERSION,
         revision: this.revision,
-        resources: this.list(),
+        resources: legacyResources.length > 0
+          ? [
+              ...currentResources.map(resource => ({ ...resource, ownerType: 'agent' })),
+              ...legacyResources,
+            ]
+          : currentResources,
         updatedAt: Date.now(),
       });
     } catch (error) {
@@ -383,5 +437,6 @@ export type {
   BrowserResource,
   BrowserResourceCreateInput,
   BrowserResourcePatch,
+  LegacyProjectBrowserResource,
   RunningBrowserTabInput,
 };

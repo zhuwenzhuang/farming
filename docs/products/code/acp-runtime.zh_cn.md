@@ -25,6 +25,9 @@ Provider History Mutation 使用同一边界。Archive，以及 Resume 或 Fork 
 Archive Flow 只传递精确 Provider Identity，不直接调用 Provider-specific Command。
 归档 Detached History-backed Row 时，只有受支持的 Provider Mutation 成功后才提交 Main-page
 Membership Removal；失败时 Membership 保持不变，使同一 Row 仍可继续操作。
+Archive 与完整的 Non-Fork Resume Admission 按同一个精确 Provider Session Identity 串行。
+Resume 从权威 Lookup、可选 Unarchive 一直持有该 Admission，直到新 Agent 建立 Claim；
+Unarchive 在已持有的 Admission 内执行，不会再次进入同一个 Mutation Coordinator。
 
 性能、正确性、可靠性、恢复、隔离与可观测性都是 Provider-neutral 的 ACP 要求。
 横切改进只有在所有受支持 Provider 都满足同一 Adapter Contract 与等价验收标准后才算

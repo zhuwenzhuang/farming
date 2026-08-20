@@ -105,6 +105,10 @@ async function run(): Promise<void> {
       events.push('archive');
       archiveCalls.push({ provider, sessionId, providerHomeId });
       if (archiveThrows) throw new Error('archive transport failed');
+      if (!archiveResult.error) {
+        const archivedKey = encodeProviderSessionKey(provider, sessionId, providerHomeId);
+        mainPageSessionKeys = mainPageSessionKeys.filter(key => key !== archivedKey);
+      }
       return archiveResult;
     },
     getMainPageSessionKeys() {
@@ -338,8 +342,7 @@ async function run(): Promise<void> {
       sessionId: 'session-alpha',
       providerHomeId: 'work',
     }]);
-    assert.deepStrictEqual(events, ['archive', 'remove', 'main-page-keys', 'invalidate', 'publish']);
-    assert.deepStrictEqual(removedKeys.at(-1), [encodeProviderSessionKey('codex', 'session-alpha', 'work')]);
+    assert.deepStrictEqual(events, ['archive', 'main-page-keys', 'invalidate', 'publish']);
 
     events.length = 0;
     mainPageSessionKeys = [encodeProviderSessionKey('codex', 'session-alpha', 'work')];

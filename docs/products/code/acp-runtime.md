@@ -34,6 +34,11 @@ exact Provider identity and do not call a Provider-specific command directly.
 Archiving a detached History-backed row commits main-page membership removal
 only after the supported Provider mutation succeeds; failure leaves membership
 unchanged so the same row remains actionable.
+Archive and the complete non-Fork Resume admission serialize on the same exact
+Provider Session identity. Resume holds that admission from its authoritative
+lookup and optional unarchive until the new Agent establishes its claim; the
+unarchive step executes inside the owned admission rather than re-entering the
+same mutation coordinator.
 
 Performance, correctness, reliability, recovery, isolation, and observability
 are provider-neutral ACP requirements. A cross-cutting improvement is complete

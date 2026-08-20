@@ -66,7 +66,8 @@ interface UseWorkspaceFileOperationControllerOptions {
   onMoveEntries: (agentId: string, moves: WorkspaceFileMove[]) => void
   onOpenFile: (agentId: string, file: WorkspaceFile) => void | Promise<void>
   onWorkspaceChange?: () => void
-  refreshDirectories: (directoryPaths: Array<string | null | undefined>) => void
+  moveOpenDirectories: (moves: readonly WorkspaceFileMove[]) => Promise<unknown>
+  refreshDirectories: (directoryPaths: Array<string | null | undefined>) => Promise<boolean>
   setOpenFileError: (error: string | null) => void
 }
 
@@ -79,6 +80,7 @@ export function useWorkspaceFileOperationController({
   onMoveEntries,
   onOpenFile,
   onWorkspaceChange,
+  moveOpenDirectories,
   refreshDirectories,
   setOpenFileError,
 }: UseWorkspaceFileOperationControllerOptions) {
@@ -219,7 +221,10 @@ export function useWorkspaceFileOperationController({
           item.version,
           { signal },
         ))
-        refreshDirectories(workspaceFileMoveRefreshDirectories(move))
+        await Promise.all([
+          refreshDirectories(workspaceFileMoveRefreshDirectories(move)),
+          moveOpenDirectories([move]),
+        ])
         onMoveEntries(ownedOperation.rootId, [move])
         onWorkspaceChange?.()
         if (clearFileOperationIfCurrent(ownedOperation)) {
@@ -305,7 +310,10 @@ export function useWorkspaceFileOperationController({
           if (operation.kind === 'rename') {
             const move = reconcileWorkspaceFileRenameFromDirectory(operation, name, tree.items)
             if (move) {
-              refreshDirectories(workspaceFileMoveRefreshDirectories(move))
+              await Promise.all([
+                refreshDirectories(workspaceFileMoveRefreshDirectories(move)),
+                moveOpenDirectories([move]),
+              ])
               onMoveEntries(ownedOperation.rootId, [move])
               onWorkspaceChange?.()
               if (clearFileOperationIfCurrent(ownedOperation)) {
@@ -343,6 +351,7 @@ export function useWorkspaceFileOperationController({
     clearFileOperationIfCurrent,
     ensureDirectoryLoaded,
     focusFileTreePath,
+    moveOpenDirectories,
     isCurrentFileOperation,
     onDeleteEntries,
     onMoveEntries,

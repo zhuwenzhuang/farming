@@ -3,6 +3,7 @@ const {
   applyWorkspaceFileMovesToOpenFile,
   applyWorkspaceFileMovesToOpenFileCache,
   applyWorkspaceFileMovesToOpenFiles,
+  applyWorkspaceFileMovesToDirectoryPaths,
   isSameOrDescendantPath,
   movedWorkspacePath,
   movedWorkspacePathByAnyMove,
@@ -60,6 +61,10 @@ function run() {
   assert.strictEqual(movedWorkspacePathByAnyMove('app/components/Button.tsx', [move, nestedMove]), 'ui/components/Button.tsx');
   assert.deepStrictEqual(workspaceFileMoveRefreshDirectories(nestedMove), ['app', 'ui']);
   assert.strictEqual(workspaceFileMoveFocusPath(nestedMove), 'ui/components');
+  assert.deepStrictEqual(
+    [...applyWorkspaceFileMovesToDirectoryPaths(new Set(['src', 'src/components', 'docs']), [move])],
+    ['app', 'app/components', 'docs'],
+  );
 
   const current = openFile('agent-1', 'src/App.tsx', {
     externalChanged: true,

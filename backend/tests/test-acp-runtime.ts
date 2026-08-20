@@ -62,7 +62,7 @@ async function run() {
   assert.strictEqual(classifyLinuxProcessGroupStats([
     '600 (unrelated) S 1 600 0',
   ], 574), 'missing');
-  assert.strictEqual(resolveAcpLaunch('codex').version, '1.6.0');
+  assert.strictEqual(resolveAcpLaunch('codex').version, '1.6.2');
   assert.strictEqual(resolveAcpLaunch('claude').version, '0.70.0');
   assert.strictEqual(resolveAcpLaunch('pi', piLaunchOptions).version, '0.0.33');
   assert.strictEqual(resolveAcpLaunch('qwen').version, 'native');
@@ -986,7 +986,7 @@ async function run() {
     '/opt/farming/lib',
     '/opt/farming/node',
   ]);
-    assert.match(compatibleCodexLaunch.args[3], /(?:dist\/acp\/codex-acp-1\.6\.0\.mjs|codex-acp\/dist\/index\.js)$/);
+    assert.match(compatibleCodexLaunch.args[3], /(?:dist\/acp\/codex-acp-1\.6\.2\.mjs|codex-acp\/dist\/index\.js)$/);
   const compatibleClaudeLaunch = resolveAcpLaunch('claude');
   assert.match(
     compatibleClaudeLaunch.args.at(-1),

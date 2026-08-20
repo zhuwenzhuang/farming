@@ -11,6 +11,7 @@ const {
   DEFAULT_MAX_FILE_SIZE,
   DEFAULT_MAX_WRITE_SIZE,
   DEFAULT_WATCH_DEPTH,
+  MAX_GIT_CHECK_IGNORE_ARG_BYTES,
   gitAuthorUrlTemplate,
   gitCommitUrlTemplate,
   parseIntelliJIssueNavigationLinks,
@@ -1224,6 +1225,39 @@ setInterval(() => {}, 1000);
       assert.strictEqual(gitStatusCalls, 2);
     } finally {
       await cachedService.dispose();
+    }
+
+    const checkIgnoreBatches: string[][] = [];
+    const checkIgnoreService = new WorkspaceFileService({
+      commandRunner: {
+        run: async (command, args) => {
+          if (command === 'git' && args.includes('check-ignore')) {
+            const separator = args.indexOf('--');
+            const pathBatch = args.slice(separator + 1);
+            checkIgnoreBatches.push(pathBatch);
+            return { stdout: `${pathBatch[0]}\n`, stderr: '' };
+          }
+          return { stdout: '', stderr: '' };
+        },
+      },
+    });
+    const longDecorationPaths = Array.from(
+      { length: 4096 },
+      (_, index) => `${'nested-name-'.repeat(8)}${index}.txt`,
+    );
+    try {
+      const ignored = await checkIgnoreService.loadGitIgnoredPaths(cacheWorkspace, longDecorationPaths);
+      assert(checkIgnoreBatches.length > 1, 'git check-ignore argv must be bounded independently of protocol batches');
+      assert.deepStrictEqual([...ignored], checkIgnoreBatches.map(pathBatch => pathBatch[0]));
+      checkIgnoreBatches.forEach(pathBatch => {
+        const argumentBytes = pathBatch.reduce((total, entryPath) => (
+          total + Buffer.byteLength(entryPath, 'utf8') + 1
+        ), 0);
+        assert(argumentBytes <= MAX_GIT_CHECK_IGNORE_ARG_BYTES);
+      });
+      assert.deepStrictEqual(checkIgnoreBatches.flat(), longDecorationPaths);
+    } finally {
+      await checkIgnoreService.dispose();
     }
 
     let slowGitStatusCalls = 0;

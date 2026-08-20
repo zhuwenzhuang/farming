@@ -28,6 +28,8 @@ type MainPageSessionRecordPatch = {
 };
 
 interface AgentSessionRouterPort {
+  // Success means Provider Archive and main-page membership removal committed
+  // inside the same exact-Session admission.
   archiveSession(provider: string, sessionId: string, providerHomeId: string): Promise<{
     error?: string;
     status?: number;
@@ -227,7 +229,6 @@ function createAgentSessionRouter(service: AgentSessionRouterPort): ExpressRoute
       }
 
       const sessionKey = mainPageAgentSessionKey(provider, sessionId, providerHomeId);
-      service.removeMainPageSessionKeys([sessionKey]);
       const mainPageSessionKeys = service.getMainPageSessionKeys();
       service.invalidate();
       res.json({ success: true, sessionKey, mainPageSessionKeys });

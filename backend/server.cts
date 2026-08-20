@@ -1177,6 +1177,11 @@ app.use(routePath(BASE_PATH, '/api'), createAgentSessionRouter({
     agentManager.archiveProviderSessionByIdentity(provider, sessionId, {
       providerHomeId,
       providerHomes: configuredProviderHomes(),
+      commitMainPageMembership: () => {
+        configManager.removeMainPageSessionKeys([
+          mainPageAgentSessionKey(provider, sessionId, providerHomeId),
+        ]);
+      },
     })
   ),
   getMainPageSessionKeys: () => configManager.getMainPageSessionKeys(),
@@ -1845,6 +1850,14 @@ const agentSessionResumeCoordinator = new AgentSessionResumeCoordinator({
     if (!currentKeys.includes(sessionKey)) return;
     configManager.updateSettings({ mainPageSessionKeys: currentKeys.filter((key: string) => key !== sessionKey) });
   },
+  runProviderSessionResumeAdmission: (provider, sessionId, providerHomeId, operation) => (
+    agentManager.runProviderSessionResumeAdmission(
+      provider,
+      sessionId,
+      providerHomeId,
+      operation,
+    )
+  ),
   startAgent: (command, workspace, callback, options) => agentManager.startAgent(command, workspace, callback, options),
   waitForAgentRecovery: () => agentManager.recoveryGate.wait(),
   warn: (...args) => console.warn(...args),

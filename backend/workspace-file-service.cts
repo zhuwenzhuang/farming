@@ -34,6 +34,7 @@ const SEARCH_FILE_LIST_MAX_BUFFER = 16 * 1024 * 1024;
 const BINARY_SNIFF_BYTES = 8192;
 const PATH_SEARCH_MIN_CANDIDATES = 120;
 const PATH_SEARCH_CANDIDATE_MULTIPLIER = 8;
+const MAX_GIT_CHECK_IGNORE_ARG_BYTES = 128 * 1024;
 
 interface WorkspaceFileErrorDetails {
   [key: string]: unknown;
@@ -2212,19 +2213,39 @@ class WorkspaceFileService {
       .filter(Boolean)));
     if (paths.length === 0) return new Set();
 
-    try {
-      const { stdout } = await this.execFile(this.gitPath, [
-        'check-ignore',
-        '--',
-        ...paths,
-      ], { cwd: root });
-      return new Set(String(stdout)
-        .split(/\r?\n/)
-        .map(normalizeGitStatusPath)
-        .filter(Boolean));
-    } catch {
-      return new Set();
+    const batches: string[][] = [];
+    let batch: string[] = [];
+    let batchBytes = 0;
+    for (const entryPath of paths) {
+      const entryBytes = Buffer.byteLength(entryPath, 'utf8') + 1;
+      if (batch.length > 0 && batchBytes + entryBytes > MAX_GIT_CHECK_IGNORE_ARG_BYTES) {
+        batches.push(batch);
+        batch = [];
+        batchBytes = 0;
+      }
+      batch.push(entryPath);
+      batchBytes += entryBytes;
     }
+    if (batch.length > 0) batches.push(batch);
+
+    const ignored = new Set<string>();
+    for (const pathBatch of batches) {
+      try {
+        const { stdout } = await this.execFile(this.gitPath, [
+          'check-ignore',
+          '--',
+          ...pathBatch,
+        ], { cwd: root });
+        String(stdout)
+          .split(/\r?\n/)
+          .map(normalizeGitStatusPath)
+          .filter(Boolean)
+          .forEach(entryPath => ignored.add(entryPath));
+      } catch {
+        // git check-ignore exits 1 when none of the paths in this batch match.
+      }
+    }
+    return ignored;
   }
 
   async loadGitStatusForPath(root: string, relativePath: unknown) {
@@ -4150,6 +4171,7 @@ export {
   DEFAULT_MAX_FILE_SIZE,
   DEFAULT_MAX_WRITE_SIZE,
   DEFAULT_WATCH_DEPTH,
+  MAX_GIT_CHECK_IGNORE_ARG_BYTES,
   isPackagedRuntime,
   parseGitBlamePorcelain,
   gitCommitUrlTemplate,

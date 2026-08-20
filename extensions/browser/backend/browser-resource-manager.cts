@@ -21,6 +21,7 @@ import {
   type BrowserResourceCreateInput,
   type BrowserResourcePatch,
   type BrowserProcessIdentity,
+  type LegacyProjectBrowserResource,
   type RunningBrowserTabInput,
 } from './browser-resource-store.cjs';
 import {
@@ -188,12 +189,14 @@ interface BrowserResourceStoreLike {
   revision: number;
   init(): void;
   list(): BrowserResource[];
+  listLegacyProjectResources(): LegacyProjectBrowserResource[];
   get(id: string): BrowserResource | null;
   create(input: BrowserResourceCreateInput): BrowserResource;
   createRunningTab(input: RunningBrowserTabInput): BrowserResource;
   update(id: string, patch: BrowserResourcePatch): BrowserResource;
   transferAgentOwner(sourceAgentId: string, targetAgentId: string): BrowserResource[];
   delete(id: string): boolean | void;
+  deleteLegacyProjectResource(id: string): boolean | void;
 }
 type IsolatedBrowserProvider = {
   acquire(owner: {
@@ -253,6 +256,10 @@ type AgentLifecycleState = {
   status?: string;
 };
 type BrowserError = Error & { cause?: unknown; code: string; status: number };
+type InterruptedRuntimeCleanupResult = {
+  cleaned: boolean;
+  message: string;
+};
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -521,6 +528,7 @@ class BrowserResourceManager extends EventEmitter {
   async init(): Promise<void> {
     this.store.init();
     await this.refreshCapability();
+    await this.migrateLegacyProjectResources();
     const interrupted = this.store.list().filter(resource =>
       Boolean(resource.processIdentity)
       || ['running', 'starting', 'stopping'].includes(resource.status)
@@ -541,15 +549,56 @@ class BrowserResourceManager extends EventEmitter {
     }));
   }
 
-  async recoverInterruptedRuntime(
+  async migrateLegacyProjectResources(): Promise<void> {
+    const groups = new Map<string, LegacyProjectBrowserResource[]>();
+    for (const resource of this.store.listLegacyProjectResources()) {
+      const key = resource.runtimeKind === 'agent-browser'
+        ? (resource.sessionId || resource.id)
+        : resource.id;
+      const group = groups.get(key) || [];
+      group.push(resource);
+      groups.set(key, group);
+    }
+    for (const resources of groups.values()) {
+      const interrupted = resources.find(resource => resource.processIdentity)
+        || resources.find(resource => ['running', 'starting', 'stopping'].includes(resource.status));
+      if (interrupted) {
+        const cleanup = await this.cleanupInterruptedRuntime(interrupted);
+        if (!cleanup.cleaned) {
+          console.warn(
+            `Failed to clean up legacy Project-owned Browser ${interrupted.id}: ${cleanup.message}`,
+          );
+          continue;
+        }
+      }
+      try {
+        const deletingIds = new Set(resources.map(resource => resource.id));
+        const removedSessions = new Set<string>();
+        for (const resource of resources) {
+          const sessionId = resource.sessionId || resource.id;
+          if (removedSessions.has(sessionId)) continue;
+          this.removeBrowserProfile(resource, deletingIds);
+          removedSessions.add(sessionId);
+        }
+        for (const resource of resources) {
+          this.store.deleteLegacyProjectResource(resource.id);
+        }
+      } catch (error) {
+        console.warn(
+          `Failed to remove legacy Project-owned Browser ${resources[0]?.id || ''}: ${errorMessage(error)}`,
+        );
+      }
+    }
+  }
+
+  async cleanupInterruptedRuntime(
     resource: BrowserResource,
-    relatedResources: BrowserResource[] = [resource],
-  ): Promise<void> {
+  ): Promise<InterruptedRuntimeCleanupResult> {
     if (resource.runtimeKind === 'agent-browser') {
       const capability = this.runtimeCapability?.agentBrowserPath
         ? this.runtimeCapability
         : await this.discoverExecutable({ source: 'isolated' });
-      let runtimeError = null;
+      let runtimeError: unknown = null;
       if (!capability || capability.error || !capability.agentBrowserPath) {
         runtimeError = new Error(
           capability?.error
@@ -574,77 +623,79 @@ class BrowserResourceManager extends EventEmitter {
           runtimeError = error;
         }
       }
-      for (const related of relatedResources) {
-        this.store.update(related.id, {
-          status: 'failed',
-          error: runtimeError
-            ? `agent-browser Session cleanup failed: ${errorMessage(runtimeError)}`
-            : 'Farming restarted and cleaned up the previous Browser runtime',
-          ...(!runtimeError ? { processIdentity: null } : {}),
-          tabId: '',
-        });
-      }
-      return;
+      return {
+        cleaned: !runtimeError,
+        message: runtimeError
+          ? `agent-browser Session cleanup failed: ${errorMessage(runtimeError)}`
+          : 'Farming restarted and cleaned up the previous Browser runtime',
+      };
     }
 
     // Migration cleanup for Browser rows created by Farming's former raw-CDP runtime.
     const expected = resource.processIdentity;
     if (!expected) {
-      this.store.update(resource.id, {
-        status: 'failed',
-        error: resource.browserKind === 'isolated-computer'
+      return {
+        cleaned: true,
+        message: resource.browserKind === 'isolated-computer'
           ? 'Farming restarted and stopped the isolated Browser runtime'
           : 'Farming restarted before the Browser runtime identity was committed',
-        processIdentity: null,
-      });
-      return;
+      };
     }
     const current = await this.readProcessIdentity(expected.pid);
     if (!matchingProcessIdentity(expected, current)) {
-      this.store.update(resource.id, {
-        status: 'failed',
-        error: 'Farming restarted after the previous Browser runtime exited',
-        processIdentity: null,
-      });
-      return;
+      return {
+        cleaned: true,
+        message: 'Farming restarted after the previous Browser runtime exited',
+      };
     }
     if (expected.processGroupId !== expected.pid) {
-      this.store.update(resource.id, {
-        status: 'failed',
-        error: `Previous Browser process ${expected.pid} has an unsafe process-group identity; stop it manually`,
-      });
-      return;
+      return {
+        cleaned: false,
+        message: `Previous Browser process ${expected.pid} has an unsafe process-group identity; stop it manually`,
+      };
     }
     try {
       this.killProcessGroup(expected.processGroupId, 'SIGKILL');
     } catch (error) {
       if (errorCode(error) !== 'ESRCH') {
         const permission = errorCode(error) === 'EPERM' || errorCode(error) === 'EACCES';
-        this.store.update(resource.id, {
-          status: 'failed',
-          error: permission
+        return {
+          cleaned: false,
+          message: permission
             ? `Farming cannot clean up previous Browser process ${expected.pid} because it lacks permission`
             : `Farming could not clean up previous Browser process ${expected.pid}: ${errorMessage(error)}`,
-        });
-        return;
+        };
       }
     }
     const startedAt = Date.now();
     while (matchingProcessIdentity(expected, await this.readProcessIdentity(expected.pid))) {
       if (Date.now() - startedAt >= BROWSER_RECOVERY_TIMEOUT_MS) {
-        this.store.update(resource.id, {
-          status: 'failed',
-          error: `Previous Browser process ${expected.pid} did not exit after SIGKILL`,
-        });
-        return;
+        return {
+          cleaned: false,
+          message: `Previous Browser process ${expected.pid} did not exit after SIGKILL`,
+        };
       }
       await this.wait(BROWSER_RECOVERY_POLL_MS);
     }
-    this.store.update(resource.id, {
-      status: 'failed',
-      error: 'Farming restarted and cleaned up the previous Browser runtime',
-      processIdentity: null,
-    });
+    return {
+      cleaned: true,
+      message: 'Farming restarted and cleaned up the previous Browser runtime',
+    };
+  }
+
+  async recoverInterruptedRuntime(
+    resource: BrowserResource,
+    relatedResources: BrowserResource[] = [resource],
+  ): Promise<void> {
+    const cleanup = await this.cleanupInterruptedRuntime(resource);
+    for (const related of relatedResources) {
+      this.store.update(related.id, {
+        status: 'failed',
+        error: cleanup.message,
+        ...(cleanup.cleaned ? { processIdentity: null } : {}),
+        ...(resource.runtimeKind === 'agent-browser' ? { tabId: '' } : {}),
+      });
+    }
   }
 
   async forceStopIsolatedRuntime(resource: BrowserResource): Promise<void> {
@@ -1596,6 +1647,28 @@ class BrowserResourceManager extends EventEmitter {
     });
   }
 
+  removeBrowserProfile(
+    resource: BrowserResource,
+    excludedLegacyIds: Set<string> = new Set(),
+  ): void {
+    const sessionId = resource.sessionId || resource.id;
+    const sessionStillReferenced = this.store.list().some(candidate => (
+      candidate.sessionId === sessionId
+    )) || this.store.listLegacyProjectResources().some(candidate => (
+      !excludedLegacyIds.has(candidate.id) && (candidate.sessionId || candidate.id) === sessionId
+    ));
+    const profileDir = storageLayout.browserProfileDir(this.configDir, sessionId);
+    const browsersDir = path.resolve(storageLayout.browserResourcesDir(this.configDir));
+    const resourceDir = path.resolve(profileDir, '..');
+    if (
+      !sessionStillReferenced
+      && resourceDir.startsWith(`${browsersDir}${path.sep}`)
+      && RESOURCE_ID_RE.test(sessionId)
+    ) {
+      fs.rmSync(resourceDir, { recursive: true, force: true });
+    }
+  }
+
   async delete(id: string, internal = false): Promise<unknown> {
     if (!internal) this.requireEnabled();
     await this.stop(id, internal);
@@ -1612,18 +1685,7 @@ class BrowserResourceManager extends EventEmitter {
       await this.isolatedBrowserProvider!.deleteOwner(ownerKey);
     }
     this.store.delete(id);
-    const sessionId = resource.sessionId || id;
-    const profileDir = storageLayout.browserProfileDir(this.configDir, sessionId);
-    const browsersDir = path.resolve(storageLayout.browserResourcesDir(this.configDir));
-    const resourceDir = path.resolve(profileDir, '..');
-    const sessionStillReferenced = this.store.list().some(candidate => candidate.sessionId === sessionId);
-    if (
-      !sessionStillReferenced
-      && resourceDir.startsWith(`${browsersDir}${path.sep}`)
-      && RESOURCE_ID_RE.test(sessionId)
-    ) {
-      fs.rmSync(resourceDir, { recursive: true, force: true });
-    }
+    this.removeBrowserProfile(resource);
     this.emit('deleted', { id, collectionRevision: this.store.revision });
     return { id, collectionRevision: this.store.revision };
   }

@@ -172,6 +172,7 @@ export function ProjectFilesSection({
     ensureDirectoryLoaded,
     isDirectoryLoaded,
     loadMissingDirectories,
+    moveOpenDirectories,
     refreshDirectories,
     hydrateCompactDirectoryChains,
     isDirectoryOpen,
@@ -372,6 +373,7 @@ export function ProjectFilesSection({
     onMoveEntries,
     onOpenFile,
     onWorkspaceChange: fileChanges.refreshChanges,
+    moveOpenDirectories,
     refreshDirectories,
     setOpenFileError,
   })

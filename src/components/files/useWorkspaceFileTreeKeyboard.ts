@@ -280,6 +280,12 @@ export function useWorkspaceFileTreeKeyboard({
     }
     if (activationIntent === 'open-file') {
       lastFocusedFilePathRef.current = node.data.path
+      // Keyboard activation keeps navigation ownership in the stable tree
+      // target. NodeApi.focus() may leave focus on a virtualized treeitem,
+      // which disappears or moves when the editor renders the opened file.
+      treeViewportRef.current
+        ?.querySelector<HTMLElement>('[role="tree"]')
+        ?.focus({ preventScroll: true })
       void openFilePath(node.data.path)
     }
   }, [

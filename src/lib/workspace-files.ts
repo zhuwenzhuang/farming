@@ -333,18 +333,65 @@ export async function fetchWorkspaceTree(rootId: string, directoryPath = '', opt
   }, { signal: options.signal })
 }
 
+const MAX_WORKSPACE_TREE_DECORATION_ENTRIES = 4096
+const WORKSPACE_REQUEST_ENVELOPE_RESERVE_BYTES = 4096
+
+export function workspaceTreeDecorationBatches(
+  rootId: string,
+  directoryPath: string,
+  entryPaths: string[],
+  maxRequestBytes = workspaceInlineMessageLimit() - WORKSPACE_REQUEST_ENVELOPE_RESERVE_BYTES,
+) {
+  const emptyRequest: WorkspaceRequest = {
+    operation: 'tree-decorations',
+    rootId,
+    ...(directoryPath ? { path: directoryPath } : {}),
+    entryPaths: [],
+  }
+  const encoder = new TextEncoder()
+  const baseBytes = encoder.encode(JSON.stringify(emptyRequest)).byteLength - 2
+  const batches: string[][] = []
+  let batch: string[] = []
+  let batchBytes = baseBytes + 2
+
+  for (const entryPath of entryPaths) {
+    const entryBytes = encoder.encode(JSON.stringify(entryPath)).byteLength + (batch.length > 0 ? 1 : 0)
+    if (batch.length > 0 && (
+      batch.length >= MAX_WORKSPACE_TREE_DECORATION_ENTRIES
+      || batchBytes + entryBytes > maxRequestBytes
+    )) {
+      batches.push(batch)
+      batch = []
+      batchBytes = baseBytes + 2
+    }
+    const firstEntryBytes = encoder.encode(JSON.stringify(entryPath)).byteLength
+    if (batchBytes + firstEntryBytes > maxRequestBytes) {
+      throw new Error('Workspace tree decoration path exceeds the inline request limit')
+    }
+    batch.push(entryPath)
+    batchBytes += firstEntryBytes + (batch.length > 1 ? 1 : 0)
+  }
+  if (batch.length > 0) batches.push(batch)
+  return batches
+}
+
 export async function fetchWorkspaceTreeDecorations(
   rootId: string,
   directoryPath: string,
   entryPaths: string[],
   options: { signal?: AbortSignal } = {},
 ) {
-  return runWorkspaceRequest<{ path: string; items: WorkspaceFileDecorationEntry[] }>({
-    operation: 'tree-decorations',
-    rootId,
-    ...(directoryPath ? { path: directoryPath } : {}),
-    entryPaths,
-  }, { signal: options.signal })
+  const items: WorkspaceFileDecorationEntry[] = []
+  for (const batch of workspaceTreeDecorationBatches(rootId, directoryPath, entryPaths)) {
+    const result = await runWorkspaceRequest<{ path: string; items: WorkspaceFileDecorationEntry[] }>({
+      operation: 'tree-decorations',
+      rootId,
+      ...(directoryPath ? { path: directoryPath } : {}),
+      entryPaths: batch,
+    }, { signal: options.signal })
+    items.push(...result.items)
+  }
+  return { path: directoryPath, items }
 }
 
 export async function fetchWorkspaceFile(rootId: string, filePath: string, options: { signal?: AbortSignal; exactExternal?: boolean } = {}) {

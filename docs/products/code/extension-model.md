@@ -96,7 +96,10 @@ stop or archive uses deletion; Chat/Terminal replacement is explicitly exempt.
 Every Browser Resource has an active Agent owner and an authorized Project
 workspace. Creation without an exact active Agent owner is rejected before a
 row is persisted. Browser Resources are rendered only within their owning
-Agent's Resource section.
+Agent's Resource section. When upgrading from the former Project-owned model,
+the backend retains each legacy migration row until its exact persisted runtime
+and profile have been cleaned up. Failed cleanup keeps the row for retry on the
+next startup; legacy rows are never exposed as current Browser inventory.
 
 ## Agent Capability Projection
 

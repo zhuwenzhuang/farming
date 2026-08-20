@@ -59,6 +59,17 @@ interface ProviderHome {
 
 type ProviderHomes = Record<string, ProviderHome[]>;
 
+interface ProviderSessionAvailabilityOptions extends Record<string, unknown> {
+  cwd: string;
+  providerHomeId: string;
+  providerHomePath: string;
+  providerHomes: ProviderHomes;
+}
+
+type EnsureProviderSessionAvailable = (
+  options: ProviderSessionAvailabilityOptions,
+) => Promise<{ error?: string } | null | undefined>;
+
 interface ResumeAgentClaim {
   archived?: boolean;
   cwd?: string;
@@ -142,12 +153,11 @@ interface AgentSessionResumeCoordinatorPorts {
   canonicalProjectWorkspace(workspace: string | null): Promise<string>;
   configuredProviderHomes(): ProviderHomes;
   currentAgentSessions(): Promise<AgentSession[]>;
-  ensureProviderSessionAvailable(provider: string, sessionId: string, options: {
-    cwd: string;
-    providerHomeId: string;
-    providerHomePath: string;
-    providerHomes: ProviderHomes;
-  }): Promise<{ error?: string } | null | undefined>;
+  ensureProviderSessionAvailable(
+    provider: string,
+    sessionId: string,
+    options: ProviderSessionAvailabilityOptions,
+  ): Promise<{ error?: string } | null | undefined>;
   findAgentSession(provider: string, sessionId: string, options: {
     limit: number;
     providerHomeId: string;
@@ -163,6 +173,12 @@ interface AgentSessionResumeCoordinatorPorts {
   publishAgentState(): void;
   rememberMainPageSession(provider: string, sessionId: string, providerHomeId: string): void;
   removeMainPageSession(provider: string, sessionId: string, providerHomeId: string): void;
+  runProviderSessionResumeAdmission<Result>(
+    provider: string,
+    sessionId: string,
+    providerHomeId: string,
+    operation: (ensureAvailable: EnsureProviderSessionAvailable) => Promise<Result>,
+  ): Promise<Result>;
   startAgent(
     command: string,
     workspace: string | null,
@@ -399,6 +415,7 @@ class AgentSessionResumeCoordinator {
   async #startNewAgent(
     identity: ResumeIdentity,
     options: ResumeOptions,
+    ensureAvailable?: EnsureProviderSessionAvailable,
   ): Promise<ResumeAgentResult> {
     const { provider, providerHomeId, sessionId } = identity;
     const shouldFork = options.fork === true;
@@ -408,12 +425,15 @@ class AgentSessionResumeCoordinator {
     if (options.allowUnarchiveArchived === true && providerHistorySupportsUnarchive(provider) && !requestedAsMain) {
       const configuredHomePath = (providerHomes[provider] || [])
         .find(home => home.id === providerHomeId)?.path || '';
-      const unarchiveResult = await this.ports.ensureProviderSessionAvailable(provider, sessionId, {
+      const availabilityOptions = {
         providerHomeId,
         providerHomePath: session?.providerHomePath || configuredHomePath,
         providerHomes,
         cwd: session?.cwd || session?.workspace || '',
-      });
+      };
+      const unarchiveResult = ensureAvailable
+        ? await ensureAvailable(availabilityOptions)
+        : await this.ports.ensureProviderSessionAvailable(provider, sessionId, availabilityOptions);
       if (unarchiveResult?.error) return { error: unarchiveResult.error };
       session = await this.#lookupSession(provider, sessionId, providerHomeId, providerHomes)
         || (session ? { ...session, archived: false } : session);
@@ -592,13 +612,21 @@ class AgentSessionResumeCoordinator {
       asMain: requestedAsMain,
       providerHomeId: identity.providerHomeId,
     };
+    const start = shouldFork
+      ? () => this.#startNewAgent(identity, startOptions)
+      : () => this.ports.runProviderSessionResumeAdmission(
+          identity.provider,
+          identity.sessionId,
+          identity.providerHomeId,
+          ensureAvailable => this.#startNewAgent(identity, startOptions, ensureAvailable),
+        );
     const pending = this.#admit(
       this.#pendingStartResumes,
       identity.provider,
       identity.providerHomeId,
       identity.sessionId,
       resumeAdmissionSignature(identity, startOptions),
-      () => this.#startNewAgent(identity, startOptions),
+      start,
     );
     if (pending.conflict) {
       return {

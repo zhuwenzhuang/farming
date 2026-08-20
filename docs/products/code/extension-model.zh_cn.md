@@ -80,7 +80,9 @@ Resource 能按精确 ID 删除，而不是长期累积为 Stopped Inventory。A
 
 每个 Browser Resource 都必须有一个活跃 Agent Owner 与一个已授权 Project Workspace。
 无法证明精确活跃 Agent Owner 的创建请求必须在持久化 Row 前被拒绝。Browser Resource 只在
-所属 Agent 的 Resource Section 内展示。
+所属 Agent 的 Resource Section 内展示。从旧的 Project-owned Model 升级时，Backend 会保留
+每条 Legacy Migration Row，直到按持久化的精确身份完成 Runtime 与 Profile 清理。清理失败时
+Row 会保留到下次启动重试；Legacy Row 不会作为当前 Browser Inventory 暴露。
 
 ## Agent Capability 投影
 

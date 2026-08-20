@@ -68,7 +68,8 @@ Git 拥有 Repository 与 Worktree Identity。Farming 把每个 Worktree 展示�
 任何绝对文件打开入口（包括 Chat 链接、Terminal 链接与分享 URL）都先通过同一个解析边界，
 由 Backend 权威查找最近的上层 Git Worktree；
 查找成功后挂载该 Worktree，并按 Repository Relative Path 走普通 Project 文件链路（包括
-Git Blame）。找不到 Repository 时，才回退到有界、只读的 Global File Path。
+Git Blame）。找不到 Repository 时，才回退到有界、只读的 Global File Path。Global File
+Fallback 只打开精确文件，不尝试在不可能包含它的 Project Tree 中定位。
 
 文件系统路径在内部使用解码后的 Identity。Markdown Link、Preview Resource、Share URL 与
 File API 等结构化 URI 边界只编码一次，并在 Workspace Resolution 前只解码一次。自由格式的
@@ -257,7 +258,8 @@ Directory `tree` Request 是 Interactive Structure Path，不等待 Git Status�
 Descendant Decoration。Git 与 Ignored State 通过独立的 Background `tree-decorations` Operation
 加载，并且只发布发生变化的 Path；Decoration 到达时不能替换 Directory Snapshot 或重建未变化
 的 Tree Projection。结构未变化的 Refresh 复用 Node Identity；单 Path 变化只替换该 Node 与
-到达它所必需的 Ancestor。
+到达它所必需的 Ancestor。大目录的 Decoration Read 同时按 Protocol Message 与 Subprocess
+Argument 边界分批；目录大小不能使 Background Decoration 变成非法或无限挂起的 Request。
 
 Large-workspace 自动化门禁使用 Production-shaped Tree，而不是只测一次合成点击。2,000 Row
 Projection 必须保持少于 100 个已挂载 File Row，并保留 Home/End Navigation。跨多个目录的

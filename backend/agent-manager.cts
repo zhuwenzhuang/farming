@@ -9264,63 +9264,92 @@ class AgentManager extends EventEmitter {
     return result;
   }
 
-  ensureProviderSessionAvailable(
+  private async ensureProviderSessionAvailableMutation(
     provider: string,
     sessionId: string,
     options: ProviderResumeOptions = {},
   ): Promise<{ error: string } | null> {
     if (!providerSessionHistoryMutationSupported(provider, 'unarchive')) {
-      return Promise.resolve(null);
+      return null;
     }
     const providerHomeId = String(options.providerHomeId || 'default').trim() || 'default';
     const providerHomePath = String(options.providerHomePath || '').trim();
     const displayName = getProviderAdapter(provider)?.displayName || provider;
+    let session: Awaited<ReturnType<typeof findAgentSession>>;
+    try {
+      session = await findAgentSession(provider, sessionId, {
+        limit: 1000,
+        providerLimit: 1000,
+        scanLimit: 5000,
+        providerHomeId,
+        providerHomes: options.providerHomes || (providerHomePath
+          ? { [provider]: [{ id: providerHomeId, path: providerHomePath }] }
+          : undefined),
+      });
+    } catch (caughtError: unknown) {
+      const error = caughtError as ErrorRecord;
+      return {
+        error: `Failed to inspect ${displayName} session before unarchiving: ${error && (error.message || error)}`,
+      };
+    }
+    if (!session || session.archived !== true) return null;
+
+    const result = await runProviderSessionHistoryMutation(
+      provider,
+      'unarchive',
+      sessionId,
+      {
+        ...session,
+        cwd: options.cwd || session.cwd || session.workspace,
+        providerHomePath: session.providerHomePath || providerHomePath,
+      },
+      { unarchiveCodexSession: (...args) => this.unarchiveCodexSession(...args) },
+    );
+    return result?.error ? { error: result.error } : null;
+  }
+
+  ensureProviderSessionAvailable(
+    provider: string,
+    sessionId: string,
+    options: ProviderResumeOptions = {},
+  ): Promise<{ error: string } | null> {
+    const providerHomeId = String(options.providerHomeId || 'default').trim() || 'default';
     return this.providerSessionMutationCoordinator.run({
       provider,
       homeId: providerHomeId,
       sessionId,
       type: 'unarchive',
       joinSameType: true,
-      operation: async () => {
-        let session: Awaited<ReturnType<typeof findAgentSession>>;
-        try {
-          session = await findAgentSession(provider, sessionId, {
-            limit: 1000,
-            providerLimit: 1000,
-            scanLimit: 5000,
-            providerHomeId,
-            providerHomes: options.providerHomes || (providerHomePath
-              ? { [provider]: [{ id: providerHomeId, path: providerHomePath }] }
-              : undefined),
-          });
-        } catch (caughtError: unknown) {
-      const error = caughtError as ErrorRecord;
-          return {
-            error: `Failed to inspect ${displayName} session before unarchiving: ${error && (error.message || error)}`,
-          };
-        }
-        if (!session || session.archived !== true) return null;
+      operation: () => this.ensureProviderSessionAvailableMutation(provider, sessionId, options),
+    });
+  }
 
-        const result = await runProviderSessionHistoryMutation(
-          provider,
-          'unarchive',
-          sessionId,
-          {
-            ...session,
-            cwd: options.cwd || session.cwd || session.workspace,
-            providerHomePath: session.providerHomePath || providerHomePath,
-          },
-          { unarchiveCodexSession: (...args) => this.unarchiveCodexSession(...args) },
-        );
-        return result?.error ? { error: result.error } : null;
-      },
+  runProviderSessionResumeAdmission<Result>(
+    provider: string,
+    sessionId: string,
+    providerHomeId: string,
+    operation: (
+      ensureAvailable: (options: ProviderResumeOptions) => Promise<{ error: string } | null>,
+    ) => Promise<Result>,
+  ): Promise<Result> {
+    return this.providerSessionMutationCoordinator.run({
+      provider,
+      homeId: providerHomeId,
+      sessionId,
+      type: 'resume',
+      joinSameType: false,
+      operation: () => operation(
+        options => this.ensureProviderSessionAvailableMutation(provider, sessionId, options),
+      ),
     });
   }
 
   async archiveProviderSessionByIdentity(
     provider: string,
     sessionId: string,
-    options: Pick<AgentSessionHistoryOptions, 'providerHomeId' | 'providerHomes'> = {},
+    options: Pick<AgentSessionHistoryOptions, 'providerHomeId' | 'providerHomes'> & {
+      commitMainPageMembership?: () => void;
+    } = {},
   ): Promise<{ archived?: boolean; error?: string; providerArchived?: boolean; status?: number }> {
     const providerHomeId = String(options.providerHomeId || 'default').trim() || 'default';
     const sessionKey = mainPageAgentSessionKey(provider, sessionId, providerHomeId);
@@ -9404,6 +9433,7 @@ class AgentManager extends EventEmitter {
             });
             if (localArchive.error) return { error: localArchive.error, status: 409 };
           }
+          options.commitMainPageMembership?.();
           return { archived: true, providerArchived: providerArchiveSupported };
         },
       });
