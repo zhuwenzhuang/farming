@@ -77,7 +77,7 @@ function optimisticDeferredSession(session: AcpSessionSnapshot) {
   }
 }
 
-export function useAcpSession(agentId: string, active: boolean, runtimeState: string) {
+export function useAcpSession(agentId: string, active: boolean, refreshSignal: string) {
   const state = useSyncExternalStore(
     useCallback(listener => subscribeAcpSessionState(agentId, listener), [agentId]),
     useCallback(() => getAcpSessionStateSnapshot(agentId), [agentId]),
@@ -88,7 +88,11 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
   const [authenticatingId, setAuthenticatingId] = useState('')
   const [loggingOut, setLoggingOut] = useState(false)
   const [validatedScope, setValidatedScope] = useState('')
-  const validationScope = `${agentId}\u0000${runtimeState}`
+  // Chat revisions request a fresh session read, but they do not change which
+  // Agent owns the already validated controls. Treating the refresh signal as
+  // identity made every streamed update revoke the model picker until its GET
+  // completed. Agent changes still invalidate the cached controls immediately.
+  const validationScope = agentId
   const authoritative = active && validatedScope === validationScope
   const sessionRef = useRef<AcpSessionSnapshot | null>(session)
   const refreshOwnershipRef = useRef(new RequestOwnershipFence(agentId))
@@ -175,7 +179,7 @@ export function useAcpSession(agentId: string, active: boolean, runtimeState: st
     const controller = new AbortController()
     void refresh(controller.signal)
     return () => controller.abort()
-  }, [refresh, runtimeState])
+  }, [refresh, refreshSignal])
 
   useEffect(() => {
     // Read the state field directly so the effect depends on it rather than the

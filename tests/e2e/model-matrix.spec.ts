@@ -174,6 +174,97 @@ test('keeps confirmed ACP controls visible while revalidating after an Agent swi
   await expect(picker).toBeEnabled()
 })
 
+test('keeps an open ACP model picker usable while a Chat revision refreshes the session', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'model-matrix-live-revision')
+  fs.mkdirSync(workspace, { recursive: true })
+  const agentId = await createAcpAgent(page, workspace)
+  let state: MatrixState = { model: 'gpt-5.6-terra', reasoning: 'medium', fast: false }
+  const blockedRefresh = deferred()
+  const refreshStarted = deferred()
+  let blockNextRefresh = false
+
+  await page.route(/\/farming\/api\/agents\/[^/]+\/acp-session(?:\?includeEntries=0)?$/, async route => {
+    if (route.request().method() === 'GET') {
+      if (blockNextRefresh) {
+        blockNextRefresh = false
+        refreshStarted.resolve()
+        await blockedRefresh.promise
+      }
+      await route.fulfill({ json: { session: sessionSnapshot(state) } })
+      return
+    }
+    if (route.request().method() !== 'PATCH') {
+      await route.continue()
+      return
+    }
+    state = requestedState(route, state)
+    await route.fulfill({ json: {
+      sessionId: 'model-matrix-session',
+      configOptions: sessionSnapshot(state).configOptions,
+    } })
+  })
+
+  await openFarming(page)
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+  const picker = page.getByTestId('code-acp-model-picker')
+  await expect(picker).toBeEnabled()
+  await picker.click()
+  await expect(page.getByTestId('code-acp-model-menu')).toBeVisible()
+
+  const controlResponse = await page.request.get('/farming/api/control/agents')
+  expect(controlResponse.ok()).toBeTruthy()
+  const controlBody = await controlResponse.json() as {
+    agents?: Array<{ id?: string; runtimeBinding?: Record<string, unknown> }>
+  }
+  const runtimeBinding = controlBody.agents?.find(agent => agent.id === agentId)?.runtimeBinding
+  expect(runtimeBinding?.kind).toBe('acp')
+
+  blockNextRefresh = true
+  await page.evaluate(({ id, binding }) => {
+    window.__farmingAgentActivityTest?.update(id, {
+      runtimeBinding: {
+        ...binding,
+        sessionRevision: Number(binding.sessionRevision || 0) + 1,
+        sessionUpdatedAt: new Date().toISOString(),
+      },
+    })
+  }, { id: agentId, binding: runtimeBinding as Record<string, unknown> })
+  await refreshStarted.promise
+  try {
+    await expect(page.getByTestId('code-acp-model-menu')).toBeVisible()
+    await expect(picker).toBeEnabled()
+    await page.getByTestId('code-model-matrix-cell-sol-high').click()
+    await expect(picker).toHaveAttribute('data-agent-model-preset', 'gpt-5.6-sol:high')
+  } finally {
+    blockedRefresh.resolve()
+  }
+})
+
+test('keeps the ACP model picker open throughout a real streamed Chat turn', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'model-matrix-streaming-turn')
+  fs.mkdirSync(workspace, { recursive: true })
+  const agentId = await createAcpAgent(page, workspace)
+
+  await openFarming(page)
+  await page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`).click()
+  const input = page.getByTestId('code-acp-composer-input')
+  await input.fill('streaming thought')
+  await page.getByTestId('code-acp-composer-send').click()
+  await expect(page.getByText('Comparing the likely causes', { exact: false }).first()).toBeVisible({ timeout: 10_000 })
+
+  const picker = page.getByTestId('code-acp-model-picker')
+  await expect(picker).toBeEnabled()
+  await picker.click()
+  const menu = page.getByTestId('code-acp-model-menu')
+  await expect(menu).toBeVisible()
+
+  await expect(page.getByText('Streaming thought complete.', { exact: true })).toBeVisible({ timeout: 15_000 })
+  await expect(menu).toBeVisible()
+  await expect(picker).toBeEnabled()
+  await page.getByTestId('code-acp-model-submenu-trigger').click()
+  await expect(page.getByTestId('code-acp-model-submenu')).toBeVisible()
+})
+
 test('ACP model matrix responds locally, settles once, and morphs Advanced without a layout jump', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'model-matrix')
   fs.mkdirSync(workspace, { recursive: true })
