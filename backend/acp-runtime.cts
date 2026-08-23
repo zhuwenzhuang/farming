@@ -2864,7 +2864,9 @@ class AcpRuntime extends EventEmitter {
           ));
           if (parentTool) this.updateSubagentControlFromParent(binding, parentTool);
         }
-        if (targetState?.apply(notification)) {
+        if (targetState?.apply(notification, {
+          receivedAt: binding.historyReplayActive ? null : Date.now(),
+        })) {
           const update = notification.update as TranscriptEntry | undefined;
           if (isPrimarySession && update) this.updateSubagentControlFromParent(binding, update);
           if (isPrimarySession && update?.sessionUpdate === 'current_mode_update' && binding.modes) {

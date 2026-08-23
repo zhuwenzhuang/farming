@@ -1146,6 +1146,36 @@ async function run() {
   assert.strictEqual(reduced.entries.length, 3);
   assert.strictEqual(reduced.entries[1].content[0].text, 'one two');
   assert.strictEqual(reduced.entries[2].status, 'completed');
+  for (const provider of ['codex', 'claude']) {
+    const activityState = new AcpSessionState({ provider, sessionId: `${provider}-activity`, cwd: '/tmp' });
+    activityState.apply({ sessionId: `${provider}-activity`, update: {
+      sessionUpdate: 'tool_call', toolCallId: 'long-command', title: 'Run long command', status: 'in_progress',
+    } }, { receivedAt: 1_725_000_000_000 });
+    assert.strictEqual(
+      activityState.snapshot().entries[0].lastActivityAt,
+      1_725_000_000_000,
+      `${provider} must use the provider-neutral Host receive time`,
+    );
+    const recoveredActivityState = AcpSessionState.fromCheckpoint(activityState.exportCheckpoint());
+    assert.strictEqual(
+      recoveredActivityState.snapshot().entries[0].lastActivityAt,
+      1_725_000_000_000,
+      `${provider} checkpoint recovery must preserve command activity time`,
+    );
+    activityState.apply({ sessionId: `${provider}-activity`, update: {
+      sessionUpdate: 'tool_call_update', toolCallId: 'long-command', status: 'completed',
+    } }, { receivedAt: 1_725_000_030_000 });
+    assert.strictEqual(activityState.snapshot().entries[0].lastActivityAt, 1_725_000_030_000);
+  }
+  const replayActivityState = new AcpSessionState({ provider: 'codex', sessionId: 'replay-activity', cwd: '/tmp' });
+  replayActivityState.apply({ sessionId: 'replay-activity', update: {
+    sessionUpdate: 'tool_call', toolCallId: 'replayed-command', title: 'Old command', status: 'in_progress',
+  } }, { receivedAt: null });
+  assert.strictEqual(
+    Object.prototype.hasOwnProperty.call(replayActivityState.snapshot().entries[0], 'lastActivityAt'),
+    false,
+    'history replay must not fabricate recent command activity',
+  );
   const suggestionRevision = state.revision;
   assert.strictEqual(state.setPromptSuggestion({
     text: 'Run the focused regression tests',

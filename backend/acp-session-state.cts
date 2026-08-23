@@ -49,6 +49,7 @@ export interface AcpEntry extends DataRecord {
   status?: unknown;
   title?: unknown;
   rawOutput?: unknown;
+  lastActivityAt?: unknown;
   plan?: unknown;
   internal?: boolean;
   internalScope?: 'entry' | 'turn';
@@ -86,6 +87,10 @@ interface AcpPromptSuggestion {
 interface AcpNotification {
   sessionId?: unknown;
   update?: unknown;
+}
+
+interface AcpApplyOptions {
+  receivedAt?: number | null;
 }
 
 interface AcpSessionStateOptions {
@@ -508,7 +513,7 @@ class AcpSessionState {
     // History replay uses the same reducer as live updates; nothing to close.
   }
 
-  apply(notification: AcpNotification | null | undefined): boolean {
+  apply(notification: AcpNotification | null | undefined, options: AcpApplyOptions = {}): boolean {
     if (!notification || notification.sessionId !== this.sessionId) return false;
     const update = notification.update as AcpUpdate;
     if (!update || typeof update !== 'object') return false;
@@ -523,12 +528,17 @@ class AcpSessionState {
     }
 
     const kind = update.sessionUpdate;
+    const receivedAt = options.receivedAt === null
+      ? null
+      : Number.isFinite(Number(options.receivedAt)) && Number(options.receivedAt) > 0
+        ? Number(options.receivedAt)
+        : Date.now();
     if (kind === 'user_message_chunk' || kind === 'agent_message_chunk' || kind === 'agent_thought_chunk') {
       this.applyMessageChunk(update, kind);
     } else if (kind === 'tool_call') {
-      this.applyToolCall(update, false);
+      this.applyToolCall(update, false, receivedAt);
     } else if (kind === 'tool_call_update') {
-      this.applyToolCall(update, true);
+      this.applyToolCall(update, true, receivedAt);
     } else if (kind === 'plan') {
       this.applyPlan({ type: 'items', entries: clone(update.entries || []) });
     } else if (kind === 'plan_update') {
@@ -664,7 +674,7 @@ class AcpSessionState {
     appendContent(this.entries[this.entries.length - 1].content as AcpContent[], update.content);
   }
 
-  applyToolCall(update: AcpUpdate, isPatch: boolean): void {
+  applyToolCall(update: AcpUpdate, isPatch: boolean, receivedAt: number | null): void {
     const id = String(update.toolCallId || '');
     if (!id) return;
     let entry = this.toolEntries.get(id);
@@ -684,6 +694,7 @@ class AcpSessionState {
         if (update[field] !== undefined) entry[field] = clone(update[field]);
       }
     }
+    if (receivedAt !== null) entry.lastActivityAt = receivedAt;
     this.touchEntry(entry);
   }
 

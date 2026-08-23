@@ -152,8 +152,17 @@ test('keeps an active ACP turn with process evidence in progress', () => {
         type: 'thought',
         content: [{ type: 'text', text: 'Still checking.' }],
       },
+      {
+        id: 'tool-1',
+        type: 'tool',
+        title: 'Run checks',
+        kind: 'execute',
+        status: 'in_progress',
+        lastActivityAt: 1_725_000_000_000,
+      },
     ],
   })
 
   assert.equal(transcript.turns[0]?.status, 'inProgress')
+  assert.equal(transcript.turns[0]?.processItems.at(-1)?.lastActivityAt, 1_725_000_000_000)
 })

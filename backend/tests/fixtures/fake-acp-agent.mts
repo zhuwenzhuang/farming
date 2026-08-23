@@ -1881,6 +1881,49 @@ class FakeAgent implements Agent {
       });
       return { stopReason: 'end_turn' };
     }
+    if (promptText.includes('streaming command activity')) {
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'streaming-command-tool',
+          title: 'Run streaming command',
+          kind: 'execute',
+          status: 'in_progress',
+          rawOutput: { stdout: 'stream-0\n' },
+        },
+      });
+      for (let index = 1; index <= 3; index += 1) {
+        await new Promise(resolve => setTimeout(resolve, 700));
+        await client.sessionUpdate({
+          sessionId: params.sessionId,
+          update: {
+            sessionUpdate: 'tool_call_update',
+            toolCallId: 'streaming-command-tool',
+            status: 'in_progress',
+            rawOutput: { stdout: `stream-${index}\n` },
+          },
+        });
+      }
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'tool_call_update',
+          toolCallId: 'streaming-command-tool',
+          status: 'completed',
+          rawOutput: { stdout: 'stream-complete\n' },
+        },
+      });
+      await client.sessionUpdate({
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: 'agent_message_chunk',
+          messageId: 'streaming-command-answer',
+          content: { type: 'text', text: 'Streaming command completed.' },
+        },
+      });
+      return { stopReason: 'end_turn' };
+    }
     if (promptText.includes('long terminal')) {
       const terminal = await client.createTerminal({
         sessionId: params.sessionId,

@@ -185,6 +185,7 @@ const compactTool = acpTranscriptToolEntry({
   kind: 'execute',
   title: 'Large command',
   status: 'completed',
+  lastActivityAt: 1_725_000_000_000,
   rawInput: { command: 'generate output' },
   rawOutput: { stdout: 'x'.repeat(128 * 1024) },
   locations: [{
@@ -197,6 +198,7 @@ const compactTool = acpTranscriptToolEntry({
   content: [{ type: 'diff', path: '/tmp/large.js', oldText: 'old', newText: 'new' }],
 });
 assert.strictEqual(compactTool.transcriptDetailTruncated, true);
+assert.strictEqual(compactTool.lastActivityAt, 1_725_000_000_000);
 assert.strictEqual(compactTool.transcriptChanges[0].path, '/tmp/large.js');
 assert.match(compactTool.transcriptChanges[0].diff, /\+new/);
 assert.deepStrictEqual(compactTool.locations, [{

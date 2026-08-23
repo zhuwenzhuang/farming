@@ -128,16 +128,17 @@ for (const language of ['en', 'zh']) {
   assert.deepStrictEqual(
     acpLiveToolActivity([
       { type: 'tool', kind: 'execute', status: 'completed', title: 'old command' },
-      { type: 'tool', kind: 'execute', status: 'in_progress', title: 'PORT=4187   npm test\n-- --runInBand' },
+      { type: 'tool', kind: 'execute', status: 'in_progress', title: 'PORT=4187   npm test\n-- --runInBand', lastActivityAt: 1725000000000 },
     ], activityLabels),
     {
       kind: 'running',
       label: `${copy.agentTranscriptRunning}: PORT=4187 npm test -- --runInBand`,
+      lastActivityAt: 1725000000000,
     },
   );
   assert.deepStrictEqual(
     acpLiveToolActivity([{ type: 'tool', kind: 'execute', status: 'completed', title: 'npm test' }], activityLabels),
-    { kind: null, label: '' },
+    { kind: null, label: '', lastActivityAt: null },
   );
 }
 

@@ -18,6 +18,7 @@ interface AcpActivityItem {
   completedSteps?: number
   totalSteps?: number
   currentStep?: string
+  lastActivityAt?: number
 }
 
 function isActive(item: AcpActivityItem) {
@@ -63,6 +64,10 @@ export function acpLiveToolActivity(
     ['tool', 'patch', 'subagent'].includes(String(item.type || '').toLowerCase()) && isActive(item)
   ))
   const latest = activeItems[activeItems.length - 1]
+  const lastActivityAt = activeItems.reduce((latestAt, item) => {
+    const activityAt = Number(item.lastActivityAt)
+    return Number.isFinite(activityAt) && activityAt > latestAt ? activityAt : latestAt
+  }, 0)
   return {
     kind: latest ? acpActivityKind([latest]) : null,
     label: activeItems.map(item => {
@@ -71,6 +76,7 @@ export function acpLiveToolActivity(
       return title ? `${activity}: ${title}` : activity
     })
       .join(' · '),
+    lastActivityAt: lastActivityAt || null,
   }
 }
 

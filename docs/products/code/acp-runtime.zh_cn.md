@@ -330,6 +330,10 @@ Reasoning 展开内容不再重复已经作为折叠标题的首行，并用安�
 
 底部 Live Activity 同一时刻只使用一种动态提示：Processing 保留旋转圆圈且不显示扫光，
 非旋转活动则使用速度较慢的匀速扫光。
+结构化工具仍在运行时，同一条轻量执行行还会显示该工具最近一次权威活动距今多久。
+Runtime Host 只在收到真实 Provider 工具更新时记录该时间；静默只会让显示的时间自然增长，
+不会生成心跳。History Replay 不会把旧更新重标为最新活动，Checkpoint 会保留已经记录的
+时间；完成、失败、取消或中断后不再显示运行态活动时间。
 
 Composer 保留 Draft、IME、Attachment、Queue/Steer、Permission 与协商配置。Reload 可以把
 未完成 Submission 恢复成需要对账的可见条目，但绝不能自动再次提交。

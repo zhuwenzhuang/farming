@@ -586,6 +586,9 @@ function acpTranscriptToolEntry(entry: DataRecord, options: TranscriptOptions = 
     title: String(entry.title || ''),
     kind: String(entry.kind || 'other'),
     status: String(entry.status || ''),
+    ...(Number.isFinite(Number(entry.lastActivityAt)) && Number(entry.lastActivityAt) > 0
+      ? { lastActivityAt: Number(entry.lastActivityAt) }
+      : {}),
     content: transcriptMediaBlocks(entry, options),
     ...(locations.length > 0 ? { locations } : {}),
     ...(Object.keys(meta).length > 0 ? { _meta: meta } : {}),

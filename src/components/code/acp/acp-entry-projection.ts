@@ -59,6 +59,7 @@ export interface AgentTranscriptProcessItem {
   type: string
   title: string
   createdAt?: number
+  lastActivityAt?: number
   detail?: string
   images?: AgentTranscriptUserImage[]
   audios?: AgentTranscriptAudio[]
@@ -616,6 +617,9 @@ function processEntry(entry: AcpRecord): AgentTranscriptProcessItem | null {
       detail: [subagentSessionId ? `Session ${subagentSessionId}` : '', inline.detail].filter(Boolean).join('\n\n'),
       detailTruncated: inline.detailTruncated,
       status: stringValue(entry.status),
+      ...(Number.isFinite(Number(entry.lastActivityAt)) && Number(entry.lastActivityAt) > 0
+        ? { lastActivityAt: Number(entry.lastActivityAt) }
+        : {}),
       ...(terminalIds.length > 0 ? { terminalIds } : {}),
       ...(subagentSessionId ? { subagentSessionId } : {}),
       ...(collaboration ? { collaboration } : {}),

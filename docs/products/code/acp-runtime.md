@@ -453,6 +453,12 @@ current authoritative result instead of replaying already received text.
 
 The bottom Live Activity uses one motion cue at a time: processing keeps its
 spinner without a sweep, while non-spinning activity uses a slower linear sweep.
+While a structured tool remains active, the same lightweight line shows the age
+of that tool's latest authoritative activity. The Runtime Host records that time
+only when it receives a real provider tool update; silence ages the displayed
+time and never creates a heartbeat. History replay does not restamp old updates,
+checkpoints preserve the recorded time, and completed, failed, cancelled, or
+interrupted work shows no live recency.
 
 The Composer preserves drafts, IME behavior, attachments, queue/steer controls,
 permissions, and negotiated configuration. Reload may restore an unresolved

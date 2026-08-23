@@ -248,6 +248,16 @@ function elapsedDurationLabel(startedAt: number | null | undefined, now = Date.n
   return durationLabel(Math.max(0, now - timestamp))
 }
 
+function activityRecencyLabel(activityAt: number | null | undefined, copy: CodeCopy, now = Date.now()) {
+  const numeric = Number(activityAt)
+  if (!Number.isFinite(numeric) || numeric <= 0) return ''
+  const timestamp = numeric < 1_000_000_000_000 ? numeric * 1000 : numeric
+  const ageMs = Math.max(0, now - timestamp)
+  if (ageMs < 10_000) return copy.agentTranscriptActivityJustNow
+  const duration = durationLabel(ageMs)
+  return duration ? copy.agentTranscriptActivityAgo(duration) : copy.agentTranscriptActivityJustNow
+}
+
 function transcriptMessageTime(timestampValue: number | null | undefined) {
   const numeric = Number(timestampValue)
   if (!Number.isFinite(numeric) || numeric <= 0) return null
@@ -2399,7 +2409,13 @@ function AgentTranscriptTurnView({
   const observedRunningTerminalItemIdsRef = useRef(new Set<string>())
   const refreshedTerminalOutcomeItemIdsRef = useRef(new Set<string>())
   const syncingTerminalOutcomeItemIdsRef = useRef(new Set<string>())
-  const progressClock = useSharedNow(clockActive && turn.status === 'inProgress' && Boolean(turn.startedAt))
+  const activityTurn = resolvedProcessItems === turn.processItems
+    ? turn
+    : { ...turn, processItems: resolvedProcessItems }
+  const liveToolActivity = source === 'acp' ? acpLiveTool(activityTurn, copy) : null
+  const progressClock = useSharedNow(clockActive && turn.status === 'inProgress' && Boolean(
+    turn.startedAt || liveToolActivity?.lastActivityAt,
+  ))
   const collaborationAgents = useMemo(
     () => acpCollaborationAgentsForTurn(resolvedProcessItems, subagentStates),
     [resolvedProcessItems, subagentStates],
@@ -2448,14 +2464,10 @@ function AgentTranscriptTurnView({
   const progressDuration = turn.status === 'inProgress'
     ? elapsedDurationLabel(turn.startedAt, progressClock)
     : ''
-  const activityTurn = resolvedProcessItems === turn.processItems
-    ? turn
-    : { ...turn, processItems: resolvedProcessItems }
   const workingLabel = source === 'acp' ? acpActivityLabel(activityTurn, copy) : copy.agentTranscriptWorking
   const processSummaryWorkingLabel = compactProcess.items.length > 0
     ? copy.agentTranscriptProcess
     : workingLabel
-  const liveToolActivity = source === 'acp' ? acpLiveTool(activityTurn, copy) : null
   const planLabel = source === 'acp' ? acpPlanLabel(activityTurn, copy) : ''
   const thoughtLabel = source === 'acp' ? acpThoughtActivityLabel(activityTurn.processItems) : ''
   const processSummaryLabel = runningCompaction
@@ -2464,6 +2476,12 @@ function AgentTranscriptTurnView({
       ? copy.agentTranscriptWorkingFor(progressDuration)
       : turnProcessLabel(mainProcessTurn, copy, processSummaryWorkingLabel, planLabel)
   const liveActivityLabel = liveToolActivity?.label || planLabel || thoughtLabel || workingLabel
+  const liveActivityRecency = turn.status === 'inProgress'
+    ? activityRecencyLabel(liveToolActivity?.lastActivityAt, copy, progressClock)
+    : ''
+  const liveActivityText = liveActivityRecency
+    ? `${liveActivityLabel} · ${liveActivityRecency}`
+    : liveActivityLabel
   const liveActivityKind = liveToolActivity?.kind
     || (planLabel ? 'plan' : thoughtLabel ? 'thinking' : acpActivityKind(activityTurn.processItems))
   useLayoutEffect(() => {
@@ -2481,7 +2499,7 @@ function AgentTranscriptTurnView({
     const observer = new ResizeObserver(syncDuration)
     observer.observe(element)
     return () => observer.disconnect()
-  }, [liveActivityKind, liveActivityLabel, showLiveActivity])
+  }, [liveActivityKind, liveActivityText, showLiveActivity])
   const loadFullProcessDetail = useCallback(async (item: AgentTranscriptProcessItem, force = false) => {
     if ((!item.detailTruncated && !item.terminalIds?.length && !item.subagentSessionId) || !onLoadProcessItemDetail) {
       return { detail: item.detail || '', terminals: item.terminals, subagentTranscript: item.subagentTranscript }
@@ -3060,7 +3078,7 @@ function AgentTranscriptTurnView({
           aria-live="polite"
         >
           <AgentTranscriptLiveActivityIcon kind={liveActivityKind} />
-          <span ref={liveActivityTextRef}>{liveActivityLabel}</span>
+          <span ref={liveActivityTextRef}>{liveActivityText}</span>
         </div>
       ) : null}
     </article>

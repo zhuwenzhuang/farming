@@ -48,6 +48,8 @@ export interface CodeCopy {
   agentTranscriptUsingTool: string
   agentTranscriptActionRunning: (title: string) => string
   agentTranscriptActionFailed: (title: string) => string
+  agentTranscriptActivityJustNow: string
+  agentTranscriptActivityAgo: (duration: string) => string
   agentTranscriptTerminalStatusUnavailable: string
   agentTranscriptRetryTerminalStatus: string
   agentTranscriptWorkingFor: (duration: string) => string
@@ -619,6 +621,8 @@ const EN_COPY: CodeCopy = {
   agentTranscriptUsingTool: 'Using tool',
   agentTranscriptActionRunning: title => `Running: ${title}`,
   agentTranscriptActionFailed: title => `Failed: ${title}`,
+  agentTranscriptActivityJustNow: 'Activity just now',
+  agentTranscriptActivityAgo: duration => `Activity ${duration} ago`,
   agentTranscriptTerminalStatusUnavailable: 'Terminal status could not be synchronized.',
   agentTranscriptRetryTerminalStatus: 'Retry',
   agentTranscriptWorkingFor: duration => `Working for ${duration}`,
@@ -1223,6 +1227,8 @@ const ZH_COPY: CodeCopy = {
   agentTranscriptUsingTool: '调用工具中',
   agentTranscriptActionRunning: title => `正在执行：${title}`,
   agentTranscriptActionFailed: title => `失败：${title}`,
+  agentTranscriptActivityJustNow: '最近活动：刚刚',
+  agentTranscriptActivityAgo: duration => `最近活动：${duration}前`,
   agentTranscriptTerminalStatusUnavailable: '终端状态未能同步。',
   agentTranscriptRetryTerminalStatus: '重试',
   agentTranscriptWorkingFor: duration => `Working for ${duration}`,
