@@ -5,11 +5,9 @@ import {
   PET_SETTINGS_STORAGE_KEY,
   REST_REMINDER_BREAK_MINUTES,
   REST_REMINDER_CUSTOM_MINUTES_MAX,
-  REST_REMINDER_ENTRY_COUNTDOWN_SECONDS,
   REST_REMINDER_IDLE_RESET_MS,
   REST_REMINDER_INTERVAL_PRESETS_SECONDS,
   REST_REMINDER_LONG_BREAK_MINUTES,
-  REST_REMINDER_TEST_ENTRY_COUNTDOWN_SECONDS,
   REST_REMINDER_TEST_INTERVAL_SECONDS,
   createRestReminderState,
   loadRestReminderIntervalSeconds,
@@ -21,7 +19,6 @@ import {
   reconfigureRestReminderInterval,
   reduceRestReminder,
   restReminderBreakMinutes,
-  restReminderEntryCountdownSeconds,
   restReminderInvitationMs,
   restReminderSliderIntervalSeconds,
   restReminderSliderPosition,
@@ -75,11 +72,6 @@ test('normalizes reminder intervals and maps slider positions', () => {
   )
   assert.equal(restReminderBreakMinutes(50 * 60), REST_REMINDER_BREAK_MINUTES)
   assert.equal(restReminderBreakMinutes(90 * 60), REST_REMINDER_LONG_BREAK_MINUTES)
-  assert.equal(
-    restReminderEntryCountdownSeconds(REST_REMINDER_TEST_INTERVAL_SECONDS),
-    REST_REMINDER_TEST_ENTRY_COUNTDOWN_SECONDS,
-  )
-  assert.equal(restReminderEntryCountdownSeconds(50 * 60), REST_REMINDER_ENTRY_COUNTDOWN_SECONDS)
 })
 
 test('only accepts the explicit E2E invitation timing override', () => {
@@ -185,7 +177,7 @@ test('a stale reminder load cannot restore the value replaced by a newer write',
   }
 })
 
-test('advances a due reminder through countdown, late deadlines, and a user interaction', () => {
+test('only an explicit start action can enter a blocking break', () => {
   const start = 1_000_000
   let state = createRestReminderState(REST_REMINDER_TEST_INTERVAL_SECONDS)
   state = reduceRestReminder(state, { type: 'foreground', now: start })
@@ -193,78 +185,97 @@ test('advances a due reminder through countdown, late deadlines, and a user inte
 
   state = reduceRestReminder(state, { type: 'deadline', now: start + 5_000 })
   assert.equal(state.phase, 'due')
-  assert.equal(
-    state.restStartsAt,
-    start + 5_000 + REST_REMINDER_TEST_ENTRY_COUNTDOWN_SECONDS * 1000,
-  )
-  assert.equal(nextRestReminderDeadline(state), state.restStartsAt)
+  assert.equal(state.restStartsAt, null)
+  assert.equal(nextRestReminderDeadline(state), null)
 
-  const backgroundRestStartsAt = state.restStartsAt!
-  const restingInBackground = reduceRestReminder(state, {
+  for (const event of [
+    { type: 'deadline' as const, now: start + 60_000 },
+    { type: 'interaction' as const, now: start + 70_000 },
+    { type: 'entry-unblocked' as const, now: start + 80_000 },
+    { type: 'foreground' as const, now: start + 90_000 },
+  ]) {
+    state = reduceRestReminder(state, event)
+    assert.equal(state.phase, 'due')
+    assert.equal(state.restUntil, null)
+  }
+
+  const restStartedAt = start + 100_000
+  state = reduceRestReminder(state, { type: 'start', now: restStartedAt })
+  assert.equal(state.phase, 'resting')
+  assert.equal(
+    state.restUntil,
+    restStartedAt + REST_REMINDER_BREAK_MINUTES * 60_000,
+  )
+  const resting = state
+  assert.equal(reduceRestReminder(state, { type: 'start', now: restStartedAt + 1 }), resting)
+  assert.equal(reduceRestReminder(state, { type: 'snooze', now: restStartedAt + 1 }), resting)
+  state = reduceRestReminder(state, { type: 'dismiss', now: restStartedAt + 2 })
+  assert.equal(state.phase, 'working')
+  assert.equal(state.cycleStartedAt, restStartedAt + 2)
+})
+
+test('snooze replaces the current reminder with one deadline and rejects stale actions', () => {
+  const start = 1_000_000
+  let due = createRestReminderState(REST_REMINDER_TEST_INTERVAL_SECONDS)
+  due = reduceRestReminder(due, { type: 'foreground', now: start })
+  due = reduceRestReminder(due, { type: 'deadline', now: start + 5_000 })
+
+  const snoozedAt = start + 6_000
+  const snoozed = reduceRestReminder(due, { type: 'snooze', now: snoozedAt })
+  assert.equal(snoozed.phase, 'snoozed')
+  assert.equal(snoozed.snoozedUntil, snoozedAt + 10 * 60_000)
+  assert.equal(nextRestReminderDeadline(snoozed), snoozed.snoozedUntil)
+  assert.equal(reduceRestReminder(snoozed, { type: 'snooze', now: snoozedAt + 1 }), snoozed)
+  assert.equal(reduceRestReminder(snoozed, { type: 'start', now: snoozedAt + 2 }), snoozed)
+  assert.equal(reduceRestReminder(snoozed, { type: 'dismiss', now: snoozedAt + 3 }), snoozed)
+
+  const early = reduceRestReminder(snoozed, {
     type: 'deadline',
-    now: backgroundRestStartsAt + 60_000,
+    now: snoozed.snoozedUntil! - 1,
   })
-  assert.equal(restingInBackground.phase, 'resting')
-  assert.equal(
-    restingInBackground.restUntil,
-    backgroundRestStartsAt + REST_REMINDER_BREAK_MINUTES * 60_000,
-  )
-  assert.equal(
-    reduceRestReminder(state, {
-      type: 'deadline',
-      now: backgroundRestStartsAt + REST_REMINDER_BREAK_MINUTES * 60_000,
-    }).phase,
-    'armed',
-  )
-
-  state = reduceRestReminder(state, {
-    type: 'interaction',
-    now: backgroundRestStartsAt + 100,
+  assert.equal(early, snoozed)
+  const reminded = reduceRestReminder(snoozed, {
+    type: 'deadline',
+    now: snoozed.snoozedUntil!,
   })
-  assert.equal(state.phase, 'due')
+  assert.equal(reminded.phase, 'due')
+  assert.equal(reminded.snoozeUsed, true)
+  assert.equal(nextRestReminderDeadline(reminded), null)
   assert.equal(
-    state.restStartsAt,
-    backgroundRestStartsAt + 100 + REST_REMINDER_TEST_ENTRY_COUNTDOWN_SECONDS * 1000,
+    reduceRestReminder(reminded, { type: 'deadline', now: snoozed.snoozedUntil! + 60_000 }),
+    reminded,
   )
+  assert.equal(
+    reduceRestReminder(reminded, { type: 'snooze', now: snoozed.snoozedUntil! + 1 }),
+    reminded,
+  )
+  assert.equal(reminded.restUntil, null)
 })
 
-test('a late first deadline starts and finishes the full break from the correct deadline', () => {
-  const start = 1_000_000
-  let state = createRestReminderState(REST_REMINDER_TEST_INTERVAL_SECONDS)
-  state = reduceRestReminder(state, { type: 'foreground', now: start })
-  state = reduceRestReminder(state, { type: 'deadline', now: start + 60_000 })
-  assert.equal(state.phase, 'resting')
-  assert.equal(
-    state.restUntil,
-    start
-      + REST_REMINDER_TEST_INTERVAL_SECONDS * 1000
-      + REST_REMINDER_TEST_ENTRY_COUNTDOWN_SECONDS * 1000
-      + REST_REMINDER_BREAK_MINUTES * 60_000,
-  )
-})
+test('refresh restores overdue reminders without reviving automatic rest callbacks', () => {
+  const { storage, values } = createStorage()
+  const now = 1_000_000
+  const staleDue = {
+    ...createRestReminderState(50 * 60),
+    phase: 'due' as const,
+    restStartsAt: now - 60_000,
+  }
+  values.set(PET_REST_REMINDER_RUNTIME_STORAGE_KEY, JSON.stringify({
+    version: 2,
+    state: staleDue,
+  }))
 
-test('an overdue user interaction starts a fresh entry countdown', () => {
-  const start = 1_000_000
-  const interactionAt = start
-    + REST_REMINDER_TEST_INTERVAL_SECONDS * 1000
-    + REST_REMINDER_TEST_ENTRY_COUNTDOWN_SECONDS * 1000
-    + 3 * 60_000
-  let state = createRestReminderState(REST_REMINDER_TEST_INTERVAL_SECONDS)
-  state = reduceRestReminder(state, { type: 'foreground', now: start })
-  state = reduceRestReminder(state, { type: 'interaction', now: interactionAt })
+  const restoredDue = readRestReminderRuntimeState(50 * 60, now, storage)!
+  assert.equal(restoredDue.phase, 'due')
+  assert.equal(restoredDue.restUntil, null)
+  assert.equal(nextRestReminderDeadline(restoredDue), null)
 
-  assert.equal(state.phase, 'due')
+  const snoozed = reduceRestReminder(restoredDue, { type: 'snooze', now })
+  assert.equal(saveRestReminderRuntimeState(snoozed, storage), true)
+  assert.equal(readRestReminderRuntimeState(50 * 60, now + 1, storage)?.phase, 'snoozed')
   assert.equal(
-    state.restStartsAt,
-    interactionAt + REST_REMINDER_TEST_ENTRY_COUNTDOWN_SECONDS * 1000,
-  )
-
-  const restStartsAt = state.restStartsAt!
-  state = reduceRestReminder(state, { type: 'deadline', now: restStartsAt })
-  assert.equal(state.phase, 'resting')
-  assert.equal(
-    state.restUntil,
-    restStartsAt + REST_REMINDER_BREAK_MINUTES * 60_000,
+    readRestReminderRuntimeState(50 * 60, snoozed.snoozedUntil!, storage)?.phase,
+    'due',
   )
 })
 
@@ -289,10 +300,7 @@ test('entry blockers do not pause the work deadline and unblock deterministicall
   assert.equal(overdue.phase, 'due')
   assert.equal(overdue.cycleStartedAt, start)
   assert.equal(overdue.backgroundedAt, null)
-  assert.equal(
-    overdue.restStartsAt,
-    unblockedAt + REST_REMINDER_ENTRY_COUNTDOWN_SECONDS * 1000,
-  )
+  assert.equal(overdue.restStartsAt, null)
 })
 
 test('resumes runtime state, validates stored data, and reconfigures the active interval', () => {
@@ -321,44 +329,24 @@ test('resumes runtime state, validates stored data, and reconfigures the active 
 
   const shorter = reconfigureRestReminderInterval(longer, 5, start + 10 * 60_000)
   assert.equal(shorter.phase, 'due')
-  assert.equal(
-    shorter.restStartsAt,
-    start + 10 * 60_000 + REST_REMINDER_TEST_ENTRY_COUNTDOWN_SECONDS * 1000,
-  )
+  assert.equal(shorter.restStartsAt, null)
 
   values.set(PET_REST_REMINDER_RUNTIME_STORAGE_KEY, JSON.stringify({
     version: 1,
-    state: { ...state, phase: 'due', restStartsAt: null },
+    state: { ...state, phase: 'snoozed', snoozedUntil: null },
   }))
   assert.equal(readRestReminderRuntimeState(50 * 60, start + 60_000, storage), null)
   assert.equal(saveRestReminderRuntimeState(null, storage), true)
   assert.equal(values.has(PET_REST_REMINDER_RUNTIME_STORAGE_KEY), false)
 })
 
-test('allows one snooze and pauses or resets foreground activity across background time', () => {
+test('ends explicit rest at its deadline and pauses or resets foreground activity', () => {
   const start = 1_000_000
   let state = createRestReminderState(50 * 60)
   state = reduceRestReminder(state, { type: 'foreground', now: start })
   state = reduceRestReminder(state, { type: 'deadline', now: start + 50 * 60_000 })
   assert.equal(state.phase, 'due')
-  assert.equal(
-    state.restStartsAt,
-    start + 50 * 60_000 + REST_REMINDER_ENTRY_COUNTDOWN_SECONDS * 1000,
-  )
-
-  state = reduceRestReminder(state, { type: 'snooze', now: start + 50 * 60_000 })
-  assert.equal(state.phase, 'snoozed')
-  assert.equal(state.snoozeUsed, true)
-  state = reduceRestReminder(state, { type: 'interaction', now: start + 54 * 60_000 })
-  state = reduceRestReminder(state, { type: 'interaction', now: start + 58 * 60_000 })
-  state = reduceRestReminder(state, { type: 'deadline', now: start + 60 * 60_000 })
-  assert.equal(state.phase, 'due')
-  const restStartsAt = state.restStartsAt
-  state = reduceRestReminder(state, { type: 'snooze', now: start + 60 * 60_000 })
-  assert.equal(state.phase, 'due')
-  assert.equal(state.restStartsAt, restStartsAt)
-
-  state = reduceRestReminder(state, { type: 'deadline', now: state.restStartsAt! })
+  state = reduceRestReminder(state, { type: 'start', now: start + 50 * 60_000 })
   assert.equal(state.phase, 'resting')
   state = reduceRestReminder(state, { type: 'deadline', now: state.restUntil! })
   assert.equal(state.phase, 'armed')

@@ -28,7 +28,6 @@ import {
   requestPetAppearancePreview,
   restReminderBreakMinutes,
   savePetAppearance,
-  restReminderEntryCountdownSeconds,
   restReminderInvitationMs,
   type PetAppearance,
 } from '@/lib/pet/rest-reminder'
@@ -241,20 +240,16 @@ function petCopy(language: UiLanguage) {
       return zh ? `预览${appearanceName}效果` : `Preview ${appearanceName}`
     },
     dueTitle: zh ? '休息提醒' : 'Break reminder',
-    dueAnnouncement: (intervalSeconds: number) => {
-      const countdownSeconds = restReminderEntryCountdownSeconds(intervalSeconds)
+    dueAnnouncement: zh
+      ? '休息提醒已出现。仅在你选择开始休息后才会进入休息。'
+      : 'Break reminder shown. A break starts only when you choose to start it.',
+    dueBody: (intervalSeconds: number) => {
       const breakMinutes = restReminderBreakMinutes(intervalSeconds)
       return zh
-        ? `休息提醒已出现。暂停操作 ${countdownSeconds} 秒后，开始 ${breakMinutes} 分钟休息。`
-        : `Break reminder shown. Pause for ${countdownSeconds} sec to start a ${breakMinutes} min break.`
+        ? <>已连续操作 Farming {formatActivityInterval(language, intervalSeconds)}。可在合适时开始 {breakMinutes} 分钟休息，也可以继续工作。</>
+        : <>Farming has been active for {formatActivityInterval(language, intervalSeconds)}. Start a {breakMinutes} min break when ready, or keep working.</>
     },
-    dueBody: (intervalSeconds: number, countdownSeconds: number) => {
-      const breakMinutes = restReminderBreakMinutes(intervalSeconds)
-      return zh
-        ? <>已连续操作 Farming {formatActivityInterval(language, intervalSeconds)}。<br />暂停操作 <strong className="code-pet-countdown">{countdownSeconds} 秒</strong>后，开始 {breakMinutes} 分钟休息。</>
-        : <>Farming has been active for {formatActivityInterval(language, intervalSeconds)}.<br />Pause <strong className="code-pet-countdown">{countdownSeconds} sec</strong> for a {breakMinutes} min break.</>
-    },
-    cancelBreak: zh ? '取消' : 'Cancel',
+    startBreak: zh ? '开始休息' : 'Start break',
     snooze: zh ? `${REST_REMINDER_SNOOZE_MINUTES} 分钟后` : `In ${REST_REMINDER_SNOOZE_MINUTES} min`,
     restingTitle: zh ? '休息一下' : 'Take a break',
     restingBody: zh ? '让眼睛和注意力暂停片刻。' : 'Pause for a moment and rest your eyes and attention.',
@@ -309,7 +304,6 @@ function FarmingPetController({
   const [setupConfirmation, setSetupConfirmation] = useState<PetAppearance | null>(null)
   const [settingsError, setSettingsError] = useState('')
   const [persistenceNoticeDismissed, setPersistenceNoticeDismissed] = useState(false)
-  const [countdownNow, setCountdownNow] = useState(Date.now)
   const invitationReady = useRestReminderInvitationReady(
     settingsLoaded && intervalSeconds === null,
   )
@@ -318,6 +312,7 @@ function FarmingPetController({
     pageVisible,
     persistenceFailed,
     dismiss: dismissRestReminder,
+    start: startRestReminder,
     snooze: snoozeRestReminder,
   } = useRestReminderCapability(intervalSeconds, restReminderEntryBlocked)
 
@@ -410,13 +405,6 @@ function FarmingPetController({
   }, [])
 
   useEffect(() => {
-    if (!pageVisible || restReminder?.phase !== 'due') return undefined
-    setCountdownNow(Date.now())
-    const interval = window.setInterval(() => setCountdownNow(Date.now()), 1000)
-    return () => window.clearInterval(interval)
-  }, [pageVisible, restReminder?.phase, restReminder?.restStartsAt])
-
-  useEffect(() => {
     if (!appearancePreview) return undefined
     const timeout = window.setTimeout(
       endAppearancePreview,
@@ -483,12 +471,11 @@ function FarmingPetController({
       && notificationIntent?.option === 'invitation'
     ) return null
     if (notificationIntent) return notificationIntent
-    if (restReminder?.phase === 'due' && restReminder.restStartsAt !== null) {
+    if (restReminder?.phase === 'due') {
       return {
         kind: 'capability',
         capability: 'rest-reminder',
         phase: 'due',
-        restStartsAt: restReminder.restStartsAt,
       }
     }
     if (restReminder?.phase === 'resting' && restReminder.restUntil !== null) {
@@ -608,26 +595,19 @@ function FarmingPetController({
     && intent.capability === 'rest-reminder'
     && intent.phase === 'due'
   ) {
-    const countdownSeconds = Math.max(
-      0,
-      Math.ceil((intent.restStartsAt - countdownNow) / 1000),
-    )
     return (
       <PetBubble
         title={copy.dueTitle}
         body={copy.dueBody(
           restReminder?.intervalSeconds ?? REST_REMINDER_DEFAULT_INTERVAL_SECONDS,
-          countdownSeconds,
         )}
         closeLabel={copy.closeDue}
         testId="pet-rest-reminder"
-        announcement={copy.dueAnnouncement(
-          restReminder?.intervalSeconds ?? REST_REMINDER_DEFAULT_INTERVAL_SECONDS,
-        )}
+        announcement={copy.dueAnnouncement}
         error={settingsError || undefined}
         onClose={dismissRestReminder}
         actions={[
-          { label: copy.cancelBreak, onClick: dismissRestReminder },
+          { label: copy.startBreak, primary: true, onClick: startRestReminder },
           ...(!restReminder?.snoozeUsed
             ? [{ label: copy.snooze, onClick: snoozeRestReminder }]
             : []),

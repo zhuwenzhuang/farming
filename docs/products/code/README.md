@@ -23,6 +23,7 @@ Maintainer contracts remain in this directory. Important entry points include:
 - [Extension and Resource model](extension-model.md)
 - [Use your Chrome with Farming Browser](chrome-extension-browser.md)
 - [Project Files design](project-files-section-design.md)
+- [Rest reminder state model](rest-reminder.md)
 - [Share access model](share-access-model.md)
 - [Review foundation](review-foundation.md)
 - [Farming Desktop](desktop-app.md)

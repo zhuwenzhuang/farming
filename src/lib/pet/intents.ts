@@ -10,7 +10,6 @@ export type PetIntent =
     kind: 'capability'
     capability: 'rest-reminder'
     phase: 'due'
-    restStartsAt: number
   }
   | {
     kind: 'capability'

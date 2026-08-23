@@ -21,6 +21,7 @@ Farming Code 是默认的浏览器工作区。用户使用说明统一在公开�
 - [Terminal 状态协议](terminal-state-protocol.zh_cn.md)
 - [Extension 与 Resource 模型](extension-model.zh_cn.md)
 - [Project Files 设计](project-files-section-design.zh_cn.md)
+- [休息提醒状态模型](rest-reminder.zh_cn.md)
 - [分享访问模型](share-access-model.zh_cn.md)
 - [Review 基础](review-foundation.zh_cn.md)
 - [Farming Desktop](desktop-app.zh_cn.md)

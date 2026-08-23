@@ -280,7 +280,7 @@ export function useRestReminderCapability(
     persist(nextState, false)
   }, [clearInteractionTimer, persist, stateWithPendingInteraction])
 
-  const act = useCallback((type: 'dismiss' | 'snooze') => {
+  const act = useCallback((type: 'dismiss' | 'snooze' | 'start') => {
     clearInteractionTimer()
     pendingInteractionAtRef.current = null
     const current = stateRef.current
@@ -293,6 +293,7 @@ export function useRestReminderCapability(
     pageVisible,
     persistenceFailed,
     dismiss: useCallback(() => act('dismiss'), [act]),
+    start: useCallback(() => act('start'), [act]),
     snooze: useCallback(() => act('snooze'), [act]),
   }
 }

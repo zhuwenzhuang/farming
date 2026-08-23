@@ -11,8 +11,6 @@ export const REST_REMINDER_DEFAULT_INTERVAL_SECONDS = 50 * 60
 export const REST_REMINDER_BREAK_MINUTES = 5
 export const REST_REMINDER_LONG_BREAK_MINUTES = 10
 export const REST_REMINDER_LONG_INTERVAL_SECONDS = 90 * 60
-export const REST_REMINDER_ENTRY_COUNTDOWN_SECONDS = 30
-export const REST_REMINDER_TEST_ENTRY_COUNTDOWN_SECONDS = 5
 export const REST_REMINDER_SNOOZE_MINUTES = 10
 export const REST_REMINDER_IDLE_RESET_MINUTES = 5
 export const REST_REMINDER_IDLE_RESET_MS = REST_REMINDER_IDLE_RESET_MINUTES * 60_000
@@ -86,12 +84,6 @@ export function restReminderSliderIntervalSeconds(position: number): number | nu
     ),
   )
   return REST_REMINDER_INTERVAL_PRESETS_SECONDS[presetIndex] ?? 0
-}
-
-export function restReminderEntryCountdownSeconds(intervalSeconds: number) {
-  return intervalSeconds === REST_REMINDER_TEST_INTERVAL_SECONDS
-    ? REST_REMINDER_TEST_ENTRY_COUNTDOWN_SECONDS
-    : REST_REMINDER_ENTRY_COUNTDOWN_SECONDS
 }
 
 export type PetAppearance = 'glass' | 'black-hole'
@@ -362,6 +354,7 @@ export interface RestReminderState {
   cycleStartedAt: number | null
   backgroundedAt: number | null
   snoozedUntil: number | null
+  // Read for persisted v1/v2 compatibility; due reminders no longer schedule automatic rest.
   restStartsAt: number | null
   restUntil: number | null
   snoozeUsed: boolean
@@ -383,6 +376,7 @@ export type RestReminderEvent =
   | { type: 'interaction'; now: number }
   | { type: 'entry-unblocked'; now: number }
   | { type: 'deadline'; now: number }
+  | { type: 'start'; now: number }
   | { type: 'snooze'; now: number }
   | { type: 'dismiss'; now: number }
 
@@ -408,12 +402,12 @@ function beginRest(state: RestReminderState, now: number): RestReminderState {
   }
 }
 
-function beginRestCountdown(state: RestReminderState, now: number): RestReminderState {
+function markRestReminderDue(state: RestReminderState): RestReminderState {
   return {
     ...state,
     phase: 'due',
     snoozedUntil: null,
-    restStartsAt: now + restReminderEntryCountdownSeconds(state.intervalSeconds) * 1000,
+    restStartsAt: null,
   }
 }
 
@@ -435,15 +429,7 @@ function advanceRestReminder(
     && state.cycleStartedAt !== null
     && now - state.cycleStartedAt >= state.intervalSeconds * 1000
   ) {
-    const dueAt = state.cycleStartedAt + state.intervalSeconds * 1000
-    const dueState = beginRestCountdown(state, dueAt)
-    if (dueState.restStartsAt !== null && now >= dueState.restStartsAt) {
-      const restingState = beginRest(dueState, dueState.restStartsAt)
-      return restingState.restUntil !== null && now >= restingState.restUntil
-        ? createRestReminderState(state.intervalSeconds)
-        : restingState
-    }
-    return dueState
+    return markRestReminderDue(state)
   }
 
   if (
@@ -451,25 +437,7 @@ function advanceRestReminder(
     && state.snoozedUntil !== null
     && now >= state.snoozedUntil
   ) {
-    const dueState = beginRestCountdown(state, state.snoozedUntil)
-    if (dueState.restStartsAt !== null && now >= dueState.restStartsAt) {
-      const restingState = beginRest(dueState, dueState.restStartsAt)
-      return restingState.restUntil !== null && now >= restingState.restUntil
-        ? createRestReminderState(state.intervalSeconds)
-        : restingState
-    }
-    return dueState
-  }
-
-  if (
-    state.phase === 'due'
-    && state.restStartsAt !== null
-    && now >= state.restStartsAt
-  ) {
-    const restingState = beginRest(state, state.restStartsAt)
-    return restingState.restUntil !== null && now >= restingState.restUntil
-      ? createRestReminderState(state.intervalSeconds)
-      : restingState
+    return markRestReminderDue(state)
   }
 
   return state
@@ -492,7 +460,7 @@ export function reconfigureRestReminderInterval(
     && configured.cycleStartedAt !== null
     && activeNow - configured.cycleStartedAt >= normalized * 1000
   ) {
-    return beginRestCountdown(configured, activeNow)
+    return markRestReminderDue(configured)
   }
   return configured
 }
@@ -534,28 +502,28 @@ export function reduceRestReminder(
   state: RestReminderState,
   event: RestReminderEvent,
 ): RestReminderState {
-  // A concrete user action or an entry blocker closing wins over a delayed
-  // countdown callback. If the working deadline already passed, start a fresh
-  // entry countdown instead of backdating and partially consuming the break.
   if (event.type === 'interaction' || event.type === 'entry-unblocked') {
-    if (state.phase === 'due') {
-      return {
-        ...state,
-        restStartsAt: event.now
-          + restReminderEntryCountdownSeconds(state.intervalSeconds) * 1000,
-      }
-    }
+    if (state.phase === 'due') return state
     const deadline = nextRestReminderDeadline(state)
     if (
       (state.phase === 'working' || state.phase === 'snoozed')
       && deadline !== null
       && event.now >= deadline
     ) {
-      return beginRestCountdown(state, event.now)
+      return markRestReminderDue(state)
     }
   }
 
-  if (event.type === 'dismiss') {
+  // This is the only transition into blocking rest. Delayed callbacks and
+  // stale controls cannot supply the current explicit user intent.
+  if (event.type === 'start' && state.phase === 'due') {
+    return beginRest(state, event.now)
+  }
+
+  if (
+    event.type === 'dismiss'
+    && (state.phase === 'due' || state.phase === 'resting')
+  ) {
     return beginForegroundCycle(state, event.now)
   }
 
@@ -585,7 +553,7 @@ export function reduceRestReminder(
 export function nextRestReminderDeadline(state: RestReminderState): number | null {
   if (state.phase === 'resting') return state.restUntil
   if (state.backgroundedAt !== null) return null
-  if (state.phase === 'due') return state.restStartsAt
+  if (state.phase === 'due') return null
   if (state.phase === 'armed') return null
 
   if (state.phase === 'working' && state.cycleStartedAt !== null) {
@@ -632,7 +600,6 @@ function normalizeStoredRestReminderState(value: unknown): RestReminderState | n
   }
   if (
     (normalized.phase === 'working' && normalized.cycleStartedAt === null)
-    || (normalized.phase === 'due' && normalized.restStartsAt === null)
     || (normalized.phase === 'snoozed' && normalized.snoozedUntil === null)
     || (normalized.phase === 'resting' && normalized.restUntil === null)
   ) {

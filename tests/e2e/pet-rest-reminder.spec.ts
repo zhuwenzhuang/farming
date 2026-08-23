@@ -8,12 +8,12 @@ import {
   test,
 } from './fixtures'
 import type { Locator, Page, WebSocketRoute } from '@playwright/test'
-import { projectFilesWorkspaceId } from '../../src/lib/project-workspaces'
 
 const SETTINGS_KEY = 'farmingPetSettings'
 const RUNTIME_KEY = 'farmingPetRestReminderRuntime'
 const INVITATION_RUNTIME_KEY = 'farmingPetRestReminderInvitationRuntime'
 const PET_SETUP_SCREENSHOT_DIR = process.env.FARMING_PET_SETUP_SCREENSHOT_DIR
+const PET_REMINDER_SCREENSHOT_DIR = process.env.FARMING_PET_REMINDER_SCREENSHOT_DIR
 
 function deferred() {
   let resolve!: () => void
@@ -29,6 +29,25 @@ async function capturePetSetupStep(page: Page, name: string) {
     path: `${PET_SETUP_SCREENSHOT_DIR}/${name}.png`,
     animations: 'disabled',
     fullPage: false,
+  })
+}
+
+async function capturePetReminderStep(
+  page: Page,
+  name: string,
+  region: 'sidebar' | 'rest-scene',
+) {
+  if (!PET_REMINDER_SCREENSHOT_DIR) return
+  fs.mkdirSync(PET_REMINDER_SCREENSHOT_DIR, { recursive: true })
+  const clip = region === 'sidebar'
+    ? await page.locator('.code-sidebar').boundingBox()
+    : { x: 320, y: 110, width: 640, height: 500 }
+  if (!clip) throw new Error(`Could not resolve ${region} screenshot bounds`)
+  await page.screenshot({
+    path: path.join(PET_REMINDER_SCREENSHOT_DIR, `${name}.png`),
+    animations: 'disabled',
+    fullPage: false,
+    clip,
   })
 }
 
@@ -326,22 +345,22 @@ test('break reminder keeps its English status copy compact', async ({ page }) =>
   const body = reminder.locator('p')
   await expect(reminder).toBeVisible()
   await expect(body).toContainText('Farming has been active for 50 min.')
-  await expect(body).toContainText(/Pause \d+ sec for a 5 min break\./)
-  const cancelButton = reminder.getByRole('button', { name: 'Cancel', exact: true })
+  await expect(body).toContainText('Start a 5 min break when ready, or keep working.')
+  const startButton = reminder.getByRole('button', { name: 'Start break', exact: true })
   const snoozeButton = reminder.getByRole('button', { name: 'In 10 min', exact: true })
-  const [cancelBox, snoozeBox] = await Promise.all([
-    cancelButton.boundingBox(),
+  const [startBox, snoozeBox] = await Promise.all([
+    startButton.boundingBox(),
     snoozeButton.boundingBox(),
   ])
-  expect(cancelBox).not.toBeNull()
+  expect(startBox).not.toBeNull()
   expect(snoozeBox).not.toBeNull()
-  expect(Math.abs(cancelBox!.y - snoozeBox!.y)).toBeLessThan(1)
-  expect(snoozeBox!.x).toBeGreaterThan(cancelBox!.x + cancelBox!.width)
+  expect(Math.abs(startBox!.y - snoozeBox!.y)).toBeLessThan(1)
+  expect(snoozeBox!.x).toBeGreaterThan(startBox!.x + startBox!.width)
   const renderedLines = await body.evaluate(element => {
     const style = getComputedStyle(element)
     return element.getBoundingClientRect().height / Number.parseFloat(style.lineHeight)
   })
-  expect(renderedLines).toBeLessThanOrEqual(2.05)
+  expect(renderedLines).toBeLessThanOrEqual(3.05)
 })
 
 test('dark appearance defaults an unconfigured Pet to the black hole', async ({ page }) => {
@@ -1417,33 +1436,30 @@ test('closing a due reminder cancels only the current break', async ({ page }) =
   expect(data.settings?.restReminderIntervalSeconds).toBe(60)
 })
 
-test('an overdue Browser click starts a fresh rest-entry countdown', async ({
+test('active Agent supervision stays visible until an explicit break starts', async ({
   page,
   workspaceRoot,
 }) => {
-  const workspace = path.join(workspaceRoot, 'pet-overdue-browser-click')
-  fs.mkdirSync(workspace, { recursive: true })
+  await page.clock.install()
   const settingsResponse = await page.request.post('/farming/api/settings', {
-    data: {
-      browserExtensionEnabled: true,
-      restReminderIntervalSeconds: 60,
-    },
+    data: { restReminderIntervalSeconds: 60 },
   })
   expect(settingsResponse.ok()).toBeTruthy()
-  const mountResponse = await page.request.post('/farming/api/projects/mount', {
-    data: { workspace },
-  })
-  expect(mountResponse.ok()).toBeTruthy()
   const agentResponse = await page.request.post('/farming/api/control/agents', {
-    data: { command: 'bash', workspace },
+    data: { command: 'bash', workspace: workspaceRoot },
   })
   const agent = await agentResponse.json() as { agentId?: string, error?: string }
-  expect(agentResponse.ok(), agent.error || 'Failed to create Browser owner Agent').toBeTruthy()
+  expect(agentResponse.ok(), agent.error || 'Failed to create supervised Agent').toBeTruthy()
   const agentId = agent.agentId as string
-  const browserResponse = await page.request.post('/farming/api/browsers', {
-    data: { rootId: projectFilesWorkspaceId(workspace), agentId },
-  })
-  expect(browserResponse.ok()).toBeTruthy()
+  await expect.poll(async () => {
+    const response = await page.request.get('/farming/api/control/agents')
+    if (!response.ok()) return false
+    const data = await response.json() as {
+      agents?: Array<{ id?: string, status?: string, runtimeEpoch?: string }>
+    }
+    const current = data.agents?.find(candidate => candidate.id === agentId)
+    return current?.status === 'running' && Boolean(current.runtimeEpoch)
+  }).toBe(true)
 
   await page.addInitScript(({ settingsKey, runtimeKey }) => {
     const now = Date.now()
@@ -1455,12 +1471,13 @@ test('an overdue Browser click starts a fresh rest-entry countdown', async ({
     sessionStorage.setItem(runtimeKey, JSON.stringify({
       version: 2,
       state: {
-        phase: 'working',
+        phase: 'due',
         intervalSeconds: 60,
-        cycleStartedAt: now,
+        cycleStartedAt: now - 60_000,
         backgroundedAt: null,
         snoozedUntil: null,
-        restStartsAt: null,
+        // Simulate the expired auto-entry target persisted by an older UI.
+        restStartsAt: now - 30_000,
         restUntil: null,
         snoozeUsed: false,
       },
@@ -1470,28 +1487,57 @@ test('an overdue Browser click starts a fresh rest-entry countdown', async ({
   await openFarming(page)
   const agentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
   await expect(agentRow).toBeVisible({ timeout: 30_000 })
-  const resourcesToggle = agentRow.getByTestId('code-agent-resources-toggle')
-  await agentRow.hover()
-  await resourcesToggle.click()
-  const browserRow = page.locator(
-    `[data-testid="code-agent-resource-slot"][data-agent-id="${agentId}"]`,
-  ).getByTestId('farming-browser-row')
-  await expect(browserRow).toBeVisible()
+  const reminder = page.getByTestId('pet-rest-reminder')
+  const scene = page.getByTestId('pet-rest-scene')
+  await expect(reminder).toBeVisible()
+  await expect(reminder).toHaveCount(1)
+  await expect(scene).toHaveCount(0)
+  await capturePetReminderStep(page, '01-active-agent-reminder', 'sidebar')
 
-  const interactionAt = await page.evaluate(() => {
-    const overdueNow = Date.now() + 4 * 60_000
-    Date.now = () => overdueNow
-    return overdueNow
-  })
-  await browserRow.click()
-  await expect(page.getByTestId('pet-rest-reminder')).toBeVisible({ timeout: 3_000 })
+  await page.clock.fastForward(5 * 60_000)
+  await expect(reminder).toBeVisible()
+  await expect(scene).toHaveCount(0)
 
-  const runtime = await page.evaluate(runtimeKey => (
+  await reminder.getByRole('button', { name: 'In 10 min', exact: true }).click()
+  await expect(reminder).toHaveCount(0)
+  const snoozed = await page.evaluate(runtimeKey => (
     JSON.parse(sessionStorage.getItem(runtimeKey) ?? 'null')?.state
   ), RUNTIME_KEY)
-  expect(runtime.phase).toBe('due')
-  expect(runtime.restStartsAt).toBe(interactionAt + 30_000)
-  expect(runtime.restUntil).toBeNull()
+  expect(snoozed.phase).toBe('snoozed')
+  expect(snoozed.snoozedUntil).toBeGreaterThan(Date.now())
+
+  await page.clock.fastForward(10 * 60_000)
+  await expect(reminder).toBeVisible()
+  await expect(reminder).toHaveCount(1)
+  await expect(scene).toHaveCount(0)
+  await page.clock.fastForward(5 * 60_000)
+  await expect(reminder).toBeVisible()
+  await expect(scene).toHaveCount(0)
+
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await expect(page.getByTestId('app-shell')).toBeVisible()
+  await expect(reminder).toBeVisible()
+  await expect(reminder).toHaveCount(1)
+  await expect(scene).toHaveCount(0)
+
+  await reminder.getByRole('button', { name: 'Start break', exact: true }).click()
+  await expect(reminder).toHaveCount(0)
+  await expect(scene).toBeVisible()
+  await capturePetReminderStep(page, '02-explicit-rest-overlay', 'rest-scene')
+
+  const runningResponse = await page.request.get('/farming/api/control/agents')
+  const runningData = await runningResponse.json() as {
+    agents?: Array<{ id?: string, status?: string, runtimeEpoch?: string }>
+  }
+  const runningAgent = runningData.agents?.find(candidate => candidate.id === agentId)
+  expect(runningAgent?.status).toBe('running')
+  expect(runningAgent?.runtimeEpoch).toBeTruthy()
+
+  await scene.getByRole('button', { name: 'End break' }).click()
+  await expect(scene).toHaveCount(0)
+  await expect.poll(() => page.evaluate(runtimeKey => (
+    JSON.parse(sessionStorage.getItem(runtimeKey) ?? 'null')?.state?.phase
+  ), RUNTIME_KEY)).toBe('working')
 })
 
 test('appearance changes preserve the active cycle and reload restores it', async ({ page }) => {
@@ -1577,7 +1623,7 @@ test('custom reminder minutes sit between fixed slider stops', async ({ page }) 
   ), SETTINGS_KEY)).toBe(90 * 60)
 })
 
-test('Settings blocks rest entry and closing it starts a fresh entry countdown', async ({ page }) => {
+test('Settings blocks the reminder and closing it never auto-starts rest', async ({ page }) => {
   test.slow()
   await page.clock.install()
   await page.addInitScript(({ settingsKey, runtimeKey }) => {
@@ -1619,7 +1665,6 @@ test('Settings blocks rest entry and closing it starts a fresh entry countdown',
   expect(await page.locator('#root').evaluate(element => (element as HTMLElement).inert))
     .toBe(false)
 
-  const closedAt = await page.evaluate(() => Date.now())
   await closeSettings.click()
   const reminder = page.getByTestId('pet-rest-reminder')
   await expect(reminder).toBeVisible()
@@ -1627,16 +1672,20 @@ test('Settings blocks rest entry and closing it starts a fresh entry countdown',
   const restStartsAt = await page.evaluate(key => (
     JSON.parse(sessionStorage.getItem(key) ?? 'null')?.state?.restStartsAt
   ), RUNTIME_KEY)
-  expect(restStartsAt).toBeGreaterThanOrEqual(closedAt + 29_000)
+  expect(restStartsAt).toBeNull()
 
   const scene = page.getByTestId('pet-rest-scene')
   await page.clock.fastForward(30_000)
+  await expect(reminder).toBeVisible()
+  await expect(scene).toHaveCount(0)
+  await reminder.getByRole('button', { name: 'Start break', exact: true }).click()
   await expect(scene).toBeVisible()
   await scene.getByRole('button', { name: 'End break' }).click()
   await expect(scene).toHaveCount(0)
 })
 
-test('input bursts extend a due countdown at most once per second', async ({ page }) => {
+test('rapid input bursts cannot revive a due timer or start rest', async ({ page }) => {
+  await page.clock.install()
   await page.addInitScript(({ settingsKey, runtimeKey }) => {
     const now = Date.now()
     localStorage.setItem(settingsKey, JSON.stringify({
@@ -1682,9 +1731,12 @@ test('input bursts extend a due countdown at most once per second', async ({ pag
   ))
   expect(writesImmediatelyAfterBurst).toBe(writesBeforeBurst)
 
-  await expect.poll(() => page.evaluate(() => (
+  await page.clock.fastForward(2_000)
+  expect(await page.evaluate(() => (
     (window as Window & { __petRuntimeWriteCount?: number }).__petRuntimeWriteCount ?? 0
-  ))).toBe(writesBeforeBurst + 1)
+  ))).toBe(writesBeforeBurst)
+  await expect(page.getByTestId('pet-rest-reminder')).toBeVisible()
+  await expect(page.getByTestId('pet-rest-scene')).toHaveCount(0)
 })
 
 test('the soft-glow rest scene owns focus and Escape ends the break', async ({ page }) => {
