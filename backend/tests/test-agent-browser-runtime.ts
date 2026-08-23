@@ -30,6 +30,24 @@ class FakeStream extends EventEmitter {
   }
 }
 
+class FailingStream extends EventEmitter {
+  constructor() {
+    super();
+    this.readyState = 0;
+    setImmediate(() => {
+      this.emit('error', new Error('stream unavailable'));
+      this.readyState = 3;
+      this.emit('close');
+    });
+  }
+
+  send() {}
+
+  close() {
+    this.readyState = 3;
+  }
+}
+
 async function run() {
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-agent-browser-runtime.'));
   const profileDir = path.join(configDir, 'browsers', 'browser_test', 'profile');
@@ -488,6 +506,94 @@ async function run() {
   assert.strictEqual(borrowed.ownedTabIds.has('t1'), false);
   await borrowed.close();
   assert(!borrowedCalls.some(command => command[0] === 'tab' && command[1] === 'close'));
+
+  const reconnectingStreams = [];
+  processActive = true;
+  const reconnectingRuntime = new AgentBrowserRuntime({
+    id: 'browser_reconnecting',
+    generation: 1,
+    configDir,
+    profileDir: path.join(configDir, 'reconnecting-profile'),
+    agentBrowserPath: '/managed/agent-browser',
+    executablePath: '/Applications/Chromium',
+    runCommand,
+    createWebSocket: () => {
+      const next = new FakeStream();
+      reconnectingStreams.push(next);
+      return next;
+    },
+    readProcessIdentity: async pid => (pid === identity.pid && processActive ? identity : null),
+    wait: async () => {},
+  });
+  await reconnectingRuntime.start('https://example.test/');
+  const reconnectEvents = [];
+  reconnectingRuntime.on('disconnected', () => reconnectEvents.push('disconnected'));
+  reconnectingRuntime.on('connected', () => reconnectEvents.push('connected'));
+  reconnectingRuntime.on('exit', () => reconnectEvents.push('exit'));
+  reconnectingStreams[0].readyState = 3;
+  reconnectingStreams[0].emit('close');
+  for (let turn = 0; turn < 10 && !reconnectEvents.includes('connected'); turn += 1) {
+    await new Promise(resolve => setImmediate(resolve));
+  }
+  assert.deepStrictEqual(reconnectEvents, ['disconnected', 'connected']);
+  assert.strictEqual(reconnectingStreams.length, 2);
+  reconnectingStreams[0].emit('close');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepStrictEqual(
+    reconnectEvents,
+    ['disconnected', 'connected'],
+    'A stale socket callback must not disturb the recovered connection',
+  );
+  reconnectingStreams[1].readyState = 3;
+  reconnectingStreams[1].emit('close');
+  for (let turn = 0; turn < 10 && reconnectEvents.length < 4; turn += 1) {
+    await new Promise(resolve => setImmediate(resolve));
+  }
+  assert.deepStrictEqual(
+    reconnectEvents,
+    ['disconnected', 'connected', 'disconnected', 'connected'],
+    'A recovered connection must retain the same bounded recovery contract',
+  );
+  assert.strictEqual(reconnectingStreams.length, 3);
+  await reconnectingRuntime.close();
+
+  const failingStreams = [];
+  processActive = true;
+  let failReconnects = false;
+  const unrecoverableRuntime = new AgentBrowserRuntime({
+    id: 'browser_unrecoverable',
+    generation: 1,
+    configDir,
+    profileDir: path.join(configDir, 'unrecoverable-profile'),
+    agentBrowserPath: '/managed/agent-browser',
+    executablePath: '/Applications/Chromium',
+    runCommand,
+    createWebSocket: () => {
+      const next = failReconnects ? new FailingStream() : new FakeStream();
+      failingStreams.push(next);
+      return next;
+    },
+    readProcessIdentity: async pid => (pid === identity.pid && processActive ? identity : null),
+    wait: async () => {},
+  });
+  await unrecoverableRuntime.start('https://example.test/');
+  const failureEvents = [];
+  unrecoverableRuntime.on('disconnected', () => failureEvents.push('disconnected'));
+  unrecoverableRuntime.on('connected', () => failureEvents.push('connected'));
+  unrecoverableRuntime.on('exit', () => failureEvents.push('exit'));
+  failReconnects = true;
+  failingStreams[0].readyState = 3;
+  failingStreams[0].emit('close');
+  for (let turn = 0; turn < 20 && !failureEvents.includes('exit'); turn += 1) {
+    await new Promise(resolve => setImmediate(resolve));
+  }
+  assert.deepStrictEqual(failureEvents, ['disconnected', 'exit']);
+  assert.strictEqual(
+    failingStreams.length,
+    5,
+    'Runtime reconnect must stop after the fixed bounded attempt budget',
+  );
+  await unrecoverableRuntime.close();
 
   const screenshotPaths = [];
   let oversizedScreenshot = false;

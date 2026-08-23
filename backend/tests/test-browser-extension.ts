@@ -1037,6 +1037,62 @@ async function testBrowserResourceManager() {
     assert.strictEqual((await manager.action(created.id, { kind: 'snapshot' })).title, 'Fake Browser');
     await manager.stop(created.id);
 
+    const recovering = manager.create({
+      projectRootId: 'wroot_project',
+      workspace: '/tmp/project',
+      ownerAgentId: 'agent_project',
+      name: 'Recovering',
+      url: 'about:blank',
+    });
+    await manager.start(recovering.id);
+    const recoveringRuntime = runtimes.at(-1);
+    recoveringRuntime.emit('disconnected', 'Browser connection interrupted; reconnecting');
+    assert.strictEqual(manager.get(recovering.id).status, 'reconnecting');
+    assert.throws(
+      () => manager.action(recovering.id, { kind: 'snapshot' }),
+      error => error.code === 'BROWSER_NOT_RUNNING',
+      'Browser actions must stop while the authoritative runtime connection is recovering',
+    );
+    recoveringRuntime.emit('connected');
+    assert.strictEqual(manager.get(recovering.id).status, 'running');
+    recoveringRuntime.emit('disconnected', 'Browser connection interrupted; reconnecting');
+    recoveringRuntime.emit('exit', 'Browser connection did not recover');
+    await new Promise(resolve => setImmediate(resolve));
+    assert.strictEqual(manager.get(recovering.id).status, 'failed');
+    recoveringRuntime.emit('connected');
+    assert.strictEqual(
+      manager.get(recovering.id).status,
+      'failed',
+      'A stale connected callback must not revive a terminal Browser generation',
+    );
+
+    const stoppedWithOldCallbacks = manager.create({
+      projectRootId: 'wroot_project',
+      workspace: '/tmp/project',
+      ownerAgentId: 'agent_project',
+      name: 'Stopped callback fence',
+      url: 'about:blank',
+    });
+    await manager.start(stoppedWithOldCallbacks.id);
+    const stoppedRuntime = runtimes.at(-1);
+    await manager.stop(stoppedWithOldCallbacks.id);
+    stoppedRuntime.emit('disconnected', 'late disconnect');
+    stoppedRuntime.emit('connected');
+    stoppedRuntime.emit('exit', 'late exit');
+    await new Promise(resolve => setImmediate(resolve));
+    assert.strictEqual(
+      manager.get(stoppedWithOldCallbacks.id).status,
+      'stopped',
+      'Callbacks from a released runtime must not revive or fail a stopped Resource',
+    );
+    await manager.stop(stoppedWithOldCallbacks.id);
+    await manager.delete(stoppedWithOldCallbacks.id);
+    await assert.rejects(
+      manager.delete(stoppedWithOldCallbacks.id),
+      error => error.code === 'BROWSER_NOT_FOUND',
+      'A repeated delete must fail closed without recreating the Resource',
+    );
+
     const second = manager.create({
       projectRootId: 'wroot_project',
       workspace: '/tmp/project',
@@ -1045,7 +1101,7 @@ async function testBrowserResourceManager() {
       url: 'about:blank',
     });
     await manager.start(second.id);
-    runtimes[2].emit('exit', 'Browser crashed');
+    runtimes.at(-1).emit('exit', 'Browser crashed');
     await new Promise(resolve => setImmediate(resolve));
     assert.strictEqual(manager.get(second.id).status, 'failed');
     assert.strictEqual(manager.get(second.id).error, 'Browser crashed');
@@ -1058,7 +1114,7 @@ async function testBrowserResourceManager() {
       url: 'about:blank',
     });
     await manager.start(retryable.id);
-    runtimes[3].closeFailures = 1;
+    runtimes.at(-1).closeFailures = 1;
     await assert.rejects(manager.stop(retryable.id), /close not proven/);
     assert.strictEqual(
       manager.get(retryable.id).status,
@@ -1767,6 +1823,15 @@ function testBrowserResourceRevisionOrdering() {
   );
   const newer = { ...current, status: 'failed', revision: 3, updatedAt: 3 };
   assert.deepStrictEqual(mergeBrowserResource([current], newer), [newer]);
+  const reconnecting = { ...current, status: 'reconnecting', revision: 3, collectionRevision: 4 };
+  const recovered = { ...current, status: 'running', revision: 4, collectionRevision: 5 };
+  assert.deepStrictEqual(mergeBrowserResource([current], reconnecting), [reconnecting]);
+  assert.deepStrictEqual(mergeBrowserResource([reconnecting], recovered), [recovered]);
+  assert.deepStrictEqual(
+    mergeBrowserResource([recovered], reconnecting),
+    [recovered],
+    'A delayed reconnecting callback must not replace a recovered generation',
+  );
 
   const running = applyBrowserResource(
     emptyBrowserResourceState(),

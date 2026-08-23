@@ -125,6 +125,8 @@ const COMMAND_TIMEOUT_MS = 30_000;
 const CLOSE_TIMEOUT_MS = 10_000;
 const PROCESS_EXIT_TIMEOUT_MS = 5_000;
 const PROCESS_EXIT_POLL_MS = 100;
+const STREAM_CONNECT_TIMEOUT_MS = 1_000;
+const STREAM_RECONNECT_DELAYS_MS = [250, 500, 1_000, 2_000] as const;
 const MAX_ACTION_TIMEOUT_MS = 120_000;
 const MAX_SCRIPT_LENGTH = 100_000;
 const MAX_PUBLIC_OUTPUT_CHARS = 100_000;
@@ -430,6 +432,9 @@ class AgentBrowserRuntime extends EventEmitter {
   processIdentity: ProcessIdentity | null;
   connectedCdp: boolean;
   stream: WebSocketLike | null;
+  streamConnectionEpoch: number;
+  streamRecoveryEpoch: number;
+  streamRecoveryPromise: Promise<void> | null;
   streamReady: boolean;
   activeTabId: string;
   streamTabId: string;
@@ -474,6 +479,9 @@ class AgentBrowserRuntime extends EventEmitter {
     this.processIdentity = null;
     this.connectedCdp = false;
     this.stream = null;
+    this.streamConnectionEpoch = 0;
+    this.streamRecoveryEpoch = 0;
+    this.streamRecoveryPromise = null;
     this.streamReady = false;
     this.activeTabId = '';
     this.streamTabId = '';
@@ -600,36 +608,99 @@ class AgentBrowserRuntime extends EventEmitter {
   connectStream(url: string): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       const socket = this.createWebSocket(url);
+      const connectionEpoch = ++this.streamConnectionEpoch;
       this.stream = socket;
       let settled = false;
+      let opened = false;
+      const timeout = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        if (this.stream === socket) this.stream = null;
+        socket.removeAllListeners();
+        socket.close();
+        reject(new Error('agent-browser stream connection timed out'));
+      }, STREAM_CONNECT_TIMEOUT_MS);
       const failStart = (error: unknown) => {
         if (settled) return;
         settled = true;
+        clearTimeout(timeout);
+        if (this.stream === socket) {
+          this.stream = null;
+          this.streamReady = false;
+        }
+        socket.removeAllListeners();
+        socket.close();
         reject(error instanceof Error ? error : new Error(String(error || 'agent-browser stream failed')));
       };
       socket.once('open', () => {
         if (settled) return;
+        if (this.closedByOwner || this.stream !== socket || this.streamConnectionEpoch !== connectionEpoch) {
+          failStart(new Error('agent-browser stream ownership changed'));
+          return;
+        }
         settled = true;
+        opened = true;
+        clearTimeout(timeout);
         this.streamReady = true;
         resolve();
       });
-      socket.on('message', (raw: Buffer) => this.handleStreamMessage(raw));
+      socket.on('message', (raw: Buffer) => {
+        if (this.stream === socket && this.streamConnectionEpoch === connectionEpoch) {
+          this.handleStreamMessage(raw);
+        }
+      });
       socket.once('error', (error: Error) => {
-        if (!settled) {
+        if (!opened) {
           failStart(error);
           return;
         }
-        if (!this.closedByOwner) this.emit('error', error);
+        if (
+          !this.closedByOwner
+          && this.stream === socket
+          && this.streamConnectionEpoch === connectionEpoch
+        ) this.emit('error', error);
       });
       socket.once('close', () => {
+        clearTimeout(timeout);
+        if (this.stream !== socket || this.streamConnectionEpoch !== connectionEpoch) return;
+        this.stream = null;
         this.streamReady = false;
-        if (!settled) {
+        if (!opened) {
           failStart(new Error('agent-browser stream closed before it was ready'));
           return;
         }
-        if (!this.closedByOwner) this.emit('exit', 'agent-browser stream closed');
+        if (!this.closedByOwner) this.recoverStream(url, 'agent-browser stream closed');
       });
     });
+  }
+
+  recoverStream(url: string, message: string): void {
+    if (this.closedByOwner || this.streamRecoveryPromise) return;
+    const recoveryEpoch = ++this.streamRecoveryEpoch;
+    this.emit('disconnected', message);
+    const recovery = (async () => {
+      let lastError = message;
+      for (const delayMs of STREAM_RECONNECT_DELAYS_MS) {
+        await this.wait(delayMs);
+        if (this.closedByOwner || this.streamRecoveryEpoch !== recoveryEpoch) return;
+        try {
+          await this.connectStream(url);
+          if (this.closedByOwner || this.streamRecoveryEpoch !== recoveryEpoch) return;
+          this.streamRecoveryPromise = null;
+          this.emit('connected');
+          return;
+        } catch (error) {
+          lastError = errorMessage(error) || lastError;
+        }
+      }
+      if (!this.closedByOwner && this.streamRecoveryEpoch === recoveryEpoch) {
+        this.emit('exit', `agent-browser stream did not recover: ${lastError}`);
+      }
+    })();
+    const trackedRecovery = recovery.finally(() => {
+      if (this.streamRecoveryPromise === trackedRecovery) this.streamRecoveryPromise = null;
+    });
+    this.streamRecoveryPromise = trackedRecovery;
   }
 
   handleStreamMessage(raw: Buffer | string): void {
@@ -1215,6 +1286,7 @@ class AgentBrowserRuntime extends EventEmitter {
     if (this.closeComplete) return;
     if (this.closePromise) return this.closePromise;
     this.closedByOwner = true;
+    this.streamRecoveryEpoch += 1;
     this.closePromise = (async () => {
       if (this.stream) {
         this.stream.removeAllListeners();

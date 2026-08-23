@@ -159,6 +159,16 @@ State，并保留精确 Resource 与 Process Identity 供显式重试，不能�
 Single-binding Isolated Session 可以按精确记录回收 Farming-owned Process，Shared Session
 与借用的 Chrome Tab 不能作为 Cleanup Fallback 被 Kill。
 
+已建立的 Browser Runtime Stream 拥有一个有界 Connection Transition：
+`running -> reconnecting -> running | failed`。一次 Transport 中断不会删除
+Resource，但只有同一 Runtime Session 和 Resource Generation 才能完成重连。
+固定重连预算不轮询页面内容或 Origin Health。预算耗尽是 Terminal Connection
+Failure：Viewer Input 和 Streaming 停止，Agent Activity 不再将该页面展示为
+Live Resource，保留的 Failed 行仍可用于精确清理或显式启动新 Generation。
+Agent Replacement、Stop、Delete、Server Recovery 和过期 Runtime Callback 都必须按
+精确 Owner、Session 和 Generation 对该转换做 Fence。隐藏 Activity 预览只是
+浏览器本地 Presentation State，不改变 Resource Lifecycle 或 Connection State。
+
 ## Files 与 Language Server
 
 File Viewer 体现同一模型：不同文件类型可以使用不同 Viewer，但共享一份 Project Authorization

@@ -39,6 +39,8 @@ function viewerCopy(language: UiPreferences['language']) {
     startBrowser: zh ? '启动标签页' : 'Start Tab',
     stoppedTitle: zh ? '标签页已停止' : 'Tab stopped',
     failedTitle: zh ? '标签页失败' : 'Tab failed',
+    reconnectingTitle: zh ? '正在重新连接标签页' : 'Reconnecting tab',
+    reconnectingHint: zh ? '重连窗口有限，超时后将明确结束预览。' : 'The reconnect window is bounded; the preview will stop if it expires.',
     stoppedHint: zh ? '启动后，用户和 Agent 将操作同一个标签页。' : 'Start it to share one tab between the user and Agent.',
     pageLabel: (name: string) => zh ? `${name} 浏览器页面` : `${name} browser page`,
     textInput: zh ? '浏览器文本输入' : 'Browser text input',
@@ -150,6 +152,7 @@ export function BrowserViewer({
   const [navigating, setNavigating] = useState(false)
   const [viewerError, setViewerError] = useState('')
   const [moreOpen, setMoreOpen] = useState(false)
+  const activeRuntime = resource.status === 'running' || resource.status === 'reconnecting'
 
   useEffect(() => {
     if (!addressEditingRef.current) setAddress(resource.url)
@@ -452,7 +455,7 @@ export function BrowserViewer({
             ref={addressInputRef}
             value={address}
             aria-label={copy.address}
-            disabled={resource.status === 'starting' || resource.status === 'stopping'}
+            disabled={resource.status === 'starting' || resource.status === 'reconnecting' || resource.status === 'stopping'}
             onChange={event => {
               addressEditingRef.current = true
               setAddress(event.currentTarget.value)
@@ -471,7 +474,7 @@ export function BrowserViewer({
         </form>
         {ownerName ? (
           <span
-            className="farming-browser-controller"
+            className={`farming-browser-controller ${resource.status === 'reconnecting' ? 'reconnecting' : ''}`.trim()}
             data-testid="farming-browser-controller"
             title={copy.sharedControlTitle(ownerName)}
           >
@@ -526,14 +529,14 @@ export function BrowserViewer({
                 disabled={resource.status === 'starting' || resource.status === 'stopping'}
                 onClick={() => {
                   setMoreOpen(false)
-                  const transition = resource.status === 'running'
+                  const transition = activeRuntime
                     ? controller.stop(resource.id)
                     : controller.start(resource.id)
                   void transition.catch(error => setViewerError(error instanceof Error ? error.message : copy.transitionFailed))
                 }}
               >
-                {resource.status === 'running' ? <SquareGlyph /> : <PlayGlyph />}
-                <span>{resource.status === 'running' ? copy.stop : copy.start}</span>
+                {activeRuntime ? <SquareGlyph /> : <PlayGlyph />}
+                <span>{activeRuntime ? copy.stop : copy.start}</span>
               </button>
             </div>
           ) : null}
@@ -587,12 +590,18 @@ export function BrowserViewer({
           />
         ) : (
           <div className="farming-browser-placeholder">
-            <strong>{resource.status === 'failed' ? copy.failedTitle : copy.stoppedTitle}</strong>
-            <p>{resource.error || copy.stoppedHint}</p>
-            <button type="button" onClick={() => void controller.start(resource.id).catch(error => setViewerError(error.message))}>
-              <PlayGlyph />
-              <span>{copy.startBrowser}</span>
-            </button>
+            <strong>{resource.status === 'reconnecting'
+              ? copy.reconnectingTitle
+              : resource.status === 'failed' ? copy.failedTitle : copy.stoppedTitle}</strong>
+            <p>{resource.status === 'reconnecting'
+              ? copy.reconnectingHint
+              : resource.error || copy.stoppedHint}</p>
+            {resource.status !== 'reconnecting' ? (
+              <button type="button" onClick={() => void controller.start(resource.id).catch(error => setViewerError(error.message))}>
+                <PlayGlyph />
+                <span>{copy.startBrowser}</span>
+              </button>
+            ) : null}
           </div>
         )}
         <textarea

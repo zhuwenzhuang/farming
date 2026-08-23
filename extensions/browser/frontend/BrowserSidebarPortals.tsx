@@ -66,6 +66,7 @@ export function browserCopy(language: UiPreferences['language']) {
     stopBrowser: zh ? '停止标签页' : 'Stop Tab',
     deleteBrowser: zh ? '关闭标签页' : 'Close Tab',
     failed: zh ? '标签页失败' : 'Tab failed',
+    reconnecting: zh ? '重新连接中…' : 'Reconnecting…',
     starting: zh ? '启动中…' : 'Starting…',
     stopping: zh ? '停止中…' : 'Stopping…',
     stopped: zh ? '已停止' : 'Stopped',
@@ -90,6 +91,7 @@ function BrowserPlayGlyph() {
 
 export function resourceStatusLabel(resource: BrowserResource, copy: BrowserCopy) {
   if (resource.status === 'running') return resource.url.replace(/^https?:\/\//, '') || 'about:blank'
+  if (resource.status === 'reconnecting') return copy.reconnecting
   // Failures stay actionable in the Browser view; in the Agent sidebar they
   // are only a noisy transport detail, so present them as a neutral stopped tab.
   if (resource.status === 'failed') return copy.stopped
@@ -114,6 +116,7 @@ function BrowserRow({
   const [renaming, setRenaming] = useState(false)
   const [name, setName] = useState(resource.name)
   const busy = resource.status === 'starting' || resource.status === 'stopping'
+  const activeRuntime = resource.status === 'running' || resource.status === 'reconnecting'
   const submitRename = async () => {
     const next = name.trim()
     setRenaming(false)
@@ -128,7 +131,7 @@ function BrowserRow({
   }
   return (
     <div
-      className={`farming-browser-row code-sidebar-resource-row ${active ? 'active' : ''} ${resource.status === 'running' ? 'running' : ''}`}
+      className={`farming-browser-row code-sidebar-resource-row ${active ? 'active' : ''} ${activeRuntime ? 'running' : ''}`}
       data-testid="farming-browser-row"
       data-browser-id={resource.id}
       role="button"
@@ -182,15 +185,15 @@ function BrowserRow({
         <button
           type="button"
           disabled={busy}
-          title={resource.status === 'running' ? copy.stopBrowser : copy.startBrowser}
-          aria-label={resource.status === 'running' ? copy.stopBrowser : copy.startBrowser}
+          title={activeRuntime ? copy.stopBrowser : copy.startBrowser}
+          aria-label={activeRuntime ? copy.stopBrowser : copy.startBrowser}
           onClick={event => {
             event.stopPropagation()
-            const operation = resource.status === 'running' ? controller.stop(resource.id) : controller.start(resource.id)
+            const operation = activeRuntime ? controller.stop(resource.id) : controller.start(resource.id)
             void operation.catch(error => window.alert(error instanceof Error ? error.message : copy.transitionFailed))
           }}
         >
-          {resource.status === 'running' ? <SquareGlyph /> : <BrowserPlayGlyph />}
+          {activeRuntime ? <SquareGlyph /> : <BrowserPlayGlyph />}
         </button>
         <button
           type="button"

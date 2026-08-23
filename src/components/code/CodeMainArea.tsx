@@ -714,7 +714,7 @@ export function CodeMainArea({
   const acpComposerActive = isAcpRuntime(activeAgent)
   const activeBrowserPreviews = activeAgent
     ? (browserController.byAgentId.get(activeAgent.id) ?? [])
-      .filter(resource => resource.status === 'running')
+      .filter(resource => resource.status === 'running' || resource.status === 'reconnecting')
       .filter(resource => resource.id !== activeBrowserResource?.id)
       .filter(resource => !dismissedBrowserPreviewKeys.has(`${resource.id}:${resource.generation}`))
       .sort((left, right) => left.updatedAt - right.updatedAt)

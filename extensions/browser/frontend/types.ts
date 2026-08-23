@@ -1,4 +1,4 @@
-export type BrowserResourceStatus = 'failed' | 'running' | 'starting' | 'stopped' | 'stopping'
+export type BrowserResourceStatus = 'failed' | 'reconnecting' | 'running' | 'starting' | 'stopped' | 'stopping'
 
 export interface BrowserResource {
   id: string

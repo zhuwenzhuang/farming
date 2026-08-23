@@ -14,11 +14,12 @@ const STATUSES = new Set<BrowserResourceStatus>([
   'stopped',
   'starting',
   'running',
+  'reconnecting',
   'stopping',
   'failed',
 ]);
 
-type BrowserResourceStatus = 'stopped' | 'starting' | 'running' | 'stopping' | 'failed';
+type BrowserResourceStatus = 'stopped' | 'starting' | 'running' | 'reconnecting' | 'stopping' | 'failed';
 interface BrowserProcessIdentity {
   configInstanceFingerprint?: string;
   format: string;

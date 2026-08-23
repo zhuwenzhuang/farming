@@ -197,6 +197,18 @@ fails. Only a single-binding isolated Session may then recover its exact recorde
 Farming-owned process; shared Sessions and borrowed Chrome tabs must not be
 killed as cleanup fallback.
 
+An established Browser Runtime stream owns a bounded connection transition:
+`running -> reconnecting -> running | failed`. A single transport interruption
+does not delete the Resource, but only the same Runtime Session and Resource
+generation may complete the reconnect. The fixed reconnect budget does not
+poll page content or origin health. Exhausting it is a terminal connection
+failure: Viewer input and streaming stop, Agent activity no longer presents the
+page as live, and the retained failed row remains available for exact cleanup or
+an explicit new generation. Agent replacement, stop, delete, Server recovery,
+and stale Runtime callbacks fence this transition by exact owner, Session, and
+generation. Hiding an activity preview is browser-local presentation state and
+does not change Resource lifecycle or connection state.
+
 ## Files And Language Server
 
 File viewers demonstrate the same model: different file types may use different

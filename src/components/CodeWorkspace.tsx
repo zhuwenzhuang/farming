@@ -5493,6 +5493,7 @@ export function CodeWorkspace({
             && (
               browser.status === 'starting'
               || browser.status === 'running'
+              || browser.status === 'reconnecting'
               || browser.status === 'stopping'
             )
           )).length

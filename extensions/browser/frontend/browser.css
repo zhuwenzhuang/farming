@@ -174,6 +174,11 @@
   box-shadow: 0 0 0 2px var(--code-success-soft);
 }
 
+.farming-browser-controller.reconnecting > span {
+  background: var(--code-warning);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--code-warning) 18%, transparent);
+}
+
 .farming-browser-controller strong {
   min-width: 0;
   overflow: hidden;
@@ -358,6 +363,11 @@
   border-radius: 50%;
   background: var(--code-success);
   box-shadow: 0 0 0 2px var(--code-success-soft);
+}
+
+.farming-browser-activity-dot.reconnecting {
+  background: var(--code-warning);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--code-warning) 18%, transparent);
 }
 
 .farming-browser-activity-frame {

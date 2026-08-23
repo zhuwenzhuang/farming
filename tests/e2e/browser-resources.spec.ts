@@ -189,12 +189,16 @@ async function openAgentBrowserSection(page: Page, agentId: string) {
 
 async function runBrowserCli(args: string[]) {
   const port = Number(process.env.FARMING_PLAYWRIGHT_PORT || 4173)
+  const env = { ...process.env }
+  delete env.FARMING_AGENT_ID
+  delete env.FARMING_CONTROL_URL
+  delete env.FARMING_PROJECT_WORKSPACE
   return execFileAsync(process.execPath, [
     path.resolve('extensions/browser/bin/farming-browser'),
     ...args,
   ], {
     env: {
-      ...process.env,
+      ...env,
       FARMING_BROWSER_URL: `http://127.0.0.1:${port}/farming`,
     },
   })
@@ -626,6 +630,109 @@ test('folds active-Agent Browser previews into the shared activity dock and open
     .toBe('running')
   expect(resourcesSnapshot.resources.find(resource => resource.id === secondBrowserId)?.status)
     .toBe('running')
+})
+
+test('removes terminated Browser activity without confusing owner, reconnect, or hide state', async ({
+  page,
+  workspaceRoot,
+}, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const workspace = path.join(workspaceRoot, 'browser-activity-lifecycle')
+  fs.mkdirSync(workspace, { recursive: true })
+  const enableResponse = await page.request.post('/farming/api/settings', {
+    data: { browserExtensionEnabled: true },
+  })
+  expect(enableResponse.ok()).toBeTruthy()
+  await openFarming(page)
+
+  const createAgent = async () => {
+    const response = await page.request.post('/farming/api/control/agents', {
+      data: { command: 'bash', workspace },
+    })
+    const result = await response.json() as { agentId?: string, error?: string }
+    expect(response.ok(), result.error || 'Failed to create Browser lifecycle Agent').toBeTruthy()
+    return result.agentId as string
+  }
+  const ownerAgentId = await createAgent()
+  const otherAgentId = await createAgent()
+  const ownerRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${ownerAgentId}"]`)
+  const otherRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${otherAgentId}"]`)
+  await expect(ownerRow).toBeVisible({ timeout: 30_000 })
+  await ownerRow.click()
+
+  const createResponse = await page.request.post('/farming/api/browsers', {
+    data: {
+      rootId: projectFilesWorkspaceId(workspace),
+      agentId: ownerAgentId,
+      name: 'Lifecycle fixture',
+      url: targetUrl,
+    },
+  })
+  expect(createResponse.ok()).toBeTruthy()
+  const resource = await createResponse.json() as { id: string }
+  const startResponse = await page.request.post(`/farming/api/browsers/${resource.id}/start`)
+  expect(startResponse.ok()).toBeTruthy()
+
+  const activityCard = page.locator(
+    `[data-testid="farming-browser-activity-preview-card"][data-browser-resource-id="${resource.id}"]`,
+  )
+  await expect(activityCard).toBeVisible({ timeout: 30_000 })
+  await activityCard.locator('.farming-browser-activity-title').click()
+  await expect(activityCard.locator('img')).toBeVisible({ timeout: 30_000 })
+  const appearedScreenshot = testInfo.outputPath('browser-resource-appeared.png')
+  await page.getByTestId('code-main').screenshot({ path: appearedScreenshot })
+  await testInfo.attach('browser-resource-appeared', {
+    path: appearedScreenshot,
+    contentType: 'image/png',
+  })
+
+  await otherRow.click()
+  await expect(activityCard).toHaveCount(0)
+  await ownerRow.click()
+  await expect(activityCard).toBeVisible()
+
+  const resourcesToggle = ownerRow.getByTestId('code-agent-resources-toggle')
+  if (await resourcesToggle.getAttribute('aria-expanded') !== 'true') await resourcesToggle.click()
+  const browserRow = page.locator(
+    `[data-testid="farming-browser-row"][data-browser-id="${resource.id}"]`,
+  )
+  await expect(browserRow).toBeVisible()
+  await browserRow.click()
+  const viewer = page.getByTestId('farming-browser-viewer')
+  await expect(viewer).toBeVisible()
+
+  const stopResponse = await page.request.post(`/farming/api/browsers/${resource.id}/stop`)
+  expect(stopResponse.ok()).toBeTruthy()
+  await expect(viewer.getByText('Tab stopped', { exact: true })).toBeVisible({ timeout: 15_000 })
+  const terminatedScreenshot = testInfo.outputPath('browser-resource-terminated.png')
+  await page.getByTestId('code-main').screenshot({ path: terminatedScreenshot })
+  await testInfo.attach('browser-resource-terminated', {
+    path: terminatedScreenshot,
+    contentType: 'image/png',
+  })
+  const repeatedStop = await page.request.post(`/farming/api/browsers/${resource.id}/stop`)
+  expect(repeatedStop.ok()).toBeTruthy()
+
+  await viewer.getByRole('button', { name: 'Back to Agent' }).click()
+  await expect(activityCard).toHaveCount(0)
+  await page.reload()
+  await expect(ownerRow).toBeVisible({ timeout: 30_000 })
+  await ownerRow.click()
+  await expect(activityCard).toHaveCount(0)
+
+  const restartResponse = await page.request.post(`/farming/api/browsers/${resource.id}/start`)
+  expect(restartResponse.ok()).toBeTruthy()
+  await expect(activityCard).toBeVisible({ timeout: 30_000 })
+  const archiveResponse = await page.request.patch(`/farming/api/agents/${ownerAgentId}`, {
+    data: { archived: true },
+  })
+  expect(archiveResponse.ok()).toBeTruthy()
+  await expect(activityCard).toHaveCount(0)
+  await expect.poll(async () => {
+    const response = await page.request.get('/farming/api/browsers')
+    const snapshot = await response.json() as { resources: Array<{ id: string }> }
+    return snapshot.resources.some(candidate => candidate.id === resource.id)
+  }, { timeout: 30_000 }).toBe(false)
 })
 
 test('deletes a Browser directly without a confirmation dialog', async ({

@@ -44,7 +44,7 @@ const BROWSER_RECOVERY_POLL_MS = 100;
 const MAX_UPLOAD_FILES = 20;
 const INACTIVE_AGENT_STATUSES = new Set(['dead', 'error', 'exited', 'stopped']);
 
-type BrowserResourceStatus = 'stopped' | 'starting' | 'running' | 'stopping' | 'failed';
+type BrowserResourceStatus = 'stopped' | 'starting' | 'running' | 'reconnecting' | 'stopping' | 'failed';
 type BrowserResourceOwnerType = 'agent' | 'project';
 type BrowserTab = {
   active?: boolean;
@@ -531,7 +531,7 @@ class BrowserResourceManager extends EventEmitter {
     await this.migrateLegacyProjectResources();
     const interrupted = this.store.list().filter(resource =>
       Boolean(resource.processIdentity)
-      || ['running', 'starting', 'stopping'].includes(resource.status)
+      || ['running', 'reconnecting', 'starting', 'stopping'].includes(resource.status)
     );
     const groups = new Map<string, BrowserResource[]>();
     for (const resource of interrupted) {
@@ -561,7 +561,9 @@ class BrowserResourceManager extends EventEmitter {
     }
     for (const resources of groups.values()) {
       const interrupted = resources.find(resource => resource.processIdentity)
-        || resources.find(resource => ['running', 'starting', 'stopping'].includes(resource.status));
+        || resources.find(resource => (
+          ['running', 'reconnecting', 'starting', 'stopping'].includes(resource.status)
+        ));
       if (interrupted) {
         const cleanup = await this.cleanupInterruptedRuntime(interrupted);
         if (!cleanup.cleaned) {
@@ -2368,6 +2370,44 @@ class BrowserResourceManager extends EventEmitter {
         }
       }
     });
+    runtime.on('disconnected', (message: string) => {
+      if (this.sessions.get(session.id) !== session || session.closing) return;
+      for (const binding of session.bindings.values()) {
+        const current = this.store.get(binding.id);
+        if (
+          !current
+          || current.status !== 'running'
+          || current.generation !== binding.generation
+          || current.sessionId !== session.id
+          || current.sessionGeneration !== session.generation
+        ) continue;
+        const reconnecting = this.store.update(binding.id, {
+          status: 'reconnecting',
+          error: message || 'Browser connection interrupted; reconnecting',
+        });
+        this.emitResource(reconnecting);
+        this.broadcastRuntimeState(binding);
+      }
+    });
+    runtime.on('connected', () => {
+      if (this.sessions.get(session.id) !== session || session.closing) return;
+      for (const binding of session.bindings.values()) {
+        const current = this.store.get(binding.id);
+        if (
+          !current
+          || current.status !== 'reconnecting'
+          || current.generation !== binding.generation
+          || current.sessionId !== session.id
+          || current.sessionGeneration !== session.generation
+        ) continue;
+        const running = this.store.update(binding.id, {
+          status: 'running',
+          error: '',
+        });
+        this.emitResource(running);
+        this.broadcastRuntimeState(binding);
+      }
+    });
     runtime.once('exit', (message: string) => {
       void this.handleRuntimeExit(session, message);
     });
@@ -2509,7 +2549,7 @@ class BrowserResourceManager extends EventEmitter {
   }
 
   async handleRuntimeExit(session: BrowserSession, message: string): Promise<void> {
-    if (this.sessions.get(session.id) !== session) return;
+    if (this.sessions.get(session.id) !== session || session.closing) return;
     const failedBindings = [...session.bindings.values()];
     for (const binding of failedBindings) {
       const current = this.store.get(binding.id);

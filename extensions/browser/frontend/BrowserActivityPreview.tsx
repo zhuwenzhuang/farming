@@ -14,6 +14,7 @@ function previewCopy(language: UiPreferences['language']) {
   return {
     close: zh ? '隐藏浏览器预览' : 'Hide browser preview',
     open: zh ? '打开完整浏览器' : 'Open full browser',
+    reconnecting: zh ? '正在重新连接浏览器…' : 'Reconnecting to browser…',
     waiting: zh ? '正在连接浏览器画面…' : 'Connecting to browser…',
   }
 }
@@ -116,7 +117,10 @@ function BrowserActivityPreviewCard({
       aria-label={title}
     >
       <header>
-        <span className="farming-browser-activity-dot" aria-hidden="true" />
+        <span
+          className={`farming-browser-activity-dot ${resource.status === 'reconnecting' ? 'reconnecting' : ''}`.trim()}
+          aria-hidden="true"
+        />
         <button
           type="button"
           className="farming-browser-activity-title"
@@ -144,7 +148,9 @@ function BrowserActivityPreviewCard({
           title={copy.open}
           onClick={onOpen}
         >
-          {frame ? <img src={frame} alt="" draggable={false} /> : <span>{copy.waiting}</span>}
+          {frame ? <img src={frame} alt="" draggable={false} /> : (
+            <span>{resource.status === 'reconnecting' ? copy.reconnecting : copy.waiting}</span>
+          )}
         </button>
       ) : null}
     </aside>
