@@ -1672,6 +1672,7 @@ async function run() {
   }
 
   const fixture = path.join(__dirname, 'fixtures', 'fake-acp-agent.mts');
+  const testProviderHomesRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'farming-acp-runtime-homes-'));
   const spawnedAdapters = [];
   const runtime = new AcpRuntime({
     spawn(command, args, options) {
@@ -1682,6 +1683,15 @@ async function run() {
     resolveLaunch() {
       return { command: process.execPath, args: ['--import', require.resolve('tsx'), fixture], version: 'test' };
     },
+  });
+  const prepareRuntimeAgent = runtime.prepareAgent.bind(runtime);
+  let testProviderHomeSequence = 0;
+  runtime.prepareAgent = options => prepareRuntimeAgent({
+    ...options,
+    providerHomePath: options.providerHomePath || path.join(
+      testProviderHomesRoot,
+      `${options.agentId}-${testProviderHomeSequence += 1}`,
+    ),
   });
   try {
     const emittedSessions = [];
@@ -1879,7 +1889,7 @@ async function run() {
     const identity = await runtime.createSessionIdentity({
       provider: 'opencode',
       cwd: process.cwd(),
-      env: process.env,
+      env: {},
       approvalMode: 'full',
     });
     assert.strictEqual(identity.sessionId, 'acp-new-session');
@@ -1925,7 +1935,7 @@ async function run() {
       cleanupFailureRuntime.createSessionIdentity({
         provider: 'opencode',
         cwd: process.cwd(),
-        env: process.env,
+        env: {},
         approvalMode: 'full',
       }),
       error => {
@@ -2010,9 +2020,18 @@ async function run() {
       error => ({ value: null, error }),
     );
     for (let attempt = 0; attempt < 100; attempt += 1) {
-      if (runtime.bindings.get('agent-acp-close-during-prompt').activeTurn?.phase === 'running') break;
+      const promptRegistered = runtime.getSession('agent-acp-close-during-prompt').entries.some(entry => (
+        entry.content?.some(content => content.text === 'Mobile interrupt waiting.')
+      ));
+      if (promptRegistered) break;
       await new Promise(resolve => setTimeout(resolve, 10));
     }
+    assert(
+      runtime.getSession('agent-acp-close-during-prompt').entries.some(entry => (
+        entry.content?.some(content => content.text === 'Mobile interrupt waiting.')
+      )),
+      'the fake Provider must register the active prompt before cancellation semantics are tested',
+    );
     await assert.rejects(
       runtime.closeSession('agent-acp-close-during-prompt'),
       /not ready/,
@@ -2189,11 +2208,22 @@ async function run() {
       true,
     );
 
+    const revisionBeforeFailedDeferredPrompt = runtime.getSession(
+      'agent-acp-close-during-prompt',
+    ).revision;
     const failedDeferredPrompt = runtime.prompt('agent-acp-close-during-prompt', 'mobile interrupt');
     for (let attempt = 0; attempt < 100; attempt += 1) {
-      if (closeDuringPromptBinding.activeTurn?.phase === 'running') break;
+      if (
+        runtime.getSession('agent-acp-close-during-prompt').revision
+        > revisionBeforeFailedDeferredPrompt
+      ) break;
       await new Promise(resolve => setTimeout(resolve, 10));
     }
+    assert(
+      runtime.getSession('agent-acp-close-during-prompt').revision
+        > revisionBeforeFailedDeferredPrompt,
+      'the fake Provider must register the replacement active prompt before cancellation',
+    );
     let rejectFailedDeferredConfig;
     let releaseRetriedDeferredConfig;
     let failedDeferredConfigCalls = 0;
@@ -3412,6 +3442,7 @@ async function run() {
     assert.strictEqual(runtime.getSession('agent-acp-reconnect-before-exit-event').state, 'idle');
   } finally {
     await runtime.dispose();
+    fs.rmSync(testProviderHomesRoot, { recursive: true, force: true });
   }
 
   if (process.platform !== 'win32') {

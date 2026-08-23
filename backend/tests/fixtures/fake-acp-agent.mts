@@ -599,6 +599,11 @@ class FakeAgent implements Agent {
       return { stopReason: 'end_turn' };
     }
     if (promptText.includes('mobile interrupt')) {
+      let releaseCancellation: () => void = () => {};
+      const cancellation = new Promise<void>(resolve => {
+        releaseCancellation = resolve;
+      });
+      cancelledSessions.set(params.sessionId, releaseCancellation);
       await client.sessionUpdate({
         sessionId: params.sessionId,
         update: {
@@ -607,7 +612,7 @@ class FakeAgent implements Agent {
           content: { type: 'text', text: 'Mobile interrupt waiting.' },
         },
       });
-      await new Promise<void>(resolve => cancelledSessions.set(params.sessionId, resolve));
+      await cancellation;
       cancelledSessions.delete(params.sessionId);
       await client.sessionUpdate({
         sessionId: params.sessionId,
