@@ -5,7 +5,10 @@ const path = require('path');
 
 const { AgentManager } = require('../agent-manager.cjs');
 const { AcpRuntime } = require('../acp-runtime.cjs');
-const { resolveFarmingOwnedExecutable } = require('../executable-discovery.cjs');
+const {
+  getFarmingOwnedExecutableCandidates,
+  resolveFarmingOwnedExecutable,
+} = require('../executable-discovery.cjs');
 const {
   activeLifecycleOperation,
   beginLifecycleOperation,
@@ -16,7 +19,9 @@ const {
 const { FarmingSessionStore } = require('../farming-session-store.cjs');
 const { canonicalProviderSessionKey } = require('../../shared/provider-session-identity.js');
 
-const PERSISTED_CLAUDE_EXECUTABLE = resolveFarmingOwnedExecutable('claude');
+const PERSISTED_CLAUDE_EXECUTABLE = resolveFarmingOwnedExecutable('claude', {
+  farmingCandidates: getFarmingOwnedExecutableCandidates('claude', {}),
+});
 assert(path.isAbsolute(PERSISTED_CLAUDE_EXECUTABLE));
 
 function configForStore(store, workspace, ensureAgentSessionRecord?) {

@@ -4,7 +4,10 @@ const os = require('os');
 const path = require('path');
 const { AgentManager } = require('../agent-manager.cjs');
 const { AcpRuntime } = require('../acp-runtime.cjs');
-const { resolveFarmingOwnedExecutable } = require('../executable-discovery.cjs');
+const {
+  getFarmingOwnedExecutableCandidates,
+  resolveFarmingOwnedExecutable,
+} = require('../executable-discovery.cjs');
 const {
   ensureFarmingAgentBootstrapFile,
   renderFarmingAgentBootstrap,
@@ -43,7 +46,9 @@ async function run() {
   delete process.env.CODEX_CONFIG;
   const farmingSystemPrompt = renderFarmingAgentBootstrap();
   const fixture = path.join(__dirname, 'fixtures', 'fake-acp-agent.mts');
-  const persistedCodexExecutable = resolveFarmingOwnedExecutable('codex');
+  const persistedCodexExecutable = resolveFarmingOwnedExecutable('codex', {
+    farmingCandidates: getFarmingOwnedExecutableCandidates('codex', {}),
+  });
   assert(path.isAbsolute(persistedCodexExecutable), 'Codex recovery fixture requires a Farming-owned executable');
   const runtime = new AcpRuntime({
     ...TEST_PROCESS_IDENTITY,
