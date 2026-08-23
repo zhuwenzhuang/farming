@@ -76,11 +76,13 @@ async function waitFor<T>(
 }
 
 function startServerProcess(options: { capabilityEnvFile: string; configDir: string; port: number }) {
+  const inheritedEnvironment = { ...process.env };
+  delete inheritedEnvironment.FARMING_FORCE_ACP_HOST_RESTART;
   const child = spawn(process.execPath, ['backend/farming-app-cli.cjs'], {
     cwd: projectRoot,
     stdio: ['ignore', 'pipe', 'pipe'],
     env: {
-      ...process.env,
+      ...inheritedEnvironment,
       PORT: String(options.port),
       FARMING_BASE_PATH: '/farming',
       FARMING_CONFIG_DIR: options.configDir,
