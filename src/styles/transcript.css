@@ -517,6 +517,13 @@
   color: var(--code-text-subtle);
 }
 
+.code-agent-transcript-missing-final-reply {
+  margin-top: 7px;
+  color: var(--code-text-subtle);
+  font-size: 12px;
+  line-height: 18px;
+}
+
 .code-agent-transcript-live-activity {
   --code-agent-transcript-live-activity-text: var(--code-text-subtle);
   --code-agent-transcript-live-activity-highlight: var(--code-text-muted);

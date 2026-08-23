@@ -295,6 +295,9 @@ Chat 展示有序对话、当前 Turn 的一条紧凑 Live Activity，以及可�
 Reasoning 与 Tool Detail 不应在默认阅读面上形成重叠摘要。Disclosure Control 保留稳定布局
 槽位，只在 Hover 或 Keyboard Focus 时视觉浮现。中间 Tool 失败保留在所属 Action Group
 内，但不替换该 Group 的行为摘要；权威 Turn 与 Runtime Failure 继续在更高层级显式展示。
+当非 Active Turn 已有结构化执行过程证据，但既没有最终 Assistant Result、也没有更强的显式
+Interrupted 状态时，其执行过程末尾显示一行“本轮执行未产生最终回复”的轻量提示。该状态完全由
+Transcript 投影并可在刷新后重建，不增加恢复操作或独立通知界面。
 
 文件提交后，历史 Patch Card 仍保留其结构化 Diff 证据。只有该 Card 中至少一个路径仍存在
 当前 Staged、Unstaged 或 Untracked Git 改动时才显示 Commit Follow-up；无关的 Working Copy

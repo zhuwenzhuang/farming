@@ -34,6 +34,7 @@ export interface CodeCopy {
   agentTranscriptUnavailable: string
   agentTranscriptEmpty: string
   agentTranscriptWaiting: string
+  agentTranscriptMissingFinalReply: string
   agentTranscriptProcess: string
   agentTranscriptWorking: string
   agentTranscriptThinking: string
@@ -604,6 +605,7 @@ const EN_COPY: CodeCopy = {
   agentTranscriptUnavailable: 'This session’s Chat history could not be loaded.',
   agentTranscriptEmpty: 'No conversation yet.',
   agentTranscriptWaiting: 'Agent is still working...',
+  agentTranscriptMissingFinalReply: 'This turn did not produce a final reply',
   agentTranscriptProcess: 'Process',
   agentTranscriptWorking: 'Processing',
   agentTranscriptThinking: 'Thinking',
@@ -1207,6 +1209,7 @@ const ZH_COPY: CodeCopy = {
   agentTranscriptUnavailable: '无法加载此会话的 Chat 历史。',
   agentTranscriptEmpty: '还没有对话。',
   agentTranscriptWaiting: 'Agent 仍在工作...',
+  agentTranscriptMissingFinalReply: '本轮执行未产生最终回复',
   agentTranscriptProcess: '执行过程',
   agentTranscriptWorking: '处理中',
   agentTranscriptThinking: '思考中',

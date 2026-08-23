@@ -14,6 +14,9 @@ function response(options: {
   settled?: boolean
   empty?: boolean
   hasMoreBefore?: boolean
+  state?: string
+  stopReason?: string
+  entries?: unknown[]
   label: string
 }) {
   const agentId = options.agentId || 'agent-a'
@@ -30,9 +33,10 @@ function response(options: {
     hasMoreBefore: options.hasMoreBefore ?? false,
     transcript: {
       sessionId: 'session-a',
-      state: 'idle',
+      state: options.state || 'idle',
+      stopReason: options.stopReason || '',
       revision: options.toRevision,
-      entries: options.empty ? [] : [
+      entries: options.entries ?? (options.empty ? [] : [
         {
           id: `${options.label}-user`,
           type: 'message',
@@ -46,7 +50,7 @@ function response(options: {
           _meta: { codex: { phase: 'final_answer' } },
           content: [{ type: 'text', text: `${options.label} answer` }],
         },
-      ],
+      ]),
     },
   }
 }
@@ -146,4 +150,41 @@ test('rejects stale epochs and wrong-Agent transcript responses', () => {
   assert.equal(rejected.accepted, false)
   assert.equal(rejected.needsCheckpoint, true)
   assert.equal(rejected.transcript?.runtimeEpoch, 'epoch-a')
+})
+
+test('rebuilds the missing-final-reply status from a refreshed transcript projection', () => {
+  const processOnlyEntries = [
+    {
+      id: 'refresh-user',
+      type: 'message',
+      role: 'user',
+      content: [{ type: 'text', text: 'Inspect recovery' }],
+    },
+    {
+      id: 'refresh-tool',
+      type: 'tool',
+      title: 'Inspect runtime',
+      kind: 'execute',
+      status: 'completed',
+    },
+  ]
+  const interrupted = projectAcpTranscriptResponse(response({
+    toRevision: 20,
+    replace: true,
+    stopReason: 'error',
+    entries: processOnlyEntries,
+    label: 'refresh',
+  }), 'agent-a')
+  assert.equal(interrupted.turns[0]?.status, 'interrupted')
+
+  const recovered = projectAcpTranscriptResponse(response({
+    toRevision: 21,
+    replace: true,
+    entries: processOnlyEntries,
+    label: 'refresh',
+  }), 'agent-a')
+  const refreshed = mergeAcpTranscript(interrupted, recovered)
+
+  assert.equal(refreshed.accepted, true)
+  assert.equal(refreshed.transcript?.turns[0]?.status, 'missingFinalReply')
 })

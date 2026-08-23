@@ -20,6 +20,7 @@ function completedTranscriptTurnUnchanged(
   const nextLastItem = next.processItems[next.processItems.length - 1]
   return current.status !== 'inProgress'
     && next.status !== 'inProgress'
+    && current.status === next.status
     && current.userMessage === next.userMessage
     && current.finalMessage === next.finalMessage
     && current.startedAt === next.startedAt

@@ -114,7 +114,7 @@ export interface AgentTranscriptTurn {
   startedAt: number | null
   completedAt: number | null
   durationMs: number | null
-  status: 'inProgress' | 'completed' | 'interrupted' | string
+  status: 'inProgress' | 'completed' | 'interrupted' | 'missingFinalReply' | string
   processItems: AgentTranscriptProcessItem[]
 }
 
@@ -680,6 +680,15 @@ function emptyTurn(id: string, internal: boolean): MutableTurn {
   }
 }
 
+function hasFinalAssistantResult(turn: AgentTranscriptTurn) {
+  return Boolean(
+    turn.finalMessage.trim()
+    || turn.resultImages?.length
+    || turn.resultAudios?.length
+    || turn.resultFiles?.length,
+  )
+}
+
 function finishTurn(turn: MutableTurn | null, keepTailAsProgress: boolean): AgentTranscriptTurn | null {
   if (!turn) return null
   const lastAssistant = turn.assistantMessages[turn.assistantMessages.length - 1]
@@ -699,6 +708,11 @@ function finishTurn(turn: MutableTurn | null, keepTailAsProgress: boolean): Agen
     && (lastProcess.images || []).length === 0 && (lastProcess.audios || []).length === 0 && (lastProcess.files || []).length === 0) {
     turn.finalMessage = lastAssistant.text
     turn.processItems.pop()
+  }
+  if (hasFinalAssistantResult(turn)) {
+    turn.status = 'completed'
+  } else if (turn.processItems.length > 0) {
+    turn.status = 'missingFinalReply'
   }
   const { internal, assistantMessages: _assistantMessages, ...finished } = turn
   if (internal) finished.processItems = []
@@ -826,6 +840,8 @@ export function projectAcpTranscript(sessionValue: unknown, options: { maxTurns?
   const lastTurn: AgentTranscriptTurn | undefined = turns[turns.length - 1]
   if (lastTurn && activeSession) {
     lastTurn.status = 'inProgress'
+  } else if (lastTurn && hasFinalAssistantResult(lastTurn)) {
+    lastTurn.status = 'completed'
   } else if (lastTurn && ['cancelled', 'canceled', 'max_tokens', 'max_turn_requests', 'refusal', 'error', 'cancel_error']
     .includes(stringValue(session.stopReason).toLowerCase())) {
     lastTurn.status = 'interrupted'

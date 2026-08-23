@@ -576,7 +576,11 @@ assert.strictEqual(limitedTranscript.title, 'Limited run');
 assert.strictEqual(limitedTranscript.state, 'error');
 assert.strictEqual(limitedTranscript.error, 'Input exceeds the context window');
 assert.strictEqual(limitedTranscript.errorKind, 'context');
-assert.strictEqual(limitedTranscript.turns[0].status, 'interrupted');
+assert.strictEqual(
+  limitedTranscript.turns[0].status,
+  'completed',
+  'a projected final assistant result remains completed even when the runtime stop reason records a limit',
+);
 
 const authenticationErrorTranscript = acpSessionTranscript({
   state: 'error',

@@ -71,3 +71,89 @@ test('keeps mixed reasoning and tool evidence in original ACP order with useful 
     'thought-2',
   ])
 })
+
+test('projects a settled ACP turn with process evidence and no final reply as missing its final reply', () => {
+  const transcript = projectAcpTranscript({
+    sessionId: 'missing-final-reply-session',
+    state: 'idle',
+    stopReason: 'end_turn',
+    entries: [
+      {
+        id: 'user-1',
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'text', text: 'Run the checks' }],
+      },
+      {
+        id: 'thought-1',
+        type: 'thought',
+        content: [{ type: 'text', text: 'Inspecting the failure boundary.' }],
+      },
+      {
+        id: 'tool-1',
+        type: 'tool',
+        title: 'Run checks',
+        kind: 'execute',
+        status: 'completed',
+      },
+    ],
+  })
+
+  assert.equal(transcript.turns[0]?.status, 'missingFinalReply')
+  assert.equal(transcript.turns[0]?.finalMessage, '')
+})
+
+test('keeps an ACP turn completed when process evidence has a final assistant result', () => {
+  const transcript = projectAcpTranscript({
+    sessionId: 'completed-final-reply-session',
+    state: 'idle',
+    stopReason: 'error',
+    entries: [
+      {
+        id: 'user-1',
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'text', text: 'Run the checks' }],
+      },
+      {
+        id: 'tool-1',
+        type: 'tool',
+        title: 'Run checks',
+        kind: 'execute',
+        status: 'completed',
+      },
+      {
+        id: 'answer-1',
+        type: 'message',
+        role: 'assistant',
+        _meta: { codex: { phase: 'final_answer' } },
+        content: [{ type: 'text', text: 'Checks completed.' }],
+      },
+    ],
+  })
+
+  assert.equal(transcript.turns[0]?.status, 'completed')
+  assert.equal(transcript.turns[0]?.finalMessage, 'Checks completed.')
+})
+
+test('keeps an active ACP turn with process evidence in progress', () => {
+  const transcript = projectAcpTranscript({
+    sessionId: 'active-process-session',
+    state: 'working',
+    entries: [
+      {
+        id: 'user-1',
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'text', text: 'Run the checks' }],
+      },
+      {
+        id: 'thought-1',
+        type: 'thought',
+        content: [{ type: 'text', text: 'Still checking.' }],
+      },
+    ],
+  })
+
+  assert.equal(transcript.turns[0]?.status, 'inProgress')
+})

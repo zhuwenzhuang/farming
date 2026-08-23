@@ -321,9 +321,7 @@ function turnProcessLabel(
   planLabel = '',
 ) {
   const duration = durationLabel(turn.durationMs)
-  const errorItem = turn.status === 'interrupted'
-    ? turn.processItems.find(item => item.type === 'error')
-    : undefined
+  const errorItem = turn.processItems.find(item => item.type === 'error')
   if (errorItem?.title) return errorItem.title
   return duration
     ? copy.agentTranscriptWorkedFor(duration)
@@ -2954,6 +2952,14 @@ function AgentTranscriptTurnView({
               />
             ) : null}
             </>
+          ) : null}
+          {source === 'acp' && turn.status === 'missingFinalReply' ? (
+            <div
+              className="code-agent-transcript-missing-final-reply"
+              data-testid="code-agent-transcript-missing-final-reply"
+            >
+              {copy.agentTranscriptMissingFinalReply}
+            </div>
           ) : null}
         </div>
       ) : null}

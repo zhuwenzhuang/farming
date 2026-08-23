@@ -370,6 +370,100 @@ test.describe('ACP human-like browser matrix', () => {
       .toHaveCount(0)
   })
 
+  test('shows a lightweight missing-final-reply line rebuilt from the ACP transcript', async ({ page, workspaceRoot }, testInfo) => {
+    const workspace = path.join(workspaceRoot, 'acp-missing-final-reply')
+    fs.mkdirSync(workspace, { recursive: true })
+    const agentId = await createAcpAgent(page, workspace)
+    const settingsResponse = await page.request.post('/farming/api/settings', {
+      data: { appearance: 'light', language: 'zh' },
+    })
+    expect(settingsResponse.ok()).toBeTruthy()
+    const identityResponse = await page.request.get(
+      `/farming/api/agents/${encodeURIComponent(agentId)}/acp-transcript?maxTurns=5&media=external-v1`,
+    )
+    expect(identityResponse.ok()).toBeTruthy()
+    const identity = await identityResponse.json() as {
+      sessionId?: string
+      runtimeEpoch?: string
+      toRevision?: number
+    }
+    expect(identity.sessionId).toBeTruthy()
+    expect(identity.runtimeEpoch).toBeTruthy()
+    const fixtureRevision = Math.max(11, Number(identity.toRevision) || 0) + 1_000_000
+    await page.route(
+      new RegExp(`/farming/api/agents/${agentId}/acp-transcript(?:\\?.*)?$`),
+      route => route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          version: 1,
+          agentId,
+          sessionId: identity.sessionId,
+          runtimeEpoch: identity.runtimeEpoch,
+          fromRevision: null,
+          toRevision: fixtureRevision,
+          replace: true,
+          settled: true,
+          hasMoreBefore: false,
+          transcript: {
+            sessionId: identity.sessionId,
+            state: 'idle',
+            stopReason: '',
+            revision: fixtureRevision,
+            entries: [
+              {
+                id: 'missing-final-user',
+                type: 'message',
+                role: 'user',
+                content: [{ type: 'text', text: 'Verify the interrupted recovery' }],
+              },
+              {
+                id: 'missing-final-thought',
+                type: 'thought',
+                content: [{ type: 'text', text: 'Checking the recovered runtime state.' }],
+              },
+              {
+                id: 'missing-final-tool',
+                type: 'tool',
+                title: 'Inspect recovered process',
+                kind: 'execute',
+                status: 'completed',
+              },
+            ],
+          },
+        }),
+      }),
+    )
+
+    const assertMissingFinalReply = async () => {
+      const turn = page.locator('.code-agent-transcript-turn')
+        .filter({ hasText: 'Verify the interrupted recovery' })
+      const notice = turn.getByTestId('code-agent-transcript-missing-final-reply')
+      await expect(notice).toHaveText('本轮执行未产生最终回复')
+      await expect(turn).not.toHaveClass(/running/)
+      await expect(turn.locator('.code-agent-transcript-answer')).toHaveCount(0)
+      await expect(notice.locator('button')).toHaveCount(0)
+      await expect(notice).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+      await expect(notice).toHaveCSS('box-shadow', 'none')
+      expect(await notice.evaluate(element => (
+        element.parentElement?.classList.contains('code-agent-transcript-process') === true
+      ))).toBe(true)
+      return turn
+    }
+
+    await openFarming(page)
+    await agentRow(page, agentId).click()
+    await assertMissingFinalReply()
+
+    await page.reload()
+    await expect(agentRow(page, agentId)).toBeVisible()
+    await agentRow(page, agentId).click()
+    const refreshedTurn = await assertMissingFinalReply()
+    await refreshedTurn.screenshot({
+      path: testInfo.outputPath('missing-final-reply.png'),
+      animations: 'disabled',
+    })
+  })
+
   test('reconnects an exited ACP adapter without replaying the interrupted request', async ({ page, workspaceRoot }) => {
     const workspace = path.join(workspaceRoot, 'acp-adapter-reconnect')
     fs.mkdirSync(workspace, { recursive: true })

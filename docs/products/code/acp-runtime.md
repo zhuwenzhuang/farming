@@ -401,6 +401,11 @@ keep stable layout slots and become visually prominent on hover or keyboard
 focus. Intermediate Tool failures remain available within their action groups
 without replacing those groups' action-oriented summaries; authoritative Turn
 and Runtime failures remain visible at the higher level.
+When a non-active Turn has structured process evidence but neither a final
+assistant result nor a stronger explicit interrupted state, its process ends
+with one lightweight line stating that no final reply was produced. This state
+is projected from the transcript and survives reload; it adds no recovery
+action or separate notification surface.
 
 Historical patch cards retain their structured diff evidence after the files
 are committed. Their Commit follow-up is visible only while at least one path
