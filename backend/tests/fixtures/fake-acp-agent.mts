@@ -1688,7 +1688,7 @@ class FakeAgent implements Agent {
         sessionId: childSessionId,
         update: { sessionUpdate: 'user_message_chunk', messageId: 'input-child-user', content: { type: 'text', text: 'Confirm the child scope' } },
       });
-      const elicitation = await client.unstable_createElicitation({
+      const elicitation = await client.createElicitation({
         sessionId: childSessionId,
         mode: 'form',
         message: 'Confirm the subagent scope',
@@ -1846,7 +1846,7 @@ class FakeAgent implements Agent {
       });
       const exit = await terminal.waitForExit();
       const output = await terminal.currentOutput();
-      const elicitation = await client.unstable_createElicitation({
+      const elicitation = await client.createElicitation({
         sessionId: params.sessionId,
         mode: 'form',
         message: 'Confirm the protocol round trip',

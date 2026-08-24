@@ -72,8 +72,8 @@ interface AcpClientHandlers {
   waitForTerminalExit: AcpSingleRequestHandler;
   killTerminal: AcpSingleRequestHandler;
   releaseTerminal: AcpSingleRequestHandler;
-  unstable_createElicitation: AcpSingleRequestHandler;
-  unstable_completeElicitation: AcpSingleRequestHandler;
+  createElicitation: AcpSingleRequestHandler;
+  completeElicitation: AcpSingleRequestHandler;
 }
 type AcpSingleRequestHandlerName = Exclude<keyof AcpClientHandlers, 'extNotification'>;
 
@@ -322,7 +322,7 @@ const CODEX_ACP_VERSION = '1.6.2';
 const CODEX_ACP_SHA256 = '27cadc5e85faf92a471b2dfd93956250fb96d8e30ec909db7fdcf3160e0b8d74';
 const CLAUDE_ACP_PACKAGE = '@agentclientprotocol/claude-agent-acp';
 const CLAUDE_ACP_VERSION = '0.70.0';
-const CLAUDE_ACP_SHA256 = '07b9e40041685597281f0fc150c0543b5f3d14ab5189843596c6a6a504c71418';
+const CLAUDE_ACP_SHA256 = '64c6138b3dbf542a65cb35f801bb95fe6b8dc77ba29a1eb7cb60d5f8782f1ad3';
 const PI_ACP_PACKAGE = 'pi-acp';
 const PI_ACP_VERSION = '0.0.33';
 const PI_ACP_SHA256 = 'a750044ca2135463763d373c49744031aa1e9ff08f77011f1626156e3b4c8981';
@@ -2820,12 +2820,12 @@ class AcpRuntime extends EventEmitter {
       waitForTerminalExit: request('waitForTerminalExit'),
       killTerminal: request('killTerminal'),
       releaseTerminal: request('releaseTerminal'),
-      unstable_createElicitation: async (params: UnknownRecord) => {
-        const target = handler('unstable_createElicitation', params);
+      createElicitation: async (params: UnknownRecord) => {
+        const target = handler('createElicitation', params);
         return target ? target(params) : { action: 'cancel' };
       },
-      unstable_completeElicitation: (notification: UnknownRecord) => (
-        handler('unstable_completeElicitation', notification)?.(notification)
+      completeElicitation: (notification: UnknownRecord) => (
+        handler('completeElicitation', notification)?.(notification)
       ),
     };
   }
@@ -2928,8 +2928,8 @@ class AcpRuntime extends EventEmitter {
       waitForTerminalExit: openClientRequest((request: UnknownRecord) => this.clientTerminals.waitForExit(binding, request)),
       killTerminal: openClientRequest((request: UnknownRecord) => this.clientTerminals.kill(binding, request)),
       releaseTerminal: openClientRequest((request: UnknownRecord) => this.clientTerminals.release(binding, request)),
-      unstable_createElicitation: (request: UnknownRecord) => this.requestElicitation(binding, request),
-      unstable_completeElicitation: (notification: UnknownRecord) => this.completeElicitation(binding, notification),
+      createElicitation: (request: UnknownRecord) => this.requestElicitation(binding, request),
+      completeElicitation: (notification: UnknownRecord) => this.completeElicitation(binding, notification),
     };
   }
 

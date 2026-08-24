@@ -265,7 +265,7 @@ const path = require('path');
 const [packageRoot, codexVendorEntry, claudeVendorEntry, piVendorEntry] = process.argv.slice(2);
 const sha256 = filePath => crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
 const expectedCodexVendor = '27cadc5e85faf92a471b2dfd93956250fb96d8e30ec909db7fdcf3160e0b8d74';
-const expectedClaudeVendor = '07b9e40041685597281f0fc150c0543b5f3d14ab5189843596c6a6a504c71418';
+const expectedClaudeVendor = '64c6138b3dbf542a65cb35f801bb95fe6b8dc77ba29a1eb7cb60d5f8782f1ad3';
 const expectedPiVendor = 'a750044ca2135463763d373c49744031aa1e9ff08f77011f1626156e3b4c8981';
 if (sha256(codexVendorEntry) !== expectedCodexVendor) {
   throw new Error('Packed Codex ACP runtime failed its SHA-256 verification');
