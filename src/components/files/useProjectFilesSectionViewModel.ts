@@ -15,7 +15,6 @@ import type {
   FileSectionBodyTree,
 } from './FileSectionBody'
 import type { FileSectionHeaderSearch } from './FileSectionHeader'
-import type { FileStickyContextItem } from './useWorkspaceFileStickyContext'
 import type { WorkspaceFileSearchState } from './useWorkspaceFileSearch'
 import type { Tree, TreeApi } from 'react-arborist'
 
@@ -51,7 +50,6 @@ interface UseProjectFilesSectionViewModelOptions {
   rootDirectoryLoading: boolean
   rowHeight: number
   readOnly?: boolean
-  stickyContextItems: FileStickyContextItem[]
   treeData: WorkspaceFileTreeNode[]
   treeHeight: number
   treeRef: MutableRefObject<TreeApi<WorkspaceFileTreeNode> | undefined>
@@ -65,7 +63,6 @@ interface UseProjectFilesSectionViewModelOptions {
   onCopyFileMenuPath: () => void
   onCopyFileMenuShareUrl: () => void
   onFocusFileTreeTarget: (item: WorkspaceFileTreeNode | null) => void
-  onFocusStickyDirectory: (node: WorkspaceFileTreeNode) => void
   onOpenFileContextMenu: (x: number, y: number, item: WorkspaceFileTreeNode | null) => void
   onOpenFileJumpQuery: (query: string) => void
   onOpenFilePath: (filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void>
@@ -120,7 +117,6 @@ export function useProjectFilesSectionViewModel({
   rootDirectoryLoading,
   rowHeight,
   readOnly = false,
-  stickyContextItems,
   treeData,
   treeHeight,
   treeRef,
@@ -134,7 +130,6 @@ export function useProjectFilesSectionViewModel({
   onCopyFileMenuPath,
   onCopyFileMenuShareUrl,
   onFocusFileTreeTarget,
-  onFocusStickyDirectory,
   onOpenFileContextMenu,
   onOpenFileJumpQuery,
   onOpenFilePath,
@@ -226,7 +221,6 @@ export function useProjectFilesSectionViewModel({
     openFilePendingPath,
     renderFileTreeRow,
     rowHeight,
-    stickyContextItems,
     treeData,
     treeHeight,
     treeRef,
@@ -235,7 +229,6 @@ export function useProjectFilesSectionViewModel({
     onCancelPendingFileFocus,
     onCloseFileOperation,
     onFocusFileTreeTarget,
-    onFocusStickyDirectory,
     onOpenFileContextMenu,
     onOpenFilePath,
     onRememberFileOperationName,
@@ -259,7 +252,6 @@ export function useProjectFilesSectionViewModel({
     openFilePendingPath,
     renderFileTreeRow,
     rowHeight,
-    stickyContextItems,
     treeData,
     treeHeight,
     treeRef,
@@ -268,7 +260,6 @@ export function useProjectFilesSectionViewModel({
     onCancelPendingFileFocus,
     onCloseFileOperation,
     onFocusFileTreeTarget,
-    onFocusStickyDirectory,
     onOpenFileContextMenu,
     onOpenFilePath,
     onRememberFileOperationName,

@@ -36,7 +36,6 @@ import { useWorkspaceFileOperationController } from './useWorkspaceFileOperation
 import { useWorkspaceFileSearch } from './useWorkspaceFileSearch'
 import { useWorkspaceFileSearchController } from './useWorkspaceFileSearchController'
 import { useWorkspaceFileSectionController } from './useWorkspaceFileSectionController'
-import { useWorkspaceFileStickyContext } from './useWorkspaceFileStickyContext'
 import { useWorkspaceFileTreeController } from './useWorkspaceFileTreeController'
 import { useWorkspaceFileTreeKeyboard } from './useWorkspaceFileTreeKeyboard'
 
@@ -522,23 +521,6 @@ export function ProjectFilesSection({
   }, [activeFilePath, activeFileRevealInTree, directories, filesCollapsed, lastFocusedFilePathRef, revealFilePath])
 
   const {
-    focusStickyDirectory,
-    stickyContextItems,
-  } = useWorkspaceFileStickyContext({
-    filesCollapsed,
-    focusFileTreePath,
-    lastFocusedFilePathRef,
-    layoutKey: `${openEditorsCollapsed}:${openFiles.length}`,
-    openDirectoryPaths,
-    rowHeight: FILE_ROW_HEIGHT,
-    refreshTreeLayout,
-    resetKey: agentId,
-    treeData,
-    treeRef,
-    treeViewportRef,
-  })
-
-  const {
     activeOptionId: activeSearchOptionId,
     handleFileSearchKeyDown,
     openFileJumpQuery,
@@ -609,7 +591,6 @@ export function ProjectFilesSection({
     rootDirectoryLoading: Boolean(directories['']?.loading),
     rowHeight: FILE_ROW_HEIGHT,
     readOnly,
-    stickyContextItems,
     treeData,
     treeHeight,
     treeRef,
@@ -623,7 +604,6 @@ export function ProjectFilesSection({
     onCopyFileMenuPath: copyFileMenuPath,
     onCopyFileMenuShareUrl: copyFileMenuShareUrl,
     onFocusFileTreeTarget: focusFileTreeTarget,
-    onFocusStickyDirectory: focusStickyDirectory,
     onOpenFileContextMenu: openFileContextMenu,
     onOpenFileJumpQuery: openFileJumpQuery,
     onOpenFilePath: stableOpenFilePath,

@@ -132,7 +132,6 @@ test('promotes an external terminal file link to its nearest Git Project', async
       projectGroup.querySelector<HTMLElement>('.code-agents-section'),
       projectGroup.querySelector<HTMLElement>('[data-testid="code-open-editors"]'),
       filesSection.querySelector<HTMLElement>('.code-files-header'),
-      filesSection.querySelector<HTMLElement>('.code-file-sticky-stack'),
     ].reduce((top, sticky) => {
       if (!sticky) return top
       const rect = sticky.getBoundingClientRect()

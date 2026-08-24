@@ -24,13 +24,13 @@ Project
 ```
 
 Project Sidebar 只有一个外层 Scroll Surface。Files、Open Editors、Changes、History 与
-Directory Tree 不能创建互相竞争的 Project 级滚动条。深层目录可以显示紧凑 Ancestor Context，
-但不能改变滚动所有权。
+Directory Tree 不能创建互相竞争的 Project 级滚动条。深层目录路径可以滚出视口，但不能改变
+滚动所有权。
 
 当某个 Project 占据该 Scroll Surface 顶部时，它的 Project Row、Agent Rows、Open Editors 与
 Files Header 组成同一个分层 Sticky Summary；后一层 Offset 来自前面各层的实测高度。Project
 到达尾部边界后，所有可见层必须以相同 Scroll Delta 一起释放，后层不能先滑过并遮住 Project
-名称或 Branch。Directory Ancestor Context 始终位于这组 Summary Stack 下方。
+名称或 Branch。Directory Row 从这组 Summary Stack 下方滚过，不再增加随滚动联动的祖先摘要行。
 
 Project Agent 行采用渐进展示，避免大型 Agent 分组难以浏览。Project 初始显示 5 个 Agent，
 第一次“显示更多”最多再显示 5 个，之后每次最多再显示 10 个；“显示较少”恢复为初始 5 个。
@@ -160,26 +160,16 @@ Farming Instance 都是同一文件系统的独立客户端。
 - **Editor And Viewer**：拥有 Working Copy、Tab、Editor State、Conflict 与有界 Preview。
 
 即使有许多目录保持展开，Explorer 也只保留一个 Project Sidebar 滚动面。完整 Row Projection
-用于稳定 Sticky Path、Keyboard Navigation 与持久化 Expansion，但只挂载有界的 Viewport
+用于稳定 Keyboard Navigation 与持久化 Expansion，但只挂载有界的 Viewport
 邻域。外层 Project Scroller 拥有完整逻辑树高度；Virtual Tree Window 跟随该 Scroll Offset，
-不能引入第二个 Scrollbar。因此大型恢复树的成本由可见邻域而不是完整 Projection 决定。随滚动更新的
-Sticky Context 从该预计算 Projection 定位 Row，并且只检查有界的 Viewport Slice；单个滚动帧
-不得遍历完整展开树，也不得读取每个已挂载文件 Row 的布局。
-该 Projection 必须对自身输出无感：输入只能是逻辑 Row Projection、外层滚动几何和 Files Header
-边界。已渲染 Sticky DOM 几何及上一次 Sticky 状态绝不能回流到下一次显隐决策。
-Open Editors 展开状态和数量等权威前置布局变化必须在绘制前使该 Projection 失效；Sticky 输出
-自身的 Mutation 不能触发这一失效。
+不能引入第二个 Scrollbar。因此大型恢复树的成本由可见邻域而不是完整 Projection 决定。单个
+滚动帧不得遍历完整展开树，也不得读取每个已挂载文件 Row 的布局。
 
-单个粘性目录上下文是固定单行高度、显示紧凑路径的导航控件。只有首个未被遮挡的可见行存在
-已展开且滚过粘性边界的真实祖先时才展示；已折叠目录和前置同级目录永远不能成为粘性上下文。
-该控件用于在树中重新定位祖先，不显示展开箭头，也不伪装成第二个 Tree Row。
-只有祖先 Source Projection Row 的底边完全越过 Sticky Boundary 后，祖先才可进入 Sticky；
-Source Row 仍部分或全部可见时，绝不能同时出现它的 Sticky 副本。
-
-当可见行共享一个已由该粘性上下文展示的深层屏外祖先时，Explorer 可以用一个统一且随滚动
-连续变化的横向偏移回收祖先缩进。该偏移来自固定行高几何，在视口边界连续变化，并且绝不改变
-权威树深度或垂直滚动位置。粘性上下文进入或离开时，它和下方文件树可以作为一个整体连续回收
-或恢复 Files 外层缩进；粘性路径切换不能重置这个整体偏移。
+Directory Tree 不渲染屏外祖先的随滚动联动副本；真实的 Virtualized Tree Row 是唯一的目录行和
+文件行。逻辑 Depth 仍决定 Keyboard Navigation、Expansion、可访问层级和完整路径身份，但视觉
+缩进由当前行宽限制：缩进和 Guide Rail 最多占行宽四分之一，Trailing Status 之前的文件名列至少
+保留 48 CSS Pixel。更深层级可以共用达到上限后的缩进，长文件名可以省略显示，但文件名本身必须
+保留可见空间；Row 的 Accessible Label 继续提供完整路径。
 
 文本使用轻量 Editor。Markdown 与静态 HTML 可以在同一 File Identity 中切换 Source 与有界
 Preview。Image、PDF、Binary 与 Oversized Text 使用 Read-only Viewer。所有 Viewer 共用同一

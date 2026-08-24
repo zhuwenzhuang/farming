@@ -26,7 +26,6 @@ assertDomainStyleOwnership({
     'src/components/files/FileSearchResults.tsx',
     'src/components/files/FileSectionBody.tsx',
     'src/components/files/FileSectionHeader.tsx',
-    'src/components/files/FileStickyContext.tsx',
     'src/components/files/FileTreeInlineOperation.tsx',
     'src/components/files/FileTreeRow.tsx',
     'src/components/files/FileTreeRowStatus.tsx',

@@ -135,11 +135,7 @@ test('survives seeded cold and warm human Project Files interactions', {
     const setDirectoryExpanded = async (directory: string, expanded: boolean) => {
       const row = files.locator(`[data-testid="code-file-row"][data-file-path="${directory}"]`)
       await row.scrollIntoViewIfNeeded()
-      const visibleDirectory = files.locator([
-        `[data-testid="code-file-sticky-row"][data-sticky-file-path="${directory}"]`,
-        `[data-testid="code-file-row"][data-file-path="${directory}"]`,
-      ].join(', ')).first()
-      await visibleDirectory.click({ timeout: 3_000 })
+      await row.click({ timeout: 3_000 })
       if (await row.getAttribute('aria-expanded') !== String(expanded)) {
         await expect(row).toHaveClass(/selected/, { timeout: 3_000 })
         await page.keyboard.press(expanded ? 'ArrowRight' : 'ArrowLeft')
@@ -149,7 +145,7 @@ test('survives seeded cold and warm human Project Files interactions', {
 
     // A file gesture must remain owned by the row where pointerdown started.
     // This models a real race where an Agent inventory/reveal update changes
-    // the sticky content above Files before pointerup.
+    // the pinned Agent layout above Files before pointerup.
     await setDirectoryExpanded('alpha', true)
     const shiftingFilePath = 'alpha/model.cpp'
     const shiftingRow = files.locator(`[data-testid="code-file-row"][data-file-path="${shiftingFilePath}"]`)

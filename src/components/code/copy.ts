@@ -406,7 +406,6 @@ export interface CodeCopy {
   folder: string
   go: string
   moreMatchesOmitted: string
-  stickyFolderPath: string
   containsUncommittedChanges: string
   changedOnDisk: string
   largeFileReadOnly: string
@@ -1012,7 +1011,6 @@ const EN_COPY: CodeCopy = {
   folder: 'Folder',
   go: 'Go',
   moreMatchesOmitted: 'More matches omitted',
-  stickyFolderPath: 'Sticky folder path',
   containsUncommittedChanges: 'Contains uncommitted changes',
   changedOnDisk: 'Changed on disk',
   largeFileReadOnly: 'This large file is shown completely in read-only mode.',
@@ -1654,7 +1652,6 @@ const ZH_COPY: CodeCopy = {
   folder: '文件夹',
   go: '跳转',
   moreMatchesOmitted: '更多匹配已省略',
-  stickyFolderPath: '固定文件夹路径',
   containsUncommittedChanges: '包含未提交改动',
   changedOnDisk: '磁盘上已变更',
   largeFileReadOnly: '该大文件已完整打开，当前为只读模式。',

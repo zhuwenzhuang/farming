@@ -34,8 +34,6 @@ const {
   workspaceFileTreeStatusTitle,
 } = require('../../src/lib/workspace-file-tree-row.ts');
 const {
-  firstVisibleWorkspaceFilePath,
-  isWorkspaceStickyContextVisible,
   shouldCancelPendingWorkspaceFileTreeFocus,
   shouldCloseWorkspaceFileTreeDirectory,
   shouldFocusWorkspaceFileTree,
@@ -48,16 +46,6 @@ const {
   workspaceFileRevealScrollDelta,
   workspaceFileTreeActivationIntent,
   workspaceFileTreeRowClickIntent,
-  workspaceFileIndentShiftDepthForViewport,
-  workspaceFileStickyProjection,
-  workspaceCompactStickyDirectoryLabel,
-  workspaceStickyDirectoryPresentation,
-  workspaceStickyContextRevealProgress,
-  workspaceStickyContextItems,
-  workspaceStickyDirectoryPaths,
-  workspaceStickyDirectoryPathsForIndexedViewport,
-  workspaceStickyDirectoryPathsForViewport,
-  workspaceVisibleFileTreeRows,
   WORKSPACE_FILE_SEARCH_FOCUS_RETRY_DELAYS,
   WORKSPACE_FILE_TREE_FOCUS_RETRY_DELAYS,
 } = require('../../src/lib/workspace-file-view-model.ts');
@@ -1060,19 +1048,6 @@ function run() {
   assert.strictEqual(readmeDecorationNotifications, 2);
   unsubscribeReadmeDecoration();
   unsubscribeAppDecoration();
-  assert.deepStrictEqual(
-    workspaceVisibleFileTreeRows(tree, new Set(['src/components'])).map(row => ({
-      path: row.path,
-      depth: row.depth,
-      ancestors: row.ancestors.map(ancestor => ancestor.path),
-    })),
-    [
-      { path: 'src/components', depth: 0, ancestors: [] },
-      { path: 'src/components/App.tsx', depth: 1, ancestors: ['src/components'] },
-      { path: 'src/components/index.ts', depth: 1, ancestors: ['src/components'] },
-      { path: 'README.md', depth: 0, ancestors: [] },
-    ]
-  );
   const nestedRevealDirectories = {
     '': { items: [directory('reference')] },
     reference: { items: [directory('reference/poem'), workspaceFile('reference/index.md')] },
@@ -1100,9 +1075,9 @@ function run() {
   assert.strictEqual(linkedDirectoryTree[0].symbolicLink, true);
   assert.strictEqual(linkedDirectoryTree[0].children[0].path, 'reference/index.md');
   assert.deepStrictEqual(workspaceFileTreeDepthStyle(2), {
-    '--file-indent': 'max(6px, calc(22px - var(--file-indent-shift, 0px)))',
-    '--file-status-indent': 'max(24px, calc(40px - var(--file-indent-shift, 0px)))',
-    '--file-guide-width': 'max(0px, calc(16px - var(--file-indent-shift, 0px)))',
+    '--file-indent': '22px',
+    '--file-status-indent': '40px',
+    '--file-guide-width': '16px',
     '--file-depth': 2,
   });
   assert.strictEqual(visibleWorkspaceFileTreeGitStatus('untracked'), undefined);
@@ -1217,35 +1192,6 @@ function run() {
     isSelected: false,
   });
   assert(ignoredDirectoryRowState.rowClasses.includes('ignored'));
-  assert.deepStrictEqual(workspaceStickyContextItems({
-    directoryNodes: [],
-  }), []);
-  assert.deepStrictEqual(workspaceStickyContextItems({
-    directoryNodes: [directory('src'), directory('src/components')],
-  }).map(item => `${item.kind}:${item.node.path}:${item.nodes.length}`), [
-    'directory:src/components:2',
-  ]);
-  assert.strictEqual(workspaceCompactStickyDirectoryLabel([
-    directory('Users/example'),
-    directory('Users/example/git'),
-    directory('Users/example/git/farming'),
-  ]), 'example/git/farming');
-  assert.deepStrictEqual(workspaceStickyDirectoryPresentation([
-    directory('odps-sql'),
-    directory('odps-sql/odps-optimizer'),
-    directory('odps-sql/odps-optimizer/odps-optimizer-cbo'),
-    directory('odps-sql/odps-optimizer/odps-optimizer-cbo/src'),
-    directory('odps-sql/odps-optimizer/odps-optimizer-cbo/src/main'),
-    directory('odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java'),
-    directory('odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo', {
-      displayName: 'com/aliyun/odps/lot/cbo',
-    }),
-    directory('odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo/rules'),
-  ]), {
-    compactLabel: 'odps-sql/…/cbo/rules',
-    mediumLabel: 'odps-sql/…/odps/lot/cbo/rules',
-    fullLabel: 'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo/rules',
-  });
   assert.strictEqual(workspaceFileRevealScrollDelta({ top: 100, bottom: 200 }, { top: 80, bottom: 120 }), -35);
   assert.strictEqual(workspaceFileRevealScrollDelta({ top: 100, bottom: 200 }, { top: 180, bottom: 220 }), 65);
   assert.strictEqual(workspaceFileRevealScrollDelta({ top: 100, bottom: 200 }, { top: 120, bottom: 180 }), 15);
@@ -1307,264 +1253,6 @@ function run() {
     lastFocusedPath: null,
     rows: [],
   }), null);
-  assert.strictEqual(isWorkspaceStickyContextVisible(40, 41), true);
-  assert.strictEqual(isWorkspaceStickyContextVisible(43, 41), false);
-  assert.strictEqual(workspaceStickyContextRevealProgress(40, 40, 24), 0);
-  assert.strictEqual(workspaceStickyContextRevealProgress(28, 40, 24), 0.5);
-  assert.strictEqual(workspaceStickyContextRevealProgress(16, 40, 24), 1);
-  assert.strictEqual(workspaceStickyContextRevealProgress(52, 40, 24), 0);
-  const rowSnapshots = [
-    { path: 'src', top: 20, bottom: 44 },
-    { path: 'src/components', top: 52, bottom: 76 },
-    { path: 'src/components/App.tsx', top: 80, bottom: 104 },
-  ];
-  assert.strictEqual(firstVisibleWorkspaceFilePath(rowSnapshots, 50, 120), 'src/components');
-  assert.deepStrictEqual(workspaceStickyDirectoryPaths('src/components/App.tsx', rowSnapshots, 70), ['src']);
-  const deepPackageRows = [
-    { path: 'odps-sql', top: -140, bottom: -116, depth: 0 },
-    { path: 'odps-sql/odps-optimizer', top: -116, bottom: -92, depth: 1 },
-    { path: 'odps-sql/odps-optimizer/odps-optimizer-cbo', top: -92, bottom: -68, depth: 2 },
-    { path: 'odps-sql/odps-optimizer/odps-optimizer-cbo/src', top: -68, bottom: -44, depth: 3 },
-    { path: 'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main', top: -44, bottom: -20, depth: 4 },
-    { path: 'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java', top: -20, bottom: 4, depth: 5 },
-    { path: 'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo', top: 4, bottom: 28, depth: 6 },
-    { path: 'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo/plan', top: 28, bottom: 52, depth: 7 },
-    { path: 'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo/plan/splitting', top: 52, bottom: 76, depth: 8 },
-    { path: 'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo/plan/splitting/impl', top: 76, bottom: 100, depth: 9 },
-    { path: 'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo/plan/splitting/impl/meta', top: 100, bottom: 124, depth: 10 },
-    { path: 'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo/plan/splitting/impl/meta/AbstractVectorIndexDataClient.java', top: 124, bottom: 148 },
-    { path: 'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo/plan/splitting/impl/meta/AnnIndexScanDataClient.java', top: 148, bottom: 172 },
-    { path: 'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo/plan/splitting/impl/meta/ExpandingMetaClient.java', top: 172, bottom: 196 },
-    { path: 'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo/plan/splitting/impl/meta/MetaCacheClient.java', top: 196, bottom: 220 },
-    { path: 'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo/plan/splitting/impl/meta/MetaClient.java', top: 220, bottom: 244 },
-    { path: 'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo/plan/splitting/impl/meta/VectorIndexRebuildDataClient.java', top: 244, bottom: 268 },
-    { path: 'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo/plan/splitting/impl/pangu', top: 268, bottom: 292 },
-    { path: 'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo/plan/splitting/impl/vpc', top: 292, bottom: 316 },
-  ];
-  const initialDeepPackagePath = firstVisibleWorkspaceFilePath(deepPackageRows, 40, 340);
-  assert.strictEqual(initialDeepPackagePath, 'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo/plan');
-  assert.deepStrictEqual(
-    workspaceStickyDirectoryPaths(initialDeepPackagePath, deepPackageRows, 40).slice(-8),
-    [
-      'odps-sql',
-      'odps-sql/odps-optimizer',
-      'odps-sql/odps-optimizer/odps-optimizer-cbo',
-      'odps-sql/odps-optimizer/odps-optimizer-cbo/src',
-      'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main',
-      'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java',
-      'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo',
-    ]
-  );
-  assert.deepStrictEqual(
-    workspaceStickyDirectoryPathsForViewport({
-      rows: deepPackageRows,
-      stickyTop: 40,
-      scrollerBottom: 340,
-      rowHeight: 24,
-    }),
-    [
-      'odps-sql',
-      'odps-sql/odps-optimizer',
-      'odps-sql/odps-optimizer/odps-optimizer-cbo',
-      'odps-sql/odps-optimizer/odps-optimizer-cbo/src',
-      'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main',
-      'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java',
-      'odps-sql/odps-optimizer/odps-optimizer-cbo/src/main/java/com/aliyun/odps/lot/cbo',
-    ]
-  );
-  assert.deepStrictEqual(
-    workspaceStickyDirectoryPathsForViewport({
-      rows: [
-        { path: 'alpha', top: 20, bottom: 44 },
-        { path: 'beta', top: 68, bottom: 92 },
-      ],
-      stickyTop: 40,
-      scrollerBottom: 340,
-      rowHeight: 24,
-    }),
-    []
-  );
-  assert.deepStrictEqual(
-    workspaceStickyDirectoryPathsForViewport({
-      rows: [
-        { path: 'odps-sql/optimizer/rules', type: 'directory', depth: 0, top: -4, bottom: 20 },
-        { path: 'odps-sql/optimizer/rules/util', type: 'directory', depth: 1, top: 20, bottom: 44 },
-        { path: 'odps-sql/optimizer/rules/OdpsSemiJoinRule.java', type: 'file', depth: 1, top: 44, bottom: 68 },
-        { path: 'odps-sql/optimizer/rules/OdpsVectorSearchConvertRule.java', type: 'file', depth: 1, top: 68, bottom: 92 },
-      ],
-      stickyTop: 40,
-      scrollerBottom: 160,
-      rowHeight: 24,
-    }),
-    ['odps-sql/optimizer/rules']
-  );
-  assert.deepStrictEqual(
-    workspaceStickyDirectoryPathsForViewport({
-      rows: [
-        { path: 'tests', type: 'directory', depth: 0, top: 20, bottom: 44 },
-        { path: '.gitattributes', type: 'file', depth: 0, top: 44, bottom: 68 },
-        { path: '.gitignore', type: 'file', depth: 0, top: 68, bottom: 92 },
-      ],
-      stickyTop: 40,
-      scrollerBottom: 160,
-      rowHeight: 24,
-    }),
-    []
-  );
-  const indexedRows = [
-    { path: 'module', type: 'directory', depth: 0, ancestors: [] },
-    { path: 'module/src', type: 'directory', depth: 1, ancestors: [{ path: 'module', depth: 0 }] },
-    {
-      path: 'module/src/main',
-      type: 'directory',
-      depth: 2,
-      ancestors: [{ path: 'module', depth: 0 }, { path: 'module/src', depth: 1 }],
-    },
-    {
-      path: 'module/src/main/rules',
-      type: 'directory',
-      depth: 3,
-      ancestors: [
-        { path: 'module', depth: 0 },
-        { path: 'module/src', depth: 1 },
-        { path: 'module/src/main', depth: 2 },
-      ],
-    },
-    {
-      path: 'module/src/main/rules/A.java',
-      type: 'file',
-      depth: 4,
-      ancestors: [
-        { path: 'module', depth: 0 },
-        { path: 'module/src', depth: 1 },
-        { path: 'module/src/main', depth: 2 },
-        { path: 'module/src/main/rules', depth: 3 },
-      ],
-    },
-    {
-      path: 'module/src/main/rules/B.java',
-      type: 'file',
-      depth: 4,
-      ancestors: [
-        { path: 'module', depth: 0 },
-        { path: 'module/src', depth: 1 },
-        { path: 'module/src/main', depth: 2 },
-        { path: 'module/src/main/rules', depth: 3 },
-      ],
-    },
-    { path: 'module/peer', type: 'directory', depth: 1, ancestors: [{ path: 'module', depth: 0 }] },
-  ];
-  const indexedRowIndexByPath = new Map(indexedRows.map((row, index) => [row.path, index]));
-  assert.deepStrictEqual(workspaceStickyDirectoryPathsForIndexedViewport({
-    rows: indexedRows,
-    rowIndexByPath: indexedRowIndexByPath,
-    treeTop: -56,
-    stickyTop: 0,
-    scrollerBottom: 88,
-    rowHeight: 24,
-    stickyHeight: 40,
-  }), ['module', 'module/src']);
-  assert.deepStrictEqual(workspaceStickyDirectoryPathsForIndexedViewport({
-    rows: indexedRows,
-    rowIndexByPath: indexedRowIndexByPath,
-    treeTop: -23,
-    stickyTop: 0,
-    scrollerBottom: 88,
-    rowHeight: 24,
-    stickyHeight: 24,
-  }), [], 'a root directory must not duplicate into sticky context while its source row remains visible');
-  assert.deepStrictEqual(workspaceStickyDirectoryPathsForIndexedViewport({
-    rows: indexedRows,
-    rowIndexByPath: indexedRowIndexByPath,
-    treeTop: -47,
-    stickyTop: 0,
-    scrollerBottom: 88,
-    rowHeight: 24,
-    stickyHeight: 24,
-  }), ['module'], 'only ancestors whose source row is fully above the sticky boundary may float');
-  const indexedSiblingRows = [
-    { path: 'src/components/code', type: 'directory', depth: 0, ancestors: [] },
-    {
-      path: 'src/components/code/acp',
-      type: 'directory',
-      depth: 1,
-      ancestors: [{ path: 'src/components/code', depth: 0 }],
-    },
-    {
-      path: 'src/components/code/pet',
-      type: 'directory',
-      depth: 1,
-      ancestors: [{ path: 'src/components/code', depth: 0 }],
-    },
-    {
-      path: 'src/components/code/agent-00.ts',
-      type: 'file',
-      depth: 1,
-      ancestors: [{ path: 'src/components/code', depth: 0 }],
-    },
-    {
-      path: 'src/components/code/agent-01.ts',
-      type: 'file',
-      depth: 1,
-      ancestors: [{ path: 'src/components/code', depth: 0 }],
-    },
-  ];
-  const indexedSiblingRowIndexByPath = new Map(indexedSiblingRows.map((row, index) => [row.path, index]));
-  assert.deepStrictEqual(workspaceStickyDirectoryPathsForIndexedViewport({
-    rows: indexedSiblingRows,
-    rowIndexByPath: indexedSiblingRowIndexByPath,
-    treeTop: -56,
-    stickyTop: 0,
-    scrollerBottom: 88,
-    rowHeight: 24,
-    stickyHeight: 40,
-  }), ['src/components/code']);
-  assert.strictEqual(workspaceFileIndentShiftDepthForViewport({
-    rows: indexedRows,
-    treeTop: -56,
-    stickyTop: 0,
-    scrollerBottom: 88,
-    rowHeight: 24,
-    stickyHeight: 40,
-  }), 3);
-  assert.strictEqual(workspaceFileIndentShiftDepthForViewport({
-    rows: indexedRows,
-    treeTop: -68,
-    stickyTop: 0,
-    scrollerBottom: 88,
-    rowHeight: 24,
-    stickyHeight: 40,
-  }), 1.5);
-  assert.strictEqual(workspaceFileIndentShiftDepthForViewport({
-    rows: indexedRows,
-    treeTop: 0,
-    stickyTop: 0,
-    scrollerBottom: 88,
-    rowHeight: 24,
-    stickyHeight: 40,
-  }), 0);
-  assert.deepStrictEqual(workspaceFileStickyProjection({
-    rows: indexedRows,
-    rowIndexByPath: indexedRowIndexByPath,
-    treeTop: -48,
-    stickyBoundary: 0,
-    scrollerBottom: 88,
-    rowHeight: 24,
-  }), {
-    directoryPaths: ['module', 'module/src'],
-    indentShiftDepth: 2,
-  });
-  assert.deepStrictEqual(workspaceFileStickyProjection({
-    rows: indexedRows,
-    rowIndexByPath: indexedRowIndexByPath,
-    treeTop: 2,
-    stickyBoundary: 0,
-    scrollerBottom: 88,
-    rowHeight: 24,
-  }), {
-    directoryPaths: [],
-    indentShiftDepth: 0,
-  });
   assert.deepStrictEqual(WORKSPACE_FILE_SEARCH_FOCUS_RETRY_DELAYS, [0, 80, 180, 300, 520, 900, 1200]);
   assert.deepStrictEqual(WORKSPACE_FILE_TREE_FOCUS_RETRY_DELAYS, [80, 180, 360]);
 

@@ -19,9 +19,7 @@ import type { WorkspaceFileOperationState } from '@/lib/workspace-file-operation
 import type { WorkspaceFileTreeNode as FileExplorerNode } from '@/lib/workspace-file-tree'
 import type { WorkspaceFileDecorationStore } from '@/lib/workspace-file-decorations'
 import type { CodeCopy } from '../code/copy'
-import { FileStickyContext } from './FileStickyContext'
 import { FileTreeRow } from './FileTreeRow'
-import type { FileStickyContextItem } from './useWorkspaceFileStickyContext'
 
 const FILE_TREE_OVERSCAN_ROWS = 6
 const FILE_TREE_INITIAL_VIEWPORT_ROWS = 24
@@ -41,7 +39,6 @@ export interface FileTreeViewProps {
   openFilePendingPath?: string | null
   renderFileTreeRow: NonNullable<Parameters<typeof Tree<FileExplorerNode>>[0]['renderRow']>
   rowHeight: number
-  stickyContextItems: FileStickyContextItem[]
   treeData: FileExplorerNode[]
   treeHeight: number
   treeRef: MutableRefObject<TreeApi<FileExplorerNode> | undefined>
@@ -50,7 +47,6 @@ export interface FileTreeViewProps {
   onCancelPendingFileFocus: () => void
   onCloseFileOperation: () => void
   onFocusFileTreeTarget: (item: FileExplorerNode | null) => void
-  onFocusStickyDirectory: (node: FileExplorerNode) => void
   onOpenFileContextMenu: (x: number, y: number, item: FileExplorerNode | null) => void
   onOpenFilePath: (filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void>
   onRememberFileOperationName: (name: string) => void
@@ -69,12 +65,10 @@ type FileNodeRendererContextValue = Omit<
   | 'openFilePendingPath'
   | 'renderFileTreeRow'
   | 'rowHeight'
-  | 'stickyContextItems'
   | 'treeData'
   | 'treeHeight'
   | 'treeRef'
   | 'visibleTreeRowCount'
-  | 'onFocusStickyDirectory'
   | 'onToggleTreeNode'
   | 'onTreeFocus'
   | 'onTreeSelect'
@@ -260,7 +254,6 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
   locatedFilePath,
   renderFileTreeRow,
   rowHeight,
-  stickyContextItems,
   treeData,
   treeHeight,
   treeRef,
@@ -269,7 +262,6 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
   onCancelPendingFileFocus,
   onCloseFileOperation,
   onFocusFileTreeTarget,
-  onFocusStickyDirectory,
   onOpenFileContextMenu,
   onOpenFilePath,
   onSelectFilePath,
@@ -478,13 +470,6 @@ const FileTreeViewContent = memo(function FileTreeViewContent({
       onDoubleClickCapture={handleViewportDoubleClick}
       onContextMenu={handleViewportContextMenu}
     >
-      <FileStickyContext
-        copy={copy}
-        decorations={decorations}
-        items={stickyContextItems}
-        onFocusDirectory={onFocusStickyDirectory}
-        onOpenFileContextMenu={onOpenFileContextMenu}
-      />
       <FileNodeRendererContext.Provider value={nodeRendererContext}>
         <div
           className="code-file-tree-window"

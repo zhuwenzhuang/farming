@@ -23,9 +23,9 @@ export function workspaceFileTreeStatusTitle(
 
 export function workspaceFileTreeDepthStyle(depth: number) {
   return {
-    '--file-indent': `max(6px, calc(${6 + depth * WORKSPACE_FILE_TREE_INDENT}px - var(--file-indent-shift, 0px)))`,
-    '--file-status-indent': `max(24px, calc(${24 + depth * WORKSPACE_FILE_TREE_INDENT}px - var(--file-indent-shift, 0px)))`,
-    '--file-guide-width': `max(0px, calc(${depth * WORKSPACE_FILE_TREE_INDENT}px - var(--file-indent-shift, 0px)))`,
+    '--file-indent': `${6 + depth * WORKSPACE_FILE_TREE_INDENT}px`,
+    '--file-status-indent': `${24 + depth * WORKSPACE_FILE_TREE_INDENT}px`,
+    '--file-guide-width': `${depth * WORKSPACE_FILE_TREE_INDENT}px`,
     '--file-depth': depth,
   } as Record<string, string | number>
 }

@@ -867,9 +867,9 @@ body.code-mode .code-file-change-group-toggle {
 
 .code-file-tree {
   position: relative;
-  left: calc(0px - var(--file-context-shift, 0px));
+  left: 0;
   height: 100% !important;
-  width: calc(100% + var(--file-context-shift, 0px)) !important;
+  width: 100% !important;
   flex: 0 0 auto;
   box-sizing: border-box;
   overflow: hidden !important;
@@ -880,28 +880,6 @@ body.code-mode .code-file-change-group-toggle {
 .code-file-tree-viewport [role="tree"]:focus-visible {
   outline: 0;
   box-shadow: none;
-}
-
-.code-file-sticky-shell {
-  position: sticky;
-  top: calc(var(--code-project-sticky-height) + var(--code-agents-sticky-height, 0px) + var(--code-open-editors-sticky-height, 0px) + var(--code-files-header-height, 25px));
-  height: 0;
-  z-index: 11;
-  pointer-events: none;
-  background: var(--code-bg-inset);
-  color: var(--code-text-muted);
-}
-
-.code-file-sticky-stack {
-  position: absolute;
-  top: 0;
-  left: calc(0px - var(--file-context-shift, 0px));
-  right: 0;
-  container-type: inline-size;
-  pointer-events: auto;
-  background: var(--code-bg-inset);
-  box-shadow: 0 10px 14px -16px var(--code-shadow-color);
-  color: var(--code-text-muted);
 }
 
 .code-file-tree-row-frame {
@@ -941,10 +919,10 @@ body.code-mode .code-file-change-group-toggle {
   width: 100%;
   min-height: var(--code-file-entry-height);
   display: grid;
-  grid-template-columns: 14px minmax(0, 1fr) auto;
+  grid-template-columns: 14px minmax(48px, 1fr) minmax(0, auto);
   align-items: center;
   gap: 3px;
-  padding: 2px 6px 2px var(--file-indent);
+  padding: 2px 6px 2px min(var(--file-indent), 25%);
   border: 0 !important;
   border-radius: 8px;
   background: transparent;
@@ -967,7 +945,7 @@ body.code-mode .code-file-change-group-toggle {
   top: 0;
   bottom: 0;
   left: 6px;
-  width: var(--file-guide-width);
+  width: min(var(--file-guide-width), max(0px, calc(25% - 6px)));
   pointer-events: none;
   opacity: 0.32;
   background-image: repeating-linear-gradient(
@@ -1017,28 +995,8 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   color: var(--code-text-quiet);
 }
 
-.code-file-row.code-file-sticky-row {
-  height: var(--code-file-entry-height);
-  min-height: var(--code-file-entry-height);
-  grid-template-columns: minmax(0, 1fr) auto;
-  background: var(--code-bg-inset);
-  color: var(--code-text-muted);
-}
-
-.code-file-row.code-file-sticky-row .code-file-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .code-file-row.directory {
-  grid-template-columns: 14px minmax(0, 1fr) auto;
-}
-
-.code-file-row.code-file-sticky-row:hover,
-.code-file-row.code-file-sticky-row:focus-visible {
-  background: var(--code-bg-hover);
+  grid-template-columns: 14px minmax(48px, 1fr) minmax(0, auto);
 }
 
 .code-file-row.editor-dirty .code-file-name,
@@ -1888,7 +1846,7 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
     }
 
   body.code-mode.code-compact-layout .code-file-tree {
-      width: calc(100% + var(--file-context-shift, 0px)) !important;
+      width: 100% !important;
       min-width: 0;
     }
 
@@ -1899,7 +1857,7 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
   body.code-mode.code-compact-layout .code-file-row {
       min-height: 24px;
       min-width: 0;
-      grid-template-columns: 14px minmax(32px, 1fr) minmax(0, auto);
+      grid-template-columns: 14px minmax(48px, 1fr) minmax(0, auto);
       gap: 4px;
       padding: 0 4px 0 min(var(--file-indent, 16px), 22px);
       border-radius: 8px;
@@ -1911,12 +1869,7 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
     }
 
   body.code-mode.code-compact-layout .code-file-row.directory {
-      grid-template-columns: 14px minmax(32px, 1fr) minmax(0, auto);
-    }
-
-  body.code-mode.code-compact-layout .code-file-row.code-file-sticky-row {
-      grid-template-columns: minmax(32px, 1fr) minmax(0, auto);
-      padding-left: 4px;
+      grid-template-columns: 14px minmax(48px, 1fr) minmax(0, auto);
     }
 
   body.code-mode.code-compact-layout .code-file-name {

@@ -26,7 +26,7 @@ Project
 
 The Project sidebar has one outer scroll surface. Files, Open Editors, Changes,
 History, and the directory tree must not create competing project-level
-scrollbars. Deep trees may show compact ancestor context without changing that
+scrollbars. Deep directory paths may scroll out of view without changing that
 ownership.
 
 While a Project owns the top of that scroll surface, its Project row, Agent
@@ -34,7 +34,8 @@ rows, Open Editors, and Files header form one stacked sticky summary. Their
 measured heights determine the next layer's offset. When the Project reaches
 its trailing boundary, every visible layer releases with the same scroll
 delta; a later layer must never slide over the Project name or branch first.
-Directory ancestor context remains below this summary stack.
+Directory rows scroll beneath this summary stack and do not add another
+scroll-linked ancestor summary.
 
 Project Agent rows use progressive disclosure to keep large Agent groups
 scannable. A Project initially shows five Agents, the first Show more action
@@ -208,38 +209,23 @@ Four responsibilities remain separate:
   bounded previews.
 
 The Explorer preserves one Project-sidebar scroll surface even when many
-directories remain expanded. Its complete row projection keeps sticky paths,
-keyboard navigation, and persisted expansion stable, while only a bounded
+directories remain expanded. Its complete row projection keeps keyboard
+navigation and persisted expansion stable, while only a bounded
 viewport neighborhood is mounted. The outer Project scroller owns the complete
 logical tree height; the virtual tree window follows that scroll offset without
 introducing a second scrollbar. The cost of a large restored tree is therefore
 bounded by the visible neighborhood rather than the complete projection.
-Scroll-linked sticky context derives its row from that precomputed projection
-and inspects only a bounded viewport slice. A scroll frame must not enumerate
-the complete expanded tree or read layout from every mounted file row.
-Its projection is output-blind: only the logical row projection, outer scroll
-geometry, and Files header boundary are inputs. Rendered sticky geometry and
-prior sticky state must never feed the next visibility decision.
-Authoritative preceding-layout changes, including Open Editors disclosure and
-count, invalidate that projection before paint; sticky output mutations do not.
+A scroll frame must not enumerate the complete expanded tree or read layout
+from every mounted file row.
 
-The single sticky directory context is a fixed one-row navigation control with
-a compact path. It appears only when the first uncovered visible row has a real
-expanded ancestor that has scrolled above the sticky boundary. A collapsed
-directory or a preceding sibling is never sticky. The control reveals its
-ancestor in the tree; it does not present an expansion chevron or pretend to be
-a second tree row. An ancestor becomes sticky only after the bottom of its
-source projection row has completely crossed the sticky boundary. A partially
-or fully visible source row and its sticky copy must never appear together.
-
-When the visible rows share a deep offscreen ancestor represented by that
-sticky context, the Explorer may reclaim the ancestor indentation with one
-uniform, scroll-linked horizontal offset. The offset is derived from fixed row
-geometry, changes continuously at viewport boundaries, and never changes the
-authoritative tree depth or vertical scroll position. As the sticky context
-enters or leaves, it and the tree below may continuously reclaim or restore the
-enclosing Files inset as one surface; switching sticky paths does not reset that
-surface offset.
+The directory tree renders no scroll-linked duplicate of an offscreen ancestor.
+Actual virtualized tree rows are the only directory and file rows. Logical depth
+still owns keyboard navigation, expansion, accessibility level, and full-path
+identity, but visual indentation is capped by the current row width. Indentation
+and guide rails may consume at most one quarter of the row, and the label column
+reserves at least 48 CSS pixels before trailing status. Deeper levels may share
+the capped inset and long names may ellipsize; the file name itself must retain
+visible space. The row's accessible label continues to expose the full path.
 
 Text uses the lightweight editor. Markdown and static HTML may switch between
 source and bounded preview within the same file identity. Images, PDFs, binary

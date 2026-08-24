@@ -100,36 +100,7 @@ async function captureFileOperationAudit(page: Page, name: string) {
   })
 }
 
-async function stickyHierarchyMatchesFirstUncoveredRow(section: Locator) {
-  return section.evaluate(element => {
-    const stack = element.querySelector<HTMLElement>('[data-testid="code-file-sticky-stack"]')
-    const scroller = element.closest<HTMLElement>('.code-project-list')
-    const rows = Array.from(element.querySelectorAll<HTMLElement>('[data-testid="code-file-row"][data-file-path]'))
-    if (!stack || !scroller || rows.length === 0) return false
-
-    const stackRect = stack.getBoundingClientRect()
-    const stackBottom = stackRect.bottom
-    const scrollerBottom = scroller.getBoundingClientRect().bottom
-    const firstUncoveredRow = rows.find(row => {
-      const rect = row.getBoundingClientRect()
-      return rect.top >= stackBottom - 1 && rect.top < scrollerBottom
-    })
-    const firstUncoveredPath = firstUncoveredRow?.dataset.filePath
-    if (!firstUncoveredPath) return false
-
-    const actualStickyRows = Array.from(stack.querySelectorAll<HTMLElement>('.code-file-sticky-row'))
-    if (actualStickyRows.length !== 1) return false
-
-    const stickyRow = actualStickyRows[0]
-    const stickyPath = stickyRow.getAttribute('title') ?? ''
-    if (!stickyPath || !firstUncoveredPath.startsWith(`${stickyPath}/`)) return false
-    if (stickyRow.style.getPropertyValue('--file-depth') !== '0') return false
-    const sourceRow = rows.find(row => row.dataset.filePath === stickyPath)
-    return !sourceRow || sourceRow.getBoundingClientRect().bottom <= stackRect.top + 1
-  })
-}
-
-async function scrollFileRowIntoStickyRange(row: Locator) {
+async function scrollFileRowIntoProjectRange(row: Locator) {
   await row.evaluate(element => {
     const scroller = element.closest<HTMLElement>('.code-project-list')
     if (!scroller) return
@@ -176,68 +147,6 @@ async function measureFileRowLayoutReadsDuringScroll(section: Locator) {
       }
     } finally {
       Element.prototype.getBoundingClientRect = originalGetBoundingClientRect
-    }
-  })
-}
-
-async function waitForFileTreeLayoutToSettle(section: Locator) {
-  let previousSnapshot = ''
-  let stableSamples = 0
-  await expect.poll(async () => {
-    const snapshot = await section.evaluate(element => {
-      const scroller = element.closest<HTMLElement>('.code-project-list')
-      const viewport = element.querySelector<HTMLElement>('.code-file-tree-viewport')
-      const sticky = element.querySelector<HTMLElement>('[data-testid="code-file-sticky-stack"]')
-      return JSON.stringify({
-        scrollTop: scroller?.scrollTop ?? Number.NaN,
-        viewportTop: viewport?.getBoundingClientRect().top ?? Number.NaN,
-        stickyPath: sticky?.querySelector<HTMLElement>('[data-sticky-file-path]')?.dataset.stickyFilePath ?? '',
-      })
-    })
-    stableSamples = snapshot === previousSnapshot ? stableSamples + 1 : 0
-    previousSnapshot = snapshot
-    return stableSamples
-  }, {
-    message: 'file tree scroll and sticky context settle before resize',
-    timeout: 3_000,
-    intervals: [100],
-  }).toBeGreaterThanOrEqual(2)
-}
-
-async function stickyContextClearsPinnedAgents(section: Locator) {
-  return section.evaluate(element => {
-    const project = element.closest<HTMLElement>('.code-project-group')
-    const agents = project?.querySelector<HTMLElement>('.code-agents-section')
-    const sticky = element.querySelector<HTMLElement>('[data-testid="code-file-sticky-stack"]')
-    if (!project || !agents || !sticky) return false
-    const publishedHeight = Number.parseFloat(
-      getComputedStyle(project).getPropertyValue('--code-agents-sticky-height')
-    )
-    const agentsRect = agents.getBoundingClientRect()
-    const agentsVisibleHeight = agentsRect.height
-      - Number.parseFloat(getComputedStyle(agents).paddingBottom || '0')
-    return Math.round(publishedHeight) === Math.ceil(agentsVisibleHeight)
-      && sticky.getBoundingClientRect().top >= agentsRect.top + agentsVisibleHeight - 1
-  })
-}
-
-async function sidebarRowPalette(section: Locator) {
-  return section.evaluate(element => {
-    const project = element.closest<HTMLElement>('.code-project-group')
-    const projectTitle = project?.querySelector<HTMLElement>('.code-project-title')
-    const header = element.querySelector<HTMLElement>('.code-files-header')
-    const fileRow = element.querySelector<HTMLElement>('.code-file-row.directory:not(.code-file-sticky-row):not(.ignored)')
-    const activeFileFrame = element.querySelector<HTMLElement>('.code-file-tree-row-frame:has(.code-file-row.active)')
-    const stickyRow = element.querySelector<HTMLElement>('.code-file-sticky-row')
-    const openEditor = project?.querySelector<HTMLElement>('.code-open-editor-main')
-    if (!projectTitle || !header || !fileRow || !activeFileFrame || !stickyRow || !openEditor) return null
-    return {
-      projectTitle: getComputedStyle(projectTitle).color,
-      filesHeader: getComputedStyle(header).color,
-      fileRow: getComputedStyle(fileRow).color,
-      activeFileBackground: getComputedStyle(activeFileFrame).backgroundColor,
-      stickyRow: getComputedStyle(stickyRow).color,
-      openEditor: getComputedStyle(openEditor).color,
     }
   })
 }
@@ -364,7 +273,7 @@ test('keeps a restored production-sized file projection responsive offscreen', a
   })
   expect(scrollWork.maximumScrollTop).toBeGreaterThan(0)
   expect(scrollWork.fileRowLayoutReads).toBe(0)
-  await expect.poll(() => stickyHierarchyMatchesFirstUncoveredRow(files)).toBe(true)
+  await expect(files.getByTestId('code-file-sticky-stack')).toHaveCount(0)
 
   const editor = page.getByTestId('code-file-editor')
   const firstPath = 'bulk/entry-0000.cpp'
@@ -396,8 +305,8 @@ test('keeps a restored production-sized file projection responsive offscreen', a
   await testInfo.attach('large-file-tree-projection', { path: screenshotPath, contentType: 'image/png' })
 })
 
-test('preserves every visible directory level across sticky scroll, collapse, refresh, and reload', async ({ page, workspaceRoot }) => {
-  const workspace = path.join(workspaceRoot, 'deep-java-tree')
+test('keeps deep file names visible without a scroll-linked ancestor row', async ({ page, workspaceRoot }) => {
+  const workspace = path.join(workspaceRoot, 'deep-file-name-space')
   createProductionShapedJavaTree(workspace)
 
   await openFarming(page)
@@ -412,228 +321,66 @@ test('preserves every visible directory level across sticky scroll, collapse, re
   await search.press('Enter')
 
   const target = files.locator(`[data-testid="code-file-row"][data-file-path="${TARGET_FILE}"]`)
-  await expect(target).toBeVisible()
-  await scrollFileRowIntoStickyRange(target)
-  await expect.poll(() => stickyHierarchyMatchesFirstUncoveredRow(files)).toBe(true)
-  await expect.poll(() => stickyContextClearsPinnedAgents(files)).toBe(true)
-  const implPath = TARGET_FILE.slice(0, TARGET_FILE.indexOf('/meta/'))
-  await expect(files.locator(`[data-file-path="${implPath}/meta"]`)).toHaveCount(1)
-  await expect(files.locator(`[data-file-path="${implPath}/pangu"]`)).toHaveCount(1)
-  await expect(files.locator(`[data-file-path="${implPath}/vpc"]`)).toHaveCount(1)
-  await expect(files.getByTestId('code-file-sticky-stack').locator('.code-file-sticky-row')).toHaveCount(1)
-  await waitForFileTreeLayoutToSettle(files)
-  const stickyResizeBaseline = await files.evaluate(element => {
-    const viewport = element.querySelector<HTMLElement>('.code-file-tree-viewport')
-    const tree = element.querySelector<HTMLElement>('.code-file-tree')
-    const sticky = element.querySelector<HTMLElement>('[data-testid="code-file-sticky-stack"]')
-    if (!viewport || !tree || !sticky) return null
+  const readFileNameGeometry = () => target.evaluate(element => {
+    const name = element.querySelector<HTMLElement>('.code-file-name')
+    if (!name) throw new Error('deep file row must render a file name')
+    const rowRect = element.getBoundingClientRect()
     return {
-      shift: Number.parseFloat(getComputedStyle(viewport).getPropertyValue('--file-context-shift')),
-      stickyPath: sticky.querySelector<HTMLElement>('[data-sticky-file-path]')?.dataset.stickyFilePath ?? '',
-      treeOffset: viewport.getBoundingClientRect().left - tree.getBoundingClientRect().left,
-      stickyOffset: viewport.getBoundingClientRect().left - sticky.getBoundingClientRect().left,
+      name: name.textContent ?? '',
+      nameWidth: name.getBoundingClientRect().width,
+      paddingLeft: Number.parseFloat(getComputedStyle(element).paddingLeft),
+      rowWidth: rowRect.width,
     }
   })
-  expect(stickyResizeBaseline).not.toBeNull()
-  expect(stickyResizeBaseline!.shift).toBe(14)
-  expect(stickyResizeBaseline!.treeOffset).toBeCloseTo(14, 0)
-  expect(stickyResizeBaseline!.stickyOffset).toBeCloseTo(14, 0)
+  const expectVisibleFileName = async () => {
+    await expect(target).toBeVisible()
+    const geometry = await readFileNameGeometry()
+    expect(geometry.name).toBe('AbstractVectorIndexDataClient.java')
+    expect(geometry.nameWidth).toBeGreaterThanOrEqual(48)
+    expect(geometry.paddingLeft).toBeLessThanOrEqual(geometry.rowWidth * 0.25 + 1)
+  }
 
-  await files.evaluate(element => {
-    const testWindow = window as Window & {
-      __fileTreeStickyResizeAudit?: {
-        observer: MutationObserver
-        removedStickyStacks: number
-      }
-    }
-    const audit = {
-      observer: null as unknown as MutationObserver,
-      removedStickyStacks: 0,
-    }
-    audit.observer = new MutationObserver(mutations => {
-      for (const mutation of mutations) {
-        for (const removedNode of mutation.removedNodes) {
-          if (!(removedNode instanceof HTMLElement)) continue
-          if (
-            removedNode.matches('[data-testid="code-file-sticky-stack"]')
-            || removedNode.querySelector('[data-testid="code-file-sticky-stack"]')
-          ) {
-            audit.removedStickyStacks += 1
-          }
-        }
-      }
-    })
-    audit.observer.observe(element, { childList: true, subtree: true })
-    testWindow.__fileTreeStickyResizeAudit = audit
-  })
+  await expect(files.getByTestId('code-file-sticky-stack')).toHaveCount(0)
+  await expectVisibleFileName()
 
   const sidebarResizer = page.getByTestId('code-sidebar-resizer')
   const resizerBox = await sidebarResizer.boundingBox()
   if (!resizerBox) throw new Error('Sidebar resizer must be measurable')
+  const resizeX = resizerBox.x + resizerBox.width / 2
   const resizeY = resizerBox.y + Math.min(160, resizerBox.height / 2)
-  const resizeStartX = resizerBox.x + resizerBox.width / 2
-  await page.mouse.move(resizeStartX, resizeY)
+  await page.mouse.move(resizeX, resizeY)
   await page.mouse.down()
-  const stickyResizeSamples = []
-  for (const delta of [32, 64, 96, 128, 104, 80, 56, 32, 56, 80, 104, 128]) {
-    await page.mouse.move(resizeStartX + delta, resizeY)
+  for (const delta of [-80, -40, 0, 48, 96, 32, -48, 0]) {
+    await page.mouse.move(resizeX + delta, resizeY)
     await settleLayout(page)
-    const sample = await files.evaluate(element => new Promise<{
-      shift: number
-      stickyPath: string
-      treeOffset: number
-      stickyOffset: number
-    }>(resolve => requestAnimationFrame(() => {
-      const viewport = element.querySelector<HTMLElement>('.code-file-tree-viewport')
-      const tree = element.querySelector<HTMLElement>('.code-file-tree')
-      const sticky = element.querySelector<HTMLElement>('[data-testid="code-file-sticky-stack"]')
-      resolve({
-        shift: viewport
-          ? Number.parseFloat(getComputedStyle(viewport).getPropertyValue('--file-context-shift'))
-          : Number.NaN,
-        stickyPath: sticky?.querySelector<HTMLElement>('[data-sticky-file-path]')?.dataset.stickyFilePath ?? '',
-        treeOffset: viewport && tree
-          ? viewport.getBoundingClientRect().left - tree.getBoundingClientRect().left
-          : Number.NaN,
-        stickyOffset: viewport && sticky
-          ? viewport.getBoundingClientRect().left - sticky.getBoundingClientRect().left
-          : Number.NaN,
-      })
-    })))
-    stickyResizeSamples.push(sample)
+    await expectVisibleFileName()
+    await expect(files.getByTestId('code-file-sticky-stack')).toHaveCount(0)
   }
   await page.mouse.up()
-  const stickyDetachCount = await files.evaluate(() => {
-    const testWindow = window as Window & {
-      __fileTreeStickyResizeAudit?: {
-        observer: MutationObserver
-        removedStickyStacks: number
-      }
+
+  await scrollFileRowIntoProjectRange(target)
+  await expectVisibleFileName()
+  const projectList = page.getByTestId('code-project-list')
+  await projectList.evaluate(async element => {
+    const start = element.scrollTop
+    const end = Math.min(element.scrollHeight - element.clientHeight, start + element.clientHeight * 0.7)
+    for (let step = 1; step <= 60; step += 1) {
+      element.scrollTop = start + (end - start) * step / 60
+      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
     }
-    const audit = testWindow.__fileTreeStickyResizeAudit
-    audit?.observer.disconnect()
-    delete testWindow.__fileTreeStickyResizeAudit
-    return audit?.removedStickyStacks ?? -1
   })
-  expect(stickyDetachCount).toBe(0)
-  for (const sample of stickyResizeSamples) {
-    expect(sample.shift).toBe(stickyResizeBaseline!.shift)
-    expect(sample.stickyPath).toBe(stickyResizeBaseline!.stickyPath)
-    expect(sample.treeOffset).toBeCloseTo(stickyResizeBaseline!.treeOffset, 1)
-    expect(sample.stickyOffset).toBeCloseTo(stickyResizeBaseline!.stickyOffset, 1)
-  }
-  const openEditors = page.getByTestId('code-open-editors')
-  const openEditorsTitle = openEditors.locator('.code-open-editors-title')
-  if (await openEditorsTitle.getAttribute('aria-expanded') !== 'true') await openEditorsTitle.click()
-  await expect.poll(() => sidebarRowPalette(files)).toEqual({
-    projectTitle: 'rgb(87, 96, 106)',
-    filesHeader: 'rgb(87, 96, 106)',
-    fileRow: 'rgb(87, 96, 106)',
-    activeFileBackground: 'rgb(238, 238, 236)',
-    stickyRow: 'rgb(87, 96, 106)',
-    openEditor: 'rgb(87, 96, 106)',
-  })
+  await expect(files.getByTestId('code-file-sticky-stack')).toHaveCount(0)
 
-  const metaPath = TARGET_FILE.slice(0, TARGET_FILE.lastIndexOf('/'))
-  const meta = files.locator(`[data-testid="code-file-row"][data-file-path="${metaPath}"]`)
-  await expect(meta).toHaveAttribute('aria-expanded', 'true')
-  await meta.click()
-  await expect(meta).toHaveAttribute('aria-expanded', 'false')
-  await expect(target).toHaveCount(0)
-  await meta.click()
-  await expect(meta).toHaveAttribute('aria-expanded', 'true')
-  await expect(target).toBeVisible()
-
-  await files.locator('.code-files-header').hover()
-  await files.getByTestId('code-files-refresh').click()
-  await scrollFileRowIntoStickyRange(target)
-  await expect(target).toBeVisible()
-  await expect.poll(() => stickyHierarchyMatchesFirstUncoveredRow(files)).toBe(true)
+  await search.fill(`${TARGET_FILE}:1`)
+  await search.press('Enter')
+  await expectVisibleFileName()
 
   await page.reload({ waitUntil: 'domcontentloaded' })
   const restoredFiles = page.getByTestId('code-files-section')
   const restoredTarget = restoredFiles.locator(`[data-testid="code-file-row"][data-file-path="${TARGET_FILE}"]`)
   await expect(restoredTarget).toBeVisible()
-  await scrollFileRowIntoStickyRange(restoredTarget)
-  await expect.poll(() => stickyHierarchyMatchesFirstUncoveredRow(restoredFiles)).toBe(true)
-})
-
-test('keeps sticky context mounted through continuous Project scrolling', async ({ page, workspaceRoot }) => {
-  const workspace = path.join(workspaceRoot, 'sticky-scrollbar-drag')
-  const bulk = path.join(workspace, 'bulk')
-  fs.mkdirSync(bulk, { recursive: true })
-  for (let index = 0; index < 320; index += 1) {
-    fs.writeFileSync(path.join(bulk, `entry-${String(index).padStart(3, '0')}.ts`), `export const value${index} = ${index}\n`)
-  }
-
-  await openFarming(page)
-  await openNewAgentDialog(page)
-  await startAgentFromOpenDialog(page, 'bash', workspace)
-
-  const files = page.getByTestId('code-files-section')
-  const filesTitle = files.getByRole('button', { name: 'Files', exact: true })
-  if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
-  const bulkDirectory = files.locator('[data-testid="code-file-row"][data-file-path="bulk"]')
-  await bulkDirectory.click()
-  await expect(bulkDirectory).toHaveAttribute('aria-expanded', 'true')
-
-  const projectList = page.getByTestId('code-project-list')
-  await projectList.evaluate(element => { element.scrollTop = 0 })
-  await expect(files.getByTestId('code-file-sticky-stack')).toHaveCount(0)
-  await files.evaluate(element => {
-    const testWindow = window as Window & {
-      __fileTreeStickyDragAudit?: {
-        observer: MutationObserver
-        mounted: number
-        removed: number
-      }
-    }
-    const audit = {
-      observer: null as unknown as MutationObserver,
-      mounted: 0,
-      removed: 0,
-    }
-    audit.observer = new MutationObserver(mutations => {
-      for (const mutation of mutations) {
-        for (const addedNode of mutation.addedNodes) {
-          if (!(addedNode instanceof HTMLElement)) continue
-          if (addedNode.matches('[data-testid="code-file-sticky-stack"]') || addedNode.querySelector('[data-testid="code-file-sticky-stack"]')) {
-            audit.mounted += 1
-          }
-        }
-        for (const removedNode of mutation.removedNodes) {
-          if (!(removedNode instanceof HTMLElement)) continue
-          if (removedNode.matches('[data-testid="code-file-sticky-stack"]') || removedNode.querySelector('[data-testid="code-file-sticky-stack"]')) {
-            audit.removed += 1
-          }
-        }
-      }
-    })
-    audit.observer.observe(element, { childList: true, subtree: true })
-    testWindow.__fileTreeStickyDragAudit = audit
-  })
-
-  await projectList.evaluate(async element => {
-    const targetScrollTop = (element.scrollHeight - element.clientHeight) * 0.45
-    for (let step = 1; step <= 120; step += 1) {
-      element.scrollTop = targetScrollTop * step / 120
-      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
-    }
-  })
-  await settleLayout(page)
-  expect(await projectList.evaluate(element => element.scrollTop)).toBeGreaterThan(0)
-
-  const audit = await files.evaluate(() => {
-    const testWindow = window as Window & {
-      __fileTreeStickyDragAudit?: { observer: MutationObserver; mounted: number; removed: number }
-    }
-    const result = testWindow.__fileTreeStickyDragAudit
-    result?.observer.disconnect()
-    delete testWindow.__fileTreeStickyDragAudit
-    return result ? { mounted: result.mounted, removed: result.removed } : null
-  })
-  expect(audit).toEqual({ mounted: 1, removed: 0 })
-  await expect(files.getByTestId('code-file-sticky-stack')).toBeVisible()
+  await expect(restoredTarget.locator('.code-file-name')).toHaveText('AbstractVectorIndexDataClient.java')
+  await expect(restoredFiles.getByTestId('code-file-sticky-stack')).toHaveCount(0)
 })
 
 test('restores the open editor set, preview state, and Open Editors disclosure', async ({ page, workspaceRoot }) => {
@@ -709,7 +456,7 @@ test('keeps explicit user collapses when tabs change or a reveal is still loadin
   await expect(pending).toHaveAttribute('aria-expanded', 'false')
 })
 
-test('keeps the sticky Files seam opaque over scrolled file rows', async ({ page, workspaceRoot }) => {
+test('keeps the Files header seam opaque over scrolled file rows', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'opaque-files-sticky-seam')
   fs.mkdirSync(workspace, { recursive: true })
   for (let index = 0; index < 40; index += 1) {
@@ -755,91 +502,6 @@ test('keeps the sticky Files seam opaque over scrolled file rows', async ({ page
   })
 })
 
-test('keeps compact sticky context on the real ancestor instead of a crossed sibling directory', async ({ page, workspaceRoot }) => {
-  const workspace = path.join(workspaceRoot, 'sibling-directory-sticky-prefix')
-  const codeDirectory = path.join(workspace, 'src', 'components', 'code')
-  fs.mkdirSync(path.join(codeDirectory, 'acp'), { recursive: true })
-  fs.mkdirSync(path.join(codeDirectory, 'pet'), { recursive: true })
-  for (let index = 0; index < 24; index += 1) {
-    fs.writeFileSync(path.join(codeDirectory, `agent-${String(index).padStart(2, '0')}.ts`), `export const value${index} = ${index}\n`)
-  }
-
-  await openFarming(page)
-  await openNewAgentDialog(page)
-  await startAgentFromOpenDialog(page, 'bash', workspace)
-
-  const files = page.getByTestId('code-files-section')
-  const filesTitle = files.getByRole('button', { name: 'Files', exact: true })
-  if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
-  const targetPath = 'src/components/code/agent-23.ts'
-  const search = files.getByPlaceholder('Search or path:line')
-  await search.fill(`${targetPath}:1`)
-  await search.press('Enter')
-
-  const target = files.locator(`[data-testid="code-file-row"][data-file-path="${targetPath}"]`)
-  await expect(target).toBeVisible()
-  await scrollFileRowIntoStickyRange(target)
-  const stickyRow = files.getByTestId('code-file-sticky-stack').locator('.code-file-sticky-row')
-  await expect(stickyRow).toHaveAttribute('title', 'src/components/code')
-  await expect(stickyRow.locator('.code-file-name')).toHaveText('src/components/code')
-})
-
-test('does not duplicate a root directory into sticky context while its source row is visible', async ({ page, workspaceRoot }) => {
-  const workspace = path.join(workspaceRoot, 'visible-root-sticky-source')
-  fs.mkdirSync(path.join(workspace, 'user'), { recursive: true })
-  fs.mkdirSync(path.join(workspace, 'workflow', 'lease'), { recursive: true })
-  fs.mkdirSync(path.join(workspace, 'workflow', 'test'), { recursive: true })
-  fs.mkdirSync(path.join(workspace, 'workflow', 'z_process'), { recursive: true })
-  for (let index = 0; index < 18; index += 1) {
-    fs.writeFileSync(path.join(workspace, 'user', `entry-${String(index).padStart(2, '0')}.txt`), `${index}\n`)
-  }
-  for (let index = 0; index < 24; index += 1) {
-    fs.writeFileSync(path.join(workspace, 'workflow', `job-${String(index).padStart(2, '0')}.osql`), `${index}\n`)
-  }
-
-  await openFarming(page)
-  await openNewAgentDialog(page)
-  await startAgentFromOpenDialog(page, 'bash', workspace)
-  const files = page.getByTestId('code-files-section')
-  const filesTitle = files.getByRole('button', { name: 'Files', exact: true })
-  if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
-  const user = files.locator('[data-testid="code-file-row"][data-file-path="user"]')
-  const workflow = files.locator('[data-testid="code-file-row"][data-file-path="workflow"]')
-  await user.click()
-  await workflow.click()
-  await expect(workflow).toHaveAttribute('aria-expanded', 'true')
-
-  await workflow.evaluate(element => {
-    const scroller = element.closest<HTMLElement>('.code-project-list')
-    const header = element.closest<HTMLElement>('.code-files-section')?.querySelector<HTMLElement>('.code-files-header')
-    if (!scroller || !header) throw new Error('missing Files scroll geometry')
-    scroller.scrollTop += element.getBoundingClientRect().top - header.getBoundingClientRect().bottom + 2
-  })
-  await settleLayout(page)
-  await expect.poll(() => files.evaluate(element => {
-    const header = element.querySelector<HTMLElement>('.code-files-header')
-    const source = element.querySelector<HTMLElement>('[data-file-path="workflow"]')
-    if (!header || !source) return null
-    return source.getBoundingClientRect().bottom > header.getBoundingClientRect().bottom + 1
-  })).toBe(true)
-  await expect(files.locator('[data-testid="code-file-sticky-row"][title="workflow"]')).toHaveCount(0)
-
-  await workflow.evaluate(element => {
-    const scroller = element.closest<HTMLElement>('.code-project-list')
-    const header = element.closest<HTMLElement>('.code-files-section')?.querySelector<HTMLElement>('.code-files-header')
-    if (!scroller || !header) throw new Error('missing Files scroll geometry')
-    scroller.scrollTop += element.getBoundingClientRect().bottom - header.getBoundingClientRect().bottom + 2
-  })
-  await settleLayout(page)
-  const stickyWorkflow = files.locator('[data-testid="code-file-sticky-row"][title="workflow"]')
-  await expect(stickyWorkflow).toHaveCount(1)
-  await expect.poll(() => files.evaluate(element => {
-    const sticky = element.querySelector<HTMLElement>('[data-testid="code-file-sticky-row"][title="workflow"]')
-    const source = element.querySelector<HTMLElement>('[data-testid="code-file-row"][data-file-path="workflow"]')
-    return Boolean(sticky && (!source || source.getBoundingClientRect().bottom <= sticky.getBoundingClientRect().top + 1))
-  })).toBe(true)
-})
-
 test('does not pin a collapsed root sibling above root files', async ({ page, workspaceRoot }) => {
   const workspace = path.join(workspaceRoot, 'collapsed-root-sibling')
   fs.mkdirSync(path.join(workspace, 'tests'), { recursive: true })
@@ -863,9 +525,7 @@ test('does not pin a collapsed root sibling above root files', async ({ page, wo
   await page.keyboard.press('End')
   const lastRootFile = files.locator('[data-testid="code-file-row"][data-file-path="root-29.ts"]')
   await expect(lastRootFile).toHaveClass(/selected/)
-  await scrollFileRowIntoStickyRange(lastRootFile)
-
-  await expect(files.getByTestId('code-file-sticky-stack')).toHaveCount(0)
+  await scrollFileRowIntoProjectRange(lastRootFile)
   await tree.focus()
   await page.keyboard.press('Home')
   await expect(testsDirectory).toHaveAttribute('aria-expanded', 'false')
@@ -901,7 +561,7 @@ test('keeps a deeply scrolled directory anchored while pointer expansion loads i
   for (let index = 0; index < 40; index += 1) await page.keyboard.press('ArrowUp')
   const velox = files.locator('[data-testid="code-file-row"][data-file-path="velox"]')
   await expect(velox).toHaveClass(/selected/)
-  await scrollFileRowIntoStickyRange(velox)
+  await scrollFileRowIntoProjectRange(velox)
   await page.evaluate(() => {
     const testWindow = window as Window & { __fileTreeScrollIntoViewPaths?: string[] }
     testWindow.__fileTreeScrollIntoViewPaths = []
@@ -956,7 +616,7 @@ test('keeps a deeply scrolled directory anchored while pointer expansion loads i
   await expect.poll(async () => Math.abs((await readAnchor()).scrollTop - intentionalScrollTop))
     .toBeLessThanOrEqual(1)
 
-  await scrollFileRowIntoStickyRange(velox)
+  await scrollFileRowIntoProjectRange(velox)
   let previousAnchor = await readAnchor()
   for (const expanded of ['false', 'true']) {
     await velox.click()
@@ -998,8 +658,7 @@ test('keeps a deeply scrolled directory anchored while pointer expansion loads i
   expect(Math.abs(nextAnchor.scrollTop - previousAnchor.scrollTop)).toBeLessThanOrEqual(1)
   expect(Math.abs(nextAnchor.rowTop - previousAnchor.rowTop)).toBeLessThanOrEqual(1)
   const nestedDirectory = files.locator('[data-testid="code-file-row"][data-file-path="velox/child-12"]')
-  await scrollFileRowIntoStickyRange(nestedDirectory)
-  await expect(files.getByTestId('code-file-sticky-stack').locator('.code-file-sticky-row')).toHaveAttribute('title', 'velox')
+  await scrollFileRowIntoProjectRange(nestedDirectory)
   const nestedAnchor = await nestedDirectory.evaluate(element => ({
     rowTop: element.getBoundingClientRect().top,
     scrollTop: element.closest<HTMLElement>('.code-project-list')?.scrollTop ?? -1,
@@ -1365,9 +1024,8 @@ test('keeps directory mutations and keyboard file operations authoritative', asy
   const deleteOpenFile = files.locator('[data-testid="code-file-row"][data-file-path="delete-parent/deep/remove.ts"]')
   await deleteOpenFile.click()
   await expect(page.locator('.code-file-editor-tab[title="delete-parent/deep/remove.ts"]')).toHaveAttribute('aria-selected', 'true')
-  const stickyDeleteParent = files.locator('[data-testid="code-file-sticky-row"][data-sticky-file-path="delete-parent"]')
-  if (await stickyDeleteParent.count()) await stickyDeleteParent.click({ button: 'right' })
-  else await deleteParent.click({ button: 'right' })
+  await deleteParent.scrollIntoViewIfNeeded()
+  await deleteParent.click({ button: 'right' })
   await page.getByTestId('code-file-context-menu').getByRole('menuitem', { name: 'Delete' }).click()
   await page.getByTestId('code-file-operation-dialog').getByRole('button', { name: 'Delete' }).click()
   await expect(deleteParent).toHaveCount(0)
