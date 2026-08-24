@@ -659,6 +659,7 @@ test('keeps a deeply scrolled directory anchored while pointer expansion loads i
   expect(Math.abs(nextAnchor.rowTop - previousAnchor.rowTop)).toBeLessThanOrEqual(1)
   const nestedDirectory = files.locator('[data-testid="code-file-row"][data-file-path="velox/child-12"]')
   await scrollFileRowIntoProjectRange(nestedDirectory)
+  await settleLayout(page)
   const nestedAnchor = await nestedDirectory.evaluate(element => ({
     rowTop: element.getBoundingClientRect().top,
     scrollTop: element.closest<HTMLElement>('.code-project-list')?.scrollTop ?? -1,
