@@ -30,7 +30,9 @@ function run() {
   assert(releaseWorkflowSource.includes('node scripts/verify-release-notes.mjs "${RELEASE_VERSION}"'));
   assert(preparationWorkflowSource.includes('npm run release:dependencies:check'));
   assert(publicationWorkflowSource.includes('RELEASE_CODENAME: ${{ steps.notes.outputs.codename }}'));
-  assert(publicationWorkflowSource.includes('--title "Farming ${RELEASE_VERSION} · ${RELEASE_CODENAME}"'));
+  assert(publicationWorkflowSource.includes('release_title="Farming ${RELEASE_VERSION}"'));
+  assert(publicationWorkflowSource.includes('release_title+=" · ${RELEASE_CODENAME}"'));
+  assert(publicationWorkflowSource.includes('--title "${release_title}"'));
   assert(preparationWorkflowSource.includes('workflow_dispatch:'));
   assert(publicationWorkflowSource.includes('workflow_dispatch:'));
   assert(!releaseWorkflowSource.includes("push:\n    tags:\n      - 'v*'"));

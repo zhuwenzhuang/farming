@@ -298,6 +298,10 @@ jobs:
         run: |
           set -euo pipefail
           release_args=(--repo "${GITHUB_REPOSITORY}")
+          release_title="Farming ${RELEASE_VERSION}"
+          if [[ -n "${RELEASE_CODENAME}" ]]; then
+            release_title+=" · ${RELEASE_CODENAME}"
+          fi
           candidate_sha="$(git rev-parse HEAD)"
           tag_created=0
           release_created=0
@@ -331,14 +335,14 @@ jobs:
               exit 0
             fi
             gh release upload "${RELEASE_TAG}" release-assets/* --clobber "${release_args[@]}"
-            gh release edit "${RELEASE_TAG}" --title "Farming ${RELEASE_VERSION} · ${RELEASE_CODENAME}" --notes-file "${RELEASE_NOTES_FILE}" "${release_args[@]}"
+            gh release edit "${RELEASE_TAG}" --title "${release_title}" --notes-file "${RELEASE_NOTES_FILE}" "${release_args[@]}"
           else
             create_args=(
               "${RELEASE_TAG}"
               release-assets/*
               --draft
               --verify-tag
-              --title "Farming ${RELEASE_VERSION} · ${RELEASE_CODENAME}"
+              --title "${release_title}"
               --notes-file "${RELEASE_NOTES_FILE}"
             )
             if [[ "${RELEASE_VERSION}" == *-* ]]; then

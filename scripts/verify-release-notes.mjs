@@ -17,11 +17,12 @@ function readNote(file) {
   return fs.readFileSync(file, 'utf8').replaceAll('\r\n', '\n');
 }
 
-function parseCodename(line, prefix, file) {
+function parseOptionalCodename(line, prefix, file) {
+  if (!line.startsWith(prefix)) return '';
   const match = line.match(new RegExp(`^${prefix}\\*\\*([^*]+)\\*\\*$`));
   const codename = match?.[1] ?? '';
   if (!CODENAME_PATTERN.test(codename)) {
-    throw new Error(`${file}:5 must declare an uppercase milestone codename`);
+    throw new Error(`${file}:5 milestone codename must be uppercase when declared`);
   }
   return codename;
 }
@@ -47,12 +48,12 @@ function verifyReleaseNotes(version, notesDir) {
   requireLine(chineseLines, 2, `[English](./v${version}.md)`, chineseFile);
   requireLine(chineseLines, 3, '', chineseFile);
 
-  const englishCodename = parseCodename(
+  const englishCodename = parseOptionalCodename(
     englishLines[4] ?? '',
     'Milestone codename: ',
     englishFile,
   );
-  const chineseCodename = parseCodename(
+  const chineseCodename = parseOptionalCodename(
     chineseLines[4] ?? '',
     '里程碑代号：',
     chineseFile,
@@ -95,7 +96,7 @@ try {
   const result = verifyReleaseNotes(version, notesDir);
   process.stdout.write(codenameOnly
     ? `${result.codename}\n`
-    : `Release notes valid: v${version} · ${result.codename}\n`);
+    : `Release notes valid: v${version}${result.codename ? ` · ${result.codename}` : ''}\n`);
 } catch (error) {
   process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
   process.exitCode = 1;

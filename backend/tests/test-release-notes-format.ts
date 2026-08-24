@@ -40,6 +40,23 @@ function run() {
     assert.strictEqual(codename.stdout.trim(), 'BEACON');
 
     fs.writeFileSync(
+      path.join(temporaryRoot, `v${version}.md`),
+      `# Farming v${version}\n\n[简体中文](./v${version}.zh_cn.md)\n\nThis patch release contains bug fixes.\n\n## Upgrade\n\nfarming-code@${version}\n`,
+    );
+    fs.writeFileSync(
+      path.join(temporaryRoot, `v${version}.zh_cn.md`),
+      `# Farming v${version}\n\n[English](./v${version}.md)\n\n本次补丁发布包含 Bug 修复。\n\n## 升级\n\nfarming-code@${version}\n`,
+    );
+    const withoutCodename = runVerifier(version, temporaryRoot);
+    assert.strictEqual(withoutCodename.status, 0, withoutCodename.stderr);
+    assert.strictEqual(withoutCodename.stdout.trim(), 'Release notes valid: v9.8.7');
+    const emptyCodename = runVerifier(version, temporaryRoot, '--codename');
+    assert.strictEqual(emptyCodename.status, 0, emptyCodename.stderr);
+    assert.strictEqual(emptyCodename.stdout, '\n');
+
+    writeNotes(temporaryRoot, version);
+
+    fs.writeFileSync(
       path.join(temporaryRoot, `v${version}.zh_cn.md`),
       `# Farming v${version}\n\n[English](./v${version}.md)\n\n里程碑代号：**WRONG**\n\n## 升级\n\nfarming-code@${version}\n`,
     );
@@ -58,7 +75,7 @@ function run() {
     fs.rmSync(temporaryRoot, { recursive: true, force: true });
   }
 
-  console.log('✓ Release note format verifier rejects missing or inconsistent bilingual metadata');
+  console.log('✓ Release note format verifier accepts optional and rejects inconsistent bilingual codenames');
 }
 
 run();
