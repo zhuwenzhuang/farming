@@ -2927,6 +2927,7 @@ export function CodeWorkspace({
         [sessionHandle]: false,
       }))
       invalidateAgentSessionsForHistory()
+      setCopyNotice({ id: Date.now(), kind: 'success', message: copy.archived })
     } catch (error) {
       setCopyNotice({
         id: Date.now(),
@@ -2934,7 +2935,7 @@ export function CodeWorkspace({
         message: error instanceof Error ? error.message : copy.updateFailed,
       })
     }
-  }, [closeContextMenu, copy.updateFailed, invalidateAgentSessionsForHistory, receiveAuthoritativeMainPageSessionKeys])
+  }, [closeContextMenu, copy.archived, copy.updateFailed, invalidateAgentSessionsForHistory, receiveAuthoritativeMainPageSessionKeys])
 
   const archiveContextMenuAgentSession = useCallback(() => {
     if (contextMenuAgentSession) void archiveAgentSession(contextMenuAgentSession)

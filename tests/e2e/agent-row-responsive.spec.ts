@@ -528,6 +528,7 @@ test('keeps a session row on Archive failure and removes it after confirmed Arch
     { providerHomeId: 'review' },
   ])
   await expect(row).toHaveCount(0)
+  await expect(page.getByTestId('code-copy-toast')).toHaveText('Archived')
 })
 
 test('hides Agent row actions after a clicked row loses hover', async ({ page, workspaceRoot }) => {
