@@ -99,7 +99,11 @@ Plugins 或 URL 打开文件时只有一个 Reveal Owner，避免 Tree 与 Proje
 Scroll。被 Reveal 的文件要锚定在文件可视区中间偏上的位置，而不是仅贴着下边缘露出。从文件
 返回 Source Agent 时，需要展开该 Agent 所在的 Project 和 Agent Group，再 Reveal 精确的 Agent
 Row；即使文件与 Source Agent 分属不同 Project 也必须成功。文件占用主区域时，来源关联不能把
-任何 Agent Row 标为 Active。Workspace 前进/返回把 Plugins
+任何 Agent Row 标为 Active。Explorer 的 Row Selection Surface 只能由 Explorer Selection 唯一
+持有：Active Editor Path 可以保留导航状态，但用户选择目录或其他文件后，不能再绘制第二个 Row。
+主区域返回 Agent 后，Explorer 可以保留上次 Selection 以便继续键盘操作，但在 Tree 或 Editor
+再次拥有交互前，不能继续把该文件绘制成 Selected 或 Active。
+Workspace 前进/返回把 Plugins
 Location 作为一等 History Entry；打开来源文件后返回时，恢复原来的 Tab、Agent Home、
 Extension Kind、Query、Detail 与 Scroll Position。
 

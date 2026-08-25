@@ -901,8 +901,11 @@ body.code-mode .code-file-change-group-toggle {
 }
 
 .code-file-tree-row-frame.active,
-.code-file-tree-row-frame:has(.code-file-row.selected:not(.active)),
 .code-file-tree-row-frame:has(.code-file-row.active) {
+  background: var(--code-active-item-surface);
+}
+
+.code-file-tree-viewport:focus-within .code-file-tree-row-frame:has(.code-file-row.selected:not(.active)) {
   background: var(--code-active-item-surface);
 }
 

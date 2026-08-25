@@ -37,6 +37,43 @@ test('keeps the source Agent return action across Markdown document links', asyn
 
   await page.getByTestId('code-file-editor-back').click()
   await expect(page.getByTestId('code-terminal-grid')).toBeVisible()
+  const selectedFileRow = files.locator('[data-testid="code-file-row"][data-file-path="next.md"]')
+  await expect(selectedFileRow).not.toHaveClass(/active/)
+  await expect.poll(() => selectedFileRow.evaluate(row => (
+    getComputedStyle(row.closest('.code-file-tree-row-frame') as HTMLElement).backgroundColor
+  ))).toBe('rgba(0, 0, 0, 0)')
+})
+
+test('keeps one Explorer selection surface when a directory replaces an open file selection', async ({ page }) => {
+  const workspaceRoot = path.join(PLAYWRIGHT_WORKSPACE_ROOT, 'file-directory-selection-owner')
+  fs.rmSync(workspaceRoot, { recursive: true, force: true })
+  fs.mkdirSync(path.join(workspaceRoot, 'folder'), { recursive: true })
+  fs.writeFileSync(path.join(workspaceRoot, 'README.md'), '# Selection owner\n')
+
+  await openFarming(page)
+  await openNewAgentDialog(page)
+  await startAgentFromOpenDialog(page, 'bash', workspaceRoot)
+
+  const project = page.getByTestId('code-project-group').filter({ hasText: path.basename(workspaceRoot) })
+  const files = project.getByTestId('code-files-section')
+  const filesTitle = files.locator('.code-files-title').first()
+  if (await filesTitle.getAttribute('aria-expanded') !== 'true') await filesTitle.click()
+
+  const fileRow = files.locator('[data-testid="code-file-row"][data-file-path="README.md"]')
+  const directoryRow = files.locator('[data-testid="code-file-row"][data-file-path="folder"]')
+  await fileRow.click()
+  await expect(page.getByTestId('code-file-editor')).toBeVisible()
+  await expect(fileRow).toHaveClass(/active/)
+
+  await directoryRow.click()
+  await expect(directoryRow).toHaveClass(/selected/)
+  await expect(fileRow).not.toHaveClass(/active/)
+  await expect.poll(() => fileRow.evaluate(row => (
+    getComputedStyle(row.closest('.code-file-tree-row-frame') as HTMLElement).backgroundColor
+  ))).toBe('rgba(0, 0, 0, 0)')
+  await expect.poll(() => directoryRow.evaluate(row => (
+    getComputedStyle(row.closest('.code-file-tree-row-frame') as HTMLElement).backgroundColor
+  ))).not.toBe('rgba(0, 0, 0, 0)')
 })
 
 test('keeps file editing available when a local preview render fails and recovers', async ({ page }) => {

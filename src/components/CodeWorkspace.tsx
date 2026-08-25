@@ -1674,6 +1674,7 @@ export function CodeWorkspace({
     ? lastProjectWorkspace ?? projects[0]?.workspace
     : activeProjectWorkspace ?? lastProjectWorkspace ?? projects[0]?.workspace
   const showFileEditor = mainPaneMode === 'editor' && Boolean(openWorkspaceFile)
+  const sidebarActiveWorkspaceFile = mainPaneMode === 'editor' ? openWorkspaceFile : null
   const requestedResourceAgentId = mainPaneMode === 'browser' && activeBrowserResource
     ? activeBrowserResource.ownerAgentId
     : mainPaneMode === 'computer' && activeComputerResource
@@ -5429,7 +5430,7 @@ export function CodeWorkspace({
         shareTarget={shareTarget}
         agentLaunchOptions={agentLaunchOptions}
         agentCreationWorkspace={agentCreationWorkspace}
-        openWorkspaceFile={openWorkspaceFile}
+        openWorkspaceFile={sidebarActiveWorkspaceFile}
         openWorkspaceFiles={openWorkspaceFiles}
         agentRevealRequest={visibleAgentRevealRequest}
         fileRevealRequest={fileRevealRequest}

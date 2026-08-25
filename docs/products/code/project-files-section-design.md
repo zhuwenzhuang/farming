@@ -132,7 +132,13 @@ rather than merely exposed at its lower edge. Returning from a file to its sourc
 Agent expands that Agent's Project and Agent group, then reveals the exact Agent
 row even when the file and source Agent belong to different Projects. While the
 file owns the main pane, that source association does not mark an Agent row as
-active. Workspace back/forward history treats a Plugins location as a first-class
+active. The Explorer selection is the sole owner of its row selection surface:
+an active editor path may keep navigation state, but it cannot paint a second row
+after the user selects a directory or another file. After the main pane returns to
+an Agent, the Explorer may retain its last selection for keyboard continuity, but
+it does not paint that file as selected or active until the tree or editor owns the
+interaction again. Workspace back/forward
+history treats a Plugins location as a first-class
 entry and restores
 its tab, Agent Home, extension kind, query, detail, and scroll position after
 opening a source file.

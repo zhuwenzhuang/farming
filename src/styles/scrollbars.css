@@ -3,8 +3,15 @@
 
 body.code-mode,
 body.code-mode * {
-  scrollbar-color: var(--code-scrollbar-thumb) transparent;
+  scrollbar-color: transparent transparent;
   scrollbar-width: thin;
+}
+
+body.code-mode:hover,
+body.code-mode:focus-within,
+body.code-mode *:hover,
+body.code-mode *:focus-within {
+  scrollbar-color: var(--code-scrollbar-thumb) transparent;
 }
 
 body.code-mode::-webkit-scrollbar,
@@ -22,6 +29,25 @@ body.code-mode::-webkit-scrollbar-thumb,
 body.code-mode *::-webkit-scrollbar-thumb {
   border: 2px solid transparent;
   border-radius: 999px;
+  background: transparent;
+  background-clip: content-box;
+}
+
+body.code-mode:hover::-webkit-scrollbar-thumb,
+body.code-mode:focus-within::-webkit-scrollbar-thumb,
+body.code-mode *:hover::-webkit-scrollbar-thumb,
+body.code-mode *:focus-within::-webkit-scrollbar-thumb {
+  background: var(--code-scrollbar-thumb);
+  background-clip: content-box;
+}
+
+/* Xterm's canvas layers cover its native viewport, so map interaction from
+   the terminal host back to the element that owns the scrollbar. */
+body.code-mode .xterm:hover .xterm-viewport {
+  scrollbar-color: var(--code-scrollbar-thumb) transparent;
+}
+
+body.code-mode .xterm:hover .xterm-viewport::-webkit-scrollbar-thumb {
   background: var(--code-scrollbar-thumb);
   background-clip: content-box;
 }

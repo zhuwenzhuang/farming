@@ -77,6 +77,8 @@ async function expectNativeScrollbar(locator: Locator, color: string) {
   })
 }
 
+const transparent = 'rgba(0, 0, 0, 0)'
+
 test('unifies native, Xterm, and Monaco scrollbars across every Code appearance', async ({ page, workspaceRoot }) => {
   const projectDir = path.join(workspaceRoot, 'scrollbar-theme')
   fs.mkdirSync(projectDir, { recursive: true })
@@ -129,9 +131,18 @@ test('unifies native, Xterm, and Monaco scrollbars across every Code appearance'
     typeof appearances[keyof typeof appearances],
   ]>) {
     await setAppearance(page, appearance)
+    await page.getByTestId('code-composer-input').focus()
     await page.mouse.move(0, 0)
-    await expectNativeScrollbar(probe, colors.default)
-    await expectNativeScrollbar(projectList, colors.default)
+    await expectNativeScrollbar(probe, transparent)
+    await expectNativeScrollbar(projectList, transparent)
+    await expectNativeScrollbar(terminalViewport, transparent)
+    await probe.hover({ position: { x: 8, y: 8 } })
+    await expectNativeScrollbar(probe, colors.hover)
+    await projectList.hover({ position: { x: 8, y: 8 } })
+    await expectNativeScrollbar(projectList, colors.hover)
+    const terminalBox = await terminalViewport.boundingBox()
+    expect(terminalBox).not.toBeNull()
+    await page.mouse.move((terminalBox?.x ?? 0) + 8, (terminalBox?.y ?? 0) + 8)
     await expectNativeScrollbar(terminalViewport, colors.default)
 
     await fileRow.click()
@@ -170,5 +181,6 @@ test('unifies native, Xterm, and Monaco scrollbars across every Code appearance'
   await page.getByTestId('code-sidebar-options').click()
   const settingsScroller = page.locator('.code-settings-panel-body')
   await expect(settingsScroller).toBeVisible()
-  await expectNativeScrollbar(settingsScroller, appearances.paper.default)
+  await settingsScroller.hover({ position: { x: 8, y: 8 } })
+  await expectNativeScrollbar(settingsScroller, appearances.paper.hover)
 })

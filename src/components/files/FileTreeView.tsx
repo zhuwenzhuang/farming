@@ -216,7 +216,10 @@ const SubscribedFileTreeRow = memo(function SubscribedFileTreeRow({
   return (
     <FileTreeRow
       {...rowProps}
-      activeFilePath={active ? node.data.path : undefined}
+      // The Explorer selection is the sole owner of the row surface. An open
+      // editor keeps its path active for navigation, but it must not paint a
+      // second row after the user selects a directory or another file.
+      activeFilePath={active && selected ? node.data.path : undefined}
       decoration={decoration}
       node={node}
       openFilePendingPath={pending ? node.data.path : undefined}
