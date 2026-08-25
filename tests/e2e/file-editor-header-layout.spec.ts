@@ -559,6 +559,11 @@ test('overlays right-side file actions on overflowing tabs and shows a seamless 
   expect(darkBackgrounds.breadcrumb).toBe(darkBackgrounds.content)
   await expect(project.locator('.code-agent-row.active')).toHaveCount(0)
 
+  const reportFileRow = files.locator('[data-testid="code-file-row"][data-file-path="docs/report.md"]')
+  await expect(reportFileRow).not.toHaveClass(/active/)
+  await reportFileRow.click()
+  await expect(reportFileRow).toHaveClass(/active/)
+
   const activeSelectionSurfaces = await page.evaluate(() => (
     ['light', 'dark', 'paper'] as const
   ).map(appearance => {

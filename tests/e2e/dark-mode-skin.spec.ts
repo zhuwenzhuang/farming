@@ -413,15 +413,15 @@ test.describe('Farming Code appearance skins', () => {
     const projectList = page.getByTestId('code-project-list')
     await expect.poll(() => projectList.evaluate(element => (
       getComputedStyle(element, '::-webkit-scrollbar-thumb').backgroundColor
-    ))).toBe('rgba(139, 148, 158, 0.32)')
+    ))).toBe('rgba(0, 0, 0, 0)')
     await projectList.hover()
     await expect.poll(() => projectList.evaluate(element => (
       getComputedStyle(element, '::-webkit-scrollbar-thumb').backgroundColor
-    ))).toBe('rgba(139, 148, 158, 0.32)')
+    ))).toBe('rgba(139, 148, 158, 0.44)')
     await page.getByTestId('code-main').hover({ position: { x: 20, y: 20 } })
     await expect.poll(() => projectList.evaluate(element => (
       getComputedStyle(element, '::-webkit-scrollbar-thumb').backgroundColor
-    ))).toBe('rgba(139, 148, 158, 0.32)')
+    ))).toBe('rgba(0, 0, 0, 0)')
     await expectDarkSurface(page.getByTestId('code-composer'), 'composer')
     await saveScreenshot(testInfo, 'desktop-shell.png', page)
     await chooseAppearance(page, 'Light')

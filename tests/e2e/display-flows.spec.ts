@@ -2513,7 +2513,7 @@ test.describe('display-backed agent flows', () => {
     await expect(filesTitle).toHaveAttribute('aria-expanded', 'true')
     const readmeRow = childFiles.locator('[data-testid="code-file-row"][data-file-path="README.md"]')
     await expect(readmeRow).toBeVisible()
-    await expect(readmeRow).toHaveClass(/active/)
+    await expect(readmeRow).not.toHaveClass(/active/)
     const queryRow = childFiles.locator('[data-testid="code-file-row"][data-file-path="query.sql"]')
     const transientReplacementRow = childFiles.locator('[data-testid="code-file-row"][data-file-path="deep/nested/inner/file-00.txt"]')
     await queryRow.click()

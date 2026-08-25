@@ -261,7 +261,7 @@ test('keeps large expanded file trees off the warm file-switch render path', asy
   await expect(files.locator('[data-testid="code-file-row"].selected[data-file-type="file"]')).toHaveCount(1)
   await expect(files.locator(`[data-file-path="${secondPath}"]`)).toHaveClass(/selected/)
   await firstTab.click()
-  await expect(files.locator(`[data-file-path="${firstPath}"]`)).toHaveClass(/active/)
+  await expect(files.locator(`[data-file-path="${firstPath}"]`)).not.toHaveClass(/active/)
   const firstRow = files.locator(`[data-file-path="${firstPath}"]`)
   const secondRow = files.locator(`[data-file-path="${secondPath}"]`)
   await tree.focus()

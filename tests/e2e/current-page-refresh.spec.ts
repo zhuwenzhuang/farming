@@ -60,7 +60,7 @@ test('entry pages preserve cached capabilities and History while refreshing curr
     await route.continue()
   })
   await page.route('**/api/agent-sessions?**', async route => {
-    const current = new URL(route.request().url()).searchParams.get('fresh') === '1'
+    const current = new URL(route.request().url()).searchParams.get('force') === '1'
     if (current && blockCurrentHistoryRefresh) await historyRefreshBlocked
     if (current && failCurrentRequests) {
       await route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"scan failed"}' })
