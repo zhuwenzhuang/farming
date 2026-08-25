@@ -1138,6 +1138,87 @@ body.code-resizing-language-server-dock {
   color: var(--code-diff-removed);
 }
 
+.code-archive-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  z-index: 10007;
+  min-height: 48px;
+  max-width: calc(100vw - 32px);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px 7px 14px;
+  border: 1px solid var(--code-border);
+  border-radius: 12px;
+  background: var(--code-bg-raised);
+  box-shadow: 0 12px 32px var(--code-shadow-color);
+  color: var(--code-text);
+  font-size: 13px;
+  transform: translateX(-50%);
+}
+
+.code-archive-toast-icon {
+  display: inline-flex;
+  flex: none;
+}
+
+.code-archive-toast-label {
+  margin-right: 2px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.code-archive-toast-label.error {
+  max-width: min(360px, 40vw);
+  overflow: hidden;
+  color: var(--code-diff-removed);
+  text-overflow: ellipsis;
+}
+
+.code-archive-toast button {
+  min-width: 0;
+  height: 34px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--code-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.code-archive-toast button.view {
+  background: var(--code-bg-muted);
+}
+
+.code-archive-toast button.undo {
+  background: var(--code-accent);
+  color: var(--code-text-on-emphasis);
+}
+
+.code-archive-toast button.close {
+  width: 34px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.code-archive-toast button:hover:not(:disabled),
+.code-archive-toast button.view:hover:not(:disabled) {
+  background: var(--code-bg-hover);
+}
+
+.code-archive-toast button.undo:hover:not(:disabled) {
+  background: var(--code-accent-hover);
+}
+
+.code-archive-toast button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
 .app-toast {
   position: fixed;
   left: 50%;

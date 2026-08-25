@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Agent, TaskHistoryEntry } from '@/types/agent'
 import { agentTitle, formatRelativeAge } from '@/lib/format'
 import { agentIconName, agentIconNameFromCommand, type AgentIconName } from '@/lib/agent-presentation'
@@ -41,6 +41,7 @@ interface HistoryPanelProps {
   loading: boolean
   error: string
   providerSessionTotal: number | null
+  revealSession: { requestId: number; sessionHandle: string; sessionId: string } | null
   now: number
   onResumeSession: (provider: string, sessionId: string, providerHomeId?: string) => void
   onContinueRun: (entry: TaskHistoryEntry) => void
@@ -356,6 +357,7 @@ export function HistoryPanel({
   loading,
   error,
   providerSessionTotal,
+  revealSession,
   now,
   onResumeSession,
   onContinueRun,
@@ -370,6 +372,7 @@ export function HistoryPanel({
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(0)
   const [loadingNextPage, setLoadingNextPage] = useState(false)
+  const handledRevealRequestRef = useRef(0)
   const normalizedQuery = query.trim()
   const hasQuery = Boolean(normalizedQuery)
   const [searchState, setSearchState] = useState<{
@@ -422,6 +425,29 @@ export function HistoryPanel({
   useEffect(() => {
     setPage(0)
   }, [normalizedQuery])
+
+  useEffect(() => {
+    if (!revealSession) return
+    setQuery(revealSession.sessionId)
+    setPage(0)
+  }, [revealSession])
+
+  useEffect(() => {
+    if (
+      !revealSession
+      || handledRevealRequestRef.current === revealSession.requestId
+      || normalizedQuery !== revealSession.sessionId
+      || searchLoading
+      || !historyPage.items.some(item => item.historyKey === revealSession.sessionHandle)
+    ) return
+    const card = Array.from(document.querySelectorAll<HTMLElement>('[data-testid="code-session-history-card"]'))
+      .find(candidate => candidate.dataset.sessionHandle === revealSession.sessionHandle)
+    const primary = card?.querySelector<HTMLButtonElement>('[data-testid="code-session-history-primary"]')
+    if (!primary) return
+    handledRevealRequestRef.current = revealSession.requestId
+    primary.focus({ preventScroll: true })
+    card?.scrollIntoView({ block: 'nearest' })
+  }, [historyPage.items, normalizedQuery, revealSession, searchLoading])
 
   useEffect(() => {
     if (page !== historyPage.page) setPage(historyPage.page)
@@ -614,6 +640,7 @@ export function HistoryPanel({
                   key={item.historyKey}
                   className="code-history-card code-session"
                   data-testid="code-session-history-card"
+                  data-session-handle={item.historyKey}
                 >
                   <button
                     type="button"

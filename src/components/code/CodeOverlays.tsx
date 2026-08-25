@@ -21,6 +21,7 @@ import type { ShareNoticeAnchor } from './share-notice'
 import {
   BrowserGlyph,
   ChatBubblesGlyph,
+  CloseGlyph,
   CopyGlyph,
   DesktopGlyph,
   FieldFlagGlyph,
@@ -60,6 +61,12 @@ interface CopyNoticeState {
   anchor?: ShareNoticeAnchor
 }
 
+export interface ArchivedSessionNoticeState {
+  busy: boolean
+  error?: string
+  id: number
+}
+
 interface CodeOverlaysProps {
   contextMenuAgent: Agent | null
   contextMenuAgentSession: AgentSessionHistoryItem | null
@@ -72,6 +79,7 @@ interface CodeOverlaysProps {
   removeProjectDialog: RemoveProjectDialogView | null
   deleteWorktreeDialog: DeleteWorktreeDialogState | null
   copyNotice: CopyNoticeState | null
+  archivedSessionNotice: ArchivedSessionNoticeState | null
   contextMenuRef: RefObject<HTMLDivElement | null>
   renameDialogRef: RefObject<HTMLFormElement | null>
   renameInputRef: RefObject<HTMLInputElement | null>
@@ -114,6 +122,9 @@ interface CodeOverlaysProps {
   onSubmitRemoveProjectDialog: () => void
   onCloseDeleteWorktreeDialog: () => void
   onSubmitDeleteWorktreeDialog: () => void
+  onViewArchivedSession: () => void
+  onUndoArchivedSession: () => void
+  onCloseArchivedSessionNotice: () => void
   copy: CodeCopy
 }
 
@@ -129,6 +140,7 @@ export function CodeOverlays({
   removeProjectDialog,
   deleteWorktreeDialog,
   copyNotice,
+  archivedSessionNotice,
   contextMenuRef,
   renameDialogRef,
   renameInputRef,
@@ -171,6 +183,9 @@ export function CodeOverlays({
   onSubmitRemoveProjectDialog,
   onCloseDeleteWorktreeDialog,
   onSubmitDeleteWorktreeDialog,
+  onViewArchivedSession,
+  onUndoArchivedSession,
+  onCloseArchivedSessionNotice,
   copy,
 }: CodeOverlaysProps) {
   const agentMenuAvailabilityState = agentMenuAvailability(contextMenuAgent, {
@@ -595,6 +610,54 @@ export function CodeOverlays({
           } as CSSProperties) : undefined}
         >
           {copyNotice.message}
+        </div>
+      )}
+      {archivedSessionNotice && (
+        <div
+          className="code-archive-toast"
+          data-testid="code-archive-toast"
+          role={archivedSessionNotice.error ? 'alert' : 'status'}
+        >
+          <span className="code-archive-toast-icon" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 16 16" focusable="false">
+              <path
+                fill="currentColor"
+                d="M6.5 8C6.22386 8 6 8.22386 6 8.5C6 8.77614 6.22386 9 6.5 9H9.5C9.77614 9 10 8.77614 10 8.5C10 8.22386 9.77614 8 9.5 8H6.5ZM1 3.5C1 2.67157 1.67157 2 2.5 2H13.5C14.3284 2 15 2.67157 15 3.5V4.5C15 5.15311 14.5826 5.70873 14 5.91465V11.5C14 12.8807 12.8807 14 11.5 14H4.5C3.11929 14 2 12.8807 2 11.5V5.91465C1.4174 5.70873 1 5.15311 1 4.5V3.5ZM2.5 3C2.22386 3 2 3.22386 2 3.5V4.5C2 4.77614 2.22386 5 2.5 5H13.5C13.7761 5 14 4.77614 14 4.5V3.5C14 3.22386 13.7761 3 13.5 3H2.5ZM3 6V11.5C3 12.3284 3.67157 13 4.5 13H11.5C12.3284 13 13 12.3284 13 11.5V6H3Z"
+              />
+            </svg>
+          </span>
+          <span className={`code-archive-toast-label${archivedSessionNotice.error ? ' error' : ''}`}>
+            {archivedSessionNotice.error || copy.archivedChat}
+          </span>
+          <button
+            type="button"
+            className="view"
+            data-testid="code-archive-toast-view"
+            onClick={onViewArchivedSession}
+            disabled={archivedSessionNotice.busy}
+          >
+            {copy.viewArchivedChat}
+          </button>
+          <button
+            type="button"
+            className="undo"
+            data-testid="code-archive-toast-undo"
+            onClick={onUndoArchivedSession}
+            disabled={archivedSessionNotice.busy}
+          >
+            {copy.undoArchiveChat}
+          </button>
+          <button
+            type="button"
+            className="close"
+            data-testid="code-archive-toast-close"
+            onClick={onCloseArchivedSessionNotice}
+            disabled={archivedSessionNotice.busy}
+            aria-label={copy.close}
+            title={copy.close}
+          >
+            <CloseGlyph />
+          </button>
         </div>
       )}
     </>

@@ -193,6 +193,10 @@ export interface CodeCopy {
   pinChat: string
   unpinChat: string
   archiveChat: string
+  archivedChat: string
+  viewArchivedChat: string
+  undoArchiveChat: string
+  undoArchiveTimedOut: string
   archiveChats: string
   archiveProject: string
   removeProject: string
@@ -772,6 +776,10 @@ const EN_COPY: CodeCopy = {
   pinChat: 'Pin chat',
   unpinChat: 'Unpin chat',
   archiveChat: 'Archive',
+  archivedChat: 'Archived chat',
+  viewArchivedChat: 'View',
+  undoArchiveChat: 'Undo',
+  undoArchiveTimedOut: 'Undo timed out. Current session state is being refreshed.',
   archiveChats: 'Archive chats',
   archiveProject: 'Archive Project',
   removeProject: 'Remove Project',
@@ -1377,6 +1385,10 @@ const ZH_COPY: CodeCopy = {
   pinChat: '置顶会话',
   unpinChat: '取消置顶会话',
   archiveChat: '归档',
+  archivedChat: '已归档会话',
+  viewArchivedChat: '查看',
+  undoArchiveChat: '撤销',
+  undoArchiveTimedOut: '撤销归档超时，正在刷新当前会话状态。',
   archiveChats: '归档会话',
   archiveProject: '归档项目',
   removeProject: '移除项目',

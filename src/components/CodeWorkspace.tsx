@@ -421,6 +421,8 @@ const TERMINAL_PATH_SEARCH_LIMIT = 12
 const EMPTY_PROJECT_AGENT_SUMMARIES: ProjectAgentSummary[] = []
 const CODEX_TERMINAL_PROFILE_REQUEST_TIMEOUT_MS = 35_000
 const WORKSPACE_OPEN_FILES_RESTORE_TIMEOUT_MS = 15_000
+const ARCHIVE_UNDO_REQUEST_TIMEOUT_MS = 35_000
+const ARCHIVE_UNDO_RECONCILE_DELAYS_MS = [0, 1_000, 5_000, 35_000] as const
 
 
 function shouldUseNativeMobileDictation() {
@@ -819,6 +821,18 @@ export function CodeWorkspace({
     message: string
     anchor?: ShareNoticeAnchor
   } | null>(null)
+  const [archivedSessionNotice, setArchivedSessionNotice] = useState<{
+    busy: boolean
+    error?: string
+    id: number
+    session: AgentSessionHistoryItem
+  } | null>(null)
+  const [historySessionRevealRequest, setHistorySessionRevealRequest] = useState<{
+    requestId: number
+    sessionHandle: string
+    sessionId: string
+  } | null>(null)
+  const archiveUndoReconcileTimersRef = useRef<Set<number>>(new Set())
   const mutateProject = useProjectMutationController({
     applyProjectMembership,
     replaceProjectName,
@@ -2927,7 +2941,7 @@ export function CodeWorkspace({
         [sessionHandle]: false,
       }))
       invalidateAgentSessionsForHistory()
-      setCopyNotice({ id: Date.now(), kind: 'success', message: copy.archived })
+      setArchivedSessionNotice({ busy: false, id: Date.now(), session })
     } catch (error) {
       setCopyNotice({
         id: Date.now(),
@@ -2935,11 +2949,92 @@ export function CodeWorkspace({
         message: error instanceof Error ? error.message : copy.updateFailed,
       })
     }
-  }, [closeContextMenu, copy.archived, copy.updateFailed, invalidateAgentSessionsForHistory, receiveAuthoritativeMainPageSessionKeys])
+  }, [closeContextMenu, copy.updateFailed, invalidateAgentSessionsForHistory, receiveAuthoritativeMainPageSessionKeys])
 
   const archiveContextMenuAgentSession = useCallback(() => {
     if (contextMenuAgentSession) void archiveAgentSession(contextMenuAgentSession)
   }, [archiveAgentSession, contextMenuAgentSession])
+
+  const viewArchivedAgentSession = useCallback(() => {
+    const notice = archivedSessionNotice
+    if (!notice || notice.busy) return
+    setHistorySessionRevealRequest({
+      requestId: Date.now(),
+      sessionHandle: agentSessionId(notice.session),
+      sessionId: notice.session.id,
+    })
+    setArchivedSessionNotice(null)
+    openWorkspaceViewFromSidebar('history')
+  }, [archivedSessionNotice, openWorkspaceViewFromSidebar])
+
+  const clearArchiveUndoReconciliation = useCallback(() => {
+    archiveUndoReconcileTimersRef.current.forEach(timer => window.clearTimeout(timer))
+    archiveUndoReconcileTimersRef.current.clear()
+  }, [])
+
+  const scheduleArchiveUndoReconciliation = useCallback(() => {
+    clearArchiveUndoReconciliation()
+    ARCHIVE_UNDO_RECONCILE_DELAYS_MS.forEach(delay => {
+      const timer = window.setTimeout(() => {
+        archiveUndoReconcileTimersRef.current.delete(timer)
+        loadGlobalSettings()
+        loadAgentSessions(true)
+      }, delay)
+      archiveUndoReconcileTimersRef.current.add(timer)
+    })
+  }, [clearArchiveUndoReconciliation, loadAgentSessions, loadGlobalSettings])
+
+  const undoArchivedAgentSession = useCallback(async () => {
+    const notice = archivedSessionNotice
+    if (!notice || notice.busy) return
+    setArchivedSessionNotice(current => current?.id === notice.id
+      ? { ...current, busy: true, error: undefined }
+      : current)
+    const { session } = notice
+    const controller = new AbortController()
+    const timeoutId = window.setTimeout(() => controller.abort(), ARCHIVE_UNDO_REQUEST_TIMEOUT_MS)
+    let uncertainOutcome = true
+    try {
+      const response = await fetch(appPath(`/api/agent-sessions/${encodeURIComponent(session.provider)}/${encodeURIComponent(session.id)}/unarchive`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ providerHomeId: session.providerHomeId || 'default' }),
+        signal: controller.signal,
+      })
+      const data = await response.json().catch(() => null) as {
+        error?: string
+        mainPageSessionKeys?: string[]
+      } | null
+      if (!response.ok) {
+        uncertainOutcome = false
+        throw new Error(data?.error || copy.updateFailed)
+      }
+      if (!Array.isArray(data?.mainPageSessionKeys)) {
+        throw new Error(data?.error || copy.updateFailed)
+      }
+      uncertainOutcome = false
+      clearArchiveUndoReconciliation()
+      receiveAuthoritativeMainPageSessionKeys(data.mainPageSessionKeys)
+      invalidateAgentSessionsForHistory()
+      scheduleAgentSessionsBackgroundLoad(true)
+      setArchivedSessionNotice(current => current?.id === notice.id ? null : current)
+      window.requestAnimationFrame(() => focusAgentSessionRow(session.provider, agentSessionId(session)))
+    } catch (error) {
+      const message = controller.signal.aborted
+        ? copy.undoArchiveTimedOut
+        : (error instanceof Error ? error.message : copy.updateFailed)
+      setArchivedSessionNotice(current => current?.id === notice.id
+        ? { ...current, busy: false, error: message }
+        : current)
+      if (uncertainOutcome) scheduleArchiveUndoReconciliation()
+    } finally {
+      window.clearTimeout(timeoutId)
+    }
+  }, [archivedSessionNotice, clearArchiveUndoReconciliation, copy.undoArchiveTimedOut, copy.updateFailed, focusAgentSessionRow, invalidateAgentSessionsForHistory, receiveAuthoritativeMainPageSessionKeys, scheduleAgentSessionsBackgroundLoad, scheduleArchiveUndoReconciliation])
+
+  const closeArchivedSessionNotice = useCallback(() => {
+    setArchivedSessionNotice(current => current?.busy ? current : null)
+  }, [])
 
   const beginSidebarResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 || !event.isPrimary || sidebarResizeGestureRef.current) return
@@ -5143,6 +5238,17 @@ export function CodeWorkspace({
   }, [copyNotice])
 
   useEffect(() => {
+    if (!archivedSessionNotice || archivedSessionNotice.busy) return
+    const noticeId = archivedSessionNotice.id
+    const timer = window.setTimeout(() => {
+      setArchivedSessionNotice(current => current?.id === noticeId ? null : current)
+    }, 10_000)
+    return () => window.clearTimeout(timer)
+  }, [archivedSessionNotice])
+
+  useEffect(() => clearArchiveUndoReconciliation, [clearArchiveUndoReconciliation])
+
+  useEffect(() => {
     function closeComposerPopover(event: PointerEvent) {
       const target = event.target
       if (target instanceof Element && target.closest('.code-composer-menu-anchor')) return
@@ -5695,6 +5801,7 @@ export function CodeWorkspace({
         historyAgentSessionsLoading={agentSessionsFreshLoading}
         historyAgentSessionsError={agentSessionsFreshError}
         providerSessionTotal={agentSessionTotal}
+        historySessionRevealRequest={historySessionRevealRequest}
         canLoadMoreHistoryAgentSessions={agentSessionsHasMore}
         now={now}
         acpComposerProps={{
@@ -5933,6 +6040,7 @@ export function CodeWorkspace({
         removeProjectDialog={removeProjectDialogView}
         deleteWorktreeDialog={deleteWorktreeDialog}
         copyNotice={copyNotice}
+        archivedSessionNotice={archivedSessionNotice}
         contextMenuRef={contextMenuRef}
         renameDialogRef={renameDialogRef}
         renameInputRef={renameInputRef}
@@ -5992,6 +6100,9 @@ export function CodeWorkspace({
         onSubmitRemoveProjectDialog={submitRemoveProjectDialog}
         onCloseDeleteWorktreeDialog={closeDeleteWorktreeDialog}
         onSubmitDeleteWorktreeDialog={submitDeleteWorktreeDialog}
+        onViewArchivedSession={viewArchivedAgentSession}
+        onUndoArchivedSession={() => { void undoArchivedAgentSession() }}
+        onCloseArchivedSessionNotice={closeArchivedSessionNotice}
         copy={copy}
       />
     </div>

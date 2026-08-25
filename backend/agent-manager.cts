@@ -9324,6 +9324,77 @@ class AgentManager extends EventEmitter {
     });
   }
 
+  async unarchiveProviderSessionByIdentity(
+    provider: string,
+    sessionId: string,
+    options: Pick<AgentSessionHistoryOptions, 'providerHomeId' | 'providerHomes'> & {
+      commitMainPageMembership?: () => void;
+    } = {},
+  ): Promise<{ error?: string; providerUnarchived?: boolean; status?: number; unarchived?: boolean }> {
+    const providerHomeId = String(options.providerHomeId || 'default').trim() || 'default';
+    const providerHomes = options.providerHomes;
+    const findExactSession = () => findAgentSession(provider, sessionId, {
+      limit: 1000,
+      providerLimit: 1000,
+      scanLimit: 5000,
+      providerHomeId,
+      providerHomes,
+    });
+
+    try {
+      return await this.providerSessionMutationCoordinator.run({
+        provider,
+        homeId: providerHomeId,
+        sessionId,
+        type: 'unarchive',
+        joinSameType: true,
+        operation: async () => {
+          let session: Awaited<ReturnType<typeof findAgentSession>>;
+          try {
+            session = await findExactSession();
+          } catch (caughtError: unknown) {
+            const error = caughtError as ErrorRecord;
+            return { error: `Failed to inspect Agent session before unarchiving: ${error.message || error}`, status: 500 };
+          }
+          if (!session) return { error: 'Agent session not found', status: 404 };
+
+          const providerUnarchiveSupported = providerSessionHistoryMutationSupported(provider, 'unarchive');
+          if (providerUnarchiveSupported && session.archived === true) {
+            const result = await runProviderSessionHistoryMutation(
+              provider,
+              'unarchive',
+              sessionId,
+              { ...session },
+              { unarchiveCodexSession: (...args) => this.unarchiveCodexSession(...args) },
+            );
+            if (result?.error) {
+              return { error: result.error, status: Number(result.status) || 409 };
+            }
+          }
+
+          let verifiedSession: Awaited<ReturnType<typeof findAgentSession>>;
+          try {
+            verifiedSession = await findExactSession();
+          } catch (caughtError: unknown) {
+            const error = caughtError as ErrorRecord;
+            return { error: `Failed to verify Agent session after unarchiving: ${error.message || error}`, status: 500 };
+          }
+          if (!verifiedSession) return { error: 'Agent session disappeared while Undo was in progress', status: 409 };
+          if (verifiedSession.archived === true) return { error: 'Agent session is still archived', status: 409 };
+
+          options.commitMainPageMembership?.();
+          return {
+            unarchived: true,
+            providerUnarchived: providerUnarchiveSupported,
+          };
+        },
+      });
+    } catch (caughtError: unknown) {
+      const error = caughtError as ErrorRecord;
+      return { error: error.message || String(error), status: Number(error.statusCode) || 500 };
+    }
+  }
+
   runProviderSessionResumeAdmission<Result>(
     provider: string,
     sessionId: string,

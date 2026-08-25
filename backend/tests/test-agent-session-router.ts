@@ -85,6 +85,7 @@ async function run(): Promise<void> {
   const loggedErrors: unknown[][] = [];
   const displayWrites: Array<{ patch: unknown; sessionKey: string }> = [];
   const archiveCalls: Array<{ provider: string; providerHomeId: string; sessionId: string }> = [];
+  const unarchiveCalls: Array<{ provider: string; providerHomeId: string; sessionId: string }> = [];
   const rememberedKeys: Array<{ patch: unknown; sessionKey: string }> = [];
   const removedKeys: string[][] = [];
   const publishedMetadata: unknown[] = [];
@@ -94,6 +95,8 @@ async function run(): Promise<void> {
   let searchTimeoutMs = 50;
   let archiveResult: { error?: string; status?: number } = {};
   let archiveThrows = false;
+  let unarchiveResult: { error?: string; status?: number } = {};
+  let unarchiveThrows = false;
   const settings = {
     projectNames: { '/repo/beta': 'Friendly Project' },
     get searchTimeoutMs() {
@@ -110,6 +113,18 @@ async function run(): Promise<void> {
         mainPageSessionKeys = mainPageSessionKeys.filter(key => key !== archivedKey);
       }
       return archiveResult;
+    },
+    async unarchiveSession(
+      provider: string,
+      sessionId: string,
+      providerHomeId: string,
+      commitMainPageMembership: () => void,
+    ) {
+      events.push('unarchive');
+      unarchiveCalls.push({ provider, sessionId, providerHomeId });
+      if (unarchiveThrows) throw new Error('unarchive transport failed');
+      if (!unarchiveResult.error) commitMainPageMembership();
+      return unarchiveResult;
     },
     getMainPageSessionKeys() {
       events.push('main-page-keys');
@@ -139,6 +154,7 @@ async function run(): Promise<void> {
     rememberMainPageSessionKey(sessionKey: string, patch: unknown) {
       events.push('remember');
       rememberedKeys.push({ patch, sessionKey });
+      mainPageSessionKeys = [sessionKey, ...mainPageSessionKeys.filter(key => key !== sessionKey)];
     },
     removeMainPageSessionKeys(sessionKeys: readonly string[]) {
       events.push('remove');
@@ -188,6 +204,10 @@ async function run(): Promise<void> {
     body,
   });
   const postArchive = (path: string, body?: string) => fetch(`${baseUrl}${path}/archive`, {
+    method: 'POST',
+    ...(body === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body }),
+  });
+  const postUnarchive = (path: string, body?: string) => fetch(`${baseUrl}${path}/unarchive`, {
     method: 'POST',
     ...(body === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body }),
   });
@@ -366,7 +386,60 @@ async function run(): Promise<void> {
     archiveThrows = false;
 
     events.length = 0;
+    rememberedKeys.length = 0;
+    mainPageSessionKeys = [];
+    const unarchived = await postUnarchive('/codex/session-alpha', JSON.stringify({ providerHomeId: 'work' }));
+    assert.strictEqual(unarchived.status, 200);
+    const restoredSessionKey = encodeProviderSessionKey('codex', 'session-alpha', 'work');
+    assert.deepStrictEqual(await unarchived.json(), {
+      success: true,
+      sessionKey: restoredSessionKey,
+      mainPageSessionKeys,
+    });
+    assert.deepStrictEqual(unarchiveCalls, [{
+      provider: 'codex',
+      sessionId: 'session-alpha',
+      providerHomeId: 'work',
+    }]);
+    assert.deepStrictEqual(rememberedKeys, [{
+      sessionKey: restoredSessionKey,
+      patch: {
+        provider: 'codex',
+        providerSessionId: 'session-alpha',
+        providerSessionKey: restoredSessionKey,
+        providerHomeId: 'work',
+      },
+    }]);
+    assert.deepStrictEqual(events, ['unarchive', 'remember', 'main-page-keys', 'invalidate', 'publish']);
+
+    events.length = 0;
+    unarchiveResult = { error: 'provider unarchive failed', status: 409 };
+    const unarchiveConflict = await postUnarchive('/codex/session-alpha', JSON.stringify({ providerHomeId: 'work' }));
+    assert.strictEqual(unarchiveConflict.status, 409);
+    assert.deepStrictEqual(await unarchiveConflict.json(), { error: 'provider unarchive failed' });
+    assert.deepStrictEqual(events, ['unarchive'], 'failed Unarchive must not restore main-page membership');
+
+    unarchiveResult = { error: 'Agent session not found', status: 404 };
+    const unarchiveMissing = await postUnarchive('/codex/missing-session', JSON.stringify({ providerHomeId: 'work' }));
+    assert.strictEqual(unarchiveMissing.status, 404);
+    assert.deepStrictEqual(await unarchiveMissing.json(), { error: 'Agent session not found' });
+    assert.deepStrictEqual(events, ['unarchive', 'unarchive'], 'missing sessions must not restore main-page membership');
+
+    unarchiveResult = {};
+    const invalidUnarchive = await postUnarchive('/codex/session-alpha', JSON.stringify({ providerHomeId: 'bad home' }));
+    assert.strictEqual(invalidUnarchive.status, 400);
+    assert.deepStrictEqual(await invalidUnarchive.json(), { error: 'Invalid Agent session' });
+
+    unarchiveThrows = true;
+    const failedUnarchive = await postUnarchive('/codex/session-alpha', JSON.stringify({ providerHomeId: 'work' }));
+    assert.strictEqual(failedUnarchive.status, 500);
+    assert.deepStrictEqual(await failedUnarchive.json(), { error: 'unarchive transport failed' });
+    assert.strictEqual(loggedErrors.at(-1)?.[0], 'Failed to unarchive Agent session:');
+    unarchiveThrows = false;
+
+    events.length = 0;
     publishedMetadata.length = 0;
+    rememberedKeys.length = 0;
     removedKeys.length = 0;
     mainPageSessionKeys = [
       encodeProviderSessionKey('codex', 'session-alpha', 'work'),

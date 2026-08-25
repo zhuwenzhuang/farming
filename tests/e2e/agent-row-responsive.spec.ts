@@ -463,7 +463,7 @@ test('pins and unpins a session from the row actions', async ({ page, workspaceR
   await expect(sessionRow()).toHaveCount(1)
 })
 
-test('keeps a session row on Archive failure and removes it after confirmed Archive', async ({ page, workspaceRoot }) => {
+test('keeps a session row on Archive failure and restores it through Undo after confirmed Archive', async ({ page, workspaceRoot }) => {
   const projectDir = path.join(workspaceRoot, 'sidebar-session-archive')
   const sessionId = 'sidebar-session-archive-id'
   fs.mkdirSync(projectDir, { recursive: true })
@@ -510,6 +510,22 @@ test('keeps a session row on Archive failure and removes it after confirmed Arch
       body: JSON.stringify({ success: true, sessionKey, mainPageSessionKeys: [] }),
     })
   })
+  const unarchiveRequests: unknown[] = []
+  await page.route(`**/farming/api/agent-sessions/codex/${sessionId}/unarchive`, async route => {
+    unarchiveRequests.push(route.request().postDataJSON())
+    if (unarchiveRequests.length === 1) {
+      await route.fulfill({
+        contentType: 'application/json',
+        status: 409,
+        body: JSON.stringify({ error: 'Provider Undo failed' }),
+      })
+      return
+    }
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, sessionKey, mainPageSessionKeys: [sessionKey] }),
+    })
+  })
 
   await openFarming(page)
   const row = page.getByTestId('code-active-session-row').filter({ hasText: 'Archive from sidebar row' })
@@ -528,7 +544,170 @@ test('keeps a session row on Archive failure and removes it after confirmed Arch
     { providerHomeId: 'review' },
   ])
   await expect(row).toHaveCount(0)
-  await expect(page.getByTestId('code-copy-toast')).toHaveText('Archived')
+  const archiveToast = page.getByTestId('code-archive-toast')
+  await expect(archiveToast).toContainText('Archived chat')
+  await archiveToast.getByTestId('code-archive-toast-undo').click()
+  await expect.poll(() => unarchiveRequests.length).toBe(1)
+  await expect(archiveToast).toContainText('Provider Undo failed')
+  await expect(row).toHaveCount(0)
+  await archiveToast.getByTestId('code-archive-toast-undo').click()
+  await expect.poll(() => unarchiveRequests.length).toBe(2)
+  expect(unarchiveRequests).toEqual([
+    { providerHomeId: 'review' },
+    { providerHomeId: 'review' },
+  ])
+  await expect(archiveToast).toHaveCount(0)
+  await expect(row).toHaveCount(1)
+})
+
+test('reconciles a later successful Undo after an uncertain transport failure', async ({ page, workspaceRoot }) => {
+  const projectDir = path.join(workspaceRoot, 'archive-undo-reconcile')
+  const sessionId = 'archive-undo-reconcile-id'
+  const sessionKey = encodeProviderSessionKey('codex', sessionId, 'review')
+  fs.mkdirSync(projectDir, { recursive: true })
+  const session = {
+    provider: 'codex',
+    providerName: 'Codex',
+    providerHomeId: 'review',
+    id: sessionId,
+    title: 'Reconcile uncertain Undo',
+    workspace: projectDir,
+    updatedAt: new Date().toISOString(),
+    archived: false,
+    pinned: false,
+    unread: false,
+    projectless: false,
+  }
+  const inventoryRequests: string[] = []
+  await page.route(/\/farming\/api\/agent-sessions(?:\?.*)?$/, route => {
+    inventoryRequests.push(route.request().url())
+    return route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ sessions: [session], nextCursor: '', hasMore: false, total: 1 }),
+    })
+  })
+  const membershipResponse = await page.request.post('/farming/api/main-page-agent-sessions', {
+    data: { operation: 'add', sessionKeys: [sessionKey] },
+  })
+  expect(membershipResponse.ok()).toBeTruthy()
+
+  let uncertainUndoStarted = false
+  let reconciliationReads = 0
+  await page.route('**/farming/api/settings', async route => {
+    const upstream = await route.fetch()
+    const data = await upstream.json() as { settings?: Record<string, unknown> }
+    if (uncertainUndoStarted) reconciliationReads += 1
+    await route.fulfill({
+      response: upstream,
+      json: {
+        ...data,
+        settings: {
+          ...data.settings,
+          mainPageSessionKeys: uncertainUndoStarted
+            ? (reconciliationReads >= 2 ? [sessionKey] : [])
+            : [sessionKey],
+        },
+      },
+    })
+  })
+  await page.route(`**/farming/api/agent-sessions/codex/${sessionId}/archive`, route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ success: true, sessionKey, mainPageSessionKeys: [] }),
+  }))
+  await page.route(`**/farming/api/agent-sessions/codex/${sessionId}/unarchive`, async route => {
+    uncertainUndoStarted = true
+    await route.abort('failed')
+  })
+
+  await openFarming(page)
+  const row = page.getByTestId('code-active-session-row').filter({ hasText: 'Reconcile uncertain Undo' })
+  await row.hover()
+  await row.getByTestId('code-agent-row-archive').click()
+  await expect(row).toHaveCount(0)
+  const archiveToast = page.getByTestId('code-archive-toast')
+  await archiveToast.getByTestId('code-archive-toast-undo').click()
+  await expect(archiveToast).toContainText('Failed to fetch')
+  await expect.poll(() => reconciliationReads, { timeout: 5_000 }).toBeGreaterThanOrEqual(2)
+  await expect.poll(() => inventoryRequests.some(url => new URL(url).searchParams.get('force') === '1')).toBe(true)
+  await expect(row).toHaveCount(1)
+})
+
+test('closes the Archive notice and uses View to focus the archived History session', async ({ page, workspaceRoot }) => {
+  const projectDir = path.join(workspaceRoot, 'archive-notice-actions')
+  const closeSessionId = 'archive-notice-close-id'
+  const viewSessionId = 'archive-notice-view-id'
+  fs.mkdirSync(projectDir, { recursive: true })
+  const sessions = [
+    {
+      provider: 'codex',
+      providerName: 'Codex',
+      providerHomeId: 'review',
+      id: closeSessionId,
+      title: 'Close archived notice',
+      workspace: projectDir,
+      updatedAt: new Date().toISOString(),
+      archived: false,
+      pinned: false,
+      unread: false,
+      projectless: false,
+    },
+    {
+      provider: 'codex',
+      providerName: 'Codex',
+      providerHomeId: 'review',
+      id: viewSessionId,
+      title: 'View archived History session',
+      workspace: projectDir,
+      updatedAt: new Date().toISOString(),
+      archived: false,
+      pinned: false,
+      unread: false,
+      projectless: false,
+    },
+  ]
+  await page.route(/\/farming\/api\/agent-sessions(?:\?.*)?$/, route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ sessions, nextCursor: '', hasMore: false, total: sessions.length }),
+  }))
+  await page.route(/\/farming\/api\/agent-sessions\/search(?:\?.*)?$/, route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ sessions: [{ ...sessions[1], archived: true }], total: 1 }),
+  }))
+
+  const closeSessionKey = encodeProviderSessionKey('codex', closeSessionId, 'review')
+  const viewSessionKey = encodeProviderSessionKey('codex', viewSessionId, 'review')
+  const membershipResponse = await page.request.post('/farming/api/main-page-agent-sessions', {
+    data: { operation: 'add', sessionKeys: [closeSessionKey, viewSessionKey] },
+  })
+  expect(membershipResponse.ok()).toBeTruthy()
+
+  await page.route(`**/farming/api/agent-sessions/codex/${closeSessionId}/archive`, route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ success: true, sessionKey: closeSessionKey, mainPageSessionKeys: [viewSessionKey] }),
+  }))
+  await page.route(`**/farming/api/agent-sessions/codex/${viewSessionId}/archive`, route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ success: true, sessionKey: viewSessionKey, mainPageSessionKeys: [] }),
+  }))
+
+  await openFarming(page)
+  const closeRow = page.getByTestId('code-active-session-row').filter({ hasText: 'Close archived notice' })
+  await closeRow.hover()
+  await closeRow.getByTestId('code-agent-row-archive').click()
+  const archiveToast = page.getByTestId('code-archive-toast')
+  await expect(archiveToast).toBeVisible()
+  await archiveToast.getByTestId('code-archive-toast-close').click()
+  await expect(archiveToast).toHaveCount(0)
+
+  const viewRow = page.getByTestId('code-active-session-row').filter({ hasText: 'View archived History session' })
+  await viewRow.hover()
+  await viewRow.getByTestId('code-agent-row-archive').click()
+  await archiveToast.getByTestId('code-archive-toast-view').click()
+  await expect(page.getByTestId('code-history-panel')).toBeVisible()
+  await expect(page.getByRole('searchbox')).toHaveValue(viewSessionId)
+  const historyCard = page.getByTestId('code-session-history-card').filter({ hasText: 'View archived History session' })
+  await expect(historyCard).toHaveCount(1)
+  await expect(historyCard.getByTestId('code-session-history-primary')).toBeFocused()
 })
 
 test('hides Agent row actions after a clicked row loses hover', async ({ page, workspaceRoot }) => {

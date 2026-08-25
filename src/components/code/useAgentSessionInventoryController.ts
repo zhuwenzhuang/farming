@@ -195,7 +195,7 @@ export function useAgentSessionInventoryController({
   const fetchAgentSessions = useCallback(async (options: SessionPageOptions = {}) => {
     const params = new URLSearchParams({ limit: String(options.limit || AGENT_SESSION_PAGE_SIZE) })
     if (options.cursor) params.set('cursor', options.cursor)
-    if (options.fresh) params.set('fresh', '1')
+    if (options.fresh) params.set('force', '1')
     const response = await fetch(appPath(`/api/agent-sessions?${params.toString()}`), {
       cache: options.fresh ? 'no-store' : 'default',
       signal: options.signal,

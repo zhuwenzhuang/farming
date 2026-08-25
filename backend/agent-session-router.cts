@@ -34,6 +34,17 @@ interface AgentSessionRouterPort {
     error?: string;
     status?: number;
   }>;
+  // Success means Provider Unarchive and main-page membership restoration
+  // committed inside the same exact-Session admission.
+  unarchiveSession(
+    provider: string,
+    sessionId: string,
+    providerHomeId: string,
+    commitMainPageMembership: () => void,
+  ): Promise<{
+    error?: string;
+    status?: number;
+  }>;
   getMainPageSessionKeys(): string[];
   getSettings(): AgentSessionRouterSettings;
   invalidate(): void;
@@ -237,6 +248,44 @@ function createAgentSessionRouter(service: AgentSessionRouterPort): ExpressRoute
       const error = caughtError(caught);
       console.error('Failed to archive Agent session:', error);
       res.status(500).json({ error: error.message || 'Failed to archive Agent session' });
+    }
+  });
+
+  router.post('/agent-sessions/:provider/:sessionId/unarchive', expressFactory.json(), async (req, res) => {
+    const provider = normalizeProvider(req.params.provider);
+    const sessionId = String(req.params.sessionId || '').trim();
+    const providerHomeId = String(req.body?.providerHomeId || 'default').trim() || 'default';
+    if (!provider || !isSafeSessionId(sessionId) || !/^[A-Za-z0-9._-]+$/.test(providerHomeId)) {
+      res.status(400).json({ error: 'Invalid Agent session' });
+      return;
+    }
+
+    try {
+      const sessionKey = mainPageAgentSessionKey(provider, sessionId, providerHomeId);
+      const unarchived = await service.unarchiveSession(provider, sessionId, providerHomeId, () => {
+        service.rememberMainPageSessionKey(sessionKey, {
+          provider,
+          providerSessionId: sessionId,
+          providerSessionKey: sessionKey,
+          providerHomeId,
+        });
+      });
+      if (unarchived.error) {
+        const status = Number(unarchived.status);
+        res.status(Number.isInteger(status) && status >= 400 && status < 600 ? status : 409).json({
+          error: unarchived.error,
+        });
+        return;
+      }
+
+      const mainPageSessionKeys = service.getMainPageSessionKeys();
+      service.invalidate();
+      res.json({ success: true, sessionKey, mainPageSessionKeys });
+      service.publishStateMetadata({ mainPageSessionKeys });
+    } catch (caught) {
+      const error = caughtError(caught);
+      console.error('Failed to unarchive Agent session:', error);
+      res.status(500).json({ error: error.message || 'Failed to unarchive Agent session' });
     }
   });
 

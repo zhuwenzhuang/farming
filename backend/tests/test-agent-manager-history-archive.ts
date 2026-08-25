@@ -368,6 +368,104 @@ async function run() {
     manager.agents.delete('claimed-detached-session');
     manager.archiveCodexSession = originalArchiveCodexSession;
 
+    let missingUndoCommitted = false;
+    const missingUndo = await manager.unarchiveProviderSessionByIdentity(
+      'codex',
+      '019f0000-0000-7000-8000-000000000099',
+      {
+        providerHomeId: 'review',
+        providerHomes: { codex: [{ id: 'review', path: providerHistoryRoot }] },
+        commitMainPageMembership: () => { missingUndoCommitted = true; },
+      },
+    );
+    assert.strictEqual(missingUndo.status, 404);
+    assert.match(missingUndo.error, /not found/i);
+    assert.strictEqual(missingUndoCommitted, false, 'Undo must not restore membership for a missing exact session');
+
+    const interleavedSessionId = '019f0000-0000-7000-8000-000000000021';
+    const interleavedArchivedDir = path.join(providerHistoryRoot, 'archived_sessions');
+    const interleavedActiveDir = path.join(providerHistoryRoot, 'sessions', '2026', '08', '21');
+    const interleavedFileName = `rollout-2026-08-21T10-00-00-${interleavedSessionId}.jsonl`;
+    const interleavedArchivedFile = path.join(interleavedArchivedDir, interleavedFileName);
+    const interleavedActiveFile = path.join(interleavedActiveDir, interleavedFileName);
+    fs.mkdirSync(interleavedArchivedDir, { recursive: true });
+    fs.mkdirSync(interleavedActiveDir, { recursive: true });
+    fs.writeFileSync(
+      interleavedArchivedFile,
+      JSON.stringify({
+        timestamp: '2026-08-21T02:00:00.000Z',
+        type: 'session_meta',
+        payload: { id: interleavedSessionId, cwd: '/repo/interleaved', source: 'cli' },
+      }),
+    );
+    const interleavedOrder = [];
+    let releaseInterleavedUndo;
+    let markInterleavedUndoStarted;
+    const interleavedUndoStarted = new Promise(resolve => { markInterleavedUndoStarted = resolve; });
+    const interleavedUndoGate = new Promise(resolve => { releaseInterleavedUndo = resolve; });
+    const savedArchiveCodexSession = manager.archiveCodexSession;
+    const savedUnarchiveCodexSession = manager.unarchiveCodexSession;
+    let interleavedMembership = false;
+    manager.unarchiveCodexSession = async () => {
+      interleavedOrder.push('provider-unarchive-start');
+      markInterleavedUndoStarted();
+      await interleavedUndoGate;
+      fs.renameSync(interleavedArchivedFile, interleavedActiveFile);
+      interleavedOrder.push('provider-unarchive-end');
+      return { unarchived: true };
+    };
+    manager.archiveCodexSession = async () => {
+      interleavedOrder.push('provider-archive');
+      fs.renameSync(interleavedActiveFile, interleavedArchivedFile);
+      return { archived: true };
+    };
+    const interleavedUndo = manager.unarchiveProviderSessionByIdentity(
+      'codex',
+      interleavedSessionId,
+      {
+        providerHomeId: 'review',
+        providerHomes: { codex: [{ id: 'review', path: providerHistoryRoot }] },
+        commitMainPageMembership: () => {
+          interleavedMembership = true;
+          interleavedOrder.push('undo-membership');
+        },
+      },
+    );
+    await interleavedUndoStarted;
+    const interleavedArchive = manager.archiveProviderSessionByIdentity(
+      'codex',
+      interleavedSessionId,
+      {
+        providerHomeId: 'review',
+        providerHomes: { codex: [{ id: 'review', path: providerHistoryRoot }] },
+        commitMainPageMembership: () => {
+          interleavedMembership = false;
+          interleavedOrder.push('archive-membership');
+        },
+      },
+    );
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepStrictEqual(interleavedOrder, ['provider-unarchive-start']);
+    releaseInterleavedUndo();
+    const [interleavedUndoResult, interleavedArchiveResult] = await Promise.all([
+      interleavedUndo,
+      interleavedArchive,
+    ]);
+    assert.strictEqual(interleavedUndoResult.error, undefined);
+    assert.strictEqual(interleavedArchiveResult.error, undefined);
+    assert.deepStrictEqual(interleavedOrder, [
+      'provider-unarchive-start',
+      'provider-unarchive-end',
+      'undo-membership',
+      'provider-archive',
+      'archive-membership',
+    ]);
+    assert.strictEqual(interleavedMembership, false);
+    assert.strictEqual(fs.existsSync(interleavedArchivedFile), true);
+    assert.strictEqual(fs.existsSync(interleavedActiveFile), false);
+    manager.archiveCodexSession = savedArchiveCodexSession;
+    manager.unarchiveCodexSession = savedUnarchiveCodexSession;
+
     settings.mainPageSessionKeys = [
       encodeProviderSessionKey('codex', 'rollback-session', 'default'),
       ...settings.mainPageSessionKeys,

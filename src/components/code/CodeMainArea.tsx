@@ -299,6 +299,7 @@ interface CodeMainAreaProps {
   historyAgentSessionsLoading: boolean
   historyAgentSessionsError: string
   providerSessionTotal: number | null
+  historySessionRevealRequest: { requestId: number; sessionHandle: string; sessionId: string } | null
   canLoadMoreHistoryAgentSessions: boolean
   now: number
   composerProps: ComposerProps
@@ -596,6 +597,7 @@ export function CodeMainArea({
   historyAgentSessionsLoading,
   historyAgentSessionsError,
   providerSessionTotal,
+  historySessionRevealRequest,
   canLoadMoreHistoryAgentSessions,
   now,
   composerProps,
@@ -974,6 +976,7 @@ export function CodeMainArea({
               loading={historyAgentSessionsLoading}
               error={historyAgentSessionsError}
               providerSessionTotal={providerSessionTotal}
+              revealSession={historySessionRevealRequest}
               now={now}
               onResumeSession={onResumeHistorySession}
               onContinueRun={onContinueArchivedRun}

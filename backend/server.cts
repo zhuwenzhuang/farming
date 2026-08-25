@@ -1184,6 +1184,14 @@ app.use(routePath(BASE_PATH, '/api'), createAgentSessionRouter({
       },
     })
   ),
+  unarchiveSession: async (provider, sessionId, providerHomeId, commitMainPageMembership) => {
+    const result = await agentManager.unarchiveProviderSessionByIdentity(provider, sessionId, {
+      providerHomeId,
+      providerHomes: configuredProviderHomes(),
+      commitMainPageMembership,
+    });
+    return result?.error ? { error: result.error, status: result.status } : {};
+  },
   getMainPageSessionKeys: () => configManager.getMainPageSessionKeys(),
   getSettings: () => configManager.getSettings(),
   invalidate: () => agentSessionInventory.invalidate(),
