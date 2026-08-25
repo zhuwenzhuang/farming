@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { Locator, Page, TestInfo } from '@playwright/test'
 import { expect, openFarming, test } from './fixtures'
+import { encodeProviderSessionKey } from '../../shared/provider-session-identity'
 
 const { PNG: ScreenshotPng } = require('playwright-core/lib/utilsBundle') as {
   PNG: {
@@ -108,7 +109,7 @@ function screenshotChromaticRatio(screenshot: Buffer) {
   return chromaticPixels / (image.width * image.height)
 }
 
-async function stableScreenshot(locator: Locator) {
+async function stableScreenshot(locator: Locator, maximumChangedRatio = 0.001) {
   const options = { animations: 'disabled' as const, caret: 'hide' as const, scale: 'css' as const }
   const first = await locator.screenshot(options)
   const second = await locator.screenshot(options)
@@ -126,7 +127,7 @@ async function stableScreenshot(locator: Locator) {
       || Math.abs((firstImage.data[offset + 2] ?? 0) - (secondImage.data[offset + 2] ?? 0)) > 1
     ) changedPixels += 1
   }
-  expect(changedPixels / (firstImage.width * firstImage.height)).toBeLessThanOrEqual(0.001)
+  expect(changedPixels / (firstImage.width * firstImage.height)).toBeLessThanOrEqual(maximumChangedRatio)
   return first
 }
 
@@ -279,5 +280,120 @@ test('Light, Dark, and Paper Chat use neutral reading surfaces and semantic glyp
     const liveIconScreenshot = await stableScreenshot(liveIcon)
     await expectScreenshotRole(page, liveIconScreenshot, '--code-success', 0.01, `${appearance} running icon`)
     await expect(liveIcon).toHaveCount(0, { timeout: 10_000 })
+  }
+})
+
+test('Light, Dark, and Paper Archive notices keep neutral action colors in every interaction state', async ({ page, workspaceRoot }, testInfo) => {
+  const workspace = path.join(workspaceRoot, 'appearance-archive-toast')
+  const appearances = ['light', 'dark', 'paper'] as const
+  const sessions = appearances.map(appearance => ({
+    provider: 'codex',
+    providerName: 'Codex',
+    providerHomeId: 'review',
+    id: `appearance-archive-${appearance}`,
+    title: `${appearance} Archive color review with a deliberately long Agent title`,
+    workspace,
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    archived: false,
+    pinned: false,
+    unread: false,
+    projectless: false,
+  }))
+  fs.mkdirSync(workspace, { recursive: true })
+
+  await page.route(/\/farming\/api\/agent-sessions(?:\?.*)?$/, route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ sessions, nextCursor: '', hasMore: false, total: sessions.length }),
+  }))
+  let mainPageSessionKeys = sessions.map(session => encodeProviderSessionKey(session.provider, session.id, session.providerHomeId))
+  const membershipResponse = await page.request.post('/farming/api/main-page-agent-sessions', {
+    data: { operation: 'add', sessionKeys: mainPageSessionKeys },
+  })
+  expect(membershipResponse.ok()).toBeTruthy()
+  await page.route(/\/farming\/api\/agent-sessions\/codex\/[^/]+\/archive$/, route => {
+    const sessionId = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-2) || '')
+    mainPageSessionKeys = mainPageSessionKeys.filter(key => !key.includes(sessionId))
+    return route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, mainPageSessionKeys }),
+    })
+  })
+
+  let notifyUnarchiveStarted: (() => void) | undefined
+  let releaseUnarchive: (() => void) | undefined
+  await page.route(/\/farming\/api\/agent-sessions\/codex\/[^/]+\/unarchive$/, async route => {
+    notifyUnarchiveStarted?.()
+    await new Promise<void>(resolve => { releaseUnarchive = resolve })
+    await route.fulfill({
+      contentType: 'application/json',
+      status: 409,
+      body: JSON.stringify({ error: 'Provider Undo failed' }),
+    })
+  })
+
+  await page.setViewportSize({ width: 1280, height: 820 })
+  await openFarming(page)
+
+  for (const appearance of appearances) {
+    await setAppearance(page, appearance)
+    const session = sessions.find(candidate => candidate.id.endsWith(appearance))!
+    const row = page.getByTestId('code-active-session-row').filter({ hasText: session.title })
+    await row.hover()
+    await row.getByTestId('code-agent-row-archive').click()
+
+    const toast = page.getByTestId('code-archive-toast')
+    const undo = toast.getByTestId('code-archive-toast-undo')
+    const view = toast.getByTestId('code-archive-toast-view')
+    await expect(toast).toBeVisible()
+    await expect(toast).toHaveAttribute('role', 'status')
+    expect(await background(toast)).toBe(await resolvedColor(page, '--code-bg-raised'))
+    expect(await background(view)).toBe(await resolvedColor(page, '--code-bg-muted'))
+    expect(await color(toast.locator('.code-archive-toast-session'))).toBe(await resolvedColor(page, '--code-text-muted'))
+
+    const undoBackgroundRole = appearance === 'dark' ? '--code-text-muted' : '--code-emphasis'
+    const undoColorRole = appearance === 'dark' ? '--code-bg-canvas' : '--code-text-on-emphasis'
+    expect(await background(undo)).toBe(await resolvedColor(page, undoBackgroundRole))
+    expect(await color(undo)).toBe(await resolvedColor(page, undoColorRole))
+    const accent = await resolvedColor(page, '--code-accent')
+    if (appearance === 'paper') {
+      const accentChannels = parseRgb(accent)
+      expect(Math.max(...accentChannels) - Math.min(...accentChannels)).toBeLessThan(16)
+    } else {
+      expect(await background(undo)).not.toBe(accent)
+    }
+    await attachScreenshot(testInfo, `archive-${appearance}-success`, await stableScreenshot(toast, 0.003))
+
+    await undo.hover()
+    const undoInteractiveBackgroundRole = appearance === 'dark' ? '--code-text' : '--code-emphasis-hover'
+    expect(await background(undo)).toBe(await resolvedColor(page, undoInteractiveBackgroundRole))
+    await attachScreenshot(testInfo, `archive-${appearance}-hover`, await stableScreenshot(toast, 0.003))
+
+    await page.mouse.move(20, 300)
+    await view.focus()
+    await page.keyboard.press('Tab')
+    await expect(undo).toBeFocused()
+    expect(await background(undo)).toBe(await resolvedColor(page, undoInteractiveBackgroundRole))
+    await attachScreenshot(testInfo, `archive-${appearance}-focus`, await stableScreenshot(toast, 0.003))
+
+    const unarchiveStarted = new Promise<void>(resolve => { notifyUnarchiveStarted = resolve })
+    await undo.click()
+    await unarchiveStarted
+    await expect(undo).toBeDisabled()
+    await expect(view).toBeDisabled()
+    await expect(toast.getByTestId('code-archive-toast-close')).toBeDisabled()
+    await expect(undo).toHaveCSS('opacity', '0.55')
+    expect(await background(undo)).toBe(await resolvedColor(page, undoBackgroundRole))
+    await attachScreenshot(testInfo, `archive-${appearance}-disabled`, await stableScreenshot(toast, 0.003))
+
+    releaseUnarchive?.()
+    await expect(toast).toHaveAttribute('role', 'alert')
+    await expect(toast).toContainText('Provider Undo failed')
+    await expect(toast).toContainText(`Codex · ${session.title}`)
+    expect(await color(toast.locator('.code-archive-toast-label.error'))).toBe(await resolvedColor(page, '--code-diff-removed'))
+    await attachScreenshot(testInfo, `archive-${appearance}-error`, await stableScreenshot(toast, 0.003))
+    await toast.getByTestId('code-archive-toast-close').click()
+    await expect(toast).toHaveCount(0)
+    notifyUnarchiveStarted = undefined
+    releaseUnarchive = undefined
   }
 })

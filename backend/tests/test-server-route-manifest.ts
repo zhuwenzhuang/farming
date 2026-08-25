@@ -539,6 +539,7 @@ const EXPECTED_API_ROUTE_MANIFEST = [
   'GET /api/agent-sessions/search',
   'PATCH /api/agent-sessions/:provider/:sessionId',
   'POST /api/agent-sessions/:provider/:sessionId/archive',
+  'POST /api/agent-sessions/:provider/:sessionId/unarchive',
   'POST /api/main-page-agent-sessions',
   'GET /api/themes',
   'GET /api/settings',

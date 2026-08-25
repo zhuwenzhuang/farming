@@ -627,16 +627,14 @@ export function CodeOverlays({
               />
             </svg>
           </span>
-          {archivedSessionNotice.error ? (
-            <span className="code-archive-toast-label error">{archivedSessionNotice.error}</span>
-          ) : (
-            <span className="code-archive-toast-copy">
-              <span className="code-archive-toast-label">{copy.archivedChat}</span>
-              <span className="code-archive-toast-session" title={archivedSessionNotice.sessionLabel}>
-                {archivedSessionNotice.sessionLabel}
-              </span>
+          <span className="code-archive-toast-copy">
+            <span className={`code-archive-toast-label${archivedSessionNotice.error ? ' error' : ''}`}>
+              {archivedSessionNotice.error || copy.archivedChat}
             </span>
-          )}
+            <span className="code-archive-toast-session" title={archivedSessionNotice.sessionLabel}>
+              {archivedSessionNotice.sessionLabel}
+            </span>
+          </span>
           <button
             type="button"
             className="view"

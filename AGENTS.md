@@ -258,6 +258,10 @@ npm run test:e2e:playwright
   that combines the affected surfaces.
 - For visible interaction changes, verify the real UI and update focused
   Playwright screenshots when practical.
+- Screenshot acceptance for visible UI changes must cover every supported
+  appearance theme affected by the change (currently Light, Dark, and Paper).
+  Report partial theme coverage explicitly; do not call it complete visual
+  acceptance.
 - Capture product screenshots and videos through checked-in scripts or focused
   automated scenarios, not by manually timing the UI. Wait for the exact
   visible content, preserve pointer movement and clicks in interaction videos,

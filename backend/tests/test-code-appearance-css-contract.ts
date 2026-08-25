@@ -215,9 +215,13 @@ function scrollbarRule(selector: string) {
 }
 
 assert.deepEqual(scrollbarRule('body.code-mode *'), {
-  'scrollbar-color': 'var(--code-scrollbar-thumb) transparent',
+  'scrollbar-color': 'transparent transparent',
   'scrollbar-width': 'thin',
 })
+assert.equal(
+  scrollbarRule('body.code-mode *:hover')['scrollbar-color'],
+  'var(--code-scrollbar-thumb) transparent',
+)
 assert.deepEqual(scrollbarRule('body.code-mode *::-webkit-scrollbar'), {
   width: '8px',
   height: '8px',
@@ -228,9 +232,13 @@ assert.deepEqual(scrollbarRule('body.code-mode *::-webkit-scrollbar-track'), {
 assert.deepEqual(scrollbarRule('body.code-mode *::-webkit-scrollbar-thumb'), {
   border: '2px solid transparent',
   'border-radius': '999px',
-  background: 'var(--code-scrollbar-thumb)',
+  background: 'transparent',
   'background-clip': 'content-box',
 })
+assert.equal(
+  scrollbarRule('body.code-mode *:hover::-webkit-scrollbar-thumb').background,
+  'var(--code-scrollbar-thumb)',
+)
 assert.equal(
   scrollbarRule('body.code-mode *::-webkit-scrollbar-thumb:hover').background,
   'var(--code-scrollbar-thumb-hover)',
@@ -439,7 +447,8 @@ const structuralSurfaceContracts = [
   ['src/styles/files.css', '.code-file-tree-row-frame', 'background', 'transparent'],
   ['src/styles/files.css', '.code-file-tree-row-frame', 'overflow', 'hidden'],
   ['src/styles/files.css', '.code-file-tree-row-frame:hover', 'background', 'var(--code-active-item-surface)'],
-  ['src/styles/files.css', '.code-file-tree-row-frame.active,\n.code-file-tree-row-frame:has(.code-file-row.selected:not(.active)),\n.code-file-tree-row-frame:has(.code-file-row.active)', 'background', 'var(--code-active-item-surface)'],
+  ['src/styles/files.css', '.code-file-tree-row-frame.active,\n.code-file-tree-row-frame:has(.code-file-row.active)', 'background', 'var(--code-active-item-surface)'],
+  ['src/styles/files.css', '.code-file-tree-viewport:focus-within .code-file-tree-row-frame:has(.code-file-row.selected:not(.active))', 'background', 'var(--code-active-item-surface)'],
   ['src/styles/files.css', '.code-file-row', 'border-radius', '8px'],
   ['src/styles/files.css', '.code-file-row', 'background', 'transparent'],
   ['src/styles/files.css', 'body.code-mode.code-compact-layout .code-file-row', 'border-radius', '8px'],

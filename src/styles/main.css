@@ -1224,11 +1224,18 @@ body.code-resizing-language-server-dock {
 }
 
 .code-archive-toast button:hover:not(:disabled),
+.code-archive-toast button:focus-visible:not(:disabled),
 .code-archive-toast button.view:hover:not(:disabled) {
   background: var(--code-bg-hover);
 }
 
-.code-archive-toast button.undo:hover:not(:disabled) {
+.code-archive-toast button:focus-visible {
+  outline: 2px solid var(--code-focus-ring);
+  outline-offset: 2px;
+}
+
+.code-archive-toast button.undo:hover:not(:disabled),
+.code-archive-toast button.undo:focus-visible:not(:disabled) {
   background: light-dark(var(--code-emphasis-hover), var(--code-text));
 }
 
