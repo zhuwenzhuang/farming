@@ -412,6 +412,10 @@
   z-index: 1;
 }
 
+.code-agent-row-actions.session {
+  width: 68px;
+}
+
 .code-agent-row:hover .code-agent-row-actions,
 .code-agent-row:focus-visible .code-agent-row-actions,
 .code-agent-row:has(.code-agent-row-actions :focus-visible) .code-agent-row-actions {
@@ -482,44 +486,6 @@ body.code-mode:not(.code-compact-layout) .code-agent-row:has(.code-agent-row-act
 
 .code-agent-row-more {
   display: none;
-}
-
-body.code-mode:not(.code-compact-layout) .code-agent-row.requires-resume .code-agent-row-more {
-  width: 28px;
-  height: 28px;
-  position: absolute;
-  top: 50%;
-  right: 6px;
-  display: inline-grid;
-  place-items: center;
-  border: 0;
-  border-radius: 6px;
-  background: var(--code-agent-row-surface);
-  color: var(--code-text-subtle);
-  cursor: pointer;
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(-50%);
-  transition: opacity 120ms ease;
-  z-index: 1;
-}
-
-body.code-mode:not(.code-compact-layout) .code-agent-row.requires-resume:hover .code-agent-row-more,
-body.code-mode:not(.code-compact-layout) .code-agent-row.requires-resume:has(.code-agent-row-more:focus-visible) .code-agent-row-more {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-body.code-mode:not(.code-compact-layout) .code-agent-row.requires-resume .code-agent-row-more:hover,
-body.code-mode:not(.code-compact-layout) .code-agent-row.requires-resume .code-agent-row-more:focus-visible {
-  background: var(--code-bg-hover-strong);
-  color: var(--code-text);
-  outline: none;
-}
-
-body.code-mode:not(.code-compact-layout) .code-agent-row.requires-resume .code-agent-row-more svg {
-  width: 16px;
-  height: 16px;
 }
 
 .code-agent-schedule-clock {

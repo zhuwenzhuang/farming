@@ -406,6 +406,63 @@ test('resumes a detached session by clicking its ordinary sidebar row', async ({
   await expect(row).toHaveCount(1)
 })
 
+test('pins and unpins a session from the row actions', async ({ page, workspaceRoot }) => {
+  const projectDir = path.join(workspaceRoot, 'sidebar-session-pin')
+  const sessionId = 'sidebar-session-pin-id'
+  fs.mkdirSync(projectDir, { recursive: true })
+  let pinned = false
+  await page.route(/\/farming\/api\/agent-sessions(?:\?.*)?$/, route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      sessions: [{
+        provider: 'codex',
+        providerName: 'Codex',
+        providerHomeId: 'review',
+        id: sessionId,
+        title: 'Pin from sidebar row',
+        workspace: projectDir,
+        updatedAt: new Date().toISOString(),
+        archived: false,
+        pinned,
+        unread: false,
+        projectless: false,
+      }],
+      nextCursor: '',
+      hasMore: false,
+      total: 1,
+    }),
+  }))
+  const sessionKey = encodeProviderSessionKey('codex', sessionId, 'review')
+  const membershipResponse = await page.request.post('/farming/api/main-page-agent-sessions', {
+    data: { operation: 'add', sessionKeys: [sessionKey] },
+  })
+  expect(membershipResponse.ok()).toBeTruthy()
+
+  const pinRequests: unknown[] = []
+  await page.route(`**/farming/api/agent-sessions/codex/${sessionId}`, async route => {
+    const body = route.request().postDataJSON() as { pinned?: boolean }
+    pinRequests.push(body)
+    pinned = body.pinned === true
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ success: true }) })
+  })
+
+  await openFarming(page)
+  const sessionRow = () => page.getByTestId('code-active-session-row').filter({ hasText: 'Pin from sidebar row' })
+  await sessionRow().hover()
+  await sessionRow().getByTestId('code-agent-row-pin').click()
+  await expect.poll(() => pinRequests.length).toBe(1)
+  expect(pinRequests[0]).toEqual({ pinned: true, providerHomeId: 'review' })
+  const pinnedRow = page.getByTestId('code-pinned-section').getByTestId('code-active-session-row').filter({ hasText: 'Pin from sidebar row' })
+  await expect(pinnedRow).toHaveCount(1)
+
+  await pinnedRow.hover()
+  await pinnedRow.getByTestId('code-agent-row-pin').click()
+  await expect.poll(() => pinRequests.length).toBe(2)
+  expect(pinRequests[1]).toEqual({ pinned: false, providerHomeId: 'review' })
+  await expect(pinnedRow).toHaveCount(0)
+  await expect(sessionRow()).toHaveCount(1)
+})
+
 test('keeps a session row on Archive failure and removes it after confirmed Archive', async ({ page, workspaceRoot }) => {
   const projectDir = path.join(workspaceRoot, 'sidebar-session-archive')
   const sessionId = 'sidebar-session-archive-id'
@@ -458,14 +515,13 @@ test('keeps a session row on Archive failure and removes it after confirmed Arch
   const row = page.getByTestId('code-active-session-row').filter({ hasText: 'Archive from sidebar row' })
   await expect(row).toHaveCount(1)
   await row.hover()
-  await row.getByTestId('code-agent-row-more').click()
-  await page.getByTestId('code-session-context-menu').getByRole('menuitem', { name: 'Archive' }).click()
+  await expect(row.getByTestId('code-agent-row-pin')).toBeVisible()
+  await row.getByTestId('code-agent-row-archive').click()
   await expect(page.getByTestId('code-copy-toast')).toContainText('Provider Archive failed')
   await expect(row).toHaveCount(1)
 
   await row.hover()
-  await row.getByTestId('code-agent-row-more').click()
-  await page.getByTestId('code-session-context-menu').getByRole('menuitem', { name: 'Archive' }).click()
+  await row.getByTestId('code-agent-row-archive').click()
   await expect.poll(() => archiveRequests.length).toBe(2)
   expect(archiveRequests).toEqual([
     { providerHomeId: 'review' },

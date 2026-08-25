@@ -309,6 +309,8 @@ async function run() {
   const textMessages = stream.sent.slice(sentBeforeText);
   await runtime.insertText('性能');
   await runtime.press({ type: 'key', key: 'Enter', code: 'Enter' });
+  await runtime.press({ type: 'key', key: 'Backspace', code: 'Backspace' });
+  await runtime.press({ type: 'key', key: 'Delete', code: 'Delete' });
   assert(stream.sent.some(message => message.type === 'input_mouse' && message.eventType === 'mousePressed'));
   assert(stream.sent.some(message => message.type === 'input_mouse' && message.eventType === 'mouseWheel'));
   assert.deepStrictEqual(
@@ -324,7 +326,20 @@ async function run() {
       ['keyUp', 't', undefined],
     ],
   );
-  assert(stream.sent.some(message => message.type === 'input_keyboard' && message.eventType === 'keyDown'));
+  assert(stream.sent.some(message => (
+    message.type === 'input_keyboard'
+    && message.eventType === 'keyDown'
+    && message.key === 'Backspace'
+    && message.windowsVirtualKeyCode === 8
+    && message.text === ''
+  )));
+  assert(stream.sent.some(message => (
+    message.type === 'input_keyboard'
+    && message.eventType === 'keyDown'
+    && message.key === 'Delete'
+    && message.windowsVirtualKeyCode === 46
+    && message.text === ''
+  )));
   assert(calls.some(args => args.slice(-4).join(' ') === 'keyboard inserttext 性能 --json'));
   const commands = calls.map(args => args.slice(4, -1));
   assert(commands.some(command => command.join(' ') === 'hover #menu'));

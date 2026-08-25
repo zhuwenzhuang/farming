@@ -188,6 +188,7 @@ import {
   type ComposerProviderProfile,
 } from './code/composer-profile'
 import type {
+  AgentSessionHistoryItem,
   ComposerMode,
   GlobalSettings,
   ProjectGroup,
@@ -2857,27 +2858,26 @@ export function CodeWorkspace({
     setSidebarWidth(nextWidth)
   }, [collapseSidebar, expandSidebar])
 
-  const toggleContextMenuAgentSessionPinned = useCallback(async () => {
-    if (!contextMenuAgentSession) return
-    const sessionId = agentSessionId(contextMenuAgentSession)
-    const nextPinned = contextMenuAgentSession.pinned !== true
+  const toggleAgentSessionPinned = useCallback(async (session: AgentSessionHistoryItem) => {
+    const sessionId = agentSessionId(session)
+    const nextPinned = session.pinned !== true
     setAgentSessionPinnedOverrides(previous => ({
       ...previous,
       [sessionId]: nextPinned,
     }))
     closeContextMenu()
     if (mainPageSessionKeys.has(sessionId)) {
-      focusAgentSessionRow(contextMenuAgentSession.provider, sessionId)
+      focusAgentSessionRow(session.provider, sessionId)
     } else {
       window.requestAnimationFrame(() => projectListRef.current?.focus({ preventScroll: true }))
     }
     try {
-      const response = await fetch(appPath(`/api/agent-sessions/${encodeURIComponent(contextMenuAgentSession.provider)}/${encodeURIComponent(contextMenuAgentSession.id)}`), {
+      const response = await fetch(appPath(`/api/agent-sessions/${encodeURIComponent(session.provider)}/${encodeURIComponent(session.id)}`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           pinned: nextPinned,
-          providerHomeId: contextMenuAgentSession.providerHomeId || 'default',
+          providerHomeId: session.providerHomeId || 'default',
         }),
       })
       if (!response.ok) throw new Error(copy.updateFailed)
@@ -2898,11 +2898,13 @@ export function CodeWorkspace({
         message: error instanceof Error ? error.message : copy.updateFailed,
       })
     }
-  }, [closeContextMenu, contextMenuAgentSession, copy.updateFailed, focusAgentSessionRow, mainPageSessionKeys, refreshVisibleAgentSessionPage])
+  }, [closeContextMenu, copy.updateFailed, focusAgentSessionRow, mainPageSessionKeys, refreshVisibleAgentSessionPage])
 
-  const archiveContextMenuAgentSession = useCallback(async () => {
-    if (!contextMenuAgentSession) return
-    const session = contextMenuAgentSession
+  const toggleContextMenuAgentSessionPinned = useCallback(() => {
+    if (contextMenuAgentSession) void toggleAgentSessionPinned(contextMenuAgentSession)
+  }, [contextMenuAgentSession, toggleAgentSessionPinned])
+
+  const archiveAgentSession = useCallback(async (session: AgentSessionHistoryItem) => {
     const sessionHandle = agentSessionId(session)
     closeContextMenu()
     window.requestAnimationFrame(() => projectListRef.current?.focus({ preventScroll: true }))
@@ -2932,7 +2934,11 @@ export function CodeWorkspace({
         message: error instanceof Error ? error.message : copy.updateFailed,
       })
     }
-  }, [closeContextMenu, contextMenuAgentSession, copy.updateFailed, invalidateAgentSessionsForHistory, receiveAuthoritativeMainPageSessionKeys])
+  }, [closeContextMenu, copy.updateFailed, invalidateAgentSessionsForHistory, receiveAuthoritativeMainPageSessionKeys])
+
+  const archiveContextMenuAgentSession = useCallback(() => {
+    if (contextMenuAgentSession) void archiveAgentSession(contextMenuAgentSession)
+  }, [archiveAgentSession, contextMenuAgentSession])
 
   const beginSidebarResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 || !event.isPrimary || sidebarResizeGestureRef.current) return
@@ -5466,6 +5472,8 @@ export function CodeWorkspace({
         onOpenAgentMenu={openAgentContextMenu}
         onResumeAgentSession={resumeAgentSession}
         onOpenAgentSessionMenu={openAgentSessionContextMenu}
+        onToggleAgentSessionPinned={toggleAgentSessionPinned}
+        onArchiveAgentSession={archiveAgentSession}
         onOpenProjectFile={openProjectFile}
         onBeginProjectFileOpenIntent={beginProjectFileOpenIntent}
         onResolveProjectFile={workspaceOpenFiles.resolve}

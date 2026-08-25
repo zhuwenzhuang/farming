@@ -62,7 +62,9 @@ Terminal。Stopped/History Session 只有收到显式用户 Resume 后才能启�
 Main-page Provider Session 无论当前是否有 Runtime Claim，都保持同一条普通 Conversation Row
 Identity。Runtime Attachment 只属于内部状态，不新增 Detached、Resuming 或 Archiving 行样式。
 点击未被 Claim 的 Row 时发送一次精确 Resume Mutation；产生的 Agent Claim 该 Provider Session
-后，在同一个稳定 Key 下替换 Row Backing。Archive 发送一次精确 Provider Session Mutation，且
+后，在同一个稳定 Key 下替换 Row Backing。Desktop Row 与 Live Agent 一样，在 Hover 或 Keyboard
+Focus 的 Action Surface 中直接提供 Pin 和 Archive；Compact Layout 仍使用 Options Menu。
+Archive 发送一次精确 Provider Session Mutation，且
 只有 Backend 确认成功后才移除 Main-page Membership。失败时保留原 Row，并使用现有 Action Error
 Surface；Transport 结果不确定时只从权威状态 Reconcile，不得自动重放 Mutation。
 

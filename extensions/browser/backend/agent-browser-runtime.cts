@@ -1147,7 +1147,7 @@ class AgentBrowserRuntime extends EventEmitter {
         modifiers: Number(input.modifiers) || 0,
         windowsVirtualKeyCode,
       };
-      this.sendStream({ type: 'input_keyboard', eventType: 'keyDown', ...common });
+      this.sendStream({ type: 'input_keyboard', eventType: 'keyDown', ...common, text: '' });
       this.sendStream({ type: 'input_keyboard', eventType: 'keyUp', ...common });
       return { ok: true };
     }

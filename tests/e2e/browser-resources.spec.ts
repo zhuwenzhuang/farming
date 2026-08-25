@@ -168,6 +168,17 @@ async function browserSnapshot(page: Page, browserId: string) {
   }>
 }
 
+async function browserInputValue(page: Page, browserId: string) {
+  const response = await page.request.post(`/farming/api/browsers/${browserId}/action`, {
+    data: { kind: 'eval', expression: "document.querySelector('#name')?.value || ''" },
+  })
+  if (!response.ok()) {
+    throw new Error(`Browser input read failed with HTTP ${response.status()}: ${await response.text()}`)
+  }
+  const result = await response.json() as { result?: unknown }
+  return String(result.result || '')
+}
+
 async function createBrowserOwnerAgent(page: Page, workspace: string) {
   const response = await page.request.post('/farming/api/control/agents', {
     data: { command: 'bash', workspace },
@@ -1161,6 +1172,55 @@ test('normalizes a bare address and clears a recovered navigation error', async 
     .toBe('Browser Interaction Lab')
   await expect(viewer.getByRole('alert')).toHaveCount(0)
   await expect(viewer.locator('form')).toHaveAttribute('aria-busy', 'false')
+})
+
+test('forwards Backspace and Delete from shared Browser control', async ({
+  page,
+  workspaceRoot,
+}) => {
+  const workspace = path.join(workspaceRoot, 'browser-viewer-delete-keys')
+  fs.mkdirSync(workspace, { recursive: true })
+  const enableResponse = await page.request.post('/farming/api/settings', {
+    data: { browserExtensionEnabled: true },
+  })
+  expect(enableResponse.ok()).toBeTruthy()
+  const agentId = await createBrowserOwnerAgent(page, workspace)
+  const createResponse = await page.request.post('/farming/api/browsers', {
+    data: { rootId: projectFilesWorkspaceId(workspace), agentId },
+  })
+  expect(createResponse.ok()).toBeTruthy()
+  const createdBrowser = await createResponse.json() as { id: string }
+  const startResponse = await page.request.post(`/farming/api/browsers/${createdBrowser.id}/start`)
+  expect(startResponse.ok()).toBeTruthy()
+  await openFarming(page)
+
+  const browserSection = await openAgentBrowserSection(page, agentId)
+  await browserSection.getByTestId('farming-browser-row').click()
+  const viewer = page.getByTestId('farming-browser-viewer')
+  const canvas = viewer.locator('canvas')
+  await expect(canvas).toBeVisible({ timeout: 30_000 })
+  const addressInput = viewer.getByRole('textbox', { name: 'Browser address' })
+  await addressInput.fill(targetUrl)
+  await addressInput.press('Enter')
+  await expect.poll(async () => (await browserSnapshot(page, createdBrowser.id)).title)
+    .toBe('Browser Interaction Lab')
+
+  const focusResponse = await page.request.post(`/farming/api/browsers/${createdBrowser.id}/action`, {
+    data: { kind: 'focus', selector: '#name' },
+  })
+  expect(focusResponse.ok()).toBeTruthy()
+  const textInput = viewer.getByRole('textbox', { name: 'Browser text input' })
+  await textInput.evaluate(element => (element as HTMLTextAreaElement).focus())
+  await expect(textInput).toBeFocused()
+  await page.keyboard.type('abcd')
+  await expect.poll(() => browserInputValue(page, createdBrowser.id)).toBe('abcd')
+  await page.keyboard.press('Backspace')
+  await expect.poll(() => browserInputValue(page, createdBrowser.id)).toBe('abc')
+  await page.keyboard.press('ArrowLeft')
+  await page.keyboard.press('Delete')
+  await expect.poll(() => browserInputValue(page, createdBrowser.id)).toBe('ab')
+
+  await page.request.delete(`/farming/api/browsers/${createdBrowser.id}`)
 })
 
 test('promotes a website popup into a shared Browser tab Resource', async ({

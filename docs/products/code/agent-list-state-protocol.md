@@ -221,7 +221,9 @@ whether or not a runtime currently claims it. Runtime attachment is internal
 state and does not add detached, resuming, or archiving row treatments. Clicking
 an unclaimed row sends one exact Resume mutation; when the resulting Agent
 claims that Provider Session, it replaces the row backing under the same stable
-key. Archive sends one exact Provider Session mutation and removes main-page
+key. On desktop, the row exposes Pin and Archive in the same hover and keyboard-
+focus action surface as a live Agent; compact layouts retain the options menu.
+Archive sends one exact Provider Session mutation and removes main-page
 membership only after the backend confirms success. Failure retains the row and
 uses the existing action-error surface; an uncertain transport result is
 reconciled from authoritative state and is never replayed automatically.

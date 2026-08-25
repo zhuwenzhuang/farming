@@ -256,6 +256,8 @@ interface CodeSidebarProps {
   onOpenAgentMenu: (event: ContextMenuTriggerEvent, agentId: string) => void
   onResumeAgentSession: (provider: string, sessionId: string, providerHomeId?: string) => void
   onOpenAgentSessionMenu: (event: ContextMenuTriggerEvent, provider: string, sessionId: string) => void
+  onToggleAgentSessionPinned: (session: AgentSessionHistoryItem) => void
+  onArchiveAgentSession: (session: AgentSessionHistoryItem) => void
   onOpenProjectFile: (
     agentId: string,
     file: OpenWorkspaceFile['file'],
@@ -368,6 +370,8 @@ export function CodeSidebar({
   onOpenAgentMenu,
   onResumeAgentSession,
   onOpenAgentSessionMenu,
+  onToggleAgentSessionPinned,
+  onArchiveAgentSession,
   onOpenProjectFile,
   onBeginProjectFileOpenIntent,
   onResolveProjectFile,
@@ -882,6 +886,8 @@ export function CodeSidebar({
             onOpenAgentMenu={onOpenAgentMenu}
             onResumeAgentSession={onResumeAgentSession}
             onOpenAgentSessionMenu={onOpenAgentSessionMenu}
+            onToggleAgentSessionPinned={onToggleAgentSessionPinned}
+            onArchiveAgentSession={onArchiveAgentSession}
             onShowAgentPreview={showAgentPreview}
             onHideAgentPreview={hideAgentPreview}
             onToggleCollapsed={() => setPinnedCollapsed(collapsed => !collapsed)}
@@ -938,6 +944,8 @@ export function CodeSidebar({
             onOpenAgentMenu={onOpenAgentMenu}
             onResumeAgentSession={onResumeAgentSession}
             onOpenAgentSessionMenu={onOpenAgentSessionMenu}
+            onToggleAgentSessionPinned={onToggleAgentSessionPinned}
+            onArchiveAgentSession={onArchiveAgentSession}
             onShowAgentPreview={showAgentPreview}
             onHideAgentPreview={hideAgentPreview}
             onOpenProjectFile={onOpenProjectFile}
@@ -1340,6 +1348,8 @@ interface PinnedSectionProps {
   onOpenAgentMenu: (event: ContextMenuTriggerEvent, agentId: string) => void
   onResumeAgentSession: (provider: string, sessionId: string, providerHomeId?: string) => void
   onOpenAgentSessionMenu: (event: ContextMenuTriggerEvent, provider: string, sessionId: string) => void
+  onToggleAgentSessionPinned: (session: AgentSessionHistoryItem) => void
+  onArchiveAgentSession: (session: AgentSessionHistoryItem) => void
   onShowAgentPreview: (event: AgentPreviewAnchorEvent, target: AgentPreviewTarget, compact?: boolean) => void
   onHideAgentPreview: () => void
   onToggleCollapsed: () => void
@@ -1366,6 +1376,8 @@ function PinnedSection({
   onOpenAgentMenu,
   onResumeAgentSession,
   onOpenAgentSessionMenu,
+  onToggleAgentSessionPinned,
+  onArchiveAgentSession,
   onShowAgentPreview,
   onHideAgentPreview,
   onToggleCollapsed,
@@ -1478,6 +1490,8 @@ function PinnedSection({
                   dynamicPinningEnabled={dynamicPinningEnabled}
                   onResume={onResumeAgentSession}
                   onOpenSessionMenu={onOpenAgentSessionMenu}
+                  onToggleSessionPinned={onToggleAgentSessionPinned}
+                  onArchiveSession={onArchiveAgentSession}
                   onShowPreview={onShowAgentPreview}
                   onHidePreview={onHideAgentPreview}
                   copy={copy}
@@ -1891,6 +1905,8 @@ interface ProjectSectionProps {
   onOpenAgentMenu: (event: ContextMenuTriggerEvent, agentId: string) => void
   onResumeAgentSession: (provider: string, sessionId: string, providerHomeId?: string) => void
   onOpenAgentSessionMenu: (event: ContextMenuTriggerEvent, provider: string, sessionId: string) => void
+  onToggleAgentSessionPinned: (session: AgentSessionHistoryItem) => void
+  onArchiveAgentSession: (session: AgentSessionHistoryItem) => void
   onShowAgentPreview: (event: AgentPreviewAnchorEvent, target: AgentPreviewTarget, compact?: boolean) => void
   onHideAgentPreview: () => void
   onOpenProjectFile: (
@@ -2037,6 +2053,8 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
   onOpenAgentMenu,
   onResumeAgentSession,
   onOpenAgentSessionMenu,
+  onToggleAgentSessionPinned,
+  onArchiveAgentSession,
   onShowAgentPreview,
   onHideAgentPreview,
   onOpenProjectFile,
@@ -2599,6 +2617,8 @@ const ProjectSectionContent = memo(function ProjectSectionContent({
                         now={now}
                         onResume={onResumeAgentSession}
                         onOpenSessionMenu={onOpenAgentSessionMenu}
+                        onToggleSessionPinned={onToggleAgentSessionPinned}
+                        onArchiveSession={onArchiveAgentSession}
                         onShowPreview={onShowAgentPreview}
                         onHidePreview={onHideAgentPreview}
                         copy={copy}
@@ -3002,6 +3022,8 @@ function AgentRow({
   onOpenAgentMenu,
   onResume,
   onOpenSessionMenu,
+  onToggleSessionPinned,
+  onArchiveSession,
   onShowPreview,
   onHidePreview,
   copy,
@@ -3025,6 +3047,8 @@ function AgentRow({
   onOpenAgentMenu?: (event: ContextMenuTriggerEvent, agentId: string) => void
   onResume?: (provider: string, sessionId: string, providerHomeId?: string) => void
   onOpenSessionMenu?: (event: ContextMenuTriggerEvent, provider: string, sessionId: string) => void
+  onToggleSessionPinned?: (session: AgentSessionHistoryItem) => void
+  onArchiveSession?: (session: AgentSessionHistoryItem) => void
   onShowPreview?: (event: AgentPreviewAnchorEvent, target: AgentPreviewTarget, compact?: boolean) => void
   onHidePreview?: () => void
   copy: CodeCopy
@@ -3069,8 +3093,11 @@ function AgentRow({
   const togglePinned = (event: ReactMouseEvent<HTMLButtonElement>) => {
     event.preventDefault()
     event.stopPropagation()
-    if (!liveAgent) return
-    onUpdateAgentFlags?.(liveAgent, { pinned: !rowState.pinned })
+    if (liveAgent) {
+      onUpdateAgentFlags?.(liveAgent, { pinned: !rowState.pinned })
+    } else if (session) {
+      onToggleSessionPinned?.(session)
+    }
   }
   const toggleFollowUp = (event: ReactMouseEvent<HTMLButtonElement>) => {
     event.preventDefault()
@@ -3081,8 +3108,11 @@ function AgentRow({
   const archiveAgent = (event: ReactMouseEvent<HTMLButtonElement>) => {
     event.preventDefault()
     event.stopPropagation()
-    if (!liveAgent) return
-    onUpdateAgentFlags?.(liveAgent, { archived: true })
+    if (liveAgent) {
+      onUpdateAgentFlags?.(liveAgent, { archived: true })
+    } else if (session) {
+      onArchiveSession?.(session)
+    }
   }
   const openRowMenu = (event: ReactMouseEvent<HTMLButtonElement>) => {
     event.preventDefault()
@@ -3226,8 +3256,8 @@ function AgentRow({
             {rowState.ageLabel}
           </span>
         )}
-        {agent && (
-          <span className="code-agent-row-actions" aria-hidden={false}>
+        {(agent || session) && (
+          <span className={`code-agent-row-actions ${session ? 'session' : ''}`} aria-hidden={false}>
             {liveAgent && (
               <span
                 className="code-agent-resource-action-slot"
@@ -3235,23 +3265,29 @@ function AgentRow({
                 data-agent-id={liveAgent.id}
               />
             )}
-            <button
-              type="button"
-              className={`code-agent-row-action follow-up ${liveAgent?.followUp === true ? 'active' : ''}`}
-              data-testid="code-agent-row-follow-up"
-              aria-label={liveAgent?.followUp === true ? copy.unmarkFollowUp : copy.markFollowUp}
-              aria-pressed={liveAgent?.followUp === true}
-              title={liveAgent?.followUp === true ? copy.unmarkFollowUp : copy.markFollowUp}
-              onClick={toggleFollowUp}
-            >
-              <FieldFlagGlyph filled={liveAgent?.followUp === true} />
-            </button>
+            {agent && (
+              <button
+                type="button"
+                className={`code-agent-row-action follow-up ${liveAgent?.followUp === true ? 'active' : ''}`}
+                data-testid="code-agent-row-follow-up"
+                aria-label={liveAgent?.followUp === true ? copy.unmarkFollowUp : copy.markFollowUp}
+                aria-pressed={liveAgent?.followUp === true}
+                title={liveAgent?.followUp === true ? copy.unmarkFollowUp : copy.markFollowUp}
+                onClick={toggleFollowUp}
+              >
+                <FieldFlagGlyph filled={liveAgent?.followUp === true} />
+              </button>
+            )}
             <button
               type="button"
               className={`code-agent-row-action pin ${rowState.pinned ? 'active' : ''}`}
               data-testid="code-agent-row-pin"
-              aria-label={rowState.pinned ? copy.unpinAgent : copy.pinAgent}
-              title={rowState.pinned ? copy.unpinAgent : copy.pinAgent}
+              aria-label={rowState.pinned
+                ? (session ? copy.unpinChat : copy.unpinAgent)
+                : (session ? copy.pinChat : copy.pinAgent)}
+              title={rowState.pinned
+                ? (session ? copy.unpinChat : copy.unpinAgent)
+                : (session ? copy.pinChat : copy.pinAgent)}
               onClick={togglePinned}
             >
               {rowState.pinned ? <AgentUnpinIcon /> : <AgentPinIcon />}
@@ -3260,8 +3296,8 @@ function AgentRow({
               type="button"
               className="code-agent-row-action archive"
               data-testid="code-agent-row-archive"
-              aria-label={copy.archiveAgent}
-              title={copy.archiveAgent}
+              aria-label={session ? copy.archiveChat : copy.archiveAgent}
+              title={session ? copy.archiveChat : copy.archiveAgent}
               onClick={archiveAgent}
             >
               <AgentArchiveIcon />
