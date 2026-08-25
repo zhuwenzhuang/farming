@@ -454,8 +454,16 @@ test('pins and unpins a session from the row actions', async ({ page, workspaceR
   expect(pinRequests[0]).toEqual({ pinned: true, providerHomeId: 'review' })
   const pinnedRow = page.getByTestId('code-pinned-section').getByTestId('code-active-session-row').filter({ hasText: 'Pin from sidebar row' })
   await expect(pinnedRow).toHaveCount(1)
+  const bellIcon = page.getByTestId('code-pinned-dynamic-toggle').locator('svg')
+  await expect(bellIcon).toHaveAttribute('viewBox', '0 0 16 16')
+  await expect(bellIcon).toHaveAttribute('stroke-width', '1.25')
 
   await pinnedRow.hover()
+  const pinnedActionColors = await pinnedRow.evaluate(element => ({
+    archive: getComputedStyle(element.querySelector<HTMLElement>('[data-testid="code-agent-row-archive"]')!).color,
+    pin: getComputedStyle(element.querySelector<HTMLElement>('[data-testid="code-agent-row-pin"]')!).color,
+  }))
+  expect(pinnedActionColors.pin).toBe(pinnedActionColors.archive)
   await pinnedRow.getByTestId('code-agent-row-pin').click()
   await expect.poll(() => pinRequests.length).toBe(2)
   expect(pinRequests[1]).toEqual({ pinned: false, providerHomeId: 'review' })
@@ -546,6 +554,29 @@ test('keeps a session row on Archive failure and restores it through Undo after 
   await expect(row).toHaveCount(0)
   const archiveToast = page.getByTestId('code-archive-toast')
   await expect(archiveToast).toContainText('Archived chat')
+  await expect(archiveToast).toContainText('Codex · Archive from sidebar row')
+  const archiveToastBox = await archiveToast.boundingBox()
+  expect(archiveToastBox?.y).toBeLessThan(120)
+  const archiveLabelBox = await archiveToast.locator('.code-archive-toast-label').boundingBox()
+  const archiveSessionBox = await archiveToast.locator('.code-archive-toast-session').boundingBox()
+  expect(archiveSessionBox?.y).toBeGreaterThan(archiveLabelBox?.y ?? Number.POSITIVE_INFINITY)
+  const undoColors = await archiveToast.getByTestId('code-archive-toast-undo').evaluate(element => {
+    const accentProbe = document.createElement('span')
+    accentProbe.style.color = 'var(--code-accent)'
+    document.body.append(accentProbe)
+    const accent = getComputedStyle(accentProbe).color
+    accentProbe.remove()
+    return {
+      accent,
+      background: getComputedStyle(element).backgroundColor,
+    }
+  })
+  expect(undoColors.background).not.toBe(undoColors.accent)
+  await page.setViewportSize({ width: 390, height: 844 })
+  const narrowArchiveToastBox = await archiveToast.boundingBox()
+  expect(narrowArchiveToastBox?.x).toBeGreaterThanOrEqual(8)
+  expect((narrowArchiveToastBox?.x ?? 0) + (narrowArchiveToastBox?.width ?? 0)).toBeLessThanOrEqual(382)
+  await page.setViewportSize({ width: 1440, height: 900 })
   await archiveToast.getByTestId('code-archive-toast-undo').click()
   await expect.poll(() => unarchiveRequests.length).toBe(1)
   await expect(archiveToast).toContainText('Provider Undo failed')
@@ -727,6 +758,12 @@ test('hides Agent row actions after a clicked row loses hover', async ({ page, w
   await row.click()
   await expect(actions).toHaveCSS('opacity', '1')
   await expect(actions).toHaveCSS('z-index', '3')
+  const flagIcon = row.getByTestId('code-agent-row-follow-up').locator('svg')
+  await expect(flagIcon).toHaveAttribute('viewBox', '0 0 16 16')
+  await expect(flagIcon).toHaveAttribute('stroke-width', '1.25')
+  const flagIconBox = await flagIcon.boundingBox()
+  expect(flagIconBox?.width).toBe(16)
+  expect(flagIconBox?.height).toBe(16)
 
   await page.mouse.move(1000, 100)
   await row.evaluate(element => (element as HTMLElement).focus())

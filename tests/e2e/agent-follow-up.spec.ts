@@ -86,11 +86,12 @@ test('marks, counts, persists, deduplicates, and unmarks Agents', async ({ page,
   await expect(page.getByTestId('code-follow-up-filter')).toHaveCount(0)
   await expect(project).toHaveAttribute('data-project-follow-up-count', '2')
   await expect(project.getByTestId('code-project-follow-up-count')).toHaveText('2')
-  await expect(quickRow.getByTestId('code-agent-follow-up')).toBeVisible()
-  await expect(quickRow.getByTestId('code-agent-follow-up').locator('path')).toHaveAttribute(
-    'd',
-    'M3 2.25a.75.75 0 0 1 1.5 0v.5h7.3c.68 0 1.05.8.6 1.3L10.7 6l1.7 1.95c.45.5.08 1.3-.6 1.3H4.5v4.5a.75.75 0 0 1-1.5 0V2.25Z',
-  )
+  const followUpIcon = quickRow.getByTestId('code-agent-follow-up')
+  await expect(followUpIcon).toBeVisible()
+  await expect(followUpIcon.locator('svg')).toHaveAttribute('viewBox', '0 0 16 16')
+  await expect(followUpIcon.locator('svg')).toHaveAttribute('stroke-width', '1.25')
+  await expect(followUpIcon.locator('path').nth(1)).toHaveAttribute('fill', 'currentColor')
+  await expect(followUpIcon.locator('path').nth(1)).toHaveAttribute('stroke', 'none')
   await expect(pinnedRow.getByTestId('code-agent-follow-up')).toBeVisible()
   await expect(ordinaryRow.getByTestId('code-agent-follow-up')).toHaveCount(0)
   await expect(agentRow(page, pinnedId)).toHaveCount(1)

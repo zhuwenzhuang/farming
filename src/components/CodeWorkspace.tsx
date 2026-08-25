@@ -826,6 +826,7 @@ export function CodeWorkspace({
     error?: string
     id: number
     session: AgentSessionHistoryItem
+    sessionLabel: string
   } | null>(null)
   const [historySessionRevealRequest, setHistorySessionRevealRequest] = useState<{
     requestId: number
@@ -2941,7 +2942,12 @@ export function CodeWorkspace({
         [sessionHandle]: false,
       }))
       invalidateAgentSessionsForHistory()
-      setArchivedSessionNotice({ busy: false, id: Date.now(), session })
+      setArchivedSessionNotice({
+        busy: false,
+        id: Date.now(),
+        session,
+        sessionLabel: `${session.providerName || session.provider} · ${session.title || copy.sessionFallbackTitle(session.providerName)}`,
+      })
     } catch (error) {
       setCopyNotice({
         id: Date.now(),
@@ -2949,7 +2955,7 @@ export function CodeWorkspace({
         message: error instanceof Error ? error.message : copy.updateFailed,
       })
     }
-  }, [closeContextMenu, copy.updateFailed, invalidateAgentSessionsForHistory, receiveAuthoritativeMainPageSessionKeys])
+  }, [closeContextMenu, copy, invalidateAgentSessionsForHistory, receiveAuthoritativeMainPageSessionKeys])
 
   const archiveContextMenuAgentSession = useCallback(() => {
     if (contextMenuAgentSession) void archiveAgentSession(contextMenuAgentSession)

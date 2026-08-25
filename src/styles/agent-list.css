@@ -463,10 +463,6 @@ body.code-mode:not(.code-compact-layout) .code-agent-row:has(.code-agent-row-act
   display: block;
 }
 
-.code-agent-row-action.pin.active {
-  color: var(--code-accent);
-}
-
 .code-agent-row-action.follow-up.active {
   color: var(--code-warning);
 }

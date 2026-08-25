@@ -1141,7 +1141,8 @@ body.code-resizing-language-server-dock {
 .code-archive-toast {
   position: fixed;
   left: 50%;
-  bottom: 24px;
+  top: 64px;
+  bottom: auto;
   z-index: 10007;
   min-height: 48px;
   max-width: calc(100vw - 32px);
@@ -1164,7 +1165,6 @@ body.code-resizing-language-server-dock {
 }
 
 .code-archive-toast-label {
-  margin-right: 2px;
   font-weight: 600;
   white-space: nowrap;
 }
@@ -1176,9 +1176,27 @@ body.code-resizing-language-server-dock {
   text-overflow: ellipsis;
 }
 
+.code-archive-toast-copy {
+  min-width: 0;
+  max-width: min(280px, 32vw);
+  display: grid;
+  gap: 1px;
+}
+
+.code-archive-toast-session {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--code-text-muted);
+  font-size: 12px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .code-archive-toast button {
   min-width: 0;
   height: 34px;
+  flex: none;
   padding: 0 14px;
   border: 0;
   border-radius: 10px;
@@ -1193,8 +1211,8 @@ body.code-resizing-language-server-dock {
 }
 
 .code-archive-toast button.undo {
-  background: var(--code-accent);
-  color: var(--code-text-on-emphasis);
+  background: light-dark(var(--code-emphasis), var(--code-text-muted));
+  color: light-dark(var(--code-text-on-emphasis), var(--code-bg-canvas));
 }
 
 .code-archive-toast button.close {
@@ -1211,7 +1229,7 @@ body.code-resizing-language-server-dock {
 }
 
 .code-archive-toast button.undo:hover:not(:disabled) {
-  background: var(--code-accent-hover);
+  background: light-dark(var(--code-emphasis-hover), var(--code-text));
 }
 
 .code-archive-toast button:disabled {

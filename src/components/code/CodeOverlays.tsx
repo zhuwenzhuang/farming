@@ -65,6 +65,7 @@ export interface ArchivedSessionNoticeState {
   busy: boolean
   error?: string
   id: number
+  sessionLabel: string
 }
 
 interface CodeOverlaysProps {
@@ -626,9 +627,16 @@ export function CodeOverlays({
               />
             </svg>
           </span>
-          <span className={`code-archive-toast-label${archivedSessionNotice.error ? ' error' : ''}`}>
-            {archivedSessionNotice.error || copy.archivedChat}
-          </span>
+          {archivedSessionNotice.error ? (
+            <span className="code-archive-toast-label error">{archivedSessionNotice.error}</span>
+          ) : (
+            <span className="code-archive-toast-copy">
+              <span className="code-archive-toast-label">{copy.archivedChat}</span>
+              <span className="code-archive-toast-session" title={archivedSessionNotice.sessionLabel}>
+                {archivedSessionNotice.sessionLabel}
+              </span>
+            </span>
+          )}
           <button
             type="button"
             className="view"
