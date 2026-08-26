@@ -63,6 +63,29 @@ test('opens image, PDF, and binary files through their bounded viewers', async (
   expect(pdfBytes.ok()).toBe(true)
   expect(pdfBytes.headers()['content-type']).toContain('application/pdf')
   expect((await pdfBytes.body()).subarray(0, 5).toString('ascii')).toBe('%PDF-')
+  await pdfViewer.evaluate(element => {
+    element.dataset.retentionProbe = 'same-viewer'
+    element.dataset.loadCountAfterProbe = '0'
+    element.addEventListener('load', () => {
+      element.dataset.loadCountAfterProbe = String(Number(element.dataset.loadCountAfterProbe || '0') + 1)
+    })
+  })
+
+  await files.locator('[data-file-path="binary.bin"]').dblclick()
+  await expect(activeTab).toHaveAttribute('title', 'binary.bin')
+  await expect(page.getByTestId('code-file-metadata-preview-icon')).toBeVisible()
+  const retainedPdfViewer = page.locator('iframe.code-file-pdf-preview[title*="preview.pdf"]')
+  await expect(retainedPdfViewer).toHaveCount(1)
+  expect(await retainedPdfViewer.evaluate(element => ({
+    connected: element.isConnected,
+    hidden: element.parentElement?.classList.contains('hidden'),
+    probe: element.dataset.retentionProbe,
+  }))).toEqual({ connected: true, hidden: true, probe: 'same-viewer' })
+
+  await page.getByTestId('code-file-editor').locator('.code-file-editor-tab').filter({ hasText: 'preview.pdf' }).click()
+  await expect(activeTab).toHaveAttribute('title', 'preview.pdf')
+  await expect(page.getByTestId('code-file-pdf-preview')).toHaveAttribute('data-retention-probe', 'same-viewer')
+  await expect(page.getByTestId('code-file-pdf-preview')).toHaveAttribute('data-load-count-after-probe', '0')
 
   await files.locator('[data-file-path="binary.bin"]').dblclick()
   await expect(activeTab).toHaveAttribute('title', 'binary.bin')

@@ -237,6 +237,9 @@ Text uses the lightweight editor. Markdown and static HTML may switch between
 source and bounded preview within the same file identity. Images, PDFs, binary
 files, and oversized text use read-only viewers. Every Viewer uses the same
 Project authorization; it must not create a separate file-access path.
+Markdown previews remember their per-file scroll position when switching source
+or files. PDF previews retain a bounded set of browser viewer contexts so the
+viewer page, zoom, and scroll state survive ordinary file switching.
 
 Large Markdown preview is segmented at major headings and a bounded block
 count. It preserves ordinary continuous scrolling while mounting only the

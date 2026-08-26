@@ -48,6 +48,8 @@ interface FileEditorMarkdownPreviewProps {
   activeTabDomId: string
   openFile: OpenWorkspaceFile
   onOpenFilePath: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
+  initialScrollTop?: number
+  onScrollTopChange?: (scrollTop: number) => void
   copy: CodeCopy
   previewRefreshRevision?: number
 }
@@ -976,10 +978,15 @@ export const FileEditorMarkdownPreview = forwardRef<HTMLElement, FileEditorMarkd
   activeTabDomId,
   openFile,
   onOpenFilePath,
+  initialScrollTop = 0,
+  onScrollTopChange,
   copy,
   previewRefreshRevision = 0,
 }, ref) {
   const previewPanelRef = useRef<HTMLElement | null>(null)
+  const restoringScrollRef = useRef(false)
+  const appliedScrollTopRef = useRef(0)
+  const finishScrollRestoreRef = useRef<(() => void) | null>(null)
   useImperativeHandle(ref, () => previewPanelRef.current as HTMLElement, [])
   const source = openFile.draft ?? openFile.file.content ?? ''
   const markdownDocument = splitMarkdownFrontMatter(source)
@@ -994,6 +1001,56 @@ export const FileEditorMarkdownPreview = forwardRef<HTMLElement, FileEditorMarkd
   const contextValue = { openFile, onOpenFilePath, copy, nextHeadingId, previewRefreshRevision }
   const previewIdentity = `${openFile.agentId}:${openFile.file.path}`
 
+  useLayoutEffect(() => {
+    const panel = previewPanelRef.current
+    if (!panel) return undefined
+    const target = Math.max(0, initialScrollTop)
+    restoringScrollRef.current = true
+    let frameId: number | null = null
+    let timeoutId: number | null = null
+    let observer: ResizeObserver | null = null
+
+    const finishRestore = () => {
+      if (!restoringScrollRef.current) return
+      restoringScrollRef.current = false
+      onScrollTopChange?.(panel.scrollTop)
+      if (frameId !== null) window.cancelAnimationFrame(frameId)
+      if (timeoutId !== null) window.clearTimeout(timeoutId)
+      observer?.disconnect()
+    }
+    const applyRestore = () => {
+      panel.scrollTop = target
+      appliedScrollTopRef.current = panel.scrollTop
+    }
+    const acceptUserPosition = () => finishRestore()
+    finishScrollRestoreRef.current = finishRestore
+
+    applyRestore()
+    frameId = window.requestAnimationFrame(applyRestore)
+    timeoutId = window.setTimeout(finishRestore, 1_000)
+    const article = panel.querySelector('.code-markdown-preview')
+    if (article && typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(applyRestore)
+      observer.observe(article)
+    }
+    panel.addEventListener('wheel', acceptUserPosition, { passive: true })
+    panel.addEventListener('pointerdown', acceptUserPosition, { passive: true })
+    panel.addEventListener('touchstart', acceptUserPosition, { passive: true })
+    panel.addEventListener('keydown', acceptUserPosition)
+
+    return () => {
+      if (frameId !== null) window.cancelAnimationFrame(frameId)
+      if (timeoutId !== null) window.clearTimeout(timeoutId)
+      observer?.disconnect()
+      panel.removeEventListener('wheel', acceptUserPosition)
+      panel.removeEventListener('pointerdown', acceptUserPosition)
+      panel.removeEventListener('touchstart', acceptUserPosition)
+      panel.removeEventListener('keydown', acceptUserPosition)
+      finishScrollRestoreRef.current = null
+      restoringScrollRef.current = false
+    }
+  }, [initialScrollTop, onScrollTopChange, previewIdentity])
+
   return (
     <section
       ref={previewPanelRef}
@@ -1003,6 +1060,16 @@ export const FileEditorMarkdownPreview = forwardRef<HTMLElement, FileEditorMarkd
       aria-labelledby={activeTabDomId}
       aria-label={copy.markdownPreviewFor(openFile.file.path)}
       tabIndex={-1}
+      onScroll={event => {
+        const scrollTop = event.currentTarget.scrollTop
+        if (restoringScrollRef.current) {
+          if (Math.abs(scrollTop - appliedScrollTopRef.current) > 1) {
+            finishScrollRestoreRef.current?.()
+          }
+          return
+        }
+        onScrollTopChange?.(scrollTop)
+      }}
     >
       <MarkdownPreviewContext.Provider value={contextValue}>
         <article

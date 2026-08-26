@@ -661,6 +661,18 @@ body.code-mode .code-file-editor-fallback-textarea {
   background: var(--code-bg-surface);
 }
 
+.code-file-preview-panel.cached-pdf.hidden {
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 1px;
+  height: 1px;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .code-file-preview-panel.html {
   display: flex;
   place-items: initial;

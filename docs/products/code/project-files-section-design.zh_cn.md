@@ -178,6 +178,8 @@ Directory Tree 不渲染屏外祖先的随滚动联动副本；真实的 Virtual
 文本使用轻量 Editor。Markdown 与静态 HTML 可以在同一 File Identity 中切换 Source 与有界
 Preview。Image、PDF、Binary 与 Oversized Text 使用 Read-only Viewer。所有 Viewer 共用同一
 Project Authorization，不能形成独立 File Access Path。
+Markdown Preview 在切换 Source 或文件时按文件记住 Scroll Position。PDF Preview 保留有界数量的
+Browser Viewer Context，使页码、Zoom 与 Scroll State 在普通文件切换后保持不变。
 
 大型 Markdown Preview 按主要 Heading 与有界 Block 数分段，保留普通连续滚动，同时只挂载
 Viewport 附近的 Section，并用已测量或估算的空间表示远处 Section。大型文档不执行语法高亮，

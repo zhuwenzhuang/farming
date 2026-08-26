@@ -43,12 +43,14 @@ interface FileEditorSurfaceProps {
   modelStatus: FileEditorModelStatus
   markdownSplitOpen: boolean
   markdownPreviewOpen: boolean
+  markdownReadingScrollTop: number
   sourcePreviewOpen: boolean
   previewRefreshRevision: number
   openFile: OpenWorkspaceFile
   onClearBlameDetail: () => void
   onCloseLineChanges: () => void
   onCloseDiff: () => void
+  onMarkdownReadingPositionChange: (scrollTop: number) => void
   onOpenFilePath: (agentId: string, filePath: string, target?: WorkspaceFileOpenTarget) => Promise<void> | void
   onShowBlameDetail: (line: FileEditorBlameLine) => void
 }
@@ -113,12 +115,14 @@ export function FileEditorSurface({
   modelStatus,
   markdownSplitOpen,
   markdownPreviewOpen,
+  markdownReadingScrollTop,
   sourcePreviewOpen,
   previewRefreshRevision,
   openFile,
   onClearBlameDetail,
   onCloseLineChanges,
   onCloseDiff,
+  onMarkdownReadingPositionChange,
   onOpenFilePath,
   onShowBlameDetail,
 }: FileEditorSurfaceProps) {
@@ -174,6 +178,8 @@ export function FileEditorSurface({
                 activeTabDomId={activeTabDomId}
                 openFile={openFile}
                 onOpenFilePath={onOpenFilePath}
+                initialScrollTop={markdownReadingScrollTop}
+                onScrollTopChange={onMarkdownReadingPositionChange}
                 copy={copy}
                 previewRefreshRevision={previewRefreshRevision}
               />
@@ -205,6 +211,8 @@ export function FileEditorSurface({
               activeTabDomId={activeTabDomId}
               openFile={openFile}
               onOpenFilePath={onOpenFilePath}
+              initialScrollTop={markdownReadingScrollTop}
+              onScrollTopChange={onMarkdownReadingPositionChange}
               copy={copy}
               previewRefreshRevision={previewRefreshRevision}
             />
@@ -220,25 +228,24 @@ export function FileEditorSurface({
           onShowDetail={onShowBlameDetail}
         />
       )}
-      {(surface.showSourcePreview || editorMode.visualPreview) && (
-        <LocalErrorBoundary
-          label="file visual preview"
-          resetKey={`${previewResetKey}\u0000${surface.showSourcePreview ? 'open' : 'closed'}`}
-          fallback={(_error, retry) => (
-            <FilePreviewRenderError activeTabDomId={activeTabDomId} copy={copy} onRetry={retry} />
-          )}
-        >
-          <LocalRenderFault surface="file-preview" identity={`${previewIdentity}:visual`}>
-            <FileEditorPreviewPanel
-              openFile={openFile}
-              activeTabDomId={activeTabDomId}
-              copy={copy}
-              sourcePreviewOpen={surface.showSourcePreview}
-              previewRefreshRevision={previewRefreshRevision}
-            />
-          </LocalRenderFault>
-        </LocalErrorBoundary>
-      )}
+      <LocalErrorBoundary
+        label="file visual preview"
+        resetKey={`${previewResetKey}\u0000${surface.showSourcePreview ? 'open' : 'closed'}`}
+        fallback={(_error, retry) => (
+          <FilePreviewRenderError activeTabDomId={activeTabDomId} copy={copy} onRetry={retry} />
+        )}
+      >
+        <LocalRenderFault surface="file-preview" identity={`${previewIdentity}:visual`}>
+          <FileEditorPreviewPanel
+            openFile={openFile}
+            activeTabDomId={activeTabDomId}
+            copy={copy}
+            sourcePreviewOpen={surface.showSourcePreview}
+            previewRefreshRevision={previewRefreshRevision}
+            visible={surface.showSourcePreview || editorMode.visualPreview}
+          />
+        </LocalRenderFault>
+      </LocalErrorBoundary>
       {surface.showEditorOverlays && blameOpen && blameDetailLine && (
         <FileEditorBlameDetail
           filePath={openFile.file.path}

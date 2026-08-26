@@ -92,6 +92,7 @@ const MIN_LANGUAGE_SERVER_DOCK_WIDTH = 320
 const MAX_LANGUAGE_SERVER_DOCK_WIDTH = 640
 const MIN_LANGUAGE_SERVER_EDITOR_WIDTH = 640
 const LANGUAGE_SERVER_DOCK_KEYBOARD_STEP = 16
+const MAX_MARKDOWN_READING_POSITIONS = 100
 
 type LanguageServerDockStyle = CSSProperties & {
   '--code-language-server-dock-width'?: string
@@ -181,6 +182,7 @@ export function FileEditorPane({
   const languageServerDockResizeGestureRef = useRef<LanguageServerDockResizeGesture | null>(null)
   const languageServerDockResizeFrameRef = useRef<number | null>(null)
   const pendingLanguageServerDockClientXRef = useRef<number | null>(null)
+  const markdownReadingPositionsRef = useRef(new Map<string, number>())
   const activeTabDomId = fileEditorTabDomId(openFile)
   const editorMode = workspaceEditorFileMode(openFile)
   const [sourcePreviewByFileKey, setSourcePreviewByFileKey] = useState<Record<string, boolean>>({})
@@ -193,6 +195,17 @@ export function FileEditorPane({
   const languageServerDockWidthRef = useRef(languageServerDockWidth)
   languageServerDockWidthRef.current = languageServerDockWidth
   const activeFileKey = workspaceEditorModelKey(openFile)
+  const markdownReadingScrollTop = markdownReadingPositionsRef.current.get(activeFileKey) ?? 0
+  const rememberMarkdownReadingPosition = useCallback((scrollTop: number) => {
+    const positions = markdownReadingPositionsRef.current
+    positions.delete(activeFileKey)
+    positions.set(activeFileKey, Math.max(0, scrollTop))
+    while (positions.size > MAX_MARKDOWN_READING_POSITIONS) {
+      const oldestKey = positions.keys().next().value
+      if (typeof oldestKey !== 'string') break
+      positions.delete(oldestKey)
+    }
+  }, [activeFileKey])
   const canPreviewMarkdown = !editorMode.preview && !editorMode.diffOnly && isWorkspaceMarkdownFile(openFile.file.path)
   const canPreviewSource = !editorMode.preview && !editorMode.diffOnly && (
     isWorkspaceSvgFile(openFile.file.path) || isWorkspaceHtmlFile(openFile.file.path)
@@ -643,11 +656,13 @@ export function FileEditorPane({
               markdownPreviewOpen={markdownPreviewOpen}
               sourcePreviewOpen={sourceVisualPreviewOpen}
               previewRefreshRevision={previewRefreshRevision}
+              markdownReadingScrollTop={markdownReadingScrollTop}
               openFile={openFile}
               onClearBlameDetail={clearBlameDetail}
               onCloseDiff={closeDiff}
               onCloseLineChanges={closeLineChanges}
               onOpenFilePath={onOpenFilePath}
+              onMarkdownReadingPositionChange={rememberMarkdownReadingPosition}
               onShowBlameDetail={showBlameDetail}
             />
           </div>

@@ -60,6 +60,12 @@ test('renders Markdown files by default and keeps preview, source, and split con
     '',
     '<script>window.markdownPreviewUnsafe = true</script>',
     '',
+    ...Array.from({ length: 80 }, (_, index) => [
+      `## Reading section ${index + 1}`,
+      '',
+      `Keep the reader anchored at section ${index + 1} after switching files or views.`,
+      '',
+    ].join('\n')),
   ].join('\n'))
 
   await openFarming(page)
@@ -138,6 +144,14 @@ test('renders Markdown files by default and keeps preview, source, and split con
   await expect(page.getByTestId('code-terminal-grid')).toBeHidden()
   await page.locator('body').evaluate(body => { body.dataset.appearance = 'light' })
 
+  const rememberedScrollTop = await preview.evaluate(element => {
+    const panel = element as HTMLElement
+    panel.scrollTop = Math.round((panel.scrollHeight - panel.clientHeight) * 0.6)
+    panel.dispatchEvent(new Event('scroll'))
+    return panel.scrollTop
+  })
+  expect(rememberedScrollTop).toBeGreaterThan(500)
+
   await editor.getByRole('button', { name: 'Show Markdown source' }).click()
   await expect(editor.getByTestId('code-file-markdown-preview')).toHaveCount(0)
   await expect(editor.getByTestId('code-file-monaco')).toBeVisible()
@@ -145,6 +159,19 @@ test('renders Markdown files by default and keeps preview, source, and split con
   await editor.getByRole('button', { name: 'Open Markdown preview to side' }).click()
   await expect(editor.getByTestId('code-file-markdown-preview')).toBeVisible()
   await expect(editor.getByTestId('code-file-monaco')).toBeVisible()
+  await expect.poll(async () => Math.abs(
+    await editor.getByTestId('code-file-markdown-preview').evaluate(element => (element as HTMLElement).scrollTop)
+      - rememberedScrollTop,
+  )).toBeLessThanOrEqual(10)
+
+  await openProjectFile(page, 'file-markdown-preview', 'docs/next document.md')
+  await expect(editor.getByRole('tab', { selected: true })).toContainText('next document.md')
+  await openProjectFile(page, 'file-markdown-preview', 'docs/guide.md')
+  await expect(editor.getByRole('tab', { selected: true })).toContainText('guide.md')
+  await expect.poll(async () => Math.abs(
+    await editor.getByTestId('code-file-markdown-preview').evaluate(element => (element as HTMLElement).scrollTop)
+      - rememberedScrollTop,
+  )).toBeLessThanOrEqual(10)
 
   await preview.getByRole('link', { name: 'Open next document' }).click()
   await expect(editor.getByRole('tab', { selected: true })).toContainText('next document.md')
