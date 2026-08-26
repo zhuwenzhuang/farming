@@ -87,8 +87,9 @@
 }
 
 .code-usage-header:focus-visible {
-  outline: 2px solid var(--code-focus-ring);
-  outline-offset: 3px;
+  background: var(--code-bg-hover);
+  color: var(--code-text);
+  outline: 0;
 }
 
 .code-usage-provider {
@@ -123,8 +124,9 @@
 }
 
 .code-usage-chart-trigger:focus-visible {
-  outline: 2px solid var(--code-focus-ring);
-  outline-offset: 2px;
+  background: var(--code-bg-hover);
+  color: var(--code-text);
+  outline: 0;
 }
 
 .code-usage-chart-summary {
@@ -984,8 +986,9 @@
     }
 
   body.code-mode.code-compact-layout .code-usage-mobile-open:focus-visible {
-      outline: 2px solid var(--code-focus-ring);
-      outline-offset: 2px;
+      background: var(--code-bg-hover);
+      color: var(--code-text);
+      outline: 0;
     }
 
   body.code-mode.code-compact-layout .code-usage-detail-backdrop {

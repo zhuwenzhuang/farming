@@ -158,8 +158,10 @@
 }
 
 .code-agent-row:focus-visible {
-  outline: 2px solid var(--code-focus-ring);
-  outline-offset: 1px;
+  --code-agent-row-surface: var(--code-active-item-surface);
+  background: var(--code-active-item-surface);
+  color: var(--code-text);
+  outline: 0;
 }
 
 .code-agent-row.active {

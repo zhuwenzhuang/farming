@@ -397,7 +397,7 @@ export function CodeOverlays({
     <>
       {contextMenuAgent && (
         <div
-          className="code-context-menu"
+          className="code-context-menu code-sidebar-context-menu"
           data-testid="code-agent-context-menu"
           style={{ left: agentMenu?.x ?? 0, top: agentMenu?.y ?? 0 }}
           role="menu"
@@ -410,7 +410,7 @@ export function CodeOverlays({
       )}
       {contextMenuAgentSession && (
         <div
-          className="code-context-menu"
+          className="code-context-menu code-sidebar-context-menu"
           data-testid="code-session-context-menu"
           style={{ left: agentSessionMenu?.x ?? 0, top: agentSessionMenu?.y ?? 0 }}
           role="menu"

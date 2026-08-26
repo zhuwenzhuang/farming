@@ -37,8 +37,7 @@
 }
 
 .code-share-button:focus-visible {
-  outline: 2px solid var(--code-focus-ring);
-  outline-offset: 2px;
+  outline: 0;
 }
 
 .code-read-only-share-banner {
@@ -178,8 +177,7 @@
 }
 
 .code-share-token-card:focus-visible {
-  outline: 2px solid var(--code-focus-ring);
-  outline-offset: 2px;
+  outline: 0;
   background: var(--code-bg-hover);
 }
 

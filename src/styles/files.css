@@ -910,7 +910,7 @@ body.code-mode .code-file-change-group-toggle {
 }
 
 .code-file-tree-viewport:focus-within .code-file-tree-row-frame:has(.code-file-row.located.selected:not(.active)) {
-  background: var(--code-bg-selected);
+  background: var(--code-active-item-surface);
 }
 
 .code-file-row {
@@ -1940,11 +1940,11 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
 }
 
 .code-file-tree-viewport:focus-within .code-file-row.located.selected:not(.active) {
-  box-shadow: var(--code-shadow-focus);
+  box-shadow: none;
 }
 
 .code-file-tree-viewport:focus-within .code-file-row.located.selected:not(.active) {
-  color: var(--code-accent);
+  color: var(--code-text);
 }
 
 .code-file-descendant-status.renamed {
@@ -1972,11 +1972,11 @@ body.code-mode .code-file-tree-viewport:focus-within .code-file-row.located.sele
 }
 
 .code-file-context-menu button:hover {
-  outline: 2px solid var(--code-focus-ring);
+  outline: 0;
 }
 
 .code-file-context-menu button:focus-visible {
-  outline: 2px solid var(--code-focus-ring);
+  outline: 0;
 }
 
 .code-file-operation-dialog .code-rename-actions button.primary {

@@ -51,6 +51,12 @@ Project, file, or terminal state.
   geometry across its base, hover or selection fill, overlay, and action
   layers. Asymmetric square and rounded ends require an explicit joined-control
   design; they must not result accidentally from overlapping layers.
+- Persistent sidebar navigation uses the same neutral surface language for
+  keyboard focus, pointer hover, and selection in every appearance. Project,
+  Agent, file, Resource, menu, and sidebar action focus must remain visible
+  through surface, text, icon, and action exposure without adding a colored
+  perimeter or focus shadow. Form inputs and modal controls retain their own
+  bounded focus treatment outside this navigation contract.
 - Native Farming Code scrollbars use one eight-pixel interaction lane with a
   four-pixel rounded thumb, a transparent track, and visible default, hover,
   and active states from the shared appearance registry. Domain styles must not

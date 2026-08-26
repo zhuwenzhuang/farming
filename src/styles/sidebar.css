@@ -282,8 +282,8 @@ body.code-resizing-sidebar .code-sidebar-resizer {
 }
 
 .code-project-list:focus-visible {
-  outline: 2px solid var(--code-focus-ring);
-  outline-offset: 3px;
+  background: var(--code-bg-hover);
+  outline: 0;
 }
 
 @media (min-width: 981px) {
@@ -467,8 +467,9 @@ body.code-resizing-sidebar .code-sidebar-resizer {
 }
 
 .code-project-title:focus-visible {
-  outline: 2px solid var(--code-focus-ring);
-  outline-offset: 1px;
+  background: var(--code-active-item-surface);
+  color: var(--code-text);
+  outline: 0;
 }
 
 .code-project-title-content {
@@ -850,8 +851,7 @@ body.code-resizing-sidebar .code-sidebar-resizer {
 }
 
 .code-sidebar-options:focus-visible {
-  outline: 2px solid var(--code-focus-ring);
-  outline-offset: 2px;
+  outline: 0;
   background: var(--code-bg-hover);
   color: var(--code-text);
 }

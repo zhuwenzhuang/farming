@@ -513,7 +513,9 @@ body.code-resizing-resource-agent {
   object-fit: cover;
 }
 
-.code-product-mark:hover {
+.code-product-mark:hover,
+.code-product-mark:focus-visible {
+  background: var(--code-bg-hover);
   color: var(--code-text);
 }
 
@@ -523,8 +525,7 @@ body.code-resizing-resource-agent {
 }
 
 .code-product-mark:focus-visible {
-  outline: 2px solid var(--code-focus-ring);
-  outline-offset: 2px;
+  outline: 0;
   border-radius: 7px;
 }
 
@@ -623,14 +624,14 @@ body.code-mode .code-instance-name {
   height: 11px;
 }
 
-.code-instance-name:hover {
+.code-instance-name:hover,
+.code-instance-name:focus-visible {
   background: var(--code-bg-hover);
   color: var(--code-text);
 }
 
 .code-instance-name:focus-visible {
-  outline: 2px solid var(--code-focus-ring);
-  outline-offset: 1px;
+  outline: 0;
 }
 
 .code-instance-name-dialog {
@@ -3981,11 +3982,9 @@ body.code-mode.code-compact-layout .code-options-menu button:focus-visible {
 .workspace-directory-browser-actions button:not(.secondary) {
   color: var(--code-text-muted);
 }
-.code-product-mark:hover {
-  background: transparent;
-}
+.code-product-mark:hover,
 .code-product-mark:focus-visible {
-  background: transparent;
+  background: var(--code-bg-hover);
 }
 .code-product-mark-badge {
   border-color: var(--code-border);
