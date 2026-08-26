@@ -39,6 +39,7 @@
     "extensions/computer/bin/",
     "extensions/language-server/backend/*.cjs",
     "extensions/language-server/backend/LICENSE.opencode",
+    "extensions/shared-config/backend/*.cjs",
     "shared/*.js",
     "shared/*.json",
     "LICENSE",

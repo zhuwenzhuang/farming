@@ -127,8 +127,10 @@ import {
 } from './executable-discovery.cjs';
 import { ensureMainAgentSkillFiles, renderMainAgentBootstrap } from './main-agent-skills.cjs';
 import {
-  renderFarmingAgentBootstrap,
+  ensureFarmingAgentBootstrapFile,
+  renderFarmingAgentSystemPrompt,
 } from './farming-agent-bootstrap.cjs';
+import type { SharedConfigService, SharedLaunchConfig } from '../extensions/shared-config/backend/shared-config-service.cjs';
 import {
   canonicalProviderSessionKey,
   findActiveAgentClaimingSession,
@@ -513,6 +515,7 @@ interface AgentManagerOptions extends UnknownRecord {
   unarchiveCodexSession?: UnarchiveCodexSessionContract;
   worktreeGitService?: WorktreeGitServicePort;
   agentResourceOwnerReplacement?: AgentResourceOwnerReplacementContract;
+  sharedConfigService?: SharedConfigService;
 }
 
 interface AgentResourceOwnerReplacementContract {
@@ -1297,6 +1300,7 @@ class AgentManager extends EventEmitter {
   declare skipExecutablePreflight: boolean;
   declare cliBinDir: string;
   declare agentShellEnvResolver: AgentShellEnvResolver;
+  declare sharedConfigService: SharedConfigService | null;
   declare agents: Map<AgentId, TypedAgentRecord>;
   declare forkTitleReservations: Set<string>;
   declare agentOrderAllocator: AgentOrderAllocator;
@@ -1489,6 +1493,7 @@ class AgentManager extends EventEmitter {
     this.tokenFile = options.tokenFile || '';
     this.authDisabled = options.authDisabled === true;
     this.skipExecutablePreflight = options.skipExecutablePreflight === true;
+    this.sharedConfigService = options.sharedConfigService || null;
     this.cliBinDir = options.cliBinDir || path.join(__dirname, '..', 'bin');
     this.agentShellEnvResolver = new AgentShellEnvResolver({
       cacheMs: process.env.FARMING_AGENT_SHELL_ENV_CACHE_MS,
@@ -3463,7 +3468,7 @@ class AgentManager extends EventEmitter {
         continue;
       }
       try {
-        const recoveryEnv = this.buildAgentEnv(agentId, agent);
+        const recoveryEnv = this.buildAgentEnv(agentId, agent, null);
         const snapshot = this.acpRuntime.getSession(agentId, { maxEntries: 0 });
         const hostSessionId = String(snapshot.sessionId || '');
         if (hostSessionId && hostSessionId !== sessionId) {
@@ -3627,7 +3632,8 @@ class AgentManager extends EventEmitter {
         const approvalMode = agent.launchPermissionMode
           || providerLaunchPermissionMode(provider, recoveryLaunchProfile)
           || 'approve';
-        const launchEnv = this.buildAgentEnv(agentId, agent);
+        const sharedLaunchConfig = this.sharedConfigService?.captureLaunchConfig() || null;
+        const launchEnv = this.buildAgentEnv(agentId, agent, sharedLaunchConfig);
         const recoveryMcpSource = Array.isArray(record.acpMcpServers)
           ? record.acpMcpServers.filter(isRecord)
           : [];
@@ -3657,7 +3663,7 @@ class AgentManager extends EventEmitter {
           model: 'config',
           reasoningEffort: 'config',
           serviceTier: 'config',
-          farmingSystemPrompt: renderFarmingAgentBootstrap(),
+          farmingSystemPrompt: renderFarmingAgentSystemPrompt(sharedLaunchConfig?.instructions || ''),
           additionalDirectories: Array.isArray(record.acpAdditionalDirectories) ? record.acpAdditionalDirectories : [],
           configOverrides: recoveryConfigOverrides,
           capabilityRuntimeEpoch: recoveryProjection.capabilityRuntimeEpoch,
@@ -4354,8 +4360,15 @@ class AgentManager extends EventEmitter {
   buildAgentEnv(
     agentId: AgentId,
     agent: TypedAgentRecord,
+    sharedLaunchConfig?: SharedLaunchConfig | null,
   ) {
-    const env = this.buildAgentBaseEnv(agent);
+    const baseEnv = this.buildAgentBaseEnv(agent);
+    const launchConfig = sharedLaunchConfig === undefined
+      ? this.sharedConfigService?.captureLaunchConfig() || null
+      : sharedLaunchConfig;
+    const env = launchConfig && this.sharedConfigService
+      ? this.sharedConfigService.applyEnvironment(baseEnv, launchConfig)
+      : baseEnv;
     for (const key of FARMING_LAUNCH_OWNED_ENV_KEYS) delete env[key];
     clearProviderHomeEnvironment(env);
     if (agent.category === 'coding') {
@@ -4399,7 +4412,10 @@ class AgentManager extends EventEmitter {
     }
     if (this.configManager && this.configManager.farmingDir) {
       env.FARMING_CONFIG_DIR = this.configManager.farmingDir;
-      env.FARMING_STARTUP_PROMPT_FILE = storageLayout.farmingAgentBootstrapFile(this.configManager.farmingDir);
+      env.FARMING_STARTUP_PROMPT_FILE = ensureFarmingAgentBootstrapFile(
+        this.configManager.farmingDir,
+        launchConfig?.instructions || '',
+      );
     }
     if (agent.mainWorkspace) {
       env.FARMING_SKILLS_FILE = path.join(agent.mainWorkspace, 'FARMING_MAIN_AGENT_SKILLS.md');
@@ -4732,13 +4748,14 @@ class AgentManager extends EventEmitter {
     agent: TypedAgentRecord,
     engine: SessionEngineContract,
     launch: Omit<TerminalEngineLaunch, 'reviveState'> & { reviveState?: unknown },
+    sharedLaunchConfig: SharedLaunchConfig | null = null,
   ) {
     await engine.createSession({
       agentId: agent.id,
       command: launch.command,
       args: launch.args,
       cwd: launch.cwd,
-      env: this.buildAgentEnv(agent.id, agent),
+      env: this.buildAgentEnv(agent.id, agent, sharedLaunchConfig),
       category: launch.category,
       metadata: this.engineSessionMetadata(agent),
       reviveState: launch.reviveState || null,
@@ -4963,6 +4980,15 @@ class AgentManager extends EventEmitter {
       }
     }
 
+    let sharedLaunchConfig: SharedLaunchConfig | null = null;
+    try {
+      sharedLaunchConfig = this.sharedConfigService?.captureLaunchConfig() || null;
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'Shared configuration is not ready';
+      if (callback) callback(null, message);
+      return null;
+    }
+
     const dangerouslySkipPermissions = options.dangerouslySkipPermissions === true
       || (
         options.dangerouslySkipPermissions !== false
@@ -5006,7 +5032,7 @@ class AgentManager extends EventEmitter {
         homeLaunchProfile,
         dangerouslySkipPermissions === true,
       ),
-      farmingSystemPrompt: renderFarmingAgentBootstrap(),
+      farmingSystemPrompt: renderFarmingAgentSystemPrompt(sharedLaunchConfig?.instructions || ''),
       mainAgentSystemPrompt: wantsMain ? renderMainAgentBootstrap() : '',
     });
     const program = launch.program;
@@ -5610,7 +5636,7 @@ class AgentManager extends EventEmitter {
         if (!identityWorkspaceExists) {
           throw new Error(`Workspace does not exist: ${identityWorkspace}`);
         }
-        const identityEnv = this.buildAgentEnv(agentId, agentRecord);
+        const identityEnv = this.buildAgentEnv(agentId, agentRecord, sharedLaunchConfig);
         const requestedAdditionalDirectories = Array.isArray(options.additionalDirectories)
           ? options.additionalDirectories
           : [];
@@ -5631,7 +5657,7 @@ class AgentManager extends EventEmitter {
           model: runtimeLaunchProfile.model,
           reasoningEffort: runtimeLaunchProfile.reasoningEffort,
           serviceTier: runtimeLaunchProfile.serviceTier,
-          farmingSystemPrompt: renderFarmingAgentBootstrap(),
+          farmingSystemPrompt: renderFarmingAgentSystemPrompt(sharedLaunchConfig?.instructions || ''),
           additionalDirectories: requestedAdditionalDirectories,
           mcpServers: requestedMcpServers,
         });
@@ -5808,7 +5834,7 @@ class AgentManager extends EventEmitter {
           requestedMcpServers,
         );
         if (mcpServersError) throw new Error(mcpServersError);
-        const acpEnv = this.buildAgentEnv(agentId, agentRecord);
+        const acpEnv = this.buildAgentEnv(agentId, agentRecord, sharedLaunchConfig);
         const capabilityProjection = this.projectAcpMcpServersForRuntime(
           requestedMcpServers.filter(isRecord),
           acpEnv,
@@ -5835,7 +5861,7 @@ class AgentManager extends EventEmitter {
           model: runtimeLaunchProfile.model,
           reasoningEffort: runtimeLaunchProfile.reasoningEffort,
           serviceTier: runtimeLaunchProfile.serviceTier,
-          farmingSystemPrompt: renderFarmingAgentBootstrap(),
+          farmingSystemPrompt: renderFarmingAgentSystemPrompt(sharedLaunchConfig?.instructions || ''),
           additionalDirectories,
           configOverrides,
           mcpServers,
@@ -5948,7 +5974,7 @@ class AgentManager extends EventEmitter {
             category: typeof resolutionSpec?.category === 'string' ? resolutionSpec.category : 'shell',
             reviveState: options.reviveTerminalState || null,
           };
-          await this.createAgentEngineSession(agentRecord, resolution.engine, engineLaunch);
+          await this.createAgentEngineSession(agentRecord, resolution.engine, engineLaunch, sharedLaunchConfig);
         };
         if (terminalStartupPolicy) {
           const startupResourceKey = terminalStartupPolicy.serialization === 'provider-home'

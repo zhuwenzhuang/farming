@@ -15,6 +15,7 @@ interface ArchiveOptions {
   missingComputerExtension?: boolean;
   missingComputerSchema?: boolean;
   missingLanguageServerExtension?: boolean;
+  missingSharedConfigExtension?: boolean;
   dirty?: boolean;
 }
 
@@ -42,6 +43,10 @@ function makeArchive(options: ArchiveOptions = {}) {
   if (!options.missingLanguageServerExtension) {
     fs.mkdirSync(path.join(appDir, 'extensions', 'language-server', 'backend'), { recursive: true });
     fs.writeFileSync(path.join(appDir, 'extensions', 'language-server', 'backend', 'index.cjs'), 'module.exports = {};\n');
+  }
+  if (!options.missingSharedConfigExtension) {
+    fs.mkdirSync(path.join(appDir, 'extensions', 'shared-config', 'backend'), { recursive: true });
+    fs.writeFileSync(path.join(appDir, 'extensions', 'shared-config', 'backend', 'index.cjs'), 'module.exports = {};\n');
   }
   fs.writeFileSync(path.join(appDir, 'RELEASE.json'), JSON.stringify({
     name: 'farming',
@@ -85,8 +90,12 @@ function run() {
     () => verifyReleaseBundle(makeArchive({ missingLanguageServerExtension: true })),
     /missing extensions\/language-server\/backend\/index\.cjs/,
   );
+  assert.throws(
+    () => verifyReleaseBundle(makeArchive({ missingSharedConfigExtension: true })),
+    /missing extensions\/shared-config\/backend\/index\.cjs/,
+  );
 
-  console.log('✓ release bundle verification requires clean metadata and Browser/Computer/Language Server runtime files');
+  console.log('✓ release bundle verification requires clean metadata and all built-in extension runtime files');
 }
 
 run();

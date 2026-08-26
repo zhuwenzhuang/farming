@@ -99,6 +99,23 @@ type AgentConfiguration = {
   home: AgentExtensionGroup['homes'][number]
 }
 
+type SharedConfigState = {
+  revision: number
+  enabled: boolean
+  instructions: string
+  environment: null | { format: 'dotenv' | 'shell'; path: string }
+  environmentSummary: { names: string[]; setCount: number; unsetCount: number; ignoredNames?: string[] }
+  status: 'disabled' | 'ready' | 'stale' | 'invalid'
+  detail: string
+}
+
+type SharedConfigDraft = {
+  enabled: boolean
+  instructions: string
+  format: 'dotenv' | 'shell'
+  path: string
+}
+
 export type AgentHomeFileTarget = {
   exists: boolean
   filePath: string
@@ -368,6 +385,36 @@ function pluginCopy(language: UiLanguage) {
     languageServerTotal: (count: number) => zh ? `共 ${count} 种语言` : `${count} languages`,
     languageServerShowAll: zh ? '查看全部' : 'Show all',
     languageServerCollapse: zh ? '收起' : 'Collapse',
+    sharedConfig: zh ? '共享配置' : 'Shared configuration',
+    sharedConfigDescription: zh
+      ? '为之后启动的所有 Agent 追加系统提示词和环境文件。'
+      : 'Add system instructions and an environment file to subsequently started Agents.',
+    sharedConfigConfigure: zh ? '配置' : 'Configure',
+    sharedConfigEnabled: zh ? '已启用' : 'Enabled',
+    sharedConfigDisabled: zh ? '未启用' : 'Disabled',
+    sharedConfigChecking: zh ? '正在读取…' : 'Loading…',
+    sharedConfigInstructions: zh ? '附加系统提示词' : 'Additional system instructions',
+    sharedConfigInstructionsPlaceholder: zh ? '留空表示不追加。' : 'Leave blank to add none.',
+    sharedConfigEnvironment: zh ? '环境变量文件' : 'Environment file',
+    sharedConfigPath: zh ? '文件路径' : 'File path',
+    sharedConfigPathPlaceholder: '~/.config/farming/agent.env',
+    sharedConfigFormat: zh ? '文件格式' : 'File format',
+    sharedConfigDotenv: '.env',
+    sharedConfigShell: zh ? 'Shell 文件（显式信任）' : 'Shell file (explicit trust)',
+    sharedConfigMaster: zh ? '对新启动的 Agent 启用' : 'Enable for newly started Agents',
+    sharedConfigSave: zh ? '验证并保存' : 'Validate and save',
+    sharedConfigSaving: zh ? '正在验证…' : 'Validating…',
+    sharedConfigSaveFailed: zh ? '共享配置保存失败' : 'Failed to save shared configuration',
+    sharedConfigLoadFailed: zh ? '共享配置读取失败' : 'Failed to load shared configuration',
+    sharedConfigRestartHint: zh
+      ? '运行中的 Agent 不会变化；重新启动后生效。'
+      : 'Running Agents stay unchanged; restart them to apply changes.',
+    sharedConfigVariables: (count: number) => zh
+      ? `${count} 个环境变量`
+      : `${count} environment variable${count === 1 ? '' : 's'}`,
+    sharedConfigIgnoredVariables: (names: string[]) => zh
+      ? `${names.length} 个受保护变量已忽略：${names.join('、')}`
+      : `${names.length} protected variable${names.length === 1 ? '' : 's'} ignored: ${names.join(', ')}`,
     remoteConnections: zh ? '远程连接' : 'Remote connections',
     remoteConnectionsDescription: zh
       ? '管理桌面应用的本机环境和 SSH 远端；仅在需要时切换。'
@@ -434,6 +481,7 @@ const EXTENSION_KIND_GLYPHS = {
 
 const FARMING_BUILTIN_EXTENSIONS = [
   { id: 'desktop-connections', desktopOnly: true },
+  { id: 'shared-config' },
   { id: 'browser' },
   { id: 'computer' },
   { id: 'language-server' },
@@ -703,6 +751,11 @@ export function PluginsPanel({
   const [languageServerEnabled, setLanguageServerEnabled] = useState(true)
   const [languageServerSaving, setLanguageServerSaving] = useState(false)
   const [languageServerSaveError, setLanguageServerSaveError] = useState('')
+  const [sharedConfig, setSharedConfig] = useState<SharedConfigState | null>(null)
+  const [sharedConfigDraft, setSharedConfigDraft] = useState<SharedConfigDraft | null>(null)
+  const [sharedConfigLoading, setSharedConfigLoading] = useState(false)
+  const [sharedConfigSaving, setSharedConfigSaving] = useState(false)
+  const [sharedConfigError, setSharedConfigError] = useState('')
   const agentSaveRequestRef = useRef<number | null>(null)
   const agentSaveSequenceRef = useRef(0)
   const retryOnReconnectRef = useRef(false)
@@ -793,6 +846,66 @@ export function PluginsPanel({
   useEffect(() => {
     void loadLanguageServerCapability()
   }, [loadLanguageServerCapability])
+
+  const loadSharedConfig = useCallback(async () => {
+    setSharedConfigLoading(true)
+    setSharedConfigError('')
+    try {
+      const response = await fetch(appPath('/api/extensions/shared-config'), {
+        headers: { Accept: 'application/json' },
+        cache: 'no-store',
+      })
+      const data = await response.json().catch(() => ({})) as SharedConfigState & { error?: string }
+      if (!response.ok) throw new Error(data.error || copy.sharedConfigLoadFailed)
+      setSharedConfig(data)
+    } catch (caught) {
+      setSharedConfig(null)
+      setSharedConfigError(caught instanceof Error ? caught.message : copy.sharedConfigLoadFailed)
+    } finally {
+      setSharedConfigLoading(false)
+    }
+  }, [copy.sharedConfigLoadFailed])
+
+  useEffect(() => {
+    if (activeTab !== 'farming') return
+    void loadSharedConfig()
+  }, [activeTab, loadSharedConfig])
+
+  const editSharedConfig = () => {
+    setSharedConfigError('')
+    setSharedConfigDraft({
+      enabled: sharedConfig?.enabled === true,
+      instructions: sharedConfig?.instructions || '',
+      format: sharedConfig?.environment?.format || 'dotenv',
+      path: sharedConfig?.environment?.path || '',
+    })
+  }
+
+  const saveSharedConfig = async () => {
+    if (!sharedConfigDraft || sharedConfigSaving) return
+    setSharedConfigSaving(true)
+    setSharedConfigError('')
+    try {
+      const response = await fetch(appPath('/api/extensions/shared-config'), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({
+          expectedRevision: sharedConfig?.revision || 0,
+          enabled: sharedConfigDraft.enabled,
+          instructions: sharedConfigDraft.instructions,
+          environment: { format: sharedConfigDraft.format, path: sharedConfigDraft.path },
+        }),
+      })
+      const data = await response.json().catch(() => ({})) as SharedConfigState & { error?: string }
+      if (!response.ok) throw new Error(data.error || copy.sharedConfigSaveFailed)
+      setSharedConfig(data)
+      setSharedConfigDraft(null)
+    } catch (caught) {
+      setSharedConfigError(caught instanceof Error ? caught.message : copy.sharedConfigSaveFailed)
+    } finally {
+      setSharedConfigSaving(false)
+    }
+  }
 
   useEffect(() => {
     if (!capability) return
@@ -1264,6 +1377,15 @@ export function PluginsPanel({
           : languageServerRuntimeLanguages.length > 0
             ? copy.languageServerSummary(languageServerCounts)
             : copy.languageServerUnavailable
+  const sharedConfigStatus = sharedConfigLoading
+    ? copy.sharedConfigChecking
+    : sharedConfigError && !sharedConfig
+      ? copy.checkFailed
+      : sharedConfig?.status === 'stale' || sharedConfig?.status === 'invalid'
+        ? copy.checkFailed
+        : sharedConfig?.enabled
+          ? copy.sharedConfigEnabled
+          : copy.sharedConfigDisabled
   const status = loading && capability === null
     ? copy.checking
     : capabilityError
@@ -1471,6 +1593,113 @@ export function PluginsPanel({
           </div>
         </header>
         {window.farmingDesktop ? <DesktopConnectionsPanel language={language} /> : null}
+        <article className="code-plugin-card code-plugin-shared-config-card" data-testid="code-plugin-shared-config">
+          <span className="code-plugin-card-icon" aria-hidden="true">
+            <PuzzleGlyph />
+          </span>
+          <div className="code-plugin-card-copy">
+            <div className="code-plugin-card-title">
+              <h3>{copy.sharedConfig}</h3>
+              <span className={`code-plugin-status ${sharedConfig?.status === 'ready' ? 'enabled' : ''}`}>
+                {sharedConfigStatus}
+              </span>
+            </div>
+            <p>{copy.sharedConfigDescription}</p>
+            {!sharedConfigDraft && sharedConfig?.environmentSummary.names.length ? (
+              <small>{copy.sharedConfigVariables(sharedConfig.environmentSummary.names.length)}</small>
+            ) : null}
+            {!sharedConfigDraft && sharedConfig?.environmentSummary.ignoredNames?.length ? (
+              <small data-testid="code-plugin-shared-config-ignored">
+                {copy.sharedConfigIgnoredVariables(sharedConfig.environmentSummary.ignoredNames)}
+              </small>
+            ) : null}
+            {sharedConfigDraft ? <div className="code-plugin-shared-config-form">
+              <label className="code-plugin-shared-config-master">
+                <input
+                  type="checkbox"
+                  checked={sharedConfigDraft.enabled}
+                  disabled={sharedConfigSaving}
+                  data-testid="code-plugin-shared-config-enabled"
+                  onChange={event => {
+                    const enabled = event.currentTarget.checked
+                    setSharedConfigDraft(current => current ? { ...current, enabled } : current)
+                  }}
+                />
+                <span>{copy.sharedConfigMaster}</span>
+              </label>
+              <label className="code-plugin-shared-config-instructions">
+                <span>{copy.sharedConfigInstructions}</span>
+                <textarea
+                  value={sharedConfigDraft.instructions}
+                  placeholder={copy.sharedConfigInstructionsPlaceholder}
+                  disabled={sharedConfigSaving}
+                  data-testid="code-plugin-shared-config-instructions"
+                  onChange={event => {
+                    const instructions = event.currentTarget.value
+                    setSharedConfigDraft(current => current ? { ...current, instructions } : current)
+                  }}
+                />
+              </label>
+              <div className="code-plugin-shared-config-environment">
+                <CodeSelect
+                  className="code-plugin-select"
+                  label={copy.sharedConfigFormat}
+                  value={sharedConfigDraft.format}
+                  disabled={sharedConfigSaving}
+                  testId="code-plugin-shared-config-format"
+                  options={[
+                    { value: 'dotenv', label: copy.sharedConfigDotenv },
+                    { value: 'shell', label: copy.sharedConfigShell },
+                  ]}
+                  onChange={value => setSharedConfigDraft(current => current
+                    ? { ...current, format: value === 'shell' ? 'shell' : 'dotenv' }
+                    : current)}
+                />
+                <label>
+                  <span>{copy.sharedConfigPath}</span>
+                  <input
+                    type="text"
+                    value={sharedConfigDraft.path}
+                    placeholder={copy.sharedConfigPathPlaceholder}
+                    disabled={sharedConfigSaving}
+                    data-testid="code-plugin-shared-config-path"
+                    onChange={event => {
+                      const path = event.currentTarget.value
+                      setSharedConfigDraft(current => current ? { ...current, path } : current)
+                    }}
+                  />
+                </label>
+              </div>
+              <small>{copy.sharedConfigRestartHint}</small>
+              <div className="code-plugin-shared-config-actions">
+                <button
+                  type="button"
+                  disabled={sharedConfigSaving}
+                  onClick={() => setSharedConfigDraft(null)}
+                >{copy.cancel}</button>
+                <button
+                  type="button"
+                  className="primary"
+                  disabled={sharedConfigSaving}
+                  data-testid="code-plugin-shared-config-save"
+                  onClick={() => void saveSharedConfig()}
+                >{sharedConfigSaving ? copy.sharedConfigSaving : copy.sharedConfigSave}</button>
+              </div>
+            </div> : null}
+            {(sharedConfigError || sharedConfig?.detail) ? (
+              <div className="code-plugin-error" role="alert">
+                {sharedConfigError || sharedConfig?.detail}
+              </div>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            className="code-plugin-toggle"
+            disabled={sharedConfigLoading || sharedConfigSaving || !sharedConfig}
+            data-testid="code-plugin-shared-config-configure"
+            onClick={editSharedConfig}
+          >{copy.sharedConfigConfigure}</button>
+        </article>
         <article className="code-plugin-card" data-testid="code-plugin-browser">
           <span className="code-plugin-card-icon" aria-hidden="true">
             <BrowserGlyph />

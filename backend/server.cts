@@ -278,6 +278,10 @@ import {
   executeLanguageServerRequest,
   type ManagedLanguageServerRefreshEvent,
 } from '../extensions/language-server/backend/index.cjs';
+import {
+  SharedConfigService,
+  createSharedConfigRouter,
+} from '../extensions/shared-config/backend/index.cjs';
 import { UsageMonitor } from './usage-monitor.cjs';
 import { createUsageRouter } from './usage-router.cjs';
 import { CodexContextWindowReader } from './codex-context-window.cjs';
@@ -478,6 +482,8 @@ server.on('close', () => {
   void languageServerService.dispose();
 });
 
+const sharedConfigService = new SharedConfigService({ configDir: configManager.farmingDir });
+
 const agentManager = new AgentManager(
   configManager,
   {
@@ -489,6 +495,7 @@ const agentManager = new AgentManager(
     BASE_PATH,
     `/api/agents/${encodeURIComponent(agentId)}/acp-media`,
   ),
+  sharedConfigService,
   agentResourceOwnerReplacement: {
     begin: sourceAgentId => {
       browserResourceManager.beginAgentOwnerReplacement(sourceAgentId);
@@ -1075,6 +1082,11 @@ app.use(routePath(BASE_PATH, '/api/workspaces'), createWorkspacePickerRouter({
 }));
 
 app.use(routePath(BASE_PATH, '/api/workspaces'), createWorkspaceDirectoryRouter());
+
+app.use(
+  routePath(BASE_PATH, '/api/extensions/shared-config'),
+  createSharedConfigRouter(sharedConfigService, { authDisabled: !authEnabled }),
+);
 
 app.use(routePath(BASE_PATH, '/api'), createAgentExtensionRouter({
   agentExtensionInventory,

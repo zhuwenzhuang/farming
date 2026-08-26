@@ -29,6 +29,7 @@ interface BundleInfo {
   computerExtensionEntry: string;
   computerSchemaEntry: string;
   languageServerExtensionEntry: string;
+  sharedConfigExtensionEntry: string;
   release: ReleaseManifest;
 }
 
@@ -107,6 +108,7 @@ function readBundleRelease(archivePath: string): BundleInfo {
   const computerExtensionEntry = findBundleEntry(entries, '/extensions/computer/backend/index.cjs');
   const computerSchemaEntry = findBundleEntry(entries, '/extensions/computer/backend/cua-tools.json');
   const languageServerExtensionEntry = findBundleEntry(entries, '/extensions/language-server/backend/index.cjs');
+  const sharedConfigExtensionEntry = findBundleEntry(entries, '/extensions/shared-config/backend/index.cjs');
   return {
     entries,
     releaseEntry,
@@ -116,6 +118,7 @@ function readBundleRelease(archivePath: string): BundleInfo {
     computerExtensionEntry,
     computerSchemaEntry,
     languageServerExtensionEntry,
+    sharedConfigExtensionEntry,
     release: readArchiveJson(archivePath, releaseEntry),
   };
 }
@@ -149,6 +152,9 @@ function verifyReleaseBundle(archivePath: string): BundleInfo {
   }
   if (!bundle.languageServerExtensionEntry) {
     throw new Error(`release archive is missing extensions/language-server/backend/index.cjs: ${archivePath}`);
+  }
+  if (!bundle.sharedConfigExtensionEntry) {
+    throw new Error(`release archive is missing extensions/shared-config/backend/index.cjs: ${archivePath}`);
   }
   return bundle;
 }

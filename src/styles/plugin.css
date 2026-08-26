@@ -1535,6 +1535,110 @@
   font-size: 13px;
 }
 
+.code-plugin-shared-config-form {
+  display: grid;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 14px;
+  border-radius: 10px;
+  background: var(--code-bg-raised);
+}
+
+.code-plugin-shared-config-form label,
+.code-plugin-shared-config-form .code-plugin-select {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  color: var(--code-text-muted);
+  font-size: 13px;
+}
+
+.code-plugin-shared-config-form .code-plugin-shared-config-master {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.code-plugin-shared-config-form textarea,
+.code-plugin-shared-config-form input[type='text'] {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--code-border);
+  border-radius: 8px;
+  background: var(--code-bg-canvas);
+  color: var(--code-text);
+  font: inherit;
+  font-size: 14px;
+}
+
+.code-plugin-shared-config-form textarea {
+  min-height: 104px;
+  resize: vertical;
+  padding: 8px 10px;
+  line-height: 20px;
+}
+
+.code-plugin-shared-config-form input[type='text'] {
+  height: 34px;
+  padding: 0 10px;
+}
+
+.code-plugin-shared-config-environment {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.7fr) minmax(220px, 1.3fr);
+  gap: 10px;
+}
+
+.code-plugin-shared-config-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.code-plugin-shared-config-actions button {
+  min-height: 30px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--code-bg-inset);
+  color: var(--code-text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.code-plugin-shared-config-actions button:hover:not(:disabled),
+.code-plugin-shared-config-actions button:focus-visible:not(:disabled) {
+  background: var(--code-bg-hover);
+  outline: 2px solid var(--code-focus-ring);
+  outline-offset: 1px;
+}
+
+.code-plugin-shared-config-actions button.primary {
+  background: var(--code-accent-soft);
+  color: var(--code-accent);
+}
+
+.code-plugin-shared-config-actions button:disabled {
+  cursor: default;
+  opacity: 0.48;
+}
+
+@media (max-width: 720px) {
+  .code-plugin-shared-config-card {
+    grid-template-columns: 42px minmax(0, 1fr);
+  }
+
+  .code-plugin-shared-config-card > .code-plugin-toggle {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .code-plugin-shared-config-environment {
+    grid-template-columns: 1fr;
+  }
+}
+
 .code-plugin-help-link {
   color: inherit;
   font-weight: 600;

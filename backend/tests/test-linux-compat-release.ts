@@ -13,11 +13,13 @@ function createBundle(root, glibcVersion, additionalNativeMarkers = '') {
   const browserExtensionDir = path.join(bundleDir, 'extensions/browser/backend');
   const computerExtensionDir = path.join(bundleDir, 'extensions/computer/backend');
   const languageServerExtensionDir = path.join(bundleDir, 'extensions/language-server/backend');
+  const sharedConfigExtensionDir = path.join(bundleDir, 'extensions/shared-config/backend');
   fs.mkdirSync(path.join(bundleDir, 'scripts'), { recursive: true });
   fs.mkdirSync(path.join(bundleDir, 'shared'), { recursive: true });
   fs.mkdirSync(browserExtensionDir, { recursive: true });
   fs.mkdirSync(computerExtensionDir, { recursive: true });
   fs.mkdirSync(languageServerExtensionDir, { recursive: true });
+  fs.mkdirSync(sharedConfigExtensionDir, { recursive: true });
   fs.mkdirSync(ptyDir, { recursive: true });
   fs.writeFileSync(path.join(bundleDir, 'scripts/install-release.sh'), '#!/bin/sh\n');
   fs.writeFileSync(path.join(bundleDir, 'shared/browser-protocol.js'), 'module.exports = {};\n');
@@ -25,6 +27,7 @@ function createBundle(root, glibcVersion, additionalNativeMarkers = '') {
   fs.writeFileSync(path.join(computerExtensionDir, 'index.cjs'), 'module.exports = {};\n');
   fs.writeFileSync(path.join(computerExtensionDir, 'cua-tools.json'), '{}\n');
   fs.writeFileSync(path.join(languageServerExtensionDir, 'index.cjs'), 'module.exports = {};\n');
+  fs.writeFileSync(path.join(sharedConfigExtensionDir, 'index.cjs'), 'module.exports = {};\n');
   fs.writeFileSync(
     path.join(ptyDir, 'pty.node'),
     `ELF fixture GLIBC_2.2.5 GLIBC_${glibcVersion} ${additionalNativeMarkers}`,

@@ -520,6 +520,8 @@ const EXPECTED_API_ROUTE_MANIFEST = [
   'MIDDLEWARE /api/workspaces [express.json(limit=8kb)]',
   'GET /api/workspaces/browse',
   'POST /api/workspaces/prepare',
+  'GET /api/extensions/shared-config',
+  'PUT /api/extensions/shared-config',
   'GET /api/skills',
   'GET /api/agent-extensions',
   'GET /api/slash-commands',

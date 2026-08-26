@@ -472,6 +472,7 @@ test.describe('PR visual regression capture', () => {
       await expect(plugins.getByText('Checking...', { exact: true })).toHaveCount(0, { timeout: 30_000 })
       await expect(plugins.getByText('Discovering...', { exact: true })).toHaveCount(0, { timeout: 30_000 })
       await expect(plugins.getByTestId('code-plugin-section-farming')).toBeVisible()
+      await expect(plugins.getByTestId('code-plugin-shared-config-configure')).toBeEnabled({ timeout: 30_000 })
       await captureScenario(page, `appearance-${appearance}-plugins`)
     }
   })

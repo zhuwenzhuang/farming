@@ -182,8 +182,10 @@ function run() {
     appPackageScript.includes('runtime_path="${source_path%.cts}.cjs"')
       && appPackageScript.includes('Generated backend runtime is missing: ${runtime_path}')
       && appPackageScript.includes('"${PROJECT_ROOT}/extensions/browser/backend"')
-      && appPackageScript.includes('"${PROJECT_ROOT}/extensions/computer/backend"'),
-    'standard App packaging must include generated backend, Browser, and Computer runtime modules',
+      && appPackageScript.includes('"${PROJECT_ROOT}/extensions/computer/backend"')
+      && appPackageScript.includes('"${PROJECT_ROOT}/extensions/language-server/backend"')
+      && appPackageScript.includes('"${PROJECT_ROOT}/extensions/shared-config/backend"'),
+    'standard App packaging must include every generated built-in extension runtime module',
   );
   assert(
     packageScript.includes('smoke-codex-acp-process.ts')

@@ -6,6 +6,8 @@ const projectRoot = path.resolve(__dirname, '../..');
 const backendDir = path.resolve(__dirname, '..');
 const browserBackendDir = path.join(projectRoot, 'extensions', 'browser', 'backend');
 const computerBackendDir = path.join(projectRoot, 'extensions', 'computer', 'backend');
+const languageServerBackendDir = path.join(projectRoot, 'extensions', 'language-server', 'backend');
+const sharedConfigBackendDir = path.join(projectRoot, 'extensions', 'shared-config', 'backend');
 const packageJson = require('../../package.json');
 const sourceOnlyDirectories = new Set(['tests', 'types', 'vendor']);
 
@@ -23,6 +25,8 @@ const runtimeSources = [
   ...collectRuntimeSources(backendDir),
   ...collectRuntimeSources(browserBackendDir),
   ...collectRuntimeSources(computerBackendDir),
+  ...collectRuntimeSources(languageServerBackendDir),
+  ...collectRuntimeSources(sharedConfigBackendDir),
 ].sort();
 const processEntrypoints = new Set([
   'backend/command-runner-child.cts',
@@ -57,6 +61,15 @@ assert(
   'npm package must include the pinned Computer tool schema',
 );
 assert(!packageJson.files.includes('extensions/computer/'), 'npm package must not include Computer TypeScript source');
+assert(
+  packageJson.files.includes('extensions/language-server/backend/*.cjs'),
+  'npm package must include compiled Language Server runtime',
+);
+assert(
+  packageJson.files.includes('extensions/shared-config/backend/*.cjs'),
+  'npm package must include compiled Shared configuration runtime',
+);
+assert(!packageJson.files.includes('extensions/shared-config/'), 'npm package must not include Shared configuration TypeScript source');
 assert(!packageJson.files.includes('backend/*.cts'), 'npm package must not execute or ship backend TypeScript source');
 assert(!packageJson.files.includes('backend/*.ts'), 'npm package must not execute or ship backend TypeScript source');
 
