@@ -320,6 +320,14 @@ test.describe('Farming Code appearance skins', () => {
     await expect(page.getByTestId('code-sidebar')).toHaveCSS('background-color', 'rgb(239, 237, 231)')
     await expectProjectRowSurface(page, 'rgb(239, 237, 231)')
     await expect(page.getByTestId('code-agents-section').first()).toHaveCSS('background-color', 'rgb(239, 237, 231)')
+    // Opening the sidebar leaves the pointer over the control that replaces
+    // the mobile menu. Move it onto inert sidebar space before checking idle
+    // surfaces so the assertion does not confuse the shared hover surface
+    // with an idle navigation state.
+    await page.mouse.move(380, 820)
+    const focusedSidebarToggle = page.getByTestId('code-sidebar-toggle')
+    await expect(focusedSidebarToggle).toBeFocused()
+    await expect(focusedSidebarToggle).toHaveCSS('background-color', 'rgba(82, 75, 60, 0.055)')
     const paperAgentRow = page.locator(`[data-testid="code-agent-row"][data-agent-id="${agentId}"]`)
     const paperProjectGroup = page.getByTestId('code-project-group').filter({ has: paperAgentRow })
     for (const idleNavigationControl of [
@@ -327,7 +335,6 @@ test.describe('Farming Code appearance skins', () => {
       page.getByTestId('code-nav-search'),
       page.getByTestId('code-nav-history'),
       page.getByTestId('code-nav-plugins'),
-      page.getByTestId('code-sidebar-toggle'),
       page.getByTestId('code-sidebar-options'),
     ]) {
       await expect(idleNavigationControl).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')

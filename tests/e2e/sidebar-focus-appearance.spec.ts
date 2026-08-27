@@ -121,6 +121,10 @@ test('uses one surface-based sidebar focus language across Light, Dark, and Pape
     await expectFocusedSurface(page, instanceName, '--code-bg-hover')
 
     const projectList = page.getByTestId('code-project-list')
+    // Dialog focus restoration deliberately retries on two later frames. Let
+    // that bounded restoration settle before proving an explicit new focus
+    // target, otherwise a slower CI runner can move focus back mid-assertion.
+    await page.waitForTimeout(250)
     await projectList.focus()
     await expectFocusedSurface(page, projectList, '--code-bg-hover')
 
