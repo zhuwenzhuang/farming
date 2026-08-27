@@ -30,8 +30,8 @@ interface StoredSharedConfig {
   environment: null | {
     format: SharedEnvironmentFormat;
     path: string;
-    canonicalPath: string;
-    trustedDigest: string;
+    canonicalPath?: string;
+    trustedDigest?: string;
   };
   environmentSummary: { names: string[]; setCount: number; unsetCount: number; ignoredNames?: string[] };
   updatedAt: number;
@@ -41,6 +41,7 @@ interface SharedLaunchConfig {
   revision: number;
   instructions: string;
   environment: StoredSharedConfig['environment'];
+  environmentOverlay?: EnvironmentOverlay;
 }
 
 class SharedConfigError extends Error {
@@ -123,7 +124,7 @@ function parseDotenv(content: string): EnvironmentOverlay {
   return validateOverlay({ set, unset: [] });
 }
 
-function readEnvironmentFile(filePath: string): { canonicalPath: string; content: string; digest: string; stat: fs.Stats } {
+function readEnvironmentFile(filePath: string): { canonicalPath: string; content: string } {
   let canonicalPath = '';
   try {
     canonicalPath = fs.realpathSync(filePath);
@@ -138,8 +139,6 @@ function readEnvironmentFile(filePath: string): { canonicalPath: string; content
   return {
     canonicalPath,
     content,
-    digest: crypto.createHash('sha256').update(content).digest('hex'),
-    stat,
   };
 }
 
@@ -147,12 +146,6 @@ function shellOverlay(
   file: ReturnType<typeof readEnvironmentFile>,
   baseEnv: NodeJS.ProcessEnv,
 ): EnvironmentOverlay {
-  if (typeof process.getuid === 'function' && file.stat.uid !== process.getuid()) {
-    throw new SharedConfigError('Shell environment file must be owned by the Farming user');
-  }
-  if ((file.stat.mode & 0o022) !== 0) {
-    throw new SharedConfigError('Shell environment file must not be writable by group or other users');
-  }
   const beforeMarker = `__FARMING_SHARED_ENV_BEFORE_${crypto.randomUUID()}__`;
   const afterMarker = `__FARMING_SHARED_ENV_AFTER_${crypto.randomUUID()}__`;
   const shell = String(baseEnv.SHELL || process.env.SHELL || '/bin/bash');
@@ -184,14 +177,6 @@ function shellOverlay(
     throw new SharedConfigError(timedOut
       ? 'Shell environment file validation timed out'
       : 'Shell environment file returned an error');
-  }
-  const current = readEnvironmentFile(file.canonicalPath);
-  if (current.canonicalPath !== file.canonicalPath || current.digest !== file.digest) {
-    throw new SharedConfigError(
-      'Environment file changed while it was being evaluated; validate and save it again',
-      'SHARED_CONFIG_NOT_READY',
-      409,
-    );
   }
   const fields = output.toString('utf8').split('\0');
   const beforeIndex = fields.indexOf(beforeMarker);
@@ -231,6 +216,15 @@ function resolveEnvironmentPath(value: string): string {
   return path.resolve(trimmed);
 }
 
+function summarizeOverlay(overlay: EnvironmentOverlay) {
+  return {
+    names: [...new Set([...Object.keys(overlay.set), ...overlay.unset])].sort(),
+    setCount: Object.keys(overlay.set).length,
+    unsetCount: overlay.unset.length,
+    ignoredNames: overlay.ignoredNames || [],
+  };
+}
+
 class SharedConfigService {
   private readonly file: string;
 
@@ -252,37 +246,41 @@ class SharedConfigService {
       || typeof item.instructions !== 'string' || !item.environmentSummary || !Number.isFinite(item.updatedAt)
       || (item.environment !== null && (
         !item.environment || !['dotenv', 'shell'].includes(item.environment.format)
-        || typeof item.environment.path !== 'string' || typeof item.environment.canonicalPath !== 'string'
-        || typeof item.environment.trustedDigest !== 'string'
+        || typeof item.environment.path !== 'string'
       ))
     ) throw new SharedConfigError('Shared configuration store is invalid', 'SHARED_CONFIG_STORE_INVALID', 500);
     return item as StoredSharedConfig;
   }
 
-  private inspect(config: StoredSharedConfig): { status: 'disabled' | 'ready' | 'stale' | 'invalid'; detail: string } {
-    if (!config.enabled) return { status: 'disabled', detail: '' };
-    if (!config.environment) return { status: 'ready', detail: '' };
+  private inspect(config: StoredSharedConfig, baseEnv: NodeJS.ProcessEnv = process.env) {
+    const emptySummary = { names: [] as string[], setCount: 0, unsetCount: 0, ignoredNames: [] as string[] };
+    if (!config.enabled) return { status: 'disabled' as const, detail: '', environmentSummary: emptySummary };
+    if (!config.environment) return { status: 'ready' as const, detail: '', environmentSummary: emptySummary };
     try {
-      const current = readEnvironmentFile(config.environment.canonicalPath);
-      if (current.canonicalPath !== config.environment.canonicalPath || current.digest !== config.environment.trustedDigest) {
-        return { status: 'stale', detail: 'Environment file changed; validate and save it again' };
-      }
-      return { status: 'ready', detail: '' };
+      const file = readEnvironmentFile(resolveEnvironmentPath(config.environment.path));
+      const overlay = config.environment.format === 'shell' ? shellOverlay(file, baseEnv) : parseDotenv(file.content);
+      return { status: 'ready' as const, detail: '', environmentSummary: summarizeOverlay(overlay) };
     } catch (caught) {
-      return { status: 'invalid', detail: caught instanceof Error ? caught.message : 'Environment file is invalid' };
+      return {
+        status: 'invalid' as const,
+        detail: caught instanceof Error ? caught.message : 'Environment file is invalid',
+        environmentSummary: emptySummary,
+      };
     }
   }
 
-  getState() {
+  getState(baseEnv: NodeJS.ProcessEnv = process.env) {
     const config = this.readStored();
+    const inspection = this.inspect(config, baseEnv);
     return {
       revision: config.revision,
       enabled: config.enabled,
       instructions: config.instructions,
       environment: config.environment ? { format: config.environment.format, path: config.environment.path } : null,
-      environmentSummary: config.environmentSummary,
+      environmentSummary: inspection.environmentSummary,
       updatedAt: config.updatedAt,
-      ...this.inspect(config),
+      status: inspection.status,
+      detail: inspection.detail,
     };
   }
 
@@ -320,15 +318,10 @@ class SharedConfigService {
       if (enabled) {
         const file = readEnvironmentFile(resolved);
         const overlay = format === 'shell' ? shellOverlay(file, baseEnv) : parseDotenv(file.content);
-        summary = {
-          names: [...new Set([...Object.keys(overlay.set), ...overlay.unset])].sort(),
-          setCount: Object.keys(overlay.set).length,
-          unsetCount: overlay.unset.length,
-          ignoredNames: overlay.ignoredNames || [],
-        };
-        environment = { format, path: requestedPath, canonicalPath: file.canonicalPath, trustedDigest: file.digest };
+        summary = summarizeOverlay(overlay);
+        environment = { format, path: requestedPath };
       } else {
-        environment = { format, path: requestedPath, canonicalPath: resolved, trustedDigest: '' };
+        environment = { format, path: requestedPath };
       }
     }
     const next: StoredSharedConfig = {
@@ -342,15 +335,11 @@ class SharedConfigService {
     };
     atomicWriteJson(this.file, next, { mode: 0o600, trailingNewline: true });
     try { fs.chmodSync(this.file, 0o600); } catch { /* The atomic create already requested owner-only mode. */ }
-    return this.getState();
+    return this.getState(baseEnv);
   }
 
   captureLaunchConfig(): SharedLaunchConfig {
     const config = this.readStored();
-    const inspection = this.inspect(config);
-    if (config.enabled && inspection.status !== 'ready') {
-      throw new SharedConfigError(inspection.detail || 'Shared configuration is not ready', 'SHARED_CONFIG_NOT_READY', 409);
-    }
     return {
       revision: config.revision,
       instructions: config.enabled ? config.instructions : '',
@@ -360,11 +349,13 @@ class SharedConfigService {
 
   applyEnvironment(baseEnv: NodeJS.ProcessEnv, launch: SharedLaunchConfig): NodeJS.ProcessEnv {
     if (!launch.environment) return { ...baseEnv };
-    const file = readEnvironmentFile(launch.environment.canonicalPath);
-    if (file.canonicalPath !== launch.environment.canonicalPath || file.digest !== launch.environment.trustedDigest) {
-      throw new SharedConfigError('Environment file changed; validate and save it again', 'SHARED_CONFIG_NOT_READY', 409);
+    if (launch.environmentOverlay === undefined) {
+      const file = readEnvironmentFile(resolveEnvironmentPath(launch.environment.path));
+      launch.environmentOverlay = launch.environment.format === 'shell'
+        ? shellOverlay(file, baseEnv)
+        : parseDotenv(file.content);
     }
-    const overlay = launch.environment.format === 'shell' ? shellOverlay(file, baseEnv) : parseDotenv(file.content);
+    const overlay = launch.environmentOverlay;
     const next = { ...baseEnv };
     for (const name of overlay.unset) delete next[name];
     Object.assign(next, overlay.set);

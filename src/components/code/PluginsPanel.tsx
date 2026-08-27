@@ -105,7 +105,7 @@ type SharedConfigState = {
   instructions: string
   environment: null | { format: 'dotenv' | 'shell'; path: string }
   environmentSummary: { names: string[]; setCount: number; unsetCount: number; ignoredNames?: string[] }
-  status: 'disabled' | 'ready' | 'stale' | 'invalid'
+  status: 'disabled' | 'ready' | 'invalid'
   detail: string
 }
 
@@ -387,8 +387,8 @@ function pluginCopy(language: UiLanguage) {
     languageServerCollapse: zh ? '收起' : 'Collapse',
     sharedConfig: zh ? '共享配置' : 'Shared configuration',
     sharedConfigDescription: zh
-      ? '为之后启动的所有 Agent 追加系统提示词和环境文件。'
-      : 'Add system instructions and an environment file to subsequently started Agents.',
+      ? '为新建或重新启动的 Agent 追加系统提示词和环境变量。'
+      : 'Add system instructions and environment variables to new or restarted Agents.',
     sharedConfigConfigure: zh ? '配置' : 'Configure',
     sharedConfigEnabled: zh ? '已启用' : 'Enabled',
     sharedConfigDisabled: zh ? '未启用' : 'Disabled',
@@ -402,13 +402,16 @@ function pluginCopy(language: UiLanguage) {
     sharedConfigDotenv: '.env',
     sharedConfigShell: zh ? 'Shell 文件（显式信任）' : 'Shell file (explicit trust)',
     sharedConfigMaster: zh ? '对新启动的 Agent 启用' : 'Enable for newly started Agents',
-    sharedConfigSave: zh ? '验证并保存' : 'Validate and save',
-    sharedConfigSaving: zh ? '正在验证…' : 'Validating…',
+    sharedConfigSave: zh ? '保存' : 'Save',
+    sharedConfigSaving: zh ? '正在保存…' : 'Saving…',
     sharedConfigSaveFailed: zh ? '共享配置保存失败' : 'Failed to save shared configuration',
     sharedConfigLoadFailed: zh ? '共享配置读取失败' : 'Failed to load shared configuration',
     sharedConfigRestartHint: zh
-      ? '运行中的 Agent 不会变化；重新启动后生效。'
-      : 'Running Agents stay unchanged; restart them to apply changes.',
+      ? '文件修改会自动用于下一个新建或重新启动的 Agent；运行中的 Agent 不会变化。'
+      : 'File edits apply automatically to the next new or restarted Agent; running Agents stay unchanged.',
+    sharedConfigLiveFile: zh
+      ? '每次启动 Agent 时读取文件的最新内容。'
+      : 'The latest file contents are read whenever an Agent starts.',
     sharedConfigVariables: (count: number) => zh
       ? `${count} 个环境变量`
       : `${count} environment variable${count === 1 ? '' : 's'}`,
@@ -1381,7 +1384,7 @@ export function PluginsPanel({
     ? copy.sharedConfigChecking
     : sharedConfigError && !sharedConfig
       ? copy.checkFailed
-      : sharedConfig?.status === 'stale' || sharedConfig?.status === 'invalid'
+      : sharedConfig?.status === 'invalid'
         ? copy.checkFailed
         : sharedConfig?.enabled
           ? copy.sharedConfigEnabled
@@ -1607,6 +1610,9 @@ export function PluginsPanel({
             <p>{copy.sharedConfigDescription}</p>
             {!sharedConfigDraft && sharedConfig?.environmentSummary.names.length ? (
               <small>{copy.sharedConfigVariables(sharedConfig.environmentSummary.names.length)}</small>
+            ) : null}
+            {!sharedConfigDraft && sharedConfig?.enabled && sharedConfig.environment ? (
+              <small data-testid="code-plugin-shared-config-live-file">{copy.sharedConfigLiveFile}</small>
             ) : null}
             {!sharedConfigDraft && sharedConfig?.environmentSummary.ignoredNames?.length ? (
               <small data-testid="code-plugin-shared-config-ignored">

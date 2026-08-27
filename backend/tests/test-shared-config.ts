@@ -73,9 +73,15 @@ try {
   assert.throws(() => service.save({ expectedRevision: 0, enabled: false }), /changed/);
 
   write(dotenvFile, 'SHARED_ALPHA=two\n');
-  assert.equal(service.getState().status, 'stale');
-  assert.throws(() => service.captureLaunchConfig(), /changed/);
-  assert.throws(() => service.applyEnvironment({}, launch), /changed/);
+  assert.equal(service.getState().status, 'ready');
+  assert.equal(service.applyEnvironment({}, launch).SHARED_ALPHA, 'one');
+  assert.equal(service.applyEnvironment({}, service.captureLaunchConfig()).SHARED_ALPHA, 'two');
+  fs.rmSync(dotenvFile);
+  assert.equal(service.getState().status, 'invalid');
+  assert.throws(() => service.applyEnvironment({}, service.captureLaunchConfig()), /not found/);
+  write(dotenvFile, 'SHARED_ALPHA=recovered\n');
+  assert.equal(service.getState().status, 'ready');
+  assert.equal(service.applyEnvironment({}, service.captureLaunchConfig()).SHARED_ALPHA, 'recovered');
 
   const disabled = service.save({
     expectedRevision: 1,
@@ -143,16 +149,24 @@ try {
     instructions: '',
     environment: { format: 'shell', path: shellFile },
   }, { PATH: process.env.PATH, SHELL: '/bin/bash' }), /returned an error/);
-  fs.chmodSync(shellFile, 0o666);
-  assert.throws(() => service.save({
+  write(shellFile, 'export GROUP_WRITABLE=accepted\n', 0o666);
+  const groupWritable = service.save({
     expectedRevision: 4,
     enabled: true,
     instructions: '',
     environment: { format: 'shell', path: shellFile },
-  }, { PATH: process.env.PATH, SHELL: '/bin/bash' }), /must not be writable/);
+  }, { PATH: process.env.PATH, SHELL: '/bin/bash' });
+  assert.equal(groupWritable.status, 'ready');
+  assert.equal(
+    service.applyEnvironment(
+      { PATH: process.env.PATH, SHELL: '/bin/bash' },
+      service.captureLaunchConfig(),
+    ).GROUP_WRITABLE,
+    'accepted',
+  );
   write(shellFile, 'sleep 30\n');
   assert.throws(() => service.save({
-    expectedRevision: 4,
+    expectedRevision: 5,
     enabled: true,
     instructions: '',
     environment: { format: 'shell', path: shellFile },
@@ -166,13 +180,13 @@ try {
   assert.match(composedPrompt, /remain authoritative/);
 
   assert.throws(() => service.save({
-    expectedRevision: 4,
+    expectedRevision: 5,
     enabled: true,
     instructions: '',
     environment: { format: 'dotenv', path: '' },
   }), /Add system instructions/);
   assert.throws(() => service.save({
-    expectedRevision: 4,
+    expectedRevision: 5,
     enabled: true,
     instructions: '',
     environment: { format: 'script', path: shellFile },
@@ -181,7 +195,7 @@ try {
   const oversizedFile = path.join(temp, 'oversized.env');
   write(oversizedFile, `OVERSIZED=${'x'.repeat(256 * 1024)}\n`);
   assert.throws(() => service.save({
-    expectedRevision: 4,
+    expectedRevision: 5,
     enabled: true,
     instructions: '',
     environment: { format: 'dotenv', path: oversizedFile },

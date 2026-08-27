@@ -130,18 +130,18 @@ validated launch snapshot, while a compatible reconnect to an already-live
 process retains that process's original environment and prompt.
 
 The environment source is either a strict, non-executing `.env` file or an
-explicitly trusted POSIX Shell file. Shell trust is bound to the canonical file,
-ownership by the Farming user, no group/other write permission, and the content
-digest recorded by Validate and save. A
-missing, replaced, or changed source moves the capability to a terminal stale
-or invalid state and blocks new launches until it is validated again; it is not
-silently ignored. Farming-owned identity, credential, provider-Home, dynamic
-loader, and Node runtime variables cannot be overridden. Explicit attempts in
-`.env` are rejected. A trusted Shell file may source a broader existing profile;
-protected changes from that profile are filtered out and reported by name and
-count while its ordinary environment changes remain usable. Configuration
-storage and API responses never contain environment values, and owner access
-is required for both reads and writes.
+explicitly trusted POSIX Shell file. The configured path remains an ordinary,
+user-editable configuration file: each new launch reads its latest contents,
+without a permission-mode requirement or a separate revalidation step. Running
+processes retain the snapshot captured for their launch. A missing or invalid
+source blocks only affected new launches with an explicit error; fixing the file
+restores the next launch automatically. Farming-owned identity, credential,
+provider-Home, dynamic-loader, and Node runtime variables cannot be overridden.
+Explicit attempts in `.env` are rejected. A trusted Shell file may source a
+broader existing profile; protected changes from that profile are filtered out
+and reported by name and count while its ordinary environment changes remain
+usable. Configuration storage and API responses never contain environment
+values, and owner access is required for both reads and writes.
 
 Provider plus Agent Home id is one configuration identity. Global settings own
 which Homes accept new Agents and their display order. Existing Agent records

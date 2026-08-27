@@ -109,13 +109,13 @@ Snapshot；如果只是兼容地重连仍存活的 Process，则继续使用该 
 Prompt。
 
 Environment Source 可以是严格解析且不执行代码的 `.env` 文件，也可以是显式信任的 POSIX
-Shell 文件。Shell Trust 绑定到 Validate and save 时确认的 Canonical File、Farming User
-Ownership、Group/Other 不可写 Permission 与 Content Digest。Source 丢失、被替换或内容变化后，Capability 进入 Terminal
-Stale/Invalid State，并阻止新启动，直到再次验证；不能静默忽略。Farming-owned Identity、
-Credential、Provider Home、Dynamic Loader 与 Node Runtime Variable 不允许被覆盖。配置存储
-与 API Response 都不包含 Environment Value，读取和写入均要求 Owner Access。`.env` 中显式
-修改受保护变量会被拒绝；显式信任的 Shell 文件可以 Source 现有的完整 Profile，其中的受保护
-变更会按名称和数量展示并过滤，其余普通 Environment 变更仍可使用。
+Shell 文件。配置路径保持普通、可随时编辑的用户配置文件：每次新启动都读取最新内容，不要求
+特定 Permission Mode，也不需要修改后再次确认；运行中的 Process 保留其启动时捕获的 Snapshot。
+Source 缺失或内容无效时，只阻止受影响的新启动并返回明确错误；修好文件后下一次启动自动恢复。
+Farming-owned Identity、Credential、Provider Home、Dynamic Loader 与 Node Runtime Variable
+不允许被覆盖。配置存储与 API Response 都不包含 Environment Value，读取和写入均要求 Owner
+Access。`.env` 中显式修改受保护变量会被拒绝；显式信任的 Shell 文件可以 Source 现有的完整
+Profile，其中的受保护变更会按名称和数量展示并过滤，其余普通 Environment 变更仍可使用。
 
 Provider 加 Agent Home ID 是一份 Configuration Identity。Global Settings 拥有可接收新 Agent
 的 Home 与展示顺序；Existing Agent Record 保留创建 Session 时使用的精确 Provider Home

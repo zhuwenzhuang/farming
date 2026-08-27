@@ -56,6 +56,22 @@ async function run() {
     assert.match(prompt, /SHARED_PROMPT_SENTINEL/);
     assert.match(prompt, /remain authoritative/);
 
+    const retainedLaunch = shared.captureLaunchConfig();
+    const retainedBeforeEdit = manager.buildAgentEnv('retained-before-edit', {
+      id: 'retained-before-edit', command: 'bash', category: 'shell', wantsMain: false,
+    }, retainedLaunch);
+    assert.equal(retainedBeforeEdit.SHARED_MANAGER_SENTINEL, 'manager-ready');
+    fs.writeFileSync(envFile, 'SHARED_MANAGER_SENTINEL=edited-directly\nPATH=/edited/bin\n', 'utf8');
+    const retainedAfterEdit = manager.buildAgentEnv('retained-after-edit', {
+      id: 'retained-after-edit', command: 'bash', category: 'shell', wantsMain: false,
+    }, retainedLaunch);
+    assert.equal(retainedAfterEdit.SHARED_MANAGER_SENTINEL, 'manager-ready');
+    const nextLaunch = manager.buildAgentEnv('next-after-edit', {
+      id: 'next-after-edit', command: 'bash', category: 'shell', wantsMain: false,
+    });
+    assert.equal(nextLaunch.SHARED_MANAGER_SENTINEL, 'edited-directly');
+    fs.writeFileSync(envFile, 'SHARED_MANAGER_SENTINEL=manager-ready\nPATH=/shared/bin\n', 'utf8');
+
     const captured: Array<{ env: NodeJS.ProcessEnv }> = [];
     manager.engineBridge.resolve = () => ({
       engineName: 'local',
@@ -87,9 +103,9 @@ async function run() {
 
     const snapshot = shared.captureLaunchConfig();
     fs.writeFileSync(envFile, 'SHARED_MANAGER_SENTINEL=changed\n', 'utf8');
-    assert.throws(() => manager.buildAgentEnv('stale-agent', {
-      id: 'stale-agent', command: 'claude', category: 'coding', wantsMain: false,
-    }, snapshot), /changed/);
+    assert.equal(manager.buildAgentEnv('fresh-file-agent', {
+      id: 'fresh-file-agent', command: 'claude', category: 'coding', wantsMain: false,
+    }, snapshot).SHARED_MANAGER_SENTINEL, 'changed');
   } finally {
     manager.heartbeatScheduler.stop();
     await manager.engineBridge.dispose();
