@@ -239,7 +239,7 @@
   ],
   "devDependencies": {
     "@agentclientprotocol/claude-agent-acp": "0.70.0",
-    "@agentclientprotocol/codex-acp": "1.6.2",
+    "@agentclientprotocol/codex-acp": "1.7.0",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.59.1",
     "@types/node": "^26.1.1",

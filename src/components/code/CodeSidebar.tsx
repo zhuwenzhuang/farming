@@ -99,7 +99,7 @@ import { useDismissiblePopover } from './useDismissiblePopover'
 import { UsagePanel } from './UsagePanel'
 import { FarmingPet } from './pet/FarmingPet'
 import type { UiAppearance, UiLanguage } from '@/lib/ui-preferences'
-import { scheduleFocusUntil } from './focus-retry'
+import { scheduleFocusRetries, scheduleFocusUntil } from './focus-retry'
 import type { RequestOwnershipLease } from '@/lib/request-ownership'
 import type { WorkspaceFileResolveOptions } from '@/lib/workspace-file-model-manager'
 
@@ -414,6 +414,14 @@ export function CodeSidebar({
   const productMarkRef = useRef<HTMLButtonElement | null>(null)
   const instanceNameEditRef = useRef<HTMLButtonElement | null>(null)
   const closeBrandDialog = useCallback(() => setBrandDialogOpen(false), [])
+  const closeInstanceNameDialog = useCallback(() => {
+    setInstanceNameDialogOpen(false)
+    scheduleFocusRetries(() => {
+      const target = instanceNameEditRef.current
+      if (!target) return
+      target.focus({ preventScroll: true })
+    }, { runNow: false, animationFrame: false, delays: [80, 180, 360] })
+  }, [])
   const [focusModeActive, setFocusModeActive] = useState(false)
   const [focusModeSupported, setFocusModeSupported] = useState(false)
   const [standaloneAppWindow, setStandaloneAppWindow] = useState(isStandaloneAppWindow)
@@ -1060,7 +1068,7 @@ export function CodeSidebar({
         <InstanceNameDialog
           copy={copy}
           instanceName={instanceName}
-          onClose={() => setInstanceNameDialogOpen(false)}
+          onClose={closeInstanceNameDialog}
           onSave={onRenameInstance}
           returnFocusRef={instanceNameEditRef}
         />

@@ -2,12 +2,12 @@
    language as hover and selection. Form inputs and dialogs keep their own
    focus treatment outside this navigation contract. */
 
-body.code-mode .code-sidebar :is(button, [tabindex]):focus-visible {
+body.code-mode .code-sidebar :is(button, [tabindex]):focus {
   outline: 0;
   box-shadow: none;
 }
 
-body.code-mode .code-sidebar button:focus-visible {
+body.code-mode .code-sidebar button:focus {
   background: var(--code-bg-hover);
   color: var(--code-text);
 }
@@ -17,21 +17,21 @@ body.code-mode .code-sidebar :is(
   .code-project-agent-compact,
   .code-agent-row,
   .code-sidebar-resource-row
-):focus-visible {
+):focus {
   background: var(--code-active-item-surface);
   color: var(--code-text);
 }
 
-body.code-mode .code-sidebar .code-project-list:focus-visible {
+body.code-mode .code-sidebar .code-project-list:focus {
   background: var(--code-bg-hover);
 }
 
-body.code-mode .code-sidebar .code-file-row:focus-visible {
+body.code-mode .code-sidebar .code-file-row:focus {
   background: transparent;
   color: var(--code-text);
 }
 
-body.code-mode .code-sidebar .code-file-tree-row-frame:has(.code-file-row:focus-visible) {
+body.code-mode .code-sidebar .code-file-tree-row-frame:has(.code-file-row:focus) {
   background: var(--code-active-item-surface);
 }
 
@@ -40,7 +40,7 @@ body.code-mode .code-sidebar .code-file-tree-row-frame:has(.code-file-row:focus-
   .code-project-context-menu,
   .code-project-launch-menu,
   .code-file-context-menu
-) button:is(:hover, :focus-visible) {
+) button:is(:hover, :focus) {
   background: var(--code-bg-hover);
   color: var(--code-text);
   outline: 0;

@@ -5,9 +5,9 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const projectRoot = path.join(__dirname, '..');
-const expectedVersion = '1.6.2';
-const expectedUpstreamSha256 = '8c7fc8af156596668a95ce23d52309f70ad576e75bac6dc209d30378bdbb8ebe';
-const expectedPatchedSha256 = '27cadc5e85faf92a471b2dfd93956250fb96d8e30ec909db7fdcf3160e0b8d74';
+const expectedVersion = '1.7.0';
+const expectedUpstreamSha256 = 'afffcfeb6ae3a82f2b359a7d3d6a1a3ceee43898b59c34335eb1760974cc4ff8';
+const expectedPatchedSha256 = '86b4260cea04fc0b92be3b48e2bb3fd466f385d7de51818ad38773dae424e155';
 const packageRoot = path.dirname(require.resolve('@agentclientprotocol/codex-acp/package.json'));
 const packageJsonPath = path.join(packageRoot, 'package.json');
 const sourceEntry = path.join(packageRoot, 'dist', 'index.js');

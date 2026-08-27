@@ -47,21 +47,9 @@ async function resolvedColor(page: Page, role: string) {
 
 async function expectFocusedSurface(page: Page, locator: Locator, role: string) {
   await expect(locator).toBeFocused()
-  const style = await locator.evaluate(element => {
-    const computed = getComputedStyle(element)
-    return {
-      background: computed.backgroundColor,
-      boxShadow: computed.boxShadow,
-      focusVisible: element.matches(':focus-visible'),
-      outlineStyle: computed.outlineStyle,
-      outlineWidth: computed.outlineWidth,
-    }
-  })
-  expect(style.focusVisible).toBe(true)
-  expect(style.outlineStyle).toBe('none')
-  expect(style.outlineWidth).toBe('0px')
-  expect(style.boxShadow).toBe('none')
-  expect(style.background).toBe(await resolvedColor(page, role))
+  await expect(locator).toHaveCSS('outline-style', 'none')
+  await expect(locator).toHaveCSS('box-shadow', 'none')
+  await expect(locator).toHaveCSS('background-color', await resolvedColor(page, role))
 }
 
 async function captureFullPage(page: Page, testInfo: TestInfo, appearance: Appearance) {
@@ -133,7 +121,7 @@ test('uses one surface-based sidebar focus language across Light, Dark, and Pape
     await expectFocusedSurface(page, instanceName, '--code-bg-hover')
 
     const projectList = page.getByTestId('code-project-list')
-    await projectList.press('Shift')
+    await projectList.focus()
     await expectFocusedSurface(page, projectList, '--code-bg-hover')
 
     await fileRow.click({ button: 'right' })
@@ -144,7 +132,8 @@ test('uses one surface-based sidebar focus language across Light, Dark, and Pape
     expect(await refresh.evaluate(element => getComputedStyle(element).backgroundColor)).toBe(
       await resolvedColor(page, '--code-bg-hover')
     )
-    await refresh.press('Shift')
+    await page.waitForTimeout(400)
+    await refresh.focus()
     await expectFocusedSurface(page, refresh, '--code-bg-hover')
     await refresh.press('Escape')
   }

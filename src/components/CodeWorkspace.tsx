@@ -274,7 +274,7 @@ export type { WorkspaceView } from './code/types'
 
 type RenameDialogState =
   | { kind: 'agent'; agentId: string; title: string }
-  | { kind: 'project'; projectId: string; workspace: string; title: string }
+  | { kind: 'project'; projectId: string; workspace: string; title: string; returnFocusTarget: HTMLElement | null }
 
 type EmptyHomeSidebarActionRequest = {
   kind: 'share' | 'focus'
@@ -1570,10 +1570,12 @@ export function CodeWorkspace({
     })
   }, [])
   const focusProjectTitle = useCallback((projectId: string) => {
-    window.requestAnimationFrame(() => {
+    scheduleFocusRetries(() => {
       const titles = Array.from(workspaceRef.current?.querySelectorAll<HTMLButtonElement>('[data-testid="code-project-title"]') ?? [])
-      titles.find(title => title.dataset.projectId === projectId)?.focus()
-    })
+      const title = titles.find(candidate => candidate.dataset.projectId === projectId)
+      if (!title) return
+      title.focus({ preventScroll: true })
+    }, { runNow: false, animationFrame: false, delays: [80, 180, 360] })
   }, [])
   const canCreateAgentBrowser = browserResources.capability?.available === true
   const canCreateAgentDesktop = useCallback((agent: Agent) => Boolean(
@@ -4163,15 +4165,21 @@ export function CodeWorkspace({
       projectId: contextMenuProject.id,
       workspace: contextMenuProject.workspace,
       title: contextMenuProject.name,
+      returnFocusTarget: projectMenu?.returnFocusTarget ?? null,
     })
-  }, [closeContextMenu, contextMenuProject])
+  }, [closeContextMenu, contextMenuProject, projectMenu?.returnFocusTarget])
 
   const closeRenameDialog = useCallback(() => {
     const target = renameDialog
     setRenameDialog(null)
     if (!target) return
     if (target.kind === 'agent') focusAgentRow(target.agentId)
-    if (target.kind === 'project') focusProjectTitle(target.projectId)
+    if (target.kind === 'project') {
+      scheduleFocusRetries(() => {
+        if (target.returnFocusTarget?.isConnected) target.returnFocusTarget.focus({ preventScroll: true })
+        else focusProjectTitle(target.projectId)
+      }, { runNow: false, animationFrame: false, delays: [80, 180, 360] })
+    }
   }, [focusAgentRow, focusProjectTitle, renameDialog])
 
   const submitRenameDialog = useCallback(() => {
@@ -4194,7 +4202,10 @@ export function CodeWorkspace({
       errorMessage: copy.copyFailed,
     })
     setRenameDialog(null)
-    focusProjectTitle(renameDialog.projectId)
+    scheduleFocusRetries(() => {
+      if (renameDialog.returnFocusTarget?.isConnected) renameDialog.returnFocusTarget.focus({ preventScroll: true })
+      else focusProjectTitle(renameDialog.projectId)
+    }, { runNow: false, animationFrame: false, delays: [80, 180, 360] })
   }, [copy.copyFailed, focusAgentRow, focusProjectTitle, mutateProject, onRenameAgent, projectNames, renameDialog])
 
   const copyContextMenuValue = useCallback(async (value: string, focusTarget?: SearchTarget) => {
