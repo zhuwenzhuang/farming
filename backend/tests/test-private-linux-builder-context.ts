@@ -7,6 +7,7 @@ const { spawnSync } = require('child_process');
 const projectRoot = path.join(__dirname, '../..');
 const builder = path.join(projectRoot, 'scripts', 'build-private-linux-release.sh');
 const deployer = path.join(projectRoot, 'scripts', 'deploy.sh');
+const ripgrepPreparer = path.join(projectRoot, 'scripts', 'prepare-ripgrep-runtime.ts');
 
 function writeExecutable(filePath, source) {
   fs.writeFileSync(filePath, source, { mode: 0o755 });
@@ -89,6 +90,11 @@ exit 92
 }
 
 function run() {
+  const builderSource = fs.readFileSync(builder, 'utf8');
+  const ripgrepPreparerSource = fs.readFileSync(ripgrepPreparer, 'utf8');
+  assert.match(builderSource, /FARMING_RIPGREP_CACHE=\/farming-runtime-cache\/ripgrep/);
+  assert.match(ripgrepPreparerSource, /process\.env\.FARMING_RIPGREP_CACHE/);
+
   const remote = runBuilder('ssh://builder.example.invalid');
   assert.strictEqual(remote.status, 2, remote.stderr);
   assert.match(remote.stderr, /requires a local Unix-socket Docker engine/);

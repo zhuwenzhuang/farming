@@ -27,7 +27,11 @@ const yauzl = require('yauzl') as {
 };
 
 const projectRoot = path.resolve(__dirname, '..');
-const cacheRoot = path.join(projectRoot, 'node_modules', '.cache', 'farming', 'ripgrep');
+const configuredCacheRoot = process.env.FARMING_RIPGREP_CACHE;
+if (configuredCacheRoot && !path.isAbsolute(configuredCacheRoot)) {
+  throw new Error('FARMING_RIPGREP_CACHE must be an absolute path');
+}
+const cacheRoot = configuredCacheRoot || path.join(projectRoot, 'node_modules', '.cache', 'farming', 'ripgrep');
 
 function requestedPlatforms(argv = process.argv): string[] {
   const index = argv.indexOf('--platform');

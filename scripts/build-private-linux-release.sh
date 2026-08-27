@@ -122,6 +122,7 @@ docker_command run --rm --platform linux/amd64 \
   --env FARMING_RELEASE_NAME="${RELEASE_NAME}" \
   --env FARMING_RELEASE_UPDATE_METHOD=app-bundle \
   --env FARMING_GLIBC_RUNTIME_CACHE=/farming-runtime-cache/glibc228-lib.tar.gz \
+  --env FARMING_RIPGREP_CACHE=/farming-runtime-cache/ripgrep \
   --env FARMING_SKIP_INSTALL_RUNTIME_PREPARE=1 \
   --env PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
   --env PUPPETEER_SKIP_DOWNLOAD=1 \
