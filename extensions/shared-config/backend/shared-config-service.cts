@@ -195,6 +195,9 @@ function shellOverlay(
   const internal = new Set([
     'FARMING_SHARED_CONFIG_SOURCE', 'FARMING_SHARED_CONFIG_BEFORE_MARKER',
     'FARMING_SHARED_CONFIG_AFTER_MARKER',
+    // Bash owns SHLVL and may rewrite it while starting a login shell. It is
+    // execution metadata, not a variable authored by the selected config file.
+    'SHLVL',
   ]);
   const set: Record<string, string> = {};
   const unset: string[] = [];

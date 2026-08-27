@@ -106,7 +106,13 @@ try {
     enabled: true,
     instructions: '',
     environment: { format: 'shell', path: shellFile },
-  }, { PATH: process.env.PATH, SHELL: '/bin/bash', CHANGED: 'before', REMOVE_ME: 'yes' });
+  }, {
+    PATH: process.env.PATH,
+    SHELL: '/bin/bash',
+    SHLVL: '27',
+    CHANGED: 'before',
+    REMOVE_ME: 'yes',
+  });
   assert.equal(shellSaved.status, 'ready');
   assert.deepEqual(shellSaved.environmentSummary, {
     names: ['CHANGED', 'REMOVE_ME', 'SHARED_SHELL'],
@@ -115,13 +121,20 @@ try {
     ignoredNames: [],
   });
   const shellEnv = service.applyEnvironment(
-    { PATH: process.env.PATH, SHELL: '/bin/bash', CHANGED: 'before', REMOVE_ME: 'yes' },
+    {
+      PATH: process.env.PATH,
+      SHELL: '/bin/bash',
+      SHLVL: '27',
+      CHANGED: 'before',
+      REMOVE_ME: 'yes',
+    },
     service.captureLaunchConfig(),
   );
   assert.equal(shellEnv.SHARED_SHELL, 'set');
   assert.equal(shellEnv.CHANGED, 'after');
   assert.equal(shellEnv.REMOVE_ME, undefined);
   assert.equal(shellEnv.ignored_alias, undefined);
+  assert.equal(shellEnv.SHLVL, '27');
 
   write(shellFile, 'export FARMING_AGENT_ID=spoofed\nexport SHARED_ALLOWED=yes\n');
   const protectedShell = service.save({

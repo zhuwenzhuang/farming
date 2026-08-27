@@ -26,6 +26,28 @@ async function captureStory(card: Locator, testInfo: TestInfo, name: string) {
   await card.screenshot({ path: testInfo.outputPath(name), animations: 'disabled' })
 }
 
+async function disableSharedConfig(page: Page) {
+  const stateResponse = await page.request.get('/farming/api/extensions/shared-config')
+  expect(stateResponse.ok()).toBeTruthy()
+  const state = await stateResponse.json() as {
+    revision: number
+    environment: { format: 'dotenv' | 'shell'; path: string } | null
+  }
+  const disableResponse = await page.request.put('/farming/api/extensions/shared-config', {
+    data: {
+      expectedRevision: state.revision,
+      enabled: false,
+      instructions: '',
+      environment: state.environment,
+    },
+  })
+  expect(disableResponse.ok()).toBeTruthy()
+}
+
+test.afterEach(async ({ page }) => {
+  await disableSharedConfig(page)
+})
+
 async function expectAgentVariable(
   page: Page,
   agentId: string,
@@ -141,19 +163,4 @@ test('Shared configuration follows an editable-file user story', async ({ page, 
   await expect.poll(() => visibleTerminalText(page, recoveredAgentId), { timeout: 15_000 }).toContain('$')
   await expectAgentVariable(page, recoveredAgentId, 'RECOVERED_AGENT', 'recovered-without-saving')
 
-  const finalStateResponse = await page.request.get('/farming/api/extensions/shared-config')
-  expect(finalStateResponse.ok()).toBeTruthy()
-  const finalState = await finalStateResponse.json() as {
-    revision: number
-    environment: { format: 'dotenv' | 'shell'; path: string } | null
-  }
-  const disableResponse = await page.request.put('/farming/api/extensions/shared-config', {
-    data: {
-      expectedRevision: finalState.revision,
-      enabled: false,
-      instructions: '',
-      environment: finalState.environment,
-    },
-  })
-  expect(disableResponse.ok()).toBeTruthy()
 })
