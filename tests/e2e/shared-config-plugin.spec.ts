@@ -140,4 +140,20 @@ test('Shared configuration follows an editable-file user story', async ({ page, 
   const recoveredAgentId = await startAgentFromOpenDialog(page, 'bash', workspaceRoot)
   await expect.poll(() => visibleTerminalText(page, recoveredAgentId), { timeout: 15_000 }).toContain('$')
   await expectAgentVariable(page, recoveredAgentId, 'RECOVERED_AGENT', 'recovered-without-saving')
+
+  const finalStateResponse = await page.request.get('/farming/api/extensions/shared-config')
+  expect(finalStateResponse.ok()).toBeTruthy()
+  const finalState = await finalStateResponse.json() as {
+    revision: number
+    environment: { format: 'dotenv' | 'shell'; path: string } | null
+  }
+  const disableResponse = await page.request.put('/farming/api/extensions/shared-config', {
+    data: {
+      expectedRevision: finalState.revision,
+      enabled: false,
+      instructions: '',
+      environment: finalState.environment,
+    },
+  })
+  expect(disableResponse.ok()).toBeTruthy()
 })
