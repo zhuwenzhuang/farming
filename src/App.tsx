@@ -227,6 +227,7 @@ export function App() {
     kind: 'recovering' | 'error'
     message: string
   } | null>(null)
+  const [inputStartError, setInputStartError] = useState('')
   const [permissionSwitch, setPermissionSwitch] = useState<PermissionSwitchState | null>(null)
   const [externalAgentReplacement, setExternalAgentReplacement] = useState<AgentReplacementTransition | null>(null)
   const [usageSummary, setUsageSummary] = useState<UsageSummary | null>(null)
@@ -755,6 +756,7 @@ export function App() {
     setInputInitialWorkspace(workspace)
     setInputInitialCommand(command)
     setInputInitialCustomTitle(customTitle)
+    setInputStartError('')
     setActiveWorkspaceView('projects')
     setDialog('input')
 
@@ -795,6 +797,7 @@ export function App() {
 
   const closeInputDialog = useCallback(() => {
     inputDialogOpenRequestRef.current += 1
+    setInputStartError('')
     setDialog('none')
     restoreInputDialogFocus()
   }, [restoreInputDialogFocus])
@@ -819,6 +822,7 @@ export function App() {
 
   const handleStartAgent = useCallback((command: string, workspace: string, extras?: StartAgentExtras) => {
     if (pendingStartRef.current) return
+    setInputStartError('')
     inputDialogOpenRequestRef.current += 1
     pendingStartRef.current = { beforeIds: new Set(ws.agents.map(agent => agent.id)) }
     if (!ws.startAgent(command, workspace, false, extras)) {
@@ -837,6 +841,7 @@ export function App() {
     if (!startedAgent || startedAgent.isMain || agentId === ws.mainAgentId) return
 
     pendingStartRef.current = null
+    setInputStartError('')
     setDialog('none')
     requestTerminalOpen(agentId)
   }, [requestTerminalOpen, ws.agents, ws.lastStartedAgentId, ws.mainAgentId])
@@ -1148,6 +1153,7 @@ export function App() {
 
   useEffect(() => {
     if (!ws.error) return
+    const inputStartFailed = pendingStartRef.current !== null && effectiveDialog === 'input'
     pendingStartRef.current = null
     pendingMainRestartRef.current = null
     hiddenMainStartRequestedRef.current = false
@@ -1160,8 +1166,12 @@ export function App() {
       return
     }
     setPendingTerminalOpen(null)
+    if (inputStartFailed) {
+      setInputStartError(ws.error)
+      return
+    }
     notifyError(ws.error)
-  }, [copy.backendActionPending, notifyError, ws.error, ws.errorId, ws.errorKind])
+  }, [copy.backendActionPending, effectiveDialog, notifyError, ws.error, ws.errorId, ws.errorKind])
 
   useEffect(() => {
     if (!appNotice) return
@@ -1420,6 +1430,7 @@ export function App() {
         initialCommand={inputInitialCommand}
         initialCustomTitle={inputInitialCustomTitle}
         showWorkflowTaskFields={false}
+        startError={inputStartError}
         copy={copy}
         onStart={handleStartAgent}
         onClose={closeInputDialog}

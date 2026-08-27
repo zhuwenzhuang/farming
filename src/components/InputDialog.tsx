@@ -91,6 +91,7 @@ interface InputDialogProps {
   initialCommand?: string
   initialCustomTitle?: string
   showWorkflowTaskFields?: boolean
+  startError?: string
   copy: CodeCopy
   onStart: (command: string, workspace: string, options?: StartAgentOptions) => void
   onClose: () => void
@@ -139,6 +140,7 @@ export function InputDialog({
   initialCommand,
   initialCustomTitle,
   showWorkflowTaskFields = true,
+  startError = '',
   copy,
   onStart,
   onClose,
@@ -1360,6 +1362,12 @@ export function InputDialog({
                 </div>
               </div>
             )}
+            {!workspacePreparation && startError ? (
+              <div className="input-dialog-start-error" data-testid="input-dialog-start-error" role="alert">
+                <ErrorGlyph aria-hidden="true" />
+                <span>{startError}</span>
+              </div>
+            ) : null}
             {!workspacePreparation && <div className="workspace-actions">
               <button
                 type="button"

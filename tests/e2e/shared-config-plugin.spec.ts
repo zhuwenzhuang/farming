@@ -6,6 +6,7 @@ import {
   expect,
   openFarming,
   openNewAgentDialog,
+  selectAgent,
   startAgentFromOpenDialog,
   terminalRows,
   test,
@@ -147,10 +148,22 @@ test('Shared configuration follows an editable-file user story', async ({ page, 
   await expect(card).toContainText('Check failed')
   await expect(card.getByRole('alert')).toContainText('Environment file was not found')
   await captureStory(card, testInfo, '05-file-missing.png')
-  const blocked = await page.request.post('/farming/api/control/agents', {
-    data: { command: 'bash', workspace: workspaceRoot },
-  })
-  expect(blocked.status()).toBe(400)
+  await openNewAgentDialog(page)
+  await selectAgent(page, 'bash')
+  await page.getByTestId('workspace-input').fill(workspaceRoot)
+  await page.getByTestId('workspace-start').click()
+  await expect(page.getByTestId('input-dialog')).toBeVisible()
+  await expect(page.getByTestId('input-dialog-start-error'))
+    .toContainText('Environment file was not found')
+  for (const appearance of ['light', 'dark', 'paper'] as const) {
+    await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+    await page.getByTestId('input-dialog').screenshot({
+      path: testInfo.outputPath(`05-launch-blocked-inline-${appearance}.png`),
+      animations: 'disabled',
+    })
+  }
+  await page.locator('body').evaluate(body => { body.dataset.appearance = 'light' })
+  await page.getByTestId('input-dialog-close').click()
 
   fs.writeFileSync(envFile, 'export SHARED_E2E_SENTINEL=recovered-without-saving\n', { mode: 0o664 })
   await page.getByTestId('code-nav-search').click()

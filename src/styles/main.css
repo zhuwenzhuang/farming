@@ -2596,6 +2596,27 @@ body.code-mode .workspace-directory-prompt-actions button:focus-visible {
   flex: 0 0 auto;
 }
 
+.input-dialog-start-error {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 9px 10px;
+  border: 1px solid var(--code-border-danger);
+  border-radius: 8px;
+  background: var(--code-danger-soft);
+  color: var(--code-danger);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.input-dialog-start-error svg {
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+}
+
 .workspace-actions button,
 .close-btn {
   background: var(--theme-selection-bg);
