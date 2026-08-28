@@ -89,6 +89,10 @@ exit 92
 }
 
 function run() {
+  const builderSource = fs.readFileSync(builder, 'utf8');
+  assert.match(builderSource, /FARMING_RIPGREP_ARCHIVE_CACHE=\/farming-runtime-cache\/ripgrep/);
+  assert.match(builderSource, /HOST_RIPGREP_CACHE_DIR/);
+
   const remote = runBuilder('ssh://builder.example.invalid');
   assert.strictEqual(remote.status, 2, remote.stderr);
   assert.match(remote.stderr, /requires a local Unix-socket Docker engine/);
