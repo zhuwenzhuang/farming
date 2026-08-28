@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import ReactMarkdown from 'react-markdown'
+import rehypeKatex from 'rehype-katex'
+import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
 import {
   isWorkspaceMarkdownFile,
   workspaceEditorSurfaceState,
@@ -11,6 +16,11 @@ import {
 } from '../src/lib/workspace-viewer-registry'
 import { decodeMermaidCharacterReferences } from '../src/lib/mermaid-source'
 import { splitLargeMarkdownSections } from '../src/lib/large-markdown-sections'
+import {
+  normalizeMarkdownPreviewSource,
+  rehypeGuardInvalidKatex,
+  remarkMarkdownPreviewCompatibility,
+} from '../src/lib/markdown-preview-compatibility'
 import { markdownTextContent, mermaidCodeBlockSource } from '../src/lib/react-markdown-content'
 
 test('recognizes the supported Markdown file extensions through the viewer registry', () => {
@@ -174,4 +184,63 @@ test('keeps protected Markdown content out of heading and definition discovery',
   assert.match(sections.find(section => section.source.includes('Shared reference'))?.renderSource ?? '', /example\.com\/right/)
   assert.doesNotMatch(sections.find(section => section.source.includes('Shared reference'))?.renderSource ?? '', /example\.com\/wrong/)
   assert.match(sections.find(section => section.source.includes('shortcut'))?.renderSource ?? '', /example\.com\/shortcut/)
+})
+
+test('normalizes Pandoc simple tables without changing fenced examples', () => {
+  const source = [
+    '  策略                   键：固定   键：动态（手动）                                        键：动态（工作负载）',
+    '  ---------------------- ---------- ------------------------------------------------------- -----------------------------------------------------',
+    '  全表                   遗留系统                                                           Qd-tree',
+    '  新数据                            Iceberg、Delta Lake                                  Databricks',
+    '',
+    '    步骤 操作',
+    '  ------ ---------------------------------------------------------------------------------------------------',
+    '       1 $Recluster(boundaries)$',
+    '       2 **if** $|\\mathcal{P}| > 0$ **then**',
+    '',
+    '```text',
+    'Header One',
+    '------ -----',
+    'value  value',
+    '```',
+  ].join('\n')
+
+  const normalized = normalizeMarkdownPreviewSource(source)
+  assert.match(normalized, /\| 策略 \| 键：固定 \| 键：动态（手动） \| 键：动态（工作负载） \|/)
+  assert.match(normalized, /\| 新数据 \|  \| Iceberg、Delta Lake \| Databricks \|/)
+  assert.match(normalized, /\| 2 \| \*\*if\*\* \$\\vert\{\}\\mathcal\{P\}\\vert\{\} > 0\$ \*\*then\*\* \|/)
+  assert.match(normalized, /```text\nHeader One\n------ -----\nvalue  value\n```/)
+})
+
+test('renders Pandoc anchors and same-line display math without leaking compatibility syntax', () => {
+  const source = normalizeMarkdownPreviewSource([
+    '[]{#section-1}',
+    '',
+    '[]{#ref-1} [1] Reference',
+    '',
+    '$$\\phi(a,b) ≔ \\begin{cases}',
+    '0 & a = b\\mspace{6mu}\\text{ or }a > b, \\\\',
+    '1 & a \\ne b.',
+    '\\end{cases}$$',
+  ].join('\n'))
+  const html = renderToStaticMarkup(createElement(ReactMarkdown, {
+    remarkPlugins: [remarkGfm, remarkMath, remarkMarkdownPreviewCompatibility],
+    rehypePlugins: [rehypeGuardInvalidKatex, rehypeKatex],
+  }, source))
+
+  assert.match(html, /id="section-1"/)
+  assert.match(html, /id="ref-1"/)
+  assert.match(html, /class="katex-display"/)
+  assert.doesNotMatch(html, /\[\]\{#|katex-error|undefined/)
+})
+
+test('keeps invalid KaTeX readable as source instead of rendering undefined', () => {
+  const html = renderToStaticMarkup(createElement(ReactMarkdown, {
+    remarkPlugins: [remarkMath, remarkMarkdownPreviewCompatibility],
+    rehypePlugins: [rehypeGuardInvalidKatex, rehypeKatex],
+  }, '$\\notARealKatexCommand{value}$'))
+
+  assert.match(html, /code-markdown-math-error/)
+  assert.match(html, /\\notARealKatexCommand\{value\}/)
+  assert.doesNotMatch(html, /katex-error|>undefined</)
 })

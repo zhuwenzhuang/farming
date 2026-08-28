@@ -36,6 +36,11 @@ import {
   splitLargeMarkdownSections,
   type LargeMarkdownSection,
 } from '@/lib/large-markdown-sections'
+import {
+  normalizeMarkdownPreviewSource,
+  rehypeGuardInvalidKatex,
+  remarkMarkdownPreviewCompatibility,
+} from '@/lib/markdown-preview-compatibility'
 import { rawWorkspaceFileUrl } from '@/lib/workspace-files'
 import { decodeMermaidCharacterReferences } from '@/lib/mermaid-source'
 import { markdownTextContent, mermaidCodeBlockSource } from '@/lib/react-markdown-content'
@@ -79,6 +84,9 @@ const LARGE_MARKDOWN_PREVIEW_CHARACTERS = 256 * 1024
 const LARGE_MARKDOWN_SECTION_BLOCKS = 40
 const LARGE_MARKDOWN_OVERSCAN_PX = 1_200
 const LARGE_MARKDOWN_INITIAL_SECTIONS = 2
+const MARKDOWN_REMARK_PLUGINS = [remarkGfm, remarkMath, remarkMarkdownPreviewCompatibility]
+const MARKDOWN_REHYPE_PLUGINS = [rehypeGuardInvalidKatex, rehypeKatex]
+const MARKDOWN_HIGHLIGHT_REHYPE_PLUGINS = [rehypeGuardInvalidKatex, rehypeKatex, rehypeHighlight]
 const MarkdownPreviewContext = createContext<MarkdownPreviewContextValue | null>(null)
 
 type LargeMarkdownRenderRange = {
@@ -460,8 +468,8 @@ const LargeMarkdownVirtualSection = memo(function LargeMarkdownVirtualSection({
     >
       <MarkdownPreviewContext.Provider value={sectionContext}>
         <ReactMarkdown
-          remarkPlugins={[remarkGfm, remarkMath]}
-          rehypePlugins={[rehypeKatex]}
+          remarkPlugins={MARKDOWN_REMARK_PLUGINS}
+          rehypePlugins={MARKDOWN_REHYPE_PLUGINS}
           components={MARKDOWN_COMPONENTS}
           skipHtml
         >
@@ -990,12 +998,16 @@ export const FileEditorMarkdownPreview = forwardRef<HTMLElement, FileEditorMarkd
   useImperativeHandle(ref, () => previewPanelRef.current as HTMLElement, [])
   const source = openFile.draft ?? openFile.file.content ?? ''
   const markdownDocument = splitMarkdownFrontMatter(source)
+  const previewSource = useMemo(
+    () => normalizeMarkdownPreviewSource(markdownDocument.body),
+    [markdownDocument.body],
+  )
   const isLargeDocument = markdownDocument.body.length > LARGE_MARKDOWN_PREVIEW_CHARACTERS
   const largeDocumentSections = useMemo(
     () => isLargeDocument
-      ? splitLargeMarkdownSections(markdownDocument.body, LARGE_MARKDOWN_SECTION_BLOCKS)
+      ? splitLargeMarkdownSections(previewSource, LARGE_MARKDOWN_SECTION_BLOCKS)
       : [],
-    [isLargeDocument, markdownDocument.body],
+    [isLargeDocument, previewSource],
   )
   const nextHeadingId = createHeadingIdFactory()
   const contextValue = { openFile, onOpenFilePath, copy, nextHeadingId, previewRefreshRevision }
@@ -1108,12 +1120,12 @@ export const FileEditorMarkdownPreview = forwardRef<HTMLElement, FileEditorMarkd
                 />
               ) : (
                 <ReactMarkdown
-                  remarkPlugins={[remarkGfm, remarkMath]}
-                  rehypePlugins={[rehypeKatex, rehypeHighlight]}
+                  remarkPlugins={MARKDOWN_REMARK_PLUGINS}
+                  rehypePlugins={MARKDOWN_HIGHLIGHT_REHYPE_PLUGINS}
                   components={MARKDOWN_COMPONENTS}
                   skipHtml
                 >
-                  {markdownDocument.body}
+                  {previewSource}
                 </ReactMarkdown>
               )}
             </LocalRenderFault>

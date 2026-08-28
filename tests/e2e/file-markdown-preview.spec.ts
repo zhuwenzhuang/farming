@@ -49,6 +49,20 @@ test('renders Markdown files by default and keeps preview, source, and split con
     '',
     '$E = mc^2$',
     '',
+    'Step Operation',
+    '---- ------------------------------------------------',
+    '1    $Recluster(boundaries)$',
+    '2    **if** $|\\mathcal{P}| > 0$ **then**',
+    '',
+    '$$\\phi(a,b) ≔ \\begin{cases}',
+    '0 & a = b\\mspace{6mu}\\text{ or }a > b, \\\\',
+    '1 & a \\ne b.',
+    '\\end{cases}$$',
+    '',
+    '[Jump to reference](#ref-1)',
+    '',
+    '[]{#ref-1} [1] Rendered reference',
+    '',
     '```mermaid',
     'flowchart LR',
     '  Plan --> Build',
@@ -79,11 +93,28 @@ test('renders Markdown files by default and keeps preview, source, and split con
   await expect(preview.getByRole('heading', { name: 'Farming Preview' })).toBeVisible()
   await expect(preview.locator('.code-markdown-frontmatter')).toContainText('Markdown guide')
   await expect(preview.locator('table').nth(1)).toContainText('Preview')
-  await expect(preview.locator('.katex')).toBeVisible()
+  await expect(preview.locator('table').nth(2)).toContainText('Recluster(boundaries)')
+  await expect(preview.locator('.katex').first()).toBeVisible()
+  await expect(preview.locator('.katex-display')).toBeVisible()
+  await expect(preview.locator('#ref-1.code-markdown-pandoc-anchor')).toHaveCount(1)
+  await expect(preview).not.toContainText('[]{#ref-1}')
+  await expect(preview.locator('.katex-error, .code-markdown-math-error')).toHaveCount(0)
+  await expect(preview.getByText('undefined', { exact: true })).toHaveCount(0)
   await expect(preview.locator('.code-markdown-mermaid-canvas > svg')).toBeVisible({ timeout: 20_000 })
   await expect.poll(() => preview.getByRole('img', { name: 'Preview asset' }).evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(8)
   await expect(preview.locator('script')).toHaveCount(0)
   expect(await page.evaluate(() => (window as typeof window & { markdownPreviewUnsafe?: boolean }).markdownPreviewUnsafe)).toBeUndefined()
+
+  for (const appearance of ['light', 'dark', 'paper'] as const) {
+    await page.locator('body').evaluate((body, value) => { body.dataset.appearance = value }, appearance)
+    const screenshot = testInfo.outputPath(`file-markdown-pandoc-${appearance}.png`)
+    await preview.screenshot({ path: screenshot })
+    await testInfo.attach(`file-markdown-pandoc-${appearance}`, {
+      path: screenshot,
+      contentType: 'image/png',
+    })
+  }
+  await page.locator('body').evaluate(body => { body.dataset.appearance = 'light' })
 
   const main = page.getByTestId('code-main')
   const agentToggle = editor.getByRole('button', { name: 'Show Agent beside resource' })
