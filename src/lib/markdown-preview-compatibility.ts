@@ -23,7 +23,13 @@ type SimpleTableColumns = {
   starts: number[]
 }
 
+type MathFence = {
+  outputIndex: number
+  sequence: string
+}
+
 const PANDOC_ANCHOR_PATTERN = /\[\]\{#([A-Za-z0-9][A-Za-z0-9_.:-]{0,127})\}/g
+const PANDOC_MATH_SPACE_PATTERN = /\\mspace\{([+-]?(?:\d+(?:\.\d*)?|\.\d+)mu)\}/g
 
 function tableColumns(separator: string): SimpleTableColumns | null {
   if (!/^ {0,3}-{3,}(?:[ \t]+-{3,})+[ \t]*$/.test(separator)) return null
@@ -31,6 +37,11 @@ function tableColumns(separator: string): SimpleTableColumns | null {
     .map(match => match.index)
     .filter((start): start is number => start !== undefined)
   return starts.length >= 2 ? { starts } : null
+}
+
+function sameTableColumns(left: SimpleTableColumns, right: SimpleTableColumns) {
+  return left.starts.length === right.starts.length
+    && left.starts.every((start, index) => start === right.starts[index])
 }
 
 function characterDisplayWidth(character: string) {
@@ -124,17 +135,30 @@ function closesFence(line: string, fence: { marker: string; length: number }) {
   return Boolean(sequence && sequence[0] === fence.marker && sequence.length >= fence.length)
 }
 
+function openingMathFence(line: string) {
+  const match = line.match(/^( {0,3})(\${2,})([^$]*)$/)
+  const sequence = match?.[2]
+  return sequence ? { sequence } : null
+}
+
+function closesMathFence(line: string, fence: MathFence) {
+  const match = line.match(/^ {0,3}(\${2,})[ \t]*$/)
+  return match?.[1] === fence.sequence
+}
+
+function escapedMathFence(line: string, sequence: string) {
+  const start = line.indexOf(sequence)
+  if (start < 0) return line
+  return `${line.slice(0, start)}${sequence.replace(/\$/g, '\\$')}${line.slice(start + sequence.length)}`
+}
+
 function normalizedCompactDisplayMath(lines: readonly string[], start: number) {
-  const normalizeMath = (value: string) => value.replace(
-    /\\mspace\{([+-]?(?:\d+(?:\.\d*)?|\.\d+)mu)\}/g,
-    '\\mskip$1',
-  )
   const line = lines[start] ?? ''
   const singleLine = line.match(/^( {0,3})\$\$(.+)\$\$[ \t]*$/)
   if (singleLine?.[2]) {
     return {
       end: start,
-      lines: [`${singleLine[1]}$$`, `${singleLine[1]}${normalizeMath(singleLine[2])}`, `${singleLine[1]}$$`],
+      lines: [`${singleLine[1]}$$`, `${singleLine[1]}${singleLine[2]}`, `${singleLine[1]}$$`],
     }
   }
 
@@ -148,9 +172,9 @@ function normalizedCompactDisplayMath(lines: readonly string[], start: number) {
       end,
       lines: [
         `${opening[1]}$$`,
-        `${opening[1]}${normalizeMath(opening[2])}`,
-        ...lines.slice(start + 1, end).map(normalizeMath),
-        normalizeMath(closing[1]),
+        `${opening[1]}${opening[2]}`,
+        ...lines.slice(start + 1, end),
+        closing[1],
         `${opening[1]}$$`,
       ],
     }
@@ -162,12 +186,19 @@ export function normalizeMarkdownPreviewSource(source: string) {
   const lines = source.replace(/\r\n/g, '\n').split('\n')
   const output: string[] = []
   let fence: { marker: string; length: number } | null = null
+  let mathFence: MathFence | null = null
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index] ?? ''
     if (fence) {
       output.push(line)
       if (closesFence(line, fence)) fence = null
+      continue
+    }
+
+    if (mathFence) {
+      output.push(line)
+      if (closesMathFence(line, mathFence)) mathFence = null
       continue
     }
 
@@ -185,26 +216,53 @@ export function normalizeMarkdownPreviewSource(source: string) {
       continue
     }
 
-    const columns = tableColumns(line)
-    const header = output[output.length - 1]
-    if (!columns || header === undefined || !header.trim()) {
+    const nextMathFence = openingMathFence(line)
+    if (nextMathFence) {
+      mathFence = { ...nextMathFence, outputIndex: output.length }
       output.push(line)
       continue
     }
 
-    let bodyEnd = index + 1
-    while (bodyEnd < lines.length && lines[bodyEnd]?.trim()) bodyEnd += 1
-    const body = lines.slice(index + 1, bodyEnd)
+    const columns = tableColumns(line)
+    if (!columns) {
+      output.push(line)
+      continue
+    }
+    const headerIndex = index - 1
+    const header = headerIndex >= 0 ? lines[headerIndex] ?? '' : ''
+    const hasHeader = Boolean(header.trim())
+      && (headerIndex === 0 || !lines[headerIndex - 1]?.trim())
+
+    let blockEnd = index + 1
+    while (blockEnd < lines.length && lines[blockEnd]?.trim()) blockEnd += 1
+    const block = lines.slice(index + 1, blockEnd)
+    const closingIndex = block.findIndex(candidate => {
+      const closingColumns = tableColumns(candidate)
+      return Boolean(closingColumns && sameTableColumns(columns, closingColumns))
+    })
+    const hasClosingSeparator = closingIndex >= 0
+    const body = hasClosingSeparator ? block.slice(0, closingIndex) : block
     if (body.length === 0) {
       output.push(line)
       continue
     }
 
-    output.pop()
-    output.push(gfmTableRow(headerCells(header, columns.starts)))
+    if (!hasHeader && !hasClosingSeparator) {
+      output.push(line)
+      continue
+    }
+    if (hasHeader) output.pop()
+    output.push(gfmTableRow(hasHeader
+      ? headerCells(header, columns.starts)
+      : columns.starts.map(() => '')))
     output.push(gfmTableRow(columns.starts.map(() => '---')))
     body.forEach(row => output.push(gfmTableRow(fixedWidthCells(row, columns.starts))))
-    index = bodyEnd - 1
+    index = hasClosingSeparator ? index + closingIndex + 1 : blockEnd - 1
+  }
+
+  if (mathFence) {
+    const opening = output[mathFence.outputIndex]
+    if (opening !== undefined) output[mathFence.outputIndex] = escapedMathFence(opening, mathFence.sequence)
   }
 
   return output.join('\n')
@@ -222,6 +280,24 @@ function pandocAnchorNode(id: string): MutableMarkdownNode {
     },
     children: [],
   }
+}
+
+function normalizePandocMath(value: string) {
+  return value.replace(PANDOC_MATH_SPACE_PATTERN, '\\mskip$1')
+}
+
+function replaceFirstHastText(nodes: unknown, value: string): boolean {
+  if (!Array.isArray(nodes)) return false
+  for (const candidate of nodes) {
+    if (!candidate || typeof candidate !== 'object') continue
+    const node = candidate as MutableHastNode
+    if (node.type === 'text') {
+      node.value = value
+      return true
+    }
+    if (replaceFirstHastText(node.children, value)) return true
+  }
+  return false
 }
 
 function splitPandocAnchors(value: string) {
@@ -242,6 +318,14 @@ function splitPandocAnchors(value: string) {
 }
 
 function transformMarkdownNode(node: MutableMarkdownNode) {
+  if ((node.type === 'math' || node.type === 'inlineMath') && node.value) {
+    const normalized = normalizePandocMath(node.value)
+    if (normalized !== node.value) {
+      node.value = normalized
+      replaceFirstHastText(node.data?.hChildren, normalized)
+    }
+  }
+
   const children = node.children
   if (!children || node.type === 'code' || node.type === 'inlineCode') return
 

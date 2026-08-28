@@ -197,6 +197,26 @@ test('normalizes Pandoc simple tables without changing fenced examples', () => {
     '  ------ ---------------------------------------------------------------------------------------------------',
     '       1 $Recluster(boundaries)$',
     '       2 **if** $|\\mathcal{P}| > 0$ **then**',
+    '  ------ ---------------------------------------------------------------------------------------------------',
+    '',
+    '  -------   ------ ----------   -------',
+    '       12   12        12             12',
+    '      123   123       123           123',
+    '  -------   ------ ----------   -------',
+    'Table: Headerless values',
+    '',
+    '  Name    Value',
+    '  ------  ------',
+    '  first   second',
+    '  ------  ------',
+    'Following paragraph',
+    '',
+    '-------------------------------------------------',
+    '  Centered Header                 Default Header',
+    '-----------                      --------------',
+    '  First row                      remains multiline',
+    '                                 continuation',
+    '-------------------------------------------------',
     '',
     '```text',
     'Header One',
@@ -209,6 +229,11 @@ test('normalizes Pandoc simple tables without changing fenced examples', () => {
   assert.match(normalized, /\| 策略 \| 键：固定 \| 键：动态（手动） \| 键：动态（工作负载） \|/)
   assert.match(normalized, /\| 新数据 \|  \| Iceberg、Delta Lake \| Databricks \|/)
   assert.match(normalized, /\| 2 \| \*\*if\*\* \$\\vert\{\}\\mathcal\{P\}\\vert\{\} > 0\$ \*\*then\*\* \|/)
+  assert.doesNotMatch(normalized, /\| ------- \| ------ \| ---------- \| ------- \|/)
+  assert.match(normalized, /\|  \|  \|  \|  \|\n\| --- \| --- \| --- \| --- \|\n\| 12 \| 12 \| 12 \| 12 \|/)
+  assert.match(normalized, /\| 123 \| 123 \| 123 \| 123 \|\nTable: Headerless values/)
+  assert.match(normalized, /\| first \| second \|\nFollowing paragraph/)
+  assert.match(normalized, /Centered Header[\s\S]*-----------[\s\S]*continuation[\s\S]*-------------------------------------------------/)
   assert.match(normalized, /```text\nHeader One\n------ -----\nvalue  value\n```/)
 })
 
@@ -222,6 +247,12 @@ test('renders Pandoc anchors and same-line display math without leaking compatib
     '0 & a = b\\mspace{6mu}\\text{ or }a > b, \\\\',
     '1 & a \\ne b.',
     '\\end{cases}$$',
+    '',
+    '$$',
+    'a\\mspace{6mu}b',
+    '$$',
+    '',
+    'Inline $a\\mspace{3mu}b$.',
   ].join('\n'))
   const html = renderToStaticMarkup(createElement(ReactMarkdown, {
     remarkPlugins: [remarkGfm, remarkMath, remarkMarkdownPreviewCompatibility],
@@ -231,7 +262,47 @@ test('renders Pandoc anchors and same-line display math without leaking compatib
   assert.match(html, /id="section-1"/)
   assert.match(html, /id="ref-1"/)
   assert.match(html, /class="katex-display"/)
-  assert.doesNotMatch(html, /\[\]\{#|katex-error|undefined/)
+  assert.doesNotMatch(html, /\[\]\{#|katex-error|code-markdown-math-error|undefined|\\mspace/)
+})
+
+test('keeps unmatched display math fences from consuming the remaining document', () => {
+  for (const fence of ['$$\na + b', '$$a + b']) {
+    const source = normalizeMarkdownPreviewSource([
+      'Before',
+      '',
+      fence,
+      '',
+      'After',
+    ].join('\n'))
+    const html = renderToStaticMarkup(createElement(ReactMarkdown, {
+      remarkPlugins: [remarkMath, remarkMarkdownPreviewCompatibility],
+      rehypePlugins: [rehypeGuardInvalidKatex, rehypeKatex],
+    }, source))
+
+    assert.match(html, /Before/)
+    assert.match(html, /\$\$/)
+    assert.match(html, /a \+ b/)
+    assert.match(html, /After/)
+    assert.doesNotMatch(html, /katex-display/)
+  }
+})
+
+test('does not normalize Pandoc math commands inside code', () => {
+  const source = normalizeMarkdownPreviewSource([
+    '```tex',
+    '$$a\\mspace{6mu}b$$',
+    '```',
+    '',
+    '`$a\\mspace{3mu}b$`',
+  ].join('\n'))
+  const html = renderToStaticMarkup(createElement(ReactMarkdown, {
+    remarkPlugins: [remarkMath, remarkMarkdownPreviewCompatibility],
+    rehypePlugins: [rehypeGuardInvalidKatex, rehypeKatex],
+  }, source))
+
+  assert.match(html, /\\mspace\{6mu\}/)
+  assert.match(html, /\\mspace\{3mu\}/)
+  assert.doesNotMatch(html, /class="katex/)
 })
 
 test('keeps invalid KaTeX readable as source instead of rendering undefined', () => {

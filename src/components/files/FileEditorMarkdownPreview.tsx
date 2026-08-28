@@ -1018,6 +1018,7 @@ export const FileEditorMarkdownPreview = forwardRef<HTMLElement, FileEditorMarkd
     if (!panel) return undefined
     const target = Math.max(0, initialScrollTop)
     restoringScrollRef.current = true
+    panel.style.setProperty('overflow-anchor', 'none')
     let frameId: number | null = null
     let timeoutId: number | null = null
     let observer: ResizeObserver | null = null
@@ -1025,6 +1026,7 @@ export const FileEditorMarkdownPreview = forwardRef<HTMLElement, FileEditorMarkd
     const finishRestore = () => {
       if (!restoringScrollRef.current) return
       restoringScrollRef.current = false
+      panel.style.removeProperty('overflow-anchor')
       onScrollTopChange?.(panel.scrollTop)
       if (frameId !== null) window.cancelAnimationFrame(frameId)
       if (timeoutId !== null) window.clearTimeout(timeoutId)
@@ -1060,6 +1062,7 @@ export const FileEditorMarkdownPreview = forwardRef<HTMLElement, FileEditorMarkd
       panel.removeEventListener('keydown', acceptUserPosition)
       finishScrollRestoreRef.current = null
       restoringScrollRef.current = false
+      panel.style.removeProperty('overflow-anchor')
     }
   }, [initialScrollTop, onScrollTopChange, previewIdentity])
 

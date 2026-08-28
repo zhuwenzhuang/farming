@@ -53,11 +53,23 @@ test('renders Markdown files by default and keeps preview, source, and split con
     '---- ------------------------------------------------',
     '1    $Recluster(boundaries)$',
     '2    **if** $|\\mathcal{P}| > 0$ **then**',
+    '---- ------------------------------------------------',
+    '',
+    '----  ----',
+    'left  right',
+    'more  cells',
+    '----  ----',
     '',
     '$$\\phi(a,b) ≔ \\begin{cases}',
     '0 & a = b\\mspace{6mu}\\text{ or }a > b, \\\\',
     '1 & a \\ne b.',
     '\\end{cases}$$',
+    '',
+    '$$',
+    'a\\mspace{6mu}b',
+    '$$',
+    '',
+    'Inline spacing: $a\\mspace{3mu}b$.',
     '',
     '[Jump to reference](#ref-1)',
     '',
@@ -71,6 +83,10 @@ test('renders Markdown files by default and keeps preview, source, and split con
     '[Open next document](next%20document.md)',
     '',
     '![Preview asset](preview%20image.svg)',
+    '',
+    'Unmatched display fence remains readable:',
+    '$$',
+    'After unmatched display fence',
     '',
     '<script>window.markdownPreviewUnsafe = true</script>',
     '',
@@ -94,8 +110,13 @@ test('renders Markdown files by default and keeps preview, source, and split con
   await expect(preview.locator('.code-markdown-frontmatter')).toContainText('Markdown guide')
   await expect(preview.locator('table').nth(1)).toContainText('Preview')
   await expect(preview.locator('table').nth(2)).toContainText('Recluster(boundaries)')
+  await expect(preview.locator('table').nth(2).locator('tr')).toHaveCount(3)
+  await expect(preview.locator('table').nth(3)).toContainText('left')
+  await expect(preview.locator('table').nth(3)).toContainText('cells')
   await expect(preview.locator('.katex').first()).toBeVisible()
-  await expect(preview.locator('.katex-display')).toBeVisible()
+  await expect(preview.locator('.katex-display')).toHaveCount(2)
+  await expect(preview).toContainText('After unmatched display fence')
+  await expect(preview).toContainText('Reading section 80')
   await expect(preview.locator('#ref-1.code-markdown-pandoc-anchor')).toHaveCount(1)
   await expect(preview).not.toContainText('[]{#ref-1}')
   await expect(preview.locator('.katex-error, .code-markdown-math-error')).toHaveCount(0)
@@ -231,6 +252,15 @@ test('keeps oversized Markdown responsive with continuous virtual scrolling', as
     '- Input rows use the probe-side denominator.',
     '- Filtered rows use the corresponding LocalDF counter.',
     '',
+    'Step Operation',
+    '---- ------------------------------------------------',
+    '1    $Recluster(boundaries)$',
+    '---- ------------------------------------------------',
+    '',
+    '$$a\\mspace{6mu}b$$',
+    '',
+    '[]{#large-reference} [1] Large preview reference',
+    '',
     ...Array.from({ length: queryCount }, (_, queryIndex) => [
       `## Query ${queryIndex + 1}`,
       '',
@@ -294,6 +324,10 @@ test('keeps oversized Markdown responsive with continuous virtual scrolling', as
   const documentHeading = initialSections.getByRole('heading', { name: 'Large report' })
   await expect(documentHeading).toBeVisible()
   await expect(documentHeading).toHaveAttribute('id', 'large-report')
+  await expect(initialSections.locator('table')).toContainText('Recluster(boundaries)')
+  await expect(initialSections.locator('.katex-display')).toHaveCount(1)
+  await expect(initialSections.locator('#large-reference.code-markdown-pandoc-anchor')).toHaveCount(1)
+  await expect(initialSections.locator('.katex-error, .code-markdown-math-error')).toHaveCount(0)
   expect(await initialSections.count()).toBeLessThan(30)
   expect(await preview.locator('*').count()).toBeLessThan(1_000)
 
