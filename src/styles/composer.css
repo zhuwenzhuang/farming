@@ -3126,6 +3126,10 @@ body.code-mode.code-compact-layout .code-acp-composer-stack {
     align-items: center;
   }
 
+  body.code-mode.code-compact-layout [data-testid='code-acp-composer-right-tools'] {
+    position: relative;
+  }
+
   body.code-mode.code-compact-layout .code-composer-right-tools > .code-composer-menu-anchor.model-picker {
     min-width: 0;
     max-width: min(128px, 34vw);
@@ -3135,6 +3139,11 @@ body.code-mode.code-compact-layout .code-acp-composer-stack {
 
   body.code-mode.code-compact-layout .code-composer-right-tools > .code-composer-menu-anchor.model-picker:has(.code-model-picker-menu) {
     overflow: visible;
+  }
+
+  body.code-mode.code-compact-layout [data-testid='code-acp-composer-right-tools']
+    > .code-composer-menu-anchor.model-picker:has(.code-model-picker-menu) {
+    position: static;
   }
 
   body.code-mode.code-compact-layout .code-composer-menu-anchor.model-picker .code-composer-model-picker {

@@ -124,7 +124,31 @@ test.describe('iPhone mobile layout', () => {
       expect(target?.width).toBeGreaterThanOrEqual(44)
       expect(target?.height).toBeGreaterThanOrEqual(44)
     }
+    await modelPicker.tap()
+    const modelMenu = page.getByTestId('code-acp-model-menu')
+    await expect(modelMenu).toBeVisible()
+    const modelMenuBounds = await modelMenu.evaluate(element => {
+      const rect = element.getBoundingClientRect()
+      const viewport = window.visualViewport
+      const left = viewport?.offsetLeft ?? 0
+      const top = viewport?.offsetTop ?? 0
+      return {
+        left: rect.left,
+        right: rect.right,
+        top: rect.top,
+        bottom: rect.bottom,
+        viewportLeft: left,
+        viewportRight: left + (viewport?.width ?? window.innerWidth),
+        viewportTop: top,
+        viewportBottom: top + (viewport?.height ?? window.innerHeight),
+      }
+    })
+    expect(modelMenuBounds.left).toBeGreaterThanOrEqual(modelMenuBounds.viewportLeft - 1)
+    expect(modelMenuBounds.right).toBeLessThanOrEqual(modelMenuBounds.viewportRight + 1)
+    expect(modelMenuBounds.top).toBeGreaterThanOrEqual(modelMenuBounds.viewportTop - 1)
+    expect(modelMenuBounds.bottom).toBeLessThanOrEqual(modelMenuBounds.viewportBottom + 1)
     await captureIphoneAudit(page, 'iphone-webkit-long-model-label.png')
+    await page.keyboard.press('Escape')
     await send.click()
     await expect(input).toHaveValue('')
   })

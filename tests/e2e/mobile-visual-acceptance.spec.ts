@@ -298,6 +298,18 @@ test('audits compact Composer and sidebar geometry across mobile widths and appe
       await openAgent(page, chatId)
       const acpAdd = page.getByTestId('code-acp-composer-add')
       await expect(acpAdd).toBeVisible({ timeout: 30_000 })
+      const acpModelTrigger = page.getByTestId('code-acp-model-picker')
+      await expect(acpModelTrigger).toBeVisible()
+      await acpModelTrigger.click()
+      const acpModel = await menuGapAndViewport(
+        page,
+        acpModelTrigger,
+        page.getByTestId('code-acp-model-menu'),
+      )
+      if (!acpModel.fits || acpModel.gap < 6 || acpModel.gap > 14) {
+        violations.push(`${viewport.name}/${appearance}: ACP model menu ${JSON.stringify(acpModel)}`)
+      }
+      await page.keyboard.press('Escape')
       await acpAdd.click()
       const acpMenu = page.getByTestId('code-acp-plus-menu')
       await expect(acpMenu).toBeVisible()
